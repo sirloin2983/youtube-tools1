@@ -20,6 +20,8 @@ from common import ApiError, find_tool, redact, fmt_ts
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
 EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく出力しなければ中止
+DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
+MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 _jobs = {}
 _jobs_lock = threading.Lock()
 
@@ -139,6 +141,15 @@ def build_spec(store, req):
     prec = req.get("precision")
     if prec not in (None, "accurate", "fast"):
         raise bad("precision が正しくありません")
+    vol = req.get("volume", DEFAULT_EXPORT_VOLUME)
+    if vol is None:
+        vol = DEFAULT_EXPORT_VOLUME
+    try:
+        vol = int(vol)
+    except (TypeError, ValueError):
+        raise bad("volume が正しくありません")
+    if not (MIN_EXPORT_VOLUME <= vol <= MAX_EXPORT_VOLUME):
+        raise bad("volume は%d〜%dの範囲で指定してください" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
     by_id = {m["id"]: m for m in v["marks"]}
     clips, seen = [], set()
     for i in ids:
@@ -156,7 +167,7 @@ def build_spec(store, req):
     except (TypeError, ValueError):
         mh = 0
     spec = {"videoId": v["id"], "title": v["title"] or v["fileName"] or v["id"], "clips": clips, "fast": prec == "fast",
-            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0}
+            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol}
     if v["kind"] == "file":
         if not os.path.isfile(v["path"]):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
@@ -391,6 +402,30 @@ def run_ytdlp(job, spec, it, base):
     return spec["folder"] + "/" + os.path.basename(out)
 
 
+def apply_volume(job, spec, it, rel_file):
+    """書き出したクリップの音量を調整する(file/url どちらの方式で切り出したかによらず、常に最後にこの一手間をかける)。
+    映像は無劣化のまま(-c:v copy)、音声だけ volume フィルタをかけて再エンコードする。
+    volume が100(調整なし)ならこの手間自体を省く。"""
+    vol = spec.get("volume", 100)
+    if vol == 100:
+        return
+    path = os.path.join(spec["outDir"], os.path.basename(rel_file))
+    tmp = path + ".vol.mp4"
+    dur = it["end"] - it["start"]
+    cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", "volume=%.3f" % (vol / 100),
+           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
+    tail = []
+    try:
+        tail = _pump(job, cmd, it, dur)
+        verify_output(tmp, dur, tail)
+    except ExportError as e:
+        log_export("音量調整 失敗: %s" % e, cmd, tail)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    os.replace(tmp, path)
+
+
 def run_job(job, spec, on_done=None):
     try:
         os.makedirs(common.get_out_dir(), exist_ok=True)
@@ -410,6 +445,7 @@ def run_job(job, spec, on_done=None):
         base = unique_base("%02d_%s-%s%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]), "_" + label if label else ""), spec["outDir"])
         try:
             it["file"] = (run_ytdlp if spec["mode"] == "url" else run_ffmpeg)(job, spec, it, base)
+            apply_volume(job, spec, it, it["file"])
             it["status"], it["progress"] = "done", 1.0
             if on_done:
                 try:

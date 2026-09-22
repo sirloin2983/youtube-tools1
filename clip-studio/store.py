@@ -215,6 +215,12 @@ def _same(a, b):
     return abs(a["start"] - b["start"]) <= DUP_TOL and abs(a["end"] - b["end"]) <= DUP_TOL
 
 
+def _overlaps(a_s, a_e, b_s, b_e):
+    """2つの区間が少しでも重なっているか。コラボ転写で「既に同じような部分にマークがある」の判定に使う
+    (_same の完全一致・±0.5秒より緩い基準。転写側は COLLAB_MARGIN で前後に広げてあるので、単純な重なりで十分)。"""
+    return a_s < b_e and b_s < a_e
+
+
 def _touched(m):
     """ユーザーが手を入れた自動マークか(採用・不採用・書き出し済み / ラベルあり / 時刻を動かした)。"""
     a0 = m.get("auto0")
@@ -875,12 +881,17 @@ class Store:
             self._add_collab_candidate(other, vid, mark["id"], s, e)
 
     def _add_collab_candidate(self, vid, from_vid, from_mark_id, s_raw, e_raw):
+        """転写先に候補マークを1件作る。ただし、その位置に既にマーク(手動・自動・採用済みなど何でもよい)が
+        あるなら、新規には作らず既存のマークへ統合する: 開始・終了は両方の区間を覆うように広げ(狭める方向には
+        動かさない)、由来を理由欄に足す。判定(採用/不採用)は変えない。ただし書き出し済みマークは、範囲が
+        実際に広がった場合は他の時刻編集と同様に「採用」へ戻す(書き出し済みファイルは古い範囲のものになるため)。
+        重複した候補で一覧が埋まるのを防ぐのが狙い。"""
         with self.lock:
             v = self.videos.get(vid)
             if not v:
                 return
             already = any((m.get("collabFrom") or {}).get("markId") == from_mark_id and (m.get("collabFrom") or {}).get("videoId") == from_vid for m in v["marks"])
-            if already or len(v["marks"]) >= MAX_MARKS:
+            if already:
                 return
             try:
                 s, e = check_times(max(0.0, s_raw), e_raw)
@@ -891,8 +902,31 @@ class Store:
                 if e <= s:
                     return
             from_title = (self.videos.get(from_vid) or {}).get("title") or from_vid
+            note = ("コラボ転写(元: %s)" % from_title)[:40]
+            similar = next((x for x in v["marks"] if _overlaps(s, e, x["start"], x["end"])), None)
+            if similar is not None:
+                try:
+                    new_s, new_e = check_times(min(similar["start"], s), max(similar["end"], e))
+                except BadMark:
+                    new_s, new_e = similar["start"], similar["end"]   # 広げると長さ上限を超える等の異常時は広げない(安全側)
+                moved = abs(new_s - similar["start"]) > EDIT_TOL or abs(new_e - similar["end"]) > EDIT_TOL
+                note_needed = note not in similar["reasons"]
+                if moved or note_needed:
+                    nv = copy.deepcopy(v)
+                    target = next(x for x in nv["marks"] if x["id"] == similar["id"])
+                    target["start"], target["end"] = new_s, new_e
+                    if note_needed:
+                        target["reasons"] = (target["reasons"] + [note])[:6]
+                    if moved and target["status"] == "exported":
+                        target["status"], target["file"] = "adopted", ""
+                    nv["rev"] += 1
+                    nv["updatedAt"] = now_ms()
+                    self._commit(vid, nv)
+                return
+            if len(v["marks"]) >= MAX_MARKS:
+                return
             m = _build_mark({"id": "c" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "createdAt": now_ms()}, None)
-            m.update({"src": "collab", "reasons": [("コラボ転写(元: %s)" % from_title)[:40]], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
+            m.update({"src": "collab", "reasons": [note], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
             nv = copy.deepcopy(v)
             nv["marks"] = sorted(nv["marks"] + [m], key=lambda x: (x["start"], x["end"]))[:MAX_MARKS]
             nv["rev"] += 1

@@ -60,7 +60,7 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -70,6 +70,7 @@ function sanitizeSettings(x){
     liveMode: ['auto', 'on', 'off'].includes(x.liveMode) ? x.liveMode : 'auto',
     precision: x.precision === 'fast' ? 'fast' : 'accurate',
     maxHeight: [0, 720, 1080, 1440, 2160].includes(Number(x.maxHeight)) ? Number(x.maxHeight) : 1080,
+    exportVolume: n(x.exportVolume, 1, 200, 75),
     keymap: sanitizeKeymap(x.keymap), theater: x.theater === true, graphLines: x.graphLines === true,
     autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldDefault: x.foldDefault === true,
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
@@ -221,6 +222,9 @@ function buildDOM(){
             </div>
           <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTubeの動画)</label>
             <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
+          <div class="rv-fld"><label class="rv-fl" for="rvExpVol">書き出しの音量</label>
+            <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output>%</div>
+          </div>
         </div>
         <div class="rv-tools"><button class="btn primary" id="rvExpRun" type="button">書き出す</button><button class="btn" id="rvExpAll" type="button" title="採用にしたマークがある全動画を、順番に書き出します">全動画の採用を書き出す</button><button class="btn" id="rvExpCancel" type="button" hidden>中止</button><button class="btn" id="rvExpRetry" type="button" hidden>失敗した分だけやり直す</button><span class="hint" id="rvExpCount"></span></div>
         <ol class="rv-explist" id="rvExpList"></ol>
@@ -589,6 +593,7 @@ function syncSettingsUI(){
   $('#rvVol').value = s.volume; $('#rvVolOut').textContent = s.volume; $('#rvMute').checked = s.muted;
   renderKeyUI(); $('#rvLag').value = String(s.lag); $('#rvLiveMode').value = s.liveMode;
   $('#rvHeight').value = String(s.maxHeight); $('#rvPrecision').value = s.precision;
+  $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 function applyToPlayer(){
@@ -616,6 +621,10 @@ function wireSettings(){
   $('#rvLiveMode').addEventListener('change', e => { S.settings.liveMode = e.target.value; updateLive(); touchSettings(); });
   $('#rvPrecision').addEventListener('change', e => { S.settings.precision = e.target.value === 'fast' ? 'fast' : 'accurate'; touchSettings(); });
   $('#rvHeight').addEventListener('change', e => { S.settings.maxHeight = Number(e.target.value); touchSettings(); });
+  $('#rvExpVol').addEventListener('input', e => {
+    S.settings.exportVolume = Number(e.target.value); $('#rvExpVolOut').textContent = S.settings.exportVolume;
+    touchSettings();
+  });
   $('#rvAutoPlay').addEventListener('change', e => { S.settings.autoPlay = e.target.checked; touchSettings(); });
   $('#rvAutoNext').addEventListener('change', e => { S.settings.autoNext = e.target.checked; touchSettings(); });
   $('#rvSort').addEventListener('change', e => { S.settings.sortBy = e.target.value === 'score' ? 'score' : 'time'; touchSettings(); renderList(); });
@@ -942,7 +951,7 @@ async function startExport(onlyIds){
   S.starting = true; renderExportUI();
   try {
     await flushSave(); // サーバーが保存済みのマークから範囲を組み立てるため、先に保存する
-    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight } });
+    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } });
     S.job = { id: j.id, videoId: v.id, running: true }; rememberJob({ id: j.id, videoId: v.id });
     renderJob(j); pollJob();
   } catch (e){ toast(e.message || '書き出しを開始できませんでした'); }
@@ -967,7 +976,7 @@ async function startExportAll(){
       const ids = v.marks.filter(m => m.status === 'adopted').map(m => m.id);
       if (!ids.length) continue;
       let j;
-      try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, precision: S.settings.precision, maxHeight: S.settings.maxHeight } }); }
+      try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } }); }
       catch (e){ toast((v.title || v.id) + ': ' + (e.message || '書き出しを開始できませんでした')); if (e.status === 409) break; S.exportAll.fail += ids.length; continue; }
       S.job = { id: j.id, videoId: v.id, running: true };
       for (;;){

@@ -31,7 +31,7 @@ import store as store_mod  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.1.6"  # index.html 側の APP_VERSION と揃える
+SERVER_VERSION = "0.1.7"  # index.html 側の APP_VERSION と揃える
 CODE_DIR = common.CODE_DIR
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}

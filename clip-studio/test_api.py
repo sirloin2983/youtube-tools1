@@ -353,6 +353,57 @@ class TestCollabApi(Base):
         self.assertEqual(len(marks), 1)
         self.assertEqual((marks[0]["src"], marks[0]["status"]), ("collab", ""))
 
+    def test_transfer_merges_into_existing_overlapping_mark(self):
+        """転写先に、既に(手動で)近い位置のマークがある場合は、新規候補を作らずそちらへ統合し、
+        開始・終了は両方の区間を覆うように広げる(狭くはしない)。"""
+        v1, v2 = self._pair("mergeexisting")
+        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
+        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
+        # v2 に先に手動マークを置く(v1 の [110,120] が転写されると、マージン込みで v2 の [97.5, 112.5] になり重なる)
+        st, j, *_ = self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 98.0, "end": 108.0, "label": "自分で見つけた"}]})
+        self.assertEqual(st, 200)
+        existing_id = j["video"]["marks"][0]["id"]
+        st, j, *_ = self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
+        self.assertEqual(st, 200)
+        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
+        self.assertEqual(st, 200)
+        marks = j["video"]["marks"]
+        self.assertEqual(len(marks), 1)   # 新しい候補は増えていない
+        m = marks[0]
+        self.assertEqual(m["id"], existing_id)
+        self.assertEqual((m["src"], m["label"]), ("manual", "自分で見つけた"))   # 判定・ラベル・src は変わらない
+        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))   # 両方の区間を覆うように広がる
+        self.assertTrue(any("コラボ転写" in r for r in m["reasons"]))   # 由来も足される
+
+    def test_transfer_merge_reverts_exported_status_when_range_grows(self):
+        """統合で範囲が実際に広がったときは、書き出し済みマークも他の時刻編集と同様に「採用」へ戻す
+        (書き出し済みファイルは古い範囲のものになり、実体とずれるため)。"""
+        v1, v2 = self._pair("mergeexported")
+        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
+        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
+        st, j, *_ = self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 98.0, "end": 108.0, "label": "書き出し済み"}]})
+        mark_id = j["video"]["marks"][0]["id"]
+        serve.STORE.mark_exported(v2, mark_id, "f/out.mp4")
+        self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
+        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
+        self.assertEqual(st, 200)
+        m = j["video"]["marks"][0]
+        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))
+        self.assertEqual((m["status"], m["file"]), ("adopted", ""))   # 範囲が変わったので採用に戻る
+
+    def test_transfer_does_not_merge_non_overlapping_mark(self):
+        """離れた位置の既存マークとは統合しない(通常どおり新規候補を作る)。"""
+        v1, v2 = self._pair("mergefar")
+        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
+        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
+        self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 500.0, "end": 510.0, "label": "無関係"}]})
+        self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
+        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
+        self.assertEqual(st, 200)
+        marks = j["video"]["marks"]
+        self.assertEqual(len(marks), 2)
+        self.assertEqual(sorted(m["src"] for m in marks), ["collab", "manual"])
+
     def test_remove_and_get_missing_group(self):
         v1, v2 = self._pair("removedel")
         g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
@@ -384,6 +435,15 @@ class TestExportValidation(Base):
             st, j, *_ = self.req("POST", "/api/export", body)
             self.assertIn(st, (400, 404), body)
             self.assertIsNotNone(j)
+
+    def test_export_bad_volume_rejected(self):
+        vid = "volumetst1x"
+        st, j, *_ = self.req("POST", "/api/videos/open", {"kind": "youtube", "url": "https://youtu.be/" + vid})
+        self.assertEqual(st, 200, j)
+        for vol in (0, 201, -5, "abc"):
+            st, j, *_ = self.req("POST", "/api/export", {"id": vid, "markIds": ["m1"], "volume": vol})
+            self.assertEqual(st, 400, vol)
+            self.assertEqual(j["error"], "bad_request")
 
 
 if __name__ == "__main__":

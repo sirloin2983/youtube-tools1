@@ -1,7 +1,7 @@
 /* 切り抜きスタジオ: 画面の共通部分(window.Studio)。各 JS はこのAPIだけに依存する。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.1.6';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.1.7';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false };
 const STEPS = ['rank', 'queue', 'review', 'collab'];
