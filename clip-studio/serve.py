@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+"""切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
+
+    python3 serve.py [開始ポート] [--no-open]
+
+  ① 探す(配信ランキング)→ ② 解析(切り抜き候補の自動選定・バッチ)→ ③ 確認・書き出し(クリップマーカー)。
+  エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
+"""
+import json
+import mimetypes
+import os
+import re
+import shutil
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import analyze  # noqa: E402
+import batch as batch_mod  # noqa: E402
+import common  # noqa: E402
+import exporter  # noqa: E402
+import rank  # noqa: E402
+import store as store_mod  # noqa: E402
+from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
+
+APP_ID = "clip-studio"
+SERVER_VERSION = "0.1.6"  # index.html 側の APP_VERSION と揃える
+CODE_DIR = common.CODE_DIR
+STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js"}
+STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
+PORT = 8800
+ALLOWED_HOSTS = set()
+MAX_BODY = 4 * 1024 * 1024
+SOCKET_TIMEOUT = float(os.environ.get("STUDIO_SOCKET_TIMEOUT") or 60)   # 読み取りが止まった接続を閉じるまでの秒数
+MEDIA_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm", ".mov": "video/quicktime", ".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+               ".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".aac": "audio/aac", ".ts": "video/mp2t", ".flv": "video/x-flv"}
+
+STORE = None
+BATCH = None
+
+
+def init(home=None):
+    """データ置き場・ストア・キューを用意する(main と、テストから呼ぶ)。"""
+    global STORE, BATCH
+    if home:
+        common.set_home(home)
+    common.load_out_dir()
+    STORE = store_mod.Store(common.p("data.json"))
+    BATCH = batch_mod.Batch(STORE)
+    return STORE, BATCH
+
+
+def busy():
+    return BATCH.is_busy() or exporter.is_busy()
+
+
+def fetch_title(vid):
+    """oEmbed(公開エンドポイント・キー不要)でタイトルだけ取得する。失敗時は空文字。接続先は固定で、IDは検証済み。"""
+    if common.fake():
+        return "疑似タイトル(%s)" % vid
+    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote("https://www.youtube.com/watch?v=" + vid, safe="")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=8) as r:
+            return str(json.loads(r.read(200000).decode("utf-8", "replace")).get("title", ""))[:120]
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return ""
+
+
+def api_state():
+    key, source = common.get_api_key()
+    fk = common.fake()
+    d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(find_tool("ffmpeg")), "ytdlp": bool(find_tool("yt-dlp")) or fk,
+         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "quota": rank.quota()}
+    warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
+    if warning:
+        d["dataWarning"], d["corruptBackup"] = warning, backup
+    return d
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "clip-studio"
+    timeout = SOCKET_TIMEOUT
+
+    def _host_ok(self):          # DNS rebinding 対策
+        return (self.headers.get("Host") or "") in ALLOWED_HOSTS
+
+    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策
+        o = self.headers.get("Origin")
+        return o is None or o.replace("http://", "") in ALLOWED_HOSTS
+
+    def _fetch_site_ok(self):    # 他サイトからのAPI消費(クォータ浪費)対策
+        return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+
+    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _json(self, code, obj):
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
+
+    def _err(self, e):
+        self._json(e.status, dict(e.extra or {}, error=e.code, message=e.message))
+
+    def _read_json(self):
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
+            self._send(415, b"application/json only")
+            return None
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send(400, b"bad length")
+            return None
+        if length <= 0 or length > MAX_BODY:
+            self._send(413, b"invalid size")
+            return None
+        try:
+            body = self.rfile.read(length)
+        except OSError:   # 読み取りのタイムアウト・切断: 応答せずに閉じる
+            self.close_connection = True
+            return None
+        try:
+            obj = json.loads(body)
+        except ValueError:
+            self._send(400, b"invalid json")
+            return None
+        if not isinstance(obj, dict):
+            self._send(400, b"object required")
+            return None
+        return obj
+
+    def _guard(self, fn, *a):
+        try:
+            return fn(*a)
+        except ApiError as e:
+            return self._err(e)
+        except OSError:
+            return self._json(500, {"error": "write", "message": "保存に失敗しました"})
+        except Exception as e:   # 想定外でもサーバーは落とさない(詳細は伏せる)
+            sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
+            return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
+
+    # ---------- GET ----------
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_GET(self):
+        if not (self._host_ok() and self._fetch_site_ok()):
+            return self._send(403, b"forbidden")
+        u = urllib.parse.urlsplit(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        arg = lambda k: (q.get(k) or [""])[0]
+        if u.path in STATIC:
+            fn = os.path.join(CODE_DIR, STATIC[u.path])
+            try:
+                with open(fn, "rb") as f:
+                    return self._send(200, f.read(), STATIC_TYPES[os.path.splitext(fn)[1]])
+            except OSError:
+                return self._send(404, b"not found")
+        if u.path == "/media":
+            return self._guard(self._media, arg("id"))
+        routes = {
+            "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
+            "/api/state": api_state,
+            "/api/settings": lambda: {"settings": STORE.get_ui()},
+            "/api/rank/registry": rank.get_registry,
+            "/api/rank/search": lambda: rank.get_search(arg("id")),
+            "/api/queue": BATCH.snapshot,
+            "/api/videos": lambda: {"videos": STORE.list()},
+            "/api/video": lambda: self._video(arg("id")),
+            "/api/title": lambda: self._title(arg("v")),
+            "/api/export": lambda: exporter.job_public(exporter.get_job(arg("id"))),
+            "/api/collab/groups": lambda: {"groups": STORE.list_groups()},
+            "/api/collab/group": lambda: {"group": STORE.get_group(arg("id"))},
+        }
+        fn = routes.get(u.path)
+        if fn is None:
+            return self._send(404, b"not found")
+        try:
+            return self._json(200, fn())
+        except ApiError as e:
+            return self._err(e)
+        except Exception as e:
+            sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
+            return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
+
+    @staticmethod
+    def _video(vid):
+        v, series = STORE.get(vid)
+        return {"video": v, "series": series}
+
+    @staticmethod
+    def _title(v):
+        if not VID_RE.match(v):
+            raise ApiError("bad_request", "動画IDが正しくありません", 400)
+        return {"title": fetch_title(v)}
+
+    def _media(self, vid):
+        """登録済みの file 動画だけを Range 対応で配信する。クライアントからパスは受け取らない。"""
+        path = STORE.media_path(vid)
+        real = os.path.realpath(path) if path else ""
+        ext = os.path.splitext(real)[1].lower()
+        if not real or ext not in MEDIA_EXT or not os.path.isfile(real):
+            return self._send(404, b"not found")
+        size = os.path.getsize(real)
+        a, b, code = 0, size - 1, 200
+        m = re.match(r"^bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                a = int(m.group(1))
+                b = int(m.group(2)) if m.group(2) else size - 1
+            else:
+                a = max(0, size - int(m.group(2)))
+            b = min(b, size - 1)
+            if a > b or a >= size:
+                return self._send(416, b"", extra={"Content-Range": "bytes */%d" % size})
+            code = 206
+        self.send_response(code)
+        self.send_header("Content-Type", MEDIA_TYPES.get(ext, "application/octet-stream"))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(b - a + 1))
+        if code == 206:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (a, b, size))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        try:
+            with open(real, "rb") as f:
+                f.seek(a)
+                left = b - a + 1
+                while left > 0:
+                    chunk = f.read(min(65536, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionError, OSError):
+            pass
+
+    # ---------- POST / PUT ----------
+    def _write_guard(self):
+        if not (self._host_ok() and self._fetch_site_ok() and self._origin_ok()):
+            self._send(403, b"forbidden")
+            return False
+        return True
+
+    def do_POST(self):
+        if not self._write_guard():
+            return
+        path = self.path.split("?", 1)[0]
+        if path not in POST_ROUTES:
+            return self._send(404, b"not found")
+        obj = self._read_json()
+        if obj is None:
+            return
+        self._guard(lambda: self._json(200, POST_ROUTES[path](obj)))
+
+    def do_PUT(self):
+        if not self._write_guard():
+            return
+        path = self.path.split("?", 1)[0]
+        if path not in PUT_ROUTES:
+            return self._send(404, b"not found")
+        obj = self._read_json()
+        if obj is None:
+            return
+        self._guard(lambda: self._json(200, PUT_ROUTES[path](obj)))
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), redact(fmt % args)))
+
+
+# ---------- 書き込み系のルート(引数は検査前の JSON オブジェクト) ----------
+def _open_video(o):
+    if o.get("kind") == "file":
+        src = analyze.validate_source({"kind": "file", "path": o.get("path")})
+        return {"video": STORE.ensure(src, probe=True)}
+    src = analyze.validate_source({"kind": "youtube", "url": o.get("url")})
+    return {"video": STORE.ensure(src)}
+
+
+def _video_delete(o):
+    vid = str(o.get("id") or "")
+    if not STORE.has(vid):
+        raise ApiError("not_found", "動画が見つかりません", 404)
+    if exporter.is_busy_for(vid):
+        raise ApiError("busy", "書き出し中は削除できません。終わってから削除してください", 409)
+    if not BATCH.cancel_video(vid):   # 待ち item は取り除き、実行中の解析は中止してから削除
+        raise ApiError("busy", "解析を中止しています。少し待ってからもう一度削除してください", 409)
+    if not STORE.delete(vid):
+        raise ApiError("not_found", "動画が見つかりません", 404)
+    return {"ok": True}
+
+
+def _put_video(o):
+    return {"ok": True, "video": STORE.put_video(o.get("id"), o.get("title"), o.get("marks"), o.get("baseRev") if "baseRev" in o else None)}
+
+
+def _outdir(o):
+    return {"ok": True, "outDir": common.set_out_dir(o.get("path"), busy), "defaultOutDir": common.default_out_dir()}
+
+
+def _config(o):
+    return {"ok": True, "hasKey": bool(common.set_api_key(o.get("apiKey")) or common.fake())}
+
+
+def _settings(o):
+    STORE.set_ui(o.get("settings"))
+    return {"ok": True}
+
+
+def _put_registry(o):
+    return rank.put_registry(o)
+
+
+def _export(o):
+    spec = exporter.build_spec(STORE, o)
+    return exporter.job_public(exporter.start_job(spec, STORE.mark_exported))
+
+
+def _export_cancel(o):
+    exporter.cancel(o.get("id"))
+    return {"ok": True}
+
+
+def _collab_create(o):
+    return {"group": STORE.create_group(o.get("videoIds"), o.get("name"), o.get("base"))}
+
+
+def _collab_add(o):
+    return {"group": STORE.add_members(o.get("id"), o.get("videoIds"))}
+
+
+def _collab_remove(o):
+    g = STORE.remove_member(o.get("id"), o.get("videoId"))
+    return {"group": g, "deleted": g is None}
+
+
+def _collab_delete(o):
+    return {"ok": STORE.delete_group(o.get("id"))}
+
+
+def _collab_anchor(o):
+    return {"group": STORE.set_anchor(o.get("id"), o.get("videoId"), o.get("points"))}
+
+
+POST_ROUTES = {
+    "/api/rank/resolve": lambda o: rank.resolve(o.get("agency")),
+    "/api/rank/import-official": lambda o: rank.import_official_channels(o.get("agency")),
+    "/api/rank/search": rank.start_search,
+    "/api/rank/search/cancel": lambda o: {"ok": rank.cancel_search(o.get("id"))},
+    "/api/queue/add": lambda o: BATCH.add(o.get("items"), o.get("settings")),
+    "/api/queue/cancel": lambda o: {"ok": BATCH.cancel(o.get("qid"))},
+    "/api/queue/skipchat": lambda o: {"ok": BATCH.skipchat(o.get("qid"))},
+    "/api/queue/retry": lambda o: {"ok": True, "qid": BATCH.retry(o.get("qid"))},
+    "/api/queue/clear": lambda o: {"ok": True, "removed": BATCH.clear()},
+    "/api/videos/open": _open_video,
+    "/api/video/delete": _video_delete,
+    "/api/export": _export,
+    "/api/export/cancel": _export_cancel,
+    "/api/collab/group": _collab_create,
+    "/api/collab/group/add": _collab_add,
+    "/api/collab/group/remove": _collab_remove,
+    "/api/collab/group/delete": _collab_delete,
+    "/api/collab/anchor": _collab_anchor,
+}
+PUT_ROUTES = {
+    "/api/config": _config,
+    "/api/outdir": _outdir,
+    "/api/settings": _settings,
+    "/api/rank/registry": _put_registry,
+    "/api/video": _put_video,
+}
+
+
+# ---------- 起動 ----------
+def probe(port):
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1) as r:
+            j = json.load(r)
+            return str(j.get("version", "")) if j.get("app") == APP_ID else None
+    except Exception:
+        return None
+
+
+def make_server(start_port):
+    global PORT, ALLOWED_HOSTS
+    for p in range(start_port, start_port + 20):
+        ver = probe(p)
+        if ver == SERVER_VERSION:
+            return None, p
+        if ver is not None:
+            print("※ ポート%d では古い版のサーバーが動いています。その黒い画面を閉じてください。" % p)
+            continue
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+        except OSError:
+            continue
+        PORT = p
+        ALLOWED_HOSTS = {"localhost:%d" % p, "127.0.0.1:%d" % p}
+        return srv, p
+    raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
+
+
+LOG_MAX = 1024 * 1024
+
+
+def _log(msg):
+    """studio.log に1行追記(終了の原因調べ用。失敗しても何もしない。1MBを超えたら studio.log.old に回す)。"""
+    line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
+    try:
+        path = common.p("studio.log")
+        if os.path.exists(path) and os.path.getsize(path) > LOG_MAX:
+            os.replace(path, path + ".old")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
+def _setup_diagnostics():
+    """途中で終了したとき原因が分かるように、終了・例外・シグナルを studio.log と画面に残す。"""
+    import atexit
+    import faulthandler
+    import signal
+    import traceback
+    try:
+        faulthandler.enable(open(common.p("studio.crash.log"), "a", encoding="utf-8"), all_threads=True)   # 内部クラッシュ時のスタック
+    except Exception:
+        pass
+
+    def on_exc(t, v, tb):
+        _log("未処理の例外(メインスレッド): " + "".join(traceback.format_exception(t, v, tb)).strip())
+        sys.__excepthook__(t, v, tb)
+    sys.excepthook = on_exc
+
+    def on_thread_exc(a):
+        _log("未処理の例外(スレッド %s): %s" % (getattr(a.thread, "name", "?"), "".join(traceback.format_exception(a.exc_type, a.exc_value, a.exc_traceback)).strip()))
+    threading.excepthook = on_thread_exc
+
+    def on_signal(signum, frame):
+        name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+        _log("シグナル %s を受け取りました" % name)
+        print("\nシグナル %s を受け取ったので終了します(studio.log に記録)" % name)
+        raise SystemExit(0) if signum != signal.SIGINT else KeyboardInterrupt()
+    for n in ("SIGTERM", "SIGHUP", "SIGBREAK"):   # 黒い画面の×ボタン(Windows は SIGBREAK)・kill など
+        if hasattr(signal, n):
+            try:
+                signal.signal(getattr(signal, n), on_signal)
+            except (ValueError, OSError):
+                pass
+    atexit.register(lambda: _log("プロセス終了"))
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    srv, port = make_server(int(args[0]) if args else 8800)
+    url = "http://localhost:%d" % port
+    if srv is None:
+        print("すでに起動しています。ブラウザで開きます:", url)
+        if "--no-open" not in sys.argv:
+            webbrowser.open(url)
+        return
+    init()
+    _setup_diagnostics()
+    _log("起動 v%s port=%d pid=%d python=%s" % (SERVER_VERSION, port, os.getpid(), sys.version.split()[0]))
+    shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
+    print("切り抜きスタジオ:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
+    print("書き出し先:", common.get_out_dir())
+    print("ログ:", common.p("studio.log"))
+    if not find_tool("ffmpeg"):
+        print("※ ffmpeg が見つかりません(README の準備手順を確認してください)")
+    if "--no-open" not in sys.argv:
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    try:
+        srv.serve_forever()
+        _log("serve_forever が終了しました")
+    except KeyboardInterrupt:
+        _log("Ctrl+C(KeyboardInterrupt)で終了")
+        print("\nCtrl+C を受け取ったので終了します")
+        if BATCH.is_busy() or exporter.is_busy():
+            _log("解析または書き出しの実行中でした")
+            print("(解析・書き出しの途中でした)")
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

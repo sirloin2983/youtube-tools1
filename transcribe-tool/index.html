@@ -1,0 +1,1837 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文字起こしツール</title>
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#fff;--panel-2:#f0f2f6;--ink:#1b2029;--ink-2:#4a5262;--ink-3:#727b8c;--line:#dfe3ea;--line-2:#c5cbd6;
+  --accent:#2f62d6;--accent-soft:#e6eefc;--danger:#c0392b;--warn:#b7791f;--warn-soft:#fdf3dc;--ok:#1f8a4c;
+  --font:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#14171d;--panel:#1c2028;--panel-2:#252a34;--ink:#e8ebf1;--ink-2:#b4bccb;--ink-3:#8b94a5;--line:#2e3441;--line-2:#414958;
+  --accent:#7ba3ff;--accent-soft:#22304f;--danger:#ff8a7a;--warn:#e9b45a;--warn-soft:#3a3120;--ok:#64d190}}
+:root[data-theme=dark]{
+  --bg:#14171d;--panel:#1c2028;--panel-2:#252a34;--ink:#e8ebf1;--ink-2:#b4bccb;--ink-3:#8b94a5;--line:#2e3441;--line-2:#414958;
+  --accent:#7ba3ff;--accent-soft:#22304f;--danger:#ff8a7a;--warn:#e9b45a;--warn-soft:#3a3120;--ok:#64d190}
+:root{--fs:15px;--vh:38vh;--pbh:300px;--toph:52px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--font)}
+button,input,select,textarea{font:inherit;color:inherit}
+h2{margin:0;font-size:15px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.hint{font-size:12.5px;color:var(--ink-2)}
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-weight:600;font-size:16px}.ver{font-size:12px;color:var(--ink-3);margin-left:8px;font-weight:400}
+#errBar{margin:0;padding:8px 16px;background:var(--danger);color:#fff;font-size:13px}
+.app{display:grid;grid-template-columns:380px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1700px;margin:0 auto}
+@media (max-width:960px){.app{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.card>summary,.card>h2{cursor:pointer;font-weight:600;font-size:14.5px}
+.card details>summary{cursor:pointer}
+.btn{border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 12px;cursor:pointer;min-height:32px}
+.btn:hover{background:var(--panel-2)}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}.btn.small{padding:3px 9px;min-height:28px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}.btn.danger{color:var(--danger)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=text],input:not([type]),select,textarea{border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 8px;width:100%}
+.fld{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.fld>label,.fld>.l{font-size:13px;font-weight:500;color:var(--ink)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seg-tabs{display:flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;margin:10px 0 0}
+.seg-tabs button{flex:1;border:0;background:var(--panel);padding:7px 8px;cursor:pointer;border-right:1px solid var(--line-2)}
+.seg-tabs button:last-child{border-right:0}.seg-tabs button[aria-pressed=true]{background:var(--accent);color:#fff}
+.notice{background:var(--warn-soft);border:1px solid var(--warn);border-radius:8px;padding:8px 10px;font-size:13px;margin:8px 0}
+.notice code{font-family:var(--mono);background:var(--panel);padding:1px 5px;border-radius:4px;user-select:all}
+.clist{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+.clist label{display:flex;gap:8px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}
+.clist label:last-child{border-bottom:0}
+.pill{font-size:11.5px;border-radius:99px;padding:1px 8px;background:var(--panel-2);color:var(--ink-2);white-space:nowrap}
+.pill.ok{background:var(--accent-soft);color:var(--accent)}.pill.err{background:var(--warn-soft);color:var(--danger)}
+.job,.txi{border-bottom:1px solid var(--line);padding:8px 0}.job:last-child,.txi:last-child{border-bottom:0}
+.bar{height:6px;background:var(--panel-2);border-radius:99px;overflow:hidden;margin-top:5px}.bar>i{display:block;height:100%;background:var(--accent);transition:width .3s}
+.txi .t{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;cursor:pointer;text-align:left;width:100%}
+.txi.cur{background:var(--accent-soft);margin:0 -8px;padding:8px}
+/* editor */
+.editor{min-width:0}
+.pbox{position:sticky;top:0;z-index:5;background:var(--bg);padding-bottom:8px}
+video{width:100%;max-height:var(--vh);background:#000;border-radius:8px;display:block}
+.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.tools input[type=search]{flex:1;min-width:180px;border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 9px}
+.lag{display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer}
+.seg{display:grid;grid-template-columns:22px 34px 148px 110px minmax(0,1fr) auto;gap:8px;align-items:start;padding:7px 8px;border:1px solid var(--line);border-left:4px solid var(--sp,transparent);border-radius:8px;background:var(--panel);margin-bottom:6px}
+.seg{content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--pbh) + var(--toph,52px) + 8px);scroll-margin-bottom:24px}.seg:focus-within{box-shadow:0 0 0 1px var(--accent)}
+.seg.cur{background:var(--accent-soft);box-shadow:inset 6px 0 0 -2px var(--accent)}.seg.flag{background:var(--warn-soft)}
+.seg.cur.flag{background:var(--accent-soft)}
+.seg[hidden]{display:none}
+.seg .play{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;height:30px;cursor:pointer}
+.seg .times{display:flex;align-items:center;gap:3px;font-size:12px}
+.seg .t{width:64px;padding:4px 4px;font-family:var(--mono);font-size:12px;text-align:center}
+.seg .spk{padding:4px 4px;font-size:13px}
+.seg textarea{resize:none;overflow:hidden;line-height:1.5;min-height:34px;font-size:var(--fs)}
+.seg .ops{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.seg .ops button{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.seg .fl{grid-column:5;justify-self:start;font-size:12px;color:var(--warn);border:1px solid var(--warn);border-radius:99px;padding:0 8px;background:transparent;cursor:pointer}
+@media (max-width:1200px){.seg{grid-template-columns:22px 34px minmax(0,1fr)}.seg .spk,.seg .times{grid-column:3}.seg textarea,.seg .fl,.seg .sug,.seg .ops,.seg .tg{grid-column:1/-1}}
+.sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
+.sg{font-size:12px;border:1px solid var(--accent);border-radius:8px;padding:1px 3px 1px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%}
+.sg .sgl{font-weight:600;color:var(--accent)}.sg.high{border-style:double;border-width:3px}
+.sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 7px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.ln{border-bottom:1px solid var(--line);padding:6px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 6px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
+#diarBanner{margin:6px 0 0}
+.empty{color:var(--ink-3);padding:24px;text-align:center;border:1px dashed var(--line-2);border-radius:10px}
+.sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:0;border:1px solid var(--line-2);border-radius:6px;background:none}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13.5px;z-index:50;max-width:90vw}
+#toast[hidden]{display:none}
+.savest{font-size:12.5px;color:var(--ink-3)}
+.seg.proofed{border-right:4px solid var(--ok)}
+.seg .ops button.pf[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.acct th,.acct td{padding:3px 4px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+.acct th:first-child,.acct td:first-child{text-align:left}.acct tr.best td{font-weight:600;color:var(--ok)}
+.accmain{font-size:15px;margin-top:8px}.wl{font-size:12px;border-bottom:1px solid var(--line);padding:3px 0;word-break:break-all}
+.abres{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
+/* v0.7.1: 長時間の作業向け */
+.grow{flex:1}.top .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.top{position:sticky;top:0;z-index:30}
+.pbox{top:var(--toph,52px)}
+.app.focus{grid-template-columns:minmax(0,1fr);max-width:1180px}.app.focus aside{display:none}
+html.dense .seg{padding:3px 6px;margin-bottom:3px;gap:6px}html.dense .seg textarea{min-height:28px;padding:3px 6px}html.dense .tools{margin:4px 0}
+html.vid-audio video{height:54px;max-height:none}
+.pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-block}.pop>summary::-webkit-details-marker{display:none}
+.vpop{position:absolute;right:0;top:100%;margin-top:4px;z-index:40;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;width:270px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.pop.l .vpop{left:0;right:auto}
+.vpop .fld:first-child{margin-top:0}
+.tools2{margin:2px 0}.tools2 .hint{margin-left:6px}
+html.fsz .seg textarea{field-sizing:content;height:auto}
+.tools select.mini{width:auto;padding:3px 4px}
+.stripbox{position:relative;height:16px;margin-top:6px;cursor:pointer}
+#strip{width:100%;height:100%;display:block;border-radius:4px;background:var(--panel-2)}
+#stripHead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--accent);left:0;pointer-events:none;border-radius:1px}
+.terms{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
+.chip{border:1px solid var(--line-2);background:var(--panel);border-radius:99px;padding:1px 10px;font-size:13px;cursor:pointer}.chip:hover{background:var(--accent-soft)}
+#conflictBar{margin:6px 0 0}#conflictBar .row{margin-top:6px}
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);border-radius:12px;padding:16px 20px;max-width:600px;width:92vw}dialog::backdrop{background:rgba(0,0,0,.45)}
+.keyt td:first-child{white-space:nowrap;font-family:var(--mono);text-align:left;padding-right:12px}.keyt td{text-align:left}
+#jobBadge{cursor:pointer;border:0}
+.seg{transition:background-color .25s,outline-color .2s}.seg.nav{outline:3px solid var(--accent);outline-offset:-1px}
+.seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
+@media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
+.seg .adj{grid-column:5;display:none;gap:4px 10px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-3)}.seg.nav .adj,.seg:focus-within .adj{display:flex}
+.adj .g{display:inline-flex;align-items:center;gap:3px}.adj button{border:1px solid var(--line);background:var(--panel);border-radius:6px;min-width:30px;height:24px;font-size:12px;color:var(--ink);cursor:pointer}
+.seg.tagged .adj{display:none}.seg.tagged.nav .adj,.seg.tagged:focus-within .adj{display:flex}
+.seg .tg{grid-column:5;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg,.seg:focus-within .tg{display:flex}
+.tg button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:0 9px;font-size:12px;color:var(--ink-3);cursor:pointer}
+.tg button[aria-pressed=true]{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+.keymap{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0}.keymap div{border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12.5px;text-align:center}.keymap b{display:block;font-family:var(--mono);font-size:15px}
+.goalbar{position:relative;height:14px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden;margin-top:8px}.goalbar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .5s ease;min-width:0}.goalbar b{position:absolute;top:0;bottom:0;width:2px;background:var(--ink-3);opacity:.55}
+#goalMs{margin-top:6px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none}
+#goalPill{border:0;cursor:pointer;background:var(--panel-2);color:var(--ink-2);font-variant-numeric:tabular-nums}#goalPill.on{color:var(--ink)}
+.card>summary .hint{font-weight:400}.card:not([open])>summary{margin-bottom:0}
+.src{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;margin:2px 0}.src .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink-3)}
+.dsrow{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;border-bottom:1px solid var(--line);padding:3px 0}
+</style>
+</head>
+<body>
+<div id="errBar" hidden role="alert"></div>
+<header class="top"><div class="brand">文字起こしツール<span class="ver" id="ver"></span></div><span class="hint" id="topHint">動画・音声 → 字幕(SRT/VTT)・テキスト。処理はすべてこのパソコン内で行います</span><span class="grow"></span>
+  <button type="button" class="pill" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"></button>
+  <button type="button" class="pill" id="jobBadge" hidden title="押すと集中モードを終了して、処理状況を見ます"></button>
+  <button type="button" class="btn small" id="btnFocus" aria-pressed="false" title="左のパネルを隠して、編集に集中します(Shift+G)">集中モード</button>
+  <details class="pop" id="viewMenu"><summary class="btn small">表示</summary><div class="vpop">
+    <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
+    <div class="fld"><label for="vVid">動画の大きさ</label><select id="vVid"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ聞く(映像を隠す)</option></select></div>
+    <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
+    <div class="fld"><label for="vTheme">画面の色</label><select id="vTheme"><option value="auto">パソコンの設定に合わせる</option><option value="light">明るい</option><option value="dark">暗い</option></select></div>
+    <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
+    <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p></div></details>
+  <button type="button" class="btn small" id="btnKeys">操作キー</button></header>
+
+<div class="app">
+<aside>
+  <div id="setup"></div>
+
+  <details class="card" id="newBox" open>
+    <summary>新しく文字起こしする</summary>
+    <div class="seg-tabs" role="group" aria-label="入力の種類">
+      <button type="button" id="tabFile" aria-pressed="true">手元のファイル</button>
+      <button type="button" id="tabFolder" aria-pressed="false">フォルダ内すべて</button>
+      <button type="button" id="tabMarker" aria-pressed="false">スタジオ/マーカーのポイント</button>
+    </div>
+
+    <div id="paneFile">
+      <div class="fld"><label for="srcPath">動画・音声ファイルのパス</label>
+        <input id="srcPath" type="text" placeholder="例: C:\Videos\stream.mp4 / /Users/me/stream.mp4" autocomplete="off" spellcheck="false">
+        <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span></div>
+      <div class="fld"><span class="l">範囲(空欄なら全体)</span>
+        <div class="row"><input id="rStart" type="text" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
+      <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
+    </div>
+
+    <div id="paneFolder" hidden>
+      <div class="fld"><label for="fdPath">フォルダのパス</label>
+        <div class="row"><input id="fdPath" type="text" placeholder="例: C:\Videos\clips / /Users/me/clips" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px"><button type="button" class="btn small" id="fdScan">フォルダを読む</button><button type="button" class="btn small" id="fdStudio" hidden title="切り抜きスタジオの設定にある、書き出し先のフォルダを入れます">スタジオの書き出し先</button></div>
+        <span class="hint">中の動画・音声を、1本ずつ別の文字起こしとして待機列に入れます(順番に処理します)。</span></div>
+      <div class="row"><label class="lag" title="スタジオは、動画ごとのフォルダに書き出します。その中も探します(3階層まで)"><input type="checkbox" id="fdRec">下のフォルダも探す</label>
+        <label class="lag" title="このツールで、全体を文字起こし済みの動画と、待機中の動画は、最初から選ばない・追加もしません"><input type="checkbox" id="fdSkip" checked>文字起こし済みはスキップ</label></div>
+      <div class="row" style="margin-top:8px"><label class="lag"><input type="checkbox" id="fdAll" checked>すべて選択</label><span class="hint" id="fdCount"></span></div>
+      <div class="clist" id="fdList"><p class="hint" style="padding:8px;margin:0">フォルダのパスを入れて「フォルダを読む」を押してください</p></div>
+    </div>
+
+    <div id="paneMarker" hidden>
+      <p class="hint" id="mStatus" style="margin:8px 0 4px"></p>
+      <div id="mSources"></div>
+      <div class="row"><button type="button" class="btn small" id="btnMarkerFile">data.json を選ぶ</button><input type="file" id="markerFile" accept=".json,application/json" hidden></div>
+      <div class="fld"><label for="mVideo">動画</label><select id="mVideo"></select></div>
+      <div class="fld"><label for="mPath">元の動画・音声ファイルのパス</label><input id="mPath" type="text" autocomplete="off" spellcheck="false" placeholder="切り抜きマーカーで書き出し用に入力済みなら自動で入ります">
+        <span class="hint" id="mFileHint"></span></div>
+      <div class="row" style="margin-top:10px"><label class="lag">対象 <select id="mFilter" style="width:auto"><option value="adopted">採用のみ</option><option value="all">すべて</option></select></label>
+        <label class="lag" title="このツールで、すでに文字起こし済みのポイント(同じ動画・同じ範囲。書き出し済みの切り抜きは、その mp4 が一度でも文字起こしされていれば)は、最初から選びません"><input type="checkbox" id="mSkip" checked>文字起こし済みはスキップ</label>
+        <label class="lag">前後の余裕 <select id="mPad" style="width:auto"><option value="0">0秒</option><option value="1" selected>1秒</option><option value="2">2秒</option><option value="3">3秒</option></select></label></div>
+      <div class="row" style="margin-top:8px"><label class="lag"><input type="checkbox" id="mAll">すべて選択</label><span class="hint" id="mCount"></span></div>
+      <div class="clist" id="mClips"></div>
+    </div>
+
+    <details style="margin-top:12px" open><summary style="font-weight:500">認識の設定</summary>
+      <div class="fld"><label for="optModel">モデル</label><select id="optModel"></select>
+        <span class="hint">初回だけモデルのダウンロード(数百MB〜数GB)があります。迷ったら「medium」か「kotoba-whisper」。</span></div>
+      <div class="row" style="margin-top:10px"><label class="lag">言語 <select id="optLang" style="width:auto"></select></label>
+        <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
+        <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="auto">自動(GPUがあれば使う)</option><option value="cuda">GPU(NVIDIA)</option><option value="cpu">CPU</option></select></label></div>
+      <div class="fld"><label for="optVad">無音・BGMの扱い(声の検出)</label>
+        <select id="optVad"><option value="weak">弱め(声が抜けにくい・おすすめ)</option><option value="normal">標準(BGMでの誤認識が減る)</option><option value="off">使わない</option></select>
+        <span class="hint">「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試してください。</span></div>
+      <label class="lag" style="margin-top:10px"><input type="checkbox" id="optBoost">小さい声を持ち上げる(音量をそろえる)</label>
+      <label class="lag" style="margin-top:6px" title="単語ごとの時刻を使います。声のない所まで伸びた行の時刻をつめ、長い行や間のあいた行を分けます。認識は少し遅くなります(数%〜2割程度)"><input type="checkbox" id="optWordSplit" checked>単語の時刻で、長い行を分ける・行の時刻を声のある所にそろえる</label>
+      <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoDict" checked>終わったら置換辞書を自動で適用する</label>
+      <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoGloss" checked>よく直される語を、認識のヒント(用語集)に自動で足す</label>
+      <label class="lag" style="margin-top:6px" title="直した回数が多く、そのまま残した例が1つもない置換だけ。それ以外は行に「候補」として出るだけです"><input type="checkbox" id="optAutoLearned">終わったら、学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)</label>
+      <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
+        <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
+        <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
+        <span class="hint" id="glossFit"></span>
+        <details id="rosterBox" style="margin-top:6px"><summary class="hint">ホロライブの名簿から追加</summary>
+          <div id="rosterGroups" style="margin-top:4px"></div>
+          <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>
+    </details>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
+  </details>
+
+  <details class="card" id="goalCard" open><summary>進行度(校正済みの量)</summary>
+    <div class="goalbar" id="goalBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="目標に対する校正済みの量"><i id="goalFill"></i></div>
+    <p id="goalText" style="margin:6px 0 0;font-size:14px"></p>
+    <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
+    <div id="goalMs"></div>
+    <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
+    <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
+    <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習の目安は、校正済みが2〜3時間分から。</p></details>
+  <details class="card" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
+  <details class="card" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txCount"></span></summary><div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
+  <details class="card" id="accCard" open><summary>認識精度の測定</summary>
+    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(CER)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
+    <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
+      <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
+    <div id="accOut"></div>
+    <div class="fld" style="margin-top:10px"><span class="l">評価用の基準の記録</span>
+      <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
+      <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
+      <div id="blOut"></div></div>
+    <div class="fld" style="margin-top:12px"><span class="l">設定の比較(A/B)</span>
+      <span class="hint">開いている文字起こしの「校正済み」の行の音声を、下の設定それぞれで認識し直し、正解との差を比べます(文字起こしは書き換えません)。モデルや「用語集」の有無で、どれが良いかを数字で選べます。重いモデルほど時間がかかります(処理状況に出ます)。</span>
+      <div id="abRows"></div>
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
+      <div id="abOut"></div></div></details>
+  <details class="card" id="learnCard" open><summary>修正から学習した候補</summary>
+    <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
+    <p class="hint" id="lnStat" style="margin:4px 0 0"></p>
+    <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2">2回以上</option><option value="3">3回以上</option></select></label>
+      <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
+    <div id="lnList"></div>
+    <div class="fld" style="margin-top:12px"><span class="l">修正データの書き出し(将来の追加学習・精度の測定用)</span>
+      <div class="row"><select id="lnExScope" style="width:auto"><option value="all">すべての文字起こし</option><option value="doc">開いている文字起こしだけ</option></select>
+        <select id="lnExKind" style="width:auto" title="校正済みの行すべては、直していない行も含みます(追加学習では、正しく認識できた行も必要です)"><option value="changed">直した行だけ</option><option value="proofed">校正済みの行すべて(学習用)</option></select>
+        <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
+      <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
+  <details class="card" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
+    <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「負例」)、行ごとの音声(16kHz・FLAC)が入ります。追加学習(LoRA)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
+    <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
+    <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
+    <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="arcNow">開いている文字起こしを今すぐ保管</button><button type="button" class="btn small" id="arcAll">校正済みのある全部を保管</button></div>
+    <div id="arcOut"></div></details>
+</aside>
+
+<main class="editor" id="editor">
+  <div class="empty" id="noDoc">左の「保存済みの文字起こし」から選ぶか、新しく文字起こしを始めてください。</div>
+  <div id="doc" hidden>
+    <div class="pbox">
+      <div class="row" style="margin-bottom:6px"><input id="docTitle" type="text" maxlength="120" aria-label="タイトル" style="flex:1;min-width:200px;font-weight:600"><span class="savest" id="saveState" role="status"></span></div>
+      <div class="row" style="margin:0 0 6px"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
+      <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
+      <div id="conflictBar" class="notice" hidden role="alert"><b>別の場所で先に更新されています。</b>別のタブ・再認識・話者判別などで、保存済みの内容がこの画面の読み込み時と変わっています。自動保存は止めています。
+        <div class="row"><button type="button" class="btn small" id="cfReload">保存済みの内容を読み込み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cfForce">この画面の内容で上書きする</button></div></div>
+      <video id="player" controls preload="metadata" playsinline></video>
+      <p class="hint" id="playerMsg" hidden style="margin:4px 0 0;color:var(--danger)"></p>
+      <div id="diarBanner" class="notice" hidden></div>
+      <div class="tools">
+        <input type="search" id="q" placeholder="検索(該当する行だけ表示)" aria-label="検索" autocomplete="off">
+        <span class="hint" id="qCount"></span>
+        <label class="lag">絞り込み <select id="flagKind" style="width:auto"><option value="">すべて表示</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="any">要確認すべて</option><option value="sug">修正の提案がある行だけ</option><option value="proofed">校正済みの行だけ</option><option value="unproofed">未校正の行だけ</option></select></label>
+        <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+D。前へは Shift+A)">未校正へ ▼</button>
+        <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
+        <details class="pop" id="moreTools"><summary class="btn small">一括操作 ▼</summary><div class="vpop">
+          <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
+          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
+          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div></div></details>
+        <button type="button" class="btn small primary" id="btnSpk" title="話者の自動判別・名前の変更・置換・書き出しを開きます">話者・置換・書き出し ▼</button>
+      </div>
+      <div class="tools tools2">
+        <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
+        <button type="button" class="btn small" id="seekBack" title="3秒戻る(Shift+Q)">−3秒</button><button type="button" class="btn small" id="seekFwd" title="3秒進む(Shift+E)">+3秒</button>
+        <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
+        <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(Shift+S / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
+        <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
+        <label class="lag" title="▶を押した行の終わりで止めます。聞き直しに便利"><input type="checkbox" id="playOne">1行ずつ止める</label>
+        <label class="lag" title="Shift+Space・Shift+S・Shift+D などで行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります(Shift+B で切り替え)"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
+        <span class="hint" id="pfStat" title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span>
+        <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
+      </div>
+      <div class="terms" id="terms" hidden></div>
+      <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
+    </div>
+    <p class="hint" id="docInfo" style="margin:6px 0 0"></p>
+
+    <div class="card" style="margin-top:4px">
+      <details id="spDetails"><summary>話者・一括置換・書き出し</summary>
+        <div class="fld"><span class="l">話者の自動判別</span>
+          <div id="diarSetup"></div>
+          <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
+            <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
+            <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
+          <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります。判別中は編集できません。</span></div>
+
+        <div class="fld"><span class="l">再認識(文字の間違いを、別のモデルで直す)</span>
+          <div class="row"><label class="lag">モデル <select id="rtModel" style="width:auto;max-width:300px"></select></label>
+            <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option></select></label>
+            <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
+          <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。対象の行の文字は上書きされます(直前の状態は、transcripts/.bak に1つだけ残ります)。判別中・再認識中は編集できません。</span></div>
+
+        <div class="fld"><span class="l">話者(名前の変更・手動での割り当て)</span>
+          <div id="spList"></div>
+          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
+            <label class="lag">選択した行の話者 <select id="spBulk" style="width:auto"></select></label><button type="button" class="btn small" id="spApply">適用</button>
+            <label class="lag"><input type="checkbox" id="selAll">全行を選択</label><span class="hint" id="selCount"></span></div>
+          <span class="hint">「▶ 聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
+
+        <div class="fld"><span class="l">履歴(自動バックアップ)</span>
+          <span class="hint">保存内容を、10分ごと、および再認識・話者判別の直前に自動で残します(1本あたり最新30世代)。間違えて直したり消したりしたときは、ここから戻せます(戻す前の状態も履歴に残ります)。まだ一度も編集していない文字起こしには、履歴はありません。</span>
+          <div class="row"><button type="button" class="btn small" id="hiRefresh">履歴を読み込む</button></div><div id="hiList"></div></div>
+
+        <div class="fld"><span class="l">一括置換</span>
+          <div class="row"><input id="repFrom" type="text" placeholder="置換前" style="flex:1;min-width:120px"><span>→</span><input id="repTo" type="text" placeholder="置換後" style="flex:1;min-width:120px"><button type="button" class="btn small" id="repGo">すべて置換</button></div>
+          <label for="repDict" class="hint" style="margin-top:6px">置換辞書(1行に「誤=>正」。保存され、どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません)</label>
+          <textarea id="repDict" rows="3" placeholder="例:&#10;ふぶき=>フブキ"></textarea>
+          <div class="row"><button type="button" class="btn small" id="repDictGo">辞書を全体に適用</button><span class="hint" id="repMsg"></span></div></div>
+
+        <div class="fld"><span class="l">書き出し</span>
+          <div class="row">
+            <label class="lag">時刻の基準 <select id="exBase" style="width:auto"><option value="rel">範囲の開始を0秒にする(切り抜き用)</option><option value="abs">元動画の時刻のまま</option></select></label>
+            <label class="lag">折り返し <select id="exWrap" style="width:auto"><option value="0">しない</option><option value="12">12文字</option><option value="16">16文字</option><option value="20">20文字</option><option value="24">24文字</option><option value="32">32文字</option></select></label></div>
+          <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
+            <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
+          <div class="row" style="margin-top:8px"><button type="button" class="btn" data-ex="srt">SRT</button><button type="button" class="btn" data-ex="vtt">VTT</button><button type="button" class="btn" data-ex="txt">テキスト</button><button type="button" class="btn" data-ex="json">JSON</button></div>
+          <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
+      </details>
+    </div>
+
+    <div id="segs"></div>
+  </div>
+</main>
+</div>
+<dialog id="keys" aria-labelledby="keysT"><h2 id="keysT">操作キー(左手だけで校正できます)</h2>
+  <p class="hint" style="margin:4px 0 8px"><b>Shift + キー</b>で操作します。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
+  <div class="keymap">
+    <div><b>Q</b>3秒戻る</div><div><b>W</b>前の行</div><div><b>E</b>3秒進む</div><div><b>R</b>もう一度聞く</div>
+    <div><b>A</b>前の未校正</div><div><b>S</b>次の行</div><div><b>D</b>次の未校正</div><div><b>F</b>次の要確認</div>
+    <div><b>Z</b>この行を削除</div><div><b>X</b>聞き取れない</div><div><b>C</b>声が重なる</div><div><b>V</b>BGM・音が大きい</div>
+    <div><b>T</b>この行の文字を直す</div><div><b>G</b>集中モード</div><div><b>B</b>移動で自動再生</div><div><b>Space</b>校正済みにして次へ</div>
+  </div>
+  <table class="acct keyt">
+    <tr><td>Shift+1〜9 / 0</td><td>この行の話者を、話者の一覧の n 番目に / 話者なし</td></tr>
+    <tr><td>Space(Shiftなし)</td><td>再生・停止</td></tr>
+    <tr><td>Ctrl+Z</td><td>元に戻す(削除・話者・置換なども戻せます)</td></tr>
+    <tr><td>Esc / Tab</td><td>入力欄から抜ける(Tab は、選んだ行の入力欄に入る切り替えにもなります。Shift+T と同じ。日本語の変換中は変換の確定にだけ使われます)</td></tr>
+    <tr><td>(キーなし)</td><td>行の「開始 −/＋」「終了 −/＋」ボタンで、時刻を微調整(幅は「時刻の微調整」で選択)</td></tr>
+    <tr><td>Ctrl+Enter</td><td>(入力中に)この行をもう一度聞く</td></tr>
+    <tr><td>Alt+Enter</td><td>(入力中に)校正済みにして次の行の入力欄へ。Alt+1〜9 で話者</td></tr>
+  </table>
+  <p class="hint" style="margin:8px 0 0">基本の流れ: <b>Shift+S</b> で行を選ぶ → 聞く(<b>R</b>) → 合っていれば <b>Shift+Space</b> / 直すなら <b>T</b> で入力 → <b>Esc</b> → <b>Shift+Space</b>。「移動したら自動で再生」(<b>B</b>)をオンにすると、<b>Shift+Space</b> の連打で「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <b>X / C / V</b> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
+  <form method="dialog" style="margin-top:12px"><button class="btn primary">閉じる</button></form></dialog>
+<div id="toast" hidden role="status"></div>
+
+<script>
+(() => {
+'use strict';
+const APP_VERSION = '0.9.4';
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
+  undo: [], sel: new Set(), curIdx: -1, playEnd: null, seen: new Set(), pollT: null,
+  navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() } };
+const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
+
+/* ---------- 共通 ---------- */
+function fmtT(t, ms){
+  t = Math.max(0, Number(t) || 0);
+  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  const ss = ms ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+function parseT(str){
+  str = String(str || '').trim().replace(/[：]/g, ':');
+  if (!str) return NaN;
+  const p = str.split(':');
+  if (p.length > 3 || p.some(x => !/^\d+(\.\d+)?$/.test(x.trim()))) return NaN;
+  return p.reduce((a, x) => a * 60 + Number(x), 0);
+}
+let toastT = null;
+function toast(msg, ms = 3800){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms); }
+function showErr(msg){ const b = $('#errBar'); b.textContent = '画面エラー: ' + msg; b.hidden = false; }
+window.addEventListener('error', e => showErr(e.message));
+window.addEventListener('unhandledrejection', e => showErr(String(e.reason && e.reason.message || e.reason)));
+async function api(path, opt = {}){
+  const init = { cache: 'no-store', method: opt.method || 'GET' };
+  if (opt.body !== undefined){ init.method = opt.method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opt.body); }
+  let r;
+  try { r = await fetch(path, init); } catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  return j;
+}
+function armDelete(btn, run){
+  if (btn.dataset.armed){ run(); return; }
+  const label = btn.textContent; btn.dataset.armed = '1'; btn.textContent = 'もう一度押す';
+  setTimeout(() => { if (btn.isConnected){ delete btn.dataset.armed; btn.textContent = label; } }, 3000);
+}
+const uid = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const norm = s => String(s).normalize('NFKC').toLowerCase();
+
+/* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
+const VIEW_KEY = 'tx.view.v1';
+const V = { focus: false, fs: '15', dense: false, vid: 'l', theme: 'auto', follow: true, frameFollow: false, adjStep: '0.1', playOne: false, autoNext: false, rate: '1', brk: '45' };
+const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
+/* 集中モードは保存しない(開くたびに解除。左の一覧が見えなくて迷わないように) */
+function loadView(){ try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); if (o && typeof o === 'object') for (const k of Object.keys(V)) if (k !== 'focus' && k in o && typeof o[k] === typeof V[k]) V[k] = o[k]; } catch {} }
+function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
+function applyView(){
+  const r = document.documentElement;
+  if (!['13', '15', '17', '20'].includes(V.fs)) V.fs = '15';
+  if (!['l', 'm', 's', 'a'].includes(V.vid)) V.vid = 'l';
+  if (!['auto', 'light', 'dark'].includes(V.theme)) V.theme = 'auto';
+  if (!['0.75', '1', '1.25', '1.5', '1.75', '2'].includes(V.rate)) V.rate = '1';
+  if (!['0', '30', '45', '60'].includes(V.brk)) V.brk = '45';
+  r.style.setProperty('--fs', V.fs + 'px'); r.style.setProperty('--vh', VID_H[V.vid] || VID_H.l);
+  r.classList.toggle('dense', !!V.dense); r.classList.toggle('vid-audio', V.vid === 'a');
+  if (V.theme === 'auto') delete r.dataset.theme; else r.dataset.theme = V.theme;
+  $('.app').classList.toggle('focus', !!V.focus);
+  $('#btnFocus').setAttribute('aria-pressed', V.focus ? 'true' : 'false'); $('#btnFocus').textContent = V.focus ? '集中モードを終了' : '集中モード';
+  $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; $('#vTheme').value = V.theme; $('#vBrk').value = V.brk;
+  if (!['0.05', '0.1', '0.25', '0.5', '1'].includes(V.adjStep)) V.adjStep = '0.1';
+  $('#follow').checked = V.follow; $('#frameFollow').checked = !!V.frameFollow; $('#adjStep').value = V.adjStep; $('#playOne').checked = V.playOne; $('#autoNext').checked = V.autoNext; $('#rate').value = V.rate;
+  const p = $('#player'); p.defaultPlaybackRate = Number(V.rate); p.playbackRate = Number(V.rate);
+  if (S.doc){ autoSizeSoon(); drawStripSoon(); }
+}
+function toggleFocus(){ V.focus = !V.focus; saveView(); applyView(); }
+{
+  const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
+  bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vTheme', 'theme', t => t.value); bind('vBrk', 'brk', t => t.value);
+  bind('follow', 'follow', t => t.checked); bind('frameFollow', 'frameFollow', t => t.checked); bind('adjStep', 'adjStep', t => t.value); bind('playOne', 'playOne', t => t.checked); bind('autoNext', 'autoNext', t => t.checked); bind('rate', 'rate', t => t.value);
+  $('#btnFocus').addEventListener('click', toggleFocus);
+  $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
+  $('#jobBadge').addEventListener('click', () => { if (V.focus){ V.focus = false; saveView(); applyView(); } $('#jobs').scrollIntoView({ block: 'center' }); });
+  document.addEventListener('click', e => document.querySelectorAll('details.pop[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('details.pop[open]').forEach(d => { d.open = false; }); });
+}
+
+/* ---------- 設定(用語集・置換辞書など) ---------- */
+let setT = null;
+function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => api('/api/settings', { method: 'PUT', body: S.settings }).catch(() => {}), 600); }
+function readOpts(){
+  const s = S.settings;
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
+  if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
+  s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
+  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
+  saveSettings(); if (S.doc) renderTerms();
+}
+function applySettings(){
+  const s = S.settings;
+  if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
+  if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
+  $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
+  if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
+  $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
+  if (s.diarNum && [...$('#diarNum').options].some(o => o.value === s.diarNum)) $('#diarNum').value = s.diarNum;
+}
+
+/* ---------- 準備状況 ---------- */
+function renderSetup(){
+  const t = S.tools, box = $('#setup'); if (!t){ box.innerHTML = ''; return; }
+  const miss = [];
+  if (!t.ffmpeg) miss.push('<b>ffmpeg</b> が見つかりません。Windows: <code>winget install Gyan.FFmpeg</code> / Mac: <code>brew install ffmpeg</code>(入れたらこのツールを起動し直す)');
+  if (!t.fasterWhisper && t.backend !== 'fake') miss.push('<b>faster-whisper</b> が入っていません。フォルダ内の <code>install.bat</code>(Mac は <code>install.command</code>)を実行してください');
+  const extra = t.backend === 'fake' ? '<div class="notice">テスト用モードで動いています(実際の文字起こしはしません)</div>' : '';
+  let gpu = '';
+  if (t.backend !== 'fake' && !miss.length){
+    if (t.cuda) gpu = `<p class="hint" style="margin:0 0 10px">GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。</p>`;
+    else if (t.nvidia) gpu = `<div class="notice"><b>${esc(t.nvidia)}</b> が見つかりましたが、GPU 用のライブラリが入っていないため CPU で処理します。<br>フォルダ内の <code>install-gpu.bat</code> を実行すると GPU が使えます(実行後に起動し直す)。</div>`;
+    else gpu = '<p class="hint" style="margin:0 0 10px">NVIDIA の GPU が見つからないため、CPU で処理します(AMD・Intel の GPU は使えません)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。</p>';
+  }
+  box.innerHTML = extra + (miss.length ? `<div class="notice"><b>準備が必要です</b><br>${miss.join('<br>')}</div>` : '') + gpu;
+}
+
+/* ---------- 進行度 ---------- */
+const MILESTONES = [[1800, '辞書・名簿・提案の効果を、数字で測れる'], [3600, '設定の比較(A/B)で方針を決められる'], [10800, '追加学習(LoRA)を小さく試せる']];
+let PG = null;
+const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}時間${String(m).padStart(2, '0')}分` : m >= 1 ? `${m}分${String(s % 60).padStart(2, '0')}秒` : `${s}秒`; };
+function goalSec(){ const h = Number(S.settings.goalHours); return (Number.isFinite(h) && h >= 0.5 && h <= 200 ? h : 5) * 3600; }
+function todayKey(){ const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
+function renderProgress(){
+  if (!PG) return;
+  const goal = goalSec(), cur = PG.proofedSec, pct = Math.min(100, cur / goal * 100);
+  $('#goalFill').style.width = pct + '%'; $('#goalBar').setAttribute('aria-valuenow', Math.round(pct));
+  const shown = pct < 10 ? pct.toFixed(1) : String(Math.round(pct));
+  $('#goalText').innerHTML = `<b>${fmtDur(cur)}</b> / ${fmtDur(goal)}(<b>${shown}%</b>)・${PG.proofedLines}行`;
+  const bar = $('#goalBar'); bar.querySelectorAll('b').forEach(x => x.remove());
+  const ms = MILESTONES.filter(m => m[0] < goal);
+  for (const [s] of ms){ const b = document.createElement('b'); b.style.left = (s / goal * 100) + '%'; bar.appendChild(b); }
+  const list = [...ms, [goal, '目標']];
+  const next = list.find(m => cur < m[0]);
+  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? '✓' : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
+  let base = cur;
+  try { const o = JSON.parse(localStorage.getItem('tx.goalday') || 'null'); if (o && o.day === todayKey() && Number.isFinite(o.base)) base = o.base; else localStorage.setItem('tx.goalday', JSON.stringify({ day: todayKey(), base: cur })); } catch {}
+  const gain = Math.max(0, cur - base);
+  $('#goalToday').textContent = gain > 0 ? `今日は ${fmtDur(gain)} 進みました` : '今日はまだ進んでいません';
+  { const n = PG.evalDocs, sec = PG.evalProofedSec, need = 1200, ok = n > 0 && sec >= need && !PG.evalPendingLines;
+    $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済み <b>${fmtDur(sec)}</b> / 目安 ${fmtDur(need)}以上 ・ 全行校正済み ${PG.evalDocsDone}/${n}本</p>`
+      + `<p class="hint" style="margin:2px 0 0">${ok ? '準備できました。「認識精度の測定」で「基準を記録」を押して、出発点を残してください。' : `${[PG.evalPendingLines ? `未校正の行が${PG.evalPendingLines}行あります` : '', sec < need ? `校正済みがあと ${fmtDur(need - sec)} ほど足りません` : ''].filter(Boolean).join(' ・ ')}。評価用は、全行を校正してください。`}</p>`
+      : `<p class="hint" style="margin:4px 0 0">まだありません。文字起こしを開いて「評価用にする」にチェックしてください(2〜3本・合計20分以上が目安)。校正を始める前に決めてください。</p>`); }
+  const p = $('#goalPill'); p.hidden = false; p.classList.toggle('on', cur > 0);
+  p.textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}(${shown}%)`;
+  p.style.background = `linear-gradient(90deg, var(--accent-soft) ${pct}%, var(--panel-2) ${pct}%)`;
+  if (document.activeElement !== $('#goalHours')) $('#goalHours').value = String(goal / 3600);
+  // 節目に届いたら、一度だけ知らせる
+  try {
+    const reached = list.filter(m => cur >= m[0]).length, seenN = Number(localStorage.getItem('tx.goalseen') || '-1');
+    if (seenN >= 0 && reached > seenN) toast(`節目に届きました: ${fmtDur(list[reached - 1][0])}(${list[reached - 1][1]})`, 6000);
+    if (reached !== seenN) localStorage.setItem('tx.goalseen', String(reached));
+  } catch {}
+}
+async function loadProgress(){ try { PG = await api('/api/progress'); } catch { return; } renderProgress(); }
+function scheduleProgress(){ clearTimeout(scheduleProgress.t); scheduleProgress.t = setTimeout(loadProgress, 2500); }
+$('#goalHours').addEventListener('change', e => { const h = Number(e.target.value); if (!(h >= 0.5 && h <= 200)){ toast('0.5〜200 時間の間で入力してください'); e.target.value = String(goalSec() / 3600); return; } S.settings.goalHours = h; saveSettings(); renderProgress(); });
+$('#goalPill').addEventListener('click', () => { if (V.focus){ V.focus = false; saveView(); applyView(); } const c = $('#goalCard'); c.open = true; c.scrollIntoView({ block: 'center' }); });
+/* 左の各カードの開閉を覚える */
+document.querySelectorAll('aside details.card[id]').forEach(d => {
+  try { if (localStorage.getItem('tx.fold.' + d.id) === '0') d.open = false; } catch {}
+  d.addEventListener('toggle', () => { try { localStorage.setItem('tx.fold.' + d.id, d.open ? '1' : '0'); } catch {} });
+});
+
+/* ---------- 新規ジョブ ---------- */
+let tab = 'file';
+function setTab(t){
+  tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker'; $('#paneFolder').hidden = t !== 'folder';
+  $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker'); $('#tabFolder').setAttribute('aria-pressed', t === 'folder');
+  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : t === 'folder' ? '選んだ動画を、それぞれ文字起こし' : '選んだポイントを文字起こし';
+  if (t === 'folder') fdSyncStudio();
+  if (t === 'marker') renderMarker();
+}
+function jobOpts(){
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, glossary: $('#optGloss').value };
+}
+async function startFile(){
+  const path = $('#srcPath').value.trim();
+  if (!path) return toast('ファイルのパスを入力してください');
+  const a = $('#rStart').value.trim(), b = $('#rEnd').value.trim();
+  const body = { sourcePath: path, title: $('#jTitle').value.trim(), ...jobOpts() };
+  if (a){ const v = parseT(a); if (!Number.isFinite(v)) return toast('開始の時刻が正しくありません(例: 1:23:45)'); body.start = v; }
+  if (b){ const v = parseT(b); if (!Number.isFinite(v)) return toast('終了の時刻が正しくありません(例: 1:30:00)'); body.end = v; }
+  await api('/api/transcribe', { body });
+  toast('待機列に追加しました');
+}
+async function startMarker(){
+  const v = S.marker.videos[Number($('#mVideo').value)];
+  if (!v) return toast('動画を選んでください');
+  const path = $('#mPath').value.trim();
+  const ids = [...document.querySelectorAll('#mClips input:checked')].map(x => Number(x.dataset.i));
+  if (!ids.length) return toast('文字起こしするポイントを選んでください');
+  if (!path){   // 元の動画が手元に無いときは、スタジオが書き出した切り抜き(mp4)を、そのまま文字起こしする
+    const files = ids.map(i => v.clips[i].fileAbs).filter(Boolean);
+    if (!files.length) return toast('元の動画・音声ファイルのパスを入力してください(書き出し済みの切り抜きが見つかったポイントは、パスなしでも文字起こしできます)');
+    const r = await api('/api/transcribe-batch', { body: { paths: files, skipDone: true, ...jobOpts() } });
+    return toast(`書き出し済みの切り抜き ${r.added.length}本を待機列に追加しました` + (r.skipped.length ? `(${r.skipped.length}本は文字起こし済みなどで追加せず)` : '') + (files.length < ids.length ? `。書き出されていない${ids.length - files.length}件は対象外` : ''), 6000);
+  }
+  const pad = Number($('#mPad').value) || 0;
+  let n = 0;
+  for (const i of ids){
+    const c = v.clips[i];
+    const start = Math.max(0, c.start - pad), end = c.end + pad;
+    try {
+      await api('/api/transcribe', { body: { sourcePath: path, start, end, title: c.title || `${v.title || v.videoId} ${fmtT(c.start)}-${fmtT(c.end)}`, ...jobOpts() } });
+      n++;
+    } catch (e){ toast(`${n}件追加したところで失敗: ${e.message}`); break; }
+  }
+  if (n) toast(`${n}件を待機列に追加しました`);
+}
+async function onStart(){
+  readOpts();
+  const btn = $('#btnStart'); btn.disabled = true;
+  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); startPolling(); await pollJobs(); }
+  catch (e){ toast(e.message); }
+  finally { btn.disabled = false; }
+}
+
+/* ---------- フォルダ内すべて ---------- */
+let FD = { files: [], dir: '' };
+const fmtSize = n => n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : n >= 1e6 ? Math.round(n / 1e6) + 'MB' : Math.max(1, Math.round(n / 1e3)) + 'KB';
+function fdSyncStudio(){ const b = $('#fdStudio'); b.hidden = !S.marker.outDir; }
+function renderFolder(){
+  const box = $('#fdList'), skip = $('#fdSkip').checked;
+  if (!FD.files.length){ box.innerHTML = '<p class="hint" style="padding:8px;margin:0">動画・音声が見つかりませんでした</p>'; $('#fdCount').textContent = ''; return; }
+  box.innerHTML = FD.files.map((f, i) => {
+    const st = f.doneTid ? '文字起こし済み' : f.queued ? '待機中' : '', off = skip && st;
+    return `<label><input type="checkbox" data-i="${i}" ${off ? '' : 'checked'}><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.path)}">${esc(f.rel)}</span><span class="hint">${fmtSize(f.size)}</span>${st ? `<span class="pill">${st}</span>` : ''}</label>`;
+  }).join('');
+  updateFdCount();
+}
+function updateFdCount(){ const n = document.querySelectorAll('#fdList input:checked').length, t = document.querySelectorAll('#fdList input').length; $('#fdCount').textContent = t ? `${n} / ${t} 本を選択` + (FD.truncated ? '(多いので、先頭の500本だけ)' : '') : ''; $('#fdAll').checked = t > 0 && n === t; }
+async function scanFolder(){
+  const path = $('#fdPath').value.trim(); if (!path) return toast('フォルダのパスを入力してください');
+  const r = await api('/api/scan-folder', { body: { path, recursive: $('#fdRec').checked } });
+  FD = { files: r.files, dir: r.dir, truncated: r.truncated }; renderFolder();
+}
+async function startFolder(){
+  if (!FD.files.length) await scanFolder();
+  const paths = [...document.querySelectorAll('#fdList input:checked')].map(x => FD.files[Number(x.dataset.i)].path);
+  if (!paths.length) return toast('文字起こしする動画を選んでください');
+  const r = await api('/api/transcribe-batch', { body: { paths, skipDone: $('#fdSkip').checked, ...jobOpts() } });
+  const sk = r.skipped.length;
+  toast(`${r.added.length}本を待機列に追加しました` + (sk ? `(${sk}本は追加していません: ${r.skipped.slice(0, 2).map(x => x.reason).join(' / ')}${sk > 2 ? ' ほか' : ''})` : ''), 6000);
+  await scanFolder().catch(() => {});   // 追加した分に「待機中」を付け直す
+}
+$('#fdScan').addEventListener('click', () => scanFolder().catch(e => toast(e.message)));
+$('#fdPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); scanFolder().catch(er => toast(er.message)); } });
+$('#fdStudio').addEventListener('click', () => { $('#fdPath').value = S.marker.outDir || ''; $('#fdRec').checked = true; scanFolder().catch(e => toast(e.message)); });
+$('#fdSkip').addEventListener('change', renderFolder);
+$('#fdList').addEventListener('change', updateFdCount);
+$('#fdAll').addEventListener('change', e => { document.querySelectorAll('#fdList input').forEach(x => { x.checked = e.target.checked; }); updateFdCount(); });
+
+/* ---------- 切り抜きスタジオ/マーカー連携 ---------- */
+function parseMarker(d){
+  const out = [];
+  let vids = d && typeof d === 'object' ? d.videos : null;
+  if (Array.isArray(vids)) vids = Object.fromEntries(vids.filter(v => v && typeof v === 'object').map((v, i) => [String(v.videoId || v.id || i), v]));
+  if (!vids || typeof vids !== 'object') return out;
+  for (const [vid, v] of Object.entries(vids).slice(0, 500)){
+    if (!v || typeof v !== 'object' || v.demo) continue;
+    const clips = [], raw = ['clips', 'marks', 'points'].map(k => v[k]).find(Array.isArray) || [];
+    for (const c of raw.slice(0, 500)){
+      if (!c || typeof c !== 'object') continue;
+      const a = Number(c && c.start), b = Number(c && c.end);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
+      clips.push({ start: a, end: b, title: String(c.title || c.label || '').slice(0, 120), src: String(c.src || '').slice(0, 8), score: Number.isFinite(Number(c.score)) && c.score !== null && c.score !== '' ? Number(c.score) : null, status: String(c.status || ''), file: String(c.file || '').slice(0, 500), rating: Math.round(Number(c.rating) || 0) });
+    }
+    if (clips.length) out.push({ videoId: String(vid).slice(0, 20), title: String(v.title || '').slice(0, 120), local: v.local === true,
+      fileName: String(v.fileName || '').slice(0, 200), sourcePath: String(v.sourcePath || '').slice(0, 500), clips });
+  }
+  return out;
+}
+function renderMarker(){
+  const vs = S.marker.videos, sel = $('#mVideo');
+  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : '切り抜きマーカー') + x.videos + '本').join(' / ') || '切り抜きマーカー'}のデータを読み込みました(${vs.length}本の動画)` : '隣の clip-studio(または clip-marker)フォルダに data.json が見つかりません。下のボタンで data.json を選んでください。';
+  const cur = sel.value;
+  const FROM = { studio: 'スタジオ', marker: '旧マーカー', file: '選んだ data.json' };
+  sel.innerHTML = vs.map((v, i) => `<option value="${i}">[${FROM[v.from || (S.marker.sources || [])[0]?.kind] || '?'}] ${esc((v.title || v.videoId) + (v.local ? '(ローカル)' : ''))} — ${v.clips.length}件</option>`).join('');
+  $('#mSources').innerHTML = (S.marker.sources || []).map(x => `<div class="src"><span class="pill ok">${FROM[x.kind] || esc(x.kind)}</span><span>${x.videos}本</span><span class="mono">${esc(x.path)}</span></div>`).join('')
+    + (S.marker.outDir ? `<div class="src"><span class="pill">書き出し先</span><span class="mono">${esc(S.marker.outDir)}</span></div>` : '');
+  if (cur && vs[Number(cur)]) sel.value = cur;
+  renderMarkerClips();
+}
+function renderMarkerClips(){
+  const v = S.marker.videos[Number($('#mVideo').value)], box = $('#mClips');
+  if (!v){ box.innerHTML = '<p class="hint" style="padding:8px;margin:0">ポイントのある動画がありません</p>'; $('#mCount').textContent = ''; return; }
+  if (document.activeElement !== $('#mPath')) $('#mPath').value = v.sourcePath || '';
+  $('#mFileHint').textContent = v.sourcePath ? '' : v.clips.some(c => c.fileAbs) ? '元の動画のパスが空でも、書き出し済みの切り抜きは、そのまま文字起こしできます(パスを入れると、元の動画のその区間を文字起こしします)' : (v.fileName ? `切り抜きマーカーで開いたファイル名: ${v.fileName}(パスは入力が必要です)` : 'YouTube の動画は、手元にファイルがある場合だけ使えます');
+  const only = $('#mFilter').value === 'adopted', skip = $('#mSkip').checked;
+  const rows = v.clips.map((c, i) => ({ c, i })).filter(x => !only || x.c.status === 'adopted' || x.c.status === 'exported');
+  box.innerHTML = rows.length ? rows.map(({ c, i }) => `<label><input type="checkbox" data-i="${i}" ${skip && c.doneTid ? '' : 'checked'}>
+    <span class="mono">${fmtT(c.start)}–${fmtT(c.end)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title || '無題')}</span>
+    ${c.src ? `<span class="pill" title="${c.src === 'auto' ? '自動で見つけた区間' : '自分でマークした区間'}${c.score != null ? '(点数 ' + c.score + ')' : ''}">${c.src === 'auto' ? '自動' + (c.score != null ? ' ' + c.score : '') : c.src === 'manual' ? '手動' : esc(c.src)}</span>` : ''}${c.fileAbs ? '<span class="pill ok" title="書き出し済みの切り抜き(mp4)が見つかりました">mp4あり</span>' : ''}${c.doneTid ? '<span class="pill" title="この範囲は、すでに文字起こし済みです">文字起こし済み</span>' : ''}
+    <span class="pill">${esc({ '': '候補', candidate: '候補', adopted: '採用', rejected: '不採用', exported: '書き出し済み' }[c.status] ?? c.status)}</span></label>`).join('')
+    : '<p class="hint" style="padding:8px;margin:0">条件に合うポイントがありません(「対象」を「すべて」にしてみてください)</p>';
+  $('#mAll').checked = true; updateMCount();
+}
+function updateMCount(){ const n = document.querySelectorAll('#mClips input:checked').length, t = document.querySelectorAll('#mClips input').length; $('#mCount').textContent = t ? `${n} / ${t} 件を選択` : ''; }
+async function loadMarker(){
+  try { S.marker = await api('/api/marker'); } catch { S.marker = { found: false, videos: [] }; }
+  renderMarker(); fdSyncStudio();
+}
+
+/* ---------- ジョブの進捗 ---------- */
+const ACTIVE = new Set(['queued', 'extracting', 'loading', 'running']);
+const STATE_LABEL = { queued: '待機中', extracting: '準備中', loading: '準備中', running: '処理中', done: '完了', error: '失敗', cancelled: '中止' };
+function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
+async function pollJobs(){
+  let j; try { j = await api('/api/jobs'); } catch { return; }
+  S.jobs = j.jobs.slice().reverse();
+  let doneNew = false, diar = null, abDone = null;
+  for (const x of S.jobs) if (x.state === 'done' && !S.seen.has(x.id)){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; if (x.kind === 'abtest') abDone = x; }
+  renderJobs(); applyLock();
+  if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
+  if (doneNew){
+    await loadList();
+    if (diar){
+      if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
+      loadLearned();
+      if (diar.tid === S.docId){ clearTimeout(markDirty.t); S.dirty = false; await openDoc(diar.tid, true); }
+      toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
+        : `話者を判別しました(${diar.speakers}人)。` + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : '「話者」で名前を付けてください'));
+    } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
+  }
+  if (!S.jobs.some(x => ACTIVE.has(x.state))){ clearInterval(S.pollT); S.pollT = null; }
+}
+function renderJobBadge(){
+  const act = S.jobs.filter(j => ACTIVE.has(j.state)), b = $('#jobBadge');
+  b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? Math.round(j.progress * 100) + '%' : STATE_LABEL[j.state]}`; }
+}
+function renderJobs(){
+  renderJobBadge();
+  const box = $('#jobs');
+  if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">ジョブはありません</p>'; return; }
+  box.innerHTML = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
+    <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
+      <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ''}">${STATE_LABEL[j.state] || j.state}</span></div>
+    ${ACTIVE.has(j.state) ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(j.phase)}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''}${j.device ? '(' + (j.device === 'cuda' ? 'GPU' : 'CPU') + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
+    ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
+    ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
+    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'diarize' ? j.speakers + '人を判別' : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
+  </div>`).join('');
+}
+
+/* ---------- 保存済み一覧 ---------- */
+async function loadList(){
+  try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
+  renderList(); scheduleProgress();
+}
+function renderList(){
+  const box = $('#txList'); $('#txCount').textContent = S.list.length ? `(${S.list.length}件)` : '';
+  if (!S.list.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだありません</p>'; return; }
+  box.innerHTML = S.list.map(i => `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
+    <button type="button" class="t" data-act="open" title="${esc(i.title)}">${i.evalSet ? '<span class="pill ok">評価用</span> ' : ''}${esc(i.title || '無題')}</button>
+    <div class="hint">${esc(i.sourceName)}${i.end ? ` ・ ${fmtT(i.start)}–${fmtT(i.end)}` : ''} ・ ${i.segments}行 ・ ${esc(i.model.split('/').pop())}</div>
+    <div class="row" style="margin-top:3px"><button type="button" class="btn small danger" data-act="del">削除</button></div></div>`).join('');
+}
+
+/* ---------- 話者の自動判別 ---------- */
+function renderDiarSetup(){
+  const t = S.tools, box = $('#diarSetup'), d = t && t.diarize;
+  if (!d){ box.innerHTML = ''; return; }
+  const sel = $('#diarEmb'), cur = sel.value || S.settings.diarEmb || d.default;
+  sel.innerHTML = d.embeddings.map(e => `<option value="${esc(e.key)}">${esc(e.label)}${e.ready ? '' : `(初回に約${e.mb}MBをダウンロード)`}</option>`).join('');
+  sel.value = d.embeddings.some(e => e.key === cur) ? cur : d.default;
+  const e = d.embeddings.find(x => x.key === sel.value);
+  box.innerHTML = !d.ready ? '<div class="notice">話者の自動判別には、追加の部品(sherpa-onnx)が必要です。フォルダ内の <code>install-diarize.bat</code>(Mac は <code>install-diarize.command</code>)を実行して、ツールを起動し直してください。</div>'
+    : (!(d.segReady && e && e.ready) ? `<p class="hint" style="margin:0">初回だけ、判別用のモデルを自動でダウンロードします(合計 約${(d.segReady ? 0 : 6) + (e ? e.mb : 0)}MB)。</p>` : '');
+  $('#diarGo').disabled = !d.ready;
+}
+const LOCK_KINDS = ['diarize', 'retranscribe'];
+function lockJob(){ return S.doc ? S.jobs.find(j => LOCK_KINDS.includes(j.kind) && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
+function applyLock(){
+  const j = lockJob(), on = !!j;
+  $('#segs').inert = on; $('#doc .card').inert = on; $('#docTitle').disabled = on;
+  const b = $('#diarBanner'); b.hidden = !on;
+  if (on) b.textContent = `${j.kind === 'retranscribe' ? '再認識' : '話者を判別'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
+}
+async function startDiarize(){
+  if (!S.doc) return;
+  await saveDoc();
+  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value } });
+  startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
+}
+$('#btnSpk').addEventListener('click', () => {   // 折りたたみの中にあって見つけにくいので、上のボタンから開く
+  const d = $('#spDetails'); d.open = !d.open;
+  if (d.open) d.scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+$('#diarGo').addEventListener('click', e => {
+  const b = e.currentTarget;
+  const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
+  if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run); else run();
+});
+
+/* ---------- 再認識 ---------- */
+const SPK_FLAGS = ['声が混ざっている可能性', '話者が不確か', '話者を判別できなかった'];
+function flagParts(s){ const p = String(s.flag || '').split('、').filter(Boolean); return { spk: p.filter(x => SPK_FLAGS.includes(x)), text: p.filter(x => !SPK_FLAGS.includes(x)) }; }
+function flagMatch(s, kind){ if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
+function renderRtSetup(){
+  const t = S.tools, sel = $('#rtModel'); if (!t) return;
+  sel.innerHTML = t.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  const want = S.settings.rtModel && t.models.some(m => m[0] === S.settings.rtModel) ? S.settings.rtModel : (t.models.some(m => m[0] === 'large-v3') ? 'large-v3' : t.models[0][0]);
+  sel.value = want;
+  if (['text', 'sel', 'all', 'range'].includes(S.settings.rtTarget)) $('#rtTarget').value = S.settings.rtTarget;
+}
+const RANGE_MAX = 900;
+function rtRange(){   // 選んだ行の最初〜最後(間の行も含む)
+  const segs = S.doc.segments.filter(s => S.sel.has(s.id)); if (!segs.length) return null;
+  const a = Math.min(...segs.map(s => s.start)), b = Math.max(...segs.map(s => s.end));
+  return { a, b, ids: S.doc.segments.filter(s => { const m = (s.start + s.end) / 2; return m >= a - 1e-6 && m <= b + 1e-6; }).map(s => s.id) };
+}
+function rtIds(){
+  if (!S.doc) return [];
+  const k = $('#rtTarget').value, segs = S.doc.segments;
+  if (k === 'range'){ const r = rtRange(); return r ? r.ids.slice(0, 2000) : []; }
+  return segs.filter(s => k === 'all' || (k === 'sel' ? S.sel.has(s.id) : flagMatch(s, 'text'))).map(s => s.id).slice(0, 2000);
+}
+function updateRt(){
+  if (!S.doc){ $('#rtHint').textContent = ''; return; }
+  const ids = new Set(rtIds()), sec = S.doc.segments.filter(s => ids.has(s.id)).reduce((a, s) => a + (s.end - s.start), 0);
+  $('#rtHint').textContent = `対象: ${ids.size}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'})`;
+  $('#rtGo').disabled = !ids.size;
+  if ($('#rtTarget').value === 'range'){
+    const r = rtRange();
+    $('#rtHint').textContent = r ? `範囲: ${fmtT(r.a)}〜${fmtT(r.b)}(${r.ids.length}行を、新しい行に差し替えます。行の数は変わります。選んでいない間の行も入ります)` + (r.b - r.a > RANGE_MAX ? ' — 長すぎます(最大15分)' : '') : '行を選んでください(チェックボックス)';
+    if (!r || r.b - r.a > RANGE_MAX) $('#rtGo').disabled = true;
+  }
+}
+async function startRetranscribe(){
+  if (!S.doc) return;
+  const ids = rtIds(); if (!ids.length) return toast('再認識する行がありません');
+  await saveDoc();
+  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
+    boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked } });
+  startPolling(); await pollJobs(); toast(`${ids.length}行の再認識を待機列に追加しました`);
+}
+$('#rtGo').addEventListener('click', e => {
+  const b = e.currentTarget;
+  armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
+});
+$('#rtTarget').addEventListener('change', updateRt);
+
+/* ---------- 修正から学習した候補 ---------- */
+let learned = { items: [], docs: 0 };
+function scheduleLearn(){ clearTimeout(scheduleLearn.t); scheduleLearn.t = setTimeout(loadLearned, 4000); }
+async function loadLearned(){
+  try { learned = await api('/api/learned?min=' + encodeURIComponent($('#lnMin').value)); } catch { return; }
+  renderLearned(); loadSuggest();
+}
+$('#lnExport').addEventListener('click', async () => {
+  const b = $('#lnExport'), scope = $('#lnExScope').value;
+  if (scope === 'doc' && !S.docId) return toast('先に文字起こしを開いてください');
+  if (S.dirty) await saveDoc();
+  const label = b.textContent; b.disabled = true; b.textContent = '書き出し中…(音声つきは数分かかることがあります)';
+  try {
+    const r = await fetch('/api/export-corrections', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio: $('#lnExAudio').checked, tid: scope === 'doc' ? S.docId : null, scope: $('#lnExKind').value }) });
+    if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(j.message || ('エラー ' + r.status)); }
+    const [n, na, sk] = (r.headers.get('X-Clips') || '0,0,0').split(',').map(Number), blob = await r.blob();
+    const a = document.createElement('a'), d = new Date(), z = v => String(v).padStart(2, '0');
+    a.href = URL.createObjectURL(blob); a.download = `corrections-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.zip`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    toast(`${n}行を書き出しました(音声つき${na}行${sk ? ' ・ 上限のため' + sk + '行はとばしました' : ''})。ダウンロードフォルダを確認してください`);
+  } catch (er){ toast('書き出せませんでした: ' + er.message); }
+  finally { b.disabled = false; b.textContent = label; }
+});
+const lnKey = x => `${x.wrong}=>${x.right}`;
+const lnDraft = {};   // 候補ごとの、編集中の文字(一覧を更新しても消えないように残す)
+function renderLearned(){
+  const box = $('#lnList'), items = learned.items;
+  $('#lnStat').textContent = learned.docs ? `修正した行: ${learned.lines || 0}行(学習の対象: ${learned.docs}件の文字起こし)` : '';
+  if (!items.length){
+    box.innerHTML = `<p class="hint" style="margin:8px 0 0">${learned.docs ? '候補はありません(文字起こしを直すと、ここに出ます)' : 'v0.5 以降で文字起こしした分から学習します。文字起こしを直すと、ここに候補が出ます'}</p>`;
+    return;
+  }
+  box.innerHTML = items.slice(0, 30).map((x, i) => {
+    const d = lnDraft[lnKey(x)] || { w: x.wrong, r: x.right }, edited = d.w !== x.wrong || d.r !== x.right;
+    return `<div class="ln${edited ? ' edited' : ''}" data-i="${i}">
+    <div class="row" style="flex-wrap:nowrap;gap:4px"><input class="lw" type="text" value="${esc(d.w)}" maxlength="40" aria-label="誤(置換される文字)" style="flex:1;min-width:0"><span>→</span><input class="lr" type="text" value="${esc(d.r)}" maxlength="40" aria-label="正(置換後の文字)" style="flex:1;min-width:0"></div>
+    <div class="row" style="margin-top:3px"><span class="pill">${x.count}回</span><button type="button" class="btn small" data-act="lnadd">登録</button><button type="button" class="btn small" data-act="lnign">無視</button><button type="button" class="btn small" data-act="lnrev"${edited ? '' : ' hidden'}>編集を戻す</button></div></div>`;
+  }).join('') + (items.length > 30 ? `<p class="hint" style="margin:6px 0 0">ほか${items.length - 30}件</p>` : '')
+    + '<p class="hint" style="margin:6px 0 0">「誤」「正」は、その場で直してから登録できます(例: 前後の文字を消して短くする)。</p>';
+}
+async function putSettingsNow(){ clearTimeout(setT); await api('/api/settings', { method: 'PUT', body: S.settings }); }
+$('#lnList').addEventListener('input', e => {
+  const row = e.target.closest('.ln'), x = row && learned.items[Number(row.dataset.i)]; if (!x) return;
+  const w = row.querySelector('.lw').value, r = row.querySelector('.lr').value, edited = w !== x.wrong || r !== x.right;
+  if (edited) lnDraft[lnKey(x)] = { w, r }; else delete lnDraft[lnKey(x)];
+  row.classList.toggle('edited', edited); row.querySelector('[data-act=lnrev]').hidden = !edited;
+});
+$('#lnList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const row = b.closest('.ln'), x = learned.items[Number(row.dataset.i)]; if (!x) return;
+  try {
+    if (b.dataset.act === 'lnrev'){ delete lnDraft[lnKey(x)]; renderLearned(); return; }
+    if (b.dataset.act === 'lnadd'){
+      const w = row.querySelector('.lw').value.trim(), r = row.querySelector('.lr').value.trim();
+      if (!w) return toast('「誤」の文字を入れてください');
+      if (w === r) return toast('「誤」と「正」が同じです');
+      if (/=>|[\r\n]/.test(w + r)) return toast('「=>」と改行は使えません');
+      const wbW = ccOf(w[0]) && [...w].every(c => ccOf(c) === ccOf(w[0])) && !w.includes('|') ? `|${w}|` : w;   // カタカナ・漢字・英数字だけの語は、単語の途中には当てない形で登録する
+      const d = $('#repDict'), lines = d.value.split(/\r?\n/), same = lines.findIndex(l => { const k = l.indexOf('=>'); return k > 0 && wbSplit(l.slice(0, k).trim())[0] === w; });
+      let msg = '置換辞書に登録しました。開いている文字起こしにも直すには「辞書を全体に適用」を押してください';
+      if (same >= 0){ msg = `同じ「${w}」の登録があったので、置き換えました。` + msg.slice(msg.indexOf('開いている')); lines[same] = `${wbW}=>${r}`; d.value = lines.join('\n'); }
+      else d.value = (d.value.replace(/\s+$/, '') + `\n${wbW}=>${r}`).replace(/^\n/, '');
+      if ($('#lnGloss').checked && r.length >= 2 && r.length <= 15 && (!x.ctx || r !== x.right)){   // 前後の文字を足した断片のままなら、用語集には入れない
+        const g = $('#optGloss'); if (!g.value.split(/\r?\n/).some(l => l.trim() === r)) g.value = (g.value.replace(/\s+$/, '') + '\n' + r).replace(/^\n/, '');
+      }
+      if (w !== x.wrong || r !== x.right) S.settings.learnIgnore = [...(S.settings.learnIgnore || []), lnKey(x)].slice(-500);   // 直して登録したときは、元の候補は消す
+      delete lnDraft[lnKey(x)];
+      readOpts(); await putSettingsNow(); toast(msg);
+    } else {
+      S.settings.learnIgnore = [...(S.settings.learnIgnore || []), lnKey(x)].slice(-500); delete lnDraft[lnKey(x)]; await putSettingsNow();
+    }
+    await loadLearned();
+  } catch (er){ toast(er.message); }
+});
+$('#lnMin').addEventListener('change', loadLearned);
+$('#lnRefresh').addEventListener('click', loadLearned);
+
+/* ---------- 修正の提案(文脈つきの統計) ---------- */
+S.sug = [];
+function sugList(s){ return S.sug.filter(x => x.seg === s.id && s.text.includes(x.wrong)); }
+function sugHTML(s){
+  return sugList(s).map(x => `<span class="sg ${x.tier === 'high' ? 'high' : ''}" title="${esc(`この置換は ${x.pos}回 直されています / そのまま残した例 ${x.neg}件`)}"><span class="sgl">${x.tier === 'high' ? '確度高' : '候補'}</span>「${esc(x.wrong)}」→「${esc(x.right)}」<button type="button" data-act="sgok" data-n="${x.n}">採用</button><button type="button" data-act="sgno" data-n="${x.n}">却下</button></span>`).join('');
+}
+function renderChips(){
+  if (!S.doc) return;
+  document.querySelectorAll('#segs .seg').forEach(el => { const s = S.doc.segments[Number(el.dataset.i)], box = el.querySelector('.sug'); if (s && box) box.innerHTML = sugHTML(s); });
+  const hi = S.doc.segments.reduce((n, s) => n + sugList(s).filter(x => x.tier === 'high').length, 0), all = S.doc.segments.reduce((n, s) => n + sugList(s).length, 0);
+  const b = $('#btnSugHigh'); b.hidden = !hi; b.textContent = `確度高の提案を全部採用(${hi})`;
+  $('#flagKind').querySelector('option[value=sug]').textContent = all ? `修正の提案がある行だけ(${all}件)` : '修正の提案がある行だけ';
+  if ($('#flagKind').value === 'sug') applyFilter();
+}
+let sugSeq = 0;
+async function loadSuggest(){
+  const id = S.docId; if (!id) return;
+  let r; try { r = await api('/api/suggest?id=' + encodeURIComponent(id)); } catch { return; }
+  if (S.docId !== id) return;
+  S.sug = (r.items || []).map(x => ({ ...x, n: ++sugSeq })); renderChips();
+}
+function sugFeedback(action, xs){
+  const tid = S.docId; if (!tid || !xs.length) return;
+  api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right })) } }).catch(() => {});
+}
+function applySug(s, x){
+  const k = s.text.startsWith(x.wrong, x.i) ? x.i : s.text.indexOf(x.wrong); if (k < 0) return false;
+  s.text = (s.text.slice(0, k) + x.right + s.text.slice(k + x.wrong.length)).slice(0, 2000); delete s.proofed; return true;
+}
+function acceptSug(s, x){
+  pushUndo();
+  if (!applySug(s, x)){ S.undo.pop(); updateUndo(); return; }
+  S.sug = S.sug.filter(y => y !== x); sugFeedback('accept', [x]); markDirty();
+  const i = S.doc.segments.indexOf(s), ta = document.querySelector(`#segs .seg[data-i="${i}"] textarea`);
+  if (ta){ ta.value = s.text; autoSize(ta); }
+  syncProof(s); updatePfStat(); renderChips();
+}
+function rejectSug(x){ S.sug = S.sug.filter(y => y !== x); sugFeedback('reject', [x]); renderChips(); }
+$('#btnSugHigh').addEventListener('click', () => {
+  const done = [];
+  pushUndo();
+  for (const s of S.doc.segments) for (const x of sugList(s).filter(y => y.tier === 'high')) if (applySug(s, x)) done.push(x);
+  if (!done.length){ S.undo.pop(); updateUndo(); return; }
+  S.sug = S.sug.filter(y => !done.includes(y)); sugFeedback('accept', done); markDirty(); renderDoc(); renderChips();
+  toast(`${done.length}件を採用しました(「元に戻す」で戻せます)`);
+});
+
+/* ---------- 校正済み(正解として使える行の印) ---------- */
+function setProof(s, on, row){
+  if (on && !s.proofed) S.sess.n++; else if (!on && s.proofed && S.sess.n > 0) S.sess.n--;
+  if (on) s.proofed = true; else delete s.proofed;
+  if (row){ row.classList.toggle('proofed', !!on); const b = row.querySelector('[data-act=proof]'); if (b) b.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+}
+function syncProof(s){ const i = S.doc.segments.indexOf(s), row = document.querySelector(`#segs .seg[data-i="${i}"]`); if (row) setProof(s, !!s.proofed, row); }
+function updatePfStat(){
+  if (!S.doc) return;
+  const n = S.doc.segments.filter(s => s.proofed).length, t = S.doc.segments.length;
+  $('#pfStat').textContent = t ? `校正済み ${n}/${t}行` : '';
+  $('#btnProofAll').textContent = t && n === t ? '校正済みを全解除' : '全行を校正済みに';
+  $('#btnProofSel').disabled = !S.sel.size;
+  renderAbHint(); updateSess(); drawStripSoon();
+}
+function updateSess(){
+  if (!S.doc){ $('#sessStat').textContent = ''; return; }
+  const un = S.doc.segments.filter(s => !s.proofed && s.text.trim()), sec = un.reduce((a, s) => a + (s.end - s.start), 0), m = Math.round(S.sess.activeMs / 60000);
+  $('#sessStat').textContent = `未校正 ${un.length}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'}) ・ 今回 +${S.sess.n}行 ・ 作業${m}分`;
+}
+setInterval(() => {   // 操作している時間だけ数える(放置している間は進めない)。休憩のお知らせも、この時間で出す
+  if (Date.now() - S.sess.lastAct < 120000){
+    S.sess.activeMs += 30000; updateSess();
+    const b = Number(V.brk) * 60000;
+    if (b && S.sess.activeMs - S.sess.lastBreak >= b){ S.sess.lastBreak = S.sess.activeMs; toast(`操作を始めて${Math.round(S.sess.activeMs / 60000)}分たちました。少し休憩しませんか(目を離す・肩を回す・水分)`, 9000); }
+  }
+}, 30000);
+['keydown', 'pointerdown', 'wheel'].forEach(t => window.addEventListener(t, () => { S.sess.lastAct = Date.now(); }, { passive: true, capture: true }));
+
+/* ---------- 進み具合の帯(校正済み・要確認・未校正を、時間軸で見る) ---------- */
+let stripQ = 0;
+function drawStripSoon(){ if (!stripQ) stripQ = requestAnimationFrame(() => { stripQ = 0; drawStrip(); }); }
+function drawStrip(){
+  const cv = $('#strip'); if (!S.doc || !cv || !cv.offsetParent) return;
+  const g = S.doc.segments; let a = Infinity, b = 0;
+  for (const x of g){ if (x.start < a) a = x.start; if (x.end > b) b = x.end; }
+  S.stripR = g.length && b > a ? [a, b] : null;
+  const w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, Math.round(w * dpr)); cv.height = Math.max(1, Math.round(h * dpr));
+  if (!S.stripR) return;
+  const c = cv.getContext('2d'), cs = getComputedStyle(document.documentElement);
+  const col = { ok: cs.getPropertyValue('--ok').trim(), warn: cs.getPropertyValue('--warn').trim(), off: cs.getPropertyValue('--line-2').trim() }, k = cv.width / (b - a);
+  for (const x of g){ c.fillStyle = x.proofed ? col.ok : x.flag ? col.warn : col.off; c.fillRect((x.start - a) * k, 0, Math.max(1, (x.end - x.start) * k - 0.5), cv.height); }
+  moveStripHead();
+}
+function moveStripHead(){
+  const r = S.stripR, hd = $('#stripHead'); if (!r) return;
+  hd.style.left = Math.min(100, Math.max(0, (player().currentTime - r[0]) / (r[1] - r[0]) * 100)) + '%';
+}
+$('#strip').addEventListener('click', e => {
+  const r = S.stripR; if (!r || !S.doc) return;
+  const t = r[0] + e.offsetX / e.currentTarget.clientWidth * (r[1] - r[0]), segs = S.doc.segments;
+  let lo = 0, hi = segs.length - 1, i = 0;
+  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ i = m; lo = m + 1; } else hi = m - 1; }
+  if (!gotoRow(i, { center: true })) return toast('その位置の行は、絞り込みで隠れています');
+  player().currentTime = segs[i].start; S.playEnd = null;
+});
+$('#btnProofAll').addEventListener('click', e => {
+  const b = e.currentTarget; if (!S.doc) return;
+  armDelete(b, () => {
+    delete b.dataset.armed;
+    const all = S.doc.segments.length && S.doc.segments.every(s => s.proofed);
+    pushUndo();
+    for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
+    renderDoc(); markDirty();
+    toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました(「元に戻す」で戻せます)');
+  });
+});
+$('#btnProofSel').addEventListener('click', () => {
+  if (!S.doc || !S.sel.size) return;
+  pushUndo(); let n = 0;
+  for (const s of S.doc.segments) if (S.sel.has(s.id) && s.text.trim()){ s.proofed = true; n++; }
+  renderDoc(); markDirty(); toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);
+});
+
+/* ---------- 認識精度の測定・設定の比較(A/B) ---------- */
+const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+let accT = null;
+async function loadBaselines(){
+  let items = []; try { items = (await api('/api/eval-baselines')).items; } catch { return; }
+  $('#blOut').innerHTML = items.length ? '<table class="acct"><tr><th>日時</th><th>メモ</th><th>CER</th><th>正解字</th><th>置換/脱落/挿入</th></tr>' + items.slice().reverse().slice(0, 12).map((x, i, a) => {
+    const prev = a[i + 1], d = prev ? (x.cer - prev.cer) * 100 : null;
+    return `<tr><td>${new Date(x.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(x.label || '')}</td><td><b>${pct(x.cer)}</b>${d === null ? '' : `<br><span class="hint">${d <= 0 ? '' : '+'}${d.toFixed(1)}pt</span>`}</td><td>${x.refChars}</td><td>${x.sub}/${x.del}/${x.ins}</td></tr>`;
+  }).join('') + '</table><p class="hint" style="margin:4px 0 0">pt = 1つ前の記録との差(マイナスがよくなった)。正解が1000字未満のうちは、差は誤差の範囲かもしれません。</p>' : '<p class="hint" style="margin:6px 0 0">まだ記録がありません</p>';
+}
+$('#blGo').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true;
+  try { const r = await api('/api/eval-baseline', { body: { label: $('#blLabel').value } }); $('#blLabel').value = ''; toast(`記録しました: CER ${pct(r.cer)}(正解 ${r.refChars}字)`); await loadBaselines(); }
+  catch (er){ toast(er.message); } finally { b.disabled = false; }
+});
+$('#accScope').addEventListener('change', loadAcc);
+function scheduleAcc(){ clearTimeout(accT); accT = setTimeout(loadAcc, 4000); }
+async function loadAcc(){
+  try { renderAcc(await api('/api/metrics?legacy=' + ($('#accLegacy').checked ? 1 : 0) + '&scope=' + encodeURIComponent($('#accScope').value))); } catch (e){ $('#accOut').innerHTML = `<p class="hint" style="margin:8px 0 0;color:var(--danger)">${esc(e.message)}</p>`; }
+}
+function renderAcc(m){
+  const o = m.overall, box = $('#accOut');
+  if (!o.groups){
+    box.innerHTML = `<p class="hint" style="margin:8px 0 0">校正済みの行がまだありません(${m.docs}件の文字起こしのうち、校正済みの行があるのは${m.docsProofed}件)。聞いて確認した行の「校正済み」ボタン(Shift+Space)で印を付けると、ここに文字誤り率が出ます。「印のない旧データも含める」で、これまでに直した分を仮計算できます。</p>`;
+    return;
+  }
+  const errs = o.errs || 0, share = v => errs ? Math.round(v / errs * 100) + '%' : '—';
+  const rows = list => list.map(c => `<tr><td>${esc(c.config || c.title || '')}</td><td>${c.groups}</td><td>${c.refChars}</td><td><b>${pct(c.cer)}</b></td><td>${c.sub}/${c.del}/${c.ins}</td></tr>`).join('');
+  box.innerHTML = `<div class="accmain">文字誤り率(CER) <b>${pct(o.cer)}</b> <span class="hint">誤り ${errs}字 ÷ 正解 ${o.refChars}字</span></div>
+    <p class="hint" style="margin:4px 0 0">内訳: 置換(別の字に間違い) ${o.sub}字(${share(o.sub)}) ・ 脱落(聞き逃し) ${o.del}字(${share(o.del)}) ・ 挿入(余計な字。幻覚など) ${o.ins}字(${share(o.ins)})<br>
+    機械が出したが人が消した行: ${o.machineOnly}行(${o.machineOnlyChars}字) ・ 用語が正しく出た率: ${o.termRef ? `${o.termHit}/${o.termRef}(${pct(o.termRate)})` : '—'} ・ 用語の誤挿入: ${o.termExtra}回</p>
+    <p class="hint" style="margin:4px 0 0">${m.legacy ? '※ 校正済みの印がない旧データを仮計算に含んでいます。' : ''}${o.refChars < 1000 ? '※ 正解が1000字未満なので、数値は目安です(同じ動画を何度も文字起こしした分は、重複して数えられます)。' : ''}校正済み ${m.proofedLines}行 ・ 対象 ${m.byDoc.length}件</p>
+    <table class="acct"><tr><th>設定</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>${rows(m.byConfig)}</table>
+    <details style="margin-top:6px"><summary class="hint">文字起こしごと</summary><table class="acct"><tr><th>文字起こし</th><th>行数</th><th>正解字</th><th>CER</th><th>置換/脱落/挿入</th></tr>${rows(m.byDoc)}</table></details>
+    <details style="margin-top:6px"><summary class="hint">誤りが多い場所(上位)</summary>${o.worst.map(w => `<div class="wl"><span class="mono">${esc(w.doc || '')} ${fmtT(w.start)}</span><br>正: ${esc(w.ref) || '(人が消した行)'}<br>機: ${esc(w.hyp) || '(聞き逃し)'}</div>`).join('')}</details>`;
+}
+$('#accRefresh').addEventListener('click', loadAcc);
+$('#accLegacy').addEventListener('change', loadAcc);
+
+/* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
+const GLOSS_PROMPT = 150;   // serve.py の whisper_kwargs と揃える(initial_prompt に渡る文字数)
+const glossTerms = t => [...new Set(String(t || '').split(/[\r\n,、]+/).map(x => x.trim()).filter(Boolean))];
+function glossFit(terms){   // 先頭から何語がヒントに収まるか
+  let n = 0, len = 0;
+  for (const t of terms){ const add = (n ? 1 : 0) + t.length; if (len + add > GLOSS_PROMPT) break; len += add; n++; }
+  return { fit: n, len: terms.join('、').length };
+}
+function renderGlossFit(){
+  const t = glossTerms($('#optGloss').value), f = glossFit(t);
+  $('#glossFit').textContent = !t.length ? '' : f.fit >= t.length ? `${t.length}語(認識のヒントに全部入ります)` : `${t.length}語のうち、認識のヒントに入るのは先頭の${f.fit}語まで(${GLOSS_PROMPT}字まで)。後ろの語は効きません。今回の動画に出る人だけに絞ってください`;
+}
+function rosterNames(ids){
+  const seen = new Set(), out = [];
+  for (const g of (S.roster && S.roster.groups) || []) if (ids.includes(g.id)) for (const n of g.names) if (!seen.has(n)){ seen.add(n); out.push(n); }
+  return out;
+}
+async function loadRoster(){
+  try { S.roster = await api('/api/roster'); } catch { S.roster = null; }
+  const box = $('#rosterGroups'), r = S.roster;
+  if (!r || !r.groups.length){ box.textContent = '名簿を読めません(hololive-roster.json が無いか壊れています)'; $('#rosterAdd').disabled = true; return; }
+  box.innerHTML = r.groups.map(g => `<label class="lag" style="display:inline-block;margin:0 10px 3px 0"><input type="checkbox" class="rg" value="${esc(g.id)}">${esc(g.label)}(${g.names.length})</label>`).join('');
+  $('#rosterNote').textContent = `${r.asOf} 時点`; $('#rosterBox').title = r.note;
+}
+$('#rosterAdd').addEventListener('click', () => {
+  const ids = [...document.querySelectorAll('#rosterGroups .rg:checked')].map(x => x.value), add = rosterNames(ids);
+  if (!add.length){ toast('追加する所属にチェックを入れてください'); return; }
+  const g = $('#optGloss'), have = glossTerms(g.value), fresh = add.filter(n => !have.includes(n));
+  g.value = have.concat(fresh).join('\n'); readOpts(); renderGlossFit();
+  document.querySelectorAll('#rosterGroups .rg:checked').forEach(x => x.checked = false);
+  toast(fresh.length ? `${fresh.length}語を用語集に追加しました` : 'すべて登録済みです');
+});
+$('#optGloss').addEventListener('input', renderGlossFit);
+
+let abVariants = null;
+function renderAbHint(){
+  const n = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()).length : 0;
+  const sec = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()).reduce((a, s) => a + (s.end - s.start), 0) : 0;
+  $('#abHint').textContent = !S.doc ? '文字起こしを開いてください' : n ? `対象: 校正済み${Math.min(n, 300)}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'})` : '校正済みの行がありません';
+  $('#abGo').disabled = !n;
+}
+function renderAb(){
+  if (!S.tools) return;
+  if (!abVariants){ const m = $('#optModel').value; abVariants = [{ model: m, glossary: true }, { model: m, glossary: false }]; }
+  $('#abRows').innerHTML = abVariants.map((v, i) => `<div class="row" data-i="${i}" style="margin-top:4px;flex-wrap:nowrap">
+    <select class="abm" style="min-width:0;flex:1" aria-label="モデル">${S.tools.models.map(([val, l]) => `<option value="${esc(val)}"${val === v.model ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
+    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small" data-act="abdel" aria-label="この設定を外す">×</button>' : ''}</div>
+    ${v.glossary ? `<textarea class="abt" rows="2" style="width:100%;margin:2px 0 0" placeholder="空欄=上の共通の用語集を使う。書くと、この設定だけその語を使います(改行かカンマ区切り)" aria-label="この設定だけの用語集">${esc(v.terms || '')}</textarea>
+    <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${(() => { const t = glossTerms(v.terms); if (!t.length) return ''; const f = glossFit(t); return f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; })()}</span></div>` : ''}`).join('');
+  $('#abAdd').disabled = abVariants.length >= 4;
+  renderAbHint();
+}
+$('#abRows').addEventListener('change', e => {
+  if (e.target.classList.contains('abr')){
+    const row = e.target.parentElement.previousElementSibling.previousElementSibling, v = row && abVariants[Number(row.dataset.i)];
+    if (v && e.target.value){ v.terms = glossTerms(v.terms).concat(rosterNames([e.target.value]).filter(n => !glossTerms(v.terms).includes(n))).join('\n'); renderAb(); }
+    return;
+  }
+  const row = e.target.closest('[data-i]'), v = row && abVariants[Number(row.dataset.i)]; if (!v) return;
+  const was = v.glossary;
+  v.model = row.querySelector('.abm').value; v.glossary = row.querySelector('.abg').checked;
+  if (was !== v.glossary) renderAb();
+});
+$('#abRows').addEventListener('input', e => {
+  const row = e.target.closest('[data-i]'), v = e.target.classList.contains('abt') ? abVariants[Number(e.target.previousElementSibling.dataset.i)] : null;
+  if (v){ v.terms = e.target.value; const h = e.target.nextElementSibling.querySelector('.hint'), t = glossTerms(v.terms), f = glossFit(t); h.textContent = !t.length ? '' : f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; }
+});
+$('#abRows').addEventListener('click', e => {
+  const b = e.target.closest('[data-act=abdel]'); if (!b) return;
+  abVariants.splice(Number(b.closest('[data-i]').dataset.i), 1); renderAb();
+});
+$('#abAdd').addEventListener('click', () => { if (abVariants.length < 4){ abVariants.push({ model: abVariants[abVariants.length - 1].model, glossary: true }); renderAb(); } });
+$('#abGo').addEventListener('click', async () => {
+  if (!S.doc) return;
+  const b = $('#abGo'); b.disabled = true;
+  try {
+    await saveDoc();
+    if (S.dirty || S.saving) throw new Error('保存中です。少し待ってから、もう一度押してください');
+    await api('/api/abtest', { body: { tid: S.docId, variants: abVariants, language: $('#optLang').value, device: $('#optDevice').value, boost: $('#optBoost').checked,
+      glossary: $('#optGloss').value, autoGloss: $('#optAutoGloss').checked } });
+    startPolling(); await pollJobs(); toast('設定の比較を待機列に追加しました。終わると、ここに結果が出ます');
+  } catch (er){ toast(er.message); } finally { renderAbHint(); }
+});
+async function loadEvals(){
+  const id = S.docId; if (!id) { $('#abOut').innerHTML = ''; return; }
+  let r; try { r = await api('/api/evals?id=' + encodeURIComponent(id)); } catch { return; }
+  if (S.docId !== id) return;
+  $('#abOut').innerHTML = r.items.slice(0, 3).map(x => {
+    const best = Math.min(...x.variants.map(v => v.cer == null ? Infinity : v.cer));
+    return `<div class="abres"><div class="hint">${esc(new Date(x.at).toLocaleString())} ・ ${x.lines}行${x.device ? ' ・ ' + (x.device === 'cuda' ? 'GPU' : 'CPU') : ''}</div>
+      <table class="acct"><tr><th>設定</th><th>CER</th><th>辞書後</th><th>置換/脱落/挿入</th><th>用語の誤挿入</th><th>用語ヒット</th></tr>
+      ${x.variants.map(v => `<tr${v.cer === best ? ' class="best"' : ''}><td>${esc(v.label)}</td><td>${pct(v.cer)}</td><td>${pct(v.cerDict)}</td><td>${v.sub}/${v.del}/${v.ins}</td><td>${v.termExtra}</td><td>${v.termRef ? v.termHit + '/' + v.termRef : '—'}</td></tr>`).join('')}</table>
+      <p class="hint" style="margin:3px 0 0">「辞書後」= 置換辞書を当てたあとのCER。「用語の誤挿入」= 正解に無いのに用語(用語集・辞書の正)が出た回数。</p>
+      <details><summary class="hint">誤りが多い行</summary>${x.variants.map(v => `<div class="hint" style="margin-top:4px"><b>${esc(v.label)}</b></div>` + v.worst.slice(0, 5).map(w => `<div class="wl"><span class="mono">${fmtT(w.start)}</span> 正: ${esc(w.ref)}<br>機: ${esc(w.hyp) || '(認識なし)'}</div>`).join('')).join('')}</details></div>`;
+  }).join('');
+}
+
+/* ---------- 保存データ(dataset/)への保管 ---------- */
+const mb = n => n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : Math.max(1, Math.round(n / 1e6)) + 'MB';
+const minStr = sec => sec < 90 ? Math.round(sec) + '秒' : (sec / 3600 >= 1 ? (sec / 3600).toFixed(1) + '時間' : Math.round(sec / 60) + '分');
+let arcPoll = null;
+S.arcDirty = false;
+async function loadDataset(){
+  let r; try { r = await api('/api/dataset'); } catch { return; }
+  S.arc = r; renderDataset();
+  if (r.running && !arcPoll) arcPoll = setInterval(loadDataset, 2000);
+  if (!r.running && arcPoll){ clearInterval(arcPoll); arcPoll = null; if (r.errors.length) toast('保管でエラー: ' + r.errors[0], 6000); }
+}
+function renderDataset(){
+  const r = S.arc; if (!r) return;
+  const t = r.totals, box = $('#arcOut');
+  const cur = S.docId && r.docs.find(d => d.tid === S.docId);
+  $('#arcStat').textContent = r.running ? `保管中 ${r.progress.done}/${r.progress.total}…` : (S.doc && S.doc.segments.some(g => g.proofed) ? (cur ? (cur.stale || S.arcDirty ? '保管: 更新あり' : '保管: 済') : '保管: まだ') : '');
+  box.innerHTML = `<p class="accmain" style="margin:10px 0 0">正解の行 <b>${t.positive}</b>行 ・ 約${minStr(t.positiveSec)}</p>
+    <p class="hint" style="margin:2px 0 0">人が消した行(負例) ${t.negative}行(約${minStr(t.negativeSec)}) ・ 聞き取れない ${t.unclear}行 ・ 保管した文字起こし ${t.docs}件 ・ 使用量 ${mb(t.audioBytes)}${t.stale ? ` ・ <b>更新あり ${t.stale}件</b>` : ''}</p>
+    ${t.evalSec ? `<p class="hint" style="margin:2px 0 0">評価用(上の量には含めない) 約${minStr(t.evalSec)}。追加学習に使うときは、保管データの <b>split が eval</b> の行を必ず除いてください。</p>` : ''}
+    <p class="hint" style="margin:2px 0 0">目安: 追加学習(LoRA)は、正解が<b>2〜3時間分</b>から。声紋登録は、話者1人あたり<b>数分〜十数分</b>から。</p>
+    ${Object.keys(r.speakers).length ? '<details style="margin-top:6px"><summary class="hint">話者ごとの正解の量</summary>' + Object.entries(r.speakers).slice(0, 12).map(([k, v]) => `<div class="dsrow"><span>${esc(k)}</span><span>${minStr(v)}</span></div>`).join('') + '</details>' : ''}
+    ${r.docs.length ? '<details style="margin-top:6px"><summary class="hint">文字起こしごと</summary>' + r.docs.map(d => `<div class="dsrow"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title || '無題')}${d.orphan ? '(元の文字起こしは削除済み)' : ''}</span><span>${d.positive}行 ・ ${mb(d.audioBytes)}${d.stale ? ' ・ 更新あり' : ''}${d.note ? ' ・ ' + esc(d.note) : ''}</span></div>`).join('') + '</details>' : ''}
+    <p class="hint" style="margin:8px 0 0">保管先: このフォルダの <b>dataset/</b>(バックアップは、この中をコピーしてください)。話者の声・会話の内容が入るので、他人に渡す・クラウドに上げるときは、相手の同意と規約を確認してください。</p>`;
+}
+async function archiveNow(tid, quiet){
+  if (!tid) return;
+  try {
+    await api('/api/archive', { body: { tid, full: $('#arcFull').checked } });
+    S.arcDirty = false; loadDataset(); if (!quiet) toast('保管を始めました。音声の切り出しに、少し時間がかかります');
+  } catch (e){ if (!quiet && e.code !== 'busy') toast(e.message); if (e.code === 'busy') S.arcDirty = true; }
+}
+function autoArchive(tid){ if ($('#arcAuto').checked && tid && S.arcDirty) archiveNow(tid, true); }
+$('#arcNow').addEventListener('click', async () => { if (!S.docId) return toast('先に文字起こしを開いてください'); await saveDoc(); archiveNow(S.docId); });
+$('#arcAll').addEventListener('click', async () => {
+  await saveDoc();
+  try { await api('/api/archive', { body: { full: $('#arcFull').checked } }); S.arcDirty = false; loadDataset(); toast('校正済みのある文字起こしを、すべて保管します'); } catch (e){ toast(e.message); }
+});
+setInterval(() => { if (S.docId && S.doc && !document.hidden) autoArchive(S.docId); }, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.hidden && S.docId && S.doc){ (async () => { await saveDoc(); autoArchive(S.docId); })(); } });
+
+/* ---------- 編集画面 ---------- */
+const player = () => $('#player');
+function spById(id){ return S.doc && S.doc.speakers.find(s => s.id === id); }
+function markDirty(){
+  S.dirty = true; $('#saveState').textContent = S.conflict ? '競合しています' : '未保存…';
+  clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 700);
+}
+const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+async function saveDoc(){
+  if (!S.doc || !S.dirty) return;
+  if (S.conflict) return;
+  if (S.saving){ markDirty(); return; }
+  S.saving = true; S.dirty = false; $('#saveState').textContent = '保存中…';
+  const id = S.docId, force = S.forceNext;
+  try {
+    const r = await api('/api/transcript?id=' + id, { method: 'PUT', body: { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) } });
+    if (S.docId === id){ S.baseUpdatedAt = r.updatedAt; S.forceNext = false; }
+    $('#saveState').textContent = S.dirty ? '未保存…' : '保存しました ' + hhmm(); scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
+    const it = S.list.find(x => x.id === id); if (it){ it.title = S.doc.title; it.segments = S.doc.segments.length; }
+  } catch (e){
+    S.dirty = true;
+    if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; $('#saveState').textContent = '競合しています'; toast('別の場所で先に更新されています。画面上部の案内から選んでください', 6000); }
+    else { $('#saveState').textContent = '保存できません(5秒後にもう一度試します)'; toast('保存に失敗: ' + e.message); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
+  }
+  finally { S.saving = false; }
+}
+$('#cfReload').addEventListener('click', async () => {
+  clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました');
+});
+$('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
+  S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
+}));
+document.addEventListener('visibilitychange', () => { if (document.hidden && S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブを離れるとき・画面を閉じるときに、待たずに保存する
+async function openDoc(id, keep){
+  if (S.dirty) await saveDoc();
+  if (!keep && S.docId && S.docId !== id) autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
+  const scrollY = window.scrollY;
+  let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ return toast(e.message); }
+  S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
+  if (!keep) S.navIdx = -1;
+  const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
+  $('#noDoc').hidden = true; $('#doc').hidden = false;
+  $('#docTitle').value = d.title || ''; $('#saveState').textContent = ''; syncEval();
+  { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / 再認識: ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
+  $('#playerMsg').hidden = true;
+  const p = player();
+  if (!keep){   // 話者判別のあとの読み直しでは、再生位置をそのままにする
+    p.src = '/media?id=' + encodeURIComponent(id);
+    p.addEventListener('loadedmetadata', function once(){ p.removeEventListener('loadedmetadata', once); p.playbackRate = Number(V.rate); if (resumeIdx >= 0) p.currentTime = d.segments[resumeIdx].start; else if (!d.whole && d.start > 0) p.currentTime = d.start; });
+    $('#q').value = ''; $('#flagKind').value = '';
+  }
+  renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
+  if (keep) window.scrollTo(0, scrollY);
+  else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
+  else window.scrollTo(0, 0);
+}
+function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
+const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' }, TAG_KEY = { unclear: 'X', overlap: 'C', bgm: 'V' };
+const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" data-act="tag" data-t="${t}" aria-pressed="${(s.tags || []).includes(t) ? 'true' : 'false'}" title="この行の音の状態のメモ(Shift+${TAG_KEY[t]})。「聞き取れない」の行は、精度の測定と学習の正解に使いません">${TAG_LABEL[t]}</button>`).join('');
+function segHTML(s, i){
+  const sp = spById(s.speaker);
+  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}" data-i="${i}" style="--sp:${sp ? esc(sp.color || '#888') : 'transparent'}">
+    <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
+    <button type="button" class="play" data-act="play" title="ここから再生(Shift+R でも聞けます)" aria-label="この行を再生">▶</button>
+    <div class="times"><input class="t" data-f="start" value="${fmtT(s.start, true)}" aria-label="開始"><span>–</span><input class="t" data-f="end" value="${fmtT(s.end, true)}" aria-label="終了"></div>
+    <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
+    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字">${esc(s.text)}</textarea>
+    <span class="ops"><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="聞いて確認して、この行の文字が正しいと判断したら押す(Shift+Space。次の行へ進みます)">校正済み</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge">次と結合</button><button type="button" data-act="del">削除</button></span>
+    <div class="sug">${sugHTML(s)}</div>
+    <div class="tg">${tagsHTML(s)}</div>
+    <div class="adj" aria-label="時刻の微調整"><span class="g">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button></span><span class="hint">幅は上の「時刻の微調整」。数字を直接書き換えてもかまいません</span></div>
+    ${s.flag ? `<button type="button" class="fl" data-act="unflag" title="${esc(s.flag)}(押すと確認済みにします)">要確認: ${esc(s.flag)}</button>` : ''}
+  </div>`;
+}
+function renderDoc(){
+  const segs = S.doc.segments;
+  $('#segs').innerHTML = segs.length ? segs.map(segHTML).join('') : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)</div>';
+  autoSizeAll(true);
+  if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
+  { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat();
+}
+/* 行の高さ: 対応ブラウザは CSS(field-sizing)にまかせる。それ以外は、画面の近くにある行だけを測る(数千行でも重くならないように) */
+const NATIVE_FS = !/[?&]nofs=1/.test(location.search) && !!(window.CSS && CSS.supports && CSS.supports('field-sizing', 'content'));
+if (NATIVE_FS) document.documentElement.classList.add('fsz');
+const visRows = new Set();
+const rowIO = !NATIVE_FS && 'IntersectionObserver' in window ? new IntersectionObserver(ents => {
+  const add = [];
+  for (const en of ents){ if (en.isIntersecting){ visRows.add(en.target); add.push(en.target); } else visRows.delete(en.target); }
+  if (add.length) autoSizeList(add.map(r => r.querySelector('textarea')).filter(Boolean));
+}, { rootMargin: '800px 0px' }) : null;
+function autoSize(ta){ if (NATIVE_FS) return; ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
+function autoSizeAll(fresh){
+  if (NATIVE_FS) return;
+  if (!rowIO) return autoSizeList([...document.querySelectorAll('#segs .seg:not([hidden]) textarea')]);
+  if (fresh){ visRows.clear(); rowIO.disconnect(); for (const r of rowsEl()) if (r.classList && r.classList.contains('seg')) rowIO.observe(r); }
+  else autoSizeList([...visRows].filter(r => !r.hidden).map(r => r.querySelector('textarea')).filter(Boolean));
+}
+function autoSizeList(tas){   // まとめて縮める → まとめて測る → まとめて設定(レイアウト計算を1回にする)
+  for (const t of tas) t.style.height = 'auto';
+  const hs = tas.map(t => t.scrollHeight);
+  tas.forEach((t, i) => { if (hs[i] > 0) t.style.height = (hs[i] + 2) + 'px'; });
+}
+let sizeT = null;
+function autoSizeSoon(){ clearTimeout(sizeT); sizeT = setTimeout(() => { if (S.doc) autoSizeAll(); drawStripSoon(); }, 200); }
+window.addEventListener('resize', autoSizeSoon);
+if (window.ResizeObserver){
+  new ResizeObserver(() => { document.documentElement.style.setProperty('--pbh', $('.pbox').offsetHeight + 'px'); }).observe($('.pbox'));
+  new ResizeObserver(() => { document.documentElement.style.setProperty('--toph', $('.top').offsetHeight + 'px'); }).observe($('.top'));
+  new ResizeObserver(drawStripSoon).observe($('#stripBox'));
+}
+function applyFilter(){
+  const q = norm($('#q').value.trim()), only = $('#flagKind').value;
+  let n = 0; const shown = [];
+  document.querySelectorAll('#segs .seg').forEach(el => {
+    const s = S.doc.segments[Number(el.dataset.i)]; if (!s) return;
+    const hit = (!q || norm(s.text).includes(q)) && (!only || flagMatch(s, only));
+    if (hit && el.hidden){ const ta = el.querySelector('textarea'); if (ta) shown.push(ta); }
+    el.hidden = !hit; if (hit) n++;
+  });
+  if (shown.length && !NATIVE_FS && !rowIO) autoSizeList(shown);   // 隠れていた行は、表示するときに高さを測り直す
+  $('#qCount').textContent = (q || only) ? `${n}行が該当` : `${S.doc.segments.length}行`;
+}
+function renderSpeakers(){
+  const box = $('#spList');
+  box.innerHTML = S.doc.speakers.map((s, i) => `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色"><input type="text" value="${esc(s.name)}" maxlength="30" aria-label="話者名" style="flex:1"><span class="n">${S.doc.segments.filter(x => x.speaker === s.id).length}行 ・ Shift+${i + 1}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`).join('');
+  const cur = $('#spBulk').value;
+  $('#spBulk').innerHTML = opts(cur);
+}
+function pushUndo(){
+  S.undo.push(JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug })); if (S.undo.length > 30) S.undo.shift(); updateUndo();
+}
+function updateUndo(){ $('#btnUndo').disabled = !S.undo.length; $('#btnUndo').textContent = S.undo.length ? `元に戻す(${S.undo.length})` : '元に戻す'; }
+function doUndo(){
+  if (!S.undo.length) return;
+  const d = JSON.parse(S.undo.pop()); S.doc.speakers = d.speakers; S.doc.segments = d.segments; S.sel.clear(); if (d.sug) S.sug = d.sug;
+  renderDoc(); renderChips(); updateUndo(); markDirty();
+}
+function nudge(s, row, f, dir){
+  const step = Number(V.adjStep) || 0.1, MIN = 0.1;
+  let v = Math.round((s[f] + dir * step) * 100) / 100;
+  if (f === 'start') v = Math.min(Math.max(0, v), Math.round((s.end - MIN) * 100) / 100); else v = Math.max(v, Math.round((s.start + MIN) * 100) / 100);
+  if (v === s[f]) return toast(f === 'start' ? (dir < 0 ? 'これより早くできません(0秒)' : '開始は、終了より0.1秒以上前にしてください') : '終了は、開始より0.1秒以上後にしてください', 1500);
+  pushUndo(); s[f] = v; markDirty();
+  const inp = row.querySelector(`input[data-f="${f}"]`); if (inp) inp.value = fmtT(v, true);
+  const segs = S.doc.segments, i = segs.indexOf(s);
+  if ((segs[i - 1] && segs[i - 1].start > s.start) || (segs[i + 1] && segs[i + 1].start < s.start)){   // 並び順が変わるときだけ、並べ直す
+    sortSegs(); const ni = segs.indexOf(s); renderDoc(); setNav(ni);
+  }
+  if (S.playEnd !== null || player().paused){ const p = player(); p.currentTime = f === 'end' ? Math.max(s.start, s.end - 1.2) : s.start; S.playEnd = s.end; p.play().catch(() => {}); }   // 動かした端を、すぐ聞き直せるように
+}
+function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start || a.end - b.end); }
+function updateSel(){
+  const n = S.sel.size; $('#selCount').textContent = n ? `${n}行を選択中` : '';
+  $('#selAll').checked = n > 0 && n === S.doc.segments.length;
+  updateRt(); $('#btnProofSel').disabled = !n;
+}
+
+$('#segs').addEventListener('input', e => {
+  const row = e.target.closest('.seg'); if (!row) return;
+  const s = S.doc.segments[Number(row.dataset.i)]; if (!s) return;
+  if (e.target.dataset.f === 'text'){ s.text = e.target.value.slice(0, 2000); autoSize(e.target); markDirty(); const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s); }
+});
+$('#segs').addEventListener('change', e => {
+  const row = e.target.closest('.seg'); if (!row) return;
+  const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
+  const f = e.target.dataset.f;
+  if (e.target.classList.contains('sel')){ e.target.checked ? S.sel.add(s.id) : S.sel.delete(s.id); updateSel(); return; }
+  if (f === 'speaker'){ pushUndo(); s.speaker = e.target.value; const sp = spById(s.speaker); row.style.setProperty('--sp', sp ? sp.color : 'transparent'); markDirty(); }
+  else if (f === 'start' || f === 'end'){
+    const v = parseT(e.target.value);
+    const ok = Number.isFinite(v) && (f === 'start' ? v < s.end : v > s.start);
+    if (!ok){ toast('時刻が正しくありません(開始は終了より前、例 1:23.5)'); e.target.value = fmtT(s[f], true); return; }
+    pushUndo(); s[f] = Math.round(v * 100) / 100; const before = s.id; sortSegs(); renderDoc(); markDirty();
+    document.querySelector(`#segs .seg:nth-child(${S.doc.segments.findIndex(x => x.id === before) + 1}) textarea`)?.focus();
+  }
+});
+$('#segs').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const row = b.closest('.seg'), i = Number(row.dataset.i), segs = S.doc.segments, s = segs[i]; if (!s) return;
+  switch (b.dataset.act){
+    case 'play': playSeg(s); break;
+    case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
+    case 'proof': setProof(s, !s.proofed, row); markDirty(); updatePfStat(); break;
+    case 'tag': toggleTag(s, b.dataset.t, row); break;
+    case 'unflag': s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon(); break;
+    case 'sgok': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) acceptSug(s, x); break; }
+    case 'sgno': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) rejectSug(x); break; }
+    case 'split': doSplit(i, row); break;
+    case 'merge':
+      if (i >= segs.length - 1) return toast('最後の行です');
+      pushUndo(); { const n = segs[i + 1], sep = /[A-Za-z0-9]$/.test(s.text) && /^[A-Za-z0-9]/.test(n.text) ? ' ' : '';
+        s.text = (s.text + sep + n.text).slice(0, 2000); s.end = n.end; s.flag = s.flag || n.flag; if (!(s.proofed && n.proofed)) delete s.proofed; segs.splice(i + 1, 1); }
+      renderDoc(); markDirty(); break;
+    case 'del': armDelete(b, () => { pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); renderDoc(); markDirty(); }); break;
+  }
+});
+$('#segs').addEventListener('keydown', e => {
+  const dm = e.altKey && !e.ctrlKey && !e.metaKey && /^Digit([0-9])$/.exec(e.code);
+  if (dm){   // Alt+1〜9: その行の話者を、話者の一覧の n 番目にする(Alt+0: 話者なし)。文字を打っている途中でも使える
+    const row = e.target.closest('.seg'), s = row && S.doc.segments[Number(row.dataset.i)], n = Number(dm[1]);
+    if (s && (n === 0 || S.doc.speakers[n - 1])){
+      e.preventDefault(); pushUndo(); s.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
+      row.querySelector('.spk').value = s.speaker; const sp = spById(s.speaker); row.style.setProperty('--sp', sp ? sp.color : 'transparent');
+      markDirty(); renderSpeakers(); return;
+    }
+  }
+  if (e.key === 'Enter' && e.altKey && !e.ctrlKey && !e.metaKey && e.target.matches('textarea')){   // 校正済みの切り替え。付けたら次の行へ
+    e.preventDefault(); const row = e.target.closest('.seg'), s = S.doc.segments[Number(row.dataset.i)];
+    if (s){
+      setProof(s, !s.proofed, row); markDirty(); updatePfStat();
+      if (s.proofed){ const ni = findRow(Number(row.dataset.i), 1); if (ni >= 0) gotoRow(ni, { play: V.autoNext, edit: true }); }
+    }
+    return;
+  }
+  if (e.key === 'Escape' && e.target.matches('textarea')){ e.target.blur(); return; }   // 入力欄から抜ける(Space で再生・停止できるように)
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea')){
+    e.preventDefault(); const s = S.doc.segments[Number(e.target.closest('.seg').dataset.i)]; if (s) playSeg(s);
+  }
+});
+/* ---------- 行の移動(キーボードで校正を回す) ---------- */
+const rowsEl = () => $('#segs').children;
+const rowIdxOf = el => { const r = el && el.closest && el.closest('.seg'); return r ? Number(r.dataset.i) : -1; };
+function curNav(){ const a = rowIdxOf(document.activeElement); return a >= 0 ? a : (S.navIdx >= 0 ? S.navIdx : S.curIdx); }
+const posKey = id => 'tx.pos.' + id;
+function savePos(){ if (!S.doc || S.navIdx < 0) return; const g = S.doc.segments[S.navIdx]; if (g){ try { localStorage.setItem(posKey(S.docId), JSON.stringify({ id: g.id, t: g.start })); } catch {} } }
+function loadPos(id){ try { const o = JSON.parse(localStorage.getItem(posKey(id)) || 'null'); return o && typeof o.id === 'string' ? o : null; } catch { return null; } }
+/* 行が見える範囲(固定の再生欄の下〜画面の下)に収まっていれば動かさない。外れるときだけ、一定の位置(上から35%)に、なめらかに寄せる */
+function ensureVisible(row, at){
+  if (!row || row.hidden) return;
+  const top = parseFloat(getComputedStyle(row).scrollMarginTop) || 0, bot = window.innerHeight - 24, r = row.getBoundingClientRect();
+  if (r.top >= top && r.bottom <= bot) return;
+  const goal = top + Math.max(0, (bot - top - Math.min(r.height, bot - top)) * (at === undefined ? 0.35 : at));
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollBy({ top: r.top - goal, behavior: reduce ? 'auto' : 'smooth' });
+}
+function setNav(i){
+  const rows = rowsEl(); if (S.navIdx >= 0 && rows[S.navIdx] && rows[S.navIdx].classList) rows[S.navIdx].classList.remove('nav');
+  const was = S.navIdx; S.navIdx = i; if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('nav');
+  if (was >= 0 && was !== i && rows[was] && rows[was].classList){ const w = rows[was]; w.classList.remove('was'); void w.offsetWidth; w.classList.add('was'); setTimeout(() => w.classList.remove('was'), 1500); }
+}
+function gotoRow(i, opt = {}){
+  const row = rowsEl()[i]; if (!row || !row.classList.contains('seg') || row.hidden) return false;
+  setNav(i);
+  if (opt.edit){ const ta = row.querySelector('textarea'); if (ta) ta.focus({ preventScroll: true }); }
+  else if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#segs') && isTextEntry(document.activeElement)) document.activeElement.blur();
+  ensureVisible(row, opt.center ? 0.5 : 0.35);
+  savePos();
+  if (opt.play) playSeg(S.doc.segments[i], true);
+  return true;
+}
+function findRow(from, dir, pred){
+  const segs = S.doc.segments, rows = rowsEl();
+  for (let i = from + dir; i >= 0 && i < segs.length; i += dir){ if (!rows[i] || rows[i].hidden) continue; if (!pred || pred(segs[i])) return i; }
+  return -1;
+}
+function navigate(kind, dir){
+  if (!S.doc || lockJob()) return;
+  const pred = kind === 'unproofed' ? g => !g.proofed && g.text.trim() : kind === 'flag' ? g => !!g.flag : null;
+  const from = curNav(), i = findRow(from < 0 && dir > 0 ? -1 : from, dir, pred);
+  if (i < 0) return toast({ unproofed: dir > 0 ? 'これより後に、未校正の行はありません' : 'これより前に、未校正の行はありません', flag: '該当する「要確認」の行はありません' }[kind] || (dir > 0 ? '最後の行です' : '最初の行です'));
+  gotoRow(i, { play: V.autoNext, center: !!kind });
+}
+function replayCur(){ const i = curNav(), g = S.doc && S.doc.segments[i]; if (g) playSeg(g, true); }
+function seek(d){ const p = player(); p.currentTime = Math.max(0, p.currentTime + d); S.playEnd = null; }
+$('#segs').addEventListener('focusin', e => { const i = rowIdxOf(e.target); if (i >= 0){ setNav(i); savePos(); } });
+$('#btnNextUn').addEventListener('click', () => navigate('unproofed', 1));
+$('#seekBack').addEventListener('click', () => seek(-3));
+$('#seekFwd').addEventListener('click', () => seek(3));
+const isTextEntry = t => !!(t && t.matches && (t.matches('textarea,select,[contenteditable=""],[contenteditable=true]') || (t.matches('input') && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(t.type))));
+function toggleTag(s, t, row){
+  const a = new Set(s.tags || []); if (a.has(t)) a.delete(t); else a.add(t);
+  s.tags = Object.keys(TAG_LABEL).filter(k => a.has(k)); if (!s.tags.length) delete s.tags;
+  if (row){ row.classList.toggle('tagged', !!s.tags); row.querySelector('.tg').innerHTML = tagsHTML(s); }
+  markDirty();
+}
+function rowAndSeg(){ const i = curNav(), row = i >= 0 ? rowsEl()[i] : null, g = i >= 0 && S.doc.segments[i]; return g && row && row.classList && row.classList.contains('seg') ? { i, row, g } : null; }
+function proofOk(){   // 校正済みにして、次の行へ(すでに校正済みなら、次へ進むだけ)
+  const c = rowAndSeg(); if (!c) return toast('先に、行を選んでください(Shift+S で最初の行へ)');
+  if (!c.g.proofed){ setProof(c.g, true, c.row); markDirty(); updatePfStat(); }
+  const ni = findRow(c.i, 1); if (ni >= 0) gotoRow(ni, { play: V.autoNext }); else toast('最後の行です(表示している行は、すべて確認しました)');
+}
+function deleteCur(){
+  const c = rowAndSeg(); if (!c) return;
+  pushUndo(); S.sel.delete(c.g.id); S.doc.segments.splice(c.i, 1); S.navIdx = Math.min(c.i, S.doc.segments.length - 1);
+  renderDoc(); markDirty(); toast('行を削除しました(Ctrl+Z で元に戻せます)');
+  if (V.autoNext && S.navIdx >= 0) playSeg(S.doc.segments[S.navIdx], true);
+}
+function assignSpeaker(n){
+  const c = rowAndSeg(); if (!c || (n && !S.doc.speakers[n - 1])) return;
+  pushUndo(); c.g.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
+  c.row.querySelector('.spk').value = c.g.speaker; const sp = spById(c.g.speaker); c.row.style.setProperty('--sp', sp ? sp.color : 'transparent');
+  markDirty(); renderSpeakers();
+}
+function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+/* 左手だけの操作: Shift + キー。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません(Esc で抜けます) */
+const SHIFT_KEYS = {
+  KeyQ: () => seek(-3), KeyE: () => seek(3), KeyW: () => navigate(null, -1), KeyS: () => navigate(null, 1), KeyR: replayCur,
+  KeyA: () => navigate('unproofed', -1), KeyD: () => navigate('unproofed', 1), KeyF: () => navigate('flag', 1),
+  KeyZ: deleteCur, KeyX: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, KeyC: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
+  KeyV: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
+  KeyT: editCur, KeyB: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); }, Space: proofOk,
+};
+window.addEventListener('keydown', e => {
+  if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
+  const c = e.code;
+  if (c === 'KeyG'){ e.preventDefault(); toggleFocus(); return; }
+  if (!S.doc || lockJob()) return;
+  const dm = /^Digit([0-9])$/.exec(c);
+  if (dm){ e.preventDefault(); assignSpeaker(Number(dm[1])); return; }
+  if (SHIFT_KEYS[c]){ e.preventDefault(); SHIFT_KEYS[c](); }
+});
+
+/* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き */
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || document.querySelector('dialog[open]')) return;
+  const t = e.target;
+  if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
+  const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
+  if (free && !lockJob() && rowAndSeg()){ e.preventDefault(); editCur(); }
+});
+
+/* ---------- 用語のワンクリック挿入 ---------- */
+function renderTerms(){
+  const box = $('#terms'), ts = String(S.settings.glossary || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).slice(0, 16);
+  box.hidden = !ts.length || !S.doc;
+  box.innerHTML = ts.length ? '<span class="hint" title="行をクリックしてから押すと、カーソル位置に入ります。文字を選んでいれば、その文字を置き換えます">用語:</span>' + ts.map(t => `<button type="button" class="chip" data-t="${esc(t)}">${esc(t)}</button>`).join('') : '';
+}
+$('#terms').addEventListener('mousedown', e => { if (e.target.closest('.chip')) e.preventDefault(); });   // 押しても、行の入力欄からフォーカスが外れないように
+$('#terms').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const ta = S.navIdx >= 0 && rowsEl()[S.navIdx] && rowsEl()[S.navIdx].querySelector('textarea');
+  if (!ta) return toast('先に、文字を入れる行をクリックしてください');
+  const a = ta.selectionStart == null ? ta.value.length : ta.selectionStart, z = ta.selectionEnd == null ? a : ta.selectionEnd, t = b.dataset.t, pos = a + t.length;
+  ta.value = ta.value.slice(0, a) + t + ta.value.slice(z); ta.focus(); ta.setSelectionRange(pos, pos);
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+/* ---------- 履歴(自動バックアップ) ---------- */
+async function loadHistory(){
+  const id = S.docId; if (!id) return;
+  let r; try { r = await api('/api/history?id=' + encodeURIComponent(id)); } catch (e){ return toast(e.message); }
+  if (S.docId !== id) return;
+  $('#hiList').innerHTML = r.items.length ? r.items.map(x => `<div class="row" data-ts="${x.ts}" style="margin-top:4px;justify-content:space-between;flex-wrap:nowrap"><span class="hint">${esc(new Date(x.ts).toLocaleString())} ・ ${x.segments}行 ・ 校正済み${x.proofed}行 ・ ${x.chars}字</span><button type="button" class="btn small" data-act="hirest">この時点に戻す</button></div>`).join('')
+    : '<p class="hint" style="margin:6px 0 0">まだ履歴がありません</p>';
+}
+$('#hiRefresh').addEventListener('click', loadHistory);
+$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open && S.docId) loadHistory(); });
+$('#hiList').addEventListener('click', e => {
+  const b = e.target.closest('[data-act=hirest]'); if (!b) return;
+  const ts = Number(b.closest('[data-ts]').dataset.ts);
+  armDelete(b, async () => {
+    try {
+      await saveDoc();
+      if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+      await api('/api/restore', { body: { id: S.docId, ts } });
+      await openDoc(S.docId, true); await loadHistory();
+      toast('選んだ時点に戻しました(戻す前の状態も、履歴に残っています)');
+    } catch (er){ toast(er.message); }
+  });
+});
+
+function doSplit(i, row){
+  const segs = S.doc.segments, s = segs[i], ta = row.querySelector('textarea');
+  let pos = ta.selectionStart;
+  if (!(pos > 0 && pos < s.text.length)) pos = Math.floor(s.text.length / 2);
+  if (s.text.length < 2) return toast('短すぎて分割できません');
+  const t = player().currentTime;
+  let cut = t > s.start + 0.3 && t < s.end - 0.3 ? t : s.start + (s.end - s.start) * pos / s.text.length;
+  cut = Math.round(cut * 100) / 100;
+  pushUndo();
+  const left = { ...s, text: s.text.slice(0, pos).trimEnd(), end: cut };
+  const right = { ...s, id: uid(), text: s.text.slice(pos).trimStart(), start: cut, flag: '' };
+  segs.splice(i, 1, left, right); renderDoc(); markDirty();
+}
+function playSeg(s, one){
+  const p = player(); p.currentTime = s.start;
+  S.playEnd = (one || $('#playOne').checked) ? s.end : null;
+  p.play().catch(() => {});
+}
+function curIndex(t){
+  const segs = S.doc ? S.doc.segments : []; let lo = 0, hi = segs.length - 1, ans = -1;
+  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ ans = m; lo = m + 1; } else hi = m - 1; }
+  return ans >= 0 && t < segs[ans].end + 0.4 ? ans : -1;
+}
+player().addEventListener('timeupdate', () => {
+  if (!S.doc) return;
+  moveStripHead();
+  const t = player().currentTime;
+  if (S.playEnd !== null && t >= S.playEnd){ player().pause(); S.playEnd = null; }
+  const i = curIndex(t); if (i === S.curIdx) return;
+  const rows = rowsEl();
+  rows[S.curIdx]?.classList.remove('cur'); S.curIdx = i;
+  const el = rows[i]; if (!el) return;
+  el.classList.add('cur');
+  const typing = document.activeElement?.matches('#segs textarea, #segs input, #segs select');
+  if (V.frameFollow && !typing && S.navIdx !== i) setNav(i);
+  if ($('#follow').checked && !el.hidden && !typing) ensureVisible(el, 0.35);
+});
+player().addEventListener('error', () => {
+  const m = $('#playerMsg'); m.hidden = false;
+  m.textContent = '元のファイルを再生できません(移動・削除された、または mkv など対応していない形式の可能性)。文字の編集と書き出しは、再生できなくても使えます。';
+});
+player().addEventListener('playing', () => { $('#playerMsg').hidden = true; });
+
+/* ---------- 検索・話者・置換 ---------- */
+$('#q').addEventListener('input', applyFilter);
+$('#flagKind').addEventListener('change', applyFilter);
+$('#btnUndo').addEventListener('click', doUndo);
+function syncEval(){ const on = !!(S.doc && S.doc.evalSet); $('#evalSet').checked = on; $('#evalBanner').hidden = !on; }
+$('#evalSet').addEventListener('change', e => {
+  if (!S.doc) return;
+  S.doc.evalSet = e.target.checked; syncEval(); markDirty();
+  const it = S.list.find(x => x.id === S.docId); if (it){ it.evalSet = S.doc.evalSet; renderList(); }
+  toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)' : '評価用を外しました。この文字起こしは、学習用として扱われます', 6000);
+  setTimeout(() => { loadProgress(); loadLearned(); loadAcc(); }, 1500);
+});
+/* 評価用の文書では、正解を機械が書き換える操作(一括置換・提案の採用)を止める */
+document.addEventListener('click', e => {
+  if (S.doc && S.doc.evalSet && e.target.closest && e.target.closest('#repGo, #repDictGo, #btnSugHigh, [data-act=sgok]')){ e.stopPropagation(); e.preventDefault(); toast('評価用の文字起こしでは使えません(正解が機械で書き換わるため)。評価用を外してから行ってください', 5000); }
+}, true);
+$('#docTitle').addEventListener('input', e => { if (S.doc){ S.doc.title = e.target.value.slice(0, 120); markDirty(); } });
+$('#selAll').addEventListener('change', e => {
+  S.sel = e.target.checked ? new Set(S.doc.segments.map(s => s.id)) : new Set();
+  document.querySelectorAll('#segs .sel').forEach(c => { c.checked = e.target.checked; }); updateSel();
+});
+$('#spAdd').addEventListener('click', () => {
+  if (S.doc.speakers.length >= 20) return toast('話者は20人までです');
+  let n = S.doc.speakers.length + 1; while (S.doc.speakers.some(s => s.id === 'S' + n)) n++;
+  pushUndo(); S.doc.speakers.push({ id: 'S' + n, name: '話者' + n, color: PALETTE[(n - 1) % PALETTE.length] });
+  renderDoc(); markDirty();
+});
+$('#spList').addEventListener('change', e => {
+  const row = e.target.closest('.sp-row'); if (!row) return;
+  const sp = S.doc.speakers[Number(row.dataset.i)]; if (!sp) return;
+  if (e.target.type === 'color') sp.color = e.target.value; else sp.name = e.target.value.trim().slice(0, 30) || sp.id;
+  renderDoc(); markDirty();
+});
+function playSpeaker(id){
+  const list = S.doc.segments.filter(s => s.speaker === id && s.text.trim());
+  if (!list.length) return toast('この話者の行がありません');
+  const t = player().currentTime, next = list.find(s => s.start > t + 0.2) || list[0];
+  playSeg(next); S.playEnd = next.end;   // 「聞く」は、その行の終わりで止める(押すたびに、その人の次の発言へ)
+}
+$('#spList').addEventListener('click', e => {
+  const pb = e.target.closest('[data-act="spplay"]');
+  if (pb){ const sp = S.doc.speakers[Number(pb.closest('.sp-row').dataset.i)]; if (sp) playSpeaker(sp.id); return; }
+  const b = e.target.closest('[data-act="spdel"]'); if (!b) return;
+  armDelete(b, () => {
+    pushUndo(); const sp = S.doc.speakers.splice(Number(b.closest('.sp-row').dataset.i), 1)[0];
+    for (const s of S.doc.segments) if (s.speaker === sp.id) s.speaker = '';
+    renderDoc(); markDirty();
+  });
+});
+$('#spApply').addEventListener('click', () => {
+  if (!S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
+  const id = $('#spBulk').value; pushUndo();
+  for (const s of S.doc.segments) if (S.sel.has(s.id)) s.speaker = id;
+  renderDoc(); markDirty(); toast(`${S.sel.size}行の話者を変更しました`);
+});
+/* 単語の途中には当てない置換(serve.py の _cc / _bounded / wb_split と同じ規則。「誤」を |語| と書くと有効) */
+const ccOf = ch => { const o = ch.codePointAt(0); if ((o >= 0x30A1 && o <= 0x30FA) || 'ー・ヽヾ'.includes(ch)) return 'K'; if ((o >= 0x4E00 && o <= 0x9FFF) || '々〆'.includes(ch)) return 'H'; if (/[A-Za-z0-9Ａ-Ｚａ-ｚ０-９]/.test(ch)) return 'A'; return ''; };
+const boundedAt = (t, k, w) => {
+  let c = ccOf(w[0]); if (c && k > 0 && ccOf(t[k - 1]) === c) return false;
+  c = ccOf(w[w.length - 1]); if (c && k + w.length < t.length && ccOf(t[k + w.length]) === c) return false;
+  return true;
+};
+const wbSplit = w => (w.length >= 3 && w[0] === '|' && w[w.length - 1] === '|') ? [w.slice(1, -1), true] : [w, false];
+function replaceOne(t, f, to){   // [新しい文章, 置換した数]
+  const [core, wb] = wbSplit(f);
+  if (!core || !t.includes(core)) return [t, 0];
+  if (!wb){ const parts = t.split(core); return [parts.join(to), parts.length - 1]; }
+  let out = '', i = 0, n = 0, k = t.indexOf(core);
+  while (k >= 0){
+    if (boundedAt(t, k, core)){ out += t.slice(i, k) + to; i = k + core.length; n++; k = t.indexOf(core, i); }
+    else k = t.indexOf(core, k + 1);
+  }
+  return [out + t.slice(i), n];
+}
+function replaceAll(pairs){
+  let total = 0;
+  const has = pairs.filter(([f]) => f);
+  for (const s of S.doc.segments){
+    let t = s.text;
+    for (const [f, to] of has){ const [nt, n] = replaceOne(t, f, to); t = nt; total += n; }
+    if (t.slice(0, 2000) !== s.text) delete s.proofed;   // 聞かずに書き換えた行は、確認し直すまで校正済みにしない
+    s.text = t.slice(0, 2000);
+  }
+  return total;
+}
+function withUndoReplace(pairs){
+  const snap = JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments });
+  const n = replaceAll(pairs);
+  if (n){ S.undo.push(snap); if (S.undo.length > 30) S.undo.shift(); updateUndo(); renderDoc(); markDirty(); }
+  return n;
+}
+$('#repGo').addEventListener('click', () => {
+  const f = $('#repFrom').value, t = $('#repTo').value; if (!f) return toast('置換前の文字を入力してください');
+  const n = withUndoReplace([[f, t]]); $('#repMsg').textContent = n ? `${n}箇所を置換しました(元に戻せます)` : '該当する文字がありませんでした';
+});
+$('#repDictGo').addEventListener('click', () => {
+  const pairs = $('#repDict').value.split(/\r?\n/).map(l => { const k = l.indexOf('=>'); return k > 0 ? [l.slice(0, k).trim(), l.slice(k + 2).trim()] : null; }).filter(Boolean).slice(0, 500)
+    .sort((a, b) => b[0].length - a[0].length);
+  if (!pairs.length) return toast('辞書に「誤=>正」の行がありません');
+  const n = withUndoReplace(pairs); $('#repMsg').textContent = n ? `${n}箇所を置換しました(元に戻せます)` : '該当する文字がありませんでした';
+});
+
+/* ---------- 書き出し ---------- */
+function tcode(t, sep){
+  t = Math.max(0, t); const ms = Math.round(t * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000), s = Math.floor(ms % 60000 / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}${sep}${String(ms % 1000).padStart(3, '0')}`;
+}
+function wrapText(text, n){
+  if (!n) return text;
+  const chars = [...text], lines = [];
+  for (let i = 0; i < chars.length; i += n) lines.push(chars.slice(i, i + n).join(''));
+  return lines.join('\n');
+}
+function exportRows(){
+  const d = S.doc, only = $('#exSel').checked;
+  const base = $('#exBase').value === 'rel' && !d.whole ? d.start : 0;
+  const wrap = Number($('#exWrap').value) || 0, spk = $('#exSpk').checked;
+  const rows = [];
+  for (const s of d.segments){
+    if (only && !S.sel.has(s.id)) continue;
+    if (!s.text.trim() || s.end - base <= 0) continue;
+    const sp = spById(s.speaker);
+    rows.push({ start: Math.max(0, s.start - base), end: s.end - base, text: wrapText(s.text.trim(), wrap), name: spk && sp ? sp.name : '' });
+  }
+  return rows;
+}
+function buildExport(kind){
+  const rows = exportRows(), d = S.doc;
+  if (!rows.length) return null;
+  if (kind === 'srt') return rows.map((r, i) => `${i + 1}\n${tcode(r.start, ',')} --> ${tcode(r.end, ',')}\n${r.name ? '[' + r.name + '] ' : ''}${r.text}\n`).join('\n');
+  if (kind === 'vtt'){
+    const e = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return 'WEBVTT\n\n' + rows.map(r => `${tcode(r.start, '.')} --> ${tcode(r.end, '.')}\n${r.name ? e('[' + r.name + '] ') : ''}${e(r.text)}\n`).join('\n');
+  }
+  if (kind === 'txt'){
+    const ts = $('#exTs').checked;
+    return rows.map(r => `${ts ? '[' + fmtT(r.start) + '] ' : ''}${r.name ? r.name + ': ' : ''}${r.text.replace(/\n/g, '')}`).join('\n') + '\n';
+  }
+  return JSON.stringify({ title: d.title, source: d.sourceName, start: d.start, end: d.end, speakers: d.speakers, segments: rows.map(r => ({ start: r.start, end: r.end, speaker: r.name, text: r.text.replace(/\n/g, '') })) }, null, 1);
+}
+document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', () => {
+  const kind = b.dataset.ex, text = buildExport(kind);
+  if (text === null) return toast('書き出す行がありません');
+  const mime = { srt: 'application/x-subrip', vtt: 'text/vtt', txt: 'text/plain', json: 'application/json' }[kind];
+  const name = (S.doc.title || 'transcript').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || 'transcript';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
+  a.download = name + '.' + kind; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}));
+['exBase', 'exWrap', 'exSpk', 'exTs'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+
+/* ---------- 左パネルのイベント ---------- */
+$('#tabFile').addEventListener('click', () => setTab('file'));
+$('#tabMarker').addEventListener('click', () => setTab('marker'));
+$('#tabFolder').addEventListener('click', () => setTab('folder'));
+$('#btnStart').addEventListener('click', onStart);
+$('#btnMarkerFile').addEventListener('click', () => $('#markerFile').click());
+function coveredBy(entries, path, start, end){   // サーバーの _covered と同じ判定(元のファイルパス+範囲での重なり。9割以上で「済み」)。パスの正規化は簡易(大小文字とスラッシュの違いだけ)
+  const k = String(path).toLowerCase().replace(/\\/g, '/'), len = Math.max(0.0001, end - start);
+  for (const r of entries){
+    if (r.path !== k) continue;
+    if (r.whole) return r.tid;
+    const ov = Math.min(r.end != null ? r.end : end, end) - Math.max(r.start, start);
+    if (ov > 0 && ov / len >= 0.9) return r.tid;
+  }
+  return '';
+}
+$('#markerFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (f.size > 64 * 1024 * 1024) return toast('ファイルが大きすぎます');
+  let vs; try { vs = parseMarker(JSON.parse(await f.text())); } catch { return toast('data.json を読み込めませんでした'); }
+  try {
+    const { items } = await api('/api/transcribed-ranges');
+    for (const v of vs) if (v.sourcePath) for (const c of v.clips) c.doneTid = coveredBy(items, v.sourcePath, c.start, c.end);
+  } catch {}
+  S.marker = { found: true, videos: vs, sources: [{ kind: 'file', path: f.name, videos: vs.length }] }; renderMarker(); if (!vs.length) toast('ポイントのある動画が見つかりませんでした');
+});
+$('#mVideo').addEventListener('change', () => { $('#mPath').value = ''; renderMarkerClips(); });
+$('#mFilter').addEventListener('change', () => { renderMarkerClips(); readOpts(); });
+$('#mSkip').addEventListener('change', renderMarkerClips);
+$('#mPad').addEventListener('change', readOpts);
+$('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips input').forEach(c => { c.checked = e.target.checked; }); updateMCount(); });
+$('#mClips').addEventListener('change', updateMCount);
+$('#diarNum').addEventListener('change', readOpts);
+$('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
+['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optAutoGloss', 'optAutoLearned', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
+$('#jobs').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'open') openDoc(b.dataset.tid);
+  else if (b.dataset.act === 'evalview'){ $('#accCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); loadEvals(); }
+  else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
+});
+$('#txList').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return; const id = b.closest('.txi').dataset.id;
+  if (b.dataset.act === 'open') openDoc(id);
+  else if (b.dataset.act === 'del') armDelete(b, async () => {
+    try { await api('/api/transcript?id=' + id, { method: 'DELETE' }); } catch (er){ return toast(er.message); }
+    if (S.docId === id){ S.doc = null; S.docId = null; S.dirty = false; $('#doc').hidden = true; $('#noDoc').hidden = false; player().removeAttribute('src'); player().load(); }
+    loadList();
+  });
+});
+window.addEventListener('keydown', e => {
+  if (!S.doc || isTextEntry(e.target)) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); doUndo(); }
+  else if (e.key === ' ' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.matches('button,summary,video')){ e.preventDefault(); const p = player(); p.paused ? p.play().catch(() => {}) : p.pause(); }
+});
+window.addEventListener('beforeunload', e => { if (S.dirty){ e.preventDefault(); e.returnValue = ''; } });
+
+/* ---------- 起動 ---------- */
+async function boot(){
+  $('#ver').textContent = 'v' + APP_VERSION;
+  loadView(); applyView();
+  try {
+    const ping = await api('/api/ping');
+    if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
+  } catch (e){ return showErr(e.message + '。start.bat / start.command から起動してください'); }
+  try { S.tools = await api('/api/tools'); } catch {}
+  await loadRoster();
+  if (S.tools){
+    $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+    $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${l}">${{ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l]}</option>`).join('');
+  }
+  try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
+  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup();
+  try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done') S.seen.add(x.id); } catch {}
+  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDataset(), loadProgress(), loadBaselines()]);
+  if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
+}
+boot();
+})();
+</script>
+</body>
+</html>

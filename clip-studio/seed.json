@@ -1,0 +1,34 @@
+{
+ "agencies": [
+  {
+   "id": "hololive",
+   "name": "ホロライブ",
+   "official": [
+    "@hololive"
+   ],
+   "channels": []
+  },
+  {
+   "id": "nijisanji",
+   "name": "にじさんじ",
+   "official": [
+    "@nijisanji"
+   ],
+   "channels": []
+  },
+  {
+   "id": "vspo",
+   "name": "ぶいすぽっ!",
+   "official": [
+    "@Vspo77"
+   ],
+   "channels": []
+  },
+  {
+   "id": "neoporte",
+   "name": "ネオポルテ",
+   "official": [],
+   "channels": []
+  }
+ ]
+}

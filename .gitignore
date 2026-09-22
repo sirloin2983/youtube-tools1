@@ -1,0 +1,48 @@
+# 実行時に生成されるファイル(コードではないので追跡しない)
+__pycache__/
+*.pyc
+*.log
+*.crash.log
+*.bak
+
+# 旧ツール一式(開発対象外。APIキー・モデル本体・個人データを含むため丸ごと除外)
+0old/
+
+# 実行のたびに変わる状態・キャッシュ・個人データ・秘密情報(全ツール共通)
+**/cache/
+**/archive/
+**/work/
+**/exports/
+**/clips/
+**/dataset/
+**/transcripts/
+**/models/
+**/config.json
+**/settings.json
+**/settings-ui.json
+**/registry.json
+**/data.json
+**/data.json.bak
+**/data.json.corrupt-*
+**/feedback.jsonl
+**/feedback.jsonl.old
+**/.running.json
+**/*.onnx
+
+# cut2resolve / srt2resolve の変換結果フォルダ
+*_edl/
+*_pack/
+*_resolve/
+
+# 動画・音声・圧縮ファイル(コードではない)
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.json.gz
+*.zip
+
+# OS
+Thumbs.db
+.DS_Store

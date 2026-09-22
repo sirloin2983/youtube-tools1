@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.ytimg.com https://*.ggpht.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>切り抜きスタジオ</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/review.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><i aria-hidden="true"></i>切り抜きスタジオ<span class="ver" id="ver"></span></div>
+  <nav class="steps" id="steps" aria-label="作業の流れ">
+    <button type="button" class="step" data-step="rank" aria-pressed="true"><b>①</b> 探す<span class="badge" id="badgeRank" hidden></span></button>
+    <button type="button" class="step" data-step="queue" aria-pressed="false"><b>②</b> 解析<span class="badge" id="badgeQueue" hidden></span></button>
+    <button type="button" class="step" data-step="review" aria-pressed="false"><b>③</b> 確認・書き出し<span class="badge" id="badgeReview" hidden></span></button>
+    <button type="button" class="step" data-step="collab" aria-pressed="false"><b>④</b> コラボ<span class="badge" id="badgeCollab" hidden></span></button>
+  </nav>
+</header>
+<div class="errbar" id="errBar" hidden></div>
+<details class="settings-box" id="settingsBox"><summary>設定(APIキー・出力先フォルダ・事務所の登録・解析の既定値)</summary><div id="settingsBody"></div></details>
+<main>
+  <section id="paneRank" class="pane" aria-label="① 配信を探す"></section>
+  <section id="paneQueue" class="pane" aria-label="② 解析" hidden></section>
+  <section id="paneReview" class="pane" aria-label="③ 確認・書き出し" hidden></section>
+  <section id="paneCollab" class="pane" aria-label="④ コラボ" hidden></section>
+</main>
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+<script src="/core.js"></script>
+<script src="/settings.js"></script>
+<script src="/rank.js"></script>
+<script src="/queue.js"></script>
+<script src="/review.js"></script>
+<script src="/collab.js"></script>
+</body>
+</html>
