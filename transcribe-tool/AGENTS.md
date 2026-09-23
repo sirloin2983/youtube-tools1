@@ -1,6 +1,6 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.9.8(Claude 版)**。GPT 版の v0.9.8(別の変更)は上書きで消えたため `_recovered/2026-09-23-gpt/` に復元してあり、**2つの版の統合はユーザーの確認待ち**(`../docs/WORKLOG.md`)。
+現在 **v0.9.8(Claude 版)**。GPT 版の v0.9.8(別の変更)は上書きで消えたため `_recovered/2026-09-23-gpt/` に復元してある。統合方針はユーザー了承済み(2026-09-24、詳細は `../docs/WORKLOG.md`)。未完了タスクは `../docs/NEXT_TASKS.md` を参照。
 GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)も必ず読む。
 最新の経緯・決定事項・次にやることは `../docs/project/HANDOVER-transcribe-tool.md`(版ごとの記録は `transcribe-tool-v*.md`、全体仕様は `transcribe-tool-spec.md`)。
 使い方の説明はユーザー向けの `README.txt`(変更したら README も直す)。

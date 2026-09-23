@@ -1,14 +1,13 @@
 # HANDOVER(文字起こしツール v0.9.8) — このセッションの引き継ぎ
 
 セッションが長くなったための引き継ぎ。次のセッションの最初のメッセージは、下の「再開用の指示文」をそのまま貼ってください。
-**このツールは v0.9.5 の途中から GitHub での管理に切り替わりました**(`areas/dev-repo.md` 参照)。次セッションは、zip の添付ではなく
-`https://github.com/sirloin2983/youtube-tools1` の `transcribe-tool/` を clone/pull して作業してください(ただし本セッションでも
-クラウド側からの push が引き続きできず、ユーザーには差分zipで配布した。**まだユーザー側でpushされていない可能性がある**、次セッション開始時に確認)。
+作業場所と共有方法はリポジトリ直下の `AGENTS.md` を正とします。正本はユーザーPCの `C:\Users\you11\Desktop\youtube-test` とその git です。
+別の clone を作ったり、独自に pull して正本と差し替えたりしないでください。作業開始時は `AGENTS.md`、`docs/WORKLOG.md`、`docs/NEXT_TASKS.md` を確認します。
 
 ## 今のバージョンと状態
 - **【最重要・2026-09-24】GPT(Codex)も同じフォルダで作業している**。共通ルールはリポジトリ直下の `AGENTS.md`、作業記録は `docs/WORKLOG.md`(始める前に最後の数件を読み、終わったら末尾に追記)。
   Claude の v0.9.8 の zip で GPT の未コミットの変更(index.html・serve.py・README.txt)が上書きされて消えた事故があり、GPT 版は `_recovered/2026-09-23-gpt/` に復元済み。
-  **2つの版の統合はユーザーの確認待ち**(統合後の版は 0.9.9)。統合前は GPT のテスト test_document_save.cjs が8件失敗する
+  **2つの版の統合方針はユーザー了承済み**(2026-09-24)。未完了項目は `docs/NEXT_TASKS.md` を参照(統合後の版は 0.9.9)。統合前は GPT のテスト test_document_save.cjs が8件失敗する
 - serve.py / index.html とも **0.9.8**。単体テスト(test_metrics.py 31件)・画面の通し確認5本(e2e_ui_v07 / v08 / v09 / e2e_eval_v093 / **新規 e2e_ui_v098(125項目)**)すべて通過
   (v07/v09の「版 v0.9.4」判定だけは、版が上がったことによる想定内の不一致。v08の「4000行でのAlt+Enter 0.5秒」はマシン負荷で時々超える。旧版v0.9.7でも同じ条件で0.56秒になることを確認済みで、今回の変更による劣化ではない)。
 - v0.9.6〜v0.9.8の画面の変更は疑似モードのPlaywrightでのみ検証。実エンジン・実際のWindows機(実際の動画・実際のマウス操作感)ではまだ未検証。
@@ -117,11 +116,9 @@ SERVER_VERSION / APP_VERSION / README.txt を 0.9.6 → 0.9.7 に更新(3の変�
 - **キーボードショートカットはキー単体(Shift不要)。例外はShift+Spaceのみ**(Space単体は既存の再生・停止と衝突するため)。
   今後ショートカットを追加・変更するときは、この「Space以外は単体キー」の原則と、テキスト入力中(`isTextEntry`)は
   すべて無効という既存の設計を踏襲すること
-- **受け渡しの方法(2026-09-24 変更。ユーザーは git の手作業を面倒に感じている)**: クラウドからの GitHub への push は 403 で拒否される(Cowork の既知の制限)。
-  zip やパッチは使わず、**ユーザーの PC のフォルダ(C:\Users\you11\Desktop\youtube-test。セッションに接続済み)へ直接ファイルを書き込む**(device_commit_files)。
-  GitHub への保存は、ユーザーがフォルダ直下の **push.bat をダブルクリック**するだけ(add → 変更一覧を見せて y/N 確認 → commit → pull --rebase → push)。
-  **PC のフォルダが正**。PC 側にはクラウドの複製に無いファイルがある(transcribe-tool/resolve_export.py・test_resolve_export.py・test_document_save.cjs・TRANSCRIPTION_V2_DESIGN.md。
-  別のツールで作業した可能性)。編集の前に必ず PC から対象ファイルを取り込み(device_stage_files)、そのファイルを元に直して書き戻す(mtime のガードを付ける)
+- **受け渡し**: 詳細はリポジトリ直下の `AGENTS.md` を正とする。この文書内の過去の Cowork/device_stage_files 手順は現在の Codex/Claude 共通作業手順ではない。
+  PC フォルダが正本であり、別 clone・zip 上書きは禁止。各AIは共有フォルダの未コミット変更を保持し、WORKLOG の更新後、変更したファイルだけを明示的にコミットする。
+  GitHub への push はユーザーが `push.bat` で行う。
 
 ## 再開用の指示文(次のセッションの最初にそのまま貼る)
 
@@ -133,12 +130,11 @@ docs/project/HANDOVER-transcribe-tool.md を読んで、現状(v0.9.8)と次に�
 直前にやっていたこと: [ここに具体的な続きの作業を書く]
 ```
 
-claude.ai(Cowork)で続ける場合:
+クラウドAIで続ける場合:
 
 ```
 文字起こしツール(serve.py + index.html、127.0.0.1:8775、faster-whisper)の開発を続けます。
-GitHubリポジトリ https://github.com/sirloin2983/youtube-tools1 の transcribe-tool/ を確認してください(現在のバージョンは0.9.8。
-ユーザー側でまだpushされていない可能性があるので、バージョンが古ければ配布した差分zipの内容を反映してもらってください)。
-プロジェクト「動画編集ツール開発」の claude/HANDOVER-transcribe-tool.md を読んでから始めてください。
+ユーザーPCの正本は C:\Users\you11\Desktop\youtube-test です。まずリポジトリ直下の AGENTS.md、docs/WORKLOG.md の末尾、docs/NEXT_TASKS.md、
+docs/project/HANDOVER-transcribe-tool.md を読み、既存の変更を保持して未完了タスクを確認してください。独自の clone/pull や zip 上書きはしないでください。
 直前にやっていたこと: [ここに具体的な続きの作業を書く]
 ```

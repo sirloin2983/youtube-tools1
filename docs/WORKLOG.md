@@ -59,3 +59,10 @@
 - 決定・理由: 未コミットの Claude / GPT の統合作業は保護コミットしてから GitHub に送る。音声・文字起こし・モデルなどの個人データや実行データは送らない。
 - 未完了・次: GitHub へ反映後、Codex Cloud 側でこのリポジトリを指定して統合タスクを開始する。
 - 注意: Cloud 環境ではローカルの動画・音声・`transcripts/` を利用できない。実データを必要とする精度測定は PC 側で行う。
+
+## 2026-09-24 GPT(Codex)— 無人実行の安全性と古い引き継ぎ記述を修正
+- 変更: `auto-next.bat` から `git add -A` / 自動コミットを除去し、開始時に未コミット変更があれば中止するようにした。無人実行 Claude にも変更をコミットせず残すよう指示し、git add/commit の許可を外した。
+- 変更: `schedule-next.bat` に予約時の dirty worktree チェックを追加。未コミット作業がある場合はタスクを登録しない。
+- 変更: `transcribe-tool/AGENTS.md` と `docs/project/HANDOVER-transcribe-tool.md` の「統合は確認待ち」「GitHub clone/pull・zipで作業」という古い案内を、ユーザー了承済み・PCフォルダ正本・`docs/NEXT_TASKS.md` 参照に更新。
+- 理由: 複数AIが共有する作業フォルダを無人実行が一括ステージ・コミットしたり、古い引き継ぎ指示で別コピーを正本と誤認したりするリスクを防ぐ。
+- 確認: タスクスケジューラに `youtube-tools-auto-next` は登録されていない。コード差分の目視確認のみで、テストは未実行。
