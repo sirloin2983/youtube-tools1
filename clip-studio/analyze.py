@@ -1005,7 +1005,11 @@ def run_analyze(job):
         job["state"], job["phase"] = "cancelled", "中止しました"
     except ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+    except PermissionError as e:
+        common.log_failure("動画解析", e)
+        job["state"], job["error"], job["phase"] = "error", common.permission_message(e), "失敗"
     except Exception as e:
+        common.log_failure("動画解析", e)
         job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
     finally:
         mj = job.get("meta")

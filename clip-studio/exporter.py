@@ -5,6 +5,7 @@
 - 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4") を呼ぶ(store がマークを exported にする)。
 """
 import glob
+import json
 import math
 import os
 import re
@@ -22,6 +23,7 @@ MAX_CLIP_SEC = 3600
 EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく出力しなければ中止
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
+EDIT_HANDLE_SEC = 10.0
 _jobs = {}
 _jobs_lock = threading.Lock()
 
@@ -47,8 +49,8 @@ def compact_ts(t):
 
 def safe_name(s, n):
     # パス区切り・予約文字・制御文字と、yt-dlp の出力テンプレートで意味を持つ % を除く
-    s = re.sub(r'[\\/:*?"<>|%\x00-\x1f]+', "_", str(s or "")).strip(" ._")
-    return s[:n]
+    s = re.sub(r'[\\/:*?"<>|%\x00-\x1f]+', "_", str(s or ""))
+    return s[:n].strip(" ._")
 
 
 WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
@@ -92,7 +94,7 @@ def pick_folder(spec):
     フォルダ内の .studio-id に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける。"""
     root = common.get_out_dir()
     name = safe_name(spec["title"], 60) or spec["videoId"]
-    if name.upper() in WIN_RESERVED:
+    if name.split(".", 1)[0].upper() in WIN_RESERVED:
         name = "_" + name
     for i in range(1, 100):
         cand = name if i == 1 else "%s_%d" % (name, i)
@@ -185,8 +187,9 @@ def build_spec(store, req):
 
 
 def job_public(job):
-    return {"id": job["id"], "state": job["state"], "outDir": common.get_out_dir(), "folder": job.get("folder", ""),
-            "items": [{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")} for it in job["items"]]}
+    return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", common.get_out_dir()), "folder": job.get("folder", ""),
+            "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
+                       "warning": it.get("warning", "")} for it in job["items"]]}
 
 
 def start_job(spec, on_done=None):
@@ -195,6 +198,7 @@ def start_job(spec, on_done=None):
         if any(j["state"] == "running" for j in _jobs.values()):
             raise ApiError("busy", "別の書き出しが実行中です。完了または中止してから始めてください", 409)
         job = {"id": uuid.uuid4().hex[:12], "videoId": spec["videoId"], "state": "running", "cancel": False, "proc": None, "created": time.time(),
+               "outDir": common.get_out_dir(),
                "items": [dict(c, status="queued", progress=0.0, file=None, error=None) for c in spec["clips"]]}
         _jobs[job["id"]] = job
         for old in sorted(_jobs.values(), key=lambda j: j["created"])[:-20]:
@@ -267,6 +271,8 @@ def _pump(job, cmd, it, dur):
         job["proc"] = None
         if proc.poll() is None:
             common.hard_kill(proc)
+        if proc.poll() is not None:
+            proc.stdout.close()
     if job["cancel"]:
         raise ExportError("中止しました")
     if idle[0]:
@@ -423,7 +429,32 @@ def apply_volume(job, spec, it, rel_file):
         if os.path.exists(tmp):
             os.unlink(tmp)
         raise
-    os.replace(tmp, path)
+    common.replace_file(tmp, path)
+
+
+def export_edit_media(job, spec, it, base, runner):
+    """Create an additional media file with trim handles and a portable sidecar."""
+    edit_it = dict(it)
+    edit_it["start"] = max(0.0, float(it["start"]) - EDIT_HANDLE_SEC)
+    edit_it["end"] = float(it["end"]) + EDIT_HANDLE_SEC
+    edit_it["progress"] = 0.0
+    rel = runner(job, spec, edit_it, base + "_edit")
+    apply_volume(job, spec, edit_it, rel)
+    media_path = os.path.join(spec["outDir"], os.path.basename(rel))
+    actual, _v, _a, _line = common.media_info(media_path)
+    selection_in = float(it["start"]) - edit_it["start"]
+    selected = float(it["end"]) - float(it["start"])
+    expected = edit_it["end"] - edit_it["start"]
+    handle_after = max(0.0, (actual if actual is not None else expected) - selection_in - selected)
+    sidecar = os.path.join(spec["outDir"], base + ".edit.json")
+    data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(media_path),
+            "selectionIn": round(selection_in, 3), "handleBefore": round(selection_in, 3),
+            "handleAfter": round(handle_after, 3), "sourceStart": edit_it["start"], "sourceEnd": edit_it["end"]}
+    tmp = sidecar + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, sidecar)
+    return rel
 
 
 def run_job(job, spec, on_done=None):
@@ -431,8 +462,9 @@ def run_job(job, spec, on_done=None):
         os.makedirs(common.get_out_dir(), exist_ok=True)
         spec["folder"], spec["outDir"] = pick_folder(spec)
     except (ExportError, OSError) as e:
+        common.log_failure("書き出し先の準備", e)
         for it in job["items"]:
-            it["status"], it["error"] = "error", str(e)[:200]
+            it["status"], it["error"] = "error", common.permission_message(e) if isinstance(e, PermissionError) else str(e)[:200]
         job["state"] = "error"
         return
     job["folder"] = spec["folder"]
@@ -441,20 +473,31 @@ def run_job(job, spec, on_done=None):
             it["status"] = "cancelled"
             continue
         it["status"] = "running"
-        label = safe_name(it["label"], 30)
-        base = unique_base("%02d_%s-%s%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]), "_" + label if label else ""), spec["outDir"])
         try:
-            it["file"] = (run_ytdlp if spec["mode"] == "url" else run_ffmpeg)(job, spec, it, base)
+            label = safe_name(it["label"], 30)
+            base = unique_base("%02d_%s-%s%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]), "_" + label if label else ""), spec["outDir"])
+            runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
+            it["file"] = runner(job, spec, it, base)
             apply_volume(job, spec, it, it["file"])
+            try:
+                it["editFile"] = export_edit_media(job, spec, it, base, runner)
+            except Exception as e:
+                common.log_failure("Resolve edit media", e)
+                it["warning"] = "Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180]
             it["status"], it["progress"] = "done", 1.0
             if on_done:
                 try:
-                    on_done(spec["videoId"], it["id"], it["file"])
-                except Exception:   # 保存の失敗で書き出し自体は失敗にしない
-                    pass
+                    on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"])
+                except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
+                    common.log_failure("書き出し済みマークの保存", e)
+                    it["warning"] = "動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。"
         except ExportError as e:
             it["status"] = "cancelled" if job["cancel"] else "error"
             it["error"] = None if job["cancel"] else str(e)[:400]
+        except PermissionError as e:
+            common.log_failure("クリップ書き出し", e)
+            it["status"], it["error"] = "error", common.permission_message(e)
         except Exception as e:  # 想定外の失敗でもジョブ全体は止めない
+            common.log_failure("クリップ書き出し", e)
             it["status"], it["error"] = "error", "内部エラー: %s" % e.__class__.__name__
     job["state"] = "cancelled" if job["cancel"] else ("error" if any(i["status"] == "error" for i in job["items"]) else "done")

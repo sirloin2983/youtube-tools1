@@ -210,7 +210,12 @@ class TestMedia(Base):
         with open(secret, "w") as f:
             f.write("SECRET")
         link = os.path.join(self.tmp, "link.mp4")
-        os.symlink(secret, link)
+        try:
+            os.symlink(secret, link)
+        except OSError as e:
+            if getattr(e, "winerror", None) == 1314:
+                self.skipTest("Windows のシンボリックリンク作成権限がありません")
+            raise
         # 登録後に差し替えられた場合を想定して、ストアへ直接入れる(validate_source が弾く場合はそれも防御として可)
         try:
             src = analyze.validate_source({"kind": "file", "path": link})
@@ -383,7 +388,7 @@ class TestCollabApi(Base):
         self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
         st, j, *_ = self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 98.0, "end": 108.0, "label": "書き出し済み"}]})
         mark_id = j["video"]["marks"][0]["id"]
-        serve.STORE.mark_exported(v2, mark_id, "f/out.mp4")
+        serve.STORE.mark_exported(v2, mark_id, "f/out.mp4", 98.0, 108.0)
         self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
         st, j, *_ = self.req("GET", "/api/video?id=" + v2)
         self.assertEqual(st, 200)

@@ -116,11 +116,11 @@ class TestStatus(Base):
         return self.put([m])["marks"][0]
 
     def test_exported_then_status_returns_to_state_and_drops_file(self):
-        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4")
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
         self.m = self.marks()[0]
         self.assertEqual((self.m["status"], self.m["file"]), ("exported", "f/a.mp4"))
         for s in ("adopted", "rejected", ""):
-            self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4")
+            self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
             self.m = self.marks()[0]
             r = self.send(status=s)
             self.assertEqual((r["status"], r["file"]), (s, ""))
@@ -130,13 +130,13 @@ class TestStatus(Base):
         self.assertEqual((r["status"], r["file"]), ("", ""))
 
     def test_moving_exported_reverts_to_adopted(self):
-        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4")
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
         self.m = self.marks()[0]
         r = self.send(start=self.m["start"] + 2)
         self.assertEqual((r["status"], r["file"]), ("adopted", ""))
 
     def test_tiny_move_keeps_exported(self):
-        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4")
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
         self.m = self.marks()[0]
         r = self.send(start=self.m["start"] + 0.04)
         self.assertEqual(r["status"], "exported")
@@ -146,6 +146,29 @@ class TestStatus(Base):
         self.assertEqual(r["src"], "auto")
         self.assertEqual(r["score"], self.m["score"])
         self.assertEqual(r["auto0"], self.m["auto0"])
+
+    def test_export_completion_preserves_changed_range(self):
+        for change in ({"start": 12}, {"end": 45}):
+            with self.subTest(change=change):
+                self.send(status="adopted", **change)
+                before, feedback = self.video(), self.feedback()
+                saved = self.st.mark_exported(YT["videoId"], self.m["id"], "f/old.mp4", self.m["start"], self.m["end"])
+                self.assertFalse(saved)
+                self.assertEqual(self.video(), before)
+                self.assertEqual(self.feedback(), feedback)
+                reloaded = store.Store(self.path)
+                self.assertEqual(reloaded.get(YT["videoId"])[0]["marks"], before["marks"])
+
+    def test_export_completion_allows_label_edit(self):
+        self.send(status="adopted", label="new label")
+        self.assertTrue(self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"]))
+        m = self.marks()[0]
+        self.assertEqual((m["label"], m["status"], m["file"]), ("new label", "exported", "f/a.mp4"))
+
+    def test_export_completion_does_not_recreate_deleted_mark(self):
+        self.put([])
+        self.assertFalse(self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"]))
+        self.assertEqual(self.marks(), [])
 
 
 class TestFeedback(Base):
@@ -205,15 +228,15 @@ class TestFeedback(Base):
 
     def test_manual_export_recorded_as_good(self):
         self.put([{"id": "m3", "start": 900, "end": 960}])
-        self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4")
-        self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4")
+        self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
+        self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
         rows = [r for r in self.feedback() if r["start"] == 900]
         self.assertEqual([(r["verdict"], r["src"], r["event"]) for r in rows], [("good", "manual", "export")])
 
     def test_export_first_time_good_only(self):
         a = self.ms[0]
-        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4")
-        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4")   # 2回目は記録しない
+        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])
+        self.st.mark_exported(YT["videoId"], a["id"], "f/a.mp4", a["start"], a["end"])   # 2回目は記録しない
         self.assertEqual(self.verdicts(), ["good"])
 
 
@@ -241,7 +264,7 @@ class TestReplaceAuto(Base):
     def test_exported_kept(self):
         self.auto((10, 40))
         m = self.marks()[0]
-        self.st.mark_exported(YT["videoId"], m["id"], "f/a.mp4")
+        self.st.mark_exported(YT["videoId"], m["id"], "f/a.mp4", m["start"], m["end"])
         self.auto((500, 530))
         kept = [x for x in self.marks() if x["start"] == 10.0][0]
         self.assertEqual((kept["status"], kept["src"], kept["file"]), ("exported", "manual", "f/a.mp4"))
@@ -315,7 +338,7 @@ class TestPersistence(Base):
         self.auto((10, 40), (100, 130), (200, 230))
         a, b, c = self.marks()
         self.put([dict(a, status="adopted"), dict(b, status="rejected"), c])
-        self.st.mark_exported(YT["videoId"], a["id"], "f.mp4")
+        self.st.mark_exported(YT["videoId"], a["id"], "f.mp4", a["start"], a["end"])
         s = self.st.list()[0]
         self.assertEqual((s["marks"], s["exported"], s["adopted"], s["candidates"]), (3, 1, 0, 1))
 

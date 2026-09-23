@@ -76,8 +76,12 @@ def yt_get(path, params):
                 raise ApiError("quota", "YouTube APIの1日の利用上限に達しました(翌日、太平洋時間の0時にリセットされます)", 429)
             if reason in ("keyInvalid", "badRequest") and "key" in msg.lower():
                 raise ApiError("key_invalid", "APIキーが正しくありません", 400)
-            if reason in ("accessNotConfigured", "forbidden") and e.code == 403:
-                raise ApiError("api_not_enabled", "YouTube Data API v3 が有効になっていない、またはキーの制限で拒否されました", 403)
+            if reason in ("accessNotConfigured", "forbidden", "permissionError", "ipRefererBlocked") and e.code == 403:
+                raise ApiError(
+                    "api_permission",
+                    "YouTube Data API の権限で拒否されました。Google Cloud で「YouTube Data API v3」を有効にし、この API キーのアプリケーション制限（IP アドレス・HTTP リファラー）と API 制限を確認してください",
+                    403,
+                )
             if e.code == 404 or reason in ("playlistNotFound", "channelNotFound"):
                 raise ApiError("not_found", "見つかりません", 404)
             if e.code >= 500 and attempt == 0:
@@ -260,7 +264,7 @@ def _resolve_channels(entries):
         try:
             items = yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", [])
         except ApiError as ex:
-            if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled"):
+            if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
                 raise
             items = []
         _apply_channel(e, items[0] if items else None)
@@ -303,7 +307,7 @@ def import_official(agency_id):
             try:
                 secs = yt_get("channelSections", {"part": "snippet,contentDetails", "channelId": o["id"]}).get("items", [])
             except ApiError as ex:
-                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled"):
+                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
                     raise
                 secs = []
             n0 = len(found)
@@ -484,7 +488,7 @@ def run_search(job, spec):
             except Cancelled:
                 raise
             except ApiError as ex:
-                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled"):
+                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
                     raise
                 warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
                 ids = []

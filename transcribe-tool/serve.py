@@ -30,6 +30,7 @@ import difflib
 import faulthandler
 import gc
 import hashlib
+import itertools
 import json
 import logging
 import logging.handlers
@@ -54,7 +55,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.9.4"  # index.html 側の APP_VERSION と揃える
+SERVER_VERSION = "0.9.8"  # index.html 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 TX_DIR = os.path.join(ROOT, "transcripts")
@@ -500,7 +501,9 @@ def restore_history(tid, ts):
 _jobs = {}
 _order = []
 _jobs_lock = threading.Lock()
-_queue = queue.Queue()
+_queue = queue.PriorityQueue()   # (優先度, 通し番号, jid)。話者判別は文字起こしの待機列を追い越せるよう優先度を分ける(実行中のジョブを中断はしない。次の空きで割り込む)
+_seq_counter = itertools.count()
+JOB_PRIORITY = {"diarize": 0}   # 未指定(transcribe/retranscribe/abtest 等)は既定の1。数値が小さいほど先に実行
 _models = {}
 _model_lock = threading.Lock()
 
@@ -537,7 +540,8 @@ def validate_job(req):
             "duration": dur, "whole": whole, "model": model, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
-            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
+            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
+            "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "autoLearned": req.get("autoLearned") is True,
             "title": str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]}
 
@@ -559,7 +563,7 @@ def add_job(spec, kind="transcribe"):
             else:
                 _order.insert(0, old)
                 break
-    _queue.put(jid)
+        _queue.put((JOB_PRIORITY.get(kind, 1), next(_seq_counter), jid))
     return job
 
 
@@ -756,6 +760,13 @@ def transcribe_real(job, spec, wav, total):
 
 
 SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字)
+STRIP_PUNCT_CHARS = "、。？！?!"   # ショート動画のテロップでは句読点が浮きやすいので、既定で取り除く対象(全角の読点・句点・疑問符・感嘆符と、その半角形)
+_strip_punct_re = re.compile("[%s]" % re.escape(STRIP_PUNCT_CHARS))
+
+
+def strip_punct(text):
+    """テロップ表示用に、句読点(、。？！ と半角の ?!)を取り除く。"""
+    return _strip_punct_re.sub("", text)
 
 
 def _cut_words(ws):
@@ -804,13 +815,13 @@ def split_segment(s):
 
 
 def expand_segments(gen, spec):
-    """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。"""
+    """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
+    句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
+    (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。"""
+    strip = spec.get("stripPunct", True)
     for s in gen:
-        if spec.get("wordSplit"):
-            for p in split_segment(s):
-                yield p
-        else:
-            yield s
+        for p in (split_segment(s) if spec.get("wordSplit") else [s]):
+            yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
 
 
 def transcribe_fake(job, spec, wav, total):
@@ -896,7 +907,8 @@ def run_job(job):
 
 def worker():
     while True:
-        work_one(_queue.get())
+        _priority, _seq, jid = _queue.get()
+        work_one(jid)
 
 
 def work_one(jid):
@@ -2339,6 +2351,7 @@ def validate_retranscribe(req):
     return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "language": lang if lang in LANGS else "ja", "beam": 5,
             "vadMode": req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
             "wordSplit": mode == "range" and req.get("wordSplit") is not False,
+            "stripPunct": req.get("stripPunct") is not False,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "title": ("範囲を再認識: " if mode == "range" else "再認識: ") + (str(doc.get("title") or "") or "無題")[:100]}
@@ -2586,7 +2599,8 @@ def run_retranscribe(job):
                     else:
                         raise
                 if r:
-                    results[t["id"]] = r
+                    text, flag = r
+                    results[t["id"]] = (strip_punct(text) if spec.get("stripPunct", True) else text, flag)
                 job["progress"] = min(0.99, (n + 1) / len(targets))
         if job["cancel"]:
             raise Cancelled()

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -78,6 +79,22 @@ class TestApplyVolume(unittest.TestCase):
     def test_volume_missing_defaults_to_75(self):
         spec = exporter.build_spec(self._fake_store(), {"id": "v1", "markIds": ["m1"]})
         self.assertEqual(spec["volume"], exporter.DEFAULT_EXPORT_VOLUME)
+
+
+class TestExportCompletion(unittest.TestCase):
+    def test_callback_receives_the_exported_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = {"videoId": "abcdefghijk", "mode": "file"}
+            item = {"id": "m1", "start": 10.0, "end": 15.0, "label": "", "status": "queued"}
+            job = {"items": [item], "cancel": False}
+            done = Mock(return_value=False)   # マークが変更されていても、出力ファイル自体は成功
+            with patch.object(common, "get_out_dir", return_value=tmp), \
+                    patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
+                    patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
+                    patch.object(exporter, "apply_volume"):
+                exporter.run_job(job, spec, done)
+            done.assert_called_once_with("abcdefghijk", "m1", "video/clip.mp4", 10.0, 15.0)
+            self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
 
 
 if __name__ == "__main__":

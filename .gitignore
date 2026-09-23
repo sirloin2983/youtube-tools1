@@ -17,6 +17,7 @@ __pycache__/
 **/dataset/
 **/transcripts/
 **/models/
+.whisper_models/
 **/config.json
 **/settings.json
 **/settings-ui.json
@@ -42,6 +43,12 @@ __pycache__/
 *.wav
 *.json.gz
 *.zip
+
+# 受け渡し用のファイル(パッチ・Claude の出力フォルダ)
+git-patches/
+*.patch
+Claude outputs/
+_recovered/
 
 # OS
 Thumbs.db

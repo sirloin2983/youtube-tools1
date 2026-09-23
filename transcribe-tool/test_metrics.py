@@ -8,6 +8,7 @@
 import io
 import json
 import os
+import queue
 import random
 import shutil
 import socket
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 import zipfile
@@ -256,6 +258,32 @@ class TestSplitAndRobust(unittest.TestCase):
         self.assertTrue(S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": [], "wordSplit": True}).get("word_timestamps"))
         self.assertNotIn("word_timestamps", S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": []}))
 
+    def test_strip_punct(self):
+        self.assertEqual(S.strip_punct("こんにちは、元気?今日は晴れです。すごい!"), "こんにちは元気今日は晴れですすごい")
+        self.assertEqual(S.strip_punct("かっこ(括弧)は残る"), "かっこ(括弧)は残る")   # 、。？！と半角?!以外は対象外
+        self.assertEqual(S.strip_punct(""), "")
+
+    def test_expand_segments_strip_punct(self):
+        """句読点の除去(stripPunct)は既定でオン。単語分割の区切り判断には除去前の句読点を使うので、分け方(行数・時刻)は変わらない。"""
+        ws = [(i * 0.5, i * 0.5 + 0.45, "あ" * 2 + ("。" if i == 9 else "")) for i in range(20)]   # test_split_segment と同じ素材(10秒・40字超)
+        text = "".join(t for _a, _b, t in ws)
+        mk_gen = lambda: iter([{"start": 0.0, "end": 10.0, "text": text, "words": ws}])
+        with_strip = list(S.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": True}))
+        without_strip = list(S.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": False}))
+        self.assertGreaterEqual(len(with_strip), 2)
+        self.assertEqual([(o["start"], o["end"]) for o in with_strip], [(o["start"], o["end"]) for o in without_strip])   # 分け方は不変
+        self.assertNotIn("。", "".join(o["text"] for o in with_strip))    # オンなら句点が消える
+        self.assertIn("。", "".join(o["text"] for o in without_strip))    # オフなら残る
+        default_spec = list(S.expand_segments(mk_gen(), {"wordSplit": True}))   # spec に無いときはオン扱い(既定)
+        self.assertEqual([o["text"] for o in default_spec], [o["text"] for o in with_strip])
+
+    def test_finish_range_lines_drops_punct_only_line(self):
+        """句読点だけの行は、除去すると空文字になるので捨てられる。"""
+        spec = {"range": [0.0, 10.0], "language": "ja", "glossary": [], "wordSplit": False, "stripPunct": True}
+        raw = [{"start": 1.0, "end": 2.0, "text": "。", "avg_logprob": -0.3}, {"start": 3.0, "end": 4.0, "text": "元気?", "avg_logprob": -0.3}]
+        out = S.finish_range_lines(raw, spec, 0.0)
+        self.assertEqual([o["raw"] for o in out], ["元気"])
+
     def test_model_cache_keeps_one(self):
         import types
         made = []
@@ -310,6 +338,34 @@ class TestSplitAndRobust(unittest.TestCase):
         finally:
             S.RUN_MARK, S.run_job = old_mark, old_run
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _drain_queue(self):
+        while True:
+            try:
+                S._queue.get_nowait()
+            except queue.Empty:
+                return
+
+    def test_diarize_overtakes_queued_transcribe(self):
+        """話者判別(diarize)は、待機列に並んでいる文字起こし(transcribe)より先に取り出される。
+        実行中のジョブを中断するわけではなく、待機列の中の順序だけを入れ替える(同じ種類どうしの順番は変えない)。"""
+        old_jobs, old_order = dict(S._jobs), list(S._order)
+        self._drain_queue()
+        S._jobs.clear()
+        S._order.clear()
+        try:
+            j1 = S.add_job({"title": "t1"}, "transcribe")
+            j2 = S.add_job({"title": "t2"}, "transcribe")
+            j3 = S.add_job({"title": "d1", "tid": "docabc"}, "diarize")
+            j4 = S.add_job({"title": "t3"}, "transcribe")
+            picked = [S._queue.get_nowait()[2] for _ in range(4)]
+            self.assertEqual(picked, [j3["id"], j1["id"], j2["id"], j4["id"]])
+        finally:
+            self._drain_queue()
+            S._jobs.clear()
+            S._jobs.update(old_jobs)
+            S._order.clear()
+            S._order.extend(old_order)
 
 
 def free_port():
@@ -588,6 +644,46 @@ class TestRangeAndStudio(unittest.TestCase):
         self.assertEqual(S.marker_videos(old)[0]["clips"][0]["rating"], 3)
         self.assertEqual(S.marker_videos([]), [])
         self.assertEqual(S.marker_videos({"videos": 5}), [])
+
+
+class TestStudioExportDirectory(unittest.TestCase):
+    def test_default_exports_are_available_to_marker_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_path = os.path.join(tmp, "data.json")
+            clip_path = os.path.join(tmp, "exports", "video", "clip.mp4")
+            os.makedirs(os.path.dirname(clip_path))
+            with open(clip_path, "wb") as f:
+                f.write(b"test fixture")
+            data = {"videos": {"abcdefghijk": {"kind": "youtube", "marks": [
+                {"id": "m1", "start": 10, "end": 15, "status": "exported", "file": "video/clip.mp4"}]}}}
+            with open(data_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            with patch.object(S, "STUDIO_DATA", data_path), \
+                    patch.object(S, "MARKER_DATA", os.path.join(tmp, "missing.json")), \
+                    patch.object(S, "transcribed_ranges", return_value=[]):
+                result = S.read_marker()
+            self.assertEqual(result["outDir"], os.path.join(tmp, "exports"))
+            self.assertEqual(result["videos"][0]["clips"][0]["fileAbs"], os.path.realpath(clip_path))
+
+    def test_explicit_settings_and_legacy_config_keep_precedence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_path = os.path.join(tmp, "data.json")
+            settings = os.path.join(tmp, "settings.json")
+            with open(os.path.join(tmp, "config.json"), "w", encoding="utf-8") as f:
+                json.dump({"settings": {"outDir": "legacy"}}, f)
+            self.assertEqual(S.studio_out_dir(data_path), os.path.join(tmp, "legacy"))
+            custom = os.path.join(tmp, "custom")
+            with open(settings, "w", encoding="utf-8") as f:
+                json.dump({"outDir": custom}, f)
+            self.assertEqual(S.studio_out_dir(data_path), custom)
+
+    def test_empty_or_broken_settings_fall_back_to_exports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in ('{}', '{"outDir": " "}', 'broken json'):
+                with self.subTest(body=body):
+                    with open(os.path.join(tmp, "settings.json"), "w", encoding="utf-8") as f:
+                        f.write(body)
+                    self.assertEqual(S.studio_out_dir(os.path.join(tmp, "data.json")), os.path.join(tmp, "exports"))
 
 
 class TestMarkerDone(unittest.TestCase):

@@ -179,8 +179,8 @@ def main():
             pg.locator("#segs textarea").nth(1).focus()
             pg.keyboard.press("Tab")
             check(pg.evaluate("document.activeElement === document.body") and navi() == 1, "入力中に Tab で入力欄を抜ける(選んだ行は残る)")
-            pg.keyboard.press("Shift+S")
-            check(navi() == 2, "抜けたあとは Shift+S が使える")
+            pg.keyboard.press("s")
+            check(navi() == 2, "抜けたあとは S が使える")
             pg.keyboard.press("Tab")
             check(pg.evaluate("document.activeElement === document.querySelectorAll('#segs textarea')[2]"), "入力欄の外で Tab → 選んだ行の入力欄に入る")
             pg.keyboard.press("Tab")
@@ -193,7 +193,7 @@ def main():
             check(css[0] == "none" and css[1] == "solid" and css[2] == "3px", "再生中の行は太枠にならず、選んだ行だけが太枠: %s" % css)
             check(not pg.is_checked("#frameFollow"), "太枠を再生に合わせるのは、標準でオフ")
             # 時刻の微調整
-            pg.keyboard.press("Shift+S")
+            pg.keyboard.press("s")
             row = pg.locator("#segs .seg").nth(navi())
             row.locator("input[data-f=start]").scroll_into_view_if_needed()
             before = row.locator("input[data-f=end]").input_value()
@@ -202,7 +202,7 @@ def main():
             after = pg.locator("#segs .seg").nth(navi()).locator("input[data-f=end]").input_value()
             st = pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('input[data-f=start]').value" % navi())
             check(after != before, "終了の＋で終了時刻が動く: %s → %s" % (before, after))
-            pg.select_option("#adjStep", "0.5")
+            pg.click("#playSet summary"); pg.select_option("#adjStep", "0.5"); pg.click("#playSet summary")   # v0.9.8: 「⚙設定」の中
             pg.locator("#segs .seg").nth(navi()).locator("[data-act=adj][data-f=start][data-d='-1']").click()
             check(pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('input[data-f=start]').value" % navi()) != st, "幅を変えて、開始の−で開始が動く")
             pg.keyboard.press("Control+z")

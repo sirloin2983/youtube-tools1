@@ -332,6 +332,7 @@ function renderListKeep(){
 async function flushSave(){
   if (saveTimer){ clearTimeout(saveTimer); saveTimer = null; }
   if (S.dirty || saveP) await save();
+  if (S.dirty) throw new Error('変更を保存できませんでした。「再保存」で保存してから操作してください');
 }
 /* サーバーだけが決める項目(書き出し状態・点数など)を手元のマークへ反映する。手元の編集(start/end/label)は上書きしない */
 function mergeServerFields(v, sv){
@@ -375,11 +376,16 @@ function renderVideoSelect(){
 }
 async function loadVideo(id){
   const seq = ++S.loadSeq;
-  try { await flushSave(); } catch {}
+  try { await flushSave(); } catch (e){ renderVideoSelect(); toast(e.message); return false; }
+  if (seq !== S.loadSeq) return false;
+  const editSeq = S.editSeq;
   let j;
   try { j = await Studio.api('/api/video?id=' + enc(id)); }
   catch (e){ if (seq === S.loadSeq){ toast('動画を読み込めません: ' + e.message); refreshList(); } return false; }
   if (seq !== S.loadSeq) return false;
+  if (S.dirty || saveP || S.editSeq !== editSeq){
+    renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
+  }
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
   S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set();
   for (const m of marks()) S.seen.add(m.id);
@@ -396,7 +402,7 @@ async function loadVideo(id){
 /* 別の場所(② 解析の完了・書き出し)で変わったサーバー側の状態を取り込む。手元の未保存の編集は失わない */
 async function syncFromServer(){
   const v0 = S.cur; if (!v0) return;
-  try { await flushSave(); } catch {}
+  try { await flushSave(); } catch { return; }
   if (S.cur !== v0) return;
   let j; try { j = await Studio.api('/api/video?id=' + enc(v0.id)); } catch (e){ return; }
   if (S.cur !== v0) return;
@@ -910,6 +916,7 @@ function renderJob(j){
       <span class="mono">${i + 1}. ${fmt(it.start)} – ${fmt(it.end)}</span><span class="rv-ejob-n">${esc(it.title || '無題')}</span>
       <span class="rv-pill ${it.status === 'done' ? 'ok' : it.status === 'error' ? 'err' : ''}">${esc(EXP_LABEL[it.status] || it.status)}${it.status === 'running' ? ' ' + Math.round((it.progress || 0) * 100) + '%' : ''}</span></div>
       ${it.file ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
+      ${it.warning ? `<div class="rv-ejob-s hint">${esc(it.warning)}</div>` : ''}
       ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}</div>` : ''}</li>`).join('');
   const h = j.items.map(i => errHint(i.error)).find(Boolean); if (h) ol.insertAdjacentHTML('beforeend', `<li class="hint rv-ejob-hint">${esc(h)}</li>`);
   if (S.job) S.job.running = j.state === 'running';
@@ -942,7 +949,7 @@ function pollJob(){
   expTimer = setInterval(tick, 1000); tick();
 }
 async function startExport(onlyIds){
-  if (S.starting) return;
+  if (S.starting || S.exportAll || (S.job && S.job.running)) return;
   const v = S.cur;
   if (!v) return toast('先に動画を開いてください');
   if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
@@ -951,6 +958,7 @@ async function startExport(onlyIds){
   S.starting = true; renderExportUI();
   try {
     await flushSave(); // サーバーが保存済みのマークから範囲を組み立てるため、先に保存する
+    if (S.cur !== v) throw new Error('動画が切り替わりました。書き出す動画を確認してやり直してください');
     const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } });
     S.job = { id: j.id, videoId: v.id, running: true }; rememberJob({ id: j.id, videoId: v.id });
     renderJob(j); pollJob();
@@ -961,13 +969,19 @@ async function startExport(onlyIds){
 async function startExportAll(){
   if (S.starting || S.exportAll) return;
   if (S.job && S.job.running) return toast('書き出しの実行中です');
-  try { await flushSave(); } catch {}
+  if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
+  S.starting = true; renderExportUI();
   let list;
-  try { list = (await Studio.api('/api/videos')).videos.filter(x => x.adopted > 0); } catch (e){ return toast(e.message || '動画の一覧を取得できませんでした'); }
+  try {
+    await flushSave();
+    list = (await Studio.api('/api/videos')).videos.filter(x => x.adopted > 0);
+  } catch (e){ toast(e.message || '動画の一覧を取得できませんでした'); return; }
+  finally { S.starting = false; renderExportUI(); }
   if (!list.length) return toast('採用にしたマークがありません');
-  S.exportAll = { idx: 0, total: list.length, fail: 0, cancel: false, done: 0 };
+  S.exportAll = { idx: 0, total: list.length, fail: 0, cancel: false, done: 0, interrupted: false };
   renderExportUI();
   try {
+    allVideos:
     for (const x of list){
       if (S.exportAll.cancel) break;
       S.exportAll.idx++; renderExportUI();
@@ -975,25 +989,45 @@ async function startExportAll(){
       try { v = (await Studio.api('/api/video?id=' + enc(x.id))).video; } catch { S.exportAll.fail++; continue; }
       const ids = v.marks.filter(m => m.status === 'adopted').map(m => m.id);
       if (!ids.length) continue;
-      let j;
-      try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } }); }
-      catch (e){ toast((v.title || v.id) + ': ' + (e.message || '書き出しを開始できませんでした')); if (e.status === 409) break; S.exportAll.fail += ids.length; continue; }
-      S.job = { id: j.id, videoId: v.id, running: true };
-      for (;;){
-        try { j = await Studio.api('/api/export?id=' + enc(j.id)); } catch { break; }
-        renderJob(j);
-        if (j.state !== 'running') break;
-        await new Promise(r => setTimeout(r, 1000));
+      // API の1回50件制限に合わせ、同じ動画のマークも分割する。
+      for (let offset = 0; offset < ids.length; offset += 50){
+        if (S.exportAll.cancel) break allVideos;
+        const chunk = ids.slice(offset, offset + 50);
+        let j;
+        try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: chunk, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } }); }
+        catch (e){
+          toast((v.title || v.id) + ': ' + (e.message || '書き出しを開始できませんでした'));
+          // POST の応答を失った場合も開始している可能性がある。続けて依頼しない。
+          if (!e.status || e.status === 409){ S.exportAll.interrupted = true; break allVideos; }
+          S.exportAll.fail += chunk.length; continue;
+        }
+        S.job = { id: j.id, videoId: v.id, running: j.state === 'running' };
+        rememberJob({ id: j.id, videoId: v.id }); renderJob(j);
+        while (j.state === 'running'){
+          if (S.exportAll.cancel){
+            try { await Studio.api('/api/export/cancel', { method: 'POST', body: { id: j.id } }); } catch {}
+          }
+          try { j = await Studio.api('/api/export?id=' + enc(j.id)); }
+          catch (e){
+            S.exportAll.interrupted = true;
+            if (e.status === 404){ S.job = null; rememberJob(null); }
+            else pollJob(); // 実行中の状態を維持し、このジョブの確認だけを続ける
+            break allVideos;
+          }
+          renderJob(j);
+          if (j.state === 'running') await new Promise(r => setTimeout(r, 1000));
+        }
+        rememberJob(null);
+        S.exportAll.done += j.items.filter(i => i.status === 'done').length;
+        S.exportAll.fail += j.items.filter(i => i.status !== 'done').length;
+        if (S.cur && S.cur.id === v.id) await syncFromServer();
+        if (j.state === 'cancelled'){ S.exportAll.cancel = true; break allVideos; }
       }
-      S.exportAll.done += j.items.filter(i => i.status === 'done').length;
-      S.exportAll.fail += j.items.filter(i => i.status !== 'done').length;
-      if (S.cur && S.cur.id === v.id) await syncFromServer();
-      if (j.state === 'cancelled') break;
     }
   } finally {
-    const r = S.exportAll; S.exportAll = null; if (S.job) S.job.running = false;
+    const r = S.exportAll; S.exportAll = null;
     await refreshList(); renderExportUI();
-    toast(r.cancel ? `全動画の書き出しを中止しました(${r.done}件完了)` : `全動画の書き出し完了: ${r.done}件` + (r.fail ? `(失敗 ${r.fail}件)` : ''));
+    toast(r.interrupted ? '書き出し状態を確認できないため、一括処理を中断しました。進捗を確認してから再実行してください' : r.cancel ? `全動画の書き出しを中止しました(${r.done}件完了)` : `全動画の書き出し完了: ${r.done}件` + (r.fail ? `(失敗 ${r.fail}件)` : ''));
   }
 }
 async function resumeJob(){
@@ -1003,8 +1037,15 @@ async function resumeJob(){
   try {
     const j = await Studio.api('/api/export?id=' + enc(saved.id));
     S.job = { id: saved.id, videoId: saved.videoId, running: j.state === 'running' };
-    if (j.state === 'running'){ renderJob(j); pollJob(); } else rememberJob(null);
-  } catch { rememberJob(null); }
+    renderJob(j);
+    if (j.state === 'running') pollJob(); else rememberJob(null);
+  } catch (e){
+    if (e.status === 404) rememberJob(null);
+    else {
+      S.job = { id: saved.id, videoId: saved.videoId, running: true };
+      renderExportUI(); pollJob(); // 通信断だけでは、再読み込み前のジョブを忘れない
+    }
+  }
 }
 
 /* ---------- 描画 ---------- */
@@ -1269,7 +1310,7 @@ function wire(){
   const runAnalyze = async () => {
     const v = S.cur; if (!v || v.kind !== 'youtube') return;
     if (typeof Studio.enqueue !== 'function') return toast('解析画面がまだ読み込まれていません');
-    try { await flushSave(); } catch {}
+    try { await flushSave(); } catch (e){ toast(e.message); return; }
     Studio.enqueue([{ kind: 'youtube', videoId: v.id, title: v.title || '', channel: v.channel || '' }]);
   };
   $('#rvAnalyze').addEventListener('click', e => {
@@ -1326,8 +1367,8 @@ function wire(){
   $('#rvExpRun').addEventListener('click', () => startExport());
   $('#rvExpRetry').addEventListener('click', () => { const ids = failedIds(); if (ids.size) startExport(ids); });
   $('#rvExpCancel').addEventListener('click', async () => {
-    if (!S.job) return;
     if (S.exportAll) S.exportAll.cancel = true;
+    if (!S.job || !S.job.running) return;
     try { await Studio.api('/api/export/cancel', { method: 'POST', body: { id: S.job.id } }); } catch (e){ toast(e.message); }
   });
 
@@ -1393,6 +1434,9 @@ Studio.onReady(() => {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden){ pausePlayback(); stopPoll(); if (setTimer) saveSettings(); if (S.dirty) save(); }
     else if (Studio.step === 'review') startPoll();
+  });
+  window.addEventListener('beforeunload', e => {
+    if (S.dirty || saveP || S.exportAll){ e.preventDefault(); e.returnValue = ''; }
   });
   loadSettings();
   refreshList();

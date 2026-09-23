@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import traceback
 import urllib.parse
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))   # コード・静的ファイル・seed.json の場所
@@ -62,6 +63,18 @@ def find_tool(name):
     return shutil.which(name)
 
 
+def replace_file(source, target):
+    """Windows の一時的な共有違反だけ、短く待って再試行する。"""
+    for attempt in range(4):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError as e:
+            if getattr(e, "winerror", None) not in (5, 32, 33) or attempt == 3:
+                raise
+            time.sleep(0.1 * 2 ** attempt)
+
+
 def atomic_write(path, data: bytes, mode=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-", suffix=".part")
@@ -78,10 +91,12 @@ def atomic_write(path, data: bytes, mode=None):
                 os.chmod(tmp, mode)
             except OSError:
                 pass
-        os.replace(tmp, path)
+        replace_file(tmp, path)
     except OSError:
-        if os.path.exists(tmp):
+        try:
             os.unlink(tmp)
+        except OSError:
+            pass  # 後片付けの失敗で、本来の保存エラーを隠さない
         raise
 
 
@@ -92,6 +107,30 @@ _URL_RE = re.compile(r"https?://\S+")
 def redact(line):
     """署名つきURLなどはログ・画面に出さない。"""
     return _URL_RE.sub("<URL>", str(line))
+
+
+_error_log_lock = threading.Lock()
+
+
+def log_failure(context, error):
+    """握りつぶしていた処理エラーも、原因と失敗箇所をローカルに残す。"""
+    try:
+        with _error_log_lock:
+            path = p("studio-errors.log")
+            if os.path.exists(path) and os.path.getsize(path) > 1024 * 1024:
+                replace_file(path, path + ".old")
+            with open(path, "a", encoding="utf-8") as f:
+                detail = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+                f.write("[%s] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), context, redact(detail)))
+    except OSError:
+        pass
+
+
+def permission_message(error):
+    path = getattr(error, "filename2", None) or getattr(error, "filename", None)
+    detail = " 対象: %s" % path if path else ""
+    return ("ファイルへのアクセスが拒否されました。対象ファイルを再生・編集中のアプリを閉じ、"
+            "保存先の書き込み権限とドライブの接続を確認してください。" + detail)
 
 
 def tail_reason(err, n=2):

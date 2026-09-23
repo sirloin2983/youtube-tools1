@@ -494,7 +494,8 @@ class Store:
                 except OSError:
                     pass
             atomic_write(self.path, data)
-        except OSError:
+        except OSError as e:
+            common.log_failure("動画・マークの保存", e)
             raise ApiError("save_failed", SAVE_ERR, 500)
         self.videos = videos
         self.groups = groups
@@ -701,14 +702,16 @@ class Store:
             self.series[vid] = series
             return len(autos)
 
-    def mark_exported(self, vid, mark_id, relfile):
-        """書き出し成功: マークを exported にして保存。自動マークで初めての成功なら「よかった」を記録。"""
+    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end):
+        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。"""
         fb = None
         with self.lock:
             v = self.videos.get(vid)
             m = next((x for x in v["marks"] if x["id"] == mark_id), None) if v else None
             if not m:
                 return False
+            if abs(m["start"] - expected_start) > EDIT_TOL or abs(m["end"] - expected_end) > EDIT_TOL:
+                return False   # 書き出し中の編集を保持する。古い区間の動画は関連付けない
             first = m["status"] != "exported"
             nv = copy.deepcopy(v)
             nm = next(x for x in nv["marks"] if x["id"] == mark_id)
