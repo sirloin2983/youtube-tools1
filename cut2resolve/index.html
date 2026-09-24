@@ -232,6 +232,7 @@
         <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optRender"><span><b>粗編集の動画(mp4)も作る</b><small>EDL が通らないときの代わり。書き出しに時間がかかります</small></span></label>
         <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optCopy"><span><b>元動画をコピーして同梱</b><small>フォルダごと友人に送れる。動画の大きさぶん容量を使います</small></span></label>
         <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optFcpxml"><span><b>補助の FCPXML も作る</b><small>字幕をタイトルとして入れたタイムライン。Resolve の実機では未確認</small></span></label>
+        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optTextPlus"><span><b>Text+ パックを作る（Free 21.1 Windows・Lua実験版）</b><small>動画を media/ にコピーし、Resolve内で実行するLuaスクリプトと復旧用タイムラインを同梱します。fps・解像度が合うテストプロジェクト内に新しいタイムラインを作成します</small></span></label>
       </div>
       <p class="hint c2r-always">いつも入るもの: EDL(カット)・カット後の字幕 SRT(字幕があるとき)・友人へ.txt(Resolve での手順)・cut-plan.json(カットの記録)</p>
       <div class="notice danger" id="buildError" hidden></div>

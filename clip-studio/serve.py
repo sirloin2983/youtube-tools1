@@ -31,6 +31,7 @@ import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
+from ytt_core import httpsec  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
 SERVER_VERSION = "0.2.0"  # core.js 側の APP_VERSION と揃える
@@ -93,23 +94,22 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "clip-studio"
     timeout = SOCKET_TIMEOUT
 
+    # 安全検査の規則は ytt_core.httpsec に1か所(スタジオ・文字起こし・入口で共通)
     def _host_ok(self):          # DNS rebinding 対策
-        return (self.headers.get("Host") or "") in ALLOWED_HOSTS
+        return httpsec.host_ok(self.headers, ALLOWED_HOSTS)
 
     def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全に一致するものだけ
-        o = self.headers.get("Origin")
-        return o is None or o in {"http://" + h for h in ALLOWED_HOSTS}
+        return httpsec.origin_ok(self.headers, ALLOWED_HOSTS)
 
     def _fetch_site_ok(self):    # 他サイトからのAPI消費(クォータ浪費)対策
-        return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+        return httpsec.fetch_site_ok(self.headers)
 
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(「他のツール」メニュー・?url=)でこの画面を開くのは許す。
         ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site(localhost と 127.0.0.1 なら cross-site)を送るため、以前は 403 になっていた。
         画面を新しいタブで開くだけで、URL で処理は始まらない(docs/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
         iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
-        return (path in ("/", "/index.html") and self.headers.get("Sec-Fetch-Mode") == "navigate"
-                and self.headers.get("Sec-Fetch-Dest", "document") == "document")
+        return httpsec.navigation_ok(self.headers, path)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         self.send_response(code)
@@ -187,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
                     body = f.read()
                 page = fn.endswith(".html")
                 return self._send(200, body, STATIC_TYPES[os.path.splitext(fn)[1]],
-                                  {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"} if page else None)
+                                  httpsec.PAGE_HEADERS if page else None)
             except OSError:
                 return self._send(404, b"not found")
         if u.path == "/media":
@@ -444,7 +444,7 @@ def _bound(srv):
     global PORT, ALLOWED_HOSTS
     p = srv.server_address[1]
     PORT = p
-    ALLOWED_HOSTS = {"localhost:%d" % p, "127.0.0.1:%d" % p}
+    ALLOWED_HOSTS = httpsec.allowed_hosts(p)
     return srv, p
 
 

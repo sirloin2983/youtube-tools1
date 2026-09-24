@@ -1,0 +1,41 @@
+/* 入口の画面(app/portal.html)だけの見た目。色は ui-kit の変数だけを使う(ダーク/ライトの両方で読めるように)。
+   クラス名の接頭辞は pt-(docs/pipeline.md の 5: ツール固有のクラスには接頭辞) */
+.ui-brand-mark[data-tool=portal]{background:linear-gradient(135deg,#5a46e0,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#3f7fe0 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+
+.pt-main{max-width:1180px;margin:0 auto;padding:22px 16px 40px}
+.pt-intro h1{font-size:22px;margin:2px 0 4px}
+.pt-intro .hint{margin:0 0 18px}
+
+/* ① → ② → ③ の3枚。広い画面は横並びで矢印、狭い画面は縦に積む */
+.pt-flow{list-style:none;margin:0 0 16px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px;align-items:start}   /* ログを開いたカードだけが伸びる(他のカードのボタンが下へ離れないように) */
+.pt-tool{position:relative;display:flex;flex-direction:column;gap:10px;margin:0;transition:border-color var(--dur) var(--ease)}
+.pt-tool:not(:last-child)::after{content:"";position:absolute;top:30px;right:-22px;width:12px;height:12px;border-top:2px solid var(--line-strong);border-right:2px solid var(--line-strong);transform:rotate(45deg)}
+.pt-tool[data-state=running]{border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}
+.pt-tool[data-state=external]{border-color:color-mix(in srgb,var(--info) 40%,var(--line))}
+.pt-tool[data-state=crashed],.pt-tool[data-state=missing]{border-color:color-mix(in srgb,var(--danger) 50%,var(--line))}
+
+.pt-head{display:flex;align-items:center;gap:10px}
+.pt-step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--panel-3);color:var(--ink-2);font:700 12px/1 var(--mono);flex:none}
+.pt-name{margin:0}
+.pt-status{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;min-height:22px}
+.pt-meta{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pt-msg{margin:0}
+.pt-open[aria-disabled=true]{pointer-events:none}
+
+.pt-logbox>summary{font-size:var(--fs-sm);color:var(--ink-2)}
+.pt-log{margin:8px 0 4px;max-height:260px;min-height:72px;overflow:auto;padding:8px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);
+  font:12px/1.5 var(--mono);color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.pt-logpath{overflow-wrap:anywhere}
+
+.pt-foot{margin-top:4px}
+
+.pt-done{max-width:560px;margin:0 auto;padding:64px 16px}
+.pt-done-card{text-align:center;padding:28px 24px}
+.pt-done-card h1{font-size:20px;margin:0 0 6px}
+.pt-done-card .hint{margin:0}
+
+@media (max-width:900px){
+  .pt-flow{grid-template-columns:1fr;gap:26px}
+  .pt-tool:not(:last-child)::after{top:auto;bottom:-19px;right:auto;left:24px;transform:rotate(135deg)}
+}
+@media (prefers-reduced-motion:reduce){.pt-tool{transition:none}}

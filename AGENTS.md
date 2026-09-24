@@ -11,6 +11,9 @@
 - 全体の引き継ぎ: `docs/project/HANDOVER.md`、今後の改善案: `docs/project/improvement-roadmap.md`
 - 共通の見た目: `ui-kit/`(正本。`python tools/sync_ui_kit.py` で各ツールへ写す。写しは手で直さない)。ツール間の受け渡し: `docs/pipeline.md`
 - 2026-09-24 の全ツール見直しのまとめ: `docs/review/README.md`。3ツールの通し確認: `python tools/e2e_pipeline.py`
+- `app/` … 入口(ランチャー)。リポジトリ直下の `start-all.bat` で3ツールをまとめて起動・終了し、入口の画面(http://localhost:8700/)を出す。`app/README.txt`
+- `ytt_core/` … スタジオ・文字起こし・入口の共通部品(書き込み・`.runtime`・受け渡しの形式・安全検査)。変えたら `python -m unittest ytt_core/test_ytt_core.py` と各ツールのテスト
+- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core は実装済み。**当面 cut2resolve は統合しない**)
 
 どのツールも「Python 標準ライブラリ中心のローカルサーバー(serve.py)+ 1ファイルの画面(index.html)」構成で、ユーザーの PC 上だけで動く。
 外部サービスへ動画・音声を送らない方針。
@@ -31,6 +34,8 @@
 - 実行時データ・個人データ・秘密情報はコミットしない(`.gitignore` 参照: transcripts/ dataset/ models/ exports/ clips/ config.json など)。リポジトリは Public にする方針なので特に注意
 - 各ツールで版を上げるときは、**serve.py の SERVER_VERSION・index.html の APP_VERSION・README.txt の見出し**を必ず同時に上げる(食い違うと画面に赤い帯が出る)
 - テストは各ツールのフォルダで実行(文字起こしツールは `transcribe-tool/AGENTS.md` 参照)。画面のテストは Playwright(chromium)+ ffmpeg が必要
+- 各ツールの起動の約束(`serve.py [ポート] --no-open`・`.runtime/<ID>.json`・`/api/ping`・SIGTERM/SIGBREAK で後始末して終わる)は入口が使っている。
+  変えるときは `app/launch.py` と `python -m unittest app/test_launch.py` も確認する(`docs/integration-plan.md` の「段階1の約束」)
 - コミットメッセージは日本語で、何をなぜ変えたかを書く(既存の履歴に合わせる)
 
 ## 複数の AI で作業するときのルール(Claude・GPT/Codex 共通)

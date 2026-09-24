@@ -18,6 +18,7 @@ import auto_cut as AC  # noqa: E402
 import cut2resolve as FULL  # noqa: E402
 import cut2resolve_core as C  # noqa: E402
 import pack  # noqa: E402
+import resolve_textplus as RTP  # noqa: E402
 import srt2resolve as S  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, tc2f  # noqa: E402
 
@@ -31,6 +32,48 @@ def transcript_doc(rows, media=None):
     return {"schema": "youtube-tools-transcript/v1", "tool": {"name": "transcribe-tool", "version": "0.10.0"},
             "media": media or {}, "segments": [dict(id="s%d" % i, start=a, end=b, text=t, cut=c)
                                               for i, (a, b, t, c) in enumerate(rows, 1)]}
+
+
+class TestResolveTextPlusScript(unittest.TestCase):
+    def test_captions_are_placed_on_v2_at_timeline_start_offset(self):
+        plan = {"title": "test", "fps": "30/1", "nominalFps": 30,
+                "media": {"file": "media/test.mov", "name": "test.mov", "width": 1080, "height": 1920},
+                "cuts": [{"sourceStartFrame": 0, "sourceEndFrame": 120}],
+                "captions": [{"startFrame": 27, "endFrame": 93, "text": "日本語字幕"}],
+                "sourceTimeline": {"startFrame": 0, "endFrame": 120}}
+        script = RTP.importer_script(plan)
+        self.assertIn('recordFrame = baseFrame + cap.startFrame', script)
+        self.assertIn('trackIndex=2, recordFrame=recordFrame', script)
+        self.assertIn('endFrame=duration', script)
+        self.assertNotIn('InsertFusionTitleIntoTimeline', script.split('local added, failed = 0, 0')[1])
+        self.assertIn('ImportFolderFromFile(DATA.template.absolutePath)', script)
+        self.assertIn('SetInput("Font", "Noto Sans JP")', script)
+        self.assertIn('SetInput("Style", "Medium")', script)
+        self.assertIn('日本語字幕', script)
+
+    def test_template_is_bundled(self):
+        import zipfile
+        template = Path(RTP.__file__).with_name(RTP.TEMPLATE_NAME)
+        with zipfile.ZipFile(template) as archive:
+            self.assertIn('project.xml', archive.namelist())
+        install = RTP.installer_script('test.mov')
+        self.assertIn('textplus-template.drb', install)
+        self.assertIn('__C2R_TEMPLATE_PATH__', install)
+
+    def test_generated_pack_contains_template_and_v2_script(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            plan = mock.Mock()
+            plan.video = Path('test.mov')
+            plan.req.name = 'test'
+            plan.meta = {'fps': (30, 1), 'w': 1080, 'h': 1920, 'total': 120}
+            plan.cues_out = [(27, 93, '日本語字幕')]
+            plan.keeps = [(0, 120)]
+            paths = pack.pack_paths(plan.video, output, True, textplus=True)
+            files = RTP.write_files(paths, plan, output)
+            self.assertEqual(paths['textplus_template'].read_bytes(),
+                             Path(RTP.__file__).with_name(RTP.TEMPLATE_NAME).read_bytes())
+            self.assertIn('trackIndex=2', files['textplus_script'].read_text(encoding='utf-8'))
 
 
 class TestParsingFixes(unittest.TestCase):

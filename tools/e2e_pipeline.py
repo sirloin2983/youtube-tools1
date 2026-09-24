@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.environ.setdefault("YTT_CORE_DIR", ROOT)   # 一時フォルダに写した文字起こしの serve.py が共通部品 ytt_core を見つけられるように
 
 
 def free_port():

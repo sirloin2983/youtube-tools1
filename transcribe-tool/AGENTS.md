@@ -22,7 +22,8 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)index.
 ```
 - e2e は serve.py を疑似モード(環境変数 `TRANSCRIBE_BACKEND=fake`)で起動して試す。ffmpeg と Playwright の chromium が必要
 - e2e は一時フォルダに `serve.py`・`index.html`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
-  (後の2つを写さないと、受け渡しの API・Resolve 書き出しが 500 になる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
+  (後の2つを写さないと、受け渡しの API・Resolve 書き出しが 500 になる)。共通部品 `../ytt_core/` は写さず、環境変数 `YTT_CORE_DIR`(リポジトリ直下)で見つける
+  (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
 - `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・cut2resolve へのリンク・409)、テーマの保存の1本化、
   他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合

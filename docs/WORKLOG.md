@@ -109,3 +109,148 @@
 - 変更: `docs/project/resolve-textplus-test.md` を追加。コピー素材・新規プロジェクトで、EDLカット編集、SRT時刻、Text+変換方式、フォント/スタイル、DRT/DRP、別フォルダ再リンクを順に確認する手順と結果記録欄を作成。
 - 理由: Text+自動生成とFree 21.1のスクリプト可否、別PCでの再リンクが未検証のため、実装判断前の安全な合否基準を揃える。
 - 注意: 実機操作・第三者スクリプト実行・フォント配布はまだ行っていない。Git状態確認は実行環境の所有者不一致による `dubious ownership` で失敗したため、グローバルGit設定は変更せず、既存ファイルを変更せずに新規手順書とWORKLOGのみ追加した。
+- 続き: 既存のResolve UIテスト素材をコピーし、`%TEMP%\Resolve-TextPlus-Preflight-20260924\` に実機用パッケージを準備した。動画・EDL・カット後SRT・cut-plan JSONのみをコピー(FCPXMLは含めない)。素材は1080x1920 / 30fps / 926 frames、EDLは2区間、SRTは7字幕。ffmpeg/ffprobeはPATHから見つからず、動画メタデータは同梱cut-planの記載を使用。元ファイルは変更していない。
+- 実機フィードバック: 動画ストリームの埋め込みTCは `01:00:00:00`、30fps、30.8667秒とローカルメタデータで再確認。EDLの元TCを1時間加算しただけでは解決せず、Resolveの照合はリール名とTC双方を使うため、デスクトップ側テストEDLのリール名も `AX` から `TEST35` へ修正。手順書に `Assist using reel names from → Source clip filename` の設定を追記した。既存タイムラインは変更せず、新規プロジェクトで再試行する案内が必要。
+
+## 2026-09-24 GPT(Codex)— 安全に削除できる作業控え・キャッシュを整理
+- 削除: `_recovered/`、`Claude outputs/`、`git-patches/`、3ツールの `__pycache__/`、clip-studio と transcribe-tool の通常・クラッシュログ。
+- 残したもの: 未適用の新版 `_new/`、旧版の保険 `0old/`、Whisperモデル、文字起こし・編集データ、現行コード。
+- 理由: 復元内容は現行版に統合済みで、パッチ・ログ・Pythonキャッシュは通常運用に不要なため。削除した復旧控えとログはこの作業フォルダからは元に戻せない。
+
+## 2026-09-24 GPT(Codex)— 未適用の新版確認フォルダを削除
+- 削除: `_new/`（約2.17GB）。初回は試用中のローカルサーバーがログを使用していたため一部が残ったが、ユーザーが終了した後に完全削除した。
+- 影響: `_new` にあった未適用の新版、試用用の写し、入れ替え用バッチ、同フォルダ内のバックアップは復元できない。現行の3ツールとその実行データには変更なし。
+
+## 2026-09-24 GPT(Codex)— cut2resolve v0.3.0 Text+パックを追加
+- 変更: `cut2resolve/resolve_textplus.py` を追加し、パック生成処理・画面・CLI に任意の Text+ パック出力を接続。動画は `media/` にコピーし、EDL・カット後SRT・cut-plan JSON・Resolve用スクリプト・登録バッチ・手順書を同梱する。Text+選択時はFCPXMLを生成せず、字幕がない場合はエラーにする。新規プロジェクトは素材の幅・高さ・fpsを設定する。
+- 安全: 登録は同梱バッチの明示実行時のみ。Resolve側は新規プロジェクトと `CUT_TextPlus` / `SOURCE_WITH_HANDLES` を作る。プロジェクト名確認に `LoadProject()` を使わず、既存プロジェクトを切り替えない。フォントは同梱しない。
+- 版: `cut2resolve_core.py`・画面の埋め込み版・READMEを v0.3.0 に更新。
+- 確認: Python構文コンパイル、生成するResolveスクリプト/登録スクリプトの構文、`node --check cut2resolve/app.js` は成功。自動テストは未実施。Free 21.1 実機のスクリプト実行、Text+配置と時刻、削除区間復旧、再リンクは未確認。
+- 続き: テスト素材と新規Resolveプロジェクトで、登録・実行可否から確認する。失敗時は従来のEDL + SRTへ戻し、この方式を成功とは記録しない。
+
+## 2026-09-24 GPT(Codex)— Free 21.1向けText+登録をLua実験方式へ変更
+- 理由: ユーザー環境では「ResolveにText+スクリプトを登録.bat」を実行後もPythonスクリプトが一覧に出なかった。Resolve 21.1でPythonスクリプトがStudio版へ移ったという更新情報に合わせ、Python登録方式を続けない。
+- 変更: Text+パックのResolveスクリプトをLuaへ置換。明示実行バッチはPowerShellを呼び出し、同梱動画の現在の絶対パスを埋め込んだLuaを `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Edit` に登録する。出力UI・手順書・仕様・ファイル名にもLua実験版と明記。EDL/SRT/cut-planと動画同梱、復旧タイムラインの方針は維持。
+- 安全・制約: 既存のPythonファイルを削除せず、旧スクリプト登録ファイルも自動削除しない。ユーザーが明示的にバッチ実行するまでResolve側へ登録しない。パック移動後は登録し直す。Lua方式のFree 21.1 Windows動作、Text+の生成・タイミング・字幕数は未確認で、本番プロジェクトでの実行は禁止して新規テストプロジェクトに限定する。
+- 確認: Python側の構文確認、`node --check cut2resolve/app.js`、`git diff --check` 成功。`python -m unittest -v test_pack test_serve test_cut2resolve` は161件中106件成功・55件スキップ(ffmpeg/ffprobeがないため)。実機操作・Resolveスクリプト実行は未実施。Lua APIとFree 21.1のスクリプト変更について公開情報を確認したが、Free WindowsでLuaが使える保証は得られていない。
+
+## 2026-09-24 GPT(Codex)— Text+登録PowerShellの文字化け構文エラーを修正
+- 原因: 登録用 `.ps1` をBOMなしUTF-8で出力していたため、Windows PowerShell 5.1がANSIとして解釈し、日本語を含む行を正しく構文解析できなかった。
+- 修正: `.ps1` はUTF-8 BOM付き・CRLFで生成する。すでに出力済みのパックには反映されないため、再生成するか既存 `.ps1` をBOM付きで保存し直す必要がある。
+- 確認: 生成したPowerShellソースをWindows PowerShell Parserで解析し、エラーなし。
+
+## 2026-09-24 Claude(Cowork)— 統合の段階1: 入口(ランチャー)`app/` と `start-all.bat`
+- 変更(新規ファイルのみ。既存のツールのコードは変更なし): `app/launch.py`(3ツールを子プロセスとして起動・監視・停止し、入口の画面と API を出す)、
+  `app/portal.html`・`portal.js`・`portal.css`(入口の画面。見た目は `ui-kit/` の正本をそのまま配る)、`app/README.txt`、`app/test_launch.py`(29件)・`app/e2e_portal.py`(Playwright)、
+  リポジトリ直下の `start-all.bat`・`start-all.command`、`docs/integration-plan.md`(統合計画の要約)。`AGENTS.md` に `app/` と「起動の約束」を追記
+- 版: 入口 v0.1.0(新規。版の正は `app/launch.py` の `VERSION`)
+- 決定・理由: ユーザーの判断 = 統合は、まず cut2resolve 以外(スタジオ・文字起こし)。今回は段階1だけ(ツールのコードは触らない)。
+  入口は cut2resolve も一緒に起動するが、中身には触れない(GPT の Text+ 作業中のため)
+- 設計: 子の出力は `app/logs/<ID>.log`(黒い画面は入口の1つだけ)。準備完了は「起動後に書かれた `.runtime/<ID>.json` のポート + `/api/ping`」で判定(古い記録・pid は信用しない)。
+  別の黒い画面で起動済みのツールは「別の画面で起動済み」として起動も停止もしない(古い版なら表示で知らせる)。停止は Windows = Ctrl+Break(子を CREATE_NEW_PROCESS_GROUP で起動)、
+  それ以外 = SIGTERM。8秒で終わらなければ強制終了し、残った `.runtime` を片付ける。動作中の確認は TCP 接続だけ(`/api/ping` を定期的に送ると文字起こしのログが埋まるため)。
+  入口のポートは 8700〜8719。異常終了は自動で起動し直さない(同じ原因で落ち続けないように)
+- 確認: `python -m unittest app/test_launch.py` 29件 OK(偽のツール + 本物の3ツールの疑似モード)、ミューテーション 14件をすべて検出、`python app/e2e_portal.py` すべて OK、
+  PC の cut2resolve(v0.3.0・21:18 時点の未コミット版)でも入口からの起動・停止を確認
+- 未完了・次: Windows 実機での確認 = start-all.bat の起動、黒い画面の × で3ツールも終わり `.runtime` が消えるか、Ctrl+C、入口からの停止(Ctrl+Break)、
+  別の黒い画面で起動済みのツールがあるときの表示。段階2(共通コア `ytt_core`)は未着手
+- 注意: 各ツールの起動の約束(`serve.py [ポート] --no-open`・`.runtime/<ID>.json`・`/api/ping`・SIGTERM/SIGBREAK で後始末)を変えると入口が壊れる。変えるときは `app/launch.py` と `app/test_launch.py` も直す。
+  未コミット(Claude Cowork は PC で git を使えない)。コミットするときは `[Claude] 統合の段階1: 入口(ランチャー)` として app/・start-all.*・docs/integration-plan.md・AGENTS.md・この WORKLOG を。
+  GPT の cut2resolve の未コミットの変更には触れていない
+
+## 2026-09-24 Claude(Cowork)— 入口 v0.1.0 の Windows 実機確認(ユーザー)
+- 確認: ユーザーが Windows 実機で確認済み(start-all.bat で3ツールが動作中になる、黒い画面の × で3ツールも終わり .runtime が消える、入口からの停止・再起動)
+- 未完了・次: 段階2(共通コア ytt_core。スタジオと文字起こしだけ)。未コミットの状態は前の記録のとおり
+
+## 2026-09-24 GPT(Codex)— Text+の1時間ずれと日本語フォントを修正
+- 原因: Lua生成スクリプトは再生位置用の絶対フレーム(`GetStartFrame()` + 字幕フレーム)を、タイムライン開始からの相対フレームを受け取る`SetMarkInOut`にも渡していた。開始TCが01:00:00:00の場合、Text+が02:00:00:00付近に置かれる。ユーザーがCtrl+Zで元位置に戻した画面でも確認した。
+- 修正: 範囲指定には字幕の相対フレームを渡す。再生位置用の絶対タイムコードは維持。Text+にこのPCのResolveで日本語表示を確認した「MS ゴシック」を明示指定する。フォントファイルの同梱はしない。
+- 確認: `python -m unittest -v test_pack.TestResolveTextPlusScript` 1件成功、`python -m unittest -q test_pack test_serve test_cut2resolve` 163件中108件成功・55件スキップ。旧パックや既存Resolveプロジェクトには自動反映されない。修正版パックのResolve実機再検証は未実施。
+- 音割れ: ユーザーによるとスクリプト実行前後で変化。コピー素材と元素材のハッシュは一致し、スクリプトに音声変換・増幅はない。原因未確定。CUT_TextPlusとSOURCE_WITH_HANDLESの同一箇所を比較し、Resolve内の配置・再生側を切り分ける。音声処理の推測によるコード変更は行っていない。
+
+## 2026-09-24 GPT(Codex)— Text+のフォント名と太さをセットで指定
+- 実機再確認: ユーザーの新規テストプロジェクトで `Font Not Found: MS ゴシック Semibold` と表示。前回の修正はフォント名だけ変え、既定のSemiboldを残していた。タイムライン上の字幕位置は映像冒頭に合っていた。
+- 修正: このPCのResolveで表示実績がある `Noto Sans JP / Medium` を各Text+に指定する。フォントファイルは同梱しない。生成パックの説明も更新。
+- 確認: 対応する生成スクリプトの回帰テスト1件成功。新しいパックでの表示は未確認。音割れは継続しており、画面上のCUT_TextPlusとSOURCE_WITH_HANDLESはともに同梱movの音声1クリップのみ。SOURCE_WITH_HANDLESの再生結果をユーザーに確認中。音声コードは未変更。
+
+## 2026-09-24 GPT(Codex)— 音割れをResolve編集ページのタイムライン再生に切り分け
+- 同一のコピー素材・冒頭をユーザーと実機比較: メディアプールの元クリップを直接再生すると正常、CUT_TextPlusとSOURCE_WITH_HANDLESの編集ページ再生は音割れ、Fairlightページでは同じSOURCE_WITH_HANDLESの冒頭が正常。
+- SOURCE_WITH_HANDLESで映像トラックを一時オフにしても音割れ。映像トラックは元に戻した。A1とBus1のフェーダーは0 dB、追加エフェクト欄は空。元クリップからResolve標準UIで作ったAUDIO_DIAG_MANUALタイムラインも編集ページで音割れしたため、LuaのAppendToTimeline固有の問題ではない。
+- AUDIO_DIAG_MANUALはコピー素材を使った新規テストプロジェクト内に作成。その他のプロジェクトや元ファイルは変更していない。今後、短い書き出しでも割れるかを確認し、再生のみの問題か最終成果物にも出る問題か分ける。音声コード変更なし。
+
+## 2026-09-24 GPT(Codex)— 音割れは編集ページの再生時だけと確認
+- `cut2resolve/exports/AUDIO_DIAG_MANUAL.mov` をテストプロジェクトの手動タイムラインからH.264/AACで書き出し、ユーザーがResolve外で再生して音割れなしと確認。診断用動画は実行時出力としてgitignore対象。
+- 同一箇所でメディアビューアとFairlightは正常、編集ページのスクリプト生成/手動生成タイムラインだけで割れた。素材・Lua配置処理・書き出しデータの破損を示す結果ではない。Resolve編集ページのプレビュー再生問題として扱い、音声の再エンコードやゲイン変更はしない。
+- 残り: 修正後の `Noto Sans JP / Medium` を新規生成パックで実機確認する。編集ページの再生音そのものを直したい場合は、ResolveのオーディオI/Oや環境側を別途診断する。グローバル設定は未変更。
+
+## 2026-09-24 GPT(Codex)— フォント再確認用の新規パックを作成
+- 新規生成: `cut2resolve/exports/test35_fontcheck_pack/`。コピー素材test35.movとSRTから、既存パックを上書きせずText+パックを生成。元素材と同梱movのSHA256一致。Luaに字幕範囲の相対フレーム指定、`Noto Sans JP / Medium` の両指定が含まれることを確認。
+- 目的: ユーザーがResolveを閉じて新パックの登録バッチを実行し、新規テストプロジェクトで日本語表示と字幕位置を確認できるようにする。登録・実機確認は未実施。診断用の旧プロジェクトと旧パックは保持。
+
+## 2026-09-24 Claude(Cowork)— 統合の段階2: 共通部品 `ytt_core/`(スタジオ・文字起こし・入口)
+- 変更: 新規 `ytt_core/`(fsio = 原子的な書き込み・JSON の読み込み・ネットワークパスの判定 / runtime = `.runtime` と /api/ping・/api/siblings /
+  schemas = clip/v1 の組み立て・検証 / httpsec = Host・Origin・Sec-Fetch の検査 / tools = ffmpeg などの場所。テスト `ytt_core/test_ytt_core.py` 27件)。
+  スタジオ `common.py`(atomic_write・replace_file・find_tool)・`handoff.py`(全体)・`serve.py`(安全検査)、文字起こし `serve.py`(atomic_write・find_ffmpeg・安全検査・probe・runtime_path_dir)・
+  `pipeline_io.py`(clip/v1・書き込み・.runtime)、入口 `app/launch.py` を ytt_core を呼ぶ形に。関数名はそのまま残した(呼び出し側・テストを変えないため)
+- 版: 各ツールの版は上げていない(画面・API・保存の動きは変えていないため)。ytt_core 1.0.0
+- 決定・理由: ユーザーの指示「段階2」。統合の対象はスタジオと文字起こし(cut2resolve は対象外なので触れていない。ツールID の対応のずれだけテストで検出)。
+  ytt_core は「YTT_CORE_DIR → ツールのフォルダの1つ上」で探し、sys.path の末尾に足す。無ければ理由を出して起動しない
+- 動きがそろったところ: ファイルの置き換えのやり直しは「winerror 5・32・33 のときだけ4回(待ち合計 0.7 秒)」に統一(文字起こしは以前 Windows の PermissionError で6回)。
+  `.runtime` のポートは 1024〜65535 に統一。fsync は文字起こしだけ「失敗なら保存も失敗」のまま
+- テスト: 一時フォルダに serve.py を写す文字起こしのテスト・e2e と tools/e2e_pipeline.py・baseline_analysis.py に `YTT_CORE_DIR` の1行を追加。
+  入口のテストは一時フォルダに ytt_core も写す
+- 確認: スタジオ 単体7本 OK・test_review.cjs 14/14・e2e_analyze OK・e2e_ui 70/70、文字起こし test_backend 40・test_metrics 74・test_resolve_export 6 OK・test_document_save.cjs 9/9・
+  e2e_ui_handoff / v098 / v08 / eval_v093 OK(v07・v09 は想定内の「版 v0.9.4」だけ失敗)、tools/e2e_pipeline OK、test_ui_kit_sync OK、入口 test_launch 29 OK・e2e_portal OK、
+  cut2resolve の単体(変更なし)OK、ytt_core 27 OK。ytt_core へのミューテーション 10件はすべてどれかのテストで検出
+- 未完了・次: 段階3(1つのサーバーへの取り込み)は「個別ツールの完成」の後(基準は未決)。ffmpeg の呼び出しとジョブの型は段階3で(docs/integration-plan.md の「段階2で決めたこと」)
+- 注意: 起動中のスタジオ・文字起こしは古いコードのまま動いている。入口の「再起動」か、黒い画面を閉じて起動し直す。ツールのフォルダだけを別の場所へ写すと ytt_core が見つからず起動しない
+  (写すならリポジトリごと、またはテストのように YTT_CORE_DIR を設定)。未コミット。GPT の cut2resolve の作業には触れていない
+
+## 2026-09-24 GPT(Codex)— Text+テストパックの字幕入力取り違えを訂正
+- 原因: 30.87秒の動画全編を使う `test35_fontcheck_pack` に、9秒のカット後SRT（7字幕）を渡していた。元の `cut2resolve/resolve-ui-test/test35.srt` は29.69秒まで14字幕あり、先のパック生成時の入力選択ミス。Text+の時刻計算やフォント変更による圧縮ではない。
+- 対応: 既存パックは上書きせず、全編SRTを使って `cut2resolve/exports/test35_fullsubs_pack/` を新規生成。コード変更なし。動画は926フレーム、Text+計画は14字幕・末尾891フレーム（29.7秒）。元動画と同梱動画のSHA256一致、FCPXMLなし。
+- 注意: `ffprobe` が現環境のPATHで実行できないため、直前パックと実機で検証済みのメタデータ（30fps・926フレーム・1080x1920・開始TC 01:00:00:00）を使用した。Resolve実機の新パック読み込みと音声書き出しは未確認。編集ページのプレビュー音割れ問題は別件として継続。
+
+## 2026-09-24 GPT(Codex)— Text+を上段トラックへ配置し既存プロジェクトを再利用
+- 変更: Lua生成スクリプトは開いているプロジェクトを使い、fps・解像度が素材と一致するときだけ新しいCUT_TextPlus / SOURCE_WITH_HANDLESを追加する。合わないときは編集前に停止。プロジェクト未選択なら従来どおり新規作成。既存タイムライン名と衝突する場合は末尾に連番を付ける。
+- 原因/配置: カット映像を置いた後に上段の映像トラックを追加し、そこへText+を置く。現行の文字起こしツールのResolve出力でも使うAddTrack→Text+挿入の順に合わせた。映像クリップを字幕で分割する問題を避ける。
+- 版: cut2resolve v0.3.1。README・CLI表示・serve画面の版を更新。
+- パック: `cut2resolve/exports/test35_fullsubs_pack/` の生成Luaと手順書だけを更新。既存ResolveプロジェクトやEDL/SRT/素材コピーは変更していない。Resolve Free 21.1実機で配置・再実行はまだ未確認。再試行時はResolveを閉じて登録バッチを再実行し、その後fps/解像度が合うテストプロジェクトを開いてLuaを実行する。
+
+## 2026-09-24 GPT(Codex)— 最新Text+パックをデスクトップへ集約
+- 新規作成: `C:\Users\you11\Desktop\Resolve_TextPlus_最新版\`。全編SRT14字幕、Text+の上段トラック配置、既存プロジェクト再利用を含む。タイムライン長926フレーム、最終字幕終了891フレーム(29.7秒)。元動画と同梱動画のSHA256一致。
+- 削除: AI生成の旧パック `cut2resolve/exports/test35_fontcheck_pack/`、`cut2resolve/exports/test35_fullsubs_pack/`、`cut2resolve/exports/Resolve_TextPlus_LATEST/`、デスクトップのPreflight内 `test35_pack/`。デスクトップの最新パック、Preflight内の素材/SRT/EDL/cut-plan、音声診断動画 `AUDIO_DIAG_MANUAL.mov`、Resolveプロジェクトは保持。
+- 注意: 登録済みのLuaはResolveを閉じて、新パック内の登録バッチを実行し直す必要がある。V2配置・同一プロジェクト再利用はResolve Free 21.1実機で未確認。
+
+## 2026-09-24 GPT(Codex)— Text+が映像の間に入る問題を実機で修正
+- 原因: `AddTrack("video")` の後でも `InsertFusionTitleIntoTimeline("Text+")` は配置先を指定できず、タイトルがV1の映像の間に入った。Resolve Free 21.1のテストプロジェクト `C2R_test35_Lua_814785` で確認。
+- 対応: 中立のText+を収めた `cut2resolve/textplus-template.drb` を追加。パックへ同梱し、Luaでビンを読み込んで `AppendToTimeline` の `trackIndex=2` と `recordFrame=タイムライン開始フレーム+字幕開始フレーム` を明示。字幕長は各キューのフレーム差で指定。cut2resolve v0.3.2。既存のEDL・SRT・cut-planと映像・音声処理は変更なし。
+- 実機確認: コピー素材の既存テストプロジェクト内に `CUT_TextPlus_2` と復旧用タイムラインを追加。V1映像1本、A1音声1本、V2のText+14個、スクリプト失敗0。タイムライン開始108000フレーム、最初の字幕開始108039/長さ78、最後の字幕開始108801/長さ90で、計画の最終終了891フレームと一致。元の `CUT_TextPlus` は上書きしていない。
+- 配布物: デスクトップ `Resolve_TextPlus_最新版` の生成Lua・登録ps1・手順書を更新しDRBを追加。登録済みLuaも更新済み。試験用DRB 1個は最新版フォルダから削除(復旧不要の今回生成した一時ファイル)。動画・EDL・SRT・cut-planはそのまま。`test_pack` 42件、`test_cut2resolve` 104件が成功(依存不足によるスキップあり)。編集ページの音割れは書き出しでは再現しない別件のまま。
+- 未完了: 友人側PCでのDRB受け渡し・再リンクと、新しいタイムラインでの音声プレビューは未確認。既存の他AI未コミット変更を混ぜないため、この変更はコミットしていない。
+
+## 2026-09-25 GPT(Codex)— 横型Text+実機検証パックを別途準備
+- 経緯: ユーザーの横型方針に対し、従来の `test35` パックは1080x1920の縦素材だった。新規の1920x1080・30fpsプロジェクトで既存の登録Luaを直接実行すると、解像度不一致で素材を読み込む前に停止した。既存プロジェクト対応コードの削除やText+生成失敗ではない。メニュー経由は出力が見えず、Luaコンソールからの `dofile` でエラーを確認した。
+- 対応: 横型の `1本目.mkv` を変更せず、冒頭約30秒を1920x1080・30fpsのローカル試験用mp4に書き出した。配置確認用の仮日本語字幕5件とともに、コード変更なしで `C:\Users\you11\Desktop\Resolve_TextPlus_横型検証_20260925` に新規パックを作成。元動画や従来の縦型パック、Resolveプロジェクトは変更していない。仮字幕は発話内容・時刻と一致しないことを同梱注意書きに明記した。
+- 確認: 動画コピーのSHA256一致、planは1920x1080/30fps・字幕5件・カット1区間、Text+雛形あり、FCPXMLなし。Resolve実機での新パック読み込みとV1/A1/V2配置・音声は未確認。Resolveを閉じて新パックの登録バッチを実行し、既存の横型テストプロジェクトで試す必要がある。
+- 注意: 他AIの未コミット変更とWORKLOGの既存差分を混ぜないため、この記録はコミットしていない。
+
+## 2026-09-25 GPT(Codex)— 横型Lua未登録による同じ解像度エラーを解消
+- 原因: 横型テストプロジェクトで再実行後も不一致エラーが出たため、登録済みLuaを読み取ったところ、更新日時が2026-09-24 23:36のまま、埋め込みデータが縦型 `test35`（1080x1920）だった。横型パックの生成自体は正常で、ユーザー側のプロジェクト設定は30fps・1920x1080だった。
+- 対応: 新規横型パックの `install_resolve_textplus_script.ps1` を実行し、登録済みLuaを横型 `landscape_test`（1920x1080・30fps）に更新した。登録ファイルの内容と更新時刻を確認済み。元動画・Resolveプロジェクト・リポジトリのコードは変更していない。
+- 未完了: 横型プロジェクト上で更新後Luaを実行し、V1/A1/V2を実機確認する。既存の未コミット変更を巻き込まないためコミットはしていない。
+
+## 2026-09-25 GPT(Codex)— 横型Text+パックの実機確認結果
+- ユーザー報告: 更新済み横型Luaを使った検証で「問題ない」、今回は音声も正常。横型の短尺コピー素材と仮字幕を用いた結果であり、元の長尺素材や以前の縦型 `test35.mov` での音声結果には一般化しない。
+- 次: ユーザーは「さっきまでの元動画」での再確認を希望。`test35.mov`（縦1080x1920）と横型パックの元にした `1本目.mkv`（横1920x1080・60fps）のどちらを指すか確認してから、元データを変更しないコピーで進める。
+
+## 2026-09-25 GPT(Codex)— test35の元となる横動画の所在を調査
+- ユーザーの指定は、`test35.mov` の元になった横動画。`test35.mov` はDropboxの完成品デモ `26-09-13_さくらみこ.mov` とサイズ・SHA256が一致する縦型のResolve書き出しで、横の元動画そのものではない。
+- 先に横型検証で使った `1本目.mkv` のフレームはResolve画面の録画で、`test35.mov` の元動画とは別物と確認。したがってそのパックで音声が正常でも、`test35` の元横動画の音声問題の解消はまだ確認できない。
+- Dropboxの「未検査」にあるさくらみこ関連の横動画候補8本は、ローカルではクラウドプレースホルダー。読み取りは「クラウド ファイル プロバイダーが実行されていません」で失敗し、内容照合やパック作成は未着手。ユーザーから元横動画の正確なファイル場所、またはローカル利用可能なコピーを受け取って続行する。元動画・候補ファイルは変更していない。
+
+## 2026-09-25 GPT(Codex)— 別の横動画でText+音声検証パックを準備
+- ユーザー提供の `E:\Video\切り抜き動画素材\...\05_00h34m14s-00h34m48s.mp4` は横1920x1080・60fps・34.4秒、H.264/AACの音声あり。元動画は一切変更せず、再エンコードせずにコピーしてText+パックを作った。
+- デスクトップの新規フォルダ `C:\Users\you11\Desktop\Resolve_TextPlus_千速_横60fps_20260925` にEDL/SRT/cut-plan、動画コピー、Lua、登録スクリプト、Text+雛形、注意書きを格納。SRT3件は配置検証の仮文で発話内容とは一致しない。元動画と同梱コピーのSHA256一致、計画は1920x1080・60fps・2064フレーム・字幕3件・カット1区間、FCPXMLなし。
+- 前回の登録漏れを防ぐため、登録済みResolve Luaを今回パックへ更新し、埋め込みデータが該当動画・60fps・1920x1080であることを読み取り確認した。既存の30fps横型プロジェクトは変更していない。60fpsの新規テストプロジェクトでV1/A1/V2と音声を確認する必要がある。
+- リポジトリのコード変更なし。既存の他AI未コミット変更を巻き込まないためコミットしていない。

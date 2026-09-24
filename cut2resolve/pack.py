@@ -2,7 +2,7 @@
 """カットの計算(試算)とパックの作成。CLI(cut2resolve.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
-  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で FCPXML・粗編集 mp4・元動画のコピー)を作る
+  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で FCPXML・粗編集 mp4・元動画のコピー・Text+パック)を作る
 
 残す区間の決め方:
   base(土台): "all"(動画全体)/ "list"(時刻リストの残す区間)/ "plan"(cut-plan の採用区間 + 前後の余白)
@@ -25,10 +25,12 @@ from typing import List, Optional
 import auto_cut as AC
 import cut2resolve_core as C
 import srt2resolve as S
+import resolve_textplus as TP
 
 ToolError = C.ToolError
 BASES = ("all", "list", "plan", "rows")
-PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "fcpxml", "roughcut", "video")
+PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "fcpxml", "roughcut", "video", "textplus_plan",
+                   "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
 
 
 @dataclass
@@ -300,7 +302,7 @@ def describe(plan):
     return out
 
 
-def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=False):
+def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False):
     """パックに書くファイル {種類: パス}"""
     video, out_dir = Path(video), Path(out_dir)
     p = {"edl": out_dir / f"{video.stem}.edl", "readme": out_dir / "友人へ.txt", "plan": out_dir / "cut-plan.json"}
@@ -310,35 +312,48 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=
         p["fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"
     if render:
         p["roughcut"] = out_dir / f"{video.stem}_roughcut.mp4"
-    if copy_video:
-        p["video"] = out_dir / video.name
+    if copy_video or textplus:
+        p["video"] = (out_dir / "media" / video.name) if textplus else (out_dir / video.name)
+    if textplus:
+        p.update({
+            "textplus_plan": out_dir / "textplus-import.json",
+            "textplus_script": out_dir / "create_resolve_textplus_project.lua",
+            "textplus_install": out_dir / "install_resolve_textplus_script.ps1",
+            "textplus_launcher": out_dir / "ResolveにText+スクリプトを登録.bat",
+            "textplus_readme": out_dir / "Text+の使い方.txt",
+            "textplus_template": out_dir / TP.TEMPLATE_NAME,
+        })
     return p
 
 
-def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=False):
+def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False):
     """作る予定のファイルと、すでにあるもの(画面の上書き確認用)"""
     out_dir = Path(out_dir) if out_dir else default_out_dir(plan.video)
-    paths = pack_paths(plan.video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml)
+    paths = pack_paths(plan.video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml and not textplus, textplus)
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
-def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, force=False, crf=18,
+def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 友人へ.txt の中身, "warnings"}。
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
         raise ToolError("粗編集の画質(--crf)は 0〜51 の整数で指定してください。")
+    if textplus and not plan.cues_out:
+        raise ToolError("Text+ 用パックには字幕が必要です。SRT または文字起こしを指定してください。")
     video, meta, fps = plan.video, plan.meta, plan.meta["fps"]
     out_dir = Path(out_dir) if out_dir else default_out_dir(video)
     if out_dir.exists() and not out_dir.is_dir():
         raise ToolError(f"出力先がフォルダではありません: {out_dir}")
-    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml)
+    fcpxml = bool(fcpxml and not textplus)
+    copy_video = bool(copy_video or textplus)
+    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus)
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs())
     req = plan.req
     t0 = C.tc_to_frames(plan.src_start, C.nominal_rate(fps))
     warnings = []
-    known = pack_paths(video, out_dir, True, True, False, True)   # 前に作ったかもしれない、今回は作らないもの
+    known = pack_paths(video, out_dir, True, True, False, True, True)   # 前に作ったかもしれない、今回は作らないもの
     stale = [p for k, p in known.items() if k not in paths and p.exists()]
     if stale:
         warnings.append("前に作った " + "・".join(p.name for p in stale) + " がフォルダに残っています(今回のカットとは合いません。"
@@ -354,6 +369,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             staged.append((tmp, paths["roughcut"], "roughcut"))
         if copy_video and not S.same_path(paths["video"], video):
             _say(log, task, "元動画をコピーしています…")
+            paths["video"].parent.mkdir(parents=True, exist_ok=True)
             tmp = out_dir / f".c2r-{tag}-{video.name}"
             C.copy_video(video, out_dir, task, dst=tmp)
             staged.append((tmp, paths["video"], "video"))
@@ -363,6 +379,11 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         if fcpxml:
             extras.append((paths["fcpxml"].name, "補助: カット済みのタイムライン(字幕はタイトル)。Resolve の実機では未確認。"
                                                  "動画の場所を書いてあるので、動画を移動したら再リンクが必要"))
+        if textplus:
+            extras.extend([
+                (paths["textplus_launcher"].name, "Resolve のスクリプト一覧に Text+ 作成機能を登録する(明示実行)") ,
+                (paths["textplus_readme"].name, "Text+ 用パックの登録・実行・素材再リンク手順"),
+            ])
         extras.append(("cut-plan.json", "カットの記録(残す・削る区間)。ツールで読み直す用で、Resolve では使いません"))
         files = C.write_pack(out_dir, video, meta, plan.keeps, plan.cues_out, req.reel, req.rec_start,
                              plan.src_start, paths.get("roughcut"), req.name, extras)
@@ -379,6 +400,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             S._replace_retry(str(tmp), str(final))
             files[kind] = final
             staged.pop(0)
+        if textplus:
+            files.update(TP.write_files(paths, plan, out_dir))
     finally:
         for tmp, _, _ in staged:
             try:

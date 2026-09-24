@@ -8,25 +8,34 @@
 - .runtime/<ツールID>.json    … 実行中のポートの共有と、他のツールの問い合わせ(/api/siblings)
 
 serve.py(17万文字)に直接足さず、ここに分けたのは、将来1つのアプリに統合するときに、この部品ごと移せるようにするため。
+ツールに依らない部分(clip/v1 の検証・原子的な書き込み・.runtime)は共通部品 ytt_core(統合計画の段階2)に移し、ここからはそれを呼ぶ。
 どの行を「残す」かの規則は resolve_export.is_kept / kept_spans に1か所だけ持ち、ここではそれを使う(規則を二重に持たない)。
 """
-import datetime
-import json
-import math
 import os
-import tempfile
+import sys
 import threading
-import time
-import urllib.request
 
-import resolve_export
+
+def _load_core():
+    """共通部品 ytt_core を読み込めるようにする(serve.py の _load_core と同じ規則。pipeline_io だけを読み込むテスト・道具のため)。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
+        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+            if d not in sys.path:
+                sys.path.append(d)
+            return
+
+
+_load_core()
+import resolve_export  # noqa: E402
+from ytt_core import fsio, runtime, schemas  # noqa: E402
 
 TOOL_NAME = "transcribe-tool"
-CLIP_SCHEMA = "youtube-tools-clip/v1"
-TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
-CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
-CLIP_SUFFIX = ".clip.json"
-MAX_SIDECAR_BYTES = 256 * 1024          # .clip.json の上限(中身は数百バイト。巨大なファイルを読まない)
+CLIP_SCHEMA = schemas.CLIP_SCHEMA
+TRANSCRIPT_SCHEMA = schemas.TRANSCRIPT_SCHEMA
+CUT_PLAN_SCHEMA = schemas.CUT_PLAN_SCHEMA
+CLIP_SUFFIX = schemas.CLIP_SUFFIX
+MAX_SIDECAR_BYTES = schemas.MAX_CLIP_BYTES   # .clip.json の上限(中身は数百バイト。巨大なファイルを読まない)
 MAX_OWN_FILE_BYTES = 64 * 1024 * 1024   # 「前にこのツールが書いたか」を確かめるときに読む上限
 CLIP_DURATION_TOLERANCE = 3.0           # 動画の長さと .clip.json の durationSec の差がこれを超えたら警告(高速書き出しのずれは数秒)
 EXPORT_FORMATS = {                      # 動画の隣に保存するときの名前の後ろ(拡張子を置き換える)
@@ -35,9 +44,9 @@ EXPORT_FORMATS = {                      # 動画の隣に保存するときの�
     "cut-plan-v1": ".cut-plan.json",
 }
 MAX_ALT_NAMES = 999
-RUNTIME_TOOLS = {"studio": "clip-studio", "transcribe": "transcribe-tool", "cut2resolve": "cut2resolve"}   # ツールID → /api/ping の app
-MAX_RUNTIME_BYTES = 4096
-SIBLING_TIMEOUT = 0.3
+RUNTIME_TOOLS = runtime.TOOL_APPS       # ツールID → /api/ping の app
+MAX_RUNTIME_BYTES = runtime.MAX_BYTES
+SIBLING_TIMEOUT = runtime.PING_TIMEOUT
 
 
 class PipelineError(Exception):
@@ -48,89 +57,26 @@ class PipelineError(Exception):
         self.code, self.message, self.status = code, message, status
 
 
-# ---------- 共通 ----------
-def _reject_constant(name):
-    raise ValueError("NaN / Infinity は JSON として受け付けません: %s" % name)
-
-
-def read_json_file(path, max_bytes):
-    """UTF-8(BOM があっても可)の JSON を読む。max_bytes を超えるファイル・NaN を含むものは ValueError。"""
-    with open(path, "rb") as f:
-        raw = f.read(max_bytes + 1)
-    if len(raw) > max_bytes:
-        raise ValueError("ファイルが大きすぎます")
-    return json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_constant)
-
-
-def iso_now():
-    """書いた日時(ISO 8601・時差付き。例: 2026-09-24T12:00:00+09:00)。"""
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+# ---------- 共通(中身は ytt_core) ----------
+read_json_file = fsio.read_json_file     # (path, max_bytes)。NaN・大きすぎるファイルは ValueError
+iso_now = schemas.iso_now
+_num = schemas.num
+is_network_path = fsio.is_network_path   # ネットワーク上のパスは、利用者が押したボタン以外では調べない(NTLM のハッシュを送らないため)
 
 
 def tool_info(version):
     return {"name": TOOL_NAME, "version": str(version)}
 
 
-def _num(v):
-    """有限の数(bool は除く)なら float、それ以外は None。"""
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
-        return None
-    v = float(v)
-    return v if math.isfinite(v) else None
-
-
-def is_network_path(p):
-    """ネットワーク上のパス(\\\\サーバー\\共有\\… や //サーバー/…、\\\\?\\UNC\\…)か。
-    Windows でこうしたパスの存在を確かめるだけで、そのサーバーへ接続して資格情報(NTLM のハッシュ)を送ってしまうため、
-    利用者が押したボタン以外(URL の ?media= から自動で呼ばれる clip-info、他人が作った .clip.json の中のパス)では調べない。"""
-    return str(p or "").replace("/", "\\").startswith("\\\\")
-
-
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
-def clip_path_for(media_path):
-    """動画の隣の .clip.json のパス(拡張子を置き換える。動画_0012.mp4 → 動画_0012.clip.json)。"""
-    return os.path.splitext(media_path)[0] + CLIP_SUFFIX
-
-
-def validate_clip(obj):
-    """(clip, 警告)。使えるときは (中身そのもの, None)、使えないときは (None, 理由)。
-    知らない項目は残す(前方互換。transcript/v1 に「中身そのもの」を入れる約束のため)。範囲(range)が正しくないものは使わない。"""
-    if not isinstance(obj, dict):
-        return None, ".clip.json の形式が正しくありません(JSON のオブジェクトではありません)"
-    schema = obj.get("schema")
-    if schema != CLIP_SCHEMA:
-        if isinstance(schema, str) and schema.startswith("youtube-tools-clip/"):
-            return None, ".clip.json は未対応の版です(%s。このツールが読めるのは %s)" % (schema[:40], CLIP_SCHEMA)
-        return None, ".clip.json の schema が %s ではありません" % CLIP_SCHEMA
-    rng = obj.get("range")
-    a, b = (_num(rng.get("start")), _num(rng.get("end"))) if isinstance(rng, dict) else (None, None)
-    if a is None or b is None or a < 0 or b <= a:
-        return None, ".clip.json の range(元の配信の範囲)が正しくありません"
-    for key in ("source", "media", "mark", "export", "tool"):
-        if key in obj and obj[key] is not None and not isinstance(obj[key], dict):
-            return None, ".clip.json の %s の形式が正しくありません" % key
-    ex = obj.get("export") or {}
-    if "actualStart" in ex and ex["actualStart"] is not None:
-        v = _num(ex["actualStart"])
-        if v is None or v < 0:
-            return None, ".clip.json の export.actualStart が正しくありません"
-    return json.loads(json.dumps(obj, ensure_ascii=False)), None   # 呼び出し側が書き換えても元に響かないよう複製
-
-
-def clip_offset(clip):
-    """切り抜きの中の時刻 t が、元の配信では offset + t になる offset(export.actualStart があれば優先)。"""
-    ex = clip.get("export") or {}
-    v = _num(ex.get("actualStart")) if isinstance(ex, dict) else None
-    return v if v is not None and v >= 0 else float(clip["range"]["start"])
+clip_path_for = schemas.clip_path_for    # 動画_0012.mp4 → 動画_0012.clip.json
+validate_clip = schemas.validate_clip    # (clip の複製, None) / (None, 理由)
+clip_offset = schemas.clip_offset        # 切り抜きの中の t が元の配信では offset + t(export.actualStart を優先)
 
 
 def load_clip_file(path):
     """(clip, 警告)。読めない・壊れている・別の版なら (None, 理由)。"""
-    try:
-        obj = read_json_file(path, MAX_SIDECAR_BYTES)
-    except (OSError, UnicodeError, ValueError) as e:
-        return None, ".clip.json を読めません(%s)" % (e.__class__.__name__ if isinstance(e, OSError) else str(e)[:80])
-    return validate_clip(obj)
+    return schemas.load_clip_file(path, MAX_SIDECAR_BYTES)
 
 
 def find_clip(media_path, media_duration=None):
@@ -257,58 +203,10 @@ def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
 _beside_lock = threading.Lock()
 
 
-def _replace_retry(src, dst):
-    """os.replace。Windows でウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、少し待って数回やり直す。"""
-    for i in range(6):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError:
-            if os.name != "nt" or i == 5:
-                raise
-            time.sleep(0.05 * (i + 1))
-
-
-def _temp_in(folder, data):
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".tmp-", suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    return tmp
-
-
-def _create_new(path, data):
-    """path が無いときだけ、書き終えた内容で作る(True)。すでにあれば何もしない(False)。
-    一時ファイルに書いてから、ハードリンク(既存のファイルを決して上書きしない)で置く。
-    ハードリンクが使えないドライブ(exFAT など)では、存在を確かめてから置き換える(ロックの中なので、このツール同士では競合しない)。"""
-    folder = os.path.dirname(path)
-    tmp = _temp_in(folder, data)
-    try:
-        try:
-            os.link(tmp, path)
-            return True
-        except FileExistsError:
-            return False
-        except (OSError, NotImplementedError, AttributeError):
-            if os.path.lexists(path):
-                return False
-            _replace_retry(tmp, path)
-            tmp = None
-            return True
-    finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+# 書き込みの部品は ytt_core.fsio(Windows の一時的なロックのやり直し・一時ファイル → 置き換え・既存を上書きしない作成)
+_replace_retry = fsio.replace_retry
+_temp_in = fsio.temp_in
+_create_new = fsio.create_new
 
 
 def written_by_us(path, schema):
@@ -364,97 +262,40 @@ def save_beside(media_path, suffix, data, schema=None):
     raise PipelineError("no_name", "同じ名前のファイルが多すぎるため保存できません(%s)" % (stem + suffix))
 
 
-# ---------- 実行中のポートの共有(.runtime/<ツールID>.json)と /api/siblings ----------
+# ---------- 実行中のポートの共有(.runtime/<ツールID>.json)と /api/siblings(中身は ytt_core.runtime) ----------
+valid_port = runtime.valid_port
+
+
 def runtime_dir(tool_root):
     """<ツールのフォルダの1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)。"""
-    return os.environ.get("YTT_RUNTIME_DIR") or os.path.join(os.path.dirname(os.path.abspath(tool_root)), ".runtime")
-
-
-def valid_port(v):
-    return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 65535
+    return runtime.runtime_dir(tool_root)
 
 
 def write_runtime(rdir, tool_id, port, version):
-    """起動時に書く。書けなくても起動は続ける(None を返す)。pid は参考のためだけ(生きているかの判定には使わない)。"""
-    info = {"tool": tool_id, "port": int(port), "version": str(version), "startedAt": iso_now(), "pid": os.getpid()}
-    try:
-        os.makedirs(rdir, exist_ok=True)
-        path = os.path.join(rdir, tool_id + ".json")
-        tmp = _temp_in(rdir, json.dumps(info, ensure_ascii=False).encode("utf-8"))
-        try:
-            _replace_retry(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-        return path
-    except (OSError, ValueError):
-        return None
+    """起動時に書く。書けなくても起動は続ける(None を返す)。pid は「自分が書いた記録か」の確認だけに使う。"""
+    return runtime.write_runtime(rdir, tool_id, port, version)
 
 
 def remove_runtime(rdir, tool_id, port):
-    """正常終了時に消す。ただし、自分が書いたもの(同じポート・同じプロセス)のときだけ
-    (別のポートで後から起動した同じツールの記録を消さないため)。"""
-    path = os.path.join(rdir, tool_id + ".json")
-    try:
-        d = read_json_file(path, MAX_RUNTIME_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return False
-    if not isinstance(d, dict) or d.get("port") != port or d.get("pid") != os.getpid():
-        return False
-    try:
-        os.unlink(path)
-        return True
-    except OSError:
-        return False
+    """正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ。"""
+    return runtime.remove_runtime(rdir, tool_id, port)
 
 
 def read_runtime_entries(rdir):
     """[(ツールID, ポート)]。知らないツールID・名前と中身が合わない・ポートが範囲外のものは捨てる。"""
     out = []
     for tool_id in RUNTIME_TOOLS:
-        try:
-            d = read_json_file(os.path.join(rdir, tool_id + ".json"), MAX_RUNTIME_BYTES)
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if isinstance(d, dict) and d.get("tool") == tool_id and valid_port(d.get("port")):
-            out.append((tool_id, d["port"]))
+        port = runtime.read_runtime_port(rdir, tool_id)
+        if port is not None:
+            out.append((tool_id, port))
     return out
 
 
-_no_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 への問い合わせを、環境変数のプロキシに回さない
-
-
 def ping(port, expect_app, timeout=SIBLING_TIMEOUT):
-    """http://127.0.0.1:<port>/api/ping が応答し、app が expect_app なら True。問い合わせ先は 127.0.0.1 に固定(ファイルの内容で別のホストに向けさせない)。"""
-    if not valid_port(port):
-        return False
-    try:
-        with _no_proxy.open("http://127.0.0.1:%d/api/ping" % port, timeout=timeout) as r:
-            d = json.loads(r.read(65536).decode("utf-8", "replace"))
-        return isinstance(d, dict) and d.get("app") == expect_app
-    except Exception:   # 応答なし・拒否・時間切れ・壊れた応答は「動いていない」とみなす
-        return False
+    """http://127.0.0.1:<port>/api/ping が応答し、app が expect_app なら True。"""
+    return runtime.ping_app(port, timeout) == expect_app
 
 
 def siblings(rdir, self_id, self_port, timeout=SIBLING_TIMEOUT):
-    """{"tools": {ツールID: ポート}}。.runtime の記録を読み、応答した(app が一致した)ものだけ。自分自身は常に含める。
-    問い合わせは並列にして、全体でもおよそ timeout 秒で返す。"""
-    found = {self_id: self_port}
-    entries = [(t, p) for t, p in read_runtime_entries(rdir) if t != self_id]
-    results = {}
-
-    def check(tool_id, port):
-        if ping(port, RUNTIME_TOOLS[tool_id], timeout):
-            results[tool_id] = port
-
-    threads = [threading.Thread(target=check, args=e, daemon=True) for e in entries]
-    for th in threads:
-        th.start()
-    deadline = time.time() + timeout + 0.2
-    for th in threads:
-        th.join(max(0.0, deadline - time.time()))
-    found.update(dict(results))
-    return {"tools": found}
+    """{"tools": {ツールID: ポート}}。.runtime の記録のうち、応答した(app が一致した)ものだけ。自分自身は常に含める。"""
+    return runtime.siblings(rdir, self_id, self_port, timeout)

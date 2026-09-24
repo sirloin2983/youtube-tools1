@@ -48,7 +48,6 @@ import socket
 import subprocess
 import sys
 import tarfile
-import tempfile
 import threading
 import time
 import unicodedata
@@ -61,6 +60,23 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(pipeline_io.py・resolve_export.py)を読めるように
+
+
+def _load_core():
+    """共通部品 ytt_core(リポジトリ直下。統合計画の段階2)を読み込めるようにする。
+    探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
+        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+            if d not in sys.path:
+                sys.path.append(d)
+            return
+    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+                     "リポジトリのフォルダの中身をまとめて置き直してください" % here)
+
+
+_load_core()
+from ytt_core import fsio as _fsio, httpsec, runtime as _runtime, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
@@ -127,36 +143,15 @@ class ApiError(Exception):
 
 # ---------- ユーティリティ ----------
 def replace_retry(src, dst):
-    """os.replace。Windows では、ウイルス対策ソフト・検索インデックスが一瞬ファイルを開いていて PermissionError になることがあるので、
-    少し待って数回やり直す(自動保存がたまに「保存できません」になるのを防ぐ)。"""
-    for i in range(6):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError:
-            if os.name != "nt" or i == 5:
-                raise
-            time.sleep(0.05 * (i + 1))
+    """os.replace。Windows でウイルス対策ソフト・検索インデックスが一瞬ファイルを開いていて失敗したときは、少し待ってやり直す
+    (自動保存がたまに「保存できません」になるのを防ぐ。規則は ytt_core.fsio.replace_retry)。"""
+    _fsio.replace_retry(src, dst)
 
 
 def atomic_write(path, data: bytes):
-    """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える。
-    fsync は、停電・強制終了のあとに「中身が空の文字起こし」が残るのを防ぐため(校正の成果を失わないことを優先。1回数ミリ秒)。"""
-    d = os.path.dirname(path)
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-", suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        replace_retry(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える(ytt_core.fsio.atomic_write)。
+    fsync に失敗したら保存も失敗にする: 停電・強制終了のあとに「中身が空の文字起こし」が残るのを防ぐため(校正の成果を失わないことを優先)。"""
+    _fsio.atomic_write(path, data, fsync_required=True)
 
 
 # ---------- 記録(落ちたときの手がかり) ----------
@@ -268,10 +263,8 @@ def clear_mark():
 
 
 def find_ffmpeg():
-    env = os.environ.get("TRANSCRIBE_FFMPEG")
-    if env and os.path.isfile(env):
-        return env
-    return shutil.which("ffmpeg")
+    """環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から。"""
+    return _tools.find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
 
 
 def media_duration(path):
@@ -3321,12 +3314,12 @@ def export_file(req):
 
 def runtime_path_dir():
     """<transcribe-tool の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則。"""
-    return os.environ.get("YTT_RUNTIME_DIR") or os.path.join(os.path.dirname(ROOT), ".runtime")
+    return _runtime.runtime_dir(ROOT)
 
 
 # ---------- HTTP ----------
 QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
-PAGE_HEADERS = {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"}
+PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -3342,24 +3335,23 @@ class Handler(BaseHTTPRequestHandler):
         self._responded = True
         super().send_response(code, message)
 
+    # 安全検査の規則は ytt_core.httpsec に1か所(スタジオ・文字起こし・入口で共通)
     def _host_ok(self):
-        return (self.headers.get("Host") or "") in ALLOWED_HOSTS
+        return httpsec.host_ok(self.headers, ALLOWED_HOSTS)
 
     def _origin_ok(self):
-        # 「http://」+ 許可したホスト と完全に一致するものだけ(以前は "http://" を消してから比べていたので、形の崩れた値も通った)
-        o = self.headers.get("Origin")
-        return o is None or o in {"http://" + h for h in ALLOWED_HOSTS}
+        # 「http://」+ 許可したホスト と完全に一致するものだけ
+        return httpsec.origin_ok(self.headers, ALLOWED_HOSTS)
 
     def _fetch_site_ok(self):
-        return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+        return httpsec.fetch_site_ok(self.headers)
 
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8775/?media=...)で、この画面を開くのは許す。
         ポートが違うだけでも Sec-Fetch-Site は same-site(127.0.0.1 と localhost なら cross-site)になるため、以前は 403 になっていた。
         画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(docs/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
         埋め込み(iframe)での悪用は X-Frame-Options / frame-ancestors で防ぐ。"""
-        return (path in ("/", "/index.html") and self.headers.get("Sec-Fetch-Mode") == "navigate"
-                and self.headers.get("Sec-Fetch-Dest", "document") == "document")
+        return httpsec.navigation_ok(self.headers, path)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         self.send_response(code)
@@ -3711,16 +3703,10 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
 
-_local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 への問い合わせを、環境変数 HTTP_PROXY などのプロキシに回さない
-
-
 def probe(port):
-    try:
-        with _local_opener.open("http://127.0.0.1:%d/api/ping" % port, timeout=1) as r:
-            j = json.load(r)
-            return str(j.get("version", "")) if j.get("app") == APP_ID else None
-    except Exception:
-        return None
+    """そのポートで動いている文字起こしツールの版(このツールでなければ None)。問い合わせは ytt_core.runtime.ping(プロキシを通さない)。"""
+    r = _runtime.ping(port, 1)
+    return r["version"] if r and r["app"] == APP_ID else None
 
 
 def make_server(start_port):
@@ -3737,7 +3723,7 @@ def make_server(start_port):
         except OSError:
             continue
         PORT = p
-        ALLOWED_HOSTS = {"localhost:%d" % p, "127.0.0.1:%d" % p}
+        ALLOWED_HOSTS = httpsec.allowed_hosts(p)
         return srv, p
     raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
 

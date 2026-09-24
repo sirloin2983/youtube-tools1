@@ -12,7 +12,7 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
   GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
   POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, force, crf?}} → ジョブ。既存の出力があれば 409 exists
+  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, force, crf?}} → ジョブ。既存の出力があれば 409 exists
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
@@ -467,13 +467,18 @@ def request_from_spec(spec):
 def output_from_spec(o, video):
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
+    textplus = bool(o.get("textplus"))
     return {"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
-            "copyVideo": bool(o.get("copyVideo")), "fcpxml": bool(o.get("fcpxml")), "force": o.get("force") is True,
+            "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
+            "textplus": textplus, "force": o.get("force") is True,
             "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True)}
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "友人向けの手順", "plan": "カットの記録",
-              "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー"}
+              "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー",
+              "textplus_plan": "Text+生成用データ", "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
+              "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
+              "textplus_readme": "Text+の使い方"}
 
 
 def file_info(kind, p):
@@ -814,7 +819,8 @@ class Handler(BaseHTTPRequestHandler):
 
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
-            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"], out_opts["fcpxml"])
+            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"],
+                                                            out_opts["fcpxml"], out_opts["textplus"])
             res = pack.summary(plan)
             res["mediaUrl"] = app.register_media(plan.video)
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
@@ -828,7 +834,8 @@ class Handler(BaseHTTPRequestHandler):
         if out["dir"].exists() and not out["dir"].is_dir():
             raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-            names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"], out["fcpxml"])
+            names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"],
+                                    out["fcpxml"], out["textplus"])
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -836,6 +843,7 @@ class Handler(BaseHTTPRequestHandler):
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
+                                  textplus=out["textplus"],
                                   force=out["force"], crf=out["crf"], task=task)
             app.allow_out_dir(res["out_dir"])
             files = [file_info(k, p) for k, p in res["files"]]

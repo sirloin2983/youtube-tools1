@@ -20,6 +20,23 @@ import traceback
 import urllib.parse
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))   # コード・静的ファイル・seed.json の場所
+
+
+def _load_core():
+    """共通部品 ytt_core(リポジトリ直下。統合計画の段階2)を読み込めるようにする。
+    探す場所: 環境変数 YTT_CORE_DIR(ツールを一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。
+    sys.path の末尾に足す(このフォルダの同名のモジュールを隠さないため)。"""
+    for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
+        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+            if d not in sys.path:
+                sys.path.append(d)
+            return
+    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+                     "リポジトリのフォルダの中身をまとめて置き直してください" % CODE_DIR)
+
+
+_load_core()
+from ytt_core import fsio as _fsio, tools as _tools  # noqa: E402
 _home = os.path.abspath(os.environ.get("STUDIO_HOME") or CODE_DIR)   # data.json などの置き場所
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")
@@ -59,47 +76,18 @@ def fake():
 
 
 def find_tool(name):
-    env = os.environ.get("STUDIO_" + name.upper().replace("-", ""))
-    if env and os.path.isfile(env):
-        return env
-    return shutil.which(name)
+    """環境変数 STUDIO_<名前>(例 STUDIO_FFMPEG・STUDIO_YTDLP)があればそれ、無ければ PATH から。"""
+    return _tools.find_tool(name, "STUDIO_" + name.upper().replace("-", ""))
 
 
 def replace_file(source, target):
-    """Windows の一時的な共有違反だけ、短く待って再試行する。"""
-    for attempt in range(4):
-        try:
-            os.replace(source, target)
-            return
-        except PermissionError as e:
-            if getattr(e, "winerror", None) not in (5, 32, 33) or attempt == 3:
-                raise
-            time.sleep(0.1 * 2 ** attempt)
+    """Windows の一時的な共有違反だけ、短く待って再試行する(ytt_core.fsio.replace_retry)。"""
+    _fsio.replace_retry(source, target)
 
 
 def atomic_write(path, data: bytes, mode=None):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-", suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            try:
-                os.fsync(f.fileno())   # 電源断などに備える(できなければ無視)
-            except OSError:
-                pass
-        if mode is not None:
-            try:
-                os.chmod(tmp, mode)
-            except OSError:
-                pass
-        replace_file(tmp, path)
-    except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass  # 後片付けの失敗で、本来の保存エラーを隠さない
-        raise
+    """一時ファイルに書いてから置き換える(ytt_core.fsio.atomic_write。fsync できないドライブでも保存は続ける)。"""
+    _fsio.atomic_write(path, data, mode=mode)
 
 
 # ---------- ログ・表示用 ----------
