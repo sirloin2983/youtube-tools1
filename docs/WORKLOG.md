@@ -66,3 +66,46 @@
 - 変更: `transcribe-tool/AGENTS.md` と `docs/project/HANDOVER-transcribe-tool.md` の「統合は確認待ち」「GitHub clone/pull・zipで作業」という古い案内を、ユーザー了承済み・PCフォルダ正本・`docs/NEXT_TASKS.md` 参照に更新。
 - 理由: 複数AIが共有する作業フォルダを無人実行が一括ステージ・コミットしたり、古い引き継ぎ指示で別コピーを正本と誤認したりするリスクを防ぐ。
 - 確認: タスクスケジューラに `youtube-tools-auto-next` は登録されていない。コード差分の目視確認のみで、テストは未実行。
+
+## 2026-09-24 GPT(Codex)— cut2resolve の出力上書き事故を防止
+- 変更: cut2resolve フル版・シンプル版と srt2resolve は、既存の出力ファイルがある場合に既定で停止し、`--force` 指定時のみ上書きするようにした。入力ファイルとの衝突は `--force` でも拒否する。
+- 変更: CLI のバージョンを cut2resolve / srt2resolve とも 0.1.3 に更新し、仕様メモに上書き動作と更新内容を追記した。
+- 理由: 同じ出力先で再実行したとき、前の EDL・SRT・FCPXML・粗編集動画を確認なしに壊さないため。明示フラグで繰り返し生成する運用は維持する。
+- 確認: `python -m unittest -v test_cut2resolve.py` は 37件中24件成功、13件スキップ(ffmpeg/ffprobe がこの環境の PATH に無く、該当テストは従来どおりスキップ)。Resolve 実機 / PC操作テストはユーザー指示により未実施。
+
+## 2026-09-24 GPT(Codex)— 文字起こし統合前提の自動カット計画を作成
+- 変更: `cut2resolve/auto_cut.py` を新設。採用区間JSON(v1)を入力に、既定で前後10秒の編集ハンドルをフレーム精度で保持し、残す/削除範囲を記録する。EDL・FCPXML・カット後SRT・`cut-plan.json`・友人向け説明をパッケージ化する。
+- 変更: `cut2resolve/selection.example.json` と `docs/project/auto-cut-design.md` を追加。文字起こし画面は将来公開JSON契約から `build_plan()` / `write_package()` を呼べるよう境界を設けた。既存出力保護と `--force` も適用。
+- 制約: 文字起こしツール本体には今回は触れていない。FCPXMLタイトルがResolve Free 21.1でText+になるか、パッケージ移動後の再リンク、映像音声同期は実機未確認。EDL/SRTとJSONは復旧経路として同梱する。Resolve PC操作テストはユーザー指示により省略。
+- 確認: `python -m unittest -v test_cut2resolve.py` は 41件中28件成功、13件スキップ(ffmpeg/ffprobe が実行環境のPATHにないため)。`py_compile` とCLIヘルプも確認。
+
+## 2026-09-24 Claude(Cowork)— v0.9.9(2つの v0.9.8 の統合)・精度の基準・入力項目
+- 変更(transcribe-tool): Claude 版 v0.9.8 と GPT 版 v0.9.8(`_recovered/`)を v0.9.7 を共通の元にした3方向の統合で1つにした。index.html・serve.py・README.txt・AGENTS.md
+  - GPT 版から: 保存の安全性(saveDoc の直列化・openDoc の中断)、行の「残す/カット済」(cutState)、Resolve パッケージの書き出し、一覧・候補の検索、候補の回数の既定2回以上、
+    準備の案内の表示、serve.py の cutState・/api/resolve-package・スタジオの書き出し先の既定
+  - ぶつかった所: 左パネルは Claude の ☰ 開閉の中に GPT のタブ(新規・履歴・精度・学習)。GPT の「集中モード」「管理」ボタン・1280px 以下の切り替え・行の「…」メニューは入れなかった。
+    メニューの自動で閉じる幅を編集欄 1000px 未満に(GPT 版でメニューが細くなったため)
+  - e2e: タブで隠れるカードも操作できるようテスト用スタイルを追加、e2e_ui_v098.py にタブ・残す/カット済の確認を追加、e2e_ui_v07.py は候補の回数を1回に
+- 版: 0.9.8(2つ)→ **0.9.9**
+- 確認: test_metrics・test_resolve_export・test_document_save.cjs(9/9)・e2e 5本すべて通過(v07/v09 の「版 v0.9.4」だけ想定内の失敗)。実機(Windows・実エンジン)は未確認
+- 追加: `docs/accuracy-baseline.md` / `.json`(段階0の基準。校正済み 8.5 分で CER 8.4%。重なり 24%・要確認の印あり 18%。誤りの多くは呼び名・愛称)、
+  `tools/baseline_analysis.py`(再計算用。PC で `python tools/baseline_analysis.py transcribe-tool docs`)、`docs/USER_INPUT.md`(ユーザーの記入用)
+- 未完了・次: USER_INPUT.md の記入(特に呼び名)→ 用語集・置換辞書に反映。評価用を 15 分・4 人以上に。`_recovered/` は統合済みなので消してよい
+- 注意: 未コミット。PC で git を使う AI がいれば、`[Claude] v0.9.9 統合・基準・入力項目` としてコミットしてほしい(または push.bat)。
+  GPT の cut2resolve の未コミットの変更には触れていない
+
+## 2026-09-24 Claude(Cowork)— 全ツールの見直し・UI 刷新・受け渡しの統一(スタジオ 0.2.0 / 文字起こし 0.10.0 / cut2resolve 0.2.0)
+- 変更: まとめは `docs/review/README.md`、各ツールの詳細は `docs/review/*.md`。共通の見た目 `ui-kit/`(+ `tools/sync_ui_kit.py`)、受け渡しの約束 `docs/pipeline.md`、
+  cut2resolve の専用画面(serve.py・index.html・app.js・app.css・pack.py)、3ツールの通し確認 `tools/e2e_pipeline.py`
+- 版: スタジオ 0.1.8 → 0.2.0、文字起こし 0.9.9 → 0.10.0、cut2resolve 0.1.3 → 0.2.0(srt2resolve 0.1.4)
+- 決定・理由: ユーザーの選択 = ダーク/ライト切り替え、受け渡しの形式だけ統一(将来アプリ統合の可能性が高い → 見た目は ui-kit で共通、API 呼び出しは各ツール1か所の関数)、
+  cut2resolve に専用画面、納品は PC の `_new` フォルダに置いてユーザーが確認してから入れ替え
+- 作業の土台: 2026-09-24 08:40 時点の PC の作業フォルダ(他の AI の未コミットの作業 = v0.9.9 統合・auto_cut など を含む)。`_new/入れ替え.bat` は、その時点から PC 側で変わったファイルがあれば止まる
+- 未完了・次: 実機(Windows)での確認(`docs/review/README.md` の最後)、ユーザーの判断待ち6件(同じファイル)。受け渡しの一括実行(パイプライン)は個別のツールの完成後
+- 注意: ui-kit の写し(clip-studio/ui-kit.*・cut2resolve/ui-kit.*・transcribe-tool/index.html の印の間)は手で直さない。正本 `ui-kit/` を直して `python tools/sync_ui_kit.py`。
+  CSP で unsafe-eval を禁止しているため、Playwright の `wait_for_function`(文字列)は使えない(evaluate で待つ)
+
+## 2026-09-24 GPT(Codex)— Resolve Free 21.1 の Text+ 実機確認手順
+- 変更: `docs/project/resolve-textplus-test.md` を追加。コピー素材・新規プロジェクトで、EDLカット編集、SRT時刻、Text+変換方式、フォント/スタイル、DRT/DRP、別フォルダ再リンクを順に確認する手順と結果記録欄を作成。
+- 理由: Text+自動生成とFree 21.1のスクリプト可否、別PCでの再リンクが未検証のため、実装判断前の安全な合否基準を揃える。
+- 注意: 実機操作・第三者スクリプト実行・フォント配布はまだ行っていない。Git状態確認は実行環境の所有者不一致による `dubious ownership` で失敗したため、グローバルGit設定は変更せず、既存ファイルを変更せずに新規手順書とWORKLOGのみ追加した。

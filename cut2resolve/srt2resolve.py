@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""srt2resolve v0.1.2
+"""srt2resolve v0.1.4
 
 動画 + 字幕(SRT/VTT)から、DaVinci Resolve に読み込める編集可能なデータを作る。
 
@@ -13,14 +13,17 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-VERSION = "0.1.2"
+VERSION = "0.1.4"
 
 # 編集ソフトで一般的なフレームレート。動画の実測値をこれに丸める
 STD_FPS = [(24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),
@@ -28,10 +31,68 @@ STD_FPS = [(24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),
 SUB_EXTS = {".srt", ".vtt"}
 MAX_SUB_BYTES = 5 * 1024 * 1024
 SEQ_AUDIO_RATE = {32000: "32k", 44100: "44.1k", 48000: "48k", 88200: "88.2k", 96000: "96k"}
+TC_RE = re.compile(r"\d{1,2}[:;]\d{2}[:;]\d{2}[:;]\d{2}")
 
 
 class ToolError(Exception):
     """利用者に見せる想定のエラー(原因と対処を書く)"""
+
+
+def same_path(a, b):
+    """同じファイルを指すか(Windows の大文字小文字・区切りの違いも同じとみなす)。どちらかが None なら False"""
+    if a is None or b is None:
+        return False
+    try:
+        if os.path.exists(a) and os.path.exists(b) and os.path.samefile(a, b):
+            return True
+    except OSError:
+        pass
+    return os.path.normcase(os.path.abspath(str(Path(a).resolve()))) == os.path.normcase(os.path.abspath(str(Path(b).resolve())))
+
+
+def _replace_retry(src, dst):
+    """os.replace。Windows ではウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、少し待って数回やり直す"""
+    for i in range(6):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or i == 5:
+                raise
+            time.sleep(0.05 * (i + 1))
+
+
+def write_bytes_atomic(path, data):
+    """一時ファイルに書いてから置き換える(書きかけのファイルを Resolve・他のツールに読ませない。docs/pipeline.md の 1)"""
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        _replace_retry(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
+    """Path.write_text と同じ引数(newline: "\n" はそのまま、"" は変換なし)。中身は一時ファイル経由で置き換える"""
+    if newline is None:
+        newline = os.linesep
+    if newline not in ("", "\n"):
+        text = text.replace("\n", newline)
+    write_bytes_atomic(path, text.encode(encoding))
+
+
+def arg_path(p):
+    """ffmpeg / ffprobe に渡すパス。絶対パスにする(「-」で始まる相対パスがオプションと解釈されるのを防ぐ。
+    Windows の絶対パスは「C:\\」、Linux/Mac は「/」で始まるので、オプションと取り違えられない)"""
+    return os.path.abspath(str(p))
 
 
 # ---------------------------------------------------------------- 字幕の読み込み
@@ -139,10 +200,10 @@ def _exact_frames(video, v):
         return int(nb)
     print("フレーム数を数えています…(長い動画は少し時間がかかります)", flush=True)
     cmd = ["ffprobe", "-v", "error", "-select_streams", str(v["index"]), "-count_packets",
-           "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(video)]
+           "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", arg_path(video)]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=600)
+                           errors="replace", timeout=600, stdin=subprocess.DEVNULL)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     m = re.match(r"\s*(\d+)", r.stdout or "")
@@ -150,17 +211,20 @@ def _exact_frames(video, v):
 
 
 def probe(video, fps_override=None, frames_override=None):
-    cmd = ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(video)]
+    cmd = ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", arg_path(video)]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=60)
+                           errors="replace", timeout=60, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise ToolError("ffprobe が見つかりません。ffmpeg をインストールして PATH に通してください。")
     except subprocess.TimeoutExpired:
         raise ToolError("ffprobe が 60 秒で終わりませんでした。動画ファイルを確認してください。")
     if r.returncode != 0:
         raise ToolError(f"動画を読めませんでした: {r.stderr.strip()[:200]}")
-    info = json.loads(r.stdout or "{}")
+    try:
+        info = json.loads(r.stdout or "{}")
+    except ValueError:
+        raise ToolError("動画の情報(ffprobe の出力)を読めませんでした。")
     streams = info.get("streams", [])
     v = next((s for s in streams if s.get("codec_type") == "video"
               and not s.get("disposition", {}).get("attached_pic")), None)
@@ -168,7 +232,10 @@ def probe(video, fps_override=None, frames_override=None):
         raise ToolError("動画ストリームが見つかりません。")
     warnings = []
 
-    w, h = int(v["width"]), int(v["height"])
+    try:
+        w, h = int(v["width"]), int(v["height"])
+    except (KeyError, TypeError, ValueError):
+        raise ToolError("動画の幅・高さを取得できません(映像のストリームが壊れているかもしれません)。")
     rot = (v.get("tags") or {}).get("rotate")
     for sd in v.get("side_data_list") or []:
         if "rotation" in sd:
@@ -220,6 +287,8 @@ def probe(video, fps_override=None, frames_override=None):
     if tc and not re.fullmatch(r"[0:;.]+", tc):
         warnings.append(f"この動画には開始タイムコード({tc})が埋め込まれています。"
                         "Resolve 側の開始位置とずれて、取り込めないことがあります。")
+    # 開始タイムコード(HH:MM:SS:FF の形のものだけ)。Resolve はこれをクリップの Start TC にする
+    start_tc = next((t.strip() for t in tcs if t and TC_RE.fullmatch(t.strip())), None)
 
     a = next((s for s in streams if s.get("codec_type") == "audio"), None)
     audio = None
@@ -232,10 +301,46 @@ def probe(video, fps_override=None, frames_override=None):
     pix_fmt = (v.get("pix_fmt") or "").lower()
     warnings.extend(codec_warnings(codec, pix_fmt))
     return {"w": w, "h": h, "fps": fps, "total": total, "frames_source": source,
-            "codec": codec, "pix_fmt": pix_fmt, "audio": audio, "warnings": warnings}
+            "codec": codec, "pix_fmt": pix_fmt, "audio": audio, "warnings": warnings,
+            "vfr": vfr, "duration": dur, "start_tc": start_tc}
 
 
 # ---------------------------------------------------------------- 時刻の変換
+
+def nominal_rate(fps):
+    """タイムコードで数える1秒のフレーム数(29.97 → 30、59.94 → 60。ノンドロップ)"""
+    return max(1, int(round(fps[0] / fps[1])))
+
+
+def tc_to_frames(tc, nominal):
+    if ";" in tc:
+        raise ToolError("ドロップフレーム(; 区切り)のタイムコードは未対応です。")
+    m = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2}):(\d{2})", tc.strip())
+    if not m:
+        raise ToolError(f"タイムコードを読めません(HH:MM:SS:FF の形式): {tc!r}")
+    h, mi, s, f = (int(x) for x in m.groups())
+    if mi >= 60 or s >= 60 or f >= nominal:
+        raise ToolError(f"タイムコードの値が範囲外です: {tc!r}")
+    return ((h * 60 + mi) * 60 + s) * nominal + f
+
+
+def frames_to_tc(n, nominal):
+    """ノンドロップのタイムコード。29.97/59.94 も呼び名どおりの 30/60 で数える(Resolve の既定と同じ)"""
+    s = n // nominal
+    return f"{s // 3600:02d}:{s // 60 % 60:02d}:{s % 60:02d}:{n % nominal:02d}"
+
+
+def start_tc_frames(tc, fps):
+    """開始タイムコード → 元動画の先頭のフレーム番号(タイムコードの数え方)。(フレーム, 警告)。
+    ドロップフレーム表記(;)はノンドロップとして読み替えて警告する(EDL と同じ扱い)"""
+    if not tc:
+        return 0, []
+    warns = []
+    if ";" in tc:
+        warns.append(f"開始タイムコード {tc} はドロップフレーム表記です。ノンドロップとして扱うため、数フレームずれることがあります。")
+        tc = tc.replace(";", ":")
+    return tc_to_frames(tc, nominal_rate(fps)), warns
+
 
 def ms_to_frames(ms, fps):
     return int(round(Fraction(ms * fps[0], 1000 * fps[1])))
@@ -288,8 +393,13 @@ def assign_lanes(items):
 
 # ---------------------------------------------------------------- 出力の組み立て
 
-def build_fcpxml(video, meta, cues_f, name, font, size, titles=True):
+def build_fcpxml(video, meta, cues_f, name, font, size, titles=True, start_frames=0):
+    """start_frames: 元動画の開始タイムコードのフレーム番号。FCPXML では asset の start がメディアの先頭の時刻、
+    asset-clip の start はそのメディアの時刻で書く。Resolve は動画に埋め込まれた開始タイムコードで照合するため、
+    0 のままだと EDL の v0.1.0 と同じ「timecode extents do not match」になる(EDL は v0.1.1 で対応済み・実機確認済み)。
+    つながったタイトルの offset は親(asset-clip)の中の時刻 = 親の start 基準で書く"""
     fps, total = meta["fps"], meta["total"]
+    t0 = int(start_frames or 0)
     w, h = meta["w"], meta["h"]
     fd = frames_to_time(1, fps)
     fps_label = f"{fps[0] / fps[1]:g}" if fps[1] == 1 else f"{fps[0] / fps[1]:.2f}"
@@ -300,7 +410,7 @@ def build_fcpxml(video, meta, cues_f, name, font, size, titles=True):
                   frameDuration=fd, width=str(w), height=str(h))
     uid = hashlib.md5(str(video).encode("utf-8")).hexdigest().upper()
     asset_attr = dict(id="r2", name=video.name, uid=uid, src=video.resolve().as_uri(),
-                      start="0s", duration=frames_to_time(total, fps), hasVideo="1", format="r1")
+                      start=frames_to_time(t0, fps), duration=frames_to_time(total, fps), hasVideo="1", format="r1")
     if meta["audio"]:
         asset_attr.update(hasAudio="1", audioSources="1",
                           audioChannels=str(meta["audio"][0]), audioRate=str(meta["audio"][1]))
@@ -319,7 +429,7 @@ def build_fcpxml(video, meta, cues_f, name, font, size, titles=True):
     seq = ET.SubElement(proj, "sequence", **seq_attr)
     spine = ET.SubElement(seq, "spine")
     clip = ET.SubElement(spine, "asset-clip", ref="r2", offset="0s", name=video.stem,
-                         start="0s", duration=frames_to_time(total, fps), format="r1", tcFormat="NDF")
+                         start=frames_to_time(t0, fps), duration=frames_to_time(total, fps), format="r1", tcFormat="NDF")
 
     lanes = 0
     if titles:
@@ -327,7 +437,7 @@ def build_fcpxml(video, meta, cues_f, name, font, size, titles=True):
         for n, (sf, ef, text, lane) in enumerate(assign_lanes(cues_f), 1):
             lanes = max(lanes, lane)
             t = ET.SubElement(clip, "title", ref="r3", lane=str(lane),
-                              offset=frames_to_time(sf, fps),
+                              offset=frames_to_time(t0 + sf, fps),
                               name=text.replace("\n", " ")[:40],
                               start=frames_to_time(gen_start, fps),
                               duration=frames_to_time(ef - sf, fps))
@@ -384,25 +494,35 @@ def run(args):
         raise ToolError("動画の長さの範囲に入る字幕がありません。--offset を確認してください。")
 
     out_dir = Path(args.output) if args.output else video.parent / f"{video.stem}_resolve"
-    out_dir.mkdir(parents=True, exist_ok=True)
     fcp_path, srt_path = out_dir / f"{video.stem}.fcpxml", out_dir / f"{video.stem}.srt"
-    if srt_path.resolve() == sub.resolve():
-        raise ToolError("出力先が入力の字幕ファイルと同じです。-o で別のフォルダを指定してください。")
+    existing = [p for p in (fcp_path, srt_path) if p.exists()]
+    if same_path(srt_path, sub) or same_path(fcp_path, sub) or same_path(fcp_path, video) or same_path(srt_path, video):
+        raise ToolError("出力先が入力ファイルと同じです。-o で別のフォルダを指定してください。")
+    if existing and not args.force:
+        raise ToolError("出力ファイルが既にあります(上書きする場合は --force を指定): "
+                        + ", ".join(p.name for p in existing))
 
+    # 開始タイムコードの確かめ・XML の組み立ては、フォルダを作る前に済ませる(失敗したとき空のフォルダを残さない)
+    start_tc = args.src_start_tc or meta.get("start_tc")
+    t0, tc_warns = start_tc_frames(start_tc, meta["fps"])
     size = args.size or round(min(meta["w"], meta["h"]) * 0.06)
     xml, lanes = build_fcpxml(video, meta, cues_f, video.stem, args.font or default_font(),
-                              size, titles=not args.no_titles)
-    fcp_path.write_text(xml, encoding="utf-8", newline="\n")
-    srt_path.write_text(build_srt(cues_f, meta["fps"]), encoding="utf-8", newline="\n")
+                              size, titles=not args.no_titles, start_frames=t0)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(fcp_path, xml, encoding="utf-8", newline="\n")
+    write_text_atomic(srt_path, build_srt(cues_f, meta["fps"]), encoding="utf-8", newline="\n")
 
     fps = meta["fps"]
     print(f"動画: {video.name}  {meta['w']}x{meta['h']}  {fps[0] / fps[1]:.3f}fps  "
           f"{meta['total']}フレーム({meta['frames_source']})")
     print(f"映像: {meta['codec']} / {meta['pix_fmt']}   場所: {video.resolve()}")
     print(f"字幕: {len(cues_f)}件" + (f"(範囲外 {dropped}件は除外)" if dropped else ""))
+    if start_tc:
+        print(f"元動画の開始タイムコード: {start_tc}({'指定' if args.src_start_tc else '動画に埋め込まれた値'})を FCPXML に反映しました"
+              "  ← Resolve の Clip Attributes の Start TC と同じになるはずです")
     if lanes > 1:
         print(f"注意: 時間が重なる字幕があるため、字幕トラックが {lanes} 本になります。")
-    for wmsg in meta["warnings"]:
+    for wmsg in [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns:
         print("注意: " + wmsg)
     print(f"出力: {fcp_path}\n      {srt_path}")
     print("Resolve: File > Import > Timeline で .fcpxml を選び、"
@@ -428,6 +548,9 @@ def main(argv=None):
                     help="動画のフレーム数を指定(Resolve のクリップ情報の値。取り込みで長さが合わないとき用)")
     ap.add_argument("--no-titles", action="store_true",
                     help="字幕を FCPXML に入れず、動画だけのタイムラインにする(字幕は SRT を Resolve で読み込む)")
+    ap.add_argument("--src-start-tc", default=None,
+                    help="元動画の開始タイムコード HH:MM:SS:FF(既定: 動画に埋め込まれた値、無ければ 00:00:00:00)")
+    ap.add_argument("--force", action="store_true", help="既存の出力ファイルを上書きする")
     ap.add_argument("--version", action="version", version=f"srt2resolve {VERSION}")
     args = ap.parse_args(argv)
     try:

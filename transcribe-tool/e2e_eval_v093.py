@@ -28,14 +28,14 @@ def call(port, method, path, body=None):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "hololive-roster.json"):
+    for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
     wav = os.path.join(tmp, "s.wav")
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", wav], check=True)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
+    env = dict(os.environ, YTT_RUNTIME_DIR=os.path.join(tmp, ".runtime"), TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     errors, ok = [], True
 
@@ -129,6 +129,7 @@ def main():
         with sync_playwright() as pw:
             br = pw.chromium.launch()
             pg = br.new_context(viewport={"width": 1400, "height": 900}).new_page()
+            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '[data-side-pane][hidden]{display:block !important}'; document.head.appendChild(st); })")   # v0.9.9: メニューのタブで隠れるカードも操作できるように(タブ自体は e2e_ui_v098.py で確認)
             pg.on("pageerror", lambda e_: errors.append(str(e_)))
             pg.on("console", lambda m_: errors.append(m_.text) if m_.type == "error" else None)
             pg.goto("http://localhost:%d/" % port)

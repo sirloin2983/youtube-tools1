@@ -379,14 +379,14 @@ class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "index.html", "hololive-roster.json"):
+        for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
             shutil.copy(os.path.join(HERE, n), cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
         with open(os.path.join(cls.tmp, "settings.json"), "w", encoding="utf-8") as f:
             json.dump({"glossary": "ホロライブ\nトワ", "replacements": "よっきゃ=>陽キャ"}, f)
         cls.port = free_port()
-        env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
+        env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01", YTT_RUNTIME_DIR=os.path.join(cls.tmp, ".runtime"))
         cls.proc = subprocess.Popen([sys.executable, os.path.join(cls.tmp, "serve.py"), str(cls.port), "--no-open"], cwd=cls.tmp, env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(100):
@@ -694,6 +694,10 @@ class TestMarkerDone(unittest.TestCase):
         self.assertEqual(S._covered(ranges, "/a/vid.mp4", 101.0, 129.0), "p1")  # ほぼ重なる部分一致
         self.assertEqual(S._covered(ranges, "/a/vid.mp4", 100.0, 200.0), "")    # 重なりが9割未満なら「済み」にしない
         self.assertEqual(S._covered(ranges, "/a/other.mp4", 0.0, 10.0), "")     # 別ファイル
+
+
+# 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
+from test_backend import *  # noqa: E402,F401,F403
 
 
 if __name__ == "__main__":

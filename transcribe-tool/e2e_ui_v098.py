@@ -36,14 +36,14 @@ def t2s(s):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "hololive-roster.json"):
+    for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
     wav = os.path.join(tmp, "sample.wav")
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", wav], check=True)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
+    env = dict(os.environ, YTT_RUNTIME_DIR=os.path.join(tmp, ".runtime"), TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     errors, ok = [], True
 
@@ -102,6 +102,7 @@ def main():
             b = pw.chromium.launch()
             ctx = b.new_context(viewport={"width": 1500, "height": 1000})
             pg = ctx.new_page()
+            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '[data-side-pane][hidden]{display:block !important}'; document.head.appendChild(st); })")   # v0.9.9: メニューのタブで隠れるカードも操作できるように(タブ自体は e2e_ui_v098.py で確認)
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
@@ -112,7 +113,10 @@ def main():
                 if "menu-closed" in app_class():
                     pg.click("#btnMenu")
                 pg.wait_for_selector("#txList .txi")
-                pg.locator("#txList .txi").filter(has_text=title).locator(".t").click()
+                pg.fill("#txSearch", title)   # v0.9.9: 一覧は最近の8件だけ表示なので、検索で絞ってから開く
+                pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
+                # 検索欄は値を消すだけ(開いた直後に画面が狭いとメニューが自動で閉じ、見えない欄への fill は待ち続けてしまうため)
+                pg.evaluate("(() => { const q = document.querySelector('#txSearch'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); })()")
                 # クリック直後は、前の文書の行がまだ #segs に残ったまま(非同期で読み込み中)のことがあるので、
                 # タイトルがこの文書に変わるのを確認してから読む(でないと前の文書の内容を読んでしまう)
                 pg.wait_for_function("document.querySelector('#docTitle') && document.querySelector('#docTitle').value === %s" % json.dumps(title), timeout=15000)
@@ -467,6 +471,37 @@ def main():
                 pg.click("#btnMenu")
             open_doc("画面幅テスト2")
             check("menu-closed" not in app_class(), "画面が広い(1500x1000)ときは、文書を開いてもメニューは開いたまま")
+
+            # ==================== 20) v0.9.9: メニューのタブ(GPT 版の統合)・残す/カット済 ====================
+            pg2 = b.new_page(viewport={"width": 1500, "height": 1000})   # テスト用のスタイル(全部のタブを表示)なしで確かめる
+            pg2.goto("http://127.0.0.1:%d/" % port)
+            pg2.wait_for_selector("[data-side-tab]")
+            vis = lambda sel: pg2.is_visible(sel)
+            pg2.click("[data-side-tab=start]")
+            check(vis("#newBox") and vis("#jobsCard") and not vis("#txCard") and not vis("#accCard"), "タブ「新規」: 新しく文字起こし・処理状況だけが見える")
+            pg2.click("[data-side-tab=files]")
+            check(vis("#txCard") and not vis("#newBox"), "タブ「履歴」: 保存済みの文字起こしが見える")
+            pg2.click("[data-side-tab=quality]")
+            check(vis("#accCard") and vis("#goalCard") and not vis("#txCard"), "タブ「精度」: 精度の測定・進行度が見える")
+            pg2.click("[data-side-tab=data]")
+            check(vis("#learnCard") and not vis("#accCard"), "タブ「学習」: 修正から学習した候補が見える")
+            pg2.click("#goalPill") if pg2.is_visible("#goalPill") else pg2.evaluate("document.querySelector('#goalPill').click()")
+            check(vis("#goalCard"), "上の進行度の表示を押すと、メニューが開いて「精度」タブに切り替わる")
+            pg2.reload(); pg2.wait_for_selector("[data-side-tab]")
+            check(pg2.get_attribute("[data-side-tab=quality]", "aria-selected") == "true", "選んだタブは、開き直しても覚えている")
+            pg2.click("#btnMenu")
+            check(not vis("[data-side-tab=files]"), "☰ でタブごとメニューが閉じる")
+            pg2.click("#btnMenu")
+            pg2.click("[data-side-tab=files]")
+            pg2.fill("#txSearch", "メニュー文書")
+            pg2.locator("#txList .txi").filter(has_text="メニュー文書").locator(".t").first.click()
+            pg2.wait_for_selector("#segs .seg")
+            row = pg2.locator("#segs .seg").first
+            check(row.locator(".ops [data-act=cut]").count() == 1 and row.locator(".ops .pf").count() == 1, "行の「残す/カット済」が「校正済み」の隣にある")
+            row.locator("[data-act=cut]").click()
+            check("cut" in (row.get_attribute("class") or "") and row.locator("[data-act=cut]").inner_text() == "カット済", "「残す」を押すとカット済になる(取り消し線)")
+            check(pg2.locator(".row-more").count() == 0, "GPT 版の「…」メニューは使わない(操作は選んだ行の下の段)")
+            pg2.close()
 
             b.close()
 

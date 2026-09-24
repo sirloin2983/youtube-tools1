@@ -1,0 +1,19 @@
+{
+  "schema": "youtube-tools-cut-plan/v1",
+  "segments": [
+    {
+      "id": "segment-001",
+      "start": 15.25,
+      "end": 42.8,
+      "status": "adopted",
+      "label": "見どころ"
+    },
+    {
+      "id": "segment-002",
+      "start": 87.0,
+      "end": 104.5,
+      "status": "rejected",
+      "label": "不採用なので出力されない"
+    }
+  ]
+}

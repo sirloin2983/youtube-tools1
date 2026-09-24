@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)"""
+import json
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import cut2resolve as FULL  # noqa: E402
 import cut2resolve_core as C  # noqa: E402
 import cut2resolve_simple as SIMPLE  # noqa: E402
+import auto_cut as AC  # noqa: E402
 import srt2resolve as S  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -217,6 +220,71 @@ class TestInputs(unittest.TestCase):
         self.assertEqual(len(C.name_warnings(Path("さくらみこ.mp4"))), 1)
 
 
+class TestOutputSafety(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_existing_output_requires_force_and_force_preserves_input_guard(self):
+        output = self.dir / "result.edl"
+        source = self.dir / "source.mp4"
+        output.write_text("old", encoding="utf-8")
+        source.write_text("source", encoding="utf-8")
+        with self.assertRaisesRegex(C.ToolError, "--force"):
+            C.validate_output_paths([output])
+        C.validate_output_paths([output], force=True)
+        with self.assertRaisesRegex(C.ToolError, "入力ファイル"):
+            C.validate_output_paths([source], force=True, protected=(source,))
+        self.assertEqual(output.read_text(encoding="utf-8"), "old")
+
+    def test_auto_cut_plan_keeps_handles_and_records_recoverable_gaps(self):
+        meta = {"fps": FPS30, "total": 1800}
+        selected = [{"id": "a", "label": "first", "start_seconds": 20, "end_seconds": 30},
+                    {"id": "b", "label": "second", "start_seconds": 35, "end_seconds": 40}]
+        plan = AC.build_plan(selected, meta, handle_seconds=10)
+        self.assertEqual(plan["keep_frames"], [[300, 1500]])  # handles overlap; union, not duplicate clips
+        self.assertEqual(plan["removed_frames"], [[0, 300], [1500, 1800]])
+        self.assertEqual(plan["selected_segments"][0]["selected_frames"], [600, 900])
+        for invalid in (-1, float("inf"), float("nan")):
+            with self.assertRaises(C.ToolError):
+                AC.build_plan(selected, meta, invalid)
+
+    def test_auto_cut_selection_json_uses_adopted_segments_only(self):
+        p = self.dir / "selection.json"
+        p.write_text('{"schema":"youtube-tools-cut-plan/v1","segments":['
+                     '{"id":"keep","start":1.0,"end":2.0,"status":"adopted"},'
+                     '{"id":"skip","start":3.0,"end":4.0,"status":"rejected"}]}', encoding="utf-8")
+        self.assertEqual([x["id"] for x in AC.read_selection(p)], ["keep"])
+
+    def test_auto_cut_fcpxml_contains_trimmed_source_clips_and_titles(self):
+        meta = {"fps": FPS30, "total": 120, "w": 640, "h": 360, "audio": None}
+        xml = AC.build_cut_fcpxml(self.dir / "source.mp4", meta, [(0, 30), (60, 90)],
+                                  [(0, 30, "one"), (30, 60, "two")])
+        root = ET.fromstring(xml.split("\n", 2)[2])
+        clips = root.findall(".//spine/asset-clip")
+        self.assertEqual(len(clips), 2)
+        self.assertEqual([x.get("start") for x in clips], ["0s", "2s"])
+        self.assertEqual([x.find("title/text/text-style").text for x in clips], ["one", "two"])
+
+    def test_auto_cut_package_contains_recovery_files_and_protects_existing_outputs(self):
+        video = self.dir / "source.mp4"
+        video.write_bytes(b"fake media for package-only test")
+        out = self.dir / "package"
+        meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
+        plan = AC.build_plan([{"id": "m1", "label": "moment", "start_seconds": 3, "end_seconds": 5}],
+                             meta, 1)
+        files = AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00")
+        self.assertEqual(len(files), 5)
+        saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["removed_frames"], [[0, 60], [180, 300]])
+        with self.assertRaisesRegex(C.ToolError, "--force"):
+            AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00")
+        AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00", force=True)
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
 class TestWithFfmpeg(unittest.TestCase):
     def setUp(self):
@@ -286,6 +354,11 @@ class TestWithFfmpeg(unittest.TestCase):
         raw = (out / "clip.edl").read_bytes()
         self.assertIn(b"\r\n", raw)  # EDL は CRLF で書く
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))  # BOM なし
+        original_edl = raw
+        args = [str(v), str(self._srt()), str(cuts)]
+        self.assertEqual(SIMPLE.main(args), 1)  # 既存出力は既定で保護
+        self.assertEqual((out / "clip.edl").read_bytes(), original_edl)
+        self.assertEqual(SIMPLE.main(args + ["--force"]), 0)
 
     def test_simple_cli_without_subtitles_and_errors(self):
         v = self.dir / "n.mp4"
@@ -330,6 +403,20 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertEqual(FULL.main([str(v), "--drop", str(drop), "-o", str(self.dir / "o2")]), 0)
         ev = parse_edl((self.dir / "o2" / "d.edl").read_text(encoding="utf-8"))
         self.assertEqual((ev[0][3], ev[0][4]), ("00:00:01:00", "00:00:09:00"))
+        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2"]), 1)
+        self.assertEqual(FULL.main([str(v), str(subs), "--drop-lines", "2", "--force"]), 0)
+
+    def test_srt2resolve_output_overwrite_requires_force(self):
+        v = self.dir / "subvideo.mp4"
+        make_video(v, 10)
+        subs = self._srt()
+        args = [str(v), str(subs)]
+        self.assertEqual(S.main(args), 0)
+        out = self.dir / "subvideo_resolve"
+        xml = (out / "subvideo.fcpxml").read_bytes()
+        self.assertEqual(S.main(args), 1)
+        self.assertEqual((out / "subvideo.fcpxml").read_bytes(), xml)
+        self.assertEqual(S.main(args + ["--force"]), 0)
 
     def test_embedded_start_timecode_is_used_in_edl(self):
         # Resolve は動画に埋め込まれた開始タイムコードをクリップの Start TC にする。EDL の元動画側の時刻が
@@ -379,6 +466,17 @@ class TestWithFfmpeg(unittest.TestCase):
         n = sum(tc2f(e[4], 30) - tc2f(e[3], 30) for e in ev)
         self.assertLessEqual(abs(S.probe(out / "f_roughcut.mp4")["total"] - n), 2)
         self.assertEqual(S.probe(out / "f_roughcut.mp4")["fps"], (30000, 1001))
+
+
+def load_tests(loader, tests, pattern):
+    """python -m unittest test_cut2resolve で、追加のテスト(test_pack: 見直しで直した所・pack、test_serve: 画面のサーバー)も走らせる。
+    discover(pattern あり)のときは各ファイルが自分で読まれるので足さない(二重に走らないように)"""
+    if pattern is None:
+        import importlib.util
+        for name in ("test_pack", "test_serve"):
+            if importlib.util.find_spec(name) is not None:
+                tests.addTests(loader.loadTestsFromName(name))
+    return tests
 
 
 if __name__ == "__main__":

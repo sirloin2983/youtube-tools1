@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""cut2resolve_simple v0.1.2  (シンプル版)
+"""cut2resolve_simple v0.2.0  (シンプル版)
 
 元動画 + カットリスト(.txt) + 字幕(.srt) から、次の3つを <動画名>_edl フォルダに作る。
   <動画名>.edl        残す区間のリスト。Resolve に読み込むとカット済みのタイムラインになる
@@ -39,7 +39,12 @@ def run(args):
             raise C.ToolError("字幕を1件も読み取れませんでした(SRT/VTT の形式を確認してください)。")
         cues_out, vanished = C.remap_cues(cues, keeps, fps)
     out_dir = Path(args.output) if args.output else video.parent / f"{video.stem}_edl"
-    src_start, src_desc, tc_warns = C.resolve_src_start(video, args.src_start_tc)
+    src_start, src_desc, tc_warns = C.resolve_src_start(video, args.src_start_tc, meta)
+    C.check_timecodes(fps, "01:00:00:00", src_start)   # フォルダを作る前に確かめる
+    outputs = [out_dir / f"{video.stem}.edl", out_dir / "友人へ.txt"]
+    if cues_out is not None:
+        outputs.append(out_dir / f"{video.stem}_cut.srt")
+    C.validate_output_paths(outputs, args.force, protected=(video, sub, cutfile))
     files = C.write_pack(out_dir, video, meta, keeps, cues_out, src_start=src_start)
 
     print(f"動画: {video.name}  {meta['w']}x{meta['h']}  {fps[0] / fps[1]:.3f}fps  "
@@ -68,6 +73,7 @@ def main(argv=None):
     ap.add_argument("--src-start-tc", default=None,
                     help="元動画の開始タイムコード HH:MM:SS:FF(既定: 動画に埋め込まれた値、無ければ 00:00:00:00)。"
                          "Resolve の Clip Attributes の Start TC と同じ値を指定する")
+    ap.add_argument("--force", action="store_true", help="既存の出力ファイルを上書きする(入力ファイルとの衝突は不可)")
     ap.add_argument("--version", action="version", version=f"cut2resolve_simple {C.VERSION}")
     args = ap.parse_args(argv)
     try:

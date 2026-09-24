@@ -2,7 +2,8 @@
 
 - file 動画は元ファイルを ffmpeg で切り出す。youtube 動画は yt-dlp(疑似モードでは STUDIO_FAKE_MEDIA を ffmpeg で切り出す)。
 - 出力先は <出力先>/<動画名>/ (動画ごとのフォルダ)。1度に1ジョブ。
-- 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4") を呼ぶ(store がマークを exported にする)。
+- 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4", 開始, 終了) を呼ぶ(store がマークを exported にする)。
+- 書き出した mp4 ごとに、隣へ youtube-tools-clip/v1 の <名前>.clip.json を書く(docs/pipeline.md の 2.1。書けなくても書き出しは成功扱いで、警告だけ出す)。
 """
 import glob
 import json
@@ -16,7 +17,8 @@ import time
 import uuid
 
 import common
-from common import ApiError, find_tool, redact, fmt_ts
+import handoff
+from common import ApiError, VID_RE, find_tool, redact, fmt_ts
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -24,6 +26,12 @@ EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく�
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 EDIT_HANDLE_SEC = 10.0
+# Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
+# UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
+MAX_PATH_UNITS = 240
+SUFFIX_ROOM = 24    # base のあとに付く最長の名前(_edit.clip.json / _edit.mp4.vol.mp4 / yt-dlp の .f399.mp4.part など)
+BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
+LOG_MAX = 200000    # export-log.txt がこれを超えたら export-log.old.txt に回す
 _jobs = {}
 _jobs_lock = threading.Lock()
 
@@ -53,7 +61,26 @@ def safe_name(s, n):
     return s[:n].strip(" ._")
 
 
-WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
+# Windows の予約名(拡張子を付けても・後ろに空白があっても使えない)。上付き数字の COM¹ などと CONIN$ / CONOUT$ も予約されている
+_RES_DIGITS = [str(i) for i in range(1, 10)] + ["\u00b9", "\u00b2", "\u00b3"]
+WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {"COM" + d for d in _RES_DIGITS} | {"LPT" + d for d in _RES_DIGITS}
+
+
+def is_reserved(name):
+    return name.split(".", 1)[0].rstrip(" ").upper() in WIN_RESERVED
+
+
+def path_units(s):
+    """Windows のパスの長さ(UTF-16 の単位)。"""
+    return len(str(s).encode("utf-16-le", "surrogatepass")) // 2
+
+
+def trim_units(s, n):
+    """UTF-16 の単位で n 以下になるよう後ろを削る(削った後の末尾の空白・ドット・_ も除く)。"""
+    s = str(s)
+    while s and path_units(s) > n:
+        s = s[:-1]
+    return s.rstrip(" ._")
 
 
 def log_export(note, cmd, tail):
@@ -62,8 +89,8 @@ def log_export(note, cmd, tail):
         d = common.get_out_dir()
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "export-log.txt")
-        if os.path.exists(p) and os.path.getsize(p) > 200000:
-            os.unlink(p)
+        if os.path.exists(p) and os.path.getsize(p) > LOG_MAX:   # 消さずに1世代残す(失敗の直後に大きくなって消える、を防ぐ)
+            common.replace_file(p, os.path.join(d, "export-log.old.txt"))
         with open(p, "a", encoding="utf-8") as f:
             f.write("[%s] %s\n  cmd: %s\n  out: %s\n\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), note, redact(" ".join(map(str, cmd))), " | ".join(redact(l) for l in tail[-12:])))
     except OSError:
@@ -93,8 +120,10 @@ def pick_folder(spec):
     """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。
     フォルダ内の .studio-id に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける。"""
     root = common.get_out_dir()
-    name = safe_name(spec["title"], 60) or spec["videoId"]
-    if name.split(".", 1)[0].upper() in WIN_RESERVED:
+    # 出力先が長いときは、フォルダ名を短くしてファイル名(BASE_ROOM + ラベル + SUFFIX_ROOM)の分を残す
+    room = MAX_PATH_UNITS - path_units(root) - 1 - 3 - 1 - BASE_ROOM - SUFFIX_ROOM
+    name = trim_units(safe_name(spec["title"], 60), max(8, min(60, room))) or spec["videoId"]
+    if is_reserved(name):
         name = "_" + name
     for i in range(1, 100):
         cand = name if i == 1 else "%s_%d" % (name, i)
@@ -121,8 +150,12 @@ def pick_folder(spec):
 
 
 def unique_base(base, folder):
+    """フォルダ内で使われていない名前。<名前>.* だけでなく、同時に作る <名前>_edit.* も空いていることを確かめる
+    (前回の編集用素材だけが残っていると、ffmpeg の -y で上書き・yt-dlp は取得済みとして古い物を使ってしまうため)。"""
+    def used(name):
+        return any(glob.glob(glob.escape(os.path.join(folder, n)) + ".*") for n in (name, name + "_edit"))
     name, i = base, 2
-    while glob.glob(glob.escape(os.path.join(folder, name)) + ".*"):
+    while used(name):
         name = "%s_%d" % (base, i)
         i += 1
     return name
@@ -159,7 +192,8 @@ def build_spec(store, req):
         if m is None or i in seen:
             continue
         seen.add(i)
-        clips.append({"id": i, "start": m["start"], "end": m["end"], "title": m["label"] or compact_ts(m["start"]), "label": m["label"]})
+        clips.append({"id": i, "start": m["start"], "end": m["end"], "title": m["label"] or compact_ts(m["start"]), "label": m["label"],
+                      "src": m.get("src") or "manual", "markStatus": m.get("status") or ""})
     if not clips:
         raise bad("書き出せるマークがありません(削除されたか、範囲が正しくありません)")
     if not find_tool("ffmpeg"):
@@ -169,7 +203,10 @@ def build_spec(store, req):
     except (TypeError, ValueError):
         mh = 0
     spec = {"videoId": v["id"], "title": v["title"] or v["fileName"] or v["id"], "clips": clips, "fast": prec == "fast",
-            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol}
+            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol,
+            # .clip.json 用(元の配信の情報)。元のファイルのパスは file のときだけ入れる
+            "kind": v["kind"], "sourceTitle": v["title"] or v.get("fileName") or "", "sourceFile": v["path"] if v["kind"] == "file" else None,
+            "sourceDuration": v.get("duration") or 0}
     if v["kind"] == "file":
         if not os.path.isfile(v["path"]):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
@@ -180,16 +217,26 @@ def build_spec(store, req):
             raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
         spec.update(mode="file", sourcePath=fm)
     else:
+        if not VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
+            raise ApiError("bad_request", "YouTube の動画IDが正しくありません", 400)
         if not find_tool("yt-dlp"):
-            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(pip install -U yt-dlp)", 400)
+            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
         spec["mode"] = "url"
     return spec
 
 
+PUBLIC_PATHS = ("path", "manifest", "editPath", "editManifest")
+
+
 def job_public(job):
+    """GET /api/export の中身。各 item の path(書き出した mp4 の絶対パス)と manifest(隣の .clip.json の絶対パス。書けなければ null)は
+    完了した item だけに入る(画面の「文字起こしで開く」リンク ?media=<path> 用)。editPath / editManifest は前後10秒の編集用素材。"""
+    def paths(it):
+        done = it["status"] == "done"
+        return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}
     return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", common.get_out_dir()), "folder": job.get("folder", ""),
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
-                       "warning": it.get("warning", "")} for it in job["items"]]}
+                       "warning": it.get("warning", ""), **paths(it)} for it in job["items"]]}
 
 
 def start_job(spec, on_done=None):
@@ -292,6 +339,7 @@ def run_ffmpeg(job, spec, it, base):
     src_len, has_v, _a, _l = common.media_info(spec["sourcePath"])
     if not has_v:
         raise ExportError("指定したファイルから映像を読み取れません(動画ファイルか、壊れていないか確認してください)")
+    it["srcLen"] = src_len
     if src_len is not None:
         if it["start"] >= src_len - 0.5:
             raise ExportError("開始 %s が、このファイルの長さ %s を超えています。別の動画ファイルを指定していませんか" % (fmt_ts(it["start"])[:8], fmt_ts(src_len)[:8]))
@@ -311,6 +359,7 @@ def run_ffmpeg(job, spec, it, base):
         try:
             tail = _pump(job, cmd, it, dur)
             verify_output(out, dur, tail)
+            it["method"] = "copy" if spec.get("fast") and n == 1 else "encode"   # copy はキーフレーム単位(開始が前にずれる)
             return spec["folder"] + "/" + os.path.basename(out)
         except ExportError as e:
             last = e
@@ -323,6 +372,13 @@ def run_ffmpeg(job, spec, it, base):
     raise last
 
 
+def expected_len(spec, it):
+    """書き出しで期待する長さ。元の長さ(分かれば)を超える分は含めない(元の末尾をまたぐマークは末尾までになるため)。"""
+    lim = spec.get("sourceDuration") or 0
+    end = min(it["end"], lim) if lim and lim > it["start"] else it["end"]
+    return end - it["start"]
+
+
 def _fsel(spec):
     mh = spec["maxHeight"]
     return "bv*+ba/b" if not mh else "bv*[height<=%d]+ba/b[height<=%d]/b" % (mh, mh)
@@ -333,15 +389,16 @@ def _ytdlp_sections(job, spec, it, base):
     cmd = [find_tool("yt-dlp"), "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg"), "--download-sections", "*%s-%s" % (fmt_ts(it["start"]), fmt_ts(it["end"]))]
     if not spec.get("fast"):   # 高速のときは切れ目で再エンコードしない(キーフレーム単位)
         cmd.append("--force-keyframes-at-cuts")
-    cmd += ["-f", _fsel(spec), "--merge-output-format", "mp4", "-o", os.path.join(spec["outDir"], base + ".%(ext)s"), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
+    cmd += ["-f", _fsel(spec), "--merge-output-format", "mp4", "-o", common.ytdlp_out(spec["outDir"], base + ".%(ext)s"), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
     tail = []
     try:
-        tail = _pump(job, cmd, it, it["end"] - it["start"])
+        tail = _pump(job, cmd, it, expected_len(spec, it))
         files = [f for f in glob.glob(glob.escape(os.path.join(spec["outDir"], base)) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
         if not files:
             raise ExportError("出力ファイルが見つかりませんでした")
         out = sorted(files)[0]
-        verify_output(out, it["end"] - it["start"], tail)
+        verify_output(out, expected_len(spec, it), tail)
+        it["method"] = "copy" if spec.get("fast") else "encode"   # --force-keyframes-at-cuts なし = キーフレーム単位
         return out
     except ExportError as e:
         log_export("yt-dlp 区間ダウンロード失敗: %s" % e, cmd, tail)
@@ -373,7 +430,7 @@ def _ytdlp_stream(job, spec, it, base):
     """方法2(予備): 直接URLを ffmpeg に渡して、その区間だけ読み込む。方法1で空になる場合に有効。"""
     urls = stream_urls(spec)
     out = os.path.join(spec["outDir"], base + ".mp4")
-    dur = it["end"] - it["start"]
+    dur = expected_len(spec, it)
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,http,https,tcp,tls,crypto"]
     for u in urls:
         cmd += ["-ss", fmt_ts(it["start"]), "-i", u]
@@ -384,6 +441,7 @@ def _ytdlp_stream(job, spec, it, base):
     try:
         tail = _pump(job, cmd, it, dur)
         verify_output(out, dur, tail)
+        it["method"] = "encode"
         return out
     except ExportError as e:
         log_export("ストリーム直接指定 失敗: %s" % e, ["ffmpeg", "...(URLは省略)..."], tail)
@@ -417,7 +475,9 @@ def apply_volume(job, spec, it, rel_file):
         return
     path = os.path.join(spec["outDir"], os.path.basename(rel_file))
     tmp = path + ".vol.mp4"
-    dur = it["end"] - it["start"]
+    # 期待する長さは、切り出した動画そのものの長さ(マークの終了が元の末尾を超えると、切り出しは末尾で止まって短くなるため。
+    # 以前はマークの長さと比べていて、末尾をまたぐマークが「短すぎます」で失敗していた)
+    dur = common.media_info(path)[0] or (it["end"] - it["start"])
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", "volume=%.3f" % (vol / 100),
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
     tail = []
@@ -450,11 +510,91 @@ def export_edit_media(job, spec, it, base, runner):
     data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(media_path),
             "selectionIn": round(selection_in, 3), "handleBefore": round(selection_in, 3),
             "handleAfter": round(handle_after, 3), "sourceStart": edit_it["start"], "sourceEnd": edit_it["end"]}
-    tmp = sidecar + ".part"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, sidecar)
+    common.atomic_write(sidecar, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))   # Windows の一時的なロックは再試行
+    it["editPath"] = media_path
+    it["editRange"] = (edit_it["start"], edit_it["end"])
+    it["editMethod"] = edit_it.get("method")
+    it["editSrcLen"] = edit_it.get("srcLen")
     return rel
+
+
+# ---------- youtube-tools-clip/v1(.clip.json) ----------
+def _ffprobe_json(args, timeout=30):
+    fp = find_tool("ffprobe")
+    if not fp:
+        return None
+    try:
+        r = subprocess.run([fp, "-v", "error", "-of", "json"] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        return json.loads(r.stdout or "null") if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _num(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def copy_actual_start(source, start, output):
+    """速度優先(コピー)で切り出した動画の 0 秒が、元の動画の何秒かを求める。分からなければ None。
+    ffmpeg は入力側の -ss で「start 以前で最後のキーフレーム」から切り出すので、ffprobe でそのキーフレームを探し、
+    出力側の映像の開始時刻(B フレームの遅延ぶん。例 0.2 秒)を引く。ffprobe が無い・読めない形式なら諦める(推定値は入れない)。"""
+    fmt = _ffprobe_json(["-show_entries", "format=start_time", source])
+    if not isinstance(fmt, dict):
+        return None
+    base = _num((fmt.get("format") or {}).get("start_time")) or 0.0   # .ts などは 0 から始まらない。-ss はこの値からの相対
+    lo = max(0.0, start - 60)
+    pk = _ffprobe_json(["-select_streams", "v:0", "-read_intervals", "%.3f%%%.3f" % (base + lo, base + start + 0.05),
+                        "-show_entries", "packet=pts_time,flags", source])
+    keys = []
+    for pkt in (pk or {}).get("packets") or []:
+        t = _num(pkt.get("pts_time"))
+        if t is not None and "K" in str(pkt.get("flags") or "") and t - base <= start + 0.001:
+            keys.append(t - base)
+    if not keys:
+        return None
+    out = _ffprobe_json(["-select_streams", "v:0", "-show_entries", "stream=start_time", output])
+    streams = (out or {}).get("streams") or []
+    vstart = _num(streams[0].get("start_time")) if streams else None
+    return round(max(0.0, max(keys) - (vstart or 0.0)), 3)
+
+
+def _clip_export_info(spec, method, source_ok, rng_start, media_path):
+    info = {"mode": "fast" if method == "copy" else "precise", "volume": spec.get("volume", 100)}
+    if method == "copy" and source_ok:
+        a = copy_actual_start(spec["sourcePath"], rng_start, media_path)
+        if a is not None:
+            info["actualStart"] = a
+    return info
+
+
+def write_manifests(spec, it, mark_status):
+    """書き出した mp4(と編集用素材)の隣に .clip.json を書く。range は元の配信の秒(元の長さを超える分は切り詰める)。"""
+    kind = spec.get("kind") or ("file" if spec.get("mode") == "file" else "youtube")
+    source = {"kind": kind, "videoId": spec.get("videoId"), "title": spec.get("sourceTitle") or "", "path": spec.get("sourceFile")}
+    mark = {"id": it.get("id"), "label": it.get("label"), "status": mark_status, "src": it.get("src")}
+    # 元の長さが分かれば、終了をそこで切り詰める(ffmpeg は元の末尾で止まる)
+    local_src = spec.get("mode") == "file" and bool(spec.get("sourcePath"))
+
+    def end_of(end, src_len):
+        lim = src_len or spec.get("sourceDuration") or 0
+        return min(end, lim) if lim and lim > 0 else end
+    media = it["path"]
+    dur = common.media_info(media)[0]
+    it["manifest"] = handoff.write_clip_manifest(media, duration=dur, source=source, mark=mark,
+                                                 rng=(it["start"], end_of(it["end"], it.get("srcLen"))),
+                                                 export=_clip_export_info(spec, it.get("method"), local_src, it["start"], media))
+    if it.get("editPath") and it.get("editRange"):
+        es, ee = it["editRange"]
+        edur = common.media_info(it["editPath"])[0]
+        ex = _clip_export_info(spec, it.get("editMethod"), local_src, es, it["editPath"])
+        ex.update(purpose="edit-handles", selection={"start": it["start"], "end": it["end"]})   # 切り抜き本体の範囲(元の配信の秒)
+        it["editManifest"] = handoff.write_clip_manifest(it["editPath"], duration=edur, source=source, mark=mark,
+                                                         rng=(es, end_of(ee, it.get("editSrcLen"))), export=ex)
 
 
 def run_job(job, spec, on_done=None):
@@ -474,23 +614,40 @@ def run_job(job, spec, on_done=None):
             continue
         it["status"] = "running"
         try:
-            label = safe_name(it["label"], 30)
-            base = unique_base("%02d_%s-%s%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]), "_" + label if label else ""), spec["outDir"])
+            head = "%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]))
+            # ラベルは、出力先+ファイル名が MAX_PATH_UNITS に収まる分だけ付ける(連番 _NN と SUFFIX_ROOM の分を残す)
+            room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(spec["outDir"], head))
+            label = trim_units(safe_name(it["label"], 30), max(0, room))
+            base = unique_base(head + ("_" + label if label else ""), spec["outDir"])
             runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
             it["file"] = runner(job, spec, it, base)
+            it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
             apply_volume(job, spec, it, it["file"])
+            warnings = []
             try:
                 it["editFile"] = export_edit_media(job, spec, it, base, runner)
             except Exception as e:
                 common.log_failure("Resolve edit media", e)
-                it["warning"] = "Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180]
-            it["status"], it["progress"] = "done", 1.0
+                it.pop("editPath", None)
+                warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+            recorded = False
             if on_done:
                 try:
-                    on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"])
+                    recorded = bool(on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"], it.get("path")))
                 except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
                     common.log_failure("書き出し済みマークの保存", e)
-                    it["warning"] = "動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。"
+                    warnings.append("動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。")
+            try:
+                # 書き出し中にマークを動かした等で記録されなかったときは、書き出しを始めた時点の判定を入れる
+                write_manifests(spec, it, "exported" if recorded else (it.get("markStatus") or ""))
+            except Exception as e:   # 受け渡し用の情報が書けなくても、書き出した動画はそのまま使える
+                common.log_failure("切り抜きの情報ファイル(.clip.json)の保存", e)
+                it["manifest"] = None
+                warnings.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s"
+                                % (common.permission_message(e) if isinstance(e, PermissionError) else str(e)[:160]))
+            if warnings:
+                it["warning"] = " / ".join(warnings)
+            it["status"], it["progress"] = "done", 1.0
         except ExportError as e:
             it["status"] = "cancelled" if job["cancel"] else "error"
             it["error"] = None if job["cancel"] else str(e)[:400]
@@ -499,5 +656,5 @@ def run_job(job, spec, on_done=None):
             it["status"], it["error"] = "error", common.permission_message(e)
         except Exception as e:  # 想定外の失敗でもジョブ全体は止めない
             common.log_failure("クリップ書き出し", e)
-            it["status"], it["error"] = "error", "内部エラー: %s" % e.__class__.__name__
+            it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
     job["state"] = "cancelled" if job["cancel"] else ("error" if any(i["status"] == "error" for i in job["items"]) else "done")

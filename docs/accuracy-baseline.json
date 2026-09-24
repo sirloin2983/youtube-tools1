@@ -1,0 +1,857 @@
+{
+ "inventory": {
+  "docs": 24,
+  "docsWithProofed": 20,
+  "evalDocs": 10,
+  "evalDocsProofed": 6,
+  "proofedLines": 259,
+  "proofedSec": 510.89,
+  "lines": 312,
+  "tagCounts": {
+   "unclear": 10,
+   "bgm": 10,
+   "overlap": 15
+  },
+  "flaggedProofed": 42,
+  "models": {
+   "large-v3-turbo": 5,
+   "large-v3": 19
+  },
+  "titles": [
+   "26-06-11_夏色まつり",
+   "教師用データ＿夏色まつり03",
+   "26-08-25_白上フブキ 彩葵 日渡",
+   "26-09-09_さくらみこ",
+   "教師データ＿さくらみこ02",
+   "26-08-11_白上フブキ 彩葵 日渡",
+   "教師データ＿夏色まつり01",
+   "教師データ＿さくらみこ04",
+   "26-09-04_さくらみこ",
+   "26-09-13_さくらみこ",
+   "26-09-17_大空スバル 彩葵 日渡",
+   "26-09-12_大空スバル 彩葵 日渡",
+   "教師データ＿さくらみこ03",
+   "教師データ＿さくらみこ05",
+   "26-08-13_白上フブキ 彩葵 日渡",
+   "教師データ＿さくらみこ01",
+   "教師データ＿夏色まつり04",
+   "26-06-24_ロボ子さん2",
+   "26-09-05_大空スバル 彩葵 日渡",
+   "教師用データ＿夏色まつり02",
+   "26-08-13_白上フブキ2 彩葵 日渡",
+   "26-09-08_鷹嶺ルイ",
+   "教師データ＿夏色まつり05",
+   "26-09-15_大空スバル 彩葵 日渡"
+  ],
+  "proofedMin": 8.5
+ },
+ "overall": {
+  "cer": 0.0837,
+  "refChars": 2652,
+  "errs": 222,
+  "groups": 248,
+  "sub": 101,
+  "del": 78,
+  "ins": 43,
+  "ci95_doc": [
+   0.0607,
+   0.1112
+  ]
+ },
+ "eval": {
+  "cer": 0.0866,
+  "refChars": 866,
+  "errs": 75,
+  "groups": 86,
+  "sub": 17,
+  "del": 47,
+  "ins": 11,
+  "ci95_doc": [
+   0.037,
+   0.1455
+  ]
+ },
+ "train": {
+  "cer": 0.0823,
+  "refChars": 1786,
+  "errs": 147,
+  "groups": 162,
+  "sub": 84,
+  "del": 31,
+  "ins": 32,
+  "ci95_doc": [
+   0.0574,
+   0.116
+  ]
+ },
+ "byModel": {
+  "large-v3-turbo": {
+   "cer": 0.1333,
+   "refChars": 450,
+   "errs": 60,
+   "groups": 41,
+   "sub": 28,
+   "del": 15,
+   "ins": 17,
+   "ci95_doc": [
+    0.0774,
+    0.2147
+   ]
+  },
+  "large-v3": {
+   "cer": 0.0736,
+   "refChars": 2202,
+   "errs": 162,
+   "groups": 207,
+   "sub": 73,
+   "del": 63,
+   "ins": 26,
+   "ci95_doc": [
+    0.0499,
+    0.102
+   ]
+  }
+ },
+ "byKind": {
+  "both": {
+   "cer": 0.0826,
+   "refChars": 2652,
+   "errs": 219,
+   "groups": 245,
+   "sub": 101,
+   "del": 78,
+   "ins": 40
+  },
+  "machineOnly": {
+   "cer": null,
+   "refChars": 0,
+   "errs": 3,
+   "groups": 3,
+   "sub": 0,
+   "del": 0,
+   "ins": 3
+  }
+ },
+ "byTag": {
+  "overlap": {
+   "cer": 0.2432,
+   "refChars": 111,
+   "errs": 27,
+   "groups": 14,
+   "sub": 7,
+   "del": 3,
+   "ins": 17
+  },
+  "bgm": {
+   "cer": 0.0325,
+   "refChars": 123,
+   "errs": 4,
+   "groups": 9,
+   "sub": 1,
+   "del": 0,
+   "ins": 3
+  },
+  "none": {
+   "cer": 0.079,
+   "refChars": 2418,
+   "errs": 191,
+   "groups": 225,
+   "sub": 93,
+   "del": 75,
+   "ins": 23
+  }
+ },
+ "byFlag": {
+  "flagged": {
+   "cer": 0.1801,
+   "refChars": 311,
+   "errs": 56,
+   "groups": 39,
+   "sub": 25,
+   "del": 23,
+   "ins": 8
+  },
+  "unflagged": {
+   "cer": 0.0709,
+   "refChars": 2341,
+   "errs": 166,
+   "groups": 209,
+   "sub": 76,
+   "del": 55,
+   "ins": 35
+  }
+ },
+ "flagKinds": {
+  "話者が不確か": 18,
+  "音声でない可能性(BGMなど)": 18,
+  "自信が低い": 3
+ },
+ "byLoudness": [
+  {
+   "range_db": [
+    -38.4,
+    -31.5
+   ],
+   "cer": 0.0937,
+   "refChars": 726,
+   "errs": 68,
+   "groups": 61,
+   "sub": 33,
+   "del": 32,
+   "ins": 3
+  },
+  {
+   "range_db": [
+    -31.5,
+    -29.4
+   ],
+   "cer": 0.0967,
+   "refChars": 662,
+   "errs": 64,
+   "groups": 61,
+   "sub": 31,
+   "del": 4,
+   "ins": 29
+  },
+  {
+   "range_db": [
+    -29.3,
+    -25.1
+   ],
+   "cer": 0.0555,
+   "refChars": 541,
+   "errs": 30,
+   "groups": 61,
+   "sub": 21,
+   "del": 6,
+   "ins": 3
+  },
+  {
+   "range_db": [
+    -25.0,
+    -11.0
+   ],
+   "cer": 0.0788,
+   "refChars": 723,
+   "errs": 57,
+   "groups": 62,
+   "sub": 16,
+   "del": 36,
+   "ins": 5
+  }
+ ],
+ "names": {
+  "ときのそら": {
+   "inRef": 1,
+   "recognized": 1
+  },
+  "ホロライブ": {
+   "inRef": 2,
+   "recognized": 2
+  }
+ },
+ "topCorrections": [
+  {
+   "wrong": "トーイ",
+   "right": "トワ",
+   "count": 2
+  },
+  {
+   "wrong": "マチョ",
+   "right": "まちゅ",
+   "count": 2
+  },
+  {
+   "wrong": "ベブ",
+   "right": "デブ",
+   "count": 1
+  },
+  {
+   "wrong": "かまー",
+   "right": "かなー",
+   "count": 1
+  },
+  {
+   "wrong": "ぽっきり",
+   "right": "ドッキリ",
+   "count": 1
+  },
+  {
+   "wrong": "した!",
+   "right": "し穴!",
+   "count": 1
+  },
+  {
+   "wrong": "すぅー",
+   "right": "スバル",
+   "count": 1
+  },
+  {
+   "wrong": "みく",
+   "right": "みこ",
+   "count": 1
+  },
+  {
+   "wrong": "おっけ!",
+   "right": "あほ毛が",
+   "count": 1
+  },
+  {
+   "wrong": "やらやリラ",
+   "right": "オラ",
+   "count": 1
+  },
+  {
+   "wrong": "って",
+   "right": "じゃん",
+   "count": 1
+  },
+  {
+   "wrong": "トルカ",
+   "right": "ポルカ",
+   "count": 1
+  },
+  {
+   "wrong": "トルカパパ",
+   "right": "ポルカパパ",
+   "count": 1
+  },
+  {
+   "wrong": "んだよ",
+   "right": "んでよ",
+   "count": 1
+  },
+  {
+   "wrong": "後合流",
+   "right": "ろしく",
+   "count": 1
+  },
+  {
+   "wrong": "あやっ",
+   "right": "あれっ",
+   "count": 1
+  },
+  {
+   "wrong": "もう来たよ",
+   "right": "萌え声",
+   "count": 1
+  },
+  {
+   "wrong": "トーア",
+   "right": "トワ",
+   "count": 1
+  },
+  {
+   "wrong": "あんま",
+   "right": "お前",
+   "count": 1
+  },
+  {
+   "wrong": "ようと",
+   "right": "やがって",
+   "count": 1
+  },
+  {
+   "wrong": "とは思",
+   "right": "トワ持",
+   "count": 1
+  },
+  {
+   "wrong": "に肌を",
+   "right": "に体を",
+   "count": 1
+  },
+  {
+   "wrong": "イラスター",
+   "right": "言い出した",
+   "count": 1
+  },
+  {
+   "wrong": "タッチ",
+   "right": "立ち",
+   "count": 1
+  },
+  {
+   "wrong": "すばる",
+   "right": "スバル",
+   "count": 1
+  },
+  {
+   "wrong": "000分",
+   "right": "ステップ",
+   "count": 1
+  },
+  {
+   "wrong": "ヘヨ",
+   "right": "ミオ",
+   "count": 1
+  },
+  {
+   "wrong": "日々ぽんぽん",
+   "right": "蛇ワンパン",
+   "count": 1
+  },
+  {
+   "wrong": "かま",
+   "right": "から",
+   "count": 1
+  },
+  {
+   "wrong": "にした",
+   "right": "にきた",
+   "count": 1
+  },
+  {
+   "wrong": "ちゃ…",
+   "right": "たい",
+   "count": 1
+  },
+  {
+   "wrong": "こっ",
+   "right": "ロボ",
+   "count": 1
+  },
+  {
+   "wrong": "ひざかっ!",
+   "right": "膝カックン",
+   "count": 1
+  },
+  {
+   "wrong": "アイツワイバー",
+   "right": "アイスワイバー",
+   "count": 1
+  },
+  {
+   "wrong": "れで",
+   "right": "れね",
+   "count": 1
+  },
+  {
+   "wrong": "マスイ",
+   "right": "まつり",
+   "count": 1
+  },
+  {
+   "wrong": "さに",
+   "right": "つり",
+   "count": 1
+  },
+  {
+   "wrong": "じゃ",
+   "right": "だ",
+   "count": 1
+  },
+  {
+   "wrong": "アスタワット",
+   "right": "足つぼマット",
+   "count": 1
+  },
+  {
+   "wrong": "年目",
+   "right": "連目",
+   "count": 1
+  }
+ ],
+ "perDoc": {
+  "042eed22f3d8": {
+   "title": "26-06-11_夏色まつり",
+   "model": "large-v3-turbo",
+   "evalSet": false,
+   "groups": 7,
+   "changed": 3,
+   "refChars": 121,
+   "sub": 3,
+   "del": 3,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 6,
+   "cer": 0.0496,
+   "termRate": null
+  },
+  "050710117283": {
+   "title": "教師用データ＿夏色まつり03",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 14,
+   "changed": 3,
+   "refChars": 104,
+   "sub": 1,
+   "del": 2,
+   "ins": 2,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 5,
+   "cer": 0.0481,
+   "termRate": null
+  },
+  "06dfb27dc8a6": {
+   "title": "26-08-25_白上フブキ 彩葵 日渡",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 4,
+   "changed": 1,
+   "refChars": 62,
+   "sub": 1,
+   "del": 0,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 1,
+   "cer": 0.0161,
+   "termRate": null
+  },
+  "26a2a2ba77b0": {
+   "title": "26-09-09_さくらみこ",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 5,
+   "changed": 2,
+   "refChars": 52,
+   "sub": 4,
+   "del": 1,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 5,
+   "cer": 0.0962,
+   "termRate": null
+  },
+  "3486715b4e55": {
+   "title": "26-08-11_白上フブキ 彩葵 日渡",
+   "model": "large-v3-turbo",
+   "evalSet": false,
+   "groups": 3,
+   "changed": 3,
+   "refChars": 38,
+   "sub": 4,
+   "del": 10,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 14,
+   "cer": 0.3684,
+   "termRate": null
+  },
+  "43e30ca2b432": {
+   "title": "教師データ＿夏色まつり01",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 16,
+   "changed": 1,
+   "refChars": 127,
+   "sub": 0,
+   "del": 0,
+   "ins": 3,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 3,
+   "cer": 0.0236,
+   "termRate": null
+  },
+  "62e023ea1596": {
+   "title": "26-09-04_さくらみこ",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 17,
+   "changed": 4,
+   "refChars": 147,
+   "sub": 4,
+   "del": 2,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 6,
+   "cer": 0.0408,
+   "termRate": null
+  },
+  "7bb197a5177f": {
+   "title": "26-09-13_さくらみこ",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 17,
+   "changed": 8,
+   "refChars": 153,
+   "sub": 16,
+   "del": 3,
+   "ins": 6,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 25,
+   "cer": 0.1634,
+   "termRate": null
+  },
+  "7e731bf9ce62": {
+   "title": "26-09-17_大空スバル 彩葵 日渡",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 22,
+   "changed": 4,
+   "refChars": 202,
+   "sub": 9,
+   "del": 2,
+   "ins": 3,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 14,
+   "cer": 0.0693,
+   "termRate": null
+  },
+  "8d54b4cecac9": {
+   "title": "26-09-12_大空スバル 彩葵 日渡",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 15,
+   "changed": 3,
+   "refChars": 198,
+   "sub": 7,
+   "del": 2,
+   "ins": 1,
+   "termRef": 1,
+   "termHit": 1,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 10,
+   "cer": 0.0505,
+   "termRate": 1.0
+  },
+  "c6ce594bfbe7": {
+   "title": "26-08-13_白上フブキ 彩葵 日渡",
+   "model": "large-v3-turbo",
+   "evalSet": false,
+   "groups": 6,
+   "changed": 2,
+   "refChars": 51,
+   "sub": 6,
+   "del": 0,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 6,
+   "cer": 0.1176,
+   "termRate": null
+  },
+  "c7cc215e17cd": {
+   "title": "教師データ＿さくらみこ01",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 8,
+   "changed": 5,
+   "refChars": 78,
+   "sub": 7,
+   "del": 13,
+   "ins": 2,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 1,
+   "machineOnlyChars": 1,
+   "basis": "proofed",
+   "errs": 22,
+   "cer": 0.2821,
+   "termRate": null
+  },
+  "cc97b6acc84c": {
+   "title": "教師データ＿夏色まつり04",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 12,
+   "changed": 4,
+   "refChars": 172,
+   "sub": 0,
+   "del": 2,
+   "ins": 2,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 1,
+   "machineOnlyChars": 1,
+   "basis": "proofed",
+   "errs": 4,
+   "cer": 0.0233,
+   "termRate": null
+  },
+  "d722c335f5be": {
+   "title": "26-06-24_ロボ子さん2",
+   "model": "large-v3-turbo",
+   "evalSet": false,
+   "groups": 19,
+   "changed": 4,
+   "refChars": 121,
+   "sub": 10,
+   "del": 2,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 12,
+   "cer": 0.0992,
+   "termRate": null
+  },
+  "d879b7c7789d": {
+   "title": "26-09-05_大空スバル 彩葵 日渡",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 9,
+   "changed": 4,
+   "refChars": 117,
+   "sub": 2,
+   "del": 5,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 7,
+   "cer": 0.0598,
+   "termRate": null
+  },
+  "df09bdcae630": {
+   "title": "教師用データ＿夏色まつり02",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 25,
+   "changed": 6,
+   "refChars": 239,
+   "sub": 5,
+   "del": 22,
+   "ins": 1,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 28,
+   "cer": 0.1172,
+   "termRate": null
+  },
+  "e0588edff416": {
+   "title": "26-08-13_白上フブキ2 彩葵 日渡",
+   "model": "large-v3-turbo",
+   "evalSet": false,
+   "groups": 6,
+   "changed": 4,
+   "refChars": 119,
+   "sub": 5,
+   "del": 0,
+   "ins": 17,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 22,
+   "cer": 0.1849,
+   "termRate": null
+  },
+  "ed29a5d858af": {
+   "title": "26-09-08_鷹嶺ルイ",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 10,
+   "changed": 1,
+   "refChars": 144,
+   "sub": 1,
+   "del": 0,
+   "ins": 0,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 1,
+   "cer": 0.0069,
+   "termRate": null
+  },
+  "f695ec73f8b7": {
+   "title": "教師データ＿夏色まつり05",
+   "model": "large-v3",
+   "evalSet": true,
+   "groups": 11,
+   "changed": 5,
+   "refChars": 146,
+   "sub": 4,
+   "del": 8,
+   "ins": 1,
+   "termRef": 0,
+   "termHit": 0,
+   "termExtra": 0,
+   "machineOnly": 1,
+   "machineOnlyChars": 1,
+   "basis": "proofed",
+   "errs": 13,
+   "cer": 0.089,
+   "termRate": null
+  },
+  "faca6d306113": {
+   "title": "26-09-15_大空スバル 彩葵 日渡",
+   "model": "large-v3",
+   "evalSet": false,
+   "groups": 22,
+   "changed": 7,
+   "refChars": 261,
+   "sub": 12,
+   "del": 1,
+   "ins": 5,
+   "termRef": 2,
+   "termHit": 2,
+   "termExtra": 0,
+   "machineOnly": 0,
+   "machineOnlyChars": 0,
+   "basis": "proofed",
+   "errs": 18,
+   "cer": 0.069,
+   "termRate": 1.0
+  }
+ }
+}

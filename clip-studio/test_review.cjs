@@ -192,3 +192,68 @@ test('restoring a completed export shows its warnings and releases its saved ID'
   assert.equal(h.S.job.running, false);
   assert.equal(h.remembered.at(-1), null);
 });
+
+/* ---- 2026-09-24 画面の見直しで足したテスト ---- */
+function load(parts, extra) {
+  const context = { Map, Set, Error, ...extra };
+  vm.createContext(context);
+  vm.runInContext(parts.map(([a, b]) => between(a, b)).join('\n'), context);
+  return context;
+}
+function navHarness(sortBy, filter, sel) {
+  const marks = [
+    { id: 'a', start: 10, end: 15, score: 2, status: '' },
+    { id: 'b', start: 20, end: 25, score: 9, status: '' },
+    { id: 'c', start: 30, end: 35, score: 5, status: 'adopted' },
+    { id: 'd', start: 40, end: 45, score: 7, status: '' },
+  ];
+  const S = { settings: { sortBy }, filter, sel }, picked = [], notes = [];
+  const ctx = load([['const statusOf', 'const isFolded'], ['const byScore', 'function setStatus('], ['function goMark(', 'function decideSel(']], {
+    S, sortedMarks: () => [...marks].sort((x, y) => x.start - y.start), toast: m => notes.push(m), selectMark: m => { picked.push(m.id); S.sel = m.id; } });
+  return { ctx, S, picked, notes, marks };
+}
+
+test('next/previous mark follows the displayed order (score sort), not only time', () => {
+  const h = navHarness('score', 'all', 'b');   // 点数順: b(9) d(7) c(5) a(2)
+  h.ctx.goMark(1, false); h.ctx.goMark(1, false); h.ctx.goMark(1, false);
+  assert.deepEqual(h.picked, ['d', 'c', 'a']);
+  h.ctx.goMark(1, false);
+  assert.ok(h.notes.at(-1).includes('後のマークはありません'));
+  h.ctx.goMark(-1, false);
+  assert.equal(h.picked.at(-1), 'c');
+});
+
+test('time order navigation is unchanged and "next candidate" skips decided marks from the changed mark', () => {
+  const h = navHarness('time', 'all', null);
+  h.ctx.goMark(1, false);
+  assert.deepEqual(h.picked, ['a']);
+  h.ctx.goMark(1, true, h.marks.find(m => m.id === 'b'));   // b を採用した直後: c(採用済み)を飛ばして d へ
+  assert.equal(h.picked.at(-1), 'd');
+  const s = navHarness('score', '', null);   // 候補だけ表示 + 点数順
+  s.ctx.goMark(1, true, s.marks.find(m => m.id === 'd'));   // d(7) の次の候補は a(2)(c は採用済み)
+  assert.equal(s.picked.at(-1), 'a');
+});
+
+test('exported file path: server path first, otherwise outDir + relative file with the right separator', () => {
+  const ctx = load([['/* ---------- 書き出したファイルのパス', 'function handoffHTML(']], {});
+  assert.equal(ctx.clipPathOf({ outDir: 'C:\\Users\\me\\exports' }, { file: '動画 A/01_x.mp4' }), 'C:\\Users\\me\\exports\\動画 A\\01_x.mp4');
+  assert.equal(ctx.clipPathOf({ outDir: '/home/me/exports/' }, { file: 'v/01.mp4' }), '/home/me/exports/v/01.mp4');
+  assert.equal(ctx.clipPathOf({ outDir: 'C:\\x' }, { file: 'v/01.mp4', path: 'D:\\clips\\v\\01.mp4' }), 'D:\\clips\\v\\01.mp4');
+  assert.equal(ctx.clipPathOf({}, { file: 'v/01.mp4' }), '');          // outDir が分からなければリンクを出さない
+  assert.equal(ctx.clipPathOf({ outDir: 'relative/dir' }, { file: 'v/01.mp4' }), '');
+  assert.equal(ctx.clipPathOf({ outDir: 'C:\\x' }, { file: null }), '');
+});
+
+test('two-step confirmation resets after running (a quick third click does not run again)', () => {
+  const timers = [];
+  const ctx = load([['function armDelete(', 'const statusOf']], { setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => {} });
+  const cls = new Set();
+  const btn = { dataset: {}, innerHTML: '削除', textContent: '削除', isConnected: true, classList: { add: c => cls.add(c), remove: c => cls.delete(c) } };
+  let runs = 0;
+  ctx.armDelete(btn, () => runs++);
+  assert.equal(runs, 0); assert.ok(cls.has('armed'));
+  ctx.armDelete(btn, () => runs++);
+  assert.equal(runs, 1); assert.equal(btn.innerHTML, '削除'); assert.ok(!cls.has('armed'));
+  ctx.armDelete(btn, () => runs++);
+  assert.equal(runs, 1, 'the third click only arms again');
+});

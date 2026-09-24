@@ -43,7 +43,8 @@ function harness(respond) {
   };
   for (const name of ['toast', 'autoArchive', 'scheduleLearn', 'scheduleAcc', 'scheduleProgress',
     'renderDataset', 'syncEval', 'renderDoc', 'renderList', 'updateUndo', 'applyLock', 'loadSuggest',
-    'renderAb', 'loadEvals', 'renderTerms', 'navRestore']) context[name] = () => {};
+    'renderAb', 'loadEvals', 'renderTerms', 'navRestore', 'renderDocExtras', 'updateDocTitle']) context[name] = () => {};
+  context.apiUrl = p => p;
   vm.createContext(context);
   vm.runInContext(saveSource + '\n' + openSource, context);
   return { S, calls, nodes, timers, context };

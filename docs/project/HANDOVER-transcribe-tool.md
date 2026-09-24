@@ -1,5 +1,7 @@
 # HANDOVER(文字起こしツール v0.9.8) — このセッションの引き継ぎ
 
+> **2026-09-24 追記**: 全ツールの見直し・UI 刷新で **v0.10.0** になった(画面の刷新・行の状態の見分け、受け渡しの API `/api/clip-info` `/api/transcript-v1` `/api/export-file` `/api/siblings`、`?media=` の受け取り、不具合 33 件の修正)。まとめは `docs/review/README.md`、詳細は `docs/review/transcribe-*.md`。この下の記述は v0.9.8 時点。
+
 セッションが長くなったための引き継ぎ。次のセッションの最初のメッセージは、下の「再開用の指示文」をそのまま貼ってください。
 作業場所と共有方法はリポジトリ直下の `AGENTS.md` を正とします。正本はユーザーPCの `C:\Users\you11\Desktop\youtube-test` とその git です。
 別の clone を作ったり、独自に pull して正本と差し替えたりしないでください。作業開始時は `AGENTS.md`、`docs/WORKLOG.md`、`docs/NEXT_TASKS.md` を確認します。

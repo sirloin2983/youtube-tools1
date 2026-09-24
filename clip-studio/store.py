@@ -110,6 +110,8 @@ def _clean_server(d):
     """サーバーだけが決める項目(src, 点数, 理由, 書き出し状態, auto0, collabFrom)を、型を整えて取り出す。"""
     st = d.get("status") if d.get("status") in ("", "adopted", "rejected", "exported") else ""
     f = str(d.get("file") or "")[:300] if st == "exported" and isinstance(d.get("file"), str) else ""
+    # 書き出した mp4 の絶対パス(サーバーだけが決める。画面のマークの行から他のツールへ渡すリンクに使う。出力先を後で変えても元の場所が分かる)
+    fp = d.get("path") if st == "exported" and f and isinstance(d.get("path"), str) and len(d.get("path")) <= 600 and "\x00" not in d.get("path") else ""
     score, peak = _f(d.get("score")), _f(d.get("peak"))
     reasons = [str(r)[:40] for r in d.get("reasons")[:6]] if isinstance(d.get("reasons"), list) else []
     parts = {}
@@ -121,7 +123,7 @@ def _clean_server(d):
     ca = d.get("createdAt")
     src = d.get("src") if d.get("src") in ("auto", "collab") else "manual"
     return {"src": src, "score": None if score is None else round(score, 2), "reasons": reasons, "parts": parts,
-            "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "",
+            "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
             "createdAt": ca if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0 else now_ms(),
             "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None}
@@ -155,6 +157,8 @@ def _build_mark(m, old, trusted=False):
     d = {"id": m["id"], "start": s, "end": e, "label": label.strip()[:120] if isinstance(label, str) else "", "src": srv["src"], "score": srv["score"],
          "reasons": srv["reasons"], "parts": srv["parts"], "peak": srv["peak"], "live": bool(m.get("live")), "status": srv["status"], "file": srv["file"],
          "createdAt": srv["createdAt"]}
+    if srv["file"] and srv.get("path"):   # file を外したとき(範囲の変更・状態の変更)は path も外れる
+        d["path"] = srv["path"]
     if srv["auto0"]:
         d["auto0"] = srv["auto0"]
     if srv.get("collabFrom"):
@@ -702,8 +706,8 @@ class Store:
             self.series[vid] = series
             return len(autos)
 
-    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end):
-        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。"""
+    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None):
+        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)"""
         fb = None
         with self.lock:
             v = self.videos.get(vid)
@@ -716,6 +720,10 @@ class Store:
             nv = copy.deepcopy(v)
             nm = next(x for x in nv["marks"] if x["id"] == mark_id)
             nm["status"], nm["file"] = "exported", str(relfile)[:300]
+            if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
+                nm["path"] = abspath
+            else:
+                nm.pop("path", None)
             nv["rev"] += 1
             nv["updatedAt"] = now_ms()
             self._commit(vid, nv)
@@ -944,6 +952,18 @@ class Store:
             return d if isinstance(d, dict) else {}
         except (OSError, ValueError):
             return {}
+
+    def set_ui_section(self, name, value):
+        """画面の設定のうち1つの節(例: review)だけを置き換える。読み込み→書き込みをロックの中で行うので、
+        別のタブ・別の画面が同時に別の節を保存しても消し合わない(以前は画面が全体を読んで全体を書いていた)"""
+        if not (isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", name)):
+            raise ApiError("bad_request", "section の名前が正しくありません", 400)
+        if not isinstance(value, dict):
+            raise ApiError("bad_request", "value は辞書で指定してください", 400)
+        with self.lock:
+            d = self.get_ui()
+            d[name] = value
+            self.set_ui(d)
 
     def set_ui(self, d):
         if not isinstance(d, dict):

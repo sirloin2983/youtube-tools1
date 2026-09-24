@@ -6,11 +6,12 @@
   ① 探す(配信ランキング)→ ② 解析(切り抜き候補の自動選定・バッチ)→ ③ 確認・書き出し(クリップマーカー)。
   エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
 """
+import http.client
 import json
-import mimetypes
 import os
 import re
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -26,14 +27,17 @@ import analyze  # noqa: E402
 import batch as batch_mod  # noqa: E402
 import common  # noqa: E402
 import exporter  # noqa: E402
+import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.1.8"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.2.0"  # core.js 側の APP_VERSION と揃える
+TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
+handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
-STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js"}
+STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
 ALLOWED_HOSTS = set()
@@ -77,7 +81,8 @@ def api_state():
     key, source = common.get_api_key()
     fk = common.fake()
     d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(find_tool("ffmpeg")), "ytdlp": bool(find_tool("yt-dlp")) or fk,
-         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "quota": rank.quota()}
+         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "quota": rank.quota(),
+         "env": common.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
     warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
     if warning:
         d["dataWarning"], d["corruptBackup"] = warning, backup
@@ -91,12 +96,20 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self):          # DNS rebinding 対策
         return (self.headers.get("Host") or "") in ALLOWED_HOSTS
 
-    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策
+    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全に一致するものだけ
         o = self.headers.get("Origin")
-        return o is None or o.replace("http://", "") in ALLOWED_HOSTS
+        return o is None or o in {"http://" + h for h in ALLOWED_HOSTS}
 
     def _fetch_site_ok(self):    # 他サイトからのAPI消費(クォータ浪費)対策
         return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+
+    def _navigation_ok(self, path):
+        """他のツールの画面のリンク(「他のツール」メニュー・?url=)でこの画面を開くのは許す。
+        ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site(localhost と 127.0.0.1 なら cross-site)を送るため、以前は 403 になっていた。
+        画面を新しいタブで開くだけで、URL で処理は始まらない(docs/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
+        iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
+        return (path in ("/", "/index.html") and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                and self.headers.get("Sec-Fetch-Dest", "document") == "document")
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         self.send_response(code)
@@ -148,8 +161,11 @@ class Handler(BaseHTTPRequestHandler):
             return fn(*a)
         except ApiError as e:
             return self._err(e)
-        except OSError:
-            return self._json(500, {"error": "write", "message": "保存に失敗しました"})
+        except OSError as e:   # 何が起きたかを具体的に返す(パスはローカルの画面にだけ出る)。詳細は studio-errors.log
+            common.log_failure("API %s %s" % (self.command, self.path.split("?", 1)[0]), e)
+            msg = common.permission_message(e) if isinstance(e, PermissionError) else \
+                "ファイルの読み書きに失敗しました(%s)。ディスクの空き・ドライブの接続を確認してください" % (e.strerror or e.__class__.__name__)
+            return self._json(500, {"error": "write", "message": msg})
         except Exception as e:   # 想定外でもサーバーは落とさない(詳細は伏せる)
             sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
             return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
@@ -159,22 +175,26 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
-        if not (self._host_ok() and self._fetch_site_ok()):
-            return self._send(403, b"forbidden")
         u = urllib.parse.urlsplit(self.path)
+        if not (self._host_ok() and (self._fetch_site_ok() or self._navigation_ok(u.path))):
+            return self._send(403, b"forbidden")
         q = urllib.parse.parse_qs(u.query)
         arg = lambda k: (q.get(k) or [""])[0]
         if u.path in STATIC:
             fn = os.path.join(CODE_DIR, STATIC[u.path])
             try:
                 with open(fn, "rb") as f:
-                    return self._send(200, f.read(), STATIC_TYPES[os.path.splitext(fn)[1]])
+                    body = f.read()
+                page = fn.endswith(".html")
+                return self._send(200, body, STATIC_TYPES[os.path.splitext(fn)[1]],
+                                  {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"} if page else None)
             except OSError:
                 return self._send(404, b"not found")
         if u.path == "/media":
             return self._guard(self._media, arg("id"))
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
+            "/api/siblings": lambda: handoff.siblings(TOOL_ID, PORT),
             "/api/state": api_state,
             "/api/settings": lambda: {"settings": STORE.get_ui()},
             "/api/rank/registry": rank.get_registry,
@@ -321,7 +341,10 @@ def _config(o):
 
 
 def _settings(o):
-    STORE.set_ui(o.get("settings"))
+    if "section" in o:   # {section, value}: 1つの節だけ(画面はこちらを使う)。{settings}: 全体の置き換え(従来どおり)
+        STORE.set_ui_section(o.get("section"), o.get("value"))
+    else:
+        STORE.set_ui(o.get("settings"))
     return {"ok": True}
 
 
@@ -390,17 +413,46 @@ PUT_ROUTES = {
 
 
 # ---------- 起動 ----------
+class StudioServer(ThreadingHTTPServer):
+    """Windows では SO_REUSEADDR を付けると「他のアプリが使用中のポート」にも bind できてしまい、どちらに繋がるか分からなくなる
+    (例: 8810 の cut2resolve と同じポートで起動してしまう)。Windows では使わず、代わりに SO_EXCLUSIVEADDRUSE で独占する。"""
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def probe(port):
+    """そのポートで動いているスタジオの版(スタジオでなければ None)。
+    urllib ではなく http.client: 環境変数・Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回るのを避ける。"""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1) as r:
-            j = json.load(r)
-            return str(j.get("version", "")) if j.get("app") == APP_ID else None
-    except Exception:
+        conn.request("GET", "/api/ping", headers={"Host": "127.0.0.1:%d" % port})
+        r = conn.getresponse()
+        j = json.loads(r.read(4096).decode("utf-8", "replace")) if r.status == 200 else {}
+        return str(j.get("version", "")) if isinstance(j, dict) and j.get("app") == APP_ID else None
+    except (OSError, ValueError, http.client.HTTPException):
         return None
+    finally:
+        conn.close()
+
+
+def _bound(srv):
+    global PORT, ALLOWED_HOSTS
+    p = srv.server_address[1]
+    PORT = p
+    ALLOWED_HOSTS = {"localhost:%d" % p, "127.0.0.1:%d" % p}
+    return srv, p
 
 
 def make_server(start_port):
-    global PORT, ALLOWED_HOSTS
+    """start_port から20個のうち空いているポートで待ち受ける。同じ版が動いていれば (None, そのポート)。
+    start_port=0 は OS に空きポートを選ばせる(テスト用: 他のテストと同時に走らせてもぶつからない)。"""
+    if start_port == 0:
+        return _bound(StudioServer(("127.0.0.1", 0), Handler))
     for p in range(start_port, start_port + 20):
         ver = probe(p)
         if ver == SERVER_VERSION:
@@ -409,27 +461,26 @@ def make_server(start_port):
             print("※ ポート%d では古い版のサーバーが動いています。その黒い画面を閉じてください。" % p)
             continue
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            srv = StudioServer(("127.0.0.1", p), Handler)
         except OSError:
             continue
-        PORT = p
-        ALLOWED_HOSTS = {"localhost:%d" % p, "127.0.0.1:%d" % p}
-        return srv, p
+        return _bound(srv)
     raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
 
 
 LOG_MAX = 1024 * 1024
+_log_lock = threading.Lock()
 
 
 def _log(msg):
-    """studio.log に1行追記(終了の原因調べ用。失敗しても何もしない。1MBを超えたら studio.log.old に回す)。"""
+    """studio.log に1行追記(終了の原因調べ用。失敗しても何もしない。1MBを超えたら studio.old.log に回す)。"""
     line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
     try:
-        path = common.p("studio.log")
-        if os.path.exists(path) and os.path.getsize(path) > LOG_MAX:
-            os.replace(path, path + ".old")
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+        with _log_lock:
+            path = common.p("studio.log")
+            common.rotate_log(path, LOG_MAX)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
     except Exception:
         pass
 
@@ -441,7 +492,9 @@ def _setup_diagnostics():
     import signal
     import traceback
     try:
-        faulthandler.enable(open(common.p("studio.crash.log"), "a", encoding="utf-8"), all_threads=True)   # 内部クラッシュ時のスタック
+        crash = common.p("studio.crash.log")
+        common.rotate_log(crash, LOG_MAX)   # 追記し続けて大きくならないよう、起動時に回す
+        faulthandler.enable(open(crash, "a", encoding="utf-8"), all_threads=True)   # 内部クラッシュ時のスタック
     except Exception:
         pass
 
@@ -478,9 +531,12 @@ def main():
             webbrowser.open(url)
         return
     init()
+    common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _setup_diagnostics()
     _log("起動 v%s port=%d pid=%d python=%s" % (SERVER_VERSION, port, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
+    runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
+    common.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
     print("切り抜きスタジオ:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
     print("書き出し先:", common.get_out_dir())
     print("ログ:", common.p("studio.log"))
@@ -498,6 +554,9 @@ def main():
             _log("解析または書き出しの実行中でした")
             print("(解析・書き出しの途中でした)")
         return 130
+    finally:   # シグナル(SystemExit)で抜けるときもここを通る
+        if runtime:
+            handoff.remove_runtime(TOOL_ID, port)
 
 
 if __name__ == "__main__":

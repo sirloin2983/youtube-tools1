@@ -30,6 +30,15 @@ def _safe_name(value: str, fallback: str = "resolve-package") -> str:
     return value[:80] or fallback
 
 
+def _num(value, default: float = 0.0) -> float:
+    """数値にできて有限なら float、それ以外は default(壊れた文書・None でも落ちないように)。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    return v if math.isfinite(v) else default
+
+
 def _frames(seconds: float, fps: Fraction) -> int:
     return max(0, int(math.floor(float(seconds) * float(fps) + 0.5)))
 
@@ -43,9 +52,50 @@ def _fcpx_time(frames: int, fps: Fraction) -> str:
     return "%ds" % value.numerator if value.denominator == 1 else "%d/%ds" % (value.numerator, value.denominator)
 
 
-def _srt_time(seconds: float) -> str:
-    ms = max(0, int(round(seconds * 1000)))
+def srt_time(seconds: float) -> str:
+    """SRT の時刻(HH:MM:SS,mmm)。画面の書き出し(index.html の tcode)と同じく、ミリ秒は四捨五入(0.5 は切り上げ)。"""
+    ms = max(0, int(math.floor(float(seconds) * 1000 + 0.5)))
     return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+
+_srt_time = srt_time   # 旧名(互換のため残す)
+
+
+def srt_text(cues) -> str:
+    """[(開始秒, 終了秒, 文章)] → SRT の本文。番号は1から。ブロックの間は空行1つ、末尾は改行1つ
+    (画面の書き出し・Resolve パッケージ・動画の隣への保存が、同じ書式になるよう1か所にまとめる)。"""
+    return "\n".join("%d\n%s --> %s\n%s\n" % (i, srt_time(a), srt_time(b), text) for i, (a, b, text) in enumerate(cues, 1))
+
+
+def is_kept(seg: dict) -> bool:
+    """この行を「残す」か。画面の「カット済」(cutState == "cut")の行と、文字が空の行は残さない。
+    Resolve パッケージのカットと、cut-plan/v1(動画の隣に保存)の両方がこの規則を使う(規則を1か所にするため)。"""
+    return seg.get("cutState") != "cut" and bool(str(seg.get("text") or "").strip())
+
+
+def kept_spans(segments: list[dict]) -> list[dict]:
+    """残す区間(秒)。is_kept の行の時間を、重なる・接する(前の終わり >= 次の始まり)ものどうしで1つにまとめる。
+    行と行の間のすき間(無音など)は残さない(Resolve パッケージの従来の動作)。
+    戻り値: [{"start", "end", "segments": [まとめた元の行, ...]}](開始時刻の順)。時刻の基準は渡した行のまま。"""
+    items = []
+    for seg in segments:
+        if not isinstance(seg, dict) or not is_kept(seg):
+            continue
+        try:
+            a, b = float(seg.get("start") or 0), float(seg.get("end") or 0)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(a) and math.isfinite(b) and b > a:
+            items.append((a, b, seg))
+    items.sort(key=lambda x: (x[0], x[1]))
+    out = []
+    for a, b, seg in items:
+        if out and a <= out[-1]["end"]:
+            out[-1]["end"] = max(out[-1]["end"], b)
+            out[-1]["segments"].append(seg)
+        else:
+            out.append({"start": a, "end": b, "segments": [seg]})
+    return out
 
 
 def discover_edit_media(source_path: str) -> dict:
@@ -69,11 +119,9 @@ def discover_edit_media(source_path: str) -> dict:
 
 def _kept_ranges(segments: list[dict], base: float, media_duration: float, fps: Fraction) -> list[dict]:
     raw = []
-    for seg in segments:
-        if seg.get("cutState") == "cut" or not str(seg.get("text") or "").strip():
-            continue
-        a = max(0.0, float(seg.get("start") or 0) - base)
-        b = min(media_duration, float(seg.get("end") or 0) - base)
+    for span in kept_spans(segments):   # どの行を残すかの規則は kept_spans(is_kept)だけに持つ
+        a = max(0.0, span["start"] - base)
+        b = min(media_duration, span["end"] - base)
         if b > a:
             raw.append([_frames(a, fps), _frames(b, fps)])
     raw.sort()
@@ -109,15 +157,25 @@ def build_plan(doc: dict, fps_text: str = "30") -> dict:
         raise ResolveExportError("元の動画が見つかりません")
     fps = SUPPORTED_FPS[fps_text]
     edit = discover_edit_media(source)
-    base = float(doc.get("start") or 0) if not doc.get("whole", True) else 0.0
-    doc_duration = float(doc.get("duration") or 0)
+    whole = doc.get("whole", True)
+    base = _num(doc.get("start")) if not whole else 0.0
+    file_duration = _num(doc.get("duration"))   # 文書の duration は「元のファイル全体」の長さ(範囲指定でも)
+    if whole:
+        doc_duration = file_duration
+    else:
+        # 範囲指定の文書は、範囲の長さ(end - start)を使う。以前はファイル全体の長さを使っていたため、
+        # SOURCE_WITH_HANDLES と FCPXML の素材の長さが、実際のファイルより長くなっていた(例: 1時間の動画の 100〜160 秒 → 3710 秒)
+        end = _num(doc.get("end"))
+        doc_duration = end - base if end > base else max(0.0, file_duration - base)
     if doc_duration <= 0:
-        doc_duration = max([float(s.get("end") or 0) for s in doc.get("segments") or []] + [0.0]) - base
+        doc_duration = max([_num(s.get("end")) for s in doc.get("segments") or [] if isinstance(s, dict)] + [0.0]) - base
     sidecar_handles = bool(edit["sidecar"])
-    source_offset = edit["selectionIn"] if sidecar_handles else (base if not doc.get("whole", True) else 0.0)
-    handle_before = edit["handleBefore"] if sidecar_handles else (min(10.0, source_offset) if not doc.get("whole", True) else 0.0)
-    handle_after = edit["handleAfter"] if sidecar_handles else (10.0 if not doc.get("whole", True) else 0.0)
+    source_offset = edit["selectionIn"] if sidecar_handles else (base if not whole else 0.0)
+    handle_before = edit["handleBefore"] if sidecar_handles else (min(10.0, source_offset) if not whole else 0.0)
+    handle_after = edit["handleAfter"] if sidecar_handles else (10.0 if not whole else 0.0)
     media_duration = source_offset + max(0.0, doc_duration)
+    if not sidecar_handles and file_duration > 0:   # 後ろの余白は、ファイルの終わりを超えない
+        handle_after = max(0.0, min(handle_after, file_duration - media_duration))
     shifted = []
     for seg in doc.get("segments") or []:
         one = dict(seg)
@@ -129,7 +187,7 @@ def build_plan(doc: dict, fps_text: str = "30") -> dict:
         raise ResolveExportError("残す区間がありません。カット指定を確認してください")
     captions = []
     for seg in shifted:
-        if seg.get("cutState") == "cut" or not str(seg.get("text") or "").strip():
+        if not is_kept(seg):
             continue
         start = _timeline_position(float(seg["start"]), cuts, fps)
         end_probe = max(float(seg["start"]), float(seg["end"]) - 1.0 / float(fps))
@@ -153,11 +211,7 @@ def build_plan(doc: dict, fps_text: str = "30") -> dict:
 
 def _build_srt(plan: dict) -> str:
     fps = SUPPORTED_FPS[plan["fps"]]
-    rows = []
-    for i, cap in enumerate(plan["captions"], 1):
-        rows.append("%d\n%s --> %s\n%s\n" % (i, _srt_time(_seconds(cap["startFrame"], fps)),
-                                               _srt_time(_seconds(cap["endFrame"], fps)), cap["text"]))
-    return "\n".join(rows)
+    return srt_text((_seconds(cap["startFrame"], fps), _seconds(cap["endFrame"], fps), cap["text"]) for cap in plan["captions"])
 
 
 def _build_fcpxml(plan: dict) -> bytes:

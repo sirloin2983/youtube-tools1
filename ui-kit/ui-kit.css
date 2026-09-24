@@ -1,0 +1,293 @@
+/* ui-kit v1 — youtube-tools 共通の見た目(色・文字・部品)。
+   正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
+   テーマ: <html data-theme="light|dark">(theme.js が OS の設定・保存した選択から決める)。
+   既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
+
+/* ---------- 1. トークン(ライト) ---------- */
+:root{
+  color-scheme:light;
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI","Meiryo",sans-serif;
+  --font-display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI",sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  --bg:#f5f6f9;--bg-2:#eceef3;
+  --panel:#ffffff;--panel-2:#f3f4f8;--panel-3:#e8eaf0;
+  --field:#ffffff;--field-hover:#fafbfd;
+  --line:#e2e5ec;--line-2:#cdd2dc;--line-strong:#b3bac7;
+  --ink:#141821;--ink-2:#485062;--ink-3:#767f91;--ink-4:#a2a9b7;
+  --accent:#5a46e0;--accent-hover:#4c38d4;--accent-ink:#ffffff;--accent-soft:#ecebfd;--accent-line:#c9c2fa;
+  --ok:#17875a;--ok-soft:#e3f5ec;--warn:#a86a06;--warn-soft:#fdf2dc;--danger:#cf3434;--danger-soft:#fde8e8;--info:#0a74b3;--info-soft:#e2f1fa;
+  --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
+  --shadow-1:0 1px 2px rgba(20,24,33,.06),0 1px 1px rgba(20,24,33,.04);
+  --shadow-2:0 4px 14px rgba(20,24,33,.08),0 1px 3px rgba(20,24,33,.06);
+  --shadow-3:0 18px 48px rgba(20,24,33,.16),0 4px 12px rgba(20,24,33,.08);
+  --header-bg:rgba(255,255,255,.82);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
+  --scroll-thumb:#c8cdd7;
+
+  --r-xs:4px;--r-sm:6px;--r:8px;--r-lg:12px;--r-xl:16px;--r-pill:999px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --fs-xs:11.5px;--fs-sm:12.5px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;
+  --ctl-h:34px;--ctl-h-sm:28px;--header-h:52px;
+  --ease:cubic-bezier(.2,.7,.2,1);--dur:.16s;
+}
+
+/* ---------- 2. トークン(ダーク) ---------- */
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#0e1015;--bg-2:#0a0c10;
+  --panel:#161920;--panel-2:#1d2029;--panel-3:#262a35;
+  --field:#101218;--field-hover:#13161d;
+  --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;
+  --ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
+  --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
+  --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);
+  --shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);
+  --shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(14,16,21,.78);
+  --scroll-thumb:#353a46;
+}
+/* JS が動かないときは OS の設定に従う(theme.js は必ず data-theme を付ける) */
+@media (prefers-color-scheme:dark){:root:not([data-theme]){
+  color-scheme:dark;
+  --bg:#0e1015;--bg-2:#0a0c10;--panel:#161920;--panel-2:#1d2029;--panel-3:#262a35;--field:#101218;--field-hover:#13161d;
+  --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;--ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
+  --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
+  --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(14,16,21,.78);--scroll-thumb:#353a46;
+}}
+
+/* ---------- 3. 土台 ---------- */
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-md)/1.55 var(--font);-webkit-font-smoothing:antialiased}
+body{min-width:0}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em;line-height:1.3}
+a{color:var(--accent);text-underline-offset:2px}
+a:hover{color:var(--accent-hover)}
+::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
+kbd,.kbd{display:inline-block;min-width:1.7em;padding:0 5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:var(--r-xs);background:var(--panel);font:600 11px/1.6 var(--mono);text-align:center;color:var(--ink-2);white-space:nowrap}
+hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
+*{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:10px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:var(--fs-sm);color:var(--ink-2)}
+.muted{color:var(--ink-3)}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.stack{display:flex;flex-direction:column;gap:var(--sp-2)}
+.grow{flex:1 1 auto;min-width:0}.spacer{flex:1 1 auto}
+
+/* ---------- 4. ヘッダー(全ツール共通) ---------- */
+.ui-header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:6px 16px;min-height:var(--header-h);padding:6px 16px;flex-wrap:wrap;
+  background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+.ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap;letter-spacing:-.01em}
+.ui-brand:hover{color:var(--ink)}
+.ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;
+  background:linear-gradient(135deg,#ff5f9e,#8f6bff);box-shadow:0 2px 8px color-mix(in srgb,#8f6bff 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark svg{width:15px;height:15px}
+.ui-brand-mark[data-tool=transcribe]{background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#2aa5e6 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark[data-tool=cut2resolve]{background:linear-gradient(135deg,#f59e0b,#ef5a5a);box-shadow:0 2px 8px color-mix(in srgb,#f07b3a 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
+.ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.ui-header .ui-tabs{margin-left:8px}
+@media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
+
+/* ナビのタブ(ヘッダーの手順・画面切り替え) */
+.ui-tabs{display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);overflow-x:auto;scrollbar-width:none}
+.ui-tabs::-webkit-scrollbar{display:none}
+.ui-tab{position:relative;display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--ink-2);padding:0 12px;min-height:30px;border-radius:9px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-tab:hover{color:var(--ink);background:color-mix(in srgb,var(--panel) 60%,transparent)}
+.ui-tab[aria-pressed=true],.ui-tab[aria-selected=true],.ui-tab[aria-current=page]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-tab .ui-tab-n{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
+.ui-tab[aria-pressed=true] .ui-tab-n,.ui-tab[aria-selected=true] .ui-tab-n,.ui-tab[aria-current=page] .ui-tab-n{background:var(--accent);color:var(--accent-ink)}
+@media (max-width:720px){.ui-tab{flex:1 1 auto;justify-content:center;padding:0 8px}}
+
+/* テーマ切り替えボタン(theme.js が [data-theme-toggle] に動作を付ける) */
+.ui-theme-toggle{position:relative;width:var(--ctl-h);height:var(--ctl-h);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:var(--ink-2);padding:0;flex:none;
+  transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-theme-toggle:hover{color:var(--ink);border-color:var(--line-strong)}
+.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .35s var(--ease),opacity .2s var(--ease)}
+.ui-theme-toggle .i-sun{opacity:0;transform:rotate(-60deg) scale(.6)}
+:root[data-theme=dark] .ui-theme-toggle .i-sun{opacity:1;transform:none}
+:root[data-theme=dark] .ui-theme-toggle .i-moon{opacity:0;transform:rotate(60deg) scale(.6)}
+
+/* 他のツールへのリンク(<details class="ui-menu">) */
+.ui-menu{position:relative}
+.ui-menu>summary{list-style:none;cursor:pointer}
+.ui-menu>summary::-webkit-details-marker{display:none}
+.ui-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:240px;padding:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
+.ui-menu-pop a,.ui-menu-pop button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left}
+.ui-menu-pop a:hover,.ui-menu-pop button:hover{background:var(--panel-2);color:var(--ink)}
+.ui-menu-pop .ui-brand-mark{width:22px;height:22px;border-radius:7px}
+.ui-menu-pop small{display:block;color:var(--ink-3);font-size:var(--fs-xs)}
+.ui-menu-pop [aria-current=page]{background:var(--accent-soft)}
+@keyframes ui-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+
+/* ---------- 5. ボタン ---------- */
+a.btn,a.btn:hover{text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;line-height:1.2;
+  box-shadow:var(--shadow-1);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),transform .06s}
+.btn:hover:not(:disabled){background:var(--panel-2);border-color:var(--line-strong)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:0 1px 2px color-mix(in srgb,var(--accent) 35%,transparent),inset 0 1px 0 rgba(255,255,255,.14)}
+.btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--ink-2)}
+.btn.ghost:hover:not(:disabled){background:var(--panel-2);border-color:transparent;color:var(--ink)}
+.btn.soft{background:var(--accent-soft);border-color:transparent;color:var(--accent);box-shadow:none}
+.btn.soft:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:transparent}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px;border-radius:7px}
+.btn.lg{min-height:40px;padding:0 18px;font-size:14.5px;border-radius:10px}
+.btn.icon{width:var(--ctl-h);padding:0}.btn.icon.small,.btn.icon.sm{width:var(--ctl-h-sm)}
+.btn svg{width:16px;height:16px;flex:none}
+.btn[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.btn.primary[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.btn-group{display:inline-flex}
+.btn-group>.btn{border-radius:0;margin-left:-1px}
+.btn-group>.btn:first-child{border-radius:var(--r) 0 0 var(--r);margin-left:0}
+.btn-group>.btn:last-child{border-radius:0 var(--r) var(--r) 0}
+
+/* 切り替えの並び(セグメント) */
+.ui-seg{display:inline-flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;max-width:100%;overflow-x:auto}
+.ui-seg>button{border:0;background:transparent;color:var(--ink-2);min-height:28px;padding:0 11px;border-radius:7px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13px;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-seg>button:hover{color:var(--ink)}
+.ui-seg>button[aria-pressed=true],.ui-seg>button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-seg.fill,.ui-tabs.fill{display:flex;width:100%}.ui-seg.fill>button,.ui-tabs.fill>.ui-tab{flex:1 1 0;justify-content:center;min-width:0}
+
+/* ---------- 6. 入力 ---------- */
+input[type=text],input[type=search],input[type=number],input[type=password],input[type=url],input[type=date],input[type=time],input:not([type]),select,textarea{
+  background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);padding:6px 10px;min-height:var(--ctl-h);max-width:100%;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),background var(--dur) var(--ease)}
+input[type=text]:hover,input[type=search]:hover,input[type=number]:hover,input[type=password]:hover,input[type=url]:hover,input:not([type]):hover,select:hover,textarea:hover{border-color:var(--line-strong)}
+input[type=text]:focus,input[type=search]:focus,input[type=number]:focus,input[type=password]:focus,input[type=url]:focus,input[type=date]:focus,input[type=time]:focus,input:not([type]):focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+input::placeholder,textarea::placeholder{color:var(--ink-4)}
+input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
+input[readonly]{background:var(--panel-2)}
+textarea{line-height:1.5;resize:vertical}
+select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858da0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center}
+select option{background:var(--panel);color:var(--ink)}
+input[type=checkbox],input[type=radio]{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer;margin:0}
+input[type=range]{accent-color:var(--accent);cursor:pointer}
+input[type=color]{border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--field);height:var(--ctl-h);padding:2px}
+/* スイッチ(<input type=checkbox class="ui-switch">) */
+input[type=checkbox].ui-switch{appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;border-radius:var(--r-pill);background:var(--panel-3);border:1px solid var(--line-2);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
+input[type=checkbox].ui-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform var(--dur) var(--ease)}
+input[type=checkbox].ui-switch:checked{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
+.fld{margin-top:10px;min-width:0}
+.fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
+.lag{display:inline-flex;align-items:center;gap:6px;max-width:100%;cursor:pointer}
+
+/* ---------- 7. 面・カード ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;box-shadow:var(--shadow-1)}
+.card.flat{box-shadow:none}
+.card.raised{box-shadow:var(--shadow-2)}
+.card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
+.card-title{margin:0;font:650 14.5px/1.35 var(--font-display)}
+.card-sub{color:var(--ink-3);font-size:var(--fs-sm)}
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;user-select:none}
+.card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
+.card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
+.card[open]>summary{margin-bottom:8px}
+.section-title{font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+
+/* ---------- 8. 小さな表示 ---------- */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line);white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.pill.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.pill.run::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
+.pill.wait{color:var(--ink-3)}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
+:root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent);animation:ui-pulse 1.2s ease-in-out infinite}
+@keyframes ui-pulse{50%{opacity:.35}}
+
+/* お知らせ */
+.notice{display:block;background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--ink);border-radius:var(--r);padding:9px 12px;font-size:13px;margin:8px 0;overflow-wrap:anywhere}
+.notice.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.notice.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.notice.danger,.notice.err{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.notice code{background:var(--panel)}
+.errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
+.errbar a{color:#fff}
+
+/* 進み具合 */
+.bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 60%,#fff));transition:width .3s var(--ease)}
+.bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
+@keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+
+/* 空の状態・読み込み中 */
+.empty{color:var(--ink-3);padding:28px 20px;text-align:center;border:1px dashed var(--line-2);border-radius:var(--r-lg);background:color-mix(in srgb,var(--panel) 50%,transparent)}
+.empty b,.empty strong{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+.ui-skel{background:linear-gradient(90deg,var(--panel-2) 25%,var(--panel-3) 37%,var(--panel-2) 63%);background-size:400% 100%;animation:ui-skel 1.4s ease infinite;border-radius:var(--r-sm);min-height:12px}
+@keyframes ui-skel{from{background-position:100% 50%}to{background-position:0 50%}}
+.ui-spin{display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;border-radius:50%;animation:ui-rot .7s linear infinite;vertical-align:-2px}
+@keyframes ui-rot{to{transform:rotate(360deg)}}
+
+/* 通知(トースト) */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;max-width:min(560px,calc(100% - 32px));padding:10px 16px;border-radius:var(--r-lg);
+  background:#1b1e26;color:#f2f4f8;border:1px solid rgba(255,255,255,.08);box-shadow:var(--shadow-3);font-size:13px;overflow-wrap:anywhere;animation:ui-toast .2s var(--ease)}
+:root[data-theme=dark] .toast{background:#242834}
+.toast{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
+.toast.ok::before{background:#4cd08b}.toast.err::before{background:#ff6f6f}.toast.info::before{background:#5cc3ff}   /* トーストは両テーマで暗い面なので印は固定色 */
+.toast.err{border-color:rgba(255,111,111,.45)}
+@keyframes ui-toast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+
+/* ダイアログ */
+dialog{border:1px solid var(--line-2);border-radius:var(--r-xl);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-3);padding:20px 22px;max-width:min(560px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(8,10,14,.55);backdrop-filter:blur(3px)}
+dialog h2,dialog h3{margin-top:0}
+/* ダイアログの見出し・本文(見出しの右に閉じるボタン。<dialog> は padding:0 にして使う) */
+.ui-dlg-head{display:flex;align-items:center;gap:8px;padding:14px 16px 12px 20px;border-bottom:1px solid var(--line)}
+.ui-dlg-head h2{margin:0;flex:1;font:650 16px/1.3 var(--font-display)}
+.ui-dlg-body{padding:12px 20px 18px;overflow-y:auto}
+/* キー操作の一覧 */
+.ui-kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px 24px}
+.ui-kgroup{margin-top:12px}
+.ui-kgroup .section-title{margin:0 0 4px}
+.ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
+.ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
+
+/* 表 */
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:11.5px;color:var(--ink-3);font-weight:650;letter-spacing:.04em;white-space:nowrap;background:var(--panel)}
+tbody tr{transition:background var(--dur) var(--ease)}
+tbody tr:hover{background:var(--panel-2)}
+tr:last-child>td{border-bottom:0}
+td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ツールチップ(title の代わりに data-tip) */
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:80;padding:5px 8px;border-radius:var(--r-sm);background:#1b1e26;color:#f2f4f8;font:500 12px/1.4 var(--font);white-space:nowrap;pointer-events:none;box-shadow:var(--shadow-2)}
+
+/* ドロップ受付(ファイルのドラッグ&ドロップ) */
+.ui-drop{border:1.5px dashed var(--line-strong);border-radius:var(--r-lg);padding:22px;text-align:center;color:var(--ink-2);background:color-mix(in srgb,var(--panel) 60%,transparent);transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.ui-drop.over,.ui-drop:focus-within{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+
+/* 動きを減らす設定 */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}

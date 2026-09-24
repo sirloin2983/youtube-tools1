@@ -7,8 +7,10 @@
 ## ツール(フォルダ)
 - `clip-studio/` … 切り抜きスタジオ(配信から切り抜く区間を選ぶ・マーク・書き出し)。仕様: `docs/project/clip-studio-spec.md`
 - `transcribe-tool/` … 文字起こしツール(faster-whisper・話者判別・校正画面・精度測定)。**いま一番活発に開発中**。`transcribe-tool/AGENTS.md` を必ず読む
-- `cut2resolve/` … DaVinci Resolve 連携(カット・字幕の受け渡し)。仕様: `docs/project/cut2resolve-spec.md`, `srt2resolve-spec.md`
+- `cut2resolve/` … DaVinci Resolve 連携(カット・字幕の受け渡し。v0.2.0 から専用の画面 serve.py あり)。仕様: `docs/project/cut2resolve-spec.md`, `srt2resolve-spec.md`
 - 全体の引き継ぎ: `docs/project/HANDOVER.md`、今後の改善案: `docs/project/improvement-roadmap.md`
+- 共通の見た目: `ui-kit/`(正本。`python tools/sync_ui_kit.py` で各ツールへ写す。写しは手で直さない)。ツール間の受け渡し: `docs/pipeline.md`
+- 2026-09-24 の全ツール見直しのまとめ: `docs/review/README.md`。3ツールの通し確認: `python tools/e2e_pipeline.py`
 
 どのツールも「Python 標準ライブラリ中心のローカルサーバー(serve.py)+ 1ファイルの画面(index.html)」構成で、ユーザーの PC 上だけで動く。
 外部サービスへ動画・音声を送らない方針。

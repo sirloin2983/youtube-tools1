@@ -24,7 +24,7 @@ from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, nu
 
 API_BASE = "https://www.googleapis.com/youtube/v3/"
 CHAT_CACHE_KEEP = 30
-MAX_FEEDBACK_BYTES = 5 * 1024 * 1024
+MAX_FEEDBACK_BYTES = 32 * 1024 * 1024   # 1行 500〜800 バイトなので約5万件。超えたら feedback.jsonl.old の末尾へ移す(消さない)
 MAX_DURATION = 12 * 3600
 AUDIO_DL_IDLE = 600      # 音声のダウンロードで、この秒数まったく出力がなければ中止
 AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で同様
@@ -149,12 +149,43 @@ def feedback_for_mark(video, mark, verdict, event=""):
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             if os.path.exists(path) and os.path.getsize(path) > MAX_FEEDBACK_BYTES:
-                os.replace(path, path + ".old")
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        except OSError:
+                _move_feedback_to_old(path)
+            _append_line(path, json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError as e:
+            common.log_failure("feedback.jsonl への記録", e)
             return False
     return True
+
+
+def _append_line(path, line):
+    """1行追記する。前回の行が書きかけ(電源断など)で改行が無ければ、先に改行を足して次の行と繋がらないようにする。"""
+    with open(path, "a+b") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell() > 0:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                f.write(b"\n")
+        f.write(line.encode("utf-8"))
+
+
+def _move_feedback_to_old(path):
+    """大きくなった feedback.jsonl を feedback.jsonl.old の末尾へ移して空にする。
+    以前は .old を上書きしていたため、2回目の切り替えで古い記録が消えていた(精度の見直しに使う大事なデータなので消さない)。"""
+    old = path + ".old"
+    with open(path, "rb") as src, open(old, "ab") as dst:
+        if dst.tell() > 0:
+            with open(old, "rb") as chk:
+                chk.seek(-1, os.SEEK_END)
+                if chk.read(1) != b"\n":
+                    dst.write(b"\n")
+        shutil.copyfileobj(src, dst)
+        dst.flush()
+        try:
+            os.fsync(dst.fileno())
+        except OSError:
+            pass
+    with open(path, "wb"):
+        pass   # 移し終えてから空にする(途中で止まっても記録は消えない。重複は ts で見分けられる)
 
 
 # ---------- 素材の取得(YouTube) ----------
@@ -171,7 +202,7 @@ def download_audio(job, vid, wdir):
     yt = find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg") or "", "-f", "ba/b", "-o", os.path.join(wdir, "audio.%(ext)s"),
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg") or "", "-f", "ba/b", "-o", common.ytdlp_out(wdir, "audio.%(ext)s"),
            "--", "https://www.youtube.com/watch?v=" + vid]
 
     def on(line):
@@ -227,11 +258,8 @@ def load_sig(vid):
 def save_sig(vid, dur, full, band):
     try:
         os.makedirs(sig_cache_dir(), exist_ok=True)
-        p = sig_path(vid)
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}, f)
-        os.replace(tmp, p)
+        data = {"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}
+        atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
         prune_cache(sig_cache_dir(), "*.json")
     except OSError:
         pass
@@ -277,7 +305,7 @@ def download_chat(job, vid, wdir, timeout):
     yt = find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", os.path.join(wdir, "chat.%(ext)s"), "--", "https://www.youtube.com/watch?v=" + vid]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", common.ytdlp_out(wdir, "chat.%(ext)s"), "--", "https://www.youtube.com/watch?v=" + vid]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
@@ -306,7 +334,7 @@ def download_chat(job, vid, wdir, timeout):
             os.makedirs(chat_cache_dir(), exist_ok=True)
             tmp = cp + ".tmp"
             shutil.copyfile(files[0], tmp)
-            os.replace(tmp, cp)
+            common.replace_file(tmp, cp)
             prune_chat_cache()
         except OSError:
             pass
@@ -496,12 +524,19 @@ def slim_meta(d):
             "heatmap": hm[:300], "chapters": ch[:100], "fetchedAt": int(time.time())}
 
 
+def _meta_ok(d):
+    """キャッシュの形の確認(classify_stream などが型の違いで落ちて、記録用の情報のせいで解析全体が失敗するのを防ぐ)。"""
+    return (isinstance(d, dict) and isinstance(d.get("title", ""), str)
+            and all(isinstance(d.get(k) or [], list) and all(isinstance(x, str) for x in (d.get(k) or [])) for k in ("tags", "categories"))
+            and all(isinstance(d.get(k) or [], list) for k in ("heatmap", "chapters")))
+
+
 def load_meta(vid):
     try:
         p = os.path.join(meta_dir(), vid + ".json")
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        if isinstance(d, dict) and time.time() - float(d.get("fetchedAt") or 0) < META_TTL:
+        if _meta_ok(d) and time.time() - float(d.get("fetchedAt") or 0) < META_TTL:
             return d
     except (OSError, ValueError, TypeError):
         pass
@@ -607,7 +642,9 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
     if not p:
         return False
     old = load_archive(vid)
-    payload = dict(payload, v=1, videoId=vid, runs=((old or {}).get("runs") or [])[-4:] + [run])
+    runs = (old or {}).get("runs")
+    runs = [r for r in runs if isinstance(r, dict)] if isinstance(runs, list) else []   # 壊れた履歴で保存が毎回失敗し続けないように
+    payload = dict(payload, v=1, videoId=vid, runs=runs[-4:] + [run])
     try:
         atomic_write(p, gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6))
         fs = sorted((os.path.getmtime(q), q) for q in glob.glob(os.path.join(glob.escape(os.path.dirname(p)), "*.json.gz")))
@@ -889,7 +926,7 @@ def run_analyze(job):
             if not dur or dur < 20:
                 raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
             if dur > MAX_DURATION:
-                raise ApiError("too_long", "長すぎます(12時間まで)")
+                raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (common.fmt_ts(dur)[:8], MAX_DURATION // 3600))
             if not has_audio_stream(media):
                 raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
             n = int(math.ceil(dur))

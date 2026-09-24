@@ -125,6 +125,22 @@ class TestStatus(Base):
             r = self.send(status=s)
             self.assertEqual((r["status"], r["file"]), (s, ""))
 
+    def test_exported_keeps_absolute_path_and_client_cannot_change_it(self):
+        ap = os.path.abspath(os.path.join("out", "f", "a.mp4"))
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"], ap)
+        self.m = self.marks()[0]
+        self.assertEqual((self.m["status"], self.m["file"], self.m.get("path")), ("exported", "f/a.mp4", ap))
+        r = self.send(path="C:\\evil.mp4", label="名前を変える")   # 名前を変えても書き出し済みの情報は残り、path は書き換えられない
+        self.assertEqual((r["status"], r.get("path")), ("exported", ap))
+        r = self.send(start=self.m["start"] + 2)                 # 範囲を動かすと file と一緒に path も外れる
+        self.assertEqual((r["status"], r["file"], r.get("path")), ("adopted", "", None))
+
+    def test_exported_without_or_relative_path_has_no_path(self):
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"], "f/a.mp4")
+        self.assertNotIn("path", self.marks()[0])
+        self.st.mark_exported(YT["videoId"], self.m["id"], "f/a.mp4", self.m["start"], self.m["end"])
+        self.assertNotIn("path", self.marks()[0])
+
     def test_client_cannot_set_exported(self):
         r = self.send(status="exported", file="evil.mp4")
         self.assertEqual((r["status"], r["file"]), ("", ""))

@@ -5,27 +5,64 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.ytimg.com https://*.ggpht.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>切り抜きスタジオ</title>
+<!-- ui-kit.js は CSS より先に同期で読む(data-theme を先に決めて、ちらつきを防ぐ)。インラインのスクリプトは CSP(script-src 'self')で動かないので使わない -->
+<script src="/ui-kit.js"></script>
+<link rel="stylesheet" href="/ui-kit.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/review.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand"><i aria-hidden="true"></i>切り抜きスタジオ<span class="ver" id="ver"></span></div>
-  <nav class="steps" id="steps" aria-label="作業の流れ">
-    <button type="button" class="step" data-step="rank" aria-pressed="true"><b>①</b> 探す<span class="badge" id="badgeRank" hidden></span></button>
-    <button type="button" class="step" data-step="queue" aria-pressed="false"><b>②</b> 解析<span class="badge" id="badgeQueue" hidden></span></button>
-    <button type="button" class="step" data-step="review" aria-pressed="false"><b>③</b> 確認・書き出し<span class="badge" id="badgeReview" hidden></span></button>
-    <button type="button" class="step" data-step="collab" aria-pressed="false"><b>④</b> コラボ<span class="badge" id="badgeCollab" hidden></span></button>
+<header class="ui-header" id="appHeader">
+  <a class="ui-brand" href="/" title="切り抜きスタジオ(最初の画面へ)">
+    <span class="ui-brand-mark" data-tool="studio" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>
+    <span class="cs-brand-name">切り抜きスタジオ</span><span class="ui-ver" id="ver"></span>
+  </a>
+  <nav class="ui-tabs" id="steps" aria-label="作業の流れ">
+    <button type="button" class="ui-tab step" data-step="rank" aria-pressed="true"><span class="ui-tab-n">1</span>探す<span class="badge" id="badgeRank" hidden></span></button>
+    <button type="button" class="ui-tab step" data-step="queue" aria-pressed="false"><span class="ui-tab-n">2</span>解析<span class="badge" id="badgeQueue" hidden></span></button>
+    <button type="button" class="ui-tab step" data-step="review" aria-pressed="false"><span class="ui-tab-n">3</span><span class="cs-tab-long">確認・書き出し</span><span class="cs-tab-short" aria-hidden="true">確認</span><span class="badge" id="badgeReview" hidden></span></button>
+    <button type="button" class="ui-tab step" data-step="collab" aria-pressed="false"><span class="ui-tab-n">4</span>コラボ<span class="badge" id="badgeCollab" hidden></span></button>
   </nav>
+  <div class="ui-header-actions">
+    <button type="button" class="btn ghost small cs-hbtn" id="btnKeys" title="キー操作の一覧(? キー)" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span class="cs-hlabel">キー</span></button>
+    <button type="button" class="btn ghost small cs-hbtn" id="btnSettings" aria-controls="settingsBox" aria-expanded="false" title="設定(APIキー・出力先フォルダ・事務所の登録)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="cs-hlabel">設定</span><span class="dot warn" id="settingsDot" hidden></span></button>
+    <details class="ui-menu" id="toolMenu">
+      <summary class="btn ghost small cs-hbtn" title="他のツールを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="cs-hlabel">他のツール</span></summary>
+      <div class="ui-menu-pop" data-ui-toolnav id="toolNav"></div>
+    </details>
+    <button type="button" class="ui-theme-toggle" data-theme-toggle>
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
 </header>
-<div class="errbar" id="errBar" hidden></div>
-<details class="settings-box" id="settingsBox"><summary>設定(APIキー・出力先フォルダ・事務所の登録・解析の既定値)</summary><div id="settingsBody"></div></details>
-<main>
-  <section id="paneRank" class="pane" aria-label="① 配信を探す"></section>
+<div class="errbar" id="errBar" hidden role="alert"></div>
+
+<!-- 設定: 右から出る引き出し(ページを移らずに、③ の作業中でも開ける)。中身は settings.js が作る -->
+<div class="cs-scrim" id="settingsScrim" hidden></div>
+<aside class="cs-drawer" id="settingsBox" aria-label="設定" aria-hidden="true" hidden>
+  <div class="cs-drawer-head">
+    <h2 class="cs-drawer-title">設定</h2>
+    <span class="card-sub">APIキー・出力先フォルダ・事務所の登録</span>
+    <button type="button" class="btn ghost small icon" id="settingsClose" aria-label="設定を閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="cs-drawer-body" id="settingsBody"></div>
+</aside>
+
+<main id="main">
+  <section id="paneRank" class="pane" aria-label="① 配信を探す"><div class="cs-loading" aria-busy="true"><div class="ui-skel" style="height:18px;width:30%"></div><div class="ui-skel" style="height:120px;margin-top:14px"></div><div class="ui-skel" style="height:60px;margin-top:12px"></div></div></section>
   <section id="paneQueue" class="pane" aria-label="② 解析" hidden></section>
   <section id="paneReview" class="pane" aria-label="③ 確認・書き出し" hidden></section>
   <section id="paneCollab" class="pane" aria-label="④ コラボ" hidden></section>
 </main>
+
+<dialog class="cs-keyhelp" id="keyHelp" aria-labelledby="keyHelpTitle">
+  <div class="ui-dlg-head"><h2 id="keyHelpTitle">キー操作の一覧</h2><button type="button" class="btn ghost small icon" id="keyHelpClose" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div id="keyHelpBody"></div>
+</dialog>
+
 <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 <script src="/core.js"></script>
 <script src="/settings.js"></script>

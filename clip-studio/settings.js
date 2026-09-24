@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ: 設定パネル(APIキー / 出力先フォルダ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
+/* 切り抜きスタジオ: 設定(右の引き出し: APIキー / 出力先フォルダ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
@@ -7,27 +7,30 @@ let regMounted = false;
 
 function build(){
   $('#settingsBody').innerHTML = `
-  <details class="set-sec" id="setKey"><summary>YouTube Data API キー<span class="sub" id="keyState"></span></summary><div class="body">
-    <p class="hint" style="margin:0 0 6px">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの config.json にだけ保存し、画面には表示しません。環境変数 <code>YOUTUBE_API_KEY</code> があれば、そちらが優先されます。</p>
-    <label class="hint" for="keyIn">APIキー</label>
-    <input type="password" id="keyIn" placeholder="AIza..." autocomplete="off" spellcheck="false">
-    <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="keySave">保存</button><button type="button" class="btn small" id="keyDel">キーを削除</button></div>
+  <details class="card set-sec" id="setKey" open><summary><span class="set-title">YouTube Data API キー</span><span class="pill" id="keyState"></span></summary><div class="body">
+    <p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの config.json にだけ保存し、画面には表示しません。環境変数 <code>YOUTUBE_API_KEY</code> があれば、そちらが優先されます。</p>
+    <div class="fld"><label class="l" for="keyIn">APIキー</label>
+    <input type="password" id="keyIn" placeholder="AIza..." autocomplete="off" spellcheck="false"></div>
+    <div class="row set-actions"><button type="button" class="btn small primary" id="keySave">保存</button><button type="button" class="btn small danger" id="keyDel">キーを削除</button></div>
     <p class="msg hint" id="keyMsg" role="status"></p></div></details>
-  <details class="set-sec" id="setOut"><summary>出力先フォルダ<span class="sub path" id="outSub"></span></summary><div class="body">
-    <p class="hint" style="margin:0">書き出したクリップの保存先: <span class="path" id="outNow"></span> <button type="button" class="btn small" id="btnOutEdit">変更</button></p>
-    <div class="row" id="outEdit" style="margin-top:6px" hidden><label class="hint" for="outIn" style="width:100%">新しい出力先(フルパス)</label>
-      <input type="text" id="outIn" style="flex:1;min-width:200px" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off">
-      <button type="button" class="btn small primary" id="outSave">保存</button><button type="button" class="btn small" id="outReset">標準に戻す</button></div>
+  <details class="card set-sec" id="setOut" open><summary><span class="set-title">出力先フォルダ</span><span class="set-sub path" id="outSub"></span></summary><div class="body">
+    <p class="hint">書き出したクリップの保存先</p>
+    <div class="set-path"><span class="path" id="outNow"></span><button type="button" class="btn small" id="btnOutEdit" aria-expanded="false" aria-controls="outEdit">変更</button></div>
+    <div id="outEdit" hidden><div class="fld"><label class="l" for="outIn">新しい出力先(フルパス)</label>
+      <input type="text" id="outIn" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off"></div>
+      <div class="row set-actions"><button type="button" class="btn small primary" id="outSave">保存</button><button type="button" class="btn small" id="outReset">標準に戻す</button></div></div>
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
-  <details class="set-sec reg" id="setReg"><summary>事務所の登録<span class="sub">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
-  $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim()));
-  $('#keyDel').addEventListener('click', () => saveKey(''));
+  <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
+  $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
+  $('#keyDel').addEventListener('click', () => saveKey('', $('#keyDel')));
+  $('#keyIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#keySave').click(); } });
   $('#btnOutEdit').addEventListener('click', () => {
-    const e = $('#outEdit'); e.hidden = !e.hidden;
+    const e = $('#outEdit'); e.hidden = !e.hidden; $('#btnOutEdit').setAttribute('aria-expanded', String(!e.hidden));
     if (!e.hidden){ const t = S.state || {}; $('#outIn').value = t.outDir && t.outDir !== t.defaultOutDir ? t.outDir : ''; $('#outIn').focus(); }
   });
-  $('#outSave').addEventListener('click', () => saveOut($('#outIn').value.trim()));
-  $('#outReset').addEventListener('click', () => saveOut(''));
+  $('#outIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#outSave').click(); } });
+  $('#outSave').addEventListener('click', () => saveOut($('#outIn').value.trim(), $('#outSave')));
+  $('#outReset').addEventListener('click', () => saveOut('', $('#outReset')));
   $('#setReg').addEventListener('toggle', mountReg);
 }
 
@@ -45,40 +48,61 @@ function update(){
   const tn = $('#toolNotice');
   tn.innerHTML = miss.length ? `<div class="notice" role="alert"><b>準備が必要です</b><br>${miss.join('<br>')}<br><span class="hint">詳しくは README を見てください。</span></div>` : '';
   tn.hidden = !miss.length;
-  let ks = '未設定';
-  if (t.fake && !t.keySource) ks = '疑似モード(キー不要)';
-  else if (t.keySource === 'env') ks = '設定済み(環境変数 YOUTUBE_API_KEY を使用中)';
-  else if (t.hasKey) ks = '設定済み';
-  $('#keyState').textContent = ks;
-  $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir || '';
+  let ks = '未設定', kc = 'warn';
+  if (t.fake && !t.keySource){ ks = '疑似モード(キー不要)'; kc = 'info'; }
+  else if (t.keySource === 'env'){ ks = '設定済み(環境変数)'; kc = 'ok'; }
+  else if (t.hasKey){ ks = '設定済み'; kc = 'ok'; }
+  const k = $('#keyState'); k.textContent = ks; k.className = 'pill ' + kc;
+  k.title = t.keySource === 'env' ? '環境変数 YOUTUBE_API_KEY を使用中' : '';
+  $('#settingsDot').hidden = !!t.hasKey;
+  $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir || ''; $('#outSub').title = t.outDir || '';
 }
 
-async function saveKey(v){
-  const m = $('#keyMsg'); m.textContent = '';
-  if (v === '' && !(S.state && S.state.hasKey)){ m.textContent = 'キーは設定されていません'; return; }
-  try {
-    await S.api('/api/config', { method: 'PUT', body: { apiKey: v } });
-    $('#keyIn').value = '';
-    await S.refreshState();
-    const env = S.state && S.state.keySource === 'env';
-    m.textContent = (v ? '保存しました' : '削除しました') + (env ? '(環境変数のキーがあるので、そちらが使われます)' : '');
-  } catch (e){ m.textContent = e.message; }
+/* ボタンを押している間は無効にして、二重に送らない */
+async function busy(btn, fn){
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try { await fn(); } finally { btn.disabled = false; }
+}
+function saveKey(v, btn){
+  return busy(btn, async () => {
+    const m = $('#keyMsg'); m.textContent = '';
+    // 以前は空欄のまま「保存」を押すと、保存済みのキーが消えていた(空文字 = 削除の API のため)。削除は「キーを削除」だけで行う
+    if (btn.id === 'keySave' && !v){ m.textContent = 'キーを入力してください'; return; }
+    if (btn.id === 'keyDel' && !(S.state && S.state.hasKey)){ m.textContent = 'キーは設定されていません'; return; }
+    try {
+      await S.api('/api/config', { method: 'PUT', body: { apiKey: v } });
+      $('#keyIn').value = '';
+      await S.refreshState();
+      const env = S.state && S.state.keySource === 'env';
+      m.textContent = (v ? '保存しました' : '削除しました') + (env ? '(環境変数のキーがあるので、そちらが使われます)' : '');
+      S.toast(v ? 'APIキーを保存しました' : 'APIキーを削除しました', 3000, 'ok');
+    } catch (e){ m.textContent = e.message; }
+  });
 }
 
-async function saveOut(path){
-  const m = $('#outMsg'); m.textContent = '';
-  try {
-    await S.api('/api/outdir', { method: 'PUT', body: { path } });
-    await S.refreshState();
-    $('#outEdit').hidden = true; m.textContent = (path ? '出力先を変更しました' : '標準に戻しました') + '。次の書き出しから使います';
-  } catch (e){ m.textContent = e.message; }   // 400(入力の誤り)・409(実行中は変更不可)はサーバーの日本語メッセージをそのまま表示
+function saveOut(path, btn){
+  return busy(btn, async () => {
+    const m = $('#outMsg'); m.textContent = '';
+    try {
+      await S.api('/api/outdir', { method: 'PUT', body: { path } });
+      await S.refreshState();
+      $('#outEdit').hidden = true; $('#btnOutEdit').setAttribute('aria-expanded', 'false');
+      m.textContent = (path ? '出力先を変更しました' : '標準に戻しました') + '。次の書き出しから使います';
+    } catch (e){ m.textContent = e.message; }   // 400(入力の誤り)・409(実行中は変更不可)はサーバーの日本語メッセージをそのまま表示
+  });
 }
 
 S.onReady(() => {
   const tn = document.createElement('div'); tn.id = 'toolNotice'; tn.className = 'tool-notice'; tn.hidden = true;
-  $('#settingsBox').insertAdjacentElement('beforebegin', tn);
+  $('#main').insertAdjacentElement('beforebegin', tn);
   build(); update();
   S.on('state', update);
-  S.openSettings = which => { const b = $('#settingsBox'); b.open = true; const d = which && $('#' + which); if (d) d.open = true; b.scrollIntoView({ block: 'start' }); };
+  /* which: 開く節の id(setKey / setOut / setReg)。引き出しの中でその節までスクロールする */
+  S.openSettings = which => {
+    S.drawer.open();
+    const d = which && $('#' + which);
+    if (d){ d.open = true; mountReg(); requestAnimationFrame(() => d.scrollIntoView({ block: 'start', behavior: 'smooth' })); }
+  };
 });
 })();

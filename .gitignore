@@ -53,3 +53,11 @@ _recovered/
 # OS
 Thumbs.db
 .DS_Store
+
+# 実行中のサーバーのポート(docs/pipeline.md の 4)
+.runtime/
+# Claude(Cowork)が納品する確認用フォルダ
+_new/
+# 古い名前のログの控え・壊れた登録ファイルの退避(clip-studio)
+*.log.old
+**/registry.json.corrupt-*

@@ -4,181 +4,741 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>文字起こしツール</title>
+<script>
+/* ui-kit:js:begin */
+/* ui-kit v1 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+   正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
+   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
+   window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る */
+(function () {
+  'use strict';
+  var KEY = 'ytt:theme';
+  var root = document.documentElement;
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  var subs = [];
+
+  function pref() {
+    try { var v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' ? v : 'system'; } catch (e) { return 'system'; }
+  }
+  function resolve(p) { return p === 'system' ? (mq && mq.matches ? 'dark' : 'light') : p; }
+  function syncButtons() {
+    var t = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light', p = pref();
+    var btns = document.querySelectorAll('[data-theme-toggle]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', String(t === 'dark'));
+      btns[i].setAttribute('aria-label', t === 'dark' ? 'ライト表示に切り替え' : 'ダーク表示に切り替え');
+      btns[i].title = (t === 'dark' ? 'ライト表示に切り替え' : 'ダーク表示に切り替え') + '(いま: ' + (p === 'system' ? 'OSの設定に合わせる' : t === 'dark' ? 'ダーク' : 'ライト') + ')';
+    }
+  }
+  function paint(p) {
+    var t = resolve(p);
+    root.setAttribute('data-theme', t);
+    root.setAttribute('data-theme-pref', p);
+    syncButtons();
+    for (var j = 0; j < subs.length; j++) { try { subs[j](t, p); } catch (e) { /* 購読側の失敗は無視 */ } }
+  }
+  function set(p) {
+    if (p !== 'light' && p !== 'dark') p = 'system';
+    try { if (p === 'system') localStorage.removeItem(KEY); else localStorage.setItem(KEY, p); } catch (e) { /* 保存できなくても見た目は変える */ }
+    paint(p);
+  }
+  var theme = {
+    get: pref,
+    resolved: function () { return resolve(pref()); },
+    set: set,
+    toggle: function () { set(resolve(pref()) === 'dark' ? 'light' : 'dark'); },
+    onChange: function (fn) { if (typeof fn === 'function') subs.push(fn); }
+  };
+  paint(pref());
+  if (mq) {
+    var onSys = function () { if (pref() === 'system') paint('system'); };
+    if (mq.addEventListener) mq.addEventListener('change', onSys); else if (mq.addListener) mq.addListener(onSys);
+  }
+  /* 別のタブで切り替えたら、このタブも合わせる */
+  window.addEventListener('storage', function (e) { if (e.key === KEY) paint(pref()); });
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-theme-toggle]') : null;
+    if (b) { e.preventDefault(); theme.toggle(); }
+  });
+  /* ボタンは <head> の実行時にはまだ無いので、読み込み後に表示だけ合わせる(data-theme は変えない: 画面側が独自に決めた値を消さないため) */
+  document.addEventListener('DOMContentLoaded', syncButtons);
+  /* 「他のツール」などの <details class="ui-menu"> を、外側のクリックと Esc で閉じる */
+  document.addEventListener('click', function (e) {
+    var open = document.querySelectorAll('details.ui-menu[open]');
+    for (var i = 0; i < open.length; i++) if (!open[i].contains(e.target)) open[i].removeAttribute('open');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var open = document.querySelectorAll('details.ui-menu[open]');
+    for (var i = 0; i < open.length; i++) open[i].removeAttribute('open');
+  });
+
+  /* ---- ツール間のリンク ---- */
+  var TOOLS = [
+    { id: 'studio', name: '切り抜きスタジオ', sub: '配信を探す・切り抜く区間を選ぶ', port: 8800, mark: 'studio' },
+    { id: 'transcribe', name: '文字起こしツール', sub: '字幕を作る・校正する', port: 8775, mark: 'transcribe' },
+    { id: 'cut2resolve', name: 'cut2resolve', sub: 'カットと字幕を Resolve へ渡す', port: 8810, mark: 'cut2resolve' }
+  ];
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  var tools = {
+    list: TOOLS,
+    /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定) */
+    url: function (id, ports, path) {
+      var t = null;
+      for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].id === id) t = TOOLS[i];
+      if (!t) return '';
+      var port = (ports && +ports[id]) || t.port;
+      return 'http://localhost:' + port + (path || '/');
+    },
+    render: function (el, opt) {
+      if (!el) return;
+      opt = opt || {};
+      var html = '';
+      for (var i = 0; i < TOOLS.length; i++) {
+        var t = TOOLS[i], cur = t.id === opt.current;
+        html += '<a href="' + esc(cur ? '/' : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
+          '<span class="ui-brand-mark" data-tool="' + t.mark + '" aria-hidden="true"></span><span><b>' + esc(t.name) + '</b><small>' + esc(t.sub) + (cur ? '(いま開いている画面)' : '') + '</small></span></a>';
+      }
+      el.innerHTML = html;
+    }
+  };
+  theme.syncButtons = syncButtons;
+  window.UIKit = { version: 1, theme: theme, tools: tools };
+})();
+/* ui-kit:js:end */
+</script>
 <style>
+/* ui-kit:css:begin */
+/* ui-kit v1 — youtube-tools 共通の見た目(色・文字・部品)。
+   正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
+   テーマ: <html data-theme="light|dark">(theme.js が OS の設定・保存した選択から決める)。
+   既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
+
+/* ---------- 1. トークン(ライト) ---------- */
 :root{
-  --bg:#f5f6f8;--panel:#fff;--panel-2:#f0f2f6;--ink:#1b2029;--ink-2:#4a5262;--ink-3:#727b8c;--line:#dfe3ea;--line-2:#c5cbd6;
-  --accent:#2f62d6;--accent-soft:#e6eefc;--danger:#c0392b;--warn:#b7791f;--warn-soft:#fdf3dc;--ok:#1f8a4c;
-  --font:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI","Meiryo",sans-serif;
+  --font-display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI",sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  --bg:#f5f6f9;--bg-2:#eceef3;
+  --panel:#ffffff;--panel-2:#f3f4f8;--panel-3:#e8eaf0;
+  --field:#ffffff;--field-hover:#fafbfd;
+  --line:#e2e5ec;--line-2:#cdd2dc;--line-strong:#b3bac7;
+  --ink:#141821;--ink-2:#485062;--ink-3:#767f91;--ink-4:#a2a9b7;
+  --accent:#5a46e0;--accent-hover:#4c38d4;--accent-ink:#ffffff;--accent-soft:#ecebfd;--accent-line:#c9c2fa;
+  --ok:#17875a;--ok-soft:#e3f5ec;--warn:#a86a06;--warn-soft:#fdf2dc;--danger:#cf3434;--danger-soft:#fde8e8;--info:#0a74b3;--info-soft:#e2f1fa;
+  --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
+  --shadow-1:0 1px 2px rgba(20,24,33,.06),0 1px 1px rgba(20,24,33,.04);
+  --shadow-2:0 4px 14px rgba(20,24,33,.08),0 1px 3px rgba(20,24,33,.06);
+  --shadow-3:0 18px 48px rgba(20,24,33,.16),0 4px 12px rgba(20,24,33,.08);
+  --header-bg:rgba(255,255,255,.82);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
+  --scroll-thumb:#c8cdd7;
+
+  --r-xs:4px;--r-sm:6px;--r:8px;--r-lg:12px;--r-xl:16px;--r-pill:999px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --fs-xs:11.5px;--fs-sm:12.5px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;
+  --ctl-h:34px;--ctl-h-sm:28px;--header-h:52px;
+  --ease:cubic-bezier(.2,.7,.2,1);--dur:.16s;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
-  --bg:#14171d;--panel:#1c2028;--panel-2:#252a34;--ink:#e8ebf1;--ink-2:#b4bccb;--ink-3:#8b94a5;--line:#2e3441;--line-2:#414958;
-  --accent:#7ba3ff;--accent-soft:#22304f;--danger:#ff8a7a;--warn:#e9b45a;--warn-soft:#3a3120;--ok:#64d190}}
+
+/* ---------- 2. トークン(ダーク) ---------- */
 :root[data-theme=dark]{
-  --bg:#14171d;--panel:#1c2028;--panel-2:#252a34;--ink:#e8ebf1;--ink-2:#b4bccb;--ink-3:#8b94a5;--line:#2e3441;--line-2:#414958;
-  --accent:#7ba3ff;--accent-soft:#22304f;--danger:#ff8a7a;--warn:#e9b45a;--warn-soft:#3a3120;--ok:#64d190}
-:root{--fs:15px;--vh:38vh;--pbh:300px;--toph:52px}
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--font)}
-button,input,select,textarea{font:inherit;color:inherit}
+  color-scheme:dark;
+  --bg:#0e1015;--bg-2:#0a0c10;
+  --panel:#161920;--panel-2:#1d2029;--panel-3:#262a35;
+  --field:#101218;--field-hover:#13161d;
+  --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;
+  --ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
+  --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
+  --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);
+  --shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);
+  --shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(14,16,21,.78);
+  --scroll-thumb:#353a46;
+}
+/* JS が動かないときは OS の設定に従う(theme.js は必ず data-theme を付ける) */
+@media (prefers-color-scheme:dark){:root:not([data-theme]){
+  color-scheme:dark;
+  --bg:#0e1015;--bg-2:#0a0c10;--panel:#161920;--panel-2:#1d2029;--panel-3:#262a35;--field:#101218;--field-hover:#13161d;
+  --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;--ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
+  --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
+  --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(14,16,21,.78);--scroll-thumb:#353a46;
+}}
+
+/* ---------- 3. 土台 ---------- */
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-md)/1.55 var(--font);-webkit-font-smoothing:antialiased}
+body{min-width:0}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em;line-height:1.3}
+a{color:var(--accent);text-underline-offset:2px}
+a:hover{color:var(--accent-hover)}
+::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
+kbd,.kbd{display:inline-block;min-width:1.7em;padding:0 5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:var(--r-xs);background:var(--panel);font:600 11px/1.6 var(--mono);text-align:center;color:var(--ink-2);white-space:nowrap}
+hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
+*{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:10px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:var(--fs-sm);color:var(--ink-2)}
+.muted{color:var(--ink-3)}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.stack{display:flex;flex-direction:column;gap:var(--sp-2)}
+.grow{flex:1 1 auto;min-width:0}.spacer{flex:1 1 auto}
+
+/* ---------- 4. ヘッダー(全ツール共通) ---------- */
+.ui-header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:6px 16px;min-height:var(--header-h);padding:6px 16px;flex-wrap:wrap;
+  background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+.ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap;letter-spacing:-.01em}
+.ui-brand:hover{color:var(--ink)}
+.ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;
+  background:linear-gradient(135deg,#ff5f9e,#8f6bff);box-shadow:0 2px 8px color-mix(in srgb,#8f6bff 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark svg{width:15px;height:15px}
+.ui-brand-mark[data-tool=transcribe]{background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#2aa5e6 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark[data-tool=cut2resolve]{background:linear-gradient(135deg,#f59e0b,#ef5a5a);box-shadow:0 2px 8px color-mix(in srgb,#f07b3a 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
+.ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.ui-header .ui-tabs{margin-left:8px}
+@media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
+
+/* ナビのタブ(ヘッダーの手順・画面切り替え) */
+.ui-tabs{display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);overflow-x:auto;scrollbar-width:none}
+.ui-tabs::-webkit-scrollbar{display:none}
+.ui-tab{position:relative;display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--ink-2);padding:0 12px;min-height:30px;border-radius:9px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-tab:hover{color:var(--ink);background:color-mix(in srgb,var(--panel) 60%,transparent)}
+.ui-tab[aria-pressed=true],.ui-tab[aria-selected=true],.ui-tab[aria-current=page]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-tab .ui-tab-n{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
+.ui-tab[aria-pressed=true] .ui-tab-n,.ui-tab[aria-selected=true] .ui-tab-n,.ui-tab[aria-current=page] .ui-tab-n{background:var(--accent);color:var(--accent-ink)}
+@media (max-width:720px){.ui-tab{flex:1 1 auto;justify-content:center;padding:0 8px}}
+
+/* テーマ切り替えボタン(theme.js が [data-theme-toggle] に動作を付ける) */
+.ui-theme-toggle{position:relative;width:var(--ctl-h);height:var(--ctl-h);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:var(--ink-2);padding:0;flex:none;
+  transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-theme-toggle:hover{color:var(--ink);border-color:var(--line-strong)}
+.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .35s var(--ease),opacity .2s var(--ease)}
+.ui-theme-toggle .i-sun{opacity:0;transform:rotate(-60deg) scale(.6)}
+:root[data-theme=dark] .ui-theme-toggle .i-sun{opacity:1;transform:none}
+:root[data-theme=dark] .ui-theme-toggle .i-moon{opacity:0;transform:rotate(60deg) scale(.6)}
+
+/* 他のツールへのリンク(<details class="ui-menu">) */
+.ui-menu{position:relative}
+.ui-menu>summary{list-style:none;cursor:pointer}
+.ui-menu>summary::-webkit-details-marker{display:none}
+.ui-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:240px;padding:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
+.ui-menu-pop a,.ui-menu-pop button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left}
+.ui-menu-pop a:hover,.ui-menu-pop button:hover{background:var(--panel-2);color:var(--ink)}
+.ui-menu-pop .ui-brand-mark{width:22px;height:22px;border-radius:7px}
+.ui-menu-pop small{display:block;color:var(--ink-3);font-size:var(--fs-xs)}
+.ui-menu-pop [aria-current=page]{background:var(--accent-soft)}
+@keyframes ui-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+
+/* ---------- 5. ボタン ---------- */
+a.btn,a.btn:hover{text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;line-height:1.2;
+  box-shadow:var(--shadow-1);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),transform .06s}
+.btn:hover:not(:disabled){background:var(--panel-2);border-color:var(--line-strong)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:0 1px 2px color-mix(in srgb,var(--accent) 35%,transparent),inset 0 1px 0 rgba(255,255,255,.14)}
+.btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--ink-2)}
+.btn.ghost:hover:not(:disabled){background:var(--panel-2);border-color:transparent;color:var(--ink)}
+.btn.soft{background:var(--accent-soft);border-color:transparent;color:var(--accent);box-shadow:none}
+.btn.soft:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:transparent}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px;border-radius:7px}
+.btn.lg{min-height:40px;padding:0 18px;font-size:14.5px;border-radius:10px}
+.btn.icon{width:var(--ctl-h);padding:0}.btn.icon.small,.btn.icon.sm{width:var(--ctl-h-sm)}
+.btn svg{width:16px;height:16px;flex:none}
+.btn[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.btn.primary[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.btn-group{display:inline-flex}
+.btn-group>.btn{border-radius:0;margin-left:-1px}
+.btn-group>.btn:first-child{border-radius:var(--r) 0 0 var(--r);margin-left:0}
+.btn-group>.btn:last-child{border-radius:0 var(--r) var(--r) 0}
+
+/* 切り替えの並び(セグメント) */
+.ui-seg{display:inline-flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;max-width:100%;overflow-x:auto}
+.ui-seg>button{border:0;background:transparent;color:var(--ink-2);min-height:28px;padding:0 11px;border-radius:7px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13px;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-seg>button:hover{color:var(--ink)}
+.ui-seg>button[aria-pressed=true],.ui-seg>button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-seg.fill,.ui-tabs.fill{display:flex;width:100%}.ui-seg.fill>button,.ui-tabs.fill>.ui-tab{flex:1 1 0;justify-content:center;min-width:0}
+
+/* ---------- 6. 入力 ---------- */
+input[type=text],input[type=search],input[type=number],input[type=password],input[type=url],input[type=date],input[type=time],input:not([type]),select,textarea{
+  background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);padding:6px 10px;min-height:var(--ctl-h);max-width:100%;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),background var(--dur) var(--ease)}
+input[type=text]:hover,input[type=search]:hover,input[type=number]:hover,input[type=password]:hover,input[type=url]:hover,input:not([type]):hover,select:hover,textarea:hover{border-color:var(--line-strong)}
+input[type=text]:focus,input[type=search]:focus,input[type=number]:focus,input[type=password]:focus,input[type=url]:focus,input[type=date]:focus,input[type=time]:focus,input:not([type]):focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+input::placeholder,textarea::placeholder{color:var(--ink-4)}
+input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
+input[readonly]{background:var(--panel-2)}
+textarea{line-height:1.5;resize:vertical}
+select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858da0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center}
+select option{background:var(--panel);color:var(--ink)}
+input[type=checkbox],input[type=radio]{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer;margin:0}
+input[type=range]{accent-color:var(--accent);cursor:pointer}
+input[type=color]{border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--field);height:var(--ctl-h);padding:2px}
+/* スイッチ(<input type=checkbox class="ui-switch">) */
+input[type=checkbox].ui-switch{appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;border-radius:var(--r-pill);background:var(--panel-3);border:1px solid var(--line-2);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
+input[type=checkbox].ui-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform var(--dur) var(--ease)}
+input[type=checkbox].ui-switch:checked{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
+.fld{margin-top:10px;min-width:0}
+.fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
+.lag{display:inline-flex;align-items:center;gap:6px;max-width:100%;cursor:pointer}
+
+/* ---------- 7. 面・カード ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;box-shadow:var(--shadow-1)}
+.card.flat{box-shadow:none}
+.card.raised{box-shadow:var(--shadow-2)}
+.card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
+.card-title{margin:0;font:650 14.5px/1.35 var(--font-display)}
+.card-sub{color:var(--ink-3);font-size:var(--fs-sm)}
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;user-select:none}
+.card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
+.card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
+.card[open]>summary{margin-bottom:8px}
+.section-title{font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+
+/* ---------- 8. 小さな表示 ---------- */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line);white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.pill.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.pill.run::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
+.pill.wait{color:var(--ink-3)}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
+:root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent);animation:ui-pulse 1.2s ease-in-out infinite}
+@keyframes ui-pulse{50%{opacity:.35}}
+
+/* お知らせ */
+.notice{display:block;background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--ink);border-radius:var(--r);padding:9px 12px;font-size:13px;margin:8px 0;overflow-wrap:anywhere}
+.notice.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.notice.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.notice.danger,.notice.err{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.notice code{background:var(--panel)}
+.errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
+.errbar a{color:#fff}
+
+/* 進み具合 */
+.bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 60%,#fff));transition:width .3s var(--ease)}
+.bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
+@keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+
+/* 空の状態・読み込み中 */
+.empty{color:var(--ink-3);padding:28px 20px;text-align:center;border:1px dashed var(--line-2);border-radius:var(--r-lg);background:color-mix(in srgb,var(--panel) 50%,transparent)}
+.empty b,.empty strong{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+.ui-skel{background:linear-gradient(90deg,var(--panel-2) 25%,var(--panel-3) 37%,var(--panel-2) 63%);background-size:400% 100%;animation:ui-skel 1.4s ease infinite;border-radius:var(--r-sm);min-height:12px}
+@keyframes ui-skel{from{background-position:100% 50%}to{background-position:0 50%}}
+.ui-spin{display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;border-radius:50%;animation:ui-rot .7s linear infinite;vertical-align:-2px}
+@keyframes ui-rot{to{transform:rotate(360deg)}}
+
+/* 通知(トースト) */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;max-width:min(560px,calc(100% - 32px));padding:10px 16px;border-radius:var(--r-lg);
+  background:#1b1e26;color:#f2f4f8;border:1px solid rgba(255,255,255,.08);box-shadow:var(--shadow-3);font-size:13px;overflow-wrap:anywhere;animation:ui-toast .2s var(--ease)}
+:root[data-theme=dark] .toast{background:#242834}
+.toast{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
+.toast.ok::before{background:#4cd08b}.toast.err::before{background:#ff6f6f}.toast.info::before{background:#5cc3ff}   /* トーストは両テーマで暗い面なので印は固定色 */
+.toast.err{border-color:rgba(255,111,111,.45)}
+@keyframes ui-toast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+
+/* ダイアログ */
+dialog{border:1px solid var(--line-2);border-radius:var(--r-xl);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-3);padding:20px 22px;max-width:min(560px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(8,10,14,.55);backdrop-filter:blur(3px)}
+dialog h2,dialog h3{margin-top:0}
+/* ダイアログの見出し・本文(見出しの右に閉じるボタン。<dialog> は padding:0 にして使う) */
+.ui-dlg-head{display:flex;align-items:center;gap:8px;padding:14px 16px 12px 20px;border-bottom:1px solid var(--line)}
+.ui-dlg-head h2{margin:0;flex:1;font:650 16px/1.3 var(--font-display)}
+.ui-dlg-body{padding:12px 20px 18px;overflow-y:auto}
+/* キー操作の一覧 */
+.ui-kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px 24px}
+.ui-kgroup{margin-top:12px}
+.ui-kgroup .section-title{margin:0 0 4px}
+.ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
+.ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
+
+/* 表 */
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:11.5px;color:var(--ink-3);font-weight:650;letter-spacing:.04em;white-space:nowrap;background:var(--panel)}
+tbody tr{transition:background var(--dur) var(--ease)}
+tbody tr:hover{background:var(--panel-2)}
+tr:last-child>td{border-bottom:0}
+td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ツールチップ(title の代わりに data-tip) */
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:80;padding:5px 8px;border-radius:var(--r-sm);background:#1b1e26;color:#f2f4f8;font:500 12px/1.4 var(--font);white-space:nowrap;pointer-events:none;box-shadow:var(--shadow-2)}
+
+/* ドロップ受付(ファイルのドラッグ&ドロップ) */
+.ui-drop{border:1.5px dashed var(--line-strong);border-radius:var(--r-lg);padding:22px;text-align:center;color:var(--ink-2);background:color-mix(in srgb,var(--panel) 60%,transparent);transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.ui-drop.over,.ui-drop:focus-within{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+
+/* 動きを減らす設定 */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+/* ui-kit:css:end */
+/* ==================== 文字起こしツール固有の見た目 ====================
+   色・文字・部品(ボタン・入力・カード・ピル・通知・表・ダイアログ)は上の ui-kit にある。ここには「このツール固有の配置と部品」だけを書く。
+   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しく足すクラスには tt- を付ける(docs/pipeline.md 5.)。
+   既存のクラス名・id は JS と e2e が使っているので変えない。 */
+:root{
+  --fs:15px;--vh:38vh;--pbh:300px;--toph:52px;
+  /* 行の状態の色(校正の画面で一番よく見る所なので、状態ごとに色の役割を分ける)
+     今の行 = accent(紫の太枠)/ 再生中 = accent の薄い色と左の線 / 一括選択 = info(青)/ 要確認 = warn(黄)/ カット済 = danger(斜線)/ 校正済み = ok(右の線) */
+  --tt-pick:var(--info);--tt-pick-soft:var(--info-soft);
+  --tt-play-soft:color-mix(in srgb,var(--accent) 9%,var(--panel));
+  --tt-flag-soft:color-mix(in srgb,var(--warn) 9%,var(--panel));
+  --tt-cut-stripe:color-mix(in srgb,var(--danger) 7%,transparent);
+}
+body{overflow-x:hidden}
 h2{margin:0;font-size:15px}
-.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.hint{font-size:12.5px;color:var(--ink-2)}
-.top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-.brand{font-weight:600;font-size:16px}.ver{font-size:12px;color:var(--ink-3);margin-left:8px;font-weight:400}
-#errBar{margin:0;padding:8px 16px;background:var(--danger);color:#fff;font-size:13px}
-.app{display:grid;grid-template-columns:380px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1700px;margin:0 auto}
-@media (max-width:960px){.app{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
-.card>summary,.card>h2{cursor:pointer;font-weight:600;font-size:14.5px}
-.card details>summary{cursor:pointer}
-.btn{border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 12px;cursor:pointer;min-height:32px}
-.btn:hover{background:var(--panel-2)}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn.primary:hover{filter:brightness(1.08)}.btn.small{padding:3px 9px;min-height:28px;font-size:13px}
-.btn:disabled{opacity:.5;cursor:not-allowed}.btn.danger{color:var(--danger)}
-.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-input[type=text],input:not([type]),select,textarea{border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 8px;width:100%}
-.fld{display:flex;flex-direction:column;gap:3px;margin-top:10px}
-.fld>label,.fld>.l{font-size:13px;font-weight:500;color:var(--ink)}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.seg-tabs{display:flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;margin:10px 0 0}
-.seg-tabs button{flex:1;border:0;background:var(--panel);padding:7px 8px;cursor:pointer;border-right:1px solid var(--line-2)}
-.seg-tabs button:last-child{border-right:0}.seg-tabs button[aria-pressed=true]{background:var(--accent);color:#fff}
-.notice{background:var(--warn-soft);border:1px solid var(--warn);border-radius:8px;padding:8px 10px;font-size:13px;margin:8px 0}
-.notice code{font-family:var(--mono);background:var(--panel);padding:1px 5px;border-radius:4px;user-select:all}
-.clist{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px}
-.clist label{display:flex;gap:8px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}
-.clist label:last-child{border-bottom:0}
-.pill{font-size:11.5px;border-radius:99px;padding:1px 8px;background:var(--panel-2);color:var(--ink-2);white-space:nowrap}
-.pill.ok{background:var(--accent-soft);color:var(--accent)}.pill.err{background:var(--warn-soft);color:var(--danger)}
-.job,.txi{border-bottom:1px solid var(--line);padding:8px 0}.job:last-child,.txi:last-child{border-bottom:0}
-.bar{height:6px;background:var(--panel-2);border-radius:99px;overflow:hidden;margin-top:5px}.bar>i{display:block;height:100%;background:var(--accent);transition:width .3s}
-.txi .t{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;cursor:pointer;text-align:left;width:100%}
-.txi.cur{background:var(--accent-soft);margin:0 -8px;padding:8px}
-/* editor */
-.editor{min-width:0}
-/* v0.9.6: 表示部(映像)を左、セリフの一覧を右に配置。.pbox は元々 position:sticky なので、
-   左列に置いてもスクロールに合わせて上に留まる(ウィンドウ全体を1つのスクロールとして使う設計は変えていない)。
-   HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
-.tx-grid{display:grid;grid-template-columns:minmax(300px,460px) minmax(420px,1fr);gap:16px;align-items:start}
-.app.menu-closed .tx-grid{grid-template-columns:minmax(300px,540px) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
-.tx-list{min-width:0;order:2}
-.tx-stage{min-width:0;order:1;position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100vh - var(--toph,52px) - 16px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
-/* v0.9.8: 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする。
-   (以前は .pbox だけが固定で、その下の「話者・置換・書き出し」が映像の裏に潜って見えなかった) */
-.tx-stage>.pbox{position:static}
-/* 1カラムに戻すかどうかは、ビューポートではなく編集欄そのものの幅で決める(メニューの開閉で幅が変わるため) */
-.editor{container-type:inline-size}
-/* 1カラムのときは .tx-stage を display:contents にして、映像の欄(.pbox)が一覧の上に固定され続けるようにする
-   (sticky は親の箱の中でしか効かないため。これをしないと、スクロールで映像が上に流れて消える) */
-@container (max-width:780px){.tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr)}.tx-stage{display:contents}.tx-stage>.pbox{order:0;position:sticky}.tx-stage>:not(.pbox){order:1}.tx-list{order:3}}
-.pbox{position:sticky;top:0;z-index:5;background:var(--bg);padding-bottom:8px}
-video{width:100%;max-height:var(--vh);background:#000;border-radius:8px;display:block}
-.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
-.tools input[type=search]{flex:1;min-width:180px;border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 9px}
-.lag{display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer}
-.seg{display:grid;grid-template-columns:22px 34px 148px 110px minmax(0,1fr) auto;gap:8px;align-items:start;padding:7px 8px;border:1px solid var(--line);border-left:4px solid var(--sp,transparent);border-radius:8px;background:var(--panel);margin-bottom:6px}
-.seg{content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--toph,52px) + 8px);scroll-margin-bottom:24px}.seg:focus-within{box-shadow:0 0 0 1px var(--accent)}
-.seg:has(.sel:checked){background:var(--warn-soft);border-color:var(--warn)}.seg.cur:has(.sel:checked){background:var(--accent-soft)}   /* v0.9.6: 一括操作のチェック(複数選択)は、キーボードの「今の行」(青い太枠)と見た目を分ける */
-.seg.cur{background:var(--accent-soft);box-shadow:inset 6px 0 0 -2px var(--accent)}.seg.flag{background:var(--warn-soft)}
-.seg.cur.flag{background:var(--accent-soft)}
-.seg[hidden]{display:none}
-.seg .play{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;height:30px;cursor:pointer}
-.seg .times{display:flex;align-items:center;gap:3px;font-size:12px}
-.seg .t{width:64px;padding:4px 4px;font-family:var(--mono);font-size:12px;text-align:center}
-.seg .spk{padding:4px 4px;font-size:13px}
-.seg textarea{resize:none;overflow:hidden;line-height:1.5;min-height:34px;font-size:var(--fs)}
-.seg .ops{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-.seg .ops button{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer;color:var(--ink-2)}
-.seg .fl{grid-column:5;justify-self:start;font-size:12px;color:var(--warn);border:1px solid var(--warn);border-radius:99px;padding:0 8px;background:transparent;cursor:pointer}
-/* v0.9.6: 左列(#segs)の実際の幅で判断する(2カラム化でビューポート幅と一覧の幅が一致しなくなったため、メディアクエリではなくコンテナクエリにした) */
-#segs{container-type:inline-size}
-/* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作 */
-@container (max-width:620px){#segs .seg{grid-template-columns:22px 34px auto minmax(0,1fr) auto}#segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0}#segs .seg .ops{grid-column:5;grid-row:1}#segs .seg textarea,#segs .seg .fl,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}}
-.sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap}
-.seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
-.sg{font-size:12px;border:1px solid var(--accent);border-radius:8px;padding:1px 3px 1px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%}
-.sg .sgl{font-weight:600;color:var(--accent)}.sg.high{border-style:double;border-width:3px}
-.sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 7px;font-size:12px;cursor:pointer;color:var(--ink-2)}
-.ln{border-bottom:1px solid var(--line);padding:6px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 6px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
-#diarBanner{margin:6px 0 0}
-.empty{color:var(--ink-3);padding:24px;text-align:center;border:1px dashed var(--line-2);border-radius:10px}
-.sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:0;border:1px solid var(--line-2);border-radius:6px;background:none}
-#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13.5px;z-index:50;max-width:90vw}
-#toast[hidden]{display:none}
-.savest{font-size:12.5px;color:var(--ink-3)}
-.seg.proofed{border-right:4px solid var(--ok)}
-.seg .ops button.pf[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
-.acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
-.acct th,.acct td{padding:3px 4px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
-.acct th:first-child,.acct td:first-child{text-align:left}.acct tr.best td{font-weight:600;color:var(--ok)}
-.accmain{font-size:15px;margin-top:8px}.wl{font-size:12px;border-bottom:1px solid var(--line);padding:3px 0;word-break:break-all}
-.abres{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
-/* v0.7.1: 長時間の作業向け */
-.grow{flex:1}.top .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.top{position:sticky;top:0;z-index:30}
-.pbox{top:var(--toph,52px)}
+
+/* ---------- ヘッダー(ui-kit の .ui-header。ここは中身の並びだけ) ---------- */
+.top{--hb:var(--ctl-h-sm)}
+.tt-hbtn{gap:6px;position:relative}
+.tt-hbtn svg{width:16px;height:16px}
+.ui-menu>summary.tt-hbtn,.pop>summary.tt-hbtn{display:inline-flex}
+#btnMenu .ic{display:inline-grid;place-items:center}
+.tt-brand-name{white-space:nowrap}
+.tt-hstat{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+#jobBadge,#goalPill{cursor:pointer;font-variant-numeric:tabular-nums}
+#jobBadge{border:0}
+#goalPill{border:1px solid var(--line);color:var(--ink-2)}
+#goalPill.on{color:var(--ink)}
+.tt-tool-off{opacity:.55}
+@media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
+@media (max-width:900px){#goalPill{display:none}}
+@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}}
+.errbar{position:sticky;top:var(--toph);z-index:39}
+
+/* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
+.app{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1760px;margin:0 auto}
+.app.has-doc{grid-template-columns:310px minmax(0,1fr)}
 /* v0.9.8: 左のメニューを閉じる(旧「集中モード」)。.tx-stage も <aside> なので、必ず .app の直下だけを対象にする */
 .app.menu-closed{grid-template-columns:minmax(0,1fr)}.app.menu-closed>aside{display:none}
-#btnMenu{display:inline-flex;align-items:center;gap:6px}#btnMenu .ic{font-size:15px;line-height:1}
-.menuhead{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px}.menuhead b{font-size:14px}
-html.dense .seg{padding:3px 6px;margin-bottom:3px;gap:6px}html.dense .seg textarea{min-height:28px;padding:3px 6px}html.dense .tools{margin:4px 0}
+@media (max-width:960px){.app,.app.has-doc{grid-template-columns:minmax(0,1fr)}}
+#menuPanel{min-width:0}
+.menuhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
+.menuhead b{font:650 13px/1.3 var(--font);letter-spacing:.06em;color:var(--ink-3)}
+/* メニューのタブ(新規・履歴・精度・学習)。ui-kit の .ui-tabs と同じ見た目 */
+.side-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:3px;margin:0 0 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);position:sticky;top:calc(var(--toph,52px) + 8px);z-index:20;box-shadow:0 6px 12px -8px color-mix(in srgb,var(--bg) 80%,transparent)}
+.side-tabs button{border:0;background:transparent;border-radius:9px;min-height:30px;padding:0 4px;cursor:pointer;font-size:13px;font-weight:550;color:var(--ink-2);min-width:0;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.side-tabs button:hover{color:var(--ink)}
+.side-tabs button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.card>summary .hint{font-weight:400}
+.card>summary{font-size:14px}
+.card:not([open])>summary{margin-bottom:0}
+.card details>summary{cursor:pointer}
+#menuPanel .fld>label,#menuPanel .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+#menuPanel .fld>.hint{display:block;margin-top:4px;font-size:12px;color:var(--ink-3);line-height:1.5}
+#menuPanel .fld>input,#menuPanel .fld>select,#menuPanel .fld>textarea{width:100%}
+.tt-sub{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.tt-sub>summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink-2)}
+/* 入力の種類(手元のファイル/フォルダ/スタジオ): ui-kit の .ui-seg と同じ見た目で、3つを等分 */
+.seg-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:3px;margin:10px 0 0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px}
+.seg-tabs button{border:0;background:transparent;color:var(--ink-2);min-height:30px;padding:4px 6px;border-radius:7px;cursor:pointer;font-weight:550;font-size:12.5px;line-height:1.3}
+.seg-tabs button:hover{color:var(--ink)}
+.seg-tabs button[aria-pressed=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.clist{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:var(--r);margin-top:6px;background:var(--field)}
+.clist label{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}
+.clist label:hover{background:var(--panel-2)}
+.clist label:last-child{border-bottom:0}
+.job,.txi{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child,.txi:last-child{border-bottom:0}
+.job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
+.txi .t{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;cursor:pointer;text-align:left;width:100%;color:var(--ink)}
+.txi .t:hover{color:var(--accent)}
+.txi.cur{background:var(--accent-soft);margin:0 -10px;padding:9px 10px;border-radius:var(--r);border-bottom-color:transparent}
+.txi-head{display:flex;align-items:center;gap:6px}.txi-head .t{min-width:0}
+.txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3)}
+.txi-menu>summary:hover{border-color:var(--line-2);color:var(--ink)}
+.txi-menu .vpop{width:120px;padding:6px}.txi-menu .vpop button{width:100%}
+.list-tools{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:6px;margin:8px 0}.list-tools input,.list-tools select{min-width:0;width:100%}
+.list-more{width:100%;margin-top:8px}
+.setup-banner{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:var(--r);margin:0 0 10px;font-size:13px}
+.setup-banner>summary{cursor:pointer;padding:7px 10px;font-weight:600}.setup-body{border-top:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:8px 10px}
+.setup-banner.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.src{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;margin:2px 0}.src .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink-3)}
+.dsrow{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;border-bottom:1px solid var(--line);padding:4px 0}
+/* 元の配信(.clip.json)の表示 */
+.tt-clip{display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+.tt-clip .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-top:1px}
+.tt-clip .ic svg{width:12px;height:12px}
+.tt-clip b{font-weight:600}
+.tt-clip .mono{color:var(--ink-2)}
+.tt-clip.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.tt-clip.warn .ic{background:transparent;color:var(--warn)}
+
+/* ---------- 精度・学習・保管のカードの中 ---------- */
+.acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.acct th,.acct td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;background:transparent}
+.acct th:first-child,.acct td:first-child{text-align:left}.acct tr.best td{font-weight:650;color:var(--ok)}
+.acct tbody tr:hover,.acct tr:hover{background:transparent}
+.accmain{font-size:15px;margin-top:8px}.accmain b{font-variant-numeric:tabular-nums}
+.wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
+.abres{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
+.ln{border-bottom:1px solid var(--line);padding:7px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
+.goalbar{position:relative;height:10px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;margin-top:10px}
+.goalbar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--info)));border-radius:inherit;transition:width .5s var(--ease);min-width:0}
+.goalbar b{position:absolute;top:0;bottom:0;width:2px;background:var(--panel);opacity:.9}
+#goalText b{font-variant-numeric:tabular-nums}
+#goalMs{margin-top:8px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none;color:var(--ok);font-weight:700}
+.sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
+.sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ---------- 空の状態 ---------- */
+#noDoc{padding:48px 24px;margin-top:4px}
+.tt-empty-ic{width:44px;height:44px;margin:0 auto 12px;border-radius:12px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 6px 18px color-mix(in srgb,#2aa5e6 35%,transparent)}
+.tt-empty-ic svg{width:22px;height:22px}
+.tt-steps{display:inline-grid;gap:6px;margin:14px auto 0;text-align:left;font-size:13px;color:var(--ink-2)}
+.tt-steps li{display:flex;gap:8px;align-items:baseline}
+.tt-steps .n{display:inline-grid;place-items:center;flex:none;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
+.tt-empty-note{margin:14px 0 0;font-size:12px;color:var(--ink-3)}
+
+/* ---------- 編集画面: 左 = 映像と道具(.tx-stage)・右 = セリフの一覧(.tx-list) ----------
+   v0.9.6: 表示部(映像)を左、セリフの一覧を右に配置。HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
+.editor{min-width:0;container:editor / inline-size}
+/* 映像の列は最大 460px(メニューを閉じたら 540px)だが、編集欄の 40% を超えない(校正の主役はセリフの一覧なので、狭い画面では一覧を優先) */
+.tx-grid{display:grid;grid-template-columns:minmax(300px,min(460px,40%)) minmax(420px,1fr);gap:16px;align-items:start}
+.app.menu-closed .tx-grid{grid-template-columns:minmax(300px,min(540px,42%)) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
+.tx-list{min-width:0;order:2}
+/* v0.9.8: 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする。
+   (以前は .pbox だけが固定で、その下の「話者・置換・書き出し」が映像の裏に潜って見えなかった) */
+.tx-stage{min-width:0;order:1;position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100vh - var(--toph,52px) - 16px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:8px}
+.pbox{position:sticky;top:var(--toph,52px);z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;box-shadow:var(--shadow-1)}
+.tx-stage>.pbox{position:static}
+/* 1カラムに戻すかどうかは、ビューポートではなく編集欄そのものの幅で決める(メニューの開閉で幅が変わるため)。
+   1カラムのときは .tx-stage を display:contents にして、映像の欄(.pbox)が一覧の上に固定され続けるようにする
+   (sticky は親の箱の中でしか効かないため。これをしないと、スクロールで映像が上に流れて消える) */
+@container editor (max-width:780px){
+  .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr)}
+  .tx-stage{display:contents}.tx-stage>.pbox{order:0;position:sticky;border-radius:0 0 var(--r-lg) var(--r-lg);box-shadow:var(--shadow-2)}
+  .tx-stage>:not(.pbox){order:1}.tx-list{order:3}
+  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--pbh,300px) + 8px)}   /* 固定した映像の欄の下に隠れないように */
+}
+/* タイトルと保存の状態 */
+.tt-titlebar{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+#docTitle{flex:1;min-width:0;font:650 16px/1.3 var(--font-display);border-color:transparent;background:transparent;padding:4px 8px;margin-left:-8px}
+#docTitle:hover{border-color:var(--line-2)}
+#docTitle:focus{background:var(--field)}
+.savest{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap;flex:none}
+.savest:not(:empty)::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-4)}
+.savest[data-state=ok]::before{background:var(--ok)}
+.savest[data-state=busy]::before{background:var(--accent)}   /* 点滅させない(保存は校正中に何度も起きるので、数千行の画面で描き直しを増やさない) */
+.savest[data-state=err]{color:var(--danger)}.savest[data-state=err]::before{background:var(--danger)}
+.tt-docmeta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
+#docClip{margin:0 0 8px}
+video{width:100%;max-height:var(--vh);background:#000;border-radius:var(--r);display:block}
 html.vid-audio video{height:54px;max-height:none}
-.pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-block}.pop>summary::-webkit-details-marker{display:none}
-.vpop{position:absolute;right:0;top:100%;margin-top:4px;z-index:40;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;width:270px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+#playerMsg{margin:6px 0 0;color:var(--danger)}
+#diarBanner{margin:8px 0 0}
+#conflictBar{margin:0 0 8px}#conflictBar .row{margin-top:6px}
+/* 道具の段(再生・編集・探す)。段ごとに細い線で区切る */
+.tools{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;margin:0;padding:8px 0;border-top:1px solid var(--line)}
+.tools-play{margin-top:10px}
+.tools input[type=search]{flex:1;min-width:150px;min-height:var(--ctl-h-sm);padding:3px 10px}
+.tools select,.tools .btn{min-height:var(--ctl-h-sm)}
+.tools select{padding-top:2px;padding-bottom:2px}
+.tools select.mini{width:auto;padding-left:8px}
+.tools .lag{font-size:12.5px;color:var(--ink-2)}
+.tt-grp{display:inline-flex}
+.tt-grp>.btn{border-radius:0;margin-left:-1px}
+.tt-grp>.btn:first-child{border-radius:7px 0 0 7px;margin-left:0}
+.tt-grp>.btn:last-child{border-radius:0 7px 7px 0}
+.tools2{display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 0 4px;border-top:1px solid var(--line)}
+.tools2 .hint{font-size:12px;font-variant-numeric:tabular-nums}
+.tools2 .hint:empty{display:none}
+#pfStat{color:var(--ink);font-weight:600}
+.terms{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
+.chip{border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r-pill);padding:1px 10px;font-size:12.5px;cursor:pointer;color:var(--ink)}.chip:hover{background:var(--accent-soft);border-color:var(--accent-line)}
+.stripbox{position:relative;height:14px;margin-top:6px;cursor:pointer}
+#strip{width:100%;height:100%;display:block;border-radius:var(--r-xs);background:var(--panel-3)}
+#stripHead{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);left:0;pointer-events:none;border-radius:1px;box-shadow:0 0 0 1px var(--panel)}
+#docInfo{margin:8px 2px 0;font-size:12px;color:var(--ink-3)}
+.tx-stage>.card{margin-top:10px}
+#spDetails>summary{font-size:14px}
+#spDetails .fld{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+#spDetails .fld:first-of-type{border-top:0;padding-top:0}
+#spDetails .fld>.l{display:block;font:650 13px/1.35 var(--font-display);color:var(--ink);margin-bottom:6px}
+#spDetails .fld>.hint,#spDetails .fld>span.hint{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);line-height:1.5}
+#spDetails .row+.row{margin-top:8px}
+.tt-exbtns{display:flex;flex-wrap:wrap;gap:6px}
+.tt-handoff{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.tt-handoff .path{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere;color:var(--ink-2)}
+.tt-handoff .row{margin-top:6px}
+.tt-handoff a.btn,.tt-handoff a.btn:hover{text-decoration:none}
+.tt-handoff .btn.ghost{min-height:22px;padding:0 6px;font-size:11.5px}
+/* ポップオーバー(表示・⚙設定・まとめて校正・一覧の「…」) */
+.pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-flex}.pop>summary::-webkit-details-marker{display:none}
+.vpop{position:absolute;right:0;top:100%;margin-top:6px;z-index:60;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:12px 14px;width:280px;box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
 .pop.l .vpop{left:0;right:auto}
 .vpop .fld:first-child{margin-top:0}
-.tools2{margin:2px 0}.tools2 .hint{margin-left:6px}
+.vpop .fld>label,.vpop .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.vpop .fld>select{width:100%}
 .vpop .col{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.vpop .row .btn{flex:1}
+
+/* ---------- セリフの行(.seg) ----------
+   校正はこのツールで一番長くやる作業なので、文字を主役にする(入力欄の枠は、触れたときだけ出す)。
+   行の数が数千になっても重くならないように、content-visibility で画面外の行の描画を省く(v0.7.1 から) */
+#segs{container-type:inline-size}
+.seg{display:grid;grid-template-columns:18px 30px 140px 118px minmax(0,1fr) auto;gap:6px 8px;align-items:start;padding:7px 10px 7px 8px;
+  border:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:var(--r);background:var(--panel);margin-bottom:6px;
+  content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--toph,52px) + 8px);scroll-margin-bottom:24px;
+  transition:background-color .2s}
+.seg[hidden]{display:none}
+.seg>input.sel{margin-top:8px}
+.seg .play{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:50%;cursor:pointer;color:var(--ink-2);font-size:10px;padding:0 0 0 2px;transition:background var(--dur),color var(--dur),border-color var(--dur)}
+.seg .play:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-4);padding-top:2px}
+.seg .t{width:66px;min-height:28px;padding:3px 4px;font-family:var(--mono);font-size:12px;text-align:center;background:var(--panel-2);border-color:transparent;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.seg .t:hover{border-color:var(--line-2)}
+.seg .t:focus{background:var(--field);color:var(--ink)}
+.seg .times.ovl .t{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+.seg .spk{width:100%;min-height:30px;padding:3px 26px 3px 8px;font-size:12.5px;background-position:right 8px center;border-color:transparent;
+  background-color:color-mix(in srgb,var(--sp,transparent) 14%,var(--panel-2));color:var(--ink)}
+.seg .spk:hover{border-color:var(--line-2)}
+.seg textarea{resize:none;overflow:hidden;min-height:34px;padding:4px 8px;font-size:var(--fs);line-height:1.6;letter-spacing:.01em;color:var(--ink);background:transparent;border-color:transparent;width:100%}
+.seg:hover textarea{border-color:var(--line)}
+.seg textarea:focus{background:var(--field);border-color:var(--accent)}
+.seg textarea::placeholder{color:var(--ink-4)}
 html.fsz .seg textarea{field-sizing:content;height:auto}
-.tools select.mini{width:auto;padding:3px 4px}
-.stripbox{position:relative;height:16px;margin-top:6px;cursor:pointer}
-#strip{width:100%;height:100%;display:block;border-radius:4px;background:var(--panel-2)}
-#stripHead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--accent);left:0;pointer-events:none;border-radius:1px}
-.terms{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
-.chip{border:1px solid var(--line-2);background:var(--panel);border-radius:99px;padding:1px 10px;font-size:13px;cursor:pointer}.chip:hover{background:var(--accent-soft)}
-#conflictBar{margin:6px 0 0}#conflictBar .row{margin-top:6px}
-dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);border-radius:12px;padding:16px 20px;max-width:600px;width:92vw}dialog::backdrop{background:rgba(0,0,0,.45)}
-.keyt td:first-child{white-space:nowrap;font-family:var(--mono);text-align:left;padding-right:12px}.keyt td{text-align:left}
-#jobBadge{cursor:pointer;border:0}
-.seg{transition:background-color .25s,outline-color .2s}.seg.nav{outline:3px solid var(--accent);outline-offset:-1px}
+/* 右端の状態の切り替え(残す/カット済・校正済み) */
+.seg .ops{display:flex;gap:4px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;padding-top:1px}
+.seg .ops button{border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r-pill);min-height:26px;padding:0 10px;font-size:12px;font-weight:550;cursor:pointer;color:var(--ink-3);white-space:nowrap;transition:background var(--dur),color var(--dur),border-color var(--dur)}
+.seg .ops button:hover{color:var(--ink);border-color:var(--line-strong)}
+.seg .ops button.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.seg .ops button.pf[aria-pressed=true]::before{content:"✓ "}
+.seg .ops button.cut-toggle[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:#fff}
+/* 状態の見分け: 再生中(.cur)・今の行(.nav)・一括選択(チェック)・要確認(.flag)・カット済(.cut)・校正済み(.proofed) */
+.seg.proofed{border-right:4px solid var(--ok)}
+.seg.flag{background:var(--tt-flag-soft)}
+.seg.cur{background:var(--tt-play-soft);box-shadow:inset 3px 0 0 0 var(--accent)}
+.seg:has(.sel:checked){background:var(--tt-pick-soft);border-color:color-mix(in srgb,var(--tt-pick) 55%,transparent)}   /* v0.9.6: 一括操作のチェック(複数選択)は、今の行(太枠)と見た目を分ける */
+.seg.cut{background-image:repeating-linear-gradient(135deg,transparent 0 9px,var(--tt-cut-stripe) 9px 18px)}
+.seg.cut textarea{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}
+.seg.cut .times .t,.seg.cut .spk{opacity:.7}
+.seg.nav{outline:3px solid var(--accent);outline-offset:-1px}   /* 影は付けない(行の移動のたびに影の描き直しが入り、4000行で少し遅くなったため。太枠だけで十分見分けられる) */
 .seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
 @media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
-.seg .adj{grid-column:3/-1;display:none;gap:4px 10px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-3)}.seg.nav .adj{display:flex}
-.adj .g{display:inline-flex;align-items:center;gap:3px}.adj button.now{padding:0 6px;min-width:0}
-.seg .times.ovl .t{border-color:var(--danger);color:var(--danger)}.adj .sep{width:1px;align-self:stretch;background:var(--line-2);margin:2px 2px}.adj .rowops{gap:4px;flex-wrap:wrap}.adj .rowops button{padding:0 8px;min-width:0}.adj .rowops button.del{color:var(--danger)}.adj button{border:1px solid var(--line);background:var(--panel);border-radius:6px;min-width:30px;height:24px;font-size:12px;color:var(--ink);cursor:pointer}
-
+/* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */
+.seg .fl{grid-column:5;justify-self:start;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:0 10px;min-height:22px;background:var(--warn-soft);cursor:pointer;max-width:100%;text-align:left}
+.seg .fl::before{content:"!";display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
+.seg .fl:hover{border-color:var(--warn)}
+.seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
+.sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
+.sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.sg button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
-.tg button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:0 9px;font-size:12px;color:var(--ink-3);cursor:pointer}
-.tg button[aria-pressed=true]{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
-.keymap{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0}.keymap div{border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12.5px;text-align:center}.keymap b{display:block;font-family:var(--mono);font-size:15px}
-.goalbar{position:relative;height:14px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden;margin-top:8px}.goalbar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .5s ease;min-width:0}.goalbar b{position:absolute;top:0;bottom:0;width:2px;background:var(--ink-3);opacity:.55}
-#goalMs{margin-top:6px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none}
-#goalPill{border:0;cursor:pointer;background:var(--panel-2);color:var(--ink-2);font-variant-numeric:tabular-nums}#goalPill.on{color:var(--ink)}
-.card>summary .hint{font-weight:400}.card:not([open])>summary{margin-bottom:0}
-.src{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;margin:2px 0}.src .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink-3)}
-.dsrow{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;border-bottom:1px solid var(--line);padding:3px 0}
+.tg button{border:1px dashed var(--line-2);background:transparent;border-radius:var(--r-pill);padding:0 10px;min-height:22px;font-size:12px;color:var(--ink-3);cursor:pointer}
+.tg button:hover{color:var(--ink)}
+.tg button[aria-pressed=true]{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);color:var(--warn);font-weight:600}
+.seg .adj{grid-column:3/-1;display:none;gap:4px 10px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-3);margin-top:2px;padding:6px 8px;background:var(--panel-2);border-radius:var(--r)}
+.seg.nav .adj{display:flex}
+.adj .g{display:inline-flex;align-items:center;gap:3px}
+.adj button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;min-width:28px;height:26px;padding:0 6px;font-size:12px;color:var(--ink);cursor:pointer}
+.adj button:hover{border-color:var(--line-strong);background:var(--panel-3)}
+.adj button.now{padding:0 7px}
+.adj .sep{width:1px;align-self:stretch;background:var(--line-2);margin:2px 2px}
+.adj .rowops{gap:4px;flex-wrap:wrap}.adj .rowops button{padding:0 9px}
+.adj .rowops button.del{color:var(--danger)}
+.adj .rowops button.del:hover{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+/* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
+   (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
+@container (max-width:700px){
+  #segs .seg{grid-template-columns:18px 30px auto minmax(0,1fr) auto}
+  #segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0;max-width:170px}#segs .seg .ops{grid-column:5;grid-row:1}
+  #segs .seg textarea,#segs .seg .fl,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
+  #segs .seg textarea{margin-top:-2px}
+}
+@container (max-width:520px){
+  #segs .seg{gap:6px}
+  #segs .seg .ops button{padding:0 7px}
+  #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
+  #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
+}
+/* 行の間隔を詰める(表示の設定) */
+html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense .seg textarea{min-height:28px;padding:2px 6px;line-height:1.45}html.dense .seg>input.sel{margin-top:6px}
+
+/* ---------- キー操作の一覧(ダイアログ) ---------- */
+#keys{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100vh - 48px);padding:0;overflow:hidden}
+#keys[open]{display:flex;flex-direction:column}
+.tt-flow{margin:12px 0 0;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);font-size:13px;color:var(--ink)}
+.keyt td:first-child{white-space:nowrap;font-family:var(--mono);text-align:left;padding-right:12px}.keyt td{text-align:left}
+
 </style>
 </head>
 <body>
-<div id="errBar" hidden role="alert"></div>
-<header class="top"><button type="button" class="btn small" id="btnMenu" aria-expanded="true" aria-controls="menuPanel" title="左のメニュー(新しく文字起こし・保存済みの一覧・設定など)を開く/閉じる(G)"><span class="ic" aria-hidden="true">☰</span><span id="btnMenuT">メニューを閉じる</span></button><div class="brand">文字起こしツール<span class="ver" id="ver"></span></div><span class="hint" id="topHint">動画・音声 → 字幕(SRT/VTT)・テキスト。処理はすべてこのパソコン内で行います</span><span class="grow"></span>
-  <button type="button" class="pill" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"></button>
-  <button type="button" class="pill" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
-  <details class="pop" id="viewMenu"><summary class="btn small">表示</summary><div class="vpop">
-    <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
-    <div class="fld"><label for="vVid">動画の大きさ</label><select id="vVid"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ聞く(映像を隠す)</option></select></div>
-    <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
-    <div class="fld"><label for="vTheme">画面の色</label><select id="vTheme"><option value="auto">パソコンの設定に合わせる</option><option value="light">明るい</option><option value="dark">暗い</option></select></div>
-    <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
-    <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p></div></details>
-  <button type="button" class="btn small" id="btnKeys">操作キー</button></header>
+<header class="ui-header top" id="appHeader">
+  <button type="button" class="btn ghost small tt-hbtn" id="btnMenu" aria-expanded="true" aria-controls="menuPanel" title="左のメニュー(新しく文字起こし・保存済みの一覧・設定など)を開く/閉じる(G)"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg></span><span id="btnMenuT" class="tt-hlabel">メニューを閉じる</span></button>
+  <a class="ui-brand" href="/" title="文字起こしツール(動画・音声 → 字幕・テキスト。処理はすべてこのパソコン内で行います)">
+    <span class="ui-brand-mark" data-tool="transcribe" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7M17 14h0"/></svg></span>
+    <span class="tt-brand-name">文字起こしツール</span><span class="ui-ver" id="ver"></span>
+  </a>
+  <div class="ui-header-actions">
+    <!-- 今の操作(処理中のジョブ・校正の進み具合)。押すとメニューの該当する所を開く -->
+    <div class="tt-hstat" role="status" aria-live="polite">
+      <button type="button" class="pill run" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
+      <button type="button" class="pill" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"></button>
+    </div>
+    <details class="pop" id="viewMenu"><summary class="btn ghost small tt-hbtn" title="表示の設定(文字の大きさ・動画の大きさ・画面の色・休憩のお知らせ)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="tt-hlabel">表示</span></summary><div class="vpop">
+      <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
+      <div class="fld"><label for="vVid">動画の大きさ</label><select id="vVid"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ聞く(映像を隠す)</option></select></div>
+      <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
+      <div class="fld"><label for="vTheme">画面の色(右上の <span aria-hidden="true">☾</span> ボタンと同じ)</label><select id="vTheme"><option value="auto">パソコンの設定に合わせる</option><option value="light">明るい</option><option value="dark">暗い</option></select></div>
+      <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
+      <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p></div></details>
+    <button type="button" class="btn ghost small tt-hbtn" id="btnKeys" title="操作キーの一覧" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span class="tt-hlabel">操作キー</span></button>
+    <details class="ui-menu" id="toolMenu">
+      <summary class="btn ghost small tt-hbtn" title="他のツールを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="tt-hlabel">他のツール</span></summary>
+      <div class="ui-menu-pop" data-ui-toolnav id="toolNav"></div>
+    </details>
+    <button type="button" class="ui-theme-toggle" data-theme-toggle>
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="errbar" id="errBar" hidden role="alert"></div>
 
 <div class="app">
 <aside id="menuPanel" aria-label="メニュー">
-  <div class="menuhead"><b>メニュー</b><button type="button" class="btn small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います(G)">◀ 閉じる</button></div>
+  <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います(G)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
   <div id="setup"></div>
+  <nav class="side-tabs" aria-label="管理パネル">
+    <button type="button" data-side-tab="start" aria-selected="true">新規</button>
+    <button type="button" data-side-tab="files" aria-selected="false">履歴</button>
+    <button type="button" data-side-tab="quality" aria-selected="false">精度</button>
+    <button type="button" data-side-tab="data" aria-selected="false">学習</button>
+  </nav>
 
-  <details class="card" id="newBox" open>
+  <details class="card side-pane" data-side-pane="start" id="newBox" open>
     <summary>新しく文字起こしする</summary>
     <div class="seg-tabs" role="group" aria-label="入力の種類">
       <button type="button" id="tabFile" aria-pressed="true">手元のファイル</button>
@@ -189,7 +749,8 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
     <div id="paneFile">
       <div class="fld"><label for="srcPath">動画・音声ファイルのパス</label>
         <input id="srcPath" type="text" placeholder="例: C:\Videos\stream.mp4 / /Users/me/stream.mp4" autocomplete="off" spellcheck="false">
-        <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span></div>
+        <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span>
+        <div id="srcClip" class="tt-clip" hidden role="status"></div></div>
       <div class="fld"><span class="l">範囲(空欄なら全体)</span>
         <div class="row"><input id="rStart" type="text" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
       <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
@@ -219,7 +780,7 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
       <div class="clist" id="mClips"></div>
     </div>
 
-    <details style="margin-top:12px" open><summary style="font-weight:500">認識の設定</summary>
+    <details class="tt-sub ui-disclosure" open><summary>認識の設定</summary>
       <div class="fld"><label for="optModel">モデル</label><select id="optModel"></select>
         <span class="hint">初回だけモデルのダウンロード(数百MB〜数GB)があります。迷ったら「medium」か「kotoba-whisper」。</span></div>
       <div class="row" style="margin-top:10px"><label class="lag">言語 <select id="optLang" style="width:auto"></select></label>
@@ -245,7 +806,7 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
     <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
   </details>
 
-  <details class="card" id="goalCard" open><summary>進行度(校正済みの量)</summary>
+  <details class="card side-pane" data-side-pane="quality" id="goalCard" open><summary>進行度(校正済みの量)</summary>
     <div class="goalbar" id="goalBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="目標に対する校正済みの量"><i id="goalFill"></i></div>
     <p id="goalText" style="margin:6px 0 0;font-size:14px"></p>
     <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
@@ -253,9 +814,11 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
     <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
     <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
     <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習の目安は、校正済みが2〜3時間分から。</p></details>
-  <details class="card" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
-  <details class="card" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txCount"></span></summary><div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
-  <details class="card" id="accCard" open><summary>認識精度の測定</summary>
+  <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
+  <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txCount"></span></summary>
+    <div class="list-tools"><input id="txSearch" type="search" placeholder="タイトル・元ファイルを検索" aria-label="保存済み文字起こしを検索"><select id="txFilter" aria-label="文字起こしの種類"><option value="all">すべて</option><option value="normal">通常</option><option value="eval">評価用</option></select></div>
+    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div><button type="button" class="btn small list-more" id="txMore" hidden></button></details>
+  <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
     <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(CER)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
     <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
       <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
@@ -269,18 +832,19 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
       <div id="abRows"></div>
       <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
       <div id="abOut"></div></div></details>
-  <details class="card" id="learnCard" open><summary>修正から学習した候補</summary>
+  <details class="card side-pane" data-side-pane="data" id="learnCard" open><summary>修正から学習した候補</summary>
     <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
     <p class="hint" id="lnStat" style="margin:4px 0 0"></p>
-    <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2">2回以上</option><option value="3">3回以上</option></select></label>
+    <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
       <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
-    <div id="lnList"></div>
+    <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
+    <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button>
     <div class="fld" style="margin-top:12px"><span class="l">修正データの書き出し(将来の追加学習・精度の測定用)</span>
       <div class="row"><select id="lnExScope" style="width:auto"><option value="all">すべての文字起こし</option><option value="doc">開いている文字起こしだけ</option></select>
         <select id="lnExKind" style="width:auto" title="校正済みの行すべては、直していない行も含みます(追加学習では、正しく認識できた行も必要です)"><option value="changed">直した行だけ</option><option value="proofed">校正済みの行すべて(学習用)</option></select>
         <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
       <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
-  <details class="card" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
+  <details class="card side-pane" data-side-pane="data" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
     <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「負例」)、行ごとの音声(16kHz・FLAC)が入ります。追加学習(LoRA)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
     <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
     <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
@@ -289,7 +853,17 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
 </aside>
 
 <main class="editor" id="editor">
-  <div class="empty" id="noDoc">左のメニューの「保存済みの文字起こし」から選ぶか、新しく文字起こしを始めてください。<div style="margin-top:10px"><button type="button" class="btn primary" id="noDocMenu" hidden>☰ メニューを開く</button></div></div>
+  <div class="empty" id="noDoc">
+    <div class="tt-empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7"/></svg></div>
+    <b>文字起こしを開いていません</b>
+    <span>動画・音声から字幕(SRT/VTT)・テキストを作ります。処理はすべてこのパソコンの中で行います。</span>
+    <ol class="tt-steps" role="list">
+      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
+      <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
+      <li><span class="n">3</span><span>聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「操作キー」)</span></li>
+    </ol>
+    <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden>☰ メニューを開く</button></div>
+  </div>
   <div id="doc" hidden>
    <div class="tx-grid">
     <section class="tx-list">
@@ -297,19 +871,20 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
     </section>
     <aside class="tx-stage">
     <div class="pbox">
-      <div class="row" style="margin-bottom:6px"><input id="docTitle" type="text" maxlength="120" aria-label="タイトル" style="flex:1;min-width:200px;font-weight:600"><span class="savest" id="saveState" role="status"></span></div>
-      <div class="row" style="margin:0 0 6px"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
+      <div class="tt-titlebar"><input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)"><span class="savest" id="saveState" role="status"></span></div>
+      <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
+      <div id="docClip" class="tt-clip" hidden></div>
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
       <div id="conflictBar" class="notice" hidden role="alert"><b>別の場所で先に更新されています。</b>別のタブ・再認識・話者判別などで、保存済みの内容がこの画面の読み込み時と変わっています。自動保存は止めています。
         <div class="row"><button type="button" class="btn small" id="cfReload">保存済みの内容を読み込み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cfForce">この画面の内容で上書きする</button></div></div>
       <video id="player" controls preload="metadata" playsinline></video>
-      <p class="hint" id="playerMsg" hidden style="margin:4px 0 0;color:var(--danger)"></p>
+      <p class="hint" id="playerMsg" hidden></p>
       <div id="diarBanner" class="notice" hidden></div>
       <!-- v0.9.8: ツールを「再生」「編集」「探す」の3段に整理。一度決めたら触らない設定は ⚙設定 にまとめた -->
       <div class="tools tools-play" role="group" aria-label="再生">
         <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
-        <button type="button" class="btn small" id="seekBack" title="3秒戻る(Q)">−3秒</button><button type="button" class="btn small" id="seekFwd" title="3秒進む(E)">+3秒</button>
-        <details class="pop l" id="playSet"><summary class="btn small" title="再生・編集の設定">⚙ 設定</summary><div class="vpop">
+        <span class="tt-grp"><button type="button" class="btn small" id="seekBack" title="3秒戻る(Q)">−3秒</button><button type="button" class="btn small" id="seekFwd" title="3秒進む(E)">+3秒</button></span>
+        <details class="pop l" id="playSet"><summary class="btn ghost small" title="再生・編集の設定">⚙ 設定</summary><div class="vpop">
           <div class="col">
           <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
           <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(S / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
@@ -320,14 +895,14 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
       <div class="tools" role="group" aria-label="編集">
         <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行を追加</button>
         <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
-        <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済みにします">まとめて校正 ▼</summary><div class="vpop">
+        <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済みにします">まとめて校正 ▾</summary><div class="vpop">
           <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
           <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
           <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div></div></details>
-        <button type="button" class="btn small" id="btnSpk" title="話者の自動判別・名前の変更・一括置換・書き出し・再認識・履歴を開きます(映像の下に出ます)">話者・置換・書き出し ▼</button>
+        <button type="button" class="btn small" id="btnSpk" title="話者の自動判別・名前の変更・一括置換・書き出し・再認識・履歴を開きます(映像の下に出ます)">話者・置換・書き出し ▾</button>
       </div>
       <div class="tools" role="group" aria-label="探す">
-        <input type="search" id="q" placeholder="検索(該当する行だけ表示)" style="min-width:130px" aria-label="検索" autocomplete="off">
+        <input type="search" id="q" placeholder="検索(該当する行だけ表示)" aria-label="検索" autocomplete="off">
         <span class="hint" id="qCount"></span>
         <select id="flagKind" style="width:auto" aria-label="絞り込み" title="表示する行の絞り込み"><option value="">すべて表示</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="any">要確認すべて</option><option value="sug">修正の提案がある行だけ</option><option value="proofed">校正済みの行だけ</option><option value="unproofed">未校正の行だけ</option></select>
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(D。前へは A)">次の未校正(D)</button>
@@ -339,10 +914,10 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
       <div class="terms" id="terms" hidden></div>
       <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
     </div>
-    <p class="hint" id="docInfo" style="margin:6px 0 0"></p>
+    <p class="hint" id="docInfo"></p>
 
-    <div class="card" style="margin-top:4px">
-      <details id="spDetails"><summary>話者・置換・書き出し</summary>
+    <div class="card">
+      <details id="spDetails" class="ui-disclosure"><summary>話者・置換・書き出し</summary>
         <div class="fld"><span class="l">話者の自動判別</span>
           <div id="diarSetup"></div>
           <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
@@ -379,8 +954,13 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
             <label class="lag">折り返し <select id="exWrap" style="width:auto"><option value="0">しない</option><option value="12">12文字</option><option value="16">16文字</option><option value="20">20文字</option><option value="24">24文字</option><option value="32">32文字</option></select></label></div>
           <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
             <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
-          <div class="row" style="margin-top:8px"><button type="button" class="btn" data-ex="srt">SRT</button><button type="button" class="btn" data-ex="vtt">VTT</button><button type="button" class="btn" data-ex="txt">テキスト</button><button type="button" class="btn" data-ex="json">JSON</button></div>
+          <div class="row tt-exbtns" style="margin-top:8px"><span class="hint">ダウンロード:</span><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
           <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
+
+        <div class="fld" id="handoffBox"><span class="l">動画の隣に保存(次のツールへ渡す)</span>
+          <div class="tt-exbtns"><button type="button" class="btn small primary" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画と同じフォルダに「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)</button></div>
+          <div id="handoffOut" class="tt-handoff" hidden role="status"></div>
+          <span class="hint">ダウンロードフォルダではなく、元の動画と同じフォルダに保存します。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
       </details>
     </div>
     </aside>
@@ -388,32 +968,28 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);b
   </div>
 </main>
 </div>
-<dialog id="keys" aria-labelledby="keysT"><h2 id="keysT">操作キー(左手だけで校正できます)</h2>
-  <p class="hint" style="margin:4px 0 8px"><b>キー単体</b>で操作します(Shift は不要)。例外は <b>Space</b> だけで、これは <b>Shift+Space</b> です(Space だけで押すと動画の再生・停止になるため)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
-  <div class="keymap">
-    <div><b>Q</b>3秒戻る</div><div><b>W</b>前の行</div><div><b>E</b>3秒進む</div><div><b>R</b>もう一度聞く</div>
-    <div><b>A</b>前の未校正</div><div><b>S</b>次の行</div><div><b>D</b>次の未校正</div><div><b>F</b>次の要確認</div>
-    <div><b>Z</b>この行を削除(2回押し)</div><div><b>X</b>聞き取れない</div><div><b>C</b>声が重なる</div><div><b>V</b>BGM・音が大きい</div>
-    <div><b>T</b>この行の文字を直す</div><div><b>G</b>メニュー開閉</div><div><b>B</b>移動で自動再生</div><div><b>Shift+Space</b>校正済みにして次へ</div>
-    <div><b>N</b>後ろに行を追加</div>
+<dialog id="keys" aria-labelledby="keysT">
+  <div class="ui-dlg-head"><h2 id="keysT">操作キー(左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-body">
+  <p class="hint" style="margin:0"><b>キー単体</b>で操作します(Shift は不要)。例外は <b>Space</b> だけで、「校正済みにして次へ」は <b>Shift+Space</b> です(Space だけだと動画の再生・停止になるため)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
+  <div class="ui-kgrid">
+    <div class="ui-kgroup"><h3 class="section-title">行を移動する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>S</kbd></span><span>次の行</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>W</kbd></span><span>前の行</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>D</kbd></span><span>次の未校正</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>A</kbd></span><span>前の未校正</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>F</kbd></span><span>次の要確認</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>B</kbd></span><span>移動したら自動で再生(切り替え)</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">聞く</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Space</kbd></span><span>再生・停止(Shift なし)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>R</kbd></span><span>この行をもう一度聞く</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Q</kbd></span><span>3秒戻る</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>E</kbd></span><span>3秒進む</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">校正する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Shift</kbd><kbd>Space</kbd></span><span>校正済みにして次へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>T</kbd></span><span>この行の文字を直す(入力欄へ)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Esc</kbd></span><span>入力欄から抜ける</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Tab</kbd></span><span>入力欄に入る/抜ける(切り替え)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span><span>この行の話者を n 番目に</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>0</kbd></span><span>話者なし</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">音の状態のメモ・行の編集</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>X</kbd></span><span>聞き取れない</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>C</kbd></span><span>声が重なる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>V</kbd></span><span>BGM・音が大きい</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>N</kbd></span><span>後ろに行を追加</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Z</kbd></span><span>この行を削除(2回押し)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Z</kbd></span><span>元に戻す</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>Enter</kbd></span><span>校正済みにして次の行の入力欄へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Enter</kbd></span><span>この行をもう一度聞く</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1…9</kbd></span><span>この行の話者</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div></div>
   </div>
-  <table class="acct keyt">
-    <tr><td>1〜9 / 0</td><td>この行の話者を、話者の一覧の n 番目に / 話者なし</td></tr>
-    <tr><td>Space(Shiftなし)</td><td>再生・停止</td></tr>
-    <tr><td>Ctrl+Z</td><td>元に戻す(削除・話者・置換なども戻せます)</td></tr>
-    <tr><td>Esc / Tab</td><td>入力欄から抜ける(Tab は、選んだ行の入力欄に入る切り替えにもなります。T と同じ。日本語の変換中は変換の確定にだけ使われます)</td></tr>
-    <tr><td>(キーなし)</td><td>選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙設定」)・行の追加(前/後)・分割・結合・削除</td></tr>
-    <tr><td>Ctrl+Enter</td><td>(入力中に)この行をもう一度聞く</td></tr>
-    <tr><td>Alt+Enter</td><td>(入力中に)校正済みにして次の行の入力欄へ。Alt+1〜9 で話者</td></tr>
-  </table>
-  <p class="hint" style="margin:8px 0 0">基本の流れ: <b>S</b> で行を選ぶ → 聞く(<b>R</b>) → 合っていれば <b>Shift+Space</b> / 直すなら <b>T</b> で入力 → <b>Esc</b> → <b>Shift+Space</b>。「移動したら自動で再生」(<b>B</b>)をオンにすると、<b>Shift+Space</b> の連打で「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <b>X / C / V</b> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
-  <form method="dialog" style="margin-top:12px"><button class="btn primary">閉じる</button></form></dialog>
-<div id="toast" hidden role="status"></div>
+  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。</p>
+  <p class="tt-flow">基本の流れ: <kbd>S</kbd> で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd> で入力 → <kbd>Esc</kbd> → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd>)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
+  </div>
+</dialog>
+<div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
 
 <script>
 (() => {
 'use strict';
-const APP_VERSION = '0.9.8';
+const APP_VERSION = '0.10.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -436,19 +1012,42 @@ function parseT(str){
   return p.reduce((a, x) => a * 60 + Number(x), 0);
 }
 let toastT = null;
-function toast(msg, ms = 3800){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms); }
+/* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。押すと消える */
+function toast(msg, ms = 3800, kind = ''){ const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (kind ? ' ' + kind : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms); }
+$('#toast').addEventListener('click', () => { $('#toast').hidden = true; });
 function showErr(msg){ const b = $('#errBar'); b.textContent = '画面エラー: ' + msg; b.hidden = false; }
 window.addEventListener('error', e => showErr(e.message));
 window.addEventListener('unhandledrejection', e => showErr(String(e.reason && e.reason.message || e.reason)));
+/* サーバーの API・動画の URL は、必ずこの apiUrl() を通して作る(docs/pipeline.md 5: 将来1つのアプリに統合するとき、
+   ベースのパス(例: /transcribe)をここ1か所で変えられるように) */
+const API_BASE = '';
+const apiUrl = path => API_BASE + path;
 async function api(path, opt = {}){
-  const init = { cache: 'no-store', method: opt.method || 'GET' };
+  const init = { cache: 'no-store', method: opt.method || 'GET', ...(opt.keepalive ? { keepalive: true } : {}) };
   if (opt.body !== undefined){ init.method = opt.method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opt.body); }
   let r;
-  try { r = await fetch(path, init); } catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
+  try { r = await fetch(apiUrl(path), init); } catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
   return j;
 }
+/* ファイル(zip)を受け取る POST。失敗時は api() と同じ形のエラー。成功時は Response(ヘッダーと blob を使う) */
+async function apiBlob(path, body){
+  let r;
+  try { r = await fetch(apiUrl(path), { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+  catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
+  if (!r.ok){ const j = await r.json().catch(() => ({})); const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  return r;
+}
+function download(blob, name){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+const safeName = (t, fb = 'transcript') => String(t || '').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || fb;
+/* 話者の色: 文書の JSON は手で直せるので、色の文字列は #rgb / #rrggbb だけを通す(style 属性に入れるため。
+   そのまま入れると「red;background:url(外部)」のような値で CSS を差し込まれ、外へ通信されうる) */
+const spColor = sp => sp && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(sp.color || '')) ? sp.color : '';
+function setRowSp(row, sp){ const c = spColor(sp); if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
 function armDelete(btn, run){
   if (btn.dataset.armed){ run(); return; }
   const label = btn.textContent; btn.dataset.armed = '1'; btn.textContent = 'もう一度押す';
@@ -459,50 +1058,101 @@ const norm = s => String(s).normalize('NFKC').toLowerCase();
 
 /* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
 const VIEW_KEY = 'tx.view.v1';
-const V = { menu: true, fs: '15', dense: false, vid: 'l', theme: 'auto', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45' };
+const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
 /* v0.9.8: 左のメニューの開閉(V.menu)は保存する(上の「☰」ボタンがいつも見えているので、閉じたままでも迷わない)。
    文字起こしを開いていないときに閉じていると何も見えないので、その場合は案内にボタンを出す(showNoDoc) */
-function loadView(){ try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); if (o && typeof o === 'object') for (const k of Object.keys(V)) if (k in o && typeof o[k] === typeof V[k]) V[k] = o[k]; } catch {} }
+function loadView(){
+  try {
+    const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}');
+    if (o && typeof o === 'object'){
+      for (const k of Object.keys(V)) if (k in o && typeof o[k] === typeof V[k]) V[k] = o[k];
+      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した(ヘッダーの切り替えボタンと「表示」の設定のどちらで変えても同じ所に保存)。
+         以前の版が tx.view.v1 の theme に保存していた選択は、ui-kit にまだ選択が無いときだけ引き継ぐ */
+      if ((o.theme === 'light' || o.theme === 'dark') && window.UIKit && UIKit.theme.get() === 'system'){ try { if (localStorage.getItem('ytt:theme') === null) UIKit.theme.set(o.theme); } catch {} }
+      if ('theme' in o){ delete o.theme; saveView(); }
+    }
+  } catch {}
+}
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
+function applySideTab(){
+  if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';
+  document.querySelectorAll('[data-side-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.sideTab === V.sideTab ? 'true' : 'false'));
+  document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
+}
+function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel) V.menu = true; saveView(); applyView(); }   // タブの切り替え(v0.9.9: GPT 版のタブを ☰ のメニューの中に統合)
 function applyView(){
   const r = document.documentElement;
   if (!['13', '15', '17', '20'].includes(V.fs)) V.fs = '15';
   if (!['l', 'm', 's', 'a'].includes(V.vid)) V.vid = 'l';
-  if (!['auto', 'light', 'dark'].includes(V.theme)) V.theme = 'auto';
   if (!['0.75', '1', '1.25', '1.5', '1.75', '2'].includes(V.rate)) V.rate = '1';
   if (!['0', '30', '45', '60'].includes(V.brk)) V.brk = '45';
   r.style.setProperty('--fs', V.fs + 'px'); r.style.setProperty('--vh', VID_H[V.vid] || VID_H.l);
   r.classList.toggle('dense', !!V.dense); r.classList.toggle('vid-audio', V.vid === 'a');
-  if (V.theme === 'auto') delete r.dataset.theme; else r.dataset.theme = V.theme;
+  applySideTab();
   $('.app').classList.toggle('menu-closed', !V.menu);
   $('#btnMenu').setAttribute('aria-expanded', V.menu ? 'true' : 'false'); $('#btnMenuT').textContent = V.menu ? 'メニューを閉じる' : 'メニューを開く';
   $('#noDocMenu').hidden = !!V.menu;
-  $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; $('#vTheme').value = V.theme; $('#vBrk').value = V.brk;
+  $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; syncThemeSelect(); $('#vBrk').value = V.brk;
   if (!['0.05', '0.1', '0.25', '0.5', '1'].includes(V.adjStep)) V.adjStep = '0.1';
   $('#follow').checked = V.follow; $('#frameFollow').checked = !!V.frameFollow; $('#adjStep').value = V.adjStep; $('#autoNext').checked = V.autoNext; $('#rate').value = V.rate;
   const p = $('#player'); p.defaultPlaybackRate = Number(V.rate); p.playbackRate = Number(V.rate);
   if (S.doc){ autoSizeSoon(); drawStripSoon(); }
 }
+/* 画面の色: 「表示」の選択肢(auto/light/dark)と ui-kit の選択('system'/'light'/'dark')を対応づける。保存は ui-kit だけ */
+function syncThemeSelect(){ const p = window.UIKit ? UIKit.theme.get() : 'system'; $('#vTheme').value = p === 'system' ? 'auto' : p; }
+if (window.UIKit) UIKit.theme.onChange(() => { syncThemeSelect(); if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定で変わったとき(帯の色も描き直す)
 function toggleMenu(open){ V.menu = open === undefined ? !V.menu : !!open; saveView(); applyView(); }
 /* メニューの中の項目へ移動する(閉じていれば開く) */
-function showInMenu(el){ if (!V.menu) toggleMenu(true); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
+function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
 {
   const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
-  bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vTheme', 'theme', t => t.value); bind('vBrk', 'brk', t => t.value);
+  bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vBrk', 'brk', t => t.value);
+  $('#vTheme').addEventListener('change', e => { if (window.UIKit) UIKit.theme.set(e.target.value === 'auto' ? 'system' : e.target.value); });
   bind('follow', 'follow', t => t.checked); bind('frameFollow', 'frameFollow', t => t.checked); bind('adjStep', 'adjStep', t => t.value); bind('autoNext', 'autoNext', t => t.checked); bind('rate', 'rate', t => t.value);
   $('#btnMenu').addEventListener('click', () => toggleMenu());
   $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
   $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
+  document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
-  document.addEventListener('click', e => document.querySelectorAll('details.pop[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('details.pop[open]').forEach(d => { d.open = false; }); });
+  document.addEventListener('click', e => document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.ui-menu-pop a')) d.open = false; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { d.open = false; }); });
 }
+
+/* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ---------- */
+S.ports = null;
+function renderTools(){
+  const el = $('#toolNav'); if (!el || !window.UIKit) return;
+  UIKit.tools.render(el, { current: 'transcribe', ports: S.ports || undefined });
+  /* /api/siblings が答えた(=起動中のツールが分かっている)のに載っていないツールは、起動していない。押しても開けないことを先に知らせる(スタジオと同じ) */
+  if (S.ports){
+    const links = el.querySelectorAll('a');
+    UIKit.tools.list.forEach((t, i) => {
+      const a = links[i]; if (!a || t.id === 'transcribe' || S.ports[t.id]) return;
+      const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。そのツールの start.bat で起動してください)';
+      a.classList.add('tt-tool-off');
+    });
+  }
+}
+let sibP = null;
+function loadSiblings(){
+  if (sibP) return sibP;
+  sibP = api('/api/siblings')
+    .then(j => { S.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null; })
+    .catch(() => { S.ports = null; })   // 古いサーバー(404)・通信の失敗は、既定のポートで
+    .finally(() => { sibP = null; renderTools(); renderHandoff(); });
+  return sibP;
+}
+const toolUrl = (id, path) => window.UIKit ? UIKit.tools.url(id, S.ports, path) : '';
+$('#toolMenu').addEventListener('toggle', () => { if ($('#toolMenu').open) loadSiblings(); });   // 開くたびに確かめ直す(あとから起動したツールにも気づけるように)
+renderTools();
 
 /* ---------- 設定(用語集・置換辞書など) ---------- */
 let setT = null;
-function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => api('/api/settings', { method: 'PUT', body: S.settings }).catch(() => {}), 600); }
+function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => { setT = null; api('/api/settings', { method: 'PUT', body: S.settings }).catch(() => {}); }, 600); }
+/* 入力の直後(0.6秒以内)にタブを閉じても設定が消えないように、画面を離れるときは待たずに送る(keepalive: 閉じたあとも送り切る) */
+document.addEventListener('visibilitychange', () => { if (document.hidden && setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
 function readOpts(){
   const s = S.settings;
   s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
@@ -528,14 +1178,16 @@ function renderSetup(){
   const miss = [];
   if (!t.ffmpeg) miss.push('<b>ffmpeg</b> が見つかりません。Windows: <code>winget install Gyan.FFmpeg</code> / Mac: <code>brew install ffmpeg</code>(入れたらこのツールを起動し直す)');
   if (!t.fasterWhisper && t.backend !== 'fake') miss.push('<b>faster-whisper</b> が入っていません。フォルダ内の <code>install.bat</code>(Mac は <code>install.command</code>)を実行してください');
-  const extra = t.backend === 'fake' ? '<div class="notice">テスト用モードで動いています(実際の文字起こしはしません)</div>' : '';
+  const extra = t.backend === 'fake' ? '<details class="setup-banner"><summary>テスト用モード</summary><div class="setup-body">実際の文字起こしはしません。</div></details>' : '';
   let gpu = '';
   if (t.backend !== 'fake' && !miss.length){
     if (t.cuda) gpu = `<p class="hint" style="margin:0 0 10px">GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。</p>`;
     else if (t.nvidia) gpu = `<div class="notice"><b>${esc(t.nvidia)}</b> が見つかりましたが、GPU 用のライブラリが入っていないため CPU で処理します。<br>フォルダ内の <code>install-gpu.bat</code> を実行すると GPU が使えます(実行後に起動し直す)。</div>`;
     else gpu = '<p class="hint" style="margin:0 0 10px">NVIDIA の GPU が見つからないため、CPU で処理します(AMD・Intel の GPU は使えません)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。</p>';
   }
-  box.innerHTML = extra + (miss.length ? `<div class="notice"><b>準備が必要です</b><br>${miss.join('<br>')}</div>` : '') + gpu;
+  const env = (Array.isArray(t.envWarnings) ? t.envWarnings : []).slice(0, 8);   // サーバーの起動時の確認(ディスクの空き・OneDrive・部品の欠けなど)
+  const envHtml = env.length ? `<details class="setup-banner"${miss.length ? '' : ' open'}><summary>起動時の確認(${env.length}件)</summary><div class="setup-body">${env.map(x => esc(x)).join('<br>')}</div></details>` : '';
+  box.innerHTML = extra + envHtml + (miss.length ? `<details class="setup-banner" open><summary>準備が必要です(${miss.length}件)</summary><div class="setup-body">${miss.join('<br>')}</div></details>` : '') + gpu;
 }
 
 /* ---------- 進行度 ---------- */
@@ -696,11 +1348,11 @@ function parseMarker(d){
 }
 function renderMarker(){
   const vs = S.marker.videos, sel = $('#mVideo');
-  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : '切り抜きマーカー') + x.videos + '本').join(' / ') || '切り抜きマーカー'}のデータを読み込みました(${vs.length}本の動画)` : '隣の clip-studio(または clip-marker)フォルダに data.json が見つかりません。下のボタンで data.json を選んでください。';
+  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : x.kind === 'file' ? '選んだ data.json' : '切り抜きマーカー') + x.videos + '本').join(' / ') || '切り抜きマーカー'}のデータを読み込みました(${vs.length}本の動画)` : '隣の clip-studio(または clip-marker)フォルダに data.json が見つかりません。下のボタンで data.json を選んでください。';
   const cur = sel.value;
   const FROM = { studio: 'スタジオ', marker: '旧マーカー', file: '選んだ data.json' };
   sel.innerHTML = vs.map((v, i) => `<option value="${i}">[${FROM[v.from || (S.marker.sources || [])[0]?.kind] || '?'}] ${esc((v.title || v.videoId) + (v.local ? '(ローカル)' : ''))} — ${v.clips.length}件</option>`).join('');
-  $('#mSources').innerHTML = (S.marker.sources || []).map(x => `<div class="src"><span class="pill ok">${FROM[x.kind] || esc(x.kind)}</span><span>${x.videos}本</span><span class="mono">${esc(x.path)}</span></div>`).join('')
+  $('#mSources').innerHTML = (S.marker.sources || []).map(x => `<div class="src"><span class="pill ok">${FROM[x.kind] || esc(x.kind)}</span><span>${Number(x.videos) || 0}本</span><span class="mono">${esc(x.path)}</span></div>`).join('')
     + (S.marker.outDir ? `<div class="src"><span class="pill">書き出し先</span><span class="mono">${esc(S.marker.outDir)}</span></div>` : '');
   if (cur && vs[Number(cur)]) sel.value = cur;
   renderMarkerClips();
@@ -714,7 +1366,7 @@ function renderMarkerClips(){
   const rows = v.clips.map((c, i) => ({ c, i })).filter(x => !only || x.c.status === 'adopted' || x.c.status === 'exported');
   box.innerHTML = rows.length ? rows.map(({ c, i }) => `<label><input type="checkbox" data-i="${i}" ${skip && c.doneTid ? '' : 'checked'}>
     <span class="mono">${fmtT(c.start)}–${fmtT(c.end)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title || '無題')}</span>
-    ${c.src ? `<span class="pill" title="${c.src === 'auto' ? '自動で見つけた区間' : '自分でマークした区間'}${c.score != null ? '(点数 ' + c.score + ')' : ''}">${c.src === 'auto' ? '自動' + (c.score != null ? ' ' + c.score : '') : c.src === 'manual' ? '手動' : esc(c.src)}</span>` : ''}${c.fileAbs ? '<span class="pill ok" title="書き出し済みの切り抜き(mp4)が見つかりました">mp4あり</span>' : ''}${c.doneTid ? '<span class="pill" title="この範囲は、すでに文字起こし済みです">文字起こし済み</span>' : ''}
+    ${c.src ? `<span class="pill" title="${c.src === 'auto' ? '自動で見つけた区間' : '自分でマークした区間'}${c.score != null ? '(点数 ' + esc(c.score) + ')' : ''}">${c.src === 'auto' ? '自動' + (c.score != null ? ' ' + esc(c.score) : '') : c.src === 'manual' ? '手動' : esc(c.src)}</span>` : ''}${c.fileAbs ? '<span class="pill ok" title="書き出し済みの切り抜き(mp4)が見つかりました">mp4あり</span>' : ''}${c.doneTid ? '<span class="pill" title="この範囲は、すでに文字起こし済みです">文字起こし済み</span>' : ''}
     <span class="pill">${esc({ '': '候補', candidate: '候補', adopted: '採用', rejected: '不採用', exported: '書き出し済み' }[c.status] ?? c.status)}</span></label>`).join('')
     : '<p class="hint" style="padding:8px;margin:0">条件に合うポイントがありません(「対象」を「すべて」にしてみてください)</p>';
   $('#mAll').checked = true; updateMCount();
@@ -732,35 +1384,44 @@ function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
 async function pollJobs(){
   let j; try { j = await api('/api/jobs'); } catch { return; }
   S.jobs = j.jobs.slice().reverse();
-  let doneNew = false, diar = null, abDone = null;
-  for (const x of S.jobs) if (x.state === 'done' && !S.seen.has(x.id)){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; if (x.kind === 'abtest') abDone = x; }
+  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null;
+  for (const x of S.jobs){
+    if (S.seen.has(x.id)) continue;
+    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.tid) txDone.push(x); }
+    else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
+  }
   renderJobs(); applyLock();
+  if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
   if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
   if (doneNew){
     await loadList();
     if (diar){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
       loadLearned();
-      if (diar.tid === S.docId){ clearTimeout(markDirty.t); S.dirty = false; await openDoc(diar.tid, true); }
+      if (diar.tid === S.docId) await openDoc(diar.tid, true);
       toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
         : `話者を判別しました(${diar.speakers}人)。` + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : '「話者」で名前を付けてください'));
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
+    else if (txDone.length) toast(txDone.length > 1 ? `${txDone.length}本の文字起こしが終わりました(メニューの「履歴」から開けます)` : `「${txDone[0].title || '無題'}」の文字起こしが終わりました(メニューの「処理状況」の「開く」で開けます)`, 6000, 'ok');
   }
   if (!S.jobs.some(x => ACTIVE.has(x.state))){ clearInterval(S.pollT); S.pollT = null; }
 }
 function renderJobBadge(){
   const act = S.jobs.filter(j => ACTIVE.has(j.state)), b = $('#jobBadge');
-  b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? Math.round(j.progress * 100) + '%' : STATE_LABEL[j.state]}`; }
+  b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}`; }
 }
+const pctOf = j => Math.max(0, Math.min(100, Math.round((Number(j.progress) || 0) * 100)));
 function renderJobs(){
   renderJobBadge();
   const box = $('#jobs');
   if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">ジョブはありません</p>'; return; }
   box.innerHTML = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
     <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
-      <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ''}">${STATE_LABEL[j.state] || j.state}</span></div>
-    ${ACTIVE.has(j.state) ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(j.phase)}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''}${j.device ? '(' + (j.device === 'cuda' ? 'GPU' : 'CPU') + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
+      <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ACTIVE.has(j.state) ? (j.state === 'queued' ? 'wait' : 'run') : ''}">${esc(STATE_LABEL[j.state] || j.state)}</span></div>
+    ${j.hasClip ? '<div class="hint" style="margin-top:2px">元の配信の情報(.clip.json)つき</div>' : ''}
+    ${ACTIVE.has(j.state) ? `<div class="bar${j.state === 'running' ? '' : ' indeterminate'}"><i style="width:${pctOf(j)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(j.phase || '')}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''}${j.device ? '(' + (j.device === 'cuda' ? 'GPU' : 'CPU') + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
     ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
+    ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
     ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'diarize' ? j.speakers + '人を判別' : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
@@ -771,14 +1432,23 @@ async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
   renderList(); scheduleProgress();
 }
+let txShowAll = false;
 function renderList(){
   const box = $('#txList'); $('#txCount').textContent = S.list.length ? `(${S.list.length}件)` : '';
-  if (!S.list.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだありません</p>'; return; }
-  box.innerHTML = S.list.map(i => `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <button type="button" class="t" data-act="open" title="${esc(i.title)}">${i.evalSet ? '<span class="pill ok">評価用</span> ' : ''}${esc(i.title || '無題')}</button>
-    <div class="hint">${esc(i.sourceName)}${i.end ? ` ・ ${fmtT(i.start)}–${fmtT(i.end)}` : ''} ・ ${i.segments}行 ・ ${esc(i.model.split('/').pop())}</div>
-    <div class="row" style="margin-top:3px"><button type="button" class="btn small danger" data-act="del">削除</button></div></div>`).join('');
+  if (!S.list.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだありません</p>'; $('#txMore').hidden = true; return; }
+  const q = norm($('#txSearch').value.trim()), type = $('#txFilter').value;
+  const found = S.list.filter(i => (!q || norm(`${i.title || ''} ${i.sourceName || ''}`).includes(q)) && (type === 'all' || (type === 'eval') === !!i.evalSet));
+  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません</p>'; $('#txMore').hidden = true; return; }
+  const shown = txShowAll ? found : found.slice(0, 8);
+  box.innerHTML = shown.map(i => `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
+    <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(i.title)}">${i.evalSet ? '<span class="pill ok">評価用</span> ' : ''}${esc(i.title || '無題')}</button><details class="pop txi-menu"><summary aria-label="${esc(i.title || '無題')}の操作">…</summary><div class="vpop"><button type="button" class="btn small danger" data-act="del">削除</button></div></details></div>
+    <div class="hint">${esc(i.sourceName || '')}${i.end ? ` ・ ${fmtT(i.start)}–${fmtT(i.end)}` : ''} ・ ${Number(i.segments) || 0}行 ・ ${esc(String(i.model || '').split('/').pop())}${i.hasClip ? ' ・ 元の配信あり' : ''}</div>
+    </div>`).join('');
+  const more = $('#txMore'); more.hidden = found.length <= 8; more.textContent = txShowAll ? '最近の8件だけ表示' : `残り${found.length - shown.length}件を表示`;
 }
+$('#txSearch').addEventListener('input', () => { txShowAll = false; renderList(); });
+$('#txFilter').addEventListener('change', () => { txShowAll = false; renderList(); });
+$('#txMore').addEventListener('click', () => { txShowAll = !txShowAll; renderList(); });
 
 /* ---------- 話者の自動判別 ---------- */
 function renderDiarSetup(){
@@ -868,6 +1538,7 @@ $('#rtTarget').addEventListener('change', updateRt);
 
 /* ---------- 修正から学習した候補 ---------- */
 let learned = { items: [], docs: 0 };
+let learnedShowAll = false;
 function scheduleLearn(){ clearTimeout(scheduleLearn.t); scheduleLearn.t = setTimeout(loadLearned, 4000); }
 async function loadLearned(){
   try { learned = await api('/api/learned?min=' + encodeURIComponent($('#lnMin').value)); } catch { return; }
@@ -879,15 +1550,12 @@ $('#lnExport').addEventListener('click', async () => {
   if (S.dirty) await saveDoc();
   const label = b.textContent; b.disabled = true; b.textContent = '書き出し中…(音声つきは数分かかることがあります)';
   try {
-    const r = await fetch('/api/export-corrections', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio: $('#lnExAudio').checked, tid: scope === 'doc' ? S.docId : null, scope: $('#lnExKind').value }) });
-    if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(j.message || ('エラー ' + r.status)); }
+    const r = await apiBlob('/api/export-corrections', { audio: $('#lnExAudio').checked, tid: scope === 'doc' ? S.docId : null, scope: $('#lnExKind').value });
     const [n, na, sk] = (r.headers.get('X-Clips') || '0,0,0').split(',').map(Number), blob = await r.blob();
-    const a = document.createElement('a'), d = new Date(), z = v => String(v).padStart(2, '0');
-    a.href = URL.createObjectURL(blob); a.download = `corrections-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.zip`;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    toast(`${n}行を書き出しました(音声つき${na}行${sk ? ' ・ 上限のため' + sk + '行はとばしました' : ''})。ダウンロードフォルダを確認してください`);
-  } catch (er){ toast('書き出せませんでした: ' + er.message); }
+    const d = new Date(), z = v => String(v).padStart(2, '0');
+    download(blob, `corrections-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.zip`);
+    toast(`${n}行を書き出しました(音声つき${na}行${sk ? ' ・ 上限のため' + sk + '行はとばしました' : ''})。ダウンロードフォルダを確認してください`, 5000, 'ok');
+  } catch (er){ toast('書き出せませんでした: ' + er.message, 6000, 'err'); }
   finally { b.disabled = false; b.textContent = label; }
 });
 const lnKey = x => `${x.wrong}=>${x.right}`;
@@ -897,15 +1565,20 @@ function renderLearned(){
   $('#lnStat').textContent = learned.docs ? `修正した行: ${learned.lines || 0}行(学習の対象: ${learned.docs}件の文字起こし)` : '';
   if (!items.length){
     box.innerHTML = `<p class="hint" style="margin:8px 0 0">${learned.docs ? '候補はありません(文字起こしを直すと、ここに出ます)' : 'v0.5 以降で文字起こしした分から学習します。文字起こしを直すと、ここに候補が出ます'}</p>`;
+    $('#lnMore').hidden = true;
     return;
   }
-  box.innerHTML = items.slice(0, 30).map((x, i) => {
+  const q = norm($('#lnSearch').value.trim());
+  const found = items.map((x, i) => ({ x, i })).filter(({ x }) => !q || norm(`${x.wrong} ${x.right}`).includes(q));
+  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う候補はありません</p>'; $('#lnMore').hidden = true; return; }
+  const shown = learnedShowAll ? found : found.slice(0, 10);
+  box.innerHTML = shown.map(({ x, i }) => {
     const d = lnDraft[lnKey(x)] || { w: x.wrong, r: x.right }, edited = d.w !== x.wrong || d.r !== x.right;
     return `<div class="ln${edited ? ' edited' : ''}" data-i="${i}">
     <div class="row" style="flex-wrap:nowrap;gap:4px"><input class="lw" type="text" value="${esc(d.w)}" maxlength="40" aria-label="誤(置換される文字)" style="flex:1;min-width:0"><span>→</span><input class="lr" type="text" value="${esc(d.r)}" maxlength="40" aria-label="正(置換後の文字)" style="flex:1;min-width:0"></div>
     <div class="row" style="margin-top:3px"><span class="pill">${x.count}回</span><button type="button" class="btn small" data-act="lnadd">登録</button><button type="button" class="btn small" data-act="lnign">無視</button><button type="button" class="btn small" data-act="lnrev"${edited ? '' : ' hidden'}>編集を戻す</button></div></div>`;
-  }).join('') + (items.length > 30 ? `<p class="hint" style="margin:6px 0 0">ほか${items.length - 30}件</p>` : '')
-    + '<p class="hint" style="margin:6px 0 0">「誤」「正」は、その場で直してから登録できます(例: 前後の文字を消して短くする)。</p>';
+  }).join('') + '<p class="hint" style="margin:6px 0 0">「誤」「正」は、その場で直してから登録できます(例: 前後の文字を消して短くする)。</p>';
+  const more = $('#lnMore'); more.hidden = found.length <= 10; more.textContent = learnedShowAll ? '上位10件だけ表示' : `残り${found.length - shown.length}件を表示`;
 }
 async function putSettingsNow(){ clearTimeout(setT); await api('/api/settings', { method: 'PUT', body: S.settings }); }
 $('#lnList').addEventListener('input', e => {
@@ -941,8 +1614,10 @@ $('#lnList').addEventListener('click', async e => {
     await loadLearned();
   } catch (er){ toast(er.message); }
 });
-$('#lnMin').addEventListener('change', loadLearned);
 $('#lnRefresh').addEventListener('click', loadLearned);
+$('#lnSearch').addEventListener('input', () => { learnedShowAll = false; renderLearned(); });
+$('#lnMore').addEventListener('click', () => { learnedShowAll = !learnedShowAll; renderLearned(); });
+$('#lnMin').addEventListener('change', () => { learnedShowAll = false; loadLearned(); });
 
 /* ---------- 修正の提案(文脈つきの統計) ---------- */
 S.sug = [];
@@ -1246,27 +1921,44 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && S.d
 const player = () => $('#player');
 function spById(id){ return S.doc && S.doc.speakers.find(s => s.id === id); }
 function markDirty(){
-  S.dirty = true; $('#saveState').textContent = S.conflict ? '競合しています' : '未保存…';
+  S.dirty = true; setSaveState(S.conflict ? '競合しています' : '未保存…', S.conflict ? 'err' : '');
   clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 700);
 }
 const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-async function saveDoc(){
-  if (!S.doc || !S.dirty) return;
-  if (S.conflict) return;
-  if (S.saving){ markDirty(); return; }
-  S.saving = true; S.dirty = false; $('#saveState').textContent = '保存中…';
-  const id = S.docId, force = S.forceNext;
-  try {
-    const r = await api('/api/transcript?id=' + id, { method: 'PUT', body: { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) } });
-    if (S.docId === id){ S.baseUpdatedAt = r.updatedAt; S.forceNext = false; }
-    $('#saveState').textContent = S.dirty ? '未保存…' : '保存しました ' + hhmm(); scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
-    const it = S.list.find(x => x.id === id); if (it){ it.title = S.doc.title; it.segments = S.doc.segments.length; }
-  } catch (e){
-    S.dirty = true;
-    if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; $('#saveState').textContent = '競合しています'; toast('別の場所で先に更新されています。画面上部の案内から選んでください', 6000); }
-    else { $('#saveState').textContent = '保存できません(5秒後にもう一度試します)'; toast('保存に失敗: ' + e.message); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
-  }
-  finally { S.saving = false; }
+/* 保存の状態の表示。kind: ''(未保存)/ 'busy'(保存中)/ 'ok'(保存済み)/ 'err'(競合・失敗)。色の印は CSS の [data-state] */
+function setSaveState(text, kind){ const el = $('#saveState'); el.textContent = text; el.setAttribute('data-state', kind || ''); updateDocTitle(); }
+let docSaveP = null, docOpenSeq = 0;
+function saveDoc(){
+  clearTimeout(markDirty.t);
+  if (docSaveP) return docSaveP;   // 文書を切り替える側も、実行中の保存が終わるまで待つ
+  if (S.conflict) return Promise.resolve(false);
+  if (!S.doc || !S.dirty) return Promise.resolve(true);
+  S.saving = true;
+  const run = async () => {
+    while (S.doc && S.dirty){   // 保存を待っている間に編集された分も、順番に保存する
+      S.dirty = false; setSaveState('保存中…', 'busy');
+      const id = S.docId, force = S.forceNext;
+      const body = { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) };
+      const count = body.segments.length;
+      try {
+        const r = await api('/api/transcript?id=' + encodeURIComponent(id), { method: 'PUT', body });
+        if (S.docId !== id) return false;
+        S.baseUpdatedAt = r.updatedAt; S.forceNext = false;
+        if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
+        scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
+        const it = S.list.find(x => x.id === id); if (it){ it.title = body.title; it.segments = count; }
+      } catch (e){
+        if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
+        S.dirty = true;
+        if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); }
+        else { setSaveState('保存できません(5秒後にもう一度試します)', 'err'); toast('保存に失敗: ' + e.message, 3800, 'err'); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
+        return false;
+      }
+    }
+    return !S.conflict;
+  };
+  docSaveP = run().finally(() => { S.saving = false; docSaveP = null; });
+  return docSaveP;
 }
 $('#cfReload').addEventListener('click', async () => {
   clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました');
@@ -1276,24 +1968,34 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
 }));
 document.addEventListener('visibilitychange', () => { if (document.hidden && S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブを離れるとき・画面を閉じるときに、待たずに保存する
 async function openDoc(id, keep){
-  if (S.dirty) await saveDoc();
+  const request = ++docOpenSeq;
+  if (!(await saveDoc()) || request !== docOpenSeq) return false;
+  const previousDoc = S.doc, previousVersion = S.baseUpdatedAt;
   if (!keep && S.docId && S.docId !== id) autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
   const scrollY = window.scrollY;
-  let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ return toast(e.message); }
+  let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ toast(e.message); return false; }
+  if (request !== docOpenSeq) return false;
+  if (S.doc !== previousDoc || S.dirty || S.saving || S.conflict || S.baseUpdatedAt !== previousVersion){
+    toast('読み込み中に編集されたため、現在の内容を保持しました。もう一度開いてください'); return false;
+  }
   S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
   if (!keep) S.navIdx = -1; else navRestore(navId, S.navIdx);
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
-  if (!keep && V.menu && $('.editor').clientWidth < 900){ toggleMenu(false); autoClosed = true; }
-  $('#docTitle').value = d.title || ''; $('#saveState').textContent = ''; syncEval();
+  if (!keep && V.menu && $('.editor').clientWidth < 1000){ toggleMenu(false); autoClosed = true; }
+  $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
+  $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
   { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / 再認識: ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
   $('#playerMsg').hidden = true;
   const p = player();
   if (!keep){   // 話者判別のあとの読み直しでは、再生位置をそのままにする
-    p.src = '/media?id=' + encodeURIComponent(id);
-    p.addEventListener('loadedmetadata', function once(){ p.removeEventListener('loadedmetadata', once); p.playbackRate = Number(V.rate); if (resumeIdx >= 0) p.currentTime = d.segments[resumeIdx].start; else if (!d.whole && d.start > 0) p.currentTime = d.start; });
+    /* 読み込みに失敗した動画の loadedmetadata は来ないので、前の文書の待ち受けが残っていると、次に開いた文書の動画で
+       前の文書の位置へ飛んでしまう。開くたびに番号を振り、最新の文書の待ち受けだけが働くようにする */
+    const mediaSeq = S.mediaSeq = (S.mediaSeq || 0) + 1;
+    p.addEventListener('loadedmetadata', () => { if (mediaSeq !== S.mediaSeq) return; p.playbackRate = Number(V.rate); if (resumeIdx >= 0) p.currentTime = d.segments[resumeIdx].start; else if (!d.whole && d.start > 0) p.currentTime = d.start; }, { once: true });
+    p.src = apiUrl('/media?id=' + encodeURIComponent(id));
     $('#q').value = ''; $('#flagKind').value = '';
   }
   renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
@@ -1301,6 +2003,7 @@ async function openDoc(id, keep){
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
   if (autoClosed && resumeIdx < 0) toast('編集欄を広くするため、メニューを閉じました(左上の ☰ で開けます)', 4000);
+  return true;
 }
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
 const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' }, TAG_KEY = { unclear: 'X', overlap: 'C', bgm: 'V' };
@@ -1309,14 +2012,14 @@ const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" dat
 function ovl(i){ const g = S.doc.segments, s = g[i], a = g[i - 1], b = g[i + 1]; return !!s && ((a && s.start < a.end - 0.01) || (b && s.end > b.start + 0.01)); }
 function markOvl(i){ for (const j of [i - 1, i, i + 1]){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = '前後の行と時刻が重なっています(字幕が2段に重なって出ます)'; else t.removeAttribute('title'); } } }
 function segHTML(s, i){
-  const sp = spById(s.speaker);
-  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}" data-i="${i}" style="--sp:${sp ? esc(sp.color || '#888') : 'transparent'}">
+  const c = spColor(spById(s.speaker)), cut = s.cutState === 'cut', ov = ovl(i);
+  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
     <button type="button" class="play" data-act="play" title="この行だけ再生(R)。行の終わりで止まります" aria-label="この行だけ再生">▶</button>
-    <div class="times${ovl(i) ? ' ovl' : ''}"${ovl(i) ? ' title="前後の行と時刻が重なっています(字幕が2段に重なって出ます)"' : ''}><input class="t" data-f="start" value="${fmtT(s.start, true)}" aria-label="開始"><span>–</span><input class="t" data-f="end" value="${fmtT(s.end, true)}" aria-label="終了"></div>
+    <div class="times${ov ? ' ovl' : ''}"${ov ? ' title="前後の行と時刻が重なっています(字幕が2段に重なって出ます)"' : ''}><input class="t" data-f="start" value="${fmtT(s.start, true)}" aria-label="開始"><span>–</span><input class="t" data-f="end" value="${fmtT(s.end, true)}" aria-label="終了"></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
-    <span class="ops"><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="聞いて確認して、この行の文字が正しいと判断したら押す(Shift+Space。次の行へ進みます)">校正済み</button></span>
+    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="聞いて確認して、この行の文字が正しいと判断したら押す(Shift+Space。次の行へ進みます)">校正済み</button></span>
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
     <div class="adj" aria-label="この行の操作"><span class="g" title="幅はツールの「⚙設定」の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="この行の後に、空の行を足します(N)">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" data-act="del" class="del" title="この行を消します(2回押し。Z でも消せます)">削除</button></span></div>
@@ -1327,6 +2030,7 @@ function renderDoc(){
   const segs = S.doc.segments;
   $('#segs').innerHTML = segs.length ? segs.map(segHTML).join('') : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
   autoSizeAll(true);
+  S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
   renderSpeakers(); applyFilter(); updateSel(); updatePfStat();
@@ -1426,13 +2130,14 @@ $('#segs').addEventListener('change', e => {
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   const f = e.target.dataset.f;
   if (e.target.classList.contains('sel')){ e.target.checked ? S.sel.add(s.id) : S.sel.delete(s.id); updateSel(); return; }
-  if (f === 'speaker'){ pushUndo(); s.speaker = e.target.value; const sp = spById(s.speaker); row.style.setProperty('--sp', sp ? sp.color : 'transparent'); markDirty(); }
+  if (f === 'speaker'){ pushUndo(); s.speaker = e.target.value; setRowSp(row, spById(s.speaker)); markDirty(); }
   else if (f === 'start' || f === 'end'){
     const v = parseT(e.target.value);
     const ok = Number.isFinite(v) && (f === 'start' ? v < s.end : v > s.start);
     if (!ok){ toast('時刻が正しくありません(開始は終了より前、例 1:23.5)'); e.target.value = fmtT(s[f], true); return; }
-    pushUndo(); s[f] = Math.round(v * 100) / 100; const before = s.id; sortSegs(); renderDoc(); markDirty();
-    document.querySelector(`#segs .seg:nth-child(${S.doc.segments.findIndex(x => x.id === before) + 1}) textarea`)?.focus();
+    /* 時刻で並びが変わると、今の行(S.navIdx)の添字がずれる。直した行を id で探し直して、今の行にする */
+    pushUndo(); s[f] = Math.round(v * 100) / 100; sortSegs(); S.navIdx = S.doc.segments.indexOf(s); renderDoc(); markDirty();
+    rowsEl()[S.navIdx]?.querySelector('textarea')?.focus({ preventScroll: true });
   }
 });
 $('#btnAddAt').addEventListener('click', () => { if (S.doc) insertAtTime(player().currentTime || 0); });
@@ -1442,6 +2147,14 @@ $('#segs').addEventListener('click', e => {
   const row = b.closest('.seg'), i = Number(row.dataset.i), segs = S.doc.segments, s = segs[i]; if (!s) return;
   if (S.navIdx !== i){ setNav(i); savePos(); }   // 押したボタンの行を「今の行」にする(mousedown ではフォーカスを移さないため、ここで)
   switch (b.dataset.act){
+    case 'cut':
+      pushUndo();
+      if (s.cutState === 'cut') delete s.cutState; else s.cutState = 'cut';
+      row.classList.toggle('cut', s.cutState === 'cut');
+      b.setAttribute('aria-pressed', s.cutState === 'cut' ? 'true' : 'false');
+      b.textContent = s.cutState === 'cut' ? 'カット済' : '残す';
+      markDirty();
+      break;
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
     case 'setnow': setTimeNow(s, b.dataset.f); break;
@@ -1456,7 +2169,12 @@ $('#segs').addEventListener('click', e => {
     case 'merge':
       if (i >= segs.length - 1) return toast('最後の行です');
       { const navId = navSnapshot(); pushUndo(); const n = segs[i + 1], sep = /[A-Za-z0-9]$/.test(s.text) && /^[A-Za-z0-9]/.test(n.text) ? ' ' : '';
-        s.text = (s.text + sep + n.text).slice(0, 2000); s.end = n.end; s.flag = s.flag || n.flag; if (!(s.proofed && n.proofed)) delete s.proofed; segs.splice(i + 1, 1);
+        /* 終了は遅い方(次の行が重なって先に終わる場合に、この行の後ろを失わない)。音の状態のメモはまとめ、カット済は両方ともカット済のときだけ残す */
+        s.text = (s.text + sep + n.text).slice(0, 2000); s.end = Math.max(s.end, n.end); s.flag = [...new Set([s.flag, n.flag].join('、').split('、').filter(Boolean))].join('、');
+        if (!(s.proofed && n.proofed)) delete s.proofed;
+        if (!(s.cutState === 'cut' && n.cutState === 'cut')) delete s.cutState;
+        { const tg = Object.keys(TAG_LABEL).filter(k => (s.tags || []).includes(k) || (n.tags || []).includes(k)); if (tg.length) s.tags = tg; else delete s.tags; }
+        S.sel.delete(n.id); segs.splice(i + 1, 1);
         navRestore(navId, i); }
       renderDoc(); markDirty(); break;
     case 'del': armDelete(b, () => { const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty(); }); break;
@@ -1468,7 +2186,7 @@ $('#segs').addEventListener('keydown', e => {
     const row = e.target.closest('.seg'), s = row && S.doc.segments[Number(row.dataset.i)], n = Number(dm[1]);
     if (s && (n === 0 || S.doc.speakers[n - 1])){
       e.preventDefault(); pushUndo(); s.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
-      row.querySelector('.spk').value = s.speaker; const sp = spById(s.speaker); row.style.setProperty('--sp', sp ? sp.color : 'transparent');
+      row.querySelector('.spk').value = s.speaker; setRowSp(row, spById(s.speaker));
       markDirty(); renderSpeakers(); return;
     }
   }
@@ -1582,7 +2300,7 @@ function deleteCur(){
 function assignSpeaker(n){
   const c = rowAndSeg(); if (!c || (n && !S.doc.speakers[n - 1])) return;
   pushUndo(); c.g.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
-  c.row.querySelector('.spk').value = c.g.speaker; const sp = spById(c.g.speaker); c.row.style.setProperty('--sp', sp ? sp.color : 'transparent');
+  c.row.querySelector('.spk').value = c.g.speaker; setRowSp(c.row, spById(c.g.speaker));
   markDirty(); renderSpeakers();
 }
 function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
@@ -1596,18 +2314,28 @@ const CMD_KEYS = {
   KeyN: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   KeyT: editCur, KeyB: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
 };
+/* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
+   それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
+const REPEAT_OK = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyF', 'KeyQ', 'KeyE']);
 window.addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
   const c = e.code;
-  if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob()) return; e.preventDefault(); proofOk(); return; }   // Space だけは例外で Shift+Space のまま
+  if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
   if (e.shiftKey) return;   // Space 以外は Shift を押していたら何もしない(単体キーで動くので、誤って押しても発動しないように)
-  if (c === 'KeyG'){ e.preventDefault(); toggleMenu(); return; }
+  if (c === 'KeyG'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }
   if (!S.doc || lockJob()) return;
   const dm = /^Digit([0-9])$/.exec(c);
-  if (dm){ e.preventDefault(); assignSpeaker(Number(dm[1])); return; }
-  if (CMD_KEYS[c]){ e.preventDefault(); CMD_KEYS[c](); }
+  if (dm){ e.preventDefault(); if (!e.repeat) assignSpeaker(Number(dm[1])); return; }
+  if (CMD_KEYS[c]){ e.preventDefault(); if (!e.repeat || REPEAT_OK.has(c)) CMD_KEYS[c](); }
 });
 
+/* Esc: 編集画面のどの入力欄(検索・絞り込み・速さ・タイトル・行の時刻や話者)からでも抜けて、操作キーを使えるようにする
+   (以前は行の文字の欄だけだったので、検索や速さを変えたあとに S や D が効かず「取りこぼし」に見えた)。日本語の変換中は変換の取り消しにだけ使う */
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]')) return;
+  const t = e.target;
+  if (isTextEntry(t) && t.closest && t.closest('#doc')) t.blur();
+});
 /* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き */
 window.addEventListener('keydown', e => {
   if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || document.querySelector('dialog[open]')) return;
@@ -1745,6 +2473,20 @@ player().addEventListener('playing', () => { $('#playerMsg').hidden = true; });
    表示部(動画本体)の再生ボタンで再開したときにも、またそこで止まってしまう。
    一時停止するたびに必ずクリアして、表示部の再生は常に最後まで続けて流れるようにする */
 player().addEventListener('pause', () => { S.playEnd = null; });
+
+/* ブラウザのタブの題名: 「● タイトル - 文字起こしツール」(● は未保存・保存できていない) */
+function updateDocTitle(){
+  const d = S.doc, st = $('#saveState').getAttribute('data-state');
+  document.title = d ? `${S.dirty || S.saving || st === 'err' ? '● ' : ''}${String(d.title || '無題').slice(0, 60)} - 文字起こしツール` : '文字起こしツール';
+}
+/* 文書を閉じる(開いている文書を削除したとき) */
+function closeDoc(){
+  clearTimeout(markDirty.t);
+  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null;
+  $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
+  S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
+  renderList(); updateDocTitle();
+}
 
 /* ---------- 検索・話者・置換 ---------- */
 $('#q').addEventListener('input', applyFilter);
@@ -1890,9 +2632,7 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
   const kind = b.dataset.ex, text = buildExport(kind);
   if (text === null) return toast('書き出す行がありません');
   const mime = { srt: 'application/x-subrip', vtt: 'text/vtt', txt: 'text/plain', json: 'application/json' }[kind];
-  const name = (S.doc.title || 'transcript').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || 'transcript';
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
-  a.download = name + '.' + kind; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  download(new Blob([text], { type: mime + ';charset=utf-8' }), safeName(S.doc.title) + '.' + kind);
 }));
 ['exBase', 'exWrap', 'exSpk', 'exTs'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 
@@ -1935,24 +2675,131 @@ $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); 
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'open') openDoc(b.dataset.tid);
-  else if (b.dataset.act === 'evalview'){ $('#accCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); loadEvals(); }
+  else if (b.dataset.act === 'evalview'){ showInMenu($('#accCard')); loadEvals(); }   // 「精度」タブに切り替えてから見せる(別のタブのままだと隠れていて何も起きなかった)
   else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
 });
 $('#txList').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return; const id = b.closest('.txi').dataset.id;
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'del') armDelete(b, async () => {
-    try { await api('/api/transcript?id=' + id, { method: 'DELETE' }); } catch (er){ return toast(er.message); }
-    if (S.docId === id){ S.doc = null; S.docId = null; S.dirty = false; $('#doc').hidden = true; $('#noDoc').hidden = false; player().removeAttribute('src'); player().load(); }
+    /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
+       (消したあとに保存が届くと失敗し続け、「未保存」が残って他の文書を開けなくなるため) */
+    if (S.docId === id){ clearTimeout(markDirty.t); if (docSaveP) await docSaveP.catch(() => {}); }
+    try { await api('/api/transcript?id=' + encodeURIComponent(id), { method: 'DELETE' }); } catch (er){ return toast(er.message, 3800, 'err'); }
+    if (S.docId === id) closeDoc();
+    toast('削除しました', 2500);
     loadList();
   });
 });
 window.addEventListener('keydown', e => {
-  if (!S.doc || isTextEntry(e.target)) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); doUndo(); }
+  if (!S.doc || isTextEntry(e.target) || document.querySelector('dialog[open]')) return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   else if (e.key === ' ' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.matches('button,summary,video')){ e.preventDefault(); const p = player(); p.paused ? p.play().catch(() => {}) : p.pause(); }
 });
-window.addEventListener('beforeunload', e => { if (S.dirty){ e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preventDefault(); e.returnValue = ''; } });   // 送信中の保存も、閉じると届かないことがある
+
+/* ---------- 受け渡し(docs/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
+const YT_PREFIX = 'https://www.youtube.com/';
+const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
+const WARN_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>';
+/* youtube-tools-clip/v1 の「元の配信: タイトル 12:34〜13:20」。中の文字列(配信タイトル・マークの名前・URL・パス)は外から来るので必ずエスケープし、
+   リンクにするのは https://www.youtube.com/ で始まる URL だけ(javascript: などを踏ませないため) */
+function clipHTML(clip){
+  const o = v => v && typeof v === 'object' ? v : {};
+  const src = o(clip.source), rg = o(clip.range), mk = o(clip.mark);
+  const a = Number(rg.start), b = Number(rg.end);
+  const title = String(src.title || (src.path ? String(src.path).split(/[\\/]/).pop() : '') || src.videoId || '(タイトル不明)').slice(0, 200);
+  const url = typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url + (Number.isFinite(a) ? (src.url.includes('?') ? '&' : '?') + 't=' + Math.floor(a) + 's' : '') : '';
+  const when = Number.isFinite(a) ? `${fmtT(a)}〜${Number.isFinite(b) ? fmtT(b) : ''}` : '';
+  const name = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="YouTube で元の配信のこの位置を開く">${esc(title)}</a>` : `<b>${esc(title)}</b>`;
+  const label = mk.label ? ` ・ 「${esc(String(mk.label).slice(0, 80))}」` : '';
+  return `${CLIP_IC}<span>元の配信: ${name} <span class="mono">${esc(when)}</span>${label}</span>`;
+}
+function renderClipBox(box, clip, warning){
+  if (clip && typeof clip === 'object'){ box.className = 'tt-clip'; box.innerHTML = clipHTML(clip) + (warning ? `<span class="hint">(${esc(warning)})</span>` : ''); box.hidden = false; }
+  else if (warning){ box.className = 'tt-clip warn'; box.innerHTML = `${WARN_IC}<span>${esc(warning)}</span>`; box.hidden = false; }
+  else { box.hidden = true; box.innerHTML = ''; }
+}
+/* 動画(または .clip.json)のパスから、隣の .clip.json を調べて「元の配信」を出す。サーバーはネットワークのパスを調べず、ffmpeg も呼ばないのですぐ返る */
+let clipSeq = 0;
+async function lookupClip(path){
+  const box = $('#srcClip'), seq = ++clipSeq;
+  path = String(path || '').trim().replace(/^"(.*)"$/, '$1');
+  if (!path){ box.hidden = true; return null; }
+  let r; try { r = await api('/api/clip-info?path=' + encodeURIComponent(path)); } catch { if (seq === clipSeq) box.hidden = true; return null; }   // 400(動画でないパス)などは、表示を消すだけ
+  if (seq !== clipSeq) return null;   // 待っている間に別のパスが入った
+  renderClipBox(box, r.clip, r.warning);
+  return r;
+}
+$('#srcPath').addEventListener('change', e => lookupClip(e.target.value));
+/* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
+   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/pipeline.md 3)。
+   読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
+function takeUrlParams(){
+  let q; try { q = new URLSearchParams(location.search); } catch { return false; }
+  const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
+  if (!q.has('media') && !q.has('clip')) return false;
+  q.delete('media'); q.delete('clip');
+  const rest = q.toString();
+  try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
+  if (!media && !clip) return false;
+  setTab('file'); setSideTab('start'); $('#newBox').open = true;
+  if (media) $('#srcPath').value = media;
+  lookupClip(clip || media).then(r => {
+    if (clip && !media && r && r.mediaPath && !$('#srcPath').value.trim()) $('#srcPath').value = r.mediaPath;   // ?clip= だけのときは、.clip.json が指す動画を入れる
+  });
+  window.scrollTo(0, 0);   // 「新しく文字起こしする」はメニューの先頭なので、一番上を見せる(ファイル欄と「元の配信」が見える)
+  toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '設定を確かめて「文字起こしを開始」を押してください(自動では始めません)', 7000, 'info');
+  return true;
+}
+/* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
+S.handoff = null;   // { id, transcript, srt, plan }: 開いている文書を、動画の隣に保存したパス
+function renderDocExtras(d){
+  const box = $('#docClip');
+  if (d && d.clip && typeof d.clip === 'object'){ box.className = 'tt-clip'; box.innerHTML = clipHTML(d.clip); box.hidden = false; }
+  else { box.hidden = true; box.innerHTML = ''; }
+  if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
+  renderHandoff();
+}
+const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
+function renderHandoff(){
+  const box = $('#handoffOut'), h = S.handoff;
+  if (!box) return;
+  if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
+  const rows = [['transcript', '文字起こし'], ['srt', '字幕'], ['plan', '残す区間']].filter(([k]) => h[k])
+    .map(([k, l]) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`).join('');
+  const src = String(S.doc.sourcePath || '');
+  const c2r = h.transcript && src ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(src) + '&transcript=' + encodeURIComponent(h.transcript)) : '';
+  box.innerHTML = rows + `<div class="row">${c2r ? `<a class="btn small primary" id="openC2R" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます</span>` : '<span class="hint">cut2resolve で開くには「文字起こし(.transcript.json)」を保存してください</span>'}</div>`;
+  box.hidden = false;
+}
+async function exportBeside(fmt, btn){
+  if (!S.doc) return;
+  if (lockJob()) return toast('話者の判別・再認識の途中です。終わってから書き出してください', 4000, 'err');
+  const id = S.docId, label = btn.textContent;
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    /* 画面の内容を先に保存し、その版(baseUpdatedAt)を付けて頼む。サーバーは保存済みの内容を書き出すので、
+       保存が終わっていない・競合しているときは書き出さない(画面と違う内容を次のツールへ渡さないため) */
+    const ok = await saveDoc();
+    if (S.docId !== id) return;
+    if (!ok || S.dirty || S.saving) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 6000, 'err');
+    const r = await api('/api/export-file', { body: { id, format: fmt, baseUpdatedAt: S.baseUpdatedAt, wrap: Number($('#exWrap').value) || 0, speakerNames: $('#exSpk').checked } });
+    if (S.docId !== id) return;
+    S.handoff = { ...(S.handoff && S.handoff.id === id ? S.handoff : {}), id, [HANDOFF_KEY[fmt]]: r.path };
+    renderHandoff(); loadSiblings();   // cut2resolve のポートを確かめ直す(終わると、リンクを作り直す)
+    toast(`${r.overwritten ? '上書き保存' : '保存'}しました: ${r.name}(${Number(r.count) || 0}${fmt === 'cut-plan-v1' ? '区間' : '行'})`, 5000, 'ok');
+  } catch (e){
+    if (e.status === 409) toast('保存が追いついていません(書き出す直前に内容が変わりました)。少し待ってから、もう一度押してください', 6000, 'err');
+    else toast('動画の隣に保存できませんでした: ' + e.message, 7000, 'err');
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
+$('#handoffOut').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
+  const v = S.handoff[b.dataset.k]; if (!v) return;
+  try { await navigator.clipboard.writeText(v); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+});
 
 /* ---------- 起動 ---------- */
 async function boot(){
@@ -1966,15 +2813,50 @@ async function boot(){
   await loadRoster();
   if (S.tools){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
-    $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${l}">${{ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l]}</option>`).join('');
+    $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
   applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup();
-  try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done') S.seen.add(x.id); } catch {}
+  takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
+  loadSiblings();
+  try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDataset(), loadProgress(), loadBaselines()]);
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 boot();
+function installResolveExport(){
+  const host = $('#handoffBox');   // 「動画の隣に保存」の下に置く(書き出しの流れ: ダウンロード → 次のツールへ → Resolve)
+  if (!host || $('#resolveExportBox')) return;
+  const box = document.createElement('div');
+  box.id = 'resolveExportBox'; box.className = 'fld';
+  box.innerHTML = `<span class="l">DaVinci Resolveへ渡す</span>
+    <div class="row"><button type="button" class="btn small" id="cutSelected">選択行をカット</button><button type="button" class="btn small" id="keepSelected">選択行を残す</button></div>
+    <div class="row"><label class="lag">FPS <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option>29.97</option><option selected>30</option><option>50</option><option>59.94</option><option>60</option></select></label><button type="button" class="btn small" id="resolveExport">Resolveパッケージ(zip)をダウンロード</button></div>
+    <span class="hint">「残す/カット済」で仮編集を指定します。映像・音声、Text+字幕、FCPXML、SRT、cut-planをまとめます。切り抜きスタジオで新しく書き出した素材は前後10秒までトリムを延ばせます。</span>`;
+  host.after(box);
+  const bulk = cut => {
+    if (!S.doc || !S.sel.size) return toast('先に左端のチェックで行を選んでください');
+    if (lockJob()) return toast('処理中のため、今は変更できません');
+    pushUndo();
+    for (const s of S.doc.segments) if (S.sel.has(s.id)) { if (cut) s.cutState = 'cut'; else delete s.cutState; }
+    renderDoc(); markDirty(); toast(`${S.sel.size}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
+  };
+  $('#cutSelected').addEventListener('click', () => bulk(true));
+  $('#keepSelected').addEventListener('click', () => bulk(false));
+  $('#resolveExport').addEventListener('click', async () => {
+    if (!S.docId) return toast('先に文字起こしを開いてください');
+    if (!(await saveDoc()) || S.dirty) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    const b = $('#resolveExport'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
+    try {
+      const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value });
+      download(await r.blob(), `${safeName(S.doc.title)}-resolve.zip`);
+      const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
+      toast(`Resolveパッケージを作成しました(カット${cuts}区間・Text+ ${caps}件)`, 6000, 'ok');
+    } catch (e){ toast('Resolveパッケージを作れませんでした: ' + e.message, 7000, 'err'); }
+    finally { b.disabled = false; b.textContent = label; }
+  });
+}
+installResolveExport();
 })();
 </script>
 </body>

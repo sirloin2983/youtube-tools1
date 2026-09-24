@@ -22,8 +22,13 @@
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
+  受け渡し(docs/pipeline.md。本体は pipeline_io.py):
+  GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
+  GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
+  POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
+  GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
 
-127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
+127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
 """
 import bisect
 import difflib
@@ -39,6 +44,7 @@ import os
 import queue
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -54,8 +60,11 @@ import wave
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(pipeline_io.py・resolve_export.py)を読めるように
+
+
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.9.8"  # index.html 側の APP_VERSION と揃える
+SERVER_VERSION = "0.10.0"  # index.html 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 TX_DIR = os.path.join(ROOT, "transcripts")
@@ -77,6 +86,18 @@ MAX_SPAN_SEC = 6 * 3600
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = re.compile(r"^[0-9a-f]{12}$")
 MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]+(/(?!\.)[A-Za-z0-9_.-]+)?$")   # 「..」で始まる名前(親フォルダの指定)は受け付けない
+
+
+def valid_model(name):
+    """モデル名として受け付けるか。faster-whisper は、名前と同じフォルダが(起動したフォルダからの相対で)あれば、
+    それをモデルとして読み込むので、手元に実在するパスになる名前は断る(例: 「transcripts」「models/diar」)。
+    Hugging Face の「組織/名前」と、small・large-v3 などの名前だけを通す。"""
+    if not isinstance(name, str) or len(name) > 100 or not MODEL_RE.match(name):
+        return False
+    try:
+        return not (os.path.exists(name) or os.path.exists(os.path.join(ROOT, name)))
+    except (OSError, ValueError):
+        return False
 MEDIA_TYPES = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
     ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".flv": "video/x-flv",
@@ -94,6 +115,10 @@ LANGS = ["ja", "en", "ko", "zh", "auto"]
 HALLUC = ("ご視聴ありがとうございました", "チャンネル登録", "字幕", "Thanks for watching", "Subtitles by", "ご清聴ありがとうございました")
 
 
+def _reject_json_constant(name):
+    raise ValueError("NaN / Infinity は受け付けません: %s" % name)
+
+
 class ApiError(Exception):
     def __init__(self, code, message, status=400):
         super().__init__(message)
@@ -101,17 +126,36 @@ class ApiError(Exception):
 
 
 # ---------- ユーティリティ ----------
+def replace_retry(src, dst):
+    """os.replace。Windows では、ウイルス対策ソフト・検索インデックスが一瞬ファイルを開いていて PermissionError になることがあるので、
+    少し待って数回やり直す(自動保存がたまに「保存できません」になるのを防ぐ)。"""
+    for i in range(6):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or i == 5:
+                raise
+            time.sleep(0.05 * (i + 1))
+
+
 def atomic_write(path, data: bytes):
+    """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える。
+    fsync は、停電・強制終了のあとに「中身が空の文字起こし」が残るのを防ぐため(校正の成果を失わないことを優先。1回数ミリ秒)。"""
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.replace(tmp, path)
-    except OSError:
-        if os.path.exists(tmp):
+            f.flush()
+            os.fsync(f.fileno())
+        replace_retry(tmp, path)
+    except BaseException:
+        try:
             os.unlink(tmp)
+        except OSError:
+            pass
         raise
 
 
@@ -121,6 +165,24 @@ def atomic_write(path, data: bytes):
 LOG_FILE = os.path.join(ROOT, "serve.log")
 CRASH_FILE = os.path.join(ROOT, "serve.crash.log")
 RUN_MARK = os.path.join(ROOT, ".running.json")
+TOOL_ID = "transcribe"   # docs/pipeline.md の 4 のツールID(.runtime/transcribe.json)
+_pio_mod = []
+
+
+def pio(required=True):
+    """受け渡しの部品 pipeline_io(docs/pipeline.md。clip/v1・transcript/v1・cut-plan/v1・動画の隣への保存・.runtime)。
+    必要になったときに読み込む: serve.py だけを差し替えた(隣の .py を更新し忘れた)場合でも、サーバー自体は起動して従来の機能は使えるように。
+    required=False なら、読めないとき None(文字起こしの開始時の .clip.json 探しなど、無くても続けられる所で使う)。"""
+    if not _pio_mod:
+        try:
+            import pipeline_io
+            _pio_mod.append(pipeline_io)
+        except ImportError as e:
+            if not required:
+                return None
+            raise ApiError("missing_module", "受け渡しの部品(pipeline_io.py / resolve_export.py)が見つかりません。"
+                                             "ツールのフォルダの中身(.py と index.html)をまとめて更新してください(%s)" % e, 500)
+    return _pio_mod[0]
 log = logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}
 _crash_fp = None
@@ -366,6 +428,8 @@ def sanitize_transcript(obj, base=None):
             one["tags"] = tg
         if sg.get("proofed") is True:   # 校正済み(人が聞いて、この行の文字が正しいと確認した印)。学習・精度測定の正解データに使う
             one["proofed"] = True
+        if sg.get("cutState") == "cut":
+            one["cutState"] = "cut"
         segs.append(one)
     out = dict(base or {})
     if "evalSet" in obj:   # 評価用の印(キーが来たときだけ変える。古い画面から保存しても外れないように)
@@ -378,21 +442,44 @@ def sanitize_transcript(obj, base=None):
     return out
 
 
+_summary_cache = {}   # tid -> ((更新日時ns, 大きさ), 要約)。一覧・文字起こし済みの判定のたびに、全部の文書を JSON として読み直さないため
+
+
+def transcript_summary(tid):
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    try:
+        st = os.stat(tx_path(tid))
+        key = (st.st_mtime_ns, st.st_size)
+        hit = _summary_cache.get(tid)
+        if hit and hit[0] == key:
+            return hit[1]
+        with open(tx_path(tid), "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    sm = {"id": tid, "title": d.get("title", ""), "sourceName": d.get("sourceName", ""), "start": d.get("start", 0),
+          "end": d.get("end"), "model": d.get("model", ""), "segments": len(d.get("segments") or []),
+          "createdAt": d.get("createdAt", 0), "updatedAt": d.get("updatedAt", 0), "evalSet": d.get("evalSet") is True,
+          "hasClip": isinstance(d.get("clip"), dict), "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole"))}
+    _summary_cache[tid] = (key, sm)
+    return sm
+
+
+def _tids():
+    return [n[:-5] for n in (os.listdir(TX_DIR) if os.path.isdir(TX_DIR) else []) if n.endswith(".json") and TID_RE.match(n[:-5])]
+
+
 def list_transcripts():
-    items = []
-    if os.path.isdir(TX_DIR):
-        for name in os.listdir(TX_DIR):
-            tid = name[:-5]
-            if not name.endswith(".json") or not TID_RE.match(tid):
-                continue
-            try:
-                with open(tx_path(tid), "r", encoding="utf-8") as f:
-                    d = json.load(f)
-            except (OSError, ValueError):
-                continue
-            items.append({"id": tid, "title": d.get("title", ""), "sourceName": d.get("sourceName", ""), "start": d.get("start", 0),
-                          "end": d.get("end"), "model": d.get("model", ""), "segments": len(d.get("segments") or []),
-                          "createdAt": d.get("createdAt", 0), "updatedAt": d.get("updatedAt", 0), "evalSet": d.get("evalSet") is True})
+    items, seen = [], set()
+    for tid in _tids():
+        seen.add(tid)
+        sm = transcript_summary(tid)
+        if sm:
+            items.append({k: v for k, v in sm.items() if not k.startswith("_")})
+    for k in [k for k in _summary_cache if k not in seen]:   # 消した文書の分は捨てる
+        _summary_cache.pop(k, None)
     items.sort(key=lambda x: x["createdAt"], reverse=True)
     return items
 
@@ -506,6 +593,27 @@ _seq_counter = itertools.count()
 JOB_PRIORITY = {"diarize": 0}   # 未指定(transcribe/retranscribe/abtest 等)は既定の1。数値が小さいほど先に実行
 _models = {}
 _model_lock = threading.Lock()
+_model_used = [0.0]   # 最後にモデルを使った時刻(ジョブの終わりにも更新する)
+try:
+    MODEL_IDLE_SEC = max(0, int(os.environ.get("TRANSCRIBE_MODEL_IDLE_SEC", "900")))
+except ValueError:
+    MODEL_IDLE_SEC = 900
+# 読み込んだモデル(large-v3 で数GB)は次のジョブのために残すが、この秒数ジョブが無ければ手放す(0 = 手放さない)。
+# 画面を開いたまま他の作業(動画編集など)をするときにメモリを返すため。次の文字起こしでは読み込み直し(10〜30秒程度)が入る。
+
+
+def release_idle_models(now=None):
+    """しばらく使っていないモデルを手放す。ワーカー(ジョブを実行するスレッド)がジョブの合間にだけ呼ぶので、使用中のモデルは消さない。"""
+    if MODEL_IDLE_SEC <= 0:
+        return False
+    now = time.time() if now is None else now
+    with _model_lock:
+        if not _models or now - _model_used[0] < MODEL_IDLE_SEC:
+            return False
+        log.info("しばらく使っていないモデルを解放: %s(メモリ %s)", ", ".join("%s/%s" % k for k in _models), _mem())
+        _models.clear()
+    gc.collect()
+    return True
 
 
 class Cancelled(Exception):
@@ -528,8 +636,14 @@ def validate_job(req):
     if end is not None and end - start > MAX_SPAN_SEC:
         raise ApiError("too_long", "1回に処理できるのは6時間までです。範囲を分けてください", 400)
     whole = start == 0 and (end is None or dur is None or abs(end - dur) < 0.5)
+    # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
+    # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
+    # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
+    pm = pio(required=False)
+    clip, clip_warn, _clip_path = pm.find_clip(src, dur) if pm else (None, None, None)
+    warnings = [clip_warn] if clip_warn else []
     model = str(req.get("model") or "small").strip()
-    if not MODEL_RE.match(model):
+    if not valid_model(model):
         raise ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or "ja")
     if lang not in LANGS:
@@ -542,15 +656,23 @@ def validate_job(req):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
-            "autoLearned": req.get("autoLearned") is True,
+            "autoLearned": req.get("autoLearned") is True, "clip": clip, "warnings": warnings,
             "title": str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]}
+
+
+ACTIVE_STATES = ("queued", "loading", "extracting", "running")
+EXCLUSIVE = {"diarize": ("diarize", "retranscribe"), "retranscribe": ("diarize", "retranscribe"), "abtest": ("abtest",)}   # 同じ文字起こしに同時に入れない組み合わせ
 
 
 def add_job(spec, kind="transcribe"):
     with _jobs_lock:
-        waiting = sum(1 for j in _jobs.values() if j["state"] in ("queued", "loading", "extracting", "running"))
+        waiting = sum(1 for j in _jobs.values() if j["state"] in ACTIVE_STATES)
         if waiting >= MAX_QUEUE:
             raise ApiError("busy", "待機中のジョブが多すぎます(最大%d件)" % MAX_QUEUE, 429)
+        excl = EXCLUSIVE.get(kind)
+        if excl and spec.get("tid") and any(j.get("kind") in excl and j["spec"].get("tid") == spec["tid"] and j["state"] in ACTIVE_STATES for j in _jobs.values()):
+            # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
+            raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
         job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
@@ -568,7 +690,10 @@ def add_job(spec, kind="transcribe"):
 
 
 def public_job(j):
-    return {k: j[k] for k in ("id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt")}
+    out = {k: j[k] for k in ("id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt")}
+    out["warnings"] = list((j.get("spec") or {}).get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
+    out["hasClip"] = bool((j.get("spec") or {}).get("clip"))
+    return out
 
 
 def extract_audio(job, spec, wav):
@@ -665,6 +790,7 @@ def load_model(name, job, pref="auto", force_cpu=False):
         last = None
         for dev in order:
             key = (name, dev)
+            _model_used[0] = time.time()
             if key in _models:
                 return _models[key], dev
             if _models:   # 別のモデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
@@ -889,6 +1015,8 @@ def run_job(job):
                           "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
                           "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
                "speakers": [], "segments": segs, "original": original, "createdAt": now, "updatedAt": now}
+        if spec.get("clip"):
+            doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
         atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
     except Cancelled:
@@ -907,7 +1035,11 @@ def run_job(job):
 
 def worker():
     while True:
-        _priority, _seq, jid = _queue.get()
+        try:
+            _priority, _seq, jid = _queue.get(timeout=60)
+        except queue.Empty:
+            release_idle_models()   # ジョブが無い間に、長く使っていないモデルを手放す
+            continue
         work_one(jid)
 
 
@@ -929,6 +1061,7 @@ def work_one(jid):
         if job:
             job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
     finally:
+        _model_used[0] = time.time()   # 手放すまでの時間は、ジョブが終わった時から数える
         write_mark(None)
 
 
@@ -1129,7 +1262,13 @@ def assign_speakers(segs, turns, offset):
 
 
 def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT):
-    """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。"""
+    """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
+    読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。"""
+    with _save_lock:
+        return _apply_diarization(tid, turns, offset, requested, emb)
+
+
+def _apply_diarization(tid, turns, offset, requested, emb):
     doc = read_transcript(tid)
     segs = doc.get("segments") or []
     res = assign_speakers(segs, turns, offset)
@@ -1229,7 +1368,7 @@ def run_diarize(job):
 # ---------- 置換辞書・修正からの学習 ----------
 def load_settings():
     try:
-        with open(SETTINGS, "r", encoding="utf-8") as f:
+        with open(SETTINGS, "r", encoding="utf-8-sig") as f:   # メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように
             d = json.load(f)
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
@@ -1480,7 +1619,7 @@ _fb_lock = threading.Lock()
 
 def load_feedback():
     try:
-        with open(FEEDBACK, "r", encoding="utf-8") as f:
+        with open(FEEDBACK, "r", encoding="utf-8-sig") as f:
             d = json.load(f)
         if isinstance(d, dict):
             return {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
@@ -1637,7 +1776,7 @@ def load_roster():
     """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。"""
     try:
         with open(ROSTER, "rb") as f:
-            d = json.loads(f.read().decode("utf-8"))
+            d = json.loads(f.read().decode("utf-8-sig"))   # README で「直せます」と案内しているので、BOM 付きでも読む
         groups = []
         for g in d.get("groups") or []:
             names = [str(n).strip() for n in g.get("names") or [] if str(n).strip()]
@@ -1872,7 +2011,7 @@ _base_lock = threading.Lock()
 
 def read_baselines():
     try:
-        with open(EVAL_BASE, "r", encoding="utf-8") as f:
+        with open(EVAL_BASE, "r", encoding="utf-8-sig") as f:
             d = json.load(f)
         return d if isinstance(d, list) else []
     except (OSError, ValueError):
@@ -1924,63 +2063,74 @@ def export_corrections(tid=None, audio=True, scope="changed"):
             docs = [tid] if tid else [t for t, _ in _all_infos()]
         os.makedirs(TMP_DIR, exist_ok=True)
         path = os.path.join(TMP_DIR, "export-%s.zip" % uuid.uuid4().hex[:8])
-        n = na = skipped = 0
-        import zipfile
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-            lines = []
-            for t in docs:
-                if n >= MAX_EXPORT_CLIPS:
-                    break
-                try:
-                    d = read_transcript(t)
-                except ApiError:
-                    continue
-                if d.get("evalSet") is True:
-                    if tid:
-                        raise ApiError("eval_set", "評価用の文字起こしは、学習用のデータとして書き出しません(評価用を外すと書き出せますが、その時点から評価には使えなくなります)", 400)
-                    continue
-                groups = learn_groups(d, "proofed") if scope == "proofed" else (learn_groups(d) if d.get("original") else [])
-                if not groups:
-                    continue
-                try:
-                    src = check_source(d.get("sourcePath")) if ff else None
-                except ApiError:
-                    src = None
-                for g in groups:
-                    if n >= MAX_EXPORT_CLIPS:
-                        skipped += 1
-                        continue
-                    if g["end"] - g["start"] < 0.3:
-                        continue
-                    n += 1
-                    name = None
-                    if ff and src:
-                        name = "audio/%s_%07d.wav" % (t, int(g["start"] * 100))
-                        tmp = os.path.join(TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
-                        try:
-                            r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, g["start"] - 0.2), "-i", src,
-                                                "-t", "%.3f" % min(MAX_CLIP_SEC, g["end"] - g["start"] + 0.4), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", tmp],
-                                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-                            if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1000:
-                                z.write(tmp, name)
-                                na += 1
-                            else:
-                                name = None
-                        except (OSError, subprocess.SubprocessError):
-                            name = None
-                        finally:
-                            try:
-                                os.unlink(tmp)
-                            except OSError:
-                                pass
-                    lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
-                                             "original": g["original"], "text": g["text"], "audio": name,
-                                             **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
-            z.writestr("corrections.jsonl", "\n".join(lines) + ("\n" if lines else ""))
-            z.writestr("README.txt", EXPORT_README)
-        return path, n, na, skipped
+        try:
+            return _export_corrections_zip(path, docs, tid, ff, scope)
+        except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
     finally:
         _export_lock.release()
+
+
+def _export_corrections_zip(path, docs, tid, ff, scope):
+    n = na = skipped = 0
+    import zipfile
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        lines = []
+        for t in docs:
+            if n >= MAX_EXPORT_CLIPS:
+                break
+            try:
+                d = read_transcript(t)
+            except ApiError:
+                continue
+            if d.get("evalSet") is True:
+                if tid:
+                    raise ApiError("eval_set", "評価用の文字起こしは、学習用のデータとして書き出しません(評価用を外すと書き出せますが、その時点から評価には使えなくなります)", 400)
+                continue
+            groups = learn_groups(d, "proofed") if scope == "proofed" else (learn_groups(d) if d.get("original") else [])
+            if not groups:
+                continue
+            try:
+                src = check_source(d.get("sourcePath")) if ff else None
+            except ApiError:
+                src = None
+            for g in groups:
+                if n >= MAX_EXPORT_CLIPS:
+                    skipped += 1
+                    continue
+                if g["end"] - g["start"] < 0.3:
+                    continue
+                n += 1
+                name = None
+                if ff and src:
+                    name = "audio/%s_%07d.wav" % (t, int(g["start"] * 100))
+                    tmp = os.path.join(TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
+                    try:
+                        r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, g["start"] - 0.2), "-i", src,
+                                            "-t", "%.3f" % min(MAX_CLIP_SEC, g["end"] - g["start"] + 0.4), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", tmp],
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                        if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1000:
+                            z.write(tmp, name)
+                            na += 1
+                        else:
+                            name = None
+                    except (OSError, subprocess.SubprocessError):
+                        name = None
+                    finally:
+                        try:
+                            os.unlink(tmp)
+                        except OSError:
+                            pass
+                lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
+                                         "original": g["original"], "text": g["text"], "audio": name,
+                                         **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
+        z.writestr("corrections.jsonl", "\n".join(lines) + ("\n" if lines else ""))
+        z.writestr("README.txt", EXPORT_README)
+    return path, n, na, skipped
 
 
 # ---------- データの保管(将来の学習・声紋登録・再解析に使えるように、校正の成果と音声を残す) ----------
@@ -2146,7 +2296,7 @@ def archive_doc(tid, full=True):
         except ApiError as e:
             note = e.message
     made = 0
-    if base:
+    if base and ff:
         for e in todo:
             dur = min(ARCH_MAX_CLIP, e["end"] - e["start"]) + ARCH_PAD * 2
             if e["end"] - e["start"] < 0.1:
@@ -2330,7 +2480,7 @@ def validate_retranscribe(req):
     if not ids:
         raise ApiError("empty", "再認識する行がありません", 400)
     model = str(req.get("model") or "large-v3").strip()
-    if not MODEL_RE.match(model):
+    if not valid_model(model):
         raise ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
@@ -2355,6 +2505,19 @@ def validate_retranscribe(req):
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "title": ("範囲を再認識: " if mode == "range" else "再認識: ") + (str(doc.get("title") or "") or "無題")[:100]}
+
+
+AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(dynaudnorm)の窓が数秒あるので、端で音が変わらないよう広めに
+
+
+def audio_span(targets, doc_start, doc_end, pad=0.3):
+    """再認識・比較で取り出す音声の範囲(元の動画の秒)。対象の行の最初〜最後(+余裕)だけにする。
+    以前は文書の範囲全体(最大6時間)を毎回取り出していて、1行の再認識でも数十秒と、1〜2GB のメモリを使っていた。"""
+    a = max(doc_start, min(float(t["start"]) for t in targets) - pad - AUDIO_MARGIN)
+    b = max(float(t["end"]) for t in targets) + pad + AUDIO_MARGIN
+    if doc_end:
+        b = min(doc_end, b)
+    return round(a, 3), round(max(b, a + 0.5), 3)
 
 
 def recognize_chunk(model, kw, chunk, seg, sep, terms=()):
@@ -2388,6 +2551,11 @@ def replace_original(orig, a, b, text):
 
 
 def apply_retranscribe(spec, results):
+    with _save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
+        return _apply_retranscribe(spec, results)
+
+
+def _apply_retranscribe(spec, results):
     doc = read_transcript(spec["tid"])
     pairs = parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []
     have_orig = isinstance(doc.get("original"), list)
@@ -2431,6 +2599,11 @@ def replace_original_multi(orig, a, b, items):
 def apply_range(spec, lines):
     """範囲内の行を、新しく認識した行に丸ごと差し替える。話者は、時間が最も重なっていた元の行から引き継ぐ。
     lines=[{start,end,raw,flag}]。校正済み・音の状態のメモは引き継がない(別の文字になっているため)。"""
+    with _save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
+        return _apply_range(spec, lines)
+
+
+def _apply_range(spec, lines):
     a, b = spec["range"]
     doc = read_transcript(spec["tid"])
     pairs = parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []
@@ -2516,6 +2689,10 @@ def run_retranscribe(job):
         start, end = num(doc.get("start"), 0.0) or 0.0, num(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
+        if not targets:
+            raise ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
+        span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") == "range" else [])
+        start, end = audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         results = {}
@@ -2644,7 +2821,7 @@ def validate_abtest(req):
         if not isinstance(v, dict):
             continue
         m = str(v.get("model") or "").strip()
-        if not MODEL_RE.match(m):
+        if not valid_model(m):
             raise ApiError("bad_model", "モデル名が正しくありません", 400)
         one = {"model": m, "glossary": v.get("glossary") is not False}
         # 設定ごとの用語集: 空なら共通の用語集(+自動追加)を使う。書いてあればその設定だけ、その語だけを使う(自動追加はしない)
@@ -2683,6 +2860,9 @@ def run_abtest(job):
         start, end = num(doc.get("start"), 0.0) or 0.0, num(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
+        if not targets:
+            raise ApiError("empty", "比べる校正済みの行が見つかりません", 400)
+        start, end = audio_span(targets, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         fake = backend_name() == "fake"
@@ -2792,14 +2972,14 @@ def list_evals(tid=None, limit=20):
 # ---------- clip-marker との連携 ----------
 def _read_json_file(path):
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:   # 他のツール(スタジオ・旧マーカー)が書くファイル。BOM 付きでも読む
             return json.load(f)
     except (OSError, ValueError):
         return None
 
 
 def studio_out_dir(data_path):
-    """スタジオの書き出し先。settings.json の outDir を読む(なければ空)。data.json と同じフォルダの settings.json を探す。"""
+    """スタジオの書き出し先。明示設定がなければ、スタジオと同じ exports を使う。"""
     for name in ("settings.json", "config.json"):
         s = _read_json_file(os.path.join(os.path.dirname(data_path), name))
         if isinstance(s, dict):
@@ -2811,22 +2991,19 @@ def studio_out_dir(data_path):
                 if not os.path.isabs(p):
                     p = os.path.join(os.path.dirname(data_path), p)
                 return os.path.abspath(p)
-    return ""
+    return os.path.abspath(os.path.join(os.path.dirname(data_path), "exports"))
 
 
 def transcribed_ranges():
     """全文字起こしの (元ファイル・範囲・全体か・id) の一覧。フォルダ一覧・マーカーのポイントで「文字起こし済み」を判定するのに使う。"""
     out = []
     for it in list_transcripts():
-        try:
-            d = read_transcript(it["id"])
-        except ApiError:
-            continue
-        sp = d.get("sourcePath")
+        sm = transcript_summary(it["id"])   # list_transcripts で読んだばかりなので、ここはキャッシュから(以前は全文書を2回ずつ読んでいた)
+        sp = sm and sm["_sourcePath"]
         if not sp:
             continue
-        a, b = num(d.get("start"), 0.0) or 0.0, num(d.get("end"))
-        out.append({"path": os.path.normcase(os.path.abspath(sp)), "start": a, "end": b, "whole": bool(d.get("whole")), "tid": it["id"]})
+        a, b = num(sm.get("start"), 0.0) or 0.0, num(sm.get("end"))
+        out.append({"path": os.path.normcase(os.path.abspath(sp)), "start": a, "end": b, "whole": sm["_whole"], "tid": it["id"]})
     return out
 
 
@@ -2996,10 +3173,7 @@ def scan_folder(path, recursive=False):
                 break
     except OSError as e:
         raise ApiError("scan_failed", "フォルダを読めませんでした: %s" % e.__class__.__name__, 400)
-    done = {r["path"]: r["tid"] for r in transcribed_ranges() if r["whole"]}
-    with _jobs_lock:
-        active = {os.path.normcase(os.path.abspath(j["spec"].get("sourcePath", ""))) for j in _jobs.values()
-                  if j.get("kind") == "transcribe" and j["state"] in ("queued", "loading", "extracting", "running") and j["spec"].get("sourcePath")}
+    done, active = _done_and_active()
     for f in found:
         k = os.path.normcase(os.path.abspath(f["path"]))
         f["doneTid"] = done.get(k, "")
@@ -3007,9 +3181,18 @@ def scan_folder(path, recursive=False):
     return {"dir": p, "files": found, "truncated": trunc}
 
 
+def _done_and_active():
+    """({正規化したパス: 全体を文字起こし済みの id}, {待機中・処理中の文字起こしのパス})。"""
+    done = {r["path"]: r["tid"] for r in transcribed_ranges() if r["whole"]}
+    with _jobs_lock:
+        active = {os.path.normcase(os.path.abspath(j["spec"].get("sourcePath", ""))) for j in _jobs.values()
+                  if j.get("kind") == "transcribe" and j["state"] in ACTIVE_STATES and j["spec"].get("sourcePath")}
+    return done, active
+
+
 def add_batch(req):
-    """複数のファイルを、それぞれ別の文字起こしとして待機列に入れる(設定は共通)。"""
-    paths = [str(x) for x in (req.get("paths") or []) if isinstance(x, str)][:MAX_SCAN_FILES]
+    """複数のファイルを、それぞれ別の文字起こしとして待機列に入れる(設定は共通)。同じファイルが2回あっても1回だけ入れる。"""
+    paths = list({os.path.normcase(os.path.abspath(str(x))): str(x) for x in (req.get("paths") or []) if isinstance(x, str) and x.strip()}.values())[:MAX_SCAN_FILES]
     if not paths:
         raise ApiError("empty", "対象のファイルがありません", 400)
     skip_done = req.get("skipDone") is not False
@@ -3032,37 +3215,151 @@ def add_batch(req):
 
 
 def scan_common(paths):
-    """パスの一覧について、scan_folder と同じ形(doneTid / queued)を返す。"""
-    dirs = {os.path.dirname(os.path.abspath(p)) for p in paths}
-    want = {os.path.normcase(os.path.abspath(p)) for p in paths}
+    """パスの一覧について、scan_folder と同じ形(doneTid / queued)を返す。
+    以前はフォルダごとに scan_folder(=全文書の読み直し)を呼んでいて、サブフォルダが多いと遅く、500件を超えるフォルダでは判定が漏れた。"""
+    done, active = _done_and_active()
     out = []
-    for d in dirs:
-        try:
-            r = scan_folder(d, False)
-        except ApiError:
-            continue
-        out += [f for f in r["files"] if os.path.normcase(os.path.abspath(f["path"])) in want]
+    for p in paths:
+        k = os.path.normcase(os.path.abspath(p))
+        out.append({"path": p, "doneTid": done.get(k, ""), "queued": k in active})
     return out
 
 
+# ---------- 受け渡しの API(docs/pipeline.md の 2・4・6) ----------
+def _pipeline_error(e):
+    return ApiError(e.code, e.message, e.status)
+
+
+def clip_info(path):
+    """GET /api/clip-info?path=。path は動画のパスか、.clip.json のパス(画面の ?clip= 用)。
+    戻り値 {"clip": clip/v1 または null, "clipPath", "mediaPath", "warning"}。clip が使えないときは clip=null と理由(warning)。
+    path が空・動画でも .clip.json でもないときだけ 400(画面が ?media= で開いたときに、例外にせず表示だけ省けるように)。"""
+    pm = pio()
+    p = str(path or "").strip().strip('"')
+    if not p or "\x00" in p:
+        raise ApiError("bad_request", "path(動画のパス)を指定してください", 400)
+    out = {"clip": None, "clipPath": None, "mediaPath": None, "warning": None}
+    if pm.is_network_path(p):
+        # 画面は URL の ?media= を受けて自動でこれを呼ぶ(他のサイトのリンクでも開ける)。ネットワークのパスを調べると
+        # Windows がそのサーバーへ資格情報を送るので、ここでは調べない(文字起こしの開始ボタンでは従来どおり使える)
+        out["warning"] = "ネットワーク上のパスは、元の配信の情報を自動では調べません"
+        return out
+    p = os.path.abspath(p)
+    if p.lower().endswith(pm.CLIP_SUFFIX):
+        if not os.path.isfile(p):
+            out["warning"] = ".clip.json が見つかりません"
+            return out
+        clip, warn = pm.load_clip_file(p)
+        out.update({"clip": clip, "clipPath": p if clip else None, "warning": warn})
+        if clip:
+            out["mediaPath"] = pm.resolve_clip_media(p, clip, MEDIA_TYPES)
+            if not out["mediaPath"]:
+                out["warning"] = ".clip.json が指す動画が見つかりません(同じフォルダにも見当たりません)"
+        return out
+    if os.path.splitext(p)[1].lower() not in MEDIA_TYPES:
+        raise ApiError("bad_ext", "動画・音声ファイルか .clip.json のパスを指定してください", 400)
+    if not os.path.isfile(p):
+        out["warning"] = "動画が見つかりません(パスを確認してください)"
+        return out
+    clip, warn, cp = pm.find_clip(p)   # ここでは長さの照合はしない(ffmpeg を呼ばず、すぐ返す)
+    out.update({"clip": clip, "clipPath": cp if clip else None, "mediaPath": p, "warning": warn})
+    return out
+
+
+def transcript_v1(tid):
+    return pio().build_transcript_v1(read_transcript(tid), SERVER_VERSION)
+
+
+def export_file(req):
+    """POST /api/export-file {"id", "format": transcript-v1|srt|cut-plan-v1, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
+    → 動画の隣に保存して {"path", "name", "overwritten", "format", "count"}。保存済みの内容を書き出す(画面は先に保存してから呼ぶ)。
+    baseUpdatedAt を付けると、保存済みの版と違うとき 409(画面の表示と違う内容を書き出さないため)。"""
+    pm = pio()
+    tid = str(req.get("id") or "")
+    fmt = req.get("format")
+    if fmt not in pm.EXPORT_FORMATS:
+        raise ApiError("bad_format", "format は transcript-v1 / srt / cut-plan-v1 のどれかにしてください", 400)
+    doc = read_transcript(tid)
+    b = req.get("baseUpdatedAt")
+    if b is not None and doc.get("updatedAt") and b != doc.get("updatedAt"):
+        raise ApiError("conflict", "保存されていない変更があるか、別の場所で更新されています。保存してから、もう一度書き出してください", 409)
+    src = str(doc.get("sourcePath") or "")
+    if not src:
+        raise ApiError("no_media", "この文字起こしには元の動画のパスがありません(動画の隣には保存できません。ダウンロードを使ってください)", 400)
+    if not os.path.isfile(src):
+        raise ApiError("no_media", "元の動画が見つかりません(移動・削除した可能性があります): %s" % src, 400)
+    suffix = pm.EXPORT_FORMATS[fmt]
+    if fmt == "transcript-v1":
+        obj = pm.build_transcript_v1(doc, SERVER_VERSION)
+        count, schema = len(obj["segments"]), pm.TRANSCRIPT_SCHEMA
+        if not count:
+            raise ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
+        data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    elif fmt == "cut-plan-v1":
+        obj = pm.build_cut_plan_v1(doc, SERVER_VERSION)
+        count, schema = len(obj["segments"]), pm.CUT_PLAN_SCHEMA
+        if not count:
+            raise ApiError("empty", "残す区間がありません(すべての行が「カット済」か、文字のある行がありません)", 400)
+        data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    else:
+        try:
+            wrap = max(0, min(200, int(req.get("wrap") or 0)))
+        except (TypeError, ValueError):
+            wrap = 0
+        text, count = pm.build_srt(doc, wrap, req.get("speakerNames") is True)
+        schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
+        if not count:
+            raise ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
+        data = text.encode("utf-8")   # BOM なし(docs/pipeline.md の 1)
+    try:
+        path, overwritten = pm.save_beside(src, suffix, data, schema)
+    except pm.PipelineError as e:
+        raise _pipeline_error(e)
+    log.info("動画の隣に保存: %s %s(%s)", fmt, os.path.basename(path), "上書き" if overwritten else "新規")
+    return {"path": path, "name": os.path.basename(path), "overwritten": overwritten, "format": fmt, "count": count}
+
+
+def runtime_path_dir():
+    """<transcribe-tool の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則。"""
+    return os.environ.get("YTT_RUNTIME_DIR") or os.path.join(os.path.dirname(ROOT), ".runtime")
+
+
 # ---------- HTTP ----------
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+PAGE_HEADERS = {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TranscribeTool/0.1"
+    timeout = 120   # 送ると言った長さより短い本文・読まれない応答で、処理のスレッドが永久に止まらないように(秒)
 
     def log_message(self, fmt, *args):
-        if self.path.startswith(("/api/jobs", "/media")):
+        if self.path.startswith(QUIET_PATHS):
             return
         super().log_message(fmt, *args)
+
+    def send_response(self, code, message=None):
+        self._responded = True
+        super().send_response(code, message)
 
     def _host_ok(self):
         return (self.headers.get("Host") or "") in ALLOWED_HOSTS
 
     def _origin_ok(self):
+        # 「http://」+ 許可したホスト と完全に一致するものだけ(以前は "http://" を消してから比べていたので、形の崩れた値も通った)
         o = self.headers.get("Origin")
-        return o is None or o.replace("http://", "") in ALLOWED_HOSTS
+        return o is None or o in {"http://" + h for h in ALLOWED_HOSTS}
 
     def _fetch_site_ok(self):
         return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+
+    def _navigation_ok(self, path):
+        """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8775/?media=...)で、この画面を開くのは許す。
+        ポートが違うだけでも Sec-Fetch-Site は same-site(127.0.0.1 と localhost なら cross-site)になるため、以前は 403 になっていた。
+        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(docs/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
+        埋め込み(iframe)での悪用は X-Frame-Options / frame-ancestors で防ぐ。"""
+        return (path in ("/", "/index.html") and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                and self.headers.get("Sec-Fetch-Dest", "document") == "document")
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         self.send_response(code)
@@ -3082,57 +3379,99 @@ class Handler(BaseHTTPRequestHandler):
     def _err(self, e):
         self._json(e.status, {"error": e.code, "message": e.message})
 
+    def _fail(self, code, error, message):
+        """画面の api() が理由を表示できるよう、エラーも JSON で返す(以前は 403/413/415 が素の文字列で「エラー 403」としか出なかった)。"""
+        self._json(code, {"error": error, "message": message})
+
     def _read_json(self):
         if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
-            self._send(415, b"application/json only")
+            self._fail(415, "bad_type", "Content-Type は application/json にしてください")
             return None
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            self._send(400, b"bad length")
+            self._fail(400, "bad_length", "Content-Length が正しくありません")
             return None
         if length <= 0 or length > MAX_BODY:
-            self._send(413, b"invalid size")
+            self._fail(413, "too_big", "送る内容が空か、大きすぎます(最大%dMB)" % (MAX_BODY // 1048576))
             return None
         try:
-            obj = json.loads(self.rfile.read(length))
+            obj = json.loads(self.rfile.read(length), parse_constant=_reject_json_constant)   # NaN / Infinity は受け付けない(保存すると画面の JSON.parse が壊れる)
         except ValueError:
-            self._send(400, b"invalid json")
+            self._fail(400, "bad_json", "JSON として読めません")
             return None
         if not isinstance(obj, dict):
-            self._send(400, b"object required")
+            self._fail(400, "bad_json", "JSON のオブジェクトを送ってください")
             return None
         return obj
 
-    def _guard(self, write):
-        ok = self._host_ok() and self._fetch_site_ok() and (self._origin_ok() if write else True)
-        if not ok:
-            self._send(403, b"forbidden")
-        return ok
+    def _guard(self, write, path=""):
+        if not self._host_ok():
+            self._fail(403, "forbidden", "このツールは http://localhost:%d から開いてください(Host が違います)" % PORT)
+            return False
+        if not (self._fetch_site_ok() or (not write and self._navigation_ok(path))) or (write and not self._origin_ok()):
+            self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
+            return False
+        return True
+
+    def _safe(self, fn):
+        """想定外の例外でも、黙って接続を切らずに 500 と理由を返し、serve.log に残す。"""
+        self._responded = False
+        try:
+            fn()
+        except (BrokenPipeError, ConnectionError, socket.timeout):
+            pass
+        except Exception as e:
+            log.exception("要求の処理で例外: %s %s", self.command, self.path.split("?", 1)[0])
+            if not self._responded:
+                try:
+                    self._fail(500, "internal", "内部エラー: %s %s(serve.log に記録しました)" % (e.__class__.__name__, str(e)[:200]))
+                except Exception:
+                    pass
 
     def do_HEAD(self):
-        self.do_GET()
+        self._safe(self._get)
 
     def do_GET(self):
-        if not self._guard(False):
-            return
+        self._safe(self._get)
+
+    def do_POST(self):
+        self._safe(self._post)
+
+    def do_PUT(self):
+        self._safe(self._put)
+
+    def do_DELETE(self):
+        self._safe(self._delete)
+
+    def _get(self):
         u = urllib.parse.urlsplit(self.path)
+        if not self._guard(False, u.path):
+            return
         q = urllib.parse.parse_qs(u.query)
         try:
             if u.path in ("/", "/index.html"):
                 with open(INDEX, "rb") as f:
-                    return self._send(200, f.read(), "text/html; charset=utf-8")
+                    return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
             if u.path == "/api/ping":
                 return self._json(200, {"app": APP_ID, "version": SERVER_VERSION})
+            if u.path == "/api/siblings":
+                return self._json(200, pio().siblings(runtime_path_dir(), TOOL_ID, PORT))
+            if u.path == "/api/clip-info":
+                return self._json(200, clip_info((q.get("path") or [""])[0]))
+            if u.path == "/api/transcript-v1":
+                return self._json(200, transcript_v1((q.get("id") or [""])[0]))
             if u.path == "/api/roster":
                 return self._json(200, load_roster())
             if u.path == "/api/tools":
                 return self._json(200, {"ffmpeg": bool(find_ffmpeg()), "fasterWhisper": has_faster_whisper(), "cuda": gpu_ready(), "nvidia": nvidia_gpu(),
-                                        "backend": backend_name(), "diarize": diar_info(), "models": MODELS, "langs": LANGS, "root": TX_DIR})
+                                        "backend": backend_name(), "diarize": diar_info(), "models": MODELS, "langs": LANGS, "root": TX_DIR,
+                                        "envWarnings": list(_env_warnings)})
             if u.path == "/api/settings":
                 try:
                     with open(SETTINGS, "rb") as f:
-                        return self._send(200, f.read(), "application/json")
+                        raw = f.read()
+                    return self._send(200, raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw, "application/json")
                 except OSError:
                     return self._json(200, {})
             if u.path == "/api/marker":
@@ -3179,14 +3518,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._media((q.get("id") or [""])[0])
         except ApiError as e:
             return self._err(e)
-        self._send(404, b"not found")
+        self._fail(404, "not_found", "そのページ・操作はありません")
 
     def _media(self, tid):
         d = read_transcript(tid)
         try:
             path = check_source(d.get("sourcePath"))
         except ApiError:
-            return self._send(404, b"source missing")
+            return self._fail(404, "source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)")
         size = os.path.getsize(path)
         ctype = MEDIA_TYPES[os.path.splitext(path)[1].lower()]
         a, b = 0, size - 1
@@ -3226,7 +3565,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionError, OSError):
             pass
 
-    def do_POST(self):
+    def _post(self):
         if not self._guard(True):
             return
         path = self.path.split("?", 1)[0]
@@ -3289,14 +3628,49 @@ class Handler(BaseHTTPRequestHandler):
                         os.unlink(zp)
                     except OSError:
                         pass
+            if path == "/api/resolve-package":
+                import resolve_export
+                tid = str(obj.get("tid") or "")
+                if not TID_RE.match(tid):
+                    raise ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
+                zp = tmp_dir = None
+                try:
+                    zp, tmp_dir, plan = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"))
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(os.path.getsize(zp)))
+                    self.send_header("Content-Disposition", 'attachment; filename="resolve-package.zip"')
+                    self.send_header("X-Resolve-Cuts", str(len(plan["cuts"])))
+                    self.send_header("X-Resolve-Captions", str(len(plan["captions"])))
+                    self.send_header("X-Resolve-Handles", "1" if plan["media"]["hasEditHandles"] else "0")
+                    self.send_header("Access-Control-Expose-Headers", "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    with open(zp, "rb") as f:
+                        while True:
+                            chunk = f.read(65536)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                    return
+                except resolve_export.ResolveExportError as e:
+                    raise ApiError("resolve_export", str(e), 400)
+                except (BrokenPipeError, ConnectionError):
+                    return
+                finally:
+                    if tmp_dir:
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
+            if path == "/api/export-file":
+                return self._json(200, export_file(obj))
             if path == "/api/transcribe/cancel":
                 cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})
         except ApiError as e:
             return self._err(e)
-        self._send(404, b"not found")
+        self._fail(404, "not_found", "その操作はありません")
 
-    def do_PUT(self):
+    def _put(self):
         if not self._guard(True):
             return
         u = urllib.parse.urlsplit(self.path)
@@ -3315,30 +3689,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"]})
         except ApiError as e:
             return self._err(e)
-        except OSError:
-            return self._send(500, b"write failed")
-        self._send(404, b"not found")
+        except OSError as e:
+            return self._fail(500, "write_failed", "保存できませんでした(%s)。ディスクの空き・フォルダの書き込み権限・他のアプリで開いていないかを確認してください" % (e.strerror or e.__class__.__name__))
+        self._fail(404, "not_found", "その操作はありません")
 
-    def do_DELETE(self):
+    def _delete(self):
         if not self._guard(True):
             return
         u = urllib.parse.urlsplit(self.path)
         if u.path != "/api/transcript":
-            return self._send(404, b"not found")
+            return self._fail(404, "not_found", "その操作はありません")
         tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
         try:
-            read_transcript(tid)
-            os.unlink(tx_path(tid))
+            with _save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
+                read_transcript(tid)
+                os.unlink(tx_path(tid))
         except ApiError as e:
             return self._err(e)
-        except OSError:
-            return self._send(500, b"delete failed")
+        except OSError as e:
+            return self._fail(500, "delete_failed", "削除できませんでした(%s)。他のアプリで開いていないか確認してください" % (e.strerror or e.__class__.__name__))
         self._json(200, {"ok": True})
+
+
+_local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 への問い合わせを、環境変数 HTTP_PROXY などのプロキシに回さない
 
 
 def probe(port):
     try:
-        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1) as r:
+        with _local_opener.open("http://127.0.0.1:%d/api/ping" % port, timeout=1) as r:
             j = json.load(r)
             return str(j.get("version", "")) if j.get("app") == APP_ID else None
     except Exception:
@@ -3364,6 +3742,45 @@ def make_server(start_port):
     raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
 
 
+MIN_FREE_BYTES = 2 * 1024 ** 3   # 空きがこれ未満なら、起動時に知らせる(音声の取り出し・保管で数百MB〜数GB使う)
+_env_warnings = []
+
+
+def startup_checks():
+    """起動時の環境チェック。問題があれば、黒い画面と serve.log に出す文(と、画面向けに /api/tools の envWarnings)を返す。
+    どれも起動は止めない(文字の編集だけなら使えるため)。"""
+    out = []
+    if sys.version_info < (3, 8):
+        out.append("Python %s は古すぎます。Python 3.10〜3.12 を入れ直してください" % sys.version.split()[0])
+    if not find_ffmpeg():
+        out.append("ffmpeg が見つかりません。文字起こし・話者判別ができません(README の ① の 2)。入れたあとは黒い画面を閉じて起動し直してください")
+    try:
+        os.makedirs(TX_DIR, exist_ok=True)
+        probe_path = os.path.join(TX_DIR, ".write-test")
+        atomic_write(probe_path, b"ok")
+        os.unlink(probe_path)
+    except OSError as e:
+        out.append("保存先に書き込めません: %s(%s)。フォルダを書き込みできる場所(デスクトップなど)へ移してください" % (TX_DIR, e.strerror or e.__class__.__name__))
+    try:
+        free = shutil.disk_usage(ROOT).free
+        if free < MIN_FREE_BYTES:
+            out.append("ディスクの空きが少なくなっています(残り %.1fGB)。長い動画の文字起こし・保管が途中で失敗することがあります" % (free / 1024 ** 3))
+    except OSError:
+        pass
+    try:
+        with open(INDEX, "r", encoding="utf-8") as f:
+            m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
+        if m and m.group(1) != SERVER_VERSION:
+            out.append("画面(index.html v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), SERVER_VERSION))
+    except OSError:
+        out.append("index.html が見つかりません。フォルダの中身をまとめて置き直してください")
+    except UnicodeError:
+        out.append("index.html の文字コードが壊れています。フォルダの中身をまとめて置き直してください")
+    if pio(required=False) is None:
+        out.append("pipeline_io.py / resolve_export.py が見つかりません。「動画の隣に保存」などの受け渡しの機能が使えません。フォルダの中身をまとめて更新してください")
+    return out
+
+
 def main():
     setup_cuda_paths()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -3385,7 +3802,18 @@ def main():
         log.warning("前回の異常終了を検出: %s", msg)
     _run_state["started"] = int(time.time())
     write_mark(None)
+    pm = pio(required=False)
+    rt = pm.write_runtime(runtime_path_dir(), TOOL_ID, port, SERVER_VERSION) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
+    if rt is None:
+        log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", runtime_path_dir())
+    install_stop_signals()
     log.info("起動 v%s ポート%d メモリ %s python %s", SERVER_VERSION, port, _mem(), sys.version.split()[0])
+    _env_warnings[:] = startup_checks()
+    for w in _env_warnings:
+        print("※", w)
+        log.warning("環境: %s", w)
+    if "onedrive" in ROOT.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
+        print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
     threading.Thread(target=worker, daemon=True).start()
     print("文字起こしツール:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
     print("保存先:", TX_DIR)
@@ -3399,7 +3827,25 @@ def main():
         pass
     finally:
         log.info("終了(正常)")
+        if pm:
+            pm.remove_runtime(runtime_path_dir(), TOOL_ID, port)
         clear_mark()
+
+
+def install_stop_signals():
+    """終了の合図(Linux/Mac の SIGTERM、Windows で黒い画面を×で閉じた・Ctrl+Break の SIGBREAK)でも、Ctrl+C と同じ後始末
+    (.runtime の記録と起動中の印を消す)をするよう、KeyboardInterrupt に変える。Windows は×で閉じてから約5秒で強制終了されるが、後始末は一瞬で終わる。"""
+    import signal
+
+    def stop(_sig, _frame):
+        raise KeyboardInterrupt()
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            try:
+                signal.signal(sig, stop)
+            except (OSError, ValueError, RuntimeError):
+                pass
 
 
 if __name__ == "__main__":

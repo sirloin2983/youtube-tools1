@@ -1,5 +1,7 @@
 # cut2resolve v0.1.3 仕様メモ(案2: 元動画 + EDL + SRT)
 
+> **2026-09-24 追記(v0.2.0)**: 専用の画面(`serve.py`・`index.html`・`app.js`、既定ポート 8810)を追加。処理は `pack.py` に共通化(画面とコマンドで同じ関数)。`youtube-tools-transcript/v1`・`youtube-tools-cut-plan/v1` を読める。EDL の書式(実機で確認済み)は変えていない。詳細は `docs/review/cut2resolve.md` と `cut2resolve/README.txt`。
+
 切り抜きスタジオの動画などに「カット」と「字幕」を入れ、友人が DaVinci Resolve で続きを編集できる形で渡すためのツール。srt2resolve(FCPXML 方式)が Resolve で通らなかったため、動画の場所を書かない EDL 方式に切り替えた。**EDL(カット) + SRT(字幕トラック)の方式は、Resolve 実機(サンプル動画・実動画の両方)で取り込み成功を確認済み(2026-09-21)。** 残る論点は「字幕を Text+ で渡すか」(下の「次の判断待ち」)。
 
 ## ユーザーに確認できた前提(2026-09-21)
@@ -37,9 +39,10 @@
 - 次にやること(相談の結果しだい): 19 以降なら、サンプル動画で案B(OpenCaptions での変換 → 再リンクで渡せるか)を試す手順を作る。または案Dの「字幕だけの FCPXML」を生成して、Text+ になるか試す
 
 ## 構成(フォルダ1つ。Python 3.9+ 標準ライブラリ + ffmpeg/ffprobe)
+- `auto_cut.py`(v0.1.0): 後述の採用区間JSON契約を受け、前後10秒を既定の編集ハンドルとして保持する。EDL・カット済みSRT・カット済みFCPXML・削除区間も含む `cut-plan.json` を生成。文字起こし画面へは `build_plan()` / `write_package()` を後で接続する。入力例は `selection.example.json`
 - `cut2resolve_simple.py` シンプル版: 動画 + カットリスト(.txt) + 字幕(.srt、省略可)を順不同で指定 → `<動画名>_edl/` に EDL・カット後の字幕・友人へ.txt。`--src-start-tc` で開始TCを手動指定可
 - `cut2resolve.py` フル版: 上に加えて `--keep/--drop`(残す/削る区間)、`--drop-lines 3,5-7`(字幕の行の時間帯を削る)、`--silence`(無音の自動カット。`--noise -35 --silence-min 0.6 --silence-pad 0.15`)、`--min-len`(短い残り区間の除去、既定0.3秒)、`--join-gap`(近い区間をつなぐ)、`--render`(粗編集の H.264 mp4)、`--copy-video`、`--dry-run`、`--reel/--rec-start/--src-start-tc/--name/--fps/--frames`。出力は `<動画名>_pack/`
-- `cut2resolve_core.py` 共通部、`srt2resolve.py`(動画情報の読み取り・字幕パース。srt2resolve v0.1.2 と同じもの)、bat 2つ(ドラッグ&ドロップ。フル版 bat は `--silence --render` 付き)、`test_cut2resolve.py`(35件)。配布物は `cut2resolve-v0.1.3.zip`
+- `cut2resolve_core.py` 共通部、`srt2resolve.py`(動画情報・字幕パース)、`auto_cut.py`、`selection.example.json`、bat 2つ(ドラッグ&ドロップ。フル版 bat は `--silence --render` 付き)、`test_cut2resolve.py`(41件)。配布物は `cut2resolve-v0.1.3.zip`
 - 切り分け用サンプル(配布済み): 縦 1080x1920 / 30fps / H.264 / 20秒 / Start TC 01:00:00:00 の test_sample.mov(秒数・フレーム・TC を焼き込み、音は 0-3/5-9/11-20 秒のみ)+ cuts.txt + subs.srt + 生成済み pack + テスト手順.txt
 
 ## 決めたこと・理由
@@ -49,6 +52,7 @@
 - 時刻は元動画のフレーム番号(半開区間)で統一。フレーム数は srt2resolve と同じ実測値
 - 字幕の時刻直し: カットにまたがる字幕は区間ごとに分割。切られて 6 フレーム未満になった断片は捨てるが、切られていない短い字幕は残す。消えた件数を表示
 - 粗編集の書き出しは ffmpeg の trim/atrim + concat をフィルタファイルで渡す(Windows のコマンド長制限と、新旧 ffmpeg の `-filter_complex_script` / `-/filter_complex` の違いに対応)。EDL が通らない場合の代替(案1 = カット済み動画 + SRT)として同梱できる
+- v0.1.3: 既存の出力ファイルは既定で上書きせず停止する。意図した再生成は `--force` を明示する。入力ファイルとの衝突は `--force` でも禁止
 - 無音検出は ffmpeg silencedetect。話の前後に 0.15 秒残し、断片(0.3秒未満)は捨てる
 - 動画のファイル名に日本語が含まれると警告(実機では日本語+スペース入りの名前でも問題なく通った)
 - 友人へ.txt を自動生成(Resolve での手順、うまくいかないときの代替、Clip Attributes の確認手順、残す区間のタイムコード表)
@@ -61,7 +65,7 @@
 - 友人の環境(Resolve のバージョン、動画のコピーの置き場所)での取り込みは未確認
 
 ## テスト
-35件(時刻/カットリストのパース、区間演算、EDL の書式と算術、字幕の時刻直し、開始タイムコードの読み取りと EDL への反映、ffmpeg での無音検出・粗編集の長さ・通し実行・29.97fps)。全件通過。EDL は独立した簡易パーサで検証。加えて Resolve 出力の EDL との突き合わせで時刻が全行一致し、Resolve 実機でも取り込み成功
+41件(時刻/カットリストのパース、区間演算、EDL の書式と算術、字幕の時刻直し、開始タイムコードの読み取りと EDL への反映、無音検出・粗編集、既存出力保護、採用区間JSONの編集ハンドル計算、パッケージ復旧ファイル、FCPXML構造)。今回の自動テスト結果は WORKLOG を参照。Resolve 実機テストは今回対象外
 
 ## その他の候補
 - 切り抜きスタジオの採用マークから、カットリストを直接作る連携

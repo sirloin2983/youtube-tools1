@@ -206,9 +206,13 @@ def parse_ref(text):
     return t if HANDLE_RE.match(t) else None
 
 
+def _list(x):
+    return x if isinstance(x, list) else []   # 形の違う入力(辞書・文字列)で 500 にしない
+
+
 def sanitize_registry(obj):
     out, seen = [], set()
-    for a in (obj.get("agencies") or [])[:MAX_AGENCIES]:
+    for a in _list(obj.get("agencies") if isinstance(obj, dict) else None)[:MAX_AGENCIES]:
         if not isinstance(a, dict):
             continue
         name = str(a.get("name", "")).strip()[:40]
@@ -216,9 +220,9 @@ def sanitize_registry(obj):
         if not name or aid in seen:
             continue
         seen.add(aid)
-        official = [r for r in (parse_ref(x) for x in (a.get("official") or [])[:10]) if r]
+        official = [r for r in (parse_ref(x) for x in _list(a.get("official"))[:10]) if r]
         chans, refs = [], set()
-        for c in (a.get("channels") or [])[:MAX_CHANNELS]:
+        for c in _list(a.get("channels"))[:MAX_CHANNELS]:
             if not isinstance(c, dict):
                 continue
             ref = parse_ref(c.get("ref"))
@@ -236,13 +240,40 @@ def sanitize_registry(obj):
 
 
 def load_registry():
-    for path in (registry_path(), SEED):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return sanitize_registry(json.load(f))
-        except (OSError, ValueError):
-            continue
-    return {"agencies": []}
+    """registry.json(無ければ seed.json)。registry.json が壊れていたら、退避してから seed.json で始める
+    (以前は黙って seed.json に戻り、次の保存で壊れたファイルごと登録が上書きされて消えていた)。"""
+    path = registry_path()
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            raise ValueError("形式が違います")
+        return sanitize_registry(d)
+    except FileNotFoundError:
+        pass
+    except ValueError as e:   # 読めたが中身が壊れている(UnicodeDecodeError も含む)
+        _quarantine_registry(path, e)
+    except OSError as e:
+        # 一時的に開けない(Windows のウイルス対策のロックなど)ときは退避も seed への切り替えもしない
+        # (seed で続けると、解決・取り込みの保存で登録が上書きされるため)
+        common.log_failure("registry.json の読み込み", e)
+        raise ApiError("registry_read", "事務所の登録(registry.json)を読み込めませんでした。少し待ってからもう一度試してください: %s" % (e.strerror or e.__class__.__name__), 500)
+    try:
+        with open(SEED, encoding="utf-8") as f:
+            return sanitize_registry(json.load(f))
+    except (OSError, ValueError):
+        return {"agencies": []}
+
+
+def _quarantine_registry(path, error):
+    # 名前の末尾を .bak にするのは、.gitignore の *.bak に掛けるため(push.bat の git add -A で公開リポジトリに載せない)
+    dst = "%s.corrupt-%s.bak" % (path, time.strftime("%Y%m%d-%H%M%S"))
+    try:
+        if not os.path.exists(dst):
+            os.replace(path, dst)
+        common.log_failure("registry.json が壊れていたため %s に退避しました" % os.path.basename(dst), error)
+    except OSError as e:
+        common.log_failure("壊れた registry.json を退避できませんでした", e)
 
 
 def save_registry(reg):

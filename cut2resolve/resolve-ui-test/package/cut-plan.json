@@ -1,0 +1,66 @@
+{
+  "schema": "youtube-tools-cut-plan/v1",
+  "frame_rate": "30/1",
+  "source_frames": 926,
+  "handle_frames": 30,
+  "selected_segments": [
+    {
+      "id": "mark-a",
+      "label": "A",
+      "selected_frames": [
+        120,
+        180
+      ],
+      "keep_with_handles_frames": [
+        90,
+        210
+      ]
+    },
+    {
+      "id": "mark-b",
+      "label": "B",
+      "selected_frames": [
+        660,
+        750
+      ],
+      "keep_with_handles_frames": [
+        630,
+        780
+      ]
+    }
+  ],
+  "keep_frames": [
+    [
+      90,
+      210
+    ],
+    [
+      630,
+      780
+    ]
+  ],
+  "removed_frames": [
+    [
+      0,
+      90
+    ],
+    [
+      210,
+      630
+    ],
+    [
+      780,
+      926
+    ]
+  ],
+  "source": {
+    "name": "test35.mov",
+    "path_hint": "test35.mov",
+    "copied_into_package": true,
+    "start_timecode": "00:00:00:00",
+    "width": 1080,
+    "height": 1920
+  },
+  "timeline_frames": 270,
+  "subtitles": 7
+}

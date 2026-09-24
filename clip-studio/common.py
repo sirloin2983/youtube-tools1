@@ -3,6 +3,7 @@
 ApiError / Cancelled は全モジュール共通(Handler は ApiError だけを捕まえればよい)。
 データの置き場所は set_home() で変えられる(既定は studio/ フォルダ。環境変数 STUDIO_HOME でも指定可)。
 """
+import datetime
 import hashlib
 import json
 import math
@@ -11,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -112,13 +114,36 @@ def redact(line):
 _error_log_lock = threading.Lock()
 
 
+def old_log_name(path):
+    """studio.log → studio.old.log。*.log のまま回すのは、.gitignore の *.log に掛けるため
+    (以前の studio.log.old は掛からず、push.bat の git add -A で公開リポジトリに載るおそれがあった)。"""
+    root, ext = os.path.splitext(path)
+    return root + ".old" + ext
+
+
+def rotate_log(path, limit):
+    """path が limit バイトを超えていたら、1世代だけ <名前>.old.<拡張子> に回す(前の .old は上書き)。"""
+    if os.path.exists(path) and os.path.getsize(path) > limit:
+        replace_file(path, old_log_name(path))
+
+
+def migrate_old_logs():
+    """以前の版が作った studio.log.old / studio-errors.log.old を studio.old.log などへ改名する(起動時に1回。失敗しても無視)。"""
+    for name in ("studio.log", "studio-errors.log", "studio.crash.log"):
+        old = p(name + ".old")
+        try:
+            if os.path.isfile(old):
+                replace_file(old, old_log_name(p(name)))
+        except OSError:
+            pass
+
+
 def log_failure(context, error):
     """握りつぶしていた処理エラーも、原因と失敗箇所をローカルに残す。"""
     try:
         with _error_log_lock:
             path = p("studio-errors.log")
-            if os.path.exists(path) and os.path.getsize(path) > 1024 * 1024:
-                replace_file(path, path + ".old")
+            rotate_log(path, 1024 * 1024)
             with open(path, "a", encoding="utf-8") as f:
                 detail = "".join(traceback.format_exception(type(error), error, error.__traceback__))
                 f.write("[%s] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), context, redact(detail)))
@@ -224,6 +249,13 @@ def check_media_path(raw):
 def file_video_id(path):
     """file 動画の id: "f" + sha1(絶対パス) の先頭10桁(11文字)。"""
     return "f" + hashlib.sha1(os.path.abspath(path).encode("utf-8", "surrogatepass")).hexdigest()[:10]
+
+
+def ytdlp_out(folder, name_tmpl):
+    """yt-dlp の -o(出力テンプレート)。テンプレートは % 書式なので、フォルダ側の % は %% にする
+    (出力先の設定では % を断っているが、既定の exports/ や work/ はこのフォルダの場所しだいで % を含みうる)。
+    name_tmpl はこちらで決めた名前(%(ext)s など)で、利用者の文字列は入れない(safe_name で % を除いている)。"""
+    return os.path.join(str(folder).replace("%", "%%"), name_tmpl)
 
 
 # ---------- ffmpeg でメディア情報 ----------
@@ -446,3 +478,72 @@ def set_out_dir(raw, busy):
             atomic_write(p("settings.json"), json.dumps({"outDir": new}, ensure_ascii=False).encode("utf-8"))
             _out_dir = new
     return new
+
+
+# ---------- 起動時の環境チェック(/api/state の env) ----------
+YTDLP_OLD_DAYS = 60              # yt-dlp の版(日付)がこれより古ければ更新を勧める(YouTube 側の変更で古い版は取得に失敗しやすい)
+LOW_DISK_BYTES = 2 * 1024 ** 3   # 出力先の空きがこれ未満なら注意
+_env = {"checked": False, "tools": {}}
+_env_lock = threading.Lock()
+
+
+def _tool_version(name, args, pattern, timeout=15):
+    exe = find_tool(name)
+    if not exe:
+        return {"found": False, "version": ""}
+    try:
+        r = subprocess.run([exe] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+        m = re.search(pattern, r.stdout or "")
+        return {"found": True, "version": m.group(1)[:40] if m else ""}
+    except (OSError, subprocess.SubprocessError):
+        return {"found": True, "version": ""}
+
+
+def check_tools():
+    """ffmpeg / ffprobe / yt-dlp の有無と版を調べて覚える(起動時に裏のスレッドで1回。数秒かかることがある)。"""
+    tools = {"ffmpeg": _tool_version("ffmpeg", ["-hide_banner", "-version"], r"ffmpeg version (\S+)"),
+             "ffprobe": {"found": bool(find_tool("ffprobe")), "version": ""}}
+    tools["ytdlp"] = {"found": fake(), "version": ""} if fake() else _tool_version("yt-dlp", ["--version"], r"^\s*(\d{4}\.\d{2}\.\d{2}\S*)")
+    m = re.match(r"(\d{4})\.(\d{2})\.(\d{2})", tools["ytdlp"]["version"])
+    if m:
+        try:
+            tools["ytdlp"]["ageDays"] = (datetime.date.today() - datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))).days
+        except ValueError:
+            pass
+    with _env_lock:
+        _env["tools"], _env["checked"] = tools, True
+    return tools
+
+
+def start_env_check():
+    threading.Thread(target=check_tools, daemon=True, name="env-check").start()
+
+
+def env_state():
+    """{"checked", "python", "tools": {ffmpeg, ffprobe, ytdlp}, "outDirFree"(バイト or None), "warnings": [画面に出せる文]}。
+    道具の版は起動時に調べた結果(調べ終わるまでは checked=false)。空き容量は毎回その場で調べる(速い)。"""
+    with _env_lock:
+        tools = json.loads(json.dumps(_env["tools"]))
+        checked = _env["checked"]
+    warnings = []
+    free = None
+    try:
+        d = get_out_dir()
+        while d and not os.path.isdir(d) and os.path.dirname(d) != d:   # まだ作っていない出力先は、存在する親で測る
+            d = os.path.dirname(d)
+        free = shutil.disk_usage(d).free
+        if free < LOW_DISK_BYTES:
+            warnings.append("書き出し先のドライブの空きが少なくなっています(残り %.1f GB)" % (free / 1024 ** 3))
+    except OSError:
+        pass
+    if not find_tool("ffmpeg"):
+        warnings.append("ffmpeg が見つかりません。解析・書き出しに必要です(README の準備手順を確認してください)")
+    if not fake() and not find_tool("yt-dlp"):
+        warnings.append("yt-dlp が見つかりません。YouTube の解析・書き出しに必要です(手元のファイルは使えます)")
+    age = (tools.get("ytdlp") or {}).get("ageDays")
+    if isinstance(age, int) and age > YTDLP_OLD_DAYS:
+        warnings.append("yt-dlp が古い可能性があります(%s。%d日前の版)。取得に失敗するときは「yt-dlp -U」で更新してください"
+                        % (tools["ytdlp"]["version"], age))
+    return {"checked": checked, "python": sys.version.split()[0], "tools": tools, "outDirFree": free, "warnings": warnings}

@@ -7,7 +7,9 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +18,7 @@ import common
 import serve
 
 VID = "abcdefghijk"
-PORT0 = 18800
+PORT0 = 0   # OS に空きポートを選ばせる(他のエージェント・テストと同時に走らせてもぶつからない。以前は 18800 固定)
 
 
 class Base(unittest.TestCase):
@@ -80,10 +82,32 @@ class TestGuards(Base):
             self.assertEqual(self.req("GET", "/api/ping", headers={"Sec-Fetch-Site": v})[0], want, v)
         self.assertEqual(self.req("PUT", "/api/settings", {"settings": {}}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
 
+    def test_navigation_from_other_tool_opens_page_only(self):
+        """他のツールのリンクで画面を開くのは許す(same-site / cross-site でも)。API・静的ファイル・iframe は拒否"""
+        nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+        st, _, _, r = self.req("GET", "/?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabcdefghijk", headers=nav)
+        self.assertEqual(st, 200)
+        self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
+        self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy") or "")
+        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Site": "cross-site"}))[0], 200)
+        self.assertEqual(self.req("GET", "/api/state", headers=nav)[0], 403)
+        self.assertEqual(self.req("GET", "/core.js", headers=nav)[0], 403)
+        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))[0], 403)
+        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Mode": "cors"}))[0], 403)
+
+    def test_settings_section_update_keeps_other_sections(self):
+        self.assertEqual(self.req("PUT", "/api/settings", {"settings": {"other": {"a": 1}, "review": {"volume": 10}}})[0], 200)
+        self.assertEqual(self.req("PUT", "/api/settings", {"section": "review", "value": {"volume": 55}})[0], 200)
+        st, j = self.req("GET", "/api/settings")[:2]
+        self.assertEqual(j["settings"], {"other": {"a": 1}, "review": {"volume": 55}})
+        for bad in ({"section": "../x", "value": {}}, {"section": "review", "value": [1]}, {"section": 3, "value": {}}):
+            self.assertEqual(self.req("PUT", "/api/settings", bad)[0], 400, bad)
+
     def test_origin_on_writes(self):
         ok = "http://" + self.host
         for o, want in ((ok, 200), ("http://localhost:%d" % self.port, 200), ("http://evil.example", 403), ("null", 403),
-                        ("https://" + self.host, 403), ("http://" + self.host + ".evil.example", 403)):
+                        ("https://" + self.host, 403), ("http://" + self.host + ".evil.example", 403),
+                        ("http://http://" + self.host, 403), ("http://" + self.host + "/", 403), ("HTTP://" + self.host, 403)):   # 完全一致だけ
             st = self.req("PUT", "/api/settings", {"settings": {}}, headers={"Origin": o})[0]
             self.assertEqual(st, want, o)
 
@@ -434,6 +458,39 @@ class TestApiKey(Base):
         self.assertGreaterEqual(st, 400)
 
 
+class TestStateEnv(Base):
+    def test_state_has_env_check(self):
+        st, j, *_ = self.req("GET", "/api/state")
+        self.assertEqual(st, 200)
+        env = j["env"]
+        self.assertEqual(set(env) >= {"checked", "python", "tools", "outDirFree", "warnings"}, True)
+        self.assertIsInstance(env["warnings"], list)
+        for k in ("hasKey", "ffmpeg", "ytdlp", "outDir", "defaultOutDir", "quota"):   # 既存の項目はそのまま
+            self.assertIn(k, j)
+
+    def test_old_ytdlp_and_low_disk_warn(self):
+        with patch.dict(common._env, {"checked": True, "tools": {"ytdlp": {"found": True, "version": "2020.01.01", "ageDays": 2000}}}), \
+                patch.object(common.shutil, "disk_usage", return_value=common.shutil._ntuple_diskusage(10, 9, 1024)):
+            env = self.req("GET", "/api/state")[1]["env"]
+        self.assertTrue(any("yt-dlp -U" in w for w in env["warnings"]), env["warnings"])
+        self.assertTrue(any("空きが少なく" in w for w in env["warnings"]), env["warnings"])
+        self.assertEqual(env["outDirFree"], 1024)
+
+
+class TestErrorMessages(Base):
+    def test_os_errors_say_what_happened(self):
+        denied = PermissionError(13, "Permission denied", os.path.join(self.tmp, "settings-ui.json"))
+        with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(common, "log_failure") as log:
+            st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}})
+        self.assertEqual(st, 500)
+        self.assertIn("アクセスが拒否", j["message"])
+        self.assertIn("settings-ui.json", j["message"])
+        log.assert_called_once()
+        with patch.object(serve.STORE, "set_ui", side_effect=OSError(28, "No space left on device")), patch.object(common, "log_failure"):
+            j = self.req("PUT", "/api/settings", {"settings": {}})[1]
+        self.assertIn("No space left", j["message"])
+
+
 class TestExportValidation(Base):
     def test_export_bad_input(self):
         for body in ({}, {"id": "nope", "marks": ["x"]}, {"id": VID, "markIds": "x"}):
@@ -449,6 +506,43 @@ class TestExportValidation(Base):
             st, j, *_ = self.req("POST", "/api/export", {"id": vid, "markIds": ["m1"], "volume": vol})
             self.assertEqual(st, 400, vol)
             self.assertEqual(j["error"], "bad_request")
+
+
+@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+class TestExportApi(Base):
+    """POST /api/export → GET /api/export?id= の各ファイルに path(mp4)と manifest(.clip.json)が入る(docs/pipeline.md の 6)。"""
+    def test_export_reports_media_and_manifest_paths(self):
+        src = os.path.join(self.tmp, "real.mp4")
+        ff = common.find_tool("ffmpeg")
+        import subprocess
+        subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=8",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-shortest", src], check=True)
+        st, j, *_ = self.req("POST", "/api/videos/open", {"kind": "file", "path": src})
+        self.assertEqual(st, 200, j)
+        vid = j["video"]["id"]
+        st, j, *_ = self.req("PUT", "/api/video", {"id": vid, "marks": [{"id": "m1", "start": 1, "end": 3, "label": "テスト", "status": "adopted"}]})
+        self.assertEqual(st, 200, j)
+        st, job, *_ = self.req("POST", "/api/export", {"id": vid, "markIds": ["m1"], "precision": "accurate"})
+        self.assertEqual(st, 200, job)
+        for _ in range(300):
+            st, job, *_ = self.req("GET", "/api/export?id=" + job["id"])
+            if job["state"] != "running":
+                break
+            time.sleep(0.1)
+        self.assertEqual(job["state"], "done", job)
+        it = job["items"][0]
+        self.assertTrue(os.path.isabs(it["path"]) and os.path.isfile(it["path"]))
+        self.assertEqual(it["path"], os.path.join(job["outDir"], *it["file"].split("/")))   # file(相対)と同じもの
+        self.assertEqual(it["manifest"], os.path.splitext(it["path"])[0] + ".clip.json")
+        with open(it["manifest"], encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual((d["schema"], d["range"], d["mark"]["status"], d["source"]["kind"], d["source"]["path"]),
+                         ("youtube-tools-clip/v1", {"start": 1.0, "end": 3.0}, "exported", "file", os.path.abspath(src)))
+        self.assertEqual(d["tool"], {"name": "clip-studio", "version": serve.SERVER_VERSION})
+        self.assertTrue(os.path.isfile(it["editManifest"]))
+        v = self.req("GET", "/api/video?id=" + vid)[1]["video"]
+        self.assertEqual(v["marks"][0]["status"], "exported")
 
 
 if __name__ == "__main__":
