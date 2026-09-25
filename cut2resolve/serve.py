@@ -12,7 +12,7 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
   GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
   POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, force, crf?}} → ジョブ。既存の出力があれば 409 exists
+  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
@@ -43,6 +43,7 @@ sys.path.insert(0, CODE_DIR)
 import auto_cut as AC  # noqa: E402
 import cut2resolve_core as C  # noqa: E402
 import pack  # noqa: E402
+import resolve_textplus as TP  # noqa: E402
 import srt2resolve as S  # noqa: E402
 
 APP_ID = "cut2resolve"
@@ -468,17 +469,21 @@ def output_from_spec(o, video):
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
+    try:
+        target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
+    except ValueError as e:
+        raise ApiError("bad_textplus", str(e))
     return {"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
-            "textplus": textplus, "force": o.get("force") is True,
+            "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True)}
 
 
-FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "友人向けの手順", "plan": "カットの記録",
+FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "友人向けの手順(Text+ パックでは予備の EDL の手順)", "plan": "カットの記録",
               "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー",
               "textplus_plan": "Text+生成用データ", "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
-              "textplus_readme": "Text+の使い方"}
+              "textplus_readme": "友人向けの手順(Text+)"}
 
 
 def file_info(kind, p):
@@ -843,7 +848,7 @@ class Handler(BaseHTTPRequestHandler):
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
-                                  textplus=out["textplus"],
+                                  textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task)
             app.allow_out_dir(res["out_dir"])
             files = [file_info(k, p) for k, p in res["files"]]

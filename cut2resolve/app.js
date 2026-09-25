@@ -11,7 +11,7 @@ const INPUT_ID = { video: 'inVideo', srt: 'inSrt', transcript: 'inTranscript', p
 const STATUS_ID = { video: 'stVideo', srt: 'stSrt', transcript: 'stTranscript', plan: 'stPlan' };
 const VIDEO_EXTS = ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.mxf', '.ts', '.mts', '.m2ts', '.flv', '.wmv'];
 const PERSIST = ['inVideo', 'inSrt', 'inTranscript', 'inPlan', 'handles', 'listText', 'noise', 'silMin', 'silPad', 'minLen', 'joinGap',
-  'srcStartTc', 'recStart', 'edlName', 'reel', 'outDir', 'optRender', 'optCopy', 'optFcpxml', 'optTextPlus', 'dropCutRows', 'silenceExtra'];
+  'srcStartTc', 'recStart', 'edlName', 'reel', 'outDir', 'optRender', 'optCopy', 'optFcpxml', 'optTextPlus', 'textplusFps', 'textplusSize', 'dropCutRows', 'silenceExtra'];
 
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -268,7 +268,8 @@ function buildSpec() {
 function outputOpts(force) {
   const textplus = byId('optTextPlus').checked;
   return { dir: byId('outDir').value.trim(), render: byId('optRender').checked, copyVideo: byId('optCopy').checked,
-    fcpxml: byId('optFcpxml').checked && !textplus, textplus, force: !!force };
+    fcpxml: byId('optFcpxml').checked && !textplus, textplus,
+    textplusFps: byId('textplusFps').value, textplusSize: byId('textplusSize').value, force: !!force };
 }
 const specSig = () => JSON.stringify(buildSpec());
 

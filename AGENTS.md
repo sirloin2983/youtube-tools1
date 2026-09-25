@@ -7,13 +7,14 @@
 ## ツール(フォルダ)
 - `clip-studio/` … 切り抜きスタジオ(配信から切り抜く区間を選ぶ・マーク・書き出し)。仕様: `docs/project/clip-studio-spec.md`
 - `transcribe-tool/` … 文字起こしツール(faster-whisper・話者判別・校正画面・精度測定)。**いま一番活発に開発中**。`transcribe-tool/AGENTS.md` を必ず読む
-- `cut2resolve/` … DaVinci Resolve 連携(カット・字幕の受け渡し。v0.2.0 から専用の画面 serve.py あり)。仕様: `docs/project/cut2resolve-spec.md`, `srt2resolve-spec.md`
+- `cut2resolve/` … DaVinci Resolve 連携(カット・字幕の受け渡し。専用の画面 serve.py あり。v0.4.0 で Text+ パックが実機で成功)。仕様: `docs/project/cut2resolve-spec.md`, `srt2resolve-spec.md`
 - 全体の引き継ぎ: `docs/project/HANDOVER.md`、今後の改善案: `docs/project/improvement-roadmap.md`
 - 共通の見た目: `ui-kit/`(正本。`python tools/sync_ui_kit.py` で各ツールへ写す。写しは手で直さない)。ツール間の受け渡し: `docs/pipeline.md`
 - 2026-09-24 の全ツール見直しのまとめ: `docs/review/README.md`。3ツールの通し確認: `python tools/e2e_pipeline.py`
 - `app/` … 入口(ランチャー)。リポジトリ直下の `start-all.bat` で3ツールをまとめて起動・終了し、入口の画面(http://localhost:8700/)を出す。`app/README.txt`
 - `ytt_core/` … スタジオ・文字起こし・入口の共通部品(書き込み・`.runtime`・受け渡しの形式・安全検査)。変えたら `python -m unittest ytt_core/test_ytt_core.py` と各ツールのテスト
-- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core は実装済み。**当面 cut2resolve は統合しない**)
+- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core は実装済み。段階3 は**スタジオ・文字起こし・cut2resolve** が対象。
+  **cut2resolve の未コミットの変更をテストしてコミットするまで段階3 に入らない**)。正本は claude.ai の Claude Docs「動画編集ツール 統合計画」
 
 どのツールも「Python 標準ライブラリ中心のローカルサーバー(serve.py)+ 1ファイルの画面(index.html)」構成で、ユーザーの PC 上だけで動く。
 外部サービスへ動画・音声を送らない方針。
@@ -59,3 +60,23 @@
    push はユーザーが push.bat で行う(AI は push しなくてよい)
 3. 長く使う設計・決定は `docs/` に文書で残し、WORKLOG からリンクする
 - Claude(Cowork。クラウドから PC のフォルダに書き込む)は PC で git を実行できない。WORKLOG への追記までを行い、コミットは次に git を使う AI か push.bat に任せる
+
+## 統合作業のリスク(段階3 以降。作業する AI は必ず守る)
+詳しい理由は `docs/integration-plan.md` の「主なリスクと対策」。【高】は特に優先。
+
+担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く):
+- 統合作業(`app/`・`ytt_core/`・段階3 の取り込み): Claude が主担当(ユーザー決定 2026-09-25)
+- `cut2resolve/` の Text+: Claude(2026-09-25 から数日。GPT は触らない。WORKLOG 参照)
+- 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
+
+- 【高】AI 間の同時編集の競合: 上の担当表を徹底する。ファイルの移動・改名は `git mv` を**1コミットにまとめ**、前後で WORKLOG に告知する。
+  始める前に `git status` で他の AI の未コミットが無いことを確かめる。長く分かれたブランチは使わない(同じフォルダを2つの AI が使うため、切り替えると相手のファイルが入れ替わる)
+- 【高】同一オリジン化による XSS の影響拡大: 1つのポートにまとめると、1つの画面の XSS で全ツールの API(ファイルの書き込み・Resolve へのスクリプト登録)が使える。
+  CSP `script-src 'self'` を維持してインラインスクリプトを外部ファイルへ出す、書き込み系の POST に CSRF トークン、Host / Origin 検査は ytt_core の1か所で全 API にかける、パスは許可したフォルダの中だけ
+- 【高】文字起こしはワーカー(別プロセス)に分ける: faster-whisper を統合サーバーと同じプロセスで動かさない。ネイティブコードの異常終了でスタジオ・cut2resolve まで止まり、編集中の内容が消えるため。
+  落ちたらワーカーだけ再起動する
+- 【高】Resolve パックの二重実装(`transcribe-tool/resolve_export.py` と `cut2resolve/pack.py`)の一本化は、**先に契約テストを書いてから**進める。
+  同じ入力(transcript/v1・cut-plan/v1)から同じパックの中身ができることを確かめるテストを先に緑にし、それを保ったまま寄せる(寄せる先はテストの多い `pack.py` が基本)
+- 【高】`claude/*.md`(claude.ai の Project の資料)と `docs/project/` の内容の乖離: どちらも写しで、古いことがある。統合計画の**正本は claude.ai の Claude Docs**。
+  食い違いを見つけたら、写しを正本に合わせる(写しを根拠に決定を変えない)
+- CPU の取り合い(ジョブ管理で同時実行数を制限)、データ移行(コピーのみ・元は残す・削除はユーザー確認後)、Public リポジトリへの個人データ混入(作業データはリポジトリの外)

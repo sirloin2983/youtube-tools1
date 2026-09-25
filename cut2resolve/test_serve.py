@@ -433,5 +433,22 @@ class TestJobs(ServerBase):
         self.assertEqual(st, 404)
 
 
+
+class TestTextPlusTargetOption(unittest.TestCase):
+    def test_default_and_explicit_target(self):
+        v = Path(tempfile.gettempdir()) / "x.mp4"
+        self.assertEqual(serve.output_from_spec({"textplus": True}, v)["textplusTarget"],
+                         {"fps": 30, "width": 1080, "height": 1920})
+        o = serve.output_from_spec({"textplus": True, "textplusFps": "60", "textplusSize": "1920x1080"}, v)
+        self.assertEqual(o["textplusTarget"], {"fps": 60, "width": 1920, "height": 1080})
+        self.assertTrue(o["copyVideo"])
+
+    def test_bad_target_is_400(self):
+        v = Path(tempfile.gettempdir()) / "x.mp4"
+        with self.assertRaises(serve.ApiError) as cm:
+            serve.output_from_spec({"textplus": True, "textplusFps": "29"}, v)
+        self.assertEqual(cm.exception.code, "bad_textplus")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

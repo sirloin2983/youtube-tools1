@@ -388,6 +388,37 @@ class TestWithFfmpeg(unittest.TestCase):
         cues = S.parse_subs((out / "g_cut.srt").read_text(encoding="utf-8"))
         self.assertEqual([c[2] for c in cues], ["あ", "い", "う"])  # 字幕は全て音のある区間に入っている
 
+    def test_full_cli_textplus_pack_60fps_to_30fps_target(self):
+        # v0.4.0: 60fps 横の動画を再圧縮せず media/ に入れ、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
+        v = self.dir / "t60.mp4"
+        make_video(v, 10, fps="60")
+        rc = FULL.main([str(v), str(self._srt()), "--textplus"])
+        self.assertEqual(rc, 0)
+        out = self.dir / "t60_pack"
+        for name in ("create_resolve_textplus_project.lua", "textplus-import.json", "cut-plan.json", "友人へ.txt"):
+            self.assertTrue((out / name).exists(), name)
+        self.assertEqual((out / "media" / "t60.mp4").read_bytes(), v.read_bytes())  # 再圧縮しない(中身が同じ)
+        plan = json.loads((out / "textplus-import.json").read_text(encoding="utf-8"))
+        self.assertEqual(plan["target"], {"fps": 30, "width": 1080, "height": 1920})
+        self.assertEqual(plan["mediaFps"], 60)
+        self.assertEqual(len(plan["captions"]), 3)
+        self.assertNotIn(str(self.dir), json.dumps(plan, ensure_ascii=False))  # 計画にローカルの絶対パスを入れない
+        lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
+        for bad in ("CreateProject", "SetSetting", "LoadProject"):  # プロジェクトを作らない・設定を変えない
+            self.assertNotIn(bad, lua)
+
+    def test_full_cli_textplus_target_options_and_errors(self):
+        v = self.dir / "t.mp4"
+        make_video(v, 4)
+        subs = self._srt("1\n00:00:01,000 --> 00:00:02,000\nあ\n")
+        self.assertEqual(FULL.main([str(v), str(subs), "--textplus", "--textplus-fps", "60",
+                                    "--textplus-size", "1920x1080"]), 0)
+        plan = json.loads((self.dir / "t_pack" / "textplus-import.json").read_text(encoding="utf-8"))
+        self.assertEqual(plan["target"], {"fps": 60, "width": 1920, "height": 1080})
+        for bad in (["--textplus-fps", "29"], ["--textplus-size", "1080"], ["--textplus-size", "1081x1920"]):
+            self.assertEqual(FULL.main([str(v), str(subs), "--textplus", "--force", "-o", str(self.dir / "x")] + bad), 1, bad)
+            self.assertFalse((self.dir / "x").exists(), bad)  # 不正な指定ではファイルを作らない
+
     def test_full_cli_dry_run_and_options(self):
         v = self.dir / "d.mp4"
         make_video(v, 10)

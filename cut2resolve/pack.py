@@ -305,7 +305,9 @@ def describe(plan):
 def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False):
     """パックに書くファイル {種類: パス}"""
     video, out_dir = Path(video), Path(out_dir)
-    p = {"edl": out_dir / f"{video.stem}.edl", "readme": out_dir / "友人へ.txt", "plan": out_dir / "cut-plan.json"}
+    # Text+ パックでは「友人へ.txt」を Text+ の手順書にし、EDL の手順書は予備として別の名前にする(手順が2つあると迷うため)
+    p = {"edl": out_dir / f"{video.stem}.edl",
+         "readme": out_dir / (TP.EDL_README_NAME if textplus else "友人へ.txt"), "plan": out_dir / "cut-plan.json"}
     if has_subs:
         p["srt"] = out_dir / f"{video.stem}_cut.srt"
     if fcpxml:
@@ -320,7 +322,7 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=
             "textplus_script": out_dir / "create_resolve_textplus_project.lua",
             "textplus_install": out_dir / "install_resolve_textplus_script.ps1",
             "textplus_launcher": out_dir / "ResolveにText+スクリプトを登録.bat",
-            "textplus_readme": out_dir / "Text+の使い方.txt",
+            "textplus_readme": out_dir / TP.README_NAME,
             "textplus_template": out_dir / TP.TEMPLATE_NAME,
         })
     return p
@@ -334,7 +336,7 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
-               task=None, log=None):
+               task=None, log=None, textplus_target=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 友人へ.txt の中身, "warnings"}。
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
@@ -381,12 +383,12 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
                                                  "動画の場所を書いてあるので、動画を移動したら再リンクが必要"))
         if textplus:
             extras.extend([
-                (paths["textplus_launcher"].name, "Resolve のスクリプト一覧に Text+ 作成機能を登録する(明示実行)") ,
-                (paths["textplus_readme"].name, "Text+ 用パックの登録・実行・素材再リンク手順"),
+                (paths["textplus_launcher"].name, "Resolve のスクリプト一覧に Text+ 作成機能を登録する(明示実行)"),
+                (paths["textplus_readme"].name, "本来の手順(Text+ 字幕つきのタイムラインを作る)。まずこちらを読んでください"),
             ])
         extras.append(("cut-plan.json", "カットの記録(残す・削る区間)。ツールで読み直す用で、Resolve では使いません"))
         files = C.write_pack(out_dir, video, meta, plan.keeps, plan.cues_out, req.reel, req.rec_start,
-                             plan.src_start, paths.get("roughcut"), req.name, extras)
+                             plan.src_start, paths.get("roughcut"), req.name, extras, readme_path=paths["readme"])
         if fcpxml:
             xml_video = paths["video"] if copy_video else video   # FCPXML は動画の場所を書く。同梱したならそちら
             S.write_text_atomic(paths["fcpxml"], AC.build_cut_fcpxml(Path(xml_video), meta, plan.keeps, plan.cues_out, t0),
@@ -401,7 +403,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             files[kind] = final
             staged.pop(0)
         if textplus:
-            files.update(TP.write_files(paths, plan, out_dir))
+            files.update(TP.write_files(paths, plan, out_dir, textplus_target))
     finally:
         for tmp, _, _ in staged:
             try:
@@ -411,7 +413,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     if copy_video and "video" not in files:
         files["video"] = paths["video"]
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
-    readme = files["readme"].read_text(encoding="utf-8-sig")
+    readme = files.get("textplus_readme", files["readme"]).read_text(encoding="utf-8-sig")   # 画面に出すのは友人が最初に読む方
     return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings}
 
 

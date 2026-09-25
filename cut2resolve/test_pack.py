@@ -34,22 +34,59 @@ def transcript_doc(rows, media=None):
                                               for i, (a, b, t, c) in enumerate(rows, 1)]}
 
 
+def _lua_runtime():
+    import shutil as _sh
+    for name in ("luajit", "lua5.1", "lua", "texlua"):   # Resolve は LuaJIT。無ければ構文の近い Lua 5.3(texlua)で代用
+        p = _sh.which(name)
+        if p:
+            return p
+    return None
+
+
+def _textplus_plan(cues_out, keeps, fps=(60, 1), total=2064, target=None):
+    plan = mock.Mock()
+    plan.video = Path('test.mp4')
+    plan.req.name = 'test'
+    plan.meta = {'fps': fps, 'w': 1920, 'h': 1080, 'total': total}
+    plan.cues_out = cues_out
+    plan.keeps = keeps
+    return RTP.build_import_plan(plan, Path('media/test.mp4'), target)
+
+
 class TestResolveTextPlusScript(unittest.TestCase):
-    def test_captions_are_placed_on_v2_at_timeline_start_offset(self):
-        plan = {"title": "test", "fps": "30/1", "nominalFps": 30,
-                "media": {"file": "media/test.mov", "name": "test.mov", "width": 1080, "height": 1920},
-                "cuts": [{"sourceStartFrame": 0, "sourceEndFrame": 120}],
-                "captions": [{"startFrame": 27, "endFrame": 93, "text": "日本語字幕"}],
-                "sourceTimeline": {"startFrame": 0, "endFrame": 120}}
-        script = RTP.importer_script(plan)
-        self.assertIn('recordFrame = baseFrame + cap.startFrame', script)
+    def test_script_never_creates_project_or_changes_settings(self):
+        script = RTP.importer_script(_textplus_plan([(60, 300, '字幕')], [(0, 2064)]))
+        for bad in ('CreateProject', 'SetSetting', 'LoadProject', 'InsertFusionTitleIntoTimeline'):
+            self.assertNotIn(bad, script)
+        self.assertIn('GetSetting("timelineFrameRate")', script)
         self.assertIn('trackIndex=2, recordFrame=recordFrame', script)
-        self.assertIn('endFrame=duration', script)
-        self.assertNotIn('InsertFusionTitleIntoTimeline', script.split('local added, failed = 0, 0')[1])
-        self.assertIn('ImportFolderFromFile(DATA.template.absolutePath)', script)
-        self.assertIn('SetInput("Font", "Noto Sans JP")', script)
-        self.assertIn('SetInput("Style", "Medium")', script)
-        self.assertIn('日本語字幕', script)
+        self.assertIn('tool:SetInput("Font", fontName)', script)
+        self.assertIn('tool:SetInput("Style", fontStyle)', script)
+        self.assertIn('GetFontList', script)
+        self.assertIn('AddMarker', script)
+        self.assertIn('字幕', script)
+
+    def test_caption_segments_are_relative_to_each_keep(self):
+        keeps = [(100, 700), (1000, 1600)]          # カット後: 0-600 / 600-1200
+        cues = [(30, 150, 'a'), (600, 660, 'b'), (1100, 1200, 'c')]
+        caps = RTP.caption_segments(keeps, cues)
+        self.assertEqual([(c['segment'], c['offsetStart'], c['offsetEnd']) for c in caps],
+                         [(1, 30, 150), (2, 0, 60), (2, 500, 600)])
+        with self.assertRaises(ValueError):
+            RTP.caption_segments(keeps, [(1300, 1310, 'x')])
+
+    def test_parse_target(self):
+        self.assertEqual(RTP.parse_target(), {'fps': 30, 'width': 1080, 'height': 1920})
+        self.assertEqual(RTP.parse_target('60', '1920x1080'), {'fps': 60, 'width': 1920, 'height': 1080})
+        for fps, size in (('29', None), ('abc', None), (None, '1080*1920'), (None, '1081x1920'), (None, '8x8')):
+            with self.assertRaises(ValueError):
+                RTP.parse_target(fps, size)
+
+    def test_importer_script_does_not_modify_plan(self):
+        plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
+        before = json.dumps(plan, sort_keys=True)
+        RTP.importer_script(plan)
+        self.assertEqual(json.dumps(plan, sort_keys=True), before)
 
     def test_template_is_bundled(self):
         import zipfile
@@ -60,20 +97,118 @@ class TestResolveTextPlusScript(unittest.TestCase):
         self.assertIn('textplus-template.drb', install)
         self.assertIn('__C2R_TEMPLATE_PATH__', install)
 
-    def test_generated_pack_contains_template_and_v2_script(self):
+    def test_generated_pack_contains_template_target_and_script(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             plan = mock.Mock()
             plan.video = Path('test.mov')
             plan.req.name = 'test'
-            plan.meta = {'fps': (30, 1), 'w': 1080, 'h': 1920, 'total': 120}
+            plan.meta = {'fps': (60, 1), 'w': 1920, 'h': 1080, 'total': 120}
             plan.cues_out = [(27, 93, '日本語字幕')]
             plan.keeps = [(0, 120)]
             paths = pack.pack_paths(plan.video, output, True, textplus=True)
-            files = RTP.write_files(paths, plan, output)
+            files = RTP.write_files(paths, plan, output, {'fps': 30, 'width': 1080, 'height': 1920})
             self.assertEqual(paths['textplus_template'].read_bytes(),
                              Path(RTP.__file__).with_name(RTP.TEMPLATE_NAME).read_bytes())
+            data = json.loads(files['textplus_plan'].read_text(encoding='utf-8'))
+            self.assertEqual(data['target'], {'fps': 30, 'width': 1080, 'height': 1920})
+            self.assertEqual(data['mediaFps'], 60.0)
+            readme = files['textplus_readme'].read_text(encoding='utf-8-sig')
+            self.assertIn('1080 x 1920', readme)
+            self.assertIn('最短辺をマッチ: 他をクロップ', readme)
             self.assertIn('trackIndex=2', files['textplus_script'].read_text(encoding='utf-8'))
+
+
+@unittest.skipUnless(_lua_runtime(), 'Lua の実行環境がない')
+class TestResolveTextPlusLuaRun(unittest.TestCase):
+    """生成した Lua を、Resolve の API をまねた偽物(resolve_lua_mock.lua)の上で実際に動かす"""
+
+    def run_lua(self, plan, settings, media_fps=60, template_ok=True, media_ok=True, fonts=None):
+        mock_path = Path(RTP.__file__).with_name('resolve_lua_mock.lua')
+        body = RTP.importer_script(plan)
+        pre = 'dofile(%s)\n' % json.dumps(str(mock_path))
+        pre += 'MOCK.mediaFps = %s\nMOCK.templateOk = %s\nMOCK.mediaOk = %s\n' % (
+            media_fps, 'true' if template_ok else 'false', 'true' if media_ok else 'false')
+        for k, v in settings.items():
+            pre += 'MOCK.settings[%s] = %s\n' % (json.dumps(k), json.dumps(v))
+        if fonts is not None:   # {書体: [太さ, ...]}
+            pre += 'MOCK.fonts = {' + ','.join('[%s]={%s}' % (json.dumps(f, ensure_ascii=False), ','.join('[%s]="x"' % json.dumps(s, ensure_ascii=False) for s in st))
+                                             for f, st in fonts.items()) + '}\n'
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'run.lua'
+            f.write_text(pre + body + '\nMOCK.dump()\n', encoding='utf-8')
+            r = subprocess.run([_lua_runtime(), str(f)], capture_output=True, text=True, encoding='utf-8', timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_60fps_media_on_30fps_vertical_project(self):
+        keeps = [(0, 600), (1000, 1601)]            # 2区間目は奇数コマ(601)
+        cues = [(60, 300, '一'), (600, 720, '二'), (1100, 1201, '三')]
+        out = self.run_lua(_textplus_plan(cues, keeps),
+                           {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'})
+        self.assertIn('forbidden=\n', out)
+        self.assertIn('timeline=CUT_TextPlus', out)
+        self.assertIn('timeline=SOURCE_WITH_HANDLES', out)
+        self.assertNotIn('C2R_エラー', out)
+        # V1: 600コマ->300、601コマ->301(偽物は四捨五入)。V2: 各区間の実際の位置 + オフセット/2
+        self.assertIn('item track=1 start=108000 dur=300', out)
+        self.assertIn('item track=1 start=108300 dur=301', out)
+        self.assertIn('item track=2 start=108030 dur=120 text=一 font=MS Gothic', out)   # 一覧を読めない -> 予備の書体
+        self.assertIn('  style=Regular fill=1.0,0.9,0.0 outline=1:0.0,0.0,0.0', out)   # 黄色い文字 + 黒いふち
+        self.assertIn('字体 MS Gothic Regular(一覧を読めない)', out)
+        self.assertIn('item track=2 start=108300 dur=60 text=二', out)
+        self.assertIn('item track=2 start=108550 dur=51 text=三', out)
+        self.assertIn('marker=Green|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
+
+    def test_scaling_value_is_only_reported(self):
+        base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
+        out = self.run_lua(plan, dict(base, timelineInputResMismatchBehavior='scaleToFit'))
+        self.assertIn('marker=Green|cut2resolve 完了|', out)             # 値が当てにならないので警告しない
+        self.assertIn('拡大設定(参考) scaleToFit', out)
+
+    def test_font_is_chosen_from_resolve_font_list(self):
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
+        out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Meiryo': ['Regular', 'Bold', 'Italic'], 'MS Gothic': ['Regular']})
+        self.assertIn('text=a font=Meiryo', out)                       # 候補の順: 游ゴシック が無いので メイリオ
+        self.assertIn('  style=Bold ', out)
+        self.assertIn('字体 Meiryo Bold(一覧から選択)', out)
+        out = self.run_lua(plan, s, fonts={'ＭＳ ゴシック': ['標準']})    # 日本語名しか無い環境
+        self.assertIn('text=a font=ＭＳ ゴシック', out)
+        self.assertIn('  style=標準 ', out)
+        out = self.run_lua(plan, s, fonts={'Yu Gothic': ['Light', 'Medium']})   # 候補の太さが無ければ、ある太さのどれか
+        self.assertIn('字体 Yu Gothic Light(一覧から選択)', out)
+        out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Noto Sans CJK JP': ['Regular'], 'ヒラギノ角ゴ': ['W3']})
+        self.assertIn('一覧に候補なし(例: ヒラギノ角ゴ)', out)             # 次に直すための手がかり
+
+    def test_wrong_project_settings_stop_without_changes(self):
+        out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),
+                           {'timelineFrameRate': '60', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'})
+        self.assertIn('forbidden=\n', out)
+        self.assertIn('timeline=C2R_エラー_プロジェクトのfps・解像度が違う', out)
+        self.assertNotIn('CUT_TextPlus', out)
+        self.assertIn('media=nil', out)                 # 動画も読み込まない
+
+    def test_only_fps_differs_also_stops(self):
+        out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),
+                           {'timelineFrameRate': '60', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'})
+        self.assertIn('timeline=C2R_エラー_プロジェクトのfps・解像度が違う', out)
+        self.assertNotIn('CUT_TextPlus', out)
+
+    def test_missing_template_and_media_show_error_timeline(self):
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]), s, template_ok=False)
+        self.assertIn('timeline=C2R_エラー_Text+雛形を読めない', out)
+        out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]), s, media_ok=False)
+        self.assertIn('timeline=C2R_エラー_動画を読めない_パックを移したら登録し直す', out)
+
+    def test_same_fps_landscape_60(self):
+        out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)], target={'fps': 60, 'width': 1920, 'height': 1080}),
+                           {'timelineFrameRate': '60', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'})
+        self.assertIn('item track=1 start=108000 dur=2064', out)
+        self.assertIn('item track=2 start=108060 dur=240 text=a', out)
+        self.assertIn('marker=Green', out)
 
 
 class TestParsingFixes(unittest.TestCase):
@@ -420,6 +555,25 @@ class TestPackWithFfmpeg(unittest.TestCase):
         self.assertIn("DaVinci Resolve", r2["readme"])
         leftovers = [p.name for p in r2["out_dir"].iterdir() if p.name.startswith(".")]
         self.assertEqual(leftovers, [])
+
+    def test_textplus_pack_friend_readme_is_textplus_guide(self):
+        srt = write(self.dir / "clip.srt", "1\n00:00:00,500 --> 00:00:01,500\nこんにちは\n\n2\n00:00:08,500 --> 00:00:09,500\nまたね\n")
+        plan = pack.plan_cut(pack.Request(video=self.video, sub=srt, base="list", keep_pairs=[(0, 4), (5, 10)]))
+        r = pack.build_pack(plan, textplus=True, textplus_target={"fps": 30, "width": 1080, "height": 1920})
+        names = sorted(p.name for p in r["out_dir"].iterdir())
+        self.assertIn(RTP.README_NAME, names)
+        self.assertIn(RTP.EDL_README_NAME, names)
+        self.assertNotIn("Text+の使い方.txt", names)
+        guide = (r["out_dir"] / RTP.README_NAME).read_text(encoding="utf-8-sig")
+        self.assertIn("Text+ 字幕つき", guide)
+        self.assertIn("字幕 2 件・残す区間 2 か所", guide)
+        self.assertIn("最短辺をマッチ: 他をクロップ", guide)
+        self.assertIn("フレームレートは、タイムラインを1本でも作ると", guide)
+        self.assertEqual(r["readme"], guide)                       # 画面に出すのも友人が最初に読む方
+        backup = (r["out_dir"] / RTP.EDL_README_NAME).read_text(encoding="utf-8-sig")
+        self.assertIn("DaVinci Resolve", backup)
+        self.assertIn(RTP.README_NAME, backup)                    # 予備の手順書から本来の手順書を案内する
+        self.assertTrue((r["out_dir"] / "media" / self.video.name).exists())
 
     def test_cancel_during_copy_leaves_nothing(self):
         plan = pack.plan_cut(pack.Request(video=self.video))

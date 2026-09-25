@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""cut2resolve v0.3.2  (フル版)
+"""cut2resolve v0.4.0  (フル版)
 
 元動画に対して「残す区間」を決め、Resolve に読み込める EDL と、カット後の時刻の字幕を作る。
 出力先は <動画名>_pack フォルダ(EDL / 字幕SRT / 友人へ.txt / cut-plan.json / 任意で粗編集の動画・元動画のコピー・FCPXML・Text+パック)。
@@ -28,6 +28,7 @@ from pathlib import Path
 
 import cut2resolve_core as C
 import pack
+import resolve_textplus as TP
 
 
 def build_request(args):
@@ -71,6 +72,10 @@ def build_request(args):
 
 
 def run(args):
+    try:
+        textplus_target = TP.parse_target(args.textplus_fps, args.textplus_size)
+    except ValueError as e:
+        raise C.ToolError(str(e))
     req = build_request(args)
     plan = pack.plan_cut(req, log=lambda m: print(m, flush=True))
     for line in pack.describe(plan):
@@ -79,7 +84,7 @@ def run(args):
         print("(--dry-run: ファイルは作っていません)")
         return 0
     res = pack.build_pack(plan, args.output, render=args.render, copy_video=args.copy_video, fcpxml=args.fcpxml,
-                          textplus=args.textplus,
+                          textplus=args.textplus, textplus_target=textplus_target,
                           force=args.force, crf=args.crf, log=lambda m: print(m, flush=True))
     for w in res["warnings"]:
         print("注意: " + w)
@@ -116,6 +121,8 @@ def main(argv=None):
     ap.add_argument("--copy-video", action="store_true", help="元動画を出力フォルダにコピーする(大きいので注意)")
     ap.add_argument("--fcpxml", action="store_true", help="補助の FCPXML(カット済みのタイムライン+字幕タイトル。実機未確認)も作る")
     ap.add_argument("--textplus", action="store_true", help="動画同梱・Resolve Free用Text+生成スクリプト・復旧タイムラインを含むパックを作る")
+    ap.add_argument("--textplus-fps", default=None, help="Text+ を置くプロジェクトの fps(既定 30。24/25/30/50/60)")
+    ap.add_argument("--textplus-size", default=None, help="Text+ を置くプロジェクトの解像度(既定 1080x1920。例: 1920x1080)")
     ap.add_argument("--force", action="store_true", help="既存の出力ファイルを上書きする(入力ファイルとの衝突は不可)")
     ap.add_argument("--dry-run", action="store_true", help="残る区間を表示するだけで、ファイルは作らない")
     ap.add_argument("-o", "--output", help="出力フォルダ(既定: 動画と同じ場所の <動画名>_pack)")
