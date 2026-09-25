@@ -2,6 +2,7 @@
 """cut2resolve の画面の通し確認(Playwright + ffmpeg。空きポート・一時フォルダだけを使う)。
 
     python e2e_ui.py
+    python e2e_ui.py --mounted       # 入口(app/launch.py)の統合サーバーに取り込んだ形(http://localhost:<port>/cut2resolve/・合言葉あり)で同じ確認をする
 
 入力(URL で埋める)→ 読み込み → 試算(無音カット)→ パック作成 → 上書きの確認 → 結果の表示、テーマの保存、XSS を確かめる。
 """
@@ -20,7 +21,10 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    mounted = "--mounted" in argv
+    prefix = "/cut2resolve" if mounted else ""
     ok = True
 
     def check(cond, msg):
@@ -39,9 +43,13 @@ def main():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    env = dict(os.environ, YTT_RUNTIME_DIR=os.path.join(tmp, "rt"))
-    proc = subprocess.Popen([sys.executable, os.path.join(HERE, "serve.py"), str(port), "--no-open"], env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    rt = os.path.join(tmp, "rt")
+    env = dict(os.environ, YTT_RUNTIME_DIR=rt)
+    if mounted:   # 本物の入口を起動する(start-all.bat と同じ。cut2resolve だけ)
+        cmd = [sys.executable, os.path.join(os.path.dirname(HERE), "app", "launch.py"), "--port", str(port), "--no-open", "--only", "cut2resolve"]
+    else:
+        cmd = [sys.executable, os.path.join(HERE, "serve.py"), str(port), "--no-open"]
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     errors = []
 
     def wait_js(pg, expr, timeout=20000):
@@ -55,7 +63,7 @@ def main():
     try:
         for _ in range(100):
             try:
-                urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=1).read()
+                urllib.request.urlopen("http://127.0.0.1:%d%s/api/ping" % (port, prefix), timeout=1).read()
                 break
             except Exception:
                 time.sleep(0.1)
@@ -64,14 +72,19 @@ def main():
             b = pw.chromium.launch()
             pg = b.new_page(viewport={"width": 1440, "height": 900})
             pg.on("pageerror", lambda e: errors.append(str(e)))
+            # CSP の違反はコンソールに出る(上書きの確認の 409 などの「Failed to load resource」は想定内なので数えない)
+            pg.on("console", lambda m: m.type == "error" and not m.text.startswith("Failed to load resource") and errors.append("console: " + m.text))
             pg.on("dialog", lambda d: (errors.append("dialog: " + d.message), d.dismiss()))
-            pg.goto("http://localhost:%d/%s" % (port, q))
+            pg.goto("http://localhost:%d%s/%s" % (port, prefix, q))
             pg.wait_for_timeout(600)
             check(pg.input_value("#inVideo") == video, "URL の ?video= で動画の欄が埋まる")
             check(pg.input_value("#inSrt") == srt, "URL の ?srt= で字幕の欄が埋まる")
             check("video=" not in pg.url, "読んだあと URL から値を消す")
             check(pg.is_visible("#linkNotice"), "リンクから開いたことを知らせる(自動では読み込まない)")
             check(pg.inner_text("#ver").strip().startswith("v"), "ヘッダーに版が出る")
+            if mounted:
+                check(pg.evaluate("!!document.querySelector('meta[name=\"ytt-token\"]')"), "入口が合言葉を画面に入れている")
+                check(pg.evaluate("location.pathname.startsWith('/cut2resolve/')"), "画面の場所は /cut2resolve/")
 
             # テーマの切り替えが保存される
             before = pg.evaluate("document.documentElement.dataset.theme")
@@ -122,14 +135,19 @@ def main():
             pg.set_viewport_size({"width": 390, "height": 800})
             pg.wait_for_timeout(300)
             check(pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "390 幅で横にはみ出さない")
+            if mounted:
+                src = pg.evaluate("document.querySelector('video') && document.querySelector('video').getAttribute('src') || ''")
+                check(src.startswith("/cut2resolve/media/"), "プレビューの動画も /cut2resolve/ の下から読む: " + src[:40])
             check(not errors, "画面のエラーが無い: %s" % errors[:3])
             b.close()
     finally:
         proc.terminate()
         try:
-            proc.wait(5)
+            proc.wait(15 if mounted else 5)
         except Exception:
             proc.kill()
+        if mounted:
+            check(not os.path.exists(os.path.join(rt, "cut2resolve.json")), "入口を終えると .runtime の記録が消える")
         shutil.rmtree(tmp, ignore_errors=True)
     print("ALL PASSED" if ok else "SOME FAILED")
     return 0 if ok else 1

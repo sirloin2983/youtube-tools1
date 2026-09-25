@@ -14,7 +14,7 @@
 - `app/` … 入口(ランチャー)。リポジトリ直下の `start-all.bat` で3ツールをまとめて起動・終了し、入口の画面(http://localhost:8700/)を出す。`app/README.txt`
 - `ytt_core/` … スタジオ・文字起こし・入口の共通部品(書き込み・`.runtime`・受け渡しの形式・安全検査)。変えたら `python -m unittest ytt_core/test_ytt_core.py` と各ツールのテスト
 - 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core は実装済み。段階3 は**スタジオ・文字起こし・cut2resolve** が対象。
-  **cut2resolve の未コミットの変更をテストしてコミットするまで段階3 に入らない**)。正本は claude.ai の Claude Docs「動画編集ツール 統合計画」
+  段階3-1 スタジオ・3-2 cut2resolve は取り込み済み。次は 3-3 文字起こし)。正本は claude.ai の Claude Docs「動画編集ツール 統合計画」
 
 どのツールも「Python 標準ライブラリ中心のローカルサーバー(serve.py)+ 1ファイルの画面(index.html)」構成で、ユーザーの PC 上だけで動く。
 外部サービスへ動画・音声を送らない方針。
@@ -70,9 +70,9 @@
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込み(段階3)の決まり(詳しくは `docs/integration-plan.md` の「段階3-1で決めたこと」):
-- 取り込んだツール(今はスタジオ)は入口の中の `/studio/` で動く。画面は**相対パス**で部品を読み、API の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)
-- 取り込んだ画面には CSP がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(スタジオは `Studio.api` が付ける)
-- ツール間で同じ名前の .py を作らない(`app/test_mount.py` が検査)。スタジオを変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` の両方を通す
+- 取り込んだツール(今はスタジオと cut2resolve)は入口の中の `/studio/`・`/cut2resolve/` で動く。画面は**相対パス**で部品を読み、API の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)
+- 取り込んだ画面には CSP がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(スタジオは `Studio.api`、cut2resolve は `app.js` の `api()` が付ける)
+- ツール間で同じ名前の .py を作らない(`app/test_mount.py` が検査)。スタジオ・cut2resolve の画面を変えたら、そのフォルダで `python e2e_ui.py` と `python e2e_ui.py --mounted` の両方を通す
 
 - 【高】AI 間の同時編集の競合: 上の担当表を徹底する。ファイルの移動・改名は `git mv` を**1コミットにまとめ**、前後で WORKLOG に告知する。
   始める前に `git status` で他の AI の未コミットが無いことを確かめる。長く分かれたブランチは使わない(同じフォルダを2つの AI が使うため、切り替えると相手のファイルが入れ替わる)

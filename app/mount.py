@@ -21,12 +21,14 @@ import threading
 import time
 import urllib.parse
 
-# 取り込めるツール。prefix は画面の場所(/studio/)。順番は スタジオ → cut2resolve → 文字起こし(段階3 の決定)。今はスタジオだけ
+# 取り込めるツール。prefix は画面の場所(/studio/)。順番は スタジオ → cut2resolve → 文字起こし(段階3 の決定)。
+# csp が None のツールは、ツール自身の CSP(serve.py の CSP。script-src 'self' で外部・インラインのスクリプトなし)をそのまま使う
 MOUNTS = {
     "studio": {"dir": "clip-studio", "prefix": "/studio", "alias": "ytt_tool_studio",
                # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
                "csp": ("script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                        "form-action 'none'; frame-ancestors 'none'")},
+    "cut2resolve": {"dir": "cut2resolve", "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None},
 }
 TOKEN_HEADER = "X-YTT-Token"
 SAFE_METHODS = ("GET", "HEAD")
@@ -155,9 +157,12 @@ class Mount:
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._access_log("==== 入口に取り込んで起動(%s) ====" % self.path)
         self.mod = load_serve(self.root, self.id)
+        csp = self.spec["csp"] or getattr(self.mod, "CSP", None)
+        if not isinstance(csp, str) or "script-src" not in csp or "'unsafe-inline'" in csp.split("script-src", 1)[1].split(";", 1)[0]:
+            raise MountError("%s の CSP が取り込みの条件(script-src にインラインを許さない)を満たしません" % self.id)
         self.mod.ALLOWED_HOSTS = set(allowed_hosts)
         self.mod.prepare(port, self.path)
-        self.handler = make_handler(self.mod, self.prefix, token, self.spec["csp"], self._access_log)
+        self.handler = make_handler(self.mod, self.prefix, token, csp, self._access_log)
         return self.handler
 
     def version(self):

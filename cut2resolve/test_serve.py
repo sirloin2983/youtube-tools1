@@ -141,7 +141,8 @@ class TestGuards(ServerBase):
         import re
         for tag in re.findall(r"<script[^>]*>", html):
             self.assertIn("src=", tag)   # インラインのスクリプトは使わない(CSP)
-        self.assertLess(html.index("/ui-kit.js"), html.index("/ui-kit.css"))   # ui-kit.js は CSS より先(ちらつき防止)
+        self.assertLess(html.index('src="ui-kit.js"'), html.index('href="ui-kit.css"'))   # ui-kit.js は CSS より先(ちらつき防止)
+        self.assertIsNone(re.search(r'(?:src|href)="/', html))   # 部品は相対パス(入口に取り込まれた /cut2resolve/ の下でも読める)
         for p in ("/app.js", "/app.css", "/ui-kit.js", "/ui-kit.css"):
             self.assertEqual(self.c.req("GET", p)[0], 200, p)
         self.assertEqual(self.c.req("GET", "/serve.py")[0], 404)
@@ -283,6 +284,23 @@ class TestSiblings(unittest.TestCase):
         self.assertFalse(serve.remove_runtime(8812))   # 別のポートの記録は消さない
         self.assertTrue(serve.remove_runtime(8811))
         self.assertFalse(os.path.exists(path))
+        self.assertNotIn("path", d)   # 単独で動くときは以前と同じ形(path を書かない)
+
+    def test_mounted_path_in_runtime_and_siblings(self):
+        """入口に取り込まれたとき(段階3-2): .runtime に場所を書き、siblings は自分と他のツールの場所を返す。形の違う場所は "/" として扱う"""
+        d = json.loads(Path(serve.write_runtime(8700, "/cut2resolve/")).read_text(encoding="utf-8"))
+        self.assertEqual(d["path"], "/cut2resolve/")
+        d = json.loads(Path(serve.write_runtime(8700, "//evil.example/")).read_text(encoding="utf-8"))
+        self.assertNotIn("path", d)
+        self.assertEqual(serve.siblings(8700, self_path="/cut2resolve/"), {"tools": {"cut2resolve": 8700}, "paths": {"cut2resolve": "/cut2resolve/"}})
+        self.assertEqual(serve.siblings(8700, self_path="/x/../"), {"tools": {"cut2resolve": 8700}})
+        port = self.fake("cut2resolve")
+        self.put("cut2resolve", {"tool": "cut2resolve", "port": port, "path": "/cut2resolve/"})
+        self.assertEqual(serve.mounted_elsewhere(), "http://localhost:%d/cut2resolve/" % port)   # start.bat はこれを開くだけ
+        self.put("cut2resolve", {"tool": "cut2resolve", "port": port})
+        self.assertIsNone(serve.mounted_elsewhere())   # 単独で動いているものは従来どおり(make_server の probe が扱う)
+        self.put("cut2resolve", {"tool": "cut2resolve", "port": self.fake("clip-studio"), "path": "/cut2resolve/"})
+        self.assertIsNone(serve.mounted_elsewhere())   # 別のアプリが答えるなら開かない
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")

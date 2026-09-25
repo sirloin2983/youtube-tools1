@@ -20,6 +20,7 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import launch as L  # noqa: E402
+import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
 
 
@@ -58,7 +59,7 @@ def main():
     events = []
     env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
     os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
-    sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=("studio",))   # 本番と同じくスタジオは取り込む
+    sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=tuple(M.MOUNTS))   # 本番と同じくスタジオ・cut2resolve は取り込む
     srv, port = L.make_server(0, sup)
     sup.attach(srv)
     th = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -86,6 +87,8 @@ def main():
             check(pg.text_content("#conn") == "接続中", "接続中の表示")
             meta = pg.text_content(".pt-tool[data-tool=studio] .pt-meta")
             check(("ポート %d" % port) in meta and "v0.3.0" in meta and "入口に取り込み" in meta, "スタジオは入口に取り込み: %s" % meta)
+            meta = pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-meta")
+            check(("ポート %d" % port) in meta and "入口に取り込み" in meta, "cut2resolve も入口に取り込み: %s" % meta)
             meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
             check(("ポート %d" % ports["transcribe"]) in meta, "文字起こしは別のプログラム: %s" % meta)
             check(pg.is_disabled(".pt-tool[data-tool=studio] .pt-toggle") and pg.is_disabled(".pt-tool[data-tool=studio] .pt-restart"),
@@ -108,10 +111,25 @@ def main():
             check(tab.evaluate("Studio.base") == "/studio" and bool(tab.evaluate("Studio.token")), "スタジオは場所と合言葉を知っている")
             tab.click("#toolMenu summary")
             links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-            check(any(h.endswith(":%d/" % ports["transcribe"]) for h in links) and "/studio/" in links, "スタジオの「他のツール」: 文字起こしは別のポート・自分は /studio/: %s" % links)
+            check(any(h.endswith(":%d/" % ports["transcribe"]) for h in links) and "/studio/" in links and any(h.endswith(":%d/cut2resolve/" % port) for h in links),
+                  "スタジオの「他のツール」: 文字起こしは別のポート・自分は /studio/・cut2resolve は /cut2resolve/: %s" % links)
             u = tab.evaluate("UIKit.tools.url('studio', Studio.ports, '/?url=x')")
             check(u == "http://localhost:%d/studio/?url=x" % port, "他のツールから取り込んだスタジオへのリンク(ui-kit の paths): %s" % u)
             check(tab.evaluate("window.opener") is None, "開いたタブから入口を操作できない(noopener)")
+            tab.close()
+
+            # 2b. cut2resolve も同じアドレスの /cut2resolve/ で開ける
+            href = pg.get_attribute(".pt-tool[data-tool=cut2resolve] .pt-open", "href")
+            check(href == "http://127.0.0.1:%d/cut2resolve/" % port, "cut2resolve の開くのリンク: %s" % href)
+            with ctx.expect_page() as info:
+                pg.click(".pt-tool[data-tool=cut2resolve] .pt-open")
+            tab = info.value
+            tab.wait_for_load_state()
+            check(wait_js(tab, "document.querySelectorAll('#toolNav a').length === 3 || document.querySelectorAll('[data-ui-toolnav] a').length === 3", 20000),
+                  "cut2resolve の画面が /cut2resolve/ の下で API を読めた")
+            links = tab.eval_on_selector_all("[data-ui-toolnav] a", "els => els.map(a => a.getAttribute('href'))")
+            check(any(h.endswith(":%d/studio/" % port) for h in links), "cut2resolve の「他のツール」からスタジオ(/studio/)へ: %s" % links)
+            check(pg.is_disabled(".pt-tool[data-tool=cut2resolve] .pt-toggle"), "取り込んだ cut2resolve も単独では止めない")
             tab.close()
 
             # 3. ログ: 開くと末尾が出る。題名などに HTML が入っていても実行されない
@@ -123,21 +141,21 @@ def main():
             check(pg.evaluate("window.__xss") is None and pg.query_selector(".pt-log img") is None, "ログの HTML は文字として表示(XSS なし)")
             check("transcribe.log" in pg.text_content(".pt-tool[data-tool=transcribe] .pt-logpath"), "ログの場所の表示")
 
-            # 4. 停止 → 起動
-            pg.click(".pt-tool[data-tool=cut2resolve] .pt-toggle")
-            check(wait_card(pg, "cut2resolve", "stopped"), "cut2resolve を停止")
-            check(pg.get_attribute(".pt-tool[data-tool=cut2resolve] .pt-open", "aria-disabled") == "true", "停止中は「開く」が押せない")
-            check(pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-toggle") == "起動", "ボタンが「起動」になる")
-            check(pg.is_disabled(".pt-tool[data-tool=cut2resolve] .pt-restart"), "停止中は再起動が押せない")
-            pg.click(".pt-tool[data-tool=cut2resolve] .pt-toggle")
-            check(wait_card(pg, "cut2resolve", "running"), "cut2resolve を起動")
+            # 4. 停止 → 起動(子プロセスで動くのは文字起こしだけ)
+            pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
+            check(wait_card(pg, "transcribe", "stopped"), "文字起こしを停止")
+            check(pg.get_attribute(".pt-tool[data-tool=transcribe] .pt-open", "aria-disabled") == "true", "停止中は「開く」が押せない")
+            check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-toggle") == "起動", "ボタンが「起動」になる")
+            check(pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"), "停止中は再起動が押せない")
+            pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
+            check(wait_card(pg, "transcribe", "running"), "文字起こしを起動")
 
             # 5. 再起動
             old_pid = sup.by_id["transcribe"].proc.pid
             pg.click(".pt-tool[data-tool=transcribe] .pt-restart")
             check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent.includes('再起動')", 5000)
                   or card_state(pg, "transcribe") in ("starting", "running"), "再起動中の表示")
-            check(wait_for(lambda: sup.by_id["transcribe"].snapshot()["starts"] == 2, 30), "再起動した(起動の回数が2)")
+            check(wait_for(lambda: sup.by_id["transcribe"].snapshot()["starts"] == 3, 30), "再起動した(停止→起動のあとなので起動の回数が3)")
             check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent === '動作中'"
                               " && document.querySelector('.pt-tool[data-tool=transcribe]').getAttribute('data-state') === 'running'"),
                   "文字起こしが再起動後に動作中")
@@ -145,17 +163,17 @@ def main():
             check(proc is not None and proc.pid != old_pid, "別のプロセスになった")
 
             # 6. 異常終了の表示(子を外から強制終了)
-            os.kill(sup.by_id["cut2resolve"].proc.pid, signal.SIGKILL)
-            check(wait_card(pg, "cut2resolve", "crashed"), "異常終了の表示")
-            msg = pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-msg")
-            check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=cut2resolve] .pt-msg"), "異常終了のメッセージ: %s" % msg)
-            check(pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-toggle") == "起動", "異常終了のあと「起動」が押せる")
+            os.kill(sup.by_id["transcribe"].proc.pid, signal.SIGKILL)
+            check(wait_card(pg, "transcribe", "crashed"), "異常終了の表示")
+            msg = pg.text_content(".pt-tool[data-tool=transcribe] .pt-msg")
+            check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=transcribe] .pt-msg"), "異常終了のメッセージ: %s" % msg)
+            check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-toggle") == "起動", "異常終了のあと「起動」が押せる")
             if shots:
                 pg.evaluate("UIKit.theme.set('dark')")
                 time.sleep(0.4)
                 pg.screenshot(path=os.path.join(shots, "portal-dark-crashed.png"), full_page=True)
-            pg.click(".pt-tool[data-tool=cut2resolve] .pt-toggle")
-            check(wait_card(pg, "cut2resolve", "running"), "起動し直せる")
+            pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
+            check(wait_card(pg, "transcribe", "running"), "起動し直せる")
 
             # 7. テーマ(ui-kit)
             before = pg.get_attribute("html", "data-theme")

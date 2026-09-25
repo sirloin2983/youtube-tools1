@@ -1,9 +1,12 @@
-/* cut2resolve の画面。サーバー(serve.py)の API は api() だけを通す(将来1つのアプリに統合するときは BASE だけ変える)。
+/* cut2resolve の画面。サーバー(serve.py)の API は api() だけを通す(入口の統合サーバーに取り込まれたときも BASE が変わるだけ)。
    外から来る文字列(ファイル名・パス・字幕・エラーの文言)は textContent か esc() で入れる。CSP で style 属性・インラインのスクリプトは使えないので、
    位置は element.style(CSSOM)で付ける。 */
 (() => {
 'use strict';
-const BASE = '';
+// 画面の場所("" または入口に取り込まれたときの "/cut2resolve")。API・動画の URL はこれを前に付ける(絶対パス "/api/..." を直接書かない)
+const BASE = location.pathname.replace(/\/[^/]*$/, '');
+// 入口に取り込まれたときの合言葉(CSRF トークン。入口が <meta name="ytt-token"> で入れる)。書き込み系の要求に付ける
+const TOKEN = (document.querySelector('meta[name="ytt-token"]') || {}).content || '';
 const APP_VERSION = document.documentElement.getAttribute('data-app-version') || '';
 const LS_KEY = 'c2r:form:v1';
 const FIELDS = ['video', 'srt', 'transcript', 'plan'];
@@ -24,6 +27,7 @@ async function api(path, opts) {
   const init = { method: opts.method || (opts.body !== undefined || opts.raw !== undefined ? 'POST' : 'GET'), cache: 'no-store', headers: {} };
   if (opts.raw !== undefined) { init.headers['Content-Type'] = 'application/octet-stream'; init.body = opts.raw; }
   else if (opts.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+  if (TOKEN && init.method !== 'GET' && init.method !== 'HEAD') init.headers['X-YTT-Token'] = TOKEN;
   let r;
   try { r = await fetch(BASE + path, init); }
   catch (e) { const er = new Error('サーバーに接続できません(黒い画面が閉じていないか確認してください)'); er.code = 'network'; throw er; }

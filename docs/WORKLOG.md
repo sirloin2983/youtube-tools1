@@ -359,3 +359,19 @@
 - 注意: 取り込んだ画面では、インラインのスクリプト・`onclick=` は CSP で動かない。スタジオの画面を変えたら `e2e_ui.py --mounted` も通す。
   起動中のスタジオ・入口は古いコードのまま動いているので、入口を「すべて終了」してから start-all.bat で起動し直す。未コミット
 - 未完了・次: 段階3-2(cut2resolve の取り込み)
+
+## 2026-09-25 Claude(Cowork)— 段階3-2: cut2resolve を入口に取り込み(入口 v0.3.0・cut2resolve v0.5.0)
+- 担当: 統合作業・cut2resolve(Claude)。作業の土台は HEAD = de5cf80(段階3-1 を含む。PC の該当ファイルは HEAD と一致を確認)
+- 変更: `app/mount.py`(MOUNTS に cut2resolve。csp=None はツール自身の CSP を使い、インラインを許す CSP なら取り込まない)、`app/launch.py`(版だけ)、
+  `app/test_mount.py`(cut2resolve の取り込み 7件: 画面・CSP・合言葉・Host/Origin・/media の Range・.runtime と siblings・start.bat の二重起動防止・終了時のジョブ取り消し)、
+  `app/e2e_portal.py`(スタジオと cut2resolve を取り込んだ形。停止・異常終了の確認は子プロセスで動く文字起こしで)、`app/README.txt`。
+  cut2resolve: `serve.py`(`prepare()` / `finish()` / `busy()` / `mounted_elsewhere()`・`Handler.ctx`・`.runtime` の path・siblings の self_path)、
+  `app.js`(`BASE` を画面の場所から・書き込みに合言葉)、`index.html`(部品を相対パスに)、`e2e_ui.py`(`--mounted`: 本物の入口を起動して通す)、`test_serve.py`、`cut2resolve_core.py`(版)、`README.txt`。
+  `docs/integration-plan.md`(「段階3-2で決めたこと」)、`AGENTS.md`
+- 版: cut2resolve 0.4.0 → 0.5.0、入口 0.2.0 → 0.3.0。スタジオ・文字起こし・ytt_core は変えていない
+- 確認(クラウド): cut2resolve test_serve・test_cut2resolve・test_pack・e2e_ui・**e2e_ui --mounted**(CSP 違反を含む画面のエラーなし・終了で .runtime が消える)、
+  app/test_launch・test_mount 18・e2e_portal、ytt_core、tools/e2e_pipeline・test_ui_kit_sync、スタジオ 単体・e2e_ui --mounted 70/70 すべて OK。
+  ミューテーション 3件(合言葉を付けない・.runtime に path を書かない・終了で取り消さない)はすべて検出
+- 未確認(実機): Windows で start-all.bat → /cut2resolve/ で 読み込み・試算・パック作成(Text+)・「フォルダを開く」・プレビューの動画、「すべて終了」、入口の中で動いている間の cut2resolve の start.bat
+- 注意: 入口の中の cut2resolve は、入力欄の前回の値(ブラウザの保存)が単独のときと別になる。起動中の入口は古いコードのままなので「すべて終了」→ start-all.bat で起動し直す。未コミット
+- 未完了・次: 段階3-3(文字起こしの取り込み。faster-whisper は別プロセスのワーカー)。Resolve パックの一本化(契約テストが先)

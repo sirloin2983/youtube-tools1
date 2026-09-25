@@ -18,6 +18,9 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
   POST /api/upload?kind=&name=   字幕・文字起こし・cut-plan の中身(application/octet-stream)→ work/uploads/ に保存して {path}
   GET  /media/<token>            入力に指定した動画・作った粗編集の動画だけ(Range 対応)
+
+入口(start-all.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
+そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
 import http.client
 import json
@@ -73,6 +76,9 @@ QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
 TOOL_APPS = {"studio": "clip-studio", "transcribe": "transcribe-tool", "cut2resolve": "cut2resolve"}   # docs/pipeline.md の 4
 PING_TIMEOUT = 0.3
 RUNTIME_MAX_BYTES = 4096
+BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(app/mount.py が prepare() で入れる)
+ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(app/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
+MOUNT = None             # 取り込まれたときの状態(port・allowed_hosts・app)。単独で動くときは C2RServer が持つ
 
 
 class ApiError(Exception):
@@ -123,7 +129,7 @@ def _read_small_json(path):
         return None
 
 
-def write_runtime(port):
+def write_runtime(port, base_path="/"):
     """起動時に <runtime>/cut2resolve.json を書く。書けなくても起動は続ける。pid は「自分が書いたか」を消すときに確かめるためだけ
     (生きているかの確認には使わない。Windows の os.kill(pid, 0) はプロセスを終了させてしまうため)"""
     try:
@@ -132,6 +138,8 @@ def write_runtime(port):
         path = os.path.join(d, TOOL_ID + ".json")
         info = {"tool": TOOL_ID, "port": int(port), "version": SERVER_VERSION,
                 "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "pid": os.getpid()}
+        if base_path != "/" and RUNTIME_PATH_RE.match(base_path):   # 入口に取り込まれたときだけ書く(以前の形の記録と同じに保つ)
+            info["path"] = base_path
         S.write_bytes_atomic(path, (json.dumps(info, ensure_ascii=False) + "\n").encode("utf-8"))
         return path
     except OSError as e:
@@ -190,10 +198,12 @@ def ping_app(port, timeout=PING_TIMEOUT, path="/"):
         conn.close()
 
 
-def siblings(self_port, timeout=PING_TIMEOUT):
+def siblings(self_port, timeout=PING_TIMEOUT, self_path="/"):
     """.runtime の記録の場所に並行して /api/ping を問い合わせ、app が一致したものだけ(自分自身は問い合わせずに含める)。
-    入口の統合サーバーに取り込まれたツール(場所が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける"""
+    入口の統合サーバーに取り込まれたツール(場所が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける(ytt_core.runtime.siblings と同じ形)"""
     found, paths = ({TOOL_ID: self_port} if valid_port(self_port) else {}), {}
+    if TOOL_ID in found and self_path != "/" and RUNTIME_PATH_RE.match(self_path or ""):
+        paths[TOOL_ID] = self_path
     todo = []
     for tid, app in TOOL_APPS.items():
         e = read_runtime_entry(tid) if tid != TOOL_ID else None
@@ -623,8 +633,15 @@ class Handler(BaseHTTPRequestHandler):
     timeout = SOCKET_TIMEOUT
 
     @property
+    def ctx(self):
+        """port・allowed_hosts・app を持つもの。単独ではこのサーバー(C2RServer)、入口に取り込まれたときは MOUNT"""
+        if isinstance(self.server, C2RServer) or MOUNT is None:
+            return self.server
+        return MOUNT
+
+    @property
     def app(self):
-        return self.server.app
+        return self.ctx.app
 
     def log_message(self, fmt, *args):
         if self.path.startswith(QUIET_PATHS):
@@ -633,11 +650,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- 検査
     def _host_ok(self):          # DNS rebinding 対策
-        return (self.headers.get("Host") or "") in self.server.allowed_hosts
+        return (self.headers.get("Host") or "") in self.ctx.allowed_hosts
 
     def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全一致だけ
         o = self.headers.get("Origin")
-        return o is None or o in {"http://" + h for h in self.server.allowed_hosts}
+        return o is None or o in {"http://" + h for h in self.ctx.allowed_hosts}
 
     def _fetch_site_ok(self):
         return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
@@ -651,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _guard(self, write, path=""):
         if not self._host_ok():
-            self._fail(403, "forbidden", "このツールは http://localhost:%d から開いてください(Host が違います)" % self.server.port)
+            self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (self.ctx.port, BASE_PATH))
             return False
         if not (self._fetch_site_ok() or (not write and self._navigation_ok(path))) or (write and not self._origin_ok()):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
@@ -738,7 +755,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._media(u.path[len("/media/"):])
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
-            "/api/siblings": lambda: siblings(self.server.port),
+            "/api/siblings": lambda: siblings(self.ctx.port, self_path=BASE_PATH),
             "/api/state": self._state,
             "/api/job": lambda: self.app.job((q.get("id") or [""])[0]).public(),
         }
@@ -952,6 +969,60 @@ def make_server(start_port=DEFAULT_PORT, opener=None):
     raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
 
 
+class MountContext:
+    """入口の統合サーバーに取り込まれたときの状態(単独のときの C2RServer の port・allowed_hosts・app に当たるもの)"""
+
+    def __init__(self, port, allowed_hosts, opener=None):
+        self.port = port
+        self.allowed_hosts = set(allowed_hosts)
+        self.app = AppState(opener)
+
+
+def _startup(port, base_path="/"):
+    """待ち受け以外の起動の準備。前回のアップロードを消し、.runtime を書く。戻り値は .runtime のパス(書けなければ None)"""
+    global BASE_PATH
+    BASE_PATH = base_path
+    shutil.rmtree(UPLOAD_DIR, ignore_errors=True)   # 前回のアップロードは消す(画面に残ったパスは読み込み直しで分かる)
+    runtime = write_runtime(port, base_path)
+    log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path,
+                                               os.getpid(), sys.version.split()[0]))
+    return runtime
+
+
+def prepare(port, base_path="/", opener=None):
+    """入口の統合サーバー(app/mount.py)に取り込まれるときの起動の準備。状態(ジョブ・配信を許す動画など)は MOUNT に持つ。
+    許す Host は、mount.py が先に入れた ALLOWED_HOSTS(入口のポート)。シグナルの受け取りは入口が行う"""
+    global MOUNT
+    MOUNT = MountContext(port, ALLOWED_HOSTS or {"localhost:%d" % port, "127.0.0.1:%d" % port}, opener)
+    return _startup(port, base_path)
+
+
+def busy():
+    """書き出しなどのジョブが動いているか(入口の「すべて終了」の確認用)"""
+    job = MOUNT.app.running if MOUNT else None
+    return job is not None and job.state == "running"
+
+
+def finish():
+    """取り込まれたときの後始末。動いているジョブ(ffmpeg での書き出しなど)を取り消し、自分が書いた .runtime の記録を消す"""
+    if MOUNT is None:
+        return
+    job = MOUNT.app.running
+    if job is not None and job.state == "running":
+        job.task.cancel()
+    remove_runtime(MOUNT.port)
+    log("終了(入口)")
+
+
+def mounted_elsewhere():
+    """入口(start-all.bat)の統合サーバーの中で cut2resolve が動いていれば、その URL。
+    start.bat からの起動は2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)"""
+    e = read_runtime_entry(TOOL_ID)
+    if e and e[1] != "/" and ping_app(e[0], 1, e[1]) == APP_ID:
+        return "http://localhost:%d%s" % e
+    return None
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     for stream in (sys.stdout, sys.stderr):
@@ -959,6 +1030,12 @@ def main(argv=None):
             stream.reconfigure(errors="replace")
         except Exception:
             pass
+    live = mounted_elsewhere()
+    if live:
+        print("入口の中ですでに起動しています。ブラウザで開きます:", live)
+        if "--no-open" not in argv:
+            webbrowser.open(live)
+        return 0
     args = [a for a in argv if not a.startswith("--")]
     srv, port = make_server(int(args[0]) if args else DEFAULT_PORT)
     url = "http://localhost:%d/" % port
@@ -967,9 +1044,7 @@ def main(argv=None):
         if "--no-open" not in argv:
             webbrowser.open(url)
         return 0
-    shutil.rmtree(UPLOAD_DIR, ignore_errors=True)   # 前回のアップロードは消す(画面に残ったパスは読み込み直しで分かる)
-    runtime = write_runtime(port)
-    log("起動 v%s port=%d pid=%d python=%s" % (SERVER_VERSION, port, os.getpid(), sys.version.split()[0]))
+    runtime = _startup(port)
     print("cut2resolve:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         print("※ ffmpeg / ffprobe が見つかりません(README の準備を確認してください)")
