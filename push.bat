@@ -1,65 +1,72 @@
 @echo off
-rem ダブルクリックで、このフォルダの変更を GitHub に保存する。add → 確認 → commit → 取り込み(fetch + rebase)→ push
-rem 2026-09-26: 取り込みの失敗を「GitHub に接続できない」と「衝突」に分けて表示する。
-rem             push できずにこの PC に残った保存(コミット)も、次に実行したときに送る。衝突したときは取り込みを取り消して元の状態に戻す
-chcp 65001 >nul
+rem Double-click to save the changes in this folder to GitHub: add -> confirm -> commit -> fetch + rebase -> push.
+rem This file is ASCII only on purpose: cmd.exe misreads long UTF-8 (Japanese) lines after "chcp 65001"
+rem and runs a fragment of a line as a command (seen 2026-09-26). Keep it ASCII, like start-all.bat.
+rem A commit that could not be pushed stays on this PC and is sent the next time this file is run.
+setlocal
 cd /d "%~dp0"
-where git >nul 2>nul || (echo git が見つかりません。Git for Windows を入れてください & pause & exit /b 1)
+where git >nul 2>nul || (echo [ERROR] git was not found. Install Git for Windows. & pause & exit /b 1)
 git add -A
 git diff --cached --quiet
 if errorlevel 1 goto ask
 
-rem 新しい変更は無い。前回 GitHub に送れなかった保存が残っていれば送る
+rem Nothing new to commit. Send commits that were saved on this PC but not pushed yet.
 set "AHEAD="
 for /f %%N in ('git rev-list --count "@{u}..HEAD" 2^>nul') do set "AHEAD=%%N"
 if not defined AHEAD goto nothing
 if "%AHEAD%"=="0" goto nothing
-echo 新しい変更はありませんが、まだ GitHub に送っていない保存が %AHEAD% 件あります。送ります。
+echo No new changes, but %AHEAD% saved commit(s) have not been sent to GitHub yet. Sending them now.
 goto sync
 
 :nothing
-echo 保存する変更はありません
+echo Nothing to save. Everything is already on GitHub.
 pause
 exit /b 0
 
 :ask
-echo 次のファイルを保存します:
+echo These files will be saved:
 git status --short
 echo.
-echo 個人データ（文字起こし・設定・音声など）は .gitignore で除外済みです。見覚えのないファイルがあれば n で中止してください。
+echo Personal data (transcripts, settings, audio, etc.) is excluded by .gitignore.
+echo If you see a file you do not recognize, answer n.
 set "OK="
-set /p OK=GitHub に保存しますか? (y/N): 
-if /i not "%OK%"=="y" (git reset -q & echo 中止しました。何も変更していません & pause & exit /b 0)
-git commit -q -m "更新 %date% %time:~0,5%" || (echo commit に失敗しました & pause & exit /b 1)
+set /p OK=Save to GitHub? (y/N): 
+if /i not "%OK%"=="y" (git reset -q & echo Cancelled. Nothing was changed. & pause & exit /b 0)
+git commit -q -m "update %date% %time:~0,5%" || (echo [ERROR] commit failed. & pause & exit /b 1)
 
 :sync
-git fetch -q origin
+echo.
+echo Connecting to GitHub...
+git fetch origin
 if errorlevel 1 goto nonet
 git rebase -q origin/main
 if errorlevel 1 goto conflict
-git push -q
+git push
 if errorlevel 1 goto pushfail
-echo 完了しました
+echo.
+echo Done.
 pause
 exit /b 0
 
 :nonet
 echo.
-echo GitHub に接続できませんでした（ネットワーク、または GitHub のログインを確認してください）。
-echo 保存（コミット）はこの PC に残っています。つながる状態で、もう一度 push.bat を実行すれば送られます。
+echo [ERROR] Could not connect to GitHub (network or GitHub sign-in).
+echo Your commit is still saved on this PC. Run push.bat again when the connection works.
+echo Please copy the whole message above and show it to Claude.
 pause
 exit /b 1
 
 :conflict
 git rebase --abort >nul 2>nul
 echo.
-echo GitHub 側の変更と同じ所を変えていて、自動で取り込めませんでした。取り込みは取り消し、保存はこの PC に残っています。
-echo Claude に相談してください。
+echo [ERROR] GitHub has changes to the same lines. The merge was undone; your commit is still saved on this PC.
+echo Please show this message to Claude.
 pause
 exit /b 1
 
 :pushfail
 echo.
-echo push に失敗しました（ネットワーク、または GitHub のログインを確認してください）。保存はこの PC に残っています。もう一度 push.bat を実行すれば送られます。
+echo [ERROR] push failed (network or GitHub sign-in). Your commit is still saved on this PC.
+echo Please copy the whole message above and show it to Claude.
 pause
 exit /b 1

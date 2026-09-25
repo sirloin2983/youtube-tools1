@@ -444,3 +444,7 @@
 - 確認: Windows の cmd で動かしてはいない(クラウドに cmd が無い)。次にユーザーが push.bat を実行したときに確かめる
 - 注意: GPT(Codex)が 09-25 23:24〜23:56 にこのフォルダで作業した跡(.git/refs/codex/turn-diffs)があるが、その時間に変わったファイルは見当たらず、WORKLOG にも記録が無い
 - 未コミット: push.bat・docs/WORKLOG.md(次の push.bat でまとめて保存される)。`run-next.bat` が消し残っている(消してよい)
+- 追記(同日): 直した push.bat を実行すると、日本語の長い echo の行の途中が別のコマンドとして実行された(`'…、もう一度' is not recognized`)。
+  `chcp 65001` の下で cmd が UTF-8 の行を読み違える既知の問題。push.bat を **ASCII だけ**(英語の表示)に書き直した(start-all.bat と同じ方針)。
+  コミットメッセージも「update 日付 時刻」になる。`git fetch` は -q を外し、失敗したときに git 自身のエラーが見えるようにした。
+  接続できない原因はまだ不明(GitHub は動いている。クラウドからは `git ls-remote` で 21f7ff4 が見える)
