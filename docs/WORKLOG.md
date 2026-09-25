@@ -433,3 +433,14 @@
   削除したものは、2026-09-24 にリポジトリの `docs/project/`・`docs/pipeline.md`・`docs/review/README.md` へ写した後で Project 側が更新されていないことを確かめた(作成日時と中身の抜き取り確認)
 - 注意: `claude/integration-plan.md` も写し(正本は Claude Docs「動画編集ツール 統合計画」)。古くなったら `docs/integration-plan.md` から写し直す
 - 未コミット: 上の3本と `docs/project/README.md`・`docs/WORKLOG.md`(前の記録の未コミット分と一緒に push.bat で)
+
+## 2026-09-26 Claude(Cowork)— push.bat の「衝突しました」は接続の失敗だった・push.bat を直した
+- 状況: 09-26 0:47 の push.bat で commit(3b5712e「更新 2026/09/26 0:47」)はできたが、`git pull --rebase` が失敗して「衝突しました」と表示。
+  調べた結果: GitHub の main は 21f7ff4 のままで新しい変更は無く、`.git/FETCH_HEAD` が空・rebase の途中の状態も無い → GitHub への接続(ネットワークかログイン)に失敗しただけで、衝突ではない。
+  コミットは PC に残っていて、GitHub より1件進んでいる
+- 前の push.bat の問題: ① pull の失敗を全部「衝突」と表示していた ② 新しい変更が無いと「保存する変更はありません」で終わるので、送れずに残ったコミットを送れなかった
+- 変更: `push.bat` — 取り込みを fetch と rebase に分け、接続できないとき・衝突のとき・push の失敗を別々に表示。新しい変更が無くても GitHub より進んでいれば送る。
+  衝突したら `git rebase --abort` で取り込みを取り消す(途中の状態で止めない)。コミットメッセージは前と同じ「更新 日付 時刻」
+- 確認: Windows の cmd で動かしてはいない(クラウドに cmd が無い)。次にユーザーが push.bat を実行したときに確かめる
+- 注意: GPT(Codex)が 09-25 23:24〜23:56 にこのフォルダで作業した跡(.git/refs/codex/turn-diffs)があるが、その時間に変わったファイルは見当たらず、WORKLOG にも記録が無い
+- 未コミット: push.bat・docs/WORKLOG.md(次の push.bat でまとめて保存される)。`run-next.bat` が消し残っている(消してよい)
