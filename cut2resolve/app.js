@@ -679,7 +679,11 @@ function syncSteps() {
 async function loadSiblings() {
   const nav = $('[data-ui-toolnav]');
   let ports = null;
-  try { ports = (await api('/api/siblings')).tools; } catch (e) { ports = null; }
+  try {
+    const j = await api('/api/siblings');
+    ports = j.tools;
+    if (window.UIKit && UIKit.tools.setPaths) UIKit.tools.setPaths(j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
+  } catch (e) { ports = null; }
   S.ports = ports;
   if (!window.UIKit || !nav) return;
   UIKit.tools.render(nav, { current: 'cut2resolve', ports: ports || undefined });

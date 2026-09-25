@@ -472,7 +472,7 @@ class PortalHttpTest(Base):
         return r, data
 
     def post(self, path, headers=None, body=b"{}"):
-        h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin"}
+        h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin", "X-YTT-Token": self.srv.token}
         h.update(headers or {})
         return self.req("POST", path, body, h)
 
@@ -509,7 +509,7 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 403)
 
     def test_post_guards(self):
-        r, _ = self.req("POST", "/api/tools/studio/start", b"{}", {"Content-Type": "text/plain"})
+        r, _ = self.req("POST", "/api/tools/studio/start", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})
         self.assertEqual(r.status, 415)
         r, _ = self.post("/api/tools/studio/start", headers={"Origin": "http://evil.example"})
         self.assertEqual(r.status, 403)
@@ -526,6 +526,24 @@ class PortalHttpTest(Base):
         r, _ = self.post("/api/tools/studio/delete")
         self.assertEqual(r.status, 404)
         self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
+
+    def test_csrf_token(self):
+        """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""
+        r, body = self.req("GET", "/")
+        self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
+        for bad in ("", "x" * len(self.srv.token), self.srv.token + "x"):
+            r, _ = self.post("/api/tools/studio/start", headers={"X-YTT-Token": bad})
+            self.assertEqual(r.status, 403, bad)
+        h = {"Content-Type": "application/json", "Origin": "http://" + self.host}
+        r, _ = self.req("POST", "/api/shutdown", b"{}", h)   # 合言葉なし
+        self.assertEqual(r.status, 403)
+        self.assertFalse(self.srv.closing.is_set())
+        self.assertEqual(self.state("studio"), "stopped")
+        other, _ = L.make_server(0, self.sup)
+        try:
+            self.assertNotEqual(other.token, self.srv.token)   # 起動ごとに変わる
+        finally:
+            other.server_close()
 
     def test_actions_and_status(self):
         r, body = self.post("/api/tools/studio/start")

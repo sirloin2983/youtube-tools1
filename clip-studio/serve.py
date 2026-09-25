@@ -31,16 +31,17 @@ import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
-from ytt_core import httpsec  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt_core import httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.2.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.3.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
+BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/studio/"(app/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()
 MAX_BODY = 4 * 1024 * 1024
 SOCKET_TIMEOUT = float(os.environ.get("STUDIO_SOCKET_TIMEOUT") or 60)   # 読み取りが止まった接続を閉じるまでの秒数
@@ -194,7 +195,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._guard(self._media, arg("id"))
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
-            "/api/siblings": lambda: handoff.siblings(TOOL_ID, PORT),
+            "/api/siblings": lambda: handoff.siblings(TOOL_ID, PORT, self_path=BASE_PATH),
             "/api/state": api_state,
             "/api/settings": lambda: {"settings": STORE.get_ui()},
             "/api/rank/registry": rank.get_registry,
@@ -521,7 +522,44 @@ def _setup_diagnostics():
     atexit.register(lambda: _log("プロセス終了"))
 
 
+def prepare(port, base_path="/"):
+    """サーバーの待ち受け以外の起動の準備(データの読み込み・ログ・前回の作業ファイルの片付け・.runtime・環境チェック)。
+    main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
+    シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取るため)。"""
+    global PORT, BASE_PATH, ALLOWED_HOSTS
+    PORT, BASE_PATH = port, base_path
+    if not ALLOWED_HOSTS:
+        ALLOWED_HOSTS = httpsec.allowed_hosts(port)
+    init()
+    common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
+    _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
+    shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
+    runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
+    common.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
+    return runtime
+
+
+def finish():
+    """終了の後始末(.runtime の記録を消す)。自分が書いた記録のときだけ消える。"""
+    handoff.remove_runtime(TOOL_ID, PORT)
+
+
+def mounted_elsewhere():
+    """入口(start-all.bat)の統合サーバーの中でスタジオが動いていれば、その URL。
+    同じ data.json を2つのサーバーで取り合わないよう、start.bat からの起動はそちらを開くだけにする。"""
+    info = ytt_runtime.read_runtime(handoff.runtime_dir(), TOOL_ID)
+    if info and info["path"] != "/" and ytt_runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
+        return "http://localhost:%d%s" % (info["port"], info["path"])
+    return None
+
+
 def main():
+    live = mounted_elsewhere()
+    if live:
+        print("入口の中ですでに起動しています。ブラウザで開きます:", live)
+        if "--no-open" not in sys.argv:
+            webbrowser.open(live)
+        return
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     srv, port = make_server(int(args[0]) if args else 8800)
     url = "http://localhost:%d" % port
@@ -530,13 +568,8 @@ def main():
         if "--no-open" not in sys.argv:
             webbrowser.open(url)
         return
-    init()
-    common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _setup_diagnostics()
-    _log("起動 v%s port=%d pid=%d python=%s" % (SERVER_VERSION, port, os.getpid(), sys.version.split()[0]))
-    shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
-    runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
-    common.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
+    runtime = prepare(port)
     print("切り抜きスタジオ:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
     print("書き出し先:", common.get_out_dir())
     print("ログ:", common.p("studio.log"))
@@ -556,7 +589,7 @@ def main():
         return 130
     finally:   # シグナル(SystemExit)で抜けるときもここを通る
         if runtime:
-            handoff.remove_runtime(TOOL_ID, port)
+            finish()
 
 
 if __name__ == "__main__":

@@ -54,11 +54,12 @@ def runtime_path(tool):
     return runtime.runtime_path(runtime_dir(), tool)
 
 
-def write_runtime(tool, port, version):
-    """起動時に <runtime>/<tool>.json を書く。書けなくても起動は続ける(戻り値 None)。"""
+def write_runtime(tool, port, version, path="/"):
+    """起動時に <runtime>/<tool>.json を書く。書けなくても起動は続ける(戻り値 None)。
+    path は画面の場所(入口の統合サーバーに取り込まれたときは "/studio/")。"""
     if tool not in TOOL_APPS:
         return None
-    path = runtime.write_runtime(runtime_dir(), tool, port, version)
+    path = runtime.write_runtime(runtime_dir(), tool, port, version, path)
     if path is None:
         common.log_failure(".runtime の書き込み", OSError("%s に書けません" % runtime_dir()))
     return path
@@ -79,6 +80,6 @@ def ping_app(port, timeout=PING_TIMEOUT):
     return runtime.ping_app(port, timeout)
 
 
-def siblings(self_tool=None, self_port=None, timeout=PING_TIMEOUT):
-    """{"tools": {"studio": 8800, ...}}。応答した(app が一致した)ものだけ。自分自身は問い合わせずに含める。"""
-    return runtime.siblings(runtime_dir(), self_tool, self_port, timeout)
+def siblings(self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_path="/"):
+    """{"tools": {"studio": 8800, ...}}(取り込まれたツールがあれば "paths" も)。応答した(app が一致した)ものだけ。自分自身は問い合わせずに含める。"""
+    return runtime.siblings(runtime_dir(), self_tool, self_port, timeout, self_path)

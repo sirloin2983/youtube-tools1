@@ -56,8 +56,11 @@ def main():
     shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))   # 共通部品(本物と同じ並び)
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
     events = []
-    sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports)
+    env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
+    os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
+    sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=("studio",))   # 本番と同じくスタジオは取り込む
     srv, port = L.make_server(0, sup)
+    sup.attach(srv)
     th = threading.Thread(target=srv.serve_forever, daemon=True)
     th.start()
     base = "http://127.0.0.1:%d/" % port
@@ -82,7 +85,11 @@ def main():
             check(pg.text_content("#ver") == "入口 v" + L.VERSION, "ヘッダーの版: %s" % pg.text_content("#ver"))
             check(pg.text_content("#conn") == "接続中", "接続中の表示")
             meta = pg.text_content(".pt-tool[data-tool=studio] .pt-meta")
-            check(("ポート %d" % ports["studio"]) in meta and "v0.2.0" in meta, "ポートと版: %s" % meta)
+            check(("ポート %d" % port) in meta and "v0.3.0" in meta and "入口に取り込み" in meta, "スタジオは入口に取り込み: %s" % meta)
+            meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
+            check(("ポート %d" % ports["transcribe"]) in meta, "文字起こしは別のプログラム: %s" % meta)
+            check(pg.is_disabled(".pt-tool[data-tool=studio] .pt-toggle") and pg.is_disabled(".pt-tool[data-tool=studio] .pt-restart"),
+                  "取り込んだスタジオは単独で止めない(停止・再起動は押せない)")
             if shots:
                 os.makedirs(shots, exist_ok=True)
                 pg.evaluate("UIKit.theme.set('light')")
@@ -91,12 +98,19 @@ def main():
 
             # 2. 開く: 新しいタブでスタジオの画面が開く(入口のポートからのリンクをツールが 403 にしない)
             href = pg.get_attribute(".pt-tool[data-tool=studio] .pt-open", "href")
-            check(href == "http://127.0.0.1:%d/" % ports["studio"], "開くのリンク: %s" % href)
+            check(href == "http://127.0.0.1:%d/studio/" % port, "開くのリンクは同じアドレスの /studio/: %s" % href)
             with ctx.expect_page() as info:
                 pg.click(".pt-tool[data-tool=studio] .pt-open")
             tab = info.value
             tab.wait_for_load_state()
             check("切り抜きスタジオ" in (tab.title() + tab.content()), "スタジオの画面が開いた")
+            check(wait_js(tab, "!!(window.Studio && Studio.state)", 20000), "スタジオの画面が /studio/ の下で API を読めた(CSP・相対パス)")
+            check(tab.evaluate("Studio.base") == "/studio" and bool(tab.evaluate("Studio.token")), "スタジオは場所と合言葉を知っている")
+            tab.click("#toolMenu summary")
+            links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
+            check(any(h.endswith(":%d/" % ports["transcribe"]) for h in links) and "/studio/" in links, "スタジオの「他のツール」: 文字起こしは別のポート・自分は /studio/: %s" % links)
+            u = tab.evaluate("UIKit.tools.url('studio', Studio.ports, '/?url=x')")
+            check(u == "http://localhost:%d/studio/?url=x" % port, "他のツールから取り込んだスタジオへのリンク(ui-kit の paths): %s" % u)
             check(tab.evaluate("window.opener") is None, "開いたタブから入口を操作できない(noopener)")
             tab.close()
 
@@ -131,17 +145,17 @@ def main():
             check(proc is not None and proc.pid != old_pid, "別のプロセスになった")
 
             # 6. 異常終了の表示(子を外から強制終了)
-            os.kill(sup.by_id["studio"].proc.pid, signal.SIGKILL)
-            check(wait_card(pg, "studio", "crashed"), "異常終了の表示")
-            msg = pg.text_content(".pt-tool[data-tool=studio] .pt-msg")
-            check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=studio] .pt-msg"), "異常終了のメッセージ: %s" % msg)
-            check(pg.text_content(".pt-tool[data-tool=studio] .pt-toggle") == "起動", "異常終了のあと「起動」が押せる")
+            os.kill(sup.by_id["cut2resolve"].proc.pid, signal.SIGKILL)
+            check(wait_card(pg, "cut2resolve", "crashed"), "異常終了の表示")
+            msg = pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-msg")
+            check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=cut2resolve] .pt-msg"), "異常終了のメッセージ: %s" % msg)
+            check(pg.text_content(".pt-tool[data-tool=cut2resolve] .pt-toggle") == "起動", "異常終了のあと「起動」が押せる")
             if shots:
                 pg.evaluate("UIKit.theme.set('dark')")
                 time.sleep(0.4)
                 pg.screenshot(path=os.path.join(shots, "portal-dark-crashed.png"), full_page=True)
-            pg.click(".pt-tool[data-tool=studio] .pt-toggle")
-            check(wait_card(pg, "studio", "running"), "起動し直せる")
+            pg.click(".pt-tool[data-tool=cut2resolve] .pt-toggle")
+            check(wait_card(pg, "cut2resolve", "running"), "起動し直せる")
 
             # 7. テーマ(ui-kit)
             before = pg.get_attribute("html", "data-theme")
@@ -163,7 +177,7 @@ def main():
             # 9. すべて終了(2回押し)
             pg.click("#btnQuit")
             check(pg.text_content("#btnQuit") == "もう一度押すと終了します", "1回目は確認だけ")
-            check(sup.by_id["studio"].proc is not None, "1回目ではまだ止まらない")
+            check(sup.by_id["transcribe"].proc is not None, "1回目ではまだ止まらない")
             procs = [t.proc for t in sup.tools if t.proc]
             pg.click("#btnQuit")
             check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "終了中の表示")
@@ -172,7 +186,8 @@ def main():
             srv.server_close()   # launch.main() と同じく、待ち受けを閉じる
             check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "終了の表示")
             check(all(pr.poll() is not None for pr in procs), "3つのツールが止まった")
-            check(not any(os.path.exists(os.path.join(env["YTT_RUNTIME_DIR"], t + ".json")) for t in L.TOOL_IDS), ".runtime が片付いた")
+            sup.unmount_all()   # launch.main() の終了処理と同じ(request_shutdown でも呼ばれる)
+            check(not any(os.path.exists(os.path.join(env["YTT_RUNTIME_DIR"], t + ".json")) for t in L.TOOL_IDS), ".runtime が片付いた(取り込んだスタジオも)")
 
             # 10. 入口が止まったら、開いたままの別のタブに「接続できません」を出す
             check(wait_js(mob, "!document.getElementById('errbar').hidden", 15000), "切断の表示")

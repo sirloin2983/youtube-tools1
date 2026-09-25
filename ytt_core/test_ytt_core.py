@@ -28,11 +28,20 @@ def locked(winerror=32):
 class PingServer:
     """/api/ping に app で答える小さなサーバー(hang=True なら答えるまで2秒待つ)。"""
 
-    def __init__(self, app, hang=False, status=200, body=None):
+    def __init__(self, app, hang=False, status=200, body=None, routes=None):
+        """routes: {"/studio/api/ping": "clip-studio", ...} を渡すと、その場所だけ答える(統合サーバーの模擬)"""
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 if hang:
                     time.sleep(2)
+                if routes is not None:
+                    who = routes.get(self.path)
+                    data = json.dumps({"app": who, "version": "9"}).encode() if who else b"{}"
+                    self.send_response(200 if who else 404)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 data = body if body is not None else json.dumps({"app": app, "version": "1.2.3"}).encode()
                 try:
                     self.send_response(status)
@@ -270,6 +279,42 @@ class TestRuntime(unittest.TestCase):
         r = runtime.siblings(self.dir, "studio", 8800, timeout=0.3)
         self.assertLess(time.monotonic() - t0, 1.2)
         self.assertEqual(r, {"tools": {"studio": 8800}})
+
+    def test_paths_for_mounted_tools(self):
+        """統合サーバーに取り込まれたツールは、同じポートの /studio/ などにいる。記録・問い合わせ・siblings が場所を扱える"""
+        unified = self.server(None, routes={"/api/ping": "ytt-launcher", "/studio/api/ping": "clip-studio"})
+        p = runtime.write_runtime(self.dir, "studio", unified.port, "0.3.0", path="/studio/")
+        with open(p, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["path"], "/studio/")
+        self.assertEqual(runtime.read_runtime(self.dir, "studio")["path"], "/studio/")
+        self.assertEqual(runtime.ping_app(unified.port), "ytt-launcher")
+        self.assertEqual(runtime.ping_app(unified.port, path="/studio/"), "clip-studio")
+        tt = self.server("transcribe-tool")
+        self.put("transcribe", {"tool": "transcribe", "port": tt.port})
+        r = runtime.siblings(self.dir, "transcribe", tt.port)
+        self.assertEqual(r, {"tools": {"studio": unified.port, "transcribe": tt.port}, "paths": {"studio": "/studio/"}})
+        # 取り込まれたツール自身から見ても(自分の場所を付ける)
+        r = runtime.siblings(self.dir, "studio", unified.port, self_path="/studio/")
+        self.assertEqual(r, {"tools": {"studio": unified.port, "transcribe": tt.port}, "paths": {"studio": "/studio/"}})
+        # 同じポートの別の場所にいる別のツールは、ポートが同じでも問い合わせる(ポートだけで自分と見なさない)
+        self.put("cut2resolve", {"tool": "cut2resolve", "port": unified.port, "path": "/cut/"})
+        r = runtime.siblings(self.dir, "studio", unified.port, self_path="/studio/")
+        self.assertNotIn("cut2resolve", r["tools"])   # /cut/api/ping は答えない
+        self.put("cut2resolve", {"tool": "cut2resolve", "port": unified.port, "path": "/studio/"})
+        self.assertNotIn("cut2resolve", runtime.siblings(self.dir, "studio", unified.port, self_path="/studio/")["tools"])
+
+    def test_path_validation(self):
+        for bad in ("studio/", "/studio", "//evil.example/", "/../", "/Studio/", "/a/b/", "http://x/", None, 1, "/" + "a" * 40 + "/"):
+            self.assertFalse(runtime.valid_path(bad), bad)
+            self.assertIsNone(runtime.write_runtime(self.dir, "studio", 8800, "v", path=bad), bad)
+            self.assertIsNone(runtime.ping(8800, path=bad), bad)
+        for ok in ("/", "/studio/", "/cut2resolve/"):
+            self.assertTrue(runtime.valid_path(ok), ok)
+        self.put("studio", {"tool": "studio", "port": 8800, "path": "//evil.example/"})
+        self.assertEqual(runtime.read_runtime(self.dir, "studio")["path"], "/")   # 形の違う場所は使わない
+        runtime.write_runtime(self.dir, "studio", 8800, "v")
+        with open(os.path.join(self.dir, "studio.json"), encoding="utf-8") as f:
+            self.assertNotIn("path", json.load(f))   # 直下のときは書かない(以前の形のまま)
 
     def test_cut2resolve_keeps_same_tool_ids(self):
         """cut2resolve は統合の対象外で自分の写しを持つ。ツールID と app の対応がずれていないことだけ確かめる"""

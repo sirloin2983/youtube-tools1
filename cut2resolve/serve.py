@@ -151,23 +151,33 @@ def remove_runtime(port):
     return False
 
 
-def read_runtime_port(tool):
+RUNTIME_PATH_RE = re.compile(r"^/(?:[a-z0-9][a-z0-9-]{0,31}/)?\Z")   # 画面の場所(入口の統合サーバーに取り込まれたツールは "/studio/" など。ytt_core.runtime と同じ規則)
+
+
+def read_runtime_entry(tool):
+    """(ポート, 画面の場所) か None。場所が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。"""
     try:
         d = _read_small_json(os.path.join(runtime_dir(), tool + ".json"))
     except OSError:
         return None
-    if not isinstance(d, dict) or d.get("tool") != tool:
+    if not isinstance(d, dict) or d.get("tool") != tool or not valid_port(d.get("port")):
         return None
-    return d.get("port") if valid_port(d.get("port")) else None
+    path = d.get("path")
+    return d["port"], (path if isinstance(path, str) and RUNTIME_PATH_RE.match(path) else "/")
 
 
-def ping_app(port, timeout=PING_TIMEOUT):
-    """127.0.0.1:<port> の /api/ping の app。http.client を使う(環境変数・Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回らないように)"""
-    if not valid_port(port):
+def read_runtime_port(tool):
+    e = read_runtime_entry(tool)
+    return e[0] if e else None
+
+
+def ping_app(port, timeout=PING_TIMEOUT, path="/"):
+    """127.0.0.1:<port><path>api/ping の app。http.client を使う(環境変数・Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回らないように)"""
+    if not valid_port(port) or not RUNTIME_PATH_RE.match(path or ""):
         return None
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
-        conn.request("GET", "/api/ping", headers={"Host": "127.0.0.1:%d" % port, "Accept": "application/json"})
+        conn.request("GET", path + "api/ping", headers={"Host": "127.0.0.1:%d" % port, "Accept": "application/json"})
         r = conn.getresponse()
         if r.status != 200:
             return None
@@ -181,16 +191,22 @@ def ping_app(port, timeout=PING_TIMEOUT):
 
 
 def siblings(self_port, timeout=PING_TIMEOUT):
-    """.runtime のポートに並行して /api/ping を問い合わせ、app が一致したものだけ(自分自身は問い合わせずに含める)"""
-    found = {TOOL_ID: self_port} if valid_port(self_port) else {}
-    todo = [(tid, app, read_runtime_port(tid)) for tid, app in TOOL_APPS.items() if tid != TOOL_ID]
-    todo = [t for t in todo if t[2] is not None and t[2] != self_port]
+    """.runtime の記録の場所に並行して /api/ping を問い合わせ、app が一致したものだけ(自分自身は問い合わせずに含める)。
+    入口の統合サーバーに取り込まれたツール(場所が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける"""
+    found, paths = ({TOOL_ID: self_port} if valid_port(self_port) else {}), {}
+    todo = []
+    for tid, app in TOOL_APPS.items():
+        e = read_runtime_entry(tid) if tid != TOOL_ID else None
+        if e and not (e[0] == self_port and e[1] == "/"):   # 同じポートでも別の場所なら、統合サーバーの中の別のツール
+            todo.append((tid, app, e[0], e[1]))
     lock = threading.Lock()
 
-    def one(tid, app, port):
-        if ping_app(port, timeout) == app:
+    def one(tid, app, port, path):
+        if ping_app(port, timeout, path) == app:
             with lock:
                 found[tid] = port
+                if path != "/":
+                    paths[tid] = path
     ths = [threading.Thread(target=one, args=t, daemon=True) for t in todo]
     for th in ths:
         th.start()
@@ -198,7 +214,10 @@ def siblings(self_port, timeout=PING_TIMEOUT):
     for th in ths:
         th.join(max(0.0, timeout + 0.2 - (time.monotonic() - t0)))
     with lock:
-        return {"tools": {k: found[k] for k in TOOL_APPS if k in found}}
+        out = {"tools": {k: found[k] for k in TOOL_APPS if k in found}}
+        if paths:
+            out["paths"] = {k: paths[k] for k in TOOL_APPS if k in paths}
+        return out
 
 
 # ---------------------------------------------------------------- 入力のパス

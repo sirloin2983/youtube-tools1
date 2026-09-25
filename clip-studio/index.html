@@ -6,14 +6,14 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.ytimg.com https://*.ggpht.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>切り抜きスタジオ</title>
 <!-- ui-kit.js は CSS より先に同期で読む(data-theme を先に決めて、ちらつきを防ぐ)。インラインのスクリプトは CSP(script-src 'self')で動かないので使わない -->
-<script src="/ui-kit.js"></script>
-<link rel="stylesheet" href="/ui-kit.css">
-<link rel="stylesheet" href="/app.css">
-<link rel="stylesheet" href="/review.css">
+<script src="ui-kit.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="review.css">
 </head>
 <body>
 <header class="ui-header" id="appHeader">
-  <a class="ui-brand" href="/" title="切り抜きスタジオ(最初の画面へ)">
+  <a class="ui-brand" href="./" title="切り抜きスタジオ(最初の画面へ)">
     <span class="ui-brand-mark" data-tool="studio" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>
     <span class="cs-brand-name">切り抜きスタジオ</span><span class="ui-ver" id="ver"></span>
   </a>
@@ -64,11 +64,11 @@
 </dialog>
 
 <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
-<script src="/core.js"></script>
-<script src="/settings.js"></script>
-<script src="/rank.js"></script>
-<script src="/queue.js"></script>
-<script src="/review.js"></script>
-<script src="/collab.js"></script>
+<script src="core.js"></script>
+<script src="settings.js"></script>
+<script src="rank.js"></script>
+<script src="queue.js"></script>
+<script src="review.js"></script>
+<script src="collab.js"></script>
 </body>
 </html>

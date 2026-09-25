@@ -22,10 +22,12 @@
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
 """
 import argparse
+import hmac
 import json
 import os
 import queue
 import re
+import secrets
 import signal
 import socket
 import subprocess
@@ -41,9 +43,10 @@ ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
 from ytt_core import httpsec, runtime  # noqa: E402
+import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.1.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.2.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -77,9 +80,9 @@ valid_port = runtime.valid_port
 read_runtime = runtime.read_runtime     # (rdir, tool) → {"port", "version", "pid", "mtime"} / None。誰でも書けるファイルなので検証して読む
 
 
-def ping(port, timeout=PING_TIMEOUT):
-    """127.0.0.1:port の /api/ping → {"app", "version"} / None(プロキシを通さない)。"""
-    return runtime.ping(port, timeout)
+def ping(port, timeout=PING_TIMEOUT, path="/"):
+    """127.0.0.1:port の <path>api/ping → {"app", "version"} / None(プロキシを通さない)。"""
+    return runtime.ping(port, timeout, path)
 
 
 def port_open(port, timeout=0.3):
@@ -154,7 +157,8 @@ def signal_stop(proc):
 class Tool:
     """1つのツールのサーバー(子プロセス)の状態。値の変更は lock の中で行う。
     state: stopped 停止 / starting 起動中 / running 動作中 / external 別の画面で起動済み / stopping 停止中 /
-           crashed 異常終了 / missing フォルダ・serve.py が無い"""
+           crashed 異常終了 / missing フォルダ・serve.py が無い
+    mounted = True は、子プロセスではなく入口のサーバーの中に取り込んで動かしているもの(段階3。app/mount.py)"""
 
     def __init__(self, spec, root, logs_dir):
         self.spec = spec
@@ -179,6 +183,9 @@ class Tool:
         self.starts = 0
         self.last_ping = 0.0
         self.fail_pings = 0
+        self.mounted = False
+        self.mount = None
+        self.path = "/"
 
     def set_state(self, state, message=""):
         self.state = state
@@ -190,15 +197,16 @@ class Tool:
             return {
                 "id": self.id, "name": self.spec["name"], "sub": self.spec["sub"], "state": self.state, "message": self.message,
                 "since": round(self.since, 3), "port": self.port, "version": self.version, "expectedVersion": self.expected,
-                "managed": self.managed, "exitCode": self.exit_code, "starts": self.starts,
+                "managed": self.managed, "exitCode": self.exit_code, "starts": self.starts, "mounted": self.mounted, "path": self.path,
                 "log": os.path.relpath(self.log_path, self.root), "hasLog": os.path.exists(self.log_path),
             }
 
 
 # ---------- まとめて管理 ----------
 class Supervisor:
-    def __init__(self, root=ROOT, only=None, ready_timeout=90.0, stop_timeout=8.0, poll=0.5, log=None, ports=None):
-        """ports: {"studio": 18800, ...} 既定のポートを変える(テスト用。本物のツールとぶつからないように)"""
+    def __init__(self, root=ROOT, only=None, ready_timeout=90.0, stop_timeout=8.0, poll=0.5, log=None, ports=None, mounts=()):
+        """ports: {"studio": 18800, ...} 既定のポートを変える(テスト用。本物のツールとぶつからないように)
+        mounts: 入口のサーバーに取り込むツール("studio" など。app/mount.py の MOUNTS にあるもの)。attach() でサーバーを渡してから start する"""
         self.root = os.path.abspath(root)
         self.rdir = runtime_dir(self.root)
         self.logs_dir = os.path.join(self.root, "app", "logs")
@@ -212,6 +220,12 @@ class Supervisor:
         self.log = log or (lambda msg: None)
         self._halt = threading.Event()
         self._thread = None
+        self.mounts = tuple(m for m in mounts if m in mount_mod.MOUNTS)
+        self.server = None
+
+    def attach(self, server):
+        """入口のサーバー(PortalServer)を渡す。取り込むツールはこのサーバーの中で動く。"""
+        self.server = server
 
     # --- 状態 ---
     def status(self):
@@ -220,18 +234,18 @@ class Supervisor:
     def _find_external(self, t, scan=False):
         """別の画面で動いている同じツール (port, version)。.runtime のポートと既定のポートを問い合わせる
         (scan=True なら既定から20個。子が「すでに起動しています」で終わったとき用)。"""
-        ports = []
+        cands = []
         info = read_runtime(self.rdir, t.id)
-        if info:
-            ports.append(info["port"])
+        if info and not (self.server and info["port"] == self.server.server_address[1]):   # 自分(この入口)の記録は問い合わせない
+            cands.append((info["port"], info["path"]))
         base = t.default_port
-        ports += list(range(base, base + PORT_RANGE)) if scan else [base]
+        cands += [(p, "/") for p in (range(base, base + PORT_RANGE) if scan else [base])]
         seen = set()
-        for p in ports:
-            if p in seen:
+        for p, path in cands:
+            if (p, path) in seen:
                 continue
-            seen.add(p)
-            r = ping(p, 0.3 if scan else PING_TIMEOUT)
+            seen.add((p, path))
+            r = ping(p, 0.3 if scan else PING_TIMEOUT, path)
             if r and r["app"] == t.app:
                 return p, r["version"]
         return None
@@ -252,8 +266,32 @@ class Supervisor:
             if ext:
                 self._mark_external(t, *ext)
                 return t.snapshot()
+            if t.id in self.mounts and self.server is not None and self._mount(t):
+                return t.snapshot()
             self._spawn(t)
             return t.snapshot()
+
+    def _mount(self, t):
+        """入口のサーバーの中に取り込んで動かす。できなければ False(従来どおり子プロセスで起動する)。"""
+        m = mount_mod.Mount(self.root, t.id, self.logs_dir)
+        try:
+            handler = m.start(self.server.server_address[1], self.server.allowed_hosts, self.server.token)
+        except Exception as e:   # 取り込めなくても使えるように、子プロセスに切り替える
+            self.log("※ %s を入口に取り込めませんでした(%s: %s)。別のプログラムとして起動します" % (t.spec["name"], e.__class__.__name__, e))
+            return False
+        self.server.mounts[m.prefix] = handler
+        t.proc, t.managed, t.mounted, t.mount, t.fail_pings = None, True, True, m, 0
+        t.port, t.path, t.version = self.server.server_address[1], m.path, m.version()
+        t.starts += 1
+        t.set_state("running")
+        self.log("○ %s: http://localhost:%d%s (v%s・入口に取り込み)" % (t.spec["name"], t.port, t.path, t.version))
+        return True
+
+    def unmount_all(self):
+        """終了の後始末(取り込んだツールの .runtime を消す)。"""
+        for t in self.tools:
+            if t.mounted and t.mount:
+                t.mount.stop()
 
     def _mark_external(self, t, port, version):
         t.proc, t.managed, t.port, t.version, t.fail_pings = None, False, port, version, 0
@@ -296,6 +334,8 @@ class Supervisor:
         t = self.by_id[tid]
         with t.lock:
             if t.state == "external":   # 別の画面で起動したものは止めない(その画面で作業中かもしれない)
+                return t.snapshot()
+            if t.mounted:   # 入口のサーバーの中で動いているので、単独では止めない(入口と一緒に終わる)
                 return t.snapshot()
             proc = t.proc
             if proc is None:
@@ -358,6 +398,8 @@ class Supervisor:
     # --- 監視 ---
     def _tick(self, t):
         with t.lock:
+            if t.mounted:   # 入口のサーバーの中で動いている(見張る子プロセスは無い)
+                return
             now = time.time()
             if t.proc is not None:
                 code = t.proc.poll()
@@ -487,6 +529,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             except OSError:
                 return self._send(404, b"not found")
             page = name.endswith(".html")
+            if page:   # 書き込み系の API の合言葉(CSRF トークン)を画面に渡す。取り込んだツールと同じ合言葉
+                body = mount_mod.inject_token(body, self.server.token)
             return self._send(200, body, STATIC_TYPES[os.path.splitext(name)[1]],
                               {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
         sup = self.server.sup
@@ -535,6 +579,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and self._origin_ok() and self._site_ok()):
             return self._send(403, b"forbidden")
+        if not hmac.compare_digest(self.headers.get(mount_mod.TOKEN_HEADER) or "", self.server.token):
+            return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
         if self._read_json() is None:
             return
         sup = self.server.sup
@@ -553,9 +599,28 @@ class PortalHandler(BaseHTTPRequestHandler):
         return self._fail(404, "not_found", "その操作はありません")
 
 
+def peek_path(sock, timeout=10.0):
+    """接続の最初の行(GET /studio/... HTTP/1.1)を、読み取らずに覗いてパスを返す(無い・壊れていれば None)。
+    どのツールの Handler に渡すかを、要求を読み始める前に決めるため。つないですぐ切る接続(入口の動作確認)は None。"""
+    end = time.monotonic() + timeout
+    data = b""
+    try:
+        sock.settimeout(timeout)
+        while True:
+            data = sock.recv(8192, socket.MSG_PEEK)
+            if not data or b"\r\n" in data or len(data) >= 8192 or time.monotonic() > end:
+                break
+            time.sleep(0.01)   # 続きがまだ届いていない(覗くだけなので同じ内容がすぐ返る)
+    except OSError:
+        return None
+    line = data.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+    parts = line.split(" ")
+    return parts[1] if len(parts) >= 3 else None
+
+
 class PortalServer(ThreadingHTTPServer):
-    """Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する
-    (切り抜きスタジオと同じ)。"""
+    """入口のサーバー。取り込んだツール(mounts: {"/studio": Handler})の要求は、そのツールの Handler に渡す。
+    Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する(切り抜きスタジオと同じ)。"""
     allow_reuse_address = os.name != "nt"
     daemon_threads = True
 
@@ -565,6 +630,20 @@ class PortalServer(ThreadingHTTPServer):
         p = self.server_address[1]
         self.allowed_hosts = httpsec.allowed_hosts(p)
         self.closing = threading.Event()
+        self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
+        self.mounts = {}
+
+    def handler_for(self, path):
+        if path and self.mounts:
+            p = urllib.parse.urlsplit(path).path
+            for prefix, handler in self.mounts.items():
+                if p == prefix or p.startswith(prefix + "/"):
+                    return handler
+        return PortalHandler
+
+    def finish_request(self, request, client_address):
+        # 覗けなかった(何も送らずに切った接続・壊れた要求の行)ときは入口の Handler に任せる(読んで静かに終わる)
+        self.handler_for(peek_path(request))(request, client_address, self)
 
     def server_bind(self):
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -578,6 +657,7 @@ class PortalServer(ThreadingHTTPServer):
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
         self.sup.stop_all()
+        self.sup.unmount_all()
         self.shutdown()
 
 
@@ -681,6 +761,8 @@ def parse_args(argv):
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="入口の画面のポート(既定 %d。使用中なら次の番号)" % DEFAULT_PORT)
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")
+    ap.add_argument("--no-mount", action="store_true",
+                    help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
     a = ap.parse_args(argv)
     only = [x.strip() for x in a.only.split(",") if x.strip()]
     bad = [x for x in only if x not in TOOL_IDS]
@@ -698,7 +780,7 @@ def main(argv=None):
             pass
     opts = parse_args(sys.argv[1:] if argv is None else argv)
     log = make_logger(os.path.join(ROOT, "app", "logs", "launcher.log"))
-    sup = Supervisor(ROOT, only=opts.only, log=log)
+    sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d/" % port
     if srv is None:
@@ -706,16 +788,28 @@ def main(argv=None):
         if not opts.no_open:
             webbrowser.open(url)
         return 0
+    http_thread = None
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
         log("入口 v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)" % (VERSION, url))
         log("各ツールの出力: %s" % os.path.relpath(sup.logs_dir, ROOT))
+        sup.attach(srv)
+        served = threading.Event()
+
+        def serve():
+            try:
+                srv.serve_forever()
+            finally:
+                served.set()
+        http_thread = threading.Thread(target=serve, daemon=True, name="portal-http")
+        http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
         if not opts.no_open:
             threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-        srv.serve_forever()
+        while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ
+            pass
     except KeyboardInterrupt:
         ignore_stop_signals()
         log("終了の合図を受け取りました。この入口から起動したツールを止めています…")
@@ -724,6 +818,9 @@ def main(argv=None):
         srv.closing.set()
         sup.close()
         sup.stop_all()
+        sup.unmount_all()
+        if http_thread is not None and http_thread.is_alive():
+            srv.shutdown()
         runtime.remove_runtime(sup.rdir, TOOL_ID, port)   # 自分が書いた記録のときだけ消す(別の入口が書き直したものは残す)
         srv.server_close()
         log("入口を終了しました")

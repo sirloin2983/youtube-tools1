@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.2.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.3.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review', 'collab'];
@@ -10,14 +10,19 @@ const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview', c
 
 Studio.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/* API・メディアの URL はここでだけ組み立てる(将来1つのアプリに統合するとき、/studio/api/... へ移すのはこの1か所で済むように。docs/pipeline.md 5.) */
-Studio.base = '';
+/* API・メディアの URL はここでだけ組み立てる(docs/pipeline.md 5.)。
+   画面の場所から決める: 単独で起動したときは http://localhost:8800/ → ''、入口の統合サーバーに取り込まれたときは http://localhost:8700/studio/ → '/studio' */
+Studio.base = location.pathname.replace(/\/[^/]*$/, '');
+/* 統合サーバーは、書き込み系の API に合言葉(CSRF トークン)を求める。画面に埋め込まれていれば送る(単独で起動したときは無い) */
+const tokenMeta = document.querySelector('meta[name="ytt-token"]');
+Studio.token = tokenMeta ? tokenMeta.content : '';
 Studio.url = p => Studio.base + p;
 
 /* JSON API 呼び出し。失敗は Error(message)(e.code にサーバーのエラーコード、e.status にHTTPステータス、e.body に応答の JSON) */
 Studio.api = async (path, opts = {}) => {
   const init = { method: opts.method || (opts.body !== undefined ? 'POST' : 'GET'), cache: 'no-store', headers: {} };
   if (opts.body !== undefined){ init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
+  if (Studio.token && init.method !== 'GET') init.headers['X-YTT-Token'] = Studio.token;
   if (opts.signal) init.signal = opts.signal;
   let r;
   try { r = await fetch(Studio.url(path), init); } catch (e){ const er = new Error('サーバーに接続できません(黒い画面が閉じていないか確認してください)'); er.code = 'network'; throw er; }
@@ -105,7 +110,10 @@ let sibP = null;
 Studio.loadSiblings = () => {
   if (sibP) return sibP;
   sibP = Studio.api('/api/siblings')
-    .then(j => { Studio.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null; })
+    .then(j => {
+      Studio.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null;
+      if (window.UIKit && window.UIKit.tools.setPaths) window.UIKit.tools.setPaths(j && j.paths);   // 取り込まれたツールの場所(/studio/ など)
+    })
     .catch(() => { Studio.ports = null; })   // 404(未実装の古いサーバー)・通信失敗は既定のポートで
     .finally(() => { sibP = null; renderTools(); document.dispatchEvent(new CustomEvent('studio:ports', { detail: Studio.ports })); });
   return sibP;

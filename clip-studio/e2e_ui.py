@@ -3,6 +3,7 @@
     python e2e_ui.py                 # 主要な操作を自動で確かめる(終了コード 0 = すべて OK)
     python e2e_ui.py --shots DIR     # あわせて各画面のスクリーンショットを DIR に保存(ダーク/ライト × 1440x900・1024x768・390幅)
     python e2e_ui.py --serve         # 疑似データのサーバーだけ立てて待つ(ブラウザで手で見る用。Ctrl+C で終了)
+    python e2e_ui.py --mounted       # 入口の統合サーバーに取り込んだ形(http://localhost:<port>/studio/・CSP・合言葉あり)で同じ確認をする
 
 STUDIO_FAKE=1(YouTube へは接続しない)で、生成した短い動画・専用の一時フォルダだけを使う。ポートは空きポート(他のテストと同時に走らせても衝突しない)。
 必要: ffmpeg、playwright(chromium)。
@@ -93,9 +94,36 @@ def start_server():
     return srv, port
 
 
+MOUNT = {"prefix": "", "token": ""}   # --mounted のとき: 画面の場所 /studio と書き込み系の合言葉
+
+
+def start_mounted():
+    """入口(app/launch.py)の統合サーバーにスタジオを取り込んで立てる。fixture で使った serve モジュールをそのまま取り込ませる
+    (別に読み込むと、データの置き場所などの設定が別になるため)。"""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "app"))
+    import launch
+    import mount
+    sys.modules[mount.MOUNTS["studio"]["alias"]] = serve
+    root = os.path.dirname(HERE)
+    sup = launch.Supervisor(root, only=["studio"], mounts=("studio",), log=lambda m: None)
+    srv, port = launch.make_server(0, sup)
+    sup.attach(srv)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    sup.start("studio")
+    t = sup.by_id["studio"].snapshot()
+    if not t["mounted"]:
+        raise SystemExit("入口に取り込めませんでした: %s" % t)
+    serve.Handler.log_message = lambda self, fmt, *a: None
+    MOUNT.update(prefix="/studio", token=srv.token, sup=sup)
+    return srv, port
+
+
 def api(port, method, path, body=None):
-    req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), method=method, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json", "Host": "127.0.0.1:%d" % port})
+    headers = {"Content-Type": "application/json", "Host": "127.0.0.1:%d" % port}
+    if MOUNT["token"] and method != "GET":
+        headers["X-YTT-Token"] = MOUNT["token"]
+    req = urllib.request.Request("http://127.0.0.1:%d%s%s" % (port, MOUNT["prefix"], path), method=method, data=None if body is None else json.dumps(body).encode(),
+                                 headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
 
@@ -157,7 +185,7 @@ NO_HSCROLL_JS = "() => document.documentElement.scrollWidth <= document.document
 def run_checks(port, fx, shots=None):
     from playwright.sync_api import sync_playwright
     c = Checker()
-    base = "http://localhost:%d/" % port
+    base = "http://localhost:%d%s/" % (port, MOUNT["prefix"])
     with sync_playwright() as p:
         br = p.chromium.launch()
         ctx = br.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")
@@ -394,8 +422,11 @@ def main():
         shots = os.path.abspath(args[args.index("--shots") + 1])
     home = tempfile.mkdtemp(prefix="clip-studio-ui-")
     try:
+        mounted = "--mounted" in args
+        if mounted:
+            os.environ["YTT_RUNTIME_DIR"] = os.path.join(home, ".runtime")   # 取り込むと .runtime を書くので、一時フォルダに
         fx = fixture(home)
-        srv, port = start_server()
+        srv, port = start_mounted() if mounted else start_server()
         if "--serve" in args:
             print("Preview: http://localhost:%d/" % port, flush=True)
             print("Fixture: " + home, flush=True)
@@ -406,6 +437,8 @@ def main():
                 return 0
         c = run_checks(port, fx, shots)
         srv.shutdown()
+        if mounted:
+            MOUNT["sup"].unmount_all()
         print("結果: %d 件中 %d 件 OK" % (c.n, c.n - len(c.fails)))
         if c.fails:
             print("NG:\n  " + "\n  ".join(c.fails))

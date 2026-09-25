@@ -339,3 +339,23 @@
 - 理由: Claude(Cowork)は PC でファイルの移動・git ができない。移動しなければ旧起動方法もそのまま動き、git mv の競合も起きない。cut2resolve は小さく1プロセスでも安全、文字起こしはワーカー分離が要る最大の作業
 - 注意: ツール間で同じ名前の Python モジュールを作らないこと(今は serve.py と e2e_ui.py だけが重なる)。段階3 でこれを検査するテストを足す
 - 未完了・次: コミット(push.bat)→ 段階3 の1つ目(スタジオの取り込み)に着手
+
+## 2026-09-25 Claude(Cowork)— 段階3-1: 切り抜きスタジオを入口に取り込み(入口 v0.2.0・スタジオ v0.3.0・ytt_core 1.1.0)
+- 担当: 統合作業(Claude)。ゲート(cut2resolve 0.4.0 のコミット)は 7fc379f で通過を確認。作業の土台は HEAD = 7fc379f(PC の該当ファイルは HEAD と一致を確認)
+- 決定(ユーザー): 取り込んだスタジオの場所は入口と同じアドレスの `/studio/`(http://localhost:8700/studio/)。友人の PC で Text+ の動作確認済み、本格的に統合を進める
+- 変更(新規): `app/mount.py`(serve.py を別名 ytt_tool_studio で読み込み、/studio の下で Handler を包む・CSP・合言葉)、`app/test_mount.py`(11件)
+- 変更: `app/launch.py`(要求の最初の行を覗いて振り分け・取り込み・合言葉・`--no-mount`・待ち受けを別スレッドに)、`app/portal.js`(合言葉・取り込みの表示・/studio/ へのリンク)、`app/README.txt`、
+  `app/test_launch.py`・`app/e2e_portal.py`(スタジオを取り込んだ形で確認)。
+  スタジオ: `serve.py`(`prepare()` / `finish()` に分けた・`BASE_PATH`・入口の中で動いていれば start.bat で2つ目を立てない)、`handoff.py`(場所つきの .runtime・siblings)、
+  `core.js`(`Studio.base` を画面の場所から・書き込みに合言葉・siblings の paths)、`index.html`(部品を相対パスに)、`README.txt`、`e2e_ui.py`(`--mounted`)。
+  `ytt_core/runtime.py`(.runtime の `path`・`<path>api/ping`・siblings の `paths`)、`ui-kit/ui-kit.js`(`UIKit.tools.setPaths`・場所つきのリンク。sync で各ツールへ)、
+  文字起こし `index.html` と cut2resolve `app.js`(siblings の paths を ui-kit に渡す)、cut2resolve `serve.py`(siblings が場所を扱う)
+- 版: スタジオ 0.2.0 → 0.3.0、入口 0.1.0 → 0.2.0、ytt_core 1.0.0 → 1.1.0。文字起こし・cut2resolve は版を上げていない(リンクの場所の対応だけ。動きは同じ)
+- 確認(クラウド): スタジオ 単体7本・test_review.cjs・e2e_analyze・e2e_ui 70/70・**e2e_ui --mounted 70/70**(CSP・合言葉の下で画面のエラーなし)、
+  文字起こし 単体・test_document_save・e2e 6本(v07・v09 は想定内の「版 v0.9.4」だけ)、cut2resolve 単体・e2e_ui、tools/e2e_pipeline、test_ui_kit_sync、
+  ytt_core 29・app/test_launch 30・app/test_mount 11・e2e_portal すべて OK。ミューテーション 9件中 7件を検出(残り2件は二重の守りの片方で、もう一方が同じことを守っている)
+- 未確認(実機): Windows での取り込み(start-all.bat → /studio/ が開くか・スタジオの解析と書き出し・YouTube の埋め込みが CSP の下で動くか・「すべて終了」で .runtime が消えるか)、
+  入口の中で動いている間の start.bat の二重起動防止
+- 注意: 取り込んだ画面では、インラインのスクリプト・`onclick=` は CSP で動かない。スタジオの画面を変えたら `e2e_ui.py --mounted` も通す。
+  起動中のスタジオ・入口は古いコードのまま動いているので、入口を「すべて終了」してから start-all.bat で起動し直す。未コミット
+- 未完了・次: 段階3-2(cut2resolve の取り込み)

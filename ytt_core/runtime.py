@@ -18,6 +18,7 @@ from .schemas import iso_now
 # ツールID → /api/ping の app。/api/siblings で問い合わせるのはこの3つだけ(.runtime に置かれた他のファイルは読まない)
 TOOL_APPS = {"studio": "clip-studio", "transcribe": "transcribe-tool", "cut2resolve": "cut2resolve"}
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}\Z")   # 記録のファイル名に使う ID(入口の portal も書く)。../ などを入れさせない
+PATH_RE = re.compile(r"^/(?:[a-z0-9][a-z0-9-]{0,31}/)?\Z")   # 画面の場所: "/"(自分のポートの直下)か、統合サーバーに取り込まれたツールの "/studio/" など
 MAX_BYTES = 4096        # .runtime/*.json はこれより大きければ読まない
 PING_TIMEOUT = 0.3
 
@@ -39,18 +40,29 @@ def runtime_path(rdir, tool):
     return os.path.join(rdir, tool + ".json")
 
 
-def write_runtime(rdir, tool, port, version):
-    """起動時に <rdir>/<tool>.json を書いてそのパスを返す。書けなくても起動は続ける(None を返す)。"""
+def valid_path(p):
+    return isinstance(p, str) and bool(PATH_RE.match(p))
+
+
+def write_runtime(rdir, tool, port, version, path="/"):
+    """起動時に <rdir>/<tool>.json を書いてそのファイルのパスを返す。書けなくても起動は続ける(None を返す)。
+    path は画面の場所(統合サーバーに取り込まれたツールは "/studio/" など。自分のポートの直下なら "/" で、記録には書かない)。"""
     try:
-        path = runtime_path(rdir, tool)
-        fsio.write_json(path, {"tool": tool, "port": int(port), "version": str(version), "startedAt": iso_now(), "pid": os.getpid()})
-        return path
+        f = runtime_path(rdir, tool)
+        if not valid_path(path):
+            raise ValueError("bad path")
+        info = {"tool": tool, "port": int(port), "version": str(version), "startedAt": iso_now(), "pid": os.getpid()}
+        if path != "/":
+            info["path"] = path
+        fsio.write_json(f, info)
+        return f
     except (OSError, ValueError, TypeError):
         return None
 
 
 def read_runtime(rdir, tool):
-    """<rdir>/<tool>.json → {"port", "version", "pid", "mtime"}。無い・壊れている・tool が違う・ポートが範囲外なら None。
+    """<rdir>/<tool>.json → {"port", "version", "pid", "mtime", "path"}。無い・壊れている・tool が違う・ポートが範囲外なら None。
+    path が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。
     mtime はファイルの更新時刻(入口が「今回起動した子が書いた記録か」を見分けるため)。"""
     try:
         path = runtime_path(rdir, tool)
@@ -61,7 +73,8 @@ def read_runtime(rdir, tool):
     if not isinstance(d, dict) or d.get("tool") != tool or not valid_port(d.get("port")):
         return None
     pid = d.get("pid")
-    return {"port": d["port"], "version": str(d.get("version", ""))[:40], "pid": pid if type(pid) is int else None, "mtime": mtime}
+    path = d.get("path") if valid_path(d.get("path")) else "/"
+    return {"port": d["port"], "version": str(d.get("version", ""))[:40], "pid": pid if type(pid) is int else None, "mtime": mtime, "path": path}
 
 
 def read_runtime_port(rdir, tool):
@@ -85,15 +98,16 @@ def remove_runtime(rdir, tool, port):
         return False
 
 
-def ping(port, timeout=PING_TIMEOUT):
-    """http://127.0.0.1:<port>/api/ping → {"app", "version"}(応答が無い・形が違えば None)。
+def ping(port, timeout=PING_TIMEOUT, path="/"):
+    """http://127.0.0.1:<port><path>api/ping → {"app", "version"}(応答が無い・形が違えば None)。
+    path は統合サーバーに取り込まれたツールの場所("/studio/" なら /studio/api/ping)。
     問い合わせ先は 127.0.0.1 に固定(ファイルの中身で別のホストへ向けさせない)。urllib ではなく http.client を使うのは、
     環境変数や Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回るのを避けるため。"""
-    if not valid_port(port):
+    if not valid_port(port) or not valid_path(path):
         return None
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
-        conn.request("GET", "/api/ping", headers={"Host": "127.0.0.1:%d" % port, "Accept": "application/json"})
+        conn.request("GET", path + "api/ping", headers={"Host": "127.0.0.1:%d" % port, "Accept": "application/json"})
         r = conn.getresponse()
         if r.status != 200:
             return None
@@ -107,8 +121,8 @@ def ping(port, timeout=PING_TIMEOUT):
         conn.close()
 
 
-def ping_app(port, timeout=PING_TIMEOUT):
-    r = ping(port, timeout)
+def ping_app(port, timeout=PING_TIMEOUT, path="/"):
+    r = ping(port, timeout, path)
     return r["app"] if r else None
 
 
@@ -124,20 +138,28 @@ def port_open(port, timeout=0.3):
         return False
 
 
-def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT):
-    """{"tools": {"studio": 8800, ...}}。.runtime の記録のポートに /api/ping を問い合わせ、app が一致したものだけ。
+def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_path="/"):
+    """{"tools": {"studio": 8800, ...}}。.runtime の記録の場所に /api/ping を問い合わせ、app が一致したものだけ。
+    統合サーバーに取り込まれたツール(path が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける(無ければ付けない)。
     自分自身は問い合わせずに含める。問い合わせは並行して行い、全体でも timeout を少し超える程度で返す(応答しないポートを待たない)。"""
-    found = {}
+    found, paths = {}, {}
     if self_tool in TOOL_APPS and valid_port(self_port):
         found[self_tool] = self_port
-    todo = [(tid, app, read_runtime_port(rdir, tid)) for tid, app in TOOL_APPS.items() if tid != self_tool]
-    todo = [(tid, app, port) for tid, app, port in todo if port is not None and port != self_port]
+        if valid_path(self_path) and self_path != "/":
+            paths[self_tool] = self_path
+    todo = []
+    for tid, app in TOOL_APPS.items():
+        info = read_runtime(rdir, tid) if tid != self_tool else None
+        if info and not (info["port"] == self_port and info["path"] == (self_path if valid_path(self_path) else "/")):
+            todo.append((tid, app, info["port"], info["path"]))
     lock = threading.Lock()
 
-    def one(tid, app, port):
-        if ping_app(port, timeout) == app:
+    def one(tid, app, port, path):
+        if ping_app(port, timeout, path) == app:
             with lock:
                 found[tid] = port
+                if path != "/":
+                    paths[tid] = path
     ths = [threading.Thread(target=one, args=t, daemon=True, name="ping-" + t[0]) for t in todo]
     for th in ths:
         th.start()
@@ -146,4 +168,7 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT):
     for th in ths:
         th.join(max(0.0, deadline - (time.monotonic() - t0)))
     with lock:
-        return {"tools": {k: found[k] for k in TOOL_APPS if k in found}}
+        out = {"tools": {k: found[k] for k in TOOL_APPS if k in found}}
+        if paths:
+            out["paths"] = {k: paths[k] for k in TOOL_APPS if k in paths}
+        return out

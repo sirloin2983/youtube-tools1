@@ -2,7 +2,8 @@
 /* ui-kit v1 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
-   window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る */
+   window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
+                         setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -73,15 +74,26 @@
     { id: 'cut2resolve', name: 'cut2resolve', sub: 'カットと字幕を Resolve へ渡す', port: 8810, mark: 'cut2resolve' }
   ];
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  var PATH_RE = /^\/(?:[a-z0-9][a-z0-9-]{0,31}\/)?$/;
   var tools = {
     list: TOOLS,
-    /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定) */
+    /* 統合サーバーに取り込まれたツールの場所 {studio: '/studio/'}(/api/siblings の paths。無ければ各ツールのポートの直下) */
+    paths: {},
+    setPaths: function (p) {
+      var out = {};
+      if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k) && typeof p[k] === 'string' && PATH_RE.test(p[k])) out[k] = p[k];
+      tools.paths = out;
+    },
+    base: function (id) { return tools.paths[id] || '/'; },
+    /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定)。path は画面の中の場所('/?media=...' など) */
     url: function (id, ports, path) {
       var t = null;
       for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].id === id) t = TOOLS[i];
       if (!t) return '';
       var port = (ports && +ports[id]) || t.port;
-      return 'http://localhost:' + port + (path || '/');
+      var rest = path || '/';
+      if (rest.charAt(0) === '/') rest = rest.slice(1);
+      return 'http://localhost:' + port + tools.base(id) + rest;
     },
     render: function (el, opt) {
       if (!el) return;
@@ -89,7 +101,7 @@
       var html = '';
       for (var i = 0; i < TOOLS.length; i++) {
         var t = TOOLS[i], cur = t.id === opt.current;
-        html += '<a href="' + esc(cur ? '/' : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
+        html += '<a href="' + esc(cur ? tools.base(t.id) : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
           '<span class="ui-brand-mark" data-tool="' + t.mark + '" aria-hidden="true"></span><span><b>' + esc(t.name) + '</b><small>' + esc(t.sub) + (cur ? '(いま開いている画面)' : '') + '</small></span></a>';
       }
       el.innerHTML = html;

@@ -90,6 +90,8 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
   「リポジトリ直下」= 各ツールのフォルダの1つ上。環境変数 `YTT_RUNTIME_DIR` があればそちらを使う(テスト用)。書けなくても起動は続ける
 - `GET /api/siblings` は `.runtime/*.json` を読み、書かれたポートに `GET /api/ping` を短い時間(0.3 秒)で問い合わせて、**応答した(app が一致した)ものだけ** `{"tools": {"studio": 8800, "transcribe": 8775}}` の形で返す(自分自身も含める)。画面の「他のツール」メニューはこれを使い、失敗したら既定のポートを使う
 - ツールID と `/api/ping` の `app`: `studio` = `clip-studio`(切り抜きスタジオ)/ `transcribe` = `transcribe-tool`(文字起こしツール)/ `cut2resolve` = `cut2resolve`
+- 入口の統合サーバーに取り込まれたツール(2026-09-25 からスタジオ)は、記録に `"path": "/studio/"` が付き、`<path>api/ping` で問い合わせる。
+  `/api/siblings` はそのとき `"paths": {"studio": "/studio/"}` も返す(無ければ付けない)。画面は `UIKit.tools.setPaths(j.paths)` を呼んでから `UIKit.tools.url()` でリンクを作る
 - 注意: 生きているかを pid で確かめない(Windows の `os.kill(pid, 0)` はプロセスを終了させてしまうため)
 
 ## 5. 将来の統合に向けた書き方

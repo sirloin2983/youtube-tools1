@@ -10,6 +10,8 @@
   var cards = {};        // id → {el, data}
   var busy = {};         // id → 実行中の操作(二重押し防止)
   var fails = 0, closed = false, timer = null, toastTimer = null, quitArmed = 0, quitTimer = null;
+  var tokenMeta = document.querySelector('meta[name="ytt-token"]');
+  var TOKEN = tokenMeta ? tokenMeta.content : '';   // 書き込み系の API の合言葉(CSRF トークン。サーバーが画面に入れる)
 
   function $(sel, el) { return (el || document).querySelector(sel); }
 
@@ -24,7 +26,7 @@
      起動・停止・再起動は、止まるまで待つので時間の上限を長めにする */
   function api(path, method) {
     var init = { method: method || 'GET', cache: 'no-store', headers: {} };
-    if (init.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.body = '{}'; }
+    if (init.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = TOKEN; init.body = '{}'; }
     return fetchT(path, init, init.method === 'POST' ? 60000 : 8000).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok) { var e = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); e.status = r.status; throw e; }
@@ -42,7 +44,11 @@
     toastTimer = setTimeout(function () { t.hidden = true; }, 5000);
   }
 
-  function toolUrl(port) { return 'http://' + location.hostname + ':' + port + '/'; }
+  /* 入口に取り込んだツールは同じアドレスの /studio/ など(path)。別のプログラムとして動いているものはそのポートの直下 */
+  function toolUrl(t) {
+    var path = /^\/(?:[a-z0-9][a-z0-9-]{0,31}\/)?$/.test(t.path || '') ? t.path : '/';
+    return 'http://' + location.hostname + ':' + t.port + path;
+  }
 
   function build(t) {
     var li = $('#tplTool').content.firstElementChild.cloneNode(true);
@@ -76,6 +82,7 @@
     var meta = [];
     if (t.port) meta.push('ポート ' + t.port);
     if (t.version) meta.push('v' + t.version);
+    if (t.mounted) meta.push('入口に取り込み');
     $('.pt-meta', el).textContent = meta.join(' · ');
 
     var msg = $('.pt-msg', el), text = t.message || (s === 'external' ? '別の黒い画面で起動したツールです。止めるときはその画面を閉じてください。' : '');
@@ -84,15 +91,17 @@
     msg.className = 'notice pt-msg' + (s === 'crashed' || s === 'missing' ? ' danger' : (s === 'external' && t.message) ? '' : ' info');
 
     var open = $('.pt-open', el), up = (s === 'running' || s === 'external') && !!t.port && !b;
-    if (up) { open.href = toolUrl(t.port); open.removeAttribute('aria-disabled'); }
+    if (up) { open.href = toolUrl(t); open.removeAttribute('aria-disabled'); }
     else { open.removeAttribute('href'); open.setAttribute('aria-disabled', 'true'); }
 
     var toggle = $('.pt-toggle', el), restart = $('.pt-restart', el);
     var runningHere = s === 'running' || s === 'starting';
     toggle.textContent = runningHere || s === 'stopping' || s === 'external' ? '停止' : '起動';
-    toggle.disabled = !!b || closed || s === 'stopping' || s === 'external' || s === 'missing';
-    toggle.title = s === 'external' ? '別の黒い画面で起動したツールは、その画面で止めてください' : '';
-    restart.disabled = !!b || closed || !(t.managed && runningHere);
+    toggle.disabled = !!b || closed || s === 'stopping' || s === 'external' || s === 'missing' || !!t.mounted;
+    toggle.title = s === 'external' ? '別の黒い画面で起動したツールは、その画面で止めてください'
+      : t.mounted ? '入口と一緒に動いています(「すべて終了」で一緒に終わります)' : '';
+    restart.disabled = !!b || closed || !(t.managed && runningHere) || !!t.mounted;
+    restart.title = t.mounted ? toggle.title : '';
     if (fails >= 2) { toggle.disabled = true; restart.disabled = true; }
   }
 
