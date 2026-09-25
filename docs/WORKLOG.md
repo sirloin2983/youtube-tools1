@@ -453,3 +453,10 @@
   `git fetch` は手元の参照をすべて確かめるので `fatal: bad object refs/codex/…` → `did not send all necessary objects` で止まる。
   対処: `.git\refs\codex` フォルダを消す(Codex の過去の turn を元に戻す機能の控えが消えるだけで、コード・履歴には影響しない)。Cowork は削除できないのでユーザーが実行。
   **GPT(Codex)へ**: このフォルダで作業すると、また壊れた参照が残る可能性がある。push.bat が `bad object refs/codex/…` で止まったら同じ対処
+
+## 2026-09-26 Claude(Cowork)— GitHub へ送信完了・段階3-3 の実機確認済み・セッション切り替え
+- push: `.git\refs\codex` を消した後の push.bat で送信できた(21f7ff4 → dac1b89。0:47〜0:57 のコミット5件・54ファイル。個人データ・設定ファイルは含まれていないことを確認)
+- **段階3-3 の実機確認: 済(ユーザー報告 2026-09-26)**。Windows で入口から /transcribe/ を使い、本物の faster-whisper で確認
+- 引き継ぎ: `docs/HANDOVER.md`(今の状態・次の作業・注意)。次の作業は Resolve パックの一本化(契約テストが先)
+- 未コミット: docs/WORKLOG.md・docs/HANDOVER.md(次の push.bat で)
+- 未反映: 統合計画の正本(Claude Docs「動画編集ツール 統合計画」)と写し `docs/integration-plan.md` の 3-3 の状態を「実機確認済み」にする(正本を先に直す)
