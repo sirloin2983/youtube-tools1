@@ -7,14 +7,15 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace(/\r\n/g, '\n');
-function between(start, end) {
-  const a = html.indexOf(start), b = html.indexOf(end, a);
+// CSP 対応(script-src 'self')でアプリの JS は index.html から app.js へ外出しした。テストは app.js を直接読む
+const appJs = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+function between(source, start, end) {
+  const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
-  return html.slice(a, b);
+  return source.slice(a, b);
 }
-const saveSource = between('const hhmm =', "$('#cfReload').addEventListener");
-const openSource = between('async function openDoc(', 'function opts(');
+const saveSource = between(appJs, 'const hhmm =', "$('#cfReload').addEventListener");
+const openSource = between(appJs, 'async function openDoc(', 'function opts(');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -167,8 +168,14 @@ test('out-of-order responses honor the most recent navigation request', async ()
   assert.equal(h.S.docId, 'C');
 });
 
-test('all inline application scripts parse successfully', () => {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+test('app.js and ui-kit.js parse successfully (CSP: index.html has no inline <script>)', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   assert.ok(scripts.length > 0);
-  for (const [, source] of scripts) new vm.Script(source);
+  for (const [, attrs, source] of scripts) {
+    assert.ok(/\bsrc=/.test(attrs), 'index.html の <script> は src 付き(外部ファイル)であること');
+    assert.equal(source.trim(), '');
+  }
+  new vm.Script(appJs);
+  new vm.Script(fs.readFileSync(path.join(__dirname, 'ui-kit.js'), 'utf8'));
 });

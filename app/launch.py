@@ -46,7 +46,7 @@ from ytt_core import httpsec, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.3.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.4.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20

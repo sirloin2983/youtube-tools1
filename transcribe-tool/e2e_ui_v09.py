@@ -30,8 +30,12 @@ def call(port, method, path, body=None, raw=False):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
+    for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
+    for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+        p = os.path.join(HERE, n)
+        if os.path.exists(p):
+            shutil.copy(p, tmp)
     fd = os.path.join(tmp, "clips")
     os.makedirs(os.path.join(fd, "video1"))
     for rel in ("a.wav", "b.wav", os.path.join("video1", "c.wav")):

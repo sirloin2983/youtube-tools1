@@ -4,6 +4,7 @@
     python3 serve.py [開始ポート] [--no-open]
 
   GET  /                     index.html
+  GET  /app.js, /ui-kit.js   画面の JS(CSP script-src 'self' のため外部ファイルで配信)
   GET  /api/ping             起動確認
   GET  /api/tools            ffmpeg / faster-whisper / GPU の有無
   GET  /api/settings, PUT    用語集・置換辞書・前回の設定
@@ -80,9 +81,11 @@ from ytt_core import fsio as _fsio, httpsec, runtime as _runtime, tools as _tool
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.10.0"  # index.html 側の APP_VERSION と揃える
+SERVER_VERSION = "0.11.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
+APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
+UI_KIT_JS = os.path.join(ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(tools/sync_ui_kit.py。同上)
 TX_DIR = os.path.join(ROOT, "transcripts")
 ROSTER = os.path.join(ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)
 DATASET_DIR = os.path.join(ROOT, "dataset")   # 校正の成果と音声の保管(将来の学習・声紋登録用)
@@ -94,6 +97,7 @@ MARKER_DATA = os.environ.get("TRANSCRIBE_MARKER_DATA") or os.path.join(os.path.d
 STUDIO_DATA = os.environ.get("TRANSCRIBE_STUDIO_DATA") or os.path.join(os.path.dirname(ROOT), "clip-studio", "data.json")   # 切り抜きスタジオのマーク(読むだけ)
 PORT = 8775
 ALLOWED_HOSTS = set()
+BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(app/mount.py が prepare() で入れる)
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = 20000
 TAGS = ("unclear", "overlap", "bgm")   # 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
@@ -213,8 +217,9 @@ def _mem():
     return "%dMB" % m if m is not None else "?"
 
 
-def setup_logging():
-    """ログとクラッシュ記録を有効にする(main から1回だけ)。ファイルが作れなくても動く。"""
+def setup_logging(hooks=True):
+    """ログとクラッシュ記録を有効にする(起動時に1回だけ)。ファイルが作れなくても動く。
+    hooks=False(入口の統合サーバーに取り込まれたとき)は、プロセス全体の設定(未処理の例外の記録先・faulthandler)は変えない(入口のもの)。"""
     global _crash_fp
     if not log.handlers:
         log.setLevel(logging.INFO)
@@ -225,6 +230,8 @@ def setup_logging():
             log.addHandler(h)
         except OSError:
             log.addHandler(logging.NullHandler())
+    if not hooks:
+        return
     sys.excepthook = lambda t, v, tb: log.error("未処理の例外", exc_info=(t, v, tb))
     threading.excepthook = lambda a: log.error("スレッド %s の未処理の例外", getattr(a.thread, "name", "?"), exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
     try:
@@ -348,11 +355,44 @@ def nvidia_gpu():
 
 
 def has_faster_whisper():
+    if worker_fake():
+        return True
+    return worker_has("faster_whisper")
+
+
+_has_cache = {}
+
+
+def worker_python():
+    """認識ワーカーを動かす Python。Mac/Linux で このフォルダに .venv があればそちら(install.command が faster-whisper を入れる先。
+    入口(app/launch.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
+    if os.name != "nt":
+        v = os.path.join(ROOT, ".venv", "bin", "python")
+        if os.path.isfile(v):
+            return v
+    return sys.executable
+
+
+def worker_has(*mods):
+    """認識ワーカーの Python に、そのモジュールが入っているか(読み込みはしない)。サーバーと同じ Python ならその場で調べ、
+    違う Python(入口に取り込まれ、ワーカーは .venv のとき)なら1回だけ別プロセスで調べて覚えておく。"""
+    key = mods
+    if key in _has_cache:
+        return _has_cache[key]
+    import importlib.util
+    py = worker_python()
+    ok = False
     try:
-        import importlib.util
-        return importlib.util.find_spec("faster_whisper") is not None
+        if os.path.normcase(os.path.abspath(py)) == os.path.normcase(os.path.abspath(sys.executable)):
+            ok = all(importlib.util.find_spec(m) is not None for m in mods)
+        else:
+            code = "import importlib.util,sys; sys.exit(0 if all(importlib.util.find_spec(m) for m in sys.argv[1:]) else 1)"
+            ok = subprocess.run([py, "-c", code] + list(mods), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                timeout=60, creationflags=_worker_flags()).returncode == 0
     except Exception:
-        return False
+        ok = False
+    _has_cache[key] = ok
+    return ok
 
 
 def cuda_count():
@@ -375,12 +415,49 @@ def cuda_libs_ok():
         return False
 
 
-def gpu_ready():
+def _gpu_ready_local():
+    """このプロセスで GPU(CUDA)が使えるか。ctranslate2 を読み込むので、認識ワーカーの中でだけ呼ぶ。"""
     return cuda_count() > 0 and cuda_libs_ok()
+
+
+_gpu_cache = {}
+
+
+def gpu_ready():
+    """GPU で文字起こしできるか(画面の表示用)。サーバーのプロセスでは ctranslate2(ネイティブのライブラリ)を読み込まないよう、
+    1回だけ別プロセス(tx_worker.py --probe)で調べて覚えておく。調べ終わるまでは False。"""
+    if IN_WORKER:
+        return _gpu_ready_local()
+    if "v" in _gpu_cache:
+        return _gpu_cache["v"]
+    if backend_name() == "fake" or worker_fake() or not has_faster_whisper():
+        _gpu_cache["v"] = False
+        return False
+    if not _gpu_cache.get("started"):
+        _gpu_cache["started"] = True
+        threading.Thread(target=_probe_gpu, daemon=True, name="gpu-probe").start()
+    return False
+
+
+def _probe_gpu():
+    ok = False
+    try:
+        p = subprocess.run([worker_python(), WORKER_SCRIPT, "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=120, env=worker_env(), cwd=ROOT, creationflags=_worker_flags())
+        ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    _gpu_cache["v"] = ok
 
 
 def backend_name():
     return "fake" if os.environ.get("TRANSCRIBE_BACKEND") == "fake" else "faster-whisper"
+
+
+def worker_fake():
+    """テスト用: TRANSCRIBE_BACKEND=worker-fake のとき、サーバーは本物の経路(認識ワーカー)を使い、ワーカーの中だけ偽のモデルで動く。
+    faster-whisper を入れていない環境でも、ワーカーとのやり取り・異常終了からの立ち直りを確かめられるようにする。"""
+    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
 
 
 # ---------- 文字起こしの保存 ----------
@@ -596,10 +673,13 @@ except ValueError:
 
 
 def release_idle_models(now=None):
-    """しばらく使っていないモデルを手放す。ワーカー(ジョブを実行するスレッド)がジョブの合間にだけ呼ぶので、使用中のモデルは消さない。"""
+    """しばらく使っていないモデルを手放す。ワーカー(ジョブを実行するスレッド)がジョブの合間にだけ呼ぶので、使用中のモデルは消さない。
+    サーバーのプロセスでは、認識ワーカー(別プロセス)ごと終わらせる(モデルのメモリを OS に確実に返す)。次のジョブで起動し直す。"""
     if MODEL_IDLE_SEC <= 0:
         return False
     now = time.time() if now is None else now
+    if not IN_WORKER:
+        return WORKER.stop_if_idle(MODEL_IDLE_SEC, now)
     with _model_lock:
         if not _models or now - _model_used[0] < MODEL_IDLE_SEC:
             return False
@@ -611,6 +691,350 @@ def release_idle_models(now=None):
 
 class Cancelled(Exception):
     pass
+
+
+# ---------- 認識ワーカー(別プロセス。統合計画の段階3-3) ----------
+# faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メモリ不足・GPU のドライバなどで Python ごと落ちることがある。
+# 入口の統合サーバーに取り込むと、同じプロセスにスタジオ・cut2resolve もいるので、落ちると全部が止まり編集中の内容が消える。
+# そこで、モデルの読み込み・認識・話者判別だけを tx_worker.py(別プロセス)で行う。サーバー側のジョブの流れ(待機列・行の整形・保存)は変えない。
+# やり取り: ワーカーの標準入力に要求を1行1件の JSON(ASCII)で送り、標準出力から途中経過・結果を1行1件で受け取る。1度に1つの要求だけ。
+# 落ちたら(標準出力が閉じたら)そのジョブを「失敗」にし、次の要求でワーカーを起動し直す。しばらく使わなければワーカーごと終わらせてメモリを返す。
+IN_WORKER = False   # tx_worker.py の中で True にする(そのときは load_model などが本体をその場で実行する)
+WORKER_SCRIPT = os.path.join(ROOT, "tx_worker.py")
+WORKER_LOG = os.path.join(ROOT, "worker.log")
+WORKER_LOG_MAX = 1024 * 1024
+WORKER_CANCEL_GRACE = 15   # 取り消してから、この秒数で止まらなければワーカーを強制終了する
+WORKER_LINE_MAX = 8 * 1024 * 1024
+
+
+def _worker_flags():
+    """Windows: 黒い画面を増やさない・Ctrl+C / Ctrl+Break がワーカーに直接届かないようにする(終わらせるのは親の役目)。"""
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+
+def worker_env():
+    env = dict(os.environ)
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    import ytt_core as _yc   # ワーカーも同じ ytt_core を使う(一時フォルダに写したテストでも見つかるように)
+    env["YTT_CORE_DIR"] = os.path.dirname(os.path.dirname(os.path.abspath(_yc.__file__)))
+    return env
+
+
+class WorkerError(Exception):
+    """ワーカーの中で起きた想定外の例外(元の型の名前を message に含める)。"""
+
+
+class _CancelHandle:
+    """job["proc"] に入れる、取り消し用の窓口。cancel_job() は proc.poll() / proc.terminate() を呼ぶので、同じ形にする
+    (ffmpeg の子プロセスを止めるのと同じ仕組みで、ワーカーの処理も止められる)。"""
+
+    def __init__(self, client, rid):
+        self.client, self.rid, self.done = client, rid, False
+
+    def poll(self):
+        return 0 if self.done else None
+
+    def terminate(self):
+        if not self.done:
+            self.client.cancel(self.rid)
+
+    kill = terminate
+
+
+class WorkerClient:
+    """認識ワーカー(tx_worker.py)の起動・要求・取り消し・強制終了。要求は1度に1つ(ジョブを実行するスレッドは1本)。"""
+
+    def __init__(self):
+        self.lock = threading.RLock()     # 要求の直列化
+        self.wlock = threading.Lock()     # 標準入力への書き込み(取り消しは HTTP のスレッドからも来る)
+        self.proc = None
+        self.log_fp = None
+        self.rids = itertools.count(1)
+        self.last_used = 0.0
+        self.starts = 0
+        self.killed_rid = None            # 取り消しで強制終了した要求(その要求は「中止」にする)
+        self.closed = False
+
+    # ---- 起動・終了
+    def alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def _spawn(self):
+        if self.closed:
+            raise ApiError("stopping", "終了処理中のため、文字起こしを始められません", 503)
+        if not os.path.isfile(WORKER_SCRIPT):
+            raise ApiError("missing_module", "tx_worker.py が見つかりません。ツールのフォルダの中身をまとめて更新してください", 500)
+        try:
+            if os.path.exists(WORKER_LOG) and os.path.getsize(WORKER_LOG) > WORKER_LOG_MAX:
+                replace_retry(WORKER_LOG, WORKER_LOG + ".old")
+        except OSError:
+            pass
+        try:
+            self.log_fp = open(WORKER_LOG, "ab")
+        except OSError:
+            self.log_fp = None
+        self.proc = subprocess.Popen([worker_python(), "-u", WORKER_SCRIPT], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=self.log_fp or subprocess.DEVNULL, cwd=ROOT, env=worker_env(), creationflags=_worker_flags())
+        self.starts += 1
+        log.info("認識ワーカーを起動 pid=%s(%d回目)", self.proc.pid, self.starts)
+
+    def _ensure(self):
+        if self.proc is not None and self.proc.poll() is not None:
+            log.warning("認識ワーカーが終わっていました(終了コード %s)。起動し直します", self.proc.returncode)
+            self._reap()
+        if self.proc is None:
+            self._spawn()
+
+    def _reap(self):
+        p, self.proc = self.proc, None
+        if p is not None:
+            for f in (p.stdin, p.stdout):
+                try:
+                    f.close()
+                except (OSError, ValueError):
+                    pass
+            try:
+                p.wait(5)
+            except subprocess.TimeoutExpired:
+                pass
+        if self.log_fp is not None:
+            try:
+                self.log_fp.close()
+            except OSError:
+                pass
+            self.log_fp = None
+
+    def kill(self):
+        p = self.proc
+        if p is not None and p.poll() is None:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    def stop(self, timeout=5):
+        """ワーカーを終わらせる(次の要求で起動し直す)。要求の途中なら、その要求は失敗・中止になる。"""
+        p = self.proc
+        if p is None:
+            return
+        if p.poll() is None:
+            try:
+                with self.wlock:
+                    p.stdin.write(b'{"op":"quit"}\n')
+                    p.stdin.flush()
+            except (OSError, ValueError):
+                pass
+            try:
+                p.wait(timeout)
+            except subprocess.TimeoutExpired:
+                self.kill()
+        if self.lock.acquire(timeout=timeout):
+            try:
+                if self.proc is p:
+                    self._reap()
+            finally:
+                self.lock.release()
+
+    def close(self):
+        """サーバーの終了時。以後は起動しない。"""
+        self.closed = True
+        self.stop(3)
+
+    def stop_if_idle(self, idle_sec, now=None):
+        now = time.time() if now is None else now
+        if not self.alive() or now - self.last_used < idle_sec:
+            return False
+        if not self.lock.acquire(blocking=False):   # 要求の途中(使用中)
+            return False
+        try:
+            log.info("しばらく使っていないので認識ワーカーを終了(モデルのメモリを返す)")
+            self.stop()
+            return True
+        finally:
+            self.lock.release()
+
+    # ---- やり取り
+    def _write(self, obj):
+        data = (json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n").encode("ascii")
+        with self.wlock:
+            self.proc.stdin.write(data)
+            self.proc.stdin.flush()
+
+    def cancel(self, rid):
+        """取り消し(HTTP のスレッドから)。ワーカーに伝え、WORKER_CANCEL_GRACE 秒で止まらなければ強制終了する。"""
+        p = self.proc
+        if p is None or p.poll() is not None:
+            return
+        try:
+            self._write({"op": "cancel", "rid": rid})
+        except (OSError, ValueError):
+            pass
+
+        def force():
+            if self.proc is p and p.poll() is None and self._busy_rid == rid:
+                log.warning("認識ワーカーが取り消しに応じないため強制終了します")
+                self.killed_rid = rid
+                self.kill()
+        t = threading.Timer(WORKER_CANCEL_GRACE, force)
+        t.daemon = True
+        t.start()
+
+    _busy_rid = None
+
+    def _read(self, rid):
+        line = self.proc.stdout.readline(WORKER_LINE_MAX)
+        if not line:
+            code = None
+            try:
+                code = self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.kill()
+            self._reap()
+            if self.killed_rid == rid:
+                raise Cancelled()
+            log.error("認識ワーカーが異常終了しました(終了コード %s)", code)
+            raise ApiError("worker_crashed", "文字起こしの部品(認識を行う別プロセス)が途中で止まりました(終了コード %s)。"
+                                             "メモリ不足などが考えられます。もう一度実行すると部品を起動し直します(詳しくは worker.log)" % code, 500)
+        try:
+            m = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            log.warning("認識ワーカーの出力を読めません: %r", line[:200])
+            return None
+        return m if isinstance(m, dict) else None
+
+    @staticmethod
+    def _apply(job, m):
+        k = m.get("k")
+        if isinstance(job, dict) and k in ("phase", "state", "device", "progress"):
+            v = m.get("v")
+            if k == "progress":
+                try:
+                    v = max(0.0, min(0.99, float(v)))
+                except (TypeError, ValueError):
+                    return
+            elif not isinstance(v, str):
+                return
+            job[k] = v[:200] if isinstance(v, str) else v
+
+    @staticmethod
+    def _error(m):
+        code, msg = str(m.get("code") or ""), str(m.get("message") or "")[:500]
+        if code == "cancelled":
+            return Cancelled()
+        if code == "exception":
+            return WorkerError("%s: %s" % (m.get("type") or "Exception", msg))
+        try:
+            status = int(m.get("status") or 500)
+        except (TypeError, ValueError):
+            status = 500
+        return ApiError(code or "worker_error", msg or "文字起こしの部品でエラーが起きました", status)
+
+    def stream(self, op, args, job=None):
+        """要求を送り、("item", v) を途中で、最後に ("result", v) を返す生成器。エラーは例外(ApiError / Cancelled / WorkerError)。
+        途中で使うのをやめた(close された)ときは、ワーカーに取り消しを伝えて結果を読み捨て、やり取りの順番をそろえてから抜ける。"""
+        if isinstance(job, dict) and job.get("cancel"):   # 取り消し済みなら、ワーカーの起動も要求もしない
+            raise Cancelled()
+        with self.lock:
+            self._ensure()
+            rid = next(self.rids)
+            handle = _CancelHandle(self, rid)
+            self._busy_rid, self.killed_rid = rid, None
+            if isinstance(job, dict):
+                job["proc"] = handle
+            finished = False
+            try:
+                try:
+                    self._write(dict(args, op=op, rid=rid))
+                except (OSError, ValueError):
+                    self.kill()
+                    self._read(rid)   # 閉じている → 異常終了として扱う
+                while True:
+                    m = self._read(rid)
+                    if m is None or m.get("rid") != rid:
+                        continue   # 以前の要求の読み残し・読めない行
+                    ev = m.get("ev")
+                    if ev == "set":
+                        self._apply(job, m)
+                    elif ev == "item":
+                        yield "item", m.get("v")
+                    elif ev == "result":
+                        finished = True
+                        yield "result", m.get("v")
+                        return
+                    elif ev == "error":
+                        finished = True
+                        raise self._error(m)
+            finally:
+                handle.done = True
+                if isinstance(job, dict) and job.get("proc") is handle:
+                    job["proc"] = None
+                if not finished and self.alive():
+                    self._drain(rid)
+                self._busy_rid = None
+                self.last_used = time.time()
+
+    def _drain(self, rid):
+        """途中でやめた要求の残りを読み捨てる(止まらなければ強制終了)。"""
+        self.cancel(rid)
+        try:
+            while self.proc is not None:
+                m = self._read(rid)
+                if m and m.get("rid") == rid and m.get("ev") in ("result", "error"):
+                    return
+        except (ApiError, Cancelled):
+            pass
+
+    def call(self, op, args, job=None):
+        """結果だけを返す要求(モデルの読み込み・話者判別)。"""
+        g = self.stream(op, args, job)
+        try:
+            for kind, v in g:
+                if kind == "result":
+                    return v
+        finally:
+            g.close()
+        raise ApiError("worker_error", "文字起こしの部品から結果が返りませんでした", 500)
+
+
+WORKER = WorkerClient()
+
+
+class _Obj:
+    def __init__(self, d):
+        self.__dict__.update(d)
+
+
+class RemoteModel:
+    """ワーカーの中のモデルの代理。transcribe() は faster-whisper の WhisperModel.transcribe と同じ形 (行の生成器, 情報) を返す。
+    行は属性(start・end・text・avg_logprob・no_speech_prob・compression_ratio・words)で読めるので、呼び出し側のコードは変えなくてよい。"""
+
+    def __init__(self, client, name, device, params, job):
+        self.client, self.name, self.device, self.job = client, name, device, job
+        self.params = set(params or ())
+
+    def transcribe(self, audio, **kw):
+        if isinstance(audio, str):
+            a = {"wav": audio}
+        elif isinstance(audio, WavSlice):   # 範囲の音声は、wav のパスとサンプルの範囲だけを渡す(ワーカーが読む)
+            a = {"wav": audio.path, "from": audio.a, "to": audio.b}
+        elif isinstance(audio, WavRef):
+            a = {"wav": audio.path}
+        else:
+            raise TypeError("認識する音声は wav のパスか WavRef / WavSlice で渡してください")
+        g = self.client.stream("transcribe", {"name": self.name, "device": self.device, "audio": a, "kw": kw}, self.job)
+
+        def segs():
+            try:
+                for kind, v in g:
+                    if kind == "item" and isinstance(v, dict):
+                        v = dict(v, words=[_Obj(w) for w in v.get("words") or [] if isinstance(w, dict)])
+                        yield _Obj(v)
+            finally:
+                g.close()
+        return segs(), _Obj({"language": kw.get("language")})
 
 
 def validate_job(req):
@@ -713,6 +1137,7 @@ def extract_audio(job, spec, wav):
         job["proc"] = None
         if p.poll() is None:
             p.kill()
+        p.stderr.close()   # 読み終えたパイプを閉じる(閉じないと GC まで残る)
     if job["cancel"]:
         raise Cancelled()
     if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
@@ -765,7 +1190,17 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
 
 
 def load_model(name, job, pref="auto", force_cpu=False):
-    """(モデル, 使用デバイス) を返す。同じ設定のモデルは使い回す。
+    """(モデル, 使用デバイス) を返す。サーバーのプロセスでは、モデルは認識ワーカー(別プロセス)の中に読み込み、
+    ここではその代理(RemoteModel。transcribe() を呼ぶとワーカーで認識する)を返す。faster-whisper のネイティブコードが落ちても、
+    落ちるのはワーカーだけになる(統合計画の段階3-3)。"""
+    if IN_WORKER:
+        return _load_model_local(name, job, pref, force_cpu)
+    v = WORKER.call("load", {"name": name, "pref": pref, "force_cpu": bool(force_cpu)}, job)
+    return RemoteModel(WORKER, name, v["device"], v.get("params"), job), v["device"]
+
+
+def _load_model_local(name, job, pref="auto", force_cpu=False):
+    """(モデル, 使用デバイス) を返す(認識ワーカーの中で動く本体)。同じ設定のモデルは使い回す。
     pref: auto=GPU があれば GPU(失敗したら CPU) / cuda=GPU 固定(失敗したらエラー) / cpu=CPU 固定"""
     from faster_whisper import WhisperModel
     env = os.environ.get("TRANSCRIBE_DEVICE")
@@ -832,7 +1267,11 @@ def whisper_kwargs(spec):
 
 
 def filter_kwargs(model, kw):
-    """使っている faster-whisper が対応していない引数は渡さない(古い版でも動くように)。"""
+    """使っている faster-whisper が対応していない引数は渡さない(古い版でも動くように)。
+    認識ワーカーの代理(RemoteModel)は、ワーカーが調べた引数の一覧(params)を持っている。"""
+    params = getattr(model, "params", None)
+    if params:
+        return {k: v for k, v in kw.items() if k in params}
     try:
         import inspect
         accepted = set(inspect.signature(model.transcribe).parameters)
@@ -1100,11 +1539,9 @@ SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", 
 
 
 def has_sherpa():
-    try:
-        import importlib.util
-        return importlib.util.find_spec("sherpa_onnx") is not None and importlib.util.find_spec("numpy") is not None
-    except Exception:
-        return False
+    if worker_fake():
+        return True
+    return worker_has("sherpa_onnx", "numpy")
 
 
 def _diar_path(item):
@@ -1144,6 +1581,8 @@ def _download_verified(job, item, tmp):
 
 
 def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
+    if worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
+        return
     os.makedirs(DIAR_DIR, exist_ok=True)
     for item in (DIAR_SEG, DIAR_EMBS[emb]):
         dest = _diar_path(item)
@@ -1173,7 +1612,38 @@ def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
                     pass
 
 
+class WavRef:
+    """16kHz・モノラル・16bit の wav を「読まずに」表す(サーバーのプロセス用)。audio[a:b] は WavSlice になり、
+    認識ワーカーに渡すと、ワーカーがその範囲だけを読む。サーバーのプロセスに numpy(と音声全体のメモリ)を持ち込まないため。"""
+
+    def __init__(self, path):
+        with wave.open(path, "rb") as w:
+            if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
+                raise ApiError("diar_failed", "音声の形式が想定と違います", 500)
+            self.n = w.getnframes()
+        self.path = path
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, sl):
+        if not isinstance(sl, slice) or sl.step not in (None, 1):
+            raise TypeError("WavRef は audio[a:b] の形でだけ使えます")
+        a, b, _ = sl.indices(self.n)
+        return WavSlice(self.path, a, max(a, b))
+
+
+class WavSlice:
+    def __init__(self, path, a, b):
+        self.path, self.a, self.b = path, a, b
+
+    def __len__(self):
+        return self.b - self.a
+
+
 def read_wav_f32(path):
+    if not IN_WORKER:
+        return WavRef(path)
     import numpy as np
     with wave.open(path, "rb") as w:
         if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
@@ -1183,6 +1653,14 @@ def read_wav_f32(path):
 
 
 def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT):
+    """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。"""
+    if IN_WORKER:
+        return _diarize_local(job, wav, num, emb)
+    turns = WORKER.call("diarize", {"wav": wav, "num": int(num), "emb": emb}, job)
+    return [(float(a), float(b), int(k)) for a, b, k in turns]
+
+
+def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT):
     import sherpa_onnx as so
     threads = max(1, min(4, os.cpu_count() or 2))
     cfg = so.OfflineSpeakerDiarizationConfig(
@@ -3399,7 +3877,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _guard(self, write, path=""):
         if not self._host_ok():
-            self._fail(403, "forbidden", "このツールは http://localhost:%d から開いてください(Host が違います)" % PORT)
+            self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (PORT, BASE_PATH))
             return False
         if not (self._fetch_site_ok() or (not write and self._navigation_ok(path))) or (write and not self._origin_ok()):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
@@ -3445,10 +3923,16 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/", "/index.html"):
                 with open(INDEX, "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
+            if u.path == "/app.js":
+                with open(APP_JS, "rb") as f:
+                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
+            if u.path == "/ui-kit.js":
+                with open(UI_KIT_JS, "rb") as f:
+                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
             if u.path == "/api/ping":
                 return self._json(200, {"app": APP_ID, "version": SERVER_VERSION})
             if u.path == "/api/siblings":
-                return self._json(200, pio().siblings(runtime_path_dir(), TOOL_ID, PORT))
+                return self._json(200, pio().siblings(runtime_path_dir(), TOOL_ID, PORT, self_path=BASE_PATH))
             if u.path == "/api/clip-info":
                 return self._json(200, clip_info((q.get("path") or [""])[0]))
             if u.path == "/api/transcript-v1":
@@ -3753,22 +4237,103 @@ def startup_checks():
             out.append("ディスクの空きが少なくなっています(残り %.1fGB)。長い動画の文字起こし・保管が途中で失敗することがあります" % (free / 1024 ** 3))
     except OSError:
         pass
+    if not os.path.exists(INDEX):
+        out.append("index.html が見つかりません。フォルダの中身をまとめて置き直してください")
     try:
-        with open(INDEX, "r", encoding="utf-8") as f:
+        with open(APP_JS, "r", encoding="utf-8") as f:   # 版番号は app.js 側にある(index.html はインラインの <script> を外したため)
             m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
         if m and m.group(1) != SERVER_VERSION:
-            out.append("画面(index.html v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), SERVER_VERSION))
+            out.append("画面(app.js v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), SERVER_VERSION))
     except OSError:
-        out.append("index.html が見つかりません。フォルダの中身をまとめて置き直してください")
+        out.append("app.js が見つかりません。フォルダの中身をまとめて置き直してください")
     except UnicodeError:
-        out.append("index.html の文字コードが壊れています。フォルダの中身をまとめて置き直してください")
+        out.append("app.js の文字コードが壊れています。フォルダの中身をまとめて置き直してください")
     if pio(required=False) is None:
         out.append("pipeline_io.py / resolve_export.py が見つかりません。「動画の隣に保存」などの受け渡しの機能が使えません。フォルダの中身をまとめて更新してください")
     return out
 
 
-def main():
+_started = []
+
+
+def prepare(port, base_path="/", hooks=False):
+    """待ち受け以外の起動の準備(ログ・前回の異常終了の確認・.runtime・環境チェック・ジョブのスレッド)。
+    main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
+    シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取る)。"""
+    global PORT, BASE_PATH, ALLOWED_HOSTS
+    PORT, BASE_PATH = port, base_path
+    if not ALLOWED_HOSTS:
+        ALLOWED_HOSTS = httpsec.allowed_hosts(port)
     setup_cuda_paths()
+    setup_logging(hooks)
+    prev = check_previous_run()
+    if prev is not None:
+        job = prev.get("job") or {}
+        msg = "前回は正常に終了しませんでした(落ちた・黒い画面を×で閉じた・強制終了のいずれか)。" + (
+            "そのとき実行中だったジョブ: %s %s モデル=%s「%s」" % (job.get("kind", ""), job.get("id", ""), job.get("model", ""), job.get("title", "")) if job else "実行中のジョブはありませんでした")
+        print("※", msg)
+        print("  詳しくは serve.log・serve.crash.log・worker.log を見てください")
+        log.warning("前回の異常終了を検出: %s", msg)
+    _run_state["started"] = int(time.time())
+    write_mark(None)
+    pm = pio(required=False)
+    rt = pm.write_runtime(runtime_path_dir(), TOOL_ID, port, SERVER_VERSION, base_path) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
+    if rt is None:
+        log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", runtime_path_dir())
+    log.info("起動 v%s ポート%d%s メモリ %s python %s", SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, _mem(), sys.version.split()[0])
+    _env_warnings[:] = startup_checks()
+    for w in _env_warnings:
+        print("※", w)
+        log.warning("環境: %s", w)
+    if "onedrive" in ROOT.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
+        print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
+    if not _started:
+        _started.append(True)
+        threading.Thread(target=worker, daemon=True, name="tx-jobs").start()
+    if not has_faster_whisper() and backend_name() != "fake":
+        print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")
+    return rt
+
+
+def busy():
+    """ジョブ(文字起こし・話者判別など)が動いているか・待っているか(入口の「すべて終了」の確認用)"""
+    with _jobs_lock:
+        return any(j["state"] in ACTIVE_STATES for j in _jobs.values())
+
+
+def finish():
+    """終了の後始末: 動いているジョブを取り消し、認識ワーカーを終わらせ、.runtime の記録と起動中の印を消す。"""
+    with _jobs_lock:
+        active = [j["id"] for j in _jobs.values() if j["state"] in ACTIVE_STATES]
+    for jid in active:
+        try:
+            cancel_job(jid)
+        except ApiError:
+            pass
+    WORKER.close()
+    log.info("終了(正常)")
+    pm = pio(required=False)
+    if pm:
+        pm.remove_runtime(runtime_path_dir(), TOOL_ID, PORT)
+    clear_mark()
+
+
+def mounted_elsewhere():
+    """入口(start-all.bat)の統合サーバーの中で文字起こしツールが動いていれば、その URL。
+    同じ transcripts/ を2つのサーバーで書き合わない・認識ワーカーを2つ動かさないよう、start.bat からの起動はそちらを開くだけにする。"""
+    info = _runtime.read_runtime(runtime_path_dir(), TOOL_ID)
+    if info and info["path"] != "/" and _runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
+        return "http://localhost:%d%s" % (info["port"], info["path"])
+    return None
+
+
+def main():
+    live = mounted_elsewhere()
+    if live:
+        print("入口の中ですでに起動しています。ブラウザで開きます:", live)
+        if "--no-open" not in sys.argv:
+            webbrowser.open(live)
+        return
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     srv, port = make_server(int(args[0]) if args else 8775)
     url = "http://localhost:%d" % port
@@ -3777,34 +4342,10 @@ def main():
         if "--no-open" not in sys.argv:
             webbrowser.open(url)
         return
-    setup_logging()
-    prev = check_previous_run()
-    if prev is not None:
-        job = prev.get("job") or {}
-        msg = "前回は正常に終了しませんでした(落ちた・黒い画面を×で閉じた・強制終了のいずれか)。" + (
-            "そのとき実行中だったジョブ: %s %s モデル=%s「%s」" % (job.get("kind", ""), job.get("id", ""), job.get("model", ""), job.get("title", "")) if job else "実行中のジョブはありませんでした")
-        print("※", msg)
-        print("  詳しくは serve.log と serve.crash.log を見てください")
-        log.warning("前回の異常終了を検出: %s", msg)
-    _run_state["started"] = int(time.time())
-    write_mark(None)
-    pm = pio(required=False)
-    rt = pm.write_runtime(runtime_path_dir(), TOOL_ID, port, SERVER_VERSION) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
-    if rt is None:
-        log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", runtime_path_dir())
     install_stop_signals()
-    log.info("起動 v%s ポート%d メモリ %s python %s", SERVER_VERSION, port, _mem(), sys.version.split()[0])
-    _env_warnings[:] = startup_checks()
-    for w in _env_warnings:
-        print("※", w)
-        log.warning("環境: %s", w)
-    if "onedrive" in ROOT.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
-        print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
-    threading.Thread(target=worker, daemon=True).start()
+    prepare(port, "/", hooks=True)
     print("文字起こしツール:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
     print("保存先:", TX_DIR)
-    if not has_faster_whisper() and backend_name() != "fake":
-        print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")
     if "--no-open" not in sys.argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
@@ -3812,10 +4353,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        log.info("終了(正常)")
-        if pm:
-            pm.remove_runtime(runtime_path_dir(), TOOL_ID, port)
-        clear_mark()
+        finish()
 
 
 def install_stop_signals():

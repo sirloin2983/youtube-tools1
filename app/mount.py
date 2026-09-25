@@ -29,6 +29,9 @@ MOUNTS = {
                "csp": ("script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                        "form-action 'none'; frame-ancestors 'none'")},
     "cut2resolve": {"dir": "cut2resolve", "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None},
+    # 文字起こし: 認識(faster-whisper・sherpa-onnx)は tx_worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
+    "transcribe": {"dir": "transcribe-tool", "prefix": "/transcribe", "alias": "ytt_tool_transcribe",
+                   "csp": "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"},
 }
 TOKEN_HEADER = "X-YTT-Token"
 SAFE_METHODS = ("GET", "HEAD")

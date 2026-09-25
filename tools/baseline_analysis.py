@@ -5,7 +5,7 @@
 
 - transcripts/*.json(segments=人が直した行、original=機械の出力)を、serve.py の関数でツールの画面と同じ方法で比べる
 - dataset/docs/<id>/full.flac(校正した範囲の音声)があれば、行ごとの音量(小声の目安)も測る(ffmpeg が必要)
-- 出力: accuracy-baseline.json(数値)。文章のまとめ(docs/accuracy-baseline.md)は、この数値を見て人/AI が書く
+- 出力: accuracy-baseline.json(数値)。文章のまとめ(docs/accuracy/accuracy-baseline.md)は、この数値を見て人/AI が書く
 - 個人データ(音声・文章の全文)は出力しない(例は短い抜粋だけ)
 """
 import importlib.util
@@ -22,7 +22,7 @@ from collections import Counter, defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
 TT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "..", "transcribe-tool"))
-OUT = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "..", "docs"))
+OUT = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "..", "docs", "accuracy"))
 
 
 def load_serve():

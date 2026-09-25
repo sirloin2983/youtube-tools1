@@ -375,3 +375,61 @@
 - 未確認(実機): Windows で start-all.bat → /cut2resolve/ で 読み込み・試算・パック作成(Text+)・「フォルダを開く」・プレビューの動画、「すべて終了」、入口の中で動いている間の cut2resolve の start.bat
 - 注意: 入口の中の cut2resolve は、入力欄の前回の値(ブラウザの保存)が単独のときと別になる。起動中の入口は古いコードのままなので「すべて終了」→ start-all.bat で起動し直す。未コミット
 - 未完了・次: 段階3-3(文字起こしの取り込み。faster-whisper は別プロセスのワーカー)。Resolve パックの一本化(契約テストが先)
+
+## 2026-09-25 Claude(Cowork)— 段階3-3: 文字起こしの認識を別プロセスに分け、入口に取り込み(文字起こし v0.11.0・入口 v0.4.0)
+- 担当: 統合作業(Claude)。文字起こしツールも統合のために変更(GPT は WORKLOG を見てから触る)。作業の土台は HEAD = 21f7ff4(段階3-2 を含む)
+- 決定(ユーザー): ワーカー分離と取り込みを一度に行う。作業は AI モデルを使い分け(設計・ワーカー = Opus、画面の JS 分離・画面のテスト = Sonnet)
+- 変更(新規): `transcribe-tool/tx_worker.py`(認識ワーカー)、`transcribe-tool/app.js`・`ui-kit.js`(index.html のインラインの JS を外へ)、
+  `transcribe-tool/test_worker.py`(17件。test_metrics から読み込む)、`transcribe-tool/e2e_ui_mounted.py`(本物の入口に取り込んだ形で画面を通す・ワーカーの強制終了からの立ち直り)
+- 変更: 文字起こし `serve.py`(`WorkerClient`・`RemoteModel`・`WavRef`・`load_model`/`diarize_real`/`gpu_ready` をワーカー経由に・本体は `_load_model_local`/`_diarize_local`・
+  `prepare()`/`finish()`/`busy()`/`mounted_elsewhere()`・`BASE_PATH`・`/app.js`・`/ui-kit.js` の配信・起動時の版の確認は app.js・extract_audio のパイプを閉じる)、
+  `pipeline_io.py`(.runtime の path・siblings の self_path)、`index.html`、`test_backend.py`・`test_metrics.py`・`test_document_save.cjs`・e2e 6本(写すファイルに app.js・ui-kit.js・tx_worker.py)、
+  `README.txt`・`AGENTS.md`。`app/mount.py`(MOUNTS に transcribe)、`app/launch.py`(版)、`app/test_mount.py`(文字起こしの取り込み 6件: ワーカーが落ちても入口・スタジオは止まらない など)、
+  `app/e2e_portal.py`(A: 3つとも取り込んだ本番の形 / B: 文字起こしを子プロセスにした形で停止・再起動・異常終了)、`app/README.txt`。
+  `tools/sync_ui_kit.py`(文字起こしも ui-kit.js をファイルで写す。CSS は埋め込みのまま)、`tools/e2e_pipeline.py`。`AGENTS.md`・`docs/integration-plan.md`(「段階3-3で決めたこと」)
+- 版: 文字起こし 0.10.0 → 0.11.0(APP_VERSION は app.js へ移動)、入口 0.3.0 → 0.4.0。スタジオ・cut2resolve・ytt_core は変えていない
+- 確認(クラウド): 文字起こし 単体97件(test_worker 17件を含む)・node 9件・e2e v07/v08/v09/eval_v093/v098/handoff/**mounted**(v07・v09 は想定内の「版 v0.9.4」だけ)、
+  app/test_launch・test_mount 24件・e2e_portal(A・B)、ytt_core、tools/e2e_pipeline・test_ui_kit_sync、スタジオ 単体・e2e_ui 70/70・--mounted 70/70、cut2resolve 単体・e2e_ui・--mounted すべて OK。
+  ミューテーション 5件(サーバー側で numpy を読み込む・強制終了を中止にしない・fd の付け替えをしない・取り消し済みでも要求を送る・途中経過の値を制限しない)はすべて検出
+- 未確認(実機・重要): **本物の faster-whisper での文字起こし**(クラウドは PyPI に届かず、ワーカーの中は偽のモデルで確認)。Windows で start-all.bat → /transcribe/ で
+  文字起こし・再認識・話者判別・取り消し・「すべて終了」、単独の start.bat でも同じ、worker.log の中身、タスクマネージャーで python が2つ(入口とワーカー)になり、15分後にワーカーが消えること
+- 注意: 画面の JS は app.js に移った(index.html を直しても JS は変わらない)。サーバー側で numpy・faster_whisper・ctranslate2・sherpa_onnx を import しない(test_worker が検査)。
+  起動中の入口・文字起こしは古いコードのままなので「すべて終了」→ start-all.bat で起動し直す。未コミット
+- 未完了・次: 実機確認。Resolve パックの一本化(契約テストが先)。段階4(作業データをリポジトリの外へ)
+
+## 2026-09-26 Claude(Cowork)— フォルダ構成と AGENTS.md の見直し(文書の直し・docs の整理・不要ファイルの整理)
+- 見直し案: claude.ai の Claude Docs「フォルダ構成と AGENTS.md の見直し案」(2026-09-25)。この記録はその決定分の実施
+- 決定(ユーザー 2026-09-26):
+  - **資料の正本はこのリポジトリ**。claude.ai の Project の `claude/*.md` は古い写しとして扱う(統合計画だけは従来どおり Claude Docs が正本)
+  - docs の移動: 版ごとの記録 → `docs/project/history/`、精度の資料 → `docs/accuracy/`。NEXT_TASKS.md は削除
+  - 削除: 無人実行の bat 3本(auto-next / run-next / schedule-next)と auto-next.log、docs/NEXT_TASKS.md、cut2resolve の音割れ調査用の資料(exports/ の中)、cut2resolve のシンプル版(使っていない)
+  - cut2resolve の Text+ の担当(「数日」)は統合作業の担当に含める(cut2resolve 全体を Claude が主担当)
+  - 採用しなかった: WORKLOG の月ごとの分割、push.bat のコミットメッセージを WORKLOG の見出しにする案(→ AGENTS.md のコミットの決まりを実態に合わせた)
+- 変更:
+  - `AGENTS.md` を並べ替え・実態に合わせて直した(ルールは削っていない): 最初にやること / 全体の形(入口が3ツールを取り込む・認識ワーカー)/ フォルダと変えたら通すテストの表 /
+    資料の場所(正本・`docs/project/` は古い経緯)/ コミットの決まりを push.bat の実態に / WORKLOG に「未コミット」を書く / Cowork の注意(書いたら読み直す)/
+    ワーカー分離を【高】リスクから「取り込みの決まり」へ / 担当表 / Python が2つある可能性
+  - `transcribe-tool/AGENTS.md`: NEXT_TASKS と `_recovered/` の記述を削除、仕様書の場所と「古い」ことを明記、SyntaxError を「過去の事例」に
+  - `docs/project/README.md`: 「経緯の資料(古い)」として書き直し、一覧を付けた
+  - `cut2resolve/test_cut2resolve.py`: シンプル版のテスト3件をフル版(`cut2resolve.py 動画 カットリスト [字幕]`)の同じ使い方に移した(CRLF・BOM なし・上書きの保護・字幕なし・範囲外・埋め込みタイムコード)。`cut2resolve/README.txt` の手順も差し替え
+  - `tools/baseline_analysis.py`: 既定の出力先を `docs/accuracy/` に
+  - 新しい場所に書いたファイル(中身は元と同じ。accuracy の2本はリンクだけ直した): `docs/project/history/transcribe-tool-v0.7.1〜v0.9.4.md`(8本)、`docs/accuracy/accuracy-baseline.json`・`accuracy-baseline.md`・`USER_INPUT.md`
+- 版: 変えていない(cut2resolve は画面・サーバーの動きが変わらないため)
+- 確認(クラウド。シンプル版を消した状態): cut2resolve test_cut2resolve 120・test_pack・test_serve(計197)OK、スタジオ 単体215 OK、ytt_core・test_ui_kit_sync OK、app/test_mount OK
+- **ユーザーか git を使える AI にお願い(Cowork は削除できない)**: 次を消してから push.bat(push.bat の `git add -A` で移動・削除として記録される)
+  - 移動の元(新しい場所に同じ内容あり): `docs/project/transcribe-tool-v0.7.1.md`・`v0.8.0`・`v0.8.1`・`v0.8.2`・`v0.8.3`・`v0.9.0`・`v0.9.2`・`v0.9.4`(8本)、`docs/accuracy-baseline.json`、`docs/accuracy-baseline.md`、`docs/USER_INPUT.md`
+  - 削除: `docs/NEXT_TASKS.md`、`auto-next.bat`、`run-next.bat`、`schedule-next.bat`、`auto-next.log`、`cut2resolve/cut2resolve_simple.py`、`cut2resolve/cut2resolve_simple.bat`
+  - 削除(git の対象外・約110MB): `cut2resolve/exports/` の中の `audio_bisect_20260925`・`audio_diag_20260925`・`audio_diag2_20260925`・`settings_dump_20260925`・`vertical_scale_test_20260925`(フォルダ)と `AUDIO_DIAG_MANUAL.mov`
+  - Windows のタスクスケジューラに `youtube-tools-auto-next` が残っていれば削除(schedule-next.bat が登録したもの)
+- 未コミット: 段階3-3 の29ファイル(上の記録)+ 今回の AGENTS.md・transcribe-tool/AGENTS.md・docs/WORKLOG.md・docs/project/README.md・cut2resolve/README.txt・cut2resolve/test_cut2resolve.py・tools/baseline_analysis.py と新しい場所の11ファイル。
+  ユーザーの判断で 3-3 と同じコミットにまとめる
+- 未完了・次: 上の削除 → 3-3 の実機確認 → push.bat。claude.ai の Project の `claude/*.md` の扱い(古い写しを消して「リポジトリを見て」の1枚にするか)はユーザーに確認中
+- 注意: `docs/project/HANDOVER-transcribe-tool.md` などの古い資料には NEXT_TASKS.md への参照が残るが、経緯の資料なので直していない
+
+## 2026-09-26 Claude(Cowork)— claude.ai の Project の古い写し(claude/*.md)を片付け
+- 決定(ユーザーが Claude に一任): 資料の正本はリポジトリなので、Project の古い写しは消し、Project には「リポジトリを見て」の案内1枚と統合計画の要約だけを残す
+- 変更: Project にしか無かった3本をリポジトリへ写した: `docs/project/summary-2026-09-24.md`・`summary-2026-09-25.md`・`new-tool-plan.md`。`docs/project/README.md` の一覧に追加
+- Project 側: `claude/README.md`(新規。リポジトリの場所・読む順・今の状態)を書き、`claude/integration-plan.md` は残し、ほかの `claude/*.md` は削除。
+  削除したものは、2026-09-24 にリポジトリの `docs/project/`・`docs/pipeline.md`・`docs/review/README.md` へ写した後で Project 側が更新されていないことを確かめた(作成日時と中身の抜き取り確認)
+- 注意: `claude/integration-plan.md` も写し(正本は Claude Docs「動画編集ツール 統合計画」)。古くなったら `docs/integration-plan.md` から写し直す
+- 未コミット: 上の3本と `docs/project/README.md`・`docs/WORKLOG.md`(前の記録の未コミット分と一緒に push.bat で)

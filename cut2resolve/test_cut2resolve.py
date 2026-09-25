@@ -15,7 +15,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import cut2resolve as FULL  # noqa: E402
 import cut2resolve_core as C  # noqa: E402
-import cut2resolve_simple as SIMPLE  # noqa: E402
 import auto_cut as AC  # noqa: E402
 import srt2resolve as S  # noqa: E402
 
@@ -336,14 +335,15 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertLessEqual(abs(S.probe(out)["total"] - 60), 2)
         self.assertIsNone(S.probe(out)["audio"])
 
-    def test_simple_cli_end_to_end(self):
+    def test_cutlist_cli_end_to_end(self):
+        # 旧シンプル版(cut2resolve_simple.py、2026-09-26 に廃止)の確認を、フル版の同じ使い方(動画・字幕・カットリスト)に移したもの
         v = self.dir / "clip.mp4"
         make_video(v, 10)
         cuts = self.dir / "cuts.txt"
         cuts.write_text("0:00 0:03\n5 8  # 後半\n", encoding="utf-8")
-        rc = SIMPLE.main([str(v), str(self._srt()), str(cuts)])
+        rc = FULL.main([str(v), str(self._srt()), str(cuts)])
         self.assertEqual(rc, 0)
-        out = self.dir / "clip_edl"
+        out = self.dir / "clip_pack"
         ev = parse_edl((out / "clip.edl").read_text(encoding="utf-8"))
         self.assertEqual([(e[3], e[4]) for e in ev], [("00:00:00:00", "00:00:03:00"), ("00:00:05:00", "00:00:08:00")])
         self.assertEqual([(e[5], e[6]) for e in ev], [("01:00:00:00", "01:00:03:00"), ("01:00:03:00", "01:00:06:00")])
@@ -356,22 +356,21 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))  # BOM なし
         original_edl = raw
         args = [str(v), str(self._srt()), str(cuts)]
-        self.assertEqual(SIMPLE.main(args), 1)  # 既存出力は既定で保護
+        self.assertEqual(FULL.main(args), 1)  # 既存出力は既定で保護
         self.assertEqual((out / "clip.edl").read_bytes(), original_edl)
-        self.assertEqual(SIMPLE.main(args + ["--force"]), 0)
+        self.assertEqual(FULL.main(args + ["--force"]), 0)
 
-    def test_simple_cli_without_subtitles_and_errors(self):
+    def test_cutlist_cli_without_subtitles_and_errors(self):
         v = self.dir / "n.mp4"
         make_video(v, 5)
         cuts = self.dir / "c.txt"
         cuts.write_text("1 2\n", encoding="utf-8")
-        self.assertEqual(SIMPLE.main([str(v), str(cuts)]), 0)
-        self.assertFalse((self.dir / "n_edl" / "n_cut.srt").exists())
-        self.assertIn("字幕は付いていません", (self.dir / "n_edl" / "友人へ.txt").read_text(encoding="utf-8-sig"))
-        self.assertEqual(SIMPLE.main([str(v)]), 1)  # カットリスト無し
+        self.assertEqual(FULL.main([str(v), str(cuts)]), 0)
+        self.assertFalse((self.dir / "n_pack" / "n_cut.srt").exists())
+        self.assertIn("字幕は付いていません", (self.dir / "n_pack" / "友人へ.txt").read_text(encoding="utf-8-sig"))
         bad = self.dir / "bad.txt"
         bad.write_text("100 200\n", encoding="utf-8")  # 動画(5秒)の範囲外
-        self.assertEqual(SIMPLE.main([str(v), str(bad)]), 1)
+        self.assertEqual(FULL.main([str(v), str(bad), "-o", str(self.dir / "bad_out")]), 1)
 
     def test_full_cli_silence_render_pack(self):
         v = self.dir / "g.mp4"
@@ -459,11 +458,11 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertEqual(C.read_start_tc(v), "10:00:00:00")
         cuts = self.dir / "cuts.txt"
         cuts.write_text("1 2\n3 5\n", encoding="utf-8")
-        self.assertEqual(SIMPLE.main([str(v), str(cuts)]), 0)
-        ev = parse_edl((self.dir / "tc_edl" / "tc.edl").read_text(encoding="utf-8"))
+        self.assertEqual(FULL.main([str(v), str(cuts)]), 0)
+        ev = parse_edl((self.dir / "tc_pack" / "tc.edl").read_text(encoding="utf-8"))
         self.assertEqual([(e[3], e[4]) for e in ev], [("10:00:01:00", "10:00:02:00"), ("10:00:03:00", "10:00:05:00")])
         self.assertEqual(ev[0][5], "01:00:00:00")  # 記録側は元の開始タイムコードに影響されない
-        self.assertIn("10:00:00:00", (self.dir / "tc_edl" / "友人へ.txt").read_text(encoding="utf-8-sig"))
+        self.assertIn("10:00:00:00", (self.dir / "tc_pack" / "友人へ.txt").read_text(encoding="utf-8-sig"))
         # 明示指定が優先
         self.assertEqual(FULL.main([str(v), str(cuts), "--src-start-tc", "00:00:00:00", "-o", str(self.dir / "o")]), 0)
         ev = parse_edl((self.dir / "o" / "tc.edl").read_text(encoding="utf-8"))

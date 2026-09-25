@@ -1,17 +1,18 @@
 ==========================================================
-  入口(ランチャー)  v0.3.0  はじめに読んでください
+  入口(ランチャー)  v0.4.0  はじめに読んでください
 ==========================================================
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)を、1回の操作でまとめて起動・終了するための入口です。
 統合計画(docs/integration-plan.md)の段階1で作り、段階3から「ツールを入口の中に取り込む」ことを始めました。
-v0.3.0 では切り抜きスタジオ(http://localhost:8700/studio/)と cut2resolve(http://localhost:8700/cut2resolve/)を取り込みます。文字起こしは、今は別のプログラムとして起動します。
+v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://localhost:8700/studio/)・文字起こし(/transcribe/)・cut2resolve(/cut2resolve/)。
+文字起こしの認識(faster-whisper)だけは、落ちても入口ごと止まらないよう、別のプログラム(transcribe-tool\tx_worker.py)で動きます。
 今までどおり、各ツールの start.bat だけで使うこともできます。
 
 ■ 使い方
   1. youtube-test フォルダ(リポジトリ直下)の start-all.bat をダブルクリック(Mac は start-all.command)
   2. 黒い画面が1つ開き、3つのツールが裏で起動します。ブラウザで入口の画面(http://localhost:8700/)が開きます
   3. 使うツールの「開く」を押すと、そのツールの画面が新しいタブで開きます
-     (切り抜きスタジオ・cut2resolve は入口と同じアドレスの /studio/・/cut2resolve/。文字起こしは自分のアドレス)
+     (3つとも入口と同じアドレスの /studio/・/transcribe/・/cut2resolve/)
   4. 終わるときは、入口の画面の「すべて終了」(誤操作を防ぐため2回押し)か、黒い画面を閉じる / Ctrl+C
 
   ※ 黒い画面は1つだけです。3つのツールの出力は黒い画面ではなくログ(下の「ログ」)に出ます
@@ -24,7 +25,7 @@ v0.3.0 では切り抜きスタジオ(http://localhost:8700/studio/)と cut2reso
     ファイルは app\logs\<ツール>.log(studio / transcribe / cut2resolve)。入口自身の記録は app\logs\launcher.log
   - ダーク/ライトの切り替え(右上。各ツールと同じ)
 
-■ 入口に取り込んだツール(v0.3.0 では切り抜きスタジオと cut2resolve)
+■ 入口に取り込んだツール(v0.4.0 では3つとも)
   入口のプログラムの中で動くので、カードに「入口に取り込み」と出て、「停止」「再起動」は押せません(「すべて終了」で一緒に終わります)。
   アクセスの記録は app\logs\studio.log・app\logs\cut2resolve.log に、ツール自身の記録は今までどおり clip-studio\studio.log・cut2resolve\work\serve.log に出ます。
   「すべて終了」のとき cut2resolve の書き出しが動いていれば、取り消してから終わります。
@@ -66,8 +67,13 @@ v0.3.0 では切り抜きスタジオ(http://localhost:8700/studio/)と cut2reso
 
 ■ テスト
   python -m unittest app/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
-  python -m unittest app/test_mount.py -v       (取り込み: /studio/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止など)
+  python -m unittest app/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
   python app/e2e_portal.py                      (画面の確認。Playwright(chromium)が必要)
+
+■ v0.4.0(2026-09-25)
+  - 文字起こし(v0.11.0)も入口の中に取り込む(/transcribe/)。認識は別のプログラム(tx_worker.py)で動き、落ちてもその文字起こしが失敗になるだけで、
+    入口・スタジオ・cut2resolve は止まらない(次の文字起こしで自動的に起動し直す)。認識の記録は transcribe-tool\worker.log
+  - 「すべて終了」では、文字起こしの待っている・動いているジョブを取り消し、認識のプログラムも終わらせる
 
 ■ v0.3.0(2026-09-25)
   - cut2resolve(v0.5.0)も入口の中に取り込む(/cut2resolve/)。CSP は cut2resolve 自身のもの(script-src 'self')をそのまま使う

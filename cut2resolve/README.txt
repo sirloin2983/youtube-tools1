@@ -53,7 +53,7 @@ cut2resolve v0.5.0(画面つき)
 
 
 ■ コマンドで使う(従来どおり)
-  cut2resolve_simple.bat に「動画・カットリスト(.txt)・字幕(.srt、省略可)」をまとめてドロップ(シンプル版)
+  カットリスト(.txt)だけで切るとき: python cut2resolve.py 動画.mp4 カットリスト.txt [字幕.srt](出力は <動画名>_pack/。以前のシンプル版 cut2resolve_simple.bat は 2026-09-26 に廃止)
   cut2resolve.bat に動画・字幕などをドロップ(フル版。無音カット+粗編集つき)
   python cut2resolve.py --help / python auto_cut.py --help で全オプション
   Text+ パックは python cut2resolve.py 動画.mp4 字幕.srt --textplus で作成できます(--textplus-fps 60 / --textplus-size 1920x1080 で置き先を変更)。

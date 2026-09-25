@@ -261,7 +261,9 @@ class TestPerformance(StoreDir):
         self.assertTrue(a <= 2000 - 0.3 and b >= 2035 + 0.3 and b - a < 60, seen)
 
     def test_idle_model_release(self):
-        old = (dict(S._models), S._model_used[0], S.MODEL_IDLE_SEC)
+        """認識ワーカーの中(IN_WORKER)でのモデルの手放し。サーバー側(ワーカーごと終わらせる)は test_worker.py"""
+        old = (dict(S._models), S._model_used[0], S.MODEL_IDLE_SEC, S.IN_WORKER)
+        S.IN_WORKER = True
         try:
             S._models.clear()
             S._models[("large-v3", "cpu")] = object()
@@ -278,7 +280,7 @@ class TestPerformance(StoreDir):
         finally:
             S._models.clear()
             S._models.update(old[0])
-            S._model_used[0], S.MODEL_IDLE_SEC = old[1], old[2]
+            S._model_used[0], S.MODEL_IDLE_SEC, S.IN_WORKER = old[1], old[2], old[3]
 
     def test_summary_cache_and_ranges_without_rereading(self):
         self.put_doc({"id": TID, "title": "一", "sourcePath": "/v/a.mp4", "start": 0, "end": 10, "whole": True, "segments": [], "createdAt": 1})
@@ -314,14 +316,17 @@ class TestPerformance(StoreDir):
 
 class TestStartupChecks(StoreDir):
     def test_checks(self):
-        old = (S.INDEX, S.find_ffmpeg)
+        old = (S.INDEX, S.APP_JS, S.find_ffmpeg)
         try:
             S.INDEX = os.path.join(self.tmp, "index.html")
             with open(S.INDEX, "w", encoding="utf-8") as f:
+                f.write("<html></html>")
+            S.APP_JS = os.path.join(self.tmp, "app.js")
+            with open(S.APP_JS, "w", encoding="utf-8") as f:
                 f.write("const APP_VERSION = '%s';" % S.SERVER_VERSION)
             S.find_ffmpeg = lambda: "/usr/bin/ffmpeg"
             self.assertEqual(S.startup_checks(), [])
-            with open(S.INDEX, "w", encoding="utf-8") as f:
+            with open(S.APP_JS, "w", encoding="utf-8") as f:
                 f.write("const APP_VERSION = '0.0.1';")
             S.find_ffmpeg = lambda: None
             blocker = os.path.join(self.tmp, "file")
@@ -331,10 +336,12 @@ class TestStartupChecks(StoreDir):
             w = " / ".join(S.startup_checks())
             for word in ("ffmpeg", "版が違います", "保存先に書き込めません"):
                 self.assertIn(word, w)
+            os.unlink(S.APP_JS)
+            self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))
             os.unlink(S.INDEX)
             self.assertIn("index.html が見つかりません", " / ".join(S.startup_checks()))
         finally:
-            S.INDEX, S.find_ffmpeg = old
+            S.INDEX, S.APP_JS, S.find_ffmpeg = old
 
 
 class TestBomTolerant(StoreDir):
@@ -658,8 +665,12 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+    for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
         shutil.copy(os.path.join(HERE, n), tmp)
+    for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+        p = os.path.join(HERE, n)
+        if os.path.exists(p):
+            shutil.copy(p, tmp)
     env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime)
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

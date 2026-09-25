@@ -85,8 +85,12 @@ def main():
         # ---- ② 文字起こし(一時フォルダに写して動かす: transcripts/ などを本物と混ぜない)
         tt = os.path.join(tmp, "transcribe-tool")
         os.makedirs(tt)
-        for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+        for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
             shutil.copy(os.path.join(ROOT, "transcribe-tool", n), tt)
+        for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+            p = os.path.join(ROOT, "transcribe-tool", n)
+            if os.path.exists(p):
+                shutil.copy(p, tt)
         procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=env, cwd=tt,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         # ---- ③ cut2resolve

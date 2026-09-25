@@ -62,8 +62,12 @@ def clip_json(media, title, url, start=1234.5, end=1279.7):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+    for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
         shutil.copy(os.path.join(HERE, n), tmp)
+    for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+        p = os.path.join(HERE, n)
+        if os.path.exists(p):
+            shutil.copy(p, tmp)
     vids = os.path.join(tmp, "videos")
     os.makedirs(vids)
 

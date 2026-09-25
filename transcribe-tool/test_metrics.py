@@ -300,9 +300,9 @@ class TestSplitAndRobust(unittest.TestCase):
         S._models.clear()
         try:
             job = {"phase": ""}
-            m1, _ = S.load_model("large-v3", job, "cpu")
-            self.assertIs(S.load_model("large-v3", job, "cpu")[0], m1)     # 同じモデルは使い回す
-            S.load_model("large-v3-turbo", job, "cpu")
+            m1, _ = S._load_model_local("large-v3", job, "cpu")   # 認識ワーカーの中で動く本体
+            self.assertIs(S._load_model_local("large-v3", job, "cpu")[0], m1)     # 同じモデルは使い回す
+            S._load_model_local("large-v3-turbo", job, "cpu")
             self.assertEqual(len(S._models), 1)                            # 別のモデルを読み込んだら、前のモデルは手放す
             self.assertEqual(list(S._models)[0][0], "large-v3-turbo")
             self.assertEqual(made, ["large-v3", "large-v3-turbo"])
@@ -380,8 +380,12 @@ class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "index.html", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+        for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
             shutil.copy(os.path.join(HERE, n), cls.tmp)
+        for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+            p = os.path.join(HERE, n)
+            if os.path.exists(p):
+                shutil.copy(p, cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
         with open(os.path.join(cls.tmp, "settings.json"), "w", encoding="utf-8") as f:
@@ -699,6 +703,7 @@ class TestMarkerDone(unittest.TestCase):
 
 # 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
 from test_backend import *  # noqa: E402,F401,F403
+from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
 
 
 if __name__ == "__main__":

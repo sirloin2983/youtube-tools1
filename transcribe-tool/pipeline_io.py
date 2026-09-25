@@ -271,9 +271,10 @@ def runtime_dir(tool_root):
     return runtime.runtime_dir(tool_root)
 
 
-def write_runtime(rdir, tool_id, port, version):
-    """起動時に書く。書けなくても起動は続ける(None を返す)。pid は「自分が書いた記録か」の確認だけに使う。"""
-    return runtime.write_runtime(rdir, tool_id, port, version)
+def write_runtime(rdir, tool_id, port, version, path="/"):
+    """起動時に書く。書けなくても起動は続ける(None を返す)。pid は「自分が書いた記録か」の確認だけに使う。
+    path は画面の場所(入口の統合サーバーに取り込まれたときは "/transcribe/")。"""
+    return runtime.write_runtime(rdir, tool_id, port, version, path)
 
 
 def remove_runtime(rdir, tool_id, port):
@@ -296,6 +297,7 @@ def ping(port, expect_app, timeout=SIBLING_TIMEOUT):
     return runtime.ping_app(port, timeout) == expect_app
 
 
-def siblings(rdir, self_id, self_port, timeout=SIBLING_TIMEOUT):
-    """{"tools": {ツールID: ポート}}。.runtime の記録のうち、応答した(app が一致した)ものだけ。自分自身は常に含める。"""
-    return runtime.siblings(rdir, self_id, self_port, timeout)
+def siblings(rdir, self_id, self_port, timeout=SIBLING_TIMEOUT, self_path="/"):
+    """{"tools": {ツールID: ポート}}。.runtime の記録のうち、応答した(app が一致した)ものだけ。自分自身は常に含める。
+    入口の統合サーバーに取り込まれたツールがあれば {"paths": {"studio": "/studio/"}} も付く(ytt_core.runtime.siblings)。"""
+    return runtime.siblings(rdir, self_id, self_port, timeout, self_path)
