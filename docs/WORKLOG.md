@@ -448,3 +448,8 @@
   `chcp 65001` の下で cmd が UTF-8 の行を読み違える既知の問題。push.bat を **ASCII だけ**(英語の表示)に書き直した(start-all.bat と同じ方針)。
   コミットメッセージも「update 日付 時刻」になる。`git fetch` は -q を外し、失敗したときに git 自身のエラーが見えるようにした。
   接続できない原因はまだ不明(GitHub は動いている。クラウドからは `git ls-remote` で 21f7ff4 が見える)
+- 原因が分かった(同日): 接続の問題ではなく、GPT(Codex)がこのリポジトリに作った「turn の差分の控え」の参照
+  `.git/refs/codex/turn-diffs/checkpoints/…`(09-25 23:24〜23:56 の3つ)が、存在しないコミットを指していた。
+  `git fetch` は手元の参照をすべて確かめるので `fatal: bad object refs/codex/…` → `did not send all necessary objects` で止まる。
+  対処: `.git\refs\codex` フォルダを消す(Codex の過去の turn を元に戻す機能の控えが消えるだけで、コード・履歴には影響しない)。Cowork は削除できないのでユーザーが実行。
+  **GPT(Codex)へ**: このフォルダで作業すると、また壊れた参照が残る可能性がある。push.bat が `bad object refs/codex/…` で止まったら同じ対処
