@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.11.0';
+const APP_VERSION = '0.12.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1850,8 +1850,8 @@ function installResolveExport(){
   box.id = 'resolveExportBox'; box.className = 'fld';
   box.innerHTML = `<span class="l">DaVinci Resolveへ渡す</span>
     <div class="row"><button type="button" class="btn small" id="cutSelected">選択行をカット</button><button type="button" class="btn small" id="keepSelected">選択行を残す</button></div>
-    <div class="row"><label class="lag">FPS <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option>29.97</option><option selected>30</option><option>50</option><option>59.94</option><option>60</option></select></label><button type="button" class="btn small" id="resolveExport">Resolveパッケージ(zip)をダウンロード</button></div>
-    <span class="hint">「残す/カット済」で仮編集を指定します。映像・音声、Text+字幕、FCPXML、SRT、cut-planをまとめます。切り抜きスタジオで新しく書き出した素材は前後10秒までトリムを延ばせます。</span>`;
+    <div class="row"><label class="lag">プロジェクト <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select> fps</label><label class="lag"><select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label><button type="button" class="btn small" id="resolveExport">Resolveパッケージ(zip)をダウンロード</button></div>
+    <span class="hint">「残す/カット済」で仮編集を指定します。中身は cut2resolve の Text+ パックと同じです(動画・Text+ 字幕を作るスクリプト・手順書・EDL・SRT)。fps と画面の大きさは、Resolve で手で作るプロジェクトの設定です。切り抜きスタジオで新しく書き出した素材は、前後10秒までトリムを延ばせます。</span>`;
   host.after(box);
   const bulk = cut => {
     if (!S.doc || !S.sel.size) return toast('先に左端のチェックで行を選んでください');
@@ -1867,10 +1867,11 @@ function installResolveExport(){
     if (!(await saveDoc()) || S.dirty) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
     const b = $('#resolveExport'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
-      const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value });
+      const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value, size: $('#resolveSize').value });
       download(await r.blob(), `${safeName(S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
-      toast(`Resolveパッケージを作成しました(カット${cuts}区間・Text+ ${caps}件)`, 6000, 'ok');
+      const handles = r.headers.get('X-Resolve-Handles') === '1' ? '・余白つき素材' : '';
+      toast(`Resolveパッケージを作成しました(残す区間${cuts}か所・Text+ ${caps}件${handles})。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
     } catch (e){ toast('Resolveパッケージを作れませんでした: ' + e.message, 7000, 'err'); }
     finally { b.disabled = false; b.textContent = label; }
   });

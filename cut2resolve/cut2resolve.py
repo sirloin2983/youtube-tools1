@@ -68,7 +68,7 @@ def build_request(args):
         handles=args.handles, silence=args.silence, noise=args.noise, silence_min=args.silence_min,
         silence_pad=args.silence_pad, drop_cut_rows=not args.keep_cut_rows, min_len=args.min_len, join_gap=args.join_gap,
         fps=args.fps, frames=args.frames, src_start_tc=args.src_start_tc, rec_start=args.rec_start, reel=args.reel,
-        name=args.name, extra_inputs=tuple(p for p in (keep_file, drop_file) if p))
+        name=args.name, extra_inputs=tuple(p for p in (keep_file, drop_file) if p), edit_media=not args.no_edit_media)
 
 
 def run(args):
@@ -123,6 +123,8 @@ def main(argv=None):
     ap.add_argument("--textplus", action="store_true", help="動画同梱・Resolve Free用Text+生成スクリプト・復旧タイムラインを含むパックを作る")
     ap.add_argument("--textplus-fps", default=None, help="Text+ を置くプロジェクトの fps(既定 30。24/25/30/50/60)")
     ap.add_argument("--textplus-size", default=None, help="Text+ を置くプロジェクトの解像度(既定 1080x1920。例: 1920x1080)")
+    ap.add_argument("--no-edit-media", action="store_true",
+                    help="動画を同梱するとき、切り抜きスタジオの余白つき素材(<動画名>.edit.json)があっても元の動画を入れる")
     ap.add_argument("--force", action="store_true", help="既存の出力ファイルを上書きする(入力ファイルとの衝突は不可)")
     ap.add_argument("--dry-run", action="store_true", help="残る区間を表示するだけで、ファイルは作らない")
     ap.add_argument("-o", "--output", help="出力フォルダ(既定: 動画と同じ場所の <動画名>_pack)")

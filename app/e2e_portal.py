@@ -79,7 +79,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(pg.text_content("#ver") == "入口 v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
         check(pg.text_content("#conn") == "接続中", "[A] 接続中の表示")
 
-        for tid, verfrag in (("studio", "v0.3.0"), ("cut2resolve", None), ("transcribe", "v0.11.0")):
+        for tid, verfrag in (("studio", "v0.3.0"), ("cut2resolve", None), ("transcribe", "v0.12.0")):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
             good = ("ポート %d" % port) in meta and "入口に取り込み" in meta and (verfrag is None or verfrag in meta)
             check(good, "[A] %s は入口に取り込み(同じポート): %s" % (tid, meta))
@@ -132,7 +132,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
             pg.click(".pt-tool[data-tool=transcribe] .pt-open")
         tab = info.value
         tab.wait_for_load_state()
-        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === 'v0.11.0'", 20000),
+        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === 'v0.12.0'", 20000),
               "[A] 文字起こしの画面が /transcribe/ の下で読み込めた(app.js の APP_VERSION): %s"
               % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
         check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 文字起こしの画面も合言葉(ytt-token)を受け取っている")
@@ -219,7 +219,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
             check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
                   "[B] 取り込んだ%sは単独で止めない" % tid)
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
-        check(("ポート %d" % ports["transcribe"]) in meta and "v0.11.0" in meta and "入口に取り込み" not in meta,
+        check(("ポート %d" % ports["transcribe"]) in meta and "v0.12.0" in meta and "入口に取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
         check(not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-toggle") and not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"),
               "[B] 子プロセスの文字起こしは停止・再起動が押せる")

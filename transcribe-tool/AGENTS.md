@@ -1,6 +1,6 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.11.0**(2026-09-25、認識を別プロセス(tx_worker.py)に分け、入口の `/transcribe/` に取り込めるようにした。v0.10.0 = 2026-09-24、全ツールの見直し・UI 刷新。v0.9.9 で Claude 版と GPT 版の v0.9.8 を統合済み)。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
+現在 **v0.12.0**(2026-09-26、「Resolveパッケージ(zip)」を cut2resolve の Text+ パックに一本化。v0.11.0 = 2026-09-25、認識を別プロセス(tx_worker.py)に分け、入口の `/transcribe/` に取り込めるようにした。v0.10.0 = 2026-09-24、全ツールの見直し・UI 刷新。v0.9.9 で Claude 版と GPT 版の v0.9.8 を統合済み)。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
 GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)も必ず読む。
 現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/project/history/transcribe-tool-v*.md`、
 最初の仕様は `../docs/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
@@ -22,6 +22,10 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   ワーカーが落ちたらそのジョブだけ失敗、次の要求で起動し直す。取り消しは `job["proc"]`(`_CancelHandle`)経由で伝え、15秒で止まらなければ強制終了。
   `TRANSCRIBE_MODEL_IDLE_SEC`(既定900秒)使わなければワーカーごと終わらせる。GPU の有無も別プロセス(`tx_worker.py --probe`)で1回だけ調べる
 - `app.js` … 画面の JS(旧 index.html の即時関数の中身をそのまま移した)。状態 `S`(文書・今の行など)と `V`(表示の好み。localStorage)はこのファイルのトップレベル変数で、グローバルではない
+- `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は隣の `../cut2resolve/pack.py` で作る
+  (文書 → transcript/v1 → `pack.plan_cut(**pack.TRANSCRIPT_ROWS)` → `pack.build_pack(textplus=True)` → zip)。**Resolve 用の計算をここに書き足さない**
+  (二重実装に戻さない。`../docs/resolve-pack-unification.md`)。cut2resolve の部品は呼ばれたときに読み込み、見つける場所は
+  環境変数 `YTT_CUT2RESOLVE_DIR` → `../cut2resolve`。ここに残っているのは「残す行」の規則(`is_kept`・`kept_spans`)と SRT の書式(pipeline_io が使う)
 - `test_metrics.py` … サーバー側の単体テスト。`e2e_*.py` … 画面の通し確認(Playwright + 疑似モード)
 
 ## テストの実行
@@ -39,7 +43,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
 - Playwright 同梱の chromium は H.264 を再生できない。画面で動画の再生まで確かめるテストでは、テスト用の動画を webm(VP9 + Opus)で作る
 - e2e は一時フォルダに `serve.py`・`index.html`・`app.js`・`ui-kit.js`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
   (`pipeline_io.py`・`resolve_export.py` を写さないと、受け渡しの API・Resolve 書き出しが 500 になる。`app.js`・`ui-kit.js` を写さないと画面が真っ白になる)。
-  共通部品 `../ytt_core/` は写さず、環境変数 `YTT_CORE_DIR`(リポジトリ直下)で見つける
+  共通部品 `../ytt_core/` は写さず、環境変数 `YTT_CORE_DIR`(リポジトリ直下)で見つける(Resolve パッケージを作るテストでは cut2resolve も `YTT_CUT2RESOLVE_DIR` で)
   (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
 - `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・cut2resolve へのリンク・409)、テーマの保存の1本化、

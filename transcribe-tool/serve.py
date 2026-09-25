@@ -81,7 +81,7 @@ from ytt_core import fsio as _fsio, httpsec, runtime as _runtime, tools as _tool
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.11.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.12.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -4111,14 +4111,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
                 zp = tmp_dir = None
                 try:
-                    zp, tmp_dir, plan = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"))
+                    zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
+                                                                      str(obj.get("size") or "") or None, SERVER_VERSION)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))
                     self.send_header("Content-Disposition", 'attachment; filename="resolve-package.zip"')
-                    self.send_header("X-Resolve-Cuts", str(len(plan["cuts"])))
-                    self.send_header("X-Resolve-Captions", str(len(plan["captions"])))
-                    self.send_header("X-Resolve-Handles", "1" if plan["media"]["hasEditHandles"] else "0")
+                    self.send_header("X-Resolve-Cuts", str(info["cuts"]))
+                    self.send_header("X-Resolve-Captions", str(info["captions"]))
+                    self.send_header("X-Resolve-Handles", "1" if info["media"]["hasEditHandles"] else "0")
                     self.send_header("Access-Control-Expose-Headers", "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles")
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("X-Content-Type-Options", "nosniff")

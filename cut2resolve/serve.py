@@ -876,7 +876,8 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
             names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"],
-                                    out["fcpxml"], out["textplus"])
+                                    out["fcpxml"], out["textplus"],
+                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]))
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -889,7 +890,7 @@ class Handler(BaseHTTPRequestHandler):
             app.allow_out_dir(res["out_dir"])
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
-                 "summary": pack.summary(plan), "mediaUrl": app.register_media(plan.video)}
+                 "summary": pack.summary(plan), "mediaUrl": app.register_media(plan.video), "editMedia": res["editMedia"]}
             rough = dict(res["files"]).get("roughcut")
             if rough:
                 r["roughcutUrl"] = app.register_media(rough)

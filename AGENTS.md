@@ -26,7 +26,7 @@
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)。画面は serve.py | `python -m unittest test_cut2resolve test_pack test_serve`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
 | `ui-kit/` | 共通の見た目の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
-| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算) | ★`python tools/e2e_pipeline.py`(3ツールの通し確認) |
+| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py` |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
@@ -92,8 +92,9 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 【高】AI 間の同時編集の競合: 上の担当表と「複数の AI で作業するときのルール」を徹底する
 - 【高】同一オリジン化による XSS の影響拡大: 1つのポートにまとめたので、1つの画面の XSS で全ツールの API(ファイルの書き込み・Resolve へのスクリプト登録)が使える。
   CSP `script-src 'self'` を維持する、書き込み系の POST に合言葉(CSRF トークン)、Host / Origin 検査は ytt_core の1か所で全 API にかける、パスは許可したフォルダの中だけ
-- 【高】Resolve パックの二重実装(`transcribe-tool/resolve_export.py` と `cut2resolve/pack.py`)の一本化は、**先に契約テストを書いてから**進める。
-  同じ入力(transcript/v1・cut-plan/v1)から同じパックの中身ができることを確かめるテストを先に緑にし、それを保ったまま寄せる(寄せる先はテストの多い `pack.py` が基本)
+- Resolve パックは `cut2resolve/pack.py` だけが作る(2026-09-26 一本化。文字起こしの `resolve_export.create_package` は pack を呼んで zip にするだけ)。
+  パックの作り方を変えたら `tools/test_resolve_pack_contract.py` を通す(文字起こしの zip と cut2resolve のパックが同じ中身・一本化の前と同じ区間と字幕)。
+  経緯と旧との違いは `docs/resolve-pack-unification.md`。文字起こし側に Resolve 用の計算を書き足さない(二重実装に戻さない)
 - 【高】古い写しを根拠にした判断: `claude/*.md` と `docs/project/` は古い。食い違いを見つけたら、今のコード・README・AGENTS.md を正とする(統合計画だけは Claude Docs が正本)
 - CPU の取り合い(ジョブ管理で同時実行数を制限)、データ移行(コピーのみ・元は残す・削除はユーザー確認後)、Public リポジトリへの個人データ混入(作業データはリポジトリの外。段階4)
 

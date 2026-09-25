@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.5.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py・画面はこれを使う。README の見出しもそろえる)
+VERSION = "0.6.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py・画面はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -167,8 +167,13 @@ def parse_index_list(text):
     return idx
 
 
+def _sec_to_ms(sec):
+    """秒 -> ミリ秒(四捨五入。0.5 は大きい方へ = 文字起こしツールの srt_time と同じ)"""
+    return math.floor(sec * 1000 + 0.5)
+
+
 def sec_to_frames(sec, fps):
-    return S.ms_to_frames(int(round(sec * 1000)), fps)
+    return S.ms_to_frames(_sec_to_ms(sec), fps)
 
 
 def cut_list_to_keeps(pairs, fps, total):
@@ -614,17 +619,19 @@ D. 「タイムコードの範囲が一致しない(timecode extents do not matc
 
 
 def write_pack(out_dir, video, meta, keeps, cues_out, args_reel="AX", rec_start="01:00:00:00",
-               src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None):
+               src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None, stem=None):
     """EDL・字幕・手順書を書く(どれも一時ファイル経由で置き換える)。書いたファイルのパス辞書を返す。
     extras: 友人へ.txt に載せる追加のファイル [(名前, 説明)](書くのは呼び出し側)
-    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。Text+ パックでは予備の手順書にする)"""
+    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。Text+ パックでは予備の手順書にする)
+    stem: EDL・SRT の名前(既定は video の名前。余白つき素材を使うときも、名前は元の切り抜きにそろえる)"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     fps = meta["fps"]
-    edl_p = out_dir / f"{video.stem}.edl"
-    srt_p = out_dir / f"{video.stem}_cut.srt"
+    stem = stem or video.stem
+    edl_p = out_dir / f"{stem}.edl"
+    srt_p = out_dir / f"{stem}_cut.srt"
     txt_p = Path(readme_path) if readme_path else out_dir / "友人へ.txt"
-    S.write_text_atomic(edl_p, build_edl(edl_title or video.stem, video.name, keeps, fps, bool(meta["audio"]),
+    S.write_text_atomic(edl_p, build_edl(edl_title or stem, video.name, keeps, fps, bool(meta["audio"]),
                                          args_reel, rec_start, src_start),
                         encoding="utf-8", newline="")
     files = {"edl": edl_p}
@@ -767,6 +774,36 @@ def is_network_path(p):
     return str(p or "").replace("/", "\\").startswith("\\\\")
 
 
+EDIT_MEDIA_SCHEMA = "clip-studio/edit-media/v1"
+EDIT_MEDIA_SUFFIX = ".edit.json"
+MAX_EDIT_JSON_BYTES = 64 * 1024        # 中身は数百バイト
+
+
+def find_edit_media(video):
+    """切り抜きスタジオの「前後の余白つき素材」(<動画の名前>.edit.json と <名前>_edit.mp4)を探す。
+    -> {"path", "sidecar", "selectionIn", "handleBefore", "handleAfter"}(秒)か None(無い・読めない・形が違う)。
+    selectionIn = 余白つき素材の中で、切り抜き(= video)の先頭が何秒目か。video の時刻 t は、余白つき素材では selectionIn + t。
+    素材は .edit.json と同じフォルダの中だけを見る(名前だけを使う。../ やネットワークのパスを指させない)"""
+    video = Path(video)
+    sidecar = video.with_name(video.stem + EDIT_MEDIA_SUFFIX)
+    if is_network_path(str(video)) or not sidecar.is_file():
+        return None
+    try:
+        d = read_json_file(sidecar, "余白つき素材の情報(.edit.json)", MAX_EDIT_JSON_BYTES)
+    except ToolError:
+        return None
+    if not isinstance(d, dict) or d.get("schema") != EDIT_MEDIA_SCHEMA or not isinstance(d.get("media"), str):
+        return None
+    name = os.path.basename(d["media"].replace("\\", "/").strip())
+    vals = [num(d.get(k)) for k in ("selectionIn", "handleBefore", "handleAfter")]
+    if not name or any(v is None or v < 0 or v > 3600 for v in vals):
+        return None
+    media = sidecar.with_name(name)
+    if not media.is_file() or S.same_path(media, video):
+        return None
+    return {"path": media, "sidecar": sidecar, "selectionIn": vals[0], "handleBefore": vals[1], "handleAfter": vals[2]}
+
+
 def resolve_media_path(media, json_path):
     """JSON の media から動画の実際のパス。①media.path にあればそれ ②無ければ JSON と同じフォルダの同名ファイル
     (フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)。見つからなければ None"""
@@ -846,4 +883,4 @@ def transcript_cut_spans(rows):
 
 def transcript_cues(rows):
     """字幕 = 残す行(カット済でない・文字がある行)。[(開始ms, 終了ms, 文)]"""
-    return [(int(round(r["start"] * 1000)), int(round(r["end"] * 1000)), r["text"]) for r in rows if row_is_kept(r)]
+    return [(_sec_to_ms(r["start"]), _sec_to_ms(r["end"]), r["text"]) for r in rows if row_is_kept(r)]

@@ -13,6 +13,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -342,12 +343,18 @@ def start_tc_frames(tc, fps):
     return tc_to_frames(tc, nominal_rate(fps)), warns
 
 
+def round_half_up(x):
+    """四捨五入(0.5 は大きい方へ)。Python の round() は偶数への丸め(2.5 -> 2)で、30fps の x.x5 秒のような
+    ちょうど半フレームの時刻が、行ごとに上下ばらばらに丸まる。文字起こしツール(resolve_export・画面の SRT)と同じ規則にそろえる"""
+    return math.floor(Fraction(x) + Fraction(1, 2))
+
+
 def ms_to_frames(ms, fps):
-    return int(round(Fraction(ms * fps[0], 1000 * fps[1])))
+    return round_half_up(Fraction(ms * fps[0], 1000 * fps[1]))
 
 
 def frames_to_ms(n, fps):
-    return int(round(Fraction(n * 1000 * fps[1], fps[0])))
+    return round_half_up(Fraction(n * 1000 * fps[1], fps[0]))
 
 
 def frames_to_time(n, fps):

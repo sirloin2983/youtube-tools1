@@ -643,5 +643,150 @@ class TestPackWithFfmpeg(unittest.TestCase):
         json.dumps(s)   # そのまま JSON にできる
 
 
+class TestEditMediaLookup(unittest.TestCase):
+    """切り抜きスタジオの余白つき素材(.edit.json)を探す規則(ffmpeg なし)"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.video = write(self.d / "clip.mp4", "x")
+        write(self.d / "clip_edit.mp4", "y")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def sidecar(self, **kw):
+        d = {"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4", "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}
+        d.update(kw)
+        write(self.d / "clip.edit.json", json.dumps(d))
+
+    def test_found(self):
+        self.sidecar()
+        em = C.find_edit_media(self.video)
+        self.assertEqual((em["path"].name, em["selectionIn"], em["handleAfter"]), ("clip_edit.mp4", 10.0, 10.0))
+        self.assertEqual(pack.edit_media_path(self.video, None, True), self.d / "clip_edit.mp4")
+        self.assertIsNone(pack.edit_media_path(self.video, None, False))   # 動画を同梱しないパックでは使わない
+
+    def test_rejected(self):
+        self.assertIsNone(C.find_edit_media(self.video))                      # .edit.json が無い
+        for bad in ({"schema": "other/v1"}, {"media": "../clip_edit.mp4x"}, {"media": "missing.mp4"},
+                    {"media": "clip.mp4"}, {"selectionIn": -1}, {"handleAfter": "10"}, {"selectionIn": float("nan")}):
+            with self.subTest(bad=bad):
+                self.sidecar(**bad)
+                self.assertIsNone(C.find_edit_media(self.video))
+        write(self.d / "clip.edit.json", "{壊れた")
+        self.assertIsNone(C.find_edit_media(self.video))
+
+    def test_media_name_is_basename_only(self):
+        """../ で .edit.json のフォルダの外を指させない(名前だけを使う)"""
+        sub = self.d / "sub"
+        sub.mkdir()
+        v = write(sub / "clip.mp4", "x")
+        write(sub / "clip.edit.json", json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "../clip_edit.mp4",
+                                                  "selectionIn": 1, "handleBefore": 1, "handleAfter": 1}))
+        self.assertIsNone(C.find_edit_media(v))                   # sub/clip_edit.mp4 は無い(外の clip_edit.mp4 は使わない)
+        write(sub / "clip_edit.mp4", "y")
+        self.assertEqual(C.find_edit_media(v)["path"], sub / "clip_edit.mp4")
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestEditMediaPack(unittest.TestCase):
+    """余白つき素材を同梱した Text+ パック: 残す区間は余白の分だけ後ろへ、字幕の位置は変わらない"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = Path(cls.tmp.name)
+        cls.video = d / "clip.mp4"
+        make_video(cls.video, dur=6)
+        make_video(d / "clip_edit.mp4", dur=26)               # 前後 10 秒の余白
+        write(d / "clip.edit.json", json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4",
+                                                "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}))
+        make_video(d / "other_edit.mp4", dur=26, fps="60")
+        cls.tr = write(d / "clip.transcript.json", json.dumps(transcript_doc(
+            [(0, 2, "残す", False), (2, 4, "切る", True), (4, 6, "もう一度", False)]), ensure_ascii=False))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def plan(self, **kw):
+        return pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, **kw)))
+
+    def test_textplus_pack_uses_edit_media(self):
+        plan = self.plan()
+        self.assertEqual(plan.keeps, [(0, 60), (120, 180)])            # 試算・画面は元の切り抜きのフレームのまま
+        out = Path(self.tmp.name) / "pack_tp"
+        res = pack.build_pack(plan, out, textplus=True)
+        files = dict(res["files"])
+        self.assertEqual(files["video"], out / "media" / "clip_edit.mp4")
+        self.assertTrue(files["video"].is_file())
+        self.assertEqual((files["edl"].name, files["srt"].name), ("clip.edl", "clip_cut.srt"))   # 名前は元の切り抜き
+        self.assertEqual(res["mediaKeeps"], [[300, 360], [420, 480]])
+        self.assertEqual((res["editMedia"]["handleBefore"], res["editMedia"]["handleAfter"]), (10.0, 10.0))
+        ip = json.loads((out / "textplus-import.json").read_text(encoding="utf-8"))
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 480)])
+        self.assertEqual([(c["startFrame"], c["endFrame"]) for c in ip["captions"]], [(0, 60), (60, 120)])  # タイムラインの位置は同じ
+        self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 780})   # 復旧用は余白込みの全体
+        self.assertEqual(ip["media"]["file"], "media/clip_edit.mp4")
+        self.assertEqual(ip["title"], "clip")
+        self.assertIn("media\\clip_edit.mp4", (out / "install_resolve_textplus_script.ps1").read_text(encoding="utf-8-sig"))
+        ev = parse_edl(files["edl"].read_text(encoding="utf-8"))
+        self.assertEqual([(tc2f(e[3], 30), tc2f(e[4], 30)) for e in ev], [(300, 360), (420, 480)])
+        self.assertIn("FROM CLIP NAME: clip_edit.mp4", ev[0][7])
+        cp = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(cp["editMedia"]["keep_frames"], [[300, 360], [420, 480]])
+        self.assertEqual(cp["keep_frames"], [[0, 60], [120, 180]])   # 読み直す用の区間は元の切り抜きの時刻
+        self.assertTrue(any("余白つき素材" in w for w in res["warnings"]))
+        # 上書き確認の下見も同じ名前を出す
+        _, paths, _ = pack.planned_outputs(plan, out, textplus=True)
+        self.assertEqual(paths["video"], out / "media" / "clip_edit.mp4")
+
+    def test_not_used_without_video_or_when_disabled(self):
+        res = pack.build_pack(self.plan(), Path(self.tmp.name) / "pack_edl")          # EDL だけ(動画を入れない)
+        self.assertIsNone(res["editMedia"])
+        ev = parse_edl(dict(res["files"])["edl"].read_text(encoding="utf-8"))
+        self.assertEqual([(tc2f(e[3], 30), tc2f(e[4], 30)) for e in ev], [(0, 60), (120, 180)])
+        out = Path(self.tmp.name) / "pack_off"
+        res = pack.build_pack(self.plan(edit_media=False), out, textplus=True)
+        self.assertIsNone(res["editMedia"])
+        self.assertTrue((out / "media" / "clip.mp4").is_file())
+
+    def test_mismatched_edit_media_falls_back(self):
+        d = Path(self.tmp.name)
+        sc = d / "clip.edit.json"
+        orig = sc.read_text(encoding="utf-8")
+        try:
+            sc.write_text(json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "other_edit.mp4",
+                                      "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}), encoding="utf-8")
+            out = d / "pack_mismatch"
+            res = pack.build_pack(self.plan(), out, textplus=True)
+            self.assertIsNone(res["editMedia"])
+            self.assertTrue((out / "media" / "clip.mp4").is_file())
+            self.assertTrue(any("fps・大きさが違う" in w for w in res["warnings"]))
+            sc.write_text(json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4",
+                                      "selectionIn": 22, "handleBefore": 10, "handleAfter": 0}), encoding="utf-8")
+            res = pack.build_pack(self.plan(), d / "pack_short", textplus=True)      # 22 + 6 秒 > 26 秒
+            self.assertIsNone(res["editMedia"])
+            self.assertTrue(any("短い" in w for w in res["warnings"]))
+        finally:
+            sc.write_text(orig, encoding="utf-8")
+
+    def test_join_frames(self):
+        tr = write(Path(self.tmp.name) / "gap.transcript.json", json.dumps(transcript_doc(
+            [(1, 2, "a", False), (2.034, 3, "b", False)])))
+        req = pack.Request(video=self.video, transcript=tr, **pack.TRANSCRIPT_ROWS)
+        self.assertEqual(pack.plan_cut(req).keeps, [(30, 90)])
+        self.assertEqual(pack.plan_cut(dataclasses_replace(req, join_frames=0)).keeps, [(30, 60), (61, 90)])
+        for bad in (-1, 1.5, True, 1001):
+            with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
+                pack.plan_cut(dataclasses_replace(req, join_frames=bad))
+
+
+def dataclasses_replace(obj, **kw):
+    import dataclasses
+    return dataclasses.replace(obj, **kw)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

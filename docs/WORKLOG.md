@@ -460,3 +460,34 @@
 - 引き継ぎ: `docs/HANDOVER.md`(今の状態・次の作業・注意)。次の作業は Resolve パックの一本化(契約テストが先)
 - 未コミット: docs/WORKLOG.md・docs/HANDOVER.md(次の push.bat で)
 - 未反映: 統合計画の正本(Claude Docs「動画編集ツール 統合計画」)と写し `docs/integration-plan.md` の 3-3 の状態を「実機確認済み」にする(正本を先に直す)
+
+## 2026-09-26 Claude(Cowork)— Resolve パックの一本化(契約テスト → pack.py に寄せる)・余白つき素材を cut2resolve でも(文字起こし v0.12.0・cut2resolve v0.6.0)
+- 担当: 統合作業・cut2resolve(Claude)。文字起こしは resolve_export.py・serve.py の /api/resolve-package・app.js の Resolve の欄・README・AGENTS.md だけを変えた。
+  作業の土台は GitHub の main = 928c3b1(PC の作業フォルダに 928c3b1 より新しい変更が無いことを、ファイルの更新日時で確認)
+- 決定(ユーザー 2026-09-26): 一本化の形は「機能が壊れないことを前提に Claude に任せる」。スタジオの余白つき素材(.edit.json)は cut2resolve でも使えるようにする
+- 進め方: ① 先に契約テスト `tools/test_resolve_pack_contract.py` を書いて緑に(旧 resolve_export.build_plan と pack.plan_cut を同じ文字起こしで比べた)。
+  普通の入力では一致し、食い違いはすべて旧 resolve_export の不具合だった(下)。緑にするまでに cut2resolve 側で直したのは丸めだけ。
+  ② 文字起こしの「Resolveパッケージ(zip)」を、pack.py の Text+ パックを zip にするだけの形に寄せた。旧の計算はテストの中に凍結(LEGACY。旧コードと 932 件で一致を確認)して、前後で同じ区間・字幕・SRT になることを守る
+- 変更(cut2resolve): `srt2resolve.py`(`round_half_up`。ms_to_frames・frames_to_ms を四捨五入に。以前は Python の round = 偶数への丸めで、30fps の 0.15 秒が 4 フレーム・0.25 秒が 8 フレームと上下ばらばら)、
+  `cut2resolve_core.py`(`find_edit_media`・`_sec_to_ms`・write_pack の `stem`・版)、`pack.py`(`TRANSCRIPT_ROWS`・`Request.join_frames`・`Request.edit_media`・`edit_media_path`・`media_for_pack`・
+  build_pack が余白つき素材を同梱して区間をずらす・結果に `editMedia`・`mediaKeeps`)、`serve.py`(上書きの下見に余白つき素材の名前・結果に editMedia)、`cut2resolve.py`(`--no-edit-media`)、`test_pack.py`(+7件)、`README.txt`
+- 変更(文字起こし): `resolve_export.py`(create_package は 文書 → transcript/v1 → pack.plan_cut(TRANSCRIPT_ROWS) → build_pack(textplus) → zip。旧の計算・Python の取り込みスクリプト・FCPXML は削除。
+  is_kept・kept_spans・srt_text は残す)、`serve.py`(size・版を渡す・ヘッダー)、`app.js`(fps を 24/25/30/50/60・縦/横の選択・案内の文)、`test_resolve_export.py`(作り直し。HTTP も)、
+  `e2e_ui_mounted.py`(画面から zip をダウンロードして中身を確認)、`README.txt`・`AGENTS.md`
+- 変更(その他): `tools/test_resolve_pack_contract.py`(新規)、`docs/resolve-pack-unification.md`(新規。経緯・旧との違い・zip の中身の変化)、`app/e2e_portal.py`(文字起こしの版)、`AGENTS.md`(【高】リスクを「済み・以後は pack.py だけ」に・テストの表)、`docs/integration-plan.md`
+- 版: 文字起こし 0.11.0 → 0.12.0、cut2resolve 0.5.0 → 0.6.0。入口・スタジオ・ytt_core は変えていない
+- 旧 resolve_export の不具合で、今回直ったもの: ① 60fps の動画で FPS に 30 を選ぶと、カットが半分の時刻にずれた(選んだ fps でフレームを数えていた)
+  ② 動画の終わりをまたぐ行の字幕を捨てた ③ 時刻順でない行で SRT の番号が時刻順にならない ④ 半フレームの時刻が float の誤差で1フレームずれる ⑤ 動画の終わりを1フレーム超えることがある
+- zip の中身の変化: Resolve 側は Python(新しいプロジェクトを作る。実機確認の記録なし)→ Lua(開いているプロジェクトに足すだけ。友人の PC で確認済み)。
+  FCPXML → EDL。はじめに.txt → 友人へ.txt。zip の直下 → `<題名>_pack/` フォルダ1つ。CUT_TextPlus・SOURCE_WITH_HANDLES・余白つき素材・SRT は同じ
+- 確認(クラウド): 契約テスト 23件、cut2resolve 単体 211・e2e_ui・--mounted、文字起こし 単体 101(test_resolve_export 10 を含む)・node 9・e2e v098/handoff/mounted/v08/eval_v093
+  (v07・v09 は想定内の「版 v0.9.4」だけ)、app/test_launch・test_mount 54・e2e_portal、ytt_core・test_ui_kit_sync、tools/e2e_pipeline すべて OK。
+  入口に3つとも取り込んだ形で /transcribe/api/resolve-package が zip を返すこと(cut2resolve の部品を共有)も確認。
+  ミューテーション: 丸めを偶数への丸めに戻す・最短 0.3 秒・隙間をつながない・余白の分をずらさない・文字起こし側が別の規則で呼ぶ、はすべて検出
+- 未確認(実機): 文字起こし画面の「Resolveパッケージ(zip)」→ 展開 → 友人へ.txt の手順で Resolve に取り込めるか。余白つき素材ありでクリップの端を延ばせるか。cut2resolve の Text+ パックでも同じ
+- 注意: zip を作る間、一時フォルダに動画のコピーと zip の2つ分を使う(旧は1つ分)。文字起こし側に Resolve 用の計算を書き足さない(二重実装に戻さない)。
+  起動中の入口・ツールは古いコードのままなので「すべて終了」→ start-all.bat で起動し直す
+- 未完了・次: cut2resolve の `.runtime`・siblings を ytt_core に切り替える(HANDOVER の1に一緒に書いてあったが今回はしていない)。段階4(作業データをリポジトリの外へ。場所は未決)
+- 未コミット: 上の変更すべて(AGENTS.md・app/e2e_portal.py・cut2resolve/{README.txt,cut2resolve.py,cut2resolve_core.py,pack.py,serve.py,srt2resolve.py,test_pack.py}・
+  docs/{integration-plan.md,resolve-pack-unification.md,WORKLOG.md,HANDOVER.md}・tools/test_resolve_pack_contract.py・
+  transcribe-tool/{AGENTS.md,README.txt,app.js,e2e_ui_mounted.py,resolve_export.py,serve.py,test_resolve_export.py})。push.bat で

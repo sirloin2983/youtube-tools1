@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -100,7 +101,9 @@ def main():
         copy_dir(os.path.join(REPO, "app"), os.path.join(tmp, "app"))
         copy_dir(os.path.join(REPO, "transcribe-tool"), os.path.join(tmp, "transcribe-tool"))
         shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
-        # clip-studio・cut2resolve は写さない(--only transcribe なら Supervisor はそのツールの Tool を作らないので不要。app/launch.py 参照)
+        # clip-studio は写さない(--only transcribe なら Supervisor はそのツールの Tool を作らないので不要。app/launch.py 参照)。
+        # cut2resolve は取り込まないが、Resolve パッケージ(resolve_export)が隣の cut2resolve/pack.py を使うので写す
+        copy_dir(os.path.join(REPO, "cut2resolve"), os.path.join(tmp, "cut2resolve"))
 
         # CSP・版はハードコードせず、写した本物の app/mount.py・app.js から読む
         sys.path.insert(0, os.path.join(tmp, "app"))
@@ -190,6 +193,25 @@ def main():
             st, doc1 = call(port, "GET", "/api/transcript?id=" + urllib.parse.quote(tid1))
             check(st == 200 and doc1.get("segments", [{}])[0].get("text") == "直した文1",
                   "編集した行がサーバーに保存されている(Python から GET で確認): %s" % (doc1.get("segments", [{}])[0].get("text") if st == 200 else (st, doc1)))
+
+            # ==================== 3b) Resolve パッケージ(zip)= cut2resolve の Text+ パック(CSP・合言葉の下で) ====================
+            pg.evaluate("document.getElementById('spDetails').open = true")   # 「話者・置換・書き出し」を開く
+            pg.select_option("#resolveFps", "30")
+            pg.select_option("#resolveSize", "1920x1080")
+            with pg.expect_download(timeout=60000) as dl_info:
+                pg.click("#resolveExport")
+            zpath = os.path.join(tmp, "dl-resolve.zip")
+            dl_info.value.save_as(zpath)
+            with zipfile.ZipFile(zpath) as z:
+                names = z.namelist()
+                ip_name = next((n for n in names if n.endswith("/textplus-import.json")), None)
+                ip = json.loads(z.read(ip_name)) if ip_name else {}
+            check(any(n.endswith("/media/" + os.path.basename(media)) for n in names) and ip_name is not None,
+                  "「Resolveパッケージ(zip)」で Text+ パック(動画・textplus-import.json)をダウンロードできる: %s" % names[:4])
+            check(ip.get("target") == {"fps": 30, "width": 1920, "height": 1080} and len(ip.get("cuts", [])) >= 1 and ip.get("captions"),
+                  "選んだ fps・大きさがパックに入り、区間と字幕がある: %s" % {k: ip.get(k) for k in ("target", "fps")})
+            wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /Resolveパッケージを作成しました/.test(e.textContent))", 10000)
+            check(True, "作成できたことを画面に知らせる")
 
             # ==================== 4) 認識ワーカーの異常終了からの立ち直り ====================
             pids_before = find_worker_pids(tmp)
