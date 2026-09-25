@@ -1,5 +1,5 @@
 ==========================================================
-  入口(ランチャー)  v0.4.0  はじめに読んでください
+  入口(ランチャー)  v0.5.0  はじめに読んでください
 ==========================================================
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)を、1回の操作でまとめて起動・終了するための入口です。
@@ -22,12 +22,12 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
   - 各ツールの状態(起動中・動作中・別の画面で起動済み・停止・異常終了)と、ポート・版の表示
   - 開く / 起動 / 停止 / 再起動
   - ログ: カードの「ログ」を開くと、そのツールの出力(以前は黒い画面に出ていた内容)の最後の300行が見られます。
-    ファイルは app\logs\<ツール>.log(studio / transcribe / cut2resolve)。入口自身の記録は app\logs\launcher.log
+    ファイルは %LOCALAPPDATA%\youtube-tools\app\logs\<ツール>.log(studio / transcribe / cut2resolve)。入口自身の記録は同じフォルダの launcher.log
   - ダーク/ライトの切り替え(右上。各ツールと同じ)
 
 ■ 入口に取り込んだツール(v0.4.0 では3つとも)
   入口のプログラムの中で動くので、カードに「入口に取り込み」と出て、「停止」「再起動」は押せません(「すべて終了」で一緒に終わります)。
-  アクセスの記録は app\logs\studio.log・app\logs\cut2resolve.log に、ツール自身の記録は今までどおり clip-studio\studio.log・cut2resolve\work\serve.log に出ます。
+  アクセスの記録は …\app\logs\studio.log・cut2resolve.log に、ツール自身の記録は %LOCALAPPDATA%\youtube-tools\studio\studio.log・…\cut2resolve\work\serve.log に出ます。
   「すべて終了」のとき cut2resolve の書き出しが動いていれば、取り消してから終わります。
   取り込みで問題が出たときは、start-all.bat の代わりに黒い画面で「python app\launch.py --no-mount」と打つと、以前と同じく別のプログラムとして起動します。
   安全のため、入口と取り込んだツールの画面には、外から入れられたスクリプトを動かさない仕組み(CSP)と、書き込みの操作の合言葉(起動ごとに変わる)を付けています。
@@ -46,7 +46,7 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
   start-all.bat / start-all.command   起動用(リポジトリ直下)
   app\launch.py                        入口のサーバー(3つのツールの起動・監視・停止と、入口の画面)
   app\portal.html / portal.js / portal.css   入口の画面(見た目は ui-kit\ をそのまま使う)
-  app\logs\                            ログ(*.log は GitHub に上げない)
+  app\logs\                            以前のログ(v0.5.0 から %LOCALAPPDATA%\youtube-tools\app\logs。消してよい)
   app\test_launch.py / e2e_portal.py   テスト
   .runtime\portal.json                 入口のポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
 
@@ -69,6 +69,11 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
   python -m unittest app/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
   python -m unittest app/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
   python app/e2e_portal.py                      (画面の確認。Playwright(chromium)が必要)
+
+■ v0.5.0(2026-09-26・作業データをリポジトリの外へ)
+  - 3つのツールの作業データ・設定・記録の置き場所を %LOCALAPPDATA%\youtube-tools に変えた(docs\data-location.md)。
+    最初の起動で、各ツールのフォルダにある以前のデータをコピーする(元は消さない)。入口の画面に置き場所とパスのコピーボタンを出す
+  - 入口とツールの出力の記録は %LOCALAPPDATA%\youtube-tools\app\logs(以前は app\logs)
 
 ■ v0.4.0(2026-09-25)
   - 文字起こし(v0.11.0)も入口の中に取り込む(/transcribe/)。認識は別のプログラム(tx_worker.py)で動き、落ちてもその文字起こしが失敗になるだけで、

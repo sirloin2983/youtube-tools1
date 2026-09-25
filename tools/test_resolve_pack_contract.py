@@ -24,6 +24,7 @@ A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順
 import json
 import math
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import random
 import shutil
 import subprocess

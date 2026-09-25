@@ -3,6 +3,7 @@
 import gzip
 import json
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
 import sys
@@ -226,6 +227,48 @@ class TestPorts(unittest.TestCase):
             self.assertEqual(serve.PORT, port)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestDataHome(unittest.TestCase):
+    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt_core.datadir の場所。以前のデータはコピーし、元は残す"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.legacy = os.path.join(self.tmp, "clip-studio")
+        os.makedirs(os.path.join(self.legacy, "cache", "meta"))
+        with open(os.path.join(self.legacy, "data.json"), "w", encoding="utf-8") as f:
+            f.write('{"videos": {}}')
+        with open(os.path.join(self.legacy, "cache", "meta", "x.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        self.env = patch.dict(os.environ, {"YTT_DATA_DIR": os.path.join(self.tmp, "data")})
+        self.env.start()
+        os.environ.pop("STUDIO_HOME", None)
+        self.code = patch.object(serve, "CODE_DIR", self.legacy)
+        self.code.start()
+
+    def tearDown(self):
+        self.code.stop()
+        self.env.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_copies_legacy_data(self):
+        home = serve._data_home()
+        self.assertEqual(home, os.path.join(self.tmp, "data", "studio"))
+        self.assertTrue(os.path.isfile(os.path.join(home, "cache", "meta", "x.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.legacy, "data.json")))        # 元は消さない
+        self.assertEqual(serve.DATA_STATE["state"], "migrated")
+
+    def test_legacy_exports_stay_the_output_folder(self):
+        os.makedirs(os.path.join(self.legacy, "exports"))
+        home = serve._data_home()
+        common.set_home(home)
+        common.load_out_dir()
+        self.assertEqual(common.get_out_dir(), os.path.join(self.legacy, "exports"))
+
+    def test_studio_home_wins(self):
+        with patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "h")}):
+            self.assertEqual(serve._data_home(), os.path.join(self.tmp, "h"))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "data")))
 
 
 if __name__ == "__main__":

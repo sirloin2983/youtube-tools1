@@ -136,6 +136,7 @@
       fails = 0;
       setConn(true);
       $('#ver').textContent = '入口 v' + st.version;
+      if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
       st.tools.forEach(update);
       Object.keys(cards).forEach(function (id) { if ($('.pt-logbox', cards[id].el).open) loadLog(id); });
     }).catch(function () {
@@ -205,6 +206,13 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     $('#btnQuit').addEventListener('click', quit);
+    $('#btnCopyData').addEventListener('click', function () {
+      var t = $('#dataDir').textContent;
+      if (!t) return;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
+        function () { toast('パスをコピーしました'); },
+        function () { toast('コピーできませんでした。パスを選んでコピーしてください', 'err'); });
+    });
     $('#toast').addEventListener('click', function () { this.hidden = true; });
     document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
     poll();

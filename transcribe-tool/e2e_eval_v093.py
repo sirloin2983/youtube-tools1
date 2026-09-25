@@ -2,6 +2,7 @@
 """v0.9.4: 評価用(evalSet)を守る仕組みの通し確認(疑似モード)。学習・辞書・書き出し・再認識・保管・進行度・測定・基準の記録・画面。"""
 import json
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
 import subprocess

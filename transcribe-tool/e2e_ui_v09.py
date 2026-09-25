@@ -2,6 +2,7 @@
 """v0.9.4 の通し確認(Playwright + 疑似モード): フォルダ一括・スタジオのマーク読み込み・範囲の再認識・Tab の切り替え・時刻の微調整・枠の表示。"""
 import json
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
 import subprocess

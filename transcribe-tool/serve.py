@@ -77,22 +77,25 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import fsio as _fsio, httpsec, runtime as _runtime, tools as _tools  # noqa: E402
+from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, runtime as _runtime, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.12.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.13.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
 UI_KIT_JS = os.path.join(ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(tools/sync_ui_kit.py。同上)
-TX_DIR = os.path.join(ROOT, "transcripts")
+# 作業データの置き場所(段階4)。起動時に prepare() が ytt_core.datadir で決めて set_data_dir() で切り替え、
+# 認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す(ワーカーは import した時点でそれを使う)。import した直後はこのフォルダ(テスト用)
+DATA_DIR = os.environ.get("TRANSCRIBE_DATA_DIR") or ROOT
+TX_DIR = os.path.join(DATA_DIR, "transcripts")
 ROSTER = os.path.join(ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)
-DATASET_DIR = os.path.join(ROOT, "dataset")   # 校正の成果と音声の保管(将来の学習・声紋登録用)
-EVAL_DIR = os.path.join(ROOT, "evals")   # 設定の比較(A/B)の結果
+DATASET_DIR = os.path.join(DATA_DIR, "dataset")   # 校正の成果と音声の保管(将来の学習・声紋登録用)
+EVAL_DIR = os.path.join(DATA_DIR, "evals")   # 設定の比較(A/B)の結果
 TMP_DIR = os.path.join(TX_DIR, ".tmp")
-SETTINGS = os.path.join(ROOT, "settings.json")
-FEEDBACK = os.path.join(ROOT, "learn-feedback.json")   # 提案の採用・却下の記録(設定ファイルとは別にして、画面側の保存と競合させない)
+SETTINGS = os.path.join(DATA_DIR, "settings.json")
+FEEDBACK = os.path.join(DATA_DIR, "learn-feedback.json")   # 提案の採用・却下の記録(設定ファイルとは別にして、画面側の保存と競合させない)
 MARKER_DATA = os.environ.get("TRANSCRIBE_MARKER_DATA") or os.path.join(os.path.dirname(ROOT), "clip-marker", "data.json")
 STUDIO_DATA = os.environ.get("TRANSCRIBE_STUDIO_DATA") or os.path.join(os.path.dirname(ROOT), "clip-studio", "data.json")   # 切り抜きスタジオのマーク(読むだけ)
 PORT = 8775
@@ -161,9 +164,9 @@ def atomic_write(path, data: bytes):
 # ---------- 記録(落ちたときの手がかり) ----------
 # serve.log: 起動・終了・ジョブの開始と終了(使っているメモリつき)・例外。serve.crash.log: Python が捕まえられない異常終了(ネイティブの落ち)のときの手がかり。
 # .running.json: 起動中の印(実行中のジョブつき)。正常に終了すれば消える。次の起動で残っていれば「前回は異常終了」と表示する。
-LOG_FILE = os.path.join(ROOT, "serve.log")
-CRASH_FILE = os.path.join(ROOT, "serve.crash.log")
-RUN_MARK = os.path.join(ROOT, ".running.json")
+LOG_FILE = os.path.join(DATA_DIR, "serve.log")
+CRASH_FILE = os.path.join(DATA_DIR, "serve.crash.log")
+RUN_MARK = os.path.join(DATA_DIR, ".running.json")
 TOOL_ID = "transcribe"   # docs/pipeline.md の 4 のツールID(.runtime/transcribe.json)
 _pio_mod = []
 
@@ -701,7 +704,7 @@ class Cancelled(Exception):
 # 落ちたら(標準出力が閉じたら)そのジョブを「失敗」にし、次の要求でワーカーを起動し直す。しばらく使わなければワーカーごと終わらせてメモリを返す。
 IN_WORKER = False   # tx_worker.py の中で True にする(そのときは load_model などが本体をその場で実行する)
 WORKER_SCRIPT = os.path.join(ROOT, "tx_worker.py")
-WORKER_LOG = os.path.join(ROOT, "worker.log")
+WORKER_LOG = os.path.join(DATA_DIR, "worker.log")
 WORKER_LOG_MAX = 1024 * 1024
 WORKER_CANCEL_GRACE = 15   # 取り消してから、この秒数で止まらなければワーカーを強制終了する
 WORKER_LINE_MAX = 8 * 1024 * 1024
@@ -1515,7 +1518,7 @@ def cancel_job(jid):
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
 # 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
-DIAR_DIR = os.path.join(ROOT, "models", "diar")
+DIAR_DIR = os.path.join(DATA_DIR, "models", "diar")
 DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
@@ -2476,7 +2479,7 @@ def all_metrics(tid=None, legacy=False, scope="all"):
 
 
 # ---------- 評価用の基準の記録 ----------
-EVAL_BASE = os.path.join(ROOT, "eval-baselines.json")
+EVAL_BASE = os.path.join(DATA_DIR, "eval-baselines.json")
 _base_lock = threading.Lock()
 
 
@@ -4257,6 +4260,56 @@ def startup_checks():
 _started = []
 
 
+# 以前の場所(このフォルダ)から新しい置き場へ写す名前。ログ・起動中の印・一時ファイル(transcripts/.tmp も)は写さなくてよいが、
+# transcripts はフォルダごと写す(.bak・.hist の控えも含めて)
+DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json", "eval-baselines.json")
+DATA_STATE = None
+
+
+def set_data_dir(d):
+    """作業データの置き場所を切り替える(起動時に1回。ジョブが動く前)。ワーカーにも環境変数で伝える"""
+    global DATA_DIR, TX_DIR, TMP_DIR, DATASET_DIR, EVAL_DIR, SETTINGS, FEEDBACK, LOG_FILE, CRASH_FILE, RUN_MARK, WORKER_LOG, DIAR_DIR, EVAL_BASE
+    DATA_DIR = os.path.abspath(d)
+    TX_DIR = os.path.join(DATA_DIR, "transcripts")
+    TMP_DIR = os.path.join(TX_DIR, ".tmp")
+    DATASET_DIR = os.path.join(DATA_DIR, "dataset")
+    EVAL_DIR = os.path.join(DATA_DIR, "evals")
+    SETTINGS = os.path.join(DATA_DIR, "settings.json")
+    FEEDBACK = os.path.join(DATA_DIR, "learn-feedback.json")
+    LOG_FILE = os.path.join(DATA_DIR, "serve.log")
+    CRASH_FILE = os.path.join(DATA_DIR, "serve.crash.log")
+    RUN_MARK = os.path.join(DATA_DIR, ".running.json")
+    WORKER_LOG = os.path.join(DATA_DIR, "worker.log")
+    DIAR_DIR = os.path.join(DATA_DIR, "models", "diar")
+    EVAL_BASE = os.path.join(DATA_DIR, "eval-baselines.json")
+    os.environ["TRANSCRIBE_DATA_DIR"] = DATA_DIR
+
+
+def studio_data_path():
+    """切り抜きスタジオの data.json(読むだけ)。STUDIO_HOME → 新しい置き場(移し済みなら)→ 以前の場所(clip-studio フォルダ)"""
+    if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
+        return os.environ["TRANSCRIBE_STUDIO_DATA"]
+    if os.environ.get("STUDIO_HOME"):
+        return os.path.join(os.environ["STUDIO_HOME"], "data.json")
+    legacy = os.path.join(os.path.dirname(ROOT), "clip-studio")
+    new = os.path.join(_datadir.tool_dir("studio", legacy), "data.json")
+    return new if os.path.isfile(new) else os.path.join(legacy, "data.json")
+
+
+def choose_data_dir():
+    """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt_core.datadir(以前のデータがあれば新しい置き場へコピー)"""
+    global DATA_STATE, STUDIO_DATA
+    STUDIO_DATA = studio_data_path()
+    if os.environ.get("TRANSCRIBE_DATA_DIR"):
+        set_data_dir(os.environ["TRANSCRIBE_DATA_DIR"])
+        return
+    r = _datadir.prepare(TOOL_ID, ROOT, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    DATA_STATE = r
+    for w in r["warnings"]:
+        print("※ " + w, flush=True)
+    set_data_dir(r["dir"])
+
+
 def prepare(port, base_path="/", hooks=False):
     """待ち受け以外の起動の準備(ログ・前回の異常終了の確認・.runtime・環境チェック・ジョブのスレッド)。
     main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
@@ -4265,6 +4318,7 @@ def prepare(port, base_path="/", hooks=False):
     PORT, BASE_PATH = port, base_path
     if not ALLOWED_HOSTS:
         ALLOWED_HOSTS = httpsec.allowed_hosts(port)
+    choose_data_dir()   # ログより先に(ログも置き場所の中に書く)
     setup_cuda_paths()
     setup_logging(hooks)
     prev = check_previous_run()
@@ -4273,7 +4327,7 @@ def prepare(port, base_path="/", hooks=False):
         msg = "前回は正常に終了しませんでした(落ちた・黒い画面を×で閉じた・強制終了のいずれか)。" + (
             "そのとき実行中だったジョブ: %s %s モデル=%s「%s」" % (job.get("kind", ""), job.get("id", ""), job.get("model", ""), job.get("title", "")) if job else "実行中のジョブはありませんでした")
         print("※", msg)
-        print("  詳しくは serve.log・serve.crash.log・worker.log を見てください")
+        print("  詳しくは %s の serve.log・serve.crash.log・worker.log を見てください" % DATA_DIR)
         log.warning("前回の異常終了を検出: %s", msg)
     _run_state["started"] = int(time.time())
     write_mark(None)
@@ -4286,7 +4340,7 @@ def prepare(port, base_path="/", hooks=False):
     for w in _env_warnings:
         print("※", w)
         log.warning("環境: %s", w)
-    if "onedrive" in ROOT.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
+    if "onedrive" in DATA_DIR.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
         print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
     if not _started:
         _started.append(True)

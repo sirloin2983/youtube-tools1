@@ -5,6 +5,7 @@ python -m unittest test_cut2resolve で一緒に走る。単独なら python -m 
 import http.client
 import json
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import sys
 import tempfile
 import threading
@@ -285,6 +286,21 @@ class TestSiblings(unittest.TestCase):
         self.assertTrue(serve.remove_runtime(8811))
         self.assertFalse(os.path.exists(path))
         self.assertNotIn("path", d)   # 単独で動くときは以前と同じ形(path を書かない)
+
+    def test_uses_ytt_core(self):
+        """.runtime・siblings・Host/Origin の検査は ytt_core の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
+        from ytt_core import httpsec, runtime
+        self.assertIs(serve.TOOL_APPS, runtime.TOOL_APPS)
+        self.assertIs(serve.httpsec, httpsec)
+        for gone in ("_read_small_json", "RUNTIME_MAX_BYTES"):
+            self.assertFalse(hasattr(serve, gone), gone)
+        with mock.patch.object(runtime, "ping_app", return_value="clip-studio") as m:
+            self.put("studio", {"tool": "studio", "port": 8800})
+            self.assertEqual(serve.siblings(8810)["tools"], {"studio": 8800, "cut2resolve": 8810})
+            m.assert_called()
+        port = self.fake("cut2resolve")
+        self.assertEqual(serve.probe(port), "x")
+        self.assertIsNone(serve.probe(self.fake("clip-studio")))
 
     def test_mounted_path_in_runtime_and_siblings(self):
         """入口に取り込まれたとき(段階3-2): .runtime に場所を書き、siblings は自分と他のツールの場所を返す。形の違う場所は "/" として扱う"""

@@ -491,3 +491,29 @@
 - 未コミット: 上の変更すべて(AGENTS.md・app/e2e_portal.py・cut2resolve/{README.txt,cut2resolve.py,cut2resolve_core.py,pack.py,serve.py,srt2resolve.py,test_pack.py}・
   docs/{integration-plan.md,resolve-pack-unification.md,WORKLOG.md,HANDOVER.md}・tools/test_resolve_pack_contract.py・
   transcribe-tool/{AGENTS.md,README.txt,app.js,e2e_ui_mounted.py,resolve_export.py,serve.py,test_resolve_export.py})。push.bat で
+
+## 2026-09-26 Claude(Cowork)— cut2resolve を ytt_core に切り替え・段階4 の1つ目: 作業データをリポジトリの外へ(スタジオ v0.4.0・文字起こし v0.13.0・cut2resolve v0.7.0・入口 v0.5.0)
+- 担当: 統合作業(Claude)。スタジオ・文字起こしも置き場所のために変更(serve.py の起動処理・README・テストの先頭1行)。作業の土台は GitHub の main = fd6686c(Resolve パックの一本化を含む)
+- 確認(ユーザー 2026-09-26): 前回のお願い(push.bat・一本化の実機確認)は「できた」。**以後、10〜20 分ごとに中間報告する**(AGENTS.md の「ユーザーについて」に追記)
+- 決定(ユーザー 2026-09-26): 作業データの置き場所 = `%LOCALAPPDATA%\youtube-tools\<ツールID>\`、範囲 = 全部(データ・設定・キャッシュ・ログ・話者判別のモデル・入口の記録)。移行はコピーで元は残す(統合計画の決まりどおり)
+- 変更(cut2resolve を ytt_core に): `cut2resolve/serve.py` の .runtime・siblings・Host/Origin/Sec-Fetch の検査・probe を ytt_core(runtime・httpsec)を呼ぶ薄い包みに(約80行の重複を削除。関数名はそのまま)。
+  画面(serve.py)は隣に ytt_core が要る(CLI の cut2resolve.py は単体で動く)。`test_serve.py` に ytt_core を使うことの確認、`ytt_core/test_ytt_core.py` の「写しを持つ」前提のテストを「写しを持たない」確認に
+- 変更(段階4): `ytt_core/datadir.py`(新規。置き場所の決定・項目ごとに一時名へコピー → 大きさと数を確認 → 改名・既存は上書きしない・空き容量不足/失敗なら以前の場所のまま・.migrated.json)、
+  スタジオ `serve.py`(`_data_home`・以前の既定の exports を使い続ける・/api/state に dataDir。テストや入口が先に決めた場所は上書きしない)、
+  文字起こし `serve.py`(`DATA_DIR`・`set_data_dir`・`choose_data_dir`・ワーカーへ TRANSCRIBE_DATA_DIR・スタジオの data.json を新しい場所から読む `studio_data_path`)、
+  cut2resolve `serve.py`(`_choose_work_dir`・ログの場所の表示)、入口 `launch.py`(`logs_dir_for`・/api/status に dataDir)・`portal.html`・`portal.js`(置き場所とパスのコピー)、
+  テスト・e2e 28ファイルの先頭に `os.environ.setdefault("YTT_DATA_DIR", "inplace")`、`ytt_core/test_ytt_core.py`(TestDatadir 11件。忘れたテストを落とす検査を含む)、
+  `clip-studio/test_robustness.py`(TestDataHome 3件)、`tools/e2e_datadir.py`(新規。本物の入口で移行を通し確認 15項目)、
+  資料: `docs/data-location.md`(新規)・`docs/pipeline.md`・`docs/integration-plan.md`・`AGENTS.md`・各 README
+- 版: スタジオ 0.3.0 → 0.4.0、文字起こし 0.12.0 → 0.13.0、cut2resolve 0.6.0 → 0.7.0、入口 0.4.0 → 0.5.0(`app/e2e_portal.py` の版も)
+- 確認(クラウド): スタジオ 単体 218・test_review.cjs・e2e_analyze・e2e_ui 70/70・--mounted 70/70、文字起こし 単体 101・node 9・e2e v098/handoff/mounted/v08/eval_v093(v07・v09 は想定内の「版 v0.9.4」だけ)、
+  cut2resolve 単体 213・e2e_ui・--mounted、入口 54・e2e_portal、ytt_core・契約テスト・test_ui_kit_sync、tools/e2e_pipeline・**e2e_datadir** すべて OK。
+  全部のテストのあと、本物の置き場所(~/.local/share/youtube-tools)が作られていないことも確認
+- テストで見つけて直した不具合: 入口の中のスタジオが、テスト・入口が先に決めた置き場所(STUDIO_HOME)を上書きしていた(既定のときだけ切り替えるように)
+- 未確認(実機): Windows で「すべて終了」→ start-all.bat → 最初の起動でコピーされるか(スタジオの cache 約2.2GB。数十秒かかる見込み)、
+  入口の画面の「作業データの置き場所」、3ツールで以前のデータ(マーク・文字起こし・設定・API キー)が見えるか、2回目の起動で写し直さないか
+- 注意: **サーバーを動かすテストは先頭で YTT_DATA_DIR=inplace**(忘れると移し済みの PC で本物の作業データを読み書きする。検査あり)。
+  契約テストは `app/test_mount.py` と同じ unittest に渡さない(部品の名前が重なって落ちる。単独で実行)。
+  以前の場所のデータ(clip-studio の data.json・cache など、transcribe-tool の transcripts・dataset など、cut2resolve\work、app\logs)は、新しい場所で確かめてから消す(Cowork は消せない)
+- 未完了・次: 実機確認 → 以前の場所のデータの削除の案内。段階4 の残り(案件ごとの紐づけ・同時実行の上限・文字起こしをスタジオへ返す)。`0old`・`.whisper_models` の扱いはユーザーが決める
+- 未コミット: 上の変更すべて(新規 3: ytt_core/datadir.py・tools/e2e_datadir.py・docs/data-location.md、変更 46 ファイル + docs/WORKLOG.md・docs/HANDOVER.md)。push.bat で

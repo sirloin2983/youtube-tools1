@@ -22,7 +22,6 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
 入口(start-all.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
-import http.client
 import json
 import os
 import re
@@ -49,11 +48,27 @@ import pack  # noqa: E402
 import resolve_textplus as TP  # noqa: E402
 import srt2resolve as S  # noqa: E402
 
+
+def _load_core():
+    """共通部品 ytt_core(リポジトリ直下)を読み込めるようにする(文字起こし・スタジオの serve.py と同じ規則)。
+    探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
+    for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
+        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+            if d not in sys.path:
+                sys.path.append(d)
+            return
+    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+                     "リポジトリのフォルダの中身をまとめて置き直してください" % CODE_DIR)
+
+
+_load_core()
+from ytt_core import datadir, httpsec, runtime as _runtime  # noqa: E402
+
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
 SERVER_VERSION = C.VERSION        # 版の正は cut2resolve_core.VERSION の1か所
 DEFAULT_PORT = 8810
-WORK_DIR = os.path.join(CODE_DIR, "work")          # .gitignore の **/work/ で管理外
+WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt_core.datadir)の中へ切り替える(_choose_work_dir)
 UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
 LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 LOG_MAX = 1024 * 1024
@@ -73,9 +88,8 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
-TOOL_APPS = {"studio": "clip-studio", "transcribe": "transcribe-tool", "cut2resolve": "cut2resolve"}   # docs/pipeline.md の 4
-PING_TIMEOUT = 0.3
-RUNTIME_MAX_BYTES = 4096
+TOOL_APPS = _runtime.TOOL_APPS          # docs/pipeline.md の 4(ytt_core.runtime が正)
+PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(app/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(app/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
 MOUNT = None             # 取り込まれたときの状態(port・allowed_hosts・app)。単独で動くときは C2RServer が持つ
@@ -93,7 +107,7 @@ _log_lock = threading.Lock()
 
 
 def log(msg):
-    """work/serve.log に1行追記(想定外のエラーの調べ用。1MB を超えたら serve.old.log に回す。失敗しても何もしない)"""
+    """作業用フォルダの serve.log に1行追記(想定外のエラーの調べ用。1MB を超えたら serve.old.log に回す。失敗しても何もしない)"""
     line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
     try:
         with _log_lock:
@@ -107,71 +121,36 @@ def log(msg):
 
 
 # ---------------------------------------------------------------- 実行中のポートの共有(.runtime)と /api/siblings
-# clip-studio/handoff.py・transcribe-tool/pipeline_io.py と同じ約束(フォルダ単体で動かすため写して使う)
+# 中身は ytt_core.runtime(スタジオ・文字起こし・入口と同じ1か所。2026-09-26 に cut2resolve 自身の写しをやめた)。
+# ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前はそのまま)
+
+valid_port = _runtime.valid_port
+RUNTIME_PATH_RE = _runtime.PATH_RE
+
 
 def runtime_dir():
-    d = os.environ.get("YTT_RUNTIME_DIR")
-    return os.path.abspath(d) if d else os.path.join(os.path.dirname(CODE_DIR), ".runtime")
-
-
-def valid_port(p):
-    return type(p) is int and 1024 <= p <= 65535
-
-
-def _read_small_json(path):
-    with open(path, "rb") as f:
-        raw = f.read(RUNTIME_MAX_BYTES + 1)
-    if len(raw) > RUNTIME_MAX_BYTES:
-        return None
-    try:
-        return json.loads(raw.decode("utf-8-sig"))
-    except (UnicodeDecodeError, ValueError):
-        return None
+    return _runtime.runtime_dir(CODE_DIR)
 
 
 def write_runtime(port, base_path="/"):
-    """起動時に <runtime>/cut2resolve.json を書く。書けなくても起動は続ける。pid は「自分が書いたか」を消すときに確かめるためだけ
-    (生きているかの確認には使わない。Windows の os.kill(pid, 0) はプロセスを終了させてしまうため)"""
-    try:
-        d = runtime_dir()
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, TOOL_ID + ".json")
-        info = {"tool": TOOL_ID, "port": int(port), "version": SERVER_VERSION,
-                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "pid": os.getpid()}
-        if base_path != "/" and RUNTIME_PATH_RE.match(base_path):   # 入口に取り込まれたときだけ書く(以前の形の記録と同じに保つ)
-            info["path"] = base_path
-        S.write_bytes_atomic(path, (json.dumps(info, ensure_ascii=False) + "\n").encode("utf-8"))
-        return path
-    except OSError as e:
-        log("warn: .runtime を書けません: %s" % e)
-        return None
+    """起動時に <runtime>/cut2resolve.json を書く。書けなくても起動は続ける(None)。
+    場所は入口に取り込まれたときだけ書く。形の違う場所は "/" として扱う(以前の形の記録と同じに保つ)"""
+    path = base_path if _runtime.valid_path(base_path) else "/"
+    f = _runtime.write_runtime(runtime_dir(), TOOL_ID, port, SERVER_VERSION, path)
+    if f is None:
+        log("warn: .runtime を書けません: %s" % runtime_dir())
+    return f
 
 
 def remove_runtime(port):
-    try:
-        path = os.path.join(runtime_dir(), TOOL_ID + ".json")
-        d = _read_small_json(path)
-        if isinstance(d, dict) and d.get("port") == port and d.get("pid") == os.getpid():
-            os.remove(path)
-            return True
-    except OSError:
-        pass
-    return False
-
-
-RUNTIME_PATH_RE = re.compile(r"^/(?:[a-z0-9][a-z0-9-]{0,31}/)?\Z")   # 画面の場所(入口の統合サーバーに取り込まれたツールは "/studio/" など。ytt_core.runtime と同じ規則)
+    """自分が書いた記録(同じポート・同じプロセス)だけ消す"""
+    return _runtime.remove_runtime(runtime_dir(), TOOL_ID, port)
 
 
 def read_runtime_entry(tool):
     """(ポート, 画面の場所) か None。場所が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。"""
-    try:
-        d = _read_small_json(os.path.join(runtime_dir(), tool + ".json"))
-    except OSError:
-        return None
-    if not isinstance(d, dict) or d.get("tool") != tool or not valid_port(d.get("port")):
-        return None
-    path = d.get("path")
-    return d["port"], (path if isinstance(path, str) and RUNTIME_PATH_RE.match(path) else "/")
+    info = _runtime.read_runtime(runtime_dir(), tool)
+    return (info["port"], info["path"]) if info else None
 
 
 def read_runtime_port(tool):
@@ -180,54 +159,13 @@ def read_runtime_port(tool):
 
 
 def ping_app(port, timeout=PING_TIMEOUT, path="/"):
-    """127.0.0.1:<port><path>api/ping の app。http.client を使う(環境変数・Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回らないように)"""
-    if not valid_port(port) or not RUNTIME_PATH_RE.match(path or ""):
-        return None
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
-    try:
-        conn.request("GET", path + "api/ping", headers={"Host": "127.0.0.1:%d" % port, "Accept": "application/json"})
-        r = conn.getresponse()
-        if r.status != 200:
-            return None
-        d = json.loads(r.read(RUNTIME_MAX_BYTES).decode("utf-8", "replace"))
-        app = d.get("app") if isinstance(d, dict) else None
-        return app if isinstance(app, str) else None
-    except (OSError, ValueError, http.client.HTTPException):
-        return None
-    finally:
-        conn.close()
+    return _runtime.ping_app(port, timeout, path)
 
 
 def siblings(self_port, timeout=PING_TIMEOUT, self_path="/"):
     """.runtime の記録の場所に並行して /api/ping を問い合わせ、app が一致したものだけ(自分自身は問い合わせずに含める)。
-    入口の統合サーバーに取り込まれたツール(場所が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける(ytt_core.runtime.siblings と同じ形)"""
-    found, paths = ({TOOL_ID: self_port} if valid_port(self_port) else {}), {}
-    if TOOL_ID in found and self_path != "/" and RUNTIME_PATH_RE.match(self_path or ""):
-        paths[TOOL_ID] = self_path
-    todo = []
-    for tid, app in TOOL_APPS.items():
-        e = read_runtime_entry(tid) if tid != TOOL_ID else None
-        if e and not (e[0] == self_port and e[1] == "/"):   # 同じポートでも別の場所なら、統合サーバーの中の別のツール
-            todo.append((tid, app, e[0], e[1]))
-    lock = threading.Lock()
-
-    def one(tid, app, port, path):
-        if ping_app(port, timeout, path) == app:
-            with lock:
-                found[tid] = port
-                if path != "/":
-                    paths[tid] = path
-    ths = [threading.Thread(target=one, args=t, daemon=True) for t in todo]
-    for th in ths:
-        th.start()
-    t0 = time.monotonic()
-    for th in ths:
-        th.join(max(0.0, timeout + 0.2 - (time.monotonic() - t0)))
-    with lock:
-        out = {"tools": {k: found[k] for k in TOOL_APPS if k in found}}
-        if paths:
-            out["paths"] = {k: paths[k] for k in TOOL_APPS if k in paths}
-        return out
+    入口に取り込まれたツールがあれば {"paths": {"studio": "/studio/"}} も付ける"""
+    return _runtime.siblings(runtime_dir(), TOOL_ID, self_port, timeout, self_path)
 
 
 # ---------------------------------------------------------------- 入力のパス
@@ -383,7 +321,7 @@ class AppState:
         except Exception as e:   # 想定外でもサーバーは落とさない(詳細は serve.log)
             log("error: job %s: %s" % (job.kind, traceback.format_exc()))
             job.state = "error"
-            job.error = {"code": "internal", "message": "内部エラー: %s %s(work/serve.log に記録しました)" % (e.__class__.__name__, str(e)[:200])}
+            job.error = {"code": "internal", "message": "内部エラー: %s %s(%s に記録しました)" % (e.__class__.__name__, str(e)[:200], LOG_PATH)}
         finally:
             job.finished = time.time()
 
@@ -649,22 +587,19 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
 
     # ---- 検査
+    # 検査の規則は ytt_core.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ
     def _host_ok(self):          # DNS rebinding 対策
-        return (self.headers.get("Host") or "") in self.ctx.allowed_hosts
+        return httpsec.host_ok(self.headers, self.ctx.allowed_hosts)
 
     def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全一致だけ
-        o = self.headers.get("Origin")
-        return o is None or o in {"http://" + h for h in self.ctx.allowed_hosts}
+        return httpsec.origin_ok(self.headers, self.ctx.allowed_hosts)
 
     def _fetch_site_ok(self):
-        return self.headers.get("Sec-Fetch-Site") in (None, "same-origin", "none")
+        return httpsec.fetch_site_ok(self.headers)
 
     def _navigation_ok(self, path):
-        """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8810/?video=...)で、この画面を開くのは許す。
-        ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site を送るため、以前の検査では 403 になっていた。
-        画面を開くだけで、URL で処理は始まらない(docs/pipeline.md の 3)。API は同じ画面からだけ。iframe は frame-ancestors で拒否"""
-        return (path in ("/", "/index.html") and self.headers.get("Sec-Fetch-Mode") == "navigate"
-                and self.headers.get("Sec-Fetch-Dest", "document") == "document")
+        """他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/pipeline.md の 3)"""
+        return httpsec.navigation_ok(self.headers, path)
 
     def _guard(self, write, path=""):
         if not self._host_ok():
@@ -709,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             log("error: %s %s: %s" % (self.command, self.path.split("?", 1)[0], traceback.format_exc()))
             try:
-                self._fail(500, "internal", "内部エラー: %s(work/serve.log に記録しました)" % e.__class__.__name__)
+                self._fail(500, "internal", "内部エラー: %s(%s に記録しました)" % (e.__class__.__name__, LOG_PATH))
             except Exception:
                 pass
 
@@ -930,22 +865,14 @@ class C2RServer(ThreadingHTTPServer):
 
 def probe(port):
     """そのポートで動いている cut2resolve の版(cut2resolve でなければ None)"""
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
-    try:
-        conn.request("GET", "/api/ping", headers={"Host": "127.0.0.1:%d" % port})
-        r = conn.getresponse()
-        j = json.loads(r.read(4096).decode("utf-8", "replace")) if r.status == 200 else {}
-        return str(j.get("version", "")) if isinstance(j, dict) and j.get("app") == APP_ID else None
-    except (OSError, ValueError, http.client.HTTPException):
-        return None
-    finally:
-        conn.close()
+    r = _runtime.ping(port, 1)
+    return r["version"] if r and r["app"] == APP_ID else None
 
 
 def _bound(srv, opener=None):
     p = srv.server_address[1]
     srv.port = p
-    srv.allowed_hosts = {"localhost:%d" % p, "127.0.0.1:%d" % p}
+    srv.allowed_hosts = httpsec.allowed_hosts(p)
     srv.app = AppState(opener)
     return srv, p
 
@@ -979,10 +906,27 @@ class MountContext:
         self.app = AppState(opener)
 
 
+def _choose_work_dir():
+    """作業用のフォルダ(アップロードの一時置き場・ログ)を、作業データの置き場所の中にする(段階4)。
+    中身は起動のたびに消える一時的なものとログだけなので、以前の場所からは写さない。テストが先に差し替えていれば(既定でなければ)そのまま"""
+    global WORK_DIR, UPLOAD_DIR, LOG_PATH
+    if os.path.normcase(WORK_DIR) != os.path.normcase(os.path.join(CODE_DIR, "work")):
+        return
+    r = datadir.prepare(TOOL_ID, CODE_DIR, (), log=lambda m: print(m, flush=True))
+    for w in r["warnings"]:
+        print("※ " + w, flush=True)
+    base = r["dir"] if r["state"] != "inplace" else CODE_DIR
+    WORK_DIR = os.path.join(base, "work")
+    if os.path.normcase(UPLOAD_DIR) == os.path.normcase(os.path.join(CODE_DIR, "work", "uploads")):
+        UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
+    LOG_PATH = os.path.join(WORK_DIR, "serve.log")
+
+
 def _startup(port, base_path="/"):
     """待ち受け以外の起動の準備。前回のアップロードを消し、.runtime を書く。戻り値は .runtime のパス(書けなければ None)"""
     global BASE_PATH
     BASE_PATH = base_path
+    _choose_work_dir()
     shutil.rmtree(UPLOAD_DIR, ignore_errors=True)   # 前回のアップロードは消す(画面に残ったパスは読み込み直しで分かる)
     runtime = write_runtime(port, base_path)
     log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path,
@@ -994,7 +938,7 @@ def prepare(port, base_path="/", opener=None):
     """入口の統合サーバー(app/mount.py)に取り込まれるときの起動の準備。状態(ジョブ・配信を許す動画など)は MOUNT に持つ。
     許す Host は、mount.py が先に入れた ALLOWED_HOSTS(入口のポート)。シグナルの受け取りは入口が行う"""
     global MOUNT
-    MOUNT = MountContext(port, ALLOWED_HOSTS or {"localhost:%d" % port, "127.0.0.1:%d" % port}, opener)
+    MOUNT = MountContext(port, ALLOWED_HOSTS or httpsec.allowed_hosts(port), opener)
     return _startup(port, base_path)
 
 

@@ -16,7 +16,7 @@ from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from ytt_core import fsio, httpsec, runtime, schemas, tools  # noqa: E402
+from ytt_core import datadir, fsio, httpsec, runtime, schemas, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -316,18 +316,16 @@ class TestRuntime(unittest.TestCase):
         with open(os.path.join(self.dir, "studio.json"), encoding="utf-8") as f:
             self.assertNotIn("path", json.load(f))   # 直下のときは書かない(以前の形のまま)
 
-    def test_cut2resolve_keeps_same_tool_ids(self):
-        """cut2resolve は統合の対象外で自分の写しを持つ。ツールID と app の対応がずれていないことだけ確かめる"""
+    def test_cut2resolve_uses_ytt_core(self):
+        """cut2resolve も 2026-09-26 から ytt_core.runtime を使う(自分の写しを持たない)。TOOL_APPS を自分で書き直していないこと"""
         path = os.path.join(REPO, "cut2resolve", "serve.py")
         if not os.path.isfile(path):
             self.skipTest("cut2resolve が無い")
         with open(path, encoding="utf-8") as f:
             tree = ast.parse(f.read())
-        found = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "TOOL_APPS" for t in node.targets):
-                found = ast.literal_eval(node.value)
-        self.assertEqual(found, runtime.TOOL_APPS)
+        found = [node.value for node in ast.walk(tree)
+                 if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "TOOL_APPS" for t in node.targets)]
+        self.assertEqual([ast.unparse(v) for v in found], ["_runtime.TOOL_APPS"])
 
 
 class TestSchemas(unittest.TestCase):
@@ -403,6 +401,129 @@ class TestTools(unittest.TestCase):
                 self.assertEqual(tools.find_tool("ffmpeg", "X_FFMPEG"), "/p/ffmpeg")
         finally:
             os.unlink(fake)
+
+
+class TestDatadir(unittest.TestCase):
+    """作業データの置き場所と、以前の場所からのコピー(段階4)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.legacy = os.path.join(self.tmp, "repo", "transcribe-tool")
+        os.makedirs(os.path.join(self.legacy, "transcripts", ".hist", "a"))
+        for rel, body in (("transcripts/a.json", "{}"), ("transcripts/.hist/a/1.json", "old"), ("settings.json", '{"x": 1}')):
+            with open(os.path.join(self.legacy, rel), "w", encoding="utf-8") as f:
+                f.write(body)
+        self.env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
+        self.new = os.path.join(self.tmp, "data", "transcribe")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_root(self):
+        self.assertEqual(datadir.data_root({"LOCALAPPDATA": r"C:\Users\u\AppData\Local"}, "win32"),
+                         os.path.join(r"C:\Users\u\AppData\Local", "youtube-tools"))
+        self.assertEqual(datadir.data_root({}, "win32", "/h"), os.path.join("/h", "AppData", "Local", "youtube-tools"))
+        self.assertEqual(datadir.data_root({}, "linux", "/h"), os.path.join("/h", ".local", "share", "youtube-tools"))
+        self.assertEqual(datadir.data_root({"XDG_DATA_HOME": "/x"}, "linux", "/h"), os.path.join("/x", "youtube-tools"))
+        self.assertEqual(datadir.data_root({}, "darwin", "/h"), os.path.join("/h", "Library", "Application Support", "youtube-tools"))
+        self.assertIsNone(datadir.data_root({"YTT_DATA_DIR": "InPlace"}, "win32"))
+        self.assertEqual(datadir.tool_dir("studio", "/r/clip-studio", {"YTT_DATA_DIR": "inplace"}), os.path.abspath("/r/clip-studio"))
+
+    def test_copy_once_and_keep_original(self):
+        logs = []
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json", "dataset"], self.env, logs.append)
+        self.assertEqual((r["state"], r["dir"], r["migrated"]), ("migrated", self.new, ["transcripts", "settings.json"]))
+        with open(os.path.join(self.new, "transcripts", ".hist", "a", "1.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "old")                                   # 隠しフォルダの中も写す
+        self.assertTrue(os.path.isfile(os.path.join(self.legacy, "settings.json")))   # 元は消さない
+        self.assertTrue(logs and "消しません" in logs[0])
+        self.assertEqual(datadir.read_marker(self.new)["items"], ["transcripts", "settings.json"])
+        # 2回目は写さない(以前の場所が変わっても、新しい場所が正)
+        with open(os.path.join(self.legacy, "settings.json"), "w", encoding="utf-8") as f:
+            f.write("changed")
+        with open(os.path.join(self.new, "settings.json"), "w", encoding="utf-8") as f:
+            f.write("new")
+        self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)["state"], "done")
+        with open(os.path.join(self.new, "settings.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new")
+
+    def test_existing_items_are_not_overwritten(self):
+        os.makedirs(self.new)
+        with open(os.path.join(self.new, "settings.json"), "w", encoding="utf-8") as f:
+            f.write("mine")
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)
+        self.assertEqual(r["migrated"], ["transcripts"])
+        with open(os.path.join(self.new, "settings.json"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "mine")
+
+    def test_nothing_to_copy(self):
+        r = datadir.prepare("studio", os.path.join(self.tmp, "empty"), ["data.json"], self.env)
+        self.assertEqual((r["state"], r["dir"]), ("new", os.path.join(self.tmp, "data", "studio")))
+
+    def test_inplace(self):
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], {"YTT_DATA_DIR": "inplace"})
+        self.assertEqual((r["state"], r["dir"]), ("inplace", os.path.abspath(self.legacy)))
+        self.assertFalse(os.path.exists(self.new))
+
+    def test_not_enough_space_keeps_legacy(self):
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env, free_bytes=1024)
+        self.assertEqual((r["state"], r["dir"]), ("failed", os.path.abspath(self.legacy)))
+        self.assertIn("空き容量", r["warnings"][0])
+        self.assertFalse(os.path.exists(os.path.join(self.new, "transcripts")))
+        self.assertIsNone(datadir.read_marker(self.new))   # 次の起動でもう一度試す
+
+    def test_copy_failure_keeps_legacy_and_removes_partial(self):
+        real = datadir._copy_item
+        calls = []
+
+        def flaky(src, dst):
+            calls.append(src)
+            if src.endswith("settings.json"):
+                raise OSError("disk error")
+            return real(src, dst)
+        with mock.patch.object(datadir, "_copy_item", flaky):
+            r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)
+        self.assertEqual((r["state"], r["dir"]), ("failed", os.path.abspath(self.legacy)))
+        self.assertIn("disk error", r["warnings"][0])
+        self.assertFalse(os.path.exists(os.path.join(self.new, "transcripts")))   # 途中まで写した分も消す(古くなるため)
+        self.assertEqual(os.listdir(self.new), [])
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts", "settings.json"], self.env)   # 次の起動で写し直す
+        self.assertEqual(r["state"], "migrated")
+
+    def test_size_mismatch_is_a_failure_and_leaves_no_part(self):
+        real_size = datadir._size
+        with mock.patch.object(datadir, "_size", side_effect=lambda p: (0, 0) if datadir.PART in p else real_size(p)):
+            r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
+        self.assertEqual(r["state"], "failed")
+        self.assertEqual([n for n in os.listdir(self.new) if datadir.PART in n], [])
+
+    def test_leftover_part_is_cleaned(self):
+        os.makedirs(os.path.join(self.new, "transcripts" + datadir.PART + "123"))
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
+        self.assertEqual(r["state"], "migrated")
+        self.assertEqual(sorted(os.listdir(self.new)), [datadir.MARKER, "transcripts"])
+
+    @unittest.skipIf(os.name == "nt", "シンボリックリンクの作成に権限が要る")
+    def test_links_are_not_followed(self):
+        outside = os.path.join(self.tmp, "secret.txt")
+        with open(outside, "w") as f:
+            f.write("s")
+        os.symlink(outside, os.path.join(self.legacy, "transcripts", "link.json"))
+        datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
+        self.assertFalse(os.path.lexists(os.path.join(self.new, "transcripts", "link.json")))
+
+    def test_every_server_test_isolates_data_dir(self):
+        """サーバー(serve.py・入口)を動かすテストは、必ず YTT_DATA_DIR を指定する。忘れると、移し済みの PC で
+        テストのサーバーが本物の作業データ(AppData\\youtube-tools)を読み書きしてしまう"""
+        import glob
+        import re
+        bad = []
+        for f in sorted(glob.glob(os.path.join(REPO, "*", "test_*.py")) + glob.glob(os.path.join(REPO, "*", "e2e_*.py"))):
+            with open(f, encoding="utf-8") as fp:
+                src = fp.read()
+            if re.search(r"\bserve\b|launch\.py|import launch|import mount", src) and "YTT_DATA_DIR" not in src:
+                bad.append(os.path.relpath(f, REPO))
+        self.assertEqual(bad, [])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行: python3 test_analyze.py"""
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import random
 import sys
 import unittest

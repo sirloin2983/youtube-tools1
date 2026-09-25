@@ -31,10 +31,10 @@ import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
-from ytt_core import httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.3.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.4.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -83,7 +83,7 @@ def api_state():
     key, source = common.get_api_key()
     fk = common.fake()
     d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(find_tool("ffmpeg")), "ytdlp": bool(find_tool("yt-dlp")) or fk,
-         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "quota": rank.quota(),
+         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "dataDir": common.home(), "quota": rank.quota(),
          "env": common.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
     warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
     if warning:
@@ -522,6 +522,40 @@ def _setup_diagnostics():
     atexit.register(lambda: _log("プロセス終了"))
 
 
+# 以前の場所(このフォルダ)から新しい置き場へ写す名前(段階4。ytt_core.datadir)。ログ・作業用の work は写さない
+DATA_ITEMS = ("data.json", "data.json.bak", "feedback.jsonl", "feedback.jsonl.old", "registry.json", "config.json",
+              "settings.json", "settings-ui.json", "cache", "archive")
+DATA_STATE = None   # 起動時の datadir.prepare の結果(画面・入口に置き場所を出す用)
+
+
+def _data_home():
+    """データの置き場所。環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定)。
+    無ければ %LOCALAPPDATA%\\youtube-tools\\studio(最初の起動で、このフォルダにある以前のデータをコピーする)"""
+    global DATA_STATE
+    if os.environ.get("STUDIO_HOME"):
+        return os.environ["STUDIO_HOME"]
+    r = datadir.prepare(TOOL_ID, CODE_DIR, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    DATA_STATE = r
+    for w in r["warnings"]:
+        print("※ " + w, flush=True)
+    if r["state"] == "migrated":
+        _keep_legacy_exports(r)
+    return r["dir"]
+
+
+def _keep_legacy_exports(r):
+    """以前の既定の書き出し先(このフォルダの exports)に動画があり、書き出し先を変えていなかったなら、そこを使い続ける
+    (置き場所を移したことで、既定の書き出し先が新しい置き場の exports に変わり、動画が2か所に分かれるのを防ぐ)"""
+    old = os.path.join(r["legacy"], "exports")
+    settings = os.path.join(r["dir"], "settings.json")
+    if not os.path.isdir(old) or os.path.exists(settings):
+        return
+    try:
+        common.atomic_write(settings, json.dumps({"outDir": old}, ensure_ascii=False).encode("utf-8"))
+    except OSError:
+        pass
+
+
 def prepare(port, base_path="/"):
     """サーバーの待ち受け以外の起動の準備(データの読み込み・ログ・前回の作業ファイルの片付け・.runtime・環境チェック)。
     main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
@@ -530,7 +564,9 @@ def prepare(port, base_path="/"):
     PORT, BASE_PATH = port, base_path
     if not ALLOWED_HOSTS:
         ALLOWED_HOSTS = httpsec.allowed_hosts(port)
-    init()
+    # 置き場所を決めるのは、まだ既定(このフォルダ)のときだけ。テスト・入口が先に init(home) / STUDIO_HOME で決めていれば、それを使う
+    default = os.path.normcase(common.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
+    init(_data_home() if default else None)
     common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す

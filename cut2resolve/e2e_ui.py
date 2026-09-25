@@ -7,6 +7,7 @@
 入力(URL で埋める)→ 読み込み → 試算(無音カット)→ パック作成 → 上書きの確認 → 結果の表示、テーマの保存、XSS を確かめる。
 """
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
 import subprocess

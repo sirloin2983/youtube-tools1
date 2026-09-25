@@ -6,6 +6,7 @@
 終了は Ctrl+C。一時データは終了時に削除する。
 """
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import subprocess
 import sys
 import tempfile

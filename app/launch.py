@@ -8,7 +8,7 @@
 
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
-  GET  /api/status                        {"app", "version", "tools": [...]}(ツールごとの状態)
+  GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
@@ -42,11 +42,11 @@ CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import httpsec, runtime  # noqa: E402
+from ytt_core import datadir, httpsec, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.4.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.5.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -203,13 +203,19 @@ class Tool:
 
 
 # ---------- まとめて管理 ----------
+def logs_dir_for(root):
+    """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt_core.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
+    YTT_DATA_DIR=inplace(テスト)なら以前と同じ app\\logs。記録だけなので、以前の場所からは写さない"""
+    return os.path.join(datadir.tool_dir("app", os.path.join(root, "app")), "logs")
+
+
 class Supervisor:
     def __init__(self, root=ROOT, only=None, ready_timeout=90.0, stop_timeout=8.0, poll=0.5, log=None, ports=None, mounts=()):
         """ports: {"studio": 18800, ...} 既定のポートを変える(テスト用。本物のツールとぶつからないように)
         mounts: 入口のサーバーに取り込むツール("studio" など。app/mount.py の MOUNTS にあるもの)。attach() でサーバーを渡してから start する"""
         self.root = os.path.abspath(root)
         self.rdir = runtime_dir(self.root)
-        self.logs_dir = os.path.join(self.root, "app", "logs")
+        self.logs_dir = logs_dir_for(self.root)
         self.tools = [Tool(s, self.root, self.logs_dir) for s in TOOLS if not only or s["id"] in only]
         for t in self.tools:
             t.default_port = int((ports or {}).get(t.id) or t.default_port)
@@ -229,7 +235,8 @@ class Supervisor:
 
     # --- 状態 ---
     def status(self):
-        return {"app": APP_ID, "version": VERSION, "tools": [t.snapshot() for t in self.tools]}
+        return {"app": APP_ID, "version": VERSION, "tools": [t.snapshot() for t in self.tools],
+                "dataDir": datadir.data_root()}   # 作業データの置き場所(画面に出す。inplace のときは null)
 
     def _find_external(self, t, scan=False):
         """別の画面で動いている同じツール (port, version)。.runtime のポートと既定のポートを問い合わせる
@@ -779,7 +786,7 @@ def main(argv=None):
         except Exception:
             pass
     opts = parse_args(sys.argv[1:] if argv is None else argv)
-    log = make_logger(os.path.join(ROOT, "app", "logs", "launcher.log"))
+    log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d/" % port
@@ -793,7 +800,7 @@ def main(argv=None):
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
         log("入口 v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)" % (VERSION, url))
-        log("各ツールの出力: %s" % os.path.relpath(sup.logs_dir, ROOT))
+        log("各ツールの出力: %s" % sup.logs_dir)
         sup.attach(srv)
         served = threading.Event()
 

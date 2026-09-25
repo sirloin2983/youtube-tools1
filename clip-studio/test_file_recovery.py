@@ -1,5 +1,6 @@
 """保存・書き出しの障害回復。実データやネットワークは使用しない。"""
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import tempfile
 import unittest
 from unittest.mock import Mock, patch

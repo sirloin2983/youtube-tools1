@@ -9,6 +9,7 @@ start.bat からの二重起動を防ぐこと、ツール間で部品の名前�
 import http.client
 import json
 import os
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
 import subprocess

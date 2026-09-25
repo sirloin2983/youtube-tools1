@@ -13,8 +13,9 @@
   `/studio/`(切り抜きスタジオ)・`/transcribe/`(文字起こし)・`/cut2resolve/`(Resolve への受け渡し)。
   文字起こしの認識(faster-whisper・sherpa-onnx)だけは別プロセスのワーカー(`transcribe-tool/tx_worker.py`)で動く(落ちても入口・他のツールは止まらない)
 - 各ツールの `start.bat` での単独起動も残している(移行期間の保険。ユーザー決定)
+- **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
 - 流れ: スタジオで配信から区間を選んで書き出す → 文字起こしで字幕を作って直す → cut2resolve で DaVinci Resolve 用のパック(カット + Text+ 字幕)にする。受け渡しの形式は `docs/pipeline.md`
-- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。次は段階4 = 作業データをリポジトリの外へ)。
+- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ、の1つ目(置き場所の移動)も実装済み)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
 
 ## フォルダと、変えたら通すテスト
@@ -24,13 +25,14 @@
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `transcribe-tool/` | 文字起こし(faster-whisper・話者判別・校正画面・精度測定) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)。画面は serve.py | `python -m unittest test_cut2resolve test_pack test_serve`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
-| `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
+| `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
 | `ui-kit/` | 共通の見た目の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
-| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py` |
+| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
 - ツールを一時フォルダに写して動かすテストが多い。新しいファイルを足したら、写すファイルの一覧(各 e2e の先頭)にも足す
+- **サーバーを動かすテストは先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`**(忘れると移し済みの PC で本物の作業データを読み書きする。`ytt_core/test_ytt_core.py` が検査)
 
 ## 資料の場所(正本はこのリポジトリ)
 - **資料の正本はこのリポジトリ**(2026-09-26 ユーザー決定)。claude.ai の Project の `claude/*.md` は古い写しで、根拠にしない(例外: 統合計画は Claude Docs が正本)
@@ -96,7 +98,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
   パックの作り方を変えたら `tools/test_resolve_pack_contract.py` を通す(文字起こしの zip と cut2resolve のパックが同じ中身・一本化の前と同じ区間と字幕)。
   経緯と旧との違いは `docs/resolve-pack-unification.md`。文字起こし側に Resolve 用の計算を書き足さない(二重実装に戻さない)
 - 【高】古い写しを根拠にした判断: `claude/*.md` と `docs/project/` は古い。食い違いを見つけたら、今のコード・README・AGENTS.md を正とする(統合計画だけは Claude Docs が正本)
-- CPU の取り合い(ジョブ管理で同時実行数を制限)、データ移行(コピーのみ・元は残す・削除はユーザー確認後)、Public リポジトリへの個人データ混入(作業データはリポジトリの外。段階4)
+- CPU の取り合い(ジョブ管理で同時実行数を制限)、データ移行(コピーのみ・元は残す・削除はユーザー確認後。`ytt_core/datadir.py`)、Public リポジトリへの個人データ混入(作業データはリポジトリの外。09-26 実装)
 
 ## ユーザーについて(応答の仕方)
 - **応答は日本語**で。Web/バックエンド開発のエンジニア。動画編集は初心者。基礎的な文法・ライブラリの説明は不要、**実装判断の理由**が知りたい
@@ -104,6 +106,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - セキュリティ・エッジケースのリスクは省略せず指摘する
 - 動画編集の専門用語は、初めて使うときに軽く説明する(一度説明した語は以後そのまま使ってよい)
 - 長い作業で文脈が圧縮されそうなときは、HANDOVER(引き継ぎ)資料と「次のセッションにそのまま貼れる再開用の指示文」を作る
+- **中間報告を徹底する**(2026-09-26 ユーザー指示): 作業のきりのいいところで、10〜20 分ごとを目安に、何が終わって次に何をするかを短く報告する
 
 ## 動作環境(ユーザーの PC)
 - Windows。このリポジトリは PC 上の `Desktop\youtube-test` にある

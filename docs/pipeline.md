@@ -98,8 +98,8 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 - 画面からの API 呼び出しは、ツールごとに1つの関数(スタジオの `Studio.api`、文字起こしの `api()` など)を通す。統合時に `/<ツールID>/api/...` へ移せるよう、ベースのパスはその関数の中だけで決める
 - 見た目は共通の ui-kit(`ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`tools/sync_ui_kit.py` で各ツールに写す。ずれは `tools/test_ui_kit_sync.py` で検出する
 - 新しく作るツール固有の CSS クラスには接頭辞を付ける(スタジオ `cs-`・文字起こし `tt-`・cut2resolve `c2r-`)。既存のクラス名は、テストが依存しているため今回は変えない
-- 設定・データの置き場所は各ツールのフォルダのまま。統合するときに移行する
-- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve は対象外で自分の写しを持つ)
+- 設定・データの置き場所は `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26 から。段階4。`docs/data-location.md`)。以前の各ツールのフォルダの中からは、最初の起動でコピーする
+- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt_core を使う)
 
 ## 6. 受け渡しに使う API(各ツール)
 | ツール | API | 中身 |
