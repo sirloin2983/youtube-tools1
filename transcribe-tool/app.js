@@ -595,6 +595,7 @@ function txShortTitle(i){
 }
 function txRowHTML(i){
   const st = txStatus(i), r = Number(i.rows) || 0, p = Number(i.proofed) || 0, full = String(i.title || '無題');
+  const pick = PICK.on ? `<input type="checkbox" class="txi-pick" data-act="pick"${PICK.ids.has(i.id) ? ' checked' : ''} aria-label="${esc(full)} を選ぶ">` : '';
   /* だれの・いつの を先に(狭いと後ろが「…」で切れるため)。まとまりの見出しにある情報は省く */
   const meta = [];
   if (L.group === 'none' && i.channel) meta.push(i.channel);
@@ -613,10 +614,63 @@ function txRowHTML(i){
   else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて 3 パック のタブで作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
   return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
+    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
     <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
   </div>`;
 }
+/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
+const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
+/* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(絶対パスを書かない) */
+async function portalApi(path, body){
+  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
+  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': TOKEN }; init.body = JSON.stringify(body); }
+  let r;
+  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('入口に接続できません(入口の黒い画面が閉じていないか確かめてください)'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  return j;
+}
+function renderPickBar(){
+  $('#txBatch').hidden = !PICK.on;
+  $('#txPickN').textContent = PICK.ids.size ? `${PICK.ids.size} 本を選んでいます` : '文書を選んでください(一覧の行の左のチェック)';
+  $('#txBatchGo').disabled = !PICK.ids.size;
+}
+const RUN_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
+const STEP_STATE = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
+function renderRuns(runs){
+  const box = $('#txRuns');
+  box.innerHTML = runs.slice(0, 10).map(r => {
+    const [cls, label] = RUN_STATE[r.state] || ['info', r.state];
+    const steps = r.steps.map(s => `${esc(s.label)}: ${esc(STEP_STATE[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+    return `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${cls}">${esc(label)}</span>` +
+      (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
+      (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
+      `<span class="tt-run-steps">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span></div>`;
+  }).join('');
+}
+async function pollRuns(){
+  clearTimeout(PICK.polling);
+  if (!TOKEN) return;
+  let runs = [];
+  try { runs = ((await portalApi('api/autorun')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
+  renderRuns(runs);
+  const active = new Set(runs.filter(r => r.state === 'queued' || r.state === 'running').map(r => r.id));
+  if ([...PICK.active].some(id => !active.has(id))) loadList();   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
+  PICK.active = active;
+  if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
+}
+async function startBatch(){
+  const ids = [...PICK.ids]; if (!ids.length) return;
+  const b = $('#txBatchGo'); b.disabled = true;
+  try {
+    const r = await portalApi('api/autorun/start-docs', { ids, overwrite: $('#txOverwrite').checked });
+    const n = (r.runs || []).length, sk = r.skipped || [];
+    toast(`${n} 本を「まとめて実行」に入れました` + (sk.length ? `(${sk.length} 本は入れていません: ${sk.slice(0, 2).map(x => (x.title || x.id) + ' = ' + x.reason).join('、')})` : ''), 7000, n ? 'ok' : 'err');
+    PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
+  } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
+  finally { renderPickBar(); }
+}
+
 function txRowsHTML(key, items){
   const lim = txLimit[key] || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
   return items.slice(0, lim).map(txRowHTML).join('') + (rest > 0 ? `<button type="button" class="btn small list-more" data-act="more" data-g="${esc(key)}">もっと見る(残り${rest}件)</button>` : '');
@@ -1984,6 +2038,14 @@ $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 ['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
+$('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
+$('#txBatchGo').addEventListener('click', startBatch);
+$('#txRuns').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const row = b.closest('.tt-run');
+  if (b.dataset.act === 'runopen') openDoc(row.dataset.doc);
+  else if (b.dataset.act === 'runcancel'){ try { await portalApi('api/autorun/cancel', { runId: row.dataset.run }); } catch (er){ toast(er.message, 4000, 'err'); } pollRuns(); }
+});
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'open') openDoc(b.dataset.tid);
@@ -1998,6 +2060,7 @@ $('#txList').addEventListener('click', e => {
     return;
   }
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
+  if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'del') armDelete(b, async () => {
     /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
@@ -2300,6 +2363,8 @@ async function boot(){
     if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
   } catch (e){ return showErr(e.message + '。入口(youtube-test フォルダの start-all.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
+  $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))
+  if (TOKEN) pollRuns();
   await loadRoster();
   if (S.tools){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');

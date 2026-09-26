@@ -449,6 +449,14 @@ h2{margin:0;font-size:15px}
 .tt-prog i{display:block;width:38px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
 .tt-prog i b{display:block;height:100%;background:var(--ok);border-radius:inherit}
 .txi-side .ui-next{font-size:11.5px}
+.tt-batch{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--line-2);border-radius:8px}
+.tt-batch .row{gap:10px;flex-wrap:wrap;align-items:center}
+.tt-batch-go{margin-top:6px}
+.txi-pick{margin:0 6px 0 0;flex:none;width:16px;height:16px}
+.tt-run{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.tt-run:first-child{border-top:0}
+.tt-run b{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-run .tt-run-steps{flex:1 1 100%;color:var(--ink-3);font-size:12px;overflow-wrap:anywhere}
 .txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3);font-size:16px;line-height:1}
 .txi-menu>summary:hover{border-color:var(--line-2);color:var(--ink)}
 .txi-menu .vpop{width:min(280px,calc(100vw - 48px));padding:10px 12px}
@@ -1036,6 +1044,17 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <select id="txSort" aria-label="並び替え" title="並び替え"><option value="updated">更新が新しい順</option><option value="created">作った順</option><option value="remain" title="校正が残っている行が多い順">未校正が多い順</option><option value="title">題名順</option></select>
       <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
       <span class="ui-count" id="txCount" aria-live="polite"></span>
+    </div>
+    <!-- 12 ⑦(b): 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ出す) -->
+    <div class="tt-batch" id="txBatchBox" hidden>
+      <label class="lag"><input type="checkbox" id="txPick">選んで、まとめて実行(文字起こし → パック)</label>
+      <div class="tt-batch-go" id="txBatch" hidden>
+        <div class="row"><span class="hint" id="txPickN">文書を選んでください</span>
+          <label class="lag" title="パックがすでにある文書も、作り直して上書きします"><input type="checkbox" id="txOverwrite">パックがあれば作り直す(上書き)</label>
+          <button type="button" class="btn small primary" id="txBatchGo" disabled>まとめて実行</button></div>
+        <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットを決めてある文書はカットのとおり、無ければ文字起こしの行からパックを作ります。
+          入口の「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
+      <div id="txRuns" aria-live="polite"></div>
     </div>
     <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
   <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>

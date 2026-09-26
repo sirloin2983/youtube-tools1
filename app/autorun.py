@@ -29,7 +29,11 @@ from ytt_core import txindex
 MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
-              "transcribe": ("export", "transcribe")}
+              "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack")}
+# 文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
+# カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
+DOC_MODE = "doc"
+DOC_LABEL = "文字起こし → パック"
 DEFAULT_TOP = 3
 MAX_KEEP = 30          # 終わった記録を残す数
 MAX_WAITING = 20       # 順番待ちの上限
@@ -88,10 +92,15 @@ class ToolClient:
         return obj
 
 
+def _doc_id_ok(v):
+    return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
+
+
 class Run:
-    def __init__(self, video_id, title, mode, top):
+    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False):
         self.id = uuid.uuid4().hex[:10]
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
+        self.doc_id, self.overwrite = doc_id, bool(overwrite)   # 文書単位の実行(⑦(b))のときだけ
         self.state = "queued"
         self.message = "順番待ち"
         self.error = ""
@@ -104,7 +113,8 @@ class Run:
         return next(s for s in self.steps if s["key"] == key)
 
     def public(self):
-        return {"id": self.id, "videoId": self.video_id, "title": self.title, "mode": self.mode, "modeLabel": MODES[self.mode], "top": self.top,
+        return {"id": self.id, "kind": "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
+                "videoId": self.video_id, "title": self.title, "mode": self.mode, "modeLabel": MODES.get(self.mode, DOC_LABEL), "top": self.top,
                 "state": self.state, "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "steps": [dict(s) for s in self.steps]}
 
@@ -142,11 +152,42 @@ class AutoRunner:
             run = Run(video_id, "", mode, top)
             self.runs.append(run)
             self._trim()
-            self.cv.notify_all()
-            if self.thread is None or not self.thread.is_alive():
-                self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
-                self.thread.start()
+            self._wake()
             return run.public()
+
+    def start_docs(self, ids, overwrite=False):
+        """「編集」の履歴で選んだ文書をまとめて(⑦(b))。文書ごとに1つの実行(順番待ち・中止・状態は配信単位の実行と同じ)。
+        同じ文書がもう実行中・順番待ちなら断る(二重の登録)。-> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
+        if not isinstance(ids, list) or not ids or len(ids) > MAX_WAITING:
+            raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
+        docs = {d["id"]: d for d in txindex.load(txindex.folder(self.root, self.env))}
+        made, skipped = [], []
+        with self.cv:
+            active = [r for r in self.runs if r.state in ("queued", "running")]
+            for tid in dict.fromkeys(i for i in ids if isinstance(i, str)):
+                d = docs.get(tid) if _doc_id_ok(tid) else None
+                if not d:
+                    skipped.append({"id": str(tid)[:40], "title": "", "reason": "文書が見つかりません"})
+                elif any(r.doc_id == tid for r in active):
+                    skipped.append({"id": tid, "title": d["title"], "reason": "すでに実行中・順番待ちです"})
+                elif len(active) >= MAX_WAITING:
+                    skipped.append({"id": tid, "title": d["title"], "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
+                else:
+                    run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite)
+                    self.runs.append(run)
+                    active.append(run)
+                    made.append(run.public())
+            if made:
+                self._trim()
+                self._wake()
+        return {"runs": made, "skipped": skipped}
+
+    def _wake(self):
+        """順番待ちを動かす(呼ぶのは self.cv を持っている間)"""
+        self.cv.notify_all()
+        if self.thread is None or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
+            self.thread.start()
 
     def cancel(self, run_id):
         with self.cv:
@@ -223,6 +264,8 @@ class AutoRunner:
         return v
 
     def _execute(self, run):
+        if run.doc_id:
+            return self._execute_doc(run)
         v = self._video(run)
         for key in MODE_STEPS[run.mode]:
             self._check(run)
@@ -399,6 +442,65 @@ class AutoRunner:
                 out.append([a, b])
         return out, int(res.get("rev") or 0)
 
+    def _pack_settings(self):
+        """パックの作り方の設定(文字起こしの /api/settings): 行から作るときの端の広げ方(rowEdge。形は cut2resolve が確かめる)と、
+        Text+ 字幕の1段の文字数(subtitle.wrapChars.vertical。まとめて実行のパックは縦 = cut2resolve の既定の置き先)"""
+        tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
+        row_edge = tx_settings.get("rowEdge")
+        sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
+        wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
+        wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
+        return row_edge, wrap_out
+
+    def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
+        """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
+        無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
+        row_edge, wrap_out = pack_opts
+        keeps, rev = self._edit_keeps(doc)
+        if keeps:
+            captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
+            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
+            spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
+            body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
+        else:
+            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
+            spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
+            if isinstance(row_edge, (bool, dict)):
+                spec["rowEdge"] = row_edge
+            body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
+        if force:
+            body["output"]["force"] = True
+        while True:
+            status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
+            if not (status == 409 and res.get("error") == "busy"):
+                break
+            st["detail"] = prefix + "cut2resolve の別の処理が終わるのを待っています"
+            self._wait(run, BUSY_WAIT)
+        if status == 409 and res.get("error") == "exists":
+            return "exists", False
+        if status != 200:
+            raise StepError("パックを作れませんでした: %s" % (res.get("message") or "HTTP %d" % status))
+        jid = (res.get("job") or {}).get("id")
+        try:
+            while True:
+                self._wait(run)
+                j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
+                if j.get("state") != "running":
+                    break
+                if j.get("message"):
+                    st["detail"] = prefix + j["message"]
+        except Cancelled:
+            self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid})
+            raise
+        if j.get("state") != "done":
+            err = j.get("error")
+            raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
+        if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
+            r = j.get("result") or {}
+            self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
+                                                                      "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
+        return "made", bool(keeps)
+
     def _step_pack(self, run, st, v):
         clips = self._clips(v)
         docs = txindex.load(txindex.folder(self.root, self.env))
@@ -413,62 +515,86 @@ class AutoRunner:
             st["state"], st["detail"] = "skip", ("パック済み" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
         skipped, by_edit = [], 0
-        # 行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの /api/settings の rowEdge。形は cut2resolve が確かめる)。
-        # Text+ 字幕の1段の文字数は字幕の文字数の設定(subtitle.wrapChars.vertical。まとめて実行のパックは縦 = cut2resolve の既定の置き先)
-        tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
-        row_edge = tx_settings.get("rowEdge")
-        sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
-        wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
-        wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
+        opts = self._pack_settings()
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
-            st["detail"] = "%d / %d 本" % (i - 1, len(todo))
-            keeps, rev = self._edit_keeps(doc)
-            if keeps:   # 「編集」でカットを決めてある: そのとおりに(3 パック のタブのパックと同じ中身)
-                captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
-                tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
-                spec = dict({"video": m["path"], "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
-                body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
-            else:
-                tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-                spec = {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}
-                if isinstance(row_edge, (bool, dict)):
-                    spec["rowEdge"] = row_edge
-                body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
-            while True:
-                status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
-                if not (status == 409 and res.get("error") == "busy"):
-                    break
-                st["detail"] = "cut2resolve の別の処理が終わるのを待っています"
-                self._wait(run, BUSY_WAIT)
-            if status == 409 and res.get("error") == "exists":
+            prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
+            st["detail"] = prefix.rstrip(" ・ ")
+            res, cut = self._pack_one(run, st, doc, m["path"], opts, prefix=prefix)
+            if res == "exists":
                 skipped.append(os.path.basename(m["path"]))   # 同じ名前のパックがある: 上書きしない(人が作り直したものかもしれない)
                 continue
-            if status != 200:
-                raise StepError("パックを作れませんでした: %s" % (res.get("message") or "HTTP %d" % status))
-            jid = (res.get("job") or {}).get("id")
-            try:
-                while True:
-                    self._wait(run)
-                    j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
-                    if j.get("state") != "running":
-                        break
-                    if j.get("message"):
-                        st["detail"] = "%d / %d 本 ・ %s" % (i - 1, len(todo), j["message"])
-            except Cancelled:
-                self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid})
-                raise
-            if j.get("state") != "done":
-                err = j.get("error")
-                raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
             made += 1
-            if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
-                r = j.get("result") or {}
-                by_edit += 1
-                self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
-                                                                          "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
+            by_edit += 1 if cut else 0
         st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
             "。字幕を校正したら「編集」のパックのタブで作り直してください"
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
+        return None
+
+    # 文書単位の実行(⑦(b)) -------------------------------------
+    def _doc(self, run):
+        d = next((x for x in txindex.load(txindex.folder(self.root, self.env)) if x["id"] == run.doc_id), None)
+        if not d:
+            raise StepError("文書が見つかりません(消した可能性があります)")
+        run.title = d["title"] or run.title
+        src = d.get("sourcePath") or ""
+        if not src or not os.path.isfile(src):
+            raise StepError("元の動画が見つかりません(移動・削除した可能性があります)")
+        return d
+
+    def _execute_doc(self, run):
+        for key in MODE_STEPS[DOC_MODE]:
+            self._check(run)
+            st = run.step(key)
+            st["state"] = "run"
+            run.message = st["label"]
+            result = getattr(self, "_doc_" + key)(run, st)
+            if st["state"] == "run":
+                st["state"] = "done"
+            if result == "stop":
+                for s in run.steps:
+                    if s["state"] == "wait":
+                        s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
+                return
+        run.message = "完了"
+
+    def _doc_transcribe(self, run, st):
+        doc = self._doc(run)
+        if doc["count"]:
+            st["state"], st["detail"] = "skip", "文字起こし済み"
+            return None
+        opts = self.client.ok("transcribe", "GET", "/api/settings")
+        opts = {k: opts[k] for k in TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
+        jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=doc["sourcePath"], intoDoc=doc["id"])).get("id")
+        try:
+            while True:
+                self._wait(run)
+                j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
+                         {"state": "error", "error": "文字起こしのジョブが見つかりません"})
+                if j.get("state") in ("done", "error", "cancelled"):
+                    break
+                st["detail"] = "%s %d%%" % (j.get("phase") or "", round((j.get("progress") or 0) * 100))
+        except Cancelled:
+            self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid})
+            raise
+        if j.get("state") != "done":
+            raise StepError("文字起こしに失敗しました: %s" % (j.get("error") or j.get("state")))
+        st["detail"] = "文字起こししました。字幕の校正は「編集」で"
+        return None
+
+    def _doc_pack(self, run, st):
+        doc = self._doc(run)
+        if self.find_pack(doc["sourcePath"]) and not run.overwrite:
+            st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
+            return None
+        if not any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or []) and not self._edit_keeps(doc)[0]:
+            st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
+            return None
+        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], self._pack_settings(), force=run.overwrite)
+        if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
+            st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
+            return None
+        st["detail"] = "パックを作りました" + ("(「編集」のカットのとおり)" if cut else "(文字起こしの行から)") + \
+            ("。前のパックを上書きしました" if run.overwrite else "")
         return None

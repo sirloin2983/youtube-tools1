@@ -103,6 +103,7 @@ function buildDOM(){
   $('#paneReview').innerHTML = `
 <div class="rv-root" id="rvRoot">
   <div class="rv-warn notice" id="rvWarn" hidden><span id="rvWarnText"></span><button type="button" class="btn small" id="rvWarnClose">閉じる</button></div>
+  <div class="rv-autobar" id="rvAutoBar" role="status" hidden></div>
   <div class="rv-top" id="rvTop">
     <details class="ui-menu rv-pick" id="rvPick">
       <summary class="rv-pickbtn" id="rvPickBtn" title="配信を選ぶ・開く(全部の配信から探せます)">
@@ -127,6 +128,16 @@ function buildDOM(){
     </details>
     <button type="button" class="rv-save" id="rvSave" data-k="idle" role="status" title="マークは自動で保存します。失敗したときはここを押すと保存し直します">準備中</button>
     <span class="rv-topsp"></span>
+    <details class="ui-menu rv-auto" id="rvAuto" hidden>
+      <summary class="btn small ghost" title="案件の画面と同じ「まとめて実行」を、この配信で始めます"><span>まとめて実行</span></summary>
+      <div class="rv-vmenupop rv-autopop">
+        <p class="hint">この配信を、入口の案件の画面と同じ順番待ちで自動で進めます。進み具合は上の帯と、入口の案件の画面に出ます。</p>
+        <button type="button" class="btn small primary" data-auto="adopted" title="採用したマークを書き出し → 文字起こし → Resolve パック">採用後を全部(書き出し → 文字起こし → パック)</button>
+        <button type="button" class="btn small" data-auto="transcribe" title="採用したマークを書き出し → 文字起こし">文字起こしまで(書き出し → 文字起こし)</button>
+        <div class="rv-autofull"><button type="button" class="btn small" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
+          <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
+      </div>
+    </details>
     <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター</span></button>
     <details class="ui-menu rv-vmenu" id="rvVMenu">
       <summary class="btn small ghost" title="この配信の名前・解析・削除"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>配信の操作</span></summary>
@@ -472,6 +483,7 @@ async function loadVideo(id){
     renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
   }
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
+  setTimeout(pollAuto, 0);   // この配信の「まとめて実行」の進み具合
   S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set(); S.tx = null; S.txOpen = new Set(); S.txSeq++;
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
@@ -1725,6 +1737,55 @@ Studio.review = {
   refresh: refreshList,
   keyHelp
 };
+/* ---------- まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+const AUTO = { t: 0, active: false };
+const AUTO_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
+const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
+/* 入口の API(/api/...)。画面は入口の /studio/ の下にあるので、画面の場所から1つ上(絶対パスを書かない) */
+async function portalApi(path, body){
+  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
+  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': Studio.token }; init.body = JSON.stringify(body); }
+  let r;
+  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('入口に接続できません(入口の黒い画面が閉じていないか確かめてください)'); }
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok){ const er = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); er.code = j.error; er.status = r.status; throw er; }
+  return j;
+}
+async function startAuto(mode){
+  if (!S.cur) return;
+  const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
+  try {
+    if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
+    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}) });
+    $('#rvAuto').open = false;
+    toast('まとめて実行を始めました(入口の案件の画面と同じ順番待ち)', 5000, 'ok');
+    pollAuto();
+  } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
+}
+async function pollAuto(){
+  clearTimeout(AUTO.t);
+  const bar = $('#rvAutoBar');
+  if (!Studio.token || !S.cur || !bar){ if (bar) bar.hidden = true; return; }
+  const vid = S.cur.id;
+  let runs;
+  try { runs = (await portalApi('api/autorun')).runs || []; } catch { return; }
+  if (!S.cur || S.cur.id !== vid) return;
+  const r = runs.find(x => x.kind !== 'doc' && x.videoId === vid);   // いちばん新しい実行(一覧は新しい順)
+  const active = !!r && (r.state === 'queued' || r.state === 'running');
+  if (!r || (!active && !AUTO.active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ bar.hidden = true; AUTO.active = false; return; }   // 10分より前に終わったものは出さない
+  const [cls, label] = AUTO_STATE[r.state] || ['info', r.state];
+  const steps = r.steps.map(s => `${esc(s.label)}: ${esc(AUTO_STEP[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+  bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
+    (active ? '<button type="button" class="btn small" data-act="autocancel">中止</button>' : '') +
+    `<a class="btn small ghost" href="../cases.html" target="_blank" rel="noopener">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
+  bar.dataset.run = r.id;
+  bar.hidden = false;
+  if (AUTO.active && !active && !S.dirty) loadVideo(vid);   // 終わった: 書き出し済みなどのマークの状態を読み直す
+  AUTO.active = active;
+  if (active) AUTO.t = setTimeout(pollAuto, 3000);
+}
+
 let warnShown = false, warnDismissed = false;
 function showDataWarning(){
   const w = Studio.state && Studio.state.dataWarning; if (!w || warnDismissed) return;
@@ -1734,6 +1795,13 @@ function showDataWarning(){
 Studio.onReady(() => {
   buildDOM(); S.built = true; placeJump();
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
+  $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
+  $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
+  $('#rvAutoBar').addEventListener('click', async e => {
+    if (!e.target.closest('[data-act=autocancel]')) return;
+    try { await portalApi('api/autorun/cancel', { runId: $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }
+    pollAuto();
+  });
   showDataWarning();
   wireSettings(); wire(); renderKeyUI();
   renderAll();

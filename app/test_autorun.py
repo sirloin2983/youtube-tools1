@@ -138,9 +138,9 @@ class FakeTools:
                     j["state"], j["error"] = "error", "モデルが読めません"
                     continue
                 j["state"] = "done"
-                tid = ("%012d" % int(j["id"][1:]))
+                tid = j["body"].get("intoDoc") or ("%012d" % int(j["id"][1:]))   # intoDoc = 行の無い文書に入れる(⑦(b))
                 with open(os.path.join(self.txdir, tid + ".json"), "w", encoding="utf-8") as f:
-                    json.dump({"id": tid, "sourcePath": j["src"], "updatedAt": 1, "segments": [{"start": 0, "end": 1, "text": "a"}]}, f)
+                    json.dump({"id": tid, "title": "題" + tid[-1], "sourcePath": j["src"], "updatedAt": 1, "segments": [{"start": 0, "end": 1, "text": "a"}]}, f)
         return 200, {"jobs": list(self.tx_jobs.values())}
 
     def h_transcribe_POST_api_transcribe_cancel(self, path, body):
@@ -161,6 +161,7 @@ class FakeTools:
     # cut2resolve
     def h_cut2resolve_POST_api_build(self, path, body):
         self.c2r["body"] = body
+        self.c2r.setdefault("bodies", []).append(body)
         self.c2r["job"] = {"id": "c1", "state": "running"}
         return 200, {"job": self.c2r["job"]}
 
@@ -202,6 +203,87 @@ class Base(unittest.TestCase):
 
     def states(self, run):
         return {s["key"]: s["state"] for s in run["steps"]}
+
+
+class TestDocs(Base):
+    """文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
+
+    def setUp(self):
+        super().setUp()
+        self.media = {}
+        for tid, rows in (("aaaaaaaaaaa1", []), ("bbbbbbbbbbb2", [{"start": 0, "end": 2, "text": "こんにちは"}])):
+            m = os.path.join(self.tmp, tid + ".mp4")
+            open(m, "wb").close()
+            self.media[tid] = m
+            with open(os.path.join(self.tools.txdir, tid + ".json"), "w", encoding="utf-8") as f:
+                json.dump({"id": tid, "title": "文書" + tid[-1], "sourcePath": m, "updatedAt": 5, "segments": rows}, f, ensure_ascii=False)
+
+    def wait_all(self, runs, timeout=10):
+        ids = {r["id"] for r in runs}
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = [x for x in self.r.snapshot()["runs"] if x["id"] in ids]
+            if all(x["state"] not in ("queued", "running") for x in cur):
+                return {x["docId"]: x for x in cur}
+            time.sleep(0.01)
+        self.fail("終わりません")
+
+    def test_transcribe_then_pack(self):
+        res = self.r.start_docs(["aaaaaaaaaaa1", "bbbbbbbbbbb2", "aaaaaaaaaaa1"])   # 同じ id を二度渡しても1つ
+        self.assertEqual((len(res["runs"]), res["skipped"]), (2, []))
+        self.assertEqual((res["runs"][0]["kind"], res["runs"][0]["modeLabel"]), ("doc", "文字起こし → パック"))
+        got = self.wait_all(res["runs"])
+        a, b = got["aaaaaaaaaaa1"], got["bbbbbbbbbbb2"]
+        self.assertEqual((a["state"], [s["state"] for s in a["steps"]]), ("done", ["done", "done"]), a)
+        self.assertEqual([s["state"] for s in b["steps"]], ["skip", "done"], b)          # 行がある文書は文字起こしを飛ばす
+        tx = next(j for j in self.tools.tx_jobs.values())
+        self.assertEqual(tx["body"]["intoDoc"], "aaaaaaaaaaa1")                           # 同じ文書に入れる
+        self.assertEqual(tx["body"]["model"], "small")                                     # 新規の設定で
+        bodies = self.tools.c2r["bodies"]
+        self.assertEqual(sorted(b_["spec"]["video"] for b_ in bodies), sorted(self.media.values()))
+        self.assertTrue(all(b_["spec"].get("preset") == "transcript-rows" and "force" not in b_["output"] for b_ in bodies))
+
+    def test_duplicate_and_bad_ids(self):
+        self.tools.hold = True
+        first = self.r.start_docs(["aaaaaaaaaaa1"])
+        res = self.r.start_docs(["aaaaaaaaaaa1", "bbbbbbbbbbb2", "zzzz", "../x"])
+        self.assertEqual([x["docId"] for x in res["runs"]], ["bbbbbbbbbbb2"])
+        self.assertEqual([(x["id"], x["reason"]) for x in res["skipped"]],
+                         [("aaaaaaaaaaa1", "すでに実行中・順番待ちです"), ("zzzz", "文書が見つかりません"), ("../x", "文書が見つかりません")])
+        for bad in ([], "abc", [1] * 21):
+            with self.assertRaises(ValueError):
+                self.r.start_docs(bad)
+        for r in first["runs"] + res["runs"]:
+            self.r.cancel(r["id"])
+        self.tools.hold = False
+
+    def test_existing_pack_is_skipped_unless_overwrite(self):
+        d = os.path.splitext(self.media["bbbbbbbbbbb2"])[0] + "_pack"
+        os.makedirs(d)
+        with open(os.path.join(d, "cut-plan.json"), "w") as f:
+            f.write("{}")
+        got = self.wait_all(self.r.start_docs(["bbbbbbbbbbb2"])["runs"])
+        st = got["bbbbbbbbbbb2"]["steps"][1]
+        self.assertEqual(st["state"], "skip")
+        self.assertIn("パック済み", st["detail"])
+        self.assertNotIn("bodies", self.tools.c2r)
+        got = self.wait_all(self.r.start_docs(["bbbbbbbbbbb2"], overwrite=True)["runs"])
+        self.assertEqual(got["bbbbbbbbbbb2"]["steps"][1]["state"], "done")
+        self.assertTrue(self.tools.c2r["bodies"][-1]["output"]["force"])                  # 作り直す = 上書き
+
+    def test_cut_is_used(self):
+        """カットがある文書はカットのとおり(ユーザー決定 2026-09-27)"""
+        self.tools.edits["bbbbbbbbbbb2"] = {"edit": {"clips": [{"in": 0.5, "out": 1.0}, {"in": 1.0, "out": 1.5}]}, "rev": 3}
+        got = self.wait_all(self.r.start_docs(["bbbbbbbbbbb2"])["runs"])
+        self.assertEqual(got["bbbbbbbbbbb2"]["state"], "done")
+        self.assertEqual(self.tools.c2r["bodies"][-1]["spec"]["keeps"], [[0.5, 1.5]])
+        self.assertEqual(self.tools.packed[-1]["rev"], 3)
+
+    def test_missing_media_stops(self):
+        os.unlink(self.media["bbbbbbbbbbb2"])
+        got = self.wait_all(self.r.start_docs(["bbbbbbbbbbb2"])["runs"])
+        self.assertEqual(got["bbbbbbbbbbb2"]["state"], "error")
+        self.assertIn("元の動画が見つかりません", got["bbbbbbbbbbb2"]["error"])
 
 
 class TestModes(Base):

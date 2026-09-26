@@ -285,6 +285,22 @@ def run_checks(port, fx, shots=None):
         open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")
+        if MOUNT["token"]:   # まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)): 入口の中だけ。案件の画面と同じ API(入口の /api/autorun)
+            c.ok(pg.is_visible("#rvAuto"), "③ 入口の中では「まとめて実行」が出る")
+            pg.click("#rvAuto > summary")
+            pg.click('#rvAuto [data-auto="transcribe"]')
+            ok = wait_js(pg, "() => !document.querySelector('#rvAutoBar').hidden && /文字起こしまで/.test(document.querySelector('#rvAutoBar').textContent)", 10000)
+            c.ok(ok, "③ 「まとめて実行」を始めると、同じ画面に進み具合の帯が出る: " + (pg.text_content("#rvAutoBar") or "")[:80])
+            req = urllib.request.Request("http://127.0.0.1:%d/api/autorun" % port, headers={"Host": "127.0.0.1:%d" % port})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                runs = json.loads(r.read())["runs"]
+            c.ok(runs and runs[0]["videoId"] == fx["a"] and runs[0]["mode"] == "transcribe", "③ 入口のまとめて実行に、この配信が入る(案件の画面と同じ)")
+            if pg.is_visible("#rvAutoBar [data-act=autocancel]"):
+                pg.click("#rvAutoBar [data-act=autocancel]")
+            ok = wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
+            c.ok(ok, "③ 帯の「中止」で止められる(または終わっている): " + (pg.text_content("#rvAutoBar .pill") or ""))
+        else:
+            c.ok(pg.is_hidden("#rvAuto"), "③ 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
         wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length >= 4")
         bg = pg.eval_on_selector(".rv-trow input", "el => getComputedStyle(el).backgroundColor")
         c.ok(luminance(rgb_of(bg)) < 0.2, "ダーク表示でマークの時刻の入力欄が暗い背景(以前は白): %s" % bg)

@@ -116,6 +116,33 @@ def main():
             check(files == sorted(["字幕なし.edl", "字幕なし.webm", "友人へ.txt"]), "文字起こしの無い動画のパック: EDL・友人へ.txt・元の動画のコピー(Text+ なし。cut-plan.json は入れない): %s" % files)
             check(pg.is_disabled("#pkBackup") and pg.is_checked("#pkBackup"), "字幕が無いパックでは「予備も入れる」は選べない(EDL が本体)")
 
+            # ---- 選んだ文書をまとめて「文字起こし → パック」(12 ⑦(b)。入口の /api/autorun/start-docs)
+            v3 = make_video(os.path.join(srv.media, "まとめて.webm"), sec=6, fps=30)
+            tid3 = srv.call("POST", "/api/open-video", {"path": v3})["id"]   # 行の無い文書(文字起こしせずに開いた)
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            pg.keyboard.press("Alt+1")
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
+            pg.click("[data-side-tab=files]")
+            check(pg.is_visible("#txBatchBox"), "入口から開くと、履歴に「選んで、まとめて実行」が出る")
+            pg.check("#txPick")
+            pg.select_option("#txGroup", "none")
+            pg.fill("#txSearch", "まとめて")
+            pg.locator("#txList .txi").filter(has_text="まとめて").locator(".txi-pick").check()
+            check("1 本を選んでいます" in pg.inner_text("#txPickN") and pg.is_enabled("#txBatchGo"), "文書を選ぶと、まとめて実行を押せる")
+            pg.click("#txBatchGo")
+            wait_js(pg, "[...document.querySelectorAll('#txRuns .tt-run')].some(r => r.textContent.includes('完了'))", 120000)
+            run_txt = pg.inner_text("#txRuns")
+            check("文字起こし: 済" in run_txt and "Resolve パック: 済" in run_txt, "行の無い文書を、文字起こし → パックまで進める: %s" % run_txt[:160])
+            d3 = srv.get("/api/transcript?id=" + tid3)
+            check(len(d3["segments"]) > 0 and os.path.isfile(os.path.join(os.path.splitext(v3)[0] + "_pack", "create_resolve_textplus_project.lua")),
+                  "同じ文書に文字起こしが入り(intoDoc)、動画の隣にパックができる")
+            wait_js(pg, "/パック済み/.test(document.querySelector('#txList').textContent)", 15000)
+            check(True, "終わると一覧が「パック済み」になる")
+            pg.uncheck("#txPick")
+            pg.fill("#txSearch", "")
+
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()
     finally:

@@ -921,6 +921,19 @@
   e2e は本物の入力を送るので、流す前にユーザーに確認する(キーを送る前に前面の窓を確かめて止まる安全装置はある)
 - 同じ時間に別のセッションが「編集」の追加機能を進めていた(上の記録・未コミットの変更)。このコミットには入れていない
 
+## 2026-09-27 Claude Code — 追加機能 ⑦ 案件の一覧以外から「まとめて実行」(スタジオの配信の画面・「編集」の履歴で選んだ文書)
+- ユーザーの回答(2026-09-27): 作り方は案のとおり(設計書の 12 ⑦)・カットのある文書はカットのとおり
+- 変更(入口 `app/`): `autorun.py`(**文書単位の実行** `start_docs`・`Run(doc_id, overwrite)`・`_execute_doc`・`_doc_transcribe`(intoDoc)・`_doc_pack`、
+  パックを1本作る所を `_pack_one` に切り出して配信単位の実行と共通に・`_pack_settings`)、`launch.py`(`POST /api/autorun/start-docs`)、`test_autorun.py`(TestDocs 5件)、README
+- 変更(編集): `app.js`・`index.html`(履歴の「選んで、まとめて実行」・進み具合と中止・入口の API は画面の場所からの相対)、`e2e_edit_pack.py`、README
+- 変更(スタジオ): `review.js`・`review.css`(③ の上の帯に「まとめて実行 ▾」・進み具合の帯)、`e2e_ui.py`、版 0.8.1 → **0.8.2**(serve.py・core.js・README)
+- 決定・理由: 文書ごとに1つの実行にした(配信単位の実行と同じ順番待ち・中止・状態の API をそのまま使え、二重の登録を文書ごとに断れる)。
+  パックの作り方は配信単位と同じ関数(二重の実装にしない)。入口に取り込まれていないときは、どちらの画面にも出さない
+- 版: 編集 0.17.0・入口 0.10.1 の変更点に足した(まだ配っていない)・スタジオ 0.8.2
+- テスト(PC): 入口の単体・e2e_portal・e2e_autorun・e2e_window・スタジオの単体・e2e_ui(入口の中 117・単体 114)・e2e_analyze・編集の e2e(edit_pack・edit_tabs・ui_mounted)・e2e_pipeline
+- **注意(PC が不安定)**: テスト中に、関係の無いプログラムがランダムに異常終了した(1スレッドの ffmpeg の 0xC0000005・Python 本体の Segmentation fault・Playwright の node・chromium のタブ)。流し直すと通る。Windows のイベントログ(読むだけ)では、直近3日で dwm.exe が 256 回・Defender など常駐プログラムも 0xC0000005 で落ちていた。CPU は i9-13900KF・マイクロコード 0x10B・BIOS 1.10(2022-09)。13/14世代の不安定さ(古いマイクロコードで劣化が進む。Intel が 0x129 以降で対策)と症状が合う → ユーザーに BIOS の更新などを案内した。**テストが1回だけ異常終了で落ちたときは、まず流し直す**(コードの不具合と決めつけない)
+- 未完了・次: ③-2(疑わしい所だけ認識し直す。ユーザー承認済み = 設計どおり)
+
 ## 2026-09-27 Claude Code — ホロカラー 1.0.1: スクロールすると文字だけ動かない不具合・build.bat が壊れた zip でも「Done」
 - ユーザーの報告: 「スクロールに表示が対応していない」
 - 原因: `holo-colors/src/PaletteView.cs` の描画で `Graphics.TranslateTransform` を使っていたが、文字を描く TextRenderer は Transform を無視するので、
