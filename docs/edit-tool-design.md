@@ -53,8 +53,10 @@
 
 ### 3 パック(`edit-3-pack.png`)
 - 置き先のプロジェクト: fps(30 / 60)・画面の大きさ(縦 1080×1920 / 横 1920×1080)。今の「カットとパック」の Text+ の設定(`textplusFps`・`textplusSize`)と同じ。前回の値を覚える
-- パックに入れるもの: Text+ のスクリプト(登録用 .bat つき)・元の動画のコピー(スタジオの余白つき素材があればそれ)・EDL / カット後の SRT / 友人へ.txt / cut-plan.json は**いつも**(灰色の印)。
-  選べるのは粗編集の mp4 だけ。「詳しい設定」にタイムコード・リール名(今の cut2resolve の advanced)
+- パックに入れるもの(2026-09-26 ④ で最小限に): **いつも** = media の動画(スタジオの余白つき素材があればそれ)・Text+ のスクリプト `create_resolve_textplus_project.lua`・
+  字幕の雛形 `textplus-template.drb`・登録用の .ps1 と .bat・友人へ.txt(灰色の印)。**選べる** = 「予備も入れる」(既定オフ。EDL・予備_EDLで開く手順.txt・カット後の SRT)・粗編集の mp4。
+  Text+ の計画の .json(textplus-import.json)は出さない(中身は .lua に埋め込み済み)。cut-plan.json はパックに置かず、cut2resolve の作業データに記録する(12 ④)。
+  字幕の無いパック(Text+ なし)は EDL が本体なので、EDL・友人へ.txt・動画のコピー。「詳しい設定」にタイムコード・リール名(今の cut2resolve の advanced)
 - 出力先: 空欄なら動画の隣の `<動画名>_pack`(pack.default_out_dir)。前のパックがあれば作る前に上書きの確認(今の 409 exists → force)
 - これから作るもの: カット後の長さ・残す区間の数・Text+ 字幕の数・区間の略図、字幕の見た目の見本(MS ゴシック・黄色・黒ふち。縦の画面に置いたおおよその見え方)、作る前の注意
   (cut2resolve の plan の warnings。例: とても短い区間)
@@ -313,6 +315,25 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
   (「パック済み」「作り直しの知らせ」「上書きの確認」が壊れないこと)。隠しファイルにはしない(Windows で上書きに失敗することがあるため)
 - この文書の 3 パック「パックに入れるもの」もこの内容に直す
 
+実装で決めたこと(2026-09-26 Claude Code):
+- `pack.pack_paths` / `planned_outputs` / `build_pack` に `backup`(予備)と `plan_file`(cut-plan.json をフォルダに書く)。**画面・API(cut2resolve の serve.py)は
+  `plan_file=False`・`backup` = `output.backup`(既定 false)**。コマンド(cut2resolve.py)は今までどおり予備と cut-plan.json を書く(作業データの無い使い方のため)。
+  Text+ の .json はどこでも書かない(`resolve_textplus.write_files`)。`build_pack` は cut-plan の中身を `plan` で返す
+- 字幕の無いパック(Text+ なし)は `backup` によらず EDL・友人へ.txt・動画(EDL が本体)。パックのタブの「予備も入れる」はそのとき選べない(印は付いたまま)
+- 友人へ.txt(Text+ の手順書)の「注意」: 予備を入れたときだけ「予備_EDLで開く手順.txt は予備」と書き、入れないときは「スクリプトが使えないときは、送り主に予備も入れてと頼む」。
+  予備の手順書に cut-plan.json を載せない(入れていないため)
+- **パックを作った記録**: cut2resolve の作業データ `packs/<フォルダのパスのハッシュ 20 桁>.json`(`ytt_core.txindex.pack_key`)。中身は
+  `{"schema": "youtube-tools-pack-record/v1", "tool", "dir", "video", "textplus", "backup", "builtAt"(ms), "files"(フォルダの中の相対パス), "editMedia", "cutPlan"(以前の cut-plan.json の中身)}`。
+  書くのは cut2resolve の `api/build` のあと(`serve.write_pack_record`。書けなくてもパックはできているので、注意を出すだけ)。1000 件を超えたら、フォルダの無くなった古いものから消す
+- 読むのは `ytt_core.txindex` だけ: `pack_info`(パック済み。記録 → 無ければ以前のフォルダの cut-plan.json)・`is_pack_dir`(「フォルダを開く」・前回のパックの手順書。
+  記録か、以前の cut2resolve の cut-plan.json)・`read_pack_record`。**記録したファイルが1つもフォルダに無ければ記録を使わない**(フォルダを消した後の古い記録で「パック済み」にしない)
+- 記録の置き場所は `txindex.packs_dir`: 起動した cut2resolve が `use_packs_dir` で知らせた場所(入口の中では同じプロセスの「編集」・案件・まとめて実行もここを読む。
+  テストがツールを一時フォルダに写して動かしても、書く場所と読む場所がずれない)→ 無ければ `datadir.tool_dir("cut2resolve")` の packs。YTT_DATA_DIR=inplace では
+  cut2resolve のフォルダの中(`.gitignore` に `cut2resolve/packs/`)
+- 「作り直しの知らせ」は今までどおり「編集」の edit.json の pack の記録(rev・docUpdatedAt)で決める(変更なし)。「上書きの確認」は今回書くファイルだけで見る
+  (以前のパックの EDL・cut-plan.json・textplus-import.json が残っていても 409 にしない。残っていることは「前に作った…が残っています」の注意で知らせ、消さない)
+- テストで Text+ の区間・字幕を確かめるときは、Lua に埋め込んだ計画を `resolve_textplus.read_script_plan` で読む(Lua の表を JSON と同じ形に戻す。空の表は {})
+
 ### ⑥ 語頭・語尾が切れる(決定)
 原因: 文字起こしで行の始まり・終わりを最初・最後の単語の時刻にそろえている(split_segment)+ 行から作るカットの余白が 0(pack.TRANSCRIPT_ROWS)。
 Whisper の単語の時刻は、始まりが遅く・終わりが早く出やすい
@@ -383,6 +404,20 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
 - 先に確かめること: Resolve で Text+ を .drb に書き出す手順と、今のスクリプト(ImportFolderFromFile)で読めるか → 手順をユーザーに渡す
 - 登録した雛形は作業データに置く(拡張子と大きさを確かめる。パスは設定からだけ)
 - ⑤(b) 横の素材を縦にする作業(スクリプトで拡大・位置を最初から設定。画面外の映像も後で動かせること)は、やるかどうかユーザーに確認してから
+
+ユーザーが示した字幕の見た目(2026-09-26。`C:\Users\you11\Desktop\素材` の画像 基本設定_0・シェード1〜3_0。Resolve の Text+ のインスペクタ):
+- テキスト: フォント「けいふぉんと」Regular・色 黒・サイズ 0.14・トラッキング 1.0・行間 1.0・アンカー(縦)1.0(下)・両端揃え(縦)0.0・アンカー(横)0.0(中央)・両端揃え(横)0.0・方向/行の向き 自動
+- シェード(優先順位の大きいものが手前):
+  - 1「White Solid Fill」: 有効・塗り(フル)・色 黒(0,0,0)・アルファ 1・優先順位 8・オフセット 0,0
+  - 2「Red Outline」: 有効・ふち・太さ 0.12・色 白(1,1,1)・アルファ 1・優先順位 7・オフセット X 0.015 / Y −0.02
+  - 5「Element 5」: 有効・ふち・太さ 0.18・色 黒・アルファ 1・優先順位 4・オフセット 0,0
+  - → 黒い文字 + 白いふち(少し右下へずらす)+ 外側の黒いふち
+- レイアウト(画面の中の位置)の画像は無い → 位置は今のスクリプトのまま
+- フォント: `keifont.ttf`(けいふぉんと。Do-Font。ひらがな・カタカナ以外は源ノ角ゴシック・源真ゴシック・M+ 由来)。
+  **利用規約は商用利用の制限なし・再配布(パックへの同梱)の許可は書かれていない** → パックに .ttf を入れるかは、ユーザーが確かめてから。
+  それまでは友人の PC に入っている前提で、無ければ今のフォントの自動選択に切り替えてマーカーに書く(上の案)
+- ユーザー「中の画像も読んで設定項目を反映」(2026-09-26)。方式の候補: (A) 雛形方式(この Text+ を .drb に書き出して登録)/
+  (B) スクリプトがこの値を Text+ に直接入れる(雛形は今の .drb のまま。値は名前つきの見た目の設定として持つ)
 
 ### ⑦ 案件一覧以外から一括処理(**始める前に作り方をユーザーに確認**)
 - (a) スタジオの配信の画面から、案件と同じ「まとめて実行」を始められるようにする(同じ API・同じ形)

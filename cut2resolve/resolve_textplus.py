@@ -374,7 +374,7 @@ README_NAME = "友人へ.txt"                    # Text+ パックでは、友�
 EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
 
 
-def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None):
+def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True):
     """友人向けの手順書(Text+ パックの 友人へ.txt)。簡潔に、ただし手順と注意は省かない"""
     t = dict(target or DEFAULT_TARGET)
     vertical = t["height"] > t["width"]
@@ -394,6 +394,8 @@ def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=Non
     pos_tip = ("""・映す位置を変える: V1 のクリップを選び、インスペクタ →「変形」→「位置 X」。
   画面の外に残っている部分を映せます。途中で位置を変えるときは、キーフレームを打ちます。
 """ if vertical else "")
+    backup_note = (f"・{EDL_README_NAME} はスクリプトが使えないときの予備です(字幕は Text+ ではなく字幕トラックになり、手順も別です)\n"
+                   if backup else "・スクリプトが使えないときは、送り主に「予備も入れて」と頼んでください(EDL と字幕のファイルで開く方法があります)\n")
     scale_trouble = ("""・上下に黒い帯がある / 位置 X を動かしても画面の外が出ない
     → 手順 1-c の設定が「黒帯を挿入」のまま。「最短辺をマッチ: 他をクロップ」にして保存(置いたクリップにもそのまま反映)
 """ if vertical else "")
@@ -468,24 +470,69 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 ■ 注意
 ・media の中の動画の名前を変えない。パックのフォルダを動かしたら、2-b〜c をやり直す
-・{EDL_README_NAME} はスクリプトが使えないときの予備です(字幕は Text+ ではなく字幕トラックになり、手順も別です)
-"""
+{backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None):
-    """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)"""
+def write_files(paths, plan, out_dir, target=None, backup=True):
+    """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
+    計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
+    backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
     import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target)
-    S.write_text_atomic(paths["textplus_plan"], json.dumps(import_plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     S.write_text_atomic(paths["textplus_readme"],
-                        instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps)),
+                        instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup),
                         encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
-    return {key: paths[key] for key in ("textplus_plan", "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")}
+    return {key: paths[key] for key in ("textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")}
+
+
+def read_script_plan(text):
+    """パックの Lua(importer_script が書いたもの)に埋め込んだ計画を読み直す(区間・字幕・動画。テスト・調べもの用)。
+    以前の textplus-import.json と同じ形(media.absolutePath などは Lua の置き換え用の印のまま)。読めなければ ValueError"""
+    head = "local DATA = "
+    i = text.find(head)
+    if i < 0:
+        raise ValueError("cut2resolve の Text+ スクリプトではありません")
+    dec = json.JSONDecoder()
+    pos = i + len(head)
+
+    def value(k):
+        c = text[k]
+        if c == "{":
+            k += 1
+            if text[k] == "}":
+                return {}, k + 1
+            if text[k] == "[":
+                out = {}
+                while True:
+                    key, k = dec.raw_decode(text, k + 1)
+                    if text[k:k + 2] != "]=":
+                        raise ValueError("Lua の表が読めません")
+                    out[key], k = value(k + 2)
+                    if text[k] == "}":
+                        return out, k + 1
+                    if text[k] != ",":
+                        raise ValueError("Lua の表が読めません")
+                    k += 1
+            out = []
+            while True:
+                v, k = value(k)
+                out.append(v)
+                if text[k] == "}":
+                    return out, k + 1
+                if text[k] != ",":
+                    raise ValueError("Lua の表が読めません")
+                k += 1
+        for word, v in (("true", True), ("false", False), ("nil", None)):
+            if text.startswith(word, k):
+                return v, k + len(word)
+        return dec.raw_decode(text, k)
+    data, _ = value(pos)
+    return data

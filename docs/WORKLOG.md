@@ -829,3 +829,27 @@
 - 版: 据え置き(④ のあとでまとめて上げる)
 - 実機で確かめてほしいこと(ユーザー): 語頭・語尾が切れていた切り抜きで聞き比べ(手順は中間報告と設計書の 12 ⑥)
 - 未完了・次: ④ パックの出力を最小限に
+
+## 2026-09-26 Claude Code — 追加機能 ④ パックの出力を最小限に(cut-plan.json は作業データの記録へ)・版上げ
+- 変更(cut2resolve): `pack.py`(`pack_paths`・`planned_outputs`・`build_pack` に `backup`・`plan_file`。Text+ の .json を出さない・cut-plan の中身は `plan` で返す)、
+  `resolve_textplus.py`(.json を書かない・手順書の予備の案内を backup しだいに・`read_script_plan` = Lua に埋め込んだ計画を読み直す)、
+  `serve.py`(`output.backup`・API は `plan_file=False`・**パックを作った記録 `packs/<ハッシュ>.json`**(`write_pack_record`)・`is_pack_dir` は txindex へ・起動時に `use_packs_dir`)、README
+- 変更(ytt_core 1.2.0): `txindex.py`(`packs_dir`・`use_packs_dir`・`pack_key`・`read_pack_record`・`is_pack_dir`・`pack_info` は記録 → 以前の cut-plan.json)
+- 変更(編集): `pack-tab.js`・`index.html`(パックに入れるもの・「予備も入れる」)、`serve.py`(手順書の表示は `txindex.is_pack_dir`・zip に backup)、`resolve_export.py`(zip も最小限)、README・AGENTS.md
+- 変更(ほか): `.gitignore`(`cut2resolve/packs/`。YTT_DATA_DIR=inplace のとき)、`docs/pipeline.md`・`docs/edit-tool-design.md`(3 パック の「パックに入れるもの」・12 ④ の実装で決めたこと・① のユーザー指定の見た目)・`docs/HANDOVER.md`
+- 版: 編集(文字起こし)0.16.0 → **0.17.0**・cut2resolve 0.11.0 → **0.12.0**・入口 0.10.0 → **0.10.1**・ytt_core 1.1.0 → **1.2.0**(⑥ と ④ の分。各ツールの3か所)
+- テスト: cut2resolve(TestMinimalPack・test_serve の最小限/予備/記録/フォルダを開く)・ytt_core(test_pack_record)・契約テスト(B は最小限と予備ありの両方で zip = API のパック。
+  区間・字幕は Lua から読む)・編集(test_resolve_export・test_edit・e2e_edit_pack・e2e_ui_mounted)・入口(e2e_autorun)。
+  PC で通過: cut2resolve 265(skip 14)・ytt_core/tools 62・契約 27・入口の単体 100・編集の単体 118・e2e(edit_pack・ui_mounted・edit_cut・edit_tabs・ui_handoff・
+  app/e2e_autorun・app/e2e_portal・tools/e2e_pipeline)
+- **契約テストの期待値を変えた理由**: ④ でパックの中身から textplus-import.json・cut-plan.json・(既定で)EDL・SRT・予備の手順書を外すのはユーザーの決定。
+  「zip = cut2resolve の API のパック」は同じ条件(最小限・予備あり)で比べ続け、区間・字幕は Lua に埋め込んだ計画で確かめる(中身は同じ)
+- 決定・理由: 記録は cut2resolve の作業データ(パックを作るのは cut2resolve のため)。読むのは txindex だけ。記録したファイルがフォルダに無ければ記録を使わない。
+  コマンド(cut2resolve.py)は今までどおりフォルダに cut-plan.json・EDL を書く(作業データの無い使い方)。以前のパックも「パック済み」「フォルダを開く」のまま
+- ユーザーから字幕の見た目の指定(`C:\Users\you11\Desktop\素材` の画像4枚・けいふぉんと)→ 設計書の 12 ①⑤ に記録。**けいふぉんとの規約に再配布の許可が書かれていない**ので、
+  パックに .ttf を入れるかはユーザーの確認待ち。反映のしかた(雛形 / スクリプトが値を入れる)はこのあと確認
+- 注意: `cut2resolve/test_serve.py` の `TestPathsAndUploads.test_upload` が Windows でまれに WinError 10053(断った要求の接続の打ち切り)で落ちる。今回の変更とは関係なく、流し直すと通る
+  `transcribe-tool/e2e_ui_mounted.py` の 3c(パックのタブ)も、続けて流したときに1回だけ「パックを作る」が押せるようになる前に確かめて落ちた → ボタンが押せるまで待つように直した
+- 未完了・次: ① の反映のしかたを確認 → ③-1(疑わしい行を見つける・数える → 報告)→ ②(初期値の確認)→ ⑤・⑦ → ③-2
+- 実機で確かめてほしいこと(ユーザー): 「パックを作る」で、フォルダの中身が6つ(media・.lua・.drb・.ps1・.bat・友人へ.txt)になり、Resolve でこれまでどおり取り込めること。
+  「予備も入れる」で EDL・予備の手順書・SRT が増えること。以前に作ったパックが一覧で「パック済み」のままなこと

@@ -1292,9 +1292,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          </div>
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h"><span class="tt-pk-n">2</span>パックに入れるもの</h3>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(登録用の .bat つき)</span></span></label>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b>元の動画のコピー</b><span class="hint">スタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます</span></span></label>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・カット後の字幕(<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)・友人へ.txt・カットの記録</b><span class="hint">いつも入ります(予備と手順書)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b>元の動画のコピー・友人へ.txt(手順書)</b><span class="hint">動画はスタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
            <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
            <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しい設定(タイムコード・リール名・zip など)</summary>
              <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"></div>

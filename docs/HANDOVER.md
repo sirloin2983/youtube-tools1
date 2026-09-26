@@ -8,7 +8,8 @@
   - カット(残す区間)は `transcripts/<id>.edit.json`(youtube-tools-edit/v1・rev と 409)。行の「残す/カット済」はここから決まる(`apply_edit_cuts`)
   - パックは今までどおり `cut2resolve/pack.py` だけが作る(cut2resolve の API の `spec.keeps`)。cut2resolve の画面のファイルは消した(ユーザー決定)。`/cut2resolve/` は「編集」へ転送
   - まとめて実行も、カットを決めてある文書はそのとおりにパックを作る(ユーザー決定)
-- 版: 入口 0.10.0・切り抜きスタジオ 0.8.1・編集(文字起こし)0.16.0・cut2resolve 0.11.0・ui-kit v4
+- **追加機能 ①〜⑦**(ユーザー 2026-09-26。`docs/edit-tool-design.md` の「12. 追加機能」。順番・決定・確認が要る所もそこ)。⑥(行から の端を広げる)と ④(パックを最小限に・記録は cut2resolve の作業データ packs/)は実装済み。次は ③-1 → ② → ①⑤ → ⑦ → ③-2
+- 版: 入口 0.10.1・切り抜きスタジオ 0.8.1・編集(文字起こし)0.17.0・cut2resolve 0.12.0・ytt_core 1.2.0・ui-kit v4
 - コミット: E1 caf3078 → E2 4f010de → E3 bcda68a → E4 b5302bc → E5 b39c1f3 → E5 追記 ff0037c → E6(この HANDOVER と同じコミット)。**push はまだ**(ユーザーの push.bat)
 - テスト: AGENTS.md の表のテストは PC(Windows)で全部通る(WORKLOG の E6)。Node.js が PC に無いので `clip-studio/test_review.cjs`・`transcribe-tool/test_document_save.cjs` は流していない
 - PC に Playwright(chromium)を入れた(ユーザー承認 09-26。miniconda の Python)。画面のテストは PC で流せる

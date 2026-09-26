@@ -112,6 +112,9 @@ function create(h){
     const btn = $('#pkBuild');
     btn.disabled = !!b || P.building;
     btn.textContent = P.building ? 'パックを作っています…' : P.pack ? 'パックを作り直す' : 'パックを作る';
+    const bk = $('#pkBackup'); bk.disabled = !hasRows; if (!hasRows) bk.checked = true;
+    $('#pkBackupHint').textContent = hasRows ? 'スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません'
+      : '字幕が無いパックは EDL が本体なので、いつも入ります(Text+ のスクリプトは作りません)';
     $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? '前回のパックのあとにカットか字幕を直しています。作り直すと今の内容になります' : '作成中は進み具合と「中止」が出ます';
     const er = $('#pkErr'); er.hidden = !P.err; er.textContent = P.err ? 'パックを作れませんでした: ' + P.err : '';
     $('#pkDir').placeholder = '空欄なら 動画の隣の「' + defaultDirName() + '」';
@@ -165,7 +168,7 @@ function create(h){
       const rev = h.CUT.state().rev, docAt = h.S.baseUpdatedAt;
       const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v; }
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
-      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}) };
+      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}) };
       let force = false, res;
       for (;;){
         try {
@@ -203,6 +206,7 @@ function create(h){
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
   $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
   $('#pkBuild').addEventListener('click', build);
+  $('#pkBackup').addEventListener('change', render);
   $('#pkJob').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=pkcancel]') || !P.job) return;
     try { await h.c2rApi('api/job/cancel', { body: { id: P.job.id } }); } catch (er){ h.toast(er.message, 4000, 'err'); }
@@ -228,7 +232,7 @@ function create(h){
     if (!(await h.saveDoc()) || (h.CUT && !(await h.CUT.flush()))) return h.toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
     const b = $('#pkZip'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
-      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf() });
+      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked });
       h.download(await r.blob(), `${h.safeName(h.S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
       h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');

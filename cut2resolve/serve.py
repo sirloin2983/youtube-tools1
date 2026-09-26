@@ -13,7 +13,9 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
   POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl。
                                   動画が読めたときは、同じフォルダ・同じ名前(拡張子違い)の字幕・文字起こし・cut-plan があれば siblings に(問題2)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
+  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, backup?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
+                                  パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
+                                  cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(ytt_core.txindex が読む。④)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
                                   結果にも warningLevels(build 側・summary 側それぞれ)
@@ -66,7 +68,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir, httpsec, jobs as _heavy, runtime as _runtime  # noqa: E402
+from ytt_core import datadir, httpsec, jobs as _heavy, runtime as _runtime, txindex as _txi  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -350,14 +352,40 @@ class AppState:
 
 
 def is_pack_dir(path):
-    """cut2resolve が作ったパックのフォルダか(中の cut-plan.json が、cut2resolve の書いた youtube-tools-cut-plan)。
-    「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする(フォルダであることは呼び出し側が確かめる)"""
+    """cut2resolve が作ったパックのフォルダか(パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いたもの。
+    規則は ytt_core.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
+    return _txi.is_pack_dir(str(path), c2r_dir=CODE_DIR)
+
+
+MAX_PACK_RECORDS = 1000   # 記録がこれを超えたら、フォルダが無くなったものから古い順に消す
+
+
+def write_pack_record(res, plan, textplus, backup):
+    """パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)。中身は以前パックに入れていた cut-plan.json と、フォルダ・動画・日時・中身のファイル。
+    「パック済み」「前回のパックのフォルダを開く・手順書を読む」はこれを見る(ytt_core.txindex)。隠しファイルにしてパックに置かないのは、
+    Windows で上書きに失敗することがあるため(ユーザー決定 2026-09-26)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ"""
+    out_dir = Path(res["out_dir"])
+    d = _txi.packs_dir(c2r_dir=CODE_DIR)
+    os.makedirs(d, exist_ok=True)
+    rec = {"schema": _txi.PACK_RECORD_SCHEMA, "tool": {"name": "cut2resolve", "version": SERVER_VERSION},
+           "dir": str(out_dir), "video": str(plan.video), "textplus": bool(textplus), "backup": bool(backup),
+           "builtAt": int(time.time() * 1000), "files": [p.relative_to(out_dir).as_posix() for _, p in res["files"]],
+           "editMedia": res["editMedia"], "cutPlan": res["plan"]}
+    S.write_text_atomic(Path(d) / _txi.pack_key(out_dir), json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     try:
-        d = C.read_json_file(Path(path) / "cut-plan.json", "cut-plan.json", 4 * 1024 * 1024)
-    except (C.ToolError, OSError, ValueError):
-        return False
-    tool = d.get("tool") if isinstance(d, dict) else None
-    return isinstance(d, dict) and d.get("schema") == C.CUT_PLAN_SCHEMA and isinstance(tool, dict) and tool.get("name") == "cut2resolve"
+        names = [os.path.join(d, n) for n in os.listdir(d) if n.endswith(".json")]
+        if len(names) > MAX_PACK_RECORDS:
+            names.sort(key=lambda n: os.path.getmtime(n))
+            for n in names[:len(names) - MAX_PACK_RECORDS]:
+                try:
+                    with open(n, encoding="utf-8") as f:
+                        gone = not os.path.isdir(json.load(f).get("dir") or "")
+                except (OSError, ValueError, AttributeError):
+                    gone = True
+                if gone:
+                    os.unlink(n)
+    except OSError:
+        pass
 
 
 def open_folder(path):
@@ -518,6 +546,7 @@ def output_from_spec(o, video):
     return {"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
+            "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True)}
 
 
@@ -898,7 +927,7 @@ class Handler(BaseHTTPRequestHandler):
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"],
-                                                            out_opts["fcpxml"], out_opts["textplus"])
+                                                            out_opts["fcpxml"], out_opts["textplus"], out_opts["backup"], plan_file=False)
             res = with_warning_levels(pack.summary(plan))
             res["mediaUrl"] = app.register_media(plan.video)
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
@@ -914,7 +943,7 @@ class Handler(BaseHTTPRequestHandler):
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
             names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"],
                                     out["fcpxml"], out["textplus"],
-                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]))
+                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]), out["backup"], plan_file=False)
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -923,8 +952,13 @@ class Handler(BaseHTTPRequestHandler):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                                  force=out["force"], crf=out["crf"], task=task)
+                                  force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False)
             app.allow_out_dir(res["out_dir"])
+            try:
+                write_pack_record(res, plan, out["textplus"], out["backup"])
+            except (OSError, ValueError) as e:
+                log("warn: パックの記録を書けません: %s" % e)
+                res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
                  "warningLevels": classify_warnings(res["warnings"]),
@@ -1021,6 +1055,7 @@ def _choose_work_dir():
         print("※ " + w, flush=True)
     base = r["dir"] if r["state"] != "inplace" else CODE_DIR
     WORK_DIR = os.path.join(base, "work")
+    _txi.use_packs_dir(os.path.join(base, "packs"))   # パックを作った記録(④)。入口の中の「編集」・案件・まとめて実行も同じ場所を読む
     if os.path.normcase(UPLOAD_DIR) == os.path.normcase(os.path.join(CODE_DIR, "work", "uploads")):
         UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
     LOG_PATH = os.path.join(WORK_DIR, "serve.log")

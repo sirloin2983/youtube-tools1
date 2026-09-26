@@ -76,12 +76,17 @@ class PackageTests(unittest.TestCase):
         d.update(kw)
         return d
 
-    def package(self, doc, *a):
-        path, temp_dir, info = resolve_export.create_package(doc, *a)
+    def package(self, doc, *a, **kw):
+        path, temp_dir, info = resolve_export.create_package(doc, *a, **kw)
         self.addCleanup(shutil.rmtree, temp_dir, True)
         z = zipfile.ZipFile(path)
         self.addCleanup(z.close)
         return z, info
+
+    def ip(self, z):
+        """パックの Lua に埋め込んだ計画(区間・字幕)。2026-09-26 まで textplus-import.json で入れていた中身"""
+        import resolve_textplus
+        return resolve_textplus.read_script_plan(z.read("テスト_pack/create_resolve_textplus_project.lua").decode("utf-8"))
 
     def test_zip_is_the_textplus_pack(self):
         z, info = self.package(self.doc())
@@ -89,19 +94,24 @@ class PackageTests(unittest.TestCase):
         top = {n.split("/")[0] for n in names}
         self.assertEqual(top, {"テスト_pack"})                      # 展開するとフォルダが1つ
         rel = {n.split("/", 1)[1] for n in names}
-        self.assertTrue({"media/clip.mp4", "textplus-import.json", "create_resolve_textplus_project.lua",
-                         "install_resolve_textplus_script.ps1", "ResolveにText+スクリプトを登録.bat", "友人へ.txt",
-                         "textplus-template.drb", "clip.edl", "clip_cut.srt", "cut-plan.json"} <= rel, rel)
+        # 最小限(④): 動画・Lua・雛形・登録用の ps1/bat・友人へ.txt だけ(EDL・SRT・cut-plan.json・textplus-import.json は入れない)
+        self.assertEqual({"media/clip.mp4", "create_resolve_textplus_project.lua",
+                          "install_resolve_textplus_script.ps1", "ResolveにText+スクリプトを登録.bat", "友人へ.txt",
+                          "textplus-template.drb"}, {n for n in rel if not n.endswith("/")}, rel)
         self.assertEqual((info["cuts"], info["captions"], info["media"]["hasEditHandles"]), (2, 2, False))
-        ip = json.loads(z.read("テスト_pack/textplus-import.json"))
+        ip = self.ip(z)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(0, 60), (120, 240)])
         self.assertEqual([(c["startFrame"], c["endFrame"], c["text"]) for c in ip["captions"]],
                          [(0, 60, "残す"), (60, 180, "もう一度残す")])
         self.assertEqual(ip["target"], {"fps": 30, "width": 1080, "height": 1920})
         lua = z.read("テスト_pack/create_resolve_textplus_project.lua").decode("utf-8")
         self.assertNotIn("CreateProject", lua)                     # プロジェクトは手で作る(スクリプトは作らない)
-        self.assertNotIn(self.tmp, z.read("テスト_pack/textplus-import.json").decode("utf-8"))   # PC のパスを入れない
-        self.assertIn("もう一度残す", z.read("テスト_pack/clip_cut.srt").decode("utf-8"))
+        self.assertNotIn(self.tmp, lua)                            # PC のパスを入れない
+        z2, _ = self.package(self.doc(), backup=True)              # 「予備も入れる」
+        rel2 = {n.split("/", 1)[1] for n in z2.namelist()}
+        self.assertTrue({"clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"} <= rel2, rel2)
+        self.assertNotIn("cut-plan.json", rel2)
+        self.assertIn("もう一度残す", z2.read("テスト_pack/clip_cut.srt").decode("utf-8"))
 
     def test_uses_studio_edit_media(self):
         """切り抜きスタジオの余白つき素材(前後10秒)があれば、それを入れて、区間を余白の分だけ後ろへずらす"""
@@ -112,7 +122,7 @@ class PackageTests(unittest.TestCase):
         z, info = self.package(self.doc())
         self.assertTrue(info["media"]["hasEditHandles"])
         self.assertEqual(info["media"]["file"], "media/clip_edit.mp4")
-        ip = json.loads(z.read("テスト_pack/textplus-import.json"))
+        ip = self.ip(z)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 540)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 840})
@@ -122,14 +132,14 @@ class PackageTests(unittest.TestCase):
         """60fps の動画で 30 を選んでも、カットの位置は動画の fps で数える(以前はここがずれていた)"""
         doc = self.doc(self.v60, duration=6, segments=[{"id": "a", "start": 2, "end": 4, "text": "a"}])
         z, _ = self.package(doc, "30")
-        ip = json.loads(z.read("テスト_pack/textplus-import.json"))
+        ip = self.ip(z)
         # 2〜4 秒 = 60fps の 120〜240。行の端を広げる(⑥。この動画は無音が無い → 決まった余白 前 0.1 秒・後 0.2 秒 = 6・12 フレーム)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(114, 252)])
         self.assertEqual((ip["fps"], ip["target"]["fps"]), ("60/1", 30))
 
     def test_landscape_target(self):
         z, _ = self.package(self.doc(), "60", "1920x1080")
-        self.assertEqual(json.loads(z.read("テスト_pack/textplus-import.json"))["target"], {"fps": 60, "width": 1920, "height": 1080})
+        self.assertEqual(self.ip(z)["target"], {"fps": 60, "width": 1920, "height": 1080})
 
     def test_errors(self):
         tmp_root = tempfile.gettempdir()

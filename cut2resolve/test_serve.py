@@ -73,9 +73,12 @@ class ServerBase(unittest.TestCase):
         cls.c = Client(cls.port)
         cls.upload_patch = mock.patch.object(serve, "UPLOAD_DIR", str(cls.dir / "uploads"))
         cls.upload_patch.start()
+        cls.data_patch = mock.patch.dict(os.environ, {"YTT_DATA_DIR": str(cls.dir / "data")})   # パックを作った記録(packs/)を一時フォルダへ
+        cls.data_patch.start()
 
     @classmethod
     def tearDownClass(cls):
+        cls.data_patch.stop()
         cls.upload_patch.stop()
         cls.srv.shutdown()
         cls.srv.server_close()
@@ -220,6 +223,18 @@ class TestPathsAndUploads(ServerBase):
     def test_open_folder_only_for_pack_dirs(self):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(self.dir)})
         self.assertEqual(st, 403)
+        # 記録はあるが、中身のファイルがもう無いフォルダは開けない(古い記録で許さない)
+        gone = self.dir / "gone_pack"
+        gone.mkdir(exist_ok=True)
+        d = Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR))
+        d.mkdir(parents=True, exist_ok=True)
+        (d / serve._txi.pack_key(gone)).write_text(json.dumps({"schema": serve._txi.PACK_RECORD_SCHEMA, "dir": str(gone), "files": ["友人へ.txt"]}), encoding="utf-8")
+        st, j = self.c.json("POST", "/api/open-folder", {"path": str(gone)})
+        self.assertEqual(st, 403)
+        (gone / "友人へ.txt").write_text("x", encoding="utf-8")
+        st, j = self.c.json("POST", "/api/open-folder", {"path": str(gone)})
+        self.assertEqual(st, 200)
+        self.opened.clear()
         old = self.dir / "old_pack"   # 前のセッションで作ったパック(cut2resolve の cut-plan.json がある)は開ける
         old.mkdir(exist_ok=True)
         (old / "cut-plan.json").write_text(json.dumps({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}, "segments": []}), encoding="utf-8")
@@ -506,7 +521,13 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/build", body)
         self.assertEqual(j["state"], "done", j)
         r = j["result"]
-        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "友人へ.txt", "cut-plan.json", "clip_roughcut.mp4"])
+        # cut-plan.json はフォルダに置かず、作業データの packs/ に記録する(④)
+        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "友人へ.txt", "clip_roughcut.mp4"])
+        self.assertFalse((out / "cut-plan.json").exists())
+        rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
+        self.assertEqual((rec["schema"], os.path.normcase(rec["dir"]), rec["textplus"], rec["cutPlan"]["schema"]),
+                         ("youtube-tools-pack-record/v1", os.path.normcase(str(out)), False, "youtube-tools-cut-plan/v1"))
+        self.assertEqual(sorted(rec["files"]), sorted(["clip.edl", "clip_cut.srt", "友人へ.txt", "clip_roughcut.mp4"]))
         self.assertIn("DaVinci Resolve", r["readme"])
         self.assertEqual(len(parse_edl((out / "clip.edl").read_text(encoding="utf-8"))), 3)
         st, hd, data = self.c.req("GET", r["roughcutUrl"], headers={"Range": "bytes=0-3"})
@@ -527,6 +548,31 @@ class TestJobs(ServerBase):
         st, j4 = self.c.json("POST", "/api/open-folder", {"path": str(out)})
         self.assertEqual(st, 200, j4)
         self.assertEqual(self.opened[-1], os.path.realpath(out))
+        with mock.patch.object(serve.AppState, "out_dir_allowed", lambda self, p: False):   # 起動し直した後も、記録があれば開ける
+            st, j5 = self.c.json("POST", "/api/open-folder", {"path": str(out)})
+        self.assertEqual(st, 200, j5)
+
+    def test_build_textplus_minimal_and_backup(self):
+        """Text+ パックは最小限(④)。output.backup で予備(EDL・予備の手順書・SRT)も入れる。記録は textplus: true"""
+        out = self.dir / "tp_min"
+        spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
+        j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True}})
+        self.assertEqual(j["state"], "done", j)
+        names = sorted(f["name"] for f in j["result"]["files"])
+        self.assertEqual(names, sorted(["clip.mp4", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
+                                        "ResolveにText+スクリプトを登録.bat", "友人へ.txt", "textplus-template.drb"]))
+        rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
+        self.assertEqual((rec["textplus"], rec["backup"], "media/clip.mp4" in rec["files"]), (True, False, True))
+        st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
+        self.assertEqual((st, e["error"]), (409, "exists"))                      # 上書きの確認
+        self.assertNotIn("clip.edl", e["files"])                                  # まだ無いもの(予備)は並べない
+        j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True, "force": True}})
+        names = sorted(f["name"] for f in j["result"]["files"])
+        self.assertIn("clip.edl", names)
+        self.assertIn("予備_EDLで開く手順.txt", names)
+        self.assertIn("clip_cut.srt", names)
+        self.assertFalse((out / "textplus-import.json").exists())
+        self.assertFalse((out / "cut-plan.json").exists())
 
     def test_output_dir_must_not_be_input(self):
         st, j = self.c.json("POST", "/api/build", {"spec": self.spec(), "output": {"dir": str(self.srt)}})

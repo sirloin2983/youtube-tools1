@@ -1,6 +1,7 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.16.0**(2026-09-26、「編集」: 文字起こし + cut2resolve の統合。入口での名前は「編集」、画面は3つのタブ(1 文字起こし / 2 カット / 3 パック)。`../docs/edit-tool-design.md`。
+現在 **v0.17.0**(2026-09-26、追加機能 ⑥「行から」のカットの端を声の止まる所まで広げる・④ パックを最小限に。`../docs/edit-tool-design.md` の 12。
+v0.16.0 = 2026-09-26、「編集」: 文字起こし + cut2resolve の統合。入口での名前は「編集」、画面は3つのタブ(1 文字起こし / 2 カット / 3 パック)。`../docs/edit-tool-design.md`。
 v0.15.0 = 画面の全面見直し: 履歴の一覧の作り直し・校正画面の「カットとパック」(案A。v0.16.0 で 2 カット・3 パック のタブへ移した)・道具のカードの分割・狭い画面。
 v0.14.x = 作業データの置き場所・重い処理の上限・窓で使う準備、v0.12.0 = 「Resolveパッケージ(zip)」を cut2resolve の Text+ パックに一本化。v0.11.0 = 2026-09-25、認識を別プロセス(tx_worker.py)に分け、入口の `/transcribe/` に取り込めるようにした。v0.10.0 = 2026-09-24、全ツールの見直し・UI 刷新。v0.9.9 で Claude 版と GPT 版の v0.9.8 を統合済み)。
 画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
@@ -32,7 +33,8 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
 - 一覧の API `/api/transcripts`(serve.py の `list_transcripts`・`transcript_summary`): 行数(`rows` = 文字のある行)・`proofed`・`cut`・`flagged`・`durationSec`・
   元の配信(文書の `clip`(youtube-tools-clip/v1)の `videoId`・`clipTitle`・`clipStart`/`clipEnd`・`markLabel`)・配信者 `channel` と `streamTitle`
   (スタジオの data.json を**読むだけ**。置き場所は `studio_data_path()`、更新日時と大きさでキャッシュ `studio_videos()`)・元の動画の有無 `mediaOk`・
-  パック `pack`(動画の隣の `<名前>_pack/cut-plan.json`。入口の案件の画面 `app/cases.py` の `find_pack` と同じ判定)。
+  パック `pack`(動画の隣の `<名前>_pack`。cut2resolve の作業データの「パックを作った記録」か、以前のパックならフォルダの中の cut-plan.json。
+  規則は `ytt_core/txindex.pack_info` の1か所 = 入口の案件の画面 `app/cases.py` の `find_pack` と同じ判定。2026-09-26 ④)。
   動画・パックの有無はフォルダごとに1回・全体で `PACK_CHECK_BUDGET` 秒まで調べ、ネットワーク上のパス(`\\サーバー\…`)は調べない(資格情報を送らない。`mediaOk = None`)
 - 3 パック のタブ(「編集」E4。`pack-tab.js`。v0.15.0 の校正画面の「カットとパック」を置き換えた): パック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
   区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, dir?, force}`。
@@ -40,7 +42,8 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   409 exists は上書きの確認(`#dlgOverwrite`)→ force。作り終えたら `POST /api/edit/pack`(packRev)。「これから作るパック」の字幕の数・注意は `POST /api/edit/preview`(ファイルを作らない)。
   cut2resolve の URL は `c2rUrl()` だけで作る(`UIKit.tools.base('cut2resolve')`。入口の中の同じポートのときだけ。合言葉は同じ入口のもの)。
   単体で開いたとき・cut2resolve が起動していないとき・動画が無い/音声だけ/ネットワーク上のときは理由を出して作れなくする(見積もりと zip は使える)。
-  前回のパックの「フォルダを開く」は cut2resolve の `api/open-folder`(cut2resolve の書いた cut-plan.json があるフォルダなら、入口を起動し直したあとでも開ける)。
+  前回のパックの「フォルダを開く」は cut2resolve の `api/open-folder`(パックを作った記録か、以前の cut2resolve の cut-plan.json があるフォルダなら、入口を起動し直したあとでも開ける。
+  `txindex.is_pack_dir`)。パックは最小限(④): 「予備も入れる」(`output.backup`)で EDL・予備の手順書・SRT。Text+ の .json は出さない(区間・字幕は Lua に埋め込み。テストは `resolve_textplus.read_script_plan` で読む)。
   zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり
 - `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は隣の `../cut2resolve/pack.py` で作る
   (文書 → transcript/v1 → `pack.plan_cut(**pack.TRANSCRIPT_ROWS)` → `pack.build_pack(textplus=True)` → zip)。**Resolve 用の計算をここに書き足さない**

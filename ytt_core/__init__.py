@@ -12,4 +12,4 @@ Python 標準ライブラリだけで動く。各ツールは、自分のフォ�
 cut2resolve は統合の対象外(docs/integration-plan.md)なので、ここを使わない。
 ここを変えるときは `python -m unittest ytt_core/test_ytt_core.py` と、スタジオ・文字起こし・入口のテストをすべて通すこと。
 """
-VERSION = "1.1.0"
+VERSION = "1.2.0"

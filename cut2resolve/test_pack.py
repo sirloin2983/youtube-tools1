@@ -111,7 +111,9 @@ class TestResolveTextPlusScript(unittest.TestCase):
             files = RTP.write_files(paths, plan, output, {'fps': 30, 'width': 1080, 'height': 1920})
             self.assertEqual(paths['textplus_template'].read_bytes(),
                              Path(RTP.__file__).with_name(RTP.TEMPLATE_NAME).read_bytes())
-            data = json.loads(files['textplus_plan'].read_text(encoding='utf-8'))
+            self.assertNotIn('textplus_plan', files)                  # 計画は Lua に埋め込む(.json は出さない。④)
+            self.assertFalse((output / 'textplus-import.json').exists())
+            data = RTP.read_script_plan(files['textplus_script'].read_text(encoding='utf-8'))
             self.assertEqual(data['target'], {'fps': 30, 'width': 1080, 'height': 1920})
             self.assertEqual(data['mediaFps'], 60.0)
             readme = files['textplus_readme'].read_text(encoding='utf-8-sig')
@@ -740,7 +742,7 @@ class TestEditMediaPack(unittest.TestCase):
         self.assertEqual((files["edl"].name, files["srt"].name), ("clip.edl", "clip_cut.srt"))   # 名前は元の切り抜き
         self.assertEqual(res["mediaKeeps"], [[300, 360], [420, 480]])
         self.assertEqual((res["editMedia"]["handleBefore"], res["editMedia"]["handleAfter"]), (10.0, 10.0))
-        ip = json.loads((out / "textplus-import.json").read_text(encoding="utf-8"))
+        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 480)])
         self.assertEqual([(c["startFrame"], c["endFrame"]) for c in ip["captions"]], [(0, 60), (60, 120)])  # タイムラインの位置は同じ
         self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 780})   # 復旧用は余白込みの全体
@@ -797,6 +799,72 @@ class TestEditMediaPack(unittest.TestCase):
         for bad in (-1, 1.5, True, 1001):
             with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
                 pack.plan_cut(dataclasses_replace(req, join_frames=bad))
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestMinimalPack(unittest.TestCase):
+    """パックの出力を最小限に(docs/edit-tool-design.md の 12 ④): 既定の Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt だけ。
+    backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = Path(cls.tmp.name)
+        cls.video = d / "clip.mp4"
+        make_video(cls.video, dur=6)
+        cls.tr = write(d / "clip.transcript.json", json.dumps(transcript_doc([(0.5, 2, "一", False), (3, 5, "二", False)]), ensure_ascii=False))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def build(self, name, **kw):
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        out = Path(self.tmp.name) / name
+        return out, pack.build_pack(plan, out, textplus=True, **kw)
+
+    def names(self, out):
+        return sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
+
+    MINIMAL = ["ResolveにText+スクリプトを登録.bat", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
+               "media/clip.mp4", "textplus-template.drb", "友人へ.txt"]
+
+    def test_minimal_by_default_for_screen(self):
+        out, res = self.build("min", backup=False, plan_file=False)
+        self.assertEqual(self.names(out), self.MINIMAL)
+        self.assertEqual(sorted(p.relative_to(out).as_posix() for _, p in res["files"]), self.MINIMAL)
+        self.assertEqual(res["plan"]["schema"], "youtube-tools-cut-plan/v1")         # cut-plan の中身は返す(作業データに記録する)
+        self.assertEqual(res["plan"]["keep_frames"], [[15, 60], [90, 150]])
+        readme = (out / "友人へ.txt").read_text(encoding="utf-8-sig")
+        self.assertNotIn("予備_EDLで開く手順", readme)                             # 入っていない予備を案内しない
+        self.assertIn("予備も入れて", readme)
+        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 60), (90, 150)])
+        self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二"])
+        self.assertEqual(res["readme"], readme)
+
+    def test_backup_adds_edl_readme_and_srt(self):
+        out, res = self.build("bk", backup=True, plan_file=False)
+        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"]))
+        self.assertIn("予備_EDLで開く手順.txt", (out / "友人へ.txt").read_text(encoding="utf-8-sig"))
+        self.assertNotIn("cut-plan.json", (out / "予備_EDLで開く手順.txt").read_text(encoding="utf-8-sig"))   # 入れていないものを載せない
+
+    def test_command_keeps_full_output(self):
+        out, res = self.build("cli")                                                # コマンドの既定(予備・cut-plan.json も)。.json だけは出さない
+        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json"]))
+
+    def test_overwrite_check_and_leftovers(self):
+        out, _ = self.build("again", backup=True, plan_file=True)                 # 以前の中身(予備・cut-plan.json)のフォルダ
+        (out / "textplus-import.json").write_text("{}", encoding="utf-8")         # 以前の版の .json
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        _, paths, existing = pack.planned_outputs(plan, out, textplus=True, backup=False, plan_file=False)
+        self.assertEqual(sorted(p.name for p in existing), sorted(Path(n).name for n in self.MINIMAL))   # 上書きの確認は今回書くものだけ
+        with self.assertRaises(C.OutputExists):
+            pack.build_pack(plan, out, textplus=True, backup=False, plan_file=False)
+        res = pack.build_pack(plan, out, textplus=True, backup=False, plan_file=False, force=True)
+        left = next(w for w in res["warnings"] if "前に作った" in w)
+        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json", "textplus-import.json"):
+            self.assertIn(n, left)                                                  # 残っている以前のファイルを知らせる(消さない)
 
 
 class TestRowEdgeRule(unittest.TestCase):

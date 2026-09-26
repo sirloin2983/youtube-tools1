@@ -2,7 +2,8 @@
 
 パックの中身は cut2resolve の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
 新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
-  動画(media/。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と登録用の bat・友人へ.txt・EDL・SRT・cut-plan.json
+  動画(media/。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1・友人へ.txt(最小限。④)。
+  backup=True のときだけ予備(EDL・予備_EDLで開く手順.txt・SRT)も。cut-plan.json は入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 同じ入力から同じ中身になることは tools/test_resolve_pack_contract.py が確かめる。
@@ -219,7 +220,7 @@ def edit_preview(doc: dict, keeps, version: str = "") -> dict:
 
 
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
-                   row_edge=None) -> tuple[str, str, dict]:
+                   row_edge=None, backup: bool = False) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
@@ -245,7 +246,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         warns = []
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
-            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target)
+            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
         zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")

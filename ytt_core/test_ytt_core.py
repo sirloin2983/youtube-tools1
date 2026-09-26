@@ -627,6 +627,37 @@ class TestTxIndex(unittest.TestCase):
         with open(os.path.join(d, "textplus-import.json"), "w") as f:
             f.write("{}")
         self.assertTrue(txindex.pack_info(self.clip)["textplus"])
+        self.assertFalse(txindex.is_pack_dir(d))   # 以前のパックでも、cut2resolve の書いた cut-plan.json でなければ「フォルダを開く」は許さない
+        with open(os.path.join(d, "cut-plan.json"), "w") as f:
+            json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
+        self.assertTrue(txindex.is_pack_dir(d))
+
+    def test_pack_record(self):
+        """2026-09-26(④)から: パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""
+        import json as _json
+        from ytt_core import txindex
+        env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
+        d = txindex.pack_dir(self.clip)
+        os.makedirs(os.path.join(d, "media"))
+        rec_dir = txindex.packs_dir(env)
+        self.assertEqual(rec_dir, os.path.join(self.tmp, "data", "cut2resolve", "packs"))
+        os.makedirs(rec_dir)
+        rec = {"schema": txindex.PACK_RECORD_SCHEMA, "dir": d.upper() if os.name == "nt" else d, "textplus": True, "builtAt": 1790000000000,
+               "files": ["create_resolve_textplus_project.lua", "media/01_a.mp4"]}
+        with open(os.path.join(rec_dir, txindex.pack_key(d)), "w", encoding="utf-8") as f:
+            _json.dump(rec, f)
+        self.assertIsNone(txindex.pack_info(self.clip, env))                 # 記録したファイルがフォルダに無い(消した・作りかけ)
+        self.assertFalse(txindex.is_pack_dir(d, env))
+        with open(os.path.join(d, "media", "01_a.mp4"), "w") as f:
+            f.write("x")
+        self.assertEqual(txindex.pack_info(self.clip, env), {"dir": d, "textplus": True, "updatedAt": 1790000000000})
+        self.assertTrue(txindex.is_pack_dir(d, env))
+        self.assertIsNone(txindex.pack_info(self.clip, {"YTT_DATA_DIR": os.path.join(self.tmp, "other")}))   # 別の置き場所には無い
+        for bad in ({"schema": "x"}, dict(rec, dir=os.path.join(self.tmp, "else")), dict(rec, files=["../../x"]), [1]):
+            with open(os.path.join(rec_dir, txindex.pack_key(d)), "w", encoding="utf-8") as f:
+                _json.dump(bad, f)
+            self.assertIsNone(txindex.pack_info(self.clip, env), bad)
+        self.assertNotEqual(txindex.pack_key(d), txindex.pack_key(d + "2"))
 
     def doc(self, tid, source="", clip=None, updated=1, segs=None, speakers=None):
         d = {"id": tid, "title": "t" + tid, "sourcePath": source, "updatedAt": updated, "speakers": speakers or [],

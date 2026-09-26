@@ -92,7 +92,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.16.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.17.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -998,12 +998,14 @@ PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")
 
 
 def pack_readme(tid):
-    """GET /api/edit/pack-readme?id=: 前回のパックの手順書(友人へ.txt)。記録したフォルダが cut2resolve のパック(中に cut-plan.json)のときだけ読む"""
+    """GET /api/edit/pack-readme?id=: 前回のパックの手順書(友人へ.txt)。記録したフォルダが cut2resolve のパック
+    (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。ytt_core.txindex.is_pack_dir)のときだけ読む"""
+    from ytt_core import txindex as _txi
     read_transcript(tid)
     d, _ = read_edit(tid)
     pk = (d or {}).get("pack") or {}
     folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
-    if not folder or _fsio.is_network_path(folder) or not os.path.isfile(os.path.join(folder, "cut-plan.json")):
+    if not folder or _fsio.is_network_path(folder) or not _txi.is_pack_dir(folder):
         raise ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
     for n in PACK_README_NAMES:
         try:
@@ -4842,7 +4844,7 @@ class Handler(BaseHTTPRequestHandler):
                     zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
                                                                       str(obj.get("size") or "") or None, SERVER_VERSION,
                                                                       keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                                      row_edge=load_settings().get("rowEdge"))
+                                                                      row_edge=load_settings().get("rowEdge"), backup=obj.get("backup") is True)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))

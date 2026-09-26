@@ -35,12 +35,23 @@ from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+TP_LUA = "create_resolve_textplus_project.lua"
 
 # app/test_launch.py の _copy_tool と同じ規則(実行時データ・秘密情報を写さない)
 IGNORE = shutil.ignore_patterns(
     "__pycache__", "*.log", "data.json*", "feedback.jsonl*", "config.json", "settings*.json", "registry.json", "cache", "archive",
     "exports", "clips", "transcripts", "dataset", "models", "work", ".venv", "*.mp4", "resolve-ui-test", "node_modules", ".running.json")
 
+
+
+def read_pack_plan(path):
+    """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。2026-09-26(④)から textplus-import.json は出さない"""
+    d = os.path.join(REPO, "cut2resolve")
+    if d not in sys.path:
+        sys.path.append(d)   # 末尾に足す(同じ名前の serve.py などを隠さない)
+    import resolve_textplus
+    with open(path, encoding="utf-8") as f:
+        return resolve_textplus.read_script_plan(f.read())
 
 def copy_dir(src, dst):
     shutil.copytree(src, dst, ignore=IGNORE)
@@ -237,6 +248,7 @@ def main():
             pg.click("[data-edtab=pack]")
             pk_is = lambda cnt, ln, caps: "document.querySelector('#pkCount').textContent === '%s' && document.querySelector('#pkLen').textContent === '%s' && document.querySelector('#pkCaps').textContent === '%s'" % (cnt, ln, caps)   # noqa: E731
             wait_js(pg, pk_is(1, "0:20.00", 5), 30000)
+            wait_js(pg, "!document.querySelector('#pkBuild').disabled", 15000)   # cut2resolve の確認(他のツールの問い合わせ)が終わるまで待つ
             check(pg.is_hidden("#pkOff") and pg.is_enabled("#pkBuild") and pg.inner_text("#pkBuild") == "パックを作る",
                   "3 パック のタブは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
             tr_beside = os.path.splitext(media)[0] + ".transcript.json"
@@ -257,13 +269,12 @@ def main():
             pg.click("#pkBuild")
             wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === 'パックを作り直す' && document.querySelector('#pkJob').hidden", 120000)
             packdir = os.path.splitext(media)[0] + "_pack"
-            with open(os.path.join(packdir, "textplus-import.json"), encoding="utf-8") as f:
-                ip = json.load(f)
+            ip = read_pack_plan(os.path.join(packdir, TP_LUA))
             caps = json.dumps(ip.get("captions"), ensure_ascii=False)
             check(ip.get("target") == {"fps": 30, "width": 1920, "height": 1080} and [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])] == [(0, 96), (192, 480)]
                   and "テスト文3" in caps and "テスト文2" not in caps,
                   "パック(Text+)ができる: 選んだ fps・大きさ、カットのとおりの区間(24fps の 0〜4秒・8〜20秒)、削った行の字幕は入らない: %s" % {"target": ip.get("target"), "cuts": ip.get("cuts", [])[:3]})
-            check(packdir in pg.inner_text("#pkLastDir") and pg.inner_text("#pkLastPill") == "前回のパック" and "textplus-import.json" in pg.inner_text("#pkLastFiles"),
+            check(packdir in pg.inner_text("#pkLastDir") and pg.inner_text("#pkLastPill") == "前回のパック" and TP_LUA in pg.inner_text("#pkLastFiles"),
                   "「前回のパック」に出力フォルダと中身が出る")
             st, lst = call(port, "GET", "/api/transcripts")
             it1 = next((x for x in lst["items"] if x["id"] == tid1), {})
@@ -280,18 +291,17 @@ def main():
             # 作り直す → 上書きの確認(やめる → 何もしない / 上書き → 作り直す)
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
-            check("textplus-import.json" in pg.inner_text("#owFiles") and packdir in pg.inner_text("#owDir"), "前に作ったパックがあると、上書きの確認に出力先とファイルが出る")
+            check(TP_LUA in pg.inner_text("#owFiles") and packdir in pg.inner_text("#owDir"), "前に作ったパックがあると、上書きの確認に出力先とファイルが出る")
             pg.click("#owCancel")
             wait_js(pg, "!document.querySelector('#dlgOverwrite').open && !document.querySelector('#pkBuild').disabled", 10000)
             check(pg.is_hidden("#pkJob") and pg.inner_text("#pkLastPill") == "作り直しが要る", "「やめる」なら作らない")
-            mt = os.path.getmtime(os.path.join(packdir, "textplus-import.json"))
+            mt = os.path.getmtime(os.path.join(packdir, TP_LUA))
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             pg.click("#owOk")
             wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック'", 120000)
-            with open(os.path.join(packdir, "textplus-import.json"), encoding="utf-8") as f:
-                ip2 = json.load(f)
-            check(os.path.getmtime(os.path.join(packdir, "textplus-import.json")) > mt and len(ip2.get("cuts", [])) == 3, "「上書きして作り直す」で今のカット(3区間)で作り直す")
+            ip2 = read_pack_plan(os.path.join(packdir, TP_LUA))
+            check(os.path.getmtime(os.path.join(packdir, TP_LUA)) > mt and len(ip2.get("cuts", [])) == 3, "「上書きして作り直す」で今のカット(3区間)で作り直す")
             menu_open = "menu-closed" not in (pg.get_attribute(".app", "class") or "")
             pg.click("[data-strip=files]")
             wait_js(pg, "/パック済み/.test(document.querySelector('#txList .txi.cur').textContent)", 10000)
@@ -306,10 +316,14 @@ def main():
             dl_info.value.save_as(zpath)
             with zipfile.ZipFile(zpath) as z:
                 names = z.namelist()
-                ip_name = next((n for n in names if n.endswith("/textplus-import.json")), None)
-                ipz = json.loads(z.read(ip_name)) if ip_name else {}
-            check(any(n.endswith("/media/" + os.path.basename(media)) for n in names) and ip_name is not None,
-                  "「zip でダウンロード」で Text+ パック(動画・textplus-import.json)をダウンロードできる: %s" % names[:4])
+                ip_name = next((n for n in names if n.endswith("/" + TP_LUA)), None)
+                if ip_name:
+                    lua_path = os.path.join(tmp, "zip-" + TP_LUA)
+                    with open(lua_path, "wb") as f:
+                        f.write(z.read(ip_name))
+                ipz = read_pack_plan(lua_path) if ip_name else {}
+            check(any(n.endswith("/media/" + os.path.basename(media)) for n in names) and ip_name is not None and not any(n.endswith(".edl") for n in names),
+                  "「zip でダウンロード」で Text+ パック(動画・Lua。最小限)をダウンロードできる: %s" % names[:4])
             check(ipz.get("target") == {"fps": 30, "width": 1920, "height": 1080} and ipz.get("cuts") == ip2.get("cuts") and ipz.get("captions"),
                   "zip にも選んだ fps・大きさと、パックと同じ区間(カットのとおり)が入る: %s" % {k: ipz.get(k) for k in ("target",)})
             wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /パック\\(zip\\)を作成しました/.test(e.textContent))", 10000)

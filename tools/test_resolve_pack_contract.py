@@ -11,7 +11,8 @@
      2026-09-26(⑥ 語頭・語尾が切れる)から TRANSCRIPT_ROWS は行の端を声の止まる所まで広げる(pack.ROW_EDGE)ので、
      A は「広げない」(row_edge=None)で比べる(行の時間を残す規則そのものは変わっていない)。広げ方の契約は RowEdgeContract
   B. 同じ入力から同じパック … 文字起こしツールの zip の中身と、cut2resolve で同じ文字起こしから作った Text+ パックが同じ
-     (textplus-import.json・Lua・EDL・SRT・手順書など、日時の入る cut-plan.json 以外のすべてのファイル。どちらも行の端を広げる既定)
+     (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④)。予備ありも同じ)。
+     2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
 A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順)・動画の中に収まる・時刻は 0.02 秒刻み(faster-whisper の時刻の刻み。25fps を除く)・
 選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは docs/resolve-pack-unification.md):
@@ -197,26 +198,28 @@ class ResolvePackContract(unittest.TestCase):
 
     # ---- B: 文字起こしの zip と cut2resolve の Text+ パック
 
-    def pack_files(self, doc, fps_text="30", size=None):
+    def pack_files(self, doc, fps_text="30", size=None, backup=False):
         """-> (文字起こしの zip の中身 {名前: bytes}, cut2resolve のパックの中身 {名前: bytes})。日時を含む cut-plan.json は除く"""
-        zp, tmp_dir, _ = resolve_export.create_package(doc, fps_text, size)
+        zp, tmp_dir, _ = resolve_export.create_package(doc, fps_text, size, backup=backup)
         self.addCleanup(shutil.rmtree, tmp_dir, True)
         with zipfile.ZipFile(zp) as z:
             a = {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
         out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
         plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS))
-        res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size))
+        # cut2resolve の API(画面)と同じ: cut-plan.json はフォルダに書かない・予備は指定どおり
+        res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size), backup=backup, plan_file=False)
         b = {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
-        for d in (a, b):
-            d.pop("cut-plan.json", None)
         return a, b
 
-    def assertSamePack(self, doc, fps_text="30", size=None):
-        a, b = self.pack_files(doc, fps_text, size)
+    def assertSamePack(self, doc, fps_text="30", size=None, backup=False):
+        a, b = self.pack_files(doc, fps_text, size, backup)
         self.assertEqual(sorted(a), sorted(b))
         for name in sorted(a):
             self.assertEqual(a[name], b[name], "%s が違う" % name)
-        return json.loads(a["textplus-import.json"])
+        self.assertNotIn("textplus-import.json", a)
+        self.assertNotIn("cut-plan.json", a)
+        self.assertEqual(any(n.endswith(".edl") for n in a), backup)
+        return TP.read_script_plan(a["create_resolve_textplus_project.lua"].decode("utf-8"))
 
     # ---- A: 代表的な入力
 
@@ -320,6 +323,7 @@ class ResolvePackContract(unittest.TestCase):
         for fps_text, target, size in (("29.97", "30", "1080x1920"), ("60", "30", None), ("24", "24", "1920x1080")):
             with self.subTest(fps=fps_text, target=target, size=size):
                 self.assertSamePack(self.doc(rows, fps_text), target, size)
+        self.assertSamePack(self.doc(rows, "30"), "30", None, backup=True)   # 予備(EDL・予備の手順書・SRT)も入れたとき
 
     def test_same_pack_with_studio_edit_media(self):
         d = Path(self.tmp) / "studio"
@@ -388,7 +392,7 @@ class EditKeepsContract(unittest.TestCase):
                 p2, b = self.build(pack.Request(video=video, transcript=tr, base="list", keep_pairs=keeps, min_len=0.3), fps_text)
                 self.assertEqual([tuple(k) for k in p1.keeps], frames)      # 編集で決めたフレームのまま(1フレームもずれない)
                 self.assertSameFiles(a, b)
-                ip = json.loads(a["textplus-import.json"])
+                ip = TP.read_script_plan(a["create_resolve_textplus_project.lua"].decode("utf-8"))
                 self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], frames)
 
     def test_rows_draft_same_as_transcript_rows(self):
@@ -472,7 +476,7 @@ class KnownFixes(ResolvePackContract):
         zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)   # 行の端を広げない(fps の数え方だけを見る)
         self.addCleanup(shutil.rmtree, tmp_dir, True)
         with zipfile.ZipFile(zp) as z:
-            ip = json.loads(z.read("契約_pack/textplus-import.json"))
+            ip = TP.read_script_plan(z.read("契約_pack/create_resolve_textplus_project.lua").decode("utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(120, 240)])
 
     # 親クラスのテストは、ここでは繰り返さない
@@ -556,7 +560,7 @@ class RowEdgeContract(unittest.TestCase):
         zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)
         self.addCleanup(shutil.rmtree, tmp_dir, True)
         with zipfile.ZipFile(zp) as z:
-            ip = json.loads(z.read("契約_pack/textplus-import.json"))
+            ip = TP.read_script_plan(z.read("契約_pack/create_resolve_textplus_project.lua").decode("utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], LEGACY.plan(d, "30")[0])
 
 

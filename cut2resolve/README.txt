@@ -1,4 +1,4 @@
-cut2resolve v0.11.0(「編集」の部品・コマンド)
+cut2resolve v0.12.0(「編集」の部品・コマンド)
 ==================================================
 
 切り抜いた動画に「カット」と「字幕」を入れて、DaVinci Resolve(以下 Resolve)で続きを編集できる形(パック)にして渡すツールです。
@@ -36,6 +36,11 @@ cut2resolve v0.11.0(「編集」の部品・コマンド)
     (-35dB・0.15 秒以上)まで。無音が無ければ 前 0.1 秒・後 0.2 秒。カット済の行は越えない)。spec.rowEdge = false で広げない・
     {"after": 秒, "before": 秒} で上限を変える(0〜2 秒)。コマンドは --no-row-edge で広げない。keeps・時刻リスト・スタジオの区間には使わない
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
+  - パックは最小限(v0.12.0): Text+ パックは media の動画・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat・友人へ.txt だけ。
+    output.backup = true のときだけ予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も。Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
+    cut-plan.json はフォルダに置かず、作業データの packs\<ハッシュ>.json(パックを作った記録。%LOCALAPPDATA%\youtube-tools\cut2resolve\packs)に残す。
+    「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(ytt_core/txindex.py)
+  - コマンド(cut2resolve.py)は今までどおり、EDL・SRT・友人へ.txt・cut-plan.json をフォルダに書く(Text+ の .json だけは出さない)
 
 
 ■ Resolve での読み込み(友人へ.txt にも同じ手順が入ります)
@@ -65,6 +70,13 @@ cut2resolve v0.11.0(「編集」の部品・コマンド)
   - API のサーバーは 127.0.0.1(このパソコン)からだけ使えます。配信する動画は入力に指定したものと、作った粗編集の動画だけです。
   - ログ: %LOCALAPPDATA%\youtube-tools\cut2resolve\work\serve.log(2026-09-26 まではこのフォルダの work\ の中)
 
+
+■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④。docs/edit-tool-design.md の 12)
+  - 文字起こしの行から作るカット(preset transcript-rows・keepSource transcript・--keep-rows)は、区間の端を声の止まる所まで広げる(pack.ROW_EDGE。
+    spec.rowEdge / --no-row-edge。上の「API」)。keeps・時刻リスト・スタジオの区間には使わない
+  - パックを最小限に(API): Text+ パックは動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。output.backup で予備(EDL・予備の手順書・SRT)。
+    Text+ の計画の .json は出さない(コマンドも)。cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(コマンドは今までどおりフォルダに書く)
+  - 「フォルダを開く」を許すのは、パックを作った記録のあるフォルダか、以前の cut2resolve の cut-plan.json のあるフォルダ(ytt_core/txindex.is_pack_dir)
 
 ■ v0.11.0 の変更点(2026-09-26・画面を「編集」に統合)
   - 画面(index.html・app.js・app.css・e2e_ui.py・ui-kit の写し)を消した(ユーザー決定)。入口の中の /cut2resolve/ は「編集」へ転送する。上の「画面は「編集」に統合しました」

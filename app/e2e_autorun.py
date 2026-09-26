@@ -158,7 +158,8 @@ def main():
             clip = next(m for m in v["marks"] if m["id"] == "m1")
             check(clip["status"] == "exported" and os.path.isfile(clip["path"]), "書き出した mp4 がある")
             pack_dir = os.path.splitext(clip["path"])[0] + "_pack"
-            check(os.path.isfile(os.path.join(pack_dir, "cut-plan.json")) and os.path.isfile(os.path.join(pack_dir, "textplus-import.json")),
+            # パックは最小限(④): cut-plan.json は置かず、cut2resolve の作業データに記録(ytt_core.txindex.pack_info が読む)
+            check(os.path.isfile(os.path.join(pack_dir, "create_resolve_textplus_project.lua")) and not os.path.exists(os.path.join(pack_dir, "cut-plan.json")),
                   "Text+ パックができた: %s" % (os.listdir(pack_dir) if os.path.isdir(pack_dir) else "無い"))
             check(os.path.isfile(os.path.splitext(clip["path"])[0] + ".transcript.json"), "文字起こしを動画の隣に保存した(transcript/v1)")
 

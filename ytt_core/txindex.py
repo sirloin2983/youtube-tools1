@@ -8,7 +8,12 @@
 文書の行の時刻は切り抜きの中の時刻。元の配信の時刻 = offset + t(offset は .clip.json の export.actualStart → range.start の順。
 ytt_core.schemas.clip_offset)。.clip.json が無ければマークの開始を使う(高速書き出しのずれ(数秒)は直せない)。
 文書は大きい(数百行)ので、ファイルの更新日時・大きさが変わったときだけ読み直す。
+
+パックの有無(pack_info・is_pack_dir)もここ1か所で決める。2026-09-26(④)から cut2resolve の画面・API のパックはフォルダに cut-plan.json を置かず、
+cut2resolve の作業データ packs/ に「パックを作った記録」を残す(書くのは cut2resolve の serve.py。ここは読むだけ)。
+記録が無ければ、以前のパック(フォルダの中の cut-plan.json)を見る。
 """
+import hashlib
 import os
 import threading
 
@@ -16,6 +21,12 @@ from . import datadir, fsio, schemas
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PACK_RECORD_SCHEMA = "youtube-tools-pack-record/v1"
+MAX_PACK_RECORD_BYTES = 16 * 1024 * 1024
+TEXTPLUS_SCRIPT = "create_resolve_textplus_project.lua"
+OLD_TEXTPLUS_PLAN = "textplus-import.json"
+CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
 _cache = {}          # パス -> ((更新日時ns, 大きさ), 読んだ中身)
 _lock = threading.Lock()
 
@@ -143,14 +154,89 @@ def pack_dir(media_path):
     return os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
 
 
-def pack_info(media_path):
-    """切り抜きのパック(cut2resolve が作る <名前>_pack)があるか。中に cut-plan.json があれば「パックあり」。
-    -> {"dir", "textplus"(Text+ パックか), "updatedAt"(ms)} か None。入口の案件の画面と文字起こしの一覧が同じ規則で使う(規則はここ1か所)"""
+_packs_dir_used = None   # 起動した cut2resolve が知らせた記録のフォルダ(入口の中では同じプロセスの他のツールもここを読む)
+
+
+def use_packs_dir(path):
+    """cut2resolve の serve.py が起動したときに、自分の記録のフォルダを知らせる(テストがツールを一時フォルダに写して動かしても、
+    書く場所と読む場所がずれないように)"""
+    global _packs_dir_used
+    _packs_dir_used = os.path.abspath(path) if path else None
+
+
+def packs_dir(env=None, c2r_dir=None):
+    """パックを作った記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace なら cut2resolve のフォルダの中)。
+    起動した cut2resolve が知らせた場所(use_packs_dir)があればそれ(env を渡したときは使わない = テスト)。
+    c2r_dir: cut2resolve のコードのフォルダ(serve.py が自分の場所を渡す。無ければ環境変数 YTT_CUT2RESOLVE_DIR → リポジトリの cut2resolve)"""
+    if _packs_dir_used and env is None:
+        return _packs_dir_used
+    env = os.environ if env is None else env
+    legacy = c2r_dir or env.get("YTT_CUT2RESOLVE_DIR") or os.path.join(REPO_ROOT, "cut2resolve")
+    return os.path.join(datadir.tool_dir("cut2resolve", legacy, env), "packs")
+
+
+def pack_key(dirpath):
+    """パックのフォルダ → 記録のファイル名(フォルダのパスの大文字小文字をそろえたハッシュ)"""
+    return hashlib.sha1(norm(str(dirpath)).encode("utf-8")).hexdigest()[:20] + ".json"
+
+
+def read_pack_record(dirpath, env=None, c2r_dir=None):
+    """パックを作った記録(cut2resolve の packs/)。フォルダがあり、記録した中身のファイルが1つでも残っているときだけ返す
+    (フォルダを消した・作り直した後の古い記録で「パック済み」にしない)。-> 記録 か None"""
+    if not dirpath:
+        return None
+    try:
+        rec = fsio.read_json_file(os.path.join(packs_dir(env, c2r_dir), pack_key(dirpath)), MAX_PACK_RECORD_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(rec, dict) or rec.get("schema") != PACK_RECORD_SCHEMA or norm(rec.get("dir")) != norm(str(dirpath)):
+        return None
+    files = [f for f in rec.get("files") or [] if isinstance(f, str) and f and not os.path.isabs(f) and ".." not in f.replace("\\", "/").split("/")]
+    if not any(os.path.isfile(os.path.join(str(dirpath), f)) for f in files):
+        return None
+    return rec
+
+
+def _old_cut_plan(dirpath):
+    """以前のパック(2026-09-26 まで。フォルダの中の cut-plan.json)。-> (更新日時 ms, 中身 or None) か None"""
+    p = os.path.join(str(dirpath), "cut-plan.json")
+    try:
+        mt = int(os.path.getmtime(p) * 1000)
+    except OSError:
+        return None
+    try:
+        d = fsio.read_json_file(p, 4 * 1024 * 1024)
+    except (OSError, UnicodeError, ValueError):
+        d = None
+    return mt, d if isinstance(d, dict) else None
+
+
+def pack_info(media_path, env=None):
+    """切り抜きのパック(cut2resolve が作る <名前>_pack)があるか。パックを作った記録(④)か、以前のパックならフォルダの中の cut-plan.json。
+    -> {"dir", "textplus"(Text+ パックか), "updatedAt"(ms)} か None。入口の案件の画面・まとめて実行・文字起こしの一覧が同じ規則で使う(規則はここ1か所)"""
     if not media_path:
         return None
     d = pack_dir(media_path)
-    try:
-        mt = int(os.path.getmtime(os.path.join(d, "cut-plan.json")) * 1000)
-    except OSError:
+    rec = read_pack_record(d, env)
+    if rec:
+        at = rec.get("builtAt")
+        return {"dir": d, "textplus": rec.get("textplus") is True,
+                "updatedAt": at if isinstance(at, int) and not isinstance(at, bool) else 0}
+    old = _old_cut_plan(d)
+    if not old:
         return None
-    return {"dir": d, "textplus": os.path.isfile(os.path.join(d, "textplus-import.json")), "updatedAt": mt}
+    textplus = any(os.path.isfile(os.path.join(d, n)) for n in (OLD_TEXTPLUS_PLAN, TEXTPLUS_SCRIPT))
+    return {"dir": d, "textplus": textplus, "updatedAt": old[0]}
+
+
+def is_pack_dir(dirpath, env=None, c2r_dir=None):
+    """cut2resolve が作ったパックのフォルダか(「フォルダを開く」・前回のパックの手順書を読むのを許すか)。
+    パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いた youtube-tools-cut-plan"""
+    if not dirpath or not os.path.isdir(str(dirpath)):
+        return False
+    if read_pack_record(dirpath, env, c2r_dir):
+        return True
+    old = _old_cut_plan(dirpath)
+    d = old[1] if old else None
+    tool = d.get("tool") if d else None
+    return bool(d) and d.get("schema") == CUT_PLAN_SCHEMA and isinstance(tool, dict) and tool.get("name") == "cut2resolve"

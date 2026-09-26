@@ -442,14 +442,16 @@ class TestEditHttp(unittest.TestCase):
         st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
         self.assertEqual((st, hd["X-Resolve-Cuts"]), (200, "3"))
         with zipfile.ZipFile(io.BytesIO(body)) as z:
-            ip = json.loads(z.read(next(n for n in z.namelist() if n.endswith("/textplus-import.json"))))
+            import resolve_textplus
+            ip = resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 54), (60, 66), (90, 153)])
         # 残す区間(.cut-plan.json)の保存もカットのとおり
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})
         with open(r["path"], encoding="utf-8") as f:
             plan = json.load(f)
         self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
-        # 前回のパックの手順書: 記録したフォルダが cut2resolve のパック(中に cut-plan.json)のときだけ読む
+        # 前回のパックの手順書: 記録したフォルダが cut2resolve のパックのときだけ読む(cut2resolve の記録か、以前のパックなら cut2resolve の cut-plan.json。
+        # 記録で読めることは ytt_core の test_pack_record・cut2resolve の test_serve で確かめる)
         out = os.path.join(self.media_dir, "パック_pack")
         os.makedirs(out, exist_ok=True)
         self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": 0, "dir": out, "files": ["友人へ.txt"]})
@@ -457,7 +459,10 @@ class TestEditHttp(unittest.TestCase):
             f.write("Resolve で開く手順")
         self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # cut-plan.json が無い = パックではない
         with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-cut-plan/v1"}, f)
+            json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "transcribe"}}, f)
+        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # 他のツールの cut-plan.json はパックではない
+        with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
         self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))
 

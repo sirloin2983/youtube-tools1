@@ -71,7 +71,9 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 }
 ```
 - `status` が `adopted`(省略時も adopted)の区間だけを使う。`media` は任意(無ければ画面・引数で動画を指定)
-- 出力フォルダには cut2resolve が同じ schema の詳細版 `cut-plan.json`(保持・削除区間・fps など)を書く
+- cut2resolve の詳細版(同じ schema。保持・削除区間・fps など)は、コマンド(cut2resolve.py)では出力フォルダの `cut-plan.json`。
+  画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
+  (2026-09-26 ④。読むのは `ytt_core/txindex`。`docs/edit-tool-design.md` の 12 ④)
 
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
