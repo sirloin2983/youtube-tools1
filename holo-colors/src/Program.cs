@@ -511,6 +511,9 @@ namespace HoloColors
                 }
                 Directory.CreateDirectory(target);
                 Shot(main, Path.Combine(target, "main.png"));
+                main.View.AutoScrollPosition = new Point(0, (int)(430 * main.DeviceDpi / 96f));
+                Shot(main, Path.Combine(target, "scrolled.png"));
+                main.View.AutoScrollPosition = Point.Empty;
                 main.SearchBox.Text = "ぺこ";
                 Shot(main, Path.Combine(target, "search.png"));
                 main.SearchBox.Text = "";

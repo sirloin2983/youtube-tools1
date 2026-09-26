@@ -31,13 +31,19 @@ if errorlevel 1 goto fail
 
 echo [3/4] dist\HoloColors
 if exist dist\HoloColors rmdir /s /q dist\HoloColors
+if exist dist\HoloColors (
+  echo dist\HoloColors could not be removed. Quit HoloColors started from that folder, then run this again.
+  goto fail
+)
 mkdir dist\HoloColors
-copy /y build\HoloColors.exe dist\HoloColors\ >nul
-copy /y members.json dist\HoloColors\ >nul
-copy /y README.txt dist\HoloColors\ >nul
+copy /y build\HoloColors.exe dist\HoloColors\ >nul || goto fail
+copy /y members.json dist\HoloColors\ >nul || goto fail
+copy /y README.txt dist\HoloColors\ >nul || goto fail
 
+rem Antivirus software may hold the new exe for a moment: retry, then check that the zip really has all 3 files.
 echo [4/4] dist\HoloColors.zip
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\HoloColors' -DestinationPath 'dist\HoloColors.zip' -Force"
+if exist dist\HoloColors.zip del /q dist\HoloColors.zip
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for ($i = 1; ; $i++) { try { Compress-Archive -Path 'dist\HoloColors' -DestinationPath 'dist\HoloColors.zip' -Force; break } catch { if ($i -ge 5) { Write-Host $_; exit 1 }; Start-Sleep -Seconds 1 } }; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z = [IO.Compression.ZipFile]::OpenRead((Resolve-Path 'dist\HoloColors.zip').Path); $n = $z.Entries.Count; $z.Dispose(); if ($n -ne 3) { Write-Host ('The zip has ' + $n + ' files, expected 3'); exit 1 }"
 if errorlevel 1 goto fail
 
 echo.

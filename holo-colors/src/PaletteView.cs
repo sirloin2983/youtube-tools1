@@ -133,7 +133,9 @@ namespace HoloColors
             g.Clear(BackColor);
             if (nameFont == null) MakeFonts();
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.TranslateTransform(AutoScrollPosition.X, AutoScrollPosition.Y);
+            // スクロールの分は座標を自分でずらす。Graphics.TranslateTransform は TextRenderer(文字)に効かず、
+            // 文字だけ元の位置に描かれてしまう(2026-09-27 に見つかった不具合)
+            Point off = AutoScrollPosition;
             if (tiles.Count == 0)
             {
                 TextRenderer.DrawText(g, emptyText, emptyFont, new Rectangle(0, S(40), ClientSize.Width, S(60)), Color.FromArgb(110, 110, 120),
@@ -141,17 +143,27 @@ namespace HoloColors
                 return;
             }
             foreach (var h in headers)
-                TextRenderer.DrawText(g, h.Text, headerFont, new Rectangle(h.Rect.X + S(2), h.Rect.Y + S(8), h.Rect.Width, h.Rect.Height - S(8)),
-                    Color.FromArgb(90, 90, 105), TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            for (int i = 0; i < tiles.Count; i++) DrawTile(g, tiles[i], i == selected, i == hover);
+            {
+                var r = new Rectangle(h.Rect.X + S(2) + off.X, h.Rect.Y + S(8) + off.Y, h.Rect.Width, h.Rect.Height - S(8));
+                if (r.IntersectsWith(e.ClipRectangle))
+                    TextRenderer.DrawText(g, h.Text, headerFont, r, Color.FromArgb(90, 90, 105), TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                Rectangle r = tiles[i].Rect;
+                r.Offset(off);
+                // 見えていない札は描かない(選択の枠の分だけ広めに判定)
+                if (Rectangle.Inflate(r, S(4), S(4)).IntersectsWith(e.ClipRectangle))
+                    DrawTile(g, tiles[i].Entry, r, i == selected, i == hover);
+            }
         }
 
-        void DrawTile(Graphics g, Tile t, bool isSelected, bool isHover)
+        // r は画面(スクロール済み)の座標
+        void DrawTile(Graphics g, ColorEntry entry, Rectangle r, bool isSelected, bool isHover)
         {
-            Color bg = HexColor.ToColor(t.Entry.Hex);
+            Color bg = HexColor.ToColor(entry.Hex);
             bool dark = HexColor.PrefersDarkText(bg);
             Color fg = dark ? Color.FromArgb(24, 24, 28) : Color.White;
-            Rectangle r = t.Rect;
             int radius = S(7);
             using (var path = RoundRect(r, radius))
             using (var brush = new SolidBrush(bg))
@@ -168,9 +180,9 @@ namespace HoloColors
                     g.DrawPath(pen, path);
             }
             var text = new Rectangle(r.X + S(10), r.Y + S(4), r.Width - S(16), r.Height / 2);
-            TextRenderer.DrawText(g, t.Entry.Name, nameFont, text, fg, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, entry.Name, nameFont, text, fg, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
             var hex = new Rectangle(r.X + S(10), r.Y + r.Height / 2 + S(1), r.Width - S(16), r.Height / 2 - S(4));
-            TextRenderer.DrawText(g, t.Entry.Hex, hexFont, hex, Color.FromArgb(dark ? 170 : 230, fg), TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, entry.Hex, hexFont, hex, Color.FromArgb(dark ? 170 : 230, fg), TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
         }
 
         static GraphicsPath RoundRect(Rectangle r, int radius)
@@ -189,7 +201,32 @@ namespace HoloColors
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            int h = HitTest(e.Location);
+            UpdateHover(e.Location);
+        }
+
+        // スクロールしたあとも、マウスの下の札に枠を合わせる(マウスを動かさなくても札は動くため)
+        void UpdateHoverAtCursor()
+        {
+            if (!IsHandleCreated) return;
+            Point p = PointToClient(Cursor.Position);
+            UpdateHover(ClientRectangle.Contains(p) ? p : new Point(-1, -1));
+        }
+
+        protected override void OnScroll(ScrollEventArgs se)
+        {
+            base.OnScroll(se);
+            UpdateHoverAtCursor();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            UpdateHoverAtCursor();
+        }
+
+        void UpdateHover(Point client)
+        {
+            int h = client.X < 0 ? -1 : HitTest(client);
             if (h == hover) return;
             hover = h;
             Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
@@ -234,8 +271,10 @@ namespace HoloColors
 
         public void ScrollBy(int wheelDelta)
         {
-            int y = -AutoScrollPosition.Y - wheelDelta / 120 * S(60);
+            // 1目盛り(120)で 60px。タッチパッドは 120 より細かく来るので、割り算は最後に
+            int y = -AutoScrollPosition.Y - wheelDelta * S(60) / 120;
             AutoScrollPosition = new Point(0, Math.Max(0, y));
+            UpdateHoverAtCursor();
             Invalidate();
         }
 

@@ -32,6 +32,7 @@ static class CoreTests
         Run("members.json: おかしなデータは読まない", BadMembers);
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
         Run("一覧: 札の並び・クリックの判定・キーでの移動", PaletteLayout);
+        Run("一覧: スクロールしても札と文字が一緒に動く", PaletteScrollDrawing);
         Run("起動: 作業データの場所ごとに1つ", InstanceKey);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
@@ -381,6 +382,50 @@ static class CoreTests
             Eq(0, v.Tiles.Count, "空");
             Eq(null, v.SelectedEntry, "空なら何も選ばない");
         }
+    }
+
+    // スクロールした絵は、スクロールしていない絵を上へずらしたものと同じはず(文字だけ元の位置に残る、を防ぐ)
+    static void PaletteScrollDrawing()
+    {
+        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(640, 420) })
+        {
+            var v = new PaletteView { Dock = DockStyle.Fill, Font = new Font("Yu Gothic UI", 9f) };
+            form.Controls.Add(v);
+            var g = new ColorGroup { Id = "a", Branch = "JP", Name = "A" };
+            for (int i = 0; i < 40; i++)
+                g.Items.Add(new ColorEntry { Id = "a" + i, Name = "名前" + i, Hex = i % 2 == 0 ? "#1E3A8A" : "#FFE066", Group = g });
+            form.Show();
+            v.SetGroups(new List<ColorGroup> { g }, "なし", false);
+            Application.DoEvents();
+            int w = v.ClientSize.Width, h = v.ClientSize.Height;
+            True(v.AutoScrollMinSize.Height > h + 100, "スクロールできるだけの高さ");
+
+            Bitmap top = Render(v);
+            const int d = 57;   // 段の間隔の倍数にならないずれ
+            v.AutoScrollPosition = new Point(0, d);
+            Application.DoEvents();
+            Eq(-d, v.AutoScrollPosition.Y, "スクロールした");
+            Bitmap scrolled = Render(v);
+            int diff = 0;
+            for (int y = 0; y < h - d; y += 1)
+                for (int x = 0; x < w; x += 2)
+                    if (scrolled.GetPixel(x, y) != top.GetPixel(x, y + d)) diff++;
+            top.Dispose();
+            scrolled.Dispose();
+            Eq(0, diff, "スクロールした絵と、ずらした絵の違う点の数");
+
+            // スクロールしたあとのクリックの判定も、見えている札と同じ
+            var tile = v.Tiles[7];
+            var p = new Point(tile.Rect.X + 20, tile.Rect.Y + 20 - d);
+            Eq(7, v.HitTest(p), "スクロールしたあとのクリック");
+        }
+    }
+
+    static Bitmap Render(Control c)
+    {
+        var bmp = new Bitmap(c.Width, c.Height);
+        c.DrawToBitmap(bmp, new Rectangle(Point.Empty, c.Size));
+        return bmp;
     }
 
     static void InstanceKey()
