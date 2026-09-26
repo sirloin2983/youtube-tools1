@@ -91,12 +91,37 @@ function loadView(){
   } catch {}
 }
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
+/* 「編集」の3つのタブ(docs/edit-tool-design.md 3)。今のタブは URL の #tx / #cut / #pack に残す(再読み込み・窓で開いても同じタブ)。
+   カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
+const ED_TABS = ['tx', 'cut', 'pack'];
+const EDT = { tab: 'tx', overlay: false };
+const wideTab = () => EDT.tab !== 'tx';
+const menuOpen = () => wideTab() ? EDT.overlay : V.menu;
+function tabFromHash(){ const h = String(location.hash || '').replace(/^#/, ''); return ED_TABS.includes(h) ? h : null; }
+function setEditTab(t, opt = {}){
+  if (!ED_TABS.includes(t)) t = 'tx';
+  const was = EDT.tab;
+  EDT.tab = t; EDT.overlay = false;
+  document.querySelectorAll('[data-edtab]').forEach(b => { const on = b.dataset.edtab === t; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+  document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
+  document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
+  if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
+  applyView();
+  if (was !== t) onEditTab(was, t);
+  if (opt.focus){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
+}
+/* タブを移ったとき: 文字起こしのタブの映像は隠れるので止める(隠れたまま音だけ鳴らさない)。戻ったら行の高さと帯を描き直す */
+function onEditTab(from, to){
+  if (from === 'tx' && S.doc) player().pause();
+  if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
+  renderDocBar();
+}
 function applySideTab(){
   if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';
   document.querySelectorAll('[data-side-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.sideTab === V.sideTab ? 'true' : 'false'));
   document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
 }
-function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel) V.menu = true; saveView(); applyView(); }   // タブの切り替え(v0.9.9: GPT 版のタブを ☰ のメニューの中に統合)
+function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; } saveView(); applyView(); }   // タブの切り替え(v0.9.9: GPT 版のタブを ☰ のメニューの中に統合)
 function applyView(){
   const r = document.documentElement;
   if (!['13', '15', '17', '20'].includes(V.fs)) V.fs = '15';
@@ -106,8 +131,10 @@ function applyView(){
   r.style.setProperty('--fs', V.fs + 'px'); r.style.setProperty('--vh', VID_H[V.vid] || VID_H.l);
   r.classList.toggle('dense', !!V.dense); r.classList.toggle('vid-audio', V.vid === 'a');
   applySideTab();
-  $('.app').classList.toggle('menu-closed', !V.menu);
-  $('#btnMenu').setAttribute('aria-expanded', V.menu ? 'true' : 'false'); $('#btnMenuT').textContent = V.menu ? 'メニューを閉じる' : 'メニューを開く';
+  const app = $('.app'), wide = wideTab();
+  app.classList.toggle('tab-wide', wide); app.classList.toggle('menu-overlay', wide && EDT.overlay);
+  app.classList.toggle('menu-closed', !menuOpen());
+  $('#btnMenu').setAttribute('aria-expanded', menuOpen() ? 'true' : 'false'); $('#btnMenuT').textContent = menuOpen() ? 'メニューを閉じる' : 'メニューを開く';
   $('#noDocMenu').hidden = !!V.menu;
   $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; syncThemeSelect(); $('#vBrk').value = V.brk;
   if (!['0.05', '0.1', '0.25', '0.5', '1'].includes(V.adjStep)) V.adjStep = '0.1';
@@ -119,17 +146,19 @@ function applyView(){
 function syncThemeSelect(){ const p = window.UIKit ? UIKit.theme.get() : 'system'; $('#vTheme').value = p === 'system' ? 'auto' : p; }
 if (window.UIKit) UIKit.theme.onChange(() => { syncThemeSelect(); if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定で変わったとき(帯の色も描き直す)
 /* v0.15.0: 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
-const isDrawer = () => !!(window.matchMedia && matchMedia('(max-width: 719.98px)').matches);
+const isDrawer = () => wideTab() || !!(window.matchMedia && matchMedia('(max-width: 719.98px)').matches);   // カット・パックのタブでも重ねて開く
 function toggleMenu(open){
-  const was = V.menu;
-  V.menu = open === undefined ? !V.menu : !!open; saveView(); applyView();
-  if (isDrawer() && was !== V.menu){
-    if (V.menu){ const t = document.querySelector('[data-side-tab][aria-selected=true]'); if (t) t.focus({ preventScroll: true }); }
+  const was = menuOpen();
+  if (wideTab()) EDT.overlay = open === undefined ? !EDT.overlay : !!open;
+  else { V.menu = open === undefined ? !V.menu : !!open; saveView(); }
+  applyView();
+  if (isDrawer() && was !== menuOpen()){
+    if (menuOpen()){ const t = document.querySelector('[data-side-tab][aria-selected=true]'); if (t) t.focus({ preventScroll: true }); }
     else if (document.activeElement && $('#menuPanel').contains(document.activeElement)) $('#btnMenu').focus({ preventScroll: true });
   }
 }
 /* メニューの中の項目へ移動する(閉じていれば開く) */
-function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
+function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; if (wideTab()) EDT.overlay = true; else V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
 {
   const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
   bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vBrk', 'brk', t => t.value);
@@ -139,6 +168,14 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
   $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
   $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
   $('#menuScrim').addEventListener('click', () => toggleMenu(false));   // 引き出しの外(暗い幕)を押したら閉じる
+  document.querySelectorAll('[data-strip]').forEach(b => b.addEventListener('click', () => { if (b.dataset.strip === 'menu') toggleMenu(true); else setSideTab(b.dataset.strip, true); }));
+  document.querySelectorAll('[data-edtab]').forEach(b => b.addEventListener('click', () => setEditTab(b.dataset.edtab)));
+  $('#edTabs').addEventListener('keydown', e => {   // タブの並び(role=tablist)の中は ← → で移る
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault(); const i = ED_TABS.indexOf(EDT.tab);
+    setEditTab(ED_TABS[(i + (e.key === 'ArrowRight' ? 1 : ED_TABS.length - 1)) % ED_TABS.length], { focus: true });
+  });
+  window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
   document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
@@ -147,7 +184,7 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
     if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;
     const open = document.querySelectorAll('details.pop[open], details.ui-menu[open]');
     if (open.length){ open.forEach(d => { d.open = false; }); return; }
-    if (isDrawer() && V.menu && !document.querySelector('dialog[open]') && !(e.target && e.target.matches && e.target.matches('input[type=search]') && e.target.value)) toggleMenu(false);   // 引き出しは Esc で閉じる(検索欄に文字があるときは、まず検索欄を空にする)
+    if (isDrawer() && menuOpen() && !document.querySelector('dialog[open]') && !(e.target && e.target.matches && e.target.matches('input[type=search]') && e.target.value)) toggleMenu(false);   // 引き出しは Esc で閉じる(検索欄に文字があるときは、まず検索欄を空にする)
   });
 }
 
@@ -284,6 +321,7 @@ function setTab(t){
   tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker'; $('#paneFolder').hidden = t !== 'folder';
   $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker'); $('#tabFolder').setAttribute('aria-pressed', t === 'folder');
   $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : t === 'folder' ? '選んだ動画を、それぞれ文字起こし' : '選んだポイントを文字起こし';
+  $('#btnOpenVideo').hidden = t !== 'file';
   if (t === 'folder') fdSyncStudio();
   if (t === 'marker') renderMarker();
 }
@@ -323,6 +361,22 @@ async function startMarker(){
     } catch (e){ toast(`${n}件追加したところで失敗: ${e.message}`); break; }
   }
   if (n) toast(`${n}件を待機列に追加しました`);
+}
+/* 文字起こしせずに開く: 動画のパスだけで文書を作り(同じ動画の文書があればそれ)、カットのタブを開く */
+async function openVideoNoTx(){
+  const path = $('#srcPath').value.trim();
+  if (!path) return toast('動画のパスを入力してください');
+  const b = $('#btnOpenVideo'); b.disabled = true;
+  try {
+    const r = await api('/api/open-video', { body: { path, title: $('#jTitle').value.trim() } });
+    await loadList();
+    if (!(await openDoc(r.id))) return;
+    $('#mediaChoice').hidden = true;
+    if (r.created) setEditTab('cut');
+    toast(r.created ? '文字起こしせずに開きました。カットのタブで残す・削る所を決められます(文字起こしは 1 文字起こし のタブから、あとでもできます)' : 'この動画は前に開いています。その文書を開きました', 6000, 'ok');
+    for (const w of r.warnings || []) toast(w, 6000);
+  } catch (e){ toast(e.message, 6000, 'err'); }
+  finally { b.disabled = false; }
 }
 async function onStart(){
   readOpts();
@@ -442,6 +496,8 @@ async function pollJobs(){
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
       toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
         : `話者を判別しました(${diar.speakers}人)。` + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : '「話者」で名前を付けてください'));
+    } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
+      if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
     else if (txDone.length) toast(txDone.length > 1 ? `${txDone.length}本の文字起こしが終わりました(メニューの「履歴」から開けます)` : `「${txDone[0].title || '無題'}」の文字起こしが終わりました(メニューの「処理状況」の「開く」で開けます)`, 6000, 'ok');
   }
@@ -452,8 +508,16 @@ function renderJobBadge(){
   b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}`; }
 }
 const pctOf = j => Math.max(0, Math.min(100, Math.round((Number(j.progress) || 0) * 100)));
+/* 文字起こしの無い文書の「この動画を文字起こしする」: この文書に入れる文字起こし(intoDoc)が動いている間は押せない */
+function renderIntoState(){
+  if (!S.doc) return;
+  const j = S.jobs.find(x => x.kind === 'transcribe' && x.into === S.docId && ACTIVE.has(x.state));
+  $('#btnTxInto').disabled = !!j || !S.doc.sourcePath;
+  $('#txIntoHint').textContent = j ? `文字起こし中 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}(終わると、ここに行が出ます)`
+    : S.doc.sourcePath ? '認識の設定は、メニューの「新規」のものを使います' : 'この文書には動画のパスが無いため、文字起こしできません';
+}
 function renderJobs(){
-  renderJobBadge();
+  renderJobBadge(); renderIntoState();
   const box = $('#jobs');
   if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">ジョブはありません</p>'; return; }
   box.innerHTML = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
@@ -485,7 +549,7 @@ const ago = ms => (window.UIKit && UIKit.fmt) ? UIKit.fmt.ago(ms) : '';
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); scheduleProgress(); if (S.doc) renderCutPack();
+  renderList(); scheduleProgress(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 /* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
 const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
@@ -834,6 +898,7 @@ function setProof(s, on, row){
 }
 function syncProof(s){ const i = S.doc.segments.indexOf(s), row = document.querySelector(`#segs .seg[data-i="${i}"]`); if (row) setProof(s, !!s.proofed, row); }
 function updatePfStat(){
+  renderDocBar();
   if (!S.doc) return;
   const n = S.doc.segments.filter(s => s.proofed).length, t = S.doc.segments.length;
   $('#pfStat').textContent = t ? `校正済み ${n}/${t}行` : '';
@@ -1148,6 +1213,7 @@ async function openDoc(id, keep){
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
   if (!keep && V.menu && $('.editor').clientWidth < 1000){ toggleMenu(false); autoClosed = true; }
   $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
+  if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
   { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / 再認識: ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
   $('#playerMsg').hidden = true;
@@ -1161,7 +1227,7 @@ async function openDoc(id, keep){
     $('#q').value = ''; $('#flagKind').value = '';
   }
   if (!keep) cpDefaultFold();
-  renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
+  renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
   schedulePlan(keep ? 1500 : 600);
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
@@ -1191,8 +1257,9 @@ function segHTML(s, i){
   </div>`;
 }
 function renderDoc(){
-  const segs = S.doc.segments;
-  $('#segs').innerHTML = segs.length ? segs.map(segHTML).join('') : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
+  const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // 文字起こしせずに開いた文書(model が空)
+  $('#noRows').hidden = !untranscribed; renderIntoState();
+  $('#segs').innerHTML = segs.length ? segs.map(segHTML).join('') : untranscribed ? '' : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
   autoSizeAll(true);
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
@@ -1482,13 +1549,19 @@ const CMD_KEYS = {
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyF', 'KeyQ', 'KeyE']);
 window.addEventListener('keydown', e => {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]')) return;
+  const m = /^Digit([123])$/.exec(e.code); if (!m) return;
+  if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
+  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1]);
+});
+window.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
   const c = e.code;
-  if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
+  if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob() || wideTab()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
   if (e.key === '?'){ e.preventDefault(); if (!e.repeat) $('#keys').showModal(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
   if (e.shiftKey) return;   // Space 以外は Shift を押していたら何もしない(単体キーで動くので、誤って押しても発動しないように)
   if (c === 'KeyG'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }
-  if (!S.doc || lockJob()) return;
+  if (!S.doc || lockJob() || wideTab()) return;   // 校正のキーは 1 文字起こし のタブだけ(カットのタブは cut.js のキー)
   const dm = /^Digit([0-9])$/.exec(c);
   if (dm){ e.preventDefault(); if (!e.repeat) assignSpeaker(Number(dm[1])); return; }
   if (CMD_KEYS[c]){ e.preventDefault(); if (!e.repeat || REPEAT_OK.has(c)) CMD_KEYS[c](); }
@@ -1503,7 +1576,7 @@ window.addEventListener('keydown', e => {
 });
 /* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き */
 window.addEventListener('keydown', e => {
-  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || document.querySelector('dialog[open]')) return;
+  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || document.querySelector('dialog[open]')) return;
   const t = e.target;
   if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
   const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
@@ -1639,11 +1712,37 @@ player().addEventListener('playing', () => { $('#playerMsg').hidden = true; });
    一時停止するたびに必ずクリアして、表示部の再生は常に最後まで続けて流れるようにする */
 player().addEventListener('pause', () => { S.playEnd = null; });
 
-/* ブラウザのタブの題名: 「● タイトル - 文字起こしツール」(● は未保存・保存できていない) */
+/* ブラウザのタブの題名: 「● タイトル - 編集」(● は未保存・保存できていない) */
 function updateDocTitle(){
   const d = S.doc, st = $('#saveState').getAttribute('data-state');
-  document.title = d ? `${S.dirty || S.saving || st === 'err' ? '● ' : ''}${String(d.title || '無題').slice(0, 60)} - 文字起こしツール` : '文字起こしツール';
+  document.title = d ? `${S.dirty || S.saving || st === 'err' ? '● ' : ''}${String(d.title || '無題').slice(0, 60)} - 編集` : '編集';
 }
+/* 題名の行(どのタブにも): 配信者・長さ・元の配信の位置と、札「校正 n / m行」「残す n区間 ・ カット後 m:ss.ff」。描き直しはフレームごとに1回 */
+function docLength(d){
+  const a = Number(d.start) || 0, b = Number(d.end), dur = Number(d.duration);
+  if (b > a) return b - a;
+  if (dur > a) return dur - a;
+  return Math.max(0, ...d.segments.map(g => Number(g.end) || 0)) - a;
+}
+const fmtCs = t => { t = Math.max(0, Number(t) || 0); const cs = Math.round(t * 100), h = Math.floor(cs / 360000), m = Math.floor(cs % 360000 / 6000), sec = (cs % 6000) / 100;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + sec.toFixed(2).padStart(5, '0'); };   // 0:28.60(1/100 秒まで)
+let dbQ = 0;
+function renderDocBar(){ if (!dbQ) dbQ = requestAnimationFrame(() => { dbQ = 0; renderDocBarNow(); }); }
+function renderDocBarNow(){
+  const d = S.doc; if (!d) return;
+  const it = S.list.find(x => x.id === S.docId) || {}, parts = [];
+  if (it.channel) parts.push(it.channel);
+  const len = docLength(d); if (len > 0) parts.push(fmtT(len));
+  const rg = d.clip && typeof d.clip === 'object' && d.clip.range && typeof d.clip.range === 'object' ? d.clip.range : null, a = rg ? Number(rg.start) : NaN;
+  if (Number.isFinite(a)) parts.push('元の配信 ' + fmtT(a) + '〜');
+  const meta = $('#docMeta'); meta.textContent = parts.join(' ・ '); meta.title = String(d.sourcePath || '');
+  const txt = d.segments.filter(g => String(g.text || '').trim()), pf = txt.filter(g => g.proofed).length;
+  const pp = $('#pillProof'); pp.hidden = !txt.length; pp.textContent = `校正 ${pf} / ${txt.length}行`; pp.className = 'pill ' + (txt.length && pf === txt.length ? 'ok' : 'wait');
+  const pc = $('#pillCut'), plan = CP.plan && CP.planSig === rowSig() ? CP.plan : null;
+  if (plan){ pc.textContent = `残す ${plan.count}区間 ・ カット後 ${fmtCs(plan.keptSec)}`; pc.hidden = false; }
+  else { const sp = cpApproxSpans(); pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`; }
+}
+
 /* 文書を閉じる(開いている文書を削除したとき) */
 function closeDoc(){
   clearTimeout(markDirty.t);
@@ -1863,7 +1962,7 @@ $('#txList').addEventListener('click', e => {
   });
 });
 window.addEventListener('keydown', e => {
-  if (!S.doc || isTextEntry(e.target) || document.querySelector('dialog[open]')) return;
+  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]')) return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   else if (e.key === ' ' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.matches('button,summary,video')){ e.preventDefault(); const p = player(); p.paused ? p.play().catch(() => {}) : p.pause(); }
 });
@@ -1906,6 +2005,7 @@ $('#srcPath').addEventListener('change', e => lookupClip(e.target.value));
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
    ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
+function showMediaChoice(){ $('#mediaChoice').hidden = false; }
 function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
@@ -1914,13 +2014,21 @@ function takeUrlParams(){
   const rest = q.toString();
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
   if (!media && !clip) return false;
-  setTab('file'); setSideTab('start'); $('#newBox').open = true;
+  setTab('file'); $('#newBox').open = true;
   if (media) $('#srcPath').value = media;
-  lookupClip(clip || media).then(r => {
-    if (clip && !media && r && r.mediaPath && !$('#srcPath').value.trim()) $('#srcPath').value = r.mediaPath;   // ?clip= だけのときは、.clip.json が指す動画を入れる
-  });
-  window.scrollTo(0, 0);   // 「新しく文字起こしする」はメニューの先頭なので、一番上を見せる(ファイル欄と「元の配信」が見える)
-  toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '設定を確かめて「文字起こしを開始」を押してください(自動では始めません)', 7000, 'info');
+  const ask = () => {   // まだ文書の無い動画: 「文字起こしする / 文字起こしせずに開く」を選ばせる(自動では始めない)
+    setSideTab('start'); showMediaChoice();
+    lookupClip(clip || media).then(r => {
+      if (clip && !media && r && r.mediaPath && !$('#srcPath').value.trim()) $('#srcPath').value = r.mediaPath;   // ?clip= だけのときは、.clip.json が指す動画を入れる
+    });
+    window.scrollTo(0, 0);   // 「新しく文字起こしする」はメニューの先頭なので、一番上を見せる(ファイル欄と「元の配信」が見える)
+    toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '「文字起こしをする」か「文字起こしせずに開く」を選んでください(自動では始めません)', 7000, 'info');
+  };
+  if (!media) { ask(); return true; }
+  api('/api/doc-for?path=' + encodeURIComponent(media)).then(async r => {   // その動画の文書があれば、それを開く(編集で開く)
+    if (r && r.doc){ await loadList(); if (await openDoc(r.doc.id)) toast('この動画の文書を開きました', 3000, 'ok'); else ask(); }
+    else ask();
+  }).catch(ask);
   return true;
 }
 /* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
@@ -1967,6 +2075,19 @@ async function exportBeside(fmt, btn){
   } finally { btn.disabled = false; btn.textContent = label; }
 }
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
+$('#btnOpenVideo').addEventListener('click', openVideoNoTx);
+$('#mcOpen').addEventListener('click', openVideoNoTx);
+$('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
+$('#btnTxInto').addEventListener('click', async () => {
+  if (!S.doc || !S.doc.sourcePath) return;
+  readOpts();
+  const id = S.docId, b = $('#btnTxInto'); b.disabled = true;
+  try {
+    await api('/api/transcribe', { body: { sourcePath: S.doc.sourcePath, intoDoc: id, ...jobOpts() } });
+    toast('文字起こしを始めました(終わると、この画面に行が出ます)', 5000); startPolling(); await pollJobs();
+  } catch (e){ toast(e.message, 6000, 'err'); }
+  finally { renderIntoState(); }
+});
 [$('#handoffOut'), $('#cpPlanOut')].forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
   const v = S.handoff[b.dataset.k]; if (!v) return;
@@ -2026,12 +2147,13 @@ async function c2rWait(job, onTick){
 const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}`).join(';') : '';
 function cpCounts(){ let keep = 0, cut = 0, empty = 0; for (const g of S.doc.segments){ if (g.cutState === 'cut') cut++; else if (g.text.trim()) keep++; else empty++; } return { keep, cut, empty }; }
 /* 計算する前の目安: 残す行(文字があり、カット済でない)の時間を重なりをまとめて足す(cut2resolve の計算は1フレームの隙間もつなぐので、わずかに違うことがある) */
-function cpApproxSec(){
+function cpApproxSpans(){
   const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && g.text.trim() && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
-  let sum = 0, cur = null;
-  for (const [a, b] of spans){ if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else { if (cur) sum += cur[1] - cur[0]; cur = [a, b]; } }
-  return cur ? sum + cur[1] - cur[0] : 0;
+  const out = [];
+  for (const [a, b] of spans){ const cur = out[out.length - 1]; if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else out.push([a, b]); }
+  return out;
 }
+const cpApproxSec = () => cpApproxSpans().reduce((x, [a, b]) => x + b - a, 0);
 const cpItem = () => S.docId ? S.list.find(x => x.id === S.docId) : null;
 const cpSpec = path => ({ video: S.doc.sourcePath, transcript: path, preset: 'transcript-rows' });
 const cpPackDir = () => { const p = String(S.doc && S.doc.sourcePath || ''), k = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return p.slice(0, k + 1) + p.slice(k + 1).replace(/\.[^.]*$/, '') + '_pack'; };
@@ -2088,6 +2210,7 @@ function renderCutPackNow(){
   const c2r = CP.txPath && S.doc.sourcePath ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(S.doc.sourcePath) + '&transcript=' + encodeURIComponent(CP.txPath)) : '';
   link.innerHTML = c2r ? `<a class="btn small" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます(無音でのカット・細かい設定を使うとき)</span>`
     : '<span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span>';
+  renderDocBar();
 }
 function renderCpResult(){
   const box = $('#cpResult'), r = CP.result;
@@ -2275,10 +2398,7 @@ player().addEventListener('play', () => { if ($('#cpPreview').checked && !cpRaf)
 player().addEventListener('seeked', () => { if ($('#cpPreview').checked) cpShowTime(); });
 /* 「カットとパック」の開閉: 人が開閉したときだけ覚える。覚えていなければ、広い画面では開き、狭い画面(1列)では閉じておく(一覧に早く届くように) */
 $('#cutPack').querySelector('summary').addEventListener('click', () => { const next = !$('#cutPack').open; try { localStorage.setItem('tx.fold.cutPack', next ? '1' : '0'); } catch {} });
-function cpDefaultFold(){
-  let v = null; try { v = localStorage.getItem('tx.fold.cutPack'); } catch {}
-  $('#cutPack').open = v === '1' ? true : v === '0' ? false : $('.editor').clientWidth > 780;
-}
+function cpDefaultFold(){ $('#cutPack').open = true; }   // E2: 3 パック のタブに移したので、いつも開いておく(E4 で作り直す)
 /* zip でダウンロード(人に送るとき。/api/resolve-package。中身は cut2resolve の pack.py で作る Text+ パックと同じ) */
 $('#resolveExport').addEventListener('click', async () => {
   if (!S.docId) return toast('先に文字起こしを開いてください');
@@ -2308,7 +2428,7 @@ if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.s
 /* ---------- 起動 ---------- */
 async function boot(){
   $('#ver').textContent = 'v' + APP_VERSION;
-  loadView(); applyView();
+  loadView(); setEditTab(tabFromHash() || 'tx', { hash: !!tabFromHash() });
   try {
     const ping = await api('/api/ping');
     if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);

@@ -81,6 +81,9 @@ def main():
     evil = '<img src=x onerror="window.__xss=1">配信'
     with open(os.path.join(vids, "clip_0012.clip.json"), "w", encoding="utf-8") as f:
         json.dump(clip_json(clipv, evil, "https://www.youtube.com/watch?v=abcdefghijk"), f, ensure_ascii=False)
+    newv = make_wav("clip_0013.wav")   # 「編集」: まだ文書の無い切り抜き(?media= で「文字起こしする / せずに開く」を選ばせる)
+    with open(os.path.join(vids, "clip_0013.clip.json"), "w", encoding="utf-8") as f:
+        json.dump(clip_json(newv, evil, "https://www.youtube.com/watch?v=abcdefghijk"), f, ensure_ascii=False)
     jsv = make_wav("jsurl.wav")
     with open(os.path.join(vids, "jsurl.clip.json"), "w", encoding="utf-8") as f:
         json.dump(clip_json(jsv, '<b id="evil2">太字</b>リンクにしない配信', "javascript:window.__xss=2"), f, ensure_ascii=False)
@@ -161,9 +164,15 @@ def main():
                 pg.wait_for_selector("#segs .seg")
 
             # ==================== 1) ?media= の受け取り ====================
-            pg.goto(base + "?nofs=1&media=" + urllib.parse.quote(clipv))
+            pg.goto(base + "?nofs=1&media=" + urllib.parse.quote(clipv) + "#cut")   # 「編集」: 文書のある動画 → その文書を開く(タブは URL のまま)
+            pg.wait_for_function("document.querySelector('#docTitle').value === '切り抜き文書'", timeout=10000)
+            check(pg.evaluate("location.search") == "?nofs=1" and pg.evaluate("location.hash") == "#cut" and pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true",
+                  "?media= で文書のある動画は、その文書を開く(URL から media を消す・タブは #cut のまま): %s" % pg.evaluate("[location.search, location.hash, document.querySelector('[data-edtab=cut]').getAttribute('aria-selected')]"))
+            check(len(call(port, "GET", "/api/jobs")["jobs"]) == n_jobs, "文書のある動画を開いても、文字起こしは始めない")
+            pg.goto(base + "?nofs=1&media=" + urllib.parse.quote(newv) + "#tx")
             pg.wait_for_selector("#srcClip:not([hidden])", timeout=10000)
-            check(pg.input_value("#srcPath") == clipv, "?media= の値が、新規文字起こしのファイル欄に入る")
+            check(pg.input_value("#srcPath") == newv, "?media= の値が、新規文字起こしのファイル欄に入る")
+            check(pg.is_visible("#mediaChoice") and pg.is_visible("#mcTx") and pg.is_visible("#mcOpen"), "まだ文書の無い動画は「文字起こしをする / 文字起こしせずに開く」を選ばせる")
             check(pg.evaluate("location.search") == "?nofs=1", "読んだら URL から media を消す(ほかの値は残す): %s" % pg.evaluate("location.search"))
             check(pg.get_attribute("[data-side-tab=start]", "aria-selected") == "true" and pg.is_visible("#srcPath"), "メニューの「新規」が開いて、ファイル欄が見える")
             time.sleep(0.5)
@@ -176,6 +185,18 @@ def main():
             check(href.startswith("https://www.youtube.com/watch?v=abcdefghijk") and "t=1234s" in href and pg.get_attribute("#srcClip a", "rel") == "noopener noreferrer",
                   "YouTube の URL は、元の配信のその位置へのリンクになる: %s" % href)
             check("自動では始めません" in pg.inner_text("#toast"), "自動では始めない旨の案内: " + pg.inner_text("#toast"))
+            pg.click("#mcOpen")   # 文字起こしせずに開く → 行の無い文書ができて、カットのタブが開く
+            pg.wait_for_function("document.querySelector('#docTitle').value === 'clip_0013'", timeout=10000)
+            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.evaluate("location.hash") == "#cut" and not pg.is_visible("#mediaChoice"),
+                  "「文字起こしせずに開く」で文書ができ、カットのタブが開く: %s" % pg.evaluate("[location.hash, document.querySelector('[data-edtab=cut]').getAttribute('aria-selected'), !document.querySelector('#mediaChoice').hidden]"))
+            check(len(call(port, "GET", "/api/jobs")["jobs"]) == n_jobs, "文字起こしせずに開いたときは、文字起こしを始めない")
+            pg.click("[data-edtab=tx]")
+            check(pg.is_visible("#noRows") and pg.is_visible("#btnTxInto") and pg.locator("#segs .seg").count() == 0,
+                  "行の無い文書の 1 文字起こし のタブには「この動画を文字起こしする」が出る")
+            pg.click("#btnTxInto")
+            pg.wait_for_function("document.querySelectorAll('#segs .seg').length > 0", timeout=20000)
+            check(pg.input_value("#docTitle") == "clip_0013" and pg.is_hidden("#noRows"), "文字起こしが、同じ文書に入る(題名はそのまま・案内は消える)")
+            n_jobs = len(call(port, "GET", "/api/jobs")["jobs"])
 
             # ==================== 2) ?clip= の受け取り・リンクにしない URL・見つからない動画 ====================
             pg.goto(base + "?clip=" + urllib.parse.quote(os.path.join(vids, "clip_0012.clip.json")))
@@ -340,6 +361,7 @@ def main():
                   "単体で開いたときは「カットとパック」のパック作りは使えず、理由(入口から開いたときだけ)が出る: " + pg.inner_text("#cpOff"))
             check("残す" in pg.inner_text("#cpStats") and "カット 0行" in pg.inner_text("#cpStats"), "行の数(残す・カット)は単体でも出る: " + pg.inner_text("#cpStats"))
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
+            pg.click("#moreTools summary")   # 「編集」E2: 選んだ行のカット/残すは 1 文字起こし のタブの「まとめて ▾」の中
             pg.wait_for_function("!document.querySelector('#cutSelected').disabled", timeout=3000)   # 「カットとパック」の表示はフレームごとにまとめて描き直す
             check(pg.is_enabled("#cutSelected"), "行をチェックで選ぶと「選んだ行をカット」が使える")
             pg.click("#cutSelected")

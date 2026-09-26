@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>文字起こしツール</title>
+<title>編集</title>
 <!-- ui-kit.js は CSS より先に同期で読む(画面のちらつき防止)。CSP(script-src 'self')でインラインのスクリプトは動かないので、外部ファイルにしている。正本は ui-kit/ui-kit.js(tools/sync_ui_kit.py で写す) -->
 <script src="ui-kit.js"></script>
 <style>
@@ -728,16 +728,51 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .tt-flow{margin:12px 0 0;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);font-size:13px;color:var(--ink)}
 .keyt td:first-child{white-space:nowrap;font-family:var(--mono);text-align:left;padding-right:12px}.keyt td{text-align:left}
 
+
+/* ---------- 「編集」の3つのタブ(docs/edit-tool-design.md 3。E2 = 骨組み) ---------- */
+.tt-edtabs .ui-tab{min-height:32px}
+.ui-header-actions>.savest{margin-right:4px}
+@media (max-width:720px){.ui-header-actions>.savest{display:none}}
+/* 題名の行: どのタブにも出す */
+.tt-docbar{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin:0 0 12px;min-width:0}
+.tt-docbar #docTitle{flex:0 1 auto;width:auto;min-width:8em;max-width:min(640px,100%);field-sizing:content}
+.tt-docbar-meta{flex:1 1 200px;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-docbar-pills{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.tt-docbar-pills .pill{font-variant-numeric:tabular-nums}
+.tt-tabpanel{min-width:0}
+.tt-soon{padding:18px 20px}.tt-soon p{margin:6px 0 0;line-height:1.6}
+#tabPack>.tt-cutpack{max-width:760px}
+.tt-norows{margin:0 0 10px}
+.tt-bulkcut{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.tt-mchoice{margin:0 0 10px}
+/* カット・パックのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む。帯から開くと本文の上に重ねる(タイムラインの幅を変えない) */
+.tt-mstrip{display:none}
+.app.tab-wide{grid-template-columns:44px minmax(0,1fr)}
+html[data-edtab-now=cut] #btnMenu,html[data-edtab-now=pack] #btnMenu{display:none}   /* カット・パックのタブでは帯の ☰ を使う(同じ操作を2か所に置かない) */
+.app.tab-wide>.tt-mstrip{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--toph,52px) + 8px);align-self:start}
+.app.tab-wide>.tt-mstrip .btn{width:36px;height:36px;padding:0;justify-content:center}
+.app.tab-wide>#menuPanel{display:none}
+.app.tab-wide.menu-overlay>#menuPanel{display:block;position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
+  background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
+.app.tab-wide.menu-overlay+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
+@media (max-width:719.98px){.app.tab-wide{grid-template-columns:minmax(0,1fr)}.app.tab-wide>.tt-mstrip{flex-direction:row;position:static}}
 </style>
 </head>
 <body>
 <header class="ui-header top" id="appHeader">
   <button type="button" class="btn ghost small tt-hbtn" id="btnMenu" aria-expanded="true" aria-controls="menuPanel" title="左のメニュー(新しく文字起こし・保存済みの一覧・設定など)を開く/閉じる(G)"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg></span><span id="btnMenuT" class="tt-hlabel">メニューを閉じる</span></button>
-  <a class="ui-brand" href="./" title="文字起こしツール(動画・音声 → 字幕・テキスト。処理はすべてこのパソコン内で行います)">
+  <a class="ui-brand" href="./" title="編集(文字起こし・カット・Resolve へのパック。処理はすべてこのパソコン内で行います)">
     <span class="ui-brand-mark" data-tool="transcribe" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7M17 14h0"/></svg></span>
-    <span class="tt-brand-name">文字起こしツール</span><span class="ui-ver" id="ver"></span>
+    <span class="tt-brand-name">編集</span><span class="ui-ver" id="ver"></span>
   </a>
+  <!-- 「編集」の3つのタブ(docs/edit-tool-design.md 3)。Alt+1/2/3 でも切り替える。今のタブは URL の #tx / #cut / #pack に残す -->
+  <nav class="ui-tabs tt-edtabs" id="edTabs" role="tablist" aria-label="編集の段">
+    <button type="button" class="ui-tab" role="tab" id="edtab-tx" data-edtab="tx" aria-selected="true" aria-controls="tabTx" title="文字起こし: 文字と話者を直す(Alt+1)"><span class="ui-tab-n">1</span>文字起こし</button>
+    <button type="button" class="ui-tab" role="tab" id="edtab-cut" data-edtab="cut" aria-selected="false" aria-controls="tabCut" title="カット: 残す・削る所をタイムラインで決める(Alt+2)"><span class="ui-tab-n">2</span>カット</button>
+    <button type="button" class="ui-tab" role="tab" id="edtab-pack" data-edtab="pack" aria-selected="false" aria-controls="tabPack" title="パック: Resolve へ渡すパックを作る(Alt+3)"><span class="ui-tab-n">3</span>パック</button>
+  </nav>
   <div class="ui-header-actions">
+    <span class="savest" id="saveState" role="status"></span>
     <!-- 今の操作(処理中のジョブ・校正の進み具合)。押すとメニューの該当する所を開く -->
     <div class="tt-hstat" role="status" aria-live="polite">
       <!-- 押せるものは .btn(状態の札 .pill は押せない表示だけ。docs/ui-guidelines.md 3.) -->
@@ -766,6 +801,11 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 <div class="errbar" id="errBar" hidden role="alert"></div>
 
 <div class="app">
+<nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
+  <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く(G)" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <button type="button" class="btn ghost small icon" data-strip="files" title="履歴(保存済みの文字起こし)を開く" aria-label="履歴を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+  <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし・文字起こしせずに開く)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+</nav>
 <aside id="menuPanel" aria-label="メニュー">
   <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います(G)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
   <div id="setup"></div>
@@ -785,6 +825,8 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     </div>
 
     <div id="paneFile">
+      <div class="notice tt-mchoice" id="mediaChoice" hidden role="status"><b>この動画はまだ開いたことがありません。</b>文字起こしをするか、文字起こしせずに(カットだけに)使うかを選んでください。
+        <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="mcTx">文字起こしをする</button><button type="button" class="btn small" id="mcOpen">文字起こしせずに開く</button></div></div>
       <div class="fld"><label for="srcPath">動画・音声ファイルのパス</label>
         <input id="srcPath" type="text" placeholder="例: C:\Videos\stream.mp4 / /Users/me/stream.mp4" autocomplete="off" spellcheck="false">
         <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span>
@@ -841,7 +883,8 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
           <div id="rosterGroups" style="margin-top:4px"></div>
           <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>
     </details>
-    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button>
+      <button type="button" class="btn" id="btnOpenVideo" title="文字起こしをしないで、この動画を「編集」で開きます(カットのタブで手で切る・無音で切る。あとから文字起こしもできます)">文字起こしせずに開く</button></div>
   </details>
 
   <details class="card side-pane" data-side-pane="quality" id="goalCard" open><summary>進行度(校正済みの量)</summary>
@@ -901,17 +944,24 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 <main class="editor" id="editor">
   <div class="empty" id="noDoc">
     <div class="tt-empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7"/></svg></div>
-    <b>文字起こしを開いていません</b>
-    <span>動画・音声から字幕(SRT/VTT)・テキストを作ります。処理はすべてこのパソコンの中で行います。</span>
+    <b>まだ何も開いていません</b>
+    <span>動画から字幕を作り(文字起こし)、カットを決めて、Resolve へ渡すパックを作ります。処理はすべてこのパソコンの中で行います。</span>
     <ol class="tt-steps" role="list">
-      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
+      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」(文字起こしが要らなければ「文字起こしせずに開く」)</span></li>
       <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
-      <li><span class="n">3</span><span>聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
-      <li><span class="n">4</span><span>「残す/カット済」でカットを決めて、「カットとパック」で Resolve へ渡すパックを作る</span></li>
+      <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
+      <li><span class="n">4</span><span><b>2 カット</b> で残す・削る所を決めて、<b>3 パック</b> で Resolve へ渡すパックを作る</span></li>
     </ol>
     <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden>☰ メニューを開く</button></div>
   </div>
   <div id="doc" hidden>
+   <!-- 題名の行(どのタブにも出す): 題名・配信者・長さ・元の配信の位置と、校正の進み具合・残す区間とカット後の長さ -->
+   <div class="tt-docbar" id="docBar">
+     <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
+     <span class="tt-docbar-meta hint" id="docMeta"></span>
+     <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span></span>
+   </div>
+   <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
      <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。docs/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
@@ -933,11 +983,12 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
         <span class="tt-kh-end"><button type="button" class="btn ghost small" id="keyHintAll">すべて <kbd>?</kbd></button><button type="button" class="btn ghost small icon" id="keyHintClose" aria-label="キー操作の手がかりを閉じる" title="閉じる(「キー操作」の一覧からまた出せます)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span>
       </div>
      </div>
+      <div class="notice tt-norows" id="noRows" hidden role="status"><b>この動画はまだ文字起こししていません。</b>文字起こしすると、ここに行(字幕)が出ます。カットは <b>2 カット</b> のタブで、文字起こしをしなくても決められます。
+        <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="btnTxInto">この動画を文字起こしする</button><span class="hint" id="txIntoHint">認識の設定は、メニューの「新規」のものを使います</span></div></div>
       <div id="segs"></div>
     </section>
     <aside class="tx-stage" aria-label="映像と道具">
     <div class="pbox">
-      <div class="tt-titlebar"><input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)"><span class="savest" id="saveState" role="status"></span></div>
       <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
       <div id="docClip" class="tt-clip" hidden></div>
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
@@ -965,12 +1016,13 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
         <div class="tools" role="group" aria-label="編集">
           <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行</button>
           <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
-          <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済みにします">まとめて校正 ▾</summary><div class="vpop">
+          <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済み・カット済にします">まとめて ▾</summary><div class="vpop">
             <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
-            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div></div></details>
+            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div>
+            <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled>選んだ行をカット</button><button type="button" class="btn small" id="keepSelected" disabled>選んだ行を残す</button></div>
+            <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span></div></details>
           <details class="pop l" id="jumpMenu"><summary class="btn small" id="btnSpk" title="この下にある道具(話者・置換と再認識・書き出し・以前の版)へ移動して開きます">道具 ▾</summary><div class="vpop tt-jump">
-            <button type="button" class="btn small" data-jump="cutPack">カットとパック</button>
             <button type="button" class="btn small" data-jump="spDetails">話者(自動判別・名前)</button>
             <button type="button" class="btn small" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
             <button type="button" class="btn small" data-jump="exDetails">書き出し(字幕・テキスト)</button>
@@ -984,41 +1036,6 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
         <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
       </div>
     </div>
-
-    <!-- v0.15.0(案A): カットとパック。計算とパック作りは cut2resolve の API(pack.py)を呼ぶ。文字起こし側に Resolve 用の計算は書かない -->
-    <details class="card tt-cutpack" id="cutPack" open>
-        <summary><span id="cpTitle">カットとパック</span><span class="tt-cp-sum" id="cpSum"></span></summary>
-        <div class="tt-cp-body">
-          <p class="tt-cp-stats" id="cpStats" aria-live="polite"></p>
-          <div class="notice tt-cp-off" id="cpOff" hidden></div>
-          <div class="row tt-cp-row">
-            <label class="lag" title="カット済の行の区間を飛ばして再生します(Resolve で仮編集したときの見え方)。行の ▶ はいつもどおりその行だけ再生します"><input type="checkbox" id="cpPreview">カット後の見え方で再生</label>
-            <span class="hint mono" id="cpCutTime"></span>
-          </div>
-          <div class="row tt-cp-row">
-            <button type="button" class="btn small" id="cutSelected" disabled>選んだ行をカット</button>
-            <button type="button" class="btn small" id="keepSelected" disabled>選んだ行を残す</button>
-            <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span>
-          </div>
-          <div class="row tt-cp-row">
-            <label class="lag"><span><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル(Text+)で作る字幕。パックに入るスクリプトが Resolve の中で作ります">Text+</abbr> の <abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は動画自身の fps で数えるので、ずれません)">fps</abbr></span> <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
-            <label class="lag">画面の大きさ <select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label>
-          </div>
-          <div class="row tt-cp-row"><button type="button" class="btn primary" id="cpBuild">パックを作る</button><span class="hint" id="cpBuildHint"></span></div>
-          <div class="tt-cp-job" id="cpJob" hidden role="status" aria-live="polite"></div>
-          <div class="tt-handoff" id="cpResult" hidden role="status"></div>
-          <details class="ui-disclosure tt-cp-more" id="cpMore"><summary>詳しい設定</summary>
-            <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
-              <div class="row"><button type="button" class="btn small" id="resolveExport">zip でダウンロード</button></div>
-              <span class="hint">中身は上の「パックを作る」と同じ(動画・Text+ 字幕を作るスクリプト・手順書「友人へ.txt」・予備の <abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)を1つの zip にしてダウンロードします。入口から開いていなくても使えます。fps と画面の大きさは上の設定を使います。</span></div>
-            <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
-              <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
-              <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
-            <div class="fld"><span class="l">cut2resolve で細かく調整する</span>
-              <div class="row" id="cpC2R"><span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span></div></div>
-          </details>
-        </div>
-    </details>
 
     <details class="card tt-tool tt-lockable" id="spDetails"><summary>話者 <span class="hint">自動判別・名前・割り当て</span></summary>
       <div class="fld"><span class="l">話者の自動判別</span>
@@ -1070,12 +1087,49 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     <p class="hint" id="docInfo"></p>
     </aside>
    </div>
+   </div>
+   <section class="tt-tabpanel" id="tabCut" role="tabpanel" aria-labelledby="edtab-cut" data-edpanel="cut" hidden>
+     <div class="card tt-soon"><b>カットのタイムライン</b>
+       <p class="hint">ここに、ふつうの編集ソフトのようなタイムライン(残す・削る区間を手で決める)が入ります(準備中)。今は <b>1 文字起こし</b> の行の「残す/カット済」でカットを決めて、<b>3 パック</b> のタブでパックを作れます。</p></div>
+   </section>
+   <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
+    <!-- v0.15.0(案A): カットとパック。計算とパック作りは cut2resolve の API(pack.py)を呼ぶ。文字起こし側に Resolve 用の計算は書かない -->
+    <details class="card tt-cutpack" id="cutPack" open>
+        <summary><span id="cpTitle">カットとパック</span><span class="tt-cp-sum" id="cpSum"></span></summary>
+        <div class="tt-cp-body">
+          <p class="tt-cp-stats" id="cpStats" aria-live="polite"></p>
+          <div class="notice tt-cp-off" id="cpOff" hidden></div>
+          <div class="row tt-cp-row">
+            <label class="lag" title="カット済の行の区間を飛ばして再生します(Resolve で仮編集したときの見え方)。行の ▶ はいつもどおりその行だけ再生します"><input type="checkbox" id="cpPreview">カット後の見え方で再生</label>
+            <span class="hint mono" id="cpCutTime"></span>
+          </div>
+          <div class="row tt-cp-row">
+            <label class="lag"><span><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル(Text+)で作る字幕。パックに入るスクリプトが Resolve の中で作ります">Text+</abbr> の <abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は動画自身の fps で数えるので、ずれません)">fps</abbr></span> <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
+            <label class="lag">画面の大きさ <select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label>
+          </div>
+          <div class="row tt-cp-row"><button type="button" class="btn primary" id="cpBuild">パックを作る</button><span class="hint" id="cpBuildHint"></span></div>
+          <div class="tt-cp-job" id="cpJob" hidden role="status" aria-live="polite"></div>
+          <div class="tt-handoff" id="cpResult" hidden role="status"></div>
+          <details class="ui-disclosure tt-cp-more" id="cpMore"><summary>詳しい設定</summary>
+            <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
+              <div class="row"><button type="button" class="btn small" id="resolveExport">zip でダウンロード</button></div>
+              <span class="hint">中身は上の「パックを作る」と同じ(動画・Text+ 字幕を作るスクリプト・手順書「友人へ.txt」・予備の <abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)を1つの zip にしてダウンロードします。入口から開いていなくても使えます。fps と画面の大きさは上の設定を使います。</span></div>
+            <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
+              <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
+              <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
+            <div class="fld"><span class="l">cut2resolve で細かく調整する</span>
+              <div class="row" id="cpC2R"><span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span></div></div>
+          </details>
+        </div>
+    </details>
+
+   </section>
   </div>
 </main>
 </div>
 <div class="tt-scrim" id="menuScrim" aria-hidden="true"></div>
 <dialog id="keys" aria-labelledby="keysT">
-  <div class="ui-dlg-head"><h2 id="keysT">キー操作(左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-head"><h2 id="keysT">キー操作(1 文字起こし のタブ。左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
   <p class="hint" style="margin:0"><b>キー単体</b>で操作します(Shift は不要)。例外は <b>Space</b> だけで、「校正済みにして次へ」は <b>Shift+Space</b> です(Space だけだと動画の再生・停止になるため)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
   <div class="ui-kgrid">
@@ -1084,7 +1138,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     <div class="ui-kgroup"><h3 class="section-title">校正する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Shift</kbd><kbd>Space</kbd></span><span>校正済みにして次へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>T</kbd></span><span>この行の文字を直す(入力欄へ)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Esc</kbd></span><span>入力欄から抜ける</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Tab</kbd></span><span>入力欄に入る/抜ける(切り替え)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span><span>この行の話者を n 番目に</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>0</kbd></span><span>話者なし</span></div></div>
     <div class="ui-kgroup"><h3 class="section-title">音の状態のメモ・行の編集</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>X</kbd></span><span>聞き取れない</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>C</kbd></span><span>声が重なる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>V</kbd></span><span>BGM・音が大きい</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>N</kbd></span><span>後ろに行を追加</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Z</kbd></span><span>この行を削除(2回押し)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Z</kbd></span><span>元に戻す</span></div></div>
     <div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>Enter</kbd></span><span>校正済みにして次の行の入力欄へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Enter</kbd></span><span>この行をもう一度聞く</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1…9</kbd></span><span>この行の話者</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>?</kbd></span><span>この一覧</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>タブ(文字起こし・カット・パック)を切り替える</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>?</kbd></span><span>この一覧</span></div></div>
   </div>
   <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「カットとパック」)。</p>
   <p class="tt-flow">基本の流れ: <kbd>S</kbd> で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd> で入力 → <kbd>Esc</kbd> → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd>)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>

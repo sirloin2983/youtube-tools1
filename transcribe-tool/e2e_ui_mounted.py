@@ -72,9 +72,17 @@ def call(port, method, path, body=None, token=None, prefix="/transcribe"):
 
 
 def find_worker_pids(tmp):
-    """/proc を見て、この確認が起動した tx_worker.py(一時フォルダの下のもの)の pid を探す。"""
+    """この確認が起動した tx_worker.py(一時フォルダの下のもの)の pid を探す。Linux は /proc、Windows は PowerShell(Win32_Process のコマンドライン)"""
     needle = os.path.join(tmp, "transcribe-tool", "tx_worker.py").encode()
     pids = []
+    if os.name == "nt":
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=60).stdout
+        for line in out.decode("utf-8", "replace").splitlines():
+            pid, _, cmd = line.partition("	")
+            if needle.decode().lower() in cmd.lower() and pid.strip().isdigit():
+                pids.append(int(pid))
+        return pids
     for p in glob.glob("/proc/[0-9]*/cmdline"):
         try:
             with open(p, "rb") as f:
@@ -138,7 +146,8 @@ def main():
         port = free_port()
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND="worker-fake", TRANSCRIBE_FAKE_DELAY="0.05", TRANSCRIBE_STUDIO_DATA=studio_data)
         proc = subprocess.Popen([sys.executable, os.path.join(tmp, "app", "launch.py"), "--port", str(port), "--no-open", "--only", "transcribe,cut2resolve"],
-                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))   # Windows: Ctrl+Break を入口にだけ送るため
 
         for _ in range(300):
             try:
@@ -225,10 +234,11 @@ def main():
             pg.select_option("#txState", "all")
 
             # ==================== 3c) カットとパック(v0.15.0・案A): 同じ入口の cut2resolve の API で計算・パックを作る ====================
+            pg.click("[data-edtab=pack]")   # 「編集」E2: カードは 3 パック のタブへ移った(E3・E4 で作り直す)
             cp_ready = "/カット後の長さ\\s*\\d/.test(document.querySelector('#cpStats').textContent) && !/計算|約/.test(document.querySelector('#cpStats').textContent)"
             wait_js(pg, "/カット後の長さ\\s*約/.test(document.querySelector('#cpStats').textContent)", 30000)
             check(pg.evaluate("document.querySelector('#cutPack').open") and pg.is_hidden("#cpOff") and pg.is_enabled("#cpBuild"),
-                  "「カットとパック」は映像の下に開いていて、入口の中では使える")
+                  "「カットとパック」は 3 パック のタブに開いていて、入口の中では使える")
             st0 = pg.inner_text("#cpStats")
             tr_beside = os.path.splitext(media)[0] + ".transcript.json"
 
@@ -240,11 +250,13 @@ def main():
             check(not os.path.isfile(tr_beside), "開いただけでは、動画の隣に .transcript.json を書き出さない(ファイルを勝手に増やさない)")
             # カット後の見え方で再生を入れると、書き出して cut2resolve で計算する
             pg.check("#cpPreview")
-            check(pg.is_visible("#cutViewPill"), "映像の下に「カット後の見え方」の印が出る")
+            check(pg.get_attribute("#cutViewPill", "hidden") is None, "映像の下に「カット後の見え方」の印が出る(1 文字起こし のタブの映像)")
             wait_js(pg, cp_ready, 60000)
             check(os.path.isfile(tr_beside) and kept_sec(pg.inner_text("#cpStats")) == 20,
                   "「カット後の見え方で再生」を入れると、動画の隣に .transcript.json を書き出して cut2resolve で計算する(カット後 0:20): " + pg.inner_text("#cpStats"))
+            pg.click("[data-edtab=tx]")
             pg.locator("#segs .seg").nth(1).locator("[data-act=cut]").click()   # 2行目(4〜8秒)をカット → 保存 → 計算し直す
+            pg.click("[data-edtab=pack]")
             wait_js(pg, "/カット 1行/.test(document.querySelector('#cpStats').textContent) && " + cp_ready + " && /0:16/.test(document.querySelector('#cpStats').textContent)", 30000)
             check(True, "行を「カット済」にすると、保存のあとに計算し直す(カット後 0:16): " + pg.inner_text("#cpStats"))
             # カット後の見え方で再生: カット済の区間(4〜8秒)に入ると、次の残す区間(8秒〜)へ飛ぶ
@@ -310,12 +322,15 @@ def main():
             pids_before = find_worker_pids(tmp)
             check(len(pids_before) == 1, "認識ワーカー(tx_worker.py)が1本だけ動いている: %s" % pids_before)
             if pids_before:
-                os.kill(pids_before[0], signal.SIGKILL)
+                os.kill(pids_before[0], getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows は SIGTERM = 強制終了(TerminateProcess)
             time.sleep(0.5)
             st, status = call(port, "GET", "/api/status", prefix="")
             check(st == 200 and any(t["id"] == "transcribe" for t in status.get("tools", [])), "ワーカーを落としても入口の /api/status は動く")
             check(proc.poll() is None, "入口のプロセスは動いたまま(ワーカーが落ちても道連れにならない)")
 
+            pg.click("[data-edtab=tx]")   # 左のメニューは 1 文字起こし のタブで開いている(カット・パックのタブでは細い帯)
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
             pg.click("[data-side-tab=start]")
             pg.fill("#srcPath", media)
             pg.fill("#jTitle", "ワーカー再起動後")
@@ -334,13 +349,16 @@ def main():
         check(st == 403 and body.get("error") == "token", "合言葉(X-YTT-Token)なしの POST は 403: %s %s" % (st, body))
     finally:
         if proc is not None:
-            proc.terminate()   # Linux なので SIGTERM(app/launch.py はこれで後始末してから終わる)
+            if os.name == "nt":   # Windows は黒い画面の×・Ctrl+Break と同じ SIGBREAK(app/launch.py はこれで後始末してから終わる)
+                os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
+            else:
+                proc.terminate()   # Linux は SIGTERM
             try:
                 proc.wait(20)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(5)
-            check(proc.returncode is not None, "SIGTERM で入口のプロセスが終わる")
+            check(proc.returncode is not None, "終了の合図(SIGTERM / Windows は SIGBREAK)で入口のプロセスが終わる")
             remaining = find_worker_pids(tmp)
             check(not remaining, "入口を終えると認識ワーカーの子プロセスも残らない: %s" % remaining)
             check(not os.path.exists(os.path.join(rt, "transcribe.json")), "入口を終えると .runtime/transcribe.json が消える")

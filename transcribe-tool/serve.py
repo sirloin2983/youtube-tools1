@@ -27,6 +27,7 @@
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
+  GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(docs/pipeline.md。本体は pipeline_io.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
@@ -1049,23 +1050,32 @@ def probe_media(path):
 _open_lock = threading.Lock()
 
 
+def find_doc_for_media(path):
+    """その動画の文書(行のある文書・更新が新しいものを先に)。-> {"id", "rows"} か None。パスを比べるだけで、ファイルには触らない"""
+    p = str(path or "").strip().strip('"')
+    if not p or "\x00" in p:
+        return None
+    key = os.path.normcase(os.path.abspath(p))
+    best = None
+    for tid in _tids():
+        sm = transcript_summary(tid)
+        if not sm or not sm["_sourcePath"] or os.path.normcase(os.path.abspath(sm["_sourcePath"])) != key:
+            continue
+        rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
+        if best is None or rank > best[0]:
+            best = (rank, {"id": tid, "rows": sm["rows"]})
+    return best[1] if best else None
+
+
 def open_video(req):
     """POST /api/open-video {"path", "title"?} -> {"id", "created", "warnings"}。「文字起こしせずに開く」: 動画のパスだけで文書を作る。
     同じ動画の文書があればそれを返す(行のある文書・新しいものを先に)。隣の .clip.json があれば文書の clip に入れる(スタジオの切り抜きと紐づく)。
     文書にした動画は /media で配るので、動画・音声の拡張子で、ffmpeg で映像か音声が読めるものだけ受け付ける"""
     src = check_source(req.get("path"))
-    key = os.path.normcase(src)
     with _open_lock:   # 同じ動画を続けて2回開いても、文書を2つ作らない
-        best = None
-        for tid in _tids():
-            sm = transcript_summary(tid)
-            if not sm or not sm["_sourcePath"] or os.path.normcase(os.path.abspath(sm["_sourcePath"])) != key:
-                continue
-            rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
-            if best is None or rank > best[0]:
-                best = (rank, tid)
-        if best:
-            return {"id": best[1], "created": False, "warnings": []}
+        hit = find_doc_for_media(src)
+        if hit:
+            return {"id": hit["id"], "created": False, "warnings": []}
         dur, has_v, has_a = probe_media(src)
         if not (has_v or has_a):
             raise ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
@@ -1686,6 +1696,7 @@ def public_job(j):
     out = {k: j[k] for k in ("id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt")}
     out["warnings"] = list((j.get("spec") or {}).get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
     out["hasClip"] = bool((j.get("spec") or {}).get("clip"))
+    out["into"] = (j.get("spec") or {}).get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の「この動画を文字起こしする」)
     return out
 
 
@@ -4383,7 +4394,7 @@ def runtime_path_dir():
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -4579,6 +4590,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, read_transcript((q.get("id") or [""])[0]))
             if u.path == "/api/edit":
                 return self._json(200, get_edit((q.get("id") or [""])[0]))
+            if u.path == "/api/doc-for":
+                return self._json(200, {"doc": find_doc_for_media((q.get("path") or [""])[0])})
             if u.path == "/api/peaks":
                 return self._peaks((q.get("id") or [""])[0])
             if u.path == "/media":

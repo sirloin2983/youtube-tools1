@@ -302,6 +302,9 @@ class TestEditHttp(unittest.TestCase):
                         ("", "no_file")):
             r = self.open_video(p)
             self.assertEqual((r["_status"], r["error"]), (400, code), p)
+        self.assertEqual(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(video))["doc"], {"id": tid, "rows": 0})
+        self.assertIsNone(self.call("GET", "/api/doc-for?path=" + urllib.parse.quote(self.txt))["doc"])
+        self.assertIsNone(self.call("GET", "/api/doc-for?path=")["doc"])
         n = len(self.call("GET", "/api/transcripts")["items"])
         self.assertEqual(self.call("POST", "/api/open-video", {"path": 3})["_status"], 400)
         self.assertEqual(len(self.call("GET", "/api/transcripts")["items"]), n)

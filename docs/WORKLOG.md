@@ -719,3 +719,17 @@
   (校正の保存の競合に巻き込まない。cutState は編集の内容から付け直すので古い画面の印で壊れない)、パックの記録の API を足した(設計の 5 に無かった)、重なる2行の一方だけカット済のときは字幕が増える(契約テストの説明に記録)
 - 未完了・次: E2 画面の骨組み(3つのタブ・Alt+1/2/3・題名の行・メニューの帯・「カットとパック」のカードを外す・文字起こしせずに開く)。版は E6 でまとめて上げる(今は据え置き)
 - 注意: 行の「カット済」の規則は `edit_cut_flags` と、E3 で作る画面の cut.js の2か所になる(同じ定数 0.75 フレーム)。文書を書き込む処理を足すときは `apply_edit_cuts` を通す
+
+## 2026-09-26 Claude Code — 「編集」E2 画面の骨組み(3つのタブ・題名の行・メニューの帯・文字起こしせずに開く)
+- 変更(文字起こし `transcribe-tool/`): `index.html`(ブランド「編集」・3つのタブ・保存の状態をヘッダーへ・題名の行 `#docBar`・タブの中身の入れ物 `#tabTx/#tabCut/#tabPack`・
+  左のメニューの細い帯 `#menuStrip`・「文字起こしせずに開く」・`?media=` の選択 `#mediaChoice`・行の無い文書の案内 `#noRows`・「選んだ行をカット/残す」を「まとめて ▾」へ・
+  「カットとパック」のカードを 3 パック のタブへ(E4 で作り直すまでの仮)・キー操作の一覧に Alt+1/2/3)、`app.js`(`EDT`・`setEditTab()`・URL の #tx/#cut/#pack・Alt+1/2/3・
+  校正のキーは 1 文字起こし のタブだけ・帯から重ねて開くメニュー・`renderDocBar()`・`openVideoNoTx()`・`?media=` で文書があれば開く・intoDoc の「この動画を文字起こしする」)、
+  `serve.py`(`GET /api/doc-for`・`find_doc_for_media`(open-video と共通)・ジョブの一覧に `into`)
+- テスト: 新規 `e2e_edit_common.py`・`e2e_edit_tabs.py`、`test_edit.py` に doc-for、`e2e_ui_handoff.py`(?media= の新しい流れ・文字起こしせずに開く・intoDoc)、
+  `e2e_ui_mounted.py`(カードの場所・**Windows でも動くように**: ワーカーを PowerShell で数える・入口を Ctrl+Break で止める・SIGKILL が無ければ SIGTERM)。
+  PC で通過: 文字起こしの e2e 8本(既存7本 + e2e_edit_tabs)・単体 116(skip 1)・app/test_mount・tools/test_ui_kit_sync
+- 決定・理由: 設計書の「11. 実装で決めたこと」の E2。行の文字の入力中の Alt+数字 は話者のまま(設計の Alt+1/2/3 と重なるため)。?media= は文書があれば開く(設計の 3)
+- 注意: `<html>` の属性は `data-edtab-now`(`[data-edtab]` はタブのボタンだけ。同じ名前にすると querySelector が `<html>` に当たる)。Windows のコンソールで e2e を流すときは
+  `PYTHONIOENCODING=utf-8`。Playwright(1.63)を miniconda の Python に入れた(ユーザー承認 2026-09-26)
+- 未完了・次: E3 カット(タイムライン・プレビュー・字幕の一覧・たたき台・保存)
