@@ -517,3 +517,13 @@
   以前の場所のデータ(clip-studio の data.json・cache など、transcribe-tool の transcripts・dataset など、cut2resolve\work、app\logs)は、新しい場所で確かめてから消す(Cowork は消せない)
 - 未完了・次: 実機確認 → 以前の場所のデータの削除の案内。段階4 の残り(案件ごとの紐づけ・同時実行の上限・文字起こしをスタジオへ返す)。`0old`・`.whisper_models` の扱いはユーザーが決める
 - 未コミット: 上の変更すべて(新規 3: ytt_core/datadir.py・tools/e2e_datadir.py・docs/data-location.md、変更 46 ファイル + docs/WORKLOG.md・docs/HANDOVER.md)。push.bat で
+
+## 2026-09-26 Claude(Cowork)— 移行の確認と、以前の場所の片付けスクリプト
+- 確認(PC。AppData は読み取りで): push(af3487a)済み。`%LOCALAPPDATA%\youtube-tools\` に studio・transcribe・cut2resolve・app があり、studio・transcribe・cut2resolve に .migrated.json(09-26 2:15。コピーは約4秒)。
+  文字起こしの transcripts 91・dataset 455・models 3 は以前の場所と大きさ・数が一致、スタジオの cache 107 件(約2.2GB)・archive 25 件・data.json・config.json もそろっている。移行後は以前の場所のログが更新されていない(新しい場所だけが使われている)
+- 変更(新規): `tools/cleanup_legacy_data.py`(以前の場所の作業データを、確かめてからごみ箱へ。一覧と大きさを見せて y で実行・--dry-run・ツールが動いていれば何もしない)、
+  `tools/cleanup_legacy_data.bat`(ダブルクリック用。ASCII)、`tools/test_cleanup_legacy_data.py`(9件。片付ける一覧が各 serve.py の DATA_ITEMS と同じことも検査)
+- 変更: `docs/data-location.md`(片付けの節)、`AGENTS.md`(テストの表)、`start-all.bat`(エラー時の launcher.log の場所を新しい場所に)
+- 消す条件: 写したデータは .migrated.json があり・写した元がこのリポジトリのフォルダ・写した一覧にある・新しい場所にも同じ名前がある。ログ・work は新しい場所が使われていれば。コードと cut2resolve の exports は触らない
+- 未確認(実機): Windows のごみ箱へ移す処理(SHFileOperationW)は、クラウドでは動かせない(テストは一時フォルダへの移動で代用)。まず --dry-run で一覧を見てもらう
+- 未コミット: tools/cleanup_legacy_data.py・tools/cleanup_legacy_data.bat・tools/test_cleanup_legacy_data.py・docs/data-location.md・AGENTS.md・start-all.bat・docs/WORKLOG.md・docs/HANDOVER.md(push.bat で)

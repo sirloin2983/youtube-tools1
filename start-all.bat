@@ -22,6 +22,6 @@ python app\launch.py %*
 :finish
 if errorlevel 1 (
   echo.
-  echo The launcher stopped with an error. See the messages above and app\logs\launcher.log.
+  echo The launcher stopped with an error. See the messages above and %LOCALAPPDATA%\youtube-tools\app\logs\launcher.log.
   pause
 )
