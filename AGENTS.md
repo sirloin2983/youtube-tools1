@@ -20,6 +20,9 @@
 - 流れ: スタジオで配信から区間を選んで書き出す → 「編集」で字幕を作って直し(1)・カットを決め(2)・DaVinci Resolve 用のパック(カット + Text+ 字幕。中身は cut2resolve の pack.py)を作る(3)。受け渡しの形式は `docs/pipeline.md`
 - 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。段階7 = 画面の形: 7-0 画面のエラーの記録・7-1 解析の設定をサーバーへ・7-2 離れた/戻ったの共通化・7-3 Edge のアプリモードの窓(試用)を実装済み。7-4 pywebview は試用のあとで判断・新着配信の監視は保留)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
+- **別のツール: ホロカラー(`holo-colors/`。2026-09-27)** … ホロライブのメンバーカラーをキー(Ctrl+Alt+H)で呼び出してコピーする Windows の常駐アプリ。
+  **主に友人が使う**ので Python ではなく C#(WinForms)。Windows に入っている .NET Framework 4 の csc で作る(`build.bat`。C# 5 まで)。入口・3ツールとはつながっていない。
+  設計と決めたこと・メンバーの色の出典: `docs/holo-colors.md`、使い方: `holo-colors/README.txt`
 
 ## フォルダと、変えたら通すテスト
 | フォルダ | 役割 | 変えたら通すテスト(そのフォルダで実行。★はリポジトリ直下から) |
@@ -31,6 +34,7 @@
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
 | `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・入口へ戻る・一覧の部品・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`・日時の書式 `UIKit.fmt`。`ui-kit/README.md`)の正本。**画面を直すときは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧の見せ方)に合わせる**。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
 | `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算・見本のデータで全画面を動かす `demo_env.py`)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
+| `holo-colors/` | ホロカラー(メンバーカラーをコピーする Windows の常駐アプリ。C# 5・WinForms。`src/`・`members.json`・`tests/`) | `build.bat`(コンパイル → テスト 15 件 → `dist/HoloColors.zip`)。キー・窓の動きを変えたら `python e2e_holo_colors.py`(本物のキー入力を送る。流す間は触らない) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
@@ -91,6 +95,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面の全面見直し(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。見直しが終わるまで他の AI は触らない)
 - 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)。
   E1〜E6 は 2026-09-26 に実装済み。実機確認の結果の直しも同じ担当
+- ホロカラー(`holo-colors/`・`docs/holo-colors.md`): Claude Code(PC)が担当(2026-09-27 作成)
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込みの決まり:

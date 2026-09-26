@@ -15,6 +15,9 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
                                          1つの画面の3つのタブ(1 文字起こし / 2 カット / 3 パック)。2026-09-26 に文字起こしと cut2resolve を統合
     (cut2resolve)                      パックを作る部品(「編集」とまとめて実行が使う。画面は無い。コマンドでも使える)
 
+    別のツール: ホロカラー(holo-colors)  ホロライブのメンバーカラーを Ctrl+Alt+H で呼び出してコピーする Windows のアプリ。
+                                         主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は holo-colors\README.txt
+
 【準備(最初に1回)】
   1. Python 3(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック)
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
@@ -98,4 +101,5 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   clip-studio\README.txt      切り抜きスタジオ
   transcribe-tool\README.txt  編集(文字起こし・カット・パック。精度・学習用データ・話者判別を含む)
   cut2resolve\README.txt      cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
+  holo-colors\README.txt      ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
   docs\pipeline.md            ツール間の受け渡しの形式(開発向け)

@@ -1,0 +1,162 @@
+{
+ "version": 1,
+ "updated": "2026-09-26",
+ "about": "ホロライブのメンバーカラー。主な出典はホロジュール(カバーが運営する配信予定のサイト。配信の枠のアイコンの縁の色)。ホロジュールに個人の色が無い人は公式サイトの画像の色(confidence が medium / low)。alt は照らし合わせたほかの候補。卒業・活動終了の日付と区分は公式サイトとカバーのお知らせから。直すときは docs/holo-colors.md の「メンバーの色」を読む",
+ "groups": [
+  {"id": "jp-gen0", "branch": "JP", "name": "0期生", "members": [
+   {"id": "tokino-sora", "name": "ときのそら", "en": "Tokino Sora", "hex": "#266AFF", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#0146EA 公式サイト画像・濃い部分 (s4)", "#245EFF 公式サイト画像・縁の色 (s4)", "#4638AA wiki の見出し色 (s7)"]},
+   {"id": "robocosan", "name": "ロボ子さん", "en": "Robocosan", "hex": "#D192FE", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#804E7F 公式サイト画像・濃い部分 (s4)", "#A36694 公式サイト画像・縁の色 / wiki の見出し色 (s4,s7)"]},
+   {"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#FE4B74 公式サイト画像・濃い部分 (s4)", "#FF9CB4 公式サイト画像・縁の色 (s4)", "#FF4B74 wiki の見出し色 (s7)"]},
+   {"id": "hoshimachi-suisei", "name": "星街すいせい", "en": "Hoshimachi Suisei", "hex": "#49E0F4", "src": ["s2", "s3", "s5", "s6"], "alt": ["#2DCDE4 公式サイト画像・濃い部分 (s4)", "#50E5F9 公式サイト画像・縁の色 (s4)", "#454A93 wiki の見出し色 (s7)"]},
+   {"id": "azki", "name": "AZKi", "en": "AZKi", "hex": "#FC3488", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#D11C76 公式サイト画像・濃い部分 (s4)", "#F4348B 公式サイト画像・縁の色 (s4)", "#FA3689 wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "jp-gen1", "branch": "JP", "name": "1期生", "members": [
+   {"id": "aki-rosenthal", "name": "アキ・ローゼンタール", "en": "Aki Rosenthal", "hex": "#4E7FFC", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DC0485 公式サイト画像・濃い部分 (s4)", "#FF1C9A 公式サイト画像・縁の色 (s4)", "#4982FE wiki の見出し色 (s7)"]},
+   {"id": "akai-haato", "name": "赤井はあと", "en": "Akai Haato", "hex": "#FE4872", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#D9062A 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#FC123F 公式サイト画像・縁の色 (s4)"]},
+   {"id": "shirakami-fubuki", "name": "白上フブキ", "en": "Shirakami Fubuki", "hex": "#43BFEF", "note": "ゲーマーズも", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#53C7EA 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#76DFFF 公式サイト画像・縁の色 (s4)"]},
+   {"id": "natsuiro-matsuri", "name": "夏色まつり", "en": "Natsuiro Matsuri", "hex": "#FDAB45", "src": ["s2", "s3", "s5", "s6"], "alt": ["#FF5606 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#FFA227 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "jp-gen2", "branch": "JP", "name": "2期生", "members": [
+   {"id": "nakiri-ayame", "name": "百鬼あやめ", "en": "Nakiri Ayame", "hex": "#DE3E28", "src": ["s2", "s3", "s5", "s6"], "alt": ["#CA223A 公式サイト画像・濃い部分 (s4)", "#ED3A4F 公式サイト画像・縁の色 (s4)", "#9C3741 wiki の見出し色 (s7)"]},
+   {"id": "yuzuki-choco", "name": "癒月ちょこ", "en": "Yuzuki Choco", "hex": "#FE739E", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DC5686 公式サイト画像・濃い部分 (s4)", "#FF6E9B 公式サイト画像・縁の色 (s4)", "#FE739C wiki の見出し色 (s7)"]},
+   {"id": "oozora-subaru", "name": "大空スバル", "en": "Oozora Subaru", "hex": "#E5FB67", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#BDE717 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#E0FF2C 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "jp-gamers", "branch": "JP", "name": "ゲーマーズ", "members": [
+   {"id": "ookami-mio", "name": "大神ミオ", "en": "Ookami Mio", "hex": "#C71E3E", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DC1935 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#FF314A 公式サイト画像・縁の色 (s4)"]},
+   {"id": "nekomata-okayu", "name": "猫又おかゆ", "en": "Nekomata Okayu", "hex": "#B190FC", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#BF65E8 公式サイト画像・濃い部分 (s4)", "#E27DFD 公式サイト画像・縁の色 (s4)", "#B190FA wiki の見出し色 (s7)"]},
+   {"id": "inugami-korone", "name": "戌神ころね", "en": "Inugami Korone", "hex": "#FEE039", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DCB414 公式サイト画像・濃い部分 (s4)", "#FFCC29 公式サイト画像・縁の色 (s4)", "#A7492F wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "jp-gen3", "branch": "JP", "name": "3期生", "members": [
+   {"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#65BAEA 公式サイト画像・濃い部分 (s4)", "#88D2FF 公式サイト画像・縁の色 (s4)", "#7DC4FC wiki の見出し色 (s7)"]},
+   {"id": "shiranui-flare", "name": "不知火フレア", "en": "Shiranui Flare", "hex": "#FE3D1C", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DC3813 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#FF5028 公式サイト画像・縁の色 (s4)"]},
+   {"id": "shirogane-noel", "name": "白銀ノエル", "en": "Shirogane Noel", "hex": "#ACBDC5", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#89939D 公式サイト画像・濃い部分 (s4)", "#ACABB2 公式サイト画像・縁の色 (s4)", "#AEBBC3 wiki の見出し色 (s7)"]},
+   {"id": "houshou-marine", "name": "宝鐘マリン", "en": "Houshou Marine", "hex": "#BA2C2B", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#A72413 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#CA3C28 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "jp-gen4", "branch": "JP", "name": "4期生", "members": [
+   {"id": "tsunomaki-watame", "name": "角巻わため", "en": "Tsunomaki Watame", "hex": "#F9AFB2", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DBDA89 公式サイト画像・濃い部分 (s4)", "#FFF29E 公式サイト画像・縁の色 (s4)", "#F6ECA5 wiki の見出し色 (s7)"]},
+   {"id": "tokoyami-towa", "name": "常闇トワ", "en": "Tokoyami Towa", "hex": "#BA92CA", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#A7A2EA 公式サイト画像・濃い部分 (s4)", "#CABAFF 公式サイト画像・縁の色 (s4)", "#7B66A8 wiki の見出し色 (s7)"]},
+   {"id": "himemori-luna", "name": "姫森ルーナ", "en": "Himemori Luna", "hex": "#F7ABD5", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#DB6CAD 公式サイト画像・濃い部分 (s4)", "#FE84C2 公式サイト画像・縁の色 (s4)", "#E77DBC wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "jp-gen5", "branch": "JP", "name": "5期生", "members": [
+   {"id": "yukihana-lamy", "name": "雪花ラミィ", "en": "Yukihana Lamy", "hex": "#6ABADF", "src": ["s2", "s3", "s5", "s6"], "alt": ["#48B5E3 公式サイト画像・濃い部分 (s4)", "#6BCDF8 公式サイト画像・縁の色 (s4)", "#6CCDF8 wiki の見出し色 (s7)"]},
+   {"id": "momosuzu-nene", "name": "桃鈴ねね", "en": "Momosuzu Nene", "hex": "#EEAC5E", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#FE7A0F 公式サイト画像・濃い部分 (s4)", "#FFB65D 公式サイト画像・縁の色 / wiki の見出し色 (s4,s7)"]},
+   {"id": "shishiro-botan", "name": "獅白ぼたん", "en": "Shishiro Botan", "hex": "#A2D5C4", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#5FCFA6 公式サイト画像・濃い部分 (s4)", "#A3E5CF 公式サイト画像・縁の色 (s4)", "#A4E5CF wiki の見出し色 (s7)"]},
+   {"id": "omaru-polka", "name": "尾丸ポルカ", "en": "Omaru Polka", "hex": "#B92731", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#AB0808 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#CF2830 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "jp-holox", "branch": "JP", "name": "秘密結社holoX", "members": [
+   {"id": "la-darknesss", "name": "ラプラス・ダークネス", "en": "La+ Darknesss", "hex": "#351E3B", "src": ["s2", "s3", "s5", "s6"], "alt": ["#441495 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#936CC6 公式サイト画像・縁の色 (s4)"]},
+   {"id": "takane-lui", "name": "鷹嶺ルイ", "en": "Takane Lui", "hex": "#B84A67", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#28040D 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#831550 公式サイト画像・縁の色 (s4)"]},
+   {"id": "hakui-koyori", "name": "博衣こより", "en": "Hakui Koyori", "hex": "#F09CC0", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#FE68AD 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#FFACD3 公式サイト画像・縁の色 (s4)"]},
+   {"id": "kazama-iroha", "name": "風真いろは", "en": "Kazama Iroha", "hex": "#73B5B1", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#44BFB7 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#93DCD8 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "jp-asobi-mawari-tai", "branch": "JP", "name": "アソビ★まわり隊！", "members": [
+   {"id": "achichi-mela", "name": "熱千めら", "en": "Achichi Mela", "hex": "#53B0FF", "note": "2026-09 デビュー", "src": ["s1", "s4"], "alt": ["#176FFE wiki のホロジュール表 / 公式サイト画像・濃い部分 (s3,s4)", "#1EA6FE wiki の見出し色 (s7)"]},
+   {"id": "sorashina-sopia", "name": "宙科そぴあ", "en": "Sorashina Sopia", "hex": "#7B85FF", "note": "2026-09 デビュー", "src": ["s1", "s4", "s7"], "alt": ["#4432FF wiki のホロジュール表 / 公式サイト画像・濃い部分 (s3,s4)"]},
+   {"id": "suzuna-tsuzuri", "name": "鈴鳴つづり", "en": "Suzuna Tsuzuri", "hex": "#BB1F25", "note": "2026-09 デビュー", "src": ["s1", "s4", "s7"], "alt": ["#831B19 wiki のホロジュール表 / 公式サイト画像・濃い部分 (s3,s4)"]},
+   {"id": "hyakuto-kyoko", "name": "百灯キョーコ", "en": "Hyakuto Kyoko", "hex": "#FF862E", "note": "2026-09 デビュー", "src": ["s1", "s4"], "alt": ["#FE2308 wiki のホロジュール表 / 公式サイト画像・濃い部分 (s3,s4)", "#F38E46 wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "jp-holoan", "branch": "JP", "name": "holoAN", "members": [
+   {"id": "izuki-michiru", "name": "井月みちる", "en": "Izuki Michiru", "hex": "#BF3966", "note": "アナウンサー。色は公式サイトの画像から(ホロジュールに個人の色が無い)", "confidence": "medium", "src": ["s4", "s5", "s7"], "alt": ["#CB4B85 公式サイト画像・縁の色 (s4)"]},
+   {"id": "hanazono-sayaka", "name": "花園さやか", "en": "Hanazono Sayaka", "hex": "#D3B674", "note": "アナウンサー。色は公式サイトの画像から(ホロジュールに個人の色が無い)", "confidence": "medium", "src": ["s4", "s5", "s7"], "alt": ["#F3D086 公式サイト画像・縁の色 (s4)"]},
+   {"id": "kazeshiro-yuki", "name": "風白ゆき", "en": "Kazeshiro Yuki", "hex": "#7AB4E2", "note": "アナウンサー。色は公式サイトの画像から(ホロジュールに個人の色が無い)", "confidence": "medium", "src": ["s4", "s5", "s7"], "alt": ["#92C3E8 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "devis-regloss", "branch": "DEV_IS", "name": "ReGLOSS", "members": [
+   {"id": "otonose-kanade", "name": "音乃瀬奏", "en": "Otonose Kanade", "hex": "#FFE7B5", "src": ["s1", "s2", "s3", "s4", "s5", "s7", "s6"], "alt": ["#F6C663 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "ichijou-ririka", "name": "一条莉々華", "en": "Ichijou Ririka", "hex": "#F47DA9", "src": ["s2", "s3", "s4", "s5", "s7", "s6"], "alt": ["#EE558B 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "juufuutei-raden", "name": "儒烏風亭らでん", "en": "Juufuutei Raden", "hex": "#3C7C71", "src": ["s1", "s2", "s3", "s4", "s5", "s7", "s6"], "alt": ["#1C5E4F 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "todoroki-hajime", "name": "轟はじめ", "en": "Todoroki Hajime", "hex": "#B6B9FF", "src": ["s1", "s2", "s3", "s4", "s5", "s7", "s6"], "alt": ["#9293FE 公式サイト画像・濃い部分 (s4)"]}
+  ]},
+  {"id": "devis-flowglow", "branch": "DEV_IS", "name": "FLOW GLOW", "members": [
+   {"id": "isaki-riona", "name": "響咲リオナ", "en": "Isaki Riona", "hex": "#FE3480", "src": ["s1", "s2", "s4"], "alt": ["#EA4980 wiki のホロジュール表 (s3,s5)", "#C92654 公式サイト画像・濃い部分 (s4)", "#C92655 wiki の見出し色 (s7)"]},
+   {"id": "koganei-niko", "name": "虎金妃笑虎", "en": "Koganei Niko", "hex": "#F58017", "src": ["s1", "s2", "s4"], "alt": ["#E68638 wiki のホロジュール表 (s3,s5)", "#F25E11 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "mizumiya-su", "name": "水宮枢", "en": "Mizumiya Su", "hex": "#71E5FF", "src": ["s1", "s2", "s4", "s7"], "alt": ["#89D8F0 wiki のホロジュール表 (s3,s5)", "#64CCE4 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "rindo-chihaya", "name": "輪堂千速", "en": "Rindo Chihaya", "hex": "#37BABA", "src": ["s1", "s2", "s4", "s7"], "alt": ["#61B7B9 wiki のホロジュール表 (s3,s5)", "#2C8C8B 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "kikirara-vivi", "name": "綺々羅々ヴィヴィ", "en": "Kikirara Vivi", "hex": "#FF90CC", "src": ["s1", "s2", "s7"], "alt": ["#F096C9 wiki のホロジュール表 (s3,s5)", "#E34899 公式サイト画像・濃い部分 (s4)", "#EB85BC 公式サイト画像・縁の色 (s4)"]}
+  ]},
+  {"id": "en-myth", "branch": "EN", "name": "Myth", "members": [
+   {"id": "mori-calliope", "name": "森カリオペ", "en": "Mori Calliope", "hex": "#C90D40", "src": ["s2", "s3", "s4", "s5", "s6"], "alt": ["#A1020B 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "takanashi-kiara", "name": "小鳥遊キアラ", "en": "Takanashi Kiara", "hex": "#FF511C", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#DC3907 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "ninomae-ina-nis", "name": "一伊那尓栖", "en": "Ninomae Ina'nis", "hex": "#62567E", "src": ["s2", "s3", "s4", "s5", "s6"], "alt": ["#3F3E69 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]}
+  ]},
+  {"id": "en-promise", "branch": "EN", "name": "Promise", "members": [
+   {"id": "irys", "name": "IRyS", "en": "IRyS", "hex": "#8C1236", "src": ["s2", "s3", "s5", "s6"], "alt": ["#991150 公式サイト画像・濃い部分 (s4)", "#E10E5B 公式サイト画像・縁の色 (s4)", "#F8055D wiki の見出し色 (s7)"]},
+   {"id": "ouro-kronii", "name": "オーロ・クロニー", "en": "Ouro Kronii", "hex": "#20318B", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#1D1797 公式サイト画像・濃い部分 (s4)", "#6879C7 公式サイト画像・縁の色 (s4)", "#0869EC wiki の見出し色 (s7)"]},
+   {"id": "hakos-baelz", "name": "ハコス・ベールズ", "en": "Hakos Baelz", "hex": "#D72517", "src": ["s2", "s3", "s5", "s6"], "alt": ["#FE3A2D 公式サイト画像・濃い部分 (s4)", "#FF938D 公式サイト画像・縁の色 (s4)", "#D2251E wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "en-advent", "branch": "EN", "name": "Advent", "members": [
+   {"id": "shiori-novella", "name": "シオリ・ノヴェラ", "en": "Shiori Novella", "hex": "#B8A0CD", "src": ["s2", "s3", "s4", "s5", "s6"], "alt": ["#8C80AE 公式サイト画像・濃い部分 (s4)", "#373741 wiki の見出し色 (s7)"]},
+   {"id": "koseki-bijou", "name": "古石ビジュー", "en": "Koseki Bijou", "hex": "#6E5BF4", "src": ["s2", "s3", "s4", "s5", "s7", "s6"], "alt": ["#4B43DF 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "nerissa-ravencroft", "name": "ネリッサ・レイヴンクロフト", "en": "Nerissa Ravencroft", "hex": "#2233FB", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#1E27AC 公式サイト画像・濃い部分 (s4)", "#1E26AB wiki の見出し色 (s7)"]},
+   {"id": "fuwawa-abyssgard", "name": "フワワ・アビスガード", "en": "Fuwawa Abyssgard", "hex": "#67B2FF", "note": "色は公式サイトの画像から(ホロジュールは FUWAMOCO の2人共用で #F9F1E4)", "confidence": "medium", "src": ["s4", "s7"], "alt": ["#F9F1E4 ホロジュール / wiki のホロジュール表 (s1,s2,s3,s5,s6)", "#2D87F7 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "mococo-abyssgard", "name": "モココ・アビスガード", "en": "Mococo Abyssgard", "hex": "#F7A6CA", "note": "色は公式サイトの画像から(ホロジュールは FUWAMOCO の2人共用で #F9F1E4)", "confidence": "medium", "src": ["s4", "s7"], "alt": ["#F9F1E4 ホロジュール / wiki のホロジュール表 (s1,s2,s3,s5,s6)", "#FF82C9 公式サイト画像・濃い部分 (s4)"]}
+  ]},
+  {"id": "en-justice", "branch": "EN", "name": "Justice", "members": [
+   {"id": "elizabeth-rose-bloodflame", "name": "エリザベス・ローズ・ブラッドフレイム", "en": "Elizabeth Rose Bloodflame", "hex": "#C7383B", "src": ["s2", "s3", "s4", "s5"], "alt": ["#97303A 公式サイト画像・濃い部分 (s4)", "#C63639 wiki の見出し色 (s7)"]},
+   {"id": "gigi-murin", "name": "ジジ・ムリン", "en": "Gigi Murin", "hex": "#FDB440", "src": ["s1", "s2", "s3", "s4", "s5"], "alt": ["#CD9328 公式サイト画像・濃い部分 (s4)", "#FEB543 wiki の見出し色 (s7)"]},
+   {"id": "cecilia-immergreen", "name": "セシリア・イマーグリーン", "en": "Cecilia Immergreen", "hex": "#119A5C", "src": ["s1", "s2", "s3", "s4", "s5"], "alt": ["#137A42 公式サイト画像・濃い部分 (s4)", "#109D5B wiki の見出し色 (s7)"]},
+   {"id": "raora-panthera", "name": "ラオーラ・パンテーラ", "en": "Raora Panthera", "hex": "#F087A9", "src": ["s1", "s2", "s3", "s4", "s5"], "alt": ["#E75786 公式サイト画像・濃い部分 (s4)", "#F086AA wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "id-area15", "branch": "ID", "name": "AREA15", "members": [
+   {"id": "ayunda-risu", "name": "アユンダ・リス", "en": "Ayunda Risu", "hex": "#FF4133", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#EF8381 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#F6BBBB 公式サイト画像・縁の色 (s4)"]},
+   {"id": "moona-hoshinova", "name": "ムーナ・ホシノヴァ", "en": "Moona Hoshinova", "hex": "#892EFF", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#784DBE 公式サイト画像・濃い部分 (s4)", "#B19DDC 公式サイト画像・縁の色 (s4)", "#B59DDD wiki の見出し色 (s7)"]},
+   {"id": "airani-iofifteen", "name": "アイラニ・イオフィフティーン", "en": "Airani Iofifteen", "hex": "#FF45D5", "src": ["s1", "s2", "s3", "s5", "s6"], "alt": ["#7BDF0E 公式サイト画像・濃い部分 (s4)", "#B3EE55 公式サイト画像・縁の色 (s4)", "#BEF167 wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "id-holoro", "branch": "ID", "name": "holoro", "members": [
+   {"id": "kureiji-ollie", "name": "クレイジー・オリー", "en": "Kureiji Ollie", "hex": "#D60E54", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#B7030E 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "anya-melfissa", "name": "アーニャ・メルフィッサ", "en": "Anya Melfissa", "hex": "#F2C95C", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#E89C0F 公式サイト画像・濃い部分 (s4)", "#9E7C7E wiki の見出し色 (s7)"]},
+   {"id": "pavolia-reine", "name": "パヴォリア・レイネ", "en": "Pavolia Reine", "hex": "#0F52BA", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#040F7F 公式サイト画像・濃い部分 (s4)", "#2A64AE wiki の見出し色 (s7)"]}
+  ]},
+  {"id": "id-holoh3ro", "branch": "ID", "name": "holoh3ro", "members": [
+   {"id": "vestia-zeta", "name": "ベスティア・ゼータ", "en": "Vestia Zeta", "hex": "#BAB9C3", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#97A1AE 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "kaela-kovalskia", "name": "カエラ・コヴァルスキア", "en": "Kaela Kovalskia", "hex": "#FF3D3D", "src": ["s1", "s2", "s3", "s4", "s5", "s6"], "alt": ["#DC2528 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]},
+   {"id": "kobo-kanaeru", "name": "こぼ・かなえる", "en": "Kobo Kanaeru", "hex": "#393464", "src": ["s2", "s3", "s4", "s5", "s6"], "alt": ["#161C4F 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)"]}
+  ]},
+  {"id": "graduated", "branch": "GRAD", "name": "卒業・活動終了", "members": [
+   {"id": "amane-kanata", "name": "天音かなた", "en": "Amane Kanata", "hex": "#509BEA", "note": "2025-12-27 卒業(JP 4期生)", "src": ["g1", "s10", "s2", "s3", "s5", "s6"], "alt": ["#76C0EA 公式サイト画像・濃い部分 (s4)", "#99D8FF 公式サイト画像・縁の色 (s4)", "#367CE5 wiki の見出し色 (s7)"]},
+   {"id": "hiodoshi-ao", "name": "火威青", "en": "Hiodoshi Ao", "hex": "#1D3467", "note": "2025-10-03 卒業(DEV_IS ReGLOSS)", "src": ["g2", "s10", "s2", "s3", "s4", "s5", "s6", "s7"], "alt": ["#16264B 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "harusaki-nodoka", "name": "春先のどか", "en": "Harusaki Nodoka", "hex": "#CEE5A2", "note": "2025-09-30 退職(JP holoAN) / 色は公式サイトの画像から(資料が少ない)", "confidence": "low", "src": ["g17", "s12", "s4", "s7"], "alt": ["#E3F1CD 公式サイト画像・縁の色 (s4)", "#DEFFC9  (s5,s6)"]},
+   {"id": "gawr-gura", "name": "がうる・ぐら", "en": "Gawr Gura", "hex": "#5D81C7", "note": "2025-05-01 卒業(EN Myth)", "src": ["g7", "s10", "s2", "s3", "s4", "s5", "s6", "s7"], "alt": ["#3A69B2 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "nanashi-mumei", "name": "七詩ムメイ", "en": "Nanashi Mumei", "hex": "#B99C90", "note": "2025-04-28 卒業(EN Promise)", "src": ["g18", "g6", "s10", "s2", "s3", "s5", "s6"], "alt": ["#C29371 公式サイト画像・濃い部分 (s4)", "#DCC4B2 公式サイト画像・縁の色 (s4)", "#998274 wiki の見出し色 (s7)"]},
+   {"id": "murasaki-shion", "name": "紫咲シオン", "en": "Murasaki Shion", "hex": "#8466FE", "note": "2025-04-26 卒業(JP 2期生)", "src": ["g8", "s10", "s2", "s3", "s5", "s6"], "alt": ["#8A54CB 公式サイト画像・濃い部分 (s4)", "#AD6CE0 公式サイト画像・縁の色 (s4)", "#8565FC wiki の見出し色 (s7)"]},
+   {"id": "sakamata-chloe", "name": "沙花叉クロヱ", "en": "Sakamata Chloe", "hex": "#921A1B", "note": "2025-01-26 配信活動終了(JP 秘密結社holoX)", "src": ["g4", "s2", "s3", "s5", "s6", "s9"], "alt": ["#AB0E0C 公式サイト画像・濃い部分 / wiki の見出し色 (s4,s7)", "#CF4C4A 公式サイト画像・縁の色 (s4)"]},
+   {"id": "ceres-fauna", "name": "セレス・ファウナ", "en": "Ceres Fauna", "hex": "#ADD198", "note": "2025-01-04 卒業(EN Promise)", "src": ["g5", "s10", "s2", "s3", "s5", "s6"], "alt": ["#33CA66 公式サイト画像・濃い部分 (s4)", "#B4E4C7 公式サイト画像・縁の色 (s4)", "#A4E5CF wiki の見出し色 (s7)"]},
+   {"id": "watson-amelia", "name": "ワトソン・アメリア", "en": "Watson Amelia", "hex": "#F8DB92", "note": "2024-10-01 配信活動終了(EN Myth)", "src": ["g3", "s2", "s3", "s4", "s5", "s6", "s7", "s9"], "alt": ["#F2BD36 公式サイト画像・濃い部分 (s4)"]},
+   {"id": "minato-aqua", "name": "湊あくあ", "en": "Minato Aqua", "hex": "#E57CDD", "note": "2024-08-28 卒業(JP 2期生)", "src": ["g9", "s10", "s2", "s3", "s5", "s6"], "alt": ["#FE5DD8 公式サイト画像・濃い部分 (s4)", "#FFA6EA 公式サイト画像・縁の色 (s4)", "#404B83 wiki の見出し色 (s7)"]},
+   {"id": "friend-a", "name": "友人A（えーちゃん）", "en": "Friend-A", "hex": "#483F7A", "note": "2024-06-30 退職(JP スタッフ) / 色は公式サイトの画像から(資料が少ない)", "confidence": "low", "src": ["g16", "s4", "s7", "s9"], "alt": ["#2B2B6E 公式サイト画像・縁の色 (s4)", "#36398C  (s5,s6)"]},
+   {"id": "yozora-mel", "name": "夜空メル", "en": "Yozora Mel", "hex": "#FED62A", "note": "2024-01-16 契約解除(JP 1期生)", "src": ["g10", "s2", "s3", "s5", "s6"], "alt": ["#FFC004 公式サイト画像・濃い部分 (s4)", "#FFDD17 公式サイト画像・縁の色 (s4)", "#FDD531 wiki の見出し色 (s7)"]},
+   {"id": "tsukumo-sana", "name": "九十九佐命", "en": "Tsukumo Sana", "hex": "#DEB232", "note": "2022-07-31 卒業(EN Council)", "src": ["g13", "s10", "s2", "s3", "s5", "s6"], "alt": ["#D583AB 公式サイト画像・濃い部分 (s4)", "#E7BBD2 公式サイト画像・縁の色 (s4)", "#FEDE4A wiki の見出し色 (s7)"]},
+   {"id": "uruha-rushia", "name": "潤羽るしあ", "en": "Uruha Rushia", "hex": "#19E8C9", "note": "2022-02-24 契約解除(JP 3期生)", "src": ["g11", "s2", "s3", "s5", "s6"], "alt": ["#0DE1BD 公式サイト画像・濃い部分 (s4)", "#30F9D2 公式サイト画像・縁の色 (s4)", "#04E3CB wiki の見出し色 (s7)"]},
+   {"id": "kiryu-coco", "name": "桐生ココ", "en": "Kiryu Coco", "hex": "#F38514", "note": "2021-07-01 卒業(JP 4期生)", "src": ["g12", "s10", "s2", "s3", "s5", "s6"], "alt": ["#DB7311 公式サイト画像・濃い部分 (s4)", "#FE8B04 公式サイト画像・縁の色 (s4)", "#FD935F wiki の見出し色 (s7)"]},
+   {"id": "mano-aloe", "name": "魔乃アロエ", "en": "Mano Aloe", "hex": "#E289B5", "note": "2020-08-31 卒業(JP 5期生) / 色は 2020 年のホロジュールの記録から", "confidence": "medium", "src": ["g14", "s2"], "alt": ["#F38CC4 wiki の見出し色 (s7)"]}
+  ]}
+ ],
+ "sources": [
+  {"id": "s1", "title": "ホロジュール(ホロライブ公式の配信予定サイト)。配信カードのアイコン枠の色。2026-09-26 取得", "url": "https://schedule.hololive.tv/"},
+  {"id": "s2", "title": "ホロジュールの Wayback Machine 保存版 約150件(2019-12〜2026-09)。アイコン枠の色の履歴", "url": "https://web.archive.org/web/2020*/schedule.hololive.tv"},
+  {"id": "s3", "title": "ホロライブ非公式wiki 早見表「公式カラー > ホロジュール」表", "url": "https://seesaawiki.jp/hololivetv/d/%c1%e1%b8%ab%c9%bd"},
+  {"id": "s4", "title": "ホロライブ非公式wiki 早見表「公式カラー > 公式サイト」表(公式サイトの画像から抽出。三角内の濃い部分/縁のやや薄い部分)", "url": "https://seesaawiki.jp/hololivetv/d/%c1%e1%b8%ab%c9%bd"},
+  {"id": "s5", "title": "メンバーカラー《ホロライブ》【データ一覧】VTuber Soul(2026-07-18 更新。ホロジュール準拠と記載)", "url": "https://vtubernews.com/datalist-0009/"},
+  {"id": "s6", "title": "メンバーカラー《ホロライブ》とある電脳の仮想偶像(2024-03-24 更新。s5 と同じ表で独立ではない)", "url": "https://vtuberinfo.net/hololive-membercolor/"},
+  {"id": "s7", "title": "Hololive Fan Wiki の色テンプレート(background-color1。wiki の見出しの色)", "url": "https://hololive.wiki/wiki/Hololive_Fan_Wiki:Projects/VTuber_color_templates"},
+  {"id": "s9", "title": "hololive 公式サイト 所属タレント一覧(名前・ユニット・卒業などの表記。色は HTML/CSS に無い)", "url": "https://hololive.hololivepro.com/talents/"},
+  {"id": "s10", "title": "hololive 公式サイト 卒業生", "url": "https://hololive.hololivepro.com/talents?gp=alum"},
+  {"id": "s12", "title": "hololive 公式サイト holoAN(アナウンサー)", "url": "https://hololive.hololivepro.com/talents?gp=holoan"},
+  {"id": "g1", "title": "「天音かなた」卒業に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/c2025120201"},
+  {"id": "g2", "title": "ホロライブの火威 青さんが本日をもって卒業(4Gamer 2025-10-03)", "url": "https://www.4gamer.net/games/999/G999905/20251003045/"},
+  {"id": "g3", "title": "「ワトソン・アメリア」の配信活動終了に伴うファンの皆様へのお知らせ(公式)", "url": "https://hololivepro.com/news/20240920-01-183/"},
+  {"id": "g4", "title": "「沙花叉クロヱ」の配信活動終了に伴うファンの皆様へのお知らせ(公式)", "url": "https://hololivepro.com/news/20241129-01-200/"},
+  {"id": "g5", "title": "「セレス・ファウナ」卒業に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/20241201-01"},
+  {"id": "g6", "title": "Announcement Regarding Nanashi Mumei's Graduation(カバー)", "url": "https://cover-corp.com/en/news/detail/20250328-01"},
+  {"id": "g7", "title": "Announcement Regarding Gawr Gura's Graduation(カバー)", "url": "https://cover-corp.com/en/news/detail/20250416-01"},
+  {"id": "g8", "title": "紫咲シオン、4月26日をもって卒業(ファミ通)", "url": "https://www.famitsu.com/article/202503/35784"},
+  {"id": "g9", "title": "「湊あくあ」卒業に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/20240806-01"},
+  {"id": "g10", "title": "「夜空メル」契約解除に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/20240116"},
+  {"id": "g11", "title": "「潤羽るしあ」契約解除に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/20220224a"},
+  {"id": "g12", "title": "「桐生ココ」卒業に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/20210609a"},
+  {"id": "g13", "title": "Announcement of Tsukumo Sana's Graduation(カバー)", "url": "https://cover-corp.com/en/news/detail/20220712b"},
+  {"id": "g14", "title": "「魔乃アロエ」卒業に関するお知らせ(カバー)", "url": "https://cover-corp.com/news/detail/2570"},
+  {"id": "g16", "title": "友人A(えーちゃん)が6月末で退職へ(インサイド 2024-06-28)", "url": "https://www.inside-games.jp/article/2024/06/28/156906.html"},
+  {"id": "g17", "title": "春先のどか「9月末をもってホロライブプロダクションを退職します」(本人の X)", "url": "https://x.com/harusakinodoka/status/1963769053769560512"},
+  {"id": "g18", "title": "Virtual YouTuber Wiki: Nanashi Mumei(卒業 2025-04-28 JST / 4-27 PDT)", "url": "https://virtualyoutuber.fandom.com/wiki/Nanashi_Mumei"}
+ ]
+}

@@ -66,3 +66,7 @@ _new/
 **/logs/
 **/browser-profile/
 
+# ホロカラー(holo-colors)のビルドの成果物(build.bat が作る。exe は友人に zip で渡す)・YTT_DATA_DIR=inplace のときの作業データ
+holo-colors/build/
+holo-colors/dist/
+holo-colors/data/

@@ -883,3 +883,20 @@
   2. `e2e_ui_mounted.py` が「編集」の ping だけ待って画面を開き、cut2resolve の取り込みが遅れると「cut2resolve が起動していない」になっていた → cut2resolve の ping も待つ。
      止まったときに `#pkOff` の理由を出すようにした
 - 未完了・次(ユーザーの判断待ち): ③-2 をどうするか(③-1 の結果を見て)・② の初期値(縦 16・横 28 の案)・⑤(b) をやるか・⑦ の作り方
+
+## 2026-09-27 Claude Code — 新しいツール「ホロカラー」(holo-colors。メンバーカラーをキーで呼び出してコピーする Windows のアプリ)
+- 担当: Claude Code(`holo-colors/`・`docs/holo-colors.md`。AGENTS.md の担当表に追記)。既存の3ツール・入口には触っていない
+- ユーザーの依頼(2026-09-26): 既存のツールとは別に、キーボードショートカットで呼び出し、ホロライブのメンバーカラーをクリックでコピー・自分で色を足せる・コピーしたら閉じる(閉じない設定も)
+- 決定(ユーザー): ブラウザではなく Windows のアプリ / **主に友人が使う** → Python + tkinter から **C#(WinForms)の exe** に変更(友人の PC に Python が要らない。
+  Windows に入っている .NET Framework 4 の csc で作る。C# 5 まで)/ メンバーは JP・DEV_IS・EN・ID・卒業 + 新ユニット「アソビ★まわり隊！」/ サインイン時の起動は設定で選ぶ
+- 追加: `holo-colors/`(`src/*.cs`・`app.manifest`・`app.ico`・`members.json`(86 人)・`tests/CoreTests.cs`・`build.bat`・`e2e_holo_colors.py`・`make_icon.py`・`README.txt`)、`docs/holo-colors.md`(設計・色の出典・リスク)
+- 変更: `AGENTS.md`(全体の形・表・担当表)、`README.txt`(別のツールとして案内)、`.gitignore`(`holo-colors/build/`・`dist/`・`data/`)
+- 版: ホロカラー **1.0.0**(`src/Core.cs` の AppInfo.Version と README の見出し)
+- メンバーの色: 主な出典はホロジュール(カバーの配信予定サイトのアイコンの縁の色)。調べ物は下請けの調査(Wayback の保存版 約150件と wiki・公式サイトで照合)、
+  Claude Code が今のホロジュールで一致・公式サイトの卒業生の一覧(天音かなた・火威青)・アソビ★まわり隊！の区分を取り直して確かめた。人見クリスは色の資料が無いので入れていない
+- テスト(PC で通過): `build.bat`(単体 15 件)・`python holo-colors/e2e_holo_colors.py`(本物のキー入力で 15 件。ユーザーの許可を得て流した)。画面は `--screenshot <フォルダ>` の画像で確認
+- 成果物: `holo-colors/dist/HoloColors.zip`(exe・members.json・README。git には入れない。build.bat で作り直せる)
+- 未決(ユーザーに確認): 出典どうしで色合いが大きく違う4人(アキ・ローゼンタール・角巻わため・アイラニ・イオフィフティーン・九十九佐命。今はホロジュールの色)。`docs/holo-colors.md` の「メンバーの色」
+- 注意: exe は未署名なので、友人の PC では初回に SmartScreen の確認が出る(README に手順)。既定のキー Ctrl+Alt+H は Resolve などより先に取る(設定で変えられる)。
+  e2e は本物の入力を送るので、流す前にユーザーに確認する(キーを送る前に前面の窓を確かめて止まる安全装置はある)
+- 同じ時間に別のセッションが「編集」の追加機能を進めていた(上の記録・未コミットの変更)。このコミットには入れていない
