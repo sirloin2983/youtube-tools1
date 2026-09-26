@@ -100,7 +100,6 @@
       st.appendChild(el('span', 'pill ' + (done ? 'ok' : 'run'), '文字起こし 校正 ' + t.proofed + '/' + t.segments + '行'));
     } else {
       st.appendChild(el('span', 'pill wait', '文字起こし まだ'));
-      if (c.exists && c.path) st.appendChild(link('文字起こしで開く', '/transcribe/?media=' + encodeURIComponent(c.path)));
     }
     // パック
     if (c.pack) {
@@ -110,8 +109,9 @@
       st.appendChild(pill);
     } else {
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
-      if (c.exists && c.path) st.appendChild(link('cut2resolve で開く', '/cut2resolve/?video=' + encodeURIComponent(c.path)));
     }
+    // 「編集」で開く(文字起こし・カット・パックは同じツールの3つのタブ。文書が無ければ「文字起こしする / せずに開く」を選ぶ)
+    if (c.exists && c.path) st.appendChild(link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path)));
     li.appendChild(st);
     return li;
   }

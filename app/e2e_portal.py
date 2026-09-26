@@ -17,6 +17,8 @@
 """
 import json
 import os
+import re
+import urllib.parse
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import signal
@@ -91,6 +93,16 @@ def seed_more_cases(studio_json, n=34, base_ts=None):
         json.dump(doc, f, ensure_ascii=False)
 
 
+def tool_version(rel, pattern):
+    with open(os.path.join(REPO, rel), encoding="utf-8") as f:
+        return re.search(pattern, f.read(), re.M).group(1)
+
+
+TX_VER = "v" + tool_version("transcribe-tool/app.js", r"const APP_VERSION = '([^']+)'")
+STUDIO_VER = "v" + tool_version("clip-studio/core.js", r"const APP_VERSION = '([^']+)'")
+SHOWN = ("studio", "transcribe")   # 入口のカード(cut2resolve は「編集」の部品。動いている間はカードを出さない)
+
+
 def run_mounted_phase(browser, tmp, shots, check, events):
     """(A) 本番と同じ形: studio・transcribe・cut2resolve をすべて入口に取り込む。"""
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
@@ -110,16 +122,19 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(base)
 
-        # 1. 3つのカードが作業の順に並び、動作中になる(3つとも入口に取り込み)
-        check(wait_js(pg, "document.querySelectorAll('.pt-tool').length === 3", 10000), "[A] カードが3枚")
-        order = pg.evaluate("[...document.querySelectorAll('.pt-tool')].map(e => e.getAttribute('data-tool'))")
-        check(order == ["studio", "transcribe", "cut2resolve"], "[A] 作業の順(スタジオ→文字起こし→cut2resolve): %s" % order)
-        for tid in L.TOOL_IDS:
+        # 1. カードは作業の順に2枚(① 切り抜きスタジオ → ② 編集)。cut2resolve は「編集」の部品として取り込まれて動くが、カードは出さない
+        for tid in SHOWN:
             check(wait_card(pg, tid, "running"), "[A] %s が動作中" % tid)
+        order = pg.evaluate("[...document.querySelectorAll('.pt-tool')].map(e => e.getAttribute('data-tool'))")
+        check(order == ["studio", "transcribe"], "[A] カードは作業の順に2枚(スタジオ → 編集): %s" % order)
+        check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-name") == "編集" and [pg.text_content(".pt-tool[data-tool=%s] .pt-step" % t) for t in SHOWN] == ["1", "2"],
+              "[A] 文字起こしのカードは「編集」(② の段)")
+        c2r = next(t for t in pg.evaluate("fetch('/api/status', {cache: 'no-store'}).then(r => r.json())")["tools"] if t["id"] == "cut2resolve")
+        check(c2r["state"] == "running" and c2r["mounted"] and c2r["hidden"], "[A] cut2resolve は入口に取り込まれて動いている(カードは出さない): %s" % {k: c2r[k] for k in ("state", "mounted", "hidden")})
         check(pg.text_content("#ver") == "入口 v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
         check(pg.text_content("#conn") == "接続中", "[A] 接続中の表示")
 
-        for tid, verfrag in (("studio", "v0.8.0"), ("cut2resolve", None), ("transcribe", "v0.15.0")):
+        for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
             good = ("ポート %d" % port) in meta and "入口に取り込み" in meta and (verfrag is None or verfrag in meta)
             check(good, "[A] %s は入口に取り込み(同じポート): %s" % (tid, meta))
@@ -144,23 +159,26 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(tab.evaluate("Studio.base") == "/studio" and bool(tab.evaluate("Studio.token")), "[A] スタジオは場所と合言葉を知っている")
         tab.click("#toolMenu summary")
         links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-        check(any(h.endswith(":%d/transcribe/" % port) for h in links) and "/studio/" in links and any(h.endswith(":%d/cut2resolve/" % port) for h in links),
-              "[A] スタジオの「他のツール」: 3つとも同じポートに取り込み済み: %s" % links)
+        check(any(h.endswith(":%d/transcribe/" % port) for h in links) and "/studio/" in links and not any("/cut2resolve/" in h for h in links),
+              "[A] スタジオの「他のツール」: 編集は同じポートに取り込み済み・cut2resolve(部品)は出さない: %s" % links)
+        check("編集" in tab.text_content("#toolNav"), "[A] 「他のツール」のツール名は「編集」")
         u = tab.evaluate("UIKit.tools.url('studio', Studio.ports, '/?url=x')")
         check(u == "http://localhost:%d/studio/?url=x" % port, "[A] 他のツールから取り込んだスタジオへのリンク(ui-kit の paths): %s" % u)
         check(tab.evaluate("window.opener") is None, "[A] 開いたタブから入口を操作できない(noopener)")
         tab.close()
 
-        # 2b. cut2resolve も同じアドレスの /cut2resolve/ で開ける
-        href = pg.get_attribute(".pt-tool[data-tool=cut2resolve] .pt-open", "href")
-        check(href == "http://127.0.0.1:%d/cut2resolve/" % port, "[A] cut2resolve の開くのリンク: %s" % href)
-        with ctx.expect_page() as info:
-            pg.click(".pt-tool[data-tool=cut2resolve] .pt-open")
-        tab = info.value
+        # 2b. cut2resolve の画面(/cut2resolve/)は「編集」へ転送する(?video= → ?media=)。前の画面は ?classic=1 のときだけ
+        tab = ctx.new_page()
+        tab.goto(base + "cut2resolve/?video=" + urllib.parse.quote("C:\\x\\無い動画.mp4"))
+        check(wait_js(tab, "location.pathname === '/transcribe/' && document.querySelector('#srcPath') && document.querySelector('#srcPath').value.endsWith('無い動画.mp4')", 20000),
+              "[A] /cut2resolve/ を開くと「編集」(/transcribe/)へ転送し、?video= の動画を ?media= で渡す")
+        tab.close()
+        tab = ctx.new_page()
+        tab.goto(base + "cut2resolve/?classic=1")
         tab.wait_for_load_state()
         tools_q = "a .ui-brand-mark:not([data-tool=portal])"   # 「他のツール」の3ツール(ui-kit v3 から先頭に「入口」「案件の一覧」も並ぶ)
         check(wait_js(tab, "document.querySelectorAll('#toolNav %s').length === 3 || document.querySelectorAll('[data-ui-toolnav] %s').length === 3" % (tools_q, tools_q), 20000),
-              "[A] cut2resolve の画面が /cut2resolve/ の下で API を読めた")
+              "[A] ?classic=1 なら前の cut2resolve の画面が /cut2resolve/ の下で API を読めた")
         homes = tab.eval_on_selector_all("[data-ui-toolnav] a", "els => els.map(a => a.getAttribute('href'))")
         check(homes[:2] == ["/", "/cases.html"], "[A] 「他のツール」の先頭に入口・案件の一覧へ戻るリンク(ui-kit v3): %s" % homes[:2])
         check(tab.is_visible("[data-ui-home]") and tab.get_attribute("[data-ui-home]", "href") == "/", "[A] ヘッダーに入口へ戻るリンク(入口に取り込まれているとき)")
@@ -169,22 +187,22 @@ def run_mounted_phase(browser, tmp, shots, check, events):
               "[A] cut2resolve の「他のツール」からスタジオ・文字起こしとも同じポートへ: %s" % links)
         tab.close()
 
-        # 2c. 文字起こしも同じアドレスの /transcribe/ で開ける(段階3-3。認識自体は別プロセスの tx_worker.py)
+        # 2c. 編集(文字起こし)も同じアドレスの /transcribe/ で開ける(段階3-3。認識自体は別プロセスの tx_worker.py)
         href = pg.get_attribute(".pt-tool[data-tool=transcribe] .pt-open", "href")
         check(href == "http://127.0.0.1:%d/transcribe/" % port, "[A] 文字起こしの開くのリンク: %s" % href)
         with ctx.expect_page() as info:
             pg.click(".pt-tool[data-tool=transcribe] .pt-open")
         tab = info.value
         tab.wait_for_load_state()
-        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === 'v0.15.0'", 20000),
+        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === '%s'" % TX_VER, 20000),
               "[A] 文字起こしの画面が /transcribe/ の下で読み込めた(app.js の APP_VERSION): %s"
               % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
         check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 文字起こしの画面も合言葉(ytt-token)を受け取っている")
         tab.click("#toolMenu summary")
         check(wait_js(tab, "document.querySelectorAll('#toolNav a').length >= 2", 10000), "[A] 文字起こしの「他のツール」メニューが開いた")
         links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-        check(any(h.endswith(":%d/studio/" % port) for h in links) and any(h.endswith(":%d/cut2resolve/" % port) for h in links),
-              "[A] 文字起こしの「他のツール」: スタジオ・cut2resolve とも同じポートに取り込み済み: %s" % links)
+        check(any(h.endswith(":%d/studio/" % port) for h in links) and not any("/cut2resolve/" in h for h in links),
+              "[A] 編集の「他のツール」: スタジオは同じポートに取り込み済み・cut2resolve は出さない: %s" % links)
         check(tab.evaluate("window.opener") is None, "[A] 文字起こしのタブからも入口を操作できない(noopener)")
         tab.close()
 
@@ -203,6 +221,10 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check("文字起こし 校正 1/2行" in pills and "パック まだ" in pills, "[A] 閉じていても中身は組み立ててある(文字起こしの進み具合とパックの有無): %s" % pills)
         tab.click(".pt-case .pt-case-row")
         check(wait_js(tab, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行・メモが出る")
+        acts = tab.eval_on_selector_all(".pt-clip a", "els => els.map(a => [a.textContent, a.getAttribute('href')])")
+        check([a[0] for a in acts].count("編集で開く") == 1 and all(t != "cut2resolve で開く" and t != "文字起こしで開く" for t, _ in acts)
+              and any(t == "編集で開く" and h.startswith("/transcribe/?media=") for t, h in acts),
+              "[A] 切り抜きの操作は「編集で開く」の1つ(文字起こし・cut2resolve で開くはまとめた): %s" % acts)
         tab.select_option(".pt-case-status", "posted")
         check(wait_js(tab, "document.querySelector('#toast').textContent.indexOf('投稿済み') >= 0", 10000), "[A] 状態を保存した(合言葉つきの POST)")
         tab.reload()
@@ -260,7 +282,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         mob = ctx.new_page()
         mob.set_viewport_size({"width": 375, "height": 800})
         mob.goto(base)
-        check(wait_js(mob, "document.querySelectorAll('.pt-tool[data-state=running]').length === 3"), "[A] 狭い画面でも表示")
+        check(wait_js(mob, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2"), "[A] 狭い画面でも表示")
         check(mob.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "[A] 狭い画面で横にはみ出さない")
         xs = mob.evaluate("[...document.querySelectorAll('.pt-tool')].map(e => Math.round(e.getBoundingClientRect().left))")
         check(len(set(xs)) == 1, "[A] 狭い画面では縦に並ぶ: %s" % xs)
@@ -315,17 +337,17 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(base)
 
-        check(wait_js(pg, "document.querySelectorAll('.pt-tool').length === 3", 10000), "[B] カードが3枚")
-        for tid in L.TOOL_IDS:
+        for tid in SHOWN:
             check(wait_card(pg, tid, "running"), "[B] %s が動作中" % tid)
+        check(pg.evaluate("document.querySelectorAll('.pt-tool').length") == 2, "[B] カードは2枚(cut2resolve は動いている間は出さない)")
 
-        for tid in ("studio", "cut2resolve"):
+        for tid in ("studio",):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
             check(("ポート %d" % port) in meta and "入口に取り込み" in meta, "[B] %s は入口に取り込み: %s" % (tid, meta))
             check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
                   "[B] 取り込んだ%sは単独で止めない" % tid)
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
-        check(("ポート %d" % ports["transcribe"]) in meta and "v0.15.0" in meta and "入口に取り込み" not in meta,
+        check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "入口に取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
         check(not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-toggle") and not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"),
               "[B] 子プロセスの文字起こしは停止・再起動が押せる")
@@ -361,7 +383,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         check(proc is not None and proc.pid != old_pid, "[B] 別のプロセスになった")
 
         # 6. 異常終了の表示(子を外から強制終了)
-        os.kill(sup.by_id["transcribe"].proc.pid, signal.SIGKILL)
+        os.kill(sup.by_id["transcribe"].proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows は SIGTERM = 強制終了(TerminateProcess)
         check(wait_card(pg, "transcribe", "crashed"), "[B] 異常終了の表示")
         msg = pg.text_content(".pt-tool[data-tool=transcribe] .pt-msg")
         check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=transcribe] .pt-msg"), "[B] 異常終了のメッセージ: %s" % msg)

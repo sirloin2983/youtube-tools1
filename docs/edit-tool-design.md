@@ -250,3 +250,15 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり(`edit_keeps_sec`。接している区間は1つにまとめる)
 - テスト: 新規 `e2e_edit_pack.py`、`e2e_ui_mounted.py` の 3c・3d(パックのタブ・作り直しの知らせ・上書きの確認・手順書・zip の区間)、`e2e_ui_handoff.py`(音声だけの文書はパックに使えない理由)、
   `test_edit.py`(見積もり・手順書・zip・cut-plan)、cut2resolve `test_serve.py`(前回のパックのフォルダを開ける)。`e2e_edit_common.py` はツールのフォルダの直下のファイルを全部写す(.drb の写し忘れがあった)
+### E5 入口・ほか(2026-09-26 Claude Code)
+- 入口(`app/launch.py` の TOOLS): 文字起こし = 「編集」(文字起こし・カット・Resolve へのパック)。cut2resolve は `hidden`(取り込み・起動は今までどおり)。
+  入口の画面(`portal.js`)は cut2resolve のカードを、動いている間は出さない(止まっている・落ちた・見つからないときだけ出す = 起動し直せるように)。流れは ① スタジオ → ② 編集
+- ui-kit v4: `UIKit.tools` の transcribe の表示名を「編集」に、cut2resolve は `hidden: true`(一覧には残す = 編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ。「他のツール」のメニューには出さない)
+- `/cut2resolve/`(画面)→ `/transcribe/`(`?video=` → `?media=`)の転送は、入口の取り込みの層(`app/mount.py` の `page_to`)。**「編集」も取り込まれているときだけ**転送する
+  (cut2resolve だけの入口・単体の cut2resolve では前の画面のまま)。**`?classic=1` なら前の画面**(どこからもリンクしない。cut2resolve の画面のテストと、もしものとき)
+- 「文字起こしで開く」「cut2resolve で開く」「Resolve 用に渡す」→「編集で開く」(`/transcribe/?media=`)の1つ: 案件の一覧(`app/cases.js`。切り抜きごとに1つ)・スタジオの書き出しの結果(`clip-studio/review.js`)。
+  「編集」の書き出しの欄の「cut2resolve で開く」も外し、パックは 3 パック のタブと案内
+- まとめて実行(`app/autorun.py`): 文言だけ「編集」に(「校正したら「編集」のパックのタブで作り直してください」)。作り方(preset transcript-rows)は今までどおり
+- テスト: `app/test_mount.py` に転送、`app/e2e_portal.py`(カード2枚・転送・?classic=1・「編集で開く」・版はファイルから読む)、`app/e2e_window.py`、`clip-studio/e2e_ui.py`、`transcribe-tool/e2e_ui_handoff.py` を合わせた。
+  Windows でも流せるように: `e2e_portal`(SIGKILL が無ければ SIGTERM)、`e2e_window`(偽の Edge を .bat で)、`tools/e2e_pipeline.py`・`cut2resolve/e2e_ui.py --mounted`(Ctrl+Break で止める)、
+  `clip-studio/e2e_ui.py`(YouTube を止めたあと読み直す。インターネットに繋がる PC では、前に読んだ YouTube の部品が残って「再生できません」の確認が止まっていた)

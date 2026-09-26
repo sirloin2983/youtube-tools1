@@ -9,7 +9,7 @@ STUDIO_FAKE=1(YouTube へは接続しない)で、生成した短い動画・専
 必要: ffmpeg、playwright(chromium)。
 確かめること: タブ切り替えと復元 / テーマ切り替えの保存 / ダーク表示で入力欄が白くならない / マークの採用・不採用が保存される /
 書き出しボタンの有効・無効 / 外から来る文字列(タイトル・ラベル)が HTML にならない / ?url= は欄に入れるだけ / ? でキー一覧 /
-設定の引き出し / 「他のツール」メニュー / 書き出し後の「文字起こしで開く」「Resolve 用に渡す」リンク / 狭い画面で横にはみ出さない
+設定の引き出し / 「他のツール」メニュー / 書き出し後の「編集で開く」リンク / 狭い画面で横にはみ出さない
 v0.8.0(画面の全面見直し): ① 事務所を登録すると、触っていない事務所にチェックが入る・外した事務所は外れたまま / 結果の「全部まとめて」と「事務所ごと」/
 ② 失敗の説明(よくある原因と対処・元のメッセージ) / ③ 配信の選択(検索)・プレーヤーが使えないときに自動再生で通知を出さない・
 どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / ④ 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
@@ -239,7 +239,8 @@ def run_checks(port, fx, shots=None):
         pg.click("#toolMenu summary")
         TOOL_LINKS = "#toolNav a:has(.ui-brand-mark:not([data-tool=portal]))"   # ui-kit v3: 入口に取り込まれているときは先頭に「入口」「案件の一覧」も入る
         links = pg.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => a.getAttribute('href'))")
-        c.ok(len(links) == 3 and any(":8775" in h for h in links) and any(":8810" in h for h in links), "他のツール: /api/siblings が無いときは既定のポートでリンク")
+        c.ok(len(links) == 2 and any(":8775" in h for h in links) and not any(":8810" in h for h in links),
+             "他のツール: /api/siblings が無いときは既定のポートでリンク(スタジオ・編集。cut2resolve は編集の部品なので出さない): %s" % links)
         home = pg.eval_on_selector_all("#toolNav a:has(.ui-brand-mark[data-tool=portal])", "els => els.map(a => a.getAttribute('href'))")
         c.ok(home == (["/", "/cases.html"] if MOUNT["prefix"] else []), "他のツール: 入口に取り込まれているときだけ、先頭に入口・案件の一覧: %s" % home)
         pg.keyboard.press("Escape")
@@ -250,9 +251,16 @@ def run_checks(port, fx, shots=None):
         pg2.goto(base); pg2.wait_for_selector("#rkCond")
         pg2.click("#toolMenu summary")
         links2 = pg2.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => [a.getAttribute('href'), a.className])")
-        c.ok(any(":8779" in h for h, _ in links2) and any(":8810" in h and "cs-tool-off" in k for h, k in links2), "他のツール: /api/siblings のポートを使い、起動していないツールはそう表示する")
+        c.ok(any(":8779" in h for h, _ in links2), "他のツール: /api/siblings のポートを使う")
         c.ok(pg2.evaluate("Studio.toolUrl('transcribe', '/?media=x')") == "http://localhost:8779/?media=x", "受け渡しのリンクも実際のポートを使う")
         pg2.close()
+        pg3 = ctx.new_page()   # 編集が起動していないとき
+        pg3.route("**/api/siblings", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"tools": {"studio": port}})))
+        pg3.goto(base); pg3.wait_for_selector("#rkCond")
+        pg3.click("#toolMenu summary")
+        links3 = pg3.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => [a.getAttribute('href'), a.className])")
+        c.ok(any(":8775" in h and "cs-tool-off" in k for h, k in links3), "他のツール: 起動していないツールはそう表示する: %s" % links3)
+        pg3.close()
         for step, pane in (("queue", "#paneQueue"), ("review", "#paneReview"), ("collab", "#paneCollab"), ("rank", "#paneRank")):
             pg.click('#steps [data-step="%s"]' % step)
             c.ok(pg.is_visible(pane) and pg.get_attribute('#steps [data-step="%s"]' % step, "aria-pressed") == "true", "タブ切り替え: %s" % step)
@@ -364,9 +372,9 @@ def run_checks(port, fx, shots=None):
         wait_js(pg, "() => !document.querySelector('#rvExpCancel') || document.querySelector('#rvExpCancel').hidden", 60000)
         href = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[href*='?media=']", "href") or ""
         path = urllib.parse.unquote(href.split("?media=", 1)[1]) if "?media=" in href else ""
-        c.ok(":8775/?media=" in href and os.path.isfile(path), "書き出し後「文字起こしで開く」のリンク(実在する mp4 の絶対パス): %s" % path)
-        href2 = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[href*='?video=']", "href") or ""
-        c.ok(":8810/?video=" in href2 and urllib.parse.unquote(href2.split("?video=", 1)[1]) == path, "「Resolve 用に渡す」のリンク")
+        c.ok(":8775/?media=" in href and os.path.isfile(path), "書き出し後「編集で開く」のリンク(実在する mp4 の絶対パス): %s" % path)
+        c.ok(pg.locator("#rvExpList .rv-ejob.st-ok a[href*='?video=']").count() == 0 and "編集で開く" in pg.inner_text("#rvExpList .rv-ejob.st-ok .rv-ejob-a"),
+             "「文字起こしで開く」「Resolve 用に渡す」は「編集で開く」の1つにまとめた(cut2resolve へのリンクは出さない)")
         c.ok(pg.locator('#rvList .rv-mark-row[data-id="m1"].st-exported').count() == 1, "書き出し済みの印が付く")
         # 書き出した切り抜きを文字起こしツールで文字にした → ③ のマークにセリフが元の配信の時刻で出る(行を押すとその行を再生)
         txdir = os.path.join(os.environ["TRANSCRIBE_DATA_DIR"], "transcripts")
@@ -404,6 +412,7 @@ def run_checks(port, fx, shots=None):
              "シアター表示でも「書き出し」は右の列の上(見える場所)にある")
         pg.click("#rvTheater"); pg.wait_for_timeout(200)
         pg.route("https://www.youtube.com/**", lambda route: route.abort())   # YouTube に繋がらない(埋め込みできない)状態
+        pg.reload(); pg.wait_for_selector("#rvList")   # インターネットに繋がる PC では、前に読み込んだ YouTube の部品が残るので読み直す
         pg.evaluate("() => { window.__toasts = []; const o = Studio.toast; Studio.toast = (m, ms, k) => { window.__toasts.push(String(m)); return o(m, ms, k); }; }")
         open_video(pg, fx["yt"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="y0"]')

@@ -72,11 +72,12 @@ YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の AP
 TOOLS = (
     {"id": "studio", "app": "clip-studio", "name": "切り抜きスタジオ", "sub": "配信を探す・切り抜く区間を選ぶ・書き出す",
      "dir": "clip-studio", "port": 8800, "version_file": "serve.py", "version_re": r'^SERVER_VERSION\s*=\s*"([^"]+)"'},
-    {"id": "transcribe", "app": "transcribe-tool", "name": "文字起こしツール", "sub": "字幕を作る・校正する",
+    {"id": "transcribe", "app": "transcribe-tool", "name": "編集", "sub": "文字起こし・カット・Resolve へのパック",
      "dir": "transcribe-tool", "port": 8775, "version_file": "serve.py", "version_re": r'^SERVER_VERSION\s*=\s*"([^"]+)"',
      "venv": True},
-    {"id": "cut2resolve", "app": "cut2resolve", "name": "cut2resolve", "sub": "カットと字幕を Resolve へ渡す",
-     "dir": "cut2resolve", "port": 8810, "version_file": "cut2resolve_core.py", "version_re": r'^VERSION\s*=\s*"([^"]+)"'},
+    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/edit-tool-design.md の 6)
+    {"id": "cut2resolve", "app": "cut2resolve", "name": "cut2resolve", "sub": "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)",
+     "dir": "cut2resolve", "port": 8810, "version_file": "cut2resolve_core.py", "version_re": r'^VERSION\s*=\s*"([^"]+)"', "hidden": True},
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
 STATES = ("stopped", "starting", "running", "external", "stopping", "crashed", "missing")
@@ -211,6 +212,7 @@ class Tool:
                 "id": self.id, "name": self.spec["name"], "sub": self.spec["sub"], "state": self.state, "message": self.message,
                 "since": round(self.since, 3), "port": self.port, "version": self.version, "expectedVersion": self.expected,
                 "managed": self.managed, "exitCode": self.exit_code, "starts": self.starts, "mounted": self.mounted, "path": self.path,
+                "hidden": bool(self.spec.get("hidden")),
                 "log": os.path.relpath(self.log_path, self.root), "hasLog": os.path.exists(self.log_path),
             }
 

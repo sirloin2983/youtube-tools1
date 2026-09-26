@@ -85,7 +85,7 @@ const S = {
   now: 0, duration: 0, playerState: -1, playerAlive: false, rate: 1, draft: { start: null, end: null }, previewEnd: null,
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
   loadSeq: 0, editSeq: 0, dirty: false, built: false,
-  tx: null, txOpen: new Set(), txSeq: 0   // 書き出したマークのセリフ(文字起こしツールのデータ。/api/transcripts)
+  tx: null, txOpen: new Set(), txSeq: 0   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
 };
 const marks = () => (S.cur ? S.cur.marks : []);
 const sortedMarks = () => [...marks()].sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -1035,8 +1035,8 @@ function handoffHTML(j, it){
   const path = it.status === 'done' ? clipPathOf(j, it) : '';
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
-  const tt = Studio.toolUrl('transcribe', '/?media=' + enc(path)), cr = Studio.toolUrl('cut2resolve', '/?video=' + enc(path));
-  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" title="文字起こしツールを、この切り抜きを入れた状態で開きます(自動では始めません)">文字起こしで開く</a>` : ''}${cr ? `<a class="btn small ghost" href="${esc(cr)}" target="_blank" rel="noopener" title="cut2resolve を、この切り抜きを入れた状態で開きます">Resolve 用に渡す</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
+  const tt = Studio.toolUrl('transcribe', '/?media=' + enc(path));
+  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
 }
 async function copyText(text){
   try { await navigator.clipboard.writeText(text); return true; } catch {}

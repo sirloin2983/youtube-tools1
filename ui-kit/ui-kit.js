@@ -1,4 +1,4 @@
-/* ui-kit v3 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v4 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
@@ -10,7 +10,9 @@
    window.UIKit.win    : isApp() 窓(Edge のアプリモード)で開いているか / open(url) 入口に頼んで開く(段階7-3)。
                          窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
    v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
-       window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s) */
+       window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s)
+   v4: 文字起こしツールと cut2resolve を「編集」に統合(docs/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
+       (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -77,8 +79,8 @@
   /* ---- ツール間のリンク ---- */
   var TOOLS = [
     { id: 'studio', name: '切り抜きスタジオ', sub: '配信を探す・切り抜く区間を選ぶ', port: 8800, mark: 'studio' },
-    { id: 'transcribe', name: '文字起こしツール', sub: '字幕を作る・校正する', port: 8775, mark: 'transcribe' },
-    { id: 'cut2resolve', name: 'cut2resolve', sub: 'カットと字幕を Resolve へ渡す', port: 8810, mark: 'cut2resolve' }
+    { id: 'transcribe', name: '編集', sub: 'カット・字幕・Resolve へのパック', port: 8775, mark: 'transcribe' },
+    { id: 'cut2resolve', name: 'cut2resolve', sub: '「編集」がパックを作るのに使う部品', port: 8810, mark: 'cut2resolve', hidden: true }
   ];
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   var PATH_RE = /^\/(?:[a-z0-9][a-z0-9-]{0,31}\/)?$/;
@@ -109,12 +111,13 @@
       opt = opt || {};
       var html = '';
       if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
-        html += '<a href="/"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>3つのツールの状態・起動と終了</small></span></a>' +
+        html += '<a href="/"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>ツールの状態・起動と終了</small></span></a>' +
           '<a href="/cases.html"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
           '<div class="ui-menu-sep" role="separator"></div>';
       }
       for (var i = 0; i < TOOLS.length; i++) {
         var t = TOOLS[i], cur = t.id === opt.current;
+        if (t.hidden && !cur) continue;   // 部品(cut2resolve)はメニューに出さない
         html += '<a href="' + esc(cur ? tools.base(t.id) : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
           '<span class="ui-brand-mark" data-tool="' + t.mark + '" aria-hidden="true"></span><span><b>' + esc(t.name) + '</b><small>' + esc(t.sub) + (cur ? '(いま開いている画面)' : '') + '</small></span></a>';
       }

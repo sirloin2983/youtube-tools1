@@ -48,6 +48,11 @@ def fake_browser(tmp):
     with open(path, "w", encoding="utf-8") as f:
         f.write("#!%s\nimport json, sys\nwith open(%r, 'a', encoding='utf-8') as f:\n    f.write(json.dumps(sys.argv[1:]) + '\\n')\n" % (sys.executable, log))
     os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    if os.name == "nt":   # Windows は #! のファイルを実行できないので、同じ Python で動かす .bat を挟む
+        bat = path + ".bat"
+        with open(bat, "w", encoding="ascii", newline="\r\n") as f:
+            f.write('@"%s" "%s" %%*\n' % (sys.executable, path))
+        return bat, log
     return path, log
 
 
@@ -115,7 +120,7 @@ def main():
                 pg = ctx.new_page()
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base)
-                check(wait_js(pg, "document.querySelectorAll('.pt-tool[data-state=running]').length === 3", 60000), "3つとも入口に取り込んで動作中")
+                check(wait_js(pg, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 60000), "スタジオと編集が入口に取り込んで動作中(cut2resolve は部品なのでカードを出さない)")
 
                 # ---- 7-3 入口の「窓で開く(試用)」 ----
                 check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] 入口に「窓で開く(試用)」が出る")
@@ -131,10 +136,10 @@ def main():
                 check(not any("remote-debugging" in a for a in (got[-1] if got else [])), "[7-3] リモートデバッグのポートは開かない")
                 # 普通のタブ: 開くは今までどおり新しいタブ
                 with ctx.expect_page() as info:
-                    pg.click(".pt-tool[data-tool=cut2resolve] .pt-open")
+                    pg.click(".pt-tool[data-tool=transcribe] .pt-open")
                 tab = info.value
                 tab.wait_for_load_state()
-                check("/cut2resolve/" in tab.url, "[7-3] 普通のタブでは「開く」は新しいタブ(今までどおり)")
+                check("/transcribe/" in tab.url, "[7-3] 普通のタブでは「開く」は新しいタブ(今までどおり)")
                 tab.close()
 
                 # 窓の中(display-mode: standalone のふり)
@@ -143,7 +148,7 @@ def main():
                 win = actx.new_page()
                 win.on("pageerror", lambda e: errors.append(str(e)))
                 win.goto(base)
-                check(wait_js(win, "document.querySelectorAll('.pt-tool[data-state=running]').length === 3", 30000), "[7-3] 窓の中の入口")
+                check(wait_js(win, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 30000), "[7-3] 窓の中の入口")
                 check(win.evaluate("UIKit.win.isApp()") is True and not win.is_visible("#btnWinNow"), "[7-3] 窓の中では「いま窓で開く」を出さない")
                 n0 = len(read_lines(edge_log))
                 opened = []

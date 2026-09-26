@@ -30,7 +30,10 @@ MOUNTS = {
                # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
                "csp": ("script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                        "form-action 'none'; frame-ancestors 'none'")},
-    "cut2resolve": {"dir": "cut2resolve", "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None},
+    # cut2resolve の画面は「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)。
+    # 前の画面は ?classic=1 のときだけ出す(cut2resolve の画面のテスト用・もしものとき。どこからもリンクしない)
+    "cut2resolve": {"dir": "cut2resolve", "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None,
+                    "page_to": {"prefix": "/transcribe", "params": {"video": "media"}}},
     # 文字起こし: 認識(faster-whisper・sherpa-onnx)は tx_worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
     "transcribe": {"dir": "transcribe-tool", "prefix": "/transcribe", "alias": "ytt_tool_transcribe",
                    "csp": "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"},
@@ -98,8 +101,9 @@ def inject_token(body, token):
     return body[:i] + tag + body[i:] if i >= 0 else tag + body
 
 
-def make_handler(mod, prefix, token, csp, access_log=None):
-    """ツールの Handler を、/prefix の下で動くように包んだクラス。"""
+def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
+    """ツールの Handler を、/prefix の下で動くように包んだクラス。
+    page_to: {"prefix", "params"} があれば、画面(/ と /index.html)を開いたときに、そのツールの画面へ転送する(そのツールも取り込まれているときだけ。?classic=1 は転送しない)"""
     base = mod.Handler
     tool_id = prefix.strip("/")
 
@@ -123,6 +127,8 @@ def make_handler(mod, prefix, token, csp, access_log=None):
                 self._json(404, {"error": "not_found", "message": "その場所はありません"})
                 return False
             self.path = self.path[len(prefix):]
+            if page_to and self.command in SAFE_METHODS and self._page_moved():
+                return False
             if self.command not in SAFE_METHODS and not hmac.compare_digest(self.headers.get(TOKEN_HEADER) or "", token):
                 self._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
                 return False
@@ -133,6 +139,19 @@ def make_handler(mod, prefix, token, csp, access_log=None):
                 else:
                     serve(self, tool_id, str(getattr(mod, "SERVER_VERSION", "")))
                 return False
+            return True
+
+        def _page_moved(self):
+            u = urllib.parse.urlsplit(self.path)
+            q = urllib.parse.parse_qs(u.query)
+            if u.path not in ("/", "/index.html") or "classic" in q or page_to["prefix"] not in (getattr(self.server, "mounts", None) or {}):
+                return False
+            out = [(dst, q[src][0][:4000]) for src, dst in page_to["params"].items() if q.get(src) and q[src][0].strip()]
+            self.send_response(302)
+            self.send_header("Location", page_to["prefix"] + "/" + ("?" + urllib.parse.urlencode(out) if out else ""))
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
             return True
 
         def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
@@ -176,7 +195,7 @@ class Mount:
             raise MountError("%s の CSP が取り込みの条件(script-src にインラインを許さない)を満たしません" % self.id)
         self.mod.ALLOWED_HOSTS = set(allowed_hosts)
         self.mod.prepare(port, self.path)
-        self.handler = make_handler(self.mod, self.prefix, token, csp, self._access_log)
+        self.handler = make_handler(self.mod, self.prefix, token, csp, self._access_log, self.spec.get("page_to"))
         return self.handler
 
     def version(self):

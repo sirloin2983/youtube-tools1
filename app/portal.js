@@ -1,8 +1,9 @@
-/* 入口の画面。/api/status を定期的に読んで3つのツールの状態を出し、開く・起動・停止・再起動・すべて終了を送る。
+/* 入口の画面。/api/status を定期的に読んでツールの状態を出し、開く・起動・停止・再起動・すべて終了を送る。
+   cut2resolve は「編集」の部品なのでカードを出さない(hidden)。止まっている・落ちた・見つからないときだけ出す(起動し直せるように)。
    ツール名・ログ・メッセージはすべて textContent で入れる(ログには動画の題名などが入るので、HTML として解釈させない)。 */
 (function () {
   'use strict';
-  var STEP = { studio: '1', transcribe: '2', cut2resolve: '3' };
+  var STEP = { studio: '1', transcribe: '2' };
   var LABEL = { starting: '起動中…', running: '動作中', external: '別の画面で起動済み', stopping: '停止中…', stopped: '停止', crashed: '異常終了', missing: '見つかりません' };
   var PILL = { starting: 'run', running: 'ok', external: 'info', stopping: 'wait', stopped: 'wait', crashed: 'err', missing: 'err' };
   var BUSY_LABEL = { start: '起動しています…', stop: '止めています…', restart: '再起動しています…' };
@@ -71,6 +72,8 @@
   }
 
   function update(t) {
+    if (t.hidden && !cards[t.id] && (t.state === 'running' || t.state === 'starting' || t.state === 'external')) return;   // 部品(cut2resolve)は困っているときだけ出す
+    if (t.hidden && cards[t.id] && (t.state === 'running' || t.state === 'external') && !busy[t.id]) { cards[t.id].el.remove(); delete cards[t.id]; return; }
     var c = cards[t.id] || build(t);
     c.data = t;
     var el = c.el, b = busy[t.id], s = t.state;

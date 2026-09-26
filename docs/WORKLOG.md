@@ -764,3 +764,17 @@
   「cut2resolve で開く」のリンク(カードの詳しい設定の中)は無くした(cut2resolve の画面は E5 で「編集」へ転送する予定のため)
 - 実機で確かめてほしいこと: 60fps の元の動画を 30fps のプロジェクトに入れたとき、Resolve で区間の端が1フレームずれないか(パックのタブに注意を出している。設計の 9)
 - 未完了・次: E5 入口・ほか(入口のカード・ui-kit の一覧・cut2resolve の画面の転送・「編集で開く」・まとめて実行の文言)
+
+## 2026-09-26 Claude Code — 「編集」E5 入口・ほかのツール(入口のカード・ui-kit v4・cut2resolve の画面の転送・「編集で開く」)
+- 変更: `app/launch.py`(文字起こし = 「編集」・cut2resolve は hidden・状態に hidden)、`app/portal.js`・`portal.html`(cut2resolve のカードは動いている間は出さない・流れは ① → ②)、
+  `app/mount.py`(`page_to`: 取り込んだ cut2resolve の画面は「編集」へ転送。編集も取り込まれているときだけ・?classic=1 は前の画面)、`app/cases.js`(「編集で開く」の1つに)、
+  `app/autorun.py`(文言)、`ui-kit/ui-kit.js`(v4: 表示名「編集」・cut2resolve は hidden でメニューに出さない)と写し3つ、`clip-studio/review.js`(書き出しの結果は「編集で開く」の1つ)、
+  `transcribe-tool/app.js`(書き出しの欄の「cut2resolve で開く」→ パックのタブへの案内)、入口へ戻るリンクの説明(3つのツール → ツール)
+- テスト: `app/test_mount.py`(転送)、`app/e2e_portal.py`・`app/e2e_window.py`・`clip-studio/e2e_ui.py`・`transcribe-tool/e2e_ui_handoff.py` を合わせた。
+  **Windows でも流せるように直した**(以前から Linux 前提で PC では止まっていたもの): e2e_portal(SIGKILL)・e2e_window(偽の Edge を .bat で)・e2e_pipeline と cut2resolve の e2e_ui --mounted(Ctrl+Break で止める)・
+  スタジオの e2e_ui(YouTube を止めたあと読み直す)。PC で通過: 入口 98・e2e_portal 94・e2e_autorun・e2e_window・e2e_pipeline・e2e_datadir・ytt_core/tools・スタジオ単体・e2e_ui 113(単体・入口の中とも)・
+  e2e_analyze・cut2resolve e2e_ui(単体・入口の中)・文字起こしの e2e 10本
+- 注意: テストを流すとき、単体テスト(unittest)には `PYTHONIOENCODING=utf-8` を付けない(子プロセスの出力を cp932 で読むテストが落ちる)。画面テスト(e2e)には付ける。
+  Node.js が無いので `clip-studio/test_review.cjs`・`transcribe-tool/test_document_save.cjs` は PC で流していない
+- 未決(ユーザーに確認): 単体の cut2resolve の画面のファイルを消すか(今は ?classic=1 で残している)、まとめて実行でカットのある文書をカットのとおりに作るか
+- 未完了・次: E6 仕上げ(版・README・AGENTS.md・ui-guidelines の用語・HANDOVER)

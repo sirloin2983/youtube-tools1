@@ -307,6 +307,25 @@ class TestCut2ResolveMounted(unittest.TestCase):
         r, _ = self.req("GET", "/studio/")   # スタジオも並んで動く
         self.assertEqual(r.status, 200)
 
+    def test_page_moves_to_edit_tool_when_mounted(self):
+        """「編集」(/transcribe)も取り込まれているときは、cut2resolve の画面は編集へ転送する(?video= → ?media=)。API・部品はそのまま。?classic=1 は前の画面"""
+        self.srv.mounts["/transcribe"] = object   # 編集が取り込まれている印だけ(このテストでは /transcribe/ には要求しない)
+        try:
+            r, _ = self.req("GET", "/cut2resolve/?video=C%3A%5Ca.mp4&srt=x")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/?media=C%3A%5Ca.mp4"))
+            r, _ = self.req("GET", "/cut2resolve/index.html")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/"))
+            r, body = self.req("GET", "/cut2resolve/?classic=1")
+            self.assertEqual(r.status, 200)
+            self.assertIn(b'name="ytt-token"', body)
+            for path in ("/cut2resolve/api/ping", "/cut2resolve/app.js", "/cut2resolve/api/state"):
+                r, _ = self.req("GET", path)
+                self.assertEqual(r.status, 200, path)
+        finally:
+            self.srv.mounts.pop("/transcribe", None)
+        r, _ = self.req("GET", "/cut2resolve/")   # 編集が取り込まれていなければ、前のとおり画面を出す
+        self.assertEqual(r.status, 200)
+
     def test_api_token_and_guards(self):
         r, body = self.req("GET", "/cut2resolve/api/ping")
         self.assertEqual(json.loads(body), {"app": "cut2resolve", "version": self.mod.SERVER_VERSION})

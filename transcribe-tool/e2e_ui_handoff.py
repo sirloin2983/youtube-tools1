@@ -236,10 +236,8 @@ def main():
                   "書き出した中身は、押す直前の編集を含む(保存してから書き出す)・clip も入る")
             check(tpath in pg.inner_text("#handoffOut"), "保存したパスが表示される")
             pg.evaluate("window.__slowput = false")
-            pg.wait_for_function("document.querySelector('#openC2R') && document.querySelector('#openC2R').href.includes(':%d/')" % c2r_port, timeout=5000)
-            h = pg.get_attribute("#openC2R", "href")
-            want = "http://localhost:%d/?video=%s&transcript=%s" % (c2r_port, urllib.parse.quote(clipv, safe=""), urllib.parse.quote(tpath, safe=""))
-            check(h == want, "「cut2resolve で開く」は、/api/siblings のポートで動画と文字起こしを渡す: %s" % h)
+            check(pg.locator("#openC2R").count() == 0 and "3 パック" in pg.inner_text("#handoffOut"),
+                  "「編集」E5: 書き出しの結果に「cut2resolve で開く」は出さず、パックは 3 パック のタブと案内する")
             pg.click("[data-beside=srt]")
             pg.wait_for_function("document.querySelector('#handoffOut').textContent.includes('.srt')", timeout=10000)
             check(os.path.isfile(os.path.join(vids, "clip_0012.srt")), "字幕(.srt)も動画の隣に保存できる")
@@ -252,10 +250,10 @@ def main():
 
             # ==================== 4) 他のツールのメニュー ====================
             pg.click("#toolMenu summary")
-            pg.wait_for_function("document.querySelectorAll('#toolNav a').length === 3")
-            links = pg.evaluate("[...document.querySelectorAll('#toolNav a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current'), a.className])")
-            check(links[1][1] == "page" and links[1][0] == "/", "文字起こしツール自身は「いま開いている画面」: %s" % (links[1],))
-            check(links[2][0] == "http://localhost:%d/" % c2r_port and "tt-tool-off" not in links[2][2], "起動中の cut2resolve は、実際のポートへのリンク: %s" % (links[2],))
+            pg.wait_for_function("document.querySelectorAll('#toolNav a').length === 2")
+            links = pg.evaluate("[...document.querySelectorAll('#toolNav a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current'), a.className, a.textContent])")
+            check(links[1][1] == "page" and links[1][0] == "/" and "編集" in links[1][3], "編集(このツール)自身は「いま開いている画面」: %s" % (links[1],))
+            check(not any(":%d/" % c2r_port in (l[0] or "") for l in links), "cut2resolve は「編集」の部品なので、他のツールのメニューに出さない: %s" % links)
             check("tt-tool-off" in links[0][2], "起動していないスタジオは、灰色にして知らせる: %s" % (links[0],))
             pg.mouse.click(700, 600)
             check(not pg.evaluate("document.querySelector('#toolMenu').open"), "外をクリックするとメニューが閉じる")

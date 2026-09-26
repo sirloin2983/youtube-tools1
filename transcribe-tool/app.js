@@ -2054,9 +2054,7 @@ function renderHandoff(){
   if (!box) return;
   if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; if (pbox){ pbox.hidden = true; pbox.innerHTML = ''; } return; }
   const rows = [['transcript', '文字起こし'], ['srt', '字幕']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
-  const src = String(S.doc.sourcePath || '');
-  const c2r = h.transcript && src ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(src) + '&transcript=' + encodeURIComponent(h.transcript)) : '';
-  box.innerHTML = rows + `<div class="row">${c2r ? `<a class="btn small" id="openC2R" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます(細かく調整するとき。パックは「カットとパック」でも作れます)</span>` : '<span class="hint">cut2resolve で開くには「文字起こし(.transcript.json)」を保存してください</span>'}</div>`;
+  box.innerHTML = rows + '<div class="row"><span class="hint">Resolve へ渡すパックは <b>3 パック</b> のタブで作ります</span></div>';
   box.hidden = !rows;
   if (pbox){ pbox.innerHTML = h.plan ? handoffRow(h, 'plan', '残す区間') : ''; pbox.hidden = !h.plan; }
 }

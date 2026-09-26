@@ -11,6 +11,7 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
+import signal
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,8 @@ def wait_ping(port):
     raise SystemExit("起動しません: %d" % port)
 
 
+NEW_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)   # Windows: Ctrl+Break をそのサーバーにだけ送るため
+
 def main():
     ok = True
 
@@ -82,21 +85,21 @@ def main():
             os.path.join(ROOT, "clip-studio"), studio_home, src)
         subprocess.run([sys.executable, "-c", prep], env=env, check=True, cwd=os.path.join(ROOT, "clip-studio"))
         procs.append(subprocess.Popen([sys.executable, os.path.join(ROOT, "clip-studio", "serve.py"), str(ps), "--no-open"], env=env,
-                                      cwd=os.path.join(ROOT, "clip-studio"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                                      cwd=os.path.join(ROOT, "clip-studio"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))
         # ---- ② 文字起こし(一時フォルダに写して動かす: transcripts/ などを本物と混ぜない)
         tt = os.path.join(tmp, "transcribe-tool")
         os.makedirs(tt)
-        for n in ("serve.py", "index.html", "app.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
             shutil.copy(os.path.join(ROOT, "transcribe-tool", n), tt)
         for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
             p = os.path.join(ROOT, "transcribe-tool", n)
             if os.path.exists(p):
                 shutil.copy(p, tt)
         procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=env, cwd=tt,
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))
         # ---- ③ cut2resolve
         procs.append(subprocess.Popen([sys.executable, os.path.join(ROOT, "cut2resolve", "serve.py"), str(pc), "--no-open"], env=env,
-                                      cwd=os.path.join(ROOT, "cut2resolve"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                                      cwd=os.path.join(ROOT, "cut2resolve"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))
         for p in (ps, pt, pc):
             wait_ping(p)
         time.sleep(0.5)
@@ -199,8 +202,11 @@ def main():
             check(done and done.get("state") == "done" and any(n.endswith(".edl") for n in os.listdir(out)),
                   "パック(EDL など)ができる: %s" % (os.listdir(out) if os.path.isdir(out) else done))
     finally:
-        for p in procs:
-            p.terminate()
+        for p in procs:   # 終了の合図(Linux/Mac は SIGTERM、Windows は黒い画面の×と同じ Ctrl+Break = SIGBREAK)。各ツールは .runtime を消してから終わる
+            if os.name == "nt":
+                os.kill(p.pid, signal.CTRL_BREAK_EVENT)
+            else:
+                p.terminate()
         for p in procs:
             try:
                 p.wait(5)

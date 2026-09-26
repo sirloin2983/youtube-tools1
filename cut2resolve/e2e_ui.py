@@ -9,6 +9,7 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -50,7 +51,8 @@ def main(argv=None):
         cmd = [sys.executable, os.path.join(os.path.dirname(HERE), "app", "launch.py"), "--port", str(port), "--no-open", "--only", "cut2resolve"]
     else:
         cmd = [sys.executable, os.path.join(HERE, "serve.py"), str(port), "--no-open"]
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))   # Windows: Ctrl+Break をこのサーバーにだけ送るため
     errors = []
 
     def wait_js(pg, expr, timeout=20000):
@@ -158,7 +160,10 @@ def main(argv=None):
             check(not errors, "画面のエラーが無い: %s" % errors[:3])
             b.close()
     finally:
-        proc.terminate()
+        if os.name == "nt":   # 黒い画面の×と同じ SIGBREAK(後始末してから終わる)。Linux/Mac は SIGTERM
+            os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
+        else:
+            proc.terminate()
         try:
             proc.wait(15 if mounted else 5)
         except Exception:

@@ -53,7 +53,7 @@ class ToolClient:
         """-> (HTTP の状態, JSON)。つながらない・動いていないときは StepError"""
         ep = self.endpoint(tool)
         if not ep:
-            raise StepError("%s が動いていません(入口の画面で状態を確かめてください)" % {"studio": "切り抜きスタジオ", "transcribe": "文字起こしツール",
+            raise StepError("%s が動いていません(入口の画面で状態を確かめてください)" % {"studio": "切り抜きスタジオ", "transcribe": "編集",
                                                                                      "cut2resolve": "cut2resolve"}.get(tool, tool))
         port, base = ep
         url = base.rstrip("/") + path
@@ -427,7 +427,7 @@ class AutoRunner:
                 err = j.get("error")
                 raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
             made += 1
-        st["detail"] = "%d 本のパックを作りました(校正前の字幕。校正したら cut2resolve で作り直してください)" % made
+        st["detail"] = "%d 本のパックを作りました(校正前の字幕。校正したら「編集」のパックのタブで作り直してください)" % made
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
         return None
