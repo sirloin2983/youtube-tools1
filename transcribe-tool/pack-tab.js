@@ -29,7 +29,7 @@ function create(h){
   function blockMsg(b){
     const cs = h.CUT ? h.CUT.state() : {};
     return {
-      off: (cs.off || 'この動画はカットとパックに使えません') + '。',
+      off: (cs.off || 'この動画はカット・パックに使えません') + '。',
       cut: 'カットの準備をしています…',
       standalone: 'パック作りは、入口(start-all.bat)から開いたときだけ使えます。今は「詳しい設定」の「zip でダウンロード」が使えます。',
       checking: 'cut2resolve を確かめています…',

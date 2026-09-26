@@ -1,6 +1,6 @@
-# ui-kit(共通の見た目)v3
+# ui-kit(共通の見た目)v4
 
-3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)で共通の、色・文字・部品・ダーク/ライト切り替え。
+ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
 
 - `ui-kit.css` … 色の変数(トークン)と部品(ボタン・入力・カード・タブ・表・通知など)
@@ -22,8 +22,9 @@
 3. 各ツールのテストに加えて `python -m unittest tools/test_ui_kit_sync.py` が通ること
 
 各ツールでの読み込み:
-- スタジオ・cut2resolve: `<head>` で `<script src="/ui-kit.js"></script>`(CSS より先・同期)→ `<link rel="stylesheet" href="/ui-kit.css">` → ツール固有の CSS
-- 文字起こしツール: `index.html` の中の `/* ui-kit:css:begin */ … end */`(`<style>` の先頭)と `/* ui-kit:js:begin */ … end */`(`<head>` の `<script>`)に埋め込み
+- スタジオ: `<head>` で `<script src="/ui-kit.js"></script>`(CSS より先・同期)→ `<link rel="stylesheet" href="/ui-kit.css">` → ツール固有の CSS
+- 編集(文字起こしツール): CSS は `index.html` の中の `/* ui-kit:css:begin */ … end */`(`<style>` の先頭)に埋め込み、JS は `ui-kit.js` の写し
+- cut2resolve: 画面を「編集」に統合して消したので、写さない(2026-09-26)
 
 ## テーマ
 - `<html data-theme="light|dark">` を `ui-kit.js` が付ける。初回は OS の設定に合わせ、切り替えボタン(`[data-theme-toggle]`)を押すと保存する
@@ -45,3 +46,7 @@
 - `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
 - `UIKit.fmt.ago(ms)`(「3日前」「今日 14:32」)・`UIKit.fmt.date(ms)`・`UIKit.fmt.dur(秒)`・`UIKit.esc(s)`
 
+## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)
+- ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
+- cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
+- 写し先は clip-studio(css・js)と transcribe-tool(js と index.html の CSS)だけ(`tools/sync_ui_kit.py`)

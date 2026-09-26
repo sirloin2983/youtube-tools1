@@ -789,3 +789,19 @@
   `cut2resolve/test_serve.py`・`app/test_mount.py`・`app/e2e_portal.py`(前の画面の確認を案内の確認に)、`AGENTS.md`(表の cut2resolve の行)
 - テスト(PC で通過): cut2resolve 225(skip 14)・入口の単体 99・e2e_portal・e2e_autorun・tools/e2e_pipeline・契約 25・ui-kit の写し・文字起こしの e2e_ui_mounted
 - 未完了・次: E6 仕上げ(版・README・AGENTS.md・ui-guidelines の用語・HANDOVER)
+
+## 2026-09-26 Claude Code — 「編集」E6 仕上げ(版・README・AGENTS.md・用語集・HANDOVER)。「編集」の実装 E1〜E6 はこれで終わり
+- 版: 編集(文字起こし)0.15.0 → **0.16.0**(serve.py・app.js・README)、cut2resolve 0.10.0 → **0.11.0**(cut2resolve_core.VERSION・README)、
+  入口 0.9.0 → **0.10.0**(launch.py・README)、スタジオ 0.8.0 → **0.8.1**(serve.py・core.js・README)、ui-kit **v4**(README.md)
+- 文書: `README.txt`(ツールの一覧・流れ・まとめて実行)、`transcribe-tool/README.txt`(「編集」の3つのタブ・Resolve 連携の節・v0.16.0)、
+  `cut2resolve/README.txt`(画面は「編集」へ・前の画面との対応表・API の keeps・v0.11.0)、`app/README.txt`(v0.10.0)、`clip-studio/README.txt`(v0.8.1)、`ui-kit/README.md`(v4)、
+  `AGENTS.md`(全体の形に「編集」・表)、`transcribe-tool/AGENTS.md`、`docs/ui-guidelines.md` の用語集(編集・カット・残す区間/削る区間・たたき台・作り直し)、
+  `docs/pipeline.md`(画面どうしのリンク・受け渡しの API)、`docs/edit-tool-design.md`(E5 追記・E6・実機で確かめること・未決の回答)、`docs/HANDOVER.md`(書き直し・再開用の指示文)
+- 画面の文言: 「カットとパック」のカードが無くなったのに残っていた言葉を直した(`transcribe-tool/app.js` の一覧の「パックを作る」の説明・`pack-tab.js`・`index.html` のたたき台「行から」の説明と行の操作の説明)。
+  コメントだけ: `cut2resolve/serve.py`・`cut2resolve_core.py`・`clip-studio/exporter.py`
+- テスト(PC・Windows で全部通過): 入口 単体 99・e2e_portal・e2e_autorun・e2e_window / スタジオ 単体 226(skip 1)・e2e_analyze・e2e_ui 113(単体・入口の中)/
+  編集 単体 117(skip 1)・e2e 10本(v07・v08・v09・eval_v093・v098・handoff・edit_tabs・edit_cut・edit_pack・ui_mounted)/ cut2resolve 225(skip 14)/ ytt_core 51(skip 1)/
+  tools: e2e_pipeline・e2e_datadir・test_ui_kit_sync・test_cleanup_legacy_data・test_push_helper・契約 25。Node.js が無いので test_review.cjs・test_document_save.cjs は流していない
+- 実機で確かめてほしいこと(ユーザー): push.bat →「すべて終了」→ start-all.bat のあと、`docs/edit-tool-design.md` の「11」の E6 の5つ
+  (入口のカード2枚と「編集で開く」・カット → パック → Resolve で区間と字幕が合うか・60fps → 30fps・初回の文字起こしの速さ・段階7と画面の見直し)
+- 未完了・次: 実機確認の結果の直し。「編集」の残り(複数の切り抜きをつなげる・字幕のトラックでの時刻の直し)はユーザーが言い出したら。HANDOVER の「残りの作業」

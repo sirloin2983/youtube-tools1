@@ -79,8 +79,8 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 | 開く画面 | URL | 入る所 |
 |---|---|---|
 | 切り抜きスタジオ | `http://localhost:8800/?url=<YouTube URL>` | ② 解析の URL 欄(既存) |
-| 文字起こしツール | `http://localhost:8775/?media=<動画のパス>` / `?clip=<.clip.json のパス>` | 新規文字起こしのファイル欄 |
-| cut2resolve | `http://localhost:8810/?video=<動画>&srt=<SRT>&transcript=<.transcript.json>&plan=<cut-plan>` | 入力欄 |
+| 編集(文字起こしツール) | `http://localhost:8700/transcribe/?media=<動画のパス>` / `?clip=<.clip.json のパス>` | その動画の文字起こしがあれば開く(`GET /api/doc-for`)。無ければ新規文字起こしのファイル欄 |
+| ~~cut2resolve~~ | 画面は「編集」に統合して消した(2026-09-26)。入口の中の `/cut2resolve/?video=<動画>` は `/transcribe/?media=<動画>` へ転送 | — |
 
 パスは `encodeURIComponent` で包む。受け取った画面は、値を入力欄に入れるだけで、存在確認などはボタンを押してからサーバーで行う。
 
@@ -109,4 +109,5 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 | 文字起こし | `GET /api/clip-info?path=<動画のパス>` | `{"clip": <clip/v1 または null>}`(隣の .clip.json を読む。画面で「元の配信」を表示する用) |
 | 文字起こし | `GET /api/transcript-v1?id=<文字起こしID>` | transcript/v1 の JSON(ダウンロード用) |
 | 文字起こし | `POST /api/export-file` `{"id", "format": "transcript-v1" \| "srt" \| "cut-plan-v1"}` | 動画の隣に保存して `{"path", "overwritten"}`。動画のパスが無い・書けないときは 400 |
-| cut2resolve | 画面(`?video=&srt=&transcript=&plan=`)と、その裏の API | cut2resolve の README を参照 |
+| 文字起こし | `GET/PUT /api/edit?id=`・`POST /api/edit/pack` など | 「編集」のカット(`transcripts/<id>.edit.json`。youtube-tools-edit/v1)。`docs/edit-tool-design.md` の 4・5 |
+| cut2resolve | `POST /api/plan`・`/api/build`(spec の `keeps` = 「編集」のカット・`preset` = transcript-rows)など | cut2resolve の README を参照(画面は無い) |

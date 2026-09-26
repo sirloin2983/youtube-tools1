@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""cut2resolve の画面のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。
+"""cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(transcribe-tool)に統合した(2026-09-26)。
 
     python serve.py [開始ポート] [--no-open]      (既定のポート 8810。使用中なら次の番号)
 
 127.0.0.1 だけで待ち受け、Host / Origin / Sec-Fetch-Site を検査する。カットの計算とパックの作成は pack.py(CLI と同じ関数)。
 
-API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパスを app.js の1か所で変える):
+API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて実行」(app/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/pipeline.md の 4)
   GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
@@ -14,6 +14,7 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
                                   動画が読めたときは、同じフォルダ・同じ名前(拡張子違い)の字幕・文字起こし・cut-plan があれば siblings に(問題2)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
+                                  spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}

@@ -245,7 +245,7 @@ PUBLIC_PATHS = ("path", "manifest", "editPath", "editManifest")
 
 def job_public(job):
     """GET /api/export の中身。各 item の path(書き出した mp4 の絶対パス)と manifest(隣の .clip.json の絶対パス。書けなければ null)は
-    完了した item だけに入る(画面の「文字起こしで開く」リンク ?media=<path> 用)。editPath / editManifest は前後10秒の編集用素材。"""
+    完了した item だけに入る(画面の「編集で開く」リンク ?media=<path> 用)。editPath / editManifest は前後10秒の編集用素材。"""
     def paths(it):
         done = it["status"] == "done"
         return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}

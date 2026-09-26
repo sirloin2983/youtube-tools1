@@ -4,7 +4,8 @@
 - 画面イメージ: `docs/mockups/edit-1-transcribe.png`・`edit-2-cut.png`・`edit-3-pack.png`(元の HTML は `docs/mockups/edit-mock.html`。
   ブラウザで `edit-mock.html?tab=tx|cut|pack` を開くと同じ画面が出る。ui-kit.css を相対パスで読むので、リポジトリの中で開く)
 - 実装が進んだら、この文書の「7. 実装の段取り」に済んだ段を書き足し、WORKLOG からリンクする
-- 2026-09-26 Claude Code: E1(サーバー)を実装。実装で決めた細かい点は「11. 実装で決めたこと」
+- 2026-09-26 Claude Code: **E1〜E6 をすべて実装**(編集 0.16.0・cut2resolve 0.11.0・入口 0.10.0・スタジオ 0.8.1・ui-kit v4)。実装で決めた細かい点は「11. 実装で決めたこと」。
+  実機(ユーザーの PC の Resolve・本物の文字起こし)での確認はまだ(「11」の E6 の「実機で確かめること」)
 
 ## 1. ユーザーの決定(2026-09-26)
 - 文字起こしツールと cut2resolve を**1つのツール「編集」**にする。入口のカード・「他のツール」のメニューから cut2resolve はなくなる(パックを作る部品は中で使い続ける)
@@ -159,8 +160,8 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - 以前の文書(編集の内容が無く、行の `cutState` だけある): 開いたときのたたき台は「行から」で、今の「カットとパック」と同じ結果になること(契約テストで確かめる)
 
 ## 10. 未決(実装の途中でユーザーに聞く)
-- まとめて実行(autorun)で、編集の内容がある文書を編集のとおりに作るか(E5 のあと)
-- 単体の cut2resolve の画面のファイル(index.html・app.js)を消すか(残すと保守が二重、消すと単体の cut2resolve が使えない)
+- ~~まとめて実行(autorun)で、編集の内容がある文書を編集のとおりに作るか~~ → **カットのとおりに作る**(ユーザー決定 2026-09-26。「11」の E5 追記)
+- ~~単体の cut2resolve の画面のファイル(index.html・app.js)を消すか~~ → **消す**(ユーザー決定 2026-09-26。「11」の E5 追記)
 - 複数の切り抜きをつなげる画面(sources を増やす・並べ替え・パックの EDL と Text+ を複数の素材に)をいつやるか
 - 字幕のトラックで行の時刻をドラッグで直す・行を分ける(今は 1 文字起こしのタブで直す)
 
@@ -262,3 +263,23 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - テスト: `app/test_mount.py` に転送、`app/e2e_portal.py`(カード2枚・転送・?classic=1・「編集で開く」・版はファイルから読む)、`app/e2e_window.py`、`clip-studio/e2e_ui.py`、`transcribe-tool/e2e_ui_handoff.py` を合わせた。
   Windows でも流せるように: `e2e_portal`(SIGKILL が無ければ SIGTERM)、`e2e_window`(偽の Edge を .bat で)、`tools/e2e_pipeline.py`・`cut2resolve/e2e_ui.py --mounted`(Ctrl+Break で止める)、
   `clip-studio/e2e_ui.py`(YouTube を止めたあと読み直す。インターネットに繋がる PC では、前に読んだ YouTube の部品が残って「再生できません」の確認が止まっていた)
+
+### E5 追記: 未決への回答の実装(2026-09-26 Claude Code)
+- まとめて実行(`app/autorun.py` の `_edit_keeps`・`_step_pack`): 文書に編集の内容(区間)があれば、`GET /api/edit` の区間(接している = 分割しただけの区間は1つに)を
+  cut2resolve の `spec.keeps` にして作る(3 パック のタブと同じ中身。字幕の行が無ければ Text+ なし・`copyVideo`)。作り終えたら `POST /api/edit/pack`(rev・docUpdatedAt・dir・files)で記録を残す
+  (「編集」で作り直しの知らせが出る。残せなくてもパックはできているので、まとめて実行は失敗にしない)。編集の内容が無い文書は preset transcript-rows のまま
+- cut2resolve の画面のファイル(`index.html`・`app.js`・`app.css`・`e2e_ui.py`・`ui-kit.js`・`ui-kit.css`)を `git rm`。`cut2resolve/serve.py` の `/`・`/index.html` は
+  スクリプトなしの案内だけ(CSP・X-Frame-Options DENY のまま)。`app/mount.py` の `?classic=1` の逃げ道はやめた(編集が取り込まれていれば、いつも転送)。
+  `tools/sync_ui_kit.py` の写し先から cut2resolve を外した。補助の FCPXML は画面から無くなった(コマンド `--fcpxml` では作れる)
+
+### E6 仕上げ(2026-09-26 Claude Code)
+- 版: 編集(文字起こし)0.16.0・cut2resolve 0.11.0・入口 0.10.0・スタジオ 0.8.1・ui-kit v4(各ツールの版の3か所をそろえた)
+- README: 全体(`README.txt`。ツールの一覧・流れ・まとめて実行)・`transcribe-tool/README.txt`(「編集」の3つのタブ・v0.16.0)・`cut2resolve/README.txt`(画面は「編集」へ。前の画面との対応表・API の keeps)・
+  `app/README.txt`・`clip-studio/README.txt`・`ui-kit/README.md`。`AGENTS.md`(全体の形・表)・`transcribe-tool/AGENTS.md`・`docs/ui-guidelines.md` の用語集(編集・カット・残す区間/削る区間・たたき台・作り直し)
+- 実機で確かめること(ユーザーにお願いする):
+  1. 入口のカードが「切り抜きスタジオ」「編集」の2枚になり、スタジオの書き出しの「編集で開く」で開けること
+  2. 文字起こし → 2 カット でドラッグ・分割・削る → 3 パック で作ったパックを Resolve に取り込み、区間の端と Text+ 字幕の位置が合うこと
+  3. 60fps の元の動画を 30fps のプロジェクトに入れたとき、区間の端が1フレームずれないこと(設計の 9。パックのタブに注意を出している)
+  4. 初回の文字起こしが以前(502 秒)より速くなったか(ワーカーの標準入力の直しが原因だった可能性)
+  5. 段階7(窓で開く)と画面の見直しの実機確認(以前からのお願い)
+- 残り(未決の 10 の3・4 番目): 複数の切り抜きをつなげる画面・字幕のトラックでの時刻の直し。ユーザーが言い出したときに

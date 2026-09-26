@@ -524,7 +524,7 @@ h2{margin:0;font-size:15px}
   .tt-edit>.tools:first-child{border-top:0}
   .tt-titlebar,.tt-docmeta,#docClip{margin:0}
   .tx-list{order:3}
-  .tx-stage>:not(.pbox){order:4}   /* 道具のカード(カットとパック・話者など)は一覧の後ろ(一覧に早く届くように。「道具 ▾」から飛べる。校正を終えて一番下まで来たら、次の「カットとパック」がある) */
+  .tx-stage>:not(.pbox){order:4}   /* 道具のカード(話者など)は一覧の後ろ(一覧に早く届くように。「道具 ▾」から飛べる) */
   .tx-stage>.card{margin-top:0}
   #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--pbh,300px) + 8px)}   /* 固定した映像の下に隠れないように */
 }
@@ -578,7 +578,7 @@ html.vid-audio video{height:54px;max-height:none}
 .tt-tool .row+.row{margin-top:8px}
 /* 道具への移動(「道具 ▾」) */
 .tt-jump{display:flex;flex-direction:column;gap:6px;width:250px}.tt-jump .btn{justify-content:flex-start}
-/* ---------- カットとパック(v0.15.0・案A)---------- */
+/* ---------- カットとパック(v0.15.0・案A。カードは v0.16.0 で 2 カット・3 パック のタブへ移した。.tt-cp-job・.tt-cp-readme はパックのタブが使う)---------- */
 .tt-cutpack>summary{font-size:14px}
 .tt-cutpack>summary{flex-wrap:wrap}
 .tt-cp-sum{margin-left:auto;display:inline-flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 6px;font-weight:500;font-size:12px;color:var(--ink-3);min-width:0}
@@ -1235,7 +1235,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span aria-hidden="true">↷</span> やり直す</button>
        <span class="tt-sep" aria-hidden="true"></span>
        <span class="hint">たたき台:</span>
-       <button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します(今の「カットとパック」と同じ規則)">行から</button>
+       <button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します(zip・まとめて実行のカットの無い文書と同じ規則)">行から</button>
        <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 ▾</summary><div class="vpop">
          <div class="fld"><label for="cutNoise">無音とみなす音量(dB)</label><input id="cutNoise" type="number" value="-35" min="-90" max="0" step="1"><span class="hint">大きくする(-30 など)と、小さな音も無音として削ります</span></div>
          <div class="fld"><label for="cutSilMin">無音の長さ(秒)</label><input id="cutSilMin" type="number" value="0.6" min="0.05" max="60" step="0.05"></div>
@@ -1354,7 +1354,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   </div>
   <h3 class="section-title" style="margin-top:14px">2 カット のタブ</h3>
   <p class="hint" style="margin:4px 0 0">Space 再生・停止 ・ J 1秒戻る ・ K 止める ・ L 再生(もう一度で速く) ・ ← → 1フレーム(Shift で1秒) ・ S 分割 ・ Del 削る/戻す ・ I 始まり ・ O 終わり ・ X I〜O を削る ・ <kbd>,</kbd> <kbd>.</kbd> 選んだ端を1フレーム ・ Ctrl+Z 元に戻す ・ Ctrl+Shift+Z やり直す ・ + − ズーム(Ctrl+ホイールも)。区間の端のドラッグ中は Alt で吸い付かない</p>
-  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「カットとパック」)。</p>
+  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。</p>
   <p class="tt-flow">基本の流れ: <kbd>S</kbd> で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd> で入力 → <kbd>Esc</kbd> → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd>)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>

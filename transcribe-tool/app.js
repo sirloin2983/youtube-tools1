@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.15.0';
+const APP_VERSION = '0.16.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -610,7 +610,7 @@ function txRowHTML(i){
   if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
     ? '<span class="ui-next" title="パックを作ったあとに、行を直しています">作り直す</span>'
     : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
-  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて「カットとパック」で作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
+  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて 3 パック のタブで作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
   return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
     <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
@@ -696,7 +696,7 @@ async function startDiarize(){
   await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value } });
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
 }
-/* 「道具 ▾」: 映像の下のカード(カットとパック・話者・置換と再認識・書き出し・以前の版)へ移動して開く(映像の列の中でスクロールする) */
+/* 「道具 ▾」: 映像の下のカード(話者・置換と再認識・書き出し・以前の版)へ移動して開く(映像の列の中でスクロールする) */
 document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
   const el = $('#' + b.dataset.jump); if (!el) return;
   $('#jumpMenu').open = false;

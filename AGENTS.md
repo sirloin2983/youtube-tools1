@@ -8,14 +8,16 @@
 3. 触るツールの `AGENTS.md`(今は `transcribe-tool/AGENTS.md` だけ)と `README.txt` を読む
 
 ## 全体の形
-- 3つのツールと、それをまとめる入口がある。どれも Python 標準ライブラリ中心のローカルサーバー + ブラウザの画面で、ユーザーの PC 上だけで動く。外部サービスへ動画・音声を送らない方針
+- 3つのツール(切り抜きスタジオ・編集(transcribe-tool)・cut2resolve)と、それをまとめる入口がある。どれも Python 標準ライブラリ中心のローカルサーバー + ブラウザの画面で、ユーザーの PC 上だけで動く。外部サービスへ動画・音声を送らない方針
+- **「編集」**(2026-09-26。`docs/edit-tool-design.md`): 文字起こしツールと cut2resolve の画面を1つにした。画面は transcribe-tool の3つのタブ(1 文字起こし / 2 カット / 3 パック)。
+  カット(残す区間)は `transcripts/<id>.edit.json`。cut2resolve は画面を消して、パックを作る部品(pack.py)・API(serve.py)・CLI として残る(入口にカードを出さない。`/cut2resolve/` の画面は「編集」へ転送)
 - 普段はリポジトリ直下の `start-all.bat` → 入口(`app/launch.py`、http://localhost:8700/)が1つのプロセスの中で3ツールを取り込んで動かす:
-  `/studio/`(切り抜きスタジオ)・`/transcribe/`(文字起こし)・`/cut2resolve/`(Resolve への受け渡し)。
+  `/studio/`(切り抜きスタジオ)・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API)。
   文字起こしの認識(faster-whisper・sherpa-onnx)だけは別プロセスのワーカー(`transcribe-tool/tx_worker.py`)で動く(落ちても入口・他のツールは止まらない)
 - 各ツールの `start.bat` での単独起動は 2026-09-26 にやめた(ユーザー決定)。起動は `start-all.bat` だけ。serve.py の単独で動く部分は、入口に取り込めなかったときの子プロセスとテストのために残す
 - ユーザー向けの使い方の全体はリポジトリ直下の `README.txt`(09-26 に一本化)。各ツールの `README.txt` は細かい使い方と変更の記録
 - **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
-- 流れ: スタジオで配信から区間を選んで書き出す → 文字起こしで字幕を作って直す → cut2resolve で DaVinci Resolve 用のパック(カット + Text+ 字幕)にする。受け渡しの形式は `docs/pipeline.md`
+- 流れ: スタジオで配信から区間を選んで書き出す → 「編集」で字幕を作って直し(1)・カットを決め(2)・DaVinci Resolve 用のパック(カット + Text+ 字幕。中身は cut2resolve の pack.py)を作る(3)。受け渡しの形式は `docs/pipeline.md`
 - 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。段階7 = 画面の形: 7-0 画面のエラーの記録・7-1 解析の設定をサーバーへ・7-2 離れた/戻ったの共通化・7-3 Edge のアプリモードの窓(試用)を実装済み。7-4 pywebview は試用のあとで判断・新着配信の監視は保留)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
 
@@ -24,7 +26,7 @@
 | --- | --- | --- |
 | `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`・窓で開く `appwindow.py`・画面のエラーの記録 `clientlog.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py app/test_window.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py`、★`python app/e2e_window.py`(窓・エラーの記録・解析の設定。段階7) |
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
-| `transcribe-tool/` | 文字起こし(faster-whisper・話者判別・校正画面・精度測定) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` も) |
+| `transcribe-tool/` | 「編集」(文字起こし(faster-whisper・話者判別・校正画面・精度測定)・カット `cut.js`・パック `pack-tab.js`) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` と `e2e_edit_tabs.py`・`e2e_edit_cut.py`・`e2e_edit_pack.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)の部品と CLI。API は serve.py(画面は 2026-09-26 に「編集」へ統合して消した。`/` は案内だけ) | `python -m unittest test_cut2resolve test_pack test_serve`(API を変えたら文字起こしの `e2e_edit_pack.py` も) |
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
 | `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・入口へ戻る・一覧の部品・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`・日時の書式 `UIKit.fmt`。`ui-kit/README.md`)の正本。**画面を直すときは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧の見せ方)に合わせる**。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
@@ -41,7 +43,7 @@
 - `docs/project/` は 2026-09-24 までの経緯(仕様書・引き継ぎ)。**多くは数版前のまま**(例: cut2resolve-spec.md は v0.1.3、実物は v0.5.0)。
   「なぜそう決めたか」を調べるときに読む。一覧は `docs/project/README.md`
 - `docs/review/README.md` … 2026-09-24 の全ツールの見直し。`docs/accuracy/` … 文字起こしの精度の基準(`accuracy-baseline.md`)とユーザーの記入待ちの項目(`USER_INPUT.md`)
-- 「編集」ツール(文字起こし + cut2resolve の統合)の設計・実装の段取り: `docs/edit-tool-design.md`(画面イメージ `docs/mockups/edit-*.png`。2026-09-26 ユーザー承認)
+- 「編集」ツール(文字起こし + cut2resolve の統合)の設計・実装の段取り: `docs/edit-tool-design.md`(画面イメージ `docs/mockups/edit-*.png`。2026-09-26 ユーザー承認。E1〜E6 実装済み。実装で決めた細かい決まりは同じ文書の「11」)
 - 新しい設計・決定は `docs/` の直下に文書で残し、WORKLOG からリンクする
 
 ## 開発のルール
@@ -87,11 +89,12 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く):
 - 統合作業(`app/`・`ytt_core/`・3ツールの取り込み)と `cut2resolve/` 全体(Text+ を含む): Claude が主担当(ユーザー決定 2026-09-25・26)
 - 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面の全面見直し(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。見直しが終わるまで他の AI は触らない)
-- 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)
+- 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)。
+  E1〜E6 は 2026-09-26 に実装済み。実機確認の結果の直しも同じ担当
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込みの決まり:
-- 画面は**相対パス**で部品を読み、API・動画の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)。スタジオは `Studio.api`、文字起こし・cut2resolve は `app.js` の `apiUrl()` / `api()`
+- 画面は**相対パス**で部品を読み、API・動画の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)。スタジオは `Studio.api`、編集は `app.js` の `apiUrl()` / `api()`(cut2resolve の API は `c2rUrl()`)
 - 取り込んだ画面には CSP(`script-src 'self'`)がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(上の関数が付ける)
 - ツール間で同じ名前の .py を作らない(`app/test_mount.py` が検査)
 - 画面の共通の API `api/ytt/…`(エラーの記録・窓で開く)は入口が受け持つ(`app/mount.py` がツールに渡さない)。ツールに `/api/ytt/` で始まる API を作らない
