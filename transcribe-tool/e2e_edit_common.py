@@ -21,6 +21,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
+os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(REPO, "cut2resolve"))   # 単体で動かすとき、たたき台「行から」・zip が pack.py を見つけられるように
 TOOL_EXTS = (".py", ".js", ".html", ".json", ".css")
 
 
@@ -168,8 +169,12 @@ def open_doc(pg, title):
         if "menu-closed" in cls:
             pg.click("#btnMenu")
         pg.click("[data-side-tab=files]")
-    wait_js(pg, "document.querySelector('#txList').textContent.includes(%s)" % json.dumps(title), 30000)
-    pg.fill("#txSearch", title)
+    pg.fill("#txSearch", title)   # 検索すると、閉じているまとまりの中の文書も出る
+    for _ in range(300):
+        if pg.locator("#txList .txi").filter(has_text=title).count():
+            break
+        pg.evaluate("document.querySelectorAll('#txList details.ui-group:not([open])').forEach(d => { d.open = true; })")
+        time.sleep(0.1)
     pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
     wait_js(pg, "document.querySelector('#docTitle').value === %s" % json.dumps(title), 15000)
     pg.evaluate("(() => { const q = document.querySelector('#txSearch'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); })()")

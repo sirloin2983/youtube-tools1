@@ -4,7 +4,7 @@
     python3 serve.py [開始ポート] [--no-open]
 
   GET  /                     index.html
-  GET  /app.js, /ui-kit.js   画面の JS(CSP script-src 'self' のため外部ファイルで配信)
+  GET  /app.js, /ui-kit.js, /cut.js, /pack-tab.js   画面の JS(CSP script-src 'self' のため外部ファイルで配信)
   GET  /api/ping             起動確認
   GET  /api/tools            ffmpeg / faster-whisper / GPU の有無
   GET  /api/settings, PUT    用語集・置換辞書・前回の設定
@@ -25,6 +25,7 @@
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
   「編集」(docs/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
+  GET  /api/edit/draft?id=   動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
@@ -93,6 +94,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
 UI_KIT_JS = os.path.join(ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(tools/sync_ui_kit.py。同上)
+PAGE_JS = ("cut.js", "pack-tab.js")          # 「編集」のタブの JS(docs/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 # 作業データの置き場所(段階4)。起動時に prepare() が ytt_core.datadir で決めて set_data_dir() で切り替え、
 # 認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す(ワーカーは import した時点でそれを使う)。import した直後はこのフォルダ(テスト用)
 DATA_DIR = os.environ.get("TRANSCRIBE_DATA_DIR") or ROOT
@@ -908,6 +910,35 @@ def apply_edit_cuts(tid, doc, edit=None):
         else:
             s.pop("cutState", None)
     return changed
+
+
+def edit_draft(tid):
+    """GET /api/edit/draft?id= : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(resolve_export.edit_draft)。
+    カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
+    ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
+    隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
+    import resolve_export
+    doc = read_transcript(tid)
+    src = str(doc.get("sourcePath") or "")
+
+    def unavailable(code, message):   # 使えない理由は 200 で返す(画面が毎回エラーとして記録しないように。文書が無いときだけ 404)
+        return {"unavailable": {"code": code, "message": message}}
+    if not src:
+        return unavailable("no_source", "この文書には動画のパスがありません")
+    if _fsio.is_network_path(src):
+        return unavailable("network_path", "ネットワーク上の動画は、カットとパックに使えません(このパソコンにコピーして開いてください)")
+    if not os.path.isfile(src):
+        return unavailable("source_missing", "元の動画が見つかりません(移動・削除した可能性があります)")
+    try:
+        out = resolve_export.edit_draft(doc, SERVER_VERSION)
+    except resolve_export.ResolveExportError as e:
+        msg = str(e)
+        if "動画ストリーム" in msg:
+            return unavailable("no_video", "映像の無いファイル(音声だけ)は、カットとパックに使えません")
+        return unavailable("draft_failed", msg)
+    plan = os.path.splitext(src)[0] + ".cut-plan.json"
+    out["planBeside"] = plan if os.path.isfile(plan) else ""
+    return out
 
 
 def get_edit(tid):
@@ -4527,6 +4558,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/ui-kit.js":
                 with open(UI_KIT_JS, "rb") as f:
                     return self._send(200, f.read(), "text/javascript; charset=utf-8")
+            if u.path.lstrip("/") in PAGE_JS and os.path.isfile(os.path.join(ROOT, u.path.lstrip("/"))):
+                with open(os.path.join(ROOT, u.path.lstrip("/")), "rb") as f:
+                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
             if u.path == "/api/ping":
                 return self._json(200, {"app": APP_ID, "version": SERVER_VERSION})
             if u.path == "/api/siblings":
@@ -4590,6 +4624,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, read_transcript((q.get("id") or [""])[0]))
             if u.path == "/api/edit":
                 return self._json(200, get_edit((q.get("id") or [""])[0]))
+            if u.path == "/api/edit/draft":
+                return self._json(200, edit_draft((q.get("id") or [""])[0]))
             if u.path == "/api/doc-for":
                 return self._json(200, {"doc": find_doc_for_media((q.get("path") or [""])[0])})
             if u.path == "/api/peaks":

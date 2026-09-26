@@ -20,7 +20,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from test_backend import S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
+from test_backend import HERE, S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
+
+os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(HERE), "cut2resolve"))   # 一時フォルダに写した serve.py が pack.py を見つけられるように
 
 
 def doc_obj(**over):
@@ -335,6 +337,35 @@ class TestEditHttp(unittest.TestCase):
         os.unlink(gone)
         r = self.call("GET", "/api/peaks?id=" + gid)
         self.assertEqual((r["_status"], r["error"]), (404, "source_missing"))
+
+    def test_edit_draft(self):
+        """開いたときの下書き・たたき台「行から」は pack.TRANSCRIPT_ROWS(cut2resolve の規則)。fps・長さも返す"""
+        tid = self.open_video(self.wav)["id"]
+        r = self.call("GET", "/api/edit/draft?id=" + tid)
+        self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "no_video"))   # 音声だけのファイルはカット・パックに使えない(理由は 200 で返す)
+        video = os.path.join(self.media_dir, "下書き.mkv")
+        shutil.copy(self.video, video)
+        tid = self.open_video(video)["id"]
+        r = self.call("GET", "/api/edit/draft?id=" + tid)                           # 行の無い文書 → 全部残す
+        self.assertEqual((r["_status"], r["fps"], r["base"], r["planBeside"]), (200, [30, 1], "all", ""))
+        self.assertAlmostEqual(r["durationSec"], 6.0, delta=0.05)
+        self.assertEqual(r["keepsSec"], [[0.0, r["durationSec"]]])
+        doc = self.call("GET", "/api/transcript?id=" + tid)                         # 行を入れて、2行目をカット済に(以前の使い方)
+        segs = [{"id": "a", "start": 0.5, "end": 1.5, "text": "一"}, {"id": "b", "start": 1.5, "end": 3.0, "text": "二", "cutState": "cut"},
+                {"id": "c", "start": 3.0, "end": 4.25, "text": "三"}, {"id": "d", "start": 4.5, "end": 5.0, "text": " "}]
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
+        with open(os.path.splitext(video)[0] + ".cut-plan.json", "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 1, "end": 2}]}, f)
+        r = self.call("GET", "/api/edit/draft?id=" + tid)
+        self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.5, 1.5], [3.0, 4.266667]]))   # 4.25 秒は 30fps のフレーム(128 = 4.2667)に丸める
+        self.assertEqual(os.path.normcase(r["planBeside"]), os.path.normcase(os.path.splitext(video)[0] + ".cut-plan.json"))
+        self.assertFalse(os.path.exists(os.path.splitext(video)[0] + ".transcript.json"))   # 動画の隣にファイルを増やさない
+        # ネットワーク上の動画は調べない・動画の無い文書
+        with open(os.path.join(self.tmp, "transcripts", "abcdefabcdef.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "abcdefabcdef", "title": "n", "sourcePath": r"\\server\share\x.mp4", "segments": [], "updatedAt": 1}, f)
+        r = self.call("GET", "/api/edit/draft?id=abcdefabcdef")
+        self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "network_path"))
+        self.assertEqual(self.call("GET", "/api/edit/draft?id=zzz")["_status"], 404)
 
     def test_edit_http_into_doc_and_delete(self):
         tid = self.open_video(self.wav)["id"]

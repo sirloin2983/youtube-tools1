@@ -49,6 +49,8 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
   **行の cutState は、編集の内容があれば文書のどの書き込みでも `apply_edit_cuts` で編集の内容から付け直す**(新しく文書を書き込む処理を足すときも通す)。
   細かい決まりは設計書の「11. 実装で決めたこと」
+- `cut.js` … 「編集」2 カット のタブ(タイムライン・プレビュー・字幕の一覧・たたき台・保存)。app.js より先に読み、app.js が `EditCut.create(host)` で起動する。
+  区間はフレームの整数で持つ。行の「カット済」の規則 `rowCutFlags` は serve.py の `edit_cut_flags` と同じ(変えるときは両方)。細かい決まりは設計書の「11」の E3
 - `test_metrics.py` … サーバー側の単体テスト。`test_edit.py` … 「編集」のサーバー側(test_metrics から読み込まれる)。`e2e_*.py` … 画面の通し確認(Playwright + 疑似モード)
 
 ## テストの実行
@@ -57,6 +59,7 @@ python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_
 node --test test_document_save.cjs            # 保存・切り替えの競合(9件)
 python e2e_ui_v07.py / e2e_ui_v08.py / e2e_ui_v09.py / e2e_eval_v093.py / e2e_ui_v098.py / e2e_ui_handoff.py
 python e2e_edit_tabs.py                       # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
+python e2e_edit_cut.py                        # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
 python e2e_ui_mounted.py                      # 入口(app/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
                                               # 履歴の一覧(配信ごと・配信者)・カットとパック(cut2resolve の API・カット後の見え方・上書きの確認・zip)
 python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
@@ -68,7 +71,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   (`test_worker.py`・`e2e_ui_mounted.py`・`app/test_mount.py`)。`TRANSCRIBE_WORKER_CRASH=<n>` で n 行目のあとにワーカーを落とせる。
   `test_worker.py` は `test_metrics` から読み込まれる(上の1行のコマンドで一緒に走る)
 - Playwright 同梱の chromium は H.264 を再生できない。画面で動画の再生まで確かめるテストでは、テスト用の動画を webm(VP9 + Opus)で作る
-- e2e は一時フォルダに `serve.py`・`index.html`・`app.js`・`ui-kit.js`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
+- e2e は一時フォルダに `serve.py`・`index.html`・`app.js`・**`cut.js`**・`ui-kit.js`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
   (`pipeline_io.py`・`resolve_export.py` を写さないと、受け渡しの API・Resolve 書き出しが 500 になる。`app.js`・`ui-kit.js` を写さないと画面が真っ白になる)。
   共通部品 `../ytt_core/` は写さず、環境変数 `YTT_CORE_DIR`(リポジトリ直下)で見つける(Resolve パッケージを作るテストでは cut2resolve も `YTT_CUT2RESOLVE_DIR` で)
   (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く

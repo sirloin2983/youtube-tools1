@@ -44,7 +44,7 @@ async function api(path, opt = {}){
   let r;
   try { r = await fetch(apiUrl(path), init); } catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; er.data = j; throw er; }
   return j;
 }
 /* ファイル(zip)を受け取る POST。失敗時は api() と同じ形のエラー。成功時は Response(ヘッダーと blob を使う) */
@@ -113,7 +113,9 @@ function setEditTab(t, opt = {}){
 /* タブを移ったとき: 文字起こしのタブの映像は隠れるので止める(隠れたまま音だけ鳴らさない)。戻ったら行の高さと帯を描き直す */
 function onEditTab(from, to){
   if (from === 'tx' && S.doc) player().pause();
+  if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
   if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
+  if (to === 'cut' && CUT) CUT.onShown();
   renderDocBar();
 }
 function applySideTab(){
@@ -1147,6 +1149,7 @@ onLeave(reason => { if (S.docId && S.doc){ (async () => { await saveDoc(); if (r
 const player = () => $('#player');
 function spById(id){ return S.doc && S.doc.speakers.find(s => s.id === id); }
 function markDirty(){
+  if (CUT){ clearTimeout(markDirty.c); markDirty.c = setTimeout(() => CUT.docChanged(), 300); }
   S.dirty = true; setSaveState(S.conflict ? '競合しています' : '未保存…', S.conflict ? 'err' : '');
   clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 700);
 }
@@ -1195,6 +1198,10 @@ onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(
 async function openDoc(id, keep){
   const request = ++docOpenSeq;
   if (!(await saveDoc()) || request !== docOpenSeq) return false;
+  if (CUT && S.docId && S.docId !== id && !(await CUT.flush())){   // 前の文書のカットを保存してから切り替える
+    toast('カットを保存できないため、切り替えませんでした(カットのタブの案内を見てください)', 6000, 'err'); return false;
+  }
+  if (request !== docOpenSeq) return false;
   const previousDoc = S.doc, previousVersion = S.baseUpdatedAt;
   if (!keep && S.docId && S.docId !== id) autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
@@ -1227,6 +1234,7 @@ async function openDoc(id, keep){
     $('#q').value = ''; $('#flagKind').value = '';
   }
   if (!keep) cpDefaultFold();
+  if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
   schedulePlan(keep ? 1500 : 600);
   if (keep) window.scrollTo(0, scrollY);
@@ -1379,6 +1387,7 @@ $('#segs').addEventListener('click', e => {
   if (S.navIdx !== i){ setNav(i); savePos(); }   // 押したボタンの行を「今の行」にする(mousedown ではフォーカスを移さないため、ここで)
   switch (b.dataset.act){
     case 'cut':
+      if (CUT && CUT.active()){ CUT.rowsCut([i], s.cutState !== 'cut'); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
       pushUndo();
       if (s.cutState === 'cut') delete s.cutState; else s.cutState = 'cut';
       row.classList.toggle('cut', s.cutState === 'cut');
@@ -1738,8 +1747,9 @@ function renderDocBarNow(){
   const meta = $('#docMeta'); meta.textContent = parts.join(' ・ '); meta.title = String(d.sourcePath || '');
   const txt = d.segments.filter(g => String(g.text || '').trim()), pf = txt.filter(g => g.proofed).length;
   const pp = $('#pillProof'); pp.hidden = !txt.length; pp.textContent = `校正 ${pf} / ${txt.length}行`; pp.className = 'pill ' + (txt.length && pf === txt.length ? 'ok' : 'wait');
-  const pc = $('#pillCut'), plan = CP.plan && CP.planSig === rowSig() ? CP.plan : null;
-  if (plan){ pc.textContent = `残す ${plan.count}区間 ・ カット後 ${fmtCs(plan.keptSec)}`; pc.hidden = false; }
+  const pc = $('#pillCut'), plan = CP.plan && CP.planSig === rowSig() ? CP.plan : null, cs = CUT && CUT.summary();
+  if (cs){ pc.textContent = `残す ${cs.count}区間 ・ カット後 ${fmtCs(cs.keptSec)}`; pc.hidden = false; }
+  else if (plan){ pc.textContent = `残す ${plan.count}区間 ・ カット後 ${fmtCs(plan.keptSec)}`; pc.hidden = false; }
   else { const sp = cpApproxSpans(); pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`; }
 }
 
@@ -1747,6 +1757,7 @@ function renderDocBarNow(){
 function closeDoc(){
   clearTimeout(markDirty.t);
   S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null; cpReset();
+  if (CUT) CUT.unload();
   $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
   S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
   renderList(); updateDocTitle();
@@ -2354,6 +2365,11 @@ $('#cpResult').addEventListener('click', async e => {
 function bulkCut(cut){
   if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
   if (lockJob()) return toast('処理中のため、今は変更できません');
+  if (CUT && CUT.active()){
+    const idx = S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0);
+    CUT.rowsCut(idx, cut);
+    return toast(`${idx.length}行を${cut ? '削る区間に' : '残す区間に'}しました(戻すには「選んだ行を${cut ? '残す' : 'カット'}」か、カットのタブの「元に戻す」)`, 4000);
+  }
   pushUndo(); let n = 0;
   for (const g of S.doc.segments) if (S.sel.has(g.id)){ if (cut) g.cutState = 'cut'; else delete g.cutState; n++; }
   renderDoc(); markDirty(); toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
@@ -2424,6 +2440,42 @@ $('#keyHintAll').addEventListener('click', () => $('#keys').showModal());
 $('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_KEY, e.target.checked ? '1' : '0'); } catch {} applyKeyHint(); });
 applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
+
+/* ---------- 確認のダイアログ(はい/やめる) ---------- */
+function confirmDlg(title, text, okLabel){
+  const dlg = $('#dlgConfirm');
+  $('#cfT').textContent = title; $('#cfText').textContent = text || ''; $('#cfOk').textContent = okLabel || 'はい';
+  return new Promise(resolve => {
+    const done = v => { $('#cfOk').onclick = null; $('#cfCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
+    $('#cfOk').onclick = () => done(true); $('#cfCancel').onclick = () => done(false);
+    dlg.oncancel = e => { e.preventDefault(); done(false); };
+    dlg.showModal(); $('#cfCancel').focus();
+  });
+}
+
+/* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
+/* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */
+function onCutMarks(changed){
+  for (const i of changed){
+    const row = document.querySelector(`#segs .seg[data-i="${i}"]`), g = S.doc && S.doc.segments[i]; if (!row || !g) continue;
+    const cut = g.cutState === 'cut', b = row.querySelector('[data-act=cut]');
+    row.classList.toggle('cut', cut);
+    if (b){ b.setAttribute('aria-pressed', cut ? 'true' : 'false'); b.textContent = cut ? 'カット済' : '残す'; }
+  }
+  if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
+  renderDocBar();
+}
+/* 保存できたら、サーバーが付けた行の印(cutRows)で合わせ直す(規則は同じなので、ふつうは変わらない) */
+function onCutSaved(r){
+  if (!S.doc) return;
+  const set = new Set(r.cutRows || []), changed = [];
+  S.doc.segments.forEach((g, i) => { const want = set.has(g.id); if (want !== (g.cutState === 'cut')){ if (want) g.cutState = 'cut'; else delete g.cutState; changed.push(i); } });
+  const it = S.list.find(x => x.id === S.docId); if (it){ it.hasEdit = true; it.editRev = r.rev; }
+  onCutMarks(changed);
+  cpAfterSave();   // サーバーの文書の行の印も合わせてあるので、3 パック のカードの計算をし直せる(E4 で作り直すまでのつなぎ)
+}
+const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc,
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => renderDocBar() }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

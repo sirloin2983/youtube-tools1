@@ -109,6 +109,47 @@ def _load_pack():
     return pack, resolve_textplus
 
 
+_DRAFT_CACHE = None   # pack.Cache(動画の情報(ffprobe)を覚える。同じ動画を開き直しても調べ直さない)
+
+
+def edit_draft(doc: dict, version: str = "") -> dict:
+    """「編集」のカットのたたき台(開いたときの下書き・「行から」)と、動画の fps・長さ(docs/edit-tool-design.md の 4)。
+    残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・zip・入口のまとめて実行と同じ規則。ここに規則を書かない)。
+    文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
+    -> {"fps": [n, d], "durationSec", "keepsSec": [[開始, 終了], ...], "base": "rows" | "all", "warnings"}"""
+    import pipeline_io
+    global _DRAFT_CACHE
+    source = str(doc.get("sourcePath") or "")
+    if not source or not os.path.isfile(source):
+        raise ResolveExportError("元の動画が見つかりません")
+    pack, _tp = _load_pack()
+    if _DRAFT_CACHE is None:
+        _DRAFT_CACHE = pack.Cache(size=16)
+    try:
+        meta = _DRAFT_CACHE.probe(Path(source))
+    except pack.ToolError as e:
+        raise ResolveExportError(str(e))
+    fps, total = meta["fps"], meta["total"]
+    dur = round(total * fps[1] / fps[0], 6)
+    out = {"fps": [int(fps[0]), int(fps[1])], "durationSec": dur, "keepsSec": [[0.0, dur]], "base": "all", "warnings": []}
+    if not any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)):
+        return out
+    tmp_dir = tempfile.mkdtemp(prefix="edit-draft-")
+    try:
+        tpath = os.path.join(tmp_dir, "input.transcript.json")
+        with open(tpath, "w", encoding="utf-8") as f:
+            json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        try:
+            plan = pack.plan_cut(pack.Request(video=Path(source), transcript=Path(tpath), **pack.TRANSCRIPT_ROWS), cache=_DRAFT_CACHE)
+        except pack.ToolError as e:
+            out["warnings"].append(str(e))
+            return out
+        out.update(keepsSec=pack.summary(plan)["keepsSec"], base="rows", warnings=list(plan.warnings))
+        return out
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "") -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。

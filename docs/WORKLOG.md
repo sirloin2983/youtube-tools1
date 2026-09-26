@@ -733,3 +733,18 @@
 - 注意: `<html>` の属性は `data-edtab-now`(`[data-edtab]` はタブのボタンだけ。同じ名前にすると querySelector が `<html>` に当たる)。Windows のコンソールで e2e を流すときは
   `PYTHONIOENCODING=utf-8`。Playwright(1.63)を miniconda の Python に入れた(ユーザー承認 2026-09-26)
 - 未完了・次: E3 カット(タイムライン・プレビュー・字幕の一覧・たたき台・保存)
+
+## 2026-09-26 Claude Code — 「編集」E3 カットのタブ(タイムライン・プレビュー・字幕の一覧・たたき台・保存)
+- 変更(文字起こし `transcribe-tool/`): 新規 `cut.js`(タイムライン: 区間・削る区間・つまみのドラッグ(1フレーム単位・吸着・Alt)・分割・削る/戻す・I/O/X・, .・元に戻す/やり直す・ズーム・
+  波形(canvas)・字幕の帯、プレビュー(元の動画/カット後・字幕を重ねる)、字幕の一覧(押すとその位置・行ごとの削る/戻す)、たたき台(行から・無音・時刻リスト・スタジオ)、
+  0.8 秒まとめて保存・409 の読み直し/上書き・動画の長さの変化)、`index.html`(カットのタブの中身・確認のダイアログ・キー操作の一覧・CSS)、
+  `app.js`(cut.js の起動と受け渡し・行の「残す/カット済」と「選んだ行をカット/残す」を編集の操作に・文書を切り替える前にカットを保存・題名の行の札をカットから・api() のエラーに data)、
+  `serve.py`(`GET /api/edit/draft`・`/cut.js`・`/pack-tab.js` を配る)、`resolve_export.py`(`edit_draft`: pack.TRANSCRIPT_ROWS で「行から」と fps・長さ)
+- テスト: 新規 `e2e_edit_cut.py`(入口に取り込んだ形)、`test_edit.py` に draft、既存の e2e 6本・test_backend・test_metrics の写す一覧に cut.js、`e2e_edit_common.py`(検索してから開く・YTT_CUT2RESOLVE_DIR)、
+  `e2e_edit_tabs.py`(行の無い文書にもカットの札)。PC で通過: 文字起こしの e2e 9本(既存7本・e2e_edit_tabs・e2e_edit_cut)・単体 117(skip 1)・契約 25・app/test_mount・tools/test_ui_kit_sync
+- 決定・理由(設計書の「11」の E3): **開いたときの下書き・「行から」は文字起こしのサーバーで pack.py を呼ぶ**(cut2resolve の api/plan だと動画の隣に .transcript.json を書き出すことになり、
+  「開いただけでファイルを増やさない」に反するため。規則は pack.py の1か所のまま)。J は1秒戻る(ブラウザは逆再生できない)。区間はフレームの整数で持つ
+- 途中で直した不具合: 選ぶたびにタイムラインの DOM を作り直してクリックが届かない・波形の canvas と目盛りのラベルが中身の幅を押し広げて「全体」が効かない・
+  ページのスクロールバーの出入りで倍率がずれる(いずれもテストで見つけて直した)
+- 未完了・次: E4 パック(keeps でパック・上書きの確認・中止・前回のパック・作り直しの知らせ)。3 パック のタブは今は仮のカード(行の印から作る)
+- 注意: 行の「カット済」の規則は serve.py の `edit_cut_flags` と cut.js の `rowCutFlags` の2か所(変えるときは両方と test_edit)。新しい .js を足したら既存の e2e の写す一覧にも足す

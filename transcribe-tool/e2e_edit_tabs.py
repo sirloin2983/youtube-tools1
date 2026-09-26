@@ -119,8 +119,9 @@ def main():
             pg.click("#btnOpenVideo")
             wait_js(pg, "document.querySelector('#docTitle').value === '文字なし' && document.querySelector('#pillProof').hidden", 15000)   # 題名の行は次のフレームで描き直す
             check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_hidden("#menuPanel"), "「文字起こしせずに開く」で文書ができ、カットのタブで開く")
-            check(pg.is_hidden("#pillProof") and pg.is_hidden("#pillCut") and "0:06" in pg.inner_text("#docMeta"),
-                  "行の無い文書の題名の行: 札は出さず、長さは出る: " + pg.inner_text("#docMeta"))
+            wait_js(pg, "!document.querySelector('#pillCut').hidden", 10000)
+            check(pg.is_hidden("#pillProof") and "残す 1区間" in pg.inner_text("#pillCut") and "0:06" in pg.inner_text("#docMeta"),
+                  "行の無い文書の題名の行: 校正の札は出さない・カットは動画全体(残す 1区間)・長さは出る: %s / %s" % (pg.inner_text("#pillCut"), pg.inner_text("#docMeta")))
             check(len(srv.get("/api/jobs")["jobs"]) == n_jobs, "文字起こしは始めない")
             pg.keyboard.press("Alt+1")
             check(pg.is_visible("#noRows") and "まだ文字起こししていません" in pg.inner_text("#noRows") and pg.is_enabled("#btnTxInto"),
