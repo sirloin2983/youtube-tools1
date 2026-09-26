@@ -70,6 +70,12 @@ function notice(el, msg, kind) {
   el.className = 'notice' + (kind ? ' ' + kind : '');
   el.textContent = String(msg); el.hidden = false;
 }
+function renderWarnings(box, messages, levels) {
+  // 対処が要る注意(warn)とただの補足(info)を色で区別する(問題5)。levels は messages と同じ順番・同じ長さの
+  // "warn"|"info"(古いサーバー・無ければ全部 warn 扱い。文字列だけの配列を返す呼び出し側とも噛み合う)
+  box.textContent = '';
+  (messages || []).forEach((m, i) => box.appendChild(el('div', 'notice' + (levels && levels[i] === 'info' ? ' info' : ''), m)));
+}
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -91,11 +97,20 @@ const S = {
   keeps: [], keepsSec: [], cum: [], fps: [30, 1], total: 0, dur: 0,
   rough: false,                     // 粗編集の動画を再生中
   raf: 0,
+  siblingSuggest: null, siblingDismissedFor: '',   // 動画と同じ場所で見つけた字幕・文字起こし・cut-plan の候補(問題2)
+  viewStep: '',                     // 今スクロールで見えているカード('in'|'cut'|'out'。問題7)
 };
 
 /* ---------- 欄の値・保存 ---------- */
 const val = f => byId(INPUT_ID[f]).value.trim();
-function setVal(f, v) { byId(INPUT_ID[f]).value = v || ''; }
+// 長いパスは入力欄の末尾(ファイル名)が見えるように、値を入れたら title(hover で全体が見える)と
+// スクロール位置(既定では先頭からしか見えないため)を合わせる
+function syncPathView(f) {
+  const inp = byId(INPUT_ID[f]);
+  inp.title = inp.value;
+  inp.scrollLeft = inp.scrollWidth;
+}
+function setVal(f, v) { byId(INPUT_ID[f]).value = v || ''; syncPathView(f); }
 function saveForm() {
   const d = { mode: S.mode, keepSource: S.keepSource, listKind: S.listKind, handlesTouched: S.handlesTouched };
   for (const id of PERSIST) { const e = byId(id); d[id] = e.type === 'checkbox' ? e.checked : e.value; }
@@ -114,6 +129,8 @@ function loadForm() {
   if (['plan', 'transcript'].includes(d.keepSource)) S.keepSource = d.keepSource;
   if (['keep', 'drop'].includes(d.listKind)) S.listKind = d.listKind;
   S.handlesTouched = !!d.handlesTouched;
+  for (const f of FIELDS) syncPathView(f);
+  openOptionalIfFilled();
   return true;
 }
 
@@ -131,15 +148,17 @@ function setStatus(f, kind, text, extra) {
 }
 
 function summarize(f, r) {
+  // 長いパスは入力欄の中で末尾しか見えないことがあるので、状態の行には必ずファイル名を出す(問題4)
+  const head = r.name + ' ・ ';
   if (f === 'video') {
     const orient = r.h > r.w ? '縦' : '横';
-    return orient + ' ' + r.w + '×' + r.h + ' · ' + r.fpsLabel + 'fps · ' + fmt(r.durationSec) + ' · 音声' + (r.audio ? 'あり' : 'なし') +
+    return head + orient + ' ' + r.w + '×' + r.h + ' · ' + r.fpsLabel + 'fps · ' + fmt(r.durationSec) + ' · 音声' + (r.audio ? 'あり' : 'なし') +
       ' · 開始TC ' + r.startTc;
   }
-  if (f === 'srt') return r.count + '件の字幕(最後 ' + fmt(r.lastSec) + ')';
-  if (f === 'transcript') return r.rows + '行(残す ' + r.kept + '・カット済 ' + r.cut + ')' + (r.title ? '「' + r.title + '」' : '');
+  if (f === 'srt') return head + r.count + '件の字幕(最後 ' + fmt(r.lastSec) + ')';
+  if (f === 'transcript') return head + r.rows + '行(残す ' + r.kept + '・カット済 ' + r.cut + ')' + (r.title ? '「' + r.title + '」' : '');
   if (f === 'plan') {
-    return '採用区間 ' + r.segments + '件(合計 ' + fmt(r.totalSec) + ')' +
+    return head + '採用区間 ' + r.segments + '件(合計 ' + fmt(r.totalSec) + ')' +
       (r.fineGrained ? ' · 文字起こし由来(行単位)' : '') + (r.includesHandles ? ' · 余白込み' : '');
   }
   return '';
@@ -163,6 +182,39 @@ function statusExtra(f, r) {
   }
   if (f === 'transcript' && r.bad) wrap.appendChild(el('div', 'c2r-warn-line', '時刻が正しくない ' + r.bad + ' 行は使いません'));
   return wrap.childNodes.length ? wrap : null;
+}
+
+const SIBLING_LABEL = { srt: '字幕', transcript: '文字起こし', plan: '残す区間' };
+function renderSiblingNotice() {
+  // 動画と同じフォルダ・同じ名前(拡張子違い)に字幕・文字起こし・cut-plan があれば使うか尋ねる(問題2)。
+  // すでに埋まっている欄・一度「使わない」を選んだ動画では出さない
+  const box = byId('siblingNotice');
+  const video = val('video');
+  const sib = S.siblingSuggest;
+  const pending = {};
+  if (sib && video && S.siblingDismissedFor !== video) {
+    for (const f of ['srt', 'transcript', 'plan']) if (sib[f] && !val(f)) pending[f] = sib[f];
+  }
+  const names = Object.keys(pending);
+  if (!names.length) { box.hidden = true; box.textContent = ''; return; }
+  box.hidden = false;
+  box.textContent = '';
+  box.appendChild(el('div', '', '動画と同じ場所に見つかりました: ' +
+    names.map(f => SIBLING_LABEL[f] + '(' + baseName(pending[f]) + ')').join('・') + '。使いますか?'));
+  const row = el('div', 'row');
+  const use = el('button', 'btn small', '使う'); use.type = 'button';
+  use.addEventListener('click', () => {
+    S.siblingDismissedFor = video;
+    for (const f of names) setVal(f, pending[f]);
+    saveForm();
+    byId('optionalInputs').open = true;
+    box.hidden = true;
+    inspect(names);
+  });
+  const skip = el('button', 'btn ghost small', '使わない'); skip.type = 'button';
+  skip.addEventListener('click', () => { S.siblingDismissedFor = video; box.hidden = true; });
+  row.append(use, skip);
+  box.appendChild(row);
 }
 
 async function inspect(fields, opts) {
@@ -191,9 +243,15 @@ async function inspect(fields, opts) {
     await inspect(['video', 'transcript', 'plan'].filter(f => val(f)), { noSuggest: true });
     return;
   }
+  if (keys.includes('video')) S.siblingSuggest = j.siblings || null;   // 動画を読み込み直したら候補も入れ直す(問題2)
   afterInputs();
 }
 
+function openOptionalIfFilled() {
+  // 字幕・文字起こし・残す区間の欄はふだん閉じておく(段階的に見せる)が、値が入っているときは
+  // 開いたまま見せる(前回の入力の復元・他のツールからのリンクで埋まったときに、閉じたままで気づかれないように)
+  if (['srt', 'transcript', 'plan'].some(f => val(f))) byId('optionalInputs').open = true;
+}
 async function ensureInspected() {
   const need = FIELDS.filter(f => val(f) !== (S.inspected[f] || ''));
   if (need.length) await inspect(need);
@@ -213,10 +271,15 @@ function afterInputs() {
   byId('btnPlay').disabled = !(v || S.rough);
   byId('pvInfo').textContent = v ? v.name : '';
   byId('outDir').placeholder = v ? v.defaultOutDir : '空欄 = 動画と同じ場所の <動画名>_pack';
+  // 「3 書き出し」は動画を読み込むまで閉じる(問題1。何から始めるか分かるように)
+  byId('outLocked').hidden = !!v;
+  byId('outBody').hidden = !v;
   // 文字起こしの「カット済」
   const tr = S.info.transcript;
   byId('cutRowsWrap').hidden = !(tr && tr.cut > 0);
   if (tr) byId('cutRowsLabel').textContent = '文字起こしの「カット済」の行(' + tr.cut + '行)を削る';
+  renderSiblingNotice();
+  updateTranscribeHintLink();
   syncMode();
   markStale();
   syncSteps();
@@ -349,17 +412,20 @@ async function runPlan() {
   }, err => notice(byId('cutError'), err.message, 'danger'));
 }
 
-async function runBuild(force) {
+async function runBuild(force, skipPlanCheck) {
   if (S.job) return;
   notice(byId('buildError'), '');
   if (!val('video')) { notice(byId('buildError'), '動画のパスを入れてください', 'danger'); byId('inVideo').focus(); return; }
+  if (!skipPlanCheck && (!S.plan || S.planSig !== specSig())) {   // 問題6: 試算せずに・試算後に設定を変えたまま作れてしまう
+    if (!(await confirmNoPlan())) return;
+  }
   await ensureInspected();
   const spec = buildSpec(), sig = JSON.stringify(spec);
   let j;
   try { j = await api('/api/build', { body: { spec, output: outputOpts(force) } }); }
   catch (e) {
     if (e.code === 'exists' && e.data) {
-      if (await confirmOverwrite(e.data.files || [], e.data.dir || '')) runBuild(true);
+      if (await confirmOverwrite(e.data.files || [], e.data.dir || '')) runBuild(true, true);
       return;
     }
     notice(byId('buildError'), e.message, 'danger'); return;
@@ -372,10 +438,22 @@ async function runBuild(force) {
     markStale();
   }, async err => {
     if (err.code === 'exists') {
-      if (await confirmOverwrite(err.files || [], byId('outDir').value.trim())) runBuild(true);
+      if (await confirmOverwrite(err.files || [], byId('outDir').value.trim())) runBuild(true, true);
       return;
     }
     notice(byId('buildError'), err.message, 'danger');
+  });
+}
+
+function confirmNoPlan() {
+  const dlg = byId('dlgNoPlan');
+  return new Promise(resolve => {
+    const done = v => { dlg.close(); byId('npOk').onclick = null; byId('npCancel').onclick = null; dlg.oncancel = null; resolve(v); };
+    byId('npOk').onclick = () => done(true);
+    byId('npCancel').onclick = () => done(false);
+    dlg.oncancel = e => { e.preventDefault(); done(false); };
+    dlg.showModal();
+    byId('npCancel').focus();
   });
 }
 
@@ -481,8 +559,7 @@ function renderPlan(r) {
   if (r.subtitles) tile('字幕', r.subtitles.in + ' → ' + r.subtitles.out, r.subtitles.vanished ? 'カットで消えた ' + r.subtitles.vanished + '件' : (r.subtitles.source === 'transcript' ? '文字起こしから' : 'SRT から'));
   stats.hidden = false;
   // 注意
-  const w = byId('planWarns'); w.textContent = '';
-  for (const m of r.warnings || []) w.appendChild(el('div', 'notice', m));
+  renderWarnings(byId('planWarns'), r.warnings, r.warningLevels);
   // 残す区間の一覧
   const tb = byId('keepRows'); tb.textContent = '';
   const LIMIT = 500;
@@ -523,8 +600,7 @@ function showResult(res) {
     tr.append(name, el('td', '', f.note), el('td', 'n mono', fmtBytes(f.size)));
     tb.appendChild(tr);
   }
-  const w = byId('resWarns'); w.textContent = '';
-  for (const m of res.warnings || []) w.appendChild(el('div', 'notice', m));
+  renderWarnings(byId('resWarns'), res.warnings, res.warningLevels);
   byId('resReadme').textContent = res.readme || '';
   byId('btnPlayRough').hidden = !res.roughcutUrl;
   byId('result').hidden = false;
@@ -670,13 +746,49 @@ function droppedVideo(f) {
 /* ---------- 手順の表示(ヘッダー) ---------- */
 function syncSteps() {
   const done = { in: !!S.info.video, cut: !!S.plan && S.planSig === specSig(), out: !!S.result };
-  const cur = !done.in ? 'in' : !done.cut ? 'cut' : 'out';
   $$('#steps .ui-tab').forEach(b => {
     const s = b.dataset.step;
-    b.setAttribute('aria-pressed', String(s === cur));
     b.classList.toggle('is-done', !!done[s]);
     b.querySelector('.ui-tab-n').textContent = done[s] ? '✓' : String({ in: 1, cut: 2, out: 3 }[s]);
   });
+  // 現在地の強調(問題7)は、スクロールで実際に見えているカード(S.viewStep)を優先する。
+  // まだ一度もスクロールの合図が来ていない(観測前・IntersectionObserver 非対応)ときだけ、次にやることで代える
+  highlightStep(S.viewStep || (!done.in ? 'in' : !done.cut ? 'cut' : 'out'));
+}
+function highlightStep(cur) {
+  $$('#steps .ui-tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.step === cur)));
+}
+function watchCurrentStep() {
+  // 縦に長い画面(390px など)で、ヘッダーの 1入力/2カット/3書き出し を「今見ている所」に合わせて強調する(問題7)。
+  // 完了状況(done。チェックマーク)とは別に、スクロール位置だけで決める。
+  // カードの高さはまちまち(短いカードもある)なので、IntersectionObserver の細い判定帯だと帯の外へすり抜けて
+  // 取りこぼすことがある。代わりに「見出しがヘッダーの下を過ぎた、いちばん下のカード」を今の場所とする
+  const ids = ['cardIn', 'cardCut', 'cardOut'];
+  const header = $('.ui-header');
+  let ticking = false;
+  function update() {
+    ticking = false;
+    const offset = (header ? header.getBoundingClientRect().height : 52) + 8;
+    let cur = ids[0];
+    for (const id of ids) {
+      const el = byId(id);
+      if (el && el.getBoundingClientRect().top - offset <= 0) cur = el.dataset.step;
+    }
+    S.viewStep = cur;
+    highlightStep(cur);
+  }
+  const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  update();
+}
+
+/* ---------- 文字起こしツールへの案内(役割の整理: 文字起こしがある動画はそちらで仕上げる) ---------- */
+function updateTranscribeHintLink() {
+  const a = byId('transcribeHintLink');
+  if (!window.UIKit) return;
+  const v = S.info.video;
+  a.href = UIKit.tools.url('transcribe', S.ports, v ? '/?media=' + encodeURIComponent(v.path) : '/');
 }
 
 /* ---------- 他のツール ---------- */
@@ -689,6 +801,7 @@ async function loadSiblings() {
     if (window.UIKit && UIKit.tools.setPaths) UIKit.tools.setPaths(j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
   } catch (e) { ports = null; }
   S.ports = ports;
+  updateTranscribeHintLink();
   if (!window.UIKit || !nav) return;
   UIKit.tools.render(nav, { current: 'cut2resolve', ports: ports || undefined });
   if (ports) {
@@ -712,8 +825,10 @@ function bind() {
     const inp = byId(INPUT_ID[f]);
     inp.addEventListener('change', () => { saveForm(); if (val(f) !== (S.inspected[f] || '')) inspect([f]); });
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inspect([f]); } });
-    inp.addEventListener('input', () => markStale());
+    inp.addEventListener('input', () => { byId(INPUT_ID[f]).title = inp.value; markStale(); });
+    inp.addEventListener('blur', () => syncPathView(f));   // 長いパスは末尾(ファイル名)が見えるように(問題4)
   }
+  watchCurrentStep();
   $$('[data-clear]').forEach(b => b.addEventListener('click', () => {
     const f = b.dataset.clear; setVal(f, ''); S.info[f] = null; S.inspected[f] = ''; setStatus(f, ''); saveForm(); afterInputs();
   }));
@@ -816,6 +931,7 @@ function applyUrlParams() {
   const given = FIELDS.filter(f => q.has(f === 'srt' ? 'srt' : f));
   if (!given.length) return false;
   for (const f of FIELDS) setVal(f, q.get(f) || '');   // リンクで来たときは、前回の入力を混ぜない
+  openOptionalIfFilled();
   notice(byId('linkNotice'), '他のツールのリンクから入力欄を埋めました。内容を確かめて「読み込む」を押してください(自動では読み込みません)。', 'info');
   try { history.replaceState(null, '', location.pathname); } catch (e) { /* 何もしない */ }
   return true;

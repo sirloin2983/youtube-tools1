@@ -199,24 +199,35 @@
     }, function (e) { toast('窓で開けませんでした: ' + e.message, 'err'); });
   }
 
-  /* すべて終了: 誤操作を防ぐため2回押し(4秒以内) */
+  /* すべて終了: 誤操作を防ぐため2回押し(4秒以内)。あと何秒で確認が消えるかを見せる(audit #5: 見えないと不安になる) */
+  var quitCountdown = null;
   function resetQuit() {
     var b = $('#btnQuit');
     quitArmed = 0;
+    clearInterval(quitCountdown);
     b.textContent = 'すべて終了';
     b.classList.remove('solid');
   }
+  function armQuit() {
+    var b = $('#btnQuit');
+    quitArmed = Date.now();
+    b.classList.add('solid');
+    clearTimeout(quitTimer);
+    clearInterval(quitCountdown);
+    var tick = function () {
+      var left = Math.ceil((4000 - (Date.now() - quitArmed)) / 1000);
+      if (left <= 0) { resetQuit(); return; }
+      b.textContent = 'もう一度押すと終了します(あと' + left + '秒)';
+    };
+    tick();
+    quitCountdown = setInterval(tick, 250);
+    quitTimer = setTimeout(resetQuit, 4000);
+  }
   function quit() {
     var b = $('#btnQuit');
-    if (!quitArmed || Date.now() - quitArmed > 4000) {
-      quitArmed = Date.now();
-      b.textContent = 'もう一度押すと終了します';
-      b.classList.add('solid');
-      clearTimeout(quitTimer);
-      quitTimer = setTimeout(resetQuit, 4000);
-      return;
-    }
+    if (!quitArmed || Date.now() - quitArmed > 4000) { armQuit(); return; }
     clearTimeout(quitTimer);
+    clearInterval(quitCountdown);
     b.disabled = true;
     b.textContent = '終了しています…';
     api('/api/shutdown', 'POST').then(function () {

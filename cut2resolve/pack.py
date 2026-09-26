@@ -273,6 +273,14 @@ def plan_cut(req, task=None, cache=None, log=None):
         _say(log, task, f"無音区間: {len(sil)}か所を削ります。")
     if req.base == "all" and not (req.drop_pairs or req.drop_lines or req.silence or drops.get("cutRows")):
         warns.append("カットの指定がありません。動画全体を1区間として出力します。")
+    elif req.base == "all" and req.silence and not (req.drop_pairs or req.drop_lines or drops.get("cutRows")):
+        # 既定の「無音で自動」だけで削れた区間が 0 か、ごくわずか(動画全体の 1% 未満)なら、
+        # 何も言わずにそのまま「動画全体を1区間」のパックを作ってしまわないよう注意する(問題3)
+        removed_sec = sum(b - a for a, b in drops.get("silence", [])) * fps[1] / fps[0]
+        total_sec = total * fps[1] / fps[0]
+        if removed_sec < max(1.0, total_sec * 0.01):
+            warns.append("切れる所が見つかりませんでした。「無音とみなす音量」を上げる(-30 など)か、"
+                         "②残す区間・③時刻リストを試してみてください。")
 
     keeps = C.subtract(base, [x for v in drops.values() for x in v])
     keeps = C.merge_close(keeps, req.join_frames if req.join_frames is not None else C.sec_to_frames(join_gap, fps))

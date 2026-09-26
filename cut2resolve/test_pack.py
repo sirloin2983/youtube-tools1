@@ -515,6 +515,21 @@ class TestPackWithFfmpeg(unittest.TestCase):
             p2 = pack.plan_cut(req, cache=cache)
         self.assertEqual(p2.keeps, p1.keeps)
 
+    def test_silence_mode_with_zero_cuts_shows_guidance(self):
+        """問題3: 既定の「①無音で自動」のまま削れる区間が無い(またはごくわずか)だと、何も言わずに
+        動画全体そのままのパックを作ってしまわないよう注意を出す(他の削り方を試すよう促す)"""
+        tone = self.dir / "tone.mp4"
+        make_video(tone, 5, audio="tone")   # 無音区間が無い動画
+        plan = pack.plan_cut(pack.Request(video=tone, silence=True))
+        self.assertEqual(plan.keeps, [(0, 150)])   # 何も削れず、動画全体のまま
+        self.assertTrue(any("切れる所が見つかりませんでした" in w for w in plan.warnings), plan.warnings)
+        # 実際に無音があって削れている(既存の gaps 動画)ときは出ない
+        plan2 = pack.plan_cut(pack.Request(video=self.video, silence=True))
+        self.assertFalse(any("切れる所が見つかりませんでした" in w for w in plan2.warnings), plan2.warnings)
+        # ①以外(残す区間・時刻リストなど)で結果的にカットが無いのは、この注意の対象外(別の警告のまま)
+        plan3 = pack.plan_cut(pack.Request(video=tone, base="list", keep_pairs=[(0, 5)]))
+        self.assertFalse(any("切れる所が見つかりませんでした" in w for w in plan3.warnings), plan3.warnings)
+
     def test_invalid_timecode_fails_before_rendering(self):
         cuts = write(self.dir / "cuts.txt", "1 2\n")
         rc = FULL.main([str(self.video), str(cuts), "--render", "--src-start-tc", "00:00:00:45"])

@@ -358,6 +358,8 @@ class TestPersistence(Base):
         self.st.mark_exported(YT["videoId"], a["id"], "f.mp4", a["start"], a["end"])
         s = self.st.list()[0]
         self.assertEqual((s["marks"], s["exported"], s["adopted"], s["candidates"]), (3, 1, 0, 1))
+        # v0.8.0: 一覧で「いつの配信か」を出すため、スタジオに追加した時刻も返す(足しただけ。更新の時刻より後にはならない)
+        self.assertTrue(isinstance(s["createdAt"], int) and 0 < s["createdAt"] <= s["updatedAt"])
 
 
 class TestCollab(Base):

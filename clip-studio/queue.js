@@ -15,20 +15,20 @@ function paneHtml(){
   <div id="qWarn" class="notice" role="alert" hidden></div>
   <div id="qParam" class="notice info cs-notice-act" hidden><div><b>URL を受け取りました。</b> 下の欄に入れました。内容を確かめて「解析に追加」を押してください(自動では始めません)。</div><button type="button" class="btn small ghost" id="qParamClose">閉じる</button></div>
   <div class="q-grid">
-  <div class="q-col">
-  <section class="card" id="qEntry">
+  <section class="card q-entry" id="qEntry">
     <div class="card-head"><h2 class="card-title">解析する配信を入れる</h2></div>
-    <div class="fld" style="margin-top:0"><label class="l" for="qUrls">YouTubeのURL <span class="muted">1行に1つ。まとめて最大10本</span></label>
+    <div class="fld" style="margin-top:0"><label class="l" for="qUrls">配信の URL <span class="muted">YouTube。1行に1つ。まとめて最大10本</span></label>
       <textarea id="qUrls" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://youtu.be/…" autocomplete="off" spellcheck="false"></textarea></div>
     <div class="fld"><label class="l" for="qPath">手元の動画ファイルのパス <span class="muted">このパソコン上のフルパス。「音声」だけで判定します</span></label>
       <input type="text" id="qPath" placeholder="C:\\Users\\...\\stream.mp4" autocomplete="off" spellcheck="false">
       <span class="hint">URLとファイルの両方を入れると、両方を追加します</span></div>
-    <div class="fld"><label class="lag q-collab" title="まとめて追加した動画どうしを、コラボのグループにします(2本以上のときだけ)。あとで「④ コラボ」の画面で、時刻のズレ(アンカー点)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
+    <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで「④ コラボ」の画面で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
     <div class="row q-acts"><button type="button" class="btn primary" id="qAdd">解析に追加</button><button type="button" class="btn" id="qOpen">解析せずに確認画面を開く</button></div>
     <p class="msg hint" id="qMsg" role="status"></p>
   </section>
-  <section class="card" id="qOpts">
-    <div class="card-head"><h2 class="card-title">解析の設定</h2><span class="card-sub">次に追加する分から使います。入口の「まとめて実行」も同じ設定で解析します</span></div>
+  <details class="card q-optcard" id="qOpts">
+    <summary><span class="card-title">解析の設定</span><span class="muted q-optsum" id="qOptSum"></span></summary>
+    <p class="hint q-optnote">既定のままで使えます。変えると次に追加する分から使います(入口の「まとめて実行」も同じ設定で解析します)。</p>
     <div class="fld" style="margin-top:0"><span class="l">盛り上がりの判定に使う材料</span><div class="q-mats">
       <label class="lag q-mat"><input type="checkbox" id="useAudio" checked><span class="q-sw a"></span>音声 <span class="muted">音量・笑い声や叫びの高音域</span></label>
       <label class="lag q-mat" data-yt><input type="checkbox" id="useChat" checked><span class="q-sw c"></span>チャットのリプレイ <span class="muted">量・「草」など</span></label>
@@ -56,16 +56,16 @@ function paneHtml(){
         <label class="cs-opt"><span class="l"><span class="q-sw a"></span>音声</span><input type="number" id="wA" min="0" max="3" step="0.1" value="1"></label>
         <label class="cs-opt"><span class="l"><span class="q-sw c"></span>チャット</span><input type="number" id="wC" min="0" max="3" step="0.1" value="1"></label>
         <label class="cs-opt"><span class="l"><span class="q-sw m"></span>コメント</span><input type="number" id="wM" min="0" max="3" step="0.1" value="0.7"></label></div></div>
-      <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは動画ごとに音量の山との一致から自動で推定します)。同じ動画の再解析は、音量の解析結果のキャッシュで速くなります(配信中・配信直後の動画は「キャッシュを使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
-  </section>
-  </div>
+      <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは配信ごとに音量の山との一致から自動で推定します)。同じ配信の再解析は、音量の解析結果のキャッシュで速くなります(配信中・配信直後は「キャッシュを使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
+  </details>
   <section class="card q-listcard" id="qListCard">
     <div class="card-head"><h2 class="card-title">解析キュー</h2><span class="card-sub" id="qCount"></span><span class="spacer"></span><button type="button" class="btn small ghost" id="qClear" disabled>終わったものを消す</button></div>
+    <div class="ui-next q-next" id="qNext" hidden></div>
     <div id="qList" aria-live="polite"></div>
   </section>
   </div>`;
 }
-const EMPTY_LIST = '<div class="empty"><b>まだ何も入っていません</b>URL かファイルのパスを入れて「解析に追加」を押すか、① 探す から選んでください。<br>1本ずつ順番に解析し、終わったものから「確認する」で ③ へ進めます。</div>';
+const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありません</b>URL かファイルのパスを入れて「解析に追加」を押すか、① 探す で選ぶと、ここに並んで順番に解析します。</div>';
 
 /* ---------- 設定 ---------- */
 function settings(){
@@ -104,9 +104,9 @@ async function loadOpts(){
   let saved = null, ok = false;
   try { const j = await S.api('/api/settings'); saved = j && j.settings ? j.settings.analyze : null; ok = true; } catch {}
   if (O.touched) return;   // 読み込みを待つ間に欄を変えた: その値を優先する(上書きしない)
-  if (saved && typeof saved === 'object'){ applySettings(saved); paintKinds(); return; }
+  if (saved && typeof saved === 'object'){ applySettings(saved); paintKinds(); optSummary(); return; }
   const old = lsGet('opts');
-  if (ok && old && typeof old === 'object'){ applyForm(old); paintKinds(); pushOpts(); }   // 以前のブラウザの保存を1回だけ引き継ぐ
+  if (ok && old && typeof old === 'object'){ applyForm(old); paintKinds(); optSummary(); pushOpts(); }   // 以前のブラウザの保存を1回だけ引き継ぐ
 }
 
 /* ---------- 入口の読み取り ---------- */
@@ -127,6 +127,36 @@ function paintKinds(){
   document.querySelectorAll('#qOpts [data-yt]').forEach(l => { l.classList.toggle('off', allFile); const i = l.querySelector('input'); if (i) i.disabled = allFile && (i.id === 'useChat' || i.id === 'useComments' || i.id === 'chatTo' || i.id === 'noCache'); });
 }
 function setMsg(t){ const m = $('#qMsg'); if (m) m.textContent = t || ''; }
+/* 「解析の設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
+function optSummary(){
+  const el = $('#qOptSum'); if (!el) return;
+  const o = settings(), mats = [o.useAudio && '音声', o.useChat && 'チャット', o.useComments && 'コメント'].filter(Boolean);
+  el.textContent = `${mats.join('・') || '材料なし'} ・ 最大${o.count}本 ・ ${o.length}秒 ・ 感度 ${({ high: '高', normal: '標準', low: '低' })[o.sensitivity] || o.sensitivity}`;
+}
+
+/* ---------- 失敗の説明(何が起きたか + どうすればいいか。元のメッセージは小さく残す) ---------- */
+const ERR_HELP = [
+  [/STUDIO_FAKE_MEDIA/, '疑似モード(テスト用)の見本の動画が指定されていません', '環境変数 STUDIO_FAKE_MEDIA に見本の動画ファイルを指定して起動し直してください(ふだんの使い方では起きません)'],
+  [/yt-dlp が見つかりません/, 'yt-dlp(YouTube から取得する道具)が入っていません', '黒い画面で winget install yt-dlp.yt-dlp を実行し、入口を起動し直してから「やり直し」を押してください'],
+  [/ffmpeg が見つかりません/, 'ffmpeg(音声を読む道具)が入っていません', '黒い画面で winget install Gyan.FFmpeg を実行し、入口を起動し直してから「やり直し」を押してください'],
+  [/Sign in|confirm your age|age-restricted|members-only|Join this channel|Private video|年齢|メンバー限定|非公開|会員/i, '会員限定・年齢制限・非公開の配信は取得できません', '公開されている配信か、ブラウザで開いて確かめてください。見られない配信は解析できません'],
+  [/403|429|Too Many|HTTP Error/, 'YouTube が一時的に取得を断りました', 'しばらく待ってから「やり直し」を押してください。続くときは yt-dlp を新しくします(winget upgrade yt-dlp.yt-dlp)'],
+  [/音声を取得できませんでした/, '配信の音声を取得できませんでした', '配信の直後・配信中はアーカイブがまだ用意できていないことがあります。数時間おいてから「やり直し」を押してください。ネットの接続も確かめてください'],
+  [/ファイルが見つかりません/, '動画ファイルが見つかりません', 'パスが正しいか、ファイルを移動・改名していないか確かめて、入れ直してください'],
+  [/音声トラックがありません|音声を解析できませんでした/, 'このファイルからは音声を読み取れませんでした', '音声の入った動画ファイルか確かめてください。読めない形式なら mp4 に変換してから入れ直してください'],
+  [/長すぎます/, '長すぎて解析できません', '動画ファイルを分けてから入れ直してください'],
+  [/長さを読み取れません/, '動画ファイルの長さを読み取れませんでした', 'ファイルが壊れていないか、最後までダウンロード・録画できているか確かめてください'],
+  [/使える材料がありません/, '判定に使える材料(音声・チャット・コメント)がありません', '「解析の設定」で「音声」をオンにしてから「やり直し」を押してください'],
+  [/出力がなかったため中止|timeout/i, '取得が途中で止まったため中止しました', 'ネットの接続を確かめて「やり直し」を押してください'],
+  [/アクセスが拒否/, 'ファイルを読み書きできませんでした', '動画ファイルを再生・編集しているアプリを閉じてから「やり直し」を押してください'],
+  [/動画が削除されました/, '解析中に、この配信がスタジオから削除されました', 'もう一度解析するなら、URL かファイルを入れ直してください'],
+  [/途中で止まりました|解析結果がありません|内部エラー|保存に失敗/, '思わぬ理由で解析が止まりました', '「やり直し」を押してください。続くときは入口の「ログ」(studio-errors.log)を見てください']
+];
+function errHelp(msg){
+  msg = String(msg || '');
+  const h = ERR_HELP.find(([re]) => re.test(msg));
+  return h ? { what: h[1], how: h[2] } : { what: '解析に失敗しました', how: '「やり直し」を押してください。同じ失敗が続くときは、下の元のメッセージを確かめてください' };
+}
 
 /* ---------- キューへ追加 ---------- */
 S.enqueue = async items => {
@@ -185,10 +215,13 @@ async function openWithout(){
 function itemHtml(it){
   const [label, cls] = STATUS[it.status] || [String(it.status || ''), 'wait'];
   const id = esc(it.qid), running = it.status === 'running', chat = running && it.chat && it.chat.state === 'running' ? it.chat : null, pct = Math.round((it.progress || 0) * 100);
-  let h = `<div class="q-item st-${esc(cls)}" data-qid="${id}" data-status="${esc(it.status)}"><span class="q-ic" aria-hidden="true"></span><div class="q-main"><div class="q-title">${esc(it.title || it.videoId)}</div>
-    <div class="q-meta"><span class="pill ${esc(cls)}">${esc(label)}</span><span>${it.kind === 'file' ? 'ファイル' : esc(it.channel || '')}</span>${it.channel || it.kind === 'file' ? '<span class="q-dot">・</span>' : ''}<span class="mono">${esc(it.videoId)}</span>${it.status === 'done' ? `<span class="q-dot">・</span><span>マーク <b class="num">${Number(it.marks) || 0}</b>件</span>` : ''}</div></div>
+  const who = it.kind === 'file' ? '動画ファイル' : (it.channel || '');
+  const when = it.finishedAt ? `<span title="${esc(S.date(it.finishedAt))}">${esc(S.ago(it.finishedAt))}</span>` : '';
+  const meta = [who ? `<span>${esc(who)}</span>` : '', it.status === 'done' ? `<span>マーク <b class="num">${Number(it.marks) || 0}</b>件</span>` : '', when].filter(Boolean).join('<span class="q-dot">・</span>');
+  let h = `<div class="q-item st-${esc(cls)}" data-qid="${id}" data-status="${esc(it.status)}"><span class="q-ic" aria-hidden="true"></span><div class="q-main"><div class="q-title" title="${esc(it.videoId)}">${esc(it.title || it.videoId)}</div>
+    <div class="q-meta"><span class="pill ${esc(cls)}">${esc(label)}</span>${meta}</div></div>
     <div class="q-act">`;
-  if (it.status === 'done') h += `<button type="button" class="btn small primary" data-act="review" data-vid="${esc(it.videoId)}">確認する</button>`;
+  if (it.status === 'done') h += `<button type="button" class="btn small" data-act="review" data-vid="${esc(it.videoId)}">確認する</button>`;
   if (running) h += `<button type="button" class="btn small" data-act="cancel">中止</button>`;
   if (it.status === 'waiting') h += `<button type="button" class="btn small ghost" data-act="cancel">取り除く</button>`;
   if (['error', 'cancelled', 'skipped'].includes(it.status)) h += `<button type="button" class="btn small" data-act="retry">やり直し</button>`;
@@ -197,7 +230,10 @@ function itemHtml(it){
     h += `<div class="q-sub q-prog"><span class="q-phase">${esc(it.phase)}</span><span class="num q-pct">${pct}%</span></div><div class="bar q-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`;
     if (chat) h += `<div class="q-sub q-chat"><span class="ui-spin" aria-hidden="true"></span>チャット取得: 並行して実行中 <span class="q-chat-t num">${mmss(chat.elapsed)}</span> <button type="button" class="btn small ghost" data-act="skipchat" title="チャットなしで(音声・コメントだけで)先に進みます">チャットを待たずに進める</button></div>`;
   } else if (it.status === 'waiting') h += `<div class="q-sub">${esc(it.phase)}</div>`;
-  else if (it.status === 'error') h += `<div class="q-sub q-err">失敗: ${esc(it.error || it.phase)}</div>`;
+  else if (it.status === 'error'){
+    const e = errHelp(it.error || it.phase);
+    h += `<div class="q-sub q-err"><b>${esc(e.what)}</b><span class="q-how">${esc(e.how)}</span>${it.error ? `<details class="q-raw"><summary>元のメッセージ</summary><code>${esc(it.error)}</code></details>` : ''}</div>`;
+  }
   else if (it.phase && it.status !== 'done') h += `<div class="q-sub">${esc(it.phase)}</div>`;
   return h + '</div>';
 }
@@ -223,7 +259,10 @@ function updateMeta(){
   const its = Q.items, act = its.filter(i => i.status === 'waiting' || i.status === 'running').length;
   $('#qCount').textContent = its.length ? `待ち・実行中 ${act}/${Q.max}本 ・ 全${its.length}件` : '';
   $('#qClear').disabled = !its.some(i => !['waiting', 'running'].includes(i.status));
-  S.setBadge('queue', act ? String(act) : '');
+  S.setBadge('queue', act ? String(act) : '', act ? `解析中・順番待ちの配信 ${act}本` : '');
+  /* 次にやること(1つだけ): 解析が終わった配信を ③ で確認する */
+  const done = its.filter(i => i.status === 'done').length, nx = $('#qNext');
+  nx.hidden = !done; nx.textContent = done ? `解析が終わった配信 ${done}本を「確認する」から ③ で確かめます` : '';
 }
 function refreshView(){
   const sg = Q.items.map(sig).join('\n');
@@ -249,7 +288,7 @@ function detect(items){
   for (const it of items){
     const p = prev.get(it.qid);
     if (it.status === 'done' && (p === 'running' || p === 'waiting')) S.toast(`『${it.title || it.videoId}』の解析が完了しました(${Number(it.marks) || 0}件のマーク)。確認できます`, 6000, 'ok');
-    else if (it.status === 'error' && (p === 'running' || p === 'waiting')) S.toast(`『${it.title || it.videoId}』の解析に失敗しました: ${it.error || ''}`, 7000, 'err');
+    else if (it.status === 'error' && (p === 'running' || p === 'waiting')) S.toast(`『${it.title || it.videoId}』の解析に失敗しました: ${errHelp(it.error).what}`, 7000, 'err');
   }
 }
 async function tick(){
@@ -282,12 +321,13 @@ async function listClick(e){
   tick();
 }
 
-S.queue = { refresh: tick };
+S.queue = { refresh: tick, errHelp };
 S.onReady(() => {
   $('#paneQueue').innerHTML = paneHtml();
   $('#qList').innerHTML = EMPTY_LIST;
   paintKinds(); loadOpts();
-  OPT_IDS.forEach(id => $('#' + id).addEventListener('change', saveOpts));
+  OPT_IDS.forEach(id => $('#' + id).addEventListener('change', () => { saveOpts(); optSummary(); }));
+  optSummary();
   if (window.UIKit && UIKit.life) UIKit.life.onLeave(() => { if (O.timer) pushOpts(); });   // 変えた直後に離れた・閉じたときも送る
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
   $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加

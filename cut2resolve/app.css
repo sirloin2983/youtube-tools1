@@ -49,6 +49,15 @@
 .c2r-warn-line{color:var(--warn);font-size:12px;overflow-wrap:anywhere}
 .c2r-warn-line::before{content:"! ";font-weight:700}
 .c2r-link{font-size:12px}
+#siblingNotice{margin-top:8px}
+#siblingNotice .row{margin-top:8px}
+
+/* 文字起こしがある動画は文字起こしツールを勧める案内。字幕・文字起こし・cut-plan の欄(任意)は閉じておく */
+.c2r-tx-hint{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-top:12px}
+.c2r-tx-hint a{font-weight:600;white-space:nowrap}
+.c2r-optional{margin-top:12px}
+.c2r-optional>summary{font-size:13px;color:var(--ink-2)}
+.c2r-optional[open]>summary{margin-bottom:10px}
 
 .c2r-drop{display:flex;align-items:center;gap:12px;text-align:left;margin-top:14px;padding:12px 14px;cursor:pointer}
 .c2r-drop svg{width:22px;height:22px;flex:none;color:var(--ink-3)}
@@ -68,9 +77,8 @@
 .c2r-num-fld span{white-space:nowrap}
 .c2r-num-fld input{width:84px;font-family:var(--mono);text-align:right}
 .c2r-num-fld em{font-style:normal;color:var(--ink-3);font-size:12px}
-.c2r-sil{border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 12px 8px;margin:12px 0 0;background:color-mix(in srgb,var(--panel-2) 55%,transparent)}
-.c2r-sil legend{padding:0 6px;font-size:12px;font-weight:600;color:var(--ink-2)}
-.c2r-sil .hint{margin:8px 0 0}
+.c2r-sil{border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 12px;margin:0 0 12px;background:color-mix(in srgb,var(--panel-2) 55%,transparent)}
+.c2r-sil .hint{margin:0 0 8px}
 .c2r-check{display:flex;margin-top:12px;font-size:13px}
 .c2r-more{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 .c2r-more>summary{font-size:13px;color:var(--ink-2)}

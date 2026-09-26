@@ -117,10 +117,21 @@ def main():
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base + "/cases.html")
                 card = '.pt-case[data-id="%s"]' % vid_a
+                check(wait_js(pg, "!!document.querySelector('%s')" % card.replace("'", "\\'"), 15000), "案件の画面に配信が1行出た")
+                check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is False,
+                      "行は既定で閉じている(1件1行。2026-09-26 画面の見直し)")
+                pg.click(card + " .pt-case-row")   # 開かないと「まとめて実行」が操作できない(details の中身)
+                check(wait_js(pg, "document.querySelector('%s').open === true" % card.replace("'", "\\'"), 5000), "行を開いた")
                 check(wait_js(pg, "!!document.querySelector('%s .pt-auto-run')" % card.replace("'", "\\'"), 15000), "案件の画面に「まとめて実行」が出た")
                 pg.select_option(card + " .pt-auto-mode", "adopted")
                 check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
                 pg.click(card + " .pt-auto-run")
+                check(wait_js(pg, "!document.querySelector('%s .pt-auto-cancel').hidden" % card.replace("'", "\\'"), 15000),
+                      "まとめて実行が始まった(中止ボタンが出る)")
+                # まとめて実行が動いているあいだは、行(summary)をクリックしても閉じない(進み具合を見失わないため。audit #1)
+                pg.click(card + " .pt-case-row")
+                check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is True,
+                      "実行中は行を閉じさせない")
                 done_js = ("(() => { const m = document.querySelector('%s .pt-auto-msg'); return m && /完了|止まりました/.test(m.textContent); })()"
                            % card.replace("'", "\\'"))
                 check(wait_js(pg, done_js, 240000), "まとめて実行が終わった: %s" % pg.text_content(card + " .pt-auto-msg"))

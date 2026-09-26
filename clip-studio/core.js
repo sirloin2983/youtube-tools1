@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.7.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.8.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review', 'collab'];
@@ -54,11 +54,17 @@ Studio.refreshState = async () => {
   return Studio.state;
 };
 
-/* 小さな数字のバッジ(タブの右)。text が空なら隠す */
-Studio.setBadge = (step, text) => {
+/* タブの右の小さな件数(「残っている作業の数」。赤い警告ではない)。text が空なら隠す。title は件数の意味(読み上げにも使う) */
+Studio.setBadge = (step, text, title) => {
   const b = $('#badge' + step.charAt(0).toUpperCase() + step.slice(1)); if (!b) return;
   b.textContent = text || ''; b.hidden = !text;
+  if (title){ b.title = title; b.setAttribute('aria-label', title); } else { b.removeAttribute('title'); b.removeAttribute('aria-label'); }
 };
+/* 一覧の「いつの」(ui-kit の UIKit.fmt。無いときは空) */
+Studio.ago = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.ago(ms) : '');
+Studio.date = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.date(ms) : '');
+/* 配信か手元の動画ファイルか(用語集: 配信 = YouTube の配信、動画ファイル = 手元のファイル) */
+Studio.noun = v => (v && v.kind === 'file' ? '動画ファイル' : '配信');
 
 Studio.step = 'rank';
 Studio.go = step => {
@@ -83,6 +89,8 @@ Studio.isTyping = el => {
 };
 /* 設定の引き出し・ダイアログが開いている間は、③ のショートカットを止める(裏の動画が勝手に動かないように) */
 Studio.overlayOpen = () => !!(document.querySelector('dialog[open]') || ($('#settingsBox') && !$('#settingsBox').hidden));
+/* 開いているメニュー(他のツール・③ の配信の選択など)の中でのキー操作か。メニューの中の文字やボタンでは ③ のキー操作を効かせない */
+Studio.inMenu = el => !!(el && el.closest && el.closest('details.ui-menu[open]'));
 
 /* ---------- ヘッダーの高さ(sticky の位置合わせ用。狭い画面ではタブが2段になるので実測する) ---------- */
 function watchHeader(){
@@ -98,9 +106,10 @@ function renderTools(){
   window.UIKit.tools.render(el, { current: 'studio', ports: Studio.ports || undefined });
   /* /api/siblings が答えた(=起動中のツールが分かっている)のに載っていないツールは、起動していない。押しても開けないことを先に知らせる */
   if (Studio.ports){
-    const links = el.querySelectorAll('a');
-    window.UIKit.tools.list.forEach((t, i) => {
-      const a = links[i]; if (!a || t.id === 'studio' || Studio.ports[t.id]) return;
+    /* リンクはツールの印(data-tool)で探す。ui-kit v3 から、入口に取り込まれているときはメニューの先頭に「入口」「案件の一覧」が入るので、並び順では決めない */
+    window.UIKit.tools.list.forEach(t => {
+      const mk = el.querySelector(`.ui-brand-mark[data-tool="${t.mark}"]`), a = mk && mk.closest('a');
+      if (!a || t.id === 'studio' || Studio.ports[t.id]) return;
       const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。入口(youtube-test フォルダの start-all.bat)から起動してください)';
       a.classList.add('cs-tool-off');
     });
@@ -164,7 +173,7 @@ Studio.openKeyHelp = () => {
   let html = `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定・メニューを閉じる']])}</section>`;
   const groups = Studio.review && Studio.review.keyHelp ? Studio.review.keyHelp() : [];
   if (groups.length){
-    html += `<p class="hint cs-khint">③ 確認・書き出しで動画を開いているときに使えます(文字の入力欄にいる間は効きません)。割り当ては ③ の「操作の設定」→「キー配置」で変えられます。</p>`;
+    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。割り当ては ③ の「操作の設定」→「キー配置」で変えられます。</p>`;
     html += `<div class="ui-kgrid">${groups.map(([h, rows]) => `<section class="ui-kgroup"><h3 class="section-title">${Studio.esc(h)}</h3>${keyRows(rows)}</section>`).join('')}</div>`;
   }
   $('#keyHelpBody').innerHTML = html;

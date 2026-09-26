@@ -81,7 +81,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.14.2"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.15.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -532,10 +532,32 @@ def transcript_summary(tid):
         return None
     if not isinstance(d, dict):
         return None
+    segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
+    text_rows = sum(1 for s in segs if str(s.get("text") or "").strip())
+    proofed = sum(1 for s in segs if s.get("proofed") is True and str(s.get("text") or "").strip())
+    a = num(d.get("start"), 0.0) or 0.0
+    b = num(d.get("end"))
+    dur = num(d.get("duration"))
+    if b is not None and b > a:
+        length = b - a
+    elif dur is not None and dur > a:
+        length = dur - a
+    else:   # 古い文書・長さの記録が無い文書は、最後の行の終わりまで
+        length = max([num(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a
+    clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
+    src = clip.get("source") if clip and isinstance(clip.get("source"), dict) else {}
+    rng = clip.get("range") if clip and isinstance(clip.get("range"), dict) else {}
+    mk = clip.get("mark") if clip and isinstance(clip.get("mark"), dict) else {}
     sm = {"id": tid, "title": d.get("title", ""), "sourceName": d.get("sourceName", ""), "start": d.get("start", 0),
           "end": d.get("end"), "model": d.get("model", ""), "segments": len(d.get("segments") or []),
           "createdAt": d.get("createdAt", 0), "updatedAt": d.get("updatedAt", 0), "evalSet": d.get("evalSet") is True,
-          "hasClip": isinstance(d.get("clip"), dict), "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole"))}
+          "hasClip": clip is not None,
+          # v0.15.0: 履歴の一覧で見分け・絞り込みに使う(校正の進み具合・長さ・元の配信)
+          "rows": text_rows, "proofed": proofed, "cut": sum(1 for s in segs if s.get("cutState") == "cut"),
+          "flagged": sum(1 for s in segs if str(s.get("flag") or "").strip()), "durationSec": round(max(0.0, length), 1),
+          "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
+          "clipStart": num(rng.get("start")), "clipEnd": num(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
+          "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole"))}
     _summary_cache[tid] = (key, sm)
     return sm
 
@@ -544,15 +566,95 @@ def _tids():
     return [n[:-5] for n in (os.listdir(TX_DIR) if os.path.isdir(TX_DIR) else []) if n.endswith(".json") and TID_RE.match(n[:-5])]
 
 
+_studio_cache = {"key": None, "path": None, "videos": {}}   # スタジオの data.json から読んだ {videoId: {"channel", "title"}}(更新日時と大きさでキャッシュ)
+_studio_lock = threading.Lock()
+
+
+def studio_videos():
+    """切り抜きスタジオの data.json の配信(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
+    -> {videoId: {"channel", "title"}}。一覧のたびに大きな data.json を読み直さないよう、ファイルの更新日時と大きさが同じなら前の結果を使う。"""
+    path = STUDIO_DATA
+    try:
+        st = os.stat(path)
+        key = (st.st_mtime_ns, st.st_size)
+    except (OSError, ValueError):
+        return {}
+    with _studio_lock:
+        if _studio_cache["key"] == key and _studio_cache["path"] == path:
+            return _studio_cache["videos"]
+    d = _read_json_file(path)
+    out = {}
+    vids = d.get("videos") if isinstance(d, dict) else None
+    if isinstance(vids, dict):
+        for vid, v in list(vids.items())[:5000]:
+            if isinstance(v, dict):
+                out[str(vid)[:40]] = {"channel": str(v.get("channel") or "")[:100], "title": str(v.get("title") or "")[:200]}
+    with _studio_lock:
+        _studio_cache.update({"key": key, "path": path, "videos": out})
+    return out
+
+
+PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
+
+
+def pack_info(media_path):
+    """動画の隣の <名前>_pack(cut2resolve の既定の出力先)。規則は ytt_core/txindex.pack_info の1か所(入口の案件の画面と同じ判定)。
+    -> {"textplus": bool, "updatedAt": ms} か None(一覧の API にフォルダのパスは出さない)"""
+    from ytt_core import txindex as _txi   # 一覧を作るときだけ使う(読み込みを軽く)
+    p = _txi.pack_info(media_path)
+    return {"textplus": p["textplus"], "updatedAt": p["updatedAt"]} if p else None
+
+
+def _files_state(items):
+    """一覧の各文書の、元の動画の有無(mediaOk)とパック(pack)。フォルダごとに1回だけ存在を確かめ、全体で PACK_CHECK_BUDGET 秒まで。
+    ネットワーク上のパス(\\\\サーバー\\…)は調べない(一覧を開くだけでそのサーバーへ資格情報を送らないため。clip_info と同じ考え)。
+    調べなかった・調べきれなかったものは mediaOk = None(不明)。"""
+    t0 = time.monotonic()
+    dirs = {}
+    for it in items:
+        sp = it.pop("_sp", "")
+        it["mediaOk"], it["pack"] = None, None
+        if not sp or not os.path.isabs(sp) or _fsio.is_network_path(sp):
+            if not sp:
+                it["mediaOk"] = False
+            continue
+        if time.monotonic() - t0 > PACK_CHECK_BUDGET:
+            continue
+        folder = os.path.dirname(sp)
+        if folder not in dirs:
+            try:
+                dirs[folder] = os.path.isdir(folder)
+            except (OSError, ValueError):
+                dirs[folder] = False
+        if not dirs[folder]:
+            it["mediaOk"] = False
+            continue
+        try:
+            it["mediaOk"] = os.path.isfile(sp)
+        except (OSError, ValueError):
+            it["mediaOk"] = False
+        it["pack"] = pack_info(sp)
+
+
 def list_transcripts():
+    """GET /api/transcripts の items。作った日が新しい順(画面で並べ替える)。
+    v0.15.0: 校正の進み具合(rows・proofed・cut・flagged)・長さ(durationSec)・元の配信(videoId・clipTitle・clipStart/End・markLabel)・
+    配信者(channel。スタジオの data.json から)・元の動画の有無(mediaOk)・パック(pack)も返す。"""
     items, seen = [], set()
     for tid in _tids():
         seen.add(tid)
         sm = transcript_summary(tid)
         if sm:
-            items.append({k: v for k, v in sm.items() if not k.startswith("_")})
+            items.append(dict({k: v for k, v in sm.items() if not k.startswith("_")}, _sp=sm["_sourcePath"]))
     for k in [k for k in _summary_cache if k not in seen]:   # 消した文書の分は捨てる
         _summary_cache.pop(k, None)
+    studio = studio_videos()
+    for it in items:
+        sv = studio.get(it["videoId"]) if it["videoId"] else None
+        it["channel"] = sv["channel"] if sv else ""
+        if sv and sv["title"]:
+            it["streamTitle"] = sv["title"]   # スタジオで題名を直していれば、そちらを見出しに使う
+    _files_state(items)
     items.sort(key=lambda x: x["createdAt"], reverse=True)
     return items
 
@@ -3477,13 +3579,13 @@ def studio_out_dir(data_path):
 def transcribed_ranges():
     """全文字起こしの (元ファイル・範囲・全体か・id) の一覧。フォルダ一覧・マーカーのポイントで「文字起こし済み」を判定するのに使う。"""
     out = []
-    for it in list_transcripts():
-        sm = transcript_summary(it["id"])   # list_transcripts で読んだばかりなので、ここはキャッシュから(以前は全文書を2回ずつ読んでいた)
+    for tid in _tids():   # 一覧(list_transcripts)は動画・パックの有無も調べるので、ここでは要約だけを読む(キャッシュが効く)
+        sm = transcript_summary(tid)
         sp = sm and sm["_sourcePath"]
         if not sp:
             continue
         a, b = num(sm.get("start"), 0.0) or 0.0, num(sm.get("end"))
-        out.append({"path": os.path.normcase(os.path.abspath(sp)), "start": a, "end": b, "whole": sm["_whole"], "tid": it["id"]})
+        out.append({"path": os.path.normcase(os.path.abspath(sp)), "start": a, "end": b, "whole": sm["_whole"], "tid": tid})
     return out
 
 

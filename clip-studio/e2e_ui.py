@@ -10,6 +10,9 @@ STUDIO_FAKE=1(YouTube へは接続しない)で、生成した短い動画・専
 確かめること: タブ切り替えと復元 / テーマ切り替えの保存 / ダーク表示で入力欄が白くならない / マークの採用・不採用が保存される /
 書き出しボタンの有効・無効 / 外から来る文字列(タイトル・ラベル)が HTML にならない / ?url= は欄に入れるだけ / ? でキー一覧 /
 設定の引き出し / 「他のツール」メニュー / 書き出し後の「文字起こしで開く」「Resolve 用に渡す」リンク / 狭い画面で横にはみ出さない
+v0.8.0(画面の全面見直し): ① 事務所を登録すると、触っていない事務所にチェックが入る・外した事務所は外れたまま / 結果の「全部まとめて」と「事務所ごと」/
+② 失敗の説明(よくある原因と対処・元のメッセージ) / ③ 配信の選択(検索)・プレーヤーが使えないときに自動再生で通知を出さない・
+どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / ④ 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
 """
 import json
 import os
@@ -34,6 +37,7 @@ import serve  # noqa: E402
 
 XSS_TITLE = '<img src=x onerror="window.__xss=1">配信<b>太字</b>'
 XSS_LABEL = '<script>window.__xss=2</script><img src=x onerror="window.__xss=3">'
+YT_ID = "ytE2Etest01"
 
 
 def make_media(home):
@@ -69,11 +73,14 @@ def fixture(home):
     store.ensure({"kind": "file", "videoId": b, "name": "sample.webm", "path": media}, XSS_TITLE)
     store.put_video(b, XSS_TITLE, [{"id": "x1", "start": 3, "end": 8, "label": XSS_LABEL, "status": ""}])
     store.create_group([a, b], "9/20 コラボ", a)
+    # YouTube の配信(テストでは YouTube へ繋がないので、プレーヤーは使えない。自動再生で通知を出さないことの確認用)
+    store.ensure({"kind": "youtube", "videoId": YT_ID}, "埋め込みできない配信", "星見ルナ")
+    store.put_video(YT_ID, "埋め込みできない配信", [{"id": "y%d" % i, "start": 60 + i * 60, "end": 90 + i * 60, "label": "", "status": ""} for i in range(4)])
     for ag in ("hololive", "nijisanji"):
         rank.import_official_channels(ag)
         rank.resolve(ag)
     common.set_api_key("AIzaTESTKEY0123456789abcdefghij")   # 空欄で「保存」を押しても消えないことの確認用
-    return {"media": media, "a": a, "b": b, "config": common.p("config.json")}
+    return {"media": media, "a": a, "b": b, "yt": YT_ID, "config": common.p("config.json")}
 
 
 def tab_away_and_back(pg):
@@ -85,6 +92,16 @@ def tab_away_and_back(pg):
       set(false); document.dispatchEvent(new Event('visibilitychange'));
       delete document.hidden;
     }""")
+
+
+def open_video(pg, vid):
+    """③ の「配信」(選ぶ一覧)から配信を開く(v0.8.0 で <select> から、探せる一覧に変えた)"""
+    if not pg.evaluate("document.querySelector('#rvPick').open"):
+        pg.click("#rvPickBtn")
+    row = '#rvPickList .rv-prow[data-vid="%s"]' % vid
+    pg.wait_for_selector(row)
+    pg.click(row)
+    wait_js(pg, "() => !document.querySelector('#rvPick').open", 5000)
 
 
 def wait_js(pg, js, timeout=10000):
@@ -212,9 +229,19 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.get_attribute("html", "data-theme") == "light", "初回は OS の設定(ライト)に合わせる")
         c.ok(pg.locator("#steps .ui-tab").count() == 4, "①〜④のタブがある")
         c.ok((pg.text_content("#ver") or "").startswith("v"), "版が表示される")
+        c.ok("キー操作" in (pg.text_content("#btnKeys") or ""), "キーボードの近道のボタンは「キー操作」(用語集)")
+        if MOUNT["prefix"]:
+            c.ok(pg.is_visible("a.ui-home[data-ui-home]") and pg.get_attribute("a.ui-home", "href") == "/", "入口に取り込まれているときは、ヘッダーに入口へ戻るリンクが出る")
+        else:
+            c.ok(not pg.is_visible("a.ui-home[data-ui-home]"), "単独で動いているときは、入口へ戻るリンクを出さない")
+        home_x = pg.evaluate("() => { const a = document.querySelector('a.ui-home'), m = document.querySelector('#toolMenu'); return a && m ? [a.compareDocumentPosition(m) & 4] : null; }")
+        c.ok(home_x == [4], "入口へのリンクは「他のツール」の左")
         pg.click("#toolMenu summary")
-        links = pg.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
+        TOOL_LINKS = "#toolNav a:has(.ui-brand-mark:not([data-tool=portal]))"   # ui-kit v3: 入口に取り込まれているときは先頭に「入口」「案件の一覧」も入る
+        links = pg.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => a.getAttribute('href'))")
         c.ok(len(links) == 3 and any(":8775" in h for h in links) and any(":8810" in h for h in links), "他のツール: /api/siblings が無いときは既定のポートでリンク")
+        home = pg.eval_on_selector_all("#toolNav a:has(.ui-brand-mark[data-tool=portal])", "els => els.map(a => a.getAttribute('href'))")
+        c.ok(home == (["/", "/cases.html"] if MOUNT["prefix"] else []), "他のツール: 入口に取り込まれているときだけ、先頭に入口・案件の一覧: %s" % home)
         pg.keyboard.press("Escape")
         c.ok(not pg.evaluate("document.querySelector('#toolMenu').open"), "Esc で他のツールのメニューが閉じる")
         # /api/siblings があるサーバー(サーバー担当が実装中)の応答を模して、実際のポートと「起動していない」表示を確かめる
@@ -222,7 +249,7 @@ def run_checks(port, fx, shots=None):
         pg2.route("**/api/siblings", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"tools": {"studio": port, "transcribe": 8779}})))
         pg2.goto(base); pg2.wait_for_selector("#rkCond")
         pg2.click("#toolMenu summary")
-        links2 = pg2.eval_on_selector_all("#toolNav a", "els => els.map(a => [a.getAttribute('href'), a.className])")
+        links2 = pg2.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => [a.getAttribute('href'), a.className])")
         c.ok(any(":8779" in h for h, _ in links2) and any(":8810" in h and "cs-tool-off" in k for h, k in links2), "他のツール: /api/siblings のポートを使い、起動していないツールはそう表示する")
         c.ok(pg2.evaluate("Studio.toolUrl('transcribe', '/?media=x')") == "http://localhost:8779/?media=x", "受け渡しのリンクも実際のポートを使う")
         pg2.close()
@@ -241,8 +268,15 @@ def run_checks(port, fx, shots=None):
 
         print("[③ 確認・書き出し]")
         pg.click('#steps [data-step="review"]')
-        pg.select_option("#rvVideoSel", fx["a"])
+        pg.click("#rvPickBtn")
+        c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 3"), "③ 配信の選択: 一覧に全部の配信が出る")
+        pg.fill("#rvPickQ", "テスト動画 A")
+        wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 1")
+        c.ok("1 / 3" in (pg.text_content("#rvPickN") or ""), "③ 配信の選択: 題名で探せる(件数も出る)")
+        pg.fill("#rvPickQ", "")
+        open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
+        c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")
         wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length >= 4")
         bg = pg.eval_on_selector(".rv-trow input", "el => getComputedStyle(el).backgroundColor")
         c.ok(luminance(rgb_of(bg)) < 0.2, "ダーク表示でマークの時刻の入力欄が暗い背景(以前は白): %s" % bg)
@@ -283,6 +317,9 @@ def run_checks(port, fx, shots=None):
         for m in pg.eval_on_selector_all("#rvList .rv-mark-row.st-adopted", "els => els.map(e => e.dataset.id)"):
             pg.click('#rvList .rv-mark-row[data-id="%s"] [data-act="st"][data-st=""]' % m)
         c.ok(not pg.is_enabled("#rvExpRun"), "採用が無い(対象0件)とき「書き出す」は押せない")
+        c.ok("候補を「採用」にすると" in (pg.text_content("#rvExpCount") or ""), "書き出せないときは、どうすれば書き出せるかを出す")
+        pg.click("#rvExpSet summary")   # 書き出しの設定は閉じてある(見出しの横に今の設定が出る)
+        c.ok("採用のみ" in (pg.text_content("#rvExpSetSum") or ""), "閉じた「書き出しの設定」の横に今の設定を出す")
         pg.select_option("#rvExpTarget", "pending")
         c.ok(pg.is_enabled("#rvExpRun"), "対象を「採用 + 候補」にすると押せる")
         pg.select_option("#rvExpTarget", "adopted")
@@ -359,8 +396,31 @@ def run_checks(port, fx, shots=None):
         if shots:
             pg.screenshot(path=os.path.join(shots, "cs_review_exported_dark.png"))
 
+        print("[③ プレーヤーが使えないとき(不具合2)・書き出しへの入口]")
+        c.ok(pg.is_visible('#rvJump [data-jump="export"]'), "広い画面: 上の行に「書き出し」への入口がある")
+        pg.click("#rvTheater"); pg.wait_for_timeout(300)
+        ex, pl = pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().left"), pg.eval_on_selector("#rvPlayerBox", "e => e.getBoundingClientRect().right")
+        c.ok(ex > pl and pg.is_visible("#rvExpRun") and pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().top") < 400,
+             "シアター表示でも「書き出し」は右の列の上(見える場所)にある")
+        pg.click("#rvTheater"); pg.wait_for_timeout(200)
+        pg.route("https://www.youtube.com/**", lambda route: route.abort())   # YouTube に繋がらない(埋め込みできない)状態
+        pg.evaluate("() => { window.__toasts = []; const o = Studio.toast; Studio.toast = (m, ms, k) => { window.__toasts.push(String(m)); return o(m, ms, k); }; }")
+        open_video(pg, fx["yt"])
+        pg.wait_for_selector('#rvList .rv-mark-row[data-id="y0"]')
+        c.ok(wait_js(pg, "() => !document.querySelector('#rvNotice').hidden", 15000) and "再生できません" in (pg.text_content("#rvNotice") or ""),
+             "プレーヤーが使えないことを、プレーヤーの下に1か所だけ出す")
+        pg.click('#rvList .rv-mark-row[data-id="y0"] .rv-tc')
+        for k in ("]", "]", "[", "y", "u"):
+            pg.keyboard.press(k); pg.wait_for_timeout(120)
+        c.ok(not any("再生" in t for t in pg.evaluate("window.__toasts")), "自動再生・採用/不採用で次へ のまま キー操作で判定しても、再生できない通知を出さない: %s" % pg.evaluate("window.__toasts"))
+        v = api(port, "GET", "/api/video?id=" + fx["yt"])["video"] if wait_js(pg, "() => document.querySelector('#rvSave').dataset.k === 'saved'", 5000) else {"marks": []}
+        c.ok(sorted(m["status"] for m in v["marks"]) == ["", "", "adopted", "rejected"], "プレーヤーが使えなくても判定は保存される")
+        pg.keyboard.press("k"); pg.wait_for_timeout(150)
+        c.ok(any("再生できません" in t for t in pg.evaluate("window.__toasts")), "自分で再生を押したときは知らせる")
+        pg.unroute("https://www.youtube.com/**")
+
         print("[外から来る文字列]")
-        pg.select_option("#rvVideoSel", fx["b"])
+        open_video(pg, fx["b"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="x1"]')
         c.ok(pg.text_content("#rvCurLabel") == XSS_TITLE, "動画のタイトルは文字のまま表示される")
         c.ok(pg.input_value('#rvList [data-f="label"]') == XSS_LABEL, "ラベルは文字のまま")
@@ -370,17 +430,51 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.evaluate("window.__xss === undefined") and pg.locator("main img[src='x']").count() == 0, "タイトル・ラベルの HTML が実行・表示されない")
 
         print("[④ コラボ]")
-        c.ok(pg.locator(".cl-member").count() == 2, "グループの動画が並ぶ")
+        c.ok(pg.locator(".cl-member").count() == 2, "グループの配信が並ぶ")
+        c.ok(pg.locator(".cl-member .cl-mmeta").count() == 2 and "動画ファイル" in (pg.text_content(".cl-member .cl-mmeta") or ""),
+             "グループのメンバーの行に、だれの(配信者・動画ファイル)といつの を出す")
+        c.ok(pg.locator("#clVideoList .cl-video").count() == 1 and "1 / 3" in (pg.text_content("#clCount") or ""), "配信の選択: 既定はグループに入っていない配信だけ(件数つき)")
+        pg.select_option("#clF", "all")
+        c.ok(pg.locator("#clVideoList .cl-vg").count() == 2 and pg.locator("#clVideoList .cl-video").count() == 3, "「すべての配信」で、配信者ごとのまとまりに分けて出す")
+        pg.fill("#clQ", "埋め込み"); pg.wait_for_timeout(300)
+        c.ok(pg.locator("#clVideoList .cl-video").count() == 1, "配信の選択: 題名で探せる")
+        pg.fill("#clQ", ""); pg.select_option("#clF", "free"); pg.wait_for_timeout(300)
         pg.click('.cl-member:not(.is-base) [data-act="removeMember"]')
         c.ok(pg.locator(".cl-member").count() == 2 and "もう一度" in (pg.text_content('.cl-member:not(.is-base) [data-act="removeMember"]') or ""), "「グループから外す」は2回押しで確認する")
         pg.click('.cl-member:not(.is-base) [data-act="anchor"]')
         c.ok(pg.is_visible("#clA1this") and pg.evaluate("document.activeElement.id") == "clA1this", "アンカーの入力欄が開き、フォーカスが移る")
 
-        print("[① 探す(疑似の YouTube API)]")
+        print("[① 探す: 事務所のチェック(不具合1)]")
         pg.click('#steps [data-step="rank"]')
+        checks = lambda: dict(pg.eval_on_selector_all("#agChecks .agc", "els => els.map(e => [e.value, e.checked])"))
+        c.ok(checks() == {"hololive": True, "nijisanji": True, "vspo": False, "neoporte": False}, "チャンネルを登録した事務所だけにチェックが入る: %s" % checks())
+        pg.click("#btnSettings")
+        if not pg.evaluate("document.querySelector('#setReg').open"):
+            pg.click("#setReg summary")
+        pg.click('#setReg .ag[data-key="vspo"] > summary')
+        pg.click('#setReg .ag[data-key="vspo"] [data-act="imp"]')
+        wait_js(pg, "() => document.querySelectorAll('#setReg .ag[data-key=\"vspo\"] .ch .st.ok').length > 0 && !document.querySelector('#setReg .ag[data-key=\"vspo\"] .pill.run')", 20000)
+        pg.keyboard.press("Escape")
+        c.ok(checks() == {"hololive": True, "nijisanji": True, "vspo": True, "neoporte": False}, "設定で事務所を登録して ① に戻ると、その事務所にもチェックが入る(以前は全部外れた): %s" % checks())
+        pg.uncheck('#agChecks .agc[value="nijisanji"]')
+        pg.reload(); pg.wait_for_selector("#agChecks .agc")
+        wait_js(pg, "() => document.querySelectorAll('#agChecks .agc').length === 4")
+        c.ok(checks() == {"hololive": True, "nijisanji": False, "vspo": True, "neoporte": False}, "自分で外した事務所は、読み込み直しても外れたまま: %s" % checks())
+
+        print("[① 探す(疑似の YouTube API)]")
         pg.click("#btnGo")
         pg.wait_for_selector("#results .rk-table", timeout=30000)
         c.ok(pg.locator("#results tr[data-vid]").count() > 5, "検索結果が並ぶ")
+        views = pg.eval_on_selector_all("#results tr[data-vid] td.n.num:not(.hide-s)", "els => els.map(e => Number(e.textContent.replace(/,/g, '')))")
+        c.ok(pg.locator("#results .rk-table").count() == 1 and views == sorted(views, reverse=True) and len(views) <= 30,
+             "既定は「全部まとめて」: 全事務所の結果を1つの表に再生数の多い順(上位30本)")
+        c.ok(pg.locator("#results tr[data-vid] .rk-ag-name").count() == len(views), "全部まとめて: 各行に事務所名")
+        pg.click('#results [data-view="ag"]')
+        c.ok(pg.locator("#results details.rk-ag").count() == 2, "「事務所ごと」に切り替えると、事務所ごとのまとまり(選んだ2事務所)")
+        pg.click('#results [data-view="all"]')
+        pg.fill("#rkQ", "zzzz-no-hit")
+        c.ok(pg.locator("#results tr[data-vid]").count() == 0 and pg.locator("#rkBody .empty").count() == 1, "結果の中を絞り込める(合わないときは空の案内)")
+        pg.fill("#rkQ", "")
         pg.check("#results tr[data-vid] .pk >> nth=0")
         c.ok(pg.text_content("#pickN") == "1" and pg.is_enabled("#pickGo"), "チェックすると選択数が増え、追加ボタンが押せる")
 
@@ -396,6 +490,17 @@ def run_checks(port, fx, shots=None):
         wait_js(pg, "() => { const i = document.querySelector('#qList .q-item'); return i && ['done', 'error'].includes(i.dataset.status); }", 90000)
         st = pg.get_attribute("#qList .q-item", "data-status")
         c.ok(st == "done" and pg.locator('#qList [data-act="review"]').count() == 1, "疑似の解析が終わり「確認する」が出る(状態: %s)" % st)
+        c.ok(pg.is_visible("#qNext") and "確認する" in (pg.text_content("#qNext") or ""), "次にやること: 解析が終わった配信を確認する")
+        raw = "音声を取得できませんでした: ERROR: [youtube] abcdefghijk: Sign in to confirm your age"
+        pg.route("**/api/queue", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(
+            {"items": [{"qid": "e1", "videoId": "abcdefghijk", "kind": "youtube", "title": "失敗した配信", "channel": "星見ルナ", "status": "error", "phase": "失敗",
+                        "progress": 0, "error": raw, "chat": None, "marks": 0, "finishedAt": int(time.time() * 1000)}], "running": False, "max": 10})))
+        pg.evaluate("Studio.queue.refresh()")
+        pg.wait_for_selector('#qList .q-item[data-status="error"]')
+        c.ok("年齢制限" in (pg.text_content("#qList .q-err b") or "") and pg.is_visible("#qList .q-how"),
+             "② 解析の失敗は「何が起きたか」+「どうすればいいか」で出す: %s" % pg.text_content("#qList .q-err b"))
+        c.ok(pg.text_content("#qList .q-raw code") == raw and not pg.is_visible("#qList .q-raw code"), "元のメッセージは閉じた欄に小さく残す")
+        pg.unroute("**/api/queue")
 
         print("[狭い画面・コントラスト]")
         for w in (390, 1024):
@@ -404,6 +509,25 @@ def run_checks(port, fx, shots=None):
                 pg.evaluate("s => Studio.go(s)", step)
                 pg.wait_for_timeout(150)
                 c.ok(pg.evaluate(NO_HSCROLL_JS), "%dpx 幅の %s で横にはみ出さない" % (w, step))
+        pg.set_viewport_size({"width": 390, "height": 800})
+        pg.evaluate("Studio.go('review')")
+        pg.evaluate("window.scrollTo(0, 0)")
+        open_video(pg, fx["a"])   # 狭い画面でも配信を選べる
+        pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
+        c.ok(pg.evaluate("document.querySelector('#rvJump').classList.contains('is-bar')") and pg.is_visible('#rvJump [data-jump="marks"]'),
+             "390px の ③: プレーヤー・マーク・書き出しへ飛ぶ案内を出す")
+        pg.click('#rvJump [data-jump="export"]'); pg.wait_for_timeout(900)
+        c.ok(pg.evaluate("() => { const r = document.querySelector('#rvExport').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }"), "「書き出し」を押すと書き出しの欄へ移る")
+        pg.click('#rvJump [data-jump="marks"]'); pg.wait_for_timeout(900)
+        c.ok(pg.evaluate("() => { const r = document.querySelector('#rvClipbox').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }") and pg.is_visible("#rvJump"),
+             "「マーク」を押すとマークの一覧へ移る(案内は上に残る)")
+        small = pg.evaluate("() => [...document.querySelectorAll('#rvList .rv-nudges .btn, #rvList .rv-stgroup .btn, #rvList .rv-fold, #rvQuickSlots .rv-step')].filter(b => b.offsetParent && b.getBoundingClientRect().height < 27.5).length")
+        c.ok(small == 0, "390px の ③: 微調整・判定・長さのボタンは 28px 以上(小さいもの %s 個)" % small)
+        pg.evaluate("Studio.go('collab')")
+        pg.select_option("#clF", "all"); pg.wait_for_timeout(200)
+        c.ok(pg.evaluate("() => { const s = getComputedStyle(document.querySelector('#clVideoList')); return s.overflowY === 'auto' && s.maxHeight !== 'none'; }"),
+             "390px の ④: 配信の一覧は枠の中でスクロールする(延々と続かない)")
+        pg.select_option("#clF", "free")
         pg.set_viewport_size({"width": 1440, "height": 900})
         for theme in ("dark", "light"):
             pg.evaluate("t => UIKit.theme.set(t)", theme)
@@ -436,8 +560,8 @@ def take_shots(br, base, fx, out):
             pg.evaluate("Studio.go('queue')"); pg.wait_for_timeout(500)
             pg.screenshot(path=os.path.join(out, "cs_queue_%s_%s.png" % (scheme, tag)))
             pg.evaluate("Studio.go('review')")
-            pg.wait_for_selector("#rvVideoSel option[value='%s']" % fx["a"], state="attached")
-            pg.select_option("#rvVideoSel", fx["a"]); pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]'); pg.wait_for_timeout(700)
+            wait_js(pg, "() => window.Studio && document.querySelector('#rvPickBtn')")
+            open_video(pg, fx["a"]); pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]'); pg.wait_for_timeout(700)
             pg.screenshot(path=os.path.join(out, "cs_review_%s_%s.png" % (scheme, tag)))
             if tag == "1440":
                 pg.screenshot(path=os.path.join(out, "cs_review_full_%s.png" % scheme), full_page=True)
@@ -461,8 +585,8 @@ def main():
     home = tempfile.mkdtemp(prefix="clip-studio-ui-")
     try:
         mounted = "--mounted" in args
-        if mounted:
-            os.environ["YTT_RUNTIME_DIR"] = os.path.join(home, ".runtime")   # 取り込むと .runtime を書くので、一時フォルダに
+        # .runtime は一時フォルダに(取り込むと書く。単独でも、同時に動いている他のテストのツールの .runtime を「起動中の他のツール」と読まないように)
+        os.environ["YTT_RUNTIME_DIR"] = os.path.join(home, ".runtime")
         fx = fixture(home)
         srv, port = start_mounted() if mounted else start_server()
         if "--serve" in args:

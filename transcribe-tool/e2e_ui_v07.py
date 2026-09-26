@@ -139,8 +139,8 @@ def main():
             check(pg.inner_text("#pfStat").startswith("校正済み"), "元に戻せる")
             # 一括置換で聞かずに書き換えた行は校正済みが外れる
             before = pg.locator("#segs .seg.proofed").count()
-            if not pg.evaluate("document.querySelector('#spDetails').open"):
-                pg.click("#spDetails summary")
+            if not pg.evaluate("document.querySelector('#fixDetails').open"):   # v0.15.0: 置換は「文字をまとめて直す」のカード
+                pg.click("#fixDetails summary")
             pg.fill("#repFrom", "テスト文")
             pg.fill("#repTo", "テスト文!")
             pg.click("#repGo")

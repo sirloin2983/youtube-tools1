@@ -303,6 +303,54 @@ class TestPerformance(StoreDir):
         self.assertEqual(S.list_transcripts(), [])
         self.assertNotIn(TID, S._summary_cache)
 
+    def test_list_fields_for_history(self):
+        """v0.15.0: 履歴の一覧の項目(校正の進み具合・長さ・元の配信・配信者・元の動画の有無・パック)"""
+        media_dir = os.path.join(self.tmp, "exports")
+        os.makedirs(media_dir)
+        media = os.path.join(media_dir, "01_見どころ.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        segs = [{"id": "s1", "start": 0, "end": 1, "text": "あ", "proofed": True},
+                {"id": "s2", "start": 1, "end": 2, "text": "い", "proofed": True, "cutState": "cut"},
+                {"id": "s3", "start": 2, "end": 3, "text": "う", "flag": "要確認: 聞き取りにくい"},
+                {"id": "s4", "start": 3, "end": 4, "text": " ", "proofed": True}]   # 文字の無い行は数えない(校正済みの印があっても)
+        self.put_doc({"id": TID, "title": "配信 見どころ", "sourcePath": media, "start": 0, "end": None, "whole": True, "duration": 24.0,
+                      "segments": segs, "clip": clip_obj(), "createdAt": 5, "updatedAt": 9})
+        other = "fedcba987654"
+        self.put_doc({"id": other, "title": "共有の動画", "sourcePath": "\\\\server\\share\\a.mp4", "start": 10, "end": 70,
+                      "segments": [], "createdAt": 3}, tid=other)
+        studio = os.path.join(self.tmp, "studio-data.json")
+        write_json(studio, {"videos": {"abcdefghijk": {"title": "スタジオの題名", "channel": "星見ルナ", "marks": []}}})
+        old = (S.STUDIO_DATA, S.PACK_CHECK_BUDGET)
+        S.STUDIO_DATA = studio
+        try:
+            items = {x["id"]: x for x in S.list_transcripts()}
+            a = items[TID]
+            self.assertEqual((a["rows"], a["proofed"], a["cut"], a["flagged"], a["durationSec"]), (3, 2, 1, 1, 24.0))
+            self.assertEqual((a["videoId"], a["clipTitle"], a["clipStart"], a["clipEnd"], a["markLabel"]),
+                             ("abcdefghijk", "配信<b>タイトル</b>", 1234.5, 1258.5, "見どころ"))
+            self.assertEqual((a["channel"], a["streamTitle"], a["mediaOk"], a["pack"]), ("星見ルナ", "スタジオの題名", True, None))
+            self.assertNotIn("_sp", a)
+            b = items[other]
+            self.assertEqual((b["durationSec"], b["videoId"], b["channel"], b["hasClip"]), (60.0, "", "", False))
+            self.assertIsNone(b["mediaOk"])   # ネットワーク上のパスは調べない(資格情報を送らない)
+            # パック(案件の画面と同じ判定: <名前>_pack/cut-plan.json)
+            pk = os.path.join(media_dir, "01_見どころ_pack")
+            os.makedirs(pk)
+            write_json(os.path.join(pk, "cut-plan.json"), {})
+            write_json(os.path.join(pk, "textplus-import.json"), {})
+            time.sleep(0.01)
+            write_json(studio, {"videos": {"abcdefghijk": {"title": "", "channel": "朝霧ソラ"}}})   # スタジオの data.json が変われば読み直す
+            a = {x["id"]: x for x in S.list_transcripts()}[TID]
+            self.assertEqual((a["pack"]["textplus"], a["pack"]["updatedAt"] > 0, a["channel"], a.get("streamTitle")), (True, True, "朝霧ソラ", None))
+            os.unlink(media)
+            self.assertIs({x["id"]: x for x in S.list_transcripts()}[TID]["mediaOk"], False)
+            S.PACK_CHECK_BUDGET = -1   # 調べる時間を使い切ったら、残りは「不明」(一覧を止めない)
+            a = {x["id"]: x for x in S.list_transcripts()}[TID]
+            self.assertEqual((a["mediaOk"], a["pack"]), (None, None))
+        finally:
+            S.STUDIO_DATA, S.PACK_CHECK_BUDGET = old
+
     def test_scan_common_reads_transcripts_once(self):
         calls = []
         old = S.transcribed_ranges

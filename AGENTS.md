@@ -27,8 +27,8 @@
 | `transcribe-tool/` | 文字起こし(faster-whisper・話者判別・校正画面・精度測定) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)。画面は serve.py | `python -m unittest test_cut2resolve test_pack test_serve`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
-| `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`。`ui-kit/README.md`)の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
-| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
+| `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・入口へ戻る・一覧の部品・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`・日時の書式 `UIKit.fmt`。`ui-kit/README.md`)の正本。**画面を直すときは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧の見せ方)に合わせる**。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
+| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算・見本のデータで全画面を動かす `demo_env.py`)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
@@ -85,6 +85,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 
 担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く):
 - 統合作業(`app/`・`ytt_core/`・3ツールの取り込み)と `cut2resolve/` 全体(Text+ を含む): Claude が主担当(ユーザー決定 2026-09-25・26)
+- 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面の全面見直し(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。見直しが終わるまで他の AI は触らない)
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込みの決まり:
@@ -101,7 +102,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 【高】AI 間の同時編集の競合: 上の担当表と「複数の AI で作業するときのルール」を徹底する
 - 【高】同一オリジン化による XSS の影響拡大: 1つのポートにまとめたので、1つの画面の XSS で全ツールの API(ファイルの書き込み・Resolve へのスクリプト登録)が使える。
   CSP `script-src 'self'` を維持する、書き込み系の POST に合言葉(CSRF トークン)、Host / Origin 検査は ytt_core の1か所で全 API にかける、パスは許可したフォルダの中だけ
-- 文字起こしと切り抜きの紐づけの規則は `ytt_core/txindex.py` だけ(入口の案件・スタジオのセリフが共通で使う)。他のツールのデータは読むだけで書き換えない
+- 文字起こしと切り抜きの紐づけの規則と、パックの有無の判定(`pack_info`)は `ytt_core/txindex.py` だけ(入口の案件・スタジオのセリフ・文字起こしの履歴が共通で使う)。他のツールのデータは読むだけで書き換えない
 - Resolve パックは `cut2resolve/pack.py` だけが作る(2026-09-26 一本化。文字起こしの `resolve_export.create_package` は pack を呼んで zip にするだけ)。
   パックの作り方を変えたら `tools/test_resolve_pack_contract.py` を通す(文字起こしの zip と cut2resolve のパックが同じ中身・一本化の前と同じ区間と字幕)。
   経緯と旧との違いは `docs/resolve-pack-unification.md`。文字起こし側に Resolve 用の計算を書き足さない(二重実装に戻さない)

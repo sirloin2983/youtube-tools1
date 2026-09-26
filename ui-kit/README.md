@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v2
+# ui-kit(共通の見た目)v3
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -34,3 +34,14 @@
 ## ヘッダーの書き方
 `styleguide.html` の `<header class="ui-header">` をそのまま使う(ブランドのアイコン・ツール名・版・タブ・他のツール・テーマ切り替え)。
 ブランドの色は `.ui-brand-mark[data-tool=studio|transcribe|cut2resolve]`。
+
+## v3(2026-09-26・画面の全面見直し)
+共通のルールは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
+- 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
+- 入口へ戻る: ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
+  「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
+- 一覧: `.ui-listbar`(検索は残りの幅いっぱい)・`.ui-count`・`details.ui-group`(+ `.ui-group-n`・`.ui-group-side`)・`.ui-next`(次にやること)
+- 言葉の説明: `<abbr class="ui-term" title="1文の説明">EDL</abbr>`
+- `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
+- `UIKit.fmt.ago(ms)`(「3日前」「今日 14:32」)・`UIKit.fmt.date(ms)`・`UIKit.fmt.dur(秒)`・`UIKit.esc(s)`
+

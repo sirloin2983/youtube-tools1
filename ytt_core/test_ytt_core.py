@@ -611,6 +611,23 @@ class TestTxIndex(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_pack_info(self):
+        """パックの有無の規則(入口の案件・文字起こしの一覧で共通): 切り抜きの隣の <名前>_pack に cut-plan.json があれば「あり」"""
+        from ytt_core import txindex
+        self.assertIsNone(txindex.pack_info(self.clip))
+        self.assertIsNone(txindex.pack_info(""))
+        d = os.path.join(os.path.dirname(self.clip), "01_a_pack")
+        os.makedirs(d)
+        self.assertIsNone(txindex.pack_info(self.clip))   # フォルダだけでは「あり」にしない(作りかけ)
+        with open(os.path.join(d, "cut-plan.json"), "w") as f:
+            f.write("{}")
+        p = txindex.pack_info(self.clip)
+        self.assertEqual((p["dir"], p["textplus"]), (d, False))
+        self.assertGreater(p["updatedAt"], 0)
+        with open(os.path.join(d, "textplus-import.json"), "w") as f:
+            f.write("{}")
+        self.assertTrue(txindex.pack_info(self.clip)["textplus"])
+
     def doc(self, tid, source="", clip=None, updated=1, segs=None, speakers=None):
         d = {"id": tid, "title": "t" + tid, "sourcePath": source, "updatedAt": updated, "speakers": speakers or [],
              "segments": segs if segs is not None else [{"id": "s1", "start": 1.0, "end": 2.5, "text": "こんにちは", "proofed": True},

@@ -136,3 +136,21 @@ def offset(doc, video_id, media_path, fallback):
 def lines(doc, off, limit=3000):
     """元の配信の時刻にした行。-> [{"start", "end", "text", "speaker", "proofed", "cut"}]"""
     return [dict(s, start=round(s["start"] + off, 2), end=round(s["end"] + off, 2)) for s in doc["segments"][:limit]]
+
+
+def pack_dir(media_path):
+    """切り抜きの隣の <名前>_pack(cut2resolve の既定の出力先)のパス"""
+    return os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
+
+
+def pack_info(media_path):
+    """切り抜きのパック(cut2resolve が作る <名前>_pack)があるか。中に cut-plan.json があれば「パックあり」。
+    -> {"dir", "textplus"(Text+ パックか), "updatedAt"(ms)} か None。入口の案件の画面と文字起こしの一覧が同じ規則で使う(規則はここ1か所)"""
+    if not media_path:
+        return None
+    d = pack_dir(media_path)
+    try:
+        mt = int(os.path.getmtime(os.path.join(d, "cut-plan.json")) * 1000)
+    except OSError:
+        return None
+    return {"dir": d, "textplus": os.path.isfile(os.path.join(d, "textplus-import.json")), "updatedAt": mt}

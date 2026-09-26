@@ -1,6 +1,8 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.12.0**(2026-09-26、「Resolveパッケージ(zip)」を cut2resolve の Text+ パックに一本化。v0.11.0 = 2026-09-25、認識を別プロセス(tx_worker.py)に分け、入口の `/transcribe/` に取り込めるようにした。v0.10.0 = 2026-09-24、全ツールの見直し・UI 刷新。v0.9.9 で Claude 版と GPT 版の v0.9.8 を統合済み)。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
+現在 **v0.15.0**(2026-09-26、画面の全面見直し: 履歴の一覧の作り直し・校正画面の「カットとパック」(案A)・道具のカードの分割・狭い画面。
+v0.14.x = 作業データの置き場所・重い処理の上限・窓で使う準備、v0.12.0 = 「Resolveパッケージ(zip)」を cut2resolve の Text+ パックに一本化。v0.11.0 = 2026-09-25、認識を別プロセス(tx_worker.py)に分け、入口の `/transcribe/` に取り込めるようにした。v0.10.0 = 2026-09-24、全ツールの見直し・UI 刷新。v0.9.9 で Claude 版と GPT 版の v0.9.8 を統合済み)。
+画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
 GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)も必ず読む。
 現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/project/history/transcribe-tool-v*.md`、
 最初の仕様は `../docs/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
@@ -21,7 +23,22 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   **サーバー側のプロセスで numpy・faster_whisper・ctranslate2・sherpa_onnx を import しない**(入口に取り込むと、落ちたときスタジオ・cut2resolve まで止まる。`test_worker.py` が検査)。
   ワーカーが落ちたらそのジョブだけ失敗、次の要求で起動し直す。取り消しは `job["proc"]`(`_CancelHandle`)経由で伝え、15秒で止まらなければ強制終了。
   `TRANSCRIBE_MODEL_IDLE_SEC`(既定900秒)使わなければワーカーごと終わらせる。GPU の有無も別プロセス(`tx_worker.py --probe`)で1回だけ調べる
-- `app.js` … 画面の JS(旧 index.html の即時関数の中身をそのまま移した)。状態 `S`(文書・今の行など)と `V`(表示の好み。localStorage)はこのファイルのトップレベル変数で、グローバルではない
+- `app.js` … 画面の JS(旧 index.html の即時関数の中身をそのまま移した)。状態 `S`(文書・今の行など)と `V`(表示の好み。localStorage)はこのファイルのトップレベル変数で、グローバルではない。
+  主なまとまり(v0.15.0): 履歴の一覧(「保存済み一覧」の節。`L` = 絞り込み・並び替え・まとめ方(localStorage `tx.list.v1`)、`txGroups`・`txOpen`・`txLimit`。
+  開いているまとまりの分だけ描き、まとまりごとに「もっと見る」)、カットとパック(`CP`・`c2rBase()`/`c2rUrl()`/`c2rApi()`・`runPlan()`・`buildPack()`。下記)、
+  キー操作の手がかり(`tx.keyhint`)
+- 一覧の API `/api/transcripts`(serve.py の `list_transcripts`・`transcript_summary`): 行数(`rows` = 文字のある行)・`proofed`・`cut`・`flagged`・`durationSec`・
+  元の配信(文書の `clip`(youtube-tools-clip/v1)の `videoId`・`clipTitle`・`clipStart`/`clipEnd`・`markLabel`)・配信者 `channel` と `streamTitle`
+  (スタジオの data.json を**読むだけ**。置き場所は `studio_data_path()`、更新日時と大きさでキャッシュ `studio_videos()`)・元の動画の有無 `mediaOk`・
+  パック `pack`(動画の隣の `<名前>_pack/cut-plan.json`。入口の案件の画面 `app/cases.py` の `find_pack` と同じ判定)。
+  動画・パックの有無はフォルダごとに1回・全体で `PACK_CHECK_BUDGET` 秒まで調べ、ネットワーク上のパス(`\\サーバー\…`)は調べない(資格情報を送らない。`mediaOk = None`)
+- 校正画面の「カットとパック」(v0.15.0・案A): 計算とパック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
+  文字起こしを保存 → `/api/export-file`(transcript-v1)で動画の隣に `.transcript.json` → cut2resolve の `api/plan` / `api/build`
+  (spec = `{video, transcript, preset: "transcript-rows"}`・output = `{textplus, textplusFps, textplusSize, force}`)→ `api/job?id=` で待つ・`api/job/cancel`・`api/open-folder`。
+  409 exists は上書きの確認(`#dlgOverwrite`)→ force。cut2resolve の URL は `c2rUrl()` だけで作る(`UIKit.tools.base('cut2resolve')`。入口の中の同じポートのときだけ。
+  合言葉は同じ入口のもの)。単体で開いたとき・cut2resolve が起動していないとき・動画のパスが無い/見つからないときは理由を出して使えなくする(行の残す/カットと zip は使える)。
+  行の「残す/カット」に関わる内容(時刻・カット・文字の有無)が変わったときだけ、保存のあと 1.5 秒で計算し直す(`rowSig()`)。
+  「カット後の見え方で再生」は cut2resolve の app.js の keepAt / skipRemoved と同じ動き(行の ▶ のときは飛ばさない)
 - `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は隣の `../cut2resolve/pack.py` で作る
   (文書 → transcript/v1 → `pack.plan_cut(**pack.TRANSCRIPT_ROWS)` → `pack.build_pack(textplus=True)` → zip)。**Resolve 用の計算をここに書き足さない**
   (二重実装に戻さない。`../docs/resolve-pack-unification.md`)。cut2resolve の部品は呼ばれたときに読み込み、見つける場所は
@@ -30,10 +47,11 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
 
 ## テストの実行
 ```
-python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_backend.py も test_metrics から読み込まれる)
+python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_backend.py も test_metrics から読み込まれる。一覧の項目は test_backend の test_list_fields_for_history)
 node --test test_document_save.cjs            # 保存・切り替えの競合(9件)
 python e2e_ui_v07.py / e2e_ui_v08.py / e2e_ui_v09.py / e2e_eval_v093.py / e2e_ui_v098.py / e2e_ui_handoff.py
-python e2e_ui_mounted.py                      # 入口(app/launch.py)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)
+python e2e_ui_mounted.py                      # 入口(app/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
+                                              # 履歴の一覧(配信ごと・配信者)・カットとパック(cut2resolve の API・カット後の見え方・上書きの確認・zip)
 python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
 ```
 - e2e は serve.py を疑似モード(環境変数 `TRANSCRIBE_BACKEND=fake`)で起動して試す。ffmpeg と Playwright の chromium が必要
@@ -47,7 +65,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
 - `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・cut2resolve へのリンク・409)、テーマの保存の1本化、
-  他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合
+  他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合、v0.15.0 の見直し(単体でのカットとパックの案内・選んだ行のカット・動画なし・キー操作の手がかり・? ・390px の引き出し)
 - `e2e_ui_v07.py` と `e2e_ui_v09.py` の「版 v0.9.4」の判定だけは、版を上げたことによる**想定内の失敗**(古い版の記録を残してあるため)。それ以外は全部通ること
 - `e2e_ui_v08.py` の「4000行での Alt+Enter → 次の行 0.5 秒」は、マシンの負荷で時々超える(タイミング依存)
 - e2e の各スクリプトは、メニューのタブで隠れるカードも操作できるように、テスト用のスタイルで全部のタブを表示している(タブ自体の確認は e2e_ui_v098.py の最後)
@@ -63,8 +81,14 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
 ## 画面の設計で決めたこと(v0.9.9。変えるときはユーザーに確認)
 - 編集画面は2列: 左 = 映像と道具(`aside.tx-stage`。画面に固定され、列の中だけスクロール)、右 = セリフの一覧(`#segs`)。狭いと1列(コンテナクエリ)
 - 左のメニュー(`aside#menuPanel`)は ☰ / G で開閉し、状態を保存。**映像の欄(tx-stage)を畳むのではない**(過去に誤解して作り直した)。
-  中は GPT 版のタブ(新規・履歴・精度・学習。`V.sideTab`)。編集欄が 1000px 未満なら文字起こしを開いた時点で自動で閉じる
-- 保存は GPT 版の仕組み(`saveDoc` を直列化、`openDoc` は保存できないときは切り替えずに false)。行ごとの「残す/カット済」(`cutState`)は「校正済み」の隣
+  中は GPT 版のタブ(新規・履歴・精度・学習。`V.sideTab`)。編集欄が 1000px 未満なら文字起こしを開いた時点で自動で閉じる。
+  v0.15.0: 画面が 720px 未満では本文の上に重ねる引き出し(`.tt-scrim` を押す・Esc で閉じる)
+- v0.15.0: 映像の列は 映像と道具(`.pbox`: 題名・映像と再生の道具 `.tt-player`・編集の道具 `.tt-edit`)→「カットとパック」(`#cutPack`)→ 道具のカード
+  (話者 `#spDetails` / 文字をまとめて直す `#fixDetails` / 書き出し `#exDetails` / 以前の版に戻す `#hiDetails`。「道具 ▾」`#jumpMenu` から移動)。
+  行の検索・絞り込み・次の未校正・キーの手がかりは行の一覧の上(`#listHead`。2列では固定)。
+  1列(編集欄 780px 以下)では `.tx-stage`・`.pbox` を display:contents にして、`.tt-player` だけ固定・道具のカードは一覧の後ろ
+- 保存は GPT 版の仕組み(`saveDoc` を直列化、`openDoc` は保存できないときは切り替えずに false)。行ごとの「残す/カット済」(`cutState`)は「校正済み」の隣。
+  まとめて変えるのは「カットとパック」の「選んだ行をカット/残す」だけ(同じ印を変える入口はこの2つ)
 - 行の ▶ は**その行だけ**再生して止まる(`playSeg(s, true)`)。通しの再生は映像そのものの再生ボタン / Space だけ
 - キー操作は**単体キー**(Shift 不要)。例外は Shift+Space(校正済みにして次へ)だけ(Space 単体は再生・停止)。Z は2回押しで削除
 - 行の操作ボタン(時刻の微調整・再生位置・＋前に行・＋後に行・分割・結合・削除)は選んだ行(`.seg.nav`)の下にだけ出す

@@ -99,6 +99,55 @@ class TestBuild(Base):
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"], [])
 
 
+class TestListExtras(Base):
+    """一覧(1件1行)が使う合計・「次にやること」・配信日の目安(2026-09-26 画面の見直しで追加)"""
+
+    def test_next_action_order_and_remaining(self):
+        # m1: 書き出し済み・文字起こしなし / m2: 書き出し済み・文字起こしあり(校正未了)・パックあり / m3: 採用済みでまだ書き出していない
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "channel": "ch",
+                           "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "adopted")]}})
+        self.transcript("aaaaaaaaaaaa", self.clip2, proofed=1, total=4)
+        self.touch(os.path.join(self.exports, "02_次_pack", "cut-plan.json"), "{}")
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        # 採用済みでまだ書き出していないマークが1本あるので、いちばん優先度の高い「書き出し」が出る
+        self.assertEqual(c["next"], {"kind": "export", "label": "書き出し", "count": 1})
+        self.assertEqual(c["tx"], {"clips": 2, "withTranscript": 1, "segments": 4, "proofed": 1})
+        self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
+        # 残作業の合計 = 書き出し1 + 文字起こしなし1(m1) + 校正が残っている1(m2) + パックがまだ1(m1) = 4
+        self.assertEqual(c["remaining"], 4)
+
+    def test_next_action_falls_through_to_pack_when_nothing_else_left(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
+        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=2, total=2)   # 校正済み・パックだけまだ
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual(c["next"], {"kind": "pack", "label": "パックを作る", "count": 1})
+        self.touch(os.path.join(self.exports, "01_見どころ_pack", "cut-plan.json"), "{}")
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertIsNone(c["next"])   # 書き出し・文字起こし・校正・パックが全部済み
+        self.assertEqual(c["remaining"], 0)
+
+    def test_streamed_at_prefers_upload_date_then_created_then_updated(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "analysis": {"uploadDate": "20260101"},
+                           "createdAt": 500, "updatedAt": 900}})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual(c["streamedAt"], 1767225600000)   # 2026-01-01T00:00:00Z
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "createdAt": 500, "updatedAt": 900}})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual(c["streamedAt"], 500)   # 解析の日付が無ければ、案件が増えた時刻
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [], "updatedAt": 900}})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual(c["streamedAt"], 900)   # それも無ければ最後に触った時刻
+
+    def test_gone_case_keeps_streamed_at_and_recomputes_next(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)],
+                           "analysis": {"uploadDate": "20260101"}}})
+        cases.update(self.root, VID, status="working", env=self.env)
+        cases.snapshot(self.root, self.env)   # 最後に見えた紐づけ(streamedAt を含む)を保存
+        self.studio({})   # スタジオから消える
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["gone"], c["streamedAt"], c["next"]["kind"]), (True, 1767225600000, "transcribe"))
+
+
 class TestUpdate(Base):
     def test_status_memo_and_last_seen(self):
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})

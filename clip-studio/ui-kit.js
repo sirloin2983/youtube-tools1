@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v2 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v3 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
@@ -9,7 +9,9 @@
    window.UIKit.report : report(message, info) 画面のエラーを入口のログ(app\logs\client-errors.jsonl)へ送る(段階7-0)。
                          捕まえられなかったエラー(error・unhandledrejection)は自動で送る。入口の外(合言葉なし)では送らない
    window.UIKit.win    : isApp() 窓(Edge のアプリモード)で開いているか / open(url) 入口に頼んで開く(段階7-3)。
-                         窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ */
+                         窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
+   v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
+       window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -101,10 +103,17 @@
       if (rest.charAt(0) === '/') rest = rest.slice(1);
       return 'http://localhost:' + port + tools.base(id) + rest;
     },
+    /* 入口に取り込まれているか(入口が画面に合言葉 ytt-token を入れる)。取り込まれていれば入口は同じアドレスの / */
+    mounted: function () { return !!document.querySelector('meta[name="ytt-token"]'); },
     render: function (el, opt) {
       if (!el) return;
       opt = opt || {};
       var html = '';
+      if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
+        html += '<a href="/"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>3つのツールの状態・起動と終了</small></span></a>' +
+          '<a href="/cases.html"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
+          '<div class="ui-menu-sep" role="separator"></div>';
+      }
       for (var i = 0; i < TOOLS.length; i++) {
         var t = TOOLS[i], cur = t.id === opt.current;
         html += '<a href="' + esc(cur ? tools.base(t.id) : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
@@ -114,6 +123,41 @@
     }
   };
   theme.syncButtons = syncButtons;
+
+  /* ---- 入口・案件へ戻るリンク(v3)---- ヘッダーに <a data-ui-home hidden> / <a data-ui-cases hidden> を置くと、入口に取り込まれているときだけ出す */
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!tools.mounted()) return;
+    var home = document.querySelectorAll('[data-ui-home]'), cases = document.querySelectorAll('[data-ui-cases]');
+    for (var i = 0; i < home.length; i++) { home[i].setAttribute('href', '/'); home[i].hidden = false; }
+    for (var j = 0; j < cases.length; j++) { cases[j].setAttribute('href', '/cases.html'); cases[j].hidden = false; }
+  });
+
+  /* ---- 表示の書式(v3)---- 一覧で「いつのものか」をすぐ分かるように */
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  var fmt = {
+    date: function (ms) {
+      if (!ms) return '';
+      var d = new Date(ms), now = new Date();
+      return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '/' : '') + (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    },
+    ago: function (ms) {
+      if (!ms) return '';
+      var sec = (Date.now() - ms) / 1000;
+      if (sec < 60) return 'たった今';
+      if (sec < 3600) return Math.floor(sec / 60) + '分前';
+      var d = new Date(ms), now = new Date();
+      var days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+      if (days <= 0) return '今日 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      if (days === 1) return '昨日 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      if (days < 7) return days + '日前';
+      return fmt.date(ms).split(' ')[0];
+    },
+    dur: function (sec) {
+      sec = Math.max(0, Math.round(+sec || 0));
+      var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s2 = sec % 60;
+      return (h ? h + ':' + pad2(m) : m) + ':' + pad2(s2);
+    }
+  };
 
   /* ---- 入口の共通の API(api/ytt/…)---- 画面の場所からの相対パス(入口の画面 → /api/ytt/…、取り込んだツール → /studio/api/ytt/… など。
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
@@ -222,5 +266,5 @@
   document.addEventListener('auxclick', function (e) { if (e.button === 1) onLink(e); });
   var win = { isApp: isApp, open: openVia };
 
-  window.UIKit = { version: 2, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win };
+  window.UIKit = { version: 3, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc };
 })();

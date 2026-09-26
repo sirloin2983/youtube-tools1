@@ -145,7 +145,7 @@ def main():
             pg.locator("#txList .txi").filter(has_text="評価用").locator(".t").first.click()
             pg.wait_for_selector("#segs .seg")
             check(pg.is_checked("#evalSet") and pg.is_visible("#evalBanner"), "開くと、チェックと帯が出る")
-            pg.evaluate("document.querySelector('#spDetails').open = true")
+            pg.evaluate("document.querySelector('#fixDetails').open = true")   # v0.15.0: 置換は「文字をまとめて直す」のカード
             pg.fill("#repFrom", "テスタ"); pg.fill("#repTo", "テスト")
             before = pg.evaluate("[...document.querySelectorAll('#segs textarea')].map(x => x.value).join('|')")
             pg.evaluate("document.querySelector('#repGo').click()")

@@ -14,7 +14,7 @@ function build(){
     <div class="row set-actions"><button type="button" class="btn small primary" id="keySave">保存</button><button type="button" class="btn small danger" id="keyDel">キーを削除</button></div>
     <p class="msg hint" id="keyMsg" role="status"></p></div></details>
   <details class="card set-sec" id="setOut" open><summary><span class="set-title">出力先フォルダ</span><span class="set-sub path" id="outSub"></span></summary><div class="body">
-    <p class="hint">書き出したクリップの保存先</p>
+    <p class="hint">書き出した切り抜き(mp4)の保存先</p>
     <div class="set-path"><span class="path" id="outNow"></span><button type="button" class="btn small" id="btnOutEdit" aria-expanded="false" aria-controls="outEdit">変更</button></div>
     <div id="outEdit" hidden><div class="fld"><label class="l" for="outIn">新しい出力先(フルパス)</label>
       <input type="text" id="outIn" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off"></div>
@@ -54,8 +54,11 @@ function update(){
   else if (t.hasKey){ ks = '設定済み'; kc = 'ok'; }
   const k = $('#keyState'); k.textContent = ks; k.className = 'pill ' + kc;
   k.title = t.keySource === 'env' ? '環境変数 YOUTUBE_API_KEY を使用中' : '';
-  $('#settingsDot').hidden = !!t.hasKey;
-  $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir || ''; $('#outSub').title = t.outDir || '';
+  /* 設定の「!」は「やることがある」印(API キーが未設定)。タブの件数(残っている作業の数)とは形も色も分けている */
+  $('#settingsDot').hidden = !!t.hasKey; $('#settingsDotText').hidden = !!t.hasKey;
+  $('#btnSettings').title = t.hasKey ? '設定(APIキー・出力先フォルダ・事務所の登録)' : '設定(API キーが未設定です。① 探す に必要)';
+  /* 見出しの横は、長いときにフォルダの末尾が見えるように先頭を省く(CSS の direction:rtl。記号の並びが崩れないよう前後に LRM) */
+  $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir ? '\u200e' + t.outDir + '\u200e' : ''; $('#outSub').title = t.outDir || '';
 }
 
 /* ボタンを押している間は無効にして、二重に送らない */

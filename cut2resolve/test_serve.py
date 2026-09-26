@@ -495,6 +495,47 @@ class TestJobs(ServerBase):
         self.assertEqual(j["state"], "error")
         self.assertIn("入力ファイル", j["error"]["message"])
 
+    def test_inspect_video_suggests_sibling_subtitle(self):
+        """問題2: 動画と同じフォルダ・同じ名前(拡張子違い)の字幕があれば inspect の結果に候補として出す
+        (欄をまだ埋めていないときだけ。他のフォルダは見ない)"""
+        st, j = self.c.json("POST", "/api/inspect", {"video": str(self.video)})   # srt はまだ指定していない
+        self.assertEqual(st, 200, j)
+        self.assertEqual(j.get("siblings"), {"srt": str(self.srt)})
+        # すでに srt を指定しているときは、その欄については候補を出さない
+        st, j = self.c.json("POST", "/api/inspect", {"video": str(self.video), "srt": str(self.srt)})
+        self.assertNotIn("srt", j.get("siblings") or {})
+        # 同じ名前でも拡張子違いのファイルが無ければ候補は出ない(このフォルダには無い .transcript.json/.cut-plan.json)
+        other = self.dir / "no_sibling.mp4"
+        make_video(other, 1)
+        st, j = self.c.json("POST", "/api/inspect", {"video": str(other)})
+        self.assertNotIn("siblings", j)
+
+    def test_warning_levels_classify_actionable_vs_info(self):
+        """問題5: 対処が要る警告(warn)とただの案内(info)を区別できるよう warningLevels を足す。
+        既存の warnings(文字列の配列)はそのまま・互換のため足すだけ"""
+        t = self.dir / "note.transcript.json"
+        t.write_text(json.dumps({"schema": "youtube-tools-transcript/v1",
+                                  "segments": [{"start": 0.5, "end": 1.5, "text": "a", "cut": False}]}), encoding="utf-8")
+        j = self.run_job("/api/plan", {"spec": self.spec(transcript=str(t))})   # srt と transcript の両方 → SRT を使った案内(info)
+        r = j["result"]
+        self.assertEqual(len(r["warningLevels"]), len(r["warnings"]))
+        msg = "字幕は SRT のほうを使いました(文字起こしはカットの判断にだけ使います)。"
+        self.assertEqual(r["warningLevels"][r["warnings"].index(msg)], "info")
+
+        j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="")})   # カットの指定なし → warn
+        r = j["result"]
+        self.assertEqual(r["warnings"], ["カットの指定がありません。動画全体を1区間として出力します。"])
+        self.assertEqual(r["warningLevels"], ["warn"])
+
+        # /api/build の結果は、パック作成そのものの警告(warnings 本体)と、試算からの注意(summary の中。
+        # 「カットの指定がありません」はこちら)の両方に、それぞれ warningLevels が付く
+        out = self.dir / "out_wl"
+        j = self.run_job("/api/build", {"spec": self.spec(mode="list", listKind="drop", listText=""), "output": {"dir": str(out)}})
+        r = j["result"]
+        self.assertEqual(len(r["warningLevels"]), len(r["warnings"]))
+        self.assertEqual(r["summary"]["warnings"], ["カットの指定がありません。動画全体を1区間として出力します。"])
+        self.assertEqual(r["summary"]["warningLevels"], ["warn"])
+
     def test_cancel_and_busy(self):
         long_v = self.dir / "long.mp4"
         make_video(long_v, 20, size="960x540")

@@ -8,7 +8,7 @@
 <script src="ui-kit.js"></script>
 <style>
 /* ui-kit:css:begin */
-/* ui-kit v1 — youtube-tools 共通の見た目(色・文字・部品)。
+/* ui-kit v3 — youtube-tools 共通の見た目(色・文字・部品)。v3(2026-09-26): 状態の札の文字の濃さ(明るいテーマで 4.5:1 以上)・一覧の道具・入口へ戻るリンク・言葉の説明。
    正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    テーマ: <html data-theme="light|dark">(theme.js が OS の設定・保存した選択から決める)。
    既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
@@ -27,6 +27,8 @@
   --ink:#141821;--ink-2:#485062;--ink-3:#767f91;--ink-4:#a2a9b7;
   --accent:#5a46e0;--accent-hover:#4c38d4;--accent-ink:#ffffff;--accent-soft:#ecebfd;--accent-line:#c9c2fa;
   --ok:#17875a;--ok-soft:#e3f5ec;--warn:#a86a06;--warn-soft:#fdf2dc;--danger:#cf3434;--danger-soft:#fde8e8;--info:#0a74b3;--info-soft:#e2f1fa;
+  /* 状態の札(.pill)の文字色。薄い背景の上でも読める濃さ(明るいテーマで 5.5:1 以上。WCAG AA の 4.5:1 を満たす) */
+  --ok-ink:#0d6b44;--warn-ink:#8a5300;--danger-ink:#b42323;--info-ink:#075f94;--accent-ink2:#4b36cf;
   --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
   --shadow-1:0 1px 2px rgba(20,24,33,.06),0 1px 1px rgba(20,24,33,.04);
   --shadow-2:0 4px 14px rgba(20,24,33,.08),0 1px 3px rgba(20,24,33,.06);
@@ -52,6 +54,7 @@
   --ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
   --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
   --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --ok-ink:#4cd08b;--warn-ink:#f0b54a;--danger-ink:#ff6f6f;--info-ink:#5cc3ff;--accent-ink2:#a397ff;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
   --shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);
@@ -66,6 +69,7 @@
   --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;--ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
   --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
   --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --ok-ink:#4cd08b;--warn-ink:#f0b54a;--danger-ink:#ff6f6f;--info-ink:#5cc3ff;--accent-ink2:#a397ff;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
   --header-bg:rgba(14,16,21,.78);--scroll-thumb:#353a46;
@@ -106,6 +110,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark svg{width:15px;height:15px}
 .ui-brand-mark[data-tool=transcribe]{background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#2aa5e6 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
 .ui-brand-mark[data-tool=cut2resolve]{background:linear-gradient(135deg,#f59e0b,#ef5a5a);box-shadow:0 2px 8px color-mix(in srgb,#f07b3a 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark[data-tool=portal]{background:linear-gradient(135deg,#5a46e0,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#3f7fe0 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
 .ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
@@ -203,6 +208,8 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
 .lag{display:inline-flex;align-items:center;gap:6px;max-width:100%;cursor:pointer}
+/* 短いラベル + select などを1組で扱うとき: 狭い画面でラベルの文字が1文字ずつ縦に割れないように(折り返さない)。長い説明つきのスイッチには付けない */
+.lag.keep{white-space:nowrap;flex:none}
 
 /* ---------- 7. 面・カード ---------- */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;box-shadow:var(--shadow-1)}
@@ -219,14 +226,15 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .section-title{font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
 
 /* ---------- 8. 小さな表示 ---------- */
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line);white-space:nowrap}
-.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
-.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
-.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger);border-color:transparent}
-.pill.info{background:var(--info-soft);color:var(--info);border-color:transparent}
-.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+/* 状態の札: 押せない表示だけのもの。ボタン(枠・角丸 8px)と見分けられるよう、枠なし・丸い端・押しても何も起きない */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid transparent;white-space:nowrap;cursor:default;user-select:none}
+.pill.ok{background:var(--ok-soft);color:var(--ok-ink)}
+.pill.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
+.pill.info{background:var(--info-soft);color:var(--info-ink)}
+.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent-ink2)}
 .pill.run::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
-.pill.wait{color:var(--ink-3)}
+.pill.wait{color:var(--ink-2)}
 .badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
 :root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
@@ -301,6 +309,32 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 
 /* 動きを減らす設定 */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+/* ---------- v3(2026-09-26): 画面の見直しで足した共通の部品 ---------- */
+/* 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>。入口に取り込まれているときだけ ui-kit.js が表示する) */
+.ui-home{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:550;padding:0 8px;min-height:var(--ctl-h-sm);border-radius:var(--r)}
+.ui-home:hover{background:var(--panel-2);color:var(--ink)}
+.ui-home svg{width:16px;height:16px}
+.ui-menu-pop .ui-menu-sep{height:1px;background:var(--line);margin:4px 2px}
+
+/* 一覧の道具の行(検索・絞り込み・並び替え・件数)。検索欄は残りの幅いっぱいに伸びる */
+.ui-listbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 10px}
+.ui-listbar input[type=search]{flex:1 1 220px;min-width:0;width:auto}
+.ui-listbar select{width:auto}
+.ui-listbar .ui-count{color:var(--ink-3);font-size:var(--fs-sm);margin-left:auto;white-space:nowrap}
+/* 一覧のまとまり(配信者ごと・日付ごとなど)。<details class="ui-group"><summary>見出し <span class="ui-group-n">件数</span></summary>…</details> */
+.ui-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);margin:0 0 8px;overflow:hidden;flex:none}   /* flex:none: 高さに上限のある縦並びの中で縮んで中身が重ならないように */
+.ui-group>summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;padding:8px 12px;font-weight:650;font-size:13.5px;background:var(--panel-2)}
+.ui-group>summary::-webkit-details-marker{display:none}
+.ui-group>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.ui-group[open]>summary::before{transform:rotate(45deg)}
+.ui-group-n{color:var(--ink-3);font-weight:550;font-size:var(--fs-sm)}
+.ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
+/* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
+.ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
+/* 次にやること(一覧の1行に1つだけ出す短い案内) */
+.ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
+.ui-next::before{content:"→"}
 /* ui-kit:css:end */
 /* ==================== 文字起こしツール固有の見た目 ====================
    色・文字・部品(ボタン・入力・カード・ピル・通知・表・ダイアログ)は上の ui-kit にある。ここには「このツール固有の配置と部品」だけを書く。
@@ -326,14 +360,18 @@ h2{margin:0;font-size:15px}
 #btnMenu .ic{display:inline-grid;place-items:center}
 .tt-brand-name{white-space:nowrap}
 .tt-hstat{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
-#jobBadge,#goalPill{cursor:pointer;font-variant-numeric:tabular-nums}
-#jobBadge{border:0}
-#goalPill{border:1px solid var(--line);color:var(--ink-2)}
-#goalPill.on{color:var(--ink)}
+/* 処理中の件数・校正の進み具合(押すとメニューの該当する所を開く。押せるので .btn。進み具合は細い棒で) */
+.tt-hjob,.tt-hgoal{font-variant-numeric:tabular-nums;gap:7px}
+.tt-hjob{color:var(--accent-ink2)}
+.tt-hjob::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
+.tt-hgoal{color:var(--ink-2)}
+.tt-hgoal-bar{display:inline-block;width:46px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
+.tt-hgoal-bar i{display:block;height:100%;background:var(--accent);border-radius:inherit;width:0}
 .tt-tool-off{opacity:.55}
+.ui-home{flex:none}
 @media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
 @media (max-width:900px){#goalPill{display:none}}
-@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}}
+@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}.tt-hjob{padding:0 6px}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
 .errbar{position:sticky;top:var(--toph);z-index:39}
 
 /* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
@@ -343,6 +381,18 @@ h2{margin:0;font-size:15px}
 .app.menu-closed{grid-template-columns:minmax(0,1fr)}.app.menu-closed>aside{display:none}
 @media (max-width:960px){.app,.app.has-doc{grid-template-columns:minmax(0,1fr)}}
 #menuPanel{min-width:0}
+/* v0.15.0: 狭い画面(720px 未満)では、左のメニューを本文の上に重ねる引き出しにする(本文を押しのけない)。
+   後ろの暗い幕(.tt-scrim)を押すか Esc・G で閉じる。文字起こしを開くと自動で閉じる */
+.tt-scrim{display:none}
+@media (max-width:719.98px){
+  .app{padding:10px}
+  .app:not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
+    background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
+  .app:not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
+  .app:not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
+}
+@keyframes tt-drawer{from{transform:translateX(-16px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.app:not(.menu-closed)>#menuPanel{animation:none}}
 .menuhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
 .menuhead b{font:650 13px/1.3 var(--font);letter-spacing:.06em;color:var(--ink-3)}
 /* メニューのタブ(新規・履歴・精度・学習)。ui-kit の .ui-tabs と同じ見た目 */
@@ -368,17 +418,46 @@ h2{margin:0;font-size:15px}
 .clist label{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}
 .clist label:hover{background:var(--panel-2)}
 .clist label:last-child{border-bottom:0}
-.job,.txi{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child,.txi:last-child{border-bottom:0}
+.job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
-.txi .t{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;cursor:pointer;text-align:left;width:100%;color:var(--ink)}
+/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/ui-guidelines.md 4.) ----------
+   道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
+   1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
+.tt-listbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;margin:10px 0 10px}
+.tt-listbar input[type=search]{grid-column:1/-1;width:100%}
+.tt-listbar select{width:100%;min-width:0;font-size:12.5px;padding-left:8px}
+.tt-listbar .ui-count{grid-column:1/-1;margin:0;text-align:right}
+#txList .ui-group{margin-bottom:6px;overflow:visible}
+#txList .ui-group>summary{padding:7px 10px;font-weight:600;font-size:13px;gap:8px;border-radius:var(--r-lg)}
+#txList .ui-group[open]>summary{border-radius:var(--r-lg) var(--r-lg) 0 0}
+.tt-g-main{display:flex;flex-direction:column;min-width:0;flex:1}
+.tt-g-main b{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-g-main small{font-size:11.5px;font-weight:500;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#txList .ui-group-n{flex:none;font-variant-numeric:tabular-nums}
+.tt-g-done{color:var(--ok-ink)}
+.tt-g-rows{padding:2px 10px 6px}
+.txi{border-bottom:1px solid var(--line);padding:7px 0;min-height:48px}.txi:last-child{border-bottom:0}
+.txi.cur{background:var(--accent-soft);margin:0 -10px;padding:7px 10px;border-radius:var(--r);border-bottom-color:transparent}
+.txi-head{display:flex;align-items:center;gap:6px}
+.txi .t{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:2px 0;cursor:pointer;text-align:left;flex:1;min-width:0;color:var(--ink);border-radius:var(--r-xs)}
 .txi .t:hover{color:var(--accent)}
-.txi.cur{background:var(--accent-soft);margin:0 -10px;padding:9px 10px;border-radius:var(--r);border-bottom-color:transparent}
-.txi-head{display:flex;align-items:center;gap:6px}.txi-head .t{min-width:0}
-.txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3)}
+.txi-sub{display:flex;align-items:center;gap:4px 8px;margin-top:2px;font-size:12px;color:var(--ink-3);min-width:0}
+.txi-meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.txi-side{display:inline-flex;align-items:center;gap:6px;flex:none}
+.txi-side .pill{line-height:18px;padding:0 7px;font-size:11px}
+.tt-prog{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:11.5px}
+.tt-prog i{display:block;width:38px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
+.tt-prog i b{display:block;height:100%;background:var(--ok);border-radius:inherit}
+.txi-side .ui-next{font-size:11.5px}
+.txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3);font-size:16px;line-height:1}
 .txi-menu>summary:hover{border-color:var(--line-2);color:var(--ink)}
-.txi-menu .vpop{width:120px;padding:6px}.txi-menu .vpop button{width:100%}
-.list-tools{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:6px;margin:8px 0}.list-tools input,.list-tools select{min-width:0;width:100%}
-.list-more{width:100%;margin-top:8px}
+.txi-menu .vpop{width:min(280px,calc(100vw - 48px));padding:10px 12px}
+.txi-menu .vpop .tt-full{font-weight:600;font-size:13px;overflow-wrap:anywhere;margin:0 0 4px}
+.txi-menu .vpop .hint{display:block;overflow-wrap:anywhere;font-size:12px;margin:0 0 8px}
+.txi-menu .vpop .btn{width:100%}
+.list-more{width:100%;margin-top:6px}
+/* 狭い画面(指で使う)では、長い題名を2行まで出す(末尾で見分けることが多いため) */
+@media (max-width:719.98px){.txi .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 .setup-banner{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:var(--r);margin:0 0 10px;font-size:13px}
 .setup-banner>summary{cursor:pointer;padding:7px 10px;font-weight:600}.setup-body{border-top:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:8px 10px}
 .setup-banner.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
@@ -432,13 +511,22 @@ h2{margin:0;font-size:15px}
 .pbox{position:sticky;top:var(--toph,52px);z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;box-shadow:var(--shadow-1)}
 .tx-stage>.pbox{position:static}
 /* 1カラムに戻すかどうかは、ビューポートではなく編集欄そのものの幅で決める(メニューの開閉で幅が変わるため)。
-   1カラムのときは .tx-stage を display:contents にして、映像の欄(.pbox)が一覧の上に固定され続けるようにする
-   (sticky は親の箱の中でしか効かないため。これをしないと、スクロールで映像が上に流れて消える) */
+   v0.15.0: 1カラムのときは .tx-stage と .pbox を display:contents にして、映像と再生の道具(.tt-player)だけを一覧の上に固定し、道具のカードは一覧の後ろに置く
+   (以前は題名・道具・進み具合まで固定していて、狭い画面では一覧がほとんど見えなかった。sticky は親の箱の中でしか効かないため contents にする) */
 @container editor (max-width:780px){
-  .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr)}
-  .tx-stage{display:contents}.tx-stage>.pbox{order:0;position:sticky;border-radius:0 0 var(--r-lg) var(--r-lg);box-shadow:var(--shadow-2)}
-  .tx-stage>:not(.pbox){order:1}.tx-list{order:3}
-  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--pbh,300px) + 8px)}   /* 固定した映像の欄の下に隠れないように */
+  .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr);row-gap:10px}
+  .tx-stage,.tx-stage>.pbox{display:contents}
+  .pbox>*{order:0}
+  .tx-stage>.pbox>.tt-player{position:sticky;top:var(--toph,52px);z-index:5;background:var(--bg);padding:6px 0 0;box-shadow:0 10px 12px -12px rgba(0,0,0,.45)}
+  .tt-player video{max-height:min(var(--vh),32vh)}
+  .tt-player .tools-play{margin-top:4px;border-top:0}
+  .tt-edit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:0 12px 10px}
+  .tt-edit>.tools:first-child{border-top:0}
+  .tt-titlebar,.tt-docmeta,#docClip{margin:0}
+  .tx-list{order:3}
+  .tx-stage>:not(.pbox){order:4}   /* 道具のカード(カットとパック・話者など)は一覧の後ろ(一覧に早く届くように。「道具 ▾」から飛べる。校正を終えて一番下まで来たら、次の「カットとパック」がある) */
+  .tx-stage>.card{margin-top:0}
+  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--pbh,300px) + 8px)}   /* 固定した映像の下に隠れないように */
 }
 /* タイトルと保存の状態 */
 .tt-titlebar{display:flex;align-items:center;gap:8px;margin:0 0 6px}
@@ -480,12 +568,58 @@ html.vid-audio video{height:54px;max-height:none}
 #stripHead{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);left:0;pointer-events:none;border-radius:1px;box-shadow:0 0 0 1px var(--panel)}
 #docInfo{margin:8px 2px 0;font-size:12px;color:var(--ink-3)}
 .tx-stage>.card{margin-top:10px}
-#spDetails>summary{font-size:14px}
-#spDetails .fld{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
-#spDetails .fld:first-of-type{border-top:0;padding-top:0}
-#spDetails .fld>.l{display:block;font:650 13px/1.35 var(--font-display);color:var(--ink);margin-bottom:6px}
-#spDetails .fld>.hint,#spDetails .fld>span.hint{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);line-height:1.5}
-#spDetails .row+.row{margin-top:8px}
+/* 映像の下の道具のカード(話者・文字をまとめて直す・書き出し・以前の版)。v0.15.0 で「話者・置換・書き出し」を役割ごとに分けた */
+.tt-tool>summary{font-size:14px}
+.tt-tool>summary .hint,.tt-cutpack>summary .hint{font-weight:450;font-size:12px}
+.tt-tool .fld{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.tt-tool>summary+.fld{border-top:0;padding-top:4px}
+.tt-tool .fld>.l,.tt-cutpack .fld>.l{display:block;font:650 13px/1.35 var(--font-display);color:var(--ink);margin-bottom:6px}
+.tt-tool .fld>.hint,.tt-tool .fld>span.hint,.tt-cutpack .fld>.hint{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);line-height:1.5}
+.tt-tool .row+.row{margin-top:8px}
+/* 道具への移動(「道具 ▾」) */
+.tt-jump{display:flex;flex-direction:column;gap:6px;width:250px}.tt-jump .btn{justify-content:flex-start}
+/* ---------- カットとパック(v0.15.0・案A)---------- */
+.tt-cutpack>summary{font-size:14px}
+.tt-cutpack>summary{flex-wrap:wrap}
+.tt-cp-sum{margin-left:auto;display:inline-flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 6px;font-weight:500;font-size:12px;color:var(--ink-3);min-width:0}
+.tt-cp-body{margin-top:8px}
+.tt-cp-stats{margin:0;font-size:13.5px;line-height:1.6;font-variant-numeric:tabular-nums}
+.tt-cp-stats b{font-weight:650}
+.tt-cp-stats .hint{font-size:12px}
+.tt-cp-row{margin-top:8px}
+.tt-cp-off{margin:8px 0 0}
+.tt-cp-job{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px}
+.tt-cp-job .row{margin-top:6px;justify-content:space-between;flex-wrap:nowrap}
+.tt-cp-job .bar{margin-top:6px}
+.tt-cp-more{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.tt-cp-more>summary{font-size:13px;color:var(--ink-2)}
+.tt-cp-more .fld{margin-top:10px}
+.tt-cp-res-t{font-weight:650}
+.tt-cp-warn{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--warn-ink)}
+.tt-cp-err{color:var(--danger-ink)}
+.tt-cp-readme{white-space:pre-wrap;font:12px/1.55 var(--mono);max-height:260px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin:6px 0 0;color:var(--ink-2)}
+.tt-player{position:relative}
+.tt-cutview-pill{position:absolute;top:8px;left:8px;z-index:1;box-shadow:var(--shadow-1)}   /* 映像の左上に重ねる(見ている所で分かるように) */
+#dlgOverwrite{width:min(560px,calc(100% - 32px));padding:0}
+.tt-ow-dir{overflow-wrap:anywhere;font-size:12px;color:var(--ink-2);margin:8px 0 4px}
+.tt-ow-files{margin:0;padding-left:18px;font:12px/1.6 var(--mono);color:var(--ink-2);max-height:180px;overflow:auto}
+/* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
+.tt-listhead{margin:0 0 8px}
+.tt-rowbar{margin:0;gap:6px 8px}
+.tt-rowbar input[type=search]{flex:1 1 180px;min-height:var(--ctl-h-sm);padding:3px 10px}
+.tt-rowbar select{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;max-width:100%}
+.tt-rowbar .btn{min-height:var(--ctl-h-sm)}
+.tt-rowbar .btn kbd{margin-left:4px;font-size:10px}
+.tt-keyhint{display:flex;flex-wrap:wrap;align-items:center;gap:3px 12px;margin:6px 0 0;padding:4px 4px 4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12px;color:var(--ink-2)}
+.tt-keyhint kbd{font-size:10.5px}
+.tt-kh-l{color:var(--ink-3);font-weight:600}
+.tt-kh-i{white-space:nowrap}
+.tt-kh-end{margin-left:auto;display:inline-flex;gap:2px;align-items:center}
+.tt-kh-end .btn{min-height:24px}
+/* 2列のときは、一覧の上に固定する(長い一覧のどこにいても、検索・絞り込み・キーの手がかりが見える) */
+@container editor (min-width:781px){.tt-listhead{position:sticky;top:var(--toph,52px);z-index:4;background:var(--bg);margin:-8px 0 8px;padding:8px 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}
+  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--khh,0px) + 8px)}}
+@media (max-width:559.98px){.tt-keyhint{display:none!important}}   /* 指で使う狭い画面では、キーの手がかりは出さない */
 .tt-exbtns{display:flex;flex-wrap:wrap;gap:6px}
 .tt-handoff{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
 .tt-handoff .path{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere;color:var(--ink-2)}
@@ -577,8 +711,11 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
   #segs .seg textarea{margin-top:-2px}
 }
 @container (max-width:520px){
-  #segs .seg{gap:6px}
-  #segs .seg .ops button{padding:0 7px}
+  /* v0.15.0: とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
+  #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
+  #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
+  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl{order:2}
+  #segs .seg .ops button{padding:0 10px;min-height:28px}
   #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
   #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
 }
@@ -603,8 +740,9 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
   <div class="ui-header-actions">
     <!-- 今の操作(処理中のジョブ・校正の進み具合)。押すとメニューの該当する所を開く -->
     <div class="tt-hstat" role="status" aria-live="polite">
-      <button type="button" class="pill run" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
-      <button type="button" class="pill" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"></button>
+      <!-- 押せるものは .btn(状態の札 .pill は押せない表示だけ。docs/ui-guidelines.md 3.) -->
+      <button type="button" class="btn ghost small tt-hjob" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
+      <button type="button" class="btn ghost small tt-hgoal" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"><span class="tt-hgoal-t" id="goalPillT"></span><span class="tt-hgoal-bar" aria-hidden="true"><i id="goalPillBar"></i></span></button>
     </div>
     <details class="pop" id="viewMenu"><summary class="btn ghost small tt-hbtn" title="表示の設定(文字の大きさ・動画の大きさ・画面の色・休憩のお知らせ)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="tt-hlabel">表示</span></summary><div class="vpop">
       <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
@@ -613,7 +751,8 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
       <div class="fld"><label for="vTheme">画面の色(右上の <span aria-hidden="true">☾</span> ボタンと同じ)</label><select id="vTheme"><option value="auto">パソコンの設定に合わせる</option><option value="light">明るい</option><option value="dark">暗い</option></select></div>
       <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
       <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p></div></details>
-    <button type="button" class="btn ghost small tt-hbtn" id="btnKeys" title="操作キーの一覧" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span class="tt-hlabel">操作キー</span></button>
+    <button type="button" class="btn ghost small tt-hbtn" id="btnKeys" title="キー操作の一覧(?)" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span class="tt-hlabel">キー操作</span></button>
+    <a class="ui-home" data-ui-home hidden title="入口(3つのツールの状態・案件の一覧)へ戻る"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/></svg><span class="tt-hlabel">入口</span></a>
     <details class="ui-menu" id="toolMenu">
       <summary class="btn ghost small tt-hbtn" title="他のツールを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="tt-hlabel">他のツール</span></summary>
       <div class="ui-menu-pop" data-ui-toolnav id="toolNav"></div>
@@ -712,13 +851,21 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     <div id="goalMs"></div>
     <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
     <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
-    <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習の目安は、校正済みが2〜3時間分から。</p></details>
+    <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
-  <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txCount"></span></summary>
-    <div class="list-tools"><input id="txSearch" type="search" placeholder="タイトル・元ファイルを検索" aria-label="保存済み文字起こしを検索"><select id="txFilter" aria-label="文字起こしの種類"><option value="all">すべて</option><option value="normal">通常</option><option value="eval">評価用</option></select></div>
-    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div><button type="button" class="btn small list-more" id="txMore" hidden></button></details>
+  <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
+    <!-- v0.15.0: 一覧の道具(docs/ui-guidelines.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
+    <div class="ui-listbar tt-listbar" role="search">
+      <input id="txSearch" type="search" placeholder="題名・配信・配信者・ファイル名" aria-label="保存済みの文字起こしを検索" autocomplete="off">
+      <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
+      <select id="txFilter" aria-label="種類で絞り込む"><option value="all">種類: すべて</option><option value="clip">種類: 切り抜き</option><option value="other">種類: それ以外</option><option value="eval">種類: 評価用</option></select>
+      <select id="txSort" aria-label="並び替え" title="並び替え"><option value="updated">更新が新しい順</option><option value="created">作った順</option><option value="remain" title="校正が残っている行が多い順">未校正が多い順</option><option value="title">題名順</option></select>
+      <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
+      <span class="ui-count" id="txCount" aria-live="polite"></span>
+    </div>
+    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
   <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
-    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(CER)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
+    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
     <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
       <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
     <div id="accOut"></div>
@@ -726,7 +873,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
       <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
       <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
       <div id="blOut"></div></div>
-    <div class="fld" style="margin-top:12px"><span class="l">設定の比較(A/B)</span>
+    <div class="fld" style="margin-top:12px"><span class="l">設定の比較(<abbr class="ui-term" title="同じ音声を2つ以上の設定で認識し直して、どちらが正確かを数字で比べること">A/B</abbr>)</span>
       <span class="hint">開いている文字起こしの「校正済み」の行の音声を、下の設定それぞれで認識し直し、正解との差を比べます(文字起こしは書き換えません)。モデルや「用語集」の有無で、どれが良いかを数字で選べます。重いモデルほど時間がかかります(処理状況に出ます)。</span>
       <div id="abRows"></div>
       <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
@@ -744,7 +891,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
         <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
       <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
   <details class="card side-pane" data-side-pane="data" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
-    <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「負例」)、行ごとの音声(16kHz・FLAC)が入ります。追加学習(LoRA)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
+    <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「<abbr class="ui-term" title="「これは正解ではない」例。機械が出したが人が消した行(無音で出たでたらめな文など)">負例</abbr>」)、行ごとの音声(<abbr class="ui-term" title="音声を劣化させずに縮める形式。16kHz は1秒を1万6千回に分けて記録する細かさ(認識に十分な音質)">16kHz・FLAC</abbr>)が入ります。追加学習(<abbr class="ui-term" title="モデル全体ではなく、小さな追加部分だけを学習させる方法。少ない正解データ・家庭の PC でも試せる">LoRA</abbr>)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
     <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
     <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
     <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="arcNow">開いている文字起こしを今すぐ保管</button><button type="button" class="btn small" id="arcAll">校正済みのある全部を保管</button></div>
@@ -759,16 +906,36 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     <ol class="tt-steps" role="list">
       <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
       <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
-      <li><span class="n">3</span><span>聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「操作キー」)</span></li>
+      <li><span class="n">3</span><span>聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
+      <li><span class="n">4</span><span>「残す/カット済」でカットを決めて、「カットとパック」で Resolve へ渡すパックを作る</span></li>
     </ol>
     <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden>☰ メニューを開く</button></div>
   </div>
   <div id="doc" hidden>
    <div class="tx-grid">
-    <section class="tx-list">
-    <div id="segs"></div>
+    <section class="tx-list" aria-label="行の一覧">
+     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。docs/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
+     <div class="tt-listhead" id="listHead">
+      <div class="ui-listbar tt-rowbar" role="search">
+        <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
+        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option></select>
+        <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(D。前へは A)">次の未校正 <kbd>D</kbd></button>
+        <span class="ui-count" id="qCount" aria-live="polite"></span>
+      </div>
+      <!-- 主なキー操作の手がかり(閉じたら覚える。全部は「キー操作」) -->
+      <div class="tt-keyhint" id="keyHint" hidden>
+        <span class="tt-kh-l">キー:</span>
+        <span class="tt-kh-i"><kbd>S</kbd><kbd>W</kbd> 次/前の行</span>
+        <span class="tt-kh-i"><kbd>R</kbd> 聞く</span>
+        <span class="tt-kh-i"><kbd>Space</kbd> 再生・停止</span>
+        <span class="tt-kh-i"><kbd>Shift</kbd>+<kbd>Space</kbd> 校正済みにして次へ</span>
+        <span class="tt-kh-i"><kbd>T</kbd> 直す(<kbd>Esc</kbd> 抜ける)</span>
+        <span class="tt-kh-end"><button type="button" class="btn ghost small" id="keyHintAll">すべて <kbd>?</kbd></button><button type="button" class="btn ghost small icon" id="keyHintClose" aria-label="キー操作の手がかりを閉じる" title="閉じる(「キー操作」の一覧からまた出せます)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span>
+      </div>
+     </div>
+      <div id="segs"></div>
     </section>
-    <aside class="tx-stage">
+    <aside class="tx-stage" aria-label="映像と道具">
     <div class="pbox">
       <div class="tt-titlebar"><input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)"><span class="savest" id="saveState" role="status"></span></div>
       <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
@@ -776,99 +943,139 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
       <div id="conflictBar" class="notice" hidden role="alert"><b>別の場所で先に更新されています。</b>別のタブ・再認識・話者判別などで、保存済みの内容がこの画面の読み込み時と変わっています。自動保存は止めています。
         <div class="row"><button type="button" class="btn small" id="cfReload">保存済みの内容を読み込み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cfForce">この画面の内容で上書きする</button></div></div>
-      <video id="player" controls preload="metadata" playsinline></video>
-      <p class="hint" id="playerMsg" hidden></p>
+      <!-- 映像と再生の道具。1列の画面(狭い画面)では、ここだけを画面の上に固定する(一覧に早く届くように) -->
+      <div class="tt-player">
+        <video id="player" controls preload="metadata" playsinline></video>
+        <span class="tt-cutview-pill pill info" id="cutViewPill" hidden title="「カットとパック」の「カット後の見え方で再生」がオンです(カット済の区間を飛ばします)">カット後の見え方で再生中</span>
+        <p class="hint" id="playerMsg" hidden></p>
+        <div class="tools tools-play" role="group" aria-label="再生">
+          <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
+          <span class="tt-grp"><button type="button" class="btn small" id="seekBack" title="3秒戻る(Q)">−3秒</button><button type="button" class="btn small" id="seekFwd" title="3秒進む(E)">+3秒</button></span>
+          <details class="pop l" id="playSet"><summary class="btn ghost small" title="再生・編集の設定">⚙ 設定</summary><div class="vpop">
+            <div class="col">
+            <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
+            <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(S / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
+            <label class="lag" title="Shift+Space・S・D などで行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります(B で切り替え)"><input type="checkbox" id="autoNext">移動したら自動で再生(B)</label>
+            <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
+            </div></div></details>
+        </div>
+      </div>
       <div id="diarBanner" class="notice" hidden></div>
-      <!-- v0.9.8: ツールを「再生」「編集」「探す」の3段に整理。一度決めたら触らない設定は ⚙設定 にまとめた -->
-      <div class="tools tools-play" role="group" aria-label="再生">
-        <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
-        <span class="tt-grp"><button type="button" class="btn small" id="seekBack" title="3秒戻る(Q)">−3秒</button><button type="button" class="btn small" id="seekFwd" title="3秒進む(E)">+3秒</button></span>
-        <details class="pop l" id="playSet"><summary class="btn ghost small" title="再生・編集の設定">⚙ 設定</summary><div class="vpop">
-          <div class="col">
-          <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
-          <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(S / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
-          <label class="lag" title="Shift+Space・S・D などで行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります(B で切り替え)"><input type="checkbox" id="autoNext">移動したら自動で再生(B)</label>
-          <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
-          </div></div></details>
+      <div class="tt-edit">
+        <div class="tools" role="group" aria-label="編集">
+          <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行</button>
+          <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
+          <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済みにします">まとめて校正 ▾</summary><div class="vpop">
+            <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
+            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
+            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div></div></details>
+          <details class="pop l" id="jumpMenu"><summary class="btn small" id="btnSpk" title="この下にある道具(話者・置換と再認識・書き出し・以前の版)へ移動して開きます">道具 ▾</summary><div class="vpop tt-jump">
+            <button type="button" class="btn small" data-jump="cutPack">カットとパック</button>
+            <button type="button" class="btn small" data-jump="spDetails">話者(自動判別・名前)</button>
+            <button type="button" class="btn small" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
+            <button type="button" class="btn small" data-jump="exDetails">書き出し(字幕・テキスト)</button>
+            <button type="button" class="btn small" data-jump="hiDetails">以前の版に戻す</button></div></details>
+        </div>
+        <div class="tools tools2">
+          <span class="hint" id="pfStat" title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span>
+          <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
+        </div>
+        <div class="terms" id="terms" hidden></div>
+        <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
       </div>
-      <div class="tools" role="group" aria-label="編集">
-        <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行を追加</button>
-        <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
-        <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済みにします">まとめて校正 ▾</summary><div class="vpop">
-          <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
-          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
-          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div></div></details>
-        <button type="button" class="btn small" id="btnSpk" title="話者の自動判別・名前の変更・一括置換・書き出し・再認識・履歴を開きます(映像の下に出ます)">話者・置換・書き出し ▾</button>
-      </div>
-      <div class="tools" role="group" aria-label="探す">
-        <input type="search" id="q" placeholder="検索(該当する行だけ表示)" aria-label="検索" autocomplete="off">
-        <span class="hint" id="qCount"></span>
-        <select id="flagKind" style="width:auto" aria-label="絞り込み" title="表示する行の絞り込み"><option value="">すべて表示</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="any">要確認すべて</option><option value="sug">修正の提案がある行だけ</option><option value="proofed">校正済みの行だけ</option><option value="unproofed">未校正の行だけ</option></select>
-        <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(D。前へは A)">次の未校正(D)</button>
-      </div>
-      <div class="tools tools2">
-        <span class="hint" id="pfStat" title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span>
-        <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
-      </div>
-      <div class="terms" id="terms" hidden></div>
-      <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
     </div>
+
+    <!-- v0.15.0(案A): カットとパック。計算とパック作りは cut2resolve の API(pack.py)を呼ぶ。文字起こし側に Resolve 用の計算は書かない -->
+    <details class="card tt-cutpack" id="cutPack" open>
+        <summary><span id="cpTitle">カットとパック</span><span class="tt-cp-sum" id="cpSum"></span></summary>
+        <div class="tt-cp-body">
+          <p class="tt-cp-stats" id="cpStats" aria-live="polite"></p>
+          <div class="notice tt-cp-off" id="cpOff" hidden></div>
+          <div class="row tt-cp-row">
+            <label class="lag" title="カット済の行の区間を飛ばして再生します(Resolve で仮編集したときの見え方)。行の ▶ はいつもどおりその行だけ再生します"><input type="checkbox" id="cpPreview">カット後の見え方で再生</label>
+            <span class="hint mono" id="cpCutTime"></span>
+          </div>
+          <div class="row tt-cp-row">
+            <button type="button" class="btn small" id="cutSelected" disabled>選んだ行をカット</button>
+            <button type="button" class="btn small" id="keepSelected" disabled>選んだ行を残す</button>
+            <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span>
+          </div>
+          <div class="row tt-cp-row">
+            <label class="lag"><span><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル(Text+)で作る字幕。パックに入るスクリプトが Resolve の中で作ります">Text+</abbr> の <abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は動画自身の fps で数えるので、ずれません)">fps</abbr></span> <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
+            <label class="lag">画面の大きさ <select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label>
+          </div>
+          <div class="row tt-cp-row"><button type="button" class="btn primary" id="cpBuild">パックを作る</button><span class="hint" id="cpBuildHint"></span></div>
+          <div class="tt-cp-job" id="cpJob" hidden role="status" aria-live="polite"></div>
+          <div class="tt-handoff" id="cpResult" hidden role="status"></div>
+          <details class="ui-disclosure tt-cp-more" id="cpMore"><summary>詳しい設定</summary>
+            <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
+              <div class="row"><button type="button" class="btn small" id="resolveExport">zip でダウンロード</button></div>
+              <span class="hint">中身は上の「パックを作る」と同じ(動画・Text+ 字幕を作るスクリプト・手順書「友人へ.txt」・予備の <abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)を1つの zip にしてダウンロードします。入口から開いていなくても使えます。fps と画面の大きさは上の設定を使います。</span></div>
+            <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
+              <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
+              <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
+            <div class="fld"><span class="l">cut2resolve で細かく調整する</span>
+              <div class="row" id="cpC2R"><span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span></div></div>
+          </details>
+        </div>
+    </details>
+
+    <details class="card tt-tool tt-lockable" id="spDetails"><summary>話者 <span class="hint">自動判別・名前・割り当て</span></summary>
+      <div class="fld"><span class="l">話者の自動判別</span>
+        <div id="diarSetup"></div>
+        <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
+          <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
+          <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
+        <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります。判別中は編集できません。</span></div>
+      <div class="fld"><span class="l">名前の変更・手動での割り当て</span>
+        <div id="spList"></div>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
+          <label class="lag">選択した行の話者 <select id="spBulk" style="width:auto"></select></label><button type="button" class="btn small" id="spApply">適用</button>
+          <label class="lag"><input type="checkbox" id="selAll">全行を選択</label><span class="hint" id="selCount"></span></div>
+        <span class="hint">「▶ 聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
+    </details>
+
+    <details class="card tt-tool tt-lockable" id="fixDetails"><summary>文字をまとめて直す <span class="hint">置換・再認識</span></summary>
+      <div class="fld"><span class="l">一括置換</span>
+        <div class="row"><input id="repFrom" type="text" placeholder="置換前" style="flex:1;min-width:120px"><span>→</span><input id="repTo" type="text" placeholder="置換後" style="flex:1;min-width:120px"><button type="button" class="btn small" id="repGo">すべて置換</button></div>
+        <label for="repDict" class="hint" style="margin-top:6px">置換辞書(1行に「誤=>正」。保存され、どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません)</label>
+        <textarea id="repDict" rows="3" placeholder="例:&#10;ふぶき=>フブキ"></textarea>
+        <div class="row"><button type="button" class="btn small" id="repDictGo">辞書を全体に適用</button><span class="hint" id="repMsg"></span></div></div>
+      <div class="fld"><span class="l">再認識(文字の間違いを、別のモデルで直す)</span>
+        <div class="row"><label class="lag">モデル <select id="rtModel" style="width:auto;max-width:300px"></select></label>
+          <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option></select></label>
+          <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
+        <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。対象の行の文字は上書きされます(直前の状態は「以前の版に戻す」に残ります)。判別中・再認識中は編集できません。</span></div>
+    </details>
+
+    <details class="card tt-tool" id="exDetails"><summary>書き出し <span class="hint">字幕・テキスト・次のツールへ</span></summary>
+      <div class="fld"><span class="l">ダウンロード</span>
+        <div class="row">
+          <label class="lag">時刻の基準 <select id="exBase" style="width:auto"><option value="rel">範囲の開始を0秒にする(切り抜き用)</option><option value="abs">元動画の時刻のまま</option></select></label>
+          <label class="lag">折り返し <select id="exWrap" style="width:auto"><option value="0">しない</option><option value="12">12文字</option><option value="16">16文字</option><option value="20">20文字</option><option value="24">24文字</option><option value="32">32文字</option></select></label></div>
+        <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
+          <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
+        <div class="row tt-exbtns" style="margin-top:8px"><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
+        <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
+      <div class="fld" id="handoffBox"><span class="l">動画の隣に保存(次のツールへ渡す)</span>
+        <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画と同じフォルダに「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button></div>
+        <div id="handoffOut" class="tt-handoff" hidden role="status"></div>
+        <span class="hint">ダウンロードフォルダではなく、元の動画と同じフォルダに保存します。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
+    </details>
+
+    <details class="card tt-tool tt-lockable" id="hiDetails"><summary>以前の版に戻す <span class="hint">自動バックアップ</span></summary>
+      <span class="hint" style="display:block;margin-top:8px">保存内容を、10分ごと、および再認識・話者判別の直前に自動で残します(1本あたり最新30世代)。間違えて直したり消したりしたときは、ここから戻せます(戻す前の状態も残ります)。まだ一度も編集していない文字起こしには、以前の版はありません。</span>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn small" id="hiRefresh">以前の版を読み込む</button></div><div id="hiList"></div>
+    </details>
     <p class="hint" id="docInfo"></p>
-
-    <div class="card">
-      <details id="spDetails" class="ui-disclosure"><summary>話者・置換・書き出し</summary>
-        <div class="fld"><span class="l">話者の自動判別</span>
-          <div id="diarSetup"></div>
-          <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
-            <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
-            <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
-          <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります。判別中は編集できません。</span></div>
-
-        <div class="fld"><span class="l">再認識(文字の間違いを、別のモデルで直す)</span>
-          <div class="row"><label class="lag">モデル <select id="rtModel" style="width:auto;max-width:300px"></select></label>
-            <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option></select></label>
-            <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
-          <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。対象の行の文字は上書きされます(直前の状態は、transcripts/.bak に1つだけ残ります)。判別中・再認識中は編集できません。</span></div>
-
-        <div class="fld"><span class="l">話者(名前の変更・手動での割り当て)</span>
-          <div id="spList"></div>
-          <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
-            <label class="lag">選択した行の話者 <select id="spBulk" style="width:auto"></select></label><button type="button" class="btn small" id="spApply">適用</button>
-            <label class="lag"><input type="checkbox" id="selAll">全行を選択</label><span class="hint" id="selCount"></span></div>
-          <span class="hint">「▶ 聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
-
-        <div class="fld"><span class="l">履歴(自動バックアップ)</span>
-          <span class="hint">保存内容を、10分ごと、および再認識・話者判別の直前に自動で残します(1本あたり最新30世代)。間違えて直したり消したりしたときは、ここから戻せます(戻す前の状態も履歴に残ります)。まだ一度も編集していない文字起こしには、履歴はありません。</span>
-          <div class="row"><button type="button" class="btn small" id="hiRefresh">履歴を読み込む</button></div><div id="hiList"></div></div>
-
-        <div class="fld"><span class="l">一括置換</span>
-          <div class="row"><input id="repFrom" type="text" placeholder="置換前" style="flex:1;min-width:120px"><span>→</span><input id="repTo" type="text" placeholder="置換後" style="flex:1;min-width:120px"><button type="button" class="btn small" id="repGo">すべて置換</button></div>
-          <label for="repDict" class="hint" style="margin-top:6px">置換辞書(1行に「誤=>正」。保存され、どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません)</label>
-          <textarea id="repDict" rows="3" placeholder="例:&#10;ふぶき=>フブキ"></textarea>
-          <div class="row"><button type="button" class="btn small" id="repDictGo">辞書を全体に適用</button><span class="hint" id="repMsg"></span></div></div>
-
-        <div class="fld"><span class="l">書き出し</span>
-          <div class="row">
-            <label class="lag">時刻の基準 <select id="exBase" style="width:auto"><option value="rel">範囲の開始を0秒にする(切り抜き用)</option><option value="abs">元動画の時刻のまま</option></select></label>
-            <label class="lag">折り返し <select id="exWrap" style="width:auto"><option value="0">しない</option><option value="12">12文字</option><option value="16">16文字</option><option value="20">20文字</option><option value="24">24文字</option><option value="32">32文字</option></select></label></div>
-          <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
-            <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
-          <div class="row tt-exbtns" style="margin-top:8px"><span class="hint">ダウンロード:</span><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
-          <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
-
-        <div class="fld" id="handoffBox"><span class="l">動画の隣に保存(次のツールへ渡す)</span>
-          <div class="tt-exbtns"><button type="button" class="btn small primary" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画と同じフォルダに「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)</button></div>
-          <div id="handoffOut" class="tt-handoff" hidden role="status"></div>
-          <span class="hint">ダウンロードフォルダではなく、元の動画と同じフォルダに保存します。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
-      </details>
-    </div>
     </aside>
    </div>
   </div>
 </main>
 </div>
+<div class="tt-scrim" id="menuScrim" aria-hidden="true"></div>
 <dialog id="keys" aria-labelledby="keysT">
-  <div class="ui-dlg-head"><h2 id="keysT">操作キー(左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-head"><h2 id="keysT">キー操作(左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
   <p class="hint" style="margin:0"><b>キー単体</b>で操作します(Shift は不要)。例外は <b>Space</b> だけで、「校正済みにして次へ」は <b>Shift+Space</b> です(Space だけだと動画の再生・停止になるため)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
   <div class="ui-kgrid">
@@ -877,10 +1084,20 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
     <div class="ui-kgroup"><h3 class="section-title">校正する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Shift</kbd><kbd>Space</kbd></span><span>校正済みにして次へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>T</kbd></span><span>この行の文字を直す(入力欄へ)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Esc</kbd></span><span>入力欄から抜ける</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Tab</kbd></span><span>入力欄に入る/抜ける(切り替え)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span><span>この行の話者を n 番目に</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>0</kbd></span><span>話者なし</span></div></div>
     <div class="ui-kgroup"><h3 class="section-title">音の状態のメモ・行の編集</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>X</kbd></span><span>聞き取れない</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>C</kbd></span><span>声が重なる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>V</kbd></span><span>BGM・音が大きい</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>N</kbd></span><span>後ろに行を追加</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Z</kbd></span><span>この行を削除(2回押し)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Z</kbd></span><span>元に戻す</span></div></div>
     <div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>Enter</kbd></span><span>校正済みにして次の行の入力欄へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Enter</kbd></span><span>この行をもう一度聞く</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1…9</kbd></span><span>この行の話者</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div></div>
+    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>?</kbd></span><span>この一覧</span></div></div>
   </div>
-  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。</p>
+  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「カットとパック」)。</p>
   <p class="tt-flow">基本の流れ: <kbd>S</kbd> で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd> で入力 → <kbd>Esc</kbd> → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd>)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
+  <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
+  </div>
+</dialog>
+<dialog id="dlgOverwrite" aria-labelledby="owT">
+  <div class="ui-dlg-head"><h2 id="owT">パックを作り直しますか?</h2></div>
+  <div class="ui-dlg-body">
+    <p style="margin:0">次のフォルダに、前に作ったパックがあります。作り直すと、中のファイルを上書きします(Resolve に取り込み済みなら、取り込み直してください)。</p>
+    <p class="mono tt-ow-dir" id="owDir"></p>
+    <ul class="tt-ow-files" id="owFiles"></ul>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="owCancel">やめる</button><button type="button" class="btn danger" id="owOk">上書きして作り直す</button></div>
   </div>
 </dialog>
 <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>

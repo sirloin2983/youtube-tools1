@@ -28,16 +28,38 @@
 <main class="pt-main">
   <section class="pt-intro">
     <h1>案件(配信ごと)</h1>
-    <p class="hint">切り抜きスタジオの配信ごとに、書き出した切り抜き・文字起こし(校正の進み具合)・Resolve 用のパックを並べます。
-      紐づけは開くたびに各ツールのデータから作り直します。状態とメモだけは、ここで付けて保存します。</p>
+    <p class="hint">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。
+      紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します。</p>
   </section>
-  <div class="row pt-cs-tools">
-    <label class="lag">状態 <select id="fStatus"><option value="">すべて</option><option value="none">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select></label>
-    <label class="lag grow">検索 <input id="fText" type="search" placeholder="配信のタイトル・チャンネル"></label>
-    <button type="button" class="btn small" id="btnReload">読み込み直す</button>
+
+  <div class="ui-listbar">
+    <input id="fText" type="search" placeholder="配信のタイトル・配信者で絞り込み" aria-label="配信のタイトル・配信者で絞り込み">
+    <select id="fStatus" aria-label="状態で絞り込み">
+      <option value="">状態: すべて</option>
+      <option value="none">状態: 未設定</option>
+      <option value="working">状態: 作業中</option>
+      <option value="posted">状態: 投稿済み</option>
+      <option value="skipped">状態: 見送り</option>
+    </select>
+    <select id="fSort" aria-label="並び替え">
+      <option value="new">新しい順</option>
+      <option value="remaining">次にやることが多い順</option>
+      <option value="channel">配信者順</option>
+      <option value="title">題名順</option>
+    </select>
+    <select id="fGroup" aria-label="まとめ方">
+      <option value="">まとめ方: なし</option>
+      <option value="channel">配信者ごとにまとめる</option>
+      <option value="status">状態ごとにまとめる</option>
+    </select>
+    <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
+    <span class="ui-count" id="count"></span>
   </div>
   <p class="hint" id="summary"></p>
+
   <div id="list" class="stack"></div>
+  <div class="row" id="moreBox" hidden><button type="button" class="btn" id="btnMore"></button></div>
+
   <section class="card flat pt-foot" id="unlinkedBox" hidden>
     <details><summary><b>どの配信にも紐づかない文字起こし</b> <span class="hint" id="unlinkedCount"></span></summary>
       <ul class="pt-cs-unlinked" id="unlinked"></ul></details>
@@ -46,34 +68,49 @@
 </main>
 <div class="toast" id="toast" role="status" hidden></div>
 
+<template id="tplGroup">
+  <details class="ui-group">
+    <summary><span class="pt-group-label"></span> <span class="ui-group-n"></span></summary>
+    <div class="pt-group-body stack"></div>
+  </details>
+</template>
+
 <template id="tplCase">
-  <section class="card pt-case">
-    <div class="row">
-      <div class="grow">
-        <div class="card-title pt-case-title"></div>
-        <div class="hint pt-case-sub"></div>
-      </div>
-      <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select>
-    </div>
-    <ol class="pt-clips"></ol>
-    <div class="pt-auto">
+  <details class="pt-case">
+    <summary class="pt-case-row">
+      <span class="pt-case-main grow">
+        <span class="pt-case-title"></span>
+        <span class="hint pt-case-sub"></span>
+      </span>
+      <span class="pill pt-case-statuspill"></span>
+      <span class="hint mono pt-case-tx" hidden></span>
+      <span class="hint mono pt-case-pack" hidden></span>
+      <span class="ui-next pt-case-next" hidden></span>
+    </summary>
+    <div class="pt-case-body">
       <div class="row">
-        <label class="lag">まとめて実行 <select class="pt-auto-mode" aria-label="まとめて実行の形">
-          <option value="adopted">採用後を全部(書き出し → 文字起こし → パック)</option>
-          <option value="transcribe">文字起こしまで(書き出し → 文字起こし)</option>
-          <option value="full">解析から全部(自動マークの上位を採用)</option></select></label>
-        <label class="lag pt-auto-topbox" hidden>採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
-        <button type="button" class="btn small primary pt-auto-run">実行</button>
-        <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
+        <label class="lag">状態 <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select></label>
       </div>
-      <ol class="pt-auto-steps"></ol>
-      <div class="hint pt-auto-msg"></div>
+      <ol class="pt-clips"></ol>
+      <div class="pt-auto">
+        <div class="row">
+          <label class="lag">まとめて実行 <select class="pt-auto-mode" aria-label="まとめて実行の形">
+            <option value="adopted">採用後を全部(書き出し → 文字起こし → パック)</option>
+            <option value="transcribe">文字起こしまで(書き出し → 文字起こし)</option>
+            <option value="full">解析から全部(自動マークの上位を採用)</option></select></label>
+          <label class="lag pt-auto-topbox" hidden>採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
+          <button type="button" class="btn small primary pt-auto-run">実行</button>
+          <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
+        </div>
+        <ol class="pt-auto-steps"></ol>
+        <div class="hint pt-auto-msg"></div>
+      </div>
+      <details class="pt-case-memo"><summary class="hint">メモ</summary>
+        <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
+        <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
+      </details>
     </div>
-    <details class="pt-case-memo"><summary class="hint">メモ</summary>
-      <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
-      <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
-    </details>
-  </section>
+  </details>
 </template>
 </body>
 </html>

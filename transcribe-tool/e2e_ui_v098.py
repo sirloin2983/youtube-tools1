@@ -326,7 +326,7 @@ def main():
             # ==================== 12) 文言: ▶の title・#btnAddAt の文字・空行の placeholder ====================
             play_title = pg.locator("#segs .seg").nth(0).locator("[data-act=play]").get_attribute("title") or ""
             check("この行だけ再生" in play_title, "行の▶の title に「この行だけ再生」が含まれる: %s" % play_title)
-            check(pg.inner_text("#btnAddAt").strip() == "＋再生位置に行を追加", "#btnAddAt の文字は「＋再生位置に行を追加」: %s" % pg.inner_text("#btnAddAt"))
+            check(pg.inner_text("#btnAddAt").strip() == "＋再生位置に行", "#btnAddAt の文字は「＋再生位置に行」(v0.15.0 で短く): %s" % pg.inner_text("#btnAddAt"))
             ph = pg.locator("#segs .seg").nth(0).locator("textarea").get_attribute("placeholder") or ""
             check("空の行" in ph, "空の行の textarea には placeholder に「空の行」が含まれる: %s" % ph)
 
@@ -466,12 +466,13 @@ def main():
             check(style["overflowY"] == "auto", "aside.tx-stage の overflow-y は auto: %s" % style)
             check(style["position"] == "sticky", "aside.tx-stage は sticky: %s" % style)
             header_bottom = pg.evaluate("document.querySelector('header.top').getBoundingClientRect().bottom")
-            pg.click("#btnSpk")
+            pg.click("#btnSpk")   # v0.15.0: 「道具 ▾」→「話者」
+            pg.click("[data-jump=spDetails]")
             pg.wait_for_function("document.querySelector('#spDetails').open === true")
             pg.wait_for_function(
                 "(() => { const s = document.querySelector('#spDetails summary'); if (!s) return false; const r = s.getBoundingClientRect(); return r.top >= %s && r.top < window.innerHeight; })()"
                 % header_bottom, timeout=5000)
-            check(True, "#btnSpk を押すと details#spDetails が開き、スムーズスクロール後に見出しがヘッダーの下・画面内に収まる(映像パネルの裏に隠れない)")
+            check(True, "「道具 ▾」→「話者」を押すと details#spDetails が開き、スムーズスクロール後に見出しがヘッダーの下・画面内に収まる(映像パネルの裏に隠れない)")
             pg.set_viewport_size({"width": 1500, "height": 1000})
             if "menu-closed" in app_class():
                 pg.click("#btnMenu")

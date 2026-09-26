@@ -35,7 +35,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.7.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.8.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR

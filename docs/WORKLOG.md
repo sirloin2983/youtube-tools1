@@ -639,3 +639,44 @@
   変更 34(.gitignore・AGENTS.md・README.txt・app/{README.txt,autorun.py,e2e_portal.py,launch.py,mount.py,portal.html,portal.js,test_autorun.py,test_mount.py}・
   clip-studio/{README.txt,core.js,e2e_ui.py,queue.js,review.js,serve.py,ui-kit.js}・cut2resolve/{README.txt,cut2resolve_core.py,ui-kit.js}・
   docs/{HANDOVER.md,WORKLOG.md,data-location.md,integration-plan.md}・tools/{push_helper.py,test_push_helper.py}・transcribe-tool/{README.txt,app.js,serve.py,ui-kit.js}・ui-kit/{README.md,ui-kit.js})。push.bat で
+
+## 2026-09-26 Claude(Cowork)— 担当の変更: 文字起こしツールも Claude(UI の全面見直しの開始)
+- 決定(ユーザー 2026-09-26): 案A(文字起こしの校正画面に「カットとパック」の欄を足し、計算とパック作りは cut2resolve の API を呼ぶ)で進める。**文字起こしツールの担当も Claude**。
+  UI は3ツールと入口すべてを全面的に見直し、使いづらい部分を徹底的になくす(進め方は Claude に任せる・実装まで)。文字起こしの履歴(たくさんの動画)を見やすくする
+- 担当: 文字起こしツール(`transcribe-tool/`)・`clip-studio/` の画面・`ui-kit/` も、この作業が終わるまで Claude。GPT(Codex)はこの間これらを触らない
+- 変更: `tools/demo_env.py`(新規。見本のデータ(架空の配信者・配信・切り抜き・たくさんの文字起こし)で入口と3ツールを疑似モードで動かす。画面の見直し・写真・手での確認用)
+- 未コミット: tools/demo_env.py・AGENTS.md・docs/WORKLOG.md(このあとの見直しの変更と一緒に push.bat で)
+
+## 2026-09-26 Claude(Cowork)— 3ツールと入口の画面の全面見直し・文字起こしの「カットとパック」(案A)・履歴と案件の一覧(入口 v0.9.0・スタジオ v0.8.0・文字起こし v0.15.0・cut2resolve v0.10.0・ui-kit v3)
+- 担当: Claude(文字起こしツールも。直前の記録)。作業の土台は GitHub の main = 7ce0050(段階7 まで)+ 直前の記録の未コミット(tools/demo_env.py・AGENTS.md・WORKLOG)
+- 決定(ユーザー 2026-09-26): 案A で進める・UI は3ツールと入口すべてを全面的に見直す・使いづらい部分を徹底的に排除・進め方は任せる(実装まで)・たくさんの動画の履歴を見やすく。
+  今後の開発は AI モデルを作業に合わせて使い分ける(今回: 監査4本は Sonnet、文字起こし・スタジオの実装は Opus、cut2resolve・入口/案件の実装は Sonnet、統括・見直し・結合は Opus)
+- 進め方: `tools/demo_env.py`(見本のデータ)で全画面を動かし、画面ごとに監査(写真つき)→ 共通のルール `docs/ui-guidelines.md`(新規。用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)と ui-kit v3 → 4つの画面を並行で実装 → 統括が見直し・結合・全体のテスト
+- 変更(共通・ui-kit v3): 状態の札の文字を濃く(`--ok-ink` など。明るいテーマで 3.66〜4.37 → 5.5 以上)・札は枠なしで押せない表示に、入口へ戻るリンク(ヘッダーの `data-ui-home`・「他のツール」の先頭に入口・案件の一覧。取り込まれているときだけ)、
+  一覧の部品(`.ui-listbar` `.ui-count` `.ui-group` `.ui-next`)・言葉の説明(`.ui-term`)・`.lag.keep`・`UIKit.fmt.ago/date/dur`・`UIKit.esc`。ytt_core/txindex.py に `pack_info`(パックの有無の判定。入口の案件と文字起こしの一覧の二重の規則を1か所に)
+- 変更(文字起こし v0.15.0): 履歴を作り直し(配信ごと・配信者ごと・まとめないのまとまり、検索・状態・種類・並び替え、1件1行に だれの・いつの・校正の進み具合・パック、操作は「⋮」)。/api/transcripts に項目を追加
+  (rows・proofed・cut・flagged・durationSec・videoId・clipTitle・markLabel・channel・streamTitle(スタジオの data.json を読むだけ)・mediaOk・pack)。
+  校正画面の映像の下に「カットとパック」(残す/カットの行数・カット後の長さ・カット後の見え方で再生・選んだ行をカット/残す・Text+ の fps と大きさ・パックを作る/作り直す・上書きの確認。
+  計算とパック作りは cut2resolve の api/plan・api/build(preset transcript-rows)。zip と .cut-plan.json は「詳しい設定」へ)。「話者・置換・書き出し」を4枚(話者・文字をまとめて直す・書き出し・以前の版に戻す)に分割、
+  720px 未満は左メニューを引き出しに、キー操作の手がかり、「キー操作」「パック」の言葉
+  - 統括の判断: 文字起こしを開いただけで動画の隣に .transcript.json を書き出していた作りを、「カット後の見え方で再生」を入れたとき・パックを作るときだけに変更(ファイルを勝手に増やさない)。それまでのカット後の長さは残す行の時間を足した目安(「約」)
+- 変更(スタジオ v0.8.0): 不具合2件(① 事務所を登録した直後にチェックが全部外れて検索できない・③ プレーヤーが使えないときキー操作のたびに通知が出る)、③ の配信の選択を探せる一覧に、書き出しはどの表示でも右の列の先頭、
+  ① の検索結果は「全部まとめて上位30本」を既定に、② の失敗に「どうすればいいか」、④ コラボに検索・配信者ごとのまとまり・メンバーに配信者と日時、狭い画面の案内・28px 以上のボタン、「配信」「動画ファイル」の言葉。/api/videos に createdAt
+- 変更(cut2resolve v0.10.0): 動画を読み込むまで書き出しを閉じる・無音の数値は「詳しい設定」へ、動画と同じ場所の同じ名前の字幕・文字起こし・残す区間を提案(/api/inspect の siblings)、切れる所が無いときの案内(pack.py)、
+  パスの末尾(ファイル名)を見せる、注意の重さの色分け(warningLevels)、試算前の確認、今見ている段の強調、専門用語の説明。文字起こし関係の入力は閉じた欄へ移し「文字起こしツールのカットとパックがおすすめ」の案内(機能は消していない)。API は追加だけ
+- 変更(入口 v0.9.0・案件): 案件を1件1行(開くと切り抜き・まとめて実行・メモ)、検索・状態・並び替え・まとめ方(なし・配信者・状態)・30件ずつ、「次にやること」、パスは title へ、まとめて実行が動いている行は閉じない。
+  高さは 60本で 20,686px → 2,789px(1440px 幅)・35,225px → 3,690px(390px 幅)。/api/cases の各案件に streamedAt・tx・packs・next・remaining。「すべて終了」の残り秒数
+- 変更(その他): `tools/demo_env.py`(パックの印を中に作る・② 解析も動く)、README(全体・各ツール)、AGENTS.md、ui-kit/README.md、docs/integration-plan.md
+- テスト(クラウドで全部通過): 単体 スタジオ 226・文字起こし 103・cut2resolve 223・入口 97・ytt_core/tools 70・契約 23・node 27(スタジオ 18・文字起こし 9)、
+  画面 入口 e2e_portal・e2e_autorun・e2e_window、スタジオ e2e_ui・--mounted・e2e_analyze、cut2resolve e2e_ui・--mounted、文字起こし e2e 7本、tools/e2e_pipeline・e2e_datadir
+- 版: 入口 0.8.0 → 0.9.0、スタジオ 0.7.0 → 0.8.0、文字起こし 0.14.2 → 0.15.0、cut2resolve 0.9.1 → 0.10.0、ui-kit v2 → v3
+- 注意: 画面を直すときは docs/ui-guidelines.md に合わせる。ツールの画面の中の「他のツール」のリンクを数えるテストは、先頭の「入口」「案件の一覧」を除いて数える(`.ui-brand-mark:not([data-tool=portal])`)。
+  文字起こしの「カットとパック」は入口の中(同じポートの cut2resolve)だけで使える。文字起こし側に Resolve 用の計算を書き足さない。`pgrep/pkill -f demo_env.py` は同じコマンドの中の自分のシェルにも当たるので、`[t]ools/demo_env.py` と書く
+- 未確認(実機): 全画面(特に文字起こしの履歴・カットとパックで実際の配信の切り抜きからパックを作り Resolve で読めるか・案件の一覧・スタジオの ③)。窓(段階7-3)の中での見え方
+- 残した課題(候補): ui-kit に引き出し・確認のダイアログ・小さな進み具合の棒・キーの手がかりの帯を共通の部品として足す(今は各ツールにある)、スタジオに配信の日時(uploadDate)を残す(今は追加した時刻)、
+  案件の画面からスタジオの特定の配信を開く(?open=)、スタジオのサーバーのエラーの文言に残る「動画」、行の「要確認」の印が押せる札のまま(ルールの3)
+- 未コミット: 新規 2(docs/ui-guidelines.md・tools/demo_env.py(直前の記録))、変更 63(AGENTS.md・README.txt・app/{README.txt,cases.html,cases.js,cases.py,e2e_autorun.py,e2e_portal.py,launch.py,portal.css,portal.js,test_cases.py}・
+  clip-studio/{README.txt,app.css,collab.js,core.js,e2e_ui.py,index.html,queue.js,rank.js,review.css,review.js,serve.py,settings.js,store.py,test_review.cjs,test_studio.py,ui-kit.css,ui-kit.js}・
+  cut2resolve/{README.txt,app.css,app.js,cut2resolve_core.py,e2e_ui.py,index.html,pack.py,serve.py,test_pack.py,test_serve.py,ui-kit.css,ui-kit.js}・docs/{WORKLOG.md,integration-plan.md,HANDOVER.md}・
+  transcribe-tool/{AGENTS.md,README.txt,app.js,e2e_eval_v093.py,e2e_ui_handoff.py,e2e_ui_mounted.py,e2e_ui_v07.py,e2e_ui_v08.py,e2e_ui_v09.py,e2e_ui_v098.py,index.html,serve.py,test_backend.py,test_document_save.cjs,ui-kit.js}・
+  ui-kit/{README.md,ui-kit.css,ui-kit.js}・ytt_core/{test_ytt_core.py,txindex.py})。push.bat で

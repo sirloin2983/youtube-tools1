@@ -24,8 +24,9 @@
     <button type="button" class="ui-tab" data-step="out" aria-pressed="false"><span class="ui-tab-n">3</span>書き出し</button>
   </nav>
   <div class="ui-header-actions">
+    <a class="ui-home" data-ui-home hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg><span>入口</span></a>
     <details class="ui-menu" id="toolMenu">
-      <summary class="btn ghost small">他のツール</summary>
+      <summary class="btn ghost small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>他のツール</summary>
       <div class="ui-menu-pop" data-ui-toolnav></div>
     </details>
     <button type="button" class="ui-theme-toggle" data-theme-toggle>
@@ -39,7 +40,7 @@
 <main class="c2r-main">
   <div class="c2r-col">
     <!-- 1 入力 -->
-    <section class="card c2r-card" id="cardIn" aria-labelledby="hIn">
+    <section class="card c2r-card" id="cardIn" aria-labelledby="hIn" data-step="in">
       <div class="card-head">
         <span class="c2r-num" aria-hidden="true">1</span>
         <h2 class="card-title" id="hIn">入力</h2>
@@ -53,37 +54,45 @@
           <button type="button" class="btn ghost icon small c2r-clear" data-clear="video" aria-label="動画の欄を空にする" title="空にする">×</button>
         </div>
         <div class="c2r-status" id="stVideo" aria-live="polite"></div>
+        <div class="notice info" id="siblingNotice" hidden></div>
       </div>
-      <div class="c2r-field" data-field="srt">
-        <label class="c2r-label" for="inSrt">字幕(SRT / VTT)<span class="c2r-opt">任意・カット前の時刻</span></label>
-        <div class="c2r-inrow">
-          <input type="text" id="inSrt" data-field="srt" spellcheck="false" autocomplete="off" placeholder="例: C:\…\clip.srt">
-          <button type="button" class="btn ghost icon small c2r-clear" data-clear="srt" aria-label="字幕の欄を空にする" title="空にする">×</button>
+      <div class="notice info c2r-tx-hint" id="transcribeHint">
+        文字起こしがある動画は、文字起こしツールの「カットとパック」欄で仕上げるのがおすすめです。
+        <a id="transcribeHintLink" target="_blank" rel="noopener">文字起こしツールを開く</a>
+      </div>
+      <details class="ui-disclosure c2r-optional" id="optionalInputs">
+        <summary>字幕・文字起こし・残す区間(任意)</summary>
+        <div class="c2r-field" data-field="srt">
+          <label class="c2r-label" for="inSrt">字幕(SRT / VTT)<span class="c2r-opt">任意・カット前の時刻</span></label>
+          <div class="c2r-inrow">
+            <input type="text" id="inSrt" data-field="srt" spellcheck="false" autocomplete="off" placeholder="例: C:\…\clip.srt">
+            <button type="button" class="btn ghost icon small c2r-clear" data-clear="srt" aria-label="字幕の欄を空にする" title="空にする">×</button>
+          </div>
+          <div class="c2r-status" id="stSrt" aria-live="polite"></div>
         </div>
-        <div class="c2r-status" id="stSrt" aria-live="polite"></div>
-      </div>
-      <div class="c2r-field" data-field="transcript">
-        <label class="c2r-label" for="inTranscript">文字起こし(.transcript.json)<span class="c2r-opt">任意</span></label>
-        <div class="c2r-inrow">
-          <input type="text" id="inTranscript" data-field="transcript" spellcheck="false" autocomplete="off" placeholder="文字起こしツールで「動画の隣に保存」したもの">
-          <button type="button" class="btn ghost icon small c2r-clear" data-clear="transcript" aria-label="文字起こしの欄を空にする" title="空にする">×</button>
+        <div class="c2r-field" data-field="transcript">
+          <label class="c2r-label" for="inTranscript">文字起こし(.transcript.json)<span class="c2r-opt">任意</span></label>
+          <div class="c2r-inrow">
+            <input type="text" id="inTranscript" data-field="transcript" spellcheck="false" autocomplete="off" placeholder="文字起こしツールで「動画の隣に保存」したもの">
+            <button type="button" class="btn ghost icon small c2r-clear" data-clear="transcript" aria-label="文字起こしの欄を空にする" title="空にする">×</button>
+          </div>
+          <div class="c2r-status" id="stTranscript" aria-live="polite"></div>
         </div>
-        <div class="c2r-status" id="stTranscript" aria-live="polite"></div>
-      </div>
-      <div class="c2r-field" data-field="plan">
-        <label class="c2r-label" for="inPlan">残す区間(cut-plan .json)<span class="c2r-opt">任意</span></label>
-        <div class="c2r-inrow">
-          <input type="text" id="inPlan" data-field="plan" spellcheck="false" autocomplete="off" placeholder="youtube-tools-cut-plan/v1">
-          <button type="button" class="btn ghost icon small c2r-clear" data-clear="plan" aria-label="残す区間の欄を空にする" title="空にする">×</button>
+        <div class="c2r-field" data-field="plan">
+          <label class="c2r-label" for="inPlan">残す区間(cut-plan .json)<span class="c2r-opt">任意</span></label>
+          <div class="c2r-inrow">
+            <input type="text" id="inPlan" data-field="plan" spellcheck="false" autocomplete="off" placeholder="youtube-tools-cut-plan/v1">
+            <button type="button" class="btn ghost icon small c2r-clear" data-clear="plan" aria-label="残す区間の欄を空にする" title="空にする">×</button>
+          </div>
+          <div class="c2r-status" id="stPlan" aria-live="polite"></div>
         </div>
-        <div class="c2r-status" id="stPlan" aria-live="polite"></div>
-      </div>
-      <div class="ui-drop c2r-drop" id="drop" tabindex="0" role="button" aria-describedby="dropHelp">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
-        <div><b>字幕・文字起こし・cut-plan をドロップ</b><span id="dropHelp">(クリックで選択もできます)動画は場所が分からないため、パスを貼ってください</span></div>
-        <input type="file" id="fileIn" multiple accept=".srt,.vtt,.json" hidden>
-      </div>
-      <div class="notice" id="dropNotice" hidden></div>
+        <div class="ui-drop c2r-drop" id="drop" tabindex="0" role="button" aria-describedby="dropHelp">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+          <div><b>字幕・文字起こし・cut-plan をドロップ</b><span id="dropHelp">(クリックで選択もできます)動画は場所が分からないため、パスを貼ってください</span></div>
+          <input type="file" id="fileIn" multiple accept=".srt,.vtt,.json" hidden>
+        </div>
+        <div class="notice" id="dropNotice" hidden></div>
+      </details>
       <div class="c2r-actions">
         <button type="button" class="btn" id="btnInspect">読み込む</button>
         <span class="hint">パスを貼ったら Enter でも読み込みます。エクスプローラーで右クリック →「パスのコピー」</span>
@@ -91,7 +100,7 @@
     </section>
 
     <!-- 2 カット -->
-    <section class="card c2r-card" id="cardCut" aria-labelledby="hCut">
+    <section class="card c2r-card" id="cardCut" aria-labelledby="hCut" data-step="cut">
       <div class="card-head">
         <span class="c2r-num" aria-hidden="true">2</span>
         <h2 class="card-title" id="hCut">カットの決め方</h2>
@@ -125,28 +134,27 @@
       </div>
 
       <label class="lag c2r-check" id="silenceExtraWrap" hidden><input type="checkbox" id="silenceExtra">さらに無音も削る</label>
-      <fieldset class="c2r-sil" id="silBox">
-        <legend>無音の設定</legend>
-        <div class="c2r-nums">
-          <label class="c2r-num-fld"><span>無音とみなす音量</span><input type="number" id="noise" min="-90" max="0" step="1" value="-35"><em>dB</em></label>
-          <label class="c2r-num-fld"><span>この長さ以上の無音</span><input type="number" id="silMin" min="0.05" max="60" step="0.1" value="0.6"><em>秒</em></label>
-          <label class="c2r-num-fld"><span>話の前後に残す</span><input type="number" id="silPad" min="0" max="10" step="0.05" value="0.15"><em>秒</em></label>
-        </div>
-        <p class="hint">切れすぎるときは音量を下げる(-40 など)、切れないときは上げる(-30 など)。</p>
-      </fieldset>
       <label class="lag c2r-check" id="cutRowsWrap" hidden><input type="checkbox" id="dropCutRows" checked><span id="cutRowsLabel">文字起こしの「カット済」の行を削る</span></label>
 
       <details class="ui-disclosure c2r-more" id="moreBox">
-        <summary>仕上げと詳細設定</summary>
+        <summary>詳しい設定</summary>
+        <div class="c2r-sil" id="silBox">
+          <p class="hint">無音の設定。切れすぎるときは音量を下げる(-40 など)、切れないときは上げる(-30 など)。</p>
+          <div class="c2r-nums">
+            <label class="c2r-num-fld"><span>無音とみなす音量</span><input type="number" id="noise" min="-90" max="0" step="1" value="-35"><em>dB</em></label>
+            <label class="c2r-num-fld"><span>この長さ以上の無音</span><input type="number" id="silMin" min="0.05" max="60" step="0.1" value="0.6"><em>秒</em></label>
+            <label class="c2r-num-fld"><span>話の前後に残す</span><input type="number" id="silPad" min="0" max="10" step="0.05" value="0.15"><em>秒</em></label>
+          </div>
+        </div>
         <div class="c2r-nums">
           <label class="c2r-num-fld"><span>これより短い区間は捨てる</span><input type="number" id="minLen" min="0" max="3600" step="0.1" value="0.3"><em>秒</em></label>
           <label class="c2r-num-fld"><span>この隙間以下はつなぐ</span><input type="number" id="joinGap" min="0" max="3600" step="0.1" value="0"><em>秒</em></label>
         </div>
         <div class="c2r-grid2">
-          <div class="fld"><label class="l" for="srcStartTc">元動画の開始タイムコード</label><input type="text" id="srcStartTc" spellcheck="false" placeholder="自動(動画に埋め込まれた値)"></div>
+          <div class="fld"><label class="l" for="srcStartTc">元動画の開始<abbr class="ui-term" title="動画・タイムラインの中の位置を「時:分:秒:フレーム」で表す値">タイムコード</abbr></label><input type="text" id="srcStartTc" spellcheck="false" placeholder="自動(動画に埋め込まれた値)"></div>
           <div class="fld"><label class="l" for="recStart">タイムラインの開始タイムコード</label><input type="text" id="recStart" spellcheck="false" value="01:00:00:00"></div>
-          <div class="fld"><label class="l" for="edlName">EDL のタイトル</label><input type="text" id="edlName" placeholder="動画の名前"></div>
-          <div class="fld"><label class="l" for="reel">リール名</label><input type="text" id="reel" spellcheck="false" value="AX"></div>
+          <div class="fld"><label class="l" for="edlName"><abbr class="ui-term" title="編集ソフトどうしでカットの位置を受け渡す、昔からある文字のファイル形式">EDL</abbr> のタイトル</label><input type="text" id="edlName" placeholder="動画の名前"></div>
+          <div class="fld"><label class="l" for="reel"><abbr class="ui-term" title="EDL の中でクリップを識別する呼び名(Resolve はこれとファイル名でクリップを結び付けます)">リール名</abbr></label><input type="text" id="reel" spellcheck="false" value="AX"></div>
         </div>
         <p class="hint">開始タイムコードは Resolve のクリップ属性(Clip Attributes)の Start TC と同じにします。ふだんは空欄(自動)のままで大丈夫です。</p>
       </details>
@@ -219,20 +227,22 @@
     </section>
 
     <!-- 3 書き出し -->
-    <section class="card c2r-card" id="cardOut" aria-labelledby="hOut">
+    <section class="card c2r-card" id="cardOut" aria-labelledby="hOut" data-step="out">
       <div class="card-head">
         <span class="c2r-num" aria-hidden="true">3</span>
         <h2 class="card-title" id="hOut">書き出し(Resolve へ渡すパック)</h2>
       </div>
+      <div class="empty c2r-out-locked" id="outLocked"><b>動画を読み込むと使えます</b><span>「1 入力」で動画のパスを読み込んでください</span></div>
+      <div id="outBody" hidden>
       <div class="fld">
         <label class="l" for="outDir">出力フォルダ</label>
         <input type="text" id="outDir" spellcheck="false" autocomplete="off" placeholder="空欄 = 動画と同じ場所の <動画名>_pack">
       </div>
       <div class="c2r-opts">
-        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optRender"><span><b>粗編集の動画(mp4)も作る</b><small>EDL が通らないときの代わり。書き出しに時間がかかります</small></span></label>
+        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optRender"><span><b>粗編集の動画(mp4)も作る</b><small><abbr class="ui-term" title="編集ソフトどうしでカットの位置を受け渡す、昔からある文字のファイル形式">EDL</abbr> が通らないときの代わり。書き出しに時間がかかります</small></span></label>
         <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optCopy"><span><b>元動画をコピーして同梱</b><small>フォルダごと友人に送れる。動画の大きさぶん容量を使います</small></span></label>
-        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optFcpxml"><span><b>補助の FCPXML も作る</b><small>字幕をタイトルとして入れたタイムライン。Resolve の実機では未確認</small></span></label>
-        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optTextPlus"><span><b>Text+ パックを作る（Resolve 無料版・Lua）</b><small>元の動画を再圧縮せずに media/ へコピーし、Resolve の中で実行するスクリプトを同梱します。スクリプトは開いているプロジェクトにカット済みタイムラインと Text+ 字幕を追加します（プロジェクトは作らず、設定も変えません）</small><span class="c2r-textplus-target">置き先のプロジェクト: <select id="textplusFps" aria-label="Text+ を置くプロジェクトの fps"><option value="30" selected>30fps</option><option value="60">60fps</option></select> <select id="textplusSize" aria-label="Text+ を置くプロジェクトの解像度"><option value="1080x1920" selected>縦 1080x1920</option><option value="1920x1080">横 1920x1080</option></select></span></span></label>
+        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optFcpxml"><span><b>補助の <abbr class="ui-term" title="Final Cut Pro 用のプロジェクト形式のファイル">FCPXML</abbr> も作る</b><small>字幕をタイトルとして入れたタイムライン。Resolve の実機では未確認</small></span></label>
+        <label class="c2r-opt-card"><input type="checkbox" class="ui-switch" id="optTextPlus"><span><b><abbr class="ui-term" title="Resolve の中でテキスト(字幕など)を作る機能">Text+</abbr> パックを作る（Resolve 無料版・Lua）</b><small>元の動画を再圧縮せずに media/ へコピーし、Resolve の中で実行するスクリプトを同梱します。スクリプトは開いているプロジェクトにカット済みタイムラインと Text+ 字幕を追加します（プロジェクトは作らず、設定も変えません）</small><span class="c2r-textplus-target">置き先のプロジェクト: <select id="textplusFps" aria-label="Text+ を置くプロジェクトの fps"><option value="30" selected>30fps</option><option value="60">60fps</option></select> <select id="textplusSize" aria-label="Text+ を置くプロジェクトの解像度"><option value="1080x1920" selected>縦 1080x1920</option><option value="1920x1080">横 1920x1080</option></select></span></span></label>
       </div>
       <p class="hint c2r-always">いつも入るもの: EDL(カット)・カット後の字幕 SRT(字幕があるとき)・友人へ.txt(Resolve での手順)・cut-plan.json(カットの記録)</p>
       <div class="notice danger" id="buildError" hidden></div>
@@ -258,10 +268,19 @@
           <pre class="c2r-readme" id="resReadme"></pre>
         </details>
       </div>
+      </div>
     </section>
   </div>
 </main>
 
+<dialog id="dlgNoPlan" aria-labelledby="npTitle">
+  <h2 id="npTitle">まだ試算していません</h2>
+  <p class="hint">「2 カットの決め方」の「試算する」で、残す・削る区間を確かめてから作れます。このまま作りますか?</p>
+  <div class="row c2r-dlg-actions">
+    <button type="button" class="btn" id="npCancel">やめる</button>
+    <button type="button" class="btn primary" id="npOk">このまま作る</button>
+  </div>
+</dialog>
 <dialog id="dlgOverwrite" aria-labelledby="owTitle">
   <h2 id="owTitle">上書きしますか?</h2>
   <p class="hint">出力フォルダに、同じ名前のファイルがあります。上書きすると元に戻せません。</p>

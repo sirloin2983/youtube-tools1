@@ -14,9 +14,16 @@ h2{margin:0 0 8px;font-size:15px}
 .cs-tab-short{display:none}
 .cs-hbtn{gap:6px;position:relative}
 .cs-hbtn svg{width:16px;height:16px}
-.cs-hbtn .dot{position:absolute;top:4px;right:4px;width:7px;height:7px;box-shadow:0 0 0 2px var(--panel)}
 .ui-menu>summary.cs-hbtn{display:inline-flex}
-@media (max-width:1100px){.cs-hlabel{display:none}.cs-hbtn{width:var(--ctl-h-sm);padding:0}}
+/* 設定の「!」= やることがある(API キーが未設定)。タブの件数(残っている作業の数)とは形と色を分ける */
+.cs-setwarn{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--warn);color:#fff;font:800 10.5px/1 var(--font);flex:none}
+:root[data-theme=dark] .cs-setwarn{color:var(--bg-2)}
+.cs-hbtn .cs-setwarn{position:absolute;top:-3px;right:-3px;box-shadow:0 0 0 2px var(--panel)}
+/* タブの件数は赤い警告ではなく、残っている作業の数(アクセントの薄い色) */
+.ui-tab .badge.cs-tabn{background:var(--accent-soft);color:var(--accent-ink2);border:1px solid var(--accent-line);height:18px}
+:root[data-theme=dark] .ui-tab .badge.cs-tabn{color:var(--accent-ink2)}
+.ui-header .ui-home{flex:none}
+@media (max-width:1100px){.cs-hlabel{display:none}.cs-hbtn{width:var(--ctl-h-sm);padding:0}.ui-header .ui-home{padding:0 6px}}
 @media (max-width:720px){.cs-tab-long{display:none}.cs-tab-short{display:inline}.cs-brand-name{font-size:14.5px}}
 @media (max-width:420px){.ui-header .ui-ver{display:none}.ui-tab{padding:0 6px;gap:4px;font-size:13px}}
 .errbar{position:sticky;top:var(--cs-head);z-index:39}
@@ -61,6 +68,7 @@ main{display:block}
 .set-sec>summary{min-height:28px;flex-wrap:wrap}
 .set-sec .set-title{font:650 14px/1.35 var(--font-display)}
 .set-sec .set-sub{font-weight:400;color:var(--ink-3);font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+.set-sec .set-sub.path{direction:rtl;text-align:left}   /* 長いパスは先頭を省いて、末尾(フォルダ名)を見せる */
 .set-sec .body>.hint:first-child{margin-top:0}
 .set-actions{margin-top:10px}
 .set-path{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;padding:8px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r)}
@@ -103,8 +111,13 @@ main{display:block}
 .cs-quick{display:flex;flex-wrap:wrap;gap:2px;margin-top:6px}
 .cs-quick .btn{padding:0 8px}
 .cs-words .hint{display:block;margin-top:4px;font-size:11.5px;color:var(--ink-3)}
-.cs-checks{margin-top:14px;gap:8px 20px}
-.cs-go{margin-top:16px}
+.cs-checks{margin-top:12px;gap:8px 20px}
+.cs-go{margin-top:14px}
+.cs-adv{margin-top:12px}
+.cs-adv>summary{font-size:13.5px;flex-wrap:wrap;min-height:28px}
+.cs-advsum{font-weight:400;font-size:12px}
+.cs-adv .cs-opts{margin-top:8px}
+.cs-chip-empty{border-style:dashed}
 /* 事務所の選択(チップ) */
 .cs-chip{display:inline-flex;align-items:center;gap:7px;padding:0 12px 0 9px;min-height:32px;border:1px solid var(--line-2);border-radius:var(--r-pill);background:var(--panel);cursor:pointer;font-size:13px;font-weight:550;color:var(--ink-2);
   transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
@@ -117,13 +130,17 @@ main{display:block}
 .rk-sticky>.row{justify-content:space-between}
 .rk-pickn b{font-size:18px;color:var(--accent);margin-right:2px}
 .rk-pickact{gap:8px}
-.rk-sum{margin:4px 2px 10px}
-.rk-ag{padding:10px 0 4px}
-.rk-ag>.ag>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:6px 12px;flex-wrap:wrap;padding:2px 16px 8px}
-.rk-ag>.ag>summary::-webkit-details-marker{display:none}
-.rk-ag .ag-name{font:650 15px/1.35 var(--font-display)}
+.rk-sum{margin:0 2px 10px}
+.rk-bar .ui-seg>button{min-height:28px}
+.rk-limit select{min-height:var(--ctl-h);font-size:13px}
+.rk-all{padding:0;overflow:hidden}
+.rk-more{text-align:center;padding:10px;border-top:1px solid var(--line)}
+.rk-ag>summary{flex-wrap:wrap}
+.rk-ag .ag-name{font:650 14.5px/1.35 var(--font-display)}
 .rk-ag .tbl-wrap{border-top:1px solid var(--line)}
-.rk-none{margin:4px 16px 10px}
+.rk-none{margin:8px 16px 10px}
+.rk-meta{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px}
+.rk-ag-name{color:var(--ink-3)}
 .rk-table th:first-child,.rk-table td:first-child{padding-left:16px}
 .rk-table th:last-child,.rk-table td:last-child{padding-right:16px}
 .rk-table td.rk{width:34px;color:var(--ink-3)}
@@ -140,14 +157,22 @@ main{display:block}
 .rk-skrow{display:flex;gap:12px;align-items:center;margin-top:14px}
 
 /* ==================== ② 解析 ==================== */
-.q-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px;align-items:start}
-.q-col{min-width:0}
-.q-listcard{position:sticky;top:calc(var(--cs-head) + 12px);max-height:calc(100vh - var(--cs-head) - 28px);display:flex;flex-direction:column}
+/* 左 = 入れる・解析の設定(閉じておく)、右 = キュー。狭い画面では 入れる → キュー → 設定 の順(主な作業に早く届く順) */
+.q-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-areas:"entry list" "opts list";grid-template-rows:auto 1fr;gap:16px;align-items:start}
+.q-entry{grid-area:entry;margin-bottom:0}
+.q-optcard{grid-area:opts;margin-bottom:0}
+.q-optcard>summary{flex-wrap:wrap;min-height:28px}
+.q-optcard>summary .card-title{margin-right:4px}
+.q-optsum{font-weight:400;font-size:12.5px}
+.q-optnote{margin:0 0 10px}
+.q-listcard{grid-area:list;position:sticky;top:calc(var(--cs-head) + 12px);max-height:calc(100vh - var(--cs-head) - 28px);display:flex;flex-direction:column;margin-bottom:0}
+.q-next{margin:-4px 0 8px}
 .q-listcard #qList{overflow-y:auto;min-height:0;margin:0 -16px -14px;padding:0 16px 14px}
 .q-acts{margin-top:14px}
 .q-mats{display:flex;flex-direction:column;gap:6px;margin-top:4px}
 .q-mat{flex-wrap:wrap}
-.q-collab{align-items:flex-start}
+.q-collab{align-items:flex-start;flex-wrap:nowrap}
+.q-collab>span{min-width:0}
 .q-collab>input{margin-top:2px}
 .q-sw{display:inline-block;width:10px;height:10px;border-radius:3px;flex:none}
 .q-sw.a{background:var(--c-audio)}.q-sw.c{background:var(--c-chat)}.q-sw.m{background:var(--c-com)}
@@ -176,15 +201,27 @@ main{display:block}
 .q-prog{display:flex;justify-content:space-between;gap:10px;margin-top:4px}
 .q-pct{color:var(--ink);font-weight:600}
 .q-chat{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px}
-.q-err{color:var(--danger)}
+.q-err{color:var(--danger-ink);display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.q-err b{font-weight:650}
+.q-how{color:var(--ink-2)}
+.q-raw{font-size:11.5px;color:var(--ink-3)}
+.q-raw>summary{cursor:pointer;width:max-content;min-height:24px}
+.q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
 .q-item.st-err{background:linear-gradient(90deg,var(--danger-soft),transparent 60%);margin:0 -16px;padding-left:16px;padding-right:16px}
 
 /* ==================== ④ コラボ ==================== */
 .cl-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start}
 .cl-sub{margin:0 0 4px}
 .cl-name{grid-column:span 1}
-.cl-vlist{margin-top:14px;display:flex;flex-direction:column;gap:6px;max-height:min(560px,calc(100vh - 360px));overflow-y:auto;padding:1px}
-.cl-video{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.cl-bar{margin-top:10px}
+/* 配信の一覧は、どの幅でも枠の中だけでスクロールする(狭い画面で延々と続かないように) */
+.cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100vh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
+.cl-vlist>*{flex:none}   /* 枠の高さが足りないときに、まとまりが縮んで中身が重ならないように */
+.cl-vlist>.empty{border:0;background:none;padding:18px 10px}
+.cl-vg{margin:0 0 6px}
+.cl-vg:last-child{margin-bottom:0}
+.cl-vg-body{display:flex;flex-direction:column;gap:4px;padding:6px}
+.cl-video{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;min-height:44px;transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
 .cl-video:hover{border-color:var(--line-strong)}
 .cl-video.is-checked{border-color:var(--accent-line);background:var(--accent-soft)}
 .cl-video.is-grouped{cursor:default;opacity:.7}
@@ -192,6 +229,12 @@ main{display:block}
 .cl-vtitle{font-weight:600;overflow-wrap:anywhere;line-height:1.4}
 .cl-vmeta{font-size:12px;color:var(--ink-3);overflow-wrap:anywhere}
 .cl-acts{margin-top:12px}
+.cl-picked{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.cl-picked>.l{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.cl-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:0 2px 0 10px;border:1px solid var(--accent-line);background:var(--accent-soft);border-radius:var(--r-pill);font-size:12.5px;min-height:30px}
+.cl-chip-t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:22em}
+.cl-chip .muted{font-size:11.5px;white-space:nowrap}
+.cl-next{margin:8px 0 0}
 .cl-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);padding:10px 12px;margin-top:10px}
 .cl-group:first-child{margin-top:0}
 .cl-ghead{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}
@@ -201,7 +244,9 @@ main{display:block}
 .cl-member.is-base{border-left:3px solid var(--accent)}
 .cl-member.is-open{border-color:var(--accent-line);box-shadow:var(--ring)}
 .cl-mh{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap}
+.cl-mname{display:flex;flex-direction:column;min-width:0;flex:0 1 auto}
 .cl-mtitle{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.cl-mmeta{font-size:12px;color:var(--ink-3);font-weight:400}
 .cl-anchor{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line-2)}
 .cl-anchor>.hint:first-child{margin-top:0}
 .cl-apoints{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px 12px;align-items:end;margin-top:8px}
@@ -213,10 +258,11 @@ main{display:block}
 
 /* ==================== 狭い画面 ==================== */
 @media (max-width:1000px){
-  .q-grid,.cl-grid{grid-template-columns:minmax(0,1fr)}
+  .q-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"entry" "list" "opts";grid-template-rows:auto}
+  .cl-grid{grid-template-columns:minmax(0,1fr)}
   .q-listcard{position:static;max-height:none}
   .q-listcard #qList{overflow:visible}
-  .cl-vlist{max-height:none}
+  .cl-vlist{max-height:min(420px,60vh)}
 }
 @media (max-width:720px){
   .pane{padding:12px 12px 32px}

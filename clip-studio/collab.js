@@ -29,73 +29,123 @@ function armDelete(btn, run, text){
   btn.dataset.armT = String(setTimeout(() => { if (btn.isConnected && btn.dataset.armed){ delete btn.dataset.armed; btn.textContent = btn.dataset.label; btn.classList.remove('solid'); } }, 3000));
 }
 
-/* addTo: 既存グループに動画を追加するモード中は、そのグループID。anchorOpen: 開いているアンカー指定フォーム({gid, videoId}) */
-const C = { videos: [], groups: [], checked: new Set(), base: null, addTo: null, anchorOpen: null, seq: 0, busy: false, loaded: false };
+/* addTo: 既存グループに配信を追加するモード中は、そのグループID。anchorOpen: 開いているアンカー指定フォーム({gid, videoId})
+   q / f: 配信の一覧の絞り込み(文字 / 状態)。openG: 配信者ごとのまとまりの開閉(ユーザーが開け閉めしたものだけ) */
+const C = { videos: [], groups: [], checked: new Set(), base: null, addTo: null, anchorOpen: null, seq: 0, busy: false, loaded: false, q: '', f: 'free', openG: new Map() };
+const FILTERS = [['free', 'グループに入っていない配信'], ['all', 'すべての配信'], ['analyzed', '解析済みの配信'], ['fresh', '解析前の配信']];
+const ANCHOR_TERM = '<abbr class="ui-term" title="両方の配信で「同じ瞬間」の時刻の組。ここから時刻のズレを計算します">アンカー</abbr>';
 
 function paneHtml(){
   return `
   <div class="cl-grid">
   <section class="card" id="clMake">
-    <div class="card-head"><h2 class="card-title" id="clMakeTitle">動画をコラボにまとめる</h2></div>
+    <div class="card-head"><h2 class="card-title" id="clMakeTitle">配信をコラボにまとめる</h2></div>
     <p class="hint cl-sub" id="clMakeSub"></p>
-    <div class="cs-opts" id="clBaseRow">
-      <label class="cs-opt"><span class="l">基準にする動画</span><select id="clBase"></select></label>
-      <label class="cs-opt cl-name"><span class="l">グループ名(任意)</span><input type="text" id="clName" maxlength="120" placeholder="例: 9/20 マリオカート部屋" autocomplete="off"></label>
+    <div class="ui-listbar cl-bar">
+      <input type="search" id="clQ" placeholder="題名・配信者で探す" aria-label="配信を探す" autocomplete="off">
+      <select id="clF" aria-label="表示する配信">${FILTERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <span class="ui-count" id="clCount"></span>
     </div>
     <div class="cl-vlist" id="clVideoList"><div class="ui-skel" style="height:44px"></div><div class="ui-skel" style="height:44px;margin-top:6px"></div></div>
+    <div class="cl-picked" id="clPicked"></div>
+    <div class="cs-opts" id="clBaseRow">
+      <label class="cs-opt" title="ズレ(時刻の差)を測るときの元にする配信。ふつうは自分がよく切り抜く人の配信"><span class="l">基準にする配信</span><select id="clBase"></select></label>
+      <label class="cs-opt cl-name"><span class="l">グループ名(任意)</span><input type="text" id="clName" maxlength="120" placeholder="例: 9/20 マリオカート部屋" autocomplete="off"></label>
+    </div>
     <div class="row cl-acts">
-      <button type="button" class="btn primary" id="clGo" disabled>選んだ動画をまとめる</button>
+      <button type="button" class="btn primary" id="clGo" disabled>選んだ配信をまとめる</button>
       <button type="button" class="btn" id="clCancelAdd" hidden>キャンセル</button>
       <span class="hint" id="clMsg"></span>
     </div>
   </section>
   <section class="card" id="clGroups">
-    <div class="card-head"><h2 class="card-title">コラボグループ</h2><span class="card-sub">採用したマークを、同じグループの他の動画へ候補として転写します</span></div>
+    <div class="card-head"><h2 class="card-title">コラボグループ</h2><span class="card-sub">採用したマークを、同じグループの他の配信へ候補として転写します</span></div>
     <div id="clGroupList"></div>
   </section>
   </div>`;
 }
-const EMPTY_GROUPS = '<div class="empty"><b>まだグループがありません</b>左で2本以上の動画を選んで「まとめる」か、② 解析で「コラボとしてまとめる」をオンにして追加してください。</div>';
+const EMPTY_GROUPS = '<div class="empty"><b>まだグループはありません</b>左で2本以上の配信を選んで「まとめる」か、② 解析で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。</div>';
 
-/* ---------- 動画の選択(上のカード) ---------- */
+/* ---------- 配信の選択(左のカード) ---------- */
 function vlabel(v){ return v.title || v.fileName || v.id; }
+const who = v => (v.kind === 'file' ? '動画ファイル' : (v.channel || '配信者不明'));
+const vById = id => C.videos.find(x => x.id === id);
+function vmeta(v){
+  const parts = [];
+  const t = v.createdAt || v.updatedAt;
+  if (t) parts.push(`<span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>`);
+  if (v.duration) parts.push(`<span class="num">${fmt(v.duration).replace(/\.\d$/, '')}</span>`);
+  if (v.marks) parts.push(`マーク ${Number(v.marks) || 0}件`);
+  return parts.join('<span class="q-dot">・</span>');
+}
 function videoRowHtml(v){
   const grouped = !!v.groupId, dis = grouped ? ' disabled' : '';
   const checked = C.checked.has(v.id) ? ' checked' : '';
-  const badge = grouped ? '<span class="pill wait">すでにグループ済み</span>' : (v.duration ? '' : '<span class="pill wait">解析前</span>');
-  return `<label class="cl-video${grouped ? ' is-grouped' : ''}${C.checked.has(v.id) ? ' is-checked' : ''}">
-    <input type="checkbox" data-vid="${esc(v.id)}"${checked}${dis} aria-label="${esc(vlabel(v))}を選ぶ">
-    <span class="cl-vmain"><span class="cl-vtitle">${esc(vlabel(v))}</span>
-      <span class="cl-vmeta">${v.kind === 'file' ? 'ファイル' : esc(v.channel || '')} ・ <span class="mono">${esc(v.id)}</span>${v.duration ? ' ・ <span class="num">' + fmt(v.duration) + '</span>' : ''}</span></span>
+  const badge = grouped ? '<span class="pill wait">グループに入っています</span>' : (v.analysis || v.duration ? '' : '<span class="pill wait">解析前</span>');
+  return `<label class="cl-video${grouped ? ' is-grouped' : ''}${C.checked.has(v.id) ? ' is-checked' : ''}" title="${esc(v.id)}">
+    <input type="checkbox" data-vid="${esc(v.id)}"${checked}${dis} aria-label="${esc(vlabel(v))}(${esc(who(v))})を選ぶ">
+    <span class="cl-vmain"><span class="cl-vtitle">${esc(vlabel(v))}</span><span class="cl-vmeta">${vmeta(v)}</span></span>
     ${badge}</label>`;
+}
+function matchV(v){
+  if (C.f === 'free' && v.groupId) return false;
+  if (C.f === 'analyzed' && !v.analysis) return false;
+  if (C.f === 'fresh' && v.analysis) return false;
+  const q = C.q.trim().toLowerCase(); if (!q) return true;
+  const hay = (vlabel(v) + ' ' + who(v) + ' ' + v.id).toLowerCase();
+  return q.split(/\s+/).every(w => hay.includes(w));
+}
+/* 配信者ごとのまとまり。描くのは開いているまとまりの中身だけ(配信が数百本あっても重くならないように) */
+function groupsOf(list){
+  const m = new Map();
+  for (const v of list){ const k = who(v); if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
+  return [...m.entries()];   // /api/videos は更新の新しい順。まとまりも最初に出てきた(= 新しい)順
+}
+function isOpenG(k, items, many){
+  if (C.openG.has(k)) return C.openG.get(k);
+  if (C.q.trim() || !many) return true;
+  return items.some(v => C.checked.has(v.id));
 }
 function renderVideoList(){
   const box = $('#clVideoList'); if (!box) return;
-  box.innerHTML = C.videos.length ? C.videos.map(videoRowHtml).join('')
-    : '<div class="empty"><b>動画がありません</b>② 解析、または ③ 確認・書き出しから動画を登録してください。</div>';
+  const list = C.videos.filter(matchV), gs = groupsOf(list), many = list.length > 15;
+  $('#clCount').textContent = `${list.length} / ${C.videos.length} 本`;
+  if (!C.videos.length) box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、③ で配信を開くと、ここに出ます。</div>';
+  else if (!list.length) box.innerHTML = `<div class="empty"><b>条件に合う配信はありません</b>${C.q.trim() ? '探す文字を消すか、' : ''}上の「${esc((FILTERS.find(f => f[0] === C.f) || [])[1] || '')}」を「すべての配信」に変えてください。</div>`;
+  else box.innerHTML = gs.map(([k, items]) => { const open = isOpenG(k, items, many), n = items.filter(v => C.checked.has(v.id)).length;
+    return `<details class="ui-group cl-vg" data-g="${esc(k)}"${open ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span>${n ? `<span class="ui-group-side"><span class="pill accent">${n}本 選択中</span></span>` : ''}</summary>
+      <div class="cl-vg-body">${open ? items.map(videoRowHtml).join('') : ''}</div></details>`; }).join('');
   renderBaseSelect();
 }
+function renderPicked(){
+  const el = $('#clPicked'); if (!el) return;
+  const ids = [...C.checked];
+  el.innerHTML = ids.length ? `<span class="l">選んだ配信 <b class="num">${ids.length}</b>本</span>` + ids.map(id => { const v = vById(id);
+    return `<span class="cl-chip"><span class="cl-chip-t">${esc(v ? vlabel(v) : id)}</span><span class="muted">${esc(v ? who(v) : '')}</span><button type="button" class="btn small ghost icon" data-unpick="${esc(id)}" aria-label="${esc(v ? vlabel(v) : id)} を選択から外す" title="選択から外す">×</button></span>`; }).join('')
+    : `<span class="hint">${C.addTo ? '追加する配信を上の一覧で選んでください' : 'まとめる配信を上の一覧で2本以上選んでください(同じコラボの、それぞれの人の配信)'}</span>`;
+}
 function renderBaseSelect(){
+  renderPicked();
   const ids = [...C.checked];
   if (C.addTo){
     $('#clGo').disabled = !ids.length || C.busy;
     return;
   }
   const sel = $('#clBase');
-  if (!ids.length){ sel.innerHTML = '<option value="">(2本以上選ぶ)</option>'; sel.disabled = true; $('#clGo').disabled = true; return; }
+  if (!ids.length){ sel.innerHTML = '<option value="">(2本以上選ぶと選べます)</option>'; sel.disabled = true; $('#clGo').disabled = true; return; }
   sel.disabled = false;
   if (!ids.includes(C.base)) C.base = ids[0];
-  sel.innerHTML = ids.map(id => { const v = C.videos.find(x => x.id === id); return `<option value="${esc(id)}"${id === C.base ? ' selected' : ''}>${esc(v ? vlabel(v) : id)}</option>`; }).join('');
+  sel.innerHTML = ids.map(id => { const v = vById(id); return `<option value="${esc(id)}"${id === C.base ? ' selected' : ''}>${esc(v ? vlabel(v) + '(' + who(v) + ')' : id)}</option>`; }).join('');
   $('#clGo').disabled = ids.length < 2 || C.busy;
 }
 function renderMakeCard(){
   const g = C.addTo ? C.groups.find(x => x.id === C.addTo) : null;
-  $('#clMakeTitle').textContent = C.addTo ? `『${g ? (g.name || '(名称未設定)') : ''}』に動画を追加` : '動画をコラボにまとめる';
+  $('#clMakeTitle').textContent = C.addTo ? `『${g ? (g.name || '(名称未設定)') : ''}』に配信を追加` : '配信をコラボにまとめる';
   $('#clMakeSub').textContent = C.addTo
-    ? 'チェックした動画をこのグループに追加します(すでに解析済み・未解析どちらでも構いません)。'
-    : 'チェックした動画を1つのグループにします。採用したマークを、同じグループの他の動画にも候補として転写できるようになります(自動採用はしません)。まとめたあと、下の「コラボグループ」でズレ(アンカー点)を指定してください。';
+    ? 'チェックした配信をこのグループに追加します(解析済み・解析前のどちらでも構いません)。'
+    : '同じコラボの、それぞれの人の配信を1つのグループにします。採用したマークを、同じグループの他の配信にも候補として転写できるようになります(自動で採用はしません)。まとめたあと、右の「コラボグループ」でズレ(アンカー)を指定してください。';
   $('#clBaseRow').hidden = !!C.addTo;
-  $('#clGo').textContent = C.addTo ? '追加する' : '選んだ動画をまとめる';
+  $('#clGo').textContent = C.addTo ? '追加する' : '選んだ配信をまとめる';
   $('#clCancelAdd').hidden = !C.addTo;
 }
 
@@ -107,18 +157,24 @@ function offsetText(off){
   return `${drift}オフセット ${b}`;
 }
 function baseTitle(g){ const b = g.members.find(x => x.isBase); return b ? (b.title || b.id) : g.base; }
+/* メンバーの「だれの・いつの」(同じ題名の配信を見分ける)。/api/videos の一覧から引く */
+function memberMeta(m){
+  const v = vById(m.id); if (!v) return '';
+  const t = v.createdAt || v.updatedAt;
+  return `<span class="cl-mmeta">${esc(who(v))}${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>` : ''}${v.duration ? `<span class="q-dot">・</span><span class="num">${fmt(v.duration).replace(/\.\d$/, '')}</span>` : ''}</span>`;
+}
 function anchorFormHtml(g, m){
   return `<div class="cl-anchor">
-    <p class="hint">両方の動画で「同じ瞬間」を見つけて、その時刻を入力してください(例: 1:23.5、1時間以上は 1:02:03.5)。2点目も指定すると、配信中のわずかなズレの変化(ドリフト)も補正できます。</p>
+    <p class="hint">両方の配信で「同じ瞬間」(同じ発言・効果音など)を見つけて、その時刻を入力してください(例: 1:23.5、1時間以上は 1:02:03.5)。2点目も指定すると、配信中のわずかなズレの変化(<abbr class="ui-term" title="配信が長いと、2つの配信の時刻の差が少しずつ変わっていくこと">ドリフト</abbr>)も補正できます。</p>
     <div class="cl-apoints">
       <span class="cl-plabel">点1</span>
-      <label class="cs-opt"><span class="l">この動画 <span class="muted">${esc(m.title || m.id)}</span></span><input type="text" class="mono" id="clA1this" placeholder="0:00.0" autocomplete="off"></label>
+      <label class="cs-opt"><span class="l">この配信 <span class="muted">${esc(m.title || m.id)}</span></span><input type="text" class="mono" id="clA1this" placeholder="0:00.0" autocomplete="off"></label>
       <label class="cs-opt"><span class="l">基準 <span class="muted">${esc(baseTitle(g))}</span></span><input type="text" class="mono" id="clA1ref" placeholder="0:00.0" autocomplete="off"></label>
     </div>
     <label class="lag cl-a2" for="clA2on"><input type="checkbox" class="ui-switch" id="clA2on">2点目も指定する</label>
     <div class="cl-apoints" id="clA2row" hidden>
       <span class="cl-plabel">点2</span>
-      <label class="cs-opt"><span class="l">この動画</span><input type="text" class="mono" id="clA2this" placeholder="0:00.0" autocomplete="off"></label>
+      <label class="cs-opt"><span class="l">この配信</span><input type="text" class="mono" id="clA2this" placeholder="0:00.0" autocomplete="off"></label>
       <label class="cs-opt"><span class="l">基準</span><input type="text" class="mono" id="clA2ref" placeholder="0:00.0" autocomplete="off"></label>
     </div>
     <div class="row cl-acts"><button type="button" class="btn primary" data-act="saveAnchor">計算して保存</button>
@@ -128,12 +184,12 @@ function anchorFormHtml(g, m){
 function memberRowHtml(g, m){
   const open = C.anchorOpen && C.anchorOpen.gid === g.id && C.anchorOpen.videoId === m.id;
   let h = `<li class="cl-member${open ? ' is-open' : ''}${m.isBase ? ' is-base' : ''}" data-gid="${esc(g.id)}" data-vid="${esc(m.id)}"><div class="cl-mh">
-    <span class="cl-mtitle">${esc(m.title || m.id)}</span>${!m.exists ? '<span class="pill">削除済み</span>' : ''}
+    <span class="cl-mname"><span class="cl-mtitle">${esc(m.title || m.id)}</span>${memberMeta(m)}</span>${!m.exists ? '<span class="pill">削除済み</span>' : ''}
     ${m.isBase ? '<span class="pill accent">基準</span>'
       : (m.offsetSet ? `<span class="pill ok" title="${esc(offsetText(m.offset))}">ズレ設定済み <span class="num">${esc(offsetText(m.offset))}</span></span>` : '<span class="pill warn">ズレ未設定</span>')}
     <span class="spacer"></span>`;
-  if (!m.isBase) h += `<button type="button" class="btn small${m.offsetSet ? '' : ' soft'}" data-act="anchor" aria-expanded="${open}">${m.offsetSet ? 'アンカーを設定し直す' : 'アンカーを指定'}</button>`;
-  h += `<button type="button" class="btn small ghost danger" data-act="removeMember" title="${m.isBase ? '基準の動画を外すと、グループごと削除されます' : 'この動画をグループから外します(転写済みのマークは残ります)'}">グループから外す</button></div>`;
+  if (!m.isBase) h += `<button type="button" class="btn small" data-act="anchor" aria-expanded="${open}">${m.offsetSet ? 'アンカーを設定し直す' : 'アンカーを指定'}</button>`;
+  h += `<button type="button" class="btn small ghost danger" data-act="removeMember" title="${m.isBase ? '基準の配信を外すと、グループごと削除されます' : 'この配信をグループから外します(転写済みのマークは残ります)'}">グループから外す</button></div>`;
   if (open) h += anchorFormHtml(g, m);
   h += '</li>';
   return h;
@@ -143,9 +199,10 @@ function groupHtml(g){
     <div class="cl-ghead">
       <b class="cl-gname">${esc(g.name || '(名称未設定)')}</b><span class="pill ${g.allSet ? 'ok' : 'warn'}">${g.allSet ? 'ズレ設定済み' : 'ズレ未設定あり'}</span><span class="card-sub num">${g.members.length}本</span>
       <span class="spacer"></span>
-      <button type="button" class="btn small ghost" data-act="addMore">動画を追加</button>
+      <button type="button" class="btn small ghost" data-act="addMore">配信を追加</button>
       <button type="button" class="btn small ghost danger" data-act="deleteGroup">グループを削除</button>
     </div>
+    ${g.allSet ? '' : `<div class="ui-next cl-next"><span>ズレ未設定の配信で「アンカーを指定」を押します(${ANCHOR_TERM}を1点入れると、転写が始まります)</span></div>`}
     <ol class="cl-members">${g.members.map(m => memberRowHtml(g, m)).join('')}</ol>
   </div>`;
 }
@@ -167,7 +224,7 @@ async function refresh(){
   if (C.addTo && !C.groups.some(g => g.id === C.addTo)) C.addTo = null;
   if (C.anchorOpen && !C.groups.some(g => g.id === C.anchorOpen.gid)) C.anchorOpen = null;
   renderMakeCard(); renderVideoList(); renderGroups();
-  S.setBadge('collab', (() => { const n = C.groups.filter(g => !g.allSet).length; return n ? String(n) : ''; })());
+  { const n = C.groups.filter(g => !g.allSet).length; S.setBadge('collab', n ? String(n) : '', n ? `ズレ(アンカー)が未設定のグループ ${n}件` : ''); }
 }
 async function onGo(){
   if (C.busy) return;
@@ -177,7 +234,7 @@ async function onGo(){
 async function doGo(){
   const ids = [...C.checked];
   if (C.addTo){
-    if (!ids.length) return S.toast('追加する動画を選んでください');
+    if (!ids.length) return S.toast('追加する配信を選んでください');
     try {
       await S.api('/api/collab/group/add', { body: { id: C.addTo, videoIds: ids } });
       S.toast(`${ids.length}本を追加しました`, 0, 'ok');
@@ -186,10 +243,10 @@ async function doGo(){
     } catch (e){ S.toast(e.message, 0, 'err'); }
     return;
   }
-  if (ids.length < 2) return S.toast('2本以上選んでください');
+  if (ids.length < 2) return S.toast('まとめる配信を2本以上選んでください');
   try {
     await S.api('/api/collab/group', { body: { videoIds: ids, name: $('#clName').value, base: C.base } });
-    S.toast('コラボのグループにまとめました。「コラボグループ」でズレ(アンカー点)を指定してください', 6000, 'ok');
+    S.toast('コラボのグループにまとめました。「コラボグループ」でズレ(アンカー)を指定してください', 6000, 'ok');
     C.checked.clear(); $('#clName').value = '';
     await refresh();
   } catch (e){ S.toast(e.message, 0, 'err'); }
@@ -198,6 +255,7 @@ function onVideoChange(e){
   const cb = e.target.closest('input[type=checkbox][data-vid]'); if (!cb) return;
   if (cb.checked) C.checked.add(cb.dataset.vid); else C.checked.delete(cb.dataset.vid);
   const row = cb.closest('.cl-video'); if (row) row.classList.toggle('is-checked', cb.checked);
+  const gd = cb.closest('.cl-vg'); if (gd) C.openG.set(gd.dataset.g, true);
   renderBaseSelect();
 }
 async function saveAnchor(gid, vid){
@@ -239,7 +297,7 @@ async function onGroupClick(e){
     armDelete(b, async () => {
       try {
         const r = await S.api('/api/collab/group/remove', { body: { id: gid, videoId: vid } });
-        S.toast(r.deleted ? 'グループから外しました(基準の動画を外した、または残り1本になったため、グループごと削除しました)' : 'グループから外しました', 6000, 'ok');
+        S.toast(r.deleted ? 'グループから外しました(基準の配信を外した、または残り1本になったため、グループごと削除しました)' : 'グループから外しました', 6000, 'ok');
         await refresh();
       } catch (er){ S.toast(er.message, 0, 'err'); }
     }, lose ? 'もう一度押すとグループごと削除' : 'もう一度押すと外す');
@@ -267,6 +325,17 @@ S.onReady(() => {
   $('#clCancelAdd').addEventListener('click', () => { C.addTo = null; C.checked.clear(); renderMakeCard(); renderVideoList(); });
   $('#clBase').addEventListener('change', e => { C.base = e.target.value; });
   $('#clVideoList').addEventListener('change', onVideoChange);
+  /* まとまりを開いたら、そのときに中身を描く(閉じているまとまりは描かない) */
+  $('#clVideoList').addEventListener('toggle', e => {
+    const d = e.target; if (!d.classList || !d.classList.contains('cl-vg')) return;
+    C.openG.set(d.dataset.g, d.open);
+    const body = d.querySelector('.cl-vg-body');
+    if (d.open && body && !body.children.length){ const items = C.videos.filter(matchV).filter(v => who(v) === d.dataset.g); body.innerHTML = items.map(videoRowHtml).join(''); }
+  }, true);
+  let qT = null;
+  $('#clQ').addEventListener('input', e => { C.q = e.target.value; clearTimeout(qT); qT = setTimeout(renderVideoList, 120); });
+  $('#clF').addEventListener('change', e => { C.f = e.target.value; renderVideoList(); });
+  $('#clPicked').addEventListener('click', e => { const b = e.target.closest('[data-unpick]'); if (!b) return; C.checked.delete(b.dataset.unpick); renderVideoList(); });
   $('#clGroupList').addEventListener('click', onGroupClick);
   $('#clGroupList').addEventListener('change', onGroupChange);
   $('#clGroupList').addEventListener('keydown', e => {   // 時刻の欄で Enter を押したら保存

@@ -98,10 +98,26 @@ def main(argv=None):
 
             # 読み込み → 試算
             pg.fill("#inVideo", video)
+            # フォーカスを外して「読み込んでいます…」の表示分だけ高さが変わるのを先に落ち着かせる
+            # (フォーカスが残ったまま下の要素をクリックすると、blur → 状態表示の出現でレイアウトが
+            #  ずれてクリックが下の背景に当たってしまうことがあるため。問題10で見つけた挙動)
+            pg.evaluate("document.getElementById('inVideo').blur()")
+            pg.wait_for_timeout(200)
+            check(not pg.is_visible("#inSrt"), "字幕・文字起こし・残す区間の欄は既定で閉じている")
+            pg.click("#optionalInputs summary")   # 「字幕・文字起こし・残す区間(任意)」を開く
             pg.fill("#inSrt", srt)
             pg.click("#btnInspect")
             wait_js(pg, "document.querySelector('#stVideo').textContent.includes('fps')", 20000)
             check("320×180" in pg.inner_text("#stVideo") or "320x180" in pg.inner_text("#stVideo"), "動画の情報(解像度・fps)を表示する")
+
+            # 問題6: まだ試算していないのに「パックを作る」を押すと確認を出す(取り消すと作らない)
+            pg.click("#btnBuild")
+            pg.wait_for_selector("#dlgNoPlan[open]", timeout=5000)
+            check(pg.is_visible("#dlgNoPlan"), "試算せずに「パックを作る」を押すと確認を出す")
+            pg.click("#npCancel")
+            check(not pg.evaluate("document.querySelector('#dlgNoPlan').open"), "取り消すと確認が閉じる")
+            check(pg.is_hidden("#result"), "取り消すと作らない")
+
             pg.click("#btnPlan")
             wait_js(pg, "!document.querySelector('#stats').hidden && document.querySelector('#stats').textContent.includes('残す')", 60000)
             stats = pg.inner_text("#stats")

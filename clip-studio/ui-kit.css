@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v1 — youtube-tools 共通の見た目(色・文字・部品)。
+/* ui-kit v3 — youtube-tools 共通の見た目(色・文字・部品)。v3(2026-09-26): 状態の札の文字の濃さ(明るいテーマで 4.5:1 以上)・一覧の道具・入口へ戻るリンク・言葉の説明。
    正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    テーマ: <html data-theme="light|dark">(theme.js が OS の設定・保存した選択から決める)。
    既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
@@ -18,6 +18,8 @@
   --ink:#141821;--ink-2:#485062;--ink-3:#767f91;--ink-4:#a2a9b7;
   --accent:#5a46e0;--accent-hover:#4c38d4;--accent-ink:#ffffff;--accent-soft:#ecebfd;--accent-line:#c9c2fa;
   --ok:#17875a;--ok-soft:#e3f5ec;--warn:#a86a06;--warn-soft:#fdf2dc;--danger:#cf3434;--danger-soft:#fde8e8;--info:#0a74b3;--info-soft:#e2f1fa;
+  /* 状態の札(.pill)の文字色。薄い背景の上でも読める濃さ(明るいテーマで 5.5:1 以上。WCAG AA の 4.5:1 を満たす) */
+  --ok-ink:#0d6b44;--warn-ink:#8a5300;--danger-ink:#b42323;--info-ink:#075f94;--accent-ink2:#4b36cf;
   --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
   --shadow-1:0 1px 2px rgba(20,24,33,.06),0 1px 1px rgba(20,24,33,.04);
   --shadow-2:0 4px 14px rgba(20,24,33,.08),0 1px 3px rgba(20,24,33,.06);
@@ -43,6 +45,7 @@
   --ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
   --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
   --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --ok-ink:#4cd08b;--warn-ink:#f0b54a;--danger-ink:#ff6f6f;--info-ink:#5cc3ff;--accent-ink2:#a397ff;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
   --shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);
@@ -57,6 +60,7 @@
   --line:#262a34;--line-2:#343a47;--line-strong:#4a5160;--ink:#e8ebf2;--ink-2:#aeb5c3;--ink-3:#7d8596;--ink-4:#596070;
   --accent:#8f80ff;--accent-hover:#a397ff;--accent-ink:#110d2b;--accent-soft:rgba(143,128,255,.15);--accent-line:rgba(143,128,255,.45);
   --ok:#4cd08b;--ok-soft:rgba(76,208,139,.13);--warn:#f0b54a;--warn-soft:rgba(240,181,74,.13);--danger:#ff6f6f;--danger-soft:rgba(255,111,111,.13);--info:#5cc3ff;--info-soft:rgba(92,195,255,.13);
+  --ok-ink:#4cd08b;--warn-ink:#f0b54a;--danger-ink:#ff6f6f;--info-ink:#5cc3ff;--accent-ink2:#a397ff;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
   --header-bg:rgba(14,16,21,.78);--scroll-thumb:#353a46;
@@ -97,6 +101,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark svg{width:15px;height:15px}
 .ui-brand-mark[data-tool=transcribe]{background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#2aa5e6 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
 .ui-brand-mark[data-tool=cut2resolve]{background:linear-gradient(135deg,#f59e0b,#ef5a5a);box-shadow:0 2px 8px color-mix(in srgb,#f07b3a 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark[data-tool=portal]{background:linear-gradient(135deg,#5a46e0,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#3f7fe0 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
 .ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
@@ -194,6 +199,8 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
 .lag{display:inline-flex;align-items:center;gap:6px;max-width:100%;cursor:pointer}
+/* 短いラベル + select などを1組で扱うとき: 狭い画面でラベルの文字が1文字ずつ縦に割れないように(折り返さない)。長い説明つきのスイッチには付けない */
+.lag.keep{white-space:nowrap;flex:none}
 
 /* ---------- 7. 面・カード ---------- */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;box-shadow:var(--shadow-1)}
@@ -210,14 +217,15 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .section-title{font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
 
 /* ---------- 8. 小さな表示 ---------- */
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line);white-space:nowrap}
-.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
-.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
-.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger);border-color:transparent}
-.pill.info{background:var(--info-soft);color:var(--info);border-color:transparent}
-.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+/* 状態の札: 押せない表示だけのもの。ボタン(枠・角丸 8px)と見分けられるよう、枠なし・丸い端・押しても何も起きない */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid transparent;white-space:nowrap;cursor:default;user-select:none}
+.pill.ok{background:var(--ok-soft);color:var(--ok-ink)}
+.pill.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
+.pill.info{background:var(--info-soft);color:var(--info-ink)}
+.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent-ink2)}
 .pill.run::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
-.pill.wait{color:var(--ink-3)}
+.pill.wait{color:var(--ink-2)}
 .badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
 :root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
@@ -292,3 +300,30 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 
 /* 動きを減らす設定 */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+/* ---------- v3(2026-09-26): 画面の見直しで足した共通の部品 ---------- */
+/* 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>。入口に取り込まれているときだけ ui-kit.js が表示する) */
+.ui-home{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:550;padding:0 8px;min-height:var(--ctl-h-sm);border-radius:var(--r)}
+.ui-home:hover{background:var(--panel-2);color:var(--ink)}
+.ui-home svg{width:16px;height:16px}
+.ui-menu-pop .ui-menu-sep{height:1px;background:var(--line);margin:4px 2px}
+
+/* 一覧の道具の行(検索・絞り込み・並び替え・件数)。検索欄は残りの幅いっぱいに伸びる */
+.ui-listbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 10px}
+.ui-listbar input[type=search]{flex:1 1 220px;min-width:0;width:auto}
+.ui-listbar select{width:auto}
+.ui-listbar .ui-count{color:var(--ink-3);font-size:var(--fs-sm);margin-left:auto;white-space:nowrap}
+/* 一覧のまとまり(配信者ごと・日付ごとなど)。<details class="ui-group"><summary>見出し <span class="ui-group-n">件数</span></summary>…</details> */
+.ui-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);margin:0 0 8px;overflow:hidden;flex:none}   /* flex:none: 高さに上限のある縦並びの中で縮んで中身が重ならないように */
+.ui-group>summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;padding:8px 12px;font-weight:650;font-size:13.5px;background:var(--panel-2)}
+.ui-group>summary::-webkit-details-marker{display:none}
+.ui-group>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.ui-group[open]>summary::before{transform:rotate(45deg)}
+.ui-group-n{color:var(--ink-3);font-weight:550;font-size:var(--fs-sm)}
+.ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
+/* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
+.ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
+/* 次にやること(一覧の1行に1つだけ出す短い案内) */
+.ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
+.ui-next::before{content:"→"}
+

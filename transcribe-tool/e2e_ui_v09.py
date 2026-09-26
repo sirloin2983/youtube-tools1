@@ -240,7 +240,7 @@ def main():
             check(navi() == 1, "「太枠も再生に合わせる」をオンにすると動く")
             pg.evaluate("document.querySelector('#frameFollow').click()")
             # 範囲の再認識(画面)
-            pg.evaluate("document.querySelector('#spDetails').open = true; const s = document.querySelector('#rtTarget'); s.value = 'range'; s.dispatchEvent(new Event('change'))")
+            pg.evaluate("document.querySelector('#fixDetails').open = true; const s = document.querySelector('#rtTarget'); s.value = 'range'; s.dispatchEvent(new Event('change'))")
             pg.wait_for_timeout(800)
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[1].click()")
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[3].click()")

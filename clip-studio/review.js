@@ -98,28 +98,61 @@ const SVG = {
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.7L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 };
+const PICK_FILTERS = [['all', 'すべて'], ['cand', '判定待ちの候補がある'], ['adopt', '書き出し待ちの採用がある'], ['done', '書き出し済みがある'], ['none', 'マークがない']];
 function buildDOM(){
   $('#paneReview').innerHTML = `
 <div class="rv-root" id="rvRoot">
   <div class="rv-warn notice" id="rvWarn" hidden><span id="rvWarnText"></span><button type="button" class="btn small" id="rvWarnClose">閉じる</button></div>
-  <div class="rv-top">
-    <div class="rv-top-l">
-      <label class="rv-lbl" for="rvVideoSel">動画</label>
-      <select id="rvVideoSel" aria-label="保存済みの動画"></select>
-      <button type="button" class="rv-save" id="rvSave" data-k="idle" role="status" title="クリックで今すぐ保存">準備中</button>
-    </div>
-    <form class="rv-open" id="rvOpenForm" autocomplete="off">
-      <input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTubeのURL・動画ID、または動画ファイルのフルパスを開く" aria-label="開く動画(YouTubeのURL・動画ID、または動画ファイルのパス)">
-      <button class="btn" type="submit" id="rvOpenBtn">開く</button>
-    </form>
+  <div class="rv-top" id="rvTop">
+    <details class="ui-menu rv-pick" id="rvPick">
+      <summary class="rv-pickbtn" id="rvPickBtn" title="配信を選ぶ・開く(全部の配信から探せます)">
+        <span class="rv-lbl">配信</span>
+        <span class="rv-pickcur"><span class="rv-curlabel" id="rvCurLabel"></span><span class="rv-chips" id="rvChips"></span></span>
+        <svg class="rv-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </summary>
+      <div class="rv-pickpop" role="dialog" aria-label="配信を選ぶ">
+        <div class="ui-listbar rv-pickbar">
+          <input type="search" id="rvPickQ" placeholder="題名・配信者で探す" aria-label="配信を探す" autocomplete="off">
+          <select id="rvPickF" aria-label="絞り込み">${PICK_FILTERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+          <select id="rvPickSort" aria-label="並び順"><option value="recent">新しい順</option><option value="channel">配信者ごと</option></select>
+          <span class="ui-count" id="rvPickN"></span>
+        </div>
+        <div class="rv-picklist" id="rvPickList"></div>
+        <form class="rv-open" id="rvOpenForm" autocomplete="off">
+          <label class="rv-fl" for="rvOpenIn">一覧に無い配信・動画ファイルを開く(解析せずに手でマークを付けるとき)</label>
+          <div class="rv-openrow"><input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTube の URL・動画 ID、または動画ファイルのフルパス">
+          <button class="btn" type="submit" id="rvOpenBtn">開く</button></div>
+        </form>
+      </div>
+    </details>
+    <button type="button" class="rv-save" id="rvSave" data-k="idle" role="status" title="マークは自動で保存します。失敗したときはここを押すと保存し直します">準備中</button>
+    <span class="rv-topsp"></span>
+    <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター</span></button>
+    <details class="ui-menu rv-vmenu" id="rvVMenu">
+      <summary class="btn small ghost" title="この配信の名前・解析・削除"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>配信の操作</span></summary>
+      <div class="rv-vmenupop">
+        <label class="rv-fl" for="rvTitle">名前(自分用のラベル。一覧と書き出しのフォルダ名に使います)</label>
+        <input id="rvTitle" type="text" maxlength="120" placeholder="例: 2026-09-12 マリオカート配信">
+        <div class="rv-vmenuacts">
+          <a class="btn small ghost" id="rvYtLink" target="_blank" rel="noopener noreferrer" hidden title="YouTube で、いまの位置から開きます">YouTube で開く</a>
+          <button class="btn small" id="rvAnalyze" type="button" hidden title="この配信を ② 解析のキューに入れて、自動マークを作ります">この配信を解析する</button>
+          <button class="btn small danger" id="rvDelVideo" type="button" title="スタジオの一覧から消します(書き出した切り抜きのファイルは残ります)">スタジオから削除</button>
+        </div>
+      </div>
+    </details>
   </div>
+  <nav class="rv-jump" id="rvJump" aria-label="この画面の中の移動">
+    <button type="button" class="rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
+    <button type="button" class="rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
+    <button type="button" class="rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄へ">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </nav>
   <div class="rv-emptybox empty" id="rvEmpty" hidden>
-    <b>動画が開かれていません</b>
-    <span>上の欄にYouTubeのURL(または動画ID)、または手元の動画ファイルのパスを入れて「開く」を押すと、手動でマークを付けられます。② 解析で自動マークを作った動画は、左上の一覧から選べます。</span>
+    <b>まだ配信が開かれていません</b>
+    <span>② 解析で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
+    <div><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button></div>
   </div>
   <div class="rv-grid" id="rvMain" hidden>
-    <section class="rv-stage" aria-label="プレーヤーとマーク">
-      <div class="rv-curbar"><div class="rv-curlabel" id="rvCurLabel" title="クリックで動画名を編集"></div><span class="rv-chips" id="rvChips"></span><button class="btn small ghost" id="rvTheater" type="button" aria-pressed="false" title="シアターモード(動画を大きく)">${SVG.theater}<span>シアター</span></button></div>
+    <section class="rv-stage" id="rvStage" aria-label="プレーヤーとマークの付け方">
       <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
@@ -174,17 +207,12 @@ function buildDOM(){
         </div>
         <div class="rv-markcell rv-addcell">
           <button class="btn primary" id="rvAdd" type="button">マーク追加<kbd data-kbd="addClip">A</kbd></button>
-          <span class="hint" id="rvDraftDur">&nbsp;</span>
-        </div>
-        <div class="rv-markcell rv-lagcell">
-          <label class="rv-check" for="rvLag">反応の遅れ補正</label>
-          <select id="rvLag"><option value="0">なし</option><option value="2">−2秒</option><option value="3">−3秒</option><option value="5">−5秒</option></select>
-          <button type="button" class="btn small ghost rv-keyshint" id="rvKeysHint" title="キー操作の一覧(?)">キー一覧 <kbd>?</kbd></button>
+          <span class="hint" id="rvDraftDur">IN と OUT を押すと追加できます</span>
         </div>
       </div>
 
       <details class="rv-settings ui-disclosure" id="rvSettings">
-        <summary>操作の設定 <span class="muted">音量・キー配置・確認の進め方・ライブ配信</span></summary>
+        <summary>操作の設定 <span class="muted">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary>
         <div class="rv-setpanel">
           <section class="rv-sec">
             <h3>音量</h3>
@@ -196,8 +224,13 @@ function buildDOM(){
             <div class="rv-setrow"><label class="rv-check" for="rvAutoNext"><input type="checkbox" class="ui-switch" id="rvAutoNext">「採用」「不採用」を押したら、次の候補へ進む</label></div>
           </section>
           <section class="rv-sec">
+            <h3>マークの付け方</h3>
+            <div class="rv-setrow"><label class="rv-check" for="rvLag">反応の遅れ補正</label><select id="rvLag"><option value="0">なし</option><option value="2">−2秒</option><option value="3">−3秒</option><option value="5">−5秒</option></select></div>
+            <p class="rv-sechint">面白い場面を見てから IN・「今をマーク」を押すまでの遅れの分だけ、開始を前にずらします。</p>
+          </section>
+          <section class="rv-sec">
             <h3>キー配置</h3>
-            <p class="rv-sechint">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取消 / Delete = 割り当て解除。すでに使われているキーを選ぶと、そちらの割り当てが外れます。</p>
+            <p class="rv-sechint">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取消 / Delete = 割り当て解除。すでに使われているキーを選ぶと、そちらの割り当てが外れます。一覧はヘッダーの「キー操作」(? キー)でも見られます。</p>
             <div class="rv-setrow"><select id="rvKeyPreset" aria-label="キー配置のプリセット"><option value="standard">標準(I O A ・矢印)</option><option value="left">左手だけ(Q W E ・A D)</option><option value="custom" disabled>カスタム</option></select><button class="btn small" id="rvKeyReset" type="button">標準に戻す</button></div>
             <div class="rv-keygrid" id="rvKeyGrid"></div>
           </section>
@@ -208,43 +241,40 @@ function buildDOM(){
             <div class="rv-setrow"><label class="rv-check" for="rvShiftSec">ずらす秒数<input id="rvShiftSec" type="number" step="1" min="-3600" max="3600" value="0"></label><button class="btn small" id="rvShift" type="button">適用</button><span class="hint" id="rvShiftCount"></span></div>
             <details class="rv-adv ui-disclosure"><summary>詳細設定(通常は変更不要)</summary>
               <div class="rv-subh" style="margin-top:8px"><label for="rvLiveMode">ライブ判定</label></div>
-              <select id="rvLiveMode"><option value="auto">自動(おすすめ)</option><option value="on">常にライブとして扱う</option><option value="off">常に通常の動画として扱う</option></select>
-              <p class="rv-sechint" style="margin-top:6px">いま見ている動画が「配信中のライブ」かどうかの判定です。ライブなのにライブ用バーが出ないときだけ「常にライブ」を選んでください。</p>
+              <select id="rvLiveMode"><option value="auto">自動(おすすめ)</option><option value="on">常にライブとして扱う</option><option value="off">常に通常の配信(アーカイブ)として扱う</option></select>
+              <p class="rv-sechint" style="margin-top:6px">いま見ている配信が「配信中のライブ」かどうかの判定です。ライブなのにライブ用バーが出ないときだけ「常にライブ」を選んでください。</p>
             </details>
           </section>
         </div>
       </details>
-
-      <div class="rv-videometa">
-        <div class="rv-grow"><label class="rv-fl" for="rvTitle">動画名(自分用のラベル)</label><input id="rvTitle" type="text" maxlength="120" placeholder="例: 2026-09-12 マリオカート配信"></div>
-        <button class="btn small rv-wrap" id="rvAnalyze" type="button" hidden title="この動画を ② 解析のキューに入れて、自動マークを作ります">この動画を解析する</button>
-        <button class="btn small danger" id="rvDelVideo" type="button">この動画を削除</button>
-      </div>
     </section>
 
     <section class="rv-clips" aria-label="書き出しとマーク">
-      <details class="rv-panel" id="rvExport" open>
-        <summary><span class="rv-ptitle">書き出し</span><span class="rv-exp-sum hint" id="rvExpSum"></span></summary>
+      <section class="rv-panel" id="rvExport" aria-labelledby="rvExpTitle">
+        <div class="rv-exphead"><h2 class="rv-ptitle" id="rvExpTitle">書き出し</h2><span class="rv-exp-sum hint" id="rvExpSum"></span></div>
         <div class="rv-status" id="rvToolStatus"></div>
-        <div class="rv-expgrid">
-          <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
-            <select id="rvExpTarget"><option value="adopted">採用のみ</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも含む)</option></select></div>
-          <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
-            <select id="rvPrecision" title="高速は切れ目がキーフレーム(数秒間隔)に寄るため、開始が最大数秒手前にずれます。失敗した場合は自動で精密方式に切り替えます。"><option value="accurate">精密(再エンコード・指定した位置ちょうど)</option><option value="fast">高速(再エンコードなし・数秒手前から始まることがある)</option></select>
-            </div>
-          <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
-            <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
-          <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方</label>
-            <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">そろえる -14 LUFS(YouTube の目安)</option><option value="-11">そろえる -11 LUFS(大きめ)</option><option value="-16">そろえる -16 LUFS(控えめ)</option><option value="-18">そろえる -18 LUFS(小さめ)</option><option value="0">そろえない(下の音量 % を使う)</option></select></div>
-          <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量</label>
-            <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
-          </div>
-        </div>
-        <div class="rv-tools"><button class="btn primary" id="rvExpRun" type="button">書き出す</button><button class="btn" id="rvExpAll" type="button" title="採用にしたマークがある全動画を、順番に書き出します">全動画の採用を書き出す</button><button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button><button class="btn" id="rvExpRetry" type="button" hidden>失敗した分だけやり直す</button><span class="hint" id="rvExpCount"></span></div>
+        <div class="rv-tools"><button class="btn primary" id="rvExpRun" type="button">書き出す</button><button class="btn" id="rvExpAll" type="button" title="採用にしたマークがある全部の配信を、順番に書き出します">全部の配信の採用を書き出す</button><button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button><button class="btn" id="rvExpRetry" type="button" hidden>失敗した分だけやり直す</button></div>
+        <p class="hint rv-expcount" id="rvExpCount"></p>
         <div class="bar rv-expbar" id="rvExpBar" hidden><i></i></div>
+        <details class="ui-disclosure rv-expset" id="rvExpSet"><summary>書き出しの設定 <span class="muted rv-expsetsum" id="rvExpSetSum"></span></summary>
+          <div class="rv-expgrid">
+            <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
+              <select id="rvExpTarget"><option value="adopted">採用のみ(おすすめ)</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも)</option></select></div>
+            <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
+              <select id="rvPrecision" title="高速は切れ目がキーフレーム(数秒間隔)に寄るため、開始が最大数秒手前にずれます。失敗した場合は自動で精密方式に切り替えます。"><option value="accurate">精密(位置ちょうど・おすすめ)</option><option value="fast">高速(数秒手前から始まることあり)</option></select>
+              </div>
+            <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
+              <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
+            <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
+              <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない(音量 % で指定)</option></select></div>
+            <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量(そろえないとき)</label>
+              <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
+            </div>
+          </div>
+          <p class="hint rv-outline">保存先: <span class="mono" id="rvOutDir"></span> <button type="button" class="btn small ghost" id="rvOutEdit">変更</button></p>
+        </details>
         <ol class="rv-explist" id="rvExpList"></ol>
-        <p class="hint rv-outline">保存先: <span class="mono" id="rvOutDir"></span> <button type="button" class="btn small ghost" id="rvOutEdit">変更</button></p>
-      </details>
+      </section>
 
       <div class="rv-clipbox" id="rvClipbox">
         <div class="rv-clips-head"><h2>マーク</h2><div class="hint" id="rvStats"></div></div>
@@ -253,7 +283,7 @@ function buildDOM(){
           <div class="rv-listtools2">
             <select id="rvSort" aria-label="並び順"><option value="time">時刻順</option><option value="score">点数順</option></select>
             <button class="btn small ghost" id="rvFoldAll" type="button" title="すべてのマークを折りたたむ">すべて折りたたむ</button><button class="btn small ghost" id="rvUnfoldAll" type="button">すべて開く</button>
-            <button class="btn small soft" id="rvBulkAdopt" type="button" title="候補のマークをすべて採用にします">候補をすべて採用</button>
+            <button class="btn small ghost" id="rvBulkAdopt" type="button" title="候補のマークをすべて採用にします">候補をすべて採用</button>
           </div>
         </div>
         <ol class="rv-list" id="rvList"></ol>
@@ -373,19 +403,61 @@ async function refreshList(){
 }
 let quietT = null;
 function refreshListQuiet(){ clearTimeout(quietT); quietT = setTimeout(() => { quietT = null; refreshList(); }, 300); }
+/* ③ のタブの件数: 判定か書き出しが残っている配信の数(候補か、書き出していない採用がある) */
 function updateBadge(){
-  const n = S.videos.filter(v => v.marks - v.exported > 0).length;
-  Studio.setBadge('review', n ? String(n) : '');
+  const n = S.videos.filter(v => (Number(v.candidates) || 0) + (Number(v.adopted) || 0) > 0).length;
+  Studio.setBadge('review', n ? String(n) : '', n ? `判定か書き出しが残っている配信 ${n}本` : '');
 }
 function vLabel(v){ return v.title || v.fileName || v.id; }
+const nz = x => Number(x) || 0;
+const vWho = v => (v.kind === 'file' ? '動画ファイル' : (v.channel || '配信者不明'));
+/* ---------- 配信の選択(ヘッダーの下の「配信」。50本以上でも探せるように、検索・絞り込み・配信者ごと) ----------
+   関数名は以前の <select> のまま(renderVideoSelect)。選ぶ部分(ボタン)はいつも、一覧は開いているときだけ描く */
+const PK = { q: '', f: 'all', sort: 'recent', limit: 80 };
+function pickMatch(v){
+  const f = PK.f;
+  if (f === 'cand' && !nz(v.candidates)) return false;
+  if (f === 'adopt' && !nz(v.adopted)) return false;
+  if (f === 'done' && !nz(v.exported)) return false;
+  if (f === 'none' && nz(v.marks)) return false;
+  const q = PK.q.trim().toLowerCase(); if (!q) return true;
+  const hay = (vLabel(v) + ' ' + vWho(v) + ' ' + v.id).toLowerCase();
+  return q.split(/\s+/).every(w => hay.includes(w));
+}
+function pickRowHTML(v){
+  const cur = S.cur && S.cur.id === v.id, t = v.createdAt || v.updatedAt;
+  const pills = [nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
+    nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : ''].join('');
+  return `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
+    <span class="rv-prow-t">${esc(vLabel(v))}</span>
+    <span class="rv-prow-m"><span>${esc(vWho(v))}</span>${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(Studio.date(t))}">${esc(Studio.ago(t))}</span>` : ''}${pills ? `<span class="rv-prow-p">${pills}</span>` : ''}</span></button>`;
+}
+function renderPickList(){
+  const box = $('#rvPickList'); if (!box || !$('#rvPick').open) return;
+  const vs = S.videos.map(v0 => (S.cur && S.cur.id === v0.id ? { ...v0, title: S.cur.title } : v0));
+  const hit = vs.filter(pickMatch);
+  $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
+  if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
+  if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字を消すか、絞り込みを「すべて」にしてください。</div>'; return; }
+  const list = hit.slice(0, PK.limit);
+  let html;
+  if (PK.sort === 'channel'){
+    const m = new Map();
+    for (const v of list){ const k = vWho(v); if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
+    const curK = S.cur ? vWho(S.cur) : '', searching = !!PK.q.trim() || PK.f !== 'all';
+    html = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ja')).map(([k, items]) =>
+      `<details class="ui-group rv-pg"${searching || k === curK ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span></summary><div class="rv-pg-body">${items.map(pickRowHTML).join('')}</div></details>`).join('');
+  } else html = list.map(pickRowHTML).join('');
+  if (hit.length > list.length) html += `<div class="rv-pickmore"><button type="button" class="btn small" data-pick-more>もっと見る(残り ${hit.length - list.length} 本)</button></div>`;
+  box.innerHTML = html;
+}
 function renderVideoSelect(){
-  const sel = $('#rvVideoSel'); if (!sel) return;
-  let html = S.videos.map(v0 => { const v = S.cur && S.cur.id === v0.id ? { ...v0, title: S.cur.title } : v0; const n = x => Number(x) || 0; return `<option value="${esc(v.id)}">${esc(vLabel(v))}(${n(v.marks)}件${v.autoMarks ? ' ・ 自動' + n(v.autoMarks) : ''}${v.exported ? ' ・ 済' + n(v.exported) : ''}${v.groupId ? ' ・ コラボ' : ''})</option>`; }).join('');
-  if (!html) html = '<option value="">動画がありません</option>';
-  sel.innerHTML = html; sel.value = S.cur ? S.cur.id : '';
-  if (S.cur && sel.value !== S.cur.id){ // 一覧にまだ載っていない(開いた直後)
-    sel.insertAdjacentHTML('afterbegin', `<option value="${esc(S.cur.id)}">${esc(vLabel(S.cur))}(${S.cur.marks.length}件)</option>`); sel.value = S.cur.id;
-  }
+  renderPickList();
+}
+function openPicker(focusOpen){
+  const d = $('#rvPick'); if (!d) return;
+  d.open = true;
+  setTimeout(() => { const f = focusOpen ? $('#rvOpenIn') : $('#rvPickQ'); if (f) f.focus(); }, 0);
 }
 async function loadVideo(id){
   const seq = ++S.loadSeq;
@@ -394,7 +466,7 @@ async function loadVideo(id){
   const editSeq = S.editSeq;
   let j;
   try { j = await Studio.api('/api/video?id=' + enc(id)); }
-  catch (e){ if (seq === S.loadSeq){ toast('動画を読み込めません: ' + e.message); refreshList(); } return false; }
+  catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message); refreshList(); } return false; }
   if (seq !== S.loadSeq) return false;
   if (S.dirty || saveP || S.editSeq !== editSeq){
     renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
@@ -427,12 +499,13 @@ async function syncFromServer(){
 }
 async function openFromInput(){
   const inp = $('#rvOpenIn'), text = inp.value.trim();
-  if (!text) return toast('YouTubeのURL・動画ID、または動画ファイルのパスを入力してください');
+  if (!text) return toast('YouTube の URL・動画 ID、または動画ファイルのパスを入力してください');
   const body = looksLikeYouTube(text) ? { kind: 'youtube', url: text } : { kind: 'file', path: text.replace(/^["']|["']$/g, '') };
   const btn = $('#rvOpenBtn'); btn.disabled = true;
   try {
     const r = await Studio.api('/api/videos/open', { method: 'POST', body });
     inp.value = '';
+    const pk = $('#rvPick'); if (pk) pk.open = false;
     await loadVideo(r.video.id);
   } catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
@@ -449,7 +522,7 @@ async function deleteVideo(v){
   try { await Studio.api('/api/video/delete', { method: 'POST', body: { id: v.id } }); }
   catch (e){ if (wasDirty && S.cur === v) markDirty(); return Studio.toast(e.message || '削除できません', 0, 'err'); }
   if (S.job && S.job.videoId === v.id){ S.job = null; S.lastJob = null; stopExpPoll(); rememberJob(null); $('#rvExpList').innerHTML = ''; }
-  Studio.toast('動画を削除しました(書き出したファイルは残っています)', 0, 'ok');
+  Studio.toast('スタジオの一覧から削除しました(書き出した切り抜きのファイルは残っています)', 0, 'ok');
   if (S.cur !== v){ await refreshList(); return; }   // 削除の通信中に別の動画へ切り替えていたら、そちらは閉じない
   S.cur = null; S.series = null; ++S.loadSeq; S.dirty = false;
   unmountPlayer(); renderAll();
@@ -472,14 +545,24 @@ function loadYTApi(){
   }).catch(e => { ytApiP = null; throw e; });
   return ytApiP;
 }
-function showNotice(t){ const n = $('#rvNotice'); n.textContent = t; n.hidden = false; phMsg(''); }
+/* プレーヤーが使えないときの案内(1か所に出したままにする)。YouTube の配信なら、YouTube で開くリンクを添える。
+   使えない間は、前後のマークへ移動したときの自動再生で通知を出さない(押すたびに同じ通知が出ていた)。自分で再生を押したときだけ通知する */
+function showNotice(t){
+  S.playerErr = true;
+  const n = $('#rvNotice'), v = S.cur;
+  const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : '';
+  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${yt0 ? ` <a href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
+  n.hidden = false; phMsg('');
+}
+const canPlay = () => !!(yt && S.playerAlive && !S.playerErr);
+function noPlayerToast(){ toast(S.playerErr ? 'この画面では再生できません(プレーヤーの下の案内を見てください)' : 'プレーヤーを準備しています。少し待ってからもう一度押してください', 5000); }
 /* プレーヤーの上の「読み込み中」表示(準備できたら・失敗したら消す) */
 function phMsg(t){ const m = $('#rvPhMsg'); if (!m) return; m.hidden = !t; m.innerHTML = t ? `<span class="ui-spin" aria-hidden="true"></span><span>${esc(t)}</span>` : ''; }
 function hideNotice(){ $('#rvNotice').hidden = true; }
 function ytErrorMessage(code){
-  if (code === 'local') return 'このファイルはブラウザで再生できません(mkvや一部コーデックなど)。mp4(H.264/AAC)に変換して開き直すか、時刻の手入力で記録してください。書き出しは元ファイルからそのまま行えます。';
-  if (code === 100) return 'この動画は見つからないか、非公開です(エラー100)。';
-  if (code === 101 || code === 150) return 'この動画は投稿者により埋め込み再生が許可されていません(エラー' + code + ')。時刻の手入力なら記録は続けられます。';
+  if (code === 'local') return 'この動画ファイルはブラウザで再生できません(mkvや一部コーデックなど)。mp4(H.264/AAC)に変換して開き直すか、時刻の手入力で記録してください。書き出しは元ファイルからそのまま行えます。';
+  if (code === 100) return 'この配信は見つからないか、非公開です(エラー100)。';
+  if (code === 101 || code === 150) return 'この配信は、配信者が埋め込み再生を許可していません(エラー' + code + ')。時刻の手入力なら記録は続けられます。';
   if (code === 153) return 'プレーヤー設定エラー(153)。file:// で開いていないか確認し、サーバー経由の http://localhost で開いてください。';
   return 'プレーヤーでエラーが発生しました(コード ' + code + ')。';
 }
@@ -519,7 +602,7 @@ class LocalPlayer {
 function unmountPlayer(){
   playerToken++; stopPoll();
   if (yt){ try { yt.destroy(); } catch {} yt = null; }
-  S.playerAlive = false; S.playerState = -1; S.previewEnd = null; hideNotice(); phMsg('');
+  S.playerAlive = false; S.playerErr = false; S.playerState = -1; S.previewEnd = null; hideNotice(); phMsg('');
   const host = $('#rvHost'); if (host) host.innerHTML = '';
 }
 async function mountPlayer(){
@@ -548,7 +631,7 @@ async function mountPlayer(){
   if (location.protocol === 'file:'){ showNotice('file:// で開くとYouTube埋め込みが動きません。サーバーを起動して http://localhost から開いてください。'); return; }
   const mount = document.createElement('div'); host.appendChild(mount);
   try { await loadYTApi(); }
-  catch { if (token === playerToken) showNotice('YouTubeプレーヤーAPIを読み込めません。ネットワーク接続を確認してください。「現在位置」欄に時刻を入力すれば記録は続けられます。'); return; }
+  catch { if (token === playerToken) showNotice('YouTube のプレーヤーを読み込めません(ネットの接続を確かめてください)。'); return; }
   if (token !== playerToken) return;
   yt = new YT.Player(mount, {
     width: '100%', height: '100%', videoId: v.id,
@@ -585,11 +668,12 @@ function seek(t){
   setNow(t);
 }
 function togglePlay(){
-  if (!yt) return;
+  if (!canPlay()) return noPlayerToast();   // 自分で押したときだけ知らせる
   if (S.playerState === 1) yt.pauseVideo(); else yt.playVideo();
 }
-function previewClip(c){
-  if (!yt) return toast('再生できるプレーヤーがありません');
+/* マークの区間を再生する。auto = 前後のマークへ移動したときの自動再生(使えないときは黙って位置だけ動かす) */
+function previewClip(c, auto){
+  if (!canPlay()){ seek(c.start); if (!auto) noPlayerToast(); return; }
   seek(c.start); S.previewEnd = c.end; yt.playVideo();
 }
 // iframe内をクリックするとフォーカスがiframeに移り、親ページのショートカットが効かなくなるため、マウスが外れたら戻す
@@ -622,7 +706,17 @@ function syncSettingsUI(){
   $('#rvHeight').value = String(s.maxHeight); $('#rvPrecision').value = s.precision;
   $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
   $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness; $('#rvExpVolBox').classList.toggle('rv-off', !!s.exportLoudness);
+  expSetSummary();
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
+}
+/* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
+function expSetSummary(){
+  const el = $('#rvExpSetSum'); if (!el) return;
+  const s = S.settings, v = S.cur;
+  const parts = [{ adopted: '採用のみ', pending: '採用 + 候補', all: '不採用以外' }[s.exportTarget] || '', s.precision === 'fast' ? '高速' : '精密'];
+  if (!(v && v.kind === 'file')) parts.push(s.maxHeight ? s.maxHeight + 'p まで' : '画質の制限なし');
+  parts.push(s.exportLoudness ? s.exportLoudness + ' LUFS' : '音量 ' + s.exportVolume + '%');
+  el.textContent = parts.filter(Boolean).join(' ・ ');
 }
 function applyToPlayer(){
   if (!yt) return;
@@ -647,17 +741,17 @@ function wireSettings(){
   $('#rvMute').addEventListener('change', e => { S.settings.muted = e.target.checked; applyToPlayer(); touchSettings(); });
   $('#rvLag').addEventListener('change', e => { S.settings.lag = Number(e.target.value) || 0; touchSettings(); });
   $('#rvLiveMode').addEventListener('change', e => { S.settings.liveMode = e.target.value; updateLive(); touchSettings(); });
-  $('#rvPrecision').addEventListener('change', e => { S.settings.precision = e.target.value === 'fast' ? 'fast' : 'accurate'; touchSettings(); });
-  $('#rvHeight').addEventListener('change', e => { S.settings.maxHeight = Number(e.target.value); touchSettings(); });
+  $('#rvPrecision').addEventListener('change', e => { S.settings.precision = e.target.value === 'fast' ? 'fast' : 'accurate'; touchSettings(); expSetSummary(); });
+  $('#rvHeight').addEventListener('change', e => { S.settings.maxHeight = Number(e.target.value); touchSettings(); expSetSummary(); });
   $('#rvExpVol').addEventListener('input', e => {
     S.settings.exportVolume = Number(e.target.value); $('#rvExpVolOut').textContent = S.settings.exportVolume;
-    touchSettings();
+    touchSettings(); expSetSummary();
   });
   $('#rvExpLoud').addEventListener('change', e => { S.settings.exportLoudness = Number(e.target.value) || 0; syncSettingsUI(); touchSettings(); });
   $('#rvAutoPlay').addEventListener('change', e => { S.settings.autoPlay = e.target.checked; touchSettings(); });
   $('#rvAutoNext').addEventListener('change', e => { S.settings.autoNext = e.target.checked; touchSettings(); });
   $('#rvSort').addEventListener('change', e => { S.settings.sortBy = e.target.value === 'score' ? 'score' : 'time'; touchSettings(); renderList(); });
-  $('#rvExpTarget').addEventListener('change', e => { S.settings.exportTarget = ['adopted', 'pending', 'all'].includes(e.target.value) ? e.target.value : 'adopted'; touchSettings(); renderExportUI(); });
+  $('#rvExpTarget').addEventListener('change', e => { S.settings.exportTarget = ['adopted', 'pending', 'all'].includes(e.target.value) ? e.target.value : 'adopted'; touchSettings(); renderExportUI(); expSetSummary(); });
 }
 
 /* ---------- キー配置 ---------- */
@@ -771,13 +865,13 @@ function checkRange(start, end){
   if (!Number.isFinite(start) || !Number.isFinite(end)) return '時刻の形式が正しくありません';
   if (start < 0) start = 0;
   if (!S.live && S.duration > 0 && end > round1(S.duration)) end = round1(S.duration);
-  if (end <= start + 0.1) return '終了は開始より後にしてください(動画の長さの範囲内で)';
+  if (end <= start + 0.1) return '終了は開始より後にしてください(配信の長さの範囲内で)';
   if (end - start > MAX_MARK_SEC) return '1本の長さは60分までです';
   return [start, end];
 }
 function quickMark(slot = 0){
-  if (!S.cur) return toast('先に動画を開いてください');
-  if (marks().length >= MAX_MARKS) return toast(`1本の動画に登録できるのは${MAX_MARKS}件までです`);
+  if (!S.cur) return toast('先に配信を開いてください');
+  if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
   const center = Math.max(0, S.now - S.settings.lag);
   const span = S.settings.quickSpans[slot] || 30;
   const r = checkRange(center - span, center + span);
@@ -787,23 +881,23 @@ function quickMark(slot = 0){
   toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
 }
 function markIn(){
-  if (!S.cur) return toast('先に動画を開いてください');
+  if (!S.cur) return toast('先に配信を開いてください');
   const lag = Number($('#rvLag').value) || 0;
   S.draft.start = round1(Math.max(0, S.now - lag));
   if (S.draft.end != null && S.draft.end <= S.draft.start) S.draft.end = null;
   renderDraft();
 }
 function markOut(){
-  if (!S.cur) return toast('先に動画を開いてください');
+  if (!S.cur) return toast('先に配信を開いてください');
   const t = round1(S.now);
   if (S.draft.start != null && t <= S.draft.start) return toast('終了は開始より後の位置でマークしてください');
   S.draft.end = t; renderDraft();
 }
 function addClip(){
-  if (!S.cur) return toast('先に動画を開いてください');
+  if (!S.cur) return toast('先に配信を開いてください');
   const { start, end } = S.draft;
   if (start == null || end == null) return toast('IN と OUT の両方をマークしてください');
-  if (marks().length >= MAX_MARKS) return toast(`1本の動画に登録できるのは${MAX_MARKS}件までです`);
+  if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
   const r = checkRange(start, end);
   if (typeof r === 'string') return toast(r);
   const m = newMark(r[0], r[1], S.live);
@@ -817,7 +911,7 @@ function setBound(c, w, val){
   if (w === 'end' && !S.live && S.duration > 0 && val > round1(S.duration)) val = round1(S.duration); // 動画の長さに収める
   if (w === 'start' && val >= c.end - 0.1){ toast('開始は終了より前にしてください'); return false; }
   if (w === 'end' && val <= c.start + 0.1){ toast('終了は開始より後にしてください'); return false; }
-  if (!S.live && S.duration && val > S.duration + 1){ toast('動画の長さを超えています'); return false; }
+  if (!S.live && S.duration && val > S.duration + 1){ toast('配信の長さを超えています'); return false; }
   const s0 = w === 'start' ? val : c.start, e0 = w === 'end' ? val : c.end;
   if (e0 - s0 > MAX_MARK_SEC){ toast('1本の長さは60分までです'); return false; }
   if (c[w] === val) return true;
@@ -859,7 +953,7 @@ function selectMark(c, jump){
   S.sel = c.id; S.fold.set(c.id, false);
   renderTimeline(); renderList();
   const li = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(c.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
-  if (jump && yt){ if (S.settings.autoPlay) previewClip(c); else seek(c.start); }
+  if (jump){ if (S.settings.autoPlay) previewClip(c, true); else seek(c.start); }
 }
 /* 前/次のマークへ。一覧の並び順(時刻順 / 点数順)どおりに動く(以前は点数順で表示していても時刻順に飛んでいた)。
    onlyCand なら「候補」だけを渡り歩く(採用・不採用の直後に次の候補へ)。from は判定を変えたばかりのマーク(絞り込みで一覧から消えていても、その位置から数える) */
@@ -942,7 +1036,7 @@ function handoffHTML(j, it){
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
   const tt = Studio.toolUrl('transcribe', '/?media=' + enc(path)), cr = Studio.toolUrl('cut2resolve', '/?video=' + enc(path));
-  return `<div class="rv-ejob-a">${tt ? `<a class="btn small soft" href="${esc(tt)}" target="_blank" rel="noopener" title="文字起こしツールを、この動画を入れた状態で開きます(自動では始めません)">文字起こしで開く</a>` : ''}${cr ? `<a class="btn small ghost" href="${esc(cr)}" target="_blank" rel="noopener" title="cut2resolve を、この動画を入れた状態で開きます">Resolve 用に渡す</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
+  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" title="文字起こしツールを、この切り抜きを入れた状態で開きます(自動では始めません)">文字起こしで開く</a>` : ''}${cr ? `<a class="btn small ghost" href="${esc(cr)}" target="_blank" rel="noopener" title="cut2resolve を、この切り抜きを入れた状態で開きます">Resolve 用に渡す</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
 }
 async function copyText(text){
   try { await navigator.clipboard.writeText(text); return true; } catch {}
@@ -970,17 +1064,23 @@ function renderExportUI(){
   const j = S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
   const done = jrun ? j.items.filter(i => i.status === 'done').length : 0;
   let count;
-  if (S.exportAll) count = `全動画の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
+  const tgtName = { adopted: '採用', pending: '採用と候補', all: '不採用以外' }[S.settings.exportTarget] || '採用';
+  if (S.exportAll) count = `全部の配信の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
   else if (jrun) count = `書き出し中 ${done}/${j.items.length}件`;
-  else count = `対象 ${t.length}件(合計 ${fmt(sum)})`;
+  else if (!v) count = '';
+  else if (t.length) count = `${tgtName}のマーク ${t.length}件(合計 ${fmt(sum)})を mp4 にします`;
+  else if (v.marks.some(m => !m.status)) count = '候補を「採用」にすると、書き出せるようになります';
+  else count = v.marks.length ? '書き出すマークはありません(「採用」にしたマークを書き出します)' : 'マークを付けて「採用」にすると、書き出せるようになります';
   $('#rvExpCount').textContent = count;
   $('#rvExpSum').textContent = S.exportAll || jrun ? count : t.length ? `対象 ${t.length}件` : '';
+  { const je = $('#rvJumpExp'); if (je) je.textContent = S.exportAll || jrun ? '実行中' : t.length ? t.length + '件' : ''; }
+  { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !S.exportAll ? `${t.length}件を書き出す` : '書き出す'; }
   { const bar = $('#rvExpBar'); bar.hidden = !jrun;
     if (jrun){ const cur = j.items.find(i => i.status === 'running'); bar.firstElementChild.style.width = Math.round((done + (cur ? cur.progress || 0 : 0)) / j.items.length * 100) + '%'; } }
   const noTool = st.ffmpeg === false;
   const r = $('#rvExpRun'); r.disabled = running || !t.length || noTool || !!S.live;
   r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
-  { const n = S.videos.reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => x.adopted > 0).length, b = $('#rvExpAll'); b.textContent = `全動画の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool; }
+  { const n = S.videos.reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => x.adopted > 0).length, b = $('#rvExpAll'); b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool; }
   { const n = failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running; }
   $('#rvExpCancel').hidden = !running;
 }
@@ -1051,14 +1151,14 @@ function pollJob(){
 async function startExport(onlyIds){
   if (S.starting || S.exportAll || (S.job && S.job.running)) return;
   const v = S.cur;
-  if (!v) return toast('先に動画を開いてください');
+  if (!v) return toast('先に配信を開いてください');
   if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
   const targets = onlyIds ? sortedMarks().filter(c => onlyIds.has(c.id)) : exportTargets();
   if (!targets.length) return toast('書き出すマークがありません(「採用」にしたマークが書き出されます。書き出し対象の選択も確認してください)');
   S.starting = true; renderExportUI();
   try {
     await flushSave(); // サーバーが保存済みのマークから範囲を組み立てるため、先に保存する
-    if (S.cur !== v) throw new Error('動画が切り替わりました。書き出す動画を確認してやり直してください');
+    if (S.cur !== v) throw new Error('配信が切り替わりました。書き出す配信を確かめてやり直してください');
     const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } });
     S.job = { id: j.id, videoId: v.id, running: true }; rememberJob({ id: j.id, videoId: v.id });
     renderJob(j); pollJob();
@@ -1075,7 +1175,7 @@ async function startExportAll(){
   try {
     await flushSave();
     list = (await Studio.api('/api/videos')).videos.filter(x => x.adopted > 0);
-  } catch (e){ toast(e.message || '動画の一覧を取得できませんでした'); return; }
+  } catch (e){ toast(e.message || '配信の一覧を取得できませんでした'); return; }
   finally { S.starting = false; renderExportUI(); }
   if (!list.length) return toast('採用にしたマークがありません');
   S.exportAll = { idx: 0, total: list.length, fail: 0, cancel: false, done: 0, interrupted: false };
@@ -1127,7 +1227,7 @@ async function startExportAll(){
   } finally {
     const r = S.exportAll; S.exportAll = null;
     await refreshList(); renderExportUI();
-    toast(r.interrupted ? '書き出し状態を確認できないため、一括処理を中断しました。進捗を確認してから再実行してください' : r.cancel ? `全動画の書き出しを中止しました(${r.done}件完了)` : `全動画の書き出し完了: ${r.done}件` + (r.fail ? `(失敗 ${r.fail}件)` : ''));
+    toast(r.interrupted ? '書き出し状態を確認できないため、一括処理を中断しました。進捗を確認してから再実行してください' : r.cancel ? `全部の配信の書き出しを中止しました(${r.done}件完了)` : `全部の配信の書き出し完了: ${r.done}件` + (r.fail ? `(失敗 ${r.fail}件)` : ''));
   }
 }
 async function resumeJob(){
@@ -1157,14 +1257,20 @@ const pct = t => Math.min(100, Math.max(0, t / totalDur() * 100));
 function renderMeta(){
   const v = S.cur;
   $('#rvMain').hidden = !v; $('#rvEmpty').hidden = !!v;
-  if (!v) return;
+  for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
+  if (!v){ $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; return; }
   const has = !!v.title, el = $('#rvCurLabel');
   el.classList.toggle('is-empty', !has);   // 'empty' は ui-kit の「空の状態」の枠と名前がぶつかるので使わない
-  el.textContent = has ? v.title : '(動画名未設定・ここをクリックで入力)';
+  el.textContent = has ? v.title : '(名前なし)';
+  /* だれの・いつの(同じ題名の配信を見分ける)。ID・ファイル名は title で */
   const auto = v.marks.filter(m => m.src === 'auto').length, exp = v.marks.filter(m => m.status === 'exported').length;
-  $('#rvChips').innerHTML = `<span class="rv-chip">${v.kind === 'file' ? 'ファイル: ' + esc(v.fileName || v.id) : 'YouTube: ' + esc(v.id)}</span>${auto ? `<span class="rv-chip auto">自動 ${auto}</span>` : ''}${exp ? `<span class="rv-chip done">書き出し済み ${exp}</span>` : ''}`;
+  const row = S.videos.find(x => x.id === v.id), t0 = row ? (row.createdAt || row.updatedAt) : v.createdAt;
+  const ch = $('#rvChips');
+  ch.innerHTML = `<span class="rv-chip-who">${esc(vWho(v))}</span>${t0 ? `<span class="q-dot">・</span><span>${esc(Studio.ago(t0))}</span>` : ''}${auto ? `<span class="rv-chip auto">自動 ${auto}</span>` : ''}${exp ? `<span class="rv-chip done">書き出し済み ${exp}</span>` : ''}`;
+  ch.title = v.kind === 'file' ? '動画ファイル: ' + (v.fileName || v.id) : 'YouTube: ' + v.id;
   const t = $('#rvTitle'); if (document.activeElement !== t) t.value = v.title || '';
   $('#rvAnalyze').hidden = v.kind !== 'youtube';
+  const yl = $('#rvYtLink'); yl.hidden = v.kind !== 'youtube'; if (v.kind === 'youtube') yl.href = 'https://www.youtube.com/watch?v=' + enc(v.id);
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -1175,7 +1281,7 @@ function renderDraft(){
   const a = $('#rvInVal'), b = $('#rvOutVal');
   a.textContent = start == null ? '--' : fmt(start); a.classList.toggle('is-empty', start == null);
   b.textContent = end == null ? '--' : fmt(end); b.classList.toggle('is-empty', end == null);
-  $('#rvDraftDur').innerHTML = start != null && end != null ? `長さ ${(end - start).toFixed(1)} 秒` : '&nbsp;';
+  $('#rvDraftDur').textContent = start != null && end != null ? `長さ ${(end - start).toFixed(1)} 秒` : start != null ? '次に OUT を押します' : 'IN と OUT を押すと追加できます';
   const d = $('#rvDraft');
   if (start == null){ d.hidden = true; return; }
   d.hidden = false; d.style.left = pct(start) + '%';
@@ -1204,7 +1310,7 @@ function renderGraph(){
     box.hidden = true;
     const hasAuto = v.marks.some(isAutoLike) || !!v.analysis;
     leg.hidden = !hasAuto;
-    if (hasAuto) leg.innerHTML = '<span class="hint">グラフは解析した直後だけ表示されます(サーバーを閉じると消えます)</span>';
+    if (hasAuto) leg.innerHTML = '<span class="hint" title="盛り上がりのグラフは、解析した直後だけ出ます(入口を終了すると消えます)">グラフは解析した直後だけ出ます</span>';
     return;
   }
   const dur = totalDur(), step = Number(s.step) > 0 ? Number(s.step) : 1;
@@ -1256,8 +1362,8 @@ function markHTML(c){
       ${c.live ? '<span class="rv-chip live">ライブ</span>' : ''}
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
-      <span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button>
+      <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
+      <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
       ${auto ? reasonTags(c) : ''}
@@ -1293,7 +1399,7 @@ function renderList(){
   const ol = $('#rvList'); if (!ol) return;
   const list = listMarks();
   if (!S.cur || !marks().length){
-    ol.innerHTML = `<li class="rv-emptylist empty"><b>まだマークがありません</b>動画を再生し、面白い場面で IN → OUT → 追加(または「今をマーク」)の順に押してください。</li>`;
+    ol.innerHTML = `<li class="rv-emptylist empty"><b>まだマークはありません</b>配信を再生し、面白い場面で IN → OUT → 追加(または「今をマーク」)を押すと、ここに出ます。</li>`;
     return;
   }
   if (!list.length){
@@ -1308,6 +1414,7 @@ function renderStats(){
   const cnt = { '': 0, adopted: 0, rejected: 0, exported: 0 }; let sum = 0;
   for (const m of v.marks){ cnt[statusOf(m)]++; if (m.status === 'adopted') sum += m.end - m.start; }
   $('#rvStats').textContent = `${v.marks.length}件 ・ 採用 ${cnt.adopted}件(合計 ${fmt(sum)})`;
+  { const jm = $('#rvJumpMarks'); if (jm) jm.textContent = String(v.marks.length); }
   for (const b of document.querySelectorAll('#rvFilters [data-filter]')){
     const f = b.dataset.filter, n = f === 'all' ? v.marks.length : cnt[f];
     b.querySelector('.n').textContent = n; b.setAttribute('aria-pressed', String(S.filter === f));
@@ -1321,10 +1428,29 @@ function renderAll(){
   else renderExportUI();
   setSaveState(S.cur ? 'idle' : 'idle');
 }
+const WIDE = '(min-width:961px)';
 function placeQuickBar(){
   const qb = $('#rvQuickbar'), cb = $('#rvClipbox'), home = $('#rvLiveBar'); if (!qb || !cb || !home) return;
-  const side = !!S.settings.theater && window.matchMedia('(min-width:961px)').matches;
+  const side = !!S.settings.theater && window.matchMedia(WIDE).matches;
   if (side) cb.prepend(qb); else if (qb.parentElement !== home.parentElement) home.before(qb);
+}
+/* 画面の中の移動(プレーヤー・マーク・書き出し)。広い画面では上の行の右端(書き出しへの入口だけ)、
+   狭い画面では上の行の下に置いて、スクロールしても上に残す(ヘッダーの下に貼り付く) */
+function placeJump(){
+  const j = $('#rvJump'), top = $('#rvTop'); if (!j || !top) return;
+  const wide = window.matchMedia(WIDE).matches;
+  if (wide && j.parentElement !== top) top.insertBefore(j, $('#rvTheater'));
+  else if (!wide && j.parentElement === top) top.after(j);
+  j.classList.toggle('is-bar', !wide);
+}
+function jumpTo(where){
+  const target = { player: '#rvPlayerBox', marks: '#rvClipbox', export: '#rvExport' }[where];
+  const el = target && $(target); if (!el || $('#rvMain').hidden) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (where === 'export'){
+    el.classList.remove('rv-flash'); void el.offsetWidth; el.classList.add('rv-flash');
+    const b = $('#rvExpRun'); if (b && !b.disabled) setTimeout(() => b.focus({ preventScroll: true }), 350);
+  }
 }
 function applyTheater(){
   const on = !!S.settings.theater;
@@ -1346,9 +1472,9 @@ function wire(){
       case 'play': S.sel = c.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li)); previewClip(c); break;
       case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); break;
       case 'txseek': {   // セリフの行を押したら、その行だけ再生する(元の配信の時刻)
-        if (!yt){ toast('再生できるプレーヤーがありません'); break; }
         const t = Number(b.dataset.t), e2 = Number(b.dataset.e);
         if (!Number.isFinite(t)) break;
+        if (!canPlay()){ seek(t); noPlayerToast(); break; }
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
       case 'nudge': {
@@ -1427,16 +1553,47 @@ function wire(){
   $('#rvGraph').addEventListener('click', e => scrub(timeAt(e, $('#rvGraph')), true));
   $('#rvGLegend').addEventListener('change', e => { if (e.target.id === 'rvGLines'){ S.settings.graphLines = e.target.checked; renderGraph(); touchSettings(); } });
 
-  // 動画の切り替え・開く・保存
-  $('#rvVideoSel').addEventListener('change', e => { const id = e.target.value; if (id && (!S.cur || id !== S.cur.id)) loadVideo(id); });
+  // 配信の選択・開く・保存
+  const pick = $('#rvPick'), plist = $('#rvPickList');
+  pick.addEventListener('toggle', () => {
+    if (pick.open){ PK.limit = 80; renderPickList(); setTimeout(() => { if (pick.open && !pick.contains(document.activeElement)) $('#rvPickQ').focus(); }, 0); }
+    else if (pick.contains(document.activeElement)) $('#rvPickBtn').focus({ preventScroll: true });   // Esc で閉じたとき、隠れた入力欄にフォーカスが残ってキー操作が効かなくならないように
+  });
+  $('#rvVMenu').addEventListener('toggle', e => { const m = e.currentTarget; if (!m.open && m.contains(document.activeElement)) m.querySelector('summary').focus({ preventScroll: true }); });
+  let pqT = null;
+  $('#rvPickQ').addEventListener('input', e => { PK.q = e.target.value; PK.limit = 80; clearTimeout(pqT); pqT = setTimeout(renderPickList, 100); });
+  $('#rvPickF').addEventListener('change', e => { PK.f = e.target.value; PK.limit = 80; renderPickList(); });
+  $('#rvPickSort').addEventListener('change', e => { PK.sort = e.target.value === 'channel' ? 'channel' : 'recent'; renderPickList(); });
+  plist.addEventListener('click', e => {
+    if (e.target.closest('[data-pick-more]')){ PK.limit += 200; renderPickList(); return; }
+    const r = e.target.closest('.rv-prow'); if (!r) return;
+    pick.open = false; $('#rvPickBtn').focus({ preventScroll: true });
+    if (!S.cur || r.dataset.vid !== S.cur.id) loadVideo(r.dataset.vid);
+  });
+  /* 一覧の中は ↑ ↓ で移動、探す欄から ↓ で一覧へ */
+  pick.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const rows = [...plist.querySelectorAll('.rv-prow')].filter(x => x.offsetParent !== null); if (!rows.length) return;
+    const i = rows.indexOf(document.activeElement);
+    if (e.target.id === 'rvPickQ' && e.key === 'ArrowDown'){ e.preventDefault(); rows[0].focus(); return; }
+    if (i < 0) return;
+    e.preventDefault();
+    if (e.key === 'ArrowUp' && i === 0) $('#rvPickQ').focus(); else rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
+  });
+  $('#rvEmptyOpen').addEventListener('click', () => openPicker(!S.videos.length));
+  $('#rvJump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (b) jumpTo(b.dataset.jump); });
+  /* YouTube で開くリンクは、押したときの再生位置から */
+  const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = `https://www.youtube.com/watch?v=${enc(S.cur.id)}${S.now >= 1 ? '&t=' + Math.floor(S.now) + 's' : ''}`; };
+  $('#rvNotice').addEventListener('click', e => { const a = e.target.closest('a[data-yt-now]'); if (a) ytNow(a); });
+  $('#rvYtLink').addEventListener('click', e => ytNow(e.currentTarget));
   $('#rvOpenForm').addEventListener('submit', e => { e.preventDefault(); openFromInput(); });
   $('#rvSave').addEventListener('click', () => { if (S.dirty || saveP) save(); });
   $('#rvTitle').addEventListener('input', e => {
     if (!S.cur) return; S.cur.title = e.target.value; markDirty();
-    const el = $('#rvCurLabel'); el.classList.toggle('is-empty', !S.cur.title); el.textContent = S.cur.title || '(動画名未設定・ここをクリックで入力)';
+    const el = $('#rvCurLabel'); el.classList.toggle('is-empty', !S.cur.title); el.textContent = S.cur.title || '(名前なし)';
   });
   $('#rvTitle').addEventListener('change', () => { renderVideoSelect(); });
-  $('#rvCurLabel').addEventListener('click', () => { const t = $('#rvTitle'); t.scrollIntoView({ block: 'center' }); t.focus(); t.select(); });
+  $('#rvTitle').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#rvVMenu').open = false; } });
   $('#rvDelVideo').addEventListener('click', e => armDelete(e.currentTarget, deleteCurrentVideo));
   const runAnalyze = async () => {
     const v = S.cur; if (!v || v.kind !== 'youtube') return;
@@ -1482,7 +1639,7 @@ function wire(){
       c.start = r[0]; c.end = r[1]; n++;
       if (c.status === 'exported'){ c.status = 'adopted'; c.file = ''; c.path = ''; }
     }
-    if (!n) return toast('動画の範囲外になるため、ずらせませんでした');
+    if (!n) return toast('配信の範囲外になるため、ずらせませんでした');
     markDirty(); refresh(); toast(`${n}件を ${d > 0 ? '+' : ''}${d}秒ずらしました` + (n < targets.length ? `(範囲外の${targets.length - n}件は除く)` : ''));
   });
   $('#rvTheater').addEventListener('click', toggleTheater);
@@ -1493,7 +1650,6 @@ function wire(){
   $('#rvBulkAdopt').addEventListener('click', e => armDelete(e.currentTarget, bulkAdopt, 'もう一度押すと、候補をすべて採用にします'));
   $('#rvExpAll').addEventListener('click', startExportAll);
   $('#rvOutEdit').addEventListener('click', () => Studio.openSettings('setOut'));
-  $('#rvKeysHint').addEventListener('click', () => Studio.openKeyHelp && Studio.openKeyHelp());
   const onCopy = async e => {   // 書き出しの一覧と、書き出し済みのマークの行の「パスをコピー」
     const b = e.target.closest('[data-act="copy"]'); if (!b) return;
     e.stopPropagation();
@@ -1503,7 +1659,7 @@ function wire(){
   $('#rvExpList').addEventListener('click', onCopy);
   $('#rvList').addEventListener('click', onCopy);
   Studio.on('ports', () => { if (S.lastJob) renderJob(S.lastJob); if (S.cur) renderList(); });   // 他のツールの実際のポートが分かったら、リンクを作り直す
-  window.matchMedia('(min-width:961px)').addEventListener('change', placeQuickBar);
+  window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
 
   // 書き出し
   $('#rvExpRun').addEventListener('click', () => startExport());
@@ -1518,7 +1674,8 @@ function wire(){
   document.addEventListener('keydown', e => {
     if (Studio.step !== 'review' || !S.cur) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
-    if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の動画を操作しない
+    if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
+    if (Studio.inMenu && Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
     const tag = e.target.tagName;
     if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(スライダー/チェックボックス上では有効)
     // ボタン・リンク・開閉の見出しの上では、Space / Enter はその部品の操作を優先する(Space で「操作の設定」を開けなかったのを修正)
@@ -1575,7 +1732,7 @@ function showDataWarning(){
   if (!warnShown){ warnShown = true; toast(String(w), 8000); }
 }
 Studio.onReady(() => {
-  buildDOM(); S.built = true;
+  buildDOM(); S.built = true; placeJump();
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   showDataWarning();
   wireSettings(); wire(); renderKeyUI();

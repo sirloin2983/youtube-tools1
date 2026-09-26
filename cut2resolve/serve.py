@@ -10,9 +10,11 @@ API(画面の app.js の api() からだけ呼ぶ。統合時はベースのパ�
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/pipeline.md の 4)
   GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
-  POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl
-  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists
+  POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl。
+                                  動画が読めたときは、同じフォルダ・同じ名前(拡張子違い)の字幕・文字起こし・cut-plan があれば siblings に(問題2)
+  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
+  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
+                                  結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
@@ -495,7 +497,58 @@ def inspect_inputs(app, o):
                 suggest = suggest or out[field]["mediaPath"]
         except (ApiError, C.ToolError) as e:
             out[field] = {"ok": False, "error": getattr(e, "message", None) or str(e)}
-    return {"inputs": out, "suggestVideo": suggest}
+    result = {"inputs": out, "suggestVideo": suggest}
+    v = out.get("video")
+    if v and v.get("ok"):
+        have = {f for f in ("srt", "transcript", "plan") if o.get(f)}
+        sib = sibling_suggestions(Path(v["path"]), have)
+        if sib:
+            result["siblings"] = sib
+    return result
+
+
+# ---------------------------------------------------------------- 動画と同じ場所の字幕・文字起こし・cut-plan(問題2)
+# 逆方向(文字起こし・cut-plan から動画を探す suggestVideo)は前からある。動画から探すのはこの決まった場所だけ
+# (動画と同じフォルダ・同じ名前(拡張子だけ違う)。他のパスは見ない)
+
+SIBLING_SUFFIXES = {"srt": (".srt", ".vtt"), "transcript": (".transcript.json",), "plan": (".cut-plan.json",)}
+
+
+def sibling_suggestions(video, have):
+    """動画と同じフォルダ・同じ名前(拡張子だけ違う)の字幕・文字起こし・cut-plan があれば {欄: パス}。
+    have に入っている(すでに指定がある)欄は調べない"""
+    out = {}
+    for field, suffixes in SIBLING_SUFFIXES.items():
+        if field in have:
+            continue
+        for suf in suffixes:
+            cand = video.with_name(video.stem + suf)
+            if cand.is_file():
+                out[field] = str(cand)
+                break
+    return out
+
+
+# ---------------------------------------------------------------- 注意の重さ(warn/info。問題5)
+# 文言そのものは変えない。API には warningLevels(warnings と同じ順番・同じ長さの "warn"|"info")を足すだけで、
+# warnings(文字列の配列)を期待する既存の呼び出し側(CLI の describe()・test_pack.py など)はそのまま動く
+
+_INFO_WARNING_MARKERS = (
+    "字幕は SRT のほうを使いました",              # SRT を選んだ理由の案内(対処は不要)
+    "文字起こしに残す行が無いため、字幕は付けません",
+    "余白つき素材",                              # スタジオの余白つき素材を使った/使わなかった案内(自動で切り替え済み)
+    "標準的でないフレームレート",                  # 検出した値の案内。すぐの対処は要らない
+)
+
+
+def classify_warnings(messages):
+    return ["info" if any(marker in msg for marker in _INFO_WARNING_MARKERS) else "warn" for msg in messages]
+
+
+def with_warning_levels(d):
+    """summary()/build_pack() の戻りの dict に、その warnings に対応する warningLevels を足して返す"""
+    d["warningLevels"] = classify_warnings(d.get("warnings") or [])
+    return d
 
 
 def _inspect_one(app, field, p):
@@ -812,7 +865,7 @@ class Handler(BaseHTTPRequestHandler):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"],
                                                             out_opts["fcpxml"], out_opts["textplus"])
-            res = pack.summary(plan)
+            res = with_warning_levels(pack.summary(plan))
             res["mediaUrl"] = app.register_media(plan.video)
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
             return res
@@ -840,7 +893,9 @@ class Handler(BaseHTTPRequestHandler):
             app.allow_out_dir(res["out_dir"])
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
-                 "summary": pack.summary(plan), "mediaUrl": app.register_media(plan.video), "editMedia": res["editMedia"]}
+                 "warningLevels": classify_warnings(res["warnings"]),
+                 "summary": with_warning_levels(pack.summary(plan)), "mediaUrl": app.register_media(plan.video),
+                 "editMedia": res["editMedia"]}
             rough = dict(res["files"]).get("roughcut")
             if rough:
                 r["roughcutUrl"] = app.register_media(rough)

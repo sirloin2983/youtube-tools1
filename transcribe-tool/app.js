@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.14.2';
+const APP_VERSION = '0.15.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -118,7 +118,16 @@ function applyView(){
 /* 画面の色: 「表示」の選択肢(auto/light/dark)と ui-kit の選択('system'/'light'/'dark')を対応づける。保存は ui-kit だけ */
 function syncThemeSelect(){ const p = window.UIKit ? UIKit.theme.get() : 'system'; $('#vTheme').value = p === 'system' ? 'auto' : p; }
 if (window.UIKit) UIKit.theme.onChange(() => { syncThemeSelect(); if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定で変わったとき(帯の色も描き直す)
-function toggleMenu(open){ V.menu = open === undefined ? !V.menu : !!open; saveView(); applyView(); }
+/* v0.15.0: 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
+const isDrawer = () => !!(window.matchMedia && matchMedia('(max-width: 719.98px)').matches);
+function toggleMenu(open){
+  const was = V.menu;
+  V.menu = open === undefined ? !V.menu : !!open; saveView(); applyView();
+  if (isDrawer() && was !== V.menu){
+    if (V.menu){ const t = document.querySelector('[data-side-tab][aria-selected=true]'); if (t) t.focus({ preventScroll: true }); }
+    else if (document.activeElement && $('#menuPanel').contains(document.activeElement)) $('#btnMenu').focus({ preventScroll: true });
+  }
+}
 /* メニューの中の項目へ移動する(閉じていれば開く) */
 function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
 {
@@ -129,11 +138,17 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
   $('#btnMenu').addEventListener('click', () => toggleMenu());
   $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
   $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
+  $('#menuScrim').addEventListener('click', () => toggleMenu(false));   // 引き出しの外(暗い幕)を押したら閉じる
   document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
   document.addEventListener('click', e => document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.ui-menu-pop a')) d.open = false; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { d.open = false; }); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;
+    const open = document.querySelectorAll('details.pop[open], details.ui-menu[open]');
+    if (open.length){ open.forEach(d => { d.open = false; }); return; }
+    if (isDrawer() && V.menu && !document.querySelector('dialog[open]') && !(e.target && e.target.matches && e.target.matches('input[type=search]') && e.target.value)) toggleMenu(false);   // 引き出しは Esc で閉じる(検索欄に文字があるときは、まず検索欄を空にする)
+  });
 }
 
 /* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ---------- */
@@ -143,7 +158,7 @@ function renderTools(){
   UIKit.tools.render(el, { current: 'transcribe', ports: S.ports || undefined });
   /* /api/siblings が答えた(=起動中のツールが分かっている)のに載っていないツールは、起動していない。押しても開けないことを先に知らせる(スタジオと同じ) */
   if (S.ports){
-    const links = el.querySelectorAll('a');
+    const links = [...el.querySelectorAll('a')].slice(-UIKit.tools.list.length);   // ui-kit v3: 入口に取り込まれているときは先頭に「入口」「案件の一覧」が付くので、後ろの3つがツール
     UIKit.tools.list.forEach((t, i) => {
       const a = links[i]; if (!a || t.id === 'transcribe' || S.ports[t.id]) return;
       const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。入口(youtube-test フォルダの start-all.bat)から起動してください)';
@@ -160,7 +175,7 @@ function loadSiblings(){
       if (window.UIKit && UIKit.tools.setPaths) UIKit.tools.setPaths(j && j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
     })
     .catch(() => { S.ports = null; })   // 古いサーバー(404)・通信の失敗は、既定のポートで
-    .finally(() => { sibP = null; renderTools(); renderHandoff(); });
+    .finally(() => { sibP = null; S.sibLoaded = true; renderTools(); renderHandoff(); if (S.doc) cpAfterSave(); });
   return sibP;
 }
 const toolUrl = (id, path) => window.UIKit ? UIKit.tools.url(id, S.ports, path) : '';
@@ -180,6 +195,7 @@ function readOpts(){
   s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
+  s.packFps = $('#resolveFps').value; s.packSize = $('#resolveSize').value;
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
   saveSettings(); if (S.doc) renderTerms();
 }
@@ -190,6 +206,8 @@ function applySettings(){
   $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
+  if ([...$('#resolveFps').options].some(o => o.value === String(s.packFps))) $('#resolveFps').value = String(s.packFps);
+  if ([...$('#resolveSize').options].some(o => o.value === s.packSize)) $('#resolveSize').value = s.packSize;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
   if (s.diarNum && [...$('#diarNum').options].some(o => o.value === s.diarNum)) $('#diarNum').value = s.diarNum;
 }
@@ -238,9 +256,10 @@ function renderProgress(){
     $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済み <b>${fmtDur(sec)}</b> / 目安 ${fmtDur(need)}以上 ・ 全行校正済み ${PG.evalDocsDone}/${n}本</p>`
       + `<p class="hint" style="margin:2px 0 0">${ok ? '準備できました。「認識精度の測定」で「基準を記録」を押して、出発点を残してください。' : `${[PG.evalPendingLines ? `未校正の行が${PG.evalPendingLines}行あります` : '', sec < need ? `校正済みがあと ${fmtDur(need - sec)} ほど足りません` : ''].filter(Boolean).join(' ・ ')}。評価用は、全行を校正してください。`}</p>`
       : `<p class="hint" style="margin:4px 0 0">まだありません。文字起こしを開いて「評価用にする」にチェックしてください(2〜3本・合計20分以上が目安)。校正を始める前に決めてください。</p>`); }
-  const p = $('#goalPill'); p.hidden = false; p.classList.toggle('on', cur > 0);
-  p.textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}(${shown}%)`;
-  p.style.background = `linear-gradient(90deg, var(--accent-soft) ${pct}%, var(--panel-2) ${pct}%)`;
+  const p = $('#goalPill'); p.hidden = false;
+  $('#goalPillT').textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}`;
+  $('#goalPillBar').style.width = pct + '%';
+  p.title = `校正済みの量 ${fmtDur(cur)} / 目標 ${fmtDur(goal)}(${shown}%)。押すと進行度を見ます`;
   if (document.activeElement !== $('#goalHours')) $('#goalHours').value = String(goal / 3600);
   // 節目に届いたら、一度だけ知らせる
   try {
@@ -254,8 +273,8 @@ function scheduleProgress(){ clearTimeout(scheduleProgress.t); scheduleProgress.
 $('#goalHours').addEventListener('change', e => { const h = Number(e.target.value); if (!(h >= 0.5 && h <= 200)){ toast('0.5〜200 時間の間で入力してください'); e.target.value = String(goalSec() / 3600); return; } S.settings.goalHours = h; saveSettings(); renderProgress(); });
 $('#goalPill').addEventListener('click', () => showInMenu($('#goalCard')));
 /* 左の各カードの開閉を覚える */
-document.querySelectorAll('aside details.card[id]').forEach(d => {
-  try { if (localStorage.getItem('tx.fold.' + d.id) === '0') d.open = false; } catch {}
+document.querySelectorAll('aside details.card[id]:not(#cutPack)').forEach(d => {
+  try { const v = localStorage.getItem('tx.fold.' + d.id); if (v === '0') d.open = false; else if (v === '1') d.open = true; } catch {}
   d.addEventListener('toggle', () => { try { localStorage.setItem('tx.fold.' + d.id, d.open ? '1' : '0'); } catch {} });
 });
 
@@ -449,28 +468,141 @@ function renderJobs(){
   </div>`).join('');
 }
 
-/* ---------- 保存済み一覧 ---------- */
+/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/ui-guidelines.md 4.) ----------
+   サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
+   画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
+   同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
+const LIST_KEY = 'tx.list.v1';
+const L = { state: 'all', kind: 'all', sort: 'updated', group: 'stream' };
+const LIST_OPTS = { state: ['all', 'todo', 'doing', 'done'], kind: ['all', 'clip', 'other', 'eval'], sort: ['updated', 'created', 'remain', 'title'], group: ['stream', 'channel', 'none'] };
+try { const o = JSON.parse(localStorage.getItem(LIST_KEY) || '{}'); for (const k of Object.keys(L)) if (o && LIST_OPTS[k].includes(o[k])) L[k] = o[k]; } catch {}
+const saveListPrefs = () => { try { localStorage.setItem(LIST_KEY, JSON.stringify(L)); } catch {} };
+const txOpen = new Set();      // 開いているまとまり(この画面の間だけ覚える)
+const txLimit = {};            // まとまりごとの表示件数(「もっと見る」で増やす)
+let txInitDone = false, txAuto = null, txGroups = new Map();   // txAuto: 最初に自動で開いた先頭のまとまり(文書を開いたら閉じる。人が開閉したら触らない)
+const GROUP_FIRST = 20, FLAT_FIRST = 40, MORE_STEP = 50;
+const ago = ms => (window.UIKit && UIKit.fmt) ? UIKit.fmt.ago(ms) : '';
+
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); scheduleProgress();
+  renderList(); scheduleProgress(); if (S.doc) renderCutPack();
 }
-let txShowAll = false;
+/* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
+const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
+const txStream = i => i.streamTitle || i.clipTitle || '';
+function txGroupKey(i){
+  if (L.group === 'channel') return 'c:' + (i.channel || '');
+  if (L.group === 'stream') return 'v:' + (i.videoId || '');
+  return 'all';
+}
+function txGroupHead(key, items){
+  const f = items[0], when = ago(Math.max(...items.map(i => Number(i.updatedAt) || 0)));
+  const done = items.filter(i => txStatus(i) === 'done').length;
+  if (key.startsWith('c:')) return { title: f.channel || '配信者が分からないもの', sub: `最終更新 ${when}`, done };
+  if (key === 'v:') return { title: '配信と紐づいていない文字起こし', sub: `手元の動画など ・ 最終更新 ${when}`, done };
+  return { title: txStream(f) || f.videoId, sub: [f.channel, `最終更新 ${when}`].filter(Boolean).join(' ・ '), done };
+}
+function txSortFn(){
+  const up = (a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+  const left = i => (Number(i.rows) || 0) - (Number(i.proofed) || 0);
+  if (L.sort === 'created') return (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+  if (L.sort === 'remain') return (a, b) => left(b) - left(a) || up(a, b);
+  if (L.sort === 'title') return (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja') || up(a, b);
+  return up;
+}
+function txFiltered(){
+  const q = norm($('#txSearch').value.trim());
+  return S.list.filter(i => {
+    if (L.kind === 'clip' && !i.hasClip) return false;
+    if (L.kind === 'other' && i.hasClip) return false;
+    if (L.kind === 'eval' && !i.evalSet) return false;
+    if (L.state !== 'all' && txStatus(i) !== L.state) return false;
+    return !q || norm(`${i.title || ''} ${txStream(i)} ${i.clipTitle || ''} ${i.channel || ''} ${i.sourceName || ''} ${i.markLabel || ''}`).includes(q);
+  }).sort(txSortFn());
+}
+/* 1件の表示用の題名: 配信ごとにまとめているときは、見出しにある配信の題名を省いて「違う部分」(マークの名前など)を出す */
+function txShortTitle(i){
+  const t = String(i.title || '').trim() || '無題';
+  if (L.group !== 'stream') return t;
+  for (const p of [txStream(i), i.clipTitle].filter(Boolean)){
+    if (t.startsWith(p) && t.length > p.length){ const rest = t.slice(p.length).replace(/^[\s・:：\-–—|]+/, '').trim(); if (rest) return rest; }
+  }
+  return t;
+}
+function txRowHTML(i){
+  const st = txStatus(i), r = Number(i.rows) || 0, p = Number(i.proofed) || 0, full = String(i.title || '無題');
+  /* だれの・いつの を先に(狭いと後ろが「…」で切れるため)。まとまりの見出しにある情報は省く */
+  const meta = [];
+  if (L.group === 'none' && i.channel) meta.push(i.channel);
+  if (!i.hasClip && i.sourceName) meta.push(i.sourceName);                  // 配信と紐づかないものは、ファイル名で見分ける
+  meta.push(ago(Number(i.updatedAt) || Number(i.createdAt) || 0));
+  if (i.hasClip && i.clipStart !== null && Number.isFinite(Number(i.clipStart))) meta.push('配信の ' + fmtT(i.clipStart) + '〜');
+  if (Number(i.durationSec) > 0) meta.push(window.UIKit && UIKit.fmt ? UIKit.fmt.dur(i.durationSec) : fmtT(i.durationSec));
+  const side = [];
+  if (i.evalSet) side.push('<span class="pill info" title="精度を測るためだけに取っておく文字起こし(学習・辞書に使わない)">評価用</span>');
+  if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
+  if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
+  else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
+  if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
+    ? '<span class="ui-next" title="パックを作ったあとに、行を直しています">作り直す</span>'
+    : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
+  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて「カットとパック」で作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
+  const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
+  return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
+    <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
+    <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
+  </div>`;
+}
+function txRowsHTML(key, items){
+  const lim = txLimit[key] || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
+  return items.slice(0, lim).map(txRowHTML).join('') + (rest > 0 ? `<button type="button" class="btn small list-more" data-act="more" data-g="${esc(key)}">もっと見る(残り${rest}件)</button>` : '');
+}
 function renderList(){
-  const box = $('#txList'); $('#txCount').textContent = S.list.length ? `(${S.list.length}件)` : '';
-  if (!S.list.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだありません</p>'; $('#txMore').hidden = true; return; }
-  const q = norm($('#txSearch').value.trim()), type = $('#txFilter').value;
-  const found = S.list.filter(i => (!q || norm(`${i.title || ''} ${i.sourceName || ''}`).includes(q)) && (type === 'all' || (type === 'eval') === !!i.evalSet));
-  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません</p>'; $('#txMore').hidden = true; return; }
-  const shown = txShowAll ? found : found.slice(0, 8);
-  box.innerHTML = shown.map(i => `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(i.title)}">${i.evalSet ? '<span class="pill ok">評価用</span> ' : ''}${esc(i.title || '無題')}</button><details class="pop txi-menu"><summary aria-label="${esc(i.title || '無題')}の操作">…</summary><div class="vpop"><button type="button" class="btn small danger" data-act="del">削除</button></div></details></div>
-    <div class="hint">${esc(i.sourceName || '')}${i.end ? ` ・ ${fmtT(i.start)}–${fmtT(i.end)}` : ''} ・ ${Number(i.segments) || 0}行 ・ ${esc(String(i.model || '').split('/').pop())}${i.hasClip ? ' ・ 元の配信あり' : ''}</div>
-    </div>`).join('');
-  const more = $('#txMore'); more.hidden = found.length <= 8; more.textContent = txShowAll ? '最近の8件だけ表示' : `残り${found.length - shown.length}件を表示`;
+  const box = $('#txList'), total = S.list.length;
+  $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
+  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ文字起こしはありません。「新規」から文字起こしすると、ここに出ます。</p>'; return; }
+  const found = txFiltered();
+  $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
+  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません。検索の文字や、状態・種類の絞り込みを変えてみてください。</p>'; return; }
+  if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
+  txGroups = new Map();
+  for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }
+  const cur = S.docId && S.list.find(i => i.id === S.docId), curKey = cur ? txGroupKey(cur) : null;
+  if (curKey){ txOpen.add(curKey); if (txAuto && txAuto !== curKey) txOpen.delete(txAuto); txAuto = null; }   // 今開いている文書のまとまりだけ開く
+  if (!txInitDone){ txInitDone = true; if (!txOpen.size){ txAuto = txGroups.keys().next().value; txOpen.add(txAuto); } }   // 文書を開いていなければ、先頭のまとまりを開く
+  const q = $('#txSearch').value.trim();
+  box.innerHTML = [...txGroups].map(([k, items]) => {
+    const h = txGroupHead(k, items), open = !!q || txOpen.has(k);   // 検索中は、当たったまとまりを全部開く
+    return `<details class="ui-group" data-g="${esc(k)}"${open ? ' open' : ''}><summary><span class="tt-g-main"><b title="${esc(h.title)}">${esc(h.title)}</b><small>${esc(h.sub)}</small></span><span class="ui-group-n" title="${items.length}本のうち、校正済み ${h.done}本">${items.length}本${h.done ? `<span class="tt-g-done"> ・ 済${h.done === items.length ? 'み' : ' ' + h.done}</span>` : ''}</span></summary><div class="tt-g-rows">${open ? txRowsHTML(k, items) : ''}</div></details>`;
+  }).join('');
 }
-$('#txSearch').addEventListener('input', () => { txShowAll = false; renderList(); });
-$('#txFilter').addEventListener('change', () => { txShowAll = false; renderList(); });
-$('#txMore').addEventListener('click', () => { txShowAll = !txShowAll; renderList(); });
+$('#txList').addEventListener('click', e => { if (e.target.closest && e.target.closest('details.ui-group>summary')) txAuto = null; });   // 人が開閉したら、自動で閉じない
+/* まとまりを開いたときに、その中だけ描く(閉じたまとまりの行は作らない) */
+$('#txList').addEventListener('toggle', e => {
+  const d = e.target; if (!d || !d.matches || !d.matches('details.ui-group')) return;
+  const k = d.dataset.g;
+  if (d.open){ txOpen.add(k); const rows = d.querySelector('.tt-g-rows'); if (rows && !rows.children.length) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []); }
+  else txOpen.delete(k);
+}, true);
+$('#txSearch').addEventListener('input', () => { for (const k of Object.keys(txLimit)) delete txLimit[k]; renderList(); });
+[['txState', 'state'], ['txFilter', 'kind'], ['txSort', 'sort'], ['txGroup', 'group']].forEach(([id, k]) => {
+  const el = $('#' + id); el.value = L[k];
+  el.addEventListener('change', () => {
+    L[k] = el.value; saveListPrefs();
+    for (const x of Object.keys(txLimit)) delete txLimit[x];
+    if (k === 'group'){ txOpen.clear(); txInitDone = false; txAuto = null; }
+    renderList();
+  });
+});
+/* 保存したら、一覧の進み具合も今の内容に合わせる(一覧を読み直さずに。開いている「⋮」を閉じないよう、少し待ってから) */
+function syncListItem(){
+  const d = S.doc, it = d && S.list.find(x => x.id === S.docId); if (!it) return;
+  const segs = d.segments, txt = segs.filter(g => g.text.trim());
+  Object.assign(it, { title: d.title, evalSet: d.evalSet === true, segments: segs.length, rows: txt.length, proofed: txt.filter(g => g.proofed).length,
+    cut: segs.filter(g => g.cutState === 'cut').length, flagged: segs.filter(g => g.flag).length, updatedAt: S.baseUpdatedAt || it.updatedAt });
+  clearTimeout(syncListItem.t);
+  syncListItem.t = setTimeout(() => { if (!document.querySelector('#txList details.txi-menu[open]')) renderList(); }, 1500);
+}
 
 /* ---------- 話者の自動判別 ---------- */
 function renderDiarSetup(){
@@ -488,7 +620,8 @@ const LOCK_KINDS = ['diarize', 'retranscribe'];
 function lockJob(){ return S.doc ? S.jobs.find(j => LOCK_KINDS.includes(j.kind) && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
 function applyLock(){
   const j = lockJob(), on = !!j;
-  $('#segs').inert = on; $('#doc .card').inert = on; $('#docTitle').disabled = on;
+  $('#segs').inert = on; document.querySelectorAll('#doc .tt-lockable').forEach(el => { el.inert = on; }); $('#docTitle').disabled = on;
+  if (S.doc) renderCutPack();
   const b = $('#diarBanner'); b.hidden = !on;
   if (on) b.textContent = `${j.kind === 'retranscribe' ? '再認識' : '話者を判別'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
@@ -499,10 +632,15 @@ async function startDiarize(){
   await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value } });
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
 }
-$('#btnSpk').addEventListener('click', () => {   // 折りたたみの中にあって見つけにくいので、上のボタンから開く
-  const d = $('#spDetails'); d.open = !d.open;
-  if (d.open) d.scrollIntoView({ block: 'start', behavior: 'smooth' });
-});
+/* 「道具 ▾」: 映像の下のカード(カットとパック・話者・置換と再認識・書き出し・以前の版)へ移動して開く(映像の列の中でスクロールする) */
+document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
+  const el = $('#' + b.dataset.jump); if (!el) return;
+  $('#jumpMenu').open = false;
+  if (el.tagName === 'DETAILS') el.open = true;
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  const sm = el.querySelector('summary'); if (sm) sm.focus({ preventScroll: true });
+}));
 $('#diarGo').addEventListener('click', e => {
   const b = e.currentTarget;
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
@@ -512,7 +650,7 @@ $('#diarGo').addEventListener('click', e => {
 /* ---------- 再認識 ---------- */
 const SPK_FLAGS = ['声が混ざっている可能性', '話者が不確か', '話者を判別できなかった'];
 function flagParts(s){ const p = String(s.flag || '').split('、').filter(Boolean); return { spk: p.filter(x => SPK_FLAGS.includes(x)), text: p.filter(x => !SPK_FLAGS.includes(x)) }; }
-function flagMatch(s, kind){ if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
+function flagMatch(s, kind){ if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'cut') return s.cutState === 'cut'; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
 function renderRtSetup(){
   const t = S.tools, sel = $('#rtModel'); if (!t) return;
   sel.innerHTML = t.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
@@ -962,14 +1100,13 @@ function saveDoc(){
       S.dirty = false; setSaveState('保存中…', 'busy');
       const id = S.docId, force = S.forceNext;
       const body = { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) };
-      const count = body.segments.length;
       try {
         const r = await api('/api/transcript?id=' + encodeURIComponent(id), { method: 'PUT', body });
         if (S.docId !== id) return false;
         S.baseUpdatedAt = r.updatedAt; S.forceNext = false;
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
         scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
-        const it = S.list.find(x => x.id === id); if (it){ it.title = body.title; it.segments = count; }
+        syncListItem(); cpAfterSave();
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
@@ -1002,7 +1139,9 @@ async function openDoc(id, keep){
   if (S.doc !== previousDoc || S.dirty || S.saving || S.conflict || S.baseUpdatedAt !== previousVersion){
     toast('読み込み中に編集されたため、現在の内容を保持しました。もう一度開いてください'); return false;
   }
+  const sameDoc = S.docId === id;
   S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
+  if (!keep || !sameDoc) cpReset();   // 開き直したら、カットの計算を最初から(動画を戻した後なども)。話者判別などの後の読み直しでは残す。パックの結果は同じ文書なら残す
   if (!keep) S.navIdx = -1; else navRestore(navId, S.navIdx);
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
@@ -1021,11 +1160,13 @@ async function openDoc(id, keep){
     p.src = apiUrl('/media?id=' + encodeURIComponent(id));
     $('#q').value = ''; $('#flagKind').value = '';
   }
+  if (!keep) cpDefaultFold();
   renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
+  schedulePlan(keep ? 1500 : 600);
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
-  if (autoClosed && resumeIdx < 0) toast('編集欄を広くするため、メニューを閉じました(左上の ☰ で開けます)', 4000);
+  if (autoClosed && resumeIdx < 0 && !isDrawer()) toast('編集欄を広くするため、メニューを閉じました(左上の ☰ で開けます)', 4000);
   return true;
 }
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
@@ -1056,7 +1197,7 @@ function renderDoc(){
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
-  renderSpeakers(); applyFilter(); updateSel(); updatePfStat();
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack();
 }
 /* 行の高さ: 対応ブラウザは CSS(field-sizing)にまかせる。それ以外は、画面の近くにある行だけを測る(数千行でも重くならないように) */
 const NATIVE_FS = !/[?&]nofs=1/.test(location.search) && !!(window.CSS && CSS.supports && CSS.supports('field-sizing', 'content'));
@@ -1083,7 +1224,7 @@ let sizeT = null;
 function autoSizeSoon(){ clearTimeout(sizeT); sizeT = setTimeout(() => { if (S.doc) autoSizeAll(); drawStripSoon(); }, 200); }
 window.addEventListener('resize', autoSizeSoon);
 if (window.ResizeObserver){
-  new ResizeObserver(() => { document.documentElement.style.setProperty('--pbh', $('.pbox').offsetHeight + 'px'); }).observe($('.pbox'));
+  new ResizeObserver(() => { document.documentElement.style.setProperty('--pbh', $('.tt-player').offsetHeight + 'px'); }).observe($('.tt-player'));   // 1列のときに画面の上に固定する部分の高さ
   new ResizeObserver(() => { document.documentElement.style.setProperty('--toph', $('.top').offsetHeight + 'px'); }).observe($('.top'));
   new ResizeObserver(drawStripSoon).observe($('#stripBox'));
 }
@@ -1140,7 +1281,7 @@ function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start); }   // v0
 function updateSel(){
   const n = S.sel.size; $('#selCount').textContent = n ? `${n}行を選択中` : '';
   $('#selAll').checked = n > 0 && n === S.doc.segments.length;
-  updateRt(); $('#btnProofSel').disabled = !n;
+  updateRt(); $('#btnProofSel').disabled = !n; renderCutPack();
 }
 
 $('#segs').addEventListener('input', e => {
@@ -1176,7 +1317,7 @@ $('#segs').addEventListener('click', e => {
       row.classList.toggle('cut', s.cutState === 'cut');
       b.setAttribute('aria-pressed', s.cutState === 'cut' ? 'true' : 'false');
       b.textContent = s.cutState === 'cut' ? 'カット済' : '残す';
-      markDirty();
+      markDirty(); renderCutPack();
       break;
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
@@ -1344,6 +1485,7 @@ window.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
   const c = e.code;
   if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
+  if (e.key === '?'){ e.preventDefault(); if (!e.repeat) $('#keys').showModal(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
   if (e.shiftKey) return;   // Space 以外は Shift を押していたら何もしない(単体キーで動くので、誤って押しても発動しないように)
   if (c === 'KeyG'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }
   if (!S.doc || lockJob()) return;
@@ -1390,10 +1532,10 @@ async function loadHistory(){
   let r; try { r = await api('/api/history?id=' + encodeURIComponent(id)); } catch (e){ return toast(e.message); }
   if (S.docId !== id) return;
   $('#hiList').innerHTML = r.items.length ? r.items.map(x => `<div class="row" data-ts="${x.ts}" style="margin-top:4px;justify-content:space-between;flex-wrap:nowrap"><span class="hint">${esc(new Date(x.ts).toLocaleString())} ・ ${x.segments}行 ・ 校正済み${x.proofed}行 ・ ${x.chars}字</span><button type="button" class="btn small" data-act="hirest">この時点に戻す</button></div>`).join('')
-    : '<p class="hint" style="margin:6px 0 0">まだ履歴がありません</p>';
+    : '<p class="hint" style="margin:6px 0 0">まだ以前の版はありません(10分ごと・再認識や話者判別の前に、自動で残ります)</p>';
 }
 $('#hiRefresh').addEventListener('click', loadHistory);
-$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open && S.docId) loadHistory(); });
+$('#hiDetails').addEventListener('toggle', () => { if ($('#hiDetails').open && S.docId) loadHistory(); });
 $('#hiList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=hirest]'); if (!b) return;
   const ts = Number(b.closest('[data-ts]').dataset.ts);
@@ -1403,7 +1545,7 @@ $('#hiList').addEventListener('click', e => {
       if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
       await api('/api/restore', { body: { id: S.docId, ts } });
       await openDoc(S.docId, true); await loadHistory();
-      toast('選んだ時点に戻しました(戻す前の状態も、履歴に残っています)');
+      toast('選んだ時点に戻しました(戻す前の状態も「以前の版」に残っています)');
     } catch (er){ toast(er.message); }
   });
 });
@@ -1505,7 +1647,7 @@ function updateDocTitle(){
 /* 文書を閉じる(開いている文書を削除したとき) */
 function closeDoc(){
   clearTimeout(markDirty.t);
-  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null;
+  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null; cpReset();
   $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
   S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
   renderList(); updateDocTitle();
@@ -1702,7 +1844,13 @@ $('#jobs').addEventListener('click', async e => {
   else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
 });
 $('#txList').addEventListener('click', e => {
-  const b = e.target.closest('[data-act]'); if (!b) return; const id = b.closest('.txi').dataset.id;
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'more'){   // まとまりの「もっと見る」: そのまとまりだけ描き足す
+    const k = b.dataset.g; txLimit[k] = (txLimit[k] || (k === 'all' ? FLAT_FIRST : GROUP_FIRST)) + MORE_STEP;
+    const rows = b.closest('.tt-g-rows'); if (rows) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []);
+    return;
+  }
+  const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'del') armDelete(b, async () => {
     /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
@@ -1785,16 +1933,17 @@ function renderDocExtras(d){
   renderHandoff();
 }
 const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
+const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 function renderHandoff(){
-  const box = $('#handoffOut'), h = S.handoff;
+  const box = $('#handoffOut'), pbox = $('#cpPlanOut'), h = S.handoff;
   if (!box) return;
-  if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
-  const rows = [['transcript', '文字起こし'], ['srt', '字幕'], ['plan', '残す区間']].filter(([k]) => h[k])
-    .map(([k, l]) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`).join('');
+  if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; if (pbox){ pbox.hidden = true; pbox.innerHTML = ''; } return; }
+  const rows = [['transcript', '文字起こし'], ['srt', '字幕']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
   const src = String(S.doc.sourcePath || '');
   const c2r = h.transcript && src ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(src) + '&transcript=' + encodeURIComponent(h.transcript)) : '';
-  box.innerHTML = rows + `<div class="row">${c2r ? `<a class="btn small primary" id="openC2R" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます</span>` : '<span class="hint">cut2resolve で開くには「文字起こし(.transcript.json)」を保存してください</span>'}</div>`;
-  box.hidden = false;
+  box.innerHTML = rows + `<div class="row">${c2r ? `<a class="btn small" id="openC2R" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます(細かく調整するとき。パックは「カットとパック」でも作れます)</span>` : '<span class="hint">cut2resolve で開くには「文字起こし(.transcript.json)」を保存してください</span>'}</div>`;
+  box.hidden = !rows;
+  if (pbox){ pbox.innerHTML = h.plan ? handoffRow(h, 'plan', '残す区間') : ''; pbox.hidden = !h.plan; }
 }
 async function exportBeside(fmt, btn){
   if (!S.doc) return;
@@ -1818,11 +1967,343 @@ async function exportBeside(fmt, btn){
   } finally { btn.disabled = false; btn.textContent = label; }
 }
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
-$('#handoffOut').addEventListener('click', async e => {
+[$('#handoffOut'), $('#cpPlanOut')].forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
   const v = S.handoff[b.dataset.k]; if (!v) return;
   try { await navigator.clipboard.writeText(v); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+}));
+
+/* ---------- カットとパック(v0.15.0・案A) ----------
+   行の「残す/カット済」で決めたカットを、この画面のまま確かめて(カット後の長さ・カット後の見え方で再生)、Resolve へ渡すパックを作る。
+   計算(残す区間)とパック作りは cut2resolve の API を呼ぶ(パックを作るのは cut2resolve/pack.py だけ。文字起こし側に Resolve 用の計算を書き足さない。
+   docs/resolve-pack-unification.md)。流れ:
+     文字起こしを保存 → /api/export-file(transcript-v1)で動画の隣に .transcript.json → cut2resolve の api/plan(試算)/ api/build(パック)
+     spec = {video: 元の動画, transcript: .transcript.json, preset: "transcript-rows"}(入口のまとめて実行・zip と同じ規則 pack.TRANSCRIPT_ROWS)
+   動画の隣への .transcript.json の書き出しと cut2resolve の計算は、使う人が求めたとき(「カット後の見え方で再生」を入れた・パックを作った)から始める
+   (開いただけでファイルを増やさない。2026-09-26 統括の判断)。それまでのカット後の長さは、残す行の時間を足した目安(「約」)を出す。
+   cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
+   (合言葉を別のサーバーへ渡さない・CORS で断られるため)。単体で開いたときは「zip でダウンロード」(/api/resolve-package。中身は同じ pack.py)だけ */
+const CP = { plan: null, keeps: [], cum: [], planSig: '', doneSig: '', planning: false, again: false, retryMs: 0, timer: 0, err: '', errCode: '',
+  txPath: '', job: null, building: false, buildErr: '', result: null, wanted: false };
+function cpReset(){
+  clearTimeout(CP.timer);
+  Object.assign(CP, { plan: null, keeps: [], cum: [], planSig: '', doneSig: '', again: false, retryMs: 0, timer: 0, err: '', errCode: '', txPath: '', buildErr: '', wanted: false });
+  if (CP.result && CP.result.docId !== S.docId) CP.result = null;
+  $('#cpPreview').checked = false; $('#cutViewPill').hidden = true; $('#cpCutTime').textContent = '';
+}
+/* 取り込まれた cut2resolve の場所('/cut2resolve/')。使えないときは ''。URL はここと c2rUrl() だけで作る */
+function c2rBase(){
+  if (!TOKEN || !window.UIKit || !UIKit.tools.paths || !UIKit.tools.paths.cut2resolve) return '';
+  const here = Number(location.port || (location.protocol === 'https:' ? 443 : 80));
+  if (!S.ports || Number(S.ports.cut2resolve) !== here) return '';   // 同じ入口(同じポート)の中の cut2resolve だけ
+  return UIKit.tools.base('cut2resolve');
+}
+const c2rUrl = path => c2rBase() + String(path).replace(/^\/+/, '');
+async function c2rApi(path, opt = {}){
+  if (!c2rBase()){ const e = new Error('cut2resolve を使えません(入口から開いてください)'); e.code = 'unavailable'; throw e; }
+  const init = { cache: 'no-store', method: opt.body !== undefined ? 'POST' : 'GET', headers: {} };
+  if (opt.body !== undefined){ init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opt.body); init.headers['X-YTT-Token'] = TOKEN; }
+  let r;
+  try { r = await fetch(c2rUrl(path), init); } catch { const e = new Error('cut2resolve に接続できません(入口の黒い画面が閉じていないか確認してください)'); e.code = 'network'; throw e; }
+  const j = await r.json().catch(() => null);
+  if (!r.ok){ const e = new Error((j && j.message) || `cut2resolve のエラー(${r.status})`); e.code = (j && j.error) || 'http'; e.status = r.status; e.data = j || {}; throw e; }
+  return j;
+}
+/* cut2resolve のジョブが終わるまで待つ(cut2resolve の app.js の trackJob と同じ: api/job?id= を見て、done なら結果、error なら中身を投げる) */
+async function c2rWait(job, onTick){
+  let j = job, fails = 0;
+  while (j.state === 'running'){
+    await new Promise(res => setTimeout(res, 300));
+    try { j = await c2rApi('api/job?id=' + encodeURIComponent(job.id)); fails = 0; }
+    catch (e){ if (e.code === 'network' && ++fails < 20) continue; throw e; }
+    if (onTick) onTick(j);
+  }
+  if (j.state === 'done') return j.result;
+  const er = j.error || {}, e = new Error(j.state === 'cancelled' ? '中止しました' : (er.message || '失敗しました'));
+  e.code = j.state === 'cancelled' ? 'cancelled' : (er.code || 'failed'); e.data = er; throw e;
+}
+/* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは計算し直さない。文字が空になった行は残らないので含める) */
+const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}`).join(';') : '';
+function cpCounts(){ let keep = 0, cut = 0, empty = 0; for (const g of S.doc.segments){ if (g.cutState === 'cut') cut++; else if (g.text.trim()) keep++; else empty++; } return { keep, cut, empty }; }
+/* 計算する前の目安: 残す行(文字があり、カット済でない)の時間を重なりをまとめて足す(cut2resolve の計算は1フレームの隙間もつなぐので、わずかに違うことがある) */
+function cpApproxSec(){
+  const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && g.text.trim() && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
+  let sum = 0, cur = null;
+  for (const [a, b] of spans){ if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else { if (cur) sum += cur[1] - cur[0]; cur = [a, b]; } }
+  return cur ? sum + cur[1] - cur[0] : 0;
+}
+const cpItem = () => S.docId ? S.list.find(x => x.id === S.docId) : null;
+const cpSpec = path => ({ video: S.doc.sourcePath, transcript: path, preset: 'transcript-rows' });
+const cpPackDir = () => { const p = String(S.doc && S.doc.sourcePath || ''), k = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return p.slice(0, k + 1) + p.slice(k + 1).replace(/\.[^.]*$/, '') + '_pack'; };
+/* パック作りと「カット後の見え方」を使えない理由(無ければ '')。行の「残す/カット」と zip は、理由があっても使える */
+function cpBlock(){
+  if (!S.doc) return 'no-doc';
+  if (!S.doc.sourcePath) return 'no-source';
+  const it = cpItem();
+  if (CP.errCode === 'no_media' || (it && it.mediaOk === false)) return 'no-media';
+  if (!TOKEN) return 'standalone';
+  if (!S.sibLoaded) return 'checking';
+  return c2rBase() ? '' : 'no-c2r';
+}
+const CP_BLOCK_MSG = {
+  'no-source': 'この文字起こしには元の動画のパスが無いため、パックは作れません(行の「残す/カット済」の印と、字幕の書き出しは使えます)。',
+  'no-media': '元の動画が見つかりません(移動・削除した可能性があります)。元の場所に戻すと、パック作りと「カット後の見え方で再生」が使えます。',
+  'no-c2r': 'cut2resolve が起動していないため、パック作りと「カット後の見え方で再生」は使えません。入口の画面で cut2resolve を起動してから、この画面を開き直してください。',
+  'standalone': 'パック作りと「カット後の見え方で再生」は、入口(start-all.bat)から開いたときだけ使えます。今は「詳しい設定」の「zip でダウンロード」が使えます。'
+};
+/* 描き直しはフレームごとに1回にまとめる(行の選択・保存・処理状況の確認のたびに呼ばれるため。数千行の文書でも入力を重くしない) */
+let cpQ = 0;
+function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
+function renderCutPackNow(){
+  if (!S.doc) return;
+  const c = cpCounts(), block = cpBlock(), locked = !!lockJob(), sig = rowSig(), it = cpItem();
+  const stale = CP.plan && CP.planSig !== sig, busy = CP.planning || !!CP.timer;
+  let len = '';
+  if (CP.plan) len = ` ・ カット後の長さ <b>${fmtT(CP.plan.keptSec)}</b>` + (S.doc.whole && CP.plan.durationSec ? `<span class="hint">(元 ${fmtT(CP.plan.durationSec)})</span>` : '')
+    + (stale || busy ? ' <span class="hint">計算し直しています…</span>' : '');
+  else if (!block && busy) len = ' ・ <span class="hint">カット後の長さを計算しています…</span>';
+  else if (!CP.wanted && c.keep) len = ` ・ カット後の長さ 約 <b>${fmtT(cpApproxSec())}</b>`;
+  else if (!block && CP.err) len = ` ・ <span class="hint tt-cp-err">${esc(CP.err)}</span>`;
+  $('#cpStats').innerHTML = `残す <b>${c.keep}</b>行 ・ カット <b>${c.cut}</b>行${c.empty ? `<span class="hint">(文字の無い${c.empty}行は入りません)</span>` : ''}${len}`;
+  const packed = !!(it && it.pack) || !!(CP.result && CP.result.docId === S.docId);
+  const packOld = it && it.pack && !CP.result && Number(it.pack.updatedAt) < (Number(S.doc.updatedAt || it.updatedAt) || 0) - 2000;
+  $('#cpSum').innerHTML = `<span>残す ${c.keep} ・ カット ${c.cut}${CP.plan ? ' ・ ' + fmtT(CP.plan.keptSec) : ''}</span>` + (packed ? (packOld ? '<span class="pill warn">パックが古い</span>' : '<span class="pill ok">パック済み</span>') : '');
+  const off = $('#cpOff'), msg = CP_BLOCK_MSG[block] || '';
+  off.hidden = !msg; off.textContent = msg; off.title = block === 'no-media' ? String(S.doc.sourcePath || '') : '';
+  const pv = $('#cpPreview'); pv.disabled = !!block || locked; if (pv.disabled && pv.checked){ pv.checked = false; cpPreviewChanged(); }
+  const n = S.sel.size;
+  $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
+  $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
+  const b = $('#cpBuild');
+  b.disabled = !!block || locked || CP.building || c.keep === 0;
+  b.textContent = CP.building ? 'パックを作っています…' : packed ? 'パックを作り直す' : 'パックを作る';
+  const hint = $('#cpBuildHint');
+  hint.textContent = c.keep === 0 ? '残す行がありません(すべてカット済か、文字がありません)'
+    : locked ? '話者の判別・再認識の途中です'
+    : block ? '' : packOld ? 'パックを作ったあとに行を直しています。作り直すと、今の内容になります'
+    : it && it.pack ? `前に作ったパックがあります(${ago(it.pack.updatedAt)})` : `出力先: 動画の隣の「${cpPackDir().split(/[\\/]/).pop()}」フォルダ`;
+  hint.title = block ? '' : cpPackDir();
+  renderCpResult();
+  const link = $('#cpC2R');
+  const c2r = CP.txPath && S.doc.sourcePath ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(S.doc.sourcePath) + '&transcript=' + encodeURIComponent(CP.txPath)) : '';
+  link.innerHTML = c2r ? `<a class="btn small" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます(無音でのカット・細かい設定を使うとき)</span>`
+    : '<span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span>';
+}
+function renderCpResult(){
+  const box = $('#cpResult'), r = CP.result;
+  if (CP.buildErr){ box.hidden = false; box.className = 'notice err'; box.textContent = 'パックを作れませんでした: ' + CP.buildErr; return; }
+  box.className = 'tt-handoff';
+  if (!r || r.docId !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
+  const sm = r.summary || {}, caps = sm.subtitles ? sm.subtitles.out : null, warns = (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6);
+  box.hidden = false;
+  box.innerHTML = `<div class="tt-cp-res-t">パックを作りました</div>
+    <div class="hint">残す区間 ${Number(sm.count) || 0}か所 ・ カット後 ${fmtT(sm.keptSec)}${caps != null ? ` ・ Text+ 字幕 ${Number(caps) || 0}件` : ''}</div>
+    <div><span class="path">${esc(r.outDir || '')}</span> <button type="button" class="btn ghost small" data-act="cpcopy" title="このパスをコピー">コピー</button></div>
+    <div class="row"><button type="button" class="btn small" data-act="cpopen">フォルダを開く</button><span class="hint">中の「友人へ.txt」の手順で Resolve に取り込みます</span></div>
+    ${warns.length ? `<ul class="tt-cp-warn">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+    ${r.readme ? `<details style="margin-top:6px"><summary class="hint">取り込みの手順を見る(友人へ.txt)</summary><pre class="tt-cp-readme">${esc(String(r.readme).slice(0, 8000))}</pre></details>` : ''}`;
+}
+function renderCpJob(){
+  const box = $('#cpJob'), j = CP.job;
+  if (!j){ box.hidden = true; box.innerHTML = ''; return; }
+  if (!box.firstChild){   // 作りは1回だけ(中止ボタンを押している間に作り直さない)
+    box.innerHTML = '<div class="row"><span><span class="pill run">パックを作っています</span> <span class="tt-cp-jmsg"></span></span><span class="mono hint tt-cp-jpct"></span></div><div class="bar"><i></i></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn small" data-act="cpcancel">中止</button></div>';
+  }
+  box.hidden = false;
+  const pct = j.progress != null ? Math.round(j.progress * 100) : null;
+  box.querySelector('.tt-cp-jmsg').textContent = j.message || '';
+  box.querySelector('.tt-cp-jpct').textContent = pct != null ? pct + '%' : (j.elapsed != null ? Number(j.elapsed).toFixed(0) + '秒' : '');
+  const bar = box.querySelector('.bar'); bar.classList.toggle('indeterminate', pct == null); bar.querySelector('i').style.width = (pct || 0) + '%';
+}
+/* 計算の結果(cut2resolve の pack.summary)。区間はフレーム [開始, 終了) なので、fps で秒に直すだけ(ここでは区間を作らない) */
+function cpApplyPlan(res, sig){
+  const fps = Array.isArray(res.fps) && Number(res.fps[0]) > 0 && Number(res.fps[1]) > 0 ? res.fps : [30, 1];
+  const f2s = n => n * fps[1] / fps[0];
+  CP.keeps = (Array.isArray(res.keeps) ? res.keeps : []).map(([a, b]) => [f2s(a), f2s(b)]);
+  CP.cum = []; let acc = 0; for (const [a, b] of CP.keeps){ CP.cum.push(acc); acc += b - a; }
+  CP.plan = { keptSec: Number(res.keptSec) || 0, durationSec: Number(res.durationSec) || 0, count: Number(res.count) || 0 };
+  CP.planSig = CP.doneSig = sig; CP.err = ''; CP.errCode = '';
+}
+/* 保存 → 動画の隣に .transcript.json(保存済みの内容を書き出す。画面と違う内容を cut2resolve に渡さないため、保存が追いついていなければ待つ) */
+async function cpExport(id){
+  const ok = await saveDoc();
+  const fail = (msg, code) => Object.assign(new Error(msg), { code });
+  if (S.docId !== id) throw fail('別の文字起こしに切り替えました', 'switched');
+  if (!ok || S.dirty || S.saving) throw S.conflict ? fail('保存が競合しています。映像の上の案内から選んでください', 'conflict') : fail('保存が追いついていません', 'saving');
+  let r;
+  try { r = await api('/api/export-file', { body: { id, format: 'transcript-v1', baseUpdatedAt: S.baseUpdatedAt } }); }
+  catch (e){ if (e.status === 409) e.code = 'saving'; throw e; }
+  CP.txPath = r.path;
+  return r.path;
+}
+function schedulePlan(ms = 1200){
+  clearTimeout(CP.timer); CP.timer = 0;
+  if (!S.doc || cpBlock() || !CP.wanted) return renderCutPack();   // 求められるまでは書き出さない・計算しない(目安だけ)
+  CP.timer = setTimeout(() => { CP.timer = 0; runPlan(); }, ms);
+  renderCutPack();
+}
+/* 保存のあと: 残す/カットに関わる内容が変わっていたら、少し待ってから計算し直す */
+function cpAfterSave(){ if (!S.doc) return; if (rowSig() !== CP.doneSig) schedulePlan(1500); else renderCutPack(); }
+async function runPlan(){
+  if (!S.doc || cpBlock()) return renderCutPack();
+  if (CP.planning || CP.building){ CP.again = true; return; }
+  const id = S.docId, sig = rowSig();
+  if (sig === CP.doneSig) return renderCutPack();
+  if (!cpCounts().keep){ Object.assign(CP, { plan: null, keeps: [], cum: [], doneSig: sig, err: '残す行がありません', errCode: 'empty' }); return renderCutPack(); }
+  CP.planning = true; renderCutPack();
+  try {
+    const path = await cpExport(id);
+    const j = await c2rApi('api/plan', { body: { spec: cpSpec(path), output: {} } });
+    const res = await c2rWait(j.job);
+    if (S.docId === id) cpApplyPlan(res, sig);
+  } catch (e){
+    if (S.docId !== id || e.code === 'switched') return;
+    if (e.code === 'busy' || e.code === 'saving' || e.code === 'network'){ CP.again = true; CP.retryMs = 3000; }   // cut2resolve で別の処理中・保存待ち → 少し待ってもう一度
+    else Object.assign(CP, { plan: null, keeps: [], cum: [], doneSig: sig, err: e.message, errCode: e.code || '' });   // 同じ内容では繰り返さない
+  } finally {
+    CP.planning = false;
+    if (S.docId === id){
+      if (CP.again){ CP.again = false; const ms = CP.retryMs || 300; CP.retryMs = 0; schedulePlan(ms); }
+      else renderCutPack();
+      if ($('#cpPreview').checked) cpShowTime();
+    }
+  }
+}
+function confirmOverwrite(files, dir){
+  const dlg = $('#dlgOverwrite');
+  $('#owDir').textContent = dir || ''; $('#owDir').hidden = !dir;
+  $('#owFiles').innerHTML = (files || []).slice(0, 20).map(f => `<li>${esc(f)}</li>`).join('') + ((files || []).length > 20 ? `<li>ほか ${files.length - 20}件</li>` : '');
+  return new Promise(resolve => {
+    const done = v => { $('#owOk').onclick = null; $('#owCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
+    $('#owOk').onclick = () => done(true);
+    $('#owCancel').onclick = () => done(false);
+    dlg.oncancel = e => { e.preventDefault(); done(false); };
+    dlg.showModal(); $('#owCancel').focus();
+  });
+}
+async function buildPack(){
+  if (CP.building || !S.doc || cpBlock() || lockJob()) return;
+  const id = S.docId; CP.building = true; CP.buildErr = ''; CP.wanted = true; renderCutPack();
+  try {
+    for (let i = 0; i < 150 && CP.planning; i++) await new Promise(res => setTimeout(res, 200));   // 計算中なら終わるのを待つ(cut2resolve の処理は同時に1つだけ)
+    const sig = rowSig(), path = await cpExport(id);
+    const out = { textplus: true, textplusFps: $('#resolveFps').value, textplusSize: $('#resolveSize').value };
+    let force = false, res;
+    for (;;){
+      try {
+        const j = await c2rApi('api/build', { body: { spec: cpSpec(path), output: { ...out, force } } });
+        CP.job = j.job; renderCpJob();
+        res = await c2rWait(j.job, pj => { CP.job = pj; renderCpJob(); });
+        break;
+      } catch (e){
+        CP.job = null; renderCpJob();
+        if (e.code === 'exists' && !force){   // 前に作ったパックがある → 上書きの確認(cut2resolve の confirmOverwrite と同じ考え)
+          const d = e.data || {};
+          if (!(await confirmOverwrite(d.files || [], d.dir || cpPackDir()))) return;
+          force = true; continue;
+        }
+        throw e;
+      }
+    }
+    CP.result = { ...res, docId: id };
+    const it = S.list.find(x => x.id === id); if (it){ it.pack = { textplus: true, updatedAt: Date.now() }; renderList(); }
+    if (S.docId === id && res.summary) cpApplyPlan(res.summary, sig);
+    toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。フォルダの中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
+  } catch (e){
+    if (e.code === 'cancelled') toast('パック作りを中止しました', 3000);
+    else if (e.code !== 'switched') CP.buildErr = e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message;
+  } finally {
+    CP.building = false; CP.job = null; renderCpJob();
+    if (S.docId === id){ renderCutPack(); if (CP.again){ CP.again = false; schedulePlan(300); } }   // 作っている間に行が変わっていたら計算し直す
+  }
+}
+$('#cpBuild').addEventListener('click', buildPack);
+$('#cpJob').addEventListener('click', async e => {
+  if (!e.target.closest('[data-act=cpcancel]') || !CP.job) return;
+  try { await c2rApi('api/job/cancel', { body: { id: CP.job.id } }); } catch (er){ toast(er.message, 4000, 'err'); }
 });
+$('#cpResult').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b || !CP.result) return;
+  if (b.dataset.act === 'cpcopy'){ try { await navigator.clipboard.writeText(CP.result.outDir || ''); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); } }
+  else if (b.dataset.act === 'cpopen'){ try { await c2rApi('api/open-folder', { body: { path: CP.result.outDir } }); } catch (er){ toast('フォルダを開けませんでした: ' + er.message, 5000, 'err'); } }
+});
+/* 選んだ行をまとめてカット/残す(1行ずつは、行の右の「残す/カット済」。同じ印を変える入口は、この2つだけ) */
+function bulkCut(cut){
+  if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
+  if (lockJob()) return toast('処理中のため、今は変更できません');
+  pushUndo(); let n = 0;
+  for (const g of S.doc.segments) if (S.sel.has(g.id)){ if (cut) g.cutState = 'cut'; else delete g.cutState; n++; }
+  renderDoc(); markDirty(); toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
+}
+$('#cutSelected').addEventListener('click', () => bulkCut(true));
+$('#keepSelected').addEventListener('click', () => bulkCut(false));
+/* カット後の見え方で再生: cut2resolve の app.js の keepAt / skipRemoved と同じ動き(カット済の区間に入ったら次の残す区間へ飛ぶ。最後なら止める)。
+   行の ▶(その行だけ再生)は、いつもどおりその行を聞けるように飛ばさない */
+function cpKeepAt(t){
+  const k = CP.keeps; let lo = 0, hi = k.length;
+  while (lo < hi){ const m = (lo + hi) >> 1; if (k[m][1] <= t) lo = m + 1; else hi = m; }
+  return { inside: lo < k.length && k[lo][0] <= t + 1e-6 ? lo : -1, next: lo };
+}
+function cpSkip(){
+  if (!$('#cpPreview').checked || !CP.keeps.length || S.playEnd !== null) return;
+  const p = player(), k = cpKeepAt(p.currentTime);
+  if (k.inside >= 0) return;
+  if (k.next < CP.keeps.length) p.currentTime = CP.keeps[k.next][0] + 0.001;
+  else { p.pause(); p.currentTime = Math.max(0, CP.keeps[CP.keeps.length - 1][1] - 0.04); }
+}
+function cpShowTime(){
+  const el = $('#cpCutTime');
+  if (!$('#cpPreview').checked || !CP.plan){ el.textContent = $('#cpPreview').checked ? '計算を待っています…' : ''; return; }
+  const t = player().currentTime, k = cpKeepAt(t);
+  let c = 0;
+  if (k.inside >= 0) c = CP.cum[k.inside] + t - CP.keeps[k.inside][0];
+  else if (k.next < CP.keeps.length) c = CP.cum[k.next];
+  else c = CP.plan.keptSec;
+  el.textContent = `カット後 ${fmtT(c)} / ${fmtT(CP.plan.keptSec)}`;
+}
+let cpRaf = 0;
+function cpLoop(){ cpRaf = 0; cpSkip(); cpShowTime(); if (!player().paused && $('#cpPreview').checked) cpRaf = requestAnimationFrame(cpLoop); }
+function cpPreviewChanged(){
+  const on = $('#cpPreview').checked;
+  $('#cutViewPill').hidden = !on;
+  if (on){ CP.wanted = true; if (!CP.plan) schedulePlan(0); }
+  if (on && !player().paused && !cpRaf) cpRaf = requestAnimationFrame(cpLoop);
+  cpShowTime();
+}
+$('#cpPreview').addEventListener('change', cpPreviewChanged);
+player().addEventListener('play', () => { if ($('#cpPreview').checked && !cpRaf) cpRaf = requestAnimationFrame(cpLoop); });
+player().addEventListener('seeked', () => { if ($('#cpPreview').checked) cpShowTime(); });
+/* 「カットとパック」の開閉: 人が開閉したときだけ覚える。覚えていなければ、広い画面では開き、狭い画面(1列)では閉じておく(一覧に早く届くように) */
+$('#cutPack').querySelector('summary').addEventListener('click', () => { const next = !$('#cutPack').open; try { localStorage.setItem('tx.fold.cutPack', next ? '1' : '0'); } catch {} });
+function cpDefaultFold(){
+  let v = null; try { v = localStorage.getItem('tx.fold.cutPack'); } catch {}
+  $('#cutPack').open = v === '1' ? true : v === '0' ? false : $('.editor').clientWidth > 780;
+}
+/* zip でダウンロード(人に送るとき。/api/resolve-package。中身は cut2resolve の pack.py で作る Text+ パックと同じ) */
+$('#resolveExport').addEventListener('click', async () => {
+  if (!S.docId) return toast('先に文字起こしを開いてください');
+  if (!(await saveDoc()) || S.dirty) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+  const b = $('#resolveExport'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
+  try {
+    const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value, size: $('#resolveSize').value });
+    download(await r.blob(), `${safeName(S.doc.title)}-resolve.zip`);
+    const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
+    const handles = r.headers.get('X-Resolve-Handles') === '1' ? '・余白つき素材' : '';
+    toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件${handles})。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
+  } catch (e){ toast('パック(zip)を作れませんでした: ' + e.message, 7000, 'err'); }
+  finally { b.disabled = false; b.textContent = label; }
+});
+['resolveFps', 'resolveSize'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+
+/* ---------- キー操作の手がかり(行の一覧の上。閉じたら覚える) ---------- */
+const KH_KEY = 'tx.keyhint';
+const khOn = () => { try { return localStorage.getItem(KH_KEY) !== '0'; } catch { return true; } };
+function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyHintOn').checked = on; }
+$('#keyHintClose').addEventListener('click', () => { try { localStorage.setItem(KH_KEY, '0'); } catch {} applyKeyHint(); toast('キー操作の手がかりを閉じました(右上の「キー操作」から、また出せます)', 4000); });
+$('#keyHintAll').addEventListener('click', () => $('#keys').showModal());
+$('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_KEY, e.target.checked ? '1' : '0'); } catch {} applyKeyHint(); });
+applyKeyHint();
+if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
 
 /* ---------- 起動 ---------- */
 async function boot(){
@@ -1847,38 +2328,4 @@ async function boot(){
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 boot();
-function installResolveExport(){
-  const host = $('#handoffBox');   // 「動画の隣に保存」の下に置く(書き出しの流れ: ダウンロード → 次のツールへ → Resolve)
-  if (!host || $('#resolveExportBox')) return;
-  const box = document.createElement('div');
-  box.id = 'resolveExportBox'; box.className = 'fld';
-  box.innerHTML = `<span class="l">DaVinci Resolveへ渡す</span>
-    <div class="row"><button type="button" class="btn small" id="cutSelected">選択行をカット</button><button type="button" class="btn small" id="keepSelected">選択行を残す</button></div>
-    <div class="row"><label class="lag">プロジェクト <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select> fps</label><label class="lag"><select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label><button type="button" class="btn small" id="resolveExport">Resolveパッケージ(zip)をダウンロード</button></div>
-    <span class="hint">「残す/カット済」で仮編集を指定します。中身は cut2resolve の Text+ パックと同じです(動画・Text+ 字幕を作るスクリプト・手順書・EDL・SRT)。fps と画面の大きさは、Resolve で手で作るプロジェクトの設定です。切り抜きスタジオで新しく書き出した素材は、前後10秒までトリムを延ばせます。</span>`;
-  host.after(box);
-  const bulk = cut => {
-    if (!S.doc || !S.sel.size) return toast('先に左端のチェックで行を選んでください');
-    if (lockJob()) return toast('処理中のため、今は変更できません');
-    pushUndo();
-    for (const s of S.doc.segments) if (S.sel.has(s.id)) { if (cut) s.cutState = 'cut'; else delete s.cutState; }
-    renderDoc(); markDirty(); toast(`${S.sel.size}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
-  };
-  $('#cutSelected').addEventListener('click', () => bulk(true));
-  $('#keepSelected').addEventListener('click', () => bulk(false));
-  $('#resolveExport').addEventListener('click', async () => {
-    if (!S.docId) return toast('先に文字起こしを開いてください');
-    if (!(await saveDoc()) || S.dirty) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
-    const b = $('#resolveExport'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
-    try {
-      const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value, size: $('#resolveSize').value });
-      download(await r.blob(), `${safeName(S.doc.title)}-resolve.zip`);
-      const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
-      const handles = r.headers.get('X-Resolve-Handles') === '1' ? '・余白つき素材' : '';
-      toast(`Resolveパッケージを作成しました(残す区間${cuts}か所・Text+ ${caps}件${handles})。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
-    } catch (e){ toast('Resolveパッケージを作れませんでした: ' + e.message, 7000, 'err'); }
-    finally { b.disabled = false; b.textContent = label; }
-  });
-}
-installResolveExport();
 })();

@@ -8,7 +8,17 @@
   - パック … 切り抜きの隣の <名前>_pack フォルダ(cut2resolve の既定の出力先)
 案件ファイル(<作業データ>\\app\\cases.json)に持つのは、人が付ける状態・メモと、最後に見えた紐づけ(元のファイルを消しても履歴が残るように)。
 各ツールのデータは読むだけで、書き換えない。
+
+画面が一覧(1件1行)を組み立てやすいように、案件1件ごとに追加で持たせる項目(2026-09-26 画面の見直し。既存の項目は変えない):
+  - streamedAt: 「いつの配信か」の目安(ms)。① スタジオの解析結果(analysis.uploadDate、実際の配信日)② 無ければ案件が
+    スタジオに追加された時刻(createdAt)③ それも無ければ updatedAt、の順(デモ環境や解析前の動画では ①が無い)
+  - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
+  - packs: 切り抜き全体のパックの有無の合計 {have, total, textplus}
+  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。書き出し → 文字起こし → 校正 → パックの順で
+    最初に残っている作業
+  - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う)
 """
+import datetime
 import json
 import os
 import threading
@@ -54,18 +64,51 @@ def read_transcripts(folder):
 
 
 def find_pack(media_path):
-    """切り抜きの隣の <名前>_pack(cut2resolve の既定の出力先)。-> {"dir", "textplus", "updatedAt"} か None"""
-    if not media_path:
-        return None
-    d = os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
-    plan = os.path.join(d, "cut-plan.json")
-    if not os.path.isfile(plan):
-        return None
-    try:
-        mt = int(os.path.getmtime(plan) * 1000)
-    except OSError:
-        mt = 0
-    return {"dir": d, "textplus": os.path.isfile(os.path.join(d, "textplus-import.json")), "updatedAt": mt}
+    """切り抜きの隣の <名前>_pack(cut2resolve の既定の出力先)。-> {"dir", "textplus", "updatedAt"} か None。
+    規則は ytt_core/txindex.pack_info の1か所(文字起こしの一覧と同じ判定)"""
+    return txindex.pack_info(media_path)
+
+
+def _upload_date_ms(s):
+    """analysis.uploadDate("YYYYMMDD")→ ms。形が違えば 0"""
+    if isinstance(s, str) and len(s) == 8 and s.isdigit():
+        try:
+            d = datetime.datetime(int(s[:4]), int(s[4:6]), int(s[6:8]), tzinfo=datetime.timezone.utc)
+            return int(d.timestamp() * 1000)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _int_ms(x):
+    return x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else 0
+
+
+def _stream_time(v):
+    """「いつの配信か」の目安(ms)。解析で分かった配信日 → 案件が増えた時刻 → 最後に触った時刻、の順"""
+    an = v.get("analysis") if isinstance(v.get("analysis"), dict) else {}
+    return _upload_date_ms(an.get("uploadDate")) or _int_ms(v.get("createdAt")) or _int_ms(v.get("updatedAt"))
+
+
+def _case_extras(c):
+    """一覧の1行に要る合計・「次にやること」(2026-09-26)。clips・marks だけから作れるので、案件の生成元(スタジオに
+    まだある配信・消えた配信の最後に見えた内容)のどちらでも同じ規則で計算できる"""
+    clips = c.get("clips") or []
+    total = len(clips)
+    with_tx = [cl["transcript"] for cl in clips if cl.get("transcript")]
+    have_pack = sum(1 for cl in clips if cl.get("pack"))
+    to_export = int((c.get("marks") or {}).get("adopted") or 0)                                    # 採用済みでまだ書き出していない
+    missing_tx = sum(1 for cl in clips if not cl.get("transcript"))                                 # 書き出し済みで文字起こしがまだ
+    proofing = sum(1 for t in with_tx if t.get("proofed", 0) < t.get("segments", 0))                # 文字起こしはあるが校正が残っている
+    missing_pack = total - have_pack                                                                # 書き出し済みでパックがまだ
+    steps = ((to_export, "export", "書き出し"), (missing_tx, "transcribe", "文字起こし"),
+             (proofing, "proof", "校正"), (missing_pack, "pack", "パックを作る"))
+    nxt = next(({"kind": k, "label": lb, "count": n} for n, k, lb in steps if n > 0), None)
+    return {"tx": {"clips": total, "withTranscript": len(with_tx), "segments": sum(t["segments"] for t in with_tx),
+                   "proofed": sum(t["proofed"] for t in with_tx)},
+            "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
+            "next": nxt, "remaining": to_export + missing_tx + proofing + missing_pack,
+            "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
 
 
 # ---------------------------------------------------------------- 組み立て
@@ -94,13 +137,15 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack):
                                 "exported": len(clips), "candidates": sum(1 for m in marks if not m.get("status"))},
                       "clips": clips, "status": s.get("status") if s.get("status") in STATUSES else "",
                       "memo": str(s.get("memo") or "")[:MAX_MEMO], "statusUpdatedAt": s.get("statusUpdatedAt") or 0,
-                      "updatedAt": v.get("updatedAt") or 0, "gone": False})
+                      "updatedAt": v.get("updatedAt") or 0, "streamedAt": _stream_time(v), "gone": False})
     # スタジオから消えた動画も、状態・メモを付けていれば、最後に見えた紐づけで残す
     for cid, s in saved.items():
         if cid not in videos and isinstance(s, dict) and (s.get("status") or s.get("memo")) and isinstance(s.get("last"), dict):
             last = dict(s["last"], id=cid, status=s.get("status") if s.get("status") in STATUSES else "",
                         memo=str(s.get("memo") or "")[:MAX_MEMO], gone=True)
             cases.append(last)
+    for c in cases:
+        c.update(_case_extras(c))
     cases.sort(key=lambda c: -(c.get("updatedAt") or 0))
     unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used]
     unlinked.sort(key=lambda t: -t["updatedAt"])
@@ -131,7 +176,7 @@ def snapshot(repo_root, env=None):
         for c in res["cases"]:
             s = saved.get(c["id"])
             if s is not None and not c["gone"]:
-                last = {k: c[k] for k in ("kind", "title", "channel", "duration", "marks", "clips", "updatedAt")}
+                last = {k: c[k] for k in ("kind", "title", "channel", "duration", "marks", "clips", "updatedAt", "streamedAt")}
                 if s.get("last") != last:
                     s["last"] = last
                     changed = True

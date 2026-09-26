@@ -287,3 +287,74 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   assert.equal(pending.length, 2);
   assert.equal(S.tx, null);
 });
+
+/* ---- 2026-09-26 v0.8.0 画面の全面見直しで足したテスト ---- */
+function sliceOf(file, start, end) {
+  const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
+  const a = src.indexOf(start), b = src.indexOf(end, a);
+  assert.ok(a >= 0 && b > a, `${file}: application function boundaries must exist (${start})`);
+  return src.slice(a, b);
+}
+
+test('player unavailable: automatic playback stays silent, an explicit play explains once per press', () => {
+  const notes = [], seeks = [];
+  const S = { playerAlive: false, playerErr: true, settings: { autoPlay: true }, now: 0 };
+  const context = { S, yt: null, toast: m => notes.push(m), seek: t => { seeks.push(t); S.now = t; } };
+  vm.createContext(context);
+  vm.runInContext(between('const canPlay', 'function phMsg(') + '\n' + between('function togglePlay(', '// iframe内をクリック'), context);
+  context.previewClip({ start: 12, end: 20 }, true);   // 前後のマークへ移動したときの自動再生
+  context.previewClip({ start: 30, end: 40 }, true);
+  assert.deepEqual(notes, []);
+  assert.deepEqual(seeks, [12, 30], 'the position still moves to the mark');
+  context.previewClip({ start: 50, end: 60 });          // ▶ を押した
+  context.togglePlay();                                  // 再生 / 停止
+  assert.equal(notes.length, 2);
+  assert.ok(notes.every(n => n.includes('再生できません')));
+  S.playerErr = false; S.playerAlive = true;
+  let played = 0;
+  context.yt = { playVideo: () => played++, pauseVideo() {} };
+  context.previewClip({ start: 1, end: 2 }, true);
+  assert.equal(played, 1);
+  assert.equal(S.previewEnd, 2);
+});
+
+test('agency checks: untouched agencies follow registration, user choices are kept (rank.js)', () => {
+  const store = {};
+  const context = { R: { agPick: {} }, lsGet: k => (k in store ? JSON.parse(store[k]) : null) };
+  vm.createContext(context);
+  vm.runInContext(sliceOf('rank.js', 'const okCount', 'function renderAgChecks(') + '\nthis.agChecked = agChecked;', context);   // const は context に出ないので渡す
+  const ag = (id, ok) => ({ id, channels: Array.from({ length: ok }, () => ({ status: 'ok' })).concat([{ status: 'error' }]) });
+  assert.equal(context.agChecked(ag('vspo', 0)), false, 'no resolved channel yet: not checked');
+  assert.equal(context.agChecked(ag('vspo', 4)), true, 'registered later without touching the check: checked (it was stuck unchecked before)');
+  context.R.agPick.nijisanji = false;
+  assert.equal(context.agChecked(ag('nijisanji', 4)), false, 'the user unchecked it: stays unchecked');
+  context.R.agPick.neoporte = true;
+  assert.equal(context.agChecked(ag('neoporte', 0)), true, 'the user checked it: stays checked');
+  // v0.7.0 の保存(選んだ ID の配列)は「選んだ」だけ引き継ぐ。空の配列は「全部外した」とは読まない
+  context.R.agPick = {}; store.ags = JSON.stringify(['hololive']);
+  context.loadAgPick();
+  assert.deepEqual({ ...context.R.agPick }, { hololive: true });
+  context.R.agPick = {}; store.ags = JSON.stringify([]);
+  context.loadAgPick();
+  assert.equal(context.agChecked(ag('hololive', 3)), true);
+  context.R.agPick = {}; store.agsel = JSON.stringify({ vspo: false, x: 'bad' });
+  context.loadAgPick();
+  assert.deepEqual({ ...context.R.agPick }, { vspo: false });
+});
+
+test('analysis errors are explained as what happened + what to do (queue.js)', () => {
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(sliceOf('queue.js', 'const ERR_HELP', '/* ---------- キューへ追加'), context);
+  const h = m => context.errHelp(m);
+  assert.match(h('音声を取得できませんでした: ERROR: [youtube] x: Sign in to confirm your age').what, /年齢制限/);
+  assert.match(h('音声を取得できませんでした: HTTP Error 403: Forbidden').how, /yt-dlp/);
+  assert.match(h('音声を取得できませんでした: 不明なエラー').how, /数時間/);
+  assert.match(h('yt-dlp が見つかりません(README の準備手順を確認してください)').how, /winget install yt-dlp/);
+  assert.match(h('ファイルが見つかりません(動画・音声ファイルのパスを指定してください)').what, /見つかりません/);
+  assert.match(h('チャットのリプレイが、10分間、出力がなかったため中止しました').what, /止まった/);
+  assert.match(h('内部エラー: KeyError x').how, /やり直し/);
+  assert.match(h('an image message page usage').what, /解析に失敗/, 'words that merely contain "age" are not taken as an age restriction');
+  const d = h('');
+  assert.ok(d.what && d.how);
+});

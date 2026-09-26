@@ -197,8 +197,9 @@ def main():
             # ==================== 3) 開いた文書の「元の配信」・動画の隣に保存・cut2resolve へのリンク ====================
             open_doc("切り抜き文書")
             check(pg.is_visible("#docClip") and "元の配信" in pg.inner_text("#docClip") and pg.locator("#docClip img").count() == 0, "clip のある文書は、編集画面にも「元の配信」が出る")
-            if not pg.evaluate("document.querySelector('#spDetails').open"):
+            if not pg.evaluate("document.querySelector('#exDetails').open"):   # v0.15.0: 「道具 ▾」から「書き出し」のカードへ
                 pg.click("#btnSpk")
+                pg.click("[data-jump=exDetails]")
             # 保存を1.2秒遅らせて、「保存がまだ終わっていないうちに押した」状態を必ず作る
             pg.evaluate("""() => { const of = window.fetch; window.__slowput = true;
               window.fetch = (u, init) => (window.__slowput && init && init.method === 'PUT' && String(u).includes('/api/transcript?')) ? new Promise(r => setTimeout(r, 1200)).then(() => of(u, init)) : of(u, init); }""")
@@ -332,6 +333,55 @@ def main():
             pg.wait_for_timeout(300)
             t = pg.evaluate("document.querySelector('#player').currentTime")
             check(t < 0.5, "前に開いた(動画を読めなかった)文書の「前回の続き」の位置へ飛ばない: currentTime=%.2f" % t)
+
+            # ==================== 9) v0.15.0 の見直し(単体で開いたとき): カットとパック・キー操作・履歴の一覧・狭い画面の引き出し ====================
+            check(pg.inner_text("#btnKeys").strip() == "キー操作" and pg.is_hidden("[data-ui-home]"), "ヘッダーのボタン名は「キー操作」・入口へのリンクは入口の外では出ない")
+            check(pg.inner_text("#cpOff").find("入口(start-all.bat)から開いたとき") >= 0 and pg.is_disabled("#cpBuild") and pg.is_disabled("#cpPreview"),
+                  "単体で開いたときは「カットとパック」のパック作りは使えず、理由(入口から開いたときだけ)が出る: " + pg.inner_text("#cpOff"))
+            check("残す" in pg.inner_text("#cpStats") and "カット 0行" in pg.inner_text("#cpStats"), "行の数(残す・カット)は単体でも出る: " + pg.inner_text("#cpStats"))
+            pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
+            pg.wait_for_function("!document.querySelector('#cutSelected').disabled", timeout=3000)   # 「カットとパック」の表示はフレームごとにまとめて描き直す
+            check(pg.is_enabled("#cutSelected"), "行をチェックで選ぶと「選んだ行をカット」が使える")
+            pg.click("#cutSelected")
+            pg.wait_for_function("document.querySelector('#cpStats').textContent.includes('カット 1行')", timeout=3000)
+            check(pg.locator("#segs .seg.cut").count() == 1 and "カット 1行" in pg.inner_text("#cpStats"), "「選んだ行をカット」で、その行がカット済になる")
+            pg.click("#keepSelected")
+            check(pg.locator("#segs .seg.cut").count() == 0, "「選んだ行を残す」で戻る")
+            pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
+            open_doc("動画のない文書")
+            pg.wait_for_function("!document.querySelector('#cpOff').hidden", timeout=5000)
+            check("元の動画が見つかりません" in pg.inner_text("#cpOff"), "動画が見つからない文書では、その理由を出す: " + pg.inner_text("#cpOff"))
+            pg.click("[data-side-tab=files]")
+            pg.fill("#txSearch", "動画のない文書")
+            check("動画なし" in pg.inner_text("#txList .txi.cur"), "履歴の一覧の行にも「動画なし」の札が出る")
+            pg.fill("#txSearch", "")
+            # キー操作の手がかり(閉じたら覚える・「キー操作」の一覧から戻せる・? で一覧)
+            check(pg.is_visible("#keyHint") and "校正済みにして次へ" in pg.inner_text("#keyHint"), "行の一覧の上に、主なキー操作の手がかりが出る")
+            pg.click("#keyHintClose")
+            check(pg.is_hidden("#keyHint") and pg.evaluate("localStorage.getItem('tx.keyhint')") == "0", "手がかりを閉じると、閉じたことを覚える")
+            pg.evaluate("document.activeElement && document.activeElement.blur()")
+            pg.keyboard.press("Shift+Slash")
+            check(pg.evaluate("document.querySelector('#keys').open"), "? でキー操作の一覧が開く")
+            pg.check("#keyHintOn")
+            pg.keyboard.press("Escape")
+            check(pg.is_visible("#keyHint"), "一覧の「手がかりを出す」で、また出る")
+            # 狭い画面(390px): 左のメニューは重ねて出す引き出し。外を押すと閉じる・文字起こしを開くと自動で閉じる
+            pg.set_viewport_size({"width": 390, "height": 844})
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
+            pos = pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position")
+            check(pos == "fixed" and pg.is_visible("#menuScrim"), "390px ではメニューは本文の上に重ねて出す(本文を押しのけない): %s" % pos)
+            check(pg.evaluate("document.documentElement.scrollWidth") <= 390, "横にはみ出さない")
+            pg.click("#menuScrim", position={"x": 380, "y": 400})
+            check("menu-closed" in (pg.get_attribute(".app", "class") or ""), "外(暗い幕)を押すと閉じる")
+            pg.click("#btnMenu")
+            pg.click("[data-side-tab=files]")
+            pg.locator("#txList .txi").filter(has_text="普通の文書").locator(".t").first.click()
+            pg.wait_for_function("document.querySelector('#docTitle').value === '普通の文書'", timeout=15000)
+            check("menu-closed" in (pg.get_attribute(".app", "class") or ""), "引き出しから文字起こしを開くと、引き出しは自動で閉じる")
+            seg_top = pg.evaluate("document.querySelector('#segs .seg').getBoundingClientRect().top")
+            check(seg_top < 844, "390px でも、開いた文字起こしの行が1画面目に見える(映像だけで埋まらない): top=%d" % seg_top)
+            pg.set_viewport_size({"width": 1500, "height": 1000})
 
             b.close()
         errors = [e for e in errors if "409" not in e and "404" not in e and "favicon" not in e and "Failed to load resource" not in e]   # 409/404 はこの試験でわざと起こしている

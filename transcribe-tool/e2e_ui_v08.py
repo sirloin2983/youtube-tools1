@@ -229,9 +229,10 @@ def main():
             check("正解の行" in pg.inner_text("#arcOut") and "トワ" in pg.text_content("#arcOut"), "保管カードに、正解の量・話者ごとの量が出る")
             check(os.path.isfile(os.path.join(tmp, "dataset", "index.jsonl")) and os.path.getsize(os.path.join(tmp, "dataset", "index.jsonl")) > 100, "dataset/index.jsonl ができている")
             check("保管: 済" in pg.inner_text("#arcStat"), "保管の状況が出る: " + pg.inner_text("#arcStat"))
-            pg.click("#btnSpk")
+            pg.click("#btnSpk")   # v0.15.0: 「道具 ▾」→「以前の版に戻す」(自動バックアップ。旧「履歴」)
+            pg.click("[data-jump=hiDetails]")
             pg.wait_for_function("document.querySelectorAll('#hiList [data-act=hirest]').length >= 1", timeout=8000)
-            check(True, "履歴の一覧が出る(件数: %d)" % pg.locator("#hiList [data-act=hirest]").count())
+            check(True, "以前の版(自動バックアップ)の一覧が出る(件数: %d)" % pg.locator("#hiList [data-act=hirest]").count())
             # 別の場所(API)が先に更新 → 画面側の保存は競合になる
             cur = call(port, "GET", "/api/transcript?id=" + tid)
             cur["segments"][5]["text"] = "別のタブで直した"
