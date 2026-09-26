@@ -141,7 +141,7 @@ def main():
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                         "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24:duration=20",
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=20",
-                        "-shortest", "-c:v", "libvpx-vp9", "-b:v", "300k", "-c:a", "libopus", media],
+                        "-shortest", "-c:v", "libvpx-vp9", "-b:v", "300k", "-threads", "1", "-c:a", "libopus", media],   # 1スレッド: VP9 が複数スレッドで時々落ちる(e2e_edit_common.py)
                        check=True, timeout=60)
         # 切り抜きスタジオが書き出した切り抜きのふり: 隣の .clip.json(元の配信)と、スタジオの data.json(配信者。文字起こしは読むだけ)
         sys.path.insert(0, tmp)
@@ -160,14 +160,17 @@ def main():
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))   # Windows: Ctrl+Break を入口にだけ送るため
 
-        for _ in range(300):
-            try:
-                urllib.request.urlopen("http://127.0.0.1:%d/transcribe/api/ping" % port, timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        else:
-            raise RuntimeError("入口(取り込んだ文字起こし)が起動しませんでした")
+        t0 = time.time()
+        for tool in ("transcribe", "cut2resolve"):   # 画面は開いたときに他のツールの一覧を読むので、cut2resolve の取り込みも待つ(パックのタブが使うため)
+            for _ in range(300):
+                try:
+                    urllib.request.urlopen("http://127.0.0.1:%d/%s/api/ping" % (port, tool), timeout=1).read()
+                    break
+                except Exception:
+                    time.sleep(0.1)
+            else:
+                raise RuntimeError("入口(取り込んだ %s)が起動しませんでした" % tool)
+        print("(入口の起動 %.1f 秒)" % (time.time() - t0))
 
         errors = []
 
@@ -248,7 +251,12 @@ def main():
             pg.click("[data-edtab=pack]")
             pk_is = lambda cnt, ln, caps: "document.querySelector('#pkCount').textContent === '%s' && document.querySelector('#pkLen').textContent === '%s' && document.querySelector('#pkCaps').textContent === '%s'" % (cnt, ln, caps)   # noqa: E731
             wait_js(pg, pk_is(1, "0:20.00", 5), 30000)
-            wait_js(pg, "!document.querySelector('#pkBuild').disabled", 15000)   # cut2resolve の確認(他のツールの問い合わせ)が終わるまで待つ
+            try:
+                wait_js(pg, "!document.querySelector('#pkBuild').disabled", 15000)   # cut2resolve の確認(他のツールの問い合わせ)が終わるまで待つ
+            except TimeoutError:
+                print("DIAG pkOff=%r hint=%r jobs=%r" % (pg.inner_text("#pkOff"), pg.inner_text("#pkBuildHint"),
+                                                        call(port, "GET", "/api/jobs")[1]))
+                raise
             check(pg.is_hidden("#pkOff") and pg.is_enabled("#pkBuild") and pg.inner_text("#pkBuild") == "パックを作る",
                   "3 パック のタブは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
             tr_beside = os.path.splitext(media)[0] + ".transcript.json"

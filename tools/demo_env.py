@@ -55,7 +55,7 @@ def make_media(dirpath, n=3, sec=40):
         if not os.path.exists(p):
             run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=%d" % sec,
                  "-f", "lavfi", "-i", "sine=frequency=%d:duration=%d" % (220 + 110 * i, sec),
-                 "-c:v", "libvpx-vp9", "-b:v", "300k", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus", "-shortest", p])
+                 "-c:v", "libvpx-vp9", "-b:v", "300k", "-deadline", "realtime", "-cpu-used", "8", "-threads", "1", "-c:a", "libopus", "-shortest", p])
         out.append(p)
     return out
 

@@ -1861,9 +1861,31 @@ def latin_suspect(text, terms=()):
     return bool(_LATIN_RUN_RE.search(t))
 
 
+SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(docs/edit-tool-design.md の 12 ③-1): この長さより長くて
+                        # (ちょうど 4.0 秒は含めない。疑似の文字起こしの行(4.0 秒に「テスト文N」)を対象にしないため。本物の行への影響は境目だけ)
+SPARSE_MAX_CPS = 1.5    # 記号・空白を除いた文字数が 1 秒あたりこれ未満
+SPARSE_FLAG = "長い区間に文字が少ない(抜けの可能性)"
+
+
+def text_chars(text):
+    """記号・空白を除いた文字数(文字と数字だけ。かな・漢字・英数字)"""
+    return sum(1 for ch in str(text or "") if unicodedata.category(ch)[0] in "LN")
+
+
+def sparse_row(start, end, text):
+    """長い区間に文字が少ない行か(③-1)。取りこぼしを減らすために VAD を甘くしている(vadMode weak)ので、BGM やゲーム音が声として通り、
+    Whisper が長い塊に単語1つを出したり、途中を飛ばしたりする(区間ごとの抜け)。その形をつかまえる"""
+    try:
+        dur = float(end) - float(start)
+    except (TypeError, ValueError):
+        return False
+    return dur > SPARSE_MIN_SEC and text_chars(text) < SPARSE_MAX_CPS * dur
+
+
 def make_flags(seg, prev_texts, lang=None, terms=()):
     """Whisper は BGM・無音・歌で幻覚(でたらめな文)を出しやすいので、要確認の印を付ける。
-    lang が "ja" のときは、英字が目立つ行も対象にする(terms=用語集。その中の英字の語は数えない)。"""
+    lang が "ja" のときは、英字が目立つ行も対象にする(terms=用語集。その中の英字の語は数えない)。
+    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(2026-09-26 ③-1)。"""
     why = []
     lp, ns, cr = seg.get("avg_logprob"), seg.get("no_speech_prob"), seg.get("compression_ratio")
     if lp is not None and lp < -1.0:
@@ -1879,6 +1901,8 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
         why.append("同じ文の繰り返し")
     if lang == "ja" and latin_suspect(text, terms):
         why.append("英字が多い(英語の幻覚の可能性)")
+    if sparse_row(seg.get("start"), seg.get("end"), text):
+        why.append(SPARSE_FLAG)
     return "、".join(why)
 
 

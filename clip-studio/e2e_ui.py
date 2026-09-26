@@ -49,7 +49,7 @@ def make_media(home):
     subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
                     "-f", "lavfi", "-i", "testsrc=size=640x360:rate=15:duration=40",
                     "-f", "lavfi", "-i", "sine=frequency=440:duration=40", "-shortest",
-                    "-c:v", "libvpx", "-b:v", "400k", "-deadline", "realtime", "-c:a", "libopus", media], check=True)
+                    "-c:v", "libvpx", "-b:v", "400k", "-deadline", "realtime", "-threads", "1", "-c:a", "libopus", media], check=True)   # 1スレッド(VP8/VP9 は複数スレッドで時々落ちる)
     return media
 
 

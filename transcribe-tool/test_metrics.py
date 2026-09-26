@@ -83,6 +83,18 @@ class TestPure(unittest.TestCase):
         self.assertTrue(S.latin_suspect("今日はMinecraftやります"))
         self.assertFalse(S.latin_suspect("今日はMinecraftやります", ["Minecraft"]))   # 用語集にある語は数えない
 
+    def test_make_flags_sparse_long_rows(self):
+        """長い区間に文字が少ない行(抜けの可能性。docs/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
+        row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731
+        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 7.2, "黒"), []))
+        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)
+        self.assertEqual(S.make_flags(row(0, 3.9, "あ"), []), "")                                 # 4 秒までは対象外
+        self.assertEqual(S.make_flags(row(0, 4.0, "テスト文1"), []), "")                          # ちょうど 4 秒(疑似の文字起こしの行)も対象外
+        self.assertEqual(S.make_flags(row(0, 4.4, "あいうえおかき"), []), "")                     # 7 文字 / 4.4 秒 = 1.59
+        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 4.1, "あいうえお"), []))                 # 5 文字 / 4.1 秒 = 1.22
+        self.assertEqual(S.text_chars("A1 あ、ア!漢 …"), 5)
+        self.assertFalse(S.sparse_row("x", 5, "a"))
+
     def test_make_flags_latin_only_for_ja(self):
         sg = {"text": "honey it's up", "start": 0, "end": 2, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.0}
         self.assertEqual(S.make_flags(sg, []), "")                              # 言語を渡さなければ従来どおり(印なし)

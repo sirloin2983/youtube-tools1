@@ -56,7 +56,8 @@ def make_video(path, sec=12, fps=30, size="320x180", beeps=None, audio=True):
     if audio:
         vol = "1" if beeps is None else "+".join("between(t,%s,%s)" % (a, b) for a, b in beeps) or "0"
         cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=%s,volume='%s':eval=frame" % (sec, vol)]
-    cmd += ["-shortest", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k"]   # 4:2:0(profile 0)でないとブラウザで再生できないことがある
+    cmd += ["-shortest", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k", "-threads", "1"]   # 4:2:0(profile 0)でないとブラウザで再生できないことがある。
+    # -threads 1: ffmpeg 9.0.1 の VP9 は複数スレッドだと PC で 1 割ほど 0xC0000005 で落ちる(2026-09-26 確認。1スレッド・H.264 は落ちない)
     cmd += ["-c:a", "libopus"] if audio else ["-an"]
     subprocess.run(cmd + [path], check=True, timeout=120)
     return path
