@@ -1,9 +1,15 @@
 /* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v1 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v2 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
-                         setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える */
+                         setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える
+   window.UIKit.life   : onLeave(fn(reason)) / onReturn(fn(reason)) / isAway()。画面を離れた・戻ったの合図(段階7-2)。
+                         離れた = タブの切り替え('hidden')・別の窓へ移った('blur')・閉じる直前('pagehide')。戻った = 'visible' | 'focus' | 'pageshow'
+   window.UIKit.report : report(message, info) 画面のエラーを入口のログ(app\logs\client-errors.jsonl)へ送る(段階7-0)。
+                         捕まえられなかったエラー(error・unhandledrejection)は自動で送る。入口の外(合言葉なし)では送らない
+   window.UIKit.win    : isApp() 窓(Edge のアプリモード)で開いているか / open(url) 入口に頼んで開く(段階7-3)。
+                         窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -108,5 +114,113 @@
     }
   };
   theme.syncButtons = syncButtons;
-  window.UIKit = { version: 1, theme: theme, tools: tools };
+
+  /* ---- 入口の共通の API(api/ytt/…)---- 画面の場所からの相対パス(入口の画面 → /api/ytt/…、取り込んだツール → /studio/api/ytt/… など。
+     どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
+  function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
+  function yttPost(name, obj, keepalive) {
+    var tk = token();
+    if (!tk || !window.fetch) return Promise.reject(new Error('入口の外では使えません'));
+    return fetch('api/ytt/' + name, { method: 'POST', cache: 'no-store', credentials: 'same-origin', keepalive: !!keepalive,
+      headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify(obj) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); return j; }); });
+  }
+
+  /* ---- 画面のエラーを入口のログへ(段階7-0)---- 同じエラーは1回、1回の表示で20件まで(画面の不具合でログを埋めない。サーバー側にも上限) */
+  var sentN = 0, seen = {};
+  function clip(v, n) { v = v == null ? '' : String(v); return v.length > n ? v.slice(0, n) : v; }
+  function report(message, info, kind) {
+    try {
+      info = info || {};
+      message = clip(message, 500);
+      if (!message || !token()) return false;
+      var key = (kind || 'report') + '|' + message + '|' + (info.source || '') + '|' + (info.line || 0);
+      if (seen[key] || sentN >= 20) return false;
+      seen[key] = 1; sentN++;
+      yttPost('client-log', { kind: kind || 'report', message: message, source: clip(info.source, 300), line: +info.line || 0, col: +info.col || 0,
+        stack: clip(info.stack, 1500), page: clip(location.pathname, 200) }, true).catch(function () { /* 送れなくても画面は止めない */ });
+      return true;
+    } catch (e) { return false; }
+  }
+  window.addEventListener('error', function (e) {
+    if (!e || !e.message) return;
+    if (!e.filename && /^Script error\.?$/.test(e.message)) return;   // 別のサイトのスクリプト(YouTube のプレイヤー)の、中身の見えないエラー
+    report(e.message, { source: e.filename, line: e.lineno, col: e.colno, stack: e.error && e.error.stack }, 'error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e ? e.reason : null;
+    report(r && r.message ? r.message : String(r), { stack: r && r.stack }, 'rejection');
+  });
+
+  /* ---- 画面を離れた・戻った(段階7-2)----
+     タブの切り替え(visibilitychange)だけだと、窓を並べて使うときに「隣の窓をクリックした」を取りこぼす(画面は見えたまま)。
+     別の窓へ移った(blur)・閉じる直前(pagehide)も「離れた」にする。ただし埋め込みの YouTube(iframe)をクリックしても窓の blur が来るので、
+     少し待って、フォーカスがまだこの画面の中(document.hasFocus() か、フォーカスが iframe)なら離れたことにしない */
+  var leaveFns = [], returnFns = [], away = false, awayBy = '', blurTimer = null;
+  function fire(list, reason) {
+    for (var i = 0; i < list.length; i++) { try { list[i](reason); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); } }
+  }
+  function focusInside() {
+    try { if (document.hasFocus()) return true; } catch (e) { /* 古いブラウザ */ }
+    var a = document.activeElement;
+    return !!(a && a.tagName === 'IFRAME');
+  }
+  function leave(reason) {
+    /* 離れたのは1回だけ知らせる。ただし「隣の窓へ('blur')」のあとにタブを切り替えた・最小化した('hidden')ときは、もう一度知らせる
+       ('blur' では再生の停止・重い処理をしない決まりなので、見えなくなった時点でそれをさせる)。閉じる直前('pagehide')はいつでも知らせる */
+    if (away && !(reason === 'pagehide' || (reason === 'hidden' && awayBy === 'blur'))) return;
+    away = true;
+    awayBy = reason;
+    fire(leaveFns, reason);
+  }
+  function back(reason) {
+    if (!away) return;
+    away = false;
+    fire(returnFns, reason);
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) leave('hidden'); else back('visible'); });
+  window.addEventListener('pagehide', function () { leave('pagehide'); });
+  window.addEventListener('pageshow', function (e) { if (e && e.persisted) back('pageshow'); });
+  window.addEventListener('blur', function () {
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(function () { if (!document.hidden && !focusInside()) leave('blur'); }, 150);
+  });
+  window.addEventListener('focus', function () { clearTimeout(blurTimer); if (!document.hidden) back('focus'); });
+  var life = {
+    onLeave: function (fn) { if (typeof fn === 'function') leaveFns.push(fn); },
+    onReturn: function (fn) { if (typeof fn === 'function') returnFns.push(fn); },
+    isAway: function () { return away; }
+  };
+
+  /* ---- 窓(Edge のアプリモード)で開いているときのリンク(段階7-3)----
+     アプリモードの窓の中で「新しいタブで開く」と、タブのある普通の窓(専用のプロファイル)になってしまう。入口に頼んで開き直す:
+     このパソコンの画面(localhost)→ 同じ形の窓、外のサイト(YouTube など)→ いつものブラウザ(ログインしている方)。
+     アプリモードかどうかは display-mode(Edge のアプリの窓は standalone)で見る。ブラウザのタブで開いているときは何もしない */
+  function isApp() { try { return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch (e) { return false; } }
+  function isLocal(u) { return u.hostname === location.hostname || u.hostname === 'localhost' || u.hostname === '127.0.0.1'; }
+  function openVia(href) {
+    var u;
+    try { u = new URL(href, location.href); } catch (e) { return Promise.reject(e); }
+    return yttPost(isLocal(u) ? 'open-window' : 'open-external', { url: u.href });
+  }
+  function onLink(e) {
+    if (e.defaultPrevented || !isApp() || !token()) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a || a.hasAttribute('download')) return;
+    var mod = e.ctrlKey || e.shiftKey || e.metaKey || e.button === 1;
+    if (a.target !== '_blank' && !mod) return;
+    var u;
+    try { u = new URL(a.href, location.href); } catch (x) { return; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+    e.preventDefault();
+    openVia(u.href).catch(function (err) {
+      report('窓で開けませんでした: ' + (err && err.message), { source: u.origin + u.pathname }, 'report');
+      window.open(u.href, '_blank', 'noopener');   // 入口に頼めないときは、ブラウザに任せる(タブのある窓になる)
+    });
+  }
+  document.addEventListener('click', function (e) { if (e.button === 0) onLink(e); });
+  document.addEventListener('auxclick', function (e) { if (e.button === 1) onLink(e); });
+  var win = { isApp: isApp, open: openVia };
+
+  window.UIKit = { version: 2, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win };
 })();

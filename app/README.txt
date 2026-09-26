@@ -1,5 +1,5 @@
 ==========================================================
-  入口(ランチャー)  v0.7.0  はじめに読んでください
+  入口(ランチャー)  v0.8.0  はじめに読んでください
 ==========================================================
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)を、1回の操作でまとめて起動・終了するための入口です。
@@ -72,6 +72,23 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
   python app/e2e_autorun.py                     (まとめて実行の通し確認。本物の3ツールを疑似モードで入口に取り込む。Playwright と ffmpeg が必要)
   python -m unittest app/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
   python app/e2e_portal.py                      (画面の確認。Playwright(chromium)が必要)
+  python -m unittest app/test_window.py -v      (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
+  python app/e2e_window.py                      (段階7 の通し確認: 窓の中のリンク・解析の設定の引き継ぎ・離れた/戻った・エラーの記録。Edge の代わりに偽のプログラム)
+
+■ v0.8.0(2026-09-26・段階7: 画面のエラーの記録・窓で開く(試用))
+  - 窓で開く(試用。app/appwindow.py): 入口の画面の「窓で開く(試用)」をオンにすると、次の起動から Microsoft Edge のアプリモード
+    (--app=<URL> --user-data-dir=<専用のプロファイル>)の窓で開く。既定はオフ(いつものブラウザ)。設定は %LOCALAPPDATA%\youtube-tools\app\settings.json の "window"。
+    Edge が見つからない・起動できないときは、いつものブラウザで開く。環境変数 YTT_APP_BROWSER で使うプログラムを変えられる(Chrome など Chromium 系)
+    - 窓の中の「新しいタブで開く」リンクは、画面(ui-kit の UIKit.win)が入口に頼んで開く: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
+    - 窓で開けるのは入口と、動いているツールのポートの画面だけ。外のサイトは http / https だけ。10 秒に 8 回まで(画面の不具合・XSS で窓を大量に開かせない)
+    - リモートデバッグのポートは開かない。窓を閉じても入口は終わらない(終わるのは「すべて終了」)
+  - 画面のエラーの記録(app/clientlog.py): 入口と3ツールの画面で捕まえられなかったエラー(error・unhandledrejection)を
+    %LOCALAPPDATA%\youtube-tools\app\logs\client-errors.jsonl に1行1件の JSON で残す(1分に30件まで・512KB で .1 に回す)。
+    /api/log?tool=client で末尾を読める
+  - 画面の共通の API(api/ytt/client-log・open-window・open-external): 入口の画面は /api/ytt/…、取り込んだツールの画面は /studio/api/ytt/… などの
+    相対パスで呼び、どちらも入口が受け持つ(app/mount.py がツールに渡さず入口へ回す)。検査は入口の API と同じ(POST・Host・Origin・Sec-Fetch-Site・合言葉・16KB まで)
+  - POST /api/window {mode: browser|app}(合言葉つき)、/api/status に window {mode, available, browser, profile}
+  - まとめて実行の「解析から全部」は、スタジオの ② で保存した解析の設定(スタジオの /api/settings の analyze)で解析する(以前は既定値)
 
 ■ v0.7.0(2026-09-26・まとめて実行・コミット前の検査・単独起動の廃止)
   - 案件の画面の各配信に「まとめて実行」(app/autorun.py)。形を選んで押すと、残りの作業を順に自動で進める:

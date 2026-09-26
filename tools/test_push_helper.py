@@ -82,7 +82,8 @@ class TestCheck(Repo):
     def test_problems(self):
         cases = {
             "app/config.json": b"{}", "clip-studio/data.json": b"{}", "app/cases.json": b"{}", "transcribe-tool/settings.json": b"{}",
-            "x/feedback.jsonl": b"", "app/logs/launcher.log": b"", "transcribe-tool/transcripts/abc.json": b"{}",
+            "x/feedback.jsonl": b"", "app/logs/launcher.log": b"", "app/logs/client-errors.jsonl": b"", "transcribe-tool/transcripts/abc.json": b"{}",
+            "app/browser-profile/Default/History": b"",
             "clip-studio/cache/x.txt": b"", "a/clip.mp4": b"", "notes.md": FAKE_GOOGLE.encode(), "run.py": ("t='%s'" % FAKE_GH).encode(),
             "k.txt": b"-----BEGIN RSA PRIVATE KEY-----", "big.txt": b"x" * (P.MAX_BYTES + 1),
         }

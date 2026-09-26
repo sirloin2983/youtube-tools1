@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.14.1';
+const APP_VERSION = '0.14.2';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -170,8 +170,11 @@ renderTools();
 /* ---------- 設定(用語集・置換辞書など) ---------- */
 let setT = null;
 function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => { setT = null; api('/api/settings', { method: 'PUT', body: S.settings }).catch(() => {}); }, 600); }
+/* 画面を離れた(ui-kit の UIKit.life: タブの切り替え 'hidden'・別の窓へ移った 'blur'・閉じる直前 'pagehide')。
+   窓を並べて使うと、隣の窓をクリックしてもタブの切り替え(visibilitychange)は来ないため(段階7-2)。ui-kit が無いときはタブの切り替えだけ */
+const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : document.addEventListener('visibilitychange', () => { if (document.hidden) fn('hidden'); });
 /* 入力の直後(0.6秒以内)にタブを閉じても設定が消えないように、画面を離れるときは待たずに送る(keepalive: 閉じたあとも送り切る) */
-document.addEventListener('visibilitychange', () => { if (document.hidden && setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
+onLeave(() => { if (setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
 function readOpts(){
   const s = S.settings;
   s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
@@ -934,7 +937,8 @@ $('#arcAll').addEventListener('click', async () => {
   try { await api('/api/archive', { body: { full: $('#arcFull').checked } }); S.arcDirty = false; loadDataset(); toast('校正済みのある文字起こしを、すべて保管します'); } catch (e){ toast(e.message); }
 });
 setInterval(() => { if (S.docId && S.doc && !document.hidden) autoArchive(S.docId); }, 10 * 60 * 1000);
-document.addEventListener('visibilitychange', () => { if (document.hidden && S.docId && S.doc){ (async () => { await saveDoc(); autoArchive(S.docId); })(); } });
+/* 離れたら保存し、タブを離れた・閉じるときだけ保管する(保管は音声の切り出しがあるので、隣の窓へ移るたび('blur')には走らせない) */
+onLeave(reason => { if (S.docId && S.doc){ (async () => { await saveDoc(); if (reason !== 'blur') autoArchive(S.docId); })(); } });
 
 /* ---------- 編集画面 ---------- */
 const player = () => $('#player');
@@ -985,7 +989,7 @@ $('#cfReload').addEventListener('click', async () => {
 $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
   S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
 }));
-document.addEventListener('visibilitychange', () => { if (document.hidden && S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブを離れるとき・画面を閉じるときに、待たずに保存する
+onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
 async function openDoc(id, keep){
   const request = ++docOpenSeq;
   if (!(await saveDoc()) || request !== docOpenSeq) return false;

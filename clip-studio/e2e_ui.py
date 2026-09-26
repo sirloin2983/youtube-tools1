@@ -76,6 +76,17 @@ def fixture(home):
     return {"media": media, "a": a, "b": b, "config": common.p("config.json")}
 
 
+def tab_away_and_back(pg):
+    """別のタブへ移って戻ってきた(document.hidden を true → false にして visibilitychange を2回)。
+    画面を離れた・戻ったは ui-kit の UIKit.life が「離れた → 戻った」の組で知らせる(段階7-2)ので、戻っただけの合図では読み直さない"""
+    pg.evaluate("""() => {
+      const set = v => Object.defineProperty(document, 'hidden', { configurable: true, get: () => v });
+      set(true); document.dispatchEvent(new Event('visibilitychange'));
+      set(false); document.dispatchEvent(new Event('visibilitychange'));
+      delete document.hidden;
+    }""")
+
+
 def wait_js(pg, js, timeout=10000):
     """pg.wait_for_function は画面の CSP(unsafe-eval なし)で動かないので、evaluate を繰り返して待つ"""
     end = time.time() + timeout / 1000
@@ -327,7 +338,7 @@ def run_checks(port, fx, shots=None):
             json.dump({"id": "e2etx0000001", "title": "セリフ", "sourcePath": path, "updatedAt": 1, "speakers": [{"id": "S1", "name": "話者1"}],
                        "segments": [{"id": "s1", "start": 1.0, "end": 2.0, "text": "こんにちは", "speaker": "S1", "proofed": True},
                                     {"id": "s2", "start": 2.5, "end": 3.5, "text": XSS_LABEL, "cutState": "cut"}]}, f, ensure_ascii=False)
-        pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")   # 文字起こしのタブから戻ってきたとき
+        tab_away_and_back(pg)   # 文字起こしのタブから戻ってきたとき
         c.ok(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx-line').length === 2", 10000),
              "書き出したマークにセリフ(文字起こし)が出る")
         c.ok("校正 1/2" in (pg.text_content('#rvList .rv-mark-row[data-id="m1"] .rv-tx summary') or ""), "セリフの行数と校正の進み具合")
@@ -342,7 +353,7 @@ def run_checks(port, fx, shots=None):
         c.ok(wait_js(pg, "() => Math.abs(parseFloat(document.querySelector('#rvHost video') ? document.querySelector('#rvHost video').currentTime : -1) - %s) < 1.2" % float(tcs[0]), 5000),
              "セリフの行を押すと、その時刻から再生する")
         pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")
-        pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        tab_away_and_back(pg)
         pg.wait_for_timeout(500)
         c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "読み込み直してもセリフは開いたまま")
         if shots:

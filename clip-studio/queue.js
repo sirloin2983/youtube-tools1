@@ -5,7 +5,6 @@ const S = window.Studio, esc = S.esc;
 const $ = s => document.querySelector(s);
 const LS = 'clipstudio:queue:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
-const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); } catch {} };
 const STATUS = { waiting: ['待機中', 'wait'], running: ['解析中', 'run'], done: ['完了', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['スキップ', 'wait'] };
 const OPT_IDS = ['useAudio', 'useChat', 'useComments', 'count', 'length', 'sens', 'pre', 'lag', 'lagAuto', 'headSec', 'typePreset', 'typeOver', 'chatTo', 'maxH', 'wA', 'wC', 'wM'];   // noCache は保存しない
 const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, warned: false };
@@ -29,7 +28,7 @@ function paneHtml(){
     <p class="msg hint" id="qMsg" role="status"></p>
   </section>
   <section class="card" id="qOpts">
-    <div class="card-head"><h2 class="card-title">解析の設定</h2><span class="card-sub">次に追加する分から使います</span></div>
+    <div class="card-head"><h2 class="card-title">解析の設定</h2><span class="card-sub">次に追加する分から使います。入口の「まとめて実行」も同じ設定で解析します</span></div>
     <div class="fld" style="margin-top:0"><span class="l">盛り上がりの判定に使う材料</span><div class="q-mats">
       <label class="lag q-mat"><input type="checkbox" id="useAudio" checked><span class="q-sw a"></span>音声 <span class="muted">音量・笑い声や叫びの高音域</span></label>
       <label class="lag q-mat" data-yt><input type="checkbox" id="useChat" checked><span class="q-sw c"></span>チャットのリプレイ <span class="muted">量・「草」など</span></label>
@@ -74,15 +73,40 @@ function settings(){
   return { useAudio: $('#useAudio').checked, useChat: $('#useChat').checked, useComments: $('#useComments').checked, count: num('count', 8), length: num('length', 45), sensitivity: $('#sens').value,
     preRatio: num('pre', 65) / 100, lag: num('lag', 8), lagAuto: $('#lagAuto').checked, headSec: num('headSec', 180), typePreset: $('#typePreset').checked, typeOverride: $('#typeOver').value, chatTimeout: num('chatTo', 20), noCache: $('#noCache').checked, maxHeight: num('maxH', 1080), wAudio: num('wA', 1), wChat: num('wC', 1), wComments: num('wM', 0.7) };
 }
-function saveOpts(){ const o = {}; for (const id of OPT_IDS){ const e = $('#' + id); o[id] = e.type === 'checkbox' ? e.checked : e.value; } lsSet('opts', o); }
-function loadOpts(){
-  const o = lsGet('opts'); if (!o || typeof o !== 'object') return;
+/* 解析の設定の保存先はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
+   まとめて実行(入口)も同じ設定で解析し、窓(専用のプロファイル)やほかのブラウザで開いても設定が変わらない。
+   保存するのは settings() の形(noCache はその場だけの指定なので除く)。以前のブラウザの保存(localStorage の opts)は、サーバーに無いときに1回だけ引き継ぐ */
+const FROM_SETTINGS = { useAudio: 'useAudio', useChat: 'useChat', useComments: 'useComments', count: 'count', length: 'length', sensitivity: 'sens',
+  lag: 'lag', lagAuto: 'lagAuto', headSec: 'headSec', typePreset: 'typePreset', typeOverride: 'typeOver', chatTimeout: 'chatTo', maxHeight: 'maxH', wAudio: 'wA', wChat: 'wC', wComments: 'wM' };
+const O = { timer: null, touched: false };
+function applyForm(o){   // o: 画面の欄の id → 値
   for (const id of OPT_IDS){
     const e = $('#' + id); if (!e || !(id in o)) continue;
     if (e.type === 'checkbox') e.checked = !!o[id];
     else if (e.tagName === 'SELECT'){ if ([...e.options].some(op => op.value === String(o[id]))) e.value = String(o[id]); }   // 知らない値で空欄にしない
-    else e.value = o[id];
+    else if (o[id] !== null && o[id] !== undefined && (typeof o[id] === 'number' || typeof o[id] === 'string')) e.value = o[id];
   }
+}
+function applySettings(v){   // v: settings() の形(サーバーに保存したもの)
+  const o = {};
+  for (const [k, id] of Object.entries(FROM_SETTINGS)) if (k in v) o[id] = v[k];
+  if (typeof v.preRatio === 'number') o.pre = Math.round(v.preRatio * 100);
+  applyForm(o);
+}
+async function pushOpts(){
+  clearTimeout(O.timer); O.timer = null;
+  const v = settings(); delete v.noCache;
+  try { await S.api('/api/settings', { method: 'PUT', body: { section: 'analyze', value: v } }); }
+  catch (e){ S.toast('解析の設定を保存できませんでした: ' + e.message, 6000, 'err'); }
+}
+function saveOpts(){ O.touched = true; clearTimeout(O.timer); O.timer = setTimeout(pushOpts, 400); }
+async function loadOpts(){
+  let saved = null, ok = false;
+  try { const j = await S.api('/api/settings'); saved = j && j.settings ? j.settings.analyze : null; ok = true; } catch {}
+  if (O.touched) return;   // 読み込みを待つ間に欄を変えた: その値を優先する(上書きしない)
+  if (saved && typeof saved === 'object'){ applySettings(saved); paintKinds(); return; }
+  const old = lsGet('opts');
+  if (ok && old && typeof old === 'object'){ applyForm(old); paintKinds(); pushOpts(); }   // 以前のブラウザの保存を1回だけ引き継ぐ
 }
 
 /* ---------- 入口の読み取り ---------- */
@@ -262,8 +286,9 @@ S.queue = { refresh: tick };
 S.onReady(() => {
   $('#paneQueue').innerHTML = paneHtml();
   $('#qList').innerHTML = EMPTY_LIST;
-  loadOpts(); paintKinds();
+  paintKinds(); loadOpts();
   OPT_IDS.forEach(id => $('#' + id).addEventListener('change', saveOpts));
+  if (window.UIKit && UIKit.life) UIKit.life.onLeave(() => { if (O.timer) pushOpts(); });   // 変えた直後に離れた・閉じたときも送る
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
   $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加
   $('#qPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); addFromForm(); } });

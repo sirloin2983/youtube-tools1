@@ -1,10 +1,19 @@
-# ui-kit(共通の見た目)v1
+# ui-kit(共通の見た目)v2
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
 
 - `ui-kit.css` … 色の変数(トークン)と部品(ボタン・入力・カード・タブ・表・通知など)
-- `ui-kit.js` … テーマ切り替え(`window.UIKit.theme`)と「他のツール」メニュー(`window.UIKit.tools`)
+- `ui-kit.js` … テーマ切り替え(`window.UIKit.theme`)と「他のツール」メニュー(`window.UIKit.tools`)。v2(2026-09-26・段階7)で次を追加:
+  - `UIKit.life` … 画面を離れた・戻った。`onLeave(fn(reason))`(`'hidden'` タブの切り替え・`'blur'` 別の窓へ・`'pagehide'` 閉じる直前)、
+    `onReturn(fn(reason))`(`'visible'`・`'focus'`・`'pageshow'`)、`isAway()`。**画面で visibilitychange を直接使わずにこれを使う**
+    (窓を並べると隣の窓をクリックしてもタブの切り替えは来ない)。埋め込み(iframe)にフォーカスがあるときは離れたことにしない。
+    離れた・戻ったは組で1回ずつ知らせる(例外: `'blur'` のあとに `'hidden'` になったとき・閉じる直前は、もう一度知らせる)。`'blur'` のときは重い処理・再生の停止をしないのが決まり
+  - `UIKit.report(message, info)` … 画面のエラーを入口の記録(`app\logs\client-errors.jsonl`)へ。捕まえられなかったエラー(error・unhandledrejection)は自動で送る。
+    同じエラーは1回・1回の表示で20件まで。入口の外(合言葉 `ytt-token` が無い画面)では送らない
+  - `UIKit.win` … `isApp()` 窓(Edge のアプリモード。`display-mode: standalone`)で開いているか、`open(url)` 入口に頼んで開く。
+    窓の中の `target="_blank"`(と Ctrl・Shift・中クリック)のリンクは自動で: このパソコンの画面 → 窓、外のサイト → いつものブラウザ
+  - 入口の API は相対パス `api/ytt/…` で呼ぶ(入口の画面 → `/api/ytt/…`、取り込んだツール → `/studio/api/ytt/…`。どちらも入口が受け持つ)
 - `styleguide.html` … 見本。ブラウザで直接開いて、ダーク/ライトの両方で確認する
 
 ## 使い方

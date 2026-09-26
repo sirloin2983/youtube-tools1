@@ -16,18 +16,18 @@
 - ユーザー向けの使い方の全体はリポジトリ直下の `README.txt`(09-26 に一本化)。各ツールの `README.txt` は細かい使い方と変更の記録
 - **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
 - 流れ: スタジオで配信から区間を選んで書き出す → 文字起こしで字幕を作って直す → cut2resolve で DaVinci Resolve 用のパック(カット + Text+ 字幕)にする。受け渡しの形式は `docs/pipeline.md`
-- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。新着配信の監視・画面の形(pywebview)は保留)。
+- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。段階7 = 画面の形: 7-0 画面のエラーの記録・7-1 解析の設定をサーバーへ・7-2 離れた/戻ったの共通化・7-3 Edge のアプリモードの窓(試用)を実装済み。7-4 pywebview は試用のあとで判断・新着配信の監視は保留)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
 
 ## フォルダと、変えたら通すテスト
 | フォルダ | 役割 | 変えたら通すテスト(そのフォルダで実行。★はリポジトリ直下から) |
 | --- | --- | --- |
-| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py` |
+| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`・窓で開く `appwindow.py`・画面のエラーの記録 `clientlog.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py app/test_window.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py`、★`python app/e2e_window.py`(窓・エラーの記録・解析の設定。段階7) |
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `transcribe-tool/` | 文字起こし(faster-whisper・話者判別・校正画面・精度測定) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)。画面は serve.py | `python -m unittest test_cut2resolve test_pack test_serve`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
-| `ui-kit/` | 共通の見た目の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
+| `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`。`ui-kit/README.md`)の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
 | `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
@@ -91,6 +91,10 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 画面は**相対パス**で部品を読み、API・動画の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)。スタジオは `Studio.api`、文字起こし・cut2resolve は `app.js` の `apiUrl()` / `api()`
 - 取り込んだ画面には CSP(`script-src 'self'`)がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(上の関数が付ける)
 - ツール間で同じ名前の .py を作らない(`app/test_mount.py` が検査)
+- 画面の共通の API `api/ytt/…`(エラーの記録・窓で開く)は入口が受け持つ(`app/mount.py` がツールに渡さない)。ツールに `/api/ytt/` で始まる API を作らない
+- 画面を離れた・戻ったで処理するときは ui-kit の `UIKit.life.onLeave / onReturn` を使う(visibilitychange を直接使わない。窓を並べると隣の窓のクリックでタブの切り替えは来ない)。
+  `'blur'`(隣の窓へ)のときは保存だけにして、再生の停止・重い処理はしない
+- 画面の不具合を調べるときは、まず画面のエラーの記録 `%LOCALAPPDATA%\youtube-tools\app\logs\client-errors.jsonl`(入口の `/api/log?tool=client`)を見る
 - 文字起こしのサーバー側のプロセスで numpy・faster_whisper・ctranslate2・sherpa_onnx を import しない(認識はワーカーの中だけ。`transcribe-tool/test_worker.py` が検査)
 
 リスク:

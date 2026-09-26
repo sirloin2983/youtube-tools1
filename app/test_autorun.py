@@ -37,6 +37,7 @@ class FakeTools:
         self.fail_tx = False
         self.hold = False         # True のあいだジョブを進めない(中止のテスト)
         self.review = {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16}
+        self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
 
     def clip_path(self, mid):
         return os.path.join(self.tmp, "out", mid + ".mp4")
@@ -60,7 +61,10 @@ class FakeTools:
         return 200, {"video": json.loads(json.dumps(self.video))}
 
     def h_studio_GET_api_settings(self, path, body):
-        return 200, {"settings": {"review": self.review}}
+        s = {"review": self.review}
+        if self.analyze is not None:
+            s["analyze"] = self.analyze
+        return 200, {"settings": s}
 
     def h_studio_POST_api_queue_add(self, path, body):
         self.queue.append({"qid": "q1", "videoId": VID, "status": "running", "progress": 0.0, "phase": "解析"})
@@ -245,7 +249,16 @@ class TestFull(Base):
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 点数の高い2件(9.0・5.0)
-        self.assertEqual(self.tools.calls[1][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": {}})
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": {}})   # 保存した設定が無ければ既定値
+
+    def test_full_mode_uses_saved_analysis_settings(self):
+        """スタジオの画面で保存した解析の設定(settings.analyze)で解析する(段階7-1)"""
+        self.tools.analyze = {"count": 5, "length": 30, "sensitivity": "high", "useChat": False}
+        run = self.run_one("full", top=2)
+        self.assertEqual(run["state"], "done", run)
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[0][3]["settings"], {"count": 5, "length": 30, "sensitivity": "high", "useChat": False})
 
 
 class TestControl(Base):

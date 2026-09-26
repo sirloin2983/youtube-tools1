@@ -183,6 +183,25 @@ class TestStudioMounted(unittest.TestCase):
         r, _ = self.req("GET", "/studio/nope")
         self.assertEqual(r.status, 404)
 
+    def test_shared_api_goes_to_portal(self):
+        """取り込んだツールの画面の api/ytt/…(画面のエラーの記録など)は、ツールではなく入口が受け持つ(段階7)"""
+        h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "X-YTT-Token": self.srv.token}
+        data = json.dumps({"kind": "error", "message": "studio で落ちた", "source": "http://%s/studio/review.js" % self.host, "line": 9}).encode()
+        r, body = self.req("POST", "/studio/api/ytt/client-log", data, h)
+        self.assertEqual((r.status, json.loads(body)), (200, {"ok": True, "kept": True}))
+        with open(self.srv.client_log.path, encoding="utf-8") as f:
+            e = json.loads(f.read().splitlines()[-1])
+        self.assertEqual((e["tool"], e["message"], e["line"]), ("studio", "studio で落ちた", 9))
+        self.assertEqual(e["version"], self.sup.by_id["studio"].snapshot()["version"])
+        r, _ = self.req("POST", "/studio/api/ytt/client-log", data, dict(h, **{"X-YTT-Token": "wrong"}))
+        self.assertEqual(r.status, 403)
+        r, _ = self.req("POST", "/studio/api/ytt/client-log", data, dict(h, Origin="http://evil.example"))
+        self.assertEqual(r.status, 403)
+        r, _ = self.req("GET", "/studio/api/ytt/client-log")
+        self.assertEqual(r.status, 405)
+        r, body = self.req("POST", "/studio/api/ytt/open-window", json.dumps({"url": "http://localhost:1/"}).encode(), h)
+        self.assertEqual(r.status, 400)   # 開ける先の検査は入口と同じ
+
     def test_runtime_and_siblings(self):
         info = L.read_runtime(self.rdir, "studio")
         self.assertEqual((info["port"], info["path"]), (self.port, "/studio/"))

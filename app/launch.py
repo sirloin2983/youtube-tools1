@@ -17,6 +17,9 @@
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
+  POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。app/appwindow.py)
+  POST api/ytt/client-log|open-window|open-external   画面の共通の API。入口の画面(/api/ytt/…)と、取り込んだツールの画面
+                                          (/studio/api/ytt/… など。app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
 
 設計の要点
 - 子プロセスの出力は app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
@@ -40,20 +43,21 @@ import sys
 import threading
 import time
 import urllib.parse
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import datadir, httpsec, jobs, runtime  # noqa: E402
+from ytt_core import datadir, fsio, httpsec, jobs, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import cases as cases_mod  # noqa: E402  (app/cases.py: 案件(配信1本)ごとの紐づけ)
+import appwindow as appwindow_mod  # noqa: E402  (app/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
+import clientlog as clientlog_mod  # noqa: E402  (app/clientlog.py: 画面のエラーの記録。段階7-0)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.7.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.8.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -61,6 +65,8 @@ UI_KIT_DIR = os.path.join(ROOT, "ui-kit")   # 共通の見た目は正本をそ�
 LOG_MAX = 1024 * 1024
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+YTT_API = "/api/ytt/"    # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
+YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
 # 作業の順番どおり。port は各ツールの既定(使用中ならツール自身が次の番号を選ぶ)
 TOOLS = (
@@ -210,10 +216,15 @@ class Tool:
 
 
 # ---------- まとめて管理 ----------
+def app_data_dir(root):
+    """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace なら app フォルダ)。設定(settings.json)・窓の専用のプロファイル・記録"""
+    return datadir.tool_dir("app", os.path.join(root, "app"))
+
+
 def logs_dir_for(root):
     """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt_core.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
     YTT_DATA_DIR=inplace(テスト)なら以前と同じ app\\logs。記録だけなので、以前の場所からは写さない"""
-    return os.path.join(datadir.tool_dir("app", os.path.join(root, "app")), "logs")
+    return os.path.join(app_data_dir(root), "logs")
 
 
 class Supervisor:
@@ -495,6 +506,27 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 
 
+def read_json_body(headers, rfile, limit=MAX_BODY):
+    """要求の本文(JSON のオブジェクト)。-> (辞書, None) か (None, (HTTP の番号, エラーの JSON))。
+    application/json だけを受け付ける(他サイトからのフォーム送信は、この形を作れない)"""
+    if (headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+        return None, (415, {"error": "content_type", "message": "application/json だけを受け付けます"})
+    try:
+        length = int(headers.get("Content-Length") or 0)
+    except ValueError:
+        length = -1
+    if length < 0 or length > limit:
+        return None, (413, {"error": "size", "message": "本文の大きさが正しくありません"})
+    try:
+        raw = rfile.read(length) if length else b"{}"
+        obj = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None, (400, {"error": "json", "message": "JSON が読めません"})
+    if not isinstance(obj, dict):
+        return None, (400, {"error": "json", "message": "JSON のオブジェクトを送ってください"})
+    return obj, None
+
+
 class PortalHandler(BaseHTTPRequestHandler):
     server_version = "ytt-launcher"
     timeout = 30
@@ -553,10 +585,19 @@ class PortalHandler(BaseHTTPRequestHandler):
         if u.path == "/api/ping":
             return self._json(200, {"app": APP_ID, "version": VERSION})
         if u.path == "/api/status":
-            return self._json(200, sup.status())
+            st = sup.status()
+            st["window"] = self.server.window.status()   # 画面を窓で開くか(段階7-3)
+            return self._json(200, st)
         if u.path == "/api/log":
             q = urllib.parse.parse_qs(u.query)
             tid = (q.get("tool") or [""])[0]
+            if tid == "client":   # 画面のエラーの記録(段階7-0。1行 = 1件の JSON)
+                try:
+                    n = min(1000, max(1, int((q.get("lines") or ["200"])[0])))
+                except ValueError:
+                    n = 200
+                lines = tail(self.server.client_log.path, n)
+                return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": self.server.client_log.path})
             if tid not in sup.by_id:   # 決まったIDだけ。パスは受け取らない
                 return self._fail(404, "unknown_tool", "そのツールはありません")
             try:
@@ -576,25 +617,9 @@ class PortalHandler(BaseHTTPRequestHandler):
         return self._fail(404, "not_found", "その操作はありません")
 
     def _read_json(self):
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
-            self._fail(415, "content_type", "application/json だけを受け付けます")
-            return None
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = -1
-        if length < 0 or length > MAX_BODY:
-            self._fail(413, "size", "本文の大きさが正しくありません")
-            return None
-        try:
-            raw = self.rfile.read(length) if length else b"{}"
-            obj = json.loads(raw.decode("utf-8"))
-        except (OSError, ValueError, UnicodeError):
-            self._fail(400, "json", "JSON が読めません")
-            return None
-        if not isinstance(obj, dict):
-            self._fail(400, "json", "JSON のオブジェクトを送ってください")
-            return None
+        obj, err = read_json_body(self.headers, self.rfile, MAX_BODY)
+        if err:
+            self._json(*err)
         return obj
 
     def do_POST(self):
@@ -603,6 +628,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         if not hmac.compare_digest(self.headers.get(mount_mod.TOKEN_HEADER) or "", self.server.token):
             return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
+        if u.path.startswith(YTT_API):   # 画面の共通の API(取り込んだツールの画面からも同じ所へ来る)
+            return self.server.ytt_request(self, "portal", VERSION)
         body = self._read_json()
         if body is None:
             return
@@ -632,6 +659,14 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._json(200, {"run": ar.cancel(body.get("runId"))})
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
+        if u.path == "/api/window":   # 画面を窓で開くか(次に起動したときから。段階7-3)
+            try:
+                self.server.window.set_mode(body.get("mode"))
+            except ValueError as e:
+                return self._fail(400, "bad_request", str(e))
+            except OSError as e:
+                return self._fail(500, "write", "設定を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            return self._json(200, {"window": self.server.window.status()})
         if u.path == "/api/shutdown":
             self._json(200, {"ok": True})
             threading.Thread(target=self.server.request_shutdown, daemon=True).start()
@@ -674,6 +709,55 @@ class PortalServer(ThreadingHTTPServer):
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
+        self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
+        self.window = appwindow_mod.Opener(os.path.dirname(sup.logs_dir), fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
+
+    def tool_ports(self):
+        """別のプログラムとして動いているツールのポート(窓で開いてよい先。取り込んだツールは入口と同じポートなので含めない)"""
+        own = self.server_address[1]
+        out = []
+        for t in self.sup.tools:
+            snap = t.snapshot()
+            if snap["state"] in ("running", "external") and snap["port"] and snap["port"] != own:
+                out.append(snap["port"])
+        return out
+
+    def ytt_api(self, sub, body, tool="portal", version=""):
+        """画面の共通の API の中身。-> (HTTP の番号, JSON)"""
+        try:
+            if sub == "client-log":
+                return 200, {"ok": True, "kept": self.client_log.record(tool, body, version)}
+            if sub == "open-window":
+                return 200, {"ok": True, "url": self.window.open_url(body.get("url"), self.server_address[1], self.tool_ports(), tuple(self.mounts))}
+            if sub == "open-external":
+                return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
+        except ValueError as e:
+            return 400, {"error": "bad_request", "message": str(e)}
+        except appwindow_mod.TooMany as e:
+            return 429, {"error": "too_many", "message": str(e)}
+        except appwindow_mod.Unavailable as e:
+            return 409, {"error": "unavailable", "message": str(e)}
+        except OSError as e:
+            return 500, {"error": "open", "message": "開けませんでした: %s" % (e.strerror or e.__class__.__name__)}
+        return 404, {"error": "not_found", "message": "その操作はありません"}
+
+    def ytt_request(self, h, tool, version=""):
+        """画面の共通の API(api/ytt/<名前>)の要求を受け持つ。h は入口か、取り込んだツールの Handler(_json を持つ)。
+        取り込んだツールの画面の /studio/api/ytt/… も app/mount.py がここへ回す(ツールごとに同じものを書かないため)。
+        検査は入口の API と同じ: POST だけ・Host・Origin・Sec-Fetch-Site・合言葉・本文は application/json で 16KB まで"""
+        path = urllib.parse.urlsplit(h.path).path
+        if h.command != "POST":
+            return h._json(405, {"error": "method", "message": "POST で送ってください"})
+        hs = h.headers
+        if not (httpsec.host_ok(hs, self.allowed_hosts) and httpsec.origin_ok(hs, self.allowed_hosts) and httpsec.fetch_site_ok(hs)):
+            return h._json(403, {"error": "forbidden", "message": "この画面からは使えません"})
+        if not hmac.compare_digest(hs.get(mount_mod.TOKEN_HEADER) or "", self.token):
+            return h._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
+        body, err = read_json_body(hs, h.rfile, YTT_BODY_MAX)
+        if err:
+            return h._json(*err)
+        code, obj = self.ytt_api(path[len(YTT_API):] if path.startswith(YTT_API) else "", body, tool, version)
+        return h._json(code, obj)
 
     def tool_endpoint(self, tid):
         """まとめて実行(app/autorun.py)がツールの API を呼ぶ先 (ポート, 場所)。動いていなければ None"""
@@ -845,9 +929,9 @@ def main(argv=None):
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d/" % port
     if srv is None:
-        print("入口はすでに起動しています。ブラウザで開きます:", url)
+        print("入口はすでに起動しています。画面を開きます:", url)
         if not opts.no_open:
-            webbrowser.open(url)
+            appwindow_mod.Opener(app_data_dir(ROOT), fsio.atomic_write, log=log).open_start(url)
         return 0
     http_thread = None
     try:
@@ -867,8 +951,8 @@ def main(argv=None):
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
-        if not opts.no_open:
-            threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+        if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
+            threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()
         while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ
             pass
     except KeyboardInterrupt:

@@ -24,9 +24,9 @@
 
   /* 入口の API。POST は JSON で送る(サーバーは application/json 以外を拒否する: 他サイトからのフォーム送信を防ぐため)。
      起動・停止・再起動は、止まるまで待つので時間の上限を長めにする */
-  function api(path, method) {
+  function api(path, method, body) {
     var init = { method: method || 'GET', cache: 'no-store', headers: {} };
-    if (init.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = TOKEN; init.body = '{}'; }
+    if (init.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = TOKEN; init.body = JSON.stringify(body || {}); }
     return fetchT(path, init, init.method === 'POST' ? 60000 : 8000).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok) { var e = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); e.status = r.status; throw e; }
@@ -137,6 +137,7 @@
       setConn(true);
       $('#ver').textContent = '入口 v' + st.version;
       if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
+      if (st.window) renderWin(st.window);
       st.tools.forEach(update);
       Object.keys(cards).forEach(function (id) { if ($('.pt-logbox', cards[id].el).open) loadLog(id); });
     }).catch(function () {
@@ -159,6 +160,43 @@
       update(cards[id].data);
       toast(e.message || '操作に失敗しました', 'err');
     }).then(poll);
+  }
+
+  /* 窓で開く(試用。段階7-3): Edge のアプリモードの窓。設定は次に起動したときから。窓の中のリンクは ui-kit(UIKit.win)が入口に頼んで開く */
+  var winBusy = false;
+  function inApp() { return !!(window.UIKit && UIKit.win && UIKit.win.isApp()); }
+  function renderWin(w) {
+    if (winBusy) return;
+    var box = $('#winBox'), sw = $('#winMode'), now = $('#btnWinNow');
+    box.hidden = false;
+    sw.checked = w.mode === 'app';
+    sw.disabled = !w.available && w.mode !== 'app';   // Edge が無くても、オフには戻せる
+    var text = w.available
+      ? 'オンにすると、次に start-all.bat で起動したときから、ブラウザのタブではなく Microsoft Edge の専用の窓で開きます。' +
+        '窓の中のリンクも窓で開き、YouTube などの外のサイトはいつものブラウザで開きます。窓の設定・拡張機能・ログインは、いつものブラウザと別です。' +
+        '合わなければオフに戻すだけで元どおりです。'
+      : 'Microsoft Edge が見つからないので、窓では開けません(いつものブラウザで開きます)。';
+    if (inApp()) text += '(いまは窓で開いています)';
+    $('#winHint').textContent = text;
+    now.hidden = !w.available || inApp();
+  }
+  function setWin(mode) {
+    winBusy = true;
+    api('/api/window', 'POST', { mode: mode }).then(function (j) {
+      winBusy = false;
+      renderWin(j.window);
+      toast(mode === 'app' ? '次に起動したときから、窓で開きます(いま開くなら「いま窓で開く」)' : '次に起動したときから、いつものブラウザで開きます', 'ok');
+    }).catch(function (e) {
+      winBusy = false;
+      toast('設定を保存できませんでした: ' + e.message, 'err');
+      poll();
+    });
+  }
+  function openWinNow() {
+    if (!(window.UIKit && UIKit.win)) return;
+    UIKit.win.open(location.origin + '/').then(function () {
+      toast('窓で開きました。このタブは閉じてかまいません', 'ok');
+    }, function (e) { toast('窓で開けませんでした: ' + e.message, 'err'); });
   }
 
   /* すべて終了: 誤操作を防ぐため2回押し(4秒以内) */
@@ -199,13 +237,15 @@
       if (n < 40) setTimeout(function () { waitGone(n + 1); }, 700);
       else doneText('終了に時間がかかっています', '黒い画面が残っていれば、その画面を閉じてください。');
     }).catch(function () {
-      doneText('すべて終了しました', 'このタブは閉じてかまいません。もう一度使うときは start-all.bat をダブルクリックしてください。');
+      doneText('すべて終了しました', 'この画面(タブ・窓)は閉じてかまいません。もう一度使うときは start-all.bat をダブルクリックしてください。');
     });
   }
   function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text; }
 
   document.addEventListener('DOMContentLoaded', function () {
     $('#btnQuit').addEventListener('click', quit);
+    $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
+    $('#btnWinNow').addEventListener('click', openWinNow);
     $('#btnCopyData').addEventListener('click', function () {
       var t = $('#dataDir').textContent;
       if (!t) return;
@@ -214,7 +254,9 @@
         function () { toast('コピーできませんでした。パスを選んでコピーしてください', 'err'); });
     });
     $('#toast').addEventListener('click', function () { this.hidden = true; });
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+    /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため。段階7-2) */
+    if (window.UIKit && UIKit.life) UIKit.life.onReturn(function () { poll(); });
+    else document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
     poll();
   });
 })();

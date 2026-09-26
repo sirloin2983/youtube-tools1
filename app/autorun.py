@@ -250,14 +250,17 @@ class AutoRunner:
             if not path:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
-        res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": {}})
+        # 解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze。段階7-1)。無ければスタジオの既定値
+        saved = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("analyze")
+        saved = saved if isinstance(saved, dict) else {}
+        res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": saved})
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
         if not qid:
             rej = (res.get("rejected") or [{}])[0].get("reason") or ""
             if "すでにキュー" not in rej:
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
-        st["detail"] = "解析中(解析の設定は既定値)"
+        st["detail"] = "解析中(%s)" % ("スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         while True:
             self._wait(run)
             items = self.client.ok("studio", "GET", "/api/queue").get("items") or []

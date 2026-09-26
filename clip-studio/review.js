@@ -1582,10 +1582,17 @@ Studio.onReady(() => {
   renderAll();
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); });
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden){ pausePlayback(); stopPoll(); if (setTimer) saveSettings(); if (S.dirty) save(); }
-    else if (Studio.step === 'review'){ startPoll(); loadTranscripts(); }   // 文字起こしのタブで直してから戻ったとき
-  });
+  /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2)。別の窓へ移った('blur')ときは保存だけ: 再生を止めない・状態の確認も続ける
+     (窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */
+  const life = window.UIKit && UIKit.life;
+  const onLeft = reason => {
+    if (setTimer) saveSettings();
+    if (S.dirty) save();
+    if (reason !== 'blur'){ pausePlayback(); stopPoll(); }
+  };
+  const onBack = () => { if (Studio.step === 'review'){ startPoll(); loadTranscripts(); } };   // 文字起こしのタブ・窓で直してから戻ったとき
+  if (life){ life.onLeave(onLeft); life.onReturn(onBack); }
+  else document.addEventListener('visibilitychange', () => { if (document.hidden) onLeft('hidden'); else onBack(); });
   window.addEventListener('beforeunload', e => {
     if (S.dirty || saveP || S.exportAll){ e.preventDefault(); e.returnValue = ''; }
   });

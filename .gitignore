@@ -61,3 +61,7 @@ _new/
 # 古い名前のログの控え・壊れた登録ファイルの退避(clip-studio)
 *.log.old
 **/registry.json.corrupt-*
+# 入口の記録(画面のエラーの記録 client-errors.jsonl など)・窓(Edge のアプリモード)の専用のプロファイル(段階7。ふだんは作業データの置き場所。YTT_DATA_DIR=inplace のときだけ app の下)
+**/logs/
+**/browser-profile/
+

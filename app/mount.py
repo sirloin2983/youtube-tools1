@@ -12,6 +12,8 @@
   ① 画面に CSP(script-src は自分と YouTube のプレイヤーだけ。インラインのスクリプトは動かない)
   ② 書き込み系(GET・HEAD 以外)の要求は、合言葉(CSRF トークン。起動ごとに作る)の一致を求める。画面には <meta name="ytt-token"> で渡す
   ③ Host・Origin・Sec-Fetch の検査はツールの Handler がそのまま行う(許可するホストは入口のポートにそろえる)
+- 画面の共通の API(/studio/api/ytt/… など。画面のエラーの記録・窓で開く。段階7)は、ツールに渡さず入口(server.ytt_request)へ回す。
+  ツールの画面は相対パス api/ytt/… で呼ぶので、取り込んだツールごとに同じものを書かずに済む
 """
 import hmac
 import importlib.util
@@ -35,6 +37,7 @@ MOUNTS = {
 }
 TOKEN_HEADER = "X-YTT-Token"
 SAFE_METHODS = ("GET", "HEAD")
+YTT_API = "/api/ytt/"   # 画面の共通の API(入口が受け持つ。app/launch.py の PortalServer.ytt_request)
 
 
 class MountError(Exception):
@@ -98,6 +101,7 @@ def inject_token(body, token):
 def make_handler(mod, prefix, token, csp, access_log=None):
     """ツールの Handler を、/prefix の下で動くように包んだクラス。"""
     base = mod.Handler
+    tool_id = prefix.strip("/")
 
     class Mounted(base):
         def log_message(self, fmt, *args):   # アクセスの記録は入口の黒い画面ではなく app/logs/<ID>.log へ
@@ -121,6 +125,13 @@ def make_handler(mod, prefix, token, csp, access_log=None):
             self.path = self.path[len(prefix):]
             if self.command not in SAFE_METHODS and not hmac.compare_digest(self.headers.get(TOKEN_HEADER) or "", token):
                 self._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
+                return False
+            if urllib.parse.urlsplit(self.path).path.startswith(YTT_API):   # 画面の共通の API は入口へ(ツールには渡さない)
+                serve = getattr(self.server, "ytt_request", None)
+                if serve is None:
+                    self._json(404, {"error": "not_found", "message": "その操作はありません"})
+                else:
+                    serve(self, tool_id, str(getattr(mod, "SERVER_VERSION", "")))
                 return False
             return True
 

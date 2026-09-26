@@ -597,3 +597,45 @@
   clip-studio/{README.txt,core.js,exporter.py,review.css,review.js,serve.py,store.py,test_api.py,test_exporter.py}・cut2resolve/{README.txt,app.js,cut2resolve_core.py,serve.py,test_serve.py}・
   transcribe-tool/{README.txt,app.js,install.bat,install.command,install-diarize.bat,install-diarize.command,install-gpu.bat,serve.py}・docs/{integration-plan.md,WORKLOG.md,HANDOVER.md})、
   削除 6(push.bat が tools/removals.txt から git rm: clip-studio・cut2resolve・transcribe-tool の start.bat・start.command)。push.bat で
+
+## 2026-09-26 Claude(Cowork)— 段階5・6 の実機確認(一部)と保留の記録・引き継ぎ
+- 確認(PC のログ・GitHub): push(eef5e17)で 42 ファイルと start.bat・start.command 6本の削除が届いた(push.bat の removals と検査が Windows で動いた)。
+  入口 v0.7.0・スタジオ 0.6.0・文字起こし 0.14.1・cut2resolve 0.9.0 で起動。まとめて実行「解析から全部」を2回: 1回目は自動採用 → 書き出し(約1分)の後、文字起こしが終わらずユーザーが中止、
+  2回目は書き出しを飛ばし、文字起こし 15 秒 → transcript/v1 保存 → Resolve パック作成まで進んだ
+- 保留(ユーザー決定): 1回目の文字起こしが遅かった件(43秒の切り抜きで 502 秒。同時に認識ワーカーが起動し直していた。large-v3 の最初の読み込みを疑うが未確定)。再現したら「文字起こし」の段の表示と transcribe の serve.log を見る
+- 変更: docs/HANDOVER.md(残りの作業・改善の候補・保留・次のセッションに貼る指示文)
+- 未コミット: docs/HANDOVER.md・docs/WORKLOG.md(push.bat で)
+
+## 2026-09-26 Claude(Cowork)— 段階7-0〜7-3: 画面のエラーの記録・解析の設定をサーバーへ・離れた/戻ったの共通化・窓で開く(試用)(入口 v0.8.0・スタジオ v0.7.0・文字起こし v0.14.2・cut2resolve v0.9.1)
+- 担当: 統合作業(Claude)。スタジオ(queue.js・review.js)・文字起こし(app.js)も変更(離れた/戻った・解析の設定)。作業の土台は GitHub の main = eef5e17 + PC の未コミット(前の記録の HANDOVER・WORKLOG)
+- 確認(ユーザー 2026-09-26): 段階5・6 の実機確認の残り(まとめて実行の「採用後を全部」「文字起こしまで」・ラウドネス・案件の状態とメモ・セリフ・順番待ち)は全部問題なし
+- 決定(ユーザー 2026-09-26): 画面の形は「おすすめの流れ」で 7-3 まで進める(7-0 エラーの記録 → 7-1 解析の設定をサーバーへ → 7-2 タブ前提の作りを直す → 7-3 Edge のアプリモードの窓を試用)。
+  窓を数日試してから「窓で十分 / pywebview(7-4。依存の追加なので改めて確認)/ ブラウザに戻す」を決める。統合計画の正本(Claude Docs)に段階7 を追加済み
+- 変更(7-0): `app/clientlog.py`(新規。client-errors.jsonl に1行1件の JSON・1分に30件・512KB で回す)、`ui-kit/ui-kit.js`(UIKit.report・error / unhandledrejection を自動で送る・同じエラーは1回・20件まで)、
+  `app/launch.py`(PortalServer.ytt_request / ytt_api: 画面の共通の API `api/ytt/…`・`/api/log?tool=client`・本文の読み取りを read_json_body に)、`app/mount.py`(取り込んだツールの `/…/api/ytt/…` をツールに渡さず入口へ)
+- 変更(7-1): スタジオ `queue.js`(解析の設定を `/api/settings` の analyze に保存・localStorage はサーバーに無いときだけ1回引き継ぐ・読み込み中に変えた値を上書きしない・離れたら待たずに送る)、
+  `app/autorun.py`(「解析から全部」が保存した解析の設定を使う)、`app/test_autorun.py`
+- 変更(7-2): `ui-kit/ui-kit.js`(UIKit.life: onLeave('hidden'|'blur'|'pagehide')・onReturn('visible'|'focus'|'pageshow')。iframe にフォーカスがあれば離れたことにしない。'blur' のあと 'hidden' になればもう一度知らせる)、
+  文字起こし `app.js`(設定・文書の保存を onLeave に。保管(音声の切り出し)は 'blur' では走らせない)、スタジオ `review.js`('blur' では保存だけ・再生は止めない。戻ったらセリフを読み直す)、`app/portal.js`(戻ったら状態を取り直す)
+- 変更(7-3): `app/appwindow.py`(新規。Edge の場所(YTT_APP_BROWSER・Program Files・LOCALAPPDATA・レジストリ)、`--app=<URL> --user-data-dir=<app\browser-profile>`、設定 app\settings.json の window、
+  開ける URL の検査・10 秒に 8 回まで)、`app/launch.py`(起動時に設定どおり窓かブラウザで開く・POST /api/window・/api/status の window)、`app/portal.html`・`portal.js`(「窓で開く(試用)」のスイッチと「いま窓で開く」)、
+  `ui-kit/ui-kit.js`(UIKit.win: 窓(display-mode: standalone)の中の target=_blank リンクを入口に頼んで開く。このパソコンの画面 → 窓、外 → いつものブラウザ)
+- 変更(その他): ui-kit の写し3つ(tools/sync_ui_kit.py)、`.gitignore`(**/logs/・**/browser-profile/)、`tools/push_helper.py`(browser-profile を送らない)・`tools/test_push_helper.py`、
+  `clip-studio/e2e_ui.py`(戻っただけの合図 → 「離れた → 戻った」の組で送る tab_away_and_back。本物のタブの切り替えと同じ形)
+- テスト: `app/test_window.py`(新規 21)・`app/e2e_window.py`(新規。窓の中の「開く」→ 偽の Edge がアプリモードで起動・外のサイト → いつものブラウザ・解析の設定の引き継ぎ・離れた/戻った・エラーの記録)、
+  `app/test_mount.py`(取り込んだツールの api/ytt/…)。クラウドで全部通過: 単体(入口 93・スタジオ 226・文字起こし 102・cut2resolve 217・ytt_core/tools 69・node 24)、
+  画面(e2e_portal・e2e_autorun・e2e_window・スタジオ e2e_ui / --mounted・e2e_analyze・cut2resolve e2e_ui / --mounted・文字起こし e2e 7本・tools/e2e_pipeline・e2e_datadir)
+- 資料: `README.txt`(窓で開く・エラーの記録)・各ツールの README・`AGENTS.md`(取り込みの決まりに api/ytt・UIKit.life・エラーの記録)・`ui-kit/README.md`(v2)・`docs/data-location.md`・`docs/integration-plan.md`(段階7で決めたこと)
+- 版: 入口 0.7.0 → 0.8.0、スタジオ 0.6.0 → 0.7.0、文字起こし 0.14.1 → 0.14.2、cut2resolve 0.9.0 → 0.9.1(ui-kit の更新だけ)、ui-kit v1 → v2
+- 判断・理由: 画面の共通の API を入口1か所にしたのは、3ツールの serve.py に同じ検査つきの API を3回書かないため(取り込みの層で回す)。
+  エラーの記録を JSON の1行にしたのは、エラーの文の改行で偽の行を作らせないため。窓の判定を display-mode にしたのは、サーバーからは同じ画面がタブか窓か分からないため
+  (外れたら今までどおりタブで開くだけ)。窓を閉じても入口を終えないのは、閉じる直前の保存よりサーバーの停止が先になる危険を持ち込まないため
+- 注意: 画面で visibilitychange を直接使わず UIKit.life を使う(AGENTS.md)。ツールに /api/ytt/ で始まる API を作らない。窓の専用のプロファイルは YouTube に未ログイン
+  (会員限定・年齢制限の配信は窓の中の埋め込みで再生できないことがある)。窓の設定は次の起動から(「いま窓で開く」ですぐ試せる)
+- 未確認(実機・クラウドの Linux では Edge の窓を再現できない): 窓の中で「開く」「文字起こしで開く」が窓で開くか(display-mode: standalone の判定)・YouTube の埋め込みが再生できるか・
+  外のリンクがいつものブラウザで開くか・書き出し中に落ちないか・client-errors.jsonl に記録されるか
+- 未完了・次: 実機確認 → 数日の試用 → 窓で十分 / 7-4 pywebview / ブラウザに戻す をユーザーが決める。改善の候補(校正後にパックを作り直す・まとめて実行の記録を残す)は未着手
+- 未コミット: 新規 4(app/appwindow.py・app/clientlog.py・app/test_window.py・app/e2e_window.py)、
+  変更 34(.gitignore・AGENTS.md・README.txt・app/{README.txt,autorun.py,e2e_portal.py,launch.py,mount.py,portal.html,portal.js,test_autorun.py,test_mount.py}・
+  clip-studio/{README.txt,core.js,e2e_ui.py,queue.js,review.js,serve.py,ui-kit.js}・cut2resolve/{README.txt,cut2resolve_core.py,ui-kit.js}・
+  docs/{HANDOVER.md,WORKLOG.md,data-location.md,integration-plan.md}・tools/{push_helper.py,test_push_helper.py}・transcribe-tool/{README.txt,app.js,serve.py,ui-kit.js}・ui-kit/{README.md,ui-kit.js})。push.bat で
