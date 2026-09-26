@@ -357,15 +357,66 @@ class TestEditHttp(unittest.TestCase):
         with open(os.path.splitext(video)[0] + ".cut-plan.json", "w", encoding="utf-8") as f:
             json.dump({"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 1, "end": 2}]}, f)
         r = self.call("GET", "/api/edit/draft?id=" + tid)
-        self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.5, 1.5], [3.0, 4.266667]]))   # 4.25 秒は 30fps のフレーム(128 = 4.2667)に丸める
+        # 行の端を声の止まる所まで広げる(⑥ pack.ROW_EDGE。音は 0〜1.5 秒・3〜4.5 秒):
+        # 一 0.5〜1.5 → 前は無音が無いので 0.1 秒・後ろはカット済の行(二)を越えない。三 3.0〜4.25 → 無音の始まり 4.5 まで(前は無音の中なので動かさない)
+        self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.4, 1.5], [3.0, 4.5]]))
         self.assertEqual(os.path.normcase(r["planBeside"]), os.path.normcase(os.path.splitext(video)[0] + ".cut-plan.json"))
         self.assertFalse(os.path.exists(os.path.splitext(video)[0] + ".transcript.json"))   # 動画の隣にファイルを増やさない
+        # 設定の rowEdge で変えられる(zip・まとめて実行も同じ設定)
+        settings = self.call("GET", "/api/settings")
+        settings.pop("_status", None)
+        try:
+            self.call("PUT", "/api/settings", dict(settings, rowEdge={"on": False, "after": 0.5, "before": 0.3}))
+            r = self.call("GET", "/api/edit/draft?id=" + tid)
+            self.assertEqual(r["keepsSec"], [[0.5, 1.5], [3.0, 4.266667]])   # 広げない(4.25 秒は 30fps のフレーム 128 = 4.2667 に丸める)
+            self.call("PUT", "/api/settings", dict(settings, rowEdge={"after": 0.1, "before": 0}))
+            r = self.call("GET", "/api/edit/draft?id=" + tid)
+            self.assertEqual(r["keepsSec"], [[0.5, 1.5], [3.0, 4.366667]])   # 上限 0.1 秒(4.5 の無音は窓の外 → 決まった余白も上限まで)
+            self.call("PUT", "/api/settings", dict(settings, rowEdge="壊れた値"))
+            r = self.call("GET", "/api/edit/draft?id=" + tid)
+            self.assertEqual(r["keepsSec"], [[0.4, 1.5], [3.0, 4.5]])        # 読めない設定は既定にして知らせる
+            self.assertTrue(any("既定にしました" in w for w in r["warnings"]), r["warnings"])
+        finally:
+            self.call("PUT", "/api/settings", settings)
+        # カットを保存した文書は、開いただけでは「行から」を計算しない(rows=1 = 「行から」のボタンのときだけ)
+        self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=((0.0, 2.0),), duration=6.0)})["rev"], 1)
+        r = self.call("GET", "/api/edit/draft?id=" + tid)
+        self.assertEqual((r["base"], r.get("skipped"), r["fps"]), ("all", True, [30, 1]))
+        r = self.call("GET", "/api/edit/draft?rows=1&id=" + tid)
+        # 保存したカット(0〜2 秒)で行の印が付け直された(二 は残す行・三 はカット済)→ 一・二 の 0.5〜3.0 を広げる(三 は越えない)
+        self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.4, 3.0]]))
         # ネットワーク上の動画は調べない・動画の無い文書
         with open(os.path.join(self.tmp, "transcripts", "abcdefabcdef.json"), "w", encoding="utf-8") as f:
             json.dump({"id": "abcdefabcdef", "title": "n", "sourcePath": r"\\server\share\x.mp4", "segments": [], "updatedAt": 1}, f)
         r = self.call("GET", "/api/edit/draft?id=abcdefabcdef")
         self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "network_path"))
         self.assertEqual(self.call("GET", "/api/edit/draft?id=zzz")["_status"], 404)
+
+    def test_draft_waits_for_heavy_slot_then_falls_back(self):
+        """行の端の無音をまだ調べていないときだけ SLOTS の順番を待つ。取れなければ決まった余白で広げて知らせる"""
+        import contextlib
+        import resolve_export
+        video = os.path.join(self.media_dir, "順番.mkv")
+        shutil.copy(self.video, video)
+        doc = {"sourcePath": video, "whole": True, "segments": [{"id": "a", "start": 0.5, "end": 1.2, "text": "一"}]}
+        asked = []
+
+        @contextlib.contextmanager
+        def busy(label):
+            asked.append(label)
+            yield False
+        r = resolve_export.edit_draft(doc, "t", heavy=busy)
+        self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.4]], 1))              # 決まった余白(前 0.1・後 0.2)
+        self.assertTrue(any("他の重い処理" in w for w in r["warnings"]), r["warnings"])
+
+        @contextlib.contextmanager
+        def free(label):
+            asked.append(label)
+            yield True
+        r = resolve_export.edit_draft(doc, "t", heavy=free)
+        self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.5]], 2))              # 無音の始まり 1.5 まで
+        r = resolve_export.edit_draft(doc, "t", heavy=busy)
+        self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.5]], 2))              # 調べた無音は覚えている(順番を待たない)
 
     def test_pack_preview_readme_zip_and_cut_plan(self):
         """3 パック のタブの見積もり(ファイルを作らない)・前回のパックの手順書・zip と「残す区間の保存」もカットのとおり"""

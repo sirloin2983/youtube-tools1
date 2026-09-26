@@ -11,7 +11,8 @@
   ・--plan FILE / .json                採用区間(youtube-tools-cut-plan/v1)を残す。前後の余白は --handles
   ・--transcript FILE / .json          文字起こし(youtube-tools-transcript/v1)。字幕はカット済でない行から作り、
                                        「カット済」の行の時間帯を削る(--keep-cut-rows で削らない)
-  ・--keep-rows                        文字起こしの残す行だけを残す(行と行の間のすき間は削る)
+  ・--keep-rows                        文字起こしの残す行だけを残す(行と行の間のすき間は削る)。
+                                       行の端は声の止まる所まで広げる(語頭・語尾が切れないように。--no-row-edge で広げない)
   ・--drop FILE                        削る区間を同じ形式で書く
   ・--drop-lines 3,5-7                 字幕ファイルの上から N 番目の行の時間帯を削る
   ・--silence                          無音を自動で削る(--noise / --silence-min / --silence-pad で調整)
@@ -68,7 +69,8 @@ def build_request(args):
         handles=args.handles, silence=args.silence, noise=args.noise, silence_min=args.silence_min,
         silence_pad=args.silence_pad, drop_cut_rows=not args.keep_cut_rows, min_len=args.min_len, join_gap=args.join_gap,
         fps=args.fps, frames=args.frames, src_start_tc=args.src_start_tc, rec_start=args.rec_start, reel=args.reel,
-        name=args.name, extra_inputs=tuple(p for p in (keep_file, drop_file) if p), edit_media=not args.no_edit_media)
+        name=args.name, extra_inputs=tuple(p for p in (keep_file, drop_file) if p), edit_media=not args.no_edit_media,
+        row_edge=None if args.no_row_edge else pack.ROW_EDGE)
 
 
 def run(args):
@@ -108,6 +110,8 @@ def main(argv=None):
     ap.add_argument("--handles", type=float, default=None,
                     help="--plan / --keep-rows の区間の前後に残す余白(秒)。既定: 文字起こし由来は 0、それ以外は 10")
     ap.add_argument("--keep-cut-rows", action="store_true", help="文字起こしの「カット済」の行を削らない")
+    ap.add_argument("--no-row-edge", action="store_true",
+                    help="--keep-rows の区間の端を声の止まる所まで広げない(既定は広げる: 終わりは 0.5 秒先・始まりは 0.3 秒前まで)")
     ap.add_argument("--drop", help="削る区間のファイル(1行に「開始 終了」)")
     ap.add_argument("--drop-lines", help="削る字幕の行(字幕ファイルの上から何番目か。例: 3,5-7)")
     ap.add_argument("--silence", action="store_true", help="無音区間を自動で削る")

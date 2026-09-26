@@ -25,7 +25,8 @@
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
   「編集」(docs/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
-  GET  /api/edit/draft?id=   動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json
+  GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
+                             「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
   POST /api/edit/preview     {"id", "keeps"} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)
   GET  /api/edit/pack-readme?id=  前回のパックの手順書(友人へ.txt)
@@ -914,8 +915,18 @@ def apply_edit_cuts(tid, doc, edit=None):
     return changed
 
 
-def edit_draft(tid):
-    """GET /api/edit/draft?id= : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(resolve_export.edit_draft)。
+DRAFT_SLOT_WAIT = 10.0   # 「行から」の行の端の無音を調べる順番(SLOTS)を待つ上限(秒)。過ぎたら無音を調べずに決まった余白で広げる
+
+
+def _draft_slot(label):
+    deadline = time.monotonic() + DRAFT_SLOT_WAIT
+    return _heavy.SLOTS.slot(TOOL_ID, label, cancelled=lambda: time.monotonic() > deadline)
+
+
+def edit_draft(tid, rows=False):
+    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(resolve_export.edit_draft)。
+    「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
+    行の端を広げるかは設定の rowEdge(docs/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
     ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
@@ -932,7 +943,8 @@ def edit_draft(tid):
     if not os.path.isfile(src):
         return unavailable("source_missing", "元の動画が見つかりません(移動・削除した可能性があります)")
     try:
-        out = resolve_export.edit_draft(doc, SERVER_VERSION)
+        need = bool(rows) or not read_edit(tid)[0]
+        out = resolve_export.edit_draft(doc, SERVER_VERSION, rows=need, row_edge=load_settings().get("rowEdge"), heavy=_draft_slot)
     except resolve_export.ResolveExportError as e:
         msg = str(e)
         if "動画ストリーム" in msg:
@@ -4690,7 +4702,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/edit":
                 return self._json(200, get_edit((q.get("id") or [""])[0]))
             if u.path == "/api/edit/draft":
-                return self._json(200, edit_draft((q.get("id") or [""])[0]))
+                return self._json(200, edit_draft((q.get("id") or [""])[0], (q.get("rows") or [""])[0] == "1"))
             if u.path == "/api/edit/pack-readme":
                 return self._json(200, pack_readme((q.get("id") or [""])[0]))
             if u.path == "/api/doc-for":
@@ -4829,7 +4841,8 @@ class Handler(BaseHTTPRequestHandler):
                     ed, _broken = read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
                     zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
                                                                       str(obj.get("size") or "") or None, SERVER_VERSION,
-                                                                      keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None)
+                                                                      keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None,
+                                                                      row_edge=load_settings().get("rowEdge"))
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))

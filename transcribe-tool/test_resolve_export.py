@@ -123,7 +123,8 @@ class PackageTests(unittest.TestCase):
         doc = self.doc(self.v60, duration=6, segments=[{"id": "a", "start": 2, "end": 4, "text": "a"}])
         z, _ = self.package(doc, "30")
         ip = json.loads(z.read("テスト_pack/textplus-import.json"))
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(120, 240)])
+        # 2〜4 秒 = 60fps の 120〜240。行の端を広げる(⑥。この動画は無音が無い → 決まった余白 前 0.1 秒・後 0.2 秒 = 6・12 フレーム)
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(114, 252)])
         self.assertEqual((ip["fps"], ip["target"]["fps"]), ("60/1", 30))
 
     def test_landscape_target(self):

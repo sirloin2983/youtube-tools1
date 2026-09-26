@@ -2238,7 +2238,7 @@ function onCutSaved(r){
   onCutMarks(changed);
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
-const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc,
+const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow,
   c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */

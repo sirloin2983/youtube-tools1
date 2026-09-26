@@ -7,9 +7,11 @@
 
 このテストが守ること:
   A. 一本化の前後で動きが変わらない … 旧 resolve_export の計算(下の LEGACY。一本化の前のコードをそのまま凍結)と、
-     今の文字起こしツールの経路(pack.plan_cut + pack.TRANSCRIPT_ROWS)で、残す区間・字幕・SRT が同じ
+     今の文字起こしツールの経路(pack.plan_cut + pack.TRANSCRIPT_ROWS)で、残す区間・字幕・SRT が同じ。
+     2026-09-26(⑥ 語頭・語尾が切れる)から TRANSCRIPT_ROWS は行の端を声の止まる所まで広げる(pack.ROW_EDGE)ので、
+     A は「広げない」(row_edge=None)で比べる(行の時間を残す規則そのものは変わっていない)。広げ方の契約は RowEdgeContract
   B. 同じ入力から同じパック … 文字起こしツールの zip の中身と、cut2resolve で同じ文字起こしから作った Text+ パックが同じ
-     (textplus-import.json・Lua・EDL・SRT・手順書など、日時の入る cut-plan.json 以外のすべてのファイル)
+     (textplus-import.json・Lua・EDL・SRT・手順書など、日時の入る cut-plan.json 以外のすべてのファイル。どちらも行の端を広げる既定)
 
 A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順)・動画の中に収まる・時刻は 0.02 秒刻み(faster-whisper の時刻の刻み。25fps を除く)・
 選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは docs/resolve-pack-unification.md):
@@ -178,9 +180,10 @@ class ResolvePackContract(unittest.TestCase):
 
     # ---- 今の文字起こしツールの経路(create_package と同じ: 文書 → transcript/v1 → pack.plan_cut(TRANSCRIPT_ROWS))
 
-    def current(self, doc):
-        p = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS),
-                          cache=self.cache)
+    def current(self, doc, row_edge=None):
+        """row_edge=None: 行の端を広げない(A の LEGACY と比べる)。pack.ROW_EDGE: 今の既定(zip・まとめて実行・「行から」)"""
+        p = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc),
+                                       **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge)), cache=self.cache)
         caps = [tuple(c) for c in (p.cues_out or [])]
         return [tuple(k) for k in p.keeps], caps, S.build_srt(caps, p.meta["fps"])
 
@@ -298,14 +301,19 @@ class ResolvePackContract(unittest.TestCase):
 
     def test_same_pack_as_cut2resolve(self):
         ip = self.assertSamePack(self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]))
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(0, 60), (120, 240)])
+        # 行の端を広げる(⑥): 契約の動画はずっと音(無音が無い)→ 後ろに決まった余白 0.2 秒(6 フレーム)。カット済の行(2〜4 秒)は越えない。
+        # 広げる前(2026-09-26 まで)は [(0, 60), (120, 240)]
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(0, 60), (120, 246)])
 
     def test_zip_uses_transcribe_rules(self):
-        """zip の区間も、旧 resolve_export と同じ(短い行を残す・1フレームの隙間はつなぐ)。文字起こし側が別の規則で pack を呼ぶと、ここで分かる"""
+        """zip の区間も TRANSCRIPT_ROWS(短い行を残す・1フレームの隙間はつなぐ・端を広げる)。文字起こし側が別の規則で pack を呼ぶと、ここで分かる"""
         d = self.doc([seg(1, 1, 1.2, "短い"), seg(2, 3, 4, "a"), seg(3, 4.034, 5, "b"), seg(4, 6, 7, "c", cut=True)])
         ip = self.assertSamePack(d)
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], LEGACY.plan(d, "30")[0])
-        self.assertEqual([(c["startFrame"], c["endFrame"], c["text"]) for c in ip["captions"]], LEGACY.plan(d, "30")[1])
+        cuts, caps, _ = self.current(d, pack.ROW_EDGE)
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], cuts)
+        self.assertEqual([(c["startFrame"], c["endFrame"], c["text"]) for c in ip["captions"]], caps)
+        self.assertEqual(cuts, [(27, 42), (87, 156)])   # 広げる前(LEGACY)は [(30, 36), (90, 150)]。無音が無い動画なので決まった余白(前 3・後 6)
+        self.assertEqual(LEGACY.plan(d, "30")[0], [(30, 36), (90, 150)])
 
     def test_same_pack_other_targets_and_rates(self):
         rows = [seg(1, 0.52, 2.2, "a"), seg(2, 2.2, 3.4, "b", cut=True), seg(3, 3.4, 4.4, "c"), seg(4, 11, 13, "終わりをまたぐ")]
@@ -325,9 +333,9 @@ class ResolvePackContract(unittest.TestCase):
                                                       "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}), encoding="utf-8")
         doc = self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")], sourcePath=str(clip))
         ip = self.assertSamePack(doc)
-        # 旧 resolve_export で同じ入力から出た値(一本化の前の test_resolve_export の
-        # test_plan_uses_handle_media_and_keeps_recoverable_source_offsets と同じ)
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 540)])
+        # 旧 resolve_export で同じ入力から出た値は [(300, 360), (420, 540)](一本化の前の test_resolve_export の
+        # test_plan_uses_handle_media_and_keeps_recoverable_source_offsets と同じ)。⑥ から終わりに決まった余白 6 フレーム(無音が無い動画)
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 546)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["media"]["file"], "media/clip_edit.mp4")
 
@@ -461,7 +469,7 @@ class KnownFixes(ResolvePackContract):
         """60fps の動画で 30 を選ぶと、旧は 30fps でフレームを数えた(Resolve の元クリップは 60fps で数えるので、半分の位置になった)"""
         d = self.doc([seg(1, 2, 4, "a")], "60")
         self.assertEqual(LEGACY.plan(d, "30")[0], [(60, 120)])
-        zp, tmp_dir, _ = resolve_export.create_package(d, "30")
+        zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)   # 行の端を広げない(fps の数え方だけを見る)
         self.addCleanup(shutil.rmtree, tmp_dir, True)
         with zipfile.ZipFile(zp) as z:
             ip = json.loads(z.read("契約_pack/textplus-import.json"))
@@ -471,6 +479,85 @@ class KnownFixes(ResolvePackContract):
     for _n in [n for n in dir(ResolvePackContract) if n.startswith("test_")]:
         locals()[_n] = None
     del _n
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
+class RowEdgeContract(unittest.TestCase):
+    """E. 行から作るカットの端を声の止まる所まで広げる(pack.ROW_EDGE。docs/edit-tool-design.md の 12 ⑥)。広げる前(A の LEGACY)と比べて:
+      - 広げる前の残す区間は、広げたあとの残す区間にすべて入っている(削る所が増えない)
+      - 端が動くのは上限まで(始まりは前 0.3 秒・終わりは後 0.5 秒。つながった所は除く)
+      - カット済の行の時間(残す行と重ならない所)には入らない
+      - 字幕の文字と数は同じ(時刻はカット後の位置が変わるので比べない)
+      - 設定で広げない(rowEdge false)なら LEGACY と同じ
+    声の代わりの音と無音が交互の動画(0.7 秒おき)で、乱数の文書を試す"""
+    setUpClass = ResolvePackContract.__dict__["setUpClass"]
+    tearDownClass = ResolvePackContract.__dict__["tearDownClass"]
+    write_v1 = ResolvePackContract.write_v1
+
+    def gappy(self, fps_text):
+        key = "gaps" + fps_text
+        if key not in self.videos:
+            p = os.path.join(self.tmp, "g%s.mp4" % fps_text.replace(".", "_"))
+            expr = "if(lt(mod(t\\,1.4)\\,0.7)\\,0.5*sin(2*PI*440*t)\\,0)"   # 0〜0.7 秒 音 / 0.7〜1.4 無音 …
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                            "testsrc=size=160x90:rate=%s:duration=%d" % (FPS_RATE[fps_text], VIDEO_SEC),
+                            "-f", "lavfi", "-i", "aevalsrc=%s:s=44100:d=%d" % (expr, VIDEO_SEC),
+                            "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", "-shortest", p], check=True)
+            self.videos[key] = p
+        return self.videos[key]
+
+    def test_widening_contract(self):
+        rnd = random.Random(20260928)
+        seen = {"widened": 0, "silence": 0}   # 空振りで通らないように(広がった文書・無音の所で止まった端があったか)
+        for fps_text in ("30", "29.97", "60"):
+            video = self.gappy(fps_text)
+            for n in range(25):
+                rows, t = [], rnd.choice([0.0, 0.3])
+                for i in range(rnd.randint(1, 12)):
+                    t += rnd.choice([0.0, 0.02, 0.1, 0.4, 1.2])
+                    a, b = round(t, 2), round(t + rnd.choice([0.12, 0.3, 0.6, 0.9, 2.16]), 2)
+                    if b > VIDEO_SEC - 0.5:
+                        break
+                    rows.append(seg(i, a, b, rnd.choice(["はい", "こんばんは", "え", "  "]), cut=rnd.random() < 0.3))
+                    t = b
+                if not any(r["text"].strip() and r.get("cutState") != "cut" for r in rows):
+                    continue
+                doc = {"title": "契約", "sourcePath": video, "whole": True, "duration": VIDEO_SEC, "segments": rows}
+                with self.subTest(fps=fps_text, n=n):
+                    tr = self.write_v1(doc)
+                    req = pack.Request(video=Path(video), transcript=tr, **pack.TRANSCRIPT_ROWS)
+                    wide = pack.plan_cut(req, cache=self.cache)
+                    narrow = pack.plan_cut(pack.Request(video=Path(video), transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)),
+                                           cache=self.cache)
+                    self.assertEqual([tuple(k) for k in narrow.keeps], LEGACY.plan(doc, fps_text)[0])
+                    fps, total = wide.meta["fps"], wide.meta["total"]
+                    f = lambda sec: pack.C.sec_to_frames(sec, fps)   # noqa: E731
+                    for a, b in narrow.keeps:
+                        self.assertTrue(any(x <= a and b <= y for x, y in wide.keeps), "広げる前の区間 %r が消えた %r" % ((a, b), rows))
+                    for x, y in wide.keeps:
+                        inside = [(a, b) for a, b in narrow.keeps if x <= a and b <= y]
+                        self.assertTrue(inside, "広げる前に無かった区間 %r %r" % ((x, y), rows))
+                        self.assertGreaterEqual(x, inside[0][0] - f(0.3), rows)
+                        self.assertLessEqual(y, inside[-1][1] + f(0.5), rows)
+                    cut_only = pack._cut_row_frames(pack.C.read_transcript(tr)["rows"], fps, total)
+                    self.assertEqual(pack.C.subtract(cut_only, [tuple(k) for k in wide.keeps]), pack.C.normalize(cut_only, total),
+                                     "カット済の行の時間に入った %r" % rows)
+                    self.assertEqual([c[2] for c in wide.cues_out], [c[2] for c in narrow.cues_out])
+                    if wide.keeps != narrow.keeps:
+                        seen["widened"] += 1
+                    ends = {b for _, b in narrow.keeps}
+                    seen["silence"] += sum(1 for _, y in wide.keeps if y not in ends and (y - f(0.2)) not in ends)
+        self.assertGreater(seen["widened"], 20, seen)
+        self.assertGreater(seen["silence"], 5, seen)
+
+    def test_rowedge_false_is_legacy(self):
+        d = {"title": "契約", "sourcePath": self.gappy("30"), "whole": True, "duration": VIDEO_SEC,
+             "segments": [seg(1, 0.2, 0.5, "a"), seg(2, 1.5, 1.9, "b"), seg(3, 2.0, 2.3, "c", cut=True)]}
+        zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)
+        self.addCleanup(shutil.rmtree, tmp_dir, True)
+        with zipfile.ZipFile(zp) as z:
+            ip = json.loads(z.read("契約_pack/textplus-import.json"))
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], LEGACY.plan(d, "30")[0])
 
 
 class RoundingRule(unittest.TestCase):

@@ -15,6 +15,7 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
+                                  spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
@@ -413,7 +414,7 @@ def request_from_spec(spec):
         # 文字起こしの行だけを残す(文字起こしツールの Resolve パッケージ・入口のまとめて実行と同じ規則 pack.TRANSCRIPT_ROWS。他の指定は使わない)
         if tr is None:
             raise ApiError("no_transcript", "文字起こしのファイルを入れてください")
-        return pack.Request(video=video, transcript=tr, **pack.TRANSCRIPT_ROWS)
+        return pack.Request(video=video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge_from_spec(spec)))
     if spec.get("preset") not in (None, ""):
         raise ApiError("bad_value", "preset が正しくありません")
     if spec.get("keeps") is not None:
@@ -462,7 +463,16 @@ def request_from_spec(spec):
         handles=handles, silence=use_silence, noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
         min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, 0.3), join_gap=_num(spec.get("joinGap"), "つなぐ隙間", 0, 3600, 0.0),
-        **advanced_from_spec(spec))
+        row_edge=row_edge_from_spec(spec) if base == "rows" else None, **advanced_from_spec(spec))
+
+
+def row_edge_from_spec(spec):
+    """spec.rowEdge(文字起こしの行から作るときに、区間の端を声の止まる所まで広げる。省略 = 既定 pack.ROW_EDGE・false = 広げない・
+    {"after", "before"} = 上限の秒)-> pack.RowEdge か None"""
+    try:
+        return pack.row_edge_from(spec.get("rowEdge"))
+    except C.ToolError as e:
+        raise ApiError("bad_value", str(e))
 
 
 def advanced_from_spec(spec):

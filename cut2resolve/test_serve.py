@@ -436,7 +436,17 @@ class TestJobs(ServerBase):
             {"start": 8.5, "end": 9.5, "text": "c", "cut": False}]}), encoding="utf-8")
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript"}})
         r = j["result"]
-        self.assertEqual(r["keeps"], [[15, 45], [255, 285]])
+        # 行の端を声の止まる所まで広げる(pack.ROW_EDGE。動画の音は 0-2 秒・4-6 秒・8-10 秒): 1.5 → 無音の始まり 2.0、ほかは決まった余白
+        self.assertEqual(r["keeps"], [[12, 60], [252, 291]])
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
+                                                "rowEdge": False}})
+        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 広げない
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
+                                                "rowEdge": {"after": 0, "before": 0}}})
+        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 上限 0 = 広げない(決まった余白も上限の中)
+        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
+                                                           "rowEdge": {"after": 9}}})
+        self.assertEqual((st, j["error"]), (400, "bad_value"))
         self.assertEqual(r["subtitles"]["source"], "transcript")
         self.assertEqual(len(r["transcriptRows"]), 3)
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "list", "listKind": "drop",

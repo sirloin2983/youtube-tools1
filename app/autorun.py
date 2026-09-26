@@ -413,6 +413,8 @@ class AutoRunner:
             st["state"], st["detail"] = "skip", ("パック済み" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
         skipped, by_edit = [], 0
+        # 行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの /api/settings の rowEdge。形は cut2resolve が確かめる)
+        row_edge = self.client.ok("transcribe", "GET", "/api/settings").get("rowEdge")
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
             st["detail"] = "%d / %d 本" % (i - 1, len(todo))
@@ -424,7 +426,10 @@ class AutoRunner:
                 body = {"spec": spec, "output": {"textplus": captions, "copyVideo": True}}
             else:
                 tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-                body = {"spec": {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}, "output": {"textplus": True}}
+                spec = {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}
+                if isinstance(row_edge, (bool, dict)):
+                    spec["rowEdge"] = row_edge
+                body = {"spec": spec, "output": {"textplus": True}}
             while True:
                 status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
                 if not (status == 409 and res.get("error") == "busy"):

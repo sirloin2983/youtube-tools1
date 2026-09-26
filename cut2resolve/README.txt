@@ -31,6 +31,10 @@ cut2resolve v0.11.0(「編集」の部品・コマンド)
   - POST api/plan(試算)・api/build(パックを作る。ジョブ)・api/inspect(動画の情報)・api/open-folder など。書き込み系は合言葉(X-YTT-Token)が要る
   - spec.keeps(v0.11.0): 残す区間を秒の組 [[開始, 終了], …] でそのまま渡す(「編集」のカット)。余白・最短・つなぎ・無音検出はしない(pack.EDIT_KEEPS)。
     preset と一緒には使えない。0.5 秒より短い区間は注意を出す。上限 5000 区間
+  - 文字起こしの行から作るとき(preset "transcript-rows"・mode keep の keepSource "transcript"・コマンドの --keep-rows)は、
+    区間の端を声の止まる所まで広げる(pack.ROW_EDGE。語頭・語尾が切れないように。終わりは 0.5 秒先・始まりは 0.3 秒前までの無音
+    (-35dB・0.15 秒以上)まで。無音が無ければ 前 0.1 秒・後 0.2 秒。カット済の行は越えない)。spec.rowEdge = false で広げない・
+    {"after": 秒, "before": 秒} で上限を変える(0〜2 秒)。コマンドは --no-row-edge で広げない。keeps・時刻リスト・スタジオの区間には使わない
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
 
 

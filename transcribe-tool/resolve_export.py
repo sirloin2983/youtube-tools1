@@ -3,7 +3,8 @@
 パックの中身は cut2resolve の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
 新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
   動画(media/。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と登録用の bat・友人へ.txt・EDL・SRT・cut-plan.json
-残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
+残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
+端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 同じ入力から同じ中身になることは tools/test_resolve_pack_contract.py が確かめる。
 
 このファイルに残しているもの: 「残す行」の規則(is_kept / kept_spans)と SRT の書式。pipeline_io(cut-plan/v1・SRT の保存)も使う。
@@ -109,14 +110,30 @@ def _load_pack():
     return pack, resolve_textplus
 
 
-_DRAFT_CACHE = None   # pack.Cache(動画の情報(ffprobe)を覚える。同じ動画を開き直しても調べ直さない)
+_DRAFT_CACHE = None   # pack.Cache(動画の情報(ffprobe)と行の端の無音を覚える。同じ動画を開き直しても調べ直さない)
 
 
-def edit_draft(doc: dict, version: str = "") -> dict:
+def _row_edge(pack, value, warnings):
+    """設定の rowEdge → pack.RowEdge か None。形が正しくなければ既定(pack.ROW_EDGE)にして注意を出す"""
+    try:
+        return pack.row_edge_from(value)
+    except pack.ToolError as e:
+        warnings.append("行の端を広げる設定が読めないため、既定にしました: %s" % e)
+        return pack.ROW_EDGE
+
+
+def _rows_request(pack, source, tpath, row_edge, warnings):
+    return pack.Request(video=Path(source), transcript=Path(tpath), **dict(pack.TRANSCRIPT_ROWS, row_edge=_row_edge(pack, row_edge, warnings)))
+
+
+def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, heavy=None) -> dict:
     """「編集」のカットのたたき台(開いたときの下書き・「行から」)と、動画の fps・長さ(docs/edit-tool-design.md の 4)。
     残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・zip・入口のまとめて実行と同じ規則。ここに規則を書かない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
-    -> {"fps": [n, d], "durationSec", "keepsSec": [[開始, 終了], ...], "base": "rows" | "all", "warnings"}"""
+    rows=False: 「行から」を計算しない(カットが保存済みの文書を開いたとき。行の端の無音を調べる重い処理をしない)。
+    row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt_core.jobs.SLOTS.slot。真なら取れた)。
+      行の端の無音をまだ調べていないときだけ使う。順番を取れなければ、無音を調べずに決まった余白で広げて注意を出す
+    -> {"fps": [n, d], "durationSec", "keepsSec": [[開始, 終了], ...], "base": "rows" | "all", "warnings", "skipped"?}"""
     import pipeline_io
     global _DRAFT_CACHE
     source = str(doc.get("sourcePath") or "")
@@ -132,6 +149,9 @@ def edit_draft(doc: dict, version: str = "") -> dict:
     fps, total = meta["fps"], meta["total"]
     dur = round(total * fps[1] / fps[0], 6)
     out = {"fps": [int(fps[0]), int(fps[1])], "durationSec": dur, "keepsSec": [[0.0, dur]], "base": "all", "warnings": []}
+    if not rows:
+        out["skipped"] = True
+        return out
     if not any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)):
         return out
     tmp_dir = tempfile.mkdtemp(prefix="edit-draft-")
@@ -139,22 +159,33 @@ def edit_draft(doc: dict, version: str = "") -> dict:
         tpath = os.path.join(tmp_dir, "input.transcript.json")
         with open(tpath, "w", encoding="utf-8") as f:
             json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        warns = []
         try:
-            plan = pack.plan_cut(pack.Request(video=Path(source), transcript=Path(tpath), **pack.TRANSCRIPT_ROWS), cache=_DRAFT_CACHE)
+            req = _rows_request(pack, source, tpath, row_edge, warns)
+            if heavy is not None and pack.row_edge_pending(req, _DRAFT_CACHE):
+                with heavy("行の端 " + os.path.basename(source)[:40]) as ok:
+                    if ok:
+                        plan = pack.plan_cut(req, cache=_DRAFT_CACHE)
+                if not ok:
+                    plan = pack.plan_cut(pack.without_detect(req), cache=_DRAFT_CACHE)
+                    warns.append("他の重い処理が動いているため、行の端は声の止まる所を調べずに決まった余白で広げました"
+                                 "(あとで「行から」を押し直すと調べ直します)")
+            else:
+                plan = pack.plan_cut(req, cache=_DRAFT_CACHE)
         except pack.ToolError as e:
             out["warnings"].append(str(e))
             return out
-        out.update(keepsSec=pack.summary(plan)["keepsSec"], base="rows", warnings=list(plan.warnings))
+        out.update(keepsSec=pack.summary(plan)["keepsSec"], base="rows", warnings=warns + list(plan.warnings))
         return out
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _edit_request(pack, source: str, tpath: str | None, keeps):
-    """カット(編集の内容の残す区間。秒)があればそのとおり(pack.EDIT_KEEPS)、無ければ文字起こしの行から(pack.TRANSCRIPT_ROWS)"""
+def _edit_request(pack, source: str, tpath: str | None, keeps, row_edge=None, warnings=None):
+    """カット(編集の内容の残す区間。秒)があればそのとおり(pack.EDIT_KEEPS)、無ければ文字起こしの行から(pack.TRANSCRIPT_ROWS。row_edge は設定の rowEdge)"""
     if keeps:
         return pack.Request(video=Path(source), transcript=Path(tpath) if tpath else None, keep_pairs=[tuple(k) for k in keeps], **pack.EDIT_KEEPS)
-    return pack.Request(video=Path(source), transcript=Path(tpath), **pack.TRANSCRIPT_ROWS)
+    return _rows_request(pack, source, tpath, row_edge, warnings if warnings is not None else [])
 
 
 def edit_preview(doc: dict, keeps, version: str = "") -> dict:
@@ -187,11 +218,13 @@ def edit_preview(doc: dict, keeps, version: str = "") -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None) -> tuple[str, str, dict]:
+def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
+                   row_edge=None) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
-    keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から"""
+    keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から
+    (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)"""
     import pipeline_io   # pipeline_io も resolve_export を読み込むので、ここで読む(循環を避ける)
 
     source = str(doc.get("sourcePath") or "")
@@ -209,8 +242,9 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
             json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
         folder = _safe_name(doc.get("title") or Path(source).stem) + "_pack"
         out_dir = Path(tmp_dir) / folder
+        warns = []
         try:
-            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps))
+            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
             res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
@@ -219,7 +253,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
             for kind, p in res["files"]:   # zip を展開するとフォルダが1つできる(Text+ の登録は、そのフォルダの場所を覚える)
                 z.write(p, folder + "/" + p.relative_to(out_dir).as_posix())
         media = dict(res["files"])["video"]
-        info = {"cuts": len(plan.keeps), "captions": len(plan.cues_out or []), "warnings": res["warnings"],
+        info = {"cuts": len(plan.keeps), "captions": len(plan.cues_out or []), "warnings": warns + res["warnings"],
                 "media": {"file": media.relative_to(out_dir).as_posix(), "hasEditHandles": bool(res["editMedia"])}}
         shutil.rmtree(out_dir, ignore_errors=True)   # 動画のコピーを早めに消す(zip に入れた)
         return zip_path, tmp_dir, info

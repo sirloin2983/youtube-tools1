@@ -812,3 +812,20 @@
 - 順番: E1〜E6 は実装済みなので ⑥(語頭・語尾が切れる)→ ④(パックの出力を最小限に)→ ③-1(疑わしい行を見つける・数える → 報告)→ ②(字幕の文字数。初期値を確認してから)→
   ①⑤・⑦(方式・作り方を確認してから)→ ③-2(③-1 の結果を見てユーザーが決めてから)
 - 未完了・次: ⑥ から始める
+
+## 2026-09-26 Claude Code — 追加機能 ⑥ 語頭・語尾が切れる(「行から」の区間の端を声の止まる所まで広げる)
+- 変更(cut2resolve): `pack.py`(`RowEdge`・`ROW_EDGE`・`row_edge_from`・`widen_row_edges`・`row_edge_pending`・`without_detect`・`_cut_row_frames`、
+  `TRANSCRIPT_ROWS` に row_edge、`plan_cut` の rows で端を広げる、CLI の表示)、`serve.py`(`spec.rowEdge`)、`cut2resolve.py`(`--no-row-edge`)、`README.txt`
+- 変更(編集 `transcribe-tool/`): `resolve_export.py`(下書き・zip に設定の rowEdge、SLOTS の順番を待てないときは決まった余白)、`serve.py`(`/api/edit/draft` はカットが保存済みなら
+  「行から」を計算しない・`rows=1`・`DRAFT_SLOT_WAIT`、zip に rowEdge)、`cut.js`(「行から ▾」の設定・`rows=1`・行を削るとき前後の切れ端も削る)、`index.html`、`app.js`(putSettings を渡す)、`README.txt`
+- 変更(入口): `app/autorun.py`(カットの無い文書のパックに、文字起こしの設定の rowEdge を渡す)
+- テスト: `cut2resolve/test_pack.py`(TestRowEdgeRule・TestRowEdgeWithAudio)・`test_serve.py`、`tools/test_resolve_pack_contract.py`(RowEdgeContract を新規。A は広げない設定で一本化の前と比べる)、
+  `transcribe-tool/test_edit.py`(下書き・設定・SLOTS)・`test_resolve_export.py`・`e2e_edit_cut.py`、`app/test_autorun.py`。
+  PC で通過: cut2resolve 255(skip 14)・契約 27・入口の autorun/mount・編集の単体 118(skip 1)・e2e(edit_cut・edit_pack・edit_tabs・ui_mounted・ui_handoff)
+- **契約テストの期待値を変えた理由**: ⑥ で「行から」のカットの端が広がるのはユーザーの決定(意図した変更)。変えたのは区間の終わり・始まりだけで、
+  行の時間を残す規則そのもの(広げない設定)は一本化の前(LEGACY)と同じことを A で確かめ続ける。詳細は `docs/edit-tool-design.md` の 12 ⑥「実装で決めたこと」
+- 決定・理由: カット済の行は越えない(越えると向こう側に切れ端が残る)・決まった余白も上限の中・カットが保存済みの文書では開くたびに無音を調べない・
+  行を削ると広げた切れ端も削る。−35dB・0.15 秒は本物の文字起こし 22 本で測って据え置き(設計書に数字)
+- 版: 据え置き(④ のあとでまとめて上げる)
+- 実機で確かめてほしいこと(ユーザー): 語頭・語尾が切れていた切り抜きで聞き比べ(手順は中間報告と設計書の 12 ⑥)
+- 未完了・次: ④ パックの出力を最小限に

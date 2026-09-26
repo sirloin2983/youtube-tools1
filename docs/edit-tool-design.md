@@ -326,6 +326,34 @@ Whisper の単語の時刻は、始まりが遅く・終わりが早く出やす
 - テスト: 合成の音(声の代わりの音と無音)で、広がる・上限で止まる・無音が無いときの余白・隣とつながる、を単体テストに。契約テストの期待値は意図した変更として更新
 - 実機の確認: 語頭・語尾が切れていた切り抜き 3〜5 本で、前後を聞き比べる手順をユーザーに渡す
 
+実装で決めたこと(2026-09-26 Claude Code):
+- `pack.RowEdge`(frozen dataclass: after 0.5・before 0.3・noise −35・min_sil 0.15・pad_after 0.2・pad_before 0.1・detect)と既定 `pack.ROW_EDGE`。
+  `TRANSCRIPT_ROWS` に `row_edge: ROW_EDGE`。`Request.row_edge` の既定は None(広げない)なので、keeps(EDIT_KEEPS)・時刻リスト・スタジオ(plan)には効かない
+- 規則 `pack.widen_row_edges(spans, silence, fps, total, edge, blocks)`(フレーム):
+  終わり = b より後ろに終わる最初の無音が「b を含む → 動かさない」「b + after までに始まる → その始まり」「無い → b + pad_after」。始まりも同じ向きで。
+  **決まった余白も上限を超えない**(上限 0 = 広げない)。**カット済の行(`blocks`)は越えない**(越えると、カット済の行の向こう側に切れ端が残る。テストで見つけた)。
+  広げて重なった・接した区間は1つに。0〜動画の長さ。音声の無い動画は広げない(声が無い)。無音を調べられなければ決まった余白で広げて注意
+- 無音は `cut2resolve_core.detect_silence(noise, min_sil, pad 0)`。画面用の `pack.Cache` に覚える。`pack.row_edge_pending(req, cache)` = まだ調べていないか(SLOTS を通すかの判断)、
+  `pack.without_detect(req)` = 調べずに決まった余白だけ
+- 設定: 文字起こしの設定(`/api/settings`)の `rowEdge`(`{on, after, before}`。`pack.row_edge_from` が読む。読めない値は既定にして注意)。
+  「編集」の 2 カット の「行から ▾」で変える。下書き・「行から」・zip(カットの無い文書)・まとめて実行(カットの無い文書。cut2resolve の `spec.rowEdge` に渡す)が同じ設定を使う。
+  cut2resolve の API は `spec.rowEdge`(preset transcript-rows・keepSource transcript)、コマンドは `--no-row-edge`
+- **下書き `/api/edit/draft` は、カットが保存済みの文書では「行から」を計算しない**(開くたびに動画の音声を全部読まないように。`rows=1` = 「行から」のボタン・下書きの作り直しのときだけ)。
+  無音をまだ調べていないときは `ytt_core.jobs.SLOTS` を通す(`DRAFT_SLOT_WAIT` 10 秒待っても空かなければ、無音を調べずに決まった余白で広げて知らせる)
+- **行を「削る」(1 文字起こし の行・字幕の一覧・選んだ行をカット)と、行のすぐ前・後ろの切れ端も一緒に削る**(cut.js の `rowsCut`):
+  他の残す行と重ならず、「行から」の上限(+1 フレーム)以下の長さのものだけ。広げた下書きのあとで行を削ると、広げた分が 0.1〜0.5 秒の切れ端で残るため(e2e で見つけた)。
+  行を「戻す」ときは行の時間だけを足す(手の操作には広げる規則を使わない。端はドラッグか「行から」で)
+- 字幕(行の時刻)は変えない。変わるのは区間(EDL・Text+ の cuts)とカット後の字幕の位置だけ
+- 本物の文字起こし 22 本(評価用 5 本を含む。読むだけ)で測った結果: −35dB・0.15 秒では、行の終わりの 82%・始まりの 86% が「窓に無音が無い → 決まった余白」
+  (配信の BGM・ゲーム音で無音になりにくい)。無音まで測れた所では、声は行の終わりより p50 0.3 秒・p75 0.5 秒後ろまで続き、始まりは p50 0.3 秒前から。
+  −30dB にすると無音が見つかる所は倍になるが、行の端がもう「無音」になる所(=広げない)も倍になり、小さな声の語尾を切る側に寄るので、**−35dB・0.15 秒のまま**にした。
+  決まった余白(後 0.2 秒)は測った p50 より短い → 聞き比べで語尾がまだ切れるなら、後 0.3 秒に上げる候補(ユーザーの判断)
+- テスト: `cut2resolve/test_pack.py` の `TestRowEdgeRule`(規則)・`TestRowEdgeWithAudio`(合成の音: 広がる・上限・無音が無いときの余白・隣とつながる・カット済の行・
+  音声なし・調べられない・覚えた無音・コマンド)、`test_serve.py`(spec.rowEdge)、契約テスト `RowEdgeContract`(乱数の文書で: 広げる前の区間を含む・上限まで・カット済の行に入らない・
+  字幕の数と文字は同じ・広げない設定なら一本化の前と同じ)。契約テストの A(一本化の前との比較)は `row_edge=None` で比べる(行の時間を残す規則は変わっていない)。
+  期待値を変えたもの(意図した変更): `test_same_pack_as_cut2resolve`・`test_zip_uses_transcribe_rules`・`test_same_pack_with_studio_edit_media`(終わりに決まった余白)、
+  `transcribe-tool/test_resolve_export.py` の 60fps、`test_edit.py` の下書き、`e2e_edit_cut.py`(区間の終わりが 1〜2 フレーム後ろ・切れ端・「行から ▾」)
+
 ### ③ 区間ごと抜ける・長い区間が謎の単語1つになる
 見立て: 取りこぼしを減らすために VAD をかなり甘く(vadMode weak: threshold 0.3・余白 600ms・no_speech_threshold 0.9)しているので、
 BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを出したり途中を飛ばしたりしている。今の要確認(make_flags)はこの形をつかまえていない

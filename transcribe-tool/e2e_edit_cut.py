@@ -161,7 +161,9 @@ def main():
             pg.keyboard.press("Delete")
             wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === 4")
             wait_saved()
-            check(server_clips()[3] == (11.0, 19.0), "削る区間を選んで Del で戻すと、隣の残す区間とつながる: %s" % (server_clips()[3],))
+            # 行5 の終わり(19.0)は「行から」で声の止まる所まで広がる(音の止まり目は webm の符号化で 1〜2 フレーム後ろになる)
+            c3 = server_clips()[3]
+            check(c3[0] == 11.0 and 19.0 <= c3[1] <= 19.07, "削る区間を選んで Del で戻すと、隣の残す区間とつながる: %s" % (c3,))
 
             # ---- I / O / X
             pg.evaluate("document.querySelector('#cutPlayer').currentTime = 1.0")
@@ -194,6 +196,7 @@ def main():
             wait_saved()
             sc = server_clips()
             check(not any(a < 9.8 and b > 7.0 for a, b in sc) and len(sc) == len(before) - 1, "1 文字起こし で行を「削る」→ その行の時間が削る区間になる: %s" % sc)
+            check(not any(9.8 <= a and b <= 10.3 for a, b in sc), "行の後ろの切れ端(「行から」で広げた分)も一緒に削る: %s" % sc)
             check(pg.locator("#cutSubs .tt-csub[data-i='2']").get_attribute("class").find("cut") >= 0 and pg.locator("#tlSubs .tt-s.cut").count() >= 1,
                   "カットのタブの字幕の一覧・字幕の帯にも出る(薄く・取り消し線)")
             pg.locator("#cutSubs .tt-csub[data-i='4'] [data-act=cutrow]").click()   # 字幕の一覧の「削る」(行5)
@@ -251,6 +254,27 @@ def main():
             wait_js(pg, "document.querySelector('#cutConflict').hidden && document.querySelectorAll('#tlVideo .tt-k').length === %d" % n2, 10000)
             check(True, "「読み直す」で、先に保存された内容になる")
             pg2.close()
+
+            # ---- 「行から ▾」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ)
+            pg.click("#cutRowEdge summary")
+            check(pg.is_checked("#cutEdgeOn") and pg.input_value("#cutEdgeAfter") == "0.5", "「行から ▾」: 既定は広げる(終わり 0.5 秒・始まり 0.3 秒まで)")
+            pg.uncheck("#cutEdgeOn")
+            pg.click("#cutEdgeGo")
+            pg.wait_for_selector("#dlgConfirm[open]")
+            pg.click("#cfOk")   # 手で直したカットがあるので置き換えの確認
+            wait_js(pg, "document.querySelector('#cutSaveSt').textContent === 'カットを保存しました' && !document.querySelector('#cutRowEdge').open", 15000)
+            sc = server_clips()
+            check(srv.get("/api/settings").get("rowEdge", {}).get("on") is False and sc == [(0.5, 3.2), (4.0, 6.5), (11.0, 14.5)],
+                  "広げない設定で「行から」: 残す行(行3・行5 はカット済)の時間のまま。設定はサーバーに保存: %s" % sc)
+            pg.click("#cutRowEdge summary")
+            pg.check("#cutEdgeOn")
+            pg.click("#cutRowEdge summary")
+            wait_js(pg, "!document.querySelector('#cutRowEdge').open")
+            for _ in range(30):
+                if srv.get("/api/settings").get("rowEdge", {}).get("on") is True:
+                    break
+                time.sleep(0.1)
+            check(srv.get("/api/settings").get("rowEdge", {}).get("on") is True, "設定を戻す(チェックを変えただけでも保存する)")
 
             # ---- 文字起こしの無い動画: 全部残す → 無音のたたき台(cut2resolve)
             pg.click("[data-strip=start]")

@@ -30,9 +30,31 @@ import resolve_textplus as TP
 
 ToolError = C.ToolError
 BASES = ("all", "list", "plan", "rows")
-# 文字起こしツールの「残す行」の規則(旧 resolve_export.py と同じ結果になる。tools/test_resolve_pack_contract.py が確かめる):
-# 行の時間だけ残す(余白 0)・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)
-TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1}
+
+
+@dataclass(frozen=True)
+class RowEdge:
+    """行から作るカット(base "rows")で、残す区間の端を「声が止まる所」まで広げる(語頭・語尾が切れないように。docs/edit-tool-design.md の 12 ⑥)。
+    文字起こしは行の端を最初・最後の単語の時刻にそろえていて、Whisper の単語の時刻は始まりが遅く・終わりが早く出やすいため。
+      終わり: after 秒先までに無音が始まれば、そこまで。始まり: before 秒前までに無音が終われば、そこから。
+      端がもう無音の中なら動かさない。窓の中に無音が無い(BGM が続くなど)ときは決まった余白(pad_after・pad_before。上限を超えない = 上限 0 なら広げない)。
+    無音は cut2resolve_core.detect_silence(話の前後の余白 0・短い無音も拾う)。detect=False は無音を調べずに決まった余白だけ(調べられないとき)"""
+    after: float = 0.5
+    before: float = 0.3
+    noise: float = -35.0
+    min_sil: float = 0.15
+    pad_after: float = 0.2
+    pad_before: float = 0.1
+    detect: bool = True
+
+
+ROW_EDGE = RowEdge()   # 既定(オン)。「編集」の「行から」の設定・cut2resolve の spec.rowEdge で変えられる(row_edge_from)
+ROW_EDGE_MAX = 2.0     # 広げる上限(秒)の上限
+
+# 文字起こしツールの「残す行」の規則(tools/test_resolve_pack_contract.py が確かめる):
+# 行の時間を残す・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)・
+# 端を声の止まる所まで広げる(ROW_EDGE。2026-09-26 ⑥。以前は余白 0 で語頭・語尾が切れていた)
+TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1, "row_edge": ROW_EDGE}
 # 「編集」ツールのカット(タイムラインで手で決めた残す区間。画面の指定 spec.keeps)のとおりに作る: 余白を足さない・最短の長さで捨てない・
 # 無音を重ねない・「カット済」の行で削らない(削る所はもう keeps に入っている)・隙間をつながない(接している区間だけ1つにまとめる)。
 # とても短い区間は捨てずに注意だけ出す(warn_short 秒)。docs/edit-tool-design.md の 5
@@ -71,6 +93,7 @@ class Request:
     extra_inputs: tuple = ()               # カットリストなど、出力で上書きしてはいけない入力ファイル
     edit_media: bool = True               # 動画を同梱するパックで、スタジオの余白つき素材(.edit.json)があればそれを入れる
     warn_short: float = 0.0               # これより短い残す区間を注意に出す(秒。0 = 出さない。EDIT_KEEPS で使う)
+    row_edge: Optional[RowEdge] = None    # base "rows" の区間の端を声の止まる所まで広げる(None = 広げない。TRANSCRIPT_ROWS は ROW_EDGE)
 
     def inputs(self):
         return tuple(Path(p) for p in (self.video, self.sub, self.transcript, self.plan) + tuple(self.extra_inputs) if p)
@@ -165,11 +188,94 @@ def default_out_dir(video):
     return Path(video).parent / f"{Path(video).stem}_pack"
 
 
+def row_edge_from(v):
+    """画面・設定の指定 → RowEdge か None(広げない)。None・True = 既定(ROW_EDGE)、False・{"on": false} = 広げない、
+    {"after": 秒, "before": 秒} = 上限を変える(0〜ROW_EDGE_MAX 秒)。形が違えば ToolError"""
+    if v is None or v is True:
+        return ROW_EDGE
+    if v is False:
+        return None
+    if not isinstance(v, dict):
+        raise ToolError("行の端を広げる設定(rowEdge)の形が正しくありません。")
+    if v.get("on") is False:
+        return None
+    kw = {}
+    for key, what in (("after", "終わりを広げる上限"), ("before", "始まりを広げる上限")):
+        if v.get(key) not in (None, ""):
+            kw[key] = _finite(v[key], what + "(秒)", 0, ROW_EDGE_MAX)
+    return dataclasses.replace(ROW_EDGE, **kw)
+
+
+def widen_row_edges(spans, silence, fps, total, edge, blocks=()):
+    """残す区間(フレーム)の端を声の止まる所まで広げる(RowEdge の説明)。silence: 無音の区間(フレーム。None = 調べていない → 決まった余白)。
+    blocks: 越えて広げない区間(フレーム。「カット済」の行。越えると、カット済の行の向こう側に切れ端が残るため)。
+    広げて重なった・接した区間は1つにつなぐ。0〜total に収める"""
+    import bisect
+    blk = C.normalize(blocks or [], total)
+    bstarts, bends = [s for s, _ in blk], [e for _, e in blk]
+    f = lambda sec: C.sec_to_frames(sec, fps)
+    after, before = f(edge.after), f(edge.before)
+    pad_after, pad_before = min(after, f(edge.pad_after)), min(before, f(edge.pad_before))   # 決まった余白も上限の中(上限 0 = 広げない)
+    sil = C.normalize(silence or [], total)
+    starts, ends = [s for s, _ in sil], [e for _, e in sil]
+    out = []
+    for a, b in spans:
+        # 終わり: b より後ろに終わる最初の無音。b がその中(もう無音)なら動かさない・窓の中で始まればそこまで・無ければ決まった余白
+        i = bisect.bisect_right(ends, b)
+        if silence is None or i == len(sil) or sil[i][0] > b + after:
+            nb = b + pad_after
+        else:
+            nb = max(b, sil[i][0])
+        k = bisect.bisect_left(bstarts, b)   # b から後ろで最初に始まるカット済の行
+        if k < len(blk):
+            nb = max(b, min(nb, bstarts[k]))
+        # 始まり: a より前に始まる最後の無音。a がその中(声はまだ)なら動かさない・窓の中で終わればそこから・無ければ決まった余白
+        j = bisect.bisect_left(starts, a) - 1
+        if silence is None or j < 0 or sil[j][1] < a - before:
+            na = a - pad_before
+        else:
+            na = min(a, sil[j][1])
+        k = bisect.bisect_right(bends, a) - 1   # a より前で最後に終わるカット済の行
+        if k >= 0:
+            na = min(a, max(na, bends[k]))
+        out.append((max(0, na), min(total, nb)))
+    return C.normalize(out, total)
+
+
+def _row_edge_args(req, meta):
+    """無音を調べる引数(video, fps, total, noise, min, pad)。調べない(広げない・detect=False・音声が無い)なら None"""
+    e = req.row_edge
+    if req.base != "rows" or e is None or not e.detect or not meta.get("audio"):
+        return None
+    return (Path(req.video), meta["fps"], meta["total"], e.noise, e.min_sil, 0.0)
+
+
+def row_edge_pending(req, cache):
+    """plan_cut が無音の検出(動画の音声を全部読む重い処理)をするか。画面が SLOTS を通すかを決めるのに使う(cache にあれば False)"""
+    if req.base != "rows" or req.row_edge is None or not req.row_edge.detect:
+        return False
+    meta = cache.probe(Path(req.video), req.fps, req.frames)
+    args = _row_edge_args(req, meta)
+    return bool(args) and not cache.silence_cached(*args)
+
+
+def without_detect(req):
+    """無音を調べずに決まった余白だけで広げる Request(重い処理の順番を待てないとき)"""
+    return dataclasses.replace(req, row_edge=dataclasses.replace(req.row_edge, detect=False)) if req.row_edge else req
+
+
 def _say(log, task, msg):
     if log:
         log(msg)
     if task:
         task.report(None, msg)
+
+
+def _cut_row_frames(rows, fps, total):
+    """「カット済」の行の時間(フレーム)。残す行と重なる部分は残す行を優先して引く"""
+    def frames(spans):
+        return C.normalize([(C.sec_to_frames(a, fps), C.sec_to_frames(b, fps)) for a, b in spans], total)
+    return C.subtract(frames(C.transcript_cut_spans(rows)), frames(C.transcript_kept_spans(rows)))
 
 
 def plan_cut(req, task=None, cache=None, log=None):
@@ -189,6 +295,11 @@ def plan_cut(req, task=None, cache=None, log=None):
         _finite(req.handles, "前後の余白(--handles)", 0, 3600)
     if req.silence:
         C.check_silence_params(req.noise, req.silence_min, req.silence_pad)
+    if req.row_edge is not None:
+        e = req.row_edge
+        for v, what in ((e.after, "終わりを広げる上限"), (e.before, "始まりを広げる上限"), (e.pad_after, "終わりの余白"), (e.pad_before, "始まりの余白")):
+            _finite(v, what + "(秒)", 0, ROW_EDGE_MAX)
+        C.check_silence_params(e.noise, e.min_sil, 0.0)
 
     meta = cache.probe(video, req.fps, req.frames) if cache else S.probe(video, req.fps, req.frames)
     fps, total = meta["fps"], meta["total"]
@@ -241,6 +352,18 @@ def plan_cut(req, task=None, cache=None, log=None):
         base = [tuple(x) for x in bp["keep_frames"]]
         selected_records = bp["selected_segments"]
         selected = [tuple(r["selected_frames"]) for r in selected_records]
+        if req.base == "rows" and req.row_edge is not None and meta.get("audio"):
+            # 行の端を声の止まる所まで広げる(RowEdge)。字幕(行の時刻)は変えない。カット済の行は下の drops で削るので、広げた所がかかっても残らない
+            args, sil = _row_edge_args(req, meta), None
+            if args:
+                _say(log, task, "行の端の声の止まる所を調べています…")
+                try:
+                    sil = cache.silence(*args, task) if cache else C.detect_silence(*args, task)
+                except ToolError as e:
+                    warns.append(f"声の止まる所を調べられなかったため、行の端に決まった余白(前 {req.row_edge.pad_before:g} 秒・"
+                                 f"後 {req.row_edge.pad_after:g} 秒)を付けました: {e}")
+            blocks = _cut_row_frames(tr["rows"], fps, total) if req.drop_cut_rows else []
+            base = widen_row_edges(base, sil, fps, total, req.row_edge, blocks)
     else:
         base = [(0, total)]
 
@@ -264,9 +387,7 @@ def plan_cut(req, task=None, cache=None, log=None):
                 lines.append((cs, max(S.ms_to_frames(b, fps), cs + 1)))
         drops["lines"] = C.normalize(lines, total)
     if tr and req.drop_cut_rows:
-        def frames(spans):
-            return C.normalize([(C.sec_to_frames(a, fps), C.sec_to_frames(b, fps)) for a, b in spans], total)
-        cut_rows = C.subtract(frames(C.transcript_cut_spans(tr["rows"])), frames(C.transcript_kept_spans(tr["rows"])))
+        cut_rows = _cut_row_frames(tr["rows"], fps, total)
         if cut_rows:
             drops["cutRows"] = cut_rows
     if req.silence:
@@ -323,6 +444,10 @@ def describe(plan):
     if plan.req.base in ("plan", "rows"):
         out.append(f"残す区間の元: {'採用区間(cut-plan)' if plan.req.base == 'plan' else '文字起こしの残す行'}"
                    f" {len(plan.selected)}件 + 前後の余白 {plan.handles:g}秒")
+        e = plan.req.row_edge
+        if plan.req.base == "rows" and e is not None:
+            out.append(f"行の端: 声の止まる所まで広げる(終わりは {e.after:g} 秒先・始まりは {e.before:g} 秒前まで。"
+                       f"無音が無ければ 後 {e.pad_after:g} 秒・前 {e.pad_before:g} 秒)")
     out.append(C.describe_keeps(plan.keeps, fps, total))
     if plan.cues is not None:
         src = "" if plan.sub_source == "srt" else "(文字起こしから)"

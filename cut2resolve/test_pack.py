@@ -791,12 +791,154 @@ class TestEditMediaPack(unittest.TestCase):
     def test_join_frames(self):
         tr = write(Path(self.tmp.name) / "gap.transcript.json", json.dumps(transcript_doc(
             [(1, 2, "a", False), (2.034, 3, "b", False)])))
-        req = pack.Request(video=self.video, transcript=tr, **pack.TRANSCRIPT_ROWS)
+        req = pack.Request(video=self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None))   # 端を広げない(つなぐ隙間だけを見る)
         self.assertEqual(pack.plan_cut(req).keeps, [(30, 90)])
         self.assertEqual(pack.plan_cut(dataclasses_replace(req, join_frames=0)).keeps, [(30, 60), (61, 90)])
         for bad in (-1, 1.5, True, 1001):
             with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
                 pack.plan_cut(dataclasses_replace(req, join_frames=bad))
+
+
+class TestRowEdgeRule(unittest.TestCase):
+    """行から作るカットの端を声の止まる所まで広げる規則(pack.widen_row_edges。docs/edit-tool-design.md の 12 ⑥)。30fps: 0.1 秒 = 3 フレーム"""
+    E = pack.ROW_EDGE   # 後 0.5 秒(15)・前 0.3 秒(9)まで。無音が無ければ 後 0.2 秒(6)・前 0.1 秒(3)
+
+    def w(self, spans, silence, total=900, edge=None):
+        return pack.widen_row_edges(spans, silence, FPS30, total, edge or self.E)
+
+    def test_extends_to_where_voice_stops(self):
+        self.assertEqual(self.w([(100, 200)], [(40, 95), (210, 300)]), [(95, 210)])   # 前は 5・後は 10 フレームの所で無音
+
+    def test_stops_at_the_limit(self):
+        self.assertEqual(self.w([(100, 200)], [(40, 90), (216, 300)]), [(97, 206)])   # 窓(前 9・後 15)の外の無音 → 決まった余白
+        self.assertEqual(self.w([(100, 200)], [(40, 91), (215, 300)]), [(91, 215)])   # ちょうど窓の端
+
+    def test_fixed_pad_without_silence(self):
+        self.assertEqual(self.w([(100, 200)], []), [(97, 206)])        # BGM が続く(無音が無い)
+        self.assertEqual(self.w([(100, 200)], None), [(97, 206)])      # 調べていない(detect=False・調べられない)
+        self.assertEqual(self.w([(100, 200)], [], edge=pack.row_edge_from({"after": 0.1, "before": 0})), [(100, 203)])   # 余白も上限の中
+
+    def test_edge_already_in_silence_stays(self):
+        self.assertEqual(self.w([(100, 200)], [(90, 105), (195, 260)]), [(100, 200)])
+        self.assertEqual(self.w([(100, 200)], [(90, 100), (200, 260)]), [(100, 200)])   # ちょうど無音の境目
+
+    def test_neighbours_join_and_clamp(self):
+        self.assertEqual(self.w([(100, 200), (205, 300)], []), [(97, 306)])             # 広げて重なった → 1つ
+        self.assertEqual(self.w([(2, 50), (880, 898)], [], total=900), [(0, 56), (877, 900)])   # 0〜動画の長さ
+        self.assertEqual(self.w([(100, 200), (230, 300)], [(200, 230)]), [(97, 200), (230, 306)])   # 間の無音はそのまま削る
+
+    def test_does_not_cross_cut_rows(self):
+        blocks = [(40, 98), (203, 260)]   # カット済の行
+        self.assertEqual(pack.widen_row_edges([(100, 200)], [(40, 95), (210, 300)], FPS30, 900, self.E, blocks), [(98, 203)])
+        self.assertEqual(pack.widen_row_edges([(100, 200)], [], FPS30, 900, self.E, [(90, 100), (200, 230)]), [(100, 200)])
+
+    def test_row_edge_from(self):
+        self.assertIs(pack.row_edge_from(None), pack.ROW_EDGE)
+        self.assertIs(pack.row_edge_from(True), pack.ROW_EDGE)
+        self.assertIsNone(pack.row_edge_from(False))
+        self.assertIsNone(pack.row_edge_from({"on": False, "after": 1}))
+        e = pack.row_edge_from({"on": True, "after": 0.8, "before": 0})
+        self.assertEqual((e.after, e.before, e.pad_after, e.noise), (0.8, 0.0, 0.2, -35.0))
+        for bad in ({"after": 3}, {"before": -1}, {"after": "x"}, {"after": True}, [1], "on"):
+            with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
+                pack.row_edge_from(bad)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestRowEdgeWithAudio(unittest.TestCase):
+    """合成の音(声の代わりの音と無音。0-2 秒 音 / 2-4 無音 / 4-6 音 / 6-8 無音 / 8-10 音)で、行から作るカットの端を確かめる"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = Path(cls.tmp.name)
+        cls.video = d / "gaps.mp4"
+        make_video(cls.video, dur=10, audio="gaps")
+        cls.mute = d / "mute.mp4"
+        make_video(cls.mute, dur=10, audio=None)
+        cls.n = 0
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def keeps(self, rows, video=None, **kw):
+        type(self).n += 1
+        tr = write(Path(self.tmp.name) / ("r%d.transcript.json" % self.n), json.dumps(transcript_doc(rows), ensure_ascii=False))
+        plan = pack.plan_cut(pack.Request(video=video or self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, **kw)))
+        return plan.keeps, plan
+
+    def near(self, got, want, tol=1):
+        """AAC の符号化で無音の境目が 1 フレームほど前後することがある"""
+        self.assertEqual(len(got), len(want), got)
+        for g, x in zip(got, want):
+            self.assertTrue(all(abs(a - b) <= tol for a, b in zip(g, x)), "%r != %r" % (got, want))
+
+    def test_widens_to_silence_and_limits(self):
+        # 終わり 1.8 → 無音の始まり 2.0(60)。始まり 4.2 → 無音の終わり 4.0(120)。終わり 5.0 → 窓(5.5 まで)に無音が無い → 5.2(156)。
+        # 始まり 0.5 → 前に無音が無い → 0.4(12)
+        k, plan = self.keeps([(0.5, 1.8, "一", False), (4.2, 5.0, "二", False)])
+        self.near(k, [(12, 60), (120, 156)])
+        self.assertEqual([c[2] for c in plan.cues_out], ["一", "二"])
+        self.assertEqual(plan.cues[0][:2], (500, 1800))                    # 字幕(行の時刻)は変えない
+        # 上限: 終わり 1.0 → 無音(2.0)は 0.5 秒より先 → 決まった余白 1.2(36)
+        k, _ = self.keeps([(0.5, 1.0, "一", False)])
+        self.assertEqual(k, [(12, 36)])
+
+    def test_neighbours_join(self):
+        # 4.2〜4.9 と 5.1〜5.8: 4.9+0.2 = 5.1、5.1−0.1 = 5.0 で重なる → 1つ。終わり 5.8 → 無音 6.0
+        k, _ = self.keeps([(4.2, 4.9, "a", False), (5.1, 5.8, "b", False)])
+        self.near(k, [(120, 180)])
+
+    def test_cut_rows_stay_cut(self):
+        # 残す行の終わりを広げても、隣の「カット済」の行の時間には入らない・越えない(無音 2.0 までの 1.9〜2.0 の切れ端を残さない)
+        k, _ = self.keeps([(0.5, 1.5, "a", False), (1.5, 1.9, "切る", True)])
+        self.assertEqual(k, [(12, 45)])
+        k, _ = self.keeps([(0.5, 1.5, "a", False), (1.6, 1.9, "切る", True)])
+        self.assertEqual(k, [(12, 48)])                                    # カット済の行の手前(1.6)まで
+        k, _ = self.keeps([(0.5, 1.5, "a", False), (1.5, 1.9, "切る", True)], drop_cut_rows=False)
+        self.assertEqual(k, [(12, 60)])                                    # カット済の行で削らない指定なら、行として扱わない
+
+    def test_off_and_fixed_and_no_audio(self):
+        rows = [(0.5, 1.8, "一", False)]
+        self.assertEqual(self.keeps(rows, row_edge=None)[0], [(15, 54)])                                   # 広げない
+        self.assertEqual(self.keeps(rows, row_edge=pack.without_detect(pack.Request(
+            video=self.video, row_edge=pack.ROW_EDGE)).row_edge)[0], [(12, 60)])                        # 無音を調べない → 決まった余白
+        self.assertEqual(self.keeps(rows, video=self.mute)[0], [(15, 54)])                                 # 音声が無い → 広げない
+
+    def test_detection_failure_falls_back_to_pad(self):
+        with mock.patch.object(C, "detect_silence", side_effect=C.ToolError("だめ")):
+            k, plan = self.keeps([(0.5, 1.8, "一", False)])
+        self.assertEqual(k, [(12, 60)])
+        self.assertTrue(any("声の止まる所を調べられなかった" in w for w in plan.warnings))
+
+    def test_pending_and_cache(self):
+        tr = write(Path(self.tmp.name) / "p.transcript.json", json.dumps(transcript_doc([(0.5, 1.8, "一", False)]), ensure_ascii=False))
+        req = pack.Request(video=self.video, transcript=tr, **pack.TRANSCRIPT_ROWS)
+        cache = pack.Cache()
+        self.assertTrue(pack.row_edge_pending(req, cache))
+        pack.plan_cut(req, cache=cache)
+        self.assertFalse(pack.row_edge_pending(req, cache))                 # 2回目は覚えた無音を使う
+        self.assertFalse(pack.row_edge_pending(dataclasses_replace(req, row_edge=None), cache))
+        self.assertFalse(pack.row_edge_pending(pack.without_detect(req), cache))
+        self.assertFalse(pack.row_edge_pending(pack.Request(video=self.video, base="all", row_edge=pack.ROW_EDGE), cache))
+
+    def test_only_rows_base(self):
+        """手で決めた区間(keeps)・時刻リストには使わない"""
+        plan = pack.plan_cut(pack.Request(video=self.video, keep_pairs=[(0.5, 1.8)], **pack.EDIT_KEEPS))
+        self.assertEqual(plan.keeps, [(15, 54)])
+        plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 1.8)], min_len=0, row_edge=pack.ROW_EDGE))
+        self.assertEqual(plan.keeps, [(15, 54)])
+
+    def test_cli_option(self):
+        import contextlib
+        import io
+        tr = write(Path(self.tmp.name) / "cli.transcript.json", json.dumps(transcript_doc([(0.5, 1.8, "一", False)]), ensure_ascii=False))
+        for extra, shown in (([], True), (["--no-row-edge"], False)):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(FULL.main([str(self.video), "--transcript", str(tr), "--keep-rows", "--dry-run"] + extra), 0)
+            self.assertEqual("行の端: 声の止まる所まで" in buf.getvalue(), shown, buf.getvalue())
 
 
 def dataclasses_replace(obj, **kw):

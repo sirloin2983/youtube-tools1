@@ -223,8 +223,9 @@ function create(h){
     M.draftBusy = true; renderTools();
     try {
       if (!(await h.saveDoc())) return h.toast('文字起こしの保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
-      const r = await h.api('/api/edit/draft?id=' + encodeURIComponent(M.docId));
+      const r = await h.api('/api/edit/draft?rows=1&id=' + encodeURIComponent(M.docId));
       if (r.unavailable) return h.toast(r.unavailable.message, 6000, 'err');
+      for (const w of (r.warnings || []).slice(0, 2)) h.toast(w, 7000);
       applyKeeps(r.keepsSec, 'rows', r.base === 'rows' ? '文字起こしの行から' : '(残す行が無いので)動画全体');
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
@@ -259,6 +260,19 @@ function create(h){
     } catch (e){ h.toast(label + 'のたたき台を作れませんでした: ' + (e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message), 7000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
   }
+  /* 「行から」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ。規則は pack.py) */
+  function edgeSetting(){
+    const v = (h.S.settings || {}).rowEdge, o = v && typeof v === 'object' ? v : {};
+    const num = (x, dv) => { const n = Number(x); return Number.isFinite(n) && n >= 0 && n <= 2 ? n : dv; };
+    return { on: v !== false && o.on !== false, after: num(o.after, 0.5), before: num(o.before, 0.3) };
+  }
+  function fillEdge(){ const e = edgeSetting(); $('#cutEdgeOn').checked = e.on; $('#cutEdgeAfter').value = e.after; $('#cutEdgeBefore').value = e.before; $('#cutEdgeAfter').disabled = $('#cutEdgeBefore').disabled = !e.on; }
+  async function saveEdge(){
+    const num = (id, dv) => { const n = Number($(id).value); return Number.isFinite(n) ? Math.min(2, Math.max(0, n)) : dv; };
+    h.S.settings.rowEdge = { on: $('#cutEdgeOn').checked, after: num('#cutEdgeAfter', 0.5), before: num('#cutEdgeBefore', 0.3) };
+    fillEdge();
+    try { await h.putSettings(); return true; } catch (e){ h.toast('設定を保存できませんでした: ' + e.message, 5000, 'err'); return false; }
+  }
   /* 開いたまま(まだ手で直していない)下書きは、行が変わったら「行から」を作り直す(以前の「カットとパック」と同じ結果に保つ) */
   function docChanged(){
     if (!ready()) return;
@@ -267,7 +281,7 @@ function create(h){
       if (sig !== M.lastDraftSig){ clearTimeout(docChanged.t); docChanged.t = setTimeout(async () => {
         if (!M.pristine || M.docId !== h.S.docId) return;
         try {
-          const r = await h.api('/api/edit/draft?id=' + encodeURIComponent(M.docId));
+          const r = await h.api('/api/edit/draft?rows=1&id=' + encodeURIComponent(M.docId));
           if (!M.pristine || M.docId !== h.S.docId || r.unavailable) return;
           M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' ? 'rows' : 'all'; M.lastDraftSig = rowSig();
           syncRowCuts(); render(); h.onCutState();
@@ -277,11 +291,23 @@ function create(h){
     }
     syncRowCuts();   // 行の時刻が変わった → 行の「カット済」を付け直す(カットはそのまま)
   }
-  /* 1 文字起こし のタブの行の「削る/戻す」(行の時間を削る区間にする/残す区間にする) */
+  /* 1 文字起こし のタブの行の「削る/戻す」(行の時間を削る区間にする/残す区間にする)。
+     削るとき、行のすぐ前・後ろに残る切れ端(「行から」で端を声の止まる所まで広げた分)が、他の残す行と重ならず、
+     端を広げる上限(「行から」の設定)より短ければ一緒に削る(行だけ削ると、広げた分が 0.1〜0.5 秒の切れ端で残るため。12 ⑥) */
   function rowsCut(idxs, cut){
-    const segs = h.S.doc.segments;
+    const segs = h.S.doc.segments, set = new Set(idxs);
+    const e = edgeSetting(), lim = { before: e.on ? s2f(e.before) + 1 : 0, after: e.on ? s2f(e.after) + 1 : 0 };
+    const keptRow = (p, q) => segs.some((g, j) => !set.has(j) && !M.rowFlags[j] && String(g.text || '').trim() && Math.min(q, s2f(g.end)) - Math.max(p, s2f(g.start)) > 0);
     return change(cs => {
-      for (const i of idxs){ const g = segs[i]; if (!g) continue; const a = Math.max(0, s2f(g.start)), b = Math.min(M.total, Math.max(s2f(g.end), a + 1)); cs = cut ? subtract(cs, a, b) : addRange(cs, a, b); }
+      for (const i of idxs){
+        const g = segs[i]; if (!g) continue;
+        const a = Math.max(0, s2f(g.start)), b = Math.min(M.total, Math.max(s2f(g.end), a + 1));
+        if (!cut){ cs = addRange(cs, a, b); continue; }
+        cs = subtract(cs, a, b);
+        const lo = cs.find(c => c[1] === a), hi = cs.find(c => c[0] === b);
+        if (lo && lo[1] - lo[0] <= lim.before && !keptRow(lo[0], lo[1])) cs = subtract(cs, lo[0], lo[1]);
+        if (hi && hi[1] - hi[0] <= lim.after && !keptRow(hi[0], hi[1])) cs = subtract(cs, hi[0], hi[1]);
+      }
       return cs;
     });
   }
@@ -463,7 +489,7 @@ function create(h){
     const ok = editable(), c2r = !!h.c2rBase(), busy = M.draftBusy;
     $('#cutUndo').disabled = !ok || !M.undo.length; $('#cutRedo').disabled = !ok || !M.redo.length;
     ['#cutSplit', '#cutDel', '#cutIO', '#cutZoomIn', '#cutZoomOut', '#cutZoomFit', '#cutPlay'].forEach(s => { $(s).disabled = !ok; });
-    $('#cutDraftRows').disabled = !ok || busy;
+    $('#cutDraftRows').disabled = !ok || busy; $('#cutEdgeGo').disabled = !ok || busy;
     const why = c2r ? '' : '(cut2resolve を使います。入口から開いたときだけ)';
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
     const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('動画の隣の ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
@@ -656,6 +682,9 @@ function create(h){
     $('#cutModeSrc').addEventListener('click', () => { M.mode = 'src'; capIdx = -2; renderTools(); moveHead(); });
     $('#cutModeCut').addEventListener('click', () => { M.mode = 'cut'; capIdx = -2; renderTools(); moveHead(); });
     $('#cutDraftRows').addEventListener('click', draftRows);
+    $('#cutRowEdge').addEventListener('toggle', () => { if ($('#cutRowEdge').open) fillEdge(); });
+    for (const id of ['#cutEdgeOn', '#cutEdgeAfter', '#cutEdgeBefore']) $(id).addEventListener('change', saveEdge);
+    $('#cutEdgeGo').addEventListener('click', async () => { if (!(await saveEdge())) return; $('#cutRowEdge').open = false; draftRows(); });
     $('#cutDraftSilenceGo').addEventListener('click', () => draftC2R('silence'));
     $('#cutDraftListGo').addEventListener('click', () => draftC2R('list'));
     $('#cutDraftPlan').addEventListener('click', () => draftC2R('plan'));

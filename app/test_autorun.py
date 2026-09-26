@@ -40,6 +40,7 @@ class FakeTools:
         self.hold = False         # True のあいだジョブを進めない(中止のテスト)
         self.review = {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16}
         self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
+        self.row_edge = None      # 「編集」の「行から」の設定(文字起こしの settings.rowEdge。⑥)
 
     def clip_path(self, mid):
         return os.path.join(self.tmp, "out", mid + ".mp4")
@@ -117,7 +118,10 @@ class FakeTools:
 
     # transcribe
     def h_transcribe_GET_api_settings(self, path, body):
-        return 200, {"model": "small", "language": "ja", "boost": True, "secret": "使わない", "goalHours": 3}
+        s = {"model": "small", "language": "ja", "boost": True, "secret": "使わない", "goalHours": 3}
+        if self.row_edge is not None:
+            s["rowEdge"] = self.row_edge
+        return 200, s
 
     def h_transcribe_POST_api_transcribe(self, path, body):
         jid = "t%d" % (len(self.tx_jobs) + 1)
@@ -198,6 +202,13 @@ class Base(unittest.TestCase):
 
 
 class TestModes(Base):
+    def test_row_edge_setting_is_passed(self):
+        """行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの settings.rowEdge)を cut2resolve に渡す"""
+        self.tools.row_edge = {"on": False, "after": 0.5, "before": 0.3}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.tools.c2r["body"]["spec"]["rowEdge"], {"on": False, "after": 0.5, "before": 0.3})
+
     def test_adopted_mode_exports_transcribes_and_packs(self):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
@@ -206,6 +217,7 @@ class TestModes(Base):
         tx = self.tools.tx_jobs["t1"]["body"]
         self.assertEqual(tx, {"model": "small", "language": "ja", "boost": True, "sourcePath": self.tools.clip_path("m1")})   # 知らない設定は渡さない
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
+        self.assertNotIn("rowEdge", self.tools.c2r["body"]["spec"])   # 設定が無ければ cut2resolve の既定(端を広げる)
         self.assertTrue(self.tools.c2r["body"]["output"]["textplus"])
         # もう一度押しても、作り直さない(まだ無いものだけ)
         n = len(self.tools.calls)
