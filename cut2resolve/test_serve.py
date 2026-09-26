@@ -225,6 +225,17 @@ class TestPathsAndUploads(ServerBase):
     def test_open_folder_only_for_pack_dirs(self):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(self.dir)})
         self.assertEqual(st, 403)
+        old = self.dir / "old_pack"   # 前のセッションで作ったパック(cut2resolve の cut-plan.json がある)は開ける
+        old.mkdir(exist_ok=True)
+        (old / "cut-plan.json").write_text(json.dumps({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}, "segments": []}), encoding="utf-8")
+        st, j = self.c.json("POST", "/api/open-folder", {"path": str(old)})
+        self.assertEqual((st, self.opened[-1:]), (200, [os.path.realpath(str(old))]))
+        self.opened.clear()
+        other = self.dir / "other_plan"   # 他のツールの cut-plan.json だけのフォルダは開けない
+        other.mkdir(exist_ok=True)
+        (other / "cut-plan.json").write_text(json.dumps({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "transcribe"}, "segments": []}), encoding="utf-8")
+        st, j = self.c.json("POST", "/api/open-folder", {"path": str(other)})
+        self.assertEqual(st, 403)
         st, j = self.c.json("POST", "/api/open-folder", {"path": "relative"})
         self.assertEqual(st, 400)
         self.assertEqual(self.opened, [])

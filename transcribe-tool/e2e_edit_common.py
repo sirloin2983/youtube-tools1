@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「編集」(docs/edit-tool-design.md)の画面のテスト(e2e_edit_*.py)の共通部分。
 
-- ツールのファイルは拡張子(.py .js .html .json)でまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
+- ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
 - 単体(serve.py の疑似モード)と、入口に取り込んだ形(app/launch.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)の両方を起動できる
 - テスト用の動画は webm(VP9 + Opus)。Playwright の chromium は H.264 を再生できない
 """
@@ -22,7 +22,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
 os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(REPO, "cut2resolve"))   # 単体で動かすとき、たたき台「行から」・zip が pack.py を見つけられるように
-TOOL_EXTS = (".py", ".js", ".html", ".json", ".css")
 
 
 def free_port():
@@ -32,11 +31,12 @@ def free_port():
 
 
 def copy_tool(src, dst):
-    """ツールのフォルダの直下のファイル(コード・画面・名簿)を写す。作業データ・キャッシュのフォルダは写さない"""
+    """ツールのフォルダの直下のファイル(コード・画面・名簿・Text+ の型 .drb など)を全部写す(新しい部品の写し忘れが起きないように)。
+    作業データ・キャッシュのフォルダ(サブフォルダ)と、大きなファイル(5MB 超)は写さない"""
     os.makedirs(dst, exist_ok=True)
     for n in os.listdir(src):
         p = os.path.join(src, n)
-        if os.path.isfile(p) and n.endswith(TOOL_EXTS):
+        if os.path.isfile(p) and os.path.getsize(p) <= 5 * 1024 * 1024:
             shutil.copy(p, dst)
 
 

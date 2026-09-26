@@ -27,6 +27,8 @@
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
   GET  /api/edit/draft?id=   動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
+  POST /api/edit/preview     {"id", "keeps"} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)
+  GET  /api/edit/pack-readme?id=  前回のパックの手順書(友人へ.txt)
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
@@ -939,6 +941,65 @@ def edit_draft(tid):
     plan = os.path.splitext(src)[0] + ".cut-plan.json"
     out["planBeside"] = plan if os.path.isfile(plan) else ""
     return out
+
+
+def edit_keeps_sec(edit):
+    """編集の内容の残す区間(秒)。接している区間(分割しただけ)は1つにまとめる(パックと同じ)"""
+    out = []
+    for c in edit["clips"]:
+        if out and c["in"] <= out[-1][1] + 1e-9:
+            out[-1][1] = max(out[-1][1], c["out"])
+        else:
+            out.append([c["in"], c["out"]])
+    return out
+
+
+def keeps_arg(v):
+    """画面から来た残す区間 [[開始, 終了], ...](秒)の検査(cut2resolve の keeps_from_spec と同じ決まり)"""
+    if not isinstance(v, list) or not 1 <= len(v) <= MAX_CLIPS:
+        raise ApiError("bad_keeps", "残す区間は 1〜%d 個にしてください" % MAX_CLIPS, 400)
+    out, prev = [], 0.0
+    for x in v:
+        a, b = (_real(x[0]), _real(x[1])) if isinstance(x, list) and len(x) == 2 else (None, None)
+        if a is None or b is None or not 0 <= a < b <= MAX_MEDIA_SEC or a < prev:
+            raise ApiError("bad_keeps", "残す区間は時刻の順に、重ならないように [開始, 終了] で指定してください", 400)
+        out.append([a, b])
+        prev = b
+    return out
+
+
+def edit_preview(obj):
+    """POST /api/edit/preview {"id", "keeps"}: カットのとおりに作ったときのパックの見積もり(区間の数・カット後の長さ・Text+ 字幕の数・注意)。ファイルは作らない"""
+    import resolve_export
+    doc = read_transcript(str(obj.get("id") or ""))
+    keeps = keeps_arg(obj.get("keeps"))
+    src = str(doc.get("sourcePath") or "")
+    if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
+        raise ApiError("no_media", "元の動画が見つかりません", 400)
+    try:
+        return resolve_export.edit_preview(doc, keeps, SERVER_VERSION)
+    except resolve_export.ResolveExportError as e:
+        raise ApiError("preview_failed", str(e), 400)
+
+
+PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")
+
+
+def pack_readme(tid):
+    """GET /api/edit/pack-readme?id=: 前回のパックの手順書(友人へ.txt)。記録したフォルダが cut2resolve のパック(中に cut-plan.json)のときだけ読む"""
+    read_transcript(tid)
+    d, _ = read_edit(tid)
+    pk = (d or {}).get("pack") or {}
+    folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
+    if not folder or _fsio.is_network_path(folder) or not os.path.isfile(os.path.join(folder, "cut-plan.json")):
+        raise ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
+    for n in PACK_README_NAMES:
+        try:
+            with open(os.path.join(folder, n), "rb") as f:
+                return {"name": n, "text": f.read(256 * 1024).decode("utf-8-sig", "replace")}
+        except OSError:
+            continue
+    raise ApiError("not_found", "パックの中に手順書(友人へ.txt)がありません", 404)
 
 
 def get_edit(tid):
@@ -4397,6 +4458,10 @@ def export_file(req):
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     elif fmt == "cut-plan-v1":
         obj = pm.build_cut_plan_v1(doc, SERVER_VERSION)
+        ed, _broken = read_edit(tid)
+        if ed:   # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
+            obj["segments"] = [{"id": "segment-%03d" % i, "start": a, "end": b, "status": "adopted", "label": ""}
+                               for i, (a, b) in enumerate(edit_keeps_sec(ed), 1)]
         count, schema = len(obj["segments"]), pm.CUT_PLAN_SCHEMA
         if not count:
             raise ApiError("empty", "残す区間がありません(すべての行が「カット済」か、文字のある行がありません)", 400)
@@ -4626,6 +4691,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, get_edit((q.get("id") or [""])[0]))
             if u.path == "/api/edit/draft":
                 return self._json(200, edit_draft((q.get("id") or [""])[0]))
+            if u.path == "/api/edit/pack-readme":
+                return self._json(200, pack_readme((q.get("id") or [""])[0]))
             if u.path == "/api/doc-for":
                 return self._json(200, {"doc": find_doc_for_media((q.get("path") or [""])[0])})
             if u.path == "/api/peaks":
@@ -4759,8 +4826,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
                 zp = tmp_dir = None
                 try:
+                    ed, _broken = read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
                     zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
-                                                                      str(obj.get("size") or "") or None, SERVER_VERSION)
+                                                                      str(obj.get("size") or "") or None, SERVER_VERSION,
+                                                                      keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))
@@ -4792,6 +4861,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, open_video(obj))
             if path == "/api/edit/pack":
                 return self._json(200, record_pack(obj))
+            if path == "/api/edit/preview":
+                return self._json(200, edit_preview(obj))
             if path == "/api/transcribe/cancel":
                 cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})

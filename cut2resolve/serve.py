@@ -343,6 +343,17 @@ class AppState:
         return j
 
 
+def is_pack_dir(path):
+    """cut2resolve が作ったパックのフォルダか(中の cut-plan.json が、cut2resolve の書いた youtube-tools-cut-plan)。
+    「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする(フォルダであることは呼び出し側が確かめる)"""
+    try:
+        d = C.read_json_file(Path(path) / "cut-plan.json", "cut-plan.json", 4 * 1024 * 1024)
+    except (C.ToolError, OSError, ValueError):
+        return False
+    tool = d.get("tool") if isinstance(d, dict) else None
+    return isinstance(d, dict) and d.get("schema") == C.CUT_PLAN_SCHEMA and isinstance(tool, dict) and tool.get("name") == "cut2resolve"
+
+
 def open_folder(path):
     """フォルダをエクスプローラー(Mac は Finder)で開く。フォルダであることは呼び出し側で確かめる(実行ファイルを起動しないように)"""
     if os.name == "nt":
@@ -942,8 +953,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _open_folder(self, o):
         p = clean_path(o.get("path"), "out")
-        if p is None or not self.app.out_dir_allowed(p):
-            raise ApiError("not_allowed", "開けるのは、この画面で作ったパックのフォルダだけです", 403)
+        if p is None or not (self.app.out_dir_allowed(p) or is_pack_dir(p)):
+            raise ApiError("not_allowed", "開けるのは、パックのフォルダだけです", 403)
         if not os.path.isdir(p):
             raise ApiError("not_found", "フォルダが見つかりません: %s" % p, 404)
         try:

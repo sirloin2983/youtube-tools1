@@ -150,10 +150,48 @@ def edit_draft(doc: dict, version: str = "") -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "") -> tuple[str, str, dict]:
+def _edit_request(pack, source: str, tpath: str | None, keeps):
+    """カット(編集の内容の残す区間。秒)があればそのとおり(pack.EDIT_KEEPS)、無ければ文字起こしの行から(pack.TRANSCRIPT_ROWS)"""
+    if keeps:
+        return pack.Request(video=Path(source), transcript=Path(tpath) if tpath else None, keep_pairs=[tuple(k) for k in keeps], **pack.EDIT_KEEPS)
+    return pack.Request(video=Path(source), transcript=Path(tpath), **pack.TRANSCRIPT_ROWS)
+
+
+def edit_preview(doc: dict, keeps, version: str = "") -> dict:
+    """「編集」3 パック のタブの「これから作るパック」: カットのとおりに作ったときの区間の数・カット後の長さ・Text+ 字幕の数・注意(ファイルは作らない)。
+    文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)"""
+    import pipeline_io
+    global _DRAFT_CACHE
+    source = str(doc.get("sourcePath") or "")
+    if not source or not os.path.isfile(source):
+        raise ResolveExportError("元の動画が見つかりません")
+    pack, _tp = _load_pack()
+    if _DRAFT_CACHE is None:
+        _DRAFT_CACHE = pack.Cache(size=16)
+    tmp_dir = tempfile.mkdtemp(prefix="edit-preview-")
+    try:
+        tpath = None
+        if any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)):
+            tpath = os.path.join(tmp_dir, "input.transcript.json")
+            with open(tpath, "w", encoding="utf-8") as f:
+                json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        try:
+            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps), cache=_DRAFT_CACHE)
+        except pack.ToolError as e:
+            raise ResolveExportError(str(e))
+        sm = pack.summary(plan)
+        subs = sm["subtitles"] or {}
+        return {"count": sm["count"], "keptSec": sm["keptSec"], "durationSec": sm["durationSec"], "fps": sm["fps"],
+                "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings}
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
-    情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}"""
+    情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
+    keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から"""
     import pipeline_io   # pipeline_io も resolve_export を読み込むので、ここで読む(循環を避ける)
 
     source = str(doc.get("sourcePath") or "")
@@ -172,7 +210,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         folder = _safe_name(doc.get("title") or Path(source).stem) + "_pack"
         out_dir = Path(tmp_dir) / folder
         try:
-            plan = pack.plan_cut(pack.Request(video=Path(source), transcript=Path(tpath), **pack.TRANSCRIPT_ROWS))
+            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps))
             res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))

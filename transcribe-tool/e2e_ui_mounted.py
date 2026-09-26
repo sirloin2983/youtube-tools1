@@ -233,78 +233,75 @@ def main():
             check("条件に合う文字起こしはありません" in pg.inner_text("#txList") and "0 / 1件" in pg.inner_text("#txCount"), "状態「校正済み」で絞り込める(まだ無い): " + pg.inner_text("#txCount"))
             pg.select_option("#txState", "all")
 
-            # ==================== 3c) カットとパック(v0.15.0・案A): 同じ入口の cut2resolve の API で計算・パックを作る ====================
-            pg.click("[data-edtab=pack]")   # 「編集」E2: カードは 3 パック のタブへ移った(E3・E4 で作り直す)
-            cp_ready = "/カット後の長さ\\s*\\d/.test(document.querySelector('#cpStats').textContent) && !/計算|約/.test(document.querySelector('#cpStats').textContent)"
-            wait_js(pg, "/カット後の長さ\\s*約/.test(document.querySelector('#cpStats').textContent)", 30000)
-            check(pg.evaluate("document.querySelector('#cutPack').open") and pg.is_hidden("#cpOff") and pg.is_enabled("#cpBuild"),
-                  "「カットとパック」は 3 パック のタブに開いていて、入口の中では使える")
-            st0 = pg.inner_text("#cpStats")
-            tr_beside = os.path.splitext(media)[0] + ".transcript.json"
-
-            def kept_sec(t):
-                m = re.search(r"カット後の長さ\s*(?:約\s*)?(\d+):(\d+)", t)
-                return int(m.group(1)) * 60 + int(m.group(2)) if m else None
-            check(kept_sec(st0) == 20 and "残す 5行" in st0 and "カット 0行" in st0, "開いたときは残す行の時間を足した目安(約 0:20・残す5行): " + st0)
-            time.sleep(2.5)
-            check(not os.path.isfile(tr_beside), "開いただけでは、動画の隣に .transcript.json を書き出さない(ファイルを勝手に増やさない)")
-            # カット後の見え方で再生を入れると、書き出して cut2resolve で計算する
-            pg.check("#cpPreview")
-            check(pg.get_attribute("#cutViewPill", "hidden") is None, "映像の下に「カット後の見え方」の印が出る(1 文字起こし のタブの映像)")
-            wait_js(pg, cp_ready, 60000)
-            check(os.path.isfile(tr_beside) and kept_sec(pg.inner_text("#cpStats")) == 20,
-                  "「カット後の見え方で再生」を入れると、動画の隣に .transcript.json を書き出して cut2resolve で計算する(カット後 0:20): " + pg.inner_text("#cpStats"))
-            pg.click("[data-edtab=tx]")
-            pg.locator("#segs .seg").nth(1).locator("[data-act=cut]").click()   # 2行目(4〜8秒)をカット → 保存 → 計算し直す
+            # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
             pg.click("[data-edtab=pack]")
-            wait_js(pg, "/カット 1行/.test(document.querySelector('#cpStats').textContent) && " + cp_ready + " && /0:16/.test(document.querySelector('#cpStats').textContent)", 30000)
-            check(True, "行を「カット済」にすると、保存のあとに計算し直す(カット後 0:16): " + pg.inner_text("#cpStats"))
-            # カット後の見え方で再生: カット済の区間(4〜8秒)に入ると、次の残す区間(8秒〜)へ飛ぶ
-            pg.evaluate("(() => { const p = document.querySelector('#player'); p.muted = true; p.currentTime = 5.0; return p.play().catch(() => {}); })()")
-            wait_js(pg, "document.querySelector('#player').currentTime >= 8.0", 10000)
-            t_after = pg.evaluate("document.querySelector('#player').currentTime")
-            check(8.0 <= t_after < 11.5, "カット済の区間を飛ばして再生する(5.0 秒 → %.2f 秒)" % t_after)
-            pg.evaluate("document.querySelector('#player').pause()")
-            pg.uncheck("#cpPreview")
-            # パックを作る(Text+ の fps・画面の大きさ)
-            pg.select_option("#resolveFps", "30")
-            pg.select_option("#resolveSize", "1920x1080")
-            pg.click("#cpBuild")
-            wait_js(pg, "!document.querySelector('#cpResult').hidden && /パックを作りました/.test(document.querySelector('#cpResult').textContent)", 120000)
+            pk_is = lambda cnt, ln, caps: "document.querySelector('#pkCount').textContent === '%s' && document.querySelector('#pkLen').textContent === '%s' && document.querySelector('#pkCaps').textContent === '%s'" % (cnt, ln, caps)   # noqa: E731
+            wait_js(pg, pk_is(1, "0:20.00", 5), 30000)
+            check(pg.is_hidden("#pkOff") and pg.is_enabled("#pkBuild") and pg.inner_text("#pkBuild") == "パックを作る",
+                  "3 パック のタブは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
+            tr_beside = os.path.splitext(media)[0] + ".transcript.json"
+            time.sleep(1.0)
+            check(not os.path.isfile(tr_beside) and call(port, "GET", "/api/edit?id=" + tid1)[1]["edit"] is None,
+                  "開いただけでは、動画の隣に .transcript.json を書き出さない・カットも保存しない(見積もりは一時フォルダで)")
+            pg.click("[data-edtab=tx]")
+            pg.locator("#segs .seg").nth(1).locator("[data-act=cut]").click()   # 2行目(4〜8秒)を削る
+            pg.click("[data-edtab=pack]")
+            wait_js(pg, pk_is(2, "0:16.00", 4), 30000)
+            check(True, "行を削ると、これから作るパックも変わる(2区間・0:16.00・字幕 4)")
+            check(pg.locator("#pkMap i").count() == 2, "区間の略図が出る")
+            # パックを作る(置き先の fps・画面の大きさ)
+            pg.click("#pkFps [data-v='30']")
+            pg.click("#pkSize [data-v='1920x1080']")
+            wait_js(pg, "document.querySelector('#pkSize [data-v=\"1920x1080\"]').getAttribute('aria-pressed') === 'true'", 3000)
+            check(True, "画面の大きさを選べる(横)")
+            pg.click("#pkBuild")
+            wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === 'パックを作り直す' && document.querySelector('#pkJob').hidden", 120000)
             packdir = os.path.splitext(media)[0] + "_pack"
             with open(os.path.join(packdir, "textplus-import.json"), encoding="utf-8") as f:
                 ip = json.load(f)
             caps = json.dumps(ip.get("captions"), ensure_ascii=False)
-            check(ip.get("target") == {"fps": 30, "width": 1920, "height": 1080} and len(ip.get("cuts", [])) == 2 and "テスト文3" in caps and "テスト文2" not in caps,
-                  "cut2resolve のパック(Text+)ができる: 選んだ fps・大きさ、残す区間2つ、カット済の行の字幕は入らない: %s" % {"target": ip.get("target"), "cuts": len(ip.get("cuts", []))})
-            check(packdir in pg.inner_text("#cpResult"), "出力フォルダが出る")
-            wait_js(pg, "/パック済み/.test(document.querySelector('#cpSum').textContent)", 5000)
-            check(pg.inner_text("#cpBuild") == "パックを作り直す", "ボタンは「パックを作り直す」に変わる")
+            check(ip.get("target") == {"fps": 30, "width": 1920, "height": 1080} and [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])] == [(0, 96), (192, 480)]
+                  and "テスト文3" in caps and "テスト文2" not in caps,
+                  "パック(Text+)ができる: 選んだ fps・大きさ、カットのとおりの区間(24fps の 0〜4秒・8〜20秒)、削った行の字幕は入らない: %s" % {"target": ip.get("target"), "cuts": ip.get("cuts", [])[:3]})
+            check(packdir in pg.inner_text("#pkLastDir") and pg.inner_text("#pkLastPill") == "前回のパック" and "textplus-import.json" in pg.inner_text("#pkLastFiles"),
+                  "「前回のパック」に出力フォルダと中身が出る")
             st, lst = call(port, "GET", "/api/transcripts")
-            check(next((x for x in lst["items"] if x["id"] == tid1), {}).get("pack", {}).get("textplus") is True, "一覧の API もパックありになる(案件の画面と同じ判定)")
+            it1 = next((x for x in lst["items"] if x["id"] == tid1), {})
+            check(it1.get("pack", {}).get("textplus") is True and it1.get("packRev", 0) >= 1 and it1.get("packStale") is False, "一覧の API もパックあり・作り直しは要らない")
+            pg.click("#pkReadme")
+            wait_js(pg, "!document.querySelector('#pkReadmeText').hidden && document.querySelector('#pkReadmeText').textContent.length > 20", 10000)
+            check("Resolve" in pg.inner_text("#pkReadmeText"), "「友人へ.txt を見る」で手順書が出る")
+            # カットを変えると「作り直しが要る」
+            pg.click("[data-edtab=tx]")
+            pg.locator("#segs .seg").nth(3).locator("[data-act=cut]").click()   # 4行目(12〜16秒)も削る
+            pg.click("[data-edtab=pack]")
+            wait_js(pg, pk_is(3, "0:12.00", 3) + " && document.querySelector('#pkLastPill').textContent === '作り直しが要る'", 30000)
+            check("作り直し" in pg.inner_text("#pkLastWhen"), "カットが変わったら「作り直しが要る」と知らせる: " + pg.inner_text("#pkLastWhen"))
             # 作り直す → 上書きの確認(やめる → 何もしない / 上書き → 作り直す)
-            pg.click("#cpBuild")
+            pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             check("textplus-import.json" in pg.inner_text("#owFiles") and packdir in pg.inner_text("#owDir"), "前に作ったパックがあると、上書きの確認に出力先とファイルが出る")
             pg.click("#owCancel")
-            wait_js(pg, "!document.querySelector('#dlgOverwrite').open && !document.querySelector('#cpBuild').disabled", 10000)
-            check(pg.is_hidden("#cpJob"), "「やめる」なら作らない")
+            wait_js(pg, "!document.querySelector('#dlgOverwrite').open && !document.querySelector('#pkBuild').disabled", 10000)
+            check(pg.is_hidden("#pkJob") and pg.inner_text("#pkLastPill") == "作り直しが要る", "「やめる」なら作らない")
             mt = os.path.getmtime(os.path.join(packdir, "textplus-import.json"))
-            pg.click("#cpBuild")
+            pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             pg.click("#owOk")
-            wait_js(pg, "!document.querySelector('#cpBuild').disabled && document.querySelector('#cpJob').hidden && /パックを作りました/.test(document.querySelector('#cpResult').textContent)", 120000)
-            check(os.path.getmtime(os.path.join(packdir, "textplus-import.json")) > mt, "「上書きして作り直す」で作り直す")
+            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック'", 120000)
+            with open(os.path.join(packdir, "textplus-import.json"), encoding="utf-8") as f:
+                ip2 = json.load(f)
+            check(os.path.getmtime(os.path.join(packdir, "textplus-import.json")) > mt and len(ip2.get("cuts", [])) == 3, "「上書きして作り直す」で今のカット(3区間)で作り直す")
             menu_open = "menu-closed" not in (pg.get_attribute(".app", "class") or "")
-            if menu_open:
-                pg.click("[data-side-tab=files]")
-                wait_js(pg, "/パック済み/.test(document.querySelector('#txList .txi.cur').textContent)", 10000)
-                check(True, "履歴の一覧の行に「パック済み」が出る")
+            pg.click("[data-strip=files]")
+            wait_js(pg, "/パック済み/.test(document.querySelector('#txList .txi.cur').textContent)", 10000)
+            check(True, "履歴の一覧の行に「パック済み」が出る")
+            pg.keyboard.press("Escape")
 
-            # ==================== 3d) zip でダウンロード(詳しい設定。中身は同じ cut2resolve の Text+ パック) ====================
-            pg.evaluate("document.querySelector('#cpMore').open = true")
+            # ==================== 3d) zip でダウンロード(詳しい設定。中身は同じ cut2resolve の Text+ パック・同じ区間) ====================
+            pg.evaluate("document.querySelector('#pkMore').open = true")
             with pg.expect_download(timeout=60000) as dl_info:
-                pg.click("#resolveExport")
+                pg.click("#pkZip")
             zpath = os.path.join(tmp, "dl-resolve.zip")
             dl_info.value.save_as(zpath)
             with zipfile.ZipFile(zpath) as z:
@@ -313,8 +310,8 @@ def main():
                 ipz = json.loads(z.read(ip_name)) if ip_name else {}
             check(any(n.endswith("/media/" + os.path.basename(media)) for n in names) and ip_name is not None,
                   "「zip でダウンロード」で Text+ パック(動画・textplus-import.json)をダウンロードできる: %s" % names[:4])
-            check(ipz.get("target") == {"fps": 30, "width": 1920, "height": 1080} and len(ipz.get("cuts", [])) == 2 and ipz.get("captions"),
-                  "zip にも選んだ fps・大きさ・同じ区間が入る: %s" % {k: ipz.get(k) for k in ("target",)})
+            check(ipz.get("target") == {"fps": 30, "width": 1920, "height": 1080} and ipz.get("cuts") == ip2.get("cuts") and ipz.get("captions"),
+                  "zip にも選んだ fps・大きさと、パックと同じ区間(カットのとおり)が入る: %s" % {k: ipz.get(k) for k in ("target",)})
             wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /パック\\(zip\\)を作成しました/.test(e.textContent))", 10000)
             check(True, "作成できたことを画面に知らせる")
 

@@ -367,6 +367,49 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["unavailable"]["code"]), (200, "network_path"))
         self.assertEqual(self.call("GET", "/api/edit/draft?id=zzz")["_status"], 404)
 
+    def test_pack_preview_readme_zip_and_cut_plan(self):
+        """3 パック のタブの見積もり(ファイルを作らない)・前回のパックの手順書・zip と「残す区間の保存」もカットのとおり"""
+        import io
+        import zipfile
+        video = os.path.join(self.media_dir, "パック.mkv")
+        shutil.copy(self.video, video)
+        tid = self.open_video(video)["id"]
+        doc = self.call("GET", "/api/transcript?id=" + tid)
+        segs = [{"id": "a", "start": 0.5, "end": 1.5, "text": "一"}, {"id": "b", "start": 2.0, "end": 2.2, "text": "二"}, {"id": "c", "start": 3.0, "end": 5.0, "text": "三"}]
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
+        clips = [(0.5, 1.5), (1.5, 1.8), (2.0, 2.2), (3.0, 5.1)]   # 2つめは1つめと接している(分割しただけ)・3つめは 0.2 秒
+        self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=clips, duration=6.0)})["rev"], 1)
+        keeps = [[a, b] for a, b in clips]
+        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": keeps})
+        self.assertEqual((r["_status"], r["count"], r["captions"], r["fps"]), (200, 3, 3, [30, 1]))   # 接している区間は1つに数える
+        self.assertAlmostEqual(r["keptSec"], 1.3 + 0.2 + 2.1, places=3)
+        self.assertTrue(any("0.5 秒より短い区間" in w for w in r["warnings"]), r["warnings"])
+        self.assertFalse(os.path.exists(os.path.splitext(video)[0] + ".transcript.json"))   # 見積もりでは動画の隣にファイルを作らない
+        for bad in ([], [[1, 0.5]], [[0, 1], [0.5, 2]], "x", [[0, True]]):
+            self.assertEqual(self.call("POST", "/api/edit/preview", {"id": tid, "keeps": bad}).get("error"), "bad_keeps", bad)
+        # zip もカットのとおり(3区間・30fps のフレーム)
+        st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
+        self.assertEqual((st, hd["X-Resolve-Cuts"]), (200, "3"))
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            ip = json.loads(z.read(next(n for n in z.namelist() if n.endswith("/textplus-import.json"))))
+        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 54), (60, 66), (90, 153)])
+        # 残す区間(.cut-plan.json)の保存もカットのとおり
+        r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})
+        with open(r["path"], encoding="utf-8") as f:
+            plan = json.load(f)
+        self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
+        # 前回のパックの手順書: 記録したフォルダが cut2resolve のパック(中に cut-plan.json)のときだけ読む
+        out = os.path.join(self.media_dir, "パック_pack")
+        os.makedirs(out, exist_ok=True)
+        self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": 0, "dir": out, "files": ["友人へ.txt"]})
+        with open(os.path.join(out, "友人へ.txt"), "w", encoding="utf-8") as f:
+            f.write("Resolve で開く手順")
+        self.assertEqual(self.call("GET", "/api/edit/pack-readme?id=" + tid)["_status"], 404)   # cut-plan.json が無い = パックではない
+        with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-cut-plan/v1"}, f)
+        r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
+        self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))
+
     def test_edit_http_into_doc_and_delete(self):
         tid = self.open_video(self.wav)["id"]
         self.assertEqual(self.call("GET", "/api/edit?id=" + tid), {"edit": None, "rev": 0, "broken": False, "packStale": False, "_status": 200})

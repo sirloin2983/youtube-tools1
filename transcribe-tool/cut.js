@@ -731,10 +731,20 @@ function create(h){
   return {
     load, flush, docChanged, rowsCut, onShown, onHidden,
     active: () => ready(),
+    refresh: () => render(),   // cut2resolve が使えるか分かったとき(たたき台のボタン)
     unload(){ M.loading++; reset(null); render(); },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, pristine: M.pristine, origin: M.origin }; },
     keepsSec(){ return ready() ? M.clips.map(([a, b]) => [sec3(a), sec3(b)]) : null; },
+    fps(){ return M.fps; },
+    /* パックを作る前: まだ保存していない下書きも保存して、保存済みのカット(rev)から作れるようにする。-> 保存できたか */
+    async commit(){
+      if (!ready()) return false;
+      if (M.drag) endDrag();
+      if (M.pristine){ M.pristine = false; M.dirty = true; }
+      if (M.dirty || M.saving) await save();
+      return !M.dirty && !M.conflict && M.rev > 0;
+    },
     _debug: M
   };
 }

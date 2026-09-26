@@ -41,7 +41,7 @@ def call(port, method, path, body=None):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
+    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
     for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
         p = os.path.join(HERE, n)

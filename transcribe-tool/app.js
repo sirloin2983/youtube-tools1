@@ -116,6 +116,7 @@ function onEditTab(from, to){
   if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
   if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
   if (to === 'cut' && CUT) CUT.onShown();
+  if (to === 'pack' && PACK) PACK.shown();
   renderDocBar();
 }
 function applySideTab(){
@@ -214,7 +215,7 @@ function loadSiblings(){
       if (window.UIKit && UIKit.tools.setPaths) UIKit.tools.setPaths(j && j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
     })
     .catch(() => { S.ports = null; })   // 古いサーバー(404)・通信の失敗は、既定のポートで
-    .finally(() => { sibP = null; S.sibLoaded = true; renderTools(); renderHandoff(); if (S.doc) cpAfterSave(); });
+    .finally(() => { sibP = null; S.sibLoaded = true; renderTools(); renderHandoff(); if (S.doc) cpAfterSave(); if (CUT) CUT.refresh(); });
   return sibP;
 }
 const toolUrl = (id, path) => window.UIKit ? UIKit.tools.url(id, S.ports, path) : '';
@@ -234,7 +235,6 @@ function readOpts(){
   s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
-  s.packFps = $('#resolveFps').value; s.packSize = $('#resolveSize').value;
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
   saveSettings(); if (S.doc) renderTerms();
 }
@@ -245,8 +245,6 @@ function applySettings(){
   $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
-  if ([...$('#resolveFps').options].some(o => o.value === String(s.packFps))) $('#resolveFps').value = String(s.packFps);
-  if ([...$('#resolveSize').options].some(o => o.value === s.packSize)) $('#resolveSize').value = s.packSize;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
   if (s.diarNum && [...$('#diarNum').options].some(o => o.value === s.diarNum)) $('#diarNum').value = s.diarNum;
 }
@@ -1213,7 +1211,6 @@ async function openDoc(id, keep){
   }
   const sameDoc = S.docId === id;
   S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
-  if (!keep || !sameDoc) cpReset();   // 開き直したら、カットの計算を最初から(動画を戻した後なども)。話者判別などの後の読み直しでは残す。パックの結果は同じ文書なら残す
   if (!keep) S.navIdx = -1; else navRestore(navId, S.navIdx);
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
@@ -1233,10 +1230,9 @@ async function openDoc(id, keep){
     p.src = apiUrl('/media?id=' + encodeURIComponent(id));
     $('#q').value = ''; $('#flagKind').value = '';
   }
-  if (!keep) cpDefaultFold();
-  if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
+  if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
+  if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
-  schedulePlan(keep ? 1500 : 600);
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
@@ -1747,17 +1743,17 @@ function renderDocBarNow(){
   const meta = $('#docMeta'); meta.textContent = parts.join(' ・ '); meta.title = String(d.sourcePath || '');
   const txt = d.segments.filter(g => String(g.text || '').trim()), pf = txt.filter(g => g.proofed).length;
   const pp = $('#pillProof'); pp.hidden = !txt.length; pp.textContent = `校正 ${pf} / ${txt.length}行`; pp.className = 'pill ' + (txt.length && pf === txt.length ? 'ok' : 'wait');
-  const pc = $('#pillCut'), plan = CP.plan && CP.planSig === rowSig() ? CP.plan : null, cs = CUT && CUT.summary();
+  const pc = $('#pillCut'), cs = CUT && CUT.summary();
   if (cs){ pc.textContent = `残す ${cs.count}区間 ・ カット後 ${fmtCs(cs.keptSec)}`; pc.hidden = false; }
-  else if (plan){ pc.textContent = `残す ${plan.count}区間 ・ カット後 ${fmtCs(plan.keptSec)}`; pc.hidden = false; }
   else { const sp = cpApproxSpans(); pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`; }
 }
 
 /* 文書を閉じる(開いている文書を削除したとき) */
 function closeDoc(){
   clearTimeout(markDirty.t);
-  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null; cpReset();
+  S.doc = null; S.docId = null; S.dirty = false; S.conflict = false; S.forceNext = false; S.undo = []; S.sel = new Set(); S.navIdx = -1; S.curIdx = -1; S.handoff = null;
   if (CUT) CUT.unload();
+  if (PACK) PACK.load(null);
   $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
   S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
   renderList(); updateDocTitle();
@@ -2105,24 +2101,10 @@ $('#btnTxInto').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(v); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
 }));
 
-/* ---------- カットとパック(v0.15.0・案A) ----------
-   行の「残す/カット済」で決めたカットを、この画面のまま確かめて(カット後の長さ・カット後の見え方で再生)、Resolve へ渡すパックを作る。
-   計算(残す区間)とパック作りは cut2resolve の API を呼ぶ(パックを作るのは cut2resolve/pack.py だけ。文字起こし側に Resolve 用の計算を書き足さない。
-   docs/resolve-pack-unification.md)。流れ:
-     文字起こしを保存 → /api/export-file(transcript-v1)で動画の隣に .transcript.json → cut2resolve の api/plan(試算)/ api/build(パック)
-     spec = {video: 元の動画, transcript: .transcript.json, preset: "transcript-rows"}(入口のまとめて実行・zip と同じ規則 pack.TRANSCRIPT_ROWS)
-   動画の隣への .transcript.json の書き出しと cut2resolve の計算は、使う人が求めたとき(「カット後の見え方で再生」を入れた・パックを作った)から始める
-   (開いただけでファイルを増やさない。2026-09-26 統括の判断)。それまでのカット後の長さは、残す行の時間を足した目安(「約」)を出す。
+/* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
+   パックを作るのは cut2resolve/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/resolve-pack-unification.md)。
    cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
-   (合言葉を別のサーバーへ渡さない・CORS で断られるため)。単体で開いたときは「zip でダウンロード」(/api/resolve-package。中身は同じ pack.py)だけ */
-const CP = { plan: null, keeps: [], cum: [], planSig: '', doneSig: '', planning: false, again: false, retryMs: 0, timer: 0, err: '', errCode: '',
-  txPath: '', job: null, building: false, buildErr: '', result: null, wanted: false };
-function cpReset(){
-  clearTimeout(CP.timer);
-  Object.assign(CP, { plan: null, keeps: [], cum: [], planSig: '', doneSig: '', again: false, retryMs: 0, timer: 0, err: '', errCode: '', txPath: '', buildErr: '', wanted: false });
-  if (CP.result && CP.result.docId !== S.docId) CP.result = null;
-  $('#cpPreview').checked = false; $('#cutViewPill').hidden = true; $('#cpCutTime').textContent = '';
-}
+   (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
 /* 取り込まれた cut2resolve の場所('/cut2resolve/')。使えないときは ''。URL はここと c2rUrl() だけで作る */
 function c2rBase(){
   if (!TOKEN || !window.UIKit || !UIKit.tools.paths || !UIKit.tools.paths.cut2resolve) return '';
@@ -2141,7 +2123,7 @@ async function c2rApi(path, opt = {}){
   if (!r.ok){ const e = new Error((j && j.message) || `cut2resolve のエラー(${r.status})`); e.code = (j && j.error) || 'http'; e.status = r.status; e.data = j || {}; throw e; }
   return j;
 }
-/* cut2resolve のジョブが終わるまで待つ(cut2resolve の app.js の trackJob と同じ: api/job?id= を見て、done なら結果、error なら中身を投げる) */
+/* cut2resolve のジョブが終わるまで待つ(api/job?id= を見て、done なら結果、error なら中身を投げる) */
 async function c2rWait(job, onTick){
   let j = job, fails = 0;
   while (j.state === 'running'){
@@ -2154,154 +2136,25 @@ async function c2rWait(job, onTick){
   const er = j.error || {}, e = new Error(j.state === 'cancelled' ? '中止しました' : (er.message || '失敗しました'));
   e.code = j.state === 'cancelled' ? 'cancelled' : (er.code || 'failed'); e.data = er; throw e;
 }
-/* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは計算し直さない。文字が空になった行は残らないので含める) */
+/* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは変わらない。文字が空になった行は残らないので含める) */
 const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}`).join(';') : '';
-function cpCounts(){ let keep = 0, cut = 0, empty = 0; for (const g of S.doc.segments){ if (g.cutState === 'cut') cut++; else if (g.text.trim()) keep++; else empty++; } return { keep, cut, empty }; }
-/* 計算する前の目安: 残す行(文字があり、カット済でない)の時間を重なりをまとめて足す(cut2resolve の計算は1フレームの隙間もつなぐので、わずかに違うことがある) */
+/* カットが使えないとき(動画が無いなど)の題名の行の目安: 残す行(文字があり、カット済でない)の時間を、重なりをまとめて足す */
 function cpApproxSpans(){
   const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && g.text.trim() && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
   const out = [];
   for (const [a, b] of spans){ const cur = out[out.length - 1]; if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else out.push([a, b]); }
   return out;
 }
-const cpApproxSec = () => cpApproxSpans().reduce((x, [a, b]) => x + b - a, 0);
-const cpItem = () => S.docId ? S.list.find(x => x.id === S.docId) : null;
-const cpSpec = path => ({ video: S.doc.sourcePath, transcript: path, preset: 'transcript-rows' });
-const cpPackDir = () => { const p = String(S.doc && S.doc.sourcePath || ''), k = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return p.slice(0, k + 1) + p.slice(k + 1).replace(/\.[^.]*$/, '') + '_pack'; };
-/* パック作りと「カット後の見え方」を使えない理由(無ければ '')。行の「残す/カット」と zip は、理由があっても使える */
-function cpBlock(){
-  if (!S.doc) return 'no-doc';
-  if (!S.doc.sourcePath) return 'no-source';
-  const it = cpItem();
-  if (CP.errCode === 'no_media' || (it && it.mediaOk === false)) return 'no-media';
-  if (!TOKEN) return 'standalone';
-  if (!S.sibLoaded) return 'checking';
-  return c2rBase() ? '' : 'no-c2r';
-}
-const CP_BLOCK_MSG = {
-  'no-source': 'この文字起こしには元の動画のパスが無いため、パックは作れません(行の「残す/カット済」の印と、字幕の書き出しは使えます)。',
-  'no-media': '元の動画が見つかりません(移動・削除した可能性があります)。元の場所に戻すと、パック作りと「カット後の見え方で再生」が使えます。',
-  'no-c2r': 'cut2resolve が起動していないため、パック作りと「カット後の見え方で再生」は使えません。入口の画面で cut2resolve を起動してから、この画面を開き直してください。',
-  'standalone': 'パック作りと「カット後の見え方で再生」は、入口(start-all.bat)から開いたときだけ使えます。今は「詳しい設定」の「zip でダウンロード」が使えます。'
-};
-/* 描き直しはフレームごとに1回にまとめる(行の選択・保存・処理状況の確認のたびに呼ばれるため。数千行の文書でも入力を重くしない) */
-let cpQ = 0;
-function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
-function renderCutPackNow(){
-  if (!S.doc) return;
-  const c = cpCounts(), block = cpBlock(), locked = !!lockJob(), sig = rowSig(), it = cpItem();
-  const stale = CP.plan && CP.planSig !== sig, busy = CP.planning || !!CP.timer;
-  let len = '';
-  if (CP.plan) len = ` ・ カット後の長さ <b>${fmtT(CP.plan.keptSec)}</b>` + (S.doc.whole && CP.plan.durationSec ? `<span class="hint">(元 ${fmtT(CP.plan.durationSec)})</span>` : '')
-    + (stale || busy ? ' <span class="hint">計算し直しています…</span>' : '');
-  else if (!block && busy) len = ' ・ <span class="hint">カット後の長さを計算しています…</span>';
-  else if (!CP.wanted && c.keep) len = ` ・ カット後の長さ 約 <b>${fmtT(cpApproxSec())}</b>`;
-  else if (!block && CP.err) len = ` ・ <span class="hint tt-cp-err">${esc(CP.err)}</span>`;
-  $('#cpStats').innerHTML = `残す <b>${c.keep}</b>行 ・ カット <b>${c.cut}</b>行${c.empty ? `<span class="hint">(文字の無い${c.empty}行は入りません)</span>` : ''}${len}`;
-  const packed = !!(it && it.pack) || !!(CP.result && CP.result.docId === S.docId);
-  const packOld = it && it.pack && !CP.result && Number(it.pack.updatedAt) < (Number(S.doc.updatedAt || it.updatedAt) || 0) - 2000;
-  $('#cpSum').innerHTML = `<span>残す ${c.keep} ・ カット ${c.cut}${CP.plan ? ' ・ ' + fmtT(CP.plan.keptSec) : ''}</span>` + (packed ? (packOld ? '<span class="pill warn">パックが古い</span>' : '<span class="pill ok">パック済み</span>') : '');
-  const off = $('#cpOff'), msg = CP_BLOCK_MSG[block] || '';
-  off.hidden = !msg; off.textContent = msg; off.title = block === 'no-media' ? String(S.doc.sourcePath || '') : '';
-  const pv = $('#cpPreview'); pv.disabled = !!block || locked; if (pv.disabled && pv.checked){ pv.checked = false; cpPreviewChanged(); }
-  const n = S.sel.size;
-  $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
-  $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
-  const b = $('#cpBuild');
-  b.disabled = !!block || locked || CP.building || c.keep === 0;
-  b.textContent = CP.building ? 'パックを作っています…' : packed ? 'パックを作り直す' : 'パックを作る';
-  const hint = $('#cpBuildHint');
-  hint.textContent = c.keep === 0 ? '残す行がありません(すべてカット済か、文字がありません)'
-    : locked ? '話者の判別・再認識の途中です'
-    : block ? '' : packOld ? 'パックを作ったあとに行を直しています。作り直すと、今の内容になります'
-    : it && it.pack ? `前に作ったパックがあります(${ago(it.pack.updatedAt)})` : `出力先: 動画の隣の「${cpPackDir().split(/[\\/]/).pop()}」フォルダ`;
-  hint.title = block ? '' : cpPackDir();
-  renderCpResult();
-  const link = $('#cpC2R');
-  const c2r = CP.txPath && S.doc.sourcePath ? toolUrl('cut2resolve', '/?video=' + encodeURIComponent(S.doc.sourcePath) + '&transcript=' + encodeURIComponent(CP.txPath)) : '';
-  link.innerHTML = c2r ? `<a class="btn small" href="${esc(c2r)}" target="_blank" rel="noopener">cut2resolve で開く</a><span class="hint">動画と文字起こしを入れた状態で開きます(無音でのカット・細かい設定を使うとき)</span>`
-    : '<span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span>';
-  renderDocBar();
-}
-function renderCpResult(){
-  const box = $('#cpResult'), r = CP.result;
-  if (CP.buildErr){ box.hidden = false; box.className = 'notice err'; box.textContent = 'パックを作れませんでした: ' + CP.buildErr; return; }
-  box.className = 'tt-handoff';
-  if (!r || r.docId !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
-  const sm = r.summary || {}, caps = sm.subtitles ? sm.subtitles.out : null, warns = (Array.isArray(r.warnings) ? r.warnings : []).slice(0, 6);
-  box.hidden = false;
-  box.innerHTML = `<div class="tt-cp-res-t">パックを作りました</div>
-    <div class="hint">残す区間 ${Number(sm.count) || 0}か所 ・ カット後 ${fmtT(sm.keptSec)}${caps != null ? ` ・ Text+ 字幕 ${Number(caps) || 0}件` : ''}</div>
-    <div><span class="path">${esc(r.outDir || '')}</span> <button type="button" class="btn ghost small" data-act="cpcopy" title="このパスをコピー">コピー</button></div>
-    <div class="row"><button type="button" class="btn small" data-act="cpopen">フォルダを開く</button><span class="hint">中の「友人へ.txt」の手順で Resolve に取り込みます</span></div>
-    ${warns.length ? `<ul class="tt-cp-warn">${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-    ${r.readme ? `<details style="margin-top:6px"><summary class="hint">取り込みの手順を見る(友人へ.txt)</summary><pre class="tt-cp-readme">${esc(String(r.readme).slice(0, 8000))}</pre></details>` : ''}`;
-}
-function renderCpJob(){
-  const box = $('#cpJob'), j = CP.job;
-  if (!j){ box.hidden = true; box.innerHTML = ''; return; }
-  if (!box.firstChild){   // 作りは1回だけ(中止ボタンを押している間に作り直さない)
-    box.innerHTML = '<div class="row"><span><span class="pill run">パックを作っています</span> <span class="tt-cp-jmsg"></span></span><span class="mono hint tt-cp-jpct"></span></div><div class="bar"><i></i></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn small" data-act="cpcancel">中止</button></div>';
-  }
-  box.hidden = false;
-  const pct = j.progress != null ? Math.round(j.progress * 100) : null;
-  box.querySelector('.tt-cp-jmsg').textContent = j.message || '';
-  box.querySelector('.tt-cp-jpct').textContent = pct != null ? pct + '%' : (j.elapsed != null ? Number(j.elapsed).toFixed(0) + '秒' : '');
-  const bar = box.querySelector('.bar'); bar.classList.toggle('indeterminate', pct == null); bar.querySelector('i').style.width = (pct || 0) + '%';
-}
-/* 計算の結果(cut2resolve の pack.summary)。区間はフレーム [開始, 終了) なので、fps で秒に直すだけ(ここでは区間を作らない) */
-function cpApplyPlan(res, sig){
-  const fps = Array.isArray(res.fps) && Number(res.fps[0]) > 0 && Number(res.fps[1]) > 0 ? res.fps : [30, 1];
-  const f2s = n => n * fps[1] / fps[0];
-  CP.keeps = (Array.isArray(res.keeps) ? res.keeps : []).map(([a, b]) => [f2s(a), f2s(b)]);
-  CP.cum = []; let acc = 0; for (const [a, b] of CP.keeps){ CP.cum.push(acc); acc += b - a; }
-  CP.plan = { keptSec: Number(res.keptSec) || 0, durationSec: Number(res.durationSec) || 0, count: Number(res.count) || 0 };
-  CP.planSig = CP.doneSig = sig; CP.err = ''; CP.errCode = '';
-}
 /* 保存 → 動画の隣に .transcript.json(保存済みの内容を書き出す。画面と違う内容を cut2resolve に渡さないため、保存が追いついていなければ待つ) */
 async function cpExport(id){
   const ok = await saveDoc();
   const fail = (msg, code) => Object.assign(new Error(msg), { code });
   if (S.docId !== id) throw fail('別の文字起こしに切り替えました', 'switched');
-  if (!ok || S.dirty || S.saving) throw S.conflict ? fail('保存が競合しています。映像の上の案内から選んでください', 'conflict') : fail('保存が追いついていません', 'saving');
+  if (!ok || S.dirty || S.saving) throw S.conflict ? fail('保存が競合しています。1 文字起こし のタブの案内から選んでください', 'conflict') : fail('保存が追いついていません', 'saving');
   let r;
   try { r = await api('/api/export-file', { body: { id, format: 'transcript-v1', baseUpdatedAt: S.baseUpdatedAt } }); }
   catch (e){ if (e.status === 409) e.code = 'saving'; throw e; }
-  CP.txPath = r.path;
   return r.path;
-}
-function schedulePlan(ms = 1200){
-  clearTimeout(CP.timer); CP.timer = 0;
-  if (!S.doc || cpBlock() || !CP.wanted) return renderCutPack();   // 求められるまでは書き出さない・計算しない(目安だけ)
-  CP.timer = setTimeout(() => { CP.timer = 0; runPlan(); }, ms);
-  renderCutPack();
-}
-/* 保存のあと: 残す/カットに関わる内容が変わっていたら、少し待ってから計算し直す */
-function cpAfterSave(){ if (!S.doc) return; if (rowSig() !== CP.doneSig) schedulePlan(1500); else renderCutPack(); }
-async function runPlan(){
-  if (!S.doc || cpBlock()) return renderCutPack();
-  if (CP.planning || CP.building){ CP.again = true; return; }
-  const id = S.docId, sig = rowSig();
-  if (sig === CP.doneSig) return renderCutPack();
-  if (!cpCounts().keep){ Object.assign(CP, { plan: null, keeps: [], cum: [], doneSig: sig, err: '残す行がありません', errCode: 'empty' }); return renderCutPack(); }
-  CP.planning = true; renderCutPack();
-  try {
-    const path = await cpExport(id);
-    const j = await c2rApi('api/plan', { body: { spec: cpSpec(path), output: {} } });
-    const res = await c2rWait(j.job);
-    if (S.docId === id) cpApplyPlan(res, sig);
-  } catch (e){
-    if (S.docId !== id || e.code === 'switched') return;
-    if (e.code === 'busy' || e.code === 'saving' || e.code === 'network'){ CP.again = true; CP.retryMs = 3000; }   // cut2resolve で別の処理中・保存待ち → 少し待ってもう一度
-    else Object.assign(CP, { plan: null, keeps: [], cum: [], doneSig: sig, err: e.message, errCode: e.code || '' });   // 同じ内容では繰り返さない
-  } finally {
-    CP.planning = false;
-    if (S.docId === id){
-      if (CP.again){ CP.again = false; const ms = CP.retryMs || 300; CP.retryMs = 0; schedulePlan(ms); }
-      else renderCutPack();
-      if ($('#cpPreview').checked) cpShowTime();
-    }
-  }
 }
 function confirmOverwrite(files, dir){
   const dlg = $('#dlgOverwrite');
@@ -2315,52 +2168,19 @@ function confirmOverwrite(files, dir){
     dlg.showModal(); $('#owCancel').focus();
   });
 }
-async function buildPack(){
-  if (CP.building || !S.doc || cpBlock() || lockJob()) return;
-  const id = S.docId; CP.building = true; CP.buildErr = ''; CP.wanted = true; renderCutPack();
-  try {
-    for (let i = 0; i < 150 && CP.planning; i++) await new Promise(res => setTimeout(res, 200));   // 計算中なら終わるのを待つ(cut2resolve の処理は同時に1つだけ)
-    const sig = rowSig(), path = await cpExport(id);
-    const out = { textplus: true, textplusFps: $('#resolveFps').value, textplusSize: $('#resolveSize').value };
-    let force = false, res;
-    for (;;){
-      try {
-        const j = await c2rApi('api/build', { body: { spec: cpSpec(path), output: { ...out, force } } });
-        CP.job = j.job; renderCpJob();
-        res = await c2rWait(j.job, pj => { CP.job = pj; renderCpJob(); });
-        break;
-      } catch (e){
-        CP.job = null; renderCpJob();
-        if (e.code === 'exists' && !force){   // 前に作ったパックがある → 上書きの確認(cut2resolve の confirmOverwrite と同じ考え)
-          const d = e.data || {};
-          if (!(await confirmOverwrite(d.files || [], d.dir || cpPackDir()))) return;
-          force = true; continue;
-        }
-        throw e;
-      }
-    }
-    CP.result = { ...res, docId: id };
-    const it = S.list.find(x => x.id === id); if (it){ it.pack = { textplus: true, updatedAt: Date.now() }; renderList(); }
-    if (S.docId === id && res.summary) cpApplyPlan(res.summary, sig);
-    toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。フォルダの中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
-  } catch (e){
-    if (e.code === 'cancelled') toast('パック作りを中止しました', 3000);
-    else if (e.code !== 'switched') CP.buildErr = e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message;
-  } finally {
-    CP.building = false; CP.job = null; renderCpJob();
-    if (S.docId === id){ renderCutPack(); if (CP.again){ CP.again = false; schedulePlan(300); } }   // 作っている間に行が変わっていたら計算し直す
-  }
+/* 行やカットが変わったとき: 「まとめて ▾」の選んだ行のボタンと、3 パック のタブを描き直す(フレームごとに1回) */
+let cpQ = 0;
+function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
+function renderCutPackNow(){
+  if (!S.doc) return;
+  const n = S.sel.size, locked = !!lockJob();
+  $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
+  $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
+  renderDocBar();   // 題名の行の札(カットが使えない文書では、行の印からの目安)
+  if (PACK) PACK.refresh();
 }
-$('#cpBuild').addEventListener('click', buildPack);
-$('#cpJob').addEventListener('click', async e => {
-  if (!e.target.closest('[data-act=cpcancel]') || !CP.job) return;
-  try { await c2rApi('api/job/cancel', { body: { id: CP.job.id } }); } catch (er){ toast(er.message, 4000, 'err'); }
-});
-$('#cpResult').addEventListener('click', async e => {
-  const b = e.target.closest('[data-act]'); if (!b || !CP.result) return;
-  if (b.dataset.act === 'cpcopy'){ try { await navigator.clipboard.writeText(CP.result.outDir || ''); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); } }
-  else if (b.dataset.act === 'cpopen'){ try { await c2rApi('api/open-folder', { body: { path: CP.result.outDir } }); } catch (er){ toast('フォルダを開けませんでした: ' + er.message, 5000, 'err'); } }
-});
+/* 文書を保存したあと: 3 パック のタブの見積もり(字幕の数など)を出し直す */
+function cpAfterSave(){ if (S.doc && PACK) PACK.changed(); }
 /* 選んだ行をまとめてカット/残す(1行ずつは、行の右の「残す/カット済」。同じ印を変える入口は、この2つだけ) */
 function bulkCut(cut){
   if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
@@ -2376,60 +2196,6 @@ function bulkCut(cut){
 }
 $('#cutSelected').addEventListener('click', () => bulkCut(true));
 $('#keepSelected').addEventListener('click', () => bulkCut(false));
-/* カット後の見え方で再生: cut2resolve の app.js の keepAt / skipRemoved と同じ動き(カット済の区間に入ったら次の残す区間へ飛ぶ。最後なら止める)。
-   行の ▶(その行だけ再生)は、いつもどおりその行を聞けるように飛ばさない */
-function cpKeepAt(t){
-  const k = CP.keeps; let lo = 0, hi = k.length;
-  while (lo < hi){ const m = (lo + hi) >> 1; if (k[m][1] <= t) lo = m + 1; else hi = m; }
-  return { inside: lo < k.length && k[lo][0] <= t + 1e-6 ? lo : -1, next: lo };
-}
-function cpSkip(){
-  if (!$('#cpPreview').checked || !CP.keeps.length || S.playEnd !== null) return;
-  const p = player(), k = cpKeepAt(p.currentTime);
-  if (k.inside >= 0) return;
-  if (k.next < CP.keeps.length) p.currentTime = CP.keeps[k.next][0] + 0.001;
-  else { p.pause(); p.currentTime = Math.max(0, CP.keeps[CP.keeps.length - 1][1] - 0.04); }
-}
-function cpShowTime(){
-  const el = $('#cpCutTime');
-  if (!$('#cpPreview').checked || !CP.plan){ el.textContent = $('#cpPreview').checked ? '計算を待っています…' : ''; return; }
-  const t = player().currentTime, k = cpKeepAt(t);
-  let c = 0;
-  if (k.inside >= 0) c = CP.cum[k.inside] + t - CP.keeps[k.inside][0];
-  else if (k.next < CP.keeps.length) c = CP.cum[k.next];
-  else c = CP.plan.keptSec;
-  el.textContent = `カット後 ${fmtT(c)} / ${fmtT(CP.plan.keptSec)}`;
-}
-let cpRaf = 0;
-function cpLoop(){ cpRaf = 0; cpSkip(); cpShowTime(); if (!player().paused && $('#cpPreview').checked) cpRaf = requestAnimationFrame(cpLoop); }
-function cpPreviewChanged(){
-  const on = $('#cpPreview').checked;
-  $('#cutViewPill').hidden = !on;
-  if (on){ CP.wanted = true; if (!CP.plan) schedulePlan(0); }
-  if (on && !player().paused && !cpRaf) cpRaf = requestAnimationFrame(cpLoop);
-  cpShowTime();
-}
-$('#cpPreview').addEventListener('change', cpPreviewChanged);
-player().addEventListener('play', () => { if ($('#cpPreview').checked && !cpRaf) cpRaf = requestAnimationFrame(cpLoop); });
-player().addEventListener('seeked', () => { if ($('#cpPreview').checked) cpShowTime(); });
-/* 「カットとパック」の開閉: 人が開閉したときだけ覚える。覚えていなければ、広い画面では開き、狭い画面(1列)では閉じておく(一覧に早く届くように) */
-$('#cutPack').querySelector('summary').addEventListener('click', () => { const next = !$('#cutPack').open; try { localStorage.setItem('tx.fold.cutPack', next ? '1' : '0'); } catch {} });
-function cpDefaultFold(){ $('#cutPack').open = true; }   // E2: 3 パック のタブに移したので、いつも開いておく(E4 で作り直す)
-/* zip でダウンロード(人に送るとき。/api/resolve-package。中身は cut2resolve の pack.py で作る Text+ パックと同じ) */
-$('#resolveExport').addEventListener('click', async () => {
-  if (!S.docId) return toast('先に文字起こしを開いてください');
-  if (!(await saveDoc()) || S.dirty) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
-  const b = $('#resolveExport'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
-  try {
-    const r = await apiBlob('/api/resolve-package', { tid: S.docId, fps: $('#resolveFps').value, size: $('#resolveSize').value });
-    download(await r.blob(), `${safeName(S.doc.title)}-resolve.zip`);
-    const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
-    const handles = r.headers.get('X-Resolve-Handles') === '1' ? '・余白つき素材' : '';
-    toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件${handles})。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
-  } catch (e){ toast('パック(zip)を作れませんでした: ' + e.message, 7000, 'err'); }
-  finally { b.disabled = false; b.textContent = label; }
-});
-['resolveFps', 'resolveSize'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 
 /* ---------- キー操作の手がかり(行の一覧の上。閉じたら覚える) ---------- */
 const KH_KEY = 'tx.keyhint';
@@ -2472,10 +2238,19 @@ function onCutSaved(r){
   S.doc.segments.forEach((g, i) => { const want = set.has(g.id); if (want !== (g.cutState === 'cut')){ if (want) g.cutState = 'cut'; else delete g.cutState; changed.push(i); } });
   const it = S.list.find(x => x.id === S.docId); if (it){ it.hasEdit = true; it.editRev = r.rev; }
   onCutMarks(changed);
-  cpAfterSave();   // サーバーの文書の行の印も合わせてあるので、3 パック のカードの計算をし直せる(E4 で作り直すまでのつなぎ)
+  cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => renderDocBar() }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
+
+/* ---------- 3 パック(pack-tab.js) ---------- */
+/* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */
+function onPacked(id, info){
+  const it = S.list.find(x => x.id === id);
+  if (it){ Object.assign(it, { pack: { textplus: true, updatedAt: info.at }, packRev: info.rev, packAt: info.at, packStale: false }); renderList(); }
+}
+const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

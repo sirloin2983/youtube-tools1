@@ -714,7 +714,7 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
         shutil.copy(os.path.join(HERE, n), tmp)
     for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
         p = os.path.join(HERE, n)

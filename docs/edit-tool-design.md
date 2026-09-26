@@ -235,3 +235,18 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - テスト: `e2e_edit_cut.py`(入口に取り込んだ形。設計の 7 の確かめることを全部 + 波形・長さの変化・動画が見つからない)。既存の e2e・test_backend・test_metrics の写す一覧に `cut.js` を足した
 - 3 パック のタブの仮のカード(E4 で作り直す)は、カットを保存したあとに計算し直す(`onCutSaved` → `cpAfterSave`)
 - まだ(実機で): 60fps の動画を 30fps のプロジェクトに入れたときに Resolve で1フレームずれないか(設計の 9。E4 のパックで確かめる)
+### E4 パック(2026-09-26 Claude Code)
+- 新規 `transcribe-tool/pack-tab.js`(`EditPack.create(host)`)。3 パック のタブを画面イメージ(`edit-3-pack.png`)どおりに作り直し、v0.15.0 の「カットとパック」のカード(app.js の `CP`・約350行)を外した。
+  「選んだ行をカット/残す」は E2 から 1 文字起こし のタブの「まとめて ▾」、「カット後の見え方で再生」は 2 カット のタブのプレビューへ
+- パックを作る: カットを保存(`CUT.commit()`。まだ下書きなら保存して rev を付ける)→ 保存済みの文字起こしを動画の隣に .transcript.json → cut2resolve の `api/build`(`spec.keeps`)→
+  409 は上書きの確認 → 進み具合・中止 → `POST /api/edit/pack`。文字起こしの無い動画は Text+ なし(EDL と元の動画のコピー)で作る(Text+ は字幕が無いと作れないため。画面で知らせる)
+- **「これから作るパック」の字幕の数・注意は、文字起こしのサーバーの `POST /api/edit/preview {"id", "keeps"}`**(設計の「cut2resolve の plan の warnings」の代わり。
+  cut2resolve で見積もると動画の隣に .transcript.json を書き出すことになるため、E3 の下書きと同じく同じ pack.py を一時フォルダで呼ぶ)。とても短い区間(0.5 秒未満)の注意もここから
+- 60fps の元の動画を 30fps(24・25 も)のプロジェクトに入れるときは、置き先の欄に注意を出す(設計の 9。Resolve で1フレームずれないかは**実機で確かめる**。ずれるなら置き先が 30fps のときは2フレームおきに吸い付かせる)
+- 置き先の fps は 30 / 60(24・25・50 は「詳しい設定」)。前回の値は設定の `packFps`・`packSize`(今までと同じ名前)。「詳しい設定」に元の動画の開始タイムコード・タイムラインの開始・リール名・zip・残す区間の保存
+- 前回のパック: 作った記録(`edit.json` の pack)から、いつ・中身のファイル(種類ごと)・フォルダを開く・友人へ.txt を見る(`GET /api/edit/pack-readme`。記録したフォルダに cut-plan.json があるときだけ読む)・パスをコピー。
+  カットの rev か文書の updatedAt が変わっていたら「作り直しが要る」
+- cut2resolve の `api/open-folder` は、cut2resolve が書いた cut-plan.json のあるフォルダ(パック)なら開ける(以前は同じセッションで作ったものだけ。入口を起動し直すと前回のパックを開けなかった)
+- zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり(`edit_keeps_sec`。接している区間は1つにまとめる)
+- テスト: 新規 `e2e_edit_pack.py`、`e2e_ui_mounted.py` の 3c・3d(パックのタブ・作り直しの知らせ・上書きの確認・手順書・zip の区間)、`e2e_ui_handoff.py`(音声だけの文書はパックに使えない理由)、
+  `test_edit.py`(見積もり・手順書・zip・cut-plan)、cut2resolve `test_serve.py`(前回のパックのフォルダを開ける)。`e2e_edit_common.py` はツールのフォルダの直下のファイルを全部写す(.drb の写し忘れがあった)

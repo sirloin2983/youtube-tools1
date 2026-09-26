@@ -830,6 +830,51 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-cut-keys .savest{margin-left:10px}
 #tabCut.tt-cut-disabled .tt-cut-tools,#tabCut.tt-cut-disabled .tt-tl,#tabCut.tt-cut-disabled .tt-cut-prev{opacity:.55}
 @container editor (max-width:900px){.tt-cut-top{grid-template-columns:minmax(0,1fr)}.tt-cut-subs{max-height:260px}}
+
+/* ---------- 3 パック(E4。pack-tab.js) ---------- */
+.tt-pk-off{margin:0 0 12px}
+.tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.tt-pk-card{padding:14px 16px}
+.tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
+.tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f0a70a;color:#fff;font:700 12px/1 var(--mono);flex:none}
+.tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
+.tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
+.tt-pk-p{margin:8px 0 0;line-height:1.6}
+.tt-pk-fpswarn{margin:8px 0 0}
+.tt-pk-item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.tt-pk-item:first-of-type{border-top:0}
+.tt-pk-item b{display:block;font-weight:650}
+.tt-pk-item .hint{display:block;margin-top:2px;line-height:1.5}
+.tt-pk-item input{margin-top:3px}
+.tt-pk-more{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
+.tt-pk-more .fld{margin-top:10px}
+.tt-pk-more .fld>label,.tt-pk-more .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.tt-pk-more .fld>input,.tt-pk-more .fld>select{width:100%}
+.tt-pk-more .fld>.hint{display:block;margin-top:4px;font-size:12px}
+#pkDir{width:100%}
+.tt-pk-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.tt-pk-stats>div{background:var(--panel-2);border-radius:var(--r);padding:12px}
+.tt-pk-stats b{display:block;font-size:22px;font-weight:650;letter-spacing:.02em}
+.tt-pk-stats>div>span{display:block;margin-top:4px;font-size:12.5px;color:var(--ink-3)}
+.tt-pk-map{position:relative;height:22px;margin:12px 0 0;background:var(--panel-2);border-radius:6px;overflow:hidden}
+.tt-pk-map i{position:absolute;top:3px;bottom:3px;background:var(--accent);border-radius:3px}
+.tt-pk-sub{display:flex;align-items:center;gap:8px;margin:14px 0 8px;font-size:13.5px;color:var(--ink-2)}
+.tt-pk-look{display:flex;gap:14px;align-items:flex-start}
+.tt-pk-phone{position:relative;flex:none;width:118px;aspect-ratio:9/16;border-radius:10px;background:linear-gradient(160deg,#2d2f45,#3b3557);overflow:hidden}
+.tt-pk-phone.land{width:180px;aspect-ratio:16/9}
+.tt-pk-phone-cap{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font:800 12px/1.3 "MS Gothic","Yu Gothic",sans-serif;color:#ffe94d;-webkit-text-stroke:.6px #000;text-shadow:0 0 2px #000}
+.tt-pk-looktxt{min-width:0;flex:1}
+.tt-pk-cap{background:#1b1c24;color:#ffe94d;font:700 14px/1.4 "MS Gothic","Yu Gothic",sans-serif;padding:6px 12px;border-radius:6px;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-warn{margin:12px 0 0;padding:8px 12px 8px 28px}
+.tt-pk-warn li{margin:2px 0;line-height:1.5}
+.tt-pk-go{margin-top:14px;gap:10px}
+.tt-pk-dir{margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-file{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.tt-pk-file .mono{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-file .hint{flex:none}
+.tt-pk-lastbtns{margin-top:10px}
+@container editor (max-width:900px){.tt-pk-grid{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
@@ -1071,7 +1116,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <!-- 映像と再生の道具。1列の画面(狭い画面)では、ここだけを画面の上に固定する(一覧に早く届くように) -->
       <div class="tt-player">
         <video id="player" controls preload="metadata" playsinline></video>
-        <span class="tt-cutview-pill pill info" id="cutViewPill" hidden title="「カットとパック」の「カット後の見え方で再生」がオンです(カット済の区間を飛ばします)">カット後の見え方で再生中</span>
         <p class="hint" id="playerMsg" hidden></p>
         <div class="tools tools-play" role="group" aria-label="再生">
           <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
@@ -1226,36 +1270,71 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <p class="hint tt-cut-keys">キー: Space 再生・停止 ・ J K L(戻る・止める・再生) ・ ← → 1フレーム(Shift で1秒) ・ S 分割 ・ Del 削る/戻す ・ I O X ・ <kbd>,</kbd> <kbd>.</kbd> 選んだ端を1フレーム ・ Ctrl+Z / Ctrl+Shift+Z ・ + − ズーム <span class="savest" id="cutSaveSt" role="status"></span></p>
    </section>
    <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
-    <!-- v0.15.0(案A): カットとパック。計算とパック作りは cut2resolve の API(pack.py)を呼ぶ。文字起こし側に Resolve 用の計算は書かない -->
-    <details class="card tt-cutpack" id="cutPack" open>
-        <summary><span id="cpTitle">カットとパック</span><span class="tt-cp-sum" id="cpSum"></span></summary>
-        <div class="tt-cp-body">
-          <p class="tt-cp-stats" id="cpStats" aria-live="polite"></p>
-          <div class="notice tt-cp-off" id="cpOff" hidden></div>
-          <div class="row tt-cp-row">
-            <label class="lag" title="カット済の行の区間を飛ばして再生します(Resolve で仮編集したときの見え方)。行の ▶ はいつもどおりその行だけ再生します"><input type="checkbox" id="cpPreview">カット後の見え方で再生</label>
-            <span class="hint mono" id="cpCutTime"></span>
-          </div>
-          <div class="row tt-cp-row">
-            <label class="lag"><span><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル(Text+)で作る字幕。パックに入るスクリプトが Resolve の中で作ります">Text+</abbr> の <abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は動画自身の fps で数えるので、ずれません)">fps</abbr></span> <select id="resolveFps" style="width:auto"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
-            <label class="lag">画面の大きさ <select id="resolveSize" style="width:auto"><option value="1080x1920" selected>縦 1080×1920</option><option value="1920x1080">横 1920×1080</option></select></label>
-          </div>
-          <div class="row tt-cp-row"><button type="button" class="btn primary" id="cpBuild">パックを作る</button><span class="hint" id="cpBuildHint"></span></div>
-          <div class="tt-cp-job" id="cpJob" hidden role="status" aria-live="polite"></div>
-          <div class="tt-handoff" id="cpResult" hidden role="status"></div>
-          <details class="ui-disclosure tt-cp-more" id="cpMore"><summary>詳しい設定</summary>
-            <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
-              <div class="row"><button type="button" class="btn small" id="resolveExport">zip でダウンロード</button></div>
-              <span class="hint">中身は上の「パックを作る」と同じ(動画・Text+ 字幕を作るスクリプト・手順書「友人へ.txt」・予備の <abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)を1つの zip にしてダウンロードします。入口から開いていなくても使えます。fps と画面の大きさは上の設定を使います。</span></div>
-            <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
-              <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="「カット済」でない行の時間を「残す区間」として保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
-              <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
-            <div class="fld"><span class="l">cut2resolve で細かく調整する</span>
-              <div class="row" id="cpC2R"><span class="hint">カット後の長さを計算すると、動画と文字起こしを入れた状態の cut2resolve を開けます</span></div></div>
-          </details>
-        </div>
-    </details>
-
+     <!-- 3 パック(docs/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps) -->
+     <div class="notice tt-pk-off" id="pkOff" hidden role="status"></div>
+     <div class="tt-pk-grid">
+       <div class="tt-pk-col">
+         <div class="card tt-pk-card">
+           <h3 class="tt-pk-h"><span class="tt-pk-n">1</span>置き先のプロジェクト(Resolve で作るもの)</h3>
+           <div class="tt-pk-row"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
+             <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
+           <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
+             <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
+           <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦にする作業(映像の切り抜き)は Resolve で行います。</p>
+           <p class="notice tt-pk-fpswarn" id="pkFpsWarn" hidden></p>
+         </div>
+         <div class="card tt-pk-card">
+           <h3 class="tt-pk-h"><span class="tt-pk-n">2</span>パックに入れるもの</h3>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(登録用の .bat つき)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b>元の動画のコピー</b><span class="hint">スタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・カット後の字幕(<abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)・友人へ.txt・カットの記録</b><span class="hint">いつも入ります(予備と手順書)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
+           <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しい設定(タイムコード・リール名・zip など)</summary>
+             <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><label for="pkFpsOther">その他のフレームレート(置き先)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
+             <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
+               <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
+               <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。入口から開いていなくても使えます。</span></div>
+             <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
+               <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画の隣に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
+               <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
+           </details>
+         </div>
+         <div class="card tt-pk-card">
+           <h3 class="tt-pk-h"><span class="tt-pk-n">3</span>出力先</h3>
+           <input id="pkDir" type="text" autocomplete="off" spellcheck="false" aria-label="出力先のフォルダ" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
+           <p class="hint tt-pk-p">空欄なら動画の隣の「&lt;動画名&gt;_pack」。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</p>
+         </div>
+       </div>
+       <div class="tt-pk-col">
+         <div class="card tt-pk-card">
+           <h3 class="tt-pk-h"><span class="tt-pk-n">4</span>これから作るパック</h3>
+           <div class="tt-pk-stats">
+             <div><b class="mono" id="pkLen">–</b><span>カット後の長さ(元 <span class="mono" id="pkSrcLen"></span>)</span></div>
+             <div><b class="mono" id="pkCount">–</b><span>残す区間</span></div>
+             <div><b class="mono" id="pkCaps">–</b><span id="pkCapsL">Text+ 字幕</span></div>
+           </div>
+           <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
+           <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
+           <div class="tt-pk-sub"><span class="tt-pk-n">5</span>字幕の見た目(固定: MS ゴシック・黄色・黒ふち)</div>
+           <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap" id="pkPhoneCap"></span></div>
+             <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
+           <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
+           <div class="row tt-pk-go"><span class="tt-pk-n">6</span><button type="button" class="btn primary" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
+           <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
+           <div class="notice err" id="pkErr" hidden role="alert"></div>
+         </div>
+         <div class="card tt-pk-card" id="pkLast" hidden>
+           <h3 class="tt-pk-h"><span class="tt-pk-n">7</span><span class="pill ok" id="pkLastPill">前回のパック</span> <span class="hint" id="pkLastWhen"></span></h3>
+           <p class="mono hint tt-pk-dir" id="pkLastDir"></p>
+           <div id="pkLastFiles"></div>
+           <div class="row tt-pk-lastbtns"><button type="button" class="btn small" id="pkOpen">フォルダを開く</button><button type="button" class="btn small" id="pkReadme">友人へ.txt を見る</button><button type="button" class="btn small" id="pkCopy">パスをコピー</button></div>
+           <pre class="tt-cp-readme" id="pkReadmeText" hidden></pre>
+         </div>
+       </div>
+     </div>
    </section>
   </div>
 </main>
@@ -1299,6 +1378,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
 
 <script src="cut.js"></script>
+<script src="pack-tab.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

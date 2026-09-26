@@ -748,3 +748,19 @@
   ページのスクロールバーの出入りで倍率がずれる(いずれもテストで見つけて直した)
 - 未完了・次: E4 パック(keeps でパック・上書きの確認・中止・前回のパック・作り直しの知らせ)。3 パック のタブは今は仮のカード(行の印から作る)
 - 注意: 行の「カット済」の規則は serve.py の `edit_cut_flags` と cut.js の `rowCutFlags` の2か所(変えるときは両方と test_edit)。新しい .js を足したら既存の e2e の写す一覧にも足す
+
+## 2026-09-26 Claude Code — 「編集」E4 パックのタブ(カットのとおりのパック・見積もり・前回のパック・作り直しの知らせ)
+- 変更(文字起こし `transcribe-tool/`): 新規 `pack-tab.js`(置き先の fps・大きさ・入れるもの・出力先・これから作るパック(長さ・区間・Text+ 字幕の数・略図)・字幕の見本・作る前の注意・
+  パックを作る(cut2resolve の api/build に spec.keeps)・上書きの確認・進み具合と中止・前回のパック(中身・フォルダを開く・友人へ.txt・パスをコピー)・作り直しの知らせ・zip)、
+  `index.html`(3 パック のタブを作り直し・「カットとパック」のカードと映像の「カット後の見え方」の印を外した)、`app.js`(`CP` を外して cut2resolve の呼び出し・書き出し・上書きの確認だけ残した・
+  pack-tab.js の起動・一覧の「パック済み」を更新)、`cut.js`(`commit()`・`fps()`・`refresh()`)、`serve.py`(`POST /api/edit/preview`・`GET /api/edit/pack-readme`・zip と cut-plan をカットのとおりに)、
+  `resolve_export.py`(`edit_preview`・`create_package(keeps=)`)
+- 変更(cut2resolve): `serve.py`(`is_pack_dir`: cut2resolve の cut-plan.json のあるフォルダは「フォルダを開く」で開ける)、`test_serve.py`
+- テスト: 新規 `e2e_edit_pack.py`、`e2e_ui_mounted.py`・`e2e_ui_handoff.py`・`e2e_edit_tabs.py` をパックのタブに合わせた、`test_edit.py` に見積もり・手順書・zip・cut-plan、`e2e_edit_common.py`(直下のファイルを全部写す)、
+  既存の e2e の写す一覧に `pack-tab.js`。PC で通過: 文字起こしの e2e 10本・単体 118(skip 1)・cut2resolve 225(skip 14)・契約 25・app/test_mount・ui-kit の写し・ytt_core
+- 決定・理由(設計書の「11」の E4): 見積もりは文字起こしのサーバーで pack.py を一時フォルダで呼ぶ(開いただけで動画の隣にファイルを作らないため。規則は pack.py の1か所)。
+  文字起こしの無い動画は Text+ なしのパック。zip と「残す区間の保存」もカットのとおり。前回のパックのフォルダは入口を起動し直しても開ける
+- **既存機能の変更(確認してほしい)**: v0.15.0 の校正画面の「カットとパック」のカードは無くなった(中身は 2 カット・3 パック のタブへ。設計の 3 のとおり)。
+  「cut2resolve で開く」のリンク(カードの詳しい設定の中)は無くした(cut2resolve の画面は E5 で「編集」へ転送する予定のため)
+- 実機で確かめてほしいこと: 60fps の元の動画を 30fps のプロジェクトに入れたとき、Resolve で区間の端が1フレームずれないか(パックのタブに注意を出している。設計の 9)
+- 未完了・次: E5 入口・ほか(入口のカード・ui-kit の一覧・cut2resolve の画面の転送・「編集で開く」・まとめて実行の文言)

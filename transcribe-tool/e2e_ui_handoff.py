@@ -24,6 +24,7 @@ import urllib.request
 from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(HERE), "cut2resolve"))   # 単体で動かすサーバーが pack.py(カットの下書き・見積もり・zip)を見つけられるように
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
 
 
@@ -63,7 +64,7 @@ def clip_json(media, title, url, start=1234.5, end=1279.7):
 
 def main():
     tmp = tempfile.mkdtemp()
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
         shutil.copy(os.path.join(HERE, n), tmp)
     for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
         p = os.path.join(HERE, n)
@@ -357,22 +358,27 @@ def main():
 
             # ==================== 9) v0.15.0 の見直し(単体で開いたとき): カットとパック・キー操作・履歴の一覧・狭い画面の引き出し ====================
             check(pg.inner_text("#btnKeys").strip() == "キー操作" and pg.is_hidden("[data-ui-home]"), "ヘッダーのボタン名は「キー操作」・入口へのリンクは入口の外では出ない")
-            check(pg.inner_text("#cpOff").find("入口(start-all.bat)から開いたとき") >= 0 and pg.is_disabled("#cpBuild") and pg.is_disabled("#cpPreview"),
-                  "単体で開いたときは「カットとパック」のパック作りは使えず、理由(入口から開いたときだけ)が出る: " + pg.inner_text("#cpOff"))
-            check("残す" in pg.inner_text("#cpStats") and "カット 0行" in pg.inner_text("#cpStats"), "行の数(残す・カット)は単体でも出る: " + pg.inner_text("#cpStats"))
+            pg.click("[data-edtab=pack]")   # 「編集」E4: パックは 3 パック のタブ(この文書は音声だけ(wav)なので、カットとパックには使えない)
+            pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('音声だけ')", timeout=15000)
+            check(pg.is_disabled("#pkBuild"), "音声だけのファイルは、パックのタブに理由を出して作れなくする: " + pg.inner_text("#pkOff"))
+            pg.click("[data-edtab=tx]")
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
             pg.click("#moreTools summary")   # 「編集」E2: 選んだ行のカット/残すは 1 文字起こし のタブの「まとめて ▾」の中
-            pg.wait_for_function("!document.querySelector('#cutSelected').disabled", timeout=3000)   # 「カットとパック」の表示はフレームごとにまとめて描き直す
+            pg.wait_for_function("!document.querySelector('#cutSelected').disabled", timeout=3000)   # 表示はフレームごとにまとめて描き直す
             check(pg.is_enabled("#cutSelected"), "行をチェックで選ぶと「選んだ行をカット」が使える")
             pg.click("#cutSelected")
-            pg.wait_for_function("document.querySelector('#cpStats').textContent.includes('カット 1行')", timeout=3000)
-            check(pg.locator("#segs .seg.cut").count() == 1 and "カット 1行" in pg.inner_text("#cpStats"), "「選んだ行をカット」で、その行がカット済になる")
+            pg.wait_for_function("document.querySelectorAll('#segs .seg.cut').length === 1", timeout=5000)
+            pg.wait_for_function("document.querySelector('#pillCut').textContent.includes('約0:08.00')", timeout=5000)   # 題名の行はフレームごとに描き直す
+            check("約0:08.00" in pg.inner_text("#pillCut"), "カットの使えない文書では、以前どおり行の印だけを変える(題名の行の札は目安): " + pg.inner_text("#pillCut"))
             pg.click("#keepSelected")
-            check(pg.locator("#segs .seg.cut").count() == 0, "「選んだ行を残す」で戻る")
+            pg.wait_for_function("document.querySelectorAll('#segs .seg.cut').length === 0", timeout=5000)
+            check(True, "「選んだ行を残す」で戻る")
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
             open_doc("動画のない文書")
-            pg.wait_for_function("!document.querySelector('#cpOff').hidden", timeout=5000)
-            check("元の動画が見つかりません" in pg.inner_text("#cpOff"), "動画が見つからない文書では、その理由を出す: " + pg.inner_text("#cpOff"))
+            pg.click("[data-edtab=pack]")
+            pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('見つかりません')", timeout=10000)
+            check(pg.is_disabled("#pkBuild"), "動画が見つからない文書では、パックのタブに理由を出す: " + pg.inner_text("#pkOff"))
+            pg.click("[data-edtab=tx]")
             pg.click("[data-side-tab=files]")
             pg.fill("#txSearch", "動画のない文書")
             check("動画なし" in pg.inner_text("#txList .txi.cur"), "履歴の一覧の行にも「動画なし」の札が出る")
