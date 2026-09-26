@@ -11,11 +11,22 @@ if not exist "%CSC%" (
 )
 if not exist build mkdir build
 
-rem A running copy locks build\HoloColors.exe: ask it to quit first.
-if exist build\HoloColors.exe (
-  build\HoloColors.exe --quit
-  ping -n 2 127.0.0.1 >nul
-)
+rem A running copy locks the exe: ask it to quit first (it uses the normal data folder), and wait until it is gone.
+tasklist /FI "IMAGENAME eq HoloColors.exe" 2>nul | find /I "HoloColors.exe" >nul
+if errorlevel 1 goto quit_done
+echo HoloColors is running. Quitting it to replace the exe - start it again after the build.
+set "QUITTER=build\HoloColors.exe"
+if not exist "%QUITTER%" set "QUITTER=dist\HoloColors\HoloColors.exe"
+if exist "%QUITTER%" "%QUITTER%" --quit
+set /a WAITS=0
+:wait_quit
+tasklist /FI "IMAGENAME eq HoloColors.exe" 2>nul | find /I "HoloColors.exe" >nul
+if errorlevel 1 goto quit_done
+set /a WAITS+=1
+if %WAITS% geq 10 goto quit_done
+ping -n 2 127.0.0.1 >nul
+goto wait_quit
+:quit_done
 
 set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll"
 echo [1/4] HoloColors.exe

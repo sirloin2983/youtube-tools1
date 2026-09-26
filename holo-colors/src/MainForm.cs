@@ -14,7 +14,7 @@ namespace HoloColors
         readonly TextBox search = new TextBox();
         readonly FlowLayoutPanel chips = new FlowLayoutPanel();
         readonly PaletteView view = new PaletteView();
-        readonly Label status = new Label();
+        readonly Panel status = new Panel();   // 色の見本 + 文字(Paint で描く。Text にも入れる = テストが読む)
         readonly CheckBox closeAfter = new CheckBox();
         readonly Button addButton = new Button();
         readonly Button settingsButton = new Button();
@@ -22,26 +22,29 @@ namespace HoloColors
         readonly Dictionary<string, RadioButton> chipByFilter = new Dictionary<string, RadioButton>();
         string filter = "ALL";
         bool loading;
+        string statusHex;          // コピーした色(見本を出す)。null ならヒントか知らせだけ
+        bool statusError, statusHint = true;
+        Font statusFont, statusBold;
 
         public MainForm(AppController app)
         {
             this.app = app;
             Text = AppInfo.Name;
-            Font = new Font("Yu Gothic UI", 9f);
-            AutoScaleMode = AutoScaleMode.Font;
+            Font = Ui.Normal;
+            AutoScaleMode = AutoScaleMode.None;   // 大きさは Ui.Px で DPI に合わせる
             FormBorderStyle = FormBorderStyle.SizableToolWindow;
             ShowInTaskbar = false;
-            TopMost = true;
+            // いつも一番手前にはしない(閉じない設定のとき、ほかのアプリの上に残り続けるため)。設定で選べる
             StartPosition = FormStartPosition.Manual;
             KeyPreview = true;
             BackColor = Color.FromArgb(247, 247, 249);
-            MinimumSize = new Size(320, 300);
-            Icon = AppIcon.Load(SystemInformation.SmallIconSize);
+            MinimumSize = Ui.Px(380, 320);   // 下の段のボタンが切れない幅
+            Icon = Ui.SmallIcon;
 
             // 上: 検索欄と絞り込みの札
             var top = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(10, 10, 10, 2), BackColor = Color.White };
             search.Dock = DockStyle.Fill;
-            search.Font = new Font(Font.FontFamily, 11f);
+            search.Font = Ui.Search;
             search.Margin = new Padding(0, 0, 0, 6);
             search.TextChanged += (s, e) => Refill(false);
             search.KeyDown += SearchKeyDown;
@@ -61,14 +64,15 @@ namespace HoloColors
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             status.Dock = DockStyle.Fill;
-            status.TextAlign = ContentAlignment.MiddleLeft;
-            status.AutoEllipsis = true;
-            status.ForeColor = Color.FromArgb(80, 80, 92);
-            status.UseMnemonic = false;
+            status.Height = Ui.Px(24);
+            status.Margin = new Padding(0, 0, 0, 4);
+            status.Paint += PaintStatus;
+            statusFont = Font;
+            statusBold = new Font(Font, FontStyle.Bold);
             closeAfter.Text = "コピーしたら閉じる";
             closeAfter.AutoSize = true;
             closeAfter.Anchor = AnchorStyles.Left;
-            closeAfter.Margin = new Padding(8, 5, 8, 3);
+            closeAfter.Margin = new Padding(0, 5, 8, 3);
             closeAfter.CheckedChanged += (s, e) => { if (!loading) app.SetCloseAfterCopy(closeAfter.Checked); };
             addButton.Text = "＋ 色を追加";
             addButton.AutoSize = true;
@@ -76,10 +80,12 @@ namespace HoloColors
             settingsButton.Text = "設定";
             settingsButton.AutoSize = true;
             settingsButton.Click += (s, e) => app.OpenSettings(this);
+            // 1段目: 知らせ(横いっぱい。長い名前やヒントが切れないように)、2段目: コピーしたら閉じる・追加・設定
             bottom.Controls.Add(status, 0, 0);
-            bottom.Controls.Add(closeAfter, 1, 0);
-            bottom.Controls.Add(addButton, 2, 0);
-            bottom.Controls.Add(settingsButton, 3, 0);
+            bottom.SetColumnSpan(status, 4);
+            bottom.Controls.Add(closeAfter, 0, 1);
+            bottom.Controls.Add(addButton, 2, 1);
+            bottom.Controls.Add(settingsButton, 3, 1);
 
             view.Dock = DockStyle.Fill;
             view.Font = Font;
@@ -123,6 +129,8 @@ namespace HoloColors
             };
             rb.FlatAppearance.BorderColor = Color.FromArgb(210, 210, 218);
             rb.FlatAppearance.CheckedBackColor = Color.FromArgb(40, 40, 48);
+            // 選んである札をもう一度押したとき(CheckedChanged が来ない)も、検索欄へ戻す
+            rb.Click += (s, e) => search.Focus();
             rb.CheckedChanged += (s, e) =>
             {
                 rb.ForeColor = rb.Checked ? Color.White : Color.FromArgb(40, 40, 48);
@@ -154,6 +162,7 @@ namespace HoloColors
         public void Refill(bool keepSelection)
         {
             string q = search.Text;
+            view.ShowSelection = q.Trim().Length > 0;
             var visible = new List<ColorGroup>();
             foreach (var g in app.AllGroups())
             {
@@ -173,17 +182,66 @@ namespace HoloColors
             loading = true;
             closeAfter.Checked = s.CloseAfterCopy;
             loading = false;
+            TopMost = s.AlwaysOnTop;
+            if (statusHint) ShowHint();
         }
 
+        // 下の段の知らせ。hex を渡すと色の見本を付ける
         public void SetStatus(string text, bool error)
         {
+            SetStatus(text, error, null);
+        }
+
+        public void SetStatus(string text, bool error, string hex)
+        {
+            statusHint = false;
+            statusError = error;
+            statusHex = hex;
             status.Text = text;
-            status.ForeColor = error ? Color.FromArgb(190, 30, 30) : Color.FromArgb(80, 80, 92);
+            status.Invalidate();
+        }
+
+        // 何も起きていないときの操作のヒント(薄い字)
+        public void ShowHint()
+        {
+            string problem = app.TakeProblem();
+            if (problem != null)
+            {
+                SetStatus(problem, true);
+                return;
+            }
+            statusHint = true;
+            statusError = false;
+            statusHex = null;
+            string key = app.HotkeyText.Replace(" + ", "+");
+            status.Text = app.FirstRun
+                ? "× で閉じても右下の通知領域で待っています。" + key + " でまた開きます"
+                : key + " で開閉 ・ 右クリックでメニュー";
+            status.Invalidate();
+        }
+
+        void PaintStatus(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            float k = Ui.Scale;
+            int x = 0, h = status.ClientSize.Height;
+            if (statusHex != null)
+            {
+                int sw = (int)(14 * k);
+                var r = new Rectangle(0, (h - sw) / 2, sw, sw);
+                using (var b = new SolidBrush(HexColor.ToColor(statusHex))) g.FillRectangle(b, r);
+                using (var p = new Pen(Color.FromArgb(60, 0, 0, 0))) g.DrawRectangle(p, r);
+                x = sw + (int)(6 * k);
+            }
+            Color c = statusError ? Color.FromArgb(190, 30, 30) : statusHint ? Color.FromArgb(135, 135, 148) : Color.FromArgb(30, 30, 40);
+            TextRenderer.DrawText(g, status.Text, statusHex != null ? statusBold : statusFont, new Rectangle(x, 0, status.ClientSize.Width - x, h), c,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
         }
 
         // 呼び出されたとき: 検索を空にして一番上から
         public void ResetView()
         {
+            ShowHint();
             search.Text = "";
             Refill(false);
             view.AutoScrollPosition = Point.Empty;
@@ -219,7 +277,13 @@ namespace HoloColors
         {
             if (keyData == Keys.Escape)
             {
-                app.HideMain(true);
+                // 検索の文字があれば、まず消す(もう一度 Esc で閉じる)
+                if (search.TextLength > 0)
+                {
+                    search.Text = "";
+                    search.Focus();
+                }
+                else app.HideMain(true);
                 return true;
             }
             if (keyData == (Keys.Control | Keys.F) || keyData == (Keys.Control | Keys.L))
@@ -256,12 +320,21 @@ namespace HoloColors
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // × は隠すだけ(アプリは通知領域に残る)。終わるのは通知領域のメニューか設定から
-            if (e.CloseReason == CloseReason.UserClosing && !app.Quitting)
+            // × は隠すだけ(アプリは通知領域に残る)。終わるのは通知領域のメニューか設定から。
+            // Windows の終了・タスク マネージャーならアプリごと終わる。ほかのプログラムから閉じられても隠すだけ
+            // (窓だけ破棄されると、通知領域に残ったアプリがキーを押すたびにエラーになる)
+            if (!app.Quitting)
             {
-                e.Cancel = true;
-                app.HideMain(true);
-                return;
+                if (e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing)
+                {
+                    app.QuitAfterClose();   // 閉じるのは止めない(Windows の終了を妨げない)
+                }
+                else
+                {
+                    e.Cancel = true;
+                    app.HideMain(true);
+                    return;
+                }
             }
             base.OnFormClosing(e);
         }

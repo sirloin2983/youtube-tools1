@@ -8,11 +8,45 @@ using System.Windows.Forms;
 
 namespace HoloColors
 {
+    // 画面で共通に使うフォント・アイコン・大きさ(開くたびに作って捨てないように1つを使い回す)。
+    // DPI はシステムの値(app.manifest で dpiAware = システムに合わせる)。Control.DeviceDpi は .NET 4.7 からなので使わない
+    public static class Ui
+    {
+        public static readonly Font Normal = new Font("Yu Gothic UI", 9f);
+        public static readonly Font Search = new Font("Yu Gothic UI", 11f);
+        public static readonly Font Mono = new Font("Consolas", 10f);
+        public static readonly Font Toast = new Font("Yu Gothic UI", 9.5f);
+        public static readonly float Scale = SystemScale();
+        static Icon small;
+
+        static float SystemScale()
+        {
+            using (var g = Graphics.FromHwnd(IntPtr.Zero)) return g.DpiX / 96f;
+        }
+
+        // 96 DPI での大きさ → この画面での大きさ
+        public static int Px(int v)
+        {
+            return (int)Math.Round(v * Scale);
+        }
+
+        public static Size Px(int w, int h)
+        {
+            return new Size(Px(w), Px(h));
+        }
+
+        public static Icon SmallIcon
+        {
+            get { return small ?? (small = AppIcon.Load(SystemInformation.SmallIconSize)); }
+        }
+    }
+
     // 押したキーの組み合わせをそのまま受け取る欄。フォーカスがある間は、今の呼び出しのキーを外しておく(同じキーを押しても受け取れるように)
     public class HotkeyBox : TextBox
     {
         public int Mods, Key;
         public event Action Captured;
+        public event Action<string> Rejected;   // 使えない組み合わせを押した(理由)。欄の表示は今のキーのまま
 
         public HotkeyBox()
         {
@@ -60,10 +94,24 @@ namespace HoloColors
                 Text = Hotkey.Format(mods, 0) + " + …";
                 return;
             }
-            if (e.KeyCode == Keys.Escape && mods == 0 || e.KeyCode == Keys.Tab && mods == 0)
+            // キーボードだけでも欄から出られるように: Tab / Shift+Tab / Enter で移る、Esc は入力をやめる(もう一度で閉じる)
+            if ((e.KeyCode == Keys.Tab && (mods == 0 || mods == Hotkey.MOD_SHIFT)) || (e.KeyCode == Keys.Return && mods == 0))
             {
                 Text = Hotkey.Format(Mods, Key);
-                if (e.KeyCode == Keys.Tab) Parent.SelectNextControl(this, true, true, true, true);
+                Parent.SelectNextControl(this, mods != Hotkey.MOD_SHIFT, true, true, true);
+                return;
+            }
+            if (e.KeyCode == Keys.Escape && mods == 0)
+            {
+                if (Text == Hotkey.Format(Mods, Key)) { var f = FindForm(); if (f != null) f.Close(); }
+                else Text = Hotkey.Format(Mods, Key);
+                return;
+            }
+            string problem = Hotkey.Problem(mods, vk);
+            if (problem != null)
+            {
+                Text = Hotkey.Format(Mods, Key);
+                if (Rejected != null) Rejected(problem);
                 return;
             }
             Mods = mods;
@@ -91,24 +139,25 @@ namespace HoloColors
         readonly Label hotkeyNote = new Label();
         readonly CheckBox closeAfter = new CheckBox();
         readonly CheckBox includeHash = new CheckBox();
+        readonly CheckBox onTop = new CheckBox();
         readonly CheckBox autostart = new CheckBox();
         readonly Label autostartNote = new Label();
+        readonly LinkLabel fixAutostart = new LinkLabel();
         bool loading;
 
         public SettingsForm(AppController app)
         {
             this.app = app;
             Text = AppInfo.Name + " の設定";
-            Font = new Font("Yu Gothic UI", 9f);
-            AutoScaleMode = AutoScaleMode.Font;
+            Font = Ui.Normal;
+            AutoScaleMode = AutoScaleMode.None;   // 大きさは Ui.Px で DPI に合わせる
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             ShowInTaskbar = false;
-            TopMost = true;
             StartPosition = FormStartPosition.CenterScreen;
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Icon = AppIcon.Load(SystemInformation.SmallIconSize);
+            Icon = Ui.SmallIcon;
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -116,10 +165,11 @@ namespace HoloColors
 
             t.Controls.Add(new Label { Text = "呼び出すキー", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
             var hk = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-            hotkey.Width = 190;
-            hotkey.Enter += (s, e) => { app.SuspendHotkey(); hotkeyNote.Text = "組み合わせを押してください(Esc でやめる)"; hotkeyNote.ForeColor = Color.FromArgb(80, 80, 92); };
+            hotkey.Width = Ui.Px(200);
+            hotkey.Enter += (s, e) => { app.SuspendHotkey(); hotkeyNote.Text = "使いたい組み合わせを押してください(Esc でやめる)"; hotkeyNote.ForeColor = Color.FromArgb(80, 80, 92); };
             hotkey.Leave += (s, e) => { app.ResumeHotkey(); ShowHotkeyState(); };
             hotkey.Captured += OnHotkeyCaptured;
+            hotkey.Rejected += msg => { hotkeyNote.Text = msg + "。別の組み合わせを押してください"; hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30); };
             var reset = new Button { Text = "元に戻す", AutoSize = true };
             reset.Click += (s, e) =>
             {
@@ -130,7 +180,7 @@ namespace HoloColors
             hk.Controls.Add(reset);
             t.Controls.Add(hk, 1, 0);
             hotkeyNote.AutoSize = true;
-            hotkeyNote.MaximumSize = new Size(330, 0);
+            hotkeyNote.MaximumSize = new Size(Ui.Px(380), 0);
             hotkeyNote.Margin = new Padding(3, 2, 0, 10);
             t.Controls.Add(hotkeyNote, 1, 1);
 
@@ -144,20 +194,30 @@ namespace HoloColors
             includeHash.CheckedChanged += (s, e) => { if (!loading) app.SetIncludeHash(includeHash.Checked); };
             t.Controls.Add(includeHash, 1, 3);
 
+            onTop.Text = "一覧をいつも一番手前に表示する(外すと、ほかのアプリを押せば後ろへ回る)";
+            onTop.AutoSize = true;
+            onTop.CheckedChanged += (s, e) => { if (!loading) app.SetAlwaysOnTop(onTop.Checked); };
+            t.Controls.Add(onTop, 1, 4);
+
             autostart.Text = "Windows にサインインしたら裏で起動しておく";
             autostart.AutoSize = true;
             autostart.Margin = new Padding(3, 10, 3, 0);
-            autostart.CheckedChanged += (s, e) => { if (!loading) OnAutostart(); };
-            t.Controls.Add(autostart, 1, 4);
+            autostart.CheckedChanged += (s, e) => { if (!loading) SetAutostart(autostart.Checked); };
+            t.Controls.Add(autostart, 1, 5);
             autostartNote.AutoSize = true;
-            autostartNote.MaximumSize = new Size(330, 0);
+            autostartNote.MaximumSize = new Size(Ui.Px(380), 0);
             autostartNote.ForeColor = Color.FromArgb(110, 110, 120);
             autostartNote.Margin = new Padding(20, 0, 0, 8);
-            t.Controls.Add(autostartNote, 1, 5);
+            t.Controls.Add(autostartNote, 1, 6);
+            fixAutostart.Text = "この HoloColors.exe に付け直す";
+            fixAutostart.AutoSize = true;
+            fixAutostart.Margin = new Padding(20, 0, 0, 8);
+            fixAutostart.LinkClicked += (s, e) => { autostart.Checked = true; SetAutostart(true); };
+            t.Controls.Add(fixAutostart, 1, 7);
 
             var data = new LinkLabel { Text = "作業データのフォルダを開く(自分で足した色・設定)", AutoSize = true, Margin = new Padding(3, 10, 3, 0) };
             data.LinkClicked += (s, e) => OpenFolder(app.Store.Dir);
-            t.Controls.Add(data, 1, 6);
+            t.Controls.Add(data, 1, 8);
             var info = new Label
             {
                 Text = "メンバーの色: " + app.PaletteSummary + "\n版 " + AppInfo.Version,
@@ -165,7 +225,7 @@ namespace HoloColors
                 ForeColor = Color.FromArgb(110, 110, 120),
                 Margin = new Padding(3, 8, 3, 8),
             };
-            t.Controls.Add(info, 1, 7);
+            t.Controls.Add(info, 1, 9);
 
             var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 0) };
             var close = new Button { Text = "閉じる", AutoSize = true, DialogResult = DialogResult.OK };
@@ -173,7 +233,7 @@ namespace HoloColors
             quit.Click += (s, e) => { Close(); app.Quit(); };
             buttons.Controls.Add(close);
             buttons.Controls.Add(quit);
-            t.Controls.Add(buttons, 0, 8);
+            t.Controls.Add(buttons, 0, 10);
             t.SetColumnSpan(buttons, 2);
             Controls.Add(t);
             AcceptButton = close;
@@ -183,6 +243,7 @@ namespace HoloColors
             hotkey.SetValue(app.Store.Settings.HotkeyMods, app.Store.Settings.HotkeyKey);
             closeAfter.Checked = app.Store.Settings.CloseAfterCopy;
             includeHash.Checked = app.Store.Settings.IncludeHash;
+            onTop.Checked = app.Store.Settings.AlwaysOnTop;
             autostart.Checked = app.Autostart.Enabled;
             loading = false;
             ShowHotkeyState();
@@ -195,12 +256,33 @@ namespace HoloColors
             ActiveControl = closeAfter;   // 開いた直後に呼び出しのキーの欄へ入らないように
         }
 
+        // 欄にフォーカスがあるまま他のアプリへ移ったり、スタートメニューが開いたりしても、呼び出しのキーを外したままにしない
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            if (hotkey.Focused) app.SuspendHotkey();
+        }
+
+        protected override void OnDeactivate(EventArgs e)
+        {
+            base.OnDeactivate(e);
+            app.ResumeHotkey();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            app.ResumeHotkey();
+            base.OnFormClosed(e);
+        }
+
         void OnHotkeyCaptured()
         {
-            if (!Hotkey.IsValid(hotkey.Mods, hotkey.Key))
+            string problem = Hotkey.Problem(hotkey.Mods, hotkey.Key);
+            if (problem != null)
             {
-                hotkeyNote.Text = "Ctrl・Alt・Win のどれかと一緒に押してください(F1〜F12 などは単独でも可)";
+                hotkeyNote.Text = problem;
                 hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30);
+                hotkey.SetValue(app.Store.Settings.HotkeyMods, app.Store.Settings.HotkeyKey);
                 return;
             }
             string err = app.ChangeHotkey(hotkey.Mods, hotkey.Key);
@@ -229,11 +311,11 @@ namespace HoloColors
             }
         }
 
-        void OnAutostart()
+        void SetAutostart(bool on)
         {
             try
             {
-                app.Autostart.Set(autostart.Checked);
+                app.Autostart.Set(on);
             }
             catch (Exception ex)
             {
@@ -248,8 +330,18 @@ namespace HoloColors
 
         void ShowAutostartState()
         {
-            if (app.Autostart.PointsElsewhere)
-                autostartNote.Text = "登録は別の場所の HoloColors.exe を指しています(フォルダを動かしたとき)。いったん外して付け直すと、この exe になります";
+            fixAutostart.Visible = false;
+            if (app.RunningFromTemp)
+            {
+                // zip を開いたまま起動した exe は一時フォルダにあり、あとで消える
+                autostart.Enabled = false;
+                autostartNote.Text = "zip の中から直接起動しているので使えません。zip を右クリック →「すべて展開」したフォルダの HoloColors.exe から起動してください";
+            }
+            else if (app.Autostart.PointsElsewhere)
+            {
+                autostartNote.Text = "登録は別の場所の HoloColors.exe を指しています(フォルダを動かしたとき)";
+                fixAutostart.Visible = true;
+            }
             else if (app.Autostart.Enabled)
                 autostartNote.Text = "次からは起動の操作は要りません。やめるときはここを外します";
             else
@@ -281,27 +373,27 @@ namespace HoloColors
         public EditColorForm(string title, string initialName, string initialHex)
         {
             Text = title;
-            Font = new Font("Yu Gothic UI", 9f);
-            AutoScaleMode = AutoScaleMode.Font;
+            Font = Ui.Normal;
+            AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             ShowInTaskbar = false;
-            TopMost = true;
             StartPosition = FormStartPosition.CenterParent;
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, Padding = new Padding(14), Dock = DockStyle.Fill };
             t.Controls.Add(new Label { Text = "名前", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
-            name.Width = 220;
+            name.Width = Ui.Px(240);
+            name.TextChanged += (s, e) => UpdatePreview();
             name.MaxLength = Store.MaxName;
             name.Text = initialName ?? "";
             t.Controls.Add(name, 1, 0);
             t.SetColumnSpan(name, 2);
 
             t.Controls.Add(new Label { Text = "カラーコード", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 1);
-            hex.Width = 110;
-            hex.Font = new Font("Consolas", 10f);
+            hex.Width = Ui.Px(120);
+            hex.Font = Ui.Mono;
             hex.Text = initialHex ?? "";
             hex.TextChanged += (s, e) => UpdatePreview();
             t.Controls.Add(hex, 1, 1);
@@ -309,7 +401,7 @@ namespace HoloColors
             pick.Click += (s, e) => PickColor();
             t.Controls.Add(pick, 2, 1);
 
-            preview.Size = new Size(220, 34);
+            preview.Size = Ui.Px(240, 34);
             preview.Margin = new Padding(3, 8, 3, 4);
             preview.Paint += PaintPreview;
             t.Controls.Add(preview, 1, 2);
@@ -317,7 +409,7 @@ namespace HoloColors
 
             error.AutoSize = true;
             error.ForeColor = Color.FromArgb(190, 30, 30);
-            error.MaximumSize = new Size(320, 0);
+            error.MaximumSize = new Size(Ui.Px(340), 0);
             t.Controls.Add(error, 0, 3);
             t.SetColumnSpan(error, 3);
 
@@ -332,7 +424,7 @@ namespace HoloColors
             Controls.Add(t);
             AcceptButton = ok;
             CancelButton = cancel;
-            Icon = AppIcon.Load(SystemInformation.SmallIconSize);
+            Icon = Ui.SmallIcon;
         }
 
         public TextBox NameBox { get { return name; } }
@@ -407,7 +499,7 @@ namespace HoloColors
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            Font = new Font("Yu Gothic UI", 9.5f);
+            Font = Ui.Toast;
             BackColor = Color.FromArgb(34, 34, 40);
             timer.Tick += (s, e) => { timer.Stop(); Hide(); };
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
@@ -430,7 +522,7 @@ namespace HoloColors
             message = text;
             swatch = HexColor.ToColor(hex);
             Size sz = TextRenderer.MeasureText(text, Font);
-            int pad = (int)(8 * DeviceDpi / 96f), sw = (int)(16 * DeviceDpi / 96f);
+            int pad = Ui.Px(8), sw = Ui.Px(16);
             Size = new Size(sz.Width + sw + pad * 3, Math.Max(sz.Height, sw) + pad * 2);
             Point p = Cursor.Position;
             Rectangle wa = Screen.FromPoint(p).WorkingArea;
@@ -444,7 +536,7 @@ namespace HoloColors
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            int pad = (int)(8 * DeviceDpi / 96f), sw = (int)(16 * DeviceDpi / 96f);
+            int pad = Ui.Px(8), sw = Ui.Px(16);
             var r = new Rectangle(pad, (Height - sw) / 2, sw, sw);
             using (var b = new SolidBrush(swatch)) e.Graphics.FillRectangle(b, r);
             using (var p = new Pen(Color.FromArgb(120, 255, 255, 255))) e.Graphics.DrawRectangle(p, r);

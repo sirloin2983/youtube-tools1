@@ -18,7 +18,10 @@ namespace HoloColors
 
         class Header
         {
-            public string Text;
+            public string Pill;     // 区分の小さな札(JP・EN など)。マイカラー・卒業は無し
+            public string Name;
+            public int Count;
+            public string Unit;     // 人 / 色
             public Rectangle Rect;
         }
 
@@ -32,7 +35,11 @@ namespace HoloColors
         int selected = -1, hover = -1;
         float scale = 1f;
         readonly ToolTip tip = new ToolTip { InitialDelay = 600, ReshowDelay = 200 };
-        Font nameFont, hexFont, headerFont, emptyFont;
+        Font nameFont, hexFont, headerFont, emptyFont, pillFont, countFont;
+        // 選んでいる札の枠を出すか。検索の文字を打ったか、矢印キーを使ったときだけ(開いた直後に先頭だけ枠があると迷うため)
+        public bool ShowSelection;
+        ColorEntry flashEntry;   // 「コピーしました」を重ねて出している札(閉じない設定のとき)
+        readonly Timer flashTimer = new Timer { Interval = 1100 };
 
         public PaletteView()
         {
@@ -43,6 +50,7 @@ namespace HoloColors
             AutoScroll = true;
             BackColor = Color.FromArgb(247, 247, 249);
             TabStop = false;
+            flashTimer.Tick += (s, e) => { flashTimer.Stop(); flashEntry = null; Invalidate(); };
         }
 
         public IList<Tile> Tiles { get { return tiles; } }
@@ -64,11 +72,20 @@ namespace HoloColors
         void MakeFonts()
         {
             using (var g = CreateGraphics()) scale = g.DpiX / 96f;
+            DisposeFonts();
             string family = Font.FontFamily.Name;
             nameFont = new Font(family, 9.5f, FontStyle.Bold);
             hexFont = new Font("Consolas", 9f);
-            headerFont = new Font(family, 9f, FontStyle.Bold);
+            headerFont = new Font(family, 10f, FontStyle.Bold);
             emptyFont = new Font(family, 10f);
+            pillFont = new Font(family, 7.5f, FontStyle.Bold);
+            countFont = new Font(family, 9f);
+        }
+
+        void DisposeFonts()
+        {
+            foreach (var f in new[] { nameFont, hexFont, headerFont, emptyFont, pillFont, countFont })
+                if (f != null) f.Dispose();
         }
 
         int S(float v) { return (int)Math.Round(v * scale); }
@@ -107,7 +124,8 @@ namespace HoloColors
             foreach (var g in groups)
             {
                 if (g.Items.Count == 0) continue;
-                headers.Add(new Header { Text = g.Label + "  (" + g.Items.Count + ")", Rect = new Rectangle(pad, y, width - 2 * pad, headH) });
+                bool pill = g.Branch != "MY" && g.Branch != "GRAD";
+                headers.Add(new Header { Pill = pill ? Branches.Short(g.Branch) : null, Name = g.Name, Count = g.Items.Count, Unit = g.Branch == "MY" ? " 色" : " 人", Rect = new Rectangle(pad, y, width - 2 * pad, headH) });
                 y += headH;
                 for (int i = 0; i < g.Items.Count; i++)
                 {
@@ -144,9 +162,9 @@ namespace HoloColors
             }
             foreach (var h in headers)
             {
-                var r = new Rectangle(h.Rect.X + S(2) + off.X, h.Rect.Y + S(8) + off.Y, h.Rect.Width, h.Rect.Height - S(8));
-                if (r.IntersectsWith(e.ClipRectangle))
-                    TextRenderer.DrawText(g, h.Text, headerFont, r, Color.FromArgb(90, 90, 105), TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                var r = h.Rect;
+                r.Offset(off);
+                if (r.IntersectsWith(e.ClipRectangle)) DrawHeader(g, h, r);
             }
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -154,8 +172,47 @@ namespace HoloColors
                 r.Offset(off);
                 // 見えていない札は描かない(選択の枠の分だけ広めに判定)
                 if (Rectangle.Inflate(r, S(4), S(4)).IntersectsWith(e.ClipRectangle))
-                    DrawTile(g, tiles[i].Entry, r, i == selected, i == hover);
+                    DrawTile(g, tiles[i].Entry, r, i == selected && ShowSelection, i == hover);
             }
+        }
+
+        // 見出し: [JP] 0期生 5人 ────  (r は画面の座標)
+        void DrawHeader(Graphics g, Header h, Rectangle r)
+        {
+            const TextFormatFlags F = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            var band = new Rectangle(r.X, r.Y + S(6), r.Width, r.Height - S(6));
+            int x = band.X;
+            if (h.Pill != null)
+            {
+                Size ps = TextRenderer.MeasureText(g, h.Pill, pillFont, Size.Empty, F);
+                var pr = new Rectangle(x, band.Y + (band.Height - S(16)) / 2, ps.Width + S(10), S(16));
+                using (var path = RoundRect(pr, S(8)))
+                using (var b = new SolidBrush(Color.FromArgb(228, 228, 236))) g.FillPath(b, path);
+                TextRenderer.DrawText(g, h.Pill, pillFont, pr, Color.FromArgb(70, 70, 86), F | TextFormatFlags.HorizontalCenter);
+                x = pr.Right + S(6);
+            }
+            Size ns = TextRenderer.MeasureText(g, h.Name, headerFont, Size.Empty, F);
+            TextRenderer.DrawText(g, h.Name, headerFont, new Rectangle(x, band.Y, Math.Max(0, band.Right - x), band.Height), Color.FromArgb(40, 40, 52), F | TextFormatFlags.EndEllipsis);
+            x += ns.Width + S(6);
+            string count = h.Count + h.Unit;
+            Size cs = TextRenderer.MeasureText(g, count, countFont, Size.Empty, F);
+            if (x + cs.Width < band.Right)
+            {
+                TextRenderer.DrawText(g, count, countFont, new Rectangle(x, band.Y, cs.Width + S(2), band.Height), Color.FromArgb(140, 140, 152), F);
+                x += cs.Width + S(10);
+            }
+            if (x < band.Right)
+                using (var pen = new Pen(Color.FromArgb(222, 222, 230)))
+                    g.DrawLine(pen, x, band.Y + band.Height / 2, band.Right, band.Y + band.Height / 2);
+        }
+
+        // 閉じない設定でコピーしたとき、押した札に少しのあいだ「コピーしました」を重ねる
+        public void FlashCopied(ColorEntry e)
+        {
+            flashEntry = e;
+            flashTimer.Stop();
+            flashTimer.Start();
+            Invalidate();
         }
 
         // r は画面(スクロール済み)の座標
@@ -178,6 +235,13 @@ namespace HoloColors
                 using (var path = RoundRect(ring, radius + S(3)))
                 using (var pen = new Pen(isSelected ? Color.FromArgb(30, 30, 36) : Color.FromArgb(150, 150, 160), isSelected ? S(2) : 1.5f))
                     g.DrawPath(pen, path);
+            }
+            if (entry == flashEntry)
+            {
+                // 札の色はそのまま、名前の代わりに「コピーしました」
+                TextRenderer.DrawText(g, "✓ コピーしました", nameFont, r, fg,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                return;
             }
             var text = new Rectangle(r.X + S(10), r.Y + S(4), r.Width - S(16), r.Height / 2);
             TextRenderer.DrawText(g, entry.Name, nameFont, text, fg, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
@@ -282,6 +346,14 @@ namespace HoloColors
         public void MoveSelection(Keys key)
         {
             if (tiles.Count == 0) return;
+            if (!ShowSelection)
+            {
+                // 初めての矢印は、いま選んでいる札に枠を出すだけ
+                ShowSelection = true;
+                if (selected < 0) selected = 0;
+                EnsureVisible();
+                return;
+            }
             if (selected < 0) { selected = 0; EnsureVisible(); return; }
             Rectangle cur = tiles[selected].Rect;
             int next = selected;
@@ -327,7 +399,12 @@ namespace HoloColors
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) tip.Dispose();
+            if (disposing)
+            {
+                tip.Dispose();
+                flashTimer.Dispose();
+                DisposeFonts();
+            }
             base.Dispose(disposing);
         }
     }

@@ -127,7 +127,10 @@ namespace HoloColors
         readonly NotifyIcon tray = new NotifyIcon();
         readonly MainForm main;
         readonly Toast toast = new Toast();
-        IntPtr previous = IntPtr.Zero;   // 一覧を出す前に前面だった窓(閉じたら戻す)
+        IntPtr previous = IntPtr.Zero;
+        bool hiding;                     // 自分で隠している最中(そのときの Deactivate では戻る先を変えない)
+        public bool FirstRun;            // 初めての起動(下の段に「× で閉じても通知領域で待っています」)
+        public bool RunningFromTemp;     // zip を開いたまま一時フォルダの exe を起動している   // 一覧を出す前に前面だった窓(閉じたら戻す)
         Form modal;                      // 開いている設定・追加の画面
         bool suspended;
         string paletteError;
@@ -147,11 +150,16 @@ namespace HoloColors
             catch (Exception ex)
             {
                 if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
-                paletteError = AppInfo.MembersFile + " が読めません(" + ex.Message + ")。HoloColors.exe と同じフォルダに置いてください";
+                paletteError = RunningFromTemp
+                    ? "メンバーの色が読めません。zip を右クリック →「すべて展開」してから、展開したフォルダの HoloColors.exe を起動してください"
+                    : AppInfo.MembersFile + " が読めません(" + ex.Message + ")。HoloColors.exe と同じフォルダに置いてください";
                 Log.Write("members: " + ex);
             }
 
+            RunningFromTemp = IsUnder(exeDir, Path.GetTempPath());
+            FirstRun = !Store.Settings.Welcomed;
             main = new MainForm(this);
+            main.Deactivate += (s, e) => OnMainDeactivate();
             // 窓を先に作っておく(見せるまで作らないと、最初にキーを押したときの表示が遅れる。中の部品も仮の窓ではなくこの窓に作られる)
             IntPtr created = main.Handle;
             main.ApplySettings(Store.Settings);
@@ -167,7 +175,7 @@ namespace HoloColors
             messages.QuitRequested += Quit;
             RegisterHotkey();
 
-            tray.Icon = AppIcon.Load(SystemInformation.SmallIconSize);
+            tray.Icon = Ui.SmallIcon;
             var menu = new ContextMenuStrip();
             menu.Items.Add("一覧を開く", null, (s, e) => ShowMain(IntPtr.Zero));
             menu.Items.Add("設定…", null, (s, e) => OpenSettings(null));
@@ -180,8 +188,8 @@ namespace HoloColors
             tray.Visible = true;
 
             foreach (string w in Store.Warnings) Log.Write("warning: " + w);
-            if (paletteError != null) main.SetStatus(paletteError, true);
-            else if (Store.Warnings.Count > 0) main.SetStatus(Store.Warnings[0], true);
+            pendingWarning = Store.Warnings.Count > 0 ? Store.Warnings[0] : null;
+            main.ShowHint();
 
             if (opt.Screenshot != null)
             {
@@ -204,8 +212,31 @@ namespace HoloColors
 
         Size ScaleSize(Size s)
         {
-            float k = main.DeviceDpi / 96f;
+            float k = Ui.Scale;
             return new Size((int)(s.Width * k), (int)(s.Height * k));
+        }
+
+        // 下の段に出し続ける問題(ヒントの代わりに赤で出す)。作業データの警告は一度だけ
+        string pendingWarning;
+
+        public string TakeProblem()
+        {
+            if (paletteError != null) return paletteError;
+            if (messages != null && !messages.Registered && !suspended)
+                return HotkeyText + " は他のアプリが使っていて登録できませんでした。「設定」で別のキーにしてください";
+            string w = pendingWarning;
+            pendingWarning = null;
+            return w;
+        }
+
+        static bool IsUnder(string dir, string parent)
+        {
+            try
+            {
+                string d = Path.GetFullPath(dir).TrimEnd('\\') + "\\", p = Path.GetFullPath(parent).TrimEnd('\\') + "\\";
+                return d.StartsWith(p, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
         }
 
         public string HotkeyText { get { return Hotkey.Format(Store.Settings.HotkeyMods, Store.Settings.HotkeyKey); } }
@@ -252,14 +283,17 @@ namespace HoloColors
             return "「" + Hotkey.Format(mods, vk) + "」は他のアプリ(または Windows)が使っていて登録できません。別の組み合わせにしてください";
         }
 
+        // 設定の画面のキーの欄にいる間だけ外す。何度呼んでもよい(欄を離れる・画面が後ろへ回る・閉じる のどれでも戻す)
         public void SuspendHotkey()
         {
+            if (suspended) return;
             suspended = true;
             messages.Unregister();
         }
 
         public void ResumeHotkey()
         {
+            if (!suspended) return;
             suspended = false;
             RegisterHotkey();
         }
@@ -285,8 +319,17 @@ namespace HoloColors
             ShowMain(foreground);
         }
 
+        // 一覧を開いたまま別のアプリへ移ったら、戻る先をそのアプリにする(コピー後に古い窓へ戻らないように)
+        void OnMainDeactivate()
+        {
+            if (hiding || !main.Visible) return;
+            IntPtr fg = Native.GetForegroundWindow();
+            if (fg != IntPtr.Zero && !IsOurs(fg)) previous = fg;
+        }
+
         void ToggleFromTray()
         {
+            if (modal != null && modal.Visible) { modal.Activate(); return; }
             if (main.Visible) HideMain(false);
             else ShowMain(IntPtr.Zero);
         }
@@ -321,7 +364,7 @@ namespace HoloColors
             Size s = main.Size;
             s = new Size(Math.Min(s.Width, wa.Width), Math.Min(s.Height, wa.Height));
             main.Size = s;
-            int x = p.X - s.Width / 2, y = p.Y - (int)(40 * main.DeviceDpi / 96f);
+            int x = p.X - s.Width / 2, y = p.Y - Ui.Px(40);
             x = Math.Max(wa.Left, Math.Min(x, wa.Right - s.Width));
             y = Math.Max(wa.Top, Math.Min(y, wa.Bottom - s.Height));
             main.Location = new Point(x, y);
@@ -332,7 +375,9 @@ namespace HoloColors
         {
             if (!main.Visible) return;
             bool wasActive = Native.GetForegroundWindow() == main.Handle;
-            main.Hide();
+            hiding = true;
+            try { main.Hide(); }
+            finally { hiding = false; }
             if (restoreFocus && wasActive && previous != IntPtr.Zero && Native.IsWindow(previous) && Native.IsWindowVisible(previous))
                 Native.SetForegroundWindow(previous);
         }
@@ -357,18 +402,26 @@ namespace HoloColors
                 main.SetStatus("コピーできませんでした(他のアプリがクリップボードを使っています)。もう一度押してください", true);
                 return;
             }
-            main.SetStatus("コピーしました: " + text + "  " + e.Name, false);
+            main.SetStatus("コピーしました: " + text + "  " + e.Name, false, e.Hex);
             if (Store.Settings.CloseAfterCopy && main.Visible)
             {
                 HideMain(true);
                 toast.Flash(text + " をコピーしました(" + e.Name + ")", e.Hex);
             }
+            else main.View.FlashCopied(e);   // 開いたままなら、押した札に「コピーしました」を少し出す
         }
 
         // ---- 設定 ----
         public void SetCloseAfterCopy(bool on)
         {
             Store.Settings.CloseAfterCopy = on;
+            main.ApplySettings(Store.Settings);
+            SaveSettings();
+        }
+
+        public void SetAlwaysOnTop(bool on)
+        {
+            Store.Settings.AlwaysOnTop = on;
             main.ApplySettings(Store.Settings);
             SaveSettings();
         }
@@ -416,7 +469,9 @@ namespace HoloColors
                 try { f.ShowDialog(owner); }
                 finally { modal = null; }
             }
-            if (!Quitting && main.Visible) main.Activate();
+            if (Quitting) return;
+            main.ShowHint();   // キーを変えたときのヒントの表示・登録できなかった知らせを新しく
+            if (main.Visible) main.Activate();
         }
 
         // ---- マイカラー ----
@@ -433,7 +488,7 @@ namespace HoloColors
             if (main.Filter != "ALL" && main.Filter != "MY") main.SetFilter("MY", true);
             main.SearchBox.Text = "";
             main.Refill(false);
-            main.SetStatus("マイカラーに追加しました: " + added.Name + "  " + added.Hex, false);
+            main.SetStatus("マイカラーに追加しました: " + added.Name + "  " + added.Hex, false, added.Hex);
         }
 
         public void EditColor(IWin32Window owner, ColorEntry e)
@@ -443,7 +498,7 @@ namespace HoloColors
             try { Store.Update(e, r1, r2); }
             catch (Exception ex) { SaveFailed(ex); return; }
             main.Refill(true);
-            main.SetStatus("保存しました: " + e.Name + "  " + e.Hex, false);
+            main.SetStatus("保存しました: " + e.Name + "  " + e.Hex, false, e.Hex);
         }
 
         public void RemoveColor(IWin32Window owner, ColorEntry e)
@@ -488,6 +543,18 @@ namespace HoloColors
         }
 
         // ---- 終わる ----
+        // 一覧の窓が外から閉じられているとき(Windows の終了など)。閉じている最中なので main.Close は呼ばず、あとで抜ける
+        public void QuitAfterClose()
+        {
+            if (Quitting) return;
+            Quitting = true;
+            tray.Visible = false;
+            messages.Unregister();
+            var ctx = System.Threading.SynchronizationContext.Current;
+            if (ctx != null) ctx.Post(_ => ExitThread(), null);
+            else ExitThread();
+        }
+
         public void Quit()
         {
             if (Quitting) return;
@@ -511,9 +578,14 @@ namespace HoloColors
                 }
                 Directory.CreateDirectory(target);
                 Shot(main, Path.Combine(target, "main.png"));
-                main.View.AutoScrollPosition = new Point(0, (int)(430 * main.DeviceDpi / 96f));
+                main.View.AutoScrollPosition = new Point(0, Ui.Px(430));
                 Shot(main, Path.Combine(target, "scrolled.png"));
                 main.View.AutoScrollPosition = Point.Empty;
+                var first = main.View.Tiles[1].Entry;
+                main.SetStatus("コピーしました: " + CopyText(first) + "  " + first.Name, false, first.Hex);
+                main.View.FlashCopied(first);
+                Shot(main, Path.Combine(target, "copied-open.png"));
+                main.ShowHint();
                 main.SearchBox.Text = "ぺこ";
                 Shot(main, Path.Combine(target, "search.png"));
                 main.SearchBox.Text = "";

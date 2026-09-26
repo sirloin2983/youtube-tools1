@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.0.1";
+        public const string Version = "1.1.0";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }
@@ -180,12 +180,32 @@ namespace HoloColors
             return vk >= (int)Keys.F1 && vk <= (int)Keys.F24;
         }
 
-        // Ctrl・Alt・Win のどれかが要る(Shift + 文字だけだと、ふつうの入力が打てなくなる)。F1〜F24 は単独でも可
+        // 使えない理由(null なら使える)。呼び出しのキーはどのアプリより先に取るので、
+        // Ctrl・Alt・Win のどれかを必ず付け(F キー単独や Shift + 文字だと、ふつうの操作や入力を奪う)、
+        // Windows やアプリでいつも使う組み合わせ(Alt+F4・Ctrl+V など)も断る
+        public static string Problem(int mods, int vk)
+        {
+            if (vk <= 0 || vk > 254 || IsModifierKey(vk) || (mods & ~(MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_WIN)) != 0)
+                return "この組み合わせは使えません";
+            if ((mods & (MOD_CONTROL | MOD_ALT | MOD_WIN)) == 0)
+                return "Ctrl・Alt・Win のどれかと一緒に押してください";
+            Keys k = (Keys)vk;
+            bool ctrlOnly = mods == MOD_CONTROL, altOnly = mods == MOD_ALT;
+            if (altOnly && (k == Keys.F4 || k == Keys.Tab || k == Keys.Space || k == Keys.Escape || k == Keys.Return))
+                return "「" + Format(mods, vk) + "」は Windows が使う組み合わせです(窓を閉じる・切り替えるなど)";
+            if ((mods & MOD_CONTROL) != 0 && k == Keys.Escape)
+                return "「" + Format(mods, vk) + "」は Windows が使う組み合わせです(スタート・タスク マネージャー)";
+            if (mods == (MOD_CONTROL | MOD_ALT) && k == Keys.Delete)
+                return "「" + Format(mods, vk) + "」は Windows が使う組み合わせです";
+            if (ctrlOnly && (k == Keys.A || k == Keys.C || k == Keys.V || k == Keys.X || k == Keys.Z || k == Keys.Y || k == Keys.S
+                || k == Keys.F || k == Keys.P || k == Keys.N || k == Keys.O || k == Keys.W || k == Keys.T || k == Keys.Tab || k == Keys.F4))
+                return "「" + Format(mods, vk) + "」はほかのアプリでいつも使う組み合わせ(コピー・貼り付け・保存など)です";
+            return null;
+        }
+
         public static bool IsValid(int mods, int vk)
         {
-            if (vk <= 0 || vk > 254 || IsModifierKey(vk)) return false;
-            if ((mods & ~(MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_WIN)) != 0) return false;
-            return (mods & (MOD_CONTROL | MOD_ALT | MOD_WIN)) != 0 || IsFunctionKey(vk);
+            return Problem(mods, vk) == null;
         }
 
         public static string KeyName(int vk)
@@ -454,6 +474,7 @@ namespace HoloColors
         public int WindowHeight;
         public string Filter = "ALL";
         public bool Welcomed;      // 初めての起動の案内を出したか
+        public bool AlwaysOnTop;   // 一覧をいつも一番手前に(既定は外す。キーで呼んだときは外していても前に出る)
 
         public IDictionary<string, object> ToJson()
         {
@@ -468,6 +489,7 @@ namespace HoloColors
                 { "windowHeight", WindowHeight },
                 { "filter", Filter },
                 { "welcomed", Welcomed },
+                { "alwaysOnTop", AlwaysOnTop },
             };
         }
 
@@ -484,6 +506,7 @@ namespace HoloColors
             string f = Json.Str(d, "filter");
             s.Filter = f != null && Array.IndexOf(Branches.Filters, f) >= 0 ? f : "ALL";
             s.Welcomed = Json.Bool(d, "welcomed", false);
+            s.AlwaysOnTop = Json.Bool(d, "alwaysOnTop", false);
             return s;
         }
     }
@@ -496,6 +519,8 @@ namespace HoloColors
         public Settings Settings = new Settings();
         public readonly ColorGroup Mine = new ColorGroup { Id = "my", Branch = "MY", Name = "マイカラー" };
         public readonly List<string> Warnings = new List<string>();
+        // 読めなかった(ほかのソフトがつかんでいた・権限が無い)ファイルは、上書きして消さないように保存を止める
+        bool settingsLocked, colorsLocked;
 
         public Store(string dir)
         {
@@ -509,9 +534,9 @@ namespace HoloColors
         {
             Settings = new Settings();
             Mine.Items.Clear();
-            var s = ReadJson(SettingsPath);
+            var s = ReadJson(SettingsPath, out settingsLocked);
             if (s != null) Settings = Settings.FromJson(s);
-            var c = ReadJson(ColorsPath);
+            var c = ReadJson(ColorsPath, out colorsLocked);
             foreach (var m in Json.List(c, "colors"))
             {
                 string hex, name = (Json.Str(m, "name") ?? "").Trim();
@@ -522,29 +547,57 @@ namespace HoloColors
             }
         }
 
-        IDictionary<string, object> ReadJson(string path)
+        // 読めないときは null。locked = ファイルはあるが開けなかった・取っておけなかった(このときは保存しない)
+        IDictionary<string, object> ReadJson(string path, out bool locked)
         {
+            locked = false;
             if (!File.Exists(path)) return null;
+            string text = null;
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    text = File.ReadAllText(path, Encoding.UTF8);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                    // ウイルス対策・同期ソフトが一瞬つかんでいることがあるので、少し待って読み直す
+                    if (attempt < 3) { System.Threading.Thread.Sleep(150 << attempt); continue; }
+                    locked = true;
+                    Warnings.Add(Path.GetFileName(path) + " を開けませんでした(" + ex.Message + ")。消さないように、このファイルへの保存を止めています。アプリを起動し直してください");
+                    return null;
+                }
+            }
             try
             {
-                return Json.Parse(File.ReadAllText(path, Encoding.UTF8));
+                return Json.Parse(text);
             }
             catch (Exception ex)
             {
-                if (!(ex is ArgumentException || ex is FormatException || ex is InvalidOperationException || ex is IOException)) throw;
-                string aside = ex is IOException ? null : Files.SetAside(path);
-                Warnings.Add(Path.GetFileName(path) + " が読めなかったので、初めの状態で始めました" + (aside != null ? "(元のファイルは " + Path.GetFileName(aside) + " に残しました)" : ""));
+                if (!(ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)) throw;
+                string aside = Files.SetAside(path);
+                if (aside == null)
+                {
+                    locked = true;
+                    Warnings.Add(Path.GetFileName(path) + " が壊れていて、取っておくこともできませんでした。消さないように、このファイルへの保存を止めています");
+                    return null;
+                }
+                Warnings.Add(Path.GetFileName(path) + " が読めなかったので、初めの状態で始めました(元のファイルは " + Path.GetFileName(aside) + " に残しました)");
                 return null;
             }
         }
 
         public void SaveSettings()
         {
+            if (settingsLocked) throw new IOException("settings.json が開けなかったので、上書きしないように保存を止めています");
             Files.WriteAtomic(SettingsPath, Json.Pretty(Settings.ToJson()));
         }
 
         public void SaveColors()
         {
+            if (colorsLocked) throw new IOException("my-colors.json が開けなかったので、上書きしないように保存を止めています");
             var list = Mine.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "hex", e.Hex } }).ToList();
             Files.WriteAtomic(ColorsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "colors", list } }));
         }
@@ -579,7 +632,8 @@ namespace HoloColors
             if (err != null) throw new ArgumentException(err);
             var e = MakeEntry(NewId(), name.Trim(), hex);
             Mine.Items.Add(e);
-            SaveColors();
+            try { SaveColors(); }
+            catch { Mine.Items.Remove(e); throw; }   // 保存できなければ、画面にも残さない
             return e;
         }
 
@@ -588,15 +642,27 @@ namespace HoloColors
             string hex;
             string err = Validate(name, hexText, out hex);
             if (err != null) throw new ArgumentException(err);
+            string oldName = e.Name, oldHex = e.Hex;
             e.Name = name.Trim();
             e.Hex = hex;
             e.SearchKey = SearchText.SearchKey(e);
-            SaveColors();
+            try { SaveColors(); }
+            catch
+            {
+                e.Name = oldName;
+                e.Hex = oldHex;
+                e.SearchKey = SearchText.SearchKey(e);
+                throw;
+            }
         }
 
         public void Remove(ColorEntry e)
         {
-            if (Mine.Items.Remove(e)) SaveColors();
+            int i = Mine.Items.IndexOf(e);
+            if (i < 0) return;
+            Mine.Items.RemoveAt(i);
+            try { SaveColors(); }
+            catch { Mine.Items.Insert(i, e); throw; }
         }
 
         public bool Move(ColorEntry e, int delta)
@@ -605,7 +671,13 @@ namespace HoloColors
             if (i < 0 || j < 0 || j >= Mine.Items.Count) return false;
             Mine.Items.RemoveAt(i);
             Mine.Items.Insert(j, e);
-            SaveColors();
+            try { SaveColors(); }
+            catch
+            {
+                Mine.Items.RemoveAt(j);
+                Mine.Items.Insert(i, e);
+                throw;
+            }
             return true;
         }
     }

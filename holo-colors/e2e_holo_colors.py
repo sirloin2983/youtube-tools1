@@ -201,6 +201,12 @@ class E2E:
         self.entry.pack(padx=20, pady=30)
         self.pump(0.3)
         self.tk_hwnd = user32.GetAncestor(self.root.winfo_id(), 2)   # GA_ROOT
+        # 2つ目の「前の窓」B(一覧を開いたまま B へ移ってからコピーすると、B へ戻ることを確かめる)
+        self.win_b = tk.Toplevel(self.root)
+        self.win_b.title("e2e: 窓 B")
+        self.win_b.geometry("420x120+60+260")
+        self.pump(0.3)
+        self.b_hwnd = user32.GetAncestor(self.win_b.winfo_id(), 2)
 
     def pump(self, seconds):
         end = time.time() + seconds
@@ -248,19 +254,26 @@ class E2E:
                 self.proc.kill()
                 raise Failure("--quit で終わらない")
 
-    def front_tk(self):
+    def front_tk(self, window=None):
         """テストの窓を前面へ(Windows は、ほかのプロセスが前面を取るのを制限しているので Alt を押して解く)"""
-        self.root.deiconify()
-        self.root.lift()
+        w = window or self.root
+        hwnd = self.b_hwnd if window is self.win_b else self.tk_hwnd
+        w.deiconify()
+        w.lift()
         for attempt in range(5):
-            if user32.GetForegroundWindow() == self.tk_hwnd:
+            if user32.GetForegroundWindow() == hwnd:
                 break
             press(VK["alt"])
-            user32.SetForegroundWindow(self.tk_hwnd)
+            user32.SetForegroundWindow(hwnd)
             self.pump(0.15)
-        self.entry.focus_force()
+        if window is None:
+            self.entry.focus_force()
         self.pump(0.1)
-        return user32.GetForegroundWindow() == self.tk_hwnd
+        return user32.GetForegroundWindow() == hwnd
+
+    def center_cursor(self):
+        """一覧はマウスの近くに出るので、テストの窓(左上)と重ならないように画面の真ん中へ"""
+        user32.SetCursorPos(user32.GetSystemMetrics(0) // 2, user32.GetSystemMetrics(1) // 2)
 
     def guard(self, hwnd, what):
         """キーを送る前に、前面がテストの窓か確かめる(他のアプリに文字や Enter を送らないため)"""
@@ -344,15 +357,28 @@ class E2E:
         self.check(True, "開いているときにキーをもう一度押すと閉じる")
         hotkey()
         self.wait("開く", lambda: self.visible() and user32.GetForegroundWindow() == self.main)
+        self.pump(0.2)
+        self.guard(self.main, "検索の入力")
+        type_text("zzz")
+        self.pump(0.2)
+        self.guard(self.main, "Esc")
+        press(VK["esc"])
+        self.pump(0.4)
+        self.check(self.visible(), "検索の文字があるときの Esc は文字を消すだけ(閉じない)")
         self.guard(self.main, "Esc")
         press(VK["esc"])
         self.wait("Esc で閉じる", lambda: not self.visible())
-        self.check(True, "Esc で閉じる")
+        self.check(True, "もう一度の Esc で閉じる")
 
-        # 札のクリックでコピー(検索は開くたびに空に戻る → 先頭の札は1つ目のグループの1人目)
+        # 札のクリックでコピー(検索は開くたびに空に戻る → 先頭の札は1つ目のグループの1人目)。
+        # 開いたまま窓 B へ移ってから札を押す → コピーしたら、最初の窓ではなく B へ戻る
+        self.center_cursor()
+        have_b = self.front_tk()
         hotkey()
         self.wait("開く", lambda: self.visible() and user32.GetForegroundWindow() == self.main)
         self.pump(0.3)
+        have_b = have_b and self.front_tk(self.win_b)
+        self.check(self.visible(), "ほかの窓へ移っても、一覧は開いたまま")
         pal = self.palette_child()
         k = user32.GetDpiForWindow(self.main) / 96.0
         pt = wintypes.POINT(int(12 * k + 30 * k), int((4 + 28 + 23) * k))
@@ -362,11 +388,15 @@ class E2E:
         user32.WindowFromPoint.restype = wintypes.HWND
         if user32.GetAncestor(user32.WindowFromPoint(pt), 2) != self.main:
             raise Failure("クリックする場所に一覧の窓が無いので止めました")
-        self.guard(self.main, "クリック")
         click(pt.x, pt.y)
         self.wait("クリックで閉じる", lambda: not self.visible())
         first = self.first_member()
         self.check(get_clipboard() == first["hex"].upper(), "札のクリックで色がコピーされる(%s %s)" % (first["name"], first["hex"]))
+        if have_b:
+            self.wait("B へ戻る", lambda: user32.GetForegroundWindow() == self.b_hwnd)
+            self.check(True, "開いたまま移った窓 B へ戻る(呼び出したときの窓ではなく)")
+        else:
+            print("注意: 窓 B を前面にできなかったので、戻る先の確認は飛ばします")
 
         # 2つ目の起動は、動いているほうの一覧を出して終わる
         r = subprocess.run([self.exe, "--data-dir", self.data], timeout=10)
@@ -398,6 +428,11 @@ class E2E:
         self.check(self.visible(), "「コピーしたら閉じる」を外すと開いたまま")
         self.check(get_clipboard() == want, "# を付けない設定では 16 進数だけ(%s)" % want)
         self.check(member["name"] in self.status_text(), "何をコピーしたか下に出る: " + self.status_text())
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        self.check(user32.GetWindowLongW(self.main, -20) & 0x8 == 0, "一覧はいつも一番手前ではない(WS_EX_TOPMOST が無い)")
+        if self.front_tk():
+            self.pump(0.3)
+            self.check(self.visible() and user32.GetForegroundWindow() == self.tk_hwnd, "閉じない設定でも、ほかの窓を押せばそちらが前に来る")
         self.quit()
 
         log = os.path.join(self.data, "holo-colors.log")

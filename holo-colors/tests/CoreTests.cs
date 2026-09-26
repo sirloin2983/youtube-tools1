@@ -28,6 +28,7 @@ static class CoreTests
         Run("作業データ: マイカラーの追加・編集・並べ替え・削除が残る", StoreColors);
         Run("作業データ: 設定が残る・おかしな値は既定に戻す", StoreSettings);
         Run("作業データ: 壊れたファイルは取っておいて初めから", StoreCorrupt);
+        Run("作業データ: 開けなかったファイルは上書きしない・保存の失敗は元に戻す", StoreLocked);
         Run("members.json: 同梱のデータが正しい形", BundledMembers);
         Run("members.json: おかしなデータは読まない", BadMembers);
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
@@ -131,7 +132,14 @@ static class CoreTests
     {
         True(Hotkey.IsValid(Hotkey.MOD_CONTROL | Hotkey.MOD_ALT, (int)Keys.H), "Ctrl+Alt+H");
         True(Hotkey.IsValid(Hotkey.MOD_WIN | Hotkey.MOD_SHIFT, (int)Keys.C), "Win+Shift+C");
-        True(Hotkey.IsValid(0, (int)Keys.F9), "F9 単独");
+        True(!Hotkey.IsValid(0, (int)Keys.F9), "F9 単独は不可(ほかのアプリの F キーを奪う)");
+        True(Hotkey.IsValid(Hotkey.MOD_CONTROL | Hotkey.MOD_ALT, (int)Keys.F9), "Ctrl+Alt+F9");
+        True(!Hotkey.IsValid(Hotkey.MOD_ALT, (int)Keys.F4), "Alt+F4 は不可");
+        True(!Hotkey.IsValid(Hotkey.MOD_ALT, (int)Keys.Tab), "Alt+Tab は不可");
+        True(!Hotkey.IsValid(Hotkey.MOD_CONTROL, (int)Keys.V), "Ctrl+V は不可");
+        True(!Hotkey.IsValid(Hotkey.MOD_CONTROL | Hotkey.MOD_SHIFT, (int)Keys.Escape), "Ctrl+Shift+Esc は不可");
+        True(Hotkey.IsValid(Hotkey.MOD_CONTROL | Hotkey.MOD_SHIFT, (int)Keys.V), "Ctrl+Shift+V は可");
+        True(Hotkey.Problem(Hotkey.MOD_CONTROL, (int)Keys.C).Contains("Ctrl + C"), "断る理由に組み合わせを出す");
         True(!Hotkey.IsValid(Hotkey.MOD_SHIFT, (int)Keys.H), "Shift+H は打てなくなるので不可");
         True(!Hotkey.IsValid(0, (int)Keys.H), "H 単独は不可");
         True(!Hotkey.IsValid(Hotkey.MOD_CONTROL, (int)Keys.ControlKey), "修飾キーだけは不可");
@@ -261,6 +269,46 @@ static class CoreTests
         finally { Directory.Delete(dir, true); }
     }
 
+    static void StoreLocked()
+    {
+        string dir = TempDir();
+        try
+        {
+            var s = new Store(dir);
+            s.Load();
+            s.Add("赤", "#FF0000");
+            s.Settings.HotkeyKey = (int)Keys.J;
+            s.SaveSettings();
+            string before = File.ReadAllText(s.ColorsPath);
+
+            // ほかのソフトがつかんでいる間に起動した → 初めの状態で始めても、元のファイルは上書きしない
+            var s2 = new Store(dir);
+            using (new FileStream(s.ColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                s2.Load();
+            Eq(0, s2.Mine.Items.Count, "読めなかった");
+            True(s2.Warnings.Count == 1 && s2.Warnings[0].Contains("保存を止め"), "知らせる");
+            try { s2.Add("青", "#0000FF"); throw new Exception("保存できてしまった"); }
+            catch (IOException) { }
+            Eq(0, s2.Mine.Items.Count, "保存できなかった追加は残らない");
+            Eq(before, File.ReadAllText(s.ColorsPath), "元のマイカラーはそのまま");
+            s2.SaveSettings();   // 設定は読めているので保存できる
+            Eq((int)Keys.J, new Func<int>(() => { var x = new Store(dir); x.Load(); return x.Settings.HotkeyKey; })(), "設定はそのまま");
+
+            // 保存の途中で失敗したら、削除も元に戻す
+            var s3 = new Store(dir);
+            s3.Load();
+            var red = s3.Mine.Items[0];
+            using (new FileStream(s.ColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                try { s3.Remove(red); throw new Exception("保存できてしまった"); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            Eq(1, s3.Mine.Items.Count, "保存できなかった削除は元に戻す");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     // ---- 同梱のデータ ----
     static void BundledMembers()
     {
@@ -359,6 +407,10 @@ static class CoreTests
             Eq(4, v.HitTest(new Point(r.X + r.Width / 2, r.Y + r.Height / 2)), "札の上のクリック");
             Eq(-1, v.HitTest(new Point(1, 1)), "札の外");
 
+            True(!v.ShowSelection, "開いた直後は選択の枠を出さない");
+            v.MoveSelection(Keys.Right);
+            True(v.ShowSelection, "最初の矢印で枠を出す");
+            Eq(0, v.SelectedIndex, "最初の矢印は枠を出すだけで動かない");
             v.MoveSelection(Keys.Right);
             Eq(1, v.SelectedIndex, "→");
             v.MoveSelection(Keys.Down);
