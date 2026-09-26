@@ -546,5 +546,38 @@ class TestExportApi(Base):
         self.assertEqual(v["marks"][0]["status"], "exported")
 
 
+class TestTranscripts(Base):
+    """GET /api/transcripts: 書き出したマークに、その切り抜きの文字起こし(文字起こしツールのデータ)を元の配信の時刻で返す"""
+    def test_lines_in_source_time(self):
+        vid = self.fsrc["videoId"]
+        st, j, *_ = self.req("PUT", "/api/video", {"id": vid, "marks": [{"id": "tx1", "start": 5, "end": 9, "status": "adopted"},
+                                                                         {"id": "tx2", "start": 20, "end": 30, "status": "adopted"}]})
+        self.assertEqual(st, 200, j)
+        clip = os.path.join(self.tmp, "out", "01_セリフ.mp4")
+        os.makedirs(os.path.dirname(clip), exist_ok=True)
+        with open(clip, "wb") as f:
+            f.write(b"x")
+        self.assertTrue(serve.STORE.mark_exported(vid, "tx1", "01_セリフ.mp4", 5, 9, abspath=clip))
+        txdir = os.path.join(self.tmp, "txdata", "transcripts")
+        os.makedirs(txdir)
+        doc = {"id": "aaaaaaaaaaaa", "title": "セリフ", "sourcePath": clip, "updatedAt": 3, "speakers": [{"id": "S1", "name": "話者1"}],
+               "segments": [{"id": "s1", "start": 0.5, "end": 1.5, "text": "<b>やった</b>", "speaker": "S1", "proofed": True},
+                            {"id": "s2", "start": 2.0, "end": 3.0, "text": "えーと", "cutState": "cut"}]}
+        with open(os.path.join(txdir, "aaaaaaaaaaaa.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+        with patch.dict(os.environ, {"TRANSCRIBE_DATA_DIR": os.path.dirname(txdir)}):
+            st, j, *_ = self.req("GET", "/api/transcripts?id=" + vid)
+            self.assertEqual(st, 200, j)
+            self.assertEqual((j["linked"], list(j["marks"])), (1, ["tx1"]))   # 書き出していないマークは無い
+            t = j["marks"]["tx1"]
+            self.assertEqual((t["id"], t["segments"], t["proofed"], t["offset"], t["offsetFrom"]), ("aaaaaaaaaaaa", 2, 1, 5.0, "mark"))
+            self.assertEqual([(x["start"], x["end"], x["text"], x["speaker"], x["cut"]) for x in t["lines"]],
+                             [(5.5, 6.5, "<b>やった</b>", "話者1", False), (7.0, 8.0, "えーと", "", True)])   # 文字はそのまま(画面が esc する)
+            self.assertEqual(self.req("GET", "/api/transcripts?id=nothere0000")[0], 404)
+        with open(os.path.join(txdir, "aaaaaaaaaaaa.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), doc)   # 文字起こしのデータは書き換えない
+        self.assertEqual(self.req("GET", "/api/transcripts?id=" + vid, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

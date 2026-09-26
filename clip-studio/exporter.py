@@ -19,6 +19,7 @@ import uuid
 import common
 import handoff
 from common import ApiError, VID_RE, find_tool, redact, fmt_ts
+from ytt_core import jobs  # common が ytt_core を読めるようにしてある
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -235,6 +236,7 @@ def job_public(job):
         done = it["status"] == "done"
         return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}
     return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", common.get_out_dir()), "folder": job.get("folder", ""),
+            "waiting": bool(job.get("waiting")),   # 他のツールの重い処理が終わるのを待っている(ytt_core.jobs)
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
                        "warning": it.get("warning", ""), **paths(it)} for it in job["items"]]}
 
@@ -598,6 +600,20 @@ def write_manifests(spec, it, mark_status):
 
 
 def run_job(job, spec, on_done=None):
+    """重い処理の同時実行数の上限(ytt_core.jobs)の順番を待ってから書き出す。待っている間は job["waiting"] が真"""
+    with jobs.SLOTS.slot("studio", "書き出し %d 本" % len(job["items"]), cancelled=lambda: job["cancel"],
+                         on_wait=lambda: job.update(waiting=True)) as ok:
+        job["waiting"] = False
+        if not ok:
+            for it in job["items"]:
+                if it["status"] == "queued":
+                    it["status"] = "cancelled"
+            job["state"] = "cancelled"
+            return
+        _run_job(job, spec, on_done)
+
+
+def _run_job(job, spec, on_done=None):
     try:
         os.makedirs(common.get_out_dir(), exist_ok=True)
         spec["folder"], spec["outDir"] = pick_folder(spec)

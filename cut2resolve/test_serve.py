@@ -234,6 +234,43 @@ class TestPathsAndUploads(ServerBase):
             self.assertEqual(self.c.req("GET", "/media/" + tok)[0], 404, tok)
 
 
+class TestHeavyJobLimit(unittest.TestCase):
+    """パックの作成は、他のツールの重い処理と順番を待つ(ytt_core.jobs)。試算は待たない"""
+
+    def test_build_waits_and_can_be_cancelled(self):
+        from ytt_core import jobs
+        slots = jobs.HeavySlots(1)
+        held = slots.acquire("transcribe")
+        with mock.patch.object(serve._heavy, "SLOTS", slots):
+            app = serve.AppState()
+            ran = []
+            job = app.start_job("build", lambda task: ran.append(1) or {"ok": True})
+            for _ in range(100):
+                if job.message == jobs.WAIT_MESSAGE:
+                    break
+                time.sleep(0.02)
+            self.assertEqual((job.state, job.message, ran), ("running", jobs.WAIT_MESSAGE, []))
+            plan = serve.AppState().start_job("plan", lambda task: "planned")   # 試算は待たない
+            for _ in range(100):
+                if plan.state != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(plan.state, "done")
+            job.task.cancel()
+            for _ in range(200):
+                if job.state != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual((job.state, ran), ("cancelled", []))
+            slots.release(held)
+            job2 = app.start_job("build", lambda task: "built")
+            for _ in range(200):
+                if job2.state != "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual((job2.state, job2.result, job2.message), ("done", "built", ""))
+
+
 class TestSiblings(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

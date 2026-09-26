@@ -39,3 +39,19 @@
   .pt-tool:not(:last-child)::after{top:auto;bottom:-19px;right:auto;left:24px;transform:rotate(135deg)}
 }
 @media (prefers-reduced-motion:reduce){.pt-tool{transition:none}}
+
+/* 案件の画面(app/cases.html) */
+.pt-cs-tools{margin:0 0 8px;gap:10px;flex-wrap:wrap}
+.pt-cs-tools input[type=search]{min-width:200px}
+.pt-case{display:flex;flex-direction:column;gap:8px}
+.pt-case .row{gap:10px;align-items:flex-start}
+.pt-case-title{overflow-wrap:anywhere}
+.pt-clips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pt-clip{padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.pt-clip .row{gap:8px;align-items:center;flex-wrap:wrap}
+.pt-clip-range{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.pt-clip-steps{margin-top:6px}
+.pt-clip-path{margin-top:4px;overflow-wrap:anywhere;font-size:11px}
+.pt-case-memo textarea{width:100%;margin:6px 0}
+.pt-cs-unlinked{margin:8px 0 0;padding-left:18px}
+.pt-cs-link{margin-left:8px}

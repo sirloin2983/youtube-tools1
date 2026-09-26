@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>動画編集ツール — 案件</title>
+<script src="/ui-kit.js"></script>
+<link rel="stylesheet" href="/ui-kit.css">
+<link rel="stylesheet" href="/portal.css">
+<script src="/cases.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <a class="ui-brand" href="/">
+    <span class="ui-brand-mark" data-tool="portal" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg></span>
+    <span>動画編集ツール</span><span class="ui-ver">案件</span>
+  </a>
+  <div class="ui-header-actions">
+    <a class="btn small ghost" href="/">← 入口へ</a>
+    <button type="button" class="ui-theme-toggle" data-theme-toggle>
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="pt-main">
+  <section class="pt-intro">
+    <h1>案件(配信ごと)</h1>
+    <p class="hint">切り抜きスタジオの配信ごとに、書き出した切り抜き・文字起こし(校正の進み具合)・Resolve 用のパックを並べます。
+      紐づけは開くたびに各ツールのデータから作り直します。状態とメモだけは、ここで付けて保存します。</p>
+  </section>
+  <div class="row pt-cs-tools">
+    <label class="lag">状態 <select id="fStatus"><option value="">すべて</option><option value="none">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select></label>
+    <label class="lag grow">検索 <input id="fText" type="search" placeholder="配信のタイトル・チャンネル"></label>
+    <button type="button" class="btn small" id="btnReload">読み込み直す</button>
+  </div>
+  <p class="hint" id="summary"></p>
+  <div id="list" class="stack"></div>
+  <section class="card flat pt-foot" id="unlinkedBox" hidden>
+    <details><summary><b>どの配信にも紐づかない文字起こし</b> <span class="hint" id="unlinkedCount"></span></summary>
+      <ul class="pt-cs-unlinked" id="unlinked"></ul></details>
+  </section>
+  <p class="hint" id="casesFile"></p>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<template id="tplCase">
+  <section class="card pt-case">
+    <div class="row">
+      <div class="grow">
+        <div class="card-title pt-case-title"></div>
+        <div class="hint pt-case-sub"></div>
+      </div>
+      <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select>
+    </div>
+    <ol class="pt-clips"></ol>
+    <details class="pt-case-memo"><summary class="hint">メモ</summary>
+      <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
+      <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
+    </details>
+  </section>
+</template>
+</body>
+</html>

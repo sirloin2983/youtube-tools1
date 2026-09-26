@@ -30,11 +30,12 @@ import exporter  # noqa: E402
 import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
+import txlink  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.4.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.5.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -203,6 +204,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/queue": BATCH.snapshot,
             "/api/videos": lambda: {"videos": STORE.list()},
             "/api/video": lambda: self._video(arg("id")),
+            "/api/transcripts": lambda: txlink.for_video(STORE.get(arg("id"))[0]),   # 書き出したマークのセリフ(文字起こしツールのデータを読むだけ)
             "/api/title": lambda: self._title(arg("v")),
             "/api/export": lambda: exporter.job_public(exporter.get_job(arg("id"))),
             "/api/collab/groups": lambda: {"groups": STORE.list_groups()},

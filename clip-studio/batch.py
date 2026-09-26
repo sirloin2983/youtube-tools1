@@ -10,6 +10,7 @@ import uuid
 import analyze
 import common
 from common import ApiError
+from ytt_core import jobs  # common が ytt_core を読めるようにしてある
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
@@ -212,7 +213,13 @@ class Batch:
                 self.running = it["qid"]
             self._kick_prefetch()
             try:
-                analyze.run_analyze(job)
+                # 重い処理の同時実行数の上限(入口の中では文字起こし・書き出しと順番を待つ。ytt_core.jobs)
+                with jobs.SLOTS.slot("studio", it["title"] or it["videoId"], cancelled=lambda: job["cancel"],
+                                     on_wait=lambda: job.update(phase=jobs.WAIT_MESSAGE)) as ok:
+                    if ok:
+                        analyze.run_analyze(job)
+                    else:
+                        job["state"] = "cancelled"
             except BaseException as e:   # 想定外でも次の item へ続ける
                 job["state"], job["error"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
             self._complete(it, job)

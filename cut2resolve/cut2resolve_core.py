@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.7.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py・画面はこれを使う。README の見出しもそろえる)
+VERSION = "0.8.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py・画面はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"

@@ -8,6 +8,8 @@
 
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
+  GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(app/cases.py)
+  POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
@@ -42,11 +44,12 @@ CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import datadir, httpsec, runtime  # noqa: E402
+from ytt_core import datadir, httpsec, jobs, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
+import cases as cases_mod  # noqa: E402  (app/cases.py: 案件(配信1本)ごとの紐づけ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.5.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.6.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -236,7 +239,8 @@ class Supervisor:
     # --- 状態 ---
     def status(self):
         return {"app": APP_ID, "version": VERSION, "tools": [t.snapshot() for t in self.tools],
-                "dataDir": datadir.data_root()}   # 作業データの置き場所(画面に出す。inplace のときは null)
+                "dataDir": datadir.data_root(),   # 作業データの置き場所(画面に出す。inplace のときは null)
+                "heavy": jobs.SLOTS.snapshot()}   # 重い処理の実行中・順番待ち(入口の中に取り込んだツールの分)
 
     def _find_external(self, t, scan=False):
         """別の画面で動いている同じツール (port, version)。.runtime のポートと既定のポートを問い合わせる
@@ -479,7 +483,8 @@ class Supervisor:
 
 # ---------- 入口の画面(HTTP) ----------
 STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DIR), "/portal.js": ("portal.js", CODE_DIR),
-          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR)}
+          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
+          "/cases.html": ("cases.html", CODE_DIR), "/cases.js": ("cases.js", CODE_DIR)}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -556,8 +561,12 @@ class PortalHandler(BaseHTTPRequestHandler):
                 n = 200
             t = sup.by_id[tid]
             lines = tail(t.log_path, n)
-            return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [],
-                                    "log": os.path.relpath(t.log_path, sup.root)})
+            return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
+        if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。app/cases.py)
+            try:
+                return self._json(200, cases_mod.snapshot(sup.root))
+            except Exception as e:   # 読めないデータがあっても入口は落とさない
+                return self._fail(500, "cases", "案件の一覧を作れませんでした: %s" % e.__class__.__name__)
         return self._fail(404, "not_found", "その操作はありません")
 
     def _read_json(self):
@@ -588,7 +597,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         if not hmac.compare_digest(self.headers.get(mount_mod.TOKEN_HEADER) or "", self.server.token):
             return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
-        if self._read_json() is None:
+        body = self._read_json()
+        if body is None:
             return
         sup = self.server.sup
         m = ACTION_RE.fullmatch(u.path)
@@ -599,6 +609,13 @@ class PortalHandler(BaseHTTPRequestHandler):
             if self.server.closing.is_set():
                 return self._fail(409, "closing", "終了の途中です")
             return self._json(200, {"tool": getattr(sup, action)(tid)})
+        if u.path == "/api/cases/update":   # 案件の状態・メモ(案件ファイルに書く。各ツールのデータは触らない)
+            try:
+                return self._json(200, cases_mod.update(sup.root, body.get("id"), body.get("status"), body.get("memo")))
+            except ValueError as e:
+                return self._fail(400, "bad_request", str(e))
+            except OSError as e:
+                return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
         if u.path == "/api/shutdown":
             self._json(200, {"ok": True})
             threading.Thread(target=self.server.request_shutdown, daemon=True).start()

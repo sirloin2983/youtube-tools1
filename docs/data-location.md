@@ -14,7 +14,7 @@
 | `studio\` | data.json(.bak)・feedback.jsonl(.old)・registry.json・config.json(YouTube の API キー)・settings(-ui).json・cache\(チャット 約2.2GB など)・archive\・studio.log・work\(解析の一時ファイル)・exports\(既定の書き出し先) | 左のうち、ログと work 以外 |
 | `transcribe\` | transcripts\(.bak・.hist の控えを含む)・dataset\・evals\・models\diar\(話者判別のモデル)・settings.json・learn-feedback.json・eval-baselines.json・serve.log・worker.log・.running.json | 左のうち、ログと .running.json 以外 |
 | `cut2resolve\` | work\uploads\(画面にドロップしたファイルの一時置き場。起動のたびに消える)・work\serve.log | なし(一時的なものだけ) |
-| `app\` | logs\(入口の launcher.log と各ツールの出力) | なし |
+| `app\` | logs\(入口の launcher.log と各ツールの出力)・cases.json(案件の状態・メモ。下の「案件ファイル」) | なし |
 | 各フォルダの `.migrated.json` | いつ・どこから・何を写したか | — |
 
 - 切り抜きスタジオの書き出し先: 設定で決めていればそのまま。以前の既定(`clip-studio\exports`)を使っていた場合は、そこを使い続ける(動画が2か所に分かれないように)
@@ -47,6 +47,15 @@
   ログ・work などの一時的なものは、新しい場所が使われていれば消す。ツールが動いていれば何もしない。`--dry-run` で一覧だけ
 - 片付ける一覧は各 serve.py の `DATA_ITEMS` と同じ(`tools/test_cleanup_legacy_data.py` が検査)。コード・cut2resolve の exports(パックの出力)は触らない
 
+## 案件ファイル(`app\cases.json`。2026-09-26 v0.6.0)
+- 案件 = 切り抜きスタジオの動画1本(配信・ファイル)。入口の「案件」の画面(`/cases.html`・`app/cases.py`)が、配信ごとに
+  書き出した切り抜き・文字起こし(校正の進み具合)・パック(`<名前>_pack\cut-plan.json`)を並べる
+- 紐づけは**開くたびに各ツールのデータから組み立て直す**(ユーザー決定。各ツールの記録と食い違わないため)。規則は `ytt_core/txindex.py`(スタジオのセリフの表示と共通):
+  切り抜き = スタジオの書き出し済みのマーク(mp4 の絶対パス)/ 文字起こし = 文書の sourcePath が同じ、無ければ文書の clip(.clip.json)の配信・マークが同じ(新しいものを優先)
+- `cases.json` に持つのは人が付ける状態(未設定・作業中・投稿済み・見送り)・メモ(2000 文字まで)と、状態かメモを付けた案件の「最後に見えた紐づけ」だけ
+  (`{"schema": "youtube-tools-cases/v1", "cases": {<動画ID>: {status, memo, statusUpdatedAt, last}}}`)。どちらも外すと案件ファイルからも消える
+- 各ツールのデータ(data.json・transcripts)は**読むだけ**。書き込みの API(`POST /api/cases/update`)は合言葉・Host/Origin の検査つき
+
 ## 残っていること
-- `0old\`(旧ツール。約2GB・API キーを含む)と `.whisper_models\`(約484MB。今のツールは使っていない)は、今回の対象外。リポジトリの外へ移すか消すかはユーザーが決める
-- 段階4 の残り: 案件(配信1本)ごとに、切り抜き・文字起こし・パックを紐づける
+- 0old・.whisper_models はユーザーが 2026-09-26 に削除済み
+- 段階4 はこれで一通り(置き場所の移動・案件ファイル・セリフの表示・重い処理の同時実行の上限)

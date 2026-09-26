@@ -77,11 +77,11 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, runtime as _runtime, tools as _tools  # noqa: E402
+from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy, runtime as _runtime, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.13.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.14.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1486,8 +1486,14 @@ def work_one(jid):
             info = {"id": job["id"], "kind": job.get("kind", "transcribe"), "model": sp.get("model", ""), "title": str(sp.get("title", ""))[:60], "at": int(time.time())}
             write_mark(info)
             t0 = time.time()
-            log.info("ジョブ開始 %s %s モデル=%s(メモリ %s)", info["kind"], info["id"], info["model"], _mem())
-            run_job(job)
+            # 重い処理の同時実行数の上限(入口の中では他のツールの解析・書き出しと順番を待つ。ytt_core.jobs)
+            with _heavy.SLOTS.slot(TOOL_ID, info["title"], cancelled=lambda: job["cancel"],
+                                   on_wait=lambda: job.update(phase=_heavy.WAIT_MESSAGE)) as ok:
+                if not ok:
+                    job["state"], job["phase"] = "cancelled", "中止しました"
+                    return
+                log.info("ジョブ開始 %s %s モデル=%s(メモリ %s)", info["kind"], info["id"], info["model"], _mem())
+                run_job(job)
             log.info("ジョブ終了 %s %s 状態=%s %.0f秒(メモリ %s)%s", info["kind"], info["id"], job["state"], time.time() - t0, _mem(), (" エラー: " + str(job.get("error"))) if job.get("error") else "")
         elif job and job["state"] == "queued":
             job["state"], job["phase"] = "cancelled", "中止しました"

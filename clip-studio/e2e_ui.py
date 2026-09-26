@@ -53,6 +53,7 @@ def fixture(home):
     """疑似データ: 動画2本(1本は自動マーク+グラフ付き、1本はタイトルとラベルに HTML を含む)、コラボのグループ、事務所の登録。"""
     media = make_media(home)
     os.environ["STUDIO_FAKE_MEDIA"] = media
+    os.environ["TRANSCRIBE_DATA_DIR"] = os.path.join(home, "txdata")   # セリフの表示が読む文字起こしの置き場(本物のフォルダに書かない)
     store, _ = serve.init(home)
     a, b = "fqa00000001", "fqa00000002"
     store.ensure({"kind": "file", "videoId": a, "name": "sample.webm", "path": media}, "雑談配信 9/20(テスト動画 A)")
@@ -319,6 +320,31 @@ def run_checks(port, fx, shots=None):
         href2 = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[href*='?video=']", "href") or ""
         c.ok(":8810/?video=" in href2 and urllib.parse.unquote(href2.split("?video=", 1)[1]) == path, "「Resolve 用に渡す」のリンク")
         c.ok(pg.locator('#rvList .rv-mark-row[data-id="m1"].st-exported').count() == 1, "書き出し済みの印が付く")
+        # 書き出した切り抜きを文字起こしツールで文字にした → ③ のマークにセリフが元の配信の時刻で出る(行を押すとその行を再生)
+        txdir = os.path.join(os.environ["TRANSCRIBE_DATA_DIR"], "transcripts")
+        os.makedirs(txdir, exist_ok=True)
+        with open(os.path.join(txdir, "e2etx0000001.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "e2etx0000001", "title": "セリフ", "sourcePath": path, "updatedAt": 1, "speakers": [{"id": "S1", "name": "話者1"}],
+                       "segments": [{"id": "s1", "start": 1.0, "end": 2.0, "text": "こんにちは", "speaker": "S1", "proofed": True},
+                                    {"id": "s2", "start": 2.5, "end": 3.5, "text": XSS_LABEL, "cutState": "cut"}]}, f, ensure_ascii=False)
+        pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")   # 文字起こしのタブから戻ってきたとき
+        c.ok(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx-line').length === 2", 10000),
+             "書き出したマークにセリフ(文字起こし)が出る")
+        c.ok("校正 1/2" in (pg.text_content('#rvList .rv-mark-row[data-id="m1"] .rv-tx summary') or ""), "セリフの行数と校正の進み具合")
+        tcs = pg.eval_on_selector_all('#rvList .rv-mark-row[data-id="m1"] .rv-tx-line', "els => els.map(e => e.dataset.t)")
+        exp_start = next(m["start"] for m in serve.STORE.internal(fx["a"])["marks"] if m["id"] == "m1")
+        c.ok(len(tcs) == 2 and abs(float(tcs[0]) - float(tcs[1]) + 1.5) < 0.01 and float(tcs[0]) >= 2.0, "セリフの時刻は元の配信の時刻(切り抜きの開始 + 行の時刻): %s(マークの開始 %s)" % (tcs, exp_start))
+        c.ok(pg.locator('#rvList .rv-mark-row[data-id="m1"] .rv-tx-line.cut').count() == 1, "文字起こしでカットにした行は線を引いて出す")
+        c.ok(pg.evaluate("window.__xss === undefined") and pg.locator("#rvList .rv-tx img").count() == 0, "セリフの文字は HTML として実行・表示されない")
+        pg.click('#rvList .rv-mark-row[data-id="m1"] .rv-tx summary')
+        c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "セリフを開ける")
+        pg.click('#rvList .rv-mark-row[data-id="m1"] .rv-tx-line >> nth=0')
+        c.ok(wait_js(pg, "() => Math.abs(parseFloat(document.querySelector('#rvHost video') ? document.querySelector('#rvHost video').currentTime : -1) - %s) < 1.2" % float(tcs[0]), 5000),
+             "セリフの行を押すと、その時刻から再生する")
+        pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")
+        pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        pg.wait_for_timeout(500)
+        c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "読み込み直してもセリフは開いたまま")
         if shots:
             pg.screenshot(path=os.path.join(shots, "cs_review_exported_dark.png"))
 

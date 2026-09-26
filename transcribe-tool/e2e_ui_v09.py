@@ -2,6 +2,7 @@
 """v0.9.4 の通し確認(Playwright + 疑似モード): フォルダ一括・スタジオのマーク読み込み・範囲の再認識・Tab の切り替え・時刻の微調整・枠の表示。"""
 import json
 import os
+import re
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
@@ -15,6 +16,14 @@ from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
+
+
+def app_version():
+    """画面の版(app.js の APP_VERSION)。版を上げるたびにテストを書き換えなくて済むように、固定の文字列ではなくここから読む"""
+    with open(os.path.join(HERE, "app.js"), encoding="utf-8") as f:
+        m = re.search(r"const APP_VERSION = '([^']+)'", f.read())
+    assert m, "app.js に APP_VERSION が見つからない"
+    return "v" + m.group(1)
 
 
 def call(port, method, path, body=None, raw=False):
@@ -137,7 +146,7 @@ def main():
             pg.on("console", lambda m_: errors.append(m_.text) if m_.type == "error" else None)
             pg.goto("http://localhost:%d/" % port)
             pg.wait_for_selector("#txList .txi")
-            check(pg.inner_text("#ver") == "v0.9.4", "版 v0.9.4")
+            check(pg.inner_text("#ver") == app_version(), "版が app.js の APP_VERSION(%s)と同じ: %s" % (app_version(), pg.inner_text("#ver")))
             # フォルダ画面
             pg.click("#tabFolder")
             pg.fill("#fdPath", fd)

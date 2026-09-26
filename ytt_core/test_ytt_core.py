@@ -16,7 +16,7 @@ from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from ytt_core import datadir, fsio, httpsec, runtime, schemas, tools  # noqa: E402
+from ytt_core import datadir, fsio, httpsec, jobs, runtime, schemas, tools, txindex  # noqa: E402
 
 
 def locked(winerror=32):
@@ -524,6 +524,162 @@ class TestDatadir(unittest.TestCase):
             if re.search(r"\bserve\b|launch\.py|import launch|import mount", src) and "YTT_DATA_DIR" not in src:
                 bad.append(os.path.relpath(f, REPO))
         self.assertEqual(bad, [])
+
+
+class TestHeavySlots(unittest.TestCase):
+    """重い処理の同時実行数の上限(ytt_core.jobs)"""
+
+    def test_limit_from_env(self):
+        self.assertEqual(jobs.limit_from_env({}), 2)
+        self.assertEqual(jobs.limit_from_env({"YTT_MAX_HEAVY_JOBS": "3"}), 3)
+        self.assertEqual(jobs.limit_from_env({"YTT_MAX_HEAVY_JOBS": "0"}), 1)
+        self.assertEqual(jobs.limit_from_env({"YTT_MAX_HEAVY_JOBS": "99"}), jobs.MAX_LIMIT)
+        self.assertEqual(jobs.limit_from_env({"YTT_MAX_HEAVY_JOBS": "x"}), 2)
+
+    def test_limit_and_fifo(self):
+        s = jobs.HeavySlots(1)
+        order, waits = [], []
+        first = s.acquire("studio", "a")
+        started = threading.Event()
+
+        def run(name):
+            with s.slot(name, name, on_wait=lambda: waits.append(name), poll=0.01) as ok:
+                order.append((name, ok))
+        t1 = threading.Thread(target=run, args=("transcribe",))
+        t1.start()
+        time.sleep(0.1)
+        t2 = threading.Thread(target=run, args=("cut2resolve",))
+        t2.start()
+        time.sleep(0.1)
+        snap = s.snapshot()
+        self.assertEqual([a["tool"] for a in snap["active"]], ["studio"])
+        self.assertEqual([w["tool"] for w in snap["waiting"]], ["transcribe", "cut2resolve"])   # 先に来た順
+        self.assertEqual(order, [])
+        s.release(first)
+        t1.join(5)
+        t2.join(5)
+        self.assertEqual(order, [("transcribe", True), ("cut2resolve", True)])
+        self.assertEqual(sorted(waits), ["cut2resolve", "transcribe"])   # 待ち始めに1回ずつ
+        self.assertEqual(s.snapshot(), {"limit": 1, "active": [], "waiting": []})
+        started.set()
+
+    def test_two_at_once_by_default(self):
+        s = jobs.HeavySlots(2)
+        a, b = s.acquire("x"), s.acquire("y")
+        self.assertIsNotNone(a)
+        self.assertIsNotNone(b)
+        flag = []
+        self.assertIsNone(s.acquire("z", cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 3つ目は待つ → 取り消し
+        s.release(a)
+        self.assertIsNotNone(s.acquire("z"))
+
+    def test_cancel_while_waiting_frees_the_queue(self):
+        s = jobs.HeavySlots(1)
+        held = s.acquire("studio")
+        cancel = threading.Event()
+        res = []
+        t = threading.Thread(target=lambda: res.append(s.acquire("transcribe", cancelled=cancel.is_set, poll=0.01)))
+        t.start()
+        time.sleep(0.05)
+        cancel.set()
+        t.join(5)
+        self.assertEqual(res, [None])
+        s.release(held)
+        self.assertIsNotNone(s.acquire("cut2resolve", poll=0.01))   # 取り消した人が列を塞がない
+
+    def test_exception_releases(self):
+        s = jobs.HeavySlots(1)
+        with self.assertRaises(RuntimeError):
+            with s.slot("x"):
+                raise RuntimeError("boom")
+        self.assertEqual(s.snapshot()["active"], [])
+
+
+class TestTxIndex(unittest.TestCase):
+    """文字起こしの文書を他のツールから読む(入口の案件・スタジオのセリフの表示で共通の紐づけの規則)"""
+    VID = "abcdefghijk"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.dir = os.path.join(self.tmp, "transcripts")
+        os.makedirs(self.dir)
+        self.clip = os.path.join(self.tmp, "exports", "01_a.mp4")
+        os.makedirs(os.path.dirname(self.clip))
+        with open(self.clip, "wb") as f:
+            f.write(b"x")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def doc(self, tid, source="", clip=None, updated=1, segs=None, speakers=None):
+        d = {"id": tid, "title": "t" + tid, "sourcePath": source, "updatedAt": updated, "speakers": speakers or [],
+             "segments": segs if segs is not None else [{"id": "s1", "start": 1.0, "end": 2.5, "text": "こんにちは", "proofed": True},
+                                                        {"id": "s2", "start": 3.0, "end": 4.0, "text": "切る", "cutState": "cut"}]}
+        if clip:
+            d["clip"] = clip
+        with open(os.path.join(self.dir, tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+
+    def clipobj(self, vid=None, mid="m1", start=100.0, actual=None):
+        ex = {"mode": "fast"}
+        if actual is not None:
+            ex["actualStart"] = actual
+        return schemas.build_clip(self.clip, 30, {"kind": "youtube", "videoId": vid or self.VID}, (start, start + 30), {"id": mid}, ex, {"name": "t"})
+
+    def test_load_parse_and_skip_broken(self):
+        self.doc("aaaaaaaaaaaa", self.clip, speakers=[{"id": "S1", "name": "話者A"}],
+                 segs=[{"start": 1, "end": 2, "text": "x", "speaker": "S1"}, {"start": -1, "end": 2, "text": "負"}, {"start": 3, "end": 2}, "壊れた行"])
+        with open(os.path.join(self.dir, "bbbbbbbbbbbb.json"), "w", encoding="utf-8") as f:
+            f.write("{壊れた")
+        with open(os.path.join(self.dir, "notatranscript.json"), "w", encoding="utf-8") as f:
+            f.write("{}")   # 名前の長さが違うものは読まない
+        docs = txindex.load(self.dir)
+        self.assertEqual([d["id"] for d in docs], ["aaaaaaaaaaaa"])
+        self.assertEqual([(s["text"], s["speaker"]) for s in docs[0]["segments"]], [("x", "話者A")])
+        self.assertEqual(txindex.load(os.path.join(self.tmp, "無い")), [])
+
+    def test_cache_rereads_changed_files_and_forgets_removed(self):
+        self.doc("aaaaaaaaaaaa", self.clip)
+        first = txindex.load(self.dir)[0]
+        self.assertIs(txindex.load(self.dir)[0], first)   # 変わっていなければ読み直さない
+        self.doc("aaaaaaaaaaaa", self.clip, segs=[{"start": 0, "end": 1, "text": "新しい行が長くなった"}])
+        p = os.path.join(self.dir, "aaaaaaaaaaaa.json")
+        os.utime(p, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
+        self.assertEqual(txindex.load(self.dir)[0]["segments"][0]["text"], "新しい行が長くなった")
+        os.remove(p)
+        self.assertEqual(txindex.load(self.dir), [])
+        self.assertFalse(any(k == p for k in txindex._cache))
+
+    def test_match_by_path_or_clip_and_newest_wins(self):
+        self.doc("aaaaaaaaaaaa", self.clip, updated=1)
+        self.doc("bbbbbbbbbbbb", os.path.join(self.tmp, "moved.mp4"), clip=self.clipobj(), updated=5)   # 動画を動かしても .clip.json で
+        self.doc("cccccccccccc", os.path.join(self.tmp, "moved.mp4"), clip=self.clipobj(mid="m9"), updated=9)   # 別のマーク
+        docs = txindex.load(self.dir)
+        best, n, ids = txindex.pick(docs, self.VID, "m1", self.clip)
+        self.assertEqual((best["id"], n, sorted(ids)), ("bbbbbbbbbbbb", 2, ["aaaaaaaaaaaa", "bbbbbbbbbbbb"]))
+        self.assertEqual(txindex.pick(docs, "zzzzzzzzzzz", "m1", "")[:2], (None, 0))
+        self.assertEqual(txindex.summary(best), {"id": "bbbbbbbbbbbb", "title": "tbbbbbbbbbbbb", "segments": 2, "proofed": 1, "cut": 1, "updatedAt": 5})
+
+    def test_offset_sources(self):
+        self.doc("aaaaaaaaaaaa", self.clip, clip=self.clipobj(start=100.0, actual=98.5))
+        self.doc("bbbbbbbbbbbb", self.clip, clip=self.clipobj(vid="zzzzzzzzzzz", start=500.0))   # 別の配信の .clip.json は使わない
+        self.doc("cccccccccccc", self.clip)
+        d = {x["id"]: x for x in txindex.load(self.dir)}
+        self.assertEqual(txindex.offset(d["aaaaaaaaaaaa"], self.VID, self.clip, 10), (98.5, "clip"))   # export.actualStart を優先
+        self.assertEqual(txindex.offset(d["bbbbbbbbbbbb"], self.VID, self.clip, 10), (10.0, "mark"))
+        self.assertEqual(txindex.offset(d["cccccccccccc"], self.VID, self.clip, 10), (10.0, "mark"))
+        fsio.write_json(schemas.clip_path_for(self.clip), self.clipobj(start=200.0))   # mp4 の隣の .clip.json
+        self.assertEqual(txindex.offset(d["cccccccccccc"], self.VID, self.clip, 10), (200.0, "sidecar"))
+        with mock.patch.object(schemas, "load_clip_file", side_effect=AssertionError("触らない")):
+            self.assertEqual(txindex.offset(d["cccccccccccc"], self.VID, r"\\server\share\a.mp4", 7), (7.0, "mark"))
+        ln = txindex.lines(d["aaaaaaaaaaaa"], 98.5)
+        self.assertEqual([(x["start"], x["end"], x["proofed"], x["cut"]) for x in ln], [(99.5, 101.0, True, False), (101.5, 102.5, False, True)])
+        self.assertEqual(d["aaaaaaaaaaaa"]["segments"][0]["start"], 1.0)   # キャッシュの中身は変えない
+
+    def test_folder_follows_transcribe_rules(self):
+        self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join("/d", "transcripts"))
+        self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/transcribe-tool"), "transcripts"))
+        self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "/x"}), os.path.join(os.path.abspath("/x"), "transcribe", "transcripts"))
 
 
 if __name__ == "__main__":

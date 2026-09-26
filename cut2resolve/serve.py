@@ -62,7 +62,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir, httpsec, runtime as _runtime  # noqa: E402
+from ytt_core import datadir, httpsec, jobs as _heavy, runtime as _runtime  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -307,7 +307,15 @@ class AppState:
 
     def _run(self, job, fn):
         try:
-            job.result = fn(job.task)
+            if job.kind == "build":   # パックの作成(粗編集・動画のコピー)は重いので、他のツールの重い処理と順番を待つ(ytt_core.jobs)
+                with _heavy.SLOTS.slot(TOOL_ID, "パックの作成", cancelled=lambda: job.task.cancelled,
+                                       on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
+                    if not ok:
+                        raise C.Cancelled()
+                    job.message = ""
+                    job.result = fn(job.task)
+            else:
+                job.result = fn(job.task)
             job.state = "done"
         except C.Cancelled:
             job.state = "cancelled"

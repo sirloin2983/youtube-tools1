@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -324,6 +326,33 @@ class TestBuildSpecIds(unittest.TestCase):
             with self.assertRaises(common.ApiError) as cm:
                 exporter.build_spec(S(), {"id": "x", "markIds": ["m1"]})
         self.assertIn("動画ID", cm.exception.message)
+
+
+class TestHeavyJobLimit(unittest.TestCase):
+    """書き出しは、他のツールの重い処理と順番を待つ(ytt_core.jobs)。待っている間は waiting、取り消せる"""
+
+    def test_waits_and_cancels(self):
+        from ytt_core import jobs
+        slots = jobs.HeavySlots(1)
+        held = slots.acquire("transcribe")
+        job = {"id": "x", "videoId": "abcdefghijk", "state": "running", "cancel": False, "proc": None, "created": 0, "outDir": "",
+               "items": [{"id": "m1", "start": 0, "end": 1, "title": "a", "status": "queued", "progress": 0.0, "file": None, "error": None}]}
+        with patch.object(exporter.jobs, "SLOTS", slots), patch.object(exporter, "_run_job") as body:
+            t = threading.Thread(target=exporter.run_job, args=(job, {}, None))
+            t.start()
+            for _ in range(100):
+                if job.get("waiting"):
+                    break
+                time.sleep(0.02)
+            self.assertTrue(exporter.job_public(job)["waiting"])
+            job["cancel"] = True
+            t.join(5)
+            body.assert_not_called()
+            self.assertEqual((job["state"], job["items"][0]["status"], exporter.job_public(job)["waiting"]), ("cancelled", "cancelled", False))
+            slots.release(held)
+            job2 = dict(job, cancel=False, state="running")
+            exporter.run_job(job2, {}, None)
+            body.assert_called_once()
 
 
 if __name__ == "__main__":

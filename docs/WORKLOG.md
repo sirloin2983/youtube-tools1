@@ -527,3 +527,37 @@
 - 消す条件: 写したデータは .migrated.json があり・写した元がこのリポジトリのフォルダ・写した一覧にある・新しい場所にも同じ名前がある。ログ・work は新しい場所が使われていれば。コードと cut2resolve の exports は触らない
 - 未確認(実機): Windows のごみ箱へ移す処理(SHFileOperationW)は、クラウドでは動かせない(テストは一時フォルダへの移動で代用)。まず --dry-run で一覧を見てもらう
 - 未コミット: tools/cleanup_legacy_data.py・tools/cleanup_legacy_data.bat・tools/test_cleanup_legacy_data.py・docs/data-location.md・AGENTS.md・start-all.bat・docs/WORKLOG.md・docs/HANDOVER.md(push.bat で)
+
+## 2026-09-26 Claude(Cowork)— 段階4 の残り: 同時実行の上限・案件ファイル・文字起こしをスタジオへ返す(入口 v0.6.0・スタジオ v0.5.0・文字起こし v0.14.0・cut2resolve v0.8.0)
+- 担当: 統合作業(Claude)。スタジオ・文字起こし・cut2resolve も変更(重い処理の順番待ち・セリフの表示)。作業の土台は GitHub の main = 6b8304d
+- 確認(ユーザー 2026-09-26): `0old`・`.whisper_models` はユーザーが削除済み
+- 決定(ユーザー 2026-09-26): 段階4 の残りとして「案件ファイルを持つ」「文字起こしをスタジオへ返す」「同時実行の上限」をこの順で(上限 → 案件 → セリフ)
+- 変更(同時実行の上限): `ytt_core/jobs.py`(新規。`SLOTS` = 1つのプロセスの中で重い処理を順番どおりに2つまで。`YTT_MAX_HEAVY_JOBS` 1〜8。待っている間も中止できる)。
+  スタジオ `batch.py`(解析)・`exporter.py`(書き出し。job に waiting)・`review.js`(順番待ちの表示)、文字起こし `serve.py`(work_one)、cut2resolve `serve.py`(パックの作成)、入口 `/api/status` に heavy
+- 変更(案件ファイル): `app/cases.py`(新規。紐づけを開くたびに組み立て直す・`cases.json` に状態・メモ・最後に見えた紐づけ)、`app/cases.html`・`app/cases.js`(新規。CSP の下・textContent だけ)、
+  `app/launch.py`(`GET /api/cases`・`POST /api/cases/update`。書き込みは合言葉つき)、`app/portal.html`(案件へのリンク)・`app/portal.css`
+- 変更(セリフ): `ytt_core/txindex.py`(新規。文字起こしの文書の読み取り(更新日時・大きさでキャッシュ)・紐づけの規則・元の配信の時刻へのずれ。案件と共通)、
+  `clip-studio/txlink.py`(新規)・`serve.py`(`GET /api/transcripts?id=`)・`review.js`(書き出し済みのマークに「セリフ」。行を押すとその行を再生・開閉を覚える・タブに戻ると読み直す)・`review.css`
+- テスト: `ytt_core/test_ytt_core.py`(TestHeavySlots 5・TestTxIndex 5)、`app/test_cases.py`(新規 6)、`app/e2e_portal.py`(案件の画面: 表示・状態の保存・読み込み直し)、
+  スタジオ `test_api.py`(TestTranscripts)・`test_exporter.py`・`test_review.cjs`(セリフ 1)・`e2e_ui.py`(セリフ 7 項目)、文字起こし `test_backend.py`、cut2resolve `test_serve.py`(各 TestHeavyJobLimit)
+- 資料: `docs/data-location.md`(案件ファイル)・`docs/integration-plan.md`(段階4で決めたこと)・`AGENTS.md`・各 README。統合計画の正本(Claude Docs)も更新済み
+- 版: 入口 0.5.0 → 0.6.0、スタジオ 0.4.0 → 0.5.0、文字起こし 0.13.0 → 0.14.0、cut2resolve 0.7.0 → 0.8.0(`app/e2e_portal.py` の版も)
+- 判断・理由: 案件の紐づけを保存せず毎回組み立て直すのは、各ツールが持つ記録(マーク・文字起こし)と食い違わないため。紐づけの規則を ytt_core/txindex.py の1か所にしたのは、
+  案件の画面とスタジオで別々に書くと片方だけ直して食い違うため。上限は種類ごとではなく全体で2(単純さ優先。困る場面が出たら種類ごとに)
+- 注意: 新しく重い処理(ffmpeg・認識など)を足すときは `ytt_core.jobs.SLOTS.slot(...)` を通す。他のツールのデータは読むだけ(書き換えない)。
+  セリフの時刻は .clip.json が無いとマークの開始に合わせる(高速書き出しは数秒ずれる。画面に注記)。ネットワーク上のパスの .clip.json は読まない
+- 未確認(実機): 入口の「案件」の画面に今の配信・切り抜き・文字起こしが正しく並ぶか、状態・メモの保存、スタジオの ③ でセリフが出て時刻が合うか、
+  2つより多く重い処理を始めたときの順番待ちの表示
+- 未完了・次: 実機確認。段階5(一括実行・新着配信の監視・ラウドネス調整)は未着手
+- 未コミット: 新規 7(ytt_core/jobs.py・ytt_core/txindex.py・app/cases.py・app/cases.html・app/cases.js・app/test_cases.py・clip-studio/txlink.py)、
+  変更 30(AGENTS.md・app/{README.txt,e2e_portal.py,launch.py,portal.css,portal.html}・
+  clip-studio/{README.txt,batch.py,core.js,e2e_ui.py,exporter.py,review.css,review.js,serve.py,test_api.py,test_exporter.py,test_review.cjs}・
+  cut2resolve/{README.txt,cut2resolve_core.py,serve.py,test_serve.py}・docs/{HANDOVER.md,WORKLOG.md,data-location.md,integration-plan.md}・
+  transcribe-tool/{README.txt,app.js,serve.py,test_backend.py}・ytt_core/test_ytt_core.py)。push.bat で
+
+## 2026-09-26 Claude(Cowork)— 文字起こしの古い画面テスト2本の版の確認を直す
+- 担当: 文字起こしのテストだけ(Claude。ツール本体は変えていない)
+- 変更: `transcribe-tool/e2e_ui_v07.py`・`e2e_ui_v09.py` の「画面の版が v0.9.4」という固定の確認を、`app.js` の `APP_VERSION` を読んで比べる形に(`app_version()`)
+- 理由: v0.9.4 より後は毎回この1項目だけ FAIL になり(「想定内」として扱っていた)、「SOME FAILED」が常に出ると本物の失敗を見落とすため。版を上げるたびにテストを書き換えなくて済む
+- 確認(クラウド): 2本とも ALL PASSED(v0.14.0)
+- 未コミット: transcribe-tool/e2e_ui_v07.py・transcribe-tool/e2e_ui_v09.py・docs/WORKLOG.md(直前の記録の未コミット分と一緒に push.bat で)

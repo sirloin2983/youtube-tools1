@@ -49,7 +49,7 @@ function harness(respond) {
   };
   for (const name of ['renderVideoSelect', 'refreshList', 'refreshListQuiet', 'renderExportUI',
     'renderTimeline', 'renderStats', 'renderMeta', 'renderLiveCount', 'renderList',
-    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer']) context[name] = () => {};
+    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts']) context[name] = () => {};
   vm.createContext(context);
   vm.runInContext(
     between('let saveTimer =', '/* サーバー側の最新') +
@@ -256,4 +256,34 @@ test('two-step confirmation resets after running (a quick third click does not r
   assert.equal(runs, 1); assert.equal(btn.innerHTML, '削除'); assert.ok(!cls.has('armed'));
   ctx.armDelete(btn, () => runs++);
   assert.equal(runs, 1, 'the third click only arms again');
+});
+
+test('transcript lines: escaped text, stale replies ignored, open state kept', async () => {
+  const pending = [];
+  const S = { cur: { id: 'A', marks: [{ id: 'm1', status: 'exported', path: '/x/a.mp4' }, { id: 'm2', status: 'adopted' }] }, tx: null, txOpen: new Set(['m1']), txSeq: 0 };
+  let renders = 0;
+  const context = { S, enc: encodeURIComponent, esc: s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'), fmt: t => 't' + t,
+    renderListKeep: () => { renders++; },
+    Studio: { api: url => new Promise(resolve => pending.push({ url, resolve })) } };
+  vm.createContext(context);
+  vm.runInContext(between('function txHTML(', 'function renderList(){'), context);
+  const first = context.loadTranscripts();
+  assert.equal(pending[0].url, '/api/transcripts?id=A');
+  S.cur = { id: 'B', marks: [{ id: 'm1', status: 'exported', path: '/x/b.mp4' }] };   // 返事が来る前に別の動画へ
+  const second = context.loadTranscripts();
+  const line = { start: 3, end: 4, text: '<img src=x onerror=alert(1)>', speaker: '<b>', cut: true };
+  pending[1].resolve({ marks: { m1: { segments: 1, proofed: 0, others: 0, offsetFrom: 'mark', lines: [line] } } });
+  await second;
+  pending[0].resolve({ marks: { m1: { segments: 9, lines: [] } } });   // 古い返事は捨てる
+  await first;
+  assert.equal(S.tx.vid, 'B');
+  assert.equal(renders, 1);
+  const html = context.txHTML({ id: 'm1' });
+  assert.ok(!html.includes('<img') && html.includes('&#60;img') && html.includes('rv-tx-spk">&#60;b&#62;</span>'));
+  assert.ok(html.includes(' open') && html.includes('rv-tx-line cut') && html.includes('data-t="3"') && html.includes('.clip.json'));
+  assert.equal(context.txHTML({ id: 'm9' }), '');
+  S.cur = { id: 'C', marks: [{ id: 'm1', status: 'adopted' }] };   // 書き出したマークが無い動画は問い合わせない
+  await context.loadTranscripts();
+  assert.equal(pending.length, 2);
+  assert.equal(S.tx, null);
 });

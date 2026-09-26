@@ -15,6 +15,7 @@
 
 どちらも --shots で画面の写真を残す(A は明るいテーマと狭い画面、B は異常終了時の暗いテーマ)。
 """
+import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
@@ -52,6 +53,27 @@ def wait_card(pg, tid, state, timeout=40000):
     return wait_js(pg, "document.querySelector('.pt-tool[data-tool=\"%s\"]')?.getAttribute('data-state') === '%s'" % (tid, state), timeout)
 
 
+CASE_TITLE = "案件の通し確認<b>配信</b>"   # < を含めて、textContent で入れていること(画面を壊さない)も確かめる
+
+
+def seed_cases(tmp, studio_home):
+    """案件の画面用: 書き出し済みのマーク1つを持つ配信と、その切り抜きの文字起こし(2行のうち1行を校正済み)を置く"""
+    clip = os.path.join(tmp, "exports", "01_案件.mp4")
+    os.makedirs(os.path.dirname(clip), exist_ok=True)
+    with open(clip, "wb") as f:
+        f.write(b"x")
+    os.makedirs(studio_home, exist_ok=True)
+    mark = {"id": "m1", "start": 10.0, "end": 40.0, "label": "見どころ", "status": "exported", "file": "01_案件.mp4", "path": clip}
+    with open(os.path.join(studio_home, "data.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema": "clip-studio/v1", "groups": {}, "videos": {"e2eCase0001": {
+            "id": "e2eCase0001", "kind": "youtube", "title": CASE_TITLE, "channel": "ch", "duration": 100, "marks": [mark]}}}, f, ensure_ascii=False)
+    tx = os.path.join(tmp, "transcribe-tool", "transcripts")
+    os.makedirs(tx, exist_ok=True)
+    with open(os.path.join(tx, "e2ecase00001.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": "e2ecase00001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1,
+                   "segments": [{"id": "s1", "start": 0.5, "end": 2.0, "text": "a", "proofed": True}, {"id": "s2", "start": 2.5, "end": 4.0, "text": "b"}]}, f, ensure_ascii=False)
+
+
 def run_mounted_phase(browser, tmp, shots, check, events):
     """(A) 本番と同じ形: studio・transcribe・cut2resolve をすべて入口に取り込む。"""
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
@@ -80,7 +102,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(pg.text_content("#ver") == "入口 v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
         check(pg.text_content("#conn") == "接続中", "[A] 接続中の表示")
 
-        for tid, verfrag in (("studio", "v0.4.0"), ("cut2resolve", None), ("transcribe", "v0.13.0")):
+        for tid, verfrag in (("studio", "v0.5.0"), ("cut2resolve", None), ("transcribe", "v0.14.0")):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
             good = ("ポート %d" % port) in meta and "入口に取り込み" in meta and (verfrag is None or verfrag in meta)
             check(good, "[A] %s は入口に取り込み(同じポート): %s" % (tid, meta))
@@ -133,7 +155,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
             pg.click(".pt-tool[data-tool=transcribe] .pt-open")
         tab = info.value
         tab.wait_for_load_state()
-        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === 'v0.13.0'", 20000),
+        check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === 'v0.14.0'", 20000),
               "[A] 文字起こしの画面が /transcribe/ の下で読み込めた(app.js の APP_VERSION): %s"
               % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
         check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 文字起こしの画面も合言葉(ytt-token)を受け取っている")
@@ -143,6 +165,26 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(any(h.endswith(":%d/studio/" % port) for h in links) and any(h.endswith(":%d/cut2resolve/" % port) for h in links),
               "[A] 文字起こしの「他のツール」: スタジオ・cut2resolve とも同じポートに取り込み済み: %s" % links)
         check(tab.evaluate("window.opener") is None, "[A] 文字起こしのタブからも入口を操作できない(noopener)")
+        tab.close()
+
+        # 2d. 案件(配信ごと)の画面: スタジオ・文字起こしのデータから紐づけを組み立て、状態を付けて保存できる(段階4)
+        check(pg.get_attribute("#casesLink", "href") == "/cases.html", "[A] 入口から案件の画面へのリンク")
+        tab = ctx.new_page()
+        tab.goto(base + "cases.html")
+        tab.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        tab.on("pageerror", lambda e: errors.append(str(e)))
+        tab.wait_for_load_state()
+        check(wait_js(tab, "document.querySelectorAll('.pt-case').length === 1", 15000), "[A] 案件の画面に配信が1本出た")
+        check(tab.text_content(".pt-case-title") == CASE_TITLE, "[A] 案件のタイトル: %s" % tab.text_content(".pt-case-title"))
+        pills = tab.eval_on_selector_all(".pt-clip .pill", "els => els.map(e => e.textContent)")
+        check("文字起こし 校正 1/2行" in pills and "パック まだ" in pills, "[A] 切り抜きに文字起こしの進み具合とパックの有無: %s" % pills)
+        tab.select_option(".pt-case-status", "posted")
+        check(wait_js(tab, "document.querySelector('#toast').textContent.indexOf('投稿済み') >= 0", 10000), "[A] 状態を保存した(合言葉つきの POST)")
+        tab.reload()
+        check(wait_js(tab, "document.querySelector('.pt-case-status') && document.querySelector('.pt-case-status').value === 'posted'", 15000),
+              "[A] 読み込み直しても状態が残る(案件ファイル)")
+        cf = tab.text_content("#casesFile")
+        check(cf.endswith(os.path.join("app", "cases.json")) and os.path.isfile(os.path.join(tmp, "app", "cases.json")), "[A] 案件ファイルの場所: %s" % cf)
         tab.close()
 
         # 7. テーマ(ui-kit)
@@ -220,7 +262,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
             check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
                   "[B] 取り込んだ%sは単独で止めない" % tid)
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
-        check(("ポート %d" % ports["transcribe"]) in meta and "v0.13.0" in meta and "入口に取り込み" not in meta,
+        check(("ポート %d" % ports["transcribe"]) in meta and "v0.14.0" in meta and "入口に取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
         check(not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-toggle") and not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"),
               "[B] 子プロセスの文字起こしは停止・再起動が押せる")
@@ -316,6 +358,7 @@ def main():
         shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))   # 共通部品(本物と同じ並び)
         env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
         os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
+        seed_cases(tmp, env["STUDIO_HOME"])
 
         with sync_playwright() as p:
             browser = p.chromium.launch()

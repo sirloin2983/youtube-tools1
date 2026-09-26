@@ -963,5 +963,49 @@ class TestRuntimeCleanup(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class TestHeavyJobLimit(unittest.TestCase):
+    """文字起こしのジョブも、他のツールの重い処理と順番を待つ(ytt_core.jobs)。待っている間に取り消せる"""
+
+    def setUp(self):
+        from ytt_core import jobs
+        self.jobs = jobs
+        self.tmp = tempfile.mkdtemp()
+        self.saved = (S.RUN_MARK, S._heavy.SLOTS, S.run_job)
+        S.RUN_MARK = os.path.join(self.tmp, ".running.json")
+        S._heavy.SLOTS = jobs.HeavySlots(1)
+        self.ran = []
+        S.run_job = lambda job: (self.ran.append(job["id"]), job.update(state="done"))
+
+    def tearDown(self):
+        S.RUN_MARK, S._heavy.SLOTS, S.run_job = self.saved
+        for jid in ("hj1", "hj2"):
+            S._jobs.pop(jid, None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def job(self, jid):
+        j = {"id": jid, "kind": "transcribe", "state": "queued", "phase": "待機中", "cancel": False, "spec": {"title": "t", "model": "m"}}
+        S._jobs[jid] = j
+        return j
+
+    def test_waits_then_runs_or_cancels(self):
+        held = S._heavy.SLOTS.acquire("studio", "解析")
+        j1 = self.job("hj1")
+        t = threading.Thread(target=S.work_one, args=("hj1",))
+        t.start()
+        for _ in range(100):
+            if j1["phase"] == self.jobs.WAIT_MESSAGE:
+                break
+            time.sleep(0.02)
+        self.assertEqual((j1["state"], j1["phase"], self.ran), ("queued", self.jobs.WAIT_MESSAGE, []))
+        j1["cancel"] = True
+        t.join(5)
+        self.assertEqual((j1["state"], self.ran), ("cancelled", []))
+        S._heavy.SLOTS.release(held)
+        self.job("hj2")
+        S.work_one("hj2")
+        self.assertEqual(self.ran, ["hj2"])
+        self.assertEqual(S._heavy.SLOTS.snapshot()["active"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

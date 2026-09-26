@@ -83,7 +83,8 @@ const S = {
   videos: [], cur: null, series: null, sel: null, filter: 'all', fold: new Map(), seen: new Set(),
   now: 0, duration: 0, playerState: -1, playerAlive: false, rate: 1, draft: { start: null, end: null }, previewEnd: null,
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
-  loadSeq: 0, editSeq: 0, dirty: false, built: false
+  loadSeq: 0, editSeq: 0, dirty: false, built: false,
+  tx: null, txOpen: new Set(), txSeq: 0   // 書き出したマークのセリフ(文字起こしツールのデータ。/api/transcripts)
 };
 const marks = () => (S.cur ? S.cur.marks : []);
 const sortedMarks = () => [...marks()].sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -396,7 +397,7 @@ async function loadVideo(id){
     renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
   }
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
-  S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set();
+  S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set(); S.tx = null; S.txOpen = new Set(); S.txSeq++;
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
@@ -406,6 +407,7 @@ async function loadVideo(id){
   renderAll();
   refreshList();
   fetchAutoTitle(S.cur);
+  loadTranscripts();
   return true;
 }
 /* 別の場所(② 解析の完了・書き出し)で変わったサーバー側の状態を取り込む。手元の未保存の編集は失わない */
@@ -418,6 +420,7 @@ async function syncFromServer(){
   if (j.video.rev === v0.rev){ if (j.series && !S.series){ S.series = j.series; renderGraph(); } return; }
   if (applyServer(v0, j.video, j.series)) markDirty();
   refreshList();
+  loadTranscripts();   // 書き出しが終わったマークのセリフ(文字起こし済みなら)
 }
 async function openFromInput(){
   const inp = $('#rvOpenIn'), text = inp.value.trim();
@@ -994,6 +997,7 @@ function renderJob(j){
   const rows = j.items.map((it, i) => jobItemHTML(j, it, i));
   const h = j.items.map(i => errHint(i.error)).find(Boolean);
   if (h) rows.push(`<li class="hint rv-ejob-hint">${esc(h)}</li>`);
+  if (j.waiting) rows.unshift('<li class="hint rv-ejob-hint">他のツールの重い処理が終わるのを待っています(順番が来たら書き出しを始めます。中止もできます)</li>');
   const prev = S.jobRows || [];
   if (ol.dataset.job !== String(j.id) || prev.length !== rows.length || ol.children.length !== rows.length){
     ol.innerHTML = rows.join(''); ol.dataset.job = String(j.id);
@@ -1246,9 +1250,30 @@ function markHTML(c){
       <div class="rv-times">${tfieldHTML(c, 'start', '開始')}${tfieldHTML(c, 'end', '終了')}</div>
       <div class="rv-labelrow"><input id="rvl-${esc(c.id)}" data-f="label" maxlength="120" value="${esc(c.label)}" aria-label="ラベル(書き出しのファイル名に使われます)" placeholder="ラベル(ファイル名に使われます) 例: 初見ボスで絶叫"></div>
       ${exp && c.file ? `<div class="rv-file hint">書き出し先: <span class="mono">${esc(c.file)}</span></div>` : ''}
-      ${exp && c.file && typeof c.path === 'string' && isAbsPath(c.path) ? handoffHTML(null, { status: 'done', path: c.path }) : ''}
+      ${exp && c.file && typeof c.path === 'string' && isAbsPath(c.path) ? handoffHTML(null, { status: 'done', path: c.path }) + txHTML(c) : ''}
     </div>
   </li>`;
+}
+/* ---------- セリフ(書き出した切り抜きの文字起こしを、元の配信の時刻で)---------- */
+function txHTML(c){
+  const t = S.tx && S.cur && S.tx.vid === S.cur.id ? S.tx.marks[c.id] : null;
+  if (!t) return '';
+  const n = Number(t.segments) || 0, pf = Number(t.proofed) || 0;
+  const note = t.offsetFrom === 'mark' ? '<div class="hint rv-tx-note">.clip.json が見つからないため、マークの開始に合わせています(高速書き出しの切り抜きは数秒ずれることがあります)</div>' : '';
+  const lines = (t.lines || []).map(l => `<li><button type="button" class="rv-tx-line${l.cut ? ' cut' : ''}" data-act="txseek" data-t="${Number(l.start)}" data-e="${Number(l.end)}" title="${l.cut ? '文字起こしで「カット」にした行 ・ ' : ''}この行を再生"><span class="mono rv-tx-tc">${fmt(l.start)}</span>${l.speaker ? `<span class="rv-tx-spk">${esc(l.speaker)}</span>` : ''}<span class="rv-tx-text">${esc(l.text) || '(空の行)'}</span></button></li>`).join('');
+  return `<details class="rv-tx" data-tx="${esc(c.id)}"${S.txOpen.has(c.id) ? ' open' : ''}>
+    <summary><b>セリフ</b> <span class="hint">${n}行 ・ 校正 ${pf}/${n}${t.others > 0 ? ' ・ 他に ' + Number(t.others) + ' 件の文字起こし(いちばん新しいものを表示)' : ''}</span></summary>
+    ${note}<ol class="rv-tx-lines">${lines}</ol>${t.truncated ? '<div class="hint">長いため、最初の部分だけ表示しています</div>' : ''}
+  </details>`;
+}
+async function loadTranscripts(){
+  const v = S.cur; if (!v || !v.marks.some(m => m.status === 'exported' && m.path)){ if (S.tx && (!v || S.tx.vid !== v.id)) S.tx = null; return; }
+  const seq = ++S.txSeq;
+  let j; try { j = await Studio.api('/api/transcripts?id=' + enc(v.id)); } catch { return; }   // 読めなくても確認・書き出しは続けられる(セリフが出ないだけ)
+  if (seq !== S.txSeq || S.cur !== v) return;
+  const before = JSON.stringify(S.tx && S.tx.vid === v.id ? S.tx.marks : null);
+  S.tx = { vid: v.id, marks: j.marks || {} };
+  if (JSON.stringify(S.tx.marks) !== before) renderListKeep();
 }
 function renderList(){
   const ol = $('#rvList'); if (!ol) return;
@@ -1306,6 +1331,11 @@ function wire(){
     switch (b.dataset.act){
       case 'play': S.sel = c.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li)); previewClip(c); break;
       case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); break;
+      case 'txseek': {   // セリフの行を押したら、その行だけ再生する(元の配信の時刻)
+        if (!yt){ toast('再生できるプレーヤーがありません'); break; }
+        const t = Number(b.dataset.t), e2 = Number(b.dataset.e);
+        if (!Number.isFinite(t)) break;
+        seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
       case 'nudge': {
         const w = b.dataset.w;
@@ -1318,6 +1348,10 @@ function wire(){
       }); break;
     }
   });
+  list.addEventListener('toggle', e => {   // セリフの開閉を覚える(一覧を描き直しても閉じない)。toggle は泡立たないので capture で受ける
+    const d = e.target; if (!d.classList || !d.classList.contains('rv-tx')) return;
+    if (d.open) S.txOpen.add(d.dataset.tx); else S.txOpen.delete(d.dataset.tx);
+  }, true);
   list.addEventListener('click', e => { // 行のどこかを押したら選択(タイムラインと連動)
     const li = e.target.closest('.rv-mark-row'); if (!li || e.target.closest('input,button,label')) return;
     S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
@@ -1536,7 +1570,7 @@ Studio.onReady(() => {
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden){ pausePlayback(); stopPoll(); if (setTimer) saveSettings(); if (S.dirty) save(); }
-    else if (Studio.step === 'review') startPoll();
+    else if (Studio.step === 'review'){ startPoll(); loadTranscripts(); }   // 文字起こしのタブで直してから戻ったとき
   });
   window.addEventListener('beforeunload', e => {
     if (S.dirty || saveP || S.exportAll){ e.preventDefault(); e.returnValue = ''; }
