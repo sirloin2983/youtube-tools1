@@ -389,7 +389,7 @@ class TestWithFfmpeg(unittest.TestCase):
         self.assertEqual([c[2] for c in cues], ["あ", "い", "う"])  # 字幕は全て音のある区間に入っている
 
     def test_full_cli_textplus_pack_60fps_to_30fps_target(self):
-        # v0.4.0: 60fps 横の動画を再圧縮せず media/ に入れ、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
+        # v0.4.0: 60fps 横の動画を再圧縮せずパックに入れ(2026-09-27 から直下)、置き先(既定 30fps・1080x1920)を計画に書く。CLI の経路の確認
         v = self.dir / "t60.mp4"
         make_video(v, 10, fps="60")
         rc = FULL.main([str(v), str(self._srt()), "--textplus"])
@@ -398,7 +398,7 @@ class TestWithFfmpeg(unittest.TestCase):
         for name in ("create_resolve_textplus_project.lua", "cut-plan.json", "友人へ.txt"):
             self.assertTrue((out / name).exists(), name)
         self.assertFalse((out / "textplus-import.json").exists())   # 計画は Lua に埋め込む(④)
-        self.assertEqual((out / "media" / "t60.mp4").read_bytes(), v.read_bytes())  # 再圧縮しない(中身が同じ)
+        self.assertEqual((out / "t60.mp4").read_bytes(), v.read_bytes())  # 再圧縮しない(中身が同じ)
         plan = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
         plan["media"].pop("absolutePath", None)
         plan.pop("template", None)

@@ -21,7 +21,11 @@ TEMPLATE_NAME = "textplus-template.drb"
 # 以前の自動選択の理由: フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
 # そこで Lua 側で Resolve(Fusion)のフォント一覧を読み、候補のうち実際にあるもの・ある太さを選ぶ。一覧を読めないときは fallback。
 # 入力の名前(Size・Thickness2・Offset2 など)は Fusion の Text+ のもの。入れたあと読み直し、違う値になった項目はマーカーのメモに出す
-# (名前が実機と違っても気づけるように。色は 0〜1)
+# (名前が実機と違っても気づけるように。色は 0〜1)。
+# 優先順位(重ね順)は、実機(Resolve 21.1。2026-09-27)で「Priority1」などが入らなかった(読み直すと値が無い)。そこで
+# Resolve の入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前(Text+ の部品 text.plugin の中の文字列 PriorityBack)の順に試す。
+# 見つけた名前はマーカーのメモに「読み替え」と出す(次の版で名前を直すため)。重ね順が入らないと、太い黒ふち(要素5)が白ふちを覆って見た目が崩れる
+PRIORITY_LOOKUP = {"names": ["Priority", "優先順位"], "ids": ["PriorityBack%d"]}
 TEXT_STYLE = {
     "name": "けいふぉんと・黒い文字・白いふち・黒いふち",
     "fonts": ["けいふぉんと", "Keifont"], "styles": ["Regular"],
@@ -52,7 +56,9 @@ def style_inputs(style=None):
             out.append(["Thickness%d" % n, e["thickness"]])
         for k, v in zip(("Red", "Green", "Blue", "Alpha"), e["rgba"]):
             out.append(["%s%d" % (k, n), v])
-        out.append(["Priority%d" % n, e["priority"]])
+        # 3つ目: 名前で入らなかったときの探し方(表示名と要素の番号・候補の名前)。Lua の「読み替え」
+        out.append(["Priority%d" % n, e["priority"], {"names": list(PRIORITY_LOOKUP["names"]), "n": n,
+                                                      "ids": [x % n for x in PRIORITY_LOOKUP["ids"]]}])
         out.append(["Offset%d" % n, list(e["offset"])])
     return out
 DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
@@ -387,8 +393,11 @@ local ok, err = pcall(function()
     -- Resolve の「Fusion タイトルを挿入」API は配置先を指定できない(V1 に入った)。雛形を V2 へ明示配置する。
     if not cutTimeline:AddTrack("video") then error("PLACE|字幕用の映像トラックを追加できません") end
     local added, failed = 0, 0
-    -- 字幕の見た目(DATA.style.inputs = [[入力の名前, 値], ...])。最初の字幕で読み直し、違う値になった入力の名前を残す(実機で名前を確かめるため)
-    local styleMiss = nil
+    -- 字幕の見た目(DATA.style.inputs = [[入力の名前, 値, 探し方?], ...])。最初の字幕で1つずつ入れて読み直す。
+    -- 入らなかった入力は、探し方(kv[3])があれば この Resolve の入力の一覧から表示名(names)と要素の番号(n)で探す → 候補の名前(ids)の順に試し、
+    -- 入った名前を以後の字幕でも使う(styleUse。メモに「読み替え」)。それでも入らない入力はメモに出して黄色にし、
+    -- 入力の一覧をパックのフォルダの textplus-inputs.txt に書く(次に名前を直す手がかり)
+    local styleMiss, styleUse, styleRenamed, styleDump = nil, {}, {}, nil
     local function sameValue(a, b)
         if type(b) == "table" then
             if type(a) ~= "table" then return false end
@@ -400,6 +409,77 @@ local ok, err = pcall(function()
         end
         local x = tonumber(a)
         return x ~= nil and math.abs(x - b) <= 0.0001
+    end
+    local function trySet(tool, name, value)
+        pcall(function() tool:SetInput(name, value) end)
+        local okGet, v = pcall(function() return tool:GetInput(name) end)
+        return okGet and sameValue(v, value)
+    end
+    local function inputList(tool)   -- -> {{id, name}, ...}(読めなければ空)
+        local list = {}
+        local ok, l = pcall(function() return tool:GetInputList() end)
+        if ok and type(l) == "table" then
+            for _, inp in pairs(l) do
+                local okA, a = pcall(function() return inp:GetAttrs() end)
+                if okA and type(a) == "table" and a.INPS_ID then
+                    table.insert(list, {id = tostring(a.INPS_ID), name = tostring(a.INPS_Name or "")})
+                end
+            end
+        end
+        table.sort(list, function(x, y) return x.id < y.id end)
+        return list
+    end
+    local function findByName(list, look)
+        local suffix = tostring(look.n or "")
+        for _, x in ipairs(list) do
+            for _, nm in ipairs(look.names or {}) do
+                if x.name == nm and (suffix == "" or string.sub(x.id, -#suffix) == suffix) then return x.id end
+            end
+        end
+        return nil
+    end
+    local function dumpInputs(list)   -- パックのフォルダ(動画の隣)に入力の一覧を書く。書けなければ nil
+        local dir = string.match(tostring(DATA.media.absolutePath or ""), "^(.*)[/\\][^/\\]+$")
+        if not dir or #list == 0 or not io or not io.open then return nil end
+        local ok, f = pcall(io.open, dir .. "\\textplus-inputs.txt", "w")
+        if not ok or not f then return nil end
+        f:write("Text+ の入力の一覧(cut2resolve が見た目を入れられなかったときに書く。送り主に渡してください)\n入力の名前\t表示名\n")
+        for _, x in ipairs(list) do f:write(x.id .. "\t" .. x.name .. "\n") end
+        f:close()
+        return "textplus-inputs.txt"
+    end
+    local function applyStyle(tool)
+        if styleMiss ~= nil then   -- 2つ目からは、最初に決めた名前で入れる
+            for _, kv in ipairs(DATA.style.inputs) do
+                local name = styleUse[kv[1]] or kv[1]
+                pcall(function() tool:SetInput(name, kv[2]) end)
+            end
+            return
+        end
+        styleMiss = {}
+        local list = nil
+        for _, kv in ipairs(DATA.style.inputs) do
+            if not trySet(tool, kv[1], kv[2]) then
+                local found, look = nil, kv[3]
+                if type(look) == "table" then
+                    list = list or inputList(tool)
+                    local id = findByName(list, look)
+                    if id and id ~= kv[1] and trySet(tool, id, kv[2]) then found = id end
+                    if not found then
+                        for _, id2 in ipairs(look.ids or {}) do
+                            if trySet(tool, id2, kv[2]) then found = id2; break end
+                        end
+                    end
+                end
+                if found then
+                    styleUse[kv[1]] = found
+                    table.insert(styleRenamed, kv[1] .. "→" .. found)
+                else
+                    table.insert(styleMiss, kv[1])
+                end
+            end
+        end
+        if #styleMiss > 0 then styleDump = dumpInputs(list or inputList(tool)) end
     end
     for _, cap in ipairs(DATA.captions) do
         local item = edits[cap.segment]
@@ -426,16 +506,7 @@ local ok, err = pcall(function()
                 tool:SetInput("StyledText", cap.text)
                 tool:SetInput("Font", fontName)
                 tool:SetInput("Style", fontStyle)
-                for _, kv in ipairs(DATA.style.inputs) do
-                    pcall(function() tool:SetInput(kv[1], kv[2]) end)
-                end
-                if styleMiss == nil then
-                    styleMiss = {}
-                    for _, kv in ipairs(DATA.style.inputs) do
-                        local okGet, v = pcall(function() return tool:GetInput(kv[1]) end)
-                        if not okGet or not sameValue(v, kv[2]) then table.insert(styleMiss, kv[1]) end
-                    end
-                end
+                applyStyle(tool)
                 added = added + 1
             else
                 failed = failed + 1
@@ -464,7 +535,9 @@ local ok, err = pcall(function()
     local title = (failed == 0 and lengthOff == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
     local note = "字幕 " .. added .. "/" .. #DATA.captions .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
         "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" ..
-        "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") .. ")") ..
+        "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") ..
+            (styleDump and "。入力の一覧: " .. styleDump or "") .. ")") ..
+        (#styleRenamed > 0 and "・入力の名前を読み替え: " .. table.concat(styleRenamed, ", ") or "") ..
         "・復旧用 " .. (source and "あり" or "作れず") ..
         "・" .. tfps .. "fps " .. tw .. "x" .. th .. "・拡大設定(参考) " .. scaling
     pcall(function()
@@ -487,7 +560,7 @@ def installer_script(video_name):
     script = r'''$ErrorActionPreference = 'Stop'
 $packageDir = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $source = Join-Path $packageDir 'create_resolve_textplus_project.lua'
-$video = Join-Path $packageDir 'media\__VIDEO_NAME__'
+$video = Join-Path $packageDir '__VIDEO_NAME__'
 $template = Join-Path $packageDir 'textplus-template.drb'
 $destinationDir = Join-Path $env:APPDATA 'Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Edit'
 $destination = Join-Path $destinationDir 'cut2resolve TextPlus Import Lua.lua'
@@ -518,20 +591,20 @@ def launcher_script():
             'pause\r\n')
 
 
-README_NAME = "友人へ.txt"                    # Text+ パックでは、友人が最初に読むのはこの手順書
+README_NAME = "友人へ.txt"                    # Text+ パックの手順書(コマンドで作るときだけ書く。画面・API は画面の「手順を見る」で出す)
 EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
 
 
 def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True):
-    """友人向けの手順書(Text+ パックの 友人へ.txt)。簡潔に、ただし手順と注意は省かない"""
+    """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない"""
     t = dict(target or DEFAULT_TARGET)
     vertical = t["height"] > t["width"]
     info = []
     if meta:
         f = meta["fps"][0] / meta["fps"][1]
-        info.append(f"動画: media/{video_name}({meta['w']}x{meta['h']}・{f:g}fps。元のまま、再圧縮していません)")
+        info.append(f"動画: {video_name}({meta['w']}x{meta['h']}・{f:g}fps。元のまま、再圧縮していません)")
     else:
-        info.append(f"動画: media/{video_name}")
+        info.append(f"動画: {video_name}")
     if n_captions is not None and n_cuts is not None:
         info.append(f"字幕 {n_captions} 件・残す区間 {n_cuts} か所")
     size = f"{t['width']} x {t['height']}"
@@ -547,8 +620,8 @@ def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=Non
     scale_trouble = ("""・上下に黒い帯がある / 位置 X を動かしても画面の外が出ない
     → 手順 1-c の設定が「黒帯を挿入」のまま。「最短辺をマッチ: 他をクロップ」にして保存(置いたクリップにもそのまま反映)
 """ if vertical else "")
-    return f"""友人へ: Text+ 字幕つきの編集パック
-====================================
+    return f"""Resolve での手順: Text+ 字幕つきの編集パック
+===========================================
 
 Resolve の中でスクリプトを実行すると、カット済みのタイムラインと、1つずつ編集できる Text+ 字幕ができます。
 {chr(10).join(info)}
@@ -613,16 +686,17 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 ・「C2R_エラー_Text+雛形を読めない」→ textplus-template.drb が無い。パックを受け取り直す
 ・実行してもタイムラインが1本も増えない → プロジェクトが開いていない。プロジェクトを開いてから実行
 ・マーカーが黄色で、メモに「けいふぉんと が無いので自動で選択」→ けいふぉんと を入れて Resolve を起動し直し、もう一度スクリプトを実行
-・マーカーのメモに「反映できなかった: …」→ その見た目の項目がこの Resolve では入れられませんでした。送り主に、メモの文を伝えてください
+・マーカーのメモに「反映できなかった: …」→ その見た目の項目がこの Resolve では入れられませんでした。送り主に、メモの文と
+    パックのフォルダにできた textplus-inputs.txt(入力の一覧)を渡してください
 ・字幕が四角(□)や別の字体になる、「Font Not Found」と出る → Text+ を選び、インスペクタで日本語のフォント
     (けいふぉんと・ＭＳ ゴシックなど)と太さを選び直す。1つ直したら「属性をペースト」でほかの字幕にも反映できます
-・動画が赤く表示される(オフライン)→ メディアプールで動画を右クリック →「選択したクリップを再リンク」→ このパックの media フォルダ
+・動画が赤く表示される(オフライン)→ メディアプールで動画を右クリック →「選択したクリップを再リンク」→ このパックのフォルダ
 ・音がプツプツする・割れる → 送り主に連絡(どのタイムラインで、いつから、を書いて)。
     書き出した動画では問題が出ないこともあるので、書き出して確認するのも手です
 
 
 ■ 注意
-・media の中の動画の名前を変えない。パックのフォルダを動かしたら、2-b〜c をやり直す
+・動画({video_name})の名前を変えない。パックのフォルダを動かしたら、2-b〜c をやり直す
 {backup_note}"""
 
 
@@ -637,13 +711,26 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None):
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
-    S.write_text_atomic(paths["textplus_readme"],
-                        instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup),
-                        encoding="utf-8-sig", newline="\n")
+    if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
+        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup), encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
-    return {key: paths[key] for key in ("textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")}
+    return {key: paths[key] for key in ("textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
+            if key in paths}
+
+
+def readme_text(plan, target=None, backup=True):
+    """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)"""
+    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup)
+
+
+def readme_from_script(text, backup=True):
+    """パックの Lua(importer_script が書いたもの)から手順書の中身を作り直す(手順書のファイルが無いパックの「手順を見る」)"""
+    d = read_script_plan(text)
+    num, den = (int(x) for x in str(d["fps"]).split("/"))
+    meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
+    return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup)
 
 
 def read_script_plan(text):

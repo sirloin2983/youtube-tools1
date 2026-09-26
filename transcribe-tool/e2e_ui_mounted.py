@@ -289,7 +289,7 @@ def main():
             check(it1.get("pack", {}).get("textplus") is True and it1.get("packRev", 0) >= 1 and it1.get("packStale") is False, "一覧の API もパックあり・作り直しは要らない")
             pg.click("#pkReadme")
             wait_js(pg, "!document.querySelector('#pkReadmeText').hidden && document.querySelector('#pkReadmeText').textContent.length > 20", 10000)
-            check("Resolve" in pg.inner_text("#pkReadmeText"), "「友人へ.txt を見る」で手順書が出る")
+            check("Resolve" in pg.inner_text("#pkReadmeText"), "「Resolve での手順を見る」で手順が出る")
             # カットを変えると「作り直しが要る」
             pg.click("[data-edtab=tx]")
             pg.locator("#segs .seg").nth(3).locator("[data-act=cut]").click()   # 4行目(12〜16秒)も削る
@@ -330,8 +330,8 @@ def main():
                     with open(lua_path, "wb") as f:
                         f.write(z.read(ip_name))
                 ipz = read_pack_plan(lua_path) if ip_name else {}
-            check(any(n.endswith("/media/" + os.path.basename(media)) for n in names) and ip_name is not None and not any(n.endswith(".edl") for n in names),
-                  "「zip でダウンロード」で Text+ パック(動画・Lua。最小限)をダウンロードできる: %s" % names[:4])
+            check(any(n.split("/", 1)[-1] == os.path.basename(media) for n in names) and not any("/media/" in n or n.endswith("友人へ.txt") for n in names) and ip_name is not None and not any(n.endswith(".edl") for n in names),
+                  "「zip でダウンロード」で Text+ パック(動画は直下・Lua。最小限・手順書なし)をダウンロードできる: %s" % names[:4])
             check(ipz.get("target") == {"fps": 30, "width": 1920, "height": 1080} and ipz.get("cuts") == ip2.get("cuts") and ipz.get("captions"),
                   "zip にも選んだ fps・大きさと、パックと同じ区間(カットのとおり)が入る: %s" % {k: ipz.get(k) for k in ("target",)})
             wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /パック\\(zip\\)を作成しました/.test(e.textContent))", 10000)

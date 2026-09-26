@@ -206,8 +206,9 @@ class ResolvePackContract(unittest.TestCase):
             a = {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
         out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
         plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS))
-        # cut2resolve の API(画面)と同じ: cut-plan.json はフォルダに書かない・予備は指定どおり
-        res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size), backup=backup, plan_file=False)
+        # cut2resolve の API(画面)と同じ: cut-plan.json・手順書(友人へ.txt。2026-09-27 から)はフォルダに書かない・予備は指定どおり
+        res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size), backup=backup, plan_file=False,
+                              readme_file=False)
         b = {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
         return a, b
 
@@ -341,7 +342,7 @@ class ResolvePackContract(unittest.TestCase):
         # test_plan_uses_handle_media_and_keeps_recoverable_source_offsets と同じ)。⑥ から終わりに決まった余白 6 フレーム(無音が無い動画)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 546)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
-        self.assertEqual(ip["media"]["file"], "media/clip_edit.mp4")
+        self.assertEqual(ip["media"]["file"], "clip_edit.mp4")      # 動画はパックの直下(2026-09-27 まで media/)
 
 
 def _load_transcribe_serve():

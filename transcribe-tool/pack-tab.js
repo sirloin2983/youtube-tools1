@@ -196,7 +196,7 @@ function create(h){
       P.readme = res.readme || ''; P.lastRes = res;
       h.onPacked(id, { rev, at: r.at });
       for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
-      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。フォルダの中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
+      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。「Resolve での手順を見る」の手順で取り込みます`, 8000, 'ok');
     } catch (e){
       if (e.code === 'cancelled') h.toast('パック作りを中止しました', 3000);
       else if (e.code !== 'switched') P.err = e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message;
@@ -238,7 +238,7 @@ function create(h){
       const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf() });
       h.download(await r.blob(), `${h.safeName(h.S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
-      h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');
+      h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、フォルダの bat でスクリプトを登録してから Resolve で実行します`, 8000, 'ok');
     } catch (e){ h.toast('パック(zip)を作れませんでした: ' + e.message, 7000, 'err'); }
     finally { b.disabled = false; b.textContent = label; }
   });

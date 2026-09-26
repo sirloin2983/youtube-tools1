@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.12.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.13.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -622,15 +622,15 @@ def write_pack(out_dir, video, meta, keeps, cues_out, args_reel="AX", rec_start=
                src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None, stem=None):
     """EDL・字幕・手順書を書く(どれも一時ファイル経由で置き換える)。書いたファイルのパス辞書を返す。
     extras: 友人へ.txt に載せる追加のファイル [(名前, 説明)](書くのは呼び出し側)
-    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。Text+ パックでは予備の手順書にする)
-    stem: EDL・SRT の名前(既定は video の名前。余白つき素材を使うときも、名前は元の切り抜きにそろえる)"""
+    readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。Text+ パックでは予備の手順書にする。False = 書かない)
+    stem: EDL・SRT の名前(既定は video の名前。余白つき素材を使うときも、名前は元の切り抜きにそろえる)
+    返す辞書の "readme_text" は手順書の中身(書かなかったときも。画面に出す用。パスではない)"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     fps = meta["fps"]
     stem = stem or video.stem
     edl_p = out_dir / f"{stem}.edl"
     srt_p = out_dir / f"{stem}_cut.srt"
-    txt_p = Path(readme_path) if readme_path else out_dir / "友人へ.txt"
     S.write_text_atomic(edl_p, build_edl(edl_title or stem, video.name, keeps, fps, bool(meta["audio"]),
                                          args_reel, rec_start, src_start),
                         encoding="utf-8", newline="")
@@ -638,11 +638,13 @@ def write_pack(out_dir, video, meta, keeps, cues_out, args_reel="AX", rec_start=
     if cues_out is not None:
         S.write_text_atomic(srt_p, S.build_srt(cues_out, fps), encoding="utf-8", newline="\n")
         files["srt"] = srt_p
-    S.write_text_atomic(txt_p, build_readme(video.name, meta, keeps, edl_p.name,
-                                            srt_p.name if cues_out is not None else None,
-                                            rough_path.name if rough_path else None, rec_start, src_start, extras),
-                        encoding="utf-8-sig", newline="\n")
-    files["readme"] = txt_p
+    text = build_readme(video.name, meta, keeps, edl_p.name, srt_p.name if cues_out is not None else None,
+                        rough_path.name if rough_path else None, rec_start, src_start, extras)
+    if readme_path is not False:
+        txt_p = Path(readme_path) if readme_path else out_dir / "友人へ.txt"
+        S.write_text_atomic(txt_p, text, encoding="utf-8-sig", newline="\n")
+        files["readme"] = txt_p
+    files["readme_text"] = text
     return files
 
 

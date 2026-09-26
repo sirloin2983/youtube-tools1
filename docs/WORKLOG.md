@@ -976,3 +976,24 @@
   閉じない設定でコピーした札に「✓ コピーしました」、開いた直後は選択の枠を出さない(文字を打つか矢印を使ったら出す)
 - 版: ホロカラー 1.0.1 → **1.1.0**(Core.cs・README)。`docs/holo-colors.md`(決めたことに追記)・`AGENTS.md`(テストの件数)
 - テスト(PC で通過): build.bat の単体 17 件(開けなかったファイルと保存の失敗を足した)・e2e 20 件(Esc・開いたまま移った窓へ戻る・一番手前ではない を足した。ユーザーの許可を得て流した)
+
+## 2026-09-27 Claude Code — 実機の確認の結果の直し(1): パックに media フォルダ・友人へ.txt を作らない・Text+ の重ね順
+- ユーザーの実機の確認(Resolve): ④ パックの中身は OK だが「media フォルダは中が1つだから分けなくていい」「友人へ.txt もいらない」。
+  ① 見た目は「ダメ」。マーカーのメモ「見た目 … (反映できなかった: Priority1, Priority2, Priority5)」= 重ね順(優先順位)が入らず、太い黒ふち(要素5)が白ふちの上に描かれた可能性が高い。
+  ③ 語頭・語尾の聞き比べ・③-2 の6か所は保留
+- 変更(cut2resolve): `pack.py`(動画はパックの直下・`readme_file`(画面・API は False = 友人へ.txt を書かない。コマンドは True)・以前の `media\<動画>` が残っていれば「前に作った…」で知らせる(消さない)・
+  画面に出す手順は書かなくても `readme` で返す)、`cut2resolve_core.write_pack`(`readme_path=False` で書かない・中身は `readme_text`)、
+  `resolve_textplus.py`(登録用 ps1・計画の動画の場所を直下に・手順書の文言・`readme_text`・`readme_from_script`(パックの Lua から手順を作り直す)・
+  **重ね順の読み替え**: 名前で入らなければ Resolve の入力の一覧(`GetInputList`)から表示名「Priority」と要素の番号で探す → 候補の名前 `PriorityBack<n>` の順に試し、
+  入った名前はメモに「入力の名前を読み替え: …」(緑のまま)。それでも入らなければ黄色・入力の一覧をパックのフォルダの `textplus-inputs.txt` に書く)、
+  `serve.py`(API は readme_file=False)、`resolve_lua_mock.lua`(GetInputList)
+- 変更(編集): `resolve_export.py`(zip も手順書なし・`pack_instructions`)、`serve.py`(`/api/edit/pack-readme` は Lua から作り直す。以前のパックは中の手順書)、
+  `pack-tab.js`・`index.html`(「友人へ.txt を見る」→「Resolve での手順を見る」・入れるものの説明)
+- 決定・理由: 優先順位の入力名は Web に無く、Resolve 本体の `Plugins\text.plugin` の文字列を調べた(読むだけ)。入力名は「名前 + 要素の番号」(`%s%d`)で作られ、
+  位置の欄の近くに `PriorityBack` という名前があった(表示名は「Priority」)。決め打ちせず、実機の入力の一覧から表示名で探すのを先にした(PriorityBack が別の意味でも誤って入れないため)。
+  次の実機の確認でメモの「読み替え」の名前を見て、次の版で決め打ちにする。コマンド(cut2resolve.py)は人に渡す使い方もあるので 友人へ.txt を書き続ける
+- 契約テストの期待値の変更(理由: ユーザーの指示でパックの形が変わった): B の cut2resolve 側を API と同じ `readme_file=False` に・余白つき素材の動画の場所 `media/clip_edit.mp4` → `clip_edit.mp4`
+- 版: cut2resolve 0.12.0 → **0.13.0**、編集 0.17.0 → **0.17.1**(serve.py・app.js・README)
+- テスト(PC): 入口の単体・ytt_core/tools 56・契約 27・cut2resolve 279・編集の単体 125・e2e(編集 tabs/cut/pack/mounted/handoff・入口 autorun/portal・e2e_pipeline)
+- 実機で確かめてほしいこと(ユーザー): パックを作り直して Resolve で実行 → 白いふちが黒いふちの上に見えるか・マーカーのメモ(「読み替え: …」または「反映できなかった … 入力の一覧: textplus-inputs.txt」)。
+  まだおかしければ、Resolve の画面の写真と、パックにできた textplus-inputs.txt を送ってもらう

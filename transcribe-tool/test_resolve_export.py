@@ -94,9 +94,9 @@ class PackageTests(unittest.TestCase):
         top = {n.split("/")[0] for n in names}
         self.assertEqual(top, {"テスト_pack"})                      # 展開するとフォルダが1つ
         rel = {n.split("/", 1)[1] for n in names}
-        # 最小限(④): 動画・Lua・雛形・登録用の ps1/bat・友人へ.txt だけ(EDL・SRT・cut-plan.json・textplus-import.json は入れない)
-        self.assertEqual({"media/clip.mp4", "create_resolve_textplus_project.lua",
-                          "install_resolve_textplus_script.ps1", "ResolveにText+スクリプトを登録.bat", "友人へ.txt",
+        # 最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(EDL・SRT・cut-plan.json・textplus-import.json・友人へ.txt は入れない。2026-09-27)
+        self.assertEqual({"clip.mp4", "create_resolve_textplus_project.lua",
+                          "install_resolve_textplus_script.ps1", "ResolveにText+スクリプトを登録.bat",
                           "textplus-template.drb"}, {n for n in rel if not n.endswith("/")}, rel)
         self.assertEqual((info["cuts"], info["captions"], info["media"]["hasEditHandles"]), (2, 2, False))
         ip = self.ip(z)
@@ -121,12 +121,12 @@ class PackageTests(unittest.TestCase):
                        "handleBefore": 10, "handleAfter": 10}, f)
         z, info = self.package(self.doc())
         self.assertTrue(info["media"]["hasEditHandles"])
-        self.assertEqual(info["media"]["file"], "media/clip_edit.mp4")
+        self.assertEqual(info["media"]["file"], "clip_edit.mp4")
         ip = self.ip(z)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 540)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 840})
-        self.assertIn("テスト_pack/media/clip_edit.mp4", z.namelist())
+        self.assertIn("テスト_pack/clip_edit.mp4", z.namelist())
 
     def test_selected_fps_is_the_project_not_the_media(self):
         """60fps の動画で 30 を選んでも、カットの位置は動画の fps で数える(以前はここがずれていた)"""
@@ -198,7 +198,7 @@ class HttpTests(unittest.TestCase):
         with open(p, "wb") as f:
             f.write(body)
         with zipfile.ZipFile(p) as z:
-            self.assertIn("HTTP_pack/media/clip.mp4", z.namelist())
+            self.assertIn("HTTP_pack/clip.mp4", z.namelist())
 
     def test_bad_input(self):
         st, _, body = self.post({"tid": self.tid, "fps": "29.97"})

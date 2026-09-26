@@ -553,7 +553,7 @@ def output_from_spec(o, video):
             "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True)}
 
 
-FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "友人向けの手順(Text+ パックでは予備の EDL の手順)", "plan": "カットの記録",
+FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
               "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー",
               "textplus_plan": "Text+生成用データ", "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
@@ -930,7 +930,8 @@ class Handler(BaseHTTPRequestHandler):
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"],
-                                                            out_opts["fcpxml"], out_opts["textplus"], out_opts["backup"], plan_file=False)
+                                                            out_opts["fcpxml"], out_opts["textplus"], out_opts["backup"], plan_file=False,
+                                                            readme_file=False)
             res = with_warning_levels(pack.summary(plan))
             res["mediaUrl"] = app.register_media(plan.video)
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
@@ -946,7 +947,8 @@ class Handler(BaseHTTPRequestHandler):
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
             names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"],
                                     out["fcpxml"], out["textplus"],
-                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]), out["backup"], plan_file=False)
+                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]), out["backup"], plan_file=False,
+                                    readme_file=False)
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -956,7 +958,7 @@ class Handler(BaseHTTPRequestHandler):
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
-                                  textplus_wrap=out["textplusWrap"])
+                                  textplus_wrap=out["textplusWrap"], readme_file=False)
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"])

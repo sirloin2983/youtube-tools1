@@ -126,7 +126,7 @@ class TestTextStyle(unittest.TestCase):
     """字幕の見た目(ユーザーの指定 2026-09-26。素材フォルダの Text+ のインスペクタの画像)。Lua が無くても確かめられる所"""
 
     def test_values_from_the_screenshots(self):
-        inputs = dict((k, v) for k, v in RTP.style_inputs())
+        inputs = dict((kv[0], kv[1]) for kv in RTP.style_inputs())
         self.assertEqual(RTP.TEXT_STYLE['fonts'][:2], ['けいふぉんと', 'Keifont'])          # keifont.ttf の名前表(日本語・英語)
         self.assertEqual(RTP.TEXT_STYLE['styles'], ['Regular'])
         for k, v in {'Size': 0.14, 'CharacterSpacing': 1.0, 'LineSpacing': 1.0, 'VerticalTopCenterBottom': 1.0, 'HorizontalLeftCenterRight': 0.0,
@@ -137,6 +137,8 @@ class TestTextStyle(unittest.TestCase):
                      'Offset5': [0.0, 0.0]}.items():
             self.assertEqual(inputs.get(k), v, k)
         self.assertNotIn('Thickness1', inputs)                                               # 塗りに太さは無い
+        look = next(kv[2] for kv in RTP.style_inputs() if kv[0] == 'Priority5')              # 名前で入らなかったときの探し方
+        self.assertEqual(look, {'names': ['Priority', '優先順位'], 'n': 5, 'ids': ['PriorityBack5']})
 
     def test_wrap_caption(self):
         """Text+ 字幕の改行(12 ②): 1段 8(縦)/ 14(横)文字前後で2段。+2 文字までは改行しない・句読点/助詞のあと・漢字やカタカナの始まりで切る"""
@@ -187,7 +189,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
 
     KEI = {'けいふぉんと': ['Regular'], 'Meiryo': ['Regular']}   # 指定のフォントを入れた PC
 
-    def run_lua(self, plan, settings, media_fps=60, template_ok=True, media_ok=True, fonts=None, ignore=()):
+    def run_lua(self, plan, settings, media_fps=60, template_ok=True, media_ok=True, fonts=None, ignore=(), inputs=(), media_path=None):
         mock_path = Path(RTP.__file__).with_name('resolve_lua_mock.lua')
         body = RTP.importer_script(plan)
         pre = 'dofile(%s)\n' % json.dumps(str(mock_path))
@@ -197,6 +199,10 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
             pre += 'MOCK.settings[%s] = %s\n' % (json.dumps(k), json.dumps(v))
         for k in ignore:        # この Resolve に無い入力の名前(実機で名前が違ったとき)
             pre += 'MOCK.ignoreInputs[%s] = true\n' % json.dumps(k)
+        for i, (k, n) in enumerate(inputs, 1):   # GetInputList が返す入力(名前, 表示名)
+            pre += 'MOCK.inputList[%d] = {id=%s, name=%s}\n' % (i, json.dumps(k), json.dumps(n, ensure_ascii=False))
+        if media_path:          # 登録用の ps1 と同じく、動画の場所を埋め込む
+            body = body.replace('__C2R_MEDIA_PATH__', str(media_path).replace('\\', '\\\\'))
         if fonts is not None:   # {書体: [太さ, ...]}
             pre += 'MOCK.fonts = {' + ','.join('[%s]={%s}' % (json.dumps(f, ensure_ascii=False), ','.join('[%s]="x"' % json.dumps(s, ensure_ascii=False) for s in st))
                                              for f, st in fonts.items()) + '}\n'
@@ -264,9 +270,36 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         """入れた値を読み直し、この Resolve に無い入力(名前が違う)はマーカーのメモに出して黄色にする(実機で名前を確かめるため)"""
         s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a'), (400, 500, 'b')], [(0, 2064)])
-        out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5'))
+        out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5', 'PriorityBack5'))
         self.assertIn('(反映できなかった: Offset2, Priority5)', out)
         self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 2/2', out)
+
+    def test_priority_name_is_looked_up(self):
+        """実機で Priority1/2/5 が入らなかった(2026-09-27): 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
+        見つけた名前は 2つ目の字幕でも使い、メモに「読み替え」と出す(緑のまま)。見つからなければ入力の一覧をパックのフォルダに書く"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        plan = _textplus_plan([(60, 300, 'a'), (400, 500, 'b')], [(0, 2064)])
+        no_prio = ('Priority1', 'Priority2', 'Priority5')
+        # 一覧から表示名で見つかる(候補の名前より先)
+        listed = [('ElementPriority%d' % n, 'Priority') for n in (1, 2, 5)] + [('Softness1', 'Softness')]
+        out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio, inputs=listed)
+        self.assertIn('入力の名前を読み替え: Priority1→ElementPriority1, Priority2→ElementPriority2, Priority5→ElementPriority5', out)
+        self.assertIn('marker=Green|cut2resolve 完了|', out)
+        self.assertNotIn('反映できなかった', out)
+        # 一覧を読めない → 候補の名前(PriorityBack)
+        out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio)
+        self.assertIn('入力の名前を読み替え: Priority1→PriorityBack1, Priority2→PriorityBack2, Priority5→PriorityBack5', out)
+        self.assertIn('marker=Green|', out)
+        # どれも入らない → 黄色・入力の一覧をパックのフォルダ(動画の隣)に書く
+        with tempfile.TemporaryDirectory() as d:
+            video = Path(d) / 'clip.mp4'
+            out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio + ('PriorityBack1', 'PriorityBack2', 'PriorityBack5'),
+                               inputs=[('Softness1', 'Softness'), ('Offset5', 'Offset')], media_path=video)
+            self.assertIn('(反映できなかった: Priority1, Priority2, Priority5。入力の一覧: textplus-inputs.txt)', out)
+            self.assertIn('marker=Yellow|', out)
+            dump = (Path(d) / 'textplus-inputs.txt').read_text(encoding='utf-8')
+            self.assertIn('Offset5\tOffset', dump)
+            self.assertIn('Softness1\tSoftness', dump)
 
     def test_wrong_project_settings_stop_without_changes(self):
         out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),
@@ -674,7 +707,9 @@ class TestPackWithFfmpeg(unittest.TestCase):
         backup = (r["out_dir"] / RTP.EDL_README_NAME).read_text(encoding="utf-8-sig")
         self.assertIn("DaVinci Resolve", backup)
         self.assertIn(RTP.README_NAME, backup)                    # 予備の手順書から本来の手順書を案内する
-        self.assertTrue((r["out_dir"] / "media" / self.video.name).exists())
+        self.assertTrue((r["out_dir"] / self.video.name).exists())             # 動画はパックの直下(2026-09-27。media フォルダは作らない)
+        self.assertFalse((r["out_dir"] / "media").exists())
+        self.assertNotIn("media", guide)
 
     def test_cancel_during_copy_leaves_nothing(self):
         plan = pack.plan_cut(pack.Request(video=self.video))
@@ -820,7 +855,7 @@ class TestEditMediaPack(unittest.TestCase):
         out = Path(self.tmp.name) / "pack_tp"
         res = pack.build_pack(plan, out, textplus=True)
         files = dict(res["files"])
-        self.assertEqual(files["video"], out / "media" / "clip_edit.mp4")
+        self.assertEqual(files["video"], out / "clip_edit.mp4")
         self.assertTrue(files["video"].is_file())
         self.assertEqual((files["edl"].name, files["srt"].name), ("clip.edl", "clip_cut.srt"))   # 名前は元の切り抜き
         self.assertEqual(res["mediaKeeps"], [[300, 360], [420, 480]])
@@ -829,9 +864,11 @@ class TestEditMediaPack(unittest.TestCase):
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 480)])
         self.assertEqual([(c["startFrame"], c["endFrame"]) for c in ip["captions"]], [(0, 60), (60, 120)])  # タイムラインの位置は同じ
         self.assertEqual(ip["sourceTimeline"], {"startFrame": 0, "endFrame": 780})   # 復旧用は余白込みの全体
-        self.assertEqual(ip["media"]["file"], "media/clip_edit.mp4")
+        self.assertEqual(ip["media"]["file"], "clip_edit.mp4")
         self.assertEqual(ip["title"], "clip")
-        self.assertIn("media\\clip_edit.mp4", (out / "install_resolve_textplus_script.ps1").read_text(encoding="utf-8-sig"))
+        ps1 = (out / "install_resolve_textplus_script.ps1").read_text(encoding="utf-8-sig")
+        self.assertIn("Join-Path $packageDir 'clip_edit.mp4'", ps1)                # 登録するときも直下の動画を探す
+        self.assertNotIn("media\\", ps1)
         ev = parse_edl(files["edl"].read_text(encoding="utf-8"))
         self.assertEqual([(tc2f(e[3], 30), tc2f(e[4], 30)) for e in ev], [(300, 360), (420, 480)])
         self.assertIn("FROM CLIP NAME: clip_edit.mp4", ev[0][7])
@@ -841,7 +878,7 @@ class TestEditMediaPack(unittest.TestCase):
         self.assertTrue(any("余白つき素材" in w for w in res["warnings"]))
         # 上書き確認の下見も同じ名前を出す
         _, paths, _ = pack.planned_outputs(plan, out, textplus=True)
-        self.assertEqual(paths["video"], out / "media" / "clip_edit.mp4")
+        self.assertEqual(paths["video"], out / "clip_edit.mp4")
 
     def test_not_used_without_video_or_when_disabled(self):
         res = pack.build_pack(self.plan(), Path(self.tmp.name) / "pack_edl")          # EDL だけ(動画を入れない)
@@ -851,7 +888,7 @@ class TestEditMediaPack(unittest.TestCase):
         out = Path(self.tmp.name) / "pack_off"
         res = pack.build_pack(self.plan(edit_media=False), out, textplus=True)
         self.assertIsNone(res["editMedia"])
-        self.assertTrue((out / "media" / "clip.mp4").is_file())
+        self.assertTrue((out / "clip.mp4").is_file())
 
     def test_mismatched_edit_media_falls_back(self):
         d = Path(self.tmp.name)
@@ -863,7 +900,7 @@ class TestEditMediaPack(unittest.TestCase):
             out = d / "pack_mismatch"
             res = pack.build_pack(self.plan(), out, textplus=True)
             self.assertIsNone(res["editMedia"])
-            self.assertTrue((out / "media" / "clip.mp4").is_file())
+            self.assertTrue((out / "clip.mp4").is_file())
             self.assertTrue(any("fps・大きさが違う" in w for w in res["warnings"]))
             sc.write_text(json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4",
                                       "selectionIn": 22, "handleBefore": 10, "handleAfter": 0}), encoding="utf-8")
@@ -886,8 +923,9 @@ class TestEditMediaPack(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
 class TestMinimalPack(unittest.TestCase):
-    """パックの出力を最小限に(docs/edit-tool-design.md の 12 ④): 既定の Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt だけ。
-    backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)"""
+    """パックの出力を最小限に(docs/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
+    (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。
+    plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)。コマンドは今までどおり 友人へ.txt も書く"""
 
     @classmethod
     def setUpClass(cls):
@@ -909,45 +947,66 @@ class TestMinimalPack(unittest.TestCase):
     def names(self, out):
         return sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
 
-    MINIMAL = ["ResolveにText+スクリプトを登録.bat", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
-               "media/clip.mp4", "textplus-template.drb", "友人へ.txt"]
+    MINIMAL = ["ResolveにText+スクリプトを登録.bat", "clip.mp4", "create_resolve_textplus_project.lua",
+               "install_resolve_textplus_script.ps1", "textplus-template.drb"]
+    SCREEN = dict(backup=False, plan_file=False, readme_file=False)                 # 画面・API の既定
 
     def test_minimal_by_default_for_screen(self):
-        out, res = self.build("min", backup=False, plan_file=False)
+        out, res = self.build("min", **self.SCREEN)
         self.assertEqual(self.names(out), self.MINIMAL)
         self.assertEqual(sorted(p.relative_to(out).as_posix() for _, p in res["files"]), self.MINIMAL)
         self.assertEqual(res["plan"]["schema"], "youtube-tools-cut-plan/v1")         # cut-plan の中身は返す(作業データに記録する)
         self.assertEqual(res["plan"]["keep_frames"], [[15, 60], [90, 150]])
-        readme = (out / "友人へ.txt").read_text(encoding="utf-8-sig")
+        readme = res["readme"]                                                      # 手順書は書かないが、中身は返す(画面の「手順を見る」)
+        self.assertIn("Text+ 字幕つき", readme)
+        self.assertIn("動画: clip.mp4", readme)
         self.assertNotIn("予備_EDLで開く手順", readme)                             # 入っていない予備を案内しない
         self.assertIn("予備も入れて", readme)
-        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
+        ip = RTP.read_script_plan(lua)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 60), (90, 150)])
         self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二"])
-        self.assertEqual(res["readme"], readme)
+        self.assertEqual(RTP.readme_from_script(lua, backup=False), readme)         # 前回のパックの「手順を見る」は Lua から作り直す
 
     def test_backup_adds_edl_readme_and_srt(self):
-        out, res = self.build("bk", backup=True, plan_file=False)
+        out, res = self.build("bk", **dict(self.SCREEN, backup=True))
         self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt"]))
-        self.assertIn("予備_EDLで開く手順.txt", (out / "友人へ.txt").read_text(encoding="utf-8-sig"))
-        self.assertNotIn("cut-plan.json", (out / "予備_EDLで開く手順.txt").read_text(encoding="utf-8-sig"))   # 入れていないものを載せない
+        self.assertIn("予備_EDLで開く手順.txt", res["readme"])
+        backup = (out / "予備_EDLで開く手順.txt").read_text(encoding="utf-8-sig")
+        self.assertNotIn("cut-plan.json", backup)                                   # 入れていないものを載せない
+        self.assertNotIn(RTP.README_NAME, backup)
 
     def test_command_keeps_full_output(self):
-        out, res = self.build("cli")                                                # コマンドの既定(予備・cut-plan.json も)。.json だけは出さない
-        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json"]))
+        out, res = self.build("cli")                                                # コマンドの既定(予備・cut-plan.json・友人へ.txt も)。.json だけは出さない
+        self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json",
+                                                                 RTP.README_NAME]))
+        self.assertEqual((out / RTP.README_NAME).read_text(encoding="utf-8-sig"), res["readme"])
+
+    def test_edl_only_pack_without_readme_file(self):
+        """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""
+        plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 2)]))
+        out = Path(self.tmp.name) / "edl_only"
+        res = pack.build_pack(plan, out, copy_video=True, plan_file=False, readme_file=False)
+        self.assertEqual(self.names(out), ["clip.edl", "clip.mp4"])
+        self.assertIn("DaVinci Resolve", res["readme"])
+        self.assertIn("clip.edl", res["readme"])
 
     def test_overwrite_check_and_leftovers(self):
-        out, _ = self.build("again", backup=True, plan_file=True)                 # 以前の中身(予備・cut-plan.json)のフォルダ
+        out, _ = self.build("again", backup=True, plan_file=True)                 # 以前の中身(予備・cut-plan.json・友人へ.txt)のフォルダ
         (out / "textplus-import.json").write_text("{}", encoding="utf-8")         # 以前の版の .json
+        (out / "media").mkdir()
+        (out / "media" / "clip.mp4").write_bytes(b"old")                          # 2026-09-27 までの動画の場所
         plan = pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
-        _, paths, existing = pack.planned_outputs(plan, out, textplus=True, backup=False, plan_file=False)
+        _, paths, existing = pack.planned_outputs(plan, out, textplus=True, **self.SCREEN)
         self.assertEqual(sorted(p.name for p in existing), sorted(Path(n).name for n in self.MINIMAL))   # 上書きの確認は今回書くものだけ
         with self.assertRaises(C.OutputExists):
-            pack.build_pack(plan, out, textplus=True, backup=False, plan_file=False)
-        res = pack.build_pack(plan, out, textplus=True, backup=False, plan_file=False, force=True)
+            pack.build_pack(plan, out, textplus=True, **self.SCREEN)
+        res = pack.build_pack(plan, out, textplus=True, force=True, **self.SCREEN)
         left = next(w for w in res["warnings"] if "前に作った" in w)
-        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json", "textplus-import.json"):
+        for n in ("clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json", "textplus-import.json", RTP.README_NAME,
+                  "media/clip.mp4"):
             self.assertIn(n, left)                                                  # 残っている以前のファイルを知らせる(消さない)
+        self.assertEqual((out / "media" / "clip.mp4").read_bytes(), b"old")
 
 
 class TestRowEdgeRule(unittest.TestCase):

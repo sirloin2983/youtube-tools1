@@ -2,7 +2,7 @@
 
 パックの中身は cut2resolve の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
 新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
-  動画(media/。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1・友人へ.txt(最小限。④)。
+  動画(パックの直下。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1(最小限。④。手順書は画面で見る)。
   backup=True のときだけ予備(EDL・予備_EDLで開く手順.txt・SRT)も。cut-plan.json は入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
@@ -92,6 +92,19 @@ def cut2resolve_dir() -> str | None:
         if d and os.path.isfile(os.path.join(d, "pack.py")):
             return os.path.abspath(d)
     return None
+
+
+def pack_instructions(folder):
+    """パックのフォルダ -> Resolve での手順(画面の「手順を見る」)。手順書のファイルは入れない(2026-09-27)ので、
+    パックの Lua に埋め込んだ計画から作り直す(規則は cut2resolve の resolve_textplus.readme_from_script)。Lua が無い・読めなければ None"""
+    _pack, tp = _load_pack()
+    lua = Path(folder) / "create_resolve_textplus_project.lua"
+    try:
+        with open(lua, "rb") as f:
+            text = f.read(64 * 1024 * 1024).decode("utf-8", "replace")
+        return tp.readme_from_script(text, backup=(Path(folder) / tp.EDL_README_NAME).is_file())
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _load_pack():
@@ -248,7 +261,8 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         warns = []
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
-            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap)
+            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap,
+                                  readme_file=False)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
         zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")

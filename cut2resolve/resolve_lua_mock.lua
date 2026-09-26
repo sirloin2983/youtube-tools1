@@ -4,10 +4,16 @@ MOCK = { settings = {}, mediaFps = 60, forbidden = {}, templateOk = true, mediaO
 local function forbid(name) return function() table.insert(MOCK.forbidden, name); error("FORBIDDEN " .. name) end end
 
 MOCK.ignoreInputs = {}   -- この Resolve に無い入力の名前(SetInput しても何も起きない = 実機で名前が違ったとき)
+MOCK.inputList = {}      -- GetInputList が返す入力 {id, name}(名前が違ったときに表示名で探すのを確かめる)
 local function newItem(start, dur, text)
   local tool = { inputs = {} }
   function tool:SetInput(k, v) if not MOCK.ignoreInputs[k] then self.inputs[k] = v end end
   function tool:GetInput(k) return self.inputs[k] end
+  function tool:GetInputList()
+    local l = {}
+    for i, x in ipairs(MOCK.inputList) do l[i] = { GetAttrs = function() return { INPS_ID = x.id, INPS_Name = x.name } end } end
+    return l
+  end
   local comp = { GetToolList = function(_, _, kind) return { tool } end }
   local it = { start = start, dur = dur, tool = tool }
   function it:GetStart() return self.start end

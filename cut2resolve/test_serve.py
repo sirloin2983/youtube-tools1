@@ -522,12 +522,13 @@ class TestJobs(ServerBase):
         self.assertEqual(j["state"], "done", j)
         r = j["result"]
         # cut-plan.json はフォルダに置かず、作業データの packs/ に記録する(④)
-        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "友人へ.txt", "clip_roughcut.mp4"])
+        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"])   # 手順書は書かない(画面で見る)
         self.assertFalse((out / "cut-plan.json").exists())
+        self.assertFalse((out / "友人へ.txt").exists())
         rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
         self.assertEqual((rec["schema"], os.path.normcase(rec["dir"]), rec["textplus"], rec["cutPlan"]["schema"]),
                          ("youtube-tools-pack-record/v1", os.path.normcase(str(out)), False, "youtube-tools-cut-plan/v1"))
-        self.assertEqual(sorted(rec["files"]), sorted(["clip.edl", "clip_cut.srt", "友人へ.txt", "clip_roughcut.mp4"]))
+        self.assertEqual(sorted(rec["files"]), sorted(["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"]))
         self.assertIn("DaVinci Resolve", r["readme"])
         self.assertEqual(len(parse_edl((out / "clip.edl").read_text(encoding="utf-8"))), 3)
         st, hd, data = self.c.req("GET", r["roughcutUrl"], headers={"Range": "bytes=0-3"})
@@ -560,9 +561,11 @@ class TestJobs(ServerBase):
         self.assertEqual(j["state"], "done", j)
         names = sorted(f["name"] for f in j["result"]["files"])
         self.assertEqual(names, sorted(["clip.mp4", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
-                                        "ResolveにText+スクリプトを登録.bat", "友人へ.txt", "textplus-template.drb"]))
+                                        "ResolveにText+スクリプトを登録.bat", "textplus-template.drb"]))
+        self.assertIn("Text+ 字幕つき", j["result"]["readme"])                    # 手順はファイルにせず、画面に返す
         rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
-        self.assertEqual((rec["textplus"], rec["backup"], "media/clip.mp4" in rec["files"]), (True, False, True))
+        self.assertEqual((rec["textplus"], rec["backup"], "clip.mp4" in rec["files"]), (True, False, True))
+        self.assertFalse((out / "media").exists())
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
         self.assertEqual((st, e["error"]), (409, "exists"))                      # 上書きの確認
         self.assertNotIn("clip.edl", e["files"])                                  # まだ無いもの(予備)は並べない

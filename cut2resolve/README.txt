@@ -1,4 +1,4 @@
-cut2resolve v0.12.0(「編集」の部品・コマンド)
+cut2resolve v0.13.0(「編集」の部品・コマンド)
 ==================================================
 
 切り抜いた動画に「カット」と「字幕」を入れて、DaVinci Resolve(以下 Resolve)で続きを編集できる形(パック)にして渡すツールです。
@@ -36,7 +36,8 @@ cut2resolve v0.12.0(「編集」の部品・コマンド)
     (-35dB・0.15 秒以上)まで。無音が無ければ 前 0.1 秒・後 0.2 秒。カット済の行は越えない)。spec.rowEdge = false で広げない・
     {"after": 秒, "before": 秒} で上限を変える(0〜2 秒)。コマンドは --no-row-edge で広げない。keeps・時刻リスト・スタジオの区間には使わない
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
-  - パックは最小限(v0.12.0): Text+ パックは media の動画・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat・友人へ.txt だけ。
+  - パックは最小限(v0.12.0・v0.13.0): Text+ パックは動画(フォルダの直下)・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat だけ。
+    手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。コマンドは今までどおり 友人へ.txt も書く。
     output.backup = true のときだけ予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も。Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
     cut-plan.json はフォルダに置かず、作業データの packs\<ハッシュ>.json(パックを作った記録。%LOCALAPPDATA%\youtube-tools\cut2resolve\packs)に残す。
     「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(ytt_core/txindex.py)
@@ -70,6 +71,15 @@ cut2resolve v0.12.0(「編集」の部品・コマンド)
   - API のサーバーは 127.0.0.1(このパソコン)からだけ使えます。配信する動画は入力に指定したものと、作った粗編集の動画だけです。
   - ログ: %LOCALAPPDATA%\youtube-tools\cut2resolve\work\serve.log(2026-09-26 まではこのフォルダの work\ の中)
 
+
+■ v0.13.0 の変更点(2026-09-27・実機の確認の結果の直し)
+  - 動画をパックのフォルダの直下に入れる(以前は Text+ パックだけ media フォルダの中。1つだけなので分けない = ユーザー)。
+    登録用の ps1・Lua の計画の動画の場所も直下。以前のパックのフォルダで作り直すと、残った media\<動画> を「前に作った … が残っています」で知らせる(消さない)
+  - 画面・API のパックに手順書(友人へ.txt)を入れない(ユーザー: 要らない)。pack_paths / build_pack の readme_file(コマンドは True のまま)。
+    中身は結果の readme で返し、「編集」の「Resolve での手順を見る」はパックの Lua から作り直す(resolve_textplus.readme_from_script)。予備を入れたときの 予備_EDLで開く手順.txt は今までどおり
+  - Text+ の重ね順(優先順位)が入らなかった(実機のマーカー: 反映できなかった: Priority1, Priority2, Priority5。太い黒ふちが白ふちの上に描かれる)。
+    スクリプトは、名前で入らなければ Resolve の入力の一覧から表示名「Priority」と要素の番号で探し、次に候補の名前(PriorityBack1 など。Text+ の部品の中の文字列)を試す。
+    入った名前はメモに「入力の名前を読み替え: …」と出す。それでも入らなければ黄色にし、入力の一覧をパックのフォルダの textplus-inputs.txt に書く
 
 ■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。docs/edit-tool-design.md の 12)
   - Text+ 字幕の見た目をユーザーの指定に(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・

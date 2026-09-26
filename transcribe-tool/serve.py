@@ -94,7 +94,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.17.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.17.1"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1004,12 +1004,13 @@ def wrap_arg(v, size=None):
     return sub["wrapChars"]["horizontal" if str(size or "") == "1920x1080" else "vertical"]
 
 
-PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")
+PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 2026-09-27 より前のパック(今は手順書のファイルを入れない)
 
 
 def pack_readme(tid):
-    """GET /api/edit/pack-readme?id=: 前回のパックの手順書(友人へ.txt)。記録したフォルダが cut2resolve のパック
-    (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。ytt_core.txindex.is_pack_dir)のときだけ読む"""
+    """GET /api/edit/pack-readme?id=: 前回のパックの Resolve での手順。記録したフォルダが cut2resolve のパック
+    (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。ytt_core.txindex.is_pack_dir)のときだけ読む。
+    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(resolve_export.pack_instructions)。以前のパックはファイルを読む"""
     from ytt_core import txindex as _txi
     read_transcript(tid)
     d, _ = read_edit(tid)
@@ -1017,13 +1018,17 @@ def pack_readme(tid):
     folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
     if not folder or _fsio.is_network_path(folder) or not _txi.is_pack_dir(folder):
         raise ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
+    import resolve_export
+    text = resolve_export.pack_instructions(folder)
+    if text:
+        return {"name": "", "text": text}
     for n in PACK_README_NAMES:
         try:
             with open(os.path.join(folder, n), "rb") as f:
                 return {"name": n, "text": f.read(256 * 1024).decode("utf-8-sig", "replace")}
         except OSError:
             continue
-    raise ApiError("not_found", "パックの中に手順書(友人へ.txt)がありません", 404)
+    raise ApiError("not_found", "パックの中に Resolve での手順を作る材料(.lua)がありません", 404)
 
 
 def get_edit(tid):

@@ -2,7 +2,7 @@
 """「編集」E4 パックのタブの確認(docs/edit-tool-design.md の 3・5・7)。入口に取り込んだ形(パックは cut2resolve の api/build)。
 
 - カット(手で決めた区間。60fps の元の動画)のとおりにパックができる(Lua に埋め込んだ区間 = 編集の内容のフレーム)
-- パックは最小限(④): 動画・Lua・雛形・登録用の ps1/bat・友人へ.txt だけ。「予備も入れる」で EDL・予備の手順書・SRT
+- パックは最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(手順書は画面の「Resolve での手順を見る」)。「予備も入れる」で EDL・予備の手順書・SRT
 - 作る前の注意: とても短い区間・60fps の動画を 30fps のプロジェクトへ
 - 作ったら「前回のパック」と packRev(一覧の API)
 - 文字起こしの無い動画: Text+ なし(EDL と元の動画のコピー)のパック
@@ -67,8 +67,8 @@ def main():
             got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]
             names = sorted(os.path.relpath(os.path.join(r, n), packdir).replace(os.sep, "/") for r, _, ns in os.walk(packdir) for n in ns)
             check(names == sorted(["ResolveにText+スクリプトを登録.bat", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
-                                   "media/" + os.path.basename(v1), "textplus-template.drb", "友人へ.txt"]),
-                  "パックは最小限(動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。EDL・SRT・cut-plan.json・.json は入れない): %s" % names)
+                                   os.path.basename(v1), "textplus-template.drb"]),
+                  "パックは最小限(動画は直下・Lua・雛形・登録用の ps1/bat。EDL・SRT・cut-plan.json・.json・友人へ.txt は入れない): %s" % names)
             check(got == clips, "パックの区間 = カットのタブの区間(元の動画の 60fps のフレームのまま・短い区間も捨てない): %s" % got)
             check(ip.get("target") == {"fps": 30, "width": 1080, "height": 1920} and len(ip.get("captions", [])) == 3, "置き先 30fps・縦、字幕 3件: %s" % ip.get("target"))
             e = srv.get("/api/edit?id=" + tid)
@@ -113,7 +113,7 @@ def main():
             wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
             pd2 = os.path.splitext(v2)[0] + "_pack"
             files = sorted(os.listdir(pd2))
-            check(files == sorted(["字幕なし.edl", "字幕なし.webm", "友人へ.txt"]), "文字起こしの無い動画のパック: EDL・友人へ.txt・元の動画のコピー(Text+ なし。cut-plan.json は入れない): %s" % files)
+            check(files == sorted(["字幕なし.edl", "字幕なし.webm"]), "文字起こしの無い動画のパック: EDL・元の動画のコピー(Text+ なし。cut-plan.json・友人へ.txt は入れない): %s" % files)
             check(pg.is_disabled("#pkBackup") and pg.is_checked("#pkBackup"), "字幕が無いパックでは「予備も入れる」は選べない(EDL が本体)")
 
             # ---- 選んだ文書をまとめて「文字起こし → パック」(12 ⑦(b)。入口の /api/autorun/start-docs)

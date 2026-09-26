@@ -480,7 +480,21 @@ class TestEditHttp(unittest.TestCase):
         with open(os.path.join(out, "cut-plan.json"), "w", encoding="utf-8") as f:
             json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
-        self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))
+        self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))                # 2026-09-27 より前のパック
+        # 今のパック(手順書のファイルが無い): パックの Lua に埋め込んだ計画から手順を作り直す
+        import resolve_export
+        _pk, tp = resolve_export._load_pack()
+        plan = {"schema": tp.SCHEMA, "title": "パック", "fps": "30/1", "nominalFps": 30, "mediaFps": 30.0,
+                "target": {"fps": 30, "width": 1080, "height": 1920},
+                "media": {"file": "パック.mp4", "name": "パック.mp4", "width": 1920, "height": 1080},
+                "cuts": [{"sourceStartFrame": 0, "sourceEndFrame": 30}], "captions": [], "captionWrap": 8,
+                "sourceTimeline": {"startFrame": 0, "endFrame": 30}, "style": {"name": "見た目", "inputs": []}}
+        with open(os.path.join(out, "create_resolve_textplus_project.lua"), "w", encoding="utf-8") as f:
+            f.write(tp.importer_script(plan))
+        r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
+        self.assertEqual(r["name"], "")
+        self.assertIn("動画: パック.mp4", r["text"])
+        self.assertIn("1080 x 1920", r["text"])
 
     def test_resplit_with_saved_words(self):
         """今の文書を分け直す(12 ②): 単語の時刻(words.json)で、校正済みでない・文字が単語と一致する長い行だけ分ける。前の版は履歴に残す"""
