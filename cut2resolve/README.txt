@@ -71,7 +71,10 @@ cut2resolve v0.12.0(「編集」の部品・コマンド)
   - ログ: %LOCALAPPDATA%\youtube-tools\cut2resolve\work\serve.log(2026-09-26 まではこのフォルダの work\ の中)
 
 
-■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④。docs/edit-tool-design.md の 12)
+■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。docs/edit-tool-design.md の 12)
+  - Text+ 字幕の見た目をユーザーの指定に(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・
+    アンカー 下/中央。スクリプトが値を入れ、最初の字幕で読み直して、入らなかった項目はマーカーのメモに出す(resolve_textplus.TEXT_STYLE・style_inputs)。
+    けいふぉんと はパックに入れない(友人が各自で入れる)。無ければ Windows の日本語フォントを自動で選び、マーカーを黄色にする
   - 文字起こしの行から作るカット(preset transcript-rows・keepSource transcript・--keep-rows)は、区間の端を声の止まる所まで広げる(pack.ROW_EDGE。
     spec.rowEdge / --no-row-edge。上の「API」)。keeps・時刻リスト・スタジオの区間には使わない
   - パックを最小限に(API): Text+ パックは動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。output.backup で予備(EDL・予備の手順書・SRT)。

@@ -12,17 +12,49 @@ SCHEMA = "youtube-tools-resolve-textplus/v1"
 TEMPLATE_NAME = "textplus-template.drb"
 
 
-# 字幕の見た目(ユーザーの指定 2026-09-25): Windows に最初から入っている日本語フォント(どれでもよい)・黄色い文字 + 黒いふち。
-# フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
-# そこで Lua 側で Resolve(Fusion)のフォント一覧を読み、下の候補のうち実際にあるもの・ある太さを選ぶ。
-# 一覧を読めないときだけ fallback を使う。選んだ結果と、選び方(一覧/候補なし/一覧を読めない)はマーカーのメモに出す。
-# 色は 0〜1。Text+ の「シェーディング」の要素1 = 文字、要素2 = ふち(既定では無効なので有効にする)
-TEXT_STYLE = {"fonts": ["Yu Gothic", "游ゴシック", "Meiryo", "メイリオ", "MS Gothic", "ＭＳ ゴシック", "MS ゴシック",
-                        "BIZ UDGothic", "BIZ UDゴシック", "Yu Gothic UI", "Meiryo UI", "MS UI Gothic"],
-              "styles": ["Bold", "太字", "Regular", "標準"],     # 前のほどよい。どれも無ければ、その書体にある太さのどれか
-              "fallback": ["MS Gothic", "Regular"],
-              "fill": [1.0, 0.9, 0.0],        # 黄(#FFE600 付近)
-              "outline": [0.0, 0.0, 0.0]}     # 黒。太さは Resolve の既定のまま
+# 字幕の見た目(ユーザーの指定 2026-09-26。docs/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
+# C:\Users\you11\Desktop\素材 の「基本設定」「シェード1〜3」)。縦・横とも同じ(ユーザー決定)。雛形(.drb)は今のまま、スクリプトが値を入れる。
+#   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
+#   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
+# けいふぉんと は友人の PC に各自で入れてもらう(規約に再配布の許可が書かれていないので、パックに入れない。ユーザー決定)。
+# 無ければ以前の自動選択(Windows に最初から入っている日本語フォント)に切り替え、マーカーを黄色にしてメモに書く。
+# 以前の自動選択の理由: フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
+# そこで Lua 側で Resolve(Fusion)のフォント一覧を読み、候補のうち実際にあるもの・ある太さを選ぶ。一覧を読めないときは fallback。
+# 入力の名前(Size・Thickness2・Offset2 など)は Fusion の Text+ のもの。入れたあと読み直し、違う値になった項目はマーカーのメモに出す
+# (名前が実機と違っても気づけるように。色は 0〜1)
+TEXT_STYLE = {
+    "name": "けいふぉんと・黒い文字・白いふち・黒いふち",
+    "fonts": ["けいふぉんと", "Keifont"], "styles": ["Regular"],
+    "autoFonts": ["Yu Gothic", "游ゴシック", "Meiryo", "メイリオ", "MS Gothic", "ＭＳ ゴシック", "MS ゴシック",
+                  "BIZ UDGothic", "BIZ UDゴシック", "Yu Gothic UI", "Meiryo UI", "MS UI Gothic"],
+    "autoStyles": ["Bold", "太字", "Regular", "標準"],     # 前のほどよい。どれも無ければ、その書体にある太さのどれか
+    "fallback": ["MS Gothic", "Regular"],
+    "text": [["Size", 0.14], ["CharacterSpacing", 1.0], ["LineSpacing", 1.0],
+             ["VerticalTopCenterBottom", 1.0], ["HorizontalLeftCenterRight", 0.0]],
+    # シェードの要素: 番号・外観(ElementShape 0 = 文字の塗り / 1 = 文字のふち)・太さ・色(赤・緑・青・アルファ)・優先順位・ずらし(X, Y)
+    "shading": [
+        {"n": 1, "shape": 0, "thickness": None, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 8, "offset": [0.0, 0.0]},
+        {"n": 2, "shape": 1, "thickness": 0.12, "rgba": [1.0, 1.0, 1.0, 1.0], "priority": 7, "offset": [0.015, -0.02]},
+        {"n": 5, "shape": 1, "thickness": 0.18, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 4, "offset": [0.0, 0.0]},
+    ],
+}
+
+
+def style_inputs(style=None):
+    """字幕の見た目 → Text+ に入れる [[入力の名前, 値], ...](順番どおりに入れる)。Lua はこれを入れて読み直すだけ(規則はここ1か所)"""
+    st = style or TEXT_STYLE
+    out = [list(kv) for kv in st["text"]]
+    for e in st["shading"]:
+        n = e["n"]
+        out.append(["Enabled%d" % n, 1])
+        out.append(["ElementShape%d" % n, e["shape"]])
+        if e.get("thickness") is not None:
+            out.append(["Thickness%d" % n, e["thickness"]])
+        for k, v in zip(("Red", "Green", "Blue", "Alpha"), e["rgba"]):
+            out.append(["%s%d" % (k, n), v])
+        out.append(["Priority%d" % n, e["priority"]])
+        out.append(["Offset%d" % n, list(e["offset"])])
+    return out
 DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
 TARGET_FPS = (24, 25, 30, 50, 60)
 
@@ -87,12 +119,19 @@ def build_import_plan(plan, media_file, target=None):
         "captions": caption_segments(plan.keeps, plan.cues_out),
         # 削除区間を戻すときのコピー元。カット済みタイムラインとは別に、元動画全体を残す。
         "sourceTimeline": {"startFrame": 0, "endFrame": int(plan.meta["total"])},
-        "style": json.loads(json.dumps(TEXT_STYLE)),
+        "style": _style_data(),
     }
 
 
 def _lua_quote(value):
     return json.dumps(str(value), ensure_ascii=False)
+
+
+def _style_data():
+    """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び"""
+    st = json.loads(json.dumps(TEXT_STYLE))
+    return {"name": st["name"], "fonts": st["fonts"], "styles": st["styles"], "autoFonts": st["autoFonts"],
+            "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(TEXT_STYLE)}
 
 
 def importer_script(plan):
@@ -103,7 +142,7 @@ def importer_script(plan):
     p["media"]["absolutePath"] = "__C2R_MEDIA_PATH__"
     p["template"] = {"absolutePath": "__C2R_TEMPLATE_PATH__"}
     p.setdefault("target", dict(DEFAULT_TARGET))
-    p.setdefault("style", json.loads(json.dumps(TEXT_STYLE)))
+    p.setdefault("style", _style_data())
     if "mediaFps" not in p:
         n, d = p["fps"].split("/")
         p["mediaFps"] = int(n) / int(d)
@@ -174,20 +213,21 @@ local ok, err = pcall(function()
     local pool = project:GetMediaPool()
     ctx.project, ctx.pool = project, pool
 
-    -- 0) 字幕のフォント: Resolve(Fusion)のフォント一覧から、候補のうち実際にある書体と太さを選ぶ
-    local fontName, fontStyle, fontHow = DATA.style.fallback[1], DATA.style.fallback[2], "一覧を読めない"
+    -- 0) 字幕のフォント: 指定のフォント(けいふぉんと)が Resolve(Fusion)のフォント一覧にあればそれ。
+    --    無ければ、自動の候補(Windows の日本語フォント)のうち実際にある書体と太さ。一覧を読めなければ fallback
+    local fontName, fontStyle, fontHow = DATA.style.fallback[1], DATA.style.fallback[2], "フォントの一覧を読めない"
+    local fontOk = false   -- 指定のフォントを使えたか(使えなければマーカーを黄色にする)
     local okList, fontList = pcall(function()
         local fu = resolveApp:Fusion()
         local fm = fu and fu.FontManager
         return fm and fm:GetFontList()
     end)
-    if okList and type(fontList) == "table" and next(fontList) ~= nil then
-        fontHow = "一覧に候補なし"
-        for _, fam in ipairs(DATA.style.fonts) do
+    local function pickFrom(fams, prefer)
+        for _, fam in ipairs(fams) do
             local styles = fontList[fam]
             if type(styles) == "table" then
                 local pick = nil
-                for _, sty in ipairs(DATA.style.styles) do
+                for _, sty in ipairs(prefer) do
                     if styles[sty] ~= nil then pick = sty; break end
                 end
                 if not pick then
@@ -196,7 +236,21 @@ local ok, err = pcall(function()
                     table.sort(keys)
                     pick = keys[1]
                 end
-                if pick then fontName, fontStyle, fontHow = fam, pick, "一覧から選択"; break end
+                if pick then return fam, pick end
+            end
+        end
+        return nil, nil
+    end
+    if okList and type(fontList) == "table" and next(fontList) ~= nil then
+        local fam, sty = pickFrom(DATA.style.fonts, DATA.style.styles)
+        if fam then
+            fontName, fontStyle, fontHow, fontOk = fam, sty, "指定のフォント", true
+        else
+            fam, sty = pickFrom(DATA.style.autoFonts, DATA.style.autoStyles)
+            if fam then
+                fontName, fontStyle, fontHow = fam, sty, DATA.style.fonts[1] .. " が無いので自動で選択。入れると次から使えます"
+            else
+                fontHow = "一覧に候補なし"
             end
         end
         if fontHow == "一覧に候補なし" then   -- 次に直すための手がかり: 日本語らしい書体名を少しだけメモに残す
@@ -262,6 +316,20 @@ local ok, err = pcall(function()
     -- Resolve の「Fusion タイトルを挿入」API は配置先を指定できない(V1 に入った)。雛形を V2 へ明示配置する。
     if not cutTimeline:AddTrack("video") then error("PLACE|字幕用の映像トラックを追加できません") end
     local added, failed = 0, 0
+    -- 字幕の見た目(DATA.style.inputs = [[入力の名前, 値], ...])。最初の字幕で読み直し、違う値になった入力の名前を残す(実機で名前を確かめるため)
+    local styleMiss = nil
+    local function sameValue(a, b)
+        if type(b) == "table" then
+            if type(a) ~= "table" then return false end
+            for i = 1, #b do
+                local x = tonumber(a[i] or (i == 1 and a.X) or (i == 2 and a.Y) or nil)
+                if x == nil or math.abs(x - b[i]) > 0.0001 then return false end
+            end
+            return true
+        end
+        local x = tonumber(a)
+        return x ~= nil and math.abs(x - b) <= 0.0001
+    end
     for _, cap in ipairs(DATA.captions) do
         local item = edits[cap.segment]
         local recordFrame, duration = nil, 0
@@ -284,13 +352,19 @@ local ok, err = pcall(function()
             for _, t in pairs(tools) do tool = t; break end
             -- フォント名だけ変えると既定のSemiboldが残り、存在しない組み合わせになる。太さも必ず指定する。
             if tool and title:GetStart() == recordFrame and title:GetDuration() == duration then
-                local st = DATA.style
                 tool:SetInput("StyledText", cap.text)
                 tool:SetInput("Font", fontName)
                 tool:SetInput("Style", fontStyle)
-                tool:SetInput("Red1", st.fill[1]); tool:SetInput("Green1", st.fill[2]); tool:SetInput("Blue1", st.fill[3])
-                tool:SetInput("Enabled2", 1)
-                tool:SetInput("Red2", st.outline[1]); tool:SetInput("Green2", st.outline[2]); tool:SetInput("Blue2", st.outline[3])
+                for _, kv in ipairs(DATA.style.inputs) do
+                    pcall(function() tool:SetInput(kv[1], kv[2]) end)
+                end
+                if styleMiss == nil then
+                    styleMiss = {}
+                    for _, kv in ipairs(DATA.style.inputs) do
+                        local okGet, v = pcall(function() return tool:GetInput(kv[1]) end)
+                        if not okGet or not sameValue(v, kv[2]) then table.insert(styleMiss, kv[1]) end
+                    end
+                end
                 added = added + 1
             else
                 failed = failed + 1
@@ -314,10 +388,13 @@ local ok, err = pcall(function()
     -- 入力スケーリングの値は参考としてメモに出すだけ。実機で、画面は「最短辺をマッチ: 他をクロップ」(画面の外も見えた)なのに
     -- GetSetting は scaleToFit を返したので(2026-09-25)、この値で警告すると正しい設定でも黄色になってしまう
     local scaling = tostring(project:GetSetting("timelineInputResMismatchBehavior"))
-    local good = (failed == 0 and lengthOff == 0 and source ~= nil)
-    local title = good and "cut2resolve 完了" or "cut2resolve 一部失敗"
+    local styleOk = (styleMiss == nil or #styleMiss == 0)
+    local good = (failed == 0 and lengthOff == 0 and source ~= nil and fontOk and styleOk)
+    local title = (failed == 0 and lengthOff == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
     local note = "字幕 " .. added .. "/" .. #DATA.captions .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
-        "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" .. "・復旧用 " .. (source and "あり" or "作れず") ..
+        "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" ..
+        "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") .. ")") ..
+        "・復旧用 " .. (source and "あり" or "作れず") ..
         "・" .. tfps .. "fps " .. tw .. "x" .. th .. "・拡大設定(参考) " .. scaling
     pcall(function()
         cutTimeline:AddMarker(0, good and "Green" or "Yellow", title, note, 1)
@@ -408,8 +485,11 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 ■ 必要なもの
 ・DaVinci Resolve(無料版で可。21.1 で確認)・Windows
-・字幕は黄色い文字 + 黒いふちで、Windows に最初から入っている日本語フォント(游ゴシック・メイリオ・ＭＳ ゴシックなど、
-  見つかったもの)を自動で選びます。フォントを入れる必要はありません
+・字幕のフォント「けいふぉんと」(Do-Font の無料フォント)を、先に Windows に入れておいてください
+  (「けいふぉんと」で検索して配布元から入手 → keifont.ttf を右クリック →「インストール」→ Resolve を起動し直す)。
+  このパックには入っていません。入っていないときは Windows の日本語フォント(游ゴシック・メイリオなど)で作り、
+  先頭のマーカーが黄色になります
+・字幕の見た目: 黒い文字 + 白いふち + 外側の黒いふち(スクリプトが入れます)
 
 
 ■ 1. 最初に1回だけ: 編集用のプロジェクトを作る
@@ -461,8 +541,10 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
     → パックのフォルダを移した・名前を変えた。今の場所で bat をもう一度実行し、Resolve を起動し直す
 ・「C2R_エラー_Text+雛形を読めない」→ textplus-template.drb が無い。パックを受け取り直す
 ・実行してもタイムラインが1本も増えない → プロジェクトが開いていない。プロジェクトを開いてから実行
+・マーカーが黄色で、メモに「けいふぉんと が無いので自動で選択」→ けいふぉんと を入れて Resolve を起動し直し、もう一度スクリプトを実行
+・マーカーのメモに「反映できなかった: …」→ その見た目の項目がこの Resolve では入れられませんでした。送り主に、メモの文を伝えてください
 ・字幕が四角(□)や別の字体になる、「Font Not Found」と出る → Text+ を選び、インスペクタで日本語のフォント
-    (ＭＳ ゴシックなど)と太さを選び直す。1つ直したら「属性をペースト」でほかの字幕にも反映できます
+    (けいふぉんと・ＭＳ ゴシックなど)と太さを選び直す。1つ直したら「属性をペースト」でほかの字幕にも反映できます
 ・動画が赤く表示される(オフライン)→ メディアプールで動画を右クリック →「選択したクリップを再リンク」→ このパックの media フォルダ
 ・音がプツプツする・割れる → 送り主に連絡(どのタイムラインで、いつから、を書いて)。
     書き出した動画では問題が出ないこともあるので、書き出して確認するのも手です

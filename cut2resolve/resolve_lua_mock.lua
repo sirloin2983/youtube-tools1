@@ -3,9 +3,11 @@
 MOCK = { settings = {}, mediaFps = 60, forbidden = {}, templateOk = true, mediaOk = true, out = {} }
 local function forbid(name) return function() table.insert(MOCK.forbidden, name); error("FORBIDDEN " .. name) end end
 
+MOCK.ignoreInputs = {}   -- この Resolve に無い入力の名前(SetInput しても何も起きない = 実機で名前が違ったとき)
 local function newItem(start, dur, text)
   local tool = { inputs = {} }
-  function tool:SetInput(k, v) self.inputs[k] = v end
+  function tool:SetInput(k, v) if not MOCK.ignoreInputs[k] then self.inputs[k] = v end end
+  function tool:GetInput(k) return self.inputs[k] end
   local comp = { GetToolList = function(_, _, kind) return { tool } end }
   local it = { start = start, dur = dur, tool = tool }
   function it:GetStart() return self.start end
@@ -105,6 +107,12 @@ function MOCK.dump()
         if i.StyledText then
           p(string.format("  style=%s fill=%s,%s,%s outline=%s:%s,%s,%s", tostring(i.Style), tostring(i.Red1), tostring(i.Green1),
             tostring(i.Blue1), tostring(i.Enabled2), tostring(i.Red2), tostring(i.Green2), tostring(i.Blue2)))
+          local off = i.Offset2
+          p(string.format("  size=%s anchor=%s,%s thick=%s,%s shape=%s,%s,%s prio=%s,%s,%s offset2=%s,%s outer=%s:%s,%s,%s",
+            tostring(i.Size), tostring(i.VerticalTopCenterBottom), tostring(i.HorizontalLeftCenterRight), tostring(i.Thickness2),
+            tostring(i.Thickness5), tostring(i.ElementShape1), tostring(i.ElementShape2), tostring(i.ElementShape5),
+            tostring(i.Priority1), tostring(i.Priority2), tostring(i.Priority5), tostring(off and off[1]), tostring(off and off[2]),
+            tostring(i.Enabled5), tostring(i.Red5), tostring(i.Green5), tostring(i.Blue5)))
         end
       end
     end

@@ -122,11 +122,41 @@ class TestResolveTextPlusScript(unittest.TestCase):
             self.assertIn('trackIndex=2', files['textplus_script'].read_text(encoding='utf-8'))
 
 
+class TestTextStyle(unittest.TestCase):
+    """字幕の見た目(ユーザーの指定 2026-09-26。素材フォルダの Text+ のインスペクタの画像)。Lua が無くても確かめられる所"""
+
+    def test_values_from_the_screenshots(self):
+        inputs = dict((k, v) for k, v in RTP.style_inputs())
+        self.assertEqual(RTP.TEXT_STYLE['fonts'][:2], ['けいふぉんと', 'Keifont'])          # keifont.ttf の名前表(日本語・英語)
+        self.assertEqual(RTP.TEXT_STYLE['styles'], ['Regular'])
+        for k, v in {'Size': 0.14, 'CharacterSpacing': 1.0, 'LineSpacing': 1.0, 'VerticalTopCenterBottom': 1.0, 'HorizontalLeftCenterRight': 0.0,
+                     'Enabled1': 1, 'ElementShape1': 0, 'Red1': 0.0, 'Green1': 0.0, 'Blue1': 0.0, 'Alpha1': 1.0, 'Priority1': 8, 'Offset1': [0.0, 0.0],
+                     'Enabled2': 1, 'ElementShape2': 1, 'Thickness2': 0.12, 'Red2': 1.0, 'Green2': 1.0, 'Blue2': 1.0, 'Priority2': 7,
+                     'Offset2': [0.015, -0.02],
+                     'Enabled5': 1, 'ElementShape5': 1, 'Thickness5': 0.18, 'Red5': 0.0, 'Green5': 0.0, 'Blue5': 0.0, 'Priority5': 4,
+                     'Offset5': [0.0, 0.0]}.items():
+            self.assertEqual(inputs.get(k), v, k)
+        self.assertNotIn('Thickness1', inputs)                                               # 塗りに太さは無い
+
+    def test_embedded_in_script_and_readme(self):
+        plan = _textplus_plan([(60, 300, '字幕')], [(0, 2064)])
+        data = RTP.read_script_plan(RTP.importer_script(plan))
+        self.assertEqual([list(x) for x in data['style']['inputs']], [list(x) for x in RTP.style_inputs()])
+        self.assertEqual(data['style']['fonts'][0], 'けいふぉんと')
+        text = RTP.instructions('clip.mp4', None, {'fps': (60, 1), 'w': 1920, 'h': 1080}, 1, 1)
+        self.assertIn('けいふぉんと', text)
+        self.assertIn('このパックには入っていません', text)                                  # 再配布しない(規約に許可が無い)
+        self.assertNotIn('黄色い文字', text)
+        self.assertNotIn('keifont.ttf', [p.name for p in Path(RTP.__file__).parent.iterdir()])   # フォントをリポジトリ・パックに置かない
+
+
 @unittest.skipUnless(_lua_runtime(), 'Lua の実行環境がない')
 class TestResolveTextPlusLuaRun(unittest.TestCase):
     """生成した Lua を、Resolve の API をまねた偽物(resolve_lua_mock.lua)の上で実際に動かす"""
 
-    def run_lua(self, plan, settings, media_fps=60, template_ok=True, media_ok=True, fonts=None):
+    KEI = {'けいふぉんと': ['Regular'], 'Meiryo': ['Regular']}   # 指定のフォントを入れた PC
+
+    def run_lua(self, plan, settings, media_fps=60, template_ok=True, media_ok=True, fonts=None, ignore=()):
         mock_path = Path(RTP.__file__).with_name('resolve_lua_mock.lua')
         body = RTP.importer_script(plan)
         pre = 'dofile(%s)\n' % json.dumps(str(mock_path))
@@ -134,6 +164,8 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
             media_fps, 'true' if template_ok else 'false', 'true' if media_ok else 'false')
         for k, v in settings.items():
             pre += 'MOCK.settings[%s] = %s\n' % (json.dumps(k), json.dumps(v))
+        for k in ignore:        # この Resolve に無い入力の名前(実機で名前が違ったとき)
+            pre += 'MOCK.ignoreInputs[%s] = true\n' % json.dumps(k)
         if fonts is not None:   # {書体: [太さ, ...]}
             pre += 'MOCK.fonts = {' + ','.join('[%s]={%s}' % (json.dumps(f, ensure_ascii=False), ','.join('[%s]="x"' % json.dumps(s, ensure_ascii=False) for s in st))
                                              for f, st in fonts.items()) + '}\n'
@@ -148,7 +180,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         keeps = [(0, 600), (1000, 1601)]            # 2区間目は奇数コマ(601)
         cues = [(60, 300, '一'), (600, 720, '二'), (1100, 1201, '三')]
         out = self.run_lua(_textplus_plan(cues, keeps),
-                           {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'})
+                           {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}, fonts=self.KEI)
         self.assertIn('forbidden=\n', out)
         self.assertIn('timeline=CUT_TextPlus', out)
         self.assertIn('timeline=SOURCE_WITH_HANDLES', out)
@@ -156,9 +188,11 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         # V1: 600コマ->300、601コマ->301(偽物は四捨五入)。V2: 各区間の実際の位置 + オフセット/2
         self.assertIn('item track=1 start=108000 dur=300', out)
         self.assertIn('item track=1 start=108300 dur=301', out)
-        self.assertIn('item track=2 start=108030 dur=120 text=一 font=MS Gothic', out)   # 一覧を読めない -> 予備の書体
-        self.assertIn('  style=Regular fill=1.0,0.9,0.0 outline=1:0.0,0.0,0.0', out)   # 黄色い文字 + 黒いふち
-        self.assertIn('字体 MS Gothic Regular(一覧を読めない)', out)
+        self.assertIn('item track=2 start=108030 dur=120 text=一 font=けいふぉんと', out)   # 指定のフォント(ユーザーの指定 2026-09-26)
+        self.assertIn('  style=Regular fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)       # 黒い文字 + 白いふち
+        self.assertIn('  size=0.14 anchor=1.0,0.0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0.0,0.0,0.0', out)   # + 外側の黒いふち
+        self.assertIn('字体 けいふぉんと Regular(指定のフォント)', out)
+        self.assertIn('・見た目 けいふぉんと・黒い文字・白いふち・黒いふち・', out)
         self.assertIn('item track=2 start=108300 dur=60 text=二', out)
         self.assertIn('item track=2 start=108550 dur=51 text=三', out)
         self.assertIn('marker=Green|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
@@ -166,24 +200,42 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
     def test_scaling_value_is_only_reported(self):
         base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
-        out = self.run_lua(plan, dict(base, timelineInputResMismatchBehavior='scaleToFit'))
+        out = self.run_lua(plan, dict(base, timelineInputResMismatchBehavior='scaleToFit'), fonts=self.KEI)
         self.assertIn('marker=Green|cut2resolve 完了|', out)             # 値が当てにならないので警告しない
         self.assertIn('拡大設定(参考) scaleToFit', out)
 
     def test_font_is_chosen_from_resolve_font_list(self):
         s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
+        out = self.run_lua(plan, s, fonts={'Keifont': ['Regular'], 'Meiryo': ['Regular']})   # 英語名の一覧
+        self.assertIn('text=a font=Keifont', out)
+        self.assertIn('marker=Green|cut2resolve 完了|', out)
+        # けいふぉんと が無い PC: 以前の自動選択(Windows の日本語フォント)にして、マーカーを黄色(要確認)に
         out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Meiryo': ['Regular', 'Bold', 'Italic'], 'MS Gothic': ['Regular']})
         self.assertIn('text=a font=Meiryo', out)                       # 候補の順: 游ゴシック が無いので メイリオ
         self.assertIn('  style=Bold ', out)
-        self.assertIn('字体 Meiryo Bold(一覧から選択)', out)
+        self.assertIn('字体 Meiryo Bold(けいふぉんと が無いので自動で選択。入れると次から使えます)', out)
+        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|', out)
+        self.assertIn('  style=Bold fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)   # 見た目(色・ふち)は同じ
         out = self.run_lua(plan, s, fonts={'ＭＳ ゴシック': ['標準']})    # 日本語名しか無い環境
         self.assertIn('text=a font=ＭＳ ゴシック', out)
         self.assertIn('  style=標準 ', out)
         out = self.run_lua(plan, s, fonts={'Yu Gothic': ['Light', 'Medium']})   # 候補の太さが無ければ、ある太さのどれか
-        self.assertIn('字体 Yu Gothic Light(一覧から選択)', out)
+        self.assertIn('字体 Yu Gothic Light(けいふぉんと が無いので自動で選択', out)
         out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Noto Sans CJK JP': ['Regular'], 'ヒラギノ角ゴ': ['W3']})
         self.assertIn('一覧に候補なし(例: ヒラギノ角ゴ)', out)             # 次に直すための手がかり
+        out = self.run_lua(plan, s)                                          # 一覧を読めない → 予備の書体・黄色
+        self.assertIn('text=a font=MS Gothic', out)
+        self.assertIn('字体 MS Gothic Regular(フォントの一覧を読めない)', out)
+        self.assertIn('marker=Yellow|', out)
+
+    def test_style_inputs_are_read_back(self):
+        """入れた値を読み直し、この Resolve に無い入力(名前が違う)はマーカーのメモに出して黄色にする(実機で名前を確かめるため)"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        plan = _textplus_plan([(60, 300, 'a'), (400, 500, 'b')], [(0, 2064)])
+        out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5'))
+        self.assertIn('(反映できなかった: Offset2, Priority5)', out)
+        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 2/2', out)
 
     def test_wrong_project_settings_stop_without_changes(self):
         out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),
@@ -208,7 +260,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
 
     def test_same_fps_landscape_60(self):
         out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)], target={'fps': 60, 'width': 1920, 'height': 1080}),
-                           {'timelineFrameRate': '60', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'})
+                           {'timelineFrameRate': '60', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'}, fonts=self.KEI)
         self.assertIn('item track=1 start=108000 dur=2064', out)
         self.assertIn('item track=2 start=108060 dur=240 text=a', out)
         self.assertIn('marker=Green', out)

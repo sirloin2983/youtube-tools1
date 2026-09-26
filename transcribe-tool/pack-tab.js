@@ -97,10 +97,10 @@ function create(h){
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
     const rows = d.segments.filter(kept).slice(0, 2).map(g => String(g.text).trim());
-    $('#pkSamples').innerHTML = rows.length ? rows.map(t => `<div class="tt-pk-cap">${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
+    $('#pkSamples').innerHTML = rows.length ? rows.map(t => `<div class="tt-pk-cap tt-cap-look">${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
     $('#pkPhoneCap').textContent = rows[0] || '';
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
-    $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます`;
+    $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;
     // 作る前の注意(cut2resolve の plan の注意。例: とても短い区間)
     const warns = [];
     if (fresh) warns.push(...(pv.warnings || []));
