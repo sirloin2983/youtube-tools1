@@ -13,11 +13,13 @@
 - 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。入口を終えると、実行中・順番待ちの分は消える(もう一度押せば続きから)。
 - 自動で採用したマークは、人の判定ではないので学習の記録(スタジオの feedback)に入れない(スタジオの /api/video/adopt-top)。
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
-  文字起こしは文字起こしツールの設定(モデルなど)を使う。パックは文字起こしの行だけを残す規則(cut2resolve の preset transcript-rows)と Text+。
+  文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
+  作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
 """
 import http.client
 import json
 import os
+import urllib.parse
 import threading
 import time
 import uuid
@@ -381,6 +383,22 @@ class AutoRunner:
         return None
 
     # パック -----------------------------------------------------
+    def _edit_keeps(self, doc):
+        """「編集」のカット(残す区間の秒。接している区間 = 分割しただけの所は1つに)と rev。無い・読めなければ (None, 0)"""
+        status, res = self.client.call("transcribe", "GET", "/api/edit?id=" + urllib.parse.quote(str(doc["id"])))
+        e = res.get("edit") if status == 200 and isinstance(res, dict) else None
+        clips = e.get("clips") if isinstance(e, dict) else None
+        if not clips:
+            return None, 0
+        out = []
+        for c in clips:
+            a, b = float(c["in"]), float(c["out"])
+            if out and a <= out[-1][1] + 1e-9:
+                out[-1][1] = max(out[-1][1], b)
+            else:
+                out.append([a, b])
+        return out, int(res.get("rev") or 0)
+
     def _step_pack(self, run, st, v):
         clips = self._clips(v)
         docs = txindex.load(txindex.folder(self.root, self.env))
@@ -394,12 +412,19 @@ class AutoRunner:
         if not todo:
             st["state"], st["detail"] = "skip", ("パック済み" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
-        skipped = []
+        skipped, by_edit = [], 0
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
             st["detail"] = "%d / %d 本" % (i - 1, len(todo))
-            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-            body = {"spec": {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}, "output": {"textplus": True}}
+            keeps, rev = self._edit_keeps(doc)
+            if keeps:   # 「編集」でカットを決めてある: そのとおりに(3 パック のタブのパックと同じ中身)
+                captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
+                tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
+                spec = dict({"video": m["path"], "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
+                body = {"spec": spec, "output": {"textplus": captions, "copyVideo": True}}
+            else:
+                tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
+                body = {"spec": {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}, "output": {"textplus": True}}
             while True:
                 status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
                 if not (status == 409 and res.get("error") == "busy"):
@@ -427,7 +452,13 @@ class AutoRunner:
                 err = j.get("error")
                 raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
             made += 1
-        st["detail"] = "%d 本のパックを作りました(校正前の字幕。校正したら「編集」のパックのタブで作り直してください)" % made
+            if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
+                r = j.get("result") or {}
+                by_edit += 1
+                self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
+                                                                          "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
+        st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
+            "。字幕を校正したら「編集」のパックのタブで作り直してください"
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
         return None

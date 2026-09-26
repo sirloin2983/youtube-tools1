@@ -83,10 +83,14 @@ MEDIA_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mxf", ".ts", ".
 # ブラウザで再生するときの Content-Type。mov は中身が mp4 と同じ仲間、mkv は webm と同じ仲間なので、再生できる見込みの高い型にする
 MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4", ".mkv": "video/webm", ".webm": "video/webm",
                ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".mts": "video/mp2t", ".m2ts": "video/mp2t"}
-STATIC = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/app.css": "app.css",
-          "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
-STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-                ".js": "application/javascript; charset=utf-8"}
+# 画面(index.html・app.js・app.css)は「編集」(transcribe-tool の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
+# docs/edit-tool-design.md)。入口の中では app/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
+PAGE_PATHS = ("/", "/index.html")
+MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
+              "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
+              "<p>カットは「編集」の <b>2 カット</b>、Resolve へのパックは <b>3 パック</b> のタブで作ります。"
+              "入口(このフォルダの1つ上の start-all.bat)から「編集」を開いてください。</p>"
+              "<p>コマンドで使うときは cut2resolve.py(README.txt)。</p></body></html>").encode("utf-8")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
@@ -666,17 +670,6 @@ def save_upload(kind, name, data):
 
 # ---------------------------------------------------------------- HTTP
 
-def disk_version():
-    """ディスク上の cut2resolve_core.py の版(画面に埋め込む)。動いているサーバー(メモリ上の SERVER_VERSION)と違えば、
-    古いサーバーが新しいファイルを配っている = 起動し直しが必要、と画面が気づける(版の正は core の1か所のまま)"""
-    try:
-        with open(os.path.join(CODE_DIR, "cut2resolve_core.py"), encoding="utf-8") as f:
-            m = re.search(r'^VERSION\s*=\s*"([^"]+)"', f.read(), re.M)
-        return m.group(1) if m else SERVER_VERSION
-    except OSError:
-        return SERVER_VERSION
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "cut2resolve"
     timeout = SOCKET_TIMEOUT
@@ -795,8 +788,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard(False, u.path):
             return
         q = urllib.parse.parse_qs(u.query)
-        if u.path in STATIC:
-            return self._static(STATIC[u.path])
+        if u.path in PAGE_PATHS:
+            return self._send(200, MOVED_PAGE, "text/html; charset=utf-8", {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"})
         if u.path.startswith("/media/"):
             return self._media(u.path[len("/media/"):])
         routes = {
@@ -809,19 +802,6 @@ class Handler(BaseHTTPRequestHandler):
         if fn is None:
             return self._fail(404, "not_found", "見つかりません")
         self._json(200, fn())
-
-    def _static(self, name):
-        fn = os.path.join(CODE_DIR, name)
-        try:
-            with open(fn, "rb") as f:
-                body = f.read()
-        except OSError:
-            return self._fail(404, "not_found", "%s が見つかりません(ファイルが欠けています)" % name)
-        extra = {}
-        if name == "index.html":
-            body = body.replace(b"__APP_VERSION__", disk_version().encode("ascii", "replace"))
-            extra = {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"}
-        self._send(200, body, STATIC_TYPES[os.path.splitext(name)[1]], extra)
 
     def _state(self):
         job = self.app.running

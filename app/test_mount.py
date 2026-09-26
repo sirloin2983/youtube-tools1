@@ -289,17 +289,12 @@ class TestCut2ResolveMounted(unittest.TestCase):
 
     def test_page_assets_and_security_headers(self):
         r, body = self.req("GET", "/cut2resolve/")
-        self.assertEqual(r.status, 200)
+        self.assertEqual(r.status, 200)   # 画面は「編集」に統合した(編集が取り込まれていない入口では、案内だけ)
         self.assertEqual(r.getheader("Content-Security-Policy"), self.mod.CSP)   # ツール自身の厳しい CSP のまま(YouTube も許さない)
         self.assertIn("script-src 'self';", self.mod.CSP)
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
-        self.assertNotIn(b'src="/', body)
-        self.assertNotIn(b'href="/', body)
-        self.assertNotIn(b"__APP_VERSION__", body)
-        for asset in ("app.js", "app.css", "ui-kit.js", "ui-kit.css"):
-            r, _ = self.req("GET", "/cut2resolve/" + asset)
-            self.assertEqual(r.status, 200, asset)
+        self.assertIn("「編集」に統合しました".encode("utf-8"), body)
+        self.assertNotIn(b"<script", body)
         r, _ = self.req("GET", "/cut2resolve?video=C%3A%5Ca.mp4")
         self.assertEqual((r.status, r.getheader("Location")), (301, "/cut2resolve/?video=C%3A%5Ca.mp4"))
         r, _ = self.req("GET", "/cut2resolvex/api/ping")   # 前方一致の取り違えがない(入口の 404)
@@ -308,22 +303,21 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual(r.status, 200)
 
     def test_page_moves_to_edit_tool_when_mounted(self):
-        """「編集」(/transcribe)も取り込まれているときは、cut2resolve の画面は編集へ転送する(?video= → ?media=)。API・部品はそのまま。?classic=1 は前の画面"""
+        """「編集」(/transcribe)も取り込まれているときは、cut2resolve の画面は編集へ転送する(?video= → ?media=)。API はそのまま"""
         self.srv.mounts["/transcribe"] = object   # 編集が取り込まれている印だけ(このテストでは /transcribe/ には要求しない)
         try:
             r, _ = self.req("GET", "/cut2resolve/?video=C%3A%5Ca.mp4&srt=x")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/?media=C%3A%5Ca.mp4"))
             r, _ = self.req("GET", "/cut2resolve/index.html")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/"))
-            r, body = self.req("GET", "/cut2resolve/?classic=1")
-            self.assertEqual(r.status, 200)
-            self.assertIn(b'name="ytt-token"', body)
-            for path in ("/cut2resolve/api/ping", "/cut2resolve/app.js", "/cut2resolve/api/state"):
+            r, _ = self.req("GET", "/cut2resolve/?classic=1")
+            self.assertEqual(r.status, 302)   # 前の画面は消したので、いつも転送
+            for path in ("/cut2resolve/api/ping", "/cut2resolve/api/state"):
                 r, _ = self.req("GET", path)
                 self.assertEqual(r.status, 200, path)
         finally:
             self.srv.mounts.pop("/transcribe", None)
-        r, _ = self.req("GET", "/cut2resolve/")   # 編集が取り込まれていなければ、前のとおり画面を出す
+        r, _ = self.req("GET", "/cut2resolve/")   # 編集が取り込まれていなければ、案内だけを出す(cut2resolve の画面は消した)
         self.assertEqual(r.status, 200)
 
     def test_api_token_and_guards(self):

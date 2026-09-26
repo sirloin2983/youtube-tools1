@@ -34,6 +34,8 @@ class FakeTools:
         self.queue = []
         self.tx_jobs = {}
         self.c2r = {}
+        self.edits = {}           # 「編集」のカット(文書の id → GET /api/edit の応答)
+        self.packed = []          # POST /api/edit/pack
         self.fail_tx = False
         self.hold = False         # True のあいだジョブを進めない(中止のテスト)
         self.review = {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16}
@@ -141,6 +143,14 @@ class FakeTools:
     def h_transcribe_POST_api_export_file(self, path, body):
         return 200, {"path": os.path.join(self.tmp, body["id"] + ".transcript.json")}
 
+    def h_transcribe_GET_api_edit(self, path, body):
+        tid = path.split("id=", 1)[1]
+        return 200, self.edits.get(tid, {"edit": None, "rev": 0})
+
+    def h_transcribe_POST_api_edit_pack(self, path, body):
+        self.packed.append(body)
+        return 200, {"ok": True, "packRev": body["rev"]}
+
     # cut2resolve
     def h_cut2resolve_POST_api_build(self, path, body):
         self.c2r["body"] = body
@@ -154,6 +164,7 @@ class FakeTools:
             d = os.path.splitext(v)[0] + "_pack"
             os.makedirs(d, exist_ok=True)
             open(os.path.join(d, "cut-plan.json"), "w").close()
+            self.c2r["job"]["result"] = {"outDir": d, "files": [{"name": "cut-plan.json"}, {"name": "m1.edl"}]}
         return 200, self.c2r["job"]
 
 
@@ -201,6 +212,19 @@ class TestModes(Base):
         again = self.run_one("adopted")
         self.assertEqual(self.states(again), {"export": "skip", "transcribe": "skip", "pack": "skip"})
         self.assertFalse(any(c[1] == "POST" for c in self.tools.calls[n:]), "2回目は何も作らない")
+
+    def test_pack_follows_edit_cut(self):
+        """「編集」でカットを決めてある文書は、そのカットのとおりに作る(spec.keeps。接している区間は1つに)・作った記録を「編集」に残す"""
+        self.run_one("transcribe")   # 書き出し・文字起こしまで
+        tid = "%012d" % 1
+        self.tools.edits[tid] = {"rev": 3, "edit": {"clips": [{"src": 0, "in": 0.5, "out": 1.0}, {"src": 0, "in": 1.0, "out": 2.0}, {"src": 0, "in": 3.0, "out": 4.0}]}}
+        run = self.run_one("adopted")
+        self.assertEqual(self.states(run)["pack"], "done", run)
+        b = self.tools.c2r["body"]
+        self.assertEqual((b["spec"]["keeps"], "preset" in b["spec"], b["spec"]["transcript"].endswith(tid + ".transcript.json"), b["output"]["textplus"]),
+                         ([[0.5, 2.0], [3.0, 4.0]], False, True, True))
+        self.assertEqual([(p["id"], p["rev"], p["files"]) for p in self.tools.packed], [(tid, 3, ["cut-plan.json", "m1.edl"])])
+        self.assertIn("カットのとおり", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
 
     def test_transcribe_mode_stops_before_pack(self):
         run = self.run_one("transcribe")

@@ -167,26 +167,12 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(tab.evaluate("window.opener") is None, "[A] 開いたタブから入口を操作できない(noopener)")
         tab.close()
 
-        # 2b. cut2resolve の画面(/cut2resolve/)は「編集」へ転送する(?video= → ?media=)。前の画面は ?classic=1 のときだけ
+        # 2b. cut2resolve の画面(/cut2resolve/)は「編集」に統合して消したので、「編集」へ転送する(?video= → ?media=)
         tab = ctx.new_page()
         tab.goto(base + "cut2resolve/?video=" + urllib.parse.quote("C:\\x\\無い動画.mp4"))
         check(wait_js(tab, "location.pathname === '/transcribe/' && document.querySelector('#srcPath') && document.querySelector('#srcPath').value.endsWith('無い動画.mp4')", 20000),
               "[A] /cut2resolve/ を開くと「編集」(/transcribe/)へ転送し、?video= の動画を ?media= で渡す")
         tab.close()
-        tab = ctx.new_page()
-        tab.goto(base + "cut2resolve/?classic=1")
-        tab.wait_for_load_state()
-        tools_q = "a .ui-brand-mark:not([data-tool=portal])"   # 「他のツール」の3ツール(ui-kit v3 から先頭に「入口」「案件の一覧」も並ぶ)
-        check(wait_js(tab, "document.querySelectorAll('#toolNav %s').length === 3 || document.querySelectorAll('[data-ui-toolnav] %s').length === 3" % (tools_q, tools_q), 20000),
-              "[A] ?classic=1 なら前の cut2resolve の画面が /cut2resolve/ の下で API を読めた")
-        homes = tab.eval_on_selector_all("[data-ui-toolnav] a", "els => els.map(a => a.getAttribute('href'))")
-        check(homes[:2] == ["/", "/cases.html"], "[A] 「他のツール」の先頭に入口・案件の一覧へ戻るリンク(ui-kit v3): %s" % homes[:2])
-        check(tab.is_visible("[data-ui-home]") and tab.get_attribute("[data-ui-home]", "href") == "/", "[A] ヘッダーに入口へ戻るリンク(入口に取り込まれているとき)")
-        links = tab.eval_on_selector_all("[data-ui-toolnav] a", "els => els.map(a => a.getAttribute('href'))")
-        check(any(h.endswith(":%d/studio/" % port) for h in links) and any(h.endswith(":%d/transcribe/" % port) for h in links),
-              "[A] cut2resolve の「他のツール」からスタジオ・文字起こしとも同じポートへ: %s" % links)
-        tab.close()
-
         # 2c. 編集(文字起こし)も同じアドレスの /transcribe/ で開ける(段階3-3。認識自体は別プロセスの tx_worker.py)
         href = pg.get_attribute(".pt-tool[data-tool=transcribe] .pt-open", "href")
         check(href == "http://127.0.0.1:%d/transcribe/" % port, "[A] 文字起こしの開くのリンク: %s" % href)

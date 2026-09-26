@@ -7,7 +7,6 @@
 正本は ui-kit/ui-kit.css と ui-kit/ui-kit.js。各ツールは実行時に ui-kit/ を参照しない(フォルダ単体で動く)ように、
 写しを自分のフォルダに持つ。写し先:
   - clip-studio/ui-kit.css, clip-studio/ui-kit.js         (静的ファイルとして配信)
-  - cut2resolve/ui-kit.css, cut2resolve/ui-kit.js         (同上)
   - transcribe-tool/ui-kit.js                             (同上。CSP 対応で index.html から外に出した)
   - transcribe-tool/index.html の中の印の間                  (CSS だけは画面が1ファイルのため埋め込み)
       /* ui-kit:css:begin */ … /* ui-kit:css:end */   (<style> の中。インラインの CSS は CSP で許可している)
@@ -18,7 +17,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KIT = os.path.join(ROOT, "ui-kit")
 HEADER = "/* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */\n"
-FILE_TARGETS = [("clip-studio", ("css", "js")), ("cut2resolve", ("css", "js")), ("transcribe-tool", ("js",))]
+FILE_TARGETS = [("clip-studio", ("css", "js")), ("transcribe-tool", ("js",))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
 EMBED_TARGETS = [("transcribe-tool", "index.html", ("css",))]
 MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* ui-kit:js:begin */", "/* ui-kit:js:end */")}
 

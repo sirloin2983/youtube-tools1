@@ -778,3 +778,14 @@
   Node.js が無いので `clip-studio/test_review.cjs`・`transcribe-tool/test_document_save.cjs` は PC で流していない
 - 未決(ユーザーに確認): 単体の cut2resolve の画面のファイルを消すか(今は ?classic=1 で残している)、まとめて実行でカットのある文書をカットのとおりに作るか
 - 未完了・次: E6 仕上げ(版・README・AGENTS.md・ui-guidelines の用語・HANDOVER)
+
+## 2026-09-26 Claude Code — 「編集」E5 追記: まとめて実行もカットのとおり・cut2resolve の画面を削除(ユーザー決定)
+- 未決への回答(ユーザー 2026-09-26): 単体の cut2resolve の画面のファイル → **消す**。まとめて実行でカットのある文書 → **カットのとおりに作る**
+- 変更(まとめて実行 `app/autorun.py`): パックの段で、「編集」でカットを決めてある文書は `GET /api/edit` の区間を spec.keeps にして作る(接している区間は1つに・字幕の行が無ければ Text+ なし)。
+  作ったら `POST /api/edit/pack` で記録(packRev)を残す(「編集」のパックのタブで作り直しの知らせが出る)。カットの無い文書は今までどおり preset transcript-rows。`app/test_autorun.py` に1件
+- **削除(git rm。ファイルの削除の告知)**: `cut2resolve/index.html`・`app.js`・`app.css`・`e2e_ui.py`・`ui-kit.js`・`ui-kit.css`。
+  `cut2resolve/serve.py` の `/`・`/index.html` は「画面は「編集」に統合しました」の案内だけ(スクリプトなし・CSP・X-Frame-Options DENY)。API・CLI(cut2resolve.py)・パック作り(pack.py)はそのまま
+- 変更: `app/mount.py`(?classic=1 の逃げ道をやめた。編集が取り込まれていれば /cut2resolve/ はいつも「編集」へ転送)、`tools/sync_ui_kit.py`(写し先から cut2resolve を外した)、
+  `cut2resolve/test_serve.py`・`app/test_mount.py`・`app/e2e_portal.py`(前の画面の確認を案内の確認に)、`AGENTS.md`(表の cut2resolve の行)
+- テスト(PC で通過): cut2resolve 225(skip 14)・入口の単体 99・e2e_portal・e2e_autorun・tools/e2e_pipeline・契約 25・ui-kit の写し・文字起こしの e2e_ui_mounted
+- 未完了・次: E6 仕上げ(版・README・AGENTS.md・ui-guidelines の用語・HANDOVER)

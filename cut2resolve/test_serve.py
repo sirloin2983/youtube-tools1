@@ -115,8 +115,6 @@ class TestGuards(ServerBase):
         self.assertEqual(st, 403)
         st, _, _ = self.c.req("GET", "/api/state", headers=nav)   # API は画面への遷移でも不可
         self.assertEqual(st, 403)
-        st, _, _ = self.c.req("GET", "/app.js", headers=dict(nav, **{"Sec-Fetch-Dest": "script", "Sec-Fetch-Mode": "no-cors"}))
-        self.assertEqual(st, 403)
 
     def test_post_origin_and_content_type(self):
         st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://evil.example"})
@@ -132,20 +130,17 @@ class TestGuards(ServerBase):
         st, _, _ = self.c.req("POST", "/api/inspect", raw=b"[]")
         self.assertEqual(st, 400)
 
-    def test_index_has_version_csp_and_no_inline_script(self):
+    def test_page_moved_to_edit_tool(self):
+        """画面は「編集」に統合した(2026-09-26)。/ は案内だけ(スクリプトなし・CSP つき)。前の画面の部品は無い"""
         st, hd, body = self.c.req("GET", "/")
         html = body.decode("utf-8")
         self.assertEqual(st, 200)
-        self.assertIn('data-app-version="%s"' % serve.SERVER_VERSION, html)
-        self.assertNotIn("__APP_VERSION__", html)
+        self.assertIn("「編集」に統合しました", html)
+        self.assertNotIn("<script", html)
         self.assertIn("script-src 'self'", hd["Content-Security-Policy"])
-        import re
-        for tag in re.findall(r"<script[^>]*>", html):
-            self.assertIn("src=", tag)   # インラインのスクリプトは使わない(CSP)
-        self.assertLess(html.index('src="ui-kit.js"'), html.index('href="ui-kit.css"'))   # ui-kit.js は CSS より先(ちらつき防止)
-        self.assertIsNone(re.search(r'(?:src|href)="/', html))   # 部品は相対パス(入口に取り込まれた /cut2resolve/ の下でも読める)
-        for p in ("/app.js", "/app.css", "/ui-kit.js", "/ui-kit.css"):
-            self.assertEqual(self.c.req("GET", p)[0], 200, p)
+        for path in ("/app.js", "/app.css", "/ui-kit.js", "/ui-kit.css"):
+            st, _, _ = self.c.req("GET", path)
+            self.assertEqual(st, 404, path)
         self.assertEqual(self.c.req("GET", "/serve.py")[0], 404)
         self.assertEqual(self.c.req("GET", "/../serve.py")[0], 404)
 

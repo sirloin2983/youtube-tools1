@@ -30,8 +30,7 @@ MOUNTS = {
                # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
                "csp": ("script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                        "form-action 'none'; frame-ancestors 'none'")},
-    # cut2resolve の画面は「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)。
-    # 前の画面は ?classic=1 のときだけ出す(cut2resolve の画面のテスト用・もしものとき。どこからもリンクしない)
+    # cut2resolve の画面は「編集」に統合して消したので、画面を開いたら「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)
     "cut2resolve": {"dir": "cut2resolve", "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None,
                     "page_to": {"prefix": "/transcribe", "params": {"video": "media"}}},
     # 文字起こし: 認識(faster-whisper・sherpa-onnx)は tx_worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
@@ -103,7 +102,7 @@ def inject_token(body, token):
 
 def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
     """ツールの Handler を、/prefix の下で動くように包んだクラス。
-    page_to: {"prefix", "params"} があれば、画面(/ と /index.html)を開いたときに、そのツールの画面へ転送する(そのツールも取り込まれているときだけ。?classic=1 は転送しない)"""
+    page_to: {"prefix", "params"} があれば、画面(/ と /index.html)を開いたときに、そのツールの画面へ転送する(そのツールも取り込まれているときだけ)"""
     base = mod.Handler
     tool_id = prefix.strip("/")
 
@@ -144,7 +143,7 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
         def _page_moved(self):
             u = urllib.parse.urlsplit(self.path)
             q = urllib.parse.parse_qs(u.query)
-            if u.path not in ("/", "/index.html") or "classic" in q or page_to["prefix"] not in (getattr(self.server, "mounts", None) or {}):
+            if u.path not in ("/", "/index.html") or page_to["prefix"] not in (getattr(self.server, "mounts", None) or {}):
                 return False
             out = [(dst, q[src][0][:4000]) for src, dst in page_to["params"].items() if q.get(src) and q[src][0].strip()]
             self.send_response(302)
