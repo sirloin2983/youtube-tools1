@@ -866,9 +866,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-look{display:flex;gap:14px;align-items:flex-start}
 .tt-pk-phone{position:relative;flex:none;width:118px;aspect-ratio:9/16;border-radius:10px;background:linear-gradient(160deg,#2d2f45,#3b3557);overflow:hidden}
 .tt-pk-phone.land{width:180px;aspect-ratio:16/9}
-.tt-pk-phone-cap{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:12px;line-height:1.3}
+.tt-pk-phone-cap{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:12px;line-height:1.3;white-space:pre-line}
 .tt-pk-looktxt{min-width:0;flex:1}
-.tt-pk-cap{background:#6b7280;font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-cap{background:#6b7280;font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;white-space:pre-line;text-align:center}
 .tt-pk-warn{margin:12px 0 0;padding:8px 12px 8px 28px}
 .tt-pk-warn li{margin:2px 0;line-height:1.5}
 .tt-pk-go{margin-top:14px;gap:10px}
@@ -993,6 +993,15 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <span class="hint">「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試してください。</span></div>
       <label class="lag" style="margin-top:10px"><input type="checkbox" id="optBoost">小さい声を持ち上げる(音量をそろえる)</label>
       <label class="lag" style="margin-top:6px" title="単語ごとの時刻を使います。声のない所まで伸びた行の時刻をつめ、長い行や間のあいた行を分けます。認識は少し遅くなります(数%〜2割程度)"><input type="checkbox" id="optWordSplit" checked>単語の時刻で、長い行を分ける・行の時刻を声のある所にそろえる</label>
+      <div class="fld tt-subchars"><span class="l">字幕の文字数(1つの字幕に入れる文字の上限)</span>
+        <div class="row"><label class="lag">字幕の向き <select id="optSubOrient" style="width:auto"><option value="vertical">縦(ショート)</option><option value="horizontal">横</option></select></label>
+          <label class="lag">最大 縦 <input id="optMaxV" type="number" min="4" max="80" step="1" value="16" style="width:4.5em"></label>
+          <label class="lag">横 <input id="optMaxH" type="number" min="4" max="80" step="1" value="28" style="width:4.5em"></label></div>
+        <div class="row"><span class="hint">パックの字幕の改行(1段の文字数)</span>
+          <label class="lag">縦 <input id="optWrapV" type="number" min="2" max="40" step="1" value="8" style="width:4.5em"></label>
+          <label class="lag">横 <input id="optWrapH" type="number" min="2" max="40" step="1" value="14" style="width:4.5em"></label></div>
+        <span class="hint">長い行は、選んだ向きの文字数(2 文字までのはみ出しは許す)を超えないように、間・句読点・真ん中に近い所で分けます(単語の時刻で分けるとき)。
+          パックの Text+ 字幕は、改行の文字数で2段にします。</span></div>
       <label class="lag" style="margin-top:6px" title="、。？！ と半角の ?! を、認識結果の文字から取り除きます(テロップ表示向け)。単語分割の区切り判断には、除く前の句読点を使うので、行の分け方は変わりません"><input type="checkbox" id="optStripPunct" checked>句読点(、。？！)を取り除く</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoDict" checked>終わったら置換辞書を自動で適用する</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoGloss" checked>よく直される語を、認識のヒント(用語集)に自動で足す</label>
@@ -1184,6 +1193,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option></select></label>
           <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
         <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。対象の行の文字は上書きされます(直前の状態は「以前の版に戻す」に残ります)。判別中・再認識中は編集できません。</span></div>
+      <div class="fld"><span class="l">長い行を分け直す(字幕の文字数に合わせる)</span>
+        <div class="row"><label class="lag">向き <select id="rsOrient" style="width:auto"><option value="vertical">縦</option><option value="horizontal">横</option></select></label>
+          <button type="button" class="btn small" id="rsGo">今の文書を分け直す</button><span class="hint" id="rsMsg"></span></div>
+        <span class="hint">校正済みでない行のうち、文字が機械の出力のままの長い行を、保存してある単語の時刻で分けます。人が直した行は分けません。
+          v0.17.0 より前の文字起こしには単語の時刻がありません(行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます)。分ける前の状態は「以前の版に戻す」に残ります。</span></div>
     </details>
 
     <details class="card tt-tool" id="exDetails"><summary>書き出し <span class="hint">字幕・テキスト・次のツールへ</span></summary>

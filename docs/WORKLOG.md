@@ -884,6 +884,26 @@
      止まったときに `#pkOff` の理由を出すようにした
 - 未完了・次(ユーザーの判断待ち): ③-2 をどうするか(③-1 の結果を見て)・② の初期値(縦 16・横 28 の案)・⑤(b) をやるか・⑦ の作り方
 
+## 2026-09-27 Claude Code — 追加機能 ② 1つの字幕の文字数(縦 16・横 28)・単語の時刻の保存・今の文書を分け直す・パックの字幕の2段
+- ユーザーの回答(2026-09-26): 縦 16・横 28、パックの字幕は2段(縦 8・横 14 前後で改行。改行の文字数は縦用・横用の設定)、行を分けるときの向きは設定「字幕の向き」(既定 縦)、
+  ⑤(b) 横の素材を縦にする作業はやらない、③-2 は設計どおり作る(⑦ のあと)
+- 変更(編集 `transcribe-tool/`): `serve.py`(`subtitle_settings`・`split_chars_for`・`SPLIT_SLACK`・`_cut_words` の同じ種類の文字の途中を避ける・
+  `split_segment(max_chars)` が行の単語を `_words` に・**単語の時刻 `transcripts/<id>.words.json`**(`read_words`・`write_words`・`replace_words`・`row_words`)を
+  認識のジョブと範囲の再認識で保存・削除で消す・**`POST /api/resplit`**(`resplit_doc`)・見積もりの見本 `samples`・zip の `wrap`)、`resolve_export.py`、
+  `app.js`(新規の「字幕の文字数」・要求に `subtitleOrientation`/`splitChars`・「今の文書を分け直す」`resplitDoc`)、`index.html`、`pack-tab.js`(`textplusWrap`・見本を2段で)、README・AGENTS.md
+- 変更(cut2resolve): `resolve_textplus.py`(**`wrap_caption`**・`WRAP_DEFAULT`・`default_wrap`・`build_import_plan(wrap)` が Text+ の字幕だけに改行・計画に `captionWrap`)、
+  `pack.py`(`build_pack(textplus_wrap)`)、`serve.py`(`output.textplusWrap` 0〜40)、README
+- 変更(入口): `app/autorun.py`(Text+ の改行の文字数 = 文字起こしの設定 `subtitle.wrapChars.vertical`)、README
+- テスト: `test_metrics`・`test_worker`・`test_edit`・`e2e_edit_tabs`・`cut2resolve/test_pack`・`test_serve`・`app/test_autorun`。PC で通過(e2e 一式は下)
+- 決定・理由: 単語の時刻は行ではなく文書に1つ(行の id・順番が画面で変わっても使える)。分け直すのは文字が単語と一致する行だけ(人の直しを壊さない)。短い行はつながない。
+  改行の規則は cut2resolve に1か所(Text+ に入れるのは cut2resolve のため。画面の見本もその結果を出す)。**ひらがなだけの文は語の途中で改行されることがある**(辞書を使わないための限界)
+- 版: 据え置き(編集 0.17.0・cut2resolve 0.12.0・入口 0.10.1 の変更点に足した。まだ配っていない)
+- 実機で確かめてほしいこと(ユーザー): 新しく文字起こしした行が 16 文字(+2)以内に分かれるか・「今の文書を分け直す」・パックの Text+ 字幕が2段で画面に収まるか(大きさ 0.14 と合わせて)
+- テスト(PC): 編集の単体 122・cut2resolve 275・契約 27・ytt_core/tools・入口の autorun・e2e(edit_pack・edit_cut・edit_tabs・ui_mounted・ui_handoff・v098・v07・v08・v09・eval_v093・app/e2e_autorun・tools/e2e_pipeline)。`e2e_ui_v08` の「保管の状況」は結果より少し遅れて「済」になるので待つように直した
+- 注意: 同じ時間に**別の Claude Code のセッションが「ホロカラー」(`holo-colors/`)を作っていて**、`.gitignore`・`AGENTS.md`・`README.txt` にその変更(未コミット)がある。このコミットには含めていない(触っていない)
+- ⑦ の作り方(ユーザー 2026-09-27): 案のとおり(設計書の 12 ⑦)・カットのある文書はカットのとおり
+- 未完了・次: ⑦ → ③-2
+
 ## 2026-09-27 Claude Code — 新しいツール「ホロカラー」(holo-colors。メンバーカラーをキーで呼び出してコピーする Windows のアプリ)
 - 担当: Claude Code(`holo-colors/`・`docs/holo-colors.md`。AGENTS.md の担当表に追記)。既存の3ツール・入口には触っていない
 - ユーザーの依頼(2026-09-26): 既存のツールとは別に、キーボードショートカットで呼び出し、ホロライブのメンバーカラーをクリックでコピー・自分で色を足せる・コピーしたら閉じる(閉じない設定も)

@@ -108,6 +108,12 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(job["state"], "done", job.get("error"))
         segs = self.doc(job["tid"])["segments"]
         self.assertEqual(len(segs), 5)   # 単語の時刻(words)も届く。1秒以上の間がないので分けない
+        ws = S.read_words(job["tid"])    # 単語の時刻は文書とは別の words.json に(12 ②。行のデータには入れない)
+        self.assertEqual(len(ws), 10)
+        self.assertEqual(ws[0], [0.0, 2.0, "テス"])
+        self.assertEqual(ws[2][:2], [4.0, 6.0])
+        self.assertNotIn("words", segs[0])
+        self.assertNotIn("_words", segs[0])
         self.assertEqual(segs[0]["text"], "テスト文1")   # 単語をつなげた文と行の文が一致(単語が正しく届いている)
 
     def test_retranscribe_each_and_range_and_abtest(self):

@@ -232,7 +232,7 @@ const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : do
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
@@ -242,7 +242,7 @@ function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
@@ -326,7 +326,7 @@ function setTab(t){
   if (t === 'marker') renderMarker();
 }
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, glossary: $('#optGloss').value };
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, glossary: $('#optGloss').value };
 }
 async function startFile(){
   const path = $('#srcPath').value.trim();
@@ -750,10 +750,13 @@ async function startRetranscribe(){
   const ids = rtIds(); if (!ids.length) return toast('再認識する行がありません');
   await saveDoc();
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
-  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
+  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
     boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked } });
   startPolling(); await pollJobs(); toast(`${ids.length}行の再認識を待機列に追加しました`);
 }
+$('#rsGo').addEventListener('click', resplitDoc);
+$('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
+['optSubOrient', 'optMaxV', 'optMaxH'].forEach(id => $('#' + id).addEventListener('change', renderResplitOpts));
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
@@ -1193,6 +1196,44 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
   S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
+/* ---------- 字幕の文字数(docs/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
+const SUB_DEFAULT = { orientation: 'vertical', maxChars: { vertical: 16, horizontal: 28 }, wrapChars: { vertical: 8, horizontal: 14 } };
+function subNum(v, lo, hi, dv){ const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dv; }
+function readSubtitle(){
+  const d = SUB_DEFAULT;
+  return { orientation: $('#optSubOrient').value === 'horizontal' ? 'horizontal' : 'vertical',
+    maxChars: { vertical: subNum($('#optMaxV').value, 4, 80, d.maxChars.vertical), horizontal: subNum($('#optMaxH').value, 4, 80, d.maxChars.horizontal) },
+    wrapChars: { vertical: subNum($('#optWrapV').value, 2, 40, d.wrapChars.vertical), horizontal: subNum($('#optWrapH').value, 2, 40, d.wrapChars.horizontal) } };
+}
+function fillSubtitle(v){
+  const d = SUB_DEFAULT, o = v && typeof v === 'object' ? v : {}, m = o.maxChars || {}, w = o.wrapChars || {};
+  $('#optSubOrient').value = o.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+  $('#optMaxV').value = subNum(m.vertical, 4, 80, d.maxChars.vertical); $('#optMaxH').value = subNum(m.horizontal, 4, 80, d.maxChars.horizontal);
+  $('#optWrapV').value = subNum(w.vertical, 2, 40, d.wrapChars.vertical); $('#optWrapH').value = subNum(w.horizontal, 2, 40, d.wrapChars.horizontal);
+  renderResplitOpts();
+}
+/* 文字起こし・範囲の再認識の要求に付ける(設定の保存は少し遅れて送られるので、今の欄の値を直接渡す) */
+function subtitleReq(){ const v = readSubtitle(); return { subtitleOrientation: v.orientation, splitChars: v.maxChars[v.orientation] }; }
+function renderResplitOpts(){
+  const v = readSubtitle(), sel = $('#rsOrient'), cur = sel.dataset.touched ? sel.value : v.orientation;
+  sel.options[0].textContent = `縦(最大 ${v.maxChars.vertical} 文字)`; sel.options[1].textContent = `横(最大 ${v.maxChars.horizontal} 文字)`; sel.value = cur;
+}
+async function resplitDoc(){
+  if (!S.docId || lockJob()) return;
+  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  const b = $('#rsGo'), msg = $('#rsMsg'), id = S.docId, o = $('#rsOrient').value;
+  b.disabled = true; msg.textContent = '分けています…';
+  try {
+    const r = await api('/api/resplit', { body: { id, orientation: o, splitChars: readSubtitle().maxChars[o], ...(Number.isInteger(S.baseUpdatedAt) ? { baseUpdatedAt: S.baseUpdatedAt } : {}) } });
+    if (S.docId !== id) return;
+    if (!r.changed){ msg.textContent = r.skipped ? `分ける行はありませんでした(人が直した長い行 ${r.skipped} 行は分けていません)` : '分ける行はありませんでした'; return; }
+    await openDoc(id, true);
+    msg.textContent = `${r.changed} 行を分けました(${r.added} 行増えました)`;
+    toast(`${r.changed} 行を分けました(${r.added} 行増えました)。元に戻すときは「以前の版に戻す」`, 7000, 'ok');
+  } catch (e){ msg.textContent = ''; toast('分け直せませんでした: ' + e.message, 8000, 'err'); }
+  finally { b.disabled = false; }
+}
+
 async function openDoc(id, keep){
   const request = ++docOpenSeq;
   if (!(await saveDoc()) || request !== docOpenSeq) return false;
@@ -1941,7 +1982,7 @@ $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips 
 $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;

@@ -573,6 +573,8 @@ class TestJobs(ServerBase):
         self.assertIn("clip_cut.srt", names)
         self.assertFalse((out / "textplus-import.json").exists())
         self.assertFalse((out / "cut-plan.json").exists())
+        st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "textplusWrap": 99}})
+        self.assertEqual((st, e["error"]), (400, "bad_value"))                  # 字幕の1段の文字数は 0〜40
 
     def test_output_dir_must_not_be_input(self):
         st, j = self.c.json("POST", "/api/build", {"spec": self.spec(), "output": {"dir": str(self.srt)}})

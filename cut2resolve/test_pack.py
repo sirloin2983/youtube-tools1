@@ -138,6 +138,37 @@ class TestTextStyle(unittest.TestCase):
             self.assertEqual(inputs.get(k), v, k)
         self.assertNotIn('Thickness1', inputs)                                               # 塗りに太さは無い
 
+    def test_wrap_caption(self):
+        """Text+ 字幕の改行(12 ②): 1段 8(縦)/ 14(横)文字前後で2段。+2 文字までは改行しない・句読点/助詞のあと・漢字やカタカナの始まりで切る"""
+        w, NL = RTP.wrap_caption, chr(10)
+        self.assertEqual(w('今日はいい天気ですね散歩に行こう', 8), '今日はいい天気ですね' + NL + '散歩に行こう')
+        self.assertEqual(w('これマジでヤバくないですか', 8), 'これマジで' + NL + 'ヤバくないですか')
+        self.assertEqual(w('ホロライブの新しいメンバーが来た', 8), 'ホロライブの新しい' + NL + 'メンバーが来た')    # 送りがなの前では切らない
+        self.assertEqual(w('マインクラフトでエンダードラゴンをたおす', 8), 'マインクラフトで' + NL + 'エンダードラゴンをたおす')   # カタカナの語の途中で切らない
+        self.assertEqual(w('えっと、ちょっとまってください!', 8), 'えっと、ちょっと' + NL + 'まってください!')
+        self.assertEqual(w('今日はいい天気ですね散歩に行こう', 14), '今日はいい天気ですね散歩に行こう')    # 16 ≦ 14 + 2 は1段
+        self.assertEqual(w('あいうえおかきくけこ', 8), 'あいうえおかきくけこ')                    # 10 ≦ 8 + 2
+        self.assertEqual(w('ABCDEFGHIJKLMNOPQRSTU', 8).count(NL), 2)                                 # 長ければ3段
+        self.assertEqual(w('今日はいい天気ですね散歩に行こう', 0), '今日はいい天気ですね散歩に行こう')     # 0 = 改行しない
+        self.assertEqual(w(' 前' + NL + '後 ', 4), '前' + NL + '後')                                     # もう改行がある文はそのまま
+        for s in ('、あいうえおかきくけこさしすせ', 'ーーーーーーーーーーーーーーー', 'あっっっっっっっっっっっっっっ'):
+            self.assertEqual(w(s, 8).replace(NL, ''), s)                                              # 文字は落とさない
+
+    def test_wrap_in_plan_by_target(self):
+        NL = chr(10)
+        plan = mock.Mock()
+        plan.video, plan.req.name = Path('v.mp4'), 'v'
+        plan.meta = {'fps': (30, 1), 'w': 1920, 'h': 1080, 'total': 900}
+        plan.keeps = [(0, 900)]
+        plan.cues_out = [(30, 120, '今日はいい天気ですね散歩に行こう')]
+        v = RTP.build_import_plan(plan, 'media/v.mp4', {'fps': 30, 'width': 1080, 'height': 1920})
+        self.assertEqual((v['captions'][0]['text'], v['captionWrap']), ('今日はいい天気ですね' + NL + '散歩に行こう', 8))    # 縦は 8
+        h = RTP.build_import_plan(plan, 'media/v.mp4', {'fps': 30, 'width': 1920, 'height': 1080})
+        self.assertEqual((h['captions'][0]['text'], h['captionWrap']), ('今日はいい天気ですね散歩に行こう', 14))    # 横は 14
+        self.assertEqual(RTP.build_import_plan(plan, 'media/v.mp4', None, 0)['captions'][0]['text'], '今日はいい天気ですね散歩に行こう')
+        data = RTP.read_script_plan(RTP.importer_script(v))
+        self.assertEqual(data['captions'][0]['text'], '今日はいい天気ですね' + NL + '散歩に行こう')                    # Lua にも改行のまま入る
+
     def test_embedded_in_script_and_readme(self):
         plan = _textplus_plan([(60, 300, '字幕')], [(0, 2064)])
         data = RTP.read_script_plan(RTP.importer_script(plan))

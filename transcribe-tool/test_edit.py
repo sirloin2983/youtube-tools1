@@ -431,6 +431,22 @@ class TestEditHttp(unittest.TestCase):
         clips = [(0.5, 1.5), (1.5, 1.8), (2.0, 2.2), (3.0, 5.1)]   # 2つめは1つめと接している(分割しただけ)・3つめは 0.2 秒
         self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=clips, duration=6.0)})["rev"], 1)
         keeps = [[a, b] for a, b in clips]
+        segs2 = [dict(g) for g in segs]
+        segs2[2]["text"] = "今日はいい天気ですね散歩に行こう"      # 見本と Text+ の改行(12 ②)を見るための長い字幕
+        d2 = self.call("GET", "/api/transcript?id=" + tid)
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": d2["updatedAt"]})
+        NL = chr(10)
+        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[3.0, 5.1]], "wrap": 8})
+        self.assertEqual(r["samples"], ["今日はいい天気ですね" + NL + "散歩に行こう"])      # 見本もパックと同じ改行(resolve_textplus.wrap_caption)
+        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[3.0, 5.1]], "wrap": 0})
+        self.assertEqual(r["samples"], ["今日はいい天気ですね散歩に行こう"])
+        st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            import resolve_textplus
+            ipw = resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
+        self.assertIn("今日はいい天気ですね" + NL + "散歩に行こう", [c["text"] for c in ipw["captions"]])   # zip も設定の縦 8 で2段
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs,
+                                                       "baseUpdatedAt": self.call("GET", "/api/transcript?id=" + tid)["updatedAt"]})
         r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": keeps})
         self.assertEqual((r["_status"], r["count"], r["captions"], r["fps"]), (200, 3, 3, [30, 1]))   # 接している区間は1つに数える
         self.assertAlmostEqual(r["keptSec"], 1.3 + 0.2 + 2.1, places=3)
@@ -465,6 +481,46 @@ class TestEditHttp(unittest.TestCase):
             json.dump({"schema": "youtube-tools-cut-plan/v1", "tool": {"name": "cut2resolve"}}, f)
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
         self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))
+
+    def test_resplit_with_saved_words(self):
+        """今の文書を分け直す(12 ②): 単語の時刻(words.json)で、校正済みでない・文字が単語と一致する長い行だけ分ける。前の版は履歴に残す"""
+        tid = self.open_video(self.wav)["id"]
+        doc = self.call("GET", "/api/transcript?id=" + tid)
+        long1 = "きょうはいいてんきですねさんぽにいきましょうか"       # 23 文字(縦 16 + 2 を超える)
+        segs = [{"id": "a", "start": 0.0, "end": 4.6, "text": long1, "speaker": "sp1", "flag": "自信が低い"},
+                {"id": "b", "start": 5.0, "end": 9.6, "text": long1, "proofed": True},                 # 校正済み → 触らない
+                {"id": "c", "start": 10.0, "end": 14.6, "text": "ぜんぜんちがうぶんしょうになおしたぎょうですよね"},   # 人が直した(単語と違う)
+                {"id": "d", "start": 15.0, "end": 16.0, "text": "みじかい"}]
+        r = self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [{"id": "sp1", "name": "話者A"}], "segments": segs})
+        r = self.call("POST", "/api/resplit", {"id": tid})
+        self.assertEqual((r["_status"], r["error"]), (400, "no_words"))                    # 単語の時刻が無い → 範囲の再認識を案内
+        self.assertIn("範囲を再認識", r["message"])
+        words = []
+        for t0 in (0.0, 5.0, 10.0):
+            words += [[round(t0 + i * 0.2, 2), round(t0 + (i + 1) * 0.2, 2), ch] for i, ch in enumerate(long1)]
+        with open(os.path.join(self.tmp, "transcripts", tid + ".words.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-words/v1", "words": words}, f, ensure_ascii=False)
+        before = self.call("GET", "/api/transcript?id=" + tid)
+        r = self.call("POST", "/api/resplit", {"id": tid, "baseUpdatedAt": before["updatedAt"] - 1})
+        self.assertEqual(r["_status"], 409)                                                 # 別の画面で先に保存されている
+        r = self.call("POST", "/api/resplit", {"id": tid, "orientation": "vertical", "baseUpdatedAt": before["updatedAt"]})
+        self.assertEqual((r["_status"], r["changed"], r["skipped"]), (200, 1, 1), r)        # a だけ分ける・c は単語と違う
+        after = self.call("GET", "/api/transcript?id=" + tid)
+        got = [(g["id"], g["text"], g.get("speaker"), g.get("flag")) for g in after["segments"]]
+        self.assertEqual([x[0] for x in got], ["a", "a-2", "b", "c", "d"])
+        self.assertEqual("".join(x[1] for x in got[:2]), long1)
+        self.assertTrue(all(len(x[1]) <= 18 for x in got[:2]))
+        self.assertEqual((got[1][2], got[1][3]), ("sp1", "自信が低い"))                    # 話者・印を引き継ぐ
+        self.assertEqual(after["segments"][2]["text"], long1)                               # 校正済みはそのまま
+        hist = self.call("GET", "/api/history?id=" + tid)["items"]
+        self.assertTrue(hist)                                                               # 分ける前の版が「以前の版に戻す」にある
+        r = self.call("POST", "/api/resplit", {"id": tid, "orientation": "horizontal"})
+        self.assertEqual(r["changed"], 0)                                                   # 横(28)では分ける行が無い
+        # 文書を消すと words.json も消える
+        wp = os.path.join(self.tmp, "transcripts", tid + ".words.json")
+        self.assertTrue(os.path.isfile(wp))
+        self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
+        self.assertFalse(os.path.exists(wp))
 
     def test_edit_http_into_doc_and_delete(self):
         tid = self.open_video(self.wav)["id"]

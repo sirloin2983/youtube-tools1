@@ -18,6 +18,7 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(ytt_core.txindex が読む。④)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
+                                  output.textplusWrap = Text+ 字幕の1段の文字数(省略 = 縦 8・横 14 = 2段、0 = 改行しない)
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
@@ -547,6 +548,8 @@ def output_from_spec(o, video):
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
+            # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
+            "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
             "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True)}
 
 
@@ -952,7 +955,8 @@ class Handler(BaseHTTPRequestHandler):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                                  force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False)
+                                  force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
+                                  textplus_wrap=out["textplusWrap"])
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"])

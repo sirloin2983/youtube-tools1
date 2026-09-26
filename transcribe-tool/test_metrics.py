@@ -83,6 +83,32 @@ class TestPure(unittest.TestCase):
         self.assertTrue(S.latin_suspect("今日はMinecraftやります"))
         self.assertFalse(S.latin_suspect("今日はMinecraftやります", ["Minecraft"]))   # 用語集にある語は数えない
 
+    def test_split_by_subtitle_chars(self):
+        """1つの字幕の最大文字数(12 ②): 2 文字までのはみ出しは許す・区切りのよい所で分ける・同じ種類の文字の途中はなるべく避ける"""
+        def words(text, t0=0.0, step=0.2):
+            return [(round(t0 + i * step, 2), round(t0 + (i + 1) * step, 2), ch) for i, ch in enumerate(text)]
+        seg = lambda text: {"start": 0.0, "end": len(text) * 0.2, "text": text, "words": words(text)}   # noqa: E731
+        self.assertEqual(len(S.split_segment(seg("あ" * 18), 16)), 1)                  # 16 + 2 文字までは分けない
+        parts = S.split_segment(seg("きょうはいいてんきですね、さんぽにいきましょう"), 16)
+        self.assertEqual([p["text"] for p in parts], ["きょうはいいてんきですね、", "さんぽにいきましょう"])   # 句読点のあと
+        self.assertTrue(all("_words" in p for p in parts))                                # 行の単語(words.json 用)
+        parts = S.split_segment(seg("あいうえおかきくけこさしすせそマインクラフトたちつてと"), 16)
+        self.assertFalse(any(p["text"].endswith(("マ", "マイ", "マイン", "マインク", "マインクラ", "マインクラフ")) for p in parts),
+                         [p["text"] for p in parts])                                     # カタカナの語の途中で切らない
+        self.assertTrue(all(len(p["text"]) <= 18 for p in parts))
+        self.assertEqual(len(S.split_segment(seg("あ" * 30))), 1)                          # 既定(以前の 40 文字)
+
+    def test_subtitle_settings(self):
+        self.assertEqual(S.subtitle_settings({}), S.SUBTITLE_DEFAULT)
+        st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
+        v = S.subtitle_settings(st)
+        self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}})
+        self.assertEqual(S.split_chars_for({}, st), 28)                                  # 設定の向き(横)
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 12)  # 要求で向きを指定
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 16)          # 既定は縦 16
+        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 画面の今の欄の値
+        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 28)                  # 範囲の外は使わない
+
     def test_make_flags_sparse_long_rows(self):
         """長い区間に文字が少ない行(抜けの可能性。docs/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731

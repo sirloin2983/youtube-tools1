@@ -13,6 +13,7 @@
   GET  /api/jobs             ジョブの一覧と進捗 / POST /api/transcribe/cancel で中止
   POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列)
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
+  POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
   POST /api/suggest/feedback 提案の採用・却下を記録
@@ -989,9 +990,17 @@ def edit_preview(obj):
     if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
         raise ApiError("no_media", "元の動画が見つかりません", 400)
     try:
-        return resolve_export.edit_preview(doc, keeps, SERVER_VERSION)
+        return resolve_export.edit_preview(doc, keeps, SERVER_VERSION, wrap_arg(obj.get("wrap")))
     except resolve_export.ResolveExportError as e:
         raise ApiError("preview_failed", str(e), 400)
+
+
+def wrap_arg(v, size=None):
+    """Text+ 字幕の1段の文字数(0〜40)。無ければ設定の subtitle.wrapChars(size が横 1920x1080 なら横、それ以外は縦)"""
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 40:
+        return int(v)
+    sub = subtitle_settings()
+    return sub["wrapChars"]["horizontal" if str(size or "") == "1920x1080" else "vertical"]
 
 
 PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")
@@ -1764,6 +1773,7 @@ def validate_job(req):
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
+            "splitChars": split_chars_for(req),
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "autoLearned": req.get("autoLearned") is True, "clip": clip, "warnings": warnings,
             "title": str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]}
@@ -2034,7 +2044,37 @@ def transcribe_real(job, spec, wav, total):
             yield x
 
 
-SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字)
+SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の「1つの字幕の最大文字数」が優先)
+SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/edit-tool-design.md の 12 ②)
+# 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
+SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14}}
+ORIENTATIONS = ("vertical", "horizontal")
+
+
+def subtitle_settings(st=None):
+    """設定の subtitle(字幕の向き・1つの字幕の最大文字数・パックの字幕の改行の文字数)を、範囲を確かめて返す(無い・おかしい値は既定)"""
+    v = (st if st is not None else load_settings()).get("subtitle")
+    v = v if isinstance(v, dict) else {}
+    out = {"orientation": v.get("orientation") if v.get("orientation") in ORIENTATIONS else SUBTITLE_DEFAULT["orientation"]}
+    for key, lo, hi in (("maxChars", 4, 80), ("wrapChars", 2, 40)):
+        src = v.get(key) if isinstance(v.get(key), dict) else {}
+        out[key] = {}
+        for o in ORIENTATIONS:
+            n = src.get(o)
+            out[key][o] = int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and lo <= n <= hi else SUBTITLE_DEFAULT[key][o]
+    return out
+
+
+def split_chars_for(req=None, st=None):
+    """行を分けるときの最大文字数(要求の splitChars → 要求の subtitleOrientation → 設定の字幕の向き)。
+    画面は今の欄の値を splitChars で渡す(設定の保存は少し遅れて送られるため)。まとめて実行は設定を使う"""
+    req = req or {}
+    n = req.get("splitChars")
+    if isinstance(n, (int, float)) and not isinstance(n, bool) and 4 <= n <= 80:
+        return int(n)
+    sub = subtitle_settings(st)
+    o = req.get("subtitleOrientation")
+    return sub["maxChars"][o if o in ORIENTATIONS else sub["orientation"]]
 STRIP_PUNCT_CHARS = "、。？！?!"   # ショート動画のテロップでは句読点が浮きやすいので、既定で取り除く対象(全角の読点・句点・疑問符・感嘆符と、その半角形)
 _strip_punct_re = re.compile("[%s]" % re.escape(STRIP_PUNCT_CHARS))
 
@@ -2044,28 +2084,32 @@ def strip_punct(text):
     return _strip_punct_re.sub("", text)
 
 
-def _cut_words(ws):
-    """単語の並び ws=[(開始,終了,文字)] を、長すぎる間は「間が大きい・句読点のあと・真ん中に近い」所で分けていく。"""
+def _cut_words(ws, max_chars=SPLIT_CHARS):
+    """単語の並び ws=[(開始,終了,文字)] を、長すぎる間は「間が大きい・句読点のあと・真ん中に近い」所で分けていく。
+    文字数は max_chars + SPLIT_SLACK まで許す。同じ種類の文字(カタカナ・漢字・英数字)の並びの途中では、なるべく切らない(12 ②)"""
     dur = ws[-1][1] - ws[0][0]
     chars = sum(len(t.strip()) for _a, _b, t in ws)
-    if len(ws) < 2 or (dur <= SPLIT_SEC and chars <= SPLIT_CHARS):
+    if len(ws) < 2 or (dur <= SPLIT_SEC and chars <= max_chars + SPLIT_SLACK):
         return [ws]
     best, bi = None, 1
     for i in range(1, len(ws)):
         gap = max(0.0, ws[i][0] - ws[i - 1][1])
-        tail = ws[i - 1][2].rstrip()[-1:]
+        prev_t, next_t = ws[i - 1][2].rstrip(), ws[i][2].lstrip()
+        tail = prev_t[-1:]
         punct = 1.0 if tail in "。！？!?" else (0.4 if tail in "、,，" else 0.0)
         balance = 1.0 - abs((ws[i - 1][1] - ws[0][0]) / dur - 0.5) if dur > 0 else 0.5
-        score = gap * 2 + punct + balance * 0.5
+        same = 1.0 if prev_t and next_t and _cc(prev_t[-1]) and _cc(prev_t[-1]) == _cc(next_t[0]) else 0.0   # 語の途中
+        score = gap * 2 + punct + balance * 0.5 - same
         if best is None or score > best:
             best, bi = score, i
-    return _cut_words(ws[:bi]) + _cut_words(ws[bi:])
+    return _cut_words(ws[:bi], max_chars) + _cut_words(ws[bi:], max_chars)
 
 
-def split_segment(s):
+def split_segment(s, max_chars=SPLIT_CHARS):
     """認識した1行 s を、単語の時刻で整える。①行の始まり・終わりを最初・最後の単語にそろえる(声のない所まで伸びた行を直す)
-    ②単語の間が1秒以上あいた所で分ける ③長すぎる行(8秒・40文字超)は区切りのよい所で分ける。
-    単語の並びが行の文章と合わないとき、単語の時刻が無いときは、何もせずそのまま返す。"""
+    ②単語の間が1秒以上あいた所で分ける ③長すぎる行(8秒・max_chars 文字 + 2 超)は区切りのよい所で分ける。
+    単語の並びが行の文章と合わないとき、単語の時刻が無いときは、何もせずそのまま返す。
+    分けた行には、その行の単語を "_words" に付ける(文書の words.json に保存する用。行のデータには入れない)"""
     words = s.get("words") or []
     if not words:
         return [s]
@@ -2080,12 +2124,12 @@ def split_segment(s):
             cur = []
         cur.append(w)
     groups.append(cur)
-    parts = [p for g in groups for p in _cut_words(g)]
+    parts = [p for g in groups for p in _cut_words(g, max_chars)]
     out = []
     for p in parts:
         text = "".join(t for _a, _b, t in p).strip()
         if text:
-            out.append({**{k: v for k, v in s.items() if k != "words"}, "start": p[0][0], "end": max(p[-1][1], p[0][0]), "text": text})
+            out.append({**{k: v for k, v in s.items() if k != "words"}, "start": p[0][0], "end": max(p[-1][1], p[0][0]), "text": text, "_words": p})
     return out or [s]
 
 
@@ -2094,9 +2138,132 @@ def expand_segments(gen, spec):
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
     (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。"""
     strip = spec.get("stripPunct", True)
+    mc = spec.get("splitChars") or SPLIT_CHARS
     for s in gen:
-        for p in (split_segment(s) if spec.get("wordSplit") else [s]):
+        for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]):
             yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
+
+
+def row_words(p, shift=0.0):
+    """expand_segments が出した行の単語(split_segment の "_words" か、分けなかった行の "words")→ [[開始, 終了, 文字]](絶対の秒)"""
+    return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
+
+
+# ---------- 単語の時刻(12 ②。transcripts/<id>.words.json。行のデータには入れない = 画面の保存で落ちたり古くなったりしないように) ----------
+WORDS_SCHEMA = "youtube-tools-words/v1"
+MAX_WORDS_BYTES = 32 * 1024 * 1024
+
+
+def words_path(tid):
+    return os.path.join(TX_DIR, tid + ".words.json")
+
+
+def read_words(tid):
+    """文書の単語の時刻 [[開始, 終了, 文字], ...](時刻の順)。無い・壊れていれば None"""
+    try:
+        d = _fsio.read_json_file(words_path(tid), MAX_WORDS_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("schema") != WORDS_SCHEMA or not isinstance(d.get("words"), list):
+        return None
+    out = []
+    for w in d["words"]:
+        if isinstance(w, list) and len(w) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in w[:2]) and isinstance(w[2], str):
+            out.append([float(w[0]), float(w[1]), w[2]])
+    return sorted(out, key=lambda w: (w[0], w[1]))
+
+
+def write_words(tid, words, model=""):
+    """単語の時刻を保存する(空なら消す)。書けなくても文字起こしは失敗にしない(呼び出し側で記録だけ)"""
+    if not words:
+        try:
+            os.unlink(words_path(tid))
+        except FileNotFoundError:
+            pass
+        return
+    body = {"schema": WORDS_SCHEMA, "model": str(model or ""), "updatedAt": int(time.time() * 1000),
+            "words": sorted(words, key=lambda w: (w[0], w[1]))}
+    atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def replace_words(tid, a, b, new_words, model=""):
+    """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す)。以前の単語が無い文書は、新しい単語だけにしない
+    (範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
+    old = read_words(tid) or []
+    keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6)]
+    write_words(tid, keep + list(new_words), model)
+
+
+def _squash(text):
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def resplit_doc(obj):
+    """POST /api/resplit {"id", "orientation"?, "baseUpdatedAt"?}: 今の文書の長い行を、保存してある単語の時刻で分け直す(12 ②)。
+    分けるのは: 校正済みでない・文字が単語と一致する(人が直していない)・最大文字数 + 2 を超える行だけ。分けた行は話者・印・タグ・メモを引き継ぐ。
+    分ける前の文書は履歴に残す(「以前の版に戻す」で戻せる)。-> {"changed": 分けた行の数, "added": 増えた行, "skipped": 単語と一致しない長い行, "rows", "updatedAt"}"""
+    tid = str(obj.get("id") or "")
+    o = obj.get("orientation")
+    max_chars = split_chars_for({"subtitleOrientation": o, "splitChars": obj.get("splitChars")})
+    with _save_lock:
+        doc = read_transcript(tid)
+        base = obj.get("baseUpdatedAt")
+        if isinstance(base, int) and not isinstance(base, bool) and base != int(doc.get("updatedAt") or 0):
+            raise ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
+        words = read_words(tid)
+        if not words:
+            raise ApiError("no_words", "この文字起こしには単語の時刻がありません(v0.17.0 より前の文字起こし・単語の時刻を使わない設定)。"
+                                       "行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます", 400)
+        mids = [(w[0] + w[1]) / 2 for w in words]
+        segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
+        used = {str(g.get("id")) for g in segs}
+        out, changed, added, skipped = [], 0, 0, 0
+        for g in segs:
+            text = str(g.get("text") or "")
+            if g.get("proofed") is True or len(_squash(text)) <= max_chars + SPLIT_SLACK:
+                out.append(g)
+                continue
+            a, b = float(g.get("start") or 0), float(g.get("end") or 0)
+            lo, hi = bisect.bisect_left(mids, a - 0.05), bisect.bisect_right(mids, b + 0.05)
+            ws = [tuple(w) for w in words[lo:hi]]
+            joined = "".join(t for _a, _b, t in ws)
+            if ws and _squash(joined) == _squash(text):
+                strip = False
+            elif ws and _squash(strip_punct(joined)) == _squash(text):
+                strip = True        # 句読点を取り除いた行(stripPunct)
+            else:
+                skipped += 1        # 人が直した行・辞書で置き換えた行・単語の無い行は分けない
+                out.append(g)
+                continue
+            parts = split_segment({"start": a, "end": b, "text": joined, "words": ws}, max_chars)
+            if len(parts) < 2:
+                out.append(g)
+                continue
+            changed += 1
+            added += len(parts) - 1
+            for k, p in enumerate(parts):
+                t = strip_punct(p["text"]) if strip else p["text"]
+                sid = base = str(g.get("id"))
+                if k:   # 2つめからは <元の id>-2, -3 …(ほかの行と重ならない番号)
+                    n = k + 1
+                    sid = "%s-%d" % (base, n)
+                    while sid in used:
+                        n += 1
+                        sid = "%s-%d" % (base, n)
+                    used.add(sid)
+                out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:MAX_TEXT]))
+        if not changed:
+            return {"changed": 0, "added": 0, "skipped": skipped, "rows": len(segs), "updatedAt": int(doc.get("updatedAt") or 0)}
+        try:
+            hist_snapshot(tid, force=True)   # 分ける前を「以前の版に戻す」に残す
+        except OSError:
+            pass
+        doc["segments"] = sorted(out, key=lambda g: (g["start"], g["end"]))
+        doc["updatedAt"] = int(time.time() * 1000)
+        doc["resplit"] = {"maxChars": max_chars, "rows": changed, "at": doc["updatedAt"]}
+        apply_edit_cuts(tid, doc)
+        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        return {"changed": changed, "added": added, "skipped": skipped, "rows": len(doc["segments"]), "updatedAt": doc["updatedAt"]}
 
 
 def transcribe_fake(job, spec, wav, total):
@@ -2136,7 +2303,7 @@ def run_job(job):
                 raise ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
             job["state"] = "loading"
             gen = transcribe_real(job, spec, wav, total)
-        segs, prev, original, pairs, dict_n = [], [], [], (parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []), 0
+        segs, prev, original, pairs, dict_n, all_words = [], [], [], (parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []), 0, []
         learn_n = 0
         lrules, lfb = (learn_rules(), load_feedback()) if spec.get("autoLearned") else ({}, None)
         for s in expand_segments(gen, spec):
@@ -2150,6 +2317,7 @@ def run_job(job):
                 seg["text"], ln = auto_learned_replace(seg["text"], lrules, lfb)
                 learn_n += ln
             original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"]})   # 機械の出力をそのまま残す(修正からの学習に使う)
+            all_words.extend(row_words(s, spec["start"]))
             seg["text"], n = apply_replacements(seg["text"], pairs)
             dict_n += n
             segs.append(seg)
@@ -2160,6 +2328,7 @@ def run_job(job):
         fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
                   "language": spec["language"], "params": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": spec["boost"], "device": job.get("device", ""), "glossary": spec["glossary"][:50],
                                                            "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
+                                                           "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
                                                            "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
                   "speakers": [], "segments": segs, "original": original, "updatedAt": now}
         tid = fill_doc(spec, fields) if spec.get("intoDoc") else None
@@ -2170,6 +2339,10 @@ def run_job(job):
             if spec.get("clip"):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        try:
+            write_words(tid, all_words, spec["model"])
+        except OSError as e:
+            log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -3697,7 +3870,7 @@ def validate_retranscribe(req):
         rng = [a, b]
     return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "language": lang if lang in LANGS else "ja", "beam": 5,
             "vadMode": req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
-            "wordSplit": mode == "range" and req.get("wordSplit") is not False,
+            "wordSplit": mode == "range" and req.get("wordSplit") is not False, "splitChars": split_chars_for(req),
             "stripPunct": req.get("stripPunct") is not False,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
@@ -3839,6 +4012,10 @@ def _apply_range(spec, lines):
     doc["updatedAt"] = int(time.time() * 1000)
     apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
     atomic_write(tx_path(spec["tid"]), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    try:   # 単語の時刻も範囲の分を差し替える(古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
+        replace_words(spec["tid"], a, b, [w for x in lines for w in x.get("words") or []], spec["model"])
+    except OSError as e:
+        log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
     return len(new), unsure
 
 
@@ -3874,7 +4051,7 @@ def finish_range_lines(raw, spec, shift):
             continue
         flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], spec["glossary"])
         prev.append(s["text"])
-        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag})
+        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift)})
     return out
 
 
@@ -4868,7 +5045,8 @@ class Handler(BaseHTTPRequestHandler):
                     zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
                                                                       str(obj.get("size") or "") or None, SERVER_VERSION,
                                                                       keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                                      row_edge=load_settings().get("rowEdge"), backup=obj.get("backup") is True)
+                                                                      row_edge=load_settings().get("rowEdge"), backup=obj.get("backup") is True,
+                                                                      wrap=wrap_arg(obj.get("wrap"), obj.get("size")))
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))
@@ -4898,6 +5076,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, export_file(obj))
             if path == "/api/open-video":
                 return self._json(200, open_video(obj))
+            if path == "/api/resplit":
+                return self._json(200, resplit_doc(obj))
             if path == "/api/edit/pack":
                 return self._json(200, record_pack(obj))
             if path == "/api/edit/preview":
@@ -4947,7 +5127,7 @@ class Handler(BaseHTTPRequestHandler):
             with _save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 read_transcript(tid)
                 os.unlink(tx_path(tid))
-                for extra in (edit_path(tid), os.path.join(TX_DIR, tid + ".edit.broken.json")):   # 編集の内容(カット)も一緒に
+                for extra in (edit_path(tid), os.path.join(TX_DIR, tid + ".edit.broken.json"), words_path(tid)):   # 編集の内容(カット)・単語の時刻も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

@@ -544,7 +544,7 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
-               task=None, log=None, textplus_target=None, backup=True, plan_file=True):
+               task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 友人へ.txt の中身, "warnings", "plan": cut-plan の中身(書かなくても返す)}。
     backup・plan_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False。④)。
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
@@ -625,7 +625,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         if textplus:
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
-            files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths))
+            files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap))
     finally:
         for tmp, _, _ in staged:
             try:

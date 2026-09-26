@@ -41,6 +41,7 @@ class FakeTools:
         self.review = {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16}
         self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
         self.row_edge = None      # 「編集」の「行から」の設定(文字起こしの settings.rowEdge。⑥)
+        self.subtitle = None      # 字幕の文字数の設定(文字起こしの settings.subtitle。②)
 
     def clip_path(self, mid):
         return os.path.join(self.tmp, "out", mid + ".mp4")
@@ -121,6 +122,8 @@ class FakeTools:
         s = {"model": "small", "language": "ja", "boost": True, "secret": "使わない", "goalHours": 3}
         if self.row_edge is not None:
             s["rowEdge"] = self.row_edge
+        if self.subtitle is not None:
+            s["subtitle"] = self.subtitle
         return 200, s
 
     def h_transcribe_POST_api_transcribe(self, path, body):
@@ -208,6 +211,13 @@ class TestModes(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["spec"]["rowEdge"], {"on": False, "after": 0.5, "before": 0.3})
+
+    def test_wrap_setting_is_passed(self):
+        """Text+ 字幕の1段の文字数は、字幕の文字数の設定(文字起こしの settings.subtitle.wrapChars.vertical)を cut2resolve に渡す(12 ②)"""
+        self.tools.subtitle = {"wrapChars": {"vertical": 9, "horizontal": 14}}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.tools.c2r["body"]["output"]["textplusWrap"], 9)
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
         run = self.run_one("adopted")

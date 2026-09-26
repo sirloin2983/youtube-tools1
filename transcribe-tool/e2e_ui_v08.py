@@ -228,6 +228,10 @@ def main():
             pg.wait_for_function("document.querySelector('#arcOut').textContent.includes('保管した文字起こし 1件')", timeout=30000)
             check("正解の行" in pg.inner_text("#arcOut") and "トワ" in pg.text_content("#arcOut"), "保管カードに、正解の量・話者ごとの量が出る")
             check(os.path.isfile(os.path.join(tmp, "dataset", "index.jsonl")) and os.path.getsize(os.path.join(tmp, "dataset", "index.jsonl")) > 100, "dataset/index.jsonl ができている")
+            try:   # 保管の状況は、保管カードの結果より少し遅れて「保管中 1/1」→「済」になる
+                pg.wait_for_function("document.querySelector('#arcStat').textContent.includes('保管: 済')", timeout=10000)
+            except Exception:
+                pass
             check("保管: 済" in pg.inner_text("#arcStat"), "保管の状況が出る: " + pg.inner_text("#arcStat"))
             pg.click("#btnSpk")   # v0.15.0: 「道具 ▾」→「以前の版に戻す」(自動バックアップ。旧「履歴」)
             pg.click("[data-jump=hiDetails]")

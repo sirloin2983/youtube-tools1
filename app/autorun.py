@@ -413,8 +413,13 @@ class AutoRunner:
             st["state"], st["detail"] = "skip", ("パック済み" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
         skipped, by_edit = [], 0
-        # 行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの /api/settings の rowEdge。形は cut2resolve が確かめる)
-        row_edge = self.client.ok("transcribe", "GET", "/api/settings").get("rowEdge")
+        # 行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの /api/settings の rowEdge。形は cut2resolve が確かめる)。
+        # Text+ 字幕の1段の文字数は字幕の文字数の設定(subtitle.wrapChars.vertical。まとめて実行のパックは縦 = cut2resolve の既定の置き先)
+        tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
+        row_edge = tx_settings.get("rowEdge")
+        sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
+        wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
+        wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
             st["detail"] = "%d / %d 本" % (i - 1, len(todo))
@@ -423,13 +428,13 @@ class AutoRunner:
                 captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
                 tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
                 spec = dict({"video": m["path"], "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
-                body = {"spec": spec, "output": {"textplus": captions, "copyVideo": True}}
+                body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
             else:
                 tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
                 spec = {"video": m["path"], "transcript": tr.get("path"), "preset": "transcript-rows"}
                 if isinstance(row_edge, (bool, dict)):
                     spec["rowEdge"] = row_edge
-                body = {"spec": spec, "output": {"textplus": True}}
+                body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
             while True:
                 status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
                 if not (status == 409 and res.get("error") == "busy"):

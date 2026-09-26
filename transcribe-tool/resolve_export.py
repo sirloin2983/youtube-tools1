@@ -189,7 +189,7 @@ def _edit_request(pack, source: str, tpath: str | None, keeps, row_edge=None, wa
     return _rows_request(pack, source, tpath, row_edge, warnings if warnings is not None else [])
 
 
-def edit_preview(doc: dict, keeps, version: str = "") -> dict:
+def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
     """「編集」3 パック のタブの「これから作るパック」: カットのとおりに作ったときの区間の数・カット後の長さ・Text+ 字幕の数・注意(ファイルは作らない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)"""
     import pipeline_io
@@ -213,14 +213,16 @@ def edit_preview(doc: dict, keeps, version: str = "") -> dict:
             raise ResolveExportError(str(e))
         sm = pack.summary(plan)
         subs = sm["subtitles"] or {}
+        # 字幕の見本(最初の2つ)。改行は Text+ と同じ規則(resolve_textplus.wrap_caption。ここに規則を書かない)
+        samples = [_tp.wrap_caption(t, wrap if wrap is not None else _tp.WRAP_DEFAULT["vertical"]) for _a, _b, t in (plan.cues_out or [])[:2]]
         return {"count": sm["count"], "keptSec": sm["keptSec"], "durationSec": sm["durationSec"], "fps": sm["fps"],
-                "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings}
+                "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings, "samples": samples}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
-                   row_edge=None, backup: bool = False) -> tuple[str, str, dict]:
+                   row_edge=None, backup: bool = False, wrap=None) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
@@ -246,7 +248,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         warns = []
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
-            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False)
+            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
         zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")

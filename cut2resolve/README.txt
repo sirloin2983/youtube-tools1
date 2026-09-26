@@ -75,6 +75,8 @@ cut2resolve v0.12.0(「編集」の部品・コマンド)
   - Text+ 字幕の見た目をユーザーの指定に(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・
     アンカー 下/中央。スクリプトが値を入れ、最初の字幕で読み直して、入らなかった項目はマーカーのメモに出す(resolve_textplus.TEXT_STYLE・style_inputs)。
     けいふぉんと はパックに入れない(友人が各自で入れる)。無ければ Windows の日本語フォントを自動で選び、マーカーを黄色にする
+  - Text+ 字幕を2段にする(②): 1段の文字数(縦 8・横 14 前後。output.textplusWrap で変える・0 = 改行しない)で、句読点・助詞のあと・漢字やカタカナの始まりで改行する
+    (resolve_textplus.wrap_caption。Text+ は自動で折り返さないため)。SRT・EDL の字幕は改行しない
   - 文字起こしの行から作るカット(preset transcript-rows・keepSource transcript・--keep-rows)は、区間の端を声の止まる所まで広げる(pack.ROW_EDGE。
     spec.rowEdge / --no-row-edge。上の「API」)。keeps・時刻リスト・スタジオの区間には使わない
   - パックを最小限に(API): Text+ パックは動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。output.backup で予備(EDL・予備の手順書・SRT)。

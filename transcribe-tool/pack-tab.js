@@ -11,6 +11,9 @@ function create(h){
   const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
   const fpsOf = () => { const o = $('#pkFpsOther').value; return o || (h.S.settings.packFps === '60' ? '60' : String(h.S.settings.packFps || '30')); };
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
+  /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
+  const wrapOf = () => { const w = (h.S.settings.subtitle || {}).wrapChars || {}, o = sizeOf() === '1920x1080' ? 'horizontal' : 'vertical', n = Number(w[o]);
+    return Number.isInteger(n) && n >= 0 && n <= 40 ? n : (o === 'horizontal' ? 14 : 8); };
   const kept = g => g.cutState !== 'cut' && String(g.text || '').trim();
 
   /* パックを作れない理由(無ければ '')。見積もりと zip は、cut2resolve が無くても使える */
@@ -59,12 +62,12 @@ function create(h){
   }
   async function runPreview(){
     const d = h.S.doc, keeps = h.CUT && h.CUT.keepsSec(); if (!d || !keeps || !keeps.length) return render();
-    const key = JSON.stringify(keeps) + '|' + h.rowSig();
+    const key = JSON.stringify(keeps) + '|' + h.rowSig() + '|' + wrapOf();
     if (key === P.previewKey && P.preview) return render();
     const seq = ++P.pvSeq, id = h.S.docId;
     try {
       if (!(await h.saveDoc())) return;   // 保存済みの文字起こしで見積もる
-      const r = await h.api('/api/edit/preview', { body: { id, keeps } });
+      const r = await h.api('/api/edit/preview', { body: { id, keeps, wrap: wrapOf() } });
       if (seq !== P.pvSeq || id !== h.S.docId) return;
       P.preview = r; P.previewKey = key; P.previewErr = '';
     } catch (e){ if (seq === P.pvSeq) { P.preview = null; P.previewErr = e.message; } }
@@ -87,7 +90,7 @@ function create(h){
     fw.hidden = !(srcFps > 45 && Number(fps) <= 30);
     fw.textContent = `元の動画は ${srcFps.toFixed(2).replace(/\.?0+$/, '')}fps です。${fps}fps のプロジェクトに入れると、区間の端が Resolve で丸められて1フレームずれることがあります(実機で確かめてください)。`;
     // これから作るパック
-    const sm = h.CUT && h.CUT.summary(), pv = P.preview, fresh = pv && P.previewKey === JSON.stringify(h.CUT.keepsSec()) + '|' + h.rowSig();
+    const sm = h.CUT && h.CUT.summary(), pv = P.preview, fresh = pv && P.previewKey === JSON.stringify(h.CUT.keepsSec()) + '|' + h.rowSig() + '|' + wrapOf();
     $('#pkLen').textContent = sm ? h.fmtCs(sm.keptSec) : '–';
     $('#pkSrcLen').textContent = sm ? h.fmtCs(sm.durSec) : '–';
     $('#pkCount').textContent = sm ? String(sm.count) : '–';
@@ -96,7 +99,7 @@ function create(h){
     $('#pkCapsL').textContent = hasRows ? 'Text+ 字幕' : 'Text+ 字幕(文字起こしが無い)';
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
-    const rows = d.segments.filter(kept).slice(0, 2).map(g => String(g.text).trim());
+    const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : d.segments.filter(kept).slice(0, 2).map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
     $('#pkSamples').innerHTML = rows.length ? rows.map(t => `<div class="tt-pk-cap tt-cap-look">${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
     $('#pkPhoneCap').textContent = rows[0] || '';
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
@@ -168,7 +171,7 @@ function create(h){
       const rev = h.CUT.state().rev, docAt = h.S.baseUpdatedAt;
       const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v; }
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
-      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}) };
+      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(), ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}) };
       let force = false, res;
       for (;;){
         try {
@@ -232,7 +235,7 @@ function create(h){
     if (!(await h.saveDoc()) || (h.CUT && !(await h.CUT.flush()))) return h.toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
     const b = $('#pkZip'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
-      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked });
+      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf() });
       h.download(await r.blob(), `${h.safeName(h.S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
       h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、中の「友人へ.txt」の手順で Resolve に取り込みます`, 8000, 'ok');

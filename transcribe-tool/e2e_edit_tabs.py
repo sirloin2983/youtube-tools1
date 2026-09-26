@@ -4,6 +4,7 @@
 
     python e2e_edit_tabs.py
 """
+import json
 import os
 import sys
 
@@ -138,6 +139,27 @@ def main():
             wait_js(pg, "document.querySelector('#toast').textContent.includes('前に開いています')", 10000)
             items = [i for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし"]
             check(len(items) == 1, "同じ動画をもう一度「文字起こしせずに開く」と、同じ文書を開く(増やさない)")
+
+            # ---- 字幕の文字数(12 ②): 新規の設定・「今の文書を分け直す」(保存してある単語の時刻で長い行を分ける)
+            tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+            long1 = "きょうはいいてんきですねさんぽにいきましょうか"
+            d1 = srv.get("/api/transcript?id=" + tid1)
+            srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
+                                                           "segments": [{"id": "a", "start": 0.0, "end": 4.6, "text": long1}, {"id": "b", "start": 5.0, "end": 6.0, "text": "みじかい"}]})
+            with open(os.path.join(srv.tmp, "transcripts", tid1 + ".words.json"), "w", encoding="utf-8") as f:
+                json.dump({"schema": "youtube-tools-words/v1", "words": [[round(i * 0.2, 2), round((i + 1) * 0.2, 2), ch] for i, ch in enumerate(long1)]}, f, ensure_ascii=False)
+            pg.keyboard.press("Alt+1")
+            open_doc(pg, "一本目")
+            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 2", 10000)
+            check(pg.input_value("#optMaxV") == "16" and pg.input_value("#optMaxH") == "28" and pg.input_value("#optWrapV") == "8" and pg.input_value("#optSubOrient") == "vertical",
+                  "新規の設定に 字幕の向き(縦)・最大文字数 縦 16 / 横 28・改行 縦 8 / 横 14")
+            opt = pg.evaluate("document.querySelector('#rsOrient').options[0].textContent")   # 閉じた欄の中なので textContent で見る
+            check("最大 16 文字" in opt, "「分け直す」の向きに最大文字数が出る: %s" % opt)
+            pg.evaluate("document.querySelector('#fixDetails').open = true")
+            pg.click("#rsGo")
+            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
+            check("1 行を分けました" in pg.inner_text("#rsMsg"), "「今の文書を分け直す」で長い行が 2 つに(%s)" % pg.inner_text("#rsMsg"))
+            check(srv.get("/api/history?id=" + tid1)["items"], "分ける前の版が「以前の版に戻す」にある")
 
             # ---- キー操作の一覧・狭い画面
             pg.click("#btnKeys")

@@ -102,10 +102,80 @@ def caption_segments(keeps, cues_out):
     return out
 
 
-def build_import_plan(plan, media_file, target=None):
+# 字幕の改行(2段。docs/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
+# Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
+WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
+WRAP_SLACK = 2                        # 1段の文字数を 2 文字まで超えるのは許す(変な所で切らない)
+_NO_LINE_START = set("、。,.!?！？ーっゃゅょぁぃぅぇぉッャュョァィゥェォ」』)）〕]")   # 行の頭に来ない文字(禁則)
+_BREAK_AFTER = set("、。,.!?！？ 　")
+_PARTICLES = set("はがをにでともへ")   # ひらがなの並びでは、助詞のあとで改行すると読みやすい
+
+
+def _char_kind(ch):
+    o = ord(ch)
+    if 0x30A1 <= o <= 0x30FA or ch in "ー・":
+        return "K"
+    if 0x4E00 <= o <= 0x9FFF or ch in "々〆":
+        return "H"
+    if ch.isascii() and ch.isalnum() or 0xFF10 <= o <= 0xFF19 or 0xFF21 <= o <= 0xFF3A or 0xFF41 <= o <= 0xFF5A:
+        return "A"
+    if 0x3041 <= o <= 0x3096:
+        return "h"
+    return ""
+
+
+def default_wrap(target=None):
+    t = dict(target or DEFAULT_TARGET)
+    return WRAP_DEFAULT["vertical" if t["height"] > t["width"] else "horizontal"]
+
+
+def wrap_caption(text, per_line):
+    """字幕の文字を、1段 per_line 文字前後で改行する(ふつうは2段。長ければ3段以上)。per_line + 2 文字までは改行しない。
+    改行する所は、理想の位置(均等に分けた所)の近くで: 句読点・空白のあと > 助詞(は・が・を…)のあと・漢字/カタカナ/英数字が始まる所。
+    カタカナ・漢字・英数字の並びの途中と、行の頭に来ない文字(、。ー・小さい ゃ など)の前は避ける。per_line が 0 なら改行しない"""
+    t = str(text or "").strip()
+    if not per_line or per_line <= 0 or "\n" in t or len(t) <= per_line + WRAP_SLACK:
+        return t
+    n = -(-len(t) // (per_line + WRAP_SLACK))   # 段の数
+    cuts, start = [], 0
+    for k in range(1, n):
+        ideal = round(len(t) * k / n)
+        best, bp = None, None
+        for pos in range(max(start + 1, ideal - 3), min(len(t) - 1, ideal + 3) + 1):
+            a, b = t[pos - 1], t[pos]
+            score = -abs(pos - ideal) * 0.3
+            if a in _BREAK_AFTER:
+                score += 2
+            elif _char_kind(b) in ("H", "K", "A") and _char_kind(a) != _char_kind(b):   # 漢字・カタカナ・英数字が始まる所(送りがなの前では切らない)
+                score += 1
+            elif a in _PARTICLES and b not in _NO_LINE_START and not (a == "で" and b in "すし"):   # 「です」「でした」は切らない
+                score += 1.2
+            if _char_kind(a) and _char_kind(a) == _char_kind(b) and _char_kind(a) != "h":
+                score -= 2                     # 語の途中
+            if b in _NO_LINE_START:
+                score -= 3
+            if best is None or score > best:
+                best, bp = score, pos
+        if bp is None:
+            break
+        cuts.append(bp)
+        start = bp
+    lines, prev = [], 0
+    for c in cuts + [len(t)]:
+        lines.append(t[prev:c].strip())
+        prev = c
+    return "\n".join(x for x in lines if x)
+
+
+def build_import_plan(plan, media_file, target=None, wrap=None):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
-    時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する"""
+    時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
+    wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)"""
     fps = plan.meta["fps"]
+    per_line = default_wrap(target) if wrap is None else int(wrap)
+    caps = caption_segments(plan.keeps, plan.cues_out)
+    for c in caps:
+        c["text"] = wrap_caption(c["text"], per_line)
     return {
         "schema": SCHEMA,
         "title": plan.req.name or plan.video.stem,
@@ -116,7 +186,8 @@ def build_import_plan(plan, media_file, target=None):
         "media": {"file": str(media_file).replace("\\", "/"), "name": plan.video.name,
                   "width": int(plan.meta["w"]), "height": int(plan.meta["h"])},
         "cuts": [{"sourceStartFrame": int(start), "sourceEndFrame": int(end)} for start, end in plan.keeps],
-        "captions": caption_segments(plan.keeps, plan.cues_out),
+        "captions": caps,
+        "captionWrap": per_line,
         # 削除区間を戻すときのコピー元。カット済みタイムラインとは別に、元動画全体を残す。
         "sourceTimeline": {"startFrame": 0, "endFrame": int(plan.meta["total"])},
         "style": _style_data(),
@@ -555,12 +626,12 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 {backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True):
+def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
