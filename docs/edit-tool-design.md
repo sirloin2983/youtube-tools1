@@ -4,6 +4,7 @@
 - 画面イメージ: `docs/mockups/edit-1-transcribe.png`・`edit-2-cut.png`・`edit-3-pack.png`(元の HTML は `docs/mockups/edit-mock.html`。
   ブラウザで `edit-mock.html?tab=tx|cut|pack` を開くと同じ画面が出る。ui-kit.css を相対パスで読むので、リポジトリの中で開く)
 - 実装が進んだら、この文書の「7. 実装の段取り」に済んだ段を書き足し、WORKLOG からリンクする
+- 2026-09-26 Claude Code: E1(サーバー)を実装。実装で決めた細かい点は「11. 実装で決めたこと」
 
 ## 1. ユーザーの決定(2026-09-26)
 - 文字起こしツールと cut2resolve を**1つのツール「編集」**にする。入口のカード・「他のツール」のメニューから cut2resolve はなくなる(パックを作る部品は中で使い続ける)
@@ -162,3 +163,37 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - 単体の cut2resolve の画面のファイル(index.html・app.js)を消すか(残すと保守が二重、消すと単体の cut2resolve が使えない)
 - 複数の切り抜きをつなげる画面(sources を増やす・並べ替え・パックの EDL と Text+ を複数の素材に)をいつやるか
 - 字幕のトラックで行の時刻をドラッグで直す・行を分ける(今は 1 文字起こしのタブで直す)
+
+## 11. 実装で決めたこと(段ごとに書き足す)
+### E1 サーバー(2026-09-26 Claude Code)
+- 編集の内容 `transcripts/<id>.edit.json`(`transcribe-tool/serve.py` の「編集の内容」の節)
+  - 形の検査 `sanitize_edit`: sources は1つ(fps は整数の組 [n, d]・1〜300fps、長さ 0〜24時間)・clips の src は 0・0 ≤ in < out ≤ 長さ + 1フレーム・時刻の順で重ならない・小数3桁に丸める・知らない項目は捨てる。
+    **clips は 0 個も受け付ける**(全部削った状態を保存でき、元に戻すで戻せる。パックは 1 個以上でないと作れない = cut2resolve の keeps の検査)。1MB まで
+  - rev はサーバーが付ける。`PUT` の `baseRev` が違えば 409 と今の `rev`(`{"error": "conflict", "rev": n}`)。画面の「こちらで上書き」はその rev で送り直す
+  - ファイルが壊れていたら `GET` は `{"edit": null, "rev": 0, "broken": true}`。次の保存で上書きし、壊れたものは `<id>.edit.broken.json` に1つ残す
+- **行の「カット済」は、編集の内容があれば常にそこから決める**(`apply_edit_cuts`)。校正の保存・範囲の再認識・選んだ行の再認識・履歴から戻す・intoDoc のどの書き込みでも通す
+  (画面の古い印で上書きされない。編集の内容が無い文書は以前どおり画面の cutState を保存する)
+  - 規則 `edit_cut_flags`: 行の時間のうち残す区間に入るのが 0.75 フレーム未満ならカット済(区間の端はフレームに、行の時刻は 0.01 秒に丸めてあるため)。
+    2 × 0.75 フレーム以下のごく短い行は、行の真ん中が残す区間に入っているか。**画面(cut.js)も同じ規則にする**
+  - `PUT /api/edit` で行の cutState を合わせるとき、**文書の `updatedAt` は変えない**(cutState は編集の内容から決まる値なので、校正の保存の競合の検出 baseUpdatedAt に巻き込まない。
+    別のタブの校正の保存が古い cutState を送っても、上の規則で付け直される)
+  - 以前の「行から」との違い: 行が重ならない文書では、たたき台「行から」で作ったパック = 今の「カットとパック」(preset transcript-rows)のパック(契約テスト `EditKeepsContract`)。
+    重なる2行の一方だけがカット済のときは、編集では時間の一部が残る行を「残す行」にするので、その行の字幕(残る部分)が増える
+- パックの記録 `POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files"}`(設計の 5 に無かった API): 画面がパックを作り終えたときに呼ぶ。rev は増やさない。
+  `packRev = rev`・`pack = {rev, at, docUpdatedAt, dir, files(名前だけ)}`。「作り直し」の判定 `pack_stale` はサーバーの1か所(一覧の `packStale`・`GET /api/edit` の `packStale`)
+- `GET /api/transcripts` の各項目に `hasEdit`・`editRev`・`packRev`・`packAt`・`packStale`
+- `POST /api/open-video`: `check_source`(ファイル・動画/音声の拡張子)→ 同じ動画の文書を探す(行のある文書・新しいものを先に)→ 無ければ ffmpeg で映像か音声が読めるか(`probe_media`。
+  カバー画像は映像に数えない)→ 行 0 の文書を作る(`model` 空・`whole: true`)。隣の .clip.json は `pipeline_io.find_clip`。続けて2回押しても文書は1つ(`_open_lock`)
+- `GET /api/peaks?id=`: 作っている間・順番待ちの間は **202** `{"state": "waiting"|"running", "message"}`(画面は1秒ごとに問い合わせ直す)。できたら 200 のバイト列と
+  `X-Peaks-Rate`(10分まで 100・1時間まで 50・それより長いと 20)・`X-Peaks-Duration`・`X-Peaks-Scale: sqrt`(振れ幅の平方根を 0〜255 に。小さい声も見えるように)・`X-Peaks-Audio`(0 = 音声なし・本文は空)。
+  失敗は 30 秒覚えて同じエラーを返す(その後は作り直す)。作業データの `cache/peaks/<パスのハッシュ>.bin/.json`(パス・大きさ・更新日時・形式の版が同じなら使い回す)。SLOTS を通す
+- `POST /api/transcribe` の `intoDoc`: 受け付けるとき(文書がある・同じ動画・行が無い)と、終わったとき(`fill_doc`。保存と同じロックの中)の2回確かめる。
+  終わったときに文書が変わっていたら(消えた・行が入った)新しい文書として保存し、ジョブの warnings に書く(結果は捨てない)
+- 文書の削除で `<id>.edit.json`・`<id>.edit.broken.json` も消す
+- cut2resolve: `pack.EDIT_KEEPS`(base list・余白 0・最短 0・つなぐ隙間 0・無音なし・カット済の行で削らない・**0.5 秒より短い区間は注意**(`warn_short`。捨てない))、`pack.MAX_KEEPS = 5000`。
+  `serve.request_from_spec` の `spec.keeps`(検査 `keeps_from_spec`)は「詳しい設定」(`advanced`: fps・タイムコード・リール名・EDL のタイトル)も使える。
+  **`keeps` と `preset` を一緒に送ると 400**。`api/plan` の結果に `keepsSec`(残す区間の秒。たたき台で今の編集を置き換える)
+- 接している残す区間(分割しただけの所)はパックでは1つの区間になる(`cut_list_to_keeps` → `normalize`)。画面の「残す n 区間」も接しているものを1つに数える
+- ついでに直したもの: 認識ワーカー(`tx_worker.py`)が Windows で止まる不具合。標準入力のパイプを別のスレッドが読んで待っている間に numpy などの DLL を読み込むと、
+  その初期化が標準入力に触れて、次の要求が届くまで止まっていた(PC で再現。`test_worker` の範囲の再認識が止まっていた)。やり取り用の入力を fd 0 から離し、fd 0 は NUL に。
+  保留の「まとめて実行の最初の文字起こしが遅い」(43 秒の切り抜きで 502 秒)も、これが原因の可能性が高い(実機で要確認)

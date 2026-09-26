@@ -455,6 +455,35 @@ class TestJobs(ServerBase):
         st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "other"}})
         self.assertEqual((st, j["error"]), (400, "bad_value"))
 
+    def test_keeps_from_edit_tool(self):
+        """「編集」のタイムラインの残す区間(spec.keeps)のとおりに作る(pack.EDIT_KEEPS): 余白・最短の長さ・無音・カット済の行で変えない"""
+        t = self.dir / "keeps.transcript.json"
+        t.write_text(json.dumps({"schema": "youtube-tools-transcript/v1", "segments": [
+            {"start": 0.5, "end": 1.5, "text": "a", "cut": False}, {"start": 1.6, "end": 1.9, "text": "b", "cut": True},
+            {"start": 8.5, "end": 9.5, "text": "c", "cut": False}]}), encoding="utf-8")
+        spec = {"video": str(self.video), "transcript": str(t), "keeps": [[0.5, 1.5], [1.5, 2.0], [4.0, 4.2], [8.5, 9.5]],
+                "mode": "silence", "silenceExtra": True, "minLen": 5, "handles": 3}
+        r = self.run_job("/api/plan", {"spec": spec})["result"]
+        self.assertEqual(r["keeps"], [[15, 60], [120, 126], [255, 285]])   # 接する区間は1つに・短い区間も捨てない・カット済の行で削らない
+        self.assertEqual(r["keepsSec"], [[0.5, 2.0], [4.0, 4.2], [8.5, 9.5]])
+        self.assertEqual(r["drops"], {})                                      # 無音・カット済の行を重ねない
+        self.assertTrue(any("0.5 秒より短い区間が 1 か所" in w and "0:04.00〜0:04.20" in w for w in r["warnings"]), r["warnings"])
+        self.assertEqual(r["subtitles"]["out"], 2)                            # 字幕は残す行(a・c)
+        r = self.run_job("/api/plan", {"spec": dict(spec, keeps=[[9.0, 12.0]])})["result"]
+        self.assertEqual(r["keeps"], [[270, 300]])                            # 動画の長さを超える分は切って知らせる
+        self.assertTrue(any("動画の長さを超える" in w for w in r["warnings"]), r["warnings"])
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "keeps": [[1, 2]], "advanced": {"reel": "B1"}}})
+        self.assertEqual(j["result"]["keeps"], [[30, 60]])                    # 文字起こしが無くても作れる(字幕なし)
+        for keeps in ([], [[1, 1]], [[2, 1]], [[-1, 1]], [[0, 1], [0.5, 2]], [[3, 4], [0, 1]], [[0, "1"]], [[0, True]], [[0, 1, 2]],
+                      [0, 1], "0 1", {"a": 1}, [[0, 1e9]], [[i, i + 0.5] for i in range(5001)]):
+            st, e = self.c.json("POST", "/api/plan", {"spec": dict(spec, keeps=keeps)})
+            self.assertEqual((st, e["error"]), (400, "bad_keeps"), str(keeps)[:40])
+        st, e = self.c.json("POST", "/api/plan", {"spec": dict(spec, preset="transcript-rows")})
+        self.assertEqual((st, e["error"]), (400, "bad_value"))                 # どちらかを黙って使わない
+        req = serve.request_from_spec(dict(spec, advanced={"reel": "B1", "recStart": "00:00:00:00"}))
+        self.assertEqual((req.base, req.handles, req.min_len, req.join_frames, req.silence, req.drop_cut_rows, req.warn_short, req.reel, req.rec_start),
+                         ("list", 0.0, 0.0, 0, False, False, 0.5, "B1", "00:00:00:00"))
+
     def test_build_overwrite_confirm_open_folder_and_roughcut(self):
         out = self.dir / "out1"
         body = {"spec": self.spec(), "output": {"dir": str(out), "render": True}}

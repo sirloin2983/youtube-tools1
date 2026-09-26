@@ -391,6 +391,8 @@ def request_from_spec(spec):
     sub = input_path(spec.get("srt"), "srt")
     tr = input_path(spec.get("transcript"), "transcript")
     plan = input_path(spec.get("plan"), "plan")
+    if spec.get("keeps") is not None and spec.get("preset") not in (None, ""):
+        raise ApiError("bad_value", "keeps と preset は一緒に使えません")
     if spec.get("preset") == "transcript-rows":
         # 文字起こしの行だけを残す(文字起こしツールの Resolve パッケージ・入口のまとめて実行と同じ規則 pack.TRANSCRIPT_ROWS。他の指定は使わない)
         if tr is None:
@@ -398,6 +400,10 @@ def request_from_spec(spec):
         return pack.Request(video=video, transcript=tr, **pack.TRANSCRIPT_ROWS)
     if spec.get("preset") not in (None, ""):
         raise ApiError("bad_value", "preset が正しくありません")
+    if spec.get("keeps") is not None:
+        # 「編集」ツールのタイムラインの残す区間(秒)のとおりに作る(pack.EDIT_KEEPS)。字幕は文字起こし(か SRT)の行を区間に合わせて付ける
+        return pack.Request(video=video, sub=sub, transcript=tr, keep_pairs=keeps_from_spec(spec.get("keeps")),
+                            **pack.EDIT_KEEPS, **advanced_from_spec(spec))
     mode = spec.get("mode") or "silence"
     if mode not in ("silence", "keep", "list"):
         raise ApiError("bad_value", "カットの決め方が正しくありません")
@@ -435,18 +441,44 @@ def request_from_spec(spec):
             if not pairs:
                 raise ApiError("bad_list", "残す区間を1行以上書いてください(例: 0:05 0:20)")
             base, keep_pairs = "list", pairs
-    adv = spec.get("advanced") if isinstance(spec.get("advanced"), dict) else {}
-    fps = _str(adv.get("fps"), "フレームレート", 20) or None
-    frames = adv.get("frames")
-    frames = None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True)
     return pack.Request(
         video=video, sub=sub, transcript=tr, plan=plan, base=base, keep_pairs=keep_pairs, drop_pairs=drop_pairs,
         handles=handles, silence=use_silence, noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
         min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, 0.3), join_gap=_num(spec.get("joinGap"), "つなぐ隙間", 0, 3600, 0.0),
-        fps=fps, frames=frames, src_start_tc=_str(adv.get("srcStartTc"), "元動画の開始タイムコード", 20) or None,
-        rec_start=_str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or "01:00:00:00",
-        reel=_str(adv.get("reel"), "リール名", 40) or "AX", name=_str(adv.get("name"), "EDL のタイトル", 200) or None)
+        **advanced_from_spec(spec))
+
+
+def advanced_from_spec(spec):
+    """「詳しい設定」(fps・フレーム数・タイムコード・リール名・EDL のタイトル)-> pack.Request の引数"""
+    adv = spec.get("advanced") if isinstance(spec.get("advanced"), dict) else {}
+    frames = adv.get("frames")
+    return {"fps": _str(adv.get("fps"), "フレームレート", 20) or None,
+            "frames": None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True),
+            "src_start_tc": _str(adv.get("srcStartTc"), "元動画の開始タイムコード", 20) or None,
+            "rec_start": _str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or "01:00:00:00",
+            "reel": _str(adv.get("reel"), "リール名", 40) or "AX", "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
+
+
+def keeps_from_spec(v):
+    """spec.keeps = [[開始秒, 終了秒], ...] の検査: 1〜5000 区間・有限の数・0 ≤ 開始 < 終了・時刻の順で重ならない。
+    動画の長さを超える分は plan_cut(cut_list_to_keeps)が切って注意を出す"""
+    if not isinstance(v, list) or not 1 <= len(v) <= pack.MAX_KEEPS:
+        raise ApiError("bad_keeps", "残す区間(keeps)は 1〜%d 個にしてください" % pack.MAX_KEEPS)
+    out, prev = [], 0.0
+    for x in v:
+        if not isinstance(x, list) or len(x) != 2:
+            raise ApiError("bad_keeps", "残す区間は [開始秒, 終了秒] の形にしてください")
+        if any(isinstance(t, bool) or not isinstance(t, (int, float)) or t != t for t in x):
+            raise ApiError("bad_keeps", "残す区間の時刻は数で指定してください")
+        a, b = float(x[0]), float(x[1])
+        if not 0 <= a < b <= 24 * 3600:
+            raise ApiError("bad_keeps", "残す区間の時刻が正しくありません(0 ≤ 開始 < 終了)")
+        if a < prev:
+            raise ApiError("bad_keeps", "残す区間は時刻の順に、重ならないように並べてください")
+        out.append((a, b))
+        prev = b
+    return out
 
 
 def output_from_spec(o, video):

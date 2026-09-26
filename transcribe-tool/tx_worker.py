@@ -43,6 +43,22 @@ def _protocol_stream():
     return os.fdopen(fd, "wb", buffering=0)
 
 
+def _protocol_input():
+    """標準入力もやり取り専用にする: 元の標準入力(fd 0)を複製して読み、fd 0 は NUL につなぎ直す。
+    Windows では、別のスレッドが標準入力のパイプを読んで待っている間に、ネイティブの部品(numpy・ctranslate2・onnxruntime の DLL)を
+    読み込むと、その初期化が標準入力に触れて、次の要求が届くまで止まる(2026-09-26 に PC で再現。範囲の再認識のテストが止まっていた・
+    最初の文字起こしが遅かった件の原因と思われる)。os.dup2 は fd 0〜2 なら Windows の標準ハンドルも付け替える"""
+    fd = os.dup(0)
+    try:
+        nul = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(nul, 0)
+        os.close(nul)
+    except OSError:
+        pass
+    sys.stdin = open(os.devnull, "r")
+    return os.fdopen(fd, "rb")   # 元の sys.stdin.buffer と同じくバッファつき(届いた分だけで1行を返す)
+
+
 class Out:
     def __init__(self, fp):
         self.fp, self.lock = fp, threading.Lock()
@@ -232,6 +248,7 @@ def handle(S, m, out, cancels):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     fp = _protocol_stream()
+    inp = _protocol_input()
     faulthandler.enable(file=sys.stderr, all_threads=True)   # ネイティブコードで落ちたときの場所を worker.log に残す
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s [worker %(process)d] %(message)s")
     sys.path.insert(0, HERE)
@@ -253,7 +270,7 @@ def main(argv=None):
 
     def reader():
         """標準入力を読む(処理中でも取り消しを受け取れるよう、別のスレッドで)。閉じたら終わる。"""
-        for line in sys.stdin.buffer:
+        for line in inp:
             try:
                 m = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, ValueError):

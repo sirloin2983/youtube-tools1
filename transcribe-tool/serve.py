@@ -23,6 +23,11 @@
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
+  「編集」(docs/edit-tool-design.md の 5):
+  GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
+  POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
+  POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
+  GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(docs/pipeline.md。本体は pipeline_io.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
@@ -31,6 +36,7 @@
 
 127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
 """
+import array
 import bisect
 import difflib
 import faulthandler
@@ -143,9 +149,9 @@ def _reject_json_constant(name):
 
 
 class ApiError(Exception):
-    def __init__(self, code, message, status=400):
+    def __init__(self, code, message, status=400, extra=None):
         super().__init__(message)
-        self.code, self.message, self.status = code, message, status
+        self.code, self.message, self.status, self.extra = code, message, status, extra or {}
 
 
 # ---------- ユーティリティ ----------
@@ -645,9 +651,14 @@ def list_transcripts():
         seen.add(tid)
         sm = transcript_summary(tid)
         if sm:
-            items.append(dict({k: v for k, v in sm.items() if not k.startswith("_")}, _sp=sm["_sourcePath"]))
-    for k in [k for k in _summary_cache if k not in seen]:   # 消した文書の分は捨てる
-        _summary_cache.pop(k, None)
+            it = dict({k: v for k, v in sm.items() if not k.startswith("_")}, _sp=sm["_sourcePath"])
+            it.update(edit_summary(tid))   # 「編集」: カットの有無・rev・パックを作った rev(履歴の「パック済み」「作り直しが要る」)
+            it["packStale"] = pack_stale(it)
+            it.pop("_packDocAt", None)
+            items.append(it)
+    for cache in (_summary_cache, _edit_cache):   # 消した文書の分は捨てる
+        for k in [k for k in cache if k not in seen]:
+            cache.pop(k, None)
     studio = studio_videos()
     for it in items:
         sv = studio.get(it["videoId"]) if it["videoId"] else None
@@ -734,6 +745,7 @@ def save_transcript(tid, obj):
         if b is not None and not obj.get("force") and base.get("updatedAt") and b != base.get("updatedAt"):
             raise ApiError("conflict", "別の場所で先に更新されています(別のタブ、再認識、話者分離など)。読み込み直すか、この内容で上書きするか選んでください", 409)
         doc = sanitize_transcript(obj, base)
+        apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
         try:
             hist_snapshot(tid)
         except OSError:
@@ -753,10 +765,458 @@ def restore_history(tid, ts):
                 old = json.load(f)
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
             old["updatedAt"] = int(time.time() * 1000)
+            apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
             atomic_write(tx_path(tid), json.dumps(old, ensure_ascii=False, indent=1).encode("utf-8"))
         except (OSError, ValueError):
             raise ApiError("broken", "履歴を読み込めません", 500)
         return old
+
+
+# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/edit-tool-design.md の 4・5) ----------
+# 文書 transcripts/<id>.json の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
+# 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(文書のどの書き込みでも apply_edit_cuts を通す)。
+EDIT_SCHEMA = "youtube-tools-edit/v1"
+MAX_EDIT_BYTES = 1024 * 1024
+MAX_CLIPS = 5000
+MAX_MEDIA_SEC = 24 * 3600
+EDIT_ORIGINS = ("rows", "silence", "list", "plan", "manual", "all")
+CUT_TOLERANCE_FRAMES = 0.75   # 行の時間のうち、残す区間に入るのがこれ未満(フレーム)なら「カット済」。区間の端はフレームに、行の時刻は 0.01 秒に丸めてあるため
+_edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
+
+
+def edit_path(tid):
+    return os.path.join(TX_DIR, tid + ".edit.json")
+
+
+def _real(x):
+    """JSON の数(真偽値・文字列・NaN は数として扱わない)。-> float か None"""
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        return None
+    x = float(x)
+    return x if math.isfinite(x) else None
+
+
+def _fps_pair(v):
+    if not isinstance(v, list) or len(v) != 2 or any(isinstance(x, bool) or not isinstance(x, int) for x in v):
+        return None
+    n, d = v
+    if not (1 <= n <= 1000000 and 1 <= d <= 1000000 and 1 <= n / d <= 300):
+        return None
+    return [n, d]
+
+
+def sanitize_edit(obj):
+    """画面から来た編集の内容を検査して、保存できる形にする(知らない項目は捨てる。rev・packRev はサーバーが付ける)。
+    v1: 動画は文書の動画1本だけ(sources は1つ・clips の src は 0)。区間は元の動画の秒で、時刻の順・重ならない。区間が0個も受け付ける(全部削った状態)"""
+    if not isinstance(obj, dict):
+        raise ApiError("bad_edit", "編集の内容の形が正しくありません", 400)
+    srcs = obj.get("sources")
+    if not isinstance(srcs, list) or len(srcs) != 1 or not isinstance(srcs[0], dict):
+        raise ApiError("bad_edit", "動画(sources)は1つだけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
+    fps, dur = _fps_pair(srcs[0].get("fps")), _real(srcs[0].get("duration"))
+    if fps is None or dur is None or not 0 < dur <= MAX_MEDIA_SEC:
+        raise ApiError("bad_edit", "動画の fps・長さが正しくありません", 400)
+    clips = obj.get("clips")
+    if not isinstance(clips, list) or len(clips) > MAX_CLIPS:
+        raise ApiError("bad_edit", "区間(clips)は %d 個までです" % MAX_CLIPS, 400)
+    limit = dur + fps[1] / fps[0] + 1e-6   # 長さ + 1フレームまで(フレームの境目に丸めた分)
+    out, prev = [], 0.0
+    for c in clips:
+        if not isinstance(c, dict):
+            raise ApiError("bad_edit", "区間の形が正しくありません", 400)
+        src = c.get("src", 0)
+        if isinstance(src, bool) or src != 0:
+            raise ApiError("bad_edit", "区間の動画(src)は 0 だけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
+        a, b = _real(c.get("in")), _real(c.get("out"))
+        if a is None or b is None or not 0 <= a < b <= limit:
+            raise ApiError("bad_edit", "区間の時刻が正しくありません(0 ≤ 始まり < 終わり ≤ 動画の長さ)", 400)
+        if a < prev - 1e-6:
+            raise ApiError("bad_edit", "区間は時刻の順に、重ならないように並べてください", 400)
+        ra, rb = round(a, 3), round(b, 3)
+        if rb <= ra:
+            raise ApiError("bad_edit", "区間が短すぎます", 400)
+        out.append({"src": 0, "in": ra, "out": rb})
+        prev = b
+    return {"sources": [{"fps": fps, "duration": round(dur, 3)}], "clips": out,
+            "origin": obj.get("origin") if obj.get("origin") in EDIT_ORIGINS else "manual"}
+
+
+def read_edit(tid):
+    """保存済みの編集の内容。-> (中身 または None, 壊れているか)。形が正しくないもの(手で書き換えた・書きかけ)は壊れている扱い"""
+    try:
+        with open(edit_path(tid), "rb") as f:
+            raw = f.read(MAX_EDIT_BYTES + 1)
+    except FileNotFoundError:
+        return None, False
+    except OSError:
+        return None, True
+    try:
+        d = json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_json_constant) if len(raw) <= MAX_EDIT_BYTES else None
+        if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or isinstance(d.get("rev"), bool) or not isinstance(d.get("rev"), int):
+            return None, True
+        out = sanitize_edit(d)
+    except (UnicodeDecodeError, ValueError, ApiError):
+        return None, True
+    pr = d.get("packRev")
+    out.update({"schema": EDIT_SCHEMA, "rev": max(0, d["rev"]), "updatedAt": d.get("updatedAt") if isinstance(d.get("updatedAt"), int) else 0,
+                "packRev": pr if isinstance(pr, int) and not isinstance(pr, bool) and pr >= 0 else 0})
+    if isinstance(d.get("pack"), dict):
+        out["pack"] = d["pack"]
+    return out, False
+
+
+def edit_cut_flags(segs, edit):
+    """編集の内容から、各行が「カット済」か。-> [bool](segs と同じ順)。
+    行の時間が全部、削る区間に入っていれば(残す区間に入るのが CUT_TOLERANCE_FRAMES 未満なら)カット済。
+    ごく短い行(2 × 許す幅 以下)は、行の真ん中が残す区間に入っているかで決める。画面の cut.js も同じ規則"""
+    clips = edit["clips"]
+    fps = edit["sources"][0]["fps"]
+    tol = CUT_TOLERANCE_FRAMES * fps[1] / fps[0]
+    starts = [c["in"] for c in clips]
+    out = []
+    for s in segs:
+        a, b = num(s.get("start"), 0.0), num(s.get("end"), 0.0)
+        i = max(0, bisect.bisect_right(starts, a) - 1)
+        if b - a <= 2 * tol:
+            mid = (a + b) / 2
+            j = bisect.bisect_right(starts, mid) - 1
+            out.append(not (j >= 0 and clips[j]["in"] <= mid < clips[j]["out"]))
+            continue
+        kept = 0.0
+        while i < len(clips) and clips[i]["in"] < b:
+            kept += max(0.0, min(b, clips[i]["out"]) - max(a, clips[i]["in"]))
+            i += 1
+        out.append(kept < tol)
+    return out
+
+
+def apply_edit_cuts(tid, doc, edit=None):
+    """編集の内容があれば、文書の行の cutState をそれに合わせる(文書の書き込みは全部ここを通す)。
+    -> 変わった行の数。編集の内容が無い・壊れているときは None(行の cutState はそのまま = 以前の使い方)"""
+    if edit is None:
+        edit, _broken = read_edit(tid)
+        if not edit:
+            return None
+    segs = [s for s in (doc.get("segments") or []) if isinstance(s, dict)]
+    changed = 0
+    for s, cut in zip(segs, edit_cut_flags(segs, edit)):
+        if cut != (s.get("cutState") == "cut"):
+            changed += 1
+        if cut:
+            s["cutState"] = "cut"
+        else:
+            s.pop("cutState", None)
+    return changed
+
+
+def get_edit(tid):
+    """GET /api/edit?id= -> {"edit": 中身 | null, "rev", "broken"}(無ければ null と rev 0)"""
+    doc = read_transcript(tid)
+    d, broken = read_edit(tid)
+    pk = (d or {}).get("pack") or {}
+    stale = pack_stale({"packRev": d["packRev"] if d else 0, "editRev": d["rev"] if d else 0, "updatedAt": doc.get("updatedAt") or 0,
+                        "_packDocAt": pk.get("docUpdatedAt") if isinstance(pk.get("docUpdatedAt"), int) else 0})
+    return {"edit": d, "rev": d["rev"] if d else 0, "broken": broken, "packStale": stale}
+
+
+def save_edit(tid, obj):
+    """PUT /api/edit?id= {"edit", "baseRev"} -> {"rev", "cutRows", "updatedAt"}。baseRev が保存済みの rev と違えば 409(別のタブ・窓で先に保存された)。
+    文書の行の cutState も同じロックの中で合わせる(画面から2回に分けて送らない)。文書の updatedAt は変えない
+    (cutState は編集の内容から決まる値なので、校正の保存の競合の検出(baseUpdatedAt)に巻き込まない)"""
+    base = obj.get("baseRev")
+    if isinstance(base, bool) or not isinstance(base, int) or base < 0:
+        raise ApiError("bad_request", "baseRev(読み込んだときの rev)を付けてください", 400)
+    clean = sanitize_edit(obj.get("edit"))
+    with _save_lock:
+        doc = read_transcript(tid)
+        cur, broken = read_edit(tid)
+        rev = cur["rev"] if cur else 0
+        if base != rev:
+            raise ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
+        if broken:   # 壊れたファイルは上書きする前に1つだけ残す(調べられるように)
+            try:
+                shutil.copy2(edit_path(tid), os.path.join(TX_DIR, tid + ".edit.broken.json"))
+            except OSError:
+                pass
+        now = int(time.time() * 1000)
+        d = dict(clean, schema=EDIT_SCHEMA, rev=rev + 1, updatedAt=now, packRev=cur["packRev"] if cur else 0)
+        if cur and cur.get("pack"):
+            d["pack"] = cur["pack"]
+        body = json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8")
+        if len(body) > MAX_EDIT_BYTES:
+            raise ApiError("too_big", "区間が多すぎて保存できません", 413)
+        atomic_write(edit_path(tid), body)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
+        if apply_edit_cuts(tid, doc, d):
+            atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        cut_rows = [s.get("id") for s in doc.get("segments") or [] if isinstance(s, dict) and s.get("cutState") == "cut"]
+        return {"rev": d["rev"], "cutRows": cut_rows, "updatedAt": now}
+
+
+def record_pack(obj):
+    """POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files"}: 画面がパックを作り終えたときに呼ぶ(rev は増やさない)。
+    packRev = そのパックを作った編集の rev。rev ≠ packRev か、文書の updatedAt が docUpdatedAt より新しければ「作り直し」"""
+    tid = str(obj.get("id") or "")
+    rev, dua = obj.get("rev"), obj.get("docUpdatedAt")
+    if isinstance(rev, bool) or not isinstance(rev, int) or rev < 1 or isinstance(dua, bool) or not isinstance(dua, int) or dua < 0:
+        raise ApiError("bad_request", "rev・docUpdatedAt が正しくありません", 400)
+    out_dir = obj.get("dir")
+    if not isinstance(out_dir, str) or not out_dir or len(out_dir) > 1000 or any(ch in out_dir for ch in "\x00\r\n") or not os.path.isabs(out_dir):
+        raise ApiError("bad_request", "パックのフォルダ(dir)が正しくありません", 400)
+    files = [os.path.basename(str(x))[:200] for x in (obj.get("files") or []) if isinstance(x, str)][:40] if isinstance(obj.get("files"), list) else []
+    with _save_lock:
+        read_transcript(tid)
+        cur, _broken = read_edit(tid)
+        if not cur:
+            raise ApiError("no_edit", "カットがまだ保存されていません", 409)
+        if rev > cur["rev"]:
+            raise ApiError("bad_request", "rev が保存済みのカットより新しくなっています", 400)
+        now = int(time.time() * 1000)
+        d = dict(cur, packRev=rev, pack={"rev": rev, "at": now, "docUpdatedAt": dua, "dir": out_dir, "files": files})
+        atomic_write(edit_path(tid), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+        return {"ok": True, "packRev": rev, "at": now}
+
+
+def edit_summary(tid):
+    """一覧の各文書の編集・パックの状態(ファイルの更新日時と大きさが同じなら前の結果)。"""
+    try:
+        st = os.stat(edit_path(tid))
+    except OSError:
+        _edit_cache.pop(tid, None)
+        return {"hasEdit": False, "editRev": 0, "packRev": 0, "_packDocAt": 0, "packAt": 0}
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _edit_cache.get(tid)
+    if hit and hit[0] == key:
+        return hit[1]
+    d, _broken = read_edit(tid)
+    pk = (d or {}).get("pack") or {}
+    sm = {"hasEdit": bool(d), "editRev": d["rev"] if d else 0, "packRev": d["packRev"] if d else 0,
+          "_packDocAt": pk.get("docUpdatedAt") if isinstance(pk.get("docUpdatedAt"), int) else 0,
+          "packAt": pk.get("at") if isinstance(pk.get("at"), int) else 0}
+    _edit_cache[tid] = (key, sm)
+    return sm
+
+
+def pack_stale(item):
+    """パックを作ったあとにカットか文字が変わったか(一覧と画面の「作り直し」の知らせ。規則はここ1か所)"""
+    return bool(item.get("packRev")) and (item.get("editRev") != item.get("packRev") or (item.get("updatedAt") or 0) > (item.get("_packDocAt") or 0))
+
+
+def doc_has_rows(doc):
+    return any(isinstance(s, dict) and str(s.get("text") or "").strip() for s in doc.get("segments") or [])
+
+
+def fill_doc(spec, fields):
+    """文字起こしの結果を、文字起こしの無い文書(intoDoc)に入れる。id・題名・作った日・clip・編集の内容はそのまま。
+    -> 入れた文書の id。その間に文書が消えた・行が入った・動画が変わったときは None(呼び出し側が新しい文書にする。結果は捨てない)"""
+    tid = spec["intoDoc"]
+    with _save_lock:
+        try:
+            doc = read_transcript(tid)
+        except ApiError:
+            doc = None
+        same = doc is not None and os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) == os.path.normcase(spec["sourcePath"])
+        if not same or doc_has_rows(doc):
+            spec.setdefault("warnings", []).append("文字起こしを入れる文書が変わっていたため、新しい文字起こしとして保存しました")
+            return None
+        doc.update(fields)
+        if spec.get("clip") and not doc.get("clip"):
+            doc["clip"] = spec["clip"]
+        apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
+        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        return tid
+
+
+def probe_media(path):
+    """ffmpeg -i で長さと、映像・音声の有無を調べる。-> (長さ秒 または None, 映像あり, 音声あり)。
+    カバー画像(音声ファイルに付いた attached pic)は映像に数えない"""
+    ff = find_ffmpeg()
+    if not ff:
+        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+    try:
+        p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None, False, False
+    out = p.stdout or ""
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+    streams = [l for l in out.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
+    has_v = any(": Video:" in l and "attached pic" not in l for l in streams)
+    has_a = any(": Audio:" in l for l in streams)
+    return dur, has_v, has_a
+
+
+_open_lock = threading.Lock()
+
+
+def open_video(req):
+    """POST /api/open-video {"path", "title"?} -> {"id", "created", "warnings"}。「文字起こしせずに開く」: 動画のパスだけで文書を作る。
+    同じ動画の文書があればそれを返す(行のある文書・新しいものを先に)。隣の .clip.json があれば文書の clip に入れる(スタジオの切り抜きと紐づく)。
+    文書にした動画は /media で配るので、動画・音声の拡張子で、ffmpeg で映像か音声が読めるものだけ受け付ける"""
+    src = check_source(req.get("path"))
+    key = os.path.normcase(src)
+    with _open_lock:   # 同じ動画を続けて2回開いても、文書を2つ作らない
+        best = None
+        for tid in _tids():
+            sm = transcript_summary(tid)
+            if not sm or not sm["_sourcePath"] or os.path.normcase(os.path.abspath(sm["_sourcePath"])) != key:
+                continue
+            rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
+            if best is None or rank > best[0]:
+                best = (rank, tid)
+        if best:
+            return {"id": best[1], "created": False, "warnings": []}
+        dur, has_v, has_a = probe_media(src)
+        if not (has_v or has_a):
+            raise ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
+        pm = pio(required=False)
+        clip, warn, _cp = pm.find_clip(src, dur) if pm else (None, None, None)
+        tid = uuid.uuid4().hex[:12]
+        now = int(time.time() * 1000)
+        doc = {"schema": "transcribe/v1", "id": tid, "title": str(req.get("title") or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],
+               "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": round(dur, 2) if dur else None, "whole": True,
+               "duration": dur, "model": "", "language": "", "params": {}, "speakers": [], "segments": [], "original": [],
+               "createdAt": now, "updatedAt": now}
+        if clip:
+            doc["clip"] = clip
+        with _save_lock:
+            atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    log.info("文字起こしせずに開く: %s", os.path.basename(src))
+    return {"id": tid, "created": True, "warnings": [warn] if warn else []}
+
+
+# ---------- 音の波形(カットのタイムライン用。docs/edit-tool-design.md の 5・8) ----------
+# ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
+# numpy は使わない(サーバーのプロセスで読み込まない決まり)。重い処理なので ytt_core.jobs.SLOTS を通し、画面は 202 の間くり返し問い合わせる
+PEAKS_VERSION = 1
+PEAKS_SR = 8000
+PEAKS_TIMEOUT = 600
+_peaks_tasks = {}   # 鍵 -> {"sig", "state": waiting|running|done|error, "message", "code", "at"}
+_peaks_lock = threading.Lock()
+_PEAK_LUT = None
+
+
+def peaks_rate(duration):
+    """1秒あたりの数。長い動画は下げる(10分まで 100 = 10ミリ秒ごと、1時間まで 50、それより長いと 20)"""
+    d = duration or 0
+    return 100 if d <= 600 else 50 if d <= 3600 else 20
+
+
+def _peaks_files(path):
+    h = hashlib.sha1(os.path.normcase(path).encode("utf-8", "surrogatepass")).hexdigest()[:24]
+    d = os.path.join(DATA_DIR, "cache", "peaks")
+    return d, os.path.join(d, h + ".bin"), os.path.join(d, h + ".json")
+
+
+def compute_peaks(path, task=None):
+    """-> (波形のバイト列, 1秒あたりの数, 長さ秒)。音声が無ければ空のバイト列"""
+    global _PEAK_LUT
+    ff = find_ffmpeg()
+    if not ff:
+        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+    dur, _has_v, has_a = probe_media(path)
+    rate = peaks_rate(dur)
+    if not has_a:
+        return b"", rate, dur or 0.0
+    if _PEAK_LUT is None:
+        _PEAK_LUT = bytes(min(255, int(255 * math.sqrt(v / 32768.0) + 0.5)) for v in range(32769))
+    lut, step = _PEAK_LUT, PEAKS_SR // rate
+    cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-protocol_whitelist", "file", "-i", path,
+           "-vn", "-ac", "1", "-ar", str(PEAKS_SR), "-f", "s16le", "-acodec", "pcm_s16le", "-"]
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    err = []
+    drain = threading.Thread(target=lambda: err.append(p.stderr.read()[-2000:]), daemon=True)   # エラーの出力でパイプが詰まらないように
+    drain.start()
+    timer = threading.Timer(PEAKS_TIMEOUT, p.kill)
+    timer.start()
+    out, buf = bytearray(), b""
+    try:
+        while True:
+            chunk = p.stdout.read(step * 2 * 2000)
+            if not chunk:
+                break
+            buf += chunk
+            usable = len(buf) - len(buf) % (step * 2)
+            a = array.array("h")
+            a.frombytes(buf[:usable])
+            buf = buf[usable:]
+            if sys.byteorder == "big":
+                a.byteswap()
+            for i in range(0, len(a), step):
+                seg = a[i:i + step]
+                out.append(lut[min(32768, max(max(seg), -min(seg)))])
+        if len(buf) >= 2:
+            a = array.array("h")
+            a.frombytes(buf[:len(buf) - len(buf) % 2])
+            if sys.byteorder == "big":
+                a.byteswap()
+            out.append(lut[min(32768, max(max(a), -min(a)))])
+        p.wait()
+    finally:
+        timer.cancel()
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+        p.stdout.close()
+        drain.join(5)
+        p.stderr.close()
+    if p.returncode != 0 and not out:
+        tail = (err[0] if err else b"").decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        raise ApiError("peaks_failed", "音の波形を作れませんでした: " + tail[0][:200], 500)
+    return bytes(out), rate, dur or len(out) / rate
+
+
+def _peaks_run(key, path, sig, t):
+    try:
+        with _heavy.SLOTS.slot(TOOL_ID, "波形 " + os.path.basename(path)[:40],
+                               on_wait=lambda: t.update(state="waiting", message=_heavy.WAIT_MESSAGE)):
+            t.update(state="running", message="音の波形を作っています")
+            data, rate, dur = compute_peaks(path)
+        d, bin_p, meta_p = _peaks_files(path)
+        os.makedirs(d, exist_ok=True)
+        atomic_write(bin_p, data)
+        atomic_write(meta_p, json.dumps({"sig": sig, "rate": rate, "duration": round(dur, 3), "n": len(data)}).encode("utf-8"))
+        t.update(state="done", message="", at=time.time())
+    except ApiError as e:
+        t.update(state="error", code=e.code, message=e.message, at=time.time())
+    except Exception as e:   # 想定外でもサーバーは止めない
+        log.exception("波形の作成で例外")
+        t.update(state="error", code="internal", message="内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), at=time.time())
+
+
+def get_peaks(tid):
+    """GET /api/peaks?id= -> ("ready", バイト列, 1秒あたりの数, 長さ) か ("busy", {"state", "message"})。
+    動画のパスは文書から取る(パスを引数で受けない)。作業データの cache/peaks/ に保存し、動画のパス・大きさ・更新日時が同じなら使い回す"""
+    doc = read_transcript(tid)
+    try:
+        path = check_source(doc.get("sourcePath"))
+        st = os.stat(path)
+    except (ApiError, OSError):
+        raise ApiError("source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)", 404)
+    sig = [os.path.normcase(path), st.st_size, st.st_mtime_ns, PEAKS_VERSION]
+    _d, bin_p, meta_p = _peaks_files(path)
+    meta = _read_json_file(meta_p)
+    if isinstance(meta, dict) and meta.get("sig") == sig:
+        try:
+            with open(bin_p, "rb") as f:
+                data = f.read()
+            if len(data) == meta.get("n"):
+                return "ready", data, meta["rate"], meta["duration"]
+        except OSError:
+            pass
+    key = sig[0]
+    with _peaks_lock:
+        t = _peaks_tasks.get(key)
+        if t and t["sig"] == sig and t["state"] in ("waiting", "running"):
+            return "busy", {"state": t["state"], "message": t["message"]}
+        if t and t["sig"] == sig and t["state"] == "error" and time.time() - t["at"] < 30:
+            raise ApiError(t["code"], t["message"], 500 if t["code"] == "internal" else 400)
+        t = {"sig": sig, "state": "waiting", "message": "音の波形を作る準備をしています", "code": "", "at": time.time()}
+        _peaks_tasks[key] = t
+        for k in [k for k, v in _peaks_tasks.items() if v["state"] in ("done", "error") and time.time() - v["at"] > 600]:
+            _peaks_tasks.pop(k, None)
+    threading.Thread(target=_peaks_run, args=(key, path, sig, t), daemon=True, name="peaks").start()
+    return "busy", {"state": t["state"], "message": t["message"]}
 
 
 # ---------- ジョブ ----------
@@ -1172,7 +1632,18 @@ def validate_job(req):
         lang = "ja"
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
     gauto = auto_glossary(glossary) if req.get("autoGloss") is not False else []
-    return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None,
+    into = None
+    if req.get("intoDoc") not in (None, ""):
+        # 「編集」の文字起こしの無い文書(文字起こしせずに開いた動画)に行を入れる。id・題名・作った日・clip・編集の内容はそのまま
+        into = str(req.get("intoDoc"))
+        target = read_transcript(into)
+        if os.path.normcase(os.path.abspath(str(target.get("sourcePath") or ""))) != os.path.normcase(src):
+            raise ApiError("bad_request", "文字起こしを入れる文書の動画と、選んだ動画が違います", 400)
+        if doc_has_rows(target):
+            raise ApiError("not_empty", "この文書にはもう行があります(新しい文字起こしとして作ってください)", 409)
+        if not str(req.get("title") or "").strip():
+            req = dict(req, title=target.get("title") or "")
+    return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into,
             "duration": dur, "whole": whole, "model": model, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
@@ -1544,17 +2015,20 @@ def run_job(job):
             job["segments"] = len(segs)
         if job["cancel"]:
             raise Cancelled()
-        tid = uuid.uuid4().hex[:12]
         now = int(time.time() * 1000)
-        doc = {"schema": "transcribe/v1", "id": tid, "title": spec["title"], "sourcePath": spec["sourcePath"], "sourceName": spec["sourceName"],
-               "start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
-               "language": spec["language"], "params": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": spec["boost"], "device": job.get("device", ""), "glossary": spec["glossary"][:50],
-                          "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
-                          "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
-               "speakers": [], "segments": segs, "original": original, "createdAt": now, "updatedAt": now}
-        if spec.get("clip"):
-            doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
-        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
+                  "language": spec["language"], "params": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": spec["boost"], "device": job.get("device", ""), "glossary": spec["glossary"][:50],
+                                                           "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
+                                                           "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
+                  "speakers": [], "segments": segs, "original": original, "updatedAt": now}
+        tid = fill_doc(spec, fields) if spec.get("intoDoc") else None
+        if tid is None:
+            tid = uuid.uuid4().hex[:12]
+            doc = dict({"schema": "transcribe/v1", "id": tid, "title": spec["title"], "sourcePath": spec["sourcePath"], "sourceName": spec["sourceName"]},
+                       **fields, createdAt=now)
+            if spec.get("clip"):
+                doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
+            atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -3167,6 +3641,7 @@ def _apply_retranscribe(spec, results):
         pass
     doc["retranscribed"] = {"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
+    apply_edit_cuts(spec["tid"], doc)
     atomic_write(tx_path(spec["tid"]), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
     return done, unsure
 
@@ -3221,6 +3696,7 @@ def _apply_range(spec, lines):
         pass
     doc["retranscribed"] = {"model": spec["model"], "lines": len(new), "range": [a, b], "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
+    apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
     atomic_write(tx_path(spec["tid"]), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
     return len(new), unsure
 
@@ -3907,7 +4383,7 @@ def runtime_path_dir():
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -3958,7 +4434,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
 
     def _err(self, e):
-        self._json(e.status, {"error": e.code, "message": e.message})
+        self._json(e.status, dict(e.extra, error=e.code, message=e.message))
 
     def _fail(self, code, error, message):
         """画面の api() が理由を表示できるよう、エラーも JSON で返す(以前は 403/413/415 が素の文字列で「エラー 403」としか出なかった)。"""
@@ -4101,11 +4577,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"items": list_history((q.get("id") or [""])[0])})
             if u.path == "/api/transcript":
                 return self._json(200, read_transcript((q.get("id") or [""])[0]))
+            if u.path == "/api/edit":
+                return self._json(200, get_edit((q.get("id") or [""])[0]))
+            if u.path == "/api/peaks":
+                return self._peaks((q.get("id") or [""])[0])
             if u.path == "/media":
                 return self._media((q.get("id") or [""])[0])
         except ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "そのページ・操作はありません")
+
+    def _peaks(self, tid):
+        r = get_peaks(tid)
+        if r[0] == "busy":   # 作っている最中・順番待ち(画面は少し待って問い合わせ直す)
+            return self._send(202, json.dumps(r[1], ensure_ascii=False).encode("utf-8"), "application/json", {"Retry-After": "1"})
+        _, data, rate, dur = r
+        return self._send(200, data, "application/octet-stream",
+                          {"X-Peaks-Rate": str(rate), "X-Peaks-Duration": "%.3f" % dur, "X-Peaks-Scale": "sqrt", "X-Peaks-Audio": "1" if data else "0"})
 
     def _media(self, tid):
         d = read_transcript(tid)
@@ -4251,6 +4739,10 @@ class Handler(BaseHTTPRequestHandler):
                         shutil.rmtree(tmp_dir, ignore_errors=True)
             if path == "/api/export-file":
                 return self._json(200, export_file(obj))
+            if path == "/api/open-video":
+                return self._json(200, open_video(obj))
+            if path == "/api/edit/pack":
+                return self._json(200, record_pack(obj))
             if path == "/api/transcribe/cancel":
                 cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})
@@ -4275,6 +4767,10 @@ class Handler(BaseHTTPRequestHandler):
                 tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
                 doc = save_transcript(tid, obj)
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"]})
+            if u.path == "/api/edit":
+                if len(json.dumps(obj)) > MAX_EDIT_BYTES:
+                    raise ApiError("too_big", "区間が多すぎて保存できません", 413)
+                return self._json(200, save_edit((urllib.parse.parse_qs(u.query).get("id") or [""])[0], obj))
         except ApiError as e:
             return self._err(e)
         except OSError as e:
@@ -4292,6 +4788,14 @@ class Handler(BaseHTTPRequestHandler):
             with _save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 read_transcript(tid)
                 os.unlink(tx_path(tid))
+                for extra in (edit_path(tid), os.path.join(TX_DIR, tid + ".edit.broken.json")):   # 編集の内容(カット)も一緒に
+                    try:
+                        os.unlink(extra)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as e:
+                        log.warning("編集の内容を消せませんでした: %s %s", os.path.basename(extra), e)
+                _edit_cache.pop(tid, None)
         except ApiError as e:
             return self._err(e)
         except OSError as e:

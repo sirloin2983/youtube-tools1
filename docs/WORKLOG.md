@@ -698,3 +698,24 @@
   (編集の画面が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶため)
 - 未コミット: 新規 5(docs/edit-tool-design.md・docs/mockups/{edit-1-transcribe.png,edit-2-cut.png,edit-3-pack.png,edit-mock.html})、変更 3(docs/HANDOVER.md・docs/WORKLOG.md・AGENTS.md)。
   Claude Code が最初のコミットに含めるか、push.bat で
+
+## 2026-09-26 Claude Code — 「編集」E1 サーバー(編集の内容・open-video・peaks・intoDoc・cut2resolve の keeps)と、認識ワーカーが Windows で止まる不具合
+- 担当: 「編集」の実装(Claude Code。AGENTS.md の担当表)。土台は main = 0126478(設計書・画面イメージはユーザーが push 済み)
+- 確認(ユーザー 2026-09-26): 段階7と画面の見直しの実機確認は**まだ**(待たずに E1 から始める)。PC に Playwright と Node.js が無い → E2 に入る前に入れるか聞き直す(依存の追加)
+- 変更(文字起こし `transcribe-tool/serve.py`): 編集の内容 `transcripts/<id>.edit.json`(`sanitize_edit`・`read_edit`・`GET/PUT /api/edit`・rev と 409・壊れたファイル)、
+  行の cutState を編集の内容から決める `edit_cut_flags`・`apply_edit_cuts`(校正の保存・範囲/選んだ行の再認識・履歴から戻す・intoDoc のどの書き込みでも)、
+  `POST /api/edit/pack`(パックを作った記録。rev は増やさない)と `pack_stale`、一覧の `hasEdit`・`editRev`・`packRev`・`packAt`・`packStale`、
+  `POST /api/open-video`(文字起こしせずに開く。拡張子・ffmpeg で映像か音声が読めるか・同じ動画の文書があればそれ)、`GET /api/peaks`(音の波形。202 で待たせる・cache/peaks・SLOTS)、
+  `POST /api/transcribe` の `intoDoc`(`fill_doc`)、削除で `.edit.json` も消す、ApiError に extra(409 に今の rev を付ける)
+- 変更(cut2resolve): `pack.EDIT_KEEPS`・`MAX_KEEPS`・`Request.warn_short`(0.5 秒より短い区間の注意)・`summary` の `keepsSec`、
+  `serve.request_from_spec` の `spec.keeps`(`keeps_from_spec` の検査・`advanced_from_spec` に「詳しい設定」を分けた・keeps と preset の同時指定は 400)
+- 変更(ワーカー `transcribe-tool/tx_worker.py`): やり取り用の標準入力を fd 0 から離して読む(`_protocol_input`)。**Windows で、標準入力のパイプを別のスレッドが読んで待っている間に
+  numpy などの DLL を読み込むと、次の要求が届くまで止まる**(PC で最小の再現を確認。`test_worker` の範囲の再認識のテストが止まっていた = クラウドの Linux では出ない)。
+  保留の「まとめて実行の最初の文字起こしが遅い(43 秒の切り抜きで 502 秒)」の原因の可能性が高い → 実機で次に文字起こしするときに速くなったかを見てほしい
+- テスト: 新規 `transcribe-tool/test_edit.py`(12。test_metrics から読み込む)、`cut2resolve/test_serve.py` に keeps、`tools/test_resolve_pack_contract.py` に `EditKeepsContract`
+  (keeps のパック = 時刻リストのパック・29.97/59.94fps でもフレームがずれない・以前の文書のたたき台「行から」のパック = preset transcript-rows のパック)。
+  PC(Windows・Python 3.12 miniconda)で通過: 文字起こし 115(skip 1)・cut2resolve 225(skip 14 = Lua が無い)・契約 25・ytt_core/tools 61(skip 1)・入口 97
+- 決定・理由: 設計書の「11. 実装で決めたこと」(`docs/edit-tool-design.md`)。主なもの: clips は 0 個も保存できる(パックは 1 個以上)、`PUT /api/edit` は文書の updatedAt を変えない
+  (校正の保存の競合に巻き込まない。cutState は編集の内容から付け直すので古い画面の印で壊れない)、パックの記録の API を足した(設計の 5 に無かった)、重なる2行の一方だけカット済のときは字幕が増える(契約テストの説明に記録)
+- 未完了・次: E2 画面の骨組み(3つのタブ・Alt+1/2/3・題名の行・メニューの帯・「カットとパック」のカードを外す・文字起こしせずに開く)。版は E6 でまとめて上げる(今は据え置き)
+- 注意: 行の「カット済」の規則は `edit_cut_flags` と、E3 で作る画面の cut.js の2か所になる(同じ定数 0.75 フレーム)。文書を書き込む処理を足すときは `apply_edit_cuts` を通す

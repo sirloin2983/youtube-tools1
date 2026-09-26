@@ -705,6 +705,7 @@ class TestMarkerDone(unittest.TestCase):
 # 2026-09-24 の見直しで足したテスト(test_backend.py)も、従来のコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
 from test_backend import *  # noqa: E402,F401,F403
 from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
+from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・open-video・peaks・intoDoc)
 
 
 if __name__ == "__main__":

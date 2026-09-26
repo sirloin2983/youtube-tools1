@@ -33,6 +33,11 @@ BASES = ("all", "list", "plan", "rows")
 # 文字起こしツールの「残す行」の規則(旧 resolve_export.py と同じ結果になる。tools/test_resolve_pack_contract.py が確かめる):
 # 行の時間だけ残す(余白 0)・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)
 TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1}
+# 「編集」ツールのカット(タイムラインで手で決めた残す区間。画面の指定 spec.keeps)のとおりに作る: 余白を足さない・最短の長さで捨てない・
+# 無音を重ねない・「カット済」の行で削らない(削る所はもう keeps に入っている)・隙間をつながない(接している区間だけ1つにまとめる)。
+# とても短い区間は捨てずに注意だけ出す(warn_short 秒)。docs/edit-tool-design.md の 5
+EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, "silence": False, "drop_cut_rows": False, "warn_short": 0.5}
+MAX_KEEPS = 5000
 PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "fcpxml", "roughcut", "video", "textplus_plan",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
 
@@ -65,6 +70,7 @@ class Request:
     name: Optional[str] = None
     extra_inputs: tuple = ()               # カットリストなど、出力で上書きしてはいけない入力ファイル
     edit_media: bool = True               # 動画を同梱するパックで、スタジオの余白つき素材(.edit.json)があればそれを入れる
+    warn_short: float = 0.0               # これより短い残す区間を注意に出す(秒。0 = 出さない。EDIT_KEEPS で使う)
 
     def inputs(self):
         return tuple(Path(p) for p in (self.video, self.sub, self.transcript, self.plan) + tuple(self.extra_inputs) if p)
@@ -287,6 +293,12 @@ def plan_cut(req, task=None, cache=None, log=None):
     keeps = C.drop_short(keeps, max(1, C.sec_to_frames(min_len, fps)))
     if not keeps:
         raise ToolError("残る区間がありません。カットの指定(無音の感度 --noise・最短の長さ --min-len など)を見直してください。")
+    if req.warn_short:
+        short = [(a, b) for a, b in keeps if (b - a) * fps[1] < req.warn_short * fps[0]]
+        if short:
+            eg = "・".join(f"{C.fmt_frames(a, fps)}〜{C.fmt_frames(b, fps)}({C.fmt_frames(b - a, fps)})" for a, b in short[:3])
+            warns.append(f"{req.warn_short:g} 秒より短い区間が {len(short)} か所あります(元の動画の {eg}{' など' if len(short) > 3 else ''})。"
+                         "意図どおりか確かめてください。")
     if len(keeps) > C.MAX_EDL_EVENTS:
         warns.append(f"残す区間が {len(keeps)} か所あり、EDL の番号が 3 桁(999)を超えます。Resolve で読めない可能性があります"
                      "(無音の長さを長くする・近い区間をつなぐ、で減らせます)。")
@@ -510,6 +522,7 @@ def summary(plan, limit=5000):
     return {
         "fps": list(fps), "fpsValue": fps[0] / fps[1], "total": total, "durationSec": _sec(total, fps),
         "keeps": [list(x) for x in plan.keeps], "removed": [list(x) for x in removed],
+        "keepsSec": [[_sec(a, fps), _sec(b, fps)] for a, b in plan.keeps],   # 残す区間(秒)。「編集」のたたき台はこれで今の編集を置き換える
         "selected": [list(x) for x in plan.selected], "base": [list(x) for x in plan.base],
         "drops": {k: [list(x) for x in v][:limit] for k, v in plan.drops.items()},
         "count": len(plan.keeps), "keptFrames": kept, "keptSec": _sec(kept, fps), "removedSec": _sec(total - kept, fps),

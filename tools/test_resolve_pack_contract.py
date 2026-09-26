@@ -332,6 +332,99 @@ class ResolvePackContract(unittest.TestCase):
         self.assertEqual(ip["media"]["file"], "media/clip_edit.mp4")
 
 
+def _load_transcribe_serve():
+    """文字起こしの serve.py(行の「カット済」を編集の内容から決める edit_cut_flags)。cut2resolve の serve と名前が同じなので別の名前で読む"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tx_serve_for_contract", str(ROOT / "transcribe-tool" / "serve.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
+class EditKeepsContract(unittest.TestCase):
+    """「編集」ツール(docs/edit-tool-design.md)のパック:
+      C. 編集の残す区間(spec.keeps → pack.EDIT_KEEPS)で作ったパック = 同じ区間を時刻リスト(mode list)で作ったパック
+      D. 以前の文書(行の cutState だけ)を開いたときのたたき台「行から」(api/plan の keepsSec を編集の内容にして保存 →
+         行の cutState は編集の内容から付け直す)で作ったパック = 今の「カットとパック」(preset transcript-rows)のパック
+         (行が重ならない文書。重なる行の一方だけがカット済のときは、編集では時間の一部が残る行を「残す行」にするので字幕が1つ増える)"""
+    setUpClass = ResolvePackContract.__dict__["setUpClass"]
+    tearDownClass = ResolvePackContract.__dict__["tearDownClass"]
+    video, doc, write_v1 = ResolvePackContract.video, ResolvePackContract.doc, ResolvePackContract.write_v1
+
+    def build(self, req, fps_text="30"):
+        out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
+        plan = pack.plan_cut(req, cache=self.cache)
+        target = {"29.97": "30", "59.94": "60"}.get(fps_text, fps_text)   # 置き先のプロジェクトの fps(Text+ は整数だけ)
+        res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(target, None))
+        files = {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
+        files.pop("cut-plan.json", None)   # 日時が入る
+        return plan, files
+
+    def assertSameFiles(self, a, b):
+        self.assertEqual(sorted(a), sorted(b))
+        for name in sorted(a):
+            self.assertEqual(a[name], b[name], "%s が違う" % name)
+
+    def test_keeps_same_as_time_list(self):
+        rows = [seg(1, 0.5, 2.0, "一つめ"), seg(2, 2.4, 3.1, "削った", cut=True), seg(3, 3.5, 6.2, "二つめ"), seg(4, 7.0, 9.0, "三つめ")]
+        for fps_text in ("30", "29.97", "60", "59.94"):
+            with self.subTest(fps=fps_text):
+                num, den = Fraction(FPS_RATE[fps_text]).as_integer_ratio()
+                sec = lambda f: round(f * den / num, 3)   # noqa: E731  編集の内容の保存の形(フレームの境目の秒・小数3桁)
+                frames = [(12, 66), (100, 190), (215, 280)] if num / den < 40 else [(24, 132), (200, 380), (430, 560)]
+                keeps = [(sec(a), sec(b)) for a, b in frames]
+                video, tr = Path(self.video(fps_text)), self.write_v1(self.doc(rows, fps_text))
+                p1, a = self.build(pack.Request(video=video, transcript=tr, keep_pairs=keeps, **pack.EDIT_KEEPS), fps_text)
+                # 画面の「③ 時刻リスト」と同じ指定(cut2resolve の serve.request_from_spec の mode list の既定)
+                p2, b = self.build(pack.Request(video=video, transcript=tr, base="list", keep_pairs=keeps, min_len=0.3), fps_text)
+                self.assertEqual([tuple(k) for k in p1.keeps], frames)      # 編集で決めたフレームのまま(1フレームもずれない)
+                self.assertSameFiles(a, b)
+                ip = json.loads(a["textplus-import.json"])
+                self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], frames)
+
+    def test_rows_draft_same_as_transcript_rows(self):
+        tx = _load_transcribe_serve()
+        cases = [
+            [seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")],
+            [seg(1, 0.52, 2.2, "a"), seg(2, 2.2, 3.4, "b", cut=True), seg(3, 3.4, 4.4, "c"), seg(4, 4.42, 6.04, "d"), seg(5, 6.5, 6.62, "短い"),
+             seg(6, 7.0, 8.0, "  "), seg(7, 8.0, 9.0, "e", cut=True), seg(8, 11.0, 13.0, "終わりをまたぐ")],
+        ]
+        rnd = random.Random(20260927)
+        for _ in range(12):   # 重ならない乱数の文書(接する・1〜2フレーム・離れる)
+            rows, t = [], 0.0
+            for i in range(rnd.randint(2, 10)):
+                t += rnd.choice([0.0, 0.02, 0.04, 0.4, 1.2])
+                a, b = round(t, 2), round(t + rnd.choice([0.12, 0.3, 0.9, 2.16]), 2)
+                if b > VIDEO_SEC - 0.5:
+                    break
+                rows.append(seg(i, a, b, rnd.choice(["はい", "こんばんは", "え"]), cut=rnd.random() < 0.3))
+                t = b
+            if any(r.get("cutState") != "cut" for r in rows):
+                cases.append(rows)
+        for fps_text in ("30", "29.97", "60"):
+            for n, rows in enumerate(cases):
+                with self.subTest(fps=fps_text, n=n):
+                    doc = self.doc(rows, fps_text)
+                    video = Path(doc["sourcePath"])
+                    p_rows, a = self.build(pack.Request(video=video, transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS), fps_text)
+                    keeps_sec = [(round(x, 3), round(y, 3)) for x, y in pack.summary(p_rows)["keepsSec"]]   # 画面が編集の内容に保存する形
+                    fps = p_rows.meta["fps"]
+                    edit = tx.sanitize_edit({"sources": [{"fps": list(fps), "duration": VIDEO_SEC}],
+                                             "clips": [{"src": 0, "in": x, "out": y} for x, y in keeps_sec]})
+                    segs = [dict(r) for r in rows]
+                    for r, cut in zip(segs, tx.edit_cut_flags(segs, edit)):   # 保存のときに行の cutState を編集の内容から付け直す
+                        r.pop("cutState", None)
+                        if cut:
+                            r["cutState"] = "cut"
+                    self.assertEqual([r.get("cutState") == "cut" for r in segs if r["text"].strip()],
+                                     [r.get("cutState") == "cut" for r in rows if r["text"].strip()], "行の印が変わった %r" % rows)
+                    p_edit, b = self.build(pack.Request(video=video, transcript=self.write_v1(dict(doc, segments=segs)), keep_pairs=keeps_sec,
+                                                        **pack.EDIT_KEEPS), fps_text)
+                    self.assertEqual(p_edit.keeps, p_rows.keeps)
+                    self.assertSameFiles(a, b)
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class KnownFixes(ResolvePackContract):
     """A の範囲の外で、一本化で直った所(旧 resolve_export の不具合)。旧の値と今の値を両方固定しておく"""
