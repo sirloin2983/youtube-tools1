@@ -269,6 +269,7 @@
 .rv-nudges .btn{flex:1 1 0;min-width:0;padding:0;font-family:var(--mono)}
 .rv-labelrow input{width:100%;min-height:28px;padding:2px 8px;font-size:13px}
 .rv-file{overflow-wrap:anywhere;font-size:12px}
+.rv-off{opacity:.5}
 /* セリフ(書き出した切り抜きの文字起こし。行を押すとその行を再生) */
 .rv-tx{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
 .rv-tx>summary{cursor:pointer;font-size:13px}

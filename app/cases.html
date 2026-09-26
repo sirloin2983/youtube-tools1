@@ -56,6 +56,19 @@
       <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select>
     </div>
     <ol class="pt-clips"></ol>
+    <div class="pt-auto">
+      <div class="row">
+        <label class="lag">まとめて実行 <select class="pt-auto-mode" aria-label="まとめて実行の形">
+          <option value="adopted">採用後を全部(書き出し → 文字起こし → パック)</option>
+          <option value="transcribe">文字起こしまで(書き出し → 文字起こし)</option>
+          <option value="full">解析から全部(自動マークの上位を採用)</option></select></label>
+        <label class="lag pt-auto-topbox" hidden>採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
+        <button type="button" class="btn small primary pt-auto-run">実行</button>
+        <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
+      </div>
+      <ol class="pt-auto-steps"></ol>
+      <div class="hint pt-auto-msg"></div>
+    </div>
     <details class="pt-case-memo"><summary class="hint">メモ</summary>
       <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
       <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>

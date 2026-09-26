@@ -35,7 +35,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.5.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.6.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -335,6 +335,12 @@ def _put_video(o):
     return {"ok": True, "video": STORE.put_video(o.get("id"), o.get("title"), o.get("marks"), o.get("baseRev") if "baseRev" in o else None)}
 
 
+def _adopt_top(o):
+    top = o.get("top")
+    ids, v = STORE.adopt_top(o.get("id"), top)
+    return {"ok": True, "adopted": ids, "video": v}
+
+
 def _outdir(o):
     return {"ok": True, "outDir": common.set_out_dir(o.get("path"), busy), "defaultOutDir": common.default_out_dir()}
 
@@ -398,6 +404,7 @@ POST_ROUTES = {
     "/api/queue/clear": lambda o: {"ok": True, "removed": BATCH.clear()},
     "/api/videos/open": _open_video,
     "/api/video/delete": _video_delete,
+    "/api/video/adopt-top": _adopt_top,   # まとめて実行(入口の案件の画面)から: 自動マークの上位を採用に(学習の記録は書かない)
     "/api/export": _export,
     "/api/export/cancel": _export_cancel,
     "/api/collab/group": _collab_create,
@@ -584,7 +591,7 @@ def finish():
 
 def mounted_elsewhere():
     """入口(start-all.bat)の統合サーバーの中でスタジオが動いていれば、その URL。
-    同じ data.json を2つのサーバーで取り合わないよう、start.bat からの起動はそちらを開くだけにする。"""
+    同じ data.json を2つのサーバーで取り合わないよう、serve.py を直接起動したときはそちらを開くだけにする(単独起動の start.bat は 09-26 に廃止)。"""
     info = ytt_runtime.read_runtime(handoff.runtime_dir(), TOOL_ID)
     if info and info["path"] != "/" and ytt_runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
         return "http://localhost:%d%s" % (info["port"], info["path"])

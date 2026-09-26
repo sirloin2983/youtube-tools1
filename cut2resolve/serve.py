@@ -389,6 +389,13 @@ def request_from_spec(spec):
     sub = input_path(spec.get("srt"), "srt")
     tr = input_path(spec.get("transcript"), "transcript")
     plan = input_path(spec.get("plan"), "plan")
+    if spec.get("preset") == "transcript-rows":
+        # 文字起こしの行だけを残す(文字起こしツールの Resolve パッケージ・入口のまとめて実行と同じ規則 pack.TRANSCRIPT_ROWS。他の指定は使わない)
+        if tr is None:
+            raise ApiError("no_transcript", "文字起こしのファイルを入れてください")
+        return pack.Request(video=video, transcript=tr, **pack.TRANSCRIPT_ROWS)
+    if spec.get("preset") not in (None, ""):
+        raise ApiError("bad_value", "preset が正しくありません")
     mode = spec.get("mode") or "silence"
     if mode not in ("silence", "keep", "list"):
         raise ApiError("bad_value", "カットの決め方が正しくありません")
@@ -969,7 +976,7 @@ def finish():
 
 def mounted_elsewhere():
     """入口(start-all.bat)の統合サーバーの中で cut2resolve が動いていれば、その URL。
-    start.bat からの起動は2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)"""
+    serve.py を直接起動したときは2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)"""
     e = read_runtime_entry(TOOL_ID)
     if e and e[1] != "/" and ping_app(e[0], 1, e[1]) == APP_ID:
         return "http://localhost:%d%s" % e

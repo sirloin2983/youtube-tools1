@@ -30,6 +30,6 @@ echo.
 if errorlevel 1 (
   echo Install failed. See the message above.
 ) else (
-  echo Done. Close this window, then start the tool again with start.bat.
+  echo Done. Close this window, then restart the tools with start-all.bat in the parent folder (youtube-test).
 )
 pause

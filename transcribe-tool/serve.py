@@ -81,7 +81,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.14.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.14.1"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -4381,7 +4381,7 @@ def finish():
 
 def mounted_elsewhere():
     """入口(start-all.bat)の統合サーバーの中で文字起こしツールが動いていれば、その URL。
-    同じ transcripts/ を2つのサーバーで書き合わない・認識ワーカーを2つ動かさないよう、start.bat からの起動はそちらを開くだけにする。"""
+    同じ transcripts/ を2つのサーバーで書き合わない・認識ワーカーを2つ動かさないよう、serve.py を直接起動したときはそちらを開くだけにする。"""
     info = _runtime.read_runtime(runtime_path_dir(), TOOL_ID)
     if info and info["path"] != "/" and _runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
         return "http://localhost:%d%s" % (info["port"], info["path"])

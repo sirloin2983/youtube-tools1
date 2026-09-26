@@ -26,6 +26,10 @@ MAX_CLIP_SEC = 3600
 EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく出力しなければ中止
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
+# ラウドネス(聞こえ方の音量。LUFS)をそろえる(2026-09-26。音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
+LOUDNESS_CHOICES = (-11.0, -14.0, -16.0, -18.0)
+TRUE_PEAK_CEIL = -1.0   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
+MAX_GAIN_DB = 20.0      # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
 # Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
 # UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
@@ -186,6 +190,16 @@ def build_spec(store, req):
         raise bad("volume が正しくありません")
     if not (MIN_EXPORT_VOLUME <= vol <= MAX_EXPORT_VOLUME):
         raise bad("volume は%d〜%dの範囲で指定してください" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
+    loud = req.get("loudness")
+    if loud in (None, False, 0):
+        loud = None
+    else:
+        try:
+            loud = float(loud)
+        except (TypeError, ValueError):
+            raise bad("loudness が正しくありません")
+        if loud not in LOUDNESS_CHOICES:
+            raise bad("loudness は %s のどれかです" % " / ".join("%g" % x for x in LOUDNESS_CHOICES))
     by_id = {m["id"]: m for m in v["marks"]}
     clips, seen = [], set()
     for i in ids:
@@ -204,7 +218,7 @@ def build_spec(store, req):
     except (TypeError, ValueError):
         mh = 0
     spec = {"videoId": v["id"], "title": v["title"] or v["fileName"] or v["id"], "clips": clips, "fast": prec == "fast",
-            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol,
+            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol, "loudness": loud,
             # .clip.json 用(元の配信の情報)。元のファイルのパスは file のときだけ入れる
             "kind": v["kind"], "sourceTitle": v["title"] or v.get("fileName") or "", "sourceFile": v["path"] if v["kind"] == "file" else None,
             "sourceDuration": v.get("duration") or 0}
@@ -238,7 +252,7 @@ def job_public(job):
     return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", common.get_out_dir()), "folder": job.get("folder", ""),
             "waiting": bool(job.get("waiting")),   # 他のツールの重い処理が終わるのを待っている(ytt_core.jobs)
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
-                       "warning": it.get("warning", ""), **paths(it)} for it in job["items"]]}
+                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), **paths(it)} for it in job["items"]]}
 
 
 def start_job(spec, on_done=None):
@@ -468,30 +482,79 @@ def run_ytdlp(job, spec, it, base):
     return spec["folder"] + "/" + os.path.basename(out)
 
 
-def apply_volume(job, spec, it, rel_file):
-    """書き出したクリップの音量を調整する(file/url どちらの方式で切り出したかによらず、常に最後にこの一手間をかける)。
-    映像は無劣化のまま(-c:v copy)、音声だけ volume フィルタをかけて再エンコードする。
-    volume が100(調整なし)ならこの手間自体を省く。"""
-    vol = spec.get("volume", 100)
-    if vol == 100:
-        return
-    path = os.path.join(spec["outDir"], os.path.basename(rel_file))
+def _reencode_audio(job, it, path, afilter, what):
+    """映像は無劣化のまま(-c:v copy)、音声だけフィルタをかけて再エンコードし、元のファイルと置き換える。"""
     tmp = path + ".vol.mp4"
     # 期待する長さは、切り出した動画そのものの長さ(マークの終了が元の末尾を超えると、切り出しは末尾で止まって短くなるため。
     # 以前はマークの長さと比べていて、末尾をまたぐマークが「短すぎます」で失敗していた)
     dur = common.media_info(path)[0] or (it["end"] - it["start"])
-    cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", "volume=%.3f" % (vol / 100),
+    cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", afilter,
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
     tail = []
     try:
         tail = _pump(job, cmd, it, dur)
         verify_output(tmp, dur, tail)
     except ExportError as e:
-        log_export("音量調整 失敗: %s" % e, cmd, tail)
+        log_export("%s 失敗: %s" % (what, e), cmd, tail)
         if os.path.exists(tmp):
             os.unlink(tmp)
         raise
     common.replace_file(tmp, path)
+
+
+def apply_volume(job, spec, it, rel_file):
+    """書き出したクリップの音量を調整する(file/url どちらの方式で切り出したかによらず、常に最後にこの一手間をかける)。
+    volume が100(調整なし)・ラウドネスをそろえるとき(apply_loudness が行う)は何もしない。"""
+    vol = spec.get("volume", 100)
+    if vol == 100 or spec.get("loudness"):
+        return
+    _reencode_audio(job, it, os.path.join(spec["outDir"], os.path.basename(rel_file)), "volume=%.3f" % (vol / 100), "音量調整")
+
+
+def measure_loudness(job, it, path):
+    """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)"""
+    dur = common.media_info(path)[0] or (it["end"] - it["start"])
+    cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
+           "-f", "null", "-", "-progress", "pipe:1", "-nostats"]
+    tail = _pump(job, cmd, it, dur)
+    text = "\n".join(tail)
+    vals = {}
+    for key in ("input_i", "input_tp"):
+        m = re.search(r'"%s"\s*:\s*"([^"]+)"' % key, text)
+        try:
+            vals[key] = float(m.group(1)) if m else None
+        except ValueError:
+            vals[key] = None
+    i, tp = vals["input_i"], vals["input_tp"]
+    if i is None or not (-70.0 <= i <= 10.0) or tp is None or tp != tp or abs(tp) == float("inf"):
+        return None, None
+    return i, tp
+
+
+def apply_loudness(job, spec, it):
+    """切り抜き(と前後10秒つきの編集用素材)の聞こえ方の音量を spec["loudness"](LUFS)にそろえる。
+    切り抜き本体で測った分だけ、両方に**同じ量**だけ音量をかける(Resolve で切り抜きと編集用素材を差し替えても音量が変わらないように)。
+    上げる量は、どちらのピークも TRUE_PEAK_CEIL を超えない・MAX_GAIN_DB を超えない範囲まで(音が割れない・雑音を持ち上げすぎない)。
+    -> it["loudness"] = {"target", "measured", "gainDb"}(無音で測れないときは skipped)"""
+    target = spec.get("loudness")
+    if not target:
+        return
+    main = it["path"]
+    i, tp = measure_loudness(job, it, main)
+    if i is None:
+        it["loudness"] = {"target": target, "skipped": "音声が無いか、無音のため測れませんでした"}
+        return
+    gain = min(target - i, TRUE_PEAK_CEIL - tp, MAX_GAIN_DB)
+    edit = it.get("editPath")
+    if edit and os.path.isfile(edit):
+        _ei, etp = measure_loudness(job, it, edit)
+        if etp is not None:
+            gain = min(gain, TRUE_PEAK_CEIL - etp)
+    gain = round(gain, 2)
+    if abs(gain) >= 0.1:
+        for path in [main] + ([edit] if edit and os.path.isfile(edit) else []):
+            _reencode_audio(job, it, path, "volume=%.2fdB" % gain, "ラウドネス調整")
+    it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
 
 
 def export_edit_media(job, spec, it, base, runner):
@@ -565,8 +628,12 @@ def copy_actual_start(source, start, output):
     return round(max(0.0, max(keys) - (vstart or 0.0)), 3)
 
 
-def _clip_export_info(spec, method, source_ok, rng_start, media_path):
-    info = {"mode": "fast" if method == "copy" else "precise", "volume": spec.get("volume", 100)}
+def _clip_export_info(spec, method, source_ok, rng_start, media_path, loudness=None):
+    info = {"mode": "fast" if method == "copy" else "precise"}
+    if spec.get("loudness"):
+        info["loudness"] = loudness or {"target": spec["loudness"]}   # そろえたラウドネス(音量(%)は使っていない)
+    else:
+        info["volume"] = spec.get("volume", 100)
     if method == "copy" and source_ok:
         a = copy_actual_start(spec["sourcePath"], rng_start, media_path)
         if a is not None:
@@ -589,11 +656,11 @@ def write_manifests(spec, it, mark_status):
     dur = common.media_info(media)[0]
     it["manifest"] = handoff.write_clip_manifest(media, duration=dur, source=source, mark=mark,
                                                  rng=(it["start"], end_of(it["end"], it.get("srcLen"))),
-                                                 export=_clip_export_info(spec, it.get("method"), local_src, it["start"], media))
+                                                 export=_clip_export_info(spec, it.get("method"), local_src, it["start"], media, it.get("loudness")))
     if it.get("editPath") and it.get("editRange"):
         es, ee = it["editRange"]
         edur = common.media_info(it["editPath"])[0]
-        ex = _clip_export_info(spec, it.get("editMethod"), local_src, es, it["editPath"])
+        ex = _clip_export_info(spec, it.get("editMethod"), local_src, es, it["editPath"], it.get("loudness"))
         ex.update(purpose="edit-handles", selection={"start": it["start"], "end": it["end"]})   # 切り抜き本体の範囲(元の配信の秒)
         it["editManifest"] = handoff.write_clip_manifest(it["editPath"], duration=edur, source=source, mark=mark,
                                                          rng=(es, end_of(ee, it.get("editSrcLen"))), export=ex)
@@ -646,6 +713,7 @@ def _run_job(job, spec, on_done=None):
                 common.log_failure("Resolve edit media", e)
                 it.pop("editPath", None)
                 warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+            apply_loudness(job, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
             recorded = False
             if on_done:
                 try:

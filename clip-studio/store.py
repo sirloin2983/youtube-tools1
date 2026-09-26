@@ -656,6 +656,31 @@ class Store:
                 self._transfer_collab(vid, m)
         return snap
 
+    def adopt_top(self, vid, top):
+        """「まとめて実行(解析から全部)」用: 自動マークの候補(判定前)を点数の高い順に top 件だけ採用にする。
+        人の判定ではないので、学習の記録(feedback.jsonl の「よかった」)は書かない・コラボへの転写もしない。
+        すでに採用・書き出し済みのマークがあれば何もしない(人が選んだものを優先)。-> (採用にしたマークの id, 公開用の動画)"""
+        if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
+            raise ApiError("bad_request", "採用する数は1〜30です", 400)
+        with self.lock:
+            v = self.videos.get(str(vid or ""))
+            if not v:
+                raise ApiError("not_found", "動画が見つかりません", 404)
+            if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
+                return [], self._pub(v)
+            cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=lambda m: -(m["score"] or 0))[:top]
+            if not cands:
+                return [], self._pub(v)
+            ids = {m["id"] for m in cands}
+            nv = copy.deepcopy(v)
+            for m in nv["marks"]:
+                if m["id"] in ids:
+                    m["status"] = "adopted"
+            nv["rev"] += 1
+            nv["updatedAt"] = now_ms()
+            self._commit(nv["id"], nv)
+            return [m["id"] for m in cands], self._pub(nv)
+
     def set_title(self, vid, title):
         with self.lock:
             v = self.videos.get(vid)

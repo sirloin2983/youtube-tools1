@@ -349,7 +349,7 @@ class TestSiblings(unittest.TestCase):
         self.assertEqual(serve.siblings(8700, self_path="/x/../"), {"tools": {"cut2resolve": 8700}})
         port = self.fake("cut2resolve")
         self.put("cut2resolve", {"tool": "cut2resolve", "port": port, "path": "/cut2resolve/"})
-        self.assertEqual(serve.mounted_elsewhere(), "http://localhost:%d/cut2resolve/" % port)   # start.bat はこれを開くだけ
+        self.assertEqual(serve.mounted_elsewhere(), "http://localhost:%d/cut2resolve/" % port)   # serve.py を直接起動したときはこれを開くだけ
         self.put("cut2resolve", {"tool": "cut2resolve", "port": port})
         self.assertIsNone(serve.mounted_elsewhere())   # 単独で動いているものは従来どおり(make_server の probe が扱う)
         self.put("cut2resolve", {"tool": "cut2resolve", "port": self.fake("clip-studio"), "path": "/cut2resolve/"})
@@ -439,6 +439,21 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "list", "listKind": "drop",
                                                 "listText": "", "dropCutRows": False}})
         self.assertEqual(j["result"]["keeps"], [[0, 300]])
+
+    def test_preset_transcript_rows_matches_pack_rule(self):
+        """preset transcript-rows(入口のまとめて実行が使う)は pack.TRANSCRIPT_ROWS と同じ区間になる(文字起こしの Resolve パッケージと同じ規則)"""
+        t = self.dir / "preset.transcript.json"
+        t.write_text(json.dumps({"schema": "youtube-tools-transcript/v1", "segments": [
+            {"start": 0.5, "end": 1.5, "text": "a", "cut": False}, {"start": 1.5, "end": 2.0, "text": "b", "cut": False},
+            {"start": 8.5, "end": 9.5, "text": "c", "cut": False}]}), encoding="utf-8")
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
+                                                "mode": "silence", "minLen": 5}})   # preset のときは他の指定を使わない
+        want = serve.pack.plan_cut(serve.pack.Request(video=self.video, transcript=t, **serve.pack.TRANSCRIPT_ROWS))
+        self.assertEqual(j["result"]["keeps"], [list(k) for k in want.keeps])
+        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "preset": "transcript-rows"}})
+        self.assertEqual((st, j["error"]), (400, "no_transcript"))
+        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "other"}})
+        self.assertEqual((st, j["error"]), (400, "bad_value"))
 
     def test_build_overwrite_confirm_open_folder_and_roughcut(self):
         out = self.dir / "out1"

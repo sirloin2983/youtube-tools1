@@ -1,0 +1,12 @@
+# push.bat が git rm で消すファイルの一覧(tools/push_helper.py の removals)。
+# Cowork(クラウドの Claude)は PC のファイルを消せないため、消したいファイルをここに書き、ユーザーの push.bat で消す。
+# 1行に1つ、リポジトリ直下からの相対パス。git が管理しているファイルだけを消す(履歴には残る)。もう無いファイルは飛ばす。
+# 消し終わった行は残しておいてよい(何度実行しても同じ結果)。
+
+# 2026-09-26 ユーザー決定: ツールごとの単独起動をやめる(起動は入口の start-all.bat だけ)
+clip-studio/start.bat
+clip-studio/start.command
+cut2resolve/start.bat
+cut2resolve/start.command
+transcribe-tool/start.bat
+transcribe-tool/start.command

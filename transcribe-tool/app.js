@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.14.0';
+const APP_VERSION = '0.14.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -146,7 +146,7 @@ function renderTools(){
     const links = el.querySelectorAll('a');
     UIKit.tools.list.forEach((t, i) => {
       const a = links[i]; if (!a || t.id === 'transcribe' || S.ports[t.id]) return;
-      const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。そのツールの start.bat で起動してください)';
+      const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。入口(youtube-test フォルダの start-all.bat)から起動してください)';
       a.classList.add('tt-tool-off');
     });
   }
@@ -1827,7 +1827,7 @@ async function boot(){
   try {
     const ping = await api('/api/ping');
     if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
-  } catch (e){ return showErr(e.message + '。start.bat / start.command から起動してください'); }
+  } catch (e){ return showErr(e.message + '。入口(youtube-test フォルダの start-all.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
   await loadRoster();
   if (S.tools){

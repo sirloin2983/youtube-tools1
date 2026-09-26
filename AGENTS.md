@@ -12,22 +12,23 @@
 - 普段はリポジトリ直下の `start-all.bat` → 入口(`app/launch.py`、http://localhost:8700/)が1つのプロセスの中で3ツールを取り込んで動かす:
   `/studio/`(切り抜きスタジオ)・`/transcribe/`(文字起こし)・`/cut2resolve/`(Resolve への受け渡し)。
   文字起こしの認識(faster-whisper・sherpa-onnx)だけは別プロセスのワーカー(`transcribe-tool/tx_worker.py`)で動く(落ちても入口・他のツールは止まらない)
-- 各ツールの `start.bat` での単独起動も残している(移行期間の保険。ユーザー決定)
+- 各ツールの `start.bat` での単独起動は 2026-09-26 にやめた(ユーザー決定)。起動は `start-all.bat` だけ。serve.py の単独で動く部分は、入口に取り込めなかったときの子プロセスとテストのために残す
+- ユーザー向けの使い方の全体はリポジトリ直下の `README.txt`(09-26 に一本化)。各ツールの `README.txt` は細かい使い方と変更の記録
 - **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
 - 流れ: スタジオで配信から区間を選んで書き出す → 文字起こしで字幕を作って直す → cut2resolve で DaVinci Resolve 用のパック(カット + Text+ 字幕)にする。受け渡しの形式は `docs/pipeline.md`
-- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)も実装済み)。
+- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。新着配信の監視・画面の形(pywebview)は保留)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
 
 ## フォルダと、変えたら通すテスト
 | フォルダ | 役割 | 変えたら通すテスト(そのフォルダで実行。★はリポジトリ直下から) |
 | --- | --- | --- |
-| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py`、★`python app/e2e_portal.py` |
+| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py` |
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `transcribe-tool/` | 文字起こし(faster-whisper・話者判別・校正画面・精度測定) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)。画面は serve.py | `python -m unittest test_cut2resolve test_pack test_serve`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
 | `ui-kit/` | 共通の見た目の正本。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
-| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
+| `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
@@ -43,7 +44,8 @@
 - 新しい設計・決定は `docs/` の直下に文書で残し、WORKLOG からリンクする
 
 ## 開発のルール
-- 実行時データ・個人データ・秘密情報はコミットしない(`.gitignore` 参照: transcripts/ dataset/ models/ exports/ clips/ config.json など)。リポジトリは Public にする方針なので特に注意
+- 実行時データ・個人データ・秘密情報はコミットしない(`.gitignore` 参照: transcripts/ dataset/ models/ exports/ clips/ config.json など)。リポジトリは Public にする方針なので特に注意。
+  push.bat はコミットの前に `tools/push_helper.py check` で調べ、キーの形・個人データの名前・動画・5MB 超があれば止める(誤検出なら検査を直す)
 - 各ツールで版を上げるときは、**serve.py の SERVER_VERSION・画面の APP_VERSION・README.txt の見出し**を必ず同時に上げる(食い違うと画面に赤い帯が出る)。
   APP_VERSION の場所: スタジオ `core.js`、文字起こし `app.js`、cut2resolve は `cut2resolve_core.py` の VERSION 1か所。入口は `app/launch.py`
 - 各ツールの起動の約束(`serve.py [ポート] --no-open`・`.runtime/<ID>.json`・`/api/ping`・SIGTERM/SIGBREAK で後始末して終わる)は入口が使っている。
@@ -73,7 +75,8 @@
 3. 長く使う設計・決定は `docs/` に文書で残し、WORKLOG からリンクする
 
 Claude(Cowork。クラウドから PC のフォルダに読み書きする)の注意:
-- PC で git・ファイルの移動・削除ができない。WORKLOG への追記までを行い、コミットは次に git を使う AI か push.bat に任せる。移動・削除が要るときは、WORKLOG に手順を書いてユーザーか git を使える AI に頼む
+- PC で git・ファイルの移動・削除ができない。WORKLOG への追記までを行い、コミットは次に git を使う AI か push.bat に任せる。
+  **ファイルを消すときは `tools/removals.txt` に1行ずつ書く**(ユーザーの push.bat が `git rm` する。git が管理しているファイルだけ。`tools/push_helper.py`)。移動は WORKLOG に手順を書いて頼む
 - 同じファイルを何度も書き込むと、2回目以降が前の内容のまま書かれることがあった(2026-09-25)。**書き込んだら読み直して、手元の内容と一致することを確かめる**
 - 起動中の入口・ツールは古いコードのまま動いている。コードを直したら、ユーザーに「すべて終了」→ start-all.bat で起動し直してもらう
 
@@ -112,5 +115,5 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 ## 動作環境(ユーザーの PC)
 - Windows。このリポジトリは PC 上の `Desktop\youtube-test` にある
 - CPU は Intel Core i9-13900KF、メモリ 32GB。GPU は **AMD Radeon RX 7800 XT**(16GB)(NVIDIA ではないので CUDA は使えない → faster-whisper は CPU で動く。GPU 前提の提案をしない)
-- Python 3・ffmpeg はインストール済み(各ツールの install.bat / start.bat を使う)。Python が複数入っている可能性がある(`__pycache__` に 3.10 と 3.12 の両方)。
+- Python 3・ffmpeg はインストール済み(文字起こしの install.bat・リポジトリ直下の start-all.bat を使う)。Python が複数入っている可能性がある(`__pycache__` に 3.10 と 3.12 の両方)。
   faster-whisper を入れた Python と `py -3` が同じかは未確認(`py -0p` で一覧が出る)

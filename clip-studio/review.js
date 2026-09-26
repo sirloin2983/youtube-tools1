@@ -60,7 +60,7 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -71,6 +71,7 @@ function sanitizeSettings(x){
     precision: x.precision === 'fast' ? 'fast' : 'accurate',
     maxHeight: [0, 720, 1080, 1440, 2160].includes(Number(x.maxHeight)) ? Number(x.maxHeight) : 1080,
     exportVolume: n(x.exportVolume, 1, 200, 75),
+    exportLoudness: [0, -11, -14, -16, -18].includes(Number(x.exportLoudness)) ? Number(x.exportLoudness) : -14,   // 0 = そろえない(音量(%)を使う)
     keymap: sanitizeKeymap(x.keymap), theater: x.theater === true, graphLines: x.graphLines === true,
     autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldDefault: x.foldDefault === true,
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
@@ -233,7 +234,9 @@ function buildDOM(){
             </div>
           <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
             <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
-          <div class="rv-fld"><label class="rv-fl" for="rvExpVol">書き出しの音量</label>
+          <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方</label>
+            <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">そろえる -14 LUFS(YouTube の目安)</option><option value="-11">そろえる -11 LUFS(大きめ)</option><option value="-16">そろえる -16 LUFS(控えめ)</option><option value="-18">そろえる -18 LUFS(小さめ)</option><option value="0">そろえない(下の音量 % を使う)</option></select></div>
+          <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量</label>
             <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
           </div>
         </div>
@@ -618,6 +621,7 @@ function syncSettingsUI(){
   renderKeyUI(); $('#rvLag').value = String(s.lag); $('#rvLiveMode').value = s.liveMode;
   $('#rvHeight').value = String(s.maxHeight); $('#rvPrecision').value = s.precision;
   $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
+  $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness; $('#rvExpVolBox').classList.toggle('rv-off', !!s.exportLoudness);
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 function applyToPlayer(){
@@ -649,6 +653,7 @@ function wireSettings(){
     S.settings.exportVolume = Number(e.target.value); $('#rvExpVolOut').textContent = S.settings.exportVolume;
     touchSettings();
   });
+  $('#rvExpLoud').addEventListener('change', e => { S.settings.exportLoudness = Number(e.target.value) || 0; syncSettingsUI(); touchSettings(); });
   $('#rvAutoPlay').addEventListener('change', e => { S.settings.autoPlay = e.target.checked; touchSettings(); });
   $('#rvAutoNext').addEventListener('change', e => { S.settings.autoNext = e.target.checked; touchSettings(); });
   $('#rvSort').addEventListener('change', e => { S.settings.sortBy = e.target.value === 'score' ? 'score' : 'time'; touchSettings(); renderList(); });
@@ -980,6 +985,14 @@ function renderExportUI(){
   $('#rvExpCancel').hidden = !running;
 }
 /* 1件ずつの行を作り、変わった行だけを置き換える(毎秒の状態確認で全部を作り直すと、押した瞬間のボタンが消えてクリックが失われるため) */
+function loudHTML(lo){   // ラウドネスをそろえた結果(書き出しの行に出す)
+  if (!lo || typeof lo !== 'object') return '';
+  if (lo.skipped) return `<div class="rv-ejob-s hint">音量はそろえませんでした: ${esc(lo.skipped)}</div>`;
+  const g = Number(lo.gainDb), m = Number(lo.measured), t = Number(lo.target);
+  if (!Number.isFinite(g) || !Number.isFinite(m) || !Number.isFinite(t)) return '';
+  const reached = Math.abs(m + g - t) < 0.6;
+  return `<div class="rv-ejob-s hint">音量: ${m.toFixed(1)} → ${(m + g).toFixed(1)} LUFS(${g >= 0 ? '+' : ''}${g.toFixed(1)} dB${reached ? '' : '。音が割れないよう目標の手前で止めました'})</div>`;
+}
 function jobItemHTML(j, it, i){
   const pct = Math.round((it.progress || 0) * 100), cls = it.status === 'done' ? 'ok' : it.status === 'error' ? 'err' : it.status === 'running' ? 'run' : it.status === 'cancelled' ? 'warn' : 'wait';
   return `<li class="rv-ejob st-${cls}"><div class="rv-ejob-h">
@@ -988,6 +1001,7 @@ function jobItemHTML(j, it, i){
       ${it.status === 'running' ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${it.file ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
       ${handoffHTML(j, it)}
+      ${loudHTML(it.loudness)}
       ${it.warning ? `<div class="rv-ejob-s rv-warnline">${esc(it.warning)}</div>` : ''}
       ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}</div>` : ''}</li>`;
 }
@@ -1045,7 +1059,7 @@ async function startExport(onlyIds){
   try {
     await flushSave(); // サーバーが保存済みのマークから範囲を組み立てるため、先に保存する
     if (S.cur !== v) throw new Error('動画が切り替わりました。書き出す動画を確認してやり直してください');
-    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } });
+    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } });
     S.job = { id: j.id, videoId: v.id, running: true }; rememberJob({ id: j.id, videoId: v.id });
     renderJob(j); pollJob();
   } catch (e){ toast(e.message || '書き出しを開始できませんでした', 0, 'err'); }
@@ -1080,7 +1094,7 @@ async function startExportAll(){
         if (S.exportAll.cancel) break allVideos;
         const chunk = ids.slice(offset, offset + 50);
         let j;
-        try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: chunk, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume } }); }
+        try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: chunk, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } }); }
         catch (e){
           toast((v.title || v.id) + ': ' + (e.message || '書き出しを開始できませんでした'));
           // POST の応答を失った場合も開始している可能性がある。続けて依頼しない。

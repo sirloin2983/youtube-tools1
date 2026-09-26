@@ -569,3 +569,31 @@
   今回のセリフ表示(review.js)が引き金の可能性も1回では否定できない
 - 未完了・次: 再現したら、どのブラウザ・どの画面・YouTube を再生中だったかを聞く → ハードウェアアクセラレーションをオフ → 拡張機能なしのシークレットウィンドウ、の順で切り分け
 - 未コミット: docs/WORKLOG.md(前の記録の未コミット分と一緒に push.bat で)
+
+## 2026-09-26 Claude(Cowork)— 段階5・6: まとめて実行・ラウドネス調整・コミット前の検査・単独起動の廃止・README の一本化(入口 v0.7.0・スタジオ v0.6.0・文字起こし v0.14.1・cut2resolve v0.9.0)
+- 担当: 統合作業(Claude)。スタジオ・文字起こし・cut2resolve も変更(ラウドネス・採用の API・起動の案内・preset)。作業の土台は GitHub の main = 98073c1
+- 決定(ユーザー 2026-09-26): 新着配信の監視は保留。ツールごとの単独起動はやめる(起動ファイルは削除。削除も「code などを使って」行う)。画面の形(pywebview)は保留・現状維持。
+  まとめて実行の範囲は「選べるようにする」、ラウドネスは「スタジオの書き出し時」
+- 変更(コミット前の検査・削除の仕組み): `tools/push_helper.py`(新規。removals: tools/removals.txt のファイルを git rm(git が管理しているものだけ・.. や絶対パス・ワイルドカードは拒否)/
+  check: コミットするファイルにキーの形・個人データの名前・作業データのフォルダ・動画・5MB 超があれば止める)、`tools/removals.txt`(新規)、`push.bat`(削除 → git add → 検査 の順)、`tools/test_push_helper.py`(新規 6)
+- 変更(単独起動の廃止): 3ツールの start.bat・start.command を tools/removals.txt に載せた(**次の push.bat で git rm される**)。画面(core.js・文字起こし app.js・cut2resolve app.js)と install*.bat/.command の案内を start-all.bat に。
+  serve.py の単独で動く部分(取り込めないときの子プロセス・テスト)は残した
+- 変更(ラウドネス): スタジオ `exporter.py`(build_spec の loudness(-11/-14/-16/-18)、measure_loudness(loudnorm で測るだけ)、apply_loudness(切り抜きと編集用素材に同じ量・ピーク -1 dBTP と +20dB で上げ止め・無音は触らない)、
+  .clip.json の export.loudness)、`review.js`(設定「音量のそろえ方」既定 -14・書き出しの行に結果)・`review.css`、`test_exporter.py`(TestLoudness 5)
+- 変更(まとめて実行): `app/autorun.py`(新規。3つの形・各ツールの API を HTTP で順に呼ぶ・まだ無いものだけ作る・中止・順番待ち)、`app/launch.py`(GET /api/autorun・POST /api/autorun/start・/cancel。合言葉つき)、
+  `app/cases.html`・`cases.js`・`portal.css`(各配信に形の選択・採用する数・実行・中止・段ごとの進み具合)、スタジオ `store.py`・`serve.py`(POST /api/video/adopt-top。学習の記録は書かない)、
+  cut2resolve `serve.py`(spec の preset "transcript-rows" = pack.TRANSCRIPT_ROWS)、テスト `app/test_autorun.py`(新規 10)・`app/e2e_autorun.py`(新規。本物の3ツールで画面から「採用後を全部」→ Text+ パック、API で「解析から全部」)・
+  スタジオ `test_api.py`(TestAdoptTop)・cut2resolve `test_serve.py`(preset)
+- 変更(README の一本化): リポジトリ直下の `README.txt`(新規。全体の使い方)、各ツールの README の起動の節と変更点、`AGENTS.md`、`docs/integration-plan.md`(段階5・6で決めたこと)。統合計画の正本(Claude Docs)も更新
+- 版: 入口 0.6.0 → 0.7.0、スタジオ 0.5.0 → 0.6.0、文字起こし 0.14.0 → 0.14.1、cut2resolve 0.8.0 → 0.9.0(`app/e2e_portal.py` の版も)
+- 判断・理由: まとめて実行はツールの関数を直接呼ばず API を呼ぶ(画面と同じ検査・ジョブ管理・重い処理の順番待ちを通すため)。自動で採用したマークを feedback に入れないのは、機械の選択を人の判断として学習すると自己強化になるため。
+  ラウドネスを切り抜きと編集用素材で別々に測らず同じ量をかけるのは、Resolve で差し替えたときに音量が変わらないようにするため。削除を removals.txt + push.bat にしたのは、Cowork が PC のファイルを消せず、git rm なら履歴から戻せるため
+- 注意: まとめて実行の解析は既定の設定(解析の設定はブラウザの localStorage にしか無い)。実行の記録は入口のメモリだけ(入口を終えると消える)。自動で作ったパックの字幕は校正前。
+  ラウドネスの既定を -14 にしたので、以前の「音量 75%」とは書き出しの音量が変わる(「そろえない」で以前と同じ)
+- 未確認(実機): 案件の画面の「まとめて実行」(3つの形)・書き出しのラウドネス(実際の配信で聞こえ方がそろうか)・push.bat の削除と検査(Windows の cmd で)
+- 未完了・次: 実機確認。保留: 新着配信の監視・画面の形(pywebview)・書き出し中のタブの STATUS_ACCESS_VIOLATION
+- 未コミット: 新規 7(README.txt・app/autorun.py・app/e2e_autorun.py・app/test_autorun.py・tools/push_helper.py・tools/removals.txt・tools/test_push_helper.py)、
+  変更 34(AGENTS.md・push.bat・app/{README.txt,cases.html,cases.js,e2e_portal.py,launch.py,mount.py,portal.css,test_mount.py}・
+  clip-studio/{README.txt,core.js,exporter.py,review.css,review.js,serve.py,store.py,test_api.py,test_exporter.py}・cut2resolve/{README.txt,app.js,cut2resolve_core.py,serve.py,test_serve.py}・
+  transcribe-tool/{README.txt,app.js,install.bat,install.command,install-diarize.bat,install-diarize.command,install-gpu.bat,serve.py}・docs/{integration-plan.md,WORKLOG.md,HANDOVER.md})、
+  削除 6(push.bat が tools/removals.txt から git rm: clip-studio・cut2resolve・transcribe-tool の start.bat・start.command)。push.bat で

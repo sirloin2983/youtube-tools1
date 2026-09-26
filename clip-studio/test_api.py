@@ -579,5 +579,27 @@ class TestTranscripts(Base):
         self.assertEqual(self.req("GET", "/api/transcripts?id=" + vid, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
 
 
+class TestAdoptTop(Base):
+    """POST /api/video/adopt-top: 入口の「まとめて実行(解析から全部)」が自動マークの上位を採用にする。学習の記録は書かない"""
+    def test_adopt_top(self):
+        vid = "adopttop001"
+        serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
+        cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0))]
+        serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
+        fb = analyze.feedback_path() if hasattr(analyze, "feedback_path") else os.path.join(self.tmp, "feedback.jsonl")
+        before = os.path.getsize(fb) if os.path.exists(fb) else 0
+        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 2})
+        self.assertEqual(st, 200, j)
+        by = {m["id"]: m for m in j["video"]["marks"]}
+        self.assertEqual(sorted(by[i]["start"] for i in j["adopted"]), [30.0, 50.0])   # 点数の高い2件
+        self.assertEqual(sum(1 for m in by.values() if m["status"] == "adopted"), 2)
+        self.assertEqual(os.path.getsize(fb) if os.path.exists(fb) else 0, before)   # 人の判定ではないので記録しない
+        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 3})
+        self.assertEqual((st, j["adopted"]), (200, []))   # 採用済みがあれば何もしない
+        for bad in (0, 31, "2", True):
+            self.assertEqual(self.req("POST", "/api/video/adopt-top", {"id": vid, "top": bad})[0], 400, bad)
+        self.assertEqual(self.req("POST", "/api/video/adopt-top", {"id": "nothere0000", "top": 1})[0], 404)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

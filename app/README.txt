@@ -1,12 +1,12 @@
 ==========================================================
-  入口(ランチャー)  v0.6.0  はじめに読んでください
+  入口(ランチャー)  v0.7.0  はじめに読んでください
 ==========================================================
 
 3つのツール(切り抜きスタジオ・文字起こしツール・cut2resolve)を、1回の操作でまとめて起動・終了するための入口です。
 統合計画(docs/integration-plan.md)の段階1で作り、段階3から「ツールを入口の中に取り込む」ことを始めました。
 v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://localhost:8700/studio/)・文字起こし(/transcribe/)・cut2resolve(/cut2resolve/)。
 文字起こしの認識(faster-whisper)だけは、落ちても入口ごと止まらないよう、別のプログラム(transcribe-tool\tx_worker.py)で動きます。
-今までどおり、各ツールの start.bat だけで使うこともできます。
+各ツールの start.bat での単独起動は 2026-09-26 にやめました(起動は start-all.bat だけ)。使い方の全体はリポジトリ直下の README.txt。
 
 ■ 使い方
   1. youtube-test フォルダ(リポジトリ直下)の start-all.bat をダブルクリック(Mac は start-all.command)
@@ -57,8 +57,8 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
     --only      起動するツールを絞る(studio / transcribe / cut2resolve をカンマ区切り)
     --no-mount  ツールを入口に取り込まず、別のプログラムとして起動する(以前の動き。問題が出たときの戻し方)
 
-  各ツールは、それぞれのフォルダで「serve.py <既定のポート> --no-open」として起動します(start.bat と同じ Python)。
-  Mac / Linux の文字起こしツールは、start.command と同じく transcribe-tool/.venv があればその Python を使います。
+  各ツールは、それぞれのフォルダで「serve.py <既定のポート> --no-open」として起動します(入口と同じ Python)。
+  Mac / Linux の文字起こしツールは、transcribe-tool/.venv があればその Python を使います。
 
 ■ 安全のための決まり
   - 入口のサーバーは 127.0.0.1(この PC)だけで待ち受けます。他の PC からは開けません
@@ -68,8 +68,22 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
 ■ テスト
   python -m unittest app/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
   python -m unittest app/test_cases.py -v       (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
+  python -m unittest app/test_autorun.py -v     (まとめて実行の段取り。ツールは偽物)
+  python app/e2e_autorun.py                     (まとめて実行の通し確認。本物の3ツールを疑似モードで入口に取り込む。Playwright と ffmpeg が必要)
   python -m unittest app/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
   python app/e2e_portal.py                      (画面の確認。Playwright(chromium)が必要)
+
+■ v0.7.0(2026-09-26・まとめて実行・コミット前の検査・単独起動の廃止)
+  - 案件の画面の各配信に「まとめて実行」(app/autorun.py)。形を選んで押すと、残りの作業を順に自動で進める:
+      採用後を全部(書き出し → 文字起こし → パック)/ 文字起こしまで(書き出し → 文字起こし)/
+      解析から全部(未解析なら解析 → 自動マークの点数の高いものを指定の数だけ採用 → … → パック)
+    各ツールの画面と同じ API を順に呼ぶ(同じ検査・同じジョブ管理・重い処理の順番待ち)。まだ無いものだけを作るので、止めてももう一度押せば続きから。
+    書き出しはスタジオの ③ の設定、文字起こしは文字起こしツールの設定を使う。解析は既定値(解析の設定はブラウザの中にしか無いため)。
+    パックは文字起こしの行だけを残す規則と Text+(字幕は校正前。校正したら cut2resolve で作り直す)。同じ名前のパックがあれば作らない。
+    自動で採用したマークは、学習の記録(スタジオの feedback)に入れない。1本ずつ順に処理し、入口を終えると順番待ちの分は消える
+    API: GET /api/autorun・POST /api/autorun/start {id, mode, top?}・POST /api/autorun/cancel {runId}(合言葉つき)
+  - push.bat: コミットの前に tools\removals.txt のファイルを git rm し、送るファイルに個人データ・秘密情報らしいものがあれば止める(tools\push_helper.py)
+  - 各ツールの start.bat・start.command をやめた(tools\removals.txt に載せ、push.bat で消える)。使い方をリポジトリ直下の README.txt に一本化
 
 ■ v0.6.0(2026-09-26・案件の画面・重い処理の同時実行の上限)
   - 「案件(配信ごと)の一覧」の画面(http://localhost:8700/cases.html。入口の画面の上のリンク)。
@@ -79,7 +93,7 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
     状態かメモを付けた案件は、スタジオから配信を消しても最後に見えた内容で残る
   - 重い処理(スタジオの解析・書き出し、文字起こし、cut2resolve のパック作り)は、入口の中で合わせて同時に 2 つまで(ytt_core/jobs.py)。
     3つ目からは順番待ち(各ツールの画面に「他のツールの処理が終わるのを待っています」)。上限は環境変数 YTT_MAX_HEAVY_JOBS(1〜8)。
-    各ツールを start.bat で単独に起動したときは、そのツールの中だけで数える
+    (serve.py を直接起動したときは、そのツールの中だけで数える)
   - 入口の /api/status に heavy(上限・実行中・順番待ち)を足した
 
 ■ v0.5.0(2026-09-26・作業データをリポジトリの外へ)

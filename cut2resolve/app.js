@@ -696,7 +696,7 @@ async function loadSiblings() {
       const t = UIKit.tools.list[i];
       if (t && t.id !== 'cut2resolve' && !ports[t.id]) {
         a.classList.add('c2r-tool-off');
-        a.title = '起動していないようです(既定のポートで開きます。start.bat で起動してから開いてください)';
+        a.title = '起動していないようです(既定のポートで開きます。入口(youtube-test フォルダの start-all.bat)から起動してから開いてください)';
         const small = a.querySelector('small');
         if (small) small.textContent += '(起動していません)';
       }
@@ -830,7 +830,7 @@ async function start() {
   try {
     const p = await api('/api/ping');
     if (p.app !== 'cut2resolve') throw new Error('このアドレスは cut2resolve ではありません');
-    if (p.version !== APP_VERSION) showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。黒い画面を閉じて start.bat で起動し直してください');
+    if (p.version !== APP_VERSION) showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。入口の「すべて終了」を押してから start-all.bat で起動し直してください');
     S.state = await api('/api/state');
     S.limits = S.state.uploadLimits || {};
     if (!S.state.ffmpeg || !S.state.ffprobe) showErr('ffmpeg / ffprobe が見つかりません。README の「準備」を見てインストールし、黒い画面を開き直してください');

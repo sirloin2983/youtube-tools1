@@ -4,7 +4,7 @@
 本物の切り抜きスタジオ(疑似モード)・cut2resolve を一時フォルダに写し、入口のサーバーに取り込んで確かめる:
 /studio/・/cut2resolve/ の画面・API・安全対策(CSP・合言葉・Host)、.runtime の場所、他のツールの /api/siblings、
 別の画面で起動済みのときは取り込まないこと、取り込めないときは別のプログラムとして起動すること、
-start.bat からの二重起動を防ぐこと、ツール間で部品の名前が重ならないこと。
+serve.py の直接起動による二重起動を防ぐこと、ツール間で部品の名前が重ならないこと。
 """
 import http.client
 import json
@@ -192,7 +192,7 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(runtime.siblings(self.rdir, "transcribe", 8775)["paths"], {"studio": "/studio/"})
 
     def test_standalone_start_opens_the_mounted_one(self):
-        """取り込まれている間に start.bat からスタジオを起動しても、2つ目のサーバーは立てない(同じ data.json を取り合わないため)"""
+        """取り込まれている間に serve.py を直接起動しても、2つ目のサーバーは立てない(同じ data.json を取り合わないため)"""
         port = free_ports(1)[0]
         r = subprocess.run([sys.executable, os.path.join(self.studio_dir, "serve.py"), str(port), "--no-open"],
                            capture_output=True, text=True, timeout=60, env=dict(os.environ))

@@ -55,3 +55,11 @@
 .pt-case-memo textarea{width:100%;margin:6px 0}
 .pt-cs-unlinked{margin:8px 0 0;padding-left:18px}
 .pt-cs-link{margin-left:8px}
+/* 案件の画面: まとめて実行 */
+.pt-auto{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line)}
+.pt-auto .row{flex-wrap:wrap;gap:8px;align-items:center}
+.pt-auto-top{width:4.5em}
+.pt-auto-steps{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pt-auto-step{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.pt-auto-step .hint{overflow-wrap:anywhere}
+.pt-auto-msg{margin-top:4px}

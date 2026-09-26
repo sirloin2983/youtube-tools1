@@ -10,6 +10,9 @@
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(app/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
+  GET  /api/autorun                       まとめて実行の状態(app/autorun.py)
+  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?} 配信1本ぶんを順に自動で
+  POST /api/autorun/cancel                {runId}
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
@@ -46,10 +49,11 @@ if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
 from ytt_core import datadir, httpsec, jobs, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
+import autorun as autorun_mod
 import cases as cases_mod  # noqa: E402  (app/cases.py: 案件(配信1本)ごとの紐づけ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.6.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.7.0"          # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -135,7 +139,7 @@ def expected_version(spec, root):
 
 
 def tool_python(tool_dir, spec):
-    """子を起動する Python。各ツールの start.bat / start.command と同じものを使う:
+    """子を起動する Python(取り込めなかったツールを子プロセスで動かすとき):
     Windows は入口と同じ(py -3 / python)、Mac/Linux の文字起こしは .venv があればそちら。"""
     if os.name != "nt" and spec.get("venv"):
         v = os.path.join(tool_dir, ".venv", "bin", "python")
@@ -562,6 +566,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             t = sup.by_id[tid]
             lines = tail(t.log_path, n)
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
+        if u.path == "/api/autorun":   # まとめて実行の状態(app/autorun.py)
+            return self._json(200, self.server.autorun.snapshot())
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。app/cases.py)
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
@@ -616,6 +622,16 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(400, "bad_request", str(e))
             except OSError as e:
                 return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+        if u.path in ("/api/autorun/start", "/api/autorun/cancel"):   # まとめて実行(配信1本ぶんを順に自動で)
+            if self.server.closing.is_set():
+                return self._fail(409, "closing", "終了の途中です")
+            try:
+                ar = self.server.autorun
+                if u.path.endswith("start"):
+                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"))})
+                return self._json(200, {"run": ar.cancel(body.get("runId"))})
+            except ValueError as e:
+                return self._fail(400, "bad_request", str(e))
         if u.path == "/api/shutdown":
             self._json(200, {"ok": True})
             threading.Thread(target=self.server.request_shutdown, daemon=True).start()
@@ -656,6 +672,25 @@ class PortalServer(ThreadingHTTPServer):
         self.closing = threading.Event()
         self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
         self.mounts = {}
+        self._autorun = None
+        self._autorun_lock = threading.Lock()
+
+    def tool_endpoint(self, tid):
+        """まとめて実行(app/autorun.py)がツールの API を呼ぶ先 (ポート, 場所)。動いていなければ None"""
+        t = self.sup.by_id.get(tid)
+        if t is None:
+            return None
+        snap = t.snapshot()
+        if snap["state"] not in ("running", "external") or not snap["port"]:
+            return None
+        return snap["port"], snap["path"] or "/"
+
+    @property
+    def autorun(self):
+        with self._autorun_lock:
+            if self._autorun is None:
+                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root)
+            return self._autorun
 
     def handler_for(self, path):
         if path and self.mounts:
@@ -680,6 +715,8 @@ class PortalServer(ThreadingHTTPServer):
             return
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
+        if self._autorun is not None:
+            self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
         self.sup.stop_all()
         self.sup.unmount_all()
         self.shutdown()

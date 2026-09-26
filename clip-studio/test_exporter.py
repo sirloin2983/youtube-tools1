@@ -355,5 +355,97 @@ class TestHeavyJobLimit(unittest.TestCase):
             body.assert_called_once()
 
 
+@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+class TestLoudness(unittest.TestCase):
+    """ラウドネス(聞こえ方の音量)をそろえる書き出し(2026-09-26)。切り抜きと編集用素材に同じ量だけかける"""
+    @classmethod
+    def setUpClass(cls):
+        cls.src_dir = tempfile.mkdtemp()
+        cls.src = os.path.join(cls.src_dir, "src.mp4")
+        if not _make_source(cls.src):   # 440Hz の正弦波(振幅 1/8。約 -21 LUFS)
+            raise unittest.SkipTest("テスト用動画を作れなかった")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.src_dir, ignore_errors=True)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        common.set_home(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def measure(self, path):
+        return exporter.measure_loudness({"cancel": False, "proc": None}, {"start": 0.0, "end": 1.0, "progress": 0.0}, path)
+
+    def test_build_spec_choices(self):
+        src = self.src
+
+        class Store:
+            def internal(self, vid):
+                return {"id": vid, "marks": [{"id": "m1", "start": 1.0, "end": 2.0, "label": ""}], "kind": "file", "path": src, "title": "t", "fileName": ""}
+        self.assertIsNone(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"]})["loudness"])   # 送らなければ今までどおり音量(%)
+        self.assertEqual(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": -14})["loudness"], -14.0)
+        self.assertIsNone(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": 0})["loudness"])
+        for bad in (-13, -40, "x", [1]):
+            with self.subTest(bad=bad), self.assertRaises(common.ApiError):
+                exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": bad})
+
+    def test_clip_and_edit_media_reach_target_with_same_gain(self):
+        clips = [{"id": "m1", "start": 12.0, "end": 18.0, "title": "t", "label": "t", "src": "manual", "markStatus": "adopted"}]
+        spec = dict(_spec(self.src, clips), loudness=-14.0)
+        job = _job(clips, common.get_out_dir())
+        exporter.run_job(job, spec, lambda *a: True)
+        it = job["items"][0]
+        self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
+        before, _ = self.measure(self.src)
+        i_main, tp_main = self.measure(it["path"])
+        i_edit, _ = self.measure(it["editPath"])
+        self.assertAlmostEqual(i_main, -14.0, delta=1.0)
+        self.assertAlmostEqual(i_edit, -14.0, delta=1.0)   # 同じ音なので、同じ量をかければ編集用素材も同じ大きさ
+        self.assertLessEqual(tp_main, exporter.TRUE_PEAK_CEIL + 0.5)
+        lo = it["loudness"]
+        self.assertEqual(lo["target"], -14.0)
+        self.assertAlmostEqual(lo["gainDb"], -14.0 - lo["measured"], delta=0.2)
+        self.assertAlmostEqual(lo["measured"], before, delta=1.0)
+        for m in (it["manifest"], it["editManifest"]):
+            ex = _read(m)["export"]
+            self.assertEqual(ex["loudness"], lo)
+            self.assertNotIn("volume", ex)   # 音量(%)は使っていない
+        self.assertEqual(exporter.job_public(job)["items"][0]["loudness"], lo)
+        leftovers = [n for n in os.listdir(os.path.dirname(it["path"])) if n.endswith(".vol.mp4")]
+        self.assertEqual(leftovers, [])
+
+    def test_gain_is_limited_by_true_peak(self):
+        loud = os.path.join(self.tmp, "loud.mp4")
+        ff = common.find_tool("ffmpeg")
+        subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=4",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=4,volume=7", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+                        "-shortest", loud], check=True, stdin=subprocess.DEVNULL)   # ほぼ 0dBFS のピーク
+        it = {"start": 0.0, "end": 4.0, "progress": 0.0, "path": loud}
+        exporter.apply_loudness({"cancel": False, "proc": None}, {"loudness": -11.0}, it)
+        _i, tp = self.measure(loud)
+        self.assertLessEqual(tp, exporter.TRUE_PEAK_CEIL + 0.5)   # 目標まで上げると割れるときは、ピークの手前で止める
+
+    def test_silence_is_skipped(self):
+        clip = os.path.join(self.tmp, "silent.mp4")
+        if not _make_clip(clip):
+            self.skipTest("テスト用動画を作れなかった")
+        with open(clip, "rb") as f:
+            before = hashlib.sha1(f.read()).hexdigest()
+        it = {"start": 0.0, "end": 2.0, "progress": 0.0, "path": clip}
+        exporter.apply_loudness({"cancel": False, "proc": None}, {"loudness": -14.0}, it)
+        self.assertIn("skipped", it["loudness"])
+        with open(clip, "rb") as f:
+            self.assertEqual(hashlib.sha1(f.read()).hexdigest(), before)   # 無音は触らない
+
+    def test_volume_is_not_applied_when_loudness_is_on(self):
+        job = {"cancel": False, "proc": None}
+        with patch.object(exporter, "_reencode_audio") as re_:
+            exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75, "loudness": -14.0}, {"start": 0, "end": 1}, "x.mp4")
+        re_.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
