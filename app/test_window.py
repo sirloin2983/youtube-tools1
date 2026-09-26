@@ -51,6 +51,106 @@ def opener(tmp, fake):
     return W.Opener(tmp, fsio.atomic_write, popen=fake.popen, browser_open=fake.browser_open, find=fake.find, clock=fake.clock)
 
 
+class FakeUser32:
+    """窓を前に出す(appwindow.focus_window)ための偽の user32。windows: [(番号, 題名, 見えている, 最小化)]"""
+
+    def __init__(self, windows, fg=900, allow=True):
+        self.w = {h: (t, v, i) for h, t, v, i in windows}
+        self.order = [h for h, _, _, _ in windows]
+        self.fg, self.allow, self.calls = fg, allow, []
+
+    def EnumWindows(self, proc, lparam):
+        for h in self.order:
+            if not proc(h, lparam):
+                break
+        return True
+
+    def IsWindowVisible(self, h):
+        return self.w[h][1]
+
+    def GetWindowTextLengthW(self, h):
+        return len(self.w[h][0])
+
+    def GetWindowTextW(self, h, buf, n):
+        buf.value = self.w[h][0][:n - 1]
+        return len(buf.value)
+
+    def IsIconic(self, h):
+        return self.w[h][2]
+
+    def ShowWindow(self, h, cmd):
+        self.calls.append(("show", h, cmd))
+        return True
+
+    def GetForegroundWindow(self):
+        return self.fg
+
+    def GetCurrentThreadId(self):
+        return 1
+
+    def GetWindowThreadProcessId(self, h, p):
+        return 2
+
+    def AttachThreadInput(self, a, b, on):
+        self.calls.append(("attach", a, b, bool(on)))
+        return True
+
+    def BringWindowToTop(self, h):
+        return True
+
+    def SetForegroundWindow(self, h):
+        self.calls.append(("fg", h))
+        if self.allow:
+            self.fg = h
+        return self.allow
+
+
+class TestFocusWindow(unittest.TestCase):
+    """ツールの窓の「入口」: 入口の窓がほかにあれば、題名で探して前に出す(入口を二つにしない。2026-09-27)"""
+    T = L.PORTAL_TITLE
+
+    def test_finds_by_title_and_brings_to_front(self):
+        u = FakeUser32([(10, "編集 — 入口の外", True, False), (11, self.T + " - Microsoft Edge", False, False),
+                        (12, self.T, True, True), (13, self.T, True, False)])
+        self.assertTrue(W.focus_window(self.T, user32=u))
+        self.assertEqual(u.fg, 12)                                          # 見えている中でいちばん手前
+        self.assertIn(("show", 12, 9), u.calls)                             # 最小化していたら戻す
+        self.assertEqual([c for c in u.calls if c[0] == "attach"], [("attach", 1, 2, True), ("attach", 1, 2, False)])   # つないだら必ず外す
+
+    def test_not_found_or_refused(self):
+        u = FakeUser32([(10, "ほかの窓", True, False)])
+        self.assertFalse(W.focus_window(self.T, user32=u))
+        self.assertEqual(u.calls, [])
+        u = FakeUser32([(12, self.T, True, False)], allow=False)
+        self.assertFalse(W.focus_window(self.T, user32=u))                  # 前に出せなかった(画面が知らせる)
+        self.assertEqual(u.calls[-1], ("attach", 1, 2, False))
+
+    def test_already_in_front(self):
+        u = FakeUser32([(12, self.T, True, False)], fg=12)
+        self.assertTrue(W.focus_window(self.T, user32=u))
+        self.assertEqual(u.calls, [])
+
+    def test_opener_focus_is_rate_limited_and_safe(self):
+        fake = FakeSys()
+        o = opener(tempfile.mkdtemp(prefix="ytt-focus-"), fake)
+        self.assertTrue(o.focus("x", focus=lambda t: True))
+
+        def boom(t):
+            raise OSError("user32")
+        self.assertFalse(o.focus("x", focus=boom))                          # ctypes の失敗は「前に出せない」
+        for _ in range(W.RATE[0]):
+            try:
+                o.focus("x", focus=lambda t: True)
+            except W.TooMany:
+                break
+        with self.assertRaises(W.TooMany):
+            o.focus("x", focus=lambda t: True)
+
+    def test_portal_title_matches_page(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(L.__file__)), "portal.html"), encoding="utf-8") as f:
+            self.assertIn("<title>%s</title>" % L.PORTAL_TITLE, f.read())
+
+
 class TestFindEdge(unittest.TestCase):
     def test_env_override(self):
         self.assertEqual(W.find_edge({"YTT_APP_BROWSER": "/x/chrome"}, "win32", isfile=lambda p: p == "/x/chrome"), "/x/chrome")
@@ -293,6 +393,15 @@ class TestPortalApi(unittest.TestCase):
         for _ in range(W.RATE[0]):
             self.req("POST", "/api/ytt/open-external", {"url": "https://example.com/"})
         self.assertEqual(self.req("POST", "/api/ytt/open-external", {"url": "https://example.com/"})[0], 429)
+
+    def test_focus_portal(self):
+        seen = []
+        self.srv.window.focus = lambda title: seen.append(title) or True
+        st, j = self.req("POST", "/api/ytt/focus-portal", {})
+        self.assertEqual((st, j, seen), (200, {"ok": True, "focused": True}, [L.PORTAL_TITLE]))
+        self.srv.window.focus = lambda title: False
+        self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {})[1]["focused"], False)
+        self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
     def test_open_window_without_edge(self):
         self.srv.window = opener(os.path.join(self.tmp, "app"), FakeSys(exe=None))

@@ -997,3 +997,18 @@
 - テスト(PC): 入口の単体・ytt_core/tools 56・契約 27・cut2resolve 279・編集の単体 125・e2e(編集 tabs/cut/pack/mounted/handoff・入口 autorun/portal・e2e_pipeline)
 - 実機で確かめてほしいこと(ユーザー): パックを作り直して Resolve で実行 → 白いふちが黒いふちの上に見えるか・マーカーのメモ(「読み替え: …」または「反映できなかった … 入力の一覧: textplus-inputs.txt」)。
   まだおかしければ、Resolve の画面の写真と、パックにできた textplus-inputs.txt を送ってもらう
+
+## 2026-09-27 Claude Code — 実機の確認のあとの要望(2): 入口が二つにならない・UI の 10 の原則の資料・要望の設計
+- ユーザーの要望(2026-09-27): ①出力先の途中のファイルを下のフォルダへ ②bat と「他のツール」から入ると入口が二つになる ③UI は NN/g の 10 の原則を学んでほしい(原則に沿った変更は Cowork で)
+  ④まとめて実行を各段階から ⑤配信者の名前で字幕の色(手で入れたときだけ・まとめて実行でも)。決めたことと設計は **`docs/followup-2026-09-27.md`**
+- ユーザーの回答: ① パックと元動画以外を下へ ② 開いている入口を前に出す ④ ユーザーが作業する各段階に ⑤ 文字を色に
+- 変更(②): `ui-kit/ui-kit.js`(v5。`UIKit.portal`: 入口へ戻るリンク `a[data-ui-portal]` は、BroadcastChannel で入口の画面に問い合わせ、あれば移らずに
+  `api/ytt/focus-portal`・前に出せなければ知らせる・無ければ今までどおり移る)→ `tools/sync_ui_kit.py` で写した、`app/portal.js`(答える)、`app/cases.html`(← 入口へ)、
+  `app/launch.py`(`focus-portal`・`PORTAL_TITLE`)、`app/appwindow.py`(`focus_window`: 題名で窓を探し、前面の窓のスレッドに入力をつないでから SetForegroundWindow・`Opener.focus`)
+- 変更(③): `docs/usability-heuristics.md`(新規。10 の原則の要点・このツール群での当てはめ方・確かめ方・気づいたこと)、`docs/ui-guidelines.md`・`AGENTS.md` からリンク。画面は変えていない
+- 版: 入口 0.10.1 → **0.10.2**(launch.py・README)、ui-kit v4 → **v5**
+- テスト(PC): `app/test_window.py`(窓を前に出す・API・題名が portal.html と同じ)、`app/e2e_window.py`(入口が開いていれば移らずに頼む・前に出せなければ知らせる・
+  「他のツール」の入口も・入口が無ければ移る。本物の窓は動かさないように focus を差し替え)、`e2e_portal`・スタジオ `e2e_ui --mounted`・編集 `e2e_ui_handoff`・`test_ui_kit_sync`
+- 注意: `app/test_window.py` の `test_security_checks` が1回だけ ConnectionAbortedError で落ちた(403 を返してすぐ閉じる所の接続のタイミング。流し直すと通る。今回の変更とは関係ない)
+- 実機で確かめてほしいこと(ユーザー): 窓で開く設定で、ツールの窓の「入口」→ 新しく開かずに bat で開いた入口の窓が前に出るか(本物の窓を前に出す所はテストで動かしていない)
+- 未完了・次: ① 出力先の整理・⑤ 配信者の色・④ 各段階のまとめて実行(`docs/followup-2026-09-27.md` の順に)

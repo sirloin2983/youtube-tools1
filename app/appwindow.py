@@ -150,6 +150,63 @@ def write_mode(path, mode, atomic_write):
     return mode
 
 
+def focus_window(title, user32=None):
+    """題名が title で始まる、見えているいちばん上の窓を前に出す(Windows だけ)。-> 前に出せたか。
+    入口の窓が二つにならないように、ツールの窓の「入口」から呼ぶ(2026-09-27)。
+    入口のサーバーは前面のプログラムではないので、そのままでは SetForegroundWindow が効かない(タスクバーが点滅するだけ)。
+    いま前面の窓のスレッドに入力をつないで(AttachThreadInput)から頼む。見つからない・前に出せないときは False(画面が「ほかの窓で開いています」と知らせる)"""
+    if os.name != "nt" and user32 is None:
+        return False
+    import ctypes
+    from ctypes import wintypes
+    if user32 is None:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        current_thread = kernel32.GetCurrentThreadId
+        H = wintypes.HWND   # 64 ビットの窓の番号を int に切り詰めないように、引数と戻り値の型を決める
+        for name, args, res in (("IsWindowVisible", [H], wintypes.BOOL), ("GetWindowTextLengthW", [H], ctypes.c_int),
+                                ("GetWindowTextW", [H, wintypes.LPWSTR, ctypes.c_int], ctypes.c_int), ("IsIconic", [H], wintypes.BOOL),
+                                ("ShowWindow", [H, ctypes.c_int], wintypes.BOOL), ("GetForegroundWindow", [], H),
+                                ("GetWindowThreadProcessId", [H, ctypes.c_void_p], wintypes.DWORD),
+                                ("AttachThreadInput", [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL], wintypes.BOOL),
+                                ("BringWindowToTop", [H], wintypes.BOOL), ("SetForegroundWindow", [H], wintypes.BOOL)):
+            fn = getattr(user32, name)
+            fn.argtypes, fn.restype = args, res
+    else:
+        current_thread = user32.GetCurrentThreadId   # テストの偽物
+    found = []
+    proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def each(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n > 0:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if buf.value.startswith(title):
+                    found.append(hwnd)
+        return True
+    user32.EnumWindows(proc(each), 0)
+    if not found:
+        return False
+    hwnd = found[0]   # EnumWindows は手前の窓から順に返す
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)   # SW_RESTORE(最小化していたら戻す)
+    fg = user32.GetForegroundWindow()
+    if fg == hwnd:
+        return True
+    me = current_thread()
+    other = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    attached = bool(other and other != me and user32.AttachThreadInput(me, other, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(me, other, False)
+    return user32.GetForegroundWindow() == hwnd
+
+
 class Opener:
     """窓・いつものブラウザで開く係(入口に1つ)。data_dir は作業データの置き場所の app フォルダ"""
 
@@ -216,6 +273,15 @@ class Opener:
         self._rate()
         self._spawn(target)
         return target
+
+    def focus(self, title, focus=focus_window):
+        """題名で窓を前に出す(入口の窓。api/ytt/focus-portal)。-> 前に出せたか"""
+        self._rate()
+        try:
+            return bool(focus(title))
+        except (OSError, AttributeError, ValueError) as e:   # ctypes の呼び出しの失敗
+            self._log("窓を前に出せませんでした: %s" % e)
+            return False
 
     def open_external(self, url):
         """画面のリンクから: 外のサイトをいつものブラウザで開く"""

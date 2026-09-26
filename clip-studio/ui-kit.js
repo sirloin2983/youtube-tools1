@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v4 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v5 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark') / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
@@ -13,6 +13,7 @@
    v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
        window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s)
    v4: 文字起こしツールと cut2resolve を「編集」に統合(docs/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
+   v5: 入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(UIKit.portal。入口が二つにならないように。2026-09-27)
        (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない) */
 (function () {
   'use strict';
@@ -112,7 +113,7 @@
       opt = opt || {};
       var html = '';
       if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
-        html += '<a href="/"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>ツールの状態・起動と終了</small></span></a>' +
+        html += '<a href="/" data-ui-portal><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>ツールの状態・起動と終了</small></span></a>' +
           '<a href="/cases.html"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
           '<div class="ui-menu-sep" role="separator"></div>';
       }
@@ -131,7 +132,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     if (!tools.mounted()) return;
     var home = document.querySelectorAll('[data-ui-home]'), cases = document.querySelectorAll('[data-ui-cases]');
-    for (var i = 0; i < home.length; i++) { home[i].setAttribute('href', '/'); home[i].hidden = false; }
+    for (var i = 0; i < home.length; i++) { home[i].setAttribute('href', '/'); home[i].setAttribute('data-ui-portal', ''); home[i].hidden = false; }
     for (var j = 0; j < cases.length; j++) { cases[j].setAttribute('href', '/cases.html'); cases[j].hidden = false; }
   });
 
@@ -269,5 +270,59 @@
   document.addEventListener('auxclick', function (e) { if (e.button === 1) onLink(e); });
   var win = { isApp: isApp, open: openVia };
 
-  window.UIKit = { version: 3, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc };
+  /* ---- 入口へ戻る(v5)---- bat で開いた入口の窓があるのに、ツールの窓の「入口」で同じ窓を入口へ移すと、入口が二つになっていた(2026-09-27)。
+     入口の画面(portal.js が UIKit.portal.listen())が BroadcastChannel で答えたら、移らずに入口(サーバー)に「入口の窓を前に出して」と頼む
+     (api/ytt/focus-portal。Windows の窓を題名で探す)。前に出せなかったら知らせるだけ(ツールの画面はそのまま)。
+     答えが無ければ今までどおり、その場で入口へ移る。同じパソコン・同じブラウザのプロファイルの中だけで届く(外には出ない) */
+  var PORTAL_CH = 'ytt-portal';
+  function portalOpen(ms) {
+    return new Promise(function (resolve) {
+      if (!window.BroadcastChannel) return resolve(false);
+      var ch, done = false, id = String(Math.random()).slice(2);
+      function end(v) { if (done) return; done = true; try { ch.close(); } catch (e) { /* 閉じ済み */ } resolve(v); }
+      try { ch = new BroadcastChannel(PORTAL_CH); } catch (e) { return resolve(false); }
+      ch.onmessage = function (e) { var d = e.data || {}; if (d.type === 'here' && d.re === id) end(true); };
+      ch.postMessage({ type: 'ping', id: id });
+      setTimeout(function () { end(false); }, ms || 400);
+    });
+  }
+  function note(message) {   // ツールごとの知らせの部品に頼らない短い知らせ(ui-kit.css の .toast)
+    var el = document.createElement('div');
+    el.className = 'toast info'; el.setAttribute('role', 'status'); el.textContent = message;
+    el.addEventListener('click', function () { el.remove(); });
+    document.body.appendChild(el);
+    setTimeout(function () { el.remove(); }, 5000);
+  }
+  var portal = {
+    /* 入口の画面が呼ぶ: ほかの窓の「入口」リンクに「ここにある」と答える */
+    listen: function () {
+      if (!window.BroadcastChannel) return;
+      try {
+        var ch = new BroadcastChannel(PORTAL_CH);
+        ch.onmessage = function (e) { var d = e.data || {}; if (d.type === 'ping' && d.id) ch.postMessage({ type: 'here', re: d.id }); };
+      } catch (e) { /* 使えないブラウザ: 答えない(リンクは今までどおり移る) */ }
+    },
+    isOpen: portalOpen,
+    /* 入口へ: 開いていれば前に出す(-> 'focused' | 'elsewhere')、無ければ href へ移る(-> 'moved') */
+    go: function (href) {
+      return portalOpen(400).then(function (open) {
+        if (!open || !token()) { location.href = href || '/'; return 'moved'; }
+        return yttPost('focus-portal', {}).then(function (r) { return r && r.focused ? 'focused' : 'elsewhere'; }, function () { return 'elsewhere'; })
+          .then(function (how) {
+            if (how === 'elsewhere') note('入口はほかの窓(タブ)で開いています。タスクバーから切り替えてください');
+            return how;
+          });
+      });
+    }
+  };
+  document.addEventListener('click', function (e) {
+    if (e.button !== 0 || e.defaultPrevented || e.ctrlKey || e.shiftKey || e.metaKey || e.altKey) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[data-ui-portal]') : null;
+    if (!a || !token()) return;
+    e.preventDefault();
+    portal.go(a.href);
+  });
+
+  window.UIKit = { version: 5, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+                   portal: portal };
 })();

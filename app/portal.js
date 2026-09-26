@@ -256,6 +256,8 @@
   }
   function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text; }
 
+  // 入口がここで開いていることを、ほかの窓の「入口」リンクに答える(開き直さずにこの窓を前に出すため。ui-kit v5 の UIKit.portal)
+  if (window.UIKit && UIKit.portal) UIKit.portal.listen();
   document.addEventListener('DOMContentLoaded', function () {
     $('#btnQuit').addEventListener('click', quit);
     $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });

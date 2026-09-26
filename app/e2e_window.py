@@ -241,6 +241,32 @@ def main():
                     lines = json.loads(r.read())["lines"]
                 check(any("e2e-reject-transcribe" in x for x in lines), "[7-0] 入口の /api/log?tool=client で読める")
 
+                # ---- 入口へ戻る(2026-09-27): 入口がほかのタブで開いていれば、ツールの画面は移らずに入口(サーバー)へ「前に出して」と頼む ----
+                focused, focus_ok = [], [True]
+                srv.window.focus = lambda title: focused.append(title) or focus_ok[0]   # 本物の窓は動かさない(テストを流す PC の画面を奪わない)
+                sp = ctx.new_page()
+                sp.on("pageerror", lambda e: errors.append(str(e)))
+                sp.goto(base + "studio/")
+                check(wait_js(sp, "!!(window.Studio && Studio.state) && !document.querySelector('[data-ui-home]').hidden", 30000), "[入口] スタジオの画面")
+                sp.click("[data-ui-home]")
+                check(wait_until(lambda: focused, 5) == [L.PORTAL_TITLE] and "/studio/" in sp.url,
+                      "[入口] 入口が開いていれば、移らずに入口の窓を前に出すよう頼む(入口が二つにならない): %s %s" % (focused, sp.url))
+                focus_ok[0] = False
+                sp.click("[data-ui-home]")
+                check(wait_js(sp, "[...document.querySelectorAll('.toast')].some(t => t.textContent.indexOf('ほかの窓') >= 0)", 5000) and "/studio/" in sp.url,
+                      "[入口] 前に出せなかったら知らせる(画面はそのまま)")
+                sp.click("#toolMenu summary")
+                n0 = len(focused)
+                sp.click("#toolNav a[data-ui-portal]")
+                check(wait_until(lambda: len(focused) > n0, 5) and "/studio/" in sp.url, "[入口] 「他のツール」の「入口」も同じ")
+                pg.close()                                                          # 入口のタブを閉じる → 答えが無いので、その場で入口へ移る
+                sp.click("[data-ui-home]")
+                try:
+                    sp.wait_for_url(base, timeout=15000)                            # 移っている間は evaluate できないので、URL で待つ
+                except Exception:
+                    pass
+                check(sp.url == base and wait_js(sp, "!!document.getElementById('winBox')", 15000), "[入口] 入口が開いていなければ、その場で入口へ移る(今までどおり): %s" % sp.url)
+
                 real = [e for e in errors if "e2e-" not in e]
                 check(not real, "画面のエラーなし: %s" % real[:3])
                 ctx.close()

@@ -19,7 +19,7 @@
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
   POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。app/appwindow.py)
-  POST api/ytt/client-log|open-window|open-external   画面の共通の API。入口の画面(/api/ytt/…)と、取り込んだツールの画面
+  POST api/ytt/client-log|open-window|open-external|focus-portal   画面の共通の API(focus-portal: 入口の窓を前に出す。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
 
 設計の要点
@@ -58,7 +58,7 @@ import appwindow as appwindow_mod  # noqa: E402  (app/appwindow.py: 窓(Edge の
 import clientlog as clientlog_mod  # noqa: E402  (app/clientlog.py: 画面のエラーの記録。段階7-0)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.10.1"         # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.10.2"         # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -66,6 +66,7 @@ UI_KIT_DIR = os.path.join(ROOT, "ui-kit")   # 共通の見た目は正本をそ�
 LOG_MAX = 1024 * 1024
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+PORTAL_TITLE = "動画編集ツール — 入口"   # 入口の画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = "/api/ytt/"    # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
@@ -736,6 +737,8 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "url": self.window.open_url(body.get("url"), self.server_address[1], self.tool_ports(), tuple(self.mounts))}
             if sub == "open-external":
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
+            if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
+                return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
         except ValueError as e:
             return 400, {"error": "bad_request", "message": str(e)}
         except appwindow_mod.TooMany as e:
