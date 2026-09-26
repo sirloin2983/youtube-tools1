@@ -680,3 +680,21 @@
   cut2resolve/{README.txt,app.css,app.js,cut2resolve_core.py,e2e_ui.py,index.html,pack.py,serve.py,test_pack.py,test_serve.py,ui-kit.css,ui-kit.js}・docs/{WORKLOG.md,integration-plan.md,HANDOVER.md}・
   transcribe-tool/{AGENTS.md,README.txt,app.js,e2e_eval_v093.py,e2e_ui_handoff.py,e2e_ui_mounted.py,e2e_ui_v07.py,e2e_ui_v08.py,e2e_ui_v09.py,e2e_ui_v098.py,index.html,serve.py,test_backend.py,test_document_save.cjs,ui-kit.js}・
   ui-kit/{README.md,ui-kit.css,ui-kit.js}・ytt_core/{test_ytt_core.py,txindex.py})。push.bat で
+
+## 2026-09-26 Claude(Cowork)— 「編集」ツール(文字起こし + cut2resolve の統合)の設計と画面イメージ・Claude Code への引き継ぎ
+- 決定(ユーザー 2026-09-26): 文字起こしツールと cut2resolve を**1つのツール「編集」**にする(入口・他のツールから cut2resolve のカードはなくなる。パックの部品は中で使う)。
+  「普通のカットツールのように手動でのカット位置の調整も必要」「編集ソフトを作るイメージ」、校正は同じツールの別の画面、範囲はカットと字幕まで、
+  切り抜きは基本1本(あとで複数をつなげられるように)、文字起こしの無い動画も使える。画面は3つのタブ 1 文字起こし / 2 カット / 3 パック → 画面イメージを承認(「このイメージでいい」)。
+  **実装は Claude Code(PC)で行う**
+- 変更: `docs/edit-tool-design.md`(新規。画面・データ(`transcripts/<id>.edit.json`)・API(edit の GET/PUT と rev・open-video・peaks・intoDoc・cut2resolve の keeps)・入口の変更・
+  実装の段取り E1〜E6・実装の判断・リスク・未決)、`docs/mockups/`(新規。edit-1-transcribe.png・edit-2-cut.png・edit-3-pack.png と元の edit-mock.html(ui-kit.css を相対パスで読む・見本のデータは架空))、
+  `docs/HANDOVER.md`(Claude Code 用に書き直し・貼る指示文)、`AGENTS.md`(担当表に「編集」の実装の担当、資料の場所に設計書)
+- 判断・理由: 編集の内容(残す区間)を文書と別のファイルにしたのは、校正の保存(baseUpdatedAt)とタイムラインの細かい保存をぶつけないため。
+  たたき台の計算とパック作りは cut2resolve の api/plan・api/build のまま(Resolve 用の計算を二重に持たない。resolve-pack-unification.md の方針)。
+  編集の内容に動画のパスを保存しないのは、画面から送られたパスでパックを作らせないため
+- 途中の経緯: 一度「実装を進める」と決めたが、ユーザーの「実装ストップ」で止め、画面イメージで合意してから引き継ぐ形にした。コードは何も変えていない
+- 未完了・次: E1〜E6 の実装(Claude Code)。段階7と画面の見直しの実機確認(ユーザー)。Claude Docs「動画編集ツール 統合計画」に「編集」への統合を書き足す(Cowork)
+- 注意: 新しい .js(cut.js・pack-tab.js の予定)を足したら、文字起こしの e2e が一時フォルダに写すファイルの一覧にも足す。cut2resolve は ui-kit の一覧から消さずに隠す
+  (編集の画面が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶため)
+- 未コミット: 新規 5(docs/edit-tool-design.md・docs/mockups/{edit-1-transcribe.png,edit-2-cut.png,edit-3-pack.png,edit-mock.html})、変更 3(docs/HANDOVER.md・docs/WORKLOG.md・AGENTS.md)。
+  Claude Code が最初のコミットに含めるか、push.bat で

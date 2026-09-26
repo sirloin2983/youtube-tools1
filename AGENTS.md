@@ -41,6 +41,7 @@
 - `docs/project/` は 2026-09-24 までの経緯(仕様書・引き継ぎ)。**多くは数版前のまま**(例: cut2resolve-spec.md は v0.1.3、実物は v0.5.0)。
   「なぜそう決めたか」を調べるときに読む。一覧は `docs/project/README.md`
 - `docs/review/README.md` … 2026-09-24 の全ツールの見直し。`docs/accuracy/` … 文字起こしの精度の基準(`accuracy-baseline.md`)とユーザーの記入待ちの項目(`USER_INPUT.md`)
+- 「編集」ツール(文字起こし + cut2resolve の統合)の設計・実装の段取り: `docs/edit-tool-design.md`(画面イメージ `docs/mockups/edit-*.png`。2026-09-26 ユーザー承認)
 - 新しい設計・決定は `docs/` の直下に文書で残し、WORKLOG からリンクする
 
 ## 開発のルール
@@ -86,6 +87,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く):
 - 統合作業(`app/`・`ytt_core/`・3ツールの取り込み)と `cut2resolve/` 全体(Text+ を含む): Claude が主担当(ユーザー決定 2026-09-25・26)
 - 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面の全面見直し(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。見直しが終わるまで他の AI は触らない)
+- 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込みの決まり:

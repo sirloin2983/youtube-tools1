@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>編集 — 画面のイメージ</title>
+<!-- 「編集」ツールの画面イメージ(2026-09-26 ユーザー承認)。docs/edit-tool-design.md。?tab=tx|cut|pack で切り替え。実装ではない(見本のデータは架空) -->
+<link rel="stylesheet" href="../../ui-kit/ui-kit.css">
+<style>
+body{min-height:100vh}
+.app{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 52px)}
+.app.noside{grid-template-columns:44px 1fr}
+.side{border-right:1px solid var(--line);background:var(--panel);padding:12px}
+.side.rail{padding:10px 6px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.rail .rb{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);border:1px solid var(--line);background:var(--panel-2);font-size:12px}
+.main{padding:14px 16px;min-width:0}
+.doc{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.doc h1{font-size:17px;margin:0}
+.doc .meta{color:var(--ink-2);font-size:12.5px}
+.save{font-size:12.5px;color:var(--ok-ink);display:inline-flex;align-items:center;gap:6px}
+.save::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
+/* 履歴 */
+.htabs{display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
+.htabs span{flex:1;text-align:center;font-size:12.5px;padding:5px 0;border-radius:8px;color:var(--ink-2)}
+.htabs span.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1);font-weight:600}
+.hi{padding:7px 9px;border-radius:8px;font-size:12.5px}
+.hi.cur{background:var(--accent-soft)}
+.hi b{display:block;font-size:13px}
+.hi small{color:var(--ink-3)}
+.prog{height:4px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:4px}.prog i{display:block;height:100%;background:var(--ok)}
+/* 動画 */
+.video{position:relative;background:#0c0e13;border-radius:10px;aspect-ratio:16/9;overflow:hidden;
+  background-image:linear-gradient(135deg,#253046 0%,#3b2c52 45%,#1f3b45 100%)}
+.video .face{position:absolute;left:43%;top:18%;width:14%;aspect-ratio:1;border-radius:50%;background:#8d97c4;opacity:.75}
+.video .hair{position:absolute;left:33%;top:46%;width:34%;height:60%;border-radius:48% 48% 0 0;background:#7a84b3;opacity:.7}
+.video .sub{position:absolute;left:0;right:0;bottom:12%;text-align:center;font:700 26px/1.2 "MS Gothic",monospace;color:#ffe14d;
+  text-shadow:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000}
+.video .badge2{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.6);color:#fff;border-radius:6px;padding:2px 8px;font-size:12px}
+.ctrl{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.tcode{font:600 15px var(--mono)}
+.tcode small{font-weight:500;color:var(--ink-3);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.seg span{padding:4px 10px;font-size:12.5px;color:var(--ink-2)}
+.seg span.on{background:var(--accent-soft);color:var(--accent-ink2);font-weight:650}
+/* 行(文字起こし) */
+.rows{display:flex;flex-direction:column;gap:8px}
+.r{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:8px 10px}
+.r .top{display:flex;align-items:center;gap:8px}
+.r .t{font:12.5px var(--mono);color:var(--ink-2);background:var(--panel-2);border-radius:6px;padding:2px 6px}
+.r .sp{font-size:12px;border:1px solid var(--line-2);border-radius:6px;padding:2px 8px;color:var(--ink-2)}
+.r .txt{margin-top:6px;font-size:15px}
+.r.cur{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.r.cut{background:repeating-linear-gradient(135deg,var(--panel) 0 8px,var(--panel-2) 8px 16px)}
+.r.cut .txt{color:var(--ink-3);text-decoration:line-through}
+.r.proof{border-right:4px solid var(--ok)}
+.pbtn{font-size:12px;border:1px solid var(--line-2);border-radius:7px;padding:2px 9px;background:var(--panel);color:var(--ink-2)}
+.pbtn.on{background:var(--ok-soft);color:var(--ok-ink);border-color:transparent;font-weight:650}
+.pbtn.cutb{background:var(--danger-soft);color:var(--danger-ink);border-color:transparent;font-weight:650}
+/* カットの画面 */
+.cutgrid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px}
+.subs{height:100%;display:flex;flex-direction:column}
+.subs .list{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:4px}
+.sl{display:grid;grid-template-columns:62px 1fr auto;gap:8px;align-items:center;padding:5px 8px;border-radius:8px;font-size:13.5px;border:1px solid transparent}
+.sl .t{font:12px var(--mono);color:var(--ink-3)}
+.sl.cur{background:var(--accent-soft);border-color:var(--accent-line)}
+.sl.cut{color:var(--ink-3);text-decoration:line-through;background:repeating-linear-gradient(135deg,transparent 0 6px,var(--panel-2) 6px 12px)}
+.sl .x{font-size:11.5px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:6px;padding:0 6px;text-decoration:none}
+.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
+.tools .sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
+.tools .lbl{font-size:12px;color:var(--ink-3);margin-left:2px}
+.kb{font:600 10.5px var(--mono);color:var(--ink-3);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 4px;margin-left:4px}
+.tl{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 0 10px;overflow:hidden}
+.tl .lane{position:relative;display:grid;grid-template-columns:64px 1fr;align-items:center;height:44px}
+.tl .lane.ruler{height:26px}
+.tl .lane.aud{height:62px}
+.tl .lane.aud svg{display:block;width:100%;height:62px}
+.tl .track{overflow:visible}
+.tl .lane.sub2{height:36px}
+.tl .lh{font-size:12px;color:var(--ink-2);padding-left:12px;font-weight:600}
+.tl .track{position:relative;height:100%;margin-right:12px}
+.tick{position:absolute;top:4px;font:11px var(--mono);color:var(--ink-3);transform:translateX(-50%)}
+.tickl{position:absolute;bottom:0;width:1px;height:6px;background:var(--line-2)}
+.blk{position:absolute;top:6px;bottom:6px;border-radius:6px;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 88%,#fff),var(--accent));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 60%,#000 10%)}
+.blk .th{position:absolute;left:4px;top:4px;right:4px;bottom:4px;border-radius:4px;opacity:.35;
+  background:repeating-linear-gradient(90deg,rgba(255,255,255,.55) 0 18px,rgba(255,255,255,.15) 18px 36px)}
+.blk.sel{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--accent),inset 0 0 0 1px #0003}
+.hdl{position:absolute;top:-2px;bottom:-2px;width:8px;background:#fff;border:2px solid var(--accent);border-radius:4px}
+.hdl.l{left:-5px}.hdl.r{right:-5px}
+.gap{position:absolute;top:6px;bottom:6px;border-radius:6px;border:1px dashed var(--line-strong);
+  background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--danger) 16%,transparent) 6px 12px)}
+.sb{position:absolute;top:5px;bottom:5px;border-radius:5px;background:var(--info-soft);border:1px solid color-mix(in srgb,var(--info) 40%,transparent);
+  font-size:11.5px;color:var(--info-ink);white-space:nowrap;overflow:hidden;padding:4px 6px;text-overflow:ellipsis}
+.sb.cut{opacity:.45;text-decoration:line-through}
+.ph{position:absolute;top:0;bottom:0;width:2px;background:#ef3b3b;z-index:5}
+.ph::before{content:"";position:absolute;top:-2px;left:-6px;border:7px solid transparent;border-top:9px solid #ef3b3b}
+.io{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed #e0a100;z-index:4}
+.io span{position:absolute;top:2px;left:3px;font:700 10px var(--mono);color:#b07e00}
+.snap{position:absolute;top:0;bottom:0;width:0;border-left:1px dotted var(--accent);z-index:3}
+.tip{position:absolute;z-index:6;background:#1b1e26;color:#fff;font:12px var(--mono);border-radius:6px;padding:4px 8px;white-space:nowrap;box-shadow:var(--shadow-2)}
+.status{display:flex;gap:16px;align-items:center;font-size:12.5px;color:var(--ink-2);margin-top:8px;flex-wrap:wrap}
+.status b{color:var(--ink)}
+.mk-n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#e8a500;color:#fff;font:700 12px/1 var(--font);box-shadow:0 0 0 2px #fff;flex:none;vertical-align:middle;z-index:8}
+.mk-n.abs{position:absolute}
+.legend{margin-top:16px;border:1px dashed #e0b84a;background:#fffbea;border-radius:12px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:6px 28px;font-size:13px;line-height:1.55;color:#3d3420}
+.legend h3{grid-column:1/-1;margin:0 0 2px;font-size:13.5px;color:#7a5a00}
+.legend div{display:flex;gap:8px;align-items:flex-start}
+.legend .keys{grid-column:1/-1;border-top:1px dashed #e8d08a;padding-top:8px;margin-top:4px}
+.callout{position:absolute;z-index:9;background:#fff8d6;border:1px solid #e8c34a;color:#5a4500;font-size:12px;border-radius:8px;padding:6px 9px;box-shadow:var(--shadow-2);max-width:230px;line-height:1.45}
+.callout::after{content:attr(data-n);position:absolute;left:-10px;top:-10px;width:20px;height:20px;border-radius:50%;background:#e8a500;color:#fff;font:700 12px/20px var(--font);text-align:center}
+/* パック */
+.packgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line)}
+.opt:first-of-type{border-top:0}
+.opt .ic{width:18px;height:18px;border-radius:5px;border:2px solid var(--line-strong);flex:none;margin-top:2px}
+.opt .ic.on{background:var(--accent);border-color:var(--accent);position:relative}
+.opt .ic.on::after{content:"";position:absolute;left:4px;top:0;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.opt .ic.lock{background:var(--ink-3);border-color:var(--ink-3);position:relative}
+.opt .ic.lock::after{content:"";position:absolute;left:4px;top:0;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.frame{width:120px;aspect-ratio:9/16;border-radius:8px;position:relative;overflow:hidden;background:linear-gradient(160deg,#2c3550,#3b2c52 55%,#1f3b45);flex:none}
+.frame .fc{position:absolute;left:30%;top:22%;width:40%;aspect-ratio:1;border-radius:50%;background:#8d97c4;opacity:.7}
+.frame .fb{position:absolute;left:12%;top:44%;width:76%;height:60%;border-radius:48% 48% 0 0;background:#7a84b3;opacity:.65}
+.frame .fs{position:absolute;left:4%;right:4%;bottom:24%;text-align:center;font:700 11px/1.25 "MS Gothic",monospace;color:#ffe14d;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000}
+.opt b{font-size:13.5px}.opt .hint{display:block}
+.chips{display:flex;gap:6px}
+.chip{border:1px solid var(--line-2);border-radius:8px;padding:5px 12px;font-size:13px}
+.chip.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink2);font-weight:650}
+.big{display:flex;gap:18px;margin:6px 0 10px}
+.big div{flex:1;background:var(--panel-2);border-radius:10px;padding:10px 12px}
+.big b{display:block;font-size:22px;font-family:var(--mono)}
+.big span{font-size:12px;color:var(--ink-2)}
+.files{font-size:12.5px;margin:0;padding:0;list-style:none}
+.files li{display:flex;justify-content:space-between;padding:5px 0;border-top:1px dashed var(--line)}
+.files li span:last-child{color:var(--ink-3)}
+.mini{position:relative;height:26px;background:var(--panel-2);border-radius:6px;overflow:hidden;margin:6px 0 2px}
+.mini i{position:absolute;top:4px;bottom:4px;background:var(--accent);border-radius:3px}
+.cap{font:13px "MS Gothic",monospace;background:#1d2029;color:#ffe14d;border-radius:6px;padding:6px 10px;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;margin:4px 0}
+</style>
+</head>
+<body>
+<header class="ui-header">
+  <span class="ui-brand"><span class="ui-brand-mark" data-tool="transcribe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h10M4 12h7M4 17h10M17 5v14M17 12h4"/></svg></span>編集<span class="ui-ver">v0.16.0</span></span>
+  <nav class="ui-tabs" aria-label="画面">
+    <button class="ui-tab" data-t="tx"><span class="ui-tab-n">1</span>文字起こし</button>
+    <button class="ui-tab" data-t="cut"><span class="ui-tab-n">2</span>カット</button>
+    <button class="ui-tab" data-t="pack"><span class="ui-tab-n">3</span>パック</button>
+  </nav>
+  <div class="ui-header-actions">
+    <span class="save">保存しました 18:42</span>
+    <span class="btn ghost small">キー操作</span>
+    <span class="btn ghost small">⌂ 入口</span>
+    <span class="btn ghost small">⊞ 他のツール</span>
+  </div>
+</header>
+
+<div class="app" id="app">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+const tab = new URLSearchParams(location.search).get('tab') || 'cut';
+document.querySelectorAll('.ui-tab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === tab)));
+const $ = s => document.querySelector(s);
+const DUR = 40;
+const rows = [
+  [0.4, 2.8, '本人', 'こんばんは、今日も来てくれてありがとう', 'proof'],
+  [3.2, 5.3, 'ゲスト', 'いやいやいや、待って待って', 'proof'],
+  [6.0, 8.3, '本人', 'あのー、えっと', 'cut'],
+  [8.8, 11.1, '本人', 'それってどういうこと?', 'proof'],
+  [11.5, 13.8, 'ゲスト', 'あっ、やばいやばいやばい', 'cur'],
+  [14.3, 16.9, '本人', 'ここ絶対いけるって!', ''],
+  [17.1, 19.0, 'ゲスト', 'え、今の見た?', ''],
+  [19.9, 22.1, '本人', 'ちょっと待ってね、水飲む', 'cut'],
+  [22.6, 25.0, '本人', 'よし、勝った!', ''],
+  [25.4, 28.2, 'ゲスト', 'うそでしょ…', ''],
+  [28.8, 31.5, '本人', 'もう一回やらせて!', ''],
+  [32.0, 35.2, '本人', 'みんなおつかれさまでした', ''],
+];
+// 手で直した後の残す区間(0:28.3〜28.7 の間は手で削った息つぎ)
+const keeps = [[0.3, 5.6], [8.6, 19.3], [22.4, 28.3], [28.7, 35.4]];
+const cuts = [[0, 0.3], [5.6, 8.6], [19.3, 22.4], [28.3, 28.7], [35.4, 40]];
+const KEPT = keeps.reduce((a, [x, y]) => a + y - x, 0);
+const PH = 12.3;
+const PH_CUT = keeps.reduce((a, [x, y]) => a + Math.max(0, Math.min(y, PH) - x), 0);
+const PROOF = rows.filter(r => r[4] === 'proof').length;
+const SUBS = rows.filter(r => r[4] !== 'cut').length;
+const fmt = s => { const m = Math.floor(s / 60), x = s - m * 60; return m + ':' + x.toFixed(2).padStart(5, '0'); };
+const M = (n, st) => `<span class="mk-n${st ? ' abs' : ''}"${st ? ` style="${st}"` : ''}>${n}</span>`;
+const legend = (title, items, keys) => `<div class="legend"><h3>${title}</h3>` +
+  items.map((t, i) => `<div>${M(i + 1)}<span>${t}</span></div>`).join('') + (keys ? `<div class="keys"><b>キー:</b> ${keys}</div>` : '') + '</div>';
+
+function historySide(){
+  $('#side').innerHTML = `
+  <div class="row" style="margin-bottom:8px;gap:6px">${M(1)}<b style="font-size:13px">メニュー</b><span class="hint">☰ / G で開閉</span></div>
+  <div class="htabs"><span>新規</span><span class="on">履歴</span><span>精度</span><span>学習</span></div>
+  <input type="search" placeholder="題名・配信・配信者・ファイル名" style="width:100%;margin-bottom:8px">
+  <div class="row" style="gap:6px;margin-bottom:8px"><select style="flex:1"><option>状態: すべて</option></select><select style="flex:1"><option>配信ごと</option></select></div>
+  <details class="ui-group" open><summary>【凸待ち】誰か来て… <span class="ui-group-n">猫宮こはく ・ 2本</span></summary>
+    <div class="hi cur"><b>叫び</b><small>たった今 ・ 0:40 ・ 校正 ${PROOF}/12</small><div class="prog"><i style="width:${PROOF / 12 * 100}%"></i></div></div>
+    <div class="hi"><b>見どころ</b><small>昨日 ・ 0:45 ・ <span class="pill ok">パック済み</span></small><div class="prog"><i style="width:100%"></i></div></div>
+  </details>
+  <details class="ui-group"><summary>【雑談】104回目の朝活! <span class="ui-group-n">猫宮こはく ・ 4本</span></summary></details>
+  <details class="ui-group"><summary>【マイクラ】拠点づくり #176 <span class="ui-group-n">猫宮こはく ・ 1本</span></summary></details>
+  <details class="ui-group"><summary>【歌枠】アニソン縛り 39曲 <span class="ui-group-n">星見ルナ ・ 3本</span></summary></details>
+  <details class="ui-group"><summary>動画だけ(文字起こしなし) <span class="ui-group-n">2本</span></summary></details>`;
+}
+function rail(){
+  $('#app').classList.add('noside');
+  $('#side').className = 'side rail';
+  $('#side').innerHTML = '<span class="rb" title="メニューを開く">☰</span><span class="rb" title="履歴">⏱</span><span class="rb" title="新規">＋</span>';
+}
+function docHead(n){
+  return `<div class="doc"><h1>【凸待ち】誰か来て… 叫び</h1><span class="meta">猫宮こはく ・ 0:40 ・ 元の配信 2:35:30〜</span><span class="spacer"></span>
+    ${n ? M(n) : ''}<span class="pill ok">校正 ${PROOF} / 12行</span><span class="pill warn">残す ${keeps.length}区間 ・ カット後 ${fmt(KEPT)}</span></div>`;
+}
+function video(label){
+  return `<div class="video"><div class="hair"></div><div class="face"></div><div class="badge2">${label}</div><div class="sub">あっ、やばいやばいやばい</div></div>`;
+}
+
+/* ---------------- 1. 文字起こし ---------------- */
+function renderTx(){
+  historySide();
+  $('#main').innerHTML = docHead(2) + `
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:14px">
+    <div>
+      <div class="card" style="padding:10px;position:relative">${M(3, 'left:-8px;top:-8px')}${video('元の動画')}
+        <div class="ctrl"><span class="btn small">▶</span><span class="tcode">0:12.30 <small>/ 0:40.00</small></span><span class="spacer"></span>
+          <span class="hint">速さ</span><select style="width:auto"><option>1×</option></select><span class="btn small">−3秒</span><span class="btn small">+3秒</span></div>
+      </div>
+      <div class="card"><div style="font-weight:650">校正の進み具合</div>
+        <div class="prog" style="height:8px;margin:8px 0"><i style="width:${PROOF / 12 * 100}%"></i></div>
+        <div class="hint">校正済み ${PROOF} / 12行 ・ 要確認 1行 ・ 次の未校正へ <span class="kbd">D</span></div></div>
+      <div class="row" style="gap:6px;margin:0 0 6px">${M(5)}<span class="hint">道具のカード(今と同じ)</span></div>
+      <details class="card"><summary><b>話者</b></summary></details>
+      <details class="card"><summary><b>文字をまとめて直す(置換・範囲の再認識)</b></summary></details>
+      <details class="card"><summary><b>字幕の書き出し(SRT・VTT・テキスト)</b></summary></details>
+      <div class="notice info">「カットとパック」のカードは無くなり、<b>2 カット</b>・<b>3 パック</b> のタブへ移ります。行の「削る」は、カットのタブでもその行の時間を削る区間にします。</div>
+    </div>
+    <div>
+      <div class="row" style="margin-bottom:8px"><input type="search" placeholder="行を検索" style="flex:1"><select style="width:auto"><option>すべての行</option></select><span class="btn small">次の未校正 <span class="kb">D</span></span></div>
+      <div class="rows">` + rows.slice(0, 8).map(([a, b, sp, t, st], i) => `
+        <div class="r ${st}${st === 'proof' ? ' proof' : ''}" style="position:relative">${i === 2 ? M(4, 'right:-8px;top:-8px') : ''}
+          <div class="top"><span class="btn small">▶</span><span class="t">${fmt(a)}</span>–<span class="t">${fmt(b)}</span><span class="sp">${sp} ▾</span><span class="spacer"></span>
+            ${st === 'cut' ? '<span class="pbtn cutb">削る</span>' : '<span class="pbtn">削る</span>'}<span class="pbtn ${st === 'proof' ? 'on' : ''}">校正済み</span></div>
+          <div class="txt">${t}</div>
+          ${i === 3 ? '<div style="margin-top:4px"><span class="pill warn">要確認: 聞き取りにくい</span></div>' : ''}
+        </div>`).join('') + `</div>
+    </div>
+  </div>` + legend('1 文字起こし — 今の校正画面をほぼそのまま。文字と話者を直す画面', [
+    '<b>メニュー</b>(新規・履歴・精度・学習)。履歴は配信ごとのまとまりで、校正の進み具合と「パック済み」が分かる。カット・パックのタブでは細い帯に畳む',
+    '<b>題名の行</b>はどのタブにも出る。校正の進み具合と、カットのタブで決めた残す区間・カット後の長さ',
+    '<b>映像</b>は元の動画をそのまま再生(カット後の見え方はカットのタブで)。速さ・±3秒は今と同じ',
+    '<b>行の「削る」</b>を押すと、その行の時間が削る区間になる。カットのタブの帯と同じデータなので、どちらで変えても両方に出る',
+    '<b>道具のカード</b>(話者・まとめて直す・字幕の書き出し・以前の版に戻す)は今のまま。「カットとパック」のカードだけ 2・3 のタブへ移す',
+  ], '今と同じ(Space 再生/停止・Shift+Space 校正済みにして次へ・D 次の未校正・Z 2回で行の削除 など)。タブの切り替えは Alt+1 / 2 / 3');
+}
+
+/* ---------------- 2. カット ---------------- */
+function renderCut(){
+  rail();
+  const x = t => (t / DUR * 100) + '%';
+  const w = (a, b) => ((b - a) / DUR * 100) + '%';
+  let top = [], bot = [], n = 400;
+  const rnd = (i => () => (i = (i * 16807) % 2147483647) / 2147483647)(7);
+  for (let i = 0; i <= n; i++){
+    const t = i / n * DUR;
+    const inRow = rows.some(([a, b]) => t >= a && t <= b);
+    const amp = inRow ? 0.25 + rnd() * 0.7 : 0.03 + rnd() * 0.06;
+    const px = (i / n * 1000).toFixed(1);
+    top.push(px + ',' + (50 - amp * 45).toFixed(1)); bot.unshift(px + ',' + (50 + amp * 45).toFixed(1));
+  }
+  const wave = 'M' + top.join('L') + 'L' + bot.join('L') + 'Z';
+  $('#main').innerHTML = docHead() + `
+  <div class="cutgrid">
+    <div class="card" style="padding:10px;margin:0">${video('カット後の見え方')}
+      <div class="ctrl"><span class="btn small">▶</span>
+        <span class="tcode">${fmt(PH)} <small>元</small></span><span class="tcode" style="color:var(--accent-ink2)">${fmt(PH_CUT)} <small>カット後 / ${fmt(KEPT)}</small></span>
+        <span class="spacer"></span>${M(1)}<span class="seg"><span>元の動画</span><span class="on">カット後</span></span></div>
+    </div>
+    <div class="card subs" style="margin:0"><div class="row" style="margin-bottom:6px">${M(2)}<b style="font-size:13.5px">字幕(文字起こしの行)</b><span class="spacer"></span><span class="hint">押すとその位置へ</span></div>
+      <div class="list">` + rows.map(([a, b, sp, t, st]) => `<div class="sl ${st === 'cut' ? 'cut' : ''}${st === 'cur' ? ' cur' : ''}"><span class="t">${fmt(a)}</span><span>${t}</span><span class="x">${st === 'cut' ? '戻す' : '削る'}</span></div>`).join('') + `</div>
+      <div class="hint" style="margin-top:6px">文字を直すのは <b>1 文字起こし</b> のタブ</div></div>
+  </div>
+  <div class="tools">
+    <span class="btn small">✂ 分割<span class="kb">S</span></span>
+    <span class="btn small">削る / 戻す<span class="kb">Del</span></span>
+    <span class="btn small">I〜O を削る<span class="kb">X</span></span>
+    <span class="sep"></span>
+    <span class="btn small ghost">↶ 元に戻す<span class="kb">Ctrl+Z</span></span><span class="btn small ghost">↷ やり直す</span>
+    <span class="sep"></span>${M(3)}<span class="lbl">たたき台:</span>
+    <span class="btn small soft">行から</span><span class="btn small soft">無音</span><span class="btn small soft">時刻リスト</span><span class="btn small soft">スタジオ</span>
+    <span class="spacer"></span>
+    <label class="lag" style="font-size:12.5px"><input type="checkbox" class="ui-switch" checked> 吸着</label>
+    <span class="btn small">−</span><span class="btn small">＋</span><span class="btn small">全体</span>
+  </div>
+  <div class="tl" id="tl">
+    <div class="lane ruler"><span></span><div class="track">` + Array.from({ length: 9 }, (_, i) => `<span class="tick" style="left:${x(i * 5)}">0:${String(i * 5).padStart(2, '0')}</span><span class="tickl" style="left:${x(i * 5)}"></span>`).join('') + `</div></div>
+    <div class="lane"><span class="lh">${M(6)} 映像</span><div class="track">` +
+      keeps.map(([a, b], i) => `<div class="blk ${i === 1 ? 'sel' : ''}" style="left:${x(a)};width:${w(a, b)}"><div class="th"></div>${i === 1 ? '<span class="hdl l"></span><span class="hdl r"></span>' + M(4, 'left:40%;top:-24px') : ''}</div>`).join('') +
+      cuts.map(([a, b]) => `<div class="gap" style="left:${x(a)};width:${w(a, b)}"></div>`).join('') + `
+      <div class="tip" style="left:calc(${x(19.3)} - 190px);top:-31px">終わり 0:19.30(+2フレーム)</div>
+    </div></div>
+    <div class="lane aud"><span class="lh">音声</span><div class="track"><svg viewBox="0 0 1000 100" preserveAspectRatio="none">
+      <path d="${wave}" fill="color-mix(in srgb, var(--c-audio) 55%, transparent)" stroke="var(--c-audio)" stroke-width=".6"/>
+      ${cuts.map(([a, b]) => `<rect x="${a / DUR * 1000}" y="0" width="${(b - a) / DUR * 1000}" height="100" fill="rgba(120,120,130,.20)"/>`).join('')}
+    </svg></div></div>
+    <div class="lane sub2"><span class="lh">字幕</span><div class="track">` +
+      rows.map(([a, b, sp, t, st]) => `<div class="sb ${st === 'cut' ? 'cut' : ''}" style="left:${x(a)};width:${w(a, b)}">${t}</div>`).join('') + `</div></div>
+    <div style="position:absolute;left:64px;right:12px;top:0;bottom:0;pointer-events:none">
+      <div class="ph" style="left:${x(PH)}"></div>
+      <div class="io" style="left:${x(25.4)}"><span>I</span></div><div class="io" style="left:${x(26.2)}"><span>O</span></div>
+      ${M(5, `left:calc(${x(26.2)} + 8px);top:3px`)}
+      <div style="position:absolute;top:26px;height:44px;left:${x(25.4)};width:${w(25.4, 26.2)};background:rgba(232,165,0,.22)"></div>
+      <div class="snap" style="left:${x(19.3)}"></div>
+    </div>
+  </div>
+  <div class="status">${M(7)}
+    <span>残す <b>${keeps.length}区間</b></span><span>カット後 <b>${fmt(KEPT)}</b> / 元 0:40.00</span>
+    <span>選んだ区間: <b>2</b> 0:08.60 – 0:19.30(10.70秒)</span><span>吸い付く先: 字幕の行の端・無音の境目・再生位置</span>
+  </div>` + legend('2 カット — 新しいタイムライン。ふつうの編集ソフトのように、残す・削る位置を手で決める画面', [
+    '<b>プレビュー</b>: 「カット後」は削る区間を飛ばして再生(Resolve に入れたときの見え方)。時刻は元とカット後の両方。「元の動画」に切り替えると削った所も見える',
+    '<b>字幕の一覧</b>: 押すとその位置へ。「削る / 戻す」で行の時間ごと削る。文字の直しは 1 のタブ(ここでは直さない)',
+    '<b>たたき台</b>: 文字起こしの行・無音・時刻リスト・スタジオの残す区間から自動で案を作る。今の区間を置き換える前に確認し、元に戻すでも戻せる。文字の無い動画は「無音で自動」か手で',
+    '<b>選んだ区間</b>: 両端のつまみをドラッグして 1 フレーム単位で調整(黒い札に位置と動かした量)。点線は吸い付く先。Alt を押している間は吸い付かない',
+    '<b>I・O</b>: 範囲を決めて X で削る。ふつうの編集ソフトと同じ操作(I = 始まり・O = 終わり)',
+    '<b>帯</b>: 映像 = 残す区間(紫)と削る区間(斜線)、音声 = 波形(しゃべっていない所が平ら)、字幕 = 文字起こしの行(削った行は薄く)。赤い線が再生位置',
+    '<b>下の行</b>: 残す区間の数・カット後の長さ・選んだ区間。1 本の動画 = 基本は 1 本のクリップ(複数の元動画をつなぐのは後で)',
+  ], 'Space 再生/停止・J K L 逆再生/停止/再生・← → 1 フレーム(Shift で 1 秒)・S 分割・Del 削る/戻す・I O X・, . 選んだ端を 1 フレーム・Ctrl+Z / Ctrl+Shift+Z・+ − ズーム');
+}
+
+/* ---------------- 3. パック ---------------- */
+function renderPack(){
+  rail();
+  const x = t => (t / DUR * 100) + '%';
+  $('#main').innerHTML = docHead() + `
+  <div class="packgrid">
+    <div>
+      <div class="card"><div class="row" style="gap:6px;margin-bottom:6px">${M(1)}<b>置き先のプロジェクト(Resolve で作るもの)</b></div>
+        <div class="row" style="margin:6px 0"><span class="hint" style="width:96px">フレームレート</span><div class="chips"><span class="chip on">30 fps</span><span class="chip">60 fps</span></div></div>
+        <div class="row" style="margin:6px 0"><span class="hint" style="width:96px">画面の大きさ</span><div class="chips"><span class="chip on">縦 1080×1920</span><span class="chip">横 1920×1080</span></div></div>
+        <div class="hint">字幕の位置・大きさをこれに合わせます。縦にする作業(映像の切り抜き)は Resolve で行います。</div>
+      </div>
+      <div class="card"><div class="row" style="gap:6px;margin-bottom:4px">${M(2)}<b>パックに入れるもの</b></div>
+        <div class="opt"><span class="ic lock"></span><div><b>Text+ 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(登録用の .bat つき)</span></div></div>
+        <div class="opt"><span class="ic lock"></span><div><b>元の動画のコピー</b><span class="hint">スタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます</span></div></div>
+        <div class="opt"><span class="ic lock"></span><div><b>EDL・カット後の字幕(SRT)・友人へ.txt・カットの記録</b><span class="hint">いつも入ります(予備と手順書)</span></div></div>
+        <div class="opt"><span class="ic"></span><div><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></div></div>
+        <details class="ui-disclosure" style="margin-top:8px"><summary>詳しい設定(タイムコード・リール名など)</summary></details>
+      </div>
+      <div class="card"><div class="row" style="gap:6px;margin-bottom:4px">${M(3)}<b>出力先</b></div>
+        <div class="row"><code style="flex:1">動画の隣 \\ 01_叫び_pack</code><span class="btn small">変更</span></div>
+        <div class="hint" style="margin-top:4px">空欄なら動画の隣の「&lt;動画名&gt;_pack」。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</div>
+      </div>
+    </div>
+    <div>
+      <div class="card"><div class="row" style="gap:6px">${M(4)}<b>これから作るパック</b></div>
+        <div class="big"><div><b>${fmt(KEPT)}</b><span>カット後の長さ(元 0:40.00)</span></div><div><b>${keeps.length}</b><span>残す区間</span></div><div><b>${SUBS}</b><span>Text+ 字幕</span></div></div>
+        <div class="mini">${keeps.map(([a, b]) => `<i style="left:${x(a)};width:${(b - a) / DUR * 100}%"></i>`).join('')}</div>
+        <div class="hint">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)</div>
+        <div style="margin-top:12px"><div class="row" style="gap:6px;margin-bottom:2px">${M(5)}<span class="hint">字幕の見た目(固定: MS ゴシック・黄色・黒ふち)</span></div><div class="row" style="gap:14px;align-items:flex-start;margin-top:6px"><div class="frame"><div class="fb"></div><div class="fc"></div><div class="fs">あっ、やばいやばいやばい</div></div><div style="flex:1"><div class="cap">あっ、やばいやばいやばい</div><div class="cap">ここ絶対いけるって!</div><div class="hint" style="margin-top:6px">左は縦 1080×1920 に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます</div></div></div></div>
+        <div class="notice" style="margin-top:10px">注意: 0:28.30〜0:28.70 の区間が 0.4 秒しかありません(手で削った息つぎ)。意図どおりか確かめてください</div>
+        <div class="row" style="margin-top:12px">${M(6)}<span class="btn primary lg">パックを作る</span><span class="hint">作成中は進み具合と「中止」が出ます</span></div>
+      </div>
+      <div class="card"><div class="row" style="gap:6px">${M(7)}<span class="pill ok">前回のパック</span><span class="hint">昨日 21:05 ・ カットが変わっています → 作ると<b>作り直し</b>(上書きの確認あり)</span></div>
+        <ul class="files" style="margin-top:8px">
+          <li><span>01_叫び.mp4</span><span>元の動画のコピー</span></li>
+          <li><span>create_resolve_textplus_project.lua ・ ResolveにText+スクリプトを登録.bat</span><span>Text+ のスクリプト</span></li>
+          <li><span>01_叫び.edl ・ 01_叫び_cut.srt</span><span>予備のカット・字幕</span></li>
+          <li><span>友人へ.txt ・ cut-plan.json</span><span>手順書・カットの記録</span></li>
+        </ul>
+        <div class="row" style="margin-top:8px"><span class="btn small">フォルダを開く</span><span class="btn small">友人へ.txt を見る</span><span class="btn small">パスをコピー</span></div>
+      </div>
+    </div>
+  </div>` + legend('3 パック — Resolve へ渡す設定と作成。カットと字幕が決まってから開く画面', [
+    '<b>置き先のプロジェクト</b>: Resolve で作るプロジェクトの fps と縦横(いつもは 30fps・縦)。次から同じ設定で始まる',
+    '<b>入れるもの</b>: Text+ のスクリプト・元の動画のコピー・EDL/SRT/手順書はいつも入る(灰色の印)。選べるのは粗編集の mp4 だけ',
+    '<b>出力先</b>: 空欄なら動画の隣の「_pack」フォルダ。前のパックがあれば上書きの確認',
+    '<b>これから作るもの</b>: カット後の長さ・区間・字幕の数と、区間の略図。カットのタブで決めたとおりになる',
+    '<b>字幕の見た目</b>: 固定の見た目の見本と、縦の画面に置いたときのおおよその見え方。作る前の注意(短すぎる区間・長すぎる字幕など)もここ',
+    '<b>パックを作る</b>: 作成中は進み具合と中止。今の cut2resolve の作り方(pack.py)をそのまま使う',
+    '<b>前回のパック</b>: 中身・フォルダを開く・友人へ.txt。カットや字幕が変わっていたら「作り直し」と知らせる',
+  ]);
+}
+({ tx: renderTx, cut: renderCut, pack: renderPack })[tab]();
+</script>
+</body>
+</html>
