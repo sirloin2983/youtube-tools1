@@ -161,6 +161,30 @@ def main():
             check("1 行を分けました" in pg.inner_text("#rsMsg"), "「今の文書を分け直す」で長い行が 2 つに(%s)" % pg.inner_text("#rsMsg"))
             check(srv.get("/api/history?id=" + tid1)["items"], "分ける前の版が「以前の版に戻す」にある")
 
+            # ---- 疑わしい所だけ認識し直す(12 ③-2): 「長い区間に文字が少ない」の行を、良くなったときだけ置き換える
+            # (機械の出力のある文書では、機械の出力と違う行 = 人が直した行は対象にしない。ここは機械の出力の無い「文字なし」の文書で確かめる)
+            tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし")
+            d1 = srv.get("/api/transcript?id=" + tid1)
+            F = "長い区間に文字が少ない(抜けの可能性)"
+            srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
+                                                           "segments": [{"id": "x", "start": 0.5, "end": 5.5, "text": "黒", "flag": F}]})
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            open_doc(pg, "文字なし")
+            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 1", 10000)
+            check(pg.is_checked("#optAutoRedo") is False and pg.is_checked("#optRedoLarge"), "新規の設定: 疑わしい所を自動で認識し直す(既定オフ)・kotoba なら large-v3(既定オン)")
+            pg.evaluate("document.querySelector('#fixDetails').open = true")
+            pg.click("#redoGo")
+            try:
+                wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('認識し直した文'))", 20000)
+            except TimeoutError:
+                print("DIAG redoMsg=%r toast=%r jobs=%r doc=%r" % (pg.inner_text("#redoMsg"), pg.inner_text("#toast"),
+                      [(j["kind"], j["state"], j.get("error"), j.get("phase")) for j in srv.get("/api/jobs")["jobs"]][-3:],
+                      [(g["id"], g["text"], g.get("flag")) for g in srv.get("/api/transcript?id=" + tid1)["segments"]]))
+                raise
+            check(True, "「疑わしい所を認識し直す」で、文字が少なかった行が置き換わり、画面も読み直す")
+            check(srv.get("/api/transcript?id=" + tid1).get("redo", {}).get("rows") == 1, "置き換えた記録が文書に残る")
+
             # ---- キー操作の一覧・狭い画面
             pg.click("#btnKeys")
             check("タブ(文字起こし・カット・パック)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2/3")

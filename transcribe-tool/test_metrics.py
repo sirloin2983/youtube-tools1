@@ -109,6 +109,32 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 画面の今の欄の値
         self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 28)                  # 範囲の外は使わない
 
+    def test_redo_targets_and_better(self):
+        """疑わしい所だけ認識し直す(12 ③-2): 対象は「文字が少ない」の印・校正済みでない・機械の出力のままの行。範囲は前後 1 秒で隣の行にかからない"""
+        F = S.SPARSE_FLAG
+        doc = {"start": 0, "end": 30, "segments": [
+            {"id": "p", "start": 0.0, "end": 2.5, "text": "前の行"},
+            {"id": "a", "start": 3.0, "end": 9.0, "text": "黒", "flag": F},
+            {"id": "b", "start": 9.4, "end": 15.0, "text": "あ", "flag": F, "proofed": True},          # 校正済み
+            {"id": "c", "start": 16.0, "end": 22.0, "text": "直した", "flag": F},                     # 人が直した(機械の出力と違う)
+            {"id": "d", "start": 29.5, "end": 30.0, "text": "終わり"}],
+            "original": [{"start": 3.0, "end": 9.0, "text": "黒"}, {"start": 16.0, "end": 22.0, "text": "くろ"}]}
+        t = S.redo_targets(doc)
+        self.assertEqual([(g["id"], a, b) for g, a, b in t], [("a", 2.5, 9.4)])                      # 前は前の行の終わり・後ろは次の行の始まりまで
+        doc2 = dict(doc, original=None)
+        self.assertEqual([g["id"] for g, _a, _b in S.redo_targets(doc2)], ["a", "c"])                 # 機械の出力が無い文書は、手直しを見分けない
+        row = {"text": "黒"}
+        line = lambda text, flag="", lp=-0.3: {"start": 0, "end": 5, "raw": text, "flag": flag, "lp": lp}   # noqa: E731
+        self.assertEqual(S.redo_better(row, [line("黒い猫がいました")])[0], True)
+        self.assertEqual(S.redo_better(row, [line("く")]), (False, "文字が増えない"))
+        self.assertEqual(S.redo_better(row, [line("黒い猫がいました", F)]), (False, "まだ疑わしい"))
+        self.assertEqual(S.redo_better(row, [line("ご視聴ありがとうございました", "よくある誤認識の文")]), (False, "まだ疑わしい"))
+        self.assertEqual(S.redo_better(row, [line("黒い猫がいました", lp=-0.9)], old_lp=-0.5), (False, "自信が上がらない"))
+        self.assertEqual(S.redo_better(row, [line("黒い猫がいました", lp=-0.2)], old_lp=-0.5)[0], True)
+        self.assertEqual(S.redo_better(row, []), (False, "何も認識されない"))
+        kw = S.redo_kwargs({"language": "ja", "beam": 5, "vadMode": "normal", "wordSplit": True, "model": "large-v3", "glossary": []})
+        self.assertEqual((kw["vad_filter"], kw["vad_parameters"]["min_silence_duration_ms"], kw["chunk_length"]), (True, 250, 10))   # 普通の VAD・短く区切る
+
     def test_make_flags_sparse_long_rows(self):
         """長い区間に文字が少ない行(抜けの可能性。docs/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731

@@ -38,7 +38,8 @@ DEFAULT_TOP = 3
 MAX_KEEP = 30          # 終わった記録を残す数
 MAX_WAITING = 20       # 順番待ちの上限
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
-TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary")
+TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
+           "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
 
 
 class Cancelled(Exception):

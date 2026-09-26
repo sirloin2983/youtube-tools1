@@ -522,6 +522,40 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
         self.assertFalse(os.path.exists(wp))
 
+    def test_redo_suspicious_rows(self):
+        """疑わしい所だけ認識し直す(12 ③-2)の HTTP: 良くなった行だけ置き換える・校正済みは触らない・前の版は履歴・対象が無ければ 400"""
+        video = os.path.join(self.media_dir, "認識し直し.wav")
+        shutil.copy(self.wav, video)
+        tid = self.open_video(video)["id"]
+        doc = self.call("GET", "/api/transcript?id=" + tid)
+        F = "長い区間に文字が少ない(抜けの可能性)"
+        r = self.call("POST", "/api/redo", {"tid": tid})
+        self.assertEqual((r["_status"], r["error"]), (400, "empty"))                         # 行が無い
+        segs = [{"id": "p", "start": 0.0, "end": 0.9, "text": "前の行"},
+                {"id": "a", "start": 1.0, "end": 6.0, "text": "黒", "flag": F},
+                {"id": "b", "start": 6.5, "end": 11.0, "text": "あ", "flag": F, "proofed": True}]
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [], "segments": segs})
+        r = self.call("POST", "/api/redo", {"tid": tid})
+        self.assertEqual((r["_status"], r.get("kind")), (200, "redo"), r)
+        end = time.time() + 30
+        while time.time() < end:
+            j = next(x for x in self.call("GET", "/api/jobs")["jobs"] if x["id"] == r["id"])
+            if j["state"] in ("done", "error", "cancelled"):
+                break
+            time.sleep(0.1)
+        self.assertEqual((j["state"], j["segments"]), ("done", 1), j)
+        self.assertIn("1 か所を置き換えました", j["phase"])
+        after = self.call("GET", "/api/transcript?id=" + tid)
+        got = [(g["id"], g["text"]) for g in after["segments"]]
+        self.assertEqual([x[0] for x in got], ["p", "a-r1", "b"], got)
+        self.assertTrue(got[1][1].startswith("認識し直した文"))
+        self.assertEqual(got[2][1], "あ")                                                     # 校正済みはそのまま
+        self.assertTrue(after["segments"][1]["start"] >= 0.9 and after["segments"][1]["end"] <= 6.5)   # 隣の行にかからない範囲
+        self.assertTrue(self.call("GET", "/api/history?id=" + tid)["items"])                  # 前の版が「以前の版に戻す」に
+        self.assertEqual(after["redo"]["rows"], 1)
+        r = self.call("POST", "/api/redo", {"tid": tid})
+        self.assertEqual((r["_status"], r["error"]), (400, "empty"))                         # もう疑わしい行が無い
+
     def test_edit_http_into_doc_and_delete(self):
         tid = self.open_video(self.wav)["id"]
         self.assertEqual(self.call("GET", "/api/edit?id=" + tid), {"edit": None, "rev": 0, "broken": False, "packStale": False, "_status": 200})

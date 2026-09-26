@@ -13,6 +13,7 @@
   GET  /api/jobs             ジョブの一覧と進捗 / POST /api/transcribe/cancel で中止
   POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列)
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
+  POST /api/redo             {"tid", "redoLarge"?} 疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
   POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
@@ -1774,13 +1775,15 @@ def validate_job(req):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
             "splitChars": split_chars_for(req),
+            "autoRedo": req.get("autoRedo") is True, "redoLarge": req.get("redoLarge") is not False,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "autoLearned": req.get("autoLearned") is True, "clip": clip, "warnings": warnings,
             "title": str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]}
 
 
 ACTIVE_STATES = ("queued", "loading", "extracting", "running")
-EXCLUSIVE = {"diarize": ("diarize", "retranscribe"), "retranscribe": ("diarize", "retranscribe"), "abtest": ("abtest",)}   # 同じ文字起こしに同時に入れない組み合わせ
+EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo"), "retranscribe": ("diarize", "retranscribe", "redo"),
+             "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",)}   # 同じ文字起こしに同時に入れない組み合わせ
 
 
 def add_job(spec, kind="transcribe"):
@@ -1793,7 +1796,7 @@ def add_job(spec, kind="transcribe"):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe") else None, "error": None,
+        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
         _jobs[jid] = job
         _order.append(jid)
@@ -2287,6 +2290,8 @@ def run_job(job):
         return run_diarize(job)
     if job.get("kind") == "retranscribe":
         return run_retranscribe(job)
+    if job.get("kind") == "redo":
+        return run_redo(job)
     if job.get("kind") == "abtest":
         return run_abtest(job)
     spec = job["spec"]
@@ -2304,6 +2309,7 @@ def run_job(job):
             job["state"] = "loading"
             gen = transcribe_real(job, spec, wav, total)
         segs, prev, original, pairs, dict_n, all_words = [], [], [], (parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []), 0, []
+        sparse_lp = {}   # 「長い区間に文字が少ない」行の avg_logprob(認識し直したときに、良くなったかを比べる。③-2)
         learn_n = 0
         lrules, lfb = (learn_rules(), load_feedback()) if spec.get("autoLearned") else ({}, None)
         for s in expand_segments(gen, spec):
@@ -2313,6 +2319,8 @@ def run_job(job):
                    "text": s["text"][:MAX_TEXT], "speaker": "", "flag": ""}
             seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], spec["glossary"])
             prev.append(seg["text"])
+            if SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
+                sparse_lp[seg["id"]] = float(s["avg_logprob"])
             if lrules:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
                 seg["text"], ln = auto_learned_replace(seg["text"], lrules, lfb)
                 learn_n += ln
@@ -2344,6 +2352,11 @@ def run_job(job):
         except OSError as e:
             log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
+        if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in segs):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
+            try:
+                add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": sparse_lp}), "redo")
+            except ApiError as e:
+                job["warnings"] = list(job.get("warnings") or []) + ["疑わしい所の認識し直しを始められませんでした: " + e.message]
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
     except ApiError as e:
@@ -4051,8 +4064,211 @@ def finish_range_lines(raw, spec, shift):
             continue
         flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], spec["glossary"])
         prev.append(s["text"])
-        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift)})
+        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob")})
     return out
+
+
+# ---------- 疑わしい所だけ認識し直す(12 ③-2。ユーザー承認 2026-09-27: 設計どおり) ----------
+REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
+REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
+REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
+REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性")
+
+
+def redo_targets(doc, ids=None):
+    """認識し直す行: 「長い区間に文字が少ない」の印があり、校正済みでなく、文字が機械の出力のまま(人・辞書が直していない)。
+    -> [(行, 範囲の始まり, 終わり)](範囲は前後 REDO_PAD 秒。隣の行・文書の範囲の外にはかからない)"""
+    segs = sorted((g for g in doc.get("segments") or [] if isinstance(g, dict)), key=lambda g: (g["start"], g["end"]))
+    orig = doc.get("original") if isinstance(doc.get("original"), list) else None
+    machine = {(round(float(o["start"]), 2), round(float(o["end"]), 2)): o.get("text") for o in orig or [] if isinstance(o, dict)}
+    lo_doc = num(doc.get("start"), 0.0) or 0.0
+    hi_doc = num(doc.get("end")) or (lo_doc + (num(doc.get("duration")) or 0.0)) or None
+    out = []
+    for k, g in enumerate(segs):
+        if (ids is not None and g["id"] not in ids) or SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
+            continue
+        if machine and machine.get((round(float(g["start"]), 2), round(float(g["end"]), 2))) != g.get("text"):
+            continue   # 機械の出力と違う(人・辞書が直した)。機械の出力が無い文書(文字起こしせずに開いた)は見分けない
+        a = max(float(g["start"]) - REDO_PAD, lo_doc, float(segs[k - 1]["end"]) if k else lo_doc)
+        b = float(g["end"]) + REDO_PAD
+        if k + 1 < len(segs):
+            b = min(b, float(segs[k + 1]["start"]))
+        if hi_doc:
+            b = min(b, hi_doc)
+        out.append((g, round(min(a, float(g["start"])), 3), round(max(b, float(g["end"])), 3)))
+    return out[:REDO_MAX_ROWS]
+
+
+def redo_spec(tid, req=None):
+    """疑わしい所を認識し直すジョブの指定。モデルは文字起こしと同じ(kotoba なら、redoLarge で large-v3)。VAD は普通の強さで短く区切る"""
+    req = req or {}
+    doc = read_transcript(tid)
+    if doc.get("evalSet") is True:
+        raise ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
+    check_source(doc.get("sourcePath"))
+    targets = redo_targets(doc)
+    if not targets:
+        raise ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
+    model = str(doc.get("model") or "large-v3")
+    if not valid_model(model):
+        model = "large-v3"
+    if "kotoba" in model.lower() and req.get("redoLarge") is not False:
+        model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)
+    with _jobs_lock:
+        if any(j.get("kind") in EXCLUSIVE["redo"] and j["spec"].get("tid") == tid and j["state"] in ACTIVE_STATES for j in _jobs.values()):
+            raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
+    pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+    old_lp = req.get("oldLp") if isinstance(req.get("oldLp"), dict) else {}
+    return {"tid": tid, "ids": [g["id"] for g, _a, _b in targets], "model": model, "language": doc.get("language") if doc.get("language") in LANGS else "ja",
+            "beam": 5, "vadMode": "normal", "wordSplit": True, "splitChars": split_chars_for({}), "stripPunct": pr.get("stripPunct", True) is not False,
+            "device": "auto", "boost": pr.get("boost") is True, "autoDict": False, "glossary": [], "glossAuto": [],
+            "oldLp": {k: float(v) for k, v in old_lp.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
+            "title": "疑わしい所を認識し直す: " + (str(doc.get("title") or "") or "無題")[:100]}
+
+
+def redo_kwargs(spec):
+    """疑わしい所を認識し直すときの設定: VAD は普通の強さで、短い無音でも区切る(長い塊に単語1つ・途中を飛ばす、を減らす)"""
+    kw = whisper_kwargs(spec)
+    kw["vad_filter"] = True
+    kw["vad_parameters"] = {"min_silence_duration_ms": 250, "speech_pad_ms": 200}
+    kw["chunk_length"] = 10
+    return kw
+
+
+def redo_better(row, lines, old_lp=None):
+    """認識し直した結果が良くなったか: 文字が増えた・まだ疑わしい印(文字が少ない・よくある誤認識・繰り返し・BGM)が無い・
+    avg_logprob が分かれば上がった。-> (良くなったか, 理由)"""
+    if not lines:
+        return False, "何も認識されない"
+    new_chars, old_chars = sum(text_chars(x["raw"]) for x in lines), text_chars(row.get("text"))
+    if new_chars <= old_chars:
+        return False, "文字が増えない"
+    flags = "、".join(str(x.get("flag") or "") for x in lines)
+    if any(f in flags for f in REDO_BAD_FLAGS):
+        return False, "まだ疑わしい"
+    lps = [float(x["lp"]) for x in lines if isinstance(x.get("lp"), (int, float))]
+    if old_lp is not None and lps and sum(lps) / len(lps) <= old_lp:
+        return False, "自信が上がらない"
+    return True, ""
+
+
+def apply_redo(spec, results):
+    """認識し直して良くなった行をまとめて置き換える(1回の保存。前の版は履歴に残す = 「以前の版に戻す」で戻せる)。
+    途中で人が直した・校正した行は置き換えない。-> 置き換えた行の数"""
+    if not results:
+        return 0
+    with _save_lock:
+        tid = spec["tid"]
+        doc = read_transcript(tid)
+        segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
+        by_id = {g["id"]: g for g in segs}
+        used = {g["id"] for g in segs}
+        n_rep, new_words, drop = 0, [], set()
+        for rid, old_text, a, b, lines in results:
+            g = by_id.get(rid)
+            if not g or g.get("proofed") is True or g.get("text") != old_text:
+                continue
+            drop.add(rid)
+            n_rep += 1
+            k = 0
+            for x in lines:
+                while True:
+                    k += 1
+                    sid = "%s-r%d" % (rid, k)
+                    if sid not in used:
+                        used.add(sid)
+                        break
+                segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:MAX_TEXT],
+                             "speaker": g.get("speaker", ""), "flag": str(x.get("flag") or "")[:100]})
+            if isinstance(doc.get("original"), list):
+                doc["original"] = replace_original_multi(doc["original"], a, b, lines)
+            new_words.append((a, b, [w for x in lines for w in x.get("words") or []]))
+        if not n_rep:
+            return 0
+        try:
+            hist_snapshot(tid, force=True)
+        except OSError:
+            pass
+        doc["segments"] = sorted((g for g in segs if g["id"] not in drop), key=lambda g: (g["start"], g["end"]))
+        doc["updatedAt"] = int(time.time() * 1000)
+        doc["redo"] = {"model": spec["model"], "rows": n_rep, "at": doc["updatedAt"]}
+        apply_edit_cuts(tid, doc)
+        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        for a, b, ws in new_words:
+            try:
+                replace_words(tid, a, b, ws, spec["model"])
+            except OSError as e:
+                log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
+        return n_rep
+
+
+def run_redo(job):
+    """疑わしい所だけ認識し直す(12 ③-2)。行ごとに、前後の余白を足した範囲を今の範囲の再認識と同じ仕組みで認識し直し、良くなったものだけ最後にまとめて置き換える。
+    中止したら何も置き換えない。時間の上限(REDO_MAX_SEC)を超えたら残りの行はやめる"""
+    spec = job["spec"]
+    wav = os.path.join(TMP_DIR, job["id"] + ".wav")
+    try:
+        os.makedirs(TMP_DIR, exist_ok=True)
+        doc = read_transcript(spec["tid"])
+        src = check_source(doc.get("sourcePath"))
+        targets = redo_targets(doc, set(spec["ids"]))
+        if not targets:
+            job["segments"], job["tid"], job["progress"], job["state"], job["phase"] = 0, spec["tid"], 1.0, "done", "完了(認識し直す行がありませんでした)"
+            return
+        start, end = audio_span([{"start": a, "end": b} for _g, a, b in targets], num(doc.get("start"), 0.0) or 0.0, num(doc.get("end")))
+        job["state"], job["phase"] = "extracting", "音声を取り出し中"
+        extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
+        fake = backend_name() == "fake"
+        if not fake:
+            if not has_faster_whisper():
+                raise ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+            job["state"] = "loading"
+            model, device = load_model(spec["model"], job, spec["device"])
+            job["device"] = device
+            audio = read_wav_f32(wav)
+            kw = filter_kwargs(model, redo_kwargs(spec))
+        else:
+            job["device"] = "cpu"
+        job["state"] = "running"
+        t0, results, tried, timed_out = time.monotonic(), [], 0, False
+        for n, (g, a, b) in enumerate(targets):
+            if job["cancel"]:
+                raise Cancelled()
+            if time.monotonic() - t0 > REDO_MAX_SEC:
+                timed_out = True
+                break
+            job["phase"] = "疑わしい所を認識し直し中(%d / %d)" % (n + 1, len(targets))
+            sub = dict(spec, range=[a, b])
+            if fake:   # テスト用: 行の長さに見合う文字数の文(TRANSCRIBE_FAKE_REDO=worse なら短いまま)
+                txt = "あ" if os.environ.get("TRANSCRIBE_FAKE_REDO") == "worse" else "認識し直した文" * max(1, int((b - a) * 2 / 7) + 1)
+                lines = finish_range_lines([{"start": 0.0, "end": b - a, "text": txt, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}], sub, a)
+                time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+            else:
+                lines = range_lines_real(job, model, kw, audio, sub, start)
+            tried += 1
+            ok, _why = redo_better(g, lines, spec.get("oldLp", {}).get(g["id"]))
+            if ok:
+                results.append((g["id"], g["text"], a, b, lines))
+            job["progress"] = min(0.95, (n + 1) / len(targets))
+        if job["cancel"]:
+            raise Cancelled()
+        n_rep = apply_redo(spec, results)
+        job["segments"], job["unsure"] = n_rep, max(0, tried - n_rep)
+        job["tid"], job["progress"], job["state"] = spec["tid"], 1.0, "done"
+        job["phase"] = "完了(%d か所のうち %d か所を置き換えました%s)" % (tried, n_rep, "。時間の上限で残りはやめました" if timed_out else "")
+    except Cancelled:
+        job["state"], job["phase"] = "cancelled", "中止しました(何も置き換えていません)"
+    except ApiError as e:
+        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+    except Exception as e:  # 想定外の失敗でもワーカーは止めない
+        log.exception("疑わしい所の認識し直しで例外")
+        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+    finally:
+        try:
+            if os.path.exists(wav):
+                os.unlink(wav)
+        except OSError:
+            pass
 
 
 def run_retranscribe(job):
@@ -4986,6 +5202,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, public_job(add_job(validate_diarize(obj), "diarize")))
             if path == "/api/retranscribe":
                 return self._json(200, public_job(add_job(validate_retranscribe(obj), "retranscribe")))
+            if path == "/api/redo":
+                return self._json(200, public_job(add_job(redo_spec(str(obj.get("tid") or ""), obj), "redo")))
             if path == "/api/scan-folder":
                 return self._json(200, scan_folder(obj.get("path"), obj.get("recursive") is True))
             if path == "/api/transcribe-batch":

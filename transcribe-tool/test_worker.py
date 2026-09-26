@@ -103,6 +103,25 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("偽のモデルを読み込み", self.worker_log())   # 標準出力への出力は worker.log へ回り、やり取りを壊さない
         self.assertIn("native-like output", self.worker_log())
 
+    def test_auto_redo_after_transcription(self):
+        """設定「疑わしい所を自動で認識し直す」(12 ③-2): 文字起こしのあと、長い区間に文字が少ない行があれば認識し直すジョブを足し、良くなった行だけ置き換える"""
+        def sparse_fake(job, spec, wav, total):   # 0〜6 秒に「黒」だけ(抜けの形)・6〜10 秒はふつうの行
+            yield {"start": 0.0, "end": 6.0, "text": "黒", "avg_logprob": -0.8, "no_speech_prob": 0.1, "compression_ratio": 1.2}
+            yield {"start": 6.0, "end": 10.0, "text": "ふつうに話している行です", "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}
+        with mock.patch.object(S, "backend_name", lambda: "fake"), mock.patch.object(S, "transcribe_fake", sparse_fake):
+            job = self.transcribe(autoRedo=True)
+            self.assertEqual(job["state"], "done", job.get("error"))
+            redo = [j for j in S._jobs.values() if j.get("kind") == "redo" and j.get("tid") == job["tid"]]
+            self.assertEqual(len(redo), 1)                                         # 自動で足された
+            self.assertEqual(redo[0]["spec"]["oldLp"], {"s1": -0.8})               # 元の行の avg_logprob(良くなったかを比べる)
+            S.work_one(redo[0]["id"])
+            self.assertEqual((redo[0]["state"], redo[0]["segments"]), ("done", 1), redo[0].get("error"))
+            d = self.doc(job["tid"])
+            self.assertTrue(d["segments"][0]["text"].startswith("認識し直した文"))
+            self.assertEqual(d["segments"][-1]["text"], "ふつうに話している行です")
+            job2 = self.transcribe()                                               # 設定がオフなら足さない
+            self.assertFalse([j for j in S._jobs.values() if j.get("kind") == "redo" and j.get("tid") == job2["tid"]])
+
     def test_word_split_uses_worker_words(self):
         job = self.transcribe(wordSplit=True)
         self.assertEqual(job["state"], "done", job.get("error"))

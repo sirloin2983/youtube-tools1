@@ -232,7 +232,7 @@ const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : do
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.autoRedo = $('#optAutoRedo').checked; s.redoLarge = $('#optRedoLarge').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
@@ -242,7 +242,7 @@ function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
@@ -326,7 +326,7 @@ function setTab(t){
   if (t === 'marker') renderMarker();
 }
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, glossary: $('#optGloss').value };
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value };
 }
 async function startFile(){
   const path = $('#srcPath').value.trim();
@@ -494,7 +494,8 @@ async function pollJobs(){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
       loadLearned();
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
-      toast(diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
+      toast(diar.kind === 'redo' ? `疑わしい所を認識し直しました: ${diar.phase || ''}` + (diar.segments ? '(前の版は「以前の版に戻す」に残っています)' : '')
+        : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
         : `話者を判別しました(${diar.speakers}人)。` + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : '「話者」で名前を付けてください'));
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
       if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
@@ -528,7 +529,7 @@ function renderJobs(){
     ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
-    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'diarize' ? j.speakers + '人を判別' : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
+    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'diarize' ? j.speakers + '人を判別' : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
 }
 
@@ -734,14 +735,15 @@ function renderDiarSetup(){
     : (!(d.segReady && e && e.ready) ? `<p class="hint" style="margin:0">初回だけ、判別用のモデルを自動でダウンロードします(合計 約${(d.segReady ? 0 : 6) + (e ? e.mb : 0)}MB)。</p>` : '');
   $('#diarGo').disabled = !d.ready;
 }
-const LOCK_KINDS = ['diarize', 'retranscribe'];
+const LOCK_KINDS = ['diarize', 'retranscribe', 'redo'];
+const LOCK_LABEL = { retranscribe: '再認識', redo: '疑わしい所を認識し直し', diarize: '話者を判別' };
 function lockJob(){ return S.doc ? S.jobs.find(j => LOCK_KINDS.includes(j.kind) && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
 function applyLock(){
   const j = lockJob(), on = !!j;
   $('#segs').inert = on; document.querySelectorAll('#doc .tt-lockable').forEach(el => { el.inert = on; }); $('#docTitle').disabled = on;
   if (S.doc) renderCutPack();
   const b = $('#diarBanner'); b.hidden = !on;
-  if (on) b.textContent = `${j.kind === 'retranscribe' ? '再認識' : '話者を判別'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
+  if (on) b.textContent = `${LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
 async function startDiarize(){
   if (!S.doc) return;
@@ -809,6 +811,15 @@ async function startRetranscribe(){
   startPolling(); await pollJobs(); toast(`${ids.length}行の再認識を待機列に追加しました`);
 }
 $('#rsGo').addEventListener('click', resplitDoc);
+$('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
+  if (!S.docId || lockJob()) return;
+  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  try {
+    await api('/api/redo', { body: { tid: S.docId, redoLarge: $('#optRedoLarge').checked } });
+    $('#redoMsg').textContent = '認識し直しています(終わると読み込み直します)';
+    startPolling(); pollJobs();
+  } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
+});
 $('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
 ['optSubOrient', 'optMaxV', 'optMaxH'].forEach(id => $('#' + id).addEventListener('change', renderResplitOpts));
 $('#rtGo').addEventListener('click', e => {
@@ -2036,7 +2047,7 @@ $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips 
 $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);

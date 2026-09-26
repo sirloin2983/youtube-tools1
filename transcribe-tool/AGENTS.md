@@ -53,7 +53,8 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   編集の内容 `transcripts/<id>.edit.json`(残す区間 = カットの正。`GET/PUT /api/edit`・rev と 409)、`POST /api/edit/pack`(パックを作った記録・`packStale`)、
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
   **単語の時刻** `transcripts/<id>.words.json`(文書全体の単語の並び。認識と範囲の再認識が書く・削除で消す)と `POST /api/resplit`(今の文書を分け直す)。
-  1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②
+  1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②。
+  **疑わしい所だけ認識し直す**: ジョブ `redo`(`POST /api/redo`・`run_redo`・`redo_targets`・`redo_better`・`apply_redo`。話者判別・再認識と同じく編集を止める)。設定 `autoRedo`(既定オフ)・`redoLarge`。設計書の 12 ③-2
   **行の cutState は、編集の内容があれば文書のどの書き込みでも `apply_edit_cuts` で編集の内容から付け直す**(新しく文書を書き込む処理を足すときも通す)。
   細かい決まりは設計書の「11. 実装で決めたこと」
 - `pack-tab.js` … 「編集」3 パック のタブ(置き先・入れるもの・出力先・これから作るパック・字幕の見本・作る・前回のパック・zip)。app.js より先に読み、`EditPack.create(host)` で起動する
