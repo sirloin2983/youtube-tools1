@@ -1656,6 +1656,11 @@ function wire(){
     const li = e.target.closest('.rv-mark-row'); if (!li || e.target.closest('input,button,label')) return;
     S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
   });
+  /* B-11: 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
+  list.addEventListener('focusin', e => {
+    const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input')) return;
+    S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
+  });
   list.addEventListener('input', e => {
     if (e.target.dataset.f !== 'label') return;
     const c = marks().find(x => x.id === e.target.closest('.rv-mark-row').dataset.id); if (!c) return;

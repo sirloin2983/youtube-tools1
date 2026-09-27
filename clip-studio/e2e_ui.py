@@ -273,6 +273,15 @@ def run_checks(port, fx, shots=None):
         open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")
+        # B-11: 微調整のボタンは選んだマークにだけ(一覧では時刻・長さ・ラベル・判定を比べやすく)
+        rows = pg.evaluate("""[...document.querySelectorAll('#rvList .rv-mark-row:not(.folded)')].map(r => [r.classList.contains('sel'), r.querySelector('.rv-nudges') ? getComputedStyle(r.querySelector('.rv-nudges')).display : 'x'])""")
+        c.ok(all((d != "none") == sel for sel, d in rows if d != "x") and any(not sel for sel, _ in rows), "微調整のボタンは選んだマークにだけ出る: %s" % rows[:4])
+        other = pg.locator("#rvList .rv-mark-row:not(.sel):not(.folded)").first
+        if other.count():
+            other.locator('[data-f="label"]').focus()
+            c.ok(wait_js(pg, "() => { const r = document.activeElement.closest('.rv-mark-row'); return r && r.classList.contains('sel') && getComputedStyle(r.querySelector('.rv-nudges')).display !== 'none'; }", 3000),
+                 "別のマークの欄に入ると、そのマークが選ばれて微調整のボタンが出る")
+            pg.evaluate("document.activeElement.blur()")
         # 書き出しの引き出し: 1680px 以上は docked(主画面(映像・マーク)が右を空け、重ならない)。1440px は既定で閉じて、押すと重ねる(2026-09-27。並べるとマークの一覧が細くなりすぎたため)
         c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "1440px: 書き出しの引き出しは既定で閉じている(マークの一覧を広く)")
         pg.set_viewport_size({"width": 1720, "height": 900})
