@@ -411,6 +411,10 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-row:last-child{border-bottom:0}
 .ui-settings-row>span{color:var(--ink-2);font-size:13px}
+/* ツールの節の .fld(名前 + select)も、全体の節と同じ1行の形に(同じ欄の中で形をそろえる。段3-3)。文字の欄(API キーなど)は今までどおり縦に */
+.ui-settings-sec .fld:has(>select){display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line)}
+.ui-settings-sec .fld:has(>select)>label,.ui-settings-sec .fld:has(>select)>.l{margin:0;font-weight:400;color:var(--ink-2);font-size:13px}
+.ui-settings-sec .fld:has(>select)>select{width:auto;flex:none}
 
 /* SVG の線のアイコン(UIKit.icon)。<span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill) */
 .ui-icon{display:inline-flex;width:1em;height:1em;flex:none}

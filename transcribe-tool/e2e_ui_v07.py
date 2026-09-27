@@ -140,7 +140,8 @@ def main():
             # 一括置換で聞かずに書き換えた行は校正済みが外れる
             before = pg.locator("#segs .seg.proofed").count()
             if not pg.evaluate("document.querySelector('#fixDetails').open"):   # v0.15.0: 置換は「文字をまとめて直す」のカード
-                pg.click("#fixDetails summary")
+                pg.evaluate("document.querySelector('#fixDetails').open = true")   # 段3: 4枚のカードは「…」から開く(閉じている間は隠れている)
+                pg.wait_for_selector("#fixDetails:not([hidden])")
             pg.fill("#repFrom", "テスト文")
             pg.fill("#repTo", "テスト文!")
             pg.click("#repGo")

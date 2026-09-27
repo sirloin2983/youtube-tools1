@@ -70,3 +70,6 @@ _new/
 holo-colors/build/
 holo-colors/dist/
 holo-colors/data/
+
+# design-review の写真(見本のデータ。重いので入れない。python の見直しの手順で撮り直せる)
+.design/*/screenshots/

@@ -137,7 +137,7 @@ Studio.openSettings = () => drawer.open();
 
 /* ---------- キー操作の一覧(? キー) ---------- */
 function keyRows(rows){
-  return rows.map(([k, label]) => `<div class="ui-krow"><span class="ui-klabel">${Studio.esc(label)}</span><span class="ui-kkeys">${k ? k.split(' / ').map(x => `<kbd>${Studio.esc(x)}</kbd>`).join('<span class="muted">/</span>') : '<span class="muted">未設定</span>'}</span></div>`).join('');
+  return rows.map(([k, label]) => `<div class="ui-krow"><span class="ui-kkeys">${k ? k.split(' / ').map(x => `<kbd>${Studio.esc(x)}</kbd>`).join('<span class="muted">/</span>') : '<span class="muted">未設定</span>'}</span><span class="ui-klabel">${Studio.esc(label)}</span></div>`).join('');
 }
 Studio.openKeyHelp = () => {
   const dlg = $('#keyHelp'); if (!dlg || dlg.open) return;

@@ -711,11 +711,19 @@ async function startDiarize(){
 document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
   const el = $('#' + b.dataset.jump); if (!el) return;
   $('#jumpMenu').open = false;
+  el.hidden = false;   // 4枚のカードは閉じている間は隠している(下)。ここで出してから開く
   if (el.tagName === 'DETAILS') el.open = true;
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
   const sm = el.querySelector('summary'); if (sm) sm.focus({ preventScroll: true });
 }));
+/* 段3 の見直し(design-review): 話者・文字をまとめて直す・書き出し・以前の版の4枚は、一覧の上の「…」からだけ開く(ブリーフ: 操作の入口は役割ごとに1つ)。
+   閉じている間は隠し、どこから開いても(「…」・ほかの画面の案内・覚えていた開閉)出す。閉じればまた隠す */
+for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
+  const d = $('#' + id); if (!d) continue;
+  d.hidden = !d.open;
+  d.addEventListener('toggle', () => { d.hidden = !d.open; });
+}
 $('#diarGo').addEventListener('click', e => {
   const b = e.currentTarget;
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
@@ -1298,7 +1306,7 @@ async function openDoc(id, keep){
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
-  if (autoClosed && resumeIdx < 0 && !isDrawer()) toast('編集欄を広くするため、メニューを閉じました(左上の ☰ で開けます)', 4000);
+  if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
   return true;
 }
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }

@@ -786,7 +786,7 @@
   function kbdRow(keyStr, label) {
     var parts = String(keyStr).split(' / '), kbds = '';
     for (var i = 0; i < parts.length; i++) { if (i) kbds += '<span class="muted">/</span>'; kbds += '<kbd class="ui-kbd">' + esc(parts[i]) + '</kbd>'; }
-    return '<div class="ui-krow"><span class="ui-klabel">' + esc(label) + '</span><span class="ui-kkeys">' + kbds + '</span></div>';
+    return '<div class="ui-krow"><span class="ui-kkeys">' + kbds + '</span><span class="ui-klabel">' + esc(label) + '</span></div>';   /* キー → 説明(各ツールの一覧と同じ順) */
   }
   function keysHelpHtml() {
     var rows = [

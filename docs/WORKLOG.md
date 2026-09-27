@@ -1170,3 +1170,12 @@
 - テスト(PC で通過): build.bat の単体 17 件・e2e 22 件(ユーザーの許可を得て流した)
 - 注意: Git Bash から `cmd //c build.bat | grep` で流すと zip の段で止まる(PowerShell から流せば最後まで進む。build.bat の不具合ではない)。
   このセッションの最初に「# を付けない」を既定にする変更をしかけたが、ユーザーの判断(設定で外せるのでこのままでよい)で取り消した
+
+## 2026-09-27 Claude Code — 画面の全面見直しの段階3(/frontend-design → /baseline-ui → /design-review)
+- /frontend-design: 一覧を「1枚の紙」に(ホームの次にやること・案件、編集の行。ui-kit に `.ui-sheet`)・等幅は時刻と数字だけ・一覧の上のキーの手がかりは既定で出さない(`.design/ui-overhaul/IMPLEMENTATION.md` の 8)
+- /baseline-ui: 100dvh・飾りのグラデーションと字間の変更をやめる・見出し/本文の折り返し・長い動きと幅のアニメーションをやめる・safe-area・重なりの順の決まり(同 9。技術の指定 Tailwind などは前提と合わないので当てはめない)
+- /design-review: 結果は `.design/ui-overhaul/DESIGN_REVIEW.md`。写真は `.design/ui-overhaul/screenshots/`(git に入れない。`.gitignore` に足した)。
+  直した: 映像の上の字幕が映像の外に出ていた(映像と字幕だけの箱 `.tt-vbox`)・「…」と映像の下の4枚のカードで入口が2つ(カードは「…」から開いたときだけ出す)・
+  キー操作の一覧の並び(全部「キー → 説明」)・⚙ の欄の形・ホームの ⚙ を文字つきに・「メニューを閉じました」は1回だけ。映像の背景は `--stage-bg`
+- テスト(PC): ui-kit e2e・スタジオ e2e_ui 128・編集の e2e(v07・v08・v09・v098・eval・handoff・edit_tabs/cut/pack)・入口 e2e_portal 通過
+- 未完了・次: 盛り上がりのグラフと山の札は見本では出ない(解析の直後だけ)ので実機で確かめる。DESIGN_REVIEW.md の「Should Fix(残り)」「Could Improve」
