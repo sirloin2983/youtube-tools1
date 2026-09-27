@@ -289,10 +289,10 @@ def main():
 
             # ==================== 9) 再生・編集の設定のポップオーバー・設定の引き出し(段2: B キーはやめて設定の引き出しへ) ====================
             open_doc("メニュー文書")
-            check(not pg.is_visible("#follow"), "再生・編集の設定のポップオーバーは、開く前は中身(#follow など)が見えない")
-            pg.click("#playSet summary")
+            check(not pg.is_visible("#follow") and pg.locator("#playSet").count() == 0, "映像の下に2つ目の「設定」は無い(B-9: 設定は右上の ⚙ の1か所)")
+            pg.click("[data-ui-settings]")
             check(pg.is_visible("#follow") and pg.is_visible("#frameFollow") and pg.is_visible("#adjStep"),
-                  "⚙ 設定(再生・編集)を開くと #follow・#frameFollow・#adjStep が見える")
+                  "右上の ⚙ 設定を開くと #follow・#frameFollow・#adjStep が見える")
             pg.keyboard.press("Escape")
             pg.click("[data-ui-settings]")
             pg.wait_for_selector("#autoNext", state="visible")

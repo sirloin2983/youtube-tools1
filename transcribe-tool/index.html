@@ -776,7 +776,7 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 html.fsz .seg textarea{field-sizing:content;height:auto}
 /* 右端の状態の切り替え(残す/カット済・校正済み) */
 .seg .ops{display:flex;gap:4px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;padding-top:1px}
-.seg .ops button{border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r-pill);min-height:26px;padding:0 10px;font-size:12px;font-weight:550;cursor:pointer;color:var(--ink-3);white-space:nowrap;transition:background var(--dur),color var(--dur),border-color var(--dur)}
+.seg .ops button{border:1px solid var(--line-strong);background:var(--panel);border-radius:var(--r-pill);min-height:28px;padding:0 10px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink-2);white-space:nowrap;transition:background var(--dur),color var(--dur),border-color var(--dur)}
 .seg .ops button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .ops button.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
 .seg .ops button.pf[aria-pressed=true]::before{content:"✓ "}
@@ -802,13 +802,13 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
 .sg button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
-.tg button{border:1px dashed var(--line-2);background:transparent;border-radius:var(--r-pill);padding:0 10px;min-height:22px;font-size:12px;color:var(--ink-3);cursor:pointer}
+.tg button{border:1px dashed var(--line-strong);background:transparent;border-radius:var(--r-pill);padding:0 10px;min-height:28px;font-size:12px;color:var(--ink-2);cursor:pointer}
 .tg button:hover{color:var(--ink)}
 .tg button[aria-pressed=true]{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);color:var(--warn);font-weight:600}
 .seg .adj{grid-column:3/-1;display:none;gap:4px 10px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-3);margin-top:2px;padding:6px 8px;background:var(--panel-2);border-radius:var(--r)}
 .seg.nav .adj{display:flex}
 .adj .g{display:inline-flex;align-items:center;gap:3px}
-.adj button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;min-width:28px;height:26px;padding:0 6px;font-size:12px;color:var(--ink);cursor:pointer}
+.adj button{border:1px solid var(--line-strong);background:var(--panel);border-radius:6px;min-width:28px;height:28px;padding:0 6px;font-size:12px;color:var(--ink);cursor:pointer}
 .adj button:hover{border-color:var(--line-strong);background:var(--panel-3)}
 .adj button.now{padding:0 7px}
 .adj .sep{width:1px;align-self:stretch;background:var(--line-2);margin:2px 2px}
@@ -1002,6 +1002,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-file .hint{flex:none}
 .tt-pk-lastbtns{margin-top:10px}
 @container editor (max-width:900px){.tt-pk-grid{grid-template-columns:minmax(0,1fr)}}
+.tt-set-sub{margin:16px 0 6px;font-size:12px;color:var(--ink-2);font-weight:600}
+.tt-set-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 /* ⚙ 設定の「キー配置」(2026-09-27) */
 .tt-kmgroup{margin-top:10px}
 .tt-kmgroup h4{margin:0 0 4px;font-size:12px;color:var(--ink-2);font-weight:600}
@@ -1286,12 +1288,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <p class="hint" id="playerMsg" hidden></p>
         <div class="tools tools-play" role="group" aria-label="再生">
           <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
-          <details class="pop l" id="playSet"><summary class="btn ghost small" title="再生・編集の設定"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span> 設定</summary><div class="vpop">
-            <div class="col">
-            <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
-            <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(↓/↑ / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
-            <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
-            </div></div></details>
         </div>
       </div>
       <div id="diarBanner" class="notice" hidden></div>
@@ -1545,7 +1541,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div class="ui-kgrid" id="keysTx"></div>   <!-- 割り当てのとおりに renderKeyUI() が描く -->
   <h3 class="section-title" style="margin-top:14px">2 カット のタブ</h3>
   <p class="hint" style="margin:4px 0 0">共通の再生キー(上)に加えて: <kbd>S</kbd> 分割 ・ <kbd>Del</kbd> 削る/戻す ・ <kbd>I</kbd> 始まり ・ <kbd>O</kbd> 終わり ・ <kbd>X</kbd> I〜O を削る ・ <kbd>,</kbd> <kbd>.</kbd> 選んだ端を1コマ(Shift で10コマ) ・ <kbd>Ctrl</kbd>+<kbd>Z</kbd> 元に戻す ・ <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> やり直す。ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付かない</p>
-  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。</p>
+  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。</p>
   <p class="tt-flow">基本の流れ: <kbd>S</kbd>(<kbd>↓</kbd>)で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd>(<kbd>Tab</kbd>)で入力 → <kbd>Esc</kbd>(<kbd>Tab</kbd>) → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd> か設定の引き出しで切り替え)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>
@@ -1575,6 +1571,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
   <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
   <label class="lag" style="margin-top:10px" title="Shift+Space・Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
+  <h4 class="tt-set-sub">再生・行の操作</h4>
+  <div class="col tt-set-col">
+    <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>
+    <label class="lag" title="オフ(標準): 青い太枠は、あなたが選んだ行(↓/↑ / クリック)にだけ付きます。再生中の行は、薄い色と左端の線で示すだけです。オンにすると、太枠も再生に合わせて動きます"><input type="checkbox" id="frameFollow">太枠も再生に合わせる</label>
+    <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
+  </div>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
   <h3 style="margin-top:18px">キー配置</h3>
   <p class="hint" style="margin:4px 0 8px">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取り消し / Delete = 割り当てを外す。すでに使っているキーを選ぶと、そちらの割り当てが外れます。

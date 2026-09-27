@@ -212,7 +212,7 @@ def main():
             after = pg.locator("#segs .seg").nth(navi()).locator("input[data-f=end]").input_value()
             st = pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('input[data-f=start]').value" % navi())
             check(after != before, "終了の＋で終了時刻が動く: %s → %s" % (before, after))
-            pg.click("#playSet summary"); pg.select_option("#adjStep", "0.5"); pg.click("#playSet summary")   # v0.9.8: 「⚙設定」の中
+            pg.click("[data-ui-settings]"); pg.select_option("#adjStep", "0.5"); pg.keyboard.press("Escape")   # B-9: 右上の ⚙ 設定の中
             pg.locator("#segs .seg").nth(navi()).locator("[data-act=adj][data-f=start][data-d='-1']").click()
             check(pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('input[data-f=start]').value" % navi()) != st, "幅を変えて、開始の−で開始が動く")
             pg.keyboard.press("Control+z")
