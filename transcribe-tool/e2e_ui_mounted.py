@@ -148,6 +148,7 @@ def main():
         from ytt_core import schemas as yschemas  # noqa: E402
         clip = yschemas.build_clip(media, 20.0, {"kind": "youtube", "videoId": "vidE2E00001", "title": "【雑談】テストの配信"}, (600.0, 620.0),
                                    {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"}, {"mode": "precise"}, {"name": "clip-studio", "version": "e2e"})
+        os.makedirs(os.path.dirname(yschemas.clip_path_for(media)), exist_ok=True)   # 途中のファイルは 作業用\(2026-09-27)
         with open(yschemas.clip_path_for(media), "w", encoding="utf-8") as f:
             json.dump(clip, f, ensure_ascii=False)
         studio_data = os.path.join(tmp, "studio-data.json")
@@ -260,8 +261,9 @@ def main():
             check(pg.is_hidden("#pkOff") and pg.is_enabled("#pkBuild") and pg.inner_text("#pkBuild") == "パックを作る",
                   "3 パック のタブは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
             tr_beside = os.path.splitext(media)[0] + ".transcript.json"
+            tr_work = os.path.join(os.path.dirname(media), "作業用", os.path.splitext(os.path.basename(media))[0] + ".transcript.json")
             time.sleep(1.0)
-            check(not os.path.isfile(tr_beside) and call(port, "GET", "/api/edit?id=" + tid1)[1]["edit"] is None,
+            check(not os.path.isfile(tr_beside) and not os.path.isfile(tr_work) and call(port, "GET", "/api/edit?id=" + tid1)[1]["edit"] is None,
                   "開いただけでは、動画の隣に .transcript.json を書き出さない・カットも保存しない(見積もりは一時フォルダで)")
             pg.click("[data-edtab=tx]")
             pg.locator("#segs .seg").nth(1).locator("[data-act=cut]").click()   # 2行目(4〜8秒)を削る

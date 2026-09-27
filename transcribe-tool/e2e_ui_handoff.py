@@ -228,8 +228,9 @@ def main():
             pg.locator("#segs textarea").nth(0).fill("直してすぐ保存")
             pg.click("[data-beside=transcript-v1]")   # 自動保存を待たずに押す → 先に保存(の完了を待って)から書き出す
             pg.wait_for_selector("#handoffOut:not([hidden])", timeout=10000)
-            tpath = os.path.join(vids, "clip_0012.transcript.json")
-            check(os.path.isfile(tpath), "動画の隣に clip_0012.transcript.json ができる")
+            tpath = os.path.join(vids, "作業用", "clip_0012.transcript.json")   # 途中のファイルは 作業用\(2026-09-27)
+            check(os.path.isfile(tpath) and not os.path.exists(os.path.join(vids, "clip_0012.transcript.json")),
+                  "作業用\\clip_0012.transcript.json ができる(動画の隣には置かない)")
             with open(tpath, encoding="utf-8") as f:
                 tv = json.load(f)
             check(tv.get("schema") == "youtube-tools-transcript/v1" and tv["segments"][0]["text"] == "直してすぐ保存" and isinstance(tv.get("clip"), dict),
@@ -240,7 +241,7 @@ def main():
                   "「編集」E5: 書き出しの結果に「cut2resolve で開く」は出さず、パックは 3 パック のタブと案内する")
             pg.click("[data-beside=srt]")
             pg.wait_for_function("document.querySelector('#handoffOut').textContent.includes('.srt')", timeout=10000)
-            check(os.path.isfile(os.path.join(vids, "clip_0012.srt")), "字幕(.srt)も動画の隣に保存できる")
+            check(os.path.isfile(os.path.join(vids, "作業用", "clip_0012.srt")), "字幕(.srt)も作業用フォルダに保存できる")
             # 別の場所で先に更新 → 409 は「保存が追いついていない」
             cur = call(port, "GET", "/api/transcript?id=" + tid_clip)
             call(port, "PUT", "/api/transcript?id=" + tid_clip, {"title": cur["title"], "speakers": cur["speakers"], "segments": cur["segments"]})

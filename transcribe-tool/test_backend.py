@@ -467,8 +467,8 @@ class TestClipValidation(unittest.TestCase):
             media = os.path.join(tmp, "動画_0012.mp4")
             with open(media, "wb") as f:
                 f.write(b"x")
-            cj = os.path.join(tmp, "動画_0012.clip.json")
-            self.assertEqual(P.clip_path_for(media), cj)
+            cj = os.path.join(tmp, "動画_0012.clip.json")                          # 以前の置き方(動画の隣)も読む
+            self.assertEqual(P.clip_path_for(media), os.path.join(tmp, P.schemas.WORK_DIR, "動画_0012.clip.json"))   # 書くのは 作業用\
             self.assertEqual(P.find_clip(media), (None, None, None))           # 無ければ何もしない
             with open(cj, "w", encoding="utf-8-sig") as f:                     # BOM 付きでも読む
                 json.dump(clip_obj(), f, ensure_ascii=False)
@@ -583,7 +583,8 @@ class TestSaveBeside(unittest.TestCase):
         self.assertEqual((os.path.basename(p1), ow), ("動画 A.transcript.json", False))
         p2, ow = P.save_beside(self.media, ".transcript.json", self.own(sch), sch)
         self.assertEqual((p2, ow), (p1, True))                                     # 前にこのツールが書いたものは上書き
-        other = os.path.join(self.tmp, "動画 A.cut-plan.json")
+        self.assertEqual(os.path.dirname(p1), os.path.join(self.tmp, P.schemas.WORK_DIR))   # 途中のファイルは 作業用\(2026-09-27)
+        other = os.path.join(self.tmp, P.schemas.WORK_DIR, "動画 A.cut-plan.json")
         write_json(other, {"schema": P.CUT_PLAN_SCHEMA, "segments": []})           # 同じ schema でも他のツール(tool なし)が書いたもの
         p3, ow = P.save_beside(self.media, ".cut-plan.json", self.own(P.CUT_PLAN_SCHEMA), P.CUT_PLAN_SCHEMA)
         self.assertEqual((os.path.basename(p3), ow), ("動画 A (2).cut-plan.json", False))
@@ -595,12 +596,12 @@ class TestSaveBeside(unittest.TestCase):
     def test_srt_never_overwrites(self):
         names = [os.path.basename(P.save_beside(self.media, ".srt", b"1\n", None)[0]) for _ in range(3)]
         self.assertEqual(names, ["動画 A.srt", "動画 A (2).srt", "動画 A (3).srt"])
-        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".tmp-")], [])   # 一時ファイルが残らない
+        self.assertEqual([n for n in os.listdir(os.path.join(self.tmp, P.schemas.WORK_DIR)) if n.startswith(".tmp-")], [])   # 一時ファイルが残らない
 
     def test_does_not_clobber_file_created_meanwhile(self):
         """名前を決めてから置くまでの間に同じ名前のファイルができても、上書きしない(ハードリンクで置く)。"""
         real_lexists = os.path.lexists
-        target = os.path.join(self.tmp, "動画 A.srt")
+        target = os.path.join(self.tmp, P.schemas.WORK_DIR, "動画 A.srt")
         calls = []
 
         def racy(p):
@@ -793,7 +794,8 @@ class TestPipelineHttp(unittest.TestCase):
     def tearDown(self):
         for n in os.listdir(self.media_dir):
             if n != os.path.basename(self.wav):
-                os.unlink(os.path.join(self.media_dir, n))
+                p = os.path.join(self.media_dir, n)
+                shutil.rmtree(p) if os.path.isdir(p) else os.unlink(p)   # 作業用\(途中のファイル)も消す
 
     # ---- .clip.json ----
     def test_transcribe_reads_clip_and_transcript_v1(self):
@@ -879,7 +881,7 @@ class TestPipelineHttp(unittest.TestCase):
         tid, upd, segs = self.make_edited()
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "transcript-v1", "baseUpdatedAt": upd})
         self.assertEqual((r["name"], r["overwritten"], r["format"]), ("動画_0012.transcript.json", False, "transcript-v1"))
-        self.assertEqual(os.path.dirname(r["path"]), os.path.abspath(self.media_dir))
+        self.assertEqual(os.path.dirname(r["path"]), os.path.join(os.path.abspath(self.media_dir), "作業用"))   # 途中のファイルは 作業用\
         with open(r["path"], "rb") as f:
             raw = f.read()
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))                        # BOM なし
@@ -900,7 +902,7 @@ class TestPipelineHttp(unittest.TestCase):
         tid, _upd, segs = self.make_edited()
         names = [self.call("POST", "/api/export-file", {"id": tid, "format": "srt"})["name"] for _ in range(2)]
         self.assertEqual(names, ["動画_0012.srt", "動画_0012 (2).srt"])            # SRT は上書きしない
-        with open(os.path.join(self.media_dir, "動画_0012.srt"), encoding="utf-8") as f:
+        with open(os.path.join(self.media_dir, "作業用", "動画_0012.srt"), encoding="utf-8") as f:
             srt = f.read()
         self.assertTrue(srt.startswith("1\n00:00:00,000 --> 00:00:04,000\nテスト文1\n\n2\n"))   # カット済の行も字幕には出す
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "srt", "speakerNames": True, "wrap": 3})

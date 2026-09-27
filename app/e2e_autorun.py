@@ -165,7 +165,12 @@ def main():
             # パックは最小限(④): cut-plan.json は置かず、cut2resolve の作業データに記録(ytt_core.txindex.pack_info が読む)
             check(os.path.isfile(os.path.join(pack_dir, "create_resolve_textplus_project.lua")) and not os.path.exists(os.path.join(pack_dir, "cut-plan.json")),
                   "Text+ パックができた: %s" % (os.listdir(pack_dir) if os.path.isdir(pack_dir) else "無い"))
-            check(os.path.isfile(os.path.splitext(clip["path"])[0] + ".transcript.json"), "文字起こしを動画の隣に保存した(transcript/v1)")
+            work = os.path.join(os.path.dirname(clip["path"]), "作業用")   # 途中のファイル(2026-09-27)
+            check(os.path.isfile(os.path.join(work, os.path.splitext(os.path.basename(clip["path"]))[0] + ".transcript.json")),
+                  "文字起こしを 作業用\\ に保存した(transcript/v1)")
+            top = sorted(n for n in os.listdir(os.path.dirname(clip["path"])) if not n.startswith("export-log"))
+            check(top == sorted([os.path.basename(clip["path"]), os.path.basename(pack_dir), "作業用"]),
+                  "出力先の直下は元動画・パック・作業用 だけ: %s" % top)
             lua = os.path.join(pack_dir, "create_resolve_textplus_project.lua")
             with open(lua, encoding="utf-8") as f:
                 check("さくらみこの色の文字(#FF8FDF)" in f.read(), "案件の画面で入れた配信者の色がパックの字幕に入る")

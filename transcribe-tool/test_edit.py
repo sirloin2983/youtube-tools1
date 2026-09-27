@@ -361,7 +361,9 @@ class TestEditHttp(unittest.TestCase):
         # 一 0.5〜1.5 → 前は無音が無いので 0.1 秒・後ろはカット済の行(二)を越えない。三 3.0〜4.25 → 無音の始まり 4.5 まで(前は無音の中なので動かさない)
         self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[0.4, 1.5], [3.0, 4.5]]))
         self.assertEqual(os.path.normcase(r["planBeside"]), os.path.normcase(os.path.splitext(video)[0] + ".cut-plan.json"))
-        self.assertFalse(os.path.exists(os.path.splitext(video)[0] + ".transcript.json"))   # 動画の隣にファイルを増やさない
+        stem = os.path.splitext(os.path.basename(video))[0]
+        for p in (os.path.splitext(video)[0] + ".transcript.json", os.path.join(os.path.dirname(video), "作業用", stem + ".transcript.json")):
+            self.assertFalse(os.path.exists(p))   # 動画の隣・作業用\ にファイルを増やさない
         # 設定の rowEdge で変えられる(zip・まとめて実行も同じ設定)
         settings = self.call("GET", "/api/settings")
         settings.pop("_status", None)
@@ -452,6 +454,7 @@ class TestEditHttp(unittest.TestCase):
         self.assertAlmostEqual(r["keptSec"], 1.3 + 0.2 + 2.1, places=3)
         self.assertTrue(any("0.5 秒より短い区間" in w for w in r["warnings"]), r["warnings"])
         self.assertFalse(os.path.exists(os.path.splitext(video)[0] + ".transcript.json"))   # 見積もりでは動画の隣にファイルを作らない
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(video), "作業用")))      # 作業用\ も作らない
         for bad in ([], [[1, 0.5]], [[0, 1], [0.5, 2]], "x", [[0, True]]):
             self.assertEqual(self.call("POST", "/api/edit/preview", {"id": tid, "keeps": bad}).get("error"), "bad_keeps", bad)
         # zip もカットのとおり(3区間・30fps のフレーム)

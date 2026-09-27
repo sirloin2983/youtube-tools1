@@ -80,10 +80,11 @@ def load_clip_file(path):
 
 
 def find_clip(media_path, media_duration=None):
-    """動画の隣の .clip.json を探す。戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
+    """動画の .clip.json を探す(作業用/ → 以前の置き方 = 動画の隣。ytt_core.schemas.find_clip_path)。
+    戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
     media_duration(秒)を渡すと、.clip.json の durationSec と大きく違うときに警告を付ける(clip は使う)。"""
-    p = clip_path_for(media_path)
-    if not os.path.isfile(p):
+    p = schemas.find_clip_path(media_path)
+    if not p:
         return None, None, None
     clip, warn = load_clip_file(p)
     if clip and media_duration:
@@ -94,18 +95,20 @@ def find_clip(media_path, media_duration=None):
 
 
 def resolve_clip_media(clip_json_path, clip, media_exts):
-    """.clip.json が指す動画の実際のパス。①media.path にあればそれ ②無ければ .clip.json と同じフォルダの media.name
-    ③それも無ければ、同じフォルダの「.clip.json と同じ名前 + 動画の拡張子」。見つからなければ None。
+    """.clip.json が指す動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの media.name
+    ③それも無ければ、動画のフォルダの「.clip.json と同じ名前 + 動画の拡張子」。見つからなければ None。
+    動画のフォルダ = .clip.json が 作業用/ の中なら1つ上(元動画は直下・途中のファイルは 作業用/。2026-09-27)、そうでなければ同じフォルダ。
     (フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)"""
     media = clip.get("media") if isinstance(clip.get("media"), dict) else {}
-    folder = os.path.dirname(os.path.abspath(clip_json_path))
+    folders = list(dict.fromkeys([schemas.media_folder(clip_json_path), os.path.dirname(os.path.abspath(clip_json_path))]))
     cands = []
     if isinstance(media.get("path"), str) and media["path"].strip():
         cands.append(media["path"].strip())
     if isinstance(media.get("name"), str) and media["name"].strip():
-        cands.append(os.path.join(folder, os.path.basename(media["name"].strip().replace("\\", "/"))))   # 名前だけを使う(../ などでフォルダの外を指させない)
-    stem = os.path.abspath(clip_json_path)[:-len(CLIP_SUFFIX)]
-    cands += [stem + ext for ext in sorted(media_exts)]
+        base = os.path.basename(media["name"].strip().replace("\\", "/"))   # 名前だけを使う(../ などでフォルダの外を指させない)
+        cands += [os.path.join(f, base) for f in folders]
+    name = os.path.basename(os.path.abspath(clip_json_path))[:-len(CLIP_SUFFIX)]
+    cands += [os.path.join(f, name + ext) for f in folders for ext in sorted(media_exts)]
     for c in cands:
         try:
             if is_network_path(c):   # .clip.json の中身(他人が作ったものかもしれない)でネットワークに接続しない
@@ -224,17 +227,19 @@ def _alt_name(stem, suffix, n):
 
 
 def save_beside(media_path, suffix, data, schema=None):
-    """動画の隣に <動画の名前(拡張子を除く)><suffix> で保存する。戻り値 (保存したパス, 上書きしたか)。
+    """動画のフォルダの 作業用/ に <動画の名前(拡張子を除く)><suffix> で保存する(途中のファイルは出力先の直下に置かない。
+    2026-09-27。ytt_core.schemas.work_dir。動画がもう 作業用 の中ならそこ)。戻り値 (保存したパス, 上書きしたか)。
     同名があるとき: schema を渡していて、それがこのツールが前に書いた同じ schema のファイルなら上書き。
     それ以外(SRT は常に)は「名前 (2).srt」「名前 (3).srt」… の順に、空いている名前(または前にこのツールが書いた同じ schema のもの)にする。
     書き込みは一時ファイル → 置き換え(書きかけのファイルを他のツールに読ませない)。"""
-    folder = os.path.dirname(os.path.abspath(media_path))
-    if not os.path.isdir(folder):
-        raise PipelineError("no_dir", "動画のフォルダが見つかりません: %s" % folder)
+    if not os.path.isdir(os.path.dirname(os.path.abspath(media_path))):
+        raise PipelineError("no_dir", "動画のフォルダが見つかりません: %s" % os.path.dirname(os.path.abspath(media_path)))
+    folder = schemas.work_dir(media_path)
     stem = os.path.splitext(os.path.basename(media_path))[0]
     target = os.path.join(folder, stem + suffix)   # エラーの説明用
     try:
         with _beside_lock:
+            os.makedirs(folder, exist_ok=True)
             for n in range(1, MAX_ALT_NAMES + 1):
                 p = os.path.join(folder, _alt_name(stem, suffix, n))
                 if os.path.lexists(p):

@@ -565,6 +565,9 @@ class TestTranscript(unittest.TestCase):
         self.assertEqual(C.resolve_media_path({"path": "/nope/x.mp4", "name": "../clip.mp4"}, j), str(v))
         self.assertIsNone(C.resolve_media_path({"path": r"\\server\share\clip2.mp4"}, j))
         self.assertIsNone(C.resolve_media_path(None, j))
+        # 途中のファイル(.transcript.json)は 作業用/、元動画は1つ上(2026-09-27)
+        j2 = self.dir / C.WORK_DIR / "clip.transcript.json"
+        self.assertEqual(C.resolve_media_path({"path": r"C:\gone\clip.mp4"}, j2), str(v))
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
@@ -809,6 +812,18 @@ class TestEditMediaLookup(unittest.TestCase):
         self.assertEqual((em["path"].name, em["selectionIn"], em["handleAfter"]), ("clip_edit.mp4", 10.0, 10.0))
         self.assertEqual(pack.edit_media_path(self.video, None, True), self.d / "clip_edit.mp4")
         self.assertIsNone(pack.edit_media_path(self.video, None, False))   # 動画を同梱しないパックでは使わない
+
+    def test_found_in_work_dir(self):
+        """2026-09-27 から スタジオは .edit.json と _edit.mp4 を 作業用/ に書く。作業用/ が先・以前の置き方(隣)も読む"""
+        w = self.d / C.WORK_DIR
+        w.mkdir()
+        write(w / "clip_edit.mp4", "z")
+        write(w / "clip.edit.json", json.dumps({"schema": C.EDIT_MEDIA_SCHEMA, "media": "clip_edit.mp4", "selectionIn": 7, "handleBefore": 7, "handleAfter": 10}))
+        self.sidecar()                                                              # 以前の置き方のものもある
+        em = C.find_edit_media(self.video)
+        self.assertEqual((em["path"], em["selectionIn"]), (w / "clip_edit.mp4", 7.0))
+        (w / "clip.edit.json").unlink()
+        self.assertEqual(C.find_edit_media(self.video)["path"], self.d / "clip_edit.mp4")
 
     def test_rejected(self):
         self.assertIsNone(C.find_edit_media(self.video))                      # .edit.json が無い

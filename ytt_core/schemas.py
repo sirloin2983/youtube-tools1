@@ -32,10 +32,57 @@ def _r3(x):
     return None if x is None else round(float(x), 3)
 
 
+# ---------- 途中のファイルの置き場所(2026-09-27。docs/followup-2026-09-27.md の 1) ----------
+# 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
+# (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。
+# 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
+# cut2resolve(ytt_core を読まないコマンドもある)は cut2resolve_core.WORK_DIR に同じ名前を持つ(test_serve が同じか確かめる)
+WORK_DIR = "作業用"
+
+
+def work_dir(media_path):
+    """動画の途中のファイルを書くフォルダ: 動画のフォルダの 作業用/(動画がもう 作業用 の中なら、そのフォルダ。_edit.mp4 など)"""
+    folder = os.path.dirname(os.path.abspath(media_path))
+    return folder if os.path.basename(folder) == WORK_DIR else os.path.join(folder, WORK_DIR)
+
+
+def media_folder(sidecar_path):
+    """途中のファイル → 動画のフォルダ(作業用 の中なら1つ上)"""
+    folder = os.path.dirname(os.path.abspath(sidecar_path))
+    return os.path.dirname(folder) if os.path.basename(folder) == WORK_DIR else folder
+
+
+def sidecar_path(media_path, suffix):
+    """途中のファイルを書く場所(動画_0012.mp4 + .clip.json → 作業用/動画_0012.clip.json)"""
+    return os.path.join(work_dir(media_path), os.path.splitext(os.path.basename(media_path))[0] + suffix)
+
+
+def sidecar_candidates(media_path, suffix):
+    """途中のファイルを読む場所の候補(作業用/ → 以前の置き方 = 動画の隣)"""
+    new, old = sidecar_path(media_path, suffix), os.path.splitext(os.path.abspath(media_path))[0] + suffix
+    return [new] if os.path.normcase(new) == os.path.normcase(old) else [new, old]
+
+
+def find_sidecar(media_path, suffix):
+    """候補のうち、あるもの(無ければ None)。ネットワーク上のパスかどうかは呼び出し側で確かめる"""
+    for p in sidecar_candidates(media_path, suffix):
+        try:
+            if os.path.isfile(p):
+                return p
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 # ---------- youtube-tools-clip/v1 ----------
 def clip_path_for(media_path):
-    """動画の隣の .clip.json のパス(拡張子を置き換える。動画_0012.mp4 → 動画_0012.clip.json)。"""
-    return os.path.splitext(media_path)[0] + CLIP_SUFFIX
+    """.clip.json を書くパス(作業用/ の中。動画_0012.mp4 → 作業用/動画_0012.clip.json)。読むときは find_clip_path"""
+    return sidecar_path(media_path, CLIP_SUFFIX)
+
+
+def find_clip_path(media_path):
+    """動画の .clip.json(作業用/ → 以前の置き方 = 動画の隣)。無ければ None"""
+    return find_sidecar(media_path, CLIP_SUFFIX)
 
 
 def build_clip(media_path, duration, source, rng, mark, export, tool):

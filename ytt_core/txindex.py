@@ -126,7 +126,7 @@ def pick(docs, video_id, mark_id, media_path):
 
 def offset(doc, video_id, media_path, fallback):
     """切り抜きの中の時刻 → 元の配信の時刻 のずれ。-> (offset, 根拠 "clip" | "sidecar" | "mark")
-    ① 文書に入っている .clip.json の中身(同じ配信のものだけ)② 書き出した mp4 の隣の .clip.json ③ マークの開始(fallback)"""
+    ① 文書に入っている .clip.json の中身(同じ配信のものだけ)② 書き出した mp4 の .clip.json(作業用/ か隣)③ マークの開始(fallback)"""
     def usable(c):
         c, _ = schemas.validate_clip(c)
         src = (c or {}).get("source") if c else None
@@ -137,7 +137,8 @@ def offset(doc, video_id, media_path, fallback):
     if c:
         return schemas.clip_offset(c), "clip"
     if media_path and not fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない)
-        side, _ = schemas.load_clip_file(schemas.clip_path_for(media_path))
+        cp = schemas.find_clip_path(media_path)   # 作業用/ → 以前の置き方(動画の隣)
+        side, _ = schemas.load_clip_file(cp) if cp else (None, None)
         c = usable(side) if side else None
         if c:
             return schemas.clip_offset(c), "sidecar"

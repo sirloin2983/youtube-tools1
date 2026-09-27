@@ -5,6 +5,7 @@
 中身は共通部品 ytt_core(schemas・runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
 スタジオ固有の値(ツール名・版)は TOOL に入れる。
 """
+import os
 import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt_core.runtime も同じモジュールを使う)
 
 import common
@@ -26,7 +27,7 @@ def write_json(path, obj):
 
 # ---------- youtube-tools-clip/v1 ----------
 def manifest_path(media_path):
-    """動画_0012.mp4 → 動画_0012.clip.json(拡張子を置き換える)。"""
+    """動画_0012.mp4 → 作業用/動画_0012.clip.json(途中のファイルは下のフォルダ。ytt_core.schemas.WORK_DIR)。"""
     return schemas.clip_path_for(media_path)
 
 
@@ -36,8 +37,9 @@ def clip_manifest(media_path, duration, source, rng, mark, export):
 
 
 def write_clip_manifest(media_path, **kw):
-    """mp4 の隣に .clip.json を書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。"""
+    """mp4 の .clip.json を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。"""
     path = manifest_path(media_path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     write_json(path, clip_manifest(media_path, **kw))
     return path
 

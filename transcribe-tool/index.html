@@ -1240,10 +1240,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
         <div class="row tt-exbtns" style="margin-top:8px"><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
         <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
-      <div class="fld" id="handoffBox"><span class="l">動画の隣に保存(次のツールへ渡す)</span>
-        <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画と同じフォルダに「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button></div>
+      <div class="fld" id="handoffBox"><span class="l">作業用フォルダに保存(次のツールへ渡す)</span>
+        <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画のフォルダの「作業用」に「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button></div>
         <div id="handoffOut" class="tt-handoff" hidden role="status"></div>
-        <span class="hint">ダウンロードフォルダではなく、元の動画と同じフォルダに保存します。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
+        <span class="hint">ダウンロードフォルダではなく、元の動画のフォルダの中の「作業用」フォルダに保存します(出力先に途中のファイルを並べないため)。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
     </details>
 
     <details class="card tt-tool tt-lockable" id="hiDetails"><summary>以前の版に戻す <span class="hint">自動バックアップ</span></summary>
@@ -1352,8 +1352,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
                <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
                <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。入口から開いていなくても使えます。</span></div>
-             <div class="fld"><span class="l">残す区間だけを動画の隣に保存</span>
-               <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画の隣に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
+             <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
+               <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
                <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
            </details>
          </div>

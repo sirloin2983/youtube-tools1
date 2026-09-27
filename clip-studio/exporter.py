@@ -19,7 +19,7 @@ import uuid
 import common
 import handoff
 from common import ApiError, VID_RE, find_tool, redact, fmt_ts
-from ytt_core import jobs  # common が ytt_core を読めるようにしてある
+from ytt_core import jobs, schemas  # common が ytt_core を読めるようにしてある
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -34,7 +34,7 @@ EDIT_HANDLE_SEC = 10.0
 # Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
 # UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
 MAX_PATH_UNITS = 240
-SUFFIX_ROOM = 24    # base のあとに付く最長の名前(_edit.clip.json / _edit.mp4.vol.mp4 / yt-dlp の .f399.mp4.part など)
+SUFFIX_ROOM = 28    # base のあとに付く最長の名前(作業用/ + _edit.clip.json / _edit.mp4.vol.mp4 / yt-dlp の .f399.mp4.part など)
 BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
 LOG_MAX = 200000    # export-log.txt がこれを超えたら export-log.old.txt に回す
 _jobs = {}
@@ -121,9 +121,31 @@ def verify_output(path, expected, tail=None):
         raise ExportError("書き出したファイルが空か短すぎます(長さ %s 秒 / 期待 %.0f 秒)。%s" % ("不明" if dur is None else "%.1f" % dur, expected, detail))
 
 
+def _marker(path):
+    """フォルダの持ち主の印 .studio-id を書く場所(作業用/。途中のファイルは直下に置かない。2026-09-27)"""
+    return os.path.join(path, schemas.WORK_DIR, ".studio-id")
+
+
+def _read_owner(path):
+    """印を読む(作業用/ → 以前の置き方 = フォルダの直下)。無ければ None"""
+    for m in (_marker(path), os.path.join(path, ".studio-id")):
+        try:
+            with open(m, encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            continue
+    return None
+
+
+def _write_owner(path, video_id):
+    os.makedirs(os.path.join(path, schemas.WORK_DIR), exist_ok=True)
+    with open(_marker(path), "w", encoding="utf-8") as f:
+        f.write(video_id)
+
+
 def pick_folder(spec):
     """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。
-    フォルダ内の .studio-id に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける。"""
+    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける。"""
     root = common.get_out_dir()
     # 出力先が長いときは、フォルダ名を短くしてファイル名(BASE_ROOM + ラベル + SUFFIX_ROOM)の分を残す
     room = MAX_PATH_UNITS - path_units(root) - 1 - 3 - 1 - BASE_ROOM - SUFFIX_ROOM
@@ -133,32 +155,27 @@ def pick_folder(spec):
     for i in range(1, 100):
         cand = name if i == 1 else "%s_%d" % (name, i)
         path = os.path.join(root, cand)
-        marker = os.path.join(path, ".studio-id")
         if not os.path.exists(path):
             os.makedirs(path)
-            with open(marker, "w", encoding="utf-8") as f:
-                f.write(spec["videoId"])
+            _write_owner(path, spec["videoId"])
             return cand, path
         if os.path.isdir(path):
-            try:
-                with open(marker, encoding="utf-8") as f:
-                    owner = f.read().strip()
-            except OSError:
-                owner = None
+            owner = _read_owner(path)
             if owner == spec["videoId"]:
                 return cand, path
             if owner is None:  # 手で作られたフォルダは、その動画のものとして使う
-                with open(marker, "w", encoding="utf-8") as f:
-                    f.write(spec["videoId"])
+                _write_owner(path, spec["videoId"])
                 return cand, path
     raise ExportError("保存先フォルダを作れませんでした")
 
 
 def unique_base(base, folder):
     """フォルダ内で使われていない名前。<名前>.* だけでなく、同時に作る <名前>_edit.* も空いていることを確かめる
-    (前回の編集用素材だけが残っていると、ffmpeg の -y で上書き・yt-dlp は取得済みとして古い物を使ってしまうため)。"""
+    (前回の編集用素材だけが残っていると、ffmpeg の -y で上書き・yt-dlp は取得済みとして古い物を使ってしまうため)。
+    途中のファイルの 作業用/ の中も見る(2026-09-27 から .clip.json・_edit.mp4 などはそこ。以前の置き方の直下も見る)"""
     def used(name):
-        return any(glob.glob(glob.escape(os.path.join(folder, n)) + ".*") for n in (name, name + "_edit"))
+        return any(glob.glob(glob.escape(os.path.join(d, n)) + ".*")
+                   for d in (folder, os.path.join(folder, schemas.WORK_DIR)) for n in (name, name + "_edit"))
     name, i = base, 2
     while used(name):
         name = "%s_%d" % (base, i)
@@ -563,15 +580,18 @@ def export_edit_media(job, spec, it, base, runner):
     edit_it["start"] = max(0.0, float(it["start"]) - EDIT_HANDLE_SEC)
     edit_it["end"] = float(it["end"]) + EDIT_HANDLE_SEC
     edit_it["progress"] = 0.0
-    rel = runner(job, spec, edit_it, base + "_edit")
-    apply_volume(job, spec, edit_it, rel)
-    media_path = os.path.join(spec["outDir"], os.path.basename(rel))
+    # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ。2026-09-27)
+    wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
+    os.makedirs(wspec["outDir"], exist_ok=True)
+    rel = runner(job, wspec, edit_it, base + "_edit")
+    apply_volume(job, wspec, edit_it, rel)
+    media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
     actual, _v, _a, _line = common.media_info(media_path)
     selection_in = float(it["start"]) - edit_it["start"]
     selected = float(it["end"]) - float(it["start"])
     expected = edit_it["end"] - edit_it["start"]
     handle_after = max(0.0, (actual if actual is not None else expected) - selection_in - selected)
-    sidecar = os.path.join(spec["outDir"], base + ".edit.json")
+    sidecar = os.path.join(wspec["outDir"], base + ".edit.json")
     data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(media_path),
             "selectionIn": round(selection_in, 3), "handleBefore": round(selection_in, 3),
             "handleAfter": round(handle_after, 3), "sourceStart": edit_it["start"], "sourceEnd": edit_it["end"]}
@@ -642,7 +662,7 @@ def _clip_export_info(spec, method, source_ok, rng_start, media_path, loudness=N
 
 
 def write_manifests(spec, it, mark_status):
-    """書き出した mp4(と編集用素材)の隣に .clip.json を書く。range は元の配信の秒(元の長さを超える分は切り詰める)。"""
+    """書き出した mp4(と編集用素材)の .clip.json を 作業用/ に書く。range は元の配信の秒(元の長さを超える分は切り詰める)。"""
     kind = spec.get("kind") or ("file" if spec.get("mode") == "file" else "youtube")
     source = {"kind": kind, "videoId": spec.get("videoId"), "title": spec.get("sourceTitle") or "", "path": spec.get("sourceFile")}
     mark = {"id": it.get("id"), "label": it.get("label"), "status": mark_status, "src": it.get("src")}

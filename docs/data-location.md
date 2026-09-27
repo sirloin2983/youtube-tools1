@@ -18,7 +18,8 @@
 | 各フォルダの `.migrated.json` | いつ・どこから・何を写したか | — |
 
 - 切り抜きスタジオの書き出し先: 設定で決めていればそのまま。以前の既定(`clip-studio\exports`)を使っていた場合は、そこを使い続ける(動画が2か所に分かれないように)
-- パックの出力(cut2resolve の `<動画名>_pack`)・スタジオの書き出した動画は、これまでどおり動画の隣・指定したフォルダ(作業データではない)
+- パックの出力(cut2resolve の `<動画名>_pack`)・スタジオの書き出した動画は、これまでどおり動画の隣・指定したフォルダ(作業データではない)。
+  受け渡しの途中のファイル(`.clip.json`・`.transcript.json`・`_edit.mp4` など)は、動画のフォルダの下の `作業用` フォルダ(2026-09-27。`docs/pipeline.md` の 1)
 
 ## 仕組み(`ytt_core/datadir.py`)
 - `data_root()`: 環境変数 `YTT_DATA_DIR` → Windows は `%LOCALAPPDATA%\youtube-tools`(macOS `~/Library/Application Support/youtube-tools`、それ以外 `$XDG_DATA_HOME/youtube-tools`)。

@@ -21,6 +21,7 @@ sys.path.insert(0, HERE)
 import common
 import exporter
 import handoff
+from ytt_core import schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
 
 
 def _make_clip(path, sec=2.0):
@@ -165,7 +166,8 @@ class TestClipManifestExport(unittest.TestCase):
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"], it.get("warning", "")), ("done", "done", ""))
         self.assertTrue(it["path"].endswith(".mp4") and os.path.isfile(it["path"]))
-        self.assertEqual(it["manifest"], os.path.splitext(it["path"])[0] + ".clip.json")
+        work = os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR)   # 途中のファイル(2026-09-27)
+        self.assertEqual(it["manifest"], os.path.join(work, os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))
         d = _read(it["manifest"])
         self.assertEqual(d["schema"], "youtube-tools-clip/v1")
         self.assertEqual(d["media"]["path"], it["path"])
@@ -177,7 +179,11 @@ class TestClipManifestExport(unittest.TestCase):
         # 前後10秒の編集用素材にも、その範囲の .clip.json が付く
         e = _read(it["editManifest"])
         self.assertEqual(e["media"]["path"], it["editPath"])
-        self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]))
+        self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)
+        self.assertEqual(it["editManifest"], os.path.splitext(it["editPath"])[0] + ".clip.json")      # 編集用素材の .clip.json も 作業用/ に(二重にしない)
+        self.assertTrue(os.path.isfile(os.path.join(work, os.path.splitext(os.path.basename(it["path"]))[0] + ".edit.json")))
+        self.assertEqual(sorted(n for n in os.listdir(os.path.dirname(it["path"])) if not os.path.isdir(os.path.join(os.path.dirname(it["path"]), n))),
+                         [os.path.basename(it["path"])])                                               # 直下は元動画だけ
         self.assertEqual(e["range"], {"start": 0.0, "end": 22.0})
         self.assertEqual((e["export"]["purpose"], e["export"]["selection"]), ("edit-handles", {"start": 7.0, "end": 12.0}))
         # GET /api/export の形
@@ -185,7 +191,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["editManifest"]), (it["path"], it["manifest"], it["editPath"], it["editManifest"]))
         self.assertEqual(pub["file"], job["folder"] + "/" + os.path.basename(it["path"]))
         self.assertEqual(len(calls), 1)
-        leftovers = [n for n in os.listdir(os.path.dirname(it["path"])) if n.endswith((".part", ".vol.mp4")) or n.startswith(".tmp-")]
+        leftovers = [n for d in (os.path.dirname(it["path"]), work) for n in os.listdir(d) if n.endswith((".part", ".vol.mp4")) or n.startswith(".tmp-")]
         self.assertEqual(leftovers, [])
 
     def test_status_when_mark_changed_during_export(self):
@@ -265,11 +271,31 @@ class TestNames(unittest.TestCase):
             f.write("x")
 
     def test_unique_base_also_checks_edit_variant(self):
-        self.touch("01_a_edit.mp4")   # 前回の編集用素材だけが残っている
+        self.touch("01_a_edit.mp4")   # 前回の編集用素材だけが残っている(以前の置き方 = 直下)
         self.assertEqual(exporter.unique_base("01_a", self.tmp), "01_a_2")
         self.touch("01_a_2.clip.json")
         self.assertEqual(exporter.unique_base("01_a", self.tmp), "01_a_3")
         self.assertEqual(exporter.unique_base("01_b", self.tmp), "01_b")
+        os.makedirs(os.path.join(self.tmp, schemas.WORK_DIR))
+        self.touch(os.path.join(schemas.WORK_DIR, "01_b_edit.mp4"))   # 今の置き方: 途中のファイルは 作業用/
+        self.assertEqual(exporter.unique_base("01_b", self.tmp), "01_b_2")
+
+    def test_folder_owner_marker_in_work_dir(self):
+        """フォルダの持ち主の印 .studio-id も 作業用/ に(2026-09-27)。以前の置き方(直下)の印も読む・書き換えない"""
+        with patch.object(common, "get_out_dir", return_value=self.tmp):
+            folder, path = exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})
+            self.assertEqual(os.listdir(path), [schemas.WORK_DIR])
+            with open(os.path.join(path, schemas.WORK_DIR, ".studio-id"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "abcdefghijk")
+            self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})[1], path)          # 同じ動画は同じフォルダ
+            self.assertEqual(exporter.pick_folder({"title": "配信", "videoId": "zzzzzzzzzzz"})[0], "配信_2")      # 別の動画は別のフォルダ
+            old = os.path.join(self.tmp, "以前")
+            os.makedirs(old)
+            with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
+                f.write("yyyyyyyyyyy")
+            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "yyyyyyyyyyy"})[1], old)           # 以前の印(直下)も読む
+            self.assertEqual(exporter.pick_folder({"title": "以前", "videoId": "xxxxxxxxxxx"})[0], "以前_2")
+            self.assertEqual(os.listdir(old), [".studio-id"])                                                # 以前の印は動かさない
 
     def test_reserved_names(self):
         for name in ("CON", "con .txt", "Nul.mp4", "COM1", "COM¹", "lpt³.x", "CONIN$", "conout$.log"):
@@ -296,8 +322,8 @@ class TestNames(unittest.TestCase):
                 raise exporter.ExportError("止める")
             with patch.object(exporter, "pick_folder", return_value=(folder, path)), patch.object(exporter, "run_ffmpeg", side_effect=runner):
                 exporter.run_job(_job([item], root), spec)
-        longest = seen[0] + "_edit.clip.json"
-        self.assertLessEqual(exporter.path_units(longest), exporter.MAX_PATH_UNITS - exporter.SUFFIX_ROOM + len("_edit.clip.json") + 3)
+        longest = os.path.join(os.path.dirname(seen[0]), schemas.WORK_DIR, os.path.basename(seen[0]) + "_edit.clip.json")   # 作業用/ の中が一番長い
+        self.assertLessEqual(exporter.path_units(longest), exporter.MAX_PATH_UNITS)
         self.assertLessEqual(exporter.path_units(seen[0]) + exporter.SUFFIX_ROOM, exporter.MAX_PATH_UNITS)
 
     def test_trim_units_counts_utf16(self):

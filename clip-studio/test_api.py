@@ -535,7 +535,7 @@ class TestExportApi(Base):
         it = job["items"][0]
         self.assertTrue(os.path.isabs(it["path"]) and os.path.isfile(it["path"]))
         self.assertEqual(it["path"], os.path.join(job["outDir"], *it["file"].split("/")))   # file(相対)と同じもの
-        self.assertEqual(it["manifest"], os.path.splitext(it["path"])[0] + ".clip.json")
+        self.assertEqual(it["manifest"], os.path.join(os.path.dirname(it["path"]), "作業用", os.path.splitext(os.path.basename(it["path"]))[0] + ".clip.json"))
         with open(it["manifest"], encoding="utf-8") as f:
             d = json.load(f)
         self.assertEqual((d["schema"], d["range"], d["mark"]["status"], d["source"]["kind"], d["source"]["path"]),

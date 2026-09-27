@@ -2192,7 +2192,7 @@ async function exportBeside(fmt, btn){
     toast(`${r.overwritten ? '上書き保存' : '保存'}しました: ${r.name}(${Number(r.count) || 0}${fmt === 'cut-plan-v1' ? '区間' : '行'})`, 5000, 'ok');
   } catch (e){
     if (e.status === 409) toast('保存が追いついていません(書き出す直前に内容が変わりました)。少し待ってから、もう一度押してください', 6000, 'err');
-    else toast('動画の隣に保存できませんでした: ' + e.message, 7000, 'err');
+    else toast('作業用フォルダに保存できませんでした: ' + e.message, 7000, 'err');
   } finally { btn.disabled = false; btn.textContent = label; }
 }
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));

@@ -620,6 +620,17 @@ class TestJobs(ServerBase):
         make_video(other, 1)
         st, j = self.c.json("POST", "/api/inspect", {"video": str(other)})
         self.assertNotIn("siblings", j)
+        # 途中のファイルの 作業用\ の中も探す(2026-09-27。「編集」が .transcript.json をそこに書く)。WORK_DIR は ytt_core と同じ名前
+        from ytt_core import schemas as ys
+        self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
+        w = self.dir / serve.C.WORK_DIR
+        w.mkdir(exist_ok=True)
+        (w / "no_sibling.transcript.json").write_text("{}", encoding="utf-8")
+        try:
+            st, j = self.c.json("POST", "/api/inspect", {"video": str(other)})
+            self.assertEqual(j.get("siblings"), {"transcript": str(w / "no_sibling.transcript.json")})
+        finally:
+            (w / "no_sibling.transcript.json").unlink()
 
     def test_warning_levels_classify_actionable_vs_info(self):
         """問題5: 対処が要る警告(warn)とただの案内(info)を区別できるよう warningLevels を足す。

@@ -357,7 +357,24 @@ class TestSchemas(unittest.TestCase):
         self.assertIn("未対応の版", schemas.validate_clip(dict(base, schema="youtube-tools-clip/v2"))[1])
 
     def test_paths_and_load(self):
-        self.assertEqual(schemas.clip_path_for(os.path.join("x", "a.b.mp4")), os.path.join("x", "a.b.clip.json"))
+        # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)。動画がもう 作業用 の中ならそこ
+        W = schemas.WORK_DIR
+        self.assertEqual(schemas.clip_path_for(os.path.join("x", "a.b.mp4")), os.path.abspath(os.path.join("x", W, "a.b.clip.json")))
+        self.assertEqual(schemas.clip_path_for(os.path.join("x", W, "a_edit.mp4")), os.path.abspath(os.path.join("x", W, "a_edit.clip.json")))
+        self.assertEqual(schemas.media_folder(os.path.join("x", W, "a.clip.json")), os.path.abspath("x"))
+        self.assertEqual(schemas.media_folder(os.path.join("x", "a.clip.json")), os.path.abspath("x"))
+        with tempfile.TemporaryDirectory() as tmp:
+            v = os.path.join(tmp, "v.mp4")
+            self.assertEqual(schemas.sidecar_candidates(v, ".srt"), [os.path.join(tmp, W, "v.srt"), os.path.join(tmp, "v.srt")])
+            self.assertIsNone(schemas.find_sidecar(v, ".srt"))
+            with open(os.path.join(tmp, "v.srt"), "w") as f:            # 以前の置き方(動画の隣)も読む
+                f.write("1")
+            self.assertEqual(schemas.find_sidecar(v, ".srt"), os.path.join(tmp, "v.srt"))
+            os.makedirs(os.path.join(tmp, W))
+            with open(os.path.join(tmp, W, "v.srt"), "w") as f:         # 作業用\ が先
+                f.write("2")
+            self.assertEqual(schemas.find_sidecar(v, ".srt"), os.path.join(tmp, W, "v.srt"))
+            self.assertEqual(schemas.find_clip_path(v), None)
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "a.clip.json")
             self.assertIsNone(schemas.load_clip_file(p)[0])

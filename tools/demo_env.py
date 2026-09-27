@@ -121,6 +121,7 @@ def seed(tmp, rnd, streams, samples):
                 mk.update({"file": os.path.basename(clip), "path": clip})
                 cj = schemas.build_clip(clip, 40.0, {"kind": "youtube", "videoId": vid, "title": title}, (s, s + 40), mk,
                                         {"mode": "precise"}, {"name": "clip-studio", "version": "demo"})
+                os.makedirs(os.path.dirname(schemas.clip_path_for(clip)), exist_ok=True)   # 途中のファイルは 作業用\(2026-09-27)
                 with open(schemas.clip_path_for(clip), "w", encoding="utf-8") as f:
                     json.dump(cj, f, ensure_ascii=False)
                 r = rnd.random()   # この切り抜きの文字起こし: 無い / 未校正 / 校正中 / 校正済み

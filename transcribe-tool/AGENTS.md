@@ -38,7 +38,7 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   動画・パックの有無はフォルダごとに1回・全体で `PACK_CHECK_BUDGET` 秒まで調べ、ネットワーク上のパス(`\\サーバー\…`)は調べない(資格情報を送らない。`mediaOk = None`)
 - 3 パック のタブ(「編集」E4。`pack-tab.js`。v0.15.0 の校正画面の「カットとパック」を置き換えた): パック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
   区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, dir?, force}`。
-  作る前にカットを保存し(`CUT.commit()`)、字幕の元として保存済みの文字起こしを動画の隣に `.transcript.json`(`cpExport`)。文字起こしが無ければ Text+ なし(EDL と元の動画のコピー)。
+  作る前にカットを保存し(`CUT.commit()`)、字幕の元として保存済みの文字起こしを動画のフォルダの `作業用\` に `.transcript.json`(`cpExport`。2026-09-27 から途中のファイルは `作業用`。規則は `ytt_core/schemas.py`)。文字起こしが無ければ Text+ なし(EDL と元の動画のコピー)。
   409 exists は上書きの確認(`#dlgOverwrite`)→ force。作り終えたら `POST /api/edit/pack`(packRev)。「これから作るパック」の字幕の数・注意は `POST /api/edit/preview`(ファイルを作らない)。
   cut2resolve の URL は `c2rUrl()` だけで作る(`UIKit.tools.base('cut2resolve')`。入口の中の同じポートのときだけ。合言葉は同じ入口のもの)。
   単体で開いたとき・cut2resolve が起動していないとき・動画が無い/音声だけ/ネットワーク上のときは理由を出して作れなくする(見積もりと zip は使える)。

@@ -90,7 +90,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy, runtime as _runtime, tools as _tools  # noqa: E402
+from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
@@ -952,8 +952,7 @@ def edit_draft(tid, rows=False):
         if "動画ストリーム" in msg:
             return unavailable("no_video", "映像の無いファイル(音声だけ)は、カットとパックに使えません")
         return unavailable("draft_failed", msg)
-    plan = os.path.splitext(src)[0] + ".cut-plan.json"
-    out["planBeside"] = plan if os.path.isfile(plan) else ""
+    out["planBeside"] = _yschemas.find_sidecar(src, ".cut-plan.json") or ""   # 作業用\ → 以前の置き方(動画の隣)
     return out
 
 
@@ -4753,7 +4752,8 @@ def scan_folder(path, recursive=False):
     try:
         for root, dirs, files in os.walk(p):
             depth = root.rstrip(os.sep).count(os.sep) - base_depth
-            dirs[:] = sorted(d for d in dirs if not d.startswith(".")) if recursive and depth < 3 else []
+            # 途中のファイルの 作業用\(編集用素材 _edit.mp4 など)は拾わない(2026-09-27)
+            dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != _yschemas.WORK_DIR) if recursive and depth < 3 else []
             for name in sorted(files):
                 if name.startswith(".") or os.path.splitext(name)[1].lower() not in MEDIA_TYPES:
                     continue

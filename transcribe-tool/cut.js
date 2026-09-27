@@ -492,7 +492,7 @@ function create(h){
     $('#cutDraftRows').disabled = !ok || busy; $('#cutEdgeGo').disabled = !ok || busy;
     const why = c2r ? '' : '(cut2resolve を使います。入口から開いたときだけ)';
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
-    const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('動画の隣の ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
+    const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('作業用フォルダの ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
     $('#cutIO').disabled = !ok || M.io.i === null || M.io.o === null || M.io.i === M.io.o;
     $('#cutSnap').checked = M.snap;
     $('#cutModeSrc').setAttribute('aria-pressed', M.mode === 'src' ? 'true' : 'false'); $('#cutModeCut').setAttribute('aria-pressed', M.mode === 'cut' ? 'true' : 'false');

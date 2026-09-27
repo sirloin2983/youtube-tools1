@@ -1034,3 +1034,25 @@
   e2e(編集 tabs/cut/pack/mounted/handoff・入口 autorun/portal/window・e2e_pipeline・e2e_datadir・スタジオ e2e_ui と --mounted)。
   入口の e2e 3本が「Page crashed」などの異常終了で1回落ちた(PC の不安定さ)→ 流し直して通過
 - 実機で確かめてほしいこと(ユーザー): 3 パック で配信者の名前を入れてパック → Resolve の字幕の文字がその色か(重ね順の直しと一緒に)
+
+## 2026-09-27 Claude Code — 実機のあとの要望(4): 出力先に途中のファイルを並べない(作業用フォルダ)
+- ユーザーの要望と決定: 「出力先が汚くなるから途中出力のものをまとめて新たな下層のフォルダに入れる」→ **パックと元動画以外を下へ**。
+  下のフォルダの名前・細かい決まりは、ユーザーが寝ていたので質問せずに決めた(`docs/followup-2026-09-27.md` の 1「実装で決めたこと」。違えば直す)
+- 決まり: 動画のフォルダの直下は元動画(書き出した切り抜き)とパック(`_pack`)だけ。`.clip.json`・`.edit.json`・`_edit.mp4`・`_edit.clip.json`・`.transcript.json`・`.srt`・
+  `.cut-plan.json`・`.studio-id` は下の **`作業用`** に書く。読む側は `作業用/` → 動画の隣(以前の置き方)の順に探す。以前のファイルは動かさない・消さない
+- 変更(共通): `ytt_core/schemas.py`(`WORK_DIR`・`work_dir`・`media_folder`・`sidecar_path`・`sidecar_candidates`・`find_sidecar`・`find_clip_path`。
+  `clip_path_for` は書く場所 = `作業用/`)、`txindex.offset`(両方を読む)
+- 変更(スタジオ): `handoff.py`(.clip.json を 作業用/ に)、`exporter.py`(編集用素材と .edit.json を 作業用/ に書く spec・`.studio-id` は 作業用/(読むのは両方)・
+  名前の重なりは直下と 作業用/ の両方・`SUFFIX_ROOM` 24 → 28)
+- 変更(編集): `pipeline_io.py`(`save_beside` は 作業用/ に・`find_clip` は両方・`resolve_clip_media` は .clip.json が 作業用 の中なら動画は1つ上)、
+  `serve.py`(たたき台「スタジオ」の .cut-plan.json は両方・フォルダ一括は 作業用 を拾わない)、画面の文言(「動画の隣に保存」→「作業用フォルダに保存」)
+- 変更(cut2resolve): `cut2resolve_core.py`(`WORK_DIR`・余白つき素材の .edit.json は両方・文字起こしから動画を探す予備は 作業用 の1つ上も)、`serve.py`(隣の字幕・文字起こしの候補は両方)
+- 文書: `docs/pipeline.md`(1 共通の約束に「途中のファイルの置き場所」・2.1・2.2・6)、`docs/data-location.md`、各 README・`transcribe-tool/AGENTS.md`
+- 注意(直した): 説明文(docstring)に `作業用\ ` と書くと Python の「不正なエスケープ」の警告(将来はエラー)になる → `作業用/` と書く。
+  変えた .py は `warnings.simplefilter("error")` で compile して確かめた
+- 版: まだ配っていない版の変更点に足した(スタジオ 0.8.2・編集 0.17.1・cut2resolve 0.13.0・ytt_core)
+- テスト(PC): 入口の単体・ytt_core/tools・契約 27・cut2resolve 283・編集の単体 125・スタジオの単体 227・node 18・e2e(編集 tabs/cut/pack/mounted/handoff・
+  入口 autorun/portal/window・e2e_pipeline・e2e_datadir・スタジオ e2e_ui と --mounted)。
+  `app/test_mount` の1件・入口の e2e_autorun・e2e_datadir・スタジオ e2e_ui が1回ずつ Playwright の node の異常終了(「module is not defined in ES module scope」・
+  「Connection closed while reading from the driver」)などで落ちた → 流し直して通過(PC の不安定さ。テストの中身の前に落ちている)
+- 実機で確かめてほしいこと(ユーザー): スタジオで書き出す → 出力先の配信のフォルダの直下が「切り抜きの mp4・_pack・作業用」だけか。以前の切り抜きも「編集」で開けるか

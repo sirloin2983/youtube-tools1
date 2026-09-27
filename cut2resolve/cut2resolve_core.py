@@ -776,6 +776,7 @@ def is_network_path(p):
     return str(p or "").replace("/", "\\").startswith("\\\\")
 
 
+WORK_DIR = "作業用"   # 途中のファイルの下のフォルダ(ytt_core.schemas.WORK_DIR と同じ名前。コマンドは ytt_core を読まないのでここにも持つ。test_serve が確かめる)
 EDIT_MEDIA_SCHEMA = "clip-studio/edit-media/v1"
 EDIT_MEDIA_SUFFIX = ".edit.json"
 MAX_EDIT_JSON_BYTES = 64 * 1024        # 中身は数百バイト
@@ -785,10 +786,14 @@ def find_edit_media(video):
     """切り抜きスタジオの「前後の余白つき素材」(<動画の名前>.edit.json と <名前>_edit.mp4)を探す。
     -> {"path", "sidecar", "selectionIn", "handleBefore", "handleAfter"}(秒)か None(無い・読めない・形が違う)。
     selectionIn = 余白つき素材の中で、切り抜き(= video)の先頭が何秒目か。video の時刻 t は、余白つき素材では selectionIn + t。
-    素材は .edit.json と同じフォルダの中だけを見る(名前だけを使う。../ やネットワークのパスを指させない)"""
+    素材は .edit.json と同じフォルダの中だけを見る(名前だけを使う。../ やネットワークのパスを指させない)。
+    .edit.json は 作業用/ → 以前の置き方(動画の隣)の順に探す(2026-09-27 から途中のファイルは 作業用/)"""
     video = Path(video)
-    sidecar = video.with_name(video.stem + EDIT_MEDIA_SUFFIX)
-    if is_network_path(str(video)) or not sidecar.is_file():
+    if is_network_path(str(video)):
+        return None
+    cands = [video.parent / WORK_DIR / (video.stem + EDIT_MEDIA_SUFFIX)] if video.parent.name != WORK_DIR else []
+    sidecar = next((c for c in cands + [video.with_name(video.stem + EDIT_MEDIA_SUFFIX)] if c.is_file()), None)
+    if sidecar is None:
         return None
     try:
         d = read_json_file(sidecar, "余白つき素材の情報(.edit.json)", MAX_EDIT_JSON_BYTES)
@@ -807,8 +812,8 @@ def find_edit_media(video):
 
 
 def resolve_media_path(media, json_path):
-    """JSON の media から動画の実際のパス。①media.path にあればそれ ②無ければ JSON と同じフォルダの同名ファイル
-    (フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)。見つからなければ None"""
+    """JSON の media から動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの同名ファイル
+    (JSON が 作業用/ の中なら1つ上 → JSON と同じフォルダ。フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)。見つからなければ None"""
     if not isinstance(media, dict):
         return None
     cands = []
@@ -820,7 +825,10 @@ def resolve_media_path(media, json_path):
     if name:
         base = os.path.basename(name.strip().replace("\\", "/"))   # 名前だけを使う(../ でフォルダの外を指させない)
         if base:
-            cands.append(os.path.join(os.path.dirname(os.path.abspath(str(json_path))), base))
+            here = os.path.dirname(os.path.abspath(str(json_path)))
+            if os.path.basename(here) == WORK_DIR:   # 途中のファイル(.transcript.json など)は 作業用/、元動画は1つ上
+                cands.append(os.path.join(os.path.dirname(here), base))
+            cands.append(os.path.join(here, base))
     for c in cands:
         try:
             if is_network_path(c):

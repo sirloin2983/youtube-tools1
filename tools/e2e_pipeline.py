@@ -137,7 +137,8 @@ def main():
         check(job.get("state") == "done" and item and os.path.exists(item.get("path", "")), "書き出しが終わり mp4 がある: %s" % job.get("state"))
         clip_mp4 = item["path"]
         manifest = item.get("manifest")
-        check(manifest and os.path.exists(manifest), "隣に .clip.json ができる")
+        check(manifest and os.path.exists(manifest) and os.path.dirname(manifest) == os.path.join(os.path.dirname(clip_mp4), "作業用"),
+              "作業用\\ に .clip.json ができる(出力先の直下はパックと元動画だけ): %s" % manifest)
         clip = json.load(open(manifest, encoding="utf-8"))
         check(clip.get("schema") == "youtube-tools-clip/v1" and abs(clip["range"]["start"] - 5) < 0.05 and abs(clip["range"]["end"] - 25) < 0.05,
               "clip/v1 の range が元の配信の秒(5〜25): %s" % clip.get("range"))
@@ -164,8 +165,8 @@ def main():
         st, doc = call(pt, "GET", "/api/transcript?id=" + tid)
         st, saved = call(pt, "POST", "/api/export-file", {"id": tid, "format": "transcript-v1", "baseUpdatedAt": doc.get("updatedAt")})
         tr_path = (saved or {}).get("path", "")
-        check(st == 200 and tr_path.endswith(".transcript.json") and os.path.dirname(tr_path) == os.path.dirname(clip_mp4),
-              "動画の隣に .transcript.json を保存: %s %s" % (st, saved))
+        check(st == 200 and tr_path.endswith(".transcript.json") and os.path.dirname(tr_path) == os.path.join(os.path.dirname(clip_mp4), "作業用"),
+              "作業用\\ に .transcript.json を保存: %s %s" % (st, saved))
         tr = json.load(open(tr_path, encoding="utf-8"))
         check(tr.get("schema") == "youtube-tools-transcript/v1" and [s["cut"] for s in tr["segments"]] == [False, True, False]
               and tr.get("clip", {}).get("range", {}).get("start") == clip["range"]["start"], "transcript/v1 の中身(cut・clip)")

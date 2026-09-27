@@ -611,14 +611,14 @@ SIBLING_SUFFIXES = {"srt": (".srt", ".vtt"), "transcript": (".transcript.json",)
 
 
 def sibling_suggestions(video, have):
-    """動画と同じフォルダ・同じ名前(拡張子だけ違う)の字幕・文字起こし・cut-plan があれば {欄: パス}。
+    """動画と同じ名前(拡張子だけ違う)の字幕・文字起こし・cut-plan があれば {欄: パス}。作業用/ → 動画の隣(以前の置き方)の順に探す。
     have に入っている(すでに指定がある)欄は調べない"""
     out = {}
+    folders = ([video.parent / C.WORK_DIR] if video.parent.name != C.WORK_DIR else []) + [video.parent]
     for field, suffixes in SIBLING_SUFFIXES.items():
         if field in have:
             continue
-        for suf in suffixes:
-            cand = video.with_name(video.stem + suf)
+        for cand in (f / (video.stem + suf) for f in folders for suf in suffixes):
             if cand.is_file():
                 out[field] = str(cand)
                 break

@@ -18,6 +18,7 @@ os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
 import handoff
+from ytt_core import schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
 import serve
 
 
@@ -230,8 +231,10 @@ class TestClipManifest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_manifest_path_replaces_extension(self):
-        self.assertEqual(handoff.manifest_path(os.path.join("x", "動画_0012.mp4")), os.path.join("x", "動画_0012.clip.json"))
-        self.assertEqual(handoff.manifest_path("a.b.webm"), "a.b.clip.json")
+        # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)
+        W = schemas.WORK_DIR
+        self.assertEqual(handoff.manifest_path(os.path.join("x", "動画_0012.mp4")), os.path.abspath(os.path.join("x", W, "動画_0012.clip.json")))
+        self.assertEqual(handoff.manifest_path("a.b.webm"), os.path.abspath(os.path.join(W, "a.b.clip.json")))
 
     def test_youtube_manifest_shape(self):
         media = os.path.join(self.tmp, "01_clip.mp4")
@@ -239,7 +242,7 @@ class TestClipManifest(unittest.TestCase):
             path = handoff.write_clip_manifest(media, duration=45.2345, source={"kind": "youtube", "videoId": "abcdefghijk", "title": "配信 <b>", "path": "/secret"},
                                                rng=(1234.5, 1279.7), mark={"id": "m12", "label": "見どころ", "status": "exported", "src": "manual"},
                                                export={"mode": "precise", "volume": 75})
-        self.assertEqual(path, os.path.join(self.tmp, "01_clip.clip.json"))
+        self.assertEqual(path, os.path.join(self.tmp, schemas.WORK_DIR, "01_clip.clip.json"))
         with open(path, "rb") as f:
             raw = f.read()
         self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))   # BOM なし
@@ -253,7 +256,8 @@ class TestClipManifest(unittest.TestCase):
         self.assertEqual(d["range"], {"start": 1234.5, "end": 1279.7})
         self.assertEqual(d["mark"], {"id": "m12", "label": "見どころ", "status": "exported", "src": "manual"})
         self.assertEqual(d["export"], {"mode": "precise", "volume": 75})
-        self.assertEqual(sorted(os.listdir(self.tmp)), ["01_clip.clip.json"])   # 一時ファイルが残らない
+        self.assertEqual(sorted(os.listdir(self.tmp)), [schemas.WORK_DIR])                                 # 動画のフォルダの直下には置かない
+        self.assertEqual(sorted(os.listdir(os.path.join(self.tmp, schemas.WORK_DIR))), ["01_clip.clip.json"])   # 一時ファイルが残らない
 
     def test_file_manifest_has_source_path_and_no_url(self):
         d = handoff.clip_manifest(os.path.join(self.tmp, "a.mp4"), None, {"kind": "file", "videoId": "f0123456789", "title": "t", "path": "C:\\v\\元.mp4"},
