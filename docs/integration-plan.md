@@ -158,6 +158,7 @@
 
 ## 段階7(画面の形)で決めたこと(09-26)
 ユーザー決定: 7-3 まで進め、窓を数日試してから「窓で十分 / pywebview(7-4)へ / ブラウザに戻す」を決める。7-4 は依存の追加なので、改めて確認してから。
+**決定(2026-09-27 ユーザー): 専用の窓 = Edge のアプリの窓を既定に(pywebview は使わない)。新着配信の監視はやらない。** 入口 v0.12.0(`app/appwindow.py` の `DEFAULT_MODE`)
 - 7-0 画面のエラーの記録: 入口と3ツールの画面の捕まえられなかったエラーを `app\logs\client-errors.jsonl`(1行1件の JSON)へ。ui-kit(`UIKit.report`)が送り、`app/clientlog.py` が書く。
   1分に30件・512KB で回す・同じエラーは画面ごとに1回。窓でもブラウザでも、落ちたときに AI がログから追えるようにするため
 - 画面の共通の API `api/ytt/…`(client-log・open-window・open-external): 画面は相対パスで呼び、入口の画面は `/api/ytt/…`、取り込んだツールは `/studio/api/ytt/…` など。

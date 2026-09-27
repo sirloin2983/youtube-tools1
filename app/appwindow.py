@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。試用。既定はブラウザのまま)。
+"""画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。
 
-- 設定: 作業データの置き場所の app\\settings.json の "window"("browser" | "app")。入口の画面の「窓で開く(試用)」で切り替える
+- 設定: 作業データの置き場所の app\\settings.json の "window"("browser" | "app")。書いていなければ窓("app")。
+  ホームの「詳しく」の「窓で開く」で切り替える(オフにすると「browser」が残り、いつものブラウザで開く)。Edge が無い・起動できなければブラウザ
 - 窓: Edge を `--app=<URL> --user-data-dir=<専用のプロファイル>` で起動する。
   専用のプロファイル(作業データの置き場所の app\\browser-profile)なので、いつものブラウザの拡張機能・履歴と混ざらない。
   同じプロファイルの Edge がもう動いていれば、Edge がそちらに窓を足して、起動したプロセスはすぐ終わる
@@ -25,6 +26,7 @@ import urllib.parse
 import webbrowser
 
 MODES = ("browser", "app")
+DEFAULT_MODE = "app"   # 既定は窓(2026-09-27 ユーザー決定。以前は試用でブラウザが既定)
 PROFILE_NAME = "browser-profile"
 SETTINGS_NAME = "settings.json"
 EDGE_REL = os.path.join("Microsoft", "Edge", "Application", "msedge.exe")
@@ -129,9 +131,9 @@ def read_mode(path):
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
     except (OSError, ValueError):
-        return "browser"
+        return DEFAULT_MODE
     m = d.get("window") if isinstance(d, dict) else None
-    return m if m in MODES else "browser"
+    return m if m in MODES else DEFAULT_MODE
 
 
 def write_mode(path, mode, atomic_write):

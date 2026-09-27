@@ -217,14 +217,16 @@ class TestOpener(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_mode_setting(self):
-        self.assertEqual(self.o.mode, "browser")   # 既定はブラウザのまま
+        self.assertEqual(self.o.mode, "app")   # 既定は窓(2026-09-27 ユーザー決定)
+        self.o.set_mode("browser")
+        self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "browser")   # オフにしたら、ファイルに残る(次の起動で使う)
         self.o.set_mode("app")
-        self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "app")   # ファイルに残る(次の起動で使う)
+        self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "app")
         with self.assertRaises(ValueError):
             self.o.set_mode("pywebview")
         with open(self.o.settings_path, "w", encoding="utf-8") as f:
             f.write("{壊れた")
-        self.assertEqual(self.o.mode, "browser")   # 読めなければブラウザ
+        self.assertEqual(self.o.mode, "app")   # 読めなければ既定(窓)
 
     def test_mode_keeps_other_keys(self):
         with open(self.o.settings_path, "w", encoding="utf-8") as f:
@@ -234,7 +236,8 @@ class TestOpener(unittest.TestCase):
             self.assertEqual(json.load(f), {"other": 1, "window": "app"})
 
     def test_open_start(self):
-        self.assertEqual(self.o.open_start("http://localhost:8700/"), "browser")
+        self.o.set_mode("browser")
+        self.assertEqual(self.o.open_start("http://localhost:8700/"), "browser")   # オフにしていればブラウザ
         self.o.set_mode("app")
         self.assertEqual(self.o.open_start("http://localhost:8700/"), "app")
         cmd, kw = self.fake.spawned[-1]
@@ -372,7 +375,7 @@ class TestPortalApi(unittest.TestCase):
 
     def test_window_setting_and_status(self):
         st, j = self.req("GET", "/api/status")
-        self.assertEqual(j["window"]["mode"], "browser")
+        self.assertEqual(j["window"]["mode"], "app")   # 既定は窓
         self.assertTrue(j["window"]["available"])
         st, j = self.req("POST", "/api/window", {"mode": "app"})
         self.assertEqual((st, j["window"]["mode"]), (200, "app"))

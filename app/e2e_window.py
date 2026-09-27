@@ -6,7 +6,7 @@
   7-0 画面のエラーの記録: スタジオ・文字起こしの画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
   7-1 解析の設定: 以前のブラウザの保存(localStorage)がサーバーへ1回だけ引き継がれ、以後はサーバーの値が勝つ。変えた直後に離れても送られる
   7-2 離れた・戻った: 別の窓へ移った(blur)で「離れた」、埋め込み(iframe)にフォーカスがあるときは離れたことにしない、戻った(focus)
-  7-3 窓: 入口の「窓で開く(試用)」の切り替え。窓(display-mode: standalone)の中の「開く」は入口に頼んで Edge のアプリモードで開き
+  7-3 窓: 入口の「窓で開く」の切り替え(2026-09-27 から既定で窓)。窓(display-mode: standalone)の中の「開く」は入口に頼んで Edge のアプリモードで開き
       (Edge の代わりに引数を記録する偽のプログラム。YTT_APP_BROWSER)、外のサイトはいつものブラウザ(偽の記録)で開く。
       普通のタブでは今までどおり新しいタブで開く
 
@@ -151,11 +151,14 @@ def main():
                 open_advanced(pg)   # 窓で開く(試用)・開くのリンクは「詳しく」の中(段階5)
 
                 # ---- 7-3 ホームの「窓で開く(試用)」 ----
-                check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] ホームに「窓で開く(試用)」が出る")
-                check(pg.is_checked("#winMode") is False and pg.is_enabled("#winMode"), "[7-3] 既定はブラウザのまま(オフ)・Edge があるので切り替えられる")
+                check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] ホームに「窓で開く」が出る")
+                check(pg.is_checked("#winMode") is True and pg.is_enabled("#winMode"), "[7-3] 既定は窓(オン。2026-09-27 ユーザー決定)・Edge があるので切り替えられる")
                 check(pg.is_visible("#btnWinNow"), "[7-3] 普通のタブでは「いま窓で開く」が出る")
                 pg.click("#winMode")
-                check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('窓で開きます') >= 0", 10000), "[7-3] オンにした(次の起動から)")
+                check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('いつものブラウザ') >= 0", 10000) and W.read_mode(srv.window.settings_path) == "browser",
+                      "[7-3] オフにすると、次の起動からいつものブラウザ(設定に browser が残る)")
+                pg.click("#winMode")
+                check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('窓で開きます') >= 0)", 10000), "[7-3] オンに戻した(次の起動から)")
                 check(W.read_mode(srv.window.settings_path) == "app", "[7-3] 設定が settings.json に残る: %s" % srv.window.settings_path)
                 pg.click("#btnWinNow")
                 got = wait_until(lambda: read_lines(edge_log))

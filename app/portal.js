@@ -224,7 +224,7 @@
     }).then(poll);
   }
 
-  /* 窓で開く(試用。段階7-3) */
+  /* 窓で開く(段階7-3。2026-09-27 から既定で窓) */
   var winBusy = false;
   function inApp() { return !!(window.UIKit && UIKit.win && UIKit.win.isApp()); }
   function renderWin(w) {
@@ -234,9 +234,9 @@
     sw.checked = w.mode === 'app';
     sw.disabled = !w.available && w.mode !== 'app';
     var text = w.available
-      ? 'オンにすると、次に start-all.bat で起動したときから、ブラウザのタブではなく Microsoft Edge の専用の窓で開きます。' +
+      ? 'オン(既定)のとき、start-all.bat で起動すると、ブラウザのタブではなく Microsoft Edge の専用の窓で開きます。' +
         '窓の中のリンクも窓で開き、YouTube などの外のサイトはいつものブラウザで開きます。窓の設定・拡張機能・ログインは、いつものブラウザと別です。' +
-        '合わなければオフに戻すだけで元どおりです。'
+        'オフにすると、次の起動からいつものブラウザのタブで開きます。'
       : 'Microsoft Edge が見つからないので、窓では開けません(いつものブラウザで開きます)。';
     if (inApp()) text += '(いまは窓で開いています)';
     $('#winHint').textContent = text;
