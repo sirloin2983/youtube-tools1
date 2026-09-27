@@ -73,10 +73,78 @@ def main():
               const d = c.getContext('2d').getImageData(x, 0, 1, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n > 10; })()""", 20000)
             check(True, "音の波形が出る(サーバーの /api/peaks)")
 
+            # ---- 段3: ホイールで拡大縮小(Ctrl 不要・マウスの位置が中心)・Shift+ホイールで横移動・ミニマップ
+            pg.click("#cutZoomFit")
+            pg.wait_for_timeout(100)
+            sc_box = pg.locator("#tlScroll").bounding_box()
+            mx, my = sc_box["x"] + sc_box["width"] * 0.3, sc_box["y"] + sc_box["height"] / 2
+            t_before = (pg.evaluate("document.querySelector('#tlScroll').scrollLeft") + (mx - sc_box["x"])) / pg.evaluate("document.querySelector('#tlScroll').scrollWidth / 20")
+            pg.mouse.move(mx, my)
+            pg.mouse.wheel(0, -600)   # Ctrl は押さない。上(deltaY<0)で広げる
+            pg.wait_for_timeout(150)
+            pps_zoomed = pg.evaluate("document.querySelector('#tlScroll').scrollWidth / 20")
+            t_after = (pg.evaluate("document.querySelector('#tlScroll').scrollLeft") + (mx - sc_box["x"])) / pps_zoomed
+            check(pps_zoomed > 20, "ホイール(Ctrl 不要)で拡大できる: 1秒 %.1f 点" % pps_zoomed)
+            check(abs(t_after - t_before) < 0.4, "マウスの位置の時刻が拡大の前後でだいたい変わらない(その場所が中心): %.2f → %.2f" % (t_before, t_after))
+            sl_before = pg.evaluate("document.querySelector('#tlScroll').scrollLeft")
+            pg.keyboard.down("Shift")
+            pg.mouse.wheel(0, 240)
+            pg.keyboard.up("Shift")
+            pg.wait_for_timeout(150)
+            sl_after = pg.evaluate("document.querySelector('#tlScroll').scrollLeft")
+            check(sl_after > sl_before, "Shift+ホイールで横に移動する: %s → %s" % (sl_before, sl_after))
+            # ミニマップ: 見ている範囲の枠(拡大しているので全体より狭い)・ドラッグで見る範囲を移動できる
+            mini_box = pg.locator("#tlMini").bounding_box()
+            view_box = pg.locator("#tlMiniView").bounding_box()
+            check(pg.is_visible("#tlMini") and 0 < view_box["width"] < mini_box["width"] * 0.9, "ミニマップに、見ている範囲より狭い枠が出る(拡大しているので): %.0f / %.0f" % (view_box["width"], mini_box["width"]))
+            sl_before2 = pg.evaluate("document.querySelector('#tlScroll').scrollLeft")
+            vx, vy = view_box["x"] + view_box["width"] / 2, view_box["y"] + view_box["height"] / 2
+            pg.mouse.move(vx, vy)
+            pg.mouse.down()
+            pg.mouse.move(vx - mini_box["width"] * 0.2, vy, steps=4)   # 左へ(すでに右へ寄せてあるので、詰まらない向きへ動かす)
+            pg.mouse.up()
+            pg.wait_for_timeout(150)
+            sl_after2 = pg.evaluate("document.querySelector('#tlScroll').scrollLeft")
+            check(sl_after2 != sl_before2, "ミニマップの枠をドラッグすると、見る範囲が移る: %s → %s" % (sl_before2, sl_after2))
+            # ミニマップの枠の端(右)をドラッグすると、その端だけ動いて拡大縮小する(左端は固定)
+            view_box3 = pg.locator("#tlMiniView").bounding_box()
+            pps_before_h = pg.evaluate("document.querySelector('#tlScroll').scrollWidth / 20")
+            hx3, hy3 = view_box3["x"] + view_box3["width"], view_box3["y"] + view_box3["height"] / 2
+            pg.mouse.move(hx3, hy3)
+            pg.mouse.down()
+            pg.mouse.move(hx3 - max(6, view_box3["width"] * 0.4), hy3, steps=4)
+            pg.mouse.up()
+            pg.wait_for_timeout(150)
+            pps_after_h = pg.evaluate("document.querySelector('#tlScroll').scrollWidth / 20")
+            check(pps_after_h > pps_before_h, "ミニマップの枠の端をドラッグすると拡大縮小する(右端を左へ引くと狭くなる=拡大): %.1f → %.1f" % (pps_before_h, pps_after_h))
+            pg.click("#cutZoomFit")
+
             # ---- 端のドラッグ(1フレーム単位・Alt で吸い付かない)
             pg.locator("#tlVideo .tt-k[data-i='1']").click()
             wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k[data-i=\"1\"] .tt-h').length === 2", 3000)
             check(True, "区間を押すと選ばれて、両端につまみが出る")
+
+            # ---- 段3: 画面の下の帯(UIKit.keybar)。端を選ぶ/外す・タブを離れるで場面が変わる
+            def keybar_keys():
+                return pg.evaluate("[...document.querySelectorAll('.ui-keybar .ui-keybar-item')].map(e => e.dataset.k)")
+            check(pg.evaluate("document.querySelector('.ui-keybar').hidden") is False and {",", "."} <= set(keybar_keys()),
+                  "端を選ぶと、下の帯が「, . 1コマ」の場面になる: %s" % keybar_keys())
+            pg.keyboard.press("Escape")
+            wait_js(pg, "!document.querySelector('#tlVideo .tt-k.sel')", 3000)
+            check("S" in keybar_keys() and "," not in keybar_keys(), "選択を外す(Esc)と、下の帯は通常のカットの場面(S・Del など)に戻る: %s" % keybar_keys())
+            pg.keyboard.press("Alt+1")
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
+            check("↓" in keybar_keys() and "S" not in keybar_keys(), "1 文字起こし のタブへ移ると、下の帯もそのタブの場面に変わる(カットの場面が残らない): %s" % keybar_keys())
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+            check("S" in keybar_keys(), "2 カット のタブへ戻ると、下の帯もカットの場面に戻る: %s" % keybar_keys())
+            pg.keyboard.press("Alt+3")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+            check(len(keybar_keys()) == 0, "3 パック のタブには帯の場面が無いので、カットの場面は残らず消える: %s" % keybar_keys())
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+            check("S" in keybar_keys(), "カットのタブへ戻ると、下の帯もまた出る: %s" % keybar_keys())
+
             for _ in range(12):
                 pg.click("#cutZoomIn")
             pg.evaluate("document.querySelector('#tlVideo .tt-k[data-i=\"1\"] .tt-h.out').scrollIntoView({inline: 'center', block: 'nearest'})")
@@ -104,6 +172,20 @@ def main():
             pg.keyboard.press(",")
             wait_saved()
             check(server_clips()[1][1] == round(198 / FPS, 3), ". . , で選んだ端が1フレームずつ動く: %s" % (server_clips()[1],))
+
+            # ---- 段3: 端の当たり判定は見た目の外側 6px まで(区間そのものの右端の少し外を掴んでもドラッグできる)
+            k_box = pg.locator("#tlVideo .tt-k[data-i='1']").bounding_box()
+            hh_box = pg.locator("#tlVideo .tt-k[data-i='1'] .tt-h.out").bounding_box()
+            hx = (k_box["x"] + k_box["width"] + hh_box["x"] + hh_box["width"]) / 2   # 見た目の区間の外側・つまみの外端の間(見た目の外だけをつかむ)
+            hy = hh_box["y"] + hh_box["height"] / 2
+            before_end = server_clips()[1][1]
+            pg.mouse.move(hx, hy)
+            pg.mouse.down()
+            pg.mouse.move(hx + px_per_frame * 3, hy, steps=3)
+            pg.mouse.up()
+            wait_saved()
+            after_end = server_clips()[1][1]
+            check(after_end != before_end, "区間の端は、見た目の外側(数点)を掴んでもドラッグできる(当たり判定が広い): %s → %s" % (before_end, after_end))
 
             # ---- 吸い付く(再生位置)・Alt で吸い付かない
             pg.click("#cutZoomFit")
@@ -260,8 +342,9 @@ def main():
             check(pg.is_checked("#cutEdgeOn") and pg.input_value("#cutEdgeAfter") == "0.5", "「行から ▾」: 既定は広げる(終わり 0.5 秒・始まり 0.3 秒まで)")
             pg.uncheck("#cutEdgeOn")
             pg.click("#cutEdgeGo")
-            pg.wait_for_selector("#dlgConfirm[open]")
-            pg.click("#cfOk")   # 手で直したカットがあるので置き換えの確認
+            # 段3: confirmReplace は UIKit.dialog.confirm(動的に <dialog class="ui-dialog"> を作る。旧 #dlgConfirm ではない)
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog .ui-dlg-actions button:has-text('置き換える')")   # 手で直したカットがあるので置き換えの確認
             wait_js(pg, "document.querySelector('#cutSaveSt').textContent === 'カットを保存しました' && !document.querySelector('#cutRowEdge').open", 15000)
             sc = server_clips()
             check(srv.get("/api/settings").get("rowEdge", {}).get("on") is False and sc == [(0.5, 3.2), (4.0, 6.5), (11.0, 14.5)],

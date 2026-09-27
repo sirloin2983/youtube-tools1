@@ -210,6 +210,7 @@ function create(h){
   /* ---------- たたき台(規則はサーバー・cut2resolve) ---------- */
   function confirmReplace(){
     if (M.pristine || !M.undo.length && M.origin !== 'manual') return Promise.resolve(true);
+    if (window.UIKit && UIKit.dialog) return UIKit.dialog.confirm({ title: '今のカットを、たたき台で置き換えますか?', body: '手で直したカットがあります。置き換えても「元に戻す」(Ctrl+Z)で戻せます。', ok: '置き換える' });
     return h.confirm('今のカットを、たたき台で置き換えますか?', '手で直したカットがあります。置き換えても「元に戻す」(Ctrl+Z)で戻せます。', '置き換える');
   }
   function applyKeeps(keepsSec, origin, label){
@@ -382,6 +383,13 @@ function create(h){
       const el = [...box.querySelectorAll('.tt-x')].find(x => Number(x.dataset.a) === M.sel.a); if (el) el.classList.add('sel');
     }
     if (!quiet){ renderStatus(); renderTools(); }
+    cutKeybarScene();
+  }
+  /* 画面の下の帯(UIKit.keybar。段3): 端を選んでいる間だけ、,. の意味を知らせる場面に変える */
+  function cutKeybarScene(){
+    if (!window.UIKit || !UIKit.keybar || h.tab() !== 'cut' || !M.shown) return;
+    if (M.sel && M.sel.kind === 'clip' && M.edge) UIKit.keybar.set([{ k: ',', l: '1コマ' }, { k: '.', l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Esc', l: '選択を外す' }]);
+    else UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: 'I', l: '始まり' }, { k: 'O', l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
   }
   function tickStep(){
     const fs = frameSec(), c = [fs, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
@@ -404,9 +412,11 @@ function create(h){
     cv.style.left = sc.scrollLeft + 'px'; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
     const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
+    /* 段3: 波形は区間(#tlVideo。色で残す/削るを示す)の上に重ねて描く(4段 → 3段「区間(中に波形)」)。
+       区間の色と見分けやすいよう、波形そのものは明暗どちらのテーマでも白系(削る区間は薄く) */
     const cs = getComputedStyle(document.documentElement);
-    const col = (cs.getPropertyValue('--accent') || '#5b5bd6').trim(), dim = (cs.getPropertyValue('--ink-4') || '#999').trim();
-    if (!M.peaks){ cx.fillStyle = dim; cx.font = '12px sans-serif'; cx.fillText(M.peaksMsg || (M.peaksAudio ? '音の波形を読み込んでいます…' : '音声がありません'), 8, hgt / 2 + 4); return; }
+    const col = 'rgba(255,255,255,.65)', dim = 'rgba(255,255,255,.32)', msgDim = (cs.getPropertyValue('--ink-4') || '#999').trim();
+    if (!M.peaks){ cx.fillStyle = msgDim; cx.font = '12px sans-serif'; cx.fillText(M.peaksMsg || (M.peaksAudio ? '音の波形を読み込んでいます…' : '音声がありません'), 8, hgt / 2 + 4); renderMini(); return; }
     const p = M.peaks, rate = M.peaksRate, mid = hgt / 2, l = sc.scrollLeft;
     const cutFr = []; for (const [a, b] of gaps()) cutFr.push([f2s(a), f2s(b)]);
     let gi = 0;
@@ -422,6 +432,71 @@ function create(h){
       cx.fillRect(x, mid - hh, 1, hh * 2);
     }
     cx.globalAlpha = 1;
+    renderMini();
+  }
+  /* ---------- ミニマップ(段3。全体を縮めた帯。見ている範囲の枠をドラッグで移動・端をドラッグで拡大縮小) ---------- */
+  function miniEl(){ return $('#tlMini'); }
+  function miniW(){ return miniEl().clientWidth || 1; }
+  function renderMini(){
+    if (!ready() || !M.dur){ return; }
+    const w = miniW(), view = $('#tlMiniView');
+    const left = (scroller().scrollLeft / M.pps) / M.dur * w;
+    const width = (viewW() / M.pps) / M.dur * w;
+    view.style.left = Math.max(0, Math.min(w - 4, left)) + 'px';
+    view.style.width = Math.max(6, Math.min(w, width)) + 'px';
+    drawMiniWave(w);
+  }
+  function drawMiniWave(w){
+    const cv = $('#tlMiniWave'), hgt = miniEl().clientHeight || 34, dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
+    const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
+    const cs = getComputedStyle(document.documentElement), accent = (cs.getPropertyValue('--accent') || '#5a46e0').trim(), dim = (cs.getPropertyValue('--ink-4') || '#999').trim();
+    cx.fillStyle = accent; cx.globalAlpha = 0.4;
+    for (const [a, b] of M.clips){ const x0 = f2s(a) / M.dur * w, x1 = f2s(b) / M.dur * w; cx.fillRect(x0, 0, Math.max(1, x1 - x0), hgt); }
+    cx.globalAlpha = 1;
+    if (M.peaks){
+      const p = M.peaks, rate = M.peaksRate, mid = hgt / 2;
+      cx.fillStyle = dim;
+      for (let x = 0; x < w; x++){
+        const t0 = x / w * M.dur, t1 = (x + 1) / w * M.dur;
+        let i0 = Math.floor(t0 * rate), i1 = Math.max(i0 + 1, Math.ceil(t1 * rate)), v = 0;
+        if (i0 >= p.length) break;
+        for (let i = i0; i < i1 && i < p.length; i++) if (p[i] > v) v = p[i];
+        const hh = Math.max(1, v / 255 * (mid - 2));
+        cx.fillRect(x, mid - hh, 1, hh * 2);
+      }
+    }
+  }
+  function miniTimeAt(clientX){ const r = miniEl().getBoundingClientRect(); return Math.max(0, Math.min(M.dur, (clientX - r.left) / Math.max(1, r.width) * M.dur)); }
+  /* 見る範囲を [tLeft, tRight](秒)に合わせる: 幅から倍率(pps)を決め、左端に合わせてスクロールする */
+  function setViewByTimes(tLeft, tRight){
+    tLeft = Math.max(0, tLeft); tRight = Math.min(M.dur, Math.max(tRight, tLeft + 0.05));
+    const pps = viewW() / Math.max(0.05, tRight - tLeft);
+    M.fit = false; M.pps = Math.min(Math.max(pps, fitPps()), maxPps());
+    if (M.pps <= fitPps() + 1e-9) M.fit = true;
+    renderNow(); scroller().scrollLeft = Math.max(0, tLeft * M.pps); renderRange();
+  }
+  function bindMini(){
+    miniEl().addEventListener('pointerdown', e => {
+      if (!ready() || e.button !== 0) return;
+      e.preventDefault();
+      const handle = e.target.closest('.tt-tl-mini-h'), onView = !handle && e.target.closest('#tlMiniView');
+      if (handle){
+        const side = handle.dataset.h;
+        const fixed = side === 'l' ? (scroller().scrollLeft + viewW()) / M.pps : scroller().scrollLeft / M.pps;
+        const move = ev => { const t = miniTimeAt(ev.clientX); if (side === 'l') setViewByTimes(t, fixed); else setViewByTimes(fixed, t); };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+      } else if (onView){
+        const startX = e.clientX, startScroll = scroller().scrollLeft, w = miniW();
+        const move = ev => { const dx = (ev.clientX - startX) / w * M.dur * M.pps; scroller().scrollLeft = Math.max(0, startScroll + dx); renderMini(); };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+      } else {
+        const t = miniTimeAt(e.clientX);
+        M.fit = false; scroller().scrollLeft = Math.max(0, t * M.pps - viewW() / 2); renderRange();
+      }
+    });
   }
   async function loadPeaks(){
     const id = M.docId;
@@ -643,7 +718,13 @@ function create(h){
   function bind(){
     const sc = scroller();
     sc.addEventListener('scroll', () => { if (ready()) { if (!bind.q) bind.q = requestAnimationFrame(() => { bind.q = 0; scrolled(); }); } });
-    sc.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey) || !ready()) return; e.preventDefault(); const r = sc.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - r.left); }, { passive: false });
+    /* 段3: ホイールで拡大縮小(Ctrl は要らない。マウスの位置が中心)。Shift+ホイールは横に移動(縦のホイールを横の移動に読み替える) */
+    sc.addEventListener('wheel', e => {
+      if (!ready()) return; e.preventDefault();
+      if (e.shiftKey){ sc.scrollLeft += (e.deltaX || e.deltaY); return; }
+      const r = sc.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - r.left);
+    }, { passive: false });
+    bindMini();
     $('#tlContent').addEventListener('pointerdown', e => {
       if (!editable() || e.button !== 0) return;
       const hd = e.target.closest('.tt-h');
@@ -706,6 +787,27 @@ function create(h){
     h.onLeave(() => { if (M.dirty || M.drag){ if (M.drag) endDrag(); save(); } });
     window.addEventListener('beforeunload', e => { if (M.dirty || M.saving){ e.preventDefault(); e.returnValue = ''; } });
   }
+  /* 共通の再生キー(段3)に渡す「メディア」: 生の <video> をそのまま渡すと、Space/L の再生開始が cut.js の
+     「カット後は削る区間を飛ばす」の頭出し(togglePlay)を通らない・, . / J K の秒がフレームの境目からずれる(浮動小数の蓄積)ので、
+     このオブジェクトを挟んで、実際の操作は今までの関数(togglePlay・seekTo)に委ねる */
+  const mediaProxy = {
+    get paused(){ return V().paused; },
+    get currentTime(){ return V().currentTime; },
+    set currentTime(t){ seekTo(t); },
+    get playbackRate(){ return V().playbackRate; },
+    set playbackRate(r){ V().playbackRate = r; },
+    play(){ togglePlay(); },    // togglePlay 自身が「今止まっているか」を見るので、そのまま委ねてよい
+    pause(){ togglePlay(); }
+  };
+  const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
+    media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30),
+    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]'),
+    onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
+    onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
+    /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
+    onFrame: dir => { if (editable() && M.sel && M.sel.kind === 'clip' && M.edge) nudgeEdge(dir); else stepFrames(dir); return true; },
+    onKey: () => { moveHead(); keepHeadVisible(); }   // 共通キーは v.currentTime を直に書くので、タイムラインの追従はここで
+  }) : null;
   function onKey(e){
     if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]') || h.isTextEntry(e.target)) return;
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
@@ -715,13 +817,11 @@ function create(h){
     if (ctrl || e.altKey) return;
     if (!ready()) return;
     const run = fn => { e.preventDefault(); fn(); };
+    /* Shift+, / Shift+. : 選んだ端を10コマ(共通キーは Shift つきの , . を処理しないので、ここで先に扱う) */
+    if (e.shiftKey && (k === ',' || k === '.') && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(k === ',' ? -10 : 10));
+    if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && e.target && e.target.closest && e.target.closest('#edTabs')) return;   // タブの並びの中は #edTabs 自身の ← → 処理(タブ切り替え)に任せる
+    if (commonKeys && commonKeys(e)) return;
     switch (e.code){
-      case 'Space': if (!e.target.matches('button,summary,video,input[type=checkbox]')) run(togglePlay); return;
-      case 'KeyJ': return run(() => seekTo((V().currentTime || 0) - 1));
-      case 'KeyK': return run(() => V().pause());
-      case 'KeyL': return run(() => { const v = V(); if (v.paused){ v.playbackRate = 1; togglePlay(); } else v.playbackRate = v.playbackRate >= 2 ? 1 : v.playbackRate + 0.5; });
-      case 'ArrowLeft': if (!e.target.closest('#edTabs')) run(() => stepFrames(e.shiftKey ? -Math.round(1 / frameSec()) : -1)); return;
-      case 'ArrowRight': if (!e.target.closest('#edTabs')) run(() => stepFrames(e.shiftKey ? Math.round(1 / frameSec()) : 1)); return;
       case 'Home': return run(() => seekTo(0));
       case 'End': return run(() => seekTo(M.dur));
     }
@@ -730,11 +830,7 @@ function create(h){
     switch (k){
       case 's': case 'S': return run(split);
       case 'Delete': case 'Backspace': return run(delOrRestore);
-      case 'i': case 'I': return run(() => { M.io.i = headFrame(); render(); });
-      case 'o': case 'O': return run(() => { M.io.o = headFrame(); render(); });
       case 'x': case 'X': return run(cutIO);
-      case ',': return run(() => nudgeEdge(-1));
-      case '.': return run(() => nudgeEdge(1));
       case '+': case '=': return run(() => zoom(1.5));
       case '-': return run(() => zoom(1 / 1.5));
       case 'Escape': if (M.sel || M.io.i !== null || M.io.o !== null){ run(() => { M.sel = null; M.io = { i: null, o: null }; render(); }); } return;
@@ -742,6 +838,7 @@ function create(h){
   }
   function onShown(){
     M.shown = true;
+    cutKeybarScene();
     if (!ready()) { render(); return; }
     ensureMedia();
     const v = V(), t = h.player().currentTime || 0;

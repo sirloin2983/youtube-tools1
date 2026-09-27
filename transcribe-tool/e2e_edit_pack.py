@@ -53,19 +53,31 @@ def main():
             check(pg.inner_text("#pkLen") == "0:05.35", "これから作るパック: 3区間・カット後 0:05.35(=321フレーム)・字幕 3: " + pg.inner_text("#pkLen"))
             wait_js(pg, "!document.querySelector('#pkWarn').hidden", 10000)
             check("0.5 秒より短い区間が 1 か所" in pg.inner_text("#pkWarn"), "作る前の注意に、とても短い区間(0.3 秒): " + pg.inner_text("#pkWarn"))
+            # 段3: 詳しい設定(fps・大きさ・入れるもの・出力先)は「設定を変える」で開く右の欄
+            check("30fps" in pg.inner_text("#pkSummaryText"), "前回の設定の要約が出る(既定は 30fps): " + pg.inner_text("#pkSummaryText"))
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
             check(pg.is_visible("#pkFpsWarn") and "60fps" in pg.inner_text("#pkFpsWarn"), "60fps の元の動画を 30fps のプロジェクトに入れるときの注意: " + pg.inner_text("#pkFpsWarn"))
             pg.click("#pkFps [data-v='60']")
             wait_js(pg, "document.querySelector('#pkFpsWarn').hidden", 3000)
             check(True, "置き先を 60fps にすると注意は消える")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1080x1920']")
-            # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            check("縦 1080" in pg.inner_text("#pkSummaryText"), "設定を変えると要約も変わる: " + pg.inner_text("#pkSummaryText"))
+            # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色(pkWho は主画面にいつも見える)
             pg.fill("#pkWho", "ぺこら")
             wait_js(pg, "document.querySelector('#pkWho').dataset.color === '#7EC2FE'", 10000)
             check("兎田ぺこら" in pg.inner_text(".tt-pk-who .ui-streamer-hint") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
                   pg.evaluate("getComputedStyle(document.querySelector('#pkPhoneCap')).color") == "rgb(126, 194, 254)",
                   "配信者の名前 → メンバーカラーの見本・字幕の見本の色: %s" % pg.inner_text(".tt-pk-who .ui-streamer-hint"))
             check(pg.evaluate("document.querySelectorAll('#ui-streamer-list option').length") > 50, "名前の候補(ホロカラーの一覧)")
+            check(pg.evaluate("document.querySelector('#pkSummarySw').hidden") is False and
+                  pg.evaluate("getComputedStyle(document.querySelector('#pkSummarySw')).backgroundColor") == "rgb(126, 194, 254)",
+                  "「前回の設定」の要約にも配信者の色の丸が出る(pkWho の色と同じ)")
+            # 段3: 設定の引き出しを開かずに(主画面だけで)「パックを作る」を1クリックで作れる(ワンクリック)
+            check(pg.evaluate("document.querySelector('#pkSettingsDrawer').hidden") is True, "「作る」を押す前に、設定の引き出しは閉じている")
             pg.click("#pkBuild")
             wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
             check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
@@ -84,7 +96,11 @@ def main():
             check(e["edit"]["packRev"] == e["rev"] == 1 and os.path.normcase(e["edit"]["pack"]["dir"]) == os.path.normcase(packdir) and not e["packStale"],
                   "作った記録(packRev = 作ったときのカットの rev・出力フォルダ)")
             # 「予備も入れる」→ EDL・予備の手順書・SRT も(上書きの確認のあと)
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkBackup", state="visible")
             pg.check("#pkBackup")
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             pg.click("#owOk")
@@ -93,9 +109,13 @@ def main():
             stem = os.path.splitext(os.path.basename(v1))[0]
             check({stem + ".edl", stem + "_cut.srt", "予備_EDLで開く手順.txt"} <= names2 and "cut-plan.json" not in names2,
                   "「予備も入れる」で EDL・予備_EDLで開く手順.txt・SRT も入る: %s" % sorted(names2))
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkBackup", state="visible")
             pg.uncheck("#pkBackup")
             # 作っている途中の「中止」(粗編集の動画も作る。間に合わず終わってしまったときは、そのことを出す)
             pg.check("#pkRender")
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             pg.click("#owOk")
@@ -108,7 +128,11 @@ def main():
                 check("中止" in t or "パックを作りました" in t, "作っている途中の「中止」: %s" % t)
             else:
                 check(True, "(中止を押す前に作り終わった)")
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkRender", state="visible")
             pg.uncheck("#pkRender")
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             # 文字起こしの無い動画: Text+ なしのパック
             pg.click("[data-strip=start]")
             pg.click("#tabFile")

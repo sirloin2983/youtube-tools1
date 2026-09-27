@@ -287,31 +287,33 @@ def main():
                 paused = pg.evaluate("document.querySelector('#player').paused")
                 check(False, "0行目の▶を押しても、その行の終わり付近(%.1f秒)で止まらなかった(現在地=%.2f, 一時停止=%s)。ヘッドレス環境で自動再生がブロックされた可能性もある" % (row0_end, cur, paused))
 
-            # ==================== 9) 設定のポップオーバー・キー b ====================
+            # ==================== 9) 再生・編集の設定のポップオーバー・設定の引き出し(段2: B キーはやめて設定の引き出しへ) ====================
             open_doc("メニュー文書")
-            check(not pg.is_visible("#follow"), "設定のポップオーバーは、開く前は中身(#follow など)が見えない")
+            check(not pg.is_visible("#follow"), "再生・編集の設定のポップオーバーは、開く前は中身(#follow など)が見えない")
             pg.click("#playSet summary")
-            check(pg.is_visible("#follow") and pg.is_visible("#frameFollow") and pg.is_visible("#autoNext") and pg.is_visible("#adjStep"),
-                  "⚙設定 を開くと #follow・#frameFollow・#autoNext・#adjStep が見える")
+            check(pg.is_visible("#follow") and pg.is_visible("#frameFollow") and pg.is_visible("#adjStep"),
+                  "⚙ 設定(再生・編集)を開くと #follow・#frameFollow・#adjStep が見える")
+            pg.keyboard.press("Escape")
+            pg.click("[data-ui-settings]")
+            pg.wait_for_selector("#autoNext", state="visible")
             before = pg.is_checked("#autoNext")
-            pg.evaluate("document.activeElement && document.activeElement.blur()")
-            pg.keyboard.press("b")
-            check(pg.is_checked("#autoNext") != before, "キー b で「移動したら自動で再生」(#autoNext)が切り替わる")
-            pg.keyboard.press("b")
-            check(pg.is_checked("#autoNext") == before, "もう一度 b で元に戻る")
+            pg.click("#autoNext")
+            check(pg.is_checked("#autoNext") != before, "設定の引き出しで「移動したら自動で再生」(#autoNext)を切り替えられる")
+            pg.click("#autoNext")
+            check(pg.is_checked("#autoNext") == before, "もう一度で元に戻る")
             pg.keyboard.press("Escape")
 
-            # ==================== 10) キー操作: Shift+文字は何もしない/s は次へ/Shift+Space は校正済み ====================
+            # ==================== 10) キー操作: Shift+文字は何もしない/↓ は次へ/Shift+Space は校正済み ====================
             select_row(0)
             navi = lambda: pg.evaluate("[...document.querySelectorAll('#segs .seg')].findIndex(r => r.classList.contains('nav'))")
             check(navi() == 0, "前提: 0行目を選んでいる")
-            pg.keyboard.press("Shift+S")
-            check(navi() == 0, "入力欄の外で Shift+S を押しても、何も起きない(選んでいる行は変わらない)")
-            pg.keyboard.press("s")
-            check(navi() == 1, "s(Shift無し)なら次の行へ移る")
+            pg.keyboard.press("Shift+F")
+            check(navi() == 0, "入力欄の外で Shift+F を押しても、何も起きない(選んでいる行は変わらない)")
+            pg.keyboard.press("ArrowDown")
+            check(navi() == 1, "↓(Shift無し)なら次の行へ移る")
             check(not pg.locator("#segs .seg").nth(0).evaluate("e => e.classList.contains('proofed')"), "前提: 0行目はまだ校正済みでない")
-            pg.keyboard.press("w")
-            check(navi() == 0, "後片付け: w で0行目に戻す")
+            pg.keyboard.press("ArrowUp")
+            check(navi() == 0, "後片付け: ↑ で0行目に戻す")
             pg.keyboard.press("Shift+Space")
             check(pg.locator("#segs .seg").nth(0).evaluate("e => e.classList.contains('proofed')") and navi() == 1,
                   "Shift+Space で選んでいた行が校正済みになり、次の行へ移る")

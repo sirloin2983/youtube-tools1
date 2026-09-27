@@ -63,6 +63,7 @@ function create(h){
     const who = e.detail;
     if (who) document.body.style.setProperty('--tt-cap-color', who.hex); else document.body.style.removeProperty('--tt-cap-color');
     $('#pkLookName').textContent = who ? `けいふぉんと・${who.name}の色の文字(${who.hex})・白いふち・黒いふち` : 'けいふぉんと・黒い文字・白いふち・黒いふち';
+    render();   // 「前回の設定」の要約の色の丸も、入れ直すたびに合わせる
   });
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
@@ -147,6 +148,19 @@ function create(h){
     $('#pkDir').placeholder = '空欄なら 動画の隣の「' + defaultDirName() + '」';
     renderJob(); renderLast(stale);
     $('#pkZipNote').textContent = h.CUT && h.CUT.active() && !h.CUT.state().pristine ? '中身は上の「パックを作る」と同じ(2 カット のタブの区間)です。' : '中身は上の「パックを作る」と同じです。';
+    renderSummaryText(fps, size, hasRows);
+  }
+  /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */
+  function renderSummaryText(fps, size, hasRows){
+    const bits = [`${fps}fps`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
+    if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
+    if ($('#pkRender').checked) bits.push('粗編集の動画つき');
+    const dir = $('#pkDir').value.trim();
+    bits.push('出力先: ' + (dir ? dir.split(/[\\/]/).pop() : defaultDirName()));
+    $('#pkSummaryText').textContent = bits.join(' ・ ');
+    const color = hasRows ? ($('#pkWho').dataset.color || '') : '', sw = $('#pkSummarySw');
+    sw.hidden = !color; if (color) sw.style.background = color;
+    sw.title = color ? `配信者の色(${color})` : '';
   }
   function defaultDirName(){ const p = String(h.S.doc && h.S.doc.sourcePath || ''), n = p.split(/[\\/]/).pop() || ''; return n.replace(/\.[^.]*$/, '') + '_pack'; }
   function renderMap(sm){
@@ -229,12 +243,17 @@ function create(h){
   }
 
   /* ---------- イベント ---------- */
+  /* 「設定を変える」の右の欄(段3。docked ではなく modal: 開いている間はパックを作る操作に集中させる) */
+  $('#pkSettingsBtn').addEventListener('click', e => { if (window.UIKit && UIKit.drawer) UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: e.currentTarget }); });
+  $('#pkSettingsClose').addEventListener('click', () => { if (window.UIKit && UIKit.drawer) UIKit.drawer.close($('#pkSettingsDrawer')); });
   function setOpt(key, v){ h.S.settings[key] = v; h.saveSettings(); render(); }
   $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
   $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
   $('#pkBuild').addEventListener('click', build);
   $('#pkBackup').addEventListener('change', render);
+  $('#pkRender').addEventListener('change', render);
+  $('#pkDir').addEventListener('input', render);
   $('#pkJob').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=pkcancel]') || !P.job) return;
     try { await h.c2rApi('api/job/cancel', { body: { id: P.job.id } }); } catch (er){ h.toast(er.message, 4000, 'err'); }
@@ -271,7 +290,7 @@ function create(h){
 
   return {
     load,
-    shown(){ if (h.S.doc){ render(); schedulePreview(0); } },
+    shown(){ if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); } },
     changed(){ render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack })

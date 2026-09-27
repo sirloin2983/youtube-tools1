@@ -249,28 +249,29 @@ def main():
             pg.wait_for_function("document.querySelector('#toast').textContent.includes('追いついていません')", timeout=10000)
             check(True, "保存済みの版と違うとき(409)は、「保存が追いついていません」と出して再試行を促す")
 
-            # ==================== 4) 他のツールのメニュー ====================
-            pg.click("#toolMenu summary")
-            pg.wait_for_function("document.querySelectorAll('#toolNav a').length === 2")
-            links = pg.evaluate("[...document.querySelectorAll('#toolNav a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current'), a.className, a.textContent])")
-            check(links[1][1] == "page" and links[1][0] == "/" and "編集" in links[1][3], "編集(このツール)自身は「いま開いている画面」: %s" % (links[1],))
-            check(not any(":%d/" % c2r_port in (l[0] or "") for l in links), "cut2resolve は「編集」の部品なので、他のツールのメニューに出さない: %s" % links)
-            check("tt-tool-off" in links[0][2], "起動していないスタジオは、灰色にして知らせる: %s" % (links[0],))
-            pg.mouse.click(700, 600)
-            check(not pg.evaluate("document.querySelector('#toolMenu').open"), "外をクリックするとメニューが閉じる")
+            # ==================== 4) ヘッダー左の ui-appnav(ホーム/スタジオ/編集。v6 で「他のツール」メニューを置き換えた) ====================
+            items = pg.evaluate("[...document.querySelectorAll('[data-ui-appnav] a')].map(a => [a.dataset.uiAppnavItem, a.getAttribute('aria-current')])")
+            check(len(items) == 2 and items[0] == ["studio", None] and items[1] == ["transcribe", "page"],
+                  "単体で開いたときは「ホーム」を出さず、スタジオ・編集(いま開いている画面)だけ: %s" % items)
+            check(not any(x == "cut2resolve" for x, _ in items), "cut2resolve は「編集」の部品なので、appnav には出さない: %s" % items)
+            hrefs = pg.evaluate("[...document.querySelectorAll('[data-ui-appnav] a')].map(a => a.getAttribute('href'))")
+            check(not any(":%d/" % c2r_port in (h or "") for h in hrefs), "cut2resolve の URL も appnav のリンクに出ない: %s" % hrefs)
 
-            # ==================== 5) テーマ: ヘッダーのボタンと「表示」の設定は1つ ====================
+            # ==================== 5) テーマ: ヘッダーのボタンと設定の引き出し(全体の節)は1つ ====================
             before = pg.evaluate("document.documentElement.dataset.theme")
             pg.click("[data-theme-toggle]")
             after = pg.evaluate("document.documentElement.dataset.theme")
             check(after != before and pg.evaluate("localStorage.getItem('ytt:theme')") == after, "ヘッダーの切り替えボタンで色が変わり、ui-kit の保存場所(ytt:theme)に残る")
-            check(pg.input_value("#vTheme") == after, "「表示」の設定の選択肢も同じ値になる: %s" % pg.input_value("#vTheme"))
-            pg.click("#viewMenu summary")
-            pg.select_option("#vTheme", "auto")
-            check(pg.evaluate("localStorage.getItem('ytt:theme')") is None and pg.evaluate("document.documentElement.dataset.themePref") == "system", "「パソコンの設定に合わせる」で保存を消す(OS に合わせる)")
-            pg.select_option("#vTheme", "dark")
+            pg.click("[data-ui-settings]")
+            theme_sel = "#uiSettingsDrawer .ui-settings-row:has-text('テーマ') select"
+            pg.wait_for_selector(theme_sel, state="visible")
+            check(pg.input_value(theme_sel) == after, "設定の引き出し(全体の節)のテーマの選択肢も同じ値になる: %s" % pg.input_value(theme_sel))
+            pg.select_option(theme_sel, "system")
+            check(pg.evaluate("localStorage.getItem('ytt:theme')") == "system" and pg.evaluate("document.documentElement.dataset.themePref") == "system",
+                  "「OSに合わせる」を選ぶと明示的に保存する(v6: 保存が無いときの既定は明るいなので、「OSに合わせる」は選んだときだけ保存)")
+            pg.select_option(theme_sel, "dark")
             check(pg.evaluate("localStorage.getItem('ytt:theme')") == "dark" and "theme" not in json.loads(pg.evaluate("localStorage.getItem('tx.view.v1')") or "{}"),
-                  "「表示」で選んでも ytt:theme に保存し、tx.view.v1 には色を保存しない(保存は1か所)")
+                  "設定の引き出しで選んでも ytt:theme に保存し、tx.view.v1 には色を保存しない(保存は1か所)")
             pg.keyboard.press("Escape")
             ctx2 = b.new_context(viewport={"width": 1200, "height": 800}, color_scheme="light")
             ctx2.add_init_script("if (!sessionStorage.getItem('seeded')) { localStorage.setItem('tx.view.v1', JSON.stringify({ theme: 'dark', fs: '17' })); sessionStorage.setItem('seeded', '1'); }")
@@ -283,7 +284,7 @@ def main():
             check("theme" not in v and v.get("fs") == "17", "引き継いだら tx.view.v1 から theme を消す(ほかの表示の設定は残る): %s" % v)
             p2.reload()
             p2.wait_for_selector("#txList .txi", state="attached")
-            check(p2.evaluate("document.documentElement.dataset.theme") == "dark" and p2.input_value("#vTheme") == "dark", "開き直しても残る")
+            check(p2.evaluate("document.documentElement.dataset.theme") == "dark", "開き直しても残る")
             ctx2.close()
 
             # ==================== 6) 話者の色の CSS 差し込み・時刻の直しで今の行・結合の終了・キーの押しっぱなし ====================
@@ -356,7 +357,8 @@ def main():
             check(t < 0.5, "前に開いた(動画を読めなかった)文書の「前回の続き」の位置へ飛ばない: currentTime=%.2f" % t)
 
             # ==================== 9) v0.15.0 の見直し(単体で開いたとき): カットとパック・キー操作・履歴の一覧・狭い画面の引き出し ====================
-            check(pg.inner_text("#btnKeys").strip() == "キー操作" and pg.is_hidden("[data-ui-home]"), "ヘッダーのボタン名は「キー操作」・入口へのリンクは入口の外では出ない")
+            check(pg.inner_text("#btnKeys").strip() == "キー操作" and pg.locator('[data-ui-appnav-item="portal"]').count() == 0,
+                  "ヘッダーのボタン名は「キー操作」・ホーム(入口)への項目は入口の外では出ない")
             pg.click("[data-edtab=pack]")   # 「編集」E4: パックは 3 パック のタブ(この文書は音声だけ(wav)なので、カットとパックには使えない)
             pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('音声だけ')", timeout=15000)
             check(pg.is_disabled("#pkBuild"), "音声だけのファイルは、パックのタブに理由を出して作れなくする: " + pg.inner_text("#pkOff"))

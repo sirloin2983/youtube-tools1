@@ -34,8 +34,10 @@ def main():
             pg.goto(srv.base)
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
 
-            # ---- ヘッダー: ブランド「編集」・3つのタブ
-            check(pg.inner_text(".tt-brand-name") == "編集" and pg.title() == "編集", "ブランドとブラウザのタブの題名は「編集」")
+            # ---- ヘッダー: ui-appnav(ホーム/スタジオ/編集)の「編集」・ブラウザのタブの題名・3つのタブ
+            check(pg.title() == "編集", "ブラウザのタブの題名は「編集」")
+            check(pg.inner_text('[data-ui-appnav-item="transcribe"]') == "編集" and pg.get_attribute('[data-ui-appnav-item="transcribe"]', "aria-current") == "page",
+                  "ヘッダー左の ui-appnav に「編集」(いま開いている画面)")
             tabs = pg.locator("[data-edtab]")
             check(tabs.count() == 3 and ["".join(t.split()) for t in pg.locator("[data-edtab]").all_inner_texts()] == ["1文字起こし", "2カット", "3パック"],
                   "ヘッダーに 1 文字起こし / 2 カット / 3 パック のタブ: %s" % pg.locator("[data-edtab]").all_inner_texts())
@@ -153,6 +155,8 @@ def main():
             wait_js(pg, "document.querySelectorAll('#segs .seg').length === 2", 10000)
             check(pg.input_value("#optMaxV") == "16" and pg.input_value("#optMaxH") == "28" and pg.input_value("#optWrapV") == "8" and pg.input_value("#optSubOrient") == "vertical",
                   "新規の設定に 字幕の向き(縦)・最大文字数 縦 16 / 横 28・改行 縦 8 / 横 14")
+            check(not pg.evaluate("document.querySelector('#recogDetails').open") and "モデル:" in pg.evaluate("document.querySelector('#optSummary').textContent"),
+                  "認識の設定は既定で閉じ、「始める」の上に要約が1行出る: %s" % pg.evaluate("document.querySelector('#optSummary').textContent"))
             opt = pg.evaluate("document.querySelector('#rsOrient').options[0].textContent")   # 閉じた欄の中なので textContent で見る
             check("最大 16 文字" in opt, "「分け直す」の向きに最大文字数が出る: %s" % opt)
             pg.evaluate("document.querySelector('#fixDetails').open = true")

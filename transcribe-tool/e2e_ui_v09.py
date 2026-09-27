@@ -191,25 +191,19 @@ def main():
             pg.locator("#txList .txi").filter(has_text="画面用").locator(".t").click()
             pg.wait_for_selector("#segs .seg")
             navi = lambda: pg.evaluate("[...document.querySelectorAll('#segs .seg')].findIndex(r => r.classList.contains('nav'))")
-            # Tab の切り替え
+            # 入力欄から抜ける(Esc)。Tab の入る/抜けるの切り替えは、段2で T・Esc と重複するためやめた
             pg.locator("#segs textarea").nth(1).focus()
-            pg.keyboard.press("Tab")
-            check(pg.evaluate("document.activeElement === document.body") and navi() == 1, "入力中に Tab で入力欄を抜ける(選んだ行は残る)")
-            pg.keyboard.press("s")
-            check(navi() == 2, "抜けたあとは S が使える")
-            pg.keyboard.press("Tab")
-            check(pg.evaluate("document.activeElement === document.querySelectorAll('#segs textarea')[2]"), "入力欄の外で Tab → 選んだ行の入力欄に入る")
-            pg.keyboard.press("Tab")
-            check(pg.evaluate("document.activeElement === document.body"), "もう一度 Tab で抜ける(切り替え式)")
-            pg.keyboard.press("Shift+Tab")
-            check(pg.evaluate("document.activeElement !== document.querySelectorAll('#segs textarea')[2]"), "Shift+Tab は、ふつうの動き(入力欄には入らない)")
+            pg.keyboard.press("Escape")
+            check(pg.evaluate("document.activeElement === document.body") and navi() == 1, "入力中に Esc で入力欄を抜ける(選んだ行は残る)")
+            pg.keyboard.press("ArrowDown")
+            check(navi() == 2, "抜けたあとは ↓ が使える")
             # 枠
             css = pg.evaluate("""() => { const r = document.querySelectorAll('#segs .seg')[4]; r.classList.add('cur'); const a = getComputedStyle(r).outlineStyle; r.classList.remove('cur');
                 const n = document.querySelectorAll('#segs .seg')[navi_i]; return [a, getComputedStyle(n).outlineStyle, getComputedStyle(n).outlineWidth]; }""".replace("navi_i", str(navi())))
             check(css[0] == "none" and css[1] == "solid" and css[2] == "3px", "再生中の行は太枠にならず、選んだ行だけが太枠: %s" % css)
             check(not pg.is_checked("#frameFollow"), "太枠を再生に合わせるのは、標準でオフ")
             # 時刻の微調整
-            pg.keyboard.press("s")
+            pg.keyboard.press("ArrowDown")
             row = pg.locator("#segs .seg").nth(navi())
             row.locator("input[data-f=start]").scroll_into_view_if_needed()
             before = row.locator("input[data-f=end]").input_value()
