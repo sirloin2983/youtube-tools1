@@ -339,6 +339,8 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
 .ui-next::before{content:"→"}
 /* ui-kit:css:end */
+.tt-docauto{margin-left:auto}.tt-docauto-pop{min-width:min(420px,calc(100vw - 32px));display:grid;gap:8px;padding:12px}
+.tt-docauto-pop .lag{flex-wrap:wrap}
 /* ==================== 文字起こしツール固有の見た目 ====================
    色・文字・部品(ボタン・入力・カード・ピル・通知・表・ダイアログ)は上の ui-kit にある。ここには「このツール固有の配置と部品」だけを書く。
    色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しく足すクラスには tt- を付ける(docs/pipeline.md 5.)。
@@ -1117,7 +1119,19 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
    <div class="tt-docbar" id="docBar">
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
      <span class="tt-docbar-meta hint" id="docMeta"></span>
-     <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span></span>
+     <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
+     <!-- まとめて実行(今の文書。docs/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ出す) -->
+     <details class="ui-menu tt-docauto" id="docAuto" hidden>
+       <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、入口の「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
+       <div class="ui-menu-pop tt-docauto-pop">
+         <p class="hint">この文書の残りを自動で進めます: 行が無ければ文字起こし(「新規」の設定で)→ パック(カットを決めてあればカットのとおり、無ければ文字起こしの行から)。
+           進み具合はここと、履歴の「選んで、まとめて実行」の下に出ます。</p>
+         <label class="lag" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+           <input id="docAutoWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
+         <label class="lag"><input type="checkbox" id="docAutoOverwrite">パックがあれば作り直す(上書き)</label>
+         <div class="row"><button type="button" class="btn small primary" id="docAutoGo">この文書を最後まで</button></div>
+       </div>
+     </details>
    </div>
    <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
    <div class="tx-grid">

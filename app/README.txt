@@ -86,6 +86,8 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
   - まとめて実行に「配信者(字幕の色)」: 案件の画面(とスタジオ・「編集」の履歴)で名前を入れると、パックの字幕の文字をその人のメンバーカラーにする。
     POST /api/autorun/start・start-docs の streamer(始める前に照らし合わせ、見つからなければ 400)。候補は POST api/ytt/streamer-colors {q, all?}
     (画面の共通の API。ui-kit の UIKit.streamer が使う)。名前 → 色の規則は ytt_core/colors.py(ホロカラーの一覧とマイカラーを読むだけ)
+  - まとめて実行を各段階から(docs/followup-2026-09-27.md の 3): POST /api/autorun/start に marks(そのマークだけ。スタジオのマークの行の「この後を ▸」。
+    採用後を全部・文字起こしまで だけ・50 まで)。「編集」の題名の行の「まとめて実行 ▾」は start-docs を1本で使う
 
 ■ v0.10.1(2026-09-26・追加機能 ⑥ ④。docs/edit-tool-design.md の 12)
   - まとめて実行のパック: カットの無い文書は「編集」の「行から」の設定(行の端を声の止まる所まで広げるか)で作る。パックは最小限(cut2resolve の既定)。

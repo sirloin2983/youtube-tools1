@@ -33,6 +33,7 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
 # 文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 DOC_MODE = "doc"
+MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
 DOC_LABEL = "文字起こし → パック"
 DEFAULT_TOP = 3
 MAX_KEEP = 30          # 終わった記録を残す数
@@ -98,11 +99,12 @@ def _doc_id_ok(v):
 
 
 class Run:
-    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None):
+    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None):
         self.id = uuid.uuid4().hex[:10]
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
         self.doc_id, self.overwrite = doc_id, bool(overwrite)   # 文書単位の実行(⑦(b))のときだけ
         self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
+        self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
         self.state = "queued"
         self.message = "順番待ち"
         self.error = ""
@@ -116,8 +118,9 @@ class Run:
 
     def public(self):
         return {"id": self.id, "kind": "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
-                "videoId": self.video_id, "title": self.title, "mode": self.mode, "modeLabel": MODES.get(self.mode, DOC_LABEL), "top": self.top,
-                "streamer": self.streamer,
+                "videoId": self.video_id, "title": self.title, "mode": self.mode,
+                "modeLabel": MODES.get(self.mode, DOC_LABEL) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
+                "streamer": self.streamer, "marks": list(self.marks) if self.marks else None,
                 "state": self.state, "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "steps": [dict(s) for s in self.steps]}
 
@@ -142,7 +145,17 @@ class AutoRunner:
         who, _hex = colors.resolve(name if isinstance(name, str) else "", env=self.env)
         return who
 
-    def start(self, video_id, mode, top=None, streamer=None):
+    @staticmethod
+    def _marks_arg(marks):
+        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部)"""
+        if marks in (None, []):
+            return None
+        if not isinstance(marks, list) or len(marks) > MAX_MARKS or not all(
+                isinstance(m, str) and 1 <= len(m) <= 40 and all(c.isascii() and (c.isalnum() or c in "-_") for c in m) for m in marks):
+            raise ValueError("マークの指定が正しくありません")
+        return tuple(dict.fromkeys(marks))
+
+    def start(self, video_id, mode, top=None, streamer=None, marks=None):
         if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
             raise ValueError("配信の指定が正しくありません")
         if mode not in MODES:
@@ -152,13 +165,16 @@ class AutoRunner:
         if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
             raise ValueError("採用する数は1〜30です")
         who = self._streamer(streamer)
+        mk = self._marks_arg(marks)
+        if mk and mode == "full":
+            raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです")
         with self.cv:
             active = [r for r in self.runs if r.state in ("queued", "running")]
             if any(r.video_id == video_id for r in active):
                 raise ValueError("この配信はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
-            run = Run(video_id, "", mode, top, streamer=who)
+            run = Run(video_id, "", mode, top, streamer=who, marks=mk)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -353,10 +369,14 @@ class AutoRunner:
                 "maxHeight": rv.get("maxHeight") if rv.get("maxHeight") in (0, 720, 1080, 1440, 2160) else 1080,
                 "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
 
+    def _mine(self, run, v):
+        """この実行で扱うマーク(マークを選んだ実行ならそれだけ)"""
+        return [m for m in v.get("marks") or [] if not run.marks or m.get("id") in run.marks]
+
     def _step_export(self, run, st, v):
-        ids = [m["id"] for m in v.get("marks") or [] if m.get("status") == "adopted"]
+        ids = [m["id"] for m in self._mine(run, v) if m.get("status") == "adopted"]
         if not ids:
-            done = sum(1 for m in v.get("marks") or [] if m.get("status") == "exported")
+            done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
         body = self._export_body(run, ids[:50])
@@ -391,12 +411,12 @@ class AutoRunner:
         return None
 
     # 文字起こし -------------------------------------------------
-    def _clips(self, v):
-        return [m for m in v.get("marks") or [] if m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]
+    def _clips(self, v, run=None):
+        return [m for m in (self._mine(run, v) if run else v.get("marks") or []) if m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]
                 and os.path.isfile(m["path"])]
 
     def _step_transcribe(self, run, st, v):
-        clips = self._clips(v)
+        clips = self._clips(v, run)
         if not clips:
             st["state"], st["detail"] = "skip", "書き出した切り抜きがありません"
             return "stop"
@@ -514,7 +534,7 @@ class AutoRunner:
         return "made", bool(keeps)
 
     def _step_pack(self, run, st, v):
-        clips = self._clips(v)
+        clips = self._clips(v, run)
         docs = txindex.load(txindex.folder(self.root, self.env))
         todo, no_tx, made = [], 0, 0
         for m in clips:

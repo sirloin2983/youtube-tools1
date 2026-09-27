@@ -152,6 +152,32 @@ def main():
             pg.uncheck("#txPick")
             pg.fill("#txSearch", "")
 
+            # ---- 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3)
+            v4 = make_video(os.path.join(srv.media, "今の文書.webm"), sec=6, fps=30)
+            tid4 = srv.call("POST", "/api/open-video", {"path": v4})["id"]
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
+            pg.click("[data-side-tab=files]")
+            pg.select_option("#txGroup", "none")
+            pg.fill("#txSearch", "今の文書")
+            pg.locator("#txList .txi").filter(has_text="今の文書").first.click()
+            wait_js(pg, "document.querySelector('#docTitle').value === '今の文書'", 15000)
+            check(pg.is_visible("#docAuto"), "入口から開くと、題名の行に「まとめて実行」が出る")
+            pg.click("#docAuto summary")
+            pg.fill("#docAutoWho", "ぺこら")
+            wait_js(pg, "document.querySelector('#docAutoWho').dataset.color === '#7EC2FE'", 10000)
+            pg.click("#docAutoGo")
+            wait_js(pg, "/完了|止まりました/.test(document.querySelector('#pillAuto').textContent)", 120000)
+            check("完了" in pg.inner_text("#pillAuto"), "題名の行の札に進み具合が出て、完了になる: %s" % pg.inner_text("#pillAuto"))
+            lua4 = os.path.join(os.path.splitext(v4)[0] + "_pack", "create_resolve_textplus_project.lua")
+            check(os.path.isfile(lua4) and len(srv.get("/api/transcript?id=" + tid4)["segments"]) > 0,
+                  "今の文書を 文字起こし → パックまで進める")
+            with open(lua4, encoding="utf-8") as f:
+                check("兎田ぺこらの色の文字" in f.read(), "題名の行のまとめて実行でも、配信者の色がパックの字幕に入る")
+            pg.fill("#txSearch", "")
+
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()
     finally:

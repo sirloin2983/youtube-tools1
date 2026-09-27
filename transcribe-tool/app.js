@@ -654,12 +654,44 @@ async function pollRuns(){
   if (!TOKEN) return;
   let runs = [];
   try { runs = ((await portalApi('api/autorun')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
-  renderRuns(runs);
+  PICK.lastRuns = runs; renderRuns(runs); renderDocAuto(runs);
   const active = new Set(runs.filter(r => r.state === 'queued' || r.state === 'running').map(r => r.id));
-  if ([...PICK.active].some(id => !active.has(id))) loadList();   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
+  if ([...PICK.active].some(id => !active.has(id))){   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
+    loadList();
+    const fin = runs.find(r => r.docId === S.docId && PICK.active.has(r.id) && !active.has(r.id));
+    if (fin && PACK && !S.dirty) PACK.load(S.docId);   // 今の文書のパックができた: パックのタブの「前回のパック」を読み直す
+  }
   PICK.active = active;
   if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
 }
+/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3): 履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
+   先に文書とカットを保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
+async function startDocAuto(){
+  const id = S.docId; if (!id || !TOKEN) return;
+  const b = $('#docAutoGo'); b.disabled = true;
+  try {
+    if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    const who = $('#docAutoWho').value.trim();
+    const r = await portalApi('api/autorun/start-docs', { ids: [id], overwrite: $('#docAutoOverwrite').checked, ...(who ? { streamer: who } : {}) });
+    const sk = r.skipped || [];
+    if ((r.runs || []).length){ toast('この文書のまとめて実行を始めました(入口の順番待ち)', 5000, 'ok'); $('#docAuto').open = false; }
+    else toast('始められませんでした: ' + (sk[0] ? sk[0].reason : '理由が分かりません'), 7000, 'err');
+    pollRuns();
+  } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
+  finally { b.disabled = false; }
+}
+function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちばん新しい実行(終わって10分より前のものは出さない)
+  const pill = $('#pillAuto'); if (!pill) return;
+  const r = S.docId ? runs.find(x => x.docId === S.docId) : null;
+  const active = !!r && (r.state === 'queued' || r.state === 'running');
+  if (!r || (!active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ pill.hidden = true; return; }
+  const [cls, label] = RUN_STATE[r.state] || ['info', r.state];
+  const step = (r.steps || []).find(s => s.state === 'run');
+  pill.className = 'pill ' + cls; pill.hidden = false;
+  pill.textContent = 'まとめて実行: ' + label + (step ? '(' + step.label + ')' : '');
+  pill.title = (r.steps || []).map(s => `${s.label}: ${STEP_STATE[s.state] || s.state}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
+}
+
 async function startBatch(){
   const ids = [...PICK.ids]; if (!ids.length) return;
   const b = $('#txBatchGo'); b.disabled = true;
@@ -1340,6 +1372,7 @@ async function openDoc(id, keep){
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = '';
+  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#docAutoWho'), ''); }   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
@@ -2052,6 +2085,13 @@ $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); 
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);
+$('#docAutoGo').addEventListener('click', startDocAuto);
+$('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄が空なら、パックのタブでこの文書に入れた名前(tx.streamer.v1。pack-tab.js)を入れる
+  if (!$('#docAuto').open || $('#docAutoWho').value.trim() || !(window.UIKit && UIKit.streamer)) return;
+  let who = '';
+  try { const m = JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}'); who = typeof m[S.docId] === 'string' ? m[S.docId] : ''; } catch {}
+  if (who) UIKit.streamer.set($('#docAutoWho'), who);
+});
 $('#txRuns').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const row = b.closest('.tt-run');
@@ -2376,6 +2416,7 @@ async function boot(){
   } catch (e){ return showErr(e.message + '。入口(youtube-test フォルダの start-all.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
   $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))
+  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(docs/followup-2026-09-27.md の 3)も同じ
   if (TOKEN) pollRuns();
   await loadRoster();
   if (S.tools){

@@ -1377,6 +1377,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
+      ${Studio.token && (st === 'adopted' || exp) ? `<button type="button" class="btn small ghost rv-auto1" data-act="auto1" title="このマークだけを、${exp ? '文字起こし → パック' : '書き出し → 文字起こし → パック'}までまとめて実行します(入口の同じ順番待ち。上の「まとめて実行 ▾」の配信者の色も使います)">この後を ▸</button>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -1491,6 +1492,7 @@ function wire(){
         if (!canPlay()){ seek(t); noPlayerToast(); break; }
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
+      case 'auto1': startAuto('adopted', [c.id]); break;   // このマークだけ、残りの作業をまとめて(docs/followup-2026-09-27.md の 3)
       case 'nudge': {
         const w = b.dataset.w;
         if (setBound(c, w, c[w] + Number(b.dataset.d))){ if (yt) seek(c[w]); refresh(key); }
@@ -1754,15 +1756,15 @@ async function portalApi(path, body){
   if (!r.ok){ const er = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); er.code = j.error; er.status = r.status; throw er; }
   return j;
 }
-async function startAuto(mode){
+async function startAuto(mode, marks){
   if (!S.cur) return;
   const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = $('#rvAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(配信者名から自動では入れない)
-    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}) });
+    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}), ...(marks ? { marks } : {}) });
     $('#rvAuto').open = false;
-    toast('まとめて実行を始めました(入口の案件の画面と同じ順番待ち)', 5000, 'ok');
+    toast(marks ? 'このマークのまとめて実行を始めました(入口の案件の画面と同じ順番待ち)' : 'まとめて実行を始めました(入口の案件の画面と同じ順番待ち)', 5000, 'ok');
     pollAuto();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
 }

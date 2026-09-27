@@ -299,8 +299,21 @@ def run_checks(port, fx, shots=None):
                 pg.click("#rvAutoBar [data-act=autocancel]")
             ok = wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
             c.ok(ok, "③ 帯の「中止」で止められる(または終わっている): " + (pg.text_content("#rvAutoBar .pill") or ""))
+            # 1つのマークだけ(マークの行の「この後を ▸」。docs/followup-2026-09-27.md の 3)
+            btn = '#rvList .rv-mark-row[data-id="m1"] [data-act=auto1]'
+            c.ok(pg.is_visible(btn), "③ 採用したマークの行に「この後を ▸」が出る")
+            pg.click(btn)
+            ok = wait_js(pg, "() => !document.querySelector('#rvAutoBar').hidden && /1本/.test(document.querySelector('#rvAutoBar').textContent)", 10000)
+            c.ok(ok, "③ 「この後を ▸」で、このマークだけのまとめて実行が始まる: " + (pg.text_content("#rvAutoBar") or "")[:80])
+            with urllib.request.urlopen(req, timeout=10) as r:
+                runs = json.loads(r.read())["runs"]
+            c.ok(runs and runs[0]["marks"] == ["m1"] and runs[0]["mode"] == "adopted", "③ 入口のまとめて実行に、このマークだけが入る: %s" % (runs[0].get("marks") if runs else None))
+            if pg.is_visible("#rvAutoBar [data-act=autocancel]"):
+                pg.click("#rvAutoBar [data-act=autocancel]")
+            wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
         else:
             c.ok(pg.is_hidden("#rvAuto"), "③ 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
+            c.ok(pg.locator("#rvList [data-act=auto1]").count() == 0, "③ 単体で開いたときは「この後を ▸」も出さない")
         wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length >= 4")
         bg = pg.eval_on_selector(".rv-trow input", "el => getComputedStyle(el).backgroundColor")
         c.ok(luminance(rgb_of(bg)) < 0.2, "ダーク表示でマークの時刻の入力欄が暗い背景(以前は白): %s" % bg)

@@ -11,7 +11,7 @@
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(app/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
   GET  /api/autorun                       まとめて実行の状態(app/autorun.py)
-  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?} 配信1本ぶんを順に自動で
+  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?} 配信1本ぶんを順に自動で(marks: そのマークだけ)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
@@ -662,7 +662,7 @@ class PortalHandler(BaseHTTPRequestHandler):
                 if u.path.endswith("start-docs"):
                     return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))
                 if u.path.endswith("start"):
-                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"))})
+                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"))})
                 return self._json(200, {"run": ar.cancel(body.get("runId"))})
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))

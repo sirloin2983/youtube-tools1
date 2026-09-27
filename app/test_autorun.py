@@ -205,6 +205,41 @@ class Base(unittest.TestCase):
         return {s["key"]: s["state"] for s in run["steps"]}
 
 
+class TestMarks(Base):
+    """スタジオのマークの行の「この後を」(docs/followup-2026-09-27.md の 3): そのマークだけ 書き出し → 文字起こし → パック"""
+    marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m3", "status": "adopted", "start": 20, "end": 25},
+             {"id": "m2", "status": "", "start": 9, "end": 12}]
+
+    def wait(self, run, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def test_only_selected_mark(self):
+        run = self.r.start(VID, "adopted", marks=["m3", "m3"])
+        self.assertEqual((run["marks"], run["modeLabel"]), (["m3"], "採用後を全部(1本)"))
+        run = self.wait(run)
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.tools.export_body["markIds"], ["m3"])                                   # 採用した m1 は書き出さない
+        self.assertEqual([j["src"] for j in self.tools.tx_jobs.values()], [self.tools.clip_path("m3")])
+        self.assertEqual([b["spec"]["video"] for b in self.tools.c2r["bodies"]], [self.tools.clip_path("m3")])
+        # 書き出し済みのマークなら、文字起こし → パックだけ(書き出しは飛ばす)
+        run = self.wait(self.r.start(VID, "adopted", marks=["m3"]))
+        self.assertEqual({s["key"]: s["state"] for s in run["steps"]}["export"], "skip")
+
+    def test_bad_marks(self):
+        for bad in ("m1", [1], ["../x"], ["m" * 41], ["m%d" % i for i in range(A.MAX_MARKS + 1)]):
+            with self.assertRaisesRegex(ValueError, "マークの指定"):
+                self.r.start(VID, "adopted", marks=bad)
+        with self.assertRaisesRegex(ValueError, "採用後を全部"):
+            self.r.start(VID, "full", marks=["m1"])
+        self.assertEqual(self.r.snapshot()["runs"], [])
+
+
 class TestDocs(Base):
     """文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
 
