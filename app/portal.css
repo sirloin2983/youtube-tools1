@@ -8,11 +8,14 @@
 
 /* ---- 次にやること ---- */
 .pt-todo-box{margin:0 0 26px}
-.pt-todo-list{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
+.pt-todo-list{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}   /* 1枚の紙(行の間は細い線) */
+.pt-todo-list:empty{display:none}
+.pt-todo-item+.pt-todo-item{border-top:1px solid var(--line)}
 .pt-todo-item{margin:0}
-.pt-todo-link{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);
+.pt-todo-link{display:flex;align-items:center;gap:10px;padding:9px 12px;border:0;border-radius:0;background:var(--panel);   /* 1枚の紙の中の1行(枠は .pt-todo-list の外側だけ) */
+ 
   text-decoration:none;color:inherit;transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
-.pt-todo-link:hover{border-color:var(--line-strong);background:var(--panel-2)}
+.pt-todo-link:hover{background:var(--panel-2)}
 .pt-todo-pill{flex:none}
 .pt-todo-main{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}
 .pt-todo-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -27,7 +30,10 @@
 #summary{margin:0 0 10px}
 
 /* 一覧の1行(details。閉じているときは高さをそろえて並ぶ。開くと切り抜き・まとめて実行・メモが出る) */
-.pt-case{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);margin:0 0 8px;overflow:hidden;box-shadow:var(--shadow-1)}
+.pt-case{border:0;border-radius:0;background:var(--panel);margin:0;overflow:hidden}
+.pt-case+.pt-case{border-top:1px solid var(--line)}
+#list:has(>.pt-case){gap:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}   /* 案件の一覧も1枚の紙に(まとまりで分けたときは、まとまりの中が1枚) */
+.ui-group>.pt-case:first-of-type{border-top:1px solid var(--line)}
 .pt-case-row{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;list-style:none;cursor:pointer;padding:10px 14px;min-height:52px}
 .pt-case-row::-webkit-details-marker{display:none}
 .pt-case-row::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;order:99}
@@ -36,6 +42,7 @@
 .pt-case-title{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56ch}
 .pt-case-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-case-tx,.pt-case-pack{white-space:nowrap}
+.pt-case-tx.num,.pt-case-pack.num,.pt-doc-tx.num{font-family:var(--font)}   /* 数字の幅だけそろえる(ui-kit の .num は等幅。かなの字間が空くので書体は本文のまま) */
 .pt-case-body{padding:0 14px 14px}
 .pt-case-body .row{gap:10px;align-items:flex-start}
 @media (max-width:640px){
@@ -87,7 +94,7 @@
 .pt-head{display:flex;align-items:center;gap:10px}
 .pt-name{margin:0;font-size:15px}
 .pt-status{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;min-height:22px}
-.pt-meta{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pt-meta{font-variant-numeric:tabular-nums}   /* 等幅にしない(かなの字間が空く)。数字の幅だけそろえる */
 .pt-msg{margin:0}
 .pt-open[aria-disabled=true]{pointer-events:none}
 

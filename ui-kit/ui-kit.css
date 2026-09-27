@@ -113,7 +113,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark[data-tool=transcribe]{background:#2f8fe0}
 .ui-brand-mark[data-tool=cut2resolve]{background:#f0793a}
 .ui-brand-mark[data-tool=portal]{background:#5a46e0}
-.ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
+.ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* v6: 等幅にしない(「ホーム」など、かなの字間が空いて見えた) */
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
 @media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
@@ -372,6 +372,10 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-pop-body[data-align=left]{right:auto;left:0}
 .ui-pop-body a,.ui-pop-body button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left;font:inherit}
 .ui-pop-body a:hover,.ui-pop-body button:hover{background:var(--panel-2)}
+
+/* 一覧を1枚の紙に(v6。段3 の仕上げ): 枠は外側に1つ、行の間は細い線。行ごとに角丸のカードを隙間つきで積まない(ブリーフの「カードが並ぶダッシュボード」を避ける) */
+.ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
+.ui-sheet>*+*{border-top:1px solid var(--line)}
 
 /* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}

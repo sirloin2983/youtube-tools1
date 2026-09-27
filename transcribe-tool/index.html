@@ -123,7 +123,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark[data-tool=transcribe]{background:#2f8fe0}
 .ui-brand-mark[data-tool=cut2resolve]{background:#f0793a}
 .ui-brand-mark[data-tool=portal]{background:#5a46e0}
-.ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
+.ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* v6: 等幅にしない(「ホーム」など、かなの字間が空いて見えた) */
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
 @media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
@@ -382,6 +382,10 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-pop-body[data-align=left]{right:auto;left:0}
 .ui-pop-body a,.ui-pop-body button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left;font:inherit}
 .ui-pop-body a:hover,.ui-pop-body button:hover{background:var(--panel-2)}
+
+/* 一覧を1枚の紙に(v6。段3 の仕上げ): 枠は外側に1つ、行の間は細い線。行ごとに角丸のカードを隙間つきで積まない(ブリーフの「カードが並ぶダッシュボード」を避ける) */
+.ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
+.ui-sheet>*+*{border-top:1px solid var(--line)}
 
 /* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
@@ -715,9 +719,10 @@ html.vid-audio video{height:54px;max-height:none}
 /* ---------- セリフの行(.seg) ----------
    校正はこのツールで一番長くやる作業なので、文字を主役にする(入力欄の枠は、触れたときだけ出す)。
    行の数が数千になっても重くならないように、content-visibility で画面外の行の描画を省く(v0.7.1 から) */
-#segs{container-type:inline-size}
+#segs{container-type:inline-size;border:1px solid var(--line);border-bottom:0;border-radius:var(--r-lg);overflow:clip;background:var(--panel)}
+#segs:empty{border:0}
 .seg{display:grid;grid-template-columns:18px 30px 140px 118px minmax(0,1fr) auto;gap:6px 8px;align-items:start;padding:7px 10px 7px 8px;
-  border:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:var(--r);background:var(--panel);margin-bottom:6px;
+  border:0;border-bottom:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:0;background:var(--panel);margin:0;   /* 段3 の仕上げ: 行は1枚の紙の上に細い線で並べる */
   content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--toph,52px) + 8px);scroll-margin-bottom:24px;
   transition:background-color .2s}
 .seg[hidden]{display:none}
@@ -752,7 +757,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg.cut{background-image:repeating-linear-gradient(135deg,transparent 0 9px,var(--tt-cut-stripe) 9px 18px)}
 .seg.cut textarea{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}
 .seg.cut .times .t,.seg.cut .spk{opacity:.7}
-.seg.nav{outline:3px solid var(--accent);outline-offset:-1px}   /* 影は付けない(行の移動のたびに影の描き直しが入り、4000行で少し遅くなったため。太枠だけで十分見分けられる) */
+.seg.nav{outline:3px solid var(--accent);outline-offset:-3px}   /* 影は付けない(行の移動のたびに影の描き直しが入り、4000行で少し遅くなったため。太枠だけで十分見分けられる) */
 .seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
 @media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
 /* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */

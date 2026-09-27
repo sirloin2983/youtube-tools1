@@ -2331,7 +2331,7 @@ $('#keepSelected').addEventListener('click', () => bulkCut(false));
 
 /* ---------- キー操作の手がかり(行の一覧の上。閉じたら覚える) ---------- */
 const KH_KEY = 'tx.keyhint';
-const khOn = () => { try { return localStorage.getItem(KH_KEY) !== '0'; } catch { return true; } };
+const khOn = () => { try { return localStorage.getItem(KH_KEY) === '1'; } catch { return false; } };   // 段3 の仕上げ: 既定は出さない(画面の下のキーの帯と同じ中身のため)。出したいときだけ '1'
 function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyHintOn').checked = on; }
 $('#keyHintClose').addEventListener('click', () => { try { localStorage.setItem(KH_KEY, '0'); } catch {} applyKeyHint(); toast('キー操作の手がかりを閉じました(右上の「キー操作」から、また出せます)', 4000); });
 $('#keyHintAll').addEventListener('click', () => $('#keys').showModal());
