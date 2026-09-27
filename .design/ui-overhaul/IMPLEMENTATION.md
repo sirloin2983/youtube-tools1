@@ -1,0 +1,103 @@
+# 画面の全面見直し — 実装で決めたこと(Claude Code)
+
+正本のブリーフは `DESIGN_BRIEF.md`(ユーザー承認済み)。この文書は、ブリーフに書いていない細部を実装のときに決めた記録。
+ユーザーの指示(2026-09-27): 「自己判断で決めてよい」。違っていたら直す。
+
+## 0. 45e5ef8 以降の変更との合わせ方(ユーザー承認 2026-09-27)
+- まとめて実行の入口は6か所のまま残す(対象が違う: 今の文書・1マーク・選んだもの)。見た目だけそろえる。スタジオのマークの行の「この後を ▸」は「…」の中へ
+- 配信者(字幕の色)`UIKit.streamer` は、パックの「前回の設定の要約」に色の見本の丸で出し、字幕の見本の文字色にも使う。欄そのものは右の欄に
+- `ui-appnav` の「ホーム」は `UIKit.portal` の動き(ホームがほかの窓で開いていれば前に出す)を保つ。「スタジオ」「編集」は同じタブの中で移る
+- ui-kit は v6
+
+## 1. 段1: 共通(ui-kit v6)
+
+### トークン
+- 既定のテーマは**明るい**(保存が無いとき)。設定で「明るい / 暗い / OS に合わせる」。ヘッダーの切り替えボタンは明るい⇔暗い
+- 明るいテーマの `--bg` を `#eceef2`(面 `#fff` との差を広げる)、`--bg-2 #e2e5eb`
+- 新しいトークン: `--stage-bg`(プレーヤーの周り。明るい `#1b1d22`・暗い `#0a0b0e`)、`--stage-ink`、`--playhead`(明るい `#e5484d`・暗い `#ff6369`)、
+  `--toast-bg` / `--toast-ink`(両テーマで暗い面)、`--keybar-h`(24px)、`--drawer-w`(380px)
+- 飾りをやめる: `.btn` と `.card` の影なし(`.card.raised` だけ残す)、ブランドの印のグラデーション → 単色、`.bar` のグラデーション → 単色
+- `.pill.run` / `.dot.run` の点滅(ui-pulse の無限)をやめる。`.pill.run` は静かな回転の輪(`prefers-reduced-motion` で止まる)
+
+### 部品(名前・使い方)
+- `ui-appnav`: ヘッダーの左に `<nav class="ui-appnav" data-ui-appnav="studio|transcribe|portal">`。ui-kit が中身(ホーム / スタジオ / 編集)を作る。
+  今の場所は `aria-current="page"`。入口の外(単体で開いたとき)はホームを出さず、他のツールはポートの URL。
+  画面が開いている動画を引き継ぐときは `UIKit.appnav.setLink('transcribe', '?media=…')`(相対パスの続き。画面が決める)。
+  今の場所の項目の title に版を出す(`UIKit.appnav.setVersion('v0.8.2')`)。旧 `data-ui-home` / `data-ui-cases` / `UIKit.tools.render` は残す(段5まで案件の画面が使う)
+- `ui-drawer`: `<aside class="ui-drawer" hidden aria-labelledby>` + `.ui-drawer-head / -body`。`UIKit.drawer.open(el, {modal:true|false, opener})` / `close(el)` / `isOpen(el)`。
+  modal: 裏を inert・幕・フォーカスを中に閉じ込める・`role=dialog aria-modal=true`。modal:false(docked): 幕なし・裏も操作できる・Esc は中にフォーカスがあるときだけ閉じる。
+  閉じたら開いたボタンへフォーカスを戻す。開閉で `ui-drawer` イベント(detail: {open})
+- `ui-dialog`: `UIKit.dialog.confirm({title, body(文字列), ok, cancel, danger}) → Promise<boolean>`、`UIKit.dialog.alert({title, body})`。
+  中身は `<dialog class="ui-dialog">`(showModal: フォーカスの閉じ込めと Esc はブラウザに任せる)。本文は textContent で入れる(XSS を作らない)。閉じたら元の場所へフォーカス
+- `ui-pop`: `<details class="ui-pop">` + `<summary>` + `.ui-pop-body`(`data-align="left"` で左寄せ)。`ui-menu` と同じ閉じ方(外のクリック・Esc。Esc ではフォーカスを summary へ)
+- `ui-toast`: `UIKit.toast(message, {kind:'ok'|'err'|'info'|'', ms, detail})`。画面の下の真ん中に重ねて最大3つ・`aria-live`。
+  成功は 2.5 秒、失敗は 8 秒 + クリックで閉じる。`detail`(原文)は畳んで添える。各ツールの `toast()` はこれを呼ぶだけにする
+- `ui-keybar`: `<div class="ui-keybar" aria-hidden="true">` を ui-kit が body の末尾に作る。`UIKit.keybar.set([{k:'Space', l:'再生'}, …])`(場面ごとに置き換え)・`flash(k)`・`clear()`。
+  設定「キーの帯を出す」(全体・既定オン)。出ているときは `html[data-keybar]` で本文の下に余白
+- `ui-kbd`: ボタンの中の `<kbd class="ui-kbd">I</kbd>`(小さく・薄く。主なボタンの中では白っぽく)
+- `ui-miniprogress`: `<span class="ui-miniprogress" style="--p:42%"><i></i></span>`(幅 64px・高さ 4px)。`.indet` で進み具合が分からないとき
+- `ui-settings`: ヘッダーの ⚙(`[data-ui-settings]`)。`UIKit.settings.mount({tool: 要素 | null, title})` で、ツールの節 +「全体」の節(テーマ・文字の大きさ・キーの帯)を
+  1つの `ui-drawer` に入れる。全体の設定は localStorage の `ytt:theme`・`ytt:fs`(`md`|`lg`)・`ytt:keybar`(`0` で消す)。1つのポートに取り込んだので全部の画面で共通
+- `ui-keys`: 共通の再生キーの表を `UIKit.keys.helpHtml()` で返す(キー操作の一覧の先頭に置く)
+- 共通の再生キー: `UIKit.keys.playback({media, enabled, onIn, onOut, onFrame, fps, onKey})`。
+  Space 再生・停止 / J 1秒戻る / K 止める / L 再生(もう一度で 1.5 → 2 倍)/ ← → 1秒(Shift で5秒)/ , . 1コマ / I O 印。
+  `media` は HTMLMediaElement か、同じ形(play/pause/paused/currentTime/duration/playbackRate)の物。入力欄・select・contenteditable・修飾キーつきは無視。
+  画面は自分のキー処理の前にこれを呼んで、`true`(処理した)なら自分の処理をしない。各画面への組み込みはその画面の段で行う
+- SVG のアイコン: `UIKit.icon(name, {size})` が線のアイコンの SVG の文字列を返す。`<span class="ui-icon" data-icon="play"></span>` は読み込み後に中身を入れる。
+  種類は ui-kit.js の `ICONS`(styleguide.html に一覧)
+
+### ヘッダー(docs/ui-guidelines.md §2 の改訂)
+左から `ui-appnav` → タブ → 右寄せで [ツールの操作] → [キー操作] → [⚙ 設定] → [テーマ]。ブランドの印と名前・「他のツール」メニュー・「入口」リンクはなくす。
+- 版の表示 `#ver` は appnav のすぐ右に小さく残す(ブリーフは ⚙ の欄だが、不具合の報告で版をすぐ見られるように。版の食い違いの赤い帯・テストも `#ver` を読む)
+- 編集の左メニューのボタン `#btnMenu` は appnav の左に残す(G キー)
+
+### 段1で各画面に入れる所(ほかの部品の使い始めは各画面の段で)
+- 4画面(入口・案件・スタジオ・編集)のヘッダーを上の形に。案件の画面は段5でホームにまとめるまで appnav の「ホーム」を今の場所にする
+- トースト: 各画面の `toast()` / `Studio.toast` は `UIKit.toast` を呼ぶだけに。入れ物は `#toast`(テストが読む)
+- 設定: 各画面の ⚙ から `UIKit.settings`(ツールの節 + 全体)。スタジオは今の引き出しの中身(API キー・出力先・事務所)をツールの節に。
+  編集は「表示」のポップオーバー(`#viewMenu`: 文字の大きさ・動画の大きさ・行の間隔・休憩)をツールの節に移し、画面の色は全体の節へ(`#vTheme` はなくす)。
+  入口・案件は全体の節だけ
+- 確認のダイアログ・ポップオーバー・再生キー・アイコン・キーの帯は、段2〜5でその画面を直すときに入れる(段1で全部の画面を一度に変えると、テストの直しが二重になるため)
+
+### 段1の ui-kit で足した細部
+- 右の欄(modal)は、欄から body までの道すじの各段で兄弟を inert にし、Tab を欄の中で回す(inert だけではアドレス欄へ抜けるため)
+- 確認のダイアログの上の Esc はダイアログだけを閉じる。取り消せない操作の確認(danger)は最初のフォーカスを「キャンセル」に
+- 再生キーは、ボタン・summary・リンク・チェックにフォーカスがあるときの Space はその部品に任せる。文字を打てる input・select・textarea・contenteditable では効かない
+- 見本 `ui-kit/styleguide.html` + `styleguide.js`、確かめ `python ui-kit/e2e_styleguide.py`(41 件)
+
+## 2. 段2: 編集 1 校正(Claude Code が決めたこと)
+- 映像の欄: 再生の道具だけ。映像の上に今の行の字幕 `.tt-caption`(aria-hidden。止まっているときは選んだ行、再生中は再生位置の行)。映像の周りは `--stage-bg`
+- 一覧の上の「…」(`ui-pop`)に 話者・まとめて直す・書き出し・以前の版 の入口をまとめる(同じ操作の入口をほかに残さない)
+- 行の操作: 選んだ行の下(今のまま)+ 行の右クリックのメニュー(同じ操作)
+- キー: ↓/↑ 行・Shift+↓/↑ 未校正・F 要確認・共通の再生キー(← → は ±1秒/Shift ±5秒、, . 1コマ、J/K/L)。Q/E/B/Tab/Ctrl+Enter をやめる。
+  I/O は校正では何もしない(意味を持たせない = 別の意味にしない)。B(自動で次の行を再生)は ⚙ の欄へ
+- キーの帯: 行を選んでいる / 文字を直している(Esc 抜ける・Enter 確定)の2つの場面
+- 左メニュー: 新規・最近開いた5件・「すべての文字起こし → ホーム」。履歴の一覧(検索・並べ替え・まとめて実行)はホームへ(段5)。
+  精度・学習は同じメニューの一番下に既定で閉じる。認識の設定は既定で閉じ、「始める」の上に要約を1行
+- 文字記号のアイコン(⋮ ▾ ✂ ☾ など)は UIKit.icon に。CSS にじかに書いた色はトークンに(字幕の見本の色 = 実際の字幕の色は `--cap-*` のトークンにまとめて残す)
+
+## 3. 段3: 編集 2 カット・3 パック
+- タイムライン: 目盛り・区間(中に波形)・字幕の3段。上にミニマップ(全体。見ている範囲の枠をドラッグで移動・枠の端で拡大縮小)。
+  ホイールで拡大縮小(マウスの位置を中心)、Shift+ホイールで横に移動。区間の端の当たり判定は見た目の外側 6px まで・近づくと光ってカーソルが ew-resize
+- キー: 共通の再生キーに合わせる(← → は ±1秒・Shift ±5秒。以前の ← → の1コマは , . へ)。端を選んでいるときの , . はその端を1コマ(Shift で 10 コマ)。
+  S 分割・X 削る/戻す・I/O は今のまま(共通の I/O と同じ意味: 始まり/終わり)。L は 1 → 1.5 → 2 倍
+- キーの帯: 通常 / 端を選んでいる(, . 1コマ・Shift で大きく・Esc 選択を外す)
+- 置き換えの確認(confirmReplace)は UIKit.dialog.confirm
+- パック: 前回の設定の要約(fps・大きさ・入れるもの・出力先・配信者の色の丸)+ 大きな「作る」+ 字幕の見本(いつも見える。配信者の色を反映)。
+  「設定を変える」で右の欄(手順1〜7の今の設定の全部)。前回のパック・作り直しの札は要約の横。作っている間はその場に進み具合、終わったら「フォルダを開く」「Resolve での手順」
+
+## 4. 段4: スタジオ
+- ③ の書き出しは右の欄(1280px 以上は横に並べる docked、それより狭いときは重ねる)。使う頻度の低いボタンは「…」へ
+- 今をマーク①〜⑤をマークの操作の一番上・一番大きく。IN/OUT/追加は「細かく決める」(既定で閉じる)
+- 盛り上がりのグラフ: 高さを大きく・タイムラインと横幅と時間をそろえる。上位の山(最大5つ)に「順位 理由」の札。
+  理由は山の区間で audio / chat / comments のどれがいちばん平均より高いか(笑い・声 = audio、チャット急増 = chat、コメント = comments)。札を押すと山の5秒前へ
+- ④ コラボはタブから外して ⚙ の欄の節へ
+- 書き出しが終わったら文字起こしを自動で始める(入口から開いたときだけ・⚙ の欄でオフにできる・既定オン)。入口の `app/autorun.py` の今の仕組みを使う。結果に「編集で開く」
+- 共通の再生キー(← → は ±1秒/Shift ±5秒 に)・キーの帯
+
+## 5. 段5: ホーム
+- 入口の画面 `/` を「ホーム」に: 上に「次にやること」(最大5件 +「すべて見る」)、下に全案件の一覧(案件の画面の中身)。`/cases.html` はホームへ移す(入口のサーバーでホームへ転送)
+- 「次にやること」は画面の側で、入口の今の API(案件・まとめて実行)と編集の今の API(文字起こしの一覧)を読んで組み立てる(API は変えない)
+- 紐づかない文字起こしは一覧に「単体の文字起こし」のまとまりで
+- サーバーの起動・停止・ログ・作業データの場所・窓で開く・すべて終了は下の「詳しく」に畳む
+- 画面の文言の「入口」を「ホーム」に(README・guidelines も)

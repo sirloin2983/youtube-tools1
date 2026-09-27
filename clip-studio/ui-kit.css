@@ -1,7 +1,10 @@
 /* このファイルは ui-kit/ から tools/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v3 — youtube-tools 共通の見た目(色・文字・部品)。v3(2026-09-26): 状態の札の文字の濃さ(明るいテーマで 4.5:1 以上)・一覧の道具・入口へ戻るリンク・言葉の説明。
+/* ui-kit v6 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(.design/ui-overhaul/)の段階1。
+   v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
+   飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
+   新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
    正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
-   テーマ: <html data-theme="light|dark">(theme.js が OS の設定・保存した選択から決める)。
+   テーマ: <html data-theme="light|dark">(theme.js が保存した選択(無ければ明るい)から決める)。
    既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
 
 /* ---------- 1. トークン(ライト) ---------- */
@@ -11,7 +14,7 @@
   --font-display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI",sans-serif;
   --mono:"Cascadia Mono","Cascadia Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 
-  --bg:#f5f6f9;--bg-2:#eceef3;
+  --bg:#eceef2;--bg-2:#e2e5eb;
   --panel:#ffffff;--panel-2:#f3f4f8;--panel-3:#e8eaf0;
   --field:#ffffff;--field-hover:#fafbfd;
   --line:#e2e5ec;--line-2:#cdd2dc;--line-strong:#b3bac7;
@@ -27,6 +30,11 @@
   --header-bg:rgba(255,255,255,.82);
   --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
   --scroll-thumb:#c8cdd7;
+  /* v6: 映像の周り(プレーヤーの背景)は両テーマで暗い灰色(映像の色を見やすく)。再生位置(赤)・トースト(両テーマで暗い面)・
+     下の帯(キーの帯)の高さ・右の引き出しの幅 */
+  --stage-bg:#1b1d22;--stage-ink:#eef0f5;--playhead:#e5484d;
+  --toast-bg:#1b1e26;--toast-ink:#f2f4f8;
+  --keybar-h:24px;--drawer-w:380px;
 
   --r-xs:4px;--r-sm:6px;--r:8px;--r-lg:12px;--r-xl:16px;--r-pill:999px;
   --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
@@ -52,8 +60,12 @@
   --shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
   --header-bg:rgba(14,16,21,.78);
   --scroll-thumb:#353a46;
+  --stage-bg:#0a0b0e;--stage-ink:#eef0f5;--playhead:#ff6369;
+  --toast-bg:#242834;--toast-ink:#f2f4f8;
+  --keybar-h:24px;--drawer-w:380px;
 }
-/* JS が動かないときは OS の設定に従う(theme.js は必ず data-theme を付ける) */
+/* JS が動かないときの見た目(theme.js は <head> で同期に実行され、実行できたときは必ず data-theme を付ける。
+   v6: 保存が無いときの既定は明るいテーマ(JS が動く前提)。この節は JS が全く動かない極端な場合だけの保険として、OS の設定に従う */
 @media (prefers-color-scheme:dark){:root:not([data-theme]){
   color-scheme:dark;
   --bg:#0e1015;--bg-2:#0a0c10;--panel:#161920;--panel-2:#1d2029;--panel-3:#262a35;--field:#101218;--field-hover:#13161d;
@@ -64,6 +76,7 @@
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
   --header-bg:rgba(14,16,21,.78);--scroll-thumb:#353a46;
+  --stage-bg:#0a0b0e;--stage-ink:#eef0f5;--playhead:#ff6369;--toast-bg:#242834;--toast-ink:#f2f4f8;--keybar-h:24px;--drawer-w:380px;
 }}
 
 /* ---------- 3. 土台 ---------- */
@@ -96,12 +109,11 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
   background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
 .ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap;letter-spacing:-.01em}
 .ui-brand:hover{color:var(--ink)}
-.ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;
-  background:linear-gradient(135deg,#ff5f9e,#8f6bff);box-shadow:0 2px 8px color-mix(in srgb,#8f6bff 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;background:#8f6bff}
 .ui-brand-mark svg{width:15px;height:15px}
-.ui-brand-mark[data-tool=transcribe]{background:linear-gradient(135deg,#3b82f6,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#2aa5e6 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
-.ui-brand-mark[data-tool=cut2resolve]{background:linear-gradient(135deg,#f59e0b,#ef5a5a);box-shadow:0 2px 8px color-mix(in srgb,#f07b3a 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
-.ui-brand-mark[data-tool=portal]{background:linear-gradient(135deg,#5a46e0,#22c3d6);box-shadow:0 2px 8px color-mix(in srgb,#3f7fe0 40%,transparent),inset 0 1px 0 rgba(255,255,255,.25)}
+.ui-brand-mark[data-tool=transcribe]{background:#2f8fe0}
+.ui-brand-mark[data-tool=cut2resolve]{background:#f0793a}
+.ui-brand-mark[data-tool=portal]{background:#5a46e0}
 .ui-ver{font:500 11px/1 var(--mono);color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px}
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ui-header .ui-tabs{margin-left:8px}
@@ -142,11 +154,11 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 /* ---------- 5. ボタン ---------- */
 a.btn,a.btn:hover{text-decoration:none}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;line-height:1.2;
-  box-shadow:var(--shadow-1);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),transform .06s}
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),transform .06s}
 .btn:hover:not(:disabled){background:var(--panel-2);border-color:var(--line-strong)}
 .btn:active:not(:disabled){transform:translateY(1px)}
-.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;box-shadow:none}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:0 1px 2px color-mix(in srgb,var(--accent) 35%,transparent),inset 0 1px 0 rgba(255,255,255,.14)}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--ink-2)}
 .btn.ghost:hover:not(:disabled){background:var(--panel-2);border-color:transparent;color:var(--ink)}
@@ -203,7 +215,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .lag.keep{white-space:nowrap;flex:none}
 
 /* ---------- 7. 面・カード ---------- */
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;box-shadow:var(--shadow-1)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0}
 .card.flat{box-shadow:none}
 .card.raised{box-shadow:var(--shadow-2)}
 .card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
@@ -224,12 +236,13 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
 .pill.info{background:var(--info-soft);color:var(--info-ink)}
 .pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent-ink2)}
-.pill.run::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
+/* v6: ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
+.pill.run::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}
 .pill.wait{color:var(--ink-2)}
 .badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
 :root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
-.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent);animation:ui-pulse 1.2s ease-in-out infinite}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent)}
 @keyframes ui-pulse{50%{opacity:.35}}
 
 /* お知らせ */
@@ -243,7 +256,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 
 /* 進み具合 */
 .bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
-.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 60%,#fff));transition:width .3s var(--ease)}
+.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .3s var(--ease)}
 .bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
 @keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
 
@@ -329,4 +342,76 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* 次にやること(一覧の1行に1つだけ出す短い案内) */
 .ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
 .ui-next::before{content:"→"}
+
+/* ---------- v6(2026-09-27・画面の全面見直し 段階1): ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン ---------- */
+
+/* ホーム/スタジオ/編集(ヘッダーの左端)。中身は ui-kit.js の UIKit.appnav が作る(data-ui-appnav="studio|transcribe|portal") */
+.ui-appnav{display:flex;align-items:center;gap:2px;flex:none}
+.ui-appnav a{display:inline-flex;align-items:center;min-height:var(--ctl-h-sm);padding:0 10px;border:1px solid transparent;border-radius:var(--r);color:var(--ink-2);text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}
+.ui-appnav a:hover{background:var(--panel-2);color:var(--ink)}
+.ui-appnav a[aria-current=page]{background:var(--panel);border-color:var(--line);color:var(--ink)}
+
+/* 右から出る引き出し(設定・書き出し・パックの詳しい設定など。<aside class="ui-drawer" hidden> + .ui-drawer-head/-body)。
+   modal:true は裏に幕+inert、modal:false(docked)は裏も操作できる(UIKit.drawer.open/close) */
+.ui-drawer-scrim{position:fixed;inset:0;z-index:70;background:color-mix(in srgb,var(--bg-2) 55%,transparent);backdrop-filter:blur(2px)}
+.ui-drawer{position:fixed;top:0;right:0;bottom:0;z-index:75;width:var(--drawer-w);max-width:100%;display:flex;flex-direction:column;background:var(--bg);border-left:1px solid var(--line-2);box-shadow:var(--shadow-3);
+  transform:translateX(16px);opacity:0;transition:transform .2s var(--ease),opacity .2s var(--ease)}
+.ui-drawer.in{transform:none;opacity:1}
+.ui-drawer-head{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+.ui-drawer-title{margin:0;font:650 16px/1.3 var(--font-display);flex:1 1 auto;min-width:0}
+.ui-drawer-body{flex:1 1 auto;overflow-y:auto;padding:14px 16px 32px;overscroll-behavior:contain}
+
+/* 確認・警告のダイアログ(<dialog class="ui-dialog">。showModal にフォーカスの閉じ込めと Esc を任せる。本文は .ui-dlg-body に textContent で入れる) */
+dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
+.ui-dialog .ui-dlg-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 18px}
+
+/* ポップオーバー(<details class="ui-pop"><summary>…</summary><div class="ui-pop-body">…</div></details>)。ui-menu と同じ閉じ方(外のクリック・Esc) */
+.ui-pop{position:relative}
+.ui-pop>summary{list-style:none;cursor:pointer}
+.ui-pop>summary::-webkit-details-marker{display:none}
+.ui-pop-body{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:180px;padding:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
+.ui-pop-body[data-align=left]{right:auto;left:0}
+.ui-pop-body a,.ui-pop-body button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left;font:inherit}
+.ui-pop-body a:hover,.ui-pop-body button:hover{background:var(--panel-2)}
+
+/* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
+.ui-toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
+.ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
+.ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
+.ui-toast.ok::before{background:#4cd08b}.ui-toast.err::before{background:#ff6f6f}.ui-toast.info::before{background:#5cc3ff}
+.ui-toast.err{border-color:rgba(255,111,111,.45)}
+.ui-toast-msg{flex:1 1 auto;min-width:0}
+.ui-toast-detail{margin-top:4px;color:color-mix(in srgb,var(--toast-ink) 70%,transparent);cursor:auto}
+.ui-toast-detail>summary{cursor:pointer;font-size:12px}
+.ui-toast-detail>div{margin-top:4px;font:11.5px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* 画面の下の細い帯(いま使えるキー。UIKit.keybar)。既定は表示・設定「キーの帯を出す」で消せる(ytt:keybar=0) */
+.ui-keybar{position:fixed;left:0;right:0;bottom:0;z-index:50;height:var(--keybar-h);display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;white-space:nowrap;font-size:11px;line-height:1;color:var(--ink-3)}
+.ui-keybar-item{display:inline-flex;align-items:center;gap:5px;flex:none;transition:color var(--dur) var(--ease)}
+.ui-keybar-item.flash{color:var(--accent)}
+
+/* ボタンの中の小さなキーの手がかり(<kbd class="ui-kbd">I</kbd>。スタジオのマークのボタンなど) */
+.ui-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:1.6em;height:1.5em;padding:0 4px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:600 10.5px/1 var(--mono);opacity:.75}
+.btn .ui-kbd{margin-left:2px}
+.btn.primary .ui-kbd{border-color:rgba(255,255,255,.4)}
+
+/* 小さな進み具合の棒(64x4px。ホームの「次にやること」・ジョブの札)。.indet は進み具合が分からないとき */
+.ui-miniprogress{display:inline-block;position:relative;width:64px;height:4px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;vertical-align:middle}
+.ui-miniprogress>i{display:block;height:100%;width:var(--p,0%);border-radius:inherit;background:var(--accent);transition:width .3s var(--ease)}
+.ui-miniprogress.indet>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
+
+/* ツールの設定・全体の設定(UIKit.settings.mount。ui-drawer の中に並べる節) */
+.ui-settings-sec{margin:0 0 22px}
+.ui-settings-sec:last-child{margin-bottom:0}
+.ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.ui-settings-row:last-child{border-bottom:0}
+.ui-settings-row>span{color:var(--ink-2);font-size:13px}
+
+/* SVG の線のアイコン(UIKit.icon)。<span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill) */
+.ui-icon{display:inline-flex;width:1em;height:1em;flex:none}
+.ui-icon svg{width:100%;height:100%}
+
+/* 文字の大きさ「大きい」(設定。html[data-fs=lg]) */
+html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--fs-xl:21.5px}
 

@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v5
+# ui-kit(共通の見た目)v6
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -56,3 +56,39 @@
 - ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
 - 写し先は clip-studio(css・js)と transcribe-tool(js と index.html の CSS)だけ(`tools/sync_ui_kit.py`)
+
+## v6(2026-09-27・画面の全面見直し 段階1。`.design/ui-overhaul/`)
+土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `.design/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
+
+### トークン
+- **既定のテーマが明るいに変わった**: 保存が無いときは `light`(以前は OS の設定に従う `system`)。「OSに合わせる」は選んだときだけ `localStorage['ytt:theme']` に `'system'` と明示的に保存する
+- `--bg`(明るいテーマ)を `#eceef2` に(面 `--panel` との差を広げる)
+- 新しいトークン: `--stage-bg` / `--stage-ink`(映像の周り。両テーマで暗い灰色)・`--playhead`(再生位置の赤)・`--toast-bg` / `--toast-ink`(通知。両テーマで暗い面)・`--keybar-h`(下の帯の高さ)・`--drawer-w`(引き出しの幅)
+- 飾りを除いた: `.btn` と `.card` の影(`.card.raised` だけ残す)、ヘッダーのブランドの印のグラデーション→単色(ツールごとに1色)、`.bar` のグラデーション→単色、`.pill.run` / `.dot.run` の無限の点滅(`.pill.run` は静かな回転の輪に。`prefers-reduced-motion` で止まるのは今までどおり)
+- 文字の大きさ「大きい」: `html[data-fs=lg]` で `--fs-*` を少し(1〜1.5px)大きく(設定の「文字の大きさ」から)
+
+### 部品(JS は `window.UIKit`。CSS クラスは ui-kit.css)
+- **`UIKit.appnav`**: `<nav data-ui-appnav="studio|transcribe|portal">` に、ホーム/スタジオ/編集の3つを DOMContentLoaded で描く(ホームは入口に取り込まれているときだけ)。
+  今の場所は `aria-current="page"`。`setLink(id, suffix)`(`'?media=…'` のように `?`/`#` で始まる文字列だけ受け付け、そのツールへ今の動画を引き継ぐ)・`setVersion(text)`(今の場所の項目の `title` に版を出す)
+- **`UIKit.drawer`**: 右から出る引き出し(設定・書き出し・パックの詳しい設定などで共通)。`<aside class="ui-drawer" hidden>` + `.ui-drawer-head` / `.ui-drawer-body`。
+  `open(el, {modal, opener})` / `close(el)` / `isOpen(el)`。`modal:true`(既定)は幕つき・裏(body 直下。引き出し自身・幕・トースト・下の帯は除く)を `inert` にしてフォーカスを閉じ込め、Esc で閉じる。
+  `modal:false`(docked)は幕なし・裏も操作できる(開いたまま他の作業を続けられる。書き出し中など)。閉じたら `opener`(渡さなければ開いた時の `document.activeElement`)へフォーカスを戻す
+- **`UIKit.dialog`**: `confirm({title, body, ok, cancel, danger}) → Promise<boolean>`・`alert({title, body}) → Promise<void>`。`<dialog class="ui-dialog">` + `showModal()`(フォーカスの閉じ込め・Esc はブラウザに任せる)。
+  本文は `textContent` で入れる(呼び出し側の文字列を innerHTML に入れない)。Esc は `confirm` では `false` になる
+- **`details.ui-pop`**(ポップオーバー): `<details class="ui-pop"><summary>…</summary><div class="ui-pop-body">…</div></details>`。既存の `details.ui-menu` と同じ仕組みで外側のクリック・Esc で閉じる(Esc は `summary` へフォーカスを戻す)。`data-align="left"` で左寄せ
+- **`UIKit.toast(message, {kind, ms, detail})`**: 通知を重ねて最大3つ(`kind`: `'ok'|'err'|'info'|''`)。入れ物は `<div class="ui-toasts" id="toast" aria-live="polite">`(ページに既存の `#toast` があれば作り直して使う。無ければ body の末尾に作る)。
+  既定の表示時間は 2.5 秒、`err` は 8 秒 + `role="alert"`(クリックでいつでも閉じられる)。`detail`(原文)は畳んだ `<details>` に入る
+- **`UIKit.keybar`**: 画面下の細い帯(いま使えるキーを 5〜7 個)。`set([{k, l}, …])`(場面が変わったら置き換える)・`flash(k)`(押されたキーを一瞬光らせる)・`clear()`。
+  設定「キーの帯を出す」(既定オン。`localStorage['ytt:keybar'] === '0'` で消える)。表示中は `html[data-keybar]`(画面側で下の余白に使える)
+- **`.ui-kbd`**: ボタンの中の小さなキーの手がかり(`<kbd class="ui-kbd">I</kbd>`)
+- **`.ui-miniprogress`**: 幅 64px・高さ 4px の小さな進み具合の棒(`style="--p:42%"`)。`.indet` で進み具合が分からないとき
+- **`UIKit.settings.mount({tool, title, version})`**: ヘッダーの `[data-ui-settings]` ボタンから開く設定の引き出し。渡した `tool`(そのツール固有の設定の要素。無くてもよい)+ 共通の「全体」の節(テーマ・文字の大きさ・キーの帯を出す)を1つの `ui-drawer` にする。
+  全体の設定は `localStorage` の `ytt:theme` / `ytt:fs`(`'md'|'lg'`)/ `ytt:keybar`(`'0'` で消す)を使うので、どのツールで変えても他のタブ・他のツールに効く(`storage` イベント)
+- **`UIKit.keys`**: `isTyping(el)`(入力欄・select・contenteditable か)・`helpHtml()`(共通の再生キーの表。`?` のキー操作の一覧の先頭に置く)・
+  `playback({media, enabled, onIn, onOut, onFrame, fps, onKey})` → keydown ハンドラ関数(**自動では組み込まれない**。画面が自分のキー処理より先に呼び、`true`(処理した)なら自分の処理をしない)。
+  Space 再生・停止 / J 1秒戻る / K 止める(速さを1倍に戻す)/ L 再生(もう一度で 1.5→2倍)/ ← → 1秒(Shift で5秒)/ , . 1コマ(`fps` 既定30。`onFrame(dir)` が `true` を返せば代わりにそちらを使う。カットで区間の端を選んでいるときなど)/ I O `onIn`/`onOut`。
+  入力欄にフォーカスがある・Ctrl/Alt/Meta が押されている・Shift は矢印以外では無視。処理したキーは `opts.onKey(name)` と `UIKit.keybar.flash(name)` を呼ぶ
+- **`UIKit.icon(name, {size})`**: 24x24・線1本(`stroke=currentColor` `stroke-width=2`・角丸)の SVG を文字列で返す。`<span class="ui-icon" data-icon="play">` は DOMContentLoaded で自動的に中身が入る(`UIKit.icon.fill(root)` で好きな範囲だけ埋め直せる)。
+  種類の一覧は `ui-kit.js` の `ICONS`(`styleguide.html` の「アイコン」に一覧表示)
+
+`styleguide.html` はこれらすべての見本を表示する(動きは `styleguide.js`。CSP に合わせてインラインの `<script>` は使わない)。
