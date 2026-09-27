@@ -1111,3 +1111,33 @@
   `transcribe-tool/AGENTS.md`「画面の設計で決めたこと」(キー・左メニュー)と `docs/ui-guidelines.md`(ヘッダー・用語「入口」→「ホーム」)は実装と同時に改訂する(ブリーフの「guidelines の改訂」)
 - 注意: ブリーフは GitHub の 45e5ef8 時点のコードを読んで書いた。PC にはその後のコミット(① 探す のまとめて実行など)がある。実装の前に差分を確認する
 - 未コミット: `.design/ui-overhaul/DESIGN_BRIEF.md`・`docs/WORKLOG.md`
+
+## 2026-09-27 Claude Code — 画面の全面見直しの実装(ブリーフの段1〜5)
+- ユーザーの指示: `.design/ui-overhaul/DESIGN_BRIEF.md`(承認済み)を「実装の順番」どおりに。45e5ef8 以降の変更との合わせ方はユーザー承認(`.design/ui-overhaul/IMPLEMENTATION.md` の 0)。
+  途中から「全部一括で続行・質問しない・自己判断で決めてよい」。実装で決めた細部はすべて `.design/ui-overhaul/IMPLEMENTATION.md`
+- 変更(段1 共通): ui-kit v6(`ui-kit/ui-kit.{css,js}`・`styleguide.html`・`styleguide.js`・`README.md`・新しい確かめ `ui-kit/e2e_styleguide.py` 41 件)。
+  既定を明るいテーマに・トークン(`--stage-bg`・`--playhead` など)・飾り(影・グラデーション・無限の点滅)をやめる・
+  `UIKit.appnav`(ホーム/スタジオ/編集)・`drawer`(modal / docked・`focus:false`)・`dialog.confirm/alert`・`.ui-pop`・`toast`(`#toast` の入れ物に重ねる)・`keybar`・`.ui-kbd`・`.ui-miniprogress`・
+  `settings`(⚙ の欄。全体 = テーマ・文字の大きさ・キーの帯。`ytt:theme`・`ytt:fs`・`ytt:keybar`)・`keys`(共通の再生キー `playback`・`isTyping`・`helpHtml`)・`icon`(SVG の線のアイコン)
+- 変更(4画面のヘッダー): 左に appnav + 版(`#ver`)、右に キー操作・⚙・テーマ。ブランド・「他のツール」・「入口」リンクはなくした
+- 変更(段2・3 編集 0.18.0): 校正 = 映像の上に今の行の字幕・「…」に話者/まとめて直す/書き出し/以前の版・行の右クリックのメニュー・
+  キー ↓/↑・Shift+↓/↑・共通の再生キー(Q/E/B/Tab/Ctrl+Enter をやめた。B は ⚙ の欄)・キーの帯・「表示」のポップオーバーを ⚙ の欄へ。
+  カット = 3段のタイムライン・ミニマップ・ホイールで拡大(Shift で横)・端の当たり判定を外側 6px・端を選んでいるときの , . は1コマ(Shift で10)・置き換えの確認は UIKit.dialog。
+  パック = 前回の設定の要約(配信者の色の丸)+「作る」+ 字幕の見本、詳しい設定は「設定を変える」の右の欄(zip もその中)
+- 変更(段4 スタジオ 0.9.0): 書き出しは右の欄(1280px 以上は docked で並べる・狭いときは modal で重ねる)・今をマーク①〜⑤を主役に(IN/OUT/追加は「細かく決める」)・
+  盛り上がりのグラフを高く + 上位5つの山に「順位 理由」(画面の側で S.series から)・④ コラボは ⚙ の欄へ・書き出しのあと自動で文字起こし(`api/autorun/start` mode:'transcribe' + marks。⚙ でオフ。`ytt:studio.autoTx`)・
+  共通の再生キー(← → は ±1秒/Shift ±5秒・K は止める。共通のキーは割り当てを変えられない)・マークの行の「この後を」は「…」へ
+- 変更(段5 ホーム = 入口 0.11.0): `app/portal.*` に「次にやること」(校正待ち・パック待ち・進行中。今の API から画面で組み立てる)・案件の一覧(`cases.html`・`cases.js` を取り込んで削除。`/cases.html` は `/#cases` へ 302)・
+  「単体の文字起こし」(選んでまとめて実行 = `start-docs`)・起動の管理は「詳しく」に畳む。画面・README の「入口」→「ホーム」
+- 文書: `docs/ui-guidelines.md`(用語「ホーム」・ヘッダー・新しい節「設定と右の欄」「キー」)、`transcribe-tool/AGENTS.md`(画面の設計で決めたこと)、各 README
+- 見直し(Opus)の指摘を直した: スタジオ(書き出しの欄の開閉が採用のたびに動く・自動の文字起こしのあとで再読み込み・キーの割り当て・コラボの未表示のときの null)、
+  ホーム(戻ったときに入力が消える・次にやることの重複)、編集(カットで K が再生になる・右クリックのメニューが切れる・⚙ の欄の裏でキーが効く・Shift+, . が効かない・字幕が再生位置とずれる ほか)
+- テスト(PC): ui-kit e2e 41・スタジオ 単体 227 / node 18 / e2e_ui 126 / --mounted 139・編集 単体 125 / node 9 / e2e v07・v08・v09・eval_v093・v098・handoff・edit_tabs・edit_cut・edit_pack・ui_mounted すべて通過・
+  入口 単体(test_launch・mount・cases・autorun・window)/ e2e_portal / e2e_window 通過・`tools/test_ui_kit_sync.py`・`tools/test_resolve_pack_contract.py` 通過
+- 注意:
+  - `transcribe-tool/test_document_save.cjs` は E3 以降ずっと落ちていた(`CUT` などの未定義。今回の変更の前から)→ テストの用意を足して 9 件通過
+  - node は PATH に無い。`C:\Users\you11\miniconda3\Lib\site-packages\playwright\driver\node.exe --test …` で流す
+  - `app/test_mount.py` は `PYTHONIOENCODING=utf-8` を付けて流すと子プロセスの出力の読み取りで落ちる(付けずに流す)
+  - この日のセッションは 15〜30 分ごとに切れて、裏で動かしたエージェントが止まった。区切りごとにコミットした
+- 未完了・次: 編集の左メニューはまだ履歴の一覧(検索・並べ替え・選んでまとめて実行)を持っている(ブリーフは「新規・最近開いた5件・ホームへのリンク」だけ)。
+  ユーザーの実機の確認(4画面・明るい/暗い・1440/1280/1024 の幅)。ブリーフの段3(/frontend-design → /baseline-ui → /design-review)
