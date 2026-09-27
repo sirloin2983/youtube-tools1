@@ -643,6 +643,12 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "390px(1680px 未満): 書き出しの引き出しは既定で閉じている(docked ではない)")
         pg.click('#rvJump [data-jump="export"]'); pg.wait_for_timeout(400)
         c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden") and pg.is_visible("#rvExpRun"), "「書き出し」を押すと書き出しの引き出しが開く(重ねて)")
+        pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")
+        now0 = pg.input_value("#rvNow")
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")   # 欄の外にフォーカスがあっても(重ねている間は)効かない
+        pg.keyboard.press("ArrowRight"); pg.keyboard.press("y")
+        pg.wait_for_timeout(200)
+        c.ok(pg.input_value("#rvNow") == now0, "書き出しの欄を重ねて開いている間は、裏の配信のキー(→・採用など)が効かない(B-2)")
         c.ok(pg.evaluate(NO_HSCROLL_JS), "390px: 書き出しの引き出しを開いても横にはみ出さない")
         pg.click("#rvExpClose"); pg.wait_for_timeout(300)
         c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "閉じるボタンで書き出しの引き出しを閉じられる")

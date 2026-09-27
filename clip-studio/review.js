@@ -1842,6 +1842,9 @@ function wire(){
     if (Studio.step !== 'review' || !S.cur) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
+    /* 書き出しの欄: 重ねて開いている(1680px 未満)間と、欄の中にフォーカスがある間は、裏の配信を操作しない(B-2。→ で裏の再生位置が動いていた)。
+       1680px 以上で横に並べている(docked)ときは、欄の外ではこれまでどおり効く */
+    { const ex = $('#rvExport'); if (ex && window.UIKit && UIKit.drawer.isOpen(ex) && (S.expModal || ex.contains(e.target))) return; }
     if (Studio.inMenu && Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
     const tag = e.target.tagName;
     if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(チェックボックス上では有効。スライダーの上ではキーをスライダーに譲る)
