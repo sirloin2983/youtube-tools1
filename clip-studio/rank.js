@@ -166,12 +166,12 @@ function paneHtml(){
     <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button>
       <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析から Resolve パックまで自動で進めます"><span>まとめて実行</span></summary>
         <div class="rk-autopop">
-          <p class="hint">選んだ配信を、入口の案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合は入口の案件の一覧と、各配信の ③ の上の帯に出ます。</p>
+          <p class="hint">選んだ配信を、ホームの案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合はホームの案件の一覧と、各配信の ③ の上の帯に出ます。</p>
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
           <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
             <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
           <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
-          <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../cases.html" target="_blank" rel="noopener">案件の一覧</a></div>
+          <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件の一覧</a></div>
         </div></details></span></div></div>
   <div id="results"><div class="empty"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
 }
@@ -354,7 +354,7 @@ async function startAuto(){
     const made = r.runs || [], sk = r.skipped || [];
     for (const x of made) R.picked.delete(x.videoId);
     if (made.length) $('#rkAuto').open = false;
-    S.toast((made.length ? `${made.length} 本のまとめて実行を始めました(進み具合は入口の案件の一覧)` : 'まとめて実行を始めませんでした') +
+    S.toast((made.length ? `${made.length} 本のまとめて実行を始めました(進み具合はホームの案件の一覧)` : 'まとめて実行を始めませんでした') +
       (sk.length ? '。始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、') : ''), 8000, made.length ? 'ok' : 'err');
   } catch (e){ S.toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   R.adding = false;

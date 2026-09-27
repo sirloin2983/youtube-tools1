@@ -28,7 +28,7 @@ function paneHtml(){
   </section>
   <details class="card q-optcard" id="qOpts">
     <summary><span class="card-title">解析の設定</span><span class="muted q-optsum" id="qOptSum"></span></summary>
-    <p class="hint q-optnote">既定のままで使えます。変えると次に追加する分から使います(入口の「まとめて実行」も同じ設定で解析します)。</p>
+    <p class="hint q-optnote">既定のままで使えます。変えると次に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。</p>
     <div class="fld" style="margin-top:0"><span class="l">盛り上がりの判定に使う材料</span><div class="q-mats">
       <label class="lag q-mat"><input type="checkbox" id="useAudio" checked><span class="q-sw a"></span>音声 <span class="muted">音量・笑い声や叫びの高音域</span></label>
       <label class="lag q-mat" data-yt><input type="checkbox" id="useChat" checked><span class="q-sw c"></span>チャットのリプレイ <span class="muted">量・「草」など</span></label>
@@ -137,8 +137,8 @@ function optSummary(){
 /* ---------- 失敗の説明(何が起きたか + どうすればいいか。元のメッセージは小さく残す) ---------- */
 const ERR_HELP = [
   [/STUDIO_FAKE_MEDIA/, '疑似モード(テスト用)の見本の動画が指定されていません', '環境変数 STUDIO_FAKE_MEDIA に見本の動画ファイルを指定して起動し直してください(ふだんの使い方では起きません)'],
-  [/yt-dlp が見つかりません/, 'yt-dlp(YouTube から取得する道具)が入っていません', '黒い画面で winget install yt-dlp.yt-dlp を実行し、入口を起動し直してから「やり直し」を押してください'],
-  [/ffmpeg が見つかりません/, 'ffmpeg(音声を読む道具)が入っていません', '黒い画面で winget install Gyan.FFmpeg を実行し、入口を起動し直してから「やり直し」を押してください'],
+  [/yt-dlp が見つかりません/, 'yt-dlp(YouTube から取得する道具)が入っていません', '黒い画面で winget install yt-dlp.yt-dlp を実行し、start-all.bat で起動し直してから「やり直し」を押してください'],
+  [/ffmpeg が見つかりません/, 'ffmpeg(音声を読む道具)が入っていません', '黒い画面で winget install Gyan.FFmpeg を実行し、start-all.bat で起動し直してから「やり直し」を押してください'],
   [/Sign in|confirm your age|age-restricted|members-only|Join this channel|Private video|年齢|メンバー限定|非公開|会員/i, '会員限定・年齢制限・非公開の配信は取得できません', '公開されている配信か、ブラウザで開いて確かめてください。見られない配信は解析できません'],
   [/403|429|Too Many|HTTP Error/, 'YouTube が一時的に取得を断りました', 'しばらく待ってから「やり直し」を押してください。続くときは yt-dlp を新しくします(winget upgrade yt-dlp.yt-dlp)'],
   [/音声を取得できませんでした/, '配信の音声を取得できませんでした', '配信の直後・配信中はアーカイブがまだ用意できていないことがあります。数時間おいてから「やり直し」を押してください。ネットの接続も確かめてください'],
@@ -150,7 +150,7 @@ const ERR_HELP = [
   [/出力がなかったため中止|timeout/i, '取得が途中で止まったため中止しました', 'ネットの接続を確かめて「やり直し」を押してください'],
   [/アクセスが拒否/, 'ファイルを読み書きできませんでした', '動画ファイルを再生・編集しているアプリを閉じてから「やり直し」を押してください'],
   [/動画が削除されました/, '解析中に、この配信がスタジオから削除されました', 'もう一度解析するなら、URL かファイルを入れ直してください'],
-  [/途中で止まりました|解析結果がありません|内部エラー|保存に失敗/, '思わぬ理由で解析が止まりました', '「やり直し」を押してください。続くときは入口の「ログ」(studio-errors.log)を見てください']
+  [/途中で止まりました|解析結果がありません|内部エラー|保存に失敗/, '思わぬ理由で解析が止まりました', '「やり直し」を押してください。続くときはホームの「詳しく」の「ログ」(studio-errors.log)を見てください']
 ];
 function errHelp(msg){
   msg = String(msg || '');

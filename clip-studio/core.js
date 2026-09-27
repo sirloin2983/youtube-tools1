@@ -38,7 +38,7 @@ Studio.portalApi = async (path, body) => {
   const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
   if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': Studio.token }; init.body = JSON.stringify(body); }
   let r;
-  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('入口に接続できません(入口の黒い画面が閉じていないか確かめてください)'); }
+  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('ホームのサーバーに接続できません(start-all.bat の黒い画面が閉じていないか確かめてください)'); }
   let j = {};
   try { j = await r.json(); } catch {}
   if (!r.ok){ const er = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); er.code = j.error; er.status = r.status; throw er; }

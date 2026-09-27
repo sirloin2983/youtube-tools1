@@ -517,7 +517,7 @@ async function loadVideo(id){
   setNow(0);
   mountPlayer();
   renderAll();
-  syncExportDock();   // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
+  if (typeof syncExportDock === 'function') syncExportDock();   // (テストは loadVideo だけを切り出して動かすので、無いときは飛ばす) // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
   refreshList();
   fetchAutoTitle(S.cur);
   loadTranscripts();
@@ -1390,7 +1390,7 @@ function renderGraph(){
     box.hidden = true;
     const hasAuto = v.marks.some(isAutoLike) || !!v.analysis;
     leg.hidden = !hasAuto;
-    if (hasAuto) leg.innerHTML = '<span class="hint" title="盛り上がりのグラフは、解析した直後だけ出ます(入口を終了すると消えます)">グラフは解析した直後だけ出ます</span>';
+    if (hasAuto) leg.innerHTML = '<span class="hint" title="盛り上がりのグラフは、解析した直後だけ出ます(ホームのサーバーを終了すると消えます)">グラフは解析した直後だけ出ます</span>';
     if (peaksEl) peaksEl.innerHTML = '';
     return;
   }
