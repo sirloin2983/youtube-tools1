@@ -306,7 +306,7 @@ def main():
             check(texts == ["一二", "四", "三"] and nv == 2, "時刻を直して行が後ろへ動いても、今の行(太枠)は直した行(三)についていく: %s nav=%s" % (texts, nv))
             # Z の押しっぱなし(キーの自動の繰り返し)では消えない
             pg.evaluate("document.activeElement && document.activeElement.blur()")
-            pg.keyboard.press("w")
+            pg.keyboard.press("ArrowUp")
             n0 = pg.locator("#segs .seg").count()
             pg.keyboard.press("z")
             pg.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ', key: 'z', repeat: true, bubbles: true }))")

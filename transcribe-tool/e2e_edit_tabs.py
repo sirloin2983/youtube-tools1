@@ -61,9 +61,9 @@ def main():
             cls = pg.get_attribute(".app", "class")
             check("tab-wide" in cls and pg.is_visible("#menuStrip") and pg.is_hidden("#menuPanel"), "カットのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む")
             nav0 = pg.evaluate("document.querySelectorAll('#segs .seg.nav').length")
-            pg.keyboard.press("s")
-            pg.keyboard.press("d")
-            check(pg.evaluate("document.querySelectorAll('#segs .seg.nav').length") == nav0, "カットのタブでは、校正のキー(S・D)で行が動かない")
+            pg.keyboard.press("ArrowDown")
+            pg.keyboard.press("Shift+ArrowDown")
+            check(pg.evaluate("document.querySelectorAll('#segs .seg.nav').length") == nav0, "カットのタブでは、校正のキー(↓・Shift+↓)で行が動かない")
             pg.keyboard.press("Alt+3")
             check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#tabPack") and pg.evaluate("location.hash") == "#pack",
                   "Alt+3 で 3 パック")
