@@ -10,6 +10,8 @@
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt_core.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
   文字起こしの有無は ytt_core.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
+- スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
+  スタジオに配信ができるので、それまでは受け取った題名で進める(docs/followup-2026-09-27.md の 5)。
 - 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。入口を終えると、実行中・順番待ちの分は消える(もう一度押せば続きから)。
 - 自動で採用したマークは、人の判定ではないので学習の記録(スタジオの feedback)に入れない(スタジオの /api/video/adopt-top)。
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
@@ -36,6 +38,7 @@ DOC_MODE = "doc"
 MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
 DOC_LABEL = "文字起こし → パック"
 DEFAULT_TOP = 3
+MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 MAX_KEEP = 30          # 終わった記録を残す数
 MAX_WAITING = 20       # 順番待ちの上限
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
@@ -94,17 +97,23 @@ class ToolClient:
         return obj
 
 
+def _yt_id_ok(v):
+    """YouTube の配信 ID(11文字。スタジオの common.VID_RE と同じ)"""
+    return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
+
+
 def _doc_id_ok(v):
     return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
 
 
 class Run:
-    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None):
+    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None):
         self.id = uuid.uuid4().hex[:10]
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
         self.doc_id, self.overwrite = doc_id, bool(overwrite)   # 文書単位の実行(⑦(b))のときだけ
         self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
         self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
+        self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
         self.state = "queued"
         self.message = "順番待ち"
         self.error = ""
@@ -120,7 +129,7 @@ class Run:
         return {"id": self.id, "kind": "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
                 "modeLabel": MODES.get(self.mode, DOC_LABEL) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
-                "streamer": self.streamer, "marks": list(self.marks) if self.marks else None,
+                "streamer": self.streamer, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "steps": [dict(s) for s in self.steps]}
 
@@ -179,6 +188,41 @@ class AutoRunner:
             self._trim()
             self._wake()
             return run.public()
+
+    def start_new(self, items, top=None, streamer=None):
+        """スタジオの ① 探す で選んだ配信を「解析から全部」で(docs/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
+        items = [{"id": YouTube の配信 ID, "title", "channel"}]。配信ごとに1つの実行。すでに実行中・順番待ちの配信は飛ばす。
+        -> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
+        if not isinstance(items, list) or not items or len(items) > MAX_NEW:
+            raise ValueError("配信は 1〜%d 本で選んでください" % MAX_NEW)
+        if top in (None, ""):
+            top = DEFAULT_TOP
+        if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
+            raise ValueError("採用する数は1〜30です")
+        who = self._streamer(streamer)
+        made, skipped, seen = [], [], set()
+        with self.cv:
+            active = [r for r in self.runs if r.state in ("queued", "running")]
+            for it in items:
+                it = it if isinstance(it, dict) else {}
+                vid, title = it.get("id"), str(it.get("title") or "").strip()[:120]
+                channel = str(it.get("channel") or "").strip()[:100]
+                if not _yt_id_ok(vid):
+                    skipped.append({"id": str(vid or "")[:40], "title": title, "reason": "配信の指定が正しくありません"})
+                elif vid in seen or any(r.video_id == vid for r in active):
+                    skipped.append({"id": vid, "title": title, "reason": "すでに実行中・順番待ちです"})
+                elif len(active) >= MAX_WAITING:
+                    skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
+                else:
+                    seen.add(vid)
+                    run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel})
+                    self.runs.append(run)
+                    active.append(run)
+                    made.append(run.public())
+            if made:
+                self._trim()
+                self._wake()
+        return {"runs": made, "skipped": skipped}
 
     def start_docs(self, ids, overwrite=False, streamer=None):
         """「編集」の履歴で選んだ文書をまとめて(⑦(b))。文書ごとに1つの実行(順番待ち・中止・状態は配信単位の実行と同じ)。
@@ -285,7 +329,12 @@ class AutoRunner:
         self._check(run)
 
     def _video(self, run):
-        v = self.client.ok("studio", "GET", "/api/video?id=" + run.video_id).get("video") or {}
+        st, obj = self.client.call("studio", "GET", "/api/video?id=" + run.video_id)
+        if st == 404 and run.fresh:   # ① 探す から: 解析のキューに入れるまではスタジオに無い(受け取った題名で進める)
+            return {"kind": "youtube", "title": run.title}
+        if st != 200:
+            raise StepError(obj.get("message") or "エラー(HTTP %d)" % st)
+        v = obj.get("video") or {}
         run.title = str(v.get("title") or v.get("fileName") or run.video_id)[:120]
         return v
 
@@ -315,6 +364,8 @@ class AutoRunner:
             st["state"], st["detail"] = "skip", "解析済み"
             return None
         item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
+        if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
+            item.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
         if item["kind"] == "file":
             import cases
             path = (cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(run.video_id) or {}).get("path")

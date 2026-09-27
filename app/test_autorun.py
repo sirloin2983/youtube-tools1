@@ -42,6 +42,7 @@ class FakeTools:
         self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
         self.row_edge = None      # 「編集」の「行から」の設定(文字起こしの settings.rowEdge。⑥)
         self.subtitle = None      # 字幕の文字数の設定(文字起こしの settings.subtitle。②)
+        self.known = True         # False = スタジオにまだ無い配信(① 探す から。解析のキューに入れるとできる)
 
     def clip_path(self, mid):
         return os.path.join(self.tmp, "out", mid + ".mp4")
@@ -62,6 +63,8 @@ class FakeTools:
 
     # studio
     def h_studio_GET_api_video(self, path, body):
+        if not self.known:
+            return 404, {"error": "not_found", "message": "動画が見つかりません"}
         return 200, {"video": json.loads(json.dumps(self.video))}
 
     def h_studio_GET_api_settings(self, path, body):
@@ -71,6 +74,7 @@ class FakeTools:
         return 200, {"settings": s}
 
     def h_studio_POST_api_queue_add(self, path, body):
+        self.known = True
         self.queue.append({"qid": "q1", "videoId": VID, "status": "running", "progress": 0.0, "phase": "解析"})
         return 200, {"added": [{"qid": "q1", "videoId": VID}], "rejected": []}
 
@@ -441,6 +445,65 @@ class TestFull(Base):
         self.assertEqual(run["state"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
         self.assertEqual(add[0][3]["settings"], {"count": 5, "length": 30, "sensitivity": "high", "useChat": False})
+
+
+class TestNew(Base):
+    """スタジオの ① 探す で選んだ配信(docs/followup-2026-09-27.md の 5): まだスタジオに無い配信を「解析から全部」"""
+    marks = []
+    analysis = False
+
+    def setUp(self):
+        super().setUp()
+        self.tools.known = False
+
+    def wait(self, run, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def test_new_stream_goes_through_everything(self):
+        res = self.r.start_new([{"id": VID, "title": " 新しい配信 ", "channel": "ch"}], top=2)
+        self.assertEqual(res["skipped"], [])
+        run = res["runs"][0]
+        self.assertEqual((run["mode"], run["title"], run["fromSearch"], run["top"]), ("full", "新しい配信", True, 2))
+        run = self.wait(run)
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.states(run), {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"})
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[0][3]["items"], [{"kind": "youtube", "videoId": VID, "title": "新しい配信", "channel": "ch"}])   # 題名・配信者も渡す
+        self.assertEqual(run["title"], "配信A")   # 解析のあとはスタジオの題名
+
+    def test_already_known_stream_is_the_same_as_full(self):
+        """スタジオにもうある(解析済み)配信は、解析を飛ばして続きから"""
+        self.tools.known, self.tools.video["analysis"] = True, {"at": 1}
+        self.tools.video["marks"] = [{"id": "a1", "src": "auto", "status": "", "score": 3.0, "start": 1, "end": 5}]
+        run = self.wait(self.r.start_new([{"id": VID, "title": "x"}])["runs"][0])
+        self.assertEqual((run["state"], self.states(run)["analyze"]), ("done", "skip"), run)
+        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/queue/add"])
+
+    def test_validation_and_skips(self):
+        for bad in (None, [], "abc", [{"id": VID}] * (A.MAX_NEW + 1)):
+            with self.subTest(items=bad), self.assertRaisesRegex(ValueError, "配信は"):
+                self.r.start_new(bad)
+        for top in (0, 31, "3", True):
+            with self.subTest(top=top), self.assertRaisesRegex(ValueError, "採用する数"):
+                self.r.start_new([{"id": VID}], top=top)
+        with self.assertRaisesRegex(ValueError, "見つかりません"):   # 配信者の名前は始める前に照らし合わせる
+            self.r.start_new([{"id": VID}], streamer="だれか")
+        self.assertEqual(self.r.snapshot()["runs"], [])
+        self.tools.hold = True
+        res = self.r.start_new([{"id": "../../x"}, "x", {"id": VID, "title": "A"}, {"id": VID, "title": "A2"}, {"id": "bad id 0000"}])
+        self.assertEqual(len(res["runs"]), 1)
+        self.assertEqual([s["reason"] for s in res["skipped"]],
+                         ["配信の指定が正しくありません", "配信の指定が正しくありません", "すでに実行中・順番待ちです", "配信の指定が正しくありません"])
+        res = self.r.start_new([{"id": VID}])   # もう順番待ち・実行中
+        self.assertEqual((res["runs"], res["skipped"][0]["reason"]), ([], "すでに実行中・順番待ちです"))
+        with self.assertRaises(ValueError):
+            self.r.start(VID, "adopted")        # 配信の画面からの実行とも重ねない
 
 
 class TestControl(Base):

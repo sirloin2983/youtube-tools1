@@ -130,6 +130,12 @@ main{display:block}
 .rk-sticky>.row{justify-content:space-between}
 .rk-pickn b{font-size:18px;color:var(--accent);margin-right:2px}
 .rk-pickact{gap:8px}
+.rk-auto>summary{display:inline-flex}
+.rk-autopop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(380px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease);display:flex;flex-direction:column;gap:8px}
+.rk-autopop .hint{margin:0}
+.rk-autopop input[type=number]{width:4.5em}
+.rk-autowho{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.rk-autogo{justify-content:space-between;gap:8px}
 .rk-sum{margin:0 2px 10px}
 .rk-bar .ui-seg>button{min-height:28px}
 .rk-limit select{min-height:var(--ctl-h);font-size:13px}

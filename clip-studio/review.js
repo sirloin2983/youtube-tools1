@@ -1745,17 +1745,8 @@ Studio.review = {
 const AUTO = { t: 0, active: false };
 const AUTO_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
 const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
-/* 入口の API(/api/...)。画面は入口の /studio/ の下にあるので、画面の場所から1つ上(絶対パスを書かない) */
-async function portalApi(path, body){
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
-  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': Studio.token }; init.body = JSON.stringify(body); }
-  let r;
-  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('入口に接続できません(入口の黒い画面が閉じていないか確かめてください)'); }
-  let j = {};
-  try { j = await r.json(); } catch {}
-  if (!r.ok){ const er = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); er.code = j.error; er.status = r.status; throw er; }
-  return j;
-}
+/* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
+const portalApi = (path, body) => Studio.portalApi(path, body);
 async function startAuto(mode, marks){
   if (!S.cur) return;
   const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));

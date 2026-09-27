@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」 */
+/* 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ) */
 (() => {
 'use strict';
 const S = window.Studio, esc = S.esc;
@@ -19,7 +19,7 @@ const LIMITS = [10, 30, 50, 100, 0];   // 「全部まとめて」の上位の�
 /* busy: 解決・取り込みの実行中の事務所ID(同じ事務所への二重実行で API のクォータを無駄にしないため) */
 /* agPick: ユーザーが自分でチェックを変えた事務所だけ {事務所ID: true/false}。触っていない事務所は「解決済みのチャンネルがあれば選ぶ」。
    以前は画面の未チェックの状態から選択を決めていたため、事務所を登録してから ① に戻ると、件数は出ているのに全部外れていた */
-const R = { reg: { agencies: [] }, job: null, result: null, poll: null, polling: false, picked: new Map(), inQueue: new Set(), analyzed: new Set(), regEls: [], busy: new Set(),
+const R = { reg: { agencies: [] }, job: null, result: null, poll: null, polling: false, picked: new Map(), inQueue: new Set(), analyzed: new Set(), auto: new Map(), regEls: [], busy: new Set(),
   agPick: {}, view: 'all', limit: 30, q: '' };
 
 /* ================= 所属の登録(設定の引き出しに置く) ================= */
@@ -163,7 +163,16 @@ function paneHtml(){
     <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
   </section>
   <div class="card rk-sticky" id="pickBar" hidden><div class="row"><span class="rk-pickn"><b id="pickN" class="num">0</b> 本選択中 <span class="hint">(最大${MAX_PICK}本まで)</span></span>
-    <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button></span></div></div>
+    <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button>
+      <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析から Resolve パックまで自動で進めます"><span>まとめて実行</span></summary>
+        <div class="rk-autopop">
+          <p class="hint">選んだ配信を、入口の案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合は入口の案件の一覧と、各配信の ③ の上の帯に出ます。</p>
+          <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
+          <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+            <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+          <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
+          <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../cases.html" target="_blank" rel="noopener">案件の一覧</a></div>
+        </div></details></span></div></div>
   <div id="results"><div class="empty"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
 }
 const okCount = a => a.channels.filter(c => c.status === 'ok').length;
@@ -284,13 +293,13 @@ function row(v, i, agName){
       <div class="row tt-act">${id ? `<button type="button" class="btn small add1" data-id="${esc(v.id)}" data-title="${esc(v.title)}" data-channel="${esc(v.channel)}">解析に追加</button>` : ''}<span class="chip"></span></div></td>
     <td class="n num">${fmtN(v.views)}</td><td class="n num hide-s">${fmtN(v.likes)}</td><td class="num hide-s rk-at">${esc(v.at)}</td><td class="n num hide-s">${fmtDur(v.dur)}</td></tr>`;
 }
-/* 「解析済み」「キューにあります」の印と、チェックの有効/無効 */
+/* 「解析済み」「キューにあります」「まとめて実行中」の印と、チェックの有効/無効 */
 function paintRows(){
   const full = R.picked.size >= MAX_PICK;
   document.querySelectorAll('#results tr[data-vid]').forEach(tr => {
-    const id = tr.dataset.vid, q = R.inQueue.has(id), d = R.analyzed.has(id);
+    const id = tr.dataset.vid, a = R.auto.get(id), q = R.inQueue.has(id) || !!a, d = R.analyzed.has(id);
     const chip = tr.querySelector('.chip');   // 以前は ID が不正な行に .chip が無く、ここで例外になって以降の行が塗られなかった
-    if (chip) chip.innerHTML = q ? '<span class="pill run">キューにあります</span>' : d ? '<span class="pill ok">解析済み</span>' : '';
+    if (chip) chip.innerHTML = a ? `<span class="pill run">${a === 'running' ? 'まとめて実行中' : 'まとめて実行の順番待ち'}</span>` : q ? '<span class="pill run">キューにあります</span>' : d ? '<span class="pill ok">解析済み</span>' : '';
     const cb = tr.querySelector('.pk'); if (cb){ cb.checked = R.picked.has(id); cb.disabled = q || (full && !cb.checked); }
     tr.classList.toggle('picked', R.picked.has(id));
     const b = tr.querySelector('.add1'); if (b) b.disabled = q;
@@ -301,6 +310,8 @@ function paintPick(){
   bar.hidden = !R.result;
   $('#pickN').textContent = n; const g = $('#pickGo'); g.textContent = `選んだ配信 ${n} 本を解析に追加`; g.disabled = !n || R.adding;
   $('#pickClear').disabled = !n;
+  const ag = $('#rkAutoGo'); if (ag){ ag.textContent = `選んだ配信 ${n} 本をまとめて実行`; ag.disabled = !n || R.adding; }
+  const mix = $('#rkAutoMix'); if (mix) mix.hidden = new Set([...R.picked.values()].map(p => p.channel || '')).size < 2;
   paintRows();
 }
 async function loadMarks(){
@@ -309,6 +320,13 @@ async function loadMarks(){
     R.inQueue = new Set(q.items.filter(i => i.status === 'waiting' || i.status === 'running').map(i => i.videoId));
     R.analyzed = new Set(v.videos.filter(x => x.analysis || x.marks > 0).map(x => x.id));
   } catch {}
+  if (!S.token) return;
+  try {   // まとめて実行の順番待ち・実行中の配信(入口の /api/autorun。入口から開いたときだけ)
+    const runs = (await S.portalApi('api/autorun')).runs || [];
+    R.auto = new Map(runs.filter(r => r.kind !== 'doc' && (r.state === 'queued' || r.state === 'running')).map(r => [r.videoId, r.state]));
+  } catch {}
+  clearTimeout(R.autoT);
+  if (R.auto.size && S.step === 'rank') R.autoT = setTimeout(refreshMarks, 5000);   // 動いている間は印を更新する(① を開いている間だけ。戻ったら step で読み直す)
 }
 async function refreshMarks(){ await loadMarks(); paintRows(); }
 async function enqueue(items){
@@ -319,6 +337,26 @@ async function enqueue(items){
     const r = await S.enqueue(items);
     if (r && r.added && r.added.length){ for (const it of items) R.picked.delete(it.videoId); }
   } catch (e){ S.toast(e.message, 0, 'err'); }
+  R.adding = false;
+  await refreshMarks(); paintPick();
+}
+
+/* ================= まとめて実行(入口から開いたときだけ。docs/followup-2026-09-27.md の 5) =================
+   選んだ配信(まだスタジオに無くてよい)を、入口の /api/autorun/start-new で「解析から全部」。配信ごとに1つの実行(案件の一覧と同じ順番待ち) */
+async function startAuto(){
+  if (R.adding || !R.picked.size) return;
+  const items = [...R.picked.values()].map(p => ({ id: p.videoId, title: p.title, channel: p.channel }));
+  const top = Math.min(30, Math.max(1, Math.round(Number($('#rkAutoTop').value) || 3)));
+  const who = $('#rkAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(チャンネル名から自動では入れない)
+  R.adding = true; paintPick();
+  try {
+    const r = await S.portalApi('api/autorun/start-new', { items, top, ...(who ? { streamer: who } : {}) });
+    const made = r.runs || [], sk = r.skipped || [];
+    for (const x of made) R.picked.delete(x.videoId);
+    if (made.length) $('#rkAuto').open = false;
+    S.toast((made.length ? `${made.length} 本のまとめて実行を始めました(進み具合は入口の案件の一覧)` : 'まとめて実行を始めませんでした') +
+      (sk.length ? '。始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、') : ''), 8000, made.length ? 'ok' : 'err');
+  } catch (e){ S.toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   R.adding = false;
   await refreshMarks(); paintPick();
 }
@@ -346,6 +384,9 @@ S.onReady(async () => {
   $('#rkOpenReg').addEventListener('click', () => S.openSettings('setReg'));
   $('#pickClear').addEventListener('click', () => { R.picked.clear(); paintPick(); });
   $('#pickGo').addEventListener('click', () => enqueue([...R.picked.values()]));
+  $('#rkAuto').hidden = !S.token;   // まとめて実行は入口から開いたときだけ(ほかの入口と同じ)
+  $('#rkAutoGo').addEventListener('click', startAuto);
+  if (S.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#results').addEventListener('change', e => {
     const cb = e.target.closest('.pk'); if (!cb) return;
     if (cb.checked){ if (R.picked.size >= MAX_PICK){ cb.checked = false; return S.toast('一度に選べるのは最大10本です'); } R.picked.set(cb.dataset.id, { kind: 'youtube', videoId: cb.dataset.id, title: cb.dataset.title, channel: cb.dataset.channel }); }

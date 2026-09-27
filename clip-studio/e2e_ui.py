@@ -515,6 +515,41 @@ def run_checks(port, fx, shots=None):
         pg.fill("#rkQ", "")
         pg.check("#results tr[data-vid] .pk >> nth=0")
         c.ok(pg.text_content("#pickN") == "1" and pg.is_enabled("#pickGo"), "チェックすると選択数が増え、追加ボタンが押せる")
+        if MOUNT["token"]:   # まとめて実行(docs/followup-2026-09-27.md の 5): 入口の中だけ。入口の API は偽物に差し替えて、送る中身と行の印を確かめる
+            c.ok(pg.is_visible("#rkAuto"), "① 入口の中では、選んだ配信の「まとめて実行」が出る")
+            vid = pg.get_attribute("#results tr[data-vid] .pk >> nth=0", "data-id")
+            sent = []
+            fake_run = lambda: [{"id": "r1", "videoId": vid, "kind": "video", "state": "queued", "mode": "full"}]
+
+            def fake_start(route):
+                sent.append(json.loads(route.request.post_data or "{}"))
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"runs": fake_run(), "skipped": []}))
+            pg.route("**/api/autorun/start-new", fake_start)
+            pg.route("**/api/autorun", lambda route: route.fulfill(status=200, content_type="application/json",
+                                                                   body=json.dumps({"runs": fake_run() if sent else []})))
+            pg.click("#rkAuto > summary")
+            c.ok(pg.is_enabled("#rkAutoGo") and "1 本" in (pg.text_content("#rkAutoGo") or ""), "① 選んだ本数が「まとめて実行」のボタンに出る")
+            pg.fill("#rkAutoTop", "2")
+            pg.click("#rkAutoGo")
+            ok = wait_js(pg, "() => /まとめて実行の順番待ち/.test(document.querySelector('#results tr[data-vid=\"%s\"] .chip').textContent)" % vid, 10000)
+            c.ok(ok, "① 始めた配信の行に「まとめて実行の順番待ち」の印が出る")
+            it = (sent[0].get("items") or [{}])[0] if sent else {}
+            c.ok(it.get("id") == vid and it.get("title") and sent[0].get("top") == 2 and "streamer" not in sent[0],
+                 "① 選んだ配信(題名・配信者つき)と採用する数を入口に送る(配信者の名前は入れたときだけ): %s" % (sent[:1],))
+            c.ok(pg.text_content("#pickN") == "0" and pg.is_disabled('#results tr[data-vid="%s"] .pk' % vid) and pg.is_hidden("#rkAuto .rk-autopop"),
+                 "① 始めた配信は選択から外れ、順番待ちの間はチェックできない・メニューは閉じる")
+            pg.unroute("**/api/autorun/start-new")
+            pg.unroute("**/api/autorun")
+            req = urllib.request.Request("http://127.0.0.1:%d/api/autorun/start-new" % port, method="POST", data=json.dumps({"items": []}).encode(),
+                                         headers={"Host": "127.0.0.1:%d" % port, "Content-Type": "application/json", "X-YTT-Token": MOUNT["token"]})
+            try:
+                urllib.request.urlopen(req, timeout=10)
+                st, msg = 200, ""
+            except urllib.error.HTTPError as e:
+                st, msg = e.code, json.loads(e.read()).get("message", "")
+            c.ok(st == 400 and "配信は" in msg, "入口の /api/autorun/start-new: 配信を選んでいなければ断る(%s %s)" % (st, msg))
+        else:
+            c.ok(pg.is_hidden("#rkAuto"), "① 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
 
         print("[② 解析 と ?url=]")
         pg.goto(base + "?url=" + urllib.parse.quote("https://youtu.be/abcdefghijk"))

@@ -1080,3 +1080,18 @@
   (① 探す の配信はまだスタジオに無いので、`app/autorun.py` が配信 ID・題名・配信者を受けて解析のあとで読み直す形が要る。作る前に置き場所と中身をユーザーに見せる)
 - 変更: 文書だけ(`docs/followup-2026-09-27.md` の 0・5、`docs/HANDOVER.md` の「今の状態」「残りの作業」「次のセッションに貼る指示文」)
 - テスト(PC): コードは変えていない。前のコミットの確かめとして、スタジオの e2e_ui(115 件)と --mounted(120 件)を流し直して全部通過
+
+## 2026-09-27 Claude Code — スタジオの ① 探す からもまとめて実行(選んだ配信を「解析から全部」)
+- ユーザーの要望と決定: 「探すのところにもまとめて実行が欲しい」→ 記録したあと「素早く実行」。置き場所・中身は質問せずに決めた(`docs/followup-2026-09-27.md` の 5「実装で決めたこと」。違えば直す)
+- 変更(入口): `autorun.py`(`start_new(items, top, streamer)` = まだスタジオに無い YouTube の配信を「解析から全部」で。配信ごとに1つの実行・10 本まで・
+  すでに順番待ちの配信は skipped・`Run.fresh`(受け取った題名・配信者。`_video` が 404 のときだけ使い、解析のキューにも渡す)・`public()` に `fromSearch`)、
+  `launch.py`(`POST /api/autorun/start-new`)
+- 変更(スタジオ): `rank.js`(選んだときの段に「まとめて実行」= 採用する数・配信者(字幕の色)・「選んだ配信 n 本をまとめて実行」。チャンネルが違う配信を選んだら注意の文。
+  行の印「まとめて実行の順番待ち / 中」・その間はチェックできない。入口から開いたときだけ)、`core.js`(入口の API を呼ぶ `Studio.portalApi` を1つに)、
+  `review.js`(`portalApi` は `Studio.portalApi` を使う)、`app.css`
+- テスト: `app/test_autorun.py` に TestNew(新しい配信の通し・解析済みなら解析を飛ばす・検査と skipped)、`clip-studio/e2e_ui.py --mounted` に ① 探す のまとめて実行
+  (入口の API は偽物に差し替えて送る中身と行の印・本物の start-new が空を断る)、単体で開いたときは出ない
+- 文書: `README.txt`・`clip-studio/README.txt`・`app/README.txt`、`docs/followup-2026-09-27.md` の 5、`docs/usability-heuristics.md`(入口が6か所)、`docs/HANDOVER.md`
+- 版: まだ配っていない版の変更点に足した(入口 0.10.2・スタジオ 0.8.2)
+- テスト(PC): 入口の単体 119・スタジオの単体 227・node 18・スタジオ e2e_ui(116 件)と --mounted(126 件。① 探す のまとめて実行を含む)・入口 e2e_autorun・e2e_portal。
+  スタジオの e2e_ui が1回「設定を開いている間は ③ のショートカットが効かない」で落ちた(今回触っていない所・時間の揺れ)→ 流し直して通過

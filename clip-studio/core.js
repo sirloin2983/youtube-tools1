@@ -32,6 +32,19 @@ Studio.api = async (path, opts = {}) => {
   return j;
 };
 
+/* 入口の API(/api/autorun など。まとめて実行)。取り込まれた画面は入口の /studio/ の下にあるので、画面の場所から1つ上(絶対パスを書かない)。
+   入口から開いたとき(Studio.token があるとき)だけ使う。失敗は Error(message)(e.code・e.status) */
+Studio.portalApi = async (path, body) => {
+  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
+  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': Studio.token }; init.body = JSON.stringify(body); }
+  let r;
+  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('入口に接続できません(入口の黒い画面が閉じていないか確かめてください)'); }
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok){ const er = new Error(j.message || ('エラー(HTTP ' + r.status + ')')); er.code = j.error; er.status = r.status; throw er; }
+  return j;
+};
+
 /* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。同時に1つだけ表示し、新しいものに置き換える。クリックで閉じる */
 let toastT = null;
 Studio.toast = (msg, ms, kind) => {

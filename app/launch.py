@@ -14,6 +14,7 @@
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?} 配信1本ぶんを順に自動で(marks: そのマークだけ)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
+  POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
@@ -654,11 +655,13 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(400, "bad_request", str(e))
             except OSError as e:
                 return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
-        if u.path in ("/api/autorun/start", "/api/autorun/cancel", "/api/autorun/start-docs"):   # まとめて実行(配信1本ぶん・選んだ文書を順に自動で)
+        if u.path in ("/api/autorun/start", "/api/autorun/cancel", "/api/autorun/start-docs", "/api/autorun/start-new"):   # まとめて実行(配信1本ぶん・選んだ文書を順に自動で)
             if self.server.closing.is_set():
                 return self._fail(409, "closing", "終了の途中です")
             try:
                 ar = self.server.autorun
+                if u.path.endswith("start-new"):   # ① 探す で選んだ配信(docs/followup-2026-09-27.md の 5)
+                    return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
                 if u.path.endswith("start-docs"):
                     return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))
                 if u.path.endswith("start"):
