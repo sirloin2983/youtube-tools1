@@ -65,6 +65,21 @@ def main():
             menu.locator('[data-act="proof"]').click()
             check(menu.count() == 0, "メニューの項目を選ぶと閉じる")
             check("proofed" in (row0.get_attribute("class") or ""), "選んだ操作(校正済みにする)が行に反映される")
+            # B-3: メニューを開いている間の ↓ ↑ はメニューの中の移動(裏の行は動かない)。Enter で選ぶ・Esc で閉じる
+            row0.locator(".play").click(button="right")
+            nav0 = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
+            pg.keyboard.press("ArrowDown"); pg.keyboard.press("s"); pg.keyboard.press("ArrowDown")
+            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav0, "メニューを開いている間は ↓・S で裏の行が動かない(B-3)")
+            check(pg.evaluate("document.activeElement.dataset.act") == "split", "↓ でメニューの中の項目を移る(3つ目 = 分割): %s" % pg.evaluate("document.activeElement.dataset.act"))
+            pg.keyboard.press("ArrowUp"); pg.keyboard.press("ArrowUp")
+            check(pg.evaluate("document.activeElement.dataset.act") == "proof", "↑ で戻る")
+            pg.keyboard.press("Enter")
+            check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Enter で選ぶと、右クリックした行に効く(校正済みを外す)")
+            row0.locator(".play").click(button="right")
+            pg.keyboard.press("Escape")
+            check(menu.count() == 0, "Esc でメニューを閉じる")
+            menu_row = row0
+            menu_row.locator(".play").click(button="right"); menu.locator('[data-act="proof"]').click()   # 下の確かめのため、もう一度「校正済み」に戻す
 
             # ---- ⚙ 設定の引き出しが開いている間は、文書を操作するキーが効かない(item 6。上の右クリックで行0が「今の行」になっている)
             nav_before = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")

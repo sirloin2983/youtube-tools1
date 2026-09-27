@@ -1627,7 +1627,23 @@ $('#segs').addEventListener('contextmenu', e => {
   setTimeout(() => { document.addEventListener('click', onCtxOutside, true); document.addEventListener('contextmenu', onCtxOutside, true); }, 0);
   m.querySelector('button').focus({ preventScroll: true });
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctxMenuEl) closeCtxMenu(); });
+/* 右クリックのメニューを開いている間は、キーはメニューだけが受け取る(B-3: ↓ で裏の行が動き、メニューの対象 = 右クリックした行とずれていた)。
+   ↑ ↓・Home・End = メニューの中の移動 / Enter・Space = 選ぶ(ボタンの既定の動き)/ Esc・Tab = 閉じる / それ以外のキー = 何もしない(裏の行の操作に渡さない) */
+window.addEventListener('keydown', e => {
+  if (!ctxMenuEl) return;
+  const items = [...ctxMenuEl.querySelectorAll('button')], cur = items.indexOf(document.activeElement);
+  if (e.key === 'Enter' || e.key === ' '){ if (cur < 0 && items[0]){ e.preventDefault(); items[0].focus(); } e.stopImmediatePropagation(); return; }   // フォーカスしているボタンを押す(既定の動き)
+  e.stopImmediatePropagation();
+  if (e.key === 'Escape' || e.key === 'Tab'){ e.preventDefault(); const row = rowsEl()[S.navIdx]; closeCtxMenu(); if (row) row.focus({ preventScroll: true }); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // Ctrl+C など、ブラウザのキーは止めない(裏の行の操作だけ止める)
+  e.preventDefault();
+  let n = cur;
+  if (e.key === 'ArrowDown') n = cur < 0 ? 0 : (cur + 1) % items.length;
+  else if (e.key === 'ArrowUp') n = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+  else if (e.key === 'Home') n = 0;
+  else if (e.key === 'End') n = items.length - 1;
+  if (n !== cur && items[n]) items[n].focus({ preventScroll: true });
+}, true);
 $('#segs').addEventListener('keydown', e => {
   const dm = e.altKey && !e.ctrlKey && !e.metaKey && /^Digit([0-9])$/.exec(e.code);
   if (dm){   // Alt+1〜9: その行の話者を、話者の一覧の n 番目にする(Alt+0: 話者なし)。文字を打っている途中でも使える
