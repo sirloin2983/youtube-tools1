@@ -1012,3 +1012,25 @@
 - 注意: `app/test_window.py` の `test_security_checks` が1回だけ ConnectionAbortedError で落ちた(403 を返してすぐ閉じる所の接続のタイミング。流し直すと通る。今回の変更とは関係ない)
 - 実機で確かめてほしいこと(ユーザー): 窓で開く設定で、ツールの窓の「入口」→ 新しく開かずに bat で開いた入口の窓が前に出るか(本物の窓を前に出す所はテストで動かしていない)
 - 未完了・次: ① 出力先の整理・⑤ 配信者の色・④ 各段階のまとめて実行(`docs/followup-2026-09-27.md` の順に)
+
+## 2026-09-27 Claude Code — 実機のあとの要望(3): 配信者の名前で字幕の色(文字をメンバーカラーに)
+- ユーザーの要望と決定: 配信者の名前を入れると、そのカラーコードで字幕を作る(手で入れたときだけ・まとめて実行でも)。**文字を色に**(白いふち・外側の黒いふちは同じ)。
+  設計と実装で決めたことは `docs/followup-2026-09-27.md` の 4
+- 変更(共通): `ytt_core/colors.py`(新規。名前 → メンバーカラーの照らし合わせの1か所。ホロカラーの `holo-colors/members.json` とマイカラー
+  `%LOCALAPPDATA%\youtube-tools\holo-colors\my-colors.json` を読むだけ。かな・全角半角・大小・区切りを区別しない・名前の一部で1人に決まるときだけ・同じ名前はマイカラーが先)、
+  `ui-kit`(`UIKit.streamer`: `<input data-ui-streamer>` に候補・色の見本・合う人。同じ名前ではもう一度照らし合わせない)→ 写した
+- 変更(cut2resolve): `resolve_textplus.text_style(color)`(塗りの要素の色・見た目の名前)・`build_import_plan`/`write_files`/`readme_text`/`instructions` に色、
+  `pack.build_pack(textplus_color=)`、`serve.py`(`output.streamer` → 400 bad_streamer・パックの記録に textColor・streamer)
+- 変更(入口): `autorun.py`(`start`・`start_docs` の streamer。始める前に照らし合わせる・cut2resolve に照らし合わせた名前を渡す)、`launch.py`(`api/ytt/streamer-colors`・streamer を渡す)、
+  `cases.html`・`cases.js`(配信者の欄)
+- 変更(スタジオ): `review.js`(まとめて実行 ▾ に配信者の欄)。変更(編集): `index.html`・`pack-tab.js`(3 パック の「配信者(字幕の色)」・文書ごとに覚える・字幕の見本の色)、
+  `app.js`・`index.html`(履歴の「選んで、まとめて実行」に配信者の欄)、`serve.py`・`resolve_export.py`(zip の streamer)
+- 不具合(作る途中で見つけて直した): 名前を入れた直後に隣の「実行」を押すと、欄から離れたとき(change)にもう一度照らし合わせを始めて説明の文が縮み、
+  ボタンが押している途中でずれてクリックが成立しなかった(画面のテストで見つけた。人も同じ目に遭う)→ 同じ名前では照らし合わせない・途中の「探しています…」を出さない
+- ついでに直した: `clip-studio/test_review.cjs` の偽の環境に `pollAuto` が無く2件落ちていた(⑦ で `loadVideo` から呼ぶようにしたときの抜け。PC の bash から node が見えず流していなかった。
+  **node は Playwright 同梱の `C:\Users\you11\miniconda3\Lib\site-packages\playwright\driver\node.exe` で流せる**)
+- 版: まだ配っていない版の変更点に足した(cut2resolve 0.13.0・編集 0.17.1・入口 0.10.2・スタジオ 0.8.2・ui-kit v5)
+- テスト(PC): 入口の単体 114・ytt_core/tools 60・契約 27・cut2resolve 281・編集の単体 125・スタジオの単体 226・node 18・
+  e2e(編集 tabs/cut/pack/mounted/handoff・入口 autorun/portal/window・e2e_pipeline・e2e_datadir・スタジオ e2e_ui と --mounted)。
+  入口の e2e 3本が「Page crashed」などの異常終了で1回落ちた(PC の不安定さ)→ 流し直して通過
+- 実機で確かめてほしいこと(ユーザー): 3 パック で配信者の名前を入れてパック → Resolve の字幕の文字がその色か(重ね順の直しと一緒に)

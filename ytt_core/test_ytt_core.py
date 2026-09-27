@@ -16,7 +16,7 @@ from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from ytt_core import datadir, fsio, httpsec, jobs, runtime, schemas, tools, txindex  # noqa: E402
+from ytt_core import colors, datadir, fsio, httpsec, jobs, runtime, schemas, tools, txindex  # noqa: E402
 
 
 def locked(winerror=32):
@@ -728,6 +728,69 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join("/d", "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/transcribe-tool"), "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "/x"}), os.path.join(os.path.abspath("/x"), "transcribe", "transcripts"))
+
+
+class TestColors(unittest.TestCase):
+    """配信者の名前 → メンバーカラー(ytt_core/colors.py。docs/followup-2026-09-27.md の 4)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-colors-")
+        self.members = os.path.join(self.tmp, "members.json")
+        with open(self.members, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "groups": [
+                {"id": "g0", "name": "0期生", "members": [{"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#ff8fdf"},
+                                                         {"id": "hoshimachi-suisei", "name": "星街すいせい", "en": "Hoshimachi Suisei", "hex": "#0078D7"}]},
+                {"id": "g3", "name": "3期生", "members": [{"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"},
+                                                         {"id": "shiranui-flare", "name": "不知火フレア", "en": "Shiranui Flare", "hex": "#FF5C33"},
+                                                         {"id": "bad", "name": "壊れた色", "hex": "red"}]}]}, f, ensure_ascii=False)
+        self.mine = os.path.join(self.tmp, "my-colors.json")
+        self.env = {"YTT_DATA_DIR": "inplace", colors.MEMBERS_ENV: self.members}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def entries(self, mine=True):
+        return colors.load(self.env, mine=self.mine if mine else "")
+
+    def test_lookup_rules(self):
+        es = self.entries(mine=False)
+        self.assertEqual([e["name"] for e in es], ["さくらみこ", "星街すいせい", "兎田ぺこら", "不知火フレア"])   # 形の違う色は飛ばす
+        for q in ("さくらみこ", "サクラミコ", "ｻｸﾗﾐｺ", "sakura miko", "SAKURA-MIKO", " さくら・みこ "):
+            self.assertEqual(colors.lookup(q, es)["match"]["hex"], "#FF8FDF", q)      # かな・全角半角・大小・空白と区切りを区別しない
+        self.assertEqual(colors.lookup("ぺこら", es)["match"]["name"], "兎田ぺこら")    # 名前の一部で1人に決まる
+        self.assertEqual(colors.lookup("pekora", es)["match"]["name"], "兎田ぺこら")    # ローマ字の一部(3文字から)
+        r = colors.lookup("ら", es)
+        self.assertIsNone(r["match"])                                                 # 2人以上なら決めない
+        self.assertEqual({e["name"] for e in r["candidates"]}, {"さくらみこ", "兎田ぺこら"})              # 漢字はかなと見なさない(不知火)
+        self.assertEqual(colors.lookup("", es), {"match": None, "candidates": []})
+
+    def test_my_colors_come_first_and_resolve(self):
+        with open(self.mine, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "colors": [{"id": "x", "name": "さくらみこ", "hex": "#123456"}, {"name": "", "hex": "#000000"}]}, f)
+        es = self.entries()
+        self.assertEqual((es[0]["group"], es[0]["mine"], len(es)), ("マイカラー", True, 5))
+        self.assertEqual(colors.resolve("みこ", entries=es), ("さくらみこ", "#123456"))      # 同じ名前ならマイカラーが先
+        self.assertEqual(colors.resolve("  ", entries=es), (None, None))                   # 空 = 今までどおり(黒い文字)
+        with self.assertRaisesRegex(ValueError, "複数"):
+            colors.resolve("ら", entries=es)
+        with self.assertRaisesRegex(ValueError, "見つかりません"):
+            colors.resolve("存在しない人", entries=es)
+        with self.assertRaisesRegex(ValueError, "長すぎ"):
+            colors.resolve("あ" * 61, entries=es)
+        self.assertEqual(colors.load({"YTT_DATA_DIR": "inplace", colors.MEMBERS_ENV: os.path.join(self.tmp, "無い.json")}), [])   # 読めなくても落ちない
+        self.assertIsNone(colors.mine_path({"YTT_DATA_DIR": "inplace"}))                   # テスト(inplace)では本物のマイカラーを読まない
+
+    def test_hex(self):
+        self.assertEqual(colors.norm_hex("ff8fdf"), "#FF8FDF")
+        self.assertIsNone(colors.norm_hex("#ff8fd"))
+        self.assertEqual(colors.rgb01("#FF8000"), [1.0, 0.502, 0.0])
+        with self.assertRaises(ValueError):
+            colors.rgb01("red")
+
+    def test_repo_members_json_is_readable(self):
+        es = colors.load({"YTT_DATA_DIR": "inplace"})                                     # リポジトリの holo-colors/members.json
+        self.assertGreater(len(es), 50)
+        self.assertTrue(all(colors.norm_hex(e["hex"]) == e["hex"] for e in es))
 
 
 if __name__ == "__main__":

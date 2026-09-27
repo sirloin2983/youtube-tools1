@@ -83,6 +83,9 @@ v0.4.0 では3つとも取り込みます: 切り抜きスタジオ(http://local
     入口の画面が BroadcastChannel で答え(ui-kit v5 の UIKit.portal)、POST api/ytt/focus-portal で入口のサーバーが題名「動画編集ツール — 入口」の窓を探して前に出す
     (Windows。前面の窓のスレッドに入力をつないでから SetForegroundWindow。appwindow.focus_window)。前に出せないとき(ブラウザのタブで裏にあるなど)は
     「入口はほかの窓(タブ)で開いています」と知らせる。入口が開いていなければ、今までどおりその場で入口へ移る
+  - まとめて実行に「配信者(字幕の色)」: 案件の画面(とスタジオ・「編集」の履歴)で名前を入れると、パックの字幕の文字をその人のメンバーカラーにする。
+    POST /api/autorun/start・start-docs の streamer(始める前に照らし合わせ、見つからなければ 400)。候補は POST api/ytt/streamer-colors {q, all?}
+    (画面の共通の API。ui-kit の UIKit.streamer が使う)。名前 → 色の規則は ytt_core/colors.py(ホロカラーの一覧とマイカラーを読むだけ)
 
 ■ v0.10.1(2026-09-26・追加機能 ⑥ ④。docs/edit-tool-design.md の 12)
   - まとめて実行のパック: カットの無い文書は「編集」の「行から」の設定(行の端を声の止まる所まで広げるか)で作る。パックは最小限(cut2resolve の既定)。

@@ -19,7 +19,8 @@
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
   POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。app/appwindow.py)
-  POST api/ytt/client-log|open-window|open-external|focus-portal   画面の共通の API(focus-portal: 入口の窓を前に出す。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
+  POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
+                                          streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
 
 設計の要点
@@ -50,7 +51,7 @@ CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import datadir, fsio, httpsec, jobs, runtime  # noqa: E402
+from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (app/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import cases as cases_mod  # noqa: E402  (app/cases.py: 案件(配信1本)ごとの紐づけ)
@@ -659,9 +660,9 @@ class PortalHandler(BaseHTTPRequestHandler):
             try:
                 ar = self.server.autorun
                 if u.path.endswith("start-docs"):
-                    return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True))
+                    return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))
                 if u.path.endswith("start"):
-                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"))})
+                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"))})
                 return self._json(200, {"run": ar.cancel(body.get("runId"))})
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
@@ -739,6 +740,13 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
+            if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)
+                q = body.get("q") if isinstance(body.get("q"), str) else ""
+                entries = colors_mod.load()
+                r = colors_mod.lookup(q[:colors_mod.NAME_MAX], entries)
+                pick = lambda e: {k: e[k] for k in ("name", "en", "hex", "group", "mine")}   # noqa: E731
+                return 200, {"ok": True, "match": pick(r["match"]) if r["match"] else None, "candidates": [pick(e) for e in r["candidates"]],
+                             "items": [pick(e) for e in entries] if body.get("all") is True else []}
         except ValueError as e:
             return 400, {"error": "bad_request", "message": str(e)}
         except appwindow_mod.TooMany as e:

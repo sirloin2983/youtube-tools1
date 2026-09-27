@@ -664,7 +664,8 @@ async function startBatch(){
   const ids = [...PICK.ids]; if (!ids.length) return;
   const b = $('#txBatchGo'); b.disabled = true;
   try {
-    const r = await portalApi('api/autorun/start-docs', { ids, overwrite: $('#txOverwrite').checked });
+    const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
+    const r = await portalApi('api/autorun/start-docs', { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) });
     const n = (r.runs || []).length, sk = r.skipped || [];
     toast(`${n} 本を「まとめて実行」に入れました` + (sk.length ? `(${sk.length} 本は入れていません: ${sk.slice(0, 2).map(x => (x.title || x.id) + ' = ' + x.reason).join('、')})` : ''), 7000, n ? 'ok' : 'err');
     PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();

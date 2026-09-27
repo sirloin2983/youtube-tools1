@@ -243,6 +243,25 @@ class TestDocs(Base):
         self.assertEqual(sorted(b_["spec"]["video"] for b_ in bodies), sorted(self.media.values()))
         self.assertTrue(all(b_["spec"].get("preset") == "transcript-rows" and "force" not in b_["output"] for b_ in bodies))
 
+    def test_streamer_color_is_passed(self):
+        """配信者の名前(字幕の文字の色。docs/followup-2026-09-27.md の 4): 照らし合わせた名前を cut2resolve に渡す。見つからなければ始める前に断る"""
+        members = os.path.join(self.tmp, "members.json")
+        with open(members, "w", encoding="utf-8") as f:
+            json.dump({"groups": [{"name": "3期生", "members": [{"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"}]}]}, f, ensure_ascii=False)
+        self.env["YTT_HOLO_MEMBERS"] = members
+        with self.assertRaisesRegex(ValueError, "見つかりません"):
+            self.r.start_docs(["bbbbbbbbbbb2"], streamer="だれか")
+        self.assertEqual(self.r.snapshot()["runs"], [])
+        res = self.r.start_docs(["bbbbbbbbbbb2"], streamer="ぺこら")
+        self.assertEqual(res["runs"][0]["streamer"], "兎田ぺこら")
+        self.wait_all(res["runs"])
+        self.assertEqual(self.tools.c2r["bodies"][-1]["output"]["streamer"], "兎田ぺこら")
+        res = self.r.start_docs(["bbbbbbbbbbb2"], overwrite=True)                          # 入れなければ渡さない(黒い文字)
+        self.wait_all(res["runs"])
+        self.assertNotIn("streamer", self.tools.c2r["bodies"][-1]["output"])
+        with self.assertRaisesRegex(ValueError, "見つかりません"):
+            self.r.start("vid00000001", "adopted", streamer="だれか")
+
     def test_duplicate_and_bad_ids(self):
         self.tools.hold = True
         first = self.r.start_docs(["aaaaaaaaaaa1"])

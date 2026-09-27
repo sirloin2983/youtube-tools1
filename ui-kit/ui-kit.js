@@ -12,7 +12,8 @@
    v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
        window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s)
    v4: 文字起こしツールと cut2resolve を「編集」に統合(docs/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
-   v5: 入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(UIKit.portal。入口が二つにならないように。2026-09-27)
+   v5: 配信者の名前(字幕の色)の欄 <input data-ui-streamer>(UIKit.streamer。候補と色の見本。docs/followup-2026-09-27.md の 4)、
+       入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(UIKit.portal。入口が二つにならないように。2026-09-27)
        (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない) */
 (function () {
   'use strict';
@@ -322,6 +323,75 @@
     portal.go(a.href);
   });
 
+  /* ---- 配信者の名前(字幕の色)の欄(v5)---- <input data-ui-streamer> に、名前の候補(datalist)・色の見本・合う人の表示を付ける。
+     名前 → メンバーカラーの照らし合わせは入口(api/ytt/streamer-colors → ytt_core/colors.py)の1か所。欄の値は名前のまま送り、
+     使う側(cut2resolve・まとめて実行)も同じ規則で照らし合わせる(画面に規則を書かない)。入口の外では使えないと知らせる。
+     値を画面から入れ直したら UIKit.streamer.set(input, 名前)。合う人が決まるたびに input に 'ui-streamer' イベント(detail: 人 | null) */
+  var streamerList = null;
+  function streamerItems() {
+    if (!streamerList) streamerList = yttPost('streamer-colors', { q: '', all: true }).then(function (j) { return j.items || []; }, function () { streamerList = null; return []; });
+    return streamerList;
+  }
+  function attachStreamer(input) {
+    if (!input || input.__uiStreamer) return;
+    var id = 'ui-streamer-list';
+    if (!document.getElementById(id)) {
+      var dl = document.createElement('datalist');
+      dl.id = id;
+      document.body.appendChild(dl);
+      if (token()) streamerItems().then(function (items) {
+        dl.innerHTML = items.map(function (e) { return '<option value="' + esc(e.name) + '">' + esc((e.group || '') + ' ' + e.hex) + '</option>'; }).join('');
+      });
+    }
+    input.setAttribute('list', id);
+    input.setAttribute('autocomplete', 'off');
+    input.maxLength = 60;
+    var sw = document.createElement('span'), hint = document.createElement('small');
+    sw.className = 'ui-streamer-sw'; sw.hidden = true; sw.setAttribute('aria-hidden', 'true');
+    hint.className = 'ui-streamer-hint'; hint.setAttribute('aria-live', 'polite');
+    input.insertAdjacentElement('afterend', sw);
+    sw.insertAdjacentElement('afterend', hint);
+    var timer = 0, seq = 0, last = null;
+    function tell(who) { try { input.dispatchEvent(new CustomEvent('ui-streamer', { detail: who })); } catch (e) { /* 古いブラウザ */ } }
+    /* 同じ名前ではもう一度照らし合わせない(force を除く)。欄から離れた(change)ときに説明の文が変わると、隣のボタンが押している途中で
+       ずれてクリックが成立しなかった(2026-09-27)。同じ理由で、照らし合わせの途中は説明の文を変えない */
+    function show(force) {
+      var q = input.value.trim();
+      if (!force && q === last) return;
+      last = q;
+      var my = ++seq;
+      input.removeAttribute('data-color'); sw.hidden = true; sw.style.background = '';
+      if (!q) { hint.textContent = '空なら黒い文字'; tell(null); return; }
+      if (!token()) { hint.textContent = '入口から開くと使えます'; tell(null); return; }
+      yttPost('streamer-colors', { q: q }).then(function (j) {
+        if (my !== seq) return;
+        if (j.match) {
+          sw.hidden = false; sw.style.background = j.match.hex;
+          hint.textContent = j.match.name + ' の色 ' + j.match.hex + '(文字をこの色に)';
+          input.setAttribute('data-color', j.match.hex);
+          tell(j.match);
+        } else {
+          hint.textContent = j.candidates && j.candidates.length ? '1人に決まりません。候補: ' + j.candidates.slice(0, 5).map(function (e) { return e.name; }).join('・')
+            : '見つかりません(ホロカラーのマイカラーに足すと使えます)';
+          tell(null);
+        }
+      }, function () { if (my === seq) { hint.textContent = '色の一覧を読めません'; tell(null); } });
+    }
+    input.__uiStreamer = show;
+    input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { show(false); }, 200); });
+    input.addEventListener('change', function () { clearTimeout(timer); show(false); });
+    show(true);
+  }
+  var streamer = {
+    attach: attachStreamer,
+    set: function (input, value) { if (!input) return; input.value = value || ''; attachStreamer(input); input.__uiStreamer(true); },
+    value: function (input) { return input ? input.value.trim() : ''; }
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    var list = document.querySelectorAll('input[data-ui-streamer]');
+    for (var i = 0; i < list.length; i++) attachStreamer(list[i]);
+  });
+
   window.UIKit = { version: 5, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
-                   portal: portal };
+                   portal: portal, streamer: streamer };
 })();

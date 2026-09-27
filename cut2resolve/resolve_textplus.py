@@ -44,6 +44,21 @@ TEXT_STYLE = {
 }
 
 
+def text_style(color=None):
+    """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。docs/followup-2026-09-27.md の 4)なら
+    文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
+    名前 → 色の照らし合わせは ytt_core/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
+    st = json.loads(json.dumps(TEXT_STYLE))
+    if color and color.get("hex"):
+        h = str(color["hex"]).lstrip("#")
+        rgb = [round(int(h[i:i + 2], 16) / 255.0, 4) for i in (0, 2, 4)]
+        fill = next(e for e in st["shading"] if e["shape"] == 0)
+        fill["rgba"] = rgb + [1.0]
+        who = str(color.get("who") or "").strip()
+        st["name"] = st["name"].replace("黒い文字", "%s色の文字(#%s)" % (who + "の" if who else "", h.upper()))
+    return st
+
+
 def style_inputs(style=None):
     """字幕の見た目 → Text+ に入れる [[入力の名前, 値], ...](順番どおりに入れる)。Lua はこれを入れて読み直すだけ(規則はここ1か所)"""
     st = style or TEXT_STYLE
@@ -173,7 +188,7 @@ def wrap_caption(text, per_line):
     return "\n".join(x for x in lines if x)
 
 
-def build_import_plan(plan, media_file, target=None, wrap=None):
+def build_import_plan(plan, media_file, target=None, wrap=None, color=None):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
     wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)"""
@@ -196,7 +211,7 @@ def build_import_plan(plan, media_file, target=None, wrap=None):
         "captionWrap": per_line,
         # 削除区間を戻すときのコピー元。カット済みタイムラインとは別に、元動画全体を残す。
         "sourceTimeline": {"startFrame": 0, "endFrame": int(plan.meta["total"])},
-        "style": _style_data(),
+        "style": _style_data(color),
     }
 
 
@@ -204,11 +219,11 @@ def _lua_quote(value):
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def _style_data():
-    """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び"""
-    st = json.loads(json.dumps(TEXT_STYLE))
+def _style_data(color=None):
+    """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び(color: 文字の色。text_style)"""
+    st = text_style(color)
     return {"name": st["name"], "fonts": st["fonts"], "styles": st["styles"], "autoFonts": st["autoFonts"],
-            "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(TEXT_STYLE)}
+            "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(st)}
 
 
 def importer_script(plan):
@@ -595,7 +610,7 @@ README_NAME = "友人へ.txt"                    # Text+ パックの手順書(�
 EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
 
 
-def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True):
+def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None):
     """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない"""
     t = dict(target or DEFAULT_TARGET)
     vertical = t["height"] > t["width"]
@@ -633,7 +648,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
   (「けいふぉんと」で検索して配布元から入手 → keifont.ttf を右クリック →「インストール」→ Resolve を起動し直す)。
   このパックには入っていません。入っていないときは Windows の日本語フォント(游ゴシック・メイリオなど)で作り、
   先頭のマーカーが黄色になります
-・字幕の見た目: 黒い文字 + 白いふち + 外側の黒いふち(スクリプトが入れます)
+・字幕の見た目: {look or TEXT_STYLE["name"]}(スクリプトが入れます)
 
 
 ■ 1. 最初に1回だけ: 編集用のプロジェクトを作る
@@ -700,19 +715,19 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 {backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None):
+def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
-        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup), encoding="utf-8-sig", newline="\n")
+        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color), encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
@@ -720,9 +735,9 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None):
             if key in paths}
 
 
-def readme_text(plan, target=None, backup=True):
+def readme_text(plan, target=None, backup=True, color=None):
     """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)"""
-    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup)
+    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color)["name"])
 
 
 def readme_from_script(text, backup=True):
@@ -730,7 +745,8 @@ def readme_from_script(text, backup=True):
     d = read_script_plan(text)
     num, den = (int(x) for x in str(d["fps"]).split("/"))
     meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
-    return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup)
+    return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup,
+                        (d.get("style") or {}).get("name"))
 
 
 def read_script_plan(text):

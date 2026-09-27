@@ -128,8 +128,9 @@
   function activeIn(ids) { return ids.some(function (id) { return active(runs[id]); }); }
 
   function wireAuto(node, c) {
-    var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box);
+    var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { box.hidden = true; return; }   // スタジオから消えた配信は実行できない
+    if (window.UIKit && UIKit.streamer) UIKit.streamer.attach(who);   // 手で入れたときだけ字幕の色に(自動では入れない)
     mode.value = lsGet('mode', 'adopted');
     if (!mode.value) mode.value = 'adopted';
     top.value = lsGet('top', '3');
@@ -140,6 +141,7 @@
     $('.pt-auto-run', box).addEventListener('click', function () {
       var body = { id: c.id, mode: mode.value };
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
+      if (who.value.trim()) body.streamer = who.value.trim();
       api('/api/autorun/start', body).then(function (r) {
         runs[c.id] = r.run; node.open = true; renderAuto(node, c.id); toast('「' + r.run.modeLabel + '」を始めました', 'ok'); pollAuto();
       }).catch(function (e) { toast('始められませんでした: ' + e.message, 'err'); });

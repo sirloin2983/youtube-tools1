@@ -59,7 +59,8 @@ def main():
 
     tmp = tempfile.mkdtemp(prefix="ytt-autorun-e2e-")
     env = {"YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1", "TRANSCRIBE_BACKEND": "fake",
-           "STUDIO_HOME": os.path.join(tmp, "studio-home")}
+           "STUDIO_HOME": os.path.join(tmp, "studio-home"),
+           "YTT_HOLO_MEMBERS": os.path.join(REPO, "holo-colors", "members.json")}   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧)
     patch = mock.patch.dict(os.environ, env)
     patch.start()
     try:
@@ -125,6 +126,9 @@ def main():
                 check(wait_js(pg, "!!document.querySelector('%s .pt-auto-run')" % card.replace("'", "\\'"), 15000), "案件の画面に「まとめて実行」が出た")
                 pg.select_option(card + " .pt-auto-mode", "adopted")
                 check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
+                pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4)
+                check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FF8FDF'" % card.replace("'", "\\'"), 10000),
+                      "案件の画面の配信者の欄: 名前 → メンバーカラー")
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "!document.querySelector('%s .pt-auto-cancel').hidden" % card.replace("'", "\\'"), 15000),
                       "まとめて実行が始まった(中止ボタンが出る)")
@@ -162,6 +166,9 @@ def main():
             check(os.path.isfile(os.path.join(pack_dir, "create_resolve_textplus_project.lua")) and not os.path.exists(os.path.join(pack_dir, "cut-plan.json")),
                   "Text+ パックができた: %s" % (os.listdir(pack_dir) if os.path.isdir(pack_dir) else "無い"))
             check(os.path.isfile(os.path.splitext(clip["path"])[0] + ".transcript.json"), "文字起こしを動画の隣に保存した(transcript/v1)")
+            lua = os.path.join(pack_dir, "create_resolve_textplus_project.lua")
+            with open(lua, encoding="utf-8") as f:
+                check("さくらみこの色の文字(#FF8FDF)" in f.read(), "案件の画面で入れた配信者の色がパックの字幕に入る")
 
             # ② API で「解析から全部」(未解析の動画)
             st, j = call("POST", "/studio/api/videos/open", {"kind": "file", "path": media_b})

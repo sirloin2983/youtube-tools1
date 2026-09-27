@@ -576,6 +576,21 @@ class TestJobs(ServerBase):
         self.assertIn("clip_cut.srt", names)
         self.assertFalse((out / "textplus-import.json").exists())
         self.assertFalse((out / "cut-plan.json").exists())
+        # 配信者の名前 → 文字の色(docs/followup-2026-09-27.md の 4)。照らし合わせは ytt_core/colors.py。見つからなければ 400
+        members = self.dir / "members.json"
+        members.write_text(json.dumps({"groups": [{"name": "0期生", "members": [{"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF"}]}]},
+                                      ensure_ascii=False), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"YTT_HOLO_MEMBERS": str(members)}):
+            out2 = self.dir / "tp_color"
+            j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out2), "textplus": True, "streamer": "ミコ"}})
+            self.assertEqual(j["state"], "done", j)
+            ip = serve.TP.read_script_plan((out2 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+            self.assertIn("さくらみこの色の文字(#FF8FDF)", ip["style"]["name"])
+            rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out2)).read_text(encoding="utf-8"))
+            self.assertEqual((rec["textColor"], rec["streamer"]), ("#FF8FDF", "さくらみこ"))
+            st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_x"), "textplus": True, "streamer": "だれか"}})
+            self.assertEqual((st, e["error"]), (400, "bad_streamer"))
+            self.assertIn("見つかりません", e["message"])
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "textplusWrap": 99}})
         self.assertEqual((st, e["error"]), (400, "bad_value"))                  # 字幕の1段の文字数は 0〜40
 

@@ -137,6 +137,13 @@ class TestTextStyle(unittest.TestCase):
                      'Offset5': [0.0, 0.0]}.items():
             self.assertEqual(inputs.get(k), v, k)
         self.assertNotIn('Thickness1', inputs)                                               # 塗りに太さは無い
+        # 配信者の名前を入れたとき(docs/followup-2026-09-27.md の 4): 文字(塗り)だけメンバーカラー。ふちは同じ
+        st = RTP.text_style({'hex': '#FF8FDF', 'who': 'さくらみこ'})
+        colored = dict((kv[0], kv[1]) for kv in RTP.style_inputs(st))
+        self.assertEqual([colored[k] for k in ('Red1', 'Green1', 'Blue1', 'Alpha1')], [1.0, 0.5608, 0.8745, 1.0])
+        self.assertEqual([colored[k] for k in ('Red2', 'Red5', 'Thickness2', 'Thickness5')], [1.0, 0.0, 0.12, 0.18])
+        self.assertEqual(st['name'], 'けいふぉんと・さくらみこの色の文字(#FF8FDF)・白いふち・黒いふち')
+        self.assertEqual(RTP.text_style(None), RTP.TEXT_STYLE)                                 # 名前が無ければ黒い文字のまま
         look = next(kv[2] for kv in RTP.style_inputs() if kv[0] == 'Priority5')              # 名前で入らなかったときの探し方
         self.assertEqual(look, {'names': ['Priority', '優先順位'], 'n': 5, 'ids': ['PriorityBack5']})
 
@@ -981,6 +988,20 @@ class TestMinimalPack(unittest.TestCase):
         self.assertEqual(self.names(out), sorted(self.MINIMAL + ["clip.edl", "clip_cut.srt", "予備_EDLで開く手順.txt", "cut-plan.json",
                                                                  RTP.README_NAME]))
         self.assertEqual((out / RTP.README_NAME).read_text(encoding="utf-8-sig"), res["readme"])
+
+    def test_member_color_text(self):
+        """配信者のメンバーカラーの文字(docs/followup-2026-09-27.md の 4): Lua の見た目・手順の見た目の説明が変わる。区間・字幕は同じ"""
+        out, res = self.build("color", textplus_color={"hex": "#7EC2FE", "who": "兎田ぺこら"}, **self.SCREEN)
+        lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
+        ip = RTP.read_script_plan(lua)
+        inputs = dict((kv[0], kv[1]) for kv in ip["style"]["inputs"])
+        self.assertEqual((inputs["Red1"], inputs["Green1"], inputs["Blue1"]), (0.4941, 0.7608, 0.9961))
+        self.assertIn("兎田ぺこらの色の文字(#7EC2FE)", ip["style"]["name"])
+        self.assertIn("兎田ぺこらの色の文字", res["readme"])
+        self.assertEqual(RTP.readme_from_script(lua, backup=False), res["readme"])
+        _, plain = self.build("plain", **self.SCREEN)
+        self.assertEqual(ip["cuts"], RTP.read_script_plan((Path(self.tmp.name) / "plain" / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))["cuts"])
+        self.assertIn("黒い文字", plain["readme"])
 
     def test_edl_only_pack_without_readme_file(self):
         """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""

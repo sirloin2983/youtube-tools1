@@ -322,6 +322,9 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
 /* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
 .ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
+/* 配信者の名前(字幕の色)の欄(v5。UIKit.streamer): 色の見本と、合う人・候補の表示 */
+.ui-streamer-sw{display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-2);vertical-align:middle}
+.ui-streamer-hint{display:block;flex-basis:100%;color:var(--ink-3);font-size:var(--fs-xs,12px);overflow-wrap:anywhere}
 /* 次にやること(一覧の1行に1つだけ出す短い案内) */
 .ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
 .ui-next::before{content:"→"}

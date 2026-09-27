@@ -332,6 +332,9 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
 /* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
 .ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
+/* 配信者の名前(字幕の色)の欄(v5。UIKit.streamer): 色の見本と、合う人・候補の表示 */
+.ui-streamer-sw{display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-2);vertical-align:middle}
+.ui-streamer-hint{display:block;flex-basis:100%;color:var(--ink-3);font-size:var(--fs-xs,12px);overflow-wrap:anywhere}
 /* 次にやること(一覧の1行に1つだけ出す短い案内) */
 .ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
 .ui-next::before{content:"→"}
@@ -775,7 +778,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-cut-video video{width:100%;height:100%;object-fit:contain;display:block}
 .tt-cut-mode-pill{position:absolute;left:10px;top:10px}
 /* 字幕の見た目(パックの Text+ と同じ指定のおおよその見え方: けいふぉんと・黒い文字・白いふち(少し右下へずらす)・外側の黒いふち。cut2resolve の resolve_textplus.TEXT_STYLE) */
-.tt-cap-look{font-family:"けいふぉんと","Keifont","Yu Gothic","Meiryo",sans-serif;font-weight:400;color:#000;
+.tt-cap-look{font-family:"けいふぉんと","Keifont","Yu Gothic","Meiryo",sans-serif;font-weight:400;color:var(--tt-cap-color,#000);
   text-shadow:0.057em 0.016em 0 #fff,0.054em 0.033em 0 #fff,0.044em 0.048em 0 #fff,0.029em 0.058em 0 #fff,0.012em 0.061em 0 #fff,-0.005em 0.058em 0 #fff,-0.02em 0.048em 0 #fff,-0.03em 0.033em 0 #fff,-0.033em 0.016em 0 #fff,-0.03em -0.001em 0 #fff,-0.02em -0.016em 0 #fff,-0.005em -0.026em 0 #fff,0.012em -0.029em 0 #fff,0.029em -0.026em 0 #fff,0.044em -0.016em 0 #fff,0.054em -0.001em 0 #fff,0.07em 0em 0 #000,0.065em 0.027em 0 #000,0.049em 0.049em 0 #000,0.027em 0.065em 0 #000,0em 0.07em 0 #000,-0.027em 0.065em 0 #000,-0.049em 0.049em 0 #000,-0.065em 0.027em 0 #000,-0.07em 0em 0 #000,-0.065em -0.027em 0 #000,-0.049em -0.049em 0 #000,-0.027em -0.065em 0 #000,-0em -0.07em 0 #000,0.027em -0.065em 0 #000,0.049em -0.049em 0 #000,0.065em -0.027em 0 #000}
 .tt-cut-cap{position:absolute;left:6%;right:6%;bottom:7%;text-align:center;font-size:clamp(16px,2.6vw,30px);line-height:1.3;
   pointer-events:none;white-space:pre-wrap;word-break:break-word}
@@ -871,6 +874,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-map{position:relative;height:22px;margin:12px 0 0;background:var(--panel-2);border-radius:6px;overflow:hidden}
 .tt-pk-map i{position:absolute;top:3px;bottom:3px;background:var(--accent);border-radius:3px}
 .tt-pk-sub{display:flex;align-items:center;gap:8px;margin:14px 0 8px;font-size:13.5px;color:var(--ink-2)}
+.tt-pk-who{flex-wrap:wrap;margin:0 0 8px}
 .tt-pk-look{display:flex;gap:14px;align-items:flex-start}
 .tt-pk-phone{position:relative;flex:none;width:118px;aspect-ratio:9/16;border-radius:10px;background:linear-gradient(160deg,#2d2f45,#3b3557);overflow:hidden}
 .tt-pk-phone.land{width:180px;aspect-ratio:16/9}
@@ -1054,6 +1058,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row"><span class="hint" id="txPickN">文書を選んでください</span>
           <label class="lag" title="パックがすでにある文書も、作り直して上書きします"><input type="checkbox" id="txOverwrite">パックがあれば作り直す(上書き)</label>
           <button type="button" class="btn small primary" id="txBatchGo" disabled>まとめて実行</button></div>
+        <label class="lag tt-batch-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+          <input id="txBatchWho" type="text" size="12" placeholder="例: さくらみこ" data-ui-streamer></label>
         <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットを決めてある文書はカットのとおり、無ければ文字起こしの行からパックを作ります。
           入口の「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
       <div id="txRuns" aria-live="polite"></div>
@@ -1367,7 +1373,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            </div>
            <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
            <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
-           <div class="tt-pk-sub"><span class="tt-pk-n">5</span>字幕の見た目(けいふぉんと・黒い文字・白いふち・黒いふち)</div>
+           <div class="tt-pk-sub"><span class="tt-pk-n">5</span>字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
+           <label class="lag tt-pk-who" title="名前を入れると、字幕の文字をその人のメンバーカラーにします(ホロカラーの色の一覧。空なら黒い文字。この文書に覚えます)">配信者(字幕の色)
+             <input id="pkWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
            <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
              <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
            <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>

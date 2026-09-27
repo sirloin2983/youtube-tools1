@@ -13,6 +13,10 @@
     同じエラーは1回・1回の表示で20件まで。入口の外(合言葉 `ytt-token` が無い画面)では送らない
   - `UIKit.win` … `isApp()` 窓(Edge のアプリモード。`display-mode: standalone`)で開いているか、`open(url)` 入口に頼んで開く。
     窓の中の `target="_blank"`(と Ctrl・Shift・中クリック)のリンクは自動で: このパソコンの画面 → 窓、外のサイト → いつものブラウザ
+  - `UIKit.streamer`(v5・2026-09-27)… 配信者の名前(字幕の色)の欄。`<input data-ui-streamer>` を置く(画面を後から作るときは `UIKit.streamer.attach(input)`)と、
+    名前の候補(datalist)・色の見本・合う人の表示を付ける。照らし合わせは入口(`api/ytt/streamer-colors` → `ytt_core/colors.py`)。値は名前のまま送る。
+    値を画面から入れたら `UIKit.streamer.set(input, 名前)`。合う人が決まるたびに input に `ui-streamer` イベント(detail: 人 | null)。
+    同じ名前ではもう一度照らし合わせない(欄から離れたときに説明の文が変わって、隣のボタンのクリックが外れたため)
   - `UIKit.portal`(v5・2026-09-27)… 入口へ戻るリンク(`a[data-ui-portal]`。「他のツール」の入口・`[data-ui-home]`・案件の画面の「← 入口へ」)は、
     入口がほかの窓・タブで開いていれば移らずに入口の窓を前に出す(`api/ytt/focus-portal`)。入口の画面は `UIKit.portal.listen()` で答える(BroadcastChannel `ytt-portal`)
   - 入口の API は相対パス `api/ytt/…` で呼ぶ(入口の画面 → `/api/ytt/…`、取り込んだツール → `/studio/api/ytt/…`。どちらも入口が受け持つ)

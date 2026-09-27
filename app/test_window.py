@@ -403,6 +403,17 @@ class TestPortalApi(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {})[1]["focused"], False)
         self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
+    def test_streamer_colors(self):
+        """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は ytt_core/colors.py)"""
+        st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "ぺこら", "all": True})
+        self.assertEqual(st, 200, j)
+        self.assertEqual((j["match"]["name"], j["match"]["hex"]), ("兎田ぺこら", "#7EC2FE"))   # リポジトリの holo-colors/members.json
+        self.assertGreater(len(j["items"]), 50)
+        self.assertEqual(set(j["items"][0]), {"name", "en", "hex", "group", "mine"})
+        st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "存在しない人"})
+        self.assertEqual((j["match"], j["candidates"], j["items"]), (None, [], []))
+        self.assertEqual(self.req("POST", "/api/ytt/streamer-colors", {"q": "x"}, {"X-YTT-Token": "wrong"})[0], 403)
+
     def test_open_window_without_edge(self):
         self.srv.window = opener(os.path.join(self.tmp, "app"), FakeSys(exe=None))
         st, j = self.req("POST", "/api/ytt/open-window", {"url": "http://localhost:%d/" % self.port})

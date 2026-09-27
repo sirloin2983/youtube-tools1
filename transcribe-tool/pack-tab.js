@@ -42,10 +42,34 @@ function create(h){
     }[b] || '';
   }
 
+  /* ---------- 配信者の名前(字幕の文字の色。docs/followup-2026-09-27.md の 4)----------
+     手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
+     名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt_core/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
+  const WHO_KEY = 'tx.streamer.v1', WHO_MAX = 300;
+  const whoMap = () => { try { const m = JSON.parse(localStorage.getItem(WHO_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } };
+  const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
+  function saveWho(id, name){
+    if (!id) return;
+    try {
+      const m = whoMap(); delete m[id];
+      if (name) m[id] = name;
+      const keys = Object.keys(m); for (const k of keys.slice(0, Math.max(0, keys.length - WHO_MAX))) delete m[k];   // 古いものから捨てる(入れた順)
+      localStorage.setItem(WHO_KEY, JSON.stringify(m));
+    } catch { /* 保存できないブラウザ: 覚えないだけ */ }
+  }
+  const whoOf = () => $('#pkWho').value.trim();
+  $('#pkWho').addEventListener('input', () => saveWho(h.S.docId, whoOf()));
+  $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
+    const who = e.detail;
+    if (who) document.body.style.setProperty('--tt-cap-color', who.hex); else document.body.style.removeProperty('--tt-cap-color');
+    $('#pkLookName').textContent = who ? `けいふぉんと・${who.name}の色の文字(${who.hex})・白いふち・黒いふち` : 'けいふぉんと・黒い文字・白いふち・黒いふち';
+  });
+
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', err: '', readme: '', lastRes: null });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
+    if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#pkWho'), docId ? whoFor(docId) : '');
     if (!docId) return render();
     try {
       const r = await h.api('/api/edit?id=' + encodeURIComponent(docId));
@@ -171,7 +195,8 @@ function create(h){
       const rev = h.CUT.state().rev, docAt = h.S.baseUpdatedAt;
       const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v; }
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
-      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(), ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}) };
+      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(),
+        ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(hasRows && whoOf() ? { streamer: whoOf() } : {}) };
       let force = false, res;
       for (;;){
         try {
@@ -235,7 +260,8 @@ function create(h){
     if (!(await h.saveDoc()) || (h.CUT && !(await h.CUT.flush()))) return h.toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
     const b = $('#pkZip'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
-      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf() });
+      const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf(),
+        ...(whoOf() ? { streamer: whoOf() } : {}) });
       h.download(await r.blob(), `${h.safeName(h.S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
       h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、フォルダの bat でスクリプトを登録してから Resolve で実行します`, 8000, 'ok');

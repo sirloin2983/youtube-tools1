@@ -59,6 +59,13 @@ def main():
             check(True, "置き先を 60fps にすると注意は消える")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1080x1920']")
+            # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色
+            pg.fill("#pkWho", "ぺこら")
+            wait_js(pg, "document.querySelector('#pkWho').dataset.color === '#7EC2FE'", 10000)
+            check("兎田ぺこら" in pg.inner_text(".tt-pk-who .ui-streamer-hint") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
+                  pg.evaluate("getComputedStyle(document.querySelector('#pkPhoneCap')).color") == "rgb(126, 194, 254)",
+                  "配信者の名前 → メンバーカラーの見本・字幕の見本の色: %s" % pg.inner_text(".tt-pk-who .ui-streamer-hint"))
+            check(pg.evaluate("document.querySelectorAll('#ui-streamer-list option').length") > 50, "名前の候補(ホロカラーの一覧)")
             pg.click("#pkBuild")
             wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
             check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
@@ -71,6 +78,8 @@ def main():
                   "パックは最小限(動画は直下・Lua・雛形・登録用の ps1/bat。EDL・SRT・cut-plan.json・.json・友人へ.txt は入れない): %s" % names)
             check(got == clips, "パックの区間 = カットのタブの区間(元の動画の 60fps のフレームのまま・短い区間も捨てない): %s" % got)
             check(ip.get("target") == {"fps": 30, "width": 1080, "height": 1920} and len(ip.get("captions", [])) == 3, "置き先 30fps・縦、字幕 3件: %s" % ip.get("target"))
+            check("兎田ぺこらの色の文字(#7EC2FE)" in ip.get("style", {}).get("name", ""), "パックの字幕の文字はメンバーカラー: %s" % ip.get("style", {}).get("name"))
+            check(pg.evaluate("JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}')[%s]" % json.dumps(tid)) == "ぺこら", "配信者の名前は文書ごとに覚える")
             e = srv.get("/api/edit?id=" + tid)
             check(e["edit"]["packRev"] == e["rev"] == 1 and os.path.normcase(e["edit"]["pack"]["dir"]) == os.path.normcase(packdir) and not e["packStale"],
                   "作った記録(packRev = 作ったときのカットの rev・出力フォルダ)")

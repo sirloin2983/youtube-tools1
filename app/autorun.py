@@ -24,7 +24,7 @@ import threading
 import time
 import uuid
 
-from ytt_core import txindex
+from ytt_core import colors, txindex
 
 MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック"}
@@ -98,10 +98,11 @@ def _doc_id_ok(v):
 
 
 class Run:
-    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False):
+    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None):
         self.id = uuid.uuid4().hex[:10]
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
         self.doc_id, self.overwrite = doc_id, bool(overwrite)   # 文書単位の実行(⑦(b))のときだけ
+        self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
         self.state = "queued"
         self.message = "順番待ち"
         self.error = ""
@@ -116,6 +117,7 @@ class Run:
     def public(self):
         return {"id": self.id, "kind": "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode, "modeLabel": MODES.get(self.mode, DOC_LABEL), "top": self.top,
+                "streamer": self.streamer,
                 "state": self.state, "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "steps": [dict(s) for s in self.steps]}
 
@@ -135,7 +137,12 @@ class AutoRunner:
         self.closed = False
 
     # ------------------------------------------------------------ 受付
-    def start(self, video_id, mode, top=None):
+    def _streamer(self, name):
+        """まとめて実行の画面で入れた配信者の名前 -> 照らし合わせた名前(空なら None)。見つからなければ始める前に断る(ValueError)"""
+        who, _hex = colors.resolve(name if isinstance(name, str) else "", env=self.env)
+        return who
+
+    def start(self, video_id, mode, top=None, streamer=None):
         if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
             raise ValueError("配信の指定が正しくありません")
         if mode not in MODES:
@@ -144,23 +151,25 @@ class AutoRunner:
             top = DEFAULT_TOP
         if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
             raise ValueError("採用する数は1〜30です")
+        who = self._streamer(streamer)
         with self.cv:
             active = [r for r in self.runs if r.state in ("queued", "running")]
             if any(r.video_id == video_id for r in active):
                 raise ValueError("この配信はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
-            run = Run(video_id, "", mode, top)
+            run = Run(video_id, "", mode, top, streamer=who)
             self.runs.append(run)
             self._trim()
             self._wake()
             return run.public()
 
-    def start_docs(self, ids, overwrite=False):
+    def start_docs(self, ids, overwrite=False, streamer=None):
         """「編集」の履歴で選んだ文書をまとめて(⑦(b))。文書ごとに1つの実行(順番待ち・中止・状態は配信単位の実行と同じ)。
         同じ文書がもう実行中・順番待ちなら断る(二重の登録)。-> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
         if not isinstance(ids, list) or not ids or len(ids) > MAX_WAITING:
             raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
+        who = self._streamer(streamer)
         docs = {d["id"]: d for d in txindex.load(txindex.folder(self.root, self.env))}
         made, skipped = [], []
         with self.cv:
@@ -174,7 +183,7 @@ class AutoRunner:
                 elif len(active) >= MAX_WAITING:
                     skipped.append({"id": tid, "title": d["title"], "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
-                    run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite)
+                    run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who)
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -471,6 +480,8 @@ class AutoRunner:
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         if force:
             body["output"]["force"] = True
+        if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
+            body["output"]["streamer"] = run.streamer
         while True:
             status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
             if not (status == 409 and res.get("error") == "busy"):

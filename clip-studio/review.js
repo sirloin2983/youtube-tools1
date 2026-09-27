@@ -136,6 +136,8 @@ function buildDOM(){
         <button type="button" class="btn small" data-auto="transcribe" title="採用したマークを書き出し → 文字起こし">文字起こしまで(書き出し → 文字起こし)</button>
         <div class="rv-autofull"><button type="button" class="btn small" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
           <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
+        <label class="lag rv-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+          <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
       </div>
     </details>
     <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター</span></button>
@@ -1757,7 +1759,8 @@ async function startAuto(mode){
   const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
-    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}) });
+    const who = $('#rvAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(配信者名から自動では入れない)
+    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}) });
     $('#rvAuto').open = false;
     toast('まとめて実行を始めました(入口の案件の画面と同じ順番待ち)', 5000, 'ok');
     pollAuto();
@@ -1797,6 +1800,7 @@ Studio.onReady(() => {
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
+  if (Studio.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
     try { await portalApi('api/autorun/cancel', { runId: $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }

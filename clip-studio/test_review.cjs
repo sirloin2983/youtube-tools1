@@ -49,7 +49,7 @@ function harness(respond) {
   };
   for (const name of ['renderVideoSelect', 'refreshList', 'refreshListQuiet', 'renderExportUI',
     'renderTimeline', 'renderStats', 'renderMeta', 'renderLiveCount', 'renderList',
-    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts']) context[name] = () => {};
+    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts', 'pollAuto']) context[name] = () => {};   // pollAuto: まとめて実行の進み具合(⑦)
   vm.createContext(context);
   vm.runInContext(
     between('let saveTimer =', '/* サーバー側の最新') +

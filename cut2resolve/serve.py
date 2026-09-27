@@ -69,7 +69,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir, httpsec, jobs as _heavy, runtime as _runtime, txindex as _txi  # noqa: E402
+from ytt_core import colors as _colors, datadir, httpsec, jobs as _heavy, runtime as _runtime, txindex as _txi  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -361,7 +361,7 @@ def is_pack_dir(path):
 MAX_PACK_RECORDS = 1000   # 記録がこれを超えたら、フォルダが無くなったものから古い順に消す
 
 
-def write_pack_record(res, plan, textplus, backup):
+def write_pack_record(res, plan, textplus, backup, color=None):
     """パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)。中身は以前パックに入れていた cut-plan.json と、フォルダ・動画・日時・中身のファイル。
     「パック済み」「前回のパックのフォルダを開く・手順書を読む」はこれを見る(ytt_core.txindex)。隠しファイルにしてパックに置かないのは、
     Windows で上書きに失敗することがあるため(ユーザー決定 2026-09-26)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ"""
@@ -371,7 +371,8 @@ def write_pack_record(res, plan, textplus, backup):
     rec = {"schema": _txi.PACK_RECORD_SCHEMA, "tool": {"name": "cut2resolve", "version": SERVER_VERSION},
            "dir": str(out_dir), "video": str(plan.video), "textplus": bool(textplus), "backup": bool(backup),
            "builtAt": int(time.time() * 1000), "files": [p.relative_to(out_dir).as_posix() for _, p in res["files"]],
-           "editMedia": res["editMedia"], "cutPlan": res["plan"]}
+           "editMedia": res["editMedia"], "cutPlan": res["plan"],
+           "textColor": (color or {}).get("hex"), "streamer": (color or {}).get("who")}   # 字幕の文字の色(配信者の名前を入れたとき)
     S.write_text_atomic(Path(d) / _txi.pack_key(out_dir), json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     try:
         names = [os.path.join(d, n) for n in os.listdir(d) if n.endswith(".json")]
@@ -544,7 +545,12 @@ def output_from_spec(o, video):
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
         raise ApiError("bad_textplus", str(e))
-    return {"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
+    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt_core/colors.py の1か所。docs/followup-2026-09-27.md の 4)
+    try:
+        who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
+    except ValueError as e:
+        raise ApiError("bad_streamer", str(e))
+    return {"textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
@@ -958,10 +964,10 @@ class Handler(BaseHTTPRequestHandler):
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
-                                  textplus_wrap=out["textplusWrap"], readme_file=False)
+                                  textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"])
             app.allow_out_dir(res["out_dir"])
             try:
-                write_pack_record(res, plan, out["textplus"], out["backup"])
+                write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
             except (OSError, ValueError) as e:
                 log("warn: パックの記録を書けません: %s" % e)
                 res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)

@@ -83,7 +83,8 @@ class Server:
         os.makedirs(self.media)
         rt = os.path.join(self.tmp, ".runtime")
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01",
-                   TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"))
+                   TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"),
+                   YTT_HOLO_MEMBERS=os.path.join(REPO, "holo-colors", "members.json"))   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧を読む)
         if mounted:
             for d in ("app", "transcribe-tool", "cut2resolve"):
                 copy_tool(os.path.join(REPO, d), os.path.join(self.tmp, d))
