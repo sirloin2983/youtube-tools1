@@ -170,9 +170,10 @@ function wireKeyHelp(){
 /* ---------- 起動時の URL 引数(?url= は ② 解析の URL 欄へ入れるだけ。自動では始めない: docs/pipeline.md 3.) ---------- */
 function readParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return; }
-  const url = (q.get('url') || '').trim();
+  const url = (q.get('url') || '').trim(), video = (q.get('video') || '').trim();
   if (url) Studio.params.url = url.slice(0, 2000);
-  if (url && history.replaceState){ try { history.replaceState(null, '', location.pathname + location.hash); } catch {} }   // 再読み込みで二重に入れない
+  if (/^[\w-]{1,64}$/.test(video)) Studio.params.video = video;   // B-6: 「編集」から戻るとき。保存済みの配信なら ③ の確認画面で開く
+  if ((url || video) && history.replaceState){ try { history.replaceState(null, '', location.pathname + location.hash); } catch {} }   // 再読み込みで二重に入れない
 }
 
 function paneError(msg){
@@ -202,8 +203,15 @@ const start = async () => {
     await Studio.refreshState();
   } catch (e){ Studio.showErr(e.message); paneError(e.message); return; }
   Studio.ready = true;
+  /* B-6: ?video= の配信が保存済みなら、解析の欄(?url=)ではなく ③ の確認画面でその配信を開く(作業の再開。再解析を求めているように見えないように) */
+  let openVid = null;
+  if (Studio.params.video){
+    try { openVid = ((await Studio.api('/api/videos')).videos || []).some(v => v.id === Studio.params.video) ? Studio.params.video : null; } catch {}
+    if (openVid) Studio.params.url = '';
+  }
   for (const fn of readyFns.splice(0)){ try { fn(); } catch (e){ console.error(e); Studio.showErr('画面の初期化に失敗しました: ' + e.message); } }
   let st = 'rank'; try { st = localStorage.getItem('clipstudio:step') || 'rank'; } catch {}
+  if (openVid && Studio.review){ Studio.review.open(openVid); return; }
   if (Studio.params.url) st = 'queue';
   Studio.go(STEPS.includes(st) ? st : 'rank');
 };

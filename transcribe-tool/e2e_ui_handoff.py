@@ -219,6 +219,8 @@ def main():
             # ==================== 3) 開いた文書の「元の配信」・動画の隣に保存・cut2resolve へのリンク ====================
             open_doc("切り抜き文書")
             check(pg.is_visible("#docClip") and "元の配信" in pg.inner_text("#docClip") and pg.locator("#docClip img").count() == 0, "clip のある文書は、編集画面にも「元の配信」が出る")
+            st_href = pg.get_attribute('[data-ui-appnav-item="studio"]', "href") or ""
+            check("video=abcdefghijk" in st_href and "url=" in st_href, "ヘッダーの「スタジオ」は元の配信を ?video= で渡す(保存済みなら確認画面で開く。B-6): %s" % st_href)
             if not pg.evaluate("document.querySelector('#exDetails').open"):   # v0.15.0: 「道具 ▾」から「書き出し」のカードへ
                 pg.click("#btnSpk")
                 pg.click("[data-jump=exDetails]")

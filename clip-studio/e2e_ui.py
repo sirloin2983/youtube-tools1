@@ -602,6 +602,19 @@ def run_checks(port, fx, shots=None):
         else:
             c.ok(pg.is_hidden("#rkAuto"), "① 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
 
+        print("[?video=(B-6: 「編集」から戻る)]")
+        pg.goto(base + "?video=" + fx["a"] + "&url=" + urllib.parse.quote("https://youtu.be/abcdefghijk"))
+        wait_js(pg, "() => !document.querySelector('#paneReview').hidden && document.querySelectorAll('#rvList .rv-mark-row').length > 0", 15000)
+        want = sorted(m["id"] for m in api(port, "GET", "/api/video?id=" + fx["a"])["video"]["marks"])
+        got = sorted(pg.eval_on_selector_all("#rvList .rv-mark-row", "els => els.map(e => e.dataset.id)"))
+        c.ok(pg.is_visible("#paneReview") and got == want, "?video= の配信が保存済みなら、③ の確認画面でその配信を開く: %s / %s" % (got[:5], want[:5]))
+        c.ok(pg.input_value("#qUrls") == "", "そのときは ?url= を解析の欄に入れない(再解析を求めているように見せない)")
+        c.ok("video=" not in pg.url and "url=" not in pg.url, "受け取ったあと、アドレスから ?video= ?url= を消す")
+        pg.goto(base + "?video=nosuchvideo&url=" + urllib.parse.quote("https://youtu.be/abcdefghijk"))
+        pg.wait_for_selector("#qEntry")
+        c.ok(pg.is_visible("#paneQueue") and pg.input_value("#qUrls") == "https://youtu.be/abcdefghijk", "保存されていない配信なら、これまでどおり ?url= を解析の欄に入れる")
+        pg.fill("#qUrls", "")
+
         print("[② 解析 と ?url=]")
         pg.goto(base + "?url=" + urllib.parse.quote("https://youtu.be/abcdefghijk"))
         pg.wait_for_selector("#qEntry")

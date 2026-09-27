@@ -2451,7 +2451,10 @@ function renderDocExtras(d){
   if (window.UIKit && UIKit.appnav){
     const src = d && d.clip && typeof d.clip === 'object' && d.clip.source && typeof d.clip.source === 'object' ? d.clip.source : null;
     const url = src && typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url : '';
-    UIKit.appnav.setLink('studio', url ? '?url=' + encodeURIComponent(url) : '?');
+    const vid = src && typeof src.videoId === 'string' && /^[\w-]{1,64}$/.test(src.videoId) ? src.videoId : '';
+    /* B-6: ?video= を先に(スタジオに保存済みなら、その配信の確認画面で開く)。?url= は保存されていなかったときの予備(解析の欄に入る) */
+    const q = [vid ? 'video=' + encodeURIComponent(vid) : '', url ? 'url=' + encodeURIComponent(url) : ''].filter(Boolean).join('&');
+    UIKit.appnav.setLink('studio', '?' + q);
   }
 }
 const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
