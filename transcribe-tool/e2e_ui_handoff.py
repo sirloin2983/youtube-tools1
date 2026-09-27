@@ -319,12 +319,12 @@ def main():
             pg.focus("#q")
             pg.keyboard.press("Escape")
             n1 = navi()
-            pg.keyboard.press("w")
-            check(pg.evaluate("document.activeElement === document.body") and n1 > 0 and navi() == n1 - 1, "検索欄で Esc → 抜けて、W で前の行へ(取りこぼさない): %s → %s" % (n1, navi()))
+            pg.keyboard.press("ArrowUp")   # 段2(2026-09-27): 行の移動は W/S → ↑/↓
+            check(pg.evaluate("document.activeElement === document.body") and n1 > 0 and navi() == n1 - 1, "検索欄で Esc → 抜けて、↑ で前の行へ(取りこぼさない): %s → %s" % (n1, navi()))
             pg.focus("#rate")
             pg.keyboard.press("Escape")
-            pg.keyboard.press("s")
-            check(navi() == n1, "速さの欄でも Esc で抜けて、S が効く")
+            pg.keyboard.press("ArrowDown")
+            check(navi() == n1, "速さの欄でも Esc で抜けて、↓ が効く")
 
             # ==================== 7) 保存の途中で、開いている文書を消す ====================
             open_doc("消す文書")
