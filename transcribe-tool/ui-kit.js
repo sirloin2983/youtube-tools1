@@ -798,6 +798,8 @@
     for (var i = 0; i < rows.length; i++) html += kbdRow(rows[i][0], rows[i][1]);
     return html + '</section>';
   }
+  /* K・L で戻す速さは、画面の速さの設定(defaultPlaybackRate。編集の「速さ」など)。無ければ 1 倍 */
+  function baseRate(media) { var r = +media.defaultPlaybackRate; return r > 0 ? r : 1; }
   function keysPlayback(opts) {
     opts = opts || {};
     return function (e) {
@@ -816,10 +818,10 @@
         if (media) { try { if (media.paused) media.play(); else media.pause(); } catch (er) { /* 無視 */ } }
         name = 'Space';
       } else if (key === 'j' || key === 'J') { seek(-1); name = 'J'; }
-      else if (key === 'k' || key === 'K') { if (media) { try { media.pause(); media.playbackRate = 1; } catch (er) { /* 無視 */ } } name = 'K'; }
+      else if (key === 'k' || key === 'K') { if (media) { try { media.pause(); media.playbackRate = baseRate(media); } catch (er) { /* 無視 */ } } name = 'K'; }
       else if (key === 'l' || key === 'L') {
         if (media) {
-          try { if (media.paused) { media.playbackRate = 1; media.play(); } else media.playbackRate = media.playbackRate >= 1.5 ? 2 : 1.5; } catch (er) { /* 無視 */ }
+          try { if (media.paused) { media.playbackRate = baseRate(media); media.play(); } else media.playbackRate = media.playbackRate >= 1.5 ? 2 : 1.5; } catch (er) { /* 無視 */ }
         }
         name = 'L';
       } else if (key === 'ArrowLeft') { seek(shift ? -5 : -1); name = shift ? 'Shift+←' : '←'; }
