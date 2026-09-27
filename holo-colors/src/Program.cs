@@ -130,7 +130,7 @@ namespace HoloColors
         IntPtr previous = IntPtr.Zero;
         ForegroundTracker tracker;      // 最後に使っていたほかのアプリの窓(戻る先)
         bool hiding;                     // 自分で隠している最中(そのときの Deactivate では戻る先を変えない)
-        public bool FirstRun;            // 初めての起動(下の段に「× で閉じてもタスクバーで待っています」)
+        public bool FirstRun;            // 初めての起動(下の段に「Esc で閉じるとタスクバーで待機」)
         public bool RunningFromTemp;     // zip を開いたまま一時フォルダの exe を起動している   // 一覧を出す前に前面だった窓(閉じたら戻す)
         Form modal;                      // 開いている設定・追加の画面
         bool suspended;

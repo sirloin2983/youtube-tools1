@@ -280,6 +280,16 @@ class E2E:
         if user32.GetForegroundWindow() != hwnd:
             raise Failure("前面の窓が変わったので止めました(%s)。テストの間はマウスとキーボードに触らないでください" % what)
 
+    def close_button(self):
+        """右上の × と同じ知らせ(WM_SYSCOMMAND の SC_CLOSE)を送る → アプリが終わる(v1.2.1)"""
+        user32.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+        user32.PostMessageW(self.main, 0x0112, 0xF060, 0)
+        try:
+            self.proc.wait(10)
+        except subprocess.TimeoutExpired:
+            raise Failure("× でアプリが終わらない")
+        self.check(self.proc.returncode == 0, "右上の × でアプリが終わる")
+
     def visible(self):
         """一覧が開いているか(v1.2.0 から、閉じる = 最小化。タスクバーには残る)"""
         return bool(user32.IsWindowVisible(self.main)) and not user32.IsIconic(self.main)
@@ -444,7 +454,7 @@ class E2E:
         if self.front_tk():
             self.pump(0.3)
             self.check(self.visible() and user32.GetForegroundWindow() == self.tk_hwnd, "閉じない設定でも、ほかの窓を押せばそちらが前に来る")
-        self.quit()
+        self.close_button()
 
         log = os.path.join(self.data, "holo-colors.log")
         text = open(log, encoding="utf-8").read() if os.path.exists(log) else ""

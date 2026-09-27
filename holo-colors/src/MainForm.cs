@@ -217,7 +217,7 @@ namespace HoloColors
             statusHex = null;
             string key = app.HotkeyText.Replace(" + ", "+");
             status.Text = app.FirstRun
-                ? "× で閉じてもタスクバーで待っています。" + key + " かタスクバーのアイコンでまた開きます"
+                ? "Esc で閉じるとタスクバーで待機し、" + key + " でまた開きます(× は終了)"
                 : key + " で開閉 ・ 右クリックでメニュー";
             status.Invalidate();
         }
@@ -322,9 +322,9 @@ namespace HoloColors
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // × は最小化するだけ(アプリはタスクバーと通知領域に残る)。終わるのは通知領域のメニューか設定から。
-            // Windows の終了・タスク マネージャーならアプリごと終わる。ほかのプログラムから閉じられても隠すだけ
-            // (窓だけ破棄されると、通知領域に残ったアプリがキーを押すたびにエラーになる)
+            // × ・ Alt+F4 ・タスクバーの「ウィンドウを閉じる」はアプリの終了(v1.2.1。ユーザーの指摘: × で終了しない)。
+            // Esc とコピー後に閉じるのは最小化のまま(HideMain。タスクバーに残して、キーでまた開ける)。
+            // 窓だけ破棄されて通知領域にアプリが残ると、キーを押すたびにエラーになるので、窓を閉じるときは必ずアプリごと終わる
             if (!app.Quitting)
             {
                 if (e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing)
@@ -333,8 +333,9 @@ namespace HoloColors
                 }
                 else
                 {
+                    // 閉じている最中に Quit(中で main.Close を呼ぶ)を呼ぶと入れ子になるので、いったん止めてから終わる
                     e.Cancel = true;
-                    app.HideMain(true);
+                    BeginInvoke(new Action(app.Quit));
                     return;
                 }
             }
