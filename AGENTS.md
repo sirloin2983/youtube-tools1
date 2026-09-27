@@ -96,6 +96,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)。
   E1〜E6 は 2026-09-26 に実装済み。実機確認の結果の直しも同じ担当
 - ホロカラー(`holo-colors/`・`docs/holo-colors.md`): Claude Code(PC)が担当(2026-09-27 作成)
+- 画面の全面見直し(`.design/ui-overhaul/DESIGN_BRIEF.md`。ユーザー承認 2026-09-27)の実装: Claude Code(PC)が担当(段1〜5 実装済み 2026-09-27。実装で決めた細部は `.design/ui-overhaul/IMPLEMENTATION.md`)
 - 上に無いツールを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 取り込みの決まり:
