@@ -5269,13 +5269,16 @@ class Handler(BaseHTTPRequestHandler):
                         who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
                     except ValueError as e:
                         raise ApiError("bad_streamer", str(e), 400)
+                    tdoc = read_transcript(tid)
+                    spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0]                         if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
                     ed, _broken = read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
-                    zp, tmp_dir, info = resolve_export.create_package(read_transcript(tid), str(obj.get("fps") or "30"),
+                    zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"),
                                                                       str(obj.get("size") or "") or None, SERVER_VERSION,
                                                                       keeps=edit_keeps_sec(ed) if ed and ed["clips"] else None,
                                                                       row_edge=load_settings().get("rowEdge"), backup=obj.get("backup") is True,
                                                                       wrap=wrap_arg(obj.get("wrap"), obj.get("size")),
-                                                                      color={"hex": hex_, "who": who} if hex_ else None)
+                                                                      color={"hex": hex_, "who": who} if hex_ else None,
+                                                                      speaker_colors=spk_map)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Length", str(os.path.getsize(zp)))

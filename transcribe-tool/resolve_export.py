@@ -235,12 +235,13 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
 
 
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
-                   row_edge=None, backup: bool = False, wrap=None, color=None) -> tuple[str, str, dict]:
+                   row_edge=None, backup: bool = False, wrap=None, color=None, speaker_colors=None) -> tuple[str, str, dict]:
     """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
     fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
     keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から
-    (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)"""
+    (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)。
+    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt_core/colors.speaker_colors で決める)"""
     import pipeline_io   # pipeline_io も resolve_export を読み込むので、ここで読む(循環を避ける)
 
     source = str(doc.get("sourcePath") or "")
@@ -262,7 +263,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
             res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap,
-                                  readme_file=False, textplus_color=color)
+                                  readme_file=False, textplus_color=color, speaker_colors=speaker_colors or None)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
         zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")

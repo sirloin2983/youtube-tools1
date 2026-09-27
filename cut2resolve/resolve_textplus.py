@@ -44,6 +44,17 @@ TEXT_STYLE = {
 }
 
 
+def hex_rgba(hex_):
+    """'#RRGGBB' -> [r, g, b, 1.0](0〜1)。形が違えば None"""
+    h = str(hex_ or "").strip().lstrip("#")
+    if len(h) != 6:
+        return None
+    try:
+        return [round(int(h[i:i + 2], 16) / 255.0, 4) for i in (0, 2, 4)] + [1.0]
+    except ValueError:
+        return None
+
+
 def text_style(color=None):
     """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。docs/followup-2026-09-27.md の 4)なら
     文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
@@ -188,8 +199,9 @@ def wrap_caption(text, per_line):
     return "\n".join(x for x in lines if x)
 
 
-def build_import_plan(plan, media_file, target=None, wrap=None, color=None):
+def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
+    fills: 字幕ごとの文字の色 [[r,g,b,a] | None, ...](字幕の並びと同じ。A-2: 話者ごとの色)。None の字幕は style のまま
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
     wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)"""
     fps = plan.meta["fps"]
@@ -197,6 +209,9 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None):
     caps = caption_segments(plan.keeps, plan.cues_out)
     for c in caps:
         c["text"] = wrap_caption(c["text"], per_line)
+    for c, f in zip(caps, fills or []):
+        if f:
+            c["fill"] = [float(x) for x in f][:4]
     return {
         "schema": SCHEMA,
         "title": plan.req.name or plan.video.stem,
@@ -223,7 +238,8 @@ def _style_data(color=None):
     """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び(color: 文字の色。text_style)"""
     st = text_style(color)
     return {"name": st["name"], "fonts": st["fonts"], "styles": st["styles"], "autoFonts": st["autoFonts"],
-            "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(st)}
+            "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(st),
+            "fillN": next(e["n"] for e in st["shading"] if e["shape"] == 0)}   # 文字の塗りの要素の番号(字幕ごとの色 cap.fill を入れる先)
 
 
 def importer_script(plan):
@@ -522,6 +538,13 @@ local ok, err = pcall(function()
                 tool:SetInput("Font", fontName)
                 tool:SetInput("Style", fontStyle)
                 applyStyle(tool)
+                if cap.fill then   -- 話者ごとの色(A-2): この字幕だけ文字の塗りを変える(名前は最初の字幕で決めた読み替えに従う)
+                    local n = tostring(DATA.style.fillN or 1)
+                    for i, k in ipairs({"Red", "Green", "Blue", "Alpha"}) do
+                        local name = styleUse[k .. n] or (k .. n)
+                        pcall(function() tool:SetInput(name, cap.fill[i]) end)
+                    end
+                end
                 added = added + 1
             else
                 failed = failed + 1
@@ -715,12 +738,12 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 {backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None):
+def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。

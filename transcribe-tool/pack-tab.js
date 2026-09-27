@@ -66,6 +66,34 @@ function create(h){
     render();   // 「前回の設定」の要約の色の丸も、入れ直すたびに合わせる
   });
 
+  /* ---------- 話者ごとの字幕の色(A-2)。照らし合わせは入口の api/ytt/streamer-colors(ytt_core/colors.py の1か所)。
+     パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ ---------- */
+  const SPK_KEY = 'tx.pk.speakerColors';
+  try { $('#pkSpk').checked = localStorage.getItem(SPK_KEY) !== '0'; } catch { /* 既定のまま(オン) */ }
+  $('#pkSpk').addEventListener('change', () => { try { localStorage.setItem(SPK_KEY, $('#pkSpk').checked ? '1' : '0'); } catch {} render(); });
+  const spkCache = new Map();   // 名前 -> { name, hex } | null(照らし合わせの結果。画面を開いている間だけ覚える)
+  function spkLookup(name){
+    if (spkCache.has(name)) return spkCache.get(name);
+    const p = h.api('/api/ytt/streamer-colors', { body: { q: name } }).then(j => (j && j.match ? { name: j.match.name, hex: j.match.hex } : null), () => null);
+    spkCache.set(name, p);
+    p.then(v => { spkCache.set(name, v); render(); });
+    return p;
+  }
+  function renderSpk(){
+    const box = $('#pkSpkList'), d = h.S.doc, on = $('#pkSpk').checked;
+    const names = d ? [...new Set((d.speakers || []).map(s => String(s.name || '').trim()).filter(Boolean))] : [];
+    $('#pkSpk').disabled = !h.TOKEN;
+    if (!h.TOKEN){ box.textContent = '入口から開くと使えます'; return; }
+    if (!on || !names.length){ box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
+    const parts = names.slice(0, 12).map(n => {
+      const v = spkCache.has(n) ? spkCache.get(n) : spkLookup(n);
+      if (v && typeof v.then === 'function') return `<span>${h.esc(n)}: …</span>`;
+      return v ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(v.hex)}"></i>${h.esc(n)} → ${h.esc(v.name)}の色</span>`
+        : `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>`;
+    });
+    box.innerHTML = parts.join(' ・ ');
+  }
+
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', err: '', readme: '', lastRes: null });
@@ -128,6 +156,7 @@ function create(h){
     $('#pkSamples').innerHTML = rows.length ? rows.map(t => `<div class="tt-pk-cap tt-cap-look">${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
     $('#pkPhoneCap').textContent = rows[0] || '';
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
+    renderSpk();
     $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;
     // 作る前の注意(cut2resolve の plan の注意。例: とても短い区間)
     const warns = [];
@@ -210,7 +239,8 @@ function create(h){
       const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v; }
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
       const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(),
-        ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(hasRows && whoOf() ? { streamer: whoOf() } : {}) };
+        ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(hasRows && whoOf() ? { streamer: whoOf() } : {}),
+        speakerColors: hasRows && $('#pkSpk').checked };
       let force = false, res;
       for (;;){
         try {
@@ -280,7 +310,7 @@ function create(h){
     const b = $('#pkZip'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
       const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf(),
-        ...(whoOf() ? { streamer: whoOf() } : {}) });
+        ...(whoOf() ? { streamer: whoOf() } : {}), speakerColors: $('#pkSpk').checked });
       h.download(await r.blob(), `${h.safeName(h.S.doc.title)}-resolve.zip`);
       const cuts = r.headers.get('X-Resolve-Cuts') || '?', caps = r.headers.get('X-Resolve-Captions') || '?';
       h.toast(`パック(zip)を作成しました(残す区間${cuts}か所・Text+ ${caps}件)。zip を展開して、フォルダの bat でスクリプトを登録してから Resolve で実行します`, 8000, 'ok');

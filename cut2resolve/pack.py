@@ -123,6 +123,7 @@ class Plan:
     doc: dict                     # cut-plan.json の元(auto_cut.build_plan / plan_from_keeps と同じ形)
     transcript: Optional[dict] = None
     cutplan: Optional[dict] = None
+    speaker_spans: Optional[list] = None   # [(開始秒, 終了秒, 話者の名前)](元の動画の時刻。字幕が文字起こしのときだけ。A-2: 話者ごとの字幕の色)
 
 
 class Cache:
@@ -435,7 +436,32 @@ def plan_cut(req, task=None, cache=None, log=None):
     return Plan(req=req, video=video, meta=meta, keeps=keeps, base=base, selected=selected, drops=drops,
                 cues=cues, cues_out=cues_out, vanished=vanished, sub_source=sub_source,
                 src_start=src_start, src_desc=src_desc, handles=handles, warnings=warns, doc=doc,
-                transcript=tr, cutplan=cp)
+                transcript=tr, cutplan=cp,
+                speaker_spans=[(r["start"], r["end"], r["speaker"]) for r in tr["rows"] if C.row_is_kept(r) and r.get("speaker")]
+                if tr and sub_source == "transcript" else None)
+
+
+def cue_speakers(plan):
+    """カット後の字幕(plan.cues_out)ごとの話者の名前。字幕の真ん中を元の動画の時刻に戻し、その時刻の文字起こしの行の話者。
+    話者の区間が無ければ None(字幕の並びと同じ長さの list。話者の無い字幕は None)"""
+    spans = plan.speaker_spans or []
+    if not plan.cues_out or not spans:
+        return None
+    fps = plan.meta["fps"]
+    rec, r = [], 0
+    for ks, ke in plan.keeps:
+        rec.append((r, r + (ke - ks), ks))
+        r += ke - ks
+    out = []
+    for start, end, _text in plan.cues_out:
+        seg = next(((a, b, ks) for a, b, ks in rec if a <= start < b), None)
+        if seg is None:
+            out.append(None)
+            continue
+        a, b, ks = seg
+        sec = (ks + (min((start + end) / 2.0, b) - a)) * fps[1] / fps[0]
+        out.append(next((n for s, e, n in spans if s <= sec < e), None))
+    return out
 
 
 def describe(plan):
@@ -552,11 +578,12 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
-               textplus_color=None):
+               textplus_color=None, speaker_colors=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
     textplus_color: Text+ の文字の色 {"hex", "who"}(配信者のメンバーカラー。resolve_textplus.text_style。None = 黒い文字)。
+    speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
@@ -635,10 +662,13 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             files[kind] = final
             staged.pop(0)
         if textplus:
+            # 字幕ごとの色は、余白つき素材に置き換える前の計画(元の動画の時刻 = 文字起こしの時刻)で決める。字幕の並びは置き換えても同じ
+            names = cue_speakers(plan) if speaker_colors else None
+            fills = [TP.hex_rgba(speaker_colors.get(n)) if n and speaker_colors.get(n) else None for n in names] if names else None
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
             files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap,
-                                        color=textplus_color))
+                                        color=textplus_color, fills=fills))
     finally:
         for tmp, _, _ in staged:
             try:

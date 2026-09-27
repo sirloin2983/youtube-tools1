@@ -1014,6 +1014,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 @container editor (max-width:900px){.tt-pk-grid{grid-template-columns:minmax(0,1fr)}}
 .tt-set-sub{margin:16px 0 6px;font-size:12px;color:var(--ink-2);font-weight:600}
 .tt-set-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+/* パック: 話者ごとの字幕の色(A-2) */
+.tt-pk-spk{margin-top:8px}
+.tt-pk-spklist{margin:4px 0 0;line-height:1.7}
+.tt-pk-spk-i{display:inline-flex;align-items:center;gap:5px}
+.tt-pk-spk-sw{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid var(--line-strong)}
 /* ⚙ 設定の「キー配置」(2026-09-27) */
 .tt-kmgroup{margin-top:10px}
 .tt-kmgroup h4{margin:0 0 4px;font-size:12px;color:var(--ink-2);font-weight:600}
@@ -1486,6 +1491,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <div class="tt-pk-sub">字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
            <label class="lag tt-pk-who" title="名前を入れると、字幕の文字をその人のメンバーカラーにします(ホロカラーの色の一覧。空なら黒い文字。この文書に覚えます)">配信者(字幕の色)
              <input id="pkWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
+           <label class="lag tt-pk-spk" title="話者の名前(「話者」の欄で付けた名前)がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は上の配信者の色(空なら黒)のまま">
+             <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
+           <div class="hint tt-pk-spklist" id="pkSpkList"></div>
            <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
              <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
          </div>

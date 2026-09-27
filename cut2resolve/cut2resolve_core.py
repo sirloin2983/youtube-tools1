@@ -841,13 +841,17 @@ def resolve_media_path(media, json_path):
 
 
 def read_transcript(path):
-    """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut"}](時刻順), "bad": 読めなかった行の数,
-    "media": {...}, "title"}。時刻は秒(動画の先頭 = 0)"""
+    """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut","speaker"}](時刻順), "bad": 読めなかった行の数,
+    "media": {...}, "title"}。時刻は秒(動画の先頭 = 0)。speaker は話者の名前(speakers の name。話者なしは "")"""
     d = read_json_file(path, "文字起こし(.transcript.json)")
     check_schema(d, TRANSCRIPT_SCHEMA, "文字起こし(youtube-tools-transcript/v1)")
     segs = d.get("segments")
     if not isinstance(segs, list):
         raise ToolError("文字起こしに segments(行の一覧)がありません。")
+    names = {}
+    for s in d.get("speakers") or []:
+        if isinstance(s, dict) and s.get("id") is not None and not isinstance(s.get("id"), (dict, list)):
+            names[s["id"]] = str(s.get("name") or "").strip()[:60]
     rows, bad = [], 0
     for g in segs:
         if not isinstance(g, dict):
@@ -860,7 +864,8 @@ def read_transcript(path):
         text = g.get("text")
         rows.append({"id": str(g.get("id") or ""), "start": a, "end": b,
                      "text": text.strip() if isinstance(text, str) else "",
-                     "cut": g.get("cut") in (True, "true")})
+                     "cut": g.get("cut") in (True, "true"),
+                     "speaker": names.get(g.get("speaker"), "") if not isinstance(g.get("speaker"), (dict, list)) else ""})
     rows.sort(key=lambda r: (r["start"], r["end"]))
     media = d.get("media") if isinstance(d.get("media"), dict) else {}
     return {"rows": rows, "bad": bad, "media": media, "title": str(d.get("title") or "")}

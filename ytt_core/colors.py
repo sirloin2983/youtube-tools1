@@ -117,6 +117,22 @@ def lookup(name, entries=None, env=None):
     return {"match": uniq[0] if len(uniq) == 1 else None, "candidates": uniq[:8]}
 
 
+def speaker_colors(names, env=None, entries=None):
+    """話者の名前の並び -> ({名前: "#RRGGBB"}, [{"speaker", "name", "hex"}])(A-2: 話者ごとの字幕の色)。
+    1人に決まる名前だけ(lookup の規則。「話者1」のような名前・候補が複数の名前は色を付けない)。多すぎる名前は最初の 40 人まで"""
+    out, shown = {}, []
+    uniq = sorted({str(n).strip() for n in names or [] if str(n or "").strip()})
+    if not uniq:
+        return out, shown
+    entries = load(env) if entries is None else entries
+    for n in uniq[:40]:
+        r = lookup(n[:NAME_MAX], entries, env)
+        if r["match"]:
+            out[n] = r["match"]["hex"]
+            shown.append({"speaker": n, "name": r["match"]["name"], "hex": r["match"]["hex"]})
+    return out, shown
+
+
 def resolve(name, env=None, entries=None):
     """画面・まとめて実行から来た配信者の名前 -> (名前, カラーコード)。空なら (None, None)(今までどおり黒い文字)。
     見つからない・1人に決まらなければ ValueError(画面にそのまま出せる文)"""

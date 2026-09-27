@@ -699,5 +699,23 @@ class TestTextPlusTargetOption(unittest.TestCase):
         self.assertEqual(cm.exception.code, "bad_textplus")
 
 
+
+class SpeakerColorMapTest(unittest.TestCase):
+    """A-2: 話者の名前 → メンバーカラー。1人に決まる名前だけ(ytt_core/colors.py の規則)。話者の区間が無ければ空"""
+
+    def test_map(self):
+        with tempfile.TemporaryDirectory() as d:
+            members = Path(d) / "members.json"
+            members.write_text(json.dumps({"groups": [{"name": "0期生", "members": [
+                {"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF"}]}]}, ensure_ascii=False), encoding="utf-8")
+            plan = mock.Mock(speaker_spans=[(0, 1, "みこ"), (1, 2, "話者2"), (2, 3, "みこ")])
+            with mock.patch.dict(os.environ, {"YTT_HOLO_MEMBERS": str(members)}):
+                m, shown = serve.speaker_color_map(plan)
+            self.assertEqual(m, {"みこ": "#FF8FDF"})
+            self.assertEqual(shown, [{"speaker": "みこ", "name": "さくらみこ", "hex": "#FF8FDF"}])
+            self.assertEqual(serve.speaker_color_map(mock.Mock(speaker_spans=None)), ({}, []))
+        self.assertTrue(serve.output_from_spec({"textplus": True}, Path("x.mp4"))["speakerColors"])          # 既定はオン
+        self.assertFalse(serve.output_from_spec({"textplus": True, "speakerColors": False}, Path("x.mp4"))["speakerColors"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

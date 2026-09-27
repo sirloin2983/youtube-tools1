@@ -31,8 +31,9 @@ def main():
         tid = srv.transcribe(v1, "パックの確認")
         doc = srv.get("/api/transcript?id=" + tid)
         rows = [(0.5, 2.0, "一つめ"), (2.5, 2.8, "短い"), (4.0, 7.5, "三つめ")]
-        srv.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [],
-                                                      "segments": [{"id": "r%d" % i, "start": a, "end": b, "text": t} for i, (a, b, t) in enumerate(rows)]})
+        srv.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": [{"id": "S1", "name": "みこ"}],   # A-2: 1行目だけ話者「みこ」(= さくらみこ)
+                                                      "segments": [dict({"id": "r%d" % i, "start": a, "end": b, "text": t}, **({"speaker": "S1"} if i == 0 else {}))
+                                                                   for i, (a, b, t) in enumerate(rows)]})
         # カット(手で決めた区間): 60fps のフレームの境目。2つめは 0.3 秒(とても短い)・3つめは行より 3 フレーム長い
         clips = [(30, 120), (150, 168), (240, 453)]
         r = srv.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": {"sources": [{"fps": [FPS, 1], "duration": 8.0}],
@@ -73,9 +74,12 @@ def main():
                   pg.evaluate("getComputedStyle(document.querySelector('#pkPhoneCap')).color") == "rgb(126, 194, 254)",
                   "配信者の名前 → メンバーカラーの見本・字幕の見本の色: %s" % pg.inner_text(".tt-pk-who .ui-streamer-hint"))
             check(pg.evaluate("document.querySelectorAll('#ui-streamer-list option').length") > 50, "名前の候補(ホロカラーの一覧)")
-            check(pg.evaluate("document.querySelector('#pkSummarySw').hidden") is False and
-                  pg.evaluate("getComputedStyle(document.querySelector('#pkSummarySw')).backgroundColor") == "rgb(126, 194, 254)",
+            check(wait_js(pg, "!document.querySelector('#pkSummarySw').hidden && getComputedStyle(document.querySelector('#pkSummarySw')).backgroundColor === 'rgb(126, 194, 254)'", 5000),
                   "「前回の設定」の要約にも配信者の色の丸が出る(pkWho の色と同じ)")
+            # A-2: 話者の名前がメンバーと合えば、その話者の字幕をその色に(既定オン)。どの話者が何色かを見せる
+            check(pg.is_checked("#pkSpk"), "「話者の名前がメンバーと合えば…」は既定でオン")
+            wait_js(pg, "document.querySelector('#pkSpkList').textContent.indexOf('さくらみこの色') >= 0", 10000)
+            check(True, "話者「みこ」→ さくらみこの色、と見せる: " + pg.inner_text("#pkSpkList"))
             # 段3: 設定の引き出しを開かずに(主画面だけで)「パックを作る」を1クリックで作れる(ワンクリック)
             check(pg.evaluate("document.querySelector('#pkSettingsDrawer').hidden") is True, "「作る」を押す前に、設定の引き出しは閉じている")
             pg.click("#pkBuild")
@@ -91,6 +95,9 @@ def main():
             check(got == clips, "パックの区間 = カットのタブの区間(元の動画の 60fps のフレームのまま・短い区間も捨てない): %s" % got)
             check(ip.get("target") == {"fps": 30, "width": 1080, "height": 1920} and len(ip.get("captions", [])) == 3, "置き先 30fps・縦、字幕 3件: %s" % ip.get("target"))
             check("兎田ぺこらの色の文字(#7EC2FE)" in ip.get("style", {}).get("name", ""), "パックの字幕の文字はメンバーカラー: %s" % ip.get("style", {}).get("name"))
+            fills = [c.get("fill") for c in ip.get("captions", [])]
+            check(fills[0] == [1.0, 0.5608, 0.8745, 1.0] and fills[1] is None and fills[2] is None,
+                  "話者「みこ」の字幕だけ さくらみこの色、ほかは配信者の色のまま(A-2): %s" % fills)
             check(pg.evaluate("JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}')[%s]" % json.dumps(tid)) == "ぺこら", "配信者の名前は文書ごとに覚える")
             e = srv.get("/api/edit?id=" + tid)
             check(e["edit"]["packRev"] == e["rev"] == 1 and os.path.normcase(e["edit"]["pack"]["dir"]) == os.path.normcase(packdir) and not e["packStale"],

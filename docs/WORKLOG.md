@@ -1252,3 +1252,9 @@
 - B-11(スタジオ `review.js`・`review.css`): マークの一覧の微調整のボタン(±5/±1/±0.5・現在位置)は選んだマークにだけ出す。別のマークの欄に入ったら(Tab でも)そのマークを選ぶ。テスト: e2e_ui 135・--mounted・node 通過
 - 専用の窓(入口 `app/appwindow.py`・`portal.*`・README): 設定が無ければ Edge のアプリの窓で開く(`DEFAULT_MODE = "app"`)。オフにすると browser が残る・Edge が無ければブラウザ。「(試用)」を外した。入口 0.11.0 → **0.12.0**。
   `docs/integration-plan.md` に決定を書いた。テスト: `app/test_window.py`・`e2e_window.py`・入口の単体 91 件 通過
+- A-2 話者の名前から字幕の色(cut2resolve `cut2resolve_core.py`・`pack.py`・`resolve_textplus.py`・`serve.py`、`ytt_core/colors.py`、編集 `pack-tab.js`・`index.html`・`resolve_export.py`・`serve.py`):
+  文字起こしの話者の名前を読み(`read_transcript` の speaker)、計画に話者の区間(`Plan.speaker_spans`)。字幕の真ん中を元の動画の時刻に戻して話者を決め(`pack.cue_speakers`)、
+  メンバーと1人に合う話者の字幕だけ Lua の計画に `cap.fill`(Resolve の中で Text+ の塗りの色を入れる)。合わない話者は配信者の色(空なら黒)のまま。
+  名前→色の規則は `ytt_core/colors.speaker_colors` の1か所(cut2resolve の API と文字起こしの zip が共通で使う)。API は output.speakerColors(既定オン)。
+  余白つき素材に置き換える前の計画(元の動画の時刻 = 文字起こしの時刻)で決める。パックのタブに「話者の名前がメンバーと合えば…」のスイッチと、話者 → 色の一覧。
+  テスト: cut2resolve 287・契約テスト・編集 単体 125・e2e_edit_pack(話者「みこ」の字幕だけ色)・ui_mounted 通過。**Resolve の実機で色が入るかは未確認**(Lua の SetInput。見た目の入力の読み替えと同じ名前を使う)

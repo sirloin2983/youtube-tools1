@@ -537,6 +537,12 @@ def keeps_from_spec(v):
     return out
 
 
+def speaker_color_map(plan):
+    """文字起こしの話者の名前 -> メンバーカラー(A-2)。名前が1人に決まる話者だけ(規則は ytt_core/colors.py の lookup)。
+    -> ({名前: "#RRGGBB"}, [{"speaker", "name", "hex"}](画面に見せる))"""
+    return _colors.speaker_colors(n for _s, _e, n in (plan.speaker_spans or []))
+
+
 def output_from_spec(o, video):
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
@@ -553,6 +559,8 @@ def output_from_spec(o, video):
     return {"textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
+            # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
+            "speakerColors": o.get("speakerColors") is not False,
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
@@ -961,10 +969,12 @@ class Handler(BaseHTTPRequestHandler):
 
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
+            spk_map, spk_shown = speaker_color_map(plan) if out["textplus"] and out["speakerColors"] else ({}, [])
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
-                                  textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"])
+                                  textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
+                                  speaker_colors=spk_map or None)
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
@@ -975,7 +985,7 @@ class Handler(BaseHTTPRequestHandler):
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
                  "warningLevels": classify_warnings(res["warnings"]),
                  "summary": with_warning_levels(pack.summary(plan)), "mediaUrl": app.register_media(plan.video),
-                 "editMedia": res["editMedia"]}
+                 "editMedia": res["editMedia"], "speakerColors": spk_shown}
             rough = dict(res["files"]).get("roughcut")
             if rough:
                 r["roughcutUrl"] = app.register_media(rough)

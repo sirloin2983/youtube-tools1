@@ -1018,6 +1018,30 @@ class TestMinimalPack(unittest.TestCase):
         self.assertEqual(ip["cuts"], RTP.read_script_plan((Path(self.tmp.name) / "plain" / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))["cuts"])
         self.assertIn("黒い文字", plain["readme"])
 
+    def test_speaker_colors(self):
+        """A-2: 話者の名前ごとの色。文字起こしの話者を読み、字幕の真ん中の元の時刻で話者を決め、合う字幕だけ cap.fill(Lua の計画)を付ける"""
+        d = Path(self.tmp.name)
+        doc = transcript_doc([(0.5, 2, "一", False), (3, 5, "二", False)])
+        doc["speakers"] = [{"id": 0, "name": "兎田ぺこら"}, {"id": 1, "name": "話者2"}]
+        doc["segments"][0]["speaker"], doc["segments"][1]["speaker"] = 0, 1
+        tr = write(d / "spk.transcript.json", json.dumps(doc, ensure_ascii=False))
+        self.assertEqual([r["speaker"] for r in C.read_transcript(tr)["rows"]], ["兎田ぺこら", "話者2"])
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        self.assertEqual(plan.speaker_spans, [(0.5, 2, "兎田ぺこら"), (3, 5, "話者2")])
+        self.assertEqual(pack.cue_speakers(plan), ["兎田ぺこら", "話者2"])   # カットで詰めても、元の時刻の話者
+        out = d / "spk"
+        pack.build_pack(plan, out, textplus=True, speaker_colors={"兎田ぺこら": "#7EC2FE"}, **self.SCREEN)
+        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual(ip["captions"][0].get("fill"), [0.4941, 0.7608, 0.9961, 1.0])
+        self.assertNotIn("fill", ip["captions"][1])                                # 色の決まらない話者は、ふだんの見た目のまま
+        self.assertEqual(ip["style"]["fillN"], 1)                                  # 塗りの要素の番号(Lua が Red1 などに入れる)
+        lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
+        self.assertIn("cap.fill", lua)
+        out2 = d / "spk_off"
+        pack.build_pack(plan, out2, textplus=True, **self.SCREEN)                   # 渡さなければ今までどおり
+        ip2 = RTP.read_script_plan((out2 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertFalse(any("fill" in c for c in ip2["captions"]))
+
     def test_edl_only_pack_without_readme_file(self):
         """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""
         plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 2)]))
