@@ -82,7 +82,7 @@
 .rv-emptybox b{font-size:15px}
 
 /* ---- レイアウト: 左 = プレーヤーと操作、右 = マーク一覧(右は画面の高さに収め、一覧だけをスクロールする)。
-   書き出しは右の列の中ではなく、ui-drawer(#rvExport)として別に浮く(1280px 以上は docked = 主画面が右を空けて並ぶ、それより狭いときは重ねる) ---- */
+   書き出しは右の列の中ではなく、ui-drawer(#rvExport)として別に浮く(1680px 以上は docked = 主画面が右を空けて並ぶ、それより狭いときは重ねる) ---- */
 .rv-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(360px,1fr);gap:12px;align-items:start}
 .rv-stage{display:flex;flex-direction:column;gap:8px;min-width:0}
 .rv-clips{min-width:0;display:flex;flex-direction:column;gap:8px;position:sticky;top:calc(var(--cs-head) + 8px);max-height:calc(100vh - var(--cs-head) - 16px)}
@@ -97,9 +97,9 @@
 @media (min-width:961px){
   .rv-grid.theater{grid-template-columns:minmax(0,min(calc(100vw - 24px - 12px - 360px),calc((100vh - var(--cs-head) - 150px) * 16 / 9))) minmax(360px,1fr)}
 }
-/* 書き出しの引き出し(ui-drawer)。1280px 以上は docked: 主画面(.rv-root)の右をあらかじめ空けておくので、映像・一覧の上に重ならない。
+/* 書き出しの引き出し(ui-drawer)。1680px 以上は docked: 主画面(.rv-root)の右をあらかじめ空けておくので、映像・一覧の上に重ならない。
    それより狭いときは何もしない(ui-drawer は position:fixed のままなので、開けば普通に重なる = overlay) */
-@media (min-width:1280px){
+@media (min-width:1680px){
   .rv-root.rv-dock{padding-right:calc(var(--drawer-w) + var(--sp-3))}
 }
 /* ヘッダー(sticky・z-index 40)の上に重ならないよう、ヘッダーの高さぶん下から始める(ui-drawer の既定は top:0) */

@@ -79,7 +79,7 @@ def main():
         tid = jobs[0]["tid"]
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            pg = b.new_page(viewport={"width": 1500, "height": 1000})
+            pg = b.new_page(viewport={"width": 1920, "height": 1000})
             pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { ['qualityBox', 'dataBox'].forEach(id => { const d = document.getElementById(id); if (d) d.open = true; }); })")   # v0.18.1: 精度・学習は既定で閉じるので(左メニューの見直し)、隠れるカードも操作できるように開いておく
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)

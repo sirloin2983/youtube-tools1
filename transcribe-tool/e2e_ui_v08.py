@@ -204,6 +204,8 @@ def main():
             check(pg.evaluate("document.querySelector('#player').getBoundingClientRect().height") < 70, "音声だけ聞く: 映像が小さくなる")
             pg.mouse.click(5, 500)
             check(pg.evaluate("document.querySelector('#uiSettingsDrawer').hidden") is True, "外(幕)をクリックすると設定の引き出しが閉じる")
+            if pg.is_hidden("#menuPanel"):   # 1600px 未満の画面では、文書を開いた時点でメニューは自動で閉じている(2026-09-27)ので、先に開く
+                pg.click("#btnMenu")
             pg.click("#btnMenu")
             check(pg.is_hidden("#menuPanel") and pg.is_visible("#player"), "メニューを閉じる: 左のメニューだけ隠れる(映像は残る)")
             pg.keyboard.press("Escape")
@@ -235,7 +237,10 @@ def main():
             pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存しました')", timeout=8000)
             sv = call(port, "GET", "/api/transcript?id=" + tid)["segments"][3]
             check(sv.get("tags") == ["overlap"] and sv.get("speaker") == "S1", "タグと話者がサーバーに保存された: %s" % ({k: sv.get(k) for k in ("tags", "speaker")},))
-            # 保管(dataset/)
+            # 保管(dataset/)。保管は左メニューの一番下の「学習」(既定で閉じる)の中。メニューが閉じていれば開く
+            if pg.is_hidden("#menuPanel"):
+                pg.click("#btnMenu")
+            pg.evaluate("document.querySelector('#dataBox').open = true")
             pg.click("#arcNow")
             pg.wait_for_function("document.querySelector('#arcOut').textContent.includes('保管した文字起こし 1件')", timeout=30000)
             check("正解の行" in pg.inner_text("#arcOut") and "トワ" in pg.text_content("#arcOut"), "保管カードに、正解の量・話者ごとの量が出る")

@@ -509,7 +509,7 @@ async function loadVideo(id){
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
   setTimeout(pollAuto, 0);   // この配信の「まとめて実行」の進み具合
   S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set(); S.tx = null; S.txOpen = new Set(); S.txSeq++;
-  S.expDockClosed = false;   // 配信を開き直したら、前の配信で × で閉じていたことは忘れる(1280px 以上ならまた開く)
+  S.expDockClosed = false;   // 配信を開き直したら、前の配信で × で閉じていたことは忘れる(1680px 以上ならまた開く)
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
@@ -1533,9 +1533,9 @@ function placeJump(){
   else if (!wide && j.parentElement === top) top.after(j);
   j.classList.toggle('is-bar', !wide);
 }
-/* ---------- 書き出しの欄(ui-drawer)。1280px 以上は映像・マークと横に並ぶ「docked」(裏も操作できる。主な画面は右に空ける)、
+/* ---------- 書き出しの欄(ui-drawer)。1680px 以上は映像・マークと横に並ぶ「docked」(裏も操作できる。主な画面は右に空ける)、
    それより狭いときは重ねる「overlay」(閉じるまで畳んでおく) ---------- */
-const WIDE_EXPORT = '(min-width:1280px)';
+const WIDE_EXPORT = '(min-width:1680px)';   // 1440px では並べるとマークの一覧が細くなりすぎた(2026-09-27。以前は 1280px)
 const exportDockActive = () => window.matchMedia(WIDE_EXPORT).matches;
 const exportRunning = () => !!(S.job && S.job.running) || !!S.exportAll;
 /* 主画面の余白(rv-dock)は、実際に欄が docked で開いているときだけ付ける(× で閉じている間は余白を残さない) */
@@ -1543,7 +1543,7 @@ function updateDockClass(){
   const el = $('#rvExport'), root = $('#rvRoot');
   if (root) root.classList.toggle('rv-dock', exportDockActive() && !!el && !!window.UIKit && UIKit.drawer.isOpen(el));
 }
-/* opts.focus:false は自動で開くとき(docked)にフォーカスを奪わないため。1280px 以上は docked(modal:false)、それより狭い重ねる表示は modal:true */
+/* opts.focus:false は自動で開くとき(docked)にフォーカスを奪わないため。1680px 以上は docked(modal:false)、それより狭い重ねる表示は modal:true */
 function openExportDrawer(opener, opts){
   const el = $('#rvExport'); if (!el || !window.UIKit) return;
   opts = opts || {};
@@ -1565,7 +1565,7 @@ function closeExportDrawer(userClosed){
 }
 /* 呼ぶのは「①メディアクエリが変わったとき」と「②配信を開いた・閉じたとき」だけ(採用・不採用・書き出しの進み具合のたびに呼ぶと、
    閉じたばかりの欄が開き直ってフォーカスを奪ったり、書き出し中に欄が閉じたりしていた)。
-   1280px 以上: 閉じたと覚えていなければ、いつも見える場所として開いておく(focus:false)。
+   1680px 以上: 閉じたと覚えていなければ、いつも見える場所として開いておく(focus:false)。
    それより狭い: 自動で開けていた(docked)ぶんは重ねる表示をやめて畳む。書き出し中は、進み具合を見失わないよう畳まない */
 function syncExportDock(){
   const el = $('#rvExport'); if (!el || !window.UIKit) return;

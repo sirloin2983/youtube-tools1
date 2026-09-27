@@ -196,7 +196,7 @@ def main():
 
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 1500, "height": 1000})
+            ctx = b.new_context(viewport={"width": 1920, "height": 1000})
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
             # 想定内の 403(合言葉なしの確認は別途 Python から行う)以外のコンソールエラーだけ数える

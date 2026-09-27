@@ -147,7 +147,7 @@ def main():
 
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 1500, "height": 1000})
+            ctx = b.new_context(viewport={"width": 1920, "height": 1000})
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
@@ -407,7 +407,7 @@ def main():
             check("menu-closed" in (pg.get_attribute(".app", "class") or ""), "引き出しから文字起こしを開くと、引き出しは自動で閉じる")
             seg_top = pg.evaluate("document.querySelector('#segs .seg').getBoundingClientRect().top")
             check(seg_top < 844, "390px でも、開いた文字起こしの行が1画面目に見える(映像だけで埋まらない): top=%d" % seg_top)
-            pg.set_viewport_size({"width": 1500, "height": 1000})
+            pg.set_viewport_size({"width": 1920, "height": 1000})
 
             b.close()
         errors = [e for e in errors if "409" not in e and "404" not in e and "favicon" not in e and "Failed to load resource" not in e]   # 409/404 はこの試験でわざと起こしている

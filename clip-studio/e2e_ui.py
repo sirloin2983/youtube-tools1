@@ -13,7 +13,7 @@ STUDIO_FAKE=1(YouTube へは接続しない)で、生成した短い動画・専
 v0.8.0(画面の全面見直し): ① 事務所を登録すると、触っていない事務所にチェックが入る・外した事務所は外れたまま / 結果の「全部まとめて」と「事務所ごと」/
 ② 失敗の説明(よくある原因と対処・元のメッセージ) / ③ 配信の選択(検索)・プレーヤーが使えないときに自動再生で通知を出さない・
 どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / コラボ(設定の中): 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
-v0.9.0(画面の全面見直し 段階4): ③ 書き出しの引き出し(1280px 以上は docked・それ未満は overlay) / 盛り上がりの山の順位と理由・押すと5秒前へ /
+v0.9.0(画面の全面見直し 段階4): ③ 書き出しの引き出し(1680px 以上は docked・それ未満は overlay) / 盛り上がりの山の順位と理由・押すと5秒前へ /
 書き出し後の自動で文字起こし(入口の中だけ) / 下のキーの帯(キーの帯) / ④ コラボはタブから設定(⚙)の節へ
 """
 import json
@@ -273,12 +273,20 @@ def run_checks(port, fx, shots=None):
         open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")
-        # 書き出しの引き出し(1440px = 1280px 以上なので docked。主画面(映像・マーク)が右を空け、重ならない)
-        c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden"), "1440px: 書き出しの引き出しはいつも開いている(docked)")
+        # 書き出しの引き出し: 1680px 以上は docked(主画面(映像・マーク)が右を空け、重ならない)。1440px は既定で閉じて、押すと重ねる(2026-09-27。並べるとマークの一覧が細くなりすぎたため)
+        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "1440px: 書き出しの引き出しは既定で閉じている(マークの一覧を広く)")
+        pg.set_viewport_size({"width": 1720, "height": 900})
+        wait_js(pg, "() => !document.querySelector('#rvExport').hidden", 3000)
+        c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden"), "1720px: 書き出しの引き出しはいつも開いている(docked)")
         player_right = pg.eval_on_selector("#rvPlayerBox", "e => e.getBoundingClientRect().right")
         clips_right = pg.eval_on_selector("#rvClipbox", "e => e.getBoundingClientRect().right")
         drawer_left = pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().left")
-        c.ok(player_right <= drawer_left and clips_right <= drawer_left, "1440px: 書き出しの引き出しは映像・マークに重ならない(主画面が右を空けている): player=%s clips=%s drawer=%s" % (player_right, clips_right, drawer_left))
+        c.ok(player_right <= drawer_left and clips_right <= drawer_left, "1720px: 書き出しの引き出しは映像・マークに重ならない(主画面が右を空けている): player=%s clips=%s drawer=%s" % (player_right, clips_right, drawer_left))
+        pg.set_viewport_size({"width": 1440, "height": 900})
+        wait_js(pg, "() => document.querySelector('#rvExport').hidden", 3000)
+        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "1440px に戻すと、並べていた引き出しは閉じる")
+        pg.set_viewport_size({"width": 1720, "height": 900})   # 以下の書き出しの欄の確かめは、並べて開いている幅で行う
+        wait_js(pg, "() => !document.querySelector('#rvExport').hidden", 3000)
         # 下のキーの帯(共通の再生キー。UIKit.keybar。IMPLEMENTATION.md 4)
         c.ok(pg.evaluate("document.documentElement.hasAttribute('data-keybar')") and pg.locator(".ui-keybar .ui-keybar-item").count() > 0,
              "③ で配信を開くと、下のキーの帯にいま使えるキーが並ぶ")
@@ -632,7 +640,7 @@ def run_checks(port, fx, shots=None):
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok(pg.evaluate("document.querySelector('#rvJump').classList.contains('is-bar')") and pg.is_visible('#rvJump [data-jump="marks"]'),
              "390px の ③: プレーヤー・マーク・書き出しへ飛ぶ案内を出す")
-        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "390px(1280px 未満): 書き出しの引き出しは既定で閉じている(docked ではない)")
+        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "390px(1680px 未満): 書き出しの引き出しは既定で閉じている(docked ではない)")
         pg.click('#rvJump [data-jump="export"]'); pg.wait_for_timeout(400)
         c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden") and pg.is_visible("#rvExpRun"), "「書き出し」を押すと書き出しの引き出しが開く(重ねて)")
         c.ok(pg.evaluate(NO_HSCROLL_JS), "390px: 書き出しの引き出しを開いても横にはみ出さない")

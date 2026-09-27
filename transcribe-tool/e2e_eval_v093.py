@@ -134,7 +134,7 @@ def main():
         # 画面
         with sync_playwright() as pw:
             br = pw.chromium.launch()
-            pg = br.new_context(viewport={"width": 1400, "height": 900}).new_page()
+            pg = br.new_context(viewport={"width": 1920, "height": 900}).new_page()
             pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { ['qualityBox', 'dataBox'].forEach(id => { const d = document.getElementById(id); if (d) d.open = true; }); })")   # v0.18.1: 精度・学習は既定で閉じるので(左メニューの見直し)、隠れるカードも操作できるように開いておく
             pg.on("pageerror", lambda e_: errors.append(str(e_)))
             pg.on("console", lambda m_: errors.append(m_.text) if m_.type == "error" else None)

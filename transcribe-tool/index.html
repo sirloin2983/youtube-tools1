@@ -574,8 +574,8 @@ h2{margin:0;font-size:15px}
    v0.9.6: 表示部(映像)を左、セリフの一覧を右に配置。HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
 .editor{min-width:0;container:editor / inline-size}
 /* 映像の列は最大 460px(メニューを閉じたら 540px)だが、編集欄の 40% を超えない(校正の主役はセリフの一覧なので、狭い画面では一覧を優先) */
-.tx-grid{display:grid;grid-template-columns:minmax(300px,min(460px,40%)) minmax(420px,1fr);gap:16px;align-items:start}
-.app.menu-closed .tx-grid{grid-template-columns:minmax(300px,min(540px,42%)) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
+.tx-grid{display:grid;grid-template-columns:minmax(300px,min(640px,40%)) minmax(420px,1fr);gap:16px;align-items:start}   /* 広い画面では映像を大きく(以前は 460px まで) */
+.app.menu-closed .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
 .tx-list{min-width:0;order:2}
 /* v0.9.8: 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする。
    (以前は .pbox だけが固定で、その下の「話者・置換・書き出し」が映像の裏に潜って見えなかった) */
@@ -1407,11 +1407,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            </div>
            <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
            <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
-           <div class="tt-pk-sub">字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
-           <label class="lag tt-pk-who" title="名前を入れると、字幕の文字をその人のメンバーカラーにします(ホロカラーの色の一覧。空なら黒い文字。この文書に覚えます)">配信者(字幕の色)
-             <input id="pkWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
-           <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
-             <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
            <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
            <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
            <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
@@ -1419,6 +1414,15 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          </div>
        </div>
        <div class="tt-pk-col">
+         <!-- 字幕の見本(いつも見える)。右の列に置いて、左の「作る」までを縦に短くする(広い画面で右半分が空かないように。2026-09-27) -->
+         <div class="card tt-pk-card tt-pk-lookcard">
+           <h3 class="tt-pk-h">字幕の見本</h3>
+           <div class="tt-pk-sub">字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
+           <label class="lag tt-pk-who" title="名前を入れると、字幕の文字をその人のメンバーカラーにします(ホロカラーの色の一覧。空なら黒い文字。この文書に覚えます)">配信者(字幕の色)
+             <input id="pkWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
+           <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
+             <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
+         </div>
          <div class="card tt-pk-card" id="pkLast" hidden>
            <h3 class="tt-pk-h"><span class="pill ok" id="pkLastPill">前回のパック</span> <span class="hint" id="pkLastWhen"></span></h3>
            <p class="mono hint tt-pk-dir" id="pkLastDir"></p>

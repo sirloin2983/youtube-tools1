@@ -106,7 +106,7 @@ def main():
 
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 1500, "height": 1000})
+            ctx = b.new_context(viewport={"width": 1920, "height": 1000})
             pg = ctx.new_page()
             pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { ['qualityBox', 'dataBox'].forEach(id => { const d = document.getElementById(id); if (d) d.open = true; }); })")   # v0.18.1: 精度・学習は既定で閉じるので(左メニューの見直し)、隠れるカードも操作できるように開いておく
             pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -475,14 +475,14 @@ def main():
                 "(() => { const s = document.querySelector('#spDetails summary'); if (!s) return false; const r = s.getBoundingClientRect(); return r.top >= %s && r.top < window.innerHeight; })()"
                 % header_bottom, timeout=5000)
             check(True, "「道具 ▾」→「話者」を押すと details#spDetails が開き、スムーズスクロール後に見出しがヘッダーの下・画面内に収まる(映像パネルの裏に隠れない)")
-            pg.set_viewport_size({"width": 1500, "height": 1000})
+            pg.set_viewport_size({"width": 1920, "height": 1000})
             if "menu-closed" in app_class():
                 pg.click("#btnMenu")
             open_doc("画面幅テスト2")
             check("menu-closed" not in app_class(), "画面が広い(1500x1000)ときは、文書を開いてもメニューは開いたまま")
 
             # ==================== 20) 左メニュー「開く」(v0.18.1 で1列に作り直し。空なら最近開いた5件・打つと題名で最大20件)・残す/カット済 ====================
-            pg2 = b.new_page(viewport={"width": 1500, "height": 1000})
+            pg2 = b.new_page(viewport={"width": 1920, "height": 1000})
             pg2.goto("http://127.0.0.1:%d/" % port)
             pg2.wait_for_selector("#txList .txi")
             if "menu-closed" in (pg2.get_attribute(".app", "class") or ""):

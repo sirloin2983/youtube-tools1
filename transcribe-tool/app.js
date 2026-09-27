@@ -1276,7 +1276,7 @@ async function openDoc(id, keep){
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
-  if (!keep && V.menu && $('.editor').clientWidth < 1000){ toggleMenu(false); autoClosed = true; }
+  if (!keep && V.menu && $('.editor').clientWidth < 1300){ toggleMenu(false); autoClosed = true; }   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため(2026-09-27。以前は 1000)
   $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);

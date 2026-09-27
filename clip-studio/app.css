@@ -209,6 +209,11 @@ main{display:block}
 
 /* ==================== ④ コラボ ==================== */
 .cl-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start}
+/* コラボは ⚙ の欄の中(段4)。節を開いている間は欄を広げる(元はタブ1つ分の広さの2列。細い欄のままだと名前が縦に割れた。2026-09-27) */
+#uiSettingsDrawer:has(#setCollab[open]){width:min(1040px,calc(100vw - 32px))}
+/* それでも狭いとき(小さい画面)は2列をやめて縦に積む。欄の中身の幅で決める */
+#uiSettingsDrawer .ui-drawer-body{container-type:inline-size}
+@container (max-width:720px){.cl-grid{grid-template-columns:minmax(0,1fr)}}
 .cl-sub{margin:0 0 4px}
 .cl-name{grid-column:span 1}
 .cl-bar{margin-top:10px}
