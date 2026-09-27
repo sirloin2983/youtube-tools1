@@ -7,6 +7,7 @@ let regMounted = false;
 /* v6: 設定の器そのもの(#uiSettingsDrawer)は ui-kit(UIKit.settings.mount)が作る。ここではツール固有の中身の要素を1つ作って渡すだけ */
 const toolEl = document.createElement('div');
 toolEl.id = 'settingsBody';
+toolEl.innerHTML = '<p class="hint">読み込み中…</p>';
 
 function build(){
   toolEl.innerHTML = `
@@ -25,8 +26,8 @@ function build(){
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
   <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub">書き出したあとの自動化</span></summary><div class="body">
     ${S.token ? `<label class="rv-check" for="setAutoTx"><input type="checkbox" class="ui-switch" id="setAutoTx">書き出しのあと自動で文字起こしを始める</label>
-    <p class="hint">③ の書き出しが終わった切り抜きを、入口の「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。</p>`
-    : '<p class="hint">入口(start-all.bat)から開いているときだけ使えます。</p>'}
+    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。</p>`
+    : '<p class="hint">ホーム(start-all.bat)から開いているときだけ使えます。</p>'}
   </div></details>
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
@@ -118,13 +119,21 @@ function saveOut(path, btn){
   });
 }
 
+/* 状態の取得(/api/ping・/api/state)が失敗しても ⚙ がずっと働かない、ということがないよう、器(引き出し)は
+   S.onReady を待たずに今すぐ作る。toolEl はいったん「読み込み中…」のまま渡し、中身(build/update。S.state が要る)は
+   state が読めてから onReady で差し替える */
+if (window.UIKit && UIKit.settings) UIKit.settings.mount({ tool: toolEl, title: '設定', version: 'v' + S.version });
+else document.body.appendChild(toolEl);   // 保険(通常は起きない): UIKit が無くても壊さない
+/* #btnSettings の aria-expanded を、引き出しの開閉(ui-kit の 'ui-drawer' イベント)に合わせる */
+document.addEventListener('ui-drawer', e => {
+  const d = e.detail || {};
+  if (d.el && d.el.id === 'uiSettingsDrawer'){ const b = $('#btnSettings'); if (b) b.setAttribute('aria-expanded', String(!!d.open)); }
+});
+
 S.onReady(() => {
   const tn = document.createElement('div'); tn.id = 'toolNotice'; tn.className = 'tool-notice'; tn.hidden = true;
   $('#main').insertAdjacentElement('beforebegin', tn);
-  // 先に toolEl を文書へつなぐ(mount が引き出しの中へ入れる)。build() は document.querySelector で中の部品を探すため、
-  // つないでから中身を作る(つなぐ前に innerHTML を入れると #keySave などが見つからない)
-  if (window.UIKit && UIKit.settings) UIKit.settings.mount({ tool: toolEl, title: '設定', version: 'v' + S.version });
-  else document.body.appendChild(toolEl);   // 保険(通常は起きない): UIKit が無くても build() を壊さない
+  // toolEl はすでに文書につながっている(上の mount)。build() は document.querySelector で中の部品を探すので、ここで中身を作る
   build(); update();
   S.on('state', update);
   /* which: 開く節の id(setKey / setOut / setExport / setCollab / setReg)。引き出しの中でその節までスクロールする */

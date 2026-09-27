@@ -87,11 +87,12 @@ const readyFns = [];
 Studio.onReady = fn => { if (Studio.ready) fn(); else readyFns.push(fn); };
 Studio.on = (name, fn) => document.addEventListener('studio:' + name, e => fn(e.detail));
 
-/* 文字入力中か(キー操作を奪わない判定。スライダー・チェックボックスの上は入力中に数えない) */
+/* 文字入力中か(キー操作を奪わない判定。チェックボックスの上は入力中に数えない。range は UIKit.keys.isTyping と合わせて
+   入力中に数える: スライダー(音量など)の上では ← → などのキーをスライダー自身に譲り、③ のショートカットに奪わせない) */
 Studio.isTyping = el => {
   if (!el || !el.tagName) return false;
   const tag = el.tagName;
-  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file'].includes(el.type));
+  return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable || (tag === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file'].includes(el.type));
 };
 /* 設定の引き出し・ダイアログが開いている間は、③ のショートカットを止める(裏の動画が勝手に動かないように) */
 Studio.overlayOpen = () => !!(document.querySelector('dialog[open]') || (Studio.drawer && Studio.drawer.isOpen()));

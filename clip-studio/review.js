@@ -38,15 +38,16 @@ const STATUS_LABEL = { '': '候補', adopted: '採用', rejected: '不採用', e
 const FILTERS = [['all', '全部'], ['', '候補'], ['adopted', '採用'], ['rejected', '不採用'], ['exported', '書き出し済み']];
 const isAutoLike = m => m.src === 'auto' || m.score != null || (m.reasons && m.reasons.length > 0);
 const marksPayload = ms => ms.map(m => { const { auto0, ...r } = m; return r; });
+/* markIn/markOut/playPause/back5/fwd5/back1/fwd1 は全ツール共通の再生キー(Space・J/K/L・← →・I/O。UIKit.keys.playback)に
+   吸収されたので、ここでは変更できる操作から外した(共通キーと別のキーを割り当てても、共通キーが先に処理して silently 上書きされていたため) */
 const ACTION_DEFS = [
-  ['markIn', 'IN(開始)'], ['markOut', 'OUT(終了)'], ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
-  ['playPause', '再生/停止'], ['back5', '5秒戻る'], ['fwd5', '5秒進む'], ['back1', '1秒戻る'], ['fwd1', '1秒進む'],
+  ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
   ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター'],
   ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用']
 ];
 const KEY_PRESETS = {
-  standard: { markIn: 'i', markOut: 'o', addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', playPause: 'k', back5: 'ArrowLeft', fwd5: 'ArrowRight', back1: 'Shift+ArrowLeft', fwd1: 'Shift+ArrowRight', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u' },
-  left: { markIn: 'q', markOut: 'w', addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', playPause: 's', back5: 'a', fwd5: 'd', back1: 'z', fwd1: 'c', volUp: 'f', volDown: 'v', mute: 'x', theater: 't', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6' }
+  standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u' },
+  left: { addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'f', volDown: 'v', mute: 'x', theater: 't', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6' }
 };
 function sanitizeKeymap(x){
   const out = {}, used = new Set();
@@ -85,7 +86,8 @@ const S = {
   now: 0, duration: 0, playerState: -1, playerAlive: false, rate: 1, draft: { start: null, end: null }, previewEnd: null,
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
   loadSeq: 0, editSeq: 0, dirty: false, built: false,
-  tx: null, txOpen: new Set(), txSeq: 0   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
+  tx: null, txOpen: new Set(), txSeq: 0,   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
+  expDockClosed: false, expModal: null   // 書き出しの欄(ui-drawer)。× で閉じたら次の配信を開くまで自動で開き直さない・今 modal で開いているか
 };
 const marks = () => (S.cur ? S.cur.marks : []);
 const sortedMarks = () => [...marks()].sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -131,7 +133,7 @@ function buildDOM(){
     <details class="ui-menu rv-auto" id="rvAuto" hidden>
       <summary class="btn small ghost" title="案件の画面と同じ「まとめて実行」を、この配信で始めます"><span>まとめて実行</span></summary>
       <div class="rv-vmenupop rv-autopop">
-        <p class="hint">この配信を、入口の案件の画面と同じ順番待ちで自動で進めます。進み具合は上の帯と、入口の案件の画面に出ます。</p>
+        <p class="hint">この配信を、ホームの案件の画面と同じ順番待ちで自動で進めます。進み具合は上の帯と、ホームの案件の画面に出ます。</p>
         <button type="button" class="btn small primary" data-auto="adopted" title="採用したマークを書き出し → 文字起こし → Resolve パック">採用後を全部(書き出し → 文字起こし → パック)</button>
         <button type="button" class="btn small" data-auto="transcribe" title="採用したマークを書き出し → 文字起こし">文字起こしまで(書き出し → 文字起こし)</button>
         <div class="rv-autofull"><button type="button" class="btn small" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
@@ -213,11 +215,11 @@ function buildDOM(){
         <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
         <div class="rv-mark">
           <div class="rv-markcell">
-            <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd class="ui-kbd" data-kbd="markIn">I</kbd></button>
+            <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd class="ui-kbd" title="全ツール共通の再生キー(変更できません)">I</kbd></button>
             <div class="rv-val is-empty" id="rvInVal">--</div>
           </div>
           <div class="rv-markcell">
-            <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd class="ui-kbd" data-kbd="markOut">O</kbd></button>
+            <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd class="ui-kbd" title="全ツール共通の再生キー(変更できません)">O</kbd></button>
             <div class="rv-val is-empty" id="rvOutVal">--</div>
           </div>
           <div class="rv-markcell rv-addcell">
@@ -278,9 +280,9 @@ function buildDOM(){
           <div class="rv-tools">
             <button class="btn primary" id="rvExpRun" type="button">書き出す</button>
             <button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button>
-            <details class="ui-pop rv-expmore" id="rvExpMore" data-align="left">
+            <details class="ui-pop rv-expmore" id="rvExpMore">
               <summary class="btn ghost icon" aria-label="その他の書き出し"><span class="ui-icon" data-icon="more"></span></summary>
-              <div class="ui-pop-body">
+              <div class="ui-pop-body" data-align="left">
                 <button type="button" id="rvExpAll" title="採用にしたマークがある全部の配信を、順番に書き出します">全部の配信の採用を書き出す</button>
                 <button type="button" id="rvExpRetry" hidden>失敗した分だけやり直す</button>
               </div>
@@ -507,6 +509,7 @@ async function loadVideo(id){
   S.cur = j.video; S.series = j.series || null; S.sel = null; S.live = false;
   setTimeout(pollAuto, 0);   // この配信の「まとめて実行」の進み具合
   S.draft = { start: null, end: null }; S.fold = new Map(); S.seen = new Set(); S.tx = null; S.txOpen = new Set(); S.txSeq++;
+  S.expDockClosed = false;   // 配信を開き直したら、前の配信で × で閉じていたことは忘れる(1280px 以上ならまた開く)
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
@@ -514,6 +517,7 @@ async function loadVideo(id){
   setNow(0);
   mountPlayer();
   renderAll();
+  syncExportDock();   // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
   refreshList();
   fetchAutoTitle(S.cur);
   loadTranscripts();
@@ -810,7 +814,7 @@ function currentPreset(){
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
 let capturing = null;
-const KEY_GROUPS = [['マークの操作', ['markIn', 'markOut', 'addClip']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['再生の操作', ['playPause', 'back5', 'fwd5', 'back1', 'fwd1']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
+const KEY_GROUPS = [['マークの操作', ['addClip']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
 function spanSelHTML(i){
   const cur = S.settings.quickSpans[i];
   return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${i + 1}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${i + 1}の長さを長く">＋</button></span>`;
@@ -837,7 +841,14 @@ function renderKeyUI(){
   $('#rvKeyPreset').value = currentPreset();
   if (Studio.step === 'review') keybarScene();   // キー配置を変えたら、下の帯もすぐ合わせる
 }
+/* 全ツール共通の再生キー(comboOf の表記。UIKit.keys.playback が先に処理するため、ここに割り当てても効かない) */
+const SHARED_KEYS = new Set(['Space', 'j', 'k', 'l', 'i', 'o', ',', '.', 'ArrowLeft', 'ArrowRight', 'Shift+ArrowLeft', 'Shift+ArrowRight']);
 function setKey(id, combo){
+  if (combo && SHARED_KEYS.has(combo)){
+    toast(`${keyText(combo)} は全ツール共通の再生キーです。ここでは変更できません`);
+    renderKeyUI();   // 「キーを押す…」のボタン表示を元に戻す
+    return;
+  }
   const km = { ...S.settings.keymap };
   if (combo){
     for (const [o] of ACTION_DEFS) if (o !== id && km[o] === combo){
@@ -1298,7 +1309,6 @@ function renderMeta(){
   $('#rvMain').hidden = !v; $('#rvEmpty').hidden = !!v;
   for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
   if (!v){ $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer(); return; }
-  syncExportDock();
   const has = !!v.title, el = $('#rvCurLabel');
   el.classList.toggle('is-empty', !has);   // 'empty' は ui-kit の「空の状態」の枠と名前がぶつかるので使わない
   el.textContent = has ? v.title : '(名前なし)';
@@ -1441,7 +1451,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore" data-align="left"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button></div></details>` : ''}
+      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -1527,19 +1537,44 @@ function placeJump(){
    それより狭いときは重ねる「overlay」(閉じるまで畳んでおく) ---------- */
 const WIDE_EXPORT = '(min-width:1280px)';
 const exportDockActive = () => window.matchMedia(WIDE_EXPORT).matches;
-function openExportDrawer(opener){
+const exportRunning = () => !!(S.job && S.job.running) || !!S.exportAll;
+/* 主画面の余白(rv-dock)は、実際に欄が docked で開いているときだけ付ける(× で閉じている間は余白を残さない) */
+function updateDockClass(){
+  const el = $('#rvExport'), root = $('#rvRoot');
+  if (root) root.classList.toggle('rv-dock', exportDockActive() && !!el && !!window.UIKit && UIKit.drawer.isOpen(el));
+}
+/* opts.focus:false は自動で開くとき(docked)にフォーカスを奪わないため。1280px 以上は docked(modal:false)、それより狭い重ねる表示は modal:true */
+function openExportDrawer(opener, opts){
   const el = $('#rvExport'); if (!el || !window.UIKit) return;
-  if (!UIKit.drawer.isOpen(el)) UIKit.drawer.open(el, { modal: false, opener });
+  opts = opts || {};
+  const wantModal = !exportDockActive();
+  if (UIKit.drawer.isOpen(el)){
+    if (S.expModal !== wantModal){ UIKit.drawer.close(el); UIKit.drawer.open(el, { modal: wantModal, opener, focus: opts.focus }); S.expModal = wantModal; }
+  } else {
+    UIKit.drawer.open(el, { modal: wantModal, opener, focus: opts.focus }); S.expModal = wantModal;
+  }
+  S.expDockClosed = false;
+  updateDockClass();
 }
-function closeExportDrawer(){
-  const el = $('#rvExport'); if (el && window.UIKit && UIKit.drawer.isOpen(el)) UIKit.drawer.close(el);
+/* userClosed: ユーザーが × を押して閉じたか。true のときは、次に配信を開き直すか自分で開くまで、docked でも自動では開き直さない */
+function closeExportDrawer(userClosed){
+  const el = $('#rvExport'); if (!el || !window.UIKit) return;
+  if (UIKit.drawer.isOpen(el)) UIKit.drawer.close(el);
+  if (userClosed) S.expDockClosed = true;
+  updateDockClass();
 }
-/* 1280px 以上になったら、書き出しの欄をいつも見える場所として開いておく(主な画面はそのぶん右を空ける)。
-   それより狭くなったら、重ねる形(overlay)に戻すため、既定は閉じておく(開けたままだと、映像やマークに重なってしまう) */
+/* 呼ぶのは「①メディアクエリが変わったとき」と「②配信を開いた・閉じたとき」だけ(採用・不採用・書き出しの進み具合のたびに呼ぶと、
+   閉じたばかりの欄が開き直ってフォーカスを奪ったり、書き出し中に欄が閉じたりしていた)。
+   1280px 以上: 閉じたと覚えていなければ、いつも見える場所として開いておく(focus:false)。
+   それより狭い: 自動で開けていた(docked)ぶんは重ねる表示をやめて畳む。書き出し中は、進み具合を見失わないよう畳まない */
 function syncExportDock(){
+  const el = $('#rvExport'); if (!el || !window.UIKit) return;
   const wide = exportDockActive();
-  const root = $('#rvRoot'); if (root) root.classList.toggle('rv-dock', wide);
-  if (wide && S.cur) openExportDrawer(); else if (!wide) closeExportDrawer();
+  if (wide){
+    if (S.cur && !S.expDockClosed) openExportDrawer(null, { focus: false }); else updateDockClass();
+  } else if (UIKit.drawer.isOpen(el) && !exportRunning()){
+    closeExportDrawer();
+  } else updateDockClass();
 }
 function jumpTo(where){
   if (where === 'export'){ openExportDrawer($('#rvJump [data-jump="export"]')); return; }
@@ -1567,11 +1602,15 @@ const rvMedia = {
   pause(){ if (yt) try { yt.pauseVideo(); } catch {} }
 };
 /* I/O は markIn/markOut を呼ぶ(キー配置で別のキーを割り当てていても、共通キーとしてはこれが優先。「操作の設定」に注記あり)。
+   media は yt が無くても常に rvMedia を返す(rvMedia の各操作が yt の有無を自分で見るので、プレーヤーが無い間も S.now は , . ← → で動かせる)。
    再生できない画面(埋め込み不可・通信不調)で Space・L(再生を試みるキー)を押したときだけ、これまでどおり案内を出す */
 const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-  media: () => (yt ? rvMedia : null),
+  media: () => rvMedia,
   onIn: () => markIn(), onOut: () => markOut(),
-  onKey: name => { if (!canPlay() && (name === 'Space' || name === 'L')) noPlayerToast(); }
+  onKey: name => {
+    if (!canPlay() && (name === 'Space' || name === 'L')) noPlayerToast();
+    if (name === 'K' || name === 'L'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // K/L は再生速度を変えるので、速度の選択も合わせる
+  }
 }) : null;
 /* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える */
 function keybarScene(){
@@ -1786,7 +1825,7 @@ function wire(){
   Studio.on('ports', () => { if (S.lastJob) renderJob(S.lastJob); if (S.cur) renderList(); });   // 他のツールの実際のポートが分かったら、リンクを作り直す
   window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
   window.matchMedia(WIDE_EXPORT).addEventListener('change', syncExportDock);
-  $('#rvExpClose').addEventListener('click', closeExportDrawer);
+  $('#rvExpClose').addEventListener('click', () => closeExportDrawer(true));
   $('#rvExpMore').addEventListener('click', e => { if (e.target.closest('button[id]')) $('#rvExpMore').open = false; });   // 「…」の中を押したら閉じる
 
   // 書き出し
@@ -1805,9 +1844,11 @@ function wire(){
     if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
     if (Studio.inMenu && Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
     const tag = e.target.tagName;
-    if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(スライダー/チェックボックス上では有効)
+    if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(チェックボックス上では有効。スライダーの上ではキーをスライダーに譲る)
     // ボタン・リンク・開閉の見出しの上では、Space / Enter はその部品の操作を優先する(Space で「操作の設定」を開けなかったのを修正)
     const onControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SUMMARY' || tag === 'A';
+    // 押しっぱなしの Space で再生・停止を連打しないように、繰り返しのキー入力(e.repeat)は無視する(スクロールなどの既定の動きも止める)
+    if (e.repeat && (e.key === ' ' || e.key === 'Spacebar')){ e.preventDefault(); return; }
     // 共通の再生キー(全ツール共通。Space・J/K/L・← →(±1秒/Shift ±5秒)・,/.・I/O)を先に。処理したら(true)ここで終わる
     if (handlePlayback && handlePlayback(e)) return;
     const combo = comboOf(e); if (!combo) return;
@@ -1844,7 +1885,7 @@ function keyHelp(){
   const km = S.settings.keymap, defs = Object.fromEntries(ACTION_DEFS.map(d => [d[0], d[1]]));
   const row = id => { let label = defs[id] || id; const m = /^quickMark(\d?)$/.exec(id); if (m){ const i = m[1] ? Number(m[1]) - 1 : 0; label += `(前後${spanLabel(S.settings.quickSpans[i])})`; } return [km[id] ? keyText(km[id]) : '', label]; };
   const groups = KEY_GROUPS.map(([h, ids]) => [h, ids.filter(id => defs[id]).map(row)]);
-  groups.push(['その他', [['Space', '再生 / 停止(予備。ボタンの上ではボタンが優先)'], ['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']]]);
+  groups.push(['その他', [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']]]);
   return groups;
 }
 Studio.review = {
@@ -1872,8 +1913,9 @@ async function maybeAutoTranscribe(videoId, markIds){
     toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
   } catch (e){
-    // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている): 大きなエラーにせず、あとで拾えることを伝える
-    if (/実行中|順番待ち/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を ▸」でやり直せます', 7000, 'info');
+    // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている)だけを見分ける。
+    // 「順番待ちが多すぎます」(容量の上限)は別の理由の失敗なので、ここに含めて info 扱いにしない(以前は同じ正規表現が両方に一致して誤報していた)
+    if (/実行中・順番待ちです/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を ▸」でやり直せます', 7000, 'info');
     else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
@@ -1885,7 +1927,7 @@ async function startAuto(mode, marks){
     const who = $('#rvAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(配信者名から自動では入れない)
     await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}), ...(marks ? { marks } : {}) });
     $('#rvAuto').open = false;
-    toast(marks ? 'このマークのまとめて実行を始めました(入口の案件の画面と同じ順番待ち)' : 'まとめて実行を始めました(入口の案件の画面と同じ順番待ち)', 5000, 'ok');
+    toast(marks ? 'このマークのまとめて実行を始めました(ホームの案件の画面と同じ順番待ち)' : 'まとめて実行を始めました(ホームの案件の画面と同じ順番待ち)', 5000, 'ok');
     pollAuto();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
 }
@@ -1904,10 +1946,12 @@ async function pollAuto(){
   const steps = r.steps.map(s => `${esc(s.label)}: ${esc(AUTO_STEP[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel">中止</button>' : '') +
-    `<a class="btn small ghost" href="../cases.html" target="_blank" rel="noopener">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
+    `<a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
   bar.dataset.run = r.id;
   bar.hidden = false;
-  if (AUTO.active && !active && !S.dirty) loadVideo(vid);   // 終わった: 書き出し済みなどのマークの状態を読み直す
+  // 終わった: 書き出し済みなどのマークの状態を読み直す。loadVideo だとプレーヤーが再読み込みされ、再生位置が 0:00 に戻ってしまうため、
+  // 手元の未保存の編集を保ったまま最新の状態を重ねる syncFromServer(merge)を使う
+  if (AUTO.active && !active && !S.dirty) syncFromServer();
   AUTO.active = active;
   if (active) AUTO.t = setTimeout(pollAuto, 3000);
 }

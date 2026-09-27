@@ -404,7 +404,7 @@
 
   /* ---- appnav(ホーム/スタジオ/編集の切り替え。ヘッダーの左) ---- <nav data-ui-appnav="studio|transcribe|portal"> に中身を作る */
   var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'studio', label: 'スタジオ' }, { id: 'transcribe', label: '編集' }];
-  var appnavSuffix = {};
+  var appnavSuffix = {}, appnavVersion = '';
   function appnavHref(id) { return id === 'portal' ? '/' : (tools.mounted() ? tools.base(id) : tools.url(id)); }
   function renderAppNav() {
     var navs = document.querySelectorAll('[data-ui-appnav]');
@@ -418,6 +418,7 @@
           (it.id === current ? ' aria-current="page"' : '') + (it.id === 'portal' ? ' data-ui-portal' : '') + '>' + esc(it.label) + '</a>';
       }
       nav.innerHTML = html;
+      if (appnavVersion) { var cur = nav.querySelector('[aria-current="page"]'); if (cur) cur.title = appnavVersion; }   /* 描き直しても版の title を保つ */
     }
   }
   document.addEventListener('DOMContentLoaded', renderAppNav);
@@ -432,6 +433,7 @@
     },
     /* 今の場所の項目の title に版を出す */
     setVersion: function (text) {
+      appnavVersion = String(text || '');
       var navs = document.querySelectorAll('[data-ui-appnav]');
       for (var n = 0; n < navs.length; n++) { var cur = navs[n].querySelector('[aria-current="page"]'); if (cur) cur.title = text; }
     }
@@ -488,7 +490,7 @@
         drawerInert(drawerKeepEls(el, scrim), true);
       }
       requestAnimationFrame(function () { el.classList.add('in'); });
-      setTimeout(function () {
+      if (opt.focus !== false) setTimeout(function () {   /* focus:false: 自動で開くとき(スタジオの書き出しの欄)はフォーカスを動かさない */
         if (el.contains(document.activeElement)) return;
         var list = drawerFocusables(el);
         if (list.length && list[0].focus) list[0].focus({ preventScroll: true });

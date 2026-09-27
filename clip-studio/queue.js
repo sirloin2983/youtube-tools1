@@ -175,7 +175,7 @@ S.enqueue = async items => {
 async function makeCollabGroup(videoIds){
   try {
     const r = await S.api('/api/collab/group', { body: { videoIds } });
-    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。「④ コラボ」でズレ(アンカー点)を指定してください`, 8000, 'ok');
+    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。「設定(⚙)の「コラボ」」でズレ(アンカー点)を指定してください`, 8000, 'ok');
     if (S.collab && S.collab.refresh) S.collab.refresh();
   } catch (er){ S.toast('コラボのグループ化に失敗しました: ' + er.message, 8000, 'err'); }
 }

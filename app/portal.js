@@ -33,6 +33,8 @@
   var docVisibleCount = DOC_PAGE;       // 単体の文字起こしの「もっと見る」
   var docPicked = {};                   // 単体の文字起こしで選んだ文書の id
   var openCases = {};                   // この画面を開いてから自分で開閉した案件(id → bool)
+  var caseDrafts = {};                  // 保存していない入力(メモ・配信者)。id → {memo, streamer}(再描画(alt-tab で戻ったときなど)でも保つ)
+  function draftFor(id) { return caseDrafts[id] || (caseDrafts[id] = {}); }
   var groupOpenCache = null;
   var termShown = {};
   var todoShowAll = false;
@@ -99,15 +101,12 @@
 
   /* ui-appnav(ヘッダー左の「ホーム/スタジオ/編集」)の「スタジオ」「編集」の項目は、DOMContentLoaded の時点(/api/status を
      まだ読んでいない)で作られるので、ホームに取り込まれているかどうかに関わらず既定の場所(base の '/')のままになる。
-     UIKit.appnav には作り直す仕組みが無いので、状態が分かったここでリンク先を差し替える(取り込み済みなら相対パス、
-     別のプログラムのまま(段階3の --no-mount 相当)なら別のポートの絶対 URL) */
-  function fixAppNavLinks(tools) {
-    tools.forEach(function (t) {
-      if ((t.id !== 'studio' && t.id !== 'transcribe') || !t.port) return;
-      var a = document.querySelector('[data-ui-appnav-item="' + t.id + '"]');
-      if (!a) return;
-      a.setAttribute('href', t.mounted ? (t.path || '/') : toolUrl(t));
-    });
+     UIKit.tools.setPaths(v6)は渡した場所を覚えて appnav のリンクを描き直してくれる(UIKit.appnav.setVersion の title は
+     描き直しても保たれる)ので、ここでは /api/status から場所だけ取り出して渡す(href を直接書き換えない) */
+  function toolPaths(tools) {
+    var out = {};
+    tools.forEach(function (t) { if (t.mounted && t.path) out[t.id] = t.path; });
+    return out;
   }
 
   function build(t) {
@@ -201,7 +200,7 @@
       if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
       if (st.window) renderWin(st.window);
       st.tools.forEach(updateTool);
-      fixAppNavLinks(st.tools);
+      if (window.UIKit && UIKit.tools && UIKit.tools.setPaths) UIKit.tools.setPaths(toolPaths(st.tools));
       Object.keys(cards).forEach(function (id) { if ($('.pt-logbox', cards[id].el).open) loadLog(id); });
     }).catch(function () {
       fails++;
@@ -370,6 +369,9 @@
     var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { box.hidden = true; return; }
     if (window.UIKit && UIKit.streamer) UIKit.streamer.attach(who);
+    var draft = draftFor(c.id);
+    if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
+    who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
     mode.value = lsGet('mode', 'adopted');
     if (!mode.value) mode.value = 'adopted';
     top.value = lsGet('top', '3');
@@ -464,11 +466,14 @@
     fillClips(node, c);
     wireAuto(node, c);
     var ta = $('textarea', node), msg = $('.pt-memo-msg', node);
-    ta.value = c.memo || '';
-    if (c.memo) $('.pt-case-memo', node).open = true;
+    var draft = draftFor(c.id);
+    ta.value = draft.memo != null ? draft.memo : (c.memo || '');   // 未保存の入力を再描画でも保つ(E2 finding 1)
+    if (ta.value) $('.pt-case-memo', node).open = true;
+    ta.addEventListener('input', function () { draftFor(c.id).memo = ta.value; });
     $('.pt-memo-save', node).addEventListener('click', function () {
       api('/api/cases/update', 'POST', { id: c.id, memo: ta.value }).then(function (r) {
         c.memo = r.memo; msg.textContent = '保存しました';
+        var d = caseDrafts[c.id]; if (d) delete d.memo;   // 保存できたので下書きは要らない
       }).catch(function (e) { msg.textContent = '保存できませんでした: ' + e.message; });
     });
     return node;
@@ -502,8 +507,34 @@
     return '';
   }
 
+  /* 再描画で入力中のフォーカス・カーソル位置を失わないように、一覧を作り直す前後で保つ(E2 finding 1:
+     alt-tab で戻ったときの refreshCases → render が、行の中で入力中だったフォーカスを消してしまっていた) */
+  function captureFocus(container) {
+    var a = document.activeElement;
+    if (!a || !container || !container.contains(a)) return null;
+    var card = a.closest ? a.closest('.pt-case') : null;
+    if (!card) return null;
+    var role = a.classList.contains('pt-auto-streamer') ? 'streamer' : a.tagName === 'TEXTAREA' ? 'memo'
+      : a.classList.contains('pt-case-status') ? 'status' : null;
+    if (!role) return null;
+    var info = { id: card.dataset.id, role: role };
+    if (typeof a.selectionStart === 'number') { info.selStart = a.selectionStart; info.selEnd = a.selectionEnd; }
+    return info;
+  }
+  function restoreFocus(info) {
+    if (!info) return;
+    var card = document.getElementById('case-' + info.id);
+    if (!card) return;
+    var sel = info.role === 'memo' ? 'textarea' : info.role === 'streamer' ? '.pt-auto-streamer' : '.pt-case-status';
+    var target = $(sel, card);
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    if (info.selStart != null && target.setSelectionRange) { try { target.setSelectionRange(info.selStart, info.selEnd); } catch (e) { /* select 等は対象外 */ } }
+  }
+
   function render() {
     if (!casesData) return;
+    var focusInfo = captureFocus($('#list'));
     var full = casesData.cases.filter(visible);
     sortList(full);
     var totalCount = full.length, gval = $('#fGroup').value;
@@ -539,6 +570,7 @@
     if (rest > 0) moreBtn.textContent = 'もっと見る(あと ' + rest + ' 件)';
     var narrowed = gval || $('#fStatus').value || $('#fText').value.trim();
     $('#count').textContent = narrowed ? shown.length + ' / ' + totalCount + ' 件' : totalCount + ' 件';
+    restoreFocus(focusInfo);
     updateSummaryLine();
   }
   function resetPaging() { visibleCount = PAGE_SIZE; render(); }
@@ -555,7 +587,9 @@
     return api('/api/cases').then(function (j) { casesData = j; resetPaging(); }).catch(function (e) { err('案件の一覧を読めませんでした: ' + e.message); });
   }
   function refreshCases() {
-    return api('/api/cases').then(function (j) { casesData = j; render(); }).catch(function () { /* 次の読み込みで直る */ });
+    // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
+    // (E2 finding 1: 前は render() だけで、alt-tab で戻ったときにこの2つが古いままだった)
+    return api('/api/cases').then(function (j) { casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {
@@ -678,19 +712,30 @@
     return '/transcribe/#' + tab;
   }
 
+  function clipHint(it) {
+    // 同じ配信から複数の切り抜きを作ると title(配信の題名)が同じになるので、マークの名前・時間帯で見分けられるようにする(E2 finding 2)
+    if (it.markLabel) return it.markLabel;
+    if (it.clipStart != null && it.clipEnd != null) return tc(it.clipStart) + '–' + tc(it.clipEnd);
+    return '';
+  }
   function buildTodoFine() {
     var items = [], pathMap = buildPathMap();
     txList.forEach(function (it) {
       var rows = it.rows || 0, proofed = it.proofed || 0;
       if (!rows) return;
       var title = it.streamTitle || it.clipTitle || it.title || it.markLabel || '(無題)';
+      var hint = clipHint(it), suffix = hint ? '(' + hint + ')' : '';
       var loc = pathMap[it.id];
       if (proofed < rows) {
-        items.push({ kind: 'proof', updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行',
+        items.push({ kind: 'proof', updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行' + suffix,
           href: hrefFor(loc, 'tx'), pillText: '校正待ち', pillClass: 'wait' });
       }
-      if (!it.pack || it.packStale) {
-        items.push({ kind: 'pack', updatedAt: it.updatedAt || 0, title: title, sub: it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません',
+      // パック待ち・作り直しは、校正が済んでいて(proofed >= rows)、かつ元の動画の有無を実際に確かめられたとき(mediaOk === true)だけ出す。
+      // it.pack が null なのは、まだパックが無いときだけでなく、確かめる時間切れ(PACK_CHECK_BUDGET)・動画が見つからない(mediaOk === false)
+      // ときもある(transcribe-tool/serve.py の _files_state)。それらまで「パック待ち」にすると、校正中の文書と重複したり
+      // 見当違いの案内になる(E2 finding 2)
+      if (proofed >= rows && it.mediaOk === true && (!it.pack || it.packStale)) {
+        items.push({ kind: 'pack', updatedAt: it.updatedAt || 0, title: title, sub: (it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません') + suffix,
           href: hrefFor(loc, 'pack'), pillText: it.pack ? '作り直し' : 'パック待ち', pillClass: it.pack ? 'warn' : 'wait' });
       }
     });
@@ -739,7 +784,13 @@
   function renderTodo(all) {
     var box = $('#todoList'), empty = $('#todoEmpty'), more = $('#todoMore');
     box.textContent = '';
-    if (!all.length) { empty.hidden = false; more.hidden = true; return; }
+    if (!all.length) {
+      empty.hidden = false;
+      // casesData が無い(案件の一覧をまだ読めていない)ときは「作業は無い」ではなく、読めていないと分かる文言にする(E2 finding 4)
+      empty.textContent = casesData ? 'いま手が要る作業はありません。' : '案件の一覧を読み込めていません(上のエラーをご確認ください)。';
+      more.hidden = true;
+      return;
+    }
     empty.hidden = true;
     var shown = todoShowAll ? all : all.slice(0, TODO_CAP);
     shown.forEach(function (it) { box.appendChild(todoRow(it)); });
@@ -748,9 +799,10 @@
     if (rest > 0) $('#todoMoreN').textContent = rest;
   }
   function buildTodo() {
-    if (!casesData) return;
+    // casesData が無くても、実行中(running)だけは出せる・空のときの案内も出したい(E2 finding 4: 前は早期リターンで
+    // まとめて実行の進み具合すら出なかった)。案件の一覧が要る校正待ち・パック待ちだけ、読めているときに限る
     var running = runningItems();
-    var rest = txList ? buildTodoFine() : buildTodoCoarse();
+    var rest = casesData ? (txList ? buildTodoFine() : buildTodoCoarse()) : [];
     rest.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
     var proof = rest.filter(function (i) { return i.kind === 'proof'; });
     var pack = rest.filter(function (i) { return i.kind === 'pack'; });
@@ -811,11 +863,17 @@
     else { docVisibleCount = Math.max(docVisibleCount, 10000); $('#unlinkedGroup').open = true; renderDocs(); }
     var target = document.getElementById(m[1] + '-' + id);
     if (!target) return;
-    if (target.tagName === 'DETAILS') target.open = true;
-    else { var d = target.closest ? target.closest('details') : null; if (d) d.open = true; }
+    // 対象自身(details なら)だけでなく、まとめ方(配信者・状態でまとめる。.ui-group)で包まれているときは
+    // その details も開く。閉じたままだと target が非表示のまま scrollIntoView されてしまう(E2 finding 3)
+    for (var node = target; node; node = node.parentElement) { if (node.tagName === 'DETAILS') node.open = true; }
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   window.addEventListener('hashchange', focusHash);
+  // 同じハッシュのリンクを続けてクリックしても hashchange は来ない(URL が変わらないため)ので、クリックでも直接呼ぶ(E2 finding 3)
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
+    if (a && a.getAttribute('href') === location.hash) { e.preventDefault(); focusHash(); }
+  });
 
   // ホームがここで開いていることを、ほかの窓の「ホーム」リンクに答える(開き直さずにこの窓を前に出すため。ui-kit の UIKit.portal)
   if (window.UIKit && UIKit.portal) UIKit.portal.listen();

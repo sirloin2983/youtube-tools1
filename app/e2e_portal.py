@@ -265,13 +265,34 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         # reload で advancedBox が既定に戻るので、また開く
         pg.evaluate("document.getElementById('advancedBox').open = true")
 
+        # 2d-2. 未保存のメモ・フォーカスは、alt-tab で離れて戻ったとき(UIKit.life の blur→focus → refreshCases)の
+        # 再描画でも消えない(E2 finding 1)。blur→focus の起こし方は app/e2e_window.py の「7-2 離れた・戻った」と同じ
+        pg.click(".pt-case .pt-case-row")
+        check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 下書きを試すため行を開く")
+        pg.evaluate("document.querySelector('.pt-case .pt-case-memo').open = true")   # メモの <details> も開く(空だと既定で閉じている)
+        draft = "書きかけの下書き"
+        pg.fill(".pt-case textarea", draft)   # 「メモを保存」は押さない(保存前の下書きのまま)
+        pg.evaluate("document.querySelector('.pt-case textarea').focus()")
+        pg.evaluate("() => { document.hasFocus = () => false; window.dispatchEvent(new Event('blur')); }")
+        time.sleep(0.4)   # UIKit.life の blurTimer(150ms)より長く待つ
+        pg.evaluate("() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); }")
+        check(wait_js(pg, "document.querySelector('.pt-case') && document.querySelector('.pt-case').open === true", 10000),
+              "[A] 離れて戻った再描画のあとも行は開いたまま")
+        check(wait_js(pg, "document.querySelector('.pt-case textarea') && document.querySelector('.pt-case textarea').value === %s" % json.dumps(draft), 10000),
+              "[A] 保存前のメモが、戻ったときの再描画(refreshCases)でも消えない: %s"
+              % pg.evaluate("document.querySelector('.pt-case textarea') && document.querySelector('.pt-case textarea').value"))
+        check(pg.evaluate("document.activeElement === document.querySelector('.pt-case textarea')"),
+              "[A] フォーカスも(再描画で作り直された)メモ欄に戻る")
+
         # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
         check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
         todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
         check(any(p == '校正待ち' and h.startswith('/transcribe/?media=') and h.endswith('#tx') for p, h in todo),
               "[A] 次にやることに校正待ち(1/2行のまま)が出て、校正のタブへ直接リンクする: %s" % todo)
-        check(any(p == 'パック待ち' and h.startswith('/transcribe/?media=') and h.endswith('#pack') for p, h in todo),
-              "[A] 次にやることにパック待ちが出て、パックのタブへ直接リンクする: %s" % todo)
+        # E2 finding 2: 校正がまだ済んでいない(proofed < rows)文書は、パックの有無に関わらず「パック待ち」を重ねて出さない
+        # (以前は !it.pack だけで判定していて、校正中の文書にも重複して出ていた)
+        check(not any(p in ('パック待ち', '作り直し') for p, h in todo),
+              "[A] 校正がまだ済んでいない文書は「パック待ち」を二重に出さない: %s" % todo)
 
         # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
         check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden", 10000), "[A] 単体の文字起こしのまとまりが出た")

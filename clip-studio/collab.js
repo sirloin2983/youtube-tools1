@@ -223,7 +223,9 @@ async function refresh(){
   for (const id of [...C.checked]) if (!C.videos.some(v => v.id === id)) C.checked.delete(id);
   if (C.addTo && !C.groups.some(g => g.id === C.addTo)) C.addTo = null;
   if (C.anchorOpen && !C.groups.some(g => g.id === C.anchorOpen.gid)) C.anchorOpen = null;
-  renderMakeCard(); renderVideoList(); renderGroups();
+  /* queue.js(コラボとしてまとめて追加)は、設定の引き出しの「コラボ」節をまだ開いていなくても refresh() を呼ぶ。
+     mount() 前は paneHtml() の中身(#clMakeTitle など)がまだ無いので、描画せず件数の札だけ更新する(null 参照を避ける) */
+  if (mounted){ renderMakeCard(); renderVideoList(); renderGroups(); }
   /* v6: コラボはタブではなく設定の引き出しの節なので、件数は節の見出しの札(#collabBadge)に出す(タブの badge は無くなった) */
   { const n = C.groups.filter(g => !g.allSet).length, b = document.getElementById('collabBadge');
     if (b){ b.hidden = !n; b.textContent = n ? 'ズレ未設定 ' + n : ''; b.className = 'pill warn'; } }

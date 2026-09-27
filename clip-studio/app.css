@@ -182,8 +182,9 @@ main{display:block}
 /* キューの1件 */
 .q-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start}
 .q-item:last-child{border-bottom:0}
-.q-ic{width:10px;height:10px;border-radius:50%;margin-top:6px;background:var(--ink-4)}
-.q-item.st-run .q-ic{background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);animation:ui-pulse 1.2s ease-in-out infinite}
+.q-ic{width:10px;height:10px;border-radius:50%;margin-top:6px;background:var(--ink-4);box-sizing:border-box}
+/* v6: 無限の点滅(ui-pulse)はやめ、ui-kit の .pill.run と同じ静かな回転の輪にした(prefers-reduced-motion で止まるのも同じ) */
+.q-item.st-run .q-ic{background:none;border:2px solid var(--accent-soft);border-top-color:var(--accent);animation:ui-rot .8s linear infinite}
 .q-item.st-ok .q-ic{background:var(--ok)}
 .q-item.st-err .q-ic{background:var(--danger)}
 .q-item.st-warn .q-ic{background:var(--warn)}
