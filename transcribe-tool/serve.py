@@ -11,7 +11,10 @@
   GET  /api/marker           隣の clip-marker/data.json のポイント一覧(あれば)
   POST /api/transcribe       文字起こしジョブを追加(順番に1つずつ処理)
   GET  /api/jobs             ジョブの一覧と進捗 / POST /api/transcribe/cancel で中止
-  POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列)
+  POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)
+  GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない)
+  POST /api/voices/learn     名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存)
+  POST /api/voices/delete    覚えている声を消す {embedding, name}
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
   POST /api/redo             {"tid", "redoLarge"?} 疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
   POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
@@ -94,7 +97,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.19.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.20.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1786,7 +1789,8 @@ def validate_job(req):
 
 
 ACTIVE_STATES = ("queued", "loading", "extracting", "running")
-EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo"), "retranscribe": ("diarize", "retranscribe", "redo"),
+EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo", "voice-learn"), "voice-learn": ("diarize", "voice-learn"),
+             "retranscribe": ("diarize", "retranscribe", "redo"),
              "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",)}   # 同じ文字起こしに同時に入れない組み合わせ
 
 
@@ -1800,7 +1804,7 @@ def add_job(spec, kind="transcribe"):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo") else None, "error": None,
+        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
         _jobs[jid] = job
         _order.append(jid)
@@ -1820,6 +1824,10 @@ def public_job(j):
     out["warnings"] = list((j.get("spec") or {}).get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
     out["hasClip"] = bool((j.get("spec") or {}).get("clip"))
     out["into"] = (j.get("spec") or {}).get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の「この動画を文字起こしする」)
+    out["named"] = list(j.get("named") or [])       # A-3: 話者判別のあと、覚えている声で名前を付けた話者 [{"speaker", "name", "score"}]
+    out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
+    if j.get("voiceError"):
+        out["warnings"].append(j["voiceError"])
     return out
 
 
@@ -2292,6 +2300,8 @@ def transcribe_fake(job, spec, wav, total):
 def run_job(job):
     if job.get("kind") == "diarize":
         return run_diarize(job)
+    if job.get("kind") == "voice-learn":
+        return run_voice_learn(job)
     if job.get("kind") == "retranscribe":
         return run_retranscribe(job)
     if job.get("kind") == "redo":
@@ -2702,7 +2712,8 @@ def validate_diarize(req):
         if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = str(req.get("embedding") or DIAR_EMB_DEFAULT)
-    return {"tid": tid, "numSpeakers": n if 2 <= n <= 10 else 0, "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "話者判別: " + (str(doc.get("title") or "") or "無題")[:100]}
+    return {"tid": tid, "numSpeakers": n if 2 <= n <= 10 else 0, "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "話者判別: " + (str(doc.get("title") or "") or "無題")[:100],
+            "recognize": req.get("recognize") is not False}   # A-3: 覚えている声と照らし合わせる(既定オン)
 
 
 def run_diarize(job):
@@ -2737,6 +2748,14 @@ def run_diarize(job):
         if job["cancel"]:
             raise Cancelled()
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"])
+        if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
+            try:
+                job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"])
+            except Cancelled:
+                raise
+            except Exception as e:
+                log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
+                job["voiceError"] = "覚えている声との照らし合わせに失敗しました(話者の判別の結果はそのまま): %s" % str(e)[:120]
         job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -2750,6 +2769,300 @@ def run_diarize(job):
                 os.unlink(wav)
         except OSError:
             pass
+
+
+# ---------- 話者の声を覚える(A-3。docs/backlog-ui-2026-09-27.md) ----------
+# 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を作って覚え、
+# 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
+# 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
+# 計算(numpy・sherpa-onnx)は認識ワーカーの中だけ(_embed_local)。サーバーでは読み込まない
+VOICES_DIR = os.path.join(DATA_DIR, "voices")
+VOICE_MATCH = 0.60        # 覚えている声とのコサイン類似度がこれ以上なら同じ人とみなす
+VOICE_MARGIN = 0.08       # 2番目に近い声との差がこれより小さければ決めない(似た声を取り違えるより、名前を付けない方が安全)
+VOICE_MIN_ROW = 1.0       # 声の特徴を取る行の最短(秒)。短い行(相づち)は特徴が安定しない
+VOICE_MAX_ROWS = 40       # 1人あたり使う行の数の上限(長い行から)
+VOICE_MAX_SEC = 240.0     # 1人あたり使う長さの上限(秒)
+VOICE_MAX_PEOPLE = 300
+DEFAULT_SPK_NAME = re.compile(r"^話者\d+$")   # 話者判別が付けた仮の名前(覚えない・声で付けた名前で置き換えてよい)
+_voices_lock = threading.Lock()
+
+
+def voices_path(emb):
+    return os.path.join(VOICES_DIR, emb + ".json")
+
+
+def load_voices(emb):
+    """{名前: {"vec": [...], "rows": 使った行の数, "sec": 使った秒, "updatedAt": ms}}(判別モデル emb ごと)"""
+    try:
+        with open(voices_path(emb), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    v = d.get("voices") if isinstance(d, dict) else None
+    if not isinstance(v, dict):
+        return {}
+    return {str(k)[:60]: x for k, x in v.items() if isinstance(x, dict) and isinstance(x.get("vec"), list) and x["vec"]}
+
+
+def save_voices(emb, voices):
+    os.makedirs(VOICES_DIR, exist_ok=True)
+    atomic_write(voices_path(emb), json.dumps({"schema": "ytt-voices/v1", "embedding": emb, "voices": voices}, ensure_ascii=False).encode("utf-8"))
+
+
+def _unit(v):
+    s = math.sqrt(sum(x * x for x in v)) if v else 0.0
+    return [x / s for x in v] if s > 0 else None
+
+
+def _cos(a, b):
+    """どちらも長さ 1 の特徴どうしのコサイン類似度(次元が違えば -1 = 比べられない)"""
+    return sum(x * y for x, y in zip(a, b)) if a and b and len(a) == len(b) else -1.0
+
+
+def voice_groups(segs, key):
+    """行 → {キー: ([(開始, 終了)...], 合計秒)}。key(行) が空の行は使わない。
+    短い行・「声が混ざっている」行は使わない。長い行から VOICE_MAX_ROWS 行・VOICE_MAX_SEC 秒まで"""
+    by = {}
+    for g in segs:
+        k = key(g)
+        if not k:
+            continue
+        a, b = num(g.get("start")), num(g.get("end"))
+        if a is None or b is None or b - a < VOICE_MIN_ROW or MIXED_FLAG in str(g.get("flag") or ""):
+            continue
+        by.setdefault(k, []).append((a, b))
+    out = {}
+    for k, rs in by.items():
+        rs.sort(key=lambda r: -(r[1] - r[0]))
+        pick, tot = [], 0.0
+        for a, b in rs[:VOICE_MAX_ROWS]:
+            if tot >= VOICE_MAX_SEC:
+                break
+            pick.append((a, b))
+            tot += b - a
+        out[k] = (sorted(pick), tot)
+    return out
+
+
+def embed_groups(job, wav, emb, groups, offset):
+    """groups: [[(開始, 終了)...]](元の動画の時刻)。wav は offset 秒から始まる音声。-> [長さ 1 の特徴 or None](groups と同じ並び)"""
+    rel = [[[max(0.0, a - offset), max(0.0, b - offset)] for a, b in g] for g in groups]
+    if backend_name() == "fake":
+        return embed_fake(rel)
+    if IN_WORKER:
+        return _embed_local(job, wav, emb, rel)
+    res = WORKER.call("embed", {"wav": wav, "emb": emb, "groups": rel}, job)
+    return [[float(x) for x in v] if isinstance(v, list) and v else None for v in res]
+
+
+def embed_fake(groups):
+    """テスト用: 偽の話者判別(diarize_fake: 10秒ごとに入れ替わる)と同じ区切りの番号ごとに、向きの違う特徴"""
+    out = []
+    for g in groups:
+        votes = {}
+        for a, b in g:
+            k = int(((a + b) / 2.0) // 10) % 2   # diarize_fake の既定(2人)と同じ入れ替わり
+            votes[k] = votes.get(k, 0.0) + (b - a)
+        if not votes:
+            out.append(None)
+            continue
+        v = [0.1] * 8
+        v[max(votes, key=votes.get)] = 1.0
+        out.append(_unit(v))
+    return out
+
+
+def _embed_local(job, wav, emb, groups):
+    """認識ワーカーの中だけで動く(numpy・sherpa-onnx)。区間ごとの特徴を長さで重みを付けて平均し、長さ 1 に"""
+    import numpy as np
+    import sherpa_onnx as so
+    threads = max(1, min(4, os.cpu_count() or 2))
+    cfg = so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads)
+    if not cfg.validate():
+        raise ApiError("diar_failed", "声の特徴のモデルを読み込めませんでした(models フォルダを削除して、もう一度試してください)", 500)
+    ex = so.SpeakerEmbeddingExtractor(cfg)
+    samples, sr = read_wav_f32(wav), 16000
+    total, done, out = max(1, sum(len(g) for g in groups)), 0, []
+    for g in groups:
+        vecs, weights = [], []
+        for a, b in g:
+            if job["cancel"]:
+                raise Cancelled()
+            done += 1
+            job["progress"] = min(0.99, done / total)
+            seg = samples[int(a * sr):int(b * sr)]
+            if len(seg) < sr // 2:
+                continue
+            st = ex.create_stream()
+            st.accept_waveform(sample_rate=sr, waveform=seg)
+            st.input_finished()
+            if not ex.is_ready(st):
+                continue
+            e = np.array(ex.compute(st), dtype=np.float32)
+            n = float(np.linalg.norm(e))
+            if n > 0:
+                vecs.append(e / n)
+                weights.append(b - a)
+        if not vecs:
+            out.append(None)
+            continue
+        m = np.average(np.stack(vecs), axis=0, weights=np.array(weights))
+        n = float(np.linalg.norm(m))
+        out.append([float(x) for x in (m / n)] if n > 0 else None)
+    return out
+
+
+def match_voices(found, voices):
+    """found: {話者の id: 特徴}、voices: 覚えている声。-> {話者の id: (名前, 似ている度合い)}。
+    VOICE_MATCH 以上・2番目との差が VOICE_MARGIN 以上のときだけ。1つの名前は1人にだけ(似ている順に決める)"""
+    names = list(voices)
+    cands = []
+    for sid, v in found.items():
+        if not v:
+            continue
+        sc = sorted(((_cos(v, voices[n]["vec"]), n) for n in names), reverse=True)
+        if not sc or sc[0][0] < VOICE_MATCH:
+            continue
+        if len(sc) > 1 and sc[0][0] - sc[1][0] < VOICE_MARGIN:
+            continue
+        cands.append((sc[0][0], sid, sc[0][1]))
+    out, used = {}, set()
+    for score, sid, name in sorted(cands, reverse=True):
+        if sid in out or name in used:
+            continue
+        out[sid] = (name, round(score, 3))
+        used.add(name)
+    return out
+
+
+def recognize_voices(job, tid, wav, offset, emb):
+    """話者判別のあと: 見つかった話者を覚えている声と比べ、仮の名前(話者n)のままの話者に名前を付ける。-> [{"speaker", "name", "score"}]"""
+    voices = load_voices(emb)
+    if not voices:
+        return []
+    doc = read_transcript(tid)
+    grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") or "")
+    ids = list(grp)
+    if not ids:
+        return []
+    job["phase"] = "覚えている声と照らし合わせ中"
+    vecs = embed_groups(job, wav, emb, [grp[i][0] for i in ids], offset)
+    got = match_voices(dict(zip(ids, vecs)), voices)
+    if not got:
+        return []
+    named = []
+    with _save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
+        doc = read_transcript(tid)
+        taken = {str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
+        for s in doc.get("speakers") or []:
+            hit = got.get(s.get("id")) if isinstance(s, dict) else None
+            if hit and DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and hit[0] not in taken:
+                s["name"] = hit[0]
+                taken.add(hit[0])
+                named.append({"speaker": s["id"], "name": hit[0], "score": hit[1]})
+        if named:
+            doc["updatedAt"] = int(time.time() * 1000)
+            atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    return named
+
+
+def validate_voice_learn(req):
+    tid = str(req.get("tid") or "")
+    doc = read_transcript(tid)
+    names = {s.get("id"): str(s.get("name") or "").strip() for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    usable = {k for k, n in names.items() if n and not DEFAULT_SPK_NAME.match(n)}
+    grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") if g.get("speaker") in usable else "")
+    if not grp:
+        raise ApiError("no_names", "名前を付けた話者の行(1秒以上)がありません。「話者」の欄で名前を付けてから押してください(「話者1」のような仮の名前は覚えません)", 400)
+    check_source(doc.get("sourcePath"))
+    with _jobs_lock:
+        if any(j.get("kind") in ("diarize", "retranscribe", "redo", "voice-learn") and j["spec"].get("tid") == tid and j["state"] in ACTIVE_STATES for j in _jobs.values()):
+            raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+    emb = str(req.get("embedding") or (doc.get("diarization") or {}).get("embedding") or DIAR_EMB_DEFAULT)
+    return {"tid": tid, "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "声を覚える: " + (str(doc.get("title") or "") or "無題")[:100]}
+
+
+def run_voice_learn(job):
+    spec = job["spec"]
+    wav = os.path.join(TMP_DIR, job["id"] + ".wav")
+    try:
+        os.makedirs(TMP_DIR, exist_ok=True)
+        doc = read_transcript(spec["tid"])
+        src = check_source(doc.get("sourcePath"))
+        start, end = num(doc.get("start"), 0.0) or 0.0, num(doc.get("end"))
+        names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict)}
+        grp = voice_groups(doc.get("segments") or [], lambda g: names.get(g.get("speaker")) if names.get(g.get("speaker")) and not DEFAULT_SPK_NAME.match(names.get(g.get("speaker"))) else "")
+        if not grp:
+            raise ApiError("no_names", "名前を付けた話者の行がありません", 400)
+        if backend_name() != "fake" and not has_sherpa():
+            raise ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
+        job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
+        extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
+        if backend_name() != "fake":
+            job["state"] = "loading"
+            ensure_diar_models(job, spec["embedding"])
+        job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
+        people = sorted(grp)
+        vecs = embed_groups(job, wav, spec["embedding"], [grp[n][0] for n in people], start)
+        if job["cancel"]:
+            raise Cancelled()
+        learned = []
+        with _voices_lock:
+            voices = load_voices(spec["embedding"])
+            for n, v in zip(people, vecs):
+                if not v:
+                    continue
+                rows, sec = len(grp[n][0]), grp[n][1]
+                old = voices.get(n)
+                if old and len(old["vec"]) == len(v):   # 前に覚えた声と、使った長さで重みを付けて混ぜる(配信ごとの声の揺れをならす)
+                    w0 = min(float(old.get("sec") or 0.0), 3600.0)
+                    v = _unit([a * w0 + b * sec for a, b in zip(old["vec"], v)]) or v
+                    rows, sec = rows + int(old.get("rows") or 0), sec + w0
+                voices[n] = {"vec": [round(x, 6) for x in v], "rows": rows, "sec": round(sec, 1), "updatedAt": int(time.time() * 1000)}
+                learned.append(n)
+            if len(voices) > VOICE_MAX_PEOPLE:
+                raise ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)
+            if learned:
+                save_voices(spec["embedding"], voices)
+        if not learned:
+            raise ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
+        job["learned"] = learned
+        job["speakers"] = len(learned)
+        job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
+    except Cancelled:
+        job["state"], job["phase"] = "cancelled", "中止しました"
+    except ApiError as e:
+        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+    except Exception as e:
+        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+    finally:
+        try:
+            if os.path.exists(wav):
+                os.unlink(wav)
+        except OSError:
+            pass
+
+
+def voices_summary():
+    """覚えている声の一覧(特徴そのものは返さない)。{判別モデル: [{"name", "rows", "sec", "updatedAt"}]}"""
+    out = {}
+    for emb in DIAR_EMBS:
+        v = load_voices(emb)
+        if v:
+            out[emb] = sorted(({"name": n, "rows": int(x.get("rows") or 0), "sec": float(x.get("sec") or 0.0), "updatedAt": int(x.get("updatedAt") or 0)}
+                               for n, x in v.items()), key=lambda r: r["name"])
+    return out
+
+
+def delete_voice(emb, name):
+    if emb not in DIAR_EMBS:
+        raise ApiError("bad_request", "判別モデルの指定が正しくありません", 400)
+    with _voices_lock:
+        voices = load_voices(emb)
+        if name not in voices:
+            raise ApiError("not_found", "その声は覚えていません", 404)
+        del voices[name]
+        save_voices(emb, voices)
 
 
 # ---------- 置換辞書・修正からの学習 ----------
@@ -5085,6 +5398,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(200, {})
             if u.path == "/api/marker":
                 return self._json(200, read_marker())
+            if u.path == "/api/voices":   # A-3: 覚えている声の一覧(特徴そのものは返さない)
+                return self._json(200, {"voices": voices_summary(), "match": VOICE_MATCH})
             if u.path == "/api/transcribed-ranges":
                 return self._json(200, {"items": transcribed_ranges()})
             if u.path == "/api/jobs":
@@ -5205,6 +5520,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, public_job(add_job(spec)))
             if path == "/api/diarize":
                 return self._json(200, public_job(add_job(validate_diarize(obj), "diarize")))
+            if path == "/api/voices/learn":   # A-3: 名前を付けた話者の声を覚える(ジョブ)
+                return self._json(200, public_job(add_job(validate_voice_learn(obj), "voice-learn")))
+            if path == "/api/voices/delete":
+                delete_voice(str(obj.get("embedding") or DIAR_EMB_DEFAULT), str(obj.get("name") or "")[:60])
+                return self._json(200, {"ok": True, "voices": voices_summary()})
             if path == "/api/retranscribe":
                 return self._json(200, public_job(add_job(validate_retranscribe(obj), "retranscribe")))
             if path == "/api/redo":

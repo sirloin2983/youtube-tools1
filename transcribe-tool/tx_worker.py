@@ -13,6 +13,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
   要求  {"rid": 1, "op": "load", "name": "large-v3", "pref": "auto", "force_cpu": false}
         {"rid": 2, "op": "transcribe", "name", "device", "audio": {"wav": パス} | {"f32": パス}, "kw": {...}}
         {"rid": 3, "op": "diarize", "wav": パス, "num": 0, "emb": "voxceleb"}
+        {"rid": 4, "op": "embed", "wav": パス, "emb": "voxceleb", "groups": [[[開始, 終了], ...], ...]}   声の特徴(A-3。音声の先頭からの秒)
         {"op": "cancel", "rid": 2}   /   {"op": "quit"}
   応答  {"rid", "ev": "set", "k": "phase"|"state"|"device"|"progress", "v"}   途中経過(サーバーのジョブに写す)
         {"rid", "ev": "item", "v": 行}                                          認識した1行(transcribe)
@@ -197,6 +198,7 @@ def install_fakes(S):
             time.sleep(delay)
         return turns
     S._diarize_local = fake_diarize
+    S._embed_local = lambda job, wav, emb, groups: S.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
 
 
 # ---------------------------------------------------------------- 本体
@@ -229,6 +231,9 @@ def handle(S, m, out, cancels):
         elif op == "diarize":
             turns = S._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or S.DIAR_EMB_DEFAULT))
             out.send({"rid": rid, "ev": "result", "v": [[float(a), float(b), int(k)] for a, b, k in turns]})
+        elif op == "embed":
+            groups = [[(float(a), float(b)) for a, b in g] for g in (m.get("groups") or [])]
+            out.send({"rid": rid, "ev": "result", "v": S._embed_local(job, str(m.get("wav")), str(m.get("emb") or S.DIAR_EMB_DEFAULT), groups)})
         else:
             out.send({"rid": rid, "ev": "error", "code": "bad_op", "message": "不明な要求: %s" % op, "status": 500})
     except S.Cancelled:

@@ -1339,6 +1339,13 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <label class="lag">選択した行の話者 <select id="spBulk" style="width:auto"></select></label><button type="button" class="btn small" id="spApply">適用</button>
           <label class="lag"><input type="checkbox" id="selAll">全行を選択</label><span class="hint" id="selCount"></span></div>
         <span class="hint">「▶ 聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
+      <div class="fld"><span class="l">声を覚える(次から名前を自動で付ける)</span>
+        <label class="lag"><input type="checkbox" class="ui-switch" id="diarRecog" checked>話者を判別したら、覚えている声と比べて名前を付ける</label>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="voiceLearn">この文書の話者の声を覚える</button><span class="hint" id="voiceLearnHint"></span></div>
+        <details class="ui-disclosure" id="voiceBox" style="margin-top:6px"><summary>覚えている声 <span class="hint" id="voiceCount"></span></summary><div id="voiceList"></div></details>
+        <span class="hint">名前を付けた話者(「話者1」のような仮の名前は除く)の、1秒以上の行の声を覚えます。同じ人をもう一度覚えると、前の声と混ぜて精度が上がります。
+          判別モデルごとに別に覚えます。似ている度合いが足りないとき・2人の声が近いときは名前を付けません(「話者n」のまま)。
+          声の特徴はこの PC の作業データ(voices フォルダ)にだけ保存します。人に渡すフォルダやパックには入りません。</span></div>
     </details>
 
     <details class="card tt-tool tt-lockable" id="fixDetails"><summary>文字をまとめて直す <span class="hint">置換・再認識</span></summary>

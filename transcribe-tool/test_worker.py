@@ -164,6 +164,30 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(job["speakers"], 2)
         self.assertEqual(len(self.doc(tid)["speakers"]), 2)
 
+    def test_voice_learn_and_recognize_through_worker(self):
+        """A-3: 名前を付けた話者の声を覚え(ワーカーで声の特徴)、もう一度判別すると、覚えた声の話者に名前が付く"""
+        saved = S.VOICES_DIR
+        S.VOICES_DIR = os.path.join(self.tmp, "voices")
+        try:
+            tid = self.transcribe()["tid"]
+            j = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
+            S.work_one(j["id"])
+            self.assertEqual((j["state"], j.get("named") or []), ("done", []), j.get("error"))   # まだ何も覚えていない
+            d = self.doc(tid)
+            d["speakers"][0]["name"] = "兎田ぺこら"
+            S.save_transcript(tid, d)
+            j2 = S.add_job(S.validate_voice_learn({"tid": tid}), "voice-learn")
+            S.work_one(j2["id"])
+            self.assertEqual((j2["state"], j2.get("learned")), ("done", ["兎田ぺこら"]), j2.get("error"))
+            j3 = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す
+            S.work_one(j3["id"])
+            self.assertEqual(j3["state"], "done", j3.get("error"))
+            self.assertEqual([n["name"] for n in j3.get("named") or []], ["兎田ぺこら"])
+            self.assertEqual([s["name"] for s in self.doc(tid)["speakers"]], ["兎田ぺこら", "話者2"])
+            self.assertEqual(os.listdir(S.TMP_DIR), [])
+        finally:
+            S.VOICES_DIR = saved
+
     # ---- 取り消し
     def test_cancel_running_job(self):
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.5"

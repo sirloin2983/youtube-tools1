@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.19.0';
+const APP_VERSION = '0.20.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -500,15 +500,16 @@ function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
 async function pollJobs(){
   let j; try { j = await api('/api/jobs'); } catch { return; }
   S.jobs = j.jobs.slice().reverse();
-  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null;
+  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null, voiceDone = null;
   for (const x of S.jobs){
     if (S.seen.has(x.id)) continue;
-    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.tid) txDone.push(x); }
+    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.tid) txDone.push(x); }
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
   if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
   if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
+  if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
   if (doneNew){
     await loadList();
     if (diar){
@@ -517,7 +518,8 @@ async function pollJobs(){
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
       toast(diar.kind === 'redo' ? `疑わしい所を認識し直しました: ${diar.phase || ''}` + (diar.segments ? '(前の版は「以前の版に戻す」に残っています)' : '')
         : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
-        : `話者を判別しました(${diar.speakers}人)。` + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : '「話者」で名前を付けてください'));
+        : `話者を判別しました(${diar.speakers}人)。` + ((diar.named || []).length ? `覚えている声で名前を付けました: ${diar.named.map(x => x.name).join('・')}。` : '')
+          + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : (diar.named || []).length >= diar.speakers ? '' : '「話者」で名前を付けてください'));
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
       if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
@@ -550,7 +552,7 @@ function renderJobs(){
     ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
-    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'diarize' ? j.speakers + '人を判別' : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
+    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'voice-learn' ? (j.learned || []).length + '人の声を覚えた' : j.kind === 'diarize' ? j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : '') : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
 }
 
@@ -803,9 +805,51 @@ async function startDiarize(){
   if (!S.doc) return;
   await saveDoc();
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
-  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value } });
+  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value, recognize: $('#diarRecog').checked } });
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
 }
+/* ---------- 声を覚える(A-3)。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
+   声の特徴そのものは画面に来ない(一覧は名前・行の数・秒だけ) ---------- */
+const DEFAULT_SPK = /^話者\d+$/;
+function namedSpeakers(){ return S.doc ? (S.doc.speakers || []).filter(s => s.name && !DEFAULT_SPK.test(s.name)) : []; }
+function renderVoiceLearn(){
+  const b = $('#voiceLearn'), n = namedSpeakers(), d = S.tools && S.tools.diarize;
+  b.disabled = !S.doc || !n.length || !(d && d.ready) || !!lockJob();
+  $('#voiceLearnHint').textContent = !(d && d.ready) ? '話者判別の部品(sherpa-onnx)が要ります' : !n.length ? '先に下の一覧で話者に名前を付けてください' : n.map(s => s.name).slice(0, 6).join('・') + ' の声を覚えます';
+}
+async function loadVoices(){
+  let r; try { r = await api('/api/voices'); } catch { return; }
+  const emb = $('#diarEmb').value, all = r.voices || {}, labels = {};
+  ((S.tools && S.tools.diarize && S.tools.diarize.embeddings) || []).forEach(e => { labels[e.key] = e.label; });
+  const n = Object.values(all).reduce((a, x) => a + x.length, 0);
+  $('#voiceCount').textContent = n ? `${n}人` : 'まだありません';
+  $('#voiceList').innerHTML = !n ? '<p class="hint" style="margin:6px 0 0">まだ覚えている声はありません</p>'
+    : Object.entries(all).map(([k, xs]) => `<div class="hint" style="margin-top:6px">${esc(labels[k] || k)}${k === emb ? '(今の判別モデル)' : ''}</div>` + xs.map(x =>
+      `<div class="row" data-emb="${esc(k)}" data-name="${esc(x.name)}" style="margin-top:4px;justify-content:space-between;flex-wrap:nowrap"><span>${esc(x.name)} <span class="hint">${x.rows}行 ・ ${Math.round(x.sec / 6) / 10}分 ・ ${esc(ago(x.updatedAt))}</span></span><button type="button" class="btn small" data-act="vdel">忘れる</button></div>`).join('')).join('');
+}
+$('#voiceList').addEventListener('click', e => {
+  const b = e.target.closest('[data-act=vdel]'); if (!b) return;
+  const row = b.closest('[data-name]');
+  armDelete(b, async () => {
+    try { await api('/api/voices/delete', { body: { embedding: row.dataset.emb, name: row.dataset.name } }); toast(`「${row.dataset.name}」の声を忘れました`, 2500); }
+    catch (er){ toast(er.message, 4000, 'err'); }
+    loadVoices();
+  });
+});
+$('#voiceLearn').addEventListener('click', async () => {
+  if (!S.doc) return;
+  try {
+    await saveDoc();
+    if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+    await api('/api/voices/learn', { body: { tid: S.docId, embedding: $('#diarEmb').value } });
+    startPolling(); await pollJobs(); toast('声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
+  } catch (er){ toast(er.message, 5000, 'err'); }
+});
+$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); } });
+$('#diarEmb').addEventListener('change', () => { if ($('#spDetails').open) loadVoices(); });
+try { $('#diarRecog').checked = localStorage.getItem('tx.voiceRecog') !== '0'; } catch {}
+$('#diarRecog').addEventListener('change', () => { try { localStorage.setItem('tx.voiceRecog', $('#diarRecog').checked ? '1' : '0'); } catch {} });
+
 /* 「道具 ▾」: 映像の下のカード(話者・置換と再認識・書き出し・以前の版)へ移動して開く(映像の列の中でスクロールする) */
 document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
   const el = $('#' + b.dataset.jump); if (!el) return;
@@ -1481,6 +1525,7 @@ function applyFilter(){
   $('#qCount').textContent = (q || only) ? `${n}行が該当` : `${S.doc.segments.length}行`;
 }
 function renderSpeakers(){
+  if (typeof renderVoiceLearn === 'function' && document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように(A-3)
   const box = $('#spList');
   box.innerHTML = S.doc.speakers.map((s, i) => `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色"><input type="text" value="${esc(s.name)}" maxlength="30" aria-label="話者名" style="flex:1"><span class="n">${S.doc.segments.filter(x => x.speaker === s.id).length}行 ・ ${i + 1}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`).join('');
   const cur = $('#spBulk').value;

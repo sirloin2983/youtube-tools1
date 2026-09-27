@@ -1,6 +1,8 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.19.0**(2026-09-27、キー配置: ⚙ 設定の「キー配置」で 1 文字起こし のキーと共通の再生キーの割り当てを変えられる。保存は `S.settings.keymap`(サーバーの config.json)。下の「キー操作」の項)。
+現在 **v0.20.0**(2026-09-27、画面の直しの候補の実装 `../docs/backlog-ui-2026-09-27.md`: 話者の声を覚える(A-3。下の「話者の声」)・話者ごとの字幕の色(A-2)・
+?doc= で文書を開く(B-1)・右クリックのメニューのキー(B-3)・設定を ⚙ に1つ(B-9)・1600px 未満はメニューを重ねる(B-7)・カットの [ ] Q W(B-10))。
+v0.19.0 = 2026-09-27、キー配置: ⚙ 設定の「キー配置」で 1 文字起こし のキーと共通の再生キーの割り当てを変えられる。保存は `S.settings.keymap`(サーバーの config.json)。下の「キー操作」の項)。
 v0.18.2 = 2026-09-27、ユーザーの指摘「文字起こしが使いにくくなった」の直し: 左メニューの履歴の一覧(タブ・まとまり・並べ替え・選んでまとめて実行)を 0.18.1 の前に戻す・左手のキー W/S・A/D・Q/E・B・Tab・Ctrl+Enter を戻す(↓/↑・Shift+↓/↑ も残す)・Space が2回分動いていたのを直す。`../docs/WORKLOG.md` の同じ日の記録)。
 v0.18.0 = 2026-09-27、画面の全面見直し(正本は `../.design/ui-overhaul/DESIGN_BRIEF.md`・`IMPLEMENTATION.md`)の段2〜3: ヘッダー(`ui-appnav`・⚙ 設定の引き出し)・
 1 文字起こし(映像の上に今の行を字幕として重ねる・「話者・まとめて直す・書き出し・以前の版」を「…」へ・キーを ↓/↑・Shift+↓/↑ に変更)・
@@ -76,6 +78,7 @@ node --test test_document_save.cjs            # 保存・切り替えの競合(9
 python e2e_ui_v07.py / e2e_ui_v08.py / e2e_ui_v09.py / e2e_eval_v093.py / e2e_ui_v098.py / e2e_ui_handoff.py
 python e2e_edit_tabs.py                       # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
 python e2e_edit_cut.py                        # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
+python e2e_edit_voices.py                     # 話者の声を覚える(A-3。名前を付ける → 覚える → 判別し直すと名前が付く → 忘れる)
 python e2e_edit_pack.py                       # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
 python e2e_ui_mounted.py                      # 入口(app/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
                                               # 履歴の一覧(配信ごと・配信者)・パックのタブ(cut2resolve の API・上書きの確認・zip)
@@ -123,6 +126,13 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   帯から開くと本文の上に重ねる(`EDT.overlay`。`V.menu` とは別)。題名の行 `#docBar`(`renderDocBar()`)はどのタブにも出す。保存の状態 `#saveState` はヘッダー。
   題名の行の「まとめて実行 ▾」`#docAuto`(入口から開いたときだけ。今の文書を入口の `start-docs` で1本・`startDocAuto`・進み具合の札 `#pillAuto` = `renderDocAuto`。
   履歴の「選んで、まとめて実行」と同じ `pollRuns` で読み直す。2026-09-27 `../docs/followup-2026-09-27.md` の 3)
+- **話者の声(A-3。2026-09-27)**: 名前を付けた話者の行(1秒以上・「声が混ざっている」を除く・長い行から 40 行 / 240 秒まで。`voice_groups`)の声の特徴を
+  sherpa-onnx の SpeakerEmbeddingExtractor で取り(`_embed_local`。**ワーカーの中だけ**。サーバーは `embed_groups` → `WORKER.call("embed")`)、長さ 1 にして
+  作業データの `voices/<判別モデル>.json` に名前ごとに保存(`load_voices`/`save_voices`。同じ名前は使った秒で重みを付けて混ぜる)。
+  話者判別のジョブの最後(`recognize_voices`。`spec.recognize` 既定オン)で、見つかった話者の特徴を覚えている声と比べ、
+  コサイン類似度 `VOICE_MATCH`(0.60)以上・2番目との差 `VOICE_MARGIN`(0.08)以上・1つの名前は1人だけ(`match_voices`)のときに、
+  **仮の名前(`話者n`)のままの話者だけ**名前を付ける。失敗しても判別の結果は残す(警告)。ジョブ `voice-learn`(`/api/voices/learn`)、一覧 `GET /api/voices`(特徴そのものは返さない)・`/api/voices/delete`。
+  疑似モードの特徴 `embed_fake` は偽の話者判別と同じ 10 秒の入れ替わり(テストで「覚える → 名前が付く」を確かめるため)。声の特徴は個人を見分けられる情報なので、作業データの外に出さない(.gitignore の `**/voices/`)
 - 行の ▶ は**その行だけ**再生して止まる(`playSeg(s, true)`)。通しの再生は映像そのものの再生ボタン / Space だけ
 - キー操作は**単体キー**(Shift 不要)。例外は Shift+Space(校正済みにして次へ)と Shift+↓/↑(未校正への移動)だけ。Z は2回押しで削除。
   **左手のキー(ユーザー決定 2026-09-27「左手での操作が使いやすかった」。やめない)**: W/S 行・A/D 未校正・Q/E 3秒・B 自動で再生の切り替え・Tab 入力欄に入る/抜ける・入力中の Ctrl+Enter 聞き直す。

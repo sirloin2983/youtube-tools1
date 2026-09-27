@@ -1258,3 +1258,13 @@
   名前→色の規則は `ytt_core/colors.speaker_colors` の1か所(cut2resolve の API と文字起こしの zip が共通で使う)。API は output.speakerColors(既定オン)。
   余白つき素材に置き換える前の計画(元の動画の時刻 = 文字起こしの時刻)で決める。パックのタブに「話者の名前がメンバーと合えば…」のスイッチと、話者 → 色の一覧。
   テスト: cut2resolve 287・契約テスト・編集 単体 125・e2e_edit_pack(話者「みこ」の字幕だけ色)・ui_mounted 通過。**Resolve の実機で色が入るかは未確認**(Lua の SetInput。見た目の入力の読み替えと同じ名前を使う)
+- A-3 話者の声を覚える(編集 `serve.py`・`tx_worker.py`・`app.js`・`index.html`、`.gitignore`): 名前を付けた話者の声の特徴(sherpa-onnx。ワーカーの中だけ)を作業データの `voices/<判別モデル>.json` に覚え、
+  話者判別のあとで見つかった話者と比べて、仮の名前(話者n)のままの話者に名前を付ける(類似度 0.60 以上・2番目との差 0.08 以上・1つの名前は1人)。
+  「…」→「話者」に「声を覚える」(スイッチ・ボタン・覚えている声の一覧と「忘れる」)。詳しくは `transcribe-tool/AGENTS.md` の「話者の声」。
+  テスト: `test_voices.py`(7件。test_metrics から読む)・`test_worker.py`(ワーカー経由で覚える → 名前が付く)・新しい `e2e_edit_voices.py` 通過
+- 版: 編集 0.19.0 → **0.20.0**・スタジオ 0.9.0 → **0.10.0**・cut2resolve 0.13.0 → **0.14.0**・入口 0.11.0 → **0.12.0**(README の見出しと変更の記録も)
+- テスト(PC・最後にまとめて): 編集 単体 125+・node 9・e2e(v07・v08・v09・v098・handoff・eval・edit_tabs/cut/pack/voices・mounted)、スタジオ e2e_ui 135・--mounted 148・node 18、
+  cut2resolve 287、契約テスト、入口 単体 91・e2e_portal・e2e_window、ytt_core、ui-kit e2e・sync 通過
+- 未完了・実機で確かめること: A-2 の色が Resolve の Text+ に入るか(Lua の SetInput。クラウドでは確かめられない)・A-3 の声の照らし合わせの精度(しきい値は実際の配信で調整)・専用の窓で起動するか。
+  統合計画の正本(claude.ai の Claude Docs)には「窓 = Edge の窓を既定・pywebview は使わない・新着配信の監視はやらない」をまだ書いていない(`docs/integration-plan.md` の写しには書いた)
+- 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start-all.bat で起動し直す(次から Edge の専用の窓で開く)

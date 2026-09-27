@@ -16,6 +16,7 @@ cut2resolve/packs/
 **/exports/
 **/clips/
 **/dataset/
+**/voices/
 **/transcripts/
 **/models/
 .whisper_models/
