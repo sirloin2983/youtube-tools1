@@ -86,7 +86,8 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-md)/1.55 var(--font);-webkit-font-smoothing:antialiased}
 body{min-width:0}
 button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
-h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em;line-height:1.3}
+h1,h2,h3,h4{font-family:var(--font-display);line-height:1.3;text-wrap:balance}
+p,.hint,.notice{text-wrap:pretty}   /* v6(段3-2): 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
 a{color:var(--accent);text-underline-offset:2px}
 a:hover{color:var(--accent-hover)}
 ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
@@ -107,7 +108,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 /* ---------- 4. ヘッダー(全ツール共通) ---------- */
 .ui-header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:6px 16px;min-height:var(--header-h);padding:6px 16px;flex-wrap:wrap;
   background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
-.ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap;letter-spacing:-.01em}
+.ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap}
 .ui-brand:hover{color:var(--ink)}
 .ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;background:#8f6bff}
 .ui-brand-mark svg{width:15px;height:15px}
@@ -134,7 +135,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-theme-toggle{position:relative;width:var(--ctl-h);height:var(--ctl-h);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:var(--ink-2);padding:0;flex:none;
   transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
 .ui-theme-toggle:hover{color:var(--ink);border-color:var(--line-strong)}
-.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .35s var(--ease),opacity .2s var(--ease)}
+.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .2s var(--ease),opacity .2s var(--ease)}
 .ui-theme-toggle .i-sun{opacity:0;transform:rotate(-60deg) scale(.6)}
 :root[data-theme=dark] .ui-theme-toggle .i-sun{opacity:1;transform:none}
 :root[data-theme=dark] .ui-theme-toggle .i-moon{opacity:0;transform:rotate(60deg) scale(.6)}
@@ -226,7 +227,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
 .card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
 .card[open]>summary{margin-bottom:8px}
-.section-title{font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.section-title{font:650 12px/1.3 var(--font);color:var(--ink-3);margin:0 0 8px}
 
 /* ---------- 8. 小さな表示 ---------- */
 /* 状態の札: 押せない表示だけのもの。ボタン(枠・角丸 8px)と見分けられるよう、枠なし・丸い端・押しても何も起きない */
@@ -256,7 +257,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 
 /* 進み具合 */
 .bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
-.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .3s var(--ease)}
+.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent)}
 .bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
 @keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
 
@@ -297,7 +298,7 @@ dialog h2,dialog h3{margin-top:0}
 /* 表 */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
-th{font-size:11.5px;color:var(--ink-3);font-weight:650;letter-spacing:.04em;white-space:nowrap;background:var(--panel)}
+th{font-size:11.5px;color:var(--ink-3);font-weight:650;white-space:nowrap;background:var(--panel)}
 tbody tr{transition:background var(--dur) var(--ease)}
 tbody tr:hover{background:var(--panel-2)}
 tr:last-child>td{border-bottom:0}
@@ -379,7 +380,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-sheet>*+*{border-top:1px solid var(--line)}
 
 /* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
-.ui-toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
+.ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
 .ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
 .ui-toast.ok::before{background:#4cd08b}.ui-toast.err::before{background:#ff6f6f}.ui-toast.info::before{background:#5cc3ff}
@@ -390,7 +391,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-toast-detail>div{margin-top:4px;font:11.5px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 
 /* 画面の下の細い帯(いま使えるキー。UIKit.keybar)。既定は表示・設定「キーの帯を出す」で消せる(ytt:keybar=0) */
-.ui-keybar{position:fixed;left:0;right:0;bottom:0;z-index:50;height:var(--keybar-h);display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;white-space:nowrap;font-size:11px;line-height:1;color:var(--ink-3)}
+.ui-keybar{position:fixed;left:0;right:0;bottom:0;z-index:50;height:calc(var(--keybar-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;white-space:nowrap;font-size:11px;line-height:1;color:var(--ink-3)}
 .ui-keybar-item{display:inline-flex;align-items:center;gap:5px;flex:none;transition:color var(--dur) var(--ease)}
 .ui-keybar-item.flash{color:var(--accent)}
 
@@ -401,13 +402,13 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 
 /* 小さな進み具合の棒(64x4px。ホームの「次にやること」・ジョブの札)。.indet は進み具合が分からないとき */
 .ui-miniprogress{display:inline-block;position:relative;width:64px;height:4px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;vertical-align:middle}
-.ui-miniprogress>i{display:block;height:100%;width:var(--p,0%);border-radius:inherit;background:var(--accent);transition:width .3s var(--ease)}
+.ui-miniprogress>i{display:block;height:100%;width:var(--p,0%);border-radius:inherit;background:var(--accent)}
 .ui-miniprogress.indet>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
 
 /* ツールの設定・全体の設定(UIKit.settings.mount。ui-drawer の中に並べる節) */
 .ui-settings-sec{margin:0 0 22px}
 .ui-settings-sec:last-child{margin-bottom:0}
-.ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);color:var(--ink-3)}
 .ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-row:last-child{border-bottom:0}
 .ui-settings-row>span{color:var(--ink-2);font-size:13px}

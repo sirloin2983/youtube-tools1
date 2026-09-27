@@ -87,7 +87,7 @@ main{display:block}
 .ag-new input{flex:1 1 200px;max-width:320px}
 
 /* ---- キー操作の一覧(ダイアログ) ---- */
-.cs-keyhelp{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100vh - 48px);padding:0;overflow:hidden}
+.cs-keyhelp{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:hidden}
 .cs-keyhelp[open]{display:flex;flex-direction:column}
 #keyHelpBody{padding:14px 20px 20px;overflow-y:auto}
 .cs-khint{margin:14px 0 4px}
@@ -162,7 +162,7 @@ main{display:block}
 .q-optcard>summary .card-title{margin-right:4px}
 .q-optsum{font-weight:400;font-size:12.5px}
 .q-optnote{margin:0 0 10px}
-.q-listcard{grid-area:list;position:sticky;top:calc(var(--cs-head) + 12px);max-height:calc(100vh - var(--cs-head) - 28px);display:flex;flex-direction:column;margin-bottom:0}
+.q-listcard{grid-area:list;position:sticky;top:calc(var(--cs-head) + 12px);max-height:calc(100dvh - var(--cs-head) - 28px);display:flex;flex-direction:column;margin-bottom:0}
 .q-next{margin:-4px 0 8px}
 .q-listcard #qList{overflow-y:auto;min-height:0;margin:0 -16px -14px;padding:0 16px 14px}
 .q-acts{margin-top:14px}
@@ -205,7 +205,7 @@ main{display:block}
 .q-raw{font-size:11.5px;color:var(--ink-3)}
 .q-raw>summary{cursor:pointer;width:max-content;min-height:24px}
 .q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
-.q-item.st-err{background:linear-gradient(90deg,var(--danger-soft),transparent 60%);margin:0 -16px;padding-left:16px;padding-right:16px}
+.q-item.st-err{background:var(--danger-soft);margin:0 -16px;padding-left:16px;padding-right:16px}
 
 /* ==================== ④ コラボ ==================== */
 .cl-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start}
@@ -218,7 +218,7 @@ main{display:block}
 .cl-name{grid-column:span 1}
 .cl-bar{margin-top:10px}
 /* 配信の一覧は、どの幅でも枠の中だけでスクロールする(狭い画面で延々と続かないように) */
-.cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100vh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
+.cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100dvh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
 .cl-vlist>*{flex:none}   /* 枠の高さが足りないときに、まとまりが縮んで中身が重ならないように */
 .cl-vlist>.empty{border:0;background:none;padding:18px 10px}
 .cl-vg{margin:0 0 6px}
