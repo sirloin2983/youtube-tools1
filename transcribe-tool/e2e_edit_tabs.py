@@ -53,6 +53,21 @@ def main():
             check("0:12" in pg.inner_text("#docMeta"), "題名の行に長さ: " + pg.inner_text("#docMeta"))
             check(pg.is_visible("#saveState") or pg.get_attribute("#saveState", "role") == "status", "保存の状態はヘッダーに")
 
+            # ---- B-7: 1440px で文書を開いているとき、メニュー(履歴)は本文の上に重ねて開く(列を取らない = 字幕の行が細くならない)
+            if "menu-closed" not in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
+            w_closed = pg.evaluate("document.querySelector('#segs').clientWidth")
+            pg.click("#btnMenu")
+            wait_js(pg, "!document.querySelector('.app').classList.contains('menu-closed')")
+            pos = pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position")
+            w_open = pg.evaluate("document.querySelector('#segs').clientWidth")
+            check(pos == "fixed" and w_open == w_closed, "1440px: メニューを開いても字幕の一覧の幅は変わらない(重ねて開く): %s %s→%s" % (pos, w_closed, w_open))
+            check(pg.is_visible("#menuScrim"), "重ねて開いている間は後ろに暗い幕")
+            pg.click("[data-side-tab=files]")
+            pg.locator("#txList .txi").filter(has_text="一本目").first.locator(".t").click()
+            wait_js(pg, "document.querySelector('.app').classList.contains('menu-closed')", 5000)
+            check(True, "履歴から文書を選ぶと、重ねたメニューは閉じる")
+
             # ---- A-1: 一覧の上の「…」の選択肢が画面の外に出ない(右端にあるので、左へ開き直す)
             for w in (1440, 1280, 1024):
                 pg.set_viewport_size({"width": w, "height": 900})

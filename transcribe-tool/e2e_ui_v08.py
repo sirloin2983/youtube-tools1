@@ -311,6 +311,8 @@ def main():
             except Exception:
                 pass
             check("保管: 済" in pg.inner_text("#arcStat"), "保管の状況が出る: " + pg.inner_text("#arcStat"))
+            if pg.is_visible("#menuScrim"):
+                pg.click("#menuScrim")   # B-7: 1600px 未満ではメニューを重ねて開くので、閉じてから本文を操作する
             pg.click("#btnSpk")   # v0.15.0: 「道具 ▾」→「以前の版に戻す」(自動バックアップ。旧「履歴」)
             pg.click("[data-jump=hiDetails]")
             pg.wait_for_function("document.querySelectorAll('#hiList [data-act=hirest]').length >= 1", timeout=8000)
@@ -340,6 +342,8 @@ def main():
             check(len(call(port, "GET", "/api/history?id=" + tid)["items"]) == len(hs) + 1, "戻すと、戻す前の状態も履歴に残る")
 
             # ---- 数千行 ----
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")   # B-7: 重ねて開くメニューは、上で閉じたので開き直す
             items = pg.locator("#txList .txi")
             idx = [i for i in range(items.count()) if "大きい文書" in items.nth(i).inner_text()][0]
             t0 = time.time()

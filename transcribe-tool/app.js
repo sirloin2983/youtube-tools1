@@ -166,7 +166,8 @@ function applyView(){
 /* 画面の色: v6 からは設定の引き出し(UIKit.settings。全体の節)に一本化(以前の #vTheme はなくした)。ここは帯の色の描き直しだけ */
 if (window.UIKit) UIKit.theme.onChange(() => { if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定・設定の引き出しで変わったとき(帯の色も描き直す)
 /* v0.15.0: 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
-const isDrawer = () => wideTab() || !!(window.matchMedia && matchMedia('(max-width: 719.98px)').matches);   // カット・パックのタブでも重ねて開く
+const OVERLAY_MID = '(max-width: 1599.98px)';   // B-7: 文書を開いている間は、この幅まで左のメニューを重ねて開く(index.html の同じ幅の @media)
+const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-width: 719.98px)').matches || ($('.app').classList.contains('has-doc') && matchMedia(OVERLAY_MID).matches)));   // カット・パックのタブでも重ねて開く
 function toggleMenu(open){
   const was = menuOpen();
   if (wideTab()) EDT.overlay = open === undefined ? !EDT.overlay : !!open;
@@ -1382,7 +1383,7 @@ async function openDoc(id, keep){
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;
   $('#noDoc').hidden = true; $('#doc').hidden = false;
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
-  if (!keep && V.menu && $('.editor').clientWidth < 1300){ toggleMenu(false); autoClosed = true; }   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため(2026-09-27。以前は 1000)
+  if (!keep && V.menu && ($('.editor').clientWidth < 1300 || (window.matchMedia && matchMedia(OVERLAY_MID).matches))){ toggleMenu(false); autoClosed = true; }   // 重ねて開く幅(B-7)では、選んだら閉じて本文を見せる   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため(2026-09-27。以前は 1000)
   $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);

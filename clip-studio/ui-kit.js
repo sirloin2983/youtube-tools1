@@ -105,10 +105,13 @@
       else { body.style.maxHeight = Math.max(120, vh - r.top - m) + 'px'; body.style.overflowY = 'auto'; }
     }
   }
-  document.addEventListener('toggle', function (e) {
-    var d = e.target;
-    if (d && d.open && d.matches && d.matches('details.ui-pop, details.ui-menu')) fitPop(d);
-  }, true);   /* toggle は泡立たないので、捕まえる段階で受ける */
+  /* open が付いた直後(描く前)に直す。toggle イベントは後から届くので、1コマだけ画面の外に出て見えることがあった */
+  if (window.MutationObserver) new MutationObserver(function (recs) {
+    for (var i = 0; i < recs.length; i++) {
+      var d = recs[i].target;
+      if (d.open && d.matches && d.matches('details.ui-pop, details.ui-menu')) fitPop(d);
+    }
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 
   /* ---- ツール間のリンク ---- */
   var TOOLS = [
