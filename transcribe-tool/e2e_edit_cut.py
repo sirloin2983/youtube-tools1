@@ -144,6 +144,9 @@ def main():
             pg.keyboard.press("Alt+2")
             wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
             check("S" in keybar_keys(), "カットのタブへ戻ると、下の帯もまた出る: %s" % keybar_keys())
+            # 上の帯の確かめで Esc で選択を外したので、端のドラッグの前にもう一度区間を選ぶ
+            pg.locator("#tlVideo .tt-k[data-i='1']").click()
+            wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k[data-i=\"1\"] .tt-h').length === 2", 3000)
 
             for _ in range(12):
                 pg.click("#cutZoomIn")
@@ -174,18 +177,25 @@ def main():
             check(server_clips()[1][1] == round(198 / FPS, 3), ". . , で選んだ端が1フレームずつ動く: %s" % (server_clips()[1],))
 
             # ---- 段3: 端の当たり判定は見た目の外側 6px まで(区間そのものの右端の少し外を掴んでもドラッグできる)
+            pg.evaluate("document.querySelector('#tlVideo .tt-k[data-i=\"1\"] .tt-h.out').scrollIntoView({inline: 'center', block: 'nearest'})")   # 端を画面の中へ
+            pg.wait_for_timeout(200)
             k_box = pg.locator("#tlVideo .tt-k[data-i='1']").bounding_box()
             hh_box = pg.locator("#tlVideo .tt-k[data-i='1'] .tt-h.out").bounding_box()
             hx = (k_box["x"] + k_box["width"] + hh_box["x"] + hh_box["width"]) / 2   # 見た目の区間の外側・つまみの外端の間(見た目の外だけをつかむ)
             hy = hh_box["y"] + hh_box["height"] / 2
             before_end = server_clips()[1][1]
+            pg.keyboard.down("Alt")   # 端は再生位置(直前の , . で端と同じ所)に吸い付くので、Alt で吸い付きを止めて当たり判定だけを確かめる
             pg.mouse.move(hx, hy)
             pg.mouse.down()
             pg.mouse.move(hx + px_per_frame * 3, hy, steps=3)
             pg.mouse.up()
+            pg.keyboard.up("Alt")
             wait_saved()
             after_end = server_clips()[1][1]
             check(after_end != before_end, "区間の端は、見た目の外側(数点)を掴んでもドラッグできる(当たり判定が広い): %s → %s" % (before_end, after_end))
+            pg.keyboard.press("Control+z")   # この確かめのドラッグを取り消して、下の「元に戻す」の確かめを前と同じ状態から始める
+            wait_saved()
+            check(server_clips()[1][1] == before_end, "当たり判定の確かめのドラッグは Ctrl+Z で戻る: %s" % (server_clips()[1],))
 
             # ---- 吸い付く(再生位置)・Alt で吸い付かない
             pg.click("#cutZoomFit")
