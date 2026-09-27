@@ -16,6 +16,7 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
 最初の仕様は `../docs/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
 使い方の説明はユーザー向けの `README.txt`(変更したら README も直す)。
 精度向上の計画(段階0〜5。クラウドは初期比較と点検だけ・最終的に外部課金0円)は `../docs/project/accuracy-plan.md`。**ユーザーの指示があるまで実装しない**(2026-09-24 時点)。
+**文字起こしの大幅改善の計画 `../docs/transcription-overhaul-plan.md`(2026-09-27)が、上の2つ(v2 設計書・accuracy-plan)をまとめた今の計画**(食い違う所はこちらが正。段ごとにユーザーの承認のあとで実装)。
 
 ## 構成
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。
