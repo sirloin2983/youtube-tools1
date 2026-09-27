@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.18.2';
+const APP_VERSION = '0.19.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -131,7 +131,11 @@ function txKeybarScene(){
   if (!S.doc){ UIKit.keybar.clear(); return; }
   const editing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#segs textarea');
   if (editing) UIKit.keybar.set([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
-  else UIKit.keybar.set([{ k: 'S / ↓', l: '次の行' }, { k: 'W / ↑', l: '前の行' }, { k: 'D', l: '次の未校正' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: 'R', l: '聞く' }, { k: 'T', l: '直す' }, { k: 'Q / E', l: '3秒' }, { k: '?', l: 'キー操作' }]);
+  else {   // 割り当て(⚙ 設定の「キー配置」)のとおりに出す
+    const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
+    UIKit.keybar.set([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
+      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' }, { k: [k('back3'), k('fwd3')].filter(Boolean).join(' / '), l: '3秒' }, { k: '?', l: 'キー操作' }].filter(x => x.k));
+  }
 }
 function applySideTab(){
   if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';
@@ -206,7 +210,7 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
 /* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
 if (window.UIKit && UIKit.settings){ $('#edSettings').hidden = false; UIKit.settings.mount({ tool: $('#edSettings'), title: '設定', version: 'v' + APP_VERSION }); }
 /* キー操作の一覧(#keys)の先頭に、共通の再生キーの表を差し込む(段2) */
-if (window.UIKit && UIKit.keys) $('#keysCommon').innerHTML = UIKit.keys.helpHtml();
+/* 共通の再生キーの表(#keysCommon)は、割り当てのとおりに renderKeyUI() が描く */
 /* 左メニューの「すべての文字起こし → ホーム」(段2。履歴の一覧そのものはホーム(段5)ができるまでここに残す)。入口に取り込まれているときだけ */
 $('#txHomeLink').hidden = !(window.UIKit && UIKit.tools.mounted());
 /* ヘッダー左の ui-appnav(ホーム/スタジオ/編集)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
@@ -1761,30 +1765,71 @@ function assignSpeaker(n){
 }
 function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
 /* 左手だけの操作: キー単体(Shift 不要)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません(Esc で抜けます)。
-   例外は Shift+Space(校正済みにして次へ)と Shift+↓/↑(未校正への移動)だけ。
    画面の全面見直し(段2)で W/S・A/D・Q/E・B・Tab をやめたが、ユーザーの指摘(「左手での操作が使いやすかった」2026-09-27)で戻した。
-   ↓/↑・Shift+↓/↑ も残す(どちらでも動く)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない) */
-const CMD_KEYS = {
-  KeyQ: () => seek(-3), KeyE: () => seek(3), KeyW: () => navigate(null, -1), KeyS: () => navigate(null, 1), KeyR: replayCur,
-  KeyA: () => navigate('unproofed', -1), KeyD: () => navigate('unproofed', 1), KeyF: () => navigate('flag', 1),
-  KeyZ: deleteCur, KeyX: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, KeyC: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
-  KeyV: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
-  KeyN: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
-  KeyT: editCur, KeyB: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
+   ↓/↑・Shift+↓/↑ も残す(固定の別の手段)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
+   キー配置(2026-09-27): 割り当ては ⚙ 設定の「キー配置」で変えられる。保存は S.settings.keymap(サーバーの config.json。どのブラウザ・窓でも同じ)。
+   共通の再生キー(UIKit.keys.PLAYBACK_ACTIONS)も同じ keymap に入れ、1 文字起こし・2 カット の両方の共通キーに渡す */
+const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
+  ['rowNext', 's', '次の行', 'move'], ['rowPrev', 'w', '前の行', 'move'], ['unNext', 'd', '次の未校正', 'move'], ['unPrev', 'a', '前の未校正', 'move'], ['flagNext', 'f', '次の要確認', 'move'],
+  ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
+  ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
+  ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
+  ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
+];
+const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['play', '再生(全ツール共通のキー。2 カット のタブでも同じ)']];
+const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
+const KEY_DEFS = TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: a[3] }))
+  .concat(window.UIKit && UIKit.keys && UIKit.keys.PLAYBACK_ACTIONS ? UIKit.keys.PLAYBACK_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: 'play' })) : []);
+/* 割り当てられないキー(固定の意味がある)。値は理由 */
+const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
+  Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
+/* 2 カット のタブのキー(cut.js)。再生のキーは 2 カット でも効くので、これらには割り当てない */
+const CUT_KEYS = { s: '分割', x: 'I〜O を削る', Delete: '削る/戻す', Backspace: '削る/戻す', '+': '拡大', '=': '拡大', '-': '縮小', Home: '先頭へ', End: '末尾へ' };
+const keyText = k => window.UIKit && UIKit.keys && UIKit.keys.keyText ? UIKit.keys.keyText(k) : (k || '未設定');
+function keyRefusal(d, combo){
+  if (KEY_FIXED[combo]) return `${keyText(combo)} は「${KEY_FIXED[combo]}」に使っているので割り当てられません`;
+  if (/^[0-9]$/.test(combo)) return `${combo} は話者の割り当て(1〜9・0)に使っているので割り当てられません`;
+  if (d.group === 'play' && CUT_KEYS[combo]) return `${keyText(combo)} は 2 カット のタブの「${CUT_KEYS[combo]}」に使っているので、再生のキーには割り当てられません`;
+  return '';
+}
+function sanitizeKeymap(x){
+  const out = {}, used = new Set();
+  for (const d of KEY_DEFS){
+    let k = x && typeof x === 'object' && typeof x[d.id] === 'string' ? x[d.id].slice(0, 24) : d.def;
+    if (k && (used.has(k) || keyRefusal(d, k))) k = '';   // 重なり・使えないキーは外す(先に並ぶ操作が優先)
+    if (k) used.add(k); out[d.id] = k;
+  }
+  return out;
+}
+let kmCache = { src: null, km: null };
+function keymap(){
+  const src = JSON.stringify((S.settings && S.settings.keymap) || null);
+  if (kmCache.src !== src) kmCache = { src, km: sanitizeKeymap(S.settings && S.settings.keymap) };
+  return kmCache.km;
+}
+const KEY_FN = {
+  rowNext: () => navigate(null, 1), rowPrev: () => navigate(null, -1), unNext: () => navigate('unproofed', 1), unPrev: () => navigate('unproofed', -1), flagNext: () => navigate('flag', 1),
+  replay: () => replayCur(), back3: () => seek(-3), fwd3: () => seek(3), proof: () => proofOk(), edit: () => editCur(),
+  autoNext: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
+  tagUnclear: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, tagOverlap: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
+  tagBgm: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
+  insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
+  del: () => deleteCur(), menu: () => toggleMenu()
 };
+function txActionOf(combo){ if (!combo) return null; const km = keymap(); for (const a of TX_ACTIONS) if (km[a[0]] === combo) return a[0]; return null; }
 /* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
-const REPEAT_OK = new Set(['ArrowDown', 'ArrowUp', 'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyF', 'KeyQ', 'KeyE']);
+const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
 window.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]')) return;
   const m = /^Digit([123])$/.exec(e.code); if (!m) return;
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
   e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1]);
 });
-/* 共通の再生キー(ui-kit.js の UIKit.keys.playback。Space・J/K/L・← →(Shift で5秒)・, .・I/O)。1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、
-   自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
+/* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
+   1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
 const editPlaybackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-  media: () => player(), fps: 30,
+  media: () => player(), fps: 30, keymap: () => keymap(),
   enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])')
 }) : null;
 window.addEventListener('keydown', e => {
@@ -1793,19 +1838,19 @@ window.addEventListener('keydown', e => {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || isTextEntry(e.target)) return;
   if (editPlaybackKeys && editPlaybackKeys(e)) return;   // 処理したら、ここでは何もしない(I/O は校正では何もしない = 別の意味にしない)
   const c = e.code;
-  if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob() || wideTab()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
   if (e.key === '?'){ e.preventDefault(); if (!e.repeat) $('#keys').showModal(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
-  if (c === 'KeyG' && !e.shiftKey){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }
+  const act = txActionOf(window.UIKit && UIKit.keys && UIKit.keys.comboOf ? UIKit.keys.comboOf(e) : '');
+  if (act === 'menu'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }   // メニューは文書を開いていなくても
   if (!S.doc || lockJob() || wideTab()) return;   // 校正のキーは 1 文字起こし のタブだけ(カットのタブは cut.js のキー)
   if (c === 'ArrowDown' || c === 'ArrowUp'){
     e.preventDefault();
-    if (!e.repeat || REPEAT_OK.has(c)) navigate(e.shiftKey ? 'unproofed' : null, c === 'ArrowDown' ? 1 : -1);
+    navigate(e.shiftKey ? 'unproofed' : null, c === 'ArrowDown' ? 1 : -1);   // 押しっぱなしで続けて動いてよい
     return;
   }
-  if (e.shiftKey) return;   // Shift+Space・Shift+↓/↑ 以外は単体キー(誤って押しても発動しないように)
+  if (act){ e.preventDefault(); if (!e.repeat || REPEAT_OK.has(act)) KEY_FN[act](); return; }
+  if (e.shiftKey) return;   // 割り当ての無い Shift+キー は何もしない(誤って押しても発動しないように)
   const dm = /^Digit([0-9])$/.exec(c);
   if (dm){ e.preventDefault(); if (!e.repeat) assignSpeaker(Number(dm[1])); return; }
-  if (CMD_KEYS[c]){ e.preventDefault(); if (!e.repeat || REPEAT_OK.has(c)) CMD_KEYS[c](); }
 });
 
 /* Esc: 編集画面のどの入力欄(検索・絞り込み・速さ・タイトル・行の時刻や話者)からでも抜けて、操作キーを使えるようにする
@@ -1825,6 +1870,74 @@ window.addEventListener('keydown', e => {
   const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
   if (free && !lockJob() && rowAndSeg()){ e.preventDefault(); editCur(); }
 });
+
+/* ---------- キー配置の表示と変更(⚙ 設定の「キー配置」。2026-09-27) ----------
+   割り当てを変えたら、下の帯・一覧の上の手がかり・キー操作の一覧(?)・設定の欄をまとめて描き直す(renderKeyUI) */
+const kbdHTML = combo => combo ? keyText(combo).split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '<span class="muted">未設定</span>';
+const keyWithAlt = id => { const km = keymap(), a = KEY_ALT[id]; return [km[id] ? keyText(km[id]) : '', a || ''].filter(Boolean).join(' / ') || '未設定'; };
+function kRow(keysHTML, label){ return `<div class="ui-krow"><span class="ui-kkeys">${keysHTML}</span><span>${esc(label)}</span></div>`; }
+function renderKeyUI(){
+  const km = keymap();
+  txKeybarScene();
+  /* 一覧の上の手がかり */
+  const hint = $('#keyHintItems');
+  if (hint) hint.innerHTML = [['rowNext', '次の行'], ['replay', '聞く'], ['playPause', '再生・停止'], ['proof', '校正済みにして次へ'], ['edit', '直す']]
+    .map(([id, l]) => `<span class="tt-kh-i">${km[id] ? kbdHTML(km[id]) : ''}${KEY_ALT[id] ? (km[id] ? '<span class="muted">/</span>' : '') + kbdHTML(KEY_ALT[id]) : ''} ${esc(l)}</span>`).join('');
+  /* キー操作の一覧(?) */
+  if (window.UIKit && UIKit.keys) $('#keysCommon').innerHTML = UIKit.keys.helpHtml(km);
+  const tx = $('#keysTx');
+  if (tx){
+    const alt = id => KEY_ALT[id] ? '<span class="muted">/</span>' + KEY_ALT[id].split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '';
+    const groups = KEY_GROUPS.filter(g => g[0] !== 'play').map(([g, h]) => {
+      let rows = TX_ACTIONS.filter(a => a[3] === g).map(a => kRow(kbdHTML(km[a[0]]) + alt(a[0]), a[2])).join('');
+      if (g === 'listen') rows += kRow('<kbd>Esc</kbd><span class="muted">/</span><kbd>Tab</kbd>', '入力欄から抜ける') + kRow('<kbd>Tab</kbd>', '選んだ行の入力欄へ');
+      if (g === 'memo') rows += kRow('<kbd>Ctrl</kbd>+<kbd>Z</kbd>', '元に戻す');
+      if (g === 'screen') rows += kRow('<kbd>Alt</kbd>+<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>', 'タブ(文字起こし・カット・パック)を切り替える') + kRow('<kbd>?</kbd>', 'この一覧');
+      return `<div class="ui-kgroup"><h3 class="section-title">${esc(h)}</h3>${rows}</div>`;
+    });
+    groups.splice(2, 0, `<div class="ui-kgroup"><h3 class="section-title">話者</h3>${kRow('<kbd>1</kbd><kbd>…</kbd><kbd>9</kbd>', 'この行の話者を n 番目に')}${kRow('<kbd>0</kbd>', '話者なし')}</div>`);
+    groups.splice(4, 0, `<div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3>${kRow('<kbd>Alt</kbd>+<kbd>Enter</kbd>', '校正済みにして次の行の入力欄へ')}${kRow('<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', 'この行を聞き直す')}${kRow('<kbd>Alt</kbd>+<kbd>1…9</kbd>', 'この行の話者')}</div>`);
+    tx.innerHTML = groups.join('');
+  }
+  /* ⚙ 設定の「キー配置」 */
+  const grid = $('#kmGrid');
+  if (grid) grid.innerHTML = KEY_GROUPS.map(([g, h]) => `<div class="tt-kmgroup"><h4>${esc(h)}</h4>` + KEY_DEFS.filter(d => d.group === g).map(d =>
+    `<div class="tt-kmrow"><span>${esc(d.label)}${KEY_ALT[d.id] ? ` <span class="hint">(${esc(KEY_ALT[d.id])} でも)</span>` : ''}</span><button type="button" class="tt-kmbtn${km[d.id] ? '' : ' none'}${kmCap && kmCap.id === d.id ? ' cap' : ''}" data-id="${d.id}" aria-label="${esc(d.label)} のキー(押して変更)">${kmCap && kmCap.id === d.id ? 'キーを押す…' : esc(km[d.id] ? keyText(km[d.id]) : '未設定')}</button></div>`).join('') + '</div>').join('');
+  const custom = KEY_DEFS.some(d => (km[d.id] || '') !== d.def);
+  if ($('#kmReset')) $('#kmReset').disabled = !custom;
+}
+let kmCap = null;   // キーを押して割り当てている途中の操作 { id }
+function setKey(id, combo){
+  const d = KEY_DEFS.find(x => x.id === id); if (!d) return;
+  const km = { ...keymap() };
+  if (combo){
+    const why = keyRefusal(d, combo);
+    if (why){ toast(why, 4000); renderKeyUI(); return; }
+    for (const o of KEY_DEFS) if (o.id !== id && km[o.id] === combo){ km[o.id] = ''; toast(`「${o.label}」からこのキーを外しました(未設定になりました)`, 4000); }
+  }
+  km[id] = combo;
+  S.settings.keymap = km; saveSettings(); renderKeyUI();
+}
+function stopKeyCapture(){ if (kmCap){ kmCap = null; renderKeyUI(); } }
+$('#kmGrid').addEventListener('click', e => {
+  const b = e.target.closest('.tt-kmbtn'); if (!b) return;
+  kmCap = { id: b.dataset.id }; renderKeyUI();
+  const nb = $('#kmGrid').querySelector(`.tt-kmbtn[data-id="${CSS.escape(b.dataset.id)}"]`); if (nb) nb.focus();
+});
+$('#kmGrid').addEventListener('focusout', e => { if (kmCap && e.target.closest('.tt-kmbtn')) setTimeout(() => { const a = document.activeElement; if (!(a && a.closest && a.closest('.tt-kmbtn.cap'))) stopKeyCapture(); }, 0); });   // 別の所を押したら取り消し
+/* 割り当ての途中は、どのキーも「割り当てるキー」として受け取る(捕捉の段階で受けて、ほかの処理 = 引き出しの Esc・再生のキーなどに渡さない) */
+window.addEventListener('keydown', e => {
+  if (!kmCap) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (e.key === 'Escape') return stopKeyCapture();
+  if (e.key === 'Delete' || e.key === 'Backspace'){ const id = kmCap.id; kmCap = null; return setKey(id, ''); }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // Ctrl・Alt つきは割り当てない(ブラウザ・タブの切り替えのキーと重なる)
+  const combo = UIKit.keys.comboOf(e); if (!combo) return;   // Shift だけを押した段階は、次のキーを待つ
+  const id = kmCap.id; kmCap = null; setKey(id, combo);
+}, true);
+$('#kmReset').addEventListener('click', () => { kmCap = null; S.settings.keymap = sanitizeKeymap(null); saveSettings(); renderKeyUI(); toast('キー配置を標準に戻しました', 2500); });
+renderKeyUI();
 
 /* ---------- 用語のワンクリック挿入 ---------- */
 function renderTerms(){
@@ -2504,7 +2617,7 @@ function onCutSaved(r){
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 /* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */
@@ -2533,7 +2646,7 @@ async function boot(){
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
-  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderOptSummary();
+  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
   takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない

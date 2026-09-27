@@ -789,62 +789,105 @@
     for (var i = 0; i < parts.length; i++) { if (i) kbds += '<span class="muted">/</span>'; kbds += '<kbd class="ui-kbd">' + esc(parts[i]) + '</kbd>'; }
     return '<div class="ui-krow"><span class="ui-kkeys">' + kbds + '</span><span class="ui-klabel">' + esc(label) + '</span></div>';   /* キー → 説明(各ツールの一覧と同じ順) */
   }
-  function keysHelpHtml() {
-    var rows = [
-      ['Space', '再生・停止'], ['J', '1秒戻る'], ['K', '止める'], ['L', '再生(もう一度で 1.5 → 2 倍)'],
-      ['← / →', '1秒(Shift で5秒)'], [', / .', '1コマ(コマ送り)'], ['I / O', '始まり/終わりの印']
-    ];
+  /* キーの組み合わせの表記(割り当ての保存形式)。'j'・'Shift+j'・'Space'・'Shift+Space'・'ArrowLeft'・','。
+     1文字の記号は Shift で文字そのものが変わる('?' など)ので Shift を付けない。英字・Space・名前のあるキー(矢印など)だけ Shift を付ける */
+  var KEY_TEXT = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Space', Enter: 'Enter', Tab: 'Tab', Escape: 'Esc', Delete: 'Del', Backspace: 'BS' };
+  function comboOf(e) {
+    var k = e.key;
+    if (!k || k === 'Shift' || k === 'Control' || k === 'Alt' || k === 'Meta' || k === 'Dead' || k === 'Process' || k === 'Unidentified') return '';
+    var base, shiftable;
+    if (k === ' ' || k === 'Spacebar') { base = 'Space'; shiftable = true; }
+    else if (k.length === 1) { base = k.toLowerCase(); shiftable = /[a-z]/i.test(k); }
+    else { base = k; shiftable = true; }
+    return (e.shiftKey && shiftable ? 'Shift+' : '') + base;
+  }
+  function keyText(combo) {
+    if (!combo) return '未設定';
+    return String(combo).split('+').map(function (p) { return KEY_TEXT[p] || (p.length === 1 ? p.toUpperCase() : p); }).join('+');
+  }
+  /* 共通の再生キーの操作(id → 既定のキー・説明)。画面が keymap を渡せば割り当てを変えられる(編集)。渡さなければ既定のまま(スタジオ) */
+  var PLAYBACK_ACTIONS = [
+    ['playPause', 'Space', '再生・停止'], ['back1', 'j', '1秒戻る'], ['stop', 'k', '止める'], ['play', 'l', '再生(もう一度で 1.5 → 2 倍)'],
+    ['seekBack', 'ArrowLeft', '1秒戻る(Shift で5秒)'], ['seekFwd', 'ArrowRight', '1秒進む(Shift で5秒)'],
+    ['frameBack', ',', '1コマ戻る'], ['frameFwd', '.', '1コマ進む'], ['markIn', 'i', '始まりの印'], ['markOut', 'o', '終わりの印']
+  ];
+  function playbackMap(km) {
+    var out = {};
+    for (var i = 0; i < PLAYBACK_ACTIONS.length; i++) {
+      var id = PLAYBACK_ACTIONS[i][0];
+      out[id] = km && typeof km[id] === 'string' ? km[id] : PLAYBACK_ACTIONS[i][1];
+    }
+    return out;
+  }
+  function keysHelpHtml(km) {
     var html = '<section class="ui-kgroup"><h3 class="section-title">共通の再生キー</h3>';
-    for (var i = 0; i < rows.length; i++) html += kbdRow(rows[i][0], rows[i][1]);
+    if (!km) {
+      var rows = [
+        ['Space', '再生・停止'], ['J', '1秒戻る'], ['K', '止める'], ['L', '再生(もう一度で 1.5 → 2 倍)'],
+        ['← / →', '1秒(Shift で5秒)'], [', / .', '1コマ(コマ送り)'], ['I / O', '始まり/終わりの印']
+      ];
+      for (var i = 0; i < rows.length; i++) html += kbdRow(rows[i][0], rows[i][1]);
+      return html + '</section>';
+    }
+    var m = playbackMap(km);
+    for (var j = 0; j < PLAYBACK_ACTIONS.length; j++) html += kbdRow(keyText(m[PLAYBACK_ACTIONS[j][0]]), PLAYBACK_ACTIONS[j][2]);
     return html + '</section>';
   }
   /* K・L で戻す速さは、画面の速さの設定(defaultPlaybackRate。編集の「速さ」など)。無ければ 1 倍 */
   function baseRate(media) { var r = +media.defaultPlaybackRate; return r > 0 ? r : 1; }
   /* play() の約束(Promise)の失敗は無視する: 再生の直後に止めると「play() request was interrupted」で失敗するが、止めたかっただけなので問題ない */
   function playQuiet(media) { var p = media.play(); if (p && typeof p.catch === 'function') p.catch(function () { /* 無視 */ }); }
+  /* 押しっぱなし(自動の繰り返し)で続けて働いてよい操作 */
+  var PLAYBACK_REPEAT = { back1: 1, seekBack: 1, seekFwd: 1, frameBack: 1, frameFwd: 1 };
   function keysPlayback(opts) {
     opts = opts || {};
     return function (e) {
       if (opts.enabled && !opts.enabled()) return false;
       if (isTyping(e.target)) return false;
       if (e.ctrlKey || e.altKey || e.metaKey) return false;
-      /* media・fps は関数でもよい(毎回そのとき呼ぶ: 動画の差し替え・読み込み後に決まる fps に対応) */
+      /* media・fps・keymap は関数でもよい(毎回そのとき呼ぶ: 動画の差し替え・読み込み後に決まる fps・設定の変更に対応) */
       var media = typeof opts.media === 'function' ? opts.media() : opts.media;
       var fps = typeof opts.fps === 'function' ? opts.fps() : opts.fps;
       fps = fps > 0 ? fps : 30;
-      var key = e.key, shift = e.shiftKey, name = null;
-      if (shift && key !== 'ArrowLeft' && key !== 'ArrowRight') return false;   // Shift が要るのは矢印だけ
+      var km = playbackMap(typeof opts.keymap === 'function' ? opts.keymap() : opts.keymap);
+      var combo = comboOf(e); if (!combo) return false;
+      var action = null, big = false;
+      for (var id in km) if (km[id] && km[id] === combo) { action = id; break; }
+      /* ← → に当たる操作は Shift つきで5秒(割り当てたキー + Shift) */
+      if (!action && e.shiftKey && combo.indexOf('Shift+') === 0) {
+        var bare = combo.slice(6);
+        if (km.seekBack === bare) { action = 'seekBack'; big = true; }
+        else if (km.seekFwd === bare) { action = 'seekFwd'; big = true; }
+      }
+      if (!action) return false;
+      if (action === 'playPause' && isSpaceControlTarget(e.target) && (combo === 'Space' || combo === 'Enter')) return false;   // ボタン・チェックなどは Space の既定の動きに任せる
+      e.preventDefault();
+      if (e.repeat && !PLAYBACK_REPEAT[action]) return true;   // 押しっぱなしで再生・停止などを繰り返さない(ページのスクロールも止める)
       function seek(delta) { if (media) { try { media.currentTime = Math.max(0, (media.currentTime || 0) + delta); } catch (er) { /* まだ読み込めていない */ } } }
-      if (key === ' ' || key === 'Spacebar') {
-        if (isSpaceControlTarget(e.target)) return false;   // ボタン・チェックなどは Space の既定の動きに任せる
-        if (e.repeat) { e.preventDefault(); return true; }   // 押しっぱなしの自動の繰り返しで再生・停止を繰り返さない(ページのスクロールも止める)
-        if (media) { try { if (media.paused) playQuiet(media); else media.pause(); } catch (er) { /* 無視 */ } }
-        name = 'Space';
-      } else if (key === 'j' || key === 'J') { seek(-1); name = 'J'; }
-      else if (e.repeat && 'kKlLiIoO'.indexOf(key) >= 0) { e.preventDefault(); return true; }   // K・L・I・O も押しっぱなしで繰り返さない(J・矢印・, . は繰り返してよい)
-      else if (key === 'k' || key === 'K') { if (media) { try { media.pause(); media.playbackRate = baseRate(media); } catch (er) { /* 無視 */ } } name = 'K'; }
-      else if (key === 'l' || key === 'L') {
+      if (action === 'playPause') { if (media) { try { if (media.paused) playQuiet(media); else media.pause(); } catch (er) { /* 無視 */ } } }
+      else if (action === 'back1') seek(-1);
+      else if (action === 'stop') { if (media) { try { media.pause(); media.playbackRate = baseRate(media); } catch (er) { /* 無視 */ } } }
+      else if (action === 'play') {
         if (media) {
           try { if (media.paused) { media.playbackRate = baseRate(media); playQuiet(media); } else media.playbackRate = media.playbackRate >= 1.5 ? 2 : 1.5; } catch (er) { /* 無視 */ }
         }
-        name = 'L';
-      } else if (key === 'ArrowLeft') { seek(shift ? -5 : -1); name = shift ? 'Shift+←' : '←'; }
-      else if (key === 'ArrowRight') { seek(shift ? 5 : 1); name = shift ? 'Shift+→' : '→'; }
-      else if (key === ',' || key === '.') {
-        var dir = key === ',' ? -1 : 1, done = false;
+      }
+      else if (action === 'seekBack') seek(big ? -5 : -1);
+      else if (action === 'seekFwd') seek(big ? 5 : 1);
+      else if (action === 'frameBack' || action === 'frameFwd') {
+        var dir = action === 'frameBack' ? -1 : 1, done = false;
         if (typeof opts.onFrame === 'function') done = opts.onFrame(dir) === true;
         if (!done) seek(dir * (1 / fps));
-        name = key;
-      } else if (key === 'i' || key === 'I') { if (typeof opts.onIn === 'function') opts.onIn(); name = 'I'; }
-      else if (key === 'o' || key === 'O') { if (typeof opts.onOut === 'function') opts.onOut(); name = 'O'; }
-      else return false;
-      e.preventDefault();
+      }
+      else if (action === 'markIn') { if (typeof opts.onIn === 'function') opts.onIn(); }
+      else if (action === 'markOut') { if (typeof opts.onOut === 'function') opts.onOut(); }
+      var name = keyText(combo);
       if (typeof opts.onKey === 'function') opts.onKey(name);
       keybar.flash(name);
       return true;
     };
   }
-  var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback };
+  var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap };
 
   /* ---- icon(SVG の線のアイコン。24x24・stroke currentColor・stroke-width 2・角丸) ---- UIKit.icon(name, opts) は文字列を返す。
      <span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill(root)) */

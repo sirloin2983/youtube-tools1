@@ -1002,6 +1002,14 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-file .hint{flex:none}
 .tt-pk-lastbtns{margin-top:10px}
 @container editor (max-width:900px){.tt-pk-grid{grid-template-columns:minmax(0,1fr)}}
+/* ⚙ 設定の「キー配置」(2026-09-27) */
+.tt-kmgroup{margin-top:10px}
+.tt-kmgroup h4{margin:0 0 4px;font-size:12px;color:var(--ink-2);font-weight:600}
+.tt-kmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:32px;border-bottom:1px solid var(--line)}
+.tt-kmbtn{min-width:96px;min-height:28px;padding:3px 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font:inherit;font-size:13px;cursor:pointer;text-align:center;flex:none}
+.tt-kmbtn:hover{border-color:var(--line-strong)}
+.tt-kmbtn.none{color:var(--ink-3)}
+.tt-kmbtn.cap{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 </style>
 </head>
 <body>
@@ -1253,11 +1261,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <!-- 主なキー操作の手がかり(閉じたら覚える。全部は「キー操作」)。画面の下の帯(UIKit.keybar)にも同じ場面のキーを出す -->
       <div class="tt-keyhint" id="keyHint" hidden>
         <span class="tt-kh-l">キー:</span>
-        <span class="tt-kh-i"><kbd>↓</kbd><kbd>↑</kbd> 次/前の行</span>
-        <span class="tt-kh-i"><kbd>R</kbd> 聞く</span>
-        <span class="tt-kh-i"><kbd>Space</kbd> 再生・停止</span>
-        <span class="tt-kh-i"><kbd>Shift</kbd>+<kbd>Space</kbd> 校正済みにして次へ</span>
-        <span class="tt-kh-i"><kbd>T</kbd> 直す(<kbd>Esc</kbd> 抜ける)</span>
+        <span id="keyHintItems" style="display:contents"></span>   <!-- 割り当てのとおりに renderKeyUI() が描く -->
         <span class="tt-kh-end"><button type="button" class="btn ghost small" id="keyHintAll">すべて <kbd>?</kbd></button><button type="button" class="btn ghost small icon" id="keyHintClose" aria-label="キー操作の手がかりを閉じる" title="閉じる(「キー操作」の一覧からまた出せます)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span>
       </div>
      </div>
@@ -1536,16 +1540,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 <dialog id="keys" aria-labelledby="keysT">
   <div class="ui-dlg-head"><h2 id="keysT">キー操作(1 文字起こし のタブ。左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
-  <p class="hint" style="margin:0"><b>キー単体</b>で操作します(Shift が要るのは <b>Shift+Space</b> と <b>Shift+↓/↑</b> だけ)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。「校正」= 聞いて確認して「校正済み」の印を付ける作業です。</p>
+  <p class="hint" style="margin:0"><b>キー単体</b>で操作します。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。キーの割り当ては <b>⚙ 設定</b> の「キー配置」で変えられます(下の表は今の割り当て)。</p>
   <div class="ui-kgrid" id="keysCommon"></div>
-  <div class="ui-kgrid">
-    <div class="ui-kgroup"><h3 class="section-title">行を移動する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>S</kbd><span class="muted">/</span><kbd>↓</kbd></span><span>次の行</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>W</kbd><span class="muted">/</span><kbd>↑</kbd></span><span>前の行</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>D</kbd><span class="muted">/</span><kbd>Shift</kbd><kbd>↓</kbd></span><span>次の未校正</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>A</kbd><span class="muted">/</span><kbd>Shift</kbd><kbd>↑</kbd></span><span>前の未校正</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>F</kbd></span><span>次の要確認</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">聞く・校正する</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>R</kbd></span><span>この行をもう一度聞く</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Q</kbd><span class="muted">/</span><kbd>E</kbd></span><span>3秒戻る/進む</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>B</kbd></span><span>移動したら自動で再生 のオン/オフ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Shift</kbd><kbd>Space</kbd></span><span>校正済みにして次へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>T</kbd><span class="muted">/</span><kbd>Tab</kbd></span><span>この行の文字を直す(入力欄へ)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Esc</kbd><span class="muted">/</span><kbd>Tab</kbd></span><span>入力欄から抜ける</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">話者</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span><span>この行の話者を n 番目に</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>0</kbd></span><span>話者なし</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">音の状態のメモ・行の編集</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>X</kbd></span><span>聞き取れない</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>C</kbd></span><span>声が重なる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>V</kbd></span><span>BGM・音が大きい</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>N</kbd></span><span>後ろに行を追加</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Z</kbd></span><span>この行を削除(2回押し)</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Z</kbd></span><span>元に戻す</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>Enter</kbd></span><span>校正済みにして次の行の入力欄へ</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Ctrl</kbd><kbd>Enter</kbd></span><span>この行を聞き直す</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1…9</kbd></span><span>この行の話者</span></div></div>
-    <div class="ui-kgroup"><h3 class="section-title">画面</h3><div class="ui-krow"><span class="ui-kkeys"><kbd>Alt</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>タブ(文字起こし・カット・パック)を切り替える</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>G</kbd></span><span>左のメニューを開く/閉じる</span></div><div class="ui-krow"><span class="ui-kkeys"><kbd>?</kbd></span><span>この一覧</span></div></div>
-  </div>
+  <div class="ui-kgrid" id="keysTx"></div>   <!-- 割り当てのとおりに renderKeyUI() が描く -->
   <h3 class="section-title" style="margin-top:14px">2 カット のタブ</h3>
   <p class="hint" style="margin:4px 0 0">共通の再生キー(上)に加えて: <kbd>S</kbd> 分割 ・ <kbd>Del</kbd> 削る/戻す ・ <kbd>I</kbd> 始まり ・ <kbd>O</kbd> 終わり ・ <kbd>X</kbd> I〜O を削る ・ <kbd>,</kbd> <kbd>.</kbd> 選んだ端を1コマ(Shift で10コマ) ・ <kbd>Ctrl</kbd>+<kbd>Z</kbd> 元に戻す ・ <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> やり直す。ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付かない</p>
   <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は「⚙ 設定」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。</p>
@@ -1579,6 +1576,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
   <label class="lag" style="margin-top:10px" title="Shift+Space・Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
+  <h3 style="margin-top:18px">キー配置</h3>
+  <p class="hint" style="margin:4px 0 8px">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取り消し / Delete = 割り当てを外す。すでに使っているキーを選ぶと、そちらの割り当てが外れます。
+    ↓ ↑・Shift+↓ ↑(行の移動)・1〜9 と 0(話者)・Tab・Esc は固定です。再生のキーは 2 カット のタブでも同じ割り当てになります。キー配置は、どのブラウザ・窓でも同じです。</p>
+  <div class="row" style="margin-bottom:6px"><button type="button" class="btn small" id="kmReset">標準に戻す</button></div>
+  <div id="kmGrid" class="tt-kmgrid"></div>
 </section>
 
 <script src="cut.js"></script>

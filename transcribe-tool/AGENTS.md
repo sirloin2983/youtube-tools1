@@ -1,6 +1,7 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.18.2**(2026-09-27、ユーザーの指摘「文字起こしが使いにくくなった」の直し: 左メニューの履歴の一覧(タブ・まとまり・並べ替え・選んでまとめて実行)を 0.18.1 の前に戻す・左手のキー W/S・A/D・Q/E・B・Tab・Ctrl+Enter を戻す(↓/↑・Shift+↓/↑ も残す)・Space が2回分動いていたのを直す。`../docs/WORKLOG.md` の同じ日の記録)。
+現在 **v0.19.0**(2026-09-27、キー配置: ⚙ 設定の「キー配置」で 1 文字起こし のキーと共通の再生キーの割り当てを変えられる。保存は `S.settings.keymap`(サーバーの config.json)。下の「キー操作」の項)。
+v0.18.2 = 2026-09-27、ユーザーの指摘「文字起こしが使いにくくなった」の直し: 左メニューの履歴の一覧(タブ・まとまり・並べ替え・選んでまとめて実行)を 0.18.1 の前に戻す・左手のキー W/S・A/D・Q/E・B・Tab・Ctrl+Enter を戻す(↓/↑・Shift+↓/↑ も残す)・Space が2回分動いていたのを直す。`../docs/WORKLOG.md` の同じ日の記録)。
 v0.18.0 = 2026-09-27、画面の全面見直し(正本は `../.design/ui-overhaul/DESIGN_BRIEF.md`・`IMPLEMENTATION.md`)の段2〜3: ヘッダー(`ui-appnav`・⚙ 設定の引き出し)・
 1 文字起こし(映像の上に今の行を字幕として重ねる・「話者・まとめて直す・書き出し・以前の版」を「…」へ・キーを ↓/↑・Shift+↓/↑ に変更)・
 2 カット(タイムライン3段+ミニマップ+ホイールでズーム)・3 パック(前回の設定の要約+ワンクリック+詳しい設定は右の引き出し)。詳しくは下の「画面の設計で決めたこと」)。
@@ -127,6 +128,12 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   v0.18.0 で ↓/↑・Shift+↓/↑ に置き換えたが 0.18.2 で左手のキーを戻し、↓/↑・Shift+↓/↑ は別の手段として残した。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
   Space の再生・停止は `editPlaybackKeys` だけ(以前は app.js の末尾にも Space の処理が残っていて、1回押すと「再生 → すぐ停止」になった。0.18.2 で削除)。
   共通の再生キーは押しっぱなしの繰り返し(`e.repeat`)で Space・K・L・I・O を繰り返さない(J・矢印・, . は繰り返す)。
+  **キー配置(v0.19.0。ユーザー決定 2026-09-27「設定で自由に割り当て」「共通の再生キーも変更可」)**: 操作の一覧は app.js の `TX_ACTIONS`(校正)+ `UIKit.keys.PLAYBACK_ACTIONS`(共通の再生)= `KEY_DEFS`。
+  割り当ては `S.settings.keymap`(id → `UIKit.keys.comboOf` の表記。'' = 未設定)で、読むときは必ず `keymap()`(`sanitizeKeymap`: 重なり・使えないキーは外す)。
+  使えないキーは `keyRefusal()`(`KEY_FIXED` = ↓↑・Shift+↓↑・Tab・Esc・Enter・?、数字 = 話者、再生のキーには `CUT_KEYS` = cut.js のキー S・X・Delete など)。
+  再生のキーは `UIKit.keys.playback({ keymap })` に渡す(1 文字起こし = `editPlaybackKeys`、2 カット = cut.js の `commonKeys` が host の `keymap()` を使う)。
+  下の帯・一覧の上の手がかり(`#keyHintItems`)・キー操作の一覧(`#keysCommon`・`#keysTx`)・⚙ の `#kmGrid` は `renderKeyUI()` がまとめて描く(割り当てを変えたら必ず呼ぶ)。
+  新しい校正の操作をキーに足すときは `TX_ACTIONS` と `KEY_FN` に足す(直に e.code で判定しない)。cut.js に新しいキーを足すときは `CUT_KEYS` にも足す
   共通の再生キー(Space・J/K/L・← →(Shift で5秒)・, .・I/O)は `UIKit.keys.playback()` の1か所(`ui-kit.js`)。1 文字起こし は `editPlaybackKeys`(`media: player()`)、
   2 カット は `commonKeys`(`media: mediaProxy`。生の `<video>` だと togglePlay の頭出し・フレームの丸めを通らないので、`cut.js` の関数へ委ねる薄い代理オブジェクトを渡す)。
   各画面は自分のキー処理より**先に**共通キーを呼び、処理済み(true)なら自分では何もしない(1つのキーは全体で1つの意味。I/O は 1 文字起こし では何もしない = 別の意味を持たせない)

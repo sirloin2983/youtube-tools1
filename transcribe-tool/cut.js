@@ -816,7 +816,7 @@ function create(h){
     pause(){ if (!V().paused) togglePlay(); }
   };
   const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-    media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30),
+    media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30), keymap: () => (h.keymap ? h.keymap() : null),   // 再生のキーの割り当て(編集の ⚙ 設定の「キー配置」)
     enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])'),
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },

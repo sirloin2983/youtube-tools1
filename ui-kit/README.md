@@ -88,6 +88,10 @@
   `playback({media, enabled, onIn, onOut, onFrame, fps, onKey})` → keydown ハンドラ関数(**自動では組み込まれない**。画面が自分のキー処理より先に呼び、`true`(処理した)なら自分の処理をしない)。
   Space 再生・停止 / J 1秒戻る / K 止める(速さを1倍に戻す)/ L 再生(もう一度で 1.5→2倍)/ ← → 1秒(Shift で5秒)/ , . 1コマ(`fps` 既定30。`onFrame(dir)` が `true` を返せば代わりにそちらを使う。カットで区間の端を選んでいるときなど)/ I O `onIn`/`onOut`。
   入力欄にフォーカスがある・Ctrl/Alt/Meta が押されている・Shift は矢印以外では無視。処理したキーは `opts.onKey(name)` と `UIKit.keybar.flash(name)` を呼ぶ
+  `keymap`(オブジェクトか関数。操作 id → キーの表記)を渡すと割り当てを変えられる(編集の ⚙「キー配置」。渡さなければ上の既定 = スタジオ)。操作 id と既定は `PLAYBACK_ACTIONS`
+  (playPause・back1・stop・play・seekBack・seekFwd・frameBack・frameFwd・markIn・markOut)。seekBack/seekFwd は割り当てたキー + Shift で5秒。
+  押しっぱなしの繰り返しでは、再生・停止・K・L・I・O を繰り返さない。`comboOf(e)`(キーの表記。'j'・'Shift+j'・'Space'・'ArrowLeft'。英字・Space・名前のあるキーだけ Shift を付ける)・`keyText(combo)`(表示用。'Shift+←')・
+  `helpHtml(keymap)`(渡せば今の割り当ての表)
 - **`UIKit.icon(name, {size})`**: 24x24・線1本(`stroke=currentColor` `stroke-width=2`・角丸)の SVG を文字列で返す。`<span class="ui-icon" data-icon="play">` は DOMContentLoaded で自動的に中身が入る(`UIKit.icon.fill(root)` で好きな範囲だけ埋め直せる)。
   種類の一覧は `ui-kit.js` の `ICONS`(`styleguide.html` の「アイコン」に一覧表示)
 
