@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.18.1';
+const APP_VERSION = '0.18.2';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -75,7 +75,7 @@ const norm = s => String(s).normalize('NFKC').toLowerCase();
 
 /* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
 const VIEW_KEY = 'tx.view.v1';
-const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45' };
+const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
 /* v0.9.8: 左のメニューの開閉(V.menu)は保存する(上の「☰」ボタンがいつも見えているので、閉じたままでも迷わない)。
    文字起こしを開いていないときに閉じていると何も見えないので、その場合は案内にボタンを出す(showNoDoc) */
@@ -131,17 +131,14 @@ function txKeybarScene(){
   if (!S.doc){ UIKit.keybar.clear(); return; }
   const editing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#segs textarea');
   if (editing) UIKit.keybar.set([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
-  else UIKit.keybar.set([{ k: '↓', l: '次の行' }, { k: '↑', l: '前の行' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: 'R', l: '聞く' }, { k: 'T', l: '直す' }, { k: 'F', l: '要確認' }, { k: '?', l: 'キー操作' }]);
+  else UIKit.keybar.set([{ k: 'S / ↓', l: '次の行' }, { k: 'W / ↑', l: '前の行' }, { k: 'D', l: '次の未校正' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: 'R', l: '聞く' }, { k: 'T', l: '直す' }, { k: 'Q / E', l: '3秒' }, { k: '?', l: 'キー操作' }]);
 }
-/* v0.18.1(画面の全面見直し 段6): 左メニューを1列にしたので、タブは切り替えず「そこを開いて示す」だけにする
-   (呼び出し側 = 帯の [data-strip] とヘッダーの案内は変えずに済む)。'files' は検索欄へ、'quality'/'data' はその <details> を開く */
-function setSideTab(tab, openPanel = true){
-  if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; saveView(); applyView(); }
-  if (tab === 'files'){ const el = $('#txSearch'); el.scrollIntoView({ block: 'center' }); if (openPanel) el.focus({ preventScroll: true }); }
-  else if (tab === 'quality') showInMenu($('#qualityBox'));
-  else if (tab === 'data') showInMenu($('#dataBox'));
-  else $('#newBox').scrollIntoView({ block: 'center' });   // 'start'
+function applySideTab(){
+  if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';
+  document.querySelectorAll('[data-side-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.sideTab === V.sideTab ? 'true' : 'false'));
+  document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
 }
+function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; } saveView(); applyView(); }   // タブの切り替え(v0.9.9: GPT 版のタブを ☰ のメニューの中に統合)
 function applyView(){
   const r = document.documentElement;
   if (!['13', '15', '17', '20'].includes(V.fs)) V.fs = '15';
@@ -150,6 +147,7 @@ function applyView(){
   if (!['0', '30', '45', '60'].includes(V.brk)) V.brk = '45';
   r.style.setProperty('--fs', V.fs + 'px'); r.style.setProperty('--vh', VID_H[V.vid] || VID_H.l);
   r.classList.toggle('dense', !!V.dense); r.classList.toggle('vid-audio', V.vid === 'a');
+  applySideTab();
   const app = $('.app'), wide = wideTab();
   app.classList.toggle('tab-wide', wide); app.classList.toggle('menu-overlay', wide && EDT.overlay);
   app.classList.toggle('menu-closed', !menuOpen());
@@ -171,17 +169,12 @@ function toggleMenu(open){
   else { V.menu = open === undefined ? !V.menu : !!open; saveView(); }
   applyView();
   if (isDrawer() && was !== menuOpen()){
-    if (menuOpen()) $('#btnMenuClose').focus({ preventScroll: true });
+    if (menuOpen()){ const t = document.querySelector('[data-side-tab][aria-selected=true]'); if (t) t.focus({ preventScroll: true }); }
     else if (document.activeElement && $('#menuPanel').contains(document.activeElement)) $('#btnMenu').focus({ preventScroll: true });
   }
 }
-/* メニューの中の項目へ移動する(閉じていれば開く。1列になったので「入っている <details> を全部開く」だけでよい。段6) */
-function showInMenu(el){
-  if (wideTab()) EDT.overlay = true; else V.menu = true;
-  saveView(); applyView();
-  for (let d = el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
-  el.scrollIntoView({ block: 'center' });
-}
+/* メニューの中の項目へ移動する(閉じていれば開く) */
+function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; if (wideTab()) EDT.overlay = true; else V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
 {
   const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
   bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vBrk', 'brk', t => t.value); bind('autoNext', 'autoNext', t => t.checked);
@@ -198,6 +191,7 @@ function showInMenu(el){
     setEditTab(ED_TABS[(i + (e.key === 'ArrowRight' ? 1 : ED_TABS.length - 1)) % ED_TABS.length], { focus: true });
   });
   window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
+  document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
   document.addEventListener('click', e => document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.ui-menu-pop a')) d.open = false; }));
@@ -555,11 +549,19 @@ function renderJobs(){
   </div>`).join('');
 }
 
-/* ---------- 「開く」(保存済みの文字起こしの検索。v0.18.1 で作り直し: docs/ui-guidelines.md 4.・.design/ui-overhaul/DESIGN_BRIEF.md「編集の左メニュー」) ----------
+/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/ui-guidelines.md 4.) ----------
    サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
-   画面は検索欄だけ: 空なら更新が新しい順(=最近開いた扱い。いつ開いたかまでは覚えていない)で最大5件、打つと題名・配信・配信者・ファイル名で探して最大20件。
-   配信ごと・配信者ごとのまとまり/並べ替え/「選んで、まとめて実行」(複数選択)はホームへ移した(app/e2e_portal.py で確認) */
-const RECENT_N = 5, SEARCH_MAX = 20;
+   画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
+   同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
+const LIST_KEY = 'tx.list.v1';
+const L = { state: 'all', kind: 'all', sort: 'updated', group: 'stream' };
+const LIST_OPTS = { state: ['all', 'todo', 'doing', 'done'], kind: ['all', 'clip', 'other', 'eval'], sort: ['updated', 'created', 'remain', 'title'], group: ['stream', 'channel', 'none'] };
+try { const o = JSON.parse(localStorage.getItem(LIST_KEY) || '{}'); for (const k of Object.keys(L)) if (o && LIST_OPTS[k].includes(o[k])) L[k] = o[k]; } catch {}
+const saveListPrefs = () => { try { localStorage.setItem(LIST_KEY, JSON.stringify(L)); } catch {} };
+const txOpen = new Set();      // 開いているまとまり(この画面の間だけ覚える)
+const txLimit = {};            // まとまりごとの表示件数(「もっと見る」で増やす)
+let txInitDone = false, txAuto = null, txGroups = new Map();   // txAuto: 最初に自動で開いた先頭のまとまり(文書を開いたら閉じる。人が開閉したら触らない)
+const GROUP_FIRST = 20, FLAT_FIRST = 40, MORE_STEP = 50;
 const ago = ms => (window.UIKit && UIKit.fmt) ? UIKit.fmt.ago(ms) : '';
 
 async function loadList(){
@@ -569,17 +571,51 @@ async function loadList(){
 /* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
 const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
 const txStream = i => i.streamTitle || i.clipTitle || '';
+function txGroupKey(i){
+  if (L.group === 'channel') return 'c:' + (i.channel || '');
+  if (L.group === 'stream') return 'v:' + (i.videoId || '');
+  return 'all';
+}
+function txGroupHead(key, items){
+  const f = items[0], when = ago(Math.max(...items.map(i => Number(i.updatedAt) || 0)));
+  const done = items.filter(i => txStatus(i) === 'done').length;
+  if (key.startsWith('c:')) return { title: f.channel || '配信者が分からないもの', sub: `最終更新 ${when}`, done };
+  if (key === 'v:') return { title: '配信と紐づいていない文字起こし', sub: `手元の動画など ・ 最終更新 ${when}`, done };
+  return { title: txStream(f) || f.videoId, sub: [f.channel, `最終更新 ${when}`].filter(Boolean).join(' ・ '), done };
+}
+function txSortFn(){
+  const up = (a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+  const left = i => (Number(i.rows) || 0) - (Number(i.proofed) || 0);
+  if (L.sort === 'created') return (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+  if (L.sort === 'remain') return (a, b) => left(b) - left(a) || up(a, b);
+  if (L.sort === 'title') return (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja') || up(a, b);
+  return up;
+}
 function txFiltered(){
   const q = norm($('#txSearch').value.trim());
-  const sorted = [...S.list].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
-  if (!q) return sorted.slice(0, RECENT_N);
-  return sorted.filter(i => norm(`${i.title || ''} ${txStream(i)} ${i.clipTitle || ''} ${i.channel || ''} ${i.sourceName || ''} ${i.markLabel || ''}`).includes(q)).slice(0, SEARCH_MAX);
+  return S.list.filter(i => {
+    if (L.kind === 'clip' && !i.hasClip) return false;
+    if (L.kind === 'other' && i.hasClip) return false;
+    if (L.kind === 'eval' && !i.evalSet) return false;
+    if (L.state !== 'all' && txStatus(i) !== L.state) return false;
+    return !q || norm(`${i.title || ''} ${txStream(i)} ${i.clipTitle || ''} ${i.channel || ''} ${i.sourceName || ''} ${i.markLabel || ''}`).includes(q);
+  }).sort(txSortFn());
+}
+/* 1件の表示用の題名: 配信ごとにまとめているときは、見出しにある配信の題名を省いて「違う部分」(マークの名前など)を出す */
+function txShortTitle(i){
+  const t = String(i.title || '').trim() || '無題';
+  if (L.group !== 'stream') return t;
+  for (const p of [txStream(i), i.clipTitle].filter(Boolean)){
+    if (t.startsWith(p) && t.length > p.length){ const rest = t.slice(p.length).replace(/^[\s・:：\-–—|]+/, '').trim(); if (rest) return rest; }
+  }
+  return t;
 }
 function txRowHTML(i){
   const st = txStatus(i), r = Number(i.rows) || 0, p = Number(i.proofed) || 0, full = String(i.title || '無題');
-  /* だれの・いつの を先に(狭いと後ろが「…」で切れるため) */
+  const pick = PICK.on ? `<input type="checkbox" class="txi-pick" data-act="pick"${PICK.ids.has(i.id) ? ' checked' : ''} aria-label="${esc(full)} を選ぶ">` : '';
+  /* だれの・いつの を先に(狭いと後ろが「…」で切れるため)。まとまりの見出しにある情報は省く */
   const meta = [];
-  if (i.channel) meta.push(i.channel);
+  if (L.group === 'none' && i.channel) meta.push(i.channel);
   if (!i.hasClip && i.sourceName) meta.push(i.sourceName);                  // 配信と紐づかないものは、ファイル名で見分ける
   meta.push(ago(Number(i.updatedAt) || Number(i.createdAt) || 0));
   if (i.hasClip && i.clipStart !== null && Number.isFinite(Number(i.clipStart))) meta.push('配信の ' + fmtT(i.clipStart) + '〜');
@@ -595,24 +631,12 @@ function txRowHTML(i){
   else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて 3 パック のタブで作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
   return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head"><button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(full)}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
+    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
     <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
   </div>`;
 }
-function renderList(){
-  const box = $('#txList'), total = S.list.length;
-  $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
-  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ文字起こしはありません。「新規」から文字起こしすると、ここに出ます。</p>'; return; }
-  const q = $('#txSearch').value.trim(), found = txFiltered();
-  $('#txCount').textContent = q ? `${found.length}件` : `最近開いた${found.length}件`;
-  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません。検索の文字を変えてみてください。</p>'; return; }
-  box.innerHTML = found.map(txRowHTML).join('');
-}
-$('#txSearch').addEventListener('input', renderList);
-
-/* ---------- 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs) ----------
-   v0.18.1: 履歴の「選んで、まとめて実行」(複数選択)はホームへ移した。ここは今開いている1文書だけの入口として残す */
-const RUNS = { polling: 0, active: new Set(), lastRuns: [] };
+/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
+const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
 /* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(絶対パスを書かない) */
 async function portalApi(path, body){
   const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
@@ -623,22 +647,38 @@ async function portalApi(path, body){
   if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
   return j;
 }
+function renderPickBar(){
+  $('#txBatch').hidden = !PICK.on;
+  $('#txPickN').textContent = PICK.ids.size ? `${PICK.ids.size} 本を選んでいます` : '文書を選んでください(一覧の行の左のチェック)';
+  $('#txBatchGo').disabled = !PICK.ids.size;
+}
 const RUN_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
 const STEP_STATE = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
+function renderRuns(runs){
+  const box = $('#txRuns');
+  box.innerHTML = runs.slice(0, 10).map(r => {
+    const [cls, label] = RUN_STATE[r.state] || ['info', r.state];
+    const steps = r.steps.map(s => `${esc(s.label)}: ${esc(STEP_STATE[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+    return `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${cls}">${esc(label)}</span>` +
+      (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
+      (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
+      `<span class="tt-run-steps">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span></div>`;
+  }).join('');
+}
 async function pollRuns(){
-  clearTimeout(RUNS.polling);
+  clearTimeout(PICK.polling);
   if (!TOKEN) return;
   let runs = [];
   try { runs = ((await portalApi('api/autorun')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
-  RUNS.lastRuns = runs; renderDocAuto(runs);
+  PICK.lastRuns = runs; renderRuns(runs); renderDocAuto(runs);
   const active = new Set(runs.filter(r => r.state === 'queued' || r.state === 'running').map(r => r.id));
-  if ([...RUNS.active].some(id => !active.has(id))){   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
+  if ([...PICK.active].some(id => !active.has(id))){   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
     loadList();
-    const fin = runs.find(r => r.docId === S.docId && RUNS.active.has(r.id) && !active.has(r.id));
+    const fin = runs.find(r => r.docId === S.docId && PICK.active.has(r.id) && !active.has(r.id));
     if (fin && PACK && !S.dirty) PACK.load(S.docId);   // 今の文書のパックができた: パックのタブの「前回のパック」を読み直す
   }
-  RUNS.active = active;
-  if (active.size) RUNS.polling = setTimeout(pollRuns, 2000);
+  PICK.active = active;
+  if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
 }
 /* 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3): 履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
    先に文書とカットを保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
@@ -668,6 +708,60 @@ function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちば�
   pill.title = (r.steps || []).map(s => `${s.label}: ${STEP_STATE[s.state] || s.state}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
 }
 
+async function startBatch(){
+  const ids = [...PICK.ids]; if (!ids.length) return;
+  const b = $('#txBatchGo'); b.disabled = true;
+  try {
+    const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
+    const r = await portalApi('api/autorun/start-docs', { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) });
+    const n = (r.runs || []).length, sk = r.skipped || [];
+    toast(`${n} 本を「まとめて実行」に入れました` + (sk.length ? `(${sk.length} 本は入れていません: ${sk.slice(0, 2).map(x => (x.title || x.id) + ' = ' + x.reason).join('、')})` : ''), 7000, n ? 'ok' : 'err');
+    PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
+  } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
+  finally { renderPickBar(); }
+}
+
+function txRowsHTML(key, items){
+  const lim = txLimit[key] || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
+  return items.slice(0, lim).map(txRowHTML).join('') + (rest > 0 ? `<button type="button" class="btn small list-more" data-act="more" data-g="${esc(key)}">もっと見る(残り${rest}件)</button>` : '');
+}
+function renderList(){
+  const box = $('#txList'), total = S.list.length;
+  $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
+  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ文字起こしはありません。「新規」から文字起こしすると、ここに出ます。</p>'; return; }
+  const found = txFiltered();
+  $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
+  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません。検索の文字や、状態・種類の絞り込みを変えてみてください。</p>'; return; }
+  if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
+  txGroups = new Map();
+  for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }
+  const cur = S.docId && S.list.find(i => i.id === S.docId), curKey = cur ? txGroupKey(cur) : null;
+  if (curKey){ txOpen.add(curKey); if (txAuto && txAuto !== curKey) txOpen.delete(txAuto); txAuto = null; }   // 今開いている文書のまとまりだけ開く
+  if (!txInitDone){ txInitDone = true; if (!txOpen.size){ txAuto = txGroups.keys().next().value; txOpen.add(txAuto); } }   // 文書を開いていなければ、先頭のまとまりを開く
+  const q = $('#txSearch').value.trim();
+  box.innerHTML = [...txGroups].map(([k, items]) => {
+    const h = txGroupHead(k, items), open = !!q || txOpen.has(k);   // 検索中は、当たったまとまりを全部開く
+    return `<details class="ui-group" data-g="${esc(k)}"${open ? ' open' : ''}><summary><span class="tt-g-main"><b title="${esc(h.title)}">${esc(h.title)}</b><small>${esc(h.sub)}</small></span><span class="ui-group-n" title="${items.length}本のうち、校正済み ${h.done}本">${items.length}本${h.done ? `<span class="tt-g-done"> ・ 済${h.done === items.length ? 'み' : ' ' + h.done}</span>` : ''}</span></summary><div class="tt-g-rows">${open ? txRowsHTML(k, items) : ''}</div></details>`;
+  }).join('');
+}
+$('#txList').addEventListener('click', e => { if (e.target.closest && e.target.closest('details.ui-group>summary')) txAuto = null; });   // 人が開閉したら、自動で閉じない
+/* まとまりを開いたときに、その中だけ描く(閉じたまとまりの行は作らない) */
+$('#txList').addEventListener('toggle', e => {
+  const d = e.target; if (!d || !d.matches || !d.matches('details.ui-group')) return;
+  const k = d.dataset.g;
+  if (d.open){ txOpen.add(k); const rows = d.querySelector('.tt-g-rows'); if (rows && !rows.children.length) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []); }
+  else txOpen.delete(k);
+}, true);
+$('#txSearch').addEventListener('input', () => { for (const k of Object.keys(txLimit)) delete txLimit[k]; renderList(); });
+[['txState', 'state'], ['txFilter', 'kind'], ['txSort', 'sort'], ['txGroup', 'group']].forEach(([id, k]) => {
+  const el = $('#' + id); el.value = L[k];
+  el.addEventListener('change', () => {
+    L[k] = el.value; saveListPrefs();
+    for (const x of Object.keys(txLimit)) delete txLimit[x];
+    if (k === 'group'){ txOpen.clear(); txInitDone = false; txAuto = null; }
+    renderList();
+  });
+});
 /* 保存したら、一覧の進み具合も今の内容に合わせる(一覧を読み直さずに。開いている「⋮」を閉じないよう、少し待ってから) */
 function syncListItem(){
   const d = S.doc, it = d && S.list.find(x => x.id === S.docId); if (!it) return;
@@ -1302,7 +1396,7 @@ async function openDoc(id, keep){
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
-  if (!keep || !sameDoc){ renderDocAuto(RUNS.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#docAutoWho'), ''); }   // 題名の行のまとめて実行の札は、開いた文書のもの
+  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#docAutoWho'), ''); }   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
@@ -1549,6 +1643,9 @@ $('#segs').addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape' && e.target.matches('textarea')){ e.target.blur(); return; }   // 入力欄から抜ける(Space で再生・停止できるように)
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.matches('textarea')){   // 入力中にこの行を聞き直す(段2 でやめたが戻した)
+    e.preventDefault(); const s = S.doc.segments[Number(e.target.closest('.seg').dataset.i)]; if (s) playSeg(s, true);
+  }
 });
 /* ---------- 行の移動(キーボードで校正を回す) ---------- */
 const rowsEl = () => $('#segs').children;
@@ -1616,6 +1713,7 @@ function navigate(kind, dir){
   if (i < 0) return toast({ unproofed: dir > 0 ? 'これより後に、未校正の行はありません' : 'これより前に、未校正の行はありません', flag: '該当する「要確認」の行はありません' }[kind] || (dir > 0 ? '最後の行です' : '最初の行です'));
   gotoRow(i, { play: V.autoNext, center: !!kind });
 }
+function seek(d){ const p = player(); p.currentTime = Math.max(0, p.currentTime + d); S.playEnd = null; }   // Q/E(3秒)。行の終わりで止める予定は解く
 function replayCur(){ const i = curNav(), g = S.doc && S.doc.segments[i]; if (g) playSeg(g, true); }
 /* v0.9.6: 一括操作用のチェック(左端の□。複数行を選んでまとめて処理する)は、キーボードの「今の行」を動かさない。
    これを分けないと、マウスでチェックを付けているだけで、Shiftキー操作の対象が知らない間にそちらへ移ってしまう */
@@ -1664,18 +1762,19 @@ function assignSpeaker(n){
 function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
 /* 左手だけの操作: キー単体(Shift 不要)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません(Esc で抜けます)。
    例外は Shift+Space(校正済みにして次へ)と Shift+↓/↑(未校正への移動)だけ。
-   画面の全面見直し(段2): 行の移動は S/W → ↓/↑、未校正への移動は D/A → Shift+↓/↑ に変えた(S はカットの分割だけの意味になる)。
-   Q/E(共通の再生キーの ← →・Shift+← → に統一)・B(⚙ 設定へ)・Tab・Ctrl+Enter(R と重複)はやめた */
+   画面の全面見直し(段2)で W/S・A/D・Q/E・B・Tab をやめたが、ユーザーの指摘(「左手での操作が使いやすかった」2026-09-27)で戻した。
+   ↓/↑・Shift+↓/↑ も残す(どちらでも動く)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない) */
 const CMD_KEYS = {
-  KeyR: replayCur, KeyF: () => navigate('flag', 1),
+  KeyQ: () => seek(-3), KeyE: () => seek(3), KeyW: () => navigate(null, -1), KeyS: () => navigate(null, 1), KeyR: replayCur,
+  KeyA: () => navigate('unproofed', -1), KeyD: () => navigate('unproofed', 1), KeyF: () => navigate('flag', 1),
   KeyZ: deleteCur, KeyX: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, KeyC: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
   KeyV: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
   KeyN: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
-  KeyT: editCur,
+  KeyT: editCur, KeyB: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
 };
-/* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動だけ。
+/* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
-const REPEAT_OK = new Set(['ArrowDown', 'ArrowUp', 'KeyF']);
+const REPEAT_OK = new Set(['ArrowDown', 'ArrowUp', 'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyF', 'KeyQ', 'KeyE']);
 window.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]')) return;
   const m = /^Digit([123])$/.exec(e.code); if (!m) return;
@@ -1715,6 +1814,16 @@ window.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]')) return;
   const t = e.target;
   if (isTextEntry(t) && t.closest && t.closest('#doc')) t.blur();
+});
+
+/* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き
+   (段2 でやめたが、左手の操作と一緒に戻した。2026-09-27) */
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;
+  const t = e.target;
+  if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
+  const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
+  if (free && !lockJob() && rowAndSeg()){ e.preventDefault(); editCur(); }
 });
 
 /* ---------- 用語のワンクリック挿入 ---------- */
@@ -2076,12 +2185,20 @@ $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 ['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
+$('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
+$('#txBatchGo').addEventListener('click', startBatch);
 $('#docAutoGo').addEventListener('click', startDocAuto);
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄が空なら、パックのタブでこの文書に入れた名前(tx.streamer.v1。pack-tab.js)を入れる
   if (!$('#docAuto').open || $('#docAutoWho').value.trim() || !(window.UIKit && UIKit.streamer)) return;
   let who = '';
   try { const m = JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}'); who = typeof m[S.docId] === 'string' ? m[S.docId] : ''; } catch {}
   if (who) UIKit.streamer.set($('#docAutoWho'), who);
+});
+$('#txRuns').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const row = b.closest('.tt-run');
+  if (b.dataset.act === 'runopen') openDoc(row.dataset.doc);
+  else if (b.dataset.act === 'runcancel'){ try { await portalApi('api/autorun/cancel', { runId: row.dataset.run }); } catch (er){ toast(er.message, 4000, 'err'); } pollRuns(); }
 });
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -2091,7 +2208,13 @@ $('#jobs').addEventListener('click', async e => {
 });
 $('#txList').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'more'){   // まとまりの「もっと見る」: そのまとまりだけ描き足す
+    const k = b.dataset.g; txLimit[k] = (txLimit[k] || (k === 'all' ? FLAT_FIRST : GROUP_FIRST)) + MORE_STEP;
+    const rows = b.closest('.tt-g-rows'); if (rows) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []);
+    return;
+  }
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
+  if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'del') armDelete(b, async () => {
     /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
@@ -2106,7 +2229,7 @@ $('#txList').addEventListener('click', e => {
 window.addEventListener('keydown', e => {
   if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
-  else if (e.key === ' ' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.matches('button,summary,video')){ e.preventDefault(); const p = player(); p.paused ? p.play().catch(() => {}) : p.pause(); }
+  /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ。ここにも残っていたため1回押すと「再生 → すぐ停止」の2回分になっていた(2026-09-27 に削除) */
 });
 window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preventDefault(); e.returnValue = ''; } });   // 送信中の保存も、閉じると届かないことがある
 
@@ -2401,7 +2524,8 @@ async function boot(){
     if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
   } catch (e){ return showErr(e.message + '。入口(youtube-test フォルダの start-all.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
-  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(docs/followup-2026-09-27.md の 3。入口から開いたときだけ)
+  $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))
+  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(docs/followup-2026-09-27.md の 3)も同じ
   if (TOKEN) pollRuns();
   await loadRoster();
   if (S.tools){

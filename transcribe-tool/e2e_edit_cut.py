@@ -136,7 +136,7 @@ def main():
             check("S" in keybar_keys() and "," not in keybar_keys(), "選択を外す(Esc)と、下の帯は通常のカットの場面(S・Del など)に戻る: %s" % keybar_keys())
             pg.keyboard.press("Alt+1")
             wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
-            check("↓" in keybar_keys() and "S" not in keybar_keys(), "1 文字起こし のタブへ移ると、下の帯もそのタブの場面に変わる(カットの場面が残らない): %s" % keybar_keys())
+            check("S / ↓" in keybar_keys() and "S" not in keybar_keys() and "Del" not in keybar_keys(), "1 文字起こし のタブへ移ると、下の帯もそのタブの場面に変わる(カットの場面が残らない): %s" % keybar_keys())
             pg.keyboard.press("Alt+2")
             wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
             check("S" in keybar_keys(), "2 カット のタブへ戻ると、下の帯もカットの場面に戻る: %s" % keybar_keys())

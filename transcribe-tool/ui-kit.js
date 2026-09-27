@@ -800,6 +800,8 @@
   }
   /* K・L で戻す速さは、画面の速さの設定(defaultPlaybackRate。編集の「速さ」など)。無ければ 1 倍 */
   function baseRate(media) { var r = +media.defaultPlaybackRate; return r > 0 ? r : 1; }
+  /* play() の約束(Promise)の失敗は無視する: 再生の直後に止めると「play() request was interrupted」で失敗するが、止めたかっただけなので問題ない */
+  function playQuiet(media) { var p = media.play(); if (p && typeof p.catch === 'function') p.catch(function () { /* 無視 */ }); }
   function keysPlayback(opts) {
     opts = opts || {};
     return function (e) {
@@ -815,13 +817,15 @@
       function seek(delta) { if (media) { try { media.currentTime = Math.max(0, (media.currentTime || 0) + delta); } catch (er) { /* まだ読み込めていない */ } } }
       if (key === ' ' || key === 'Spacebar') {
         if (isSpaceControlTarget(e.target)) return false;   // ボタン・チェックなどは Space の既定の動きに任せる
-        if (media) { try { if (media.paused) media.play(); else media.pause(); } catch (er) { /* 無視 */ } }
+        if (e.repeat) { e.preventDefault(); return true; }   // 押しっぱなしの自動の繰り返しで再生・停止を繰り返さない(ページのスクロールも止める)
+        if (media) { try { if (media.paused) playQuiet(media); else media.pause(); } catch (er) { /* 無視 */ } }
         name = 'Space';
       } else if (key === 'j' || key === 'J') { seek(-1); name = 'J'; }
+      else if (e.repeat && 'kKlLiIoO'.indexOf(key) >= 0) { e.preventDefault(); return true; }   // K・L・I・O も押しっぱなしで繰り返さない(J・矢印・, . は繰り返してよい)
       else if (key === 'k' || key === 'K') { if (media) { try { media.pause(); media.playbackRate = baseRate(media); } catch (er) { /* 無視 */ } } name = 'K'; }
       else if (key === 'l' || key === 'L') {
         if (media) {
-          try { if (media.paused) { media.playbackRate = baseRate(media); media.play(); } else media.playbackRate = media.playbackRate >= 1.5 ? 2 : 1.5; } catch (er) { /* 無視 */ }
+          try { if (media.paused) { media.playbackRate = baseRate(media); playQuiet(media); } else media.playbackRate = media.playbackRate >= 1.5 ? 2 : 1.5; } catch (er) { /* 無視 */ }
         }
         name = 'L';
       } else if (key === 'ArrowLeft') { seek(shift ? -5 : -1); name = shift ? 'Shift+←' : '←'; }
