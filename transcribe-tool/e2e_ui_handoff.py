@@ -156,7 +156,6 @@ def main():
             def open_doc(title):
                 if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                     pg.click("#btnMenu")
-                pg.click("[data-side-tab=files]")
                 pg.fill("#txSearch", title)
                 pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
                 # 検索欄は値を消すだけ(開いた直後に画面が狭いとメニューが自動で閉じ、見えない欄への fill は待ち続けてしまうため)
@@ -175,7 +174,7 @@ def main():
             check(pg.input_value("#srcPath") == newv, "?media= の値が、新規文字起こしのファイル欄に入る")
             check(pg.is_visible("#mediaChoice") and pg.is_visible("#mcTx") and pg.is_visible("#mcOpen"), "まだ文書の無い動画は「文字起こしをする / 文字起こしせずに開く」を選ばせる")
             check(pg.evaluate("location.search") == "?nofs=1", "読んだら URL から media を消す(ほかの値は残す): %s" % pg.evaluate("location.search"))
-            check(pg.get_attribute("[data-side-tab=start]", "aria-selected") == "true" and pg.is_visible("#srcPath"), "メニューの「新規」が開いて、ファイル欄が見える")
+            check(pg.is_visible("#srcPath"), "メニューの「新規」が開いて、ファイル欄が見える")
             time.sleep(0.5)
             check(len(call(port, "GET", "/api/jobs")["jobs"]) == n_jobs, "URL だけでは文字起こしを始めない(ジョブが増えない)")
             txt = pg.inner_text("#srcClip")
@@ -332,7 +331,6 @@ def main():
               window.fetch = (u, init) => (window.__slow && init && init.method === 'PUT' && String(u).includes('/api/transcript?')) ? new Promise(r => setTimeout(r, 1500)).then(() => of(u, init)) : of(u, init); }""")
             pg.locator("#segs textarea").nth(0).fill("消す前の編集")
             pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存中')", timeout=5000)   # 保存を送っている途中(1.5秒遅らせている)
-            pg.click("[data-side-tab=files]")
             pg.fill("#txSearch", "消す文書")
             row = pg.locator("#txList .txi").filter(has_text="消す文書").first
             row.locator(".txi-menu summary").click()
@@ -380,7 +378,6 @@ def main():
             pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('見つかりません')", timeout=10000)
             check(pg.is_disabled("#pkBuild"), "動画が見つからない文書では、パックのタブに理由を出す: " + pg.inner_text("#pkOff"))
             pg.click("[data-edtab=tx]")
-            pg.click("[data-side-tab=files]")
             pg.fill("#txSearch", "動画のない文書")
             check("動画なし" in pg.inner_text("#txList .txi.cur"), "履歴の一覧の行にも「動画なし」の札が出る")
             pg.fill("#txSearch", "")
@@ -404,7 +401,7 @@ def main():
             pg.click("#menuScrim", position={"x": 380, "y": 400})
             check("menu-closed" in (pg.get_attribute(".app", "class") or ""), "外(暗い幕)を押すと閉じる")
             pg.click("#btnMenu")
-            pg.click("[data-side-tab=files]")
+            pg.fill("#txSearch", "普通の文書")
             pg.locator("#txList .txi").filter(has_text="普通の文書").locator(".t").first.click()
             pg.wait_for_function("document.querySelector('#docTitle').value === '普通の文書'", timeout=15000)
             check("menu-closed" in (pg.get_attribute(".app", "class") or ""), "引き出しから文字起こしを開くと、引き出しは自動で閉じる")

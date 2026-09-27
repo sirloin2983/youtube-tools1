@@ -108,7 +108,7 @@ def main():
             b = pw.chromium.launch()
             ctx = b.new_context(viewport={"width": 1500, "height": 1000})
             pg = ctx.new_page()
-            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '[data-side-pane][hidden]{display:block !important}'; document.head.appendChild(st); })")   # v0.9.9: メニューのタブで隠れるカードも操作できるように(タブ自体は e2e_ui_v098.py で確認)
+            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { ['qualityBox', 'dataBox'].forEach(id => { const d = document.getElementById(id); if (d) d.open = true; }); })")   # v0.18.1: 精度・学習は既定で閉じるので(左メニューの見直し)、隠れるカードも操作できるように開いておく
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
@@ -481,28 +481,18 @@ def main():
             open_doc("画面幅テスト2")
             check("menu-closed" not in app_class(), "画面が広い(1500x1000)ときは、文書を開いてもメニューは開いたまま")
 
-            # ==================== 20) v0.9.9: メニューのタブ(GPT 版の統合)・残す/カット済 ====================
-            pg2 = b.new_page(viewport={"width": 1500, "height": 1000})   # テスト用のスタイル(全部のタブを表示)なしで確かめる
+            # ==================== 20) 左メニュー「開く」(v0.18.1 で1列に作り直し。空なら最近開いた5件・打つと題名で最大20件)・残す/カット済 ====================
+            pg2 = b.new_page(viewport={"width": 1500, "height": 1000})
             pg2.goto("http://127.0.0.1:%d/" % port)
-            pg2.wait_for_selector("[data-side-tab]")
-            vis = lambda sel: pg2.is_visible(sel)
-            pg2.click("[data-side-tab=start]")
-            check(vis("#newBox") and vis("#jobsCard") and not vis("#txCard") and not vis("#accCard"), "タブ「新規」: 新しく文字起こし・処理状況だけが見える")
-            pg2.click("[data-side-tab=files]")
-            check(vis("#txCard") and not vis("#newBox"), "タブ「履歴」: 保存済みの文字起こしが見える")
-            pg2.click("[data-side-tab=quality]")
-            check(vis("#accCard") and vis("#goalCard") and not vis("#txCard"), "タブ「精度」: 精度の測定・進行度が見える")
-            pg2.click("[data-side-tab=data]")
-            check(vis("#learnCard") and not vis("#accCard"), "タブ「学習」: 修正から学習した候補が見える")
-            pg2.click("#goalPill") if pg2.is_visible("#goalPill") else pg2.evaluate("document.querySelector('#goalPill').click()")
-            check(vis("#goalCard"), "上の進行度の表示を押すと、メニューが開いて「精度」タブに切り替わる")
-            pg2.reload(); pg2.wait_for_selector("[data-side-tab]")
-            check(pg2.get_attribute("[data-side-tab=quality]", "aria-selected") == "true", "選んだタブは、開き直しても覚えている")
-            pg2.click("#btnMenu")
-            check(not vis("[data-side-tab=files]"), "☰ でタブごとメニューが閉じる")
-            pg2.click("#btnMenu")
-            pg2.click("[data-side-tab=files]")
+            pg2.wait_for_selector("#txList .txi")
+            if "menu-closed" in (pg2.get_attribute(".app", "class") or ""):
+                pg2.click("#btnMenu")
+            initial_titles = pg2.locator("#txList .txi .t").all_inner_texts()
+            check(0 < len(initial_titles) <= 5, "検索が空のときは最近開いた5件まで: %d件" % len(initial_titles))
+            check("メニュー文書" not in initial_titles, "「メニュー文書」は昔に作った文書なので、最近の5件には入っていない(前提の確認): %s" % initial_titles)
             pg2.fill("#txSearch", "メニュー文書")
+            pg2.locator("#txList .txi").filter(has_text="メニュー文書").wait_for()
+            check(pg2.locator("#txList .txi").count() == 1, "検索すると、最近の5件に入っていない古い文書も題名で見つかる")
             pg2.locator("#txList .txi").filter(has_text="メニュー文書").locator(".t").first.click()
             pg2.wait_for_selector("#segs .seg")
             row = pg2.locator("#segs .seg").first

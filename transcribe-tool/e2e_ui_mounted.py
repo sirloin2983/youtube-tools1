@@ -185,11 +185,10 @@ def main():
             raise TimeoutError(expr)
 
         def open_doc(pg, title):
-            wait_js(pg, "document.querySelector('#txList') && document.querySelector('#txList').textContent.includes(%s)" % json.dumps(title), 60000)
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
-            pg.click("[data-side-tab=files]")
             pg.fill("#txSearch", title)
+            wait_js(pg, "document.querySelector('#txList') && document.querySelector('#txList').textContent.includes(%s)" % json.dumps(title), 60000)
             pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
             pg.evaluate("(() => { const q = document.querySelector('#txSearch'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); })()")
             wait_js(pg, "document.querySelector('#docTitle').value === %s" % json.dumps(title))
@@ -231,7 +230,8 @@ def main():
             check(st == 200 and doc1.get("segments", [{}])[0].get("text") == "直した文1",
                   "編集した行がサーバーに保存されている(Python から GET で確認): %s" % (doc1.get("segments", [{}])[0].get("text") if st == 200 else (st, doc1)))
 
-            # ==================== 3b) 履歴の一覧(v0.15.0): 配信ごとのまとまり・配信者・校正の進み具合 ====================
+            # ==================== 3b) 一覧の API(元の配信・配信者・校正の進み具合)・行の操作メニュー「⋮」 ====================
+            # (v0.18.1: 配信ごとのまとまり・状態の絞り込みはホームへ移した。app/e2e_portal.py で確認)
             st, lst = call(port, "GET", "/api/transcripts")
             it1 = next((x for x in lst.get("items", []) if x["id"] == tid1), {})
             check(st == 200 and it1.get("videoId") == "vidE2E00001" and it1.get("channel") == "テスト配信者" and it1.get("clipTitle") == "【雑談】テストの配信"
@@ -239,14 +239,7 @@ def main():
                   "一覧の API に、元の配信・配信者(スタジオの data.json)・行数・長さ・動画の有無・パックが入る: %s" % {k: it1.get(k) for k in ("videoId", "channel", "rows", "mediaOk", "pack", "durationSec")})
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
-            pg.click("[data-side-tab=files]")
-            pg.select_option("#txGroup", "stream")
-            head = pg.inner_text("#txList details.ui-group summary")
-            check("【雑談】テストの配信" in head and "テスト配信者" in head, "配信ごとのまとまりの見出しに、配信の題名と配信者が出る: %s" % head)
             check(pg.evaluate("document.querySelector('#txList .txi.cur .txi-menu summary').textContent.trim()") == "⋮", "操作のメニューは「⋮」(題名の省略の「…」と紛らわしくない)")
-            pg.select_option("#txState", "done")
-            check("条件に合う文字起こしはありません" in pg.inner_text("#txList") and "0 / 1件" in pg.inner_text("#txCount"), "状態「校正済み」で絞り込める(まだ無い): " + pg.inner_text("#txCount"))
-            pg.select_option("#txState", "all")
 
             # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
             pg.click("[data-edtab=pack]")
@@ -357,10 +350,9 @@ def main():
             check(st == 200 and any(t["id"] == "transcribe" for t in status.get("tools", [])), "ワーカーを落としても入口の /api/status は動く")
             check(proc.poll() is None, "入口のプロセスは動いたまま(ワーカーが落ちても道連れにならない)")
 
-            pg.click("[data-edtab=tx]")   # 左のメニューは 1 文字起こし のタブで開いている(カット・パックのタブでは細い帯)
+            pg.click("[data-edtab=tx]")   # 左のメニューは開いている(カット・パックのタブでは細い帯)
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
-            pg.click("[data-side-tab=start]")
             pg.fill("#srcPath", media)
             pg.fill("#jTitle", "ワーカー再起動後")
             pg.click("#btnStart")

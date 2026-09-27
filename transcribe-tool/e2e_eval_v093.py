@@ -135,7 +135,7 @@ def main():
         with sync_playwright() as pw:
             br = pw.chromium.launch()
             pg = br.new_context(viewport={"width": 1400, "height": 900}).new_page()
-            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '[data-side-pane][hidden]{display:block !important}'; document.head.appendChild(st); })")   # v0.9.9: メニューのタブで隠れるカードも操作できるように(タブ自体は e2e_ui_v098.py で確認)
+            pg.add_init_script("document.addEventListener('DOMContentLoaded', () => { ['qualityBox', 'dataBox'].forEach(id => { const d = document.getElementById(id); if (d) d.open = true; }); })")   # v0.18.1: 精度・学習は既定で閉じるので(左メニューの見直し)、隠れるカードも操作できるように開いておく
             pg.on("pageerror", lambda e_: errors.append(str(e_)))
             pg.on("console", lambda m_: errors.append(m_.text) if m_.type == "error" else None)
             pg.goto("http://localhost:%d/" % port)

@@ -172,7 +172,8 @@ def wait_js(pg, expr, timeout=15000):
 
 
 def open_doc(pg, title):
-    """左のメニューの「履歴」から題名で開く(カット・パックのタブでは細い帯の「履歴」から)"""
+    """左のメニューの「開く」から題名で開く(カット・パックのタブでは細い帯の「開く」から。v0.18.1: 左メニューを1列にしたので、
+    もう side-tab のクリックは要らない。検索欄に打つと題名などで最大20件に絞り込む)"""
     cls = pg.get_attribute(".app", "class") or ""
     if "tab-wide" in cls:
         if "menu-overlay" not in cls:
@@ -180,12 +181,10 @@ def open_doc(pg, title):
     else:
         if "menu-closed" in cls:
             pg.click("#btnMenu")
-        pg.click("[data-side-tab=files]")
-    pg.fill("#txSearch", title)   # 検索すると、閉じているまとまりの中の文書も出る
+    pg.fill("#txSearch", title)
     for _ in range(300):
         if pg.locator("#txList .txi").filter(has_text=title).count():
             break
-        pg.evaluate("document.querySelectorAll('#txList details.ui-group:not([open])').forEach(d => { d.open = true; })")
         time.sleep(0.1)
     pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
     wait_js(pg, "document.querySelector('#docTitle').value === %s" % json.dumps(title), 15000)

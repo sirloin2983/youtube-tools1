@@ -477,17 +477,11 @@ h2{margin:0;font-size:15px}
   .app:not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
     background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
   .app:not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
-  .app:not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
 }
 @keyframes tt-drawer{from{transform:translateX(-16px);opacity:.6}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.app:not(.menu-closed)>#menuPanel{animation:none}}
 .menuhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
 .menuhead b{font:650 13px/1.3 var(--font);letter-spacing:.06em;color:var(--ink-3)}
-/* メニューのタブ(新規・履歴・精度・学習)。ui-kit の .ui-tabs と同じ見た目 */
-.side-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:3px;margin:0 0 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);position:sticky;top:calc(var(--toph,52px) + 8px);z-index:20;box-shadow:0 6px 12px -8px color-mix(in srgb,var(--bg) 80%,transparent)}
-.side-tabs button{border:0;background:transparent;border-radius:9px;min-height:30px;padding:0 4px;cursor:pointer;font-size:13px;font-weight:550;color:var(--ink-2);min-width:0;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
-.side-tabs button:hover{color:var(--ink)}
-.side-tabs button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
 .card>summary .hint{font-weight:400}
 .card>summary{font-size:14px}
 .card:not([open])>summary{margin-bottom:0}
@@ -508,23 +502,12 @@ h2{margin:0;font-size:15px}
 .clist label:last-child{border-bottom:0}
 .job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
-/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/ui-guidelines.md 4.) ----------
-   道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
-   1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
-#txHomeLink{display:inline-flex;margin:0 0 8px}
+/* ---------- 「開く」(保存済みの文字起こしの検索。v0.18.1 で作り直し。docs/ui-guidelines.md 4.) ----------
+   検索欄(空なら最近開いた5件・打つと題名などで最大20件)→ 1件1行。まとめ方・並べ替え・複数選択はホームへ移した */
+#txHomeLink{display:inline-flex;margin:8px 0 0}
 .tt-listbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;margin:10px 0 10px}
 .tt-listbar input[type=search]{grid-column:1/-1;width:100%}
-.tt-listbar select{width:100%;min-width:0;font-size:12.5px;padding-left:8px}
 .tt-listbar .ui-count{grid-column:1/-1;margin:0;text-align:right}
-#txList .ui-group{margin-bottom:6px;overflow:visible}
-#txList .ui-group>summary{padding:7px 10px;font-weight:600;font-size:13px;gap:8px;border-radius:var(--r-lg)}
-#txList .ui-group[open]>summary{border-radius:var(--r-lg) var(--r-lg) 0 0}
-.tt-g-main{display:flex;flex-direction:column;min-width:0;flex:1}
-.tt-g-main b{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tt-g-main small{font-size:11.5px;font-weight:500;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#txList .ui-group-n{flex:none;font-variant-numeric:tabular-nums}
-.tt-g-done{color:var(--ok-ink)}
-.tt-g-rows{padding:2px 10px 6px}
 .txi{border-bottom:1px solid var(--line);padding:7px 0;min-height:48px}.txi:last-child{border-bottom:0}
 .txi.cur{background:var(--accent-soft);margin:0 -10px;padding:7px 10px;border-radius:var(--r);border-bottom-color:transparent}
 .txi-head{display:flex;align-items:center;gap:6px}
@@ -538,14 +521,6 @@ h2{margin:0;font-size:15px}
 .tt-prog i{display:block;width:38px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
 .tt-prog i b{display:block;height:100%;background:var(--ok);border-radius:inherit}
 .txi-side .ui-next{font-size:11.5px}
-.tt-batch{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--line-2);border-radius:8px}
-.tt-batch .row{gap:10px;flex-wrap:wrap;align-items:center}
-.tt-batch-go{margin-top:6px}
-.txi-pick{margin:0 6px 0 0;flex:none;width:16px;height:16px}
-.tt-run{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
-.tt-run:first-child{border-top:0}
-.tt-run b{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tt-run .tt-run-steps{flex:1 1 100%;color:var(--ink-3);font-size:12px;overflow-wrap:anywhere}
 .txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3);font-size:16px;line-height:1}
 .txi-menu>summary:hover{border-color:var(--line-2);color:var(--ink)}
 .txi-menu .vpop{width:min(280px,calc(100vw - 48px));padding:10px 12px}
@@ -1025,20 +1000,13 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 <div class="app">
 <nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
   <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く(G)" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-  <button type="button" class="btn ghost small icon" data-strip="files" title="履歴(保存済みの文字起こし)を開く" aria-label="履歴を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+  <button type="button" class="btn ghost small icon" data-strip="files" title="開く(保存済みの文字起こしを検索)" aria-label="開くを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
   <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし・文字起こしせずに開く)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 </nav>
 <aside id="menuPanel" aria-label="メニュー">
   <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います(G)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
   <div id="setup"></div>
-  <nav class="side-tabs" aria-label="管理パネル">
-    <button type="button" data-side-tab="start" aria-selected="true">新規</button>
-    <button type="button" data-side-tab="files" aria-selected="false">履歴</button>
-    <button type="button" data-side-tab="quality" aria-selected="false">精度</button>
-    <button type="button" data-side-tab="data" aria-selected="false">学習</button>
-  </nav>
-
-  <details class="card side-pane" data-side-pane="start" id="newBox" open>
+  <details class="card" id="newBox" open>
     <summary>新しく文字起こしする</summary>
     <div class="seg-tabs" role="group" aria-label="入力の種類">
       <button type="button" id="tabFile" aria-pressed="true">手元のファイル</button>
@@ -1121,72 +1089,62 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <button type="button" class="btn" id="btnOpenVideo" title="文字起こしをしないで、この動画を「編集」で開きます(カットのタブで手で切る・無音で切る。あとから文字起こしもできます)">文字起こしせずに開く</button></div>
   </details>
 
-  <details class="card side-pane" data-side-pane="quality" id="goalCard" open><summary>進行度(校正済みの量)</summary>
-    <div class="goalbar" id="goalBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="目標に対する校正済みの量"><i id="goalFill"></i></div>
-    <p id="goalText" style="margin:6px 0 0;font-size:14px"></p>
-    <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
-    <div id="goalMs"></div>
-    <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
-    <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
-    <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
-  <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
-  <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
-    <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- v0.15.0: 一覧の道具(docs/ui-guidelines.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
+  <details class="card" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
+  <!-- v0.18.1(画面の全面見直し 段6): 左メニューを1列に。「開く」は検索だけ(空なら最近開いた5件・打つと題名などで最大20件)。
+       配信ごと・配信者ごとのまとまり/並べ替え/「選んで、まとめて実行」はホームへ移した(.design/ui-overhaul/DESIGN_BRIEF.md の編集の左メニューの行) -->
+  <details class="card" id="txCard" open><summary>開く <span class="hint" id="txTotal"></span></summary>
     <div class="ui-listbar tt-listbar" role="search">
       <input id="txSearch" type="search" placeholder="題名・配信・配信者・ファイル名" aria-label="保存済みの文字起こしを検索" autocomplete="off">
-      <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
-      <select id="txFilter" aria-label="種類で絞り込む"><option value="all">種類: すべて</option><option value="clip">種類: 切り抜き</option><option value="other">種類: それ以外</option><option value="eval">種類: 評価用</option></select>
-      <select id="txSort" aria-label="並び替え" title="並び替え"><option value="updated">更新が新しい順</option><option value="created">作った順</option><option value="remain" title="校正が残っている行が多い順">未校正が多い順</option><option value="title">題名順</option></select>
-      <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
       <span class="ui-count" id="txCount" aria-live="polite"></span>
     </div>
-    <!-- 12 ⑦(b): 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ出す) -->
-    <div class="tt-batch" id="txBatchBox" hidden>
-      <label class="lag"><input type="checkbox" id="txPick">選んで、まとめて実行(文字起こし → パック)</label>
-      <div class="tt-batch-go" id="txBatch" hidden>
-        <div class="row"><span class="hint" id="txPickN">文書を選んでください</span>
-          <label class="lag" title="パックがすでにある文書も、作り直して上書きします"><input type="checkbox" id="txOverwrite">パックがあれば作り直す(上書き)</label>
-          <button type="button" class="btn small primary" id="txBatchGo" disabled>まとめて実行</button></div>
-        <label class="lag tt-batch-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
-          <input id="txBatchWho" type="text" size="12" placeholder="例: さくらみこ" data-ui-streamer></label>
-        <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットを決めてある文書はカットのとおり、無ければ文字起こしの行からパックを作ります。
-          入口の「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
-      <div id="txRuns" aria-live="polite"></div>
-    </div>
-    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
-  <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
-    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
-    <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
-      <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
-    <div id="accOut"></div>
-    <div class="fld" style="margin-top:10px"><span class="l">評価用の基準の記録</span>
-      <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
-      <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
-      <div id="blOut"></div></div>
-    <div class="fld" style="margin-top:12px"><span class="l">設定の比較(<abbr class="ui-term" title="同じ音声を2つ以上の設定で認識し直して、どちらが正確かを数字で比べること">A/B</abbr>)</span>
-      <span class="hint">開いている文字起こしの「校正済み」の行の音声を、下の設定それぞれで認識し直し、正解との差を比べます(文字起こしは書き換えません)。モデルや「用語集」の有無で、どれが良いかを数字で選べます。重いモデルほど時間がかかります(処理状況に出ます)。</span>
-      <div id="abRows"></div>
-      <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
-      <div id="abOut"></div></div></details>
-  <details class="card side-pane" data-side-pane="data" id="learnCard" open><summary>修正から学習した候補</summary>
-    <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
-    <p class="hint" id="lnStat" style="margin:4px 0 0"></p>
-    <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
-      <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
-    <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
-    <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button>
-    <div class="fld" style="margin-top:12px"><span class="l">修正データの書き出し(将来の追加学習・精度の測定用)</span>
-      <div class="row"><select id="lnExScope" style="width:auto"><option value="all">すべての文字起こし</option><option value="doc">開いている文字起こしだけ</option></select>
-        <select id="lnExKind" style="width:auto" title="校正済みの行すべては、直していない行も含みます(追加学習では、正しく認識できた行も必要です)"><option value="changed">直した行だけ</option><option value="proofed">校正済みの行すべて(学習用)</option></select>
-        <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
-      <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
-  <details class="card side-pane" data-side-pane="data" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
-    <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「<abbr class="ui-term" title="「これは正解ではない」例。機械が出したが人が消した行(無音で出たでたらめな文など)">負例</abbr>」)、行ごとの音声(<abbr class="ui-term" title="音声を劣化させずに縮める形式。16kHz は1秒を1万6千回に分けて記録する細かさ(認識に十分な音質)">16kHz・FLAC</abbr>)が入ります。追加学習(<abbr class="ui-term" title="モデル全体ではなく、小さな追加部分だけを学習させる方法。少ない正解データ・家庭の PC でも試せる">LoRA</abbr>)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
-    <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
-    <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
-    <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="arcNow">開いている文字起こしを今すぐ保管</button><button type="button" class="btn small" id="arcAll">校正済みのある全部を保管</button></div>
-    <div id="arcOut"></div></details>
+    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div>
+    <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
+  </details>
+  <!-- 精度・学習は既定で閉じる(ユーザー決定。中身は以前の goalCard/accCard/learnCard/arcCard のまま。id は app.js の配線・テストのために変えていない) -->
+  <details class="card" id="qualityBox"><summary>精度</summary>
+    <details class="tt-sub ui-disclosure" id="goalCard" open><summary>進行度(校正済みの量)</summary>
+      <div class="goalbar" id="goalBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="目標に対する校正済みの量"><i id="goalFill"></i></div>
+      <p id="goalText" style="margin:6px 0 0;font-size:14px"></p>
+      <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
+      <div id="goalMs"></div>
+      <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
+      <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
+      <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
+    <details class="tt-sub ui-disclosure" id="accCard" open><summary>認識精度の測定</summary>
+      <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
+      <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
+        <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
+      <div id="accOut"></div>
+      <div class="fld" style="margin-top:10px"><span class="l">評価用の基準の記録</span>
+        <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
+        <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
+        <div id="blOut"></div></div>
+      <div class="fld" style="margin-top:12px"><span class="l">設定の比較(<abbr class="ui-term" title="同じ音声を2つ以上の設定で認識し直して、どちらが正確かを数字で比べること">A/B</abbr>)</span>
+        <span class="hint">開いている文字起こしの「校正済み」の行の音声を、下の設定それぞれで認識し直し、正解との差を比べます(文字起こしは書き換えません)。モデルや「用語集」の有無で、どれが良いかを数字で選べます。重いモデルほど時間がかかります(処理状況に出ます)。</span>
+        <div id="abRows"></div>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
+        <div id="abOut"></div></div></details>
+  </details>
+  <details class="card" id="dataBox"><summary>学習</summary>
+    <details class="tt-sub ui-disclosure" id="learnCard" open><summary>修正から学習した候補</summary>
+      <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
+      <p class="hint" id="lnStat" style="margin:4px 0 0"></p>
+      <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
+        <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
+      <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
+      <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button>
+      <div class="fld" style="margin-top:12px"><span class="l">修正データの書き出し(将来の追加学習・精度の測定用)</span>
+        <div class="row"><select id="lnExScope" style="width:auto"><option value="all">すべての文字起こし</option><option value="doc">開いている文字起こしだけ</option></select>
+          <select id="lnExKind" style="width:auto" title="校正済みの行すべては、直していない行も含みます(追加学習では、正しく認識できた行も必要です)"><option value="changed">直した行だけ</option><option value="proofed">校正済みの行すべて(学習用)</option></select>
+          <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
+        <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
+    <details class="tt-sub ui-disclosure" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
+      <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「<abbr class="ui-term" title="「これは正解ではない」例。機械が出したが人が消した行(無音で出たでたらめな文など)">負例</abbr>」)、行ごとの音声(<abbr class="ui-term" title="音声を劣化させずに縮める形式。16kHz は1秒を1万6千回に分けて記録する細かさ(認識に十分な音質)">16kHz・FLAC</abbr>)が入ります。追加学習(<abbr class="ui-term" title="モデル全体ではなく、小さな追加部分だけを学習させる方法。少ない正解データ・家庭の PC でも試せる">LoRA</abbr>)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
+      <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
+      <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="arcNow">開いている文字起こしを今すぐ保管</button><button type="button" class="btn small" id="arcAll">校正済みのある全部を保管</button></div>
+      <div id="arcOut"></div></details>
+  </details>
 </aside>
 
 <main class="editor" id="editor">

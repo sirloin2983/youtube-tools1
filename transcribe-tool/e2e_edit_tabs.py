@@ -125,14 +125,14 @@ def main():
             # ---- 細い帯からメニューを開く(本文の上に重ねる)・閉じる
             pg.click("[data-strip=files]")
             cls = pg.get_attribute(".app", "class")
-            check("menu-overlay" in cls and pg.is_visible("#menuPanel") and pg.get_attribute("[data-side-tab=files]", "aria-selected") == "true",
-                  "帯の「履歴」で、メニューの履歴を本文の上に重ねて開く")
+            check("menu-overlay" in cls and pg.is_visible("#menuPanel") and pg.is_visible("#txSearch"),
+                  "帯の「開く」で、メニューの「開く」欄を本文の上に重ねて開く")
             box = pg.locator("#menuPanel").bounding_box()
             check(box and pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position") == "fixed", "重ねて開く(タイムラインの幅を変えない)")
             pg.keyboard.press("Escape")
             check("menu-overlay" not in pg.get_attribute(".app", "class") and pg.is_hidden("#menuPanel"), "Esc で閉じる")
             pg.click("[data-strip=start]")
-            check(pg.get_attribute("[data-side-tab=start]", "aria-selected") == "true" and pg.is_visible("#srcPath"), "帯の「新規」で新規を開く")
+            check(pg.is_visible("#srcPath"), "帯の「新規」で新規を開く")
             pg.click("#menuScrim", position={"x": 1200, "y": 400})
             check(pg.is_hidden("#menuPanel"), "暗い幕を押すと閉じる")
             pg.keyboard.press("g")
@@ -160,7 +160,6 @@ def main():
                   "1 文字起こし のタブに「この動画を文字起こしする」")
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
-            pg.click("[data-side-tab=start]")
             pg.fill("#srcPath", v3)
             pg.click("#btnOpenVideo")
             wait_js(pg, "document.querySelector('#toast').textContent.includes('前に開いています')", 10000)
