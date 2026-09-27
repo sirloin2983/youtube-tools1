@@ -53,6 +53,15 @@ def main():
             check("0:12" in pg.inner_text("#docMeta"), "題名の行に長さ: " + pg.inner_text("#docMeta"))
             check(pg.is_visible("#saveState") or pg.get_attribute("#saveState", "role") == "status", "保存の状態はヘッダーに")
 
+            # ---- A-1: 一覧の上の「…」の選択肢が画面の外に出ない(右端にあるので、左へ開き直す)
+            for w in (1440, 1280, 1024):
+                pg.set_viewport_size({"width": w, "height": 900})
+                pg.click("#btnSpk")
+                box = pg.locator("#jumpMenu .ui-pop-body").bounding_box()
+                check(bool(box) and box["x"] >= 0 and box["x"] + box["width"] <= w, "幅 %dpx:「…」の選択肢が画面の中に収まる: %s" % (w, box))
+                pg.keyboard.press("Escape")
+            pg.set_viewport_size({"width": 1440, "height": 900})
+
             # ---- 行の右クリックのメニュー(段2): .seg は content-visibility:auto なので、メニュー(position:fixed)は
             # document.body の直下に置く(.seg の中に置くと、画面の外にはみ出す前に切り取られる)。選ぶと閉じて、行に反映される
             row0 = pg.locator("#segs .seg").nth(0)

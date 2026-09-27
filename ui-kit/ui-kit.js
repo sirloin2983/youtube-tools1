@@ -89,6 +89,26 @@
     }
   });
 
+  /* ポップオーバーを開いたら、画面の外にはみ出さないよう置き場所を直す(A-1: 右端の「…」の選択肢が画面の外に出ていた)。
+     data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く */
+  function fitPop(d) {
+    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop'); if (!body) return;
+    body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
+    var r = body.getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = window.innerHeight, m = 8;
+    if (r.right > vw - m) { body.style.left = 'auto'; body.style.right = '0'; r = body.getBoundingClientRect(); }
+    if (r.left < m) { body.style.right = 'auto'; body.style.left = '0'; r = body.getBoundingClientRect(); }
+    if (r.right > vw - m) { var p = d.getBoundingClientRect(); body.style.left = Math.round(m - p.left) + 'px'; body.style.right = 'auto'; }   /* どちらにそろえても入らない狭い画面: 画面の左端から */
+    if (r.bottom > vh - m) {
+      var top = d.getBoundingClientRect().top;
+      if (top - r.height - 6 >= m) { body.style.top = 'auto'; body.style.bottom = 'calc(100% + 6px)'; }
+      else { body.style.maxHeight = Math.max(120, vh - r.top - m) + 'px'; body.style.overflowY = 'auto'; }
+    }
+  }
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (d && d.open && d.matches && d.matches('details.ui-pop, details.ui-menu')) fitPop(d);
+  }, true);   /* toggle は泡立たないので、捕まえる段階で受ける */
+
   /* ---- ツール間のリンク ---- */
   var TOOLS = [
     { id: 'studio', name: '切り抜きスタジオ', sub: '配信を探す・切り抜く区間を選ぶ', port: 8800, mark: 'studio' },
