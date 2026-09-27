@@ -1801,7 +1801,7 @@ const KEY_DEFS = TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group:
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
   Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
 /* 2 カット のタブのキー(cut.js)。再生のキーは 2 カット でも効くので、これらには割り当てない */
-const CUT_KEYS = { s: '分割', x: 'I〜O を削る', Delete: '削る/戻す', Backspace: '削る/戻す', '+': '拡大', '=': '拡大', '-': '縮小', Home: '先頭へ', End: '末尾へ' };
+const CUT_KEYS = { s: '分割', x: 'I〜O を削る', Delete: '削る/戻す', Backspace: '削る/戻す', '+': '拡大', '=': '拡大', '-': '縮小', Home: '先頭へ', End: '末尾へ', '[': '前の区間', ']': '次の区間', q: '始まりの端', w: '終わりの端' };
 const keyText = k => window.UIKit && UIKit.keys && UIKit.keys.keyText ? UIKit.keys.keyText(k) : (k || '未設定');
 function keyRefusal(d, combo){
   if (KEY_FIXED[combo]) return `${keyText(combo)} は「${KEY_FIXED[combo]}」に使っているので割り当てられません`;

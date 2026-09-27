@@ -259,6 +259,37 @@ def main():
             c3 = server_clips()[3]
             check(c3[0] == 11.0 and 19.0 <= c3[1] <= 19.07, "削る区間を選んで Del で戻すと、隣の残す区間とつながる: %s" % (c3,))
 
+            # ---- B-10: キーボードだけで区間・端を選ぶ([ ] = 前/次の区間、Q / W = 始まり/終わりの端 → , . で動かす)
+            pg.keyboard.press("Escape")
+            pg.evaluate("document.querySelector('#cutPlayer').currentTime = 0")
+            wait_js(pg, "document.querySelector('#cutPlayer').currentTime < 0.01")
+            pg.focus("#tlScroll")
+            pg.keyboard.press("]")
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"0\"].sel')", 3000)
+            check(True, "] で再生位置の区間(先頭)を選ぶ")
+            pg.keyboard.press("]")
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"1\"].sel')", 3000)
+            check(True, "もう一度 ] で次の区間")
+            pg.keyboard.press("[")
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"0\"].sel')", 3000)
+            check(True, "[ で前の区間")
+            pg.keyboard.press("]")
+            before = server_clips()[1]
+            pg.keyboard.press("w")
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"1\"] .tt-h.out.on')", 3000)
+            check("," in keybar_keys() and "Q / W" in keybar_keys(), "W で終わりの端を選ぶ(下の帯は , . と Q / W の場面に): %s" % keybar_keys())
+            pg.keyboard.press(".")
+            wait_saved()
+            after = server_clips()[1]
+            check(after[0] == before[0] and after[1] > before[1], "端を選んで . で1コマ後ろへ(キーボードだけで): %s → %s" % (before, after))
+            pg.keyboard.press(",")
+            wait_saved()
+            check(server_clips()[1] == before, ", で戻す: %s" % (server_clips()[1],))
+            pg.keyboard.press("q")
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"1\"] .tt-h.in.on')", 3000)
+            check(True, "Q で始まりの端を選ぶ")
+            pg.keyboard.press("Escape")
+
             # ---- I / O / X
             pg.evaluate("document.querySelector('#cutPlayer').currentTime = 1.0")
             wait_js(pg, "Math.abs(document.querySelector('#cutPlayer').currentTime - 1.0) < 0.01")

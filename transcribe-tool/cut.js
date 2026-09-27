@@ -388,8 +388,9 @@ function create(h){
   /* 画面の下の帯(UIKit.keybar。段3): 端を選んでいる間だけ、,. の意味を知らせる場面に変える */
   function cutKeybarScene(){
     if (!window.UIKit || !UIKit.keybar || h.tab() !== 'cut' || !M.shown) return;
-    if (M.sel && M.sel.kind === 'clip' && M.edge) UIKit.keybar.set([{ k: ',', l: '1コマ' }, { k: '.', l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Esc', l: '選択を外す' }]);
-    else UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: 'I', l: '始まり' }, { k: 'O', l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
+    if (M.sel && M.sel.kind === 'clip' && M.edge) UIKit.keybar.set([{ k: ',', l: '1コマ' }, { k: '.', l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Esc', l: '選択を外す' }]);
+    else if (M.sel && M.sel.kind === 'clip') UIKit.keybar.set([{ k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Del', l: '削る' }, { k: 'S', l: '分割' }, { k: 'Esc', l: '選択を外す' }]);
+    else UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: '[ ]', l: '区間を選ぶ' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: 'I', l: '始まり' }, { k: 'O', l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
   }
   function tickStep(){
     const fs = frameSec(), c = [fs, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
@@ -656,6 +657,33 @@ function create(h){
     const a = Math.min(i, o), b = Math.max(i, o);
     if (change(cs => subtract(cs, a, b))){ M.io = { i: null, o: null }; render(); }
   }
+  /* B-10: キーボードだけで区間・端を選ぶ。[ ] = 前/次の区間(選んでいなければ再生位置の前後)、Q / W = 選んだ区間(無ければ再生位置の区間)の始まり/終わりの端。
+     端を選んだら , . で1コマ(Shift で10コマ)動かせる。選んだ所へ再生位置も動かす(すぐ聞ける・画面に入る) */
+  function selectClip(i, edge){
+    if (i < 0 || i >= M.clips.length) return false;
+    M.sel = { kind: 'clip', i }; M.edge = edge || null;
+    const [a, b] = M.clips[i];
+    V().pause(); seekTo(f2s(edge === 'out' ? Math.max(a, b - 1) : a) + 0.0005);
+    render(); renderSel();
+    return true;
+  }
+  function stepClip(dir){
+    if (!M.clips.length) return h.toast('残す区間がありません', 2500);
+    let i;
+    if (M.sel && M.sel.kind === 'clip') i = M.sel.i + dir;
+    else {   // 選んでいなければ再生位置から: ] = 再生位置か、それより後に始まる区間(無ければ今いる区間)、[ = 再生位置より前に始まる区間(今いる区間を含む)
+      const f = headFrame();
+      i = dir > 0 ? M.clips.findIndex(c => c[0] >= f) : M.clips.map(c => c[0] < f).lastIndexOf(true);
+      if (i < 0 && dir > 0) i = clipAt(f);
+    }
+    if (i < 0 || i >= M.clips.length) return h.toast(dir > 0 ? 'これより後に区間はありません' : 'これより前に区間はありません', 1500);
+    selectClip(i, null);
+  }
+  function pickEdge(edge){
+    const i = M.sel && M.sel.kind === 'clip' ? M.sel.i : clipAt(headFrame());
+    if (i < 0) return h.toast('[ ] で区間を選ぶか、残す区間の中に再生位置を置いてから', 3000);
+    selectClip(i, edge);
+  }
   function nudgeEdge(dir){
     if (!M.sel || M.sel.kind !== 'clip' || !M.edge) return h.toast('区間を選んで、動かす端(始まり/終わり)を押してから', 3000);
     const i = M.sel.i, e = M.edge;
@@ -846,6 +874,10 @@ function create(h){
     if (!editable()) return;
     switch (k){
       case 's': case 'S': return run(split);
+      case '[': return run(() => stepClip(-1));
+      case ']': return run(() => stepClip(1));
+      case 'q': case 'Q': return run(() => pickEdge('in'));
+      case 'w': case 'W': return run(() => pickEdge('out'));
       case 'Delete': case 'Backspace': return run(delOrRestore);
       case 'x': case 'X': return run(cutIO);
       case '+': case '=': return run(() => zoom(1.5));
