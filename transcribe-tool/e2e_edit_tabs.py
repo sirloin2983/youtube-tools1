@@ -72,7 +72,7 @@ def main():
             pg.keyboard.press("ArrowDown")
             pg.wait_for_timeout(150)
             check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav_before, "⚙ 設定の引き出しが開いている間は ↓ で行が動かない")
-            pg.click("[data-ui-settings]")
+            pg.keyboard.press("Escape")   # 開いている間は裏(ヘッダーの ⚙ も)が止まっているので、Esc で閉じる
             wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden")
             pg.keyboard.press("ArrowDown")
             check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") != nav_before, "引き出しを閉じれば ↓ で行が動く(前提の確認)")

@@ -127,6 +127,8 @@ def main():
             # ---- 段3: 画面の下の帯(UIKit.keybar)。端を選ぶ/外す・タブを離れるで場面が変わる
             def keybar_keys():
                 return pg.evaluate("[...document.querySelectorAll('.ui-keybar .ui-keybar-item')].map(e => e.dataset.k)")
+            pg.locator("#tlVideo .tt-k[data-i='1'] .tt-h.out").click()   # 区間の本体を押しただけでは端は選ばない(つまみを押したときだけ)
+            wait_js(pg, "!!document.querySelector('#tlVideo .tt-k[data-i=\"1\"] .tt-h.out.on')", 3000)
             check(pg.evaluate("document.querySelector('.ui-keybar').hidden") is False and {",", "."} <= set(keybar_keys()),
                   "端を選ぶと、下の帯が「, . 1コマ」の場面になる: %s" % keybar_keys())
             pg.keyboard.press("Escape")

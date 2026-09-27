@@ -698,6 +698,7 @@ function create(h){
     M.drag = { i, edge, start: M.clips[i][edge === 'in' ? 0 : 1], before: M.clips.map(c => c.slice()), origin: M.origin, targets: snapTargets(i), pid: e.pointerId };
     try { e.target.setPointerCapture(e.pointerId); } catch {}
     document.querySelectorAll('#tlVideo .tt-h').forEach(x => x.classList.toggle('on', x.dataset.edge === edge));
+    cutKeybarScene();   // 端を選んだ(ドラッグしなくても)ので、下の帯を「, . 1コマ」の場面に
   }
   function moveDrag(e){
     const d = M.drag; if (!d) return;
