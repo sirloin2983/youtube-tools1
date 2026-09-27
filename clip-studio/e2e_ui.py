@@ -382,9 +382,9 @@ def run_checks(port, fx, shots=None):
         # キー一覧・設定の引き出し
         pg.click("#rvList .rv-mark-row[data-id='m1'] .rv-tc")
         pg.keyboard.press("?")
-        c.ok(pg.is_visible("#keyHelp") and "IN(開始)" in (pg.text_content("#keyHelpBody") or ""), "? キーでキー操作の一覧が開く(③のキーも載る)")
+        c.ok(pg.is_visible("#keyHelp") and "今をマーク①" in (pg.text_content("#keyHelpBody") or ""), "? キーでキー操作の一覧が開く(③のキーも載る)")
         kh = pg.text_content("#keyHelpBody") or ""
-        c.ok("Space" in kh and kh.index("Space") < kh.index("IN(開始)"), "共通の再生キー(Space など)が一覧の先頭に出る: %s" % kh[:40])
+        c.ok("Space" in kh and "共通の再生キー" in kh and kh.index("共通の再生キー") < kh.index("マーク追加"), "共通の再生キー(Space など)が一覧の先頭に出る: %s" % kh[:40])
         if shots:
             for sc in ("dark",):
                 pg.screenshot(path=os.path.join(shots, "cs_keyhelp_%s.png" % sc))
