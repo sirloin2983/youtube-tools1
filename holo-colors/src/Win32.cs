@@ -55,6 +55,49 @@ namespace HoloColors
         [DllImport("user32.dll")]
         public static extern IntPtr GetAncestor(IntPtr hwnd, int flags);
 
+        [DllImport("user32.dll")]
+        public static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT { public int Left, Top, Right, Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT { public int X, Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWPLACEMENT
+        {
+            public int length, flags, showCmd;
+            public POINT ptMinPosition, ptMaxPosition;
+            public RECT rcNormalPosition;
+        }
+
+        public const int SW_RESTORE = 9;
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+        public delegate void WinEventProc(IntPtr hook, int eventType, IntPtr hwnd, int idObject, int idChild, int thread, int time);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetWinEventHook(int eventMin, int eventMax, IntPtr hmod, WinEventProc proc, int idProcess, int idThread, int flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool UnhookWinEvent(IntPtr hook);
+
+        public static string ClassOf(IntPtr h)
+        {
+            var sb = new StringBuilder(256);
+            GetClassName(h, sb, sb.Capacity);
+            return sb.ToString();
+        }
+
         public static bool WinKeyDown()
         {
             return (GetKeyState((int)Keys.LWin) & 0x8000) != 0 || (GetKeyState((int)Keys.RWin) & 0x8000) != 0;
@@ -137,6 +180,49 @@ namespace HoloColors
         {
             Unregister();
             DestroyHandle();
+        }
+    }
+
+    // 前面の窓が変わるたびに、最後に使っていた「ほかのアプリの窓」を覚える(コピーして閉じたらそこへ戻す)。
+    // タスクバー・スタートメニュー・Alt+Tab の画面などは数えない(タスクバーのボタンから開いたとき、戻る先がタスクバーになるのを防ぐ)
+    public class ForegroundTracker : IDisposable
+    {
+        const int EVENT_SYSTEM_FOREGROUND = 3, WINEVENT_OUTOFCONTEXT = 0;
+        static readonly string[] ShellClasses =
+        {
+            "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland",
+            "XamlExplorerHostIslandWindow", "Windows.UI.Core.CoreWindow", "TaskListThumbnailWnd", "MultitaskingViewFrame",
+            "ForegroundStaging", "Progman", "WorkerW",
+        };
+        readonly Native.WinEventProc proc;   // GC に回収されないように持っておく
+        readonly IntPtr hook;
+        readonly Func<IntPtr, bool> isOurs;
+        public IntPtr Last { get; private set; }
+
+        public ForegroundTracker(Func<IntPtr, bool> isOurs)
+        {
+            this.isOurs = isOurs;
+            proc = OnEvent;
+            // OUTOFCONTEXT の知らせは、登録したスレッド(UI のスレッド)のメッセージの処理の中で来る
+            hook = Native.SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, proc, 0, 0, WINEVENT_OUTOFCONTEXT);
+            Note(Native.GetForegroundWindow());
+        }
+
+        void OnEvent(IntPtr h, int eventType, IntPtr hwnd, int idObject, int idChild, int thread, int time)
+        {
+            Note(hwnd);
+        }
+
+        public void Note(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || isOurs(hwnd) || !Native.IsWindowVisible(hwnd)) return;
+            if (Array.IndexOf(ShellClasses, Native.ClassOf(hwnd)) >= 0) return;
+            Last = hwnd;
+        }
+
+        public void Dispose()
+        {
+            if (hook != IntPtr.Zero) Native.UnhookWinEvent(hook);
         }
     }
 

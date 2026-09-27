@@ -32,8 +32,10 @@ namespace HoloColors
             Text = AppInfo.Name;
             Font = Ui.Normal;
             AutoScaleMode = AutoScaleMode.None;   // 大きさは Ui.Px で DPI に合わせる
-            FormBorderStyle = FormBorderStyle.SizableToolWindow;
-            ShowInTaskbar = false;
+            // タスクバーに出すふつうの窓(v1.2.0)。閉じる = 最小化なので、タスクバーにピン止めしたアイコンに起動中の印が付く
+            FormBorderStyle = FormBorderStyle.Sizable;
+            ShowInTaskbar = true;
+            MaximizeBox = false;
             // いつも一番手前にはしない(閉じない設定のとき、ほかのアプリの上に残り続けるため)。設定で選べる
             StartPosition = FormStartPosition.Manual;
             KeyPreview = true;
@@ -215,7 +217,7 @@ namespace HoloColors
             statusHex = null;
             string key = app.HotkeyText.Replace(" + ", "+");
             status.Text = app.FirstRun
-                ? "× で閉じても右下の通知領域で待っています。" + key + " でまた開きます"
+                ? "× で閉じてもタスクバーで待っています。" + key + " かタスクバーのアイコンでまた開きます"
                 : key + " で開閉 ・ 右クリックでメニュー";
             status.Invalidate();
         }
@@ -320,7 +322,7 @@ namespace HoloColors
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // × は隠すだけ(アプリは通知領域に残る)。終わるのは通知領域のメニューか設定から。
+            // × は最小化するだけ(アプリはタスクバーと通知領域に残る)。終わるのは通知領域のメニューか設定から。
             // Windows の終了・タスク マネージャーならアプリごと終わる。ほかのプログラムから閉じられても隠すだけ
             // (窓だけ破棄されると、通知領域に残ったアプリがキーを押すたびにエラーになる)
             if (!app.Quitting)

@@ -1,6 +1,6 @@
 // 起動・常駐(通知領域のアイコン・呼び出しのキー)・コピー。窓どうしのやりとりは AppController に集める。
 //   HoloColors.exe                 … 起動して一覧を出す(すでに動いていれば、そちらの一覧を出す)
-//   HoloColors.exe --hidden        … 通知領域にだけ出す(サインイン時の自動起動)
+//   HoloColors.exe --hidden        … 一覧を最小化して起動する(サインイン時の自動起動。タスクバーと通知領域に出る)
 //   HoloColors.exe --quit          … 動いているものを終わらせる(build.bat が exe を作り直す前に使う)
 //   --data-dir <フォルダ>           … 作業データの場所(テスト用)。--autostart-key <HKCU の下のキー>(テスト用)
 //   --screenshot <png>             … 一覧を開いて画像に保存して終わる(見た目の確認用)
@@ -128,8 +128,9 @@ namespace HoloColors
         readonly MainForm main;
         readonly Toast toast = new Toast();
         IntPtr previous = IntPtr.Zero;
+        ForegroundTracker tracker;      // 最後に使っていたほかのアプリの窓(戻る先)
         bool hiding;                     // 自分で隠している最中(そのときの Deactivate では戻る先を変えない)
-        public bool FirstRun;            // 初めての起動(下の段に「× で閉じても通知領域で待っています」)
+        public bool FirstRun;            // 初めての起動(下の段に「× で閉じてもタスクバーで待っています」)
         public bool RunningFromTemp;     // zip を開いたまま一時フォルダの exe を起動している   // 一覧を出す前に前面だった窓(閉じたら戻す)
         Form modal;                      // 開いている設定・追加の画面
         bool suspended;
@@ -169,6 +170,7 @@ namespace HoloColors
             else
                 main.Size = ScaleSize(new Size(600, 560));
 
+            tracker = new ForegroundTracker(IsOurs);
             messages = new MessageWindow(key);
             messages.HotkeyPressed += OnHotkey;
             messages.ShowRequested += () => ShowMain(IntPtr.Zero);
@@ -200,11 +202,17 @@ namespace HoloColors
                 return;
             }
             if (!opt.Hidden) ShowMain(IntPtr.Zero);
+            else
+            {
+                // サインイン時の自動起動: 最小化して出す(タスクバーのボタン = ピン止めしたアイコンの起動中の印。前面は取らない)
+                main.WindowState = FormWindowState.Minimized;
+                main.Show();
+            }
             if (!messages.Registered)
                 tray.ShowBalloonTip(8000, AppInfo.Name, HotkeyText + " は他のアプリが使っていて登録できませんでした。通知領域のアイコンを右クリック →「設定」で別のキーにしてください", ToolTipIcon.Warning);
             else if (!Store.Settings.Welcomed)
             {
-                tray.ShowBalloonTip(8000, AppInfo.Name + " を起動しました", "画面右下の通知領域にいます。どのアプリからでも " + HotkeyText + " で一覧が開きます", ToolTipIcon.Info);
+                tray.ShowBalloonTip(8000, AppInfo.Name + " を起動しました", "タスクバーと画面右下の通知領域にいます。どのアプリからでも " + HotkeyText + " で一覧が開きます", ToolTipIcon.Info);
                 Store.Settings.Welcomed = true;
                 SaveSettings();
             }
@@ -311,7 +319,7 @@ namespace HoloColors
                 modal.Activate();
                 return;
             }
-            if (main.Visible && foreground == main.Handle)
+            if (Shown && foreground == main.Handle)
             {
                 HideMain(true);
                 return;
@@ -319,10 +327,16 @@ namespace HoloColors
             ShowMain(foreground);
         }
 
+        // 一覧が開いているか(最小化はタスクバーにいるだけで、閉じている扱い)
+        bool Shown
+        {
+            get { return main.Visible && main.WindowState != FormWindowState.Minimized; }
+        }
+
         // 一覧を開いたまま別のアプリへ移ったら、戻る先をそのアプリにする(コピー後に古い窓へ戻らないように)
         void OnMainDeactivate()
         {
-            if (hiding || !main.Visible) return;
+            if (hiding || !Shown) return;
             IntPtr fg = Native.GetForegroundWindow();
             if (fg != IntPtr.Zero && !IsOurs(fg)) previous = fg;
         }
@@ -330,13 +344,13 @@ namespace HoloColors
         void ToggleFromTray()
         {
             if (modal != null && modal.Visible) { modal.Activate(); return; }
-            if (main.Visible) HideMain(false);
+            if (Shown) HideMain(false);
             else ShowMain(IntPtr.Zero);
         }
 
         bool IsOurs(IntPtr h)
         {
-            if (h == IntPtr.Zero) return false;
+            if (h == IntPtr.Zero || main == null) return false;
             if (h == main.Handle || h == toast.Handle) return true;
             return modal != null && modal.IsHandleCreated && h == modal.Handle;
         }
@@ -345,41 +359,68 @@ namespace HoloColors
         {
             if (modal != null && modal.Visible) { modal.Activate(); return; }
             if (!IsOurs(foreground)) previous = foreground;
-            if (!main.Visible)
+            if (!Shown)
             {
                 main.ResetView();
-                PlaceNearCursor();
-                main.Show();
+                Rectangle r = NearCursor();
+                if (!main.Visible)
+                {
+                    main.Bounds = r;
+                    main.Show();
+                }
+                else RestoreAt(r);
             }
-            if (main.WindowState == FormWindowState.Minimized) main.WindowState = FormWindowState.Normal;
             main.Activate();
             Native.SetForegroundWindow(main.Handle);
             main.SearchBox.Focus();
         }
 
-        void PlaceNearCursor()
+        // マウスの近くで、画面からはみ出さない位置(画面の座標)
+        Rectangle NearCursor()
         {
             Point p = Cursor.Position;
             Rectangle wa = Screen.FromPoint(p).WorkingArea;
-            Size s = main.Size;
+            Size s = main.WindowState == FormWindowState.Normal ? main.Size : main.RestoreBounds.Size;
             s = new Size(Math.Min(s.Width, wa.Width), Math.Min(s.Height, wa.Height));
-            main.Size = s;
             int x = p.X - s.Width / 2, y = p.Y - Ui.Px(40);
             x = Math.Max(wa.Left, Math.Min(x, wa.Right - s.Width));
             y = Math.Max(wa.Top, Math.Min(y, wa.Bottom - s.Height));
-            main.Location = new Point(x, y);
+            return new Rectangle(new Point(x, y), s);
         }
 
-        // 隠す。restoreFocus = 呼び出す前の窓を前面へ戻す(すぐ貼り付けられるように)
+        // 最小化から、指定の位置で元に戻す。先に戻してから動かすと、前の位置に一瞬出てから飛ぶので、戻る位置を先に決める。
+        // rcNormalPosition は「作業領域の座標」(画面の座標から、メインの画面のタスクバーが上・左にある分を引いたもの)
+        void RestoreAt(Rectangle screen)
+        {
+            var wp = new Native.WINDOWPLACEMENT();
+            wp.length = Marshal.SizeOf(typeof(Native.WINDOWPLACEMENT));
+            if (!Native.GetWindowPlacement(main.Handle, ref wp))
+            {
+                main.WindowState = FormWindowState.Normal;
+                main.Bounds = screen;
+                return;
+            }
+            Screen primary = Screen.PrimaryScreen;
+            int dx = primary.WorkingArea.Left - primary.Bounds.Left, dy = primary.WorkingArea.Top - primary.Bounds.Top;
+            wp.rcNormalPosition = new Native.RECT { Left = screen.Left - dx, Top = screen.Top - dy, Right = screen.Right - dx, Bottom = screen.Bottom - dy };
+            wp.showCmd = Native.SW_RESTORE;
+            wp.flags = 0;
+            Native.SetWindowPlacement(main.Handle, ref wp);
+            if (main.WindowState != FormWindowState.Normal) main.WindowState = FormWindowState.Normal;
+        }
+
+        // 閉じる = 最小化(タスクバーに残して、ピン止めしたアイコンに起動中の印を付けておく)。
+        // restoreFocus = 呼び出す前の窓を前面へ戻す(すぐ貼り付けられるように)。戻る先は最後に使っていたほかのアプリの窓
         public void HideMain(bool restoreFocus)
         {
-            if (!main.Visible) return;
+            if (!Shown) return;
             bool wasActive = Native.GetForegroundWindow() == main.Handle;
+            IntPtr back = tracker.Last != IntPtr.Zero ? tracker.Last : previous;
             hiding = true;
-            try { main.Hide(); }
+            try { main.WindowState = FormWindowState.Minimized; }
             finally { hiding = false; }
-            if (restoreFocus && wasActive && previous != IntPtr.Zero && Native.IsWindow(previous) && Native.IsWindowVisible(previous))
-                Native.SetForegroundWindow(previous);
+            if (restoreFocus && wasActive && back != IntPtr.Zero && Native.IsWindow(back) && Native.IsWindowVisible(back))
+                Native.SetForegroundWindow(back);
         }
 
         // ---- コピー ----
@@ -403,7 +444,7 @@ namespace HoloColors
                 return;
             }
             main.SetStatus("コピーしました: " + text + "  " + e.Name, false, e.Hex);
-            if (Store.Settings.CloseAfterCopy && main.Visible)
+            if (Store.Settings.CloseAfterCopy && Shown)
             {
                 HideMain(true);
                 toast.Flash(text + " をコピーしました(" + e.Name + ")", e.Hex);
@@ -471,7 +512,7 @@ namespace HoloColors
             }
             if (Quitting) return;
             main.ShowHint();   // キーを変えたときのヒントの表示・登録できなかった知らせを新しく
-            if (main.Visible) main.Activate();
+            if (Shown) main.Activate();
         }
 
         // ---- マイカラー ----
@@ -633,6 +674,7 @@ namespace HoloColors
                 tray.Visible = false;
                 tray.Dispose();
                 messages.Dispose();
+                if (tracker != null) tracker.Dispose();
                 toast.Dispose();
                 main.Dispose();
             }

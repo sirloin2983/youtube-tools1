@@ -281,7 +281,13 @@ class E2E:
             raise Failure("前面の窓が変わったので止めました(%s)。テストの間はマウスとキーボードに触らないでください" % what)
 
     def visible(self):
-        return bool(user32.IsWindowVisible(self.main))
+        """一覧が開いているか(v1.2.0 から、閉じる = 最小化。タスクバーには残る)"""
+        return bool(user32.IsWindowVisible(self.main)) and not user32.IsIconic(self.main)
+
+    def in_taskbar(self):
+        """タスクバーにボタンがある = 窓があって最小化されていて、ツールウィンドウ(タスクバーに出ない窓)ではない"""
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        return bool(user32.IsWindowVisible(self.main)) and bool(user32.IsIconic(self.main)) and user32.GetWindowLongW(self.main, -20) & 0x80 == 0
 
     def pick_member(self):
         """ローマ字で検索すると1人だけ当たる人(その人が先頭に来る)。
@@ -320,7 +326,10 @@ class E2E:
     def run(self):
         self.write_settings()
         self.start()
+        # 窓は起動のはじめに作られ、最小化して出すのはそのあと。見つけた直後だと早すぎるので待つ
+        self.wait("タスクバーのボタン", self.in_taskbar)
         self.check(not self.visible(), "--hidden では一覧を出さない")
+        self.check(True, "--hidden でもタスクバーにボタンがある(最小化。ピン止めしたアイコンに起動中の印が付く)")
         have_front = self.front_tk()
         if not have_front:
             print("注意: テストの窓を前面にできなかったので、元の窓へ戻ることの確認は飛ばします")
@@ -369,6 +378,8 @@ class E2E:
         press(VK["esc"])
         self.wait("Esc で閉じる", lambda: not self.visible())
         self.check(True, "もう一度の Esc で閉じる")
+        self.wait("最小化", self.in_taskbar)
+        self.check(True, "閉じるとタスクバーに最小化される(アプリは終わらない)")
 
         # 札のクリックでコピー(検索は開くたびに空に戻る → 先頭の札は1つ目のグループの1人目)。
         # 開いたまま窓 B へ移ってから札を押す → コピーしたら、最初の窓ではなく B へ戻る
