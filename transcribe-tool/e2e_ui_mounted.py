@@ -272,10 +272,14 @@ def main():
             check(True, "行を削ると、これから作るパックも変わる(2区間・0:16.00・字幕 4)")
             check(pg.locator("#pkMap i").count() == 2, "区間の略図が出る")
             # パックを作る(置き先の fps・画面の大きさ)
+            pg.click("#pkSettingsBtn")   # 段3(2026-09-27): 詳しい設定は「設定を変える」の右の欄
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1920x1080']")
             wait_js(pg, "document.querySelector('#pkSize [data-v=\"1920x1080\"]').getAttribute('aria-pressed') === 'true'", 3000)
             check(True, "画面の大きさを選べる(横)")
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             pg.click("#pkBuild")
             wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === 'パックを作り直す' && document.querySelector('#pkJob').hidden", 120000)
             packdir = os.path.splitext(media)[0] + "_pack"
@@ -319,6 +323,8 @@ def main():
             pg.keyboard.press("Escape")
 
             # ==================== 3d) zip でダウンロード(詳しい設定。中身は同じ cut2resolve の Text+ パック・同じ区間) ====================
+            pg.click("#pkSettingsBtn")   # 段3: zip は「設定を変える」の右の欄の中
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
             pg.evaluate("document.querySelector('#pkMore').open = true")
             with pg.expect_download(timeout=60000) as dl_info:
                 pg.click("#pkZip")
@@ -338,6 +344,8 @@ def main():
                   "zip にも選んだ fps・大きさと、パックと同じ区間(カットのとおり)が入る: %s" % {k: ipz.get(k) for k in ("target",)})
             wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /パック\\(zip\\)を作成しました/.test(e.textContent))", 10000)
             check(True, "作成できたことを画面に知らせる")
+            pg.click("#pkSettingsClose")   # 右の欄(modal)を閉じてから、ほかのタブへ
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
 
             # ==================== 4) 認識ワーカーの異常終了からの立ち直り ====================
             pids_before = find_worker_pids(tmp)
