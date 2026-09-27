@@ -97,7 +97,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.20.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.20.1"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1970,7 +1970,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False):
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
                 log.info("モデルを読み込み: %s/%s(メモリ %s)", name, dev, _mem())
-                m = WhisperModel(name, device=dev, compute_type="float16" if dev == "cuda" else "int8")
+                m = _new_whisper(WhisperModel, name, dev)
                 log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, _mem())
             except MemoryError:
                 raise ApiError("no_memory", "メモリが足りずモデルを読み込めませんでした。他のアプリ(動画編集ソフトなど)を閉じてから、もう一度試してください", 500)
@@ -1984,6 +1984,19 @@ def _load_model_local(name, job, pref="auto", force_cpu=False):
             _models[key] = m
             return m, dev
         raise ApiError("model_failed", "モデルを読み込めませんでした: %s" % str(last)[:200], 500)
+
+
+def _new_whisper(WhisperModel, name, dev):
+    """モデルを作る。ダウンロード済みなら手元のファイルだけで読む(読むたびに Hugging Face へ版の確認の通信をしない。
+    オフラインでも読め、通信の待ちが無くなる。計画 段0-4)。手元に無い(初回)・手元だけでは読めないときは、今までどおりネットワークから取る"""
+    ct = "float16" if dev == "cuda" else "int8"
+    try:
+        return WhisperModel(name, device=dev, compute_type=ct, local_files_only=True)
+    except MemoryError:
+        raise
+    except Exception as e:
+        log.info("手元のファイルだけではモデルを読めないので、ネットワークから取ります: %s(%s)", name, str(e)[:120])
+    return WhisperModel(name, device=dev, compute_type=ct)
 
 
 def whisper_kwargs(spec):
@@ -2159,6 +2172,44 @@ def expand_segments(gen, spec):
             yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
 
 
+CONF_KEYS = ("avg_logprob", "no_speech_prob", "compression_ratio")   # 機械の出力 original の各行に残す、認識の自信の度合い(文字起こしの改善の計画 段0-1)
+
+
+def machine_conf(s):
+    """認識の1行の自信の度合い {avg_logprob, no_speech_prob, compression_ratio}(分かるものだけ。小数4桁)。
+    original に残して、どの値のときに誤りが多いか(怪しい所だけ別の方法で聞き直す判断の材料)を測れるようにする"""
+    out = {}
+    for k in CONF_KEYS:
+        v = s.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+            out[k] = round(float(v), 4)
+    return out
+
+
+_pkg_versions = {}
+
+
+def pkg_version(name):
+    """入っているパッケージの版(読み込まずに dist-info から読む = サーバー側で faster_whisper などのネイティブの部品を import しない)。無ければ ''"""
+    if name not in _pkg_versions:
+        try:
+            import importlib.metadata as _md
+            _pkg_versions[name] = str(_md.version(name))
+        except Exception:
+            _pkg_versions[name] = ""
+    return _pkg_versions[name]
+
+
+def recognition_run(spec, job, audio_sec, wall_sec):
+    """文書の recognition.runs に残す、この認識の出どころ(エンジン・版・モデル・機器・かかった時間)。精度と速さを後から比べるため(計画 段0-1)"""
+    fake = backend_name() == "fake"
+    return {"engine": "fake" if fake else "faster-whisper", "engineVersion": "" if fake else pkg_version("faster-whisper"),
+            "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
+            "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
+                         "glossaryChars": len("、".join(spec.get("glossary") or []))},
+            "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000)}
+
+
 def row_words(p, shift=0.0):
     """expand_segments が出した行の単語(split_segment の "_words" か、分けなかった行の "words")→ [[開始, 終了, 文字]](絶対の秒)"""
     return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
@@ -2315,6 +2366,7 @@ def run_job(job):
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         extract_audio(job, spec, wav)
         total = media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
+        t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
         if backend_name() == "fake":
             gen = transcribe_fake(job, spec, wav, total)
         else:
@@ -2338,7 +2390,7 @@ def run_job(job):
             if lrules:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
                 seg["text"], ln = auto_learned_replace(seg["text"], lrules, lfb)
                 learn_n += ln
-            original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"]})   # 機械の出力をそのまま残す(修正からの学習に使う)
+            original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"], **machine_conf(s)})   # 機械の出力をそのまま残す(修正からの学習・精度の測定に使う)
             all_words.extend(row_words(s, spec["start"]))
             seg["text"], n = apply_replacements(seg["text"], pairs)
             dict_n += n
@@ -2352,7 +2404,8 @@ def run_job(job):
                                                            "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
                                                            "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
                                                            "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
-                  "speakers": [], "segments": segs, "original": original, "updatedAt": now}
+                  "speakers": [], "segments": segs, "original": original, "updatedAt": now,
+                  "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec)]}}
         tid = fill_doc(spec, fields) if spec.get("intoDoc") else None
         if tid is None:
             tid = uuid.uuid4().hex[:12]
@@ -4292,7 +4345,7 @@ def _apply_retranscribe(spec, results):
 
 def replace_original_multi(orig, a, b, items):
     keep = [o for o in orig if not (a <= (o["start"] + o["end"]) / 2 <= b)]
-    keep += [{"start": x["start"], "end": x["end"], "text": x["raw"][:MAX_TEXT]} for x in items]
+    keep += [{"start": x["start"], "end": x["end"], "text": x["raw"][:MAX_TEXT], **(x.get("conf") or {})} for x in items]
     keep.sort(key=lambda o: o["start"])
     return keep
 
@@ -4381,7 +4434,7 @@ def finish_range_lines(raw, spec, shift):
             continue
         flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], spec["glossary"])
         prev.append(s["text"])
-        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob")})
+        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob"), "conf": machine_conf(s)})
     return out
 
 

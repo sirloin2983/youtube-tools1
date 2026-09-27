@@ -378,6 +378,42 @@ class TestSplitAndRobust(unittest.TestCase):
             else:
                 sys.modules["faster_whisper"] = old
 
+    def test_model_loads_local_files_first(self):
+        """計画 段0-4: ダウンロード済みなら手元のファイルだけで読む(通信しない)。手元に無ければネットワークから取る"""
+        import types
+        calls = []
+
+        class FakeModel:
+            def __init__(self, name, device=None, compute_type=None, local_files_only=False):
+                calls.append((name, local_files_only))
+                if local_files_only and name == "not-downloaded":
+                    raise OSError("not in cache")
+
+        fw = types.ModuleType("faster_whisper")
+        fw.WhisperModel = FakeModel
+        old = sys.modules.get("faster_whisper")
+        sys.modules["faster_whisper"] = fw
+        S._models.clear()
+        try:
+            S._load_model_local("large-v3", {"phase": ""}, "cpu")
+            self.assertEqual(calls, [("large-v3", True)])                             # 手元だけで読めた → 通信しない
+            S._load_model_local("not-downloaded", {"phase": ""}, "cpu")
+            self.assertEqual(calls[1:], [("not-downloaded", True), ("not-downloaded", False)])   # 手元に無い → ネットワークから
+        finally:
+            S._models.clear()
+            if old is None:
+                del sys.modules["faster_whisper"]
+            else:
+                sys.modules["faster_whisper"] = old
+
+    def test_machine_conf(self):
+        self.assertEqual(S.machine_conf({"avg_logprob": -0.123456, "no_speech_prob": None, "compression_ratio": float("nan")}), {"avg_logprob": -0.1235})
+        self.assertEqual(S.machine_conf({}), {})
+        spec = {"range": [0.0, 10.0], "language": "ja", "glossary": [], "wordSplit": False, "stripPunct": True}
+        out = S.finish_range_lines([{"start": 1.0, "end": 2.0, "text": "元気", "avg_logprob": -0.5, "no_speech_prob": 0.2}], spec, 0.0)
+        orig = S.replace_original_multi([{"start": 1.0, "end": 2.0, "text": "古い"}], 0.0, 10.0, out)
+        self.assertEqual(orig, [{"start": 1.0, "end": 2.0, "text": "元気", "avg_logprob": -0.5, "no_speech_prob": 0.2}])   # 範囲の再認識でも残る
+
     def test_worker_survives_and_marks(self):
         tmp = tempfile.mkdtemp()
         old_mark, old_run = S.RUN_MARK, S.run_job

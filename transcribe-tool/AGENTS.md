@@ -1,6 +1,7 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.20.0**(2026-09-27、画面の直しの候補の実装 `../docs/backlog-ui-2026-09-27.md`: 話者の声を覚える(A-3。下の「話者の声」)・話者ごとの字幕の色(A-2)・
+現在 **v0.20.1**(2026-09-28、文字起こしの改善の計画の段0(下の「精度の測定の土台」)。画面は変わらない)。
+v0.20.0 = 2026-09-27、画面の直しの候補の実装 `../docs/backlog-ui-2026-09-27.md`: 話者の声を覚える(A-3。下の「話者の声」)・話者ごとの字幕の色(A-2)・
 ?doc= で文書を開く(B-1)・右クリックのメニューのキー(B-3)・設定を ⚙ に1つ(B-9)・1600px 未満はメニューを重ねる(B-7)・カットの [ ] Q W(B-10))。
 v0.19.0 = 2026-09-27、キー配置: ⚙ 設定の「キー配置」で 1 文字起こし のキーと共通の再生キーの割り当てを変えられる。保存は `S.settings.keymap`(サーバーの config.json)。下の「キー操作」の項)。
 v0.18.2 = 2026-09-27、ユーザーの指摘「文字起こしが使いにくくなった」の直し: 左メニューの履歴の一覧(タブ・まとまり・並べ替え・選んでまとめて実行)を 0.18.1 の前に戻す・左手のキー W/S・A/D・Q/E・B・Tab・Ctrl+Enter を戻す(↓/↑・Shift+↓/↑ も残す)・Space が2回分動いていたのを直す。`../docs/WORKLOG.md` の同じ日の記録)。
@@ -19,6 +20,18 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
 使い方の説明はユーザー向けの `README.txt`(変更したら README も直す)。
 精度向上の計画(段階0〜5。クラウドは初期比較と点検だけ・最終的に外部課金0円)は `../docs/project/accuracy-plan.md`。**ユーザーの指示があるまで実装しない**(2026-09-24 時点)。
 **文字起こしの大幅改善の計画 `../docs/transcription-overhaul-plan.md`(2026-09-27)が、上の2つ(v2 設計書・accuracy-plan)をまとめた今の計画**(食い違う所はこちらが正。段ごとにユーザーの承認のあとで実装)。
+
+## 精度の測定の土台(計画の段0。v0.20.1)
+- 機械の出力 `original` の各行に `avg_logprob`・`no_speech_prob`・`compression_ratio`(分かるものだけ。`machine_conf`・`CONF_KEYS`)。
+  文字起こしのジョブ(`run_job`)と、範囲の再認識・疑わしい所の認識し直し(`finish_range_lines` の `conf` → `replace_original_multi`)が書く。
+  選んだ行の再認識(`replace_original`)はまだ書かない。画面の保存(`sanitize_transcript`)は `original` を保存済みのものから引き継ぐので消えない
+- 文書の `recognition = {"runs": [{engine, engineVersion, model, device, language, settings, audioSec, wallSec, at}]}`(`recognition_run`。文字起こしのジョブだけ)。
+  版は `pkg_version`(dist-info を読むだけ。サーバー側で faster_whisper を import しない)
+- 単語ごとの確率はまだ残していない(単語は `(開始, 終了, 文字)` の3つ組で多くの所が分解しているため。要るときに words.json の形ごと考える)
+- モデルは手元のファイルだけで先に読む(`_new_whisper` の `local_files_only=True`。無ければネットワーク)
+- 測る道具 `../tools/eval_asr.py`(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
+  採点は serve.py の `_groups`・`norm_cer`・`lev_counts` を使い、`doc_metrics`(画面の測定)と同じ数になることを `stored` のたびに照らし合わせる(ずれたら注意を出す)。
+  `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ保管データの `full.flac`。テスト: リポジトリ直下で `python -m unittest tools/test_eval_asr.py`
 
 ## 構成
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。

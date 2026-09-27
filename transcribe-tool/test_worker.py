@@ -96,6 +96,13 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual([g["text"] for g in d["segments"]][:2], ["テスト文1", "テスト文2"])
         self.assertEqual(d["segments"][4]["flag"], "自信が低い")   # 行の情報(avg_logprob)がワーカーから届いている
         self.assertEqual(len(d["original"]), 5)
+        # 計画 段0-1: 機械の出力に自信の度合いを残す(どの値のときに誤りが多いかを測るため)・認識の出どころを残す
+        self.assertEqual({k: d["original"][4][k] for k in S.CONF_KEYS}, {"avg_logprob": -1.4, "no_speech_prob": 0.1, "compression_ratio": 1.2})
+        self.assertEqual(d["original"][0]["avg_logprob"], -0.3)
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((run["engine"], run["model"], run["device"], run["language"]), ("faster-whisper", d["model"], "cpu", "ja"))
+        self.assertGreater(run["audioSec"], 19)
+        self.assertGreaterEqual(run["wallSec"], 0)
         self.assertTrue(S.WORKER.alive())                # 次のジョブのためにモデルを持ったまま残る
         pid = S.WORKER.proc.pid
         self.assertEqual(self.transcribe()["state"], "done")
