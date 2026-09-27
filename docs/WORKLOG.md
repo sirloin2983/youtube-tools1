@@ -1150,3 +1150,11 @@
 - テスト(PC): 編集の e2e 10 本・単体 125・node 9、入口の単体・e2e_portal・e2e_autorun・e2e_window、`tools/e2e_pipeline.py`、`tools/test_ui_kit_sync.py`・`test_push_helper.py`・`test_resolve_pack_contract.py`、ytt_core すべて通過
   (入口の単体は1回だけ1件落ちて、流し直して通過。前からある接続の揺れ)
 - 未完了・次: ユーザーの実機の確認(4画面・明るい/暗い・幅 1440/1280/1024)。そのあとブリーフの段3(/frontend-design → /baseline-ui → /design-review)
+
+## 2026-09-27 Claude Code — 狭かった所の直し(ユーザーの指摘「UIが狭い部分がある」「コラボ欄せまい」)
+- 変更: スタジオ(`review.js`・`review.css`・`app.css`)、編集(`app.js`・`index.html`)、e2e の画面の幅。内容は `.design/ui-overhaul/IMPLEMENTATION.md` の 7
+  - スタジオの書き出しの欄を並べるのは 1680px 以上だけ(1440px ではマークの一覧が細くなった)。コラボの節を開いたら ⚙ の欄を最大 1040px に(名前が縦に割れていた)
+  - 編集: 本文の幅が 1300px 未満なら文書を開いたときに左メニューを自動で閉じる・映像の欄を最大 640px(閉じれば 760px)・パックの字幕の見本を右の列へ
+- 確かめ方: `python tools/demo_env.py --port 8750` の見本のデータで 1920・1440 の写真を撮って見比べた
+- テスト(PC): スタジオ e2e_ui 128・--mounted 141、編集の e2e 10 本すべて通過(1500px で「メニューが開いたまま」を前提にしていたテストは 1920px に)
+- 版: まだ配っていない版に含めた(スタジオ 0.9.0・編集 0.18.1)
