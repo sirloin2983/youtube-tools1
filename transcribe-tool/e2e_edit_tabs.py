@@ -52,6 +52,31 @@ def main():
             check("0:12" in pg.inner_text("#docMeta"), "題名の行に長さ: " + pg.inner_text("#docMeta"))
             check(pg.is_visible("#saveState") or pg.get_attribute("#saveState", "role") == "status", "保存の状態はヘッダーに")
 
+            # ---- 行の右クリックのメニュー(段2): .seg は content-visibility:auto なので、メニュー(position:fixed)は
+            # document.body の直下に置く(.seg の中に置くと、画面の外にはみ出す前に切り取られる)。選ぶと閉じて、行に反映される
+            row0 = pg.locator("#segs .seg").nth(0)
+            row0.locator(".play").click(button="right")
+            menu = pg.locator(".tt-ctxmenu")
+            check(menu.count() == 1 and menu.get_attribute("role") == "menu", "行を右クリックするとメニューが出る")
+            mbox, vp = menu.bounding_box(), pg.viewport_size
+            check(bool(mbox) and mbox["x"] >= 0 and mbox["y"] >= 0 and mbox["x"] + mbox["width"] <= vp["width"] and mbox["y"] + mbox["height"] <= vp["height"],
+                  "メニューは画面の中に収まる(content-visibility の親に切り取られない): %s / %s" % (mbox, vp))
+            menu.locator('[data-act="proof"]').click()
+            check(menu.count() == 0, "メニューの項目を選ぶと閉じる")
+            check("proofed" in (row0.get_attribute("class") or ""), "選んだ操作(校正済みにする)が行に反映される")
+
+            # ---- ⚙ 設定の引き出しが開いている間は、文書を操作するキーが効かない(item 6。上の右クリックで行0が「今の行」になっている)
+            nav_before = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
+            pg.click("[data-ui-settings]")
+            wait_js(pg, "!document.querySelector('#uiSettingsDrawer').hidden")
+            pg.keyboard.press("ArrowDown")
+            pg.wait_for_timeout(150)
+            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav_before, "⚙ 設定の引き出しが開いている間は ↓ で行が動かない")
+            pg.click("[data-ui-settings]")
+            wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden")
+            pg.keyboard.press("ArrowDown")
+            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") != nav_before, "引き出しを閉じれば ↓ で行が動く(前提の確認)")
+
             # ---- タブの切り替え(クリック・URL・キー)
             pg.click("[data-edtab=cut]")
             check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut") and pg.is_hidden("#tabTx") and pg.is_hidden("#tabPack"),

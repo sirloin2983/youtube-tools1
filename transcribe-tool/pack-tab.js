@@ -156,7 +156,7 @@ function create(h){
     if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
     if ($('#pkRender').checked) bits.push('粗編集の動画つき');
     const dir = $('#pkDir').value.trim();
-    bits.push('出力先: ' + (dir ? dir.split(/[\\/]/).pop() : defaultDirName()));
+    bits.push('出力先: ' + (dir ? dir.split(/[\\/]/).filter(Boolean).pop() : defaultDirName()));   // 末尾が \ / で終わっていると、素の pop() は空文字になる
     $('#pkSummaryText').textContent = bits.join(' ・ ');
     const color = hasRows ? ($('#pkWho').dataset.color || '') : '', sw = $('#pkSummarySw');
     sw.hidden = !color; if (color) sw.style.background = color;

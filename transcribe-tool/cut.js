@@ -446,8 +446,15 @@ function create(h){
     view.style.width = Math.max(6, Math.min(w, width)) + 'px';
     drawMiniWave(w);
   }
+  let miniSig = null;
   function drawMiniWave(w){
-    const cv = $('#tlMiniWave'), hgt = miniEl().clientHeight || 34, dpr = window.devicePixelRatio || 1;
+    const hgt0 = miniEl().clientHeight || 34;
+    /* ミニマップの波形は全体を縮めたものなので、横にスクロールしても絵は変わらない(枠の位置は renderMini が別に動かす)。
+       波形・区間・大きさが変わっていなければ描き直さない(スクロールのたびに全サンプルを走査すると重いため) */
+    const sig = w + ':' + hgt0 + ':' + (M.peaks ? M.peaks.length : -1) + ':' + JSON.stringify(M.clips);
+    if (sig === miniSig) return;
+    miniSig = sig;
+    const cv = $('#tlMiniWave'), hgt = hgt0, dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
     const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
     const cs = getComputedStyle(document.documentElement), accent = (cs.getPropertyValue('--accent') || '#5a46e0').trim(), dim = (cs.getPropertyValue('--ink-4') || '#999').trim();
@@ -482,16 +489,19 @@ function create(h){
       e.preventDefault();
       const handle = e.target.closest('.tt-tl-mini-h'), onView = !handle && e.target.closest('#tlMiniView');
       if (handle){
-        const side = handle.dataset.h;
+        const side = handle.dataset.h, minW = viewW() / maxPps();   // 見る範囲がこれより狭くはならない(最大倍率と同じ)
         const fixed = side === 'l' ? (scroller().scrollLeft + viewW()) / M.pps : scroller().scrollLeft / M.pps;
-        const move = ev => { const t = miniTimeAt(ev.clientX); if (side === 'l') setViewByTimes(t, fixed); else setViewByTimes(fixed, t); };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+        const move = ev => {
+          const raw = miniTimeAt(ev.clientX);
+          if (side === 'l') setViewByTimes(Math.min(raw, fixed - minW), fixed); else setViewByTimes(fixed, Math.max(raw, fixed + minW));
+        };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
       } else if (onView){
         const startX = e.clientX, startScroll = scroller().scrollLeft, w = miniW();
         const move = ev => { const dx = (ev.clientX - startX) / w * M.dur * M.pps; scroller().scrollLeft = Math.max(0, startScroll + dx); renderMini(); };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
       } else {
         const t = miniTimeAt(e.clientX);
         M.fit = false; scroller().scrollLeft = Math.max(0, t * M.pps - viewW() / 2); renderRange();
@@ -721,7 +731,9 @@ function create(h){
     /* 段3: ホイールで拡大縮小(Ctrl は要らない。マウスの位置が中心)。Shift+ホイールは横に移動(縦のホイールを横の移動に読み替える) */
     sc.addEventListener('wheel', e => {
       if (!ready()) return; e.preventDefault();
-      if (e.shiftKey){ sc.scrollLeft += (e.deltaX || e.deltaY); return; }
+      /* トラックパッドの横スワイプ(deltaX が主)は横に流す。縦のホイール(deltaY が主)だけ拡大縮小にする */
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)){ sc.scrollLeft += (e.deltaX || e.deltaY); return; }
+      if (!e.deltaY) return;
       const r = sc.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - r.left);
     }, { passive: false });
     bindMini();
@@ -730,7 +742,7 @@ function create(h){
       const hd = e.target.closest('.tt-h');
       if (hd){ const k = hd.closest('.tt-k'); startDrag(e, Number(k.dataset.i), hd.dataset.edge); return; }
       const k = e.target.closest('.tt-k');
-      if (k){ const i = Number(k.dataset.i), f = frameFromEvent(e), [a, b] = M.clips[i]; M.sel = { kind: 'clip', i }; M.edge = f - a < b - f ? 'in' : 'out'; renderSel(); sc.focus({ preventScroll: true }); return; }
+      if (k){ const i = Number(k.dataset.i); M.sel = { kind: 'clip', i }; M.edge = null; renderSel(); sc.focus({ preventScroll: true }); return; }   // 区間の本体を押しただけでは端は選ばない(つまみ .tt-h を押したときだけ startDrag で選ぶ)。端が無ければ ,. は再生位置を送る
       const x = e.target.closest('.tt-x');
       if (x){ M.sel = { kind: 'gap', a: Number(x.dataset.a), b: Number(x.dataset.b) }; M.edge = null; renderSel(); sc.focus({ preventScroll: true }); return; }
       const s = e.target.closest('.tt-s');
@@ -796,12 +808,15 @@ function create(h){
     set currentTime(t){ seekTo(t); },
     get playbackRate(){ return V().playbackRate; },
     set playbackRate(r){ V().playbackRate = r; },
-    play(){ togglePlay(); },    // togglePlay 自身が「今止まっているか」を見るので、そのまま委ねてよい
-    pause(){ togglePlay(); }
+    /* play/pause は呼ばれる前に呼び手(ui-kit の K など)が V().paused を読んでいるとは限らない(K は無条件に pause() を呼ぶ)。
+       togglePlay() は「今止まっているか」で再生/一時停止を選ぶので、素通しすると既に止まっている状態で pause() を呼んだときに
+       逆に再生が始まってしまう。止まっているかを自分でも見てから、要るときだけ togglePlay() に委ねる */
+    play(){ if (V().paused) togglePlay(); },
+    pause(){ if (!V().paused) togglePlay(); }
   };
   const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
     media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30),
-    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]'),
+    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])'),
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
     /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
@@ -809,7 +824,7 @@ function create(h){
     onKey: () => { moveHead(); keepHeadVisible(); }   // 共通キーは v.currentTime を直に書くので、タイムラインの追従はここで
   }) : null;
   function onKey(e){
-    if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]') || h.isTextEntry(e.target)) return;
+    if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || h.isTextEntry(e.target)) return;
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
@@ -817,8 +832,9 @@ function create(h){
     if (ctrl || e.altKey) return;
     if (!ready()) return;
     const run = fn => { e.preventDefault(); fn(); };
-    /* Shift+, / Shift+. : 選んだ端を10コマ(共通キーは Shift つきの , . を処理しないので、ここで先に扱う) */
-    if (e.shiftKey && (k === ',' || k === '.') && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(k === ',' ? -10 : 10));
+    /* Shift+, / Shift+. : 選んだ端を10コマ(共通キーは Shift つきの , . を処理しないので、ここで先に扱う)。
+       Shift を押すと e.key は ","."" ではなく "<"">"" になる(US 配列)ので、物理キーの e.code で見る */
+    if (e.shiftKey && (e.code === 'Comma' || e.code === 'Period') && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(e.code === 'Comma' ? -10 : 10));
     if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && e.target && e.target.closest && e.target.closest('#edTabs')) return;   // タブの並びの中は #edTabs 自身の ← → 処理(タブ切り替え)に任せる
     if (commonKeys && commonKeys(e)) return;
     switch (e.code){

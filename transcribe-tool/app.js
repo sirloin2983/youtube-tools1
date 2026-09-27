@@ -1513,8 +1513,12 @@ function updateSel(){
 
 $('#segs').addEventListener('input', e => {
   const row = e.target.closest('.seg'); if (!row) return;
-  const s = S.doc.segments[Number(row.dataset.i)]; if (!s) return;
-  if (e.target.dataset.f === 'text'){ s.text = e.target.value.slice(0, 2000); autoSize(e.target); markDirty(); const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s); }
+  const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
+  if (e.target.dataset.f === 'text'){
+    s.text = e.target.value.slice(0, 2000); autoSize(e.target); markDirty();
+    const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s);
+    if (i === (capFollow ? S.curIdx : S.navIdx)) updateCaption();   // 映像に重ねた字幕が、いま直している行なら打った文字にすぐ追従させる
+  }
 });
 $('#segs').addEventListener('change', e => {
   const row = e.target.closest('.seg'); if (!row) return;
@@ -1572,8 +1576,12 @@ $('#segs').addEventListener('click', e => {
     case 'del': armDelete(b, () => { const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty(); }); break;
   }
 });
-/* 行の右クリックのメニュー(段2): 選んだ行の下に出るボタンと同じ操作(data-act はそのまま。上の click ハンドラがそのまま拾う)。
-   キーボードだけの操作は今までどおり(選んだ行の下のボタン)なので、この方が必ず要るわけではない代わりの入口 */
+/* 行の右クリックのメニュー(段2): 選んだ行の下に出るボタンと同じ操作(data-act はそのまま)。
+   キーボードだけの操作は今までどおり(選んだ行の下のボタン)なので、この方が必ず要るわけではない代わりの入口。
+   .seg は content-visibility:auto(見えない行を描かない)で、これが position:fixed の子の基準になってしまい
+   画面の外へ出す前に切り取られる(clip)ため、メニューは document.body の直下に置く。その代わり、行の中の
+   「本物」のボタン(data-act)は行番号(row)から探して .click() で押す(状態の更新はその1本の処理に任せ、
+   ここでは行わない。押したら閉じる) */
 let ctxMenuEl = null;
 function closeCtxMenu(){ if (!ctxMenuEl) return; const m = ctxMenuEl; ctxMenuEl = null; m.remove(); document.removeEventListener('click', onCtxOutside, true); document.removeEventListener('contextmenu', onCtxOutside, true); }
 function onCtxOutside(e){ if (ctxMenuEl && !ctxMenuEl.contains(e.target)) closeCtxMenu(); }
@@ -1588,6 +1596,7 @@ const CTX_ITEMS = [
 ];
 $('#segs').addEventListener('contextmenu', e => {
   const row = e.target.closest('.seg'); if (!row || lockJob()) return;
+  if (isTextEntry(e.target)) return;   // 文字を打つ欄・時刻の欄の上は、ブラウザ既定の右クリックメニュー(コピペなど)に任せる
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   e.preventDefault();
   if (S.navIdx !== i){ setNav(i); savePos(); }
@@ -1596,7 +1605,13 @@ $('#segs').addEventListener('contextmenu', e => {
   m.innerHTML = CTX_ITEMS.map(([act, label]) => `<button type="button" role="menuitem" data-act="${act}">${esc(label(s))}</button>`).join('');
   const x = Math.min(e.clientX, window.innerWidth - 220), y = Math.min(e.clientY, window.innerHeight - 260);
   m.style.left = x + 'px'; m.style.top = y + 'px';
-  row.appendChild(m); ctxMenuEl = m;
+  document.body.appendChild(m); ctxMenuEl = m;
+  m.addEventListener('click', e2 => {
+    const b = e2.target.closest('[data-act]'); if (!b) return;
+    const real = row.querySelector(`[data-act="${b.dataset.act}"]`);
+    closeCtxMenu();
+    if (real) real.click();
+  });
   setTimeout(() => { document.addEventListener('click', onCtxOutside, true); document.addEventListener('contextmenu', onCtxOutside, true); }, 0);
   m.querySelector('button').focus({ preventScroll: true });
 });
@@ -1647,16 +1662,21 @@ function ensureVisible(row, at){
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   window.scrollBy({ top: r.top - goal, behavior: reduce ? 'auto' : 'smooth' });
 }
+/* 字幕がどちらを見せるか(capFollow)。true = 再生位置(S.curIdx。timeupdate・シークで付く)、false = 選んだ行(S.navIdx。setNav で付く)。
+   以前は「止まっているか」だけで切り替えていたので、止めたまま時間軸を手でつまんで動かす(シーク)と、再生位置は動いたのに
+   字幕は前に選んでいた行のまま(コマとずれる)になっていた。timeupdate はシークでも来るので、そこで再生位置の側へ切り替える */
+let capFollow = false;
 function setNav(i){
   const rows = rowsEl(); if (S.navIdx >= 0 && rows[S.navIdx] && rows[S.navIdx].classList) rows[S.navIdx].classList.remove('nav');
   const was = S.navIdx; S.navIdx = i; if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('nav');
   if (was >= 0 && was !== i && rows[was] && rows[was].classList){ const w = rows[was]; w.classList.remove('was'); void w.offsetWidth; w.classList.add('was'); setTimeout(() => w.classList.remove('was'), 1500); }
+  capFollow = false;
   updateCaption();
 }
-/* 映像の上に重ねる今の行の字幕(段2): 止まっているときは選んだ行(S.navIdx)、再生中は再生位置の行(S.curIdx) */
+/* 映像の上に重ねる今の行の字幕(段2): capFollow なら再生位置の行(S.curIdx)、そうでなければ選んだ行(S.navIdx) */
 function updateCaption(){
   const el = $('#playerCaption'); if (!el) return;
-  const idx = S.doc ? (player().paused ? S.navIdx : S.curIdx) : -1;
+  const idx = S.doc ? (capFollow ? S.curIdx : S.navIdx) : -1;
   const g = idx >= 0 && S.doc ? S.doc.segments[idx] : null, text = g && String(g.text || '').trim();
   el.textContent = text || ''; el.hidden = !text;
 }
@@ -1752,10 +1772,12 @@ window.addEventListener('keydown', e => {
    自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
 const editPlaybackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
   media: () => player(), fps: 30,
-  enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]')
+  enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])')
 }) : null;
 window.addEventListener('keydown', e => {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || isTextEntry(e.target)) return;
+  /* #edTabs(タブの並び)の ← → など、他の場所ですでに処理済み(preventDefault 済み)のキーには重ねて反応しない。
+     ⚙ 設定・パックの詳しい設定の引き出しが開いている間も、文書を操作するキーは効かせない(dialog と同じ扱い) */
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || isTextEntry(e.target)) return;
   if (editPlaybackKeys && editPlaybackKeys(e)) return;   // 処理したら、ここでは何もしない(I/O は校正では何もしない = 別の意味にしない)
   const c = e.code;
   if (c === 'Space' && e.shiftKey){ if (!S.doc || lockJob() || wideTab()) return; e.preventDefault(); if (!e.repeat) proofOk(); return; }   // Space だけは例外で Shift+Space のまま
@@ -1891,6 +1913,9 @@ player().addEventListener('timeupdate', () => {
   moveStripHead();
   const t = player().currentTime;
   if (S.playEnd !== null && t >= S.playEnd){ player().pause(); S.playEnd = null; }
+  /* 再生中はもちろん、止めたままシークしたときも timeupdate は来る。どちらでも字幕は再生位置(S.curIdx)へ切り替える
+     (シークで curIndex が前と同じ行になったときは i === S.curIdx で下を素通りするので、ここで先に切り替えておく) */
+  if (!capFollow){ capFollow = true; updateCaption(); }
   const i = curIndex(t); if (i === S.curIdx) return;
   const rows = rowsEl();
   rows[S.curIdx]?.classList.remove('cur'); S.curIdx = i;
@@ -2179,7 +2204,7 @@ $('#txList').addEventListener('click', e => {
   });
 });
 window.addEventListener('keydown', e => {
-  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]')) return;
+  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   else if (e.key === ' ' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.matches('button,summary,video')){ e.preventDefault(); const p = player(); p.paused ? p.play().catch(() => {}) : p.pause(); }
 });
@@ -2257,11 +2282,11 @@ function renderDocExtras(d){
   if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
   renderHandoff();
   /* ヘッダーの ui-appnav の「スタジオ」に、元の配信を引き継ぐ(スタジオの ?url= は解析の欄に入るだけ)。
-     意味のある URL が無いときは触らない(以前の文書の分が残っていても、無いものとして扱うだけで実害は無い) */
+     url が無い文書に切り替えたときは '?'(パラメータ無し)を渡して、前の文書の分を消す(渡さないと残ってしまう) */
   if (window.UIKit && UIKit.appnav){
     const src = d && d.clip && typeof d.clip === 'object' && d.clip.source && typeof d.clip.source === 'object' ? d.clip.source : null;
     const url = src && typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url : '';
-    if (url) UIKit.appnav.setLink('studio', '?url=' + encodeURIComponent(url));
+    UIKit.appnav.setLink('studio', url ? '?url=' + encodeURIComponent(url) : '?');
   }
 }
 const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
