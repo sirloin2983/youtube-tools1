@@ -1266,5 +1266,5 @@
 - テスト(PC・最後にまとめて): 編集 単体 125+・node 9・e2e(v07・v08・v09・v098・handoff・eval・edit_tabs/cut/pack/voices・mounted)、スタジオ e2e_ui 135・--mounted 148・node 18、
   cut2resolve 287、契約テスト、入口 単体 91・e2e_portal・e2e_window、ytt_core、ui-kit e2e・sync 通過
 - 未完了・実機で確かめること: A-2 の色が Resolve の Text+ に入るか(Lua の SetInput。クラウドでは確かめられない)・A-3 の声の照らし合わせの精度(しきい値は実際の配信で調整)・専用の窓で起動するか。
-  統合計画の正本(claude.ai の Claude Docs)には「窓 = Edge の窓を既定・pywebview は使わない・新着配信の監視はやらない」をまだ書いていない(`docs/integration-plan.md` の写しには書いた)
+  統合計画の正本(claude.ai の Claude Docs「動画編集ツール 統合計画」)にも「窓 = Edge の窓を既定・pywebview は使わない・新着配信の監視はやらない」と 09-27 の進み具合を書いた(ユーザーの指示「更新」)
 - 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start-all.bat で起動し直す(次から Edge の専用の窓で開く)
