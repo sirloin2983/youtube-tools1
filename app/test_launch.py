@@ -483,7 +483,7 @@ class PortalHttpTest(Base):
         self.assertIn("script-src 'self'", r.getheader("Content-Security-Policy"))
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn("作業の入口".encode("utf-8"), body)
+        self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
         for path in ("/portal.js", "/portal.css", "/ui-kit.css", "/ui-kit.js"):
             r, body = self.req("GET", path)
             self.assertEqual(r.status, 200, path)

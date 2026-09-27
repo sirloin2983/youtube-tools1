@@ -224,7 +224,9 @@ async function refresh(){
   if (C.addTo && !C.groups.some(g => g.id === C.addTo)) C.addTo = null;
   if (C.anchorOpen && !C.groups.some(g => g.id === C.anchorOpen.gid)) C.anchorOpen = null;
   renderMakeCard(); renderVideoList(); renderGroups();
-  { const n = C.groups.filter(g => !g.allSet).length; S.setBadge('collab', n ? String(n) : '', n ? `ズレ(アンカー)が未設定のグループ ${n}件` : ''); }
+  /* v6: コラボはタブではなく設定の引き出しの節なので、件数は節の見出しの札(#collabBadge)に出す(タブの badge は無くなった) */
+  { const n = C.groups.filter(g => !g.allSet).length, b = document.getElementById('collabBadge');
+    if (b){ b.hidden = !n; b.textContent = n ? 'ズレ未設定 ' + n : ''; b.className = 'pill warn'; } }
 }
 async function onGo(){
   if (C.busy) return;
@@ -318,9 +320,15 @@ function onGroupChange(e){
   }
 }
 
-S.collab = { refresh };
-S.onReady(() => {
-  $('#paneCollab').innerHTML = paneHtml();
+/* v6: ④ コラボ はタブから外し、設定の引き出しの「コラボ」節の中へ(ユーザー決定: ほぼ使わない)。
+   settings.js が節を開いたときに mount(host) を呼ぶ(初回だけ組み立て、以後は refresh だけ) */
+let mounted = false;
+function mount(host){
+  if (!mounted){ host.innerHTML = paneHtml(); wire(); mounted = true; }
+  refresh();
+}
+S.collab = { mount, refresh };
+function wire(){
   $('#clGo').addEventListener('click', onGo);
   $('#clCancelAdd').addEventListener('click', () => { C.addTo = null; C.checked.clear(); renderMakeCard(); renderVideoList(); });
   $('#clBase').addEventListener('change', e => { C.base = e.target.value; });
@@ -342,7 +350,5 @@ S.onReady(() => {
     if (e.key !== 'Enter' || !e.target.closest('.cl-anchor') || e.target.type !== 'text') return;
     e.preventDefault(); const li = e.target.closest('[data-gid][data-vid]'); if (li) saveAnchor(li.dataset.gid, li.dataset.vid);
   });
-  S.on('step', st => { if (st === 'collab') refresh(); });
-  refresh();
-});
+}
 })();

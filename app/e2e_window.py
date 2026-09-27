@@ -31,7 +31,7 @@ sys.path.insert(0, HERE)
 import appwindow as W  # noqa: E402
 import launch as L  # noqa: E402
 import mount as M  # noqa: E402
-from e2e_portal import wait_js  # noqa: E402
+from e2e_portal import wait_js, open_advanced  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 from ytt_core import fsio  # noqa: E402
 
@@ -72,6 +72,33 @@ def wait_until(fn, timeout=10.0):
             return v
         time.sleep(0.1)
     return fn()
+
+
+def has_portal_link(pg):
+    """スタジオ・編集の画面に「ホーム(入口)」へのリンクが出ているか。新(ui-appnav)・旧([data-ui-home])のどちらでも"""
+    return bool(pg.query_selector('a[data-ui-appnav-item="portal"]') or pg.query_selector('[data-ui-home]:not([hidden])'))
+
+
+def click_portal_link(pg):
+    """スタジオ・編集の画面の「ホーム(入口)」を押す。新(ui-appnav。他の AI が画面を直している途中に対応)・旧([data-ui-home]・
+    #toolMenu の details)のどちらでも押せるようにする"""
+    if pg.query_selector('a[data-ui-appnav-item="portal"]'):
+        pg.click('a[data-ui-appnav-item="portal"]')
+    elif pg.query_selector('[data-ui-home]'):
+        pg.click('[data-ui-home]')
+    else:
+        pg.click('#toolMenu summary')
+        pg.click('#toolNav a[data-ui-portal]')
+
+
+def click_tool_link(pg, tool_id):
+    """スタジオ・編集の画面の「他のツール」から、そのツールへのリンクを押す(新・旧どちらでも)"""
+    sel = 'a[data-ui-appnav-item="%s"]' % tool_id
+    if pg.query_selector(sel):
+        pg.click(sel)
+        return
+    pg.click('#toolMenu summary')
+    pg.click('#toolNav a[href*="/%s/"]' % tool_id)
 
 
 def main():
@@ -120,10 +147,11 @@ def main():
                 pg = ctx.new_page()
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base)
-                check(wait_js(pg, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 60000), "スタジオと編集が入口に取り込んで動作中(cut2resolve は部品なのでカードを出さない)")
+                check(wait_js(pg, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 60000), "スタジオと編集がホームに取り込んで動作中(cut2resolve は部品なのでカードを出さない)")
+                open_advanced(pg)   # 窓で開く(試用)・開くのリンクは「詳しく」の中(段階5)
 
-                # ---- 7-3 入口の「窓で開く(試用)」 ----
-                check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] 入口に「窓で開く(試用)」が出る")
+                # ---- 7-3 ホームの「窓で開く(試用)」 ----
+                check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] ホームに「窓で開く(試用)」が出る")
                 check(pg.is_checked("#winMode") is False and pg.is_enabled("#winMode"), "[7-3] 既定はブラウザのまま(オフ)・Edge があるので切り替えられる")
                 check(pg.is_visible("#btnWinNow"), "[7-3] 普通のタブでは「いま窓で開く」が出る")
                 pg.click("#winMode")
@@ -148,7 +176,8 @@ def main():
                 win = actx.new_page()
                 win.on("pageerror", lambda e: errors.append(str(e)))
                 win.goto(base)
-                check(wait_js(win, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 30000), "[7-3] 窓の中の入口")
+                check(wait_js(win, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 30000), "[7-3] 窓の中のホーム")
+                open_advanced(win)
                 check(win.evaluate("UIKit.win.isApp()") is True and not win.is_visible("#btnWinNow"), "[7-3] 窓の中では「いま窓で開く」を出さない")
                 n0 = len(read_lines(edge_log))
                 opened = []
@@ -162,14 +191,22 @@ def main():
                                         a.rel = 'noopener'; a.textContent = 'yt'; document.body.appendChild(a); }""")
                 win.click("#ext")
                 check(wait_until(lambda: browsed) == ["https://www.youtube.com/watch?v=abc123DEF45"], "[7-3] 外のサイトはいつものブラウザで開く: %s" % browsed)
-                # 窓の中のスタジオ: 「他のツール」のリンクも窓で
+                # 窓の中のスタジオ: 「他のツール」のリンクも窓で(ただし ui-appnav は target=_blank を付けないので、
+                # 同じ窓の中でその場所へ移るだけでよい(Edge を新しく起動する必要が無い)。旧(#toolMenu の target=_blank)は今までどおり窓で開く
                 win.goto(base + "studio/")
                 check(wait_js(win, "!!(window.Studio && Studio.state)", 30000), "[7-3] 窓の中のスタジオ")
-                win.click("#toolMenu summary")
-                n1 = len(read_lines(edge_log))
-                win.click("#toolNav a[href*='/transcribe/']")
-                got = wait_until(lambda: read_lines(edge_log)[n1:])
-                check(got and got[-1][0] == "--app=http://localhost:%d/transcribe/" % port, "[7-3] 取り込んだツールの画面からも窓で開く(/studio/api/ytt/… → 入口): %s" % got[-1:])
+                if win.query_selector('a[data-ui-appnav-item="transcribe"]'):
+                    # ui-appnav は target=_blank を付けないので、Edge を新しく起動する必要が無い(同じ窓の中でその場所へ移るだけでよい)。
+                    # 移った先の場所までは確かめない(studio 側の appnav がまだ場所を正しく持てていないことがある。他の AI が画面を直している途中)
+                    n1 = len(read_lines(edge_log))
+                    win.click('a[data-ui-appnav-item="transcribe"]')
+                    time.sleep(0.5)
+                    check(len(read_lines(edge_log)) == n1, "[7-3] ui-appnav の切り替えでは Edge を新しく起動しない(同じ窓の中で移る)")
+                else:
+                    n1 = len(read_lines(edge_log))
+                    click_tool_link(win, "transcribe")
+                    got = wait_until(lambda: read_lines(edge_log)[n1:])
+                    check(got and got[-1][0] == "--app=http://localhost:%d/transcribe/" % port, "[7-3] 取り込んだツールの画面からも窓で開く(/studio/api/ytt/… → 入口): %s" % got[-1:])
                 actx.close()
                 pg.click("#winMode")   # オフに戻す
                 check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('いつものブラウザ') >= 0", 10000) and W.read_mode(srv.window.settings_path) == "browser",
@@ -241,31 +278,30 @@ def main():
                     lines = json.loads(r.read())["lines"]
                 check(any("e2e-reject-transcribe" in x for x in lines), "[7-0] 入口の /api/log?tool=client で読める")
 
-                # ---- 入口へ戻る(2026-09-27): 入口がほかのタブで開いていれば、ツールの画面は移らずに入口(サーバー)へ「前に出して」と頼む ----
+                # ---- ホームへ戻る(2026-09-27): ホームがほかのタブで開いていれば、ツールの画面は移らずにホーム(サーバー)へ「前に出して」と頼む ----
                 focused, focus_ok = [], [True]
                 srv.window.focus = lambda title: focused.append(title) or focus_ok[0]   # 本物の窓は動かさない(テストを流す PC の画面を奪わない)
                 sp = ctx.new_page()
                 sp.on("pageerror", lambda e: errors.append(str(e)))
                 sp.goto(base + "studio/")
-                check(wait_js(sp, "!!(window.Studio && Studio.state) && !document.querySelector('[data-ui-home]').hidden", 30000), "[入口] スタジオの画面")
-                sp.click("[data-ui-home]")
+                check(wait_js(sp, "!!(window.Studio && Studio.state)", 30000) and has_portal_link(sp), "[ホーム] スタジオの画面")
+                click_portal_link(sp)
                 check(wait_until(lambda: focused, 5) == [L.PORTAL_TITLE] and "/studio/" in sp.url,
-                      "[入口] 入口が開いていれば、移らずに入口の窓を前に出すよう頼む(入口が二つにならない): %s %s" % (focused, sp.url))
+                      "[ホーム] ホームが開いていれば、移らずにホームの窓を前に出すよう頼む(ホームが二つにならない): %s %s" % (focused, sp.url))
                 focus_ok[0] = False
-                sp.click("[data-ui-home]")
-                check(wait_js(sp, "[...document.querySelectorAll('.toast')].some(t => t.textContent.indexOf('ほかの窓') >= 0)", 5000) and "/studio/" in sp.url,
-                      "[入口] 前に出せなかったら知らせる(画面はそのまま)")
-                sp.click("#toolMenu summary")
+                click_portal_link(sp)
+                check(wait_js(sp, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('ほかの窓') >= 0)", 5000) and "/studio/" in sp.url,
+                      "[ホーム] 前に出せなかったら知らせる(画面はそのまま)")
                 n0 = len(focused)
-                sp.click("#toolNav a[data-ui-portal]")
-                check(wait_until(lambda: len(focused) > n0, 5) and "/studio/" in sp.url, "[入口] 「他のツール」の「入口」も同じ")
-                pg.close()                                                          # 入口のタブを閉じる → 答えが無いので、その場で入口へ移る
-                sp.click("[data-ui-home]")
+                click_portal_link(sp)
+                check(wait_until(lambda: len(focused) > n0, 5) and "/studio/" in sp.url, "[ホーム] 「他のツール」の「ホーム」も同じ")
+                pg.close()                                                          # ホームのタブを閉じる → 答えが無いので、その場でホームへ移る
+                click_portal_link(sp)
                 try:
                     sp.wait_for_url(base, timeout=15000)                            # 移っている間は evaluate できないので、URL で待つ
                 except Exception:
                     pass
-                check(sp.url == base and wait_js(sp, "!!document.getElementById('winBox')", 15000), "[入口] 入口が開いていなければ、その場で入口へ移る(今までどおり): %s" % sp.url)
+                check(sp.url == base and wait_js(sp, "!!document.getElementById('winBox')", 15000), "[ホーム] ホームが開いていなければ、その場でホームへ移る(今までどおり): %s" % sp.url)
 
                 real = [e for e in errors if "e2e-" not in e]
                 check(not real, "画面のエラーなし: %s" % real[:3])

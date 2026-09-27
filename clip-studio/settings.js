@@ -4,9 +4,12 @@
 const $ = s => document.querySelector(s);
 const S = window.Studio;
 let regMounted = false;
+/* v6: 設定の器そのもの(#uiSettingsDrawer)は ui-kit(UIKit.settings.mount)が作る。ここではツール固有の中身の要素を1つ作って渡すだけ */
+const toolEl = document.createElement('div');
+toolEl.id = 'settingsBody';
 
 function build(){
-  $('#settingsBody').innerHTML = `
+  toolEl.innerHTML = `
   <details class="card set-sec" id="setKey" open><summary><span class="set-title">YouTube Data API キー</span><span class="pill" id="keyState"></span></summary><div class="body">
     <p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの config.json にだけ保存し、画面には表示しません。環境変数 <code>YOUTUBE_API_KEY</code> があれば、そちらが優先されます。</p>
     <div class="fld"><label class="l" for="keyIn">APIキー</label>
@@ -20,6 +23,12 @@ function build(){
       <input type="text" id="outIn" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off"></div>
       <div class="row set-actions"><button type="button" class="btn small primary" id="outSave">保存</button><button type="button" class="btn small" id="outReset">標準に戻す</button></div></div>
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
+  <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub">書き出したあとの自動化</span></summary><div class="body">
+    ${S.token ? `<label class="rv-check" for="setAutoTx"><input type="checkbox" class="ui-switch" id="setAutoTx">書き出しのあと自動で文字起こしを始める</label>
+    <p class="hint">③ の書き出しが終わった切り抜きを、入口の「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。</p>`
+    : '<p class="hint">入口(start-all.bat)から開いているときだけ使えます。</p>'}
+  </div></details>
+  <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
   $('#keyDel').addEventListener('click', () => saveKey('', $('#keyDel')));
@@ -31,6 +40,13 @@ function build(){
   $('#outIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#outSave').click(); } });
   $('#outSave').addEventListener('click', () => saveOut($('#outIn').value.trim(), $('#outSave')));
   $('#outReset').addEventListener('click', () => saveOut('', $('#outReset')));
+  if (S.token){
+    const cb = $('#setAutoTx');
+    let on = true; try { on = localStorage.getItem('ytt:studio.autoTx') !== '0'; } catch {}
+    cb.checked = on;
+    cb.addEventListener('change', () => { try { localStorage.setItem('ytt:studio.autoTx', cb.checked ? '1' : '0'); } catch {} });
+  }
+  $('#setCollab').addEventListener('toggle', mountCollab);
   $('#setReg').addEventListener('toggle', mountReg);
 }
 
@@ -39,6 +55,12 @@ function mountReg(){
   const host = $('#regHost');
   if (S.rank && S.rank.mountRegistry){ regMounted = true; S.rank.mountRegistry(host); }
   else host.innerHTML = '<p class="hint">登録の画面を読み込めませんでした(rank.js)。</p>';
+}
+function mountCollab(){
+  if (!$('#setCollab').open) return;
+  const host = $('#collabHost');
+  if (S.collab && S.collab.mount) S.collab.mount(host);
+  else host.innerHTML = '<p class="hint">コラボの画面を読み込めませんでした(collab.js)。</p>';
 }
 
 function update(){
@@ -99,13 +121,17 @@ function saveOut(path, btn){
 S.onReady(() => {
   const tn = document.createElement('div'); tn.id = 'toolNotice'; tn.className = 'tool-notice'; tn.hidden = true;
   $('#main').insertAdjacentElement('beforebegin', tn);
+  // 先に toolEl を文書へつなぐ(mount が引き出しの中へ入れる)。build() は document.querySelector で中の部品を探すため、
+  // つないでから中身を作る(つなぐ前に innerHTML を入れると #keySave などが見つからない)
+  if (window.UIKit && UIKit.settings) UIKit.settings.mount({ tool: toolEl, title: '設定', version: 'v' + S.version });
+  else document.body.appendChild(toolEl);   // 保険(通常は起きない): UIKit が無くても build() を壊さない
   build(); update();
   S.on('state', update);
-  /* which: 開く節の id(setKey / setOut / setReg)。引き出しの中でその節までスクロールする */
+  /* which: 開く節の id(setKey / setOut / setExport / setCollab / setReg)。引き出しの中でその節までスクロールする */
   S.openSettings = which => {
     S.drawer.open();
     const d = which && $('#' + which);
-    if (d){ d.open = true; mountReg(); requestAnimationFrame(() => d.scrollIntoView({ block: 'start', behavior: 'smooth' })); }
+    if (d){ d.open = true; mountReg(); mountCollab(); requestAnimationFrame(() => d.scrollIntoView({ block: 'start', behavior: 'smooth' })); }
   };
 });
 })();

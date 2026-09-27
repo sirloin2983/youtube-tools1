@@ -157,7 +157,7 @@ function buildDOM(){
   <nav class="rv-jump" id="rvJump" aria-label="この画面の中の移動">
     <button type="button" class="rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
     <button type="button" class="rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
-    <button type="button" class="rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄へ">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    <button type="button" class="rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄を開く">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="rv-emptybox empty" id="rvEmpty" hidden>
     <b>まだ配信が開かれていません</b>
@@ -173,7 +173,7 @@ function buildDOM(){
         <div class="rv-tl" id="rvTl" role="group" aria-label="タイムライン。クリックでその位置へ移動">
           <div id="rvSegs"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
         </div>
-        <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gcur" id="rvGCur"></div></div>
+        <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gpeaks" id="rvGPeaks"></div><div class="rv-gcur" id="rvGCur"></div></div>
         <div class="rv-scale" aria-hidden="true"><span>0:00.0</span><div class="rv-glegend" id="rvGLegend" hidden></div><span id="rvTlEnd">--</span></div>
 
         <div class="rv-transport">
@@ -209,20 +209,23 @@ function buildDOM(){
         <div><button class="btn small" id="rvEdge" type="button">ライブ端へ</button></div>
       </div>
 
-      <div class="rv-mark">
-        <div class="rv-markcell">
-          <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd data-kbd="markIn">I</kbd></button>
-          <div class="rv-val is-empty" id="rvInVal">--</div>
+      <details class="rv-markdetails ui-disclosure" id="rvMarkDetails">
+        <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
+        <div class="rv-mark">
+          <div class="rv-markcell">
+            <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd class="ui-kbd" data-kbd="markIn">I</kbd></button>
+            <div class="rv-val is-empty" id="rvInVal">--</div>
+          </div>
+          <div class="rv-markcell">
+            <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd class="ui-kbd" data-kbd="markOut">O</kbd></button>
+            <div class="rv-val is-empty" id="rvOutVal">--</div>
+          </div>
+          <div class="rv-markcell rv-addcell">
+            <button class="btn primary" id="rvAdd" type="button">マーク追加<kbd class="ui-kbd" data-kbd="addClip">A</kbd></button>
+            <span class="hint" id="rvDraftDur">IN と OUT を押すと追加できます</span>
+          </div>
         </div>
-        <div class="rv-markcell">
-          <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd data-kbd="markOut">O</kbd></button>
-          <div class="rv-val is-empty" id="rvOutVal">--</div>
-        </div>
-        <div class="rv-markcell rv-addcell">
-          <button class="btn primary" id="rvAdd" type="button">マーク追加<kbd data-kbd="addClip">A</kbd></button>
-          <span class="hint" id="rvDraftDur">IN と OUT を押すと追加できます</span>
-        </div>
-      </div>
+      </details>
 
       <details class="rv-settings ui-disclosure" id="rvSettings">
         <summary>操作の設定 <span class="muted">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary>
@@ -243,7 +246,8 @@ function buildDOM(){
           </section>
           <section class="rv-sec">
             <h3>キー配置</h3>
-            <p class="rv-sechint">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取消 / Delete = 割り当て解除。すでに使われているキーを選ぶと、そちらの割り当てが外れます。一覧はヘッダーの「キー操作」(? キー)でも見られます。</p>
+            <p class="rv-sechint">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取消 / Delete = 割り当て解除。すでに使われているキーを選ぶと、そちらの割り当てが外れます。一覧はヘッダーの「キー操作」(? キー)でも見られます。
+              Space・J/K/L・← →・, .・I/O は全ツール共通の再生キーで、ここでは変更できません。</p>
             <div class="rv-setrow"><select id="rvKeyPreset" aria-label="キー配置のプリセット"><option value="standard">標準(I O A ・矢印)</option><option value="left">左手だけ(Q W E ・A D)</option><option value="custom" disabled>カスタム</option></select><button class="btn small" id="rvKeyReset" type="button">標準に戻す</button></div>
             <div class="rv-keygrid" id="rvKeyGrid"></div>
           </section>
@@ -263,31 +267,47 @@ function buildDOM(){
     </section>
 
     <section class="rv-clips" aria-label="書き出しとマーク">
-      <section class="rv-panel" id="rvExport" aria-labelledby="rvExpTitle">
-        <div class="rv-exphead"><h2 class="rv-ptitle" id="rvExpTitle">書き出し</h2><span class="rv-exp-sum hint" id="rvExpSum"></span></div>
-        <div class="rv-status" id="rvToolStatus"></div>
-        <div class="rv-tools"><button class="btn primary" id="rvExpRun" type="button">書き出す</button><button class="btn" id="rvExpAll" type="button" title="採用にしたマークがある全部の配信を、順番に書き出します">全部の配信の採用を書き出す</button><button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button><button class="btn" id="rvExpRetry" type="button" hidden>失敗した分だけやり直す</button></div>
-        <p class="hint rv-expcount" id="rvExpCount"></p>
-        <div class="bar rv-expbar" id="rvExpBar" hidden><i></i></div>
-        <details class="ui-disclosure rv-expset" id="rvExpSet"><summary>書き出しの設定 <span class="muted rv-expsetsum" id="rvExpSetSum"></span></summary>
-          <div class="rv-expgrid">
-            <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
-              <select id="rvExpTarget"><option value="adopted">採用のみ(おすすめ)</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも)</option></select></div>
-            <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
-              <select id="rvPrecision" title="高速は切れ目がキーフレーム(数秒間隔)に寄るため、開始が最大数秒手前にずれます。失敗した場合は自動で精密方式に切り替えます。"><option value="accurate">精密(位置ちょうど・おすすめ)</option><option value="fast">高速(数秒手前から始まることあり)</option></select>
+      <aside class="ui-drawer rv-exportdrawer" id="rvExport" hidden aria-labelledby="rvExpTitle">
+        <div class="ui-drawer-head">
+          <h2 class="ui-drawer-title" id="rvExpTitle">書き出し</h2>
+          <span class="rv-exp-sum hint" id="rvExpSum"></span>
+          <button type="button" class="btn ghost icon small" id="rvExpClose" aria-label="閉じる" title="閉じる"><span class="ui-icon" data-icon="close"></span></button>
+        </div>
+        <div class="ui-drawer-body">
+          <div class="rv-status" id="rvToolStatus"></div>
+          <div class="rv-tools">
+            <button class="btn primary" id="rvExpRun" type="button">書き出す</button>
+            <button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button>
+            <details class="ui-pop rv-expmore" id="rvExpMore" data-align="left">
+              <summary class="btn ghost icon" aria-label="その他の書き出し"><span class="ui-icon" data-icon="more"></span></summary>
+              <div class="ui-pop-body">
+                <button type="button" id="rvExpAll" title="採用にしたマークがある全部の配信を、順番に書き出します">全部の配信の採用を書き出す</button>
+                <button type="button" id="rvExpRetry" hidden>失敗した分だけやり直す</button>
               </div>
-            <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
-              <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
-            <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
-              <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない(音量 % で指定)</option></select></div>
-            <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量(そろえないとき)</label>
-              <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
-            </div>
+            </details>
           </div>
-          <p class="hint rv-outline">保存先: <span class="mono" id="rvOutDir"></span> <button type="button" class="btn small ghost" id="rvOutEdit">変更</button></p>
-        </details>
-        <ol class="rv-explist" id="rvExpList"></ol>
-      </section>
+          <p class="hint rv-expcount" id="rvExpCount"></p>
+          <div class="bar rv-expbar" id="rvExpBar" hidden><i></i></div>
+          <details class="ui-disclosure rv-expset" id="rvExpSet"><summary>書き出しの設定 <span class="muted rv-expsetsum" id="rvExpSetSum"></span></summary>
+            <div class="rv-expgrid">
+              <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
+                <select id="rvExpTarget"><option value="adopted">採用のみ(おすすめ)</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも)</option></select></div>
+              <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
+                <select id="rvPrecision" title="高速は切れ目がキーフレーム(数秒間隔)に寄るため、開始が最大数秒手前にずれます。失敗した場合は自動で精密方式に切り替えます。"><option value="accurate">精密(位置ちょうど・おすすめ)</option><option value="fast">高速(数秒手前から始まることあり)</option></select>
+                </div>
+              <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
+                <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
+              <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
+                <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない(音量 % で指定)</option></select></div>
+              <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量(そろえないとき)</label>
+                <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
+              </div>
+            </div>
+            <p class="hint rv-outline">保存先: <span class="mono" id="rvOutDir"></span> <button type="button" class="btn small ghost" id="rvOutEdit">変更</button></p>
+          </details>
+          <ol class="rv-explist" id="rvExpList"></ol>
+        </div>
+      </aside>
 
       <div class="rv-clipbox" id="rvClipbox">
         <div class="rv-clips-head"><h2>マーク</h2><div class="hint" id="rvStats"></div></div>
@@ -807,7 +827,7 @@ function onSpanStep(e){
 function renderKeyUI(){
   const km = S.settings.keymap;
   $('#rvQuickSlots').innerHTML = S.settings.quickSpans.map((sp, i) =>
-    `<div class="rv-qslot"><button class="btn${i === 0 ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}をマーク"><span class="rv-qn">${i + 1}</span><kbd data-kbd="${i ? 'quickMark' + (i + 1) : 'quickMark'}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
+    `<div class="rv-qslot"><button class="btn${i === 0 ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}をマーク"><span class="rv-qn">${i + 1}</span><kbd class="ui-kbd" data-kbd="${i ? 'quickMark' + (i + 1) : 'quickMark'}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
   for (const el of document.querySelectorAll('#rvRoot kbd[data-kbd]')) el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : '';
   const g = $('#rvKeyGrid');
   const spanSel = id => { const m = /^quickMark(\d?)$/.exec(id); return m ? spanSelHTML(m[1] ? Number(m[1]) - 1 : 0) : ''; };
@@ -815,6 +835,7 @@ function renderKeyUI(){
   const row = id => `<div class="rv-keyrow"><span>${esc(defs[id] || id)}</span>${spanSel(id)}<button type="button" class="rv-keybtn${km[id] ? '' : ' none'}" data-id="${id}">${esc(keyText(km[id]))}</button></div>`;
   g.innerHTML = KEY_GROUPS.map(([h, ids]) => `<div class="rv-kgroup"><h4>${esc(h)}</h4>${ids.filter(id => defs[id]).map(row).join('')}</div>`).join('');
   $('#rvKeyPreset').value = currentPreset();
+  if (Studio.step === 'review') keybarScene();   // キー配置を変えたら、下の帯もすぐ合わせる
 }
 function setKey(id, combo){
   const km = { ...S.settings.keymap };
@@ -1049,6 +1070,7 @@ function handoffHTML(j, it){
   const path = it.status === 'done' ? clipPathOf(j, it) : '';
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
+  if (window.UIKit && UIKit.appnav) UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
   const tt = Studio.toolUrl('transcribe', '/?media=' + enc(path));
   return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
 }
@@ -1155,6 +1177,7 @@ function pollJob(){
       if (fin){
         rememberJob(null);
         toast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), 0, j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok');
+        if (j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
       }
     } catch (e){
       if (e.status === 404){ S.job = null; rememberJob(null); stopExpPoll(); renderExportUI(); }
@@ -1232,6 +1255,8 @@ async function startExportAll(){
           if (j.state === 'running') await new Promise(r => setTimeout(r, 1000));
         }
         rememberJob(null);
+        // typeof で確かめる: test_review.cjs はこの関数を、まとめて実行の定義を含まない範囲だけ切り出して確かめるため
+        if (typeof maybeAutoTranscribe === 'function'){ const doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (j.state !== 'cancelled' && doneIds.length) maybeAutoTranscribe(v.id, doneIds); }
         S.exportAll.done += j.items.filter(i => i.status === 'done').length;
         S.exportAll.fail += j.items.filter(i => i.status !== 'done').length;
         if (S.cur && S.cur.id === v.id) await syncFromServer();
@@ -1272,7 +1297,8 @@ function renderMeta(){
   const v = S.cur;
   $('#rvMain').hidden = !v; $('#rvEmpty').hidden = !!v;
   for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
-  if (!v){ $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; return; }
+  if (!v){ $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer(); return; }
+  syncExportDock();
   const has = !!v.title, el = $('#rvCurLabel');
   el.classList.toggle('is-empty', !has);   // 'empty' は ui-kit の「空の状態」の枠と名前がぶつかるので使わない
   el.textContent = has ? v.title : '(名前なし)';
@@ -1317,14 +1343,45 @@ function renderTimeline(){
 
 /* 盛り上がりグラフ: series.total の面グラフ + 自動マークの帯。プレイヘッドの動きでは再描画しない(カーソル線だけ動かす) */
 const GW = 1000, GH = 40;
+/* 盛り上がりの山の順位と理由(画面の側で計算。API は変えない。IMPLEMENTATION.md 4)。
+   山: total の極大点を高い順に、近すぎる(同じ山とみなす)ものを除きながら最大5つ。
+   理由: 山の前後(±win)の平均が、その系列自身の平均よりいちばん上回っているもの */
+const PEAK_MAX = 5;
+function findPeaks(total){
+  const idx = [];
+  for (let i = 1; i < total.length - 1; i++) if (total[i] >= total[i - 1] && total[i] >= total[i + 1] && total[i] > 0) idx.push(i);
+  if (!idx.length) return [];
+  idx.sort((a, b) => total[b] - total[a]);
+  const minGap = Math.max(2, Math.round(total.length * 0.03)), picked = [];
+  for (const i of idx){
+    if (picked.length >= PEAK_MAX) break;
+    if (picked.some(p => Math.abs(p - i) < minGap)) continue;
+    picked.push(i);
+  }
+  return picked.sort((a, b) => total[b] - total[a]);   // 高い順(1位から)
+}
+const PEAK_REASONS = [['audio', '声・笑い'], ['chat', 'チャット急増'], ['comments', 'コメント']];
+function peakReason(s, idx, win){
+  let best = '', bestScore = -Infinity;
+  for (const [k, label] of PEAK_REASONS){
+    const arr = s[k]; if (!Array.isArray(arr) || !arr.length) continue;
+    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+    let sum = 0, n = 0;
+    for (let i = Math.max(0, idx - win); i <= Math.min(arr.length - 1, idx + win); i++){ sum += arr[i] || 0; n++; }
+    const score = (n ? sum / n : 0) - mean;
+    if (score > bestScore){ bestScore = score; best = label; }
+  }
+  return best;
+}
 function renderGraph(){
-  const box = $('#rvGraph'), leg = $('#rvGLegend'), v = S.cur, s = S.series;
-  if (!v){ box.hidden = true; leg.hidden = true; return; }
+  const box = $('#rvGraph'), leg = $('#rvGLegend'), peaksEl = $('#rvGPeaks'), v = S.cur, s = S.series;
+  if (!v){ box.hidden = true; leg.hidden = true; if (peaksEl) peaksEl.innerHTML = ''; return; }
   if (!s || !Array.isArray(s.total) || !s.total.length){
     box.hidden = true;
     const hasAuto = v.marks.some(isAutoLike) || !!v.analysis;
     leg.hidden = !hasAuto;
     if (hasAuto) leg.innerHTML = '<span class="hint" title="盛り上がりのグラフは、解析した直後だけ出ます(入口を終了すると消えます)">グラフは解析した直後だけ出ます</span>';
+    if (peaksEl) peaksEl.innerHTML = '';
     return;
   }
   const dur = totalDur(), step = Number(s.step) > 0 ? Number(s.step) : 1;
@@ -1343,6 +1400,13 @@ function renderGraph(){
   const lines = S.settings.graphLines ? [['audio', 'a'], ['chat', 'c'], ['comments', 'm']].filter(([k]) => Array.isArray(s[k]) && s[k].length).map(([k, c]) => `<path class="rv-g-line ${c}" d="${line(s[k])}"/>`).join('') : '';
   $('#rvGSvg').innerHTML = `<svg viewBox="0 0 ${GW} ${GH}" preserveAspectRatio="none" role="img" aria-label="盛り上がりグラフ"><path class="rv-g-area" d="${area}"/>${bands}${lines}</svg>`;
   box.hidden = false; leg.hidden = false;
+  if (peaksEl){
+    const win = Math.max(1, Math.round(total.length * 0.015));
+    peaksEl.innerHTML = findPeaks(total).map((idx, i) => {
+      const t = idx * step, reason = peakReason(s, idx, win), label = reason ? (i + 1) + ' ' + reason : String(i + 1);
+      return `<button type="button" class="rv-gpeak" style="left:${(X(idx) / GW * 100).toFixed(2)}%" data-t="${t}" title="${esc(label)}(${fmt(t)}付近。押すと5秒前へ)">${esc(label)}</button>`;
+    }).join('');
+  }
   leg.innerHTML = `<span class="rv-lg"><i class="rv-sw tot"></i>盛り上がり(合計)</span><span class="rv-lg"><i class="rv-sw band"></i>自動マークの範囲</span>` +
     (S.settings.graphLines ? '<span class="rv-lg"><i class="rv-sw a"></i>音量</span><span class="rv-lg"><i class="rv-sw c"></i>チャット</span><span class="rv-lg"><i class="rv-sw m"></i>コメント</span>' : '') +
     `<label class="rv-check"><input type="checkbox" id="rvGLines"${S.settings.graphLines ? ' checked' : ''}>材料ごとの線も表示</label>`;
@@ -1377,7 +1441,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) ? `<button type="button" class="btn small ghost rv-auto1" data-act="auto1" title="このマークだけを、${exp ? '文字起こし → パック' : '書き出し → 文字起こし → パック'}までまとめて実行します(入口の同じ順番待ち。上の「まとめて実行 ▾」の配信者の色も使います)">この後を ▸</button>` : ''}
+      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore" data-align="left"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -1423,6 +1487,7 @@ function renderList(){
   }
   S.rendering = true;
   try { ol.innerHTML = list.map(markHTML).join(''); } finally { S.rendering = false; }
+  if (window.UIKit && UIKit.icon) UIKit.icon.fill(ol);   // 行の中の「…」の SVG(動的に描くので、読み込み後の一括の埋め込みには乗らない)
 }
 function renderStats(){
   const v = S.cur; if (!v){ return; }
@@ -1458,14 +1523,29 @@ function placeJump(){
   else if (!wide && j.parentElement === top) top.after(j);
   j.classList.toggle('is-bar', !wide);
 }
+/* ---------- 書き出しの欄(ui-drawer)。1280px 以上は映像・マークと横に並ぶ「docked」(裏も操作できる。主な画面は右に空ける)、
+   それより狭いときは重ねる「overlay」(閉じるまで畳んでおく) ---------- */
+const WIDE_EXPORT = '(min-width:1280px)';
+const exportDockActive = () => window.matchMedia(WIDE_EXPORT).matches;
+function openExportDrawer(opener){
+  const el = $('#rvExport'); if (!el || !window.UIKit) return;
+  if (!UIKit.drawer.isOpen(el)) UIKit.drawer.open(el, { modal: false, opener });
+}
+function closeExportDrawer(){
+  const el = $('#rvExport'); if (el && window.UIKit && UIKit.drawer.isOpen(el)) UIKit.drawer.close(el);
+}
+/* 1280px 以上になったら、書き出しの欄をいつも見える場所として開いておく(主な画面はそのぶん右を空ける)。
+   それより狭くなったら、重ねる形(overlay)に戻すため、既定は閉じておく(開けたままだと、映像やマークに重なってしまう) */
+function syncExportDock(){
+  const wide = exportDockActive();
+  const root = $('#rvRoot'); if (root) root.classList.toggle('rv-dock', wide);
+  if (wide && S.cur) openExportDrawer(); else if (!wide) closeExportDrawer();
+}
 function jumpTo(where){
-  const target = { player: '#rvPlayerBox', marks: '#rvClipbox', export: '#rvExport' }[where];
+  if (where === 'export'){ openExportDrawer($('#rvJump [data-jump="export"]')); return; }
+  const target = { player: '#rvPlayerBox', marks: '#rvClipbox' }[where];
   const el = target && $(target); if (!el || $('#rvMain').hidden) return;
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (where === 'export'){
-    el.classList.remove('rv-flash'); void el.offsetWidth; el.classList.add('rv-flash');
-    const b = $('#rvExpRun'); if (b && !b.disabled) setTimeout(() => b.focus({ preventScroll: true }), 350);
-  }
 }
 function applyTheater(){
   const on = !!S.settings.theater;
@@ -1475,6 +1555,31 @@ function applyTheater(){
   const b = $('#rvTheater'); b.setAttribute('aria-pressed', String(on)); b.querySelector('span').textContent = on ? '通常表示' : 'シアター';
 }
 function toggleTheater(){ S.settings.theater = !S.settings.theater; applyTheater(); touchSettings(); }
+
+/* ---------- 共通の再生キー(UIKit.keys.playback。全ツール共通の意味にそろえる: IMPLEMENTATION.md 4) ----------
+   yt(YouTube IFrame API 風。currentTime 等のプロパティを持たない)を、HTMLMediaElement 風の形に合わせるだけの薄い適合 */
+const rvMedia = {
+  get currentTime(){ return S.now; }, set currentTime(t){ seek(Number(t) || 0); },
+  get duration(){ return S.duration; },
+  get paused(){ return !(yt && S.playerState === 1); },
+  get playbackRate(){ return S.rate; }, set playbackRate(r){ S.rate = r; if (yt) try { yt.setPlaybackRate(r); } catch {} },
+  play(){ if (canPlay()) try { yt.playVideo(); } catch {} },
+  pause(){ if (yt) try { yt.pauseVideo(); } catch {} }
+};
+/* I/O は markIn/markOut を呼ぶ(キー配置で別のキーを割り当てていても、共通キーとしてはこれが優先。「操作の設定」に注記あり)。
+   再生できない画面(埋め込み不可・通信不調)で Space・L(再生を試みるキー)を押したときだけ、これまでどおり案内を出す */
+const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
+  media: () => (yt ? rvMedia : null),
+  onIn: () => markIn(), onOut: () => markOut(),
+  onKey: name => { if (!canPlay() && (name === 'Space' || name === 'L')) noPlayerToast(); }
+}) : null;
+/* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える */
+function keybarScene(){
+  if (!window.UIKit || !UIKit.keybar) return;
+  const km = S.settings.keymap, row = (id, label) => (km[id] ? { k: keyText(km[id]), l: label } : null);
+  UIKit.keybar.set([{ k: 'Space', l: '再生/停止' }, { k: '← →', l: '1秒(Shift 5秒)' }, { k: 'I / O', l: '始まり/終わりの印' },
+    row('adopt', '採用'), row('reject', '不採用'), row('nextMark', '次のマーク'), { k: '?', l: 'キー操作' }].filter(Boolean));
+}
 
 /* ---------- イベント ---------- */
 function wire(){
@@ -1492,7 +1597,7 @@ function wire(){
         if (!canPlay()){ seek(t); noPlayerToast(); break; }
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
-      case 'auto1': startAuto('adopted', [c.id]); break;   // このマークだけ、残りの作業をまとめて(docs/followup-2026-09-27.md の 3)
+      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて(docs/followup-2026-09-27.md の 3)
       case 'nudge': {
         const w = b.dataset.w;
         if (setBound(c, w, c[w] + Number(b.dataset.d))){ if (yt) seek(c[w]); refresh(key); }
@@ -1566,7 +1671,11 @@ function wire(){
     if (d.seg && !d.moved) selectSeg(d.seg); else scrub(timeAt(e, tl), true);
   };
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
-  $('#rvGraph').addEventListener('click', e => scrub(timeAt(e, $('#rvGraph')), true));
+  $('#rvGraph').addEventListener('click', e => {
+    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
+    if (p){ scrub(Math.max(0, Number(p.dataset.t) - 5), true); return; }
+    scrub(timeAt(e, $('#rvGraph')), true);
+  });
   $('#rvGLegend').addEventListener('change', e => { if (e.target.id === 'rvGLines'){ S.settings.graphLines = e.target.checked; renderGraph(); touchSettings(); } });
 
   // 配信の選択・開く・保存
@@ -1676,6 +1785,9 @@ function wire(){
   $('#rvList').addEventListener('click', onCopy);
   Studio.on('ports', () => { if (S.lastJob) renderJob(S.lastJob); if (S.cur) renderList(); });   // 他のツールの実際のポートが分かったら、リンクを作り直す
   window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
+  window.matchMedia(WIDE_EXPORT).addEventListener('change', syncExportDock);
+  $('#rvExpClose').addEventListener('click', closeExportDrawer);
+  $('#rvExpMore').addEventListener('click', e => { if (e.target.closest('button[id]')) $('#rvExpMore').open = false; });   // 「…」の中を押したら閉じる
 
   // 書き出し
   $('#rvExpRun').addEventListener('click', () => startExport());
@@ -1696,6 +1808,8 @@ function wire(){
     if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(スライダー/チェックボックス上では有効)
     // ボタン・リンク・開閉の見出しの上では、Space / Enter はその部品の操作を優先する(Space で「操作の設定」を開けなかったのを修正)
     const onControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SUMMARY' || tag === 'A';
+    // 共通の再生キー(全ツール共通。Space・J/K/L・← →(±1秒/Shift ±5秒)・,/.・I/O)を先に。処理したら(true)ここで終わる
+    if (handlePlayback && handlePlayback(e)) return;
     const combo = comboOf(e); if (!combo) return;
     const km = S.settings.keymap;
     const hit = ACTION_DEFS.find(([id]) => km[id] && km[id] === combo);
@@ -1704,13 +1818,13 @@ function wire(){
       if (e.repeat && !['back5', 'fwd5', 'back1', 'fwd1', 'volUp', 'volDown'].includes(hit[0])) return; // 押しっぱなしでマークが連続作成されないように
       ACTION_FN[hit[0]](); return;
     }
-    if (e.key === ' ' && !onControl){ e.preventDefault(); if (!e.repeat) togglePlay(); } // Spaceは常に再生/停止の予備キー
   });
 }
 
 /* ---------- ステップの表示・非表示 ---------- */
 async function activate(){
   startPoll();
+  keybarScene();
   await refreshList();
   if (Studio.step !== 'review') return;
   if (!S.cur && !S.loadSeq){
@@ -1719,6 +1833,7 @@ async function activate(){
 }
 function deactivate(){
   pausePlayback(); stopPoll();
+  if (window.UIKit && UIKit.keybar) UIKit.keybar.clear();
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
 }
@@ -1747,6 +1862,21 @@ const AUTO_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行�
 const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
+/* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
+   入口の /api/autorun/start を mode:'transcribe' + marks(書き出したものだけ)で呼ぶ。もう書き出し済みのマークは、その段だけ飛ばして続く(app/autorun.py _step_export で確認済み) */
+function autoTxEnabled(){ try { return localStorage.getItem('ytt:studio.autoTx') !== '0'; } catch { return true; } }
+async function maybeAutoTranscribe(videoId, markIds){
+  if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
+  try {
+    await portalApi('api/autorun/start', { id: videoId, mode: 'transcribe', marks: markIds });
+    toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
+    if (S.cur && S.cur.id === videoId) pollAuto();
+  } catch (e){
+    // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている): 大きなエラーにせず、あとで拾えることを伝える
+    if (/実行中|順番待ち/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を ▸」でやり直せます', 7000, 'info');
+    else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
+  }
+}
 async function startAuto(mode, marks){
   if (!S.cur) return;
   const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
@@ -1790,6 +1920,7 @@ function showDataWarning(){
 }
 Studio.onReady(() => {
   buildDOM(); S.built = true; placeJump();
+  if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });

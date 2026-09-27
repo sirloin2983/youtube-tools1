@@ -7,12 +7,14 @@
 
 STUDIO_FAKE=1(YouTube へは接続しない)で、生成した短い動画・専用の一時フォルダだけを使う。ポートは空きポート(他のテストと同時に走らせても衝突しない)。
 必要: ffmpeg、playwright(chromium)。
-確かめること: タブ切り替えと復元 / テーマ切り替えの保存 / ダーク表示で入力欄が白くならない / マークの採用・不採用が保存される /
-書き出しボタンの有効・無効 / 外から来る文字列(タイトル・ラベル)が HTML にならない / ?url= は欄に入れるだけ / ? でキー一覧 /
-設定の引き出し / 「他のツール」メニュー / 書き出し後の「編集で開く」リンク / 狭い画面で横にはみ出さない
+確かめること: タブ切り替えと復元 / テーマ切り替えの保存(既定は明るい。OS がダークでも) / ダーク表示で入力欄が白くならない / マークの採用・不採用が保存される /
+書き出しボタンの有効・無効 / 外から来る文字列(タイトル・ラベル)が HTML にならない / ?url= は欄に入れるだけ / ? でキー一覧(共通の再生キーが先頭) /
+設定の引き出し(ui-kit) / ヘッダー左の ui-appnav(ホーム/スタジオ/編集) / 書き出し後の「編集で開く」リンク / 狭い画面で横にはみ出さない
 v0.8.0(画面の全面見直し): ① 事務所を登録すると、触っていない事務所にチェックが入る・外した事務所は外れたまま / 結果の「全部まとめて」と「事務所ごと」/
 ② 失敗の説明(よくある原因と対処・元のメッセージ) / ③ 配信の選択(検索)・プレーヤーが使えないときに自動再生で通知を出さない・
-どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / ④ 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
+どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / コラボ(設定の中): 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
+v0.9.0(画面の全面見直し 段階4): ③ 書き出しの引き出し(1280px 以上は docked・それ未満は overlay) / 盛り上がりの山の順位と理由・押すと5秒前へ /
+書き出し後の自動で文字起こし(入口の中だけ) / 下のキーの帯(キーの帯) / ④ コラボはタブから設定(⚙)の節へ
 """
 import json
 import os
@@ -226,52 +228,38 @@ def run_checks(port, fx, shots=None):
         pg.goto(base)
         pg.wait_for_selector("#rkCond")
         print("[ヘッダー・タブ]")
-        c.ok(pg.get_attribute("html", "data-theme") == "light", "初回は OS の設定(ライト)に合わせる")
-        c.ok(pg.locator("#steps .ui-tab").count() == 4, "①〜④のタブがある")
+        c.ok(pg.get_attribute("html", "data-theme") == "light", "保存が無ければ既定は明るい(v6)")
+        pg_dark = ctx.new_page(); pg_dark.emulate_media(color_scheme="dark")
+        pg_dark.goto(base); pg_dark.wait_for_selector("#rkCond")
+        c.ok(pg_dark.get_attribute("html", "data-theme") == "light", "OS がダークでも、保存が無ければ既定は明るい(以前は OS の設定に従っていた)")
+        pg_dark.close()
+        c.ok(pg.locator("#steps .ui-tab").count() == 3, "①〜③のタブがある(④ コラボはタブから設定(⚙)へ移った)")
         c.ok((pg.text_content("#ver") or "").startswith("v"), "版が表示される")
         c.ok("キー操作" in (pg.text_content("#btnKeys") or ""), "キーボードの近道のボタンは「キー操作」(用語集)")
+        # ヘッダー左の ui-appnav(ホーム/スタジオ/編集。「他のツール」メニュー・「入口」リンクの代わり)
+        items = pg.eval_on_selector_all("[data-ui-appnav] a[data-ui-appnav-item]", "els => els.map(a => a.getAttribute('data-ui-appnav-item'))")
+        c.ok(("portal" in items) == bool(MOUNT["prefix"]), "appnav の「ホーム」は入口に取り込まれているときだけ出る: %s" % items)
+        c.ok("studio" in items and "transcribe" in items, "appnav に「スタジオ」「編集」がある: %s" % items)
+        c.ok(pg.get_attribute('[data-ui-appnav-item="studio"]', "aria-current") == "page", "appnav の今の場所(スタジオ)に aria-current")
         if MOUNT["prefix"]:
-            c.ok(pg.is_visible("a.ui-home[data-ui-home]") and pg.get_attribute("a.ui-home", "href") == "/", "入口に取り込まれているときは、ヘッダーに入口へ戻るリンクが出る")
-        else:
-            c.ok(not pg.is_visible("a.ui-home[data-ui-home]"), "単独で動いているときは、入口へ戻るリンクを出さない")
-        home_x = pg.evaluate("() => { const a = document.querySelector('a.ui-home'), m = document.querySelector('#toolMenu'); return a && m ? [a.compareDocumentPosition(m) & 4] : null; }")
-        c.ok(home_x == [4], "入口へのリンクは「他のツール」の左")
-        pg.click("#toolMenu summary")
-        TOOL_LINKS = "#toolNav a:has(.ui-brand-mark:not([data-tool=portal]))"   # ui-kit v3: 入口に取り込まれているときは先頭に「入口」「案件の一覧」も入る
-        links = pg.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => a.getAttribute('href'))")
-        c.ok(len(links) == 2 and any(":8775" in h for h in links) and not any(":8810" in h for h in links),
-             "他のツール: /api/siblings が無いときは既定のポートでリンク(スタジオ・編集。cut2resolve は編集の部品なので出さない): %s" % links)
-        home = pg.eval_on_selector_all("#toolNav a:has(.ui-brand-mark[data-tool=portal])", "els => els.map(a => a.getAttribute('href'))")
-        c.ok(home == (["/", "/cases.html"] if MOUNT["prefix"] else []), "他のツール: 入口に取り込まれているときだけ、先頭に入口・案件の一覧: %s" % home)
-        pg.keyboard.press("Escape")
-        c.ok(not pg.evaluate("document.querySelector('#toolMenu').open"), "Esc で他のツールのメニューが閉じる")
-        # /api/siblings があるサーバー(サーバー担当が実装中)の応答を模して、実際のポートと「起動していない」表示を確かめる
-        pg2 = ctx.new_page()
-        pg2.route("**/api/siblings", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"tools": {"studio": port, "transcribe": 8779}})))
-        pg2.goto(base); pg2.wait_for_selector("#rkCond")
-        pg2.click("#toolMenu summary")
-        links2 = pg2.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => [a.getAttribute('href'), a.className])")
-        c.ok(any(":8779" in h for h, _ in links2), "他のツール: /api/siblings のポートを使う")
-        c.ok(pg2.evaluate("Studio.toolUrl('transcribe', '/?media=x')") == "http://localhost:8779/?media=x", "受け渡しのリンクも実際のポートを使う")
-        pg2.close()
-        pg3 = ctx.new_page()   # 編集が起動していないとき
-        pg3.route("**/api/siblings", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"tools": {"studio": port}})))
-        pg3.goto(base); pg3.wait_for_selector("#rkCond")
-        pg3.click("#toolMenu summary")
-        links3 = pg3.eval_on_selector_all(TOOL_LINKS, "els => els.map(a => [a.getAttribute('href'), a.className])")
-        c.ok(any(":8775" in h and "cs-tool-off" in k for h, k in links3), "他のツール: 起動していないツールはそう表示する: %s" % links3)
-        pg3.close()
-        for step, pane in (("queue", "#paneQueue"), ("review", "#paneReview"), ("collab", "#paneCollab"), ("rank", "#paneRank")):
+            c.ok(pg.get_attribute('[data-ui-appnav-item="portal"]', "href") == "/" and pg.get_attribute('[data-ui-appnav-item="portal"]', "data-ui-portal") is not None,
+                 "appnav の「ホーム」は / で、入口を前に出す仕組み(data-ui-portal)がつく")
+        for step, pane in (("queue", "#paneQueue"), ("rank", "#paneRank"), ("review", "#paneReview")):
             pg.click('#steps [data-step="%s"]' % step)
             c.ok(pg.is_visible(pane) and pg.get_attribute('#steps [data-step="%s"]' % step, "aria-pressed") == "true", "タブ切り替え: %s" % step)
-        pg.click('#steps [data-step="collab"]')
-        pg.reload(); pg.wait_for_selector("#clMake")
-        c.ok(pg.is_visible("#paneCollab"), "再読み込みで最後のタブ(④)に戻る")
+        pg.reload(); pg.wait_for_selector("#rvPickBtn")
+        c.ok(pg.is_visible("#paneReview"), "再読み込みで最後のタブ(③)に戻る")
+        # 他のツールへの受け渡しリンク(実際のポートは /api/siblings。appnav 自体はポートを見ないので、リンクを作る関数 Studio.toolUrl だけ確かめる)
+        pg2 = ctx.new_page()
+        pg2.route("**/api/siblings", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"tools": {"studio": port, "transcribe": 8779}})))
+        pg2.goto(base); wait_js(pg2, "() => window.Studio && Studio.ready")
+        c.ok(pg2.evaluate("Studio.toolUrl('transcribe', '/?media=x')") == "http://localhost:8779/?media=x", "受け渡しのリンクは /api/siblings で分かった実際のポートを使う")
+        pg2.close()
 
         print("[テーマ]")
         pg.click("[data-theme-toggle]")
         c.ok(pg.get_attribute("html", "data-theme") == "dark", "切り替えボタンでダークになる")
-        pg.reload(); pg.wait_for_selector("#clMake")
+        pg.reload(); pg.wait_for_selector("#rvPickBtn")
         c.ok(pg.get_attribute("html", "data-theme") == "dark" and pg.evaluate("localStorage.getItem('ytt:theme')") == "dark", "テーマの選択が保存され、再読み込み後もダーク")
 
         print("[③ 確認・書き出し]")
@@ -285,6 +273,20 @@ def run_checks(port, fx, shots=None):
         open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")
+        # 書き出しの引き出し(1440px = 1280px 以上なので docked。主画面(映像・マーク)が右を空け、重ならない)
+        c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden"), "1440px: 書き出しの引き出しはいつも開いている(docked)")
+        player_right = pg.eval_on_selector("#rvPlayerBox", "e => e.getBoundingClientRect().right")
+        clips_right = pg.eval_on_selector("#rvClipbox", "e => e.getBoundingClientRect().right")
+        drawer_left = pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().left")
+        c.ok(player_right <= drawer_left and clips_right <= drawer_left, "1440px: 書き出しの引き出しは映像・マークに重ならない(主画面が右を空けている): player=%s clips=%s drawer=%s" % (player_right, clips_right, drawer_left))
+        # 下のキーの帯(共通の再生キー。UIKit.keybar。IMPLEMENTATION.md 4)
+        c.ok(pg.evaluate("document.documentElement.hasAttribute('data-keybar')") and pg.locator(".ui-keybar .ui-keybar-item").count() > 0,
+             "③ で配信を開くと、下のキーの帯にいま使えるキーが並ぶ")
+        c.ok("Space" in (pg.text_content(".ui-keybar") or ""), "キーの帯に共通の再生キー(Space)がある")
+        pg.click('#steps [data-step="rank"]')
+        c.ok(not pg.evaluate("document.documentElement.hasAttribute('data-keybar')"), "① へ移るとキーの帯は消える(場面が変わったので)")
+        pg.click('#steps [data-step="review"]')
+        pg.wait_for_timeout(150)
         if MOUNT["token"]:   # まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)): 入口の中だけ。案件の画面と同じ API(入口の /api/autorun)
             c.ok(pg.is_visible("#rvAuto"), "③ 入口の中では「まとめて実行」が出る")
             pg.click("#rvAuto > summary")
@@ -299,9 +301,12 @@ def run_checks(port, fx, shots=None):
                 pg.click("#rvAutoBar [data-act=autocancel]")
             ok = wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
             c.ok(ok, "③ 帯の「中止」で止められる(または終わっている): " + (pg.text_content("#rvAutoBar .pill") or ""))
-            # 1つのマークだけ(マークの行の「この後を ▸」。docs/followup-2026-09-27.md の 3)
-            btn = '#rvList .rv-mark-row[data-id="m1"] [data-act=auto1]'
-            c.ok(pg.is_visible(btn), "③ 採用したマークの行に「この後を ▸」が出る")
+            # 1つのマークだけ(マークの行の「…」の中の「この後を ▸」。docs/followup-2026-09-27.md の 3・段階4の決定0)
+            row_pop = '#rvList .rv-mark-row[data-id="m1"] .rv-rowmore'
+            c.ok(pg.locator(row_pop).count() == 1, "③ 採用したマークの行に「…」(その他の操作)が出る")
+            pg.click(row_pop + " > summary")
+            btn = row_pop + " [data-act=auto1]"
+            c.ok(pg.is_visible(btn), "③ 「…」の中に「この後を ▸」がある")
             pg.click(btn)
             ok = wait_js(pg, "() => !document.querySelector('#rvAutoBar').hidden && /1本/.test(document.querySelector('#rvAutoBar').textContent)", 10000)
             c.ok(ok, "③ 「この後を ▸」で、このマークだけのまとめて実行が始まる: " + (pg.text_content("#rvAutoBar") or "")[:80])
@@ -325,6 +330,18 @@ def run_checks(port, fx, shots=None):
         line_colors = pg.eval_on_selector_all("#rvGSvg .rv-g-line", "els => els.map(e => getComputedStyle(e).stroke)")
         kit = pg.evaluate("['--c-audio','--c-chat','--c-com'].map(v => { const d = document.createElement('i'); d.style.color = 'var(' + v + ')'; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; })")
         c.ok(line_colors == kit, "グラフの線の色は ui-kit の --c-audio / --c-chat / --c-com")
+        # 山の順位と理由(画面の側で S.series から計算。IMPLEMENTATION.md 4)
+        n_peaks = pg.locator("#rvGPeaks .rv-gpeak").count()
+        c.ok(1 <= n_peaks <= 5, "盛り上がりの山に順位の札が出る(最大5件): %d件" % n_peaks)
+        first_label = (pg.text_content("#rvGPeaks .rv-gpeak >> nth=0") or "").strip()
+        c.ok(first_label.startswith("1"), "いちばん高い山の札は「1」から始まる: %s" % first_label)
+        c.ok("声" in first_label or "笑い" in first_label, "理由が付く(この見本データは音量の山なので「声・笑い」): %s" % first_label)
+        before = pg.evaluate("() => document.querySelector('#rvHost video').currentTime")
+        peak_t = float(pg.get_attribute("#rvGPeaks .rv-gpeak >> nth=0", "data-t"))
+        pg.click("#rvGPeaks .rv-gpeak >> nth=0")
+        pg.wait_for_timeout(300)
+        after = pg.evaluate("() => document.querySelector('#rvHost video').currentTime")
+        c.ok(abs(after - max(0, peak_t - 5)) < 1.5 and after != before, "山の札を押すと、その5秒前へ移る(押す前 %.1f → %.1f。山 %.1f秒)" % (before, after, peak_t))
         if shots:
             pg.wait_for_timeout(300)
         # 採用 / 不採用
@@ -366,13 +383,19 @@ def run_checks(port, fx, shots=None):
         pg.click("#rvList .rv-mark-row[data-id='m1'] .rv-tc")
         pg.keyboard.press("?")
         c.ok(pg.is_visible("#keyHelp") and "IN(開始)" in (pg.text_content("#keyHelpBody") or ""), "? キーでキー操作の一覧が開く(③のキーも載る)")
+        kh = pg.text_content("#keyHelpBody") or ""
+        c.ok("Space" in kh and kh.index("Space") < kh.index("IN(開始)"), "共通の再生キー(Space など)が一覧の先頭に出る: %s" % kh[:40])
         if shots:
             for sc in ("dark",):
                 pg.screenshot(path=os.path.join(shots, "cs_keyhelp_%s.png" % sc))
         pg.keyboard.press("Escape")
         c.ok(not pg.is_visible("#keyHelp"), "Esc で閉じる")
         pg.click("#btnSettings")
-        c.ok(pg.is_visible("#settingsBox") and pg.is_visible("#setKey"), "設定の引き出しが開く")
+        c.ok(pg.is_visible("#uiSettingsDrawer") and pg.is_visible("#setKey"), "設定の引き出しが開く")
+        if MOUNT["token"]:
+            c.ok(pg.is_checked("#setAutoTx"), "設定の「書き出し」節: 「書き出しのあと自動で文字起こし」は既定オン")
+        else:
+            c.ok(pg.locator("#setAutoTx").count() == 0, "単体で開いたときは、自動で文字起こしの設定を出さない(入口の仕組みが無いため)")
         pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")   # y キーの「次の候補へ」で再生中のことがある
         pg.wait_for_timeout(300)
         now0 = pg.input_value("#rvNow")
@@ -393,12 +416,25 @@ def run_checks(port, fx, shots=None):
              "事務所の登録: 自動保存のあとも「公式チャンネル」欄の入力中のカーソルが残る")
         c.ok(pg.evaluate("() => document.querySelector('#setReg .ag[data-key=\"hololive\"]').open"), "事務所の登録: 開いていた事務所は開いたまま")
         pg.keyboard.press("Escape")
-        c.ok(not pg.is_visible("#settingsBox"), "Esc で設定が閉じる")
-        # 書き出し → 他のツールへのリンク
+        c.ok(not pg.is_visible("#uiSettingsDrawer"), "Esc で設定が閉じる")
+        # 書き出し → 他のツールへのリンク・書き出しのあと自動で文字起こし(入口の中だけ。IMPLEMENTATION.md 4)
+        sent_tx = []
+        if MOUNT["token"]:
+            def fake_tx_start(route):
+                sent_tx.append(json.loads(route.request.post_data or "{}"))
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"run": {"id": "txauto", "state": "queued"}}))
+            pg.route("**/api/autorun/start", fake_tx_start)
         wait_js(pg, "() => document.querySelector('#rvSave').dataset.k !== 'pending'")
         pg.click("#rvExpRun")
         pg.wait_for_selector("#rvExpList .rv-ejob.st-ok", timeout=60000)
         wait_js(pg, "() => !document.querySelector('#rvExpCancel') || document.querySelector('#rvExpCancel').hidden", 60000)
+        if MOUNT["token"]:
+            end = time.time() + 8
+            while not sent_tx and time.time() < end:
+                pg.wait_for_timeout(200)
+            c.ok(bool(sent_tx) and sent_tx[0].get("mode") == "transcribe" and sent_tx[0].get("id") == fx["a"] and sent_tx[0].get("marks") == ["m1"],
+                 "書き出しのあと、入口から開いていれば自動で文字起こしを始める(api/autorun/start mode=transcribe): %s" % (sent_tx[:1],))
+            pg.unroute("**/api/autorun/start")
         href = pg.get_attribute("#rvExpList .rv-ejob.st-ok a[href*='?media=']", "href") or ""
         path = urllib.parse.unquote(href.split("?media=", 1)[1]) if "?media=" in href else ""
         c.ok(":8775/?media=" in href and os.path.isfile(path), "書き出し後「編集で開く」のリンク(実在する mp4 の絶対パス): %s" % path)
@@ -453,7 +489,7 @@ def run_checks(port, fx, shots=None):
         c.ok(not any("再生" in t for t in pg.evaluate("window.__toasts")), "自動再生・採用/不採用で次へ のまま キー操作で判定しても、再生できない通知を出さない: %s" % pg.evaluate("window.__toasts"))
         v = api(port, "GET", "/api/video?id=" + fx["yt"])["video"] if wait_js(pg, "() => document.querySelector('#rvSave').dataset.k === 'saved'", 5000) else {"marks": []}
         c.ok(sorted(m["status"] for m in v["marks"]) == ["", "", "adopted", "rejected"], "プレーヤーが使えなくても判定は保存される")
-        pg.keyboard.press("k"); pg.wait_for_timeout(150)
+        pg.keyboard.press("Space"); pg.wait_for_timeout(150)   # 共通の再生キー: Space が再生・停止(v6。以前は k)
         c.ok(any("再生できません" in t for t in pg.evaluate("window.__toasts")), "自分で再生を押したときは知らせる")
         pg.unroute("https://www.youtube.com/**")
 
@@ -462,12 +498,17 @@ def run_checks(port, fx, shots=None):
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="x1"]')
         c.ok(pg.text_content("#rvCurLabel") == XSS_TITLE, "動画のタイトルは文字のまま表示される")
         c.ok(pg.input_value('#rvList [data-f="label"]') == XSS_LABEL, "ラベルは文字のまま")
-        pg.click('#steps [data-step="collab"]')
+        # v6: ④ コラボ はタブから設定(⚙)の「コラボ」節へ移った
+        pg.click("#btnSettings")
+        c.ok(pg.is_visible("#uiSettingsDrawer") and pg.is_visible("#setCollab"), "コラボは設定の引き出しの節になっている")
+        pg.click("#setCollab summary")
         pg.wait_for_selector(".cl-group")
-        c.ok(XSS_TITLE in (pg.text_content("#paneCollab") or ""), "④ でもタイトルは文字のまま")
+        c.ok(XSS_TITLE in (pg.text_content("#collabHost") or ""), "設定の「コラボ」節でもタイトルは文字のまま")
         c.ok(pg.evaluate("window.__xss === undefined") and pg.locator("main img[src='x']").count() == 0, "タイトル・ラベルの HTML が実行・表示されない")
 
-        print("[④ コラボ]")
+        print("[コラボ(設定の中)]")
+        badge_text = pg.text_content("#collabBadge") or ""
+        c.ok(not pg.is_hidden("#collabBadge") and "1" in badge_text, "「コラボ」節の見出しにズレ未設定の件数の札: %s" % badge_text)
         c.ok(pg.locator(".cl-member").count() == 2, "グループの配信が並ぶ")
         c.ok(pg.locator(".cl-member .cl-mmeta").count() == 2 and "動画ファイル" in (pg.text_content(".cl-member .cl-mmeta") or ""),
              "グループのメンバーの行に、だれの(配信者・動画ファイル)といつの を出す")
@@ -481,6 +522,8 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.locator(".cl-member").count() == 2 and "もう一度" in (pg.text_content('.cl-member:not(.is-base) [data-act="removeMember"]') or ""), "「グループから外す」は2回押しで確認する")
         pg.click('.cl-member:not(.is-base) [data-act="anchor"]')
         c.ok(pg.is_visible("#clA1this") and pg.evaluate("document.activeElement.id") == "clA1this", "アンカーの入力欄が開き、フォーカスが移る")
+        pg.keyboard.press("Escape")
+        c.ok(not pg.is_visible("#uiSettingsDrawer"), "Esc で設定(コラボを含む)を閉じる")
 
         print("[① 探す: 事務所のチェック(不具合1)]")
         pg.click('#steps [data-step="rank"]')
@@ -578,7 +621,7 @@ def run_checks(port, fx, shots=None):
         print("[狭い画面・コントラスト]")
         for w in (390, 1024):
             pg.set_viewport_size({"width": w, "height": 800})
-            for step in ("rank", "queue", "review", "collab"):
+            for step in ("rank", "queue", "review"):
                 pg.evaluate("s => Studio.go(s)", step)
                 pg.wait_for_timeout(150)
                 c.ok(pg.evaluate(NO_HSCROLL_JS), "%dpx 幅の %s で横にはみ出さない" % (w, step))
@@ -589,22 +632,29 @@ def run_checks(port, fx, shots=None):
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok(pg.evaluate("document.querySelector('#rvJump').classList.contains('is-bar')") and pg.is_visible('#rvJump [data-jump="marks"]'),
              "390px の ③: プレーヤー・マーク・書き出しへ飛ぶ案内を出す")
-        pg.click('#rvJump [data-jump="export"]'); pg.wait_for_timeout(900)
-        c.ok(pg.evaluate("() => { const r = document.querySelector('#rvExport').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }"), "「書き出し」を押すと書き出しの欄へ移る")
+        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "390px(1280px 未満): 書き出しの引き出しは既定で閉じている(docked ではない)")
+        pg.click('#rvJump [data-jump="export"]'); pg.wait_for_timeout(400)
+        c.ok(pg.evaluate("() => !document.querySelector('#rvExport').hidden") and pg.is_visible("#rvExpRun"), "「書き出し」を押すと書き出しの引き出しが開く(重ねて)")
+        c.ok(pg.evaluate(NO_HSCROLL_JS), "390px: 書き出しの引き出しを開いても横にはみ出さない")
+        pg.click("#rvExpClose"); pg.wait_for_timeout(300)
+        c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "閉じるボタンで書き出しの引き出しを閉じられる")
         pg.click('#rvJump [data-jump="marks"]'); pg.wait_for_timeout(900)
         c.ok(pg.evaluate("() => { const r = document.querySelector('#rvClipbox').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }") and pg.is_visible("#rvJump"),
              "「マーク」を押すとマークの一覧へ移る(案内は上に残る)")
         small = pg.evaluate("() => [...document.querySelectorAll('#rvList .rv-nudges .btn, #rvList .rv-stgroup .btn, #rvList .rv-fold, #rvQuickSlots .rv-step')].filter(b => b.offsetParent && b.getBoundingClientRect().height < 27.5).length")
         c.ok(small == 0, "390px の ③: 微調整・判定・長さのボタンは 28px 以上(小さいもの %s 個)" % small)
-        pg.evaluate("Studio.go('collab')")
+        pg.click("#btnSettings"); pg.wait_for_timeout(200)
+        c.ok(pg.evaluate(NO_HSCROLL_JS), "390px: 設定の引き出しを開いても横にはみ出さない")
+        pg.click("#setCollab summary"); pg.wait_for_selector(".cl-group")
         pg.select_option("#clF", "all"); pg.wait_for_timeout(200)
         c.ok(pg.evaluate("() => { const s = getComputedStyle(document.querySelector('#clVideoList')); return s.overflowY === 'auto' && s.maxHeight !== 'none'; }"),
-             "390px の ④: 配信の一覧は枠の中でスクロールする(延々と続かない)")
+             "390px: 設定の「コラボ」節でも、配信の一覧は枠の中でスクロールする(延々と続かない)")
         pg.select_option("#clF", "free")
+        pg.keyboard.press("Escape")
         pg.set_viewport_size({"width": 1440, "height": 900})
         for theme in ("dark", "light"):
             pg.evaluate("t => UIKit.theme.set(t)", theme)
-            for step in ("rank", "queue", "review", "collab"):
+            for step in ("rank", "queue", "review"):
                 pg.evaluate("s => Studio.go(s)", step)
                 pg.wait_for_timeout(150)
                 bad = pg.evaluate(CONTRAST_JS)
@@ -641,10 +691,11 @@ def take_shots(br, base, fx, out):
                 pg.click("#rvTheater"); pg.wait_for_timeout(400)
                 pg.screenshot(path=os.path.join(out, "cs_review_theater_%s.png" % scheme))
                 pg.click("#rvTheater")
-            pg.evaluate("Studio.go('collab')"); pg.wait_for_selector(".cl-group")
+            pg.click("#btnSettings"); pg.wait_for_timeout(300)
+            pg.click("#setCollab summary"); pg.wait_for_selector(".cl-group")
             pg.click('.cl-member:not(.is-base) [data-act="anchor"]')
             pg.screenshot(path=os.path.join(out, "cs_collab_%s_%s.png" % (scheme, tag)))
-            pg.click("#btnSettings"); pg.wait_for_timeout(300)
+            pg.click("#setCollab summary")   # コラボの節を閉じ、事務所の登録を開く
             pg.click("#setReg summary"); pg.wait_for_timeout(200)
             pg.screenshot(path=os.path.join(out, "cs_settings_%s_%s.png" % (scheme, tag)))
             ctx.close()

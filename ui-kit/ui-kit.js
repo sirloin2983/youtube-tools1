@@ -105,6 +105,8 @@
       var out = {};
       if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k) && typeof p[k] === 'string' && PATH_RE.test(p[k])) out[k] = p[k];
       tools.paths = out;
+      /* v6: ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
+      if (document.readyState !== 'loading') renderAppNav();
     },
     base: function (id) { return tools.paths[id] || '/'; },
     /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定)。path は画面の中の場所('/?media=...' など) */

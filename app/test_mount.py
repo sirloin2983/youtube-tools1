@@ -156,8 +156,8 @@ class TestStudioMounted(unittest.TestCase):
             self.assertIsNone(r.getheader("Content-Security-Policy"), asset)
         r, _ = self.req("GET", "/studio?url=abc")
         self.assertEqual((r.status, r.getheader("Location")), (301, "/studio/?url=abc"))
-        r, body = self.req("GET", "/")   # 入口の画面はそのまま
-        self.assertIn("作業の入口".encode("utf-8"), body)
+        r, body = self.req("GET", "/")   # ホームの画面はそのまま
+        self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
 
     def test_api_and_token(self):
         r, body = self.req("GET", "/studio/api/ping")

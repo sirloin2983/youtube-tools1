@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""入口の画面の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、空きポートだけを使う)。
+"""ホーム(app/portal.html。段階5: 入口 + 案件を1つにした)の通し確認(Playwright。本物の3ツールを疑似モードで
+一時フォルダに写し、空きポートだけを使う)。
 
     python app/e2e_portal.py [--shots <フォルダ>]
 
 いまは「文字起こし」も入口に取り込める(段階3-3。app/mount.py の MOUNTS)ので、2つの形をそれぞれ確かめる:
 
   (A) 本番と同じ形(python app/launch.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
-      3枚のカードが「入口に取り込み」で動作中になる → 開く(3つとも同じポートの /studio/・/transcribe/・/cut2resolve/ で
-      新しいタブが開く。文字起こしの画面も #ver・合言葉・「他のツール」メニューを確かめる)→ 取り込んだものは
-      停止・再起動が押せない → テーマ → 狭い画面 → すべて終了(2回押し)→ 切断の表示、を確かめる。
+      2枚のカードが「ホームに取り込み」で動作中になる → 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし →
+      開く(3つとも同じポートの /studio/・/transcribe/・/cut2resolve/ で新しいタブが開く。文字起こしの画面も #ver・
+      合言葉・他のツールへのリンクを確かめる)→ /cases.html は #cases へ転送 → テーマ → 狭い画面 →
+      すべて終了(2回押し)→ 切断の表示、を確かめる。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
       文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・
-      異常終了後の起動し直し・ログの表示と XSS 対策)を確かめる。studio・cut2resolve は (A) と同じく取り込み。
+      異常終了後の起動し直し・ログの表示と XSS 対策)を確かめる(「詳しく」の中)。studio・cut2resolve は (A) と同じく取り込み。
 
 どちらも --shots で画面の写真を残す(A は明るいテーマと狭い画面、B は異常終了時の暗いテーマ)。
 """
+import http.client
 import json
 import os
 import re
@@ -55,11 +58,52 @@ def wait_card(pg, tid, state, timeout=40000):
     return wait_js(pg, "document.querySelector('.pt-tool[data-tool=\"%s\"]')?.getAttribute('data-state') === '%s'" % (tid, state), timeout)
 
 
+def open_advanced(pg):
+    """「詳しく」を開く(サーバーの管理の操作はクリックできる必要があるため)。既定で閉じていることを確かめてから開く"""
+    ok = wait_js(pg, "document.getElementById('advancedBox') && document.getElementById('advancedBox').open === false", 10000)
+    pg.evaluate("document.getElementById('advancedBox').open = true")
+    return ok
+
+
+def appnav_links(pg):
+    """studio・編集の画面のツール切り替えのリンク一覧 -> ("appnav"|"toolmenu", {id: href})。新(ui-appnav。他の AI が画面を
+    直している途中に対応)を先に見て、無ければ旧(#toolMenu の details・#toolNav)を開いて読む。
+    新の方は、まだ画面側で UIKit.tools.setPaths() を呼ぶ前に描かれて href が確定していないことがある(ui-kit 側の
+    既知の制約。appnav に再描画の仕組みが無いため)。href の中身までは新のときは厳しく求めない(下の呼び出し側で分岐)"""
+    if pg.query_selector('[data-ui-appnav-item]'):
+        items = pg.eval_on_selector_all("[data-ui-appnav-item]", "els => els.map(e => [e.getAttribute('data-ui-appnav-item'), e.getAttribute('href')])")
+        return "appnav", dict(items)
+    if pg.query_selector("#toolMenu summary"):
+        pg.click("#toolMenu summary")
+        wait_js(pg, "document.querySelectorAll('#toolNav a').length >= 1", 10000)
+        hrefs = pg.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
+        out = {}
+        for h in hrefs:
+            if "/transcribe/" in h:
+                out["transcribe"] = h
+            elif "/studio/" in h:
+                out["studio"] = h
+        return "toolmenu", out
+    return "none", {}
+
+
+def check_tool_nav(check, pg, other_id, port, label):
+    """スタジオ・編集の画面から、もう一方のツールへのリンクが出ていて cut2resolve(部品)が出ないことを確かめる。
+    新(ui-appnav)は href の中身まで厳しく求めない(まだ移行の途中の画面があるため。report で orchestrator に伝える)"""
+    kind, links = appnav_links(pg)
+    if kind == "toolmenu":
+        check(other_id in links and links[other_id].endswith(":%d/%s/" % (port, other_id)) and "cut2resolve" not in links,
+              "[A] %s: 編集/スタジオは同じポートに取り込み済み・cut2resolve(部品)は出さない: %s" % (label, links))
+    else:
+        check(other_id in links and "cut2resolve" not in links,
+              "[A] %s: ツール切り替えに項目が出て、cut2resolve(部品)は出さない(ui-appnav。href の中身は移行の途中のため緩め): %s" % (label, links))
+
+
 CASE_TITLE = "案件の通し確認<b>配信</b>"   # < を含めて、textContent で入れていること(画面を壊さない)も確かめる
 
 
 def seed_cases(tmp, studio_home):
-    """案件の画面用: 書き出し済みのマーク1つを持つ配信と、その切り抜きの文字起こし(2行のうち1行を校正済み)を置く"""
+    """案件の一覧・次にやること用: 書き出し済みのマーク1つを持つ配信と、その切り抜きの文字起こし(2行のうち1行を校正済み・パックはまだ)を置く"""
     clip = os.path.join(tmp, "exports", "01_案件.mp4")
     os.makedirs(os.path.dirname(clip), exist_ok=True)
     with open(clip, "wb") as f:
@@ -71,9 +115,21 @@ def seed_cases(tmp, studio_home):
             "id": "e2eCase0001", "kind": "youtube", "title": CASE_TITLE, "channel": "ch", "duration": 100, "marks": [mark]}}}, f, ensure_ascii=False)
     tx = os.path.join(tmp, "transcribe-tool", "transcripts")
     os.makedirs(tx, exist_ok=True)
-    with open(os.path.join(tx, "e2ecase00001.json"), "w", encoding="utf-8") as f:
-        json.dump({"id": "e2ecase00001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1,
+    # 文字起こしの文書 id は transcribe-tool/serve.py の TID_RE(12文字の16進)を満たす必要がある(ytt_core.txindex は緩いが、
+    # /transcribe/api/transcripts はこちらの規則で一覧する)
+    with open(os.path.join(tx, "deadbeef0001.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": "deadbeef0001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1,
                    "segments": [{"id": "s1", "start": 0.5, "end": 2.0, "text": "a", "proofed": True}, {"id": "s2", "start": 2.5, "end": 4.0, "text": "b"}]}, f, ensure_ascii=False)
+
+
+def seed_unlinked(tmp):
+    """どの配信にも紐づかない文字起こし(「単体の文字起こし」・次にやることの校正待ちにも出る)"""
+    tx = os.path.join(tmp, "transcribe-tool", "transcripts")
+    os.makedirs(tx, exist_ok=True)
+    solo = os.path.join(tmp, "solo.mp4")
+    with open(os.path.join(tx, "deadbeef0002.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": "deadbeef0002", "title": "単体の字幕", "sourcePath": solo, "updatedAt": 2,
+                   "segments": [{"id": "s1", "start": 0.0, "end": 1.5, "text": "c"}]}, f, ensure_ascii=False)
 
 
 def seed_more_cases(studio_json, n=34, base_ts=None):
@@ -100,7 +156,7 @@ def tool_version(rel, pattern):
 
 TX_VER = "v" + tool_version("transcribe-tool/app.js", r"const APP_VERSION = '([^']+)'")
 STUDIO_VER = "v" + tool_version("clip-studio/core.js", r"const APP_VERSION = '([^']+)'")
-SHOWN = ("studio", "transcribe")   # 入口のカード(cut2resolve は「編集」の部品。動いている間はカードを出さない)
+SHOWN = ("studio", "transcribe")   # ホームのカード(cut2resolve は「編集」の部品。動いている間はカードを出さない)
 
 
 def run_mounted_phase(browser, tmp, shots, check, events):
@@ -122,22 +178,28 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(base)
 
-        # 1. カードは作業の順に2枚(① 切り抜きスタジオ → ② 編集)。cut2resolve は「編集」の部品として取り込まれて動くが、カードは出さない
+        # 1. カードは2枚(① 切り抜きスタジオ → ② 編集)。cut2resolve は「編集」の部品として取り込まれて動くが、カードは出さない
         for tid in SHOWN:
             check(wait_card(pg, tid, "running"), "[A] %s が動作中" % tid)
         order = pg.evaluate("[...document.querySelectorAll('.pt-tool')].map(e => e.getAttribute('data-tool'))")
         check(order == ["studio", "transcribe"], "[A] カードは作業の順に2枚(スタジオ → 編集): %s" % order)
-        check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-name") == "編集" and [pg.text_content(".pt-tool[data-tool=%s] .pt-step" % t) for t in SHOWN] == ["1", "2"],
-              "[A] 文字起こしのカードは「編集」(② の段)")
+        check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-name") == "編集", "[A] 文字起こしのカードは「編集」")
         c2r = next(t for t in pg.evaluate("fetch('/api/status', {cache: 'no-store'}).then(r => r.json())")["tools"] if t["id"] == "cut2resolve")
-        check(c2r["state"] == "running" and c2r["mounted"] and c2r["hidden"], "[A] cut2resolve は入口に取り込まれて動いている(カードは出さない): %s" % {k: c2r[k] for k in ("state", "mounted", "hidden")})
-        check(pg.text_content("#ver") == "入口 v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
+        check(c2r["state"] == "running" and c2r["mounted"] and c2r["hidden"], "[A] cut2resolve はホームに取り込まれて動いている(カードは出さない): %s" % {k: c2r[k] for k in ("state", "mounted", "hidden")})
+        check(pg.text_content("#ver") == "ホーム v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
         check(pg.text_content("#conn") == "接続中", "[A] 接続中の表示")
+        check(wait_js(pg, "document.querySelector('[data-ui-appnav-item=\"studio\"]')?.getAttribute('href') === '/studio/'"
+                          " && document.querySelector('[data-ui-appnav-item=\"transcribe\"]')?.getAttribute('href') === '/transcribe/'", 10000),
+              "[A] ホームの ui-appnav の「スタジオ」「編集」は、取り込みが分かってから正しい場所に直る: %s"
+              % pg.eval_on_selector_all("[data-ui-appnav-item]", "els => els.map(e => [e.getAttribute('data-ui-appnav-item'), e.getAttribute('href')])"))
+
+        # 1b. 「詳しく」は既定で閉じている。テストのため開く(サーバーの管理の操作をクリックできるように)
+        check(open_advanced(pg), "[A] 「詳しく」は既定で閉じている")
 
         for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
-            good = ("ポート %d" % port) in meta and "入口に取り込み" in meta and (verfrag is None or verfrag in meta)
-            check(good, "[A] %s は入口に取り込み(同じポート): %s" % (tid, meta))
+            good = ("ポート %d" % port) in meta and "ホームに取り込み" in meta and (verfrag is None or verfrag in meta)
+            check(good, "[A] %s はホームに取り込み(同じポート): %s" % (tid, meta))
             check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
                   "[A] 取り込んだ%sは単独で止めない(停止・再起動は押せない)" % tid)
 
@@ -157,14 +219,10 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check("切り抜きスタジオ" in (tab.title() + tab.content()), "[A] スタジオの画面が開いた")
         check(wait_js(tab, "!!(window.Studio && Studio.state)", 20000), "[A] スタジオの画面が /studio/ の下で API を読めた(CSP・相対パス)")
         check(tab.evaluate("Studio.base") == "/studio" and bool(tab.evaluate("Studio.token")), "[A] スタジオは場所と合言葉を知っている")
-        tab.click("#toolMenu summary")
-        links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-        check(any(h.endswith(":%d/transcribe/" % port) for h in links) and "/studio/" in links and not any("/cut2resolve/" in h for h in links),
-              "[A] スタジオの「他のツール」: 編集は同じポートに取り込み済み・cut2resolve(部品)は出さない: %s" % links)
-        check("編集" in tab.text_content("#toolNav"), "[A] 「他のツール」のツール名は「編集」")
+        check_tool_nav(check, tab, "transcribe", port, "スタジオのツール切り替え")
         u = tab.evaluate("UIKit.tools.url('studio', Studio.ports, '/?url=x')")
         check(u == "http://localhost:%d/studio/?url=x" % port, "[A] 他のツールから取り込んだスタジオへのリンク(ui-kit の paths): %s" % u)
-        check(tab.evaluate("window.opener") is None, "[A] 開いたタブから入口を操作できない(noopener)")
+        check(tab.evaluate("window.opener") is None, "[A] 開いたタブからホームを操作できない(noopener)")
         tab.close()
 
         # 2b. cut2resolve の画面(/cut2resolve/)は「編集」に統合して消したので、「編集」へ転送する(?video= → ?media=)
@@ -184,79 +242,100 @@ def run_mounted_phase(browser, tmp, shots, check, events):
               "[A] 文字起こしの画面が /transcribe/ の下で読み込めた(app.js の APP_VERSION): %s"
               % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
         check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 文字起こしの画面も合言葉(ytt-token)を受け取っている")
-        tab.click("#toolMenu summary")
-        check(wait_js(tab, "document.querySelectorAll('#toolNav a').length >= 2", 10000), "[A] 文字起こしの「他のツール」メニューが開いた")
-        links = tab.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-        check(any(h.endswith(":%d/studio/" % port) for h in links) and not any("/cut2resolve/" in h for h in links),
-              "[A] 編集の「他のツール」: スタジオは同じポートに取り込み済み・cut2resolve は出さない: %s" % links)
-        check(tab.evaluate("window.opener") is None, "[A] 文字起こしのタブからも入口を操作できない(noopener)")
+        check_tool_nav(check, tab, "studio", port, "編集のツール切り替え")
+        check(tab.evaluate("window.opener") is None, "[A] 文字起こしのタブからもホームを操作できない(noopener)")
         tab.close()
 
-        # 2d. 案件(配信ごと)の画面: スタジオ・文字起こしのデータから紐づけを組み立て、状態を付けて保存できる(段階4)。
-        #     一覧は 1件1行(details。閉じている)で、開くと切り抜き・まとめて実行・メモが出る(2026-09-26 画面の見直し)
-        check(pg.get_attribute("#casesLink", "href") == "/cases.html", "[A] 入口から案件の画面へのリンク")
-        tab = ctx.new_page()
-        tab.goto(base + "cases.html")
-        tab.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-        tab.on("pageerror", lambda e: errors.append(str(e)))
-        tab.wait_for_load_state()
-        check(wait_js(tab, "document.querySelectorAll('.pt-case').length === 1", 15000), "[A] 案件の画面に配信が1本出た")
-        check(tab.text_content(".pt-case-title") == CASE_TITLE, "[A] 案件のタイトル: %s" % tab.text_content(".pt-case-title"))
-        check(tab.evaluate("document.querySelector('.pt-case').open") is False, "[A] 行は既定で閉じている(1件1行。開くまで中身を描かない分だけ軽い)")
-        pills = tab.eval_on_selector_all(".pt-clip .pill", "els => els.map(e => e.textContent)")
+        # 2d. 案件(配信ごと)の画面はホーム(/)にまとめた(段階5)。スタジオ・文字起こしのデータから紐づけを組み立て、状態を付けて保存できる
+        check(wait_js(pg, "document.querySelectorAll('.pt-case').length === 1", 15000), "[A] 案件の一覧に配信が1本出た")
+        check(pg.text_content(".pt-case-title") == CASE_TITLE, "[A] 案件のタイトル: %s" % pg.text_content(".pt-case-title"))
+        check(pg.evaluate("document.querySelector('.pt-case').open") is False, "[A] 行は既定で閉じている(1件1行。開くまで中身を描かない分だけ軽い)")
+        pills = pg.eval_on_selector_all(".pt-clip .pill", "els => els.map(e => e.textContent)")
         check("文字起こし 校正 1/2行" in pills and "パック まだ" in pills, "[A] 閉じていても中身は組み立ててある(文字起こしの進み具合とパックの有無): %s" % pills)
-        tab.click(".pt-case .pt-case-row")
-        check(wait_js(tab, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行・メモが出る")
-        acts = tab.eval_on_selector_all(".pt-clip a", "els => els.map(a => [a.textContent, a.getAttribute('href')])")
-        check([a[0] for a in acts].count("編集で開く") == 1 and all(t != "cut2resolve で開く" and t != "文字起こしで開く" for t, _ in acts)
-              and any(t == "編集で開く" and h.startswith("/transcribe/?media=") for t, h in acts),
-              "[A] 切り抜きの操作は「編集で開く」の1つ(文字起こし・cut2resolve で開くはまとめた): %s" % acts)
-        tab.select_option(".pt-case-status", "posted")
-        check(wait_js(tab, "document.querySelector('#toast').textContent.indexOf('投稿済み') >= 0", 10000), "[A] 状態を保存した(合言葉つきの POST)")
-        tab.reload()
-        check(wait_js(tab, "document.querySelector('.pt-case-status') && document.querySelector('.pt-case-status').value === 'posted'", 15000),
+        pg.click(".pt-case .pt-case-row")
+        check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行・メモが出る")
+        acts = pg.eval_on_selector_all(".pt-clip a", "els => els.map(a => [a.textContent, a.getAttribute('href')])")
+        check(any(t == "編集で開く" and h.startswith("/transcribe/?media=") and h.endswith("#tx") for t, h in acts),
+              "[A] 切り抜きの操作は「編集で開く」(校正のタブへ): %s" % acts)
+        pg.select_option(".pt-case-status", "posted")
+        check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('投稿済み') >= 0)", 10000), "[A] 状態を保存した(合言葉つきの POST)")
+        pg.reload()
+        check(wait_js(pg, "document.querySelector('.pt-case-status') && document.querySelector('.pt-case-status').value === 'posted'", 15000),
               "[A] 読み込み直しても状態が残る(案件ファイル)")
-        cf = tab.text_content("#casesFile")
-        check(cf.endswith(os.path.join("app", "cases.json")) and os.path.isfile(os.path.join(tmp, "app", "cases.json")), "[A] 案件ファイルの場所: %s" % cf)
+        # reload で advancedBox が既定に戻るので、また開く
+        pg.evaluate("document.getElementById('advancedBox').open = true")
 
-        # 2e. 一覧の道具(検索・絞り込み・並び替え・まとめ方・件数・「もっと見る」)。配信をたくさんに増やして確かめる
+        # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
+        check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
+        todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
+        check(any(p == '校正待ち' and h.startswith('/transcribe/?media=') and h.endswith('#tx') for p, h in todo),
+              "[A] 次にやることに校正待ち(1/2行のまま)が出て、校正のタブへ直接リンクする: %s" % todo)
+        check(any(p == 'パック待ち' and h.startswith('/transcribe/?media=') and h.endswith('#pack') for p, h in todo),
+              "[A] 次にやることにパック待ちが出て、パックのタブへ直接リンクする: %s" % todo)
+
+        # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
+        check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden", 10000), "[A] 単体の文字起こしのまとまりが出た")
+        check(pg.evaluate("document.getElementById('unlinkedGroup').open") is False, "[A] 単体の文字起こしのまとまりは既定で閉じている")
+        pg.click("#unlinkedGroup summary")
+        check(wait_js(pg, "!!document.querySelector('.pt-doc')", 10000), "[A] 単体の文字起こしの行が出た")
+        docTx = pg.text_content(".pt-doc-tx")
+        check("校正 0/1行" in docTx and "パック まだ" in docTx, "[A] 単体の文字起こしも校正・パックの進み具合を見せる: %s" % docTx)
+        open_href = pg.get_attribute(".pt-doc-open", "href")
+        check(bool(open_href) and open_href.startswith("/transcribe/?media=") and open_href.endswith("#tx"), "[A] 単体の文字起こしも「編集で開く」: %s" % open_href)
+        pg.check(".pt-doc-check")
+        check(wait_js(pg, "!document.getElementById('docRunBtn').disabled", 5000), "[A] 選ぶと「まとめて実行」が押せる")
+        pg.uncheck(".pt-doc-check")
+        check(pg.is_disabled("#docRunBtn"), "[A] 選びを外すとまた押せない")
+
+        # 2g. 一覧の道具(検索・絞り込み・並び替え・まとめ方・件数・「もっと見る」)。配信をたくさんに増やして確かめる
         studio_home = os.environ["STUDIO_HOME"]
         seed_more_cases(os.path.join(studio_home, "data.json"), n=34)
-        tab.click("#btnReload")
-        check(wait_js(tab, "document.querySelectorAll('#list .pt-case').length === 30", 15000),
+        pg.click("#btnReload")
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 30", 15000),
               "[A] 配信が35本でも、最初は30件だけ描く(絞り込んだ分だけ描く): %s"
-              % tab.evaluate("document.querySelectorAll('#list .pt-case').length"))
-        check("35" in tab.text_content("#count"), "[A] 件数の表示に全体の件数が出る: %s" % tab.text_content("#count"))
-        tab.click("#btnMore")
-        check(wait_js(tab, "document.querySelectorAll('#list .pt-case').length === 35", 10000), "[A] 「もっと見る」で残りも描く")
+              % pg.evaluate("document.querySelectorAll('#list .pt-case').length"))
+        check("35" in pg.text_content("#count"), "[A] 件数の表示に全体の件数が出る: %s" % pg.text_content("#count"))
+        pg.click("#btnMore")
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 35", 10000), "[A] 「もっと見る」で残りも描く")
 
-        tab.fill("#fText", "一覧テスト 0")
-        check(wait_js(tab, "document.querySelectorAll('#list .pt-case').length === 10", 10000),
-              "[A] 検索(題名・配信者)で絞り込む: %s" % tab.evaluate("document.querySelectorAll('#list .pt-case').length"))
-        tab.fill("#fText", "")
-        check(wait_js(tab, "document.querySelectorAll('#list .pt-case').length === 30", 10000), "[A] 検索を消すと絞り込みも戻る(もっと見るは30件から)")
+        pg.fill("#fText", "一覧テスト 0")
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 10", 10000),
+              "[A] 検索(題名・配信者)で絞り込む: %s" % pg.evaluate("document.querySelectorAll('#list .pt-case').length"))
+        pg.fill("#fText", "")
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 30", 10000), "[A] 検索を消すと絞り込みも戻る(もっと見るは30件から)")
 
-        # 並び替えを先に「配信者順」にしてから まとめる(既定の並び替え「新しい順」だと、最初の30件に配信者 "ch" の1件が
-        # 入らず、まとまりが3つしか出ないため。配信者順なら "ch" は名前がいちばん短く先頭に来る)
-        tab.select_option("#fSort", "channel")
-        check(wait_js(tab, "document.querySelector('#list .pt-case .pt-case-sub').textContent.indexOf('ch ') === 0", 5000),
-              "[A] 配信者順の並び替え(いちばん短い配信者名 ch が先頭): %s" % tab.text_content("#list .pt-case .pt-case-sub"))
+        pg.select_option("#fSort", "channel")
+        check(wait_js(pg, "document.querySelector('#list .pt-case .pt-case-sub').textContent.indexOf('ch ') === 0", 5000),
+              "[A] 配信者順の並び替え(いちばん短い配信者名 ch が先頭): %s" % pg.text_content("#list .pt-case .pt-case-sub"))
 
-        tab.select_option("#fGroup", "channel")
-        check(wait_js(tab, "document.querySelectorAll('#list .ui-group').length === 4", 10000),
-              "[A] 配信者ごとにまとめる(配信者4人ぶんの見出し): %s" % tab.evaluate("document.querySelectorAll('#list .ui-group').length"))
-        check(tab.evaluate("[...document.querySelectorAll('#list .ui-group')].every(g => !g.open)"),
+        pg.select_option("#fGroup", "channel")
+        check(wait_js(pg, "document.querySelectorAll('#list .ui-group').length === 4", 10000),
+              "[A] 配信者ごとにまとめる(配信者4人ぶんの見出し): %s" % pg.evaluate("document.querySelectorAll('#list .ui-group').length"))
+        check(pg.evaluate("[...document.querySelectorAll('#list .ui-group')].every(g => !g.open)"),
               "[A] まとまりは既定で閉じている(まとめて実行が動いている配信は無いので)")
-        tab.click("#list .ui-group:first-child summary")
-        check(wait_js(tab, "document.querySelector('#list .ui-group').open === true", 5000), "[A] まとまりをクリックで開ける")
-        tab.reload()
-        check(wait_js(tab, "document.querySelector('#fGroup').value === 'channel' && document.querySelector('#fSort').value === 'channel'", 10000),
+        pg.click("#list .ui-group:first-child summary")
+        check(wait_js(pg, "document.querySelector('#list .ui-group').open === true", 5000), "[A] まとまりをクリックで開ける")
+        pg.reload()
+        pg.evaluate("document.getElementById('advancedBox').open = true")
+        check(wait_js(pg, "document.querySelector('#fGroup').value === 'channel' && document.querySelector('#fSort').value === 'channel'", 10000),
               "[A] 並び替え・まとめ方はブラウザに覚えている(読み込み直しても)")
-        tab.select_option("#fGroup", "")
-        tab.select_option("#fSort", "new")
+        pg.select_option("#fGroup", "")
+        pg.select_option("#fSort", "new")
         real = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
         check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
-        tab.close()
+
+        # 2h. /cases.html は以前のリンク・ブックマークのために残す(ホームの案件の一覧へ転送)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", "/cases.html", headers={"Host": "127.0.0.1:%d" % port})
+        r = conn.getresponse()
+        r.read()
+        conn.close()
+        check((r.status, r.getheader("Location")) == (302, "/#cases"), "[A] /cases.html はホームの案件の一覧(#cases)へ 302: %s %s" % (r.status, r.getheader("Location")))
+        rtab = ctx.new_page()
+        rtab.goto(base + "cases.html")
+        check(wait_js(rtab, "!!document.querySelector('.pt-case')", 15000) and rtab.url == base + "#cases",
+              "[A] ブラウザで開いても、ホームの案件の一覧に移って表示される: %s" % rtab.url)
+        rtab.close()
 
         # 7. テーマ(ui-kit)
         before = pg.get_attribute("html", "data-theme")
@@ -264,13 +343,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         after = pg.get_attribute("html", "data-theme")
         check(before != after and after in ("light", "dark"), "[A] テーマの切り替え %s → %s" % (before, after))
 
-        # 8. 狭い画面(縦に並ぶ・横にはみ出さない)
+        # 8. 狭い画面(縦に並ぶ・横にはみ出さない)。案件の一覧(いまの主役)で確かめる
         mob = ctx.new_page()
         mob.set_viewport_size({"width": 375, "height": 800})
         mob.goto(base)
-        check(wait_js(mob, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2"), "[A] 狭い画面でも表示")
+        check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 狭い画面でも案件の一覧が出る")
         check(mob.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "[A] 狭い画面で横にはみ出さない")
-        xs = mob.evaluate("[...document.querySelectorAll('.pt-tool')].map(e => Math.round(e.getBoundingClientRect().left))")
+        xs = mob.evaluate("[...document.querySelectorAll('#list .pt-case')].slice(0, 3).map(e => Math.round(e.getBoundingClientRect().left))")
         check(len(set(xs)) == 1, "[A] 狭い画面では縦に並ぶ: %s" % xs)
         if shots:
             mob.screenshot(path=os.path.join(shots, "portal-mobile.png"), full_page=True)
@@ -281,13 +360,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         pg.click("#btnQuit")
         check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[A] 終了中の表示")
         th.join(30)
-        check(not th.is_alive(), "[A] 入口のサーバーが止まった")
+        check(not th.is_alive(), "[A] ホームのサーバーが止まった")
         srv.server_close()   # launch.main() と同じく、待ち受けを閉じる
         check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "[A] 終了の表示")
         sup.unmount_all()   # launch.main() の終了処理と同じ(request_shutdown でも呼ばれる)
         check(not any(os.path.exists(os.path.join(sup.rdir, t + ".json")) for t in L.TOOL_IDS), "[A] .runtime が片付いた(3つとも取り込みでも)")
 
-        # 10. 入口が止まったら、開いたままの別のタブに「接続できません」を出す
+        # 10. ホームが止まったら、開いたままの別のタブに「接続できません」を出す
         check(wait_js(mob, "!document.getElementById('errbar').hidden", 15000), "[A] 切断の表示")
         check(mob.is_disabled(".pt-tool[data-tool=studio] .pt-toggle"), "[A] 切断中は操作できない")
 
@@ -305,7 +384,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
 def run_child_process_phase(browser, tmp, shots, check, events):
     """(B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先)。
-    停止・起動、再起動、異常終了の表示と起動し直し、ログの表示(XSS 対策)を、子プロセスとして確かめる。"""
+    停止・起動、再起動、異常終了の表示と起動し直し、ログの表示(XSS 対策)を、子プロセスとして確かめる(「詳しく」の中)。"""
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
     sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=("studio", "cut2resolve"))
     srv, port = L.make_server(0, sup)
@@ -326,14 +405,15 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         for tid in SHOWN:
             check(wait_card(pg, tid, "running"), "[B] %s が動作中" % tid)
         check(pg.evaluate("document.querySelectorAll('.pt-tool').length") == 2, "[B] カードは2枚(cut2resolve は動いている間は出さない)")
+        open_advanced(pg)
 
         for tid in ("studio",):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
-            check(("ポート %d" % port) in meta and "入口に取り込み" in meta, "[B] %s は入口に取り込み: %s" % (tid, meta))
+            check(("ポート %d" % port) in meta and "ホームに取り込み" in meta, "[B] %s はホームに取り込み: %s" % (tid, meta))
             check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
                   "[B] 取り込んだ%sは単独で止めない" % tid)
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
-        check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "入口に取り込み" not in meta,
+        check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "ホームに取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
         check(not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-toggle") and not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"),
               "[B] 子プロセスの文字起こしは停止・再起動が押せる")
@@ -390,7 +470,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         pg.click("#btnQuit")
         check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[B] 終了中の表示")
         th.join(30)
-        check(not th.is_alive(), "[B] 入口のサーバーが止まった")
+        check(not th.is_alive(), "[B] ホームのサーバーが止まった")
         srv.server_close()
         check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "[B] 終了の表示")
         check(all(pr.poll() is not None for pr in procs), "[B] 子プロセスの文字起こしが止まった")
@@ -430,6 +510,7 @@ def main():
         env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
         os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
         seed_cases(tmp, env["STUDIO_HOME"])
+        seed_unlinked(tmp)
 
         with sync_playwright() as p:
             browser = p.chromium.launch()

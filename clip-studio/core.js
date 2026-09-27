@@ -2,11 +2,11 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.8.2';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.9.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
-const STEPS = ['rank', 'queue', 'review', 'collab'];
-const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview', collab: '#paneCollab' };
+const STEPS = ['rank', 'queue', 'review'];
+const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview' };
 
 Studio.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -45,15 +45,8 @@ Studio.portalApi = async (path, body) => {
   return j;
 };
 
-/* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。同時に1つだけ表示し、新しいものに置き換える。クリックで閉じる */
-let toastT = null;
-Studio.toast = (msg, ms, kind) => {
-  const t = $('#toast'); if (!t) return;
-  t.textContent = String(msg);
-  t.className = 'toast' + (kind ? ' ' + kind : '');
-  t.hidden = false; clearTimeout(toastT);
-  toastT = setTimeout(() => { t.hidden = true; }, ms || (kind === 'err' ? 7000 : 4500));
-};
+/* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。ui-kit の重ねて最大3つのトースト(入れ物は id="toast")を呼ぶだけ */
+Studio.toast = (msg, ms, kind) => { if (window.UIKit && UIKit.toast) UIKit.toast(msg, { ms, kind }); };
 Studio.showErr = msg => { const b = $('#errBar'); b.textContent = String(msg); b.hidden = false; };
 
 /* 状態の取得。続けて呼ばれたときは、最後に頼んだ分だけを反映する(古い応答で新しい状態を上書きしない) */
@@ -101,7 +94,7 @@ Studio.isTyping = el => {
   return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file'].includes(el.type));
 };
 /* 設定の引き出し・ダイアログが開いている間は、③ のショートカットを止める(裏の動画が勝手に動かないように) */
-Studio.overlayOpen = () => !!(document.querySelector('dialog[open]') || ($('#settingsBox') && !$('#settingsBox').hidden));
+Studio.overlayOpen = () => !!(document.querySelector('dialog[open]') || (Studio.drawer && Studio.drawer.isOpen()));
 /* 開いているメニュー(他のツール・③ の配信の選択など)の中でのキー操作か。メニューの中の文字やボタンでは ③ のキー操作を効かせない */
 Studio.inMenu = el => !!(el && el.closest && el.closest('details.ui-menu[open]'));
 
@@ -113,21 +106,9 @@ function watchHeader(){
   if (window.ResizeObserver) new ResizeObserver(set).observe(h); else window.addEventListener('resize', set);
 }
 
-/* ---------- 他のツール(実際のポートはサーバーの /api/siblings。無い・失敗したら既定のポート) ---------- */
-function renderTools(){
-  const el = $('#toolNav'); if (!el || !window.UIKit) return;
-  window.UIKit.tools.render(el, { current: 'studio', ports: Studio.ports || undefined });
-  /* /api/siblings が答えた(=起動中のツールが分かっている)のに載っていないツールは、起動していない。押しても開けないことを先に知らせる */
-  if (Studio.ports){
-    /* リンクはツールの印(data-tool)で探す。ui-kit v3 から、入口に取り込まれているときはメニューの先頭に「入口」「案件の一覧」が入るので、並び順では決めない */
-    window.UIKit.tools.list.forEach(t => {
-      const mk = el.querySelector(`.ui-brand-mark[data-tool="${t.mark}"]`), a = mk && mk.closest('a');
-      if (!a || t.id === 'studio' || Studio.ports[t.id]) return;
-      const sm = a.querySelector('small'); if (sm) sm.textContent += '(起動していないようです。入口(youtube-test フォルダの start-all.bat)から起動してください)';
-      a.classList.add('cs-tool-off');
-    });
-  }
-}
+/* ---------- 他のツール(実際のポートはサーバーの /api/siblings。無い・失敗したら既定のポート)----------
+   v6: ヘッダーの「他のツール」メニューはやめ、左上の ui-appnav(ホーム/スタジオ/編集)に一本化した(ui-kit.js が描く)。
+   ここでは実際のポート(Studio.ports)だけ確かめておく(Studio.toolUrl・書き出し後の「編集で開く」リンクが使う) */
 let sibP = null;
 Studio.loadSiblings = () => {
   if (sibP) return sibP;
@@ -137,42 +118,18 @@ Studio.loadSiblings = () => {
       if (window.UIKit && window.UIKit.tools.setPaths) window.UIKit.tools.setPaths(j && j.paths);   // 取り込まれたツールの場所(/studio/ など)
     })
     .catch(() => { Studio.ports = null; })   // 404(未実装の古いサーバー)・通信失敗は既定のポートで
-    .finally(() => { sibP = null; renderTools(); document.dispatchEvent(new CustomEvent('studio:ports', { detail: Studio.ports })); });
+    .finally(() => { sibP = null; document.dispatchEvent(new CustomEvent('studio:ports', { detail: Studio.ports })); });
   return sibP;
 };
 /* 他のツールの画面の URL(ports が分からなければ既定のポート) */
 Studio.toolUrl = (id, path) => window.UIKit ? window.UIKit.tools.url(id, Studio.ports, path) : '';
-function wireToolMenu(){
-  const m = $('#toolMenu'); if (!m) return;
-  renderTools();
-  m.addEventListener('toggle', () => { if (m.open) Studio.loadSiblings(); });   // 開くたびに確かめ直す(あとから起動したツールにも気づけるように)
-  document.addEventListener('click', e => { if (m.open && !m.contains(e.target)) m.open = false; });
-  m.addEventListener('click', e => { if (e.target.closest('a')) m.open = false; });
-}
 
-/* ---------- 設定の引き出し(中身は settings.js) ---------- */
-let drawerReturn = null;
+/* ---------- 設定の引き出し(中身は settings.js。器は ui-kit の UIKit.settings.mount が作る #uiSettingsDrawer) ----------
+   Studio.drawer / Studio.openSettings は他のコード・テストが使うので、薄い包み(UIKit.drawer + #uiSettingsDrawer)として残す */
 const drawer = Studio.drawer = {
-  isOpen: () => !$('#settingsBox').hidden,
-  open(){
-    const d = $('#settingsBox'); if (!d.hidden) return;
-    drawerReturn = document.activeElement;
-    d.hidden = false; $('#settingsScrim').hidden = false; d.setAttribute('aria-hidden', 'false');
-    $('#btnSettings').setAttribute('aria-expanded', 'true');
-    for (const el of [$('#appHeader'), $('#main'), $('#errBar')]) if (el) el.inert = true;   // 裏の画面を操作できないように(トーストは見える)
-    requestAnimationFrame(() => d.classList.add('in'));
-    setTimeout(() => { const f = $('#settingsClose'); if (f && d.contains(document.activeElement) === false) f.focus({ preventScroll: true }); }, 30);
-    document.dispatchEvent(new CustomEvent('studio:settings', { detail: true }));
-  },
-  close(){
-    const d = $('#settingsBox'); if (d.hidden) return;
-    d.classList.remove('in'); d.hidden = true; $('#settingsScrim').hidden = true; d.setAttribute('aria-hidden', 'true');
-    $('#btnSettings').setAttribute('aria-expanded', 'false');
-    for (const el of [$('#appHeader'), $('#main'), $('#errBar')]) if (el) el.inert = false;
-    const r = drawerReturn; drawerReturn = null;
-    if (r && r.isConnected && r.focus) r.focus({ preventScroll: true }); else $('#btnSettings').focus({ preventScroll: true });
-    document.dispatchEvent(new CustomEvent('studio:settings', { detail: false }));
-  }
+  isOpen: () => { const d = $('#uiSettingsDrawer'); return !!(d && window.UIKit && UIKit.drawer.isOpen(d)); },
+  open(opener){ const d = $('#uiSettingsDrawer'); if (d && window.UIKit) UIKit.drawer.open(d, { modal: true, opener: opener || document.activeElement }); },
+  close(){ const d = $('#uiSettingsDrawer'); if (d && window.UIKit) UIKit.drawer.close(d); }
 };
 /* settings.js が中身を作ったあとで、特定の節を開く版に置き換える。ここでは引き出しを開くだけ */
 Studio.openSettings = () => drawer.open();
@@ -183,10 +140,11 @@ function keyRows(rows){
 }
 Studio.openKeyHelp = () => {
   const dlg = $('#keyHelp'); if (!dlg || dlg.open) return;
-  let html = `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定・メニューを閉じる']])}</section>`;
+  let html = window.UIKit && UIKit.keys ? `<div class="ui-kgrid">${UIKit.keys.helpHtml()}</div>` : '';
+  html += `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定を閉じる']])}</section>`;
   const groups = Studio.review && Studio.review.keyHelp ? Studio.review.keyHelp() : [];
   if (groups.length){
-    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。割り当ては ③ の「操作の設定」→「キー配置」で変えられます。</p>`;
+    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。共通の再生キーの下は、③ の「操作の設定」→「キー配置」で変えられます。</p>`;
     html += `<div class="ui-kgrid">${groups.map(([h, rows]) => `<section class="ui-kgroup"><h3 class="section-title">${Studio.esc(h)}</h3>${keyRows(rows)}</section>`).join('')}</div>`;
   }
   $('#keyHelpBody').innerHTML = html;
@@ -197,14 +155,10 @@ function wireKeyHelp(){
   $('#btnKeys').addEventListener('click', Studio.openKeyHelp);
   $('#keyHelpClose').addEventListener('click', () => dlg.close());
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });   // 枠の外(背景)を押したら閉じる
-  /* window の bubble で受ける: document で受ける ③ のショートカットより後に動く。③ が ? を割り当てて処理した(defaultPrevented)ときは開かない */
+  /* window の bubble で受ける: document で受ける ③ のショートカットより後に動く。③ が ? を割り当てて処理した(defaultPrevented)ときは開かない。
+     Esc は ui-kit(設定の引き出し・ポップオーバー)が自分で閉じるので、ここでは ? のキー一覧だけを扱う */
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-    if (e.key === 'Escape'){
-      const m = $('#toolMenu'); if (m && m.open){ m.open = false; m.querySelector('summary').focus(); return; }
-      if (drawer.isOpen() && !document.querySelector('dialog[open]')){ e.preventDefault(); drawer.close(); }
-      return;
-    }
     if (e.key !== '?' || Studio.isTyping(e.target)) return;
     if (dlg.open){ e.preventDefault(); dlg.close(); return; }
     if (drawer.isOpen()) return;
@@ -230,13 +184,12 @@ function paneError(msg){
 
 document.querySelectorAll('#steps .step').forEach(b => b.addEventListener('click', () => Studio.go(b.dataset.step)));
 $('#ver').textContent = 'v' + APP_VERSION;
+/* UIKit.appnav の中身は DOMContentLoaded で描かれるので、そのあと(= ここより後)で版を出す */
+document.addEventListener('DOMContentLoaded', () => { if (window.UIKit && UIKit.appnav) UIKit.appnav.setVersion('v' + APP_VERSION); });
 readParams();
 watchHeader();
-wireToolMenu();
 wireKeyHelp();
-$('#btnSettings').addEventListener('click', () => (drawer.isOpen() ? drawer.close() : Studio.openSettings()));
-$('#settingsClose').addEventListener('click', () => drawer.close());
-$('#settingsScrim').addEventListener('click', () => drawer.close());
+/* #btnSettings の click は UIKit.settings.mount()(settings.js)が data-ui-settings を見て自分で結びつける */
 
 /* スクリプトは body の最後で同期に読むので、DOMContentLoaded の時点で全部の onReady が登録済み(load を待つより早く始められる) */
 const start = async () => {

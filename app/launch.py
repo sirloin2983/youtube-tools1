@@ -60,7 +60,7 @@ import appwindow as appwindow_mod  # noqa: E402  (app/appwindow.py: 窓(Edge の
 import clientlog as clientlog_mod  # noqa: E402  (app/clientlog.py: 画面のエラーの記録。段階7-0)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.10.2"         # 入口の版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.11.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -68,7 +68,7 @@ UI_KIT_DIR = os.path.join(ROOT, "ui-kit")   # 共通の見た目は正本をそ�
 LOG_MAX = 1024 * 1024
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
-PORTAL_TITLE = "動画編集ツール — 入口"   # 入口の画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
+PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = "/api/ytt/"    # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
@@ -504,8 +504,7 @@ class Supervisor:
 
 # ---------- 入口の画面(HTTP) ----------
 STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DIR), "/portal.js": ("portal.js", CODE_DIR),
-          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
-          "/cases.html": ("cases.html", CODE_DIR), "/cases.js": ("cases.js", CODE_DIR)}
+          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR)}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -575,6 +574,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and (self._site_ok() or self._navigation_ok(u.path))):
             return self._send(403, b"forbidden")
+        if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームの案件の一覧へ
+            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/#cases"})
         if u.path in STATIC:
             name, base = STATIC[u.path]
             try:

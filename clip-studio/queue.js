@@ -22,7 +22,7 @@ function paneHtml(){
     <div class="fld"><label class="l" for="qPath">手元の動画ファイルのパス <span class="muted">このパソコン上のフルパス。「音声」だけで判定します</span></label>
       <input type="text" id="qPath" placeholder="C:\\Users\\...\\stream.mp4" autocomplete="off" spellcheck="false">
       <span class="hint">URLとファイルの両方を入れると、両方を追加します</span></div>
-    <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで「④ コラボ」の画面で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
+    <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで設定(⚙)の「コラボ」節で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
     <div class="row q-acts"><button type="button" class="btn primary" id="qAdd">解析に追加</button><button type="button" class="btn" id="qOpen">解析せずに確認画面を開く</button></div>
     <p class="msg hint" id="qMsg" role="status"></p>
   </section>
