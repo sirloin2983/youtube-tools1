@@ -1225,3 +1225,9 @@
   編集 単体 125・node 9・e2e v07・v09・v098・handoff・eval_v093・edit_tabs・edit_cut・edit_pack・ui_mounted、スタジオ e2e_ui 128・--mounted 141・node 18、ui-kit e2e_styleguide・`tools/test_ui_kit_sync.py` 通過
   (編集の単体は1回だけ1件落ちて、流し直して通過)。見本のデータで ⚙ の欄とキー操作の一覧の写真を撮って確かめた
 - 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start-all.bat で起動し直す
+
+## 2026-09-27 Claude Code — バックログの実装(`docs/backlog-ui-2026-09-27.md`。進行中の記録)
+- ユーザーの指示: 「新着配信の監視はやらない・窓の形は専用の窓・以外は実装」。質問で決定: 専用の窓 = Edge のアプリの窓を既定に(pywebview は使わない)・精度改善は保留のまま・声の分離は入れない
+- B-1・B-4・B-5(ホーム `app/portal.js`・編集 `transcribe-tool/app.js`): 「編集で開く」・次にやることのリンクを文書 ID(`?doc=<id>&media=<パス>`)に。編集は `?doc=` を先に見て、
+  一覧に無ければ動画のパスで探す(予備)。次にやることから「投稿済み」「見送り」の案件を外す。次にやることに配信者・配信日を添える。
+  テスト: `app/e2e_portal.py`(doc= のリンク・投稿済みは出ない・戻すと出る・配信者)、`transcribe-tool/e2e_edit_tabs.py`(同じ動画の2つの文書で古い方が開く・見つからないときの予備) 通過

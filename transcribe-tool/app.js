@@ -2387,11 +2387,22 @@ function showMediaChoice(){ $('#mediaChoice').hidden = false; }
 function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
-  if (!q.has('media') && !q.has('clip')) return false;
-  q.delete('media'); q.delete('clip');
+  const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
+  if (!q.has('media') && !q.has('clip') && !q.has('doc')) return false;
+  q.delete('media'); q.delete('clip'); q.delete('doc');
   const rest = q.toString();
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
-  if (!media && !clip) return false;
+  if (!media && !clip && !docId) return false;
+  if (docId){
+    loadList().then(() => S.list.some(x => x.id === docId) ? openDoc(docId) : false).then(ok => {   // 一覧に無い(消された)文書は読みに行かない
+      if (ok) return;
+      if (media || clip){ toast('選んだ文書が見つからなかったので、動画から探します', 4000); openByMedia(); }
+      else toast('選んだ文書が見つかりませんでした(消された可能性があります)', 5000, 'err');
+    }).catch(() => { if (media || clip) openByMedia(); });
+    return true;
+  }
+  return openByMedia();
+  function openByMedia(){
   setTab('file'); $('#newBox').open = true;
   if (media) $('#srcPath').value = media;
   const ask = () => {   // まだ文書の無い動画: 「文字起こしする / 文字起こしせずに開く」を選ばせる(自動では始めない)
@@ -2408,6 +2419,7 @@ function takeUrlParams(){
     else ask();
   }).catch(ask);
   return true;
+  }
 }
 /* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
 S.handoff = null;   // { id, transcript, srt, plan }: 開いている文書を、動画の隣に保存したパス

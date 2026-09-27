@@ -255,13 +255,24 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         pg.click(".pt-case .pt-case-row")
         check(wait_js(pg, "document.querySelector('.pt-case').open === true", 5000), "[A] 行を開くと切り抜き・まとめて実行・メモが出る")
         acts = pg.eval_on_selector_all(".pt-clip a", "els => els.map(a => [a.textContent, a.getAttribute('href')])")
-        check(any(t == "編集で開く" and h.startswith("/transcribe/?media=") and h.endswith("#tx") for t, h in acts),
-              "[A] 切り抜きの操作は「編集で開く」(校正のタブへ): %s" % acts)
+        check(any(t == "編集で開く" and h.startswith("/transcribe/?doc=") and "&media=" in h and h.endswith("#tx") for t, h in acts),
+              "[A] 切り抜きの操作は「編集で開く」(文書 ID で校正のタブへ。B-1: 同じ動画の別の文書が開かないように): %s" % acts)
+        case_doc = [h for t, h in acts if t == "編集で開く"][0].split("doc=")[1].split("&")[0]
         pg.select_option(".pt-case-status", "posted")
         check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('投稿済み') >= 0)", 10000), "[A] 状態を保存した(合言葉つきの POST)")
         pg.reload()
         check(wait_js(pg, "document.querySelector('.pt-case-status') && document.querySelector('.pt-case-status').value === 'posted'", 15000),
               "[A] 読み込み直しても状態が残る(案件ファイル)")
+        # B-4: 投稿済み・見送りの案件は「次にやること」に出さない
+        time.sleep(1.0)
+        todo_hrefs = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => a.getAttribute('href'))")
+        check(not any(("doc=" + case_doc) in h for h in todo_hrefs), "[A] 投稿済みの案件の文書は「次にやること」に出ない: %s" % todo_hrefs)
+        if not pg.evaluate("document.querySelector('.pt-case').open"):
+            pg.click(".pt-case .pt-case-row")
+        pg.select_option(".pt-case-status", "")
+        check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('未設定') >= 0)", 10000), "[A] 状態を「未設定」に戻した")
+        if pg.evaluate("document.querySelector('.pt-case').open"):
+            pg.click(".pt-case .pt-case-row")   # 下の確認は閉じた行を開くところから始まる
         # reload で advancedBox が既定に戻るので、また開く
         pg.evaluate("document.getElementById('advancedBox').open = true")
 
@@ -287,8 +298,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
         check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
         todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
-        check(any(p == '校正待ち' and h.startswith('/transcribe/?media=') and h.endswith('#tx') for p, h in todo),
-              "[A] 次にやることに校正待ち(1/2行のまま)が出て、校正のタブへ直接リンクする: %s" % todo)
+        check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-item .pt-todo-link')].some(a => a.getAttribute('href').indexOf('doc=%s') >= 0)" % case_doc, 15000),
+              "[A] 状態を戻すと、また「次にやること」に出る")
+        todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
+        check(any(p == '校正待ち' and h.startswith('/transcribe/?doc=' + case_doc) and h.endswith('#tx') for p, h in todo),
+              "[A] 次にやることに校正待ち(1/2行のまま)が出て、文書 ID で校正のタブへ直接リンクする: %s" % todo)
+        subs = pg.eval_on_selector_all(".pt-todo-item", "els => els.map(e => e.querySelector('.pt-todo-sub').textContent)")
+        check(any("の配信" in x or "・" in x for x in subs), "[A] 次にやることに配信者・配信日が添えられる(B-5): %s" % subs)
         # E2 finding 2: 校正がまだ済んでいない(proofed < rows)文書は、パックの有無に関わらず「パック待ち」を重ねて出さない
         # (以前は !it.pack だけで判定していて、校正中の文書にも重複して出ていた)
         check(not any(p in ('パック待ち', '作り直し') for p, h in todo),
@@ -302,7 +318,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         docTx = pg.text_content(".pt-doc-tx")
         check("校正 0/1行" in docTx and "パック まだ" in docTx, "[A] 単体の文字起こしも校正・パックの進み具合を見せる: %s" % docTx)
         open_href = pg.get_attribute(".pt-doc-open", "href")
-        check(bool(open_href) and open_href.startswith("/transcribe/?media=") and open_href.endswith("#tx"), "[A] 単体の文字起こしも「編集で開く」: %s" % open_href)
+        check(bool(open_href) and open_href.startswith("/transcribe/?doc=") and open_href.endswith("#tx"), "[A] 単体の文字起こしも「編集で開く」(文書 ID で): %s" % open_href)
         pg.check(".pt-doc-check")
         check(wait_js(pg, "!document.getElementById('docRunBtn').disabled", 5000), "[A] 選ぶと「まとめて実行」が押せる")
         pg.uncheck(".pt-doc-check")

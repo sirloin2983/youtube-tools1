@@ -350,7 +350,8 @@
     } else {
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
     }
-    if (c.exists && c.path) st.appendChild(link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path) + '#tx'));
+    if (c.transcript && c.transcript.id) st.appendChild(link('編集で開く', docHref(c.transcript.id, c.exists ? c.path : '', 'tx')));
+    else if (c.exists && c.path) st.appendChild(link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path) + '#tx'));
     li.appendChild(st);
     return li;
   }
@@ -409,6 +410,15 @@
     });
     var head = r.modeLabel + ': ' + ({ queued: '順番待ち', running: '実行中', done: '完了', error: '止まりました', cancelled: '中止しました' }[r.state] || r.state);
     msg.textContent = head + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
+  }
+
+  /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
+     パスは文書が見つからなかったときの予備(編集の takeUrlParams が ?doc= を先に見る) */
+  function docHref(id, path, tab) {
+    var q = [];
+    if (id) q.push('doc=' + encodeURIComponent(id));
+    if (path) q.push('media=' + encodeURIComponent(path));
+    return '/transcribe/' + (q.length ? '?' + q.join('&') : '') + '#' + (tab || 'tx');
   }
 
   function caseSubText(c) {
@@ -640,8 +650,7 @@
     chk.checked = !!docPicked[d.id];
     chk.addEventListener('change', function () { if (chk.checked) docPicked[d.id] = true; else delete docPicked[d.id]; syncDocRunButton(); });
     var openA = $('.pt-doc-open', li);
-    if (d.sourcePath) { openA.href = '/transcribe/?media=' + encodeURIComponent(d.sourcePath) + '#tx'; openA.removeAttribute('aria-disabled'); }
-    else { openA.removeAttribute('href'); openA.setAttribute('aria-disabled', 'true'); }
+    openA.href = docHref(d.id, d.sourcePath, 'tx'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
     return li;
   }
 
@@ -702,15 +711,13 @@
   function buildPathMap() {
     var map = {};
     ((casesData && casesData.cases) || []).forEach(function (c) {
-      (c.clips || []).forEach(function (cl) { if (cl.transcript) map[cl.transcript.id] = { path: cl.path, caseId: c.id }; });
+      (c.clips || []).forEach(function (cl) { if (cl.transcript) map[cl.transcript.id] = { path: cl.path, caseId: c.id, kase: c }; });
     });
-    ((casesData && casesData.unlinked) || []).forEach(function (u) { if (!map[u.id]) map[u.id] = { path: u.sourcePath, caseId: null }; });
+    ((casesData && casesData.unlinked) || []).forEach(function (u) { if (!map[u.id]) map[u.id] = { path: u.sourcePath, caseId: null, kase: null }; });
     return map;
   }
-  function hrefFor(loc, tab) {
-    if (loc && loc.path) return '/transcribe/?media=' + encodeURIComponent(loc.path) + '#' + tab;
-    return '/transcribe/#' + tab;
-  }
+  /* 案件の状態が「見送り」「投稿済み」なら、次にやることに出さない(B-4。作業をやめた・終えた案件を勧めない) */
+  var DONE_STATUS = { skipped: 1, posted: 1 };
 
   function clipHint(it) {
     // 同じ配信から複数の切り抜きを作ると title(配信の題名)が同じになるので、マークの名前・時間帯で見分けられるようにする(E2 finding 2)
@@ -726,9 +733,15 @@
       var title = it.streamTitle || it.clipTitle || it.title || it.markLabel || '(無題)';
       var hint = clipHint(it), suffix = hint ? '(' + hint + ')' : '';
       var loc = pathMap[it.id];
+      if (loc && loc.kase && DONE_STATUS[loc.kase.status]) return;
+      /* どの配信か分かるように、配信者と配信日(案件に無ければ文字起こしの配信者)を添える(B-5) */
+      var kase = loc && loc.kase, who = (kase && kase.channel) || it.channel || '';
+      var day = kase && kase.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(kase.streamedAt).split(' ')[0] : '';
+      var meta = [who, day ? day + ' の配信' : ''].filter(Boolean).join(' ・ ');
+      if (meta) suffix = ' ・ ' + meta + suffix;
       if (proofed < rows) {
         items.push({ kind: 'proof', updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行' + suffix,
-          href: hrefFor(loc, 'tx'), pillText: '校正待ち', pillClass: 'wait' });
+          href: docHref(it.id, loc && loc.path, 'tx'), pillText: '校正待ち', pillClass: 'wait' });
       }
       // パック待ち・作り直しは、校正が済んでいて(proofed >= rows)、かつ元の動画の有無を実際に確かめられたとき(mediaOk === true)だけ出す。
       // it.pack が null なのは、まだパックが無いときだけでなく、確かめる時間切れ(PACK_CHECK_BUDGET)・動画が見つからない(mediaOk === false)
@@ -736,7 +749,7 @@
       // 見当違いの案内になる(E2 finding 2)
       if (proofed >= rows && it.mediaOk === true && (!it.pack || it.packStale)) {
         items.push({ kind: 'pack', updatedAt: it.updatedAt || 0, title: title, sub: (it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません') + suffix,
-          href: hrefFor(loc, 'pack'), pillText: it.pack ? '作り直し' : 'パック待ち', pillClass: it.pack ? 'warn' : 'wait' });
+          href: docHref(it.id, loc && loc.path, 'pack'), pillText: it.pack ? '作り直し' : 'パック待ち', pillClass: it.pack ? 'warn' : 'wait' });
       }
     });
     return items;
@@ -744,10 +757,12 @@
   function buildTodoCoarse() {
     var items = [];
     ((casesData && casesData.cases) || []).forEach(function (c) {
-      if (!c.next) return;
-      if (c.next.kind === 'proof') items.push({ kind: 'proof', updatedAt: c.updatedAt || 0, title: c.title, sub: '校正 ' + c.next.count + '本',
+      if (!c.next || DONE_STATUS[c.status]) return;
+      var meta = [c.channel, c.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(c.streamedAt).split(' ')[0] + ' の配信' : ''].filter(Boolean).join(' ・ ');
+      meta = meta ? ' ・ ' + meta : '';
+      if (c.next.kind === 'proof') items.push({ kind: 'proof', updatedAt: c.updatedAt || 0, title: c.title, sub: '校正 ' + c.next.count + '本' + meta,
         href: '#case-' + c.id, pillText: '校正待ち', pillClass: 'wait' });
-      else if (c.next.kind === 'pack') items.push({ kind: 'pack', updatedAt: c.updatedAt || 0, title: c.title, sub: 'パック ' + c.next.count + '本',
+      else if (c.next.kind === 'pack') items.push({ kind: 'pack', updatedAt: c.updatedAt || 0, title: c.title, sub: 'パック ' + c.next.count + '本' + meta,
         href: '#case-' + c.id, pillText: 'パック待ち', pillClass: 'wait' });
     });
     return items;

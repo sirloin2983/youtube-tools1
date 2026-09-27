@@ -6,6 +6,7 @@
 """
 import json
 import os
+import urllib.parse
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -223,6 +224,18 @@ def main():
             pg.wait_for_timeout(300)
             check(pg.evaluate("document.documentElement.scrollWidth") <= 392, "幅 390px で横にはみ出さない: %s" % pg.evaluate("document.documentElement.scrollWidth"))
             check(pg.is_visible("[data-edtab=pack]") and pg.is_visible("#menuStrip"), "幅 390px でもタブと帯が見える")
+
+            # ---- B-1: ホームからは文書 ID で開く(?doc=)。同じ動画から作った別の文書(新しい方)ではなく、選んだ文書が開く
+            pg.set_viewport_size({"width": 1440, "height": 900})
+            old_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目")
+            srv.transcribe(v2, "二本目のやり直し")   # 同じ動画からもう1つ(こちらが新しい)
+            pg.goto(srv.base + "?doc=" + old_id + "&media=" + urllib.parse.quote(v2) + "#tx")
+            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目'", 15000)
+            check(pg.input_value("#docTitle") == "二本目", "?doc= で選んだ文書が開く(同じ動画の新しい文書ではない)")
+            check("doc=" not in pg.url, "開いたあとは URL から ?doc= を外す(読み込み直しで開き直さない): %s" % pg.url)
+            pg.goto(srv.base + "?doc=0123456789ab&media=" + urllib.parse.quote(v2) + "#tx")
+            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目のやり直し'", 15000)
+            check(True, "文書が見つからなければ、動画のパスで探して開く(予備)")
 
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()
