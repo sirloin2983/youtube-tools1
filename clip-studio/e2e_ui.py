@@ -473,34 +473,23 @@ def run_checks(port, fx, shots=None):
         exp_start = next(m["start"] for m in serve.STORE.internal(fx["a"])["marks"] if m["id"] == "m1")
         c.ok(len(tcs) == 2 and abs(float(tcs[0]) - float(tcs[1]) + 1.5) < 0.01 and float(tcs[0]) >= 2.0, "セリフの時刻は元の配信の時刻(切り抜きの開始 + 行の時刻): %s(マークの開始 %s)" % (tcs, exp_start))
         c.ok(pg.locator('#rvList .rv-mark-row[data-id="m1"] .rv-tx-line.cut').count() == 1, "文字起こしでカットにした行は線を引いて出す")
-        # 一瞬を切り取る(2026-09-28): C で開く → 今の位置の前 2 秒・後 3 秒 → 端を 0.1 秒刻みで合わせる → 書き出す = マーク「一瞬」(書き出し済み)
-        if MOUNT["token"]:
-            pg.route("**/api/autorun/start", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"run": {"id": "txauto2", "state": "queued"}})))
+        # 一瞬をマーク(2026-09-28): 前・後の秒数はあらかじめ決めておき(0.1 秒単位)、C かボタン1つでマーク「一瞬」(採用)になる
         n_marks = len(serve.STORE.internal(fx["a"])["marks"])
+        c.ok(pg.input_value("#rvMomBefore") == "2.0" and pg.input_value("#rvMomAfter") == "3.0", "一瞬の前・後の秒数の既定は 2.0・3.0")
+        pg.fill("#rvMomBefore", "1.5"); pg.press("#rvMomBefore", "Tab")
+        pg.fill("#rvMomAfter", "2.3"); pg.press("#rvMomAfter", "Tab")
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("c")
-        tsec = lambda sel: (lambda t: int(t.split(":")[0]) * 60 + float(t.split(":")[1]))(pg.text_content(sel))   # 「m:ss.s」→ 秒
-        s0, e0 = tsec("#rvMomStart"), tsec("#rvMomEnd")
-        c.ok(pg.evaluate("() => document.querySelector('#rvMoment').open") and abs(e0 - s0 - 5.0) < 0.01 and "長さ 5.0 秒" in pg.text_content("#rvMomLen"),
-             "C で「一瞬を切り取る」が開き、今の位置の前 2 秒・後 3 秒(計 5 秒)が入る: %s〜%s" % (s0, e0))
-        pg.click("#rvMoment [data-edge='end'] [data-d='0.1']")
-        pg.click("#rvMoment [data-edge='start'] [data-d='-0.5']")
-        pg.click("#rvMoment [data-edge='start'] [data-d='1']")
-        s1, e1 = tsec("#rvMomStart"), tsec("#rvMomEnd")
-        c.ok(abs(s1 - (s0 + 0.5)) < 0.01 and abs(e1 - (e0 + 0.1)) < 0.01 and "長さ 4.6 秒" in pg.text_content("#rvMomLen"),
-             "始まり・終わりを ±0.1/0.5/1 秒で合わせる: %s〜%s %s" % (s1, e1, pg.text_content("#rvMomLen")))
-        small_mom = pg.evaluate("() => [...document.querySelectorAll('#rvMoment .rv-mom-btns .btn')].filter(b => b.getBoundingClientRect().height < 27.5).length")
-        c.ok(small_mom == 0, "「一瞬を切り取る」の微調整のボタンも 28px 以上")
-        pg.click("#rvMomGo")
-        c.ok(wait_js(pg, "() => [...document.querySelectorAll('#rvList .rv-mark-row.st-exported')].some(r => (r.textContent || '').includes('一瞬'))", 60000),
-             "書き出すと、マーク「一瞬」ができて書き出し済みになる")
-        ms = serve.STORE.internal(fx["a"])["marks"]
-        mom = [m for m in ms if m.get("label") == "一瞬"]
-        c.ok(len(ms) == n_marks + 1 and len(mom) == 1 and abs(mom[0]["start"] - s1) < 0.01 and abs(mom[0]["end"] - e1) < 0.01 and mom[0]["status"] == "exported",
-             "保存されたマーク「一瞬」の区間と状態: %s" % [(m["start"], m["end"], m["status"]) for m in mom])
-        c.ok(not pg.evaluate("() => document.querySelector('#rvMoment').open"), "書き出すと「一瞬を切り取る」の欄は閉じる")
-        if MOUNT["token"]:
-            pg.unroute("**/api/autorun/start")
+        wait_js(pg, "() => [...document.querySelectorAll('#rvList .rv-mark-row')].some(r => (r.textContent || '').includes('一瞬'))", 5000)
+        wait_js(pg, "() => document.querySelector('#rvSave').dataset.k !== 'pending'", 10000)
+        mom = [m for m in serve.STORE.internal(fx["a"])["marks"] if m.get("label") == "一瞬"]
+        c.ok(len(serve.STORE.internal(fx["a"])["marks"]) == n_marks + 1 and len(mom) == 1 and abs((mom[0]["end"] - mom[0]["start"]) - 3.8) < 0.01 and mom[0]["status"] == "adopted",
+             "C でマーク「一瞬」(採用)が前 1.5 秒・後 2.3 秒(計 3.8 秒)でできる: %s" % [(m["start"], m["end"], m["status"]) for m in mom])
+        end_t = time.time() + 5
+        while time.time() < end_t and (serve.STORE.get_ui().get("review") or {}).get("momentAfter") != 2.3:
+            time.sleep(0.2)
+        rv = serve.STORE.get_ui().get("review") or {}
+        c.ok((rv.get("momentBefore"), rv.get("momentAfter")) == (1.5, 2.3), "前・後の秒数は設定に保存される: %s" % ((rv.get("momentBefore"), rv.get("momentAfter")),))
         c.ok(pg.evaluate("window.__xss === undefined") and pg.locator("#rvList .rv-tx img").count() == 0, "セリフの文字は HTML として実行・表示されない")
         pg.click('#rvList .rv-mark-row[data-id="m1"] .rv-tx summary')
         c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "セリフを開ける")
