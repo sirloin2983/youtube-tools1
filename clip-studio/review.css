@@ -368,3 +368,6 @@
   .rv-transport{justify-content:flex-start}
   .rv-tools .btn{flex:1 1 auto}
 }
+
+/* つなげて1本に(マークの行のチェック) */
+.rv-join{width:18px;height:18px;margin:0 2px 0 0;flex:none;cursor:pointer}

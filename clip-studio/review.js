@@ -89,6 +89,7 @@ const S = {
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
   loadSeq: 0, editSeq: 0, dirty: false, built: false,
   tx: null, txOpen: new Set(), txSeq: 0,   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
+  join: new Set(),   // つなげて1本にするマーク(チェックしたもの。配信を切り替えたら空に)
   expDockClosed: false, expModal: null   // 書き出しの欄(ui-drawer)。× で閉じたら次の配信を開くまで自動で開き直さない・今 modal で開いているか
 };
 const marks = () => (S.cur ? S.cur.marks : []);
@@ -285,6 +286,7 @@ function buildDOM(){
           <div class="rv-status" id="rvToolStatus"></div>
           <div class="rv-tools">
             <button class="btn primary" id="rvExpRun" type="button">書き出す</button>
+            <button class="btn" id="rvJoinRun" type="button" hidden>つなげて1本に</button>
             <button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button>
             <details class="ui-pop rv-expmore" id="rvExpMore">
               <summary class="btn ghost icon" aria-label="その他の書き出し"><span class="ui-icon" data-icon="more"></span></summary>
@@ -502,6 +504,7 @@ function openPicker(focusOpen){
 }
 async function loadVideo(id){
   const seq = ++S.loadSeq;
+  S.join.clear();   // つなぐのは同じ配信の中だけ
   try { await flushSave(); } catch (e){ renderVideoSelect(); toast(e.message); return false; }
   if (seq !== S.loadSeq) return false;
   const editSeq = S.editSeq;
@@ -1164,6 +1167,41 @@ function renderExportUI(){
   { const n = S.videos.reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => x.adopted > 0).length, b = $('#rvExpAll'); b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool; }
   { const n = failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running; }
   $('#rvExpCancel').hidden = !running;
+  { const n = joinIds().length, b = $('#rvJoinRun');   // チェックしたマークをつなげて1本に(2 件から)
+    b.hidden = !n; b.textContent = `チェックした ${n} 件をつなげて1本に`;
+    b.disabled = running || n < 2 || noTool || !!S.live;
+    b.title = n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
+}
+function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id); }
+/* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。
+   つないだ動画は元の配信の1つの区間ではないので、.clip.json・マークの「書き出し済み」・自動の文字起こしは付けない(「編集で開く」から) */
+async function startJoin(){
+  if (S.starting || S.exportAll || (S.job && S.job.running)) return;
+  const v = S.cur, ids = joinIds();
+  if (!v || ids.length < 2) return toast('つなげるマークを2件以上チェックしてください');
+  if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
+  S.starting = true; renderExportUI();
+  try {
+    await flushSave();
+    if (S.cur !== v) throw new Error('配信が切り替わりました。やり直してください');
+    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, combine: true, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } });
+    S.job = { id: j.id, videoId: v.id, running: true, combine: true }; rememberJob({ id: j.id, videoId: v.id });
+    S.join.clear(); renderList();
+    renderJob(j); pollJob();
+  } catch (e){ toast(e.message || 'つなぐ書き出しを開始できませんでした', 0, 'err'); }
+  finally { S.starting = false; renderExportUI(); }
+}
+function combinedHTML(j){   // つないだ1本の行(書き出しの一覧の先頭)
+  const c = j.combined; if (!c) return '';
+  const pct = Math.round((c.progress || 0) * 100), cls = c.status === 'done' ? 'ok' : c.status === 'error' ? 'err' : c.status === 'running' ? 'run' : c.status === 'cancelled' ? 'warn' : 'wait';
+  return `<li class="rv-ejob st-${cls}"><div class="rv-ejob-h">
+      <span class="rv-ejob-n">つないだ1本(${c.count}件${c.seconds ? '・' + fmt(c.seconds) : ''})</span>
+      <span class="pill ${cls}">${esc(c.status === 'queued' ? '部品を切り出し中' : EXP_LABEL[c.status] || c.status)}${c.status === 'running' ? ' ' + pct + '%' : ''}</span></div>
+      ${c.status === 'running' ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${c.file ? `<div class="rv-ejob-s mono">${esc(c.file)}</div>` : ''}
+      ${handoffHTML(j, { status: c.status, path: c.path, file: c.file })}
+      ${loudHTML(c.loudness)}
+      ${c.error ? `<div class="rv-ejob-s rv-err">${esc(c.error)}</div>` : ''}</li>`;
 }
 /* 1件ずつの行を作り、変わった行だけを置き換える(毎秒の状態確認で全部を作り直すと、押した瞬間のボタンが消えてクリックが失われるため) */
 function loudHTML(lo){   // ラウドネスをそろえた結果(書き出しの行に出す)
@@ -1190,6 +1228,7 @@ function renderJob(j){
   S.lastJob = j;
   const ol = $('#rvExpList');
   const rows = j.items.map((it, i) => jobItemHTML(j, it, i));
+  if (j.combined) rows.unshift(combinedHTML(j));
   const h = j.items.map(i => errHint(i.error)).find(Boolean);
   if (h) rows.push(`<li class="hint rv-ejob-hint">${esc(h)}</li>`);
   if (j.waiting) rows.unshift('<li class="hint rv-ejob-hint">他のツールの重い処理が終わるのを待っています(順番が来たら書き出しを始めます。中止もできます)</li>');
@@ -1221,8 +1260,9 @@ function pollJob(){
       else if (fin) refreshList();
       if (fin){
         rememberJob(null);
-        toast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), 0, j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok');
-        if (j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
+        if (j.combined) toast(j.state === 'cancelled' ? 'つなぐ書き出しを中止しました' : j.combined.status === 'done' ? `つなげて1本にしました(${j.combined.count}件)。書き出しの欄の「編集で開く」で文字起こしできます` : 'つなげられませんでした: ' + (j.combined.error || ''), 0, j.state === 'cancelled' ? '' : j.combined.status === 'done' ? 'ok' : 'err');
+        else toast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), 0, j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok');
+        if (!j.combined && j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
       }
     } catch (e){
       if (e.status === 404){ S.job = null; rememberJob(null); stopExpPoll(); renderExportUI(); }
@@ -1477,6 +1517,7 @@ function markHTML(c){
   const sb = (v, label, title) => `<button type="button" class="btn small rv-stb ${v || 'cand'}" data-act="st" data-st="${v}" aria-pressed="${st === v}" title="${title}">${label}</button>`;
   return `<li class="rv-mark-row st-${esc(st || 'cand')}${sel ? ' sel' : ''}${auto ? ' auto' : ''}${fold ? ' folded' : ''}" data-id="${esc(c.id)}">
     <div class="rv-mh">
+      <input type="checkbox" class="rv-join" data-act="join"${S.join.has(c.id) ? ' checked' : ''} aria-label="つなげて1本にする" title="つなげて1本にする(書き出しの欄の「つなげて1本に」)">
       <button type="button" class="rv-fold" data-act="fold" aria-expanded="${!fold}" aria-label="${fold ? '開く' : '折りたたむ'}" title="${fold ? '開く' : '折りたたむ'}">${fold ? '▸' : '▾'}</button>
       <button type="button" class="btn small rv-play" data-act="play" aria-label="この範囲を再生(開始から終了まで)" title="この範囲を再生">${SVG.play}</button>
       <span class="rv-tc mono">${fmt(c.start)} – ${fmt(c.end)}</span><span class="rv-dur mono">${(c.end - c.start).toFixed(1)}s</span>
@@ -1664,6 +1705,7 @@ function wire(){
     switch (b.dataset.act){
       case 'play': S.sel = c.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li)); previewClip(c); break;
       case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); break;
+      case 'join': if (b.checked) S.join.add(c.id); else S.join.delete(c.id); renderExportUI(); break;
       case 'txseek': {   // セリフの行を押したら、その行だけ再生する(元の配信の時刻)
         const t = Number(b.dataset.t), e2 = Number(b.dataset.e);
         if (!Number.isFinite(t)) break;
@@ -1692,7 +1734,7 @@ function wire(){
   });
   /* B-11: 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
   list.addEventListener('focusin', e => {
-    const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input')) return;
+    const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input') || e.target.classList.contains('rv-join')) return;   // つなぐのチェックでは選ばない(選び直すと上の行の微調整が畳まれて一覧がずれ、押したつもりが外れる)
     S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
   });
   list.addEventListener('input', e => {
@@ -1873,6 +1915,7 @@ function wire(){
 
   // 書き出し
   $('#rvExpRun').addEventListener('click', () => startExport());
+  $('#rvJoinRun').addEventListener('click', startJoin);
   $('#rvExpRetry').addEventListener('click', () => { const ids = failedIds(); if (ids.size) startExport(ids); });
   $('#rvExpCancel').addEventListener('click', async () => {
     if (S.exportAll) S.exportAll.cancel = true;

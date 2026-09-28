@@ -228,6 +228,13 @@ def build_spec(store, req):
                       "src": m.get("src") or "manual", "markStatus": m.get("status") or ""})
     if not clips:
         raise bad("書き出せるマークがありません(削除されたか、範囲が正しくありません)")
+    combine = req.get("combine") is True   # 選んだマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望)
+    if combine:
+        if len(clips) < 2:
+            raise bad("つなげるマークを2つ以上選んでください")
+        clips.sort(key=lambda c: c["start"])
+        if sum(c["end"] - c["start"] for c in clips) > MAX_COMBINE_SEC:
+            raise bad("つなげた長さが長すぎます(%d分まで)" % (MAX_COMBINE_SEC // 60))
     if not find_tool("ffmpeg"):
         raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
     try:
@@ -238,7 +245,7 @@ def build_spec(store, req):
             "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol, "loudness": loud,
             # .clip.json 用(元の配信の情報)。元のファイルのパスは file のときだけ入れる
             "kind": v["kind"], "sourceTitle": v["title"] or v.get("fileName") or "", "sourceFile": v["path"] if v["kind"] == "file" else None,
-            "sourceDuration": v.get("duration") or 0}
+            "sourceDuration": v.get("duration") or 0, "combine": combine}
     if v["kind"] == "file":
         if not os.path.isfile(v["path"]):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
@@ -269,7 +276,17 @@ def job_public(job):
     return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", common.get_out_dir()), "folder": job.get("folder", ""),
             "waiting": bool(job.get("waiting")),   # 他のツールの重い処理が終わるのを待っている(ytt_core.jobs)
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
-                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), **paths(it)} for it in job["items"]]}
+                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), **paths(it)} for it in job["items"]],
+            "combined": _combined_public(job.get("combined"))}
+
+
+def _combined_public(c):
+    """つないだ1本(combine のときだけ)。path は出来上がったときだけ"""
+    if not c:
+        return None
+    done = c.get("status") == "done"
+    return {"status": c.get("status"), "progress": c.get("progress", 0.0), "file": c.get("file") if done else None, "path": c.get("path") if done else None,
+            "error": c.get("error"), "loudness": c.get("loudness"), "count": c.get("count", 0), "seconds": round(float(c.get("end") or 0), 1)}
 
 
 def start_job(spec, on_done=None):
@@ -574,6 +591,98 @@ def apply_loudness(job, spec, it):
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
 
 
+MAX_COMBINE_SEC = 3600   # つないだ長さの上限(秒)
+
+
+def _run_combine(job, spec):
+    """選んだマークを1本ずつ 作業用/ に切り出し(音量の調整も)、時刻の順につないで出力先の直下に1本の mp4 を作る。切り出した部品は最後に消す。
+    つないだ動画は元の配信の1つの区間ではないので、.clip.json は書かず、マークにも「書き出し済み」を付けない
+    (.clip.json の時刻 = 元の配信の時刻 の約束を崩さないため。文字起こしは画面の「編集で開く」から)。ラウドネスは、つないだ1本で測ってそろえる"""
+    work = os.path.join(spec["outDir"], schemas.WORK_DIR)
+    os.makedirs(work, exist_ok=True)
+    pspec = dict(spec, outDir=work, folder=spec["folder"] + "/" + schemas.WORK_DIR)
+    comb = job["combined"] = {"status": "queued", "progress": 0.0, "file": None, "path": None, "error": None, "start": 0.0, "end": 0.0,
+                              "count": len(job["items"])}
+    pieces = []
+    try:
+        for idx, it in enumerate(job["items"], 1):
+            if job["cancel"]:
+                it["status"] = "cancelled"
+                continue
+            it["status"] = "running"
+            try:
+                base = unique_base("つなぐ_%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"])), work)
+                runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
+                rel = runner(job, pspec, it, base)
+                apply_volume(job, pspec, it, rel)
+                pieces.append(os.path.join(work, os.path.basename(rel)))
+                it["status"], it["progress"] = "done", 1.0
+            except ExportError as e:
+                it["status"] = "cancelled" if job["cancel"] else "error"
+                it["error"] = None if job["cancel"] else str(e)[:400]
+            except PermissionError as e:
+                common.log_failure("つなぐ部品の書き出し", e)
+                it["status"], it["error"] = "error", common.permission_message(e)
+            except Exception as e:
+                common.log_failure("つなぐ部品の書き出し", e)
+                it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+        if job["cancel"] or any(i["status"] != "done" for i in job["items"]):
+            comb["status"] = "cancelled" if job["cancel"] else "error"
+            comb["error"] = None if job["cancel"] else "切り出せなかった区間があるので、つなぎませんでした"
+            job["state"] = "cancelled" if job["cancel"] else "error"
+            return
+        comb["status"] = "running"
+        items = job["items"]
+        base = unique_base("つなぎ_%s-%s_%d本" % (compact_ts(items[0]["start"]), compact_ts(items[-1]["end"]), len(items)), spec["outDir"])
+        out = os.path.join(spec["outDir"], base + ".mp4")
+        concat_pieces(job, comb, pieces, out)
+        comb["file"], comb["path"] = spec["folder"] + "/" + base + ".mp4", out
+        apply_loudness(job, spec, comb)
+        comb["status"], comb["progress"] = "done", 1.0
+        job["state"] = "done"
+    except ExportError as e:
+        comb["status"] = "cancelled" if job["cancel"] else "error"
+        comb["error"] = None if job["cancel"] else str(e)[:400]
+        job["state"] = "cancelled" if job["cancel"] else "error"
+    except PermissionError as e:
+        common.log_failure("つなぐ", e)
+        comb["status"], comb["error"], job["state"] = "error", common.permission_message(e), "error"
+    except Exception as e:
+        common.log_failure("つなぐ", e)
+        comb["status"], comb["error"], job["state"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__, "error"
+    finally:
+        for p in pieces:
+            for q in (p, p + ".vol.mp4"):
+                try:
+                    os.unlink(q)
+                except OSError:
+                    pass
+
+
+def concat_pieces(job, it, pieces, out):
+    """部品の mp4 を時刻の順につなぐ(再エンコード。つなぎ目で絵と音がずれないように concat フィルタ。音声の無い部品があれば映像だけ)"""
+    infos = [common.media_info(p) for p in pieces]
+    has_a = all(i[2] for i in infos)
+    total = sum(float(i[0] or 0) for i in infos)
+    it["end"] = total
+    cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y"]
+    for p in pieces:
+        cmd += ["-i", p]
+    fc = "".join("[%d:v:0]setsar=1[v%d];" % (k, k) for k in range(len(pieces)))
+    fc += "".join("[v%d]%s" % (k, "[%d:a:0]" % k if has_a else "") for k in range(len(pieces)))
+    fc += "concat=n=%d:v=1:a=%d[v]%s" % (len(pieces), 1 if has_a else 0, "[a]" if has_a else "")
+    cmd += ["-filter_complex", fc, "-map", "[v]"] + (["-map", "[a]"] if has_a else []) + ENC + [out]
+    tail = []
+    try:
+        tail = _pump(job, cmd, it, total)
+        verify_output(out, total, tail)
+    except ExportError as e:
+        log_export("つなぐ 失敗: %s" % e, cmd, tail)
+        if os.path.exists(out):
+            os.unlink(out)
+        raise
+
+
 def export_edit_media(job, spec, it, base, runner):
     """Create an additional media file with trim handles and a portable sidecar."""
     edit_it = dict(it)
@@ -711,6 +820,8 @@ def _run_job(job, spec, on_done=None):
         job["state"] = "error"
         return
     job["folder"] = spec["folder"]
+    if spec.get("combine"):
+        return _run_combine(job, spec)
     for idx, it in enumerate(job["items"], 1):
         if job["cancel"]:
             it["status"] = "cancelled"

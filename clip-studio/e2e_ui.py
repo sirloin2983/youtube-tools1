@@ -491,6 +491,26 @@ def run_checks(port, fx, shots=None):
             time.sleep(0.2)
         rv = serve.STORE.get_ui().get("review") or {}
         c.ok((rv.get("momentBefore"), rv.get("momentAfter")) == (1.5, 2.3), "前・後の秒数は設定に保存される: %s" % ((rv.get("momentBefore"), rv.get("momentAfter")),))
+        # つなげて1本に(2026-09-28): 2 件チェック → 時刻の順につないだ mp4 が1本。部品は消す・マークの状態は変えない・.clip.json は書かない
+        ms = sorted(serve.STORE.internal(fx["a"])["marks"], key=lambda m: m["start"])
+        pick2 = [ms[0], next(m for m in ms if m.get("label") == "一瞬")]
+        before_st = {m["id"]: m["status"] for m in ms}
+        for m in pick2:
+            pg.check('#rvList .rv-mark-row[data-id="%s"] .rv-join' % m["id"])
+        c.ok(pg.is_visible("#rvJoinRun") and pg.is_enabled("#rvJoinRun") and "2 件" in pg.inner_text("#rvJoinRun"), "2 件チェックすると「つなげて1本に」が押せる: %s" % pg.inner_text("#rvJoinRun"))
+        pg.click("#rvJoinRun")
+        c.ok(wait_js(pg, "() => [...document.querySelectorAll('#rvExpList .rv-ejob.st-ok')].some(r => (r.textContent || '').includes('つないだ1本'))", 90000), "つないだ1本ができる")
+        wait_js(pg, "() => !document.querySelector('#rvExpCancel') || document.querySelector('#rvExpCancel').hidden", 30000)
+        href = pg.evaluate("() => { const r = [...document.querySelectorAll('#rvExpList .rv-ejob.st-ok')].find(r => (r.textContent || '').includes('つないだ1本')); const a = r && r.querySelector(\"a[href*='?media=']\"); return a ? a.getAttribute('href') : ''; }")
+        jpath = urllib.parse.unquote(href.split("?media=", 1)[1]) if "?media=" in href else ""
+        want = sum(m["end"] - m["start"] for m in pick2)
+        got = common.media_info(jpath)[0] if jpath and os.path.isfile(jpath) else None
+        c.ok(got is not None and abs(got - want) < 1.0 and "つなぎ_" in os.path.basename(jpath), "つないだ mp4 の長さ = 選んだマークの合計(%s 秒 / %s 秒): %s" % (got, round(want, 1), jpath))
+        work = os.path.join(os.path.dirname(jpath), "作業用") if jpath else ""
+        c.ok(jpath and not [n for n in (os.listdir(work) if os.path.isdir(work) else []) if n.startswith("つなぐ_")] and not os.path.exists(os.path.splitext(jpath)[0] + ".clip.json"),
+             "部品は消え、つないだ動画に .clip.json は書かない")
+        c.ok({m["id"]: m["status"] for m in serve.STORE.internal(fx["a"])["marks"]} == before_st, "つないでも、マークの状態(書き出し済みなど)は変えない")
+        c.ok(not pg.is_checked('#rvList .rv-mark-row[data-id="%s"] .rv-join' % pick2[0]["id"]) and pg.is_hidden("#rvJoinRun"), "始めたらチェックは外れる")
         c.ok(pg.evaluate("window.__xss === undefined") and pg.locator("#rvList .rv-tx img").count() == 0, "セリフの文字は HTML として実行・表示されない")
         pg.click('#rvList .rv-mark-row[data-id="m1"] .rv-tx summary')
         c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "セリフを開ける")
