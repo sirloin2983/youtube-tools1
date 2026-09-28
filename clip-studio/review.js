@@ -203,14 +203,14 @@ function buildDOM(){
       </div>
 
       <details class="rv-momentdetails ui-disclosure" id="rvMoment">
-        <summary>一瞬を切り取る <kbd class="ui-kbd" data-kbd="moment">C</kbd> <span class="muted">今の位置の前後数秒を、始まり・終わりを合わせてそのまま書き出す(マーク「一瞬」として残ります)</span></summary>
+        <summary>一瞬を切り取る <kbd class="ui-kbd" data-kbd="moment">C</kbd> <span class="muted">今の位置の前後数秒を、始まり・終わりを合わせてマーク「一瞬」に(そのまま書き出しも。ライブ中はマークだけ)</span></summary>
         <div class="rv-moment">
           <div class="rv-mom-row"><span class="rv-mom-k">始まり</span><span class="mono rv-mom-t" id="rvMomStart">--</span>
             <span class="rv-mom-btns" data-edge="start"><button class="btn small" type="button" data-d="-1">−1</button><button class="btn small" type="button" data-d="-0.5">−0.5</button><button class="btn small" type="button" data-d="-0.1">−0.1</button><button class="btn small" type="button" data-d="0.1">+0.1</button><button class="btn small" type="button" data-d="0.5">+0.5</button><button class="btn small" type="button" data-d="1">+1</button><button class="btn small soft" type="button" data-d="now">今の位置</button></span></div>
           <div class="rv-mom-row"><span class="rv-mom-k">終わり</span><span class="mono rv-mom-t" id="rvMomEnd">--</span>
             <span class="rv-mom-btns" data-edge="end"><button class="btn small" type="button" data-d="-1">−1</button><button class="btn small" type="button" data-d="-0.5">−0.5</button><button class="btn small" type="button" data-d="-0.1">−0.1</button><button class="btn small" type="button" data-d="0.1">+0.1</button><button class="btn small" type="button" data-d="0.5">+0.5</button><button class="btn small" type="button" data-d="1">+1</button><button class="btn small soft" type="button" data-d="now">今の位置</button></span></div>
           <div class="rv-mom-foot"><span class="hint" id="rvMomLen" role="status"></span>
-            <button class="btn small" type="button" id="rvMomPlay">▶ 範囲を再生</button><button class="btn primary" type="button" id="rvMomGo">書き出す</button></div>
+            <button class="btn small" type="button" id="rvMomPlay">▶ 範囲を再生</button><button class="btn" type="button" id="rvMomMark">マークにする</button><button class="btn primary" type="button" id="rvMomGo">書き出す</button></div>
         </div>
       </details>
 
@@ -967,11 +967,15 @@ function nudgeMoment(edge, delta){
   renderMoment();
   seek(m[edge]);   // 動かした端の絵を見せる(どこで切れるか分かるように)
 }
-function momentBlock(){   // 書き出せない理由(無ければ '')
+function momentMarkBlock(){   // マークにできない理由(無ければ '')
   if (!S.cur) return '先に配信を開いてください';
-  if (S.live) return '配信中は書き出せません。配信終了後に実行してください';
-  if (S.starting || S.exportAll || (S.job && S.job.running)) return '書き出しの実行中です。終わってから押してください';
   if (marks().length >= MAX_MARKS) return `1本の配信に登録できるのは${MAX_MARKS}件までです`;
+  return '';
+}
+function momentBlock(){   // 書き出せない理由(無ければ '')。ライブ中・書き出しの実行中でも「マークにする」はできる
+  const m = momentMarkBlock(); if (m) return m;
+  if (S.live) return '配信中は書き出せません(「マークにする」で残し、配信終了後に書き出せます)';
+  if (S.starting || S.exportAll || (S.job && S.job.running)) return '書き出しの実行中です(「マークにする」なら今できます)';
   return '';
 }
 function renderMoment(){
@@ -982,16 +986,19 @@ function renderMoment(){
   $('#rvMomEnd').textContent = m ? fmt(m.end) : '--';
   $('#rvMomLen').textContent = !m ? '' : `長さ ${(m.end - m.start).toFixed(1)} 秒` + (why ? ` — ${why}` : '');
   $('#rvMomPlay').disabled = !m;
+  $('#rvMomMark').disabled = !m || !!momentMarkBlock();
   $('#rvMomGo').disabled = !m || !!why;
 }
-async function cutMoment(){
+/* withExport = false:「マークにする」(ライブ中・書き出しの実行中でもできる。2026-09-28 ユーザー: ライブ中で書き出せなかった)/ true:「書き出す」 */
+async function cutMoment(withExport){
   const m = S.moment; if (!m) return;
-  const why = momentBlock(); if (why) return toast(why);
+  const why = withExport ? momentBlock() : momentMarkBlock(); if (why) return toast(why);
   const r = checkRange(m.start, m.end); if (typeof r === 'string') return toast(r);
-  const mk = newMark(r[0], r[1], false);
+  const mk = newMark(r[0], r[1], S.live);   // ライブ中のマークには、今をマークと同じくライブの印
   mk.label = MOMENT_LABEL; mk.status = 'adopted';
   pushMark(mk);
   $('#rvMoment').open = false; S.moment = null;
+  if (!withExport) return toast(`マーク「${MOMENT_LABEL}」${fmt(r[0])} – ${fmt(r[1])} を採用で追加しました` + (S.live ? '(配信終了後に書き出せます)' : ''), 5000, 'ok');
   toast(`「${MOMENT_LABEL}」${fmt(r[0])} – ${fmt(r[1])} を書き出します(マークの一覧に残ります)`);
   await startExport(new Set([mk.id]));
 }
@@ -1863,7 +1870,8 @@ function wire(){
   $('#rvMoment').addEventListener('toggle', () => { if (!$('#rvMoment').open) S.moment = null; renderMoment(); });
   $('#rvMoment').addEventListener('click', e => { const b = e.target.closest('.rv-mom-btns button[data-d]'); if (b) nudgeMoment(b.parentElement.dataset.edge, b.dataset.d); });
   $('#rvMomPlay').addEventListener('click', () => { if (S.moment) previewClip(S.moment); });
-  $('#rvMomGo').addEventListener('click', cutMoment);
+  $('#rvMomMark').addEventListener('click', () => cutMoment(false));
+  $('#rvMomGo').addEventListener('click', () => cutMoment(true));
   $('#rvKeyGrid').addEventListener('click', onSpanStep);
   $('#rvKeyGrid').addEventListener('click', e => { const b = e.target.closest('.rv-keybtn'); if (b) startCapture(b); });
   $('#rvKeyPreset').addEventListener('change', e => { const pr = KEY_PRESETS[e.target.value]; if (pr){ S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); } });
