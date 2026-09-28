@@ -480,8 +480,9 @@ def run_checks(port, fx, shots=None):
         pg.fill("#rvMomAfter", "2.3"); pg.press("#rvMomAfter", "Tab")
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
         pg.keyboard.press("c")
-        wait_js(pg, "() => [...document.querySelectorAll('#rvList .rv-mark-row')].some(r => (r.textContent || '').includes('一瞬'))", 5000)
-        wait_js(pg, "() => document.querySelector('#rvSave').dataset.k !== 'pending'", 10000)
+        end_t = time.time() + 10   # 画面は少し待ってから保存する(マークのラベルは入力欄の値なので、行の文字では待てない)
+        while time.time() < end_t and not any(m.get("label") == "一瞬" for m in serve.STORE.internal(fx["a"])["marks"]):
+            time.sleep(0.2)
         mom = [m for m in serve.STORE.internal(fx["a"])["marks"] if m.get("label") == "一瞬"]
         c.ok(len(serve.STORE.internal(fx["a"])["marks"]) == n_marks + 1 and len(mom) == 1 and abs((mom[0]["end"] - mom[0]["start"]) - 3.8) < 0.01 and mom[0]["status"] == "adopted",
              "C でマーク「一瞬」(採用)が前 1.5 秒・後 2.3 秒(計 3.8 秒)でできる: %s" % [(m["start"], m["end"], m["status"]) for m in mom])
