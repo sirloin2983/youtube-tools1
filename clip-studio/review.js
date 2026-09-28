@@ -504,7 +504,7 @@ function openPicker(focusOpen){
 }
 async function loadVideo(id){
   const seq = ++S.loadSeq;
-  S.join.clear();   // つなぐのは同じ配信の中だけ
+  if (S.join) S.join.clear();   // つなぐのは同じ配信の中だけ(テストの状態には join が無いことがある)
   try { await flushSave(); } catch (e){ renderVideoSelect(); toast(e.message); return false; }
   if (seq !== S.loadSeq) return false;
   const editSeq = S.editSeq;
