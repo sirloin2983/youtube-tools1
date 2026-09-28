@@ -201,6 +201,19 @@
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
 .rv-markdetails{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:6px 10px}
+/* 一瞬を切り取る(細かく決める と同じ形の開く欄) */
+.rv-momentdetails{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:6px 10px}
+.rv-momentdetails>summary{font-size:12.5px;min-height:28px;flex-wrap:wrap}
+.rv-momentdetails>summary .muted{font-weight:400;font-size:11.5px}
+.rv-momentdetails[open]{padding-bottom:8px}
+.rv-moment{display:grid;gap:6px;margin-top:8px}
+.rv-mom-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.rv-mom-k{font-size:12px;color:var(--muted);min-width:3.5em}
+.rv-mom-t{min-width:6.5em;font-size:13px}
+.rv-mom-btns{display:flex;flex-wrap:wrap;gap:4px}
+.rv-mom-btns .btn{min-height:28px;min-width:40px}
+.rv-mom-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px;justify-content:flex-end}
+.rv-mom-foot .hint{margin-right:auto}
 .rv-markdetails>summary{font-size:12.5px;min-height:28px;flex-wrap:wrap}
 .rv-markdetails>summary .muted{font-weight:400;font-size:11.5px}
 .rv-markdetails[open]{padding-bottom:8px}

@@ -43,11 +43,11 @@ const marksPayload = ms => ms.map(m => { const { auto0, ...r } = m; return r; })
 const ACTION_DEFS = [
   ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
   ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター'],
-  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用']
+  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用'], ['moment', '一瞬を切り取る']
 ];
 const KEY_PRESETS = {
-  standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u' },
-  left: { addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'f', volDown: 'v', mute: 'x', theater: 't', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6' }
+  standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u', moment: 'c' },
+  left: { addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'f', volDown: 'v', mute: 'x', theater: 't', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6', moment: 'c' }
 };
 function sanitizeKeymap(x){
   const out = {}, used = new Set();
@@ -87,7 +87,8 @@ const S = {
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
   loadSeq: 0, editSeq: 0, dirty: false, built: false,
   tx: null, txOpen: new Set(), txSeq: 0,   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
-  expDockClosed: false, expModal: null   // 書き出しの欄(ui-drawer)。× で閉じたら次の配信を開くまで自動で開き直さない・今 modal で開いているか
+  expDockClosed: false, expModal: null,   // 書き出しの欄(ui-drawer)。× で閉じたら次の配信を開くまで自動で開き直さない・今 modal で開いているか
+  moment: null   // 一瞬を切り取る: {start, end}(欄を開いている間だけ)
 };
 const marks = () => (S.cur ? S.cur.marks : []);
 const sortedMarks = () => [...marks()].sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -200,6 +201,18 @@ function buildDOM(){
           </div>
         </div>
       </div>
+
+      <details class="rv-momentdetails ui-disclosure" id="rvMoment">
+        <summary>一瞬を切り取る <kbd class="ui-kbd" data-kbd="moment">C</kbd> <span class="muted">今の位置の前後数秒を、始まり・終わりを合わせてそのまま書き出す(マーク「一瞬」として残ります)</span></summary>
+        <div class="rv-moment">
+          <div class="rv-mom-row"><span class="rv-mom-k">始まり</span><span class="mono rv-mom-t" id="rvMomStart">--</span>
+            <span class="rv-mom-btns" data-edge="start"><button class="btn small" type="button" data-d="-1">−1</button><button class="btn small" type="button" data-d="-0.5">−0.5</button><button class="btn small" type="button" data-d="-0.1">−0.1</button><button class="btn small" type="button" data-d="0.1">+0.1</button><button class="btn small" type="button" data-d="0.5">+0.5</button><button class="btn small" type="button" data-d="1">+1</button><button class="btn small soft" type="button" data-d="now">今の位置</button></span></div>
+          <div class="rv-mom-row"><span class="rv-mom-k">終わり</span><span class="mono rv-mom-t" id="rvMomEnd">--</span>
+            <span class="rv-mom-btns" data-edge="end"><button class="btn small" type="button" data-d="-1">−1</button><button class="btn small" type="button" data-d="-0.5">−0.5</button><button class="btn small" type="button" data-d="-0.1">−0.1</button><button class="btn small" type="button" data-d="0.1">+0.1</button><button class="btn small" type="button" data-d="0.5">+0.5</button><button class="btn small" type="button" data-d="1">+1</button><button class="btn small soft" type="button" data-d="now">今の位置</button></span></div>
+          <div class="rv-mom-foot"><span class="hint" id="rvMomLen" role="status"></span>
+            <button class="btn small" type="button" id="rvMomPlay">▶ 範囲を再生</button><button class="btn primary" type="button" id="rvMomGo">書き出す</button></div>
+        </div>
+      </details>
 
       <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div></div>
 
@@ -496,6 +509,7 @@ function openPicker(focusOpen){
 }
 async function loadVideo(id){
   const seq = ++S.loadSeq;
+  const md = $('#rvMoment'); if (md && md.open){ md.open = false; S.moment = null; }   // 前の配信の時刻で切り取らない
   try { await flushSave(); } catch (e){ renderVideoSelect(); toast(e.message); return false; }
   if (seq !== S.loadSeq) return false;
   const editSeq = S.editSeq;
@@ -807,14 +821,15 @@ const ACTION_FN = {
   markIn: () => markIn(), markOut: () => markOut(), addClip: () => addClip(), quickMark: () => quickMark(0), quickMark2: () => quickMark(1), quickMark3: () => quickMark(2), quickMark4: () => quickMark(3), quickMark5: () => quickMark(4), playPause: () => togglePlay(),
   back5: () => seek(S.now - 5), fwd5: () => seek(S.now + 5), back1: () => seek(S.now - 1), fwd1: () => seek(S.now + 1),
   volUp: () => adjustVolume(5), volDown: () => adjustVolume(-5), mute: () => toggleMute(), theater: () => toggleTheater(),
-  prevMark: () => goMark(-1, false), nextMark: () => goMark(1, false), adopt: () => decideSel('adopted'), reject: () => decideSel('rejected')
+  prevMark: () => goMark(-1, false), nextMark: () => goMark(1, false), adopt: () => decideSel('adopted'), reject: () => decideSel('rejected'),
+  moment: () => openMoment(true)
 };
 function currentPreset(){
   const km = S.settings.keymap;
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
 let capturing = null;
-const KEY_GROUPS = [['マークの操作', ['addClip']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
+const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
 function spanSelHTML(i){
   const cur = S.settings.quickSpans[i];
   return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${i + 1}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${i + 1}の長さを長く">＋</button></span>`;
@@ -925,6 +940,60 @@ function quickMark(slot = 0){
   const [start, end] = r;
   pushMark(newMark(start, end, S.live));
   toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
+}
+/* ---------- 一瞬を切り取る(2026-09-28 ユーザー要望): 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
+   マーク「一瞬」(採用)を作り、そのマークだけを書き出す。マークとして残すのは、書き出しのあとの自動の文字起こし・「この後を ▸」・
+   入口の案件がマークを手がかりに動くため(ユーザー決定)。書き出しの設定(方式・画質・音量)は「書き出しの設定」のとおり ---------- */
+const MOMENT_BEFORE = 2, MOMENT_AFTER = 3, MOMENT_MIN = 0.3, MOMENT_LABEL = '一瞬';
+const momentNow = () => round1(Math.max(0, S.now - (Number(S.settings.lag) || 0)));   // 今をマークと同じく、遅れ(lag)を引いた位置
+function momentAround(){
+  const c = momentNow(), lim = !S.live && S.duration > 0 ? S.duration : Infinity;
+  return { start: round1(Math.max(0, c - MOMENT_BEFORE)), end: round1(Math.min(lim, c + MOMENT_AFTER)) };
+}
+function openMoment(fromKey){
+  if (!S.cur) return toast('先に配信を開いてください');
+  const d = $('#rvMoment');
+  S.moment = momentAround();
+  d.open = true;
+  renderMoment();
+  if (fromKey) d.scrollIntoView({ block: 'nearest' });
+}
+function nudgeMoment(edge, delta){
+  const m = S.moment; if (!m) return;
+  const lim = !S.live && S.duration > 0 ? S.duration : Infinity;
+  const v = delta === 'now' ? momentNow() : round1(m[edge] + Number(delta));
+  if (edge === 'start') m.start = round1(Math.max(0, Math.min(v, m.end - MOMENT_MIN)));
+  else m.end = round1(Math.min(lim, Math.max(v, m.start + MOMENT_MIN)));
+  renderMoment();
+  seek(m[edge]);   // 動かした端の絵を見せる(どこで切れるか分かるように)
+}
+function momentBlock(){   // 書き出せない理由(無ければ '')
+  if (!S.cur) return '先に配信を開いてください';
+  if (S.live) return '配信中は書き出せません。配信終了後に実行してください';
+  if (S.starting || S.exportAll || (S.job && S.job.running)) return '書き出しの実行中です。終わってから押してください';
+  if (marks().length >= MAX_MARKS) return `1本の配信に登録できるのは${MAX_MARKS}件までです`;
+  return '';
+}
+function renderMoment(){
+  const d = $('#rvMoment'); if (!d) return;
+  if (d.open && !S.moment && S.cur) S.moment = momentAround();
+  const m = d.open ? S.moment : null, why = momentBlock();
+  $('#rvMomStart').textContent = m ? fmt(m.start) : '--';
+  $('#rvMomEnd').textContent = m ? fmt(m.end) : '--';
+  $('#rvMomLen').textContent = !m ? '' : `長さ ${(m.end - m.start).toFixed(1)} 秒` + (why ? ` — ${why}` : '');
+  $('#rvMomPlay').disabled = !m;
+  $('#rvMomGo').disabled = !m || !!why;
+}
+async function cutMoment(){
+  const m = S.moment; if (!m) return;
+  const why = momentBlock(); if (why) return toast(why);
+  const r = checkRange(m.start, m.end); if (typeof r === 'string') return toast(r);
+  const mk = newMark(r[0], r[1], false);
+  mk.label = MOMENT_LABEL; mk.status = 'adopted';
+  pushMark(mk);
+  $('#rvMoment').open = false; S.moment = null;
+  toast(`「${MOMENT_LABEL}」${fmt(r[0])} – ${fmt(r[1])} を書き出します(マークの一覧に残ります)`);
+  await startExport(new Set([mk.id]));
 }
 function markIn(){
   if (!S.cur) return toast('先に配信を開いてください');
@@ -1097,6 +1166,7 @@ function jobDirText(j, st){
   return j && j.folder && base ? joinPath(base, j.folder) : base;
 }
 function renderExportUI(){
+  renderMoment();   // 書き出しの実行中は「一瞬を切り取る」の書き出すを押せない
   if (!S.built) return;
   const v = S.cur, st = Studio.state || {};
   let msg = '';
@@ -1790,6 +1860,10 @@ function wire(){
   $('#rvNow').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); e.target.dispatchEvent(new Event('change')); e.target.blur(); } });
   $('#rvQuickSlots').addEventListener('click', e => { const b = e.target.closest('.rv-qslot > button[data-slot]'); if (b) quickMark(Number(b.dataset.slot)); });
   $('#rvQuickSlots').addEventListener('click', onSpanStep);
+  $('#rvMoment').addEventListener('toggle', () => { if (!$('#rvMoment').open) S.moment = null; renderMoment(); });
+  $('#rvMoment').addEventListener('click', e => { const b = e.target.closest('.rv-mom-btns button[data-d]'); if (b) nudgeMoment(b.parentElement.dataset.edge, b.dataset.d); });
+  $('#rvMomPlay').addEventListener('click', () => { if (S.moment) previewClip(S.moment); });
+  $('#rvMomGo').addEventListener('click', cutMoment);
   $('#rvKeyGrid').addEventListener('click', onSpanStep);
   $('#rvKeyGrid').addEventListener('click', e => { const b = e.target.closest('.rv-keybtn'); if (b) startCapture(b); });
   $('#rvKeyPreset').addEventListener('change', e => { const pr = KEY_PRESETS[e.target.value]; if (pr){ S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); } });
