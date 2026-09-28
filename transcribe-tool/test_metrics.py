@@ -406,6 +406,72 @@ class TestSplitAndRobust(unittest.TestCase):
             else:
                 sys.modules["faster_whisper"] = old
 
+    def test_fit_lines_avoids_protected_rows(self):
+        """全体の再認識: 守る区間(校正済みの行)にかかる新しい行は、捨てるか外側に切り詰める(単語の時刻があれば文字も)"""
+        protect = [(4.0, 6.0)]
+        words = [[3.0, 3.5, "あい"], [3.7, 4.5, "うえ"], [4.5, 5.5, "おか"]]
+        lines = [{"start": 0.0, "end": 3.0, "raw": "前"},                              # かからない
+                 {"start": 4.2, "end": 5.8, "raw": "中"},                              # 真ん中が守る区間 → 捨てる
+                 {"start": 3.0, "end": 4.6, "raw": "あいうえおか", "words": words},     # 後ろがかかる → 4.0 まで。文字は単語で切る
+                 {"start": 5.9, "end": 6.2, "raw": "短"},                              # 切ると 0.3 秒未満 → 捨てる
+                 {"start": 5.5, "end": 9.0, "raw": "後ろ"}]                            # 前がかかる → 6.0 から(単語なし = 文字はそのまま)
+        out = S.fit_lines(lines, protect)
+        self.assertEqual([(x["start"], x["end"], x["raw"]) for x in out], [(0.0, 3.0, "前"), (3.0, 4.0, "あい"), (6.0, 9.0, "後ろ")])
+
+    def test_transcribe_vad_fallback_order(self):
+        """声の検出: 残りが 20% 未満なら行を読まずに緩める・文字が 0 でも緩める・最後(なし)はそのまま返す"""
+        import types
+        calls, closed = [], []
+
+        class Segs:
+            def __init__(self, items):
+                self.it = iter(items)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self.it)
+
+            def close(self):
+                closed.append(True)
+
+        class Model:
+            params = {"vad_filter", "vad_parameters", "language", "beam_size", "condition_on_previous_text", "no_speech_threshold", "word_timestamps"}
+
+            def transcribe(self, audio, **kw):
+                mode = "off" if not kw.get("vad_filter") else ("weak" if kw.get("vad_parameters", {}).get("threshold") == 0.3 else "normal")
+                calls.append(mode)
+                seg = types.SimpleNamespace(start=0.0, end=2.0, text="こんにちは", words=[], avg_logprob=-0.2, no_speech_prob=0.1, compression_ratio=1.1)
+                if mode == "normal":   # 9 割捨てた
+                    return Segs([seg]), types.SimpleNamespace(duration=10.0, duration_after_vad=1.0)
+                if mode == "weak":     # 残ったが文字が出ない
+                    return Segs([types.SimpleNamespace(start=0.0, end=2.0, text=" ", words=[])]), types.SimpleNamespace(duration=10.0, duration_after_vad=6.0)
+                return Segs([seg]), types.SimpleNamespace(duration=10.0, duration_after_vad=10.0)
+
+        job = {"cancel": False}
+        spec = {"vadMode": "normal", "language": "ja", "beam": 5, "model": "large-v3", "glossary": []}
+        raw, vad = S.transcribe_vad_fallback(job, Model(), "a.wav", spec)
+        self.assertEqual(calls, ["normal", "weak", "off"])
+        self.assertEqual(len(closed), 1)                                          # 捨てすぎた回は行を読まずに閉じた
+        self.assertEqual([r["text"] for r in raw], ["こんにちは"])
+        self.assertEqual((vad["requested"], vad["used"]), ("normal", "off"))
+        self.assertEqual([(r["mode"], r["why"], r["removedSec"]) for r in vad["retries"]], [("normal", "kept", 9.0), ("weak", "empty", 4.0)])
+        self.assertIn("標準→弱め→なし", S.vad_note(vad))
+        calls.clear()
+        raw, vad = S.transcribe_vad_fallback(job, Model(), "a.wav", dict(spec, vadMode="off"))
+        self.assertEqual((calls, vad["retries"], S.vad_note(vad)), (["off"], [], ""))   # 「なし」ならやり直さない
+
+        class Halluc(Model):   # 残りは 25%(捨てすぎではない)だが、出たのはよくある誤認識の文だけ → 文字が 0 と同じにやり直す
+            def transcribe(self, audio, **kw):
+                calls.append("x")
+                if kw.get("vad_filter"):
+                    return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="ご視聴ありがとうございました", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=7.6)
+                return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="やるぜよー", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=30.0)
+        calls.clear()
+        raw, vad = S.transcribe_vad_fallback(job, Halluc(), "a.wav", dict(spec, vadMode="weak"))
+        self.assertEqual(([r["text"] for r in raw], vad["used"], vad["retries"][0]["why"]), (["やるぜよー"], "off", "empty"))
+
     def test_machine_conf(self):
         self.assertEqual(S.machine_conf({"avg_logprob": -0.123456, "no_speech_prob": None, "compression_ratio": float("nan")}), {"avg_logprob": -0.1235})
         self.assertEqual(S.machine_conf({}), {})

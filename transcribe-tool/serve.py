@@ -97,7 +97,7 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.20.1"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.21.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1656,8 +1656,8 @@ class WorkerClient:
                     ev = m.get("ev")
                     if ev == "set":
                         self._apply(job, m)
-                    elif ev == "item":
-                        yield "item", m.get("v")
+                    elif ev in ("item", "info"):   # info = 声の検出の結果(行より先に届く)
+                        yield ev, m.get("v")
                     elif ev == "result":
                         finished = True
                         yield "result", m.get("v")
@@ -1705,6 +1705,24 @@ class _Obj:
         self.__dict__.update(d)
 
 
+class _Segs:
+    """RemoteModel.transcribe の行の生成器。読まずに close() しても、ワーカーとのやり取り(stream)を閉じる
+    (始まっていない生成器の close() は finally を通らないため。声の検出が捨てすぎたときに、行を読まずにやり直す)"""
+
+    def __init__(self, gen, stream):
+        self.gen, self.stream = gen, stream
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.gen)
+
+    def close(self):
+        self.gen.close()
+        self.stream.close()
+
+
 class RemoteModel:
     """ワーカーの中のモデルの代理。transcribe() は faster-whisper の WhisperModel.transcribe と同じ形 (行の生成器, 情報) を返す。
     行は属性(start・end・text・avg_logprob・no_speech_prob・compression_ratio・words)で読めるので、呼び出し側のコードは変えなくてよい。"""
@@ -1723,16 +1741,32 @@ class RemoteModel:
         else:
             raise TypeError("認識する音声は wav のパスか WavRef / WavSlice で渡してください")
         g = self.client.stream("transcribe", {"name": self.name, "device": self.device, "audio": a, "kw": kw}, self.job)
+        info = _Obj({"language": kw.get("language"), "duration": None, "duration_after_vad": None})
+        first = None
+        try:   # faster-whisper と同じく、声の検出の結果(info)は行を読む前に分かるようにする(最初の知らせを先に読む)
+            first = next(g)
+        except StopIteration:
+            pass
+        except BaseException:
+            g.close()
+            raise
+        if first and first[0] == "info" and isinstance(first[1], dict):
+            info.__dict__.update({k: first[1].get(k) for k in ("duration", "duration_after_vad")})
+            first = None
+
+        def conv(v):
+            return _Obj(dict(v, words=[_Obj(w) for w in v.get("words") or [] if isinstance(w, dict)]))
 
         def segs():
             try:
+                if first and first[0] == "item" and isinstance(first[1], dict):
+                    yield conv(first[1])
                 for kind, v in g:
                     if kind == "item" and isinstance(v, dict):
-                        v = dict(v, words=[_Obj(w) for w in v.get("words") or [] if isinstance(w, dict)])
-                        yield _Obj(v)
+                        yield conv(v)
             finally:
                 g.close()
-        return segs(), _Obj({"language": kw.get("language")})
+        return _Segs(segs(), g), info
 
 
 def validate_job(req):
@@ -1828,6 +1862,9 @@ def public_job(j):
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
+    out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
+    out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
+    out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
     return out
 
 
@@ -2035,41 +2072,100 @@ def filter_kwargs(model, kw):
         return kw
 
 
+# ---------- 声の検出(VAD)が捨てすぎたときのやり直し(docs/whole-retranscribe-design.md の 4-2) ----------
+# 声が重なる所・BGM のある所を、Silero VAD が「声ではない」と判断して全部捨て、モデルに何も渡らないことがある(2026-09-28。40 秒が 0 文字)。
+# 残った割合が VAD_MIN_KEEP 未満か、文字が 1 つも出なかったら、「弱め」→「なし」の順に緩めてやり直す
+VAD_MIN_KEEP = 0.2
+VAD_LADDER = {"normal": ("normal", "weak", "off"), "weak": ("weak", "off"), "off": ("off",)}
+VAD_NAMES = {"normal": "標準", "weak": "弱め", "off": "なし"}
+
+
+def seg_to_dict(s, shift=0.0):
+    """認識の1行(faster-whisper の行・ワーカーの代理)→ 辞書(秒は shift を足す)"""
+    words = [(float(w.start) + shift, float(w.end) + shift, str(w.word)) for w in (getattr(s, "words", None) or [])
+             if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
+    return {"start": float(s.start) + shift, "end": float(s.end) + shift, "text": (s.text or "").strip(), "avg_logprob": getattr(s, "avg_logprob", None),
+            "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words}
+
+
+def vad_kept(info, mode):
+    """(声の検出のあとに残った割合, 捨てた秒)。声の検出をかけていない・分からないときは (None, 0.0)"""
+    d, k = getattr(info, "duration", None), getattr(info, "duration_after_vad", None)
+    if mode == "off" or not isinstance(d, (int, float)) or not isinstance(k, (int, float)) or d <= 0:
+        return None, 0.0
+    return max(0.0, min(1.0, k / d)), round(max(0.0, d - k), 2)
+
+
+def vad_note(vad):
+    """やり直したときに画面に出す文(やり直していなければ '')"""
+    if not vad or not vad.get("retries"):
+        return ""
+    steps = "→".join([VAD_NAMES.get(r["mode"], r["mode"]) for r in vad["retries"]] + [VAD_NAMES.get(vad["used"], vad["used"])])
+    return "声の検出で大部分が「声ではない」と判断されたので、検出を緩めて認識しました(声の検出: %s)" % steps
+
+
+def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
+    """声の検出を spec["vadMode"] から始め、捨てすぎ・文字が 0 なら緩めてやり直す。-> (行の辞書の一覧, 声の検出の記録)。
+    記録 = {"requested", "used", "removedSec"(使った設定で捨てた秒), "retries": [{"mode", "kept", "removedSec", "why": "kept"|"empty"}]}。
+    よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(2026-09-28 白上フブキ03: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
+    mode0 = spec.get("vadMode", "weak")
+    ladder = VAD_LADDER.get(mode0, (mode0,))
+    retries = []
+    for i, mode in enumerate(ladder):
+        last = i == len(ladder) - 1
+        kw = filter_kwargs(model, whisper_kwargs(dict(spec, vadMode=mode)))
+        segs, info = model.transcribe(audio, **kw)
+        kept, removed = vad_kept(info, mode)
+        if kept is not None and kept < VAD_MIN_KEEP and not last:
+            close = getattr(segs, "close", None)
+            if close:
+                close()   # 行は読まない(ほとんど捨てた結果なので)
+            retries.append({"mode": mode, "kept": round(kept, 3), "removedSec": removed, "why": "kept"})
+            log.info("声の検出が %.0f%% を捨てたので、緩めてやり直します(%s)", (1 - kept) * 100, mode)
+            continue
+        raw = []
+        for s in segs:
+            if job["cancel"]:
+                raise Cancelled()
+            raw.append(seg_to_dict(s))
+            if on_seg:
+                on_seg(raw[-1], len(raw))   # この回(やり直しごと)の行の数
+        if not any(r["text"] and not any(h in r["text"] for h in HALLUC) for r in raw) and not last:   # 「ご視聴ありがとうございました」だけ = 文字が 0 と同じ
+            retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
+            log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
+            continue
+        return raw, {"requested": mode0, "used": mode, "removedSec": removed, "retries": retries}
+    return [], {"requested": mode0, "used": ladder[-1], "removedSec": 0.0, "retries": retries}
+
+
 def transcribe_real(job, spec, wav, total):
     model, device = load_model(spec["model"], job, spec.get("device", "auto"))
     job["device"] = device
     if job["cancel"]:
         raise Cancelled()
     job["phase"], job["state"] = "文字起こし中", "running"
-    kw = filter_kwargs(model, whisper_kwargs(spec))
 
-    def run(m):
-        segs, _info = m.transcribe(wav, **kw)
-        for s in segs:
-            if job["cancel"]:
-                raise Cancelled()
-            words = [(float(w.start), float(w.end), str(w.word)) for w in (getattr(s, "words", None) or []) if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
-            yield {"start": float(s.start), "end": float(s.end), "text": (s.text or "").strip(), "avg_logprob": getattr(s, "avg_logprob", None),
-                   "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words}
-            job["progress"] = min(0.99, float(s.end) / total) if total else 0.0
+    def progress(r, n):
+        job["progress"] = min(0.99, r["end"] / total) if total else 0.0
+        job["segments"] = n   # 処理状況の「n 行」(行は最後まで読んでから流すので、ここで数える)
 
-    started = False
+    # やり直しに備えて、行は最後まで読んでから流す(やり直す前の行を文書に入れないため)
     try:
-        for x in run(model):
-            started = True
-            yield x
+        raw, vad = transcribe_vad_fallback(job, model, wav, spec, progress)
     except (Cancelled, ApiError):
         raise
     except Exception:
-        if device == "cuda" and not started and spec.get("device") == "cuda":
+        if device == "cuda" and spec.get("device") == "cuda":
             raise ApiError("gpu_failed", "GPU での処理に失敗しました。GPU 用ライブラリが未導入の可能性があります(install-gpu.bat を実行するか、処理方式を「自動」か「CPU」にしてください)", 500)
-        if device != "cuda" or started:
+        if device != "cuda":
             raise
         # 自動のとき、GPU で実行時に失敗(CUDA ライブラリ不足など)したら CPU でやり直す
         job["phase"], job["device"] = "GPU が使えないため CPU で処理します", "cpu"
         model, _ = load_model(spec["model"], job, force_cpu=True)
-        for x in run(model):
-            yield x
+        raw, vad = transcribe_vad_fallback(job, model, wav, spec, progress)
+    job["vad"] = vad
+    for x in raw:
+        yield x
 
 
 SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の「1つの字幕の最大文字数」が優先)
@@ -2207,7 +2303,15 @@ def recognition_run(spec, job, audio_sec, wall_sec):
             "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "glossaryChars": len("、".join(spec.get("glossary") or []))},
-            "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000)}
+            "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000),
+            **vad_record(job.get("vad"))}
+
+
+def vad_record(vad):
+    """recognition.runs に残す声の検出の記録(使った設定・捨てた秒・やり直し)。分からなければ {}"""
+    if not vad:
+        return {}
+    return {"vadUsed": vad.get("used"), "vadRemovedSec": vad.get("removedSec", 0.0), "vadRetries": list(vad.get("retries") or [])}
 
 
 def row_words(p, shift=0.0):
@@ -2252,12 +2356,12 @@ def write_words(tid, words, model=""):
     atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
-def replace_words(tid, a, b, new_words, model=""):
-    """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す)。以前の単語が無い文書は、新しい単語だけにしない
-    (範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
+def replace_words(tid, a, b, new_words, model="", keep_spans=()):
+    """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。
+    以前の単語が無い文書は、新しい単語だけにしない(範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
     old = read_words(tid) or []
-    keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6)]
-    write_words(tid, keep + list(new_words), model)
+    keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6) or _in_spans((w[0] + w[1]) / 2, keep_spans)]
+    write_words(tid, keep + [list(w) for w in new_words], model)
 
 
 def _squash(text):
@@ -2406,6 +2510,12 @@ def run_job(job):
                                                            "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
                   "speakers": [], "segments": segs, "original": original, "updatedAt": now,
                   "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec)]}}
+        if job.get("vad"):
+            fields["params"]["vadUsed"] = job["vad"].get("used")
+            note = vad_note(job["vad"])
+            if note:
+                spec.setdefault("warnings", []).append(note)
+                job["vadNote"] = note
         tid = fill_doc(spec, fields) if spec.get("intoDoc") else None
         if tid is None:
             tid = uuid.uuid4().hex[:12]
@@ -4227,10 +4337,11 @@ def validate_retranscribe(req):
     doc = read_transcript(tid)
     if doc.get("evalSet") is True:
         raise ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
-    check_source(doc.get("sourcePath"))
+    src = check_source(doc.get("sourcePath"))
     valid = {g["id"] for g in (doc.get("segments") or [])}
     ids = [i for i in dict.fromkeys(str(x)[:16] for x in (req.get("ids") or [])[:5000] if isinstance(x, (str, int))) if i in valid][:2000]
-    if not ids:
+    mode = req.get("mode") if req.get("mode") in ("range", "whole") else "each"
+    if not ids and mode != "whole":
         raise ApiError("empty", "再認識する行がありません", 400)
     model = str(req.get("model") or "large-v3").strip()
     if not valid_model(model):
@@ -4241,9 +4352,18 @@ def validate_retranscribe(req):
     with _jobs_lock:
         if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
-    mode = "range" if req.get("mode") == "range" else "each"
     rng = None
-    if mode == "range":   # 選んだ行の最初〜最後を、ひとまとまりの音声として認識し直す(間にある選んでいない行も含む)
+    if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(docs/whole-retranscribe-design.md の 3)
+        segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
+        a = num(doc.get("start"), 0.0) or 0.0
+        b = num(doc.get("end")) or media_duration(src) or max([g["end"] for g in segs] or [0.0])
+        if b <= a + 0.5:
+            raise ApiError("bad_range", "動画の長さが分かりません", 400)
+        if b - a > MAX_SPAN_SEC:
+            raise ApiError("too_long", "1回に処理できるのは6時間までです", 400)
+        ids = [g["id"] for g in segs if not g.get("proofed")]   # 校正済みでない行を差し替える(画面の選択は使わない)
+        rng = [round(a, 3), round(b, 3)]
+    elif mode == "range":   # 選んだ行の最初〜最後を、ひとまとまりの音声として認識し直す(間にある選んでいない行も含む)
         segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
         chosen = [g for g in segs if g["id"] in set(ids)]
         a, b = min(g["start"] for g in chosen), max(g["end"] for g in chosen)
@@ -4252,12 +4372,14 @@ def validate_retranscribe(req):
             raise ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
         rng = [a, b]
     return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "language": lang if lang in LANGS else "ja", "beam": 5,
-            "vadMode": req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
-            "wordSplit": mode == "range" and req.get("wordSplit") is not False, "splitChars": split_chars_for(req),
+            # 全体は画面の設定によらず「弱め」から(抜けを拾うのが目的。捨てすぎたら「なし」へ緩める)。明示の「なし」だけは尊重する
+            "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
+            else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
+            "wordSplit": mode in ("range", "whole") and req.get("wordSplit") is not False, "splitChars": split_chars_for(req),
             "stripPunct": req.get("stripPunct") is not False,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
-            "title": ("範囲を再認識: " if mode == "range" else "再認識: ") + (str(doc.get("title") or "") or "無題")[:100]}
+            "title": {"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: ") + (str(doc.get("title") or "") or "無題")[:100]}
 
 
 AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(dynaudnorm)の窓が数秒あるので、端で音が変わらないよう広めに
@@ -4343,30 +4465,125 @@ def _apply_retranscribe(spec, results):
     return done, unsure
 
 
-def replace_original_multi(orig, a, b, items):
-    keep = [o for o in orig if not (a <= (o["start"] + o["end"]) / 2 <= b)]
-    keep += [{"start": x["start"], "end": x["end"], "text": x["raw"][:MAX_TEXT], **(x.get("conf") or {})} for x in items]
-    keep.sort(key=lambda o: o["start"])
-    return keep
+def _in_spans(t, spans):
+    return any(p0 <= t <= p1 for p0, p1 in spans)
 
 
-def apply_range(spec, lines):
-    """範囲内の行を、新しく認識した行に丸ごと差し替える。話者は、時間が最も重なっていた元の行から引き継ぐ。
-    lines=[{start,end,raw,flag}]。校正済み・音の状態のメモは引き継がない(別の文字になっているため)。"""
+def replace_original_multi(orig, a, b, items, keep=()):
+    """機械の出力の記録のうち、a〜b にある分を新しい機械の出力に差し替える。keep の区間(校正済み・元のまま残した行)にある分は古いまま残す"""
+    keep_o = [o for o in orig if not (a <= (o["start"] + o["end"]) / 2 <= b) or _in_spans((o["start"] + o["end"]) / 2, keep)]
+    keep_o += [{"start": x["start"], "end": x["end"], "text": x["raw"][:MAX_TEXT], **(x.get("conf") or {})} for x in items]
+    keep_o.sort(key=lambda o: o["start"])
+    return keep_o
+
+
+# ---------- 範囲・全体の再認識の反映(docs/whole-retranscribe-design.md の 3-4・4-2) ----------
+PROTECT_PAD = 0.05      # 守る行(校正済み・元のまま残す行)の前後の余白(秒)
+MIN_NEW_LINE = 0.3      # 守る区間を避けて切り詰めた行がこれより短ければ捨てる(秒)
+EMPTY_COVER = 0.3       # 元の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の行を残す
+LOOSE_PAD = 0.5         # ほぼ空だった所を緩い条件で認識し直すときの前後の余白(秒)
+EMPTY_FLAG = "再認識で文字が出なかった(元の行のまま)"
+LOOSE_FLAG = "声が重なる所などを緩い条件で認識"
+
+
+def _ov(a0, a1, b0, b1):
+    return max(0.0, min(a1, b1) - max(a0, b0))
+
+
+def merge_spans(spans):
+    out = []
+    for p0, p1 in sorted(spans):
+        if out and p0 <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], p1))
+        else:
+            out.append((p0, p1))
+    return out
+
+
+def fit_lines(lines, protect, strip=True):
+    """新しい行が守る区間 protect=[(a,b)] にかからないようにする: 真ん中が守る区間に入る行は捨て、一部だけ重なる行は外側に切り詰める
+    (単語の時刻があれば文字も切り詰める)。MIN_NEW_LINE 秒未満になった行は捨てる"""
+    out = []
+    for x in lines:
+        st, en = float(x["start"]), float(x["end"])
+        mid = (st + en) / 2
+        if _in_spans(mid, protect):
+            continue
+        for p0, p1 in protect:
+            if p1 <= st or p0 >= en:
+                continue
+            if p0 <= st:
+                st = p1
+            elif en <= p1:
+                en = p0
+            elif mid < p0:   # 守る区間が行の中にある: 真ん中のある側を残す
+                en = p0
+            else:
+                st = p1
+        if en - st < MIN_NEW_LINE:
+            continue
+        if (st, en) != (x["start"], x["end"]):
+            ws = [w for w in x.get("words") or [] if st - 1e-6 <= (w[0] + w[1]) / 2 <= en + 1e-6]
+            y = dict(x, start=st, end=en, words=ws)
+            if x.get("words"):
+                joined = "".join(w[2] for w in ws).strip()
+                y["raw"] = strip_punct(joined) if strip else joined
+                if not y["raw"]:
+                    continue
+            x = y
+        out.append(x)
+    return out
+
+
+def plan_range(doc, spec, lines):
+    """範囲・全体の再認識の反映の計画(文書は変えない)。
+    -> {"protect": 守る区間, "kept": 守った行(範囲にかかる、差し替えない行), "lines": 守る区間を避けた新しい行,
+        "empty": 新しい認識でほぼ空だった差し替え対象の行(元のまま残す)}"""
+    a, b = spec["range"]
+    ids = set(spec["ids"])
+    segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
+    kept = [g for g in segs if g["id"] not in ids and _ov(g["start"], g["end"], a, b) > 0]
+    protect = [(g["start"] - PROTECT_PAD, g["end"] + PROTECT_PAD) for g in kept]
+    fitted = fit_lines(lines, protect, spec.get("stripPunct", True) is not False)
+    empty = []
+    for g in segs:
+        if g["id"] not in ids or not str(g.get("text") or "").strip():
+            continue
+        d = g["end"] - g["start"]
+        cover = sum(_ov(g["start"], g["end"], x["start"], x["end"]) for x in fitted) / d if d > 0 else 1.0
+        if cover < EMPTY_COVER:
+            empty.append(g)
+    return {"protect": protect, "kept": kept, "lines": fitted, "empty": empty}
+
+
+def apply_range(spec, lines, loose=()):
+    """範囲の行を、新しく認識した行に差し替える。話者は、時間が最も重なっていた元の行から引き継ぐ。
+    lines=[{start,end,raw,flag,words?,conf?}]、loose = ほぼ空だった所を緩い条件で認識した行(印を付けて入れる)。
+    差し替えない行(spec["ids"] に無い行。全体の再認識では校正済み)にかかる新しい行は避け、新しい認識でほぼ空だった元の行は残す(4-2・3-4)。
+    -> {"lines": 入れた新しい行の数, "unsure", "kept": 守った行の数, "emptyKept": 元のまま残した行の数, "loose": 緩い条件の行の数}"""
     with _save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
-        return _apply_range(spec, lines)
+        return _apply_range(spec, lines, loose)
 
 
-def _apply_range(spec, lines):
+def _apply_range(spec, lines, loose=()):
     a, b = spec["range"]
     doc = read_transcript(spec["tid"])
     pairs = parse_replacements(load_settings().get("replacements")) if spec.get("autoDict") else []
+    loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
+    plan = plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
+    empty_ids = {g["id"] for g in plan["empty"]}
+    empty_spans = [(g["start"] - PROTECT_PAD, g["end"] + PROTECT_PAD) for g in plan["empty"]]
+    keep_spans = plan["protect"] + empty_spans
+    new_lines = fit_lines(plan["lines"], empty_spans, spec.get("stripPunct", True) is not False)   # 元のまま残す行にもかけない
     ids = set(spec["ids"])
     old = [g for g in doc.get("segments") or [] if g["id"] in ids]
-    rest = [g for g in doc.get("segments") or [] if g["id"] not in ids]
+    rest = [g for g in doc.get("segments") or [] if g["id"] not in ids or g["id"] in empty_ids]
+    for g in rest:
+        if g["id"] in empty_ids and EMPTY_FLAG not in str(g.get("flag") or ""):
+            g["flag"] = "、".join(f for f in (str(g.get("flag") or ""), EMPTY_FLAG) if f)[:100]
     used = {g["id"] for g in rest}
     new, unsure, n = [], 0, 0
-    for x in lines:
+    for x in new_lines:
         best, bo = "", 0.0
         for g in old:
             ov = min(g["end"], x["end"]) - max(g["start"], x["start"])
@@ -4382,8 +4599,8 @@ def _apply_range(spec, lines):
         new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
         unsure += 1 if x.get("flag") else 0
     doc["segments"] = sorted(rest + new, key=lambda g: (g["start"], g["end"]))
-    if isinstance(doc.get("original"), list):
-        doc["original"] = replace_original_multi(doc["original"], a, b, lines)
+    if isinstance(doc.get("original"), list):   # 守った行・元のまま残した行の機械の出力は古いまま(人が直した行との対応を壊さない)
+        doc["original"] = replace_original_multi(doc["original"], a, b, new_lines, keep_spans)
     bak = os.path.join(TX_DIR, ".bak")
     os.makedirs(bak, exist_ok=True)
     shutil.copy2(tx_path(spec["tid"]), os.path.join(bak, spec["tid"] + ".pre-retranscribe.json"))
@@ -4391,15 +4608,17 @@ def _apply_range(spec, lines):
         hist_snapshot(spec["tid"], force=True)
     except OSError:
         pass
-    doc["retranscribed"] = {"model": spec["model"], "lines": len(new), "range": [a, b], "at": int(time.time() * 1000)}
+    n_loose = sum(1 for x in new_lines if LOOSE_FLAG in str(x.get("flag") or ""))
+    doc["retranscribed"] = {"model": spec["model"], "lines": len(new), "range": [a, b], "whole": spec.get("mode") == "whole",
+                            "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
     apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
     atomic_write(tx_path(spec["tid"]), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
-    try:   # 単語の時刻も範囲の分を差し替える(古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
-        replace_words(spec["tid"], a, b, [w for x in lines for w in x.get("words") or []], spec["model"])
+    try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
+        replace_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
         log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
-    return len(new), unsure
+    return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
 
 
 def range_lines_real(job, model, kw, audio, spec, offset):
@@ -4415,9 +4634,7 @@ def range_lines_real(job, model, kw, audio, spec, offset):
     for s in segs:
         if job["cancel"]:
             raise Cancelled()
-        words = [(float(w.start), float(w.end), str(w.word)) for w in (getattr(s, "words", None) or []) if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
-        raw.append({"start": float(s.start), "end": float(s.end), "text": (s.text or "").strip(), "avg_logprob": getattr(s, "avg_logprob", None),
-                    "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words})
+        raw.append(seg_to_dict(s))
         job["progress"] = min(0.95, 0.1 + float(s.end) / max(1e-6, hi - lo))
     return finish_range_lines(raw, spec, lo + offset)
 
@@ -4641,6 +4858,122 @@ def run_redo(job):
             pass
 
 
+def _fake_spans(name):
+    """テスト用: 環境変数 name = "a-b,c-d"(秒)の区間の一覧"""
+    out = []
+    for part in os.environ.get(name, "").split(","):
+        try:
+            a, b = (float(x) for x in part.split("-"))
+            out.append((a, b))
+        except ValueError:
+            pass
+    return out
+
+
+class RangeRecognizer:
+    """範囲・全体の再認識の認識の部分(本物のモデル / 疑似)。音声は run_retranscribe が取り出した wav(先頭 = 元の動画の offset 秒)。
+    main(a, b): 範囲をひとまとまりで認識(声の検出が捨てすぎたら緩めてやり直す。4-2 の 1)
+    loose(spans): ほぼ空だった所だけ、声の検出なし・捨てる判定なしで認識(4-2 の 3。よくある誤認識の文は捨てる)"""
+
+    def __init__(self, job, spec, wav, offset):
+        self.job, self.spec, self.wav, self.offset = job, spec, wav, offset
+        self.fake = backend_name() == "fake"
+        self.model = self.audio = None
+        self.vad = None
+
+    def _load(self):
+        if self.fake or self.model is not None:
+            return
+        if not has_faster_whisper():
+            raise ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+        self.job["state"] = "loading"
+        self.model, device = load_model(self.spec["model"], self.job, self.spec["device"])
+        self.job["device"] = device
+        self.audio = read_wav_f32(self.wav)
+        self.job["state"] = "running"
+
+    def _chunk(self, a, b, pad):
+        lo, hi = max(0.0, a - self.offset - pad), b - self.offset + pad
+        return self.audio[int(lo * 16000):int(hi * 16000)], lo
+
+    def main(self, a, b):
+        if self.fake:
+            return self._fake(a, b, False)
+        self._load()
+        chunk, lo = self._chunk(a, b, 0.3)
+        if len(chunk) < 1600:
+            return []
+        total = max(1e-6, b - a + 0.6)
+
+        def progress(r, _n):
+            self.job["progress"] = min(0.9, 0.05 + r["end"] / total * 0.85)
+
+        try:
+            raw, self.vad = transcribe_vad_fallback(self.job, self.model, chunk, self.spec, progress)
+        except (Cancelled, ApiError):
+            raise
+        except Exception:
+            if self.job.get("device") == "cuda" and self.spec["device"] == "auto":
+                self.job["phase"], self.job["device"] = "GPU が使えないため CPU で処理します", "cpu"
+                self.model, _ = load_model(self.spec["model"], self.job, force_cpu=True)
+                raw, self.vad = transcribe_vad_fallback(self.job, self.model, chunk, self.spec, progress)
+            elif self.job.get("device") == "cuda":
+                raise ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
+            else:
+                raise
+        return finish_range_lines(raw, self.spec, lo + self.offset)
+
+    def loose(self, spans):
+        out = []
+        if not spans:
+            return out
+        self.job["phase"] = "文字が出なかった所を、条件を緩めて認識中"
+        if self.fake:
+            for s0, s1 in spans:
+                out += self._fake(s0, s1, True)
+            return out
+        self._load()
+        kw = filter_kwargs(self.model, dict(whisper_kwargs(dict(self.spec, vadMode="off")), no_speech_threshold=None))
+        for n, (s0, s1) in enumerate(spans):
+            if self.job["cancel"]:
+                raise Cancelled()
+            chunk, lo = self._chunk(s0, s1, 0.0)
+            if len(chunk) < 1600:
+                continue
+            segs, _info = self.model.transcribe(chunk, **kw)
+            raw = []
+            for x in segs:
+                if self.job["cancel"]:
+                    raise Cancelled()
+                raw.append(seg_to_dict(x))
+            lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset)
+            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "")]   # 無音から出やすい幻覚は入れない(元の行が残る)
+            self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
+        return out
+
+    def _fake(self, a, b, loose):
+        """疑似: 3 秒ごとに「範囲再認識N」。TRANSCRIBE_FAKE_GAP の区間には出さない(声が重なって 0 文字の所の代わり)。
+        loose のときは TRANSCRIBE_FAKE_LOOSE が 1 なら 1.5 秒ごとに「緩い条件N」(無ければ何も出ない)"""
+        job = self.job
+        job["state"], job["device"] = "running", "cpu"
+        if loose and os.environ.get("TRANSCRIBE_FAKE_LOOSE") != "1":
+            return []
+        gaps = [] if loose else _fake_spans("TRANSCRIBE_FAKE_GAP")
+        step, label = (1.5, "緩い条件") if loose else (3.0, "範囲再認識")
+        lines, t0, k = [], a, 0
+        while t0 < b - 0.05:
+            if job["cancel"]:
+                raise Cancelled()
+            e = min(b, t0 + step)
+            if not any(_ov(t0, e, g0, g1) > 0 for g0, g1 in gaps):
+                k += 1
+                lines.append({"start": t0, "end": e, "raw": "%s%d" % (label, k), "flag": "自信が低い" if k % 2 == 0 and not loose else ""})
+            t0 = e
+            job["progress"] = min(0.95, (t0 - a) / max(1e-6, b - a))
+            time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+        return lines
+
+
 def run_retranscribe(job):
     spec = job["spec"]
     wav = os.path.join(TMP_DIR, job["id"] + ".wav")
@@ -4651,55 +4984,34 @@ def run_retranscribe(job):
         start, end = num(doc.get("start"), 0.0) or 0.0, num(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
-        if not targets:
+        whole = spec.get("mode") == "whole"
+        if not targets and not whole:
             raise ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
-        span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") == "range" else [])
+        span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") in ("range", "whole") else [])
         start, end = audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         results = {}
-        if spec.get("mode") == "range":
+        if spec.get("mode") in ("range", "whole"):
             a, b = spec["range"]
-            if backend_name() == "fake":
-                job["state"], job["phase"], job["device"] = "running", "範囲を認識中", "cpu"
-                lines, t0, k = [], a, 0
-                while t0 < b - 0.05:
-                    if job["cancel"]:
-                        raise Cancelled()
-                    k += 1
-                    e = min(b, t0 + 3.0)
-                    lines.append({"start": t0, "end": e, "raw": "範囲再認識%d" % k, "flag": "自信が低い" if k % 2 == 0 else ""})
-                    t0 = e
-                    job["progress"] = min(0.95, (t0 - a) / max(1e-6, b - a))
-                    time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
-            else:
-                if not has_faster_whisper():
-                    raise ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
-                job["state"] = "loading"
-                model, device = load_model(spec["model"], job, spec["device"])
-                job["device"] = device
-                audio = read_wav_f32(wav)
-                job["state"], job["phase"] = "running", "範囲を認識中"
-                kw = filter_kwargs(model, whisper_kwargs(spec))
-                try:
-                    lines = range_lines_real(job, model, kw, audio, spec, start)
-                except (Cancelled, ApiError):
-                    raise
-                except Exception:
-                    if device == "cuda" and spec["device"] == "auto":
-                        job["phase"], job["device"] = "GPU が使えないため CPU で処理します", "cpu"
-                        model, device = load_model(spec["model"], job, force_cpu=True)
-                        kw = filter_kwargs(model, whisper_kwargs(spec))
-                        lines = range_lines_real(job, model, kw, audio, spec, start)
-                    elif device == "cuda" and spec["device"] == "cuda":
-                        raise ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
-                    else:
-                        raise
+            rec = RangeRecognizer(job, spec, wav, start)
+            job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
+            lines = rec.main(a, b)
             if job["cancel"]:
                 raise Cancelled()
-            if not lines:
-                raise ApiError("no_speech", "この範囲からは、文字が認識されませんでした(元の行はそのままです)", 400)
-            job["segments"], job["unsure"] = apply_range(spec, lines)
+            # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
+            gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
+            loose = rec.loose(merge_spans(gaps)) if gaps else []
+            if job["cancel"]:
+                raise Cancelled()
+            if not lines and not loose:
+                raise ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
+            r = apply_range(spec, lines, loose)
+            job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
+            note = vad_note(rec.vad)
+            if note:
+                job["vadNote"] = note
+                job.setdefault("warnings", []).append(note)
             job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
             return
         if backend_name() == "fake":

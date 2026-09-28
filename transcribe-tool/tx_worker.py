@@ -144,6 +144,7 @@ def install_fakes(S):
     import types
     delay = float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05"))
     crash_at = int(os.environ.get("TRANSCRIBE_WORKER_CRASH", "0") or 0)
+    vad_mode_drop = os.environ.get("TRANSCRIBE_FAKE_VAD", "")
 
     class Seg:
         def __init__(self, a, b, text, lp=-0.3):
@@ -165,6 +166,12 @@ def install_fakes(S):
                     total = w.getnframes() / float(w.getframerate())
             else:
                 total = len(audio) / 16000.0
+            # TRANSCRIBE_FAKE_VAD: drop-normal = 声の検出「標準」のとき全部を捨てる / drop-vad = 声の検出をかけると全部を捨てる(「なし」だけ文字が出る)
+            weak = bool(vad_parameters) and vad_parameters.get("threshold") == 0.3
+            drop = vad_filter and ((vad_mode_drop == "drop-normal" and not weak) or vad_mode_drop == "drop-vad")
+            info = types.SimpleNamespace(language=language or "ja", duration=total, duration_after_vad=0.0 if drop else total)
+            if drop:
+                return iter(()), info
 
             def gen():
                 t, i = 0.0, 0
@@ -176,7 +183,7 @@ def install_fakes(S):
                         os._exit(70)
                     time.sleep(delay)
                     t = e
-            return gen(), types.SimpleNamespace(language=language or "ja", duration=total)
+            return gen(), info
 
     fw = types.ModuleType("faster_whisper")
     fw.WhisperModel = FakeWhisper
@@ -219,6 +226,10 @@ def handle(S, m, out, cancels):
             audio = _audio(m.get("audio") or {})
             kw = m.get("kw") or {}
             segs, info = model.transcribe(audio, **kw)
+            # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
+            # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/whole-retranscribe-design.md の 4-2)
+            out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
+                                                       for k in ("duration", "duration_after_vad")}})
             n = 0
             for s in segs:
                 if rid in cancels:

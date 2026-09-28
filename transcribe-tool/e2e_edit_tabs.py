@@ -254,6 +254,29 @@ def main():
             check(True, "「疑わしい所を認識し直す」で、文字が少なかった行が置き換わり、画面も読み直す")
             check(srv.get("/api/transcript?id=" + tid1).get("redo", {}).get("rows") == 1, "置き換えた記録が文書に残る")
 
+            # ---- 動画全体の再認識(docs/whole-retranscribe-design.md の 3): 校正済みの行は残し、ほかを新しい行に(認識は疑似 = 3 秒ごとに「範囲再認識N」)
+            tidw = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+            dw = srv.get("/api/transcript?id=" + tidw)
+            segs_w = [dict(g, text="人が直した一行目", proofed=True) if n == 0 else g for n, g in enumerate(dw["segments"])]
+            srv.call("PUT", "/api/transcript?id=" + tidw, {"title": dw["title"], "speakers": dw.get("speakers", []), "baseUpdatedAt": dw["updatedAt"], "segments": segs_w})
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            open_doc(pg, "一本目")
+            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
+            pg.evaluate("document.querySelector('#fixDetails').open = true; const s = document.querySelector('#rtTarget'); s.value = 'whole'; s.dispatchEvent(new Event('change'))")
+            hint = pg.inner_text("#rtHint")
+            check("動画全体 0:00" in hint and "校正済みの 1 行は残し" in hint and "残り 2 行" in hint and not pg.is_disabled("#rtGo"),
+                  "「対象」の「動画全体」: 範囲・残す行・差し替える行のヒント: %s" % hint)
+            pg.click("#rtGo")
+            check("校正済み以外の行が書き換わります" in pg.inner_text("#rtGo"), "1回目は押し直しの案内(何が起きるかを書く): %s" % pg.inner_text("#rtGo"))
+            pg.click("#rtGo")
+            wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('範囲再認識'))", 20000)
+            texts = pg.evaluate("[...document.querySelectorAll('#segs .seg textarea')].map(t => t.value)")
+            check(texts[0] == "人が直した一行目" and all(t.startswith("範囲再認識") for t in texts[1:]),
+                  "終わると読み直し、校正済みの行は残って、ほかは新しい行: %s" % texts)
+            check("校正済み 1 行は元のまま" in pg.inner_text("#toast") or "校正済み 1 行" in pg.inner_text("#toast"), "完了の知らせに残した行: %s" % pg.inner_text("#toast"))
+            check("全体を再認識" in pg.inner_text("#docInfo"), "認識の設定の欄に「全体を再認識」: %s" % pg.inner_text("#docInfo")[-60:])
+
             # ---- キー操作の一覧・狭い画面
             pg.click("#btnKeys")
             check("タブ(文字起こし・カット・パック)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2/3")

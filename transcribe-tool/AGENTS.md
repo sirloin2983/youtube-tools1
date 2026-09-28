@@ -1,6 +1,7 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.20.1**(2026-09-28、文字起こしの改善の計画の段0(下の「精度の測定の土台」)。画面は変わらない)。
+現在 **v0.21.0**(2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/whole-retranscribe-design.md`)・映像の上の字幕に話者の色)。
+v0.20.1 = 2026-09-28、文字起こしの改善の計画の段0(下の「精度の測定の土台」)。画面は変わらない。
 v0.20.0 = 2026-09-27、画面の直しの候補の実装 `../docs/backlog-ui-2026-09-27.md`: 話者の声を覚える(A-3。下の「話者の声」)・話者ごとの字幕の色(A-2)・
 ?doc= で文書を開く(B-1)・右クリックのメニューのキー(B-3)・設定を ⚙ に1つ(B-9)・1600px 未満はメニューを重ねる(B-7)・カットの [ ] Q W(B-10))。
 v0.19.0 = 2026-09-27、キー配置: ⚙ 設定の「キー配置」で 1 文字起こし のキーと共通の再生キーの割り当てを変えられる。保存は `S.settings.keymap`(サーバーの config.json)。下の「キー操作」の項)。
@@ -76,6 +77,11 @@ GPT の設計書 `TRANSCRIPTION_V2_DESIGN.md`(精度改善 v2。実装は保留)
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
   **単語の時刻** `transcripts/<id>.words.json`(文書全体の単語の並び。認識と範囲の再認識が書く・削除で消す)と `POST /api/resplit`(今の文書を分け直す)。
   1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②。
+  **再認識(範囲・全体)と声の検出のやり直し**(v0.21.0。`../docs/whole-retranscribe-design.md`): `POST /api/retranscribe` の `mode` = each(行ごと)/ range / **whole**(文書の範囲全体。`ids` はサーバーが「校正済みでない行」を入れる・上限は新規と同じ `MAX_SPAN_SEC`・声の検出は明示の off 以外「弱め」・評価用は断る)。
+  range と whole の認識は `RangeRecognizer`(本物 / 疑似。疑似は `TRANSCRIBE_FAKE_GAP`・`TRANSCRIBE_FAKE_LOOSE` で 0 文字の所と緩い条件の結果を作れる)。反映は `apply_range(spec, lines, loose)` → `plan_range`(差し替えない行 = 守る区間を `fit_lines` で避ける・新しい行の重なりが `EMPTY_COVER` 未満の元の行は残して `EMPTY_FLAG`)。
+  ほぼ空だった所は `RangeRecognizer.loose`(声の検出なし・`no_speech_threshold=None`・よくある誤認識の文は捨てる・`LOOSE_FLAG`)。守る区間と残した行の `original`・単語の時刻は古いまま(`replace_original_multi`・`replace_words` の keep)。
+  **声の検出が捨てすぎたら緩める**: `transcribe_vad_fallback`(新規 `transcribe_real`・range・whole が共通で使う。`VAD_LADDER` 標準→弱め→なし、残りが `VAD_MIN_KEEP` 未満か文字 0 で次へ)。ワーカーは認識を始めた直後に `info`(duration・duration_after_vad)を送り、`RemoteModel.transcribe` は行より先にそれを読む(`_Segs.close()` で行を読まずにやめられる)。新規の文字起こしは、やり直しに備えて行を最後まで読んでから流す(処理状況の行数は読みながら `job["segments"]` に入れる)。記録は `recognition.runs` の `vadUsed`・`vadRemovedSec`・`vadRetries`、`params.vadUsed`、知らせは `job["vadNote"]`(`public_job`)。疑似のワーカーは `TRANSCRIBE_FAKE_VAD`(drop-normal / drop-vad)
+  `public_job` は `job["warnings"]` も画面に出す(以前は `spec["warnings"]` だけで、ジョブの中で足した注意が届いていなかった)
   **疑わしい所だけ認識し直す**: ジョブ `redo`(`POST /api/redo`・`run_redo`・`redo_targets`・`redo_better`・`apply_redo`。話者判別・再認識と同じく編集を止める)。設定 `autoRedo`(既定オフ)・`redoLarge`。設計書の 12 ③-2
   **行の cutState は、編集の内容があれば文書のどの書き込みでも `apply_edit_cuts` で編集の内容から付け直す**(新しく文書を書き込む処理を足すときも通す)。
   細かい決まりは設計書の「11. 実装で決めたこと」
@@ -146,6 +152,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   コサイン類似度 `VOICE_MATCH`(0.60)以上・2番目との差 `VOICE_MARGIN`(0.08)以上・1つの名前は1人だけ(`match_voices`)のときに、
   **仮の名前(`話者n`)のままの話者だけ**名前を付ける。失敗しても判別の結果は残す(警告)。ジョブ `voice-learn`(`/api/voices/learn`)、一覧 `GET /api/voices`(特徴そのものは返さない)・`/api/voices/delete`。
   疑似モードの特徴 `embed_fake` は偽の話者判別と同じ 10 秒の入れ替わり(テストで「覚える → 名前が付く」を確かめるため)。声の特徴は個人を見分けられる情報なので、作業データの外に出さない(.gitignore の `**/voices/`)
+- 映像の上の字幕(`#playerCaption`)は、行の話者の名前がメンバーと合えばその色(`capSpeakerColor`。入口の `api/ytt/streamer-colors` を名前ごとに1回引いて覚える・パックのタブの `tx.pk.speakerColors` が '0' なら出さない・合わなければ pack-tab.js が body に入れた配信者の色 `--tt-cap-color` のまま)
 - 行の ▶ は**その行だけ**再生して止まる(`playSeg(s, true)`)。通しの再生は映像そのものの再生ボタン / Space だけ
 - キー操作は**単体キー**(Shift 不要)。例外は Shift+Space(校正済みにして次へ)と Shift+↓/↑(未校正への移動)だけ。Z は2回押しで削除。
   **左手のキー(ユーザー決定 2026-09-27「左手での操作が使いやすかった」。やめない)**: W/S 行・A/D 未校正・Q/E 3秒・B 自動で再生の切り替え・Tab 入力欄に入る/抜ける・入力中の Ctrl+Enter 聞き直す。

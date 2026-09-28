@@ -99,6 +99,24 @@ def main():
             check(fills[0] == [1.0, 0.5608, 0.8745, 1.0] and fills[1] is None and fills[2] is None,
                   "話者「みこ」の字幕だけ さくらみこの色、ほかは配信者の色のまま(A-2): %s" % fills)
             check(pg.evaluate("JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}')[%s]" % json.dumps(tid)) == "ぺこら", "配信者の名前は文書ごとに覚える")
+            # 1 文字起こし の映像の上の字幕も、話者「みこ」の行は さくらみこの色・ほかは配信者(ぺこら)の色(パックと同じ規則)
+            pg.keyboard.press("Alt+1")
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
+            cap_color = "getComputedStyle(document.querySelector('#playerCaption')).color"
+            if pg.is_visible("#menuScrim"):
+                pg.click("#menuScrim")   # 1600px 未満では左のメニューが本文の上に重なって開いている(B-7)ので閉じる
+            pick = lambda i: pg.locator("#segs .seg").nth(i).locator("textarea").first.click()   # 行を選ぶ(止まっているときは選んだ行が字幕に出る)
+            pick(0)
+            check(wait_js(pg, "%s === 'rgb(255, 143, 223)'" % cap_color, 10000), "映像の上の字幕: 話者「みこ」の行は さくらみこの色: %s" % pg.evaluate(cap_color))
+            pick(2)
+            check(wait_js(pg, "%s === 'rgb(126, 194, 254)'" % cap_color, 5000), "話者の無い行は配信者の色のまま: %s" % pg.evaluate(cap_color))
+            pg.evaluate("localStorage.setItem('tx.pk.speakerColors', '0')")
+            pick(0)
+            check(wait_js(pg, "%s === 'rgb(126, 194, 254)'" % cap_color, 5000), "パックの「話者の名前がメンバーと合えば…」を切っていれば、映像の上でも出さない")
+            pg.evaluate("localStorage.removeItem('tx.pk.speakerColors')")
+            pg.keyboard.press("Escape")          # 行の文字の入力中の Alt+数字 は話者なので、タブは押して戻る
+            pg.click("[data-edtab=pack]")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
             e = srv.get("/api/edit?id=" + tid)
             check(e["edit"]["packRev"] == e["rev"] == 1 and os.path.normcase(e["edit"]["pack"]["dir"]) == os.path.normcase(packdir) and not e["packStale"],
                   "作った記録(packRev = 作ったときのカットの rev・出力フォルダ)")

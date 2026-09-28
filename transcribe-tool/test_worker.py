@@ -129,6 +129,127 @@ class WorkerTest(unittest.TestCase):
             job2 = self.transcribe()                                               # 設定がオフなら足さない
             self.assertFalse([j for j in S._jobs.values() if j.get("kind") == "redo" and j.get("tid") == job2["tid"]])
 
+    # ---- 声の検出が捨てすぎたときのやり直し(docs/whole-retranscribe-design.md の 4-2)
+    def test_vad_drops_everything_then_relaxes(self):
+        """声の検出「標準」が全部を捨てた(複数人で 0 文字の例)→「弱め」でやり直して文字が出る。記録と知らせが残る"""
+        os.environ["TRANSCRIBE_FAKE_VAD"] = "drop-normal"
+        job = self.transcribe(vadMode="normal")
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = self.doc(job["tid"])
+        self.assertEqual(len(d["segments"]), 5)
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((run["settings"]["vadMode"], run["vadUsed"]), ("normal", "weak"))
+        self.assertEqual([(r["mode"], r["why"], r["kept"]) for r in run["vadRetries"]], [("normal", "kept", 0.0)])
+        self.assertEqual(d["params"]["vadUsed"], "weak")
+        pj = S.public_job(job)
+        self.assertIn("声の検出: 標準→弱め", pj["vadNote"])
+        self.assertIn(pj["vadNote"], pj["warnings"])                        # 処理状況にも出る
+        # 声の検出をかけると全部捨てる → 「なし」まで緩める
+        os.environ["TRANSCRIBE_FAKE_VAD"] = "drop-vad"
+        S.WORKER.close()
+        S.WORKER = S.WorkerClient()
+        job = self.transcribe(vadMode="normal")
+        run = self.doc(job["tid"])["recognition"]["runs"][0]
+        self.assertEqual((run["vadUsed"], [r["mode"] for r in run["vadRetries"]]), ("off", ["normal", "weak"]))
+        # 捨てすぎていなければ、やり直さない
+        os.environ["TRANSCRIBE_FAKE_VAD"] = ""
+        S.WORKER.close()
+        S.WORKER = S.WorkerClient()
+        job = self.transcribe(vadMode="normal")
+        run = self.doc(job["tid"])["recognition"]["runs"][0]
+        self.assertEqual((run["vadUsed"], run["vadRetries"], run["vadRemovedSec"]), ("normal", [], 0.0))
+        self.assertEqual(S.public_job(job)["vadNote"], "")
+
+    # ---- 動画全体の再認識(docs/whole-retranscribe-design.md の 3)。認識は疑似(3 秒ごとに「範囲再認識N」)
+    def _whole(self, tid, **req):
+        spec = S.validate_retranscribe(dict({"tid": tid, "mode": "whole", "model": "small"}, **req))
+        job = S.add_job(spec, "retranscribe")
+        with mock.patch.object(S, "backend_name", lambda: "fake"):
+            S.work_one(job["id"])
+        return spec, job
+
+    def _proof_first(self, tid, text="人が直した一行目"):
+        d = self.doc(tid)
+        d["segments"][0].update(text=text, proofed=True, speaker="")
+        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
+        return self.doc(tid)
+
+    def test_whole_keeps_proofed_rows(self):
+        tid = self.transcribe()["tid"]
+        before = self._proof_first(tid)
+        s1, orig1 = before["segments"][0], before["original"][0]
+        spec, job = self._whole(tid)
+        self.assertEqual(spec["vadMode"], "weak")                            # 全体は既定「弱め」
+        self.assertEqual(spec["ids"], [g["id"] for g in before["segments"][1:]])   # 校正済みでない行だけ差し替える
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = self.doc(tid)
+        self.assertEqual(d["segments"][0], s1)                               # 校正済みの行は文字・時刻・印そのまま
+        self.assertIn(orig1, d["original"])                                  # その機械の出力も古いまま
+        new = d["segments"][1:]
+        self.assertTrue(new and all(g["text"].startswith("範囲再認識") for g in new))
+        self.assertTrue(all(g["start"] >= s1["end"] for g in new))           # 校正済みの行にかかる新しい行は切り詰めた
+        self.assertEqual((d["retranscribed"]["whole"], d["retranscribed"]["kept"], d["retranscribed"]["emptyKept"]), (True, 1, 0))
+        self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
+        self.assertTrue(os.path.isfile(os.path.join(S.TX_DIR, ".bak", tid + ".pre-retranscribe.json")))
+
+    def test_whole_keeps_rows_where_nothing_was_recognized(self):
+        """新しい認識で 0 文字だった所(声が重なる所の代わり)は元の行を残して印を付ける。緩い条件で文字が出れば、それで埋める"""
+        tid = self.transcribe()["tid"]                                        # 4 秒ごとの行(8〜12 秒 = テスト文3)
+        os.environ["TRANSCRIBE_FAKE_GAP"] = "8-12"
+        _spec, job = self._whole(tid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = self.doc(tid)
+        kept = [g for g in d["segments"] if g["text"] == "テスト文3"]
+        self.assertEqual(len(kept), 1)
+        self.assertIn(S.EMPTY_FLAG, kept[0]["flag"])
+        self.assertEqual((job["emptyKept"], job["loose"]), (1, 0))
+        self.assertTrue(any(o["text"] == "テスト文3" for o in d["original"]))  # 残した行の機械の出力も残す
+        # 緩い条件なら文字が出る場合: その所は新しい行(印つき)になる
+        tid2 = self.transcribe()["tid"]
+        os.environ["TRANSCRIBE_FAKE_LOOSE"] = "1"
+        _spec, job = self._whole(tid2)
+        d = self.doc(tid2)
+        loose = [g for g in d["segments"] if g["text"].startswith("緩い条件")]
+        self.assertTrue(loose and all(S.LOOSE_FLAG in g["flag"] for g in loose))
+        self.assertFalse([g for g in d["segments"] if g["text"] == "テスト文3"])
+        self.assertEqual(job["emptyKept"], 0)
+        self.assertGreater(job["loose"], 0)
+
+    def test_range_keeps_rows_where_nothing_was_recognized(self):
+        """「範囲をまとめて」も、0 文字だった所の元の行は消さない(以前は消えていた)"""
+        tid = self.transcribe()["tid"]
+        ids = [g["id"] for g in self.doc(tid)["segments"][1:4]]               # 4〜16 秒
+        os.environ["TRANSCRIBE_FAKE_GAP"] = "8-12"
+        spec = S.validate_retranscribe({"tid": tid, "mode": "range", "ids": ids, "model": "small"})
+        job = S.add_job(spec, "retranscribe")
+        with mock.patch.object(S, "backend_name", lambda: "fake"):
+            S.work_one(job["id"])
+        self.assertEqual(job["state"], "done", job.get("error"))
+        texts = [g["text"] for g in self.doc(tid)["segments"]]
+        self.assertIn("テスト文3", texts)
+        self.assertNotIn("テスト文2", texts)
+        self.assertEqual(job["emptyKept"], 1)
+
+    def test_whole_rules(self):
+        tid = self.transcribe()["tid"]
+        d = self.doc(tid)
+        d["segments"] = []
+        S.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))       # 行が 0 の文書(全部捨てられた文書)も全体で認識し直せる
+        _spec, job = self._whole(tid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertTrue(self.doc(tid)["segments"])
+        self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "off"})["vadMode"], "off")   # 明示の「なし」は尊重
+        self.assertEqual(S.validate_retranscribe({"tid": tid, "mode": "whole", "vadMode": "normal"})["vadMode"], "weak")
+        d = self.doc(tid)
+        S.atomic_write(S.tx_path(tid), json.dumps(dict(d, end=7 * 3600), ensure_ascii=False).encode("utf-8"))
+        with self.assertRaises(S.ApiError) as c:
+            S.validate_retranscribe({"tid": tid, "mode": "whole"})
+        self.assertEqual(c.exception.code, "too_long")                        # 上限は新規の文字起こしと同じ 6 時間
+        S.atomic_write(S.tx_path(tid), json.dumps(dict(d, evalSet=True), ensure_ascii=False).encode("utf-8"))
+        with self.assertRaises(S.ApiError) as c:
+            S.validate_retranscribe({"tid": tid, "mode": "whole"})
+        self.assertEqual(c.exception.code, "eval_set")                        # 評価用は断る
+
     def test_word_split_uses_worker_words(self):
         job = self.transcribe(wordSplit=True)
         self.assertEqual(job["state"], "done", job.get("error"))

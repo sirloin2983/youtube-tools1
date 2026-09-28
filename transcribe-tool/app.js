@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.20.1';
+const APP_VERSION = '0.21.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -507,6 +507,7 @@ async function pollJobs(){
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
+  for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した(4-2)。今回終わった文字起こしだけ
   if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
   if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
@@ -517,7 +518,8 @@ async function pollJobs(){
       loadLearned();
       if (diar.tid === S.docId) await openDoc(diar.tid, true);
       toast(diar.kind === 'redo' ? `疑わしい所を認識し直しました: ${diar.phase || ''}` + (diar.segments ? '(前の版は「以前の版に戻す」に残っています)' : '')
-        : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります` : '')
+        : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
+          + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
         : `話者を判別しました(${diar.speakers}人)。` + ((diar.named || []).length ? `覚えている声で名前を付けました: ${diar.named.map(x => x.name).join('・')}。` : '')
           + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : (diar.named || []).length >= diar.speakers ? '' : '「話者」で名前を付けてください'));
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
@@ -882,7 +884,7 @@ function renderRtSetup(){
   sel.innerHTML = t.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
   const want = S.settings.rtModel && t.models.some(m => m[0] === S.settings.rtModel) ? S.settings.rtModel : (t.models.some(m => m[0] === 'large-v3') ? 'large-v3' : t.models[0][0]);
   sel.value = want;
-  if (['text', 'sel', 'all', 'range'].includes(S.settings.rtTarget)) $('#rtTarget').value = S.settings.rtTarget;
+  if (['text', 'sel', 'all', 'range', 'whole'].includes(S.settings.rtTarget)) $('#rtTarget').value = S.settings.rtTarget;
 }
 const RANGE_MAX = 900;
 function rtRange(){   // 選んだ行の最初〜最後(間の行も含む)
@@ -894,6 +896,7 @@ function rtIds(){
   if (!S.doc) return [];
   const k = $('#rtTarget').value, segs = S.doc.segments;
   if (k === 'range'){ const r = rtRange(); return r ? r.ids.slice(0, 2000) : []; }
+  if (k === 'whole') return segs.filter(s => !s.proofed).map(s => s.id);   // 数えるだけ(送らない。サーバーが校正済みでない行を選ぶ)
   return segs.filter(s => k === 'all' || (k === 'sel' ? S.sel.has(s.id) : flagMatch(s, 'text'))).map(s => s.id).slice(0, 2000);
 }
 function updateRt(){
@@ -901,20 +904,38 @@ function updateRt(){
   const ids = new Set(rtIds()), sec = S.doc.segments.filter(s => ids.has(s.id)).reduce((a, s) => a + (s.end - s.start), 0);
   $('#rtHint').textContent = `対象: ${ids.size}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'})`;
   $('#rtGo').disabled = !ids.size;
+  if ($('#rtTarget').value === 'whole'){ rtWholeHint(); return; }
   if ($('#rtTarget').value === 'range'){
     const r = rtRange();
     $('#rtHint').textContent = r ? `範囲: ${fmtT(r.a)}〜${fmtT(r.b)}(${r.ids.length}行を、新しい行に差し替えます。行の数は変わります。選んでいない間の行も入ります)` + (r.b - r.a > RANGE_MAX ? ' — 長すぎます(最大15分)' : '') : '行を選んでください(チェックボックス)';
     if (!r || r.b - r.a > RANGE_MAX) $('#rtGo').disabled = true;
   }
 }
+/* 動画全体(docs/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
+   目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
+const WHOLE_RTF = { 'large-v3': 0.37 };
+function docSpan(){
+  const d = S.doc, p = player(), a = Number(d.start) || 0;
+  const b = Number(d.end) || Number(d.duration) || (p && isFinite(p.duration) ? p.duration : 0) || Math.max(0, ...d.segments.map(s => s.end));
+  return { a, b };
+}
+function rtWholeHint(){
+  const { a, b } = docSpan(), kept = S.doc.segments.filter(s => s.proofed).length, rest = S.doc.segments.length - kept;
+  const rtf = WHOLE_RTF[$('#rtModel').value], min = rtf ? Math.max(1, Math.round((b - a) * rtf / 60)) : 0;
+  const tooLong = b - a > 6 * 3600;
+  $('#rtHint').textContent = `動画全体 ${fmtT(a)}〜${fmtT(b)} を認識し直します。` + (kept ? `校正済みの ${kept} 行は残し、` : '') + `残り ${rest} 行を新しい行に差し替えます(行の数は変わります。文字が出なかった所は元の行を残します)。`
+    + (min ? `目安 約${min}分(CPU・large-v3)。` : '') + (S.doc.evalSet ? ' — 評価用の文字起こしは再認識できません' : '') + (tooLong ? ' — 長すぎます(最大6時間)' : '');
+  $('#rtGo').disabled = !(b > a) || tooLong || !!S.doc.evalSet;
+}
 async function startRetranscribe(){
   if (!S.doc) return;
-  const ids = rtIds(); if (!ids.length) return toast('再認識する行がありません');
+  const whole = $('#rtTarget').value === 'whole';
+  const ids = whole ? [] : rtIds(); if (!ids.length && !whole) return toast('再認識する行がありません');
   await saveDoc();
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
-  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
+  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
     boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked } });
-  startPolling(); await pollJobs(); toast(`${ids.length}行の再認識を待機列に追加しました`);
+  startPolling(); await pollJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
 }
 $('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
@@ -929,10 +950,12 @@ $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ�
 $('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
 ['optSubOrient', 'optMaxV', 'optMaxH'].forEach(id => $('#' + id).addEventListener('change', renderResplitOpts));
 $('#rtGo').addEventListener('click', e => {
-  const b = e.currentTarget;
+  const b = e.currentTarget, first = !b.dataset.armed;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
+  if (first && $('#rtTarget').value === 'whole') b.textContent = 'もう一度押す(校正済み以外の行が書き換わります)';
 });
 $('#rtTarget').addEventListener('change', updateRt);
+$('#rtModel').addEventListener('change', updateRt);   // 動画全体の目安はモデルで変わる
 
 /* ---------- 修正から学習した候補 ---------- */
 let learned = { items: [], docs: 0 };
@@ -1431,7 +1454,7 @@ async function openDoc(id, keep){
   $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
-  { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / 再認識: ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
+  { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + ({ weak: '弱め', normal: '標準', off: 'なし' }[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : ''}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / ' + (d.retranscribed.whole ? '全体を再認識' : '再認識') + ': ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
   $('#playerMsg').hidden = true;
   const p = player();
   if (!keep){   // 話者判別のあとの読み直しでは、再生位置をそのままにする
@@ -1756,6 +1779,26 @@ function updateCaption(){
   const idx = S.doc ? (capFollow ? S.curIdx : S.navIdx) : -1;
   const g = idx >= 0 && S.doc ? S.doc.segments[idx] : null, text = g && String(g.text || '').trim();
   el.textContent = text || ''; el.hidden = !text;
+  const hex = text ? capSpeakerColor(g) : '';
+  if (hex) el.style.setProperty('--tt-cap-color', hex); else el.style.removeProperty('--tt-cap-color');   // 無ければ配信者の色(pack-tab.js が body に入れる)のまま
+}
+/* 話者の名前がメンバーと合えば、映像の上の字幕をその人の色にする(パックの「話者の名前がメンバーと合えば…」A-2 と同じ規則 = 入口の
+   api/ytt/streamer-colors → ytt_core/colors.py)。パックのタブでそのスイッチを切っていれば出さない。入口の中だけ(単体では API が無い) */
+const capSpk = new Map();   // 話者の名前 → '#rrggbb' | '' | Promise
+function capSpeakerColor(g){
+  if (!TOKEN || !g || !g.speaker) return '';
+  try { if (localStorage.getItem('tx.pk.speakerColors') === '0') return ''; } catch {}
+  const sp = (S.doc.speakers || []).find(x => x.id === g.speaker), name = sp ? String(sp.name || '').trim() : '';
+  if (!name) return '';
+  const v = capSpk.get(name);
+  if (typeof v === 'string') return v;
+  if (!v){
+    const p = api('/api/ytt/streamer-colors', { body: { q: name } })
+      .then(j => (j && j.match && /^#[0-9a-fA-F]{6}$/.test(String(j.match.hex || '')) ? j.match.hex : ''), () => '');   // 色は style に入れるので形を確かめる
+    capSpk.set(name, p);
+    p.then(hex => { capSpk.set(name, hex); updateCaption(); });
+  }
+  return '';
 }
 function gotoRow(i, opt = {}){
   const row = rowsEl()[i]; if (!row || !row.classList.contains('seg') || row.hidden) return false;
