@@ -528,6 +528,7 @@ async function loadVideo(id){
   setNow(0);
   mountPlayer();
   renderAll();
+  if (typeof fillAutoWho === 'function') fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から(段5)
   if (typeof syncExportDock === 'function') syncExportDock();   // (テストは loadVideo だけを切り出して動かすので、無いときは飛ばす) // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
   refreshList();
   fetchAutoTitle(S.cur);
@@ -1529,7 +1530,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button></div></details>` : ''}
+      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -2014,14 +2015,20 @@ async function maybeAutoTranscribe(videoId, markIds){
 }
 /* まとめて実行(③ のメニュー・マークの行の「この後を ▸」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
    採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
+/* マークの行の「この後を ▸」: 実行する前に字幕の色(③ のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
+function autoWhoText(){ const el = document.getElementById('rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
+function fillAutoWho(){
+  if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill && Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
+}
 async function startAuto(mode, marks){
   if (!S.cur) return;
   const top = Math.min(20, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
-    const who = $('#rvAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(配信者名から自動では入れない)
+    const who = window.UIKit && UIKit.streamer && UIKit.streamer.check ? await UIKit.streamer.check($('#rvAutoWho')) : $('#rvAutoWho').value.trim();
+    if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
     const ar = window.UIKit && UIKit.autorun, st = ar ? ar.state() : null;
-    const body = { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}), ...(marks ? { marks } : {}), overwrite: !!(st && st.overwrite) };
+    const body = { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), streamer: who, ...(marks ? { marks } : {}), overwrite: !!(st && st.overwrite) };   // 空 = 色なし(欄は自動で入る)
     const r = ar ? await ar.start('api/autorun/start', body, { id: body.id, mode, marks: marks || null, top: body.top, overwrite: body.overwrite })
       : await portalApi('api/autorun/start', body);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)

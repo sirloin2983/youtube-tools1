@@ -405,6 +405,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-ar-c{display:flex;gap:6px;align-items:flex-start;line-height:1.4}
 .ui-ar-f select,.ui-ar-f input[type=number]{max-width:100%}
 .ui-ar-body button{width:auto;display:inline-flex}
+.ui-streamer-badge{margin-left:6px;font-size:11px}   /* v7: 配信者の欄の「自動(チャンネル名から)」「前回」 */
 /* v7: 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
 .btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
 

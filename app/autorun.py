@@ -119,6 +119,7 @@ class Run:
         self.on_fail = on_fail if on_fail in ("next", "stop") else "next"   # 切り抜きの1本が失敗したとき: next = 残りを続ける / stop = そこで止める
         self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
         self.docs = []             # この実行で文字起こし・パックした文書の id(終わったら「校正を始める」で開く。段4)
+        self.streamer_from = None  # 配信者を自動で決めたときの出どころ(doc / video / channel = 覚えた名前・auto = チャンネル名から。段5)
         self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
         self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
         self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
@@ -137,7 +138,7 @@ class Run:
         return {"id": self.id, "kind": "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
                 "modeLabel": MODES.get(self.mode, DOC_LABEL) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
-                "streamer": self.streamer, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
+                "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
@@ -162,9 +163,30 @@ class AutoRunner:
 
     # ------------------------------------------------------------ 受付
     def _streamer(self, name):
-        """まとめて実行の画面で入れた配信者の名前 -> 照らし合わせた名前(空なら None)。見つからなければ始める前に断る(ValueError)"""
+        """まとめて実行の画面で入れた配信者の名前 -> 照らし合わせた名前。None(指定なし)= 自動(パックのときに覚えた名前・チャンネル名から。段5)・
+        ""(空で送った)= 色なし。見つからなければ始める前に断る(ValueError)"""
+        if name is None:
+            return None
+        if isinstance(name, str) and not name.strip():
+            return ""
         who, _hex = colors.resolve(name if isinstance(name, str) else "", env=self.env)
         return who
+
+    def _auto_streamer(self, run, doc=None, v=None):
+        """指定の無い実行の配信者を決める(1回だけ。段5): 覚えた名前(文書 → 配信 → チャンネル)→ チャンネル名から。決めた名前は進み具合に出す"""
+        if run.streamer is not None:
+            return
+        import prefs as prefs_mod
+        clip = (doc or {}).get("clip") or {}
+        vid = run.video_id or ((clip.get("source") or {}).get("videoId") if isinstance(clip.get("source"), dict) else None)
+        ch = (v or {}).get("channel") or (run.fresh or {}).get("channel")
+        if vid and not ch:
+            import cases
+            ch = (cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}).get("channel")
+        r = prefs_mod.guess_streamer(self.prefs, (doc or {}).get("id") or run.doc_id, vid, ch or None,
+                                     from_channel=lambda c: (colors.from_channel(c, env=self.env) or {}).get("name"))
+        run.streamer = r["name"] or ""
+        run.streamer_from = r["source"] if r["name"] else None
 
     @staticmethod
     def _marks_arg(marks):
@@ -690,6 +712,7 @@ class AutoRunner:
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         if force:
             body["output"]["force"] = True
+        self._auto_streamer(run, doc)
         if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
             body["output"]["streamer"] = run.streamer
         while True:
@@ -738,6 +761,7 @@ class AutoRunner:
             return None
         skipped, failed, by_edit = [], [], 0
         opts = self._pack_settings()
+        self._auto_streamer(run, todo[0][1] if todo else None, v)
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
@@ -767,6 +791,8 @@ class AutoRunner:
             st["detail"] += "。失敗した %d 本: %s" % (len(failed), "・".join(failed[:3]))
         for n in opts[3]:
             st["detail"] += "。" + n
+        if run.streamer_from:   # 自動で入れた配信者は進み具合に出す(コラボで相手の色になることがあるため。段5)
+            st["detail"] += "。字幕の色: %s(%s)" % (run.streamer, "自動: チャンネル名から" if run.streamer_from == "auto" else "前回の名前")
         return None
 
     # 文書単位の実行(⑦(b)) -------------------------------------

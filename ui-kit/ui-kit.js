@@ -420,10 +420,62 @@
     input.addEventListener('change', function () { clearTimeout(timer); show(false); });
     show(true);
   }
+  /* v7(気が利く画面へ 段5): 配信者の名前を自動で入れる(覚えた名前 → チャンネル名から。決める順は入口の api/ytt/streamer-guess の1か所)・
+     札「自動(チャンネル名から)」「前回」・手で直したら文書・配信・チャンネルに覚える(空 = 「色なし」を覚える)・見つからない名前は始める前に聞く */
+  function streamerBadge(input, text) {
+    var b = input.__badge;
+    if (!b) {
+      b = document.createElement('span'); b.className = 'pill info ui-streamer-badge'; b.hidden = true;
+      var after = input.nextElementSibling && input.nextElementSibling.nextElementSibling ? input.nextElementSibling.nextElementSibling : input;
+      after.insertAdjacentElement('afterend', b); input.__badge = b;
+    }
+    b.textContent = text || ''; b.hidden = !text;
+  }
+  function streamerRemember(ctx, name) {
+    if (!ctx || !prefs.available()) return;
+    var noop = function () {};
+    if (ctx.docId) prefs.remember('docs', ctx.docId, name).catch(noop);
+    if (ctx.videoId) prefs.remember('videos', ctx.videoId, name).catch(noop);
+    if (ctx.channel) prefs.remember('channels', ctx.channel, name).catch(noop);
+  }
   var streamer = {
     attach: attachStreamer,
-    set: function (input, value) { if (!input) return; input.value = value || ''; attachStreamer(input); input.__uiStreamer(true); },
-    value: function (input) { return input ? input.value.trim() : ''; }
+    set: function (input, value) { if (!input) return; input.value = value || ''; attachStreamer(input); input.__uiStreamer(true); if (input.__badge) streamerBadge(input, ''); },
+    value: function (input) { return input ? input.value.trim() : ''; },
+    /* ctx = {docId?, videoId?, channel?}(この欄が何の配信者か)。手で直していなければ、覚えた名前か チャンネル名から入れて札を付ける */
+    autoFill: function (input, ctx) {
+      if (!input) return Promise.resolve(null);
+      attachStreamer(input);
+      var key = JSON.stringify(ctx || {});
+      if (input.__ctxKey === key && input.__touched) return Promise.resolve(null);   // 同じ相手の欄を手で直したあとは入れ直さない
+      input.__ctx = ctx || {}; input.__ctxKey = key; input.__touched = false;
+      if (!input.__autoBound) {
+        input.__autoBound = true;
+        /* 打ち始めたら、あとから届いた自動の名前で上書きしない(問い合わせの途中に打つと、打った名前が消えていた) */
+        input.addEventListener('input', function () { input.__touched = true; });
+        input.addEventListener('change', function () { input.__touched = true; streamerBadge(input, ''); streamerRemember(input.__ctx, input.value.trim()); });
+      }
+      if (!token()) return Promise.resolve(null);
+      var my = input.__autoSeq = (input.__autoSeq || 0) + 1;
+      return yttPost('streamer-guess', input.__ctx).then(function (j) {
+        if (my !== input.__autoSeq || input.__touched) return j;
+        input.value = j.name || ''; input.__uiStreamer(true);
+        streamerBadge(input, j.name ? (j.source === 'auto' ? '自動(チャンネル名から)' : '前回') : (j.source ? '前回: 色なし' : ''));
+        return j;
+      }, function () { return null; });
+    },
+    /* 始める前: 欄の名前がメンバーに見つからなければ「色なしで進める」か聞く(S-20。以前は始めたあとでエラー)。-> Promise<名前 | ''(色なし)| null(やめる)> */
+    check: function (input) {
+      var v = input ? input.value.trim() : '';
+      if (!v || !token()) return Promise.resolve(v);
+      /* 欄の data-color は照らし合わせの途中(打った直後・描き直した直後)に消えているので、ここで照らし合わせ直す */
+      return yttPost('streamer-colors', { q: v }).then(function (j) {
+        if (j.match) return v;
+        return dialogConfirm({ title: '配信者がメンバーに見つかりません', ok: '色なしで進める',
+          body: '「' + v + '」は色の一覧にありません。色なし(黒い文字)で進めますか?(ホロカラーのマイカラーに足すと、その色にできます)' })
+          .then(function (ok) { return ok ? '' : null; });
+      }, function () { return v; });   // 照らし合わせられないときは、サーバーが始める前に断る
+    }
   };
   document.addEventListener('DOMContentLoaded', function () {
     var list = document.querySelectorAll('input[data-ui-streamer]');

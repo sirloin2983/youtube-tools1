@@ -117,6 +117,24 @@ def lookup(name, entries=None, env=None):
     return {"match": uniq[0] if len(uniq) == 1 else None, "candidates": uniq[:8]}
 
 
+def from_channel(channel, env=None, entries=None):
+    """配信のチャンネル名 -> メンバー(1人に決まるときだけ)か None(気が利く画面へ 段5・S-1)。
+    チャンネル名に正式な名前(2文字以上)か英語名(4文字以上)がそのまま含まれる人。例: 「Pekora Ch. 兎田ぺこら」→ 兎田ぺこら・
+    「Suisei Channel」→ None(Suisei だけでは決めない)。マイカラー(同じ名前に別の色を付けたもの)は使わない"""
+    ch = normalize(channel)
+    if not ch:
+        return None
+    entries = load(env) if entries is None else entries
+    hits = {}
+    for e in entries:
+        if e.get("mine"):
+            continue
+        n, en = normalize(e["name"]), normalize(e["en"])
+        if (len(n) >= 2 and n in ch) or (len(en) >= 4 and en in ch):
+            hits[n] = e
+    return next(iter(hits.values())) if len(hits) == 1 else None
+
+
 def speaker_colors(names, env=None, entries=None):
     """話者の名前の並び -> ({名前: "#RRGGBB"}, [{"speaker", "name", "hex"}])(A-2: 話者ごとの字幕の色)。
     1人に決まる名前だけ(lookup の規則。「話者1」のような名前・候補が複数の名前は色を付けない)。多すぎる名前は最初の 40 人まで"""

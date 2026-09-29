@@ -59,17 +59,9 @@ function create(h){
   const WHO_KEY = 'tx.streamer.v1', WHO_MAX = 300;
   const whoMap = () => { try { const m = JSON.parse(localStorage.getItem(WHO_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } };
   const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
-  function saveWho(id, name){
-    if (!id) return;
-    try {
-      const m = whoMap(); delete m[id];
-      if (name) m[id] = name;
-      const keys = Object.keys(m); for (const k of keys.slice(0, Math.max(0, keys.length - WHO_MAX))) delete m[k];   // 古いものから捨てる(入れた順)
-      localStorage.setItem(WHO_KEY, JSON.stringify(m));
-    } catch { /* 保存できないブラウザ: 覚えないだけ */ }
-  }
   const whoOf = () => $('#pkWho').value.trim();
-  $('#pkWho').addEventListener('input', () => saveWho(h.S.docId, whoOf()));
+  /* 配信者の名前は、ホームの設定に文書ごとに覚える(UIKit.streamer.autoFill。直したら文書・配信・チャンネルに。段5)。
+     以前のこのブラウザの記憶(tx.streamer.v1)は、初めて開いた文書で1回だけ移す(消さない) */
   $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
     const who = e.detail;
     if (who) document.body.style.setProperty('--tt-cap-color', who.hex); else document.body.style.removeProperty('--tt-cap-color');
@@ -102,7 +94,14 @@ function create(h){
   async function load(docId){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', err: '', readme: '', lastRes: null });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
-    if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#pkWho'), docId ? whoFor(docId) : '');
+    if (window.UIKit && UIKit.streamer){
+      const old = docId ? whoFor(docId) : '';
+      if (old && UIKit.prefs && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
+        if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
+      }).catch(() => {}).then(() => UIKit.streamer.autoFill($('#pkWho'), { docId }));
+      else if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
+      else UIKit.streamer.set($('#pkWho'), '');
+    }
     if (!docId) return render();
     try {
       const r = await h.api('/api/edit?id=' + encodeURIComponent(docId));

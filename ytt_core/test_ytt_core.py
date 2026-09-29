@@ -769,6 +769,21 @@ class TestColors(unittest.TestCase):
     def entries(self, mine=True):
         return colors.load(self.env, mine=self.mine if mine else "")
 
+    def test_from_channel(self):
+        """配信のチャンネル名から(気が利く画面へ 段5): 正式な名前か英語名(4文字以上)が含まれ、1人に決まるときだけ"""
+        entries = [{"name": "兎田ぺこら", "en": "Usada Pekora", "id": "usada-pekora", "hex": "#7EC2FE", "group": "3期生", "mine": False},
+                   {"name": "星街すいせい", "en": "Hoshimachi Suisei", "id": "hoshimachi-suisei", "hex": "#0ACAFF", "group": "0期生", "mine": False},
+                   {"name": "AZKi", "en": "AZKi", "id": "azki", "hex": "#E0327D", "group": "0期生", "mine": False},
+                   {"name": "兎田ぺこら", "en": "", "id": "", "hex": "#000000", "group": "マイカラー", "mine": True}]
+        f = lambda ch: (colors.from_channel(ch, entries=entries) or {}).get("name")   # noqa: E731
+        self.assertEqual(f("Pekora Ch. 兎田ぺこら"), "兎田ぺこら")
+        self.assertEqual(f("Hoshimachi Suisei Ch."), "星街すいせい")      # 英語名がそのまま含まれる
+        self.assertIsNone(f("Suisei Channel"))                            # 英語名の一部だけでは決めない
+        self.assertEqual(f("AZKi Channel"), "AZKi")
+        self.assertIsNone(f("ぺこら と すいせい の 兎田ぺこら 星街すいせい"))   # 2人に当たる = 決めない
+        self.assertIsNone(f(""))
+        self.assertIsNone(f("ホロライブ公式"))
+
     def test_lookup_rules(self):
         es = self.entries(mine=False)
         self.assertEqual([e["name"] for e in es], ["さくらみこ", "星街すいせい", "兎田ぺこら", "不知火フレア"])   # 形の違う色は飛ばす

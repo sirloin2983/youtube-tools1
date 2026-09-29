@@ -668,6 +668,38 @@ class TestStage4(Base):
 def A_VID():
     return VID
 
+class TestStage5(Base):
+    """気が利く画面へ 段5: 配信者を指定しない実行は、覚えた名前 → チャンネル名から自動で。空で送れば色なし"""
+
+    def test_auto_from_channel(self):
+        self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamer"], run["streamerFrom"]), ("兎田ぺこら", "兎田ぺこら", "auto"))
+        self.assertIn("字幕の色: 兎田ぺこら(自動: チャンネル名から)", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
+
+    def test_explicit_empty_is_no_color(self):
+        self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
+        run = self.r.start(VID, "adopted", streamer="")
+        end = time.time() + 10
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                break
+            time.sleep(0.01)
+        self.assertEqual(cur["state"], "done", cur)
+        self.assertNotIn("streamer", self.tools.c2r["body"]["output"])   # 空 = 色なし(チャンネル名からも入れない)
+
+    def test_remembered_name_wins(self):
+        import prefs as PR
+        from ytt_core import fsio
+        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p.remember("videos", VID, "さくらみこ")
+        self.r.prefs = p
+        self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
+        run = self.run_one("adopted")
+        self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamerFrom"]), ("さくらみこ", "video"))
+
 
 if __name__ == "__main__":
     unittest.main()

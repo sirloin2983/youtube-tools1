@@ -708,8 +708,9 @@ async function startDocAuto(){
   const b = $('#docAutoGo'); b.disabled = true;
   try {
     if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
-    const who = $('#docAutoWho').value.trim();
-    const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, ...(who ? { streamer: who } : {}) };
+    const who = window.UIKit && UIKit.streamer && UIKit.streamer.check ? await UIKit.streamer.check($('#docAutoWho')) : $('#docAutoWho').value.trim();
+    if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
+    const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, streamer: who };   // 空 = 色なし(欄は自動で入る)
     const ar = window.UIKit && UIKit.autorun;   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
     const r = ar ? await ar.start('api/autorun/start-docs', body, { ids: [id], overwrite: body.overwrite }) : await portalApi('api/autorun/start-docs', body);
     if (!r) return;   // やることが無い(知らせは部品が出す)
@@ -1485,7 +1486,7 @@ async function openDoc(id, keep){
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
-  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#docAutoWho'), ''); }   // 題名の行のまとめて実行の札は、開いた文書のもの
+  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep) window.scrollTo(0, scrollY);
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
@@ -2480,11 +2481,8 @@ if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 pac
   UIKit.packLoud.mount($('#docAutoLoud'));
   document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
 }
-$('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄が空なら、パックのタブでこの文書に入れた名前(tx.streamer.v1。pack-tab.js)を入れる
-  if (!$('#docAuto').open || $('#docAutoWho').value.trim() || !(window.UIKit && UIKit.streamer)) return;
-  let who = '';
-  try { const m = JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}'); who = typeof m[S.docId] === 'string' ? m[S.docId] : ''; } catch {}
-  if (who) UIKit.streamer.set($('#docAutoWho'), who);
+$('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている。段5)
+  if ($('#docAuto').open && window.UIKit && UIKit.streamer && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
 $('#txRuns').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;

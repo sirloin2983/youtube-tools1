@@ -364,6 +364,19 @@ class TestPrefs(unittest.TestCase):
         finally:
             PR.MAX_REMEMBER = old
 
+    def test_guess_streamer_order(self):
+        """配信者の名前を決める順(段5): 文書 → 配信 → チャンネルに覚えた名前 → チャンネル名から。空 = 「色なし」を覚えている"""
+        fc = lambda ch: "兎田ぺこら" if "ぺこら" in ch else None   # noqa: E731
+        g = lambda **kw: PR.guess_streamer(self.p, from_channel=fc, **kw)   # noqa: E731
+        self.assertEqual(g(doc_id="d1", video_id="v1", channel="Pekora Ch. 兎田ぺこら"), {"name": "兎田ぺこら", "source": "auto"})
+        self.assertEqual(g(channel="Other Ch."), {"name": None, "source": None})
+        self.p.remember("channels", "Pekora Ch. 兎田ぺこら", "さくらみこ")
+        self.assertEqual(g(doc_id="d1", video_id="v1", channel="Pekora Ch. 兎田ぺこら")["source"], "channel")
+        self.p.remember("videos", "v1", "宝鐘マリン")
+        self.assertEqual(g(doc_id="d1", video_id="v1", channel="Pekora Ch. 兎田ぺこら"), {"name": "宝鐘マリン", "source": "video"})
+        self.p.remember("docs", "d1", "")
+        self.assertEqual(g(doc_id="d1", video_id="v1"), {"name": "", "source": "doc"})   # 空にした = 色なし(自動で入れ直さない)
+
     def test_broken_file(self):
         os.makedirs(os.path.dirname(self.path))
         with open(self.path, "w", encoding="utf-8") as f:
@@ -474,6 +487,16 @@ class TestPortalApi(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/ytt/prefs", {"op": "drop"})[0], 400)
         self.assertEqual(self.req("POST", "/api/ytt/prefs", {"op": "get"}, {"X-YTT-Token": "wrong"})[0], 403)
         self.assertTrue(os.path.isfile(self.srv.prefs.path))
+
+    def test_streamer_guess_api(self):
+        st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Pekora Ch. 兎田ぺこら"})
+        self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#7EC2FE"))
+        self.req("POST", "/api/ytt/prefs", {"op": "remember", "kind": "videos", "key": "abcdefghijk", "name": "さくらみこ"})
+        st, j = self.req("POST", "/api/ytt/streamer-guess", {"videoId": "abcdefghijk", "channel": "Pekora Ch. 兎田ぺこら"})
+        self.assertEqual((j["name"], j["source"]), ("さくらみこ", "video"))
+        st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Suisei Channel"})
+        self.assertEqual((j["name"], j["source"]), (None, None))
+        self.assertEqual(self.req("POST", "/api/ytt/streamer-guess", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
     def test_streamer_colors(self):
         """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は ytt_core/colors.py)"""

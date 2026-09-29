@@ -111,7 +111,8 @@ def main():
             fills = [c.get("fill") for c in ip.get("captions", [])]
             check(fills[0] == [1.0, 0.5608, 0.8745, 1.0] and fills[1] is None and fills[2] is None,
                   "話者「みこ」の字幕だけ さくらみこの色、ほかは配信者の色のまま(A-2): %s" % fills)
-            check(pg.evaluate("JSON.parse(localStorage.getItem('tx.streamer.v1') || '{}')[%s]" % json.dumps(tid)) == "ぺこら", "配信者の名前は文書ごとに覚える")
+            check(pg.evaluate("UIKit.prefs.get(['streamer']).then(p => p.streamer.docs[%s])" % json.dumps(tid)) == "ぺこら",
+                  "配信者の名前は文書ごとに覚える(ホームの設定。段5。以前はこのブラウザの tx.streamer.v1)")
             # 1 文字起こし の映像の上の字幕も、話者「みこ」の行は さくらみこの色・ほかは配信者(ぺこら)の色(パックと同じ規則)
             pg.keyboard.press("Alt+1")
             wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")

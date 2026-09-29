@@ -88,6 +88,18 @@ def _read_streamer(v):
     return out
 
 
+def guess_streamer(prefs, doc_id=None, video_id=None, channel=None, from_channel=None):
+    """配信者(字幕の色)の名前を決める(気が利く画面へ 段5)。順: 文書に覚えた名前 → 配信に覚えた名前 → チャンネルに覚えた名前 →
+    チャンネル名から(from_channel(channel) -> 名前 か None。1人に決まるときだけ)。
+    -> {"name": 名前("" = 「色なし」を覚えている・None = 決まらない), "source": "doc"|"video"|"channel"|"auto"|None}"""
+    st = prefs.get(["streamer"])["streamer"] if prefs else {"docs": {}, "videos": {}, "channels": {}}
+    for kind, key in (("docs", doc_id), ("videos", video_id), ("channels", channel)):
+        if isinstance(key, str) and key and key in st[kind]:
+            return {"name": st[kind][key], "source": kind[:-1] if kind != "docs" else "doc"}
+    name = from_channel(channel) if from_channel and channel else None
+    return {"name": name, "source": "auto" if name else None}
+
+
 class Prefs:
     def __init__(self, path, writer):
         """writer(path, bytes): 原子的な書き込み(ytt_core.fsio.atomic_write)"""

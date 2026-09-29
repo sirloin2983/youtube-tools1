@@ -752,6 +752,8 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
+            if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}
+                return 200, self.streamer_guess(body.get("docId"), body.get("videoId"), body.get("channel"))
             if sub == "prefs":   # ホームの設定(app/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)
@@ -773,6 +775,23 @@ class PortalServer(ThreadingHTTPServer):
         except OSError as e:
             return 500, {"error": "open", "message": "開けませんでした: %s" % (e.strerror or e.__class__.__name__)}
         return 404, {"error": "not_found", "message": "その操作はありません"}
+
+    def streamer_guess(self, doc_id=None, video_id=None, channel=None):
+        """-> {"ok", "name", "source", "hex", "channel"}。文書だけ分かれば、その文書の元の配信(.clip.json)・チャンネル(スタジオ)を調べる"""
+        doc_id = doc_id if isinstance(doc_id, str) and len(doc_id) <= 64 else None
+        video_id = video_id if isinstance(video_id, str) and len(video_id) <= 64 else None
+        channel = channel.strip()[:120] if isinstance(channel, str) and channel.strip() else None
+        if doc_id and not video_id:
+            d = next((x for x in cases_mod.read_transcripts(cases_mod.locations(self.sup.root)["transcripts"]) if x["id"] == doc_id), None)
+            src = ((d or {}).get("clip") or {}).get("source") or {}
+            video_id = src.get("videoId") if isinstance(src.get("videoId"), str) else None
+        if video_id and not channel:
+            v = cases_mod.read_studio(cases_mod.locations(self.sup.root)["studio"]).get(video_id) or {}
+            channel = str(v.get("channel") or "").strip()[:120] or None
+        r = prefs_mod.guess_streamer(self.prefs, doc_id, video_id, channel,
+                                     from_channel=lambda ch: (colors_mod.from_channel(ch) or {}).get("name"))
+        hit = colors_mod.lookup(r["name"])["match"] if r["name"] else None
+        return dict(r, ok=True, hex=hit["hex"] if hit else None, channel=channel)
 
     def prefs_api(self, body):
         op = body.get("op")

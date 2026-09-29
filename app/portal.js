@@ -373,6 +373,7 @@
     if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('.pt-auto-loudsel', box));   // パックの音量(編集の設定の1か所。2026-09-29)
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
+    else if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill) UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
     /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4。以前はこのブラウザの ytt.cases.mode/top)。
        形の初期値は配信の状態から(マークが 0 = 解析から全部・採用あり = 採用後を全部。どちらでもなければ保存した形。S-4) */
@@ -391,10 +392,13 @@
       var st = ar ? ar.state() : null;
       var body = { id: c.id, mode: mode.value, overwrite: !!(st && st.overwrite) };
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
-      if (who.value.trim()) body.streamer = who.value.trim();
-      var go = ar ? ar.start('api/autorun/start', body, { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite })
-        : api('/api/autorun/start', 'POST', body);
-      go.then(function (r) {
+      var chk = window.UIKit && UIKit.streamer && UIKit.streamer.check ? UIKit.streamer.check(who) : Promise.resolve(who.value.trim());
+      chk.then(function (name) {
+        if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
+        body.streamer = name;   // 欄の名前(空 = 色なし。欄は自動で入るので、空は「色なし」の意味)
+        return ar ? ar.start('api/autorun/start', body, { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite })
+          : api('/api/autorun/start', 'POST', body);
+      }).then(function (r) {
         if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
         runsByVideo[c.id] = r.run; node.open = true; renderAuto(node, c.id); pollAuto();
       }).catch(function (e) { toast('始められませんでした: ' + e.message, 'err'); });
