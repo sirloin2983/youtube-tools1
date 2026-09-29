@@ -595,6 +595,31 @@ class TestPackWithFfmpeg(unittest.TestCase):
         return write(self.dir / name, json.dumps(transcript_doc(rows, {"path": str(self.video), "name": "clip.mp4"}),
                                                  ensure_ascii=False))
 
+    def test_pack_loudness_and_volume(self):
+        """パックの音量(2026-09-29): 残す区間だけ測って同梱の動画をそろえる・% で決める・そろえない。元の動画は書き換えない"""
+        before = self.video.read_bytes()
+        plan = pack.plan_cut(pack.Request(video=self.video, silence=True))   # 音のある所だけ残す(無音を測りに入れない)
+        fps = plan.meta["fps"]
+        spans = [(a * fps[1] / fps[0], b * fps[1] / fps[0]) for a, b in plan.keeps]
+        res = pack.build_pack(plan, self.dir / "p1", copy_video=True, loudness=-14.0)
+        lo = res["loudness"]
+        self.assertEqual(lo["target"], -14.0)
+        i0, _ = C.measure_loudness(self.video, spans)
+        self.assertAlmostEqual(lo["measured"], i0, delta=0.2)                          # 測るのは残す区間だけ
+        i1, _ = C.measure_loudness(dict(res["files"])["video"], spans)
+        self.assertAlmostEqual(i1, lo["measured"] + lo["gainDb"], delta=1.0)           # 同梱の動画は その分だけ変わった
+        res2 = pack.build_pack(plan, self.dir / "p2", copy_video=True, volume=50)
+        self.assertEqual(res2["loudness"], {"volume": 50, "gainDb": -6.02})            # % で決める(測らない)
+        i2, _ = C.measure_loudness(dict(res2["files"])["video"], spans)
+        self.assertAlmostEqual(i2, i0 - 6.02, delta=1.0)
+        res3 = pack.build_pack(plan, self.dir / "p3", copy_video=True)
+        self.assertIsNone(res3["loudness"])
+        self.assertEqual(dict(res3["files"])["video"].read_bytes(), before)            # そろえないときは、そのまま写す
+        self.assertEqual(self.video.read_bytes(), before)                              # 元の動画は書き換えない
+        res4 = pack.build_pack(plan, self.dir / "p4", render=True, loudness=-14.0)      # 粗編集の動画にも同じ量
+        i4, _ = C.measure_loudness(dict(res4["files"])["roughcut"])
+        self.assertAlmostEqual(i4, res4["loudness"]["measured"] + res4["loudness"]["gainDb"], delta=1.0)
+
     def test_transcript_cut_rows_are_removed_and_subtitles_come_from_kept_rows(self):
         tr = self._tr([(0.5, 1.5, "こんにちは", False), (4.0, 5.0, "カットして", True), (8.5, 9.5, "またね", False)])
         plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr))

@@ -810,5 +810,36 @@ class TestColors(unittest.TestCase):
         self.assertTrue(all(colors.norm_hex(e["hex"]) == e["hex"] for e in es))
 
 
+class TestLoudness(unittest.TestCase):
+    """ラウドネスの決まり(ytt_core/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
+
+    def test_check_target_and_volume(self):
+        from ytt_core import loudness as L
+        self.assertEqual([L.check_target(v) for v in (None, "", 0, "0", -14, "-18")], [None, None, None, None, -14.0, -18.0])
+        for bad in (-20, "x", True, -14.5):
+            with self.assertRaises(ValueError):
+                L.check_target(bad)
+        self.assertEqual([L.check_volume(v) for v in (None, "", 100, 70, "150")], [None, None, None, 70, 150])
+        for bad in (0, 201, 7.5, True, "x"):
+            with self.assertRaises(ValueError):
+                L.check_volume(bad)
+        self.assertEqual((L.pct_to_db(50), L.pct_to_db(200), L.db_to_pct(0.8), L.db_to_pct(-3.1)), (-6.02, 6.02, 110, 70))
+
+    def test_parse_and_gain(self):
+        from ytt_core import loudness as L
+        text = 'x\n{\n "input_i" : "-18.80",\n "input_tp" : "-4.10",\n "input_lra" : "7.9"\n}'
+        self.assertEqual(L.parse(text), (-18.8, -4.1))
+        self.assertEqual(L.parse('{"input_i" : "-inf", "input_tp" : "-inf"}'), (None, None))   # 無音
+        self.assertEqual(L.parse(""), (None, None))
+        self.assertEqual(L.gain(-14, -18.8, -4.1), 3.1)            # ピーク(-1 dBTP)で止まる
+        self.assertEqual(L.gain(-18, -18.8, -4.1), 0.8)            # 2026-09-29 の実例: 「小さめ」でも元より少し上がる
+        self.assertEqual(L.gain(-14, -50, -45), 20.0)              # 上げる量の上限
+        self.assertEqual(L.gain(-14, -10, -2), -4.0)               # 下げる
+        self.assertEqual(L.gain(-14, -20, -8, -2.0), 1.0)          # ほかのピーク(編集用素材)も見る
+        self.assertIn("between(t,1.000,2.500)", L.select_filter([(1, 2.5), (3, 3)]))
+        self.assertEqual(L.select_filter([]), "")
+        self.assertEqual(L.select_filter([(i, i + 0.5) for i in range(L.MAX_SPANS + 1)]), "")   # 多すぎるときは全体で測る
+
+
 if __name__ == "__main__":
     unittest.main()

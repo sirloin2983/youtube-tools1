@@ -485,6 +485,9 @@ class TestPortalApi(unittest.TestCase):
         st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "存在しない人"})
         self.assertEqual((j["match"], j["candidates"], j["items"]), (None, [], []))
         self.assertEqual(self.req("POST", "/api/ytt/streamer-colors", {"q": "x"}, {"X-YTT-Token": "wrong"})[0], 403)
+        st, j = self.req("POST", "/api/ytt/streamer-colors", {"names": ["みこ", "話者1", " みこ ", "", 3]})   # 話者の名前をまとめて(段2)
+        self.assertEqual((st, sorted(j["matches"])), (200, ["みこ", "話者1"]))
+        self.assertEqual((j["matches"]["みこ"]["name"], j["matches"]["話者1"]), ("さくらみこ", None))
 
     def test_open_window_without_edge(self):
         self.srv.window = opener(os.path.join(self.tmp, "app"), FakeSys(exe=None))

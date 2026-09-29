@@ -692,6 +692,20 @@ class TestTextPlusTargetOption(unittest.TestCase):
         self.assertEqual(o["textplusTarget"], {"fps": 60, "width": 1920, "height": 1080})
         self.assertTrue(o["copyVideo"])
 
+    def test_output_loudness_and_volume(self):
+        """output.loudness(LUFS)と output.volume(%)。LUFS があれば % は使わない"""
+        v = Path(tempfile.gettempdir()) / "x.mp4"
+        self.assertEqual((serve.output_from_spec({}, v)["loudness"], serve.output_from_spec({}, v)["volume"]), (None, None))
+        o = serve.output_from_spec({"loudness": -14, "volume": 50}, v)
+        self.assertEqual((o["loudness"], o["volume"]), (-14.0, None))
+        o = serve.output_from_spec({"loudness": 0, "volume": 50}, v)
+        self.assertEqual((o["loudness"], o["volume"]), (None, 50))
+        self.assertIsNone(serve.output_from_spec({"volume": 100}, v)["volume"])
+        for bad in ({"loudness": -20}, {"loudness": "x"}, {"loudness": True}, {"volume": 0}, {"volume": 201}, {"volume": 7.5}, {"volume": True}):
+            with self.assertRaises(serve.ApiError, msg=bad) as cm:
+                serve.output_from_spec(bad, v)
+            self.assertEqual(cm.exception.code, "bad_loudness")
+
     def test_bad_target_is_400(self):
         v = Path(tempfile.gettempdir()) / "x.mp4"
         with self.assertRaises(serve.ApiError) as cm:

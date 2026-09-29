@@ -64,6 +64,16 @@ def main():
             check(True, "置き先を 60fps にすると注意は消える")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1080x1920']")
+            # パックの音量(2026-09-29): 既定は -14 LUFS。「音量を % で決める」を選ぶと % の欄が出て、編集の設定(送ったキーだけ)に残る
+            check(pg.input_value("#pkLoud") == "-14" and pg.is_hidden("#pkVolBox"), "音量の既定は -14 LUFS(% の欄は隠れている)")
+            pg.select_option("#pkLoud", "0")
+            wait_js(pg, "!document.querySelector('#pkVolBox').hidden", 5000)
+            pg.fill("#pkVol", "70"); pg.press("#pkVol", "Tab")
+            check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 70%') >= 0", 5000), "要約に「音量 70%」: " + pg.inner_text("#pkSummaryText"))
+            st = srv.get("/api/settings")
+            check((st.get("packLoudness"), st.get("packVolume")) == (0, 70), "編集の設定に残る: %s" % ((st.get("packLoudness"), st.get("packVolume")),))
+            pg.select_option("#pkLoud", "-14")
+            check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 -14 LUFS') >= 0", 5000), "LUFS に戻すと要約も戻る")
             pg.click("#pkSettingsClose")
             wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             check("縦 1080" in pg.inner_text("#pkSummaryText"), "設定を変えると要約も変わる: " + pg.inner_text("#pkSummaryText"))
@@ -87,6 +97,7 @@ def main():
             pg.click("#pkBuild")
             wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
             check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
+            check("音量:" in pg.inner_text("#toast"), "作ったあとの知らせに音量の結果(LUFS と %): " + pg.inner_text("#toast"))
             packdir = os.path.splitext(v1)[0] + "_pack"
             ip = read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua"))
             got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]

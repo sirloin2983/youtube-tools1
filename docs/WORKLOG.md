@@ -1550,3 +1550,13 @@
 - 崩れ方: ヒントの語をカンマ区切りで繰り返す(hotwords の一覧の形をまねた・温度0でやり直しが働かない、とみられる)。S-3 の印はこれらの行に付いた
 - 結果のファイル: 作業データの `evals/asr/20260929-211155_段1-基準-temp0.json`・`20260929-212751_段1-文脈あり-temp0.json`。今回は 09-28 より約2倍遅かった(実時間の 0.78 倍。原因は未調査)
 - 次(2回目以降): 直し方の案は計画書の 9 に書いた(学習用の文書で先に試す)。呼び名の下書きの確認(ユーザー)は引き続き待ち
+
+## 2026-09-29 Claude Code — 気が利く画面へ 段2 の残りと、パックの音量のテスト(後回しにしていた分)
+- テストを足した: `ytt_core/test_ytt_core.py`(TestLoudness: 値の検査・% ⇔ dB・loudnorm の読み方・かける量の決まり・区間の選び方)、
+  `cut2resolve/test_pack.py`(残す区間だけ測って同梱の動画をそろえる・% で決める・そろえない・元の動画は書き換えない・粗編集の動画にも同じ量)、
+  `cut2resolve/test_serve.py`(output.loudness / volume の検査)、`app/test_window.py`(streamer-colors の names)、
+  `app/test_autorun.py`(まとめて実行のパックが編集の設定の話者の色・音量(LUFS / %)に従う)、
+  `transcribe-tool/test_edit.py`(api/settings/patch と、丸ごとの保存で音量が残る)、`transcribe-tool/e2e_edit_pack.py`(音量の欄・% の欄・要約・設定に残る・作ったあとの知らせ)
+- テスト(PC): ytt_core 58・入口 単体 60・cut2resolve 291・編集 単体 160・契約 27・e2e_edit_pack・e2e_ui_mounted・e2e_edit_tabs・e2e_edit_cut・e2e_edit_voices・
+  入口 e2e_portal・e2e_autorun・スタジオ e2e_ui --mounted 157 すべて通過
+- 段2(話者の色)はこれで終わり。次: 段3(カットしない)

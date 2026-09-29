@@ -269,6 +269,23 @@ class TestEditHttp(unittest.TestCase):
                 return e.code, dict(e.headers), d
             return dict(json.loads(d or b"{}"), _status=e.code)
 
+    def test_settings_patch_keeps_other_values(self):
+        """ほかの画面から直す設定(api/settings/patch。送ったキーだけ・許可した項目だけ)。丸ごとの保存(PUT)ではその値を残す(パックの音量。2026-09-29)"""
+        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        try:
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, packLoudness=-11))["_status"], 200)
+            self.assertNotIn("packLoudness", self.call("GET", "/api/settings"))           # 丸ごとの保存では直せない
+            r = self.call("POST", "/api/settings/patch", {"values": {"packLoudness": 0, "packVolume": 70}})
+            self.assertEqual((r["_status"], r["values"]), (200, {"packLoudness": 0, "packVolume": 70}))
+            self.call("PUT", "/api/settings", dict(orig, quality="fast", packLoudness=-14, packVolume=100))   # 開いたままの古い画面の保存
+            st = self.call("GET", "/api/settings")
+            self.assertEqual((st.get("quality"), st["packLoudness"], st["packVolume"]), ("fast", 0, 70))   # ほかの値は直り、音量は残る
+            for bad in ({"values": {"packLoudness": -20}}, {"values": {"packVolume": 0}}, {"values": {"packVolume": True}},
+                        {"values": {"model": "x"}}, {"values": {}}, {}):
+                self.assertEqual(self.call("POST", "/api/settings/patch", bad)["_status"], 400, bad)
+        finally:
+            self.call("PUT", "/api/settings", orig)
+
     def open_video(self, path, **kw):
         return self.call("POST", "/api/open-video", dict({"path": path}, **kw))
 

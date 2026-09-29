@@ -42,6 +42,7 @@ class FakeTools:
         self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
         self.row_edge = None      # 「編集」の「行から」の設定(文字起こしの settings.rowEdge。⑥)
         self.subtitle = None      # 字幕の文字数の設定(文字起こしの settings.subtitle。②)
+        self.tx_extra = {}        # そのほかの編集の設定(speakerColors・packLoudness・packVolume)
         self.known = True         # False = スタジオにまだ無い配信(① 探す から。解析のキューに入れるとできる)
 
     def clip_path(self, mid):
@@ -128,6 +129,7 @@ class FakeTools:
             s["rowEdge"] = self.row_edge
         if self.subtitle is not None:
             s["subtitle"] = self.subtitle
+        s.update(self.tx_extra)
         return 200, s
 
     def h_transcribe_POST_api_transcribe(self, path, body):
@@ -358,6 +360,20 @@ class TestModes(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["output"]["textplusWrap"], 9)
+
+    def test_pack_follows_edit_settings(self):
+        """まとめて実行のパックは、編集の設定の話者の色のスイッチ・音量(LUFS か %)に従う(以前は話者の色が常にオン・音量なし)"""
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        out = self.tools.c2r["body"]["output"]
+        self.assertEqual((out["speakerColors"], out["loudness"], out.get("volume")), (True, -14, None))   # 既定: 色あり・-14 LUFS
+
+    def test_pack_follows_edit_settings_off_and_percent(self):
+        self.tools.tx_extra = {"speakerColors": False, "packLoudness": 0, "packVolume": 70}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        out = self.tools.c2r["body"]["output"]
+        self.assertEqual((out["speakerColors"], out.get("loudness"), out["volume"]), (False, None, 70))
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
         run = self.run_one("adopted")
