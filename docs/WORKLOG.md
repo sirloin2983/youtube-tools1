@@ -1716,3 +1716,20 @@
   `.gitignore` の `**/archive/` のあとに `!docs/archive/`(外さないと、今後 docs/archive に足した文書が git に入らない)
 - テスト: `python -m unittest dev/tests/test_push_helper.py` 6 件通過・`docs/archive` の全ファイルが検査を通る・`studio/archive/` は引き続き無視される
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 新しい場所(C:\dev\youtube-tools)で全部のテスト
+- 前提: `git status` は空(22d81e4)。すべてリポジトリ直下から、1本ずつ流した。node は Playwright 同梱の node.exe。e2e は `PYTHONIOENCODING=utf-8` 付き(unit は付けない)
+- unit(すべて通過): `ytt_core` 60(skip 1)・`dev` の ui-kit 写し 5・cleanup_legacy_data 9・push_helper 6・eval_asr 4・resolve_pack_contract 27(単独)・
+  home 5 ファイル 140・studio 7 ファイル 227(skip 1)・editor 3 ファイル 178(skip 1)・cut2resolve 3 ファイル 291
+- node --test(通過): `editor/tests/test_document_save.cjs` 9/9・`studio/tests/test_review.cjs` 18/18
+- e2e(すべて通過): home: portal(108 OK)・autorun・window(39)・keymap / studio: analyze・ui 144/144・ui --mounted 157/157 /
+  ui-kit styleguide(47)/ editor: proofread_accuracy(38)・proofread_keys(90)・folder_marker_range(54)・eval_set(22)・row_editing(134)・ui_handoff(66)・edit_tabs(76)・
+  edit_cut(64)・edit_voices(14)・edit_pack(50)・ui_mounted(41)/ dev: e2e_pipeline・e2e_datadir
+- `holo-colors/build.bat`: テスト 17 件通過・dist\HoloColors.zip まで完了(`e2e_holo_colors.py` は本物のキー入力を送るので流していない。`studio/tests/e2e_review.py` は見本サーバーなので流していない)
+- 1回目に落ちて流し直しで通ったもの(この PC の不定の落ち。コードの問題ではない): `home/tests/test_launch.py` の `test_post_guards`(ConnectionAbortedError 10053)・
+  studio の unit(出力の途中でプロセスごと消えた)・`e2e_proofread_keys`(chromium の "Target crashed" + 4000 行の反応が 65 ms でタイミング FAIL)・`e2e_edit_cut`/`e2e_edit_voices`(Playwright の "Connection closed while reading from the driver")
+- 落ちたが直したもの: なし。clone し直し・フォルダの改名(古いパス・無いファイル・CRLF)による失敗は無かった
+- 注意(問題ではない): e2e を `PYTHONIOENCODING=utf-8` なしで流すと `e2e_portal`・`e2e_window` は cp932 の UnicodeEncodeError で止まる(editor/AGENTS.md に書いてある既知の条件)。
+  `cmd /c build.bat` は Git Bash からだと「認識されない」になる(PowerShell から `cmd /c ".\build.bat < NUL"` なら動く)
+- 残った問題: なし。テストが本物の作業データ(%LOCALAPPDATA%\youtube-tools)を書き換えていないことも確認(直近 2 時間の更新なし)
+- 未コミット: なし
