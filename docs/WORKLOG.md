@@ -1648,3 +1648,11 @@
   3. ui-kit の README.md に「v8」(UIKit.keymap の使い方)・transcribe-tool/AGENTS.md の「キー配置」の項を新しい形に書き直す・AGENTS.md の表に `app/e2e_keymap.py`
   4. 段6 を WIP でない形でコミット → 段7 → 段9 → 版を上げる
 - 未コミット: なし(このコミットに全部入れた)
+
+## 2026-09-30 Claude(Cowork)— 段0 リポジトリのフォルダの整理の計画
+- 変更: `docs/plan/phase0-restructure.md` を新規作成(計画のみ。コードは触っていない)
+- 決定・理由(ユーザー 2026-09-30): リポジトリの並べ替えとフォルダ名の変更をやる(app→home・clip-studio→studio・transcribe-tool→editor、テストは各ツールの tests/、tools→dev/setup、docs を spec/plan/design/archive に)。
+  Python のパッケージ化は後回し。実施は Claude Code(PC)。置き場所は C:\dev\youtube-tools に clone し直して入れ替える。動画(E:\Video)の整理は保留
+- 注意: 計画は GitHub の main(09-29)を読んで書いた。PC はその後に進んでいる(編集 0.22.0・test_roster.py など)ので、始める前に今のコードで対象を数え直す。
+  線 B・画面の直し(ux-consistency)の作業と同時に進めない(段の切れ目で入れる)
+- 未コミット: docs/plan/phase0-restructure.md, docs/WORKLOG.md
