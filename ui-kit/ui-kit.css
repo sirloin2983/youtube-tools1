@@ -2,7 +2,7 @@
    v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
-   正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは tools/sync_ui_kit.py で写す(手で直接直さない)。
+   正本はリポジトリ直下の ui-kit/ui-kit.css。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    テーマ: <html data-theme="light|dark">(theme.js が保存した選択(無ければ明るい)から決める)。
    既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
 

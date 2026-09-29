@@ -1,6 +1,6 @@
 """文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
 
-入口の案件の画面(app/cases.py)と、スタジオのセリフの表示(clip-studio/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
+入口の案件の画面(home/cases.py)と、スタジオのセリフの表示(studio/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
   切り抜き(スタジオの書き出し済みのマーク)の文字起こし =
     ① 文書の sourcePath が、書き出した mp4 のパスと同じ
     ② 無ければ、文書の clip(.clip.json の中身)の source.videoId・mark.id が、その配信・マークと同じ(動画を動かした後でも見つかる)
@@ -17,7 +17,7 @@ import hashlib
 import os
 import threading
 
-from . import datadir, fsio, schemas
+from . import datadir, fsio, layout, schemas
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
@@ -34,7 +34,7 @@ _lock = threading.Lock()
 def folder(repo_root, env=None):
     """文字起こしの文書のフォルダ。文字起こしツールと同じ規則(環境変数 TRANSCRIBE_DATA_DIR → ytt_core.datadir)"""
     env = os.environ if env is None else env
-    home = env.get("TRANSCRIBE_DATA_DIR") or datadir.tool_dir("transcribe", os.path.join(repo_root, "transcribe-tool"), env)
+    home = env.get("TRANSCRIBE_DATA_DIR") or datadir.tool_dir("transcribe", layout.tool_dir("transcribe", repo_root), env)
     return os.path.join(home, "transcripts")
 
 
@@ -172,7 +172,7 @@ def packs_dir(env=None, c2r_dir=None):
     if _packs_dir_used and env is None:
         return _packs_dir_used
     env = os.environ if env is None else env
-    legacy = c2r_dir or env.get("YTT_CUT2RESOLVE_DIR") or os.path.join(REPO_ROOT, "cut2resolve")
+    legacy = c2r_dir or env.get("YTT_CUT2RESOLVE_DIR") or layout.tool_dir("cut2resolve", REPO_ROOT)
     return os.path.join(datadir.tool_dir("cut2resolve", legacy, env), "packs")
 
 

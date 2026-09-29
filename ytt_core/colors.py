@@ -14,7 +14,7 @@ import re
 import threading
 import unicodedata
 
-from . import datadir
+from . import datadir, layout
 
 MEMBERS_ENV = "YTT_HOLO_MEMBERS"
 HEX_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
@@ -26,7 +26,7 @@ _lock = threading.Lock()
 def members_path(env=None):
     env = os.environ if env is None else env
     p = (env.get(MEMBERS_ENV) or "").strip()
-    return p or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "holo-colors", "members.json")
+    return p or os.path.join(layout.repo_root(), layout.HOLO_COLORS_DIR, "members.json")
 
 
 def mine_path(env=None):

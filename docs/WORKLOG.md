@@ -1677,3 +1677,19 @@
 - 始める前のテスト(PC・09-30): unit 12 組・e2e 21 本すべて通過。落ちていたのは `transcribe-tool/test_document_save.cjs`(4/9。段5 で openDoc が呼ぶ `lookupSpeakerNames` をテストの置き換えに足していなかった)だけで、置き換えを足して 9/9
 - 注意: `clip-studio/e2e_review.py` はテストではなく手で見るための見本サーバー(止まらない)。全部流すときに入れない
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段0 コミット1: フォルダの移動とパスの直し(資料はまだ)
+- **フォルダ名が変わった**(対応表は `docs/plan/phase0-restructure.md`): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`(インストールと片付けは `setup/`)・
+  `start-all.bat`/`.command`→`start.bat`/`.command`。各ツールのテストは `<ツール>/tests/`(cut2resolve の Resolve の確認用データは `cut2resolve/tests/fixtures/`)。
+  古い e2e は機能の名前に: `e2e_ui_v07`→`e2e_proofread_accuracy`・`v08`→`e2e_proofread_keys`・`v09`→`e2e_folder_marker_range`・`e2e_eval_v093`→`e2e_eval_set`・`v098`→`e2e_row_editing`(消した・まとめたテストは無い)
+- 新しい `ytt_core/layout.py`: ツールの ID → フォルダ名(`TOOL_DIRS`)・`repo_root()`・`tool_dir()`。フォルダ名を知る場所(launch・mount・cases・txindex・colors・編集の serve.py のスタジオの場所・sync_ui_kit・e2e)はここを読む
+- 変えていない(互換): `/api/ping` の app の値・JSON の tool.name と schema・作業データの ID(`%LOCALAPPDATA%\youtube-tools\{app,studio,transcribe,cut2resolve}`)・.runtime の ID・URL・ポート
+- テストはリポジトリ直下から流す形にそろえた(例 `python -m unittest home/tests/test_launch.py`・`python editor/tests/e2e_edit_tabs.py`)。
+  `cut2resolve/tests` は、フォルダ名 `cut2resolve` が CLI の `cut2resolve.py` を隠すので、CLI を `importlib` で読む。一時フォルダに写すツールから `tests/` を除く
+- 作業: git mv は Claude Code、パスの直しはサブエージェント4つ(home・ytt_core = Opus、studio・editor・cut2resolve/dev/setup = Sonnet。AGENTS.md の新しいルール)
+- テスト(PC・新しい配置): unit 12 組・e2e 21 本すべて通過(`home/tests/test_window.py` の1件は接続の打ち切りで1回落ち、流し直し3回とも通過)。
+  入口を起動して 3 ツールが動作中・画面 4 つが応答・案件 42 件・作業データは %LOCALAPPDATA% のまま
+- スタジオの書き出し先は `E:\Video\…`(古いフォルダの外。手順6で古いフォルダを消しても動画は失わない)
+- 未完了・次: **コミット2(docs の並べ替え・AGENTS.md の表とテストのコマンド・各 README・ROADMAP の索引)はまだ**。AGENTS.md・README の中のパスとテストのコマンドは古いまま。
+  次は push → 手順6(`C:\dev\youtube-tools` に clone し直し)→ 新しい場所で全部のテスト → コミット2。GPT・Cowork は引き続き止める
+- 未コミット: なし

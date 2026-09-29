@@ -53,7 +53,7 @@ class RowEdge:
 ROW_EDGE = RowEdge()   # 既定(オン)。「編集」の「行から」の設定・cut2resolve の spec.rowEdge で変えられる(row_edge_from)
 ROW_EDGE_MAX = 2.0     # 広げる上限(秒)の上限
 
-# 文字起こしツールの「残す行」の規則(tools/test_resolve_pack_contract.py が確かめる):
+# 文字起こしツールの「残す行」の規則(dev/tests/test_resolve_pack_contract.py が確かめる):
 # 行の時間を残す・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)・
 # 端を声の止まる所まで広げる(ROW_EDGE。2026-09-26 ⑥。以前は余白 0 で語頭・語尾が切れていた)
 TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1, "row_edge": ROW_EDGE}

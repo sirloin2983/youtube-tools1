@@ -1,5 +1,5 @@
 /* ui-kit/styleguide.html の見本を動かす部品(CSP の script-src 'self' に合わせてインラインの <script> を使わず、この外部ファイルにした)。
-   ここは見本専用で、tools/sync_ui_kit.py の写し先ではない(各ツールの画面はそれぞれの app.js 等でこれと同じ形の呼び出しを行う)。 */
+   ここは見本専用で、dev/sync_ui_kit.py の写し先ではない(各ツールの画面はそれぞれの app.js 等でこれと同じ形の呼び出しを行う)。 */
 (function () {
   'use strict';
 
