@@ -3,9 +3,10 @@
 このリポジトリで作業する AI(Claude・GPT/Codex のどちらも)の共通の前提です。Codex はこのファイルを、Claude Code は CLAUDE.md 経由で読みます。
 
 ## 最初にやること
-1. `docs/WORKLOG.md` の最後の数件を読む(誰が・いつ・何を変えたか、**未コミットのファイル**、未完了、注意)
-2. `git status` と `git log -5 --oneline` を見る(下の「複数の AI で作業するときのルール」)
-3. 触るツールの `AGENTS.md`(今は `transcribe-tool/AGENTS.md` だけ)と `README.txt` を読む
+1. `docs/ROADMAP.md` を読む(全体のまとめ: 済んだこと・進行中・待ち・保留と、**どの文書を読めばよいかの索引**)
+2. `docs/WORKLOG.md` の最後の数件を読む(誰が・いつ・何を変えたか、**未コミットのファイル**、未完了、注意)
+3. `git status` と `git log -5 --oneline` を見る(下の「複数の AI で作業するときのルール」)
+4. 触るツールの `AGENTS.md`(今は `transcribe-tool/AGENTS.md` だけ)と `README.txt` を読む
 
 ## 全体の形
 - 3つのツール(切り抜きスタジオ・編集(transcribe-tool)・cut2resolve)と、それをまとめる入口がある。どれも Python 標準ライブラリ中心のローカルサーバー + ブラウザの画面で、ユーザーの PC 上だけで動く。外部サービスへ動画・音声を送らない方針
@@ -18,8 +19,8 @@
 - ユーザー向けの使い方の全体はリポジトリ直下の `README.txt`(09-26 に一本化)。各ツールの `README.txt` は細かい使い方と変更の記録
 - **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
 - 流れ: スタジオで配信から区間を選んで書き出す → 「編集」で字幕を作って直し(1)・カットを決め(2)・DaVinci Resolve 用のパック(カット + Text+ 字幕。中身は cut2resolve の pack.py)を作る(3)。受け渡しの形式は `docs/pipeline.md`
-- 1つのアプリへの統合計画: `docs/integration-plan.md`(段階1 = 入口、段階2 = ytt_core、段階3 = 3ツールの取り込み(3-1 スタジオ・3-2 cut2resolve・3-3 文字起こし)まで実装済み。段階4 = 作業データをリポジトリの外へ・案件ファイル(入口の `/cases.html`)・重い処理の同時実行の上限・文字起こしをスタジオへ返す(セリフの表示)、段階5 = まとめて実行(`app/autorun.py`)・ラウドネス調整、段階6 = README の一本化・単独起動の廃止 も実装済み。段階7 = 画面の形: 7-0 画面のエラーの記録・7-1 解析の設定をサーバーへ・7-2 離れた/戻ったの共通化・7-3 Edge のアプリモードの窓を実装済み(2026-09-27 ユーザー決定で既定を窓に。pywebview(7-4)は使わない)。新着配信の監視はやらない(2026-09-27 ユーザー決定))。
-  統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)
+- 1つのアプリへの統合計画(`docs/integration-plan.md`)は段階0〜7 まで完了(入口・ytt_core・3ツールの取り込み・作業データの外出し・案件・まとめて実行・Edge の専用の窓)。
+  統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)。**いま進行中なのは文字起こしの精度改善**(`docs/transcription-overhaul-plan.md`)。全体の状態は `docs/ROADMAP.md`
 - **別のツール: ホロカラー(`holo-colors/`。2026-09-27)** … ホロライブのメンバーカラーをキー(Ctrl+Alt+H)で呼び出してコピーする Windows の常駐アプリ。
   **主に友人が使う**ので Python ではなく C#(WinForms)。Windows に入っている .NET Framework 4 の csc で作る(`build.bat`。C# 5 まで)。入口・3ツールとはつながっていない。
   設計と決めたこと・メンバーの色の出典: `docs/holo-colors.md`、使い方: `holo-colors/README.txt`
@@ -43,12 +44,11 @@
 
 ## 資料の場所(正本はこのリポジトリ)
 - **資料の正本はこのリポジトリ**(2026-09-26 ユーザー決定)。claude.ai の Project の `claude/*.md` は古い写しで、根拠にしない(例外: 統合計画は Claude Docs が正本)
+- **文書の索引と、それぞれの状態(規則 / 進行中 / 完了した設計 / 古い資料)は `docs/ROADMAP.md` の 6**。迷ったらそこから探す
 - 今の仕様 = 各ツールの `README.txt`(ユーザー向け)+ `AGENTS.md`(AI 向け)+ コード。ツール間の受け渡し: `docs/pipeline.md`
-- `docs/project/` は 2026-09-24 までの経緯(仕様書・引き継ぎ)。**多くは数版前のまま**(例: cut2resolve-spec.md は v0.1.3、実物は v0.5.0)。
-  「なぜそう決めたか」を調べるときに読む。一覧は `docs/project/README.md`
-- `docs/review/README.md` … 2026-09-24 の全ツールの見直し。`docs/accuracy/` … 文字起こしの精度の基準(`accuracy-baseline.md`)とユーザーの記入待ちの項目(`USER_INPUT.md`)
-- 「編集」ツール(文字起こし + cut2resolve の統合)の設計・実装の段取り: `docs/edit-tool-design.md`(画面イメージ `docs/mockups/edit-*.png`。2026-09-26 ユーザー承認。E1〜E6 実装済み。実装で決めた細かい決まりは同じ文書の「11」)
-- 新しい設計・決定は `docs/` の直下に文書で残し、WORKLOG からリンクする
+- `docs/project/`・`docs/review/`・`transcribe-tool/TRANSCRIPTION_V2_DESIGN.md` は古い経緯(**多くは数版前のまま**)。「なぜそう決めたか」を調べるときだけ読む
+- 計画・設計の文書の先頭には「状態(日付)」の1行を置く(済んだ・進行中・未実装)。状態が変わったら、その1行と `docs/ROADMAP.md` を直す
+- 新しい設計・決定は `docs/` の直下に文書で残し、WORKLOG と `docs/ROADMAP.md` からリンクする
 
 ## 開発のルール
 - 実行時データ・個人データ・秘密情報はコミットしない(`.gitignore` 参照: transcripts/ dataset/ models/ exports/ clips/ config.json など)。リポジトリは Public にする方針なので特に注意。
@@ -77,7 +77,8 @@
 - ファイルの移動・改名は `git mv` を**1コミットにまとめ**、前後で WORKLOG に告知する。長く分かれたブランチは使わない(同じフォルダを2つの AI が使うため、切り替えると相手のファイルが入れ替わる)
 
 作業を終えるとき:
-1. `docs/WORKLOG.md` の**末尾**に記録を追記する(書式は WORKLOG の先頭)。コミットしていないなら「未コミット: <ファイル一覧>」を必ず書く
+1. `docs/WORKLOG.md` の**末尾**に記録を追記する(書式は WORKLOG の先頭)。コミットしていないなら「未コミット: <ファイル一覧>」を必ず書く。
+   進行中・待ち・保留が変わったら `docs/ROADMAP.md` の該当の1行も直す
 2. git を使える AI は、変更したファイルと WORKLOG をコミットする(`git add <変えたファイル> docs/WORKLOG.md` → `git commit`)。push はユーザーが push.bat で行う(AI は push しなくてよい)
 3. 長く使う設計・決定は `docs/` に文書で残し、WORKLOG からリンクする
 

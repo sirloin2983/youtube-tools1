@@ -1,5 +1,7 @@
 # 「編集」ツール(文字起こし + cut2resolve の統合)— 設計と実装の段取り
 
+> **状態(2026-09-29): E1〜E6(09-26)・12 の追加機能 ①〜⑦(09-26〜27)実装済み**。残りは 10 の未決2件と 12 の保留(⑥ の聞き比べ・③-2 の6か所)。下の「未着手」は書いた時点のこと。全体のまとめは `docs/ROADMAP.md`。
+
 - 2026-09-26 Claude(Cowork)が設計・画面イメージを作り、ユーザーが承認(「このイメージでいい」)。**実装は Claude Code(PC)で行う**(ユーザー決定)。この文書の時点では未着手
 - 画面イメージ: `docs/mockups/edit-1-transcribe.png`・`edit-2-cut.png`・`edit-3-pack.png`(元の HTML は `docs/mockups/edit-mock.html`。
   ブラウザで `edit-mock.html?tab=tx|cut|pack` を開くと同じ画面が出る。ui-kit.css を相対パスで読むので、リポジトリの中で開く)
