@@ -81,7 +81,7 @@
           <div class="row">
             <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
               <input id="docWho" type="text" size="12" placeholder="例: さくらみこ"></label>
-            <label class="lag"><input type="checkbox" id="docOverwrite">できているパックも作り直す</label>
+            <label class="lag"><input type="checkbox" id="docOverwrite">パックがあれば作り直す(上書き)</label>
             <button type="button" class="btn small primary" id="docRunBtn" disabled>選んだ文書をまとめて実行</button>
           </div>
           <div class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック)</div>
@@ -212,6 +212,7 @@
           <button type="button" class="btn small primary pt-auto-run">実行</button>
           <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
         </div>
+        <div class="pt-auto-panel"></div>
         <ol class="pt-auto-steps"></ol>
         <div class="hint pt-auto-msg"></div>
       </div>

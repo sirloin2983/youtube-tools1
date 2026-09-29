@@ -136,7 +136,7 @@ def main():
                 pg.click(card + " .pt-case-row")
                 check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is True,
                       "実行中は行を閉じさせない")
-                done_js = ("(() => { const m = document.querySelector('%s .pt-auto-msg'); return m && /完了|止まりました/.test(m.textContent); })()"
+                done_js = ("(() => { const m = document.querySelector('%s .pt-auto-msg'); return m && /済み|失敗|やることがありませんでした/.test(m.textContent); })()"
                            % card.replace("'", "\\'"))
                 check(wait_js(pg, done_js, 240000), "まとめて実行が終わった: %s" % pg.text_content(card + " .pt-auto-msg"))
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
@@ -148,12 +148,13 @@ def main():
                 if shots:
                     os.makedirs(shots, exist_ok=True)
                     pg.screenshot(path=os.path.join(shots, "cases-autorun.png"), full_page=True)
-                # もう一度押す → 何も作り直さない
+                # もう一度押す → 見積もりで「やることがありません」と出して、始めない(気が利く画面へ 段4。以前は始めて全部の段を飛ばしていた)
                 pg.click(card + " .pt-auto-run")
+                check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0)", 20000),
+                      "2回目は見積もりで「やることがありません」と出す")
                 time.sleep(1.0)
-                check(wait_js(pg, done_js, 60000), "2回目も終わった")
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 飛ばした", "文字起こし 飛ばした", "Resolve パック 飛ばした"], "2回目は何も作り直さない: %s" % pills)
+                check(pills == ["書き出し 済み", "文字起こし 済み", "Resolve パック 済み"], "2回目は始めない(前の実行の表示のまま): %s" % pills)
                 real = [e for e in errors if "Failed to load resource" not in e]
                 check(not real, "画面のエラーなし(CSP 違反を含む): %s" % real[:3])
                 browser.close()

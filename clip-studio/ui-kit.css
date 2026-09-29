@@ -395,6 +395,17 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-toast-x{flex:none;align-self:flex-start;width:22px;height:22px;margin:-2px -8px 0 0;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
 .ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
 .ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
+/* v7: まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
+.ui-autorun{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12.5px;color:var(--ink-2)}
+.ui-ar-sum{flex:1 1 auto;min-width:0}
+.ui-ar-body{width:min(360px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;padding:12px 14px}
+.ui-ar-form{display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--ink)}
+.ui-ar-f{display:flex;flex-direction:column;gap:3px}
+.ui-ar-l{font-weight:600;font-size:12px;color:var(--ink-2)}
+.ui-ar-h{font-size:11.5px;color:var(--ink-3)}
+.ui-ar-c{display:flex;gap:6px;align-items:flex-start;line-height:1.4}
+.ui-ar-f select,.ui-ar-f input[type=number]{max-width:100%}
+.ui-ar-body button{width:auto;display:inline-flex}
 /* v7: 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
 .btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
 

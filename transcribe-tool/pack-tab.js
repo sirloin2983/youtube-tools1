@@ -17,9 +17,9 @@ function create(h){
     const v = Number(raw); return v === 0 ? 0 : [-11, -14, -16, -18].includes(v) ? v : -14;
   };
   const volOf = () => { const v = Math.round(Number(h.S.settings.packVolume)); return v >= 1 && v <= 200 ? v : 100; };   // LUFS でそろえないときの音量(%。元 = 100)
-  async function saveLoud(values){   // 音量は「送ったキーだけ直す」API で(丸ごとの保存では変えない。ほかの画面のまとめて実行の欄と同じ値)
+  async function saveLoud(values){   // パックの出力(音量・fps・縦横・話者の色・予備)は「送ったキーだけ直す」API で(丸ごとの保存では変えない。まとめて実行の欄と同じ値)
     try { await h.api('/api/settings/patch', { body: { values } }); Object.assign(h.S.settings, values); }
-    catch (er){ h.toast('パックの音量を保存できませんでした: ' + er.message, 6000, 'err'); }
+    catch (er){ h.toast('パックの設定を保存できませんでした: ' + er.message, 6000, 'err'); }
     render();
   }
   /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
@@ -81,7 +81,7 @@ function create(h){
      api/ytt/streamer-colors → ytt_core/colors.py)。パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ。
      スイッチは編集の設定 speakerColors(1 文字起こし・カットのプレビュー・まとめて実行も同じ値。以前はこのブラウザの tx.pk.speakerColors) ---------- */
   const spkOn = () => h.S.settings.speakerColors !== false;
-  $('#pkSpk').addEventListener('change', () => { h.S.settings.speakerColors = $('#pkSpk').checked; h.saveSettings(); h.onSpeakerColors(); render(); });
+  $('#pkSpk').addEventListener('change', async () => { await saveLoud({ speakerColors: $('#pkSpk').checked }); h.onSpeakerColors(); });
   function renderSpk(){
     const box = $('#pkSpkList'), d = h.S.doc, on = spkOn();
     $('#pkSpk').checked = on;
@@ -189,6 +189,7 @@ function create(h){
   /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */
   function renderSummaryText(fps, size, hasRows){
     const bits = [`${fps}fps`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
+    if (hasRows && document.activeElement !== $('#pkBackup')) $('#pkBackup').checked = h.S.settings.packBackup === true;   // 予備は覚える(段4・E-4)。字幕の無いパックは EDL が本体なので入れたまま(render が決める)
     if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
     if ($('#pkRender').checked) bits.push('粗編集の動画つき');
     bits.push(loudOf() ? `音量 ${loudOf()} LUFS` : `音量 ${volOf()}%`);
@@ -290,12 +291,12 @@ function create(h){
   /* 「設定を変える」の右の欄(段3。docked ではなく modal: 開いている間はパックを作る操作に集中させる) */
   $('#pkSettingsBtn').addEventListener('click', e => { if (window.UIKit && UIKit.drawer) UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: e.currentTarget }); });
   $('#pkSettingsClose').addEventListener('click', () => { if (window.UIKit && UIKit.drawer) UIKit.drawer.close($('#pkSettingsDrawer')); });
-  function setOpt(key, v){ h.S.settings[key] = v; h.saveSettings(); render(); }
+  function setOpt(key, v){ saveLoud({ [key]: v }); }   // パックの出力は「送ったキーだけ直す」API で(まとめて実行の欄と同じ値。段4)
   $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
   $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
   $('#pkBuild').addEventListener('click', build);
-  $('#pkBackup').addEventListener('change', render);
+  $('#pkBackup').addEventListener('change', () => saveLoud({ packBackup: $('#pkBackup').checked }));
   $('#pkRender').addEventListener('change', render);
   $('#pkLoud').addEventListener('change', () => saveLoud({ packLoudness: Number($('#pkLoud').value) }));
   $('#pkVol').addEventListener('change', () => { const v = Math.round(Number($('#pkVol').value)); if (v >= 1 && v <= 200) saveLoud({ packVolume: v }); else { h.toast('音量(%)は 1〜200 で入れてください', 4000, 'err'); render(); } });
@@ -339,7 +340,8 @@ function create(h){
     shown(){
       if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
-        if (st && (st.packLoudness !== h.S.settings.packLoudness || st.packVolume !== h.S.settings.packVolume)){ h.S.settings.packLoudness = st.packLoudness; h.S.settings.packVolume = st.packVolume; if (h.S.doc) render(); }
+        const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup'];   // ほかの画面(まとめて実行の欄)でも変えられる値
+        if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }
       }, () => {});
     },
     changed(){ render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった

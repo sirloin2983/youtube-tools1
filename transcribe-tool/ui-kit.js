@@ -25,6 +25,8 @@
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
+       UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(path, body, estBody) = 見積もり → 始める → 終わったら知らせ・
+       stepLabel / runLabel = 状態の言葉)。
        UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values)) */
 (function () {
   'use strict';
@@ -1125,7 +1127,218 @@
     }
   };
 
+  /* ---- autorun(まとめて実行の部品。v7・気が利く画面へ 段4)----
+     どの入口(ホームの案件・紐づかない文書・スタジオ ①/③・編集の題名の行・履歴)でも、同じ設定の要約1行 +「設定を変える」+ 始める前の見積もり +
+     終わったときの知らせ(ボタンつき)。値は1か所: まとめて実行の形・採用数・カットの方法・上書き・失敗したとき = ホームの設定 autorun(UIKit.prefs)、
+     パックの出力(fps・縦横・話者の色・予備・音量)= 編集の設定(3 パック のタブと同じ。送ったキーだけ直す api/settings/patch)。
+     状態の言葉もここ(サーバーの stateLabel が正。無いときの予備) */
+  var AR_STEP = { wait: '待ち', run: '実行中', done: '済み', skip: '飛ばした', warn: '一部失敗', error: '失敗' };
+  var AR_RUN = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止', nothing: 'やることがありませんでした' };
+  var AR_MODES = { adopted: '採用後を全部', transcribe: '文字起こしまで', full: '解析から全部' };
+  var AR_CUT = { rows: '行から', none: 'カットしない', silence: '無音で削る' };
+  var arSeq = 0, arPanels = [], arWatched = {}, arTimer = 0, arState = null;
+  function arHomeApi(path, body) {
+    var init = { cache: 'no-store', credentials: 'same-origin', method: body === undefined ? 'GET' : 'POST' };
+    if (body !== undefined) { init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': token() }; init.body = JSON.stringify(body); }
+    return fetch(new URL('../' + path, location.href).href, init).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.message || ('HTTP ' + r.status)); e.code = j.error; throw e; } return j; });
+    });
+  }
+  function arLoad() {
+    var pr = prefs.available() ? prefs.get(['autorun']).then(function (p) { return p.autorun || {}; }, function () { return {}; }) : Promise.resolve({});
+    var u = txApiUrl('api/settings');
+    var tx = u ? fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).catch(function () { return {}; }) : Promise.resolve({});
+    return Promise.all([pr, tx]).then(function (x) {
+      var a = x[0], t = x[1] || {};
+      arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next',
+                  fps: String(t.packFps || '30'), size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false, backup: t.packBackup === true,
+                  loud: loudNorm(t.packLoudness), vol: volNorm(t.packVolume), pack: !!u };
+      return arState;
+    });
+  }
+  function arSummary(st, kind) {
+    if (!st) return '';
+    var bits = [];
+    if (kind === 'video' && st.mode) bits.push(AR_MODES[st.mode]);
+    if (kind === 'new' || (kind === 'video' && st.mode === 'full')) bits.push('採用 ' + st.top);
+    bits.push(AR_CUT[st.cut]);
+    if (st.pack) {
+      bits.push(st.fps + 'fps ' + (st.size === '1920x1080' ? '横' : '縦'));
+      bits.push(st.spk ? '話者の色あり' : '話者の色なし');
+      bits.push(st.loud ? '音量 ' + st.loud + ' LUFS' : '音量 ' + st.vol + '%');
+      if (st.backup) bits.push('予備あり');
+    }
+    bits.push(st.overwrite ? 'パックがあれば作り直す' : 'パックがあれば飛ばす');
+    bits.push(st.onFail === 'stop' ? '失敗したら止める' : '失敗したら次へ');
+    return bits.join(' ・ ');
+  }
+  function arRepaint() {
+    arPanels = arPanels.filter(function (p) { return p.el.isConnected; });
+    for (var i = 0; i < arPanels.length; i++) arPanels[i].paint();
+  }
+  function arSave(where, values) {
+    var done = where === 'prefs' ? prefs.patch('autorun', values)   /* ホームの設定(失敗は UIKit.prefs が知らせる) */
+      : fetch(txApiUrl('api/settings/patch'), { method: 'POST', cache: 'no-store', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-YTT-Token': token() }, body: JSON.stringify({ values: values }) })
+        .then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('HTTP ' + r.status)); }); });
+    return done.then(function () { return arLoad(); }).then(function () { arRepaint(); try { document.dispatchEvent(new CustomEvent('ui-autorun-settings', { detail: arState })); } catch (e) {} },
+      function (e) { if (where !== 'prefs') toastFn('パックの設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 0 }); });
+  }
+  function arEl(tag, attrs, text) {
+    var el = document.createElement(tag);
+    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, attrs[k]);
+    if (text != null) el.textContent = text;
+    return el;
+  }
+  function arSelect(opts, value) {
+    var s = arEl('select');
+    for (var i = 0; i < opts.length; i++) { var o = arEl('option', { value: opts[i][0] }, opts[i][1]); s.appendChild(o); }
+    s.value = String(value);
+    return s;
+  }
+  function arField(label, control, hint) {
+    var f = arEl('label', { 'class': 'ui-ar-f' });
+    f.appendChild(arEl('span', { 'class': 'ui-ar-l' }, label));
+    f.appendChild(control);
+    if (hint) f.appendChild(arEl('span', { 'class': 'ui-ar-h' }, hint));
+    return f;
+  }
+  /* 設定の欄(ポップオーバーの中身)。値を変えたらすぐ保存(どこで変えても全部の入口の既定) */
+  function arForm(kind, opts) {
+    var st = arState, box = arEl('div', { 'class': 'ui-ar-form' });
+    if (kind === 'video' && opts.modes) {
+      var m = arSelect(opts.modes.map(function (k) { return [k, AR_MODES[k]]; }), st.mode || opts.modes[0]);
+      m.addEventListener('change', function () { arSave('prefs', { mode: m.value }); });
+      box.appendChild(arField('形', m));
+    }
+    if (kind === 'new' || (kind === 'video' && (!opts.modes || opts.modes.indexOf('full') >= 0))) {
+      var t = arEl('input', { type: 'number', min: '1', max: '20', step: '1' }); t.value = String(st.top); t.style.width = '5em';
+      t.addEventListener('change', function () { var n = Math.round(+t.value); if (n >= 1 && n <= 20) arSave('prefs', { top: n }); });
+      box.appendChild(arField('採用する数(解析から全部)', t));
+    }
+    var c = arSelect([['rows', '行から(文字起こしの行を残す)'], ['none', 'カットしない(動画全体)'], ['silence', '無音で削る']], st.cut);
+    c.addEventListener('change', function () { arSave('prefs', { cut: c.value }); });
+    box.appendChild(arField('カットの方法', c, 'カットを決めてある文書は、そのカットのとおり。細かい値は「編集」の 2 カット で'));
+    if (st.pack) {
+      var fps = arSelect([['30', '30 fps'], ['60', '60 fps'], ['24', '24 fps'], ['25', '25 fps'], ['50', '50 fps']], st.fps);
+      fps.addEventListener('change', function () { arSave('tx', { packFps: fps.value }); });
+      var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
+      size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
+      box.appendChild(arField('パックの置き先', fps));
+      box.appendChild(arField('画面の大きさ', size));
+      var loud = arEl('select');
+      var lf = arField('パックの音量', loud); box.appendChild(lf);
+      packLoud.mount(loud);
+      var spk = arEl('input', { type: 'checkbox' }); spk.checked = st.spk;
+      spk.addEventListener('change', function () { arSave('tx', { speakerColors: spk.checked }); });
+      var sl = arEl('label', { 'class': 'ui-ar-c' }); sl.appendChild(spk); sl.appendChild(document.createTextNode('話者の名前がメンバーと合えば、その話者の字幕をその色に'));
+      box.appendChild(sl);
+      var bk = arEl('input', { type: 'checkbox' }); bk.checked = st.backup;
+      bk.addEventListener('change', function () { arSave('tx', { packBackup: bk.checked }); });
+      var bl = arEl('label', { 'class': 'ui-ar-c' }); bl.appendChild(bk); bl.appendChild(document.createTextNode('予備も入れる(EDL・SRT)'));
+      box.appendChild(bl);
+    } else {
+      box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックの出力(fps・縦横・話者の色・音量)は、「編集」が動いていると ここでも変えられます'));
+    }
+    var ow = arEl('input', { type: 'checkbox' }); ow.checked = st.overwrite;
+    ow.addEventListener('change', function () { arSave('prefs', { overwrite: ow.checked }); });
+    var ol = arEl('label', { 'class': 'ui-ar-c' }); ol.appendChild(ow); ol.appendChild(document.createTextNode('パックがあれば作り直す(上書き)'));
+    box.appendChild(ol);
+    var of = arSelect([['next', '残りを続ける'], ['stop', 'そこで止める']], st.onFail);
+    of.addEventListener('change', function () { arSave('prefs', { onFail: of.value }); });
+    box.appendChild(arField('1本が失敗したとき', of));
+    return box;
+  }
+  function arEstimateText(e) {
+    if (!e || !e.steps) return '';
+    return e.steps.map(function (s) { return s.label + ' ' + (s.count == null ? 'あとで決まる' : s.count + ' 本'); }).join(' → ');
+  }
+  function arDocHref(run) {
+    var b = tools.paths && tools.paths.transcribe;
+    if (!b) return '';
+    return run.docId ? b + '?doc=' + encodeURIComponent(run.docId) + '#tx' : b + '#tx';
+  }
+  function arOpen(href) { if (href) location.href = href; }   /* 同じ窓で移る(窓・画面を増やさない。S-15) */
+  function arFinished(run, again) {
+    var title = run.title ? '「' + run.title + '」' : '';
+    if (run.state === 'cancelled') return;
+    if (run.state === 'error') {
+      toastFn(title + 'のまとめて実行が止まりました: ' + (run.error || ''), { kind: 'err', ms: 0,
+        action: again ? { label: 'やり直す', fn: again } : null });
+      return;
+    }
+    if (run.nothing) { toastFn(title + (title ? ': ' : '') + (run.message || AR_RUN.nothing), { kind: 'info', ms: 8000 }); return; }
+    var pk = null, warn = false;
+    for (var i = 0; i < (run.steps || []).length; i++) { if (run.steps[i].key === 'pack') pk = run.steps[i]; if (run.steps[i].state === 'warn') warn = true; }
+    var msg = title + 'のまとめて実行が終わりました' + (pk && pk.detail ? '(' + pk.detail.split('。')[0] + ')' : '') + (warn ? '。一部失敗しました(詳しくは進み具合の欄)' : '');
+    var href = arDocHref(run);
+    toastFn(msg, { kind: warn ? 'info' : 'ok', ms: 0, action: href ? { label: '校正を始める', fn: function () { arOpen(href); } } : null });
+  }
+  function arPoll() {
+    arTimer = 0;
+    var ids = Object.keys(arWatched);
+    if (!ids.length) return;
+    arHomeApi('api/autorun').then(function (j) {
+      var runs = j.runs || [];
+      for (var i = 0; i < ids.length; i++) {
+        var r = null;
+        for (var k = 0; k < runs.length; k++) if (runs[k].id === ids[i]) r = runs[k];
+        if (!r) { delete arWatched[ids[i]]; continue; }
+        if (r.state !== 'queued' && r.state !== 'running') { var again = arWatched[ids[i]]; delete arWatched[ids[i]]; arFinished(r, again); }
+      }
+    }).catch(function () {}).then(function () { if (Object.keys(arWatched).length) arTimer = setTimeout(arPoll, 2500); });
+  }
+  var autorun = {
+    STEP: AR_STEP, RUN: AR_RUN, MODES: AR_MODES, CUT: AR_CUT,
+    stepLabel: function (s) { return (s && s.stateLabel) || AR_STEP[s && s.state] || (s && s.state) || ''; },
+    runLabel: function (r) { return (r && r.stateLabel) || AR_RUN[r && r.nothing && r.state === 'done' ? 'nothing' : r && r.state] || (r && r.state) || ''; },
+    load: arLoad,
+    state: function () { return arState; },
+    summary: arSummary,
+    /* el に「要約1行 +『設定を変える』」を描く。opts: {kind: 'video'|'docs'|'new', modes: ['adopted', …](形を選ばせるとき)} */
+    panel: function (el, opts) {
+      if (!el) return null;
+      opts = opts || {};
+      var kind = opts.kind || 'video', id = 'ui-ar-' + (++arSeq);
+      el.classList.add('ui-autorun');
+      el.innerHTML = '';
+      var sum = arEl('span', { 'class': 'ui-ar-sum', id: id + '-sum' });
+      var det = arEl('details', { 'class': 'ui-pop ui-ar-pop' });
+      var s = arEl('summary', { 'class': 'btn small ghost', 'aria-describedby': id + '-sum' }, '設定を変える');
+      var body = arEl('div', { 'class': 'ui-pop-body ui-ar-body', 'data-align': opts.align || 'left' });
+      det.appendChild(s); det.appendChild(body);
+      el.appendChild(sum); el.appendChild(det);
+      var p = { el: el, paint: function () { sum.textContent = arState ? arSummary(arState, kind) : '…'; } };
+      det.addEventListener('toggle', function () {
+        if (!det.open) return;
+        body.textContent = '読み込んでいます…';
+        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); p.paint(); });
+      });
+      arPanels.push(p);
+      if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
+      return p;
+    },
+    /* 始める: 見積もり(estBody があれば)→ やることが 0 なら始めない → path に POST → 終わるまで見て知らせる。-> Promise<応答 | null> */
+    start: function (path, body, estBody) {
+      var est = estBody ? arHomeApi('api/autorun/estimate', estBody).catch(function () { return null; }) : Promise.resolve(null);
+      return est.then(function (e) {
+        if (e && e.nothing) { toastFn('やることがありません: ' + (e.reason || ''), { kind: 'info', ms: 8000 }); return null; }
+        return arHomeApi(path, body).then(function (j) {
+          var runs = j.run ? [j.run] : (j.runs || []);
+          for (var i = 0; i < runs.length; i++) arWatched[runs[i].id] = (function () { var b = body; return function () { autorun.start(path, b, estBody); }; })();
+          if (runs.length && !arTimer) arTimer = setTimeout(arPoll, 2500);
+          var what = runs.length === 1 ? '「' + runs[0].modeLabel + '」' : runs.length + ' 本のまとめて実行';
+          toastFn(what + 'を始めました' + (e ? '(' + arEstimateText(e) + ')' : ''), { kind: 'ok', ms: 6000 });
+          if (j.skipped && j.skipped.length) toastFn(j.skipped.length + ' 本は始めませんでした: ' + j.skipped[0].reason, { kind: 'info', ms: 8000 });
+          return j;
+        });
+      });
+    },
+    watch: function (runId, again) { arWatched[runId] = again || null; if (!arTimer) arTimer = setTimeout(arPoll, 2500); },
+    estimateText: arEstimateText
+  };
+
   window.UIKit = { version: 7, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun };
 })();

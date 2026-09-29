@@ -143,6 +143,7 @@ function buildDOM(){
           <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
         <label class="lag rv-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
           <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+        <div class="rv-autopanel"></div>
         <label class="lag rv-autoloud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="rvAutoLoud" data-ui-packloud></select></label>
       </div>
     </details>
@@ -2000,7 +2001,8 @@ function autoTxEnabled(){ try { return localStorage.getItem('ytt:studio.autoTx')
 async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
-    await portalApi('api/autorun/start', { id: videoId, mode: 'transcribe', marks: markIds });
+    const r = await portalApi('api/autorun/start', { id: videoId, mode: 'transcribe', marks: markIds });
+    if (r && r.run && window.UIKit && UIKit.autorun) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる(段4)
     toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
   } catch (e){
@@ -2010,15 +2012,20 @@ async function maybeAutoTranscribe(videoId, markIds){
     else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
+/* まとめて実行(③ のメニュー・マークの行の「この後を ▸」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
+   採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
 async function startAuto(mode, marks){
   if (!S.cur) return;
-  const top = Math.min(30, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
+  const top = Math.min(20, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = $('#rvAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(配信者名から自動では入れない)
-    await portalApi('api/autorun/start', { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}), ...(marks ? { marks } : {}) });
+    const ar = window.UIKit && UIKit.autorun, st = ar ? ar.state() : null;
+    const body = { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), ...(who ? { streamer: who } : {}), ...(marks ? { marks } : {}), overwrite: !!(st && st.overwrite) };
+    const r = ar ? await ar.start('api/autorun/start', body, { id: body.id, mode, marks: marks || null, top: body.top, overwrite: body.overwrite })
+      : await portalApi('api/autorun/start', body);
+    if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
     $('#rvAuto').open = false;
-    toast(marks ? 'このマークのまとめて実行を始めました(ホームの案件の画面と同じ順番待ち)' : 'まとめて実行を始めました(ホームの案件の画面と同じ順番待ち)', 5000, 'ok');
     pollAuto();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
 }
@@ -2033,8 +2040,9 @@ async function pollAuto(){
   const r = runs.find(x => x.kind !== 'doc' && x.videoId === vid);   // いちばん新しい実行(一覧は新しい順)
   const active = !!r && (r.state === 'queued' || r.state === 'running');
   if (!r || (!active && !AUTO.active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ bar.hidden = true; AUTO.active = false; return; }   // 10分より前に終わったものは出さない
-  const [cls, label] = AUTO_STATE[r.state] || ['info', r.state];
-  const steps = r.steps.map(s => `${esc(s.label)}: ${esc(AUTO_STEP[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+  const cls = r.nothing ? 'info' : (AUTO_STATE[r.state] || ['info'])[0], label = window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : (AUTO_STATE[r.state] || [0, r.state])[1];   // 状態の言葉は1か所
+  const stepLabel = s => (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(s) : AUTO_STEP[s.state] || s.state);   // 状態の言葉は1か所
+  const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel">中止</button>' : '') +
     `<a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
@@ -2059,6 +2067,11 @@ Studio.onReady(() => {
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
   if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
+  if (window.UIKit && UIKit.autorun && Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
+    UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });
+    UIKit.autorun.load().then(st => { $('#rvAutoTop').value = String(st.top); }, () => {});
+    $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20 && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
+  }
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
   if (Studio.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#rvAutoBar').addEventListener('click', async e => {

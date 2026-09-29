@@ -3371,7 +3371,12 @@ def load_settings():
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
 SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
-                       "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200}   # packLoudness が 0 のときの音量(%)
+                       "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
+                       # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
+                       "packFps": lambda v: v in ("24", "25", "30", "50", "60"),
+                       "packSize": lambda v: v in ("1080x1920", "1920x1080"),
+                       "speakerColors": lambda v: isinstance(v, bool),
+                       "packBackup": lambda v: isinstance(v, bool)}
 _settings_lock = threading.Lock()
 
 

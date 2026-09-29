@@ -374,19 +374,29 @@
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
-    mode.value = lsGet('mode', 'adopted');
-    if (!mode.value) mode.value = 'adopted';
-    top.value = lsGet('top', '3');
+    /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4。以前はこのブラウザの ytt.cases.mode/top)。
+       形の初期値は配信の状態から(マークが 0 = 解析から全部・採用あり = 採用後を全部。どちらでもなければ保存した形。S-4) */
+    var ar = window.UIKit && UIKit.autorun;
+    var stateMode = !c.marks.total ? 'full' : c.marks.adopted ? 'adopted' : null;
+    mode.value = stateMode || 'adopted';
     var sync = function () { $('.pt-auto-topbox', box).hidden = mode.value !== 'full'; };
-    mode.addEventListener('change', function () { lsSet('mode', mode.value); sync(); });
-    top.addEventListener('change', function () { lsSet('top', top.value); });
+    if (ar) {
+      ar.panel($('.pt-auto-panel', box), { kind: 'video' });
+      ar.load().then(function (st) { if (!stateMode && st.mode) mode.value = st.mode; top.value = String(st.top); sync(); }, function () {});
+    }
+    mode.addEventListener('change', function () { if (window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { mode: mode.value }).catch(function () {}); sync(); });
+    top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20 && window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
     sync();
     $('.pt-auto-run', box).addEventListener('click', function () {
-      var body = { id: c.id, mode: mode.value };
+      var st = ar ? ar.state() : null;
+      var body = { id: c.id, mode: mode.value, overwrite: !!(st && st.overwrite) };
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
       if (who.value.trim()) body.streamer = who.value.trim();
-      api('/api/autorun/start', 'POST', body).then(function (r) {
-        runsByVideo[c.id] = r.run; node.open = true; renderAuto(node, c.id); toast('「' + r.run.modeLabel + '」を始めました', 'ok'); pollAuto();
+      var go = ar ? ar.start('api/autorun/start', body, { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite })
+        : api('/api/autorun/start', 'POST', body);
+      go.then(function (r) {
+        if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
+        runsByVideo[c.id] = r.run; node.open = true; renderAuto(node, c.id); pollAuto();
       }).catch(function (e) { toast('始められませんでした: ' + e.message, 'err'); });
     });
     $('.pt-auto-cancel', box).addEventListener('click', function () {
@@ -405,11 +415,11 @@
     if (!r) return;
     r.steps.forEach(function (st) {
       var li = el('li', 'pt-auto-step');
-      li.appendChild(el('span', 'pill ' + (STEP_PILL[st.state] || 'wait'), st.label + ' ' + (STEP_STATE[st.state] || st.state)));
+      li.appendChild(el('span', 'pill ' + (STEP_PILL[st.state] || 'wait'), st.label + ' ' + (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(st) : (STEP_STATE[st.state] || st.state))));
       if (st.detail) li.appendChild(el('span', 'hint', st.detail));
       ol.appendChild(li);
     });
-    var head = r.modeLabel + ': ' + ({ queued: '順番待ち', running: '実行中', done: '完了', error: '止まりました', cancelled: '中止しました' }[r.state] || r.state);
+    var head = r.modeLabel + ': ' + (window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : r.state);   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
     msg.textContent = head + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
   }
 
@@ -697,13 +707,15 @@
     var who = $('#docWho').value.trim();
     if (who) body.streamer = who;
     $('#docRunBtn').disabled = true;
-    api('/api/autorun/start-docs', 'POST', body).then(function (r) {
+    var ar = window.UIKit && UIKit.autorun;
+    var go = ar ? ar.start('api/autorun/start-docs', body, { ids: ids, overwrite: body.overwrite }) : api('/api/autorun/start-docs', 'POST', body);
+    go.then(function (r) {
+      if (!r) { syncDocRunButton(); return; }   // やることが無い(見積もり)
       (r.runs || []).forEach(function (run) { runsByDoc[run.docId] = run; });
       docPicked = {};
       renderDocs();
       pollAuto();
-      var msg = r.runs.length + '件を始めました' + ((r.skipped || []).length ? '(' + r.skipped.length + '件は飛ばしました)' : '');
-      toast(msg, 'ok');
+      if (!ar) toast(r.runs.length + '件を始めました', 'ok');
     }).catch(function (e) { toast('始められませんでした: ' + e.message, 'err'); syncDocRunButton(); });
   }
 
@@ -913,6 +925,12 @@
     $('#fText').addEventListener('input', function () { resetPaging(); });
     $('#fSort').addEventListener('change', function () { lsSet('sort', $('#fSort').value); resetPaging(); });
     $('#fGroup').addEventListener('change', function () { lsSet('group', $('#fGroup').value); resetPaging(); });
+    /* 紐づかない文書の「パックがあれば作り直す(上書き)」も、まとめて実行の設定(ホームの設定)と同じ値(どの入口で変えても同じ。段4) */
+    if (window.UIKit && UIKit.autorun) {
+      UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});
+      document.addEventListener('ui-autorun-settings', function (e) { if (e.detail) $('#docOverwrite').checked = e.detail.overwrite; });
+    }
+    $('#docOverwrite').addEventListener('change', function () { if (window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { overwrite: $('#docOverwrite').checked }).catch(function () {}); });
     $('#btnMore').addEventListener('click', function () { visibleCount += PAGE_SIZE; render(); });
     $('#btnReload').addEventListener('click', function () {
       Promise.all([loadCases(), loadTxList()]).then(function () { renderDocs(); buildTodo(); toast('読み込み直しました'); });

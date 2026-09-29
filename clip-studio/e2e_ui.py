@@ -316,7 +316,7 @@ def run_checks(port, fx, shots=None):
             c.ok(runs and runs[0]["videoId"] == fx["a"] and runs[0]["mode"] == "transcribe", "③ 入口のまとめて実行に、この配信が入る(案件の画面と同じ)")
             if pg.is_visible("#rvAutoBar [data-act=autocancel]"):
                 pg.click("#rvAutoBar [data-act=autocancel]")
-            ok = wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
+            ok = wait_js(pg, "() => /中止|失敗|済み|やることがありませんでした/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
             c.ok(ok, "③ 帯の「中止」で止められる(または終わっている): " + (pg.text_content("#rvAutoBar .pill") or ""))
             # 1つのマークだけ(マークの行の「…」の中の「この後を ▸」。docs/followup-2026-09-27.md の 3・段階4の決定0)
             row_pop = '#rvList .rv-mark-row[data-id="m1"] .rv-rowmore'
@@ -332,7 +332,7 @@ def run_checks(port, fx, shots=None):
             c.ok(runs and runs[0]["marks"] == ["m1"] and runs[0]["mode"] == "adopted", "③ 入口のまとめて実行に、このマークだけが入る: %s" % (runs[0].get("marks") if runs else None))
             if pg.is_visible("#rvAutoBar [data-act=autocancel]"):
                 pg.click("#rvAutoBar [data-act=autocancel]")
-            wait_js(pg, "() => /中止|止まりました|完了/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
+            wait_js(pg, "() => /中止|失敗|済み|やることがありませんでした/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
         else:
             c.ok(pg.is_hidden("#rvAuto"), "③ 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
             c.ok(pg.locator("#rvList [data-act=auto1]").count() == 0, "③ 単体で開いたときは「この後を ▸」も出さない")

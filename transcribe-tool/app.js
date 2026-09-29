@@ -661,13 +661,15 @@ function renderPickBar(){
   $('#txPickN').textContent = PICK.ids.size ? `${PICK.ids.size} 本を選んでいます` : '文書を選んでください(一覧の行の左のチェック)';
   $('#txBatchGo').disabled = !PICK.ids.size;
 }
-const RUN_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
-const STEP_STATE = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
+/* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉。段4)。ここは札の色だけ */
+const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
+const runLabelOf = r => (window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : r.state);
+const stepLabelOf = s => (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(s) : s.state);
 function renderRuns(runs){
   const box = $('#txRuns');
   box.innerHTML = runs.slice(0, 10).map(r => {
-    const [cls, label] = RUN_STATE[r.state] || ['info', r.state];
-    const steps = r.steps.map(s => `${esc(s.label)}: ${esc(STEP_STATE[s.state] || s.state)}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+    const cls = r.nothing ? 'info' : RUN_CLS[r.state] || 'info', label = runLabelOf(r);
+    const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabelOf(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
     return `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${cls}">${esc(label)}</span>` +
       (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
       (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
@@ -697,10 +699,12 @@ async function startDocAuto(){
   try {
     if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
     const who = $('#docAutoWho').value.trim();
-    const r = await portalApi('api/autorun/start-docs', { ids: [id], overwrite: $('#docAutoOverwrite').checked, ...(who ? { streamer: who } : {}) });
-    const sk = r.skipped || [];
-    if ((r.runs || []).length){ toast('この文書のまとめて実行を始めました(入口の順番待ち)', 5000, 'ok'); $('#docAuto').open = false; }
-    else toast('始められませんでした: ' + (sk[0] ? sk[0].reason : '理由が分かりません'), 7000, 'err');
+    const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, ...(who ? { streamer: who } : {}) };
+    const ar = window.UIKit && UIKit.autorun;   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const r = ar ? await ar.start('api/autorun/start-docs', body, { ids: [id], overwrite: body.overwrite }) : await portalApi('api/autorun/start-docs', body);
+    if (!r) return;   // やることが無い(知らせは部品が出す)
+    if ((r.runs || []).length) $('#docAuto').open = false;
+    else toast('始められませんでした: ' + ((r.skipped || [])[0] ? r.skipped[0].reason : '理由が分かりません'), 7000, 'err');
     pollRuns();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   finally { b.disabled = false; }
@@ -710,11 +714,11 @@ function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちば�
   const r = S.docId ? runs.find(x => x.docId === S.docId) : null;
   const active = !!r && (r.state === 'queued' || r.state === 'running');
   if (!r || (!active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ pill.hidden = true; return; }
-  const [cls, label] = RUN_STATE[r.state] || ['info', r.state];
+  const cls = r.nothing ? 'info' : RUN_CLS[r.state] || 'info', label = runLabelOf(r);
   const step = (r.steps || []).find(s => s.state === 'run');
   pill.className = 'pill ' + cls; pill.hidden = false;
   pill.textContent = 'まとめて実行: ' + label + (step ? '(' + step.label + ')' : '');
-  pill.title = (r.steps || []).map(s => `${s.label}: ${STEP_STATE[s.state] || s.state}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
+  pill.title = (r.steps || []).map(s => `${s.label}: ${stepLabelOf(s)}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
 }
 
 async function startBatch(){
@@ -722,9 +726,10 @@ async function startBatch(){
   const b = $('#txBatchGo'); b.disabled = true;
   try {
     const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
-    const r = await portalApi('api/autorun/start-docs', { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) });
-    const n = (r.runs || []).length, sk = r.skipped || [];
-    toast(`${n} 本を「まとめて実行」に入れました` + (sk.length ? `(${sk.length} 本は入れていません: ${sk.slice(0, 2).map(x => (x.title || x.id) + ' = ' + x.reason).join('、')})` : ''), 7000, n ? 'ok' : 'err');
+    const body = { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) };
+    const ar = window.UIKit && UIKit.autorun;   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
+    const r = ar ? await ar.start('api/autorun/start-docs', body, { ids, overwrite: body.overwrite }) : await portalApi('api/autorun/start-docs', body);
+    if (!r) return;
     PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   finally { renderPickBar(); }
@@ -2452,6 +2457,13 @@ $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); 
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);
 $('#docAutoGo').addEventListener('click', startDocAuto);
+if (window.UIKit && UIKit.autorun){   // まとめて実行の設定の要約と「設定を変える」・上書きのチェックはホームの設定(どの入口で変えても同じ。段4)
+  const syncOw = st => { if (st){ $('#docAutoOverwrite').checked = st.overwrite; $('#txOverwrite').checked = st.overwrite; } };
+  document.addEventListener('ui-autorun-settings', e => syncOw(e.detail));
+  for (const id of ['#docAutoOverwrite', '#txOverwrite']) $(id).addEventListener('change', e => { if (UIKit.prefs) UIKit.prefs.patch('autorun', { overwrite: e.target.checked }).catch(() => {}); syncOw(Object.assign({}, UIKit.autorun.state() || {}, { overwrite: e.target.checked })); });
+  $('#docAuto').addEventListener('toggle', () => { if ($('#docAuto').open && TOKEN){ UIKit.autorun.panel($('#docAutoPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
+  $('#txPick').addEventListener('change', () => { if ($('#txPick').checked && TOKEN){ UIKit.autorun.panel($('#txBatchPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
+}
 if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる。2026-09-29)
   UIKit.packLoud.mount($('#docAutoLoud'));
   document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });

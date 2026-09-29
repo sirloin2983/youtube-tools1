@@ -170,6 +170,7 @@ function paneHtml(){
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
           <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
             <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+          <div class="rk-autopanel"></div>
           <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
           <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件の一覧</a></div>
         </div></details></span></div></div>
@@ -346,16 +347,18 @@ async function enqueue(items){
 async function startAuto(){
   if (R.adding || !R.picked.size) return;
   const items = [...R.picked.values()].map(p => ({ id: p.videoId, title: p.title, channel: p.channel }));
-  const top = Math.min(30, Math.max(1, Math.round(Number($('#rkAutoTop').value) || 3)));
+  const top = Math.min(20, Math.max(1, Math.round(Number($('#rkAutoTop').value) || 3)));
   const who = $('#rkAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(チャンネル名から自動では入れない)
   R.adding = true; paintPick();
   try {
-    const r = await S.portalApi('api/autorun/start-new', { items, top, ...(who ? { streamer: who } : {}) });
-    const made = r.runs || [], sk = r.skipped || [];
+    const body = { items, top, ...(who ? { streamer: who } : {}) };
+    const ar = window.UIKit && UIKit.autorun;   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
+    const r = ar ? await ar.start('api/autorun/start-new', body, null) : await S.portalApi('api/autorun/start-new', body);
+    const made = (r && r.runs) || [], sk = (r && r.skipped) || [];
     for (const x of made) R.picked.delete(x.videoId);
     if (made.length) $('#rkAuto').open = false;
-    S.toast((made.length ? `${made.length} 本のまとめて実行を始めました(進み具合はホームの案件の一覧)` : 'まとめて実行を始めませんでした') +
-      (sk.length ? '。始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、') : ''), 8000, made.length ? 'ok' : 'err');
+    if (!ar) S.toast(`${made.length} 本のまとめて実行を始めました`, 8000, made.length ? 'ok' : 'err');
+    if (sk.length && ar) S.toast('始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、'), 8000, 'info');
   } catch (e){ S.toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   R.adding = false;
   await refreshMarks(); paintPick();
@@ -387,6 +390,11 @@ S.onReady(async () => {
   $('#rkAuto').hidden = !S.token;   // まとめて実行は入口から開いたときだけ(ほかの入口と同じ)
   $('#rkAutoGo').addEventListener('click', startAuto);
   if (S.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
+  if (S.token && window.UIKit && UIKit.autorun){   // まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4。以前は毎回 3 に戻っていた)
+    UIKit.autorun.panel($('#paneRank .rk-autopanel'), { kind: 'new' });
+    UIKit.autorun.load().then(st => { $('#rkAutoTop').value = String(st.top); }, () => {});
+    $('#rkAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rkAutoTop').value)); if (n >= 1 && n <= 20 && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
+  }
   $('#results').addEventListener('change', e => {
     const cb = e.target.closest('.pk'); if (!cb) return;
     if (cb.checked){ if (R.picked.size >= MAX_PICK){ cb.checked = false; return S.toast('一度に選べるのは最大10本です'); } R.picked.set(cb.dataset.id, { kind: 'youtube', videoId: cb.dataset.id, title: cb.dataset.title, channel: cb.dataset.channel }); }
