@@ -1142,6 +1142,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <label class="lag" style="margin-top:6px" title="、。？！ と半角の ?! を、認識結果の文字から取り除きます(テロップ表示向け)。単語分割の区切り判断には、除く前の句読点を使うので、行の分け方は変わりません"><input type="checkbox" id="optStripPunct" checked>句読点(、。？！)を取り除く</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoDict" checked>終わったら置換辞書を自動で適用する</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoGloss" checked>よく直される語を、認識のヒント(用語集)に自動で足す</label>
+      <label class="lag" style="margin-top:6px" title="配信のチャンネル名・コラボ相手(スタジオのコラボのまとまり)・話者の名前・題名から、その配信に出る人を決め、名簿の名前と呼び名だけを渡します(題名の文字そのものは渡しません)。出る人が分からない動画では何も足しません"><input type="checkbox" id="optAutoContext">配信に出る人の名前と呼び名を、認識のヒントに自動で足す(名簿の呼び名から)</label>
       <label class="lag" style="margin-top:6px" title="直した回数が多く、そのまま残した例が1つもない置換だけ。それ以外は行に「候補」として出るだけです"><input type="checkbox" id="optAutoLearned">終わったら、学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)</label>
       <label class="lag" style="margin-top:6px" title="「長い区間に文字が少ない(抜けの可能性)」の行だけ、前後を少し広げて、声の検出を標準・短い区切りで認識し直します。文字が増えて疑わしい印が消えたときだけ置き換えます(前の版は「以前の版に戻す」に残ります)"><input type="checkbox" id="optAutoRedo">終わったら、疑わしい所(長い区間に文字が少ない行)を自動で認識し直す</label>
       <label class="lag" style="margin-top:6px" title="kotoba-whisper は聞き取りにくい音声が苦手なので、認識し直すときは重いモデルで試します"><input type="checkbox" id="optRedoLarge" checked>kotoba で文字起こししたときは、認識し直しに large-v3 を使う</label>
@@ -1154,6 +1155,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>
     </details>
     <p class="hint" id="optSummary" style="margin:8px 0 0"></p>
+    <label class="lag" style="margin-top:10px" title="精度を測るためだけに取っておく文書にします(学習・辞書に使いません)。比べる基準にするため、用語集・呼び名のヒント・置換辞書・学習した置換を使わずに文字起こしします"><input type="checkbox" id="optEvalStart">評価用として文字起こしする(用語集・呼び名・置換辞書を使わない)</label>
     <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button>
       <button type="button" class="btn" id="btnOpenVideo" title="文字起こしをしないで、この動画を「編集」で開きます(カットのタブで手で切る・無音で切る。あとから文字起こしもできます)">文字起こしせずに開く</button></div>
   </details>

@@ -246,7 +246,7 @@ const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : do
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoLearned = $('#optAutoLearned').checked; s.autoRedo = $('#optAutoRedo').checked; s.redoLarge = $('#optRedoLarge').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoContext = $('#optAutoContext').checked; s.autoLearned = $('#optAutoLearned').checked; s.autoRedo = $('#optAutoRedo').checked; s.redoLarge = $('#optRedoLarge').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
@@ -263,7 +263,7 @@ function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoContext').checked = s.autoContext === true; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
@@ -347,7 +347,7 @@ function setTab(t){
   if (t === 'marker') renderMarker();
 }
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value };
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };
 }
 async function startFile(){
   const path = $('#srcPath').value.trim();
@@ -934,7 +934,7 @@ async function startRetranscribe(){
   await saveDoc();
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
   await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
-    boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked } });
+    boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked } });
   startPolling(); await pollJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
 }
 $('#rsGo').addEventListener('click', resplitDoc);

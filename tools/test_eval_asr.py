@@ -124,6 +124,24 @@ class EvalAsrTest(unittest.TestCase):
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_run_with_context(self):
+        """--context auto = 文書の題名などから出る人を決めて渡す(計画 段1-2)。既定の none では渡さない。--temp0 は設定に残る"""
+        os.environ["TRANSCRIBE_BACKEND"] = "fake"
+        try:
+            src = os.path.join(self.tmp, "clip.wav")
+            silence_wav(src, 8.0)
+            self.write("ddddddddddd4", evalSet=True, title="教師データ＿さくらみこ01", sourcePath=src, start=0, end=8,
+                       segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
+            res = quiet(E.main, ["run", "--data", self.data, "--docs", "ddddddddddd4", "--context", "auto", "--temp0", "--no-save"])
+            self.assertEqual(res["meta"]["perDoc"][0]["context"], ["さくらみこ"])
+            self.assertEqual((res["meta"]["engine"]["context"], res["meta"]["engine"]["settings"]["temp0"]), ("auto", True))
+            self.assertIn("みこち", res["terms"])                                          # 名前の再現率に呼び名も数える(段1-1)
+            base = quiet(E.main, ["run", "--data", self.data, "--docs", "ddddddddddd4", "--no-save"])
+            self.assertEqual((base["meta"]["perDoc"][0]["context"], base["meta"]["engine"]["context"]), ([], "none"))
+        finally:
+            os.environ.pop("TRANSCRIBE_BACKEND", None)
+
     def test_compare_same_docs(self):
         a = quiet(E.main, ["stored", "--data", self.data, "--label", "a"])
         pa = os.path.join(self.data, "evals", "asr", sorted(os.listdir(os.path.join(self.data, "evals", "asr")))[0])

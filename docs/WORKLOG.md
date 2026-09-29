@@ -1459,3 +1459,19 @@
 - 注意: 保管データ(dataset/docs/<id>/)の manifest・lines.jsonl の split は、次に保管し直すまで古いまま(保管の一覧は今の印で数えるので表示は正しい)。追加学習を作るときは文書の今の evalSet も見ること。
   文字起こしを消して保管データにだけ残っている学習用(星街すいせい・さくらみこ BOMBANANA・綺々羅々ヴィヴィ 3本)は「修正から学習」に使われていない
 - 未完了・次: 段1-1(名簿の呼び名・誤りやすい形・普通の言葉と重なる印。`USER_INPUT.md` は空なので下書き → ユーザー確認)→ 段1-2(出る人の呼び名だけをプロンプトへ・評価用は渡さない設定も)→ S-3。**ユーザーの「始めて」を待つ**
+
+## 2026-09-29 Claude Code — 精度改善 1回目の段1-1・1-2: 名簿の呼び名(下書き)と配信ごとの文脈(版は最後にまとめて上げる)
+- 変更:
+  - `transcribe-tool/hololive-roster.json`: `members`(55 人 = JP 全員と JP の卒業生。aliases = 呼び名・common = 普通の言葉と重なる呼び名・misrecognitions = 誤りやすい形)と `aliasesNote`。
+    **呼び名は AI の下書き(ユーザーの確認待ち)**。誤りやすい形は、学習用の文書の修正(`learn_pairs`)に出る名前の誤り 6 組だけ(すぅー→スバル・みく→みこ・トルカ→ポルカ・トーイ/トーア→トワ・ヘヨ→ミオ。評価用にしか出ない 44 組は入れない)
+  - `transcribe-tool/roster.py`(新): 名簿の読み込み・題名/チャンネル名から出る人を探す(正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名だけ)・話者の名前との照合・ヒントの語(1人 = 名前 + 呼び名 3)・`fit`(語の途中で切らない)・`leak_only`(S-3 で使う)
+  - `transcribe-tool/serve.py`: `stream_context`(配信のチャンネル名・コラボ相手 = スタジオの data.json を読むだけ・話者の名前・題名と動画のフォルダ名から出る人を決める。**題名の文字列は渡さない**)・
+    `prompt_terms`(用語集 → 文脈。先頭 150 字)・`whisper_kwargs` は語の途中で切らない・`studio_videos` を `_studio_load` にしてコラボのまとまりも読む(`studio_stream`)・
+    評価用として文字起こし(`evalSet: true` = 用語集・文脈・置換辞書・学習した置換を使わず、文書に評価用の印)・文書の `params.context`・`recognition.runs[].settings.promptChars/context`・
+    温度 0 固定(`temp0`。測る道具だけ)
+  - 画面(`index.html`・`app.js`): 設定「配信に出る人の名前と呼び名を、認識のヒントに自動で足す」(`autoContext`。**既定オフ** = 評価用で効くか測ってから決める)・文字起こしの開始に「評価用として文字起こしする」
+  - `tools/eval_asr.py`: `--context none|auto`(既定 none = 基準)・`--temp0`・名前の再現率に呼び名も数える
+  - テスト: `transcribe-tool/test_roster.py`(新・12 件。test_metrics から読む)・`tools/test_eval_asr.py`(文脈あり)・写すファイルの一覧に roster.py(9 か所)
+- テスト(PC): 編集 単体 154・tools/test_eval_asr 4・ytt_core 56・app/test_mount・e2e_ui_mounted・e2e_edit_tabs 通過
+- 決定・理由: スタジオの data.json は serve.py がすでに読んでいたので、別の部品(ytt_core)を作らず同じキャッシュでコラボのまとまりも読む(同じファイルを二重に読まない)
+- 未完了・次: S-3(よくある誤認識の文・反復・プロンプトの漏れ出し)→ 文脈あり/なしの測定 → 版・資料。呼び名の下書きの確認(ユーザー)

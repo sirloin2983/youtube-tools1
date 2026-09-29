@@ -3,8 +3,10 @@
 
     python tools/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
-    python tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--scope eval] [--label 名前]
-        評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)
+    python tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--scope eval] [--label 名前]
+        評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)。
+        --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
+        --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
     python tools/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
     python tools/eval_asr.py list
@@ -53,6 +55,7 @@ def load_serve(backend=None):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.IN_WORKER = True   # モデルはこのプロセスの中で読む(認識ワーカーを起動しない)
+    mod.STUDIO_DATA = mod.studio_data_path()   # 配信ごとの文脈(--context auto)が、スタジオの配信のチャンネル名・コラボ相手を読めるように(起動時の処理を通らないため)
     return mod
 
 
@@ -136,12 +139,13 @@ def peak_memory_mb():
 
 
 def name_terms(S, settings):
-    """「名前が正しく出たか」を数える語: 用語集・置換辞書の「正」(画面の測定と同じ)+ 名簿の名前(段1 で呼び名も足す)"""
+    """「名前が正しく出たか」を数える語: 用語集・置換辞書の「正」(画面の測定と同じ)+ 名簿の名前と呼び名(段1-1)"""
     terms = list(S.metric_terms(settings))
-    roster = read_json(os.path.join(TT, "hololive-roster.json"), {}) or {}
-    for g in roster.get("groups") or []:
-        for n in g.get("names") or []:
-            t = S.norm_cer(n)
+    r = S._roster.load(S.ROSTER)
+    for n in r["people"]:
+        m = r["members"].get(n)
+        for x in [n] + (m["aliases"] if m else []):
+            t = S.norm_cer(x)
             if len(t) >= 2 and t not in terms:
                 terms.append(t)
     return terms
@@ -281,7 +285,7 @@ def recognize_doc(S, doc, spec, data):
             if not s["text"]:
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:S.MAX_TEXT], **S.machine_conf(s)}
-            row["flag"] = S.make_flags({**s, "text": row["text"], "start": row["start"], "end": row["end"]}, prev, spec["language"], spec["glossary"])
+            row["flag"] = S.make_flags({**s, "text": row["text"], "start": row["start"], "end": row["end"]}, prev, spec["language"], S.prompt_terms(spec))
             prev.append(row["text"])
             rows.append(row)
         return rows, audio_sec, time.monotonic() - t0, where, job.get("device", "")
@@ -302,7 +306,7 @@ def run_spec(S, args, settings):
             "vadMode": args.vad or (st.get("vadMode") if st.get("vadMode") in ("weak", "normal", "off") else "normal"),
             "boost": (st.get("boost") is True) if args.boost is None else args.boost == "on",
             "wordSplit": st.get("wordSplit") is not False, "splitChars": S.split_chars_for({}, st),
-            "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device}
+            "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device, "temp0": bool(args.temp0)}
 
 
 # ---------------------------------------------------------------- 表示
@@ -396,8 +400,11 @@ def cmd_run(S, args, data):
     groups, audio_sec, wall_sec, per_doc = [], 0.0, 0.0, []
     for n, d in enumerate(docs, 1):
         print("(%d/%d) %s %s …" % (n, len(docs), d["id"], str(d.get("title") or "")[:30]), flush=True)
+        ctx = S.stream_context(d, args.context == "auto")   # 配信ごとの文脈(段1-2。文書の題名・チャンネル名・コラボ相手・話者の名前から)
+        if ctx["members"]:
+            print("   文脈: %s" % "、".join(m["name"] for m in ctx["members"]))
         try:
-            rows, a, w, where, dev = recognize_doc(S, d, spec, data)
+            rows, a, w, where, dev = recognize_doc(S, d, dict(spec, context=ctx), data)
         except Exception as e:
             print("   とばしました: %s" % str(e)[:200])
             per_doc.append({"id": d["id"], "error": str(e)[:200]})
@@ -405,15 +412,16 @@ def cmd_run(S, args, data):
         device = dev or device
         audio_sec += a
         wall_sec += w
-        per_doc.append({"id": d["id"], "audioSec": round(a, 2), "wallSec": round(w, 2), "audio": where, "rows": len(rows)})
+        per_doc.append({"id": d["id"], "audioSec": round(a, 2), "wallSec": round(w, 2), "audio": where, "rows": len(rows),
+                        "context": [m["name"] for m in ctx["members"]]})
         groups += score_doc(S, d, rows, terms, flag_from="hyp")
     failed = [p for p in per_doc if p.get("error")]
     meta = base_meta("run", args, docs, data)
     meta.update({"engine": {"engine": "fake" if S.backend_name() == "fake" else "faster-whisper",
                             "engineVersion": "" if S.backend_name() == "fake" else S.pkg_version("faster-whisper"),
                             "model": spec["model"], "device": device,
-                            "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct")},
-                            "glossary": spec["glossary"][:50]},
+                            "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
+                            "glossary": spec["glossary"][:50], "context": args.context},
                  "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_memory_mb(),
                  "perDoc": per_doc, "failed": len(failed)})
     if failed:
@@ -499,6 +507,8 @@ def main(argv=None):
     p.add_argument("--boost", choices=("on", "off"))
     p.add_argument("--glossary", help="認識のヒントに渡す語(、か改行区切り)。指定しなければ設定の用語集")
     p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
+    p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--no-save", action="store_true", help="結果を保存しない")
     args = p.parse_args(argv)
     args.docs = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None

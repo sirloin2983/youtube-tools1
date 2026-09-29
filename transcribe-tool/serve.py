@@ -94,6 +94,7 @@ def _load_core():
 
 _load_core()
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
+import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文脈。隣の部品)
 
 
 APP_ID = "transcribe-tool"
@@ -583,32 +584,60 @@ def _tids():
     return [n[:-5] for n in (os.listdir(TX_DIR) if os.path.isdir(TX_DIR) else []) if n.endswith(".json") and TID_RE.match(n[:-5])]
 
 
-_studio_cache = {"key": None, "path": None, "videos": {}}   # スタジオの data.json から読んだ {videoId: {"channel", "title"}}(更新日時と大きさでキャッシュ)
+_studio_cache = {"key": None, "path": None, "videos": {}, "groups": []}   # スタジオの data.json から読んだ {videoId: {"channel", "title"}} と
+                                                                        # コラボのまとまり [[videoId, …]](更新日時と大きさでキャッシュ)
 _studio_lock = threading.Lock()
 
 
-def studio_videos():
-    """切り抜きスタジオの data.json の配信(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
-    -> {videoId: {"channel", "title"}}。一覧のたびに大きな data.json を読み直さないよう、ファイルの更新日時と大きさが同じなら前の結果を使う。"""
+def _studio_load():
+    """切り抜きスタジオの data.json(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
+    -> ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])。一覧のたびに大きな data.json を読み直さないよう、
+    ファイルの更新日時と大きさが同じなら前の結果を使う。"""
     path = STUDIO_DATA
     try:
         st = os.stat(path)
         key = (st.st_mtime_ns, st.st_size)
     except (OSError, ValueError):
-        return {}
+        return {}, []
     with _studio_lock:
         if _studio_cache["key"] == key and _studio_cache["path"] == path:
-            return _studio_cache["videos"]
+            return _studio_cache["videos"], _studio_cache["groups"]
     d = _read_json_file(path)
-    out = {}
+    out, groups = {}, []
     vids = d.get("videos") if isinstance(d, dict) else None
     if isinstance(vids, dict):
         for vid, v in list(vids.items())[:5000]:
             if isinstance(v, dict):
                 out[str(vid)[:40]] = {"channel": str(v.get("channel") or "")[:100], "title": str(v.get("title") or "")[:200]}
+    gs = d.get("groups") if isinstance(d, dict) else None
+    for g in (list(gs.values())[:2000] if isinstance(gs, dict) else []):
+        ms = g.get("members") if isinstance(g, dict) else None
+        if isinstance(ms, list):
+            groups.append([str(m)[:40] for m in ms[:50] if isinstance(m, str)])
     with _studio_lock:
-        _studio_cache.update({"key": key, "path": path, "videos": out})
-    return out
+        _studio_cache.update({"key": key, "path": path, "videos": out, "groups": groups})
+    return out, groups
+
+
+def studio_videos():
+    """-> {videoId: {"channel", "title"}}(履歴の一覧の配信者・配信の題名)"""
+    return _studio_load()[0]
+
+
+def studio_stream(video_id):
+    """配信 -> {"channel", "title", "collab": [{"videoId", "channel", "title"}]}(コラボ = スタジオで同じまとまりにした他の配信)。無ければ None"""
+    vids, groups = _studio_load()
+    vid = str(video_id or "")[:40]
+    if vid not in vids:
+        return None
+    collab, seen = [], {vid}
+    for g in groups:
+        if vid in g:
+            for m in g:
+                if m not in seen and len(collab) < 12:
+                    seen.add(m)
+                    collab.append(dict(vids.get(m) or {"channel": "", "title": ""}, videoId=m))
+    return dict(vids[vid], collab=collab)
 
 
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
@@ -1145,6 +1174,8 @@ def fill_doc(spec, fields):
         doc.update(fields)
         if spec.get("clip") and not doc.get("clip"):
             doc["clip"] = spec["clip"]
+        if spec.get("evalSet"):
+            doc["evalSet"] = True   # 評価用として文字起こしした(外すのは画面の「評価用にする」)
         apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
         atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         return tid
@@ -1799,6 +1830,7 @@ def validate_job(req):
         lang = "ja"
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
     gauto = auto_glossary(glossary) if req.get("autoGloss") is not False else []
+    ev = req.get("evalSet") is True   # 評価用として文字起こしする: 用語集・呼び名・置換辞書・学習した置換を使わない(docs/project/eval-set-procedure.md の 2)
     into = None
     if req.get("intoDoc") not in (None, ""):
         # 「編集」の文字起こしの無い文書(文字起こしせずに開いた動画)に行を入れる。id・題名・作った日・clip・編集の内容はそのまま
@@ -1810,16 +1842,21 @@ def validate_job(req):
             raise ApiError("not_empty", "この文書にはもう行があります(新しい文字起こしとして作ってください)", 409)
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
+        ev = ev or target.get("evalSet") is True
+    if ev:
+        glossary, gauto = [], []
+    title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
+    ctx = stream_context({"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
     return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into,
             "duration": dur, "whole": whole, "model": model, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
-            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
+            "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False and not ev, "wordSplit": req.get("wordSplit") is not False,
             "splitChars": split_chars_for(req),
             "autoRedo": req.get("autoRedo") is True, "redoLarge": req.get("redoLarge") is not False,
-            "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
-            "autoLearned": req.get("autoLearned") is True, "clip": clip, "warnings": warnings,
-            "title": str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]}
+            "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
+            "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
+            "title": title}
 
 
 ACTIVE_STATES = ("queued", "loading", "extracting", "running")
@@ -2052,10 +2089,42 @@ def whisper_kwargs(spec):
         kw["word_timestamps"] = True   # 単語の時刻。長い行を分け、行の始まり・終わりを声のある所にそろえる(対応していない版では filter_kwargs が外す)
     if "kotoba" in spec["model"].lower():
         kw["chunk_length"] = 15   # kotoba-whisper が推奨する設定
-    if spec["glossary"]:
-        kw["initial_prompt"] = "用語: " + "、".join(spec["glossary"])[:150]
-        kw["hotwords"] = ", ".join(spec["glossary"])[:300]
+    if spec.get("temp0"):
+        kw["temperature"] = 0.0   # 温度のやり直し(乱数を使う)をしない。精度を比べる道具(tools/eval_asr.py --temp0)だけが使う
+    terms = prompt_terms(spec)
+    if terms:
+        kw["initial_prompt"] = "用語: " + "、".join(terms)
+        kw["hotwords"] = ", ".join(_roster.fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []), _roster.HOT_LIMIT, 2))
     return kw
+
+
+def prompt_terms(spec):
+    """認識のヒント(initial_prompt)に渡す語: 用語集(自動で足した語を含む)→ 配信ごとの文脈(出る人の名前と呼び名。段1-2)。
+    先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる"""
+    return _roster.fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
+
+
+def stream_context(doc, enabled=True):
+    """配信ごとの文脈(段1-2): その配信に出る人を、配信のチャンネル名・コラボ相手(スタジオの data.json を読むだけ)・話者の名前・題名から決め、
+    その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
+    doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}"""
+    if not enabled:
+        return {"members": [], "terms": []}
+    r = _roster.load(ROSTER)
+    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
+    src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
+    try:
+        info = studio_stream(src.get("videoId")) if src.get("videoId") else None
+    except Exception as e:   # 他のツールのデータが読めなくても、文脈なしで続ける
+        log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
+        info = None
+    path = str(doc.get("sourcePath") or "")
+    titles = [src.get("title"), (info or {}).get("title"), doc.get("title"), doc.get("sourceName"),
+              os.path.basename(os.path.dirname(path)) if path else ""]   # 動画の入ったフォルダ(スタジオは配信の題名のフォルダに書き出す)
+    ctx = _roster.build_context(r, (info or {}).get("channel", ""), [c["channel"] for c in (info or {}).get("collab") or []],
+                                [s.get("name") for s in doc.get("speakers") or [] if isinstance(s, dict)], [str(t or "")[:300] for t in titles])
+    ctx["terms"] = _roster.member_terms([m["name"] for m in ctx["members"]], r)
+    return ctx
 
 
 def filter_kwargs(model, kw):
@@ -2302,9 +2371,18 @@ def recognition_run(spec, job, audio_sec, wall_sec):
     return {"engine": "fake" if fake else "faster-whisper", "engineVersion": "" if fake else pkg_version("faster-whisper"),
             "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
-                         "glossaryChars": len("、".join(spec.get("glossary") or []))},
+                         "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
+                         "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]},
             "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000),
             **vad_record(job.get("vad"))}
+
+
+def context_record(spec):
+    """文書の params に残す配信ごとの文脈(出る人と材料・ヒントに入った語の数)。使っていなければ None"""
+    ctx = spec.get("context") or {}
+    if not ctx.get("members"):
+        return None
+    return {"members": [{"name": m["name"], "from": list(m.get("from") or [])} for m in ctx["members"]][:10], "terms": len(ctx.get("terms") or [])}
 
 
 def vad_record(vad):
@@ -2487,7 +2565,7 @@ def run_job(job):
                 continue
             seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                    "text": s["text"][:MAX_TEXT], "speaker": "", "flag": ""}
-            seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], spec["glossary"])
+            seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], prompt_terms(spec))
             prev.append(seg["text"])
             if SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
                 sparse_lp[seg["id"]] = float(s["avg_logprob"])
@@ -2507,7 +2585,8 @@ def run_job(job):
                   "language": spec["language"], "params": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": spec["boost"], "device": job.get("device", ""), "glossary": spec["glossary"][:50],
                                                            "autoDict": bool(spec.get("autoDict")), "dictApplied": dict_n, "wordSplit": bool(spec.get("wordSplit")),
                                                            "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
-                                                           "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20]},
+                                                           "autoLearned": bool(spec.get("autoLearned")), "learnApplied": learn_n, "glossAuto": spec.get("glossAuto", [])[:20],
+                                                           "context": context_record(spec)},
                   "speakers": [], "segments": segs, "original": original, "updatedAt": now,
                   "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec)]}}
         if job.get("vad"):
@@ -2523,6 +2602,8 @@ def run_job(job):
                        **fields, createdAt=now)
             if spec.get("clip"):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
+            if spec.get("evalSet"):
+                doc["evalSet"] = True
             atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         try:
             write_words(tid, all_words, spec["model"])
@@ -4349,6 +4430,7 @@ def validate_retranscribe(req):
     lang = str(req.get("language") or doc.get("language") or "ja")
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
     gauto = auto_glossary(glossary) if req.get("autoGloss") is not False else []
+    ctx = stream_context(doc, req.get("autoContext") is True)
     with _jobs_lock:
         if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
@@ -4378,7 +4460,7 @@ def validate_retranscribe(req):
             "wordSplit": mode in ("range", "whole") and req.get("wordSplit") is not False, "splitChars": split_chars_for(req),
             "stripPunct": req.get("stripPunct") is not False,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
-            "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
+            "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx,
             "title": {"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: ") + (str(doc.get("title") or "") or "無題")[:100]}
 
 
@@ -4649,7 +4731,7 @@ def finish_range_lines(raw, spec, shift):
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
         if en - st < 0.05:
             continue
-        flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], spec["glossary"])
+        flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], prompt_terms(spec))
         prev.append(s["text"])
         out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob"), "conf": machine_conf(s)})
     return out
@@ -5038,13 +5120,13 @@ def run_retranscribe(job):
                 a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3   # 前後に少し余裕を持たせる(語頭・語尾が欠けにくい)
                 chunk = audio[int(a * 16000):int(b * 16000)]
                 try:
-                    r = recognize_chunk(model, kw, chunk, t, sep, spec["glossary"])
+                    r = recognize_chunk(model, kw, chunk, t, sep, prompt_terms(spec))
                 except Exception:
                     if n == 0 and device == "cuda" and spec["device"] == "auto":   # 自動のとき、GPU が実行時に失敗したら CPU でやり直す
                         job["phase"], job["device"] = "GPU が使えないため CPU で処理します", "cpu"
                         model, device = load_model(spec["model"], job, force_cpu=True)
                         kw = filter_kwargs(model, whisper_kwargs(spec))
-                        r = recognize_chunk(model, kw, chunk, t, sep, spec["glossary"])
+                        r = recognize_chunk(model, kw, chunk, t, sep, prompt_terms(spec))
                     elif device == "cuda" and spec["device"] == "cuda":
                         raise ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
                     else:

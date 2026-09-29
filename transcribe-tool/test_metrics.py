@@ -547,7 +547,7 @@ class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py"):
+        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py"):
             shutil.copy(os.path.join(HERE, n), cls.tmp)
         for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
             p = os.path.join(HERE, n)
@@ -873,6 +873,7 @@ from test_backend import *  # noqa: E402,F401,F403
 from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
 from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3)
 from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・open-video・peaks・intoDoc)
+from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
 
 
 if __name__ == "__main__":
