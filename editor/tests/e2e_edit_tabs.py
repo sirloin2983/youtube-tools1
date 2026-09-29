@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」E2 画面の骨組みの確認(docs/edit-tool-design.md の 3 と 7): 3つのタブ・Alt+1/2/3・URL の #tx/#cut/#pack・
+"""「編集」E2 画面の骨組みの確認(docs/design/edit-tool-design.md の 3 と 7): 3つのタブ・Alt+1/2/3・URL の #tx/#cut/#pack・
 題名の行の札・カット/パックのタブでの左のメニューの細い帯・文字起こしせずに開く・行の無い文書・狭い画面。
 
     python e2e_edit_tabs.py
@@ -254,7 +254,7 @@ def main():
             check(True, "「疑わしい所を認識し直す」で、文字が少なかった行が置き換わり、画面も読み直す")
             check(srv.get("/api/transcript?id=" + tid1).get("redo", {}).get("rows") == 1, "置き換えた記録が文書に残る")
 
-            # ---- 動画全体の再認識(docs/whole-retranscribe-design.md の 3): 校正済みの行は残し、ほかを新しい行に(認識は疑似 = 3 秒ごとに「範囲再認識N」)
+            # ---- 動画全体の再認識(docs/design/whole-retranscribe-design.md の 3): 校正済みの行は残し、ほかを新しい行に(認識は疑似 = 3 秒ごとに「範囲再認識N」)
             tidw = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
             dw = srv.get("/api/transcript?id=" + tidw)
             segs_w = [dict(g, text="人が直した一行目", proofed=True) if n == 0 else g for n, g in enumerate(dw["segments"])]

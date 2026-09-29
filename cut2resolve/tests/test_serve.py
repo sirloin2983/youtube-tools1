@@ -578,7 +578,7 @@ class TestJobs(ServerBase):
         self.assertIn("clip_cut.srt", names)
         self.assertFalse((out / "textplus-import.json").exists())
         self.assertFalse((out / "cut-plan.json").exists())
-        # 配信者の名前 → 文字の色(docs/followup-2026-09-27.md の 4)。照らし合わせは ytt_core/colors.py。見つからなければ 400
+        # 配信者の名前 → 文字の色(docs/archive/followup-2026-09-27.md の 4)。照らし合わせは ytt_core/colors.py。見つからなければ 400
         members = self.dir / "members.json"
         members.write_text(json.dumps({"groups": [{"name": "0期生", "members": [{"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF"}]}]},
                                       ensure_ascii=False), encoding="utf-8")

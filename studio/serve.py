@@ -36,7 +36,7 @@ from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (co
 
 APP_ID = "clip-studio"
 SERVER_VERSION = "0.11.0"  # core.js 側の APP_VERSION と揃える
-TOOL_ID = "studio"        # docs/pipeline.md の 4 のツールID(.runtime/studio.json)
+TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
@@ -109,7 +109,7 @@ class Handler(BaseHTTPRequestHandler):
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(「他のツール」メニュー・?url=)でこの画面を開くのは許す。
         ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site(localhost と 127.0.0.1 なら cross-site)を送るため、以前は 403 になっていた。
-        画面を新しいタブで開くだけで、URL で処理は始まらない(docs/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
+        画面を新しいタブで開くだけで、URL で処理は始まらない(docs/spec/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
         iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
         return httpsec.navigation_ok(self.headers, path)
 

@@ -93,7 +93,7 @@ function loadView(){
   } catch {}
 }
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
-/* 「編集」の3つのタブ(docs/edit-tool-design.md 3)。今のタブは URL の #tx / #cut / #pack に残す(再読み込み・窓で開いても同じタブ)。
+/* 「編集」の3つのタブ(docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut / #pack に残す(再読み込み・窓で開いても同じタブ)。
    カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
 const ED_TABS = ['tx', 'cut', 'pack'];
 const EDT = { tab: 'tx', overlay: false };
@@ -558,7 +558,7 @@ function renderJobs(){
   </div>`).join('');
 }
 
-/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/ui-guidelines.md 4.) ----------
+/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/spec/ui-guidelines.md 4.) ----------
    サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
    画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
    同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
@@ -701,7 +701,7 @@ async function pollRuns(){
   PICK.active = active;
   if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
 }
-/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3): 履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
+/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/archive/followup-2026-09-27.md の 3): 履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
    先に文書とカットを保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
 async function startDocAuto(){
   const id = S.docId; if (!id || !TOKEN) return;
@@ -930,7 +930,7 @@ function updateRt(){
     if (!r || r.b - r.a > RANGE_MAX) $('#rtGo').disabled = true;
   }
 }
-/* 動画全体(docs/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
+/* 動画全体(docs/design/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
    目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 dev/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
 const WHOLE_RTF = { 'large-v3': 0.37 };
 function docSpan(){
@@ -1407,7 +1407,7 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
   S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
-/* ---------- 字幕の文字数(docs/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
+/* ---------- 字幕の文字数(docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
 const SUB_DEFAULT = { orientation: 'vertical', maxChars: { vertical: 16, horizontal: 28 }, wrapChars: { vertical: 8, horizontal: 14 } };
 function subNum(v, lo, hi, dv){ const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dv; }
 function readSubtitle(){
@@ -2506,7 +2506,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preventDefault(); e.returnValue = ''; } });   // 送信中の保存も、閉じると届かないことがある
 
-/* ---------- 受け渡し(docs/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
+/* ---------- 受け渡し(docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 const YT_PREFIX = 'https://www.youtube.com/';
 const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
 const WARN_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>';
@@ -2541,7 +2541,7 @@ async function lookupClip(path){
 }
 $('#srcPath').addEventListener('change', e => lookupClip(e.target.value));
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
-   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/pipeline.md 3)。
+   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/spec/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
 function showMediaChoice(){ $('#mediaChoice').hidden = false; }
 function takeUrlParams(){
@@ -2653,7 +2653,7 @@ $('#btnTxInto').addEventListener('click', async () => {
 }));
 
 /* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
-   パックを作るのは cut2resolve/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/resolve-pack-unification.md)。
+   パックを作るのは cut2resolve/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/design/resolve-pack-unification.md)。
    cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
    (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
 /* 取り込まれた cut2resolve の場所('/cut2resolve/')。使えないときは ''。URL はここと c2rUrl() だけで作る */
@@ -2813,7 +2813,7 @@ async function boot(){
   } catch (e){ return showErr(e.message + '。入口(youtube-tools フォルダの start.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
   $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))
-  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(docs/followup-2026-09-27.md の 3)も同じ
+  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(docs/archive/followup-2026-09-27.md の 3)も同じ
   if (TOKEN) pollRuns();
   await loadRoster();
   if (S.tools){

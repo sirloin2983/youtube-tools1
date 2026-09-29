@@ -11,15 +11,15 @@ DESIGN_BRIEF.md の付録の番号はここを指す。行番号は 2026-09-29 �
 
 ## 1. まとめて実行の入口
 
-どの入口も最後は入口サーバーの `/api/autorun/*`(`app/launch.py:659-671`)を呼ぶ。実処理は `app/autorun.py` の1本だけ。
+どの入口も最後は入口サーバーの `/api/autorun/*`(`home/launch.py:659-671`)を呼ぶ。実処理は `home/autorun.py` の1本だけ。
 
 | 入口 | 呼ぶAPI | 画面で決められる設定 | 画面から渡らない設定 |
 |---|---|---|---|
-| 入口の案件の行(`app/portal.js:381-389`、`portal.html:204-215`) | `start` | 形(採用後/文字起こしまで/解析から全部)、採用数、配信者。形と採用数は localStorage に記憶。配信者は記憶せず、再描画の間だけ `draftFor` に持つ | 上書き、マーク指定(`marks`)、fps/大きさ、バックアップ、speakerColors |
+| 入口の案件の行(`home/portal.js:381-389`、`portal.html:204-215`) | `start` | 形(採用後/文字起こしまで/解析から全部)、採用数、配信者。形と採用数は localStorage に記憶。配信者は記憶せず、再描画の間だけ `draftFor` に持つ | 上書き、マーク指定(`marks`)、fps/大きさ、バックアップ、speakerColors |
 | 入口の「案件に紐づかない文書」(`portal.js:693-708`、`portal.html:85`) | `start-docs` | 配信者、上書き | 同上 |
-| 編集の題名の行「まとめて実行 ▾」(`transcribe-tool/app.js:694-706`、`index.html:1248-1262`) | `start-docs`(1本) | 配信者(`#docAutoWho`)、上書き | 同上 |
+| 編集の題名の行「まとめて実行 ▾」(`editor/app.js:694-706`、`index.html:1248-1262`) | `start-docs`(1本) | 配信者(`#docAutoWho`)、上書き | 同上 |
 | 編集の履歴「選んで、まとめて実行」(`app.js:722-730`、`index.html:1181-1191`) | `start-docs`(複数) | 配信者(`#txBatchWho`)、上書き | 同上 |
-| スタジオ ③ 確認の「まとめて実行」(`clip-studio/review.js:2004-2014`、メニューは `review.js:133-146`) | `start` | 形(3種)、採用数、配信者 | 上書き不可 |
+| スタジオ ③ 確認の「まとめて実行」(`studio/review.js:2004-2014`、メニューは `review.js:133-146`) | `start` | 形(3種)、採用数、配信者 | 上書き不可 |
 | スタジオ ③ のマーク行「この後を ▸」(`review.js:1524,1709`) | `start`(mode=adopted + marks) | 配信者は上の `#rvAutoWho` を読む | 同上 |
 | スタジオ ③ 書き出しの後の自動文字起こし(`review.js:1991-1994`、呼び出し `review.js:1261,1340`) | `start`(mode=transcribe + marks) | ON/OFF は localStorage `ytt:studio.autoTx`(`settings.js:29-58`) | 配信者を渡さない |
 | スタジオ ① 探す(`rank.js:349-357`、`rank.js:167-176`) | `start-new`(常に「解析から全部」) | 採用数、配信者 | マーク指定、上書き |
@@ -135,7 +135,7 @@ DESIGN_BRIEF.md の付録の番号はここを指す。行番号は 2026-09-29 �
 - 行の一覧上の手がかり(`#keyHintItems`、`index.html:1278-1281`)はキー操作ダイアログの `#keyHintOn` で ON/OFF。
 
 **スタジオ**
-- 「?」キーまたは `#btnKeys`(`clip-studio/index.html:23`)で `Studio.openKeyHelp`(`core.js:142`)が開く。
+- 「?」キーまたは `#btnKeys`(`studio/index.html:23`)で `Studio.openKeyHelp`(`core.js:142`)が開く。
 - 変更は ③ の「操作の設定 → キー配置」(`review.js:262-268`)。プリセット選択と `rvKeyGrid` がある。
 - 共通の再生キー(Space/J/K/L など)はスタジオでは変更できない。編集では変更できる。
 
@@ -170,7 +170,7 @@ DESIGN_BRIEF.md の付録の番号はここを指す。行番号は 2026-09-29 �
 
 ## 調べなかった範囲
 
-`docs/followup-2026-09-27.md` は読んでいない。決定の経緯はそちらにある可能性がある。
+`docs/archive/followup-2026-09-27.md` は読んでいない。決定の経緯はそちらにある可能性がある。
 
 ---
 
@@ -308,15 +308,15 @@ DESIGN_BRIEF.md の付録の番号はここを指す。行番号は 2026-09-29 �
 
 ## 注意
 - 上の「自動では入れない」(2026-09-27)に従い、2・8 は「候補として出すだけ」の案にした。
-- 15 の再コピー省略は cut2resolve の `copy_video` の判定を足す作業。テスト(test_pack・e2e_edit_pack)を通すこと。
-- 10 は ui-kit の正本を直したあと、`sync_ui_kit.py` で clip-studio 側にも写る。
+- 15 の再コピー省略は cut2resolve の `copy_video` の判定を足す作業。テスト(test_pack・editor/tests/e2e_edit_pack)を通すこと。
+- 10 は ui-kit の正本を直したあと、`sync_ui_kit.py` で studio 側にも写る。
 - 監査中に立てた scratchpad のデモ用サーバー(ポート 8750)は動いたままだったが、リポジトリは未変更(git status clean)。
 
 ---
 
 # 3. ホーム・スタジオの監査とキーの実装メモ(番号 = S-N)
 
-【監査結果】リポジトリのファイルは一切変更していません。作業は scratchpad で見本データの demo_env を起動し、画面を撮影しただけです。demo_env は停止済みです。docs/ui-audit-2026-09-28.md と重複する指摘は除いています。行番号はコード確認で、画面の確認ができたものは「実画面」と書きました。凡例: H1〜H10 は NN/g の 10 原則の番号です。
+【監査結果】リポジトリのファイルは一切変更していません。作業は scratchpad で見本データの demo_env を起動し、画面を撮影しただけです。demo_env は停止済みです。docs/plan/ui-audit-2026-09-28.md と重複する指摘は除いています。行番号はコード確認で、画面の確認ができたものは「実画面」と書きました。凡例: H1〜H10 は NN/g の 10 原則の番号です。
 
 ## (A) 指摘(影響が大きい順)
 

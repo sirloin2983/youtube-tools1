@@ -218,7 +218,7 @@ class Base(unittest.TestCase):
 
 
 class TestMarks(Base):
-    """スタジオのマークの行の「この後を」(docs/followup-2026-09-27.md の 3): そのマークだけ 書き出し → 文字起こし → パック"""
+    """スタジオのマークの行の「この後を」(docs/archive/followup-2026-09-27.md の 3): そのマークだけ 書き出し → 文字起こし → パック"""
     marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m3", "status": "adopted", "start": 20, "end": 25},
              {"id": "m2", "status": "", "start": 9, "end": 12}]
 
@@ -253,7 +253,7 @@ class TestMarks(Base):
 
 
 class TestDocs(Base):
-    """文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
+    """文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
 
     def setUp(self):
         super().setUp()
@@ -291,7 +291,7 @@ class TestDocs(Base):
         self.assertTrue(all(b_["spec"].get("preset") == "transcript-rows" and "force" not in b_["output"] for b_ in bodies))
 
     def test_streamer_color_is_passed(self):
-        """配信者の名前(字幕の文字の色。docs/followup-2026-09-27.md の 4): 照らし合わせた名前を cut2resolve に渡す。見つからなければ始める前に断る"""
+        """配信者の名前(字幕の文字の色。docs/archive/followup-2026-09-27.md の 4): 照らし合わせた名前を cut2resolve に渡す。見つからなければ始める前に断る"""
         members = os.path.join(self.tmp, "members.json")
         with open(members, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"name": "3期生", "members": [{"id": "usada-pekora", "name": "兎田ぺこら", "en": "Usada Pekora", "hex": "#7EC2FE"}]}]}, f, ensure_ascii=False)
@@ -497,7 +497,7 @@ class TestFull(Base):
 
 
 class TestNew(Base):
-    """スタジオの ① 探す で選んだ配信(docs/followup-2026-09-27.md の 5): まだスタジオに無い配信を「解析から全部」"""
+    """スタジオの ① 探す で選んだ配信(docs/archive/followup-2026-09-27.md の 5): まだスタジオに無い配信を「解析から全部」"""
     marks = []
     analysis = False
 

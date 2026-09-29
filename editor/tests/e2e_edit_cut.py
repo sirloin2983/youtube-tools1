@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」E3 カットのタブの確認(docs/edit-tool-design.md の 7 の「E3 の e2e で確かめること」)。入口に取り込んだ形(cut2resolve の api/plan を使う)。
+"""「編集」E3 カットのタブの確認(docs/design/edit-tool-design.md の 7 の「E3 の e2e で確かめること」)。入口に取り込んだ形(cut2resolve の api/plan を使う)。
 
 - 開いただけでは保存しない(行からの下書き)・波形が出る
 - 区間の端のドラッグで1フレームずつ動く(Alt で吸い付かない)・吸い付く・, . で1フレーム

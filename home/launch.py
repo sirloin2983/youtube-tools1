@@ -3,8 +3,8 @@
 
     python home/launch.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
 
-統合計画の段階1(docs/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
-`serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(docs/pipeline.md)。
+統合計画の段階1(docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
+`serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(docs/spec/pipeline.md)。
 
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
@@ -28,7 +28,7 @@
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
 - ツールが準備できたかは、ツールが書く .runtime/<ID>.json のポートに /api/ping を問い合わせて確かめる。
-  pid では確かめない(Windows の os.kill(pid, 0) はプロセスを終了させてしまう。docs/pipeline.md の 4)
+  pid では確かめない(Windows の os.kill(pid, 0) はプロセスを終了させてしまう。docs/spec/pipeline.md の 4)
 - すでに別の黒い画面で動いているツールは「別の画面で起動済み」として扱い、起動も停止もしない(二重起動で data.json を取り合わないため)
 - 止めるときは、Windows は Ctrl+Break(子を別のプロセスグループで起動しておく)、Mac/Linux は SIGTERM を送る。
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
@@ -81,7 +81,7 @@ TOOLS = (
     {"id": "transcribe", "app": "transcribe-tool", "name": "編集", "sub": "文字起こし・カット・Resolve へのパック",
      "dir": layout.TOOL_DIRS["transcribe"], "port": 8775, "version_file": "serve.py", "version_re": r'^SERVER_VERSION\s*=\s*"([^"]+)"',
      "venv": True},
-    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/edit-tool-design.md の 6)
+    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/design/edit-tool-design.md の 6)
     {"id": "cut2resolve", "app": "cut2resolve", "name": "cut2resolve", "sub": "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)",
      "dir": layout.TOOL_DIRS["cut2resolve"], "port": 8810, "version_file": "cut2resolve_core.py", "version_re": r'^VERSION\s*=\s*"([^"]+)"', "hidden": True},
 )
@@ -667,7 +667,7 @@ class PortalHandler(BaseHTTPRequestHandler):
                     if isinstance(body.get("ids"), list):
                         return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=body.get("overwrite") is True))
                     return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=body.get("overwrite") is True))
-                if u.path.endswith("start-new"):   # ① 探す で選んだ配信(docs/followup-2026-09-27.md の 5)
+                if u.path.endswith("start-new"):   # ① 探す で選んだ配信(docs/archive/followup-2026-09-27.md の 5)
                     return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
                 if u.path.endswith("start-docs"):
                     return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))

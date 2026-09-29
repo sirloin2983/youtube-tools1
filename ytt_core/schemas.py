@@ -1,4 +1,4 @@
-"""受け渡しの形式(docs/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+"""受け渡しの形式(docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
 transcript/v1・cut-plan/v1 の組み立ては文字起こしツールの行の規則に依存するので、文字起こしの pipeline_io.py に残している。"""
 import datetime
 import json
@@ -32,7 +32,7 @@ def _r3(x):
     return None if x is None else round(float(x), 3)
 
 
-# ---------- 途中のファイルの置き場所(2026-09-27。docs/followup-2026-09-27.md の 1) ----------
+# ---------- 途中のファイルの置き場所(2026-09-27。docs/archive/followup-2026-09-27.md の 1) ----------
 # 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
 # (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。
 # 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。

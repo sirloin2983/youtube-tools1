@@ -136,7 +136,7 @@ def plan_from_keeps(keeps, meta, selected=None, handle_frames=0):
 
 
 def finalize_plan(plan, video, meta, src_start, copy_video=False, cues_out=None, tool=None):
-    """出力フォルダに書く詳細版の cut-plan.json。docs/pipeline.md の共通の約束(tool・createdAt・media)と、
+    """出力フォルダに書く詳細版の cut-plan.json。docs/spec/pipeline.md の共通の約束(tool・createdAt・media)と、
     そのまま入力に戻せる segments(= 最終的に残す区間。余白込みなので segmentsIncludeHandles: true)を足す。
     以前は segments が無く、同じ schema なのに自分で読み直せなかった"""
     fps = meta["fps"]

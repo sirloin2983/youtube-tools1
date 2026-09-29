@@ -511,7 +511,7 @@ class TestExportValidation(Base):
 
 @unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestExportApi(Base):
-    """POST /api/export → GET /api/export?id= の各ファイルに path(mp4)と manifest(.clip.json)が入る(docs/pipeline.md の 6)。"""
+    """POST /api/export → GET /api/export?id= の各ファイルに path(mp4)と manifest(.clip.json)が入る(docs/spec/pipeline.md の 6)。"""
     def test_export_reports_media_and_manifest_paths(self):
         src = os.path.join(self.tmp, "real.mp4")
         ff = common.find_tool("ffmpeg")

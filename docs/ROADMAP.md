@@ -3,8 +3,9 @@
 2026-09-29 作成・同じ日に「1つの大きな計画 + 段階ごとの細かい計画」に組み直した。
 **いま何が済んで、これから何をどの順でやるか**と、**どの文書を読めばよいか**を1か所にまとめたもの。作業を始める AI は `AGENTS.md` の次にこれを読む。
 状態が変わったら、WORKLOG と一緒にここ(と該当の段の計画)も直す。細かい経緯は WORKLOG と各文書に書き、ここには1行だけ。
+**2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 
-版(2026-09-29): 入口 0.12.0・スタジオ 0.11.0・編集 0.21.0・cut2resolve 0.14.0・ui-kit v6・ホロカラー 1.2.1(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-09-30): 入口 0.13.0・スタジオ 0.11.0・編集 0.23.0・cut2resolve 0.15.0・ui-kit v8・ホロカラー 1.2.1(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
@@ -31,6 +32,7 @@
 ### 線 A: 段1〜段8(上から順。段ごとに テスト → WORKLOG → コミット → 中間報告)
 | 段 | 名前 | 中身 | 大きさ | 細かい計画 | 状態 |
 |---|---|---|---|---|---|
+| 0 | フォルダの整理と置き場所の入れ替え | ツールのフォルダ名を役割に合わせる・テストを各ツールの `tests/` に・docs を種類で分ける・`C:\dev\youtube-tools` に clone し直す | M | `docs/plan/phase0-restructure.md` | **ほぼ済み**(09-30。残りは古いフォルダの改名と、AI の作業フォルダの向け直し) |
 | 1 | 小さな直しと安全 | 案件の行 → スタジオをその配信で開く(B-8)・パック設定の引き出しと Alt+数字(監査 01)・「声を覚える」の安全(評価用を断る・校正済みの行だけ・一般の名前を断る。監査 02・17・18)・文字の欄で Shift+右クリック(B-9)・Windows 前提のテストを飛ばす | S〜M | `docs/plan/phase1-small-fixes.md` | 未着手 |
 | 2 | データを失わない・読み違えない | 動画を選び直す(B-4・監査 19)・まとめて実行の記録をファイルに(B-6)・再読み込みで文書を見失う(06)・設定の保存の失敗を出す(11)・カットの読み込み失敗を新規と区別(13)・ホームのメモの保存の競合(14) | M | `docs/plan/phase2-data-safety.md` | 未着手 |
 | 3 | 操作の一貫性 | キーの衝突(03)・左メニューのキー漏れ(04)・操作した順に元に戻す(05)・1 コマを素材の fps で(15)・キーの案内を割り当てから(16) | M | `docs/plan/phase3-keys-undo.md` | 未着手 |
@@ -44,24 +46,24 @@
 - 段1 の最初の4つ(B-8 → 01 → 02 → B-9)とその次(B-4 → B-6)は、ユーザーが 09-29 に承認した順番
 - 各段の計画は、始める前に今のコードで読み直す(行番号は 09-29 時点。ほかの段で動いていることがある)
 
-### 線 B: 文字起こしの精度改善(`docs/transcription-overhaul-plan.md` が細かい計画)
+### 線 B: 文字起こしの精度改善(`docs/plan/transcription-overhaul-plan.md` が細かい計画)
 ```
 ユーザー: 評価用の校正(15〜30分・4人以上) ─────────────────┐
 AI: 段0 ✅ → 段1 呼び名 → 段2 エンジン差し替え + GPU ──────────┴→ 段3 抜け → 段4 聞き違い → 段5 重なり声
 ```
-- 済み: 段0 の AI 側(自信の度合い・`recognition.runs`・モデルを手元から読む・`tools/eval_asr.py`。編集 0.20.1)、
-  動画全体の再認識・声の検出が捨てすぎたら緩める・0 文字の所は元の行を残す(編集 0.21.0。`docs/whole-retranscribe-design.md`)
+- 済み: 段0 の AI 側(自信の度合い・`recognition.runs`・モデルを手元から読む・`dev/eval_asr.py`。編集 0.20.1)、
+  動画全体の再認識・声の検出が捨てすぎたら緩める・0 文字の所は元の行を残す(編集 0.21.0。`docs/design/whole-retranscribe-design.md`)
 - **律速 = ユーザーの作業**: 評価用の校正(合計 15〜30 分・話者 4 人以上・配信 3 本以上。重なり声・BGM・呼び名の多い場面)、
-  `docs/accuracy/USER_INPUT.md` の記入(1 呼び名・2 誤りやすい形・7 字幕の書き方の規則。3〜6 の評価用の動画・コラボの別視点・用語・口癖も)
+  `docs/plan/accuracy/USER_INPUT.md` の記入(1 呼び名・2 誤りやすい形・7 字幕の書き方の規則。3〜6 の評価用の動画・コラボの別視点・用語・口癖も)
 - 次(AI): 段1 呼び名。作るのは評価セットを待たなくてよいが、効果の判定はセットのあと
 - 段3 に入れる(09-29 決定): ③-2「疑わしい所だけ認識し直す」が本物の音声で効くかを評価用で測る。声の検出を Silero から pyannote に替える/併用も段3・段5 で比べる
 - 注意: 同じ音声でも回ごとに結果がかなり違う。精度は複数回か評価用の量で比べる
-- 線 A と同じファイル(`transcribe-tool/serve.py`・`app.js`)を触るので、同時には進めない(段の切れ目で入れ替える)
+- 線 A と同じファイル(`editor/serve.py`・`app.js`)を触るので、同時には進めない(段の切れ目で入れ替える)
 
 ## 3. 実機で確かめること(クラウドでは確かめられない。ユーザーの PC で)
 - 話者の名前から決めた字幕の色が Resolve の Text+ に入るか(Lua の SetInput)
 - 「声を覚える」の照らし合わせの精度(しきい値 0.60・差 0.08 は仮)
-- スタジオの ① 探す → 選んだ配信をまとめて実行(`docs/followup-2026-09-27.md` の 5)
+- スタジオの ① 探す → 選んだ配信をまとめて実行(`docs/archive/followup-2026-09-27.md` の 5)
 - スタジオの「一瞬を切り取る」(キー C。0.11.0)
 - 盛り上がりのグラフと山の札(見本のデータでは出ない)
 - 動画全体の再認識を画面から(認識の部分は 09-28 に PC で確かめた。画面の流れは e2e だけ)
@@ -119,11 +121,11 @@ AI: 段0 ✅ → 段1 呼び名 → 段2 エンジン差し替え + GPU ──�
 | 文書 | 中身 |
 |---|---|
 | `AGENTS.md`(= `CLAUDE.md`) | AI 全員の共通の前提・規則・担当表・テスト |
-| `transcribe-tool/AGENTS.md` | 「編集」の AI 向けの仕様(今の動き) |
+| `editor/AGENTS.md` | 「編集」の AI 向けの仕様(今の動き) |
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
-| `docs/pipeline.md` | ツール間の受け渡しの形式と API |
-| `docs/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`) |
-| `docs/ui-guidelines.md`・`docs/usability-heuristics.md` | 画面の共通のルール(用語集など)・10 の原則 |
+| `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
+| `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`) |
+| `docs/spec/ui-guidelines.md`・`docs/spec/usability-heuristics.md` | 画面の共通のルール(用語集など)・10 の原則 |
 | `.design/ui-overhaul/DESIGN_BRIEF.md`・`.design/ui-overhaul/IMPLEMENTATION.md` | 画面の全面見直しの設計(承認済み)と実装で決めた細部 |
 
 ### 作業の記録と引き継ぎ
@@ -136,27 +138,27 @@ AI: 段0 ✅ → 段1 呼び名 → 段2 エンジン差し替え + GPU ──�
 ### 進行中・未実装の計画と依頼
 | 文書 | 状態 |
 |---|---|
+| `docs/plan/phase0-restructure.md` | 段0 = フォルダの整理(2026-09-30。ほぼ済み。旧 → 新の対応表) |
 | `docs/plan/phase1-small-fixes.md` 〜 `phase8-multi-clip.md` | **線 A の段1〜段8 の細かい計画**(2026-09-29。未着手) |
-| `docs/transcription-overhaul-plan.md` | **進行中**。線 B = 文字起こしの精度改善の細かい計画(段0〜5) |
-| `docs/ui-audit-2026-09-28.md` | 画面の追加監査 20 項目(GPT)。**全部を線 A の段1〜5 に割り振った** |
-| `docs/accuracy/USER_INPUT.md` | **ユーザーの記入待ち**(呼び名・書き方の規則) |
-| `docs/accuracy/accuracy-baseline.md` | 精度の基準(評価セットがそろったら取り直す) |
+| `docs/plan/transcription-overhaul-plan.md` | **進行中**。線 B = 文字起こしの精度改善の細かい計画(段0〜5) |
+| `docs/plan/ui-audit-2026-09-28.md` | 画面の追加監査 20 項目(GPT)。**全部を線 A の段1〜5 に割り振った** |
+| `docs/plan/accuracy/USER_INPUT.md` | **ユーザーの記入待ち**(呼び名・書き方の規則) |
+| `docs/plan/accuracy/accuracy-baseline.md` | 精度の基準(評価セットがそろったら取り直す) |
 
 ### 完了した設計(経緯。「なぜそうなっているか」を調べるときに読む)
 | 文書 | 状態 |
 |---|---|
-| `docs/integration-plan.md` | 統合計画の要約(段階0〜7 完了)。**正本は Claude Docs「動画編集ツール 統合計画」** |
-| `docs/edit-tool-design.md` | 「編集」ツール(E1〜E6・追加機能 ①〜⑦ 実装済み。10 の未決2件と 12 の保留が残る)。画面イメージは `docs/mockups/edit-*.png`、実装の細かい決まりは「11」 |
-| `docs/whole-retranscribe-design.md` | 動画全体の再認識(0.21.0 で実装済み。4-3 は提案のまま) |
-| `docs/followup-2026-09-27.md` | 実機の確認のあとの要望(全部実装済み) |
-| `docs/backlog-ui-2026-09-27.md` | 画面の直しの候補(全部実装済み) |
-| `docs/resolve-pack-unification.md` | Resolve パックの一本化(実装済み) |
-| `docs/holo-colors.md` | ホロカラーの設計 |
+| `docs/design/integration-plan.md` | 統合計画の要約(段階0〜7 完了)。**正本は Claude Docs「動画編集ツール 統合計画」** |
+| `docs/design/edit-tool-design.md` | 「編集」ツール(E1〜E6・追加機能 ①〜⑦ 実装済み。10 の未決2件と 12 の保留が残る)。画面イメージは `docs/design/mockups/edit-*.png`、実装の細かい決まりは「11」 |
+| `docs/design/whole-retranscribe-design.md` | 動画全体の再認識(0.21.0 で実装済み。4-3 は提案のまま) |
+| `docs/design/resolve-pack-unification.md` | Resolve パックの一本化(実装済み) |
+| `docs/design/holo-colors.md` | ホロカラーの設計 |
 | `.design/ui-overhaul/DESIGN_REVIEW.md` | 画面の見直しのレビュー(「Should Fix(残り)」「Could Improve」が残る) |
 
 ### 古い資料(今の動きの根拠にしない)
 | 文書 | 中身 |
 |---|---|
-| `docs/project/`(一覧は `docs/project/README.md`) | 2026-09-24 までの仕様書・引き継ぎ。多くは数版前 |
-| `docs/review/` | 2026-09-24 の全ツールの見直しの記録 |
-| `transcribe-tool/TRANSCRIPTION_V2_DESIGN.md`(GPT・09-23)・`docs/project/accuracy-plan.md` | 精度改善の旧計画。**`docs/transcription-overhaul-plan.md` にまとめ済み**(原則は引き継いだ・食い違いは新しい方が正) |
+| `docs/archive/project/`(一覧は `docs/archive/project/README.md`) | 2026-09-24 までの仕様書・引き継ぎ。多くは数版前 |
+| `docs/archive/review/` | 2026-09-24 の全ツールの見直しの記録 |
+| `docs/archive/followup-2026-09-27.md`・`docs/archive/backlog-ui-2026-09-27.md` | 実機の確認のあとの要望・画面の直しの候補(どちらも全部実装済み) |
+| `docs/archive/TRANSCRIPTION_V2_DESIGN.md`(GPT・09-23)・`docs/archive/project/accuracy-plan.md` | 精度改善の旧計画。**`docs/plan/transcription-overhaul-plan.md` にまとめ済み**(原則は引き継いだ・食い違いは新しい方が正) |

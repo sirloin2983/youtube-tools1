@@ -24,8 +24,8 @@
 
 ## 使い方
 1. 正本(このフォルダ)を直す
-2. `python tools/sync_ui_kit.py` で各ツールへ写す(`--check` でずれの確認だけ)
-3. 各ツールのテストに加えて `python -m unittest tools/test_ui_kit_sync.py` が通ること
+2. `python dev/sync_ui_kit.py` で各ツールへ写す(`--check` でずれの確認だけ)
+3. 各ツールのテストに加えて `python -m unittest dev/tests/test_ui_kit_sync.py` が通ること
 
 各ツールでの読み込み:
 - スタジオ: `<head>` で `<script src="/ui-kit.js"></script>`(CSS より先・同期)→ `<link rel="stylesheet" href="/ui-kit.css">` → ツール固有の CSS
@@ -43,7 +43,7 @@
 ブランドの色は `.ui-brand-mark[data-tool=studio|transcribe|cut2resolve]`。
 
 ## v3(2026-09-26・画面の全面見直し)
-共通のルールは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
+共通のルールは `docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
 - 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
 - 入口へ戻る: ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
   「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
@@ -52,10 +52,10 @@
 - `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
 - `UIKit.fmt.ago(ms)`(「3日前」「今日 14:32」)・`UIKit.fmt.date(ms)`・`UIKit.fmt.dur(秒)`・`UIKit.esc(s)`
 
-## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)
+## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`docs/design/edit-tool-design.md`)
 - ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
-- 写し先は clip-studio(css・js)と transcribe-tool(js と index.html の CSS)だけ(`tools/sync_ui_kit.py`)
+- 写し先は studio(css・js)と editor(js と index.html の CSS)だけ(`dev/sync_ui_kit.py`)
 
 ## v6(2026-09-27・画面の全面見直し 段階1。`.design/ui-overhaul/`)
 土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `.design/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
@@ -107,14 +107,14 @@
   - `intro`・`playbackNote`・`footNote`・`extra`: 一覧の中の文。`onChange()`: 割り当てが変わるたび(画面の帯・手がかりを描き直す)
 - api: `map()`(今効く割り当て `{id: キー}`。共通の再生キーを含む。`UIKit.keys.playback({keymap})` にそのまま渡せる)・`key(id)`・`text(id)`(表示用)・`actionOf(combo)`(キー → このツールの操作の id)・
   `mount(el)`・`reload()`・`refusal(id, combo)`・`set(id, combo)`・`setMany(map, msg)`(スタジオのプリセット。[戻す] つき)・`clearNote()`・`capturing()`
-- **共通の再生キー**(`UIKit.keys.PLAYBACK_ACTIONS`)はホームの設定 `keymap.playback`(`app/prefs.py`・`api/ytt/prefs`)に1つ。どのツールで変えても同じ。
+- **共通の再生キー**(`UIKit.keys.PLAYBACK_ACTIONS`)はホームの設定 `keymap.playback`(`home/prefs.py`・`api/ytt/prefs`)に1つ。どのツールで変えても同じ。
   初回は `fallbackPlayback.load()` の値(編集の settings.keymap にあった再生キー)をホームの設定へ移す。戻ったとき(`UIKit.life.onReturn`)に読み直す
 - 変え方: キーのボタン → その場で次のキーを待つ(捕捉の段階で受け、ほかのキー処理に渡さない)。Esc = 取り消しだけ(一覧は閉じない)・Delete / Backspace = 外す・
   Ctrl / Alt / Meta つきと日本語の変換中は受け取らない・断ったら理由を一覧の中に出して待ち続ける
 - 重なり: 別の操作に使っているキーを選ぶと、そちらを外して「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせ(トースト)ではなく一覧の中に出す)。行ごとの「標準」・すべて標準に戻す
 - **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `UIKit.keymap.BLOCKED`(全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
-  派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `app/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
-- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `app/e2e_keymap.py`
+  派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `home/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
+- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `home/tests/e2e_keymap.py`
 
 ## 重なりの順(z-index)の決まり(v6・段3-2)
 新しい値を作らず、この段のどれかにそろえる。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。docs/transcription-overhaul-plan.md)。
+"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。docs/plan/transcription-overhaul-plan.md)。
 
     python dev/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)

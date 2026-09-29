@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」(docs/edit-tool-design.md)の画面のテスト(e2e_edit_*.py)の共通部分。
+"""「編集」(docs/design/edit-tool-design.md)の画面のテスト(e2e_edit_*.py)の共通部分。
 
 - ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
 - 単体(serve.py の疑似モード)と、入口に取り込んだ形(home/launch.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)の両方を起動できる

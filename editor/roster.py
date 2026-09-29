@@ -1,4 +1,4 @@
-"""名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。docs/transcription-overhaul-plan.md)。
+"""名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。docs/plan/transcription-overhaul-plan.md)。
 
 - 名簿の members: 配信で実際に呼ばれる形(aliases)・普通の言葉と重なる呼び名(common)・誤りやすい形(misrecognitions。学習用の文書の修正から)
 - 配信ごとの文脈: 配信のチャンネル名・コラボ相手のチャンネル名・話者の名前・題名から「その配信に出る人」を決め、その人の名前と呼び名だけを

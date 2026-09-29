@@ -28,7 +28,7 @@
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
-  「編集」(docs/edit-tool-design.md の 5):
+  「編集」(docs/design/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
@@ -38,7 +38,7 @@
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
-  受け渡し(docs/pipeline.md。本体は pipeline_io.py):
+  受け渡し(docs/spec/pipeline.md。本体は pipeline_io.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
@@ -103,7 +103,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
 UI_KIT_JS = os.path.join(ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(dev/sync_ui_kit.py。同上)
-PAGE_JS = ("cut.js", "pack-tab.js")          # 「編集」のタブの JS(docs/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
+PAGE_JS = ("cut.js", "pack-tab.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 # 作業データの置き場所(段階4)。起動時に prepare() が ytt_core.datadir で決めて set_data_dir() で切り替え、
 # 認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す(ワーカーは import した時点でそれを使う)。import した直後はこのフォルダ(テスト用)
 DATA_DIR = os.environ.get("TRANSCRIBE_DATA_DIR") or ROOT
@@ -197,12 +197,12 @@ def atomic_write(path, data: bytes):
 LOG_FILE = os.path.join(DATA_DIR, "serve.log")
 CRASH_FILE = os.path.join(DATA_DIR, "serve.crash.log")
 RUN_MARK = os.path.join(DATA_DIR, ".running.json")
-TOOL_ID = "transcribe"   # docs/pipeline.md の 4 のツールID(.runtime/transcribe.json)
+TOOL_ID = "transcribe"   # docs/spec/pipeline.md の 4 のツールID(.runtime/transcribe.json)
 _pio_mod = []
 
 
 def pio(required=True):
-    """受け渡しの部品 pipeline_io(docs/pipeline.md。clip/v1・transcript/v1・cut-plan/v1・動画の隣への保存・.runtime)。
+    """受け渡しの部品 pipeline_io(docs/spec/pipeline.md。clip/v1・transcript/v1・cut-plan/v1・動画の隣への保存・.runtime)。
     必要になったときに読み込む: serve.py だけを差し替えた(隣の .py を更新し忘れた)場合でも、サーバー自体は起動して従来の機能は使えるように。
     required=False なら、読めないとき None(文字起こしの開始時の .clip.json 探しなど、無くても続けられる所で使う)。"""
     if not _pio_mod:
@@ -824,7 +824,7 @@ def restore_history(tid, ts):
         return old
 
 
-# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/edit-tool-design.md の 4・5) ----------
+# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/design/edit-tool-design.md の 4・5) ----------
 # 文書 transcripts/<id>.json の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
 # 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(文書のどの書き込みでも apply_edit_cuts を通す)。
 EDIT_SCHEMA = "youtube-tools-edit/v1"
@@ -972,7 +972,7 @@ def _draft_slot(label):
 def edit_draft(tid, rows=False):
     """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(resolve_export.edit_draft)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
-    行の端を広げるかは設定の rowEdge(docs/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
+    行の端を広げるかは設定の rowEdge(docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
     ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
@@ -1261,7 +1261,7 @@ def open_video(req):
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}
 
 
-# ---------- 音の波形(カットのタイムライン用。docs/edit-tool-design.md の 5・8) ----------
+# ---------- 音の波形(カットのタイムライン用。docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
 # numpy は使わない(サーバーのプロセスで読み込まない決まり)。重い処理なので ytt_core.jobs.SLOTS を通し、画面は 202 の間くり返し問い合わせる
 PEAKS_VERSION = 1
@@ -1842,7 +1842,7 @@ def validate_job(req):
         lang = "ja"
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
     gauto = auto_glossary(glossary) if req.get("autoGloss") is not False else []
-    ev = req.get("evalSet") is True   # 評価用として文字起こしする: 用語集・呼び名・置換辞書・学習した置換を使わない(docs/project/eval-set-procedure.md の 2)
+    ev = req.get("evalSet") is True   # 評価用として文字起こしする: 用語集・呼び名・置換辞書・学習した置換を使わない(docs/archive/project/eval-set-procedure.md の 2)
     into = None
     if req.get("intoDoc") not in (None, ""):
         # 「編集」の文字起こしの無い文書(文字起こしせずに開いた動画)に行を入れる。id・題名・作った日・clip・編集の内容はそのまま
@@ -1972,7 +1972,7 @@ def latin_suspect(text, terms=()):
     return bool(_LATIN_RUN_RE.search(t))
 
 
-SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(docs/edit-tool-design.md の 12 ③-1): この長さより長くて
+SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(docs/design/edit-tool-design.md の 12 ③-1): この長さより長くて
                         # (ちょうど 4.0 秒は含めない。疑似の文字起こしの行(4.0 秒に「テスト文N」)を対象にしないため。本物の行への影響は境目だけ)
 SPARSE_MAX_CPS = 1.5    # 記号・空白を除いた文字数が 1 秒あたりこれ未満
 SPARSE_FLAG = "長い区間に文字が少ない(抜けの可能性)"
@@ -2189,7 +2189,7 @@ def filter_kwargs(model, kw):
         return kw
 
 
-# ---------- 声の検出(VAD)が捨てすぎたときのやり直し(docs/whole-retranscribe-design.md の 4-2) ----------
+# ---------- 声の検出(VAD)が捨てすぎたときのやり直し(docs/design/whole-retranscribe-design.md の 4-2) ----------
 # 声が重なる所・BGM のある所を、Silero VAD が「声ではない」と判断して全部捨て、モデルに何も渡らないことがある(2026-09-28。40 秒が 0 文字)。
 # 残った割合が VAD_MIN_KEEP 未満か、文字が 1 つも出なかったら、「弱め」→「なし」の順に緩めてやり直す
 VAD_MIN_KEEP = 0.2
@@ -2288,7 +2288,7 @@ def transcribe_real(job, spec, wav, total):
 
 
 SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の「1つの字幕の最大文字数」が優先)
-SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/edit-tool-design.md の 12 ②)
+SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/design/edit-tool-design.md の 12 ②)
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
 SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14}}
 ORIENTATIONS = ("vertical", "horizontal")
@@ -3065,7 +3065,7 @@ def run_diarize(job):
             pass
 
 
-# ---------- 話者の声を覚える(A-3。docs/backlog-ui-2026-09-27.md) ----------
+# ---------- 話者の声を覚える(A-3。docs/archive/backlog-ui-2026-09-27.md) ----------
 # 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を作って覚え、
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
@@ -4522,7 +4522,7 @@ def validate_retranscribe(req):
         if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     rng = None
-    if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(docs/whole-retranscribe-design.md の 3)
+    if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(docs/design/whole-retranscribe-design.md の 3)
         segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
         a = num(doc.get("start"), 0.0) or 0.0
         b = num(doc.get("end")) or media_duration(src) or max([g["end"] for g in segs] or [0.0])
@@ -4646,7 +4646,7 @@ def replace_original_multi(orig, a, b, items, keep=()):
     return keep_o
 
 
-# ---------- 範囲・全体の再認識の反映(docs/whole-retranscribe-design.md の 3-4・4-2) ----------
+# ---------- 範囲・全体の再認識の反映(docs/design/whole-retranscribe-design.md の 3-4・4-2) ----------
 PROTECT_PAD = 0.05      # 守る行(校正済み・元のまま残す行)の前後の余白(秒)
 MIN_NEW_LINE = 0.3      # 守る区間を避けて切り詰めた行がこれより短ければ捨てる(秒)
 EMPTY_COVER = 0.3       # 元の行の時間のうち、新しい行が重なるのがこの割合未満なら「新しい認識でほぼ空」→ 元の行を残す
@@ -5669,7 +5669,7 @@ def scan_common(paths):
     return out
 
 
-# ---------- 受け渡しの API(docs/pipeline.md の 2・4・6) ----------
+# ---------- 受け渡しの API(docs/spec/pipeline.md の 2・4・6) ----------
 def _pipeline_error(e):
     return ApiError(e.code, e.message, e.status)
 
@@ -5758,7 +5758,7 @@ def export_file(req):
         schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
         if not count:
             raise ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
-        data = text.encode("utf-8")   # BOM なし(docs/pipeline.md の 1)
+        data = text.encode("utf-8")   # BOM なし(docs/spec/pipeline.md の 1)
     try:
         path, overwritten = pm.save_beside(src, suffix, data, schema)
     except pm.PipelineError as e:
@@ -5804,7 +5804,7 @@ class Handler(BaseHTTPRequestHandler):
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8775/?media=...)で、この画面を開くのは許す。
         ポートが違うだけでも Sec-Fetch-Site は same-site(127.0.0.1 と localhost なら cross-site)になるため、以前は 403 になっていた。
-        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(docs/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
+        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(docs/spec/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
         埋め込み(iframe)での悪用は X-Frame-Options / frame-ancestors で防ぐ。"""
         return httpsec.navigation_ok(self.headers, path)
 
@@ -6120,7 +6120,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
                 zp = tmp_dir = None
                 try:
-                    try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。docs/followup-2026-09-27.md の 4)
+                    try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。docs/archive/followup-2026-09-27.md の 4)
                         from ytt_core import colors as _colors
                         who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
                     except ValueError as e:

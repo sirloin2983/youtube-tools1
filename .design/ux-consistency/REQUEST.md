@@ -8,23 +8,23 @@
 - WORKLOG に「担当: Claude Code — ux-consistency(app/・ui-kit/・transcribe-tool/・clip-studio/・cut2resolve/・ytt_core/colors.py)」と書いてから始める
 - 版(09-29 時点): 編集 0.21.0・スタジオ 0.10.0・ホーム 0.12.0・cut2resolve 0.14.0。**スタジオは 09-28 の「一瞬をマーク」「つなげて1本に」が 0.10.0 のまま 0.11.0 を予約している**(WORKLOG)ので、その変更と合わせて 0.11.0 にするか、先に上がっていれば次の番号にする。
   上げるのは段ごとではなく、**最後にまとめて**(編集 0.22.0・ホーム 0.13.0・cut2resolve 0.15.0。変えたツールだけ)。版の 3 か所(serve.py・画面・README 見出し)を同時に
-- **行番号の基準**: `AUDIT.md` の行番号は GitHub の `129b4e7`。PC にはそのあとのスタジオの変更(`clip-studio/review.js`・`review.css`・`exporter.py`。09-28 の WORKLOG の 3 件)があるので、review.js の行番号はずれている。名前で探す
+- **行番号の基準**: `AUDIT.md` の行番号は GitHub の `129b4e7`。PC にはそのあとのスタジオの変更(`studio/review.js`・`review.css`・`exporter.py`。09-28 の WORKLOG の 3 件)があるので、review.js の行番号はずれている。名前で探す
 - 段ごとにコミットし(`[Claude] ux-consistency 段N: …`)、WORKLOG に追記する。中間報告は 10〜20 分ごと(ユーザー指示)
-- ui-kit は正本(`ui-kit/`)を直して `python tools/sync_ui_kit.py`。写しは手で直さない
+- ui-kit は正本(`ui-kit/`)を直して `python dev/sync_ui_kit.py`。写しは手で直さない
 
 ## 1. 設定の置き場(全段の土台。段1 で作る)
 ブリーフの「値は 1 か所・どこで変えても全入口の既定」を守るための決め事。
 
 | 値 | 置き場(正) | 読む側 |
 | --- | --- | --- |
-| まとめて実行: 形の決め方・採用数・カットの方法と細かい値・上書き・失敗したとき | **ホームの新しい設定** `<作業データ>/app/prefs.json` の節 `autorun` | 8 つの入口(`UIKit.autorun`)・`app/autorun.py` |
+| まとめて実行: 形の決め方・採用数・カットの方法と細かい値・上書き・失敗したとき | **ホームの新しい設定** `<作業データ>/app/prefs.json` の節 `autorun` | 8 つの入口(`UIKit.autorun`)・`home/autorun.py` |
 | 配信者の記憶: 文書 id → 名前・配信(video id)→ 名前・チャンネル → 名前 | 同 `streamer`(件数の上限を決める。例: 各 2000 件・古い順に捨てる) | `UIKit.streamer`・`autorun.py` |
 | 共通の再生キー | 同 `keymap.playback` | 編集・スタジオ(`UIKit.keymap`) |
 | パックの出力: fps・縦横・話者の色のスイッチ・予備・粗編集の動画・出力先の前回値 | **編集の設定**(今の `packFps`・`packSize` に足す。`speakerColors`・`packBackup`・`packRender`) | パックのタブ・zip・`autorun.py`(`_pack_settings` を広げる) |
 | 行から(rowEdge)・無音の値 | 編集の設定(rowEdge は今のまま。無音 `cutSilence: {noise, min, pad}` を足す) | カットのタブ・`autorun.py` |
 | スタジオの書き出し後の自動文字起こし | スタジオの設定(サーバー。今の localStorage `ytt:studio.autoTx` から移す) | スタジオ |
 
-- ホームの API: `POST api/ytt/prefs`(`{op:"get", sections:[…]}` / `{op:"patch", section, value}`)。`app/launch.py` の `ytt_api` に足す(ツールに `/api/ytt/` を作らない決まり)。合言葉(X-YTT-Token)必須・Host/Origin 検査は既存の 1 か所
+- ホームの API: `POST api/ytt/prefs`(`{op:"get", sections:[…]}` / `{op:"patch", section, value}`)。`home/launch.py` の `ytt_api` に足す(ツールに `/api/ytt/` を作らない決まり)。合言葉(X-YTT-Token)必須・Host/Origin 検査は既存の 1 か所
 - **節ごとの patch**(全体の上書きにしない): 窓を 2 つ並べたとき後から送った側が他の節を消さないため。編集の `PUT /api/settings`(全体を丸ごと保存)も、この機会に「送ったキーだけ直す」に直す(AUDIT 3-B-7・E-18)
 - 形の検査は許可リスト(節ごとに受け付けるキー・型・範囲)。知らないキーは捨てる。大きさの上限(例: 256KB)。書き込みは `ytt_core` の原子的な書き込み
 - localStorage から移す値は、初回だけ読んでサーバーへ書き、以後はサーバーを正にする(読めなければ既定)
@@ -44,7 +44,7 @@
 - 話者の欄に理由を 1 行(「名簿の『さくらみこ』と一致」「メンバーと合わないので配信者の色」「ホームから開くと色を照らし合わせます」)(E-16)
 - 話者の名前の欄に候補(覚えた声の名前 `/api/voices`・名簿・この文書の配信者)(E-1)
 - 話者判別の完了: 知らせ [名前を付ける] → 最初の名前の欄へフォーカス(E-10・E-12)
-- ユーザーの報告「映像の上の字幕に色が出ない」: まず PC で「すべて終了」→ start-all.bat で起動し直し(0.21.0 より前のコードが動いていた可能性)・ホームから開いているか・名前が名簿と合うか を確かめる。それでも出なければ文書 id を聞き、`client-errors.jsonl` を見る。原因が分かったら WORKLOG に書く
+- ユーザーの報告「映像の上の字幕に色が出ない」: まず PC で「すべて終了」→ start.bat で起動し直し(0.21.0 より前のコードが動いていた可能性)・ホームから開いているか・名前が名簿と合うか を確かめる。それでも出なければ文書 id を聞き、`client-errors.jsonl` を見る。原因が分かったら WORKLOG に書く
 
 ### 段3 カットしない(A)
 - カットのタブ: 「行から」の並びに「カットしない(動画全体)」。`applyKeeps([[0, 長さ]], 'whole', …)`。元に戻す(Ctrl+Z)で戻る
@@ -64,7 +64,7 @@
 - 文書の実行と配信の実行で、上書きの文言をそろえる
 
 ### 段5 配信者の自動と記憶(A)
-- **09-27 の決定「自動では入れない」を、09-29 のユーザーの答えで「チャンネルから自動 + 覚える」に変更**。`docs/followup-2026-09-27.md` の 4 に追記する
+- **09-27 の決定「自動では入れない」を、09-29 のユーザーの答えで「チャンネルから自動 + 覚える」に変更**。`docs/archive/followup-2026-09-27.md` の 4 に追記する
 - `ytt_core/colors.py` に `from_channel(channel)`: チャンネル名にメンバーの名前・en が含まれ、**1 人に決まるときだけ**(「Pekora Ch. 兎田ぺこら」→ 兎田ぺこら。「Suisei Channel」のように決まらなければ入れない。S-1)
 - 決める順: 文書に覚えた名前 → 配信に覚えた名前 → チャンネルに覚えた名前 → `from_channel`。同じ関数をホーム(サーバー)で持ち、画面(`UIKit.streamer`)と `autorun.py`(`run.streamer` が空のとき)の両方が使う
 - 欄に札「自動(チャンネル名から)」「前回」。手で直したら文書・配信・チャンネルに覚える。空にしたら「色なし」を覚える(自動で入れ直さない)
@@ -85,9 +85,9 @@
 - 次の一手: 文字起こし完了 [開く]・校正がすべて済んだ [カットへ](最後の行で「すべて確認しました」と誤って出る所も。S-17)・パック完了 [フォルダを開く](フォーカスも)(E-11)・書き出し完了 [編集で開く](S-7)・ホームの「次にやること」に書き出し待ち・文字起こし待ち・確認前の候補(S-6)
 - 押せない札をボタンに(「次: カット」E-13・「→ 書き出し 2 本」S-18)。空の状態に次のボタン(S-13・E-9 の CSS 1 行・E-14)
 - 同じ動画の二度目の文字起こしは「前に作った文書があります」[開く][作り直す](`/api/doc-for`。E-3)
-- パックの作り直し: 同じ場所への作り直しは確認を省き、ボタンを「作り直す(上書き)」(E-15)。札に作り直しが要る理由(E-20)。動画のコピーは大きさと更新日時が同じなら飛ばす(`copy_video`。`test_pack`・`e2e_edit_pack` を通す)
+- パックの作り直し: 同じ場所への作り直しは確認を省き、ボタンを「作り直す(上書き)」(E-15)。札に作り直しが要る理由(E-20)。動画のコピーは大きさと更新日時が同じなら飛ばす(`copy_video`。`test_pack`・`editor/tests/e2e_edit_pack` を通す)
 - 用語(「入口」→「ホーム」・「パック」・「カットする / 残す」)(S-22・E-25)
-- GPT の 01・02・05〜10・13〜15(`docs/ui-audit-2026-09-28.md`)
+- GPT の 01・02・05〜10・13〜15(`docs/plan/ui-audit-2026-09-28.md`)
 
 ### 段8 余裕があれば(C)
 付録の C。時間が足りなければ WORKLOG の「次」に残す
@@ -99,7 +99,7 @@
 - Must-fix は直す。Should-fix・Could-improve はユーザーに選んでもらう
 
 ## 3. テスト
-- AGENTS.md の表のとおり(app・clip-studio・transcribe-tool・cut2resolve・ytt_core・ui-kit の同期・`tools/test_resolve_pack_contract.py` は単独のコマンドで・`tools/e2e_pipeline.py`)
+- AGENTS.md の表のとおり(app・clip-studio・transcribe-tool・cut2resolve・ytt_core・ui-kit の同期・`dev/tests/test_resolve_pack_contract.py` は単独のコマンドで・`dev/tests/e2e_pipeline.py`)
 - 足すテスト(例):
   - prefs: 節ごとの patch で他の節が消えない・許可リスト外のキーを捨てる・合言葉なしは 403・大きさの上限・壊れたファイルは既定
   - 話者の色: まとめて引く API・見本とプレビューと行の線が同じ色・スイッチを切ると全部消える(まとめて実行も)・理由の文
@@ -107,7 +107,7 @@
   - まとめて実行: 8 入口が同じ部品・fps/縦横/話者の色が設定どおり・見積もり・やることが 0・失敗で止める/次へ・配信単位の上書き
   - 配信者: `from_channel`(1 人に決まる / 決まらない)・決める順・空にしたら入れ直さない・名前の HTML は必ずエスケープ
   - キー: ? の一覧で変える・衝突の [戻す]・Esc で閉じない・変換中は受け取らない・両ツールで共通の再生キーが同じ・派生キーの奪い合い
-- 画面を変えたら `e2e_ui_mounted.py`・`e2e_edit_tabs.py`・`e2e_edit_cut.py`・`e2e_edit_pack.py`・`e2e_edit_voices.py`・スタジオの `e2e_ui.py --mounted`・`app/e2e_portal.py`・`app/e2e_autorun.py`
+- 画面を変えたら `editor/tests/e2e_ui_mounted.py`・`editor/tests/e2e_edit_tabs.py`・`editor/tests/e2e_edit_cut.py`・`editor/tests/e2e_edit_pack.py`・`editor/tests/e2e_edit_voices.py`・スタジオの `studio/tests/e2e_ui.py --mounted`・`home/tests/e2e_portal.py`・`home/tests/e2e_autorun.py`
 
 ## 4. リスク・エッジケース(省略しない)
 - **XSS**: 配信者・話者・チャンネルの名前は画面に出る。`innerHTML` に入れる所は必ずエスケープ。色は `#RRGGBB` の形を確かめてから style に入れる(今の `capSpeakerColor` と同じ)。同一オリジンなので 1 か所の XSS で全ツールの API に届く(AGENTS.md の【高】)
@@ -117,10 +117,10 @@
 - **見積もりと実行のずれ**: 見積もりのあとに状態が変わることがある(別の窓で書き出し)。実行は実行時の状態で決め、見積もりと違ったら結果に書く
 - **失敗で止める**: 段の途中で止めたとき、作りかけのパック・書き出しを残さない(今の原子的な書き込みの決まり)
 - **性能**: 話者の色の照らし合わせは文書ごとに 1 回(まとめて引く)。キーの一覧の描画は開いたときだけ
-- **パックの中身の一致**: パックの作り方は `cut2resolve/pack.py` だけ。autorun に Resolve の計算を書き足さない。`tools/test_resolve_pack_contract.py` を通す
+- **パックの中身の一致**: パックの作り方は `cut2resolve/pack.py` だけ。autorun に Resolve の計算を書き足さない。`dev/tests/test_resolve_pack_contract.py` を通す
 - **Resolve の実機**: 話者ごとの色の Text+ は 0.14.0 で入っている。今回はその入力を変えないので、実機の再確認は不要(変えたら必要)
 
 ## 5. 終わったら
-- 版を上げる(上の 0)・各 README の変更の記録・AGENTS.md(担当・新しい部品・prefs の置き場)・`docs/ui-guidelines.md`(まとめて実行の部品・知らせのボタン・確認の方式・キーの一覧 = 設定)
+- 版を上げる(上の 0)・各 README の変更の記録・AGENTS.md(担当・新しい部品・prefs の置き場)・`docs/spec/ui-guidelines.md`(まとめて実行の部品・知らせのボタン・確認の方式・キーの一覧 = 設定)
 - WORKLOG に: やったこと・テストの結果・PC で確かめたこと・残した C の項目・Should-fix/Could-improve の一覧
-- ユーザーへ: 「すべて終了」→ start-all.bat で起動し直す、と伝える
+- ユーザーへ: 「すべて終了」→ start.bat で起動し直す、と伝える

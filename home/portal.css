@@ -1,5 +1,5 @@
 /* ホーム(home/portal.html)だけの見た目。色は ui-kit の変数だけを使う(ダーク/ライトの両方で読めるように)。
-   クラス名の接頭辞は pt-(docs/pipeline.md の 5: ツール固有のクラスには接頭辞)。
+   クラス名の接頭辞は pt-(docs/spec/pipeline.md の 5: ツール固有のクラスには接頭辞)。
    画面の全面見直し(.design/ui-overhaul/)の段階5: 入口 + 案件を1つのホームにまとめた。 */
 
 .pt-main{max-width:1180px;margin:0 auto;padding:20px 16px 48px}

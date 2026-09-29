@@ -780,7 +780,7 @@ def copy_video(video, out_dir, task=None, dst=None):
     return dst
 
 
-# ---------------------------------------------------------------- 受け渡しの JSON(docs/pipeline.md)
+# ---------------------------------------------------------------- 受け渡しの JSON(docs/spec/pipeline.md)
 
 def _reject_constant(name):
     raise ValueError(f"NaN / Infinity は使えません: {name}")
@@ -803,7 +803,7 @@ def read_json_file(path, what="JSON", max_bytes=MAX_JSON_BYTES):
 
 
 def check_schema(d, schema, what):
-    """schema が一致しなければ ToolError。同じ種類の別の版は「未対応の版」と伝える(docs/pipeline.md の 1)"""
+    """schema が一致しなければ ToolError。同じ種類の別の版は「未対応の版」と伝える(docs/spec/pipeline.md の 1)"""
     got = d.get("schema") if isinstance(d, dict) else None
     if got == schema:
         return
@@ -874,7 +874,7 @@ def find_edit_media(video):
 
 def resolve_media_path(media, json_path):
     """JSON の media から動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの同名ファイル
-    (JSON が 作業用/ の中なら1つ上 → JSON と同じフォルダ。フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)。見つからなければ None"""
+    (JSON が 作業用/ の中なら1つ上 → JSON と同じフォルダ。フォルダごと移動した・友人に渡した場合への備え。docs/spec/pipeline.md の 1)。見つからなければ None"""
     if not isinstance(media, dict):
         return None
     cands = []

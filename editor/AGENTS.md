@@ -1,14 +1,14 @@
-# transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
+# editor(「編集」= 文字起こし・カット・パック。2026-09-30 まで transcribe-tool)— AI 向けメモ(Claude・GPT 共通)
 
 現在 **v0.22.0**(2026-09-29、精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印)。下の「名簿の呼び名と配信ごとの文脈」)。
-v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/whole-retranscribe-design.md`)・映像の上の字幕に話者の色。
+v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/design/whole-retranscribe-design.md`)・映像の上の字幕に話者の色。
 それより前の版の中身は `README.txt` の「■ v0.xx の変更」と `../docs/WORKLOG.md`(0.16.0 = 「編集」の統合・0.11.0 = 認識のワーカー分離・0.12.0 = Resolve パックの一本化 など)。
-画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
-現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/project/history/transcribe-tool-v*.md`、
-最初の仕様は `../docs/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
+画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/spec/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
+現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/archive/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/archive/project/history/transcribe-tool-v*.md`、
+最初の仕様は `../docs/archive/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
 使い方の説明はユーザー向けの `README.txt`(変更したら README も直す)。
-**精度改善の今の計画は `../docs/transcription-overhaul-plan.md`**(段0〜5。段0 の AI 側は済み・次は段1。段ごとにユーザーの承認のあとで実装)。
-GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md`(09-24)はこの計画にまとめた旧計画(原則は引き継いだ・食い違う所は新しい方が正。経緯として読む)。
+**精度改善の今の計画は `../docs/plan/transcription-overhaul-plan.md`**(段0〜5。段0 の AI 側は済み・次は段1。段ごとにユーザーの承認のあとで実装)。
+GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy-plan.md`(09-24)はこの計画にまとめた旧計画(原則は引き継いだ・食い違う所は新しい方が正。経緯として読む)。
 全体の状態(進行中・待ち・保留)は `../docs/ROADMAP.md`。
 
 ## 精度の測定の土台(計画の段0。v0.20.1)
@@ -19,9 +19,9 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
   版は `pkg_version`(dist-info を読むだけ。サーバー側で faster_whisper を import しない)
 - 単語ごとの確率はまだ残していない(単語は `(開始, 終了, 文字)` の3つ組で多くの所が分解しているため。要るときに words.json の形ごと考える)
 - モデルは手元のファイルだけで先に読む(`_new_whisper` の `local_files_only=True`。無ければネットワーク)
-- 測る道具 `../tools/eval_asr.py`(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
+- 測る道具 `../dev/eval_asr.py`(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
   採点は serve.py の `_groups`・`norm_cer`・`lev_counts` を使い、`doc_metrics`(画面の測定)と同じ数になることを `stored` のたびに照らし合わせる(ずれたら注意を出す)。
-  `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ保管データの `full.flac`。テスト: リポジトリ直下で `python -m unittest tools/test_eval_asr.py`
+  `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ保管データの `full.flac`。テスト: リポジトリ直下で `python -m unittest dev/tests/test_eval_asr.py`
 
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
 - 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(aliases = 呼び名・common = 普通の言葉と重なる呼び名・
@@ -34,7 +34,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
 - S-3 の印(`make_flags`): `stock_phrase`(以前からの HALLUC は文の一部でも・`HALLUC_LINE` は行のほとんどがその文のときだけ・♪/(音楽) だけの行)・`repeats_in_line`(2〜10 文字が 5 回以上。1 文字の繰り返しは除く)・
   近くの行の同じ文(前の5行に2回)・`LEAK_FLAG`(3 秒以内でヒントの語だけ、または「用語:」を含む)。声の検出のやり直し(`transcribe_vad_fallback`)は決まり文句・ヒントの語だけの結果を「文字 0」とみなし、
   緩い条件の認識は `LEAK_FLAG` の行も入れない。`REDO_BAD_FLAGS` にも入れた
-- テスト: `test_roster.py`(test_metrics から読む)。測る道具 `../tools/eval_asr.py run --context none|auto --temp0`
+- テスト: `test_roster.py`(test_metrics から読む)。測る道具 `../dev/eval_asr.py run --context none|auto --temp0`
 
 ## 構成
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。
@@ -59,7 +59,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
   元の配信(文書の `clip`(youtube-tools-clip/v1)の `videoId`・`clipTitle`・`clipStart`/`clipEnd`・`markLabel`)・配信者 `channel` と `streamTitle`
   (スタジオの data.json を**読むだけ**。置き場所は `studio_data_path()`、更新日時と大きさでキャッシュ `studio_videos()`)・元の動画の有無 `mediaOk`・
   パック `pack`(動画の隣の `<名前>_pack`。cut2resolve の作業データの「パックを作った記録」か、以前のパックならフォルダの中の cut-plan.json。
-  規則は `ytt_core/txindex.pack_info` の1か所 = 入口の案件の画面 `app/cases.py` の `find_pack` と同じ判定。2026-09-26 ④)。
+  規則は `ytt_core/txindex.pack_info` の1か所 = 入口の案件の画面 `home/cases.py` の `find_pack` と同じ判定。2026-09-26 ④)。
   動画・パックの有無はフォルダごとに1回・全体で `PACK_CHECK_BUDGET` 秒まで調べ、ネットワーク上のパス(`\\サーバー\…`)は調べない(資格情報を送らない。`mediaOk = None`)
 - 3 パック のタブ(「編集」E4。`pack-tab.js`。v0.15.0 の校正画面の「カットとパック」を置き換えた): パック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
   区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, textplusWrap, streamer, speakerColors, backup, dir?, force}`(`pack-tab.js` の作るところ)。
@@ -72,14 +72,14 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
   zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり
 - `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は隣の `../cut2resolve/pack.py` で作る
   (文書 → transcript/v1 → `pack.plan_cut(**pack.TRANSCRIPT_ROWS)` → `pack.build_pack(textplus=True)` → zip)。**Resolve 用の計算をここに書き足さない**
-  (二重実装に戻さない。`../docs/resolve-pack-unification.md`)。cut2resolve の部品は呼ばれたときに読み込み、見つける場所は
+  (二重実装に戻さない。`../docs/design/resolve-pack-unification.md`)。cut2resolve の部品は呼ばれたときに読み込み、見つける場所は
   環境変数 `YTT_CUT2RESOLVE_DIR` → `../cut2resolve`。ここに残っているのは「残す行」の規則(`is_kept`・`kept_spans`)と SRT の書式(pipeline_io が使う)
-- 「編集」(文字起こし + cut2resolve の統合。`../docs/edit-tool-design.md`。2026-09-26 に E1〜E6 を実装)のサーバー側(serve.py の「編集の内容」「音の波形」の節):
+- 「編集」(文字起こし + cut2resolve の統合。`../docs/design/edit-tool-design.md`。2026-09-26 に E1〜E6 を実装)のサーバー側(serve.py の「編集の内容」「音の波形」の節):
   編集の内容 `transcripts/<id>.edit.json`(残す区間 = カットの正。`GET/PUT /api/edit`・rev と 409)、`POST /api/edit/pack`(パックを作った記録・`packStale`)、
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
   **単語の時刻** `transcripts/<id>.words.json`(文書全体の単語の並び。認識と範囲の再認識が書く・削除で消す)と `POST /api/resplit`(今の文書を分け直す)。
   1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②。
-  **再認識(範囲・全体)と声の検出のやり直し**(v0.21.0。`../docs/whole-retranscribe-design.md`): `POST /api/retranscribe` の `mode` = each(行ごと)/ range / **whole**(文書の範囲全体。`ids` はサーバーが「校正済みでない行」を入れる・上限は新規と同じ `MAX_SPAN_SEC`・声の検出は明示の off 以外「弱め」・評価用は断る)。
+  **再認識(範囲・全体)と声の検出のやり直し**(v0.21.0。`../docs/design/whole-retranscribe-design.md`): `POST /api/retranscribe` の `mode` = each(行ごと)/ range / **whole**(文書の範囲全体。`ids` はサーバーが「校正済みでない行」を入れる・上限は新規と同じ `MAX_SPAN_SEC`・声の検出は明示の off 以外「弱め」・評価用は断る)。
   range と whole の認識は `RangeRecognizer`(本物 / 疑似。疑似は `TRANSCRIBE_FAKE_GAP`・`TRANSCRIBE_FAKE_LOOSE` で 0 文字の所と緩い条件の結果を作れる)。反映は `apply_range(spec, lines, loose)` → `plan_range`(差し替えない行 = 守る区間を `fit_lines` で避ける・新しい行の重なりが `EMPTY_COVER` 未満の元の行は残して `EMPTY_FLAG`)。
   ほぼ空だった所は `RangeRecognizer.loose`(声の検出なし・`no_speech_threshold=None`・よくある誤認識の文は捨てる・`LOOSE_FLAG`)。守る区間と残した行の `original`・単語の時刻は古いまま(`replace_original_multi`・`replace_words` の keep)。
   **声の検出が捨てすぎたら緩める**: `transcribe_vad_fallback`(新規 `transcribe_real`・range・whole が共通で使う。`VAD_LADDER` 標準→弱め→なし、残りが `VAD_MIN_KEEP` 未満か文字 0 で次へ)。ワーカーは認識を始めた直後に `info`(duration・duration_after_vad)を送り、`RemoteModel.transcribe` は行より先にそれを読む(`_Segs.close()` で行を読まずにやめられる)。新規の文字起こしは、やり直しに備えて行を最後まで読んでから流す(処理状況の行数は読みながら `job["segments"]` に入れる)。記録は `recognition.runs` の `vadUsed`・`vadRemovedSec`・`vadRetries`、`params.vadUsed`、知らせは `job["vadNote"]`(`public_job`)。疑似のワーカーは `TRANSCRIBE_FAKE_VAD`(drop-normal / drop-vad)
@@ -94,23 +94,29 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
 - `test_metrics.py` … サーバー側の単体テスト。`test_edit.py` … 「編集」のサーバー側(test_metrics から読み込まれる)。`e2e_*.py` … 画面の通し確認(Playwright + 疑似モード)
 
 ## テストの実行
+すべてリポジトリ直下から流す(テストは `editor/tests/`。2026-09-30 に移した)。
 ```
-python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では落ちる。一覧の項目は test_backend の test_list_fields_for_history)
-node --test test_document_save.cjs            # 保存・切り替えの競合(9件)
-python e2e_ui_v07.py / e2e_ui_v08.py / e2e_ui_v09.py / e2e_eval_v093.py / e2e_ui_v098.py / e2e_ui_handoff.py
-python e2e_edit_tabs.py                       # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
-python e2e_edit_cut.py                        # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
-python e2e_edit_voices.py                     # 話者の声を覚える(A-3。名前を付ける → 覚える → 判別し直すと名前が付く → 忘れる)
-python e2e_edit_pack.py                       # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
-python e2e_ui_mounted.py                      # 入口(app/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
+python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py editor/tests/test_roster.py   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では落ちる。一覧の項目は test_backend の test_list_fields_for_history)
+node --test editor/tests/test_document_save.cjs   # 保存・切り替えの競合(9件)
+python editor/tests/e2e_proofread_accuracy.py    # 校正済み・精度・用語集・設定の比較・辞書(旧 e2e_ui_v07)
+python editor/tests/e2e_proofread_keys.py        # 左手のキー・表示の設定・保管・保存の競合・4000行(旧 e2e_ui_v08)
+python editor/tests/e2e_folder_marker_range.py   # フォルダ一括・スタジオのマーク・範囲の再認識・進み具合(旧 e2e_ui_v09)
+python editor/tests/e2e_eval_set.py              # 評価用(旧 e2e_eval_v093)
+python editor/tests/e2e_row_editing.py           # メニュー・行の追加・重なり・Z・画面幅(旧 e2e_ui_v098)
+python editor/tests/e2e_ui_handoff.py
+python editor/tests/e2e_edit_tabs.py            # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
+python editor/tests/e2e_edit_cut.py             # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
+python editor/tests/e2e_edit_voices.py          # 話者の声を覚える(A-3。名前を付ける → 覚える → 判別し直すと名前が付く → 忘れる)
+python editor/tests/e2e_edit_pack.py            # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
+python editor/tests/e2e_ui_mounted.py           # 入口(home/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
                                               # 履歴の一覧(配信ごと・配信者)・パックのタブ(cut2resolve の API・上書きの確認・zip)
-python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
+python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
 ```
 - e2e は serve.py を疑似モード(環境変数 `TRANSCRIBE_BACKEND=fake`)で起動して試す。ffmpeg と Playwright の chromium が必要。
   Windows のコンソールでは `PYTHONIOENCODING=utf-8` を付けて流す(付けないと ▶ などを表示できずに途中で止まる)。`e2e_ui_mounted.py` は Windows でも動く(ワーカーは PowerShell で数え、入口は Ctrl+Break で止める)
 - 「編集」の e2e(`e2e_edit_*.py`)は `e2e_edit_common.py` の `Server` で起動する(ツールのファイルを拡張子でまとめて写すので、新しい .js の写し忘れが起きない。`mounted=True` で入口に取り込んだ形)
 - `TRANSCRIBE_BACKEND=worker-fake` は、サーバーは本物の経路(認識ワーカーとのやり取り)を通り、ワーカーの中だけ偽のモデルを使うテスト用のモード
-  (`test_worker.py`・`e2e_ui_mounted.py`・`app/test_mount.py`)。`TRANSCRIBE_WORKER_CRASH=<n>` で n 行目のあとにワーカーを落とせる。
+  (`test_worker.py`・`e2e_ui_mounted.py`・`home/tests/test_mount.py`)。`TRANSCRIBE_WORKER_CRASH=<n>` で n 行目のあとにワーカーを落とせる。
   `test_worker.py` は `test_metrics` から読み込まれる(上の1行のコマンドで一緒に走る)
 - Playwright 同梱の chromium は H.264 を再生できない。画面で動画の再生まで確かめるテストでは、テスト用の動画を webm(VP9 + Opus)で作る
 - e2e は一時フォルダに `serve.py`・`index.html`・`app.js`・**`cut.js`・`pack-tab.js`**・`ui-kit.js`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
@@ -120,10 +126,10 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
 - `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・409)、テーマの保存の1本化、
   他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合、v0.15.0 の見直し(単体でのカットとパックの案内・選んだ行のカット・動画なし・キー操作の手がかり・? ・390px の引き出し)
-- `e2e_ui_v07.py` と `e2e_ui_v09.py` の「版 v0.9.4」の判定だけは、版を上げたことによる**想定内の失敗**(古い版の記録を残してあるため)。それ以外は全部通ること
-- `e2e_ui_v08.py` の「4000行での Alt+Enter → 次の行 0.5 秒」は、マシンの負荷で時々超える(タイミング依存)
-- e2e の各スクリプトは、メニューのタブで隠れるカードも操作できるように、テスト用のスタイルで全部のタブを表示している(タブ自体の確認は e2e_ui_v098.py の最後)
-- 見た目は共通の ui-kit(`../ui-kit/`)。`ui-kit.js` は clip-studio と同じく `python tools/sync_ui_kit.py` で写したファイル(**手で直さない**)。
+- e2e は全部通ること(以前あった「版 v0.9.4 の判定は想定内の失敗」は 2026-09-26 に app.js の版を読む形に直り、もう無い)
+- `e2e_proofread_keys.py` の「4000行での Alt+Enter → 次の行 0.5 秒」は、マシンの負荷で時々超える(タイミング依存)
+- e2e の各スクリプトは、メニューのタブで隠れるカードも操作できるように、テスト用のスタイルで全部のタブを表示している(タブ自体の確認は e2e_row_editing.py の最後)
+- 見た目は共通の ui-kit(`../ui-kit/`)。`ui-kit.js` は studio と同じく `python dev/sync_ui_kit.py` で写したファイル(**手で直さない**)。
   CSS だけは画面が1ファイルの名残で index.html に埋め込み(`/* ui-kit:css:begin */…end */` の中。同じく sync_ui_kit.py で写す・手で直さない)。
   このツール固有の CSS はその後ろ(色は必ず ui-kit の変数。新しいクラスは `tt-` を付ける)
 - 画面の色(テーマ)の保存は ui-kit の `ytt:theme` だけ(「表示」の「画面の色」とヘッダーのボタンは同じ設定)。`V`(tx.view.v1)には保存しない
@@ -147,7 +153,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   校正のキー(1 文字起こし 固有のもの。下)は 1 文字起こし のタブだけ(`wideTab()` で止める)。カット・パックのタブでは左のメニューを細い帯(`#menuStrip`)に畳み、
   帯から開くと本文の上に重ねる(`EDT.overlay`。`V.menu` とは別)。題名の行 `#docBar`(`renderDocBar()`)はどのタブにも出す。保存の状態 `#saveState` はヘッダー。
   題名の行の「まとめて実行 ▾」`#docAuto`(入口から開いたときだけ。今の文書を入口の `start-docs` で1本・`startDocAuto`・進み具合の札 `#pillAuto` = `renderDocAuto`。
-  履歴の「選んで、まとめて実行」と同じ `pollRuns` で読み直す。2026-09-27 `../docs/followup-2026-09-27.md` の 3)
+  履歴の「選んで、まとめて実行」と同じ `pollRuns` で読み直す。2026-09-27 `../docs/archive/followup-2026-09-27.md` の 3)
 - **話者の声(A-3。2026-09-27)**: 名前を付けた話者の行(1秒以上・「声が混ざっている」を除く・長い行から 40 行 / 240 秒まで。`voice_groups`)の声の特徴を
   sherpa-onnx の SpeakerEmbeddingExtractor で取り(`_embed_local`。**ワーカーの中だけ**。サーバーは `embed_groups` → `WORKER.call("embed")`)、長さ 1 にして
   作業データの `voices/<判別モデル>.json` に名前ごとに保存(`load_voices`/`save_voices`。同じ名前は使った秒で重みを付けて混ぜる)。
@@ -171,7 +177,7 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   再生のキーは `UIKit.keys.playback({ keymap })` に渡す(1 文字起こし = `editPlaybackKeys`、2 カット = cut.js の `commonKeys` が host の `keymap()` を使う)。
   下の帯・一覧の上の手がかり(`#keyHintItems`)・基本の流れ(`#keysFlow`)・行のボタンのツールチップは `renderKeyUI()` がまとめて描く(部品の `onChange` から呼ばれる)。2 カット の帯・案内(`#cutKeysText`)は `ytt-keys-changed` で描き直す。
   ? をもう一度押すと一覧を閉じる(S-29)。重ねて開いた左のメニューの中のキーは後ろの文書を動かさない(`menuHasKeys`。GPT-04)。
-  新しい校正の操作をキーに足すときは `TX_ACTIONS` と `KEY_FN` に足す(直に e.code で判定しない)。cut.js に新しいキーを足すときは `CUT_KEY_ROWS` と ui-kit の `PB_BLOCKED` にも足す。確かめるテストは `../app/e2e_keymap.py`
+  新しい校正の操作をキーに足すときは `TX_ACTIONS` と `KEY_FN` に足す(直に e.code で判定しない)。cut.js に新しいキーを足すときは `CUT_KEY_ROWS` と ui-kit の `PB_BLOCKED` にも足す。確かめるテストは `../home/tests/e2e_keymap.py`
   共通の再生キー(Space・J/K/L・← →(Shift で5秒)・, .・I/O)は `UIKit.keys.playback()` の1か所(`ui-kit.js`)。1 文字起こし は `editPlaybackKeys`(`media: player()`)、
   2 カット は `commonKeys`(`media: mediaProxy`。生の `<video>` だと togglePlay の頭出し・フレームの丸めを通らないので、`cut.js` の関数へ委ねる薄い代理オブジェクトを渡す)。
   各画面は自分のキー処理より**先に**共通キーを呼び、処理済み(true)なら自分では何もしない(1つのキーは全体で1つの意味。I/O は 1 文字起こし では何もしない = 別の意味を持たせない)

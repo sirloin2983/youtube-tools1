@@ -9,9 +9,9 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   このパソコンの中だけで動き、動画・音声を外部のサービスへ送りません
   (YouTube からの動画・チャットの取得と、ランキング検索の YouTube Data API は使います)。
 
-    ホーム(app)                        ツールをまとめて起動する。次にやること・配信ごとの進み具合(案件)を見る・まとめて実行する
-    ① 切り抜きスタジオ(clip-studio)    配信を探す → 解析して見どころの候補を出す → 確認して mp4 に書き出す
-    ② 編集(transcribe-tool)            字幕を作って直す(faster-whisper。話者の判別も)→ カットを決める → Resolve 用のパック(Text+ の字幕つき)を作る
+    ホーム(home)                       ツールをまとめて起動する。次にやること・配信ごとの進み具合(案件)を見る・まとめて実行する
+    ① 切り抜きスタジオ(studio)         配信を探す → 解析して見どころの候補を出す → 確認して mp4 に書き出す
+    ② 編集(editor)                    字幕を作って直す(faster-whisper。話者の判別も)→ カットを決める → Resolve 用のパック(Text+ の字幕つき)を作る
                                          1つの画面の3つのタブ(1 文字起こし / 2 カット / 3 パック)。2026-09-26 に文字起こしと cut2resolve を統合
     (cut2resolve)                      パックを作る部品(「編集」とまとめて実行が使う。画面は無い。コマンドでも使える)
 
@@ -23,24 +23,24 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
      (入れたら黒い画面を開き直してください)
-  4. 文字起こしの部品: transcribe-tool フォルダの install.bat をダブルクリック(Mac は install.command)
+  4. 文字起こしの部品: setup フォルダの install.bat をダブルクリック(Mac は install.command)
        話者の自動判別を使うなら install-diarize.bat も。NVIDIA の GPU がある人だけ install-gpu.bat
        (AMD Radeon・Intel の GPU では使えず、CPU で処理します)
   5. YouTube Data API のキー(ランキングの検索に使います。無くても解析・書き出しはできます):
        切り抜きスタジオの画面右上の「設定」で入れます
 
 【起動と終了】
-  起動: このフォルダの start-all.bat をダブルクリック(Mac は start-all.command)。
+  起動: このフォルダの start.bat をダブルクリック(Mac は start.command)。
         黒い画面が1つ開き、ブラウザでホームの画面 http://localhost:8700/ が開きます。
         スタジオは /studio/、編集は /transcribe/ で動きます(案件の一覧の「編集で開く」や、ヘッダー左の切り替え)。
         cut2resolve は部品なので、ホームにカードを出しません。
         ※ 127.0.0.1 ではなく localhost で開いてください(YouTube の埋め込みプレーヤーのため)
   終了: ホームの下の「詳しく」を開いて「すべて終了」(誤操作を防ぐため2回押し)か、黒い画面を閉じる。
-  ※ 2026-09-26 から、各ツールのフォルダの start.bat での単独起動はやめました。起動は start-all.bat だけです。
-  ※ 新しいコードを取り込んだら(push.bat の後など)、「すべて終了」→ start-all.bat で起動し直してください。
+  ※ 2026-09-26 から、各ツールのフォルダの start.bat での単独起動はやめました。起動は start.bat だけです。
+  ※ 新しいコードを取り込んだら(push.bat の後など)、「すべて終了」→ start.bat で起動し直してください。
     古いまま動いていると、画面の上に「版が違います」の赤い帯が出ます。
 
-  専用の窓(2026-09-27 から既定): start-all.bat で起動すると、ブラウザのタブではなく Microsoft Edge の専用の窓(アドレス欄もタブも無い窓)で開きます。
+  専用の窓(2026-09-27 から既定): start.bat で起動すると、ブラウザのタブではなく Microsoft Edge の専用の窓(アドレス欄もタブも無い窓)で開きます。
     いつものブラウザのタブで開きたいときは、ホームの「詳しく」の中の「窓で開く」をオフにします(次の起動から)。Edge が無いときはブラウザで開きます。
     - 窓の中のリンク(「開く」「編集で開く」など)も窓で開きます。YouTube などの外のサイトは、いつものブラウザで開きます
     - 窓の設定・拡張機能・ログインは、いつものブラウザと別です(専用のプロファイル: %LOCALAPPDATA%\youtube-tools\app\browser-profile)。
@@ -62,7 +62,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
        文字起こしの無い動画も「文字起こしせずに開く」でカットとパックができます(以前の cut2resolve の画面の代わり)。
   3. 「編集」の 3 パック の「Resolve での手順を見る」の手順で Resolve に取り込む(パックのフォルダの bat で登録 → Resolve でスクリプトを実行)。
 
-  画面の共通の決まり(言葉・ボタン・一覧の見せ方)は docs\ui-guidelines.md。各ツールの画面の左上の「ホーム/スタジオ/編集」の切り替えで、
+  画面の共通の決まり(言葉・ボタン・一覧の見せ方)は docs\spec\ui-guidelines.md。各ツールの画面の左上の「ホーム/スタジオ/編集」の切り替えで、
   ホーム・スタジオ・編集を同じタブの中で行き来できます。
 
   ホームを開くと、上に「次にやること」(校正待ち・パック待ち・進行中の処理。押すとその作業の画面へ直接入れます)、
@@ -93,24 +93,24 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   文字起こし・マーク・設定・API キー・キャッシュ・ログは、このフォルダではなく
   %LOCALAPPDATA%\youtube-tools\(例 C:\Users\<名前>\AppData\Local\youtube-tools\)にあります。
   ホームの「詳しく」の「作業データの置き場所」にパスが出ます(隠しフォルダなので、パスをコピーしてエクスプローラーに貼ります)。
-  詳しくは docs\data-location.md。書き出した切り抜き・パックは、スタジオの設定の出力先と、動画の隣です。
+  詳しくは docs\spec\data-location.md。書き出した切り抜き・パックは、スタジオの設定の出力先と、動画の隣です。
 
 【変更を GitHub に保存する(push.bat)】
   push.bat をダブルクリックすると、変更をまとめてコミットして GitHub に送ります。途中で次のことを自動で行います:
-    - tools\removals.txt に書いてあるファイルを消す(AI が PC のファイルを消せないため。git の履歴には残ります)
+    - dev\removals.txt に書いてあるファイルを消す(AI が PC のファイルを消せないため。git の履歴には残ります)
     - これから送るファイルに、API キー・個人データ(文字起こし・data.json・設定など)・動画・大きすぎるファイルが混じっていないか調べ、
       あれば送らずに止まる(リポジトリは公開する方針のため)。止まったら、その表示を Claude に見せてください
 
 【困ったとき】
-  - 画面の上に赤い帯(版が違います): ホームの「詳しく」の「すべて終了」→ start-all.bat
+  - 画面の上に赤い帯(版が違います): ホームの「詳しく」の「すべて終了」→ start.bat
   - 動かない・エラー: ホームの「詳しく」の各カードの「ログ」、または %LOCALAPPDATA%\youtube-tools\app\logs\ の中の .log
   - 画面がおかしい・ボタンが効かない: 画面で起きたエラーは同じフォルダの client-errors.jsonl に自動で残ります(Claude に見せてください)
   - 表示や操作について: 各ツールの README.txt
 
 【各フォルダの README】
-  app\README.txt              ホーム(起動・終了・ログ・次にやること・案件・まとめて実行)
-  clip-studio\README.txt      切り抜きスタジオ
-  transcribe-tool\README.txt  編集(文字起こし・カット・パック。精度・学習用データ・話者判別を含む)
+  home\README.txt              ホーム(起動・終了・ログ・次にやること・案件・まとめて実行)
+  studio\README.txt      切り抜きスタジオ
+  editor\README.txt  編集(文字起こし・カット・パック。精度・学習用データ・話者判別を含む)
   cut2resolve\README.txt      cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
   holo-colors\README.txt      ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
-  docs\pipeline.md            ツール間の受け渡しの形式(開発向け)
+  docs\spec\pipeline.md            ツール間の受け渡しの形式(開発向け)

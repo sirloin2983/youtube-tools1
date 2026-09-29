@@ -342,7 +342,7 @@ async function enqueue(items){
   await refreshMarks(); paintPick();
 }
 
-/* ================= まとめて実行(入口から開いたときだけ。docs/followup-2026-09-27.md の 5) =================
+/* ================= まとめて実行(入口から開いたときだけ。docs/archive/followup-2026-09-27.md の 5) =================
    選んだ配信(まだスタジオに無くてよい)を、入口の /api/autorun/start-new で「解析から全部」。配信ごとに1つの実行(案件の一覧と同じ順番待ち) */
 async function startAuto(){
   if (R.adding || !R.picked.size) return;

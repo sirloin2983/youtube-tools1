@@ -141,7 +141,7 @@ def _rows_request(pack, source, tpath, row_edge, warnings):
 
 
 def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, heavy=None) -> dict:
-    """「編集」のカットのたたき台(開いたときの下書き・「行から」)と、動画の fps・長さ(docs/edit-tool-design.md の 4)。
+    """「編集」のカットのたたき台(開いたときの下書き・「行から」)と、動画の fps・長さ(docs/design/edit-tool-design.md の 4)。
     残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・zip・入口のまとめて実行と同じ規則。ここに規則を書かない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
     rows=False: 「行から」を計算しない(カットが保存済みの文書を開いたとき。行の端の無音を調べる重い処理をしない)。

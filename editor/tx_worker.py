@@ -227,7 +227,7 @@ def handle(S, m, out, cancels):
             kw = m.get("kw") or {}
             segs, info = model.transcribe(audio, **kw)
             # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
-            # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/whole-retranscribe-design.md の 4-2)
+            # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
             out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
                                                        for k in ("duration", "duration_after_vad")}})
             n = 0

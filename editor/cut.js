@@ -1,4 +1,4 @@
-/* 「編集」2 カット のタブ(docs/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
+/* 「編集」2 カット のタブ(docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
    編集の内容(残す区間 = カットの正)はサーバーの transcripts/<id>.edit.json(GET/PUT /api/edit。rev で競合を見る)。
    区間はフレームの整数 [開始, 終了) で持ち、保存のときだけ秒(小数3桁)にする(浮動小数の丸めで1フレームずれないため)。
    タイムラインの区間・つまみ・字幕は DOM(見えている所だけ描く)、波形だけ canvas。

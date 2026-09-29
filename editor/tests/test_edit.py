@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」ツールのサーバー側(docs/edit-tool-design.md の 4・5・9)のテスト。
+"""「編集」ツールのサーバー側(docs/design/edit-tool-design.md の 4・5・9)のテスト。
 
     python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_edit -q                          # これだけ

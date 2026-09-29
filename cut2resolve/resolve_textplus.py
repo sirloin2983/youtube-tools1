@@ -12,7 +12,7 @@ SCHEMA = "youtube-tools-resolve-textplus/v1"
 TEMPLATE_NAME = "textplus-template.drb"
 
 
-# 字幕の見た目(ユーザーの指定 2026-09-26。docs/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
+# 字幕の見た目(ユーザーの指定 2026-09-26。docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
 # C:\Users\you11\Desktop\素材 の「基本設定」「シェード1〜3」)。縦・横とも同じ(ユーザー決定)。雛形(.drb)は今のまま、スクリプトが値を入れる。
 #   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
 #   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
@@ -56,7 +56,7 @@ def hex_rgba(hex_):
 
 
 def text_style(color=None):
-    """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。docs/followup-2026-09-27.md の 4)なら
+    """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。docs/archive/followup-2026-09-27.md の 4)なら
     文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
     名前 → 色の照らし合わせは ytt_core/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
     st = json.loads(json.dumps(TEXT_STYLE))
@@ -134,7 +134,7 @@ def caption_segments(keeps, cues_out):
     return out
 
 
-# 字幕の改行(2段。docs/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
+# 字幕の改行(2段。docs/design/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
 # Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
 WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
 WRAP_SLACK = 2                        # 1段の文字数を 2 文字まで超えるのは許す(変な所で切らない)

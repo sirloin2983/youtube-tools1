@@ -4,7 +4,7 @@
 状態: **ユーザー承認済み**(2026-09-29)
 実装: PC の Claude Code(ユーザー決定 2026-09-29)。段取りと技術の決め事は同じフォルダの `REQUEST.md`。調査の報告は `AUDIT.md`
 土台: `.design/ui-overhaul/DESIGN_BRIEF.md`(2026-09-27 承認。見た目の方針・部品・用語はそのまま引き継ぐ。この文書は「動き」の見直し)
-根拠: ユーザーとの質問(2026-09-29)・調査 3 本(まとめて実行の入口の比較 / 編集の監査 27 件 / 入口・スタジオの監査 30 件)・`docs/ui-audit-2026-09-28.md`(GPT の 20 件)
+根拠: ユーザーとの質問(2026-09-29)・調査 3 本(まとめて実行の入口の比較 / 編集の監査 27 件 / 入口・スタジオの監査 30 件)・`docs/plan/ui-audit-2026-09-28.md`(GPT の 20 件)
 
 ---
 
@@ -44,10 +44,10 @@
 
 ## Existing Patterns
 
-- 部品の正本は `ui-kit/`(`tools/sync_ui_kit.py` で写す)。新しい部品もここに足す。
-- ルール: `docs/ui-guidelines.md`(用語集・ヘッダー・ボタン 3 種・札は押せない)。用語は「ホーム」(「入口」は画面の文言に出さない)。
+- 部品の正本は `ui-kit/`(`dev/sync_ui_kit.py` で写す)。新しい部品もここに足す。
+- ルール: `docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタン 3 種・札は押せない)。用語は「ホーム」(「入口」は画面の文言に出さない)。
 - 既にある部品: `UIKit.toast` / `UIKit.dialog.confirm` / `UIKit.streamer`(配信者の欄) / `UIKit.keys`(共通の再生キー・`PLAYBACK_ACTIONS`・`helpHtml`) / `UIKit.keybar` / `UIKit.life`。
-- 色の照らし合わせは `ytt_core/colors.py` の 1 か所(`lookup`・`speaker_colors`)。まとめて実行の本体は `app/autorun.py` の 1 本(8 つの入口はすべて `/api/autorun/*`)。パックは `cut2resolve/pack.py` だけが作る。
+- 色の照らし合わせは `ytt_core/colors.py` の 1 か所(`lookup`・`speaker_colors`)。まとめて実行の本体は `home/autorun.py` の 1 本(8 つの入口はすべて `/api/autorun/*`)。パックは `cut2resolve/pack.py` だけが作る。
 
 ## Component Inventory
 

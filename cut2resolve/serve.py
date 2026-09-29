@@ -8,7 +8,7 @@
 
 API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
-  GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/pipeline.md の 4)
+  GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/spec/pipeline.md の 4)
   GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
   POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl。
                                   動画が読めたときは、同じフォルダ・同じ名前(拡張子違い)の字幕・文字起こし・cut-plan があれば siblings に(問題2)
@@ -92,7 +92,7 @@ MEDIA_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mxf", ".ts", ".
 MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4", ".mkv": "video/webm", ".webm": "video/webm",
                ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".mts": "video/mp2t", ".m2ts": "video/mp2t"}
 # 画面(index.html・app.js・app.css)は「編集」(editor の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
-# docs/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
+# docs/design/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
@@ -102,7 +102,7 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
-TOOL_APPS = _runtime.TOOL_APPS          # docs/pipeline.md の 4(ytt_core.runtime が正)
+TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(home/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
@@ -554,7 +554,7 @@ def output_from_spec(o, video):
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
         raise ApiError("bad_textplus", str(e))
-    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt_core/colors.py の1か所。docs/followup-2026-09-27.md の 4)
+    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt_core/colors.py の1か所。docs/archive/followup-2026-09-27.md の 4)
     try:
         who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
     except ValueError as e:
@@ -767,7 +767,7 @@ class Handler(BaseHTTPRequestHandler):
         return httpsec.fetch_site_ok(self.headers)
 
     def _navigation_ok(self, path):
-        """他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/pipeline.md の 3)"""
+        """他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
         return httpsec.navigation_ok(self.headers, path)
 
     def _guard(self, write, path=""):

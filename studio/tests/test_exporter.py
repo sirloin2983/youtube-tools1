@@ -131,7 +131,7 @@ def _read(path):
 
 @unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestClipManifestExport(unittest.TestCase):
-    """書き出した mp4 ごとに .clip.json(youtube-tools-clip/v1)が隣にできること(docs/pipeline.md の 2.1)。"""
+    """書き出した mp4 ごとに .clip.json(youtube-tools-clip/v1)が隣にできること(docs/spec/pipeline.md の 2.1)。"""
     @classmethod
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()

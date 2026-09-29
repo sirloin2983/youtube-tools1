@@ -1,4 +1,4 @@
-/* 「編集」3 パック のタブ(docs/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+/* 「編集」3 パック のタブ(docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
    パックは cut2resolve の pack.py だけが作る(api/build の spec.keeps = 2 カット のタブの残す区間。pack.EDIT_KEEPS)。ここに Resolve 用の計算を書かない。
    「これから作るパック」の字幕の数・注意は、文字起こしのサーバーの /api/edit/preview(同じ pack.py でファイルを作らずに見積もる)。
    作り終えたら /api/edit/pack に記録し(packRev)、カットか字幕が変わったら「作り直し」と知らせる */
@@ -53,7 +53,7 @@ function create(h){
     }[b] || '';
   }
 
-  /* ---------- 配信者の名前(字幕の文字の色。docs/followup-2026-09-27.md の 4)----------
+  /* ---------- 配信者の名前(字幕の文字の色。docs/archive/followup-2026-09-27.md の 4)----------
      手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
      名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt_core/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
   const WHO_KEY = 'tx.streamer.v1', WHO_MAX = 300;

@@ -1,4 +1,4 @@
-"""ツール間の受け渡し(docs/pipeline.md の 2.1・4・6)。
+"""ツール間の受け渡し(docs/spec/pipeline.md の 2.1・4・6)。
 
 - 切り抜き1本の素性 `youtube-tools-clip/v1`(書き出した mp4 の隣の `<名前>.clip.json`)を作って原子的に書く
 - 実行中のポートの共有: `<リポジトリ直下>/.runtime/studio.json` の読み書きと、`GET /api/siblings` の中身

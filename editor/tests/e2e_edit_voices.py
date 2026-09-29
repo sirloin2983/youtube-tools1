@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の声を覚える(A-3。docs/backlog-ui-2026-09-27.md)の画面の確認(疑似モード。声の特徴は偽の話者判別と同じ区切りで作る)。
+"""話者の声を覚える(A-3。docs/archive/backlog-ui-2026-09-27.md)の画面の確認(疑似モード。声の特徴は偽の話者判別と同じ区切りで作る)。
 
     python e2e_edit_voices.py
 

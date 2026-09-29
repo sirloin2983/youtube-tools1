@@ -88,7 +88,7 @@ def create_new(path, data):
 
 
 def write_json(path, obj, indent=2):
-    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/pipeline.md の 1)。"""
+    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/spec/pipeline.md の 1)。"""
     atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=indent) + ("\n" if indent is not None else "")).encode("utf-8"))
 
 

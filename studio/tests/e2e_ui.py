@@ -305,7 +305,7 @@ def run_checks(port, fx, shots=None):
         c.ok(not pg.evaluate("document.documentElement.hasAttribute('data-keybar')"), "① へ移るとキーの帯は消える(場面が変わったので)")
         pg.click('#steps [data-step="review"]')
         pg.wait_for_timeout(150)
-        if MOUNT["token"]:   # まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)): 入口の中だけ。案件の画面と同じ API(入口の /api/autorun)
+        if MOUNT["token"]:   # まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)): 入口の中だけ。案件の画面と同じ API(入口の /api/autorun)
             c.ok(pg.is_visible("#rvAuto"), "③ 入口の中では「まとめて実行」が出る")
             pg.click("#rvAuto > summary")
             pg.click('#rvAuto [data-auto="transcribe"]')
@@ -319,7 +319,7 @@ def run_checks(port, fx, shots=None):
                 pg.click("#rvAutoBar [data-act=autocancel]")
             ok = wait_js(pg, "() => /中止|失敗|済み|やることがありませんでした/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
             c.ok(ok, "③ 帯の「中止」で止められる(または終わっている): " + (pg.text_content("#rvAutoBar .pill") or ""))
-            # 1つのマークだけ(マークの行の「…」の中の「この後を ▸」。docs/followup-2026-09-27.md の 3・段階4の決定0)
+            # 1つのマークだけ(マークの行の「…」の中の「この後を ▸」。docs/archive/followup-2026-09-27.md の 3・段階4の決定0)
             row_pop = '#rvList .rv-mark-row[data-id="m1"] .rv-rowmore'
             c.ok(pg.locator(row_pop).count() == 1, "③ 採用したマークの行に「…」(その他の操作)が出る")
             pg.click(row_pop + " > summary")
@@ -614,7 +614,7 @@ def run_checks(port, fx, shots=None):
         pg.fill("#rkQ", "")
         pg.check("#results tr[data-vid] .pk >> nth=0")
         c.ok(pg.text_content("#pickN") == "1" and pg.is_enabled("#pickGo"), "チェックすると選択数が増え、追加ボタンが押せる")
-        if MOUNT["token"]:   # まとめて実行(docs/followup-2026-09-27.md の 5): 入口の中だけ。入口の API は偽物に差し替えて、送る中身と行の印を確かめる
+        if MOUNT["token"]:   # まとめて実行(docs/archive/followup-2026-09-27.md の 5): 入口の中だけ。入口の API は偽物に差し替えて、送る中身と行の印を確かめる
             c.ok(pg.is_visible("#rkAuto"), "① 入口の中では、選んだ配信の「まとめて実行」が出る")
             vid = pg.get_attribute("#results tr[data-vid] .pk >> nth=0", "data-id")
             sent = []

@@ -62,7 +62,7 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
 
 
 ■ 受け渡しの形式
-  docs/pipeline.md(リポジトリ直下)を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
+  docs/spec/pipeline.md(リポジトリ直下)を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
 
 
 ■ 注意
@@ -77,7 +77,7 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
     (映像はそのまま)。粗編集の動画にも同じ量。結果の loudness = {target, measured, gainDb}。測り方・上げる量の決まりはスタジオの書き出しと同じ(ytt_core/loudness.py)
   - API の output.volume(%。1〜200。元 = 100): loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
 
-■ v0.14.0 の変更点(2026-09-27・話者ごとの字幕の色。docs/backlog-ui-2026-09-27.md の A-2)
+■ v0.14.0 の変更点(2026-09-27・話者ごとの字幕の色。docs/archive/backlog-ui-2026-09-27.md の A-2)
   - 文字起こし(transcript/v1)の話者の名前がメンバーと1人に合えば、その話者の Text+ 字幕だけ文字をその人の色にします
     (合わない話者は配信者の色、空なら黒のまま)。API の output.speakerColors(既定 true。false で使わない)。結果の speakerColors に「話者 → 色」
   - 名前 → 色の規則は ytt_core/colors.py の speaker_colors(配信者の色と同じ照らし合わせ)。Lua は字幕ごとに cap.fill を Text+ の塗りの色に入れる
@@ -96,7 +96,7 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
   - 途中のファイルの「作業用」フォルダ(ytt_core と同じ名前 cut2resolve_core.WORK_DIR): 余白つき素材の .edit.json・動画と同じ名前の字幕/文字起こしの候補は
     作業用\ → 動画の隣(以前の置き方)の順に探す。文字起こしの JSON が 作業用 の中なら、動画は1つ上から探す
 
-■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。docs/edit-tool-design.md の 12)
+■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。docs/design/edit-tool-design.md の 12)
   - Text+ 字幕の見た目をユーザーの指定に(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・
     アンカー 下/中央。スクリプトが値を入れ、最初の字幕で読み直して、入らなかった項目はマーカーのメモに出す(resolve_textplus.TEXT_STYLE・style_inputs)。
     けいふぉんと はパックに入れない(友人が各自で入れる)。無ければ Windows の日本語フォントを自動で選び、マーカーを黄色にする
@@ -138,7 +138,7 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
 ■ v0.9.0 の変更点(2026-09-26・まとめて実行・単独起動の廃止)
   - API の spec に preset "transcript-rows" を足した。文字起こしの行だけを残す規則(pack.TRANSCRIPT_ROWS。文字起こしツールの Resolve パッケージと同じ)で
     区間を決める(他の指定は使わない)。入口の「まとめて実行」がこれで Text+ パックを作る。同じ名前のパックがあるときは作らない(上書きしない)
-  - このフォルダの start.bat・start.command をやめた(push.bat で消える)。起動はリポジトリ直下の start-all.bat だけ
+  - このフォルダの start.bat・start.command をやめた(push.bat で消える)。起動はリポジトリ直下の start.bat だけ
 
 ■ v0.8.0 の変更点(2026-09-26・重い処理の同時実行の上限)
   - パックの作成は、他のツールの重い処理(スタジオの解析・書き出し、文字起こし)と合わせて同時に 2 つまでにした(入口の中で動くとき。
@@ -153,14 +153,14 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
 ■ v0.6.0 の変更点(2026-09-26・文字起こしツールの Resolve パッケージと一本化)
   - 文字起こしツールの「Resolveパッケージ(zip)」は、このツールの Text+ パックを作るようになった(pack.py が唯一の実装)。
     文字起こしの行を残すときの規則は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
-    同じ入力から同じ中身になることは tools/test_resolve_pack_contract.py が確かめる。詳しくは docs/resolve-pack-unification.md
+    同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。詳しくは docs/design/resolve-pack-unification.md
   - 切り抜きスタジオの前後の余白つき素材(.edit.json)を、動画を入れるパックで使う(上の「3. 書き出し」)
   - 時刻をフレームに直すときの丸めを四捨五入(0.5 は大きい方へ)にした。以前は Python の round(偶数への丸め)で、
     30fps の 0.15 秒(4.5 フレーム)が 4、0.25 秒(7.5 フレーム)が 8 と、ちょうど半フレームの時刻が上下ばらばらに丸まっていた
     (1フレームずれることがあった)。文字起こしツールと同じ規則
 
 ■ v0.5.0 の変更点(2026-09-25・入口への取り込み)
-  - 入口(start-all.bat)の中の /cut2resolve/ で動けるようにした(統合計画の段階3-2。app/mount.py)。ファイルの場所・start.bat はそのまま
+  - 入口(start.bat)の中の /cut2resolve/ で動けるようにした(統合計画の段階3-2。home/mount.py)。ファイルの場所・start.bat はそのまま
   - 画面の部品は相対パスで読み、API・動画の URL は app.js の BASE(画面の場所)を前に付ける
   - 入口の中で動くときは、書き込み系の操作に合言葉(X-YTT-Token。入口が画面に入れる)が要る。CSP はこれまでと同じ(script-src 'self')
   - 入口の中で動いている間に start.bat を押すと、2つ目は立てずに入口の中の画面を開く

@@ -1,3 +1,3 @@
-# CLAUDE.md(transcribe-tool)
+# CLAUDE.md(editor)
 
 @AGENTS.md

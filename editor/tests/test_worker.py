@@ -130,7 +130,7 @@ class WorkerTest(unittest.TestCase):
             job2 = self.transcribe()                                               # 設定がオフなら足さない
             self.assertFalse([j for j in S._jobs.values() if j.get("kind") == "redo" and j.get("tid") == job2["tid"]])
 
-    # ---- 声の検出が捨てすぎたときのやり直し(docs/whole-retranscribe-design.md の 4-2)
+    # ---- 声の検出が捨てすぎたときのやり直し(docs/design/whole-retranscribe-design.md の 4-2)
     def test_vad_drops_everything_then_relaxes(self):
         """声の検出「標準」が全部を捨てた(複数人で 0 文字の例)→「弱め」でやり直して文字が出る。記録と知らせが残る"""
         os.environ["TRANSCRIBE_FAKE_VAD"] = "drop-normal"
@@ -161,7 +161,7 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual((run["vadUsed"], run["vadRetries"], run["vadRemovedSec"]), ("normal", [], 0.0))
         self.assertEqual(S.public_job(job)["vadNote"], "")
 
-    # ---- 動画全体の再認識(docs/whole-retranscribe-design.md の 3)。認識は疑似(3 秒ごとに「範囲再認識N」)
+    # ---- 動画全体の再認識(docs/design/whole-retranscribe-design.md の 3)。認識は疑似(3 秒ごとに「範囲再認識N」)
     def _whole(self, tid, **req):
         spec = S.validate_retranscribe(dict({"tid": tid, "mode": "whole", "model": "small"}, **req))
         job = S.add_job(spec, "retranscribe")

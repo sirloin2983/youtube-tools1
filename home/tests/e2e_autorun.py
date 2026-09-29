@@ -128,7 +128,7 @@ def main():
                 check(wait_js(pg, "!!document.querySelector('%s .pt-auto-run')" % card.replace("'", "\\'"), 15000), "案件の画面に「まとめて実行」が出た")
                 pg.select_option(card + " .pt-auto-mode", "adopted")
                 check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
-                pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4)
+                pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色。docs/archive/followup-2026-09-27.md の 4)
                 check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FF8FDF'" % card.replace("'", "\\'"), 10000),
                       "案件の画面の配信者の欄: 名前 → メンバーカラー")
                 pg.click(card + " .pt-auto-run")

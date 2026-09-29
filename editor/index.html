@@ -479,7 +479,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .tt-docauto-pop .lag{flex-wrap:wrap}
 /* ==================== 文字起こしツール固有の見た目 ====================
    色・文字・部品(ボタン・入力・カード・ピル・通知・表・ダイアログ)は上の ui-kit にある。ここには「このツール固有の配置と部品」だけを書く。
-   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しく足すクラスには tt- を付ける(docs/pipeline.md 5.)。
+   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しく足すクラスには tt- を付ける(docs/spec/pipeline.md 5.)。
    既存のクラス名・id は JS と e2e が使っているので変えない。 */
 :root{
   --fs:15px;--vh:38vh;--pbh:300px;--toph:52px;
@@ -569,7 +569,7 @@ h2{margin:0;font-size:15px}
 .clist label:last-child{border-bottom:0}
 .job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
-/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/ui-guidelines.md 4.) ----------
+/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/spec/ui-guidelines.md 4.) ----------
    道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
    1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
 #txHomeLink{display:inline-flex;margin:0 0 8px}
@@ -896,7 +896,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 .keyt td:first-child{white-space:nowrap;font-family:var(--mono);text-align:left;padding-right:12px}.keyt td{text-align:left}
 
 
-/* ---------- 「編集」の3つのタブ(docs/edit-tool-design.md 3。E2 = 骨組み) ---------- */
+/* ---------- 「編集」の3つのタブ(docs/design/edit-tool-design.md 3。E2 = 骨組み) ---------- */
 .tt-edtabs .ui-tab{min-height:32px}
 .ui-header-actions>.savest{margin-right:4px}
 @media (max-width:720px){.ui-header-actions>.savest{display:none}}
@@ -1071,7 +1071,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <!-- ホーム/スタジオ/編集(ui-kit v6。画面の全面見直し 段1)。中身は ui-kit.js の UIKit.appnav が描く -->
   <nav class="ui-appnav" data-ui-appnav="transcribe" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver" id="ver"></span>
-  <!-- 「編集」の3つのタブ(docs/edit-tool-design.md 3)。Alt+1/2/3 でも切り替える。今のタブは URL の #tx / #cut / #pack に残す -->
+  <!-- 「編集」の3つのタブ(docs/design/edit-tool-design.md 3)。Alt+1/2/3 でも切り替える。今のタブは URL の #tx / #cut / #pack に残す -->
   <nav class="ui-tabs tt-edtabs" id="edTabs" role="tablist" aria-label="編集の段">
     <button type="button" class="ui-tab" role="tab" id="edtab-tx" data-edtab="tx" aria-selected="true" aria-controls="tabTx" title="文字起こし: 文字と話者を直す(Alt+1)"><span class="ui-tab-n">1</span>文字起こし</button>
     <button type="button" class="ui-tab" role="tab" id="edtab-cut" data-edtab="cut" aria-selected="false" aria-controls="tabCut" title="カット: 残す・削る所をタイムラインで決める(Alt+2)"><span class="ui-tab-n">2</span>カット</button>
@@ -1081,7 +1081,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <span class="savest" id="saveState" role="status"></span>
     <!-- 今の操作(処理中のジョブ・校正の進み具合)。押すとメニューの該当する所を開く -->
     <div class="tt-hstat" role="status" aria-live="polite">
-      <!-- 押せるものは .btn(状態の札 .pill は押せない表示だけ。docs/ui-guidelines.md 3.) -->
+      <!-- 押せるものは .btn(状態の札 .pill は押せない表示だけ。docs/spec/ui-guidelines.md 3.) -->
       <button type="button" class="btn ghost small tt-hjob" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
       <button type="button" class="btn ghost small tt-hgoal" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"><span class="tt-hgoal-t" id="goalPillT"></span><span class="tt-hgoal-bar" aria-hidden="true"><i id="goalPillBar"></i></span></button>
     </div>
@@ -1207,7 +1207,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
   <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
     <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- v0.15.0: 一覧の道具(docs/ui-guidelines.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
+    <!-- v0.15.0: 一覧の道具(docs/spec/ui-guidelines.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
     <div class="ui-listbar tt-listbar" role="search">
       <input id="txSearch" type="search" placeholder="題名・配信・配信者・ファイル名" aria-label="保存済みの文字起こしを検索" autocomplete="off">
       <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
@@ -1286,7 +1286,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
      <span class="tt-docbar-meta hint" id="docMeta"></span>
      <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
-     <!-- まとめて実行(今の文書。docs/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ出す) -->
+     <!-- まとめて実行(今の文書。docs/archive/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ出す) -->
      <details class="ui-menu tt-docauto" id="docAuto" hidden>
        <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、入口の「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">
@@ -1304,7 +1304,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
    <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
-     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。docs/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
+     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。docs/spec/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
@@ -1437,7 +1437,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
    </div>
    </div>
    <section class="tt-tabpanel" id="tabCut" role="tabpanel" aria-labelledby="edtab-cut" data-edpanel="cut" hidden>
-     <!-- 2 カット(docs/edit-tool-design.md の 3。cut.js)。区間はタイムラインで手で決める。たたき台の規則はサーバー・cut2resolve -->
+     <!-- 2 カット(docs/design/edit-tool-design.md の 3。cut.js)。区間はタイムラインで手で決める。たたき台の規則はサーバー・cut2resolve -->
      <div class="notice tt-cut-off" id="cutOff" hidden role="status"></div>
      <div class="notice err" id="cutConflict" hidden role="alert"><b>別のタブか窓で、先にカットが保存されています。</b>自動保存は止めています。
        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="cutReload">保存されているカットを読み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cutForce">この画面のカットで上書きする</button></div></div>
@@ -1509,7 +1509,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <p class="hint tt-cut-keys"><span id="cutKeysText"></span> <span class="savest" id="cutSaveSt" role="status"></span></p>
    </section>
    <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
-     <!-- 3 パック(docs/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps)。
+     <!-- 3 パック(docs/design/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps)。
           段3: 前回の設定の要約 + 大きな「作る」+ 字幕の見本(いつも見える)だけを主に出し、詳しい設定(fps・大きさ・入れるもの・出力先)は
           「設定を変える」で開く右の欄(#pkSettingsDrawer)にまとめた -->
      <div class="notice tt-pk-off" id="pkOff" hidden role="status"></div>

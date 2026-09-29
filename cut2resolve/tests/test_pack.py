@@ -143,7 +143,7 @@ class TestTextStyle(unittest.TestCase):
                      'Offset5': [0.0, 0.0]}.items():
             self.assertEqual(inputs.get(k), v, k)
         self.assertNotIn('Thickness1', inputs)                                               # 塗りに太さは無い
-        # 配信者の名前を入れたとき(docs/followup-2026-09-27.md の 4): 文字(塗り)だけメンバーカラー。ふちは同じ
+        # 配信者の名前を入れたとき(docs/archive/followup-2026-09-27.md の 4): 文字(塗り)だけメンバーカラー。ふちは同じ
         st = RTP.text_style({'hex': '#FF8FDF', 'who': 'さくらみこ'})
         colored = dict((kv[0], kv[1]) for kv in RTP.style_inputs(st))
         self.assertEqual([colored[k] for k in ('Red1', 'Green1', 'Blue1', 'Alpha1')], [1.0, 0.5608, 0.8745, 1.0])
@@ -976,7 +976,7 @@ class TestEditMediaPack(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
 class TestMinimalPack(unittest.TestCase):
-    """パックの出力を最小限に(docs/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
+    """パックの出力を最小限に(docs/design/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
     (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。
     plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)。コマンドは今までどおり 友人へ.txt も書く"""
 
@@ -1036,7 +1036,7 @@ class TestMinimalPack(unittest.TestCase):
         self.assertEqual((out / RTP.README_NAME).read_text(encoding="utf-8-sig"), res["readme"])
 
     def test_member_color_text(self):
-        """配信者のメンバーカラーの文字(docs/followup-2026-09-27.md の 4): Lua の見た目・手順の見た目の説明が変わる。区間・字幕は同じ"""
+        """配信者のメンバーカラーの文字(docs/archive/followup-2026-09-27.md の 4): Lua の見た目・手順の見た目の説明が変わる。区間・字幕は同じ"""
         out, res = self.build("color", textplus_color={"hex": "#7EC2FE", "who": "兎田ぺこら"}, **self.SCREEN)
         lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
         ip = RTP.read_script_plan(lua)
@@ -1101,7 +1101,7 @@ class TestMinimalPack(unittest.TestCase):
 
 
 class TestRowEdgeRule(unittest.TestCase):
-    """行から作るカットの端を声の止まる所まで広げる規則(pack.widen_row_edges。docs/edit-tool-design.md の 12 ⑥)。30fps: 0.1 秒 = 3 フレーム"""
+    """行から作るカットの端を声の止まる所まで広げる規則(pack.widen_row_edges。docs/design/edit-tool-design.md の 12 ⑥)。30fps: 0.1 秒 = 3 フレーム"""
     E = pack.ROW_EDGE   # 後 0.5 秒(15)・前 0.3 秒(9)まで。無音が無ければ 後 0.2 秒(6)・前 0.1 秒(3)
 
     def w(self, spans, silence, total=900, edge=None):

@@ -23,11 +23,11 @@
 ## 各作業の細かい計画
 
 ### 1. B-4 動画を選び直す(監査 19)
-- 今の動き: 再生の失敗は1種類の文だけ(`transcribe-tool/app.js:2170-2173`。「移動・削除」と「mkv など非対応」を区別しない)。
+- 今の動き: 再生の失敗は1種類の文だけ(`editor/app.js:2170-2173`。「移動・削除」と「mkv など非対応」を区別しない)。
   カットのタブはサーバーが `unavailable.code = "source_missing"` を返す(`serve.py:948-949`)が、画面は文を出すだけ(`cut.js:136`・`:326-328`)。
   文書の `sourcePath` を書き換える API は無い(`save_transcript` は `sanitize_transcript` で base から引き継ぐ。`serve.py:751-764`)。
   パスの検査は `check_source`(`serve.py:323-329`: 存在・拡張子だけ)。「許可したフォルダ」の一覧はどのツールにも無い。
-- 変えること(サーバー。`transcribe-tool/serve.py`):
+- 変えること(サーバー。`editor/serve.py`):
   - `POST /api/relink/check {"id", "path"}` → `{name, durationSec, fps, docDuration, diffSec, sameAsNow, usedBy: [{id,title}], rowsAfterEnd, warnings}`(書き込まない)。
     fps・長さは `resolve_export.edit_draft(dict(doc, sourcePath=p), rows=False)` を使い回す(カットのタブと同じ測り方。独自に ffprobe を書かない)
   - `POST /api/relink {"id", "path", "baseUpdatedAt", "acceptDiff"}` → 新しい文書。`_save_lock` の中で: baseUpdatedAt が違えば 409、
@@ -48,19 +48,19 @@
   - `<dialog id="relinkDlg">`(`index.html`。インラインのスクリプトなし): 元のパス(読むだけ・コピー)・新しいパスの欄(案内: エクスプローラーで Shift+右クリック →「パスとしてコピー」)・
     「確かめる」→ 結果(名前・長さ 元/新・fps・注意・同じ動画を使う別の文書)→ 長さが違えば「長さが違うのを分かったうえで付け替える」のチェックを入れるまで「付け替える」を押せない
   - 付け替えの前に `saveDoc()` と `CUT.flush()`、後は `openDoc(id)`(同じ文書でも keep なしで読み直す = 映像・カット・パックを新しいパスで)。知らせ「付け替えました(前の状態は「以前の版に戻す」で戻せます)」
-- 変えるファイル: `transcribe-tool/serve.py`・`app.js`・`cut.js`・`index.html`・`README.txt`・`AGENTS.md`(API の一覧)・`docs/pipeline.md`(文書の `relinks` を足すなら)
-- テスト: `test_edit.py` に付け替え(確かめる・付け替える・長さの差で 409 → acceptDiff で通る・拡張子/無いファイル/ネットワーク/代替ストリーム/DATA_DIR の中を断る・baseUpdatedAt の 409・ジョブ中の 409・
+- 変えるファイル: `editor/serve.py`・`app.js`・`cut.js`・`index.html`・`README.txt`・`AGENTS.md`(API の一覧)・`docs/spec/pipeline.md`(文書の `relinks` を足すなら)
+- テスト: `editor/tests/test_edit.py` に付け替え(確かめる・付け替える・長さの差で 409 → acceptDiff で通る・拡張子/無いファイル/ネットワーク/代替ストリーム/DATA_DIR の中を断る・baseUpdatedAt の 409・ジョブ中の 409・
   控えが3つできる・行と校正が変わらない・履歴から元に戻せる・パック済みが「作り直し」になる)。Windows のパスの形の検査は `skipUnless(os.name == "nt")`(段1 と同じ扱い)。
-  e2e は `e2e_edit_tabs.py` に1節(一時フォルダで動画を別名に移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える。動画は webm)。
-  流す: 編集の単体一式・`node --test test_document_save.cjs`・`e2e_edit_tabs`・`e2e_edit_cut`・`e2e_edit_pack`・`e2e_ui_mounted`・★`tools/e2e_pipeline.py`
+  e2e は `editor/tests/e2e_edit_tabs.py` に1節(一時フォルダで動画を別名に移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える。動画は webm)。
+  流す: 編集の単体一式・`node --test editor/tests/test_document_save.cjs`・`editor/tests/e2e_edit_tabs`・`editor/tests/e2e_edit_cut`・`editor/tests/e2e_edit_pack`・`editor/tests/e2e_ui_mounted`・★`dev/tests/e2e_pipeline.py`
 - リスク・エッジケース: 別の動画への誤リンク(長さの確認とチェック。名前が違うだけでは止めない = 改名が目的のため)、同じ動画を別の文書も使っている(知らせるだけ)、
   Dropbox の「オンラインのみ」のファイルは調べるだけでダウンロードが始まる(時間がかかる旨を「確かめる」の最中に出す)、スタジオの書き出しの記録は古いパスのまま
   (案件の紐づけは `clip.mark` でも取れる `txindex.matches` なので切れない。パスだけの文書は新しいパスで紐づき直す)、保管データ `dataset/docs/<id>/` の中の名前は古いまま(触らない)
 - 終わりの条件: 動画を移した文書を画面だけで直せて、行・校正・カットが残る。長さが違えば明示の同意なしに付け替わらない。控えから戻せる。テストが通る
 
 ### 2. B-6 まとめて実行の記録をファイルに
-- 今の動き: 終わった実行はメモリに最後の 30 件だけ(`app/autorun.py:42` `MAX_KEEP`・`:289-292` `_trim`)。入口を終えると消える。
-  ホームは `/api/autorun` の最新1件を案件・文書の行に出すだけ(`app/portal.js:398-413` `renderAuto`・`:829-865` `pollAuto`)
+- 今の動き: 終わった実行はメモリに最後の 30 件だけ(`home/autorun.py:42` `MAX_KEEP`・`:289-292` `_trim`)。入口を終えると消える。
+  ホームは `/api/autorun` の最新1件を案件・文書の行に出すだけ(`home/portal.js:398-413` `renderAuto`・`:829-865` `pollAuto`)
 - 変えること:
   - 置き場所: `app_data_dir(root)/logs/autorun-runs.jsonl`(`launch.py:226-237`。画面のエラーの記録 `client-errors.jsonl` と同じフォルダ)。
     理由: `logs/` は `.gitignore`(`**/logs/`)と push の検査(`*.jsonl`)の両方で守られていて、`YTT_DATA_DIR=inplace` でもリポジトリに入らない。別の場所なら `.gitignore` に1行足す必要がある
@@ -74,9 +74,9 @@
   - 案件・文書の行の結果の1行(`renderAuto`・`renderDocRun`)は、メモリに無ければ `past` から「前回: 止まりました ・ 理由(3日前)」。段の札(`pt-auto-steps`)は前回の分も出す
   - 「案件」の下に畳んだ `details.ui-disclosure`「まとめて実行の記録」: 開いたときだけ history を読む。1件 = 日時・対象(配信の題名 → `#case-<id>` / 文書 → 編集で開く)・形・結果の札・止まった理由。「もっと見る」で 50 件ずつ。
     入口の見せ方の統一(B-7・段5)で部品に置き換える前提で、最小の形にする
-- 変えるファイル: `app/autorun.py`・`app/launch.py`(`AutoRunner` に記録の場所を渡す・`/api/autorun/history`・冒頭の API 一覧)・`app/portal.js`・`portal.html`・`portal.css`・`app/README.txt`
-- テスト: `app/test_autorun.py` に 完了・失敗・順番待ちの中止・入口の終了で1行ずつ・二重に書かない・1MB で `.1` に回る・壊れた行を飛ばす・`past` がメモリの分と重ならない・書けないフォルダでも実行は続く。
-  `app/test_launch.py` に `/api/autorun/history` の上限。★`python app/e2e_autorun.py` に「入口を起動し直しても案件の行と記録に前回の結果が出る」。★`e2e_portal.py`。テストの記録の場所は一時フォルダを渡す(本物の作業データに書かない)
+- 変えるファイル: `home/autorun.py`・`home/launch.py`(`AutoRunner` に記録の場所を渡す・`/api/autorun/history`・冒頭の API 一覧)・`home/portal.js`・`portal.html`・`portal.css`・`home/README.txt`
+- テスト: `home/tests/test_autorun.py` に 完了・失敗・順番待ちの中止・入口の終了で1行ずつ・二重に書かない・1MB で `.1` に回る・壊れた行を飛ばす・`past` がメモリの分と重ならない・書けないフォルダでも実行は続く。
+  `home/tests/test_launch.py` に `/api/autorun/history` の上限。★`python home/tests/e2e_autorun.py` に「入口を起動し直しても案件の行と記録に前回の結果が出る」。★`e2e_portal.py`。テストの記録の場所は一時フォルダを渡す(本物の作業データに書かない)
 - リスク・エッジケース: エラーの文にファイルのパスが入る(作業データの中だけに置くので可。画面へは今と同じ文)、時計の巻き戻り(並べ替えは書いた順)、別の入口が2つ同時に書く(入口は1つだけの前提。追記なので壊れはしない)
 - 終わりの条件: 入口を起動し直しても、ホームで前回の結果と止まった理由が見られる。ファイルが際限なく大きくならない
 
@@ -87,8 +87,8 @@
 - 変えること: 失敗を `edErr` に取り、404(文書が無い)以外は `setOff('保存済みのカットを読み込めませんでした(理由)', 'edit_load')` にして区間を作らない(たたき台にしない)。
   `#cutOff` に「もう一度読み込む」ボタン(`offCode === 'edit_load'` のときだけ。押すと `load(id)`)。`off` なのでパックのタブも自動で止まる(`pack-tab.js:22-24` の `block()`)。
   3つの状態を文で分ける: 未作成(何も言わない)・破損(今の知らせ)・読めない(上)。行の「カット済」の印は触らない(正はサーバーの `apply_edit_cuts`)
-- 変えるファイル: `transcribe-tool/cut.js`・`index.html`(ボタン1つ)
-- テスト: `e2e_edit_cut.py` に Playwright の `page.route` で `/api/edit` の GET を1回だけ 500 → 案内とボタン・たたき台が出ない・パックのタブが押せない → 戻して「もう一度読み込む」で保存済みの区間。流す: `e2e_edit_cut`・`e2e_edit_pack`
+- 変えるファイル: `editor/cut.js`・`index.html`(ボタン1つ)
+- テスト: `editor/tests/e2e_edit_cut.py` に Playwright の `page.route` で `/api/edit` の GET を1回だけ 500 → 案内とボタン・たたき台が出ない・パックのタブが押せない → 戻して「もう一度読み込む」で保存済みの区間。流す: `editor/tests/e2e_edit_cut`・`editor/tests/e2e_edit_pack`
 - リスク: 読み込みが一時的に遅いだけの時に `off` が残る(ボタンで直る。タブを開き直したときにも読み直す)
 - 終わりの条件: 保存済みのカットを読めない間は、編集もパックもできず、理由と再試行が見える
 
@@ -97,24 +97,24 @@
 - 変えること: `openDoc` が成功したら `history.replaceState` で `?doc=<id>` + 今のタブの `#`(`?media=`・`?clip=` は今どおり読んだら消す)。`takeUrlParams` は `doc` を消さない。
   `closeDoc`(`:2212`。削除したとき)と、`?doc=` の文書が一覧に無いとき(`:2503-2508` の既存の知らせ)は `doc` を URL から消す。
   pushState にしない理由: 戻るボタンで文書を行き来させると、未保存・カットの flush と戻る操作がぶつかる(replace なら今の保存の順番のまま)
-- 変えるファイル: `transcribe-tool/app.js`
-- テスト: `e2e_edit_tabs.py` に 開く → カットのタブ → 再読み込み → 同じ文書・同じタブ / 別の文書に切り替え → URL も変わる / 消した文書の `?doc=` → 知らせて何も開かず URL から消える。
-  既存の `e2e_ui_v098.py:164-170`(再読み込みのあと `#noDoc` を待つ)は、その前に文書を開いていないか確かめ、開いていれば `?doc=` を外して読み込む形に直す。流す: 編集の e2e 一式
+- 変えるファイル: `editor/app.js`
+- テスト: `editor/tests/e2e_edit_tabs.py` に 開く → カットのタブ → 再読み込み → 同じ文書・同じタブ / 別の文書に切り替え → URL も変わる / 消した文書の `?doc=` → 知らせて何も開かず URL から消える。
+  既存の `editor/tests/e2e_row_editing.py:164-170`(再読み込みのあと `#noDoc` を待つ)は、その前に文書を開いていないか確かめ、開いていれば `?doc=` を外して読み込む形に直す。流す: 編集の e2e 一式
 - リスク: 窓を2つ並べて別々の文書 = URL は窓ごとなので問題ない。ホームのリンク(`portal.js:417-422` の `docHref`)と同じ形なので、ブックマークしても同じ文書が開く
 - 終わりの条件: 再読み込み・窓の開き直しで、開いていた文書とタブに戻る。消した文書では空の画面と知らせ
 
 ### 5. 監査 14 ホームのメモの保存の競合
-- 今の動き: 保存の応答で、送った値と今の入力を比べずに下書きを消し「保存しました」(`app/portal.js:483-487`)。二度押しの応答の順も見ない(入口はスレッドで並べて受ける)
+- 今の動き: 保存の応答で、送った値と今の入力を比べずに下書きを消し「保存しました」(`home/portal.js:483-487`)。二度押しの応答の順も見ない(入口はスレッドで並べて受ける)
 - 変えること: 案件ごとに `memoSave[id] = {busy, sent, again}`。送るときの値を `sent` に覚え、送っている間の押し直しは `again` にして、応答のあとで今の下書きを1回だけ送る(1つずつ順に送る = 応答の順が入れ替わらない)。
   応答で `sent === 今の下書き` のときだけ下書きを消して「保存しました」、違えば下書きを残して「保存しました(そのあとの入力はまだ保存していません)」。
   書き込む先の `msg`・`c` は閉じ込めた古いものでなく、ID で今の行(`#case-<id>`)と今の案件の一覧から引く(再描画で作り直されているため)。保存中はボタンを「保存中…」
-- 変えるファイル: `app/portal.js`
-- テスト: ★`python app/e2e_portal.py` に `page.route` で `/api/cases/update` を遅らせ、A を保存 → 応答前に B を追記 → 入力は B のまま・「まだ保存していません」→ もう一度保存でサーバーが B。二度押しで最後の値が残る
+- 変えるファイル: `home/portal.js`
+- テスト: ★`python home/tests/e2e_portal.py` に `page.route` で `/api/cases/update` を遅らせ、A を保存 → 応答前に B を追記 → 入力は B のまま・「まだ保存していません」→ もう一度保存でサーバーが B。二度押しで最後の値が残る
 - リスク: 別の窓で同じ案件のメモを同時に直すと後勝ち(今と同じ。範囲外として README に書かない程度)
 - 終わりの条件: 保存中の追記が消えず、「保存しました」が実際に保存した内容のときだけ出る
 
 ### 6. 監査 11 設定の保存の失敗を出す
-- 今の動き: 編集は `saveSettings` も離れるときの送信も失敗を捨てる(`transcribe-tool/app.js:241`・`:246`)。スタジオの ③ 確認も同じ(`clip-studio/review.js:740-746`)。
+- 今の動き: 編集は `saveSettings` も離れるときの送信も失敗を捨てる(`editor/app.js:241`・`:246`)。スタジオの ③ 確認も同じ(`studio/review.js:740-746`)。
   さらに、読み込みに失敗すると編集は `S.settings = {}`(`app.js:2768`)、スタジオは既定値(`review.js:751`)で始まり、次の変更で**保存済みの設定(用語集・置換辞書・キー配置)を空で上書きする**。
   編集のサーバーは設定を丸ごと置き換える(`serve.py:6017-6021`)ので、窓を2つ開くと後から保存した窓の内容で前の窓の変更が消える(スタジオは節ごと `serve.py:353`)
 - 変えること:
@@ -123,18 +123,18 @@
   - 編集のサーバー: `PUT /api/settings` に `{"patch": {...}}`(最上位のキーだけを、ロックの中で今のファイルに合わせる)を足す。画面は最後に保存した内容との差のキーだけ送る(丸ごとの PUT は従来どおり受ける)。
     案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち)
   - スタジオ: `review.js` の `saveSettings` と `loadSettings` を同じ形に(節ごとの保存はそのまま)。`queue.js:95-100` はすでに知らせているので変えない
-- 変えるファイル: `ui-kit/ui-kit.js`・`ui-kit.css`・`ui-kit/README.md`(v7)・`python tools/sync_ui_kit.py` で写す・`transcribe-tool/app.js`・`serve.py`・`clip-studio/review.js`
-- テスト: ★`tools/test_ui_kit_sync.py`。編集: `test_backend.py` に patch の合わせ(別のキーが残る・大きさの上限 413・壊れた形を断る)、`e2e_edit_tabs.py` に `page.route` で PUT を 500 → 印と再試行 → 戻して再試行で消える・読み込み失敗で保存しない。
-  スタジオ: `e2e_ui.py` と `e2e_ui.py --mounted` に同じ確認。ui-kit の見本 `ui-kit/e2e_styleguide.py`。流す: 各ツールの画面のテスト一式
+- 変えるファイル: `ui-kit/ui-kit.js`・`ui-kit.css`・`ui-kit/README.md`(v7)・`python dev/sync_ui_kit.py` で写す・`editor/app.js`・`serve.py`・`studio/review.js`
+- テスト: ★`dev/tests/test_ui_kit_sync.py`。編集: `editor/tests/test_backend.py` に patch の合わせ(別のキーが残る・大きさの上限 413・壊れた形を断る)、`editor/tests/e2e_edit_tabs.py` に `page.route` で PUT を 500 → 印と再試行 → 戻して再試行で消える・読み込み失敗で保存しない。
+  スタジオ: `studio/tests/e2e_ui.py` と `studio/tests/e2e_ui.py --mounted` に同じ確認。ui-kit の見本 `ui-kit/tests/e2e_styleguide.py`。流す: 各ツールの画面のテスト一式
 - リスク: 離れるときの keepalive の送信は応答を待てない → 失敗は次に戻ったとき(`UIKit.life.onReturn`)に未保存が残っていれば送り直す。印が出っぱなしにならないよう、成功したら必ず消す
 - 終わりの条件: 設定を保存できないとき・読めないときに画面で分かり、再試行できる。読めないまま空で上書きしない。2つの窓で別の設定を変えても消し合わない
 
 ## 版の上げ方
 - 段1 のあとの版から上げる(始める前に各ファイルと WORKLOG で確かめる。以下は 09-29 の版からの例)
 - 編集: 0.21.0 → **0.22.0**(B-4 は新しい API と画面。06・11・13 も同じ版に)。`serve.py` の SERVER_VERSION・`app.js` の APP_VERSION・`README.txt` の見出し
-- 入口: 0.12.0 → **0.13.0**(B-6・14)。`app/launch.py` の VERSION・`app/README.txt` の見出し
+- 入口: 0.12.0 → **0.13.0**(B-6・14)。`home/launch.py` の VERSION・`home/README.txt` の見出し
 - スタジオ: 0.11.0 → **0.11.1**(11 だけ)。`serve.py`・`core.js`・`README.txt`
-- ui-kit: v6 → **v7**(`UIKit.settings.status`)。写しは `tools/sync_ui_kit.py` だけで作る
+- ui-kit: v6 → **v7**(`UIKit.settings.status`)。写しは `dev/sync_ui_kit.py` だけで作る
 - cut2resolve: 変えない
 
 ## 実機で確かめること

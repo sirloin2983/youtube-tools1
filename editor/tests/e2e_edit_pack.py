@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」E4 パックのタブの確認(docs/edit-tool-design.md の 3・5・7)。入口に取り込んだ形(パックは cut2resolve の api/build)。
+"""「編集」E4 パックのタブの確認(docs/design/edit-tool-design.md の 3・5・7)。入口に取り込んだ形(パックは cut2resolve の api/build)。
 
 - カット(手で決めた区間。60fps の元の動画)のとおりにパックができる(Lua に埋め込んだ区間 = 編集の内容のフレーム)
 - パックは最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(手順書は画面の「Resolve での手順を見る」)。「予備も入れる」で EDL・予備の手順書・SRT
@@ -77,7 +77,7 @@ def main():
             pg.click("#pkSettingsClose")
             wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             check("縦 1080" in pg.inner_text("#pkSummaryText"), "設定を変えると要約も変わる: " + pg.inner_text("#pkSummaryText"))
-            # 配信者の名前(字幕の色。docs/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色(pkWho は主画面にいつも見える)
+            # 配信者の名前(字幕の色。docs/archive/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色(pkWho は主画面にいつも見える)
             pg.fill("#pkWho", "ぺこら")
             wait_js(pg, "document.querySelector('#pkWho').dataset.color === '#7EC2FE'", 10000)
             check("兎田ぺこら" in pg.inner_text(".tt-pk-who .ui-streamer-hint") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
@@ -236,7 +236,7 @@ def main():
             pg.uncheck("#txPick")
             pg.fill("#txSearch", "")
 
-            # ---- 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/followup-2026-09-27.md の 3)
+            # ---- 今の文書を最後まで(題名の行の「まとめて実行 ▾」。docs/archive/followup-2026-09-27.md の 3)
             v4 = make_video(os.path.join(srv.media, "今の文書.webm"), sec=6, fps=30)
             tid4 = srv.call("POST", "/api/open-video", {"path": v4})["id"]
             pg.reload()

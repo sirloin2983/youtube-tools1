@@ -1,6 +1,6 @@
 /* 切り抜きスタジオ 共通CSS(枠・設定の引き出し・① 探す・② 解析・④ コラボ)。③ の見た目は review.css。
    色・文字・部品(ボタン・入力・カード・タブ・表・通知など)は ui-kit.css にある。ここには「スタジオ固有の配置」だけを書く。
-   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しいクラスには cs- を付ける(docs/pipeline.md 5.) */
+   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しいクラスには cs- を付ける(docs/spec/pipeline.md 5.) */
 
 :root{--cs-head:52px;--cs-in:var(--c-5);--cs-out:#c8541a;--cs-auto:var(--c-4);--cs-cand:var(--warn)}
 :root[data-theme=dark]{--cs-out:#ff9358}
@@ -8,7 +8,7 @@
 body{overflow-x:hidden}
 h2{margin:0 0 8px;font-size:15px}
 
-/* ---- 枠: ヘッダー(左から ui-appnav → 版 → 段のタブ → 右寄せの操作。docs/ui-guidelines.md §2) ---- */
+/* ---- 枠: ヘッダー(左から ui-appnav → 版 → 段のタブ → 右寄せの操作。docs/spec/ui-guidelines.md §2) ---- */
 .ui-tab .badge{margin-left:2px}
 .cs-tab-short{display:none}
 .cs-hbtn{gap:6px;position:relative}

@@ -1,7 +1,7 @@
 # ツール間の受け渡し(パイプラインの約束)v1
 
 2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。ただし**将来1つのアプリに統合する可能性が高い**ので、統合しやすい書き方も約束しておく。
-「受け渡しの一括実行(パイプライン)」は、個別のツールが完成してから作る(`docs/project/` の新ツール計画を参照)。
+「受け渡しの一括実行(パイプライン)」は、個別のツールが完成してから作る(`docs/archive/project/` の新ツール計画を参照)。
 
 ```
 ① 切り抜きスタジオ ──(切り抜き mp4 + .clip.json)──▶ ② 文字起こしツール ──(.transcript.json / SRT)──▶ ③ cut2resolve ──▶ DaVinci Resolve
@@ -19,7 +19,7 @@
   それ以外の受け渡しのファイル(`.clip.json`・`.edit.json`・`_edit.mp4`・`.transcript.json`・`.srt`・`.cut-plan.json`・スタジオの `.studio-id`)は
   **動画のフォルダの下の `作業用` フォルダ**に書く(動画がもう `作業用` の中なら、そのフォルダ)。読む側は `作業用\` → 動画の隣(以前の置き方)の順に探す。
   以前の置き方のファイルは動かさない。規則は `ytt_core/schemas.py`(`WORK_DIR`・`work_dir`・`sidecar_path`・`find_sidecar`)の1か所
-  (cut2resolve は `cut2resolve_core.WORK_DIR` に同じ名前を持つ。`docs/followup-2026-09-27.md` の 1)
+  (cut2resolve は `cut2resolve_core.WORK_DIR` に同じ名前を持つ。`docs/archive/followup-2026-09-27.md` の 1)
 - 知らない項目は無視する(前方互換)。互換の無い変更をするときだけ版(`/v2`)を上げる。読む側は自分の知らない版を「未対応の版」として拒否する
 - 書き込みは一時ファイルに書いてから置き換える(書きかけのファイルを他のツールに読ませない)
 - 個人データ(動画・音声・文字起こし)を外部に送らない方針は従来どおり。ここで決める JSON もローカルのファイルとしてだけ扱う
@@ -80,7 +80,7 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 - `status` が `adopted`(省略時も adopted)の区間だけを使う。`media` は任意(無ければ画面・引数で動画を指定)
 - cut2resolve の詳細版(同じ schema。保持・削除区間・fps など)は、コマンド(cut2resolve.py)では出力フォルダの `cut-plan.json`。
   画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
-  (2026-09-26 ④。読むのは `ytt_core/txindex`。`docs/edit-tool-design.md` の 12 ④)
+  (2026-09-26 ④。読むのは `ytt_core/txindex`。`docs/design/edit-tool-design.md` の 12 ④)
 
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
@@ -105,9 +105,9 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 
 ## 5. 将来の統合に向けた書き方
 - 画面からの API 呼び出しは、ツールごとに1つの関数(スタジオの `Studio.api`、文字起こしの `api()` など)を通す。統合時に `/<ツールID>/api/...` へ移せるよう、ベースのパスはその関数の中だけで決める
-- 見た目は共通の ui-kit(`ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`tools/sync_ui_kit.py` で各ツールに写す。ずれは `tools/test_ui_kit_sync.py` で検出する
+- 見た目は共通の ui-kit(`ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`dev/sync_ui_kit.py` で各ツールに写す。ずれは `dev/tests/test_ui_kit_sync.py` で検出する
 - 新しく作るツール固有の CSS クラスには接頭辞を付ける(スタジオ `cs-`・文字起こし `tt-`・cut2resolve `c2r-`)。既存のクラス名は、テストが依存しているため今回は変えない
-- 設定・データの置き場所は `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26 から。段階4。`docs/data-location.md`)。以前の各ツールのフォルダの中からは、最初の起動でコピーする
+- 設定・データの置き場所は `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26 から。段階4。`docs/spec/data-location.md`)。以前の各ツールのフォルダの中からは、最初の起動でコピーする
 - ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt_core を使う)
 
 ## 6. 受け渡しに使う API(各ツール)
@@ -118,5 +118,5 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 | 文字起こし | `GET /api/clip-info?path=<動画のパス>` | `{"clip": <clip/v1 または null>}`(`作業用` か隣の .clip.json を読む。画面で「元の配信」を表示する用) |
 | 文字起こし | `GET /api/transcript-v1?id=<文字起こしID>` | transcript/v1 の JSON(ダウンロード用) |
 | 文字起こし | `POST /api/export-file` `{"id", "format": "transcript-v1" \| "srt" \| "cut-plan-v1"}` | 動画のフォルダの `作業用` に保存して `{"path", "overwritten"}`。動画のパスが無い・書けないときは 400 |
-| 文字起こし | `GET/PUT /api/edit?id=`・`POST /api/edit/pack` など | 「編集」のカット(`transcripts/<id>.edit.json`。youtube-tools-edit/v1)。`docs/edit-tool-design.md` の 4・5 |
+| 文字起こし | `GET/PUT /api/edit?id=`・`POST /api/edit/pack` など | 「編集」のカット(`transcripts/<id>.edit.json`。youtube-tools-edit/v1)。`docs/design/edit-tool-design.md` の 4・5 |
 | cut2resolve | `POST /api/plan`・`/api/build`(spec の `keeps` = 「編集」のカット・`preset` = transcript-rows)など | cut2resolve の README を参照(画面は無い) |

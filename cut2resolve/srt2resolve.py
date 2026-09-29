@@ -64,7 +64,7 @@ def _replace_retry(src, dst):
 
 
 def write_bytes_atomic(path, data):
-    """一時ファイルに書いてから置き換える(書きかけのファイルを Resolve・他のツールに読ませない。docs/pipeline.md の 1)"""
+    """一時ファイルに書いてから置き換える(書きかけのファイルを Resolve・他のツールに読ませない。docs/spec/pipeline.md の 1)"""
     path = Path(path)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".part")
     try:

@@ -4,7 +4,7 @@
 - Origin    … 他サイトからの書き込み(CSRF)対策。送られてきたら「http://」+ 許可した Host と完全に一致するものだけ
 - Sec-Fetch-Site … 他サイトからの読み取り・API の消費を断る(同じ画面からの same-origin と、アドレス欄からの none だけ)
 - 画面への移動 … 他のツールの画面のリンクで、画面(/ と /index.html)を新しいタブで開くのだけは許す。
-  ポートが違うだけでもブラウザは same-site(localhost と 127.0.0.1 なら cross-site)を送るため。URL で処理は始まらない(docs/pipeline.md の 3)。
+  ポートが違うだけでもブラウザは same-site(localhost と 127.0.0.1 なら cross-site)を送るため。URL で処理は始まらない(docs/spec/pipeline.md の 3)。
   埋め込み(iframe)は Sec-Fetch-Dest と PAGE_HEADERS(X-Frame-Options / frame-ancestors)で断る
 """
 

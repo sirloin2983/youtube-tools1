@@ -10,7 +10,7 @@ const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview' };
 
 Studio.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/* API・メディアの URL はここでだけ組み立てる(docs/pipeline.md 5.)。
+/* API・メディアの URL はここでだけ組み立てる(docs/spec/pipeline.md 5.)。
    画面の場所から決める: 単独で起動したときは http://localhost:8800/ → ''、入口の統合サーバーに取り込まれたときは http://localhost:8700/studio/ → '/studio' */
 Studio.base = location.pathname.replace(/\/[^/]*$/, '');
 /* 統合サーバーは、書き込み系の API に合言葉(CSRF トークン)を求める。画面に埋め込まれていれば送る(単独で起動したときは無い) */
@@ -169,7 +169,7 @@ function wireKeyHelp(){
   });
 }
 
-/* ---------- 起動時の URL 引数(?url= は ② 解析の URL 欄へ入れるだけ。自動では始めない: docs/pipeline.md 3.) ---------- */
+/* ---------- 起動時の URL 引数(?url= は ② 解析の URL 欄へ入れるだけ。自動では始めない: docs/spec/pipeline.md 3.) ---------- */
 function readParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return; }
   const url = (q.get('url') || '').trim(), video = (q.get('video') || '').trim();

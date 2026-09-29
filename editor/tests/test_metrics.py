@@ -138,7 +138,7 @@ class TestPure(unittest.TestCase):
         self.assertEqual((kw["vad_filter"], kw["vad_parameters"]["min_silence_duration_ms"], kw["chunk_length"]), (True, 250, 10))   # 普通の VAD・短く区切る
 
     def test_make_flags_sparse_long_rows(self):
-        """長い区間に文字が少ない行(抜けの可能性。docs/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
+        """長い区間に文字が少ない行(抜けの可能性。docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731
         self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 7.2, "黒"), []))
         self.assertIn(S.SPARSE_FLAG, S.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)

@@ -6,13 +6,13 @@
 v0.11.0 の画面の全面見直しで「ホーム」に変えました。中身の役割は同じです)。
 v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こし・カット・パック)になり、cut2resolve の画面は「編集」に統合しました
 (cut2resolve はパックを作る部品として裏で動き、ホームのカードは出しません)。
-統合計画(docs/integration-plan.md)の段階1で作り、段階3から「ツールをホームの中に取り込む」ことを始めました。
+統合計画(docs/design/integration-plan.md)の段階1で作り、段階3から「ツールをホームの中に取り込む」ことを始めました。
 3つとも取り込みます: 切り抜きスタジオ(http://localhost:8700/studio/)・文字起こし(/transcribe/)・cut2resolve(/cut2resolve/)。
-文字起こしの認識(faster-whisper)だけは、落ちてもホームごと止まらないよう、別のプログラム(transcribe-tool\tx_worker.py)で動きます。
-各ツールの start.bat での単独起動は 2026-09-26 にやめました(起動は start-all.bat だけ)。使い方の全体はリポジトリ直下の README.txt。
+文字起こしの認識(faster-whisper)だけは、落ちてもホームごと止まらないよう、別のプログラム(editor\tx_worker.py)で動きます。
+各ツールの start.bat での単独起動は 2026-09-26 にやめました(起動は start.bat だけ)。使い方の全体はリポジトリ直下の README.txt。
 
 ■ 使い方
-  1. youtube-test フォルダ(リポジトリ直下)の start-all.bat をダブルクリック(Mac は start-all.command)
+  1. youtube-tools フォルダ(リポジトリ直下)の start.bat をダブルクリック(Mac は start.command)
   2. 黒い画面が1つ開き、ツールが裏で起動します。ブラウザでホームの画面(http://localhost:8700/)が開きます
   3. ホームの上には「次にやること」(校正待ち・パック待ち・進行中の処理。最大5件)が出ます。押すとその作業の画面へ直接入れます。
      下には案件(配信ごと)の一覧があり、使うツール(スタジオ・編集)を「編集で開く」などのリンクや、ヘッダー左の「スタジオ」「編集」
@@ -35,7 +35,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   ホームのプログラムの中で動くので、カードに「ホームに取り込み」と出て、「停止」「再起動」は押せません(「すべて終了」で一緒に終わります)。
   アクセスの記録は …\app\logs\studio.log・cut2resolve.log に、ツール自身の記録は %LOCALAPPDATA%\youtube-tools\studio\studio.log・…\cut2resolve\work\serve.log に出ます。
   「すべて終了」のとき cut2resolve の書き出しが動いていれば、取り消してから終わります。
-  取り込みで問題が出たときは、start-all.bat の代わりに黒い画面で「python app\launch.py --no-mount」と打つと、以前と同じく別のプログラムとして起動します。
+  取り込みで問題が出たときは、start.bat の代わりに黒い画面で「python home\launch.py --no-mount」と打つと、以前と同じく別のプログラムとして起動します。
   安全のため、ホームと取り込んだツールの画面には、外から入れられたスクリプトを動かさない仕組み(CSP)と、書き込みの操作の合言葉(起動ごとに変わる)を付けています。
   画面を開いたままホームを起動し直したときに「合言葉が違います」と出たら、画面を再読み込みしてください。
 
@@ -49,22 +49,22 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   自動では起動し直しません(同じ原因で何度も落ち続けるのを避けるため)。
 
 ■ ファイル
-  start-all.bat / start-all.command   起動用(リポジトリ直下)
-  app\launch.py                        ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面。/cases.html は #cases へ 302)
-  app\portal.html / portal.js / portal.css   ホームの画面(次にやること・案件の一覧・単体の文字起こし・「詳しく」。見た目は ui-kit\ をそのまま使う)
+  start.bat / start.command   起動用(リポジトリ直下)
+  home\launch.py                        ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面。/cases.html は #cases へ 302)
+  home\portal.html / portal.js / portal.css   ホームの画面(次にやること・案件の一覧・単体の文字起こし・「詳しく」。見た目は ui-kit\ をそのまま使う)
   app\logs\                            以前のログ(v0.5.0 から %LOCALAPPDATA%\youtube-tools\app\logs。消してよい)
-  app\test_launch.py / e2e_portal.py   テスト
+  home\tests\test_launch.py / e2e_portal.py   テスト
   .runtime\portal.json                 ホームのポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
 
 ■ コマンド(上級者向け)
-  python app\launch.py [--no-open] [--port 8700] [--only studio,transcribe]
+  python home\launch.py [--no-open] [--port 8700] [--only studio,transcribe]
     --no-open   ブラウザを開かない
     --port      ホームのポート(使用中なら次の番号。8700〜8719)
     --only      起動するツールを絞る(studio / transcribe / cut2resolve をカンマ区切り)
     --no-mount  ツールをホームに取り込まず、別のプログラムとして起動する(以前の動き。問題が出たときの戻し方)
 
   各ツールは、それぞれのフォルダで「serve.py <既定のポート> --no-open」として起動します(ホームと同じ Python)。
-  Mac / Linux の文字起こしツールは、transcribe-tool/.venv があればその Python を使います。
+  Mac / Linux の文字起こしツールは、editor/.venv があればその Python を使います。
 
 ■ 安全のための決まり
   - ホームのサーバーは 127.0.0.1(この PC)だけで待ち受けます。他の PC からは開けません
@@ -72,28 +72,28 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   - ログには動画の題名やファイルの場所が入ることがあります。この PC の画面にだけ表示し、外には送りません
 
 ■ テスト
-  python -m unittest app/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
-  python -m unittest app/test_cases.py -v       (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
-  python -m unittest app/test_autorun.py -v     (まとめて実行の段取り。ツールは偽物)
-  python app/e2e_autorun.py                     (まとめて実行の通し確認。本物の3ツールを疑似モードでホームに取り込む。Playwright と ffmpeg が必要)
-  python -m unittest app/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
-  python app/e2e_portal.py                      (画面の確認: 次にやること・案件の一覧・単体の文字起こし・/cases.html の転送を含む。Playwright(chromium)が必要)
-  python -m unittest app/test_window.py -v      (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
-  python app/e2e_window.py                      (段階7 の通し確認: 窓の中のリンク・解析の設定の引き継ぎ・離れた/戻った・エラーの記録。Edge の代わりに偽のプログラム)
+  python -m unittest home/tests/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
+  python -m unittest home/tests/test_cases.py -v       (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
+  python -m unittest home/tests/test_autorun.py -v     (まとめて実行の段取り。ツールは偽物)
+  python home/tests/e2e_autorun.py                     (まとめて実行の通し確認。本物の3ツールを疑似モードでホームに取り込む。Playwright と ffmpeg が必要)
+  python -m unittest home/tests/test_mount.py -v       (取り込み: /studio/・/transcribe/・/cut2resolve/ の画面・API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
+  python home/tests/e2e_portal.py                      (画面の確認: 次にやること・案件の一覧・単体の文字起こし・/cases.html の転送を含む。Playwright(chromium)が必要)
+  python -m unittest home/tests/test_window.py -v      (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
+  python home/tests/e2e_window.py                      (段階7 の通し確認: 窓の中のリンク・解析の設定の引き継ぎ・離れた/戻った・エラーの記録。Edge の代わりに偽のプログラム)
 
 ■ v0.13.0(2026-09-29・パックの音量・気が利く画面へ の段1〜2)
   - 案件のまとめて実行の欄に「パックの音量」(LUFS)。値は「編集」のパックのタブと同じ(どこで変えても同じ)。まとめて実行のパックはこの値で音量をそろえます
   - まとめて実行のパックは、「編集」の「話者の名前がメンバーと合えば…」のスイッチに従います(以前は常にオン)
   - ホームの設定の置き場(api/ytt/prefs・作業データの app/prefs.json)。知らせに「元に戻す」などのボタン・消えない知らせ
 
-■ v0.12.0(2026-09-27・画面の直しの候補の実装。docs/backlog-ui-2026-09-27.md)
-  - 専用の窓を既定に: 設定が無ければ Microsoft Edge のアプリの窓で開く(app/appwindow.py の DEFAULT_MODE。オフにすると browser が残る)。「(試用)」を外した
+■ v0.12.0(2026-09-27・画面の直しの候補の実装。docs/archive/backlog-ui-2026-09-27.md)
+  - 専用の窓を既定に: 設定が無ければ Microsoft Edge のアプリの窓で開く(home/appwindow.py の DEFAULT_MODE。オフにすると browser が残る)。「(試用)」を外した
   - 次にやること: 投稿済み・見送りの案件を出さない・配信者と配信日を添える・「編集で開く」は文書 ID(?doc=)で開く(同じ動画の別の文書が開かないように)
 
 ■ v0.11.0(2026-09-27・画面の全面見直し 段階5: 入口 + 案件を1つの「ホーム」に。.design/ui-overhaul/)
-  - 入口の画面(app/portal.html)と案件の画面(以前の app/cases.html)を1つの「ホーム」にまとめた。/cases.html は
+  - 入口の画面(home/portal.html)と案件の画面(以前の app/cases.html)を1つの「ホーム」にまとめた。/cases.html は
     ホームの案件の一覧(/#cases)へ 302 で転送する(以前のリンク・ブックマークのため)。app/cases.html・app/cases.js は削除し、
-    中身は app/portal.js に統合した
+    中身は home/portal.js に統合した
   - 上に「次にやること」(校正待ち・パック待ち・進行中の処理。最大5件+「すべて見る」)を新設。案件の一覧(/api/cases)・
     まとめて実行の状態(/api/autorun)・「編集」の文書の一覧(/transcribe/api/transcripts。読めないときは案件の一覧の項目だけで代わりに組み立てる)
     から、画面の中で組み立てる(サーバー側の API は変えていない)。押すと校正・パックのタブへ直接リンクする
@@ -105,7 +105,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   - 画面の文言の「入口」を「ホーム」に(README も)。サーバー内部の識別子・変数名・他ツールのファイルは変えていない
   - 版: ホーム 0.10.2 → 0.11.0
 
-■ v0.10.2(2026-09-27・実機の確認のあとの要望。docs/followup-2026-09-27.md)
+■ v0.10.2(2026-09-27・実機の確認のあとの要望。docs/archive/followup-2026-09-27.md)
   - ツールの画面の「入口」(ヘッダー・「他のツール」の先頭・案件の画面の「← 入口へ」)は、入口がほかの窓・タブで開いていれば、
     新しく開かずにその窓を前に出す(以前は、その窓が入口に変わり、bat で開いた入口と二つになっていた)。
     入口の画面が BroadcastChannel で答え(ui-kit v5 の UIKit.portal)、POST api/ytt/focus-portal で入口のサーバーが題名「動画編集ツール — 入口」の窓を探して前に出す
@@ -114,13 +114,13 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   - まとめて実行に「配信者(字幕の色)」: 案件の画面(とスタジオ・「編集」の履歴)で名前を入れると、パックの字幕の文字をその人のメンバーカラーにする。
     POST /api/autorun/start・start-docs の streamer(始める前に照らし合わせ、見つからなければ 400)。候補は POST api/ytt/streamer-colors {q, all?}
     (画面の共通の API。ui-kit の UIKit.streamer が使う)。名前 → 色の規則は ytt_core/colors.py(ホロカラーの一覧とマイカラーを読むだけ)
-  - まとめて実行を各段階から(docs/followup-2026-09-27.md の 3): POST /api/autorun/start に marks(そのマークだけ。スタジオのマークの行の「この後を ▸」。
+  - まとめて実行を各段階から(docs/archive/followup-2026-09-27.md の 3): POST /api/autorun/start に marks(そのマークだけ。スタジオのマークの行の「この後を ▸」。
     採用後を全部・文字起こしまで だけ・50 まで)。「編集」の題名の行の「まとめて実行 ▾」は start-docs を1本で使う
-  - スタジオの ① 探す からのまとめて実行(docs/followup-2026-09-27.md の 5): POST /api/autorun/start-new {items: [{id, title, channel}], top?, streamer?}。
+  - スタジオの ① 探す からのまとめて実行(docs/archive/followup-2026-09-27.md の 5): POST /api/autorun/start-new {items: [{id, title, channel}], top?, streamer?}。
     まだスタジオに無い YouTube の配信を「解析から全部」で(配信ごとに1つの実行・10 本まで・すでに順番待ちの配信は skipped)。
     解析のキューに入れるまでは受け取った題名で進め、題名・配信者は解析のキューにも渡す
 
-■ v0.10.1(2026-09-26・追加機能 ⑥ ④。docs/edit-tool-design.md の 12)
+■ v0.10.1(2026-09-26・追加機能 ⑥ ④。docs/design/edit-tool-design.md の 12)
   - まとめて実行のパック: カットの無い文書は「編集」の「行から」の設定(行の端を声の止まる所まで広げるか)で作る。パックは最小限(cut2resolve の既定)。
     Text+ 字幕の改行は「編集」の字幕の文字数の設定(縦の改行の文字数)
   - まとめて実行を、案件の画面のほかに、スタジオの配信の画面(同じ API)と「編集」の履歴(選んだ文書を 文字起こし → パック。
@@ -128,9 +128,9 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   - まとめて実行の文字起こしは「編集」の新規の設定の「疑わしい所を自動で認識し直す」(autoRedo・redoLarge)も使う
   - 「パック済み」(案件の一覧・まとめて実行が作り直さない判定)は、cut2resolve の「パックを作った記録」か、以前のパックの cut-plan.json で見る(ytt_core/txindex)
 
-■ v0.10.0(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。docs/edit-tool-design.md)
+■ v0.10.0(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。docs/design/edit-tool-design.md)
   - 入口のカード: 文字起こしツールは「編集」、cut2resolve はカードを出さない(部品。止まっているときだけ、起動のためにカードを出す)。流れは ① スタジオ → ② 編集
-  - /cut2resolve/ の画面を開くと /transcribe/(「編集」)へ転送する(?video= は ?media= にして渡す。app/mount.py の page_to)。API(/cut2resolve/api/…)はそのまま
+  - /cut2resolve/ の画面を開くと /transcribe/(「編集」)へ転送する(?video= は ?media= にして渡す。home/mount.py の page_to)。API(/cut2resolve/api/…)はそのまま
   - 案件の一覧の切り抜きの行は「編集で開く」の1つに(以前は「文字起こしで開く」「cut2resolve で開く」)
   - まとめて実行のパック: 「編集」でカットを決めてある文書はそのとおり(cut2resolve の spec.keeps)に作り、作った記録を「編集」に残す(作り直しの知らせ)。
     カットの無い文書は今までどおり文字起こしの行だけを残す規則
@@ -154,22 +154,22 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
     入口の /api/cases に追加した(既存の項目は変えていない。各ツールのデータは今までどおり読むだけ)
 
 ■ v0.8.0(2026-09-26・段階7: 画面のエラーの記録・窓で開く(試用))
-  - 窓で開く(試用。app/appwindow.py): 入口の画面の「窓で開く(試用)」をオンにすると、次の起動から Microsoft Edge のアプリモード
+  - 窓で開く(試用。home/appwindow.py): 入口の画面の「窓で開く(試用)」をオンにすると、次の起動から Microsoft Edge のアプリモード
     (--app=<URL> --user-data-dir=<専用のプロファイル>)の窓で開く。既定はオフ(いつものブラウザ)。設定は %LOCALAPPDATA%\youtube-tools\app\settings.json の "window"。
     Edge が見つからない・起動できないときは、いつものブラウザで開く。環境変数 YTT_APP_BROWSER で使うプログラムを変えられる(Chrome など Chromium 系)
     - 窓の中の「新しいタブで開く」リンクは、画面(ui-kit の UIKit.win)が入口に頼んで開く: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
     - 窓で開けるのは入口と、動いているツールのポートの画面だけ。外のサイトは http / https だけ。10 秒に 8 回まで(画面の不具合・XSS で窓を大量に開かせない)
     - リモートデバッグのポートは開かない。窓を閉じても入口は終わらない(終わるのは「すべて終了」)
-  - 画面のエラーの記録(app/clientlog.py): 入口と3ツールの画面で捕まえられなかったエラー(error・unhandledrejection)を
+  - 画面のエラーの記録(home/clientlog.py): 入口と3ツールの画面で捕まえられなかったエラー(error・unhandledrejection)を
     %LOCALAPPDATA%\youtube-tools\app\logs\client-errors.jsonl に1行1件の JSON で残す(1分に30件まで・512KB で .1 に回す)。
     /api/log?tool=client で末尾を読める
   - 画面の共通の API(api/ytt/client-log・open-window・open-external): 入口の画面は /api/ytt/…、取り込んだツールの画面は /studio/api/ytt/… などの
-    相対パスで呼び、どちらも入口が受け持つ(app/mount.py がツールに渡さず入口へ回す)。検査は入口の API と同じ(POST・Host・Origin・Sec-Fetch-Site・合言葉・16KB まで)
+    相対パスで呼び、どちらも入口が受け持つ(home/mount.py がツールに渡さず入口へ回す)。検査は入口の API と同じ(POST・Host・Origin・Sec-Fetch-Site・合言葉・16KB まで)
   - POST /api/window {mode: browser|app}(合言葉つき)、/api/status に window {mode, available, browser, profile}
   - まとめて実行の「解析から全部」は、スタジオの ② で保存した解析の設定(スタジオの /api/settings の analyze)で解析する(以前は既定値)
 
 ■ v0.7.0(2026-09-26・まとめて実行・コミット前の検査・単独起動の廃止)
-  - 案件の画面の各配信に「まとめて実行」(app/autorun.py)。形を選んで押すと、残りの作業を順に自動で進める:
+  - 案件の画面の各配信に「まとめて実行」(home/autorun.py)。形を選んで押すと、残りの作業を順に自動で進める:
       採用後を全部(書き出し → 文字起こし → パック)/ 文字起こしまで(書き出し → 文字起こし)/
       解析から全部(未解析なら解析 → 自動マークの点数の高いものを指定の数だけ採用 → … → パック)
     各ツールの画面と同じ API を順に呼ぶ(同じ検査・同じジョブ管理・重い処理の順番待ち)。まだ無いものだけを作るので、止めてももう一度押せば続きから。
@@ -177,8 +177,8 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
     パックは文字起こしの行だけを残す規則と Text+(字幕は校正前。校正したら cut2resolve で作り直す)。同じ名前のパックがあれば作らない。
     自動で採用したマークは、学習の記録(スタジオの feedback)に入れない。1本ずつ順に処理し、入口を終えると順番待ちの分は消える
     API: GET /api/autorun・POST /api/autorun/start {id, mode, top?}・POST /api/autorun/cancel {runId}(合言葉つき)
-  - push.bat: コミットの前に tools\removals.txt のファイルを git rm し、送るファイルに個人データ・秘密情報らしいものがあれば止める(tools\push_helper.py)
-  - 各ツールの start.bat・start.command をやめた(tools\removals.txt に載せ、push.bat で消える)。使い方をリポジトリ直下の README.txt に一本化
+  - push.bat: コミットの前に dev\removals.txt のファイルを git rm し、送るファイルに個人データ・秘密情報らしいものがあれば止める(dev\push_helper.py)
+  - 各ツールの start.bat・start.command をやめた(dev\removals.txt に載せ、push.bat で消える)。使い方をリポジトリ直下の README.txt に一本化
 
 ■ v0.6.0(2026-09-26・案件の画面・重い処理の同時実行の上限)
   - 「案件(配信ごと)の一覧」の画面(http://localhost:8700/cases.html。入口の画面の上のリンク)。
@@ -192,7 +192,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   - 入口の /api/status に heavy(上限・実行中・順番待ち)を足した
 
 ■ v0.5.0(2026-09-26・作業データをリポジトリの外へ)
-  - 3つのツールの作業データ・設定・記録の置き場所を %LOCALAPPDATA%\youtube-tools に変えた(docs\data-location.md)。
+  - 3つのツールの作業データ・設定・記録の置き場所を %LOCALAPPDATA%\youtube-tools に変えた(docs\spec\data-location.md)。
     最初の起動で、各ツールのフォルダにある以前のデータをコピーする(元は消さない)。入口の画面に置き場所とパスのコピーボタンを出す
   - 入口とツールの出力の記録は %LOCALAPPDATA%\youtube-tools\app\logs(以前は app\logs)
 

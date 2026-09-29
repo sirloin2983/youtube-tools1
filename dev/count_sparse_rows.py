@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""文字起こしの「長い区間に文字が少ない行」(抜けの可能性)を数える(docs/edit-tool-design.md の 12 ③-1)。作業データは読むだけ。
+"""文字起こしの「長い区間に文字が少ない行」(抜けの可能性)を数える(docs/design/edit-tool-design.md の 12 ③-1)。作業データは読むだけ。
 
 規則は文字起こしの serve.py の sparse_row(4 秒より長くて、記号・空白を除いた文字数が 1 秒あたり 1.5 文字未満)。
 機械の出力(文書の original)と、今の行(segments。人が直したあと)の両方で数える。対象は評価用(evalSet)と、最近の文字起こし。

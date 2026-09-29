@@ -768,7 +768,7 @@ class TestTxIndex(unittest.TestCase):
 
 
 class TestColors(unittest.TestCase):
-    """配信者の名前 → メンバーカラー(ytt_core/colors.py。docs/followup-2026-09-27.md の 4)"""
+    """配信者の名前 → メンバーカラー(ytt_core/colors.py。docs/archive/followup-2026-09-27.md の 4)"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-colors-")

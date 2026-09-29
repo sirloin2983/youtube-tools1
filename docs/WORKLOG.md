@@ -1,6 +1,7 @@
 # 作業記録(Claude・GPT 共通)
 
-このリポジトリを編集した AI は、作業の終わりに**末尾へ**1件追記する。作業を始める AI は、最後の数件を読んでから始める(ルールは `AGENTS.md`)。
+このリポジトリを編集した AI は、作業の終わりに**末尾へ**1件追記する。作業を始める AI は、最後の数件を読んでから始める(ルールは `AGENTS.md`)。
+**2026-09-30 にフォルダ名を変えた**(app→home・clip-studio→studio・transcribe-tool→editor・tools→dev/setup・docs を spec/plan/design/archive に)。この記録の中の旧いパスは当時のまま。対応表は `docs/plan/phase0-restructure.md`。
 
 書式:
 ```
@@ -1692,4 +1693,18 @@
 - スタジオの書き出し先は `E:\Video\…`(古いフォルダの外。手順6で古いフォルダを消しても動画は失わない)
 - 未完了・次: **コミット2(docs の並べ替え・AGENTS.md の表とテストのコマンド・各 README・ROADMAP の索引)はまだ**。AGENTS.md・README の中のパスとテストのコマンドは古いまま。
   次は push → 手順6(`C:\dev\youtube-tools` に clone し直し)→ 新しい場所で全部のテスト → コミット2。GPT・Cowork は引き続き止める
+- 未コミット: なし
+
+## 2026-09-30 Claude Code — 段0 コミット2: 資料の並べ替えと索引・手順6(clone し直し)
+- 手順6: push(3cec845..d44855c)→ `git clone -c core.autocrlf=true … C:\dev\youtube-tools` → ユーザーが新しい場所の start.bat で起動を確認。**これからの作業フォルダは `C:\dev\youtube-tools`**
+- docs を種類で分けた: `docs/spec/`(pipeline・data-location・ui-guidelines・usability-heuristics)・`docs/plan/`(phase*・transcription-overhaul-plan・ui-audit・accuracy/)・
+  `docs/design/`(integration-plan・edit-tool-design・mockups・whole-retranscribe-design・resolve-pack-unification・holo-colors)・`docs/archive/`(project・review・followup・backlog-ui・TRANSCRIPTION_V2_DESIGN.md)
+- 旧 → 新のパスを機械で置き換え(コミット1 の改名の一覧 + docs の移動。89 ファイル・約 690 か所。コードの側はコメントだけ)。WORKLOG・`docs/design/`・`docs/archive/`・`.design/ui-overhaul/` は当時の記録なので変えない
+- 文章の直し: AGENTS.md(フォルダの表・テストのコマンドをリポジトリ直下からに・`setup/` の行・識別子とフォルダ名は別・文書の置き場所の決まり・作業フォルダの場所)・`editor/AGENTS.md`(テストの一覧・古い「想定内の失敗」を消した)・
+  ROADMAP(先頭に対応表へのリンク・段0 の行・版の一覧・索引)・HANDOVER・各 README・spec・plan・`.design/ux-consistency/`(README・spec・plan はサブエージェント Sonnet)。`dev/baseline_analysis.py` の既定の出力先を `docs/plan/accuracy` に
+- テスト(新しい場所): ui-kit の写しの検査・dev 24・ytt_core 60・home unit 140・studio の api/handoff すべて通過(コードはコメントだけの変更)
+- 未完了・次: 古いフォルダ `Desktop\youtube-test` を `youtube-test_old` に改名(このセッション・VS Code・ターミナルを閉じてから)。
+  そこにだけあるもの: `Claude outputs\`(2.8MB)・Resolve の手の確認用の動画 `cut2resolve\tests\fixtures\resolve-ui-test\*.mov`(77MB×2)は、要るなら新しい場所へコピー。1 週間ほど問題が無ければ消す。
+  Codex・Claude Code・Cowork の作業フォルダを `C:\dev\youtube-tools` に向け直す。新しい場所で全部のテストを流す(夜に流す予定だった分)
+- **GPT・Cowork: 段0 は済んだ。作業を再開してよい(新しいフォルダ名と `C:\dev\youtube-tools` で)**
 - 未コミット: なし

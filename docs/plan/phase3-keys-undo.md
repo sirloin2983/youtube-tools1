@@ -23,7 +23,7 @@
 ## 各作業の細かい計画
 
 ### 3-1 左メニューを重ねて開いている間、後ろの文書のキーを止める(監査 04)
-- 今の動き: 文書のキー処理の除外は dialog・ui-drawer・文字入力だけ(`transcribe-tool/app.js:1943`、Ctrl+Z は `app.js:2448`、Tab は `app.js:1965` 付近、共通の再生キーの enabled は `app.js:1938`)。
+- 今の動き: 文書のキー処理の除外は dialog・ui-drawer・文字入力だけ(`editor/app.js:1943`、Ctrl+Z は `app.js:2448`、Tab は `app.js:1965` 付近、共通の再生キーの enabled は `app.js:1938`)。
   重ねて開いたメニュー(`isDrawer() && menuOpen()`、`app.js:170`・`app.js:102`)は条件に無い。カットも同じ(`cut.js:848` の enabled、`cut.js:856` の onKey)。
   1440px では文書を開いているとメニューが重なる(`OVERLAY_MID`、`app.js:169`)ので、履歴のボタンにフォーカスして ↓ で後ろの行が動く
 - 変えること: app.js に1つの判定 `menuHoldsKeys(e)` を作る = 「重ねて開いている(isDrawer() && menuOpen())」または「キーの行き先が `#menuPanel` の中」。
@@ -31,9 +31,9 @@
   残すもの: G(メニューの開閉。`app.js:1948` の act === 'menu')・Esc(閉じる。`app.js:203`)・Alt+1/2/3(タブ。メニューを閉じずに切り替わるのは今と同じ)・? (一覧)。
   カットへは host に `menuHoldsKeys` を渡す(`app.js:2739` の EditCut.create の引数)
   - 案: (a) 重ねている間は全部止める / (b) フォーカスがメニューの中のときだけ止める。(a) だけだと 1600px 以上の並べて出すメニューで同じ漏れが残る、(b) だけだと幕の上で押したキーが漏れる → 両方の OR にする
-- 変えるファイル: `transcribe-tool/app.js`・`transcribe-tool/cut.js`
-- テスト: `e2e_edit_tabs.py` の「B-7: 1440px で…重ねて開く」の節に足す: 履歴のボタンにフォーカス → ↓ で `S.navIdx`(今の行)が変わらない・Space で再生しない・G と Esc では閉じる。
-  2 カット のタブで G で重ねて開き、S で分割されない・Space で再生しない。流す: `e2e_edit_tabs.py`・`e2e_edit_cut.py`・`e2e_ui_v098.py`・`e2e_ui_handoff.py`(390px の引き出し)
+- 変えるファイル: `editor/app.js`・`editor/cut.js`
+- テスト: `editor/tests/e2e_edit_tabs.py` の「B-7: 1440px で…重ねて開く」の節に足す: 履歴のボタンにフォーカス → ↓ で `S.navIdx`(今の行)が変わらない・Space で再生しない・G と Esc では閉じる。
+  2 カット のタブで G で重ねて開き、S で分割されない・Space で再生しない。流す: `editor/tests/e2e_edit_tabs.py`・`editor/tests/e2e_edit_cut.py`・`editor/tests/e2e_row_editing.py`・`editor/tests/e2e_ui_handoff.py`(390px の引き出し)
 - リスク・エッジケース: メニューの中の検索欄(文字入力)は今どおり isTextEntry で除外される。Esc は「検索欄に文字があればまず空に」(`app.js:207`)を壊さない。
   右クリックのメニュー(`app.js:1701`、捕捉の段階)は先に受けるので影響なし
 - 終わりの条件: 重ねたメニューにフォーカスがある間、↓↑・Space・S・Ctrl+Z などで文書・カットが変わらない。G・Esc・Alt+数字は今どおり
@@ -48,9 +48,9 @@
      seekBack/seekFwd に登録するときは、派生キーが固定のキー(KEY_FIXED)なら断り、他の操作が持っていれば今の「重なったら前の方を外す」(`app.js:2021`)と同じく外して通知
   3. カットの Shift+, / Shift+.(10コマ。`cut.js:866` は e.code で見る)が出す `<` `>` を CUT_KEYS(`app.js:1892`)に足し、再生のキーに登録できないようにする
   4. `sanitizeKeymap`: 読み込んだ配置で、派生キーと重なった校正のキーは外す(実際には共通キーが先に取って働かないので、「未設定」と見せる方が正しい)
-- 変えるファイル: `ui-kit/ui-kit.js`(正本)→ `python tools/sync_ui_kit.py` で `clip-studio/ui-kit.js`・`transcribe-tool/ui-kit.js` へ写す、`transcribe-tool/app.js`、`ui-kit/README.md`(v6 の節に1行)
-- テスト: `e2e_ui_v08.py` のキー配置の節(`e2e_ui_v08.py:154` 付近)に足す: 「次の行」に Shift+← → 断られて未設定のまま / 「1秒戻る」を A にすると、Shift+A を持つ操作があれば外れる。
-  流す: `python -m unittest tools/test_ui_kit_sync.py`(直下)、`e2e_ui_v08.py`・`e2e_edit_cut.py`、スタジオは ui-kit の写しが変わるので `node --test clip-studio/test_review.cjs` と `python e2e_ui.py`
+- 変えるファイル: `ui-kit/ui-kit.js`(正本)→ `python dev/sync_ui_kit.py` で `studio/ui-kit.js`・`editor/ui-kit.js` へ写す、`editor/app.js`、`ui-kit/README.md`(v6 の節に1行)
+- テスト: `editor/tests/e2e_proofread_keys.py` のキー配置の節(`editor/tests/e2e_proofread_keys.py:154` 付近)に足す: 「次の行」に Shift+← → 断られて未設定のまま / 「1秒戻る」を A にすると、Shift+A を持つ操作があれば外れる。
+  流す: `python -m unittest dev/tests/test_ui_kit_sync.py`(直下)、`editor/tests/e2e_proofread_keys.py`・`editor/tests/e2e_edit_cut.py`、スタジオは ui-kit の写しが変わるので `node --test studio/tests/test_review.cjs` と `python studio/tests/e2e_ui.py`
 - リスク・エッジケース: 既に config.json に派生キーと重なる配置を保存している人は、読み込みで校正のキーが「未設定」になる(実際に働いていなかったキーなので実害は無いが、通知が無い)。
   → 設定を開いたときに「使えないキーを外しました」を1回出すかは 3-3 の中で決める(小さく済む方)。記号キーは Shift で文字が変わる(`ui-kit.js:817` の comboOf)ので、`,` に割り当てたシークの派生は作らない(今と同じ)
 - 終わりの条件: 派生キーと重なる登録はできない(理由が出る)。共通キーを変えたあとも、重なった登録が残らない
@@ -66,10 +66,10 @@
   静的な HTML の説明は renderKeyUI で描き直す(キーの部分に `<span data-key="replay">` を置いて埋める。CSP 上インラインの script は使わない)。
   カットには host に `keyName` を渡し、`cutKeybarScene` と `#cutPlay` の title を配置から作る(分割 S・[ ]・Q/W・Del・X は固定のキーなので今のまま)。
   行の title は行を描くときに入るので、キー配置を変えたら `renderDoc()` をやり直す(配置の変更はまれなので、行が多くても許容)
-- 変えるファイル: `transcribe-tool/app.js`・`transcribe-tool/cut.js`・`transcribe-tool/index.html`
-- テスト: `e2e_ui_v08.py` のキー配置の節に足す: 「聞き取れない」を H にすると行の title が「(H)」、未設定にすると「(」が消える / 「1コマ進む」を変えるとカットのキー帯とカットの説明が変わる / 削除を未設定にしても嘘のキーの通知が出ない。
-  流す: `e2e_ui_v08.py`・`e2e_edit_cut.py`・`e2e_ui_handoff.py`(キー操作の手がかり・?)・`e2e_ui_mounted.py`
-- リスク・エッジケース: 4000 行の文書で renderDoc をやり直す時間(`e2e_ui_v08.py` の 4000 行の確認で測る)。行の title を「押したときに作る」方式にすれば再描画は要らないが、ホバーの title がずれるので採らない。
+- 変えるファイル: `editor/app.js`・`editor/cut.js`・`editor/index.html`
+- テスト: `editor/tests/e2e_proofread_keys.py` のキー配置の節に足す: 「聞き取れない」を H にすると行の title が「(H)」、未設定にすると「(」が消える / 「1コマ進む」を変えるとカットのキー帯とカットの説明が変わる / 削除を未設定にしても嘘のキーの通知が出ない。
+  流す: `editor/tests/e2e_proofread_keys.py`・`editor/tests/e2e_edit_cut.py`・`editor/tests/e2e_ui_handoff.py`(キー操作の手がかり・?)・`editor/tests/e2e_ui_mounted.py`
+- リスク・エッジケース: 4000 行の文書で renderDoc をやり直す時間(`editor/tests/e2e_proofread_keys.py` の 4000 行の確認で測る)。行の title を「押したときに作る」方式にすれば再描画は要らないが、ホバーの title がずれるので採らない。
   スタジオの一覧(keymap を渡さない helpHtml)は変わらない
 - 終わりの条件: キー配置を変えると、帯・title・通知・説明の全部が同じキーを出す。未設定のキーはどこにも出ない
 
@@ -79,9 +79,9 @@
   あわせて `onFrame` で「今の位置をフレームの境目にそろえてから ±1」にする(カットの stepFrames と同じ丸め)。
   案: fps を渡すだけ(小さい)/ 境目にそろえる(押し続けても浮動小数のずれが溜まらず、カットと同じ位置に止まる)→ 後者。丸めの式は cut.js から `CUT.frameStep(t, dir)` として出して1か所にする。
   fps が分からない文書(動画が無い・ネットワーク上・音声だけ。`cut.js:133` の unavailable)は 30 のまま、キー操作の一覧の共通キーの下に「動画の fps が分からないので、1コマは約 1/30 秒」と1行出す
-- 変えるファイル: `transcribe-tool/app.js`・`transcribe-tool/cut.js`
-- テスト: `e2e_edit_pack.py` は 60fps の見本を作っている(`e2e_edit_pack.py:95` 付近)ので、同じ見本で 1 文字起こし のタブで止めて `.` → currentTime が 1/60 秒進む・`,` で戻る を足す(置き場所は e2e_edit_cut.py でもよい。見本の作り方が近い方)。
-  流す: `e2e_edit_cut.py`・`e2e_edit_pack.py`・`e2e_ui_v08.py`
+- 変えるファイル: `editor/app.js`・`editor/cut.js`
+- テスト: `editor/tests/e2e_edit_pack.py` は 60fps の見本を作っている(`editor/tests/e2e_edit_pack.py:95` 付近)ので、同じ見本で 1 文字起こし のタブで止めて `.` → currentTime が 1/60 秒進む・`,` で戻る を足す(置き場所は editor/tests/e2e_edit_cut.py でもよい。見本の作り方が近い方)。
+  流す: `editor/tests/e2e_edit_cut.py`・`editor/tests/e2e_edit_pack.py`・`editor/tests/e2e_proofread_keys.py`
 - リスク・エッジケース: 可変 fps の動画は ffprobe の r_frame_rate が代表値なので、厳密な1コマにならない(監査の指摘どおり。表記は「1コマ」のまま、キー一覧の注で触れるかは実機で見て決める)。
   文書を開いた直後(CUT.load の途中)は 30 で動く
 - 終わりの条件: 60fps の素材で `.` 1回 = 1/60 秒。1 文字起こし と 2 カット で同じ位置に止まる
@@ -96,9 +96,9 @@
   4. ボタンの数「元に戻す(n)」(`app.js:1560`)は2つの合計。カットが変わったとき(`onCutMarks`・`onCutState`)にも updateUndo を呼ぶ
   5. 通知の文(`app.js:2687`「カットのタブの『元に戻す』」)を「元に戻す(Ctrl+Z)」に直す
   2 カット のタブの Ctrl+Z はカットだけのまま(決定は 1 文字起こし の動き。カットのタブには文字の変化が見えないため)
-- 変えるファイル: `transcribe-tool/app.js`・`transcribe-tool/cut.js`
-- テスト: `e2e_edit_cut.py` に足す: 1 文字起こし で行の「残す」→ カット後の長さが減る → Ctrl+Z で元の長さ / 文字を直す → 行をカット → 文字を直す の順で Ctrl+Z を3回 → 新しい順に戻る / ボタンの数が合計になる。
-  流す: `e2e_edit_cut.py`・`e2e_edit_tabs.py`・`e2e_ui_v07.py`〜`e2e_ui_v098.py`(元に戻すを使う所)・`node --test test_document_save.cjs`
+- 変えるファイル: `editor/app.js`・`editor/cut.js`
+- テスト: `editor/tests/e2e_edit_cut.py` に足す: 1 文字起こし で行の「残す」→ カット後の長さが減る → Ctrl+Z で元の長さ / 文字を直す → 行をカット → 文字を直す の順で Ctrl+Z を3回 → 新しい順に戻る / ボタンの数が合計になる。
+  流す: `editor/tests/e2e_edit_cut.py`・`editor/tests/e2e_edit_tabs.py`・`editor/tests/e2e_proofread_accuracy.py`〜`editor/tests/e2e_row_editing.py`(元に戻すを使う所)・`node --test editor/tests/test_document_save.cjs`
 - リスク・エッジケース:
   - 文字起こしの控え(snap)は行の cutState も含む。カットのあとで古い控えに戻すと、行の「カット済」がカットの中身とずれる → 戻したあと `CUT.docChanged()` 経由(`app.js:1347`)で付け直されることを e2e で確かめる
   - 処理中(lockJob)はどちらも戻さない。文書を切り替えるとどちらの履歴も空になる(`app.js:1448`・`cut.js:117`)ので番号の比べ方は壊れない
@@ -106,8 +106,8 @@
 - 終わりの条件: 1 文字起こし で、文字の編集とカットを混ぜても、Ctrl+Z・ボタンで操作した逆の順に1つずつ戻る
 
 ## 版の上げ方
-- 編集: `transcribe-tool/serve.py` の SERVER_VERSION・`app.js` の APP_VERSION・`README.txt` の見出しを同時に minor を1つ上げる(今は 0.21.0。前の段で上がっていれば、その次。始める前に WORKLOG と実ファイルで確かめる)。README に「変更」の節を足す
-- ui-kit: `UIKit.keys.derived` を足すだけ(足すだけで今の動きは変えない)なので v6 のまま、`ui-kit/README.md` の v6 の節に1行。`tools/sync_ui_kit.py` で写す
+- 編集: `editor/serve.py` の SERVER_VERSION・`app.js` の APP_VERSION・`README.txt` の見出しを同時に minor を1つ上げる(今は 0.21.0。前の段で上がっていれば、その次。始める前に WORKLOG と実ファイルで確かめる)。README に「変更」の節を足す
+- ui-kit: `UIKit.keys.derived` を足すだけ(足すだけで今の動きは変えない)なので v6 のまま、`ui-kit/README.md` の v6 の節に1行。`dev/sync_ui_kit.py` で写す
 - スタジオ: ui-kit の写しが変わるだけで画面の動きは変わらないので版は上げない(前に同期だけしたときの扱いを WORKLOG で確かめ、違えばそれに合わせる)
 
 ## 実機で確かめること

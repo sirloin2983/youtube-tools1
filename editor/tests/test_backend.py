@@ -4,7 +4,7 @@
     python3 -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python3 -m unittest test_backend -q                        # これだけ
 
-受け渡しの約束(docs/pipeline.md)の API(clip-info / transcript-v1 / export-file / siblings)は、
+受け渡しの約束(docs/spec/pipeline.md)の API(clip-info / transcript-v1 / export-file / siblings)は、
 疑似モード(TRANSCRIBE_BACKEND=fake)のサーバーを空いているポートで起動して確かめる(ffmpeg が必要)。
 """
 import json
@@ -738,7 +738,7 @@ def start_server(tmp, port, runtime):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestPipelineHttp(unittest.TestCase):
-    """受け渡しの API(docs/pipeline.md の 6)と、HTTP の検査。"""
+    """受け渡しの API(docs/spec/pipeline.md の 6)と、HTTP の検査。"""
 
     @classmethod
     def setUpClass(cls):

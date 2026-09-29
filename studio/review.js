@@ -348,7 +348,7 @@ function markDirty(){
   clearTimeout(saveTimer); saveTimer = setTimeout(save, 600);
 }
 const snap = ms => new Map(ms.map(m => [m.id, { start: m.start, end: m.end, label: m.label, live: !!m.live, status: m.status || '' }]));
-/* Studio.api を通す(失敗時の e.status / e.code / e.body は Studio.api が付ける。API の置き場所を1か所で決めるため: docs/pipeline.md 5.) */
+/* Studio.api を通す(失敗時の e.status / e.code / e.body は Studio.api が付ける。API の置き場所を1か所で決めるため: docs/spec/pipeline.md 5.) */
 function putVideo(body){ return Studio.api('/api/video', { method: 'PUT', body }); }
 const MERGE_MSG = '解析や書き出しで内容が更新されたため、最新の内容に合わせて読み込み直しました';
 function save(){
@@ -1709,7 +1709,7 @@ function wire(){
         if (!canPlay()){ seek(t); noPlayerToast(); break; }
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
       case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
-      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて(docs/followup-2026-09-27.md の 3)
+      case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて(docs/archive/followup-2026-09-27.md の 3)
       case 'nudge': {
         const w = b.dataset.w;
         if (setBound(c, w, c[w] + Number(b.dataset.d))){ if (yt) seek(c[w]); refresh(key); }
@@ -1789,7 +1789,7 @@ function wire(){
   };
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
   $('#rvGraph').addEventListener('click', e => {
-    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
+    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
     if (p){ scrub(Math.max(0, Number(p.dataset.t) - 5), true); return; }
     scrub(timeAt(e, $('#rvGraph')), true);
   });
@@ -1985,7 +1985,7 @@ Studio.review = {
   keyHelp,
   keymap: KM   // キーの一覧(? の一覧も同じ部品を出す。core.js)
 };
-/* ---------- まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+/* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
 const AUTO_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
 const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };

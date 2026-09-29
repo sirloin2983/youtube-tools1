@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の声を覚える(A-3。docs/backlog-ui-2026-09-27.md)のサーバー側のテスト。
+"""話者の声を覚える(A-3。docs/archive/backlog-ui-2026-09-27.md)のサーバー側のテスト。
 
     python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_voices -q                        # これだけ

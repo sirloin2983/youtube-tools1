@@ -11,7 +11,7 @@
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
   文字起こしの有無は ytt_core.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
 - スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
-  スタジオに配信ができるので、それまでは受け取った題名で進める(docs/followup-2026-09-27.md の 5)。
+  スタジオに配信ができるので、それまでは受け取った題名で進める(docs/archive/followup-2026-09-27.md の 5)。
 - 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。入口を終えると、実行中・順番待ちの分は消える(もう一度押せば続きから)。
 - 自動で採用したマークは、人の判定ではないので学習の記録(スタジオの feedback)に入れない(スタジオの /api/video/adopt-top)。
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
@@ -33,7 +33,7 @@ MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcr
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack")}
-# 文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
+# 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
 STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}
@@ -120,8 +120,8 @@ class Run:
         self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
         self.docs = []             # この実行で文字起こし・パックした文書の id(終わったら「校正を始める」で開く。段4)
         self.streamer_from = None  # 配信者を自動で決めたときの出どころ(doc / video / channel = 覚えた名前・auto = チャンネル名から。段5)
-        self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
-        self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
+        self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/archive/followup-2026-09-27.md の 4)
+        self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/archive/followup-2026-09-27.md の 3)
         self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
         self.state = "queued"
         self.message = "順番待ち"
@@ -232,7 +232,7 @@ class AutoRunner:
             return run.public()
 
     def start_new(self, items, top=None, streamer=None):
-        """スタジオの ① 探す で選んだ配信を「解析から全部」で(docs/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
+        """スタジオの ① 探す で選んだ配信を「解析から全部」で(docs/archive/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
         items = [{"id": YouTube の配信 ID, "title", "channel"}]。配信ごとに1つの実行。すでに実行中・順番待ちの配信は飛ばす。
         -> {"runs": [作った実行], "skipped": [{"id", "title", "reason"}]}"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:

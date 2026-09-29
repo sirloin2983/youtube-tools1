@@ -1,4 +1,4 @@
-"""ツール間の受け渡し(docs/pipeline.md の約束 v1)を扱う部品。serve.py から呼ぶ。Python 標準ライブラリだけで動く。
+"""ツール間の受け渡し(docs/spec/pipeline.md の約束 v1)を扱う部品。serve.py から呼ぶ。Python 標準ライブラリだけで動く。
 
 - youtube-tools-clip/v1       … 切り抜きスタジオが mp4 の隣に置く .clip.json を探す・読む・検証する
 - youtube-tools-transcript/v1 … 文字起こしの文書(transcribe/v1)から、受け渡し用の JSON を作る
@@ -98,7 +98,7 @@ def resolve_clip_media(clip_json_path, clip, media_exts):
     """.clip.json が指す動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの media.name
     ③それも無ければ、動画のフォルダの「.clip.json と同じ名前 + 動画の拡張子」。見つからなければ None。
     動画のフォルダ = .clip.json が 作業用/ の中なら1つ上(元動画は直下・途中のファイルは 作業用/。2026-09-27)、そうでなければ同じフォルダ。
-    (フォルダごと移動した・友人に渡した場合への備え。docs/pipeline.md の 1)"""
+    (フォルダごと移動した・友人に渡した場合への備え。docs/spec/pipeline.md の 1)"""
     media = clip.get("media") if isinstance(clip.get("media"), dict) else {}
     folders = list(dict.fromkeys([schemas.media_folder(clip_json_path), os.path.dirname(os.path.abspath(clip_json_path))]))
     cands = []
