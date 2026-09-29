@@ -1656,3 +1656,18 @@
 - 注意: 計画は GitHub の main(09-29)を読んで書いた。PC はその後に進んでいる(編集 0.22.0・test_roster.py など)ので、始める前に今のコードで対象を数え直す。
   線 B・画面の直し(ux-consistency)の作業と同時に進めない(段の切れ目で入れる)
 - 未コミット: docs/plan/phase0-restructure.md, docs/WORKLOG.md
+
+## 2026-09-30 Claude Code — 止まっていた push の rebase の片付け・気が利く画面へ 段6 の仕上げ(段0 の前)
+- 変更(rebase): 09-30 00:27 の push.bat の `git pull --rebase origin main` が `transcribe-tool/AGENTS.md` の衝突で止まっていた(21 コミット中 9 まで)。
+  衝突は GitHub 側(Cowork が版の歴史を短くした)に 0.22.0 の行を足して解決 → 残り 12 は衝突なし。コードは rebase 前の c4ff7aa と同じ(GitHub 側の 4 コミットは docs と AGENTS.md だけ)。
+  Cowork が rebase の途中に書いた WORKLOG の追記は stash でどけて戻し、`docs/plan/phase0-restructure.md` と一緒にコミットした(356befe)
+- 変更(段6 の残り): `app/test_window.py`(prefs の keymap で末尾の改行 "s
+" を断るテスト)・`ui-kit/README.md`(v8 = `UIKit.keymap` の使い方)・
+  `transcribe-tool/AGENTS.md`(キー配置の項を部品の形に書き直した)・`AGENTS.md`(表に `app/e2e_keymap.py`)
+- 変更(改行): `tools/sync_ui_kit.py` の `read` を改行をそろえて読むように(+ `test_ui_kit_sync.py` にテスト)。rebase で作業フォルダが CRLF で書き直されると、
+  写しの見出しの行(HEADER は LF)だけが食い違って `test_ui_kit_sync` が落ち、写し直すと index.html の埋め込みの末尾に空行が増えていた。段0 の clone し直しでも同じことが起きるため
+- テスト(PC・通過): `e2e_edit_tabs`・`e2e_ui_handoff`・`e2e_edit_cut`・`e2e_edit_pack`・`e2e_ui_mounted`・スタジオ `e2e_ui.py`(144)と `--mounted`(157)・
+  `node --test clip-studio/test_review.cjs`(18)・`ui-kit/e2e_styleguide.py`・`app/e2e_portal.py`・`app/e2e_window.py`・`app/e2e_keymap.py`・`app/test_window.py`(35)・`tools/test_ui_kit_sync.py`(5)
+- 未完了・次: 段6 はこれで終わり(WIP を解いた)。気が利く画面への段7・段9・版を上げるのは、段0(フォルダの整理)のあと。次は段0
+- 注意: ui-kit/README.md に v7(気が利く画面へ 段1〜5 の部品: 知らせ・二度押しの確認・UIKit.autorun など)の節がまだ無い
+- 未コミット: なし

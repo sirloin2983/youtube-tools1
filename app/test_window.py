@@ -344,7 +344,8 @@ class TestPrefs(unittest.TestCase):
     def test_rejects_bad_values(self):
         bad = [("autorun", {"top": 0}), ("autorun", {"top": "3"}), ("autorun", {"top": True}), ("autorun", {"mode": "x"}), ("autorun", {"cut": "all"}),
                ("autorun", {"onFail": "retry"}), ("autorun", []), ("streamer", {}), ("nope", {}), ("keymap", {"playback": {"<script>": "a"}}),
-               ("keymap", {"playback": {"play": "a\nb"}}), ("keymap", {"playback": "x"})]
+               ("keymap", {"playback": {"play": "a\nb"}}), ("keymap", {"playback": "x"}),
+               ("keymap", {"playback": {"playPause": "s\n"}}), ("keymap", {"playback": {"playPause\n": "s"}})]   # 末尾の改行($ は改行の前にも合う。fullmatch で断る)
         for sec, v in bad:
             with self.assertRaises(PR.PrefsError, msg=(sec, v)):
                 self.p.patch(sec, v)

@@ -162,12 +162,16 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
   v0.18.0 で ↓/↑・Shift+↓/↑ に置き換えたが 0.18.2 で左手のキーを戻し、↓/↑・Shift+↓/↑ は別の手段として残した。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
   Space の再生・停止は `editPlaybackKeys` だけ(以前は app.js の末尾にも Space の処理が残っていて、1回押すと「再生 → すぐ停止」になった。0.18.2 で削除)。
   共通の再生キーは押しっぱなしの繰り返し(`e.repeat`)で Space・K・L・I・O を繰り返さない(J・矢印・, . は繰り返す)。
-  **キー配置(v0.19.0。ユーザー決定 2026-09-27「設定で自由に割り当て」「共通の再生キーも変更可」)**: 操作の一覧は app.js の `TX_ACTIONS`(校正)+ `UIKit.keys.PLAYBACK_ACTIONS`(共通の再生)= `KEY_DEFS`。
-  割り当ては `S.settings.keymap`(id → `UIKit.keys.comboOf` の表記。'' = 未設定)で、読むときは必ず `keymap()`(`sanitizeKeymap`: 重なり・使えないキーは外す)。
-  使えないキーは `keyRefusal()`(`KEY_FIXED` = ↓↑・Shift+↓↑・Tab・Esc・Enter・?、数字 = 話者、再生のキーには `CUT_KEYS` = cut.js のキー S・X・Delete など)。
+  **キー配置(v0.19.0。ユーザー決定 2026-09-27「設定で自由に割り当て」「共通の再生キーも変更可」。気が利く画面へ 段6(2026-09-29)で ui-kit の部品 `UIKit.keymap` へ。`../ui-kit/README.md` の「v8」)**:
+  ? の一覧(`#keysList`)と ⚙ の「キー配置」(`#kmGrid`)は同じ部品 `KM = UIKit.keymap.create(...)`(app.js)。操作の一覧は `TX_ACTIONS`(校正)で、共通の再生キーは部品が足す。
+  割り当ては必ず `keymap()`(= `KM.map()`。共通の再生キーを含む)で読む。校正のキーは編集の設定 `S.settings.keymap` に**送ったキーだけ**直す(`saveKeymap` → `api/settings/patch`。serve.py の `SETTINGS_PATCH_KEYS`・形は fullmatch で検査)。
+  共通の再生キーはホームの設定 `keymap.playback`(スタジオと同じ。入口の外で開いたときだけ編集の settings.keymap = `fallbackPlayback`)。
+  使えないキー: 校正のキーは `refuse`(`KEY_FIXED` = ↓↑・Shift+↓↑・Tab・Esc・Enter・?、数字 = 話者)、共通の再生キーは加えて部品の `PB_BLOCKED`(2 カット のキー S・X・Q・W・[ ]・Delete など)。重なりの検査は部品の1か所。
+  変えられないキーの表(錠と理由)は `fixed`(2 カット のキーは `CUT_KEY_ROWS` の1か所。1コマのキーを変えたら「そのキー + Shift」で10コマ)。
   再生のキーは `UIKit.keys.playback({ keymap })` に渡す(1 文字起こし = `editPlaybackKeys`、2 カット = cut.js の `commonKeys` が host の `keymap()` を使う)。
-  下の帯・一覧の上の手がかり(`#keyHintItems`)・キー操作の一覧(`#keysCommon`・`#keysTx`)・⚙ の `#kmGrid` は `renderKeyUI()` がまとめて描く(割り当てを変えたら必ず呼ぶ)。
-  新しい校正の操作をキーに足すときは `TX_ACTIONS` と `KEY_FN` に足す(直に e.code で判定しない)。cut.js に新しいキーを足すときは `CUT_KEYS` にも足す
+  下の帯・一覧の上の手がかり(`#keyHintItems`)・基本の流れ(`#keysFlow`)・行のボタンのツールチップは `renderKeyUI()` がまとめて描く(部品の `onChange` から呼ばれる)。2 カット の帯・案内(`#cutKeysText`)は `ytt-keys-changed` で描き直す。
+  ? をもう一度押すと一覧を閉じる(S-29)。重ねて開いた左のメニューの中のキーは後ろの文書を動かさない(`menuHasKeys`。GPT-04)。
+  新しい校正の操作をキーに足すときは `TX_ACTIONS` と `KEY_FN` に足す(直に e.code で判定しない)。cut.js に新しいキーを足すときは `CUT_KEY_ROWS` と ui-kit の `PB_BLOCKED` にも足す。確かめるテストは `../app/e2e_keymap.py`
   共通の再生キー(Space・J/K/L・← →(Shift で5秒)・, .・I/O)は `UIKit.keys.playback()` の1か所(`ui-kit.js`)。1 文字起こし は `editPlaybackKeys`(`media: player()`)、
   2 カット は `commonKeys`(`media: mediaProxy`。生の `<video>` だと togglePlay の頭出し・フレームの丸めを通らないので、`cut.js` の関数へ委ねる薄い代理オブジェクトを渡す)。
   各画面は自分のキー処理より**先に**共通キーを呼び、処理済み(true)なら自分では何もしない(1つのキーは全体で1つの意味。I/O は 1 文字起こし では何もしない = 別の意味を持たせない)

@@ -23,7 +23,8 @@ MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* u
 
 
 def read(path):
-    with open(path, encoding="utf-8", newline="") as f:
+    """改行は LF にそろえて読む(core.autocrlf=true で clone すると作業フォルダは CRLF になり、写しの見出しの行 HEADER(LF)だけが食い違っていた)"""
+    with open(path, encoding="utf-8", newline=None) as f:
         return f.read()
 
 

@@ -28,6 +28,15 @@ class UiKitSyncTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             S.embed(dup, k, "t")
 
+    def test_read_ignores_crlf(self):
+        """core.autocrlf=true の clone(作業フォルダは CRLF)でも、写しの検査が改行の違いで落ちない"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "a.css")
+            with open(p, "wb") as f:
+                f.write(b"/* x */\r\n.a{}\r\n")
+            self.assertEqual(S.read(p), "/* x */\n.a{}\n")
+
     def test_embed_rejects_closing_tags(self):
         src = "/* ui-kit:css:begin *//* ui-kit:css:end *//* ui-kit:js:begin *//* ui-kit:js:end */"
         with self.assertRaises(ValueError):

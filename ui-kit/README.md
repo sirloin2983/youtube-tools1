@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v6
+# ui-kit(共通の見た目)v8
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -96,6 +96,25 @@
   種類の一覧は `ui-kit.js` の `ICONS`(`styleguide.html` の「アイコン」に一覧表示)
 
 `styleguide.html` はこれらすべての見本を表示する(動きは `styleguide.js`。CSP に合わせてインラインの `<script>` は使わない)。
+
+## v8(2026-09-29・気が利く画面へ 段6。`UIKit.keymap`)
+キーの一覧がそのままキー配置の設定。`?` の一覧と ⚙ の「キー配置」は同じ部品(`mount(el)` を2か所に置く。中身は1つ)。編集とスタジオが使う。
+- **`UIKit.keymap.create(opt)`** → api。`opt`:
+  - `actions: [{id, def, label, group, alt}]`(ツールのキー。`def` は `UIKit.keys.comboOf` の表記)・`groups`・`fixed: [{group|title, why, note, rows: [[キー, 説明, 理由?]]}]`(変えられないキー。錠のアイコンと理由を出す)
+  - `refuse(combo)` → そのツールで固定の意味があれば理由の文字列(ツールのキーにも共通の再生キーにもできない)
+  - `load()` / `save(part)`: ツールのキーの読み書き(`save` には**変えたキーだけ**が来る。ツール側は送ったキーだけ直す = 窓を並べても戻らない)
+  - `fallbackPlayback: {load, save}`: 入口の外で開いたときの共通の再生キーの置き場(編集は自分の settings.keymap)
+  - `intro`・`playbackNote`・`footNote`・`extra`: 一覧の中の文。`onChange()`: 割り当てが変わるたび(画面の帯・手がかりを描き直す)
+- api: `map()`(今効く割り当て `{id: キー}`。共通の再生キーを含む。`UIKit.keys.playback({keymap})` にそのまま渡せる)・`key(id)`・`text(id)`(表示用)・`actionOf(combo)`(キー → このツールの操作の id)・
+  `mount(el)`・`reload()`・`refusal(id, combo)`・`set(id, combo)`・`setMany(map, msg)`(スタジオのプリセット。[戻す] つき)・`clearNote()`・`capturing()`
+- **共通の再生キー**(`UIKit.keys.PLAYBACK_ACTIONS`)はホームの設定 `keymap.playback`(`app/prefs.py`・`api/ytt/prefs`)に1つ。どのツールで変えても同じ。
+  初回は `fallbackPlayback.load()` の値(編集の settings.keymap にあった再生キー)をホームの設定へ移す。戻ったとき(`UIKit.life.onReturn`)に読み直す
+- 変え方: キーのボタン → その場で次のキーを待つ(捕捉の段階で受け、ほかのキー処理に渡さない)。Esc = 取り消しだけ(一覧は閉じない)・Delete / Backspace = 外す・
+  Ctrl / Alt / Meta つきと日本語の変換中は受け取らない・断ったら理由を一覧の中に出して待ち続ける
+- 重なり: 別の操作に使っているキーを選ぶと、そちらを外して「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせ(トースト)ではなく一覧の中に出す)。行ごとの「標準」・すべて標準に戻す
+- **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `UIKit.keymap.BLOCKED`(全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
+  派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `app/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
+- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `app/e2e_keymap.py`
 
 ## 重なりの順(z-index)の決まり(v6・段3-2)
 新しい値を作らず、この段のどれかにそろえる。

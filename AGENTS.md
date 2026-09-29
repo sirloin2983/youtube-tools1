@@ -29,7 +29,7 @@
 ## フォルダと、変えたら通すテスト
 | フォルダ | 役割 | 変えたら通すテスト(そのフォルダで実行。★はリポジトリ直下から) |
 | --- | --- | --- |
-| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`・窓で開く `appwindow.py`・画面のエラーの記録 `clientlog.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py app/test_window.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py`、★`python app/e2e_window.py`(窓・エラーの記録・解析の設定。段階7) |
+| `app/` | 入口(ランチャー・取り込み `mount.py`・案件 `cases.py`・まとめて実行 `autorun.py`・窓で開く `appwindow.py`・画面のエラーの記録 `clientlog.py`)。`app/README.txt` | ★`python -m unittest app/test_launch.py app/test_mount.py app/test_cases.py app/test_autorun.py app/test_window.py`、★`python app/e2e_portal.py`、★`python app/e2e_autorun.py`、★`python app/e2e_window.py`(窓・エラーの記録・解析の設定。段階7)、キー配置(ui-kit の `UIKit.keymap`・ホームの設定の keymap)を変えたら ★`python app/e2e_keymap.py` |
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `transcribe-tool/` | 「編集」(文字起こし(faster-whisper・話者判別・校正画面・精度測定)・カット `cut.js`・パック `pack-tab.js`) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` と `e2e_edit_tabs.py`・`e2e_edit_cut.py`・`e2e_edit_pack.py`・`e2e_edit_voices.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)の部品と CLI。API は serve.py(画面は 2026-09-26 に「編集」へ統合して消した。`/` は案内だけ) | `python -m unittest test_cut2resolve test_pack test_serve`(API を変えたら文字起こしの `e2e_edit_pack.py` も) |
