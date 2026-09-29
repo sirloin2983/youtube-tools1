@@ -751,8 +751,11 @@ class PortalServer(ThreadingHTTPServer):
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)
                 q = body.get("q") if isinstance(body.get("q"), str) else ""
                 entries = colors_mod.load()
-                r = colors_mod.lookup(q[:colors_mod.NAME_MAX], entries)
                 pick = lambda e: {k: e[k] for k in ("name", "en", "hex", "group", "mine")}   # noqa: E731
+                if isinstance(body.get("names"), list):   # 話者の名前をまとめて(画面が行ごとに通信しないように。気が利く画面へ 段2)
+                    names = list(dict.fromkeys(n.strip()[:colors_mod.NAME_MAX] for n in body["names"][:60] if isinstance(n, str) and n.strip()))
+                    return 200, {"ok": True, "matches": {n: (lambda m: pick(m) if m else None)(colors_mod.lookup(n, entries)["match"]) for n in names}}
+                r = colors_mod.lookup(q[:colors_mod.NAME_MAX], entries)
                 return 200, {"ok": True, "match": pick(r["match"]) if r["match"] else None, "candidates": [pick(e) for e in r["candidates"]],
                              "items": [pick(e) for e in entries] if body.get("all") is True else []}
         except ValueError as e:

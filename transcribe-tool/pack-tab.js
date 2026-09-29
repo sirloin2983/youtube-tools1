@@ -66,33 +66,26 @@ function create(h){
     render();   // 「前回の設定」の要約の色の丸も、入れ直すたびに合わせる
   });
 
-  /* ---------- 話者ごとの字幕の色(A-2)。照らし合わせは入口の api/ytt/streamer-colors(ytt_core/colors.py の1か所)。
-     パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ ---------- */
-  const SPK_KEY = 'tx.pk.speakerColors';
-  try { $('#pkSpk').checked = localStorage.getItem(SPK_KEY) !== '0'; } catch { /* 既定のまま(オン) */ }
-  $('#pkSpk').addEventListener('change', () => { try { localStorage.setItem(SPK_KEY, $('#pkSpk').checked ? '1' : '0'); } catch {} render(); });
-  const spkCache = new Map();   // 名前 -> { name, hex } | null(照らし合わせの結果。画面を開いている間だけ覚える)
-  function spkLookup(name){
-    if (spkCache.has(name)) return spkCache.get(name);
-    const p = h.api('/api/ytt/streamer-colors', { body: { q: name } }).then(j => (j && j.match ? { name: j.match.name, hex: j.match.hex } : null), () => null);
-    spkCache.set(name, p);
-    p.then(v => { spkCache.set(name, v); render(); });
-    return p;
-  }
+  /* ---------- 話者ごとの字幕の色(A-2)。色を決めるのは app.js の speakerColor の1か所(気が利く画面へ 段2。照らし合わせは入口の
+     api/ytt/streamer-colors → ytt_core/colors.py)。パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ。
+     スイッチは編集の設定 speakerColors(1 文字起こし・カットのプレビュー・まとめて実行も同じ値。以前はこのブラウザの tx.pk.speakerColors) ---------- */
+  const spkOn = () => h.S.settings.speakerColors !== false;
+  $('#pkSpk').addEventListener('change', () => { h.S.settings.speakerColors = $('#pkSpk').checked; h.saveSettings(); h.onSpeakerColors(); render(); });
   function renderSpk(){
-    const box = $('#pkSpkList'), d = h.S.doc, on = $('#pkSpk').checked;
-    const names = d ? [...new Set((d.speakers || []).map(s => String(s.name || '').trim()).filter(Boolean))] : [];
+    const box = $('#pkSpkList'), d = h.S.doc, on = spkOn();
+    $('#pkSpk').checked = on;
+    const sps = d ? (d.speakers || []).filter(s => String(s.name || '').trim()) : [];
     $('#pkSpk').disabled = !h.TOKEN;
-    if (!h.TOKEN){ box.textContent = '入口から開くと使えます'; return; }
-    if (!on || !names.length){ box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
-    const parts = names.slice(0, 12).map(n => {
-      const v = spkCache.has(n) ? spkCache.get(n) : spkLookup(n);
-      if (v && typeof v.then === 'function') return `<span>${h.esc(n)}: …</span>`;
-      return v ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(v.hex)}"></i>${h.esc(n)} → ${h.esc(v.name)}の色</span>`
-        : `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>`;
-    });
-    box.innerHTML = parts.join(' ・ ');
+    if (!h.TOKEN){ box.textContent = 'ホームから開くと使えます'; return; }
+    if (!on || !sps.length){ box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
+    box.innerHTML = sps.slice(0, 12).map(sp => {
+      const c = h.speakerColor(sp.id), n = String(sp.name).trim();
+      return c.hex ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → ${h.esc(c.member)}の色</span>`
+        : c.reason ? `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>` : `<span>${h.esc(n)}: …</span>`;
+    }).join(' ・ ');
   }
+  /* 字幕の見本の i 番目の色: 残す行の i 番目の話者がメンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま) */
+  const capStyle = (seg) => { const hex = seg && seg.speaker && spkOn() ? h.speakerColor(seg.speaker).hex : ''; return hex ? ` style="--tt-cap-color:${h.esc(hex)}"` : ''; };
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
@@ -152,9 +145,12 @@ function create(h){
     $('#pkCapsL').textContent = hasRows ? 'Text+ 字幕' : 'Text+ 字幕(文字起こしが無い)';
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
-    const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : d.segments.filter(kept).slice(0, 2).map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
-    $('#pkSamples').innerHTML = rows.length ? rows.map(t => `<div class="tt-pk-cap tt-cap-look">${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
+    const keptSegs = d.segments.filter(kept).slice(0, 2);
+    const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
+    $('#pkSamples').innerHTML = rows.length ? rows.map((t, i) => `<div class="tt-pk-cap tt-cap-look"${capStyle(keptSegs[i])}>${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
     $('#pkPhoneCap').textContent = rows[0] || '';
+    { const hex = keptSegs[0] && keptSegs[0].speaker && spkOn() ? h.speakerColor(keptSegs[0].speaker).hex : '';   // 見本の電話の字幕も話者の色(GPT-12)
+      if (hex) $('#pkPhoneCap').style.setProperty('--tt-cap-color', hex); else $('#pkPhoneCap').style.removeProperty('--tt-cap-color'); }
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
     renderSpk();
     $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;

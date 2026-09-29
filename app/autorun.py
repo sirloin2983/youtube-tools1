@@ -531,6 +531,7 @@ class AutoRunner:
         sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
         wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
         wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
+        wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
         return row_edge, wrap_out
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):

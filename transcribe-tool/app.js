@@ -23,7 +23,8 @@ function parseT(str){
   return p.reduce((a, x) => a * 60 + Number(x), 0);
 }
 /* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。ui-kit v6 の UIKit.toast を呼ぶだけ(重ねて最大3つ・入れ物は #toast) */
-function toast(msg, ms, kind = ''){
+function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, action})を渡せば、そのまま UIKit.toast へ(ボタンつきの知らせ)
+  if (ms && typeof ms === 'object' && window.UIKit && UIKit.toast) return UIKit.toast(msg, ms);
   if (window.UIKit && UIKit.toast) UIKit.toast(msg, { ms, kind });
   else { const t = $('#toast'); if (t){ t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 3800); } }
 }
@@ -64,7 +65,7 @@ const safeName = (t, fb = 'transcript') => String(t || '').replace(/[\\/:*?"<>|\
 /* 話者の色: 文書の JSON は手で直せるので、色の文字列は #rgb / #rrggbb だけを通す(style 属性に入れるため。
    そのまま入れると「red;background:url(外部)」のような値で CSS を差し込まれ、外へ通信されうる) */
 const spColor = sp => sp && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(sp.color || '')) ? sp.color : '';
-function setRowSp(row, sp){ const c = spColor(sp); if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
+function setRowSp(row, sp){ const c = sp ? rowSpColor(sp.id) : ''; if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
 /* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1)。
    以前のこの版は実行後も3秒間「確認済み」のままで、続けて押すと同じ操作がもう一度走り、文言も「もう一度押す」だけだった */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text); }
@@ -519,7 +520,8 @@ async function pollJobs(){
         : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
           + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
         : `話者を判別しました(${diar.speakers}人)。` + ((diar.named || []).length ? `覚えている声で名前を付けました: ${diar.named.map(x => x.name).join('・')}。` : '')
-          + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : (diar.named || []).length >= diar.speakers ? '' : '「話者」で名前を付けてください'));
+          + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : ''),
+        diar.kind === 'diarize' && diar.tid === S.docId && (diar.named || []).length < diar.speakers ? { ms: 10000, action: { label: '名前を付ける', fn: focusSpeakerNames } } : undefined);
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
       if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
@@ -822,6 +824,7 @@ async function loadVoices(){
   const emb = $('#diarEmb').value, all = r.voices || {}, labels = {};
   ((S.tools && S.tools.diarize && S.tools.diarize.embeddings) || []).forEach(e => { labels[e.key] = e.label; });
   const n = Object.values(all).reduce((a, x) => a + x.length, 0);
+  spVoiceNames = [...new Set(Object.values(all).flatMap(xs => xs.map(x => String(x.name || ''))).filter(Boolean))]; renderSpNames();   // 話者の名前の欄の候補にも
   $('#voiceCount').textContent = n ? `${n}人` : 'まだありません';
   $('#voiceList').innerHTML = !n ? '<p class="hint" style="margin:6px 0 0">まだ覚えている声はありません</p>'
     : Object.entries(all).map(([k, xs]) => `<div class="hint" style="margin-top:6px">${esc(labels[k] || k)}${k === emb ? '(今の判別モデル)' : ''}</div>` + xs.map(x =>
@@ -1463,6 +1466,7 @@ async function openDoc(id, keep){
   }
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
+  lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
   if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.set($('#docAutoWho'), ''); }   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep) window.scrollTo(0, scrollY);
@@ -1478,7 +1482,7 @@ const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" dat
 function ovl(i){ const g = S.doc.segments, s = g[i], a = g[i - 1], b = g[i + 1]; return !!s && ((a && s.start < a.end - 0.01) || (b && s.end > b.start + 0.01)); }
 function markOvl(i){ for (const j of [i - 1, i, i + 1]){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = '前後の行と時刻が重なっています(字幕が2段に重なって出ます)'; else t.removeAttribute('title'); } } }
 function segHTML(s, i){
-  const c = spColor(spById(s.speaker)), cut = s.cutState === 'cut', ov = ovl(i);
+  const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
     <button type="button" class="play" data-act="play" title="この行だけ再生(R)。行の終わりで止まります" aria-label="この行だけ再生">▶</button>
@@ -1546,7 +1550,12 @@ function applyFilter(){
 function renderSpeakers(){
   if (typeof renderVoiceLearn === 'function' && document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように(A-3)
   const box = $('#spList');
-  box.innerHTML = S.doc.speakers.map((s, i) => `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色"><input type="text" value="${esc(s.name)}" maxlength="30" aria-label="話者名" style="flex:1"><span class="n">${S.doc.segments.filter(x => x.speaker === s.id).length}行 ・ ${i + 1}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`).join('');
+  const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement : null;
+  if (focused && focused.type === 'text') return;   // 名前を打っている間は描き直さない(打った文字・候補を消さない。確定(change)のあとで描き直す)
+  box.innerHTML = S.doc.speakers.map((s, i) => { const c = speakerColor(s.id);
+    return `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色(メンバーと合わないときの色)"${c.hex ? ' hidden' : ''}>${c.hex ? `<i class="tt-sp-member" style="background:${esc(c.hex)}" title="${esc(c.member)}の色"></i>` : ''}<input type="text" value="${esc(s.name)}" maxlength="30" aria-label="話者名" list="spNames" style="flex:1"><span class="n">${S.doc.segments.filter(x => x.speaker === s.id).length}行 ・ ${i + 1}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`
+      + (c.reason ? `<div class="hint tt-sp-why">${esc(c.reason)}</div>` : ''); }).join('');
+  renderSpNames();
   const cur = $('#spBulk').value;
   $('#spBulk').innerHTML = opts(cur);
 }
@@ -1775,26 +1784,47 @@ function updateCaption(){
   const idx = S.doc ? (capFollow ? S.curIdx : S.navIdx) : -1;
   const g = idx >= 0 && S.doc ? S.doc.segments[idx] : null, text = g && String(g.text || '').trim();
   el.textContent = text || ''; el.hidden = !text;
-  const hex = text ? capSpeakerColor(g) : '';
+  const hex = text && g.speaker ? speakerColor(g.speaker).hex : '';
   if (hex) el.style.setProperty('--tt-cap-color', hex); else el.style.removeProperty('--tt-cap-color');   // 無ければ配信者の色(pack-tab.js が body に入れる)のまま
 }
-/* 話者の名前がメンバーと合えば、映像の上の字幕をその人の色にする(パックの「話者の名前がメンバーと合えば…」A-2 と同じ規則 = 入口の
-   api/ytt/streamer-colors → ytt_core/colors.py)。パックのタブでそのスイッチを切っていれば出さない。入口の中だけ(単体では API が無い) */
-const capSpk = new Map();   // 話者の名前 → '#rrggbb' | '' | Promise
-function capSpeakerColor(g){
-  if (!TOKEN || !g || !g.speaker) return '';
-  try { if (localStorage.getItem('tx.pk.speakerColors') === '0') return ''; } catch {}
-  const sp = (S.doc.speakers || []).find(x => x.id === g.speaker), name = sp ? String(sp.name || '').trim() : '';
-  if (!name) return '';
-  const v = capSpk.get(name);
-  if (typeof v === 'string') return v;
-  if (!v){
-    const p = api('/api/ytt/streamer-colors', { body: { q: name } })
-      .then(j => (j && j.match && /^#[0-9a-fA-F]{6}$/.test(String(j.match.hex || '')) ? j.match.hex : ''), () => '');   // 色は style に入れるので形を確かめる
-    capSpk.set(name, p);
-    p.then(hex => { capSpk.set(name, hex); updateCaption(); });
-  }
-  return '';
+/* ---------- 話者の色(気が利く画面へ 段2)----------
+   色を決めるのはここ1つ: 行の左端の線・話者の欄・映像の上の字幕・カットのプレビュー・パックの見本(cut.js・pack-tab.js にも渡す)。
+   話者の名前がメンバーと合えばメンバーカラー(照らし合わせは入口の api/ytt/streamer-colors → ytt_core/colors.py。名前の一覧をまとめて1回)。
+   合わなければ、行の線・話者の欄は今の自動の色、字幕は配信者の色(--tt-cap-color)。**文字起こしの行の文字の色は変えない**(明るい色は白い背景で読めない)。
+   スイッチは編集の設定 speakerColors(パックのタブの「話者の名前がメンバーと合えば…」。まとめて実行も同じ値に従う。以前はこのブラウザの tx.pk.speakerColors) */
+const SPKC = new Map();   // 話者の名前 → {name, hex}(合う人)| null(合わない)| undefined(照らし合わせ中)
+const speakerColorsOn = () => !S.settings || S.settings.speakerColors !== false;
+function lookupSpeakerNames(names){
+  if (!TOKEN) return;
+  const want = [...new Set(names.map(n => String(n || '').trim()).filter(n => n && !SPKC.has(n)))];
+  if (!want.length) return;
+  for (const n of want) SPKC.set(n, undefined);
+  api('/api/ytt/streamer-colors', { body: { names: want } }).then(j => {
+    for (const n of want){ const m = j && j.matches ? j.matches[n] : null; SPKC.set(n, m && /^#[0-9a-fA-F]{6}$/.test(String(m.hex || '')) ? { name: String(m.name), hex: m.hex } : null); }   // 色は style に入れるので形を確かめる
+    onSpeakerColors();
+  }, () => { for (const n of want) SPKC.delete(n); });
+}
+/* -> {hex: メンバーカラー('' = 合わない・使わない), auto: 自動の色, member: 合った人の名前, reason: 話者の欄に出す理由} */
+function speakerColor(spId){
+  const sp = spById(spId), auto = spColor(sp), name = sp ? String(sp.name || '').trim() : '';
+  if (!sp) return { hex: '', auto: '', member: '', reason: '' };
+  if (!TOKEN) return { hex: '', auto, member: '', reason: 'ホームから開くと、名前をメンバーと照らし合わせて色を付けます' };
+  if (!speakerColorsOn()) return { hex: '', auto, member: '', reason: 'パックの「話者の名前がメンバーと合えば…」を切っているので、メンバーの色は使いません' };
+  if (!SPKC.has(name)) lookupSpeakerNames([name]);
+  const m = SPKC.get(name);
+  if (m === undefined) return { hex: '', auto, member: '', reason: '' };
+  return m ? { hex: m.hex, auto, member: m.name, reason: `名簿の「${m.name}」と一致(この色で字幕を出します)` }
+    : { hex: '', auto, member: '', reason: 'メンバーと合わないので、字幕は配信者の色で出します' };
+}
+const rowSpColor = spId => { const c = speakerColor(spId); return c.hex || c.auto; };
+/* 照らし合わせの結果が来た・名前やスイッチが変わった → 色を使う所を全部塗り直す(行は描き直さず、線の色だけ) */
+function onSpeakerColors(){
+  if (!S.doc) return;
+  const rows = rowsEl();
+  S.doc.segments.forEach((s, i) => { const r = rows[i]; if (r && r.classList && r.classList.contains('seg')){ const c = s.speaker ? rowSpColor(s.speaker) : ''; if (c) r.style.setProperty('--sp', c); else r.style.removeProperty('--sp'); } });
+  updateCaption(); renderSpeakers();
+  if (CUT && CUT.refreshCaption) CUT.refreshCaption();
+  if (PACK) PACK.changed();
 }
 function gotoRow(i, opt = {}){
   const row = rowsEl()[i]; if (!row || !row.classList.contains('seg') || row.hidden) return false;
@@ -2246,8 +2276,28 @@ $('#spList').addEventListener('change', e => {
   const row = e.target.closest('.sp-row'); if (!row) return;
   const sp = S.doc.speakers[Number(row.dataset.i)]; if (!sp) return;
   if (e.target.type === 'color') sp.color = e.target.value; else sp.name = e.target.value.trim().slice(0, 30) || sp.id;
-  renderDoc(); markDirty();
+  if (e.target.type === 'text') e.target.blur();   // 確定したら描き直せるように(打っている間は renderSpeakers が描き直さない)
+  renderDoc(); markDirty(); lookupSpeakerNames([sp.name]);
 });
+/* 話者の名前の欄の候補(気が利く画面へ 段2・E-1): 覚えた声の名前・この文書の配信者・名簿の名前 */
+let spVoiceNames = [];
+function renderSpNames(){
+  let dl = document.getElementById('spNames');
+  if (!dl){ dl = document.createElement('datalist'); dl.id = 'spNames'; document.body.appendChild(dl); }
+  const who = $('#pkWho') ? $('#pkWho').value.trim() : '';
+  const roster = S.roster ? [...new Set(S.roster.groups.filter(g => g.id !== 'units').flatMap(g => g.names))] : [];
+  const names = [...new Set([...spVoiceNames, ...(who ? [who] : []), ...roster])].slice(0, 300);
+  const key = names.join('\n'); if (dl.dataset.key === key) return;
+  dl.dataset.key = key; dl.innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
+}
+/* 話者判別が終わったら: 名前が付いていない話者の最初の名前の欄へ(E-10・E-12) */
+function focusSpeakerNames(){
+  const d = $('#spDetails'); if (!d || !S.doc) return;
+  d.hidden = false; d.open = true;
+  const i = S.doc.speakers.findIndex(s => !String(s.name || '').trim() || /^話者\d+$/.test(String(s.name)) || s.name === s.id);
+  const inp = $('#spList').querySelectorAll('.sp-row input[type=text]')[Math.max(0, i)];
+  if (inp){ inp.scrollIntoView({ block: 'center' }); inp.focus(); inp.select(); }
+}
 function playSpeaker(id){
   const list = S.doc.segments.filter(s => s.speaker === id && s.text.trim());
   if (!list.length) return toast('この話者の行がありません');
@@ -2732,7 +2782,7 @@ function onCutSaved(r){
   onCutMarks(changed);
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
-const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow,
+const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
   c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
@@ -2742,7 +2792,7 @@ function onPacked(id, info){
   if (it){ Object.assign(it, { pack: { textplus: true, updatedAt: info.at }, packRev: info.rev, packAt: info.at, packStale: false }); renderList(); }
 }
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, onSpeakerColors }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){
@@ -2762,6 +2812,9 @@ async function boot(){
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
+  if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
+    try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
+  }
   applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
   takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();

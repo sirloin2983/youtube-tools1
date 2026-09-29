@@ -1502,3 +1502,15 @@
   - テスト: `app/test_window.py`(TestPrefs 4 件・api/ytt/prefs)・`ui-kit/e2e_styleguide.py`(ms:0・ボタン・×・二度押し)・`clip-studio/test_review.cjs`(ui-kit の confirmTwice を試す)・`transcribe-tool/e2e_ui_v07.py`(全行の校正は確認なし・知らせに「元に戻す」)
 - テスト(PC): 入口 単体 98・スタジオ node 18・e2e_ui 144・編集 e2e_ui_v07・ui-kit e2e_styleguide・sync 通過
 - 未完了・次: 段2(話者の色)。ブリーフにある「編集の PUT /api/settings を送ったキーだけ直す」は段7(保存の失敗)でまとめて行う
+
+## 2026-09-29 Claude Code — 気が利く画面へ 段2(話者の色)の途中で中断(ユーザー「一度中断」)
+- 途中までの変更(このコミットに入れた。画面のテスト e2e_edit_pack は通過):
+  - 色を決めるのは `transcribe-tool/app.js` の `speakerColor(spId)` の1つ(`SPKC`・`lookupSpeakerNames` で名前をまとめて1回照らし合わせ・`rowSpColor`・`onSpeakerColors` で塗り直し)。
+    行の左端の線・話者の欄(メンバーの色の見本と理由の1行・名前の候補 datalist `#spNames` = 覚えた声・配信者・名簿)・映像の上の字幕・カットのプレビュー(`cut.js` の `showCaption`・`refreshCaption`)・パックの見本(`pack-tab.js` の `#pkSamples`・`#pkPhoneCap`)
+  - スイッチ「話者の名前がメンバーと合えば…」は編集の設定 `speakerColors` へ(初回だけこのブラウザの `tx.pk.speakerColors` から移す)。`app/autorun.py` の `_pack_settings` も同じ値をパックの `output.speakerColors` に渡す(以前は常にオン)
+  - 入口 `api/ytt/streamer-colors` に `names`(まとめて照らし合わせ → `matches`)
+  - 話者判別が終わったら知らせに [名前を付ける](名前の無い最初の欄へフォーカス)。`app.js` の `toast(msg, {…})` はオブジェクトなら UIKit.toast へ
+  - `e2e_edit_pack.py`: 見本の電話の字幕は1行目の話者の色・行の線の色・スイッチを切ると全部消えて設定に残る
+- **未完了(次にやること)**: `app/test_window.py` に names のまとめて照らし合わせ・`app/test_autorun.py` に speakerColors が渡るテスト / `e2e_ui_mounted`・`e2e_edit_cut`・`e2e_edit_tabs`・`e2e_edit_voices`・`app/e2e_autorun` の流し直し / 段2 の WORKLOG の本記録
+- 精度改善 1回目の測定: 基準(文脈なし・温度0)は終わった(作業データの `evals/asr/20260929-211155_段1-基準-temp0.json`)。**文脈ありの回が裏で動いている**(終わると同じフォルダに `段1-文脈あり-temp0`)。
+  判定は決めておいた採用の決まり(`docs/transcription-overhaul-plan.md` の 9)で、呼び名の下書きの確認のあとに行う。今回は前回より約3倍遅かった(原因は未確認)

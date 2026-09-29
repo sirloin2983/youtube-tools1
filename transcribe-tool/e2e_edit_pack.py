@@ -71,7 +71,7 @@ def main():
             pg.fill("#pkWho", "ぺこら")
             wait_js(pg, "document.querySelector('#pkWho').dataset.color === '#7EC2FE'", 10000)
             check("兎田ぺこら" in pg.inner_text(".tt-pk-who .ui-streamer-hint") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
-                  pg.evaluate("getComputedStyle(document.querySelector('#pkPhoneCap')).color") == "rgb(126, 194, 254)",
+                  pg.evaluate("getComputedStyle(document.querySelectorAll('#pkSamples .tt-pk-cap')[1]).color") == "rgb(126, 194, 254)",   # 2行目(話者なし)の見本。1行目は話者「みこ」の色(段2)
                   "配信者の名前 → メンバーカラーの見本・字幕の見本の色: %s" % pg.inner_text(".tt-pk-who .ui-streamer-hint"))
             check(pg.evaluate("document.querySelectorAll('#ui-streamer-list option').length") > 50, "名前の候補(ホロカラーの一覧)")
             check(wait_js(pg, "!document.querySelector('#pkSummarySw').hidden && getComputedStyle(document.querySelector('#pkSummarySw')).backgroundColor === 'rgb(126, 194, 254)'", 5000),
@@ -80,6 +80,8 @@ def main():
             check(pg.is_checked("#pkSpk"), "「話者の名前がメンバーと合えば…」は既定でオン")
             wait_js(pg, "document.querySelector('#pkSpkList').textContent.indexOf('さくらみこの色') >= 0", 10000)
             check(True, "話者「みこ」→ さくらみこの色、と見せる: " + pg.inner_text("#pkSpkList"))
+            phone = "getComputedStyle(document.querySelector('#pkPhoneCap')).color"
+            check(wait_js(pg, "%s === 'rgb(255, 143, 223)'" % phone, 10000), "字幕の見本(電話の形)も、1行目の話者「みこ」の色(GPT-12・段2): %s" % pg.evaluate(phone))
             # 段3: 設定の引き出しを開かずに(主画面だけで)「パックを作る」を1クリックで作れる(ワンクリック)
             check(pg.evaluate("document.querySelector('#pkSettingsDrawer').hidden") is True, "「作る」を押す前に、設定の引き出しは閉じている")
             pg.click("#pkBuild")
@@ -110,11 +112,30 @@ def main():
             check(wait_js(pg, "%s === 'rgb(255, 143, 223)'" % cap_color, 10000), "映像の上の字幕: 話者「みこ」の行は さくらみこの色: %s" % pg.evaluate(cap_color))
             pick(2)
             check(wait_js(pg, "%s === 'rgb(126, 194, 254)'" % cap_color, 5000), "話者の無い行は配信者の色のまま: %s" % pg.evaluate(cap_color))
-            pg.evaluate("localStorage.setItem('tx.pk.speakerColors', '0')")
-            pick(0)
-            check(wait_js(pg, "%s === 'rgb(126, 194, 254)'" % cap_color, 5000), "パックの「話者の名前がメンバーと合えば…」を切っていれば、映像の上でも出さない")
-            pg.evaluate("localStorage.removeItem('tx.pk.speakerColors')")
+            line = "getComputedStyle(document.querySelectorAll('#segs .seg')[0]).getPropertyValue('--sp').trim().toLowerCase()"
+            check(pg.evaluate(line) == "#ff8fdf", "行の左端の線も さくらみこの色(話者の色は1つの関数。段2): %s" % pg.evaluate(line))
+            # スイッチ(編集の設定 speakerColors。以前はこのブラウザの tx.pk.speakerColors)を切ると、全部の場所から消え、設定に残る
             pg.keyboard.press("Escape")          # 行の文字の入力中の Alt+数字 は話者なので、タブは押して戻る
+            pg.click("[data-edtab=pack]")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+            pg.uncheck("#pkSpk")
+            check(wait_js(pg, "%s !== 'rgb(255, 143, 223)'" % phone, 5000), "切ると字幕の見本もメンバーの色ではなくなる")
+            deadline = time.time() + 10
+            while time.time() < deadline and srv.get("/api/settings").get("speakerColors") is not False:
+                time.sleep(0.2)
+            check(srv.get("/api/settings").get("speakerColors") is False, "スイッチは編集の設定(サーバー)に残る(まとめて実行も同じ値を読む)")
+            pg.click("[data-edtab=tx]")
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
+            pick(0)
+            check(wait_js(pg, "%s === 'rgb(126, 194, 254)'" % cap_color, 5000), "切っていれば、映像の上の字幕でも出さない(配信者の色)")
+            check(pg.evaluate(line) != "#ff8fdf", "行の左端の線も自動の色に戻る: %s" % pg.evaluate(line))
+            pg.keyboard.press("Escape")
+            pg.click("[data-edtab=pack]")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+            pg.check("#pkSpk")
+            pg.click("[data-edtab=tx]")
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
+            pg.keyboard.press("Escape")
             pg.click("[data-edtab=pack]")
             wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
             e = srv.get("/api/edit?id=" + tid)

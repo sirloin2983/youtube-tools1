@@ -556,6 +556,8 @@ function create(h){
     if (idx === capIdx) return;
     capIdx = idx;
     const el = $('#cutCaption'); el.textContent = idx >= 0 ? segs[idx].text : ''; el.hidden = idx < 0;
+    const hex = idx >= 0 && segs[idx].speaker && h.speakerColor ? h.speakerColor(segs[idx].speaker).hex : '';   // 話者の色(app.js の speakerColor の1か所。段2)
+    if (hex) el.style.setProperty('--tt-cap-color', hex); else el.style.removeProperty('--tt-cap-color');   // 合わなければ配信者の色(body の --tt-cap-color)
     document.querySelectorAll('#cutSubs .tt-csub.now').forEach(r => r.classList.remove('now'));
     const row = idx >= 0 ? document.querySelector(`#cutSubs .tt-csub[data-i="${idx}"]`) : null;
     if (row){ row.classList.add('now'); if (!V().paused){ const box = $('#cutSubs'), rt = row.offsetTop - box.offsetTop; if (rt < box.scrollTop || rt > box.scrollTop + box.clientHeight - 40) box.scrollTop = rt - 40; } }
@@ -907,6 +909,7 @@ function create(h){
     load, flush, docChanged, rowsCut, onShown, onHidden,
     active: () => ready(),
     refresh: () => render(),   // cut2resolve が使えるか分かったとき(たたき台のボタン)
+    refreshCaption(){ capIdx = -2; if (ready()) showCaption(V().currentTime || 0); },   // 話者の色が変わったとき(app.js の onSpeakerColors。段2)
     unload(){ M.loading++; reset(null); render(); },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, pristine: M.pristine, origin: M.origin }; },
