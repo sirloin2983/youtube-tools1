@@ -119,7 +119,9 @@ def problems_for(path, data):
     name = parts[-1].lower()
     if name in BAD_NAMES or BAD_NAME_RE.search(name):
         out.append("個人データ・実行時のデータの名前(%s)" % parts[-1])
-    bad_dir = next((d for d in parts[:-1] if d.lower() in BAD_DIRS), None)
+    # docs/archive/ は古い資料の置き場(2026-09-30 段0)で、作業データの archive/(スタジオの保管など)とは別。名前・秘密情報・大きさの検査は効かせる
+    dirs = parts[2:-1] if parts[:2] == ["docs", "archive"] else parts[:-1]
+    bad_dir = next((d for d in dirs if d.lower() in BAD_DIRS), None)
     if bad_dir:
         out.append("作業データのフォルダ(%s/)の中" % bad_dir)
     if len(data) > MAX_BYTES:

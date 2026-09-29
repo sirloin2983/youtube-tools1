@@ -88,13 +88,15 @@ class TestCheck(Repo):
             "app/browser-profile/Default/History": b"",
             "clip-studio/cache/x.txt": b"", "a/clip.mp4": b"", "notes.md": FAKE_GOOGLE.encode(), "run.py": ("t='%s'" % FAKE_GH).encode(),
             "k.txt": b"-----BEGIN RSA PRIVATE KEY-----", "big.txt": b"x" * (P.MAX_BYTES + 1),
+            "docs/archive/logs/x.md": b"", "docs/archive/a.log": b"", "studio/archive/x.json": b"{}",   # docs/archive の下でもそれより下の作業データの名前・ログは止める
         }
         for path, data in cases.items():
             with self.subTest(path=path):
                 self.assertTrue(P.problems_for(path, data), path)
         for path, data in {"clip-studio/serve.py": b"API_KEY_ENV = 'YOUTUBE_API_KEY'", "docs/data-location.md": b"config.json \xe3\x81\xae\xe8\xaa\xac\xe6\x98\x8e",
                            "cut2resolve/selection.example.json": b"{}", "transcribe-tool/hololive-roster.json": b"[]",
-                           "dev/push_helper.py": FAKE_GOOGLE.encode(), "docs/pipeline.md": b"sk-short"}.items():
+                           "dev/push_helper.py": FAKE_GOOGLE.encode(), "docs/pipeline.md": b"sk-short",
+                           "docs/archive/project/README.md": b"# old", "docs/archive/TRANSCRIPTION_V2_DESIGN.md": b"x"}.items():   # 古い資料の置き場(段0)
             with self.subTest(ok=path):
                 self.assertEqual(P.problems_for(path, data), [], path)
 

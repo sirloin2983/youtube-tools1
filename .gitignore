@@ -11,6 +11,7 @@ __pycache__/
 # 実行のたびに変わる状態・キャッシュ・個人データ・秘密情報(全ツール共通)
 **/cache/
 **/archive/
+!docs/archive/
 **/work/
 cut2resolve/packs/
 **/exports/

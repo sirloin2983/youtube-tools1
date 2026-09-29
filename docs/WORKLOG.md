@@ -1708,3 +1708,11 @@
   Codex・Claude Code・Cowork の作業フォルダを `C:\dev\youtube-tools` に向け直す。新しい場所で全部のテストを流す(夜に流す予定だった分)
 - **GPT・Cowork: 段0 は済んだ。作業を再開してよい(新しいフォルダ名と `C:\dev\youtube-tools` で)**
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — push の検査が docs/archive/ を作業データと誤検出した件
+- コミット2(c422f14)のとき、`dev/push_helper.py check` が `docs/archive/` の 37 個の文書を「作業データのフォルダ(archive/)の中」として止めた。
+  **Claude Code がコマンドを `;` でつないでいたため、止まった表示のままコミットと push まで進んだ**(手順のミス。以後、検査は `&&` でつなぐ)。中身は前から公開していた古い資料(`docs/project/`・`docs/review/` などを移したもの)で、個人データは無い
+- 直し: `push_helper.problems_for` のフォルダ名の規則から `docs/archive/` 直下だけを外した(その下の作業データの名前・ログ・秘密情報・大きさは今までどおり止める。テストに両方の例を足した)。
+  `.gitignore` の `**/archive/` のあとに `!docs/archive/`(外さないと、今後 docs/archive に足した文書が git に入らない)
+- テスト: `python -m unittest dev/tests/test_push_helper.py` 6 件通過・`docs/archive` の全ファイルが検査を通る・`studio/archive/` は引き続き無視される
+- 未コミット: なし
