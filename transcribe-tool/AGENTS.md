@@ -1,6 +1,7 @@
 # transcribe-tool(文字起こしツール)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.21.0**(2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/whole-retranscribe-design.md`)・映像の上の字幕に話者の色)。
+現在 **v0.22.0**(2026-09-29、精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印)。下の「名簿の呼び名と配信ごとの文脈」)。
+v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/whole-retranscribe-design.md`)・映像の上の字幕に話者の色。
 それより前の版の中身は `README.txt` の「■ v0.xx の変更」と `../docs/WORKLOG.md`(0.16.0 = 「編集」の統合・0.11.0 = 認識のワーカー分離・0.12.0 = Resolve パックの一本化 など)。
 画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
 現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/project/history/transcribe-tool-v*.md`、
@@ -21,6 +22,19 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
 - 測る道具 `../tools/eval_asr.py`(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
   採点は serve.py の `_groups`・`norm_cer`・`lev_counts` を使い、`doc_metrics`(画面の測定)と同じ数になることを `stored` のたびに照らし合わせる(ずれたら注意を出す)。
   `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ保管データの `full.flac`。テスト: リポジトリ直下で `python -m unittest tools/test_eval_asr.py`
+
+## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
+- 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(aliases = 呼び名・common = 普通の言葉と重なる呼び名・
+  misrecognitions = 誤りやすい形。**学習用の文書の修正に出るものだけ**入れる。評価用にしか出ない誤りは入れない)。読むのは `roster.py`(`load` は更新日時でキャッシュ)
+- 配信ごとの文脈 `stream_context(doc, enabled)`: チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
+  話者の名前(`roster.match_name`。ちょうど同じときだけ)→ 題名・動画のファイル名・**動画の入ったフォルダの名前**(`roster.find_in_text`。正式な名前か、common でない 3 文字以上の呼び名)。
+  6 人まで・1人 = 名前 + 呼び名 3 つ。**題名の文字列そのものはヒントに渡さない**。使った人は `params.context`・`recognition.runs[].settings.context`
+- ヒントの語は `prompt_terms(spec)` の1か所(用語集 → 文脈。`roster.fit` で先頭 150 字・語の途中で切らない)。`whisper_kwargs`・`make_flags`(英字の除外・漏れ出し)が使う。
+  設定 `autoContext`(既定オフ)。**評価用の文書・評価用として始めた文字起こし(`evalSet: true`)には用語集・文脈・置換辞書・学習した置換を渡さない**
+- S-3 の印(`make_flags`): `stock_phrase`(以前からの HALLUC は文の一部でも・`HALLUC_LINE` は行のほとんどがその文のときだけ・♪/(音楽) だけの行)・`repeats_in_line`(2〜10 文字が 5 回以上。1 文字の繰り返しは除く)・
+  近くの行の同じ文(前の5行に2回)・`LEAK_FLAG`(3 秒以内でヒントの語だけ、または「用語:」を含む)。声の検出のやり直し(`transcribe_vad_fallback`)は決まり文句・ヒントの語だけの結果を「文字 0」とみなし、
+  緩い条件の認識は `LEAK_FLAG` の行も入れない。`REDO_BAD_FLAGS` にも入れた
+- テスト: `test_roster.py`(test_metrics から読む)。測る道具 `../tools/eval_asr.py run --context none|auto --temp0`
 
 ## 構成
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。

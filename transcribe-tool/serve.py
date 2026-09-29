@@ -98,7 +98,7 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.21.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.22.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -154,6 +154,18 @@ MODELS = [
 ]
 LANGS = ["ja", "en", "ko", "zh", "auto"]
 HALLUC = ("ご視聴ありがとうございました", "チャンネル登録", "字幕", "Thanks for watching", "Subtitles by", "ご清聴ありがとうございました")
+# よくある誤認識の文(S-3。2026-09-29 に足した分): 配信者が本当に言うこともある文なので、**行のほとんどがその文のとき**だけ印を付ける
+# (上の HALLUC は以前からの決まりのまま = 文の一部に含まれれば印)。Whisper が無音・BGM から出しやすい動画の締めの決まり文句と、音楽の表記
+HALLUC_LINE = ("ご視聴いただきありがとうございました", "ご視聴いただきありがとうございます", "ご覧いただきありがとうございました",
+               "最後までご視聴", "高評価よろしくお願いします", "高評価お願いします", "高評価とチャンネル登録", "グッドボタン",
+               "次回もお楽しみに", "次の動画でお会いしましょう", "次回の動画でお会いしましょう", "また次回お会いしましょう",
+               "今日の動画はここまで", "今回の動画はここまで", "Thank you for watching", "Please subscribe", "Amara.org")
+HALLUC_LINE_REST = 3    # 決まり文句を除いた残りがこの文字数以下なら「行のほとんどがその文」
+MUSIC_ONLY = re.compile(r"^[\s♪♫♬～~〜・.。、]*([(（\[［【]\s*(音楽|拍手|BGM|ＢＧＭ)\s*[)）\]］】])?[\s♪♫♬～~〜・.。、]*$")
+LEAK_FLAG = "ヒントの語だけ(プロンプトの漏れ出しの可能性)"
+LEAK_MAX_SEC = 3.0      # 短い区間で、認識のヒントに渡した語だけが出た行(声が無い所でヒントを書き写すことがある。S-3)
+REP_MIN = 5             # 行の中で同じ語(2〜10 文字)がこの回数以上続いたら「繰り返しの可能性」(笑い・叫びの 1 文字の繰り返しは除く)
+REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
 
 
 def _reject_json_constant(name):
@@ -1981,23 +1993,59 @@ def sparse_row(start, end, text):
     return dur > SPARSE_MIN_SEC and text_chars(text) < SPARSE_MAX_CPS * dur
 
 
+def _letters(text):
+    """比べる用: NFKC・小文字・文字と数字だけ"""
+    return "".join(ch for ch in unicodedata.normalize("NFKC", str(text or "")).lower() if unicodedata.category(ch)[0] in "LN")
+
+
+def stock_phrase(text):
+    """よくある誤認識の文か(時間は見ない): 以前からの HALLUC が含まれる・行のほとんどが HALLUC_LINE の文・音楽の表記だけ(♪・(音楽))"""
+    t = str(text or "")
+    if any(h in t for h in HALLUC):
+        return True
+    if t.strip() and MUSIC_ONLY.match(t) and ("♪" in t or "♫" in t or "♬" in t or "(" in t or "（" in t or "[" in t or "【" in t or "［" in t):
+        return True
+    n = _letters(t)
+    for h in HALLUC_LINE:
+        k = _letters(h)
+        if k and k in n and len(n) - len(k) <= HALLUC_LINE_REST:
+            return True
+    return False
+
+
+def repeats_in_line(text):
+    """行の中で同じ語(2〜10 文字)が REP_MIN 回以上続くか(「ぱんぱんぱんぱんぱん…」。1 文字の繰り返し = 笑い・叫びは除く)"""
+    m = REP_RE.search(_letters(text))
+    while m:
+        if len(set(m.group(1))) > 1:
+            return True
+        m = REP_RE.search(_letters(text), m.start() + 1)
+    return False
+
+
 def make_flags(seg, prev_texts, lang=None, terms=()):
     """Whisper は BGM・無音・歌で幻覚(でたらめな文)を出しやすいので、要確認の印を付ける。
-    lang が "ja" のときは、英字が目立つ行も対象にする(terms=用語集。その中の英字の語は数えない)。
-    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(2026-09-26 ③-1)。"""
+    lang が "ja" のときは、英字が目立つ行も対象にする(terms = 認識のヒントに渡した語(prompt_terms)。その中の英字の語は数えない)。
+    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(2026-09-26 ③-1)。
+    S-3(2026-09-29): よくある誤認識の文を増やした(stock_phrase)・行の中の繰り返し(repeats_in_line)・近くの行に同じ文が3回・
+    短い区間でヒントの語だけが出た行(LEAK_FLAG。roster.leak_only)"""
     why = []
     lp, ns, cr = seg.get("avg_logprob"), seg.get("no_speech_prob"), seg.get("compression_ratio")
     if lp is not None and lp < -1.0:
         why.append("自信が低い")
     if ns is not None and ns > 0.6:
         why.append("音声でない可能性(BGMなど)")
-    if cr is not None and cr > 2.4:
-        why.append("繰り返しの可能性")
     text = seg["text"]
-    if any(h in text for h in HALLUC) and seg["end"] - seg["start"] < 8:
+    if (cr is not None and cr > 2.4) or repeats_in_line(text):
+        why.append("繰り返しの可能性")
+    dur = seg["end"] - seg["start"]
+    if stock_phrase(text) and dur < 8:
         why.append("よくある誤認識の文")
-    if text and prev_texts[-2:] == [text, text]:
-        why.append("同じ文の繰り返し")
+    key = _letters(text)
+    if text and (prev_texts[-2:] == [text, text] or (len(key) >= 4 and sum(1 for p in prev_texts[-5:] if _letters(p) == key) >= 2)):
+        why.append("同じ文の繰り返し")   # 続けて3回、または近く(前の5行)に同じ文が2回あって3回目
+    if terms and (("用語" in text and ":" in unicodedata.normalize("NFKC", text)) or (dur <= LEAK_MAX_SEC and _roster.leak_only(text, terms))):
+        why.append(LEAK_FLAG)
     if lang == "ja" and latin_suspect(text, terms):
         why.append("英字が多い(英語の幻覚の可能性)")
     if sparse_row(seg.get("start"), seg.get("end"), text):
@@ -2199,7 +2247,9 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             raw.append(seg_to_dict(s))
             if on_seg:
                 on_seg(raw[-1], len(raw))   # この回(やり直しごと)の行の数
-        if not any(r["text"] and not any(h in r["text"] for h in HALLUC) for r in raw) and not last:   # 「ご視聴ありがとうございました」だけ = 文字が 0 と同じ
+        terms = prompt_terms(spec)
+        if not any(r["text"] and not stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
+            # 「ご視聴ありがとうございました」だけ・ヒントの語だけ = 文字が 0 と同じ
             retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
             log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
             continue
@@ -4741,7 +4791,7 @@ def finish_range_lines(raw, spec, shift):
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
 REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
-REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性")
+REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", LEAK_FLAG)
 
 
 def redo_targets(doc, ids=None):
@@ -5029,7 +5079,7 @@ class RangeRecognizer:
                     raise Cancelled()
                 raw.append(seg_to_dict(x))
             lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset)
-            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "")]   # 無音から出やすい幻覚は入れない(元の行が残る)
+            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
             self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
         return out
 

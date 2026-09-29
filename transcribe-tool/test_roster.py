@@ -169,6 +169,76 @@ class TestStreamContext(unittest.TestCase):
         self.assertIsNone(S.context_record({"context": {"members": []}}))
 
 
+def row(a, b, text, **kw):
+    return dict({"start": a, "end": b, "text": text}, **kw)
+
+
+class TestFlagsS3(unittest.TestCase):
+    """S-3: よくある誤認識の文・行の中の繰り返し・近くの行の同じ文・ヒントの語だけの行"""
+
+    def test_stock_phrase(self):
+        self.assertTrue(S.stock_phrase("ご視聴いただきありがとうございました"))
+        self.assertTrue(S.stock_phrase("高評価よろしくお願いします!"))
+        self.assertTrue(S.stock_phrase("では次の動画でお会いしましょう"))                     # 決まり文句の前後 3 文字まで
+        self.assertFalse(S.stock_phrase("みんな高評価よろしくお願いしますね今日も"))          # 配信者が本当に言う形(文の一部)は印なし
+        self.assertTrue(S.stock_phrase("えっと字幕つけて"))                                   # 以前からの HALLUC は文の一部でも(今までどおり)
+        self.assertTrue(S.stock_phrase("♪～"))
+        self.assertTrue(S.stock_phrase("(音楽)"))
+        self.assertTrue(S.stock_phrase("【 BGM 】"))
+        self.assertFalse(S.stock_phrase("音楽いいね"))
+        self.assertFalse(S.stock_phrase("～"))
+        self.assertFalse(S.stock_phrase(""))
+        self.assertIn("よくある誤認識の文", S.make_flags(row(0, 3, "ご覧いただきありがとうございました"), []))
+        self.assertNotIn("よくある誤認識の文", S.make_flags(row(0, 9, "ご覧いただきありがとうございました"), []))   # 8 秒以上は対象外(今までどおり)
+
+    def test_repeats_in_line(self):
+        self.assertTrue(S.repeats_in_line("なんかにもぱんぱんぱんぱんぱんぱん"))
+        self.assertTrue(S.repeats_in_line("歩こう、歩こう、歩こう、歩こう、歩こう。"))            # 記号をはさんでも
+        self.assertFalse(S.repeats_in_line("はいはいはいはい"))                                   # 4 回までは本当の発話にもある
+        self.assertFalse(S.repeats_in_line("あはははははははははは"))                             # 笑い・叫び(1 文字の繰り返し)は除く
+        self.assertFalse(S.repeats_in_line("ああああああああああああ"))
+        self.assertIn("繰り返しの可能性", S.make_flags(row(0, 3, "げんげんげんげんげん"), []))
+        self.assertEqual(S.make_flags(row(0, 3, "はいはいはいはい"), []), "")
+
+    def test_same_line_nearby(self):
+        prev = ["やばいやばい", "いくよ", "やばいやばい", "ね"]
+        self.assertIn("同じ文の繰り返し", S.make_flags(row(0, 2, "やばい、やばい"), prev))          # 前の5行に同じ文が2回
+        self.assertEqual(S.make_flags(row(0, 2, "やばいやばい"), prev[:2]), "")                   # 2回目までは印なし
+        self.assertEqual(S.make_flags(row(0, 1, "はい"), ["はい", "うん", "はい"]), "")          # 短い文は、続けて3回のときだけ
+        self.assertIn("同じ文の繰り返し", S.make_flags(row(0, 1, "はい"), ["はい", "はい"]))
+
+    def test_leak_flag(self):
+        terms = ["ホロライブ", "大空スバル", "スバル"]
+        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバル"), [], "ja", terms))
+        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 2.0, "大空スバル、ホロライブ。"), [], "ja", terms))
+        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 5.0, "スバル"), [], "ja", terms))        # 短い区間だけ(長い区間は「文字が少ない」の印が拾う)
+        self.assertIn(S.LEAK_FLAG, S.make_flags(row(0, 10.0, "用語: スバル"), [], "ja", terms))    # ヒントの書き出しそのものは長さによらず
+        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバルだよ"), [], "ja", terms))
+        self.assertNotIn(S.LEAK_FLAG, S.make_flags(row(0, 1.2, "スバル"), [], "ja", []))           # ヒントを渡していなければ付けない
+        self.assertIn(S.LEAK_FLAG, S.REDO_BAD_FLAGS)                                               # 認識し直してこの印なら「良くなった」とみなさない
+
+    def test_vad_fallback_treats_leak_as_empty(self):
+        import types
+
+        class Segs(list):
+            def close(self):
+                pass
+
+        class Model:
+            params = {"vad_filter", "vad_parameters", "language", "beam_size", "condition_on_previous_text", "no_speech_threshold", "initial_prompt", "hotwords"}
+
+            def transcribe(self, audio, **kw):
+                if kw.get("vad_filter"):   # 残りは十分だが、出たのはヒントの語だけ → 文字が 0 と同じにやり直す
+                    return Segs([types.SimpleNamespace(start=0.0, end=1.0, text="スバル", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=20.0)
+                return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="やるぜよー", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=30.0)
+
+        spec = {"vadMode": "weak", "language": "ja", "beam": 5, "model": "large-v3", "glossary": [], "context": {"terms": ["大空スバル", "スバル"]}}
+        raw, vad = S.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", spec)
+        self.assertEqual(([r["text"] for r in raw], vad["used"], vad["retries"][0]["why"]), (["やるぜよー"], "off", "empty"))
+        raw, vad = S.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", dict(spec, context={}))
+        self.assertEqual(([r["text"] for r in raw], vad["retries"]), (["スバル"], []))            # ヒントを渡していなければ本物の発話とみなす
+
+
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestContextHttp(unittest.TestCase):
     """疑似モードのサーバー: 設定の autoContext で文書に文脈が残る・評価用として文字起こしすると辞書・文脈を使わない"""

@@ -152,7 +152,9 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.make_flags(sg, []), "")                              # 言語を渡さなければ従来どおり(印なし)
         self.assertEqual(S.make_flags(sg, [], "en"), "")
         self.assertIn("英字が多い", S.make_flags(sg, [], "ja"))
-        self.assertEqual(S.make_flags(sg, [], "ja", ["honey", "it's", "up"]), "")
+        self.assertEqual(S.make_flags(sg, [], "ja", ["honey", "it's", "up"]), S.LEAK_FLAG)   # 用語集の英字の語は「英字が多い」に数えない
+                                                                                           # (この行は用語集の語だけなので S-3 の「ヒントの語だけ」は付く)
+        self.assertEqual(S.make_flags(dict(sg, end=5), [], "ja", ["honey", "it's", "up"]), "")
 
     def test_sanitize_keeps_proofed_only_when_true(self):
         obj = {"speakers": [], "segments": [
