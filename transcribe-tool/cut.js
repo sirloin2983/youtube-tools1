@@ -391,13 +391,26 @@ function create(h){
     if (!quiet){ renderStatus(); renderTools(); }
     cutKeybarScene();
   }
-  /* 画面の下の帯(UIKit.keybar。段3): 端を選んでいる間だけ、,. の意味を知らせる場面に変える */
+  /* 共通の再生キーの今の割り当て(編集のキー配置 = UIKit.keymap)の表記。外していれば ''(帯・案内の文を割り当てから作る。段6・GPT-16) */
+  function pkMap(){ const km = h.keymap ? h.keymap() : null; return km && Object.keys(km).length ? km : (window.UIKit && UIKit.keys ? UIKit.keys.playbackMap(null) : {}); }
+  function pk(id){ const k = pkMap()[id]; return k && window.UIKit && UIKit.keys ? UIKit.keys.keyText(k) : ''; }
+  /* 画面の下の帯(UIKit.keybar。段3): 端を選んでいる間だけ、1コマのキーの意味を知らせる場面に変える */
   function cutKeybarScene(){
     if (!window.UIKit || !UIKit.keybar || h.tab() !== 'cut' || !M.shown) return;
-    if (M.sel && M.sel.kind === 'clip' && M.edge) UIKit.keybar.set([{ k: ',', l: '1コマ' }, { k: '.', l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Esc', l: '選択を外す' }]);
-    else if (M.sel && M.sel.kind === 'clip') UIKit.keybar.set([{ k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Del', l: '削る' }, { k: 'S', l: '分割' }, { k: 'Esc', l: '選択を外す' }]);
-    else UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: '[ ]', l: '区間を選ぶ' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: 'I', l: '始まり' }, { k: 'O', l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
+    const set = items => UIKit.keybar.set(items.filter(x => x.k));
+    if (M.sel && M.sel.kind === 'clip' && M.edge) set([{ k: pk('frameBack'), l: '1コマ' }, { k: pk('frameFwd'), l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Esc', l: '選択を外す' }]);
+    else if (M.sel && M.sel.kind === 'clip') set([{ k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Del', l: '削る' }, { k: 'S', l: '分割' }, { k: 'Esc', l: '選択を外す' }]);
+    else set([{ k: pk('playPause'), l: '再生・停止' }, { k: '[ ]', l: '区間を選ぶ' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: pk('markIn'), l: '始まり' }, { k: pk('markOut'), l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
   }
+  /* タイムラインの下のキーの案内(今の割り当てから) */
+  function renderKeysText(){
+    const el = $('#cutKeysText'); if (!el) return;
+    const two = (a, b) => [pk(a), pk(b)].filter(Boolean).join(' ');
+    el.textContent = 'キー: ' + [[pk('playPause'), '再生・停止'], [[pk('back1'), pk('stop'), pk('play')].filter(Boolean).join(' '), '(戻る・止める・再生)'], [two('seekBack', 'seekFwd'), '1秒(Shift で5秒)'],
+      ['S', '分割'], ['Del', '削る/戻す'], [two('markIn', 'markOut'), '始まり・終わり'], ['X', '始まり〜終わりを削る'], [two('frameBack', 'frameFwd'), '1コマ(端を選んでいれば、その端を。Shift で10コマ)'],
+      ['Ctrl+Z / Ctrl+Shift+Z', ''], ['+ −', 'ズーム(ホイール・Shift+ホイールで移動)'], ['?', '一覧・キーを変える']].filter(x => x[0]).map(x => x[0] + (x[1] && x[1][0] !== '(' ? ' ' : '') + x[1]).join(' ・ ');
+  }
+  window.addEventListener('ytt-keys-changed', () => { renderKeysText(); cutKeybarScene(); });
   function tickStep(){
     const fs = frameSec(), c = [fs, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
     for (const s of c) if (s * M.pps >= MIN_TICK_PX) return s;
@@ -662,7 +675,7 @@ function create(h){
     else { const { a, b } = M.sel; change(cs => addRange(cs, a, b)); M.sel = null; render(); }
   }
   function cutIO(){
-    const { i, o } = M.io; if (i === null || o === null || i === o) return h.toast('I で始まり、O で終わりを決めてから(X)', 3000);
+    const { i, o } = M.io; if (i === null || o === null || i === o) return h.toast(`${pk('markIn') || '始まりの印のキー'} で始まり、${pk('markOut') || '終わりの印のキー'} で終わりを決めてから(X)`, 3000);
     const a = Math.min(i, o), b = Math.max(i, o);
     if (change(cs => subtract(cs, a, b))){ M.io = { i: null, o: null }; render(); }
   }
@@ -855,7 +868,7 @@ function create(h){
   };
   const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
     media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30), keymap: () => (h.keymap ? h.keymap() : null),   // 再生のキーの割り当て(編集の ⚙ 設定の「キー配置」)
-    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])'),
+    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])') && !(h.menuHasKeys && h.menuHasKeys(document.activeElement)),
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
     /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
@@ -864,6 +877,7 @@ function create(h){
   }) : null;
   function onKey(e){
     if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || h.isTextEntry(e.target)) return;
+    if (h.menuHasKeys && h.menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作を優先する(GPT-04)
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
@@ -873,7 +887,10 @@ function create(h){
     const run = fn => { e.preventDefault(); fn(); };
     /* Shift+, / Shift+. : 選んだ端を10コマ(共通キーは Shift つきの , . を処理しないので、ここで先に扱う)。
        Shift を押すと e.key は ","."" ではなく "<"">"" になる(US 配列)ので、物理キーの e.code で見る */
-    if (e.shiftKey && (e.code === 'Comma' || e.code === 'Period') && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(e.code === 'Comma' ? -10 : 10));
+    /* 1コマのキーが , . のままなら物理キー(e.code)で、英字などに変えていれば「そのキー + Shift」で */
+    const fm = pkMap(), sc = e.shiftKey && window.UIKit && UIKit.keys ? UIKit.keys.comboOf(e) : '';
+    const tenDir = !e.shiftKey ? 0 : (e.code === 'Comma' && fm.frameBack === ',') || (fm.frameBack && sc === 'Shift+' + fm.frameBack) ? -1 : (e.code === 'Period' && fm.frameFwd === '.') || (fm.frameFwd && sc === 'Shift+' + fm.frameFwd) ? 1 : 0;
+    if (tenDir && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(tenDir * 10));
     if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && e.target && e.target.closest && e.target.closest('#edTabs')) return;   // タブの並びの中は #edTabs 自身の ← → 処理(タブ切り替え)に任せる
     if (commonKeys && commonKeys(e)) return;
     switch (e.code){
@@ -897,7 +914,7 @@ function create(h){
   }
   function onShown(){
     M.shown = true;
-    cutKeybarScene();
+    cutKeybarScene(); renderKeysText();
     if (!ready()) { render(); return; }
     ensureMedia();
     const v = V(), t = h.player().currentTime || 0;

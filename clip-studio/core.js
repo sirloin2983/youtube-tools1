@@ -141,6 +141,8 @@ function keyRows(rows){
 }
 Studio.openKeyHelp = () => {
   const dlg = $('#keyHelp'); if (!dlg || dlg.open) return;
+  const km = Studio.review && Studio.review.keymap;
+  if (km){ km.mount($('#keyHelpBody')); km.clearNote(); dlg.showModal(); return; }   // キーの一覧 = キー配置(UIKit.keymap。③ の「キー配置」と同じ部品。段6)
   let html = window.UIKit && UIKit.keys ? `<div class="ui-kgrid">${UIKit.keys.helpHtml()}</div>` : '';
   html += `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定を閉じる']])}</section>`;
   const groups = Studio.review && Studio.review.keyHelp ? Studio.review.keyHelp() : [];

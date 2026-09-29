@@ -3376,7 +3376,18 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "packFps": lambda v: v in ("24", "25", "30", "50", "60"),
                        "packSize": lambda v: v in ("1080x1920", "1920x1080"),
                        "speakerColors": lambda v: isinstance(v, bool),
-                       "packBackup": lambda v: isinstance(v, bool)}
+                       "packBackup": lambda v: isinstance(v, bool),
+                       # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
+                       "keymap": lambda v: _keymap_ok(v)}
+_KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
+_KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(app/prefs.py と同じ)
+
+
+def _keymap_ok(v):
+    return (isinstance(v, dict) and len(v) <= 60
+            and all(isinstance(k, str) and _KM_ID_RE.fullmatch(k) and isinstance(c, str) and (c == "" or _KM_COMBO_RE.fullmatch(c)) for k, c in v.items()))
+
+
 _settings_lock = threading.Lock()
 
 

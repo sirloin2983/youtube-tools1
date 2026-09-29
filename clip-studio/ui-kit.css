@@ -294,6 +294,28 @@ dialog h2,dialog h3{margin-top:0}
 .ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
 .ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
+/* v8(段6): キーの一覧 = キー配置(UIKit.keymap)。キーはボタン(押すと次のキーを待つ)・変えられないキーは錠。置き場の幅で 2 列 → 1 列 */
+.ui-km{container-type:inline-size}
+.ui-km-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+@container (max-width:600px){.ui-km-grid{grid-template-columns:minmax(0,1fr)}}
+.ui-km-intro{margin:0 0 4px}
+.ui-km-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 0 0;padding:6px 10px;border-radius:var(--r);background:var(--info-soft);color:var(--info-ink);font-size:13px}
+.ui-km-note:empty{display:none}
+.ui-km-note.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.ui-km-note.cap{background:var(--accent-soft);color:var(--ink)}
+.ui-km-note .btn{flex:none}
+.ui-km-key{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:64px;min-height:28px;padding:2px 8px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font:inherit;font-size:12px;cursor:pointer}
+.ui-km-key:hover{border-color:var(--line-strong)}
+.ui-km-key:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--accent)}
+.ui-km-key .ui-kbd{opacity:1;border-color:transparent;padding:0 2px}
+.ui-km-key.none{color:var(--ink-3)}
+.ui-km-key.cap{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:600}
+.ui-km-row .ui-klabel{display:flex;flex-direction:column;gap:1px}
+.ui-km-lost{color:var(--warn-ink);font-size:11.5px}
+.ui-km-def{flex:none;min-height:24px;padding:0 8px;font-size:12px}
+.ui-km-fixed .ui-klabel{color:var(--ink-3)}
+.ui-km-lock{flex:none;display:inline-flex;color:var(--ink-4)}
+.ui-km-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px}
 
 /* 表 */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}

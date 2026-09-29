@@ -64,7 +64,7 @@ def _clean_keymap(v, cur):
             raise PrefsError("キーの割り当ての形が正しくありません")
         clean = {}
         for k, c in pb.items():
-            if not isinstance(k, str) or not ACTION_RE.match(k) or not isinstance(c, str) or (c and not COMBO_RE.match(c)):
+            if not isinstance(k, str) or not ACTION_RE.fullmatch(k) or not isinstance(c, str) or (c and not COMBO_RE.fullmatch(c)):
                 raise PrefsError("キーの割り当ての形が正しくありません: %s" % str(k)[:40])
             clean[k] = c
         out["playback"] = clean   # 再生キーは一覧ごと送る(画面の一覧 = 全部の割り当て)

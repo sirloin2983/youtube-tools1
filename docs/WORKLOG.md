@@ -1623,3 +1623,28 @@
 - テスト: `ytt_core/test_ytt_core.py`(from_channel)・`app/test_window.py`(決める順・API)・`app/test_autorun.py`(TestStage5)・`e2e_edit_pack.py`(文書ごとに覚える)。
   ytt_core・入口 単体 104・e2e_edit_pack・e2e_autorun・e2e_portal・e2e_edit_tabs・e2e_ui_mounted・スタジオ e2e_ui --mounted 157・ui-kit e2e_styleguide・node 18 通過
 - 次: 段6(? でキーを変える)
+
+## 2026-09-29 Claude Code — 気が利く画面へ 段6(途中): ? でキーを変える(UIKit.keymap)
+- **途中でセッションを切り替えた(ユーザーの指示)。コミットは WIP**。残りは下の「残り」
+- 変更:
+  - `ui-kit/ui-kit.js`(v8)・`ui-kit.css`: `UIKit.keymap.create(opt)` = キーの一覧がそのままキー配置の設定。? の一覧と ⚙ の「キー配置」は同じ部品(`mount(el)`)。
+    キーのボタン → その場で次のキーを待つ(Esc = 取り消しだけ・一覧は閉じない / Delete = 外す / 変換中は受け取らない / 断ったら待つのを続けて理由を一覧の中に)。
+    重なりは「「X」から外しました [戻す]」(一覧の中。モーダルの上なので知らせは使わない)・行ごとの「標準」・すべて標準に戻す・変えられないキーは錠と理由。
+    重なりの検査は部品の1か所: 共通の再生キーにできないキー `PB_BLOCKED`(全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・派生キー(← → のキー + Shift = 5秒。GPT-03)。
+    共通の再生キーはホームの設定 `keymap.playback`(入口の外では `fallbackPlayback`)。初回は編集の settings.keymap にあった再生キーを移す。戻ったとき(`UIKit.life.onReturn`)に読み直す。
+    `UIKit.keys.playback` は変換中を受け取らない・`onKey(name, action)` に操作を渡す。錠のアイコン `lock`
+  - 編集(`app.js`・`cut.js`・`index.html`): KEY_DEFS・keyRefusal・sanitizeKeymap・kmCap・setKey・#kmReset をやめて部品へ。#keys の中身は `#keysList`(部品)+ `#keysFlow`(基本の流れを今の割り当てから)。
+    ? をもう一度押すと閉じる(S-29)。行のボタンのツールチップ・「もう一度 Z」・2 カット のキーの帯とタイムラインの下の案内 `#cutKeysText` も今の割り当てから(GPT-16・S-30)。
+    2 カット のキーは `CUT_KEY_ROWS` の1か所(一覧に出す)。1コマのキーを変えたら「そのキー + Shift」で10コマ。
+    重ねて開いた左のメニューの中のキーは後ろの文書を動かさない(`menuHasKeys`。GPT-04)。校正のキーの保存は `api/settings/patch` の `keymap`(serve.py の SETTINGS_PATCH_KEYS。形は fullmatch で検査)
+  - スタジオ(`review.js`・`core.js`・`review.css`): setKey・startCapture・SHARED_KEYS をやめて部品へ(③ のキー配置と ? の一覧 `#keyHelpBody`)。共通の再生キーもスタジオで変えられる(S-27)。
+    組み合わせの名前は実際の割り当てから(S-28)。IN/OUT のボタンの横のキー・キーの帯も今の割り当てから。変換中は受け取らない。「標準に戻す」ボタンは部品の「すべて標準に戻す」へ
+  - `app/prefs.py`: キーの形の検査を fullmatch に(`$` は末尾の改行の前にも合うので "s\n" が通っていた)
+- テスト(通過): 編集 単体 151(`test_edit.py` に keymap の patch)・入口 test_window 35・ui-kit sync・`e2e_ui_v08.py`(キー配置の欄を新しい部品に合わせて直した)・**新しい `app/e2e_keymap.py`**(移す・Esc・変換中・派生キー・[戻す]・標準・スタジオと同じ再生キー・GPT-04)
+- 残り(次のセッション):
+  1. 流していないテスト: `e2e_edit_tabs.py`・`e2e_ui_handoff.py`(? で開く)・`e2e_edit_cut.py`(帯)・`e2e_edit_pack.py`・`e2e_ui_mounted.py`・スタジオ `e2e_ui.py` と `--mounted`(? の一覧の中身の確認 402 行付近)・
+     `node --test clip-studio/test_review.cjs`(review.js の関数を切り出すテスト。KM が無い形で動くか)・ui-kit `e2e_styleguide.py`・入口 `e2e_portal.py`・`e2e_window.py`
+  2. `app/test_window.py` に prefs の "s\n" を断るテストを足す(書きかけで入っていない)
+  3. ui-kit の README.md に「v8」(UIKit.keymap の使い方)・transcribe-tool/AGENTS.md の「キー配置」の項を新しい形に書き直す・AGENTS.md の表に `app/e2e_keymap.py`
+  4. 段6 を WIP でない形でコミット → 段7 → 段9 → 版を上げる
+- 未コミット: なし(このコミットに全部入れた)

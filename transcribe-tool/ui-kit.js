@@ -989,6 +989,7 @@
     opts = opts || {};
     return function (e) {
       if (opts.enabled && !opts.enabled()) return false;
+      if (e.isComposing || e.keyCode === 229) return false;   // 日本語の変換中は受け取らない(段6)
       if (isTyping(e.target)) return false;
       if (e.ctrlKey || e.altKey || e.metaKey) return false;
       /* media・fps・keymap は関数でもよい(毎回そのとき呼ぶ: 動画の差し替え・読み込み後に決まる fps・設定の変更に対応) */
@@ -1028,12 +1029,294 @@
       else if (action === 'markIn') { if (typeof opts.onIn === 'function') opts.onIn(); }
       else if (action === 'markOut') { if (typeof opts.onOut === 'function') opts.onOut(); }
       var name = keyText(combo);
-      if (typeof opts.onKey === 'function') opts.onKey(name);
+      if (typeof opts.onKey === 'function') opts.onKey(name, action);   // どの操作か(キーの名前は割り当てで変わるので、画面は操作で判断する)
       keybar.flash(name);
       return true;
     };
   }
   var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap };
+
+  /* ==== v8(気が利く画面へ 段6): keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
+     ? の一覧と ⚙ の「キー配置」は同じ部品を出す(場所が 2 つでも中身は 1 つ)。キーのボタンを押す → その場で次のキーを待つ
+     (Esc = 取り消しだけ・一覧は閉じない / Delete = 外す)。重なったら一覧の中に「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせは一覧の中に出す)。
+     共通の再生キー(PLAYBACK_ACTIONS)はホームの設定 keymap.playback に 1 つ(どのツールで変えても同じ)。ツールのキーは各ツールが保存する。
+     重なりの検査はここ 1 か所: 変えられないキー(全ツール)・共通の再生キー・ツールのキー・派生キー(← → に当たるキー + Shift = 5 秒。GPT-03) */
+  var PB_IDS = {};
+  for (var pbi = 0; pbi < PLAYBACK_ACTIONS.length; pbi++) PB_IDS[PLAYBACK_ACTIONS[pbi][0]] = PLAYBACK_ACTIONS[pbi];
+  /* 共通の再生キーにできないキー(どれかのツールで固定の意味がある。再生のキーはどのタブ・ツールでも先に働くので、ツールごとには決められない) */
+  var PB_BLOCKED = { ArrowUp: '編集: 前の行', ArrowDown: '編集: 次の行', 'Shift+ArrowUp': '編集: 前の未校正', 'Shift+ArrowDown': '編集: 次の未校正',
+    Tab: '入力欄の出入り', 'Shift+Tab': 'フォーカスの移動', Escape: '取り消し・閉じる', Enter: 'ボタンを押す', '?': 'キーの一覧',
+    s: '編集 2 カット: 分割', x: '編集 2 カット: I〜O を削る', q: '編集 2 カット: 始まりの端', w: '編集 2 カット: 終わりの端',
+    '[': '編集 2 カット: 前の区間', ']': '編集 2 カット: 次の区間', Delete: '編集 2 カット: 削る/戻す', Backspace: '編集 2 カット: 削る/戻す',
+    '+': '編集 2 カット: 拡大', '=': '編集 2 カット: 拡大', '-': '編集 2 カット: 縮小', Home: '編集 2 カット: 先頭へ', End: '編集 2 カット: 末尾へ' };
+  for (var dgi = 0; dgi <= 9; dgi++) PB_BLOCKED[String(dgi)] = '編集: 話者の番号';
+  var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* app/prefs.py の COMBO_RE と同じ */
+  /* ← → に当たるキー + Shift(5 秒)。1文字の記号は Shift で文字そのものが変わるので派生しない(comboOf と同じ決まり) */
+  function kmDerived(combo) {
+    if (!combo || combo.indexOf('Shift+') === 0) return '';
+    if (combo.length === 1 && !/[a-z]/.test(combo)) return '';
+    return 'Shift+' + combo;
+  }
+  /* キーの表記 → <kbd>。'Shift+j' → Shift + J・'+' はそのまま 1 つ */
+  function kmKbd(combo) {
+    var parts = combo.indexOf('Shift+') === 0 && combo.length > 6 ? ['Shift', combo.slice(6)] : [combo];
+    return parts.map(function (p) { return '<kbd class="ui-kbd">' + esc(KEY_TEXT[p] || (p.length === 1 ? p.toUpperCase() : p)) + '</kbd>'; }).join('+');
+  }
+  /* 一覧に出すだけの表記(変えられないキー・固定の別の手段)。'Ctrl+Shift+Z'・'1…9'・'Shift+↓' など */
+  function kmKbdText(text) {
+    var t = String(text);
+    var parts = t === '+' ? ['+'] : t.split('+');
+    return parts.map(function (p) { return '<kbd class="ui-kbd">' + esc(p) + '</kbd>'; }).join('+');
+  }
+  var kmCap = null, kmEscAt = 0;   /* キーを待っている { km(内部), id, el }(画面に 1 つ)・Esc で取り消した時刻(同じ Esc で一覧が閉じないように) */
+  function kmCreate(o) {
+    o = o || {};
+    var acts = o.actions || [], byId = {}, groups = o.groups || [], fixed = o.fixed || [];
+    for (var i = 0; i < acts.length; i++) byId[acts[i].id] = acts[i];
+    var self = { tool: {}, pb: {}, prefsPb: null, eff: {}, used: {}, lost: {}, derived: {}, mounts: [], note: null, lastId: null };
+    function labelOf(id) { return PB_IDS[id] ? PB_IDS[id][2] : (byId[id] ? byId[id].label : id); }
+    function defOf(id) { return PB_IDS[id] ? PB_IDS[id][1] : (byId[id] ? byId[id].def : ''); }
+    function toolRefuse(combo) { return typeof o.refuse === 'function' ? (o.refuse(combo) || '') : ''; }
+    /* 保存した値 → 今効く割り当て。重なり・使えないキーは外し、理由を lost に残す(一覧のその行に出す)。再生のキーが先(先に処理されるため) */
+    function compute() {
+      var eff = {}, used = {}, lost = {}, derived = {}, i, id, k, why;
+      for (i = 0; i < PLAYBACK_ACTIONS.length; i++) {
+        id = PLAYBACK_ACTIONS[i][0]; k = typeof self.pb[id] === 'string' ? self.pb[id] : PLAYBACK_ACTIONS[i][1];
+        why = !k ? '' : !KM_COMBO_RE.test(k) ? '形が正しくない' : PB_BLOCKED[k] ? '「' + PB_BLOCKED[k] + '」に使う' : toolRefuse(k) ? '「' + toolRefuse(k) + '」に使う'
+          : used[k] ? '「' + labelOf(used[k]) + '」と重なる' : '';
+        if (why) { lost[id] = { key: k, why: why }; k = ''; }
+        if (k) used[k] = id;
+        eff[id] = k;
+      }
+      ['seekBack', 'seekFwd'].forEach(function (sid) { var d = kmDerived(eff[sid]); if (d && !used[d]) derived[d] = sid; });
+      for (i = 0; i < acts.length; i++) {
+        id = acts[i].id; k = typeof self.tool[id] === 'string' ? self.tool[id].slice(0, 24) : acts[i].def;
+        why = !k ? '' : !KM_COMBO_RE.test(k) ? '形が正しくない' : toolRefuse(k) ? '「' + toolRefuse(k) + '」に使う'
+          : used[k] ? (PB_IDS[used[k]] ? '共通の再生キー「' + labelOf(used[k]) + '」に使われている' : '「' + labelOf(used[k]) + '」と重なる')
+          : derived[k] ? '共通の再生キー「' + labelOf(derived[k]) + '」の Shift つき(5秒)に使われている' : '';
+        if (why) { lost[id] = { key: k, why: why }; k = ''; }
+        if (k) used[k] = id;
+        eff[id] = k;
+      }
+      self.eff = eff; self.used = used; self.lost = lost; self.derived = derived;
+    }
+    /* 割り当てられない理由('' = 割り当てられる)。ほかの操作と重なるだけなら割り当てられる(そちらを外して [戻す] を出す) */
+    function refusal(id, combo) {
+      var K = keyText(combo), r, d;
+      if (!KM_COMBO_RE.test(combo)) return K + ' は割り当てられません';
+      if (PB_IDS[id]) {
+        if ((r = PB_BLOCKED[combo] || toolRefuse(combo))) return K + ' は「' + r + '」に使っているので、共通の再生キーには割り当てられません';
+        if ((id === 'seekBack' || id === 'seekFwd') && (d = kmDerived(combo)) && (r = PB_BLOCKED[d] || toolRefuse(d)))
+          return K + ' に Shift を足した ' + keyText(d) + '(5秒)が「' + r + '」と重なるので割り当てられません';
+        return '';
+      }
+      if ((r = toolRefuse(combo))) return K + ' は「' + r + '」に使っているので割り当てられません';
+      if (self.derived[combo]) return K + ' は共通の再生キー「' + labelOf(self.derived[combo]) + '」に Shift を足した 5 秒の移動に使っているので割り当てられません';
+      return '';
+    }
+    function fullPb(pb) {
+      var out = {};
+      for (var i = 0; i < PLAYBACK_ACTIONS.length; i++) { var id = PLAYBACK_ACTIONS[i][0]; out[id] = typeof pb[id] === 'string' ? pb[id] : PLAYBACK_ACTIONS[i][1]; }
+      return out;
+    }
+    function fullTool(tool) {
+      var out = {};
+      for (var i = 0; i < acts.length; i++) { var id = acts[i].id; out[id] = typeof tool[id] === 'string' ? tool[id] : acts[i].def; }
+      return out;
+    }
+    function copy(x) { var out = {}; for (var k in x) if (Object.prototype.hasOwnProperty.call(x, k)) out[k] = x[k]; return out; }
+    function savePb() {
+      var full = fullPb(self.pb);
+      if (prefs.available()) { self.prefsPb = full; prefs.patch('keymap', { playback: full }).catch(function () { /* 失敗の知らせは prefs が出す */ }); }
+      else if (o.fallbackPlayback && typeof o.fallbackPlayback.save === 'function') o.fallbackPlayback.save(full);
+    }
+    function commit(tool, pb, before, msg, kind) {
+      var toolChanged = JSON.stringify(tool) !== JSON.stringify(self.tool), pbChanged = JSON.stringify(pb) !== JSON.stringify(self.pb);
+      self.tool = tool; self.pb = pb; compute();
+      if (toolChanged && typeof o.save === 'function') o.save(fullTool(self.tool));
+      if (pbChanged) savePb();
+      self.note = msg ? { text: msg, kind: kind || '', undo: before } : null;
+      paint(); changed();
+    }
+    function snapshot() { return { tool: copy(self.tool), pb: copy(self.pb) }; }
+    function set(id, combo, msg) {
+      if (!PB_IDS[id] && !byId[id]) return false;
+      combo = combo || '';
+      if (combo) { var why = refusal(id, combo); if (why) { say(why, 'warn'); return false; } }
+      var before = snapshot(), tool = copy(self.tool), pb = copy(self.pb), taken = [], k;
+      if (combo) {
+        for (k in self.eff) if (k !== id && self.eff[k] === combo) {
+          if (PB_IDS[k]) { pb[k] = ''; taken.push('「' + labelOf(k) + '」(共通の再生キー。スタジオ・編集とも)'); } else { tool[k] = ''; taken.push('「' + labelOf(k) + '」'); }
+        }
+        var d = (id === 'seekBack' || id === 'seekFwd') ? kmDerived(combo) : '';
+        if (d) for (k in self.eff) if (byId[k] && self.eff[k] === d) { tool[k] = ''; taken.push('「' + labelOf(k) + '」(' + keyText(d) + ')'); }
+      }
+      (PB_IDS[id] ? pb : tool)[id] = combo;
+      self.lastId = id;
+      commit(tool, pb, before, msg || (taken.length ? taken.join('・') + 'から ' + keyText(combo) + ' を外しました(未設定になりました)'
+        : combo ? '「' + labelOf(id) + '」を ' + keyText(combo) + ' にしました' : '「' + labelOf(id) + '」のキーを外しました'), taken.length ? 'warn' : '');
+      return true;
+    }
+    function undo() {
+      var n = self.note; if (!n || !n.undo) return;
+      commit(n.undo.tool, n.undo.pb, null, 'もとに戻しました', '');
+    }
+    function say(text, kind, keepCap) {
+      if (!keepCap && kmCap && kmCap.km === self) kmCap = null;
+      self.note = { text: text, kind: kind || '', undo: null, capWarn: !!keepCap };   // 待っている間の注意は、案内の代わりに出す(待つのは続ける)
+      paint();
+    }
+    function changed() { if (typeof o.onChange === 'function') { try { o.onChange(); } catch (e) { report(e && e.message ? e.message : String(e), { where: 'keymap.onChange' }, 'report'); } } }
+    function anyCustom() {
+      for (var id in self.eff) if ((self.eff[id] || '') !== (defOf(id) || '')) return true;
+      return false;
+    }
+    function rowHtml(id, label, alt, extra) {
+      var k = self.eff[id], cap = kmCap && kmCap.km === self && kmCap.id === id, def = defOf(id), lost = self.lost[id];
+      var btn = '<button type="button" class="ui-km-key' + (k ? '' : ' none') + (cap ? ' cap' : '') + '" data-km="' + esc(id) + '" aria-label="' +
+        esc(label + ' のキー: ' + (k ? keyText(k) : '未設定') + '(押して変える)') + '"' + (cap ? ' aria-pressed="true"' : '') + '>' +
+        (cap ? 'キーを押す…' : k ? kmKbd(k) : '未設定') + '</button>';
+      var alts = alt ? '<span class="muted">/</span>' + kmKbdText(alt) : '';
+      var std = (k || '') !== (def || '') ? '<button type="button" class="btn small ghost ui-km-def" data-km-def="' + esc(id) + '" title="' + esc('標準の ' + (def ? keyText(def) : '未設定') + ' に戻す') +
+        '" aria-label="' + esc(label + ' を標準の ' + (def ? keyText(def) : '未設定') + ' に戻す') + '">標準</button>' : '';
+      return '<div class="ui-krow ui-km-row" data-km-row="' + esc(id) + '"><span class="ui-kkeys">' + btn + alts + '</span><span class="ui-klabel">' + esc(label) +
+        (lost ? '<small class="ui-km-lost">' + esc(keyText(lost.key) + ' は' + lost.why + 'ので外れています') + '</small>' : '') + '</span>' + (extra || '') + std + '</div>';
+    }
+    function fixedRow(r) {
+      var keys = String(r[0]).split(' / ').map(kmKbdText).join('<span class="muted">/</span>'), why = r[2] || o.fixedWhy || '';
+      return '<div class="ui-krow ui-km-fixed"><span class="ui-kkeys">' + keys + '</span><span class="ui-klabel">' + esc(r[1]) + '</span>' +
+        (why ? '<span class="ui-km-lock" role="img" aria-label="' + esc('変えられません: ' + why) + '" title="' + esc('変えられません: ' + why) + '">' + icon('lock', { size: 13 }) + '</span>' : '') + '</div>';
+    }
+    function section(title, note, body) {
+      return body ? '<section class="ui-kgroup"><h3 class="section-title">' + esc(title) + (note ? ' <span class="hint">' + esc(note) + '</span>' : '') + '</h3>' + body + '</section>' : '';
+    }
+    function bodyHtml() {
+      var extra = typeof o.extra === 'function' ? o.extra : function () { return ''; }, html = o.intro ? '<p class="hint ui-km-intro">' + esc(o.intro) + '</p>' : '', rows = '', i, j;
+      html += '<div class="ui-kgrid ui-km-grid">';
+      for (i = 0; i < PLAYBACK_ACTIONS.length; i++) rows += rowHtml(PLAYBACK_ACTIONS[i][0], PLAYBACK_ACTIONS[i][2], null, extra(PLAYBACK_ACTIONS[i][0]));
+      html += section('共通の再生キー', o.playbackNote || '(スタジオ・編集で同じ)', rows);
+      for (i = 0; i < groups.length; i++) {
+        rows = '';
+        for (j = 0; j < acts.length; j++) if (acts[j].group === groups[i][0]) rows += rowHtml(acts[j].id, acts[j].label, acts[j].alt, extra(acts[j].id));
+        for (j = 0; j < fixed.length; j++) if (fixed[j].group === groups[i][0]) rows += fixed[j].rows.map(function (r) { return fixedRow([r[0], r[1], r[2] || fixed[j].why]); }).join('');
+        html += section(groups[i][1], '', rows);
+      }
+      for (j = 0; j < fixed.length; j++) if (!fixed[j].group) html += section(fixed[j].title, fixed[j].note || '', fixed[j].rows.map(function (r) { return fixedRow([r[0], r[1], r[2] || fixed[j].why]); }).join(''));
+      html += '</div><div class="ui-km-foot"><button type="button" class="btn small" data-km-reset' + (anyCustom() ? '' : ' disabled title="すべて標準のままです"') + '>すべて標準に戻す</button>' +
+        (o.footNote ? '<span class="hint">' + esc(o.footNote) + '</span>' : '') + '</div>';
+      return html;
+    }
+    function noteHtml() {
+      var n = self.note, cap = kmCap && kmCap.km === self ? kmCap : null;
+      if (cap && !(n && n.capWarn)) return esc('「' + labelOf(cap.id) + '」に割り当てるキーを押してください(Esc で取り消し・Delete で外す)');
+      if (!n) return '';
+      return esc(n.text) + (n.undo ? ' <button type="button" class="btn small" data-km-undo>戻す</button>' : '');
+    }
+    function paint() {
+      for (var i = 0; i < self.mounts.length; i++) {
+        var el = self.mounts[i], a = document.activeElement, had = !!(a && el.contains(a));
+        var fid = had ? (a.getAttribute('data-km') || a.getAttribute('data-km-def') || self.lastId) : null;
+        var note = el.querySelector('.ui-km-note'), body = el.querySelector('.ui-km-body');
+        var n = self.note, cap = kmCap && kmCap.km === self;
+        note.className = 'ui-km-note' + (n && n.kind && !(cap && !n.capWarn) ? ' ' + n.kind : '') + (cap ? ' cap' : '');
+        note.innerHTML = noteHtml();
+        body.innerHTML = bodyHtml();
+        if (had && !el.contains(document.activeElement)) {
+          var f = (fid && el.querySelector('[data-km="' + fid + '"]')) || el.querySelector('[data-km]');
+          if (f) f.focus({ preventScroll: true });
+        }
+      }
+    }
+    function startCap(id, el) {
+      kmCap = { km: self, id: id, el: el }; self.note = null;
+      paint();
+      var b = el.querySelector('[data-km="' + id + '"]'); if (b) b.focus({ preventScroll: true });
+    }
+    function stopCap() { if (kmCap && kmCap.km === self) { kmCap = null; paint(); } }
+    function mount(el) {
+      if (!el || el.__km) return;
+      el.__km = true;
+      el.classList.add('ui-km');
+      el.innerHTML = '<p class="ui-km-note" role="status" aria-live="polite"></p><div class="ui-km-body"></div>';
+      self.mounts.push(el);
+      el.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('[data-km],[data-km-def],[data-km-undo],[data-km-reset]') : null;
+        if (!t || !el.contains(t) || t.disabled) return;
+        if (t.hasAttribute('data-km')) startCap(t.getAttribute('data-km'), el);
+        else if (t.hasAttribute('data-km-def')) { var id = t.getAttribute('data-km-def'); kmCap = null; set(id, defOf(id), '「' + labelOf(id) + '」を標準の ' + (defOf(id) ? keyText(defOf(id)) : '未設定') + ' に戻しました'); }
+        else if (t.hasAttribute('data-km-undo')) undo();
+        else if (t.hasAttribute('data-km-reset')) { kmCap = null; commit({}, {}, snapshot(), 'すべて標準に戻しました', ''); }
+      });
+      el.addEventListener('focusout', function () {   /* 別の所を押したら取り消し(キーを押したときは下の keydown が先に受ける) */
+        if (!kmCap || kmCap.km !== self) return;
+        setTimeout(function () { var a = document.activeElement; if (kmCap && kmCap.km === self && !(a && a.classList && a.classList.contains('cap'))) stopCap(); }, 0);
+      });
+      paint();
+    }
+    /* 共通の再生キーの読み込み: ホームの設定(入口の中)。初回は、ツールに保存していた再生キー(編集の settings.keymap)をホームの設定へ移す */
+    function syncPb() {
+      var fb = o.fallbackPlayback && typeof o.fallbackPlayback.load === 'function' ? (o.fallbackPlayback.load() || {}) : {};
+      if (!prefs.available() || self.prefsPb === null) { self.pb = copy(fb); return; }
+      var empty = true, custom = false, k;
+      for (k in self.prefsPb) { empty = false; break; }
+      for (k in PB_IDS) if (typeof fb[k] === 'string' && fb[k] !== PB_IDS[k][1]) custom = true;
+      if (empty && custom) { var pb = {}; for (k in PB_IDS) if (typeof fb[k] === 'string') pb[k] = fb[k]; self.pb = pb; savePb(); return; }
+      self.pb = copy(self.prefsPb);
+    }
+    function loadPrefs() {
+      if (!prefs.available()) return;
+      prefs.get(['keymap']).then(function (p) {
+        var pb = p && p.keymap && p.keymap.playback;
+        self.prefsPb = pb && typeof pb === 'object' ? pb : {};
+        var was = JSON.stringify(self.eff);
+        syncPb(); compute();
+        if (JSON.stringify(self.eff) !== was) { paint(); changed(); }
+      }, function () { /* 読めなければ今の割り当てのまま */ });
+    }
+    function reload() {
+      self.tool = typeof o.load === 'function' ? copy(o.load() || {}) : {};
+      syncPb(); compute(); paint(); changed();
+    }
+    self.tool = typeof o.load === 'function' ? copy(o.load() || {}) : {};
+    syncPb(); compute(); loadPrefs();
+    life.onReturn(loadPrefs);   /* 別の窓(スタジオ・編集)で変えた共通の再生キーを、戻ったときに読み直す */
+    var api = {
+      /* 今効く割り当て { 操作の id: キー }(共通の再生キーを含む。UIKit.keys.playback の keymap にそのまま渡せる) */
+      map: function () { return self.eff; },
+      key: function (id) { return self.eff[id] || ''; },
+      text: function (id) { return self.eff[id] ? keyText(self.eff[id]) : ''; },
+      /* キー(comboOf の表記)→ このツールの操作の id か null */
+      actionOf: function (combo) { if (!combo) return null; var id = self.used[combo]; return id && byId[id] ? id : null; },
+      mount: mount, reload: reload, refusal: refusal,
+      set: function (id, combo) { return set(id, combo); },
+      /* ツールのキーをまとめて(スタジオのプリセット)。[戻す] つき */
+      setMany: function (map, msg) { kmCap = null; commit(copy(map || {}), copy(self.pb), snapshot(), msg || 'キー配置を変えました', ''); },
+      clearNote: function () { if (kmCap && kmCap.km === self) kmCap = null; self.note = null; paint(); },
+      capturing: function () { return !!(kmCap && kmCap.km === self); }
+    };
+    self.api = api; self.say = say; self.set = set; self.refusal = refusal;
+    return api;
+  }
+  /* キーを待っている間は、どのキーも「割り当てるキー」として受け取る(捕捉の段階で受けて、ほかの処理 = 一覧・引き出しの Esc・再生のキーなどに渡さない) */
+  window.addEventListener('keydown', function (e) {
+    var c = kmCap; if (!c) return;
+    if (e.isComposing || e.keyCode === 229) return;   // 日本語の変換中は受け取らない
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.repeat) return;
+    var km = c.km;
+    if (e.key === 'Escape') { kmCap = null; kmEscAt = Date.now(); km.say('取り消しました(キーは変わっていません)', ''); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { kmCap = null; km.set(c.id, ''); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      if (e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Meta') { km.say('Ctrl・Alt つきのキーは割り当てられません(ブラウザ・タブの切り替えと重なるため)。別のキーを押してください', 'warn', true); }
+      return;
+    }
+    var combo = comboOf(e); if (!combo) return;   // Shift だけを押した段階は、次のキーを待つ
+    var why = km.refusal(c.id, combo);
+    if (why) { km.say(why + '。別のキーを押すか、Esc で取り消してください', 'warn', true); return; }
+    kmCap = null; km.set(c.id, combo);
+  }, true);
+  document.addEventListener('cancel', function (e) { if (kmCap || Date.now() - kmEscAt < 400) e.preventDefault(); }, true);   // キーを待っている間の Esc で一覧(dialog)を閉じない
+  var keymapApi = { create: kmCreate, capturing: function () { return !!kmCap; }, BLOCKED: PB_BLOCKED };
 
   /* ---- icon(SVG の線のアイコン。24x24・stroke currentColor・stroke-width 2・角丸) ---- UIKit.icon(name, opts) は文字列を返す。
      <span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill(root)) */
@@ -1081,6 +1364,7 @@
     'mark-in': '<path d="M8 4v16M8 4l8 4v8l-8 4"/>',
     'mark-out': '<path d="M16 4v16M16 4l-8 4v8l8 4"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
     layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 14 9 5 9-5M3 8l9 5 9-5"/>',
     wave: '<path d="M2 12h2l1.5-6 3 12 3-16 3 16 3-10 1.5 4H22"/>',
@@ -1391,7 +1675,7 @@
     estimateText: arEstimateText
   };
 
-  window.UIKit = { version: 7, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
-                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, icon: icon,
+  window.UIKit = { version: 8, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun };
 })();

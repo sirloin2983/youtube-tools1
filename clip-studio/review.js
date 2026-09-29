@@ -224,11 +224,11 @@ function buildDOM(){
         <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
         <div class="rv-mark">
           <div class="rv-markcell">
-            <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd class="ui-kbd" title="全ツール共通の再生キー(変更できません)">I</kbd></button>
+            <button class="rv-markbtn in" id="rvIn" type="button">IN(開始)<kbd class="ui-kbd" data-kbd="markIn" title="全ツール共通の再生キー(? の一覧で変えられます)">I</kbd></button>
             <div class="rv-val is-empty" id="rvInVal">--</div>
           </div>
           <div class="rv-markcell">
-            <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd class="ui-kbd" title="全ツール共通の再生キー(変更できません)">O</kbd></button>
+            <button class="rv-markbtn out" id="rvOut" type="button">OUT(終了)<kbd class="ui-kbd" data-kbd="markOut" title="全ツール共通の再生キー(? の一覧で変えられます)">O</kbd></button>
             <div class="rv-val is-empty" id="rvOutVal">--</div>
           </div>
           <div class="rv-markcell rv-addcell">
@@ -257,9 +257,8 @@ function buildDOM(){
           </section>
           <section class="rv-sec">
             <h3>キー配置</h3>
-            <p class="rv-sechint">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取消 / Delete = 割り当て解除。すでに使われているキーを選ぶと、そちらの割り当てが外れます。一覧はヘッダーの「キー操作」(? キー)でも見られます。
-              Space・J/K/L・← →・, .・I/O は全ツール共通の再生キーで、ここでは変更できません。</p>
-            <div class="rv-setrow"><select id="rvKeyPreset" aria-label="キー配置のプリセット"><option value="standard">標準(I O A ・矢印)</option><option value="left">左手だけ(Q W E ・A D)</option><option value="custom" disabled>カスタム</option></select><button class="btn small" id="rvKeyReset" type="button">標準に戻す</button></div>
+            <p class="rv-sechint">ヘッダーの「キー操作」(? キー)の一覧と同じです。まとめて変えるときは、下の組み合わせから選びます。</p>
+            <div class="rv-setrow"><select id="rvKeyPreset" aria-label="キー配置の組み合わせ"><option value="standard">標準</option><option value="left">左手だけ</option><option value="custom" disabled>今の配置(手で変えた)</option></select></div>
             <div class="rv-keygrid" id="rvKeyGrid"></div>
           </section>
           <section class="rv-sec">
@@ -747,6 +746,7 @@ async function loadSettings(){
     const j = await Studio.api('/api/settings');
     S.settings = sanitizeSettings(j && j.settings && j.settings.review);
   } catch { S.settings = sanitizeSettings({}); }
+  if (KM) KM.reload();
   syncSettingsUI(); applyTheater();
 }
 function syncSettingsUI(){
@@ -826,8 +826,31 @@ function currentPreset(){
   const km = S.settings.keymap;
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
-let capturing = null;
 const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
+/* 割り当てられないキー(固定の意味がある)。値は使い道 */
+const STUDIO_FIXED = { Escape: '閉じる・取り消し', Enter: '確定', Tab: 'フォーカスの移動', 'Shift+Tab': 'フォーカスの移動', '?': 'キー操作の一覧' };
+const PRESET_NAMES = { standard: '標準', left: '左手だけ' };
+/* プリセットの名前は実際の割り当てから(S-28。以前は「標準(I O A ・矢印)」と実際と違う文字だった) */
+function presetLabel(n){
+  const p = KEY_PRESETS[n], k = id => keyText(p[id]);
+  return `${PRESET_NAMES[n]}(マーク追加 ${k('addClip')}・採用 ${k('adopt')}・不採用 ${k('reject')}・前後のマーク ${k('prevMark')} ${k('nextMark')})`;
+}
+/* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と「操作の設定 → キー配置」は同じ部品。共通の再生キー(Space・J/K/L など)も
+   ここで変えられる(ホームの設定。編集と同じ割り当て。S-27)。重なりの検査は部品の 1 か所 */
+const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
+  groups: KEY_GROUPS.map(([h], i) => ['g' + i, h]),
+  actions: ACTION_DEFS.map(([id, label]) => ({ id, def: KEY_PRESETS.standard[id], label, group: 'g' + KEY_GROUPS.findIndex(g => g[1].includes(id)) })),
+  refuse: combo => STUDIO_FIXED[combo] || '',
+  intro: '③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。',
+  fixed: [{ title: '全体', rows: [['?', 'この一覧を開く・閉じる', '一覧を開くキー'], ['Esc', '一覧・設定を閉じる', '閉じるキー']] },
+    { title: 'その他', why: '入力欄のキー', rows: [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']] }],
+  extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? spanSelHTML(m[1] ? Number(m[1]) - 1 : 0) : ''; },
+  footNote: '「すべて標準に戻す」は共通の再生キーも標準に戻します(編集も同じ割り当てです)。',
+  load: () => (S.settings && S.settings.keymap) || {},
+  save: km => { S.settings.keymap = km; touchSettings(); },
+  onChange: () => renderKeyUI()
+}) : null;
+const curKeymap = () => (KM ? KM.map() : S.settings.keymap);
 function spanSelHTML(i){
   const cur = S.settings.quickSpans[i];
   return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${i + 1}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${i + 1}の長さを長く">＋</button></span>`;
@@ -842,48 +865,18 @@ function onSpanStep(e){
   renderKeyUI(); touchSettings();
 }
 function renderKeyUI(){
-  const km = S.settings.keymap;
+  const km = curKeymap();
   $('#rvQuickSlots').innerHTML = S.settings.quickSpans.map((sp, i) =>
     `<div class="rv-qslot"><button class="btn${i === 0 ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}をマーク"><span class="rv-qn">${i + 1}</span><kbd class="ui-kbd" data-kbd="${i ? 'quickMark' + (i + 1) : 'quickMark'}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
-  for (const el of document.querySelectorAll('#rvRoot kbd[data-kbd]')) el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : '';
-  const g = $('#rvKeyGrid');
-  const spanSel = id => { const m = /^quickMark(\d?)$/.exec(id); return m ? spanSelHTML(m[1] ? Number(m[1]) - 1 : 0) : ''; };
-  const defs = Object.fromEntries(ACTION_DEFS.map(d => [d[0], d[1]]));
-  const row = id => `<div class="rv-keyrow"><span>${esc(defs[id] || id)}</span>${spanSel(id)}<button type="button" class="rv-keybtn${km[id] ? '' : ' none'}" data-id="${id}">${esc(keyText(km[id]))}</button></div>`;
-  g.innerHTML = KEY_GROUPS.map(([h, ids]) => `<div class="rv-kgroup"><h4>${esc(h)}</h4>${ids.filter(id => defs[id]).map(row).join('')}</div>`).join('');
-  $('#rvKeyPreset').value = currentPreset();
+  for (const el of document.querySelectorAll('#rvRoot kbd[data-kbd]')){ el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : ''; el.hidden = !km[el.dataset.kbd]; }   // 割り当てを外したら、ボタンの横のキーも出さない
+  const pre = $('#rvKeyPreset');
+  if (pre){
+    for (const o of pre.options) if (PRESET_NAMES[o.value]) o.textContent = presetLabel(o.value);
+    pre.value = currentPreset();
+  }
+  if (KM && !$('#rvKeyGrid').classList.contains('ui-km')) KM.mount($('#rvKeyGrid'));
   if (Studio.step === 'review') keybarScene();   // キー配置を変えたら、下の帯もすぐ合わせる
 }
-/* 全ツール共通の再生キー(comboOf の表記。UIKit.keys.playback が先に処理するため、ここに割り当てても効かない) */
-const SHARED_KEYS = new Set(['Space', 'j', 'k', 'l', 'i', 'o', ',', '.', 'ArrowLeft', 'ArrowRight', 'Shift+ArrowLeft', 'Shift+ArrowRight']);
-function setKey(id, combo){
-  if (combo && SHARED_KEYS.has(combo)){
-    toast(`${keyText(combo)} は全ツール共通の再生キーです。ここでは変更できません`);
-    renderKeyUI();   // 「キーを押す…」のボタン表示を元に戻す
-    return;
-  }
-  const km = { ...S.settings.keymap };
-  if (combo){
-    for (const [o] of ACTION_DEFS) if (o !== id && km[o] === combo){
-      km[o] = ''; toast(`「${ACTION_DEFS.find(a => a[0] === o)[1]}」からこのキーを外しました`);
-    }
-  }
-  km[id] = combo; S.settings.keymap = km; renderKeyUI(); touchSettings();
-}
-function startCapture(btn){
-  stopCapture();
-  capturing = { id: btn.dataset.id, btn }; btn.classList.add('cap'); btn.textContent = 'キーを押す…';
-}
-function stopCapture(){ if (capturing){ capturing = null; renderKeyUI(); } }
-window.addEventListener('keydown', e => {
-  if (!capturing) return;
-  e.preventDefault(); e.stopImmediatePropagation();
-  if (e.key === 'Escape') return stopCapture();
-  if (e.key === 'Delete' || e.key === 'Backspace'){ const id = capturing.id; capturing = null; return setKey(id, ''); }
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const combo = comboOf(e); if (!combo) return;
-  const id = capturing.id; capturing = null; setKey(id, combo);
-}, true);
 
 /* ---------- ライブ配信 ---------- */
 // IFrame APIの仕様上、ライブ中の getDuration() は「配信開始からの経過時間」を返す。
@@ -1684,19 +1677,19 @@ const rvMedia = {
    media は yt が無くても常に rvMedia を返す(rvMedia の各操作が yt の有無を自分で見るので、プレーヤーが無い間も S.now は , . ← → で動かせる)。
    再生できない画面(埋め込み不可・通信不調)で Space・L(再生を試みるキー)を押したときだけ、これまでどおり案内を出す */
 const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-  media: () => rvMedia,
+  media: () => rvMedia, keymap: () => curKeymap(),   // 割り当ては共通(ホームの設定。? の一覧で変えられる。段6)
   onIn: () => markIn(), onOut: () => markOut(),
-  onKey: name => {
-    if (!canPlay() && (name === 'Space' || name === 'L')) noPlayerToast();
-    if (name === 'K' || name === 'L'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // K/L は再生速度を変えるので、速度の選択も合わせる
+  onKey: (name, act) => {
+    if (!canPlay() && (act === 'playPause' || act === 'play')) noPlayerToast();
+    if (act === 'stop' || act === 'play'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // 止める・再生は再生速度を変えるので、速度の選択も合わせる
   }
 }) : null;
 /* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える */
 function keybarScene(){
   if (!window.UIKit || !UIKit.keybar) return;
-  const km = S.settings.keymap, row = (id, label) => (km[id] ? { k: keyText(km[id]), l: label } : null);
-  UIKit.keybar.set([{ k: 'Space', l: '再生/停止' }, { k: '← →', l: '1秒(Shift 5秒)' }, { k: 'I / O', l: '始まり/終わりの印' },
-    row('adopt', '採用'), row('reject', '不採用'), row('nextMark', '次のマーク'), { k: '?', l: 'キー操作' }].filter(Boolean));
+  const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
+  UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), '始まり/終わりの印'),
+    row(t('adopt'), '採用'), row(t('reject'), '不採用'), row(t('nextMark'), '次のマーク'), { k: '?', l: 'キー操作' }].filter(Boolean));
 }
 
 /* ---------- イベント ---------- */
@@ -1875,9 +1868,11 @@ function wire(){
   $('#rvMomAfter').addEventListener('change', e => setMomentSec('momentAfter', e.target));
   renderMomentSet();
   $('#rvKeyGrid').addEventListener('click', onSpanStep);
-  $('#rvKeyGrid').addEventListener('click', e => { const b = e.target.closest('.rv-keybtn'); if (b) startCapture(b); });
-  $('#rvKeyPreset').addEventListener('change', e => { const pr = KEY_PRESETS[e.target.value]; if (pr){ S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); } });
-  $('#rvKeyReset').addEventListener('click', () => { S.settings.keymap = sanitizeKeymap(KEY_PRESETS.standard); renderKeyUI(); touchSettings(); });
+  $('#rvKeyPreset').addEventListener('change', e => {
+    const pr = KEY_PRESETS[e.target.value]; if (!pr) return;
+    if (KM) KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
+    else { S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); }
+  });
   $('#rvEdge').addEventListener('click', () => { if (yt && S.duration) seek(S.duration); });
   $('#rvShift').addEventListener('click', () => {
     if (!S.cur) return;
@@ -1930,7 +1925,7 @@ function wire(){
   // キーボードショートカット(このステップが表示されているときだけ)
   document.addEventListener('keydown', e => {
     if (Studio.step !== 'review' || !S.cur) return;
-    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;   // 日本語の変換中は受け取らない
     if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
     /* 書き出しの欄: 重ねて開いている(1680px 未満)間と、欄の中にフォーカスがある間は、裏の配信を操作しない(B-2。→ で裏の再生位置が動いていた)。
        1680px 以上で横に並べている(docked)ときは、欄の外ではこれまでどおり効く */
@@ -1945,12 +1940,11 @@ function wire(){
     // 共通の再生キー(全ツール共通。Space・J/K/L・← →(±1秒/Shift ±5秒)・,/.・I/O)を先に。処理したら(true)ここで終わる
     if (handlePlayback && handlePlayback(e)) return;
     const combo = comboOf(e); if (!combo) return;
-    const km = S.settings.keymap;
-    const hit = ACTION_DEFS.find(([id]) => km[id] && km[id] === combo);
+    const hit = KM ? KM.actionOf(combo) : (ACTION_DEFS.find(([id]) => S.settings.keymap[id] === combo) || [])[0];
     if (hit && !(combo === 'Space' && onControl)){
       e.preventDefault();
-      if (e.repeat && !['back5', 'fwd5', 'back1', 'fwd1', 'volUp', 'volDown'].includes(hit[0])) return; // 押しっぱなしでマークが連続作成されないように
-      ACTION_FN[hit[0]](); return;
+      if (e.repeat && !['volUp', 'volDown'].includes(hit)) return; // 押しっぱなしでマークが連続作成されないように
+      ACTION_FN[hit](); return;
     }
   });
 }
@@ -1975,7 +1969,7 @@ function deactivate(){
 /* ---------- 起動 ---------- */
 /* キー操作の一覧(ヘッダーの「キー」・? キー)に出す内容。[見出し, [[キーの表記, 説明], ...]] の配列 */
 function keyHelp(){
-  const km = S.settings.keymap, defs = Object.fromEntries(ACTION_DEFS.map(d => [d[0], d[1]]));
+  const km = curKeymap(), defs = Object.fromEntries(ACTION_DEFS.map(d => [d[0], d[1]]));
   const row = id => { let label = defs[id] || id; const m = /^quickMark(\d?)$/.exec(id); if (m){ const i = m[1] ? Number(m[1]) - 1 : 0; label += `(前後${spanLabel(S.settings.quickSpans[i])})`; } return [km[id] ? keyText(km[id]) : '', label]; };
   const groups = KEY_GROUPS.map(([h, ids]) => [h, ids.filter(id => defs[id]).map(row)]);
   groups.push(['その他', [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']]]);
@@ -1988,7 +1982,8 @@ Studio.review = {
     return p;
   },
   refresh: refreshList,
-  keyHelp
+  keyHelp,
+  keymap: KM   // キーの一覧(? の一覧も同じ部品を出す。core.js)
 };
 /* ---------- まとめて実行(docs/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };

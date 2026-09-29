@@ -148,25 +148,33 @@ def main():
             check(pg.evaluate("document.activeElement === document.querySelectorAll('#segs textarea')[3]"), "Tab で選んだ行の入力欄へ")
             pg.keyboard.press("Tab")
             check(pg.evaluate(active_body) and navi() == 3, "入力中の Tab で入力欄から抜ける")
-            # キー配置(⚙ 設定。2026-09-27): 割り当てを変える・使えないキーは断る・重なりは外す・開き直しても残る・標準に戻す
+            # キー配置(⚙ 設定。2026-09-27。段6 から ? の一覧と同じ部品 UIKit.keymap): 割り当てを変える・使えないキーは断る・重なりは外す・開き直しても残る・標準に戻す
+            KB = "#kmGrid .ui-km-key[data-km=%s]"
+            def km_text(action_id):
+                return pg.inner_text(KB % action_id).replace("\n", "").replace(" ", "")
             def km_set(action_id, key):
                 pg.click("[data-ui-settings]")
-                pg.wait_for_selector("#kmGrid .tt-kmbtn[data-id=%s]" % action_id, state="visible")
-                pg.click("#kmGrid .tt-kmbtn[data-id=%s]" % action_id)
-                check(pg.inner_text("#kmGrid .tt-kmbtn[data-id=%s]" % action_id) == "キーを押す…", "キー配置: ボタンを押すと「キーを押す…」になる(%s)" % action_id)
+                pg.wait_for_selector(KB % action_id, state="visible")
+                pg.click(KB % action_id)
+                check(pg.inner_text(KB % action_id) == "キーを押す…", "キー配置: ボタンを押すと「キーを押す…」になる(%s)" % action_id)
                 pg.keyboard.press(key)
-                txt = pg.inner_text("#kmGrid .tt-kmbtn[data-id=%s]" % action_id)
+                note = pg.inner_text("#kmGrid .ui-km-note")
+                if pg.evaluate("UIKit.keymap.capturing()"):   # 断られた = 待つのを続けている → Esc で取り消し(Esc で引き出しは閉じない)
+                    pg.keyboard.press("Escape")
+                    check(pg.evaluate("!!document.querySelector('.ui-drawer:not([hidden])')"), "キーを待っている間の Esc は取り消しだけ(引き出しは閉じない)")
+                txt = km_text(action_id)
                 pg.keyboard.press("Escape")   # 引き出しを閉じる
                 pg.wait_for_function("!document.querySelector('.ui-drawer:not([hidden])')", timeout=3000)
+                km_set.note = note
                 return txt
             check(km_set("rowNext", "h") == "H", "キー配置: 「次の行」を H に変えられる")
             pg.keyboard.press("h"); check(navi() == 4, "H で次の行へ(変えた割り当てが効く)")
             pg.keyboard.press("s"); check(navi() == 4, "もとの S はもう効かない")
             pg.keyboard.press("ArrowUp"); check(navi() == 3, "↑ ↓ は固定なのでそのまま使える")
             check(km_set("playPause", "s") == "Space", "再生のキーに S(2 カット の分割)は割り当てられない(元のまま)")
-            check("分割" in pg.inner_text("#toast"), "断った理由が出る: " + pg.inner_text("#toast"))
+            check("分割" in km_set.note, "断った理由が一覧の中に出る: " + km_set.note)
             check(km_set("replay", "h") == "H", "すでに使っているキーを選ぶと、こちらに割り当てられる")
-            check("外しました" in pg.inner_text("#toast"), "前の操作から外したことが出る: " + pg.inner_text("#toast"))
+            check("外しました" in km_set.note, "前の操作から外したことが一覧の中に出る: " + km_set.note)
             import time as _t; _t.sleep(1.0)
             saved = call(port, "GET", "/api/settings").get("keymap") or {}
             check(saved.get("replay") == "h" and saved.get("rowNext") == "", "キー配置はサーバーの設定に保存される: %s" % {k: saved.get(k) for k in ("replay", "rowNext")})
@@ -175,9 +183,9 @@ def main():
             pg.keyboard.press("p"); pg.wait_for_timeout(300)
             check(not pg.evaluate("document.querySelector('#player').paused"), "P で再生になる")
             pg.keyboard.press("k")
-            pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmReset", state="visible")
-            pg.click("#kmReset")
-            check(pg.inner_text("#kmGrid .tt-kmbtn[data-id=rowNext]") == "S" and pg.inner_text("#kmGrid .tt-kmbtn[data-id=playPause]") == "Space", "「標準に戻す」で元の配置に戻る")
+            pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmGrid [data-km-reset]", state="visible")
+            pg.click("#kmGrid [data-km-reset]")
+            check(km_text("rowNext") == "S" and km_text("playPause") == "Space", "「すべて標準に戻す」で元の配置に戻る")
             pg.keyboard.press("Escape")
             _t.sleep(1.0)
             pg.keyboard.press("s"); check(navi() == 4, "標準に戻したあとは S で次の行")

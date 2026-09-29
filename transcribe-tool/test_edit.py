@@ -286,6 +286,20 @@ class TestEditHttp(unittest.TestCase):
         finally:
             self.call("PUT", "/api/settings", orig)
 
+    def test_settings_patch_keymap(self):
+        """キー配置(UIKit.keymap が送る。段6)は「送ったキーだけ直す」。丸ごとの保存(古い画面)では戻らない・形の正しくない割り当ては断る"""
+        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        try:
+            km = {"rowNext": "h", "proof": "Shift+Space", "seekBack": "ArrowLeft", "del": "", "insert": "+"}
+            self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"keymap": km}})["_status"], 200)
+            self.call("PUT", "/api/settings", dict(orig, keymap={"rowNext": "s"}))   # 開いたままの古い画面の保存
+            self.assertEqual(self.call("GET", "/api/settings")["keymap"], km)
+            for bad in ({"rowNext": "Ctrl+s"}, {"rowNext": "s\n"}, {"1bad": "s"}, {"rowNext": 1}, ["s"], {"a%d" % i: "s" for i in range(61)}):
+                self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"keymap": bad}})["_status"], 400, bad)
+        finally:
+            self.call("PUT", "/api/settings", orig)
+            self.call("POST", "/api/settings/patch", {"values": {"keymap": orig.get("keymap") or {}}})
+
     def open_video(self, path, **kw):
         return self.call("POST", "/api/open-video", dict({"path": path}, **kw))
 

@@ -196,7 +196,7 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
   });
   window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
   document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
-  $('#btnKeys').addEventListener('click', () => $('#keys').showModal());
+  $('#btnKeys').addEventListener('click', () => openKeys());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
   document.addEventListener('click', e => document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.ui-menu-pop a')) d.open = false; }));
   document.addEventListener('keydown', e => {
@@ -1494,8 +1494,8 @@ async function openDoc(id, keep){
   return true;
 }
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
-const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' }, TAG_KEY = { unclear: 'X', overlap: 'C', bgm: 'V' };
-const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" data-act="tag" data-t="${t}" aria-pressed="${(s.tags || []).includes(t) ? 'true' : 'false'}" title="この行の音の状態のメモ(${TAG_KEY[t]})。「聞き取れない」の行は、精度の測定と学習の正解に使いません">${TAG_LABEL[t]}</button>`).join('');
+const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' };
+const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" data-act="tag" data-t="${t}" aria-pressed="${(s.tags || []).includes(t) ? 'true' : 'false'}" title="${esc(titleTag(t))}">${TAG_LABEL[t]}</button>`).join('');
 /* 前後の行と時刻が重なっているか(書き出すと字幕が2段で出るので、時刻の欄を赤くして知らせる) */
 function ovl(i){ const g = S.doc.segments, s = g[i], a = g[i - 1], b = g[i + 1]; return !!s && ((a && s.start < a.end - 0.01) || (b && s.end > b.start + 0.01)); }
 function markOvl(i){ for (const j of [i - 1, i, i + 1]){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = '前後の行と時刻が重なっています(字幕が2段に重なって出ます)'; else t.removeAttribute('title'); } } }
@@ -1503,11 +1503,11 @@ function segHTML(s, i){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
-    <button type="button" class="play" data-act="play" title="この行だけ再生(R)。行の終わりで止まります" aria-label="この行だけ再生">▶</button>
+    <button type="button" class="play" data-act="play" title="${esc(titlePlay())}" aria-label="この行だけ再生">▶</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ' title="前後の行と時刻が重なっています(字幕が2段に重なって出ます)"' : ''}><input class="t" data-f="start" value="${fmtT(s.start, true)}" aria-label="開始"><span>–</span><input class="t" data-f="end" value="${fmtT(s.end, true)}" aria-label="終了"></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
-    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="聞いて確認して、この行の文字が正しいと判断したら押す(Shift+Space。次の行へ進みます)">校正済み</button></span>
+    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
     <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="この行の後に、空の行を足します(N)">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" data-act="del" class="del" title="この行を消します(2回押し。Z でも消せます)">削除</button></span></div>
@@ -1900,7 +1900,7 @@ let zArm = null;
 function deleteCur(){
   const c = rowAndSeg(); if (!c) return;
   /* v0.9.8: 1文字キーになったので、Z は2回押し(1.5秒以内)で削除する(行のボタンの「削除」と同じ考え方) */
-  if (!zArm || zArm.id !== c.g.id || Date.now() - zArm.t > 1500){ zArm = { id: c.g.id, t: Date.now() }; return toast('もう一度 Z で、この行を削除します', 1500); }
+  if (!zArm || zArm.id !== c.g.id || Date.now() - zArm.t > 1500){ zArm = { id: c.g.id, t: Date.now() }; return toast(`もう一度 ${keyText(keymap().del) || '削除のキー'} で、この行を削除します`, 1500); }
   zArm = null;
   pushUndo(); S.sel.delete(c.g.id); S.doc.segments.splice(c.i, 1); S.navIdx = Math.min(c.i, S.doc.segments.length - 1);
   renderDoc(); markDirty(); toast('行を削除しました(Ctrl+Z で元に戻せます)');
@@ -1925,37 +1925,44 @@ const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), �
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
   ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
 ];
-const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['play', '再生(全ツール共通のキー。2 カット のタブでも同じ)']];
+const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面']];
 const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
-const KEY_DEFS = TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: a[3] }))
-  .concat(window.UIKit && UIKit.keys && UIKit.keys.PLAYBACK_ACTIONS ? UIKit.keys.PLAYBACK_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: 'play' })) : []);
-/* 割り当てられないキー(固定の意味がある)。値は理由 */
+/* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
   Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
-/* 2 カット のタブのキー(cut.js)。再生のキーは 2 カット でも効くので、これらには割り当てない */
-const CUT_KEYS = { s: '分割', x: 'I〜O を削る', Delete: '削る/戻す', Backspace: '削る/戻す', '+': '拡大', '=': '拡大', '-': '縮小', Home: '先頭へ', End: '末尾へ', '[': '前の区間', ']': '次の区間', q: '始まりの端', w: '終わりの端' };
+/* 2 カット のタブのキー(cut.js の onKey。変えられない)。一覧はこの表から作る(以前は index.html と cut.js に二重に書いていた。S-30) */
+const CUT_KEY_ROWS = [['[ / ]', '前/次の区間を選ぶ'], ['Q / W', '選んだ区間の始まり/終わりの端を選ぶ'], ['S', '分割'], ['Del', '削る/戻す'], ['X', '始まりの印〜終わりの印を削る'],
+  ['Shift+, / Shift+.', '選んだ端を10コマ(1コマは共通の再生キー)'], ['+ / −', '拡大・縮小'], ['Home / End', '先頭・末尾へ'], ['Esc', '選択を外す'], ['Ctrl+Z / Ctrl+Shift+Z', '元に戻す・やり直す']];
 const keyText = k => window.UIKit && UIKit.keys && UIKit.keys.keyText ? UIKit.keys.keyText(k) : (k || '未設定');
-function keyRefusal(d, combo){
-  if (KEY_FIXED[combo]) return `${keyText(combo)} は「${KEY_FIXED[combo]}」に使っているので割り当てられません`;
-  if (/^[0-9]$/.test(combo)) return `${combo} は話者の割り当て(1〜9・0)に使っているので割り当てられません`;
-  if (d.group === 'play' && CUT_KEYS[combo]) return `${keyText(combo)} は 2 カット のタブの「${CUT_KEYS[combo]}」に使っているので、再生のキーには割り当てられません`;
-  return '';
+/* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と ⚙ 設定の「キー配置」は同じ部品。重なりの検査(固定・共通の再生キー・
+   派生キー = ← → に当たるキー + Shift)も部品の 1 か所。共通の再生キーはホームの設定(スタジオと同じ)。校正のキーは編集の設定 keymap(送ったキーだけ直す) */
+const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
+  groups: KEY_GROUPS,
+  actions: TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: a[3], alt: KEY_ALT[a[0]] })),
+  refuse: combo => KEY_FIXED[combo] || (/^[0-9]$/.test(combo) ? '話者の番号(1〜9・0)' : ''),
+  intro: 'キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。文字を入力している間は効きません(Esc で入力欄から抜ける)。',
+  playbackNote: '(スタジオ・編集で同じ。1 文字起こし・2 カット のタブで効きます)',
+  fixed: [
+    { group: 'listen', why: '入力欄の出入りに使うキー', rows: [['Tab', '選んだ行の入力欄へ'], ['Esc / Tab', '入力欄から抜ける']] },
+    { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
+    { group: 'screen', rows: [['Alt+1 / Alt+2 / Alt+3', 'タブ(文字起こし・カット・パック)を切り替える', 'Alt つきのキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
+    { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
+    { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者']] },
+    { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
+  ],
+  footNote: 'キー配置は、どのブラウザ・窓でも同じです。',
+  load: () => (S.settings && S.settings.keymap) || {},
+  save: km => saveKeymap(km),
+  fallbackPlayback: { load: () => (S.settings && S.settings.keymap) || {}, save: pb => saveKeymap(pb) },   // 入口の外で開いたとき(以前と同じく編集の設定に)
+  onChange: () => renderKeyUI()
+}) : null;
+/* 編集の設定の keymap は「送ったキーだけ直す」(api/settings/patch。丸ごとの保存ではサーバーの値が残る = 窓を並べても戻らない) */
+function saveKeymap(part){
+  const km = { ...((S.settings && S.settings.keymap) || {}), ...part };
+  S.settings.keymap = km;
+  api('/api/settings/patch', { body: { values: { keymap: km } } }).catch(e => toast('キー配置を保存できませんでした: ' + e.message, { ms: 0, kind: 'err' }));
 }
-function sanitizeKeymap(x){
-  const out = {}, used = new Set();
-  for (const d of KEY_DEFS){
-    let k = x && typeof x === 'object' && typeof x[d.id] === 'string' ? x[d.id].slice(0, 24) : d.def;
-    if (k && (used.has(k) || keyRefusal(d, k))) k = '';   // 重なり・使えないキーは外す(先に並ぶ操作が優先)
-    if (k) used.add(k); out[d.id] = k;
-  }
-  return out;
-}
-let kmCache = { src: null, km: null };
-function keymap(){
-  const src = JSON.stringify((S.settings && S.settings.keymap) || null);
-  if (kmCache.src !== src) kmCache = { src, km: sanitizeKeymap(S.settings && S.settings.keymap) };
-  return kmCache.km;
-}
+function keymap(){ return KM ? KM.map() : {}; }
 const KEY_FN = {
   rowNext: () => navigate(null, 1), rowPrev: () => navigate(null, -1), unNext: () => navigate('unproofed', 1), unPrev: () => navigate('unproofed', -1), flagNext: () => navigate('flag', 1),
   replay: () => replayCur(), back3: () => seek(-3), fwd3: () => seek(3), proof: () => proofOk(), edit: () => editCur(),
@@ -1965,7 +1972,9 @@ const KEY_FN = {
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   del: () => deleteCur(), menu: () => toggleMenu()
 };
-function txActionOf(combo){ if (!combo) return null; const km = keymap(); for (const a of TX_ACTIONS) if (km[a[0]] === combo) return a[0]; return null; }
+function txActionOf(combo){ return KM ? KM.actionOf(combo) : null; }
+/* 左のメニューを本文の上に重ねて開いている間、メニューの中にフォーカスがあれば、文書を操作するキーは効かせない(GPT-04: 履歴のボタンで ↓ を押すと後ろの行が動いた) */
+const menuHasKeys = t => !!(menuOpen() && isDrawer() && t && t.closest && t.closest('#menuPanel'));
 /* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
@@ -1979,7 +1988,7 @@ window.addEventListener('keydown', e => {
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
 const editPlaybackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
   media: () => player(), fps: 30, keymap: () => keymap(),
-  enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])')
+  enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])') && !menuHasKeys(document.activeElement)
 }) : null;
 window.addEventListener('keydown', e => {
   /* #edTabs(タブの並び)の ← → など、他の場所ですでに処理済み(preventDefault 済み)のキーには重ねて反応しない。
@@ -1987,9 +1996,10 @@ window.addEventListener('keydown', e => {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || isTextEntry(e.target)) return;
   if (editPlaybackKeys && editPlaybackKeys(e)) return;   // 処理したら、ここでは何もしない(I/O は校正では何もしない = 別の意味にしない)
   const c = e.code;
-  if (e.key === '?'){ e.preventDefault(); if (!e.repeat) $('#keys').showModal(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
+  if (e.key === '?'){ e.preventDefault(); if (!e.repeat) openKeys(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
   const act = txActionOf(window.UIKit && UIKit.keys && UIKit.keys.comboOf ? UIKit.keys.comboOf(e) : '');
   if (act === 'menu'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }   // メニューは文書を開いていなくても
+  if (menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作(↓ で次の項目など)を優先する(GPT-04)
   if (!S.doc || lockJob() || wideTab()) return;   // 校正のキーは 1 文字起こし のタブだけ(カットのタブは cut.js のキー)
   if (c === 'ArrowDown' || c === 'ArrowUp'){
     e.preventDefault();
@@ -2024,7 +2034,12 @@ window.addEventListener('keydown', e => {
    割り当てを変えたら、下の帯・一覧の上の手がかり・キー操作の一覧(?)・設定の欄をまとめて描き直す(renderKeyUI) */
 const kbdHTML = combo => combo ? keyText(combo).split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '<span class="muted">未設定</span>';
 const keyWithAlt = id => { const km = keymap(), a = KEY_ALT[id]; return [km[id] ? keyText(km[id]) : '', a || ''].filter(Boolean).join(' / ') || '未設定'; };
-function kRow(keysHTML, label){ return `<div class="ui-krow"><span class="ui-kkeys">${keysHTML}</span><span>${esc(label)}</span></div>`; }
+/* ツールチップ・知らせの中のキー(今の割り当てから作る。割り当てを外したら出さない。GPT-16) */
+const keyParen = id => { const k = keymap()[id]; return k ? '(' + keyText(k) + ')' : ''; };
+const titlePlay = () => `この行だけ再生${keyParen('replay')}。行の終わりで止まります`;
+const titleProof = () => `聞いて確認して、この行の文字が正しいと判断したら押す${keyParen('proof').replace(/\)$/, '。次の行へ進みます)') || '(次の行へ進みます)'}`;
+const TAG_ACT = { unclear: 'tagUnclear', overlap: 'tagOverlap', bgm: 'tagBgm' };
+const titleTag = t => `この行の音の状態のメモ${keyParen(TAG_ACT[t])}。「聞き取れない」の行は、精度の測定と学習の正解に使いません`;
 function renderKeyUI(){
   const km = keymap();
   txKeybarScene();
@@ -2032,60 +2047,28 @@ function renderKeyUI(){
   const hint = $('#keyHintItems');
   if (hint) hint.innerHTML = [['rowNext', '次の行'], ['replay', '聞く'], ['playPause', '再生・停止'], ['proof', '校正済みにして次へ'], ['edit', '直す']]
     .map(([id, l]) => `<span class="tt-kh-i">${km[id] ? kbdHTML(km[id]) : ''}${KEY_ALT[id] ? (km[id] ? '<span class="muted">/</span>' : '') + kbdHTML(KEY_ALT[id]) : ''} ${esc(l)}</span>`).join('');
-  /* キー操作の一覧(?) */
-  if (window.UIKit && UIKit.keys) $('#keysCommon').innerHTML = UIKit.keys.helpHtml(km);
-  const tx = $('#keysTx');
-  if (tx){
-    const alt = id => KEY_ALT[id] ? '<span class="muted">/</span>' + KEY_ALT[id].split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '';
-    const groups = KEY_GROUPS.filter(g => g[0] !== 'play').map(([g, h]) => {
-      let rows = TX_ACTIONS.filter(a => a[3] === g).map(a => kRow(kbdHTML(km[a[0]]) + alt(a[0]), a[2])).join('');
-      if (g === 'listen') rows += kRow('<kbd>Esc</kbd><span class="muted">/</span><kbd>Tab</kbd>', '入力欄から抜ける') + kRow('<kbd>Tab</kbd>', '選んだ行の入力欄へ');
-      if (g === 'memo') rows += kRow('<kbd>Ctrl</kbd>+<kbd>Z</kbd>', '元に戻す');
-      if (g === 'screen') rows += kRow('<kbd>Alt</kbd>+<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>', 'タブ(文字起こし・カット・パック)を切り替える') + kRow('<kbd>?</kbd>', 'この一覧');
-      return `<div class="ui-kgroup"><h3 class="section-title">${esc(h)}</h3>${rows}</div>`;
-    });
-    groups.splice(2, 0, `<div class="ui-kgroup"><h3 class="section-title">話者</h3>${kRow('<kbd>1</kbd><kbd>…</kbd><kbd>9</kbd>', 'この行の話者を n 番目に')}${kRow('<kbd>0</kbd>', '話者なし')}</div>`);
-    groups.splice(4, 0, `<div class="ui-kgroup"><h3 class="section-title">入力中に使えるキー</h3>${kRow('<kbd>Alt</kbd>+<kbd>Enter</kbd>', '校正済みにして次の行の入力欄へ')}${kRow('<kbd>Ctrl</kbd>+<kbd>Enter</kbd>', 'この行を聞き直す')}${kRow('<kbd>Alt</kbd>+<kbd>1…9</kbd>', 'この行の話者')}</div>`);
-    tx.innerHTML = groups.join('');
+  /* 基本の流れ(キー操作の一覧の下。今の割り当てから) */
+  const flow = $('#keysFlow');
+  if (flow){
+    const k = id => km[id] ? kbdHTML(km[id]) : '<span class="muted">(キーなし)</span>';
+    flow.innerHTML = `基本の流れ: ${k('rowNext')}(<kbd>↓</kbd>)で行を選ぶ → 聞く(${k('replay')}) → 合っていれば ${k('proof')} / 直すなら ${k('edit')}(<kbd>Tab</kbd>)で入力 → <kbd>Esc</kbd>(<kbd>Tab</kbd>) → ${k('proof')}。` +
+      `「移動したら自動で再生」(${k('autoNext')} か設定の引き出しで切り替え)をオンにすると、${k('proof')} を押すたびに「聞く → 確認 → 次を聞く」が続きます。` +
+      `聞き取れない・重なり・BGM は ${k('tagUnclear')} / ${k('tagOverlap')} / ${k('tagBgm')} でメモしておくと、あとで学習に使うかどうかを選べます。`;
   }
-  /* ⚙ 設定の「キー配置」 */
-  const grid = $('#kmGrid');
-  if (grid) grid.innerHTML = KEY_GROUPS.map(([g, h]) => `<div class="tt-kmgroup"><h4>${esc(h)}</h4>` + KEY_DEFS.filter(d => d.group === g).map(d =>
-    `<div class="tt-kmrow"><span>${esc(d.label)}${KEY_ALT[d.id] ? ` <span class="hint">(${esc(KEY_ALT[d.id])} でも)</span>` : ''}</span><button type="button" class="tt-kmbtn${km[d.id] ? '' : ' none'}${kmCap && kmCap.id === d.id ? ' cap' : ''}" data-id="${d.id}" aria-label="${esc(d.label)} のキー(押して変更)">${kmCap && kmCap.id === d.id ? 'キーを押す…' : esc(km[d.id] ? keyText(km[d.id]) : '未設定')}</button></div>`).join('') + '</div>').join('');
-  const custom = KEY_DEFS.some(d => (km[d.id] || '') !== d.def);
-  if ($('#kmReset')) $('#kmReset').disabled = !custom;
+  /* 行のボタンのツールチップ(描き直さずに title だけ合わせる) */
+  document.querySelectorAll('#segs button[data-act=play]').forEach(b => { b.title = titlePlay(); });
+  document.querySelectorAll('#segs button[data-act=proof]').forEach(b => { b.title = titleProof(); });
+  document.querySelectorAll('#segs button[data-act=tag]').forEach(b => { b.title = titleTag(b.dataset.t); });
+  window.dispatchEvent(new CustomEvent('ytt-keys-changed'));   // 2 カット のタブ(cut.js)の帯・ツールチップも合わせる
 }
-let kmCap = null;   // キーを押して割り当てている途中の操作 { id }
-function setKey(id, combo){
-  const d = KEY_DEFS.find(x => x.id === id); if (!d) return;
-  const km = { ...keymap() };
-  if (combo){
-    const why = keyRefusal(d, combo);
-    if (why){ toast(why, 4000); renderKeyUI(); return; }
-    for (const o of KEY_DEFS) if (o.id !== id && km[o.id] === combo){ km[o.id] = ''; toast(`「${o.label}」からこのキーを外しました(未設定になりました)`, 4000); }
-  }
-  km[id] = combo;
-  S.settings.keymap = km; saveSettings(); renderKeyUI();
-}
-function stopKeyCapture(){ if (kmCap){ kmCap = null; renderKeyUI(); } }
-$('#kmGrid').addEventListener('click', e => {
-  const b = e.target.closest('.tt-kmbtn'); if (!b) return;
-  kmCap = { id: b.dataset.id }; renderKeyUI();
-  const nb = $('#kmGrid').querySelector(`.tt-kmbtn[data-id="${CSS.escape(b.dataset.id)}"]`); if (nb) nb.focus();
-});
-$('#kmGrid').addEventListener('focusout', e => { if (kmCap && e.target.closest('.tt-kmbtn')) setTimeout(() => { const a = document.activeElement; if (!(a && a.closest && a.closest('.tt-kmbtn.cap'))) stopKeyCapture(); }, 0); });   // 別の所を押したら取り消し
-/* 割り当ての途中は、どのキーも「割り当てるキー」として受け取る(捕捉の段階で受けて、ほかの処理 = 引き出しの Esc・再生のキーなどに渡さない) */
+/* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ。S-29) */
+function openKeys(){ const d = $('#keys'); if (d.open) return; if (KM) KM.clearNote(); d.showModal(); }
 window.addEventListener('keydown', e => {
-  if (!kmCap) return;
-  if (e.isComposing || e.keyCode === 229) return;
-  e.preventDefault(); e.stopImmediatePropagation();
-  if (e.key === 'Escape') return stopKeyCapture();
-  if (e.key === 'Delete' || e.key === 'Backspace'){ const id = kmCap.id; kmCap = null; return setKey(id, ''); }
-  if (e.ctrlKey || e.metaKey || e.altKey) return;   // Ctrl・Alt つきは割り当てない(ブラウザ・タブの切り替えのキーと重なる)
-  const combo = UIKit.keys.comboOf(e); if (!combo) return;   // Shift だけを押した段階は、次のキーを待つ
-  const id = kmCap.id; kmCap = null; setKey(id, combo);
-}, true);
-$('#kmReset').addEventListener('click', () => { kmCap = null; S.settings.keymap = sanitizeKeymap(null); saveSettings(); renderKeyUI(); toast('キー配置を標準に戻しました', 2500); });
+  const d = $('#keys');
+  if (e.key !== '?' || e.defaultPrevented || !d.open || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTextEntry(e.target)) return;   // defaultPrevented = 同じ ? で今開いたところ
+  e.preventDefault(); if (!e.repeat) d.close();
+});
+if (KM){ KM.mount($('#keysList')); KM.mount($('#kmGrid')); }
 renderKeyUI();
 
 /* ---------- 用語のワンクリック挿入 ---------- */
@@ -2770,7 +2753,7 @@ const KH_KEY = 'tx.keyhint';
 const khOn = () => { try { return localStorage.getItem(KH_KEY) === '1'; } catch { return false; } };   // 段3 の仕上げ: 既定は出さない(画面の下のキーの帯と同じ中身のため)。出したいときだけ '1'
 function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyHintOn').checked = on; }
 $('#keyHintClose').addEventListener('click', () => { try { localStorage.setItem(KH_KEY, '0'); } catch {} applyKeyHint(); toast('キー操作の手がかりを閉じました(右上の「キー操作」から、また出せます)', 4000); });
-$('#keyHintAll').addEventListener('click', () => $('#keys').showModal());
+$('#keyHintAll').addEventListener('click', () => openKeys());
 $('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_KEY, e.target.checked ? '1' : '0'); } catch {} applyKeyHint(); });
 applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
@@ -2809,7 +2792,7 @@ function onCutSaved(r){
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 /* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */
@@ -2838,6 +2821,7 @@ async function boot(){
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
+  if (KM) KM.reload();   // 校正のキーは編集の設定。共通の再生キーを以前ここに保存していたら、ホームの設定へ移す(部品が 1 回だけ)
   if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
   }

@@ -303,6 +303,28 @@ dialog h2,dialog h3{margin-top:0}
 .ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
 .ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
+/* v8(段6): キーの一覧 = キー配置(UIKit.keymap)。キーはボタン(押すと次のキーを待つ)・変えられないキーは錠。置き場の幅で 2 列 → 1 列 */
+.ui-km{container-type:inline-size}
+.ui-km-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+@container (max-width:600px){.ui-km-grid{grid-template-columns:minmax(0,1fr)}}
+.ui-km-intro{margin:0 0 4px}
+.ui-km-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 0 0;padding:6px 10px;border-radius:var(--r);background:var(--info-soft);color:var(--info-ink);font-size:13px}
+.ui-km-note:empty{display:none}
+.ui-km-note.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.ui-km-note.cap{background:var(--accent-soft);color:var(--ink)}
+.ui-km-note .btn{flex:none}
+.ui-km-key{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:64px;min-height:28px;padding:2px 8px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font:inherit;font-size:12px;cursor:pointer}
+.ui-km-key:hover{border-color:var(--line-strong)}
+.ui-km-key:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--accent)}
+.ui-km-key .ui-kbd{opacity:1;border-color:transparent;padding:0 2px}
+.ui-km-key.none{color:var(--ink-3)}
+.ui-km-key.cap{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:600}
+.ui-km-row .ui-klabel{display:flex;flex-direction:column;gap:1px}
+.ui-km-lost{color:var(--warn-ink);font-size:11.5px}
+.ui-km-def{flex:none;min-height:24px;padding:0 8px;font-size:12px}
+.ui-km-fixed .ui-klabel{color:var(--ink-3)}
+.ui-km-lock{flex:none;display:inline-flex;color:var(--ink-4)}
+.ui-km-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px}
 
 /* 表 */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
@@ -1041,14 +1063,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-spklist{margin:4px 0 0;line-height:1.7}
 .tt-pk-spk-i{display:inline-flex;align-items:center;gap:5px}
 .tt-pk-spk-sw{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid var(--line-strong)}
-/* ⚙ 設定の「キー配置」(2026-09-27) */
-.tt-kmgroup{margin-top:10px}
-.tt-kmgroup h4{margin:0 0 4px;font-size:12px;color:var(--ink-2);font-weight:600}
-.tt-kmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:32px;border-bottom:1px solid var(--line)}
-.tt-kmbtn{min-width:96px;min-height:28px;padding:3px 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font:inherit;font-size:13px;cursor:pointer;text-align:center;flex:none}
-.tt-kmbtn:hover{border-color:var(--line-strong)}
-.tt-kmbtn.none{color:var(--ink-3)}
-.tt-kmbtn.cap{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 </style>
 </head>
 <body>
@@ -1445,7 +1459,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-cut-tools" role="toolbar" aria-label="カットの道具">
        <button type="button" class="btn small" id="cutSplit" title="再生位置(赤い線)で、残す区間を2つに分けます(S)"><span aria-hidden="true">✂</span> 分割 <kbd>S</kbd></button>
        <button type="button" class="btn small" id="cutDel" title="選んだ残す区間を削る / 選んだ削る区間を戻す(Del)">削る / 戻す <kbd>Del</kbd></button>
-       <button type="button" class="btn small" id="cutIO" title="I で決めた始まりから O で決めた終わりまでを削ります(X)">I〜O を削る <kbd>X</kbd></button>
+       <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(X)">I〜O を削る <kbd>X</kbd></button>
        <span class="tt-sep" aria-hidden="true"></span>
        <button type="button" class="btn small ghost" id="cutUndo" title="元に戻す(Ctrl+Z)"><span aria-hidden="true">↶</span> 元に戻す <kbd>Ctrl+Z</kbd></button>
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span aria-hidden="true">↷</span> やり直す</button>
@@ -1492,7 +1506,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        </div>
      </div>
      <div class="tt-cut-status" id="cutStatus" aria-live="polite"></div>
-     <p class="hint tt-cut-keys">キー: Space 再生・停止 ・ J K L(戻る・止める・再生) ・ ← → 1秒(Shift で5秒) ・ S 分割 ・ Del 削る/戻す ・ I O X ・ <kbd>,</kbd> <kbd>.</kbd> 1コマ(端を選んでいれば、その端を。Shift で10コマ) ・ Ctrl+Z / Ctrl+Shift+Z ・ + − ズーム(ホイール・Shift+ホイールで移動) <span class="savest" id="cutSaveSt" role="status"></span></p>
+     <p class="hint tt-cut-keys"><span id="cutKeysText"></span> <span class="savest" id="cutSaveSt" role="status"></span></p>
    </section>
    <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
      <!-- 3 パック(docs/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps)。
@@ -1594,15 +1608,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 </div>
 <div class="tt-scrim" id="menuScrim" aria-hidden="true"></div>
 <dialog id="keys" aria-labelledby="keysT">
-  <div class="ui-dlg-head"><h2 id="keysT">キー操作(1 文字起こし のタブ。左手だけで校正できます)</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-head"><h2 id="keysT">キー操作の一覧</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc・?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
-  <p class="hint" style="margin:0"><b>キー単体</b>で操作します。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません。<b>Esc</b> で入力欄から抜けてください。キーの割り当ては <b>⚙ 設定</b> の「キー配置」で変えられます(下の表は今の割り当て)。</p>
-  <div class="ui-kgrid" id="keysCommon"></div>
-  <div class="ui-kgrid" id="keysTx"></div>   <!-- 割り当てのとおりに renderKeyUI() が描く -->
-  <h3 class="section-title" style="margin-top:14px">2 カット のタブ</h3>
-  <p class="hint" style="margin:4px 0 0">共通の再生キー(上)に加えて: <kbd>[</kbd> <kbd>]</kbd> 前/次の区間を選ぶ ・ <kbd>Q</kbd> <kbd>W</kbd> 選んだ区間の始まり/終わりの端を選ぶ ・ <kbd>S</kbd> 分割 ・ <kbd>Del</kbd> 削る/戻す ・ <kbd>I</kbd> 始まり ・ <kbd>O</kbd> 終わり ・ <kbd>X</kbd> I〜O を削る ・ <kbd>,</kbd> <kbd>.</kbd> 選んだ端を1コマ(Shift で10コマ) ・ <kbd>Ctrl</kbd>+<kbd>Z</kbd> 元に戻す ・ <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> やり直す。ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付かない</p>
-  <p class="hint" style="margin:12px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。</p>
-  <p class="tt-flow">基本の流れ: <kbd>S</kbd>(<kbd>↓</kbd>)で行を選ぶ → 聞く(<kbd>R</kbd>) → 合っていれば <kbd>Shift</kbd>+<kbd>Space</kbd> / 直すなら <kbd>T</kbd>(<kbd>Tab</kbd>)で入力 → <kbd>Esc</kbd>(<kbd>Tab</kbd>) → <kbd>Shift</kbd>+<kbd>Space</kbd>。「移動したら自動で再生」(<kbd>B</kbd> か設定の引き出しで切り替え)をオンにすると、<kbd>Shift</kbd>+<kbd>Space</kbd> を押すたびに「聞く → 確認 → 次を聞く」が続きます。聞き取れない・重なり・BGM は <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> でメモしておくと、あとで学習に使うかどうかを選べます。</p>
+  <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap。⚙ 設定の「キー配置」と同じ部品) -->
+  <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
+  <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>
 </dialog>
@@ -1639,10 +1649,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   </div>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
   <h3 style="margin-top:18px">キー配置</h3>
-  <p class="hint" style="margin:4px 0 8px">キーのボタンを押してから、割り当てたいキーを押します。Esc = 取り消し / Delete = 割り当てを外す。すでに使っているキーを選ぶと、そちらの割り当てが外れます。
-    ↓ ↑・Shift+↓ ↑(行の移動)・1〜9 と 0(話者)・Tab・Esc は固定です。再生のキーは 2 カット のタブでも同じ割り当てになります。キー配置は、どのブラウザ・窓でも同じです。</p>
-  <div class="row" style="margin-bottom:6px"><button type="button" class="btn small" id="kmReset">標準に戻す</button></div>
-  <div id="kmGrid" class="tt-kmgrid"></div>
+  <div id="kmGrid"></div>   <!-- キーの一覧(?)と同じ部品(UIKit.keymap) -->
 </section>
 
 <script src="cut.js"></script>
