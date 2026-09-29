@@ -98,7 +98,7 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.22.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.23.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -3369,6 +3369,26 @@ def load_settings():
         return {}
 
 
+# ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
+SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18)}   # パックの音量(LUFS。0 = そろえない)
+_settings_lock = threading.Lock()
+
+
+def patch_settings(obj):
+    vals = obj.get("values")
+    if not isinstance(vals, dict) or not vals:
+        raise ApiError("bad_request", "直す値がありません", 400)
+    for k, v in vals.items():
+        chk = SETTINGS_PATCH_KEYS.get(k)
+        if not chk or not chk(v):
+            raise ApiError("bad_request", "その設定は直せません: %s" % str(k)[:40], 400)
+    with _settings_lock:
+        st = load_settings()
+        st.update(vals)
+        atomic_write(SETTINGS, json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"))
+    return {"ok": True, "values": {k: st[k] for k in vals}}
+
+
 def parse_replacements(text):
     """「誤=>正」を1行に1つ書いた文字列 → [(誤, 正)](長い誤りから先に置換する)。"""
     pairs = []
@@ -6030,6 +6050,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, scan_folder(obj.get("path"), obj.get("recursive") is True))
             if path == "/api/transcribe-batch":
                 return self._json(200, add_batch(obj))
+            if path == "/api/settings/patch":   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
+                return self._json(200, patch_settings(obj))
             if path == "/api/eval-baseline":
                 return self._json(200, record_baseline(obj.get("label")))
             if path == "/api/abtest":
@@ -6149,7 +6171,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/settings":
                 if len(json.dumps(obj)) > 200000:
                     raise ApiError("too_big", "設定が大きすぎます", 413)
-                atomic_write(SETTINGS, json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8"))
+                with _settings_lock:   # ほかの画面から api/settings/patch で直す項目は、丸ごとの保存ではサーバーの値を残す(古い画面が戻さないように)
+                    cur = load_settings()
+                    obj = {k: v for k, v in obj.items() if k not in SETTINGS_PATCH_KEYS}
+                    obj.update({k: cur[k] for k in SETTINGS_PATCH_KEYS if k in cur})
+                    atomic_write(SETTINGS, json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8"))
                 return self._json(200, {"ok": True})
             if u.path == "/api/transcript":
                 tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]

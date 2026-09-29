@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.22.0';
+const APP_VERSION = '0.23.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -2452,6 +2452,10 @@ $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); 
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);
 $('#docAutoGo').addEventListener('click', startDocAuto);
+if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる。2026-09-29)
+  UIKit.packLoud.mount($('#docAutoLoud'));
+  document.addEventListener('ui-packloud', e => { if (S.settings) S.settings.packLoudness = e.detail; if (PACK) PACK.changed(); });
+}
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄が空なら、パックのタブでこの文書に入れた名前(tx.streamer.v1。pack-tab.js)を入れる
   if (!$('#docAuto').open || $('#docAutoWho').value.trim() || !(window.UIKit && UIKit.streamer)) return;
   let who = '';

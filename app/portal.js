@@ -370,6 +370,7 @@
     var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { box.hidden = true; return; }
     if (window.UIKit && UIKit.streamer) UIKit.streamer.attach(who);
+    if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('.pt-auto-loudsel', box));   // パックの音量(編集の設定の1か所。2026-09-29)
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });

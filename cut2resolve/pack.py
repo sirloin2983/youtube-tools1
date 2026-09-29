@@ -578,12 +578,14 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
-               textplus_color=None, speaker_colors=None):
+               textplus_color=None, speaker_colors=None, loudness=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
     textplus_color: Text+ の文字の色 {"hex", "who"}(配信者のメンバーカラー。resolve_textplus.text_style。None = 黒い文字)。
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
+    loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt_core/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
+    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
@@ -614,17 +616,43 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = secrets.token_hex(4)
     staged = []
+    loud, gain = None, 0.0   # 音量をそろえた結果(画面に出す)と、かける量(dB)
+    same = copy_video and S.same_path(paths["video"], mvideo)
     try:
+        if loudness is not None and (render or (copy_video and not same)):
+            LD = C.loudness_mod()
+            if not mmeta["audio"]:
+                loud = {"target": loudness, "skipped": "音声の無い動画です"}
+            else:
+                _say(log, task, "残す区間の音量を測っています…")
+                mf = mmeta["fps"]
+                spans = [(float(Fraction(a * mf[1], mf[0])), float(Fraction(b * mf[1], mf[0]))) for a, b in mkeeps]
+                i, tp = C.measure_loudness(mvideo, spans, task, sum(b - a for a, b in spans) or None)
+                if i is None:
+                    loud = {"target": loudness, "skipped": "無音のため測れませんでした"}
+                else:
+                    gain = LD.gain(loudness, i, tp)
+                    gain = gain if abs(gain) >= LD.MIN_GAIN_DB else 0.0
+                    loud = LD.result(loudness, i, gain)
+            if loud.get("skipped"):
+                warnings.append("音量はそろえませんでした(%s)。" % loud["skipped"])
+        elif loudness is not None and same:
+            loud = {"target": loudness, "skipped": "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"}
+            warnings.append("音量はそろえませんでした(%s)。" % loud["skipped"])
         if render:
             _say(log, task, "粗編集の動画を書き出しています…(時間がかかります)")
             tmp = out_dir / f".c2r-{tag}-{paths['roughcut'].name}"
-            C.render_rough_cut(video, plan.keeps, fps, bool(meta["audio"]), tmp, crf, task)
+            C.render_rough_cut(video, plan.keeps, fps, bool(meta["audio"]), tmp, crf, task, gain_db=gain)
             staged.append((tmp, paths["roughcut"], "roughcut"))
-        if copy_video and not S.same_path(paths["video"], mvideo):
-            _say(log, task, "元動画をコピーしています…")
+        if copy_video and not same:
             paths["video"].parent.mkdir(parents=True, exist_ok=True)
             tmp = out_dir / f".c2r-{tag}-{mvideo.name}"
-            C.copy_video(mvideo, out_dir, task, dst=tmp)
+            if gain:
+                _say(log, task, "音量をそろえて(%+.1f dB)元動画を写しています…" % gain)
+                C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"))
+            else:
+                _say(log, task, "元動画をコピーしています…")
+                C.copy_video(mvideo, out_dir, task, dst=tmp)
             staged.append((tmp, paths["video"], "video"))
         if task:
             task.check()
@@ -681,7 +709,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
     readme = TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color) if textplus else files["readme_text"]
     return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings, "editMedia": m["edit"],
-            "mediaKeeps": [list(x) for x in mkeeps], "plan": doc}
+            "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud}
 
 
 # ---------------------------------------------------------------- 画面に返す形(JSON)

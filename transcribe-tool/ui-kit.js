@@ -24,7 +24,8 @@
    v7(2026-09-29・気が利く画面へ 段1。.design/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
-       available()。保存に失敗したら知らせと [もう一度]) */
+       available()。保存に失敗したら知らせと [もう一度])。
+       UIKit.packLoud(パックの音量のそろえ方 LUFS。値は編集の設定 packLoudness の1か所。mount(select) で選択の欄にする・get()・set(v)) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -133,6 +134,7 @@
       var out = {};
       if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k) && typeof p[k] === 'string' && PATH_RE.test(p[k])) out[k] = p[k];
       tools.paths = out;
+      if (typeof loudRefresh === 'function') loudRefresh();   /* v7: パックの音量の欄(編集の場所が分かってから出す) */
       /* v6: ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
       if (document.readyState !== 'loading') renderAppNav();
     },
@@ -1046,7 +1048,68 @@
   };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
+  /* ---- packLoud(パックの音量のそろえ方。v7・2026-09-29)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
+     どの画面のまとめて実行の欄からも同じ値を読み書きする: 読む = 編集の api/settings、直す = api/settings/patch(送ったキーだけ。
+     編集の画面の丸ごとの保存では、この値はサーバーのものが残る)。編集が同じ入口に取り込まれていないとき(paths に無い)は欄を隠す */
+  var LOUD_OPTS = [[-14, '-14 LUFS(おすすめ)'], [-11, '-11(大きめ)'], [-16, '-16(控えめ)'], [-18, '-18(小さめ)'], [0, 'そろえない']];
+  var loudGet = null;
+  function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
+  function loudNorm(raw) {
+    if (raw === undefined || raw === null || raw === '') return -14;
+    var v = +raw;
+    return v === 0 ? 0 : (v === -11 || v === -14 || v === -16 || v === -18) ? v : -14;
+  }
+  function loudPaint(v) {
+    var els = document.querySelectorAll('select[data-ui-packloud]');
+    for (var i = 0; i < els.length; i++) if (document.activeElement !== els[i]) els[i].value = String(v);
+    try { document.dispatchEvent(new CustomEvent('ui-packloud', { detail: v })); } catch (e) { /* 古いブラウザ: 知らせないだけ */ }
+  }
+  var loudMounted = [];
+  function loudWrap(sel) { return sel.closest ? (sel.closest('label') || sel) : sel; }
+  function loudRefresh() {
+    loudMounted = loudMounted.filter(function (sel) { return sel.isConnected; });
+    if (!loudMounted.length) return;
+    var ok = !!(txApiUrl('api/settings') && token());
+    for (var i = 0; i < loudMounted.length; i++) loudWrap(loudMounted[i]).hidden = !ok;
+    if (ok) packLoud.get().then(function (v) { loudPaint(v); }, function () { for (var j = 0; j < loudMounted.length; j++) loudWrap(loudMounted[j]).hidden = true; });
+  }
+  var packLoud = {
+    norm: loudNorm,
+    get: function () {
+      var u = txApiUrl('api/settings');
+      if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
+      if (!loudGet) {
+        loudGet = fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return loudNorm(j.packLoudness); });
+        loudGet.then(function () { setTimeout(function () { loudGet = null; }, 3000); }, function () { loudGet = null; });   /* 続けて読むときは1回に */
+      }
+      return loudGet;
+    },
+    set: function (v) {
+      var u = txApiUrl('api/settings/patch'), tk = token();
+      v = loudNorm(v);
+      if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
+      return fetch(u, { method: 'POST', cache: 'no-store', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify({ values: { packLoudness: v } }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); return v; }); })
+        .then(function (x) { loudGet = null; loudPaint(x); return x; }, function (e) {
+          toastFn('パックの音量を保存できませんでした: ' + e.message, { kind: 'err', ms: 0, action: { label: 'もう一度', fn: function () { packLoud.set(v); } } });
+          throw e;
+        });
+    },
+    /* <select data-ui-packloud> を選択の欄にする(選択肢を入れ・今の値を読み・変えたら保存)。使えなければ、欄を包む label ごと隠す */
+    mount: function (sel) {
+      if (!sel || sel.getAttribute('data-ui-packloud-on')) return;
+      sel.setAttribute('data-ui-packloud', ''); sel.setAttribute('data-ui-packloud-on', '1');
+      sel.title = sel.title || 'パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定)';
+      sel.innerHTML = '';
+      for (var i = 0; i < LOUD_OPTS.length; i++) { var o = document.createElement('option'); o.value = String(LOUD_OPTS[i][0]); o.textContent = LOUD_OPTS[i][1]; sel.appendChild(o); }
+      sel.addEventListener('change', function () { packLoud.set(sel.value).catch(function () {}); });
+      loudMounted.push(sel);
+      loudRefresh();   /* 編集の場所がまだ分からなければ隠しておき、setPaths のときに出す */
+    }
+  };
+
   window.UIKit = { version: 7, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud };
 })();

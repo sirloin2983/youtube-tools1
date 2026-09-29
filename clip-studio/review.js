@@ -143,6 +143,7 @@ function buildDOM(){
           <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
         <label class="lag rv-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
           <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+        <label class="lag rv-autoloud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="rvAutoLoud" data-ui-packloud></select></label>
       </div>
     </details>
     <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター</span></button>
@@ -2057,6 +2058,7 @@ Studio.onReady(() => {
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
+  if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
   if (Studio.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#rvAutoBar').addEventListener('click', async e => {

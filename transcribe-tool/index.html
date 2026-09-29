@@ -1266,6 +1266,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          <label class="lag" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
            <input id="docAutoWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
          <label class="lag"><input type="checkbox" id="docAutoOverwrite">パックがあれば作り直す(上書き)</label>
+         <label class="lag" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="docAutoLoud" data-ui-packloud></select></label>
          <div class="row"><button type="button" class="btn small primary" id="docAutoGo">この文書を最後まで</button></div>
        </div>
      </details>
@@ -1543,6 +1544,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <h3 class="tt-pk-h"><span class="tt-pk-n">2</span>パックに入れるもの</h3>
            <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
            <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます。Resolve での手順は、作ったあと「Resolve での手順を見る」で出ます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
+           <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
+             <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない</option></select></div>
+           <p class="hint tt-pk-p">カットで残す部分だけを測って、パックに入れる動画の音声をそろえます(映像はそのまま・元の動画は書き換えません)。まとめて実行のパックも同じ値を使います。</p>
            <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
            <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
            <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しい設定(タイムコード・リール名・zip など)</summary>

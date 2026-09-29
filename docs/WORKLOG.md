@@ -1514,3 +1514,23 @@
 - **未完了(次にやること)**: `app/test_window.py` に names のまとめて照らし合わせ・`app/test_autorun.py` に speakerColors が渡るテスト / `e2e_ui_mounted`・`e2e_edit_cut`・`e2e_edit_tabs`・`e2e_edit_voices`・`app/e2e_autorun` の流し直し / 段2 の WORKLOG の本記録
 - 精度改善 1回目の測定: 基準(文脈なし・温度0)は終わった(作業データの `evals/asr/20260929-211155_段1-基準-temp0.json`)。**文脈ありの回が裏で動いている**(終わると同じフォルダに `段1-文脈あり-temp0`)。
   判定は決めておいた採用の決まり(`docs/transcription-overhaul-plan.md` の 9)で、呼び名の下書きの確認のあとに行う。今回は前回より約3倍遅かった(原因は未確認)
+
+## 2026-09-29 Claude Code — パックの音量(LUFS にそろえる)をパック作りとまとめて実行の欄に(ユーザー「まずこれだけすぐ」「テストは後に回して実装」)
+- ユーザーの指示: 「まとめて出力や最後のパック生成のところで音量調整したい」。質問で決定: 場所 = パックを作るとき + まとめて実行の欄・決め方 = LUFS にそろえる(スタジオと同じ選択肢)
+- 変更:
+  - `ytt_core/loudness.py`(新): 選べる値(-11/-14/-16/-18)・ピークの上限 -1 dBTP・上げる量の上限 +20 dB・loudnorm の読み方・かける量・区間だけ測る aselect。**スタジオの書き出し(`clip-studio/exporter.py`)もこれを使うように**(動きは同じ。test_exporter 25 件通過)
+  - `cut2resolve/cut2resolve_core.py`: `measure_loudness`(残す区間だけ)・`copy_video_gain`(映像はそのまま・音声だけ作り直す。webm は Opus)・`render_rough_cut(gain_db)`・`loudness_mod`(コマンドで動かすときも ytt_core を読めるように)
+  - `cut2resolve/pack.py` `build_pack(loudness=)`: カットで残す区間(余白つき素材なら、それに合わせた区間)を測り、同梱の動画と粗編集の動画に同じ量。元の動画は書き換えない(パックの動画が元と同じ場所ならそろえずに注意)。結果 `loudness`
+  - `cut2resolve/serve.py`: `output.loudness`(検査は ytt_core/loudness.check_target)・結果に `loudness`
+  - 値の置き場: 編集の設定 `packLoudness`(既定 -14・0 = そろえない)。**`POST /api/settings/patch`(送ったキーだけ直す・許可した項目だけ)でしか変えない**。
+    丸ごとの保存(PUT /api/settings)では、この項目はサーバーの値を残す(開いたままの古い画面が戻さないように)
+  - 画面: 編集 3 パック の「設定を変える」→「2 パックに入れるもの」に「音量のそろえ方(LUFS)」・要約・作ったあとの知らせに結果。
+    まとめて実行の欄(編集の題名の行・ホームの案件・スタジオ ③ のメニュー)に「パックの音量」= ui-kit の `UIKit.packLoud`(mount・get・set。編集の場所が分かってから欄を出す・どこで変えても同じ値)
+  - `app/autorun.py`: まとめて実行のパックの段も `packLoudness` を `output.loudness` に
+  - 版: 編集 0.22.0 → **0.23.0**・cut2resolve 0.14.0 → **0.15.0**・ホーム 0.12.0 → **0.13.0**・スタジオ 0.10.0 → **0.11.0**(09-28 の予約分と、気が利く画面へ 段1〜2 もこの版に含む)。
+    **気が利く画面へ の最後の版上げは、この次の番号にする**
+- 確かめたこと: 測る・音声だけ作り直して写す、を ffmpeg で手元で確認(-47.9 LUFS の音 → 上げる量の上限 +20 dB で -27.9)。**テストは書いていない(ユーザーの指示で後回し)**
+- 未完了・次(テスト): ytt_core/loudness の単体・cut2resolve の test_pack(loudness あり/なし/音声なし/同じ場所)・test_serve(output.loudness の検査)・
+  transcribe の api/settings/patch と PUT の保持・app/test_autorun(loudness が渡る)・e2e_edit_pack(欄・要約・知らせ)・ホーム/スタジオの欄の e2e・契約テスト `tools/test_resolve_pack_contract.py`(単独で)。
+  zip(`/api/resolve-package`)には音量を入れていない
+- 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start-all.bat で起動し直す

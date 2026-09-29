@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.14.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.15.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -481,9 +481,10 @@ def remap_cues(cues_ms, keeps, fps, min_piece_frames=6):
 
 # ---------------------------------------------------------------- 粗編集の動画(EDL が通らないときの代替)
 
-def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None):
+def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None, gain_db=0.0):
     """残す区間だけをつないだ H.264 の mp4 を作る(再エンコード。フレーム単位で切る)。
-    一時ファイルに書き出してから置き換える(途中で失敗・取り消しても、書きかけの mp4 を残さない)"""
+    一時ファイルに書き出してから置き換える(途中で失敗・取り消しても、書きかけの mp4 を残さない)。
+    gain_db: 音量をそろえるとき(パックの loudness)に、つないだ音にかける量(dB。0 = そのまま)"""
     if not keeps:
         raise ToolError("残す区間がありません。")
     chains = []
@@ -495,7 +496,9 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None):
             chains.append(f"[0:a]atrim=start={t0:.6f}:end={t1:.6f},asetpts=PTS-STARTPTS[a{i}]")
     ins = "".join(f"[v{i}][a{i}]" if has_audio else f"[v{i}]" for i in range(len(keeps)))
     chains.append(f"{ins}concat=n={len(keeps)}:v=1:a={1 if has_audio else 0}"
-                  + ("[outv][outa]" if has_audio else "[outv]"))
+                  + ("[outv][outa0]" if has_audio else "[outv]"))
+    if has_audio:
+        chains.append("[outa0]" + (f"volume={gain_db:.2f}dB" if abs(gain_db) >= 0.01 else "anull") + "[outa]")
     script = ";\n".join(chains)
     kept_sec = float(Fraction(sum(e - s for s, e in keeps) * fps[1], fps[0]))
     out_path = Path(S.arg_path(out_path))
@@ -684,6 +687,64 @@ def split_json_inputs(paths):
     """(.json 以外, .json)。フル版は動画・字幕・カットリストに加えて、文字起こし・cut-plan の JSON も順不同で受け取る"""
     js = [p for p in paths if p.suffix.lower() in JSON_EXTS]
     return [p for p in paths if p not in js], js
+
+
+def loudness_mod():
+    """ytt_core/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt_core を読んでいないので、リポジトリ直下を足して読む"""
+    try:
+        from ytt_core import loudness
+    except ImportError:
+        sys.path.append(str(Path(__file__).resolve().parent.parent))
+        from ytt_core import loudness
+    return loudness
+
+
+def measure_loudness(video, spans_sec=None, task=None, duration=None):
+    """(統合ラウドネス LUFS, トゥルーピーク dBTP)。spans_sec = 測る区間 [(開始秒, 終了秒)](残す区間だけ。None = 全体)。
+    無音・測れないときは (None, None)。読み方・区間の選び方は ytt_core/loudness.py の1か所(スタジオの書き出しと共通)"""
+    _loud = loudness_mod()
+    sel = _loud.select_filter(spans_sec)
+    af = (sel + "," if sel else "") + "loudnorm=print_format=json"
+    with tempfile.TemporaryDirectory() as d:   # 区間が多いと長くなるので、フィルタはファイルで渡す(Windows のコマンド長の制限)
+        sp = Path(d) / "af.txt"
+        sp.write_text(af, encoding="utf-8")
+        err = ""
+        for opt in ("-filter_script:a", "-/af"):   # 新しい ffmpeg では -filter_script が -/af に置き換わっている
+            r = _ffmpeg_run(["ffmpeg", "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, str(sp), "-f", "null", "-"],
+                            3600, task, duration)
+            err = r.stderr or ""
+            if r.returncode == 0:
+                return _loud.parse(err)
+            if "nrecognized option" not in err and "not found" not in err:
+                break
+    raise ToolError("音量を測れませんでした: " + err.strip()[-300:])
+
+
+def copy_video_gain(video, dst, gain_db, task=None, duration=None):
+    """動画を dst へ写し、音声だけ gain_db(dB)をかけて作り直す(映像はそのまま = 無劣化)。一時ファイル経由(書きかけを残さない)。
+    コンテナは dst の拡張子のまま(webm は Opus、それ以外は AAC)"""
+    dst = Path(dst)
+    ext = dst.suffix.lower()
+    fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=ext or ".mp4")
+    os.close(fd)
+    acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", "192k"]
+    tc = read_start_tc(video)
+    opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", f"volume={gain_db:.2f}dB"] + acodec
+    if ext in (".mp4", ".mov", ".m4v"):
+        opts += ["-movflags", "+faststart"] + (["-timecode", tc] if tc and tc != "00:00:00:00" else [])
+    try:
+        r = _ffmpeg_run(["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
+        if r.returncode != 0:
+            raise ToolError("音量をそろえた動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
+        S._replace_retry(tmp, str(dst))
+        tmp = None
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return dst
 
 
 def copy_video(video, out_dir, task=None, dst=None):

@@ -532,6 +532,9 @@ class AutoRunner:
         wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
         wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
         wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
+        loud = tx_settings.get("packLoudness", -14)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。既定 -14・0 = そろえない。2026-09-29)
+        if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
+            wrap_out["loudness"] = loud
         return row_edge, wrap_out
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):

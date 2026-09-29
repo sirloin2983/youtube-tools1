@@ -19,7 +19,7 @@ import uuid
 import common
 import handoff
 from common import ApiError, VID_RE, find_tool, redact, fmt_ts
-from ytt_core import jobs, schemas  # common が ytt_core を読めるようにしてある
+from ytt_core import jobs, loudness as _loud, schemas  # common が ytt_core を読めるようにしてある
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -27,9 +27,10 @@ EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく�
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 # ラウドネス(聞こえ方の音量。LUFS)をそろえる(2026-09-26。音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
-LOUDNESS_CHOICES = (-11.0, -14.0, -16.0, -18.0)
-TRUE_PEAK_CEIL = -1.0   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
-MAX_GAIN_DB = 20.0      # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
+# 選べる値・ピークの上限・上げる量の上限と、測った結果の読み方は ytt_core/loudness.py の1か所(パック作りと共通。2026-09-29)
+LOUDNESS_CHOICES = _loud.CHOICES
+TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
+MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
 # Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
 # UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
@@ -551,18 +552,7 @@ def measure_loudness(job, it, path):
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
            "-f", "null", "-", "-progress", "pipe:1", "-nostats"]
     tail = _pump(job, cmd, it, dur)
-    text = "\n".join(tail)
-    vals = {}
-    for key in ("input_i", "input_tp"):
-        m = re.search(r'"%s"\s*:\s*"([^"]+)"' % key, text)
-        try:
-            vals[key] = float(m.group(1)) if m else None
-        except ValueError:
-            vals[key] = None
-    i, tp = vals["input_i"], vals["input_tp"]
-    if i is None or not (-70.0 <= i <= 10.0) or tp is None or tp != tp or abs(tp) == float("inf"):
-        return None, None
-    return i, tp
+    return _loud.parse("\n".join(tail))
 
 
 def apply_loudness(job, spec, it):
@@ -578,14 +568,10 @@ def apply_loudness(job, spec, it):
     if i is None:
         it["loudness"] = {"target": target, "skipped": "音声が無いか、無音のため測れませんでした"}
         return
-    gain = min(target - i, TRUE_PEAK_CEIL - tp, MAX_GAIN_DB)
     edit = it.get("editPath")
-    if edit and os.path.isfile(edit):
-        _ei, etp = measure_loudness(job, it, edit)
-        if etp is not None:
-            gain = min(gain, TRUE_PEAK_CEIL - etp)
-    gain = round(gain, 2)
-    if abs(gain) >= 0.1:
+    etp = measure_loudness(job, it, edit)[1] if edit and os.path.isfile(edit) else None
+    gain = _loud.gain(target, i, tp, etp)
+    if abs(gain) >= _loud.MIN_GAIN_DB:
         for path in [main] + ([edit] if edit and os.path.isfile(edit) else []):
             _reencode_audio(job, it, path, "volume=%.2fdB" % gain, "ラウドネス調整")
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}

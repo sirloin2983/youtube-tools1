@@ -11,6 +11,11 @@ function create(h){
   const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
   const fpsOf = () => { const o = $('#pkFpsOther').value; return o || (h.S.settings.packFps === '60' ? '60' : String(h.S.settings.packFps || '30')); };
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
+  /* 音量のそろえ方(LUFS。編集の設定 packLoudness。既定 -14 = スタジオの書き出しと同じ・0 = そろえない。まとめて実行のパックも同じ値。2026-09-29) */
+  const loudOf = () => {
+    const raw = h.S.settings.packLoudness; if (raw === undefined || raw === null || raw === '') return -14;
+    const v = Number(raw); return v === 0 ? 0 : [-11, -14, -16, -18].includes(v) ? v : -14;
+  };
   /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
   const wrapOf = () => { const w = (h.S.settings.subtitle || {}).wrapChars || {}, o = sizeOf() === '1920x1080' ? 'horizontal' : 'vertical', n = Number(w[o]);
     return Number.isInteger(n) && n >= 0 && n <= 40 ? n : (o === 'horizontal' ? 14 : 8); };
@@ -180,6 +185,8 @@ function create(h){
     const bits = [`${fps}fps`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
     if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
     if ($('#pkRender').checked) bits.push('粗編集の動画つき');
+    bits.push(loudOf() ? `音量 ${loudOf()} LUFS` : '音量そのまま');
+    if (document.activeElement !== $('#pkLoud')) $('#pkLoud').value = String(loudOf());
     const dir = $('#pkDir').value.trim();
     bits.push('出力先: ' + (dir ? dir.split(/[\\/]/).filter(Boolean).pop() : defaultDirName()));   // 末尾が \ / で終わっていると、素の pop() は空文字になる
     $('#pkSummaryText').textContent = bits.join(' ・ ');
@@ -236,7 +243,7 @@ function create(h){
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
       const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(),
         ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(hasRows && whoOf() ? { streamer: whoOf() } : {}),
-        speakerColors: hasRows && $('#pkSpk').checked };
+        speakerColors: hasRows && $('#pkSpk').checked, ...(loudOf() ? { loudness: loudOf() } : {}) };
       let force = false, res;
       for (;;){
         try {
@@ -261,7 +268,8 @@ function create(h){
       P.readme = res.readme || ''; P.lastRes = res;
       h.onPacked(id, { rev, at: r.at });
       for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
-      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。「Resolve での手順を見る」の手順で取り込みます`, 8000, 'ok');
+      const lo = res.loudness, loudMsg = lo && lo.measured != null ? `音量: ${Number(lo.measured).toFixed(1)} → ${(Number(lo.measured) + Number(lo.gainDb)).toFixed(1)} LUFS(${lo.gainDb >= 0 ? '+' : ''}${Number(lo.gainDb).toFixed(1)} dB${Number(lo.measured) + Number(lo.gainDb) < lo.target - 0.2 ? '。音が割れる・雑音が大きくなるのを避けるため、目標の手前で止めました' : ''})。` : '';
+      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。${loudMsg}「Resolve での手順を見る」の手順で取り込みます`, 8000, 'ok');
     } catch (e){
       if (e.code === 'cancelled') h.toast('パック作りを中止しました', 3000);
       else if (e.code !== 'switched') P.err = e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message;
@@ -279,6 +287,12 @@ function create(h){
   $('#pkBuild').addEventListener('click', build);
   $('#pkBackup').addEventListener('change', render);
   $('#pkRender').addEventListener('change', render);
+  $('#pkLoud').addEventListener('change', async () => {   // 音量は「送ったキーだけ直す」API で(丸ごとの保存では変えない。ほかの画面のまとめて実行の欄と同じ値)
+    const v = Number($('#pkLoud').value);
+    try { await h.api('/api/settings/patch', { body: { values: { packLoudness: v } } }); h.S.settings.packLoudness = v; }
+    catch (er){ h.toast('パックの音量を保存できませんでした: ' + er.message, 6000, 'err'); }
+    render();
+  });
   $('#pkDir').addEventListener('input', render);
   $('#pkJob').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=pkcancel]') || !P.job) return;
@@ -316,7 +330,12 @@ function create(h){
 
   return {
     load,
-    shown(){ if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); } },
+    shown(){
+      if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
+      h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
+        if (st && st.packLoudness !== h.S.settings.packLoudness){ h.S.settings.packLoudness = st.packLoudness; if (h.S.doc) render(); }
+      }, () => {});
+    },
     changed(){ render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack })
