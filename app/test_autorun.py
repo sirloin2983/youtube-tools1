@@ -44,6 +44,7 @@ class FakeTools:
         self.subtitle = None      # 字幕の文字数の設定(文字起こしの settings.subtitle。②)
         self.tx_extra = {}        # そのほかの編集の設定(speakerColors・packLoudness・packVolume)
         self.known = True         # False = スタジオにまだ無い配信(① 探す から。解析のキューに入れるとできる)
+        self.fail_pack = set()    # この動画のパックは失敗させる(失敗したときの動きのテスト)
 
     def clip_path(self, mid):
         return os.path.join(self.tmp, "out", mid + ".mp4")
@@ -172,6 +173,9 @@ class FakeTools:
         return 200, {"job": self.c2r["job"]}
 
     def h_cut2resolve_GET_api_job(self, path, body):
+        if not self.hold and self.c2r["body"]["spec"]["video"] in self.fail_pack:
+            self.c2r["job"].update(state="error", error={"message": "わざと失敗"})
+            return 200, self.c2r["job"]
         if not self.hold:
             self.c2r["job"]["state"] = "done"
             v = self.c2r["body"]["spec"]["video"]
@@ -580,6 +584,88 @@ class TestControl(Base):
         self.r.close()
         got = {x["id"]: x for x in self.r.snapshot()["runs"]}
         self.assertEqual(got[second["id"]]["state"], "cancelled")
+
+class TestStage4(Base):
+    """気が利く画面へ 段4: パックの設定は編集の設定のとおり・「行から」の形・配信単位の上書き・失敗したとき・やることが無い・見積もり"""
+    marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m3", "status": "adopted", "start": 20, "end": 25}]
+
+    def wait(self, run, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def test_pack_uses_all_pack_settings(self):
+        self.tools.tx_extra = {"packFps": "60", "packSize": "1920x1080", "packBackup": True}
+        self.tools.subtitle = {"wrapChars": {"vertical": 8, "horizontal": 14}}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        out = self.tools.c2r["body"]["output"]
+        self.assertEqual((out["textplusFps"], out["textplusSize"], out["backup"], out["textplusWrap"]), ("60", "1920x1080", True, 14))   # 横なら横の改行
+
+    def test_bad_row_edge_is_reported_not_failed(self):
+        self.tools.row_edge = {"on": "yes"}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        self.assertNotIn("rowEdge", self.tools.c2r["body"]["spec"])
+        self.assertIn("「行から」の設定の形が正しくない", next(s for s in run["steps"] if s["key"] == "pack")["detail"])
+
+    def test_nothing_to_do_and_overwrite(self):
+        first = self.run_one("adopted")
+        self.assertEqual((first["state"], first["nothing"], first["message"]), ("done", False, "完了"))
+        again = self.run_one("adopted")   # もうパックがある: やることが無い(「完了」と言わない)
+        self.assertEqual((again["state"], again["nothing"], again["stateLabel"]), ("done", True, "やることがありませんでした"))
+        self.assertTrue(again["message"].startswith("やることがありませんでした"), again["message"])
+        n = len(self.tools.c2r["bodies"])
+        run = self.wait(self.r.start(A_VID(), "adopted", overwrite=True))   # 配信単位でも作り直せる(S-12)
+        self.assertEqual((run["state"], run["overwrite"]), ("done", True), run)
+        self.assertEqual(len(self.tools.c2r["bodies"]), n + 2)
+        self.assertTrue(all(b["output"].get("force") for b in self.tools.c2r["bodies"][n:]))
+        self.assertEqual(next(s for s in run["steps"] if s["key"] == "pack")["stateLabel"], "済み")
+
+    def test_on_fail_next_continues(self):
+        self.tools.fail_pack = {self.tools.clip_path("m1")}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        pk = next(s for s in run["steps"] if s["key"] == "pack")
+        self.assertEqual((pk["state"], pk["stateLabel"]), ("warn", "一部失敗"))
+        self.assertIn("失敗した 1 本", pk["detail"])
+
+    def test_on_fail_stop(self):
+        import prefs as PR
+        from ytt_core import fsio
+        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p.patch("autorun", {"onFail": "stop"})
+        self.r.prefs = p
+        self.tools.fail_pack = {self.tools.clip_path("m1")}
+        run = self.run_one("adopted")
+        self.assertEqual((run["state"], run["stateLabel"], run["onFail"]), ("error", "失敗", "stop"), run)
+        self.assertIn("わざと失敗", run["error"])
+
+    def test_estimate(self):
+        e = self.r.estimate(VID, "adopted")
+        self.assertEqual([(s["key"], s["count"]) for s in e["steps"]], [("export", 2), ("transcribe", None), ("pack", None)])   # 書き出しのあとで決まる
+        self.assertEqual((e["total"], e["nothing"]), (2, False))
+        self.assertEqual(self.tools.c2r, {})                                                                               # 見積もりは何も作らない
+        self.run_one("adopted")
+        e = self.r.estimate(VID, "adopted")
+        self.assertEqual((e["total"], e["nothing"]), (0, True))
+        self.assertIn("パック済み", e["reason"])
+        e = self.r.estimate(VID, "adopted", overwrite=True)
+        self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 2])
+        tid = next(d["id"] for d in A.txindex.load(A.txindex.folder(self.r.root, self.env)))
+        e = self.r.estimate(doc_ids=[tid])
+        self.assertEqual(([s["count"] for s in e["steps"]], e["nothing"]), ([0, 0], True))
+        self.assertEqual([s["count"] for s in self.r.estimate(doc_ids=[tid], overwrite=True)["steps"]], [0, 1])
+        with self.assertRaises(ValueError):
+            self.r.estimate(VID, "nope")
+
+
+def A_VID():
+    return VID
 
 
 if __name__ == "__main__":

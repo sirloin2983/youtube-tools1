@@ -21,6 +21,7 @@
 import http.client
 import json
 import os
+import re
 import urllib.parse
 import threading
 import time
@@ -34,6 +35,10 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack")}
 # 文書単位の実行(docs/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
+# 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
+STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}
+RUN_STATE_LABELS = {"queued": "待ち", "running": "実行中", "done": "済み", "error": "失敗", "cancelled": "中止", "nothing": "やることがありませんでした"}
+NOTHING_MESSAGE = "やることがありませんでした"
 DOC_MODE = "doc"
 MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
 DOC_LABEL = "文字起こし → パック"
@@ -107,10 +112,12 @@ def _doc_id_ok(v):
 
 
 class Run:
-    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None):
+    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next"):
         self.id = uuid.uuid4().hex[:10]
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
-        self.doc_id, self.overwrite = doc_id, bool(overwrite)   # 文書単位の実行(⑦(b))のときだけ
+        self.doc_id, self.overwrite = doc_id, bool(overwrite)   # overwrite = パックがあれば作り直す(文書単位も配信単位も。段4 S-12)
+        self.on_fail = on_fail if on_fail in ("next", "stop") else "next"   # 切り抜きの1本が失敗したとき: next = 残りを続ける / stop = そこで止める
+        self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
         self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
         self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
         self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
@@ -130,8 +137,11 @@ class Run:
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
                 "modeLabel": MODES.get(self.mode, DOC_LABEL) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
                 "streamer": self.streamer, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
-                "state": self.state, "message": self.message, "error": self.error, "created": int(self.created * 1000),
-                "finished": int(self.finished * 1000) if self.finished else None, "steps": [dict(s) for s in self.steps]}
+                "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
+                "nothing": self.nothing, "onFail": self.on_fail,
+                "message": self.message, "error": self.error, "created": int(self.created * 1000),
+                "finished": int(self.finished * 1000) if self.finished else None,
+                "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
 
 
 class AutoRunner:
@@ -165,7 +175,15 @@ class AutoRunner:
             raise ValueError("マークの指定が正しくありません")
         return tuple(dict.fromkeys(marks))
 
-    def start(self, video_id, mode, top=None, streamer=None, marks=None):
+    def _pref(self, key, default=None):
+        """ホームの設定 autorun の値(app/prefs.py。読めなければ default)"""
+        try:
+            v = (self.prefs.get(["autorun"])["autorun"] or {}).get(key) if self.prefs else None
+        except (OSError, ValueError, KeyError):
+            v = None
+        return default if v is None else v
+
+    def start(self, video_id, mode, top=None, streamer=None, marks=None, overwrite=False):
         if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
             raise ValueError("配信の指定が正しくありません")
         if mode not in MODES:
@@ -184,7 +202,7 @@ class AutoRunner:
                 raise ValueError("この配信はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
-            run = Run(video_id, "", mode, top, streamer=who, marks=mk)
+            run = Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next"))
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -216,7 +234,7 @@ class AutoRunner:
                     skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
                     seen.add(vid)
-                    run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel})
+                    run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"))
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -244,7 +262,7 @@ class AutoRunner:
                 elif len(active) >= MAX_WAITING:
                     skipped.append({"id": tid, "title": d["title"], "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
-                    run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who)
+                    run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who, on_fail=self._pref("onFail", "next"))
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -252,6 +270,77 @@ class AutoRunner:
                 self._trim()
                 self._wake()
         return {"runs": made, "skipped": skipped}
+
+    # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
+    def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):
+        """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。実行は実行したときの状態で決めるので、ずれることがある。
+        -> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}], "total": 分かっている本数の合計, "nothing": bool, "reason"}"""
+        docs = txindex.load(txindex.folder(self.root, self.env))
+        if doc_ids is not None:   # 文書単位(文字起こし → パック)
+            if not isinstance(doc_ids, list) or not doc_ids or len(doc_ids) > MAX_WAITING:
+                raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
+            by = {d["id"]: d for d in docs}
+            tx, pk, notes = 0, 0, []
+            for tid in dict.fromkeys(i for i in doc_ids if isinstance(i, str)):
+                d = by.get(tid) if _doc_id_ok(tid) else None
+                if not d:
+                    notes.append("見つからない文書があります")
+                    continue
+                if not d["count"]:
+                    tx += 1
+                    pk += 1
+                elif overwrite or not self.find_pack(d.get("sourcePath") or ""):
+                    pk += 1
+            steps = [{"key": "transcribe", "label": STEP_LABELS["transcribe"], "count": tx, "note": "" if tx else "文字起こし済み"},
+                     {"key": "pack", "label": STEP_LABELS["pack"], "count": pk, "note": "" if pk else "パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)"}]
+            return self._estimate_out(steps, notes)
+        if mode not in MODES:
+            raise ValueError("実行の形が正しくありません")
+        st, obj = self.client.call("studio", "GET", "/api/video?id=" + urllib.parse.quote(str(video_id or "")))
+        v = (obj.get("video") or {}) if st == 200 and isinstance(obj, dict) else {}
+        run = Run(video_id, "", mode, top or DEFAULT_TOP, marks=self._marks_arg(marks))
+        mine = self._mine(run, v)
+        adopted = [m for m in mine if m.get("status") == "adopted"]
+        clips = self._clips(v, run)
+        no_tx = [m for m in clips if not txindex.pick(docs, video_id, m.get("id"), m["path"])[0]]
+        packable = [m for m in clips if m not in no_tx and (overwrite or not self.find_pack(m["path"]))]
+        steps = []
+        pending = False   # 前の段の結果しだい(解析・採用のあとで本数が決まる)
+        for key in MODE_STEPS[mode]:
+            label, count, note = STEP_LABELS[key], 0, ""
+            if key == "analyze":
+                count, note = (0, "解析済み") if v.get("analysis") else (1, "")
+                pending = pending or count > 0
+            elif key == "adopt":
+                if any(m.get("status") in ("adopted", "exported") for m in mine):
+                    note = "採用・書き出し済みのマークを使います"
+                elif pending:
+                    count, note = None, "解析のあとで、点数の高い %d 件" % (top or DEFAULT_TOP)
+                else:
+                    cands = [m for m in mine if not m.get("status")]
+                    count = min(len(cands), top or DEFAULT_TOP)
+                    note = "" if count else "採用できる候補がありません"
+                pending = pending or count is None or bool(count)
+            elif key == "export":
+                count = None if pending and not adopted else len(adopted)
+                note = "" if count else ("採用のあとで決まります" if count is None else "採用したマークがありません" if not clips else "書き出し済み %d 本" % len(clips))
+                pending = pending or bool(count)
+            elif key == "transcribe":
+                count = None if pending else len(no_tx)
+                note = "書き出しのあとで決まります" if count is None else ("" if count else ("%d 本とも文字起こし済み" % len(clips) if clips else "書き出した切り抜きがありません"))
+                pending = pending or bool(count)
+            elif key == "pack":
+                count = None if pending else len(packable)
+                note = "文字起こしのあとで決まります" if count is None else ("" if count else ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips else "文字起こしのある切り抜きがありません"))
+            steps.append({"key": key, "label": label, "count": count, "note": note})
+        return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
+
+    @staticmethod
+    def _estimate_out(steps, notes):
+        known = [s["count"] for s in steps if s["count"] is not None]
+        nothing = all(s["count"] == 0 for s in steps)
+        reason = "・".join([s["note"] for s in steps if s["note"]] + notes) if nothing else ""
+        return {"steps": steps, "total": sum(known), "nothing": nothing, "reason": reason, "notes": notes}
 
     def _wake(self):
         """順番待ちを動かす(呼ぶのは self.cv を持っている間)"""
@@ -271,6 +360,9 @@ class AutoRunner:
                 run.cancel = True
                 run.message = "中止しています…"
             return run.public()
+
+    def snapshot_labels(self):
+        return {"step": STEP_STATE_LABELS, "run": RUN_STATE_LABELS}
 
     def snapshot(self):
         with self.cv:
@@ -356,8 +448,16 @@ class AutoRunner:
                 for s in run.steps:
                     if s["state"] == "wait":
                         s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
-                return
-        run.message = "完了"
+                break
+        self._finish_message(run)
+
+    def _finish_message(self, run):
+        """どの段も飛ばした = やることが無かった(「完了」と言わない。段4 S-4)"""
+        if all(s["state"] == "skip" for s in run.steps):
+            run.nothing = True
+            run.message = NOTHING_MESSAGE + (": " + run.message if run.message and run.message != "完了" else "")
+        elif not run.message or run.message in [s["label"] for s in run.steps]:
+            run.message = "完了"
 
     # 解析 -------------------------------------------------------
     def _step_analyze(self, run, st, v):
@@ -456,8 +556,8 @@ class AutoRunner:
             raise
         bad = [i for i in items if i.get("status") == "error"]
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
-        if bad and not done:
-            raise StepError("書き出しに失敗しました: %s" % (bad[0].get("error") or ""))
+        if bad and (not done or run.on_fail == "stop"):
+            raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))
         if bad:
             st["state"] = "warn"
         return None
@@ -501,8 +601,8 @@ class AutoRunner:
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
         st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は文字起こしの画面で"
-        if bad and not ok:
-            raise StepError("文字起こしに失敗しました: %s" % (bad[0].get("error") or bad[0].get("state")))
+        if bad and (not ok or run.on_fail == "stop"):
+            raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or bad[0].get("state")))
         if bad:
             st["state"] = "warn"
         return None
@@ -525,13 +625,25 @@ class AutoRunner:
         return out, int(res.get("rev") or 0)
 
     def _pack_settings(self):
-        """パックの作り方の設定(文字起こしの /api/settings): 行から作るときの端の広げ方(rowEdge。形は cut2resolve が確かめる)と、
-        Text+ 字幕の1段の文字数(subtitle.wrapChars.vertical。まとめて実行のパックは縦 = cut2resolve の既定の置き先)"""
+        """パックの作り方(編集の設定 = 3 パック のタブと同じ値。気が利く画面へ 段4 = 以前は fps・縦横・予備・話者の色を無視していた):
+        行から作るときの端の広げ方(rowEdge。形が変なら既定で作って知らせる)・Text+ の置き先(packFps・packSize)・1段の文字数(縦横に合わせる)・
+        話者の色・音量・予備(packBackup)・無音で削るときの値(cutSilence)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
         tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
+        notes = []
         row_edge = tx_settings.get("rowEdge")
+        if row_edge is not None and not _row_edge_ok(row_edge):
+            notes.append("「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から ▾」で直せます)")
+            row_edge = None
+        size = tx_settings.get("packSize") if tx_settings.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
+        fps = str(tx_settings.get("packFps") or "30")
         sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
-        wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
+        wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
         wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
+        wrap_out["textplusSize"] = size
+        if re.fullmatch(r"\d{1,3}(\.\d{1,3})?", fps):
+            wrap_out["textplusFps"] = fps
+        if tx_settings.get("packBackup") is True:
+            wrap_out["backup"] = True
         wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
         cs = tx_settings.get("cutSilence") if isinstance(tx_settings.get("cutSilence"), dict) else {}
         cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
@@ -542,7 +654,7 @@ class AutoRunner:
             vol = tx_settings.get("packVolume", 100)
             if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
                 wrap_out["volume"] = vol
-        return row_edge, wrap_out, cut_silence
+        return row_edge, wrap_out, cut_silence, notes
 
     def _cut_method(self):
         """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut。読めなければ今までどおり rows)"""
@@ -555,8 +667,7 @@ class AutoRunner:
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
         """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
         無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
-        row_edge, wrap_out = pack_opts[:2]
-        cut_silence = pack_opts[2] if len(pack_opts) > 2 else {}
+        row_edge, wrap_out, cut_silence = pack_opts[:3]
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
@@ -618,27 +729,40 @@ class AutoRunner:
             doc = txindex.pick(docs, run.video_id, m.get("id"), m["path"])[0]
             if not doc:
                 no_tx += 1
-            elif not self.find_pack(m["path"]):
+            elif run.overwrite or not self.find_pack(m["path"]):
                 todo.append((m, doc))
         if not todo:
-            st["state"], st["detail"] = "skip", ("パック済み" if clips and not no_tx else "文字起こしのある切り抜きがありません")
+            st["state"], st["detail"] = "skip", ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
-        skipped, by_edit = [], 0
+        skipped, failed, by_edit = [], [], 0
         opts = self._pack_settings()
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
             st["detail"] = prefix.rstrip(" ・ ")
-            res, cut = self._pack_one(run, st, doc, m["path"], opts, prefix=prefix)
+            try:
+                res, cut = self._pack_one(run, st, doc, m["path"], opts, force=run.overwrite, prefix=prefix)
+            except StepError as e:
+                if run.on_fail == "stop":
+                    raise
+                failed.append("%s(%s)" % (os.path.basename(m["path"]), str(e)[:120]))   # 次へ進む設定: 残りを続ける
+                continue
             if res == "exists":
                 skipped.append(os.path.basename(m["path"]))   # 同じ名前のパックがある: 上書きしない(人が作り直したものかもしれない)
                 continue
             made += 1
             by_edit += 1 if cut else 0
+        if failed and not made:
+            raise StepError("パックを作れませんでした: %s" % failed[0])
         st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
-            "。字幕を校正したら「編集」のパックのタブで作り直してください"
+            ("。前のパックを上書きしました" if run.overwrite else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
+        if failed:
+            st["state"] = "warn"
+            st["detail"] += "。失敗した %d 本: %s" % (len(failed), "・".join(failed[:3]))
+        for n in opts[3]:
+            st["detail"] += "。" + n
         return None
 
     # 文書単位の実行(⑦(b)) -------------------------------------
@@ -665,8 +789,8 @@ class AutoRunner:
                 for s in run.steps:
                     if s["state"] == "wait":
                         s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
-                return
-        run.message = "完了"
+                break
+        self._finish_message(run)
 
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
@@ -700,10 +824,25 @@ class AutoRunner:
         if not any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or []) and not self._edit_keeps(doc)[0]:
             st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
             return None
-        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], self._pack_settings(), force=run.overwrite)
+        opts = self._pack_settings()
+        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=run.overwrite)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
             st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
             return None
         st["detail"] = "パックを作りました" + ("(「編集」のカットのとおり)" if cut else "(文字起こしの行から)") + \
-            ("。前のパックを上書きしました" if run.overwrite else "")
+            ("。前のパックを上書きしました" if run.overwrite else "") + "".join("。" + n for n in opts[3])
         return None
+
+
+def _row_edge_ok(v):
+    """「行から」の設定の形(cut2resolve の pack.row_edge_from と同じ決まり: 真偽か {on?, after?, before?}(0〜2 秒))"""
+    if isinstance(v, bool):
+        return True
+    if not isinstance(v, dict) or ("on" in v and not isinstance(v["on"], bool)):
+        return False
+    for k in ("after", "before"):
+        x = v.get(k)
+        if x not in (None, "") and (isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x <= 2.0):
+            return False
+    return True
+

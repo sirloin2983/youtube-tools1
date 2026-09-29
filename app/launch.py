@@ -11,7 +11,8 @@
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(app/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
   GET  /api/autorun                       まとめて実行の状態(app/autorun.py)
-  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?} 配信1本ぶんを順に自動で(marks: そのマークだけ)
+  POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す)
+  POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
@@ -657,17 +658,22 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(400, "bad_request", str(e))
             except OSError as e:
                 return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
-        if u.path in ("/api/autorun/start", "/api/autorun/cancel", "/api/autorun/start-docs", "/api/autorun/start-new"):   # まとめて実行(配信1本ぶん・選んだ文書を順に自動で)
+        if u.path in ("/api/autorun/start", "/api/autorun/cancel", "/api/autorun/start-docs", "/api/autorun/start-new", "/api/autorun/estimate"):   # まとめて実行(配信1本ぶん・選んだ文書を順に自動で)
             if self.server.closing.is_set():
                 return self._fail(409, "closing", "終了の途中です")
             try:
                 ar = self.server.autorun
+                if u.path.endswith("estimate"):   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite}
+                    if isinstance(body.get("ids"), list):
+                        return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=body.get("overwrite") is True))
+                    return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=body.get("overwrite") is True))
                 if u.path.endswith("start-new"):   # ① 探す で選んだ配信(docs/followup-2026-09-27.md の 5)
                     return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
                 if u.path.endswith("start-docs"):
                     return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))
                 if u.path.endswith("start"):
-                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"))})
+                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"),
+                                                            overwrite=body.get("overwrite") is True)})
                 return self._json(200, {"run": ar.cancel(body.get("runId"))})
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))

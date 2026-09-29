@@ -1570,3 +1570,17 @@
     silence = 無音で削る(値は編集の設定 `cutSilence` {noise, min, pad}。無ければ cut2resolve の既定)。保存済みのカットがある文書は、今までどおりそのカット
   - 方法を選ぶ欄は段4(まとめて実行の部品 `UIKit.autorun`)で作る
 - テスト: `e2e_edit_cut.py`(カットしない・カット済が無くなる・Ctrl+Z)、`app/test_autorun.py`(none・silence・既定 rows)。入口 単体・編集 単体 160・e2e_edit_cut 通過
+
+## 2026-09-29 Claude Code — 気が利く画面へ 段4a: まとめて実行のサーバー側
+- 変更(`app/autorun.py`・`launch.py`):
+  - パックの設定は編集の設定のとおり(`_pack_settings`): fps(packFps)・縦横(packSize)・予備(packBackup)・1段の文字数は縦横に合わせる(横なら wrapChars.horizontal)・話者の色・音量。
+    「行から」の設定(rowEdge)の形が変なときは既定で作って知らせる(`_row_edge_ok`。以前は cut2resolve の 400 でパックの段が失敗)
+  - 配信単位の実行でも「パックがあれば作り直す(上書き)」(`start(overwrite=)`・API の overwrite。S-12)
+  - 失敗したとき(ホームの設定 `autorun.onFail`: next = 残りを続ける・既定 / stop = そこで止める): 書き出し・文字起こし・パックの1本ずつの失敗に効く。
+    パックの1本の失敗は、next なら段を「一部失敗」にして残りを作る(以前はそこで実行ごと止まった)
+  - 何もしなかったら「完了」と言わない(`_finish_message`。どの段も飛ばした = `nothing`・「やることがありませんでした」。S-4)
+  - 状態の言葉を1か所に(`STEP_STATE_LABELS`・`RUN_STATE_LABELS`。各段と実行に `stateLabel`。S-2)
+  - 見積もり `POST /api/autorun/estimate`(実行と同じ規則で段ごとの本数と飛ばす理由。書き込まない。前の段の結果しだいの本数は null)
+- 後回し(報告): カットの無い文書で作ったパックの記録(`/api/edit/pack` は保存したカットが要る。まとめて実行がカットを保存することになるので、動きの変更として相談する)
+- テスト: `app/test_autorun.py`(TestStage4 6 件)。入口 単体 99・e2e_autorun 通過
+- 次: 4b(共通の部品 UIKit.autorun)
