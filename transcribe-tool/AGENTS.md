@@ -48,7 +48,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
   規則は `ytt_core/txindex.pack_info` の1か所 = 入口の案件の画面 `app/cases.py` の `find_pack` と同じ判定。2026-09-26 ④)。
   動画・パックの有無はフォルダごとに1回・全体で `PACK_CHECK_BUDGET` 秒まで調べ、ネットワーク上のパス(`\\サーバー\…`)は調べない(資格情報を送らない。`mediaOk = None`)
 - 3 パック のタブ(「編集」E4。`pack-tab.js`。v0.15.0 の校正画面の「カットとパック」を置き換えた): パック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
-  区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, dir?, force}`。
+  区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, textplusWrap, streamer, speakerColors, backup, dir?, force}`(`pack-tab.js` の作るところ)。
   作る前にカットを保存し(`CUT.commit()`)、字幕の元として保存済みの文字起こしを動画のフォルダの `作業用\` に `.transcript.json`(`cpExport`。2026-09-27 から途中のファイルは `作業用`。規則は `ytt_core/schemas.py`)。文字起こしが無ければ Text+ なし(EDL と元の動画のコピー)。
   409 exists は上書きの確認(`#dlgOverwrite`)→ force。作り終えたら `POST /api/edit/pack`(packRev)。「これから作るパック」の字幕の数・注意は `POST /api/edit/preview`(ファイルを作らない)。
   cut2resolve の URL は `c2rUrl()` だけで作る(`UIKit.tools.base('cut2resolve')`。入口の中の同じポートのときだけ。合言葉は同じ入口のもの)。
@@ -71,7 +71,8 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
   **声の検出が捨てすぎたら緩める**: `transcribe_vad_fallback`(新規 `transcribe_real`・range・whole が共通で使う。`VAD_LADDER` 標準→弱め→なし、残りが `VAD_MIN_KEEP` 未満か文字 0 で次へ)。ワーカーは認識を始めた直後に `info`(duration・duration_after_vad)を送り、`RemoteModel.transcribe` は行より先にそれを読む(`_Segs.close()` で行を読まずにやめられる)。新規の文字起こしは、やり直しに備えて行を最後まで読んでから流す(処理状況の行数は読みながら `job["segments"]` に入れる)。記録は `recognition.runs` の `vadUsed`・`vadRemovedSec`・`vadRetries`、`params.vadUsed`、知らせは `job["vadNote"]`(`public_job`)。疑似のワーカーは `TRANSCRIBE_FAKE_VAD`(drop-normal / drop-vad)
   `public_job` は `job["warnings"]` も画面に出す(以前は `spec["warnings"]` だけで、ジョブの中で足した注意が届いていなかった)
   **疑わしい所だけ認識し直す**: ジョブ `redo`(`POST /api/redo`・`run_redo`・`redo_targets`・`redo_better`・`apply_redo`。話者判別・再認識と同じく編集を止める)。設定 `autoRedo`(既定オフ)・`redoLarge`。設計書の 12 ③-2
-  **行の cutState は、編集の内容があれば文書のどの書き込みでも `apply_edit_cuts` で編集の内容から付け直す**(新しく文書を書き込む処理を足すときも通す)。
+  **行の cutState は、編集の内容があれば文書の書き込みで `apply_edit_cuts` で編集の内容から付け直す**(行を足す・分ける・時刻を変える処理を足すときは必ず通す)。
+  通らないのは、新しい文書を作るとき(編集の内容がまだ無い)と、行の時刻を変えない書き込み(話者判別の結果・覚えた声で名前を付ける)だけ
   細かい決まりは設計書の「11. 実装で決めたこと」
 - `pack-tab.js` … 「編集」3 パック のタブ(置き先・入れるもの・出力先・これから作るパック・字幕の見本・作る・前回のパック・zip)。app.js より先に読み、`EditPack.create(host)` で起動する
 - `cut.js` … 「編集」2 カット のタブ(タイムライン・プレビュー・字幕の一覧・たたき台・保存)。app.js より先に読み、app.js が `EditCut.create(host)` で起動する。
@@ -80,7 +81,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/project/accuracy-plan.md
 
 ## テストの実行
 ```
-python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_backend.py・test_worker.py・test_edit.py も test_metrics から読み込まれる。一覧の項目は test_backend の test_list_fields_for_history)
+python -m unittest test_metrics test_resolve_export -q   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では落ちる。一覧の項目は test_backend の test_list_fields_for_history)
 node --test test_document_save.cjs            # 保存・切り替えの競合(9件)
 python e2e_ui_v07.py / e2e_ui_v08.py / e2e_ui_v09.py / e2e_eval_v093.py / e2e_ui_v098.py / e2e_ui_handoff.py
 python e2e_edit_tabs.py                       # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
@@ -161,7 +162,8 @@ python -m unittest tools/test_ui_kit_sync.py  # (リポジトリ直下で)ui-kit
 - 行の並びが変わる操作(削除・結合・分割・追加・元に戻す・読み直し)の前後では `navSnapshot()` / `navRestore()` で行の id を基準に今の行を追い直す
 - 行のボタンは mousedown でフォーカスを移さない(移すと前の行の操作ボタンが消えて一覧がずれ、押し損じる)。今の行は click で切り替える
 - 行の追加は前後のすき間に置く。すき間が無いときは仮の 1.5 秒で置き、重なりは時刻の欄を赤く(`.times.ovl`)して知らせる。`sortSegs()` は開始時刻だけの安定ソート
-- 評価用(evalSet)の文字起こしは、学習・辞書・提案に使わない(精度を測るためだけ)
+- 評価用(evalSet)の文字起こしは、学習・辞書・提案に使わない(精度を測るためだけ)。
+  **ただし「声を覚える」(`validate_voice_learn`・`run_voice_learn`・画面のボタン)は今は評価用を断っていない**(UI 追加監査の 02。直すときは UI と API の両方で断る)。再認識・疑わしい所の認識し直し・保管データの評価用の分け方は断っている
 
 ### v0.18.0(画面の全面見直し 段1〜3。正本は `../.design/ui-overhaul/DESIGN_BRIEF.md`・`IMPLEMENTATION.md`)
 - ヘッダー: `ui-appnav`(`<nav data-ui-appnav="transcribe">`。中身は `ui-kit.js` の `UIKit.appnav` が描く「ホーム/スタジオ/編集」)が、以前のブランドの印・「他のツール」メニュー・

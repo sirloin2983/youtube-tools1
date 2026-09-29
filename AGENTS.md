@@ -22,7 +22,8 @@
 - 1つのアプリへの統合計画(`docs/integration-plan.md`)は段階0〜7 まで完了(入口・ytt_core・3ツールの取り込み・作業データの外出し・案件・まとめて実行・Edge の専用の窓)。
   統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/integration-plan.md` は写し)。**いま進行中なのは文字起こしの精度改善**(`docs/transcription-overhaul-plan.md`)。全体の状態は `docs/ROADMAP.md`
 - **別のツール: ホロカラー(`holo-colors/`。2026-09-27)** … ホロライブのメンバーカラーをキー(Ctrl+Alt+H)で呼び出してコピーする Windows の常駐アプリ。
-  **主に友人が使う**ので Python ではなく C#(WinForms)。Windows に入っている .NET Framework 4 の csc で作る(`build.bat`。C# 5 まで)。入口・3ツールとはつながっていない。
+  **主に友人が使う**ので Python ではなく C#(WinForms)。Windows に入っている .NET Framework 4 の csc で作る(`build.bat`。C# 5 まで)。アプリ自体は入口・3ツールとつながっていないが、
+  メンバーの色の一覧 `holo-colors/members.json`(と作業データの自分の色)は `ytt_core/colors.py` が読み、字幕の色に使う(形を変えるときは colors.py とそのテストも)。
   設計と決めたこと・メンバーの色の出典: `docs/holo-colors.md`、使い方: `holo-colors/README.txt`
 
 ## フォルダと、変えたら通すテスト
@@ -32,8 +33,8 @@
 | `clip-studio/` | 切り抜きスタジオ(配信の解析・マーク・書き出し) | `python -m unittest test_studio test_api test_analyze test_exporter test_handoff test_robustness test_file_recovery`、★`node --test clip-studio/test_review.cjs`、`python e2e_analyze.py`、画面を変えたら `python e2e_ui.py` と `python e2e_ui.py --mounted` |
 | `transcribe-tool/` | 「編集」(文字起こし(faster-whisper・話者判別・校正画面・精度測定)・カット `cut.js`・パック `pack-tab.js`) | `transcribe-tool/AGENTS.md` の「テストの実行」(画面を変えたら `python e2e_ui_mounted.py` と `e2e_edit_tabs.py`・`e2e_edit_cut.py`・`e2e_edit_pack.py`・`e2e_edit_voices.py` も) |
 | `cut2resolve/` | DaVinci Resolve への受け渡し(EDL・Text+ パック)の部品と CLI。API は serve.py(画面は 2026-09-26 に「編集」へ統合して消した。`/` は案内だけ) | `python -m unittest test_cut2resolve test_pack test_serve`(API を変えたら文字起こしの `e2e_edit_pack.py` も) |
-| `ytt_core/` | 共通部品(書き込み・`.runtime`・受け渡しの形式・Host/Origin 検査・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
-| `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・入口へ戻る・一覧の部品・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`・日時の書式 `UIKit.fmt`。`ui-kit/README.md`)の正本。**画面を直すときは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧の見せ方)と `docs/usability-heuristics.md`(Nielsen の 10 の原則。原則に沿った見直しは Cowork が行う)に合わせる**。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py` と各ツールの画面のテスト |
+| `ytt_core/` | 共通部品(書き込み `fsio`・`.runtime`・受け渡しの形式と途中のファイルの置き場所 `schemas`・Host/Origin 検査 `httpsec`・作業データの置き場所 `datadir`・重い処理の同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`・名前 → メンバーカラー `colors`・ffmpeg などの場所 `tools`) | ★`python -m unittest ytt_core/test_ytt_core.py` と、使っている各ツールのテスト |
+| `ui-kit/` | 共通の見た目と画面の共通の動き(テーマ・他のツール・入口へ戻る・一覧の部品・離れた/戻った `UIKit.life`・エラーの記録 `UIKit.report`・窓のリンク `UIKit.win`・日時の書式 `UIKit.fmt`。`ui-kit/README.md`)の正本。**画面を直すときは `docs/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧の見せ方)と `docs/usability-heuristics.md`(Nielsen の 10 の原則。原則に沿った見直しは Cowork が行う)に合わせる**。`python tools/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | ★`python -m unittest tools/test_ui_kit_sync.py`・★`python ui-kit/e2e_styleguide.py` と各ツールの画面のテスト |
 | `tools/` | 補助スクリプト(ui-kit の同期・3ツールの通し確認・精度の基準の計算・精度を測る道具 `eval_asr.py`・見本のデータで全画面を動かす `demo_env.py`)・Resolve パックの契約テスト | ★`python tools/e2e_pipeline.py`(3ツールの通し確認)・★`python tools/e2e_datadir.py`(作業データの置き場所とコピー)・★`python -m unittest tools/test_cleanup_legacy_data.py`(以前の場所の片付け)・★`python -m unittest tools/test_push_helper.py`(push.bat の削除とコミット前の検査)。文字起こしの採点(serve.py の `_groups`・`norm_cer`・`lev_counts`・`doc_metrics`)か精度を測る道具 `eval_asr.py` を変えたら ★`python -m unittest tools/test_eval_asr.py`。`cut2resolve/` か文字起こしの `resolve_export.py`・`pipeline_io.py` を変えたら ★`python -m unittest tools/test_resolve_pack_contract.py`(**単独のコマンドで**。cut2resolve と文字起こしの部品を読み込むので、`app/test_mount.py` と同じ unittest に渡すと部品の名前が重なって落ちる) |
 | `holo-colors/` | ホロカラー(メンバーカラーをコピーする Windows の常駐アプリ。C# 5・WinForms。`src/`・`members.json`・`tests/`) | `build.bat`(コンパイル → テスト 17 件 → `dist/HoloColors.zip`)。キー・窓の動きを変えたら `python e2e_holo_colors.py`(本物のキー入力を送る。流す間は触らない) |
 | `docs/` | 作業記録・設計・資料(下の「資料の場所」) | — |
@@ -93,7 +94,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 
 担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く):
 - 統合作業(`app/`・`ytt_core/`・3ツールの取り込み)と `cut2resolve/` 全体(Text+ を含む): Claude が主担当(ユーザー決定 2026-09-25・26)
-- 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面の全面見直し(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。見直しが終わるまで他の AI は触らない)
+- 文字起こしツール(`transcribe-tool/`)と3ツール・入口の画面(`clip-studio/` の画面・`ui-kit/` を含む): Claude が担当(ユーザー決定 2026-09-26。**2026-09-29 ユーザー決定: 見直しが終わったあとも Claude だけ。GPT は調査と文書まで**)
 - 「編集」ツール(文字起こし + cut2resolve の統合。`docs/edit-tool-design.md`)の実装: Claude Code(PC)が担当(ユーザー決定 2026-09-26。`transcribe-tool/`・`cut2resolve/`・`app/`・`ui-kit/`・`clip-studio/review.js` に及ぶ)。
   E1〜E6 は 2026-09-26 に実装済み。実機確認の結果の直しも同じ担当
 - ホロカラー(`holo-colors/`・`docs/holo-colors.md`): Claude Code(PC)が担当(2026-09-27 作成)
@@ -102,7 +103,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 
 取り込みの決まり:
 - 画面は**相対パス**で部品を読み、API・動画の URL は1か所の関数で作る(絶対パス `/xxx` を書かない)。スタジオは `Studio.api`、編集は `app.js` の `apiUrl()` / `api()`(cut2resolve の API は `c2rUrl()`)
-- 取り込んだ画面には CSP(`script-src 'self'`)がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(上の関数が付ける)
+- 取り込んだ画面には CSP(`script-src 'self'`。スタジオだけ YouTube の埋め込みのため `https://www.youtube.com`・`https://s.ytimg.com` も許す。`app/mount.py`)がかかる: インラインの `<script>`・`onclick=` などは動かない。書き込み系の API は合言葉(`X-YTT-Token`)が要る(上の関数が付ける)
 - ツール間で同じ名前の .py を作らない(`app/test_mount.py` が検査)
 - 画面の共通の API `api/ytt/…`(エラーの記録・窓で開く)は入口が受け持つ(`app/mount.py` がツールに渡さない)。ツールに `/api/ytt/` で始まる API を作らない
 - 画面を離れた・戻ったで処理するときは ui-kit の `UIKit.life.onLeave / onReturn` を使う(visibilitychange を直接使わない。窓を並べると隣の窓のクリックでタブの切り替えは来ない)。
