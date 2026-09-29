@@ -1205,6 +1205,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="tt-batch" id="txBatchBox" hidden>
       <label class="lag"><input type="checkbox" id="txPick">選んで、まとめて実行(文字起こし → パック)</label>
       <div class="tt-batch-go" id="txBatch" hidden>
+        <div class="row"><button type="button" class="btn small ghost" id="txPickAll">表示中を全部選ぶ</button>
+          <button type="button" class="btn small ghost" id="txPickNoPack">パックが無いものだけ選ぶ</button></div>
         <div class="row"><span class="hint" id="txPickN">文書を選んでください</span>
           <label class="lag" title="パックがすでにある文書も、作り直して上書きします"><input type="checkbox" id="txOverwrite">パックがあれば作り直す(上書き)</label>
           <button type="button" class="btn small primary" id="txBatchGo" disabled>まとめて実行</button></div>

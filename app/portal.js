@@ -668,16 +668,30 @@
   function renderDocRun(id) {
     var li = document.getElementById('doc-' + id); if (!li) return;
     var r = runsByDoc[id], pill = $('.pt-doc-runpill', li);
+    if (r && r.state === 'error') {   // 失敗は札に残す(以前は終わると消えて、失敗したことが分からなかった。S-5)
+      pill.hidden = false; pill.className = 'pill pt-doc-runpill err'; pill.textContent = '失敗'; pill.title = r.error || ''; return;
+    }
     if (!active(r)) { pill.hidden = true; return; }
     pill.hidden = false;
     pill.className = 'pill pt-doc-runpill ' + (r.state === 'running' ? 'run' : 'wait');
     pill.textContent = r.state === 'running' ? '実行中' : '順番待ち';
   }
 
+  var DOC_BATCH_MAX = 20;   // まとめて実行に一度に入れられる文書の数(app/autorun.py の MAX_WAITING)
   function syncDocRunButton() {
     var n = Object.keys(docPicked).length;
-    $('#docRunBtn').disabled = !n;
-    $('#docPickHint').textContent = n ? (n + '本を選んでいます') : '文書を選んでください(一覧の左のチェック)';
+    $('#docRunBtn').disabled = !n || n > DOC_BATCH_MAX;
+    $('#docPickHint').textContent = n > DOC_BATCH_MAX ? n + '本を選んでいます(一度に ' + DOC_BATCH_MAX + ' 本までです)'
+      : n ? (n + '本を選んでいます(' + DOC_BATCH_MAX + ' 本まで)') : '文書を選んでください(一覧の左のチェック。' + DOC_BATCH_MAX + ' 本まで)';
+  }
+  /* 表示中を全部選ぶ / パックが無いものだけ選ぶ(S-11)。20 本までにして、あふれたら知らせる */
+  function pickDocs(onlyNoPack) {
+    var shown = docSearchList().slice(0, Math.max(0, docVisibleCount)).map(mergedDoc).filter(function (d) { return !onlyNoPack || (d.packKnown && !d.pack); });
+    docPicked = {};
+    shown.slice(0, DOC_BATCH_MAX).forEach(function (d) { docPicked[d.id] = true; });
+    renderDocs();
+    if (shown.length > DOC_BATCH_MAX) toast('一度に選べるのは ' + DOC_BATCH_MAX + ' 本までです(上から ' + DOC_BATCH_MAX + ' 本を選びました)', 'info');
+    else if (!shown.length) toast(onlyNoPack ? 'パックが無い文書はありません' : '選べる文書がありません', 'info');
   }
 
   function renderDocs() {
@@ -930,6 +944,8 @@
       UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});
       document.addEventListener('ui-autorun-settings', function (e) { if (e.detail) $('#docOverwrite').checked = e.detail.overwrite; });
     }
+    $('#docPickAll').addEventListener('click', function () { pickDocs(false); });
+    $('#docPickNoPack').addEventListener('click', function () { pickDocs(true); });
     $('#docOverwrite').addEventListener('change', function () { if (window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { overwrite: $('#docOverwrite').checked }).catch(function () {}); });
     $('#btnMore').addEventListener('click', function () { visibleCount += PAGE_SIZE; render(); });
     $('#btnReload').addEventListener('click', function () {

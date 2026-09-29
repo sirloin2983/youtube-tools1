@@ -219,6 +219,8 @@ def main():
             pg.check("#txPick")
             pg.select_option("#txGroup", "none")
             pg.fill("#txSearch", "まとめて")
+            pg.click("#txPickNoPack")   # パックが無いものだけ選ぶ(段4d。絞り込みで出ている「まとめて」の1本)
+            check(pg.locator("#txList .txi").filter(has_text="まとめて").locator(".txi-pick").is_checked(), "「パックが無いものだけ選ぶ」で、表示中のパックの無い文書が選ばれる")
             pg.locator("#txList .txi").filter(has_text="まとめて").locator(".txi-pick").check()
             check("1 本を選んでいます" in pg.inner_text("#txPickN") and pg.is_enabled("#txBatchGo"), "文書を選ぶと、まとめて実行を押せる")
             pg.click("#txBatchGo")

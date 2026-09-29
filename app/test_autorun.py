@@ -616,6 +616,7 @@ class TestStage4(Base):
     def test_nothing_to_do_and_overwrite(self):
         first = self.run_one("adopted")
         self.assertEqual((first["state"], first["nothing"], first["message"]), ("done", False, "完了"))
+        self.assertEqual(len(first["docs"]), 2)   # 文字起こし・パックした文書(終わったら「校正を始める」で開く。段4d)
         again = self.run_one("adopted")   # もうパックがある: やることが無い(「完了」と言わない)
         self.assertEqual((again["state"], again["nothing"], again["stateLabel"]), ("done", True, "やることがありませんでした"))
         self.assertTrue(again["message"].startswith("やることがありませんでした"), again["message"])

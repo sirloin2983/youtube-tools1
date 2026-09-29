@@ -118,6 +118,7 @@ class Run:
         self.doc_id, self.overwrite = doc_id, bool(overwrite)   # overwrite = パックがあれば作り直す(文書単位も配信単位も。段4 S-12)
         self.on_fail = on_fail if on_fail in ("next", "stop") else "next"   # 切り抜きの1本が失敗したとき: next = 残りを続ける / stop = そこで止める
         self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
+        self.docs = []             # この実行で文字起こし・パックした文書の id(終わったら「校正を始める」で開く。段4)
         self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。docs/followup-2026-09-27.md の 4)
         self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。docs/followup-2026-09-27.md の 3)
         self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
@@ -138,7 +139,7 @@ class Run:
                 "modeLabel": MODES.get(self.mode, DOC_LABEL) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
                 "streamer": self.streamer, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
-                "nothing": self.nothing, "onFail": self.on_fail,
+                "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None,
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
@@ -600,6 +601,7 @@ class AutoRunner:
             raise
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
+        run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
         st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は文字起こしの画面で"
         if bad and (not ok or run.on_fail == "stop"):
             raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or bad[0].get("state")))
@@ -752,6 +754,8 @@ class AutoRunner:
                 continue
             made += 1
             by_edit += 1 if cut else 0
+            if doc["id"] not in run.docs:
+                run.docs.append(doc["id"])
         if failed and not made:
             raise StepError("パックを作れませんでした: %s" % failed[0])
         st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \

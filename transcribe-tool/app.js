@@ -656,10 +656,20 @@ async function portalApi(path, body){
   if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
   return j;
 }
+const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(app/autorun.py の MAX_WAITING)
 function renderPickBar(){
   $('#txBatch').hidden = !PICK.on;
-  $('#txPickN').textContent = PICK.ids.size ? `${PICK.ids.size} 本を選んでいます` : '文書を選んでください(一覧の行の左のチェック)';
-  $('#txBatchGo').disabled = !PICK.ids.size;
+  const n = PICK.ids.size;
+  $('#txPickN').textContent = n > PICK_MAX ? `${n} 本を選んでいます(一度に ${PICK_MAX} 本までです)` : n ? `${n} 本を選んでいます(${PICK_MAX} 本まで)` : `文書を選んでください(一覧の行の左のチェック。${PICK_MAX} 本まで)`;
+  $('#txBatchGo').disabled = !n || n > PICK_MAX;
+}
+/* 表示中を全部選ぶ / パックが無いものだけ選ぶ(S-11)。20 本までにして、あふれたら知らせる */
+function pickTx(onlyNoPack){
+  const items = txFiltered().filter(i => !onlyNoPack || !i.pack);
+  PICK.ids.clear(); for (const i of items.slice(0, PICK_MAX)) PICK.ids.add(i.id);
+  renderList(); renderPickBar();
+  if (items.length > PICK_MAX) toast(`一度に選べるのは ${PICK_MAX} 本までです(上から ${PICK_MAX} 本を選びました)`, 5000);
+  else if (!items.length) toast(onlyNoPack ? 'パックが無い文書はありません' : '選べる文書がありません', 4000);
 }
 /* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉。段4)。ここは札の色だけ */
 const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
@@ -721,6 +731,8 @@ function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちば�
   pill.title = (r.steps || []).map(s => `${s.label}: ${stepLabelOf(s)}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
 }
 
+$('#txPickAll').addEventListener('click', () => pickTx(false));
+$('#txPickNoPack').addEventListener('click', () => pickTx(true));
 async function startBatch(){
   const ids = [...PICK.ids]; if (!ids.length) return;
   const b = $('#txBatchGo'); b.disabled = true;

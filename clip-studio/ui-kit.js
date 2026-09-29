@@ -1256,7 +1256,8 @@
   function arDocHref(run) {
     var b = tools.paths && tools.paths.transcribe;
     if (!b) return '';
-    return run.docId ? b + '?doc=' + encodeURIComponent(run.docId) + '#tx' : b + '#tx';
+    var id = run.docId || (run.docs && run.docs[0]);   /* 文書の実行はその文書・配信の実行は最初に文字起こし・パックした文書 */
+    return id ? b + '?doc=' + encodeURIComponent(id) + '#tx' : b + '#tx';
   }
   function arOpen(href) { if (href) location.href = href; }   /* 同じ窓で移る(窓・画面を増やさない。S-15) */
   function arFinished(run, again) {

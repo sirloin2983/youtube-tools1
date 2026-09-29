@@ -84,7 +84,9 @@
             <label class="lag"><input type="checkbox" id="docOverwrite">パックがあれば作り直す(上書き)</label>
             <button type="button" class="btn small primary" id="docRunBtn" disabled>選んだ文書をまとめて実行</button>
           </div>
-          <div class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック)</div>
+          <div class="row"><span class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック。20 本まで)</span>
+            <button type="button" class="btn small ghost" id="docPickAll">表示中を全部選ぶ</button>
+            <button type="button" class="btn small ghost" id="docPickNoPack">パックが無いものだけ選ぶ</button></div>
           <ol class="pt-auto-steps" id="docRunSteps"></ol>
           <div class="hint" id="docRunMsg"></div>
         </div>
