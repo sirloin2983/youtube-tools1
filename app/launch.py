@@ -814,7 +814,7 @@ class PortalServer(ThreadingHTTPServer):
     def autorun(self):
         with self._autorun_lock:
             if self._autorun is None:
-                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root)
+                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs)
             return self._autorun
 
     def handler_for(self, path):

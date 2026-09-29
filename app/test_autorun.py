@@ -375,6 +375,33 @@ class TestModes(Base):
         out = self.tools.c2r["body"]["output"]
         self.assertEqual((out["speakerColors"], out.get("loudness"), out["volume"]), (False, None, 70))
 
+    def _prefs(self, **autorun):
+        import prefs as PR
+        from ytt_core import fsio
+        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p.patch("autorun", autorun)
+        self.r.prefs = p
+
+    def test_cut_method_none_for_docs_without_cut(self):
+        """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut): none = 動画全体・カット済の行の字幕も消さない(段3)"""
+        self._prefs(cut="none")
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        spec = self.tools.c2r["body"]["spec"]
+        self.assertEqual((spec["mode"], spec["listKind"], spec["listText"], spec["dropCutRows"], "preset" in spec), ("list", "drop", "", False, False))
+
+    def test_cut_method_silence_uses_edit_settings(self):
+        self._prefs(cut="silence")
+        self.tools.tx_extra = {"cutSilence": {"noise": -40, "min": 0.8, "pad": 0.2, "x": 1, "pad2": True}}
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done", run)
+        spec = self.tools.c2r["body"]["spec"]
+        self.assertEqual((spec["mode"], spec["silence"]), ("silence", {"noise": -40, "min": 0.8, "pad": 0.2}))
+
+    def test_cut_method_default_is_rows(self):
+        run = self.run_one("adopted")   # ホームの設定が無い・rows のときは今までどおり「行から」
+        self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
+
     def test_adopted_mode_exports_transcribes_and_packs(self):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)

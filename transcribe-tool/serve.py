@@ -831,7 +831,7 @@ EDIT_SCHEMA = "youtube-tools-edit/v1"
 MAX_EDIT_BYTES = 1024 * 1024
 MAX_CLIPS = 5000
 MAX_MEDIA_SEC = 24 * 3600
-EDIT_ORIGINS = ("rows", "silence", "list", "plan", "manual", "all")
+EDIT_ORIGINS = ("rows", "silence", "list", "plan", "manual", "all", "whole")   # whole = 「カットしない(動画全体)」を選んだ(気が利く画面へ 段3)
 CUT_TOLERANCE_FRAMES = 0.75   # 行の時間のうち、残す区間に入るのがこれ未満(フレーム)なら「カット済」。区間の端はフレームに、行の時刻は 0.01 秒に丸めてあるため
 _edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
 

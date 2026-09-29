@@ -231,6 +231,12 @@ function create(h){
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
   }
+  /* カットしない(動画全体。気が利く画面へ 段3): 残す区間 = 動画全体。行の「カット済」は編集の内容から付け直す決まりなので、字幕も全部出る */
+  async function draftWhole(){
+    if (!editable() || M.draftBusy) return;
+    if (!(await confirmReplace())) return;
+    applyKeeps([[0, M.dur]], 'whole', 'カットしない(動画全体)');
+  }
   async function draftC2R(kind){
     if (!editable() || M.draftBusy) return;
     if (!h.c2rBase()) return h.toast('このたたき台は cut2resolve を使います。入口(start-all.bat)から開いてください', 6000, 'err');
@@ -571,13 +577,14 @@ function create(h){
     else if (M.sel && M.sel.kind === 'gap'){ sel = `選んだ削る区間: <span class="mono">${fmtF(M.sel.a)} – ${fmtF(M.sel.b)}</span>(Del で戻す)`; }
     const snapTo = M.snap ? '吸い付く先: 字幕の行の端・無音の境目・再生位置・隣の区間の端(Alt を押している間は吸い付かない)' : '吸着: 切';
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
-      (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作った下書き' : '動画全体の下書き'}。手で直すと保存します)</span>` : '');
+      (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作った下書き' : '動画全体の下書き'}。手で直すと保存します)</span>`
+        : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '');
   }
   function renderTools(){
     const ok = editable(), c2r = !!h.c2rBase(), busy = M.draftBusy;
     $('#cutUndo').disabled = !ok || !M.undo.length; $('#cutRedo').disabled = !ok || !M.redo.length;
     ['#cutSplit', '#cutDel', '#cutIO', '#cutZoomIn', '#cutZoomOut', '#cutZoomFit', '#cutPlay'].forEach(s => { $(s).disabled = !ok; });
-    $('#cutDraftRows').disabled = !ok || busy; $('#cutEdgeGo').disabled = !ok || busy;
+    $('#cutDraftRows').disabled = !ok || busy; $('#cutEdgeGo').disabled = !ok || busy; $('#cutNone').disabled = !ok || busy;
     const why = c2r ? '' : '(cut2resolve を使います。入口から開いたときだけ)';
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
     const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('作業用フォルダの ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
@@ -806,6 +813,7 @@ function create(h){
     $('#cutModeSrc').addEventListener('click', () => { M.mode = 'src'; capIdx = -2; renderTools(); moveHead(); });
     $('#cutModeCut').addEventListener('click', () => { M.mode = 'cut'; capIdx = -2; renderTools(); moveHead(); });
     $('#cutDraftRows').addEventListener('click', draftRows);
+    $('#cutNone').addEventListener('click', draftWhole);
     $('#cutRowEdge').addEventListener('toggle', () => { if ($('#cutRowEdge').open) fillEdge(); });
     for (const id of ['#cutEdgeOn', '#cutEdgeAfter', '#cutEdgeBefore']) $(id).addEventListener('change', saveEdge);
     $('#cutEdgeGo').addEventListener('click', async () => { if (!(await saveEdge())) return; $('#cutRowEdge').open = false; draftRows(); });

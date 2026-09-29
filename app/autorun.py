@@ -135,8 +135,9 @@ class Run:
 
 
 class AutoRunner:
-    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None):
+    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None):
         self.client, self.root, self.env, self.poll = client, repo_root, env, poll
+        self.prefs = prefs   # ホームの設定(app/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self.sleep = sleep or time.sleep
         if find_pack is None:
             import cases   # app/cases.py(パックの有無の見方を案件の画面とそろえる)
@@ -532,6 +533,8 @@ class AutoRunner:
         wrap = (sub.get("wrapChars") or {}).get("vertical") if isinstance(sub.get("wrapChars"), dict) else None
         wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
         wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
+        cs = tx_settings.get("cutSilence") if isinstance(tx_settings.get("cutSilence"), dict) else {}
+        cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
         loud = tx_settings.get("packLoudness", -14)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。既定 -14・0 = そろえない。2026-09-29)
         if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
             wrap_out["loudness"] = loud
@@ -539,23 +542,38 @@ class AutoRunner:
             vol = tx_settings.get("packVolume", 100)
             if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
                 wrap_out["volume"] = vol
-        return row_edge, wrap_out
+        return row_edge, wrap_out, cut_silence
+
+    def _cut_method(self):
+        """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut。読めなければ今までどおり rows)"""
+        try:
+            m = (self.prefs.get(["autorun"])["autorun"] or {}).get("cut") if self.prefs else None
+        except (OSError, ValueError, KeyError):
+            m = None
+        return m if m in ("rows", "none", "silence") else "rows"
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
         """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
         無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
-        row_edge, wrap_out = pack_opts
+        row_edge, wrap_out = pack_opts[:2]
+        cut_silence = pack_opts[2] if len(pack_opts) > 2 else {}
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
             tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
             spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
-        else:
+        else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-            spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
-            if isinstance(row_edge, (bool, dict)):
-                spec["rowEdge"] = row_edge
+            method = self._cut_method()
+            if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
+                spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
+            elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
+                spec = {"video": media, "transcript": tr.get("path"), "mode": "silence", "silence": cut_silence}
+            else:
+                spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
+                if isinstance(row_edge, (bool, dict)):
+                    spec["rowEdge"] = row_edge
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         if force:
             body["output"]["force"] = True

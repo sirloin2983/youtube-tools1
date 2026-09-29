@@ -310,6 +310,19 @@ def main():
             pg.keyboard.press("Control+Shift+z")
             wait_saved()
             check(server_clips()[:2] == [(0.5, 1.0), (2.0, 3.2)], "やり直す(Ctrl+Shift+Z): %s" % (server_clips()[:2],))
+            # カットしない(動画全体。気が利く画面へ 段3): 残す区間 = 動画全体・Ctrl+Z で戻る
+            before_none = server_clips()
+            pg.click("#cutNone")
+            if wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 3000):
+                pg.click("dialog.ui-dialog[open] .btn.primary")   # 手で直したカットがあるので、置き換えの確認
+            wait_saved()
+            sc = server_clips()
+            check(len(sc) == 1 and sc[0][0] == 0.0 and sc[0][1] >= 19.9, "カットしない = 残す区間は動画全体: %s" % (sc,))
+            check("カットしない" in pg.inner_text("#cutStatus"), "下の行に「カットしない」: " + pg.inner_text("#cutStatus"))
+            check(pg.evaluate("[...document.querySelectorAll('#segs .seg.cut')].length") == 0, "カット済の行が無くなる(字幕も全部出る)")
+            pg.keyboard.press("Control+z")
+            wait_saved()
+            check(server_clips() == before_none, "カットしないも Ctrl+Z で戻る: %s" % (server_clips()[:2],))
 
             # ---- 1 文字起こし のタブの行の「削る」⇄ カットの帯
             before = server_clips()

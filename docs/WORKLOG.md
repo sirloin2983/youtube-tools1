@@ -1560,3 +1560,13 @@
 - テスト(PC): ytt_core 58・入口 単体 60・cut2resolve 291・編集 単体 160・契約 27・e2e_edit_pack・e2e_ui_mounted・e2e_edit_tabs・e2e_edit_cut・e2e_edit_voices・
   入口 e2e_portal・e2e_autorun・スタジオ e2e_ui --mounted 157 すべて通過
 - 段2(話者の色)はこれで終わり。次: 段3(カットしない)
+
+## 2026-09-29 Claude Code — 気が利く画面へ 段3: カットしない
+- 変更:
+  - カットのタブ: 「行から」の隣に「カットしない」(`#cutNone`・`draftWhole`)。残す区間 = 動画全体(origin `whole`。serve.py の `EDIT_ORIGINS` に足した)。Ctrl+Z で戻る。
+    行の「カット済」は編集の内容から付け直す決まりなので、動画全体を残すとカット済の行が無くなり、**字幕も全部出る**(パックは EDIT_KEEPS = drop_cut_rows なし)。下の行に「(カットしない = 動画全体)」
+  - まとめて実行: カットを決めていない文書のカットの方法を、ホームの設定 `autorun.cut` から(`AutoRunner(prefs=)`・`_cut_method`)。
+    rows = 今までどおり(preset transcript-rows)/ none = 動画全体(時刻リストの「削る」を空で・`dropCutRows: false` = カット済の行の字幕も消さない)/
+    silence = 無音で削る(値は編集の設定 `cutSilence` {noise, min, pad}。無ければ cut2resolve の既定)。保存済みのカットがある文書は、今までどおりそのカット
+  - 方法を選ぶ欄は段4(まとめて実行の部品 `UIKit.autorun`)で作る
+- テスト: `e2e_edit_cut.py`(カットしない・カット済が無くなる・Ctrl+Z)、`app/test_autorun.py`(none・silence・既定 rows)。入口 単体・編集 単体 160・e2e_edit_cut 通過
