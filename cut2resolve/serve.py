@@ -21,6 +21,7 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
                                   output.textplusWrap = Text+ 字幕の1段の文字数(省略 = 縦 8・横 14 = 2段、0 = 改行しない)
                                   output.loudness = 聞こえ方の音量をそろえる目標(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない)。
                                   カットで残す区間だけ測り、同梱の動画は音声だけ作り直す。結果の loudness = {target, measured, gainDb} か {target, skipped}
+                                  output.volume = 音量(%。1〜200。元 = 100)。loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
@@ -560,6 +561,7 @@ def output_from_spec(o, video):
         raise ApiError("bad_streamer", str(e))
     try:   # 聞こえ方の音量をそろえる目標(LUFS。残す区間だけ測って同梱の動画の音声をそろえる。2026-09-29)。省略・0 = そろえない
         loud = _loud.check_target(o.get("loudness"))
+        vol = None if loud is not None else _loud.check_volume(o.get("volume"))   # LUFS でそろえないときの音量(%。元 = 100)
     except ValueError as e:
         raise ApiError("bad_loudness", str(e))
     return {"textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
@@ -570,7 +572,7 @@ def output_from_spec(o, video):
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
-            "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True), "loudness": loud}
+            "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True), "loudness": loud, "volume": vol}
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
@@ -980,7 +982,7 @@ class Handler(BaseHTTPRequestHandler):
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
                                   textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
-                                  speaker_colors=spk_map or None, loudness=out["loudness"])
+                                  speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"])
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])

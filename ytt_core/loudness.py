@@ -4,6 +4,7 @@
 ffmpeg を動かすのは各ツール(スタジオ exporter.py の _pump・cut2resolve の _ffmpeg_run)。
 YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする。
 """
+import math
 import re
 
 CHOICES = (-11.0, -14.0, -16.0, -18.0)
@@ -25,6 +26,27 @@ def check_target(v):
     if isinstance(v, bool) or f not in CHOICES:
         raise ValueError("音量のそろえ方(LUFS)は %s のどれかです" % " / ".join("%g" % x for x in CHOICES))
     return f
+
+
+def check_volume(v):
+    """音量(%。元の音量 = 100)-> int(1〜200)か None(変えない = 100・省略)。形が違えば ValueError(スタジオの書き出しの「音量 %」と同じ範囲)"""
+    if v in (None, "", 100, "100"):
+        return None
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        raise ValueError("音量(%)の値が正しくありません")
+    if isinstance(v, bool) or n != float(v) or not 1 <= n <= 200:
+        raise ValueError("音量(%)は 1〜200 の整数で指定してください")
+    return None if n == 100 else n
+
+
+def pct_to_db(pct):
+    return round(20 * math.log10(pct / 100.0), 2)
+
+
+def db_to_pct(db):
+    return int(round(100 * 10 ** (db / 20.0)))
 
 
 def parse(text):

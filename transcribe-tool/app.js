@@ -2454,7 +2454,7 @@ $('#txBatchGo').addEventListener('click', startBatch);
 $('#docAutoGo').addEventListener('click', startDocAuto);
 if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる。2026-09-29)
   UIKit.packLoud.mount($('#docAutoLoud'));
-  document.addEventListener('ui-packloud', e => { if (S.settings) S.settings.packLoudness = e.detail; if (PACK) PACK.changed(); });
+  document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
 }
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄が空なら、パックのタブでこの文書に入れた名前(tx.streamer.v1。pack-tab.js)を入れる
   if (!$('#docAuto').open || $('#docAutoWho').value.trim() || !(window.UIKit && UIKit.streamer)) return;

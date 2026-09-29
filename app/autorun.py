@@ -535,6 +535,10 @@ class AutoRunner:
         loud = tx_settings.get("packLoudness", -14)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。既定 -14・0 = そろえない。2026-09-29)
         if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
             wrap_out["loudness"] = loud
+        else:   # LUFS でそろえないときは音量(%)。元 = 100
+            vol = tx_settings.get("packVolume", 100)
+            if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
+                wrap_out["volume"] = vol
         return row_edge, wrap_out
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):

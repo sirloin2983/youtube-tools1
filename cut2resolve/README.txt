@@ -75,6 +75,7 @@ cut2resolve v0.15.0(「編集」の部品・コマンド)
 ■ v0.15.0 の変更点(2026-09-29・パックの音量)
   - API の output.loudness(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない): カットで残す区間だけ測って、同梱の動画は音声だけ作り直す
     (映像はそのまま)。粗編集の動画にも同じ量。結果の loudness = {target, measured, gainDb}。測り方・上げる量の決まりはスタジオの書き出しと同じ(ytt_core/loudness.py)
+  - API の output.volume(%。1〜200。元 = 100): loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
 
 ■ v0.14.0 の変更点(2026-09-27・話者ごとの字幕の色。docs/backlog-ui-2026-09-27.md の A-2)
   - 文字起こし(transcript/v1)の話者の名前がメンバーと1人に合えば、その話者の Text+ 字幕だけ文字をその人の色にします

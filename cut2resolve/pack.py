@@ -578,14 +578,15 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
-               textplus_color=None, speaker_colors=None, loudness=None):
+               textplus_color=None, speaker_colors=None, loudness=None, volume=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
     textplus_color: Text+ の文字の色 {"hex", "who"}(配信者のメンバーカラー。resolve_textplus.text_style。None = 黒い文字)。
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
     loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt_core/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
-    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない
+    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない。
+    volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
@@ -639,6 +640,16 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         elif loudness is not None and same:
             loud = {"target": loudness, "skipped": "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"}
             warnings.append("音量はそろえませんでした(%s)。" % loud["skipped"])
+        elif volume and volume != 100 and (render or copy_video):
+            LD = C.loudness_mod()
+            if same and not render:
+                loud = {"volume": volume, "skipped": "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"}
+                warnings.append("音量は変えませんでした(%s)。" % loud["skipped"])
+            elif not mmeta["audio"]:
+                loud = {"volume": volume, "skipped": "音声の無い動画です"}
+            else:
+                gain = LD.pct_to_db(volume)
+                loud = {"volume": volume, "gainDb": gain}
         if render:
             _say(log, task, "粗編集の動画を書き出しています…(時間がかかります)")
             tmp = out_dir / f".c2r-{tag}-{paths['roughcut'].name}"

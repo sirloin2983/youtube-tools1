@@ -25,7 +25,7 @@
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
-       UIKit.packLoud(パックの音量のそろえ方 LUFS。値は編集の設定 packLoudness の1か所。mount(select) で選択の欄にする・get()・set(v)) */
+       UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values)) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -1051,7 +1051,7 @@
   /* ---- packLoud(パックの音量のそろえ方。v7・2026-09-29)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
      どの画面のまとめて実行の欄からも同じ値を読み書きする: 読む = 編集の api/settings、直す = api/settings/patch(送ったキーだけ。
      編集の画面の丸ごとの保存では、この値はサーバーのものが残る)。編集が同じ入口に取り込まれていないとき(paths に無い)は欄を隠す */
-  var LOUD_OPTS = [[-14, '-14 LUFS(おすすめ)'], [-11, '-11(大きめ)'], [-16, '-16(控えめ)'], [-18, '-18(小さめ)'], [0, 'そろえない']];
+  var LOUD_OPTS = [[-14, '-14 LUFS(YouTube と同じくらい・おすすめ)'], [-11, '-11 LUFS(大きめ)'], [-16, '-16 LUFS(少し小さめ)'], [-18, '-18 LUFS(小さめ)'], [0, '音量を % で決める']];
   var loudGet = null;
   function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
   function loudNorm(raw) {
@@ -1059,10 +1059,16 @@
     var v = +raw;
     return v === 0 ? 0 : (v === -11 || v === -14 || v === -16 || v === -18) ? v : -14;
   }
-  function loudPaint(v) {
+  function volNorm(raw) { var v = Math.round(+raw); return v >= 1 && v <= 200 ? v : 100; }
+  /* 値 {loud: LUFS か 0(= % で決める), vol: %(元 = 100)} を、画面のすべての欄に反映して知らせる */
+  function loudPaint(st) {
     var els = document.querySelectorAll('select[data-ui-packloud]');
-    for (var i = 0; i < els.length; i++) if (document.activeElement !== els[i]) els[i].value = String(v);
-    try { document.dispatchEvent(new CustomEvent('ui-packloud', { detail: v })); } catch (e) { /* 古いブラウザ: 知らせないだけ */ }
+    for (var i = 0; i < els.length; i++) {
+      if (document.activeElement !== els[i]) els[i].value = String(st.loud);
+      var vi = els[i].parentNode && els[i].parentNode.querySelector('input[data-ui-packvol]');
+      if (vi) { if (document.activeElement !== vi) vi.value = String(st.vol); vi.parentNode.hidden = st.loud !== 0; }   /* vi の親 = % の欄(span.ui-packvol) */
+    }
+    try { document.dispatchEvent(new CustomEvent('ui-packloud', { detail: st })); } catch (e) { /* 古いブラウザ: 知らせないだけ */ }
   }
   var loudMounted = [];
   function loudWrap(sel) { return sel.closest ? (sel.closest('label') || sel) : sel; }
@@ -1071,7 +1077,7 @@
     if (!loudMounted.length) return;
     var ok = !!(txApiUrl('api/settings') && token());
     for (var i = 0; i < loudMounted.length; i++) loudWrap(loudMounted[i]).hidden = !ok;
-    if (ok) packLoud.get().then(function (v) { loudPaint(v); }, function () { for (var j = 0; j < loudMounted.length; j++) loudWrap(loudMounted[j]).hidden = true; });
+    if (ok) packLoud.get().then(function (st) { loudPaint(st); }, function () { for (var j = 0; j < loudMounted.length; j++) loudWrap(loudMounted[j]).hidden = true; });
   }
   var packLoud = {
     norm: loudNorm,
@@ -1079,31 +1085,41 @@
       var u = txApiUrl('api/settings');
       if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
       if (!loudGet) {
-        loudGet = fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return loudNorm(j.packLoudness); });
+        loudGet = fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); })
+          .then(function (j) { return { loud: loudNorm(j.packLoudness), vol: volNorm(j.packVolume) }; });
         loudGet.then(function () { setTimeout(function () { loudGet = null; }, 3000); }, function () { loudGet = null; });   /* 続けて読むときは1回に */
       }
       return loudGet;
     },
-    set: function (v) {
-      var u = txApiUrl('api/settings/patch'), tk = token();
-      v = loudNorm(v);
+    /* values: {packLoudness?, packVolume?}(送った方だけ直す) */
+    set: function (values) {
+      var u = txApiUrl('api/settings/patch'), tk = token(), v = {};
+      if ('packLoudness' in values) v.packLoudness = loudNorm(values.packLoudness);
+      if ('packVolume' in values) v.packVolume = volNorm(values.packVolume);
       if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
       return fetch(u, { method: 'POST', cache: 'no-store', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify({ values: { packLoudness: v } }) })
-        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); return v; }); })
-        .then(function (x) { loudGet = null; loudPaint(x); return x; }, function (e) {
-          toastFn('パックの音量を保存できませんでした: ' + e.message, { kind: 'err', ms: 0, action: { label: 'もう一度', fn: function () { packLoud.set(v); } } });
+        headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify({ values: v }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); }); })
+        .then(function () { loudGet = null; return packLoud.get(); })
+        .then(function (st) { loudPaint(st); return st; }, function (e) {
+          toastFn('パックの音量を保存できませんでした: ' + e.message, { kind: 'err', ms: 0, action: { label: 'もう一度', fn: function () { packLoud.set(values); } } });
           throw e;
         });
     },
-    /* <select data-ui-packloud> を選択の欄にする(選択肢を入れ・今の値を読み・変えたら保存)。使えなければ、欄を包む label ごと隠す */
+    /* <select data-ui-packloud> を選択の欄にする(選択肢と「%」の欄を入れ・今の値を読み・変えたら保存)。使えなければ、欄を包む label ごと隠す */
     mount: function (sel) {
       if (!sel || sel.getAttribute('data-ui-packloud-on')) return;
       sel.setAttribute('data-ui-packloud', ''); sel.setAttribute('data-ui-packloud-on', '1');
-      sel.title = sel.title || 'パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定)';
+      sel.title = sel.title || 'パックに入れる動画の音量(パックのタブと同じ設定)。LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。% = 元の音量を 100 としたときの大きさ';
       sel.innerHTML = '';
       for (var i = 0; i < LOUD_OPTS.length; i++) { var o = document.createElement('option'); o.value = String(LOUD_OPTS[i][0]); o.textContent = LOUD_OPTS[i][1]; sel.appendChild(o); }
-      sel.addEventListener('change', function () { packLoud.set(sel.value).catch(function () {}); });
+      var box = document.createElement('span'); box.className = 'ui-packvol'; box.hidden = true;
+      var vi = document.createElement('input'); vi.type = 'number'; vi.min = '1'; vi.max = '200'; vi.step = '5'; vi.style.width = '4.5em';
+      vi.setAttribute('data-ui-packvol', ''); vi.setAttribute('aria-label', '音量(%。元の音量 = 100)'); vi.title = '元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下';
+      box.appendChild(vi); box.appendChild(document.createTextNode('%'));
+      sel.parentNode.insertBefore(box, sel.nextSibling);
+      sel.addEventListener('change', function () { box.hidden = sel.value !== '0'; packLoud.set({ packLoudness: sel.value }).catch(function () {}); });
+      vi.addEventListener('change', function () { packLoud.set({ packVolume: vi.value }).catch(function () {}); });
       loudMounted.push(sel);
       loudRefresh();   /* 編集の場所がまだ分からなければ隠しておき、setPaths のときに出す */
     }
