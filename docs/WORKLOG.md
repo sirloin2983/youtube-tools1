@@ -1488,3 +1488,17 @@
 - 評価用を除いた 85 本(機械の出力 773 行)で新しい印が付くのは 5 行(「ぱん」×10・「歩こう」×7・「げん」×5 など)。決まりは評価用を見ずに決めた
 - テスト(PC): 編集 単体 159 通過
 - 未完了・次: 評価用で文脈あり/なしの測定(`tools/eval_asr.py run --context none|auto --temp0`)→ 画面のテストの流し直し → 呼び名の下書きの確認(ユーザー)
+
+## 2026-09-29 Claude Code — 気が利く画面へ(ux-consistency)段1: 知らせ・二度押しの確認・ホームの設定の置き場
+- 担当: Claude Code — ux-consistency(app/・ui-kit/・transcribe-tool/・clip-studio/・cut2resolve/・ytt_core/colors.py)。正本は `.design/ux-consistency/DESIGN_BRIEF.md`、段取りは `REQUEST.md`
+- 始める前に: GPT の未コミットの作業は無い(09-28 の GPT の UI 監査は文書だけ)。版: 編集は精度改善で 0.22.0 を使ったので、**この見直しでは 編集 0.23.0**・ホーム 0.13.0・cut2resolve 0.15.0・スタジオ 0.11.0(09-28 の予約分と一緒)を最後にまとめて上げる
+- 変更:
+  - `ui-kit/ui-kit.js`(v7)・`ui-kit.css`: `UIKit.toast` の `ms: 0` = 消えない(以前は `opt.ms || 既定` で 0 が 2.5 秒に戻っていた。S-9)・`action: {label, fn}`・閉じる(×)・戻り値 `{close, el}`。
+    `UIKit.confirmTwice(btn, run, text)`(二度押しの3つの実装を1つに)・`.btn.armed` を ui-kit へ。`UIKit.prefs`(get・patch(同じ節を 400ms まとめて)・flush・remember・available。失敗は知らせと [もう一度])
+  - `app/prefs.py`(新)・`launch.py`: `POST api/ytt/prefs`(op get / patch / remember)。作業データの `app/prefs.json`。節ごと(autorun・keymap は送ったキーだけ直す・streamer は1件ずつ覚える。種類ごと 2000 件・古い順に捨てる)・
+    許可した形だけ・知らないキーは捨てる・256KB まで・壊れたファイルは退避して既定で動く・合言葉と Host/Origin の検査は既存の1か所
+  - 二度押しの置き換え: スタジオ `review.js`・`collab.js`、編集 `app.js`(声を忘れる・話者判別し直す は何が起きるかの文言に)。
+    **戻せる操作は確認をやめて知らせの [元に戻す]**(E-22・S-23): スタジオ「候補をすべて採用」(変えたマークだけ候補に戻す)・編集「全行を校正済みに/全解除」(Ctrl+Z と同じ doUndo)
+  - テスト: `app/test_window.py`(TestPrefs 4 件・api/ytt/prefs)・`ui-kit/e2e_styleguide.py`(ms:0・ボタン・×・二度押し)・`clip-studio/test_review.cjs`(ui-kit の confirmTwice を試す)・`transcribe-tool/e2e_ui_v07.py`(全行の校正は確認なし・知らせに「元に戻す」)
+- テスト(PC): 入口 単体 98・スタジオ node 18・e2e_ui 144・編集 e2e_ui_v07・ui-kit e2e_styleguide・sync 通過
+- 未完了・次: 段2(話者の色)。ブリーフにある「編集の PUT /api/settings を送ったキーだけ直す」は段7(保存の失敗)でまとめて行う

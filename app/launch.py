@@ -58,6 +58,7 @@ import autorun as autorun_mod
 import cases as cases_mod  # noqa: E402  (app/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (app/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (app/clientlog.py: 画面のエラーの記録。段階7-0)
+import prefs as prefs_mod  # noqa: E402  (app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
 VERSION = "0.12.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
@@ -722,6 +723,7 @@ class PortalServer(ThreadingHTTPServer):
         self._autorun_lock = threading.Lock()
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(os.path.dirname(sup.logs_dir), fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
+        self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
 
     def tool_ports(self):
         """別のプログラムとして動いているツールのポート(窓で開いてよい先。取り込んだツールは入口と同じポートなので含めない)"""
@@ -744,6 +746,8 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
+            if sub == "prefs":   # ホームの設定(app/prefs.py。節ごとに読む・直す。全体を上書きしない)
+                return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)
                 q = body.get("q") if isinstance(body.get("q"), str) else ""
                 entries = colors_mod.load()
@@ -760,6 +764,20 @@ class PortalServer(ThreadingHTTPServer):
         except OSError as e:
             return 500, {"error": "open", "message": "開けませんでした: %s" % (e.strerror or e.__class__.__name__)}
         return 404, {"error": "not_found", "message": "その操作はありません"}
+
+    def prefs_api(self, body):
+        op = body.get("op")
+        try:
+            if op == "get":
+                secs = body.get("sections")
+                return {"ok": True, "prefs": self.prefs.get([x for x in secs if isinstance(x, str)] if isinstance(secs, list) else None)}
+            if op == "patch":
+                return {"ok": True, "value": self.prefs.patch(body.get("section"), body.get("value"))}
+            if op == "remember":
+                return {"ok": True, "streamer": self.prefs.remember(body.get("kind"), body.get("key"), body.get("name"))}
+        except OSError as e:
+            raise ValueError("設定を保存できませんでした(%s)" % (e.strerror or e.__class__.__name__))
+        raise ValueError("その操作はありません: %s" % str(op)[:20])
 
     def ytt_request(self, h, tool, version=""):
         """画面の共通の API(api/ytt/<名前>)の要求を受け持つ。h は入口か、取り込んだツールの Handler(_json を持つ)。

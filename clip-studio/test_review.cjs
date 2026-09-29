@@ -245,17 +245,27 @@ test('exported file path: server path first, otherwise outDir + relative file wi
 });
 
 test('two-step confirmation resets after running (a quick third click does not run again)', () => {
+  // 部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1)。review.js の armDelete はそれを呼ぶだけ
+  const kit = fs.readFileSync(path.join(__dirname, '..', 'ui-kit', 'ui-kit.js'), 'utf8');
+  const a = kit.indexOf('function confirmTwice('), b = kit.indexOf('/* ---- prefs', a);
+  assert.ok(a >= 0 && b > a, 'confirmTwice must exist in ui-kit.js');
+  assert.ok(between('function armDelete(', 'const statusOf').includes('UIKit.confirmTwice('), 'review.js uses the shared confirmTwice');
   const timers = [];
-  const ctx = load([['function armDelete(', 'const statusOf']], { setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => {} });
-  const cls = new Set();
-  const btn = { dataset: {}, innerHTML: '削除', textContent: '削除', isConnected: true, classList: { add: c => cls.add(c), remove: c => cls.delete(c) } };
+  const ctx = { setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => {} };
+  vm.createContext(ctx); vm.runInContext(kit.slice(a, b) + '\nthis.confirmTwice = confirmTwice;', ctx);
+  const cls = new Set(), attrs = {};
+  const btn = { innerHTML: '削除', isConnected: true, classList: { add: c => cls.add(c), remove: c => cls.delete(c) },
+    getAttribute: k => (k in attrs ? attrs[k] : null), setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: k => { delete attrs[k]; },
+    set textContent(v) { this.innerHTML = v; } };
   let runs = 0;
-  ctx.armDelete(btn, () => runs++);
-  assert.equal(runs, 0); assert.ok(cls.has('armed'));
-  ctx.armDelete(btn, () => runs++);
+  ctx.confirmTwice(btn, () => runs++, 'もう一度押すと削除');
+  assert.equal(runs, 0); assert.ok(cls.has('armed')); assert.equal(btn.innerHTML, 'もう一度押すと削除');
+  ctx.confirmTwice(btn, () => runs++);
   assert.equal(runs, 1); assert.equal(btn.innerHTML, '削除'); assert.ok(!cls.has('armed'));
-  ctx.armDelete(btn, () => runs++);
+  ctx.confirmTwice(btn, () => runs++);
   assert.equal(runs, 1, 'the third click only arms again');
+  timers[timers.length - 1]();   // 3秒たつと元に戻る
+  assert.equal(btn.innerHTML, '削除'); assert.ok(!cls.has('armed'));
 });
 
 test('transcript lines: escaped text, stale replies ignored, open state kept', async () => {

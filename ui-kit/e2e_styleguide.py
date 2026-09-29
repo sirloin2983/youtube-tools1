@@ -118,6 +118,27 @@ def main():
                 pg.click("#btnToastErr")
                 check(pg.evaluate("!!document.querySelector('#toast .ui-toast.err[role=alert]')"), "失敗のトーストは role=alert")
                 check("失敗しました" in pg.inner_text("#toast"), "#toast のテキストに本文が入る(e2e が読む想定と一致)")
+                # v7(気が利く画面へ 段1): ms: 0 は消えない・ボタン1つ・閉じる
+                pg.evaluate("window.__acted = 0; window.__t = UIKit.toast('ずっと出る知らせ', { ms: 0, action: { label: 'やる', fn: () => { window.__acted++; } } })")
+                pg.wait_for_timeout(3000)
+                check(pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('ずっと出る知らせ'))"),
+                      "ms: 0 の知らせは 3 秒たっても消えない(以前は既定の 2.5 秒に戻っていた)")
+                pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].find(t => t.textContent.includes('ずっと出る知らせ')).querySelector('.ui-toast-msg').click()")
+                check(pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('ずっと出る知らせ'))"),
+                      "ボタンのある知らせは、本文を押しても閉じない")
+                pg.click("#toast .ui-toast-act")
+                check(pg.evaluate("window.__acted") == 1 and not pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('ずっと出る知らせ'))"),
+                      "ボタンを押すと fn を呼んで閉じる")
+                pg.evaluate("UIKit.toast('閉じる知らせ', { ms: 0 })")
+                pg.click("#toast .ui-toast:last-child .ui-toast-x")
+                check(not pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('閉じる知らせ'))"), "× で閉じる")
+                # 二度押しの確認(UIKit.confirmTwice)
+                pg.evaluate("window.__runs = 0; const b = document.createElement('button'); b.id = 'twice'; b.className = 'btn'; b.textContent = '消す'; "
+                            "b.onclick = () => UIKit.confirmTwice(b, () => { window.__runs++; }, 'もう一度押すと消します'); document.body.appendChild(b)")
+                pg.click("#twice")
+                check(pg.inner_text("#twice") == "もう一度押すと消します" and pg.evaluate("window.__runs") == 0, "1回目は文字が変わるだけ")
+                pg.click("#twice")
+                check(pg.evaluate("window.__runs") == 1 and pg.inner_text("#twice") == "消す", "2回目で実行して元に戻る")
 
                 # ---- 下の帯(UIKit.keybar) ----
                 pg.click("#btnKeybarSet")

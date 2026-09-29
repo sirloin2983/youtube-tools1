@@ -19,7 +19,11 @@
    v6(2026-09-27・画面の全面見直し 段階1): 既定のテーマを明るいに、新しい部品(すべて README.md の「v6」に使い方):
        UIKit.appnav(ホーム/スタジオ/編集の切り替え)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
        details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大3つ)・UIKit.keybar(下の細い帯)・
-       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン) */
+       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン)
+   v7(2026-09-29・気が利く画面へ 段1。.design/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
+       action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
+       UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
+       available()。保存に失敗したら知らせと [もう一度]) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -626,10 +630,11 @@
     toastBox = el;
     return el;
   }
+  /* v7: ms: 0 = 閉じるまで出す。action: {label, fn} = ボタン1つ(押すと閉じてから fn)。閉じるボタン(×)はいつも。-> {close, el} */
   function toastFn(message, opt) {
     opt = opt || {};
     var kind = opt.kind || '', isErr = kind === 'err';
-    var ms = opt.ms || (isErr ? 8000 : 2500);
+    var ms = opt.ms === 0 ? 0 : (+opt.ms > 0 ? +opt.ms : (isErr ? 8000 : 2500));
     var box = ensureToastBox();
     while (box.children.length >= 3) box.removeChild(box.firstChild);   // 最大3つ(古いものから消す)
     var item = document.createElement('div');
@@ -643,14 +648,76 @@
       var pre = document.createElement('div'); pre.textContent = String(opt.detail); det.appendChild(pre);
       item.appendChild(det);
     }
+    var act = opt.action && opt.action.label && typeof opt.action.fn === 'function' ? opt.action : null;
+    if (act) {
+      var ab = document.createElement('button');
+      ab.type = 'button'; ab.className = 'ui-toast-act'; ab.textContent = String(act.label);
+      ab.addEventListener('click', function (e) { e.stopPropagation(); remove(); act.fn(); });
+      item.appendChild(ab);
+    }
+    var xb = document.createElement('button');
+    xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.textContent = '×';
+    xb.addEventListener('click', function (e) { e.stopPropagation(); remove(); });
+    item.appendChild(xb);
     function remove() { clearTimeout(timer); if (item.parentNode) item.parentNode.removeChild(item); }
-    var timer = setTimeout(remove, ms);
+    var timer = ms > 0 ? setTimeout(remove, ms) : 0;
     item.addEventListener('click', function (e) {
       if (e.target && e.target.closest && e.target.closest('details')) return;   // 「詳しく」の開閉では閉じない
+      if (act || ms === 0) return;   // ボタンのある知らせ・消えない知らせは、本文を押しても閉じない(× か ボタンで)
       remove();
     });
     box.appendChild(item);
+    return { close: remove, el: item };
   }
+
+  /* ---- confirmTwice(二度押しの確認。v7)---- 1回目でボタンの文字を text に変え、3秒以内のもう1回で run。実行したらすぐ元に戻す
+     (以前の3つの実装(スタジオ・コラボ・編集)をまとめた。編集の版は実行後も「確認済み」のままで、続けて押すと同じ操作がもう一度走っていた) */
+  function confirmTwice(btn, run, text) {
+    if (!btn) return;
+    if (btn.getAttribute('data-armed')) {
+      clearTimeout(+btn.getAttribute('data-arm-t') || 0);
+      btn.removeAttribute('data-armed'); btn.innerHTML = btn.getAttribute('data-label') || ''; btn.classList.remove('armed');
+      run(); return;
+    }
+    btn.setAttribute('data-label', btn.innerHTML); btn.setAttribute('data-armed', '1');
+    btn.textContent = text || 'もう一度押すと実行します'; btn.classList.add('armed');
+    btn.setAttribute('data-arm-t', String(setTimeout(function () {
+      if (btn.isConnected && btn.getAttribute('data-armed')) { btn.removeAttribute('data-armed'); btn.innerHTML = btn.getAttribute('data-label') || ''; btn.classList.remove('armed'); }
+    }, 3000)));
+  }
+
+  /* ---- prefs(ホームの設定。v7)---- api/ytt/prefs(app/prefs.py)。ホームから開いていない(合言葉なし)ときは available() が false。
+     patch は同じ節をまとめて 400ms 後に送る(続けて変えても1回)。失敗したら知らせと [もう一度](以前は空の catch で黙って捨てていた) */
+  var prefsPending = {}, prefsTimer = {};
+  function prefsFail(section, err) {
+    toastFn('設定を保存できませんでした: ' + (err && err.message ? err.message : ''), { kind: 'err', ms: 0,
+      action: { label: 'もう一度', fn: function () { prefsFlush(section); } } });
+  }
+  function prefsFlush(section, value) {
+    var v = value || prefsPending[section];
+    delete prefsPending[section]; clearTimeout(prefsTimer[section]);
+    if (!v) return Promise.resolve(null);
+    return yttPost('prefs', { op: 'patch', section: section, value: v }).then(function (j) { return j.value; }, function (e) {
+      prefsPending[section] = Object.assign({}, v, prefsPending[section] || {});   /* 失敗した値は残す([もう一度]・次の patch と一緒に送る) */
+      prefsFail(section, e);
+      throw e;
+    });
+  }
+  var prefs = {
+    available: function () { return !!token(); },
+    get: function (sections) { return yttPost('prefs', { op: 'get', sections: sections || null }).then(function (j) { return j.prefs || {}; }); },
+    patch: function (section, value) {
+      prefsPending[section] = Object.assign(prefsPending[section] || {}, value || {});
+      clearTimeout(prefsTimer[section]);
+      return new Promise(function (resolve, reject) {
+        prefsTimer[section] = setTimeout(function () { prefsFlush(section).then(resolve, reject); }, 400);
+      });
+    },
+    flush: function (section) { return prefsFlush(section); },
+    remember: function (kind, key, name) {
+      return yttPost('prefs', { op: 'remember', kind: kind, key: key, name: name }).then(function (j) { return j.streamer; }, function (e) { prefsFail('streamer', e); throw e; });
+    }
+  };
 
   /* ---- keybar(画面の下の細い帯。いま使えるキー) ---- 既定は表示。設定「キーの帯を出す」(localStorage 'ytt:keybar' === '0' で消す) */
   var keybarEl = null, keybarItems = [];
@@ -978,6 +1045,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
-  window.UIKit = { version: 6, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
-                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, icon: icon };
+  window.UIKit = { version: 7, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, icon: icon,
+                   confirmTwice: confirmTwice, prefs: prefs };
 })();

@@ -22,12 +22,8 @@ function parseTime(str){
   for (const p of parts){ if (!/^\d+(\.\d+)?$/.test(p)) return NaN; t = t * 60 + parseFloat(p); }
   return t;
 }
-/* 2回押しの確認。実行したらすぐ元に戻す(以前は3秒間「確認済み」のままで、続けて押すともう一度実行されていた) */
-function armDelete(btn, run, text){
-  if (btn.dataset.armed){ clearTimeout(Number(btn.dataset.armT)); delete btn.dataset.armed; btn.textContent = btn.dataset.label; btn.classList.remove('solid'); run(); return; }
-  btn.dataset.label = btn.textContent; btn.dataset.armed = '1'; btn.textContent = text || 'もう一度押すと削除'; btn.classList.add('solid');
-  btn.dataset.armT = String(setTimeout(() => { if (btn.isConnected && btn.dataset.armed){ delete btn.dataset.armed; btn.textContent = btn.dataset.label; btn.classList.remove('solid'); } }, 3000));
-}
+/* 2回押しの確認。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1) */
+function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 
 /* addTo: 既存グループに配信を追加するモード中は、そのグループID。anchorOpen: 開いているアンカー指定フォーム({gid, videoId})
    q / f: 配信の一覧の絞り込み(文字 / 状態)。openG: 配信者ごとのまとまりの開閉(ユーザーが開け閉めしたものだけ) */

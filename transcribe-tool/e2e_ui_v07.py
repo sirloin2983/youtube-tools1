@@ -129,10 +129,9 @@ def main():
             pg.click("#moreTools summary")
             pg.click("#btnProofSel")
             check(pg.inner_text("#pfStat") == "校正済み 4/%d行" % n, "選択行を校正済みに")
-            pg.click("#btnProofAll")
-            check(pg.inner_text("#btnProofAll") == "もう一度押す", "全行ボタンは2度押しの確認")
-            pg.click("#btnProofAll")
+            pg.click("#btnProofAll")   # 元に戻せる操作なので確認なし(気が利く画面へ 段1。以前は2度押し)
             check(pg.inner_text("#pfStat") == "校正済み %d/%d行" % (n, n), "全行を校正済みに")
+            check(pg.locator(".ui-toast .ui-toast-act", has_text="元に戻す").count() >= 1, "知らせに「元に戻す」")
             check(pg.inner_text("#btnProofAll") == "校正済みを全解除", "ボタンが全解除に変わる")
             pg.keyboard.press("Control+z")   # 入力欄にフォーカスがなければ元に戻す
             pg.click("#btnUndo")

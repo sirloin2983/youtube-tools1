@@ -1005,15 +1005,8 @@ function refresh(keyToFocus){
   renderTimeline(); renderStats(); renderList(); renderLiveCount();
   if (keyToFocus){ const el = document.querySelector(`[data-key="${CSS.escape(keyToFocus)}"]`); if (el) el.focus(); }
 }
-/* 2回押しの確認。以前は実行後も3秒間「確認済み」のままで、続けて押すと同じ操作(再解析の依頼・削除)がもう一度走っていたため、実行したら元に戻す */
-function armDelete(btn, run, text){
-  if (btn.dataset.armed){
-    clearTimeout(Number(btn.dataset.armT)); delete btn.dataset.armed; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed');
-    run(); return;
-  }
-  btn.dataset.label = btn.innerHTML; btn.dataset.armed = '1'; btn.textContent = text || 'もう一度押すと削除'; btn.classList.add('armed');
-  btn.dataset.armT = String(setTimeout(() => { if (btn.isConnected && btn.dataset.armed){ delete btn.dataset.armed; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed'); } }, 3000));
-}
+/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1。実行したらすぐ元に戻る) */
+function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 const statusOf = c => c.status || '';
 const isFolded = id => (S.fold.has(id) ? S.fold.get(id) : S.settings.foldDefault);
 /* 表示するマーク(絞り込み + 並び替え)。前後移動もこの順で動く */
@@ -1057,11 +1050,19 @@ function decideSel(st){
   if (!c) return toast('先にマークを選んでください(▶ 再生・行のクリック・前後移動キー)');
   if (!setStatus(c, st, true)) return;
 }
+/* 候補をすべて採用: 戻せる操作なので確認はしない(気が利く画面へ 段1)。知らせの [元に戻す] で、まだ採用のままのマークだけ候補に戻す */
 function bulkAdopt(){
   const cs = marks().filter(m => statusOf(m) === '');
   if (!cs.length) return toast('候補がありません');
+  const v = S.cur;
   for (const m of cs) m.status = 'adopted';
-  markDirty(); refresh(); renderMeta(); toast(`候補 ${cs.length}件を採用にしました`);
+  markDirty(); refresh(); renderMeta();
+  UIKit.toast(`候補 ${cs.length}件を採用にしました`, { kind: 'ok', ms: 8000, action: { label: '元に戻す', fn: () => {
+    if (S.cur !== v) return toast('別の配信を開いているので戻せません', 4000);
+    let n = 0;
+    for (const m of cs) if (m.status === 'adopted'){ m.status = ''; n++; }
+    markDirty(); refresh(); renderMeta(); toast(`${n}件を候補に戻しました`);
+  } } });
 }
 function foldAll(on){ S.settings.foldDefault = on; S.fold = new Map(); touchSettings(); renderList(); }
 
@@ -1896,7 +1897,7 @@ function wire(){
   $('#rvFilters').addEventListener('click', e => { const b = e.target.closest('[data-filter]'); if (!b) return; S.filter = b.dataset.filter; renderStats(); renderList(); });
   $('#rvFoldAll').addEventListener('click', () => foldAll(true));
   $('#rvUnfoldAll').addEventListener('click', () => foldAll(false));
-  $('#rvBulkAdopt').addEventListener('click', e => armDelete(e.currentTarget, bulkAdopt, 'もう一度押すと、候補をすべて採用にします'));
+  $('#rvBulkAdopt').addEventListener('click', bulkAdopt);
   $('#rvExpAll').addEventListener('click', startExportAll);
   $('#rvOutEdit').addEventListener('click', () => Studio.openSettings('setOut'));
   const onCopy = async e => {   // 書き出しの一覧と、書き出し済みのマークの行の「パスをコピー」

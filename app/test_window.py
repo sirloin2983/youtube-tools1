@@ -19,6 +19,7 @@ sys.path.insert(0, HERE)
 import appwindow as W  # noqa: E402
 import clientlog as C  # noqa: E402
 import launch as L  # noqa: E402
+import prefs as PR  # noqa: E402
 from ytt_core import fsio  # noqa: E402
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
@@ -318,6 +319,61 @@ class TestClientLog(unittest.TestCase):
         self.assertLess(os.path.getsize(self.log.path), 400 + 200)
 
 
+class TestPrefs(unittest.TestCase):
+    """ホームの設定(app/prefs.py。気が利く画面へ 段1): 節ごとに直す・許可した形だけ・壊れたファイル・配信者の記憶"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-prefs-")
+        self.path = os.path.join(self.tmp, "app", "prefs.json")
+        self.p = PR.Prefs(self.path, fsio.atomic_write)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_defaults_and_patch_keeps_other_sections(self):
+        self.assertEqual(self.p.get(), PR.DEFAULTS)
+        self.p.remember("channels", "Pekora Ch. 兎田ぺこら", "兎田ぺこら")
+        self.assertEqual(self.p.patch("autorun", {"top": 5, "unknown": 1}), dict(PR.DEFAULTS["autorun"], top=5))   # 知らないキーは捨てる
+        self.p.patch("keymap", {"playback": {"playPause": "Space", "back1": "Shift+j", "seekBack": "ArrowLeft", "frameBack": ","}})
+        g = self.p.get()
+        self.assertEqual(g["streamer"]["channels"], {"Pekora Ch. 兎田ぺこら": "兎田ぺこら"})   # 他の節は消えない
+        self.assertEqual(g["autorun"]["top"], 5)
+        self.assertEqual(self.p.patch("autorun", {"mode": "full"})["top"], 5)                  # 送ったキーだけ直す
+        self.assertEqual(self.p.get(["keymap", "nope"]), {"keymap": {"playback": {"playPause": "Space", "back1": "Shift+j", "seekBack": "ArrowLeft", "frameBack": ","}}})
+
+    def test_rejects_bad_values(self):
+        bad = [("autorun", {"top": 0}), ("autorun", {"top": "3"}), ("autorun", {"top": True}), ("autorun", {"mode": "x"}), ("autorun", {"cut": "all"}),
+               ("autorun", {"onFail": "retry"}), ("autorun", []), ("streamer", {}), ("nope", {}), ("keymap", {"playback": {"<script>": "a"}}),
+               ("keymap", {"playback": {"play": "a\nb"}}), ("keymap", {"playback": "x"})]
+        for sec, v in bad:
+            with self.assertRaises(PR.PrefsError, msg=(sec, v)):
+                self.p.patch(sec, v)
+        for kind, key, name in [("nope", "k", "n"), ("docs", "", "n"), ("docs", "k\n", "n"), ("docs", "k", 3), ("docs", "k", "x" * 61), ("docs", "k" * 121, "n")]:
+            with self.assertRaises(PR.PrefsError, msg=(kind, key, name)):
+                self.p.remember(kind, key, name)
+        self.assertFalse(os.path.exists(self.path))   # 何も書いていない
+
+    def test_remember_order_and_limit(self):
+        old = PR.MAX_REMEMBER
+        PR.MAX_REMEMBER = 3
+        try:
+            for i in range(4):
+                self.p.remember("videos", "v%d" % i, "人%d" % i)
+            self.p.remember("videos", "v1", "")   # 空 = 「色なし」を覚える・新しい方へ動く
+            self.assertEqual(list(self.p.get(["streamer"])["streamer"]["videos"].items()), [("v2", "人2"), ("v3", "人3"), ("v1", "")])
+        finally:
+            PR.MAX_REMEMBER = old
+
+    def test_broken_file(self):
+        os.makedirs(os.path.dirname(self.path))
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("{壊れた")
+        self.assertEqual(self.p.get()["autorun"], PR.DEFAULTS["autorun"])   # 読めなくても既定で動く
+        self.p.patch("autorun", {"top": 4})
+        self.assertEqual(self.p.get()["autorun"]["top"], 4)
+        self.assertTrue([n for n in os.listdir(os.path.dirname(self.path)) if n.startswith("prefs.json.broken-")])   # 壊れたものは退避して残す
+
+
 class TestPortalApi(unittest.TestCase):
     """入口の画面から: /api/ytt/…・/api/window・/api/status の window・/api/log?tool=client"""
 
@@ -405,6 +461,19 @@ class TestPortalApi(unittest.TestCase):
         self.srv.window.focus = lambda title: False
         self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {})[1]["focused"], False)
         self.assertEqual(self.req("POST", "/api/ytt/focus-portal", {}, {"X-YTT-Token": "wrong"})[0], 403)
+
+    def test_prefs_api(self):
+        """api/ytt/prefs: 読む・節ごとに直す・覚える。合言葉なしは 403・形が違えば 400"""
+        st, j = self.req("POST", "/api/ytt/prefs", {"op": "patch", "section": "autorun", "value": {"top": 7, "cut": "none"}})
+        self.assertEqual((st, j["value"]["top"], j["value"]["cut"]), (200, 7, "none"))
+        st, j = self.req("POST", "/api/ytt/prefs", {"op": "remember", "kind": "docs", "key": "0123456789ab", "name": "さくらみこ"})
+        self.assertEqual((st, j["streamer"]["docs"]), (200, {"0123456789ab": "さくらみこ"}))
+        st, j = self.req("POST", "/api/ytt/prefs", {"op": "get", "sections": ["autorun", "streamer"]})
+        self.assertEqual((st, sorted(j["prefs"]), j["prefs"]["autorun"]["top"]), (200, ["autorun", "streamer"], 7))
+        self.assertEqual(self.req("POST", "/api/ytt/prefs", {"op": "patch", "section": "autorun", "value": {"top": 99}})[0], 400)
+        self.assertEqual(self.req("POST", "/api/ytt/prefs", {"op": "drop"})[0], 400)
+        self.assertEqual(self.req("POST", "/api/ytt/prefs", {"op": "get"}, {"X-YTT-Token": "wrong"})[0], 403)
+        self.assertTrue(os.path.isfile(self.srv.prefs.path))
 
     def test_streamer_colors(self):
         """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は ytt_core/colors.py)"""

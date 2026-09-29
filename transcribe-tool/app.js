@@ -65,11 +65,9 @@ const safeName = (t, fb = 'transcript') => String(t || '').replace(/[\\/:*?"<>|\
    そのまま入れると「red;background:url(外部)」のような値で CSS を差し込まれ、外へ通信されうる) */
 const spColor = sp => sp && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(sp.color || '')) ? sp.color : '';
 function setRowSp(row, sp){ const c = spColor(sp); if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
-function armDelete(btn, run){
-  if (btn.dataset.armed){ run(); return; }
-  const label = btn.textContent; btn.dataset.armed = '1'; btn.textContent = 'もう一度押す';
-  setTimeout(() => { if (btn.isConnected){ delete btn.dataset.armed; btn.textContent = label; } }, 3000);
-}
+/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1)。
+   以前のこの版は実行後も3秒間「確認済み」のままで、続けて押すと同じ操作がもう一度走り、文言も「もう一度押す」だけだった */
+function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text); }
 const uid = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const norm = s => String(s).normalize('NFKC').toLowerCase();
 
@@ -836,7 +834,7 @@ $('#voiceList').addEventListener('click', e => {
     try { await api('/api/voices/delete', { body: { embedding: row.dataset.emb, name: row.dataset.name } }); toast(`「${row.dataset.name}」の声を忘れました`, 2500); }
     catch (er){ toast(er.message, 4000, 'err'); }
     loadVoices();
-  });
+  }, `もう一度押すと「${row.dataset.name}」の声を忘れます`);
 });
 $('#voiceLearn').addEventListener('click', async () => {
   if (!S.doc) return;
@@ -872,7 +870,7 @@ for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
 $('#diarGo').addEventListener('click', e => {
   const b = e.currentTarget;
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
-  if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run); else run();
+  if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run, 'もう一度押すと判別し直します(今の話者は置き換わります)'); else run();
 });
 
 /* ---------- 再認識 ---------- */
@@ -1145,16 +1143,14 @@ $('#strip').addEventListener('click', e => {
   if (!gotoRow(i, { center: true })) return toast('その位置の行は、絞り込みで隠れています');
   player().currentTime = segs[i].start; S.playEnd = null;
 });
-$('#btnProofAll').addEventListener('click', e => {
-  const b = e.currentTarget; if (!S.doc) return;
-  armDelete(b, () => {
-    delete b.dataset.armed;
-    const all = S.doc.segments.length && S.doc.segments.every(s => s.proofed);
-    pushUndo();
-    for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
-    renderDoc(); markDirty();
-    toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました(「元に戻す」で戻せます)');
-  });
+/* 全行を校正済みに / 全解除: 元に戻せる操作なので確認はしない(気が利く画面へ 段1。以前は二度押し)。知らせの [元に戻す] で戻す */
+$('#btnProofAll').addEventListener('click', () => {
+  if (!S.doc) return;
+  const all = S.doc.segments.length && S.doc.segments.every(s => s.proofed);
+  pushUndo();
+  for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
+  renderDoc(); markDirty();
+  UIKit.toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました', { kind: 'ok', ms: 8000, action: { label: '元に戻す', fn: doUndo } });
 });
 $('#btnProofSel').addEventListener('click', () => {
   if (!S.doc || !S.sel.size) return;

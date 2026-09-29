@@ -388,6 +388,14 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-toast-detail{margin-top:4px;color:color-mix(in srgb,var(--toast-ink) 70%,transparent);cursor:auto}
 .ui-toast-detail>summary{cursor:pointer;font-size:12px}
 .ui-toast-detail>div{margin-top:4px;font:11.5px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+/* v7: 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
+.ui-toast-act{flex:none;align-self:center;padding:3px 12px;border-radius:var(--r);border:1px solid rgba(255,255,255,.45);background:transparent;color:var(--toast-ink);font:inherit;font-weight:600;cursor:pointer}
+.ui-toast-act:hover{background:rgba(255,255,255,.12)}
+.ui-toast-x{flex:none;align-self:flex-start;width:22px;height:22px;margin:-2px -8px 0 0;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
+.ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
+/* v7: 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
+.btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
 
 /* 画面の下の細い帯(いま使えるキー。UIKit.keybar)。既定は表示・設定「キーの帯を出す」で消せる(ytt:keybar=0) */
 .ui-keybar{position:fixed;left:0;right:0;bottom:0;z-index:50;height:calc(var(--keybar-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;white-space:nowrap;font-size:11px;line-height:1;color:var(--ink-3)}
