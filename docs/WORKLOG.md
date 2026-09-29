@@ -1733,3 +1733,11 @@
   `cmd /c build.bat` は Git Bash からだと「認識されない」になる(PowerShell から `cmd /c ".\build.bat < NUL"` なら動く)
 - 残った問題: なし。テストが本物の作業データ(%LOCALAPPDATA%\youtube-tools)を書き換えていないことも確認(直近 2 時間の更新なし)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 開始・1. B-8 ホームの案件の行に「スタジオで開く」
+- 段1(`docs/plan/phase1-small-fixes.md`)を始めた。版は実物で確かめて ホーム 0.13.0・編集 0.23.0・スタジオ 0.11.0(計画の 0.12.0/0.21.0 から進んでいる)。版は段の終わりにまとめて上げる
+- 変更: `home/portal.html`(案件の行を開いた中の「状態」の行に `.pt-case-studio`)・`home/portal.js`(`caseCard` で `link('スタジオで開く', '/studio/?video=' + encodeURIComponent(c.id))`。`c.gone` のときは出さない)
+- 決定・理由: 場所は `/studio/` の直書き(計画の案 (a)。`docHref` と同じ)。取り込みに失敗してスタジオが子プロセスで動いたときは合わない → **B-7(段5)でまとめて見直す候補**(`/api/status` の studio の path・port から作る案 (b))
+- テスト: `home/tests/e2e_portal.py` の [A] に「href・新しいタブ・noopener」「開いたスタジオが `Studio.params.video === 'e2eCase0001'` で ③ 確認(`Studio.step === 'review'`)」を足して通過。
+  home の unit 140 通過(1・2回目は `test_post_guards`/`test_security_checks` が ConnectionAbortedError で落ち、3回目に通過。この PC の既知の不定の落ち)
+- 未コミット: なし

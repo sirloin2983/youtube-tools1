@@ -261,6 +261,19 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(any(t == "編集で開く" and h.startswith("/transcribe/?doc=") and "&media=" in h and h.endswith("#tx") for t, h in acts),
               "[A] 切り抜きの操作は「編集で開く」(文書 ID で校正のタブへ。B-1: 同じ動画の別の文書が開かないように): %s" % acts)
         case_doc = [h for t, h in acts if t == "編集で開く"][0].split("doc=")[1].split("&")[0]
+        # B-8(段1): 案件の行から、その配信をスタジオの ③ 確認で開く(新しいタブ・noopener)
+        sh = pg.eval_on_selector_all(".pt-case-studio a", "els => els.map(a => [a.textContent, a.getAttribute('href'), a.target, a.rel])")
+        check(sh == [["スタジオで開く", "/studio/?video=e2eCase0001", "_blank", "noopener"]],
+              "[A] 案件の行に「スタジオで開く」(?video= に案件の id・新しいタブ): %s" % sh)
+        with ctx.expect_page() as info:
+            pg.click(".pt-case-studio a")
+        tab = info.value
+        tab.wait_for_load_state()
+        check(wait_js(tab, "!!(window.Studio && Studio.ready) && Studio.params.video === 'e2eCase0001' && Studio.step === 'review'", 20000),
+              "[A] 「スタジオで開く」でスタジオがその配信を ③ 確認で開いた: %s"
+              % tab.evaluate("window.Studio && [Studio.params, Studio.step]"))
+        check(tab.evaluate("window.opener") is None, "[A] スタジオのタブからホームを操作できない(noopener)")
+        tab.close()
         pg.select_option(".pt-case-status", "posted")
         check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('投稿済み') >= 0)", 10000), "[A] 状態を保存した(合言葉つきの POST)")
         pg.reload()

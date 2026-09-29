@@ -488,6 +488,9 @@
         updateSummaryLine();
       }).catch(function (e) { sel.value = c.status || ''; toast('保存できませんでした: ' + e.message, 'err'); });
     });
+    // B-8(段1): その配信をスタジオの ③ 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を正規表現で確かめ、保存済みなら ③ で開く)。
+    // スタジオから消えた配信は開いても ① に落ちるので出さない。場所は /studio/ の直書き(docHref が /transcribe/ を直書きしているのと同じ。取り込みに失敗して子プロセスで動いたときは合わない → B-7 で見直す候補)
+    if (!c.gone) $('.pt-case-studio', node).appendChild(link('スタジオで開く', '/studio/?video=' + encodeURIComponent(c.id)));
     fillClips(node, c);
     wireAuto(node, c);
     var ta = $('textarea', node), msg = $('.pt-memo-msg', node);
