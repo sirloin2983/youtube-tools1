@@ -1792,3 +1792,10 @@
   同じファイルの「設定を開いている間は ③ のショートカットが効かない」が、止めた直後の表示の更新(0:22.0 → 0:22.1)で不定に落ちるようになった(時間の流れが変わったため。2回に1回ほど)
   → 表示の一致ではなく「1 秒の移動が無い(差 0.5 秒未満)」を見るように直した。通過: e2e_ui 147/147・e2e_ui --mounted 160/160
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 追加2: カットのタイムラインのフォーカスの枠(夜間の見直しの 3-ui-consistency の 5)
+- 原因: `editor/index.html` の `.tt-tl-scroll:focus-visible{box-shadow:inset 0 0 0 2px var(--ring)}`。`--ring` は影の指定そのもの(`0 0 0 3px color-mix(…)`)なので値が不正になり、
+  `outline:none` も付いていたため、`tabindex="0"` のタイムライン(`#tlScroll`)にキーボードで来ても何も見えなかった(ui-guidelines 6「フォーカスの輪を消さない」)
+- 変更: `.tt-tl-scroll:focus{outline:none}` + `.tt-tl-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}`(横スクロールの枠の内側に出す。マウスで押したときは出さない)
+- テスト: `e2e_edit_cut.py` に「キーボードで来たとき `:focus-visible` で outline 2px solid」を足して通過(直す前の CSS では outline が none で落ちる)。`dev/tests/test_ui_kit_sync.py` 通過(ui-kit の写しの部分は触っていない)
+- 未コミット: なし

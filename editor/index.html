@@ -966,8 +966,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-tl{display:grid;grid-template-columns:52px minmax(0,1fr);padding:0;overflow:hidden}
 .tt-tl-heads{display:grid;grid-template-rows:26px 64px 34px;border-right:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink-2)}
 .tt-tl-heads>span{display:flex;align-items:center;justify-content:center}
-.tt-tl-scroll{overflow-x:auto;overflow-y:hidden;position:relative;outline:none;scrollbar-width:thin}
-.tt-tl-scroll:focus-visible{box-shadow:inset 0 0 0 2px var(--ring)}
+.tt-tl-scroll{overflow-x:auto;overflow-y:hidden;position:relative;scrollbar-width:thin}
+/* 段1: --ring は影の指定そのもの(0 0 0 3px …)なので inset の中に入れると値が不正になり、枠が出ていなかった。横スクロールの枠の内側に outline で出す */
+.tt-tl-scroll:focus{outline:none}
+.tt-tl-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .tt-tl-content{position:relative;height:124px;min-width:100%;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:pan-x}   /* 目盛りの最後のラベルなどが中身の幅を押し広げない */
 .tt-tl-ruler{position:absolute;left:0;right:0;top:0;height:26px;border-bottom:1px solid var(--line);cursor:pointer}
 .tt-tick{position:absolute;top:0;height:26px;padding-left:4px;border-left:1px solid var(--line-2);font:11px/26px var(--mono);color:var(--ink-3);white-space:nowrap}

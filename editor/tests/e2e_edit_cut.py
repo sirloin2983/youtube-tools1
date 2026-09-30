@@ -72,6 +72,11 @@ def main():
               const pps = sc.scrollWidth / 20, x = Math.round((1.0 * pps - sc.scrollLeft) * (window.devicePixelRatio || 1));
               const d = c.getContext('2d').getImageData(x, 0, 1, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++; return n > 10; })()""", 20000)
             check(True, "音の波形が出る(サーバーの /api/peaks)")
+            # 段1: タイムラインにキーボードで来たとき、フォーカスの枠が見える(以前は --ring を inset の影に入れた不正な値で、何も出ていなかった)
+            pg.keyboard.press("Shift")
+            ring = pg.evaluate("""(() => { const sc = document.querySelector('#tlScroll'); sc.focus({ focusVisible: true });
+              const cs = getComputedStyle(sc); const r = [sc.matches(':focus-visible'), cs.outlineStyle, cs.outlineWidth]; sc.blur(); return r; })()""")
+            check(ring == [True, "solid", "2px"], "タイムラインのフォーカスの枠(outline 2px): %s" % ring)
 
             # ---- 段3: ホイールで拡大縮小(Ctrl 不要・マウスの位置が中心)・Shift+ホイールで横移動・ミニマップ
             pg.click("#cutZoomFit")
