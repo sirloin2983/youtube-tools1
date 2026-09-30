@@ -2325,3 +2325,12 @@
 - テスト(すべて通過): `ytt_core/tests/test_ytt_core.py`(64)・home の単体 5 組(159)・studio の単体 7 組(246)・editor の単体一式(205)・`dev/tests/e2e_datadir.py`・`editor/tests/e2e_ui_mounted.py`・`home/tests/e2e_portal.py`
 - これで夜間の見直しの「高」の残り 3 件(①②③)はすべて済み。次は線 A 段5(`docs/plan/phase5-consistent-ui.md`)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code — 線 A の段8 のあとの大きな計画(案)を書いた(`docs/plan/line-a-after-phase8.md`)
+- 依頼: ユーザー「A の段8 以降の大きな計画を立てたい」。段5〜6・8 で 09-29 の計画が尽きるので、その先の候補を集めて章と段に並べた(**案。採否・順番はユーザーの決定待ち**)
+- 集め方: Haiku のサブエージェント 3 つ(読むだけなので小さいモデル)で並列に、① 設計書の保留・未決・提案のまま、② 計画書(段5・6・8・線 B・USER_INPUT・HANDOVER)の残り、③ コードの「仮・将来」と README の「できないこと」を一覧にし、まとめ役(Opus)が分類した
+- 中身: 4 つの章(Ⅰ 運用と土台 / Ⅱ 切り抜きの質 / Ⅲ パックの先 / Ⅳ 画面と周辺)と段9〜15 の案。おすすめ順は 段5 → 6 → 9(運用の安定化)→ 10(コードの整理。線 B 段2 の前)→ 線 B 段1・2 → 13(投稿の準備)→ 11(見どころ検出の精度 = 線 C の土台)→ 12(コラボの別視点)→ 8 → 15。段14(Resolve なしの仕上げ)は要決定。
+  「やらない」と決めたもの(9:16・新着の監視など)は蒸し返さず 6 に材料だけ
+- 文書: `docs/ROADMAP.md`(2 の表に「9〜15 段8 のあと(案)」の行・8 の索引に1行)
+- 触っていない: 段5 の作業途中の未コミット(editor/README.txt・index.html・app.js・e2e_edit_tabs.py、home/README.txt・portal.*・e2e_portal.py、studio/review.css。別のセッションの分。WORKLOG にまだ記録が無い)
+- 未コミット: なし(このあと docs の 3 ファイルだけコミット)
