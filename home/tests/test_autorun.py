@@ -928,7 +928,7 @@ class TestRequests(Base):
         res = self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": "ch"}, {"id": "bad", "top": 2}], request_id="20261001-120000-abc123")
         self.assertEqual(len(res["skipped"]), 1)
         run = self.wait(res["runs"][0])
-        self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼: 解析 → 文字起こし", "20261001-120000-abc123"))
+        self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼 ② 軽く確認: 解析 → 文字起こし", "20261001-120000-abc123"))
         self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe"])
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
         self.assertNotIn("body", self.tools.c2r, "パックは作らない")
@@ -942,7 +942,7 @@ class TestRequests(Base):
         with self.assertRaisesRegex(ValueError, "すでに"):
             self.r.start_file(media)
         run = self.wait(run)
-        self.assertEqual((run["state"], run["kind"], run["sourcePath"], run["modeLabel"]), ("done", "file", media, "依頼: 文字起こし"), run)
+        self.assertEqual((run["state"], run["kind"], run["sourcePath"], run["modeLabel"]), ("done", "file", media, "依頼 ② 軽く確認: 文字起こし"), run)
         self.assertEqual([j["src"] for j in self.tools.tx_jobs.values()], [media])
         self.assertEqual(run["docs"], ["000000000001"])
         self.assertEqual(self.prefs.get(["streamer"])["streamer"]["docs"], {"000000000001": "さくらみこ"})   # パックのときの字幕の色
@@ -954,6 +954,57 @@ class TestRequests(Base):
         self.assertEqual(self.states(run), {"transcribe": "skip"})
         with self.assertRaisesRegex(ValueError, "見つかりません"):
             self.r.start_file(os.path.join(self.tmp, "nai.mp4"))
+
+    def zips(self, out):
+        import zipfile
+        return {n: sorted(zipfile.ZipFile(os.path.join(out, n)).namelist()) for n in os.listdir(out)}
+
+    def test_request_auto_delivers_packs(self):
+        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → zip を 出力\\ へ(友人のアプリの「受け取る」)"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261001-120000-abc123",
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
+        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
+        self.assertEqual(self.states(run)["deliver"], "done")
+        got = self.zips(out)
+        self.assertEqual(sorted(got), ["20261001-120000-abc123__a2.zip", "20261001-120000-abc123__a3.zip"])
+        self.assertIn("a2_pack/cut-plan.json", got["20261001-120000-abc123__a2.zip"])
+        self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip が残る")
+
+    def test_file_auto_delivers_and_failure_note(self):
+        """① 全自動(動画): 文字起こし → パック → zip。止まったら 出力\\ に理由の .txt"""
+        media = os.path.join(self.tmp, "依頼.mp4")
+        open(media, "wb").close()
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(self.r.start_file(media, title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=out))
+        self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_auto", ["transcribe", "pack", "deliver"]), run)
+        self.assertEqual(self.tools.c2r["body"]["output"].get("streamer"), "さくらみこ")   # 選んだ配信者の色でパック
+        self.assertEqual(sorted(self.zips(out)), ["rid1__依頼.zip"])
+        media2 = os.path.join(self.tmp, "b.mp4")
+        open(media2, "wb").close()
+        self.tools.fail_tx = True
+        run = self.wait(self.r.start_file(media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out))
+        self.assertEqual(run["state"], "error")
+        with open(os.path.join(out, "rid2__二本目.失敗.txt"), encoding="utf-8-sig") as f:
+            self.assertIn("モデルが読めません", f.read())
+
+    def test_file_manual_analyzes_in_studio(self):
+        """③ 全部人が行う(動画): スタジオの解析のキューに入れて解析まで"""
+        media = os.path.join(self.tmp, "長い.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, title="長い", flow="manual"))
+        self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_manual", ["analyze"]), run)
+        add = next(c for c in self.tools.calls if c[2] == "/api/queue/add")
+        self.assertEqual(add[3]["items"], [{"kind": "file", "path": media, "title": "長い"}])
+        self.assertEqual(self.tools.tx_jobs, {}, "文字起こしはしない")
+
+    def test_request_manual(self):
+        self.tools.known = False
+        run = self.wait(self.r.start_request([{"id": VID, "top": 3}], flow="manual")["runs"][0])
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze"]))
+        self.assertFalse(any(c[2] == "/api/video/adopt-top" for c in self.tools.calls))
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@
 """
 import collections
 import http.client
+import shutil
+import zipfile
 import json
 import os
 import re
@@ -34,13 +36,21 @@ import uuid
 from ytt_core import colors, txindex
 
 MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
-STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック"}
+STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック",
+               "deliver": "Dropbox へ届ける"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
-              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",)}
+              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
+              "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"), "request_manual": ("analyze",),
+              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",)}
 # 友人からの依頼(home/intake.py。docs/design/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
-# request = 配信の URL: 解析 → 上位 N 個を採用 → 書き出し → 文字起こし(パックはしない)/ file = 友人が切り抜いた動画: 文字起こしだけ
-REQUEST_MODES = {"request": "依頼: 解析 → 文字起こし", "file": "依頼: 文字起こし"}
+# 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
+# ③ 全部人が行う manual = 解析まで。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
+REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし", "request_manual": "依頼 ③: 解析まで",
+                 "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし", "file_manual": "依頼 ③: スタジオで解析まで"}
+FLOWS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}
+FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
+              "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
 # 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
@@ -130,8 +140,10 @@ def _doc_id_ok(v):
 
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None):
+                 source_path=None, request_id=None, deliver_dir=None):
         self.id = uuid.uuid4().hex[:10]
+        self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
+        self.packs = []                  # この実行で作ったパックのフォルダ
         self.source_path = source_path   # 依頼の動画(mode file。作業データへコピーしたもの)
         self.request_id = request_id     # 友人からの依頼の id(home/intake.py)
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
@@ -387,7 +399,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_request(self, items, request_id=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None):
         """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel"}]。配信ごとに1つの実行(mode request)。
         すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
@@ -406,8 +418,8 @@ class AutoRunner:
                 elif len(active) >= MAX_WAITING:
                     skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
-                    run = Run(vid, title or vid, "request", top, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"),
-                              request_id=request_id)
+                    run = Run(vid, title or vid, FLOW_MODES["url"].get(flow, "request"), top, fresh={"title": title, "channel": channel},
+                              on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir)
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -416,7 +428,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_file(self, path, title="", streamer=None, request_id=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None):
         """友人が切り抜いた動画の依頼(home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
@@ -427,8 +439,8 @@ class AutoRunner:
                 raise ValueError("この動画はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
-            run = Run(None, str(title or os.path.basename(path))[:120], "file", None, streamer=streamer or None,
-                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id)
+            run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
+                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -630,6 +642,8 @@ class AutoRunner:
                 for s in run.steps:
                     if s["state"] == "run":
                         s["state"] = "error" if run.state == "error" else "skip"
+                if run.deliver_dir and run.state == "error":   # ① 全自動: 友人の「受け取る」に失敗の理由を出す
+                    self._deliver_failure(run)
                 self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
                 with self.cv:
                     self._trim()
@@ -698,6 +712,10 @@ class AutoRunner:
             if not path:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
+        return self._analyze_item(run, st, item, run.video_id)
+
+    def _analyze_item(self, run, st, item, video_id):
+        """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
         # 解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze。段階7-1)。無ければスタジオの既定値
         saved = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("analyze")
         saved = saved if isinstance(saved, dict) else {}
@@ -712,7 +730,7 @@ class AutoRunner:
         while True:
             self._wait(run)
             items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
-            it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == run.video_id)), None)
+            it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
             if it is None:
                 raise StepError("解析のキューから消えました")
             st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
@@ -942,8 +960,10 @@ class AutoRunner:
         if j.get("state") != "done":
             err = j.get("error")
             raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
+        r = j.get("result") or {}
+        if r.get("outDir") and r["outDir"] not in run.packs:
+            run.packs.append(r["outDir"])   # ① 全自動で Dropbox へ届けるもの
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
-            r = j.get("result") or {}
             self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
                                                                       "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
         return "made", bool(keeps)
@@ -1068,10 +1088,108 @@ class AutoRunner:
 
     # 依頼の動画(mode file) -------------------------------------
     def _execute_file(self, run):
-        st = run.step("transcribe")
-        st["state"] = "run"
-        run.message = st["label"]
-        self._check(run)
+        for key in MODE_STEPS[run.mode]:
+            self._check(run)
+            st = run.step(key)
+            st["state"] = "run"
+            run.message = st["label"]
+            result = getattr(self, "_file_" + key)(run, st)
+            if st["state"] == "run":
+                st["state"] = "done"
+            if result == "stop":
+                for s in run.steps:
+                    if s["state"] == "wait":
+                        s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
+                break
+        self._finish_message(run)
+
+    def _file_analyze(self, run, st):
+        """依頼 ③: 友人の動画をスタジオに入れて盛り上がりの解析まで(切り抜く所は人が決める)"""
+        if not os.path.isfile(run.source_path):
+            raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
+        self._analyze_item(run, st, {"kind": "file", "path": run.source_path, "title": run.title}, None)
+        st["detail"] += "。切り抜く所はスタジオで決めてください"
+        return None
+
+    def _file_pack(self, run, st):
+        if not run.doc_id:
+            st["state"], st["detail"] = "skip", "文字起こしの文書がありません"
+            return "stop"
+        return self._doc_pack(run, st)
+
+    def _file_deliver(self, run, st):
+        found = self.find_pack(run.source_path)
+        return self._deliver(run, st, list(run.packs) + ([found["dir"]] if found else []))
+
+    def _step_deliver(self, run, st, v):
+        dirs = list(run.packs)
+        for m in self._clips(v, run):
+            found = self.find_pack(m["path"])
+            if found:
+                dirs.append(found["dir"])
+        return self._deliver(run, st, dirs)
+
+    def _deliver_name(self, run, d):
+        base = os.path.basename(os.path.normpath(d))
+        base = base[:-5] if base.endswith("_pack") else base
+        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", "%s__%s" % (run.request_id or run.id, base or run.title or "pack"))[:180]
+        return name
+
+    def _deliver(self, run, st, dirs):
+        """① 全自動: パックのフォルダを zip にして Dropbox の 出力\ へ置く(友人のアプリの「受け取る」に出る)。
+        zip は Dropbox の外(パックの隣)で作ってから移す(書きかけを同期させない・友人の一覧に出さない)"""
+        dirs = [d for d in dict.fromkeys(os.path.normpath(x) for x in dirs if x) if os.path.isdir(d)]
+        if not run.deliver_dir:
+            st["state"], st["detail"] = "skip", "届け先がありません"
+            return None
+        if not dirs:
+            st["state"], st["detail"] = "skip", "届けるパックがありません"
+            return None
+        os.makedirs(run.deliver_dir, exist_ok=True)
+        done = []
+        for i, d in enumerate(dirs, 1):
+            self._check(run)
+            st["detail"] = "%d / %d 本を zip にしています" % (i - 1, len(dirs))
+            tmp = os.path.join(os.path.dirname(d), ".deliver-%s.zip" % uuid.uuid4().hex[:8])
+            try:
+                with zipfile.ZipFile(tmp, "w", allowZip64=True) as z:
+                    top = os.path.basename(d)
+                    for base, _dirs, files in os.walk(d):
+                        for f in sorted(files):
+                            p = os.path.join(base, f)
+                            arc = os.path.join(top, os.path.relpath(p, d))
+                            video = os.path.splitext(f)[1].lower() in (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")
+                            z.write(p, arc, compress_type=zipfile.ZIP_STORED if video else zipfile.ZIP_DEFLATED)
+                        self._check(run)
+                name = self._deliver_name(run, d) + ".zip"
+                dest = os.path.join(run.deliver_dir, name)
+                if os.path.exists(dest):
+                    dest = os.path.join(run.deliver_dir, "%s-%s.zip" % (name[:-4], uuid.uuid4().hex[:4]))
+                shutil.move(tmp, dest)
+                done.append(os.path.basename(dest))
+            except OSError as e:
+                raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+        st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(done)
+        return None
+
+    def _deliver_failure(self, run):
+        """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""
+        try:
+            os.makedirs(run.deliver_dir, exist_ok=True)
+            name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", "%s__%s" % (run.request_id or run.id, run.title or "依頼"))[:180] + ".失敗.txt"
+            text = "自動の処理が止まりました。\r\n理由: %s\r\n送り先の人が確かめます。" % (run.error or run.message)
+            with open(os.path.join(run.deliver_dir, name), "w", encoding="utf-8-sig", newline="") as f:
+                f.write(text + "\r\n")
+        except OSError:
+            pass
+
+    def _file_transcribe(self, run, st):
         if not os.path.isfile(run.source_path):
             raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
         doc = txindex.pick(txindex.load(txindex.folder(self.root, self.env)), None, None, run.source_path)[0]
@@ -1099,13 +1217,14 @@ class AutoRunner:
             st["state"], st["detail"] = "done", "文字起こししました。字幕の校正は「編集」で"
         if tid and tid not in run.docs:
             run.docs.append(tid)
+        run.doc_id = tid or None   # ① 全自動: この文書でパックを作る
         if tid and run.streamer and self.prefs:   # 依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)
             try:
                 self.prefs.remember("docs", tid, run.streamer)
                 st["detail"] += "。配信者: %s" % run.streamer
             except (OSError, ValueError):
                 pass
-        self._finish_message(run)
+        return None
 
 
 def _row_edge_ok(v):

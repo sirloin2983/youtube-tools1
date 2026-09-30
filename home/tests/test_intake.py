@@ -27,16 +27,17 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
+        self.last = {"flow": flow, "deliver": deliver_dir}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None):
         if self.fail:
             raise ValueError(self.fail)
-        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id})
+        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir})
         return {"id": "f%d" % len(self.files)}
 
 
@@ -258,7 +259,7 @@ class TestVideo(Base):
                                                      "streamer": "さくらみこ", "memo": "最後のところ", "sentAt": ""}, ensure_ascii=False))
         self.scan2()
         f, = self.runner.files
-        self.assertEqual((f["title"], f["streamer"], f["rid"]), ("にぇの叫び", "さくらみこ", rid))
+        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "check"))   # flow の無い 1.0.0 のアプリ = ②
         r = self.it.snapshot()["requests"][0]
         self.assertEqual((r["source"], r["memo"], r["state"]), ("app", "最後のところ", "accepted"))
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
@@ -279,6 +280,25 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.files, [])
         self.assertTrue(os.path.isfile(self.failed(rid + ".request.json")))
+
+    def test_flow_from_app(self):
+        """友人が選んだ形(① auto / ② check / ③ manual)と、① のパックの届け先(見張るフォルダの 出力\\)をまとめて実行へ渡す(2026-10-01)"""
+        rid = "20261001-120000-abc127"
+        self.put(rid + "__clip.mp4", b"clip-auto")
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__clip.mp4"], "flow": "auto"}))
+        rid2 = "20261001-120000-abc128"
+        self.put(rid2 + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid2, "flow": "manual",
+                                                      "items": [{"url": "https://youtu.be/abcdefghijk", "top": 3}]}))
+        rid3 = "20261001-120000-abc129"
+        self.put(rid3 + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid3, "flow": "rm -rf",
+                                                      "items": [{"url": "https://youtu.be/bbbbbbbbbbb", "top": 3}]}))
+        self.scan2()
+        f, = self.runner.files
+        self.assertEqual((f["flow"], f["deliver"]), ("auto", os.path.join(self.folder, intake.OUT_DIR)))
+        self.assertEqual(len(self.runner.requests), 2)
+        labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
+        self.assertEqual(labels["clip.mp4"], "① 全自動")
+        self.assertEqual(sorted(labels.values()), ["① 全自動", "② 軽く確認", "③ 全部人が行う"])   # 知らない形は ②
 
     def test_app_request_url(self):
         rid = "20261001-120000-abc126"
