@@ -37,6 +37,7 @@
   var openCases = {};                   // この画面を開いてから自分で開閉した案件(id → bool)
   var caseDrafts = {};                  // 保存していない入力(メモ・配信者)。id → {memo, streamer}(再描画(alt-tab で戻ったときなど)でも保つ)
   function draftFor(id) { return caseDrafts[id] || (caseDrafts[id] = {}); }
+  var memoSave = {};                    // メモの保存の状態。id → {busy, sent, again, msg}(1つずつ順に送る = 応答の順が入れ替わらない。監査 14)
   var groupOpenCache = null;
   var termShown = {};
   var todoShowAll = false;
@@ -505,18 +506,70 @@
     if (!c.gone) $('.pt-case-studio', node).appendChild(link('スタジオで開く', '/studio/?video=' + encodeURIComponent(c.id)));
     fillClips(node, c);
     wireAuto(node, c);
-    var ta = $('textarea', node), msg = $('.pt-memo-msg', node);
+    var ta = $('textarea', node);
     var draft = draftFor(c.id);
     ta.value = draft.memo != null ? draft.memo : (c.memo || '');   // 未保存の入力を再描画でも保つ(E2 finding 1)
     if (ta.value) $('.pt-case-memo', node).open = true;
-    ta.addEventListener('input', function () { draftFor(c.id).memo = ta.value; });
-    $('.pt-memo-save', node).addEventListener('click', function () {
-      api('/api/cases/update', 'POST', { id: c.id, memo: ta.value }).then(function (r) {
-        c.memo = r.memo; msg.textContent = '保存しました';
-        var d = caseDrafts[c.id]; if (d) delete d.memo;   // 保存できたので下書きは要らない
-      }).catch(function (e) { msg.textContent = '保存できませんでした: ' + e.message; });
+    ta.addEventListener('input', function () {
+      draftFor(c.id).memo = ta.value;
+      var st = memoSave[c.id];
+      if (st && !st.busy && st.msg) { st.msg = ''; memoUi(c.id); }   // 前の保存の結果の文は、書き足したら消す(「保存しました」のまま未保存にしない)
     });
+    $('.pt-memo-save', node).addEventListener('click', function () { draftFor(c.id).memo = ta.value; saveMemo(c.id); });
+    memoUi(c.id, node);   // 保存中に再描画されても「保存中…」・結果の文を保つ
     return node;
+  }
+
+  /* ---- メモの保存(監査 14)。書き込む先は ID で今の行(#case-<id>)と今の案件の一覧から引く(応答を待つ間に再描画で行が作り直されるため) ---- */
+  function caseById(id) {
+    var list = (casesData && casesData.cases) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function memoNow(id) {   // 今の下書き(無ければ行の欄・保存済みの値)
+    var d = caseDrafts[id];
+    if (d && d.memo != null) return d.memo;
+    var node = document.getElementById('case-' + id), ta = node && $('textarea', node);
+    if (ta) return ta.value;
+    var c = caseById(id);
+    return c ? (c.memo || '') : '';
+  }
+  function memoUi(id, node) {
+    node = node || document.getElementById('case-' + id);
+    if (!node) return;
+    var st = memoSave[id], btn = $('.pt-memo-save', node), msg = $('.pt-memo-msg', node);
+    btn.textContent = st && st.busy ? '保存中…' : 'メモを保存';
+    if (st && st.busy) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+    msg.textContent = (st && st.msg) || '';
+  }
+  /* 送るのは1つずつ。送っている間に押し直したら again にして、応答のあとで今の下書きを1回だけ送る。
+     「保存しました」は、送った値と今の下書きが同じときだけ(違えば下書きを残して、まだ保存していないと出す) */
+  function saveMemo(id) {
+    var st = memoSave[id] || (memoSave[id] = { busy: false, sent: null, again: false, msg: '' });
+    if (st.busy) { st.again = true; return; }
+    var value = memoNow(id);
+    st.busy = true; st.sent = value; st.again = false; st.msg = '';
+    memoUi(id);
+    api('/api/cases/update', 'POST', { id: id, memo: value }).then(function (r) {
+      var c = caseById(id);
+      if (c) c.memo = r.memo;
+      st.busy = false;
+      var now = memoNow(id);
+      if (st.again && now !== st.sent) { saveMemo(id); return; }   // 押し直しの分(今の下書き)を送る
+      st.again = false;
+      if (now === st.sent) {
+        var d = caseDrafts[id]; if (d) delete d.memo;   // 保存できたので下書きは要らない
+        st.msg = '保存しました';
+      } else {
+        st.msg = '保存しました(そのあとの入力はまだ保存していません)';
+      }
+      memoUi(id);
+    }, function (e) {
+      st.busy = false;
+      if (st.again) { saveMemo(id); return; }   // 失敗のあとでも、押し直した分は送る
+      st.msg = '保存できませんでした: ' + e.message;
+      memoUi(id);
+    });
   }
 
   function wireGroup(g, key, ids) {

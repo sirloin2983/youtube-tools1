@@ -311,6 +311,71 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(pg.evaluate("document.activeElement === document.querySelector('.pt-case textarea')"),
               "[A] フォーカスも(再描画で作り直された)メモ欄に戻る")
 
+        # 2d-3. 監査 14(段2): メモの保存の応答を待つ間に書き足した分は消さない・「保存しました」は保存した内容のときだけ・二度押しは最後の値。
+        # 応答を遅らせるのは画面の fetch を包んで行う(要求はすぐサーバーへ送り、応答だけを __release() まで止める。
+        # page.route の同期版は、止めている間 Playwright の操作も止まるので使わない)
+        pg.evaluate("""() => {
+            const orig = window.fetch.bind(window);
+            window.__origFetch = orig; window.__held = []; window.__memoSent = [];
+            window.fetch = (url, init) => {
+                let body = null;
+                try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = null; }
+                if (String(url).indexOf('/api/cases/update') >= 0 && body && body.memo != null) {
+                    window.__memoSent.push(body.memo);
+                    const p = orig(url, init);
+                    return new Promise((res, rej) => window.__held.push(() => p.then(res, rej)));
+                }
+                return orig(url, init);
+            };
+            window.__release = () => { const h = window.__held.shift(); if (h) h(); return !!h; };
+        }""")
+        server_memo = lambda: pg.evaluate("window.__origFetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.cases[0].memo)")
+        memo_msg = lambda: pg.evaluate("document.querySelector('.pt-case .pt-memo-msg').textContent")
+        pg.fill(".pt-case textarea", "メモA")
+        pg.click(".pt-case .pt-memo-save")
+        check(wait_js(pg, "window.__memoSent.length === 1", 5000) and pg.text_content(".pt-case .pt-memo-save") == "保存中…",
+              "[A] メモの保存中はボタンが「保存中…」: %s" % pg.text_content(".pt-case .pt-memo-save"))
+        pg.fill(".pt-case textarea", "メモA\n追記B")   # 応答の前に書き足す
+        pg.evaluate("document.querySelector('.pt-case').__old = true")
+        pg.evaluate("() => { document.hasFocus = () => false; window.dispatchEvent(new Event('blur')); }")   # 応答を待つ間に行が作り直される
+        time.sleep(0.4)
+        pg.evaluate("() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); }")
+        check(wait_js(pg, "document.querySelector('.pt-case') && !document.querySelector('.pt-case').__old", 10000)
+              and pg.text_content(".pt-case .pt-memo-save") == "保存中…", "[A] 保存中に行が作り直されても「保存中…」のまま")
+        pg.evaluate("window.__release()")
+        check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました(そのあとの入力はまだ保存していません)'", 10000),
+              "[A] 保存の応答のあとも、書き足した分はまだ保存していないと出す(作り直した行に): %s" % memo_msg())
+        check(pg.input_value(".pt-case textarea") == "メモA\n追記B" and server_memo() == "メモA",
+              "[A] 書き足した入力は消えない・サーバーは送った分(A)だけ: %r / %r" % (pg.input_value(".pt-case textarea"), server_memo()))
+        check(pg.text_content(".pt-case .pt-memo-save") == "メモを保存", "[A] 応答のあとはボタンが元に戻る")
+        pg.click(".pt-case .pt-memo-save")
+        wait_js(pg, "window.__memoSent.length === 2", 5000)
+        pg.evaluate("window.__release()")
+        check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000) and server_memo() == "メモA\n追記B",
+              "[A] もう一度保存すると、書き足した分もサーバーに入って「保存しました」: %s / %r" % (memo_msg(), server_memo()))
+        pg.fill(".pt-case textarea", "メモC1")   # 二度押し: 送っている間の押し直しは、応答のあとに今の下書きを1回だけ送る
+        check(memo_msg() == "", "[A] 書き足したら前の「保存しました」は消える: %s" % memo_msg())
+        pg.click(".pt-case .pt-memo-save")
+        wait_js(pg, "window.__memoSent.length === 3", 5000)
+        pg.fill(".pt-case textarea", "メモC2")
+        pg.click(".pt-case .pt-memo-save")
+        pg.click(".pt-case .pt-memo-save")
+        time.sleep(0.3)
+        check(pg.evaluate("window.__memoSent.length") == 3, "[A] 送っている間の押し直しでは、すぐには送らない(応答の順が入れ替わらない)")
+        pg.evaluate("window.__release()")
+        check(wait_js(pg, "window.__memoSent.length === 4", 5000) and pg.evaluate("window.__memoSent[3]") == "メモC2"
+              and memo_msg() == "" and pg.text_content(".pt-case .pt-memo-save") == "保存中…",
+              "[A] 応答のあとで今の下書き(C2)を1回だけ送る(まだ「保存しました」と言わない): %s / %s" % (pg.evaluate("window.__memoSent"), memo_msg()))
+        pg.evaluate("window.__release()")
+        check(wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000) and server_memo() == "メモC2"
+              and pg.evaluate("window.__memoSent.length") == 4, "[A] 二度押しでは最後の値(C2)が残る: %r" % server_memo())
+        pg.fill(".pt-case textarea", "")   # 後の確認のためにメモを空に戻す
+        pg.click(".pt-case .pt-memo-save")
+        wait_js(pg, "window.__memoSent.length === 5", 5000)
+        pg.evaluate("window.__release()")
+        wait_js(pg, "document.querySelector('.pt-case .pt-memo-msg').textContent === '保存しました'", 10000)
+        pg.evaluate("window.fetch = window.__origFetch")
+
         # 2e. 次にやること: 校正待ち・パック待ちが、案件の一覧・「編集」の文書の一覧から組み立たっている
         check(wait_js(pg, "!!document.querySelectorAll('.pt-todo-item').length", 15000), "[A] 「次にやること」に項目が出た")
         todo = pg.eval_on_selector_all(".pt-todo-item .pt-todo-link", "els => els.map(a => [a.querySelector('.pt-todo-pill').textContent, a.getAttribute('href')])")
