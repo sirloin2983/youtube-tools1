@@ -73,5 +73,10 @@ holo-colors/build/
 holo-colors/dist/
 holo-colors/data/
 
+# 切り抜き依頼(request-sender)のビルドの成果物と、Dropbox の鍵(config.json。dev/dropbox_auth.py が作る。**/config.json でも無視されるが明示する)
+request-sender/build/
+request-sender/dist/
+request-sender/config.json
+
 # design-review の写真(見本のデータ。重いので入れない。python の見直しの手順で撮り直せる)
 .design/*/screenshots/

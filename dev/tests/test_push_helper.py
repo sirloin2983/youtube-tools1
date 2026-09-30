@@ -18,6 +18,8 @@ import push_helper as P  # noqa: E402
 
 FAKE_GOOGLE = "AIza" + "B" * 35          # 本物の形だが偽物(このファイルは検査の対象外)
 FAKE_GH = "ghp_" + "a1" * 18
+FAKE_DBX = "AbCd" * 16                   # Dropbox の refresh token の形(64 文字の英数字)
+FAKE_SL = "sl.u." + "Ab-_" * 30          # Dropbox の access token の形
 
 
 class Repo(unittest.TestCase):
@@ -97,6 +99,29 @@ class TestCheck(Repo):
                            "cut2resolve/selection.example.json": b"{}", "transcribe-tool/hololive-roster.json": b"[]",
                            "dev/push_helper.py": FAKE_GOOGLE.encode(), "docs/pipeline.md": b"sk-short",
                            "docs/archive/project/README.md": b"# old", "docs/archive/TRANSCRIPTION_V2_DESIGN.md": b"x"}.items():   # 古い資料の置き場(段0)
+            with self.subTest(ok=path):
+                self.assertEqual(P.problems_for(path, data), [], path)
+
+    def test_dropbox_keys(self):
+        # 鍵のファイル(request-sender/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)
+        why = P.problems_for("request-sender/config.json", b"{}")
+        self.assertTrue(any("切り抜き依頼の鍵" in x for x in why), why)
+        for path, data in {
+            "notes.md": ('{"appKey": "abc", "refreshToken": "%s"}' % FAKE_DBX).encode(),
+            "a.py": ("refresh_token = '%s'" % FAKE_DBX).encode(),
+            "b.txt": ("grant_type=refresh_token&refresh_token=%s&client_id=x" % FAKE_DBX).encode(),
+            "c.json": ('{"REFRESH_TOKEN":"%s"}' % FAKE_DBX).encode(),
+            "d.log.txt": ("Authorization: Bearer %s" % FAKE_SL).encode(),
+        }.items():
+            with self.subTest(path=path):
+                self.assertTrue(any("Dropbox" in x for x in P.problems_for(path, data)), path)
+        # 説明・コードの中の名前は止めない
+        for path, data in {
+            "request-sender/README.txt": b'{"appKey": "...", "refreshToken": "..."}',
+            "request-sender/src/Core.cs": b'RefreshToken = Json.Str(d, "refreshToken"); "refresh_token=" + Uri.EscapeDataString(config.RefreshToken)',
+            "dev/dropbox_auth.py": b'json.dump({"appKey": app_key, "refreshToken": refresh_token}, f); data["refresh_token"]',
+            "docs/x.md": b'"refreshToken": "<refresh token>"  sl.short',
+        }.items():
             with self.subTest(ok=path):
                 self.assertEqual(P.problems_for(path, data), [], path)
 

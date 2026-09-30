@@ -2145,3 +2145,18 @@
 - 理由: ホームのポートを外に開けない(取りに行く形)・友人は費用もアカウントも不要(ファイルリクエスト・API の容量は受け取る側だけに数える)
 - 未完了・次: 実装はユーザーの合図のあと(文書の 8 の順番)。仮の上限(1日 5 件・配信 8 時間・動画 20GB)は動かしてから直す
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code(まとめ役 Opus + サブエージェント Opus・Sonnet)— 友人からの依頼の受付を実装(ホーム 0.15.0・request-sender)
+- 版: ホーム 0.14.0 → **0.15.0**(`home/launch.py` の VERSION・`home/README.txt` の見出し)。ほかのツールは変えていない
+- 変更(まとめ役): `home/intake.py`(新規。見張り・検査・コピー・受付済み\ と 失敗\ への移動・intake-state.json)、`home/autorun.py`(形 request・file、start_request・start_file、記録の kind file)、
+  `home/prefs.py`(節 intake)、`home/launch.py`(GET /api/intake・POST /api/intake/scan・起動と終了)、テスト `home/tests/test_intake.py`(新規 18 件)・`test_autorun.py`(+2)・`test_launch.py`(+1)
+- 変更(Sonnet): `home/portal.html`・`portal.js`・`portal.css` に「依頼の受付」の節、`home/tests/e2e_intake_ui.py`(新規。API は page.route の偽物)。kind file の実行が「次にやること」・記録で #intake へ
+- 変更(Opus): `request-sender/`(新規。友人の送るだけのプログラム。C# 5・WinForms・Dropbox の API。build.bat でテスト 14 件 → dist\RequestSender.zip)、
+  `dev/dropbox_auth.py`(PKCE で鍵を作る)・`dev/tests/test_dropbox_auth.py`、`dev/push_helper.py`(request-sender/config.json と Dropbox の鍵の形を止める)・`test_push_helper.py`、`.gitignore`
+- 文書: `docs/design/friend-intake.md` の状態 → 実装済み・実機の確認待ち、`AGENTS.md`(テストの表に test_intake・e2e_intake_ui・request-sender の行、担当表)、`docs/ROADMAP.md`(版・別件の状態・3 に実機で確かめること)
+- テスト: home の unit 一式(launch 32・mount/cases/window 71・autorun 51・intake 18)、e2e_intake_ui・e2e_portal・e2e_autorun・e2e_window・e2e_keymap すべて OK。
+  request-sender\build.bat OK(14 件)、dev の push_helper 7・dropbox_auth 10 OK
+- 未完了・次: **本物の Dropbox では一度も試していない**(upload_session/finish の形・incorrect_offset の応答・token の取り直しは記憶の仕様)。実機の通しは ROADMAP の 3。
+  送る側では動画の大きさの上限を見ていない(PC 側で断る)。起動中の入口は古いコードなので「すべて終了」→ start.bat
+- 注意: 鍵(request-sender\config.json)はコミットしない(.gitignore と push_helper)。漏れたら Dropbox の設定でアプリの接続を切る
+- 未コミット: なし(このあとコミット)
