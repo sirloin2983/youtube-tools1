@@ -74,6 +74,22 @@
   テストのように別の場所から起動したものが、普段の登録を上書きしないため)
 
 ## メンバーの色(members.json)
+### 形(version 2。2026-09-30 段7 の 7-1)
+```json
+{"id": "tsunomaki-watame", "name": "角巻わため", "en": "Tsunomaki Watame", "hex": "#F9AFB2",
+ "colors": [{"hex": "#F9AFB2", "label": "ホロジュール", "src": ["s1", "s2"], "confidence": "high"},
+            {"hex": "#DBDA89", "label": "公式サイトの画像", "src": ["s4"], "confidence": "medium"}],
+ "src": ["s1", "s2", "s3", "s4"], "alt": ["#FFF29E 公式サイト画像・縁の色 (s4)"], "checked": "2026-09-30", "note": "..."}
+```
+- `hex` = **主な色**。字幕の色(`ytt_core/colors.py`)と 1.2.1 までの exe はこれだけを読む。**`colors[0].hex` と同じ値にする**(C# の BundledMembers と `ytt_core/tests/test_ytt_core.py` が検査)
+- `colors` = その人の色の一覧(1色以上。先頭が主な色)。`label` は画面に出す短い名前(12 文字まで)、`src` はその色の出典、`confidence` は high / medium / low(基準は `docs/design/holo-colors-research.md`)
+- 人の `src` = 調べた出典すべて(卒業のお知らせなど色以外も)。`alt` = 照らし合わせたが採らなかった候補(色を直すときの材料)。`checked` = 調べ直した日。`note` = 札のツールチップに出すメモ
+- 最上位: `version` 2・`updated`(調べ終えた日)・`sources`(各項目に `retrieved` = 取得日、あれば `archive` = Wayback の URL)
+- 案の比較: `hex` を残して `colors` を足した(採用)… 1.2.1 の exe と今の colors.py が新しい members.json をそのまま読める(友人が members.json だけ差し替えても落ちない)。
+  `hex` を消して `colors` だけにすると、古い exe が全員読めなくなる(`hex` が読めないと FormatException で全体を読まない)。値が2か所に出る代わりにテストで一致を守る
+- メンバーの `id` は**全体で一意**(直した色 `member-colors.json` のキーに使うため。グループが変わっても同じ id)
+- 1.2.1 の exe(build 済み)で version 2 の members.json が 86 人とも読めることを確かめた(2026-09-30)
+
 - **主な出典はホロジュール**(https://schedule.hololive.tv/ 。カバーが運営する配信予定のサイト)。配信の枠のアイコンの縁の色がタレントごとに決まっている。
   公式サイト(hololive.hololivepro.com)の HTML/CSS には色が無い(確認済み)
   - ホロジュールには最近配信した人しか出ないので、Wayback Machine の保存版 約 150 件(2019-12〜2026-09)で補った。どの人も 2020-03 以降、色は変わっていない
