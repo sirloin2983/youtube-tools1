@@ -228,8 +228,15 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
         subs = sm["subtitles"] or {}
         # 字幕の見本(最初の2つ)。改行は Text+ と同じ規則(resolve_textplus.wrap_caption。ここに規則を書かない)
         samples = [_tp.wrap_caption(t, wrap if wrap is not None else _tp.WRAP_DEFAULT["vertical"]) for _a, _b, t in (plan.cues_out or [])[:2]]
+        # 見本ごとの話者の名前(A-2 の話者の色。実際のパックと同じ規則 = pack.cue_speakers。話者が無い・調べられないときは None)
+        try:
+            names = pack.cue_speakers(plan) or []
+        except Exception:
+            names = []
+        sample_speakers = [(names[i] if i < len(names) and isinstance(names[i], str) and names[i] else None) for i in range(len(samples))]
         return {"count": sm["count"], "keptSec": sm["keptSec"], "durationSec": sm["durationSec"], "fps": sm["fps"],
-                "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings, "samples": samples}
+                "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings, "samples": samples,
+                "sampleSpeakers": sample_speakers}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

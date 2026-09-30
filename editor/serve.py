@@ -34,7 +34,7 @@
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
-  POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files"} パックを作り終えた記録(packRev)
+  POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
   POST /api/edit/preview     {"id", "keeps"} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)
   GET  /api/edit/pack-readme?id=  前回のパックの手順書(友人へ.txt)
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
@@ -100,7 +100,7 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.26.1"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.27.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1119,6 +1119,68 @@ def save_edit(tid, obj):
         return {"rev": d["rev"], "cutRows": cut_rows, "updatedAt": now}
 
 
+PACK_OUTPUT_LOUDNESS = (0, -11, -14, -16, -18)
+
+
+def _pack_text(v, limit):
+    """出力の設定の文字列: 長さの上限以内・制御文字なし(改行・タブ・NUL などを含めば None)"""
+    if not isinstance(v, str) or len(v) > limit or any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+        return None
+    return v
+
+
+def sanitize_pack_output(o):
+    """POST /api/edit/pack の output(作ったときの出力の設定)を確かめる。決まった鍵だけ残し(余計な鍵は黙って捨てる)、
+    必須の鍵が1つでも正しくなければ、あるいは任意の鍵が入っていて正しくなければ None(= 記録には output を入れない。
+    古い画面・まとめて実行 home/autorun.py は output を送らないので、エラーにはしない)。bool は int でもあるので先に isinstance(bool) で見る"""
+    if not isinstance(o, dict):
+        return None
+    out = {}
+    fps = o.get("fps")
+    if not isinstance(fps, str) or not re.fullmatch(r"\d{1,3}", fps, re.A):
+        return None
+    out["fps"] = fps
+    if o.get("size") not in ("1080x1920", "1920x1080"):
+        return None
+    out["size"] = o["size"]
+    wrap = o.get("wrap")
+    if isinstance(wrap, bool) or not isinstance(wrap, int) or not 0 <= wrap <= 40:
+        return None
+    out["wrap"] = wrap
+    for k in ("textplus", "backup", "render", "speakerColors"):
+        if not isinstance(o.get(k), bool):
+            return None
+        out[k] = o[k]
+    if "streamer" in o:
+        st = _pack_text(o["streamer"], 200)
+        if st is None:
+            return None
+        out["streamer"] = st
+    if "loudness" in o:
+        v = o["loudness"]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v not in PACK_OUTPUT_LOUDNESS:
+            return None
+        out["loudness"] = v
+    if "volume" in o:
+        v = o["volume"]
+        if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 200:
+            return None
+        out["volume"] = v
+    if "advanced" in o:
+        adv = o["advanced"]
+        if not isinstance(adv, dict):
+            return None
+        a = {}
+        for k in ("srcStartTc", "recStart", "reel"):
+            if k in adv:
+                t = _pack_text(adv[k], 40)
+                if t is None:
+                    return None
+                a[k] = t
+        out["advanced"] = a
+    return out
+
+
 def record_pack(obj):
     """POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files"}: 画面がパックを作り終えたときに呼ぶ(rev は増やさない)。
     packRev = そのパックを作った編集の rev。rev ≠ packRev か、文書の updatedAt が docUpdatedAt より新しければ「作り直し」"""
@@ -1130,6 +1192,7 @@ def record_pack(obj):
     if not isinstance(out_dir, str) or not out_dir or len(out_dir) > 1000 or any(ch in out_dir for ch in "\x00\r\n") or not os.path.isabs(out_dir):
         raise ApiError("bad_request", "パックのフォルダ(dir)が正しくありません", 400)
     files = [os.path.basename(str(x))[:200] for x in (obj.get("files") or []) if isinstance(x, str)][:40] if isinstance(obj.get("files"), list) else []
+    output = sanitize_pack_output(obj.get("output"))
     with _save_lock:
         read_transcript(tid)
         cur, _broken = read_edit(tid)
@@ -1138,7 +1201,10 @@ def record_pack(obj):
         if rev > cur["rev"]:
             raise ApiError("bad_request", "rev が保存済みのカットより新しくなっています", 400)
         now = int(time.time() * 1000)
-        d = dict(cur, packRev=rev, pack={"rev": rev, "at": now, "docUpdatedAt": dua, "dir": out_dir, "files": files})
+        pk = {"rev": rev, "at": now, "docUpdatedAt": dua, "dir": out_dir, "files": files}
+        if output is not None:
+            pk["output"] = output
+        d = dict(cur, packRev=rev, pack=pk)
         atomic_write(edit_path(tid), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
         return {"ok": True, "packRev": rev, "at": now}
 
@@ -3649,6 +3715,7 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "packSize": lambda v: v in ("1080x1920", "1920x1080"),
                        "speakerColors": lambda v: isinstance(v, bool),
                        "packBackup": lambda v: isinstance(v, bool),
+                       "packRender": lambda v: isinstance(v, bool),   # 粗編集の動画つき(段4 4-2: 覚える)
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
                        "keymap": lambda v: _keymap_ok(v)}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")

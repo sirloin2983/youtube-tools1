@@ -184,6 +184,49 @@ class TestEditStore(StoreDir):
                 S.record_pack(dict(bad, id=TID))
             self.assertEqual(cm.exception.status, 400, bad)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
+    def test_record_pack_output(self):
+        """4-3: パックを作ったときの出力の設定(output)。決まった鍵だけ・型と長さを確かめる。壊れていれば output なしで記録する(エラーにしない)"""
+        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        out = os.path.join(self.tmp, "clip_pack")
+        full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "backup": False, "render": False, "speakerColors": True,
+                "streamer": "さくらみこ", "loudness": -14, "volume": 100,
+                "advanced": {"srcStartTc": "01:00:00:00", "recStart": "01:00:00:00", "reel": "A001"}}
+
+        def rec(output, **kw):
+            body = {"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": out}
+            if output is not KEEP_OFF:
+                body["output"] = output
+            body.update(kw)
+            self.assertEqual(S.record_pack(body)["packRev"], 1)
+            return S.get_edit(TID)["edit"]["pack"]
+        KEEP_OFF = object()
+        self.assertEqual(rec(full).get("output"), full)                                     # 全部の鍵が入る
+        p = rec(dict(full, junk=1, advanced=dict(full["advanced"], other="x")))
+        self.assertEqual(p["output"], full)                                                 # 余計な鍵は黙って捨てる(全体は捨てない)
+        mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "backup": True, "render": True, "speakerColors": False}
+        self.assertEqual(rec(mini)["output"], mini)                                         # 任意の鍵(streamer・loudness・volume・advanced)は無くてよい
+        self.assertEqual(rec(dict(mini, loudness=0, volume=200, streamer="", advanced={}))["output"],
+                         dict(mini, loudness=0, volume=200, streamer="", advanced={}))
+        # output が無い・壊れている → 記録はできて output は入らない
+        self.assertNotIn("output", rec(KEEP_OFF))                                           # 古い画面・まとめて実行(home/autorun.py)
+        self.assertEqual(S.get_edit(TID)["packStale"], False)
+        for bad in (None, "x", [], 3, dict(full, fps=30), dict(full, fps="1000"), dict(full, fps="3a"), dict(full, fps="3\n"), dict(full, size="abc"),
+                    dict(full, size="1080x1080"), dict(full, wrap=41), dict(full, wrap=-1), dict(full, wrap="8"), dict(full, wrap=True), dict(full, wrap=8.5),
+                    dict(full, backup="yes"), dict(full, backup=1), dict(full, textplus=None), dict(full, render=0), dict(full, speakerColors="true"),
+                    dict(full, streamer="あ" * 201), dict(full, streamer=5), dict(full, streamer="a\nb"), dict(full, loudness=-20), dict(full, loudness="-14"),
+                    dict(full, loudness=True), dict(full, volume=500), dict(full, volume=0), dict(full, volume=True), dict(full, volume=100.5),
+                    dict(full, advanced="x"), dict(full, advanced={"reel": "a\nb"}), dict(full, advanced={"reel": "x" * 41}),
+                    dict(full, advanced={"srcStartTc": 5}), dict(full, advanced={"recStart": "a\x00"}),
+                    {k: v for k, v in full.items() if k != "fps"}, {k: v for k, v in full.items() if k != "backup"}):
+            self.assertNotIn("output", rec(bad), bad)
+        self.assertEqual(rec(dict(full, streamer="あ" * 200))["output"]["streamer"], "あ" * 200)   # 上限ちょうどは通る
+        self.assertEqual(S.get_edit(TID)["edit"]["pack"]["files"], [])
+        # packStale・一覧は output に依らない
+        rec(full)
+        item = next(i for i in S.list_transcripts() if i["id"] == TID)
+        self.assertEqual((item["packRev"], item["packStale"]), (1, False))
+
     def test_broken_edit_file(self):
         with open(S.edit_path(TID), "w", encoding="utf-8") as f:
             f.write('{"schema": "youtube-tools-edit/v1", "rev": 3, "clips": [')
@@ -490,6 +533,21 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(r["samples"], ["今日はいい天気ですね" + NL + "散歩に行こう"])      # 見本もパックと同じ改行(resolve_textplus.wrap_caption)
         r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[3.0, 5.1]], "wrap": 0})
         self.assertEqual(r["samples"], ["今日はいい天気ですね散歩に行こう"])
+        self.assertEqual(r["sampleSpeakers"], [None])                                       # 話者の無い文書: samples と同じ長さで全部 None
+        # 4-5: 見本ごとの話者の名前(pack.cue_speakers = 実際のパックと同じ規則)。「一」= みこ・「三」= 話者なし
+        spk_segs = [dict(segs[0], speaker="S1"), dict(segs[1]), dict(segs[2], text="三")]
+        dd = self.call("GET", "/api/transcript?id=" + tid)
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [{"id": "S1", "name": "みこ"}], "segments": spk_segs,
+                                                       "baseUpdatedAt": dd["updatedAt"]})
+        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[0.5, 1.5], [3.0, 5.1]]})
+        self.assertEqual((r["samples"], r["sampleSpeakers"]), (["一", "三"], ["みこ", None]))
+        dd = self.call("GET", "/api/transcript?id=" + tid)
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [], "segments": [dict(g, speaker=None) for g in spk_segs],
+                                                       "baseUpdatedAt": dd["updatedAt"]})
+        r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": [[0.5, 1.5], [3.0, 5.1]]})
+        self.assertEqual((r["samples"], r["sampleSpeakers"]), (["一", "三"], [None, None]))
+        dd = self.call("GET", "/api/transcript?id=" + tid)                                   # 以降の確認のため、元の文書(segs2)に戻す
+        self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": dd["updatedAt"]})
         st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
             import resolve_textplus

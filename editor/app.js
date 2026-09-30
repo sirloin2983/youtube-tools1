@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.26.1';
+const APP_VERSION = '0.27.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -311,6 +311,7 @@ function readOpts(){
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
   saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
+  if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵(段4 4-1。監査 07)
 }
 /* 「認識の設定」は既定で閉じるので(段2)、開かなくても分かるように「始める」の上へ1行の要約を出す */
 function renderOptSummary(){
@@ -1960,16 +1961,24 @@ function lookupSpeakerNames(names){
     onSpeakerColors();
   }, () => { for (const n of want) SPKC.delete(n); });
 }
+/* 話者の名前 → メンバーカラー(照らし合わせの1か所。段4 4-5: パックの見積もりの sampleSpeakers(名前)からも同じ道で色を出す)。
+   -> {hex: '' = 合わない・照らし合わせ中・使わない, member: 合った人の名前, pending: 照らし合わせ中} */
+function speakerColorByName(name){
+  name = String(name || '').trim();
+  if (!name || !TOKEN || !speakerColorsOn()) return { hex: '', member: '', pending: false };
+  if (!SPKC.has(name)) lookupSpeakerNames([name]);
+  const m = SPKC.get(name);
+  return m === undefined ? { hex: '', member: '', pending: true } : m ? { hex: m.hex, member: m.name, pending: false } : { hex: '', member: '', pending: false };
+}
 /* -> {hex: メンバーカラー('' = 合わない・使わない), auto: 自動の色, member: 合った人の名前, reason: 話者の欄に出す理由} */
 function speakerColor(spId){
   const sp = spById(spId), auto = spColor(sp), name = sp ? String(sp.name || '').trim() : '';
   if (!sp) return { hex: '', auto: '', member: '', reason: '' };
   if (!TOKEN) return { hex: '', auto, member: '', reason: 'ホームから開くと、名前をメンバーと照らし合わせて色を付けます' };
   if (!speakerColorsOn()) return { hex: '', auto, member: '', reason: 'パックの「話者の名前がメンバーと合えば…」を切っているので、メンバーの色は使いません' };
-  if (!SPKC.has(name)) lookupSpeakerNames([name]);
-  const m = SPKC.get(name);
-  if (m === undefined) return { hex: '', auto, member: '', reason: '' };
-  return m ? { hex: m.hex, auto, member: m.name, reason: `名簿の「${m.name}」と一致(この色で字幕を出します)` }
+  const c = speakerColorByName(name);
+  if (c.pending) return { hex: '', auto, member: '', reason: '' };
+  return c.hex ? { hex: c.hex, auto, member: c.member, reason: `名簿の「${c.member}」と一致(この色で字幕を出します)` }
     : { hex: '', auto, member: '', reason: 'メンバーと合わないので、字幕は配信者の色で出します' };
 }
 const rowSpColor = spId => { const c = speakerColor(spId); return c.hex || c.auto; };
@@ -3062,7 +3071,7 @@ function onPacked(id, info){
   if (it){ Object.assign(it, { pack: { textplus: true, updatedAt: info.at }, packRev: info.rev, packAt: info.at, packStale: false }); renderList(); }
 }
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, onSpeakerColors }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

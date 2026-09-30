@@ -1,6 +1,6 @@
 # editor(「編集」= 文字起こし・カット・パック。2026-09-30 まで transcribe-tool)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.26.0**(2026-09-30、全体の計画の 段3「操作の一貫性」: メニューがキーを持つ間は文書のキーを止める・派生キー・キーの表示を配置から・1コマを素材の fps で・元に戻すで新しい方を戻す。`../docs/plan/phase3-keys-undo.md`)。v0.25.0 は段2(動画を選び直す・カットの読み込み失敗の区別・URL の ?doc=・設定の保存の失敗と差のキーだけの保存)。v0.24.0 は段1(声を覚えるの安全・引き出しと Alt+数字・Shift+右クリックの行のメニュー)。v0.22.0 は精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印。下の「名簿の呼び名と配信ごとの文脈」)。
+現在 **v0.27.0**(2026-10-01、全体の計画の 段4「パックの表示と出力を一致」: 設定を変えたら見積もりを出し直す(状態 P.pv)・粗編集の動画つきを覚える・出力先は覚えない・作ったときの出力の設定の記録 `pack.output` と今の設定との違い(`outputNow`/`outputDiff`)・zip に渡らない設定の説明(`ZIP_SKIPS`)・見本の話者の色は見積もりの `sampleSpeakers`。`../docs/plan/phase4-pack-consistency.md`)。v0.26.1 はパックの音量の既定(30%)。v0.26.0 は段3「操作の一貫性」(メニューがキーを持つ間は文書のキーを止める・派生キー・キーの表示を配置から・1コマを素材の fps で・元に戻すで新しい方を戻す。`../docs/plan/phase3-keys-undo.md`)。v0.25.0 は段2(動画を選び直す・カットの読み込み失敗の区別・URL の ?doc=・設定の保存の失敗と差のキーだけの保存)。v0.24.0 は段1(声を覚えるの安全・引き出しと Alt+数字・Shift+右クリックの行のメニュー)。v0.22.0 は精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印。下の「名簿の呼び名と配信ごとの文脈」)。
 v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/design/whole-retranscribe-design.md`)・映像の上の字幕に話者の色。
 それより前の版の中身は `README.txt` の「■ v0.xx の変更」と `../docs/WORKLOG.md`(0.16.0 = 「編集」の統合・0.11.0 = 認識のワーカー分離・0.12.0 = Resolve パックの一本化 など)。
 画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/spec/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
@@ -64,7 +64,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
 - 3 パック のタブ(「編集」E4。`pack-tab.js`。v0.15.0 の校正画面の「カットとパック」を置き換えた): パック作りは **cut2resolve の API を呼ぶ**(文字起こし側に Resolve 用の計算を書かない)。
   区間は 2 カット のタブのとおり: cut2resolve の `api/build` の spec = `{video, transcript?, keeps: 残す区間の秒, advanced}`(`pack.EDIT_KEEPS`)・output = `{textplus, copyVideo, render, textplusFps, textplusSize, textplusWrap, streamer, speakerColors, backup, dir?, force}`(`pack-tab.js` の作るところ)。
   作る前にカットを保存し(`CUT.commit()`)、字幕の元として保存済みの文字起こしを動画のフォルダの `作業用\` に `.transcript.json`(`cpExport`。2026-09-27 から途中のファイルは `作業用`。規則は `ytt_core/schemas.py`)。文字起こしが無ければ Text+ なし(EDL と元の動画のコピー)。
-  409 exists は上書きの確認(`#dlgOverwrite`)→ force。作り終えたら `POST /api/edit/pack`(packRev)。「これから作るパック」の字幕の数・注意は `POST /api/edit/preview`(ファイルを作らない)。
+  409 exists は上書きの確認(`#dlgOverwrite`)→ force。作り終えたら `POST /api/edit/pack`(packRev。任意の `output` = 作ったときの出力の設定 {fps・size・wrap・textplus・backup・render・speakerColors・streamer?・loudness?・volume?・advanced?{srcStartTc・recStart・reel}}。`sanitize_pack_output` が決まった鍵・型・長さだけ確かめ、余計な鍵は捨て、1つでも正しくなければ `output` なしで記録する(古い画面・まとめて実行は送らない)。edit.json の `pack.output`。`packStale` は output を見ない)。「これから作るパック」の字幕の数・注意は `POST /api/edit/preview`(ファイルを作らない。応答の `sampleSpeakers` = `samples` と同じ順の話者の名前か null。`pack.cue_speakers` = 実際のパックと同じ規則)。
   cut2resolve の URL は `c2rUrl()` だけで作る(`UIKit.tools.base('cut2resolve')`。入口の中の同じポートのときだけ。合言葉は同じ入口のもの)。
   単体で開いたとき・cut2resolve が起動していないとき・動画が無い/音声だけ/ネットワーク上のときは理由を出して作れなくする(見積もりと zip は使える)。
   前回のパックの「フォルダを開く」は cut2resolve の `api/open-folder`(パックを作った記録か、以前の cut2resolve の cut-plan.json があるフォルダなら、入口を起動し直したあとでも開ける。

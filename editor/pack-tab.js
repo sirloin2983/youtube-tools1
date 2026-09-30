@@ -8,7 +8,7 @@ const PREVIEW_DELAY = 600;
 
 function create(h){
   const $ = h.$, esc = h.esc;
-  const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
+  const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
   const fpsOf = () => { const o = $('#pkFpsOther').value; return o || (h.S.settings.packFps === '60' ? '60' : String(h.S.settings.packFps || '30')); };
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
   /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(2026-10-01 ユーザー決定)) */
@@ -26,6 +26,37 @@ function create(h){
   const wrapOf = () => { const w = (h.S.settings.subtitle || {}).wrapChars || {}, o = sizeOf() === '1920x1080' ? 'horizontal' : 'vertical', n = Number(w[o]);
     return Number.isInteger(n) && n >= 0 && n <= 40 ? n : (o === 'horizontal' ? 14 : 8); };
   const kept = g => g.cutState !== 'cut' && String(g.text || '').trim();
+  const previewKeyNow = () => JSON.stringify(h.CUT ? h.CUT.keepsSec() : null) + '|' + h.rowSig() + '|' + wrapOf();   // 見積もりの鍵(残す区間・行の文字・字幕の1段の文字数(縦横で変わる))。同じなら出し直さない
+
+  /* 今の出力の設定(段4 4-3)。パックを作る API に渡す物と、作った記録(/api/edit/pack の output)と、前回のパックとの違いは、ここ1か所から作る */
+  function outputNow(hasRows){
+    const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v.slice(0, 40); }
+    const o = { fps: fpsOf(), size: sizeOf(), wrap: wrapOf(), textplus: hasRows, backup: hasRows && $('#pkBackup').checked, render: $('#pkRender').checked,
+      speakerColors: hasRows && $('#pkSpk').checked, loudness: loudOf(), volume: volOf(), advanced: adv };
+    if (hasRows && whoOf()) o.streamer = whoOf().slice(0, 200);
+    return o;
+  }
+  /* 作ったときの出力の設定(記録)と今の設定の違い(4-3。監査 08)。記録が無ければ null(この版より前・まとめて実行で作ったパック) */
+  const OUT_LABEL = { fps: 'フレームレート', size: '大きさ', wrap: '字幕の1段の文字数', textplus: 'Text+ 字幕', backup: '予備', render: '粗編集の動画', speakerColors: '話者の色', streamer: '配信者',
+    srcStartTc: '開始タイムコード', recStart: 'タイムラインの開始', reel: 'リール名' };
+  function outputDiff(rec, now){
+    if (!rec || typeof rec !== 'object') return null;
+    const fmt = (k, v) => v === undefined || v === '' ? 'なし' : typeof v === 'boolean' ? (v ? 'あり' : 'なし') : k === 'size' ? (v === '1920x1080' ? '横 1920×1080' : '縦 1080×1920') : k === 'fps' ? v + 'fps' : String(v);
+    const diffs = [];
+    for (const k of ['fps', 'size', 'wrap', 'textplus', 'backup', 'render', 'speakerColors', 'streamer']){
+      const a = rec[k] === undefined ? '' : rec[k], b = now[k] === undefined ? '' : now[k];
+      if (String(a) !== String(b)) diffs.push(`${OUT_LABEL[k]}: ${fmt(k, rec[k])} → ${fmt(k, now[k])}`);
+    }
+    const vol = x => x.loudness ? `${x.loudness} LUFS` : x.volume !== undefined ? `${x.volume}%` : '';
+    if (vol(rec) && vol(rec) !== vol(now)) diffs.push(`音量: ${vol(rec)} → ${vol(now)}`);
+    const ra = rec.advanced && typeof rec.advanced === 'object' ? rec.advanced : {}, na = now.advanced || {};
+    for (const k of ['srcStartTc', 'recStart', 'reel']) if (String(ra[k] || '') !== String(na[k] || '')) diffs.push(`${OUT_LABEL[k]}: ${ra[k] || 'なし'} → ${na[k] || 'なし'}`);
+    return diffs;
+  }
+  /* zip に渡らない設定(4-4。監査 10。zip の中身は今のまま = ユーザー決定 09-29)。dev/tests/test_resolve_pack_contract.py の ZipSkipsContract がこの差を固定している
+     (zip に渡すようにしたら、そのテストが落ちて、ここの説明を直す合図になる)。開始タイムコード・リール名は予備の EDL にだけ効く */
+  const ZIP_SKIPS = [['render', '粗編集の動画'], ['volume', '音量の調整'], ['srcStartTc', '開始タイムコード'], ['recStart', 'タイムラインの開始タイムコード'], ['reel', 'リール名']];
+  const zipSkipped = o => ZIP_SKIPS.filter(([k]) => k === 'render' ? o.render : k === 'volume' ? !!(o.loudness || o.volume !== 100) : !!(o.advanced || {})[k]).map(([, l]) => l);
 
   /* パックを作れない理由(無ければ '')。見積もりと zip は、cut2resolve が無くても使える */
   function block(){
@@ -87,12 +118,14 @@ function create(h){
         : c.reason ? `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>` : `<span>${h.esc(n)}: …</span>`;
     }).join(' ・ ');
   }
-  /* 字幕の見本の i 番目の色: 残す行の i 番目の話者がメンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま) */
-  const capStyle = (seg) => { const hex = seg && seg.speaker && spkOn() ? h.speakerColor(seg.speaker).hex : ''; return hex ? ` style="--tt-cap-color:${h.esc(hex)}"` : ''; };
+  /* 字幕の見本の色: 話者がメンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま)。行の話者(id)からと、見積もりの話者(名前)から */
+  const segHex = seg => seg && seg.speaker && spkOn() ? h.speakerColor(seg.speaker).hex : '';
+  const nameHex = name => name && spkOn() && h.speakerColorByName ? h.speakerColorByName(name).hex : '';
+  const capStyle = hex => hex ? ` style="--tt-cap-color:${h.esc(hex)}"` : '';
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
-    Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', err: '', readme: '', lastRes: null });
+    Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
     if (window.UIKit && UIKit.streamer){
       const old = docId ? whoFor(docId) : '';
@@ -112,21 +145,27 @@ function create(h){
   }
   /* ---------- これから作るパック(見積もり) ---------- */
   function schedulePreview(ms = PREVIEW_DELAY){
-    clearTimeout(P.pvT);
+    clearTimeout(P.pvT); P.pvT = 0;
     if (!h.S.doc || !h.CUT || !h.CUT.active() || h.CUT.state().off) return;
-    P.pvT = setTimeout(runPreview, ms);
+    P.pv = 'wait'; P.pvT = setTimeout(runPreview, ms);
   }
+  /* 見積もりの状態 P.pv(4-1。監査 07): idle(最新か、出す物が無い)/ wait(予約)/ run(計算中)/ save(文字起こしの保存を待っている)/ err(失敗)。
+     save・err のときは同じ鍵(pvErrKey)では自動で出し直さない(「もう一度」か、設定・カット・行が変わって鍵が変わったとき)。失敗しても前の見積もりは消さない(薄く残す) */
   async function runPreview(){
-    const d = h.S.doc, keeps = h.CUT && h.CUT.keepsSec(); if (!d || !keeps || !keeps.length) return render();
-    const key = JSON.stringify(keeps) + '|' + h.rowSig() + '|' + wrapOf();
-    if (key === P.previewKey && P.preview) return render();
+    P.pvT = 0;
+    const d = h.S.doc, keeps = h.CUT && h.CUT.keepsSec(); if (!d || !keeps || !keeps.length){ P.pv = 'idle'; return render(); }
+    const key = previewKeyNow();
+    if (key === P.previewKey && P.preview){ P.pv = 'idle'; return render(); }
     const seq = ++P.pvSeq, id = h.S.docId;
+    P.pv = 'run'; render();
     try {
-      if (!(await h.saveDoc())) return;   // 保存済みの文字起こしで見積もる
+      let saved = false; try { saved = await h.saveDoc(); } catch { saved = false; }   // 保存済みの文字起こしで見積もる
+      if (seq !== P.pvSeq || id !== h.S.docId) return;
+      if (!saved){ P.pv = 'save'; P.pvErrKey = key; return render(); }
       const r = await h.api('/api/edit/preview', { body: { id, keeps, wrap: wrapOf() } });
       if (seq !== P.pvSeq || id !== h.S.docId) return;
-      P.preview = r; P.previewKey = key; P.previewErr = '';
-    } catch (e){ if (seq === P.pvSeq) { P.preview = null; P.previewErr = e.message; } }
+      P.preview = r; P.previewKey = key; P.previewErr = ''; P.pv = 'idle'; P.pvErrKey = '';
+    } catch (e){ if (seq === P.pvSeq && id === h.S.docId){ P.previewErr = e.message; P.pv = 'err'; P.pvErrKey = key; } }
     render();
   }
 
@@ -146,43 +185,64 @@ function create(h){
     fw.hidden = !(srcFps > 45 && Number(fps) <= 30);
     fw.textContent = `元の動画は ${srcFps.toFixed(2).replace(/\.?0+$/, '')}fps です。${fps}fps のプロジェクトに入れると、区間の端が Resolve で丸められて1フレームずれることがあります(実機で確かめてください)。`;
     // これから作るパック
-    const sm = h.CUT && h.CUT.summary(), pv = P.preview, fresh = pv && P.previewKey === JSON.stringify(h.CUT.keepsSec()) + '|' + h.rowSig() + '|' + wrapOf();
+    const sm = h.CUT && h.CUT.summary(), pv = P.preview, pvKey = previewKeyNow(), fresh = !!pv && P.previewKey === pvKey;
+    const hasRows = d.segments.some(kept), o = outputNow(hasRows);
+    // 4-1: 鍵が変わっていて(縦横・字幕の文字数・カット・行)、予約も計算も無く、同じ鍵で失敗していなければ、ここで出し直しを予約する。
+    // 設定を変える所ごとに予約を書くと足し忘れで同じ不具合が戻るので、描画の1か所で(タブを見ているときだけ。render は rAF でまとまるので連打にならない)
+    if (!fresh && sm && sm.count && h.tab() === 'pack' && P.pv !== 'wait' && P.pv !== 'run' && P.pvErrKey !== pvKey) schedulePreview();
     $('#pkLen').textContent = sm ? h.fmtCs(sm.keptSec) : '–';
     $('#pkSrcLen').textContent = sm ? h.fmtCs(sm.durSec) : '–';
     $('#pkCount').textContent = sm ? String(sm.count) : '–';
-    const hasRows = d.segments.some(kept);
     $('#pkCaps').textContent = !hasRows ? '0' : fresh ? String(pv.captions) : '…';
     $('#pkCapsL').textContent = hasRows ? 'Text+ 字幕' : 'Text+ 字幕(文字起こしが無い)';
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
     const keptSegs = d.segments.filter(kept).slice(0, 2);
     const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
-    $('#pkSamples').innerHTML = rows.length ? rows.map((t, i) => `<div class="tt-pk-cap tt-cap-look"${capStyle(keptSegs[i])}>${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
+    // 見本の色(4-5。監査 12): 見積もりができたら、パックと同じ規則の話者(pack.py の cue_speakers → sampleSpeakers。名前)。古い間は行の話者から。規則は同じなので通常は同じ色
+    const spkNames = fresh && Array.isArray(pv.sampleSpeakers) && pv.samples && pv.samples.length ? pv.sampleSpeakers : null;
+    const capHex = i => spkNames ? nameHex(spkNames[i]) : segHex(keptSegs[i]);
+    $('#pkSamples').innerHTML = rows.length ? rows.map((t, i) => `<div class="tt-pk-cap tt-cap-look"${capStyle(capHex(i))}>${esc(t)}</div>`).join('') : '<p class="hint">文字起こしの行が無いので、字幕は入りません(EDL と動画のコピーのパックになります)</p>';
     $('#pkPhoneCap').textContent = rows[0] || '';
-    { const hex = keptSegs[0] && keptSegs[0].speaker && spkOn() ? h.speakerColor(keptSegs[0].speaker).hex : '';   // 見本の電話の字幕も話者の色(GPT-12)
+    { const hex = capHex(0);   // 見本の電話の字幕も話者の色(GPT-12)
       if (hex) $('#pkPhoneCap').style.setProperty('--tt-cap-color', hex); else $('#pkPhoneCap').style.removeProperty('--tt-cap-color'); }
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
     renderSpk();
     $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;
-    // 作る前の注意(cut2resolve の plan の注意。例: とても短い区間)
+    // 見積もりの状態(4-1): 計算中・保存待ち・失敗を見せる(黙って「…」のままにしない)
+    const stEl = $('#pkPvState'), busy = P.pv === 'wait' || P.pv === 'run';
+    let stMsg = '', stErr = false;
+    if (!fresh && sm && sm.count){
+      if (busy) stMsg = '字幕の数と注意を計算しています…' + (pv ? '(下の注意は前の設定での見積もりです)' : '');
+      else if (P.pv === 'save'){ stMsg = h.S.conflict ? '文字起こしの保存が競合しています。1 文字起こし の映像の上の案内から選ぶと、見積もりを出します' : '文字起こしの保存を待っています(保存できると見積もりを出します)'; stErr = true; }
+      else if (P.pv === 'err'){ stMsg = '見積もりを出せませんでした: ' + P.previewErr; stErr = true; }
+    }
+    stEl.hidden = !stMsg; stEl.querySelector('span').textContent = stMsg; stEl.classList.toggle('err', stErr); stEl.classList.toggle('info', !stErr);
+    $('#pkPvRetry').hidden = !(P.pv === 'save' || P.pv === 'err');
+    // 作る前の注意(cut2resolve の plan の注意。例: とても短い区間)。見積もりが古い間は前の見積もりの注意を薄く残す(黙って消さない)
     const warns = [];
-    if (fresh) warns.push(...(pv.warnings || []));
-    if (P.previewErr) warns.push('見積もりを出せませんでした: ' + P.previewErr);
-    if (hasRows && fresh && pv.vanished) warns.push(`削る区間に入って消える字幕が ${pv.vanished} 件あります(削った行の字幕は入りません)`);
-    const w = $('#pkWarn'); w.hidden = !warns.length; w.innerHTML = warns.slice(0, 6).map(x => `<li>${esc(x)}</li>`).join('');
+    if (pv) warns.push(...(pv.warnings || []));
+    if (hasRows && pv && pv.vanished) warns.push(`削る区間に入って消える字幕が ${pv.vanished} 件あります(削った行の字幕は入りません)`);
+    const w = $('#pkWarn'); w.hidden = !warns.length; w.classList.toggle('old', !fresh);
+    w.innerHTML = warns.slice(0, 6).map((x, i) => `<li>${!fresh && i === 0 ? '<span class="hint">(前の設定での見積もり)</span> ' : ''}${esc(x)}</li>`).join('');
     // 作る
-    const stale = isStale();
+    const stale = isStale(), diffs = P.pack ? outputDiff(P.pack.output, o) : null, differ = !!(diffs && diffs.length);
     const btn = $('#pkBuild');
     btn.disabled = !!b || P.building;
     btn.textContent = P.building ? 'パックを作っています…' : P.pack ? 'パックを作り直す' : 'パックを作る';
     const bk = $('#pkBackup'); bk.disabled = !hasRows; if (!hasRows) bk.checked = true;
     $('#pkBackupHint').textContent = hasRows ? 'スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません'
       : '字幕が無いパックは EDL が本体なので、いつも入ります(Text+ のスクリプトは作りません)';
-    $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? '前回のパックのあとにカットか字幕を直しています。作り直すと今の内容になります' : '作成中は進み具合と「中止」が出ます';
+    $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? '前回のパックのあとにカットか字幕を直しています。作り直すと今の内容になります' : differ ? '前回のパックと設定が違います。作り直すと今の設定になります(できているファイルはそのまま)' : '作成中は進み具合と「中止」が出ます';
     const er = $('#pkErr'); er.hidden = !P.err; er.textContent = P.err ? 'パックを作れませんでした: ' + P.err : '';
     $('#pkDir').placeholder = '空欄なら 動画の隣の「' + defaultDirName() + '」';
-    renderJob(); renderLast(stale);
-    $('#pkZipNote').textContent = h.CUT && h.CUT.active() && !h.CUT.state().pristine ? '中身は上の「パックを作る」と同じ(2 カット のタブの区間)です。' : '中身は上の「パックを作る」と同じです。';
+    renderJob(); renderLast(stale, diffs);
+    // zip(4-4): 渡らない設定を書く。字幕の無い文書は zip にできない(zip はいつも Text+ あり。契約テストの ZipSkipsContract)
+    $('#pkZipNote').textContent = '残す区間(2 カット のタブ)・字幕・予備・fps・大きさ・字幕の文字数・配信者と話者の色は、上の「パックを作る」と同じです。粗編集の動画・音量の調整・開始タイムコード・リール名は zip には入りません(使うのは入口から「パックを作る」)。';
+    const skipped = hasRows ? zipSkipped(o) : [], zw = $('#pkZipWarn');
+    zw.hidden = !skipped.length && hasRows;
+    zw.textContent = !hasRows ? '字幕の無い文書は zip にできません(「パックを作る」で EDL と動画のコピーのパックになります)' : skipped.length ? `今の設定のうち ${skipped.join('・')} は zip に入りません` : '';
+    $('#pkZip').disabled = !hasRows;
     renderSummaryText(fps, size, hasRows);
   }
   /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */
@@ -190,14 +250,16 @@ function create(h){
     const bits = [`${fps}fps`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
     if (hasRows && document.activeElement !== $('#pkBackup')) $('#pkBackup').checked = h.S.settings.packBackup === true;   // 予備は覚える(段4・E-4)。字幕の無いパックは EDL が本体なので入れたまま(render が決める)
     if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
+    if (document.activeElement !== $('#pkRender')) $('#pkRender').checked = h.S.settings.packRender === true;   // 粗編集の動画つきも覚える(段4 4-2。監査 09。設定は config.json なので別の窓・ブラウザでも同じ)
     if ($('#pkRender').checked) bits.push('粗編集の動画つき');
     bits.push(loudOf() ? `音量 ${loudOf()} LUFS` : `音量 ${volOf()}%`);
     if (document.activeElement !== $('#pkLoud')) $('#pkLoud').value = String(loudOf());
     if (document.activeElement !== $('#pkVol')) $('#pkVol').value = String(volOf());
     $('#pkVolBox').hidden = loudOf() !== 0;
+    $('#pkSummaryText').textContent = bits.join(' ・ ');   // 要約は覚えている物だけ(4-2): 再読み込みの前後で同じになる
+    // 出力先は覚えない(09-29 決定: 別の案件へ間違って出さないため)ので要約に入れず、毎回どこに作るかを1行で
     const dir = $('#pkDir').value.trim();
-    bits.push('出力先: ' + (dir ? dir.split(/[\\/]/).filter(Boolean).pop() : defaultDirName()));   // 末尾が \ / で終わっていると、素の pop() は空文字になる
-    $('#pkSummaryText').textContent = bits.join(' ・ ');
+    $('#pkPlace').textContent = dir ? `作る場所(この文書を開いている間だけ): ${dir}` : `作る場所: 動画の隣の「${defaultDirName()}」(毎回ここ。変えるときは「設定を変える」の 3。出力先は覚えません)`;
     const color = hasRows ? ($('#pkWho').dataset.color || '') : '', sw = $('#pkSummarySw');
     sw.hidden = !color; if (color) sw.style.background = color;
     sw.title = color ? `配信者の色(${color})` : '';
@@ -216,11 +278,16 @@ function create(h){
   }
   const KIND = n => /\.(lua|bat|ps1|drb)$|^textplus-import\.json$/i.test(n) ? 'Text+ のスクリプト' : /_roughcut\.mp4$/i.test(n) ? '粗編集の動画' : /\.(edl|srt)$/i.test(n) ? '予備のカット・字幕'
     : /(友人へ|手順)|^cut-plan\.json$/.test(n) ? '手順書・カットの記録' : /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(n) ? '元の動画のコピー' : 'その他';
-  function renderLast(stale){
+  function renderLast(stale, diffs){
     const pk = P.pack, box = $('#pkLast');
     box.hidden = !pk; if (!pk) return;
-    const pill = $('#pkLastPill'); pill.className = 'pill ' + (stale ? 'warn' : 'ok'); pill.textContent = stale ? '作り直しが要る' : '前回のパック';
+    const differ = !!(diffs && diffs.length);
+    const pill = $('#pkLastPill'); pill.className = 'pill ' + (stale || differ ? 'warn' : 'ok'); pill.textContent = stale ? '作り直しが要る' : differ ? '設定が違う' : '前回のパック';
     $('#pkLastWhen').textContent = `${h.ago(pk.at)}${stale ? ' ・ カットか字幕が変わっています → 作ると作り直し(上書きの確認あり)' : ''}`;
+    // 作ったときの出力の設定との違い(4-3。監査 08)。カット・字幕の変更(stale)とは別の文で出す(直す場所が違う)
+    const dv = $('#pkLastDiff'); dv.hidden = !(differ || !diffs);
+    dv.innerHTML = !diffs ? '<span class="hint">作ったときの設定の記録がありません(この版より前か、まとめて実行で作ったパック)。今の設定との違いは出せません</span>'
+      : differ ? `<b>作ったときと違う設定:</b> ${diffs.map(esc).join(' ・ ')}<br><span class="hint">できているファイルは作ったときのまま(変わっていません)。作り直すと今の設定になります</span>` : '';
     const groups = new Map(); for (const n of pk.files || []){ const k = KIND(n); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(n); }
     $('#pkLastFiles').innerHTML = [...groups].map(([k, ns]) => `<div class="tt-pk-file"><span class="mono">${esc(ns.join(' ・ '))}</span><span class="hint">${esc(k)}</span></div>`).join('');
     $('#pkLastDir').textContent = pk.dir || ''; $('#pkLastDir').title = pk.dir || '';
@@ -247,11 +314,11 @@ function create(h){
       const hasRows = d.segments.some(kept);
       const path = hasRows ? await h.cpExport(id) : null;   // 字幕の元(保存済みの文字起こしを動画の隣に .transcript.json で)
       const rev = h.CUT.state().rev, docAt = h.S.baseUpdatedAt;
-      const adv = {}; for (const [k, sel] of [['srcStartTc', '#pkSrcTc'], ['recStart', '#pkRecTc'], ['reel', '#pkReel']]){ const v = $(sel).value.trim(); if (v) adv[k] = v; }
-      const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: adv, ...(path ? { transcript: path } : {}) };
-      const out = { textplus: hasRows, copyVideo: true, render: $('#pkRender').checked, backup: hasRows && $('#pkBackup').checked, textplusFps: fpsOf(), textplusSize: sizeOf(), textplusWrap: wrapOf(),
-        ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(hasRows && whoOf() ? { streamer: whoOf() } : {}),
-        speakerColors: hasRows && $('#pkSpk').checked, ...(loudOf() ? { loudness: loudOf() } : volOf() !== 100 ? { volume: volOf() } : {}) };
+      const o = outputNow(hasRows);   // 出力の設定は1か所から(4-3)。記録にも同じ物を残す
+      const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: o.advanced, ...(path ? { transcript: path } : {}) };
+      const out = { textplus: o.textplus, copyVideo: true, render: o.render, backup: o.backup, textplusFps: o.fps, textplusSize: o.size, textplusWrap: o.wrap,
+        ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(o.streamer ? { streamer: o.streamer } : {}),
+        speakerColors: o.speakerColors, ...(o.loudness ? { loudness: o.loudness } : o.volume !== 100 ? { volume: o.volume } : {}) };
       let force = false, res;
       for (;;){
         try {
@@ -270,9 +337,9 @@ function create(h){
         }
       }
       const files = (res.files || []).map(f => f.name);
-      const r = await h.api('/api/edit/pack', { body: { id, rev, docUpdatedAt: Number(docAt) || 0, dir: res.outDir, files } });
+      const r = await h.api('/api/edit/pack', { body: { id, rev, docUpdatedAt: Number(docAt) || 0, dir: res.outDir, files, output: o } });
       if (h.S.docId !== id) return;
-      P.pack = { rev, at: r.at, docUpdatedAt: Number(docAt) || 0, dir: res.outDir, files: files.map(n => n.split(/[\\/]/).pop()) };
+      P.pack = { rev, at: r.at, docUpdatedAt: Number(docAt) || 0, dir: res.outDir, files: files.map(n => n.split(/[\\/]/).pop()), output: o };
       P.readme = res.readme || ''; P.lastRes = res;
       h.onPacked(id, { rev, at: r.at });
       for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
@@ -296,7 +363,8 @@ function create(h){
   $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
   $('#pkBuild').addEventListener('click', build);
   $('#pkBackup').addEventListener('change', () => saveLoud({ packBackup: $('#pkBackup').checked }));
-  $('#pkRender').addEventListener('change', render);
+  $('#pkRender').addEventListener('change', () => saveLoud({ packRender: $('#pkRender').checked }));   // 覚える(4-2)
+  $('#pkPvRetry').addEventListener('click', () => { P.pvErrKey = ''; schedulePreview(0); });
   $('#pkLoud').addEventListener('change', () => saveLoud({ packLoudness: Number($('#pkLoud').value) }));
   $('#pkVol').addEventListener('change', () => { const v = Math.round(Number($('#pkVol').value)); if (v >= 1 && v <= 200) saveLoud({ packVolume: v }); else { h.toast('音量(%)は 1〜200 で入れてください', 4000, 'err'); render(); } });
   $('#pkDir').addEventListener('input', render);
@@ -339,11 +407,11 @@ function create(h){
     shown(){
       if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
-        const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup'];   // ほかの画面(まとめて実行の欄)でも変えられる値
+        const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
         if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }
       }, () => {});
     },
-    changed(){ render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった
+    changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack })
   };

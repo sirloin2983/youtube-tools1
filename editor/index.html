@@ -1066,6 +1066,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-looktxt{min-width:0;flex:1}
 .tt-pk-cap{background:#6b7280;font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;white-space:pre-line;text-align:center}
 .tt-pk-warn{margin:12px 0 0;padding:8px 12px 8px 28px}
+.tt-pk-warn.old{opacity:.6}   /* 見積もりが古い間(設定を変えた直後)は前の設定での注意を薄く残す(4-1) */
+.tt-pk-pvstate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0}
+.tt-pk-pvstate>span{flex:1;min-width:0}
+.tt-pk-place{margin:6px 0 0;overflow-wrap:anywhere}
+.tt-pk-diff{margin:0 0 8px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.tt-pk-zipwarn{margin:6px 0 0;font-size:12.5px}
 .tt-pk-warn li{margin:2px 0;line-height:1.5}
 .tt-pk-go{margin-top:14px;gap:10px}
 .tt-pk-dir{margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1536,6 +1542,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h">前回の設定</h3>
            <p class="hint tt-pk-sumrow"><span class="ui-streamer-sw" id="pkSummarySw" hidden aria-hidden="true"></span><span id="pkSummaryText"></span></p>
+           <p class="hint tt-pk-place" id="pkPlace"></p>
            <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span> 設定を変える</button></div>
          </div>
          <div class="card tt-pk-card">
@@ -1547,6 +1554,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            </div>
            <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
            <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
+           <p class="notice info tt-pk-pvstate" id="pkPvState" hidden role="status" aria-live="polite"><span></span><button type="button" class="btn small" id="pkPvRetry" hidden>もう一度</button></p>
            <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
            <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
            <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
@@ -1569,6 +1577,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          <div class="card tt-pk-card" id="pkLast" hidden>
            <h3 class="tt-pk-h"><span class="pill ok" id="pkLastPill">前回のパック</span> <span class="hint" id="pkLastWhen"></span></h3>
            <p class="mono hint tt-pk-dir" id="pkLastDir"></p>
+           <div class="tt-pk-diff" id="pkLastDiff" hidden></div>
            <div id="pkLastFiles"></div>
            <div class="row tt-pk-lastbtns"><button type="button" class="btn small" id="pkOpen">フォルダを開く</button><button type="button" class="btn small" id="pkReadme">Resolve での手順を見る</button><button type="button" class="btn small" id="pkCopy">パスをコピー</button></div>
            <pre class="tt-cp-readme" id="pkReadmeText" hidden></pre>
@@ -1607,6 +1616,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><label for="pkFpsOther">その他のフレームレート(置き先)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
                <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
+               <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>
                <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。入口から開いていなくても使えます。</span></div>
              <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
                <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
@@ -1616,7 +1626,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h"><span class="tt-pk-n">3</span>出力先</h3>
            <input id="pkDir" type="text" autocomplete="off" spellcheck="false" aria-label="出力先のフォルダ" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
-           <p class="hint tt-pk-p">空欄なら動画の隣の「&lt;動画名&gt;_pack」。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</p>
+           <p class="hint tt-pk-p">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</p>
          </div>
        </div>
      </aside>

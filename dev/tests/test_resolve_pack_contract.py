@@ -14,6 +14,9 @@
      (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④)。予備ありも同じ)。
      2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
+  F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
+     渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
+
 A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順)・動画の中に収まる・時刻は 0.02 秒刻み(faster-whisper の時刻の刻み。25fps を除く)・
 選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは docs/design/resolve-pack-unification.md):
   - ちょうど半フレームの時刻 … 旧は float の誤差で1フレーム下に丸まることがあった(今は分数で正確に・0.5 は大きい方へ)
@@ -343,6 +346,118 @@ class ResolvePackContract(unittest.TestCase):
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 546)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["media"]["file"], "clip_edit.mp4")      # 動画はパックの直下(2026-09-27 まで media/)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
+class ZipSkipsContract(unittest.TestCase):
+    """F. zip に渡らない出力の設定(docs/plan/phase4-pack-consistency.md の 4-4。ユーザー決定 2026-09-29: zip の中身は変えず、画面に書く)。
+    zip(editor/resolve_export.create_package)は、粗編集の動画(render → _roughcut.mp4)・元の動画の開始タイムコード(advanced.srcStartTc)・
+    タイムラインの開始タイムコード(advanced.recStart)・リール名(advanced.reel)を受け取らない。パックのタブ(pack-tab.js の ZIP_SKIPS)がそれを画面に書く。
+    ここで「渡らない」ことを固定する: 将来 zip に渡すようにしてこのテストが落ちたら、画面の説明(pack-tab.js の zip の説明・注意、index.html)も直す合図。
+    なお、開始タイムコード・リール名が効くのは EDL だけ(Lua は元動画のフレーム番号で区間を持つので変わらない)。EDL は予備(backup)を入れたときだけできる"""
+    setUpClass = ResolvePackContract.__dict__["setUpClass"]
+    tearDownClass = ResolvePackContract.__dict__["tearDownClass"]
+    video, doc, write_v1 = ResolvePackContract.video, ResolvePackContract.doc, ResolvePackContract.write_v1
+
+    ROWS = [seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]
+    ADVANCED = dict(src_start_tc="00:10:00:00", rec_start="02:00:00:00", reel="ZZ")   # api/build の advanced(srcStartTc・recStart・reel)と同じ Request の欄
+
+    def zip_files(self, doc, backup=False, fps_text="30", **kw):
+        """今の zip の中身 {パックの中の名前: bytes}"""
+        zp, tmp_dir, _ = resolve_export.create_package(doc, fps_text, None, backup=backup, **kw)
+        self.addCleanup(shutil.rmtree, tmp_dir, True)
+        with zipfile.ZipFile(zp) as z:
+            return {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
+
+    def screen_pack_files(self, doc, backup=False, render=False, fps_text="30", **request_kw):
+        """パックのタブ(api/build)と同じ作り方のパックの中身 {名前: bytes}(cut-plan.json・手順書は書かない。request_kw は Request の欄 = advanced)"""
+        out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
+        plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc),
+                                          **dict(pack.TRANSCRIPT_ROWS, **request_kw)))
+        res = pack.build_pack(plan, out, render=render, textplus=True, textplus_target=TP.parse_target(fps_text, None), backup=backup,
+                              plan_file=False, readme_file=False)
+        return {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
+
+    def test_zip_has_no_render_or_advanced_parameters(self):
+        """create_package の引数に、粗編集・開始タイムコード・リール名が無い(zip はそれらを受け取れない)"""
+        import inspect
+        params = set(inspect.signature(resolve_export.create_package).parameters)
+        for name in ("render", "crf", "advanced", "src_start_tc", "srcStartTc", "rec_start", "recStart", "reel", "roughcut"):
+            self.assertNotIn(name, params, "%s を zip に渡すようになった。画面の説明(pack-tab.js の ZIP_SKIPS・index.html)も直す" % name)
+        with self.assertRaises(TypeError):
+            resolve_export.create_package(self.doc(self.ROWS), "30", None, reel="ZZ")
+
+    def test_zip_and_screen_pack_have_same_files_except_roughcut(self):
+        """予備あり・なしで、zip とパックのタブのパックのファイルの名前・中身が同じ。違うのは粗編集の動画(_roughcut.mp4)だけ"""
+        doc = self.doc(self.ROWS)
+        for backup in (False, True):
+            with self.subTest(backup=backup):
+                a = self.zip_files(doc, backup)
+                b = self.screen_pack_files(doc, backup, render=True)
+                roughcut = {n for n in b if n.endswith("_roughcut.mp4")}
+                self.assertEqual(roughcut, {"v30_roughcut.mp4"})   # パックには出来る
+                self.assertEqual(sorted(set(b) - roughcut), sorted(a))
+                for name in a:
+                    if name == TP.EDL_README_NAME:
+                        continue   # 予備の手順書は、粗編集の動画があると、その説明が入る(下で粗編集なしなら同じことを確かめる)
+                    self.assertEqual(a[name], b[name], "%s が違う" % name)
+                self.assertEqual(any(n.endswith(".edl") for n in a), backup)
+                if backup:
+                    self.assertIn(b"roughcut", b[TP.EDL_README_NAME])
+                    self.assertNotIn(b"roughcut", a[TP.EDL_README_NAME])
+                    self.assertEqual(a, self.screen_pack_files(doc, backup, render=False))   # 粗編集なしのパックは、手順書まで zip と同じ
+
+    def test_zip_never_has_roughcut(self):
+        """予備あり・なしのどちらでも、zip に _roughcut.mp4 は入らない(パックのタブは render で入れる)"""
+        doc = self.doc(self.ROWS)
+        for backup in (False, True):
+            with self.subTest(backup=backup):
+                self.assertEqual([n for n in self.zip_files(doc, backup) if "roughcut" in n], [])
+
+    def test_advanced_changes_pack_edl_but_not_zip(self):
+        """開始タイムコード・タイムラインの開始・リール名を変えると、パックの EDL は変わるが、zip の EDL・Lua は既定のパックと同じまま(= zip は無視する)"""
+        doc = self.doc(self.ROWS)
+        default = self.screen_pack_files(doc, backup=True)
+        zipped = self.zip_files(doc, backup=True)
+        edl = "v30.edl"
+        lua = "create_resolve_textplus_project.lua"
+        self.assertEqual(zipped[edl], default[edl])
+        self.assertEqual(zipped[lua], default[lua])
+        for key, value, needle in (("src_start_tc", "00:10:00:00", "00:10:00:00"), ("rec_start", "02:00:00:00", "02:00:00:00"), ("reel", "ZZ", "ZZ")):
+            with self.subTest(setting=key):
+                changed = self.screen_pack_files(doc, backup=True, **{key: value})
+                self.assertNotEqual(changed[edl], default[edl], "%s が EDL に効いていない(この契約の前提が崩れた)" % key)
+                self.assertIn(needle, changed[edl].decode("utf-8"))
+                self.assertNotIn(needle, zipped[edl].decode("utf-8"))   # zip の EDL には入らない
+                self.assertEqual(changed[lua], default[lua])            # Lua は開始タイムコード・リール名では変わらない
+        everything = self.screen_pack_files(doc, backup=True, **self.ADVANCED)
+        self.assertNotEqual(everything[edl], zipped[edl])
+        skip = (edl, TP.EDL_README_NAME)   # 予備の手順書には、タイムラインの開始タイムコードが入る(EDL の手順書なので)
+        self.assertEqual({n: b for n, b in zipped.items() if n not in skip}, {n: b for n, b in everything.items() if n not in skip})
+        self.assertNotIn(b"02:00:00:00", zipped[TP.EDL_README_NAME])
+        self.assertIn(b"02:00:00:00", everything[TP.EDL_README_NAME])
+
+    def test_zip_without_backup_has_no_edl_so_advanced_has_no_effect_anywhere(self):
+        """予備なし(既定)では EDL が無い。開始タイムコード・リール名だけを変えたパックも、zip とすべて同じ(効くのは予備の EDL だけ)"""
+        doc = self.doc(self.ROWS)
+        zipped = self.zip_files(doc, backup=False)
+        changed = self.screen_pack_files(doc, backup=False, **self.ADVANCED)
+        self.assertEqual(zipped, changed)
+        self.assertFalse([n for n in zipped if n.endswith(".edl")])
+
+    def test_zip_without_captions_is_an_error_but_pack_tab_makes_edl_only(self):
+        """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)を作るが、
+        zip は常に Text+ なので「Text+ パックには字幕が必要です」のエラーになる(2026-09-30 時点の差。zip の中身は変えない決定なので画面の説明に足す)"""
+        for name, rows in (("行が無い", []), ("残す行が無い", [seg(1, 0, 2, "a", cut=True), seg(2, 3, 4, " ")])):
+            with self.subTest(doc=name):
+                doc = self.doc(rows)
+                with self.assertRaises(resolve_export.ResolveExportError):
+                    resolve_export.create_package(doc, "30", None, keeps=[(1.0, 3.0)])
+                # パックのタブ: 字幕なし(文字起こしは渡さない)→ Text+ でないパック。EDL(本体)ができる
+                out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
+                plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), keep_pairs=[(1.0, 3.0)], **pack.EDIT_KEEPS))
+                res = pack.build_pack(plan, out, textplus=False, backup=True, plan_file=False, readme_file=False)
+                self.assertEqual(sorted(p.relative_to(out).as_posix() for _, p in res["files"]), ["v30.edl"])
 
 
 def _load_transcribe_serve():

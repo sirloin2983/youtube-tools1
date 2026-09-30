@@ -2254,3 +2254,27 @@
 - 残っている古い所(触っていない): `docs/design/holo-colors-research.md` の「ユーザーに聞くこと」(食い違いの4人の主な色・FUWAMOCO の2つ目の色)は未決のまま。HANDOVER の「次にやること」3(夜間の見直しの「高」の残り)は 09-30 のまま
 - 未完了・次: 線 A 段4(`docs/plan/phase4-pack-consistency.md`)。計画の行番号は 09-29 時点なので今のコードで確かめ直してから
 - 未コミット: なし(このあと2つに分けてコミット: ホロカラー 1.4.1 / 文書)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet 2つ)— 線 A 段4「パックの表示と出力を一致」(編集 0.27.0)
+- 計画: `docs/plan/phase4-pack-consistency.md`(4-1〜4-5 すべて。状態の行を「済み」に)。行番号は 09-29 時点から少しずれていたが、対象の関数・要素は同じだった
+- 変更(4-1 監査 07。まとめ役): `editor/pack-tab.js` の見積もりに状態 `P.pv`(idle / wait / run / save / err)と `pvErrKey`。鍵 `previewKeyNow()`(区間・行・字幕の1段の文字数)が変わっていて予約も計算も無ければ、
+  **描画(renderNow)の1か所で** `schedulePreview()` する(設定を変える所ごとに書くと足し忘れで同じ不具合が戻るため。同じ鍵で失敗したら「もう一度」まで出し直さない)。
+  計算中・保存待ち(競合なら案内)・失敗 + 「もう一度」を `#pkPvState`/`#pkPvRetry` に。前の見積もりの注意は薄く残す(`.tt-pk-warn.old`)。`app.js` の `readOpts` が `PACK.changed()` を呼ぶ(⚙ の字幕の文字数)
+- 変更(4-2 監査 09): 「粗編集の動画(mp4)」を編集の設定 `packRender` に覚える(`serve.py` の SETTINGS_PATCH_KEYS に追加・`shown()` の読み直しの鍵にも)。要約は覚えている物だけ(出力先を外した)。
+  出力先は要約の外の「作る場所」の行(`#pkPlace`)で、毎回動画の隣と分かるように。出力先の欄の説明に「覚えません」
+- 変更(4-3 監査 08): 画面の `outputNow(hasRows)` が今の出力の設定を1つ作り、パックを作る API と記録 `POST /api/edit/pack` の `output` の両方に使う。`outputDiff(記録, 今)` で違いを「フレームレート: 30fps → 60fps」の形に。
+  前回のパックの札は stale なら「作り直しが要る」、設定が違えば「設定が違う」(黄)。`#pkLastDiff` に違いと「できているファイルは作ったときのまま」。記録が無い(この版より前・まとめて実行)は「記録がありません」。
+  サーバー(Sonnet): `serve.py` の `sanitize_pack_output`(決まった鍵・型・長さ。1つでも壊れていれば output なしで記録。古い画面・autorun は送らない)・`editor/tests/test_edit.py` の `test_record_pack_output`(約 35 の不正値)
+- 変更(4-4 監査 10): `ZIP_SKIPS`(粗編集の動画・音量の調整・開始タイムコード・タイムラインの開始タイムコード・リール名)。zip の説明を書き換え、選んでいるときは zip のボタンの横に `#pkZipWarn`。
+  字幕の無い文書は zip にできない(zip はいつも Text+ あり = `create_package` が例外)ので、ボタンを押せなくして理由を出す。契約テスト(Sonnet): `dev/tests/test_resolve_pack_contract.py` の `ZipSkipsContract` 6 件
+  (zip と api/build のパックのファイルが粗編集を除いて同じ・zip に roughcut が無い・タイムコード/リール名を変えても zip の EDL/Lua は変わらない・字幕なしは zip が例外)
+- 変更(4-5 監査 12): `resolve_export.edit_preview` の応答に `sampleSpeakers`(`pack.cue_speakers` = 実際のパックと同じ規則。名前か null)。画面は見積もりができたらそれで見本の色を決め、古い間は行の話者から。
+  `app.js` に `speakerColorByName(name)`(照らし合わせの1か所。`speakerColor(spId)` もこれを使う)を足して PACK に渡した。2 カット の字幕はもう段2 で話者の色だったので変えていない
+- 版: 編集 0.26.1 → **0.27.0**(serve.py・app.js・README の見出しと変更の記録・`editor/AGENTS.md` の先頭の版)。cut2resolve・入口は変えていない(pack.py は読むだけ)
+- テスト: `python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py -q`(185)・`python -m unittest dev/tests/test_resolve_pack_contract.py`(33。単独)・
+  `editor/tests/e2e_edit_pack.py`(75 OK。4-1〜4-5 の確認を足した。0.26.1 で既定が 30% になった分の古い確認も直した)・`editor/tests/e2e_ui_mounted.py`(ALL PASSED)。`e2e_edit_cut.py` はこのあと
+- 気づき: 4-2 の「予備も入れる」は前の段でもう覚えていた(`packBackup`)。zip には音量の調整も渡らない(計画の一覧に無かったので `ZIP_SKIPS` に足した。zip は元の動画のコピーをそのまま入れる)
+- 決定(ユーザー 2026-10-01。夜間の見直しの「高」の残り 3 件): ① 認識ワーカーの待ちに**時限を入れる**(読み取りスレッド + queue.get(timeout))/ ② 作業データの置き場所の求め方を **ytt_core の1か所に**/
+  ③ パックの「動画のファイル名に日本語」の注意は **(b) EDL を使わない(予備なし)ときは出さない**。次にこの順で行う(段5 の前)
+- 文書: `docs/ROADMAP.md`(版・段4 の行「済み」・3 に段4 の実機の確認)
+- 未コミット: なし(このあとコミット)
