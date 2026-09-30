@@ -89,8 +89,7 @@
 
 ■ 最初に読む(この順)
 1. AGENTS.md → docs/ROADMAP.md(全体・段の状態・「3. 実機で確かめること」・5 の決定)→ docs/HANDOVER.md → docs/WORKLOG.md の末尾の数件
-2. git status と git log -5 --oneline(自分が変えていない未コミットの変更は他の AI の作業途中 = 上書き・add しない。
-   ホロカラーの候補の色を足す作業(holo-colors/members.json・docs/design/holo-colors-research.md)が途中の可能性あり。WORKLOG の末尾で終わったか確かめる)
+2. git status と git log -5 --oneline(自分が変えていない未コミットの変更は他の AI の作業途中 = 上書き・add しない)
 3. 版を実物のファイルで確かめる(入口 0.14.0 / スタジオ 0.12.0 / 編集 0.26.0 / cut2resolve 0.15.0 / ui-kit v9 / ホロカラー 1.3.0 のはず)
 
 ■ 現在地(2026-09-30)
