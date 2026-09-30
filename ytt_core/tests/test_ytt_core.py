@@ -786,8 +786,8 @@ class TestColors(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def entries(self, mine=True):
-        return colors.load(self.env, mine=self.mine if mine else "")
+    def entries(self, mine=True, fixed=""):
+        return colors.load(self.env, mine=self.mine if mine else "", member_colors=fixed)
 
     def test_from_channel(self):
         """配信のチャンネル名から(気が利く画面へ 段5): 正式な名前か英語名(4文字以上)が含まれ、1人に決まるときだけ"""
@@ -832,6 +832,40 @@ class TestColors(unittest.TestCase):
         self.assertEqual(colors.load({"YTT_DATA_DIR": "inplace", colors.MEMBERS_ENV: os.path.join(self.tmp, "無い.json")}), [])   # 読めなくても落ちない
         self.assertIsNone(colors.mine_path({"YTT_DATA_DIR": "inplace"}))                   # テスト(inplace)では本物のマイカラーを読まない
 
+    def test_member_colors_and_fixed_colors(self):
+        """members.json の colors(version 2)と、ホロカラーで直した色(member-colors.json)。字幕の色 = 主な色(段7 の 7-7)"""
+        with open(self.members, encoding="utf-8") as f:
+            d = json.load(f)
+        miko = d["groups"][0]["members"][0]
+        miko["colors"] = [{"hex": "#FE4B74", "label": "公式サイトの画像"}, {"hex": "red"}, 5, {"hex": "#ff8fdf", "label": "ホロジュール"},
+                          {"hex": "#FE4B74"}, {"hex": "#123456", "label": "とても長いラベルの名前ですよね"}]
+        with open(self.members, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+        es = {e["id"]: e for e in self.entries(mine=False)}
+        m = es["sakura-miko"]
+        self.assertEqual(m["hex"], "#FF8FDF")                                                    # 主な色は hex(colors の順番ではない)
+        self.assertEqual([c["hex"] for c in m["colors"]], ["#FF8FDF", "#FE4B74", "#123456"])     # hex を先頭へ・形の違う色と重なりは捨てる
+        self.assertEqual(m["colors"][2]["label"], "とても長いラベルの名前で")                      # ラベルは 12 文字まで
+        self.assertEqual(es["usada-pekora"]["colors"], [{"hex": "#7EC2FE", "label": ""}])       # colors の無い古い形は hex の1色
+        self.assertFalse(m["custom"])
+
+        fixed = os.path.join(self.tmp, "member-colors.json")
+        with open(fixed, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "members": {"sakura-miko": {"colors": [{"hex": "#fe4b74", "label": "公式"}, {"hex": "#FF8FDF"}]},
+                                                 "usada-pekora": {"colors": [{"hex": "bad"}]}, "gone": {"colors": [{"hex": "#000000"}]}, "x": 5}}, f)
+        es = self.entries(mine=False, fixed=fixed)
+        by = {e["id"]: e for e in es}
+        self.assertEqual((by["sakura-miko"]["hex"], by["sakura-miko"]["custom"]), ("#FE4B74", True))   # 直した主な色が字幕の色
+        self.assertEqual(by["usada-pekora"]["hex"], "#7EC2FE")                                           # 形の違う直した色は使わない
+        self.assertEqual(colors.resolve("みこ", entries=es), ("さくらみこ", "#FE4B74"))
+        self.assertEqual(colors.speaker_colors(["さくらみこ"], entries=es)[0], {"さくらみこ": "#FE4B74"})
+        self.assertNotIn("gone", by)                                                                     # members.json に無い id は使わない
+        with open(fixed, "w", encoding="utf-8") as f:
+            f.write('{"members": {"sakura-miko": ')                                                       # 壊れていても落ちない
+        self.assertEqual({e["id"]: e["hex"] for e in self.entries(mine=False, fixed=fixed)}["sakura-miko"], "#FF8FDF")
+        self.assertIsNone(colors.member_colors_path({"YTT_DATA_DIR": "inplace"}))                        # テスト(inplace)では本物の直した色を読まない
+        self.assertEqual(colors.member_colors_path({"YTT_DATA_DIR": self.tmp}), os.path.join(os.path.abspath(self.tmp), "holo-colors", "member-colors.json"))
+
     def test_hex(self):
         self.assertEqual(colors.norm_hex("ff8fdf"), "#FF8FDF")
         self.assertIsNone(colors.norm_hex("#ff8fd"))
@@ -843,6 +877,23 @@ class TestColors(unittest.TestCase):
         es = colors.load({"YTT_DATA_DIR": "inplace"})                                     # リポジトリの holo-colors/members.json
         self.assertGreater(len(es), 50)
         self.assertTrue(all(colors.norm_hex(e["hex"]) == e["hex"] for e in es))
+        with open(colors.members_path({}), encoding="utf-8") as f:                         # version 2 の形(docs/design/holo-colors.md)
+            d = json.load(f)
+        self.assertEqual(d["version"], 2)
+        ids = [m["id"] for g in d["groups"] for m in g["members"]]
+        self.assertEqual(len(ids), len(set(ids)), "メンバーの id は全体で一意(直した色のキー)")
+        known = {s["id"] for s in d["sources"]}
+        for g in d["groups"]:
+            for m in g["members"]:
+                cs = m.get("colors")
+                self.assertTrue(cs, m["name"])
+                self.assertEqual(colors.norm_hex(cs[0]["hex"]), colors.norm_hex(m["hex"]), "colors の先頭 = hex: " + m["name"])
+                for c in cs:
+                    self.assertTrue(colors.norm_hex(c["hex"]), m["name"])
+                    self.assertLessEqual(len(c.get("label", "")), colors.LABEL_MAX, m["name"])
+                    self.assertIn(c.get("confidence"), ("high", "medium", "low"), m["name"])
+                    self.assertTrue(set(c.get("src", [])) <= known, "知らない出典: %s %s" % (m["name"], c.get("src")))
+                self.assertTrue(set(m.get("src", [])) <= known, "知らない出典: %s" % m["name"])
 
 
 class TestLoudness(unittest.TestCase):

@@ -4,6 +4,9 @@
 色の一覧はホロカラーのものを**読むだけ**(書き換えない):
   - holo-colors/members.json(リポジトリの中。ホロカラーと同じ一覧)。YTT_HOLO_MEMBERS で場所を変えられる(テスト用)
   - ホロカラーのマイカラー(作業データの holo-colors/my-colors.json。ユーザーが足した色。同じ名前ならこちらが先)
+  - ホロカラーで直したメンバーの色(作業データの holo-colors/member-colors.json。キーはメンバーの id。先頭が主な色)
+字幕の色は**主な色**(直した色があればその先頭、無ければ members.json の hex)。members.json の colors(1人の色の一覧。
+version 2。先頭 = hex)は項目の "colors" に入れて返すが、使う側(speaker_colors・resolve・入口)は "hex" だけを使う。
 名前の照らし合わせの規則はここ1か所(入口のまとめて実行・cut2resolve のパック・画面の候補が共通で使う)。
 ひらがな/カタカナ・全角/半角・大文字/小文字・空白や「・」を区別しない。名前・ローマ字・id のどれでもよい。
 完全に一致しなければ、名前の一部で1人に決まるときだけその人(「ぺこら」→ 兎田ぺこら)。2人以上なら決めない(候補を返す)。
@@ -19,6 +22,7 @@ from . import datadir, layout
 MEMBERS_ENV = "YTT_HOLO_MEMBERS"
 HEX_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 NAME_MAX = 60
+LABEL_MAX = 12
 _cache = {}
 _lock = threading.Lock()
 
@@ -33,6 +37,35 @@ def mine_path(env=None):
     """ホロカラーのマイカラー(ホロカラーは YTT_DATA_DIR を知らないので、inplace のとき(テスト)は読まない)"""
     root = datadir.data_root(env)
     return None if root is None else os.path.join(root, "holo-colors", "my-colors.json")
+
+
+def member_colors_path(env=None):
+    """ホロカラーで直したメンバーの色(マイカラーと同じく、inplace のとき(テスト)は読まない)"""
+    root = datadir.data_root(env)
+    return None if root is None else os.path.join(root, "holo-colors", "member-colors.json")
+
+
+def _color_list(items):
+    """[{"hex", "label"}] の形の違う項目を捨てて、同じ色は1つに -> [{"hex": "#RRGGBB", "label": str}]"""
+    out = []
+    for c in items if isinstance(items, list) else []:
+        h = norm_hex(c.get("hex")) if isinstance(c, dict) else None
+        if h and all(x["hex"] != h for x in out):
+            label = c.get("label")
+            out.append({"hex": h, "label": label.strip()[:LABEL_MAX] if isinstance(label, str) else ""})
+    return out
+
+
+def _member_overrides(path):
+    """member-colors.json -> {メンバーの id: [色](1つ以上)}。読めない・形の違うものは飛ばす"""
+    d = _read_json(path) if path else None
+    ms = d.get("members") if isinstance(d, dict) else None
+    out = {}
+    for k, v in ms.items() if isinstance(ms, dict) else []:
+        cs = _color_list(v.get("colors")) if isinstance(v, dict) else []
+        if k and cs:
+            out[str(k)] = cs
+    return out
 
 
 def norm_hex(s):
@@ -75,8 +108,9 @@ def _read_json(path):
     return data
 
 
-def load(env=None, members=None, mine=None):
-    """-> [{"name", "en", "id", "hex", "group", "mine"}](マイカラーが先。読めない一覧は飛ばす)"""
+def load(env=None, members=None, mine=None, member_colors=None):
+    """-> [{"name", "en", "id", "hex", "group", "mine", "colors", "custom"}](マイカラーが先。読めない一覧は飛ばす)。
+    hex = 主な色(直した色があればその先頭)・colors = その人の色の一覧(先頭 = hex)・custom = ホロカラーで直した色か"""
     out = []
     mp = mine if mine is not None else mine_path(env)
     d = _read_json(mp) if mp else None
@@ -84,7 +118,9 @@ def load(env=None, members=None, mine=None):
         if isinstance(m, dict):
             h, name = norm_hex(m.get("hex")), str(m.get("name") or "").strip()
             if h and name:
-                out.append({"name": name[:NAME_MAX], "en": "", "id": str(m.get("id") or ""), "hex": h, "group": "マイカラー", "mine": True})
+                out.append({"name": name[:NAME_MAX], "en": "", "id": str(m.get("id") or ""), "hex": h, "group": "マイカラー", "mine": True,
+                            "colors": [{"hex": h, "label": ""}], "custom": False})
+    fixed = _member_overrides(member_colors if member_colors is not None else member_colors_path(env))
     d = _read_json(members if members is not None else members_path(env))
     for g in (d.get("groups") or []) if isinstance(d, dict) else []:
         if not isinstance(g, dict):
@@ -93,8 +129,15 @@ def load(env=None, members=None, mine=None):
             if isinstance(m, dict):
                 h, name = norm_hex(m.get("hex")), str(m.get("name") or "").strip()
                 if h and name:
-                    out.append({"name": name[:NAME_MAX], "en": str(m.get("en") or ""), "id": str(m.get("id") or ""), "hex": h,
-                                "group": str(g.get("name") or ""), "mine": False})
+                    mid = str(m.get("id") or "")
+                    cs = _color_list(m.get("colors"))
+                    main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": ""})   # 主な色は hex(先頭へ)
+                    cs = [main] + [c for c in cs if c["hex"] != h]
+                    custom = mid in fixed
+                    if custom:
+                        cs = fixed[mid]
+                    out.append({"name": name[:NAME_MAX], "en": str(m.get("en") or ""), "id": mid, "hex": cs[0]["hex"],
+                                "group": str(g.get("name") or ""), "mine": False, "colors": cs, "custom": custom})
     return out
 
 
