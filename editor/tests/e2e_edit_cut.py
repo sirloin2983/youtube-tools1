@@ -398,6 +398,127 @@ def main():
             d = srv.get("/api/transcript?id=" + tid)
             check([g.get("cutState") for g in d["segments"]] == [None, None, "cut", None, "cut"], "3-5: 文書の行の印はカットの中身と合っている: %s" % [g.get("cutState") for g in d["segments"]])
 
+            # ---- 段6 6-3〜6-5(docs/plan/phase6-edit-features.md): 字幕の段の行を選んで端をドラッグ・残す区間も広がる・1回で両方戻る・行を分ける
+            pg.keyboard.press("Escape")   # 3-5 の確かめは 1 文字起こし のタブで終わる → 2 カット へ
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
+            wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length > 0", 10000)
+            pg.click("#cutZoomFit")
+            pg.keyboard.press("Escape")
+            # 先に 6.6〜6.9 を削る区間にしておく(行2 = 4.0〜6.5 は残す行のまま。行の終わりを 6.7 へ広げると、削る区間 6.6〜6.9 にかかる)。もう削る区間なら何もしない
+            pre_x = server_clips()
+            x_changed = False
+            if any(a <= 6.75 <= b for a, b in pre_x):
+                pg.evaluate("document.querySelector('#cutPlayer').currentTime = 6.6")
+                wait_js(pg, "Math.abs(document.querySelector('#cutPlayer').currentTime - 6.6) < 0.01")
+                pg.focus("#tlScroll")
+                pg.keyboard.press("i")
+                pg.evaluate("document.querySelector('#cutPlayer').currentTime = 6.9")
+                wait_js(pg, "Math.abs(document.querySelector('#cutPlayer').currentTime - 6.9) < 0.01")
+                pg.keyboard.press("o")
+                pg.keyboard.press("x")
+                wait_saved()
+                x_changed = server_clips() != pre_x
+            clips_before = server_clips()
+            check(not any(a <= 6.7 <= b for a, b in clips_before), "(準備)6.6〜6.9 は削る区間: %s" % clips_before)
+            doc_before = srv.get("/api/transcript?id=" + tid)
+            check(doc_before["segments"][1]["end"] == 6.5 and doc_before["segments"][1].get("cutState") != "cut", "(準備)行2 は 4.0〜6.5 の残す行")
+            pg.locator("#tlSubs .tt-s[data-i='1']").click()
+            check(wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"1\"].sel') && document.querySelectorAll('#tlSubs .tt-s[data-i=\"1\"] .tt-rh').length === 2", 3000),
+                  "6-3: 字幕の段の行を押すと選ばれ、左右のつまみが出る")
+            check("選んだ行: 2" in pg.inner_text("#cutStatus") and pg.locator("#cutStatus [data-act=rowsplit]").count() == 1, "下の行に選んだ行と「再生位置でこの行を分ける」: " + pg.inner_text("#cutStatus"))
+            for _ in range(12):
+                pg.click("#cutZoomIn")
+            pg.evaluate("document.querySelector('#tlSubs .tt-s[data-i=\"1\"] .tt-rh.out').scrollIntoView({inline: 'center', block: 'nearest'})")
+            pg.wait_for_timeout(200)
+            rh = pg.locator("#tlSubs .tt-s[data-i='1'] .tt-rh.out").bounding_box()
+            pps = pg.evaluate("document.querySelector('#tlScroll').scrollWidth / 20")
+            px_per_frame = pps / FPS
+            rx, ry = rh["x"] + rh["width"] / 2, rh["y"] + rh["height"] / 2
+            pg.keyboard.down("Alt")
+            pg.mouse.move(rx, ry)
+            pg.mouse.down()
+            pg.mouse.move(rx + px_per_frame * 3, ry, steps=3)
+            pg.mouse.move(rx + px_per_frame * 6, ry, steps=3)
+            tip = pg.inner_text("#tlTip")
+            pg.mouse.up()
+            pg.keyboard.up("Alt")
+            check(tip.startswith("行の終わり") and "+0.20秒" in tip, "ドラッグ中の札は「行の終わり 0:06.70(+0.20秒)」: " + tip)
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            wait_saved()
+            seg1 = srv.get("/api/transcript?id=" + tid)["segments"][1]
+            check(abs(seg1["end"] - 6.7) < 1e-6, "6-3: 行の終わりが 0.2 秒後ろへ動いて文書に保存される(0.01 秒に丸め): %s" % seg1["end"])
+            check("6.7" in pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value"), "1 文字起こし のタブの時刻も変わっている: %s" % pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value"))
+            clips_after = server_clips()
+            check(any(a <= 6.5 + 1e-6 and b >= 6.7 - 1e-6 for a, b in clips_after) and not any(a <= 6.8 <= b for a, b in clips_after),
+                  "6-4: 残す行を外へ広げた分(6.5〜6.7)だけ残す区間も広がり、6.7〜6.9 は削る区間のまま: %s → %s" % (clips_before, clips_after))
+            check("残す区間も広げました" in pg.inner_text("#toast"), "広げたことを知らせる: " + pg.inner_text("#toast"))
+            # 縮めても区間は変えない: 終わりの端を選んで , で1コマ戻す
+            pg.keyboard.press("w")
+            wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"1\"] .tt-rh.out.on')", 3000)
+            pg.keyboard.press(",")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            seg1 = srv.get("/api/transcript?id=" + tid)["segments"][1]
+            check(6.6 < seg1["end"] < 6.7 and server_clips() == clips_after, "6-3: 端を選んで , で1コマ縮む。縮めても残す区間は変えない(6-4): %s / %s" % (seg1["end"], server_clips()))
+            # 1回の操作 = 行の時刻と区間を同じ番号で積む → Ctrl+Z 2回で、縮めた分・広げた分(行 + 区間)が戻る
+            pg.keyboard.press("Control+z")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            pg.keyboard.press("Control+z")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            wait_saved()
+            seg1 = srv.get("/api/transcript?id=" + tid)["segments"][1]
+            check(seg1["end"] == 6.5 and server_clips() == clips_before, "6-4: Ctrl+Z で行の時刻と残す区間が一緒に戻る: %s / %s" % (seg1["end"], server_clips()))
+            # 前後の行を越えない: 行2 の終わりを 7.0(行3 の始まり)より後ろへは動かせない
+            pg.locator("#tlSubs .tt-s[data-i='1']").click()
+            wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"1\"].sel')", 3000)
+            pg.keyboard.press("w")
+            wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"1\"] .tt-rh.out.on')", 3000)
+            for _ in range(3):
+                pg.keyboard.press("Shift+.")   # 10 コマずつ(0.33 秒)。6.5 → 7.0 で止まる
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            seg1 = srv.get("/api/transcript?id=" + tid)["segments"][1]
+            check(seg1["end"] == 7.0, "6-3: 行の終わりは次の行の始まり(7.0)を越えない: %s" % seg1["end"])
+            for _ in range(2):
+                pg.keyboard.press("Control+z")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            check(srv.get("/api/transcript?id=" + tid)["segments"][1]["end"] == 6.5, "戻す: %s" % srv.get("/api/transcript?id=" + tid)["segments"][1]["end"])
+            pg.keyboard.press("Escape")
+            # 6-5: 行を分ける(再生位置で。文字の分け目は欄で選ぶ)
+            pg.click("#cutZoomFit")
+            seg3 = srv.get("/api/transcript?id=" + tid)["segments"][3]
+            text3 = seg3["text"]
+            check(seg3["start"] == 11.0 and seg3["end"] == 14.5 and len(text3) >= 2, "(準備)行4 = 11.0〜14.5「%s」" % text3)
+            pg.locator("#tlSubs .tt-s[data-i='3']").click()
+            wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"3\"].sel')", 3000)
+            check(pg.is_disabled("#cutStatus [data-act=rowsplit]"), "行の頭(端から 0.3 秒より内側でない)では「分ける」は押せない")
+            pg.evaluate("document.querySelector('#cutPlayer').currentTime = 12.5")
+            wait_js(pg, "Math.abs(document.querySelector('#cutPlayer').currentTime - 12.5) < 0.01")
+            check(wait_js(pg, "!document.querySelector('#cutStatus [data-act=rowsplit]').disabled", 3000), "再生位置を行の中に置くと「分ける」が押せる")
+            pg.click("#cutStatus [data-act=rowsplit]")
+            wait_js(pg, "document.querySelector('#cutSplitDlg').open", 3000)
+            check(pg.input_value("#cutSplitText") == text3 and "0:12.50" in pg.inner_text("#cutSplitDlg"), "6-5: 小さな欄に行の文字と再生位置: " + pg.inner_text("#cutSplitDlg"))
+            pos = max(1, len(text3) // 2)
+            pg.evaluate("(p => { const i = document.querySelector('#cutSplitText'); i.focus(); i.setSelectionRange(p, p); })(%d)" % pos)
+            pg.keyboard.press("Enter")
+            wait_js(pg, "!document.querySelector('#cutSplitDlg').open", 3000)
+            check(pg.evaluate("document.querySelector('#cutSplitDlg').returnValue") == "ok", "Enter で「分ける」(returnValue=%s / toast=%s / 行=%s)" % (pg.evaluate("document.querySelector('#cutSplitDlg').returnValue"), " ".join(pg.inner_text("#toast").split()), pg.locator("#segs .seg").count()))
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            segs = srv.get("/api/transcript?id=" + tid)["segments"]
+            check(len(segs) == 6 and segs[3]["end"] == 12.5 and segs[4]["start"] == 12.5 and segs[4]["end"] == 14.5 and segs[3]["text"] == text3[:pos].rstrip() and segs[4]["text"] == text3[pos:].lstrip(),
+                  "6-5: 再生位置で行が2つに分かれて保存される(文字も分ける): %s" % [(g["start"], g["end"], g["text"]) for g in segs[3:5]])
+            check(pg.locator("#tlSubs .tt-s").count() == 6 and pg.locator("#segs .seg").count() == 6, "字幕の段と 1 文字起こし のタブの両方に 6 行")
+            pg.focus("#tlScroll")
+            pg.keyboard.press("Control+z")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)   # 文書の保存が終わるまで(操作の直後は未保存 = data-state '' になる)
+            check(len(srv.get("/api/transcript?id=" + tid)["segments"]) == 5, "元に戻すで1行に戻る")
+            pg.keyboard.press("Escape")
+            if x_changed:   # 準備で削った 6.6〜6.9 を戻す(以降の確かめは前と同じ区間から)
+                pg.keyboard.press("Control+z")
+                wait_saved()
+                check(server_clips() == pre_x, "(後始末)削った 6.6〜6.9 を戻した: %s" % server_clips())
+            pg.keyboard.press("Alt+1")   # この節の前は 1 文字起こし のタブだったので戻す(次の「読み直す」の確かめが直前のタブを見る)
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'", 5000)
+
             # ---- 保存して読み直すと同じ
             shown = clips()
             pg.reload()   # 同じ URL への goto は読み直さない(# だけの移動になる)
@@ -444,11 +565,48 @@ def main():
             pg.click("#cutReload")
             wait_js(pg, "document.querySelector('#cutConflict').hidden && document.querySelectorAll('#tlVideo .tt-k').length === %d" % n2, 10000)
             check(True, "「読み直す」で、先に保存された内容になる")
+            # ---- 段6 6-6: 文書(文字起こし)の保存の競合は、2 カット のタブにも出て、字幕の段の行のつまみを出さない
+            d = srv.get("/api/transcript?id=" + tid)
+            srv.call("PUT", "/api/transcript?id=" + tid, {"title": d["title"], "speakers": d.get("speakers", []), "segments": d["segments"], "baseUpdatedAt": d["updatedAt"]})   # 別の所で先に保存された
+            pg.click("#cutZoomFit")
+            pg.locator("#tlSubs .tt-s[data-i='1']").click()
+            wait_js(pg, "!!document.querySelector('#tlSubs .tt-s[data-i=\"1\"].sel')", 3000)
+            pg.keyboard.press("w")
+            pg.keyboard.press(".")   # 行の時刻を直す → 文書の保存 → 409
+            wait_js(pg, "!document.querySelector('#cutDocConflict').hidden", 10000)
+            check(pg.locator("#tlSubs .tt-rh").count() == 0 and "競合" in pg.inner_text("#cutStatus"), "6-6: 文書の競合の案内がカットのタブにも出て、行のつまみは消える: " + pg.inner_text("#cutStatus"))
+            errors[:] = [e for e in errors if "409" not in e]
+            pg.click("#cutDocConflictGo")   # カットのタブの案内から 1 文字起こし へ
+            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'", 5000)
+            pg.evaluate("document.querySelector('#cfReload').click()")   # 知らせが重なることがあるので直接
+            wait_js(pg, "document.querySelector('#conflictBar').hidden", 10000)
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true' && document.querySelectorAll('#tlVideo .tt-k').length > 0", 10000)
+            check(pg.is_hidden("#cutDocConflict"), "1 文字起こし の案内から「読み込み直す」を選ぶと、カットのタブの案内も消える")
             pg2.close()
 
             # ---- 「行から ▾」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ)
+            # 6-2: 「行の後の余白」は 3 パック の詳しい設定の1か所で変える → 「行から ▾」は値を出すだけ・「行から ▾」で保存しても消えない
+            pg.keyboard.press("Escape")
+            pg.keyboard.press("Alt+3")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 5000)
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            pg.click("#pkMore summary")
+            pg.fill("#pkPadAfter", "0.35")
+            pg.press("#pkPadAfter", "Tab")
+            for _ in range(50):
+                if (srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.35:
+                    break
+                time.sleep(0.2)
+            check((srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.35, "6-2: パックの詳しい設定の「行の後の余白」が設定 rowEdge.padAfter に保存される: %s" % srv.get("/api/settings").get("rowEdge"))
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
             pg.click("#cutRowEdge summary")
             check(pg.is_checked("#cutEdgeOn") and pg.input_value("#cutEdgeAfter") == "0.5", "「行から ▾」: 既定は広げる(終わり 0.5 秒・始まり 0.3 秒まで)")
+            check(wait_js(pg, "document.querySelector('#cutEdgePad').textContent.indexOf('後 0.35 秒') >= 0", 3000), "6-2: 「行から ▾」は後ろの余白の値を出すだけ(変える入口は 3 パック の詳しい設定): " + pg.text_content("#cutEdgePad"))   # details の toggle は少し遅れて来る
             pg.uncheck("#cutEdgeOn")
             pg.click("#cutEdgeGo")
             # 段3: confirmReplace は UIKit.dialog.confirm(動的に <dialog class="ui-dialog"> を作る。旧 #dlgConfirm ではない)
@@ -458,6 +616,7 @@ def main():
             sc = server_clips()
             check(srv.get("/api/settings").get("rowEdge", {}).get("on") is False and sc == [(0.5, 3.2), (4.0, 6.5), (11.0, 14.5)],
                   "広げない設定で「行から」: 残す行(行3・行5 はカット済)の時間のまま。設定はサーバーに保存: %s" % sc)
+            check(srv.get("/api/settings").get("rowEdge", {}).get("padAfter") == 0.35, "6-2: 「行から ▾」で保存しても padAfter(行の後の余白)は消えない: %s" % srv.get("/api/settings").get("rowEdge"))
             pg.click("#cutRowEdge summary")
             pg.check("#cutEdgeOn")
             pg.click("#cutRowEdge summary")

@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.29.0';
+const APP_VERSION = '0.30.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1489,7 +1489,7 @@ function saveDoc(){
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
-        if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); }
+        if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); if (CUT) CUT.refresh(); }   // 2 カット の字幕の段にも出す(段6 6-6)
         else { setSaveState('保存できません(5秒後にもう一度試します)', 'err'); toast('保存に失敗: ' + e.message, 3800, 'err'); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
         return false;
       }
@@ -1500,10 +1500,10 @@ function saveDoc(){
   return docSaveP;
 }
 $('#cfReload').addEventListener('click', async () => {
-  clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました');
+  clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました'); if (CUT) CUT.refresh();
 });
 $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
-  S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
+  S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc(); if (CUT) CUT.refresh();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
 /* ---------- 字幕の文字数(docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
@@ -1694,27 +1694,35 @@ function renderSpeakers(){
    積むときに操作の通し番号(seq)を付ける。1 文字起こし の「元に戻す」・Ctrl+Z は、2つの一番上を比べて新しい方を1つ戻す(2 カット のタブの Ctrl+Z はカットだけ) */
 let opSeq = 0;
 const nextOp = () => ++opSeq;
-function pushUndo(){
-  S.undo.push({ seq: nextOp(), snap: JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug }) }); if (S.undo.length > 30) S.undo.shift(); updateUndo();
+function pushUndo(seq){   // seq: 2 カット の字幕の段の1回の操作(行の時刻 + 残す区間)は、カットの元に戻すと同じ番号で積む(段6 6-4)
+  S.undo.push({ seq: seq || nextOp(), snap: JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug }) }); if (S.undo.length > 30) S.undo.shift(); updateUndo();
+}
+/* 一番上の控えが seq の操作なら、その1つを戻す(2 カット の Ctrl+Z から。段6 6-4)-> 戻したか */
+function undoDocIf(seq){
+  if (!S.doc || !seq || !S.undo.length || S.undo[S.undo.length - 1].seq !== seq) return false;
+  restoreUndo(); return true;
+}
+function restoreUndo(){
+  const navId = navSnapshot();
+  const d = JSON.parse(S.undo.pop().snap); S.doc.speakers = d.speakers; S.doc.segments = d.segments; S.sel.clear(); if (d.sug) S.sug = d.sug;
+  navRestore(navId, S.navIdx);
+  renderDoc(); renderChips(); updateUndo(); markDirty();
+  if (CUT) CUT.docChanged();   // 控えの行の「カット済」は古いことがある → 今のカットから付け直す(markDirty の 0.3 秒後を待たない)
 }
 function updateUndo(){
   const n = S.undo.length + (CUT && CUT.undoCount ? CUT.undoCount() : 0);   // ボタンの数 = 2つの合計
   $('#btnUndo').disabled = !n; $('#btnUndo').textContent = n ? `元に戻す(${n})` : '元に戻す';
 }
 /* only = 'tx': 文字起こしの側だけ(全行を校正済みにした知らせの「元に戻す」) */
-function doUndo(only){
+function doUndo(only, quiet){   // quiet: 2 カット のタブから(カットを戻した知らせは要らない)
   if (!S.doc || lockJob()) return;   // 処理中(話者判別・再認識など)はどちらも戻さない
   const tx = S.undo.length ? S.undo[S.undo.length - 1].seq : 0, ct = only !== 'tx' && CUT && CUT.undoTop ? CUT.undoTop() : 0;
-  if (ct && ct > tx){   // カットの方が新しい: カットを1つ戻す。1 文字起こし からは見えない変化なので知らせる
-    if (CUT.undo()) toast('カットを1つ戻しました(2 カット のタブの区間)', 2500);
+  if (ct && ct >= tx){   // カットの方が新しい: カットを1つ戻す(同じ番号 = 字幕の段の1回の操作なら、CUT.undo が文書も一緒に戻す。段6 6-4)。1 文字起こし からは見えない変化なので知らせる
+    if (CUT.undo() && ct > tx && !quiet) toast('カットを1つ戻しました(2 カット のタブの区間)', 2500);
     updateUndo(); return;
   }
   if (!S.undo.length) return;
-  const navId = navSnapshot();
-  const d = JSON.parse(S.undo.pop().snap); S.doc.speakers = d.speakers; S.doc.segments = d.segments; S.sel.clear(); if (d.sug) S.sug = d.sug;
-  navRestore(navId, S.navIdx);
-  renderDoc(); renderChips(); updateUndo(); markDirty();
-  if (CUT) CUT.docChanged();   // 控えの行の「カット済」は古いことがある → 今のカットから付け直す(markDirty の 0.3 秒後を待たない)
+  restoreUndo();
 }
 /* 開始/終了を、いまの再生位置にする(足した行の時刻を、聞きながら合わせるとき) */
 function setTimeNow(s, f){
@@ -2290,19 +2298,29 @@ $('#hiList').addEventListener('click', e => {
 });
 
 function doSplit(i, row){
-  const segs = S.doc.segments, s = segs[i], ta = row.querySelector('textarea');
+  const s = S.doc.segments[i], ta = row.querySelector('textarea');
   let pos = ta.selectionStart;
   if (!(pos > 0 && pos < s.text.length)) pos = Math.floor(s.text.length / 2);
   if (s.text.length < 2) return toast('短すぎて分割できません');
   const t = player().currentTime;
-  let cut = t > s.start + 0.3 && t < s.end - 0.3 ? t : s.start + (s.end - s.start) * pos / s.text.length;
+  const cut = t > s.start + 0.3 && t < s.end - 0.3 ? t : s.start + (s.end - s.start) * pos / s.text.length;
+  splitRowAt(i, pos, cut);
+}
+/* 行 i を文字の位置 pos・時刻 cut で2つに(1 文字起こし の分割と、2 カット の字幕の段の「再生位置でこの行を分ける」が共用。段6 6-5)。
+   話者・校正済み・メモは両方の行へそのまま。右の行は新しい id・flag は空。区間は変えない(カット済の印は区間から付け直す)-> 分けたか */
+function splitRowAt(i, pos, cut){
+  const segs = S.doc.segments, s = segs[i];
+  if (!s || !(pos > 0 && pos < s.text.length)) return false;
   cut = Math.round(cut * 100) / 100;
   const navId = navSnapshot();
   pushUndo();
   const left = { ...s, text: s.text.slice(0, pos).trimEnd(), end: cut };
   const right = { ...s, id: uid(), text: s.text.slice(pos).trimStart(), start: cut, flag: '' };
   segs.splice(i, 1, left, right); navRestore(navId, i); renderDoc(); markDirty();
+  return true;
 }
+/* 2 カット の字幕の段で行の時刻を直した(段6 6-3): 1 文字起こし のタブを描き直し、文書を保存する(markDirty → 0.7 秒後。CUT.docChanged も呼ばれる) */
+function rowChanged(){ if (!S.doc) return; renderDoc(); markDirty(); }
 /* ---------- v0.9.8: 行の追加(認識で抜けたセリフを書き足す) ----------
    時刻は前後の行の「すき間」に置く(すき間が 8 秒より長ければ 8 秒まで)。すき間が無いときは 1.5 秒の仮の長さで置き、重なりを案内する。
    並び順(開始時刻順)を必ず保つため、足したあと sortSegs() して id で位置を探し直す。原文(original)には何も足さないので、
@@ -3067,7 +3085,7 @@ function onCutSaved(r){
   onCutMarks(changed);
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
-const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
+const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
   c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
@@ -3077,7 +3095,7 @@ function onPacked(id, info){
   if (it){ Object.assign(it, { pack: { textplus: true, updatedAt: info.at }, packRev: info.rev, packAt: info.at, packStale: false }); renderList(); }
 }
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

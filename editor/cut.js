@@ -19,7 +19,7 @@ function create(h){
     docId: null, loading: 0, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '',
     sel: null, edge: null, io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0,
     peaks: null, peaksRate: 100, peaksAudio: true, peaksMsg: '', silence: [], planBeside: '', draftBusy: false, lastDraftSig: '',
-    pps: 0, fit: true, snap: true, vis: [0, 0], mode: 'cut', mediaFor: null, drag: null, rowFlags: [], shown: false, seekingOut: false
+    pps: 0, fit: true, snap: true, vis: [0, 0], mode: 'cut', mediaFor: null, drag: null, rdrag: null, rowFlags: [], shown: false, seekingOut: false
   };
   const V = () => $('#cutPlayer');
   /* ---------- フレームと秒 ---------- */
@@ -110,7 +110,13 @@ function create(h){
   }
   /* 積むときに操作の通し番号(app.js の nextOp。文字起こしの履歴と同じ番号)を付ける = 1 文字起こし の「元に戻す」が新しい方を選ぶ(段3 3-5)。やり直しも新しい番号 */
   const opSeq = () => (h.nextOp ? h.nextOp() : 0);
-  function undo(){ const u = M.undo.pop(); if (!u) return; M.redo.push({ clips: M.clips, origin: M.origin }); M.clips = u.clips; M.origin = u.origin; M.sel = null; afterChange(); }
+  /* 2 カット の Ctrl+Z・元に戻すボタン: 文書(行の時刻・分割)とカットのうち新しい方を戻す(app.js の doUndo と同じ順。段6 6-4。字幕の段からは文書も変えるため) */
+  function undoNewest(){ if (h.doUndo) h.doUndo(); else undo(); }
+  function undo(){
+    const u = M.undo.pop(); if (!u) return;
+    M.redo.push({ clips: M.clips, origin: M.origin }); M.clips = u.clips; M.origin = u.origin; M.sel = null; afterChange();
+    if (u.seq && h.undoDocIf && h.undoDocIf(u.seq)) h.toast('行の時刻と残す区間を戻しました', 2500);   // 字幕の段の1回の操作(行 + 区間)は同じ番号で積む(段6 6-4)→ 一緒に戻す
+  }
   function redo(){ const r = M.redo.pop(); if (!r) return; M.undo.push({ clips: M.clips, origin: M.origin, seq: opSeq() }); M.clips = r.clips; M.origin = r.origin; M.sel = null; afterChange(); }
 
   /* ---------- 読み込み(文書を開いたとき) ---------- */
@@ -118,7 +124,7 @@ function create(h){
     clearTimeout(M.saveT);
     Object.assign(M, { docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
       io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
-      planBeside: '', draftBusy: false, lastDraftSig: '', fit: true, mediaFor: null, drag: null, rowFlags: [] });
+      planBeside: '', draftBusy: false, lastDraftSig: '', fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
     const v = V(); v.pause(); v.removeAttribute('src'); v.load();
     renderSaveState();   // 競合の案内・保存の状態も初めに戻す(読み直したとき)
   }
@@ -205,6 +211,7 @@ function create(h){
   }
   async function flush(){
     if (M.drag) endDrag(true);
+    if (M.rdrag) endRowDrag(true);
     if (!M.dirty) return !(M.saving && !(await M.saving));
     return save();
   }
@@ -281,12 +288,16 @@ function create(h){
   function edgeSetting(){
     const v = (h.S.settings || {}).rowEdge, o = v && typeof v === 'object' ? v : {};
     const num = (x, dv) => { const n = Number(x); return Number.isFinite(n) && n >= 0 && n <= 2 ? n : dv; };
-    return { on: v !== false && o.on !== false, after: num(o.after, 0.5), before: num(o.before, 0.3) };
+    return { on: v !== false && o.on !== false, after: num(o.after, 0.5), before: num(o.before, 0.3), padAfter: num(o.padAfter, 0.2) };   // padAfter = 行の後の余白(段6 6-2。入口は 3 パック の詳しい設定)
   }
-  function fillEdge(){ const e = edgeSetting(); $('#cutEdgeOn').checked = e.on; $('#cutEdgeAfter').value = e.after; $('#cutEdgeBefore').value = e.before; $('#cutEdgeAfter').disabled = $('#cutEdgeBefore').disabled = !e.on; }
+  function fillEdge(){
+    const e = edgeSetting(); $('#cutEdgeOn').checked = e.on; $('#cutEdgeAfter').value = e.after; $('#cutEdgeBefore').value = e.before; $('#cutEdgeAfter').disabled = $('#cutEdgeBefore').disabled = !e.on;
+    const pad = $('#cutEdgePad'); if (pad) pad.textContent = '後 ' + e.padAfter + ' 秒';   // 値を出すだけ(変える入口は 3 パック の詳しい設定の1か所。guidelines 3)
+  }
   async function saveEdge(){
     const num = (id, dv) => { const n = Number($(id).value); return Number.isFinite(n) ? Math.min(2, Math.max(0, n)) : dv; };
-    h.S.settings.rowEdge = { on: $('#cutEdgeOn').checked, after: num('#cutEdgeAfter', 0.5), before: num('#cutEdgeBefore', 0.3) };
+    const cur = h.S.settings.rowEdge && typeof h.S.settings.rowEdge === 'object' ? h.S.settings.rowEdge : {};   // padAfter など、ここで扱わない値は残す
+    h.S.settings.rowEdge = { ...cur, on: $('#cutEdgeOn').checked, after: num('#cutEdgeAfter', 0.5), before: num('#cutEdgeBefore', 0.3) };
     fillEdge();
     try { await h.putSettings(); return true; } catch (e){ h.toast('設定を保存できませんでした: ' + e.message, 5000, 'err'); return false; }
   }
@@ -367,7 +378,6 @@ function create(h){
     let html = '';
     M.clips.forEach(([a, b], i) => { if (!(b < f0 || a > f1)) html += clipHTML(a, b, i); });
     $('#tlVideo').innerHTML = html + gapsHTML();
-    renderSel(true);
     const segs = h.S.doc ? h.S.doc.segments : [];
     let sh = '';
     for (let i = 0; i < segs.length; i++){
@@ -376,6 +386,7 @@ function create(h){
       sh += `<div class="tt-s${M.rowFlags[i] ? ' cut' : ''}" data-i="${i}" style="left:${X(a)}px;width:${Math.max(2, X(b) - X(a) - 2)}px" title="${esc(fmtF(a))} ${esc(g.text)}">${esc(g.text)}</div>`;
     }
     $('#tlSubs').innerHTML = sh;
+    renderSel(true);   // 区間と字幕の段の両方を描いてから(行のつまみは字幕の段の中)
     const io = $('#tlIO'), i0 = M.io.i, o0 = M.io.o;
     io.hidden = i0 === null && o0 === null;
     if (!io.hidden){
@@ -401,6 +412,16 @@ function create(h){
     } else if (M.sel && M.sel.kind === 'gap'){
       const el = [...box.querySelectorAll('.tt-x')].find(x => Number(x.dataset.a) === M.sel.a); if (el) el.classList.add('sel');
     }
+    const sb = $('#tlSubs');
+    sb.querySelectorAll('.sel').forEach(e => e.classList.remove('sel')); sb.querySelectorAll('.tt-rh').forEach(e => e.remove());
+    if (M.sel && M.sel.kind === 'row'){   // 字幕の段の行(段6 6-3): 選んだ行にだけ左右のつまみ(競合中・処理中は出さない = 6-6)
+      const el = sb.querySelector(`.tt-s[data-i="${M.sel.i}"]`);
+      if (el){
+        el.classList.add('sel');
+        if (rowEditable()) el.insertAdjacentHTML('beforeend', `<i class="tt-rh in${M.edge === 'in' ? ' on' : ''}" data-edge="in" title="行の始まりをドラッグ(前の行を越えない。端を選んで , . で1コマ)"></i><i class="tt-rh out${M.edge === 'out' ? ' on' : ''}" data-edge="out" title="行の終わりをドラッグ(次の行を越えない。端を選んで , . で1コマ)"></i>`);
+        else el.title = rowWhy() || el.title;
+      }
+    }
     if (!quiet){ renderStatus(); renderTools(); }
     cutKeybarScene();
   }
@@ -413,6 +434,8 @@ function create(h){
     const set = items => UIKit.keybar.set(items.filter(x => x.k));
     if (M.sel && M.sel.kind === 'clip' && M.edge) set([{ k: pk('frameBack'), l: '1コマ' }, { k: pk('frameFwd'), l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Esc', l: '選択を外す' }]);
     else if (M.sel && M.sel.kind === 'clip') set([{ k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Del', l: '削る' }, { k: 'S', l: '分割' }, { k: 'Esc', l: '選択を外す' }]);
+    else if (M.sel && M.sel.kind === 'row' && M.edge) set([{ k: pk('frameBack'), l: '行の端を1コマ' }, { k: pk('frameFwd'), l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: 'Esc', l: '選択を外す' }]);
+    else if (M.sel && M.sel.kind === 'row') set([{ k: 'Q / W', l: '行の始まり/終わりの端' }, { k: 'Esc', l: '選択を外す' }]);
     else set([{ k: pk('playPause'), l: '再生・停止' }, { k: '[ ]', l: '区間を選ぶ' }, { k: 'S', l: '分割' }, { k: 'Del', l: '削る/戻す' }, { k: pk('markIn'), l: '始まり' }, { k: pk('markOut'), l: '終わり' }, { k: 'Ctrl+Z', l: '元に戻す' }]);
   }
   /* タイムラインの下のキーの案内(今の割り当てから) */
@@ -582,6 +605,7 @@ function create(h){
     $('#cutTimeOut').textContent = fmtF(outFrame(f));
     $('#cutTotal').textContent = fmtF(keptFrames(M.clips));
     showCaption(t);
+    syncSplitBtn(t);
   }
   function keepHeadVisible(){
     const sc = scroller(), x = (V().currentTime || 0) * M.pps, w = viewW();
@@ -607,6 +631,12 @@ function create(h){
     let sel = '';
     if (M.sel && M.sel.kind === 'clip' && M.clips[M.sel.i]){ const [a, b] = M.clips[M.sel.i]; sel = `選んだ区間: <b>${M.sel.i + 1}</b> <span class="mono">${fmtF(a)} – ${fmtF(b)}</span>(${h.fmtCs(f2s(b - a))}秒)`; }
     else if (M.sel && M.sel.kind === 'gap'){ sel = `選んだ削る区間: <span class="mono">${fmtF(M.sel.a)} – ${fmtF(M.sel.b)}</span>(Del で戻す)`; }
+    else if (M.sel && M.sel.kind === 'row' && segAt(M.sel.i)){   // 字幕の段の行(段6 6-3・6-5)
+      const g = segAt(M.sel.i), can = canSplitRow(V().currentTime || 0);
+      sel = `選んだ行: <b>${M.sel.i + 1}</b> <span class="mono">${h.fmtCs(g.start)} – ${h.fmtCs(g.end)}</span>` +
+        ` <button type="button" class="btn small" data-act="rowsplit"${can ? '' : ' disabled'} title="${esc(can ? '再生位置(赤い線)でこの行を2つに分けます' : rowWhy() || '再生位置を行の中(端から 0.3 秒より内側)に置くと分けられます')}">再生位置でこの行を分ける</button>` +
+        (rowEditable() ? '' : ` <span class="hint">${esc(rowWhy())}</span>`);
+    }
     const snapTo = M.snap ? '吸い付く先: 字幕の行の端・無音の境目・再生位置・隣の区間の端(Alt を押している間は吸い付かない)' : '吸着: 切';
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
       (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作った下書き' : '動画全体の下書き'}。手で直すと保存します)</span>`
@@ -624,6 +654,7 @@ function create(h){
     $('#cutSnap').checked = M.snap;
     $('#cutModeSrc').setAttribute('aria-pressed', M.mode === 'src' ? 'true' : 'false'); $('#cutModeCut').setAttribute('aria-pressed', M.mode === 'cut' ? 'true' : 'false');
     $('#cutModePill').textContent = M.mode === 'cut' ? 'カット後の見え方' : '元の動画';
+    const dc = $('#cutDocConflict'); if (dc) dc.hidden = !(ok && h.S.conflict);   // 文字起こしの保存の競合は、このタブにも出す(段6 6-6。行の時刻はここからも変えるため)
   }
   /* 右の字幕の一覧(押すとその位置へ・行ごとの「削る/戻す」。文字は直さない) */
   let sq = 0;
@@ -690,6 +721,7 @@ function create(h){
   }
   function delOrRestore(){
     if (!M.sel) return h.toast('区間を押して選んでから(削る区間を選ぶと、戻せます)', 3000);
+    if (M.sel.kind === 'row') return h.toast('行の削除は 1 文字起こし のタブで。この行の時間をカットするなら右の一覧の「削る」', 3500);
     if (M.sel.kind === 'clip'){ const i = M.sel.i; change(cs => { cs.splice(i, 1); return cs; }); M.sel = null; render(); }
     else { const { a, b } = M.sel; change(cs => addRange(cs, a, b)); M.sel = null; render(); }
   }
@@ -721,6 +753,9 @@ function create(h){
     selectClip(i, null);
   }
   function pickEdge(edge){
+    if (M.sel && M.sel.kind === 'row' && segAt(M.sel.i)){   // 字幕の段の行の端(段6 6-3)
+      const g = segAt(M.sel.i); M.edge = edge; V().pause(); seekTo((edge === 'out' ? Math.max(g.start, g.end - frameSec()) : g.start) + 0.0005); render(); renderSel(); return;
+    }
     const i = M.sel && M.sel.kind === 'clip' ? M.sel.i : clipAt(headFrame());
     if (i < 0) return h.toast('[ ] で区間を選ぶか、残す区間の中に再生位置を置いてから', 3000);
     selectClip(i, edge);
@@ -735,6 +770,104 @@ function create(h){
     if (e === 'in'){ const lo = i > 0 ? cs[i - 1][1] : 0; f = Math.max(lo, Math.min(f, c[1] - 1)); if (f === c[0]) return false; c[0] = f; }
     else { const hi = i < cs.length - 1 ? cs[i + 1][0] : M.total; f = Math.min(hi, Math.max(f, c[0] + 1)); if (f === c[1]) return false; c[1] = f; }
     return true;
+  }
+  /* ---------- 字幕の段の行(段6 6-3〜6-6。docs/plan/phase6-edit-features.md)。文書の時刻を書き、残す行を外へ広げたら残す区間も広げる ---------- */
+  const segAt = i => (h.S.doc && Number.isInteger(i) ? h.S.doc.segments[i] : null);
+  const rowEditable = () => editable() && !h.S.conflict && !(h.lockJob && h.lockJob());
+  const rowWhy = () => !editable() ? '' : h.S.conflict ? '文字起こしの保存が競合しています(1 文字起こし の映像の上の案内から選んでください)' : (h.lockJob && h.lockJob()) ? '処理中(話者判別・再認識)のため、今は行を動かせません' : '';
+  const r2 = v => Math.round(v * 100) / 100;
+  function rowBounds(i, edge){   // フレーム。前後の行を越えない(重ならない)・長さは1フレーム以上
+    const segs = h.S.doc.segments, g = segs[i], a = s2f(g.start), b = s2f(g.end);
+    if (edge === 'in'){ const lo = i > 0 ? s2f(segs[i - 1].end) : 0; return [Math.min(lo, b - 1), b - 1]; }
+    const hi = i < segs.length - 1 ? s2f(segs[i + 1].start) : M.total; return [a + 1, Math.max(hi, a + 1)];
+  }
+  function startRowDrag(e, i, edge){
+    e.preventDefault(); e.stopPropagation();
+    const g = segAt(i); if (!g || !rowEditable()) return;
+    M.sel = { kind: 'row', i }; M.edge = edge;
+    const own = [s2f(g.start), s2f(g.end)];
+    M.rdrag = { i, edge, start: own[edge === 'in' ? 0 : 1], cur: null, targets: snapTargets(-1).filter(t => !own.includes(t)), bounds: rowBounds(i, edge), pid: e.pointerId };
+    try { e.target.setPointerCapture(e.pointerId); } catch {}
+    document.querySelectorAll('#tlSubs .tt-rh').forEach(x => x.classList.toggle('on', x.dataset.edge === edge));
+    cutKeybarScene();
+  }
+  function moveRowDrag(e){
+    const d = M.rdrag; if (!d) return;
+    const raw = frameFromEvent(e), s = snapFrame(raw, d.targets, e.altKey);
+    const f = Math.max(d.bounds[0], Math.min(d.bounds[1], s.f));
+    d.cur = f;
+    const g = segAt(d.i), a = d.edge === 'in' ? f : s2f(g.start), b = d.edge === 'out' ? f : s2f(g.end);
+    const el = document.querySelector(`#tlSubs .tt-s[data-i="${d.i}"]`);
+    if (el){ el.style.left = X(a) + 'px'; el.style.width = Math.max(2, X(b) - X(a) - 2) + 'px'; }
+    const tip = $('#tlTip'); tip.hidden = false; tip.style.left = X(f) + 'px';
+    const dlt = f2s(f - d.start);
+    tip.textContent = `行の${d.edge === 'in' ? '始まり' : '終わり'} ${fmtF(f)}(${dlt >= 0 ? '+' : ''}${dlt.toFixed(2)}秒)`;
+    const sn = $('#tlSnap'); sn.hidden = s.snapped === null || f !== s.snapped; if (!sn.hidden) sn.style.left = X(f) + 'px';
+  }
+  function endRowDrag(cancel){
+    const d = M.rdrag; if (!d) return;
+    M.rdrag = null; $('#tlTip').hidden = true; $('#tlSnap').hidden = true;
+    if (cancel === true || d.cur === null || d.cur === d.start){ render(); return; }
+    applyRowEdge(d.i, d.edge, d.cur);
+  }
+  /* 行の端を f(フレーム)に。文書の時刻(0.01 秒に丸める)を書き、残す行を外へ広げた分が削る区間に入るなら区間も足す(6-4。縮めても区間は変えない)。
+     1回の操作 = 文書の元に戻す(app.js)とカットの元に戻すに同じ番号で積む → Ctrl+Z で両方戻る。保存は編集の内容を先・文書を後(6-6) */
+  function applyRowEdge(i, edge, f){
+    const g = segAt(i); if (!g || !rowEditable()) return false;
+    const segs = h.S.doc.segments, old = edge === 'in' ? g.start : g.end;
+    let v = r2(f2s(f));
+    if (edge === 'in'){ const lo = i > 0 ? segs[i - 1].end : 0, hi = r2(g.end - 0.01); v = Math.min(hi, Math.max(Math.min(lo, hi), v)); }
+    else { const lo = r2(g.start + 0.01), hi = i < segs.length - 1 ? segs[i + 1].start : M.dur; v = Math.max(lo, Math.min(Math.max(hi, lo), v)); }
+    v = r2(v);
+    if (v === old){ render(); return false; }
+    const seq = opSeq();
+    h.pushUndo(seq);
+    if (edge === 'in') g.start = v; else g.end = v;
+    let widened = false;
+    if (!M.pristine && !M.rowFlags[i]){   // 残す行を外へ広げた分が削る区間に入るなら、その分だけ区間も足す(たたき台のままなら「行から」の作り直しに任せる)
+      const [p, q] = edge === 'in' ? [s2f(v), s2f(old)] : [s2f(old), s2f(v)];
+      if (q > p && gaps().some(([a, b]) => a < q && b > p)){
+        const before = M.clips.map(c => c.slice()), next = addRange(M.clips.map(c => c.slice()), p, q);
+        if (JSON.stringify(next) !== JSON.stringify(before)){
+          M.undo.push({ clips: before, origin: M.origin, seq }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = [];
+          M.clips = next; M.origin = 'manual'; widened = true;
+          M.dirty = true; save();   // 編集の内容を先に保存(文書は h.rowChanged → 0.7 秒後。文書の保存で行の印を新しい区間から付け直す)
+        }
+      }
+    }
+    h.rowChanged(i);   // 1 文字起こし のタブを描き直し、文書を保存(markDirty → CUT.docChanged)
+    syncRowCuts(); render();
+    if (widened) h.toast('行に合わせて残す区間も広げました(元に戻すで両方戻ります)', 3500);
+    return true;
+  }
+  function nudgeRowEdge(dir){
+    const i = M.sel.i, g = segAt(i); if (!g || !M.edge) return;
+    const [lo, hi] = rowBounds(i, M.edge), f = Math.max(lo, Math.min(hi, s2f(M.edge === 'in' ? g.start : g.end) + dir));
+    applyRowEdge(i, M.edge, f);
+  }
+  /* 行を分ける(6-5): 再生位置(行の端から 0.3 秒より内側)で。文字の分け目は時刻の比で決めた位置を初期値に、小さな欄で人が直して Enter */
+  function canSplitRow(t){ const g = M.sel && M.sel.kind === 'row' ? segAt(M.sel.i) : null; return !!(g && rowEditable() && String(g.text || '').trim().length >= 2 && t > g.start + 0.3 && t < g.end - 0.3); }
+  function syncSplitBtn(t){ const b = document.querySelector('#cutStatus [data-act=rowsplit]'); if (b){ const can = canSplitRow(t); if (b.disabled === can) b.disabled = !can; } }
+  function splitRow(){
+    if (!M.sel || M.sel.kind !== 'row') return;
+    const i = M.sel.i, g = segAt(i); if (!g) return;
+    if (!rowEditable()) return h.toast(rowWhy() || '行を選んでから', 3000);
+    const text = String(g.text || ''), t = V().currentTime || 0;
+    if (text.trim().length < 2) return h.toast('短すぎて分割できません', 2500);
+    if (!(t > g.start + 0.3 && t < g.end - 0.3)) return h.toast('再生位置(赤い線)を行の中(端から 0.3 秒より内側)に置いてから', 3000);
+    const cut = r2(t), pos = Math.max(1, Math.min(text.length - 1, Math.round(text.length * (cut - g.start) / (g.end - g.start))));
+    const dlg = $('#cutSplitDlg'), inp = $('#cutSplitText');
+    inp.value = text; $('#cutSplitAt').textContent = h.fmtCs(cut);
+    M.splitPending = { i, g, text, cut };   // Enter・「分ける」で commitSplit(dialog の close イベントは遅れて来るので、それには頼らない)
+    dlg.returnValue = ''; dlg.showModal(); inp.focus(); try { inp.setSelectionRange(pos, pos); } catch {}
+  }
+  function commitSplit(){
+    const sp = M.splitPending; M.splitPending = null; if (!sp) return;
+    const dlg = $('#cutSplitDlg'), inp = $('#cutSplitText'), p = inp.selectionStart, { i, g, text, cut } = sp;
+    if (dlg.open) dlg.close('ok');
+    if (!(p > 0 && p < text.length)) return h.toast('文字の中(先頭・末尾以外)にカーソルを置いて「分ける」を押してください', 3500);
+    if (M.docId !== h.S.docId || segAt(i) !== g) return h.toast('文書が変わったので分けませんでした', 3000);
+    if (h.splitRowAt(i, p, cut)){ M.sel = { kind: 'row', i: i + 1 }; M.edge = null; syncRowCuts(); render(); h.toast('行を2つに分けました(元に戻すで戻ります)', 2500); }
   }
   function zoom(k, anchorX){
     if (!ready()) return;
@@ -811,6 +944,8 @@ function create(h){
     bindMini();
     $('#tlContent').addEventListener('pointerdown', e => {
       if (!editable() || e.button !== 0) return;
+      const rh = e.target.closest('.tt-rh');
+      if (rh){ const s0 = rh.closest('.tt-s'); if (s0) startRowDrag(e, Number(s0.dataset.i), rh.dataset.edge); return; }   // 行のつまみ(字幕の段)は区間より先に見る
       const hd = e.target.closest('.tt-h');
       if (hd){ const k = hd.closest('.tt-k'); startDrag(e, Number(k.dataset.i), hd.dataset.edge); return; }
       const k = e.target.closest('.tt-k');
@@ -818,16 +953,21 @@ function create(h){
       const x = e.target.closest('.tt-x');
       if (x){ M.sel = { kind: 'gap', a: Number(x.dataset.a), b: Number(x.dataset.b) }; M.edge = null; renderSel(); sc.focus({ preventScroll: true }); return; }
       const s = e.target.closest('.tt-s');
-      if (s){ const g = h.S.doc.segments[Number(s.dataset.i)]; if (g) seekTo(g.start + 0.0005); return; }
+      if (s){ const i = Number(s.dataset.i), g = h.S.doc.segments[i]; if (g){ M.sel = { kind: 'row', i }; M.edge = null; seekTo(g.start + 0.0005); renderSel(); sc.focus({ preventScroll: true }); } return; }   // 行を選ぶ(段6 6-3)+ 頭へ
       // 目盛り・空いた所: 再生位置を動かす(ドラッグで動かし続ける)
       M.sel = null; seekTo(f2s(frameFromEvent(e)) + 0.0005); renderSel();
       const mv = ev => seekTo(f2s(frameFromEvent(ev)) + 0.0005), up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
       window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
       sc.focus({ preventScroll: true });
     });
-    window.addEventListener('pointermove', e => { if (M.drag) moveDrag(e); });
-    window.addEventListener('pointerup', () => { if (M.drag) endDrag(); });
-    window.addEventListener('pointercancel', () => { if (M.drag) endDrag(true); });
+    window.addEventListener('pointermove', e => { if (M.drag) moveDrag(e); else if (M.rdrag) moveRowDrag(e); });
+    window.addEventListener('pointerup', () => { if (M.drag) endDrag(); else if (M.rdrag) endRowDrag(); });
+    window.addEventListener('pointercancel', () => { if (M.drag) endDrag(true); else if (M.rdrag) endRowDrag(true); });
+    $('#cutStatus').addEventListener('click', e => { if (e.target.closest('[data-act=rowsplit]')) splitRow(); });
+    $('#cutSplitCancel').addEventListener('click', () => { M.splitPending = null; $('#cutSplitDlg').close(''); });
+    $('#cutSplitDlg').addEventListener('close', () => { if ($('#cutSplitDlg').returnValue !== 'ok') M.splitPending = null; });   // Esc で閉じた
+    $('#cutSplitDlg form').addEventListener('submit', e => { e.preventDefault(); commitSplit(); });   // 「分ける」ボタン
+    $('#cutDocConflictGo').addEventListener('click', () => { location.hash = '#tx'; });
     $('#cutSubs').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       const i = Number(b.closest('.tt-csub').dataset.i), g = h.S.doc && h.S.doc.segments[i]; if (!g) return;
@@ -838,7 +978,8 @@ function create(h){
     $('#cutSplit').addEventListener('click', split);
     $('#cutDel').addEventListener('click', delOrRestore);
     $('#cutIO').addEventListener('click', cutIO);
-    $('#cutUndo').addEventListener('click', undo);
+    $('#cutUndo').addEventListener('click', undoNewest);
+    $('#cutSplitText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); commitSplit(); } });   // Enter = 分ける(暗黙の送信に頼らない)
     $('#cutRedo').addEventListener('click', redo);
     $('#cutZoomIn').addEventListener('click', () => zoom(1.5));
     $('#cutZoomOut').addEventListener('click', () => zoom(1 / 1.5));
@@ -893,7 +1034,7 @@ function create(h){
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
     /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
-    onFrame: dir => { if (editable() && M.sel && M.sel.kind === 'clip' && M.edge) nudgeEdge(dir); else stepFrames(dir); return true; },
+    onFrame: dir => { if (editable() && M.sel && M.sel.kind === 'clip' && M.edge) nudgeEdge(dir); else if (M.sel && M.sel.kind === 'row' && M.edge && rowEditable()) nudgeRowEdge(dir); else stepFrames(dir); return true; },
     onKey: () => { moveHead(); keepHeadVisible(); }   // 共通キーは v.currentTime を直に書くので、タイムラインの追従はここで
   }) : null;
   function onKey(e){
@@ -901,7 +1042,7 @@ function create(h){
     if (h.menuHasKeys && h.menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作を優先する(GPT-04)
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undoNewest(); return; }
     if (ctrl && (k === 'y' || k === 'Y')){ e.preventDefault(); redo(); return; }
     if (ctrl || e.altKey) return;
     if (!ready()) return;
@@ -912,6 +1053,7 @@ function create(h){
     const fm = pkMap(), sc = e.shiftKey && window.UIKit && UIKit.keys ? UIKit.keys.comboOf(e) : '';
     const tenDir = !e.shiftKey ? 0 : (e.code === 'Comma' && fm.frameBack === ',') || (fm.frameBack && sc === 'Shift+' + fm.frameBack) ? -1 : (e.code === 'Period' && fm.frameFwd === '.') || (fm.frameFwd && sc === 'Shift+' + fm.frameFwd) ? 1 : 0;
     if (tenDir && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(tenDir * 10));
+    if (tenDir && M.sel && M.sel.kind === 'row' && M.edge && rowEditable()) return run(() => nudgeRowEdge(tenDir * 10));
     if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && e.target && e.target.closest && e.target.closest('#edTabs')) return;   // タブの並びの中は #edTabs 自身の ← → 処理(タブ切り替え)に任せる
     if (commonKeys && commonKeys(e)) return;
     switch (e.code){
@@ -948,6 +1090,7 @@ function create(h){
     const v = V(); if (!v.paused) v.pause();
     if (ready() && v.readyState >= 1){ const p = h.player(); if (p.readyState >= 1) p.currentTime = v.currentTime; }
     if (M.drag) endDrag();
+    if (M.rdrag) endRowDrag();
     save();
   }
 
@@ -957,6 +1100,8 @@ function create(h){
     active: () => ready(),
     refresh: () => render(),   // cut2resolve が使えるか分かったとき(たたき台のボタン)
     refreshCaption(){ capIdx = -2; if (ready()) showCaption(V().currentTime || 0); },   // 話者の色が変わったとき(app.js の onSpeakerColors。段2)
+    /* 3 パック の「行の後の余白」を変えたとき(段6 6-2): たたき台のまま(手で直していない)なら「行から」を作り直す(→ true)。手で直したカットは触らない(→ false) */
+    redraftPristine(){ if (!ready() || !M.pristine || !(M.origin === 'rows' || M.origin === 'all')) return false; M.lastDraftSig = ''; docChanged(); return true; },
     unload(){ M.loading++; reset(null); render(); },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },
@@ -964,7 +1109,7 @@ function create(h){
     fps(){ return M.fps; },
     /* 1 文字起こし の「元に戻す」から(段3 3-5): 一番上の操作の番号(使えないとき・空なら 0)・1つ戻す(戻したら true)・積んでいる数 */
     undoTop(){ return ready() && M.undo.length ? (M.undo[M.undo.length - 1].seq || 0) : 0; },
-    undo(){ if (!ready() || !M.undo.length) return false; if (M.drag) endDrag(); undo(); return true; },
+    undo(){ if (!ready() || !M.undo.length) return false; if (M.drag) endDrag(); if (M.rdrag) endRowDrag(true); undo(); return true; },
     undoCount(){ return ready() ? M.undo.length : 0; },
     /* 1 文字起こし の「1コマ」(段3 3-4 監査 15): t 秒から n コマ動いた時刻(フレームの境目 + 0.5ms。stepFrames と同じ丸め = 2 カット と同じ位置に止まる)。
        fps が分からない(読み込み前・動画が無い・音声だけ)・別の文書なら null */

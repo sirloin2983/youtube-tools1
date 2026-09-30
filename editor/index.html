@@ -1015,6 +1015,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-s{position:absolute;top:5px;height:24px;border-radius:5px;padding:0 6px;font:12px/24px var(--font-ui,inherit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   background:color-mix(in srgb,var(--info) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--info) 35%,transparent);color:var(--ink);cursor:pointer;box-sizing:border-box}
 .tt-s.cut{opacity:.45;text-decoration:line-through}
+.tt-s.sel{outline:2px solid var(--accent);outline-offset:-1px;overflow:visible;z-index:3}   /* 選んだ行(段6 6-3。つまみを外に出すので overflow は visible) */
+.tt-rh{position:absolute;top:-4px;width:9px;height:32px;background:var(--panel);border:2px solid var(--accent);border-radius:3px;cursor:ew-resize;box-sizing:border-box;z-index:4}
+.tt-rh.in{left:-5px}.tt-rh.out{right:-5px}
+.tt-rh:hover,.tt-rh.on{background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
 .tt-tl-head{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--playhead);pointer-events:none;z-index:4}
 .tt-tl-head::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top-color:var(--playhead)}
 .tt-tl-io{position:absolute;top:26px;bottom:0;background:color-mix(in srgb,var(--warn) 16%,transparent);border-left:2px dashed var(--warn);border-right:2px dashed var(--warn);pointer-events:none;z-index:2;box-sizing:border-box}
@@ -1473,6 +1477,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
    <section class="tt-tabpanel" id="tabCut" role="tabpanel" aria-labelledby="edtab-cut" data-edpanel="cut" hidden>
      <!-- 2 カット(docs/design/edit-tool-design.md の 3。cut.js)。区間はタイムラインで手で決める。たたき台の規則はサーバー・cut2resolve -->
      <div class="notice tt-cut-off" id="cutOff" hidden role="status"><span id="cutOffMsg"></span><button type="button" class="btn small" id="cutRelink" hidden>動画を選び直す</button><button type="button" class="btn small" id="cutRetry" hidden>もう一度読み込む</button></div>
+     <div class="notice err" id="cutDocConflict" hidden role="alert"><b>文字起こしの保存が競合しています。</b>字幕の段の行の時刻は、今は動かせません。<b>1 文字起こし</b> のタブの映像の上の案内(読み直す / 上書き)から選んでください。
+       <button type="button" class="btn small" id="cutDocConflictGo">1 文字起こし へ</button></div>
      <div class="notice err" id="cutConflict" hidden role="alert"><b>別のタブか窓で、先にカットが保存されています。</b>自動保存は止めています。
        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="cutReload">保存されているカットを読み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cutForce">この画面のカットで上書きする</button></div></div>
      <div class="tt-cut-top">
@@ -1503,7 +1509,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
        <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)">▾</summary><div class="vpop">
          <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>
-         <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・後 0.2 秒。カット済の行は越えません</p>
+         <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は <b>3 パック</b> の「詳しい設定」で変えられます)。カット済の行は越えません</p>
          <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
          <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
          <p class="hint">この設定は、zip・まとめて実行(カットの無い文書)にも使います</p>
@@ -1623,6 +1629,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"></div>
              <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"></div>
              <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
+               <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip・まとめて実行(カットの無い文書)に効きます。前の余白 0.1 秒は変わりません</span>
+               <span class="hint" id="pkPadAfterNote"></span></div>
              <div class="fld"><label for="pkFpsOther">その他のフレームレート(置き先)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
                <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
@@ -1645,13 +1654,21 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 </main>
 </div>
 <div class="tt-scrim" id="menuScrim" aria-hidden="true"></div>
+<dialog id="cutSplitDlg" aria-labelledby="cutSplitT">
+  <form method="dialog">
+    <div class="ui-dlg-head"><h2 id="cutSplitT">行を分ける</h2></div>
+    <p class="hint" style="margin:0 0 8px">再生位置 <span class="mono" id="cutSplitAt"></span> で2つに分けます。文字の分け目にカーソルを置いて「分ける」(Enter)。文字はここでは直せません</p>
+    <input id="cutSplitText" type="text" readonly style="width:100%" aria-label="行の文字(分け目にカーソルを置く)">
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button type="button" class="btn" id="cutSplitCancel">キャンセル</button><button type="submit" class="btn primary" value="ok">分ける</button></div>
+  </form>
+</dialog>
 <dialog id="keys" aria-labelledby="keysT">
   <div class="ui-dlg-head"><h2 id="keysT">キー操作の一覧</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc・?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
   <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap。⚙ 設定の「キー配置」と同じ部品) -->
   <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- 段3 3-4。renderFpsNote() -->
   <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
-  <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。</p>
+  <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>
 </dialog>

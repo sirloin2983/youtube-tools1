@@ -94,6 +94,23 @@ def main():
             check(True, "置き先を 60fps にすると注意は消える")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1080x1920']")
+            # ---- 段6 6-2(B-1): 詳しい設定の「行の後の余白」→ 設定 rowEdge.padAfter に保存。手で直したカットには効かない(案内)。要約には既定と違うときだけ
+            pg.click("#pkMore summary")
+            check(pg.input_value("#pkPadAfter") == "0.2", "行の後の余白の既定は 0.2 秒: " + pg.input_value("#pkPadAfter"))
+            pg.fill("#pkPadAfter", "0.5")
+            pg.press("#pkPadAfter", "Tab")
+            deadline = time.time() + 10
+            while time.time() < deadline and (srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") != 0.5:
+                time.sleep(0.2)
+            check((srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.5, "6-2: 設定 rowEdge.padAfter に保存される: %s" % srv.get("/api/settings").get("rowEdge"))
+            check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('行の後の余白 0.5秒') >= 0", 5000), "要約に「行の後の余白 0.5秒」(既定と違うときだけ): " + pg.inner_text("#pkSummaryText"))
+            check("手で直したカットには効きません" in pg.text_content("#pkPadAfterNote"), "手で決めたカットの文書では、効かないと案内する: " + pg.text_content("#pkPadAfterNote"))
+            pg.fill("#pkPadAfter", "0.2")
+            pg.press("#pkPadAfter", "Tab")
+            deadline = time.time() + 10
+            while time.time() < deadline and (srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") != 0.2:
+                time.sleep(0.2)
+            check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('行の後の余白') < 0", 5000), "既定に戻すと要約から消える")
             # パックの音量(2026-09-29): 「音量を % で決める」を選ぶと % の欄が出て、編集の設定(送ったキーだけ)に残る。既定は 0.26.1(2026-10-01)から「% で決める・30%」(以前は -14 LUFS)
             check(pg.input_value("#pkLoud") == "0" and pg.is_visible("#pkVolBox") and pg.input_value("#pkVol") == "30", "音量の既定は「%% で決める」・30%%(0.26.1): %s / %s" % (pg.input_value("#pkLoud"), pg.input_value("#pkVol")))
             pg.select_option("#pkLoud", "0")

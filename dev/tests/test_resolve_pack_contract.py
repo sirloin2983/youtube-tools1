@@ -670,6 +670,52 @@ class RowEdgeContract(unittest.TestCase):
         self.assertGreater(seen["widened"], 20, seen)
         self.assertGreater(seen["silence"], 5, seen)
 
+    def test_widening_contract_pad_after(self):
+        """padAfter 0.4(無音が無いときの後ろの余白を 0.2 → 0.4 秒に)でも契約は同じ: 上限は後 0.5 秒のまま(0.4 は上限の中なので after は上がらない)・
+        広げる前の区間を含む・カット済の行に入らない・字幕の数と文字は同じ。既定の件(test_widening_contract)は変えない"""
+        edge = pack.row_edge_from({"padAfter": 0.4})
+        self.assertEqual((edge.pad_after, edge.after, edge.pad_before, edge.before), (0.4, 0.5, 0.1, 0.3))
+        rnd = random.Random(20261001)
+        seen = {"pad": 0, "silence": 0}   # 空振りで通らないように(0.4 秒の余白が付いた端・無音の所で止まった端があったか)
+        for fps_text in ("30", "29.97", "60"):
+            video = self.gappy(fps_text)
+            for n in range(25):
+                rows, t = [], rnd.choice([0.0, 0.3])
+                for i in range(rnd.randint(1, 12)):
+                    t += rnd.choice([0.0, 0.02, 0.1, 0.4, 1.2])
+                    a, b = round(t, 2), round(t + rnd.choice([0.12, 0.3, 0.6, 0.9, 2.16]), 2)
+                    if b > VIDEO_SEC - 0.5:
+                        break
+                    rows.append(seg(i, a, b, rnd.choice(["はい", "こんばんは", "え", "  "]), cut=rnd.random() < 0.3))
+                    t = b
+                if not any(r["text"].strip() and r.get("cutState") != "cut" for r in rows):
+                    continue
+                doc = {"title": "契約", "sourcePath": video, "whole": True, "duration": VIDEO_SEC, "segments": rows}
+                with self.subTest(fps=fps_text, n=n):
+                    tr = self.write_v1(doc)
+                    wide = pack.plan_cut(pack.Request(video=Path(video), transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=edge)),
+                                         cache=self.cache)
+                    narrow = pack.plan_cut(pack.Request(video=Path(video), transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)),
+                                           cache=self.cache)
+                    fps, total = wide.meta["fps"], wide.meta["total"]
+                    f = lambda sec: pack.C.sec_to_frames(sec, fps)   # noqa: E731
+                    for a, b in narrow.keeps:
+                        self.assertTrue(any(x <= a and b <= y for x, y in wide.keeps), "広げる前の区間 %r が消えた %r" % ((a, b), rows))
+                    for x, y in wide.keeps:
+                        inside = [(a, b) for a, b in narrow.keeps if x <= a and b <= y]
+                        self.assertTrue(inside, "広げる前に無かった区間 %r %r" % ((x, y), rows))
+                        self.assertGreaterEqual(x, inside[0][0] - f(0.3), rows)
+                        self.assertLessEqual(y, inside[-1][1] + f(0.5), rows)   # 余白 0.4 でも後 0.5 秒まで
+                    cut_only = pack._cut_row_frames(pack.C.read_transcript(tr)["rows"], fps, total)
+                    self.assertEqual(pack.C.subtract(cut_only, [tuple(k) for k in wide.keeps]), pack.C.normalize(cut_only, total),
+                                     "カット済の行の時間に入った %r" % rows)
+                    self.assertEqual([c[2] for c in wide.cues_out], [c[2] for c in narrow.cues_out])
+                    ends = {b for _, b in narrow.keeps}
+                    seen["pad"] += sum(1 for _, y in wide.keeps if (y - f(0.4)) in ends)
+                    seen["silence"] += sum(1 for _, y in wide.keeps if y not in ends and (y - f(0.4)) not in ends)
+        self.assertGreater(seen["pad"], 5, seen)
+        self.assertGreater(seen["silence"], 5, seen)
+
     def test_rowedge_false_is_legacy(self):
         d = {"title": "契約", "sourcePath": self.gappy("30"), "whole": True, "duration": VIDEO_SEC,
              "segments": [seg(1, 0.2, 0.5, "a"), seg(2, 1.5, 1.9, "b"), seg(3, 2.0, 2.3, "c", cut=True)]}

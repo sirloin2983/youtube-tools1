@@ -195,7 +195,9 @@ def default_out_dir(video):
 
 def row_edge_from(v):
     """画面・設定の指定 → RowEdge か None(広げない)。None・True = 既定(ROW_EDGE)、False・{"on": false} = 広げない、
-    {"after": 秒, "before": 秒} = 上限を変える(0〜ROW_EDGE_MAX 秒)。形が違えば ToolError"""
+    {"after": 秒, "before": 秒} = 上限を変える(0〜ROW_EDGE_MAX 秒)、{"padAfter": 秒} = 無音が見つからないときの終わりの余白を変える(0〜ROW_EDGE_MAX 秒。
+    始まりの余白 pad_before は変えない)。padAfter が after より大きいときは after も padAfter まで上げる(決まった余白も上限の中に収めるため。
+    上げないと上限より長い余白が効かない)。形が違えば ToolError"""
     if v is None or v is True:
         return ROW_EDGE
     if v is False:
@@ -208,6 +210,10 @@ def row_edge_from(v):
     for key, what in (("after", "終わりを広げる上限"), ("before", "始まりを広げる上限")):
         if v.get(key) not in (None, ""):
             kw[key] = _finite(v[key], what + "(秒)", 0, ROW_EDGE_MAX)
+    if v.get("padAfter") not in (None, ""):
+        pad = _finite(v["padAfter"], "終わりの余白(秒)", 0, ROW_EDGE_MAX)
+        kw["pad_after"] = pad
+        kw["after"] = max(kw.get("after", ROW_EDGE.after), pad)   # 余白は上限の中(widen_row_edges)なので、上限も余白まで上げる
     return dataclasses.replace(ROW_EDGE, **kw)
 
 

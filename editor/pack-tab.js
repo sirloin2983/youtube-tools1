@@ -26,6 +26,7 @@ function create(h){
   const wrapOf = () => { const w = (h.S.settings.subtitle || {}).wrapChars || {}, o = sizeOf() === '1920x1080' ? 'horizontal' : 'vertical', n = Number(w[o]);
     return Number.isInteger(n) && n >= 0 && n <= 40 ? n : (o === 'horizontal' ? 14 : 8); };
   const kept = g => g.cutState !== 'cut' && String(g.text || '').trim();
+  const padOf = () => { const o = h.S.settings.rowEdge && typeof h.S.settings.rowEdge === 'object' ? h.S.settings.rowEdge : {}, n = Number(o.padAfter); return Number.isFinite(n) && n >= 0 && n <= 2 ? n : 0.2; };   // 行の後の余白(段6 6-2)
   const previewKeyNow = () => JSON.stringify(h.CUT ? h.CUT.keepsSec() : null) + '|' + h.rowSig() + '|' + wrapOf();   // 見積もりの鍵(残す区間・行の文字・字幕の1段の文字数(縦横で変わる))。同じなら出し直さない
 
   /* 今の出力の設定(段4 4-3)。パックを作る API に渡す物と、作った記録(/api/edit/pack の output)と、前回のパックとの違いは、ここ1か所から作る */
@@ -253,6 +254,8 @@ function create(h){
     if (document.activeElement !== $('#pkRender')) $('#pkRender').checked = h.S.settings.packRender === true;   // 粗編集の動画つきも覚える(段4 4-2。監査 09。設定は config.json なので別の窓・ブラウザでも同じ)
     if ($('#pkRender').checked) bits.push('粗編集の動画つき');
     bits.push(loudOf() ? `音量 ${loudOf()} LUFS` : `音量 ${volOf()}%`);
+    if (!padT && document.activeElement !== $('#pkPadAfter')) $('#pkPadAfter').value = String(padOf());   // 保存を待つ間は書き戻さない
+    if (padOf() !== 0.2) bits.push(`行の後の余白 ${padOf()}秒`);   // 既定と違うときだけ(覚えている設定だけを出す。監査 09)
     if (document.activeElement !== $('#pkLoud')) $('#pkLoud').value = String(loudOf());
     if (document.activeElement !== $('#pkVol')) $('#pkVol').value = String(volOf());
     $('#pkVolBox').hidden = loudOf() !== 0;
@@ -361,6 +364,22 @@ function create(h){
   $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
   $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
+  /* 行の後の余白(段6 6-2・B-1): 設定 rowEdge.padAfter(規則は cut2resolve の pack.py row_edge_from。「行から」のたたき台・zip・まとめて実行に効く。変える入口はここ1か所) */
+  let padT = 0;
+  $('#pkPadAfter').addEventListener('change', () => { const raw = $('#pkPadAfter').value; clearTimeout(padT); padT = setTimeout(() => { padT = 0; savePad(raw); }, 800); });   // 打つたびに「行から」を作り直さない(無音の検出は重い)。値はそのとき読む(待つ間に render が欄を書き戻すため)
+  async function savePad(rawText){
+    const raw = Number(rawText), before = padOf();
+    if (!Number.isFinite(raw) || raw < 0 || raw > 2){ h.toast('行の後の余白は 0〜2 秒で入れてください', 4000, 'err'); $('#pkPadAfter').value = String(before); return; }
+    const v = Math.round(raw * 100) / 100;
+    if (v === before) return;
+    const cur = h.S.settings.rowEdge && typeof h.S.settings.rowEdge === 'object' ? h.S.settings.rowEdge : { on: h.S.settings.rowEdge !== false, after: 0.5, before: 0.3 };
+    h.S.settings.rowEdge = { ...cur, padAfter: v };
+    try { await h.putSettings(); }
+    catch (e){ h.S.settings.rowEdge = cur; $('#pkPadAfter').value = String(before); h.toast('設定を保存できませんでした: ' + e.message, 5000, 'err'); return; }   // 保存できなければ欄も元へ(zip・まとめて実行は保存済みの設定を読む)
+    const redo = h.CUT && h.CUT.redraftPristine ? h.CUT.redraftPristine() : false;
+    $('#pkPadAfterNote').textContent = redo ? '「行から」のたたき台を作り直します(区間の終わりが変わります)' : '手で直したカットには効きません。2 カット の「行から」でたたき台を作り直すと効きます(zip・まとめて実行には効きます)';
+    render();
+  }
   $('#pkBuild').addEventListener('click', build);
   $('#pkBackup').addEventListener('change', () => saveLoud({ packBackup: $('#pkBackup').checked }));
   $('#pkRender').addEventListener('change', () => saveLoud({ packRender: $('#pkRender').checked }));   // 覚える(4-2)

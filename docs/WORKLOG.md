@@ -2363,3 +2363,25 @@
 - `docs/ROADMAP.md`: 2 の先頭を「4つの線」に・線 C の下に線 D の節(形・律速 = P0・線 A との重なり = P3 は studio/ の段と同時にしない・決定済みと未確定)・8 の索引に1行。`docs/plan/line-a-after-phase8.md` の 1 に線 D との関係を1行
 - ROADMAP は前と同じく私の変更だけを index に入れてコミット(段5 のセッションの未コミットの差分は作業ツリーに残したまま)
 - 未コミット: なし(私の分)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet)— 線 A 段6「編集の機能を足す」(編集 0.30.0・cut2resolve 0.16.0)
+- 計画: `docs/plan/phase6-edit-features.md`(状態を「済み」に)。ユーザーの指示で始める前に計画を読み直した(順番は 段6 → 段9 → 段10 → 線 B 段1・2 → 線 C → 12 → 8 → 15)。実装で決めた細部は `docs/design/edit-tool-design.md` の 11「段6」
+- 6-1(Sonnet。B-1a): `cut2resolve/pack.py` の `row_edge_from` に `padAfter`(0〜ROW_EDGE_MAX。bool・文字・範囲外は ToolError。`padAfter` > `after` なら `after` も上げる。`on:false` なら広げない。無ければ今までどおり 0.2)。
+  cut2resolve 0.15.1 → **0.16.0**(設定の形が増えた)。テスト: `test_pack.py`(row_edge_from・決まった余白 0.4/1.0)・`test_serve.py`(spec.rowEdge.padAfter)・契約テスト `RowEdgeContract.test_widening_contract_pad_after`(乱数 75 文書。既定の件は変えない)。`docs/design/edit-tool-design.md` 12 ⑥ の設定の形
+- 6-2(B-1b): 3 パック の「詳しい設定」に「行の後の余白(秒)」`#pkPadAfter`(`pack-tab.js` の `savePad`: change の 0.8 秒後に `putSettings`。失敗なら欄も元へ。値は change のときに読む = 待つ間に render が欄を書き戻すため)。
+  たたき台のまま(pristine)なら `CUT.redraftPristine()` で「行から」を作り直し、手で直したカットには「効きません」の案内。要約は既定(0.2)と違うときだけ「行の後の余白 0.5秒」。
+  2 カット の「行から ▾」は値を出すだけ(`#cutEdgePad`。変える入口は1か所 = guidelines 3)、`saveEdge` は `padAfter` を残す
+- 6-3(B-2a): 字幕の段の行を押して選ぶ(`M.sel = {kind:'row'}`)→ 左右のつまみ `.tt-rh`(競合中・処理中は出さない)。ドラッグ・Q / W で端を選んで , .(Shift で 10 コマ)。前後の行を越えない・1フレーム以上。放したら 0.01 秒に丸めて文書に(`applyRowEdge` → `h.rowChanged` = renderDoc + markDirty)
+- 6-4(B-2b): 残す行を外へ広げた分が削る区間に入るときだけ `addRange` で区間も足す(縮めても変えない・たたき台のままなら作り直しに任せる・知らせる)。
+  1回の操作 = 文書の元に戻す(`pushUndo(seq)`)とカットの元に戻すに同じ番号。2 カット の Ctrl+Z・元に戻すボタンは app.js の `doUndo`(新しい方を戻す)に任せ、カットを戻すときは `undoDocIf(seq)` で同じ番号の文書の控えも戻す
+- 6-5(B-2c): 行を選ぶと「再生位置でこの行を分ける」(端から 0.3 秒より内側のときだけ)。dialog `#cutSplitDlg`(読み取り専用の欄でカーソル = 分け目。初期値は時刻の比)→ `app.js` の `splitRowAt`(1 文字起こし の `doSplit` と共用)。
+  **dialog の close イベントは遅れて来る**(Playwright で 5 回中 2 回ずれた)ので、Enter・「分ける」で `commitSplit` をその場で呼ぶ形に。キーは足していない
+- 6-6(B-2d): 区間を足したときは編集の内容 `save()` を先に、文書は markDirty の 0.7 秒後。文書の競合(`S.conflict`)・処理中の鍵の間はつまみと「分ける」を出さず、カットのタブにも `#cutDocConflict`(1 文字起こし へのボタン)。app.js は競合の変化で `CUT.refresh()`。サーバーの API は変えていない
+- 版: 編集 0.29.0 → **0.30.0**(serve.py・app.js・README・`editor/AGENTS.md`)。入口・スタジオ・ui-kit は変えていない
+- テスト(すべて通過): cut2resolve 3 組(301)・契約テスト(34。単独)・editor の単体一式・`node --test editor/tests/test_document_save.cjs`・
+  e2e `editor/tests/e2e_edit_cut.py`(108 OK。6-2〜6-6 の確認を足した: 行のドラッグ +0.20 秒・区間も広がる・, で縮めても区間は変えない・Ctrl+Z で両方戻る・次の行を越えない・分ける・競合の案内・パックの引き出しの余白 → 行から ▾ の表示と保存)・
+  `e2e_edit_pack.py`(6-2: padAfter の保存・要約・手で直したカットの案内)・`e2e_edit_tabs.py`・`e2e_ui_mounted.py`
+- 気づき: e2e の「保存を待つ」は `#saveState` の文字ではなく `data-state === 'ok'` で見る(直前の「保存しました」の文字が残る)。`S` は page.evaluate から見えない(app.js の const は別スコープ)
+- 文書: `docs/ROADMAP.md`(版・段6 の行「済み」・B-1/B-2 の表・3 に段6 の実機の確認)・`docs/HANDOVER.md`(版)・`docs/design/edit-tool-design.md` 11・`cut2resolve/README.txt`
+- 未完了・次: 段9(運用の安定化。`docs/plan/line-a-after-phase8.md` の 5 から細かい計画 `phase9-*.md` を先に作る)。段9 は「決めてもらうこと」(片付けの対象・依頼の受付の上限)がある
+- 未コミット: なし(このあとコミット)

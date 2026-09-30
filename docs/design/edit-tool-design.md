@@ -289,6 +289,16 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
   5. 段階7(窓で開く)と画面の見直しの実機確認(以前からのお願い)
 - 残り(未決の 10 の3・4 番目): 複数の切り抜きをつなげる画面・字幕のトラックでの時刻の直し。ユーザーが言い出したときに
 
+### 段6 字幕の段の行の時刻・分割と「行の後の余白」(2026-10-01 Claude Code。`docs/plan/phase6-edit-features.md`)
+- 「行の後の余白」は 3 パック の「詳しい設定」の1か所で変える(設定 `rowEdge.padAfter`。規則は cut2resolve の `pack.row_edge_from`: 無音が見つからないときの決まった余白だけ。`padAfter` が `after` より大きければ `after` も上げる)。
+  2 カット の「行から ▾」は値を出すだけ。`saveEdge` は `padAfter` を残す。たたき台のまま(pristine)なら `CUT.redraftPristine()` で「行から」を作り直し、手で直したカットには効かないと案内する
+- 字幕の段の行: 押すと選ぶ(`M.sel = {kind:'row', i}`。頭へ移るのは今までどおり)。選んだ行にだけつまみ `.tt-rh`。ドラッグ・Q / W + , .(Shift で 10 コマ)で端を動かす(前後の行を越えない・長さは1フレーム以上。吸い付く先は区間の端と同じ)。
+  放したら 0.01 秒に丸めて文書の `start`/`end` を書き(`applyRowEdge`)、`h.rowChanged` で 1 文字起こし を描き直して保存する
+- 残す行を外へ広げた分が削る区間に入るときだけ、その分だけ区間を足す(`addRange`)。縮めても区間は変えない。たたき台のまま(pristine)なら区間は触らず「行から」の作り直しに任せる。広げたことは知らせる
+- 1回のドラッグ = 文書の元に戻す(`pushUndo(seq)`)とカットの元に戻す(`M.undo` の `seq`)に**同じ番号**で積む。2 カット の Ctrl+Z・元に戻すボタンは `h.doUndo`(app.js。文書とカットの新しい方を戻す)に任せ、カットを戻すときは `undo` のあと `h.undoDocIf(seq)` で同じ番号の文書の控えも戻す。1 文字起こし の「元に戻す」も番号が同じなら CUT.undo に任せる。やり直し(Ctrl+Y)は区間だけ(文書のやり直しは元から無い)
+- 行を分ける: 行を選ぶと「再生位置でこの行を分ける」(再生位置が端から 0.3 秒より内側のときだけ押せる)。小さな dialog `#cutSplitDlg`(読み取り専用の欄でカーソルの位置 = 文字の分け目。初期値は時刻の比。Enter・「分ける」で `commitSplit` をその場で呼ぶ = dialog の close イベントは遅れて来るので頼らない)→ `app.js` の `splitRowAt(i, pos, cut)`(1 文字起こし の `doSplit` と共用)。キーは足さない(S は区間の分割のまま)
+- 保存の順番: 区間を足したときは編集の内容(`save()`)を先に送り、文書は `markDirty` の 0.7 秒後(文書の保存で行の印を新しい区間から付け直す)。文書の保存の競合(`S.conflict`)と処理中の鍵(`lockJob`)の間は、つまみと「分ける」を出さず、カットのタブにも `#cutDocConflict` の案内(1 文字起こし へのボタン)。サーバーの API は変えていない(`POST /api/edit/rows` のような1回で両方を書く API は作らない)
+
 ## 12. 追加機能(ユーザー 2026-09-26)
 ユーザーの指示は「11. 追加機能」だったが、11 は「実装で決めたこと」(AGENTS.md から参照)で使っているので 12 にした。
 実装で決めた細かい点は、この節の各項目の下の「実装で決めたこと」に書き足す。
@@ -358,7 +368,7 @@ Whisper の単語の時刻は、始まりが遅く・終わりが早く出やす
   広げて重なった・接した区間は1つに。0〜動画の長さ。音声の無い動画は広げない(声が無い)。無音を調べられなければ決まった余白で広げて注意
 - 無音は `cut2resolve_core.detect_silence(noise, min_sil, pad 0)`。画面用の `pack.Cache` に覚える。`pack.row_edge_pending(req, cache)` = まだ調べていないか(SLOTS を通すかの判断)、
   `pack.without_detect(req)` = 調べずに決まった余白だけ
-- 設定: 文字起こしの設定(`/api/settings`)の `rowEdge`(`{on, after, before}`。`pack.row_edge_from` が読む。読めない値は既定にして注意)。
+- 設定: 文字起こしの設定(`/api/settings`)の `rowEdge`(`{on, after, before, padAfter}`。`padAfter` = 無音が無いときの後ろの決まった余白の秒(既定 0.2。0〜2。`after` より大きければ `after` も上げる。前の余白 0.1 秒は決め打ち)。`pack.row_edge_from` が読む。読めない値は既定にして注意)。
   「編集」の 2 カット の「行から ▾」で変える。下書き・「行から」・zip(カットの無い文書)・まとめて実行(カットの無い文書。cut2resolve の `spec.rowEdge` に渡す)が同じ設定を使う。
   cut2resolve の API は `spec.rowEdge`(preset transcript-rows・keepSource transcript)、コマンドは `--no-row-edge`
 - **下書き `/api/edit/draft` は、カットが保存済みの文書では「行から」を計算しない**(開くたびに動画の音声を全部読まないように。`rows=1` = 「行から」のボタン・下書きの作り直しのときだけ)。

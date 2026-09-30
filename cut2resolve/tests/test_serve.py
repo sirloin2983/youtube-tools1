@@ -464,6 +464,16 @@ class TestJobs(ServerBase):
         st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
                                                            "rowEdge": {"after": 9}}})
         self.assertEqual((st, j["error"]), (400, "bad_value"))
+        # padAfter: 無音が見つからない端(3 行目の後ろ)の決まった余白だけ 0.2 → 0.4 秒(6 → 12 フレーム)。無音で止まる端は変わらない
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
+                                                "rowEdge": {"padAfter": 0.4}}})
+        self.assertEqual(j["result"]["keeps"], [[12, 60], [252, 297]])
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
+                                                "rowEdge": {"on": False, "padAfter": 0.4}}})
+        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # オフなら広げない
+        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
+                                                           "rowEdge": {"padAfter": 3}}})
+        self.assertEqual((st, j["error"]), (400, "bad_value"))
         self.assertEqual(r["subtitles"]["source"], "transcript")
         self.assertEqual(len(r["transcriptRows"]), 3)
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "list", "listKind": "drop",

@@ -1118,6 +1118,8 @@ class TestRowEdgeRule(unittest.TestCase):
         self.assertEqual(self.w([(100, 200)], []), [(97, 206)])        # BGM が続く(無音が無い)
         self.assertEqual(self.w([(100, 200)], None), [(97, 206)])      # 調べていない(detect=False・調べられない)
         self.assertEqual(self.w([(100, 200)], [], edge=pack.row_edge_from({"after": 0.1, "before": 0})), [(100, 203)])   # 余白も上限の中
+        self.assertEqual(self.w([(100, 200)], [], edge=pack.row_edge_from({"padAfter": 0.4})), [(97, 212)])   # 後ろの余白 0.4 秒(12 フレーム)・前は 0.1 秒のまま
+        self.assertEqual(self.w([(100, 200)], [], edge=pack.row_edge_from({"padAfter": 1.0})), [(97, 230)])   # 上限 0.5 秒より長い余白 → 上限も上がる
 
     def test_edge_already_in_silence_stays(self):
         self.assertEqual(self.w([(100, 200)], [(90, 105), (195, 260)]), [(100, 200)])
@@ -1140,6 +1142,26 @@ class TestRowEdgeRule(unittest.TestCase):
         self.assertIsNone(pack.row_edge_from({"on": False, "after": 1}))
         e = pack.row_edge_from({"on": True, "after": 0.8, "before": 0})
         self.assertEqual((e.after, e.before, e.pad_after, e.noise), (0.8, 0.0, 0.2, -35.0))
+        # padAfter: 終わりの余白だけ変える(前の余白 0.1 秒は変えない)。after より大きければ after も上げる・以下なら after は変えない
+        e = pack.row_edge_from({"padAfter": 0.4})
+        self.assertEqual((e.pad_after, e.pad_before, e.after, e.before), (0.4, 0.1, 0.5, 0.3))
+        e = pack.row_edge_from({"padAfter": 0.8})
+        self.assertEqual((e.pad_after, e.after), (0.8, 0.8))
+        e = pack.row_edge_from({"padAfter": 0.8, "after": 1.2})
+        self.assertEqual((e.pad_after, e.after), (0.8, 1.2))
+        e = pack.row_edge_from({"padAfter": 0.4, "after": 0.3})   # 指定の上限より大きい → 上限を上げる
+        self.assertEqual((e.pad_after, e.after), (0.4, 0.4))
+        e = pack.row_edge_from({"padAfter": 0.2, "after": 0.1})
+        self.assertEqual((e.pad_after, e.after), (0.2, 0.2))
+        e = pack.row_edge_from({"padAfter": 0})
+        self.assertEqual((e.pad_after, e.after), (0.0, 0.5))
+        for empty in (None, ""):
+            self.assertEqual(pack.row_edge_from({"padAfter": empty}), pack.ROW_EDGE)
+        self.assertEqual(pack.row_edge_from({}), pack.ROW_EDGE)
+        self.assertIsNone(pack.row_edge_from({"on": False, "padAfter": 0.4}))
+        for bad in ({"padAfter": 3}, {"padAfter": -0.1}, {"padAfter": "0.4"}, {"padAfter": True}, {"padAfter": float("nan")}):
+            with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
+                pack.row_edge_from(bad)
         for bad in ({"after": 3}, {"before": -1}, {"after": "x"}, {"after": True}, [1], "on"):
             with self.subTest(bad=bad), self.assertRaises(pack.ToolError):
                 pack.row_edge_from(bad)
