@@ -703,5 +703,194 @@ class TestStage5(Base):
         self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamerFrom"]), ("さくらみこ", "video"))
 
 
+class TestRunLog(Base):
+    """段2 B-6: 終わった実行を記録のファイル(logs/autorun-runs.jsonl)に残す。入口を起動し直しても前回の結果が見える"""
+
+    def setUp(self):
+        super().setUp()
+        self.r.close()
+        self.logs = os.path.join(self.tmp, "logs")   # テストの記録は一時フォルダ(本物の作業データに書かない)
+        self.r = self.runner()
+
+    def runner(self, **kw):
+        import cases
+        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack,
+                            log_dir=kw.pop("log_dir", self.logs), **kw)
+
+    @property
+    def path(self):
+        return os.path.join(self.logs, A.RUNS_LOG)
+
+    def lines(self, path=None):
+        try:
+            with open(path or self.path, encoding="utf-8") as f:
+                return [json.loads(x) for x in f if x.strip()]
+        except FileNotFoundError:
+            return []
+
+    def wait_lines(self, n, timeout=10):
+        """実行の状態が変わってから記録を書くまでの間があるので、行が n 行になるまで待つ"""
+        end = time.time() + timeout
+        while time.time() < end:
+            got = self.lines()
+            if len(got) >= n:
+                return got
+            time.sleep(0.01)
+        self.fail("記録が %d 行になりません: %s" % (n, self.lines()))
+
+    def test_done_and_error_are_written_once(self):
+        run = self.run_one("adopted")
+        got = self.wait_lines(1)
+        self.assertEqual((got[0]["v"], got[0]["id"], got[0]["state"], got[0]["kind"], got[0]["videoId"]), (1, run["id"], "done", "video", VID))
+        self.assertTrue(got[0]["finished"])
+        self.tools.fail_tx = True
+        run2 = self.run_one("transcribe")
+        got = self.wait_lines(2)
+        self.assertEqual((got[1]["id"], got[1]["state"]), (run2["id"], run2["state"]))
+        # 二重に書かない(同じ実行をもう一度書こうとしても1行のまま・終わった実行の中止も書かない)
+        mem = next(r for r in self.r.runs if r.id == run["id"])
+        self.r._log(mem)
+        with self.assertRaises(ValueError):
+            self.r.cancel("nothere")
+        self.r.cancel(run["id"])
+        time.sleep(0.05)
+        self.assertEqual([x["id"] for x in self.lines()], [run["id"], run2["id"]])
+
+    def test_cancel_queued_and_running(self):
+        self.tools.hold = True
+        first = self.r.start(VID, "adopted")
+        second = self.r.start("zzzzzzzzzzz", "adopted")
+        self.r.cancel(second["id"])              # 順番待ちの中止はその場で書く
+        got = self.wait_lines(1)
+        self.assertEqual((got[0]["id"], got[0]["state"], got[0]["message"]), (second["id"], "cancelled", "中止しました"))
+        end = time.time() + 5
+        while time.time() < end and self.r.snapshot()["runs"][-1]["steps"][0]["state"] != "run":
+            time.sleep(0.01)
+        self.r.cancel(first["id"])               # 実行中の分は、止まったとき(_loop の終わり)に書く
+        got = self.wait_lines(2)
+        self.assertEqual((got[1]["id"], got[1]["state"]), (first["id"], "cancelled"))
+        self.assertEqual(len(self.lines()), 2)
+
+    def test_close_writes_queued(self):
+        self.tools.hold = True
+        first = self.r.start(VID, "adopted")
+        second = self.r.start("zzzzzzzzzzz", "adopted")
+        self.r.close()
+        got = {x["id"]: x for x in self.wait_lines(2)}   # 順番待ち(close で書く)+ 実行中(止まったときに書く)
+        self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("cancelled", "入口を終了しました"))
+        self.assertEqual(got[first["id"]]["state"], "cancelled")
+        self.assertTrue(got[second["id"]]["finished"])
+
+    def test_restart_shows_past_and_memory_wins(self):
+        run = self.run_one("adopted")
+        self.wait_lines(1)
+        self.assertEqual(self.r.snapshot()["past"], [])          # メモリにある分は past に出さない(重ならない)
+        self.r.close()
+        self.r = self.runner()                                  # 入口を起動し直した
+        snap = self.r.snapshot()
+        self.assertEqual(snap["runs"], [])
+        self.assertEqual([(p["id"], p["videoId"], p["state"]) for p in snap["past"]], [(run["id"], VID, "done")])
+        self.assertIn("steps", snap["past"][0])
+        self.assertNotIn("marks", snap["past"][0])              # past は画面に出す項目だけ(問い合わせを重くしない)
+        run2 = self.run_one("adopted")                          # 同じ配信をもう一度 = メモリの方を出す
+        self.wait_lines(2)
+        self.assertEqual(self.r.snapshot()["past"], [])
+        h = self.r.history()
+        self.assertEqual([x["id"] for x in h["runs"]], [run2["id"], run["id"]])   # 新しい順
+        self.assertEqual((h["total"], h["more"]), (2, False))
+
+    def test_past_is_latest_per_target(self):
+        recs = [dict(id="r%d" % i, kind="video", videoId="v%d" % (i % 3), docId=None, state="done", steps=[], v=1, finished=i) for i in range(7)]
+        recs.append(dict(id="d1", kind="doc", videoId=None, docId="doc1", state="error", error="止まった", steps=[], v=1))
+        os.makedirs(self.logs)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(x) + "\n" for x in recs))
+        r = self.runner()
+        try:
+            past = r.snapshot()["past"]
+            self.assertEqual([p["id"] for p in past], ["d1", "r6", "r5", "r4"])   # 配信・文書ごとの最後の1件・新しい順
+        finally:
+            r.close()
+
+    def test_broken_lines_are_skipped(self):
+        good = dict(id="ok1", kind="video", videoId=VID, docId=None, state="error", error="理由", steps=[], v=1)
+        os.makedirs(self.logs)
+        with open(self.path, "wb") as f:
+            f.write(b"not json\n" + b"\xff\xfe\n" + json.dumps([1]).encode() + b"\n"
+                    + json.dumps(dict(good, v=2)).encode() + b"\n"                 # 知らない版
+                    + json.dumps(dict(good, id="run", state="running")).encode() + b"\n"   # 終わっていない
+                    + json.dumps(dict(good, kind="video", videoId=None)).encode() + b"\n"
+                    + json.dumps(good).encode() + b"\n" + b'{"id": "cut-off", "kind": "vi')   # 途中で切れた最後の行
+        r = self.runner()
+        try:
+            self.assertEqual([p["id"] for p in r.snapshot()["past"]], ["ok1"])
+            self.assertEqual([p["id"] for p in r.history()["runs"]], ["ok1"])
+        finally:
+            r.close()
+
+    def test_rotates_at_limit(self):
+        self.r.close()
+        self.r = self.runner(log_max=300)   # 1件で超える大きさ
+        ids = [self.run_one("adopted")["id"]]
+        self.wait_lines(1)
+        ids.append(self.run_one("adopted")["id"])
+        end = time.time() + 5
+        while time.time() < end and not os.path.exists(self.path + ".1"):
+            time.sleep(0.01)
+        self.assertEqual([x["id"] for x in self.lines(self.path + ".1")], ids[:1])   # 古い方は .1 へ(1世代)
+        self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[1:])
+        self.assertEqual([x["id"] for x in self.r.history()["runs"]], ids[::-1])   # 記録は .1 と今のファイルの両方から
+        ids.append(self.run_one("adopted")["id"])
+        end = time.time() + 5
+        while time.time() < end and [x["id"] for x in self.lines(self.path + ".1")] != ids[1:2]:
+            time.sleep(0.01)
+        self.assertEqual([x["id"] for x in self.lines(self.path + ".1")], ids[1:2])   # いちばん古いものは消える(際限なく大きくならない)
+        self.assertEqual([x["id"] for x in self.wait_lines(1)], ids[2:])
+
+    def test_read_tail_only_on_start(self):
+        rec = lambda i: json.dumps(dict(id="r%04d" % i, kind="video", videoId="v%04d" % i, docId=None, state="done", steps=[], v=1)) + "\n"
+        os.makedirs(self.logs)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write("".join(rec(i) for i in range(4000)))   # 256KB を超える
+        self.assertGreater(os.path.getsize(self.path), A.LOG_READ_BYTES)
+        r = self.runner()
+        try:
+            past = r.snapshot()["past"]
+            self.assertEqual(len(past), A.PAST_MAX)
+            self.assertEqual(past[0]["id"], "r3999")
+            self.assertLess(len(r._past), 4000)   # 起動時は末尾だけ読む
+            h = r.history(limit=10 ** 6, offset=-5)   # 上限に丸める
+            self.assertEqual((len(h["runs"]), h["offset"], h["total"], h["more"]), (A.HISTORY_MAX, 0, 4000, True))
+            h = r.history(limit=0, offset=3990)
+            self.assertEqual([x["id"] for x in h["runs"]], ["r%04d" % i for i in range(9, -1, -1)][:1])
+            h = r.history(limit="x", offset=3995)
+            self.assertEqual((len(h["runs"]), h["more"]), (5, False))
+        finally:
+            r.close()
+
+    def test_unwritable_folder_does_not_stop_runs(self):
+        blocker = os.path.join(self.tmp, "blocker")
+        with open(blocker, "w") as f:
+            f.write("x")   # フォルダの代わりにファイルがある = 書けない
+        self.r.close()
+        self.r = self.runner(log_dir=os.path.join(blocker, "logs"))
+        run = self.run_one("adopted")
+        self.assertEqual(run["state"], "done")
+        end = time.time() + 5
+        while time.time() < end and not self.r.log_error:
+            time.sleep(0.01)
+        self.assertTrue(self.r.log_error)
+        self.assertEqual(self.r.history()["runs"], [])
+        run = self.run_one("adopted")                    # 次の実行も続けられる
+        self.assertEqual(run["state"], "done")
+
+    def test_no_log_dir_keeps_memory_only(self):
+        self.r.close()
+        self.r = self.runner(log_dir=None)
+        self.run_one("adopted")
+        self.assertFalse(os.path.exists(self.logs))
+        self.assertEqual(self.r.history(), {"runs": [], "total": 0, "more": False, "offset": 0})
+
+
 if __name__ == "__main__":
     unittest.main()

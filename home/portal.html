@@ -94,6 +94,16 @@
     </details>
   </section>
 
+  <details class="ui-disclosure pt-history" id="historyBox">
+    <summary>まとめて実行の記録</summary>
+    <div class="pt-history-body">
+      <p class="hint">終わったまとめて実行の結果です(新しい順)。ホームを終えても残ります(強制終了したときに実行中だった分は残りません)。</p>
+      <p class="hint" id="historyEmpty" hidden>まだ記録はありません。まとめて実行が終わると、ここに出ます。</p>
+      <ol class="pt-history-list" id="historyList"></ol>
+      <div class="row" id="historyMoreBox" hidden><button type="button" class="btn small ghost" id="historyMore">もっと見る</button></div>
+    </div>
+  </details>
+
   <details class="ui-disclosure pt-advanced" id="advancedBox">
     <summary>詳しく(サーバーの管理)</summary>
     <div class="pt-advanced-body">
@@ -237,7 +247,19 @@
     </div>
     <div class="row pt-doc-steps">
       <a class="btn small pt-doc-open" target="_blank" rel="noopener">編集で開く</a>
+      <span class="hint pt-doc-runmsg" hidden></span>
     </div>
+  </li>
+</template>
+
+<template id="tplHistory">
+  <li class="pt-history-item">
+    <span class="pill pt-history-pill"></span>
+    <span class="pt-history-main">
+      <a class="pt-history-title"></a>
+      <span class="hint pt-history-sub"></span>
+    </span>
+    <span class="hint pt-history-when"></span>
   </li>
 </template>
 

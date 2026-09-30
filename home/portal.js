@@ -27,6 +27,8 @@
   var casesData = null;                 // /api/cases の中身
   var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
   var runsByVideo = {}, runsByDoc = {}; // /api/autorun の実行(配信単位・文書単位)。最新のものだけ
+  var pastByVideo = {}, pastByDoc = {}; // /api/autorun の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
+  var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/autorun/history。開いたときだけ読む)
   var wasActiveVideo = {}, wasActiveDoc = {};
   var autoTimer = null;
   var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
@@ -410,21 +412,31 @@
     });
     renderAuto(node, c.id);
   }
+  function runLabel(r) { return window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : r.state; }   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
+  function ago(ms) { return ms ? (window.UIKit && UIKit.fmt ? UIKit.fmt.ago(ms) : when(ms)) : ''; }
+  /* 止まった理由(失敗 = エラーの文・中止 = 「入口を終了しました」など)。済みなら空 */
+  function runReason(r) { return r.error || (r.state === 'cancelled' && r.message ? r.message : ''); }
+  /* 前回の結果の1行(記録のファイルから。段2 B-6): 「前回 採用後を全部: 失敗 ・ 理由(3日前)」 */
+  function pastText(p) {
+    var why = runReason(p);
+    return '前回 ' + (p.modeLabel || '') + ': ' + runLabel(p) + (why ? ' ・ ' + why : '') + (p.finished ? '(' + ago(p.finished) + ')' : '');
+  }
   function renderAuto(node, id) {
     var box = $('.pt-auto', node); if (!box) return;
-    var r = runsByVideo[id], ol = $('.pt-auto-steps', box), msg = $('.pt-auto-msg', box);
+    var r = runsByVideo[id], past = r ? null : pastByVideo[id], ol = $('.pt-auto-steps', box), msg = $('.pt-auto-msg', box);
     $('.pt-auto-run', box).disabled = active(r);
     $('.pt-auto-cancel', box).hidden = !active(r);
     ol.textContent = ''; msg.textContent = '';
-    if (!r) return;
-    r.steps.forEach(function (st) {
+    var x = r || past;
+    if (!x) return;
+    (x.steps || []).forEach(function (st) {   // 段の札は前回の分も出す
       var li = el('li', 'pt-auto-step');
       li.appendChild(el('span', 'pill ' + (STEP_PILL[st.state] || 'wait'), st.label + ' ' + (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(st) : (STEP_STATE[st.state] || st.state))));
       if (st.detail) li.appendChild(el('span', 'hint', st.detail));
       ol.appendChild(li);
     });
-    var head = r.modeLabel + ': ' + (window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : r.state);   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
-    msg.textContent = head + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
+    if (past) { msg.textContent = pastText(past); return; }
+    msg.textContent = r.modeLabel + ': ' + runLabel(r) + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
   }
 
   /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
@@ -674,7 +686,9 @@
 
   function renderDocRun(id) {
     var li = document.getElementById('doc-' + id); if (!li) return;
-    var r = runsByDoc[id], pill = $('.pt-doc-runpill', li);
+    var r = runsByDoc[id], past = r ? null : pastByDoc[id], pill = $('.pt-doc-runpill', li), msg = $('.pt-doc-runmsg', li);
+    if (msg) { msg.hidden = !past; msg.textContent = past ? pastText(past) : ''; }   // 前回の結果(入口を起動し直したあと。段2 B-6)
+    if (!r && past && past.state === 'error') r = past;
     if (r && r.state === 'error') {   // 失敗は札に残す(以前は終わると消えて、失敗したことが分からなかった。S-5)
       pill.hidden = false; pill.className = 'pill pt-doc-runpill err'; pill.textContent = '失敗'; pill.title = r.error || ''; return;
     }
@@ -711,7 +725,7 @@
     var ul = $('#docList');
     ul.textContent = '';
     shown.forEach(function (u) { ul.appendChild(docCard(u)); });
-    Object.keys(runsByDoc).forEach(renderDocRun);
+    Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
     var narrowed = $('#docSearch').value.trim();
     $('#docCount').textContent = narrowed ? shown.length + ' / ' + full.length + ' 件' : full.length + ' 件';
     var rest = full.length - shown.length;
@@ -881,6 +895,14 @@
         wasActiveDoc[id] = active(r);
       });
       runsByVideo = latestV; runsByDoc = latestD;
+      var pastV = {}, pastD = {};   // 前回の結果(サーバーがこの起動の実行の無い配信・文書だけを返す。新しい順)
+      (j.past || []).forEach(function (p) {
+        if (p.kind === 'doc') { if (p.docId && !pastD[p.docId]) pastD[p.docId] = p; }
+        else if (p.videoId && !pastV[p.videoId]) pastV[p.videoId] = p;
+      });
+      var goneD = Object.keys(pastByDoc).filter(function (id) { return !pastD[id]; });   // 前回の表示を消す行
+      pastByVideo = pastV; pastByDoc = pastD;
+      goneD.forEach(renderDocRun);
       $all('#list .pt-case').forEach(function (node) {
         renderAuto(node, node.dataset.id);
         if (active(runsByVideo[node.dataset.id])) node.open = true;
@@ -888,15 +910,55 @@
       $all('#list .ui-group').forEach(function (g) {
         if (activeIn($all('.pt-case', g).map(function (n) { return n.dataset.id; }))) g.open = true;
       });
-      Object.keys(runsByDoc).forEach(renderDocRun);
+      Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
       if (finished) {
         refreshCases();
         loadTxList().then(function () { renderDocs(); buildTodo(); });
+        if ($('#historyBox').open) loadHistory(true);   // 開いている記録にも、終わった実行を足す
       } else {
         buildTodo();
       }
       autoTimer = setTimeout(pollAuto, anyActive ? 2000 : 15000);
     }).catch(function () { autoTimer = setTimeout(pollAuto, 5000); });
+  }
+
+  /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
+
+  var HIST_PILL = { done: 'ok', error: 'err', cancelled: 'wait' };
+  function historyRow(r) {
+    var li = $('#tplHistory').content.firstElementChild.cloneNode(true);
+    var pill = $('.pt-history-pill', li);
+    pill.className = 'pill pt-history-pill ' + (r.nothing ? 'wait' : (HIST_PILL[r.state] || 'wait'));
+    pill.textContent = runLabel(r);
+    var a = $('.pt-history-title', li);
+    a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || '';
+    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'tx'); a.target = '_blank'; a.rel = 'noopener'; a.title = '編集で開く'; }   // 文書 → 編集で開く
+    else { a.href = '#case-' + encodeURIComponent(r.videoId || ''); a.title = '案件の行へ'; }   // 配信 → 案件の行
+    var why = runReason(r);
+    $('.pt-history-sub', li).textContent = (r.modeLabel || '') + (why ? ' ・ ' + why : '');
+    var t = $('.pt-history-when', li), at = r.finished || r.created;
+    t.textContent = ago(at); t.title = at ? when(at) : '';
+    return li;
+  }
+  function loadHistory(reset) {
+    if (histBusy) return;
+    histBusy = true;
+    if (reset) histOffset = 0;
+    var empty = $('#historyEmpty');
+    api('/api/autorun/history?limit=' + HIST_PAGE + '&offset=' + histOffset).then(function (j) {
+      var ol = $('#historyList'), runs = j.runs || [];
+      if (reset) ol.textContent = '';
+      runs.forEach(function (r) { ol.appendChild(historyRow(r)); });
+      histOffset += runs.length;
+      empty.hidden = !!ol.children.length;
+      empty.textContent = 'まだ記録はありません。まとめて実行が終わると、ここに出ます。';
+      var rest = Math.max(0, (j.total || 0) - histOffset);
+      $('#historyMoreBox').hidden = !j.more;
+      $('#historyMore').textContent = 'もっと見る(あと ' + rest + ' 件)';
+    }).catch(function (e) {
+      empty.hidden = false;
+      empty.textContent = '記録を読めませんでした: ' + e.message + '(閉じて開き直すと読み直します)';
+    }).then(function () { histBusy = false; });
   }
 
   /* ================================================================ ハッシュ(#cases・#case-<id>・#doc-<id>): 次にやることのリンク先へ移る ================================================================ */
@@ -964,6 +1026,8 @@
     $('#docRunBtn').addEventListener('click', runDocsBatch);
 
     $('#todoMore').addEventListener('click', function () { todoShowAll = true; buildTodo(); });
+    $('#historyBox').addEventListener('toggle', function () { if ($('#historyBox').open) loadHistory(true); });
+    $('#historyMore').addEventListener('click', function () { loadHistory(false); });
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため) */

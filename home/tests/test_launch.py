@@ -587,6 +587,27 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/api/log?tool=transcribe")
         self.assertEqual(json.loads(body)["exists"], False)
 
+    def test_autorun_history(self):
+        """段2 B-6: まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。limit は既定 50・最大 200・前回の結果は /api/autorun の past"""
+        logs = self.sup.logs_dir
+        self.assertTrue(os.path.abspath(logs).startswith(os.path.abspath(self.tmp)), logs)   # テストは一時フォルダに書く
+        os.makedirs(logs, exist_ok=True)
+        with open(os.path.join(logs, "autorun-runs.jsonl"), "w", encoding="utf-8") as f:
+            for i in range(250):
+                f.write(json.dumps({"v": 1, "id": "r%03d" % i, "kind": "video", "videoId": "v%03d" % i, "docId": None, "state": "error",
+                                    "error": "理由%d" % i, "steps": []}, ensure_ascii=False) + "\n")
+        r, body = self.req("GET", "/api/autorun")
+        j = json.loads(body)
+        self.assertEqual((j["runs"], len(j["past"]), j["past"][0]["id"], j["past"][0]["error"]), ([], 50, "r249", "理由249"))
+        for q, n, first in (("", 50, "r249"), ("?limit=1000", 200, "r249"), ("?limit=abc&offset=x", 50, "r249"), ("?limit=0", 1, "r249"),
+                            ("?limit=20&offset=240", 10, "r009"), ("?offset=-3", 50, "r249")):
+            r, body = self.req("GET", "/api/autorun/history" + q)
+            self.assertEqual(r.status, 200, q)
+            h = json.loads(body)
+            self.assertEqual((len(h["runs"]), h["runs"][0]["id"], h["total"]), (n, first, 250), q)
+        r, _ = self.req("GET", "/api/autorun/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
+        self.assertEqual(r.status, 403)
+
     def test_shutdown_stops_children_and_server(self):
         self.sup.start_all()
         self.sup.start_monitor()

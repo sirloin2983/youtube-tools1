@@ -10,7 +10,8 @@
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(home/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
-  GET  /api/autorun                       まとめて実行の状態(home/autorun.py)
+  GET  /api/autorun                       まとめて実行の状態(home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
+  GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す)
   POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
@@ -618,6 +619,17 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
         if u.path == "/api/autorun":   # まとめて実行の状態(home/autorun.py)
             return self._json(200, self.server.autorun.snapshot())
+        if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
+            q = urllib.parse.parse_qs(u.query)
+            try:
+                limit = int((q.get("limit") or [str(autorun_mod.HISTORY_DEFAULT)])[0])
+            except ValueError:
+                limit = autorun_mod.HISTORY_DEFAULT
+            try:
+                offset = int((q.get("offset") or ["0"])[0])
+            except ValueError:
+                offset = 0
+            return self._json(200, self.server.autorun.history(limit, offset))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。home/cases.py)
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
@@ -839,7 +851,8 @@ class PortalServer(ThreadingHTTPServer):
     def autorun(self):
         with self._autorun_lock:
             if self._autorun is None:
-                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs)
+                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs,
+                                                       log_dir=self.sup.logs_dir)   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
             return self._autorun
 
     def handler_for(self, path):

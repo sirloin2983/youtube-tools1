@@ -13,11 +13,15 @@
 - スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
   スタジオに配信ができるので、それまでは受け取った題名で進める(docs/archive/followup-2026-09-27.md の 5)。
 - 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。入口を終えると、実行中・順番待ちの分は消える(もう一度押せば続きから)。
+- 終わった実行は、入口の作業データの logs/autorun-runs.jsonl に1行ずつ残す(段2 B-6。入口を起動し直しても、ホームで前回の結果と止まった理由を見られる)。
+  書くのは終わったとき(完了・失敗・中止・入口の終了で順番待ちを消したとき)だけなので、入口が強制終了されたときの実行中の分は残らない。
+  1MB を超えたら .1 に回す(1世代。画面のエラーの記録 clientlog.py と同じ形)。書けなくても実行は止めない
 - 自動で採用したマークは、人の判定ではないので学習の記録(スタジオの feedback)に入れない(スタジオの /api/video/adopt-top)。
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
   文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
 """
+import collections
 import http.client
 import json
 import os
@@ -44,7 +48,16 @@ MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書
 DOC_LABEL = "文字起こし → パック"
 DEFAULT_TOP = 3
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
-MAX_KEEP = 30          # 終わった記録を残す数
+MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は下の RUNS_LOG)
+RUNS_LOG = "autorun-runs.jsonl"   # 終わった実行の記録(入口の作業データの logs の中。段2 B-6)
+LOG_VERSION = 1        # 記録の1行の形の版(v)
+LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
+LOG_READ_BYTES = 256 * 1024   # 起動時に読む末尾の大きさ(前回の結果 past を作る)
+PAST_MAX = 50          # snapshot の past(配信・文書ごとの前回の結果で、メモリに無いもの)の数
+PAST_KEEP = 500        # past の元として覚えておく配信・文書の数
+HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # /api/autorun/history の limit の既定と上限
+PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
+             "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
@@ -129,7 +142,12 @@ class Run:
         self.created = time.time()
         self.finished = None
         self.cancel = False
+        self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in MODE_STEPS[mode]]
+
+    def key(self):
+        """配信・文書ごとの前回の結果を引くキー"""
+        return ("doc", self.doc_id) if self.doc_id else ("video", self.video_id)
 
     def step(self, key):
         return next(s for s in self.steps if s["key"] == key)
@@ -146,9 +164,71 @@ class Run:
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
 
 
+def _rec_key(rec):
+    return ("doc", rec.get("docId")) if rec.get("kind") == "doc" else ("video", rec.get("videoId"))
+
+
+def _parse_rec(raw):
+    """記録の1行 -> 辞書(壊れた行・形の違う行は None。途中で切れた行・手で直した行を飛ばす)"""
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        rec = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(rec, dict) or rec.get("v") != LOG_VERSION or not isinstance(rec.get("id"), str):
+        return None
+    if rec.get("state") not in ("done", "error", "cancelled") or not isinstance(rec.get("steps"), list):
+        return None
+    kind = rec.get("kind")
+    if not ((kind == "doc" and isinstance(rec.get("docId"), str)) or (kind == "video" and isinstance(rec.get("videoId"), str))):
+        return None
+    return rec
+
+
+def read_runs_log(path, max_bytes=None):
+    """記録(.1 → 今のファイル = 書いた順)の中身のリスト。max_bytes = 末尾からこの大きさだけ読む(途中から読んだ最初の行は捨てる)"""
+    chunks, left = [], max_bytes
+    for p in (path, path + ".1"):
+        if left is not None and left <= 0:
+            break
+        try:
+            with open(p, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                start = 0 if left is None else max(0, size - left)
+                f.seek(start)
+                data = f.read()
+        except OSError:
+            continue
+        if start > 0:
+            nl = data.find(b"\n")
+            data = data[nl + 1:] if nl >= 0 else b""
+        if left is not None:
+            left -= size - start
+        chunks.insert(0, data)
+    out = []
+    for data in chunks:
+        for raw in data.split(b"\n"):
+            rec = _parse_rec(raw)
+            if rec:
+                out.append(rec)
+    return out
+
+
 class AutoRunner:
-    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None):
+    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES):
+        """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)"""
         self.client, self.root, self.env, self.poll = client, repo_root, env, poll
+        self.log_path = os.path.join(log_dir, RUNS_LOG) if log_dir else None
+        self.log_max = log_max
+        self.log_error = ""        # 最後に記録を書けなかった理由(書けたら空に戻す)
+        self._log_lock = threading.Lock()   # 記録のファイルと past(self.cv とは別。self.cv を持ったまま _log を呼ばない)
+        self._past = collections.OrderedDict()   # (種類, id) -> 最後の記録(書いた順)
+        if self.log_path:
+            for rec in read_runs_log(self.log_path, LOG_READ_BYTES):
+                self._remember(rec)
         self.prefs = prefs   # ホームの設定(home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self.sleep = sleep or time.sleep
         if find_pack is None:
@@ -373,34 +453,93 @@ class AutoRunner:
             self.thread.start()
 
     def cancel(self, run_id):
+        ended = False
         with self.cv:
             run = next((r for r in self.runs if r.id == run_id), None)
             if run is None:
                 raise ValueError("その実行はありません")
             if run.state == "queued":
                 run.state, run.message, run.finished = "cancelled", "中止しました", time.time()
+                ended = True
             elif run.state == "running":
                 run.cancel = True
                 run.message = "中止しています…"
-            return run.public()
+            out = run.public()
+        if ended:   # 順番待ちの中止はここで終わる(実行中の分は _loop の終わりで書く)
+            self._log(run)
+        return out
 
     def snapshot_labels(self):
         return {"step": STEP_STATE_LABELS, "run": RUN_STATE_LABELS}
 
     def snapshot(self):
+        """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""
         with self.cv:
-            return {"runs": [r.public() for r in reversed(self.runs)], "modes": MODES}
+            runs = [r.public() for r in reversed(self.runs)]
+            keys = {r.key() for r in self.runs}
+        with self._log_lock:
+            past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
+        return {"runs": runs, "past": past, "modes": MODES}
+
+    def history(self, limit=None, offset=0):
+        """終わった実行の記録(今のファイルと .1。新しい順)。-> {"runs", "total", "more", "offset"}。limit・offset は範囲に丸める"""
+        limit = HISTORY_DEFAULT if not isinstance(limit, int) or isinstance(limit, bool) else min(HISTORY_MAX, max(1, limit))
+        offset = 0 if not isinstance(offset, int) or isinstance(offset, bool) else max(0, offset)
+        if not self.log_path:
+            return {"runs": [], "total": 0, "more": False, "offset": offset}
+        with self._log_lock:   # 書き込み(.1 へ回す)と重ねない
+            recs = read_runs_log(self.log_path)
+        recs.reverse()
+        return {"runs": recs[offset:offset + limit], "total": len(recs), "more": offset + limit < len(recs), "offset": offset}
+
+    def _remember(self, rec):
+        """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)"""
+        k = _rec_key(rec)
+        self._past.pop(k, None)
+        self._past[k] = rec
+        while len(self._past) > PAST_KEEP:
+            self._past.popitem(last=False)
+
+    def _log(self, run):
+        """終わった実行を記録のファイルに1行で書く(B-6)。1つの実行は1回だけ(run.logged)。self.cv の外で呼ぶ。
+        書けなくても実行は止めない(clientlog._write と同じ)。1行 = Run.public() + v"""
+        with self._log_lock:
+            if run.logged:
+                return
+            run.logged = True
+            rec = dict(run.public(), v=LOG_VERSION)
+            self._remember(rec)
+            if not self.log_path:
+                return
+            try:
+                line = json.dumps(rec, ensure_ascii=False) + "\n"
+                os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+                try:
+                    if os.path.getsize(self.log_path) > self.log_max:
+                        os.replace(self.log_path, self.log_path + ".1")
+                except OSError:
+                    pass
+                with open(self.log_path, "a", encoding="utf-8") as f:
+                    f.write(line)
+                self.log_error = ""
+            except (OSError, TypeError, ValueError) as e:
+                self.log_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")
 
     def close(self):
-        """入口の終了: 順番待ちを消し、実行中の分に中止を伝える(ツールの側のジョブもこの後の終了処理で止まる)"""
+        """入口の終了: 順番待ちを消し、実行中の分に中止を伝える(ツールの側のジョブもこの後の終了処理で止まる)。
+        消した順番待ちは記録に書く。実行中の分は _loop の終わりで書く(入口が先に終わってしまえば残らない)"""
+        ended = []
         with self.cv:
             self.closed = True
             for r in self.runs:
                 if r.state == "queued":
-                    r.state, r.message = "cancelled", "入口を終了しました"
+                    r.state, r.message, r.finished = "cancelled", "入口を終了しました", time.time()
+                    ended.append(r)
                 elif r.state == "running":
                     r.cancel = True
             self.cv.notify_all()
+        for r in ended:
+            self._log(r)
 
     def _trim(self):
         done = [r for r in self.runs if r.state not in ("queued", "running")]
@@ -431,6 +570,7 @@ class AutoRunner:
                 for s in run.steps:
                     if s["state"] == "run":
                         s["state"] = "error" if run.state == "error" else "skip"
+                self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
                 with self.cv:
                     self._trim()
 

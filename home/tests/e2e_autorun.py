@@ -7,6 +7,7 @@
    案件の画面に文字起こし・パックが出る。もう一度押すと、何も作り直さない(すべて「飛ばした」)
 ② API で「解析から全部」(未解析のファイルの動画 → 解析 → 自動マークの上位1件を採用 → … → パック)
 ③ 画面のエラー(CSP 違反を含む)が無い
+④ 入口を起動し直しても、案件の行と「まとめて実行の記録」に前回の結果(止まった理由も)が出る(段2 B-6。記録は logs/autorun-runs.jsonl)
 """
 import json
 import os
@@ -202,6 +203,59 @@ def main():
             except urllib.error.HTTPError as e:
                 code = e.code
             check(code == 403, "合言葉なしの まとめて実行 は断る: %s" % code)
+
+            # ④ 入口を起動し直しても、前回の結果が見える(段2 B-6)
+            st, j = call("POST", "/api/autorun/start", {"id": "zzzzzzzzzzz", "mode": "adopted"})   # スタジオに無い配信 = 止まる
+            bad = wait_run(j["run"]["id"], 60)
+            check(bad["state"] == "error" and bad["error"], "無い配信は止まる: %s" % bad.get("error"))
+            log_path = os.path.join(sup.logs_dir, "autorun-runs.jsonl")
+            check(os.path.abspath(log_path).startswith(os.path.abspath(tmp)), "記録はテストの一時フォルダ: %s" % log_path)
+            end = time.time() + 10
+            recs = []
+            while time.time() < end and len(recs) < 3:
+                with open(log_path, encoding="utf-8") as f:
+                    recs = [json.loads(x) for x in f if x.strip()]
+                time.sleep(0.2)
+            check(len(recs) == 3 and [x["state"] for x in recs] == ["done", "done", "error"] and all(x["v"] == 1 for x in recs),
+                  "終わった実行を1行ずつ記録した: %s" % [(x["videoId"], x["state"]) for x in recs])
+            srv.request_shutdown()   # 入口を終える(まとめて実行の記録はメモリから消える)
+            th.join(30)
+            srv.server_close()
+            srv, port = L.make_server(0, sup)   # 起動し直し(ツールは止めたまま。案件と記録はファイルから読む)
+            th = threading.Thread(target=srv.serve_forever, daemon=True)
+            th.start()
+            base = "http://127.0.0.1:%d" % port
+            j = call("GET", "/api/autorun")[1]
+            check(j["runs"] == [] and {p["videoId"] for p in j["past"]} == {vid_a, vid_b, "zzzzzzzzzzz"},
+                  "起動し直した入口の /api/autorun に前回の結果(past): %s" % [(p["videoId"], p["state"]) for p in j["past"]])
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                pg = browser.new_page(viewport={"width": 1200, "height": 900})
+                errors = []
+                pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+                pg.on("pageerror", lambda e: errors.append(str(e)))
+                pg.goto(base + "/")
+                card = '.pt-case[data-id="%s"]' % vid_a
+                q = card.replace("'", "\\'")
+                check(wait_js(pg, "!!document.querySelector('%s')" % q, 15000), "起動し直したホームに案件が出た")
+                pg.click(card + " .pt-case-row")
+                check(wait_js(pg, "/^前回 /.test(document.querySelector('%s .pt-auto-msg').textContent)" % q, 20000),
+                      "案件の行に前回の結果: %s" % pg.text_content(card + " .pt-auto-msg"))
+                pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
+                check(pills == ["書き出し 済み", "文字起こし 済み", "Resolve パック 済み"], "前回の段の札も出る: %s" % pills)
+                check(pg.is_enabled(card + " .pt-auto-run") and pg.is_hidden(card + " .pt-auto-cancel"), "前回の結果では実行を押せる・中止は出さない")
+                pg.click("#historyBox > summary")
+                check(wait_js(pg, "document.querySelectorAll('#historyList .pt-history-item').length === 3", 15000), "「まとめて実行の記録」に3件")
+                rows = pg.eval_on_selector_all("#historyList .pt-history-item", """els => els.map(e => ({pill: e.querySelector('.pt-history-pill').textContent,
+                    sub: e.querySelector('.pt-history-sub').textContent, href: e.querySelector('.pt-history-title').getAttribute('href')}))""")
+                check(rows[0]["pill"] == "失敗" and bad["error"] in rows[0]["sub"], "新しい順・止まった理由が出る: %s" % rows[0])
+                check(rows[-1]["href"] == "#case-" + vid_a and rows[-1]["pill"] == "済み", "配信の記録は案件の行へのリンク: %s" % rows[-1])
+                check(pg.is_hidden("#historyMoreBox") and pg.is_hidden("#historyEmpty"), "3件なので「もっと見る」・空の案内は出ない")
+                if shots:
+                    pg.screenshot(path=os.path.join(shots, "home-autorun-history.png"), full_page=True)
+                real = [e for e in errors if "Failed to load resource" not in e]
+                check(not real, "起動し直したホームで画面のエラーなし: %s" % real[:3])
+                browser.close()
         finally:
             srv.request_shutdown() if not srv.closing.is_set() else None
             th.join(30)
