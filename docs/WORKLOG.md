@@ -2278,3 +2278,22 @@
   ③ パックの「動画のファイル名に日本語」の注意は **(b) EDL を使わない(予備なし)ときは出さない**。次にこの順で行う(段5 の前)
 - 文書: `docs/ROADMAP.md`(版・段4 の行「済み」・3 に段4 の実機の確認)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code — 認識ワーカーの待ちに時限(夜間の見直し「高」の残り ①。ユーザー決定 10-01)
+- 問題: `editor/serve.py` の `WorkerClient._read` が `proc.stdout.readline` で待つだけで、ワーカー(tx_worker.py)がネイティブの部品で黙ると待ちが全部止まり、`ytt_core.jobs.SLOTS` を持ったまま他のツールの重い処理(解析・書き出し)まで塞いだ
+- 変更: 標準出力は読み取り専用のスレッド `_reader`(起動ごとに新しい `queue.Queue`。EOF・閉じたら b"" を入れて終わる)が列に入れ、`_read` は `queue.get(timeout=WORKER_SILENCE_TIMEOUT)`(既定 20 分)。
+  超えたら強制終了 → `_reap` → そのジョブを `worker_hung` で失敗にし(取り消し中なら中止)、次の要求で起動し直す。落ちたとき(EOF)の扱いは今までどおり。`_drain` の読み捨てにも同じ時限が効く
+- 理由(20 分): モデルの初回のダウンロード中は何も届かない時間が長い。誤って止めても失敗の文に「そのままもう一度実行」と書き、ダウンロードは続きから進む。短くするより安全側
+- テスト: `editor/tests/test_worker.py` に `test_silent_worker_is_killed_after_timeout`(偽のワーカーを 1 行ごとに 60 秒黙らせ、時限 1.5 秒で失敗・ワーカーが残らない・_busy_rid が戻る・次のジョブで起動し直す)。
+  `python -m unittest editor/tests/test_worker.py` 25 件 OK・editor の単体一式(test_metrics・test_resolve_export・test_roster)203 件 OK
+- 文書: `editor/AGENTS.md`(ワーカーの項)・`editor/README.txt`(v0.27.0 の変更に1項目。版は 0.27.0 のまま = まだ push していない同じ版)
+- 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code(サブエージェント Sonnet。まとめ役が版上げ)— cut2resolve 0.15.1: 「動画のファイル名に日本語」の注意は EDL を書くときだけ(残り ③。ユーザー決定 (b))
+- 問題: 注意が試算(plan_cut の warnings → 「編集」の「これから作るパック」)にも毎回出て、従って動画の名前を変えると文字起こしと動画の紐づけが切れた。EDL がファイル名で元動画と結び付くための案内なので、EDL を書かない Text+ パックには関係ない
+- 変更: `cut2resolve/pack.py` の `plan_cut` から `C.name_warnings` を外し、`build_pack` で `"edl" in paths` のときだけ結果の warnings に足す(予備あり・Text+ なしのパック・コマンド)。`cut2resolve/serve.py` の動画を調べる API(inspect)からも外した(画面はもう無い・情報だけ)。
+  `name_warnings` 自体は残す(test_cut2resolve が使う)。コマンドの `--dry-run`(describe)には出なくなった(本番の実行では EDL を書いたあとに出る)
+- 版: cut2resolve 0.15.0 → **0.15.1**(`cut2resolve_core.py` の VERSION・README の見出しと変更点)
+- テスト: `cut2resolve/tests/test_pack.py` に `TestNameWarningOnlyWithEdl` 5 件(日本語名の動画で 試算に無い・Text+ 予備なしに無い・予備ありに1回・EDL が本体のパックに1回・ASCII 名は出ない)。
+  `python -m unittest cut2resolve/tests/test_cut2resolve.py cut2resolve/tests/test_pack.py cut2resolve/tests/test_serve.py` 301 件 OK・`python -m unittest dev/tests/test_resolve_pack_contract.py` 33 件 OK(単独)
+- 未コミット: なし(このあとコミット)

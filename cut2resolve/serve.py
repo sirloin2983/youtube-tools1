@@ -672,7 +672,7 @@ def _inspect_one(app, field, p):
                 "total": meta["total"], "durationSec": round(meta["total"] * fps[1] / fps[0], 3), "audio": bool(meta["audio"]),
                 "codec": meta["codec"], "pixFmt": meta["pix_fmt"], "framesSource": meta["frames_source"], "vfr": meta.get("vfr", False),
                 "startTc": src, "startTcDesc": desc,
-                "warnings": [m for m in meta["warnings"] if "開始タイムコード" not in m] + w + C.name_warnings(p),
+                "warnings": [m for m in meta["warnings"] if "開始タイムコード" not in m] + w,
                 "mediaUrl": app.register_media(p), "defaultOutDir": str(pack.default_out_dir(p))}
     if field == "srt":
         cues = S.parse_subs(S.read_sub_file(p))

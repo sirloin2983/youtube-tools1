@@ -310,7 +310,7 @@ def plan_cut(req, task=None, cache=None, log=None):
     fps, total = meta["fps"], meta["total"]
     src_start, src_desc, tc_warns = C.resolve_src_start(video, req.src_start_tc, meta)
     C.check_timecodes(fps, req.rec_start, src_start)   # 無音の検出・書き出しの前に確かめる
-    warns = [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns + C.name_warnings(video)
+    warns = [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns
 
     tr = C.read_transcript(req.transcript) if req.transcript else None
     if tr and tr["bad"]:
@@ -607,6 +607,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     req = plan.req
     t0 = C.tc_to_frames(m["src_start"], C.nominal_rate(fps))
     warnings = list(m["warnings"])
+    if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。2026-10-01 ユーザー決定。試算 plan_cut には入れない)
+        warnings += C.name_warnings(video)
     known = pack_paths(video, out_dir, True, True, False, True, True)   # 前に作ったかもしれない、今回は作らないもの
     known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所

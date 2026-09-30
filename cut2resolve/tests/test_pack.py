@@ -1249,3 +1249,57 @@ def dataclasses_replace(obj, **kw):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestNameWarningOnlyWithEdl(unittest.TestCase):
+    """動画のファイル名(日本語など)の注意は、EDL を書くときだけ(2026-10-01 ユーザー決定)。試算(plan_cut)と EDL の無いパックには出さない"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = Path(cls.tmp.name)
+        cls.video = d / "さくらみこ.mp4"
+        make_video(cls.video, dur=6)
+        cls.tr = write(d / "さくらみこ.transcript.json",
+                       json.dumps(transcript_doc([(0.5, 2, "一", False), (3, 5, "二", False)]), ensure_ascii=False))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    @staticmethod
+    def has_name_warning(warnings):
+        return any("ファイル名に日本語" in w for w in warnings)
+
+    def plan(self):
+        return pack.plan_cut(pack.Request(video=self.video, transcript=self.tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+
+    def test_plan_cut_has_no_name_warning(self):
+        plan = self.plan()
+        self.assertFalse(self.has_name_warning(plan.warnings))
+        self.assertFalse(self.has_name_warning(pack.describe(plan)))
+
+    def test_textplus_without_backup_has_none(self):
+        res = pack.build_pack(self.plan(), Path(self.tmp.name) / "tp_min", textplus=True, backup=False, plan_file=False, readme_file=False)
+        self.assertFalse(self.has_name_warning(res["warnings"]))
+
+    def test_textplus_with_backup_edl_has_it(self):
+        out = Path(self.tmp.name) / "tp_bk"
+        res = pack.build_pack(self.plan(), out, textplus=True, backup=True, plan_file=False, readme_file=False)
+        self.assertTrue((out / "さくらみこ.edl").is_file())
+        self.assertEqual(sum(self.has_name_warning([w]) for w in res["warnings"]), 1)
+
+    def test_non_textplus_edl_pack_has_it(self):
+        out = Path(self.tmp.name) / "edl_main"
+        plan = pack.plan_cut(pack.Request(video=self.video, base="list", keep_pairs=[(0.5, 2)]))
+        res = pack.build_pack(plan, out, plan_file=False, readme_file=False)
+        self.assertTrue((out / "さくらみこ.edl").is_file())
+        self.assertEqual(sum(self.has_name_warning([w]) for w in res["warnings"]), 1)
+
+    def test_ascii_name_never_warns(self):
+        v = Path(self.tmp.name) / "clip.mp4"
+        v.write_bytes(self.video.read_bytes())
+        plan = pack.plan_cut(pack.Request(video=v, base="list", keep_pairs=[(0.5, 2)]))
+        res = pack.build_pack(plan, Path(self.tmp.name) / "ascii", plan_file=False, readme_file=False)
+        self.assertFalse(self.has_name_warning(res["warnings"]))

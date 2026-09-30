@@ -7,7 +7,7 @@
 - 作業フォルダは **`C:\dev\youtube-tools`**(段0 で clone し直した。GitHub: https://github.com/sirloin2983/youtube-tools1)。`Desktop\youtube-test` は古い写し(分かれたまま)。**そこで push.bat を実行しない・そこのファイルを直さない**
   (改名案: `youtube-test_old`。Codex・Claude Code・Cowork の作業フォルダの向け直しが済んだかは未確認)
 - **すべてコミット済み・push 済みで origin/main と一致**(2026-10-01。HEAD a60dacc。`git status` はきれい)。**push はユーザーが `C:\dev\youtube-tools\push.bat` で行う**(AI は push しない)
-- 版(2026-10-01。実物のファイルで確かめた): 入口 0.17.0・スタジオ 0.12.0・編集 0.26.1・cut2resolve 0.15.0・ui-kit v9・ホロカラー 1.4.1・送るアプリ(`request-sender/`)1.2.0(正は各ツールのファイル。`ROADMAP.md` の先頭の行にも同じ)
+- 版(2026-10-01。実物のファイルで確かめた): 入口 0.17.0・スタジオ 0.12.0・編集 0.27.0・cut2resolve 0.15.1・ui-kit v9・ホロカラー 1.4.1・送るアプリ(`request-sender/`)1.2.0(正は各ツールのファイル。`ROADMAP.md` の先頭の行にも同じ)
 - 統合計画(`docs/design/integration-plan.md`)は段階0〜7 まで完了。ポートは 8700 で確定。Edge のアプリの窓を既定・新着配信の監視はやらない(09-27 ユーザー決定)
 - これからの作業は `docs/ROADMAP.md` の 2(線 A = 段1〜8・線 B = 文字起こしの精度改善)。各段の細かい計画は `docs/plan/`
 
@@ -93,7 +93,7 @@
 ■ 最初に読む(この順)
 1. AGENTS.md → docs/ROADMAP.md(全体・段の状態・「3. 実機で確かめること」・5 の決定)→ docs/HANDOVER.md → docs/WORKLOG.md の末尾の数件
 2. git status と git log -5 --oneline(自分が変えていない未コミットの変更は他の AI の作業途中 = 上書き・add しない)
-3. 版を実物のファイルで確かめる(入口 0.17.0 / スタジオ 0.12.0 / 編集 0.26.1 / cut2resolve 0.15.0 / ui-kit v9 / ホロカラー 1.4.1 / 送るアプリ 1.2.0 のはず)
+3. 版を実物のファイルで確かめる(入口 0.17.0 / スタジオ 0.12.0 / 編集 0.27.0 / cut2resolve 0.15.1 / ui-kit v9 / ホロカラー 1.4.1 / 送るアプリ 1.2.0 のはず)
 
 ■ 現在地(2026-10-01)
 - 段0(フォルダの整理)・段1・段2・段3・段7 が済み、スタジオは 0.12.0。友人からの依頼の受付(ホーム 0.17.0・送るアプリ 1.2.0)とホロカラー 1.4.1 も入った。すべてコミット・push 済みで origin/main と一致(HEAD a60dacc)。push は私が push.bat でやる(AI は push しない)
