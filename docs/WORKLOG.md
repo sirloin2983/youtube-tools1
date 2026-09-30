@@ -2297,3 +2297,11 @@
 - テスト: `cut2resolve/tests/test_pack.py` に `TestNameWarningOnlyWithEdl` 5 件(日本語名の動画で 試算に無い・Text+ 予備なしに無い・予備ありに1回・EDL が本体のパックに1回・ASCII 名は出ない)。
   `python -m unittest cut2resolve/tests/test_cut2resolve.py cut2resolve/tests/test_pack.py cut2resolve/tests/test_serve.py` 301 件 OK・`python -m unittest dev/tests/test_resolve_pack_contract.py` 33 件 OK(単独)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code — ② 作業データの置き場所の求め方を ytt_core の1か所に(途中で中断。ユーザー「ここで中断」)
+- 状態: **途中(WIP)**。Opus のサブエージェントが `ytt_core/datadir.py` に `ENV_OVERRIDE`(studio = STUDIO_HOME・transcribe = TRANSCRIBE_DATA_DIR)・`register(tool, path)`・`resolve(tool, repo_root, env)`
+  (登録済み(env を渡さないとき)→ 環境変数 → tool_dir の順)を足し、`home/cases.py`・`home/launch.py`・`studio/serve.py`・`studio/common.py`・`ytt_core/txindex.py`・`docs/spec/data-location.md`・テストを直したところで止めた。
+  `python -m unittest ytt_core/tests/test_ytt_core.py` は 64 件 OK。**home・studio の単体テストと `dev/tests/e2e_datadir.py` は未確認**。`editor/serve.py`(prepare / set_data_dir で `datadir.register("transcribe", …)` を呼ぶ)は**まだ接続していない**
+- 再開するとき: 上の未コミットの差分を `git diff` で読み、home(`test_launch`・`test_mount`・`test_cases`・`test_autorun`・`test_window`)と studio の単体テスト → `editor/serve.py` の接続 → `python dev/tests/e2e_datadir.py`・`editor/tests/e2e_ui_mounted.py` → WORKLOG → コミット
+- 文書(この中断の前に直した分。コミット済み): `AGENTS.md`(「いま進行中」の行を ROADMAP の 2 への参照に)・`docs/HANDOVER.md`(次は段5・夜間の見直しの「高」3 件の状態・版)
+- 未コミット: home/cases.py, home/launch.py, studio/common.py, studio/serve.py, studio/tests/test_robustness.py, ytt_core/datadir.py, ytt_core/tests/test_ytt_core.py, ytt_core/txindex.py, docs/spec/data-location.md(すべて ② の途中)

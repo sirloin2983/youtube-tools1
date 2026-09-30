@@ -20,7 +20,7 @@
 - **作業データはリポジトリの外** `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26。`ytt_core/datadir.py`・`docs/spec/data-location.md`)。以前の各ツールのフォルダの中からは最初の起動でコピーする(元は消さない)
 - 流れ: スタジオで配信から区間を選んで書き出す → 「編集」で字幕を作って直し(1)・カットを決め(2)・DaVinci Resolve 用のパック(カット + Text+ 字幕。中身は cut2resolve の pack.py)を作る(3)。受け渡しの形式は `docs/spec/pipeline.md`
 - 1つのアプリへの統合計画(`docs/design/integration-plan.md`)は段階0〜7 まで完了(入口・ytt_core・3ツールの取り込み・作業データの外出し・案件・まとめて実行・Edge の専用の窓)。
-  統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/design/integration-plan.md` は写し)。**いま進行中なのは文字起こしの精度改善**(`docs/plan/transcription-overhaul-plan.md`)。全体の状態は `docs/ROADMAP.md`
+  統合計画の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」(`docs/design/integration-plan.md` は写し)。**これからの作業は `docs/ROADMAP.md` の 2**(線 A = 使い勝手と機能の段1〜8(AI だけで進められる)・線 B = 文字起こしの精度改善 `docs/plan/transcription-overhaul-plan.md`(ユーザーの評価用の校正が律速))。全体の状態も `docs/ROADMAP.md`
 - **別のツール: ホロカラー(`holo-colors/`。2026-09-27)** … ホロライブのメンバーカラーをキー(Ctrl+Alt+H)で呼び出してコピーする Windows の常駐アプリ。
   **主に友人が使う**ので Python ではなく C#(WinForms)。Windows に入っている .NET Framework 4 の csc で作る(`build.bat`。C# 5 まで)。アプリ自体は入口・3ツールとつながっていないが、
   メンバーの色の一覧 `holo-colors/members.json`(と作業データの自分の色)は `ytt_core/colors.py` が読み、字幕の色に使う(形を変えるときは colors.py とそのテストも)。
