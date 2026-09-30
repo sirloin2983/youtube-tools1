@@ -47,7 +47,7 @@
 - `datadir.prepare(...)`(ツールの起動時): 2 の環境変数があれば、写さずにそこを使う(`state: "override"`)。無ければ 3 の場所へ移行する。
   **`env` を渡さない(本物の起動の)ときは、決めたフォルダを登録する**(テストが `env` を渡して呼んでも、プロセス全体の登録は変わらない)
 - 登録するところ: スタジオ `serve.prepare()`(テスト・入口が先に決めていたときも、実際に使う `common.home()` を登録)、
-  「編集」・cut2resolve は `datadir.prepare` の中で、入口は `launch.main()`(`app`)。cut2resolve の `txindex.use_packs_dir(<作業データ>/packs)` も
+  「編集」は `serve.set_data_dir()`(`TRANSCRIBE_DATA_DIR` のときも `datadir.prepare` のときも通る)、cut2resolve は `datadir.prepare` の中で、入口は `launch.main()`(`app`)。cut2resolve の `txindex.use_packs_dir(<作業データ>/packs)` も
   `cut2resolve` の登録になる
 - 読むところ: 入口の案件 `cases.locations()`(スタジオの data.json・案件ファイル)、`txindex.folder()`(文字起こし)・`txindex.packs_dir()`(パックを作った記録)、
   スタジオのセリフの表示(`studio/txlink.py` → `txindex.folder`)

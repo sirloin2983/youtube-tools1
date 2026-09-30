@@ -6767,17 +6767,17 @@ def set_data_dir(d):
     DIAR_DIR = os.path.join(DATA_DIR, "models", "diar")
     EVAL_BASE = os.path.join(DATA_DIR, "eval-baselines.json")
     os.environ["TRANSCRIBE_DATA_DIR"] = DATA_DIR
+    _datadir.register(TOOL_ID, DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)
 
 
 def studio_data_path():
-    """切り抜きスタジオの data.json(読むだけ)。STUDIO_HOME → 新しい置き場(移し済みなら)→ 以前の場所(スタジオのフォルダ)"""
+    """切り抜きスタジオの data.json(読むだけ)。置き場所の規則は ytt_core.datadir.resolve の1か所(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場)。
+    決めた場所に無く、登録も STUDIO_HOME も無ければ以前の場所(スタジオのフォルダ。移す前のデータ)"""
     if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
         return os.environ["TRANSCRIBE_STUDIO_DATA"]
-    if os.environ.get("STUDIO_HOME"):
-        return os.path.join(os.environ["STUDIO_HOME"], "data.json")
     legacy = _layout.tool_dir("studio", os.path.dirname(ROOT))
-    new = os.path.join(_datadir.tool_dir("studio", legacy), "data.json")
-    return new if os.path.isfile(new) else os.path.join(legacy, "data.json")
+    new = os.path.join(_datadir.resolve("studio", os.path.dirname(ROOT), legacy_dir=legacy), "data.json")
+    return new if os.path.isfile(new) or _datadir.registered("studio") or _datadir.override("studio") else os.path.join(legacy, "data.json")
 
 
 def choose_data_dir():

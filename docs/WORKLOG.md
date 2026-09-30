@@ -2314,3 +2314,14 @@
 - 版: 編集 0.27.0 は別の作業が先に使っていたので **0.28.0**、ホーム 0.17.0 → **0.18.0**(launch.py の別の作業は push.bat でコミット済みになっていた)
 - 送るアプリ 1.3.0(Sonnet): 「話す人」の人数と名前・JSON の speakers。build 18 件 OK
 - 未コミット: なし
+
+## 2026-10-01 Claude Code — ② 作業データの置き場所の求め方を ytt_core の1か所に(仕上げ。中断の続き)
+- 経緯: 中断したときの未コミットの 9 ファイル(Opus のサブエージェントの分)は、ユーザーの push.bat の「update 2026/10/01 0:12」(9115e19)にそのまま入っていた。今回はその続き
+- 変更: `editor/serve.py` の `set_data_dir()` が `datadir.register("transcribe", DATA_DIR)` を呼ぶ(TRANSCRIBE_DATA_DIR のときも prepare のときも通る)。
+  `studio_data_path()` は `datadir.resolve("studio", …)`(登録 → STUDIO_HOME → 新しい置き場)で決め、そこに無く登録も環境変数も無いときだけ以前の場所(スタジオのフォルダ)。
+  `docs/spec/data-location.md` に「編集」の登録の場所を1行
+- 規則(`ytt_core/datadir.py`。9115e19 に入っていた分): `resolve(tool, repo_root, env)` = ① 登録(`register`。env を渡したときは見ない)→ ② ツールごとの環境変数 `ENV_OVERRIDE`(STUDIO_HOME・TRANSCRIBE_DATA_DIR)→ ③ `tool_dir`。
+  `locate` は ②③ だけ(自分で決める側 = 入口)。`prepare` は env を渡さないとき決めた場所を登録する。読む側: `home/cases.locations`・`txindex.folder`・`txindex.packs_dir`(`use_packs_dir` は cut2resolve の登録に)
+- テスト(すべて通過): `ytt_core/tests/test_ytt_core.py`(64)・home の単体 5 組(159)・studio の単体 7 組(246)・editor の単体一式(205)・`dev/tests/e2e_datadir.py`・`editor/tests/e2e_ui_mounted.py`・`home/tests/e2e_portal.py`
+- これで夜間の見直しの「高」の残り 3 件(①②③)はすべて済み。次は線 A 段5(`docs/plan/phase5-consistent-ui.md`)
+- 未コミット: なし(このあとコミット)
