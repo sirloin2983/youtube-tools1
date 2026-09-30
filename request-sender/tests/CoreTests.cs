@@ -31,6 +31,7 @@ static class CoreTests
         Run("エラー: Dropbox の返事を日本語に", Errors);
         Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
         Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
+        Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
@@ -300,6 +301,13 @@ static class CoreTests
             }
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    static void DeleteArgs()
+    {
+        string a = DropboxArgs.Delete("/出力/x\"y.zip");
+        Eq("{\"path\":\"/\\u51fa\\u529b/x\\\"y.zip\"}", a, "delete_v2");
+        Eq("/出力/x\"y.zip", Json.Str(Json.Parse(a), "path"), "戻せる");
     }
 
     static void Flows()

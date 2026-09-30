@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -286,6 +286,12 @@ namespace RequestSender
         public static string ListContinue(string cursor)
         {
             return "{\"cursor\":" + JsonText.Quote(cursor, true) + "}";
+        }
+
+        // files/delete_v2(本文の JSON)。受け取り終えたパック・読み終えた失敗の知らせを Dropbox から消す
+        public static string Delete(string path)
+        {
+            return "{\"path\":" + JsonText.Quote(path, true) + "}";
         }
 
         public static string Download(string path)

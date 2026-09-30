@@ -144,6 +144,7 @@ class Run:
         self.id = uuid.uuid4().hex[:10]
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
+        self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
         self.source_path = source_path   # 依頼の動画(mode file。作業データへコピーしたもの)
         self.request_id = request_id     # 友人からの依頼の id(home/intake.py)
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
@@ -891,11 +892,11 @@ class AutoRunner:
         wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
         cs = tx_settings.get("cutSilence") if isinstance(tx_settings.get("cutSilence"), dict) else {}
         cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
-        loud = tx_settings.get("packLoudness", -14)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。既定 -14・0 = そろえない。2026-09-29)
+        loud = tx_settings.get("packLoudness", 0)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。0 = そろえない。既定は 0 = 音量 30%。2026-10-01)
         if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
             wrap_out["loudness"] = loud
         else:   # LUFS でそろえないときは音量(%)。元 = 100
-            vol = tx_settings.get("packVolume", 100)
+            vol = tx_settings.get("packVolume", 30)
             if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
                 wrap_out["volume"] = vol
         return row_edge, wrap_out, cut_silence, notes
@@ -906,7 +907,7 @@ class AutoRunner:
             m = (self.prefs.get(["autorun"])["autorun"] or {}).get("cut") if self.prefs else None
         except (OSError, ValueError, KeyError):
             m = None
-        return m if m in ("rows", "none", "silence") else "rows"
+        return m if m in ("rows", "none", "silence") else "none"   # 既定はカットしない(2026-10-01)
 
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
         """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
@@ -963,6 +964,9 @@ class AutoRunner:
         r = j.get("result") or {}
         if r.get("outDir") and r["outDir"] not in run.packs:
             run.packs.append(r["outDir"])   # ① 全自動で Dropbox へ届けるもの
+            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # できた順に1本ずつ届ける(全部を待たない。2026-10-01)
+                st["detail"] = prefix + "Dropbox へ届けています"
+                self._deliver_one(run, r["outDir"])
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
             self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
                                                                       "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
@@ -1145,38 +1149,45 @@ class AutoRunner:
         if not dirs:
             st["state"], st["detail"] = "skip", "届けるパックがありません"
             return None
-        os.makedirs(run.deliver_dir, exist_ok=True)
-        done = []
-        for i, d in enumerate(dirs, 1):
+        todo = [d for d in dirs if d not in run.delivered]
+        for i, d in enumerate(todo, 1):
             self._check(run)
-            st["detail"] = "%d / %d 本を zip にしています" % (i - 1, len(dirs))
-            tmp = os.path.join(os.path.dirname(d), ".deliver-%s.zip" % uuid.uuid4().hex[:8])
-            try:
-                with zipfile.ZipFile(tmp, "w", allowZip64=True) as z:
-                    top = os.path.basename(d)
-                    for base, _dirs, files in os.walk(d):
-                        for f in sorted(files):
-                            p = os.path.join(base, f)
-                            arc = os.path.join(top, os.path.relpath(p, d))
-                            video = os.path.splitext(f)[1].lower() in (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")
-                            z.write(p, arc, compress_type=zipfile.ZIP_STORED if video else zipfile.ZIP_DEFLATED)
-                        self._check(run)
-                name = self._deliver_name(run, d) + ".zip"
-                dest = os.path.join(run.deliver_dir, name)
-                if os.path.exists(dest):
-                    dest = os.path.join(run.deliver_dir, "%s-%s.zip" % (name[:-4], uuid.uuid4().hex[:4]))
-                shutil.move(tmp, dest)
-                done.append(os.path.basename(dest))
-            except OSError as e:
-                raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
-            finally:
-                if os.path.exists(tmp):
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
-        st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(done)
+            st["detail"] = "%d / %d 本を zip にしています" % (i - 1, len(todo))
+            self._deliver_one(run, d)
+        st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
         return None
+
+    def _deliver_one(self, run, d):
+        """1本のパックのフォルダを zip にして 出力\\ へ置く"""
+        d = os.path.normpath(d)
+        if d in run.delivered or not os.path.isdir(d):
+            return
+        os.makedirs(run.deliver_dir, exist_ok=True)
+        tmp = os.path.join(os.path.dirname(d), ".deliver-%s.zip" % uuid.uuid4().hex[:8])
+        try:
+            with zipfile.ZipFile(tmp, "w", allowZip64=True) as z:
+                top = os.path.basename(d)
+                for base, _dirs, files in os.walk(d):
+                    for f in sorted(files):
+                        p = os.path.join(base, f)
+                        arc = os.path.join(top, os.path.relpath(p, d))
+                        video = os.path.splitext(f)[1].lower() in (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")
+                        z.write(p, arc, compress_type=zipfile.ZIP_STORED if video else zipfile.ZIP_DEFLATED)
+                    self._check(run)
+            name = self._deliver_name(run, d) + ".zip"
+            dest = os.path.join(run.deliver_dir, name)
+            if os.path.exists(dest):
+                dest = os.path.join(run.deliver_dir, "%s-%s.zip" % (name[:-4], uuid.uuid4().hex[:4]))
+            shutil.move(tmp, dest)
+            run.delivered.append(d)
+        except OSError as e:
+            raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""

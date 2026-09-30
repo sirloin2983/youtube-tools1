@@ -2190,3 +2190,16 @@
 - 主な色(hex = 字幕の色)は誰も変えていない。exe は変わらないので版は据え置き(dist の zip の members.json は新しい)
 - テスト: holo-colors\build.bat(21 件)・`python -m unittest ytt_core/tests/test_ytt_core.py`(61 件)OK。画面は --screenshot で確認
 - 未コミット: なし(このあとコミット)。`docs/ROADMAP.md` の未コミットの変更は別の作業のもので、触っていない
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet)— 既定を「カットしない・音量 30%」・受け取ったら消す・裏で動かす(ホーム 0.17.0・編集 0.26.1・送るアプリ 1.2.0)
+- 決定(ユーザー 2026-10-01): 全部のパックの既定をカットしない・音量 30% に / 友人が受け取ったら Dropbox から消し、パックは1本ずつ届ける / スタジオ(画面)を開いていなくても使えるよう、裏で起動する bat を自動起動に
+- 変更(まとめ役): `home/prefs.py`(autorun.cut の既定 none)・`home/autorun.py`(カットの既定 none・音量の既定 0 LUFS = 30%・① はパックができるごとに _deliver_one)、
+  `editor/pack-tab.js`・`ui-kit/ui-kit.js`(音量の既定 0 / 30。写しは sync_ui_kit)、版: 編集 0.26.1・ホーム 0.17.0、
+  `start-background.bat`・`home/start_hidden.vbs`(新規。ASCII・CRLF でないと cmd が日本語の rem を読み違えた)、README・設計の文書 2-3・ROADMAP の版
+- 変更(Sonnet): `request-sender/`(1.2.0。受け取って確かめたら files/delete_v2・失敗の知らせの「消す」・受け取り済みの表示をやめた)。build 17 件 OK
+- ユーザーの PC に置いたもの: スタートアップに「youtube-tools (裏で起動).lnk」(wscript で start_hidden.vbs)。やめるときは shell:startup で消す。
+  いまホーム 0.17.0 が裏で動いている(22:31 に起動を確かめた)
+- テスト(簡易でよい = ユーザー): home の autorun・intake 75 件 OK(既定に依る4件を直した)・test_ui_kit_sync OK。e2e は流していない
+- 注意: ユーザーの編集の設定には packLoudness 0・packVolume 30 がもう保存されていた。ホームの設定に autorun.cut は無かった = 今回から「カットしない」。
+  delete_v2・日本語名の削除は実際の Dropbox で未確認
+- 未コミット: なし(このあとコミット)

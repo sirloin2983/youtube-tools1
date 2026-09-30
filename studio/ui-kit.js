@@ -1442,11 +1442,11 @@
   var loudGet = null;
   function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
   function loudNorm(raw) {
-    if (raw === undefined || raw === null || raw === '') return -14;
+    if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%(2026-10-01)
     var v = +raw;
     return v === 0 ? 0 : (v === -11 || v === -14 || v === -16 || v === -18) ? v : -14;
   }
-  function volNorm(raw) { var v = Math.round(+raw); return v >= 1 && v <= 200 ? v : 100; }
+  function volNorm(raw) { var v = Math.round(+raw); return v >= 1 && v <= 200 ? v : 30; }
   /* 値 {loud: LUFS か 0(= % で決める), vol: %(元 = 100)} を、画面のすべての欄に反映して知らせる */
   function loudPaint(st) {
     var els = document.querySelectorAll('select[data-ui-packloud]');

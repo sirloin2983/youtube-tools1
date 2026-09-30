@@ -1,5 +1,5 @@
 // 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。
-// 一覧は Dropbox の「/出力」を読むだけ(消さない)。受け取ったものは %LOCALAPPDATA%\RequestSender\received.txt に覚える
+// 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,12 +16,11 @@ namespace RequestSender
         readonly LocalState state;
         readonly ListView outList = new ListView();
         readonly TextBox detail = new TextBox();
-        readonly Button refreshBtn = new Button(), receiveBtn = new Button(), openFolderBtn = new Button(), changeDirBtn = new Button();
+        readonly Button refreshBtn = new Button(), receiveBtn = new Button(), deleteBtn = new Button(), openFolderBtn = new Button(), changeDirBtn = new Button();
         readonly Label recvStatus = new Label(), dirLabel = new Label();
         readonly ProgressBar recvBar = new ProgressBar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
         List<OutputEntry> entries = new List<OutputEntry>();
-        HashSet<string> received = new HashSet<string>();
         string downloadDir, lastDownloaded;
         bool listedOnce;
         Thread recvWorker;
@@ -48,6 +47,12 @@ namespace RequestSender
             });
             t.Controls.Add(head);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Controls.Add(new Label
+            {
+                Text = "できた順に1本ずつ届きます。受け取ると一覧から消えます",
+                AutoSize = true, Margin = new Padding(9, 0, 3, 4), ForeColor = Color.DimGray,
+            });
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             outList.View = View.Details;
             outList.FullRowSelect = true;
@@ -58,7 +63,6 @@ namespace RequestSender
             outList.Columns.Add("題", 220);
             outList.Columns.Add("大きさ", 80, HorizontalAlignment.Right);
             outList.Columns.Add("届いた日時", 118);
-            outList.Columns.Add("", 90);
             outList.SelectedIndexChanged += (s, e) => ShowSelected();
             outList.DoubleClick += (s, e) => { var x = SelectedEntry; if (x != null && x.Kind == OutputKind.Pack) StartDownload(); };
             outList.Resize += (s, e) => FitColumns();
@@ -100,7 +104,11 @@ namespace RequestSender
             openFolderBtn.AutoSize = true;
             openFolderBtn.Margin = new Padding(8, 16, 3, 6);
             openFolderBtn.Click += (s, e) => OpenFolder();
-            btns.Controls.AddRange(new Control[] { receiveBtn, openFolderBtn });
+            deleteBtn.Text = "消す";
+            deleteBtn.AutoSize = true;
+            deleteBtn.Margin = new Padding(8, 16, 3, 6);
+            deleteBtn.Click += (s, e) => StartDeleteFailure();
+            btns.Controls.AddRange(new Control[] { receiveBtn, openFolderBtn, deleteBtn });
             t.Controls.Add(btns);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -120,14 +128,13 @@ namespace RequestSender
             Resize += (s, e) => recvStatus.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 50), 0);
 
             downloadDir = state.LoadDownloadDir();
-            received = state.LoadReceived();
             dirLabel.Text = downloadDir;
             UpdateRecvButtons();
         }
 
         void FitColumns()
         {
-            int fixedW = outList.Columns[0].Width + outList.Columns[2].Width + outList.Columns[3].Width + outList.Columns[4].Width;
+            int fixedW = outList.Columns[0].Width + outList.Columns[2].Width + outList.Columns[3].Width;
             int w = outList.ClientSize.Width - fixedW - 4;
             if (w > 80) outList.Columns[1].Width = w;
         }
@@ -144,6 +151,7 @@ namespace RequestSender
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
             receiveBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack;
+            deleteBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key);
             receiveBtn.Text = busy && recvDownloading ? "受け取っています…" : "受け取る";
         }
 
@@ -170,16 +178,14 @@ namespace RequestSender
         public void ShowEntries(OutputListing listing)
         {
             entries = listing.Entries;
-            received = state.LoadReceived();
             outList.BeginUpdate();
             outList.Items.Clear();
             foreach (var e in entries)
             {
-                var item = new ListViewItem(new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified), "" });
+                var item = new ListViewItem(new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) });
                 item.Tag = e;
                 if (e.Kind == OutputKind.Failure) item.ForeColor = Color.Firebrick;
                 outList.Items.Add(item);
-                UpdateRow(item);
             }
             outList.EndUpdate();
             FitColumns();
@@ -187,19 +193,10 @@ namespace RequestSender
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
-                int fresh = entries.Count(x => x.Kind == OutputKind.Pack && !received.Contains(x.Key));
-                SetRecvStatus(entries.Count + " 件あります" + (fresh > 0 ? "(まだ受け取っていないパック " + fresh + " 件)" : "") + "。選んで「受け取る」を押してください。", false);
+                SetRecvStatus(entries.Count + " 件あります。選んで「受け取る」を押してください。", false);
                 outList.Items[0].Selected = true;
             }
             UpdateRecvButtons();
-        }
-
-        void UpdateRow(ListViewItem item)
-        {
-            var e = (OutputEntry)item.Tag;
-            bool done = received.Contains(e.Key);
-            item.SubItems[4].Text = e.Kind == OutputKind.Pack ? (done ? "受け取り済み" : "まだ") : (done ? "読んだ" : "まだ読んでいない");
-            item.Font = done ? outList.Font : new Font(outList.Font, FontStyle.Bold);
         }
 
         void ShowSelected()
@@ -212,8 +209,7 @@ namespace RequestSender
                 detail.Text = "題: " + e.Title + "\r\n" +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n\r\n" +
-                              "DaVinci Resolve のパック(字幕は校正の前)です。" +
-                              (received.Contains(e.Key) ? "受け取り済みです(もう一度受け取ることもできます)。" : "「受け取る」を押すと保存先に保存します。");
+                              "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先に保存し、確かめたあと Dropbox と一覧から消えます。";
                 return;
             }
             string text;
@@ -230,17 +226,15 @@ namespace RequestSender
                 Ui(() =>
                 {
                     failureTexts[e.Key] = reason;
-                    state.MarkReceived(e);
-                    received.Add(e.Key);
-                    foreach (ListViewItem it in outList.Items) if (it.Tag == e) UpdateRow(it);
                     if (SelectedEntry == e) ShowFailure(e, reason);
+                    UpdateRecvButtons();
                 });
             });
         }
 
         void ShowFailure(OutputEntry e, string reason)
         {
-            detail.Text = "自動の処理が失敗しました(" + e.Title + ")。\r\n送り先の人に伝えるか、「② 軽く確認」か「③ 全部人が行う」で送り直してください。\r\n\r\n理由:\r\n" + reason;
+            detail.Text = "自動の処理が失敗しました(" + e.Title + ")。\r\n送り先の人に伝えるか、「② 軽く確認」か「③ 全部人が行う」で送り直してください。\r\n読み終えたら「消す」を押すと、一覧から消えます。\r\n\r\n理由:\r\n" + reason;
         }
 
         // ---- 受け取る ----
@@ -271,17 +265,66 @@ namespace RequestSender
                     Ui(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
                 });
                 Log.Write("receive: ok " + path);
+                // 大きさと hash を確かめて名前を変えたあと(Download が例外なく返った)だけ、Dropbox から消す
+                bool deleted = true;
+                try { new Receiving(client).Delete(e); }
+                catch (Exception ex)
+                {
+                    deleted = false;
+                    Log.Write("receive: delete failed " + e.Name + ": " + ex.Message);
+                }
                 Ui(() =>
                 {
-                    state.MarkReceived(e);
-                    received.Add(e.Key);
-                    foreach (ListViewItem it in outList.Items) if (it.Tag == e) UpdateRow(it);
                     lastDownloaded = path;
                     recvBar.Value = 1000;
-                    SetRecvStatus("受け取りました ✓  " + Path.GetFileName(path) + "\n「フォルダを開く」で見られます。", false, true);
-                    ShowSelected();
+                    if (deleted)
+                    {
+                        RemoveEntry(e);
+                        SetRecvStatus("受け取りました ✓  " + Path.GetFileName(path) + "\n「フォルダを開く」で見られます。", false, true);
+                    }
+                    else
+                    {
+                        SetRecvStatus("受け取りましたが、Dropbox から消せませんでした(次に更新したときにまた出ます)\n" + Path.GetFileName(path), true);
+                        ShowSelected();
+                    }
                 });
             });
+            UpdateRecvButtons();
+        }
+
+        // 読み終えた失敗の知らせを Dropbox から消す
+        void StartDeleteFailure()
+        {
+            var e = SelectedEntry;
+            if (RecvBusy || e == null || e.Kind != OutputKind.Failure || !failureTexts.ContainsKey(e.Key)) return;
+            if (MessageBox.Show(this, "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")", "消す",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            Config config;
+            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
+            catch (Exception ex) { SetRecvStatus(ConfigProblem(ex), true); return; }
+            recvCancel = false;
+            SetRecvStatus("消しています…", false);
+            var client = NewClient(config);
+            RunRecv(() =>
+            {
+                new Receiving(client).Delete(e);
+                Ui(() =>
+                {
+                    RemoveEntry(e);
+                    SetRecvStatus("消しました", false);
+                });
+            });
+        }
+
+        // 一覧から外す(Dropbox から消したあと)。先頭を選び直す
+        void RemoveEntry(OutputEntry e)
+        {
+            entries.Remove(e);
+            failureTexts.Remove(e.Key);
+            foreach (ListViewItem it in outList.Items.Cast<ListViewItem>().ToList())
+                if (it.Tag == e) outList.Items.Remove(it);
+            detail.Text = "";
+            if (outList.Items.Count > 0) outList.Items[0].Selected = true;
             UpdateRecvButtons();
         }
 

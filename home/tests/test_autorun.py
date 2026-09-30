@@ -288,7 +288,7 @@ class TestDocs(Base):
         self.assertEqual(tx["body"]["model"], "small")                                     # 新規の設定で
         bodies = self.tools.c2r["bodies"]
         self.assertEqual(sorted(b_["spec"]["video"] for b_ in bodies), sorted(self.media.values()))
-        self.assertTrue(all(b_["spec"].get("preset") == "transcript-rows" and "force" not in b_["output"] for b_ in bodies))
+        self.assertTrue(all(b_["spec"].get("mode") == "list" and "force" not in b_["output"] for b_ in bodies))   # 既定はカットしない(2026-10-01)
 
     def test_streamer_color_is_passed(self):
         """配信者の名前(字幕の文字の色。docs/archive/followup-2026-09-27.md の 4): 照らし合わせた名前を cut2resolve に渡す。見つからなければ始める前に断る"""
@@ -356,6 +356,7 @@ class TestModes(Base):
     def test_row_edge_setting_is_passed(self):
         """行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの settings.rowEdge)を cut2resolve に渡す"""
         self.tools.row_edge = {"on": False, "after": 0.5, "before": 0.3}
+        self._prefs(cut="rows")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.tools.c2r["body"]["spec"]["rowEdge"], {"on": False, "after": 0.5, "before": 0.3})
@@ -372,7 +373,7 @@ class TestModes(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["speakerColors"], out["loudness"], out.get("volume")), (True, -14, None))   # 既定: 色あり・-14 LUFS
+        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, None, 30))   # 既定: 色あり・音量 30%(2026-10-01)
 
     def test_pack_follows_edit_settings_off_and_percent(self):
         self.tools.tx_extra = {"speakerColors": False, "packLoudness": 0, "packVolume": 70}
@@ -404,11 +405,12 @@ class TestModes(Base):
         spec = self.tools.c2r["body"]["spec"]
         self.assertEqual((spec["mode"], spec["silence"]), ("silence", {"noise": -40, "min": 0.8, "pad": 0.2}))
 
-    def test_cut_method_default_is_rows(self):
-        run = self.run_one("adopted")   # ホームの設定が無い・rows のときは今までどおり「行から」
-        self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
+    def test_cut_method_default_is_none(self):
+        run = self.run_one("adopted")   # ホームの設定が無いときはカットしない(2026-10-01 ユーザー決定)
+        self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
+        self._prefs(cut="rows")
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})

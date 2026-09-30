@@ -25,7 +25,8 @@ ON_FAIL = ("next", "stop")
 STREAMER_KINDS = ("docs", "videos", "channels")
 COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(Shift+ と、1文字かキーの名前)
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
-DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "rows", "overwrite": False, "onFail": "next"},
+DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカットしない(2026-10-01 ユーザー決定)
+                         "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20}}

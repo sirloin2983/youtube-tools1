@@ -11,12 +11,12 @@ function create(h){
   const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
   const fpsOf = () => { const o = $('#pkFpsOther').value; return o || (h.S.settings.packFps === '60' ? '60' : String(h.S.settings.packFps || '30')); };
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
-  /* 音量のそろえ方(LUFS。編集の設定 packLoudness。既定 -14 = スタジオの書き出しと同じ・0 = そろえない。まとめて実行のパックも同じ値。2026-09-29) */
+  /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(2026-10-01 ユーザー決定)) */
   const loudOf = () => {
-    const raw = h.S.settings.packLoudness; if (raw === undefined || raw === null || raw === '') return -14;
+    const raw = h.S.settings.packLoudness; if (raw === undefined || raw === null || raw === '') return 0;
     const v = Number(raw); return v === 0 ? 0 : [-11, -14, -16, -18].includes(v) ? v : -14;
   };
-  const volOf = () => { const v = Math.round(Number(h.S.settings.packVolume)); return v >= 1 && v <= 200 ? v : 100; };   // LUFS でそろえないときの音量(%。元 = 100)
+  const volOf = () => { const v = Math.round(Number(h.S.settings.packVolume)); return v >= 1 && v <= 200 ? v : 30; };   // LUFS でそろえないときの音量(%。元 = 100・既定 30)
   async function saveLoud(values){   // パックの出力(音量・fps・縦横・話者の色・予備)は「送ったキーだけ直す」API で(丸ごとの保存では変えない。まとめて実行の欄と同じ値)
     try { await h.api('/api/settings/patch', { body: { values } }); Object.assign(h.S.settings, values); }
     catch (er){ h.toast('パックの設定を保存できませんでした: ' + er.message, 6000, 'err'); }

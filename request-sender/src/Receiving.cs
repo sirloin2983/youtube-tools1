@@ -1,5 +1,6 @@
 // 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして、選んだものを取ってくる。
-// Dropbox の上のものは消さない・書き換えない(読むだけ)。鍵に読みの権限が要る(files.metadata.read・files.content.read)
+// 受け取り終えたパック(大きさと hash を確かめたあと)・読み終えた失敗の知らせだけ、Dropbox から消す(files/delete_v2。鍵に files.content.write)
+// 一覧には読みの権限が要る(files.metadata.read・files.content.read)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -84,6 +85,19 @@ namespace RequestSender
             finally
             {
                 if (!ok) TryDelete(part);
+            }
+        }
+
+        // Dropbox の /出力 から消す。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
+        public void Delete(OutputEntry e)
+        {
+            try
+            {
+                client.Rpc("files/delete_v2", DropboxArgs.Delete(e.ApiPath));
+            }
+            catch (DropboxException ex)
+            {
+                if (!ErrorText.IsNotFound(ex.Status, ex.Body)) throw;
             }
         }
 

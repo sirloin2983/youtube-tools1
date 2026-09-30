@@ -5,7 +5,7 @@
 状態が変わったら、WORKLOG と一緒にここ(と該当の段の計画)も直す。細かい経緯は WORKLOG と各文書に書き、ここには1行だけ。
 **2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 
-版(2026-10-01): 入口 0.16.0・スタジオ 0.12.0・編集 0.26.0・cut2resolve 0.15.0・ui-kit v9・ホロカラー 1.3.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-10-01): 入口 0.17.0・スタジオ 0.12.0・編集 0.26.0・cut2resolve 0.15.0・ui-kit v9・ホロカラー 1.3.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
