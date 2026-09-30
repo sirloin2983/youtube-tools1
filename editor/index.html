@@ -1085,7 +1085,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 </head>
 <body>
 <header class="ui-header top" id="appHeader">
-  <button type="button" class="btn ghost small tt-hbtn" id="btnMenu" aria-expanded="true" aria-controls="menuPanel" title="左のメニュー(新しく文字起こし・保存済みの一覧・設定など)を開く/閉じる(G)"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg></span><span id="btnMenuT" class="tt-hlabel">メニューを閉じる</span></button>
+  <button type="button" class="btn ghost small tt-hbtn" id="btnMenu" aria-expanded="true" aria-controls="menuPanel" title="左のメニュー(新しく文字起こし・保存済みの一覧・設定など)を開く/閉じる" data-key-title="menu"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg></span><span id="btnMenuT" class="tt-hlabel">メニューを閉じる</span></button>
   <!-- ホーム/スタジオ/編集(ui-kit v6。画面の全面見直し 段1)。中身は ui-kit.js の UIKit.appnav が描く -->
   <nav class="ui-appnav" data-ui-appnav="transcribe" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver" id="ver"></span>
@@ -1115,12 +1115,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 
 <div class="app">
 <nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
-  <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く(G)" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く" data-key-title="menu" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
   <button type="button" class="btn ghost small icon" data-strip="files" title="履歴(保存済みの文字起こし)を開く" aria-label="履歴を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
   <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし・文字起こしせずに開く)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 </nav>
 <aside id="menuPanel" aria-label="メニュー">
-  <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います(G)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
+  <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います" data-key-title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
   <div id="setup"></div>
   <nav class="side-tabs" aria-label="管理パネル">
     <button type="button" data-side-tab="start" aria-selected="true">新規</button>
@@ -1252,7 +1252,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     </div>
     <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
   <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
-    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印。Shift+Space)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
+    <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印<span data-key="proof" data-key-fmt="。{k}">。Shift+Space</span>)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
     <div class="row" style="margin-top:8px"><label class="lag">対象 <select id="accScope" style="width:auto"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label><button type="button" class="btn small" id="accRefresh">測定を更新</button>
       <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
     <div id="accOut"></div>
@@ -1463,7 +1463,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <div class="card tt-cut-prev">
          <div class="tt-cut-video"><video id="cutPlayer" preload="metadata" playsinline></video><span class="pill info tt-cut-mode-pill" id="cutModePill">カット後の見え方</span><div class="tt-cut-cap tt-cap-look" id="cutCaption" hidden></div></div>
          <div class="tt-cut-ctrl">
-           <button type="button" class="btn small icon" id="cutPlay" aria-label="再生・停止(Space)" title="再生・停止(Space)"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+           <button type="button" class="btn small icon" id="cutPlay" aria-label="再生・停止" title="再生・停止" data-key-title="playPause"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
            <span class="tt-cut-time"><b class="mono" id="cutTimeSrc">0:00.00</b> <span class="hint">元</span> <b class="mono tt-acc" id="cutTimeOut">0:00.00</b> <span class="hint">カット後 / <span class="mono" id="cutTotal">0:00.00</span></span></span>
            <div class="ui-seg tt-cut-mode" role="group" aria-label="プレビュー"><button type="button" id="cutModeSrc" aria-pressed="false" title="削る区間も含めて、元の動画のまま再生します">元の動画</button><button type="button" id="cutModeCut" aria-pressed="true" title="削る区間を飛ばして再生します(Resolve に入れたときの見え方)">カット後</button></div>
          </div>
@@ -1477,7 +1477,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-cut-tools" role="toolbar" aria-label="カットの道具">
        <button type="button" class="btn small" id="cutSplit" title="再生位置(赤い線)で、残す区間を2つに分けます(S)"><span aria-hidden="true">✂</span> 分割 <kbd>S</kbd></button>
        <button type="button" class="btn small" id="cutDel" title="選んだ残す区間を削る / 選んだ削る区間を戻す(Del)">削る / 戻す <kbd>Del</kbd></button>
-       <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(X)">I〜O を削る <kbd>X</kbd></button>
+       <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(X)"><span id="cutIOLabel">I〜O を削る</span> <kbd>X</kbd></button>
        <span class="tt-sep" aria-hidden="true"></span>
        <button type="button" class="btn small ghost" id="cutUndo" title="元に戻す(Ctrl+Z)"><span aria-hidden="true">↶</span> 元に戻す <kbd>Ctrl+Z</kbd></button>
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span aria-hidden="true">↷</span> やり直す</button>
@@ -1674,7 +1674,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div class="fld"><label for="vVid">動画の大きさ</label><select id="vVid"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ聞く(映像を隠す)</option></select></div>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
   <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
-  <label class="lag" style="margin-top:10px" title="Shift+Space・Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
+  <label class="lag" style="margin-top:10px" id="autoNextLbl" title="Shift+Space・Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
   <h4 class="tt-set-sub">再生・行の操作</h4>
   <div class="col tt-set-col">
     <label class="lag" title="再生している行が画面の外に出たら、画面をずらして見えるようにします"><input type="checkbox" id="follow" checked>再生に追従</label>

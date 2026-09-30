@@ -1301,7 +1301,7 @@ async function loadAcc(){
 function renderAcc(m){
   const o = m.overall, box = $('#accOut');
   if (!o.groups){
-    box.innerHTML = `<p class="hint" style="margin:8px 0 0">校正済みの行がまだありません(${m.docs}件の文字起こしのうち、校正済みの行があるのは${m.docsProofed}件)。聞いて確認した行の「校正済み」ボタン(Shift+Space)で印を付けると、ここに文字誤り率が出ます。「印のない旧データも含める」で、これまでに直した分を仮計算できます。</p>`;
+    box.innerHTML = `<p class="hint" style="margin:8px 0 0">校正済みの行がまだありません(${m.docs}件の文字起こしのうち、校正済みの行があるのは${m.docsProofed}件)。聞いて確認した行の「校正済み」ボタン${keyParen('proof')}で印を付けると、ここに文字誤り率が出ます。「印のない旧データも含める」で、これまでに直した分を仮計算できます。</p>`;
     return;
   }
   const errs = o.errs || 0, share = v => errs ? Math.round(v / errs * 100) + '%' : '—';
@@ -1622,7 +1622,7 @@ function segHTML(s, i){
     <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
-    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="この行の後に、空の行を足します(N)">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" data-act="del" class="del" title="この行を消します(2回押し。Z でも消せます)">削除</button></span></div>
+    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
     ${s.flag ? `<button type="button" class="fl" data-act="unflag" title="${esc(s.flag)}(押すと確認済みにします)">要確認: ${esc(s.flag)}</button>` : ''}
   </div>`;
 }
@@ -2023,7 +2023,7 @@ let zArm = null;
 function deleteCur(){
   const c = rowAndSeg(); if (!c) return;
   /* v0.9.8: 1文字キーになったので、Z は2回押し(1.5秒以内)で削除する(行のボタンの「削除」と同じ考え方) */
-  if (!zArm || zArm.id !== c.g.id || Date.now() - zArm.t > 1500){ zArm = { id: c.g.id, t: Date.now() }; return toast(`もう一度 ${keyText(keymap().del) || '削除のキー'} で、この行を削除します`, 1500); }
+  if (!zArm || zArm.id !== c.g.id || Date.now() - zArm.t > 1500){ zArm = { id: c.g.id, t: Date.now() }; return toast(`もう一度 ${keymap().del ? keyText(keymap().del) : '削除のキー'} で、この行を削除します`, 1500); }
   zArm = null;
   pushUndo(); S.sel.delete(c.g.id); S.doc.segments.splice(c.i, 1); S.navIdx = Math.min(c.i, S.doc.segments.length - 1);
   renderDoc(); markDirty(); toast('行を削除しました(Ctrl+Z で元に戻せます)');
@@ -2166,6 +2166,8 @@ const titlePlay = () => `この行だけ再生${keyParen('replay')}。行の終�
 const titleProof = () => `聞いて確認して、この行の文字が正しいと判断したら押す${keyParen('proof').replace(/\)$/, '。次の行へ進みます)') || '(次の行へ進みます)'}`;
 const TAG_ACT = { unclear: 'tagUnclear', overlap: 'tagOverlap', bgm: 'tagBgm' };
 const titleTag = t => `この行の音の状態のメモ${keyParen(TAG_ACT[t])}。「聞き取れない」の行は、精度の測定と学習の正解に使いません`;
+const titleAddAfter = () => `この行の後に、空の行を足します${keyParen('insert')}`;
+const titleDel = () => { const k = keymap().del; return `この行を消します(2回押し${k ? '。' + keyText(k) + ' でも消せます' : ''})`; };
 function renderKeyUI(){
   const km = keymap();
   txKeybarScene();
@@ -2185,6 +2187,17 @@ function renderKeyUI(){
   document.querySelectorAll('#segs button[data-act=play]').forEach(b => { b.title = titlePlay(); });
   document.querySelectorAll('#segs button[data-act=proof]').forEach(b => { b.title = titleProof(); });
   document.querySelectorAll('#segs button[data-act=tag]').forEach(b => { b.title = titleTag(b.dataset.t); });
+  document.querySelectorAll('#segs button[data-act=adda]').forEach(b => { b.title = titleAddAfter(); });
+  document.querySelectorAll('#segs button[data-act=del]').forEach(b => { b.title = titleDel(); });
+  /* 静的な HTML の中のキー(段3 3-3 監査 16): data-key-title = title の後ろに「(キー)」・data-key = 中の文字(data-key-fmt の {k} に入れる)。未設定なら出さない */
+  document.querySelectorAll('[data-key-title]').forEach(el => {
+    if (el.dataset.keyTitleBase === undefined) el.dataset.keyTitleBase = el.title;
+    const t = el.dataset.keyTitleBase + keyParen(el.dataset.keyTitle);
+    el.title = t; if (el.hasAttribute('aria-label') && !el.querySelector('.tt-hlabel')) el.setAttribute('aria-label', t);
+  });
+  document.querySelectorAll('[data-key]').forEach(el => { const k = km[el.dataset.key]; el.textContent = k ? (el.dataset.keyFmt || '{k}').replace('{k}', keyText(k)) : ''; });
+  const an = $('#autoNextLbl');
+  if (an) an.title = `${km.proof ? keyText(km.proof) + '・' : ''}Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)${km.autoNext ? '。' + keyText(km.autoNext) + ' でも切り替わります' : ''}。聞いて確認する流れが、左手だけで回ります`;
   window.dispatchEvent(new CustomEvent('ytt-keys-changed'));   // 2 カット のタブ(cut.js)の帯・ツールチップも合わせる
 }
 /* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ。S-29) */

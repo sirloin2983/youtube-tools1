@@ -415,6 +415,8 @@ function create(h){
   }
   /* タイムラインの下のキーの案内(今の割り当てから) */
   function renderKeysText(){
+    const io = $('#cutIOLabel');   // 「I〜O を削る」のボタンの文字も、始まり/終わりの印のキーから(段3 3-3。外していれば「印の間を削る」)
+    if (io) io.textContent = pk('markIn') && pk('markOut') ? pk('markIn') + '〜' + pk('markOut') + ' を削る' : '印の間を削る';
     const el = $('#cutKeysText'); if (!el) return;
     const two = (a, b) => [pk(a), pk(b)].filter(Boolean).join(' ');
     el.textContent = 'キー: ' + [[pk('playPause'), '再生・停止'], [[pk('back1'), pk('stop'), pk('play')].filter(Boolean).join(' '), '(戻る・止める・再生)'], [two('seekBack', 'seekFwd'), '1秒(Shift で5秒)'],

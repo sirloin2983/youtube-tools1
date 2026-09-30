@@ -202,6 +202,23 @@ def main():
             pg.wait_for_function("document.querySelector('#player').currentTime <= 3.5", timeout=4000)
             check(navi() == 3, "3-2: Shift+H で5秒戻る(「1秒戻る」+ Shift。行は動かない)")
             check(km_set("playPause", "Shift+Comma") == "Space" and "10コマ" in km_set.note, "3-2: 再生のキーに < (Shift+,)は断られる: " + km_set.note)
+            # 段3 3-3(監査 16): ツールチップ・知らせ・キー帯・説明はキー配置から。未設定のキーはどこにも出ない
+            row_title = lambda sel: pg.evaluate("document.querySelectorAll('#segs %s')[3].title" % sel)   # noqa: E731
+            check("(X)" in row_title("button[data-act=tag][data-t=unclear]") and "(N)" in row_title("button[data-act=adda]") and "Z でも" in row_title("button[data-act=del]"),
+                  "3-3: 標準の配置では行の title に (X)・(N)・Z でも")
+            check(km_set("tagUnclear", "KeyH") == "H", "3-3: 「聞き取れない」を H に")
+            check("(H)" in row_title("button[data-act=tag][data-t=unclear]"), "3-3: 行の「聞き取れない」の title が (H): " + row_title("button[data-act=tag][data-t=unclear]"))
+            check(km_set("tagUnclear", "Delete") == "未設定" and "(" not in row_title("button[data-act=tag][data-t=unclear]"), "3-3: 未設定にすると「(キー)」ごと出さない: " + row_title("button[data-act=tag][data-t=unclear]"))
+            check(km_set("del", "Delete") == "未設定" and "でも消せます" not in row_title("button[data-act=del]") and km_set("insert", "Delete") == "未設定" and "(" not in row_title("button[data-act=adda]"),
+                  "3-3: 削除・行の追加を未設定にすると、行の title にキーが出ない: %s / %s" % (row_title("button[data-act=del]"), row_title("button[data-act=adda]")))
+            check(km_set("menu", "KeyM") == "M" and pg.get_attribute("#btnMenu", "title").endswith("(M)") and pg.get_attribute("[data-strip=menu]", "title").endswith("(M)"),
+                  "3-3: メニューのキーを M にすると、メニューのボタンの title が (M): " + pg.get_attribute("#btnMenu", "title"))
+            check(km_set("frameFwd", "KeyU") == "U" and " U " in pg.evaluate("document.querySelector('#cutKeysText').textContent") + " " and pg.evaluate("document.querySelector('#cutKeysText').textContent").count(".") == 0,
+                  "3-3: 「1コマ進む」を U にすると、2 カット の下のキーの説明も U(. は出ない): " + pg.evaluate("document.querySelector('#cutKeysText').textContent"))
+            check(km_set("playPause", "KeyP") == "P" and pg.get_attribute("#cutPlay", "title") == "再生・停止(P)", "3-3: カットの再生ボタンの title も再生のキーから: " + pg.get_attribute("#cutPlay", "title"))
+            check(km_set("markIn", "Delete") == "未設定" and pg.evaluate("document.querySelector('#cutIOLabel').textContent") == "印の間を削る", "3-3: 始まりの印を外すと「I〜O を削る」は「印の間を削る」: " + pg.evaluate("document.querySelector('#cutIOLabel').textContent"))
+            check(km_set("proof", "Delete") == "未設定" and "Shift+Space" not in pg.evaluate("document.querySelector('#accCard').textContent") and "Shift+Space" not in (pg.get_attribute("#autoNextLbl", "title") or ""),
+                  "3-3: 校正済みのキーを外すと、精度の説明・自動で再生の説明に Shift+Space が出ない")
             pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmGrid [data-km-reset]", state="visible")
             pg.click("#kmGrid [data-km-reset]")
             check(km_text("rowNext") == "S" and km_text("seekBack") == "←", "3-2: すべて標準に戻す")
