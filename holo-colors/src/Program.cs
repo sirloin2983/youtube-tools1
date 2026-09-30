@@ -426,12 +426,26 @@ namespace HoloColors
         // ---- コピー ----
         public string CopyText(ColorEntry e)
         {
-            return HexColor.Format(e.Hex, Store.Settings.IncludeHash);
+            return CopyText(e.Hex);
+        }
+
+        public string CopyText(string hex)
+        {
+            return HexColor.Format(hex, Store.Settings.IncludeHash);
         }
 
         public void Copy(ColorEntry e)
         {
-            string text = CopyText(e);
+            Copy(e, 0);
+        }
+
+        // colorIndex = その人の何番目の色か(0 = 主な色。札の小さな四角・右クリックのメニューから 1〜)
+        public void Copy(ColorEntry e, int colorIndex)
+        {
+            var colors = e.AllColors;
+            var option = colors[Math.Max(0, Math.Min(colors.Count - 1, colorIndex))];
+            string text = CopyText(option.Hex);
+            string who = e.Name + (colorIndex > 0 && option.Label.Length > 0 ? " " + option.Label : "");
             try
             {
                 // 他のアプリがクリップボードを開いていると失敗するので、何度か待ってやり直す
@@ -443,11 +457,11 @@ namespace HoloColors
                 main.SetStatus("コピーできませんでした(他のアプリがクリップボードを使っています)。もう一度押してください", true);
                 return;
             }
-            main.SetStatus("コピーしました: " + text + "  " + e.Name, false, e.Hex);
+            main.SetStatus("コピーしました: " + text + "  " + who, false, option.Hex);
             if (Store.Settings.CloseAfterCopy && Shown)
             {
                 HideMain(true);
-                toast.Flash(text + " をコピーしました(" + e.Name + ")", e.Hex);
+                toast.Flash(text + " をコピーしました(" + who + ")", option.Hex);
             }
             else main.View.FlashCopied(e);   // 開いたままなら、押した札に「コピーしました」を少し出す
         }

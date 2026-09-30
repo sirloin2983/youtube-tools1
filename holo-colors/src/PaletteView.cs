@@ -14,7 +14,12 @@ namespace HoloColors
         {
             public ColorEntry Entry;
             public Rectangle Rect;   // スクロールしていないときの座標
+            // 2つ目以降の色の小さな四角(スクロールしていないときの座標)。Swatches[i] = Entry.AllColors[i + 1]。多すぎる分は More(「+n」)
+            public List<Rectangle> Swatches = new List<Rectangle>();
+            public int More;
         }
+
+        public const int MaxSwatches = 3;
 
         class Header
         {
@@ -25,14 +30,16 @@ namespace HoloColors
             public Rectangle Rect;
         }
 
-        public event Action<ColorEntry> EntryActivated;              // 左クリック・Enter
+        public event Action<ColorEntry> EntryActivated;              // 左クリック・Enter(主な色)
+        public event Action<ColorEntry, int> ColorActivated;         // 札の中の小さな四角のクリック(AllColors の番号。1 から)
         public event Action<ColorEntry, Point> EntryContextRequested; // 右クリック(画面の座標)
 
         readonly List<Tile> tiles = new List<Tile>();
         readonly List<Header> headers = new List<Header>();
         List<ColorGroup> groups = new List<ColorGroup>();
         string emptyText = "";
-        int selected = -1, hover = -1;
+        int selected = -1, hover = -1, hoverColor;
+        int pressedTile = -1, pressedColor;   // 左ボタンを押した札と色(離したときに同じなら、その色をコピー)
         float scale = 1f;
         readonly ToolTip tip = new ToolTip { InitialDelay = 600, ReshowDelay = 200 };
         Font nameFont, hexFont, headerFont, emptyFont, pillFont, countFont;
@@ -130,7 +137,9 @@ namespace HoloColors
                 for (int i = 0; i < g.Items.Count; i++)
                 {
                     int c = i % cols, r = i / cols;
-                    tiles.Add(new Tile { Entry = g.Items[i], Rect = new Rectangle(pad + c * (tileW + gap), y + r * (tileH + gap), tileW, tileH) });
+                    var tile = new Tile { Entry = g.Items[i], Rect = new Rectangle(pad + c * (tileW + gap), y + r * (tileH + gap), tileW, tileH) };
+                    PlaceSwatches(tile);
+                    tiles.Add(tile);
                 }
                 y += ((g.Items.Count + cols - 1) / cols) * (tileH + gap) + S(6);
             }
@@ -139,10 +148,46 @@ namespace HoloColors
             Invalidate();
         }
 
+        // 2つ目以降の色の四角を札の右下に並べる(最大 MaxSwatches 個。残りは「+n」)。札が狭いときは入るだけ
+        void PlaceSwatches(Tile t)
+        {
+            t.Swatches.Clear();
+            t.More = 0;
+            int extra = t.Entry.AllColors.Count - 1;
+            if (extra <= 0) return;
+            int sw = S(14), sgap = S(4), margin = S(7);
+            int n = Math.Min(MaxSwatches, extra);
+            int moreW = extra > n ? S(20) : 0;
+            // 左半分(名前とカラーコード)にはかぶせない
+            int fit = Math.Max(0, (t.Rect.Width / 2 - margin - moreW + sgap) / (sw + sgap));
+            n = Math.Min(n, fit);
+            t.More = extra - n;
+            int right = t.Rect.Right - margin - (t.More > 0 ? S(20) : 0);
+            int top = t.Rect.Bottom - margin - sw;
+            for (int i = n - 1; i >= 0; i--)
+            {
+                int x = right - (n - i) * sw - (n - 1 - i) * sgap;
+                t.Swatches.Insert(0, new Rectangle(x, top, sw, sw));
+            }
+        }
+
         public int HitTest(Point client)
         {
             var p = new Point(client.X - AutoScrollPosition.X, client.Y - AutoScrollPosition.Y);
             return tiles.FindIndex(t => t.Rect.Contains(p));
+        }
+
+        // 札と、その中の色の番号(0 = 札の本体 = 主な色、1〜 = 小さな四角の色)。札の外なら -1
+        public int HitTestColor(Point client, out int colorIndex)
+        {
+            colorIndex = 0;
+            int h = HitTest(client);
+            if (h < 0) return -1;
+            var p = new Point(client.X - AutoScrollPosition.X, client.Y - AutoScrollPosition.Y);
+            var sws = tiles[h].Swatches;
+            for (int i = 0; i < sws.Count; i++)
+                if (Rectangle.Inflate(sws[i], S(2), S(2)).Contains(p)) { colorIndex = i + 1; break; }
+            return h;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -172,7 +217,7 @@ namespace HoloColors
                 r.Offset(off);
                 // 見えていない札は描かない(選択の枠の分だけ広めに判定)
                 if (Rectangle.Inflate(r, S(4), S(4)).IntersectsWith(e.ClipRectangle))
-                    DrawTile(g, tiles[i].Entry, r, i == selected && ShowSelection, i == hover);
+                    DrawTile(g, tiles[i], r, off, i == selected && ShowSelection, i == hover ? hoverColor : -1);
             }
         }
 
@@ -215,9 +260,11 @@ namespace HoloColors
             Invalidate();
         }
 
-        // r は画面(スクロール済み)の座標
-        void DrawTile(Graphics g, ColorEntry entry, Rectangle r, bool isSelected, bool isHover)
+        // r は画面(スクロール済み)の座標、off はスクロールの分(四角の位置をずらす)。hoverColor = マウスの下の色(-1 = この札の上ではない)
+        void DrawTile(Graphics g, Tile tile, Rectangle r, Point off, bool isSelected, int hoverColor)
         {
+            ColorEntry entry = tile.Entry;
+            bool isHover = hoverColor >= 0;
             Color bg = HexColor.ToColor(entry.Hex);
             bool dark = HexColor.PrefersDarkText(bg);
             Color fg = dark ? Color.FromArgb(24, 24, 28) : Color.White;
@@ -243,10 +290,63 @@ namespace HoloColors
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
                 return;
             }
-            var text = new Rectangle(r.X + S(10), r.Y + S(4), r.Width - S(16), r.Height / 2);
+            // 直した色の札は右上に小さな印(✎)。名前はその手前で省略する
+            int markW = entry.Customized ? S(16) : 0;
+            if (entry.Customized)
+                TextRenderer.DrawText(g, "✎", pillFont, new Rectangle(r.Right - S(18), r.Y + S(3), S(14), S(14)), Color.FromArgb(dark ? 150 : 220, fg),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            var text = new Rectangle(r.X + S(10), r.Y + S(4), r.Width - S(16) - markW, r.Height / 2);
             TextRenderer.DrawText(g, entry.Name, nameFont, text, fg, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-            var hex = new Rectangle(r.X + S(10), r.Y + r.Height / 2 + S(1), r.Width - S(16), r.Height / 2 - S(4));
-            TextRenderer.DrawText(g, entry.Hex, hexFont, hex, Color.FromArgb(dark ? 170 : 230, fg), TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            // カラーコードは四角の手前まで
+            int hexRight = tile.Swatches.Count > 0 ? tile.Swatches[0].X + off.X - S(4) : r.Right - S(6);
+            var hex = new Rectangle(r.X + S(10), r.Y + r.Height / 2 + S(1), Math.Max(0, hexRight - r.X - S(10)), r.Height / 2 - S(4));
+            TextRenderer.DrawText(g, entry.Hex, hexFont, hex, Color.FromArgb(dark ? 170 : 230, fg), TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+            DrawSwatches(g, tile, off, dark, fg, hoverColor);
+        }
+
+        // 2つ目以降の色の四角。縁は札の文字の色(白に近い色・暗い色の四角でも形が分かるように)
+        void DrawSwatches(Graphics g, Tile tile, Point off, bool dark, Color fg, int hoverColor)
+        {
+            var colors = tile.Entry.AllColors;
+            for (int i = 0; i < tile.Swatches.Count && i + 1 < colors.Count; i++)
+            {
+                Rectangle s = tile.Swatches[i];
+                s.Offset(off);
+                using (var path = RoundRect(s, S(3)))
+                using (var b = new SolidBrush(HexColor.ToColor(colors[i + 1].Hex)))
+                using (var pen = new Pen(Color.FromArgb(hoverColor == i + 1 ? 255 : (dark ? 110 : 190), fg), hoverColor == i + 1 ? S(2) : 1f))
+                {
+                    g.FillPath(b, path);
+                    g.DrawPath(pen, path);
+                }
+            }
+            if (tile.More > 0 && tile.Swatches.Count > 0)
+            {
+                Rectangle last = tile.Swatches[tile.Swatches.Count - 1];
+                last.Offset(off);
+                var mr = new Rectangle(last.Right + S(2), last.Y - S(2), S(20), last.Height + S(4));
+                TextRenderer.DrawText(g, "+" + tile.More, pillFont, mr, Color.FromArgb(dark ? 170 : 230, fg),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            }
+        }
+
+        // ツールチップ: 名前・グループ・全部の色(ラベル付き)・直した色か・メモ
+        public static string TipText(ColorEntry en)
+        {
+            string group = en.Group == null ? "" : en.Group.Label.Replace("  ", " ");
+            var sb = new System.Text.StringBuilder();
+            sb.Append(en.Name).Append(string.IsNullOrEmpty(en.Sub) ? "" : "  /  " + en.Sub).Append('\n');
+            var colors = en.AllColors;
+            if (colors.Count <= 1) sb.Append(en.Hex).Append("   ").Append(group);
+            else
+            {
+                sb.Append(group);
+                for (int i = 0; i < colors.Count; i++)
+                    sb.Append('\n').Append(i == 0 ? "主な色  " : "ほかの色  ").Append(colors[i].Text);
+            }
+            if (en.Customized) sb.Append("\n(直した色。右クリック →「色を直す…」で元に戻せます)");
+            if (!string.IsNullOrEmpty(en.Note)) sb.Append('\n').Append(en.Note);
+            return sb.ToString();
         }
 
         static GraphicsPath RoundRect(Rectangle r, int radius)
@@ -290,19 +390,15 @@ namespace HoloColors
 
         void UpdateHover(Point client)
         {
-            int h = client.X < 0 ? -1 : HitTest(client);
-            if (h == hover) return;
+            int ci = 0;
+            int h = client.X < 0 ? -1 : HitTestColor(client, out ci);
+            if (h == hover && ci == hoverColor) return;
+            bool tileChanged = h != hover;
             hover = h;
+            hoverColor = ci;
             Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
-            if (h >= 0)
-            {
-                var en = tiles[h].Entry;
-                string group = en.Group == null ? "" : en.Group.Label.Replace("  ", " ");
-                string lines = en.Name + (string.IsNullOrEmpty(en.Sub) ? "" : "  /  " + en.Sub) + "\n" + en.Hex + "   " + group
-                    + (string.IsNullOrEmpty(en.Note) ? "" : "\n" + en.Note);
-                tip.SetToolTip(this, lines);
-            }
-            else tip.SetToolTip(this, null);
+            if (tileChanged)
+                tip.SetToolTip(this, h >= 0 ? TipText(tiles[h].Entry) : null);
             Invalidate();
         }
 
@@ -317,7 +413,10 @@ namespace HoloColors
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            int h = HitTest(e.Location);
+            int ci;
+            int h = HitTestColor(e.Location, out ci);
+            pressedTile = e.Button == MouseButtons.Left ? h : -1;
+            pressedColor = ci;
             if (h < 0) return;
             selected = h;
             Invalidate();
@@ -329,8 +428,13 @@ namespace HoloColors
         {
             base.OnMouseUp(e);
             if (e.Button != MouseButtons.Left) return;
-            int h = HitTest(e.Location);
-            if (h >= 0 && h == selected && EntryActivated != null) EntryActivated(tiles[h].Entry);
+            int ci;
+            int h = HitTestColor(e.Location, out ci);
+            bool same = h >= 0 && h == selected && h == pressedTile && ci == pressedColor;
+            pressedTile = -1;
+            if (!same) return;
+            if (ci > 0) { if (ColorActivated != null) ColorActivated(tiles[h].Entry, ci); }
+            else if (EntryActivated != null) EntryActivated(tiles[h].Entry);
         }
 
         public void ScrollBy(int wheelDelta)

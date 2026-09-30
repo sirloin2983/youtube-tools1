@@ -35,6 +35,7 @@ static class CoreTests
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
         Run("一覧: 札の並び・クリックの判定・キーでの移動", PaletteLayout);
         Run("一覧: スクロールしても札と文字が一緒に動く", PaletteScrollDrawing);
+        Run("一覧: 2色以上の札の小さな四角(位置・クリックの判定・その色をコピー)", PaletteSwatches);
         Run("起動: 作業データの場所ごとに1つ", InstanceKey);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
@@ -511,7 +512,13 @@ static class CoreTests
             form.Controls.Add(v);
             var g = new ColorGroup { Id = "a", Branch = "JP", Name = "A" };
             for (int i = 0; i < 40; i++)
-                g.Items.Add(new ColorEntry { Id = "a" + i, Name = "名前" + i, Hex = i % 2 == 0 ? "#1E3A8A" : "#FFE066", Group = g });
+            {
+                var en = new ColorEntry { Id = "a" + i, Name = "名前" + i, Hex = i % 2 == 0 ? "#1E3A8A" : "#FFE066", Group = g };
+                // 3つに1つは色が2つ以上(小さな四角も一緒に動くか)。5つに1つは直した色の印
+                if (i % 3 == 0) en.SetColors(new List<ColorOption> { new ColorOption(en.Hex, ""), new ColorOption("#FF0000", "a"), new ColorOption("#00C000", "b") });
+                en.Customized = i % 5 == 0;
+                g.Items.Add(en);
+            }
             form.Show();
             v.SetGroups(new List<ColorGroup> { g }, "なし", false);
             Application.DoEvents();
@@ -536,6 +543,81 @@ static class CoreTests
             var tile = v.Tiles[7];
             var p = new Point(tile.Rect.X + 20, tile.Rect.Y + 20 - d);
             Eq(7, v.HitTest(p), "スクロールしたあとのクリック");
+        }
+    }
+
+    static void PaletteSwatches()
+    {
+        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(640, 420) })
+        {
+            var v = new PaletteView { Dock = DockStyle.Fill, Font = new Font("Yu Gothic UI", 9f) };
+            form.Controls.Add(v);
+            var g = new ColorGroup { Id = "a", Branch = "JP", Name = "A" };
+            var one = new ColorEntry { Id = "a/1", Name = "一色", Hex = "#123456", Group = g };
+            var two = new ColorEntry { Id = "a/2", Name = "二色", Hex = "#FF0000", Group = g };
+            two.SetColors(new List<ColorOption> { new ColorOption("#FF0000", "主"), new ColorOption("#00AAFF", "水色") });
+            var many = new ColorEntry { Id = "a/3", Name = "六色", Hex = "#FFFFFF", Group = g };
+            many.SetColors(new[] { "#FFFFFF", "#111111", "#222222", "#333333", "#444444", "#555555" }.Select(h => new ColorOption(h, "")).ToList());
+            g.Items.AddRange(new[] { one, two, many });
+            for (int i = 0; i < 30; i++) g.Items.Add(new ColorEntry { Id = "x" + i, Name = "x" + i, Hex = "#808080", Group = g });
+            form.Show();
+            v.SetGroups(new List<ColorGroup> { g }, "なし", false);
+            Application.DoEvents();
+
+            Eq(0, v.Tiles[0].Swatches.Count, "1色の札に四角は無い");
+            Eq(1, v.Tiles[1].Swatches.Count, "2色の札に四角が1つ");
+            Eq(PaletteView.MaxSwatches, v.Tiles[2].Swatches.Count, "四角は最大 " + PaletteView.MaxSwatches + " つ");
+            Eq(5 - PaletteView.MaxSwatches, v.Tiles[2].More, "残りは「+n」");
+            foreach (var t in v.Tiles)
+                foreach (var s in t.Swatches)
+                    True(t.Rect.Contains(s) && s.X > t.Rect.X + t.Rect.Width / 2, "四角は札の中の右半分: " + t.Entry.Name);
+
+            int ci;
+            Rectangle body = v.Tiles[1].Rect, sw = v.Tiles[1].Swatches[0];
+            Eq(1, v.HitTestColor(new Point(body.X + 10, body.Y + 10), out ci), "札の本体");
+            Eq(0, ci, "本体は主な色");
+            Eq(1, v.HitTestColor(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2), out ci), "四角も同じ札");
+            Eq(1, ci, "四角はその色(2つ目)");
+            Eq(1, v.HitTest(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2)), "HitTest は札のまま");
+            Rectangle sw3 = v.Tiles[2].Swatches[2];
+            Eq(2, v.HitTestColor(new Point(sw3.X + 3, sw3.Y + 3), out ci), "3つ目の四角");
+            Eq(3, ci, "3つ目の四角は4番目の色");
+
+            // スクロールしても四角の当たりは一緒に動く
+            v.AutoScrollPosition = new Point(0, 30);
+            Application.DoEvents();
+            int dy = -v.AutoScrollPosition.Y;
+            True(dy > 0, "スクロールした");
+            Eq(1, v.HitTestColor(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2 - dy), out ci), "スクロールしたあとの四角");
+            Eq(1, ci, "スクロールしたあとの四角の色");
+            v.AutoScrollPosition = Point.Empty;
+            Application.DoEvents();
+
+            // 四角をクリック → その色、本体をクリック → 主な色
+            var got = new List<string>();
+            v.EntryActivated += e => got.Add(e.Name + ":0");
+            v.ColorActivated += (e, i) => got.Add(e.Name + ":" + i);
+            var mv = typeof(Control).GetMethod("OnMouseDown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var mu = typeof(Control).GetMethod("OnMouseUp", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Action<Point> click = pt =>
+            {
+                var a = new MouseEventArgs(MouseButtons.Left, 1, pt.X, pt.Y, 0);
+                mv.Invoke(v, new object[] { a });
+                mu.Invoke(v, new object[] { a });
+            };
+            click(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2));
+            click(new Point(body.X + 10, body.Y + 10));
+            Eq("二色:1,二色:0", string.Join(",", got), "四角はその色・本体は主な色");
+            got.Clear();
+            var down = new MouseEventArgs(MouseButtons.Left, 1, sw.X + sw.Width / 2, sw.Y + sw.Height / 2, 0);
+            var up = new MouseEventArgs(MouseButtons.Left, 1, body.X + 10, body.Y + 10, 0);
+            mv.Invoke(v, new object[] { down });
+            mu.Invoke(v, new object[] { up });
+            Eq(0, got.Count, "四角で押して本体で離したらコピーしない");
+
+            string tipText = PaletteView.TipText(two);
+            True(tipText.Contains("#00AAFF(水色)") && tipText.Contains("#FF0000(主)"), "ツールチップに全部の色とラベル: " + tipText);
+            True(PaletteView.TipText(one).Contains("#123456") && !PaletteView.TipText(one).Contains("ほかの色"), "1色の人のツールチップは今までどおり");
         }
     }
 

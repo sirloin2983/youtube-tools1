@@ -92,6 +92,7 @@ namespace HoloColors
             view.Dock = DockStyle.Fill;
             view.Font = Font;
             view.EntryActivated += en => app.Copy(en);
+            view.ColorActivated += (en, i) => app.Copy(en, i);
             view.EntryContextRequested += ShowEntryMenu;
 
             Controls.Add(view);
@@ -301,7 +302,15 @@ namespace HoloColors
         void ShowEntryMenu(ColorEntry en, Point screen)
         {
             menu.Items.Clear();
-            menu.Items.Add("コピー  " + app.CopyText(en), null, (s, e) => app.Copy(en));
+            // 色ごとの「コピー」(2色以上ある人は、札の小さな四角と同じ色をここからも)
+            var colors = en.AllColors;
+            for (int i = 0; i < colors.Count; i++)
+            {
+                int index = i;
+                string label = colors.Count > 1 && colors[i].Label.Length > 0 ? "(" + colors[i].Label + ")" : "";
+                var item = menu.Items.Add("コピー  " + app.CopyText(colors[i].Hex) + label, null, (s, e) => app.Copy(en, index));
+                if (colors.Count > 1) item.Image = Swatch(colors[i].Hex);
+            }
             if (en.IsUser)
             {
                 menu.Items.Add("編集…", null, (s, e) => app.EditColor(this, en));
@@ -318,6 +327,21 @@ namespace HoloColors
                 menu.Items.Add("この色をもとにマイカラーへ追加…", null, (s, e) => app.AddColor(this, en));
             }
             menu.Show(screen);
+        }
+
+        // メニューの項目の横の色の見本
+        static Bitmap Swatch(string hex)
+        {
+            int n = Ui.Px(14);
+            var bmp = new Bitmap(n, n);
+            using (var g = Graphics.FromImage(bmp))
+            using (var b = new SolidBrush(HexColor.ToColor(hex)))
+            using (var p = new Pen(Color.FromArgb(90, 0, 0, 0)))
+            {
+                g.FillRectangle(b, 0, 0, n - 1, n - 1);
+                g.DrawRectangle(p, 0, 0, n - 1, n - 1);
+            }
+            return bmp;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

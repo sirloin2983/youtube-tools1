@@ -1,7 +1,7 @@
 """ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
     build.bat を流してから:  python holo-colors/tests/e2e_holo_colors.py
 確かめること: 呼び出しのキーで開く・検索して Enter / 札のクリックでコピー・コピーしたら閉じて元の窓へ戻る(すぐ Ctrl+V で貼れる)・
-キーをもう一度 / Esc で閉じる・2つ目の起動は動いているほうを開く・閉じない設定・--quit で終わる。
+キーをもう一度 / Esc で閉じる・札の中の小さな四角(2つ目の色)を押すとその色・2つ目の起動は動いているほうを開く・閉じない設定・--quit で終わる。
 テストの間はマウスとキーボードに触らない(本物の入力を送るため)。クリップボードの文字は終わったら元に戻す。
 普段使っているホロカラーとぶつからないように、別の作業データ(一時フォルダ)と別のキー(Ctrl+Alt+Shift+F11)で動かす。"""
 import ctypes
@@ -192,6 +192,13 @@ class E2E:
         self.exe = os.path.join(self.app_dir, "HoloColors.exe")
         with open(os.path.join(self.app_dir, "members.json"), encoding="utf-8") as f:
             self.members = json.load(f)
+        # 先頭の人は2色にしておく(札の小さな四角のクリックを確かめるため。同梱の色が1色でも)
+        first = self.members["groups"][0]["members"][0]
+        colors = first.setdefault("colors", [{"hex": first["hex"], "label": "", "src": [], "confidence": "high"}])
+        if len(colors) < 2:
+            colors.append({"hex": "#12AB34", "label": "e2e", "src": [], "confidence": "low"})
+        with open(os.path.join(self.app_dir, "members.json"), "w", encoding="utf-8") as f:
+            json.dump(self.members, f, ensure_ascii=False)
         self.proc = None
         self.passed = 0
         self.root = tk.Tk()
@@ -418,6 +425,28 @@ class E2E:
             self.check(True, "開いたまま移った窓 B へ戻る(呼び出したときの窓ではなく)")
         else:
             print("注意: 窓 B を前面にできなかったので、戻る先の確認は飛ばします")
+
+        # 札の中の小さな四角(2つ目の色)を押すと、その色がコピーされる。位置は PaletteView.Relayout / PlaceSwatches と同じ計算
+        hotkey()
+        self.wait("開く", lambda: self.visible() and user32.GetForegroundWindow() == self.main)
+        self.pump(0.3)
+        pal = self.palette_child()
+        r = wintypes.RECT()
+        user32.GetClientRect(pal, ctypes.byref(r))
+        S = lambda v: int(round(v * k))   # noqa: E731
+        pad, gap, min_w = S(12), S(8), S(148)
+        cols = max(1, (r.right - 2 * pad + gap) // (min_w + gap))
+        tile_w = max(S(60), (r.right - 2 * pad - (cols - 1) * gap) // cols)
+        top, tile_h, sw, margin = S(4) + S(28), S(46), S(14), S(7)
+        pt = wintypes.POINT(pad + tile_w - margin - sw // 2, top + tile_h - margin - sw // 2)
+        user32.ClientToScreen(pal, ctypes.byref(pt))
+        if user32.GetAncestor(user32.WindowFromPoint(pt), 2) != self.main:
+            raise Failure("クリックする場所に一覧の窓が無いので止めました")
+        set_clipboard("before")
+        click(pt.x, pt.y)
+        self.wait("四角のクリックで閉じる", lambda: not self.visible())
+        second = first["colors"][1]["hex"].upper()
+        self.check(get_clipboard() == second, "札の中の小さな四角を押すと、その色がコピーされる(%s %s)" % (first["name"], second))
 
         # 2つ目の起動は、動いているほうの一覧を出して終わる
         r = subprocess.run([self.exe, "--data-dir", self.data], timeout=10)
