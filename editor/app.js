@@ -2113,7 +2113,16 @@ window.addEventListener('keydown', e => {
 /* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
 const editPlaybackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-  media: () => player(), fps: 30, keymap: () => keymap(),
+  media: () => player(), keymap: () => keymap(),
+  /* 1コマ = 素材の fps(2 カット と同じ。段3 3-4 監査 15)。フレームの境目にそろえて動かす(押し続けても浮動小数のずれが溜まらない)。
+     fps が分からない文書・開いた直後(カットの読み込み中)は ui-kit の既定(1/30 秒) */
+  fps: () => { const f = CUT && CUT.fps(); return f ? f[0] / f[1] : 30; },
+  onFrame: dir => {
+    const p = player(), t = CUT && CUT.frameStep ? CUT.frameStep(p.currentTime || 0, dir) : null;
+    if (t === null) return false;
+    p.pause(); p.currentTime = t;   // 2 カット の stepFrames と同じく止めてから(再生中の1コマは意味がない)
+    return true;
+  },
   enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])') && !menuHasKeys(document.activeElement)
 }) : null;
 window.addEventListener('keydown', e => {
@@ -2200,8 +2209,14 @@ function renderKeyUI(){
   if (an) an.title = `${km.proof ? keyText(km.proof) + '・' : ''}Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)${km.autoNext ? '。' + keyText(km.autoNext) + ' でも切り替わります' : ''}。聞いて確認する流れが、左手だけで回ります`;
   window.dispatchEvent(new CustomEvent('ytt-keys-changed'));   // 2 カット のタブ(cut.js)の帯・ツールチップも合わせる
 }
+/* 動画の fps が分からない文書では、キー操作の一覧に「1コマは約 1/30 秒」(段3 3-4)。カットの読み込みが終わったとき(onCutState)と文書を閉じたとき */
+function renderFpsNote(){
+  const el = $('#keysFpsNote'); if (!el) return;
+  const st = CUT ? CUT.state() : null;
+  el.hidden = !(S.doc && st && st.loaded && !CUT.fps());
+}
 /* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ。S-29) */
-function openKeys(){ const d = $('#keys'); if (d.open) return; if (KM) KM.clearNote(); d.showModal(); }
+function openKeys(){ const d = $('#keys'); if (d.open) return; if (KM) KM.clearNote(); renderFpsNote(); d.showModal(); }
 window.addEventListener('keydown', e => {
   const d = $('#keys');
   if (e.key !== '?' || e.defaultPrevented || !d.open || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTextEntry(e.target)) return;   // defaultPrevented = 同じ ? で今開いたところ
@@ -3022,7 +3037,7 @@ function onCutSaved(r){
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); if (PACK) PACK.changed(); }, relink: () => openRelink() }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); if (PACK) PACK.changed(); }, relink: () => openRelink() }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 /* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */

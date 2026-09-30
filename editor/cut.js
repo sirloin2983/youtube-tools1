@@ -960,6 +960,13 @@ function create(h){
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },
     keepsSec(){ return ready() ? M.clips.map(([a, b]) => [sec3(a), sec3(b)]) : null; },
     fps(){ return M.fps; },
+    /* 1 文字起こし の「1コマ」(段3 3-4 監査 15): t 秒から n コマ動いた時刻(フレームの境目 + 0.5ms。stepFrames と同じ丸め = 2 カット と同じ位置に止まる)。
+       fps が分からない(読み込み前・動画が無い・音声だけ)・別の文書なら null */
+    frameStep(t, n){
+      if (!M.fps || M.docId !== h.S.docId) return null;
+      const f = Math.max(0, s2f(t || 0) + n);
+      return f2s(M.total ? Math.min(M.total, f) : f) + 0.0005;
+    },
     /* パックを作る前: まだ保存していない下書きも保存して、保存済みのカット(rev)から作れるようにする。-> 保存できたか */
     async commit(){
       if (!ready()) return false;
