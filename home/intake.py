@@ -48,6 +48,9 @@ WAIT_FILES = 3600.0      # JSON があるのに動画がそろわないとき、
 KEEP_REQUESTS = 50       # 画面に出す最近の依頼の数
 KEEP_SEEN = 5000         # 覚えておく配信・動画の数
 STATE_FILE = "intake-state.json"
+# OS・同期のアプリが勝手に置くファイル(依頼ではない)。断って 失敗\ へ移すと、すぐまた作られて「断った」が毎回増えるので、見ない
+OS_FILES = ("desktop.ini", "thumbs.db", "ehthumbs.db", ".ds_store", "icon\r", ".dropbox", ".dropbox.attr")
+_HIDDEN = 0x2 | 0x4   # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
 HASH_PART = 4 * 1024 * 1024
 STATE_LABELS = {"off": "オフ", "watching": "見張り中", "error": "止まっています"}
 REQ_LABELS = {"accepted": "受け付けた", "rejected": "断った"}
@@ -178,6 +181,18 @@ def file_key(path):
     return h.hexdigest()
 
 
+def is_os_file(name, path=None):
+    """依頼として扱わないファイル: OS・同期のアプリが置くもの・隠しファイル・システムのファイル(Windows の属性)"""
+    if name.lower() in OS_FILES:
+        return True
+    if path and os.name == "nt":
+        try:
+            return bool(getattr(os.stat(path), "st_file_attributes", 0) & _HIDDEN)
+        except OSError:
+            return False
+    return False
+
+
 def _safe_name(name):
     """JSON に書かれたファイル名がフォルダの直下の名前か(区切り・..・ドライブを含まない)"""
     return (isinstance(name, str) and 0 < len(name) <= 240 and name not in (".", "..") and not any(c in name for c in '/\\:*?"<>|')
@@ -228,7 +243,8 @@ class Intake:
         return {"videos": d.get("videos") if isinstance(d.get("videos"), dict) else {},
                 "files": d.get("files") if isinstance(d.get("files"), dict) else {},
                 "daily": d.get("daily") if isinstance(d.get("daily"), dict) else {},
-                "requests": [r for r in d.get("requests") or [] if isinstance(r, dict)][:KEEP_REQUESTS]}
+                "requests": [r for r in d.get("requests") or [] if isinstance(r, dict)   # 0.15.0 で desktop.ini などを断った記録は消す
+                             and not is_os_file(str(r.get("title") or ""))][:KEEP_REQUESTS]}
 
     def _save_state(self):
         for k in ("videos", "files"):
@@ -306,7 +322,8 @@ class Intake:
             files = {}
             for n in names:
                 p = os.path.join(folder, n)
-                if n.startswith((".", "~")) or n.lower().endswith((".tmp", ".part", ".crdownload", ".download", ".partial")) or not os.path.isfile(p):
+                if (n.startswith((".", "~")) or n.lower().endswith((".tmp", ".part", ".crdownload", ".download", ".partial")) or is_os_file(n, p)
+                        or not os.path.isfile(p)):
                     continue
                 files[n] = p
             ready = {n: p for n, p in files.items() if self._settled(p)}

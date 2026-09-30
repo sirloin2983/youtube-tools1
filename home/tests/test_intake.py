@@ -189,6 +189,25 @@ class TestText(Base):
         self.assertTrue(os.path.isfile(self.failed("写真.png")))
         self.assertEqual(self.runner.requests + self.runner.files, [])
 
+    def test_os_files_are_ignored(self):
+        """desktop.ini・Thumbs.db・隠しファイルは依頼ではない(断って移すと、また作られて「断った」が毎回増えた。0.15.1)"""
+        for n in ("desktop.ini", "Thumbs.db", "hidden.mp4"):
+            self.put(n, b"x")
+        if os.name == "nt":
+            import ctypes
+            ctypes.windll.kernel32.SetFileAttributesW(os.path.join(self.folder, "hidden.mp4"), 0x2)
+        else:
+            os.rename(os.path.join(self.folder, "hidden.mp4"), os.path.join(self.folder, ".hidden.mp4"))
+        self.scan2()
+        self.assertEqual(self.it.snapshot()["requests"], [])
+        self.assertFalse(os.path.exists(self.failed()))
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, "desktop.ini")), "OS のファイルは動かさない")
+        # 前の版で断った記録は、読み直すときに消す
+        self.it.st["requests"] = [{"title": "desktop.ini", "state": "rejected"}, {"title": "a.mp4", "state": "accepted"}]
+        self.it._save_state()
+        again = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now)
+        self.assertEqual([r["title"] for r in again.snapshot()["requests"]], ["a.mp4"])
+
     def test_runner_refuses(self):
         self.runner.fail = "順番待ちが多すぎます(20本まで)"
         self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")

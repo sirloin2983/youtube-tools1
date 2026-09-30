@@ -2160,3 +2160,12 @@
   送る側では動画の大きさの上限を見ていない(PC 側で断る)。起動中の入口は古いコードなので「すべて終了」→ start.bat
 - 注意: 鍵(request-sender\config.json)はコミットしない(.gitignore と push_helper)。漏れたら Dropbox の設定でアプリの接続を切る
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code — ホーム 0.15.1: 依頼の受付が desktop.ini を毎回断っていた
+- 実機(ユーザー): 友人のプログラムから送った動画は「受け付けた」(通しで動いた)。ただし見張るフォルダの desktop.ini を「受け付けない種類」として 失敗\ へ移し、
+  Windows・Dropbox がすぐまた作るので「断った」が 30 秒ごとに増えた
+- 直し: `home/intake.py` の is_os_file(desktop.ini・Thumbs.db・.DS_Store など + Windows の隠し・システム属性)を見ない。前の版で断った記録は読み直すときに消す。
+  テスト `test_intake.py` +1(19 件 OK)・`test_launch.py -k intake` OK
+- 版: ホーム 0.15.0 → 0.15.1(launch.py・README.txt)
+- 未完了・次: ユーザーの Dropbox の 失敗\ に移った desktop.ini は消してよい(AI は消していない)。URL の依頼と 150MB 超の動画は未確認
+- 未コミット: なし(このあとコミット)
