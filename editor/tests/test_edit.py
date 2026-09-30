@@ -13,6 +13,7 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -152,6 +153,7 @@ class TestEditStore(StoreDir):
         self.assertEqual(S.edit_cut_flags([{"start": 5.6, "end": 8.0}], e3), [True])
         self.assertEqual(S.edit_cut_flags([{"start": 0, "end": 1}], S.sanitize_edit(edit_obj(clips=()))), [True])   # 全部削った
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_record_pack_and_stale(self):
         with self.assertRaises(S.ApiError) as cm:
             S.record_pack({"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": os.path.join(self.tmp, "p")})
@@ -203,6 +205,7 @@ class TestEditStore(StoreDir):
         from ytt_core import txindex
         self.assertEqual([d["id"] for d in txindex.load(self.tmp)], [TID])                 # 入口の案件・スタジオのセリフも文書だけを読む
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_fill_doc_into_empty_document(self):
         self.put_doc(doc_obj(segments=[], title="動画だけ", createdAt=5))
         S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})                               # 文字起こしの前にカットを決めてあった

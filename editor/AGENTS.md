@@ -96,7 +96,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
 ## テストの実行
 すべてリポジトリ直下から流す(テストは `editor/tests/`。2026-09-30 に移した)。
 ```
-python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py editor/tests/test_roster.py   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では落ちる。一覧の項目は test_backend の test_list_fields_for_history)
+python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py editor/tests/test_roster.py   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では飛ばす(段1。`home/tests/test_window.py` の窓の API の3件も同じ)。一覧の項目は test_backend の test_list_fields_for_history)
 node --test editor/tests/test_document_save.cjs   # 保存・切り替えの競合(9件)
 python editor/tests/e2e_proofread_accuracy.py    # 校正済み・精度・用語集・設定の比較・辞書(旧 e2e_ui_v07)
 python editor/tests/e2e_proofread_keys.py        # 左手のキー・表示の設定・保管・保存の競合・4000行(旧 e2e_ui_v08)

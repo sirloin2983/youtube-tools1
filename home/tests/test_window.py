@@ -112,6 +112,7 @@ class TestFocusWindow(unittest.TestCase):
     """ツールの窓の「入口」: 入口の窓がほかにあれば、題名で探して前に出す(入口を二つにしない。2026-09-27)"""
     T = L.PORTAL_TITLE
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
     def test_finds_by_title_and_brings_to_front(self):
         u = FakeUser32([(10, "編集 — 入口の外", True, False), (11, self.T + " - Microsoft Edge", False, False),
                         (12, self.T, True, True), (13, self.T, True, False)])
@@ -120,6 +121,7 @@ class TestFocusWindow(unittest.TestCase):
         self.assertIn(("show", 12, 9), u.calls)                             # 最小化していたら戻す
         self.assertEqual([c for c in u.calls if c[0] == "attach"], [("attach", 1, 2, True), ("attach", 1, 2, False)])   # つないだら必ず外す
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
     def test_not_found_or_refused(self):
         u = FakeUser32([(10, "ほかの窓", True, False)])
         self.assertFalse(W.focus_window(self.T, user32=u))
@@ -128,6 +130,7 @@ class TestFocusWindow(unittest.TestCase):
         self.assertFalse(W.focus_window(self.T, user32=u))                  # 前に出せなかった(画面が知らせる)
         self.assertEqual(u.calls[-1], ("attach", 1, 2, False))
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows の窓の API(ctypes.WINFUNCTYPE)を使う(段1: Windows 以外では飛ばす)")
     def test_already_in_front(self):
         u = FakeUser32([(12, self.T, True, False)], fg=12)
         self.assertTrue(W.focus_window(self.T, user32=u))

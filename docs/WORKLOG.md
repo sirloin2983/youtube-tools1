@@ -1775,3 +1775,10 @@
   通過: e2e_edit_tabs(86。1回目は Playwright の "Connection closed while reading from the driver"、流し直しで通過)・e2e_proofread_accuracy
 - 注意: Firefox は Shift+右クリックでページの処理を無視して既定のメニューを出す(対象は Edge/Chrome。README に書く)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 5. Windows 以外でのテストの飛ばし
+- 変更: `home/tests/test_window.py` の `TestFocusWindow` の3件(`test_finds_by_title_and_brings_to_front`・`test_not_found_or_refused`・`test_already_in_front`。`ctypes.WINFUNCTYPE`)と、
+  `editor/tests/test_edit.py` の2件(`test_record_pack_and_stale`・`test_fill_doc_into_empty_document`。Windows のパス)に `@unittest.skipUnless(sys.platform == "win32", 理由)`。クラス全体には付けない(通る2件を残す)。`editor/AGENTS.md` の「落ちる」→「飛ばす」
+- テスト(PC): home の unit 140 通過(飛ばしなし)・`python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py` 171 通過(skip は前からの1件だけ)。
+  `sys.platform='linux'` にして読み込むと test_window.py は skip 3 で通ることも確かめた(本物の Linux では流していない → **クラウドで流したときに skip 5 で緑になるかを次に確かめる**)
+- 未コミット: なし
