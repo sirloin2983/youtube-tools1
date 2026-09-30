@@ -174,8 +174,14 @@ def wait_js(pg, expr, timeout=15000):
     raise TimeoutError(expr)
 
 
+def wait_url_doc(pg):
+    """再読み込みのあと、URL の ?doc= の文書(開いていた文書。監査 06)が開き終わるのを待つ(開く途中でメニューが閉じ、クリックが外れるため)"""
+    wait_js(pg, "!new URLSearchParams(location.search).has('doc') || (!document.querySelector('#doc').hidden && !!document.querySelector('#docTitle').value)", 15000)
+
+
 def open_doc(pg, title):
     """左のメニューの「履歴」から題名で開く(カット・パックのタブでは細い帯の「履歴」から)"""
+    wait_url_doc(pg)
     cls = pg.get_attribute(".app", "class") or ""
     if "tab-wide" in cls:
         if "menu-overlay" not in cls:

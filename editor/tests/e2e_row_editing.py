@@ -161,7 +161,8 @@ def main():
             check("menu-closed" not in app_class(), "キー g でメニューが開く")
             pg.keyboard.press("g")
             check("menu-closed" in app_class(), "もう一度 g で閉じる")
-            # 再読み込みで状態が残る(localStorage)
+            # 再読み込みで状態が残る(localStorage)。開いた文書は URL の ?doc= で開き直すので(監査 06)、?doc= を外して読み込む
+            pg.evaluate("history.replaceState(null, '', location.pathname + location.hash)")
             pg.reload()
             # メニューが閉じた状態で再読み込みされるので、"#txList .txi, #noDoc" のような複数候補セレクタは使わない
             # (menu-closed で #txList 側が非表示のままだと、そちらを待ち続けて止まることがある)

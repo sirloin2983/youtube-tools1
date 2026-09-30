@@ -168,8 +168,9 @@ def main():
             # ==================== 1) ?media= の受け取り ====================
             pg.goto(base + "?nofs=1&media=" + urllib.parse.quote(clipv) + "#cut")   # 「編集」: 文書のある動画 → その文書を開く(タブは URL のまま)
             pg.wait_for_function("document.querySelector('#docTitle').value === '切り抜き文書'", timeout=10000)
-            check(pg.evaluate("location.search") == "?nofs=1" and pg.evaluate("location.hash") == "#cut" and pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true",
-                  "?media= で文書のある動画は、その文書を開く(URL から media を消す・タブは #cut のまま): %s" % pg.evaluate("[location.search, location.hash, document.querySelector('[data-edtab=cut]').getAttribute('aria-selected')]"))
+            check(pg.evaluate("location.search").startswith("?nofs=1&doc=") and "media=" not in pg.evaluate("location.search")
+                  and pg.evaluate("location.hash") == "#cut" and pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true",
+                  "?media= で文書のある動画は、その文書を開く(URL の media は開いた文書の doc に替わる(監査 06)・タブは #cut のまま): %s" % pg.evaluate("[location.search, location.hash, document.querySelector('[data-edtab=cut]').getAttribute('aria-selected')]"))
             check(len(call(port, "GET", "/api/jobs")["jobs"]) == n_jobs, "文書のある動画を開いても、文字起こしは始めない")
             pg.goto(base + "?nofs=1&media=" + urllib.parse.quote(newv) + "#tx")
             pg.wait_for_selector("#srcClip:not([hidden])", timeout=10000)

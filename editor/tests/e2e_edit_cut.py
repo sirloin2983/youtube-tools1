@@ -464,7 +464,7 @@ def main():
             r5 = srv.call("PUT", "/api/edit?id=" + tid5, {"baseRev": 0, "edit": {"sources": [{"fps": [FPS, 1], "duration": 8.0}],
                                                                              "clips": [{"src": 0, "in": 1.0, "out": 3.0}, {"src": 0, "in": 5.0, "out": 7.0}]}})
             check(r5.get("rev") == 1, "(準備)カットを保存した文書")
-            fail = {"n": 1}
+            fail = {"n": 99, "gets": 0}   # 「もう一度読み込む」を押すまで失敗させる(開いたあとにタブを開き直すと読み直すため)
 
             def edit_get(route):
                 if route.request.method == "GET":
@@ -489,14 +489,15 @@ def main():
             pg.keyboard.press("Alt+3")
             wait_js(pg, "!document.querySelector('#pkOff').hidden", 10000)
             check("読み込めませんでした" in pg.inner_text("#pkOff") and pg.is_disabled("#pkBuild"), "3 パック も止まる: " + pg.inner_text("#pkOff"))
-            fail["n"], gets = 1, fail.setdefault("gets", 0)
-            pg.keyboard.press("Alt+2")   # タブを開き直すと読み直す(ここではもう一度失敗させる)
-            wait_js(pg, "!document.querySelector('#cutRetry').hidden", 10000)
+            gets = fail["gets"]
+            pg.keyboard.press("Alt+2")   # タブを開き直すと読み直す(ここではまだ失敗させる)
             for _ in range(100):
-                if fail["n"] == 0:
+                if fail["gets"] > gets:
                     break
                 time.sleep(0.05)
-            check(fail["n"] == 0 and fail["gets"] > gets, "タブを開き直すと、保存済みのカットを読み直す")
+            wait_js(pg, "!document.querySelector('#cutRetry').hidden", 10000)
+            check(fail["gets"] > gets, "タブを開き直すと、保存済みのカットを読み直す")
+            fail["n"] = 0
             pg.click("#cutRetry")
             wait_js(pg, "document.querySelector('#cutOff').hidden && document.querySelectorAll('#tlVideo .tt-k').length > 0", 15000)
             ks = pg.evaluate("[...document.querySelectorAll('#tlVideo .tt-k')].length")

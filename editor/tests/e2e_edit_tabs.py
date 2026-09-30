@@ -328,10 +328,30 @@ def main():
             pg.goto(srv.base + "?doc=" + old_id + "&media=" + urllib.parse.quote(v2) + "#tx")
             wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目'", 15000)
             check(pg.input_value("#docTitle") == "二本目", "?doc= で選んだ文書が開く(同じ動画の新しい文書ではない)")
-            check("doc=" not in pg.url, "開いたあとは URL から ?doc= を外す(読み込み直しで開き直さない): %s" % pg.url)
+            check(("doc=" + old_id) in pg.url and "media=" not in pg.url, "開いたあとは URL に ?doc= を残し、?media= は外す(監査 06): %s" % pg.url)
             pg.goto(srv.base + "?doc=0123456789ab&media=" + urllib.parse.quote(v2) + "#tx")
             wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目のやり直し'", 15000)
-            check(True, "文書が見つからなければ、動画のパスで探して開く(予備)")
+            new_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目のやり直し")
+            check(("doc=" + new_id) in pg.url and "0123456789ab" not in pg.url, "文書が見つからなければ、動画のパスで探して開く(予備)。URL は開いた文書: %s" % pg.url)
+
+            # ---- 監査 06: 再読み込み・窓の開き直しで、開いていた文書とタブに戻る
+            open_doc(pg, "一本目")
+            one_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "location.hash === '#cut'")
+            check(("doc=" + one_id) in pg.url, "文書を切り替えると URL の ?doc= も変わる: %s" % pg.url)
+            pg.reload()
+            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '一本目'", 15000)
+            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut"), "再読み込みで同じ文書・同じタブ(2 カット)に戻る")
+            pg.keyboard.press("Alt+1")
+            gone_tid = srv.transcribe(v3, "消す文書")
+            gone_url = srv.base + "?doc=" + gone_tid + "#tx"
+            srv.call("DELETE", "/api/transcript?id=" + gone_tid)
+            pg.goto(gone_url)
+            pg.reload()
+            wait_js(pg, "document.querySelector('#toast').textContent.includes('見つかりませんでした')", 15000)
+            check(pg.is_visible("#noDoc") and pg.is_hidden("#doc") and "doc=" not in pg.url,
+                  "消した文書の ?doc= は、知らせて何も開かず、URL から消える: %s" % pg.url)
 
             # ---- 段2 B-4: 動画を選び直す。動画を別の名前で別のフォルダへ移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える
             rl_tid = srv.transcribe(make_video(os.path.join(srv.media, "付け替え前.webm"), sec=10), "付け替える文書")

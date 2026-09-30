@@ -1870,3 +1870,17 @@
 - テスト: `e2e_edit_cut.py` に `page.route` で `/api/edit` の GET を 500 → 理由と「もう一度読み込む」・区間が無い・保存済みは rev 1 のまま・パックのタブの `#pkOff` と作れない → タブを開き直すと読み直す → 「もう一度読み込む」で保存済みの2区間。
   通過: e2e_edit_cut・e2e_edit_pack・node test_document_save 9/9
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段2 4. 監査 06 再読み込みで文書を見失わない
+- 変更: `editor/app.js`(`setUrlDoc(id)` = `history.replaceState` で `?doc=<id>` を足す/消す。タブの `#` はそのまま。`openDoc` が成功したら入れる・`closeDoc`(削除)で消す・
+  `takeUrlParams` は `?media=`・`?clip=` だけ消して `?doc=` は残す。`?doc=` の文書が一覧に無ければ知らせて URL から消す(開いている文書があればその id に戻す))
+- 決定・理由: pushState ではなく replaceState(戻るボタンで文書を行き来させると、未保存の保存・カットの flush と戻る操作がぶつかるため。計画どおり)
+- 同時に直したもの(3 の続き。`editor/cut.js`): ① 読み直す(同じ文書の load)の途中に、前の読み込みの音の波形が届くと `findSilence` が fps の無い状態で落ちていた
+  ("Cannot read properties of null (reading '0')"。以前から「読み直す」で起こりえた競合で、3 の「タブを開き直すと読み直す」で出やすくなった)→ `loadPeaks` は読み込みの番号(`M.loading`)が変わったらやめる・`findSilence` は fps が無ければ何もしない。
+  ② 使えない間(`!ready()`)のタイムラインに、前の文書・読み直す前の区間の `.tt-k` が残っていた → 描くときに空にする
+- テスト: `e2e_edit_tabs.py` の B-1 の2件を新しい形に(開いたあとも `?doc=` を残し `?media=` は外す・動画から探して開いた文書の id になる)+ 1節(切り替えで URL が変わる・再読み込みで同じ文書と 2 カット のタブ・消した文書の `?doc=` は知らせて何も開かず URL から消える)。
+  `e2e_ui_handoff.py` の ?media= の1件(`?nofs=1&doc=<id>` になる)。`e2e_edit_common.py` に `wait_url_doc`(再読み込みのあと URL の文書が開き終わるのを待つ。`open_doc` の先頭と `e2e_edit_pack.py` の再読み込みのあと。待たないとメニューが途中で閉じてクリックが外れる)。
+  `e2e_row_editing.py` の再読み込みは `?doc=` を外してから(計画どおり)。`e2e_edit_cut.py` の 3 の節は「もう一度読み込む」を押すまで失敗させる形に(開いたあとにタブを開き直すと読み直すため、1回だけの失敗では不定になった)。
+  通過: e2e_edit_tabs・e2e_edit_cut・e2e_edit_pack・e2e_edit_voices・e2e_ui_mounted・e2e_ui_handoff・e2e_row_editing・e2e_proofread_accuracy・e2e_proofread_keys・e2e_folder_marker_range・e2e_eval_set・node 9/9
+  (流し直して通ったもの: proofread_keys の Target crashed・folder_marker_range と edit_cut の "Connection closed while reading from the driver"・ui_mounted の起動直後の落ち)
+- 未コミット: `ui-kit/`・`studio/review.js`(6. 監査 11 の途中)

@@ -344,7 +344,8 @@ function create(h){
     $('#cutRetry').hidden = !(M.off && M.offCode === 'edit_load');
     tab.classList.toggle('tt-cut-disabled', noVideo);
     renderTools(); renderStatus(); renderSubsSoon();
-    if (!ready() || !M.shown) return;
+    if (!ready()){ $('#tlVideo').innerHTML = ''; $('#tlSubs').innerHTML = ''; return; }   // 使えない間は、前の文書・読み直す前の区間を残さない(監査 13)
+    if (!M.shown) return;
     if (M.fit || !M.pps) M.pps = fitPps();
     M.pps = Math.min(Math.max(M.pps, fitPps()), maxPps());
     const cw = M.fit ? viewW() : Math.max(viewW(), Math.ceil(M.dur * M.pps));   // 全体のときは、ちょうど1画面(横にずらせない)
@@ -539,23 +540,27 @@ function create(h){
     });
   }
   async function loadPeaks(){
-    const id = M.docId;
+    const id = M.docId, seq = M.loading;
+    const gone = () => M.docId !== id || M.loading !== seq;   // 別の文書・同じ文書の読み直し(reset で fps が無くなる)に移った
     M.peaksMsg = '';
-    for (let n = 0; n < 1200 && M.docId === id; n++){
+    for (let n = 0; n < 1200 && !gone(); n++){
       let r;
       try { r = await fetch(h.apiUrl('/api/peaks?id=' + encodeURIComponent(id)), { cache: 'no-store' }); } catch { M.peaksMsg = '音の波形を読み込めませんでした'; break; }
-      if (M.docId !== id) return;
+      if (gone()) return;
       if (r.status === 202){ const j = await r.json().catch(() => ({})); M.peaksMsg = j.message || '音の波形を作っています…'; drawWave(); await new Promise(res => setTimeout(res, 1000)); continue; }
       if (!r.ok){ const j = await r.json().catch(() => ({})); M.peaksMsg = '音の波形を作れませんでした' + (j.message ? ': ' + j.message : ''); break; }
       M.peaksRate = Number(r.headers.get('X-Peaks-Rate')) || 100; M.peaksAudio = r.headers.get('X-Peaks-Audio') !== '0';
-      M.peaks = new Uint8Array(await r.arrayBuffer());
+      const buf = await r.arrayBuffer();
+      if (gone()) return;
+      M.peaks = new Uint8Array(buf);
       if (!M.peaksAudio){ M.peaks = null; M.peaksMsg = '音声がありません'; }
       else findSilence();
       break;
     }
-    if (M.docId === id) drawWave();
+    if (!gone()) drawWave();
   }
   function findSilence(){   // 無音の境目(吸い付く先)
+    if (!M.fps || !M.peaks) return;
     const p = M.peaks, rate = M.peaksRate, out = []; let st = -1;
     for (let i = 0; i <= p.length; i++){
       const q = i < p.length && p[i] < SILENCE_LEVEL;

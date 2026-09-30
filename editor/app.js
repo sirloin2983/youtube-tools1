@@ -1532,7 +1532,18 @@ async function openDoc(id, keep){
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else window.scrollTo(0, 0);
   if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
+  setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る(監査 06)
   return true;
+}
+/* 開いている文書を URL の ?doc= に残す(監査 06)。replaceState にする: pushState にすると、戻るボタンで文書を行き来させたときに
+   未保存の保存・カットの flush と戻る操作がぶつかる(replace なら今の保存の順番のまま)。タブの # はそのまま */
+function setUrlDoc(id){
+  try {
+    const q = new URLSearchParams(location.search);
+    if (id) q.set('doc', id); else q.delete('doc');
+    const rest = q.toString(), url = location.pathname + (rest ? '?' + rest : '') + location.hash;
+    if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
+  } catch {}
 }
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
 const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' };
@@ -2378,6 +2389,7 @@ function closeDoc(){
   if (CUT) CUT.unload();
   if (PACK) PACK.load(null);
   $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
+  setUrlDoc(null);
   S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
   renderList(); updateDocTitle();
 }
@@ -2689,16 +2701,18 @@ function takeUrlParams(){
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
   const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
   if (!q.has('media') && !q.has('clip') && !q.has('doc')) return false;
-  q.delete('media'); q.delete('clip'); q.delete('doc');
+  q.delete('media'); q.delete('clip');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)
+  if (!docId) q.delete('doc');
   const rest = q.toString();
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
   if (!media && !clip && !docId) return false;
   if (docId){
     loadList().then(() => S.list.some(x => x.id === docId) ? openDoc(docId) : false).then(ok => {   // 一覧に無い(消された)文書は読みに行かない
       if (ok) return;
+      if (S.docId !== docId) setUrlDoc(S.docId);   // 開けなかった文書を URL に残さない(再読み込みで同じ知らせを繰り返さない)
       if (media || clip){ toast('選んだ文書が見つからなかったので、動画から探します', 4000); openByMedia(); }
       else toast('選んだ文書が見つかりませんでした(消された可能性があります)', 5000, 'err');
-    }).catch(() => { if (media || clip) openByMedia(); });
+    }).catch(() => { if (S.docId !== docId) setUrlDoc(S.docId); if (media || clip) openByMedia(); });
     return true;
   }
   return openByMedia();

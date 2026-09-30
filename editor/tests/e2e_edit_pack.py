@@ -17,7 +17,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from e2e_edit_common import Checks, Server, make_video, open_doc, read_pack_plan, wait_js
+from e2e_edit_common import wait_url_doc, Checks, Server, make_video, open_doc, read_pack_plan, wait_js
 
 FPS = 60
 
@@ -227,6 +227,7 @@ def main():
             tid3 = srv.call("POST", "/api/open-video", {"path": v3})["id"]   # 行の無い文書(文字起こしせずに開いた)
             pg.reload()
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            wait_url_doc(pg)   # 開いていた文書が URL の ?doc= で開き直るのを待つ(監査 06)
             pg.keyboard.press("Alt+1")
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
@@ -256,6 +257,7 @@ def main():
             tid4 = srv.call("POST", "/api/open-video", {"path": v4})["id"]
             pg.reload()
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            wait_url_doc(pg)   # 開いていた文書が URL の ?doc= で開き直るのを待つ(監査 06)
             if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
                 pg.click("#btnMenu")
             pg.click("[data-side-tab=files]")
