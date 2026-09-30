@@ -76,9 +76,16 @@ namespace HoloColors
             closeAfter.Anchor = AnchorStyles.Left;
             closeAfter.Margin = new Padding(0, 5, 8, 3);
             closeAfter.CheckedChanged += (s, e) => { if (!loading) app.SetCloseAfterCopy(closeAfter.Checked); };
-            addButton.Text = "＋ 色を追加";
+            // 「＋ 追加」→ 色を追加 / ワードを追加
+            addButton.Text = "＋ 追加";
             addButton.AutoSize = true;
-            addButton.Click += (s, e) => app.AddColor(this, null);
+            addButton.Click += (s, e) =>
+            {
+                var m = new ContextMenuStrip();
+                m.Items.Add("色を追加…(マイカラー)", null, (s2, e2) => app.AddColor(this, null));
+                m.Items.Add("ワードを追加…(マイワード)", null, (s2, e2) => app.AddWord(this));
+                m.Show(addButton, new Point(0, addButton.Height));
+            };
             settingsButton.Text = "設定";
             settingsButton.AutoSize = true;
             settingsButton.Click += (s, e) => app.OpenSettings(this);
@@ -94,6 +101,9 @@ namespace HoloColors
             view.EntryActivated += en => app.Copy(en);
             view.ColorActivated += (en, i) => app.Copy(en, i);
             view.EntryContextRequested += ShowEntryMenu;
+            view.FavoriteToggled += en => app.ToggleFavorite(en);
+            view.ItemMoved += (en, to) => app.MoveItemTo(en, to);
+            view.IsFavorite = en => app.Store.IsFavorite(en);
 
             Controls.Add(view);
             Controls.Add(top);
@@ -167,6 +177,17 @@ namespace HoloColors
             string q = search.Text;
             view.ShowSelection = q.Trim().Length > 0;
             var visible = new List<ColorGroup>();
+            // 「すべて」で検索していないときは、お気に入りと最近使ったものを一番上に(写し。元のグループにもそのまま残る)
+            if (filter == "ALL" && string.IsNullOrWhiteSpace(q))
+            {
+                var all = app.AllGroups().SelectMany(g => g.Items).ToList();
+                var fav = new ColorGroup { Id = "fav", Branch = "FAV", Name = Branches.Short("FAV") };
+                fav.Items.AddRange(app.Store.ResolveIds(app.Store.Settings.Favorites, all));
+                if (fav.Items.Count > 0) visible.Add(fav);
+                var recent = new ColorGroup { Id = "recent", Branch = "RECENT", Name = Branches.Short("RECENT") };
+                recent.Items.AddRange(app.Store.ResolveIds(app.Store.Settings.Recent.Select(r => r.Id), all));
+                if (recent.Items.Count > 0) visible.Add(recent);
+            }
             foreach (var g in app.AllGroups())
             {
                 if (filter != "ALL" && g.Branch != filter) continue;
@@ -175,7 +196,8 @@ namespace HoloColors
                 if (copy.Items.Count > 0) visible.Add(copy);
             }
             string empty = !string.IsNullOrWhiteSpace(q) ? "「" + q.Trim() + "」は見つかりません"
-                : filter == "MY" ? "まだ色がありません。\n下の「＋ 色を追加」から足せます"
+                : filter == "MY" ? "まだ色がありません。\n下の「＋ 追加」→「色を追加」から足せます"
+                : filter == "WORD" ? "まだワードがありません。\nよく使う言葉や文を「＋ 追加」→「ワードを追加」で登録すると、押すだけでコピーできます"
                 : "色がありません";
             view.SetGroups(visible, empty, keepSelection);
         }
@@ -252,6 +274,15 @@ namespace HoloColors
 
         void SearchKeyDown(object sender, KeyEventArgs e)
         {
+            // Alt + 矢印: 選んでいるマイカラー・マイワードを前後へ動かす(ドラッグと同じ)
+            if (e.Alt && (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down || e.KeyCode == Keys.Left || e.KeyCode == Keys.Right))
+            {
+                var t = view.SelectedTile;
+                if (t != null && PaletteView.CanDrag(t))
+                    app.MoveColor(t.Entry, e.KeyCode == Keys.Up || e.KeyCode == Keys.Left ? -1 : 1);
+                e.Handled = e.SuppressKeyPress = true;
+                return;
+            }
             switch (e.KeyCode)
             {
                 case Keys.Down:
@@ -302,6 +333,18 @@ namespace HoloColors
         void ShowEntryMenu(ColorEntry en, Point screen)
         {
             menu.Items.Clear();
+            if (en.IsWord)
+            {
+                menu.Items.Add("コピー(本文)", null, (s, e) => app.Copy(en, 0));
+                AddFavoriteItem(en);
+                menu.Items.Add(new ToolStripSeparator());
+                menu.Items.Add("編集…", null, (s, e) => app.EditWord(this, en));
+                AddMoveItems(en, app.Store.Words.Items);
+                menu.Items.Add(new ToolStripSeparator());
+                menu.Items.Add("削除", null, (s, e) => app.RemoveWord(this, en));
+                menu.Show(screen);
+                return;
+            }
             // 色ごとの「コピー」(2色以上ある人は、札の小さな四角と同じ色をここからも)
             var colors = en.AllColors;
             for (int i = 0; i < colors.Count; i++)
@@ -311,24 +354,38 @@ namespace HoloColors
                 var item = menu.Items.Add("コピー  " + app.CopyText(colors[i].Hex) + label, null, (s, e) => app.Copy(en, index));
                 if (colors.Count > 1) item.Image = Swatch(colors[i].Hex);
             }
+            AddFavoriteItem(en);
             if (en.IsUser)
             {
+                menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add("編集…", null, (s, e) => app.EditColor(this, en));
-                var up = menu.Items.Add("前へ", null, (s, e) => app.MoveColor(en, -1));
-                var down = menu.Items.Add("後ろへ", null, (s, e) => app.MoveColor(en, 1));
-                int i = app.Store.Mine.Items.IndexOf(en);
-                up.Enabled = i > 0;
-                down.Enabled = i >= 0 && i < app.Store.Mine.Items.Count - 1;
+                AddMoveItems(en, app.Store.Mine.Items);
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add("削除", null, (s, e) => app.RemoveColor(this, en));
             }
             else
             {
                 menu.Items.Add(new ToolStripSeparator());
-                menu.Items.Add(en.Customized ? "色を直す…(直した色を使っています)" : "色を直す…", null, (s, e) => app.EditMemberColors(this, en));
+                menu.Items.Add("この人に色を追加…", null, (s, e) => app.AddColorToMember(this, en));
+                menu.Items.Add(en.Customized ? "色を直す…(直した色を使っています)" : "色を直す…(並べ替え・消す・元に戻す)", null, (s, e) => app.EditMemberColors(this, en));
                 menu.Items.Add("この色をもとにマイカラーへ追加…", null, (s, e) => app.AddColor(this, en));
             }
             menu.Show(screen);
+        }
+
+        void AddFavoriteItem(ColorEntry en)
+        {
+            bool fav = app.Store.IsFavorite(en);
+            menu.Items.Add(fav ? "★ お気に入りから外す" : "☆ お気に入りに入れる", null, (s, e) => app.ToggleFavorite(en));
+        }
+
+        void AddMoveItems(ColorEntry en, List<ColorEntry> list)
+        {
+            var up = menu.Items.Add("前へ(Alt+↑)", null, (s, e) => app.MoveColor(en, -1));
+            var down = menu.Items.Add("後ろへ(Alt+↓)", null, (s, e) => app.MoveColor(en, 1));
+            int i = list.IndexOf(en);
+            up.Enabled = i > 0;
+            down.Enabled = i >= 0 && i < list.Count - 1;
         }
 
         // メニューの項目の横の色の見本

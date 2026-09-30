@@ -2223,3 +2223,20 @@
 - テスト: holo-colors\build.bat(21 件)・`python -m unittest ytt_core/tests/test_ytt_core.py`(61 件)OK。画面は --screenshot で確認。
   e2e(本物の入力)は流していない(クリックする位置を札の高さに合わせて直しただけ。次に流すときに確かめる)
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code(まとめ役 Opus + サブエージェント Sonnet)— ホロカラー 1.4.0: 画面の見直し(札 = 名前 + 色の帯)・マイワード・お気に入り・最近・並べ替え・メンバーに色を追加
+- ユーザー: 「UI の全面的見直し」「色の配置がきもい・1色しかないように見える」「マイカラーに並べ替え」「マイワードも登録したい」「追加した方がいい機能の提案」、
+  途中で「お気に入りと最近は元の位置にもそのまま」「それぞれのメンバーにマイカラーを追加 → B に増やす」「+n じゃなくて二段」
+- 決定(ユーザー): 案B(札の下段を色の帯に)・マイワードは複数行も・並べ替えはドラッグ + キー・追加機能はお気に入りと最近使ったもの(Resolve の形式・書き出し・字幕の見本は選ばれず)
+- 変更(サブエージェント Sonnet。受け渡しの形を先に決めた決まった規則の実装): `holo-colors/src/Core.cs`(ColorEntry.Text/IsWord・Branches の WORD/FAV/RECENT・
+  Store.Words と my-words.json・AddWord/UpdateWord/RemoveWord・Remove/Move を2つのグループに・MoveTo・Settings.Favorites/Recent・ToggleFavorite/NoteRecent/Forget/ResolveIds)、
+  `holo-colors/tests/WordsTests.cs`(新規 10 件)
+- 変更(まとめ役 Opus。見た目の判断・影響の広い画面): `PaletteView.cs`(書き直し: 上段 = 名前・✎・☆/★、下段 = 色の帯(等分・40px 未満なら折り返し・段の本数をそろえる・行の高さをそろえる)、
+  ワードの札、ドラッグで並べ替え、★ のクリック)、`MainForm.cs`(お気に入り・最近のグループ・「＋ 追加」のメニュー・Alt + 矢印・右クリックのメニュー)、
+  `Dialogs.cs`(EditWordForm)、`Program.cs`(ワードのコピー = CRLF・最近の記録・お気に入り・並べ替え・マイワード・「この人に色を追加…」・撮影に words.png)、
+  `tests/CoreTests.cs`(小さな四角のテスト → 帯のテスト PaletteBands。WordsTests を呼ぶ)、`tests/e2e_holo_colors.py`(先頭の札 = 最近使ったもの・帯のクリック)、
+  README・`docs/design/holo-colors.md`(v1.4.0 の節)・AGENTS.md(テストの件数)
+- 版: ホロカラー 1.3.1 → **1.4.0**
+- テスト: build.bat 31 件・`python -m unittest ytt_core/tests/test_ytt_core.py` OK・e2e 24 件(ユーザーの許可を得て流した)。画面は --screenshot に見本の作業データを入れて確認
+- 注意: 作業データに my-words.json が増えた。settings.json に favorites・recent が増えた(古い版の exe はその欄を無視して読める)
+- 未コミット: なし(このあとコミット)

@@ -37,8 +37,9 @@ static class CoreTests
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
         Run("一覧: 札の並び・クリックの判定・キーでの移動", PaletteLayout);
         Run("一覧: スクロールしても札と文字が一緒に動く", PaletteScrollDrawing);
-        Run("一覧: 2色以上の札の小さな四角(位置・クリックの判定・その色をコピー)", PaletteSwatches);
+        Run("一覧: 札の色の帯(等分・折り返し・クリックの判定・★・ワード・ドラッグで並べ替え)", PaletteBands);
         Run("起動: 作業データの場所ごとに1つ", InstanceKey);
+        WordsTests.RunAll(Run);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -691,9 +692,10 @@ static class CoreTests
         }
     }
 
-    static void PaletteSwatches()
+    // 札の形(v1.4.0 案B): 上段 = 名前・★、下段 = 色の帯(色の数で等分。1段に入らなければ折り返す)
+    static void PaletteBands()
     {
-        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(760, 420) })
+        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(760, 460) })
         {
             var v = new PaletteView { Dock = DockStyle.Fill, Font = new Font("Yu Gothic UI", 9f) };
             form.Controls.Add(v);
@@ -704,66 +706,106 @@ static class CoreTests
             var many = new ColorEntry { Id = "a/3", Name = "六色", Hex = "#FFFFFF", Group = g };
             many.SetColors(new[] { "#FFFFFF", "#111111", "#222222", "#333333", "#444444", "#555555" }.Select(h => new ColorOption(h, "")).ToList());
             g.Items.AddRange(new[] { one, two, many });
-            for (int i = 0; i < 30; i++) g.Items.Add(new ColorEntry { Id = "x" + i, Name = "x" + i, Hex = "#808080", Group = g });
+            for (int i = 0; i < 12; i++) g.Items.Add(new ColorEntry { Id = "x" + i, Name = "x" + i, Hex = "#808080", Group = g });
+            var words = new ColorGroup { Id = "word", Branch = "WORD", Name = "マイワード" };
+            var w1 = new ColorEntry { Id = "word/1", Name = "あいさつ", Text = "こんにちは\n二行目", IsUser = true, Group = words, Sub = "", Note = "" };
+            words.Items.Add(w1);
+            var mine = new ColorGroup { Id = "my", Branch = "MY", Name = "マイカラー" };
+            for (int i = 0; i < 3; i++) mine.Items.Add(new ColorEntry { Id = "my/" + i, Name = "m" + i, Hex = "#33AA55", IsUser = true, Group = mine });
+            var fav = new ColorGroup { Id = "fav", Branch = "FAV", Name = "お気に入り" };
+            fav.Items.Add(mine.Items[0]);
             form.Show();
-            v.SetGroups(new List<ColorGroup> { g }, "なし", false);
+            v.SetGroups(new List<ColorGroup> { g, words, mine, fav }, "なし", false);
             Application.DoEvents();
 
-            // 四角は 22px(v1.3.x)。「+n」の分も要るので、この見本は広めの窓で(狭い窓では入るだけ並べる)
-            Eq(0, v.Tiles[0].Swatches.Count, "1色の札に四角は無い");
-            Eq(1, v.Tiles[1].Swatches.Count, "2色の札に四角が1つ");
-            Eq(PaletteView.MaxSwatches, v.Tiles[2].Swatches.Count, "四角は最大 " + PaletteView.MaxSwatches + " つ");
-            Eq(5 - PaletteView.MaxSwatches, v.Tiles[2].More, "残りは「+n」");
+            PaletteView.Tile tOne = v.Tiles[0], tTwo = v.Tiles[1], tMany = v.Tiles[2];
+            Eq(1, tOne.Bands.Count, "1色の札は帯が1本");
+            Eq(tOne.Rect.Width, tOne.Bands[0].Width, "1本の帯は幅いっぱい");
+            Eq(2, tTwo.Bands.Count, "2色の札は帯が2本");
+            True(Math.Abs(tTwo.Bands[0].Width - tTwo.Bands[1].Width) <= 1, "帯は等分");
+            Eq(6, tMany.Bands.Count, "6色の札は帯が6本(+n にまとめない)");
+            True(tMany.BandRows >= 2, "入りきらなければ折り返す: " + tMany.BandRows + " 段");
+            Eq(tOne.Rect.Height, tMany.Rect.Height, "同じ行の札は高さをそろえる");
+            var nextRow = v.Tiles.First(t => t.Rect.Y > tMany.Rect.Y && t.Group == g);
+            True(nextRow.Rect.Height < tMany.Rect.Height, "折り返しの無い行は低いまま");
             foreach (var t in v.Tiles)
-                foreach (var s in t.Swatches)
-                    True(t.Rect.Contains(s) && s.X > t.Rect.X + t.Rect.Width / 2, "四角は札の中の右半分: " + t.Entry.Name);
+                foreach (var b in t.Bands)
+                    True(t.Rect.Contains(b) && b.Y >= t.Top.Bottom, "帯は札の中の下段: " + t.Entry.Name);
+            True(!tMany.Bands[0].IntersectsWith(tMany.Bands[1]) && !tMany.Bands[0].IntersectsWith(tMany.Bands[tMany.Bands.Count - 1]), "帯は重ならない");
 
             int ci;
-            Rectangle body = v.Tiles[1].Rect, sw = v.Tiles[1].Swatches[0];
-            Eq(1, v.HitTestColor(new Point(body.X + 10, body.Y + 10), out ci), "札の本体");
-            Eq(0, ci, "本体は主な色");
-            Eq(1, v.HitTestColor(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2), out ci), "四角も同じ札");
-            Eq(1, ci, "四角はその色(2つ目)");
-            Eq(1, v.HitTest(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2)), "HitTest は札のまま");
-            Rectangle sw3 = v.Tiles[2].Swatches[2];
-            Eq(2, v.HitTestColor(new Point(sw3.X + 3, sw3.Y + 3), out ci), "3つ目の四角");
-            Eq(3, ci, "3つ目の四角は4番目の色");
+            Rectangle b1 = tTwo.Bands[1];
+            Eq(1, v.HitTestColor(new Point(b1.X + b1.Width / 2, b1.Y + b1.Height / 2), out ci), "帯の上は同じ札");
+            Eq(1, ci, "帯はその色(2つ目)");
+            Eq(1, v.HitTestColor(new Point(tTwo.Top.X + 12, tTwo.Top.Y + tTwo.Top.Height / 2), out ci), "名前の段");
+            Eq(0, ci, "名前の段は主な色");
+            Rectangle b6 = tMany.Bands[5];
+            v.HitTestColor(new Point(b6.X + b6.Width / 2, b6.Y + b6.Height / 2), out ci);
+            Eq(5, ci, "2段目の最後の帯は6番目の色");
+            Rectangle st = tTwo.Star;
+            v.HitTestColor(new Point(st.X + st.Width / 2, st.Y + st.Height / 2), out ci);
+            Eq(-2, ci, "★ の上");
 
-            // スクロールしても四角の当たりは一緒に動く
+            // スクロールしても帯の当たりは一緒に動く
             v.AutoScrollPosition = new Point(0, 30);
             Application.DoEvents();
             int dy = -v.AutoScrollPosition.Y;
             True(dy > 0, "スクロールした");
-            Eq(1, v.HitTestColor(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2 - dy), out ci), "スクロールしたあとの四角");
-            Eq(1, ci, "スクロールしたあとの四角の色");
+            v.HitTestColor(new Point(b1.X + b1.Width / 2, b1.Y + b1.Height / 2 - dy), out ci);
+            Eq(1, ci, "スクロールしたあとの帯");
             v.AutoScrollPosition = Point.Empty;
             Application.DoEvents();
 
-            // 四角をクリック → その色、本体をクリック → 主な色
+            // クリック: 帯 → その色、名前の段 → 主な色、★ → お気に入り、ワード → 本文(0)
             var got = new List<string>();
-            v.EntryActivated += e => got.Add(e.Name + ":0");
+            v.EntryActivated += e => got.Add(e.Name + ":enter");
             v.ColorActivated += (e, i) => got.Add(e.Name + ":" + i);
-            var mv = typeof(Control).GetMethod("OnMouseDown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            v.FavoriteToggled += e => got.Add(e.Name + ":fav");
+            var moved = new List<string>();
+            v.ItemMoved += (e, idx) => moved.Add(e.Name + "->" + idx);
+            var md = typeof(Control).GetMethod("OnMouseDown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var mm = typeof(Control).GetMethod("OnMouseMove", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var mu = typeof(Control).GetMethod("OnMouseUp", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Action<Point> click = pt =>
+            Func<Point, Point> scr = p => new Point(p.X + v.AutoScrollPosition.X, p.Y + v.AutoScrollPosition.Y);
+            Action<Point> click = p0 =>
             {
-                var a = new MouseEventArgs(MouseButtons.Left, 1, pt.X, pt.Y, 0);
-                mv.Invoke(v, new object[] { a });
+                var p = scr(p0);
+                var a = new MouseEventArgs(MouseButtons.Left, 1, p.X, p.Y, 0);
+                md.Invoke(v, new object[] { a });
                 mu.Invoke(v, new object[] { a });
             };
-            click(new Point(sw.X + sw.Width / 2, sw.Y + sw.Height / 2));
-            click(new Point(body.X + 10, body.Y + 10));
-            Eq("二色:1,二色:0", string.Join(",", got), "四角はその色・本体は主な色");
+            click(new Point(b1.X + b1.Width / 2, b1.Y + b1.Height / 2));
+            click(new Point(tTwo.Top.X + 12, tTwo.Top.Y + tTwo.Top.Height / 2));
+            click(new Point(st.X + st.Width / 2, st.Y + st.Height / 2));
+            var tw = v.Tiles.First(t => t.Entry == w1);
+            Eq(1, tw.Bands.Count, "ワードの札は帯1本");
+            click(new Point(tw.Bands[0].X + 20, tw.Bands[0].Y + 5));
+            Eq("二色:1,二色:0,二色:fav,あいさつ:0", string.Join(",", got), "帯・名前・★・ワード");
             got.Clear();
-            var down = new MouseEventArgs(MouseButtons.Left, 1, sw.X + sw.Width / 2, sw.Y + sw.Height / 2, 0);
-            var up = new MouseEventArgs(MouseButtons.Left, 1, body.X + 10, body.Y + 10, 0);
-            mv.Invoke(v, new object[] { down });
+            var down = new MouseEventArgs(MouseButtons.Left, 1, b1.X + b1.Width / 2, b1.Y + b1.Height / 2, 0);
+            var up = new MouseEventArgs(MouseButtons.Left, 1, tTwo.Top.X + 12, tTwo.Top.Y + 8, 0);
+            md.Invoke(v, new object[] { down });
             mu.Invoke(v, new object[] { up });
-            Eq(0, got.Count, "四角で押して本体で離したらコピーしない");
+            Eq(0, got.Count, "帯で押して名前で離したらコピーしない");
+
+            // ドラッグ: マイカラーの1つ目を3つ目の位置へ。お気に入りの写しはドラッグできない
+            var myTiles = v.Tiles.Where(t => t.Group == mine).ToList();
+            True(PaletteView.CanDrag(myTiles[0]), "マイカラーはドラッグできる");
+            True(!PaletteView.CanDrag(v.Tiles.First(t => t.Group == fav)), "お気に入りの写しはドラッグできない");
+            True(!PaletteView.CanDrag(tTwo), "メンバーの札はドラッグできない");
+            Point from = scr(new Point(myTiles[0].Rect.X + 20, myTiles[0].Top.Y + 8)), to = scr(new Point(myTiles[2].Rect.X + myTiles[2].Rect.Width / 2, myTiles[2].Rect.Y + myTiles[2].Rect.Height / 2));
+            md.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 1, from.X, from.Y, 0) });
+            mm.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 0, from.X + 20, from.Y, 0) });
+            mm.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 0, to.X, to.Y, 0) });
+            mu.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 1, to.X, to.Y, 0) });
+            Eq("m0->2", string.Join(",", moved), "ドラッグで並べ替え");
+            Eq(0, got.Count, "ドラッグしたときはコピーしない");
 
             string tipText = PaletteView.TipText(two);
             True(tipText.Contains("#00AAFF(水色)") && tipText.Contains("#FF0000(主)"), "ツールチップに全部の色とラベル: " + tipText);
-            True(PaletteView.TipText(one).Contains("#123456") && !PaletteView.TipText(one).Contains("ほかの色"), "1色の人のツールチップは今までどおり");
+            True(PaletteView.TipText(one).Contains("#123456") && !PaletteView.TipText(one).Contains("ほかの色"), "1色の人のツールチップ");
+            True(PaletteView.TipText(w1).Contains("二行目"), "ワードのツールチップは本文");
+            Eq("こんにちは", PaletteView.FirstLine("\n  こんにちは \n二行目"), "本文の1行目");
         }
     }
 

@@ -1,7 +1,7 @@
 """ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
     build.bat を流してから:  python holo-colors/tests/e2e_holo_colors.py
 確かめること: 呼び出しのキーで開く・検索して Enter / 札のクリックでコピー・コピーしたら閉じて元の窓へ戻る(すぐ Ctrl+V で貼れる)・
-キーをもう一度 / Esc で閉じる・札の中の小さな四角(2つ目の色)を押すとその色・2つ目の起動は動いているほうを開く・閉じない設定・--quit で終わる。
+キーをもう一度 / Esc で閉じる・札の色の帯(2つ目の色)を押すとその色・2つ目の起動は動いているほうを開く・閉じない設定・--quit で終わる。
 テストの間はマウスとキーボードに触らない(本物の入力を送るため)。クリップボードの文字は終わったら元に戻す。
 普段使っているホロカラーとぶつからないように、別の作業データ(一時フォルダ)と別のキー(Ctrl+Alt+Shift+F11)で動かす。"""
 import ctypes
@@ -418,15 +418,17 @@ class E2E:
             raise Failure("クリックする場所に一覧の窓が無いので止めました")
         click(pt.x, pt.y)
         self.wait("クリックで閉じる", lambda: not self.visible())
-        first = self.first_member()
-        self.check(get_clipboard() == first["hex"].upper(), "札のクリックで色がコピーされる(%s %s)" % (first["name"], first["hex"]))
+        # v1.4.0 から、一覧の一番上は「最近使ったもの」(写し)。この前に検索してコピーした人が先頭の札になる
+        first = member
+        self.check(get_clipboard() == first["hex"].upper(), "札のクリックで色がコピーされる(最近使ったものの先頭 = %s %s)" % (first["name"], first["hex"]))
         if have_b:
             self.wait("B へ戻る", lambda: user32.GetForegroundWindow() == self.b_hwnd)
             self.check(True, "開いたまま移った窓 B へ戻る(呼び出したときの窓ではなく)")
         else:
             print("注意: 窓 B を前面にできなかったので、戻る先の確認は飛ばします")
 
-        # 札の中の小さな四角(2つ目の色)を押すと、その色がコピーされる。位置は PaletteView.Relayout / PlaceSwatches と同じ計算
+        # 札の色の帯(v1.4.0)の2本目を押すと、その人の2つ目の色がコピーされる。位置は PaletteView.Relayout / PlaceParts と同じ計算。
+        # 先頭の札は「最近使ったもの」のいちばん上(直前にコピーした人。帯が1段に収まる人)
         hotkey()
         self.wait("開く", lambda: self.visible() and user32.GetForegroundWindow() == self.main)
         self.pump(0.3)
@@ -434,19 +436,20 @@ class E2E:
         r = wintypes.RECT()
         user32.GetClientRect(pal, ctypes.byref(r))
         S = lambda v: int(round(v * k))   # noqa: E731
-        pad, gap, min_w = S(12), S(8), S(148)
+        pad, gap, min_w = S(12), S(8), S(172)
         cols = max(1, (r.right - 2 * pad + gap) // (min_w + gap))
         tile_w = max(S(60), (r.right - 2 * pad - (cols - 1) * gap) // cols)
-        top, tile_h, sw, margin = S(4) + S(28), S(46), S(14), S(7)
-        pt = wintypes.POINT(pad + tile_w - margin - sw // 2, top + tile_h - margin - sw // 2)
+        top, top_h, band_h = S(4) + S(28), S(28), S(30)
+        n_colors = len(first.get("colors") or [first])
+        pt = wintypes.POINT(pad + tile_w * 3 // (2 * n_colors), top + top_h + band_h // 2)   # 2本目の帯の真ん中
         user32.ClientToScreen(pal, ctypes.byref(pt))
         if user32.GetAncestor(user32.WindowFromPoint(pt), 2) != self.main:
             raise Failure("クリックする場所に一覧の窓が無いので止めました")
         set_clipboard("before")
         click(pt.x, pt.y)
-        self.wait("四角のクリックで閉じる", lambda: not self.visible())
+        self.wait("帯のクリックで閉じる", lambda: not self.visible())
         second = first["colors"][1]["hex"].upper()
-        self.check(get_clipboard() == second, "札の中の小さな四角を押すと、その色がコピーされる(%s %s)" % (first["name"], second))
+        self.check(get_clipboard() == second, "札の2本目の色の帯を押すと、その色がコピーされる(%s %s)" % (first["name"], second))
 
         # 2つ目の起動は、動いているほうの一覧を出して終わる
         r = subprocess.run([self.exe, "--data-dir", self.data], timeout=10)

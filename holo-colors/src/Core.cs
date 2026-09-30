@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.3.1";
+        public const string Version = "1.4.0";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }
@@ -75,7 +75,8 @@ namespace HoloColors
         public string MemberId;   // members.json のメンバーの id(全体で一意。直した色のキー)。マイカラーは null
         public string Name;       // 表示名(日本語)
         public string Sub;        // ローマ字・英語名
-        public string Hex;        // #RRGGBB。主な色 = Colors[0].Hex
+        public string Hex;        // #RRGGBB。主な色 = Colors[0].Hex。マイワードは null
+        public string Text;       // マイワードの本文(改行は "\n")。色の項目は null
         public string Note;       // 卒業日など
         public ColorGroup Group;
         public bool IsUser;
@@ -83,6 +84,8 @@ namespace HoloColors
         public List<ColorOption> Colors = new List<ColorOption>();   // 先頭が主な色。空なら Hex の1色(AllColors)
         public List<ColorOption> OriginalColors;                     // members.json のままの色(直した色を戻すとき)。マイカラーは null
         public bool Customized;   // 作業データの member-colors.json で直した色を使っている
+
+        public bool IsWord { get { return Text != null; } }
 
         // 色を入れ替える(Hex は先頭の色)
         public void SetColors(List<ColorOption> colors)
@@ -95,27 +98,31 @@ namespace HoloColors
         // 色の一覧(Colors が空の作り方でも Hex の1色)
         public List<ColorOption> AllColors
         {
-            get { return Colors != null && Colors.Count > 0 ? Colors : new List<ColorOption> { new ColorOption(Hex, "") }; }
+            get
+            {
+                if (IsWord || (Hex == null && (Colors == null || Colors.Count == 0))) return new List<ColorOption>();
+                return Colors != null && Colors.Count > 0 ? Colors : new List<ColorOption> { new ColorOption(Hex, "") };
+            }
         }
     }
 
     public class ColorGroup
     {
         public string Id;
-        public string Branch;     // MY / JP / DEV_IS / EN / ID / GRAD
+        public string Branch;     // MY / WORD / JP / DEV_IS / EN / ID / GRAD(FAV / RECENT は画面が作る一覧)
         public string Name;
         public List<ColorEntry> Items = new List<ColorEntry>();
 
         public string Label
         {
-            get { return Branch == "MY" || Branch == "GRAD" ? Name : Branches.Short(Branch) + "  " + Name; }
+            get { return Branches.IsSpecial(Branch) || Branch == "GRAD" ? Name : Branches.Short(Branch) + "  " + Name; }
         }
     }
 
     public static class Branches
     {
         // 上の絞り込みの札の順番
-        public static readonly string[] Filters = { "ALL", "MY", "JP", "DEV_IS", "EN", "ID", "GRAD" };
+        public static readonly string[] Filters = { "ALL", "MY", "WORD", "JP", "DEV_IS", "EN", "ID", "GRAD" };
 
         public static string Short(string b)
         {
@@ -123,9 +130,18 @@ namespace HoloColors
             {
                 case "ALL": return "すべて";
                 case "MY": return "マイカラー";
+                case "WORD": return "マイワード";
+                case "FAV": return "お気に入り";
+                case "RECENT": return "最近使ったもの";
                 case "GRAD": return "卒業";
                 default: return b;
             }
+        }
+
+        // 一覧の絞り込みではなく、自分の側で持つ・画面が作る一覧(members.json には書けない)
+        public static bool IsSpecial(string b)
+        {
+            return b == "MY" || b == "WORD" || b == "FAV" || b == "RECENT";
         }
 
         public static bool IsKnown(string b)
@@ -209,6 +225,7 @@ namespace HoloColors
         {
             string g = e.Group == null ? "" : e.Group.Name + "|" + e.Group.Branch;
             var parts = new List<string> { Fold(e.Name), Fold(e.Sub), Fold(g), Fold(e.Note), e.Hex == null ? "" : e.Hex.ToLowerInvariant() };
+            if (e.Text != null) parts.Add(Fold(e.Text));   // マイワードは本文でも当たる
             // 2つ目以降の色のカラーコードとラベルでも当たる
             if (e.Colors != null)
                 foreach (var c in e.Colors)
@@ -516,7 +533,7 @@ namespace HoloColors
                     Branch = Json.Str(g, "branch") ?? "JP",
                     Name = Json.Str(g, "name") ?? "",
                 };
-                if (!Branches.IsKnown(group.Branch) || group.Branch == "MY")
+                if (!Branches.IsKnown(group.Branch) || Branches.IsSpecial(group.Branch))
                     throw new FormatException("知らない branch です: " + group.Branch);
                 foreach (var m in Json.List(g, "members"))
                 {
@@ -576,6 +593,13 @@ namespace HoloColors
         }
     }
 
+    // 最近使ったもの1件(項目の id と、コピーした色の番号)
+    public class RecentItem
+    {
+        public string Id;
+        public int ColorIndex;
+    }
+
     // ---- 設定(settings.json) ----
     public class Settings
     {
@@ -588,6 +612,9 @@ namespace HoloColors
         public string Filter = "ALL";
         public bool Welcomed;      // 初めての起動の案内を出したか
         public bool AlwaysOnTop;   // 一覧をいつも一番手前に(既定は外す。キーで呼んだときは外していても前に出る)
+        public const int MaxFavorites = 300, MaxRecent = 5, MaxColorIndex = 20;
+        public List<string> Favorites = new List<string>();      // お気に入りの項目の id(足した順)
+        public List<RecentItem> Recent = new List<RecentItem>(); // 最近使ったもの(新しい順)
 
         public IDictionary<string, object> ToJson()
         {
@@ -603,6 +630,8 @@ namespace HoloColors
                 { "filter", Filter },
                 { "welcomed", Welcomed },
                 { "alwaysOnTop", AlwaysOnTop },
+                { "favorites", Favorites.Cast<object>().ToList() },
+                { "recent", Recent.Select(r => (object)new Dictionary<string, object> { { "id", r.Id }, { "color", r.ColorIndex } }).ToList() },
             };
         }
 
@@ -620,6 +649,22 @@ namespace HoloColors
             s.Filter = f != null && Array.IndexOf(Branches.Filters, f) >= 0 ? f : "ALL";
             s.Welcomed = Json.Bool(d, "welcomed", false);
             s.AlwaysOnTop = Json.Bool(d, "alwaysOnTop", false);
+            object fv;
+            if (d != null && d.TryGetValue("favorites", out fv) && fv is IEnumerable && !(fv is string) && !(fv is IDictionary<string, object>))
+                foreach (object o in (IEnumerable)fv)
+                {
+                    string id = o as string;
+                    if (string.IsNullOrEmpty(id) || s.Favorites.Contains(id)) continue;
+                    if (s.Favorites.Count >= MaxFavorites) break;
+                    s.Favorites.Add(id);
+                }
+            foreach (var r in Json.List(d, "recent"))
+            {
+                string id = Json.Str(r, "id");
+                if (string.IsNullOrEmpty(id) || s.Recent.Any(x => x.Id == id)) continue;
+                if (s.Recent.Count >= MaxRecent) break;
+                s.Recent.Add(new RecentItem { Id = id, ColorIndex = Math.Max(0, Math.Min(MaxColorIndex, Json.Int(r, "color", 0))) });
+            }
             return s;
         }
     }
@@ -636,7 +681,9 @@ namespace HoloColors
         // members.json に無い id も消さずに持っておく(使わない。members.json を戻したときのため)
         public readonly Dictionary<string, List<ColorOption>> MemberColors = new Dictionary<string, List<ColorOption>>();
         // 読めなかった(ほかのソフトがつかんでいた・権限が無い)ファイルは、上書きして消さないように保存を止める
-        bool settingsLocked, colorsLocked, memberColorsLocked;
+        bool settingsLocked, colorsLocked, memberColorsLocked, wordsLocked;
+        public const int MaxWordText = 4000;
+        public readonly ColorGroup Words = new ColorGroup { Id = "word", Branch = "WORD", Name = "マイワード" };
 
         public Store(string dir)
         {
@@ -645,6 +692,7 @@ namespace HoloColors
 
         public string SettingsPath { get { return Path.Combine(Dir, "settings.json"); } }
         public string ColorsPath { get { return Path.Combine(Dir, "my-colors.json"); } }
+        public string WordsPath { get { return Path.Combine(Dir, "my-words.json"); } }
         public string MemberColorsPath { get { return Path.Combine(Dir, "member-colors.json"); } }
 
         public void Load()
@@ -661,6 +709,19 @@ namespace HoloColors
                 string id = Json.Str(m, "id");
                 if (string.IsNullOrEmpty(id) || Mine.Items.Any(x => x.Id == id)) id = NewId();
                 Mine.Items.Add(MakeEntry(id, name, hex));
+            }
+            Words.Items.Clear();
+            var w = ReadJson(WordsPath, out wordsLocked);
+            foreach (var m in Json.List(w, "words"))
+            {
+                string text = (Json.Str(m, "text") ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+                if (text.Trim().Length == 0) continue;
+                string name = (Json.Str(m, "name") ?? "").Trim();
+                if (name.Length == 0) name = DefaultWordName(text);
+                if (name.Length > MaxName) name = name.Substring(0, MaxName);
+                string id = Json.Str(m, "id");
+                if (string.IsNullOrEmpty(id) || Words.Items.Any(x => x.Id == id)) id = NewWordId();
+                Words.Items.Add(MakeWord(id, name, text));
             }
             MemberColors.Clear();
             var mc = Json.Dict(ReadJson(MemberColorsPath, out memberColorsLocked), "members");
@@ -813,6 +874,162 @@ namespace HoloColors
             Files.WriteAtomic(ColorsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "colors", list } }));
         }
 
+        public void SaveWords()
+        {
+            if (wordsLocked) throw new IOException("my-words.json が開けなかったので、上書きしないように保存を止めています");
+            var list = Words.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "text", e.Text } }).ToList();
+            Files.WriteAtomic(WordsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "words", list } }));
+        }
+
+        static string NewWordId()
+        {
+            return "word/" + Guid.NewGuid().ToString("N").Substring(0, 12);
+        }
+
+        static string DefaultWordName(string text)
+        {
+            foreach (string line in text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'))
+            {
+                string t = line.Trim();
+                if (t.Length > 0) return t.Length > MaxName ? t.Substring(0, MaxName) : t;
+            }
+            return "";
+        }
+
+        ColorEntry MakeWord(string id, string name, string text)
+        {
+            var e = new ColorEntry { Id = id, Name = name, Sub = "", Hex = null, Note = "", Text = text, Group = Words, IsUser = true };
+            e.SearchKey = SearchText.SearchKey(e);
+            return e;
+        }
+
+        // マイワードの名前と本文を確かめる。問題があれば理由を返す(null なら良い)。名前が空なら本文の最初の行
+        public static string ValidateWord(string name, string text, out string cleanName)
+        {
+            cleanName = null;
+            string t = (text ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+            if (t.Trim().Length == 0) return "本文を入れてください";
+            if (t.Length > MaxWordText) return "本文は " + MaxWordText + " 文字までです(いまは " + t.Length + " 文字)";
+            name = (name ?? "").Trim();
+            if (name.Length > MaxName) return "名前は " + MaxName + " 文字までです";
+            if (name.Length == 0) name = DefaultWordName(t);
+            cleanName = name;
+            return null;
+        }
+
+        // クリップボードに入れる形(Windows の改行)
+        public static string ClipboardText(string text)
+        {
+            return (text ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+        }
+
+        public ColorEntry AddWord(string name, string text)
+        {
+            string clean;
+            string err = ValidateWord(name, text, out clean);
+            if (err != null) throw new ArgumentException(err);
+            var e = MakeWord(NewWordId(), clean, text.Replace("\r\n", "\n").Replace("\r", "\n"));
+            Words.Items.Add(e);
+            try { SaveWords(); }
+            catch { Words.Items.Remove(e); throw; }
+            return e;
+        }
+
+        public void UpdateWord(ColorEntry e, string name, string text)
+        {
+            if (e == null || !e.IsWord) throw new ArgumentException("マイワードではありません");
+            string clean;
+            string err = ValidateWord(name, text, out clean);
+            if (err != null) throw new ArgumentException(err);
+            string oldName = e.Name, oldText = e.Text;
+            e.Name = clean;
+            e.Text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            e.SearchKey = SearchText.SearchKey(e);
+            try { SaveWords(); }
+            catch
+            {
+                e.Name = oldName;
+                e.Text = oldText;
+                e.SearchKey = SearchText.SearchKey(e);
+                throw;
+            }
+        }
+
+        public void RemoveWord(ColorEntry e)
+        {
+            Remove(e);
+        }
+
+        ColorGroup OwnGroup(ColorEntry e)
+        {
+            if (e == null) return null;
+            if (e.Group == Mine) return Mine;
+            if (e.Group == Words) return Words;
+            return null;
+        }
+
+        void SaveGroup(ColorGroup g)
+        {
+            if (g == Words) SaveWords(); else SaveColors();
+        }
+
+        // ---- お気に入り・最近使ったもの(settings.json) ----
+        public bool IsFavorite(ColorEntry e)
+        {
+            return e != null && e.Id != null && Settings.Favorites.Contains(e.Id);
+        }
+
+        // 新しい状態(true = お気に入り)を返す。保存できなければ元に戻して投げる
+        public bool ToggleFavorite(ColorEntry e)
+        {
+            if (e == null || e.Id == null) throw new ArgumentException("項目がありません");
+            var before = new List<string>(Settings.Favorites);
+            bool now;
+            if (Settings.Favorites.Contains(e.Id)) { Settings.Favorites.Remove(e.Id); now = false; }
+            else
+            {
+                if (Settings.Favorites.Count >= Settings.MaxFavorites) throw new ArgumentException("お気に入りは " + Settings.MaxFavorites + " 件までです");
+                Settings.Favorites.Add(e.Id);
+                now = true;
+            }
+            try { SaveSettings(); }
+            catch { Settings.Favorites = before; throw; }
+            return now;
+        }
+
+        public void NoteRecent(ColorEntry e, int colorIndex)
+        {
+            if (e == null || e.Id == null) return;
+            Settings.Recent.RemoveAll(r => r.Id == e.Id);
+            Settings.Recent.Insert(0, new RecentItem { Id = e.Id, ColorIndex = Math.Max(0, Math.Min(Settings.MaxColorIndex, colorIndex)) });
+            if (Settings.Recent.Count > Settings.MaxRecent) Settings.Recent.RemoveRange(Settings.MaxRecent, Settings.Recent.Count - Settings.MaxRecent);
+            SaveSettings();
+        }
+
+        // 消した項目をお気に入り・最近使ったものからも外す
+        public void Forget(ColorEntry e)
+        {
+            if (e == null || e.Id == null) return;
+            int a = Settings.Favorites.RemoveAll(x => x == e.Id);
+            int b = Settings.Recent.RemoveAll(r => r.Id == e.Id);
+            if (a + b > 0) SaveSettings();
+        }
+
+        // id の並びを項目にする(順番はそのまま・知らない id は飛ばす)
+        public List<ColorEntry> ResolveIds(IEnumerable<string> ids, IEnumerable<ColorEntry> all)
+        {
+            var map = new Dictionary<string, ColorEntry>();
+            foreach (var e in all)
+                if (e != null && e.Id != null && !map.ContainsKey(e.Id)) map[e.Id] = e;
+            var list = new List<ColorEntry>();
+            foreach (string id in ids)
+            {
+                ColorEntry e;
+                if (id != null && map.TryGetValue(id, out e)) list.Add(e);
+            }
+            return list;
+        }
+
         static string NewId()
         {
             return "my/" + Guid.NewGuid().ToString("N").Substring(0, 12);
@@ -865,26 +1082,43 @@ namespace HoloColors
             }
         }
 
+        // マイカラー・マイワードのどちらも消せる。保存できなければ元に戻して投げる
         public void Remove(ColorEntry e)
         {
-            int i = Mine.Items.IndexOf(e);
+            var g = OwnGroup(e);
+            if (g == null) return;
+            int i = g.Items.IndexOf(e);
             if (i < 0) return;
-            Mine.Items.RemoveAt(i);
-            try { SaveColors(); }
-            catch { Mine.Items.Insert(i, e); throw; }
+            g.Items.RemoveAt(i);
+            try { SaveGroup(g); }
+            catch { g.Items.Insert(i, e); throw; }
+            Forget(e);
         }
 
         public bool Move(ColorEntry e, int delta)
         {
-            int i = Mine.Items.IndexOf(e), j = i + delta;
-            if (i < 0 || j < 0 || j >= Mine.Items.Count) return false;
-            Mine.Items.RemoveAt(i);
-            Mine.Items.Insert(j, e);
-            try { SaveColors(); }
+            var g = OwnGroup(e);
+            if (g == null) return false;
+            int i = g.Items.IndexOf(e);
+            return i >= 0 && i + delta >= 0 && i + delta < g.Items.Count && MoveTo(e, i + delta);
+        }
+
+        // 同じグループの中で index の位置へ(範囲の外は端に寄せる)。動かなければ false
+        public bool MoveTo(ColorEntry e, int index)
+        {
+            var g = OwnGroup(e);
+            if (g == null || g.Items.Count == 0) return false;
+            int i = g.Items.IndexOf(e);
+            if (i < 0) return false;
+            int j = Math.Max(0, Math.Min(g.Items.Count - 1, index));
+            if (i == j) return false;
+            g.Items.RemoveAt(i);
+            g.Items.Insert(j, e);
+            try { SaveGroup(g); }
             catch
             {
-                Mine.Items.RemoveAt(j);
-                Mine.Items.Insert(i, e);
+                g.Items.RemoveAt(j);
+                g.Items.Insert(i, e);
                 throw;
             }
             return true;

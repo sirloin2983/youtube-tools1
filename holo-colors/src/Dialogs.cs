@@ -780,4 +780,108 @@ namespace HoloColors
             base.Dispose(disposing);
         }
     }
+
+    // マイワードの追加・編集。表示名(札に出す短い名前。空なら本文の1行目)と本文(複数行可。押すとこれをコピー)
+    public class EditWordForm : Form
+    {
+        readonly TextBox name = new TextBox();
+        readonly TextBox body = new TextBox();
+        readonly Label error = new Label();
+        readonly Label count = new Label();
+        public string ResultName, ResultText;
+
+        public EditWordForm(string title, string initialName, string initialText)
+        {
+            Text = title;
+            Font = Ui.Normal;
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Icon = Ui.SmallIcon;
+            KeyPreview = true;
+
+            var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
+            t.Controls.Add(new Label { Text = "表示名", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
+            name.Width = Ui.Px(360);
+            name.MaxLength = Store.MaxName;
+            name.Text = initialName ?? "";
+            t.Controls.Add(name, 1, 0);
+            t.Controls.Add(new Label { Text = "札に出す短い名前です。空なら本文の1行目を使います", AutoSize = true, ForeColor = Color.FromArgb(110, 110, 120), Margin = new Padding(3, 2, 0, 8) }, 1, 1);
+
+            t.Controls.Add(new Label { Text = "本文", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 10, 0) }, 0, 2);
+            body.Multiline = true;
+            body.AcceptsReturn = true;
+            body.AcceptsTab = false;
+            body.ScrollBars = ScrollBars.Vertical;
+            body.WordWrap = true;
+            body.Size = Ui.Px(360, 150);
+            body.MaxLength = Store.MaxWordText;
+            body.Text = (initialText ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n");
+            body.TextChanged += (s, e) => UpdateCount();
+            t.Controls.Add(body, 1, 2);
+            count.AutoSize = true;
+            count.ForeColor = Color.FromArgb(110, 110, 120);
+            count.Margin = new Padding(3, 2, 0, 4);
+            t.Controls.Add(count, 1, 3);
+
+            error.AutoSize = true;
+            error.ForeColor = Color.FromArgb(190, 30, 30);
+            error.MaximumSize = new Size(Ui.Px(440), 0);
+            t.Controls.Add(error, 0, 4);
+            t.SetColumnSpan(error, 2);
+
+            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
+            var cancel = new Button { Text = "キャンセル", AutoSize = true, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = "保存(Ctrl+Enter)", AutoSize = true };
+            ok.Click += (s, e) => Save();
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(ok);
+            t.Controls.Add(buttons, 0, 5);
+            t.SetColumnSpan(buttons, 2);
+            Controls.Add(t);
+            // 本文の Enter は改行なので、既定のボタン(Enter)は付けない。保存は Ctrl+Enter
+            CancelButton = cancel;
+            UpdateCount();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            (body.Text.Length == 0 ? body : name).Focus();
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.Return))
+            {
+                Save();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        void UpdateCount()
+        {
+            int lines = body.Text.Length == 0 ? 0 : body.Text.Replace("\r\n", "\n").Split('\n').Length;
+            count.Text = body.Text.Replace("\r\n", "\n").Length + " 文字・" + lines + " 行(" + Store.MaxWordText + " 文字まで)";
+        }
+
+        void Save()
+        {
+            string clean;
+            string err = Store.ValidateWord(name.Text, body.Text, out clean);
+            if (err != null)
+            {
+                error.Text = err;
+                return;
+            }
+            ResultName = clean;
+            ResultText = body.Text.Replace("\r\n", "\n");
+            DialogResult = DialogResult.OK;
+        }
+    }
 }
