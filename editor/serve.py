@@ -11,7 +11,8 @@
   GET  /api/marker           隣の clip-marker/data.json のポイント一覧(あれば)
   POST /api/transcribe       文字起こしジョブを追加(順番に1つずつ処理)
   GET  /api/jobs             ジョブの一覧と進捗 / POST /api/transcribe/cancel で中止
-  POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)
+  POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)。
+                             numSpeakers 1 = 判別せず全部の行をその1人に / names = 出てくる人の名前(照らし合わせをこの名前だけに・1人だけ残れば消去法で付ける。友人からの依頼)
   GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない。generic = 一般的な名前)
   GET  /api/voices/preview   ?tid=&embedding= 覚える前の確認(読むだけ。覚える人・行・秒・既にある名前・断った名前・使わなかった行の数。段1)
   POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
@@ -3273,13 +3274,48 @@ def validate_diarize(req):
         if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = str(req.get("embedding") or DIAR_EMB_DEFAULT)
-    return {"tid": tid, "numSpeakers": n if 2 <= n <= 10 else 0, "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "話者判別: " + (str(doc.get("title") or "") or "無題")[:100],
+    names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
+    for x in req.get("names") if isinstance(req.get("names"), list) else []:
+        s = str(x or "").strip()[:60] if isinstance(x, str) else ""
+        if s and not any(ord(ch) < 32 for ch in s) and s not in names and not DEFAULT_SPK_NAME.match(s):
+            names.append(s)
+    return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "話者判別: " + (str(doc.get("title") or "") or "無題")[:100],
             "recognize": req.get("recognize") is not False}   # A-3: 覚えている声と照らし合わせる(既定オン)
+
+
+def single_speaker(tid, name):
+    """話す人が1人: 判別せずに全部の行をその人に(名前が無ければ「話者1」)。-> 行の数"""
+    with _save_lock:
+        doc = read_transcript(tid)
+        segs = doc.get("segments") or []
+        for sg in segs:
+            sg["speaker"] = "S1"
+            sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in (MIXED_FLAG, WEAK_FLAG, NONE_FLAG))[:100]
+        bak = os.path.join(TX_DIR, ".bak")
+        os.makedirs(bak, exist_ok=True)
+        shutil.copy2(tx_path(tid), os.path.join(bak, tid + ".pre-diarize.json"))
+        try:
+            hist_snapshot(tid, force=True)
+        except OSError:
+            pass
+        doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}], "segments": segs, "updatedAt": int(time.time() * 1000),
+                    "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
+        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        return len(segs)
 
 
 def run_diarize(job):
     spec = job["spec"]
     wav = os.path.join(TMP_DIR, job["id"] + ".wav")
+    if spec.get("numSpeakers") == 1:   # 1人なら判別しない(音声も取り出さない)
+        try:
+            single_speaker(spec["tid"], (spec.get("names") or [""])[0])
+            job["speakers"], job["unsure"] = 1, 0
+            job["named"] = [{"speaker": "S1", "name": spec["names"][0], "score": None}] if spec.get("names") else []
+            job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
+        except Exception as e:
+            job["state"], job["error"], job["phase"] = "error", "話者を付けられませんでした: %s %s" % (e.__class__.__name__, str(e)[:150]), "失敗"
+        return
     try:
         os.makedirs(TMP_DIR, exist_ok=True)
         doc = read_transcript(spec["tid"])
@@ -3311,7 +3347,7 @@ def run_diarize(job):
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"])
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
-                job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"])
+                job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
             except Cancelled:
                 raise
             except Exception as e:
@@ -3510,20 +3546,22 @@ def match_voices(found, voices):
     return out
 
 
-def recognize_voices(job, tid, wav, offset, emb):
-    """話者判別のあと: 見つかった話者を覚えている声と比べ、仮の名前(話者n)のままの話者に名前を付ける。-> [{"speaker", "name", "score"}]"""
+def recognize_voices(job, tid, wav, offset, emb, names=None):
+    """話者判別のあと: 見つかった話者を覚えている声と比べ、仮の名前(話者n)のままの話者に名前を付ける。-> [{"speaker", "name", "score"}]。
+    names(出てくる人の名前。友人からの依頼)があれば、照らし合わせをその名前だけにし、最後に仮の名前の話者と使っていない名前が1つずつ残れば消去法で付ける(score None)"""
     voices = load_voices(emb)
-    if not voices:
-        return []
-    doc = read_transcript(tid)
-    grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") or "")
-    ids = list(grp)
-    if not ids:
-        return []
-    job["phase"] = "覚えている声と照らし合わせ中"
-    vecs = embed_groups(job, wav, emb, [grp[i][0] for i in ids], offset)
-    got = match_voices(dict(zip(ids, vecs)), voices)
-    if not got:
+    if names:
+        voices = {n: v for n, v in voices.items() if n in names}
+    got = {}
+    if voices:
+        doc = read_transcript(tid)
+        grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") or "")
+        ids = list(grp)
+        if ids:
+            job["phase"] = "覚えている声と照らし合わせ中"
+            vecs = embed_groups(job, wav, emb, [grp[i][0] for i in ids], offset)
+            got = match_voices(dict(zip(ids, vecs)), voices)
+    if not got and not names:
         return []
     named = []
     with _save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
@@ -3535,6 +3573,12 @@ def recognize_voices(job, tid, wav, offset, emb):
                 s["name"] = hit[0]
                 taken.add(hit[0])
                 named.append({"speaker": s["id"], "name": hit[0], "score": hit[1]})
+        if names:   # 消去法: 名前の無い話者と使っていない名前が1つずつなら、その人
+            left = [s for s in doc.get("speakers") or [] if isinstance(s, dict) and DEFAULT_SPK_NAME.match(str(s.get("name") or ""))]
+            unused = [n for n in names if n not in taken]
+            if len(left) == 1 and len(unused) == 1:
+                left[0]["name"] = unused[0]
+                named.append({"speaker": left[0]["id"], "name": unused[0], "score": None})
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
             atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))

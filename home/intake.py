@@ -194,6 +194,21 @@ def is_os_file(name, path=None):
     return False
 
 
+def parse_speakers(v):
+    """依頼の「話す人」{"count": 1〜10, "names": [...]} -> 整えたもの か None(無い・形が違う = 話者分離しない)"""
+    if not isinstance(v, dict):
+        return None
+    n = v.get("count")
+    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 10:
+        return None
+    names = []
+    for x in v.get("names") if isinstance(v.get("names"), list) else []:
+        s = x.strip()[:60] if isinstance(x, str) else ""
+        if s and not any(ord(c) < 32 for c in s) and s not in names:
+            names.append(s)
+    return {"count": n, "names": names[:n]}
+
+
 def _safe_name(name):
     """JSON に書かれたファイル名がフォルダの直下の名前か(区切り・..・ドライブを含まない)"""
     return (isinstance(name, str) and 0 < len(name) <= 240 and name not in (".", "..") and not any(c in name for c in '/\\:*?"<>|')
@@ -394,13 +409,14 @@ class Intake:
             return {n}
         memo = str(d.get("memo") or "")[:MEMO_MAX]
         flow = d.get("flow") if d.get("flow") in FLOW_LABELS else "check"   # 1.0.0 のアプリは flow を送らない = 今までどおり ②
+        speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
         if d["kind"] == "url":
             raw = d.get("items") if isinstance(d.get("items"), list) else []
             lines = "\n".join("%s %s" % (str((it or {}).get("url") or "")[:300], (it or {}).get("top", cfg["top"])) for it in raw[:MAX_URLS] if isinstance(it, dict))
             if self._room(cfg) <= 0:
                 self.held += 1
                 return {n}
-            self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow)
+            self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers)
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
@@ -420,12 +436,12 @@ class Intake:
         results, runs = [], []
         for x in names:
             label = APP_FILE_RE.match(x).group(2) if APP_FILE_RE.match(x) else x
-            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder)
+            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers)
             results.append(dict(res, label=label))
             runs += [res["runId"]] if res.get("runId") else []
         if note:
             results.append({"label": "配信者", "state": "accepted", "reason": note})
-        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow)
+        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers)
         return {n} | set(names)
 
     def _handle_manual_video(self, folder, n, p, cfg):
@@ -453,7 +469,7 @@ class Intake:
             return
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
-    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check"):
+    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None):
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
         todo, seen = [], set()
@@ -481,7 +497,7 @@ class Intake:
         if todo:
             try:
                 out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel")} for it in todo], request_id=rid,
-                                                  flow=flow, deliver_dir=os.path.join(folder, OUT_DIR))
+                                                  flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
             by_vid = {r["videoId"]: r for r in out.get("runs") or []}
@@ -499,9 +515,9 @@ class Intake:
         if not results:
             results.append({"label": title, "state": "rejected", "reason": "URL が書かれていません"})
         first = next((r["label"] for r in results if r["state"] == "accepted"), title)
-        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow)
+        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers)
 
-    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None):
+    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None):
         """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}"""
         ext = os.path.splitext(p)[1].lower()
         if ext not in VIDEO_EXT:
@@ -537,7 +553,7 @@ class Intake:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % (e.strerror or e.__class__.__name__)}
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
-                                           deliver_dir=os.path.join(folder, OUT_DIR) if folder else None)
+                                           deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers)
         except ValueError as e:
             try:
                 os.remove(dest)
@@ -549,13 +565,15 @@ class Intake:
         return {"state": "accepted", "reason": "", "runId": run["id"]}
 
     # ------------------------------------------------------------ 後始末と記録
-    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check"):
+    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None):
         accepted = any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
         rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "source": source, "title": str(title)[:200], "streamer": streamer or "",
                "memo": memo or "", "received": int(self.clock() * 1000), "state": state, "stateLabel": REQ_LABELS[state], "reason": reason,
-               "flow": flow, "flowLabel": FLOW_LABELS.get(flow, ""), "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30]}
+               "flow": flow, "flowLabel": FLOW_LABELS.get(flow, ""),
+               "speakersLabel": ("話す人: %d人" % speakers["count"] + ("(%s)" % "・".join(speakers["names"]) if speakers["names"] else "")) if speakers else "",
+               "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30]}
         self.st["requests"] = ([rec] + self.st["requests"])[:KEEP_REQUESTS]
         self._move(folder, moved, state, items)
         self._save_state()

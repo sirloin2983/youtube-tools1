@@ -37,7 +37,7 @@ from ytt_core import colors, txindex
 
 MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック",
-               "deliver": "Dropbox へ届ける"}
+               "deliver": "Dropbox へ届ける", "diarize": "話者分離"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
@@ -140,8 +140,10 @@ def _doc_id_ok(v):
 
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None, deliver_dir=None):
+                 source_path=None, request_id=None, deliver_dir=None, speakers=None):
         self.id = uuid.uuid4().hex[:10]
+        self.speakers = speakers         # 友人が入れた「話す人」{"count", "names"}。あれば文字起こしのあとに話者分離(2026-10-01)
+        self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
@@ -163,7 +165,10 @@ class Run:
         self.finished = None
         self.cancel = False
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
-        self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in MODE_STEPS[mode]]
+        keys = list(MODE_STEPS[mode])
+        if speakers and "transcribe" in keys:
+            keys.insert(keys.index("transcribe") + 1, "diarize")
+        self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
 
     def key(self):
         """配信・文書ごとの前回の結果を引くキー"""
@@ -400,7 +405,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None):
         """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel"}]。配信ごとに1つの実行(mode request)。
         すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
@@ -420,7 +425,7 @@ class AutoRunner:
                     skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
                     run = Run(vid, title or vid, FLOW_MODES["url"].get(flow, "request"), top, fresh={"title": title, "channel": channel},
-                              on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir)
+                              on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers)
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -429,7 +434,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None):
         """友人が切り抜いた動画の依頼(home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
@@ -441,7 +446,7 @@ class AutoRunner:
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
             run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
-                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir)
+                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -675,7 +680,7 @@ class AutoRunner:
         if run.doc_id:
             return self._execute_doc(run)
         v = self._video(run)
-        for key in MODE_STEPS[run.mode]:
+        for key in [s["key"] for s in run.steps]:
             self._check(run)
             st = run.step(key)
             st["state"] = "run"
@@ -845,6 +850,7 @@ class AutoRunner:
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
+        run.new_docs += [j["tid"] for j in ok if j.get("tid")]
         st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は文字起こしの画面で"
         if bad and (not ok or run.on_fail == "stop"):
             raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or bad[0].get("state")))
@@ -1090,9 +1096,51 @@ class AutoRunner:
         return None
 
 
+    # 話者分離(友人の「話す人」) --------------------------------
+    def _step_diarize(self, run, st, v=None):
+        """この実行で文字起こしした文書を、友人が入れた人数で話者分離し、名前は覚えている声と照らし合わせる(1人なら判別せずその人)。
+        失敗しても次の段へ進む(字幕は話者なしのまま。一部失敗)"""
+        tids = list(dict.fromkeys(run.new_docs))
+        if not tids:
+            st["state"], st["detail"] = "skip", "新しく文字起こしした文書がありません"
+            return None
+        sp = run.speakers or {}
+        body = {"numSpeakers": sp.get("count"), "names": list(sp.get("names") or []), "recognize": True}
+        named, bad = [], []
+        for i, tid in enumerate(tids, 1):
+            self._check(run)
+            st["detail"] = "%d / %d 本" % (i - 1, len(tids))
+            status, res = self.client.call("transcribe", "POST", "/api/diarize", dict(body, tid=tid))
+            if status != 200:
+                bad.append(res.get("message") or "HTTP %d" % status)
+                continue
+            jid = res.get("id")
+            try:
+                while True:
+                    self._wait(run)
+                    j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
+                             {"state": "error", "error": "話者分離のジョブが見つかりません"})
+                    if j.get("state") in ("done", "error", "cancelled"):
+                        break
+            except Cancelled:
+                self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid})
+                raise
+            if j.get("state") != "done":
+                bad.append(j.get("error") or j.get("state"))
+        n = sp.get("count")
+        st["detail"] = "%d 本を %d 人に分けました" % (len(tids) - len(bad), n) + ("(名前: %s)" % "・".join(sp["names"]) if sp.get("names") else "") + \
+            "。名前の分からない人は「話者1」などのまま"
+        if bad:
+            st["state"] = "warn"
+            st["detail"] += "。失敗した %d 本: %s" % (len(bad), str(bad[0])[:120])
+        return None
+
+    def _file_diarize(self, run, st):
+        return self._step_diarize(run, st)
+
     # 依頼の動画(mode file) -------------------------------------
     def _execute_file(self, run):
-        for key in MODE_STEPS[run.mode]:
+        for key in [s["key"] for s in run.steps]:
             self._check(run)
             st = run.step(key)
             st["state"] = "run"
@@ -1225,6 +1273,8 @@ class AutoRunner:
             if j.get("state") != "done":
                 raise StepError("文字起こしに失敗しました: %s" % (j.get("error") or j.get("state")))
             tid = j.get("tid")
+            if tid:
+                run.new_docs.append(tid)
             st["state"], st["detail"] = "done", "文字起こししました。字幕の校正は「編集」で"
         if tid and tid not in run.docs:
             run.docs.append(tid)

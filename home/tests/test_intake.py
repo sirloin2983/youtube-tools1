@@ -27,17 +27,17 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir}
+        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None):
         if self.fail:
             raise ValueError(self.fail)
-        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir})
+        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers})
         return {"id": "f%d" % len(self.files)}
 
 
@@ -306,6 +306,20 @@ class TestVideo(Base):
         self.scan2()
         (items, got), = self.runner.requests
         self.assertEqual((items[0]["id"], items[0]["top"], got), ("abcdefghijk", 7, rid))
+        self.assertIsNone(self.runner.last["speakers"])
+
+    def test_speakers_passed(self):
+        """話す人(1.3.0 のアプリ): 人数と名前をまとめて実行へ。形が違えば話者分離しない"""
+        self.assertEqual(intake.parse_speakers({"count": 2, "names": [" 兎田ぺこら ", "", "兎田ぺこら", "宝鐘マリン", "x"]}),
+                         {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"]})
+        for bad in (None, {"count": 0}, {"count": 11}, {"count": "2"}, {"count": True}):
+            self.assertIsNone(intake.parse_speakers(bad))
+        rid = "20261001-120000-abc130"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "speakers": {"count": 1, "names": ["さくらみこ"]},
+                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}, ensure_ascii=False))
+        self.scan2()
+        self.assertEqual(self.runner.last["speakers"], {"count": 1, "names": ["さくらみこ"]})
+        self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "話す人: 1人(さくらみこ)")
 
     def test_state_persists(self):
         self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")

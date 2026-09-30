@@ -252,6 +252,30 @@ class TestVoiceStore(StoreDir):
             d = json.load(f)
         self.assertEqual([s["name"] for s in d["speakers"]], ["兎田ぺこら", "みこち", "話者3"])
 
+    def test_names_limit_and_elimination(self):
+        """出てくる人の名前(友人からの依頼・2026-10-01): 照らし合わせはその名前だけ、1人ずつ残れば消去法で付ける"""
+        S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1},
+                                   "さくらみこ": {"vec": unit(0, 1, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
+        self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "話者2")], [(0, 5, "S1", ""), (6, 12, "S2", "")]))
+        vec = {"S1": unit(1, 0.05, 0), "S2": unit(0.05, 1, 0)}   # S2 はみこに似ているが、みこは名前の一覧に無い
+        with mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [vec[k] for k in ("S1", "S2")]):
+            named = S.recognize_voices(self.job({}), TID, "x.wav", 0.0, "voxceleb", ["兎田ぺこら", "宝鐘マリン"])
+        self.assertEqual([(n["speaker"], n["name"], n["score"] is None) for n in named], [("S1", "兎田ぺこら", False), ("S2", "宝鐘マリン", True)])
+
+    def test_single_speaker(self):
+        """1人: 判別せずに全部の行をその人に(編集の「人数」の 1人・友人の依頼の話す人 1人)"""
+        self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "話者2")], [(0, 5, "S1", S.MIXED_FLAG), (6, 12, "S2", ""), (13, 14, "", S.NONE_FLAG)]))
+        with mock.patch.object(S, "check_source", lambda p: p):
+            spec = S.validate_diarize({"tid": TID, "numSpeakers": 1, "names": ["さくらみこ", " ", "話者3"]})
+        self.assertEqual((spec["numSpeakers"], spec["names"]), (1, ["さくらみこ"]))
+        j = self.job(spec)
+        S.run_diarize(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
+        with open(S.tx_path(TID), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual(([s["name"] for s in d["speakers"]], {g["speaker"] for g in d["segments"]}, {g["flag"] for g in d["segments"]}),
+                         (["さくらみこ"], {"S1"}, {""}))
+
 
 if __name__ == "__main__":
     unittest.main()

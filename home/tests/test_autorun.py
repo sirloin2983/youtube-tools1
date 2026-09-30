@@ -992,6 +992,16 @@ class TestRequests(Base):
         with open(os.path.join(out, "rid2__二本目.失敗.txt"), encoding="utf-8-sig") as f:
             self.assertIn("モデルが読めません", f.read())
 
+    def test_file_with_speakers_diarizes_new_doc(self):
+        """話す人があれば、文字起こしのあとに話者分離(人数と名前を「編集」の /api/diarize へ)"""
+        self.tools.h_transcribe_POST_api_diarize = lambda path, body: (self.tools.tx_jobs.setdefault("d1", {"id": "d1", "state": "done", "src": "", "body": body}) and (200, {"id": "d1"}))
+        media = os.path.join(self.tmp, "コラボ.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers={"count": 2, "names": ["兎田ぺこら"]}))
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize"]), run)
+        body = self.tools.tx_jobs["d1"]["body"]
+        self.assertEqual((body["tid"], body["numSpeakers"], body["names"]), ("000000000001", 2, ["兎田ぺこら"]))
+
     def test_file_manual_analyzes_in_studio(self):
         """③ 全部人が行う(動画): スタジオの解析のキューに入れて解析まで"""
         media = os.path.join(self.tmp, "長い.mp4")

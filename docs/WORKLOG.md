@@ -2305,3 +2305,12 @@
 - 再開するとき: 上の未コミットの差分を `git diff` で読み、home(`test_launch`・`test_mount`・`test_cases`・`test_autorun`・`test_window`)と studio の単体テスト → `editor/serve.py` の接続 → `python dev/tests/e2e_datadir.py`・`editor/tests/e2e_ui_mounted.py` → WORKLOG → コミット
 - 文書(この中断の前に直した分。コミット済み): `AGENTS.md`(「いま進行中」の行を ROADMAP の 2 への参照に)・`docs/HANDOVER.md`(次は段5・夜間の見直しの「高」3 件の状態・版)
 - 未コミット: home/cases.py, home/launch.py, studio/common.py, studio/serve.py, studio/tests/test_robustness.py, ytt_core/datadir.py, ytt_core/tests/test_ytt_core.py, ytt_core/txindex.py, docs/spec/data-location.md(すべて ② の途中)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet)— 話す人で話者分離も自動に(編集 0.27.0・送るアプリ 1.3.0)
+- 決定(ユーザー 2026-10-01): 友人が人数と名前を入れ、文字起こしのあとの話者分離と名前付けも自動に。「編集」の話者判別の人数に「1人」を足して対処。テストは簡易でよい
+- 変更: `editor/serve.py`(/api/diarize の numSpeakers 1 = single_speaker・names = 照らし合わせをその名前だけ + 消去法)・`editor/index.html`(人数に 1人)・版 0.27.0、
+  `home/autorun.py`(段「話者分離」。話す人があるときだけ、この実行で文字起こしした文書に)・`home/intake.py`(parse_speakers・一覧に「話す人」)・`home/portal.js`、
+  テスト: editor test_voices +2(19 OK)・home autorun/intake +2(77 OK)、`docs/design/friend-intake.md` 2-4
+- 注意: **ホームの版は上げていない**。`home/launch.py`(VERSION)に別の作業(② 作業データの置き場所の WIP。home/cases.py・studio/*・ytt_core/* も)の未コミットの変更があるため触らなかった。
+  その作業が終わったら 0.17.0 → 0.18.0 にする
+- 未コミット: request-sender/(サブエージェントが作業中。終わったらコミット)。WIP の他の作業のファイルは触っていない
