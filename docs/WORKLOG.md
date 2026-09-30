@@ -1766,3 +1766,12 @@
   `test_worker.py` の声の通しの確認を新しい形(校正済み・names)に。`e2e_edit_voices.py` に未校正のときの知らせ・確認のダイアログの人・行・秒と「本人」・2回目の「同じ人ですか」(やめる/足す)・API の 409/400・評価用でボタンが無効で理由・API へ直接でも 400 を足した
 - 流したテスト(リポジトリ直下): `python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py editor/tests/test_roster.py` 188 通過(skip 1)・e2e_edit_voices・e2e_eval_set・e2e_ui_mounted 通過
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 4. B-9 文字の欄の上で Shift+右クリックすると行のメニュー
+- 変更: `editor/app.js` の行の右クリック(`#segs` の contextmenu)。文字・時刻の欄の上は、普通の右クリックはブラウザ既定のまま・**Shift+右クリックで行のメニュー**。
+  日本語の変換中は出さない(contextmenu に isComposing が無いので `compositionstart/end` で覚える)。キーボード(Shift+F10・アプリケーションキー)から開いて位置が 0,0 のときは、欄(か行)の下に出す。
+  「分割(カーソル位置)」は今までどおり入力中のカーソル位置で分ける(文言も同じ)。? のキーの一覧の「入力中に使えるキー」に「Shift+右クリック」を足した
+- テスト: `e2e_edit_tabs.py` に「文字の欄の普通の右クリックでは出ない」「Shift+右クリックで出て、校正済みが効く」「キーボードから開くと欄の下」「変換中は出ない・終われば出る」を足した。
+  通過: e2e_edit_tabs(86。1回目は Playwright の "Connection closed while reading from the driver"、流し直しで通過)・e2e_proofread_accuracy
+- 注意: Firefox は Shift+右クリックでページの処理を無視して既定のメニューを出す(対象は Edge/Chrome。README に書く)
+- 未コミット: なし

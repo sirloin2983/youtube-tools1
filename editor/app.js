@@ -1738,16 +1738,27 @@ const CTX_ITEMS = [
   ['merge', () => '次の行と結合'],
   ['del', () => 'この行を削除']
 ];
+/* B-9(段1): 文字を打つ欄・時刻の欄の上は、普通の右クリックはブラウザ既定のメニュー(コピー・貼り付け)、Shift+右クリックで行のメニュー。
+   日本語の変換中は出さない(メニューへフォーカスが移ると、変換中の文字が確定してしまう。contextmenu には isComposing が無いので自分で覚える) */
+let segsComposing = false;
+$('#segs').addEventListener('compositionstart', () => { segsComposing = true; });
+$('#segs').addEventListener('compositionend', () => { segsComposing = false; });
+$('#segs').addEventListener('focusout', () => { segsComposing = false; });
 $('#segs').addEventListener('contextmenu', e => {
   const row = e.target.closest('.seg'); if (!row || lockJob()) return;
-  if (isTextEntry(e.target)) return;   // 文字を打つ欄・時刻の欄の上は、ブラウザ既定の右クリックメニュー(コピペなど)に任せる
+  if (isTextEntry(e.target) && (!e.shiftKey || segsComposing)) return;
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   e.preventDefault();
   if (S.navIdx !== i){ setNav(i); savePos(); }
   closeCtxMenu();
   const m = document.createElement('div'); m.className = 'ui-pop-body tt-ctxmenu'; m.setAttribute('role', 'menu'); m.hidden = false;
   m.innerHTML = CTX_ITEMS.map(([act, label]) => `<button type="button" role="menuitem" data-act="${act}">${esc(label(s))}</button>`).join('');
-  const x = Math.min(e.clientX, window.innerWidth - 220), y = Math.min(e.clientY, window.innerHeight - 260);
+  let cx = e.clientX, cy = e.clientY;
+  if (!cx && !cy){   // キーボード(Shift+F10・アプリケーションキー)から開いたときは位置が 0,0 になるので、欄(か行)の下に出す
+    const r = (isTextEntry(e.target) ? e.target : row).getBoundingClientRect();
+    cx = r.left + 16; cy = r.bottom + 2;
+  }
+  const x = Math.max(4, Math.min(cx, window.innerWidth - 220)), y = Math.max(4, Math.min(cy, window.innerHeight - 260));
   m.style.left = x + 'px'; m.style.top = y + 'px';
   document.body.appendChild(m); ctxMenuEl = m;
   m.addEventListener('click', e2 => {
@@ -1987,7 +1998,7 @@ const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
     { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
     { group: 'screen', rows: [['Alt+1 / Alt+2 / Alt+3', 'タブ(文字起こし・カット・パック)を切り替える', 'Alt つきのキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
     { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
-    { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者']] },
+    { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者'], ['Shift+右クリック', '行のメニュー(普通の右クリックはコピー・貼り付け)']] },
     { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
   ],
   footNote: 'キー配置は、どのブラウザ・窓でも同じです。',

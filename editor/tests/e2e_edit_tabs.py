@@ -104,6 +104,34 @@ def main():
             check(menu.count() == 0, "Esc でメニューを閉じる")
             menu_row = row0
             menu_row.locator(".play").click(button="right"); menu.locator('[data-act="proof"]').click()   # 下の確かめのため、もう一度「校正済み」に戻す
+            # B-9(段1): 文字の欄の上は、普通の右クリックはブラウザ既定(コピー・貼り付け)、Shift+右クリックで行のメニュー
+            ta0 = row0.locator("textarea")
+            ta0.click(button="right")
+            check(menu.count() == 0, "文字の欄の上の普通の右クリックでは行のメニューを出さない(ブラウザ既定のまま)")
+            ta0.click(button="right", modifiers=["Shift"])
+            check(menu.count() == 1, "文字の欄の上で Shift+右クリックすると行のメニューが出る")
+            menu.locator('[data-act="proof"]').click()
+            check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Shift+右クリックのメニューの「校正済みを外す」が行に効く")
+            ta0.click(button="right", modifiers=["Shift"])
+            menu.locator('[data-act="proof"]').click()
+            check("proofed" in (row0.get_attribute("class") or ""), "もう一度で校正済みに戻る")
+            # キーボード(Shift+F10・アプリケーションキー)から開いたとき(位置が 0,0)は、欄の下に出す
+            pg.evaluate("""() => { const t = document.querySelector('#segs .seg textarea');
+                t.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey: true, clientX: 0, clientY: 0 })); }""")
+            tbox, mbox = ta0.bounding_box(), menu.bounding_box()
+            check(menu.count() == 1 and bool(mbox) and abs(mbox["y"] - (tbox["y"] + tbox["height"] + 2)) < 3 and mbox["x"] > tbox["x"],
+                  "キーボードから開いたときは欄の下に出る(左上の隅に出ない): %s / %s" % (mbox, tbox))
+            pg.keyboard.press("Escape")
+            check(menu.count() == 0, "(Esc で閉じる)")
+            # 日本語の変換中は出さない(メニューへフォーカスが移ると変換中の文字が確定するため)
+            pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))")
+            ta0.click(button="right", modifiers=["Shift"])
+            check(menu.count() == 0, "変換中の Shift+右クリックでは行のメニューを出さない")
+            pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))")
+            ta0.click(button="right", modifiers=["Shift"])
+            check(menu.count() == 1, "変換が終われば出る")
+            pg.keyboard.press("Escape")
+            check("proofed" in (row0.get_attribute("class") or ""), "(下の確かめのため、行0は校正済みのまま)")
 
             # ---- ⚙ 設定の引き出しが開いている間は、文書を操作するキーが効かない(item 6。上の右クリックで行0が「今の行」になっている)
             nav_before = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
