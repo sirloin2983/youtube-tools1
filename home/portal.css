@@ -73,6 +73,8 @@
 .pt-auto-msg{margin-top:4px}
 
 /* 単体の文字起こし(紐づかない文書)。まとめて実行は案件と同じ pt-auto を使い回す */
+.pt-unlinked{margin-top:14px;align-items:center;gap:6px 12px;flex-wrap:wrap}   /* 単体の文字起こしの1行(件数・説明・「編集の履歴で見る」。段5 5-1) */
+.pt-unlinked .pt-group-label{font-weight:600}
 .pt-doc{padding:8px 10px}
 .pt-doc-pick{display:flex;align-items:center;flex:none}
 .pt-doc-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

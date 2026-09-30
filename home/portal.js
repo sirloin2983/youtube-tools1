@@ -771,9 +771,9 @@
 
   function renderDocs() {
     var total = (casesData && casesData.unlinked && casesData.unlinked.length) || 0;
-    $('#unlinkedGroup').hidden = !total;
+    $('#unlinkedGroup').hidden = !total; $('#unlinkedHead').hidden = !total;
     if (!total) return;
-    $('#unlinkedCount').textContent = total + '件';
+    $('#unlinkedCount').textContent = total + '件';   // ホームの数(txindex の unlinked)。「編集」の履歴の「それ以外」(!hasClip)とは集合が少し違うので、あちらの件数とは比べない
     var full = docSearchList();
     var shown = full.slice(0, Math.max(0, docVisibleCount));
     var ul = $('#docList');

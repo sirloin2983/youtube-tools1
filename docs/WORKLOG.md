@@ -2340,3 +2340,20 @@
 - 文書: `docs/plan/line-a-after-phase8.md`(状態を「決定済み」に・表と 8 を決定に)・`docs/ROADMAP.md`(2 の表に段9・10・12・15 と「やらない」の行・順番の1行・線 C の節・5 の決定の記録 2 行・8 の索引)
 - 注意: ROADMAP は段5 のセッションが同時に直していた(版・段5 済み・実機の項目)。**私の変更だけを index に入れてコミット**した(HEAD の版に同じ置き換えを当てて `git update-index`。作業ツリーには両方の変更が残っている)。段5 のセッションの差分はそのまま未コミット
 - 未コミット: なし(私の分。段5 のセッションの分は別)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet 2つ)— 線 A 段5「見せ方をそろえる」(ホーム 0.19.0・スタジオ 0.13.0・編集 0.29.0)
+- 計画: `docs/plan/phase5-consistent-ui.md`(状態を「済み」に)。始める前に今のコードで確かめたら、**5-2・5-3(B-7 まとめて実行の部品と 8 つの入口)は「気が利く画面へ 段4b・4c」(09-29)の `UIKit.autorun` で済んでいた**ので、この段では触っていない
+- 5-1(B-5。まとめ役): ホームの「単体の文字起こし」を、件数 +「編集の履歴で見る」(`/transcribe/?list=other#tx`)の1行 `#unlinkedHead` と、その下の `details`「選んで、まとめて実行」(検索・選択・実行はそのまま。09-29 決定: 入口は減らさない)に。
+  編集の `takeUrlParams` に `?list=other|clip|all|eval`(履歴の種類 `L.kind` を変えて左のメニューの履歴を開く。URL からは消す。doc・media と同時なら文書も開く)。
+  次にやることの実行中の文書のリンク(`#doc-<id>`)は、まとまりが残るのでそのまま。`home/portal.{html,js,css}`・`editor/app.js`・`home/tests/e2e_portal.py`(2f)・`editor/tests/e2e_edit_tabs.py`(?list=)・`home/README.txt`
+- 5-4(Sonnet): スタジオ ③ のマークの一覧 `#rvList` を「1枚の紙」(`.ui-sheet` と同じ見え方。外枠1つ・行の間は線・左の状態の色は inset の影・選んだ行は outline・開いた行と選んだ行は `--panel-2`)。畳んだ行は 460px 以上で1行。`studio/review.css`
+- 5-7(Sonnet): YouTube プレーヤーの準備待ちに時限 `S.ytReadyMs`(20 秒。テストは `Studio.review.setYtReadyMs`)。時限・`new YT.Player` の例外で案内 +「もう一度試す」(`data-act=ytretry`)+「YouTube で開く」+ 手入力の案内。
+  遅れて onReady が来たら案内を消して使う(playerToken で古いのは捨てる)。`loadYTApi` は時限を resolve で止め、再試行で前の script を消す。自動の再試行はしない。iframe_api の読み込み失敗の案内にも「もう一度試す」。`studio/review.js`・`studio/tests/e2e_ui.py`(偽の iframe_api で確認)
+- 5-5・5-6(Sonnet): 編集 ⚙「動画の大きさ」の選択肢を「音声だけ」に(値は同じ。説明は欄の下と title)。一覧の上の道具は「次の未校正・…・件数」を `.tt-rb-end`(nowrap)に、1100px 以下で kbd を隠す。`editor/index.html`。写真 1440/1024/390 で確認
+- 5-8: 版 ホーム 0.18.0 → **0.19.0**・スタジオ 0.12.0 → **0.13.0**・編集 0.28.0 → **0.29.0**(各 serve.py・画面・README・`editor/AGENTS.md`)。ui-kit は v9 のまま(変えていない)。
+  `docs/spec/ui-guidelines.md` 4(一覧は1枚の紙)・`.design/ui-overhaul/IMPLEMENTATION.md` 10・`docs/ROADMAP.md`(版・段5 の行・B-5/B-7 の表・3 に段5 の実機の確認)・`docs/HANDOVER.md`(次は段6)
+- テスト(すべて通過): home の単体 5 組(159)・editor の単体一式(205)・studio の単体 7 組(246。`test_api.TestBody.test_content_type` が1回だけ落ち、単独で流し直して OK = この PC の不安定さ)・`node --test studio/tests/test_review.cjs`(18)・
+  e2e: `studio/tests/e2e_ui.py`(163)と `--mounted`(176)・`home/tests/e2e_portal.py`・`home/tests/e2e_autorun.py`・`editor/tests/e2e_edit_tabs.py`・`editor/tests/e2e_ui_mounted.py`・`dev/tests/e2e_pipeline.py`。
+  e2e_portal のログにある `ConnectionAbortedError` の Traceback は、再読み込みで途中で切れた POST に入口が応答しようとしたもの(テストは全部 OK。以前からの雑音)
+- 注意: 途中で別のセッション(段8 のあとの計画)が ROADMAP・WORKLOG をコミットしていたが、このセッションの編集は作業ツリーに残っていて食い違いは無い
+- 未コミット: なし(このあとコミット)

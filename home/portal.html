@@ -67,10 +67,16 @@
     <div id="list" class="stack"></div>
     <div class="row" id="moreBox" hidden><button type="button" class="btn" id="btnMore"></button></div>
 
+    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は「編集」の履歴が主。ここは件数と「編集の履歴で見る」の1行 + 選んでまとめて実行する入口(09-29 決定: 入口は減らさない) -->
+    <div class="row pt-unlinked" id="unlinkedHead" hidden>
+      <span class="pt-group-label">単体の文字起こし <span class="ui-group-n" id="unlinkedCount"></span></span>
+      <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は「編集」の履歴で(種類: それ以外)</span>
+      <a class="btn small" id="unlinkedOpen" href="/transcribe/?list=other#tx" target="_blank" rel="noopener">編集の履歴で見る</a>
+    </div>
     <details class="ui-group" id="unlinkedGroup" hidden>
-      <summary><span class="pt-group-label">単体の文字起こし</span> <span class="ui-group-n" id="unlinkedCount"></span></summary>
+      <summary><span class="pt-group-label">単体の文字起こしを選んで、まとめて実行</span></summary>
       <div class="pt-group-body">
-        <p class="hint">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)です。検索して選ぶと、まとめて文字起こし・パックを進められます。</p>
+        <p class="hint">検索して選ぶと、まとめて文字起こし・パックを進められます(「編集」の履歴の「選んで、まとめて実行」と同じ)。</p>
         <div class="ui-listbar">
           <input id="docSearch" type="search" placeholder="文書のタイトルで絞り込み" aria-label="文書のタイトルで絞り込み">
           <span class="ui-count" id="docCount"></span>

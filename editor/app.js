@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.28.0';
+const APP_VERSION = '0.29.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -2815,11 +2815,17 @@ function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
   const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
-  if (!q.has('media') && !q.has('clip') && !q.has('doc')) return false;
-  q.delete('media'); q.delete('clip');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)
+  const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」。段5 5-1・B-5)
+  if (!q.has('media') && !q.has('clip') && !q.has('doc') && !list) return false;
+  q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)
   if (!docId) q.delete('doc');
   const rest = q.toString();
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
+  if (list){   // 履歴の種類を変えて左のメニューの履歴を開く(doc・media と同時なら、下で文書を開く方も行う)
+    L.kind = list; saveListPrefs(); const el = $('#txFilter'); if (el) el.value = list;
+    for (const x of Object.keys(txLimit)) delete txLimit[x];
+    setSideTab('files'); renderList();
+  }
   if (!media && !clip && !docId) return false;
   if (docId){
     loadList().then(() => S.list.some(x => x.id === docId) ? openDoc(docId) : false).then(ok => {   // 一覧に無い(消された)文書は読みに行かない

@@ -563,6 +563,41 @@ def run_checks(port, fx, shots=None):
         c.ok(any("再生できません" in t for t in pg.evaluate("window.__toasts")), "自分で再生を押したときは知らせる")
         pg.unroute("https://www.youtube.com/**")
 
+        print("[③ YouTube のプレーヤーの準備が終わらないとき(監査20)]")
+        # iframe_api は読めるが、YT.Player が onReady も onError も呼ばない(回線・埋め込みの制限で止まる)偽物
+        fake_api = ("window.__ytCtor = (window.__ytCtor || 0); "
+                    "window.YT = { Player: function (el, opts) { window.__ytCtor++; this.destroy = function () {}; }, "
+                    "PlayerState: { ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 } }; "
+                    "if (window.onYouTubeIframeAPIReady) window.onYouTubeIframeAPIReady();")
+        api_hits = []
+        def fake_iframe_api(route):
+            api_hits.append(1)
+            route.fulfill(status=200, content_type="application/javascript", body=fake_api)
+        pg.route("https://www.youtube.com/iframe_api", fake_iframe_api)
+        pg.reload(); pg.wait_for_selector("#rvList")
+        pg.evaluate("Studio.review.setYtReadyMs(500)")   # 既定は 20 秒。テストでは短くする
+        open_video(pg, fx["a"])   # 読み直しで自動で開いた配信と区別するため、一度ほかの配信へ移してから開く(開くたびにプレーヤーを作り直す)
+        pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
+        pg.evaluate("window.__ytCtor = 0")   # 読み直しで自動で開いた配信の分を数えない
+        open_video(pg, fx["yt"])
+        pg.wait_for_selector('#rvList .rv-mark-row[data-id="y0"]')
+        c.ok(wait_js(pg, "() => window.__ytCtor === 1", 8000), "偽の YT.Player が作られる(準備待ちが始まる)")
+        c.ok(wait_js(pg, "() => !document.querySelector('#rvNotice').hidden && document.querySelector('#rvNotice').textContent.includes('準備が終わりません')", 8000),
+             "準備が終わらないと、時間切れの案内が出る")
+        nt = pg.text_content("#rvNotice") or ""
+        c.ok("時刻の手入力でマークは続けられます" in nt and "回線・埋め込みの制限" in nt, "案内に、原因の見当と、手入力で続けられることがある: %s" % nt)
+        c.ok(pg.locator('#rvNotice [data-act="ytretry"]').count() == 1 and "もう一度試す" in (pg.text_content('#rvNotice [data-act="ytretry"]') or ""), "「もう一度試す」のボタンがある")
+        c.ok(pg.locator("#rvNotice a[data-yt-now]").count() == 1, "「YouTube で開く」のリンクも残る")
+        c.ok(not pg.evaluate("document.querySelector('#rvPhMsg') ? !document.querySelector('#rvPhMsg').hidden : false"), "「準備しています…」の表示は消える")
+        pg.click('#rvNotice [data-act="ytretry"]')
+        c.ok(wait_js(pg, "() => window.__ytCtor === 2", 5000), "「もう一度試す」で、もう一度プレーヤーを準備する(作り直しは1回だけ)")
+        c.ok(wait_js(pg, "() => !document.querySelector('#rvNotice').hidden && document.querySelector('#rvNotice').textContent.includes('準備が終わりません')", 8000),
+             "また終わらなければ、もう一度時間切れの案内が出る(自動の再試行はしない)")
+        pg.wait_for_timeout(1200)
+        c.ok(pg.evaluate("window.__ytCtor") == 2 and len(api_hits) == 1, "自動では再試行せず、iframe_api も読み直さない: 作成 %s 回・読み込み %s 回" % (pg.evaluate("window.__ytCtor"), len(api_hits)))
+        pg.unroute("https://www.youtube.com/iframe_api")
+        pg.reload(); pg.wait_for_selector("#rvList")
+
         print("[外から来る文字列]")
         open_video(pg, fx["b"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="x1"]')

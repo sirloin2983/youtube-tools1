@@ -411,6 +411,14 @@ def main():
             new_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目のやり直し")
             check(("doc=" + new_id) in pg.url and "0123456789ab" not in pg.url, "文書が見つからなければ、動画のパスで探して開く(予備)。URL は開いた文書: %s" % pg.url)
 
+            # ---- 段5 5-1(B-5): ホームの「編集の履歴で見る」= ?list=other で、左のメニューの履歴が「種類: それ以外」で開く。URL からは消す
+            pg.goto(srv.base + "?list=other#tx")
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            check(wait_js(pg, "document.querySelector('#txFilter').value === 'other' && document.querySelector('[data-side-tab=files]').getAttribute('aria-selected') === 'true' && location.search.indexOf('list=') < 0", 10000),
+                  "?list=other で履歴が「それ以外」で開き、URL から list= が消える: %s / %s" % (pg.input_value("#txFilter"), pg.url))
+            pg.select_option("#txFilter", "all")
+            wait_js(pg, "document.querySelector('#txFilter').value === 'all'")
+
             # ---- 監査 06: 再読み込み・窓の開き直しで、開いていた文書とタブに戻る
             open_doc(pg, "一本目")
             one_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")

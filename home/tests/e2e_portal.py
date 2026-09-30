@@ -392,7 +392,10 @@ def run_mounted_phase(browser, tmp, shots, check, events):
               "[A] 校正がまだ済んでいない文書は「パック待ち」を二重に出さない: %s" % todo)
 
         # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
-        check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden", 10000), "[A] 単体の文字起こしのまとまりが出た")
+        check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden && !document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行とまとまりが出た")
+        check(pg.text_content("#unlinkedCount").strip() == "1件", "[A] 単体の文字起こしの件数(ホームの数): %s" % pg.text_content("#unlinkedCount"))
+        link = pg.get_attribute("#unlinkedOpen", "href")
+        check(bool(link) and link.startswith("/transcribe/?list=other"), "[A] 「編集の履歴で見る」は編集の履歴を「それ以外」で開く(段5 5-1・B-5): %s" % link)
         check(pg.evaluate("document.getElementById('unlinkedGroup').open") is False, "[A] 単体の文字起こしのまとまりは既定で閉じている")
         pg.click("#unlinkedGroup summary")
         check(wait_js(pg, "!!document.querySelector('.pt-doc')", 10000), "[A] 単体の文字起こしの行が出た")

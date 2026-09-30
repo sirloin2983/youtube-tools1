@@ -87,6 +87,7 @@ const S = {
   videos: [], cur: null, series: null, sel: null, filter: 'all', fold: new Map(), seen: new Set(),
   now: 0, duration: 0, playerState: -1, playerAlive: false, rate: 1, draft: { start: null, end: null }, previewEnd: null,
   settings: sanitizeSettings({}), live: false, job: null, lastJob: null,
+  ytReadyMs: 20000,   // YT.Player を作ってから onReady が来るまでの待ち(5-7。テストで短くする)
   loadSeq: 0, editSeq: 0, dirty: false, built: false,
   tx: null, txOpen: new Set(), txSeq: 0,   // 書き出したマークのセリフ(「編集」の文字起こしのデータ。/api/transcripts)
   join: new Set(),   // つなげて1本にするマーク(チェックしたもの。配信を切り替えたら空に)
@@ -580,27 +581,35 @@ async function deleteVideo(v){
 }
 
 /* ---------- プレーヤー(YouTube IFrame API / <video>) ---------- */
-let yt = null, ytApiP = null, pollTimer = null, playerToken = 0, lastSeekAt = 0, lastApplyAt = 0, pollTick = 0;
+let yt = null, ytApiP = null, ytReadyTimer = null, pollTimer = null, playerToken = 0, lastSeekAt = 0, lastApplyAt = 0, pollTick = 0;
+const YT_API_SRC = 'https://www.youtube.com/iframe_api';
 function loadYTApi(){
+  // 読み込みの時間切れのあとで script が遅れて読めても、window.YT ができるので次の呼び出しはここで済む
   if (window.YT && window.YT.Player) return Promise.resolve();
   if (ytApiP) return ytApiP;
   ytApiP = new Promise((resolve, reject) => {
-    window.onYouTubeIframeAPIReady = () => resolve();
+    let timer = null;
+    const ok = () => { clearTimeout(timer); resolve(); }, ng = e => { clearTimeout(timer); reject(e); };
+    window.onYouTubeIframeAPIReady = ok;
+    // 再試行では前の script を消してから足す(二重に読まない)
+    document.querySelectorAll('script[data-yt-api]').forEach(x => x.remove());
     const s = document.createElement('script');
-    s.src = 'https://www.youtube.com/iframe_api';
-    s.onerror = () => reject(new Error('load'));
+    s.src = YT_API_SRC; s.dataset.ytApi = '1';
+    s.onerror = () => ng(new Error('load'));
     document.head.appendChild(s);
-    setTimeout(() => reject(new Error('timeout')), 12000);
+    timer = setTimeout(() => ng(new Error('timeout')), 12000);
   }).catch(e => { ytApiP = null; throw e; });
   return ytApiP;
 }
+function clearYtReadyTimer(){ if (ytReadyTimer){ clearTimeout(ytReadyTimer); ytReadyTimer = null; } }
 /* プレーヤーが使えないときの案内(1か所に出したままにする)。YouTube の配信なら、YouTube で開くリンクを添える。
    使えない間は、前後のマークへ移動したときの自動再生で通知を出さない(押すたびに同じ通知が出ていた)。自分で再生を押したときだけ通知する */
-function showNotice(t){
+function showNotice(t, opts){
   S.playerErr = true;
   const n = $('#rvNotice'), v = S.cur;
   const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : '';
-  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${yt0 ? ` <a href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
+  const retry = opts && opts.retry ? '<button type="button" class="btn small" data-act="ytretry">もう一度試す</button> ' : '';   // 押したときの動きは #rvNotice のクリックで受ける(CSP: インラインの onclick は動かない)
+  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
   n.hidden = false; phMsg('');
 }
 const canPlay = () => !!(yt && S.playerAlive && !S.playerErr);
@@ -649,7 +658,7 @@ class LocalPlayer {
   destroy(){ try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {} this.el.remove(); }
 }
 function unmountPlayer(){
-  playerToken++; stopPoll();
+  playerToken++; stopPoll(); clearYtReadyTimer();
   if (yt){ try { yt.destroy(); } catch {} yt = null; }
   S.playerAlive = false; S.playerErr = false; S.playerState = -1; S.previewEnd = null; hideNotice(); phMsg('');
   const host = $('#rvHost'); if (host) host.innerHTML = '';
@@ -659,8 +668,11 @@ async function mountPlayer(){
   const token = playerToken, v = S.cur;
   if (!v) return;
   const host = $('#rvHost');
+  let timedOut = false;   // 準備の時間切れの案内を出したあとか
   const onReady = e => {
     if (token !== playerToken) return;
+    clearYtReadyTimer();
+    if (timedOut){ timedOut = false; S.playerErr = false; hideNotice(); }   // 遅れて準備ができた: 案内を消して使えるようにする
     S.playerAlive = true; phMsg('');
     const d = e.target.getDuration(); if (d > 0) setDuration(d);
     e.target.setPlaybackRate(S.rate);
@@ -680,13 +692,27 @@ async function mountPlayer(){
   if (location.protocol === 'file:'){ showNotice('file:// で開くとYouTube埋め込みが動きません。サーバーを起動して http://localhost から開いてください。'); return; }
   const mount = document.createElement('div'); host.appendChild(mount);
   try { await loadYTApi(); }
-  catch { if (token === playerToken) showNotice('YouTube のプレーヤーを読み込めません(ネットの接続を確かめてください)。'); return; }
+  catch { if (token === playerToken) showNotice('YouTube のプレーヤーを読み込めません(ネットの接続を確かめてください)。', { retry: true }); return; }
   if (token !== playerToken) return;
-  yt = new YT.Player(mount, {
-    width: '100%', height: '100%', videoId: v.id,
-    playerVars: { playsinline: 1, rel: 0, origin: location.origin, hl: 'ja', cc_load_policy: 0 },
-    events: { onReady, onStateChange: onState, onError: e => { if (token === playerToken) showNotice(ytErrorMessage(e.data)); } }
-  });
+  const notReady = '時刻の手入力でマークは続けられます。';
+  try {
+    yt = new YT.Player(mount, {
+      width: '100%', height: '100%', videoId: v.id,
+      playerVars: { playsinline: 1, rel: 0, origin: location.origin, hl: 'ja', cc_load_policy: 0 },
+      events: { onReady, onStateChange: onState, onError: e => { if (token !== playerToken) return; clearYtReadyTimer(); showNotice(ytErrorMessage(e.data)); } }
+    });
+  } catch {
+    if (token === playerToken) showNotice('YouTube のプレーヤーを作れませんでした(回線・埋め込みの制限のおそれ)。' + notReady, { retry: true });
+    return;
+  }
+  // onReady も onError も来ないまま止まる場合(回線・埋め込みの制限)。自動では再試行しない(YouTube に何度も繋ぎに行かない)
+  clearYtReadyTimer();
+  ytReadyTimer = setTimeout(() => {
+    ytReadyTimer = null;
+    if (token !== playerToken || S.playerAlive) return;
+    timedOut = true;
+    showNotice('YouTube のプレーヤーの準備が終わりません(回線・埋め込みの制限のおそれ)。' + notReady, { retry: true });
+  }, S.ytReadyMs);
 }
 function startPoll(){
   stopPoll();
@@ -1841,7 +1867,10 @@ function wire(){
   $('#rvJump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (b) jumpTo(b.dataset.jump); });
   /* YouTube で開くリンクは、押したときの再生位置から */
   const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = `https://www.youtube.com/watch?v=${enc(S.cur.id)}${S.now >= 1 ? '&t=' + Math.floor(S.now) + 's' : ''}`; };
-  $('#rvNotice').addEventListener('click', e => { const a = e.target.closest('a[data-yt-now]'); if (a) ytNow(a); });
+  $('#rvNotice').addEventListener('click', e => {
+    if (e.target.closest('[data-act="ytretry"]')){ mountPlayer(); return; }
+    const a = e.target.closest('a[data-yt-now]'); if (a) ytNow(a);
+  });
   $('#rvYtLink').addEventListener('click', e => ytNow(e.currentTarget));
   $('#rvOpenForm').addEventListener('submit', e => { e.preventDefault(); openFromInput(); });
   $('#rvSave').addEventListener('click', () => { if (S.dirty || saveP) save(); });
@@ -1991,6 +2020,7 @@ function keyHelp(){
   return groups;
 }
 Studio.review = {
+  setYtReadyMs(ms){ S.ytReadyMs = ms; },   // テスト用: プレーヤー準備の待ち時間(既定 20 秒)を短くする
   async open(id){
     const p = loadVideo(String(id));   // 先に loadSeq を進める(ステップ表示時の自動読み込みと競合させない)
     Studio.go('review');

@@ -789,6 +789,13 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .tt-rowbar select{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;max-width:100%}
 .tt-rowbar .btn{min-height:var(--ctl-h-sm)}
 .tt-rowbar .btn kbd{margin-left:4px;font-size:10px}
+.tt-rb-end{display:inline-flex;align-items:center;gap:6px 8px;white-space:nowrap;margin-left:auto}
+.tt-rb-end .ui-count{margin-left:0}
+/* 編集欄が狭いときは、ボタンの中のキー(Shift ↓)を隠す(キーは下の帯と title に出ている) */
+@container editor (max-width:1100px){.tt-rowbar #btnNextUn kbd{display:none}}
+/* ⚙ 設定の「名前 + select」の1行の下に小さい説明を置く(ui-kit の1行の形は変えず、折り返して下の段に) */
+#edSettings .tt-set-hinted:has(>select){flex-wrap:wrap}
+#edSettings .tt-set-hinted>.hint{flex:0 0 100%;margin:-2px 0 0;font-size:12px;color:var(--ink-3);line-height:1.5}
 /* 行の右クリックのメニュー(段2)。押した位置に浮かせる(.ui-pop-body の既定の absolute/right ではなく) */
 .tt-ctxmenu{position:fixed;top:auto;right:auto;left:0;min-width:200px;z-index:65}
 .tt-keyhint{display:flex;flex-wrap:wrap;align-items:center;gap:3px 12px;margin:6px 0 0;padding:4px 4px 4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12px;color:var(--ink-2)}
@@ -1333,6 +1340,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
         <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option></select>
+        <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない。段5 5-6) -->
+        <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
         <!-- 話者・まとめて直す・書き出し・以前の版は、同じ操作の入口をほかに残さずここへ1つにまとめる(画面の全面見直し 段2) -->
         <details class="ui-pop" id="jumpMenu"><summary class="btn ghost small icon" id="btnSpk" aria-label="話者・文字をまとめて直す・書き出し・以前の版" title="話者・文字をまとめて直す・書き出し・以前の版"><span class="ui-icon" data-icon="more" aria-hidden="true"></span></summary><div class="ui-pop-body" data-align="left">
@@ -1341,6 +1350,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <button type="button" data-jump="exDetails">書き出し(字幕・テキスト)</button>
           <button type="button" data-jump="hiDetails">以前の版に戻す</button></div></details>
         <span class="ui-count" id="qCount" aria-live="polite"></span>
+        </span>
       </div>
       <!-- 主なキー操作の手がかり(閉じたら覚える。全部は「キー操作」)。画面の下の帯(UIKit.keybar)にも同じ場面のキーを出す -->
       <div class="tt-keyhint" id="keyHint" hidden>
@@ -1682,7 +1692,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 <section id="edSettings" hidden>
   <h3>編集</h3>
   <div class="fld"><label for="vFs">文字の大きさ(行の文字)</label><select id="vFs"><option value="13">小</option><option value="15">標準</option><option value="17">大</option><option value="20">特大</option></select></div>
-  <div class="fld"><label for="vVid">動画の大きさ</label><select id="vVid"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ聞く(映像を隠す)</option></select></div>
+  <div class="fld tt-set-hinted"><label for="vVid">動画の大きさ</label><select id="vVid" title="「音声だけ」は映像を隠して音声だけを聞きます"><option value="l">大</option><option value="m">中</option><option value="s">小</option><option value="a">音声だけ</option></select><span class="hint">「音声だけ」は映像を隠して音声だけを聞きます。</span></div>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="vDense">行の間隔を詰める(たくさん見える)</label>
   <div class="fld"><label for="vBrk">休憩のお知らせ(操作している時間で数えます)</label><select id="vBrk"><option value="0">なし</option><option value="30">30分ごと</option><option value="45">45分ごと</option><option value="60">60分ごと</option></select></div>
   <label class="lag" style="margin-top:10px" id="autoNextLbl" title="Shift+Space・Shift+↓/↑ で行を移動したとき、その行を自動で再生します(その行の終わりで止まります)。聞いて確認する流れが、左手だけで回ります"><input type="checkbox" id="autoNext">移動したら自動で再生</label>
