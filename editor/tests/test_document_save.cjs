@@ -29,7 +29,7 @@ function harness(respond) {
   const nodes = {}, calls = [], timers = new Map();
   let timerId = 0;
   const context = { S, window: { scrollY: 0, scrollTo() {} }, V: { rate: 1 }, CUT: null, PACK: null, wideTab: () => false, txKeybarScene() {},
-    renderDocBar() {}, renderDocAuto() {}, lookupSpeakerNames() {}, renderDocExtras() {}, applyLock() {}, applyView() {}, autoArchive() {}, loadEvals() {}, loadSuggest() {}, navRestore() {}, renderAb() {}, renderDataset() {}, renderDoc() {}, renderList() {}, renderTerms() {}, setNav() {}, setSaveState() {}, syncEval() {}, toggleMenu() {}, updateUndo() {}, isDrawer: () => false, PICK: { on: false, ids: new Set(), polling: 0, active: new Set() },   // 画面を描く関数(このテストでは何もしない。下で定義し直したものが優先)   // カットのタブ(E3 から openDoc が見る)・キーの帯(段2)。このテストでは無い
+    renderDocBar() {}, renderDocAuto() {}, lookupSpeakerNames() {}, renderPlayerMsg() {}, renderDocExtras() {}, applyLock() {}, applyView() {}, autoArchive() {}, loadEvals() {}, loadSuggest() {}, navRestore() {}, renderAb() {}, renderDataset() {}, renderDoc() {}, renderList() {}, renderTerms() {}, setNav() {}, setSaveState() {}, syncEval() {}, toggleMenu() {}, updateUndo() {}, isDrawer: () => false, PICK: { on: false, ids: new Set(), polling: 0, active: new Set() },   // 画面を描く関数(このテストでは何もしない。下で定義し直したものが優先)   // カットのタブ(E3 から openDoc が見る)・キーの帯(段2)。このテストでは無い
     $: selector => nodes[selector] ||= { classList: { add() {}, remove() {} }, setAttribute() {} },
     setTimeout(fn) { timers.set(++timerId, fn); return timerId; },
     clearTimeout(id) { timers.delete(id); },

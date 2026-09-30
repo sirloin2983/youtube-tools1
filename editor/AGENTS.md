@@ -77,6 +77,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
 - 「編集」(文字起こし + cut2resolve の統合。`../docs/design/edit-tool-design.md`。2026-09-26 に E1〜E6 を実装)のサーバー側(serve.py の「編集の内容」「音の波形」の節):
   編集の内容 `transcripts/<id>.edit.json`(残す区間 = カットの正。`GET/PUT /api/edit`・rev と 409)、`POST /api/edit/pack`(パックを作った記録・`packStale`)、
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
+  **動画を選び直す**(段2 B-4。v0.25.0): `POST /api/relink/check`(書き込まない確認)・`POST /api/relink`(`baseUpdatedAt` 必須・409 = conflict / busy / duration_mismatch(`acceptDiff` で通す))。
+  パスの検査は `relink_path`(ネットワークはファイルに触る前に断る → realpath のあとでもう一度・「:」・拡張子・`DATA_DIR` の中)。書き換えるのは sourcePath・sourceName・updatedAt・`relinks`(最新 10 件)だけ。
+  控え = `.bak/<id>.pre-relink.json`・`.bak/<id>.edit.pre-relink.json`・履歴。長さの決まりは `_relink_ref`(動画全体 = duration と ±max(1秒, 0.5%)、範囲 = end − 0.5 秒以上)。
+  画面は `#relinkDlg`(app.js の `openRelink`)。再生の失敗の案内 `renderPlayerMsg` はカットのタブの `CUT.state().offCode === 'source_missing'` のときだけボタンを出す
   **単語の時刻** `transcripts/<id>.words.json`(文書全体の単語の並び。認識と範囲の再認識が書く・削除で消す)と `POST /api/resplit`(今の文書を分け直す)。
   1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②。
   **再認識(範囲・全体)と声の検出のやり直し**(v0.21.0。`../docs/design/whole-retranscribe-design.md`): `POST /api/retranscribe` の `mode` = each(行ごと)/ range / **whole**(文書の範囲全体。`ids` はサーバーが「校正済みでない行」を入れる・上限は新規と同じ `MAX_SPAN_SEC`・声の検出は明示の off 以外「弱め」・評価用は断る)。

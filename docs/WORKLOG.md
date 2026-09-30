@@ -1,6 +1,7 @@
 # 作業記録(Claude・GPT 共通)
 
-このリポジトリを編集した AI は、作業の終わりに**末尾へ**1件追記する。作業を始める AI は、最後の数件を読んでから始める(ルールは `AGENTS.md`)。
+このリポジトリを編集した AI は、作業の終わりに**末尾へ**1件追記する。作業を始める AI は、最後の数件を読んでから始める(ルールは `AGENTS.md`)。
+
 **2026-09-30 にフォルダ名を変えた**(app→home・clip-studio→studio・transcribe-tool→editor・tools→dev/setup・docs を spec/plan/design/archive に)。この記録の中の旧いパスは当時のまま。対応表は `docs/plan/phase0-restructure.md`。
 
 書式:
@@ -1813,4 +1814,25 @@
 - 未完了・次: 実機で確かめること(ROADMAP の 3 の「段1」)。クラウド(Linux)で単体テストが skip 5 で通るかは未確認。起動中の入口は古いコードのままなので「すべて終了」→ start.bat で起動し直す。
   B-7(段5)の候補: 「スタジオで開く」の場所を `/api/status` の studio の path・port から作る(取り込みに失敗して子プロセスで動いたとき用)。
   夜間の見直し(3-ui-consistency)の残り(コントラスト・赤い帯・保存の状態・確認のダイアログを ui-kit に など)は段1 に入れていない
+- 未コミット: なし
+
+## 2026-09-30 Claude Code — 段2 開始・1. B-4 動画を選び直す(監査 19)
+- 段2(`docs/plan/phase2-data-safety.md`)を始めた。版は実物で確かめて ホーム 0.13.1・編集 0.24.0・スタジオ 0.11.1(段1 のあと)。版は段の終わりにまとめて上げる。
+  入口の2項目(B-6・14)はサブエージェント(Opus。入口は影響が広い部品のため)に `home/` だけを任せて並行で進めている(WORKLOG はまとめ役が書く)
+- 変更(`editor/serve.py`): `POST /api/relink/check`(書き込まない。名前・長さ・fps・元の長さとの差・`mismatch`・同じ動画を使う別の文書・動画の終わりより後ろの行・注意)・
+  `POST /api/relink`(`_save_lock` の中で baseUpdatedAt の 409・その文書のジョブ中の 409・長さの差で `acceptDiff` が無ければ 409 `duration_mismatch`。
+  控え = `.bak/<id>.pre-relink.json`・`.bak/<id>.edit.pre-relink.json`・`hist_snapshot(force)`。書き換えるのは sourcePath・sourceName・updatedAt・`relinks`(最新 10 件)だけ。edit.json は書き換えない)。
+  パスの検査 `relink_path`: ネットワーク(UNC と、Windows のネットワークドライブ = `GetDriveTypeW`)はファイルに触る前に断る → realpath のあとでもう一度 ネットワーク・「:」(代替ストリーム)・拡張子・`DATA_DIR` の中。
+  fps・長さは `resolve_export.edit_draft(rows=False)`(カットのタブと同じ測り方)。音声だけのファイルは ffmpeg の長さで、注意を出して付け替えは許す
+- 変更(画面): `cut.js` の `state()` に `offCode`・`loaded`・`docId`、`#cutOff` を文 + ボタン(「動画を選び直す」= source_missing のとき・「もう一度読み込む」= 3 で使う)に。
+  `app.js` の `renderPlayerMsg`(再生の失敗: 見つからない → 元のパス + ボタン / network_path → その理由 / それ以外 → 「この形式は再生できません(mkv など)」。カットの読み込みが終わるまでは短い文)・
+  `#relinkDlg`(元のパスとコピー・新しいパス・確かめる → 結果・長さが違えばチェックするまで押せない・パスを変えたら確かめ直し・付け替える前に saveDoc と CUT.flush・後は openDoc で読み直し)・
+  履歴の一覧の「動画なし」の行の ⋮ に「動画を選び直す」(開いてからダイアログ)
+- 決定・理由: 断る作業データは**このツールの `DATA_DIR` だけ**(計画どおり)。全体の作業データ(`%LOCALAPPDATA%\youtube-tools`)まで断ると、スタジオの既定の書き出し先 `studio\exports` の切り抜きを選べなくなるため。
+  同じパスへの付け替えは 400 `same_path`。`relinks` は文書の中だけ(`docs/spec/pipeline.md` の受け渡しの形には出ないので書き足していない)
+- テスト: `editor/tests/test_edit.py` に `TestRelinkStore`(書き換える項目・控え3つ・履歴から戻す・記録の上限・409 の3種・same_path・長さの決まり・パスの検査。Windows の形は skipUnless nt)と
+  `TestRelinkHttp`(本物の動画で確かめる → 付け替え → パック済みが「作り直し」・カットのタブが使える・/media が 200・古い updatedAt の 409・履歴から元のパス / 長さの違いは同意で通る / 作業データの中・拡張子・無い・ネットワーク・壊れた mp4 を断る・音声だけは注意)。
+  `e2e_edit_tabs.py` に1節(別名で別のフォルダへ移す → 案内とボタン → 一覧の ⋮ → カットのタブのボタン → 短い動画で注意とチェック → 正しい動画で付け替え → カットのタブと再生が使える・行とカットはそのまま)。
+  `test_document_save.cjs` の openDoc の置き換えに `renderPlayerMsg` を足した。
+  通過: 編集の unit 197(skip 1)・node 9/9・e2e_edit_tabs・e2e_edit_cut(1回目は chromium の Target crashed、流し直しで通過)・e2e_edit_pack・e2e_ui_handoff・e2e_ui_mounted(1回目は ffmpeg が 0xC0000005 で落ち、流し直しで通過)・dev/tests/e2e_pipeline
 - 未コミット: なし

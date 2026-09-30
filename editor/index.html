@@ -702,7 +702,8 @@ h2{margin:0;font-size:15px}
 #docClip{margin:0 0 8px}
 video{width:100%;max-height:var(--vh);background:var(--stage-bg);border-radius:var(--r);display:block}   /* 映像の周りは両テーマで暗い灰色(ブリーフの舞台) */
 html.vid-audio video{height:54px;max-height:none}
-#playerMsg{margin:6px 0 0;color:var(--danger)}
+#playerMsg{margin:6px 0 0;color:var(--danger);overflow-wrap:anywhere}
+#playerMsg .btn{margin-left:6px;vertical-align:baseline}
 #diarBanner{margin:8px 0 0}
 #conflictBar{margin:0 0 8px}#conflictBar .row{margin-top:6px}
 /* 道具の段(再生・編集・探す)。段ごとに細い線で区切る */
@@ -765,6 +766,15 @@ html.vid-audio video{height:54px;max-height:none}
 html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
 .tt-caption{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:clamp(14px,2.4vw,26px);line-height:1.3;pointer-events:none;white-space:pre-wrap;word-break:break-word;z-index:1}
 #dlgOverwrite{width:min(560px,calc(100% - 32px));padding:0}
+/* 動画を選び直す(段2 B-4) */
+#relinkDlg{width:min(620px,calc(100% - 32px));padding:0}
+.tt-rl-old{display:flex;gap:6px;align-items:center}
+.tt-rl-old input{flex:1;min-width:0;color:var(--ink-2)}
+.tt-rl-res{margin:10px 0 0}
+.tt-rl-res dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}
+.tt-rl-res dt{color:var(--ink-2);font-size:12.5px}
+.tt-rl-res dd{margin:0;overflow-wrap:anywhere}
+.tt-rl-res ul{margin:6px 0 0;padding-left:18px}
 .tt-ow-dir{overflow-wrap:anywhere;font-size:12px;color:var(--ink-2);margin:8px 0 4px}
 .tt-ow-files{margin:0;padding-left:18px;font:12px/1.6 var(--mono);color:var(--ink-2);max-height:180px;overflow:auto}
 /* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
@@ -927,6 +937,7 @@ html[data-edtab-now=cut] #btnMenu,html[data-edtab-now=pack] #btnMenu{display:non
 /* ---------- 2 カット(E3。cut.js) ---------- */
 html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは、ページの縦のスクロールバーの出入りで、タイムラインの幅(と倍率)が変わらないように */
 .tt-cut-off{margin:0 0 12px}
+.tt-cut-off .btn{margin-left:6px}
 #cutConflict{margin:0 0 12px}
 .tt-cut-top{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,1fr);gap:14px;align-items:stretch}
 .tt-cut-prev{padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -1345,7 +1356,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <!-- 映像の上に今の行を字幕として重ねる(段2)。止まっているときは選んだ行、再生中は再生位置の行。装飾扱い(同じ情報は一覧から読める) -->
           <div class="tt-caption tt-cap-look" id="playerCaption" aria-hidden="true" hidden></div>
         </div>
-        <p class="hint" id="playerMsg" hidden></p>
+        <p class="hint" id="playerMsg" hidden><span id="playerMsgText"></span><button type="button" class="btn small" id="playerRelink" hidden>動画を選び直す</button></p>
         <div class="tools tools-play" role="group" aria-label="再生">
           <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
         </div>
@@ -1440,7 +1451,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
    </div>
    <section class="tt-tabpanel" id="tabCut" role="tabpanel" aria-labelledby="edtab-cut" data-edpanel="cut" hidden>
      <!-- 2 カット(docs/design/edit-tool-design.md の 3。cut.js)。区間はタイムラインで手で決める。たたき台の規則はサーバー・cut2resolve -->
-     <div class="notice tt-cut-off" id="cutOff" hidden role="status"></div>
+     <div class="notice tt-cut-off" id="cutOff" hidden role="status"><span id="cutOffMsg"></span><button type="button" class="btn small" id="cutRelink" hidden>動画を選び直す</button><button type="button" class="btn small" id="cutRetry" hidden>もう一度読み込む</button></div>
      <div class="notice err" id="cutConflict" hidden role="alert"><b>別のタブか窓で、先にカットが保存されています。</b>自動保存は止めています。
        <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="cutReload">保存されているカットを読み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cutForce">この画面のカットで上書きする</button></div></div>
      <div class="tt-cut-top">
@@ -1625,6 +1636,22 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <p class="mono tt-ow-dir" id="owDir"></p>
     <ul class="tt-ow-files" id="owFiles"></ul>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="owCancel">やめる</button><button type="button" class="btn danger" id="owOk">上書きして作り直す</button></div>
+  </div>
+</dialog>
+<dialog id="relinkDlg" aria-labelledby="rlT">
+  <div class="ui-dlg-head"><h2 id="rlT">動画を選び直す</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-body">
+    <p style="margin:0">動画を移した・名前を変えたときに、この文書が使う動画を新しい場所に付け替えます。行・校正・話者・カットはそのまま残ります。</p>
+    <div class="fld"><label class="l" for="rlOld">元のパス(見つかりません)</label>
+      <div class="tt-rl-old"><input type="text" id="rlOld" class="mono" readonly><button type="button" class="btn small" id="rlCopy">コピー</button></div></div>
+    <div class="fld"><label class="l" for="rlPath">新しいパス</label>
+      <input type="text" id="rlPath" class="mono" spellcheck="false" autocomplete="off" placeholder="例: D:\動画\配信.mp4"></div>
+    <p class="hint" style="margin:4px 0 0">エクスプローラーで動画を Shift+右クリック →「パスとしてコピー」で取ったパスを貼り付けます(前後の " はそのままでかまいません)。このパソコンのドライブの動画を選べます(ネットワーク上のファイルは選べません)</p>
+    <div class="row" style="margin-top:8px"><button type="button" class="btn" id="rlCheck">確かめる</button></div>
+    <div class="tt-rl-res" id="rlResult" hidden role="status"></div>
+    <label class="lag" id="rlAcceptRow" hidden style="margin-top:8px"><input type="checkbox" id="rlAccept">長さが違うのを分かったうえで付け替える</label>
+    <p class="hint" style="margin:10px 0 0">前の状態は、付け替えたあとも「以前の版に戻す」で戻せます。</p>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="rlCancel">やめる</button><button type="button" class="btn primary" id="rlGo" disabled>付け替える</button></div>
   </div>
 </dialog>
 <dialog id="dlgConfirm" aria-labelledby="cfT">

@@ -6,6 +6,8 @@
 """
 import json
 import os
+import shutil
+import tempfile
 import urllib.parse
 import sys
 
@@ -330,6 +332,60 @@ def main():
             pg.goto(srv.base + "?doc=0123456789ab&media=" + urllib.parse.quote(v2) + "#tx")
             wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目のやり直し'", 15000)
             check(True, "文書が見つからなければ、動画のパスで探して開く(予備)")
+
+            # ---- 段2 B-4: 動画を選び直す。動画を別の名前で別のフォルダへ移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える
+            rl_tid = srv.transcribe(make_video(os.path.join(srv.media, "付け替え前.webm"), sec=10), "付け替える文書")
+            rl_rows = srv.get("/api/transcript?id=" + rl_tid)["segments"]
+            srv.call("PUT", "/api/edit?id=" + rl_tid, {"baseRev": 0, "edit": {"sources": [{"fps": [30, 1], "duration": 10.0}],
+                                                                              "clips": [{"src": 0, "in": 1.0, "out": 4.0}, {"src": 0, "in": 6.0, "out": 9.0}], "origin": "manual"}})
+            outside = tempfile.mkdtemp(prefix="edit-e2e-moved-")   # サーバーの作業データ(写したフォルダ)の外
+            moved = os.path.join(outside, "移した後.webm")
+            shutil.move(os.path.join(srv.media, "付け替え前.webm"), moved)
+            short = make_video(os.path.join(outside, "別の短い動画.webm"), sec=4)
+            try:
+                pg.goto(srv.base + "#tx")
+                pg.reload()   # 同じ URL への goto は読み直さない(# だけの移動になる)
+                wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+                n_err = len(errors)
+                open_doc(pg, "付け替える文書")
+                wait_js(pg, "!document.querySelector('#playerMsg').hidden && !document.querySelector('#playerRelink').hidden", 15000)
+                check("元の動画が見つかりません" in pg.inner_text("#playerMsg") and "付け替え前.webm" in pg.inner_text("#playerMsg"),
+                      "1 文字起こし: 動画が見つからなければ元のパスと「動画を選び直す」: " + pg.inner_text("#playerMsg"))
+                row = pg.locator("#txList .txi").filter(has_text="付け替える文書").first
+                check(row.locator("[data-act=relink]").count() == 1, "履歴の一覧の「動画なし」の行のメニューにも「動画を選び直す」")
+                pg.keyboard.press("Alt+2")
+                wait_js(pg, "!document.querySelector('#cutOff').hidden && !document.querySelector('#cutRelink').hidden", 10000)
+                check(pg.is_hidden("#cutRetry"), "2 カット: 動画が無いときは「動画を選び直す」(もう一度読み込む は出さない)")
+                pg.click("#cutRelink")
+                wait_js(pg, "document.querySelector('#relinkDlg').open")
+                check(pg.input_value("#rlOld").endswith("付け替え前.webm") and pg.is_disabled("#rlGo"), "ダイアログに元のパス。確かめる前は「付け替える」を押せない")
+                pg.fill("#rlPath", '"%s"' % short)
+                pg.click("#rlCheck")
+                wait_js(pg, "!!document.querySelector('#rlResult dl')", 20000)
+                check("長さが元の動画と違います" in pg.inner_text("#rlResult") and pg.is_visible("#rlAcceptRow") and pg.is_disabled("#rlGo"),
+                      "長さが違う動画: 注意とチェック。チェックするまで押せない: " + pg.inner_text("#rlResult"))
+                pg.check("#rlAccept")
+                check(pg.is_enabled("#rlGo"), "「長さが違うのを分かったうえで」をチェックすると押せる")
+                pg.fill("#rlPath", moved)
+                check(pg.is_disabled("#rlGo") and pg.is_hidden("#rlAcceptRow"), "パスを変えたら確かめ直すまで押せない")
+                pg.press("#rlPath", "Enter")
+                wait_js(pg, "document.querySelector('#rlResult').textContent.includes('移した後.webm')", 20000)
+                check(pg.is_enabled("#rlGo") and "同じです" in pg.inner_text("#rlResult"), "同じ長さの動画: すぐ押せる: " + pg.inner_text("#rlResult"))
+                pg.click("#rlGo")
+                wait_js(pg, "!document.querySelector('#relinkDlg').open && document.querySelector('#toast').textContent.includes('付け替えました')", 20000)
+                wait_js(pg, "document.querySelector('#cutOff').hidden && document.querySelectorAll('#tlVideo .tt-k').length > 0", 20000)
+                check(True, "付け替えたら、カットのタブが新しい動画で使える")
+                d = srv.get("/api/transcript?id=" + rl_tid)
+                check(os.path.normcase(d["sourcePath"]) == os.path.normcase(os.path.realpath(moved)) and d["segments"] == rl_rows,
+                      "文書の動画のパスだけが変わり、行はそのまま")
+                ed = srv.get("/api/edit?id=" + rl_tid)["edit"]
+                check([(c["in"], c["out"]) for c in ed["clips"]] == [(1.0, 4.0), (6.0, 9.0)], "カットはそのまま: %s" % ed["clips"])
+                pg.keyboard.press("Alt+1")
+                wait_js(pg, "document.querySelector('#player').readyState >= 1", 15000)
+                check(pg.is_hidden("#playerMsg"), "1 文字起こし: 新しい動画を再生できる(案内が消える)")
+                del errors[n_err:]   # 見つからない動画の 404 はブラウザがエラーとして記録する(想定どおり)
+            finally:
+                shutil.rmtree(outside, ignore_errors=True)
 
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()

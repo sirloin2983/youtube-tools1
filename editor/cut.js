@@ -16,7 +16,7 @@ const SILENCE_LEVEL = 40, SILENCE_MIN = 0.3;   // 波形(平方根の 0〜255)�
 function create(h){
   const $ = h.$, esc = h.esc;
   const M = {
-    docId: null, loading: 0, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '',
+    docId: null, loading: 0, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '',
     sel: null, edge: null, io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0,
     peaks: null, peaksRate: 100, peaksAudio: true, peaksMsg: '', silence: [], planBeside: '', draftBusy: false, lastDraftSig: '',
     pps: 0, fit: true, snap: true, vis: [0, 0], mode: 'cut', mediaFor: null, drag: null, rowFlags: [], shown: false, seekingOut: false
@@ -114,7 +114,7 @@ function create(h){
   /* ---------- 読み込み(文書を開いたとき) ---------- */
   function reset(docId){
     clearTimeout(M.saveT);
-    Object.assign(M, { docId, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
+    Object.assign(M, { docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
       io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
       planBeside: '', draftBusy: false, lastDraftSig: '', fit: true, mediaFor: null, drag: null, rowFlags: [] });
     const v = V(); v.pause(); v.removeAttribute('src'); v.load();
@@ -134,6 +134,7 @@ function create(h){
     if (dr){ M.fps = dr.fps; M.dur = dr.durationSec; M.planBeside = dr.planBeside || ''; }
     else if (e){ M.fps = e.sources[0].fps; M.dur = e.sources[0].duration; }
     if (drErr) setOff(drErr.message, drErr.code || 'draft');
+    M.loaded = true;   // 読み込みが終わった(使えない理由 offCode もここで決まる。1 文字起こし の再生の失敗の案内が使う)
     if (!M.fps){ render(); h.onCutState(); return; }
     M.total = Math.max(1, Math.round(M.dur * M.fps[0] / M.fps[1]));
     if (e){
@@ -331,7 +332,9 @@ function create(h){
     const tab = $('#tabCut');
     const off = $('#cutOff'), noVideo = !ready() || !!M.off;
     off.hidden = !(M.off || (!ready() && h.S.doc));
-    off.textContent = M.off ? M.off + '。1 文字起こし のタブは今までどおり使えます' : (!ready() && h.S.doc ? 'カットの準備をしています…' : '');
+    $('#cutOffMsg').textContent = M.off ? M.off + '。1 文字起こし のタブは今までどおり使えます' : (!ready() && h.S.doc ? 'カットの準備をしています…' : '');
+    $('#cutRelink').hidden = !(M.off && M.offCode === 'source_missing' && h.relink);   // 動画を選び直す(段2 B-4)
+    $('#cutRetry').hidden = !(M.off && M.offCode === 'edit_load');
     tab.classList.toggle('tt-cut-disabled', noVideo);
     renderTools(); renderStatus(); renderSubsSoon();
     if (!ready() || !M.shown) return;
@@ -778,6 +781,8 @@ function create(h){
   /* ---------- イベント ---------- */
   function bind(){
     const sc = scroller();
+    $('#cutRelink').addEventListener('click', () => { if (h.relink) h.relink(); });
+    $('#cutRetry').addEventListener('click', () => { if (M.docId) load(M.docId); });
     sc.addEventListener('scroll', () => { if (ready()) { if (!bind.q) bind.q = requestAnimationFrame(() => { bind.q = 0; scrolled(); }); } });
     /* 段3: ホイールで拡大縮小(Ctrl は要らない。マウスの位置が中心)。Shift+ホイールは横に移動(縦のホイールを横の移動に読み替える) */
     sc.addEventListener('wheel', e => {
@@ -937,7 +942,7 @@ function create(h){
     refreshCaption(){ capIdx = -2; if (ready()) showCaption(V().currentTime || 0); },   // 話者の色が変わったとき(app.js の onSpeakerColors。段2)
     unload(){ M.loading++; reset(null); render(); },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
-    state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, pristine: M.pristine, origin: M.origin }; },
+    state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },
     keepsSec(){ return ready() ? M.clips.map(([a, b]) => [sec3(a), sec3(b)]) : null; },
     fps(){ return M.fps; },
     /* パックを作る前: まだ保存していない下書きも保存して、保存済みのカット(rev)から作れるようにする。-> 保存できたか */

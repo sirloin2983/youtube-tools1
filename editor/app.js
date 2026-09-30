@@ -647,7 +647,7 @@ function txRowHTML(i){
   else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて 3 パック のタブで作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
   return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span><button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
+    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">⋮</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}<button type="button" class="btn small danger" data-act="del">この文字起こしを削除</button></div></details></div>
     <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
   </div>`;
 }
@@ -1512,7 +1512,8 @@ async function openDoc(id, keep){
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
   { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + ({ weak: '弱め', normal: '標準', off: 'なし' }[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : ''}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / ' + (d.retranscribed.whole ? '全体を再認識' : '再認識') + ': ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
-  $('#playerMsg').hidden = true;
+  if (!keep || !sameDoc) S.playerErr = null;
+  renderPlayerMsg();
   const p = player();
   if (!keep){   // 話者判別のあとの読み直しでは、再生位置をそのままにする
     /* 読み込みに失敗した動画の loadedmetadata は来ないので、前の文書の待ち受けが残っていると、次に開いた文書の動画で
@@ -2245,9 +2246,93 @@ player().addEventListener('timeupdate', () => {
   if (V.frameFollow && !typing && S.navIdx !== i) setNav(i);
   if ($('#follow').checked && !el.hidden && !typing) ensureVisible(el, 0.35);
 });
-player().addEventListener('error', () => {
-  const m = $('#playerMsg'); m.hidden = false;
-  m.textContent = '元のファイルを再生できません(移動・削除された、または mkv など対応していない形式の可能性)。文字の編集と書き出しは、再生できなくても使えます。';
+/* 再生できないときの案内(段2 B-4)。動画が見つからない(カットのタブの offCode = source_missing)なら元のパスと「動画を選び直す」、
+   それ以外(mkv など)は形式の案内だけ(付け替えても直らないのでボタンを出さない)。カットの読み込みが終わるまでは短い文 */
+function renderPlayerMsg(){
+  const m = $('#playerMsg');
+  if (!S.doc || S.playerErr !== S.docId){ m.hidden = true; return; }
+  const cs = CUT ? CUT.state() : null, known = !!(cs && cs.loaded && cs.docId === S.docId);
+  const missing = known && cs.offCode === 'source_missing', tail = '文字の編集と書き出しは、再生できなくても使えます。';
+  $('#playerMsgText').textContent = missing ? `元の動画が見つかりません: ${S.doc.sourcePath || '(パスの記録なし)'}。${tail}`
+    : known && cs.offCode === 'network_path' ? `${cs.off}。${tail}`
+    : known ? `この形式は再生できません(mkv など)。${tail}` : `元のファイルを再生できません。${tail}`;
+  $('#playerRelink').hidden = !missing;
+  m.hidden = false;
+}
+player().addEventListener('error', () => { if (!S.doc) return; S.playerErr = S.docId; renderPlayerMsg(); });
+$('#playerRelink').addEventListener('click', () => openRelink());
+
+/* ---------- 動画を選び直す(段2 B-4。docs/plan/phase2-data-safety.md の 1)。付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
+const RL = { id: null, seq: 0, check: null, path: '' };
+function rlSync(){ const c = RL.check; $('#rlGo').disabled = !c || c.sameAsNow || (c.mismatch && !$('#rlAccept').checked); }
+function rlReset(){
+  RL.seq++; RL.check = null; RL.path = '';
+  const res = $('#rlResult'); res.hidden = true; res.textContent = ''; res.className = 'tt-rl-res';
+  $('#rlAcceptRow').hidden = true; $('#rlAccept').checked = false; rlSync();
+}
+function openRelink(){
+  const dlg = $('#relinkDlg');
+  if (!S.doc || dlg.open) return;
+  RL.id = S.docId; $('#rlOld').value = S.doc.sourcePath || ''; $('#rlPath').value = ''; rlReset();
+  dlg.showModal(); $('#rlPath').focus();
+}
+function renderRlResult(c){
+  const res = $('#rlResult'), dl = document.createElement('dl');
+  const add = (k, v) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dl.append(dt, dd); };
+  const diff = Number(c.diffSec);
+  add('ファイル', c.name);
+  add('長さ', `元 ${c.docDuration != null ? fmtT(c.docDuration) : '不明'} / 選んだ動画 ${fmtT(c.durationSec)}` + (c.diffSec != null && Math.abs(diff) >= 0.05 ? `(差 ${diff > 0 ? '+' : ''}${diff.toFixed(2)} 秒)` : ''));
+  add('fps', c.fps ? String(Math.round(c.fps[0] / c.fps[1] * 1000) / 1000) : '―(映像なし)');
+  if ((c.usedBy || []).length) add('同じ動画を使う文書', c.usedBy.map(u => u.title || u.id).join('、'));
+  res.textContent = ''; res.append(dl);
+  const notes = [...(c.sameAsNow ? ['今と同じ動画です(付け替える必要はありません)'] : []), ...(c.warnings || [])];
+  if (!notes.length) notes.push('長さは元の動画と同じです。付け替えられます');
+  const ul = document.createElement('ul');
+  for (const w of notes){ const li = document.createElement('li'); li.textContent = w; ul.append(li); }
+  res.append(ul);
+  res.className = 'tt-rl-res notice ' + (c.mismatch || c.sameAsNow ? 'err' : (c.warnings || []).length ? '' : 'ok');
+  res.hidden = false;
+  $('#rlAcceptRow').hidden = !c.mismatch;
+}
+async function rlCheck(){
+  const path = $('#rlPath').value.trim();
+  if (!path){ toast('新しいパスを入れてください', 3000, 'err'); $('#rlPath').focus(); return; }
+  rlReset();
+  const seq = RL.seq, res = $('#rlResult'), b = $('#rlCheck');
+  res.hidden = false; res.textContent = '調べています…(Dropbox などの「オンラインのみ」のファイルは、ダウンロードが終わるまで時間がかかることがあります)';
+  b.disabled = true;
+  try {
+    const c = await api('/api/relink/check', { body: { id: RL.id, path } });
+    if (seq !== RL.seq) return;
+    RL.check = c; RL.path = path; renderRlResult(c);
+  } catch (e){ if (seq === RL.seq){ res.className = 'tt-rl-res notice err'; res.textContent = '選べません: ' + e.message; } }
+  finally { b.disabled = false; rlSync(); }
+}
+$('#rlCheck').addEventListener('click', rlCheck);
+$('#rlPath').addEventListener('input', rlReset);   // 確かめたあとにパスを変えたら、確かめ直すまで付け替えない
+$('#rlPath').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); rlCheck(); } });
+$('#rlAccept').addEventListener('change', rlSync);
+$('#rlCancel').addEventListener('click', () => $('#relinkDlg').close());
+$('#relinkDlg').addEventListener('close', () => { RL.seq++; });
+$('#rlCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#rlOld').value); toast('元のパスをコピーしました', 2500, 'ok'); }
+  catch { $('#rlOld').select(); toast('コピーできませんでした(欄を選んだので Ctrl+C でコピーしてください)', 5000, 'err'); }
+});
+$('#rlGo').addEventListener('click', async () => {
+  const c = RL.check, id = RL.id, b = $('#rlGo');
+  if (!c || S.docId !== id) return;
+  b.disabled = true;
+  try {
+    if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    await api('/api/relink', { body: { id, path: RL.path, baseUpdatedAt: S.baseUpdatedAt, acceptDiff: $('#rlAccept').checked } });
+    $('#relinkDlg').close();
+    await openDoc(id);   // 同じ文書でも読み直す(映像・カット・パックを新しいパスで)
+    loadList();
+    toast('付け替えました(前の状態は「以前の版に戻す」で戻せます)', 7000, 'ok');
+  } catch (e){
+    if (e.code === 'duration_mismatch' && e.data && e.data.check){ RL.check = e.data.check; renderRlResult(e.data.check); }
+    toast('付け替えられませんでした: ' + e.message, 8000, 'err');
+  } finally { rlSync(); }
 });
 player().addEventListener('playing', () => { $('#playerMsg').hidden = true; updateCaption(); });
 /* v0.9.6: 行の▶などで「そこだけ再生」した直後に手動で止めた場合、S.playEnd が残ったままだと、
@@ -2540,6 +2625,10 @@ $('#txList').addEventListener('click', e => {
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
+  else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ(段2 B-4)
+    const menu = b.closest('details'); if (menu) menu.open = false;
+    (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) openRelink(); });
+  }
   else if (b.dataset.act === 'del') armDelete(b, async () => {
     /* 開いている文書を消すときは、待っている自動保存を止め、送信中の保存が終わるのを待ってから消す
        (消したあとに保存が届くと失敗し続け、「未保存」が残って他の文書を開けなくなるため) */
@@ -2843,7 +2932,7 @@ function onCutSaved(r){
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); if (PACK) PACK.changed(); } }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); if (PACK) PACK.changed(); }, relink: () => openRelink() }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 /* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */

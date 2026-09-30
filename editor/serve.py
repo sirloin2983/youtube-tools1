@@ -1263,6 +1263,179 @@ def open_video(req):
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}
 
 
+# ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。docs/plan/phase2-data-safety.md の 1) ----------
+# 動画を移した・改名した文書の sourcePath を、行・校正・話者・カットを残したまま新しいパスに直す。
+# 選べる場所は「このパソコンのドライブならどこでも」(ユーザー決定 2026-09-29)。ネットワーク上・ツールの作業データの中・リンクの先がそれらになるものは断る。
+# URL の引数では付け替えない(POST + 合言葉 + Origin 検査だけ)。候補の自動の推測はしない
+RELINK_KEEP = 10          # 文書に残す付け替えの記録(relinks)の数
+RELINK_TOL_SEC = 1.0      # 動画全体の文書: 長さの差がこれ(か 0.5%)以下なら同じ動画とみなす
+RELINK_TOL_RATIO = 0.005
+RELINK_RANGE_TOL = 0.5    # 範囲の文書: 新しい動画の長さ ≥ 範囲の終わり − これ
+
+
+def _remote_drive(p):
+    """Windows のネットワークドライブ(net use で割り当てた Z: など)か。ドライブの種類を聞くだけで、ファイルには触らない"""
+    if os.name != "nt":
+        return False
+    drive = os.path.splitdrive(p)[0]
+    if len(drive) != 2 or drive[1] != ":":
+        return False
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4   # DRIVE_REMOTE
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _inside(p, folder):
+    try:
+        a, b = os.path.normcase(os.path.realpath(p)), os.path.normcase(os.path.realpath(folder))
+    except (OSError, ValueError):
+        return False
+    return a == b or a.startswith(b.rstrip("\\/") + os.sep)
+
+
+def relink_path(raw):
+    """付け替え先のパスの検査。ネットワーク上のパスは、ファイルに触る前に断る(存在を確かめるだけで資格情報を送るため)。
+    ジャンクション・リンクを解いた先でも、もう一度 ネットワーク・「:」(NTFS の代替ストリーム)・拡張子・作業データの中 を確かめる。-> 実体のパス"""
+    s = str(raw or "").strip().strip('"').strip()
+    if not s or len(s) > 1000 or any(ch in s for ch in "\x00\r\n"):
+        raise ApiError("bad_path", "パスを入れてください", 400)
+    if _fsio.is_network_path(s):
+        raise ApiError("network_path", "ネットワーク上のファイルは選べません(このパソコンにコピーしてから選んでください)", 400)
+    if not os.path.isabs(s):
+        raise ApiError("bad_path", "ドライブから始まるパス(例: D:\\動画\\配信.mp4)を入れてください", 400)
+    p = os.path.abspath(s)
+    for resolved in (False, True):
+        if resolved:   # 1回目の検査を通ってから(ネットワーク上のパスには触らない)リンクを解く
+            try:
+                p = os.path.realpath(p)
+            except (OSError, ValueError):
+                raise ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
+        if _fsio.is_network_path(p) or _remote_drive(p):
+            raise ApiError("network_path", "ネットワーク上のファイルは選べません(このパソコンにコピーしてから選んでください)", 400)
+        if ":" in os.path.splitdrive(p)[1]:
+            raise ApiError("bad_path", "パスに「:」が入っています(ファイルそのもののパスを入れてください)", 400)
+        if os.path.splitext(p)[1].lower() not in MEDIA_TYPES:
+            raise ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(MEDIA_TYPES)), 400)
+        if _inside(p, DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
+            raise ApiError("bad_path", "このツールの作業データの中のファイルは選べません", 400)
+    if not os.path.isfile(p):
+        raise ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
+    return p
+
+
+def _relink_ref(doc):
+    """比べる長さ。-> (長さ秒 または None, 動画全体の文書か)。動画全体の文書は記録した長さ、範囲の文書は範囲の終わり(無ければ最後の行の終わり)"""
+    dur, end = num(doc.get("duration")), num(doc.get("end"))
+    if doc.get("whole") is not False and dur and dur > 0:
+        return dur, True
+    if end and end > 0:
+        return end, False
+    ends = [num(s.get("end"), 0.0) or 0.0 for s in doc.get("segments") or [] if isinstance(s, dict)]
+    return (max(ends), False) if ends and max(ends) > 0 else (None, False)
+
+
+def relink_check(obj):
+    """POST /api/relink/check {"id", "path"}: 付け替える前の確認(書き込まない)。
+    -> {path, name, durationSec, fps, hasVideo, docDuration, diffSec, mismatch, sameAsNow, usedBy: [{id, title}], rowsAfterEnd, warnings}。
+    fps・長さはカットのタブと同じ測り方(resolve_export.edit_draft。音声だけのファイルは ffmpeg の長さ)"""
+    import resolve_export
+    tid = str(obj.get("id") or "")
+    doc = read_transcript(tid)
+    p = relink_path(obj.get("path"))
+    dur, has_v, has_a = probe_media(p)
+    if not (has_v or has_a):
+        raise ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
+    fps, warnings = None, []
+    if has_v:
+        try:
+            dr = resolve_export.edit_draft(dict(doc, sourcePath=p), SERVER_VERSION, rows=False)
+            fps, dur = dr["fps"], dr["durationSec"]
+        except resolve_export.ResolveExportError as e:
+            warnings.append("fps を調べられませんでした(%s)。カットのタブで使えない可能性があります" % str(e)[:200])
+    else:
+        warnings.append("映像の無いファイル(音声だけ)です。文字の直しはできますが、カットとパックには使えません")
+    if not dur or dur <= 0:
+        raise ApiError("bad_media", "動画の長さを読めませんでした(壊れているか、対応していない形式です)", 400)
+    ref, whole = _relink_ref(doc)
+    diff = round(dur - ref, 2) if ref else None
+    if ref is None:
+        mismatch = False
+        warnings.append("この文書には元の長さの記録が無いため、長さを比べられません")
+    elif whole:
+        mismatch = abs(dur - ref) > max(RELINK_TOL_SEC, RELINK_TOL_RATIO * ref)
+    else:
+        mismatch = dur < ref - RELINK_RANGE_TOL
+    if mismatch:
+        warnings.append("長さが元の動画と違います(元 %s・選んだ動画 %s)。別の動画の可能性があります" % (fmt_hms(ref), fmt_hms(dur)))
+    after = sum(1 for s in doc.get("segments") or [] if isinstance(s, dict) and (num(s.get("start"), 0.0) or 0.0) >= dur)
+    if after:
+        warnings.append("選んだ動画の終わりより後ろに %d 行あります(その行は再生できません)" % after)
+    key = os.path.normcase(p)
+    used = []
+    for other in _tids():
+        if other == tid:
+            continue
+        sm = transcript_summary(other)
+        if sm and sm["_sourcePath"] and not _fsio.is_network_path(sm["_sourcePath"]) \
+                and os.path.normcase(os.path.abspath(sm["_sourcePath"])) == key:
+            used.append({"id": other, "title": str(sm.get("title") or "")[:120]})
+            if len(used) >= 10:
+                break
+    cur = str(doc.get("sourcePath") or "")
+    same = bool(cur) and not _fsio.is_network_path(cur) and os.path.normcase(os.path.abspath(cur)) == key
+    return {"path": p, "name": os.path.basename(p), "durationSec": round(dur, 3), "fps": fps, "hasVideo": bool(has_v),
+            "docDuration": round(ref, 3) if ref else None, "diffSec": diff, "mismatch": mismatch, "sameAsNow": same,
+            "usedBy": used, "rowsAfterEnd": after, "warnings": warnings}
+
+
+def _doc_busy(tid):
+    """その文書を読み書きするジョブ(話者判別・再認識・声を覚える・比較・この文書に入れる文字起こし)が動いているか"""
+    with _jobs_lock:
+        return any(j["state"] in ACTIVE_STATES and (j.get("tid") == tid or (j.get("spec") or {}).get("tid") == tid
+                                                    or (j.get("spec") or {}).get("intoDoc") == tid) for j in _jobs.values())
+
+
+def relink_doc(obj):
+    """POST /api/relink {"id", "path", "baseUpdatedAt", "acceptDiff"}: 文書の動画を付け替える。
+    書き換えるのは sourcePath・sourceName・updatedAt と記録 relinks だけ(行・校正・話者・original・clip・start/end・カットは変えない。
+    カットは秒で持っているので、fps が違っても読み込むときに合わせ直る)。書く前に .bak/<id>.pre-relink.json・履歴・.bak/<id>.edit.pre-relink.json を残す。
+    409: 先に更新された(conflict)・ジョブの最中(busy)・長さが違うのに acceptDiff が無い(duration_mismatch)"""
+    tid = str(obj.get("id") or "")
+    base = obj.get("baseUpdatedAt")
+    if isinstance(base, bool) or not isinstance(base, int):
+        raise ApiError("bad_request", "baseUpdatedAt(読み込んだときの更新日時)を付けてください", 400)
+    chk = relink_check(obj)   # 動画を調べるのは時間がかかるので、ロックの外で
+    if chk["sameAsNow"]:
+        raise ApiError("same_path", "今と同じ動画です(付け替える必要はありません)", 400)
+    with _save_lock:
+        doc = read_transcript(tid)
+        if doc.get("updatedAt") and base != doc.get("updatedAt"):
+            raise ApiError("conflict", "別の場所で先に更新されています。読み込み直してから、もう一度選んでください", 409)
+        if _doc_busy(tid):
+            raise ApiError("busy", "この文書は、いま別の処理(文字起こし・話者判別・再認識など)の最中です。終わってから付け替えてください", 409)
+        if chk["mismatch"] and obj.get("acceptDiff") is not True:
+            raise ApiError("duration_mismatch", "長さが元の動画と違います。別の動画でないか確かめてから付け替えてください", 409, {"check": chk})
+        bak = os.path.join(TX_DIR, ".bak")
+        os.makedirs(bak, exist_ok=True)
+        shutil.copy2(tx_path(tid), os.path.join(bak, tid + ".pre-relink.json"))   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)
+        if os.path.isfile(edit_path(tid)):
+            shutil.copy2(edit_path(tid), os.path.join(bak, tid + ".edit.pre-relink.json"))
+        try:
+            hist_snapshot(tid, force=True)   # 「以前の版に戻す」で元のパスへ戻せる
+        except OSError:
+            pass
+        now = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
+        prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
+        doc["relinks"] = (prev + [{"from": str(doc.get("sourcePath") or ""), "at": now, "diffSec": chk["diffSec"]}])[-RELINK_KEEP:]
+        doc.update({"sourcePath": chk["path"], "sourceName": chk["name"], "updatedAt": now})
+        apply_edit_cuts(tid, doc)
+        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    log.info("動画を付け替え: %s → %s", tid, chk["name"])
+    return {"ok": True, "updatedAt": now, "sourcePath": chk["path"], "sourceName": chk["name"], "warnings": chk["warnings"]}
+
+
 # ---------- 音の波形(カットのタイムライン用。docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
 # numpy は使わない(サーバーのプロセスで読み込まない決まり)。重い処理なので ytt_core.jobs.SLOTS を通し、画面は 202 の間くり返し問い合わせる
@@ -6265,6 +6438,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, export_file(obj))
             if path == "/api/open-video":
                 return self._json(200, open_video(obj))
+            if path == "/api/relink/check":
+                return self._json(200, relink_check(obj))
+            if path == "/api/relink":
+                return self._json(200, relink_doc(obj))
             if path == "/api/resplit":
                 return self._json(200, resplit_doc(obj))
             if path == "/api/edit/pack":

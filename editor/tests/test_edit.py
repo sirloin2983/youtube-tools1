@@ -650,6 +650,260 @@ class TestEditHttp(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "transcripts", tid + ".edit.json")))
         self.assertEqual(self.call("GET", "/api/edit?id=" + tid)["_status"], 404)
 
+class TestRelinkStore(StoreDir):
+    """動画を選び直す(段2 B-4)のうち、ロック・競合・ジョブ・長さの同意・控え・書き換える項目(動画を調べる部分は差し替える)"""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_check = S.relink_check
+        self.chk = {"path": os.path.abspath("新しい.mp4"), "name": "新しい.mp4", "durationSec": 12.0, "fps": [30, 1], "hasVideo": True,
+                    "docDuration": 12.0, "diffSec": 0.0, "mismatch": False, "sameAsNow": False, "usedBy": [], "rowsAfterEnd": 0, "warnings": []}
+        S.relink_check = lambda obj: dict(self.chk)
+        segs = doc_obj()["segments"]
+        segs[0].update(proofed=True, speaker="A", tags=["bgm"])
+        self.put_doc(doc_obj(segments=segs, speakers=[{"id": "A", "name": "まつり", "color": "#f80"}],
+                             original=[{"start": 0.4, "end": 2.8, "text": "こんばんわ"}], clip={"schema": "x"}))
+        write_json(S.edit_path(TID), dict(S.sanitize_edit(edit_obj()), schema=S.EDIT_SCHEMA, rev=3, packRev=0, updatedAt=5))
+        d = self.doc()
+        S.apply_edit_cuts(TID, d)   # 保存済みの文書と同じく、行の「カット済」はカットに合わせてある
+        self.put_doc(d)
+
+    def tearDown(self):
+        S.relink_check = self.saved_check
+        with S._jobs_lock:
+            for k in [k for k in S._jobs if k.startswith("relinktest")]:
+                S._jobs.pop(k)
+        super().tearDown()
+
+    def doc(self):
+        with open(S.tx_path(TID), encoding="utf-8") as f:
+            return json.load(f)
+
+    def relink(self, **over):
+        return S.relink_doc(dict({"id": TID, "path": "x", "baseUpdatedAt": 1000}, **over))
+
+    def test_relink_keeps_rows_and_makes_backups(self):
+        before = self.doc()
+        r = self.relink()
+        self.assertTrue(r["ok"])
+        d = self.doc()
+        self.assertEqual((d["sourcePath"], d["sourceName"], d["updatedAt"]), (self.chk["path"], "新しい.mp4", r["updatedAt"]))
+        self.assertGreater(d["updatedAt"], 1000)
+        self.assertEqual(d["relinks"], [{"from": "C:\\x\\clip.mp4", "at": r["updatedAt"], "diffSec": 0.0}])
+        for k in ("segments", "speakers", "original", "clip", "start", "end", "duration", "title", "createdAt"):
+            self.assertEqual(d[k], before[k], k)                                   # 行・校正・話者・元の出力・clip・範囲は変えない
+        bak = os.path.join(self.tmp, ".bak")
+        with open(os.path.join(bak, TID + ".pre-relink.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["sourcePath"], "C:\\x\\clip.mp4")        # 1) 直前の文書
+        with open(os.path.join(bak, TID + ".edit.pre-relink.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["rev"], 3)                               # 2) カット
+        stamps = S.hist_stamps(TID)                                                # 3) 履歴(「以前の版に戻す」)
+        self.assertEqual(len(stamps), 1)
+        S.restore_history(TID, stamps[0])
+        self.assertEqual(self.doc()["sourcePath"], "C:\\x\\clip.mp4")
+        with open(S.edit_path(TID), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["rev"], 3)                               # カット(edit.json)は書き換えない
+
+    def test_relink_record_is_capped(self):
+        d = self.doc()
+        d["relinks"] = [{"from": "C:\\old%d.mp4" % i, "at": i, "diffSec": 0} for i in range(12)]
+        self.put_doc(d)
+        self.relink()
+        rl = self.doc()["relinks"]
+        self.assertEqual(len(rl), S.RELINK_KEEP)
+        self.assertEqual(rl[-1]["from"], "C:\\x\\clip.mp4")
+
+    def test_conflict_busy_mismatch(self):
+        with self.assertRaises(S.ApiError) as c:
+            self.relink(baseUpdatedAt=999)
+        self.assertEqual((c.exception.status, c.exception.code), (409, "conflict"))
+        with self.assertRaises(S.ApiError) as c:
+            self.relink(baseUpdatedAt=None)
+        self.assertEqual(c.exception.status, 400)
+        for kind, spec in (("diarize", {"tid": TID}), ("transcribe", {"intoDoc": TID})):
+            with S._jobs_lock:
+                S._jobs["relinktest1"] = {"id": "relinktest1", "state": "running", "kind": kind, "tid": spec.get("tid"), "spec": spec}
+            with self.assertRaises(S.ApiError) as c:
+                self.relink()
+            self.assertEqual((c.exception.status, c.exception.code), (409, "busy"), kind)
+            with S._jobs_lock:
+                S._jobs["relinktest1"]["state"] = "done"                            # 終わったジョブは妨げない
+        self.chk.update(mismatch=True, diffSec=-30.0)
+        with self.assertRaises(S.ApiError) as c:
+            self.relink()
+        self.assertEqual((c.exception.status, c.exception.code), (409, "duration_mismatch"))
+        self.assertTrue(c.exception.extra["check"]["mismatch"])
+        self.assertEqual(self.doc()["sourcePath"], "C:\\x\\clip.mp4")               # 同意が無ければ書かない
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".bak", TID + ".pre-relink.json")))
+        self.assertTrue(self.relink(acceptDiff=True)["ok"])
+        self.assertEqual(self.doc()["relinks"][-1]["diffSec"], -30.0)
+        self.chk.update(mismatch=False, sameAsNow=True)
+        with self.assertRaises(S.ApiError) as c:
+            self.relink(baseUpdatedAt=self.doc()["updatedAt"])
+        self.assertEqual(c.exception.code, "same_path")
+
+    def test_relink_ref_rules(self):
+        self.assertEqual(S._relink_ref({"whole": True, "duration": 100.0, "end": 100.0}), (100.0, True))
+        self.assertEqual(S._relink_ref({"whole": False, "duration": 100.0, "end": 40.0}), (40.0, False))
+        self.assertEqual(S._relink_ref({"segments": [{"end": 7.5}, {"end": 3}]}), (7.5, False))
+        self.assertEqual(S._relink_ref({"segments": []}), (None, False))
+
+    def test_relink_path_rejects(self):
+        for bad in ("", "  ", "a\x00b.mp4", "動画.mp4", "\\\\server\\share\\a.mp4", "//server/share/a.mp4", "\\\\?\\UNC\\server\\s\\a.mp4"):
+            with self.assertRaises(S.ApiError, msg=repr(bad)) as c:
+                S.relink_path(bad)
+            self.assertEqual(c.exception.status, 400)
+        with self.assertRaises(S.ApiError) as c:
+            S.relink_path("\\\\server\\share\\a.mp4")
+        self.assertEqual(c.exception.code, "network_path")
+        vid = os.path.join(self.tmp, "中.mp4")   # StoreDir は TX_DIR を差し替えるだけなので、DATA_DIR も一時的にここへ
+        with open(vid, "wb") as f:
+            f.write(b"x")
+        saved = S.DATA_DIR
+        S.DATA_DIR = self.tmp
+        try:
+            with self.assertRaises(S.ApiError) as c:
+                S.relink_path(vid)
+            self.assertIn("作業データ", c.exception.message)
+        finally:
+            S.DATA_DIR = saved
+        with self.assertRaises(S.ApiError) as c:
+            S.relink_path(os.path.join(self.tmp, "無い.mp4"))
+        self.assertEqual(c.exception.code, "no_file")
+        txt = os.path.join(self.tmp, "メモ.txt")
+        with open(txt, "w") as f:
+            f.write("x")
+        with self.assertRaises(S.ApiError) as c:
+            S.relink_path(txt)
+        self.assertEqual(c.exception.code, "bad_ext")
+        self.assertEqual(S.relink_path('"%s"' % vid), os.path.realpath(vid))       # 「パスとしてコピー」の " は外す
+
+    @unittest.skipUnless(os.name == "nt", "Windows のパスの形(ドライブ・代替ストリーム)")
+    def test_relink_path_windows_forms(self):
+        vid = os.path.join(self.tmp, "a.mp4")
+        with open(vid, "wb") as f:
+            f.write(b"x")
+        for bad in (vid + ":stream", vid + ":stream:$DATA", "C:a.mp4", "\\a.mp4"):
+            with self.assertRaises(S.ApiError, msg=bad) as c:
+                S.relink_path(bad)
+            self.assertEqual(c.exception.status, 400)
+        self.assertEqual(S.relink_path(vid.replace("\\", "/")), os.path.realpath(vid))
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
+class TestRelinkHttp(unittest.TestCase):
+    """POST /api/relink/check・/api/relink を本物の動画で(疑似モードのサーバー)。動画はサーバーの作業データの外の一時フォルダに置く"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.media_dir = tempfile.mkdtemp()   # サーバーの作業データ(YTT_DATA_DIR=inplace = 写したフォルダ)の外
+        ff = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+        cls.v6 = os.path.join(cls.media_dir, "元の動画.mkv")
+        subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=30:duration=6", "-f", "lavfi", "-i", "sine=frequency=440:duration=6",
+                             "-c:v", "mpeg4", "-c:a", "pcm_s16le", "-shortest", cls.v6], check=True)
+        cls.v3 = os.path.join(cls.media_dir, "短い動画.mkv")
+        subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=25:duration=3", "-c:v", "mpeg4", cls.v3], check=True)
+        cls.wav = os.path.join(cls.media_dir, "声.wav")
+        subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=300:duration=6", cls.wav], check=True)
+        cls.runtime = os.path.join(cls.tmp, ".runtime")
+        cls.port = free_port()
+        cls.proc = start_server(cls.tmp, cls.port, cls.runtime)
+        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+        cls.proc.wait(timeout=10)
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+        shutil.rmtree(cls.media_dir, ignore_errors=True)
+
+    call = TestEditHttp.call
+
+    def make_doc(self, name):
+        src = os.path.join(self.media_dir, name)
+        shutil.copy(self.v6, src)
+        tid = self.call("POST", "/api/open-video", {"path": src})["id"]
+        d = self.call("GET", "/api/transcript?id=" + tid)
+        d["segments"] = [{"id": "s1", "start": 0.5, "end": 2.0, "text": "こんばんは", "proofed": True},
+                         {"id": "s2", "start": 3.0, "end": 5.5, "text": "待って"}]
+        r = self.call("PUT", "/api/transcript?id=" + tid, {"segments": d["segments"], "speakers": [], "baseUpdatedAt": d["updatedAt"]})
+        self.assertEqual(r["_status"], 200, r)
+        return tid, src
+
+    def test_check_and_relink(self):
+        tid, src = self.make_doc("移す前.mkv")
+        moved = os.path.join(self.media_dir, "移した先.mkv")
+        os.replace(src, moved)
+        self.assertTrue(self.call("GET", "/api/edit/draft?id=" + tid)["unavailable"]["code"] == "source_missing")
+        c = self.call("POST", "/api/relink/check", {"id": tid, "path": '"%s"' % moved})
+        self.assertEqual(c["_status"], 200, c)
+        self.assertEqual((c["name"], c["fps"], c["hasVideo"], c["mismatch"], c["sameAsNow"], c["rowsAfterEnd"]), ("移した先.mkv", [30, 1], True, False, False, 0))
+        self.assertAlmostEqual(c["durationSec"], 6.0, delta=0.1)
+        self.assertLess(abs(c["diffSec"]), 0.2)
+        other = self.call("POST", "/api/open-video", {"path": self.v6})["id"]   # 同じ動画を使う別の文書は知らせる
+        shutil.copy(self.v6, os.path.join(self.media_dir, "x.mkv"))
+        c2 = self.call("POST", "/api/relink/check", {"id": tid, "path": self.v6})
+        self.assertEqual([u["id"] for u in c2["usedBy"]], [other])
+        # カットを保存してパックを作った → 付け替えると「作り直し」
+        self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=((0.3, 2.2), (2.8, 5.8)), duration=6.0)})["rev"], 1)
+        d = self.call("GET", "/api/transcript?id=" + tid)
+        self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": d["updatedAt"], "dir": os.path.join(self.media_dir, "p_pack")})
+        self.assertFalse(self.call("GET", "/api/edit?id=" + tid)["packStale"])
+        r = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"]})
+        self.assertEqual(r["_status"], 200, r)
+        d2 = self.call("GET", "/api/transcript?id=" + tid)
+        self.assertEqual((os.path.normcase(d2["sourcePath"]), d2["sourceName"]), (os.path.normcase(os.path.realpath(moved)), "移した先.mkv"))
+        self.assertEqual(d2["segments"], d["segments"])
+        self.assertTrue(self.call("GET", "/api/edit?id=" + tid)["packStale"])
+        self.assertEqual(self.call("GET", "/api/edit?id=" + tid)["edit"]["clips"], [{"src": 0, "in": 0.3, "out": 2.2}, {"src": 0, "in": 2.8, "out": 5.8}])
+        self.assertIn("fps", self.call("GET", "/api/edit/draft?id=" + tid))       # カットのタブが使える
+        st, _hd, _b = self.call("GET", "/media?id=" + tid, raw=True)
+        self.assertEqual(st, 200)
+        again = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d2["updatedAt"]})
+        self.assertEqual((again["_status"], again["error"]), (400, "same_path"))
+        old = self.call("POST", "/api/relink", {"id": tid, "path": self.v6, "baseUpdatedAt": d["updatedAt"]})   # 古い updatedAt
+        self.assertEqual((old["_status"], old["error"]), (409, "conflict"))
+        # 履歴から元のパスへ戻せる
+        items = self.call("GET", "/api/history?id=" + tid)["items"]
+        self.assertTrue(items)
+        self.assertEqual(self.call("POST", "/api/restore", {"id": tid, "ts": items[0]["ts"]})["_status"], 200)
+        self.assertEqual(os.path.normcase(self.call("GET", "/api/transcript?id=" + tid)["sourcePath"]), os.path.normcase(src))
+
+    def test_duration_mismatch_needs_consent(self):
+        tid, src = self.make_doc("長さ違い.mkv")
+        os.remove(src)
+        c = self.call("POST", "/api/relink/check", {"id": tid, "path": self.v3})
+        self.assertEqual((c["mismatch"], c["fps"], c["rowsAfterEnd"]), (True, [25, 1], 1))
+        self.assertTrue(any("長さ" in w for w in c["warnings"]))
+        d = self.call("GET", "/api/transcript?id=" + tid)
+        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"]})
+        self.assertEqual((r["_status"], r["error"]), (409, "duration_mismatch"))
+        self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["sourcePath"], d["sourcePath"])
+        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
+        self.assertEqual(r["_status"], 200, r)
+        self.assertLess(self.call("GET", "/api/transcript?id=" + tid)["relinks"][-1]["diffSec"], -2)
+
+    def test_rejects(self):
+        tid, src = self.make_doc("断る.mkv")
+        inside = os.path.join(self.tmp, "作業データの中.mkv")   # サーバーの作業データ(inplace = 写したフォルダ)の中
+        shutil.copy(self.v6, inside)
+        txt = os.path.join(self.media_dir, "メモ.txt")
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write("x")
+        bad_mp4 = os.path.join(self.media_dir, "壊れた.mp4")
+        with open(bad_mp4, "wb") as f:
+            f.write(os.urandom(2048))
+        for path, code in ((inside, "bad_path"), (txt, "bad_ext"), (os.path.join(self.media_dir, "無い.mkv"), "no_file"),
+                           ("\\\\127.0.0.1\\share\\a.mkv", "network_path"), (bad_mp4, "bad_media")):
+            r = self.call("POST", "/api/relink/check", {"id": tid, "path": path})
+            self.assertEqual((r["_status"], r["error"]), (400, code), path)
+        r = self.call("POST", "/api/relink/check", {"id": "000000000000", "path": self.v6})
+        self.assertEqual(r["_status"], 404)
+        a = self.call("POST", "/api/relink/check", {"id": tid, "path": self.wav})   # 音声だけ: 付け替えられるが、カット・パックに使えないと知らせる
+        self.assertEqual((a["_status"], a["hasVideo"], a["fps"]), (200, False, None))
+        self.assertTrue(any("音声だけ" in w for w in a["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()
