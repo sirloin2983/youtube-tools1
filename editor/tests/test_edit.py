@@ -289,6 +289,20 @@ class TestEditHttp(unittest.TestCase):
         finally:
             self.call("PUT", "/api/settings", orig)
 
+    def test_settings_put_patch(self):
+        """PUT /api/settings {"patch"}(段2 監査 11): 送ったキーだけ合わせる。2つの窓が別々のキーを保存しても消し合わない"""
+        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        try:
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, glossary="元", replacements="元=>元"))["_status"], 200)
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"glossary": "窓A"}})["_status"], 200)
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"replacements": "窓B=>B"}})["_status"], 200)
+            st = self.call("GET", "/api/settings")
+            self.assertEqual((st["glossary"], st["replacements"]), ("窓A", "窓B=>B"))
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": "x"})["_status"], 400)
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"a": "x" * 210000}})["_status"], 413)
+        finally:
+            self.call("PUT", "/api/settings", orig)
+
     def test_settings_patch_keymap(self):
         """キー配置(UIKit.keymap が送る。段6)は「送ったキーだけ直す」。丸ごとの保存(古い画面)では戻らない・形の正しくない割り当ては断る"""
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}

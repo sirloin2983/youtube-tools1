@@ -18,6 +18,7 @@ v0.9.0(画面の全面見直し 段階4): ③ 書き出しの引き出し(1680px
 """
 import json
 import os
+import re
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import subprocess
@@ -747,6 +748,57 @@ def run_checks(port, fx, shots=None):
                 pg.wait_for_timeout(150)
                 bad = pg.evaluate(CONTRAST_JS)
                 c.ok(not bad, "%s の %s で読みにくい文字(コントラスト 3 未満)が無い %s" % (theme, step, json.dumps(bad, ensure_ascii=False)[:300] if bad else ""))
+        # ---- 段2 監査 11: ③ 確認の設定の保存・読み込みの失敗を出す(⚙ の印と引き出しの先頭の再試行)・読めないまま既定値で上書きしない
+        print("[設定の保存・読み込みの失敗(監査 11)]")
+        pg.evaluate("Studio.go('review')"); pg.wait_for_timeout(200)
+        sfail = {"put": True, "get": False, "puts": 0}
+
+        def st_route(route):
+            if route.request.method == "PUT":
+                sfail["puts"] += 1
+            if (route.request.method == "PUT" and sfail["put"]) or (route.request.method == "GET" and sfail["get"]):
+                route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
+            else:
+                route.continue_()
+
+        def wait_page(expr, ms=10000):   # 同期版の route は Playwright を呼んでいる間しか動かないので、time.sleep ではなく画面の側で待つ
+            for _ in range(ms // 100):
+                if pg.evaluate(expr):
+                    return True
+                pg.wait_for_timeout(100)
+            return False
+        spat = re.compile(r".*/api/settings$")
+        pg.route(spat, st_route)
+        was = bool((serve.STORE.get_ui().get("review") or {}).get("muted"))
+        toggle = "(v => { const e = document.querySelector('#rvMute'); e.checked = v; e.dispatchEvent(new Event('change', { bubbles: true })); })(%s)"
+        pg.evaluate(toggle % ("false" if was else "true"))
+        c.ok(wait_page("() => document.querySelector('#btnSettings').getAttribute('data-ui-status') === 'err'")
+             and "テストで失敗させた" in (pg.get_attribute("#btnSettings", "title") or ""), "保存の失敗: ⚙ に印と理由")
+        pg.click("#btnSettings")
+        c.ok(wait_page("() => !document.querySelector('.ui-settings-status').hidden", 5000) and "設定を保存できていません" in pg.inner_text(".ui-settings-status"),
+             "設定の引き出しの先頭に理由と「もう一度」")
+        sfail["put"] = False
+        pg.click(".ui-settings-status button")
+        c.ok(wait_page("() => document.querySelector('.ui-settings-status').hidden && !document.querySelector('#btnSettings').hasAttribute('data-ui-status')")
+             and bool((serve.STORE.get_ui().get("review") or {}).get("muted")) == (not was), "「もう一度」で保存でき、印が消える")
+        pg.keyboard.press("Escape")
+        sfail["get"] = True
+        pg.reload(); pg.wait_for_selector("#btnSettings")   # ① の条件の欄(#rkCond)も設定から作るので、読めないときは待たない
+        c.ok(wait_page("() => document.querySelector('#btnSettings').getAttribute('data-ui-status') === 'err'")
+             and "読み込めませんでした" in (pg.get_attribute("#btnSettings", "title") or ""), "読み込みの失敗: ⚙ に印と理由")
+        puts = sfail["puts"]
+        pg.evaluate(toggle % ("true" if was else "false"))
+        pg.wait_for_timeout(1200)
+        c.ok(sfail["puts"] == puts and bool((serve.STORE.get_ui().get("review") or {}).get("muted")) == (not was), "読めないまま変えても保存しない(既定値で上書きしない)")
+        sfail["get"] = False
+        pg.click("#btnSettings")
+        wait_page("() => !document.querySelector('.ui-settings-status').hidden", 5000)
+        c.ok("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
+        pg.click(".ui-settings-status button")
+        c.ok(wait_page("() => document.querySelector('.ui-settings-status').hidden && document.querySelector('#rvMute').checked === %s" % ("false" if was else "true")),
+             "「読み直す」で保存済みの設定が入り、印が消える")
+        pg.keyboard.press("Escape")
+        pg.unroute(spat)
         c.ok(not errors, "画面のエラーが出ていない %s" % errors[:3])
         ctx.close()
 

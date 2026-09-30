@@ -995,6 +995,37 @@ class TestPipelineHttp(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
+class TestSettingsMerge(StoreDir):
+    """設定の保存の「差のキーだけ」(PUT /api/settings {"patch"}。段2 監査 11): 別の窓が保存したほかのキーを消さない"""
+
+    def st(self):
+        with open(S.SETTINGS, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_merge_keeps_other_keys(self):
+        write_json(S.SETTINGS, {"glossary": "ぺこら", "replacements": "a=>b", "packFps": "30", "old": 1})
+        self.assertEqual(S.merge_settings({"patch": {"glossary": "みこ", "new": [1, 2], "old": None, "packFps": "60"}}), {"ok": True})
+        self.assertEqual(self.st(), {"glossary": "みこ", "replacements": "a=>b", "packFps": "30", "new": [1, 2]})   # 送らないキーは残る・null で消す・パックの項目は変えない
+        S.merge_settings({"patch": {}})
+        self.assertEqual(self.st()["replacements"], "a=>b")
+
+    def test_merge_without_file(self):
+        S.merge_settings({"patch": {"glossary": "x"}})
+        self.assertEqual(self.st(), {"glossary": "x"})
+
+    def test_merge_rejects(self):
+        write_json(S.SETTINGS, {"glossary": "ぺこら"})
+        for bad in ({"patch": []}, {"patch": "x"}, {"patch": {"": 1}}, {"patch": {"k" * 61: 1}}, {"patch": {"a": 1}, "glossary": "y"},
+                    {"patch": {"k%d" % i: 1 for i in range(201)}}):
+            with self.assertRaises(S.ApiError, msg=str(bad)[:60]) as c:
+                S.merge_settings(bad)
+            self.assertEqual(c.exception.status, 400)
+        with self.assertRaises(S.ApiError) as c:
+            S.merge_settings({"patch": {"big": "x" * 500000}})
+        self.assertEqual(c.exception.status, 413)
+        self.assertEqual(self.st(), {"glossary": "ぺこら"})   # 断ったときは書かない
+
+
 class TestRuntimeCleanup(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "SIGTERM の確認は Linux / Mac のみ")
     def test_runtime_removed_on_terminate(self):

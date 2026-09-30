@@ -242,14 +242,68 @@ function loadSiblings(){
   return sibP;
 }
 
-/* ---------- 設定(用語集・置換辞書など) ---------- */
-let setT = null;
-function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => { setT = null; api('/api/settings', { method: 'PUT', body: S.settings }).catch(() => {}); }, 600); }
+/* ---------- 設定(用語集・置換辞書など) ----------
+   監査 11(全体の計画 段2): 保存は「最後に保存した内容との差のキーだけ」を PUT /api/settings {"patch"}(サーバーはロックの中で今のファイルに合わせる。
+   窓を2つ開いても、別々の設定なら消し合わない。同じキーを同時に変えたときだけ後勝ち)。失敗は ⚙ の印と設定の引き出しの先頭に [もう一度](UIKit.settings.status)。
+   読み込みに失敗したら「設定を読み込めませんでした [読み直す]」にして、読み直すまで保存しない(空の設定で用語集・置換辞書・キー配置を上書きしないため) */
+let setT = null, setSaved = {}, setFailed = false, setChain = Promise.resolve(true);
+S.settingsLoadErr = '';
+const setSnap = o => { const m = {}; for (const k of Object.keys(o || {})) m[k] = JSON.stringify(o[k]); return m; };
+function settingsDiff(){
+  const cur = setSnap(S.settings), out = {};
+  for (const k of Object.keys(cur)) if (cur[k] !== setSaved[k]) out[k] = S.settings[k];
+  for (const k of Object.keys(setSaved)) if (!(k in cur)) out[k] = null;   // 消したキー
+  return out;
+}
+const setStatus = (...a) => { if (window.UIKit && UIKit.settings && UIKit.settings.status) UIKit.settings.status(...a); };
+/* 差を送る(1つずつ順に)。-> 保存できたか。keepalive: 画面を離れるとき(応答を待たない。失敗は戻ったときに送り直す) */
+function sendSettings(keepalive){
+  const run = async () => {
+    if (S.settingsLoadErr) return false;
+    const patch = settingsDiff(), keys = Object.keys(patch);
+    if (!keys.length){ if (setFailed){ setFailed = false; setStatus(''); } return true; }
+    const snap = setSnap(S.settings);
+    try {
+      await api('/api/settings', { method: 'PUT', body: { patch }, ...(keepalive ? { keepalive: true } : {}) });
+      for (const k of keys){ if (patch[k] === null) delete setSaved[k]; else setSaved[k] = snap[k]; }
+      if (setFailed){ setFailed = false; setStatus(''); }
+      return true;
+    } catch (e){
+      setFailed = true;
+      setStatus('err', '設定を保存できていません: ' + e.message, () => sendSettings());
+      return false;
+    }
+  };
+  setChain = setChain.then(run, run);
+  return setChain;
+}
+function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => { setT = null; sendSettings(); }, 600); }
 /* 画面を離れた(ui-kit の UIKit.life: タブの切り替え 'hidden'・別の窓へ移った 'blur'・閉じる直前 'pagehide')。
    窓を並べて使うと、隣の窓をクリックしてもタブの切り替え(visibilitychange)は来ないため(段階7-2)。ui-kit が無いときはタブの切り替えだけ */
 const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : document.addEventListener('visibilitychange', () => { if (document.hidden) fn('hidden'); });
 /* 入力の直後(0.6秒以内)にタブを閉じても設定が消えないように、画面を離れるときは待たずに送る(keepalive: 閉じたあとも送り切る) */
-onLeave(() => { if (setT){ clearTimeout(setT); setT = null; api('/api/settings', { method: 'PUT', body: S.settings, keepalive: true }).catch(() => {}); } });
+onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); } });
+if (window.UIKit && UIKit.life) UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
+/* 設定を読む。失敗したら保存を止めて知らせる(-> 読めたか) */
+async function loadSettings(){
+  try {
+    S.settings = await api('/api/settings');
+    setSaved = setSnap(S.settings); S.settingsLoadErr = ''; setFailed = false; setStatus('');
+    return true;
+  } catch (e){
+    if (!S.settings || typeof S.settings !== 'object') S.settings = {};
+    S.settingsLoadErr = e.message || 'エラー';
+    setStatus('err', `設定を読み込めませんでした(${S.settingsLoadErr})。読み直すまで、ここで変えた設定は保存しません`, () => reloadSettings(), '読み直す');
+    return false;
+  }
+}
+async function reloadSettings(){
+  clearTimeout(setT); setT = null;
+  if (!(await loadSettings())) return;
+  if (KM) KM.reload();
+  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderOptSummary(); renderKeyUI();
+  toast('設定を読み直しました', 3000, 'ok');
+}
 function readOpts(){
   const s = S.settings;
   s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoContext = $('#optAutoContext').checked; s.autoLearned = $('#optAutoLearned').checked; s.autoRedo = $('#optAutoRedo').checked; s.redoLarge = $('#optRedoLarge').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
@@ -1060,7 +1114,11 @@ function renderLearned(){
   }).join('') + '<p class="hint" style="margin:6px 0 0">「誤」「正」は、その場で直してから登録できます(例: 前後の文字を消して短くする)。</p>';
   const more = $('#lnMore'); more.hidden = found.length <= 10; more.textContent = learnedShowAll ? '上位10件だけ表示' : `残り${found.length - shown.length}件を表示`;
 }
-async function putSettingsNow(){ clearTimeout(setT); await api('/api/settings', { method: 'PUT', body: S.settings }); }
+async function putSettingsNow(){   // すぐ保存する(辞書への登録・カットの設定など)。保存できなければ投げる(呼んだ側が知らせる)
+  clearTimeout(setT); setT = null;
+  if (S.settingsLoadErr) throw new Error('設定を読み込めていないため保存しません(⚙ 設定の「読み直す」を押してください)');
+  if (!(await sendSettings())) throw new Error('設定を保存できませんでした(⚙ 設定に理由と「もう一度」があります)');
+}
 $('#lnList').addEventListener('input', e => {
   const row = e.target.closest('.ln'), x = row && learned.items[Number(row.dataset.i)]; if (!x) return;
   const w = row.querySelector('.lw').value, r = row.querySelector('.lr').value, edited = w !== x.wrong || r !== x.right;
@@ -2021,6 +2079,7 @@ const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
 }) : null;
 /* 編集の設定の keymap は「送ったキーだけ直す」(api/settings/patch。丸ごとの保存ではサーバーの値が残る = 窓を並べても戻らない) */
 function saveKeymap(part){
+  if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(⚙ 設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない(監査 11)
   const km = { ...((S.settings && S.settings.keymap) || {}), ...part };
   S.settings.keymap = km;
   api('/api/settings/patch', { body: { values: { keymap: km } } }).catch(e => toast('キー配置を保存できませんでした: ' + e.message, { ms: 0, kind: 'err' }));
@@ -2974,7 +3033,7 @@ async function boot(){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
-  try { S.settings = await api('/api/settings'); } catch { S.settings = {}; }
+  await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない(監査 11)
   if (KM) KM.reload();   // 校正のキーは編集の設定。共通の再生キーを以前ここに保存していたら、ホームの設定へ移す(部品が 1 回だけ)
   if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}

@@ -732,20 +732,35 @@ function reclaimFocus(){
 }
 
 /* ---------- 音量・設定の保存(/api/settings の settings.review だけを読み書き)---------- */
-let setTimer = null;
+/* 監査 11(全体の計画 段2): 保存の失敗は ⚙ の印と設定の引き出しの先頭に出して [もう一度](UIKit.settings.status)。成功したら消す。
+   読み込みに失敗したら既定値で始めるが、読み直すまで保存しない(既定値で保存済みの設定を上書きしないため) */
+let setTimer = null, setFailed = false, setLoadErr = '';
+const settingsStatus = (...a) => { if (window.UIKit && UIKit.settings && UIKit.settings.status) UIKit.settings.status(...a); };
 function touchSettings(){ clearTimeout(setTimer); setTimer = setTimeout(saveSettings, 600); }
 async function saveSettings(){
   clearTimeout(setTimer); setTimer = null;
+  if (setLoadErr) return false;
   try {
     // review の節だけを送る(サーバーがロックの中で合わせる。別のタブが別の節を同時に保存しても消し合わない)
     await Studio.api('/api/settings', { method: 'PUT', body: { section: 'review', value: { ...S.settings } } });
-  } catch {}
+    if (setFailed){ setFailed = false; settingsStatus(''); }
+    return true;
+  } catch (e){
+    setFailed = true;
+    settingsStatus('err', '設定を保存できていません: ' + (e && e.message || 'エラー'), () => saveSettings());
+    return false;
+  }
 }
 async function loadSettings(){
   try {
     const j = await Studio.api('/api/settings');
     S.settings = sanitizeSettings(j && j.settings && j.settings.review);
-  } catch { S.settings = sanitizeSettings({}); }
+    if (setLoadErr){ setLoadErr = ''; settingsStatus(''); }
+  } catch (e){
+    S.settings = sanitizeSettings({});
+    setLoadErr = (e && e.message) || 'エラー';
+    settingsStatus('err', `設定を読み込めませんでした(${setLoadErr})。読み直すまで、ここで変えた設定は保存しません`, () => loadSettings(), '読み直す');
+  }
   if (KM) KM.reload();
   syncSettingsUI(); applyTheater();
 }
@@ -2094,7 +2109,10 @@ Studio.onReady(() => {
     if (S.dirty) save();
     if (reason !== 'blur'){ pausePlayback(); stopPoll(); }
   };
-  const onBack = () => { if (Studio.step === 'review'){ startPoll(); loadTranscripts(); } };   // 文字起こしのタブ・窓で直してから戻ったとき
+  const onBack = () => {
+    if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す(監査 11)
+    if (Studio.step === 'review'){ startPoll(); loadTranscripts(); }   // 文字起こしのタブ・窓で直してから戻ったとき
+  };
   if (life){ life.onLeave(onLeft); life.onReturn(onBack); }
   else document.addEventListener('visibilitychange', () => { if (document.hidden) onLeft('hidden'); else onBack(); });
   window.addEventListener('beforeunload', e => {

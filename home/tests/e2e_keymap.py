@@ -183,7 +183,8 @@ def main():
                 ps.keyboard.press("?")
                 check(wait_js(ps, "!document.querySelector('#keyHelp').open", 3000), "スタジオも ? で閉じる")
                 ps.close()
-                pg.goto(base + "/transcribe/?doc=%s#tx" % tid)   # (再読み込みでは開いていた文書を見失う = GPT-06。段7)
+                pg.goto(base + "/transcribe/?doc=%s#tx" % tid)
+                pg.reload()   # 開いていた文書は URL の ?doc= に残るので(段2 監査 06)、上の goto は # だけの移動になり読み直さない。再読み込みで同じ文書が開く
                 check(wait_js(pg, "document.querySelectorAll('#segs .seg').length > 0", 20000) and wait_js(pg, "UIKit && document.querySelector('#keysList .ui-km-key[data-km=playPause]') && document.querySelector('#keysList .ui-km-key[data-km=playPause]').textContent.indexOf('Space') >= 0", 10000),
                       "編集を開き直すと、スタジオで変えた再生キー(Space)が効いている")
 

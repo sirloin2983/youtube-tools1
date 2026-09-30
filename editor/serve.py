@@ -3678,6 +3678,30 @@ def patch_settings(obj):
     return {"ok": True, "values": {k: st[k] for k in vals}}
 
 
+def merge_settings(obj):
+    """PUT /api/settings {"patch": {キー: 値 | null}}: 最上位のキーだけを、ロックの中で今のファイルに合わせる(null = そのキーを消す)。
+    api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は、丸ごとの保存と同じくここでは変えない(値の検査があるそちらの API だけで直す)。
+    案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる
+    → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち。docs/plan/phase2-data-safety.md の 6)"""
+    p = obj.get("patch")
+    if set(obj) != {"patch"} or not isinstance(p, dict) or len(p) > 200             or any(not isinstance(k, str) or not k or len(k) > 60 for k in p):
+        raise ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
+    with _settings_lock:
+        st = load_settings()
+        for k, v in p.items():
+            if k in SETTINGS_PATCH_KEYS:
+                continue
+            if v is None:
+                st.pop(k, None)
+            else:
+                st[k] = v
+        body = json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8")
+        if len(body) > 400000:
+            raise ApiError("too_big", "設定が大きすぎます", 413)
+        atomic_write(SETTINGS, body)
+    return {"ok": True}
+
+
 def parse_replacements(text):
     """「誤=>正」を1行に1つ書いた文字列 → [(誤, 正)](長い誤りから先に置換する)。"""
     pairs = []
@@ -6466,6 +6490,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/settings":
                 if len(json.dumps(obj)) > 200000:
                     raise ApiError("too_big", "設定が大きすぎます", 413)
+                if "patch" in obj:   # 画面が最後に保存した内容との差のキーだけ(監査 11)。窓を2つ開いても別々の設定なら消し合わない
+                    return self._json(200, merge_settings(obj))
                 with _settings_lock:   # ほかの画面から api/settings/patch で直す項目は、丸ごとの保存ではサーバーの値を残す(古い画面が戻さないように)
                     cur = load_settings()
                     obj = {k: v for k, v in obj.items() if k not in SETTINGS_PATCH_KEYS}

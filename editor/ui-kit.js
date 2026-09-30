@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v6 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v9 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -27,7 +27,9 @@
        available()。保存に失敗したら知らせと [もう一度])。
        UIKit.autorun(まとめて実行の部品: panel(el, {kind, modes}) = 要約1行と「設定を変える」・start(path, body, estBody) = 見積もり → 始める → 終わったら知らせ・
        stepLabel / runLabel = 状態の言葉)。
-       UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values)) */
+       UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
+   v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
+   v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf() */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -890,10 +892,49 @@
     settingsDrawerEl = el;
     return el;
   }
+  /* v9(2026-09-30・全体の計画 段2 監査 11): 設定の保存・読み込みの失敗を出す。UIKit.settings.status(state, message, retry, label)
+     state = 'err' のとき、⚙ ボタン([data-ui-settings])に赤い印と title、設定の引き出しの先頭に「message [label(既定: もう一度)]」。
+     それ以外('' / null)で消す。retry は押したときに呼ぶ関数(無ければボタンを出さない)。文書の保存の表示とは別の場所 */
+  var setStatus = { state: '', message: '', retry: null, label: '' }, setStatusEl = null;
+  function paintSettingsStatus() {
+    var err = setStatus.state === 'err';
+    var btns = document.querySelectorAll('[data-ui-settings]');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.__uiSetLabel === undefined) b.__uiSetLabel = b.getAttribute('aria-label');
+      if (b.__uiSetTitle === undefined) b.__uiSetTitle = b.getAttribute('title');
+      if (err) {
+        b.setAttribute('data-ui-status', 'err');
+        b.setAttribute('title', setStatus.message);
+        b.setAttribute('aria-label', (b.__uiSetLabel || '設定') + '(' + setStatus.message + ')');
+      } else {
+        b.removeAttribute('data-ui-status');
+        if (b.__uiSetTitle === null) b.removeAttribute('title'); else b.setAttribute('title', b.__uiSetTitle);
+        if (b.__uiSetLabel === null) b.removeAttribute('aria-label'); else b.setAttribute('aria-label', b.__uiSetLabel);
+      }
+    }
+    if (!setStatusEl) return;
+    setStatusEl.hidden = !err;
+    setStatusEl.textContent = '';
+    if (!err) return;
+    var t = document.createElement('span'); t.textContent = setStatus.message; setStatusEl.appendChild(t);
+    if (typeof setStatus.retry === 'function') {
+      var rb = document.createElement('button'); rb.type = 'button'; rb.className = 'btn small'; rb.textContent = setStatus.label || 'もう一度';
+      var fn = setStatus.retry;
+      rb.addEventListener('click', function () { rb.disabled = true; try { var r = fn(); if (r && typeof r.then === 'function') r.then(function () { rb.disabled = false; }, function () { rb.disabled = false; }); else rb.disabled = false; } catch (e) { rb.disabled = false; } });
+      setStatusEl.appendChild(rb);
+    }
+  }
+  function settingsStatus(state, message, retry, label) {
+    setStatus = { state: state === 'err' ? 'err' : '', message: String(message || ''), retry: retry || null, label: label || '' };
+    paintSettingsStatus();
+  }
   function settingsMount(opts) {
     opts = opts || {};
     var el = buildSettingsDrawer(), body = el.querySelector('#uiSettingsBody');
     body.innerHTML = '';
+    if (!setStatusEl) { setStatusEl = document.createElement('div'); setStatusEl.className = 'notice err ui-settings-status'; setStatusEl.setAttribute('role', 'alert'); setStatusEl.hidden = true; }
+    body.appendChild(setStatusEl);
     if (opts.tool) { opts.tool.classList.add('ui-settings-sec'); body.appendChild(opts.tool); }
     body.appendChild(buildGeneralSection());
     if (opts.title) el.querySelector('#uiSettingsTitle').textContent = opts.title;
@@ -905,9 +946,10 @@
       btns[i].__uiSettingsWired = true;
       (function (btn) { btn.addEventListener('click', function () { if (drawer.isOpen(el)) drawer.close(el); else drawer.open(el, { modal: true, opener: btn }); }); })(btns[i]);
     }
+    paintSettingsStatus();
     return el;
   }
-  var settings = { mount: settingsMount };
+  var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; } };
 
   /* ---- keys(共通の再生キー) ---- isTyping/helpHtml/playback(NOT auto-installed。画面が自分のキー処理の前に呼び、true なら自分の処理をしない) */
   /* 文字を打てる input だけ「入力中」とみなす(checkbox・radio・button・submit・color・file などは単体キーを邪魔しない) */

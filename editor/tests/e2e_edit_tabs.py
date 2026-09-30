@@ -6,10 +6,12 @@
 """
 import json
 import os
+import re
 import shutil
 import tempfile
 import urllib.parse
 import sys
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -406,6 +408,71 @@ def main():
                 del errors[n_err:]   # 見つからない動画の 404 はブラウザがエラーとして記録する(想定どおり)
             finally:
                 shutil.rmtree(outside, ignore_errors=True)
+
+            # ---- 段2 監査 11: 設定の保存・読み込みの失敗を出す(⚙ の印と引き出しの先頭の [もう一度])・読めないまま空で上書きしない
+            n_err = len(errors)
+            put_fail = {"on": True, "puts": 0, "get_fail": False}
+
+            def settings_route(route):
+                if route.request.method == "PUT":
+                    put_fail["puts"] += 1
+                if (route.request.method == "PUT" and put_fail["on"]) or (route.request.method == "GET" and put_fail["get_fail"]):
+                    route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
+                else:
+                    route.continue_()
+            spat = re.compile(r".*/api/settings$")
+            pg.route(spat, settings_route)
+            set_diar = "(v => { const e = document.querySelector('#diarNum'); e.value = v; e.dispatchEvent(new Event('change', { bubbles: true })); })"
+            pg.evaluate(set_diar + "('3')")
+            wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
+            check("テストで失敗させた" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "保存の失敗: ⚙ に印と理由")
+            pg.click("[data-ui-settings]")
+            wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
+            check("設定を保存できていません" in pg.inner_text(".ui-settings-status") and pg.is_visible(".ui-settings-status button"),
+                  "設定の引き出しの先頭に理由と「もう一度」: " + pg.inner_text(".ui-settings-status"))
+            check(pg.inner_text("#saveState") != "設定を保存できていません", "文書の保存の表示とは別の場所")
+            put_fail["on"] = False
+            pg.click(".ui-settings-status button")
+            wait_js(pg, "document.querySelector('.ui-settings-status').hidden && !document.querySelector('[data-ui-settings]').hasAttribute('data-ui-status')", 10000)
+            check(str(srv.get("/api/settings").get("diarNum")) == "3", "「もう一度」で保存でき、印が消える")
+            pg.keyboard.press("Escape")
+            pg.unroute(spat)   # 同期版の route は Python が Playwright を呼んでいる間しか動かない(下の待ちで要求が止まらないように外す)
+            # 2つの窓で別々の設定を変えても消し合わない(差のキーだけ送る)
+            pg2 = ctx.new_page()
+            pg2.goto(srv.base + "#tx")
+            wait_js(pg2, "document.querySelector('#ver').textContent.startsWith('v')")
+            pg2.wait_for_timeout(2500)   # 設定を読み終わるまで(読む前に変えた値は、読んだ設定で置き換わる)
+            pg2.evaluate("document.querySelector('#mPad').value = document.querySelector('#mPad').options[document.querySelector('#mPad').options.length - 1].value; document.querySelector('#mPad').dispatchEvent(new Event('change', { bubbles: true }))")
+            mpad = pg2.evaluate("document.querySelector('#mPad').value")
+            pg.evaluate(set_diar + "('4')")   # 窓1は、窓2が変える前に読んだ設定のまま
+            for _ in range(60):
+                st = srv.get("/api/settings")
+                if str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad):
+                    break
+                pg.wait_for_timeout(100)
+            check(str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad), "2つの窓で別々の設定を変えても、両方残る: %s %s" % (st.get("diarNum"), st.get("mPad")))
+            pg2.close()
+            # 読み込みに失敗: 知らせて、読み直すまで保存しない
+            pg.route(spat, settings_route)
+            put_fail["get_fail"] = True
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
+            check("読み込めませんでした" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "読み込みの失敗: ⚙ に印と理由")
+            puts = put_fail["puts"]
+            pg.evaluate(set_diar + "('5')")
+            pg.wait_for_timeout(1200)
+            check(put_fail["puts"] == puts and str(srv.get("/api/settings").get("diarNum")) == "4", "読めないまま変えても保存しない(空で上書きしない)")
+            put_fail["get_fail"] = False
+            pg.click("[data-ui-settings]")
+            wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
+            check("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
+            pg.click(".ui-settings-status button")
+            wait_js(pg, "document.querySelector('.ui-settings-status').hidden && document.querySelector('#diarNum').value === '4'", 10000)
+            check(True, "「読み直す」で保存済みの設定が入り、印が消える")
+            pg.keyboard.press("Escape")
+            pg.unroute(spat)
+            del errors[n_err:]   # 500 はブラウザがエラーとして記録する(想定どおり)
 
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()

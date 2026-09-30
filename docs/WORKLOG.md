@@ -1838,7 +1838,7 @@
 - 未コミット: なし
 
 ## 2026-09-30 Claude Code(サブエージェント。まとめ役が代筆)— 段2 2. B-6 まとめて実行の記録をファイルに
-- 変更: `home/autorun.py`(終わった実行を `app\logsutorun-runs.jsonl` に1行ずつ。1行 = `Run.public()` + `v: 1`。書くのは `_loop` の finally・順番待ちの中止・入口の終了の3か所だけ。
+- 変更: `home/autorun.py`(終わった実行を `app\logs\autorun-runs.jsonl` に1行ずつ。1行 = `Run.public()` + `v: 1`。書くのは `_loop` の finally・順番待ちの中止・入口の終了の3か所だけ。
   `Run.logged` で二重に書かない。書き込みは `cv` の外の別のロック `_log_lock`。1MB で `.1` に回す(1世代・clientlog.py と同じ形)。書けなくても実行は止めず `log_error` に。
   起動時に末尾 256KB を読む(足りなければ `.1` も)。壊れた行・版の違う行・終わっていない行は飛ばす。`snapshot()` に `past`(配信・文書ごとの最後の結果でメモリに無いもの、最大 50 件)。
   `history(limit, offset)`(新しい順・既定 50・最大 200)。`AutoRunner(log_dir=None)` なら今までどおりメモリだけ)・
@@ -1884,3 +1884,20 @@
   通過: e2e_edit_tabs・e2e_edit_cut・e2e_edit_pack・e2e_edit_voices・e2e_ui_mounted・e2e_ui_handoff・e2e_row_editing・e2e_proofread_accuracy・e2e_proofread_keys・e2e_folder_marker_range・e2e_eval_set・node 9/9
   (流し直して通ったもの: proofread_keys の Target crashed・folder_marker_range と edit_cut の "Connection closed while reading from the driver"・ui_mounted の起動直後の落ち)
 - 未コミット: `ui-kit/`・`studio/review.js`(6. 監査 11 の途中)
+
+## 2026-09-30 Claude Code — 段2 6. 監査 11 設定の保存の失敗を出す
+- 変更(ui-kit v9。`ui-kit/ui-kit.js`・`ui-kit.css`・`README.md` → `python dev/sync_ui_kit.py` で写した): `UIKit.settings.status(state, message, retry, label)`・`statusOf()`。
+  `'err'` で ⚙ ボタン(`[data-ui-settings]`)に赤い印(`data-ui-status="err"`)・title と aria-label に理由、設定の引き出しの先頭に `.notice.err.ui-settings-status`「理由 [もう一度/label]」。`''` で消す。
+  (計画は「v6 → v7」だったが、実物はすでに v8(keymap)だったので v9 にした。ui-kit.js の先頭の行の版も v6 のままだったので v9 に)
+- 変更(編集): `editor/serve.py` に `merge_settings`(`PUT /api/settings {"patch": {キー: 値 | null}}`。最上位のキーだけロックの中で今のファイルに合わせる・null で消す・`SETTINGS_PATCH_KEYS` は変えない・形が違えば 400・大きすぎれば 413。丸ごとの PUT は従来どおり)。
+  `editor/app.js`: 保存は「最後に保存した内容(`setSaved`)との差のキーだけ」を1つずつ順に送る(`sendSettings`)。失敗 → `status('err', …, 再送)`・成功で消す・離れるときの keepalive の送信が失敗していたら戻ったとき(`UIKit.life.onReturn`)に送り直す。
+  読み込みに失敗 → `S.settingsLoadErr` を立てて「設定を読み込めませんでした… [読み直す]」、読み直すまで保存しない(`putSettingsNow` は投げる・`saveKeymap` も止める = 空の配置で上書きしない)。読み直したら画面の欄を設定から描き直す
+- 変更(スタジオ): `studio/review.js` の ③ 確認の設定(節ごとの保存はそのまま)に同じ形(保存の失敗の印と再送・読み込みの失敗で既定値のまま保存しない・戻ったときに送り直す)。`queue.js` はすでに知らせているので変えていない
+- 決定・理由: 競合はキー単位の合わせ(計画どおり。rev の 409 にすると設定の画面に「読み直す/上書き」の選択を作ることになるため。同じキーを2つの窓で同時に変えたときだけ後勝ち)
+- テスト: `editor/tests/test_backend.py` に TestSettingsMerge(別のキーが残る・null で消す・パックの項目は変えない・形の検査 400・413・断ったら書かない)、`test_edit.py` に HTTP の `test_settings_put_patch`(2つの窓の別々のキーが両方残る)。
+  `e2e_edit_tabs.py` に1節(`page.route` で PUT を 500 → ⚙ の印と理由・引き出しの「もう一度」→ 戻して押すと保存でき印が消える・2つの窓で別々の設定が両方残る・GET を 500 → 読み込みの失敗の印・変えても PUT しない・「読み直す」で保存済みの値)。
+  `studio/tests/e2e_ui.py` に同じ確認(単独と --mounted)。`home/tests/e2e_keymap.py` の「編集を開き直す」は `goto` のあとに `reload`(06 で URL に `?doc=` が残るので、同じ URL への goto が # だけの移動になり読み直していなかった)
+- 注意: 同期版の Playwright の `page.route` は、Python が Playwright を呼んでいる間しか動かない。route を付けたまま `time.sleep` で待つと、画面の要求がそこで止まる(`pg.wait_for_timeout` で待つ)
+- 通過: 編集の unit 一式(skip 1)・dev/tests/test_ui_kit_sync・node(編集 9/9・スタジオ 18/18)・studio e2e_ui 154/154・e2e_ui --mounted 167/167・ui-kit e2e_styleguide・home e2e_keymap・e2e_portal・
+  編集の e2e 一式(edit_tabs・proofread_accuracy・proofread_keys・folder_marker_range・eval_set・row_editing・ui_handoff・edit_cut・edit_voices・edit_pack・ui_mounted)
+- 未コミット: なし(版上げ・README・ROADMAP は次の「段の終わり」のコミット)
