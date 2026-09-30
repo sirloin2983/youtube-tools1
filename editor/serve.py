@@ -12,8 +12,10 @@
   POST /api/transcribe       文字起こしジョブを追加(順番に1つずつ処理)
   GET  /api/jobs             ジョブの一覧と進捗 / POST /api/transcribe/cancel で中止
   POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)
-  GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない)
-  POST /api/voices/learn     名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存)
+  GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない。generic = 一般的な名前)
+  GET  /api/voices/preview   ?tid=&embedding= 覚える前の確認(読むだけ。覚える人・行・秒・既にある名前・断った名前・使わなかった行の数。段1)
+  POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
+                             校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
   POST /api/voices/delete    覚えている声を消す {embedding, name}
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
   POST /api/redo             {"tid", "redoLarge"?} 疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
@@ -3079,6 +3081,20 @@ VOICE_MAX_SEC = 240.0     # 1人あたり使う長さの上限(秒)
 VOICE_MAX_PEOPLE = 300
 DEFAULT_SPK_NAME = re.compile(r"^話者\d+$")   # 話者判別が付けた仮の名前(覚えない・声で付けた名前で置き換えてよい)
 _voices_lock = threading.Lock()
+# 一般的な名前(監査18。段1・2026-09-29 ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
+# 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に NFKC・小文字・空白を寄せる(全角の「ＭＣ」・「Speaker 1」も同じに)
+GENERIC_SPK_NAMES = frozenset(("本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
+                               "話者", "speaker", "スピーカー"))
+GENERIC_SPK_FORM = re.compile(r"^(?:話者|speaker|spk|スピーカー)?(?:\d+|[a-z])$")   # 話者A・話者1・Speaker 1・英字1文字・数字だけ
+
+
+def _spk_name_key(name):
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(name or "")).lower())
+
+
+def is_generic_speaker_name(name):
+    k = _spk_name_key(name)
+    return bool(k) and (k in GENERIC_SPK_NAMES or bool(GENERIC_SPK_FORM.match(k)))
 
 
 def voices_path(emb):
@@ -3260,20 +3276,96 @@ def recognize_voices(job, tid, wav, offset, emb):
     return named
 
 
+VOICE_LEARN_TAGS = ("overlap", "bgm", "unclear")   # この印の行は覚えない(声が重なる・BGM が大きい・聞き取れない。監査17)
+EVAL_SET_VOICE_MSG = "評価用の文字起こしでは声を覚えません(評価用のデータを、ほかの文書の話者の名前付けに使わないため)。評価用を外してから行ってください"
+
+
+def voice_learn_plan(doc):
+    """声を覚えるときに使う行(監査17。段1): voice_groups の条件(1秒以上・声が混ざっていない)に加えて、校正済みで、音のメモ(重なり・BGM・聞き取れない)が無い行だけ。
+    話者判別のときの照らし合わせ(recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
+    -> {"groups": {名前: ([(開始, 終了)...], 秒)}, "speakers": {名前: [話者の id]}, "refused": [{"name", "speakers", "reason": "generic"|"no_rows"}],
+        "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ)}"""
+    names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    by_name, refused = {}, {}
+    for sid, n in names.items():
+        if not n or DEFAULT_SPK_NAME.match(n):
+            continue   # 仮の名前 = 名前を付けていない(断った扱いにもしない)
+        if is_generic_speaker_name(n):
+            refused.setdefault(n, {"name": n, "speakers": [], "reason": "generic"})["speakers"].append(sid)
+            continue
+        by_name.setdefault(n, []).append(sid)
+    who = {sid: n for n, sids in by_name.items() for sid in sids}
+    skipped = {"unproofed": 0, "tagged": 0, "mixed": 0, "short": 0}
+    ok = []
+    for g in doc.get("segments") or []:
+        if not isinstance(g, dict) or g.get("speaker") not in who:
+            continue
+        a, b = num(g.get("start")), num(g.get("end"))
+        tags = g.get("tags") if isinstance(g.get("tags"), list) else []
+        if a is None or b is None or b - a < VOICE_MIN_ROW:
+            skipped["short"] += 1
+        elif MIXED_FLAG in str(g.get("flag") or ""):
+            skipped["mixed"] += 1
+        elif any(t in tags for t in VOICE_LEARN_TAGS):
+            skipped["tagged"] += 1
+        elif g.get("proofed") is not True:
+            skipped["unproofed"] += 1
+        else:
+            ok.append(g)
+    groups = voice_groups(ok, lambda g: who.get(g.get("speaker")) or "")
+    for n, sids in by_name.items():
+        if n not in groups:
+            refused[n] = {"name": n, "speakers": sids, "reason": "no_rows"}
+    return {"groups": groups, "speakers": {n: sids for n, sids in by_name.items() if n in groups},
+            "refused": sorted(refused.values(), key=lambda r: r["name"]), "skipped": skipped}
+
+
+def _voice_emb(req, doc):
+    emb = str(req.get("embedding") or (doc.get("diarization") or {}).get("embedding") or DIAR_EMB_DEFAULT)
+    return emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT
+
+
+def voice_preview(tid, emb):
+    """覚える前の確認(GET /api/voices/preview。読むだけ・ジョブを作らない。監査17・18)"""
+    doc = read_transcript(str(tid or ""))
+    emb = _voice_emb({"embedding": emb}, doc)
+    plan = voice_learn_plan(doc)
+    voices = load_voices(emb)
+    people = []
+    for n in sorted(plan["groups"]):
+        rs, sec = plan["groups"][n]
+        old = voices.get(n)
+        people.append({"name": n, "speaker": plan["speakers"][n][0], "speakers": plan["speakers"][n], "rows": len(rs), "sec": round(sec, 1), "exists": bool(old),
+                       "old": {"rows": int(old.get("rows") or 0), "sec": float(old.get("sec") or 0.0), "updatedAt": int(old.get("updatedAt") or 0)} if old else None})
+    return {"tid": tid, "embedding": emb, "evalSet": doc.get("evalSet") is True, "people": people, "refused": plan["refused"], "skipped": plan["skipped"]}
+
+
 def validate_voice_learn(req):
     tid = str(req.get("tid") or "")
     doc = read_transcript(tid)
-    names = {s.get("id"): str(s.get("name") or "").strip() for s in doc.get("speakers") or [] if isinstance(s, dict)}
-    usable = {k for k, n in names.items() if n and not DEFAULT_SPK_NAME.match(n)}
-    grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") if g.get("speaker") in usable else "")
-    if not grp:
-        raise ApiError("no_names", "名前を付けた話者の行(1秒以上)がありません。「話者」の欄で名前を付けてから押してください(「話者1」のような仮の名前は覚えません)", 400)
+    if doc.get("evalSet") is True:   # 監査02: 評価用の声を覚えると、評価用のデータがほかの文書の名前付けに使われる
+        raise ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
+    want = req.get("names")
+    if not isinstance(want, list) or not all(isinstance(n, str) for n in want):   # 画面と API の版はそろえて上げる(古い形は受けない = 確認を飛ばして覚えない)
+        raise ApiError("bad_request", "覚える人の指定(names)がありません。画面を読み込み直してから、もう一度押してください", 400)
+    plan = voice_learn_plan(doc)
+    names = [n for n in dict.fromkeys(str(x).strip()[:60] for x in want) if n in plan["groups"]]
+    if not names:
+        gen = [r["name"] for r in plan["refused"] if r["reason"] == "generic"]
+        raise ApiError("no_names", "覚えられる話者がいません。校正済みの行(1秒以上・音のメモなし)がある、名前を付けた話者の声だけを覚えます"
+                       "(「話者1」のような仮の名前%sは覚えません)" % ("・「%s」のような一般的な名前" % "」「".join(gen[:3]) if gen else ""), 400)
     check_source(doc.get("sourcePath"))
+    emb = _voice_emb(req, doc)
+    same = {str(x) for x in req.get("confirmSame") or [] if isinstance(x, str)}
+    voices = load_voices(emb)
+    ask = [n for n in names if n in voices and n not in same]
+    if ask:   # 監査18: 既にある名前に足すのは「同じ人」と確かめたときだけ(別人の声が混ざると、その名前の照らし合わせが外れる)
+        raise ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
     with _jobs_lock:
         if any(j.get("kind") in ("diarize", "retranscribe", "redo", "voice-learn") and j["spec"].get("tid") == tid and j["state"] in ACTIVE_STATES for j in _jobs.values()):
             raise ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
-    emb = str(req.get("embedding") or (doc.get("diarization") or {}).get("embedding") or DIAR_EMB_DEFAULT)
-    return {"tid": tid, "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "声を覚える: " + (str(doc.get("title") or "") or "無題")[:100]}
+    return {"tid": tid, "embedding": emb, "names": names, "confirmSame": sorted(same & set(names)),
+            "title": "声を覚える: " + (str(doc.get("title") or "") or "無題")[:100]}
 
 
 def run_voice_learn(job):
@@ -3282,12 +3374,14 @@ def run_voice_learn(job):
     try:
         os.makedirs(TMP_DIR, exist_ok=True)
         doc = read_transcript(spec["tid"])
+        if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
+            raise ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
         src = check_source(doc.get("sourcePath"))
         start, end = num(doc.get("start"), 0.0) or 0.0, num(doc.get("end"))
-        names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict)}
-        grp = voice_groups(doc.get("segments") or [], lambda g: names.get(g.get("speaker")) if names.get(g.get("speaker")) and not DEFAULT_SPK_NAME.match(names.get(g.get("speaker"))) else "")
+        plan = voice_learn_plan(doc)   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)
+        grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}
         if not grp:
-            raise ApiError("no_names", "名前を付けた話者の行がありません", 400)
+            raise ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
         if backend_name() != "fake" and not has_sherpa():
             raise ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
@@ -3303,11 +3397,15 @@ def run_voice_learn(job):
         learned = []
         with _voices_lock:
             voices = load_voices(spec["embedding"])
+            same = set(spec.get("confirmSame") or [])
             for n, v in zip(people, vecs):
                 if not v:
                     continue
                 rows, sec = len(grp[n][0]), grp[n][1]
                 old = voices.get(n)
+                if old and n not in same:   # 待っている間にほかで同じ名前を覚えた(確かめていない人の声には足さない)
+                    job.setdefault("warnings", []).append("「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
+                    continue
                 if old and len(old["vec"]) == len(v):   # 前に覚えた声と、使った長さで重みを付けて混ぜる(配信ごとの声の揺れをならす)
                     w0 = min(float(old.get("sec") or 0.0), 3600.0)
                     v = _unit([a * w0 + b * sec for a, b in zip(old["vec"], v)]) or v
@@ -3343,7 +3441,8 @@ def voices_summary():
     for emb in DIAR_EMBS:
         v = load_voices(emb)
         if v:
-            out[emb] = sorted(({"name": n, "rows": int(x.get("rows") or 0), "sec": float(x.get("sec") or 0.0), "updatedAt": int(x.get("updatedAt") or 0)}
+            out[emb] = sorted(({"name": n, "rows": int(x.get("rows") or 0), "sec": float(x.get("sec") or 0.0), "updatedAt": int(x.get("updatedAt") or 0),
+                                "generic": is_generic_speaker_name(n)}   # 一般的な名前で前に覚えた声(消さない。一覧で「忘れることをおすすめします」と出す)
                                for n, x in v.items()), key=lambda r: r["name"])
     return out
 
@@ -5934,6 +6033,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, read_marker())
             if u.path == "/api/voices":   # A-3: 覚えている声の一覧(特徴そのものは返さない)
                 return self._json(200, {"voices": voices_summary(), "match": VOICE_MATCH})
+            if u.path == "/api/voices/preview":   # 段1(監査17・18): 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
+                return self._json(200, voice_preview((q.get("tid") or [""])[0], (q.get("embedding") or [""])[0]))
             if u.path == "/api/transcribed-ranges":
                 return self._json(200, {"items": transcribed_ranges()})
             if u.path == "/api/jobs":

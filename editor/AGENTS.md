@@ -161,6 +161,7 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
   コサイン類似度 `VOICE_MATCH`(0.60)以上・2番目との差 `VOICE_MARGIN`(0.08)以上・1つの名前は1人だけ(`match_voices`)のときに、
   **仮の名前(`話者n`)のままの話者だけ**名前を付ける。失敗しても判別の結果は残す(警告)。ジョブ `voice-learn`(`/api/voices/learn`)、一覧 `GET /api/voices`(特徴そのものは返さない)・`/api/voices/delete`。
   疑似モードの特徴 `embed_fake` は偽の話者判別と同じ 10 秒の入れ替わり(テストで「覚える → 名前が付く」を確かめるため)。声の特徴は個人を見分けられる情報なので、作業データの外に出さない(.gitignore の `**/voices/`)
+  **覚えるときの安全(段1・2026-09-30。監査02・17・18)**: 覚えるときに使う行は `voice_learn_plan`(`voice_groups` の条件 + **校正済み** + 音のメモ `overlap`・`bgm`・`unclear` が無い)。**判別のときの照らし合わせ(`recognize_voices`)は `voice_groups` のまま**(校正前の文書でも名前が付く。変えない決定)。一般的な名前(本人・ゲスト・配信者・MC など・`話者A`・`Speaker 1`・英字1文字。`GENERIC_SPK_NAMES`・`is_generic_speaker_name` の1か所。NFKC・小文字・空白を寄せて比べる)は覚えない。画面は押すと `GET /api/voices/preview`(読むだけ。人・行・秒・既にある名前・断った名前・使わなかった行の数)を `confirmDlg` に出し、既にある名前は1人ずつ「同じ人ですか」。`POST /api/voices/learn` は `{tid, embedding, names, confirmSame}`(`names` が無い古い形は 400・既にある名前が `confirmSame` に無ければ 409 `confirm_same`)。`run_voice_learn` は読み直した文書で決め直し、`spec["names"]` との積だけを覚える。一覧の `generic` が真の声は「一般的な名前です(忘れることをおすすめします)」(消さない)
 - 映像の上の字幕(`#playerCaption`)は、行の話者の名前がメンバーと合えばその色(`capSpeakerColor`。入口の `api/ytt/streamer-colors` を名前ごとに1回引いて覚える・パックのタブの `tx.pk.speakerColors` が '0' なら出さない・合わなければ pack-tab.js が body に入れた配信者の色 `--tt-cap-color` のまま)
 - 行の ▶ は**その行だけ**再生して止まる(`playSeg(s, true)`)。通しの再生は映像そのものの再生ボタン / Space だけ
 - キー操作は**単体キー**(Shift 不要)。例外は Shift+Space(校正済みにして次へ)と Shift+↓/↑(未校正への移動)だけ。Z は2回押しで削除。
@@ -187,7 +188,7 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
 - 行のボタンは mousedown でフォーカスを移さない(移すと前の行の操作ボタンが消えて一覧がずれ、押し損じる)。今の行は click で切り替える
 - 行の追加は前後のすき間に置く。すき間が無いときは仮の 1.5 秒で置き、重なりは時刻の欄を赤く(`.times.ovl`)して知らせる。`sortSegs()` は開始時刻だけの安定ソート
 - 評価用(evalSet)の文字起こしは、学習・辞書・提案に使わない(精度を測るためだけ)。
-  **ただし「声を覚える」(`validate_voice_learn`・`run_voice_learn`・画面のボタン)は今は評価用を断っていない**(UI 追加監査の 02。直すときは UI と API の両方で断る)。再認識・疑わしい所の認識し直し・保管データの評価用の分け方は断っている
+  「声を覚える」も断る(段1・監査02。`validate_voice_learn`・`run_voice_learn`(待っている間に評価用へ変えた場合)の `eval_set` 400 と、画面のボタンを無効にしてヒントに理由)。再認識・疑わしい所の認識し直し・保管データの評価用の分け方も断っている
 
 ### v0.18.0(画面の全面見直し 段1〜3。正本は `../.design/ui-overhaul/DESIGN_BRIEF.md`・`IMPLEMENTATION.md`)
 - ヘッダー: `ui-appnav`(`<nav data-ui-appnav="transcribe">`。中身は `ui-kit.js` の `UIKit.appnav` が描く「ホーム/スタジオ/編集」)が、以前のブランドの印・「他のツール」メニュー・

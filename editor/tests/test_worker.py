@@ -304,8 +304,10 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual((j["state"], j.get("named") or []), ("done", []), j.get("error"))   # まだ何も覚えていない
             d = self.doc(tid)
             d["speakers"][0]["name"] = "兎田ぺこら"
+            for g in d["segments"]:
+                g["proofed"] = True   # 段1(監査17): 覚えるのは校正済みの行だけ
             S.save_transcript(tid, d)
-            j2 = S.add_job(S.validate_voice_learn({"tid": tid}), "voice-learn")
+            j2 = S.add_job(S.validate_voice_learn({"tid": tid, "names": ["兎田ぺこら"]}), "voice-learn")
             S.work_one(j2["id"])
             self.assertEqual((j2["state"], j2.get("learned")), ("done", ["兎田ぺこら"]), j2.get("error"))
             j3 = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す

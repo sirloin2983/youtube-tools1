@@ -1749,3 +1749,20 @@
 - テスト: `e2e_edit_pack.py` に「開いたまま Alt+1 → 3 パック のまま・引き出しも開いたまま」「開いたまま `location.hash='#tx'` → 引き出しが閉じ、`[inert]`・幕が無く、フォーカスは 1 文字起こし のボタン、ヘッダーのタブが押せる」、
   `e2e_edit_tabs.py` に「⚙ 設定を開いている間は Alt+2 でタブが変わらない」を足した。通過: e2e_edit_pack・e2e_edit_tabs(77)・e2e_ui_mounted(1回目は Playwright の "Connection closed while reading from the driver"、流し直しで通過)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 3. 監査02+17+18 「声を覚える」の安全
+- 変更(`editor/serve.py`): `voice_learn_plan`(覚える行 = 1秒以上・声が混ざっていない・**校正済み**・音のメモ overlap/bgm/unclear が無い。除いた行を理由ごとに数える)・
+  `is_generic_speaker_name`/`GENERIC_SPK_NAMES`(ユーザー決定の一覧 + `話者A`・`Speaker 1`・英字1文字・数字だけ。NFKC・小文字・空白を寄せる)・
+  `GET /api/voices/preview`(読むだけ。人・行・秒・exists/old・refused(generic/no_rows)・skipped・evalSet)・
+  `validate_voice_learn`(評価用 400 `eval_set`・`names` が無い古い形 400・既にある名前が `confirmSame` に無ければ 409 `confirm_same` + names)・
+  `run_voice_learn`(読み直した文書で評価用を断り、`spec["names"]` との積だけ覚える。待っている間にほかで同じ名前を覚えたら足さずに注意)・`voices_summary` に `generic`。
+  **判別のときの照らし合わせ(`recognize_voices`)は `voice_groups` のまま**(決定どおり。テストで確認)
+- 変更(`editor/app.js`・`index.html`): 評価用ならボタンを無効にしてヒントに理由(`syncEval` からも描き直す)。押すと preview → `confirmDlg` に人・行・秒・覚えない名前・使わなかった行 →
+  既にある名前は1人ずつ「同じ人ですか」→ 確かめた人だけ送る。覚えられる人がいなければ知らせだけ(ジョブを作らない)。覚えている声の一覧で一般的な名前に「一般的な名前です(忘れることをおすすめします)」の札。
+  `#cfText` に `white-space:pre-line`(確認の本文を複数行に)
+- 決定・理由: 確認は計画どおり今の `confirmDlg`(`#dlgConfirm`)を使った。ui-guidelines の「確認は `UIKit.dialog.confirm`」には、本文が1段落しか入らない(改行が出ない)ので今回は寄せていない
+  (ui-kit に複数行の本文を足すのは段5 の見た目の統一か、夜間の見直しの 6 の「確認のダイアログを ui-kit に」でまとめて行う候補)
+- テスト: `editor/tests/test_voices.py` を書き直し・足した(17 件: 一般名の判定・校正済みだけ・未校正だけなら 400・評価用は validate/run の両方・preview の数・既にある名前の 409 と confirmSame・確認のあとで名前を付けた人は覚えない・待っている間に覚えられた名前に足さない・一覧の generic・照らし合わせは未校正でも名前が付く)。
+  `test_worker.py` の声の通しの確認を新しい形(校正済み・names)に。`e2e_edit_voices.py` に未校正のときの知らせ・確認のダイアログの人・行・秒と「本人」・2回目の「同じ人ですか」(やめる/足す)・API の 409/400・評価用でボタンが無効で理由・API へ直接でも 400 を足した
+- 流したテスト(リポジトリ直下): `python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py editor/tests/test_roster.py` 188 通過(skip 1)・e2e_edit_voices・e2e_eval_set・e2e_ui_mounted 通過
+- 未コミット: なし
