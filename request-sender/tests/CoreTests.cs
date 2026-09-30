@@ -29,6 +29,8 @@ static class CoreTests
         Run("config.json: 読める・無い・足りない", ConfigLoad);
         Run("members.json: 名前の一覧・壊れていたら空", MembersLoad);
         Run("エラー: Dropbox の返事を日本語に", Errors);
+        Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
+        Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
@@ -172,21 +174,21 @@ static class CoreTests
     static void VideoJson()
     {
         string id = "20261001-120000-abcdef";
-        string json = RequestJson.Video(id, new[] { id + "__にぇの叫び.mp4", id + "__b (1).mp4" }, "さくらみこ", "1行目\n\"引用\" \\ タブ\tおわり", T);
-        Eq("{\"v\":1,\"kind\":\"video\",\"id\":\"20261001-120000-abcdef\",\"files\":[\"20261001-120000-abcdef__にぇの叫び.mp4\",\"20261001-120000-abcdef__b (1).mp4\"]," +
+        string json = RequestJson.Video(id, new[] { id + "__にぇの叫び.mp4", id + "__b (1).mp4" }, "さくらみこ", "1行目\n\"引用\" \\ タブ\tおわり", Flow.Check, T);
+        Eq("{\"v\":1,\"kind\":\"video\",\"id\":\"20261001-120000-abcdef\",\"flow\":\"check\",\"files\":[\"20261001-120000-abcdef__にぇの叫び.mp4\",\"20261001-120000-abcdef__b (1).mp4\"]," +
            "\"streamer\":\"さくらみこ\",\"memo\":\"1行目\\n\\\"引用\\\" \\\\ タブ\\tおわり\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
         var d = Json.Parse(json);   // 読み直せる
         Eq("1行目\n\"引用\" \\ タブ\tおわり", Json.Str(d, "memo"), "メモを読み直す");
-        Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new string[0], null, null, T)), "streamer"), "配信者なしは空");
-        string ctrl = RequestJson.Video(id, new string[0], "", "a\u0001b\u2028c", T);
+        Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new string[0], null, null, Flow.Auto, T)), "streamer"), "配信者なしは空");
+        string ctrl = RequestJson.Video(id, new string[0], "", "a\u0001b\u2028c", Flow.Manual, T);
         True(ctrl.Contains("a\\u0001b\\u2028c"), "制御文字: " + ctrl);
     }
 
     static void UrlJson()
     {
         string id = "20261001-120000-000001";
-        string json = RequestJson.Url(id, new[] { Norm, "https://www.youtube.com/watch?v=AAAAAAAAAAA" }, 5, "", T);
-        Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"items\":[{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":5}," +
+        string json = RequestJson.Url(id, new[] { Norm, "https://www.youtube.com/watch?v=AAAAAAAAAAA" }, 5, "", Flow.Manual, T);
+        Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"flow\":\"manual\",\"items\":[{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":5}," +
            "{\"url\":\"https://www.youtube.com/watch?v=AAAAAAAAAAA\",\"top\":5}],\"memo\":\"\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
         Json.Parse(json);
     }
@@ -298,6 +300,70 @@ static class CoreTests
             }
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    static void Flows()
+    {
+        Eq(3, Flow.All.Length, "3つ");
+        True(Flow.IsValid("auto") && Flow.IsValid("check") && Flow.IsValid("manual"), "3つとも通る");
+        True(!Flow.IsValid("Auto") && !Flow.IsValid("") && !Flow.IsValid(null) && !Flow.IsValid("pack"), "他は通らない");
+        Eq(Flow.Auto, new SendInput().Flow, "SendInput の既定");
+        True(Flow.Label(Flow.Auto).StartsWith("①") && Flow.Label(Flow.Check).StartsWith("②") && Flow.Label(Flow.Manual).StartsWith("③"), "表示の名前");
+        True(Flow.Explain(Flow.Auto).Contains("受け取る") && Flow.Explain(Flow.Check).Contains("字幕を直して") && Flow.Explain(Flow.Manual).Contains("切り抜く所から"), "説明");
+        var u = new SendInput { Urls = new List<string> { Norm }, Flow = "bogus" };
+        True(Sending.Check(u).Any(x => x.Contains("どこまで")), "知らない値は送る前に止める");
+        string id = "20261001-120000-abcdef";
+        Eq("auto", Json.Str(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", "bogus", T)), "flow"), "JSON には知らない値を書かない");
+        foreach (string f in Flow.All)
+        {
+            Eq(f, Json.Str(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", f, T)), "flow"), "URL の依頼: " + f);
+            Eq(f, Json.Str(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", f, T)), "flow"), "動画の依頼: " + f);
+        }
+        // 前からのキーはそのまま
+        var d = Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "さくらみこ", "m", Flow.Check, T));
+        foreach (string k in new[] { "v", "kind", "id", "files", "streamer", "memo", "sentAt", "flow" }) True(d.ContainsKey(k), "動画の依頼のキー: " + k);
+        d = Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "m", Flow.Check, T));
+        foreach (string k in new[] { "v", "kind", "id", "items", "memo", "sentAt", "flow" }) True(d.ContainsKey(k), "URL の依頼のキー: " + k);
+    }
+
+    static void OutputEntries()
+    {
+        string body = "{\"entries\":[" +
+            "{\".tag\":\"file\",\"name\":\"20261001-120000-abcdef__みこの配信.zip\",\"path_lower\":\"/出力/20261001-120000-abcdef__みこの配信.zip\",\"path_display\":\"/出力/20261001-120000-abcdef__みこの配信.zip\",\"rev\":\"015f\",\"size\":5368709120,\"server_modified\":\"2026-10-01T03:00:00Z\",\"content_hash\":\"ab\"}," +
+            "{\".tag\":\"file\",\"name\":\"20261002-080000-000001__ぺこら.失敗.txt\",\"path_lower\":\"/出力/20261002-080000-000001__ぺこら.失敗.txt\",\"rev\":\"0160\",\"size\":120,\"server_modified\":\"2026-10-02T00:00:00Z\"}," +
+            "{\".tag\":\"folder\",\"name\":\"sub\",\"path_lower\":\"/出力/sub\"}," +
+            "{\".tag\":\"file\",\"name\":\"memo.txt\",\"size\":1,\"server_modified\":\"2026-10-03T00:00:00Z\"}," +
+            "{\".tag\":\"file\",\"name\":\"x.zip.part\",\"size\":1,\"server_modified\":\"2026-10-03T00:00:00Z\"}," +
+            "{\".tag\":\"file\",\"name\":\"手で置いた.ZIP\",\"size\":10,\"server_modified\":\"2026-09-30T00:00:00Z\"}" +
+            "],\"cursor\":\"c\",\"has_more\":false}";
+        var d = Json.Parse(body);
+        var list = OutputFolder.ParseEntries(d);
+        Eq(3, list.Count, "パック2つと失敗1つ(フォルダ・他のファイル・.part は出さない)");
+        OutputFolder.SortNewestFirst(list);
+        Eq(OutputKind.Failure, list[0].Kind, "新しい順: 失敗が先");
+        Eq("ぺこら", list[0].Title, "失敗の題");
+        Eq("20261002-080000-000001", list[0].RequestId, "失敗の依頼の id");
+        var pack = list[1];
+        Eq(OutputKind.Pack, pack.Kind, "パック");
+        Eq("みこの配信", pack.Title, "題");
+        Eq("20261001-120000-abcdef", pack.RequestId, "依頼の id");
+        Eq(5368709120L, pack.Size, "5GB でも long");
+        Eq("015f", pack.Rev, "rev");
+        Eq("ab", pack.ContentHash, "content_hash");
+        Eq(new DateTime(2026, 10, 1, 3, 0, 0, DateTimeKind.Utc).ToLocalTime(), pack.Modified, "時刻は地方時");
+        Eq("/出力/20261001-120000-abcdef__みこの配信.zip", pack.ApiPath, "API に渡す場所");
+        Eq("手で置いた", list[2].Title, "id の無い名前は名前がそのまま題");
+        Eq("", list[2].RequestId, "id なし");
+        Eq("/出力/手で置いた.ZIP", list[2].ApiPath, "path_lower が無いときの場所");
+        True(Json.Bool(Json.Parse("{\"has_more\":true}"), "has_more") && !Json.Bool(d, "has_more") && !Json.Bool(d, "none"), "has_more");
+        Eq(null, OutputFolder.FromName(".zip"), "名前が空");
+        Eq(null, OutputFolder.FromName("a.失敗.txt.bak"), "違う拡張子");
+        True(pack.Key != list[0].Key, "記録の鍵は別々");
+        var again = OutputFolder.ParseEntries(d).First(x => x.Kind == OutputKind.Pack && x.RequestId.Length > 0);
+        Eq(pack.Key, again.Key, "同じものは同じ鍵");
+        again.Rev = "0999";
+        True(pack.Key != again.Key, "置き直されたら(rev が変わったら)別のもの");
+        Eq(DateTime.MinValue, OutputFolder.ParseTime("x"), "読めない時刻");
     }
 
     static IEnumerable<System.Windows.Forms.Control> FindAll(System.Windows.Forms.Control c)

@@ -1,4 +1,5 @@
-// 画面: 動画(ドラッグ)/ 配信者 / 配信の URL と切り抜く数 / メモ / 「送る」/ 進み具合と「送りました ✓」
+// 画面: タブ「送る」= 動画(ドラッグ)/ 配信者 / 配信の URL と切り抜く数 / メモ / PC でどこまでやるか / 「送る」/ 進み具合と「送りました ✓」
+//       タブ「受け取る」= PC が「/出力/」に置いたパックと失敗の知らせの一覧 / 「更新」/「受け取る」/ 保存先 /「フォルダを開く」
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -9,33 +10,46 @@ using System.Windows.Forms;
 
 namespace RequestSender
 {
-    public class MainForm : Form
+    public partial class MainForm : Form
     {
         const string NoStreamer = "(選ばない)";
 
         readonly string exeDir;
+        readonly TabControl tabs = new TabControl();
+        readonly TabPage sendPage = new TabPage("送る"), recvPage = new TabPage("受け取る");
         readonly ListBox files = new ListBox();
         readonly Button addBtn = new Button(), removeBtn = new Button(), sendBtn = new Button();
         readonly ComboBox streamer = new ComboBox();
         readonly TextBox urls = new TextBox(), memo = new TextBox();
         readonly NumericUpDown top = new NumericUpDown();
+        readonly RadioButton[] flowRadios = Flow.All.Select(f => new RadioButton { Text = Flow.Label(f), Tag = f, AutoSize = true }).ToArray();
+        readonly Label flowExplain = new Label();
         readonly ProgressBar bar = new ProgressBar();
         readonly Label status = new Label(), dropHint = new Label();
         readonly LinkLabel sendToLink = new LinkLabel();
         Thread worker;
         volatile bool cancel;
 
-        public MainForm(string exeDir, string[] initialFiles)
+        public MainForm(string exeDir, string[] initialFiles) : this(exeDir, initialFiles, Program.DataDir ?? Path.Combine(exeDir, "state")) { }
+
+        public MainForm(string exeDir, string[] initialFiles, string dataDir)
         {
             this.exeDir = exeDir;
+            state = new LocalState(dataDir);
             Text = AppInfo.Title;
             Font = new Font("Yu Gothic UI", 10f);
             AutoScaleMode = AutoScaleMode.Font;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(520, 600);
-            ClientSize = new Size(560, 660);
+            MinimumSize = new Size(540, 700);
+            ClientSize = new Size(580, 760);
             AllowDrop = true;
+            tabs.Dock = DockStyle.Fill;
+            tabs.TabPages.Add(sendPage);
+            tabs.TabPages.Add(recvPage);
+            tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedTab == recvPage && !listedOnce) RefreshList(); };
+            Controls.Add(tabs);
             BuildLayout();
+            BuildReceiveLayout();
             LoadMembers();
             AddFiles(initialFiles, false);
             DragEnter += OnDragEnter;
@@ -54,7 +68,7 @@ namespace RequestSender
             var t = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, AutoSize = false };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            t.Controls.Add(Heading("① 動画を送る(ここへドラッグ。いくつでも)"));
+            t.Controls.Add(Heading("動画を送る(ここへドラッグ。いくつでも)"));
             files.Dock = DockStyle.Fill;
             files.SelectionMode = SelectionMode.MultiExtended;
             files.AllowDrop = true;
@@ -79,7 +93,7 @@ namespace RequestSender
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
 
-            var fileBtns = Flow();
+            var fileBtns = FlowRow();
             addBtn.Text = "ファイルを選ぶ…";
             addBtn.AutoSize = true;
             addBtn.Click += (s, e) => PickFiles();
@@ -90,7 +104,7 @@ namespace RequestSender
             t.Controls.Add(fileBtns);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            var sRow = Flow();
+            var sRow = FlowRow();
             var sLabel = new Label { Text = "配信者(任意。字幕の色に使う):", AutoSize = true, Margin = new Padding(3, 7, 3, 0) };
             streamer.DropDownStyle = ComboBoxStyle.DropDownList;
             streamer.Width = 200;
@@ -99,7 +113,7 @@ namespace RequestSender
             t.Controls.Add(sRow);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            t.Controls.Add(Heading("② 配信を切り抜いてもらう(YouTube の URL。1行に1本)"));
+            t.Controls.Add(Heading("配信を切り抜いてもらう(YouTube の URL。1行に1本)"));
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             urls.Multiline = true;
             urls.ScrollBars = ScrollBars.Vertical;
@@ -112,7 +126,7 @@ namespace RequestSender
             t.Controls.Add(urls);
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
 
-            var topRow = Flow();
+            var topRow = FlowRow();
             top.Minimum = Validation.MinTop;
             top.Maximum = Validation.MaxTop;
             top.Value = Validation.DefaultTop;
@@ -132,6 +146,27 @@ namespace RequestSender
             memo.Dock = DockStyle.Fill;
             t.Controls.Add(memo);
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+
+            // PC でどこまでやるか(送るたびに選ぶ。起動したときはいつも ①。覚えない)
+            t.Controls.Add(Heading("PC でどこまでやるか(動画と URL の両方)"));
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var flowPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
+            foreach (var r in flowRadios)
+            {
+                r.Margin = new Padding(6, 1, 3, 1);
+                r.CheckedChanged += (s, e) => UpdateFlowExplain();
+                flowPanel.Controls.Add(r);
+            }
+            flowRadios[0].Checked = true;
+            t.Controls.Add(flowPanel);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            flowExplain.AutoSize = true;
+            flowExplain.ForeColor = Color.DimGray;
+            flowExplain.Margin = new Padding(24, 2, 3, 0);
+            flowExplain.MaximumSize = new Size(500, 0);
+            t.Controls.Add(flowExplain);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            UpdateFlowExplain();
 
             sendBtn.Text = "送る";
             sendBtn.Font = new Font(Font.FontFamily, 12f, FontStyle.Bold);
@@ -164,9 +199,27 @@ namespace RequestSender
             t.Controls.Add(sendToLink);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            Controls.Add(t);
-            Resize += (s, e) => status.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 40), 0);
+            sendPage.Controls.Add(t);
+            Resize += (s, e) =>
+            {
+                status.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 50), 0);
+                flowExplain.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 80), 0);
+            };
             UpdateFileView();
+        }
+
+        string SelectedFlow
+        {
+            get
+            {
+                var r = flowRadios.FirstOrDefault(x => x.Checked);
+                return r != null ? (string)r.Tag : Flow.Auto;
+            }
+        }
+
+        void UpdateFlowExplain()
+        {
+            flowExplain.Text = Flow.Explain(SelectedFlow);
         }
 
         static Label Heading(string text)
@@ -174,7 +227,7 @@ namespace RequestSender
             return new Label { Text = text, AutoSize = true, Font = new Font("Yu Gothic UI", 10f, FontStyle.Bold), Margin = new Padding(3, 10, 3, 4) };
         }
 
-        static FlowLayoutPanel Flow()
+        static FlowLayoutPanel FlowRow()
         {
             return new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0) };
         }
@@ -292,6 +345,7 @@ namespace RequestSender
                 Top = (int)top.Value,
                 Streamer = streamer.SelectedIndex > 0 ? (string)streamer.SelectedItem : "",
                 Memo = memo.Text.Trim(),
+                Flow = SelectedFlow,
             };
             var errs = new List<string>(parsed.Errors);
             errs.AddRange(Sending.Check(input));
@@ -308,7 +362,7 @@ namespace RequestSender
             SetBusy(true);
             bar.Value = 0;
             SetStatus("送る準備をしています…", false);
-            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Urls.Count);
+            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Urls.Count + " flow=" + input.Flow);
             var client = new DropboxClient(config) { IsCanceled = () => cancel, Log = Log.Write };
             var sending = new Sending(client);
             int lastPermille = -1;
@@ -352,7 +406,7 @@ namespace RequestSender
             {
                 Log.Write("send: ok");
                 bar.Value = 1000;
-                SetStatus("送りました ✓", false, true);
+                SetStatus(input.Flow == Flow.Auto ? "送りました ✓\nできあがると「受け取る」に届きます(時間がかかります)" : "送りました ✓", false, true);
                 files.Items.Clear();
                 urls.Clear();
                 memo.Clear();
@@ -380,6 +434,7 @@ namespace RequestSender
             memo.ReadOnly = busy;
             streamer.Enabled = !busy && streamer.Items.Count > 1;
             top.Enabled = !busy;
+            foreach (var r in flowRadios) r.Enabled = !busy;
             UseWaitCursor = false;
         }
 
@@ -392,11 +447,15 @@ namespace RequestSender
 
         void OnClosing(object sender, FormClosingEventArgs e)
         {
-            if (!Busy) return;
-            var ans = MessageBox.Show(this, "送っている途中です。やめて閉じますか?", AppInfo.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (!Busy && !RecvBusy) return;
+            string what = Busy ? "送っている途中です。やめて閉じますか?" : "受け取っている途中です。やめて閉じますか?(途中のファイルは消します)";
+            var ans = MessageBox.Show(this, what, AppInfo.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (ans != DialogResult.Yes) { e.Cancel = true; return; }
             cancel = true;
-            Log.Write("send: canceled by closing");
+            recvCancel = true;
+            Log.Write("canceled by closing");
+            // 受け取りの途中なら .part を消し終えるまで少し待つ(バックグラウンドのスレッドなので、待ちきれなくても閉じる)
+            if (recvWorker != null) recvWorker.Join(3000);
         }
 
         void Ui(Action a)

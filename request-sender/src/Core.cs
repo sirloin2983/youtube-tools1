@@ -17,7 +17,39 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
+    }
+
+    // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
+    public static class Flow
+    {
+        public const string Auto = "auto", Check = "check", Manual = "manual";
+        public static readonly string[] All = { Auto, Check, Manual };
+
+        public static bool IsValid(string flow)
+        {
+            return All.Contains(flow);
+        }
+
+        public static string Label(string flow)
+        {
+            switch (flow)
+            {
+                case Check: return "② 軽く確認(文字起こしまで)";
+                case Manual: return "③ 全部人が行う(解析まで)";
+                default: return "① 全自動(パックまで作って届ける)";
+            }
+        }
+
+        public static string Explain(string flow)
+        {
+            switch (flow)
+            {
+                case Check: return "PC が文字起こしまで進めます。送り先の人が字幕を直してから仕上げます。";
+                case Manual: return "PC は解析までです。送り先の人が切り抜く所から決めます。";
+                default: return "PC がパックまで作ります。字幕の校正前のパックが「受け取る」に届きます。";
+            }
+        }
     }
 
     // ---- 配信の URL ----
@@ -186,10 +218,11 @@ namespace RequestSender
 
     public static class RequestJson
     {
-        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, DateTimeOffset sentAt)
+        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
+            sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
             sb.Append(",\"files\":[").Append(string.Join(",", uploadedNames.Select(n => JsonText.Quote(n, false)))).Append(']');
             sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer ?? "", false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
@@ -197,15 +230,22 @@ namespace RequestSender
             return sb.Append('}').ToString();
         }
 
-        public static string Url(string id, IList<string> urls, int top, string memo, DateTimeOffset sentAt)
+        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"url\",\"id\":").Append(JsonText.Quote(id, false));
+            sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
             sb.Append(",\"items\":[").Append(string.Join(",", urls.Select(u =>
                 "{\"url\":" + JsonText.Quote(u, false) + ",\"top\":" + top.ToString(CultureInfo.InvariantCulture) + "}"))).Append(']');
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
+        }
+
+        // 知らない値は送らない(画面の選択肢の外の値は全自動に寄せる。PC 側も知らない値は断るか既定にする)
+        static string FlowOrDefault(string flow)
+        {
+            return Flow.IsValid(flow) ? flow : Flow.Auto;
         }
     }
 
@@ -235,6 +275,269 @@ namespace RequestSender
         static string Cursor(string sessionId, long offset)
         {
             return "{\"session_id\":" + JsonText.Quote(sessionId, true) + ",\"offset\":" + offset.ToString(CultureInfo.InvariantCulture) + "}";
+        }
+
+        // 受け取る: files/list_folder(本文の JSON)・list_folder/continue・files/download(ヘッダーの JSON。ASCII だけにする)
+        public static string ListFolder(string path)
+        {
+            return "{\"path\":" + JsonText.Quote(path, true) + ",\"recursive\":false,\"include_deleted\":false,\"limit\":500}";
+        }
+
+        public static string ListContinue(string cursor)
+        {
+            return "{\"cursor\":" + JsonText.Quote(cursor, true) + "}";
+        }
+
+        public static string Download(string path)
+        {
+            return "{\"path\":" + JsonText.Quote(path, true) + "}";
+        }
+    }
+
+    // ---- 受け取る: PC が「/出力/」に置いたもの ----
+    //   <依頼の id>__<題>.zip       … DaVinci Resolve のパック(数 GB のことがある)
+    //   <依頼の id>__<題>.失敗.txt  … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
+    public enum OutputKind { Pack, Failure }
+
+    public class OutputEntry
+    {
+        public OutputKind Kind;
+        public string Name, PathLower, PathDisplay, Rev, ContentHash, RequestId, Title;
+        public long Size;
+        public DateTime Modified;   // 地方時(Dropbox の server_modified)
+
+        // 受け取った記録の鍵。同じ名前で置き直されたら rev が変わるので「まだ」に戻る
+        public string Key
+        {
+            get
+            {
+                string rest = !string.IsNullOrEmpty(Rev) ? Rev : Size.ToString(CultureInfo.InvariantCulture) + "@" + Modified.ToString("s", CultureInfo.InvariantCulture);
+                return (PathLower ?? Name ?? "").ToLowerInvariant() + "|" + rest;
+            }
+        }
+
+        public string ApiPath { get { return !string.IsNullOrEmpty(PathLower) ? PathLower : OutputFolder.Path + "/" + Name; } }
+    }
+
+    public static class OutputFolder
+    {
+        public const string Path = "/出力";
+        public const string FailureSuffix = ".失敗.txt";
+        public const int FailureTextCap = 64 * 1024;
+        static readonly Regex NameRx = new Regex("^([0-9]{8}-[0-9]{6}-[0-9a-f]{6})__(.+)$");
+
+        // list_folder の返事の entries から、パックと失敗の知らせだけ(フォルダ・他のファイル・途中の .part は出さない)
+        public static List<OutputEntry> ParseEntries(IDictionary<string, object> response)
+        {
+            var list = new List<OutputEntry>();
+            foreach (var e in Json.List(response, "entries"))
+            {
+                if (Json.Str(e, ".tag") != "file") continue;
+                string name = Json.Str(e, "name") ?? "";
+                var entry = FromName(name);
+                if (entry == null) continue;
+                entry.PathLower = Json.Str(e, "path_lower");
+                entry.PathDisplay = Json.Str(e, "path_display");
+                entry.Rev = Json.Str(e, "rev");
+                entry.ContentHash = Json.Str(e, "content_hash");
+                entry.Size = Json.Long(e, "size", 0);
+                entry.Modified = ParseTime(Json.Str(e, "server_modified"));
+                list.Add(entry);
+            }
+            return list;
+        }
+
+        // 名前だけで種類・依頼の id・題を決める。-> 対象外は null
+        public static OutputEntry FromName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            OutputKind kind;
+            string stem;
+            if (name.EndsWith(FailureSuffix, StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Failure; stem = name.Substring(0, name.Length - FailureSuffix.Length); }
+            else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Pack; stem = name.Substring(0, name.Length - 4); }
+            else return null;
+            if (stem.Length == 0) return null;
+            var e = new OutputEntry { Kind = kind, Name = name, Title = stem, RequestId = "" };
+            var m = NameRx.Match(stem);
+            if (m.Success) { e.RequestId = m.Groups[1].Value; e.Title = m.Groups[2].Value; }
+            return e;
+        }
+
+        // 新しいものが上。同じ時刻なら名前の順
+        public static void SortNewestFirst(List<OutputEntry> list)
+        {
+            list.Sort((a, b) =>
+            {
+                int c = b.Modified.CompareTo(a.Modified);
+                return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+            });
+        }
+
+        // "2026-10-01T03:00:00Z" -> 地方時。読めなければ MinValue
+        public static DateTime ParseTime(string s)
+        {
+            DateTime t;
+            if (string.IsNullOrEmpty(s)) return DateTime.MinValue;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out t))
+                return DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime();
+            return DateTime.MinValue;
+        }
+
+        // 失敗の知らせの本文: BOM を取り、長すぎるものは切る
+        public static string DecodeFailureText(byte[] data, int length, bool truncated)
+        {
+            int start = length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+            string s = new UTF8Encoding(false, false).GetString(data, start, Math.Max(0, length - start));
+            s = s.Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n', ' ', '﻿').Replace("\n", "\r\n");
+            if (truncated) s += "\r\n…(長いので途中まで)";
+            return s;
+        }
+    }
+
+    // ---- 受け取った動画の置き場所(Windows で使える名前・重ならない名前) ----
+    public static class LocalName
+    {
+        static readonly string[] Reserved = { "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+                                              "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9" };
+
+        public static string Safe(string name)
+        {
+            var sb = new StringBuilder();
+            var bad = System.IO.Path.GetInvalidFileNameChars();
+            foreach (char c in name ?? "") sb.Append(c < 0x20 || bad.Contains(c) ? '_' : c);
+            string s = sb.ToString().Trim().TrimEnd('.', ' ');
+            if (s.Length == 0 || s == "." || s == "..") s = "download";
+            string stem = System.IO.Path.GetFileNameWithoutExtension(s);
+            if (Reserved.Contains(stem.ToUpperInvariant())) s = "_" + s;
+            if (s.Length > 180)
+            {
+                string ext = System.IO.Path.GetExtension(s);
+                if (ext.Length > 20) ext = "";
+                s = s.Substring(0, 180 - ext.Length) + ext;
+            }
+            return s;
+        }
+
+        // dir の中の、まだ無い名前(a.zip → a (2).zip …)。.part も無いもの
+        public static string Unique(string dir, string safeName)
+        {
+            string stem = System.IO.Path.GetFileNameWithoutExtension(safeName), ext = System.IO.Path.GetExtension(safeName);
+            for (int i = 1; i < 1000; i++)
+            {
+                string p = System.IO.Path.Combine(dir, i == 1 ? safeName : stem + " (" + i + ")" + ext);
+                if (!File.Exists(p) && !File.Exists(p + ".part") && !Directory.Exists(p)) return p;
+            }
+            throw new IOException("同じ名前のファイルが多すぎます: " + safeName);
+        }
+    }
+
+    // ---- 手元の記録(%LOCALAPPDATA%\RequestSender\): 受け取ったもの・受け取る場所 ----
+    public class LocalState
+    {
+        const int MaxRecords = 2000;
+        readonly string dir;
+
+        public LocalState(string dir)
+        {
+            this.dir = dir;
+        }
+
+        string ReceivedPath { get { return System.IO.Path.Combine(dir, "received.txt"); } }
+        string SettingsPath { get { return System.IO.Path.Combine(dir, "settings.json"); } }
+
+        public static string DefaultDownloadDir()
+        {
+            return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "切り抜き依頼");
+        }
+
+        public HashSet<string> LoadReceived()
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                if (File.Exists(ReceivedPath))
+                    foreach (string line in File.ReadAllLines(ReceivedPath, Encoding.UTF8))
+                        if (line.Trim().Length > 0) set.Add(line.Trim());
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            return set;
+        }
+
+        public void MarkReceived(OutputEntry e)
+        {
+            var lines = new List<string>();
+            try { if (File.Exists(ReceivedPath)) lines.AddRange(File.ReadAllLines(ReceivedPath, Encoding.UTF8).Where(l => l.Trim().Length > 0)); }
+            catch (IOException) { }
+            if (lines.Contains(e.Key)) return;
+            lines.Add(e.Key);
+            if (lines.Count > MaxRecords) lines = lines.Skip(lines.Count - MaxRecords).ToList();
+            WriteAtomic(ReceivedPath, string.Join("\r\n", lines) + "\r\n");
+        }
+
+        public string LoadDownloadDir()
+        {
+            try
+            {
+                if (File.Exists(SettingsPath))
+                {
+                    string d = (Json.Str(Json.Parse(File.ReadAllText(SettingsPath, Encoding.UTF8)), "downloadDir") ?? "").Trim();
+                    if (d.Length > 0 && System.IO.Path.IsPathRooted(d)) return d;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
+            }
+            return DefaultDownloadDir();
+        }
+
+        public void SaveDownloadDir(string path)
+        {
+            WriteAtomic(SettingsPath, "{\"downloadDir\":" + JsonText.Quote(path, false) + "}\r\n");
+        }
+
+        void WriteAtomic(string path, string text)
+        {
+            Directory.CreateDirectory(dir);
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text, new UTF8Encoding(false));
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tmp, path);
+        }
+    }
+
+    // ---- Dropbox の content_hash(4MB ずつの SHA-256 をつないで、もう一度 SHA-256)。受け取ったファイルが壊れていないかを確かめる ----
+    public static class ContentHash
+    {
+        public const int BlockSize = 4 * 1024 * 1024;
+
+        public static string Compute(Stream s, Action<long> progress)
+        {
+            using (var outer = SHA256.Create())
+            using (var inner = SHA256.Create())
+            {
+                var buf = new byte[BlockSize];
+                long total = 0;
+                while (true)
+                {
+                    int got = 0;
+                    while (got < BlockSize)
+                    {
+                        int n = s.Read(buf, got, BlockSize - got);
+                        if (n <= 0) break;
+                        got += n;
+                    }
+                    if (got == 0) break;
+                    byte[] h = inner.ComputeHash(buf, 0, got);
+                    outer.TransformBlock(h, 0, h.Length, null, 0);
+                    total += got;
+                    if (progress != null) progress(total);
+                    if (got < BlockSize) break;
+                }
+                outer.TransformFinalBlock(new byte[0], 0, 0);
+                return string.Concat(outer.Hash.Select(b => b.ToString("x2")));
+            }
         }
     }
 
@@ -298,6 +601,12 @@ namespace RequestSender
             if (v is long) return (long)v;
             if (v is decimal) return (long)(decimal)v;
             return dflt;
+        }
+
+        public static bool Bool(IDictionary<string, object> d, string key)
+        {
+            object v;
+            return d != null && d.TryGetValue(key, out v) && v is bool && (bool)v;
         }
 
         public static IEnumerable<IDictionary<string, object>> List(IDictionary<string, object> d, string key)
@@ -380,6 +689,34 @@ namespace RequestSender
             if (status >= 500) return "Dropbox の側で問題が起きています(" + status + ")。少し待ってからもう一度送ってください。";
             string s = summary.Length > 0 ? summary : error;
             return "Dropbox からエラーが返りました(" + status + (s.Length > 0 ? ": " + Validation.Shorten(s, 80) : "") + ")";
+        }
+
+        public const string NeedNewKeyForReceive = "受け取るには新しい鍵が要ります。送り先の人に config.json を作り直してもらってください";
+
+        // 鍵に権限が足りない(v1.0.0 の鍵は files.content.write だけ)。401 でも鍵を取り直しても直らない
+        public static bool IsMissingScope(string body)
+        {
+            string b = (body ?? "").ToLowerInvariant();
+            return b.Contains("missing_scope") || b.Contains("insufficient_scope") || b.Contains("insufficient scope");
+        }
+
+        public static bool IsNotFound(int status, string body)
+        {
+            return status == 409 && (body ?? "").Contains("not_found");
+        }
+
+        // 受け取るときの言い方(「送って」ではなく「押して」)
+        public static string ForReceive(int status, string body)
+        {
+            string all = (body ?? "").ToLowerInvariant();
+            if (IsMissingScope(body)) return NeedNewKeyForReceive;
+            if (all.Contains("invalid_grant") || all.Contains("invalid_access_token") || all.Contains("expired_access_token"))
+                return "鍵が使えなくなっています(取り消された可能性があります)。送り先の人に新しい config.json をもらってください。";
+            if (all.Contains("invalid_client") || all.Contains("app_key")) return "config.json の appKey が正しくありません。送り先の人に伝えてください。";
+            if (IsNotFound(status, body)) return "送り先の Dropbox にもうありません。「更新」を押してください。";
+            if (status == 429 || all.Contains("too_many")) return "Dropbox が混んでいます。少し待ってからもう一度押してください。";
+            if (status >= 500) return "Dropbox の側で問題が起きています(" + status + ")。少し待ってからもう一度押してください。";
+            return FromDropbox(status, body);
         }
     }
 }

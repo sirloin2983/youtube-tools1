@@ -16,6 +16,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import dropbox_auth as A  # noqa: E402
 
+ALL = "files.content.write files.content.read files.metadata.read"
 FAKE = "FAKE-short"   # 本物の形ではない値(push_helper の検査に掛からない長さ)
 
 
@@ -50,7 +51,8 @@ class TestPkce(unittest.TestCase):
         self.assertEqual((u.scheme, u.netloc, u.path), ("https", "www.dropbox.com", "/oauth2/authorize"))
         q = dict(urllib.parse.parse_qsl(u.query))
         self.assertEqual(q, {"client_id": "abc123key", "response_type": "code", "code_challenge": "CH",
-                             "code_challenge_method": "S256", "token_access_type": "offline"})
+                             "code_challenge_method": "S256", "token_access_type": "offline",
+                             "scope": "files.content.write files.content.read files.metadata.read"})
 
     def test_token_body(self):
         q = dict(urllib.parse.parse_qsl(A.token_request_body("abc123key", "  CODE \n", "VER").decode()))
@@ -58,9 +60,14 @@ class TestPkce(unittest.TestCase):
         self.assertNotIn("client_secret", q)
 
     def test_extra_scopes(self):
-        self.assertEqual(A.extra_scopes("account_info.read files.content.write"), [])
-        self.assertEqual(A.extra_scopes("files.content.read files.content.write"), ["files.content.read"])
+        self.assertEqual(A.extra_scopes("account_info.read " + ALL), [])
+        self.assertEqual(A.extra_scopes(ALL + " files.permanent.delete sharing.write"), ["files.permanent.delete", "sharing.write"])
         self.assertEqual(A.extra_scopes(None), [])
+
+    def test_missing_scopes(self):
+        self.assertEqual(A.missing_scopes(ALL), [])
+        self.assertEqual(A.missing_scopes("files.content.write account_info.read"), ["files.content.read", "files.metadata.read"])
+        self.assertEqual(A.missing_scopes(None), [])   # 返事に scope が無いときは確かめられない
 
 
 class TestMain(unittest.TestCase):
@@ -81,7 +88,7 @@ class TestMain(unittest.TestCase):
         def urlopen(req, timeout=None):
             seen["url"] = req.full_url
             seen["body"] = dict(urllib.parse.parse_qsl(req.data.decode()))
-            return FakeResp(json.dumps({"refresh_token": FAKE, "access_token": "x", "scope": "files.content.write"}).encode())
+            return FakeResp(json.dumps({"refresh_token": FAKE, "access_token": "x", "scope": ALL}).encode())
 
         self.assertEqual(self.run_main(urlopen), 0)
         self.assertEqual(seen["url"], A.TOKEN_URL)
@@ -89,15 +96,22 @@ class TestMain(unittest.TestCase):
         with open(self.out, encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"appKey": "abc123key", "refreshToken": FAKE})
         self.assertFalse(any(FAKE in x for x in self.logs), "鍵の値を画面に出さない")
+        self.assertFalse(any("[注意]" in x for x in self.logs), "3つそろっていれば注意は出ない")
         # 承認の URL の challenge は、送った verifier から作ったもの
         url = next(x for x in self.logs if "oauth2/authorize" in x).strip()
         ch = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))["code_challenge"]
         self.assertEqual(ch, A.challenge_for(seen["body"]["code_verifier"]))
 
     def test_warns_extra_scope(self):
-        urlopen = lambda req, timeout=None: FakeResp(json.dumps({"refresh_token": FAKE, "scope": "files.content.write files.content.read"}).encode())
+        urlopen = lambda req, timeout=None: FakeResp(json.dumps({"refresh_token": FAKE, "scope": ALL + " files.permanent.delete"}).encode())
         self.assertEqual(self.run_main(urlopen), 0)
-        self.assertTrue(any("files.content.read" in x for x in self.logs))
+        self.assertTrue(any("要らない権限" in x and "files.permanent.delete" in x for x in self.logs))
+
+    def test_warns_missing_scope(self):
+        # v1.0.0 の手順で作ったアプリ(書き込みだけ)
+        urlopen = lambda req, timeout=None: FakeResp(json.dumps({"refresh_token": FAKE, "scope": "files.content.write"}).encode())
+        self.assertEqual(self.run_main(urlopen), 0)
+        self.assertTrue(any("足りない権限" in x and "files.content.read files.metadata.read" in x for x in self.logs))
 
     def test_http_error_writes_nothing(self):
         def urlopen(req, timeout=None):

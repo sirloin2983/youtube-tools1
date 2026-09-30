@@ -1,4 +1,4 @@
-// Dropbox の API でアプリのフォルダへアップロードする(HttpWebRequest。標準の .NET Framework だけ)。
+// Dropbox の API でアプリのフォルダへアップロードする・「/出力/」から受け取る(HttpWebRequest。標準の .NET Framework だけ)。
 //   鍵: config.json の appKey + refreshToken(PKCE で得たもの。secret は使わない)→ /oauth2/token で短い期間の access token を得る
 //   150MB 以下は files/upload、それより大きいものは upload_session/start → append_v2 → finish(8MB ずつ・失敗した塊だけやり直す)
 using System;
@@ -31,7 +31,9 @@ namespace RequestSender
     {
         const string TokenUrl = "https://api.dropboxapi.com/oauth2/token";
         const string ContentBase = "https://content.dropboxapi.com/2/";
+        const string RpcBase = "https://api.dropboxapi.com/2/";
         const int Retries = 4;
+        const int DownloadRetries = 6;   // 数 GB のパックは途中で切れることがある。続きから取るので多めに
 
         readonly Config config;
         string accessToken;
@@ -158,8 +160,20 @@ namespace RequestSender
             return buf;
         }
 
-        // content.dropboxapi.com への1回の呼び出し。通信の失敗・429・5xx は少し待ってやり直す。401 は鍵を取り直して1回だけやり直す
+        // content.dropboxapi.com への1回の呼び出し(アップロード)
         IDictionary<string, object> Call(string endpoint, string argJson, byte[] data, int offset, int length, Action<long> progress)
+        {
+            return WithRetry(endpoint, Retries, () => ParseOrEmpty(Send(endpoint, argJson, data, offset, length, progress)));
+        }
+
+        static IDictionary<string, object> ParseOrEmpty(string text)
+        {
+            return text.Trim().Length == 0 || text.Trim() == "null" ? new Dictionary<string, object>() : Json.Parse(text);
+        }
+
+        // 通信の失敗・429・5xx は少し待ってやり直す。401 は鍵を取り直して1回だけやり直す(権限が足りない 401 は取り直しても同じなのでそのまま返す)。
+        // Status が負の DropboxException は、このプログラムが見つけた問題(やり直さない)
+        T WithRetry<T>(string endpoint, int attempts, Func<T> once)
         {
             if (accessToken == null) RefreshAccessToken();
             bool refreshed = false;
@@ -168,23 +182,153 @@ namespace RequestSender
                 if (IsCanceled()) throw new CanceledException();
                 try
                 {
-                    string text = Send(endpoint, argJson, data, offset, length, progress);
-                    return text.Trim().Length == 0 || text.Trim() == "null" ? new Dictionary<string, object>() : Json.Parse(text);
+                    return once();
                 }
                 catch (DropboxException ex)
                 {
-                    if (ex.Status == 401 && !refreshed)
+                    if (ex.Status == 401 && !refreshed && !ErrorText.IsMissingScope(ex.Body))
                     {
                         refreshed = true;
                         RefreshAccessToken();
                         continue;
                     }
                     bool retry = ex.Status == 0 || ex.Status == 429 || ex.Status >= 500;
-                    if (!retry || attempt >= Retries) throw;
+                    if (!retry || attempt >= attempts) throw;
                     Log(endpoint + " failed (" + ex.Status + "), retry " + attempt);
                     Wait(attempt);
                 }
             }
+        }
+
+        // ---- 受け取る ----
+        // api.dropboxapi.com の RPC(本文が JSON)
+        public IDictionary<string, object> Rpc(string endpoint, string bodyJson)
+        {
+            return WithRetry(endpoint, Retries, () => ParseOrEmpty(SendRpc(endpoint, bodyJson)));
+        }
+
+        string SendRpc(string endpoint, string bodyJson)
+        {
+            byte[] body = new UTF8Encoding(false).GetBytes(bodyJson);
+            var req = (HttpWebRequest)WebRequest.Create(RpcBase + endpoint);
+            req.Method = "POST";
+            req.Headers["Authorization"] = "Bearer " + accessToken;
+            req.ContentType = "application/json";
+            req.ContentLength = body.Length;
+            req.Timeout = 60000;
+            req.ReadWriteTimeout = 60000;
+            try
+            {
+                using (var s = req.GetRequestStream()) s.Write(body, 0, body.Length);
+            }
+            catch (WebException ex) { throw Wrap(ex); }
+            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+            return ReadResponse(req);
+        }
+
+        // 小さなファイル(失敗の知らせ)を先頭から cap バイトまで。-> 読んだ長さ。truncated は cap を超えていたか
+        public byte[] DownloadHead(string path, int cap, out bool truncated)
+        {
+            bool cut = false;
+            byte[] result = WithRetry("files/download", Retries, () =>
+            {
+                var req = DownloadRequest(path, 0);
+                using (var resp = GetResponse(req))
+                using (var s = resp.GetResponseStream())
+                {
+                    var buf = new byte[cap + 1];
+                    int got = 0;
+                    try
+                    {
+                        while (got < buf.Length)
+                        {
+                            int n = s.Read(buf, got, buf.Length - got);
+                            if (n <= 0) break;
+                            got += n;
+                        }
+                    }
+                    catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+                    cut = got > cap;
+                    if (cut) { req.Abort(); got = cap; }
+                    var data = new byte[got];
+                    Array.Copy(buf, data, got);
+                    return data;
+                }
+            });
+            truncated = cut;
+            return result;
+        }
+
+        // 大きなファイルを partPath へ。通信が切れたら、そこまでの続きから(Range)やり直す。
+        // expectRev があれば、やり直しの間に中身が置き換わっていないかを Dropbox-API-Result の rev で確かめる
+        // progress(ここまでに書いたバイト数)
+        public void DownloadFile(string path, string expectRev, string partPath, Action<long> progress)
+        {
+            if (File.Exists(partPath)) File.Delete(partPath);
+            WithRetry("files/download", DownloadRetries, () =>
+            {
+                long have = File.Exists(partPath) ? new FileInfo(partPath).Length : 0;
+                var req = DownloadRequest(path, have);
+                using (var resp = GetResponse(req))
+                {
+                    string rev = RevOf(resp.Headers["Dropbox-API-Result"]);
+                    if (!string.IsNullOrEmpty(expectRev) && !string.IsNullOrEmpty(rev) && rev != expectRev)
+                    {
+                        req.Abort();
+                        throw new DropboxException("受け取っている間に、送り先で作り直されました。「更新」を押してから、もう一度「受け取る」を押してください。", -1, "");
+                    }
+                    bool resume = have > 0 && resp.StatusCode == HttpStatusCode.PartialContent;
+                    if (!resume) have = 0;
+                    if (have > 0) Log("download: resume from " + have);
+                    using (var s = resp.GetResponseStream())
+                    using (var fs = new FileStream(partPath, resume ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        var buf = new byte[256 * 1024];
+                        long done = have;
+                        if (progress != null) progress(done);
+                        while (true)
+                        {
+                            if (IsCanceled()) { req.Abort(); throw new CanceledException(); }
+                            int n;
+                            try { n = s.Read(buf, 0, buf.Length); }
+                            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+                            catch (WebException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+                            if (n <= 0) break;
+                            fs.Write(buf, 0, n);
+                            done += n;
+                            if (progress != null) progress(done);
+                        }
+                    }
+                }
+                return true;
+            });
+        }
+
+        HttpWebRequest DownloadRequest(string path, long from)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(ContentBase + "files/download");
+            req.Method = "POST";
+            req.Headers["Authorization"] = "Bearer " + accessToken;
+            req.Headers["Dropbox-API-Arg"] = DropboxArgs.Download(path);
+            req.ContentLength = 0;   // 本文は無い(Content-Type も付けない。Dropbox の例と同じ)
+            req.Timeout = 2 * 60 * 1000;
+            req.ReadWriteTimeout = 5 * 60 * 1000;
+            if (from > 0) req.AddRange(from);
+            return req;
+        }
+
+        static HttpWebResponse GetResponse(HttpWebRequest req)
+        {
+            try { return (HttpWebResponse)req.GetResponse(); }
+            catch (WebException ex) { throw Wrap(ex); }
+            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+        }
+
+        static string RevOf(string resultHeader)
+        {
+            if (string.IsNullOrEmpty(resultHeader)) return null;
+            try { return Json.Str(Json.Parse(resultHeader), "rev"); }
+            catch (Exception) { return null; }
         }
 
         void Wait(int attempt)

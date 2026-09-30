@@ -2169,3 +2169,13 @@
 - 版: ホーム 0.15.0 → 0.15.1(launch.py・README.txt)
 - 未完了・次: ユーザーの Dropbox の 失敗\ に移った desktop.ini は消してよい(AI は消していない)。URL の依頼と 150MB 超の動画は未確認
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Opus)— 依頼の形を友人が選ぶ(ホーム 0.16.0・送るアプリ 1.1.0)
+- 決定(ユーザー 2026-10-01): 友人が送るたびに ① 全自動(パックまで作って Dropbox の 出力\ へ)/ ② 軽く確認(文字起こしまで)/ ③ 全部人が行う(解析まで)を選ぶ。
+  アプリの既定は ①。① のパックは友人のアプリの「受け取る」で受け取る(鍵に読みの権限を足す)。③ の動画はスタジオで解析まで。テストは簡易でよい
+- 変更(まとめ役・コミット 2f16b1a): `home/autorun.py`(形 request_auto・request_manual・file_auto・file_manual、段「Dropbox へ届ける」= パックを zip にして 出力\ へ・止まったら 出力\ に .失敗.txt)、
+  `home/intake.py`(JSON の flow。無い・知らない値は ②)、`home/portal.js`(一覧に形)、版 0.16.0、`docs/design/friend-intake.md` の 2-2、テスト +6(unit 75 件・e2e 3本 OK)
+- 変更(サブエージェント): `request-sender/`(1.1.0。①②③ の選択・「受け取る」のタブ = /出力/ の一覧とダウンロード・失敗の理由)、`dev/dropbox_auth.py`(権限 3 つ: files.content.write・files.content.read・files.metadata.read)。build.bat 16 件・dev 19 件 OK
+- 注意: **1.0.0 の鍵は受け取れない**。Dropbox の Permissions に3つ → dropbox_auth.py → build.bat → zip を渡し直す。実際の Dropbox で未確認: ダウンロードの続きから取る(Range)・権限不足のエラーの形・content_hash
+- 注意: サブエージェントが古いフォルダに `C:\Users\you11\Desktop\youtube-test\Sending.cs`(0 バイト・git の外)を誤って作った。消す権限が無く残っている → ユーザーに消してもらう
+- 未コミット: なし(このあとコミット)
