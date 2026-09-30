@@ -538,12 +538,13 @@ DATA_STATE = None   # 起動時の datadir.prepare の結果(画面・入口に�
 
 
 def _data_home():
-    """データの置き場所。環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定)。
-    無ければ %LOCALAPPDATA%\\youtube-tools\\studio(最初の起動で、このフォルダにある以前のデータをコピーする)"""
+    """データの置き場所。規則は ytt_core.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定。写さない)。
+    無ければ %LOCALAPPDATA%\\youtube-tools\\studio(最初の起動で、このフォルダにある以前のデータをコピーする)。
+    決めた場所は datadir.prepare が登録する(入口の中の案件・「編集」が datadir.resolve で同じ場所を読む)"""
     global DATA_STATE
-    if os.environ.get("STUDIO_HOME"):
-        return os.environ["STUDIO_HOME"]
     r = datadir.prepare(TOOL_ID, CODE_DIR, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    if r["state"] == "override":
+        return r["dir"]
     DATA_STATE = r
     for w in r["warnings"]:
         print("※ " + w, flush=True)
@@ -576,6 +577,7 @@ def prepare(port, base_path="/"):
     # 置き場所を決めるのは、まだ既定(このフォルダ)のときだけ。テスト・入口が先に init(home) / STUDIO_HOME で決めていれば、それを使う
     default = os.path.normcase(common.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
     init(_data_home() if default else None)
+    datadir.register(TOOL_ID, common.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
     common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す

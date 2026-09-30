@@ -24,7 +24,7 @@ import os
 import threading
 import time
 
-from ytt_core import datadir, fsio, layout, txindex
+from ytt_core import datadir, fsio, txindex
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
@@ -42,12 +42,10 @@ def _read_json(path, limit=MAX_JSON):
 
 
 def locations(repo_root, env=None):
-    """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json}。各ツールと同じ規則で置き場所を決める"""
-    env = os.environ if env is None else env
-    studio_home = env.get("STUDIO_HOME") or datadir.tool_dir("studio", layout.tool_dir("studio", repo_root), env)
-    app_home = datadir.tool_dir("app", layout.tool_dir("app", repo_root), env)
-    return {"studio": os.path.join(studio_home, "data.json"), "transcripts": txindex.folder(repo_root, env),
-            "cases": os.path.join(app_home, "cases.json")}
+    """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json}。置き場所の規則は ytt_core.datadir.resolve の1か所
+    (起動したツールが登録した場所 → STUDIO_HOME などの環境変数 → YTT_DATA_DIR・既定の場所。env を渡したときは登録を見ない)"""
+    return {"studio": os.path.join(datadir.resolve("studio", repo_root, env), "data.json"), "transcripts": txindex.folder(repo_root, env),
+            "cases": os.path.join(datadir.resolve("app", repo_root, env), "cases.json")}
 
 
 # ---------------------------------------------------------------- 各ツールのデータを読む(読むだけ)

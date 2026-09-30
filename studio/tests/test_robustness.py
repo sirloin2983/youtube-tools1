@@ -315,6 +315,7 @@ class TestDataHome(unittest.TestCase):
         self.code.start()
 
     def tearDown(self):
+        serve.datadir.register(serve.TOOL_ID, None)   # _data_home が登録した一時フォルダを、同じプロセスの後のテストに残さない
         self.code.stop()
         self.env.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -325,6 +326,7 @@ class TestDataHome(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(home, "cache", "meta", "x.json")))
         self.assertTrue(os.path.isfile(os.path.join(self.legacy, "data.json")))        # 元は消さない
         self.assertEqual(serve.DATA_STATE["state"], "migrated")
+        self.assertEqual(serve.datadir.registered(serve.TOOL_ID), home)
 
     def test_legacy_exports_stay_the_output_folder(self):
         os.makedirs(os.path.join(self.legacy, "exports"))
@@ -336,6 +338,7 @@ class TestDataHome(unittest.TestCase):
     def test_studio_home_wins(self):
         with patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "h")}):
             self.assertEqual(serve._data_home(), os.path.join(self.tmp, "h"))
+            self.assertEqual(serve.datadir.registered(serve.TOOL_ID), os.path.join(self.tmp, "h"))   # 決めた場所を登録する(入口の中の他のツールが読む)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "data")))
 
 

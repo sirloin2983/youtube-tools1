@@ -11,18 +11,36 @@
   - 新しい場所にすでにある項目は上書きしない(手で写した・前回の途中まで写したもの)
   - 空き容量が足りない・コピーに失敗したときは移さず、そのツールは以前の場所のまま動く(警告を返す)
   - 全部終わったら .migrated.json に記録する。次からは写さない
+
+置き場所の求め方はここ1か所(2026-10-01 ユーザー決定。`docs/spec/data-location.md` の「置き場所の求め方」):
+  resolve(tool) の順番
+    ① 登録された場所 … 各ツールが起動したときに実際に決めたフォルダ(prepare が登録する)。入口の中では、同じプロセスの
+       他のツール(案件・まとめて実行・スタジオのセリフの表示など)がそれを読む(移せずに以前の場所のまま動いた・テストがツールを
+       一時フォルダに写して動かした、でも読む場所がずれない)。env を渡したとき(テスト・明示の指定)は見ない
+    ② ツールごとの環境変数(ENV_OVERRIDE。STUDIO_HOME・TRANSCRIBE_DATA_DIR。テスト用・以前からの指定)
+    ③ tool_dir(YTT_DATA_DIR → %LOCALAPPDATA% など。inplace なら各ツールのフォルダの中)
+  ツールの側(起動時): prepare(移行もする。②があればそれを使い、写さない)。移行の要らないもの(入口)は locate + register
+  読む側: resolve
 """
 import json
 import os
 import shutil
 import sys
+import threading
 import time
+
+from . import layout
 
 APP_DIR_NAME = "youtube-tools"
 INPLACE = "inplace"
 MARKER = ".migrated.json"
 PART = ".part-"          # コピー中の一時的な名前の印(次の起動で消す)
 SPACE_MARGIN = 256 * 1024 * 1024   # 空き容量の余裕(コピーする量 + これ)
+# そのツールのデータのフォルダを直接決める環境変数(テスト用・以前からの指定)。あれば YTT_DATA_DIR より先に使い、移行はしない
+ENV_OVERRIDE = {"studio": "STUDIO_HOME", "transcribe": "TRANSCRIBE_DATA_DIR"}
+
+_registered = {}          # ツールの ID -> 起動したツールが決めたフォルダ(register)
+_reg_lock = threading.Lock()
 
 
 def data_root(env=None, platform=None, home=None):
@@ -46,6 +64,48 @@ def tool_dir(tool, legacy_dir, env=None):
     """そのツールのデータのフォルダ(移行はしない。inplace なら legacy_dir)。"""
     root = data_root(env)
     return os.path.abspath(legacy_dir) if root is None else os.path.join(root, tool)
+
+
+def override(tool, env=None):
+    """ツールごとの環境変数(ENV_OVERRIDE)で決めたフォルダ(絶対パス)か None"""
+    env = os.environ if env is None else env
+    name = ENV_OVERRIDE.get(tool)
+    d = (env.get(name) or "").strip() if name else ""
+    return os.path.abspath(d) if d else None
+
+
+def register(tool, path):
+    """起動したツールが実際に使うフォルダを知らせる(同じプロセスの他のツールが resolve で読む)。None で取り消す。-> 登録したパス"""
+    with _reg_lock:
+        if path:
+            _registered[tool] = os.path.abspath(path)
+        else:
+            _registered.pop(tool, None)
+        return _registered.get(tool)
+
+
+def registered(tool):
+    """登録されたフォルダか None"""
+    with _reg_lock:
+        return _registered.get(tool)
+
+
+def locate(tool, repo_root=None, env=None, legacy_dir=None):
+    """登録を見ない置き場所: ツールごとの環境変数(ENV_OVERRIDE)→ tool_dir(YTT_DATA_DIR → 既定。inplace ならツールのフォルダ)。
+    legacy_dir: 以前の場所(ツールのフォルダ)。無ければ <repo_root>/<layout のフォルダ名>(repo_root が無ければこのリポジトリ)"""
+    o = override(tool, env)
+    if o:
+        return o
+    return tool_dir(tool, legacy_dir or layout.tool_dir(tool, repo_root), env)
+
+
+def resolve(tool, repo_root=None, env=None, legacy_dir=None):
+    """そのツールの作業データのフォルダ(他のツールから読むとき)。① 登録された場所(env を渡したときは見ない)→ locate"""
+    if env is None:
+        r = registered(tool)
+        if r:
+            return r
+    return locate(tool, repo_root, env, legacy_dir)
 
 
 def _size(path):
@@ -123,9 +183,21 @@ def prepare(tool, legacy_dir, items, env=None, log=None, free_bytes=None):
     """データのフォルダを決め、必要なら以前の場所から写す。起動時に1回呼ぶ。
     items: 以前の場所から写す名前(ファイル・フォルダ。ツールのフォルダの中の相対名。無いものは飛ばす)。
     -> {"dir": 使うフォルダ, "legacy": 以前の場所, "migrated": [写した名前], "warnings": [...], "state": "inplace"|"new"|"migrated"|"done"|"failed"}
-    state: inplace = 以前と同じ場所 / new = 以前のデータが無い / migrated = 今回写した / done = 前に写し済み / failed = 写せず以前の場所のまま"""
+    state: inplace = 以前と同じ場所 / new = 以前のデータが無い / migrated = 今回写した / done = 前に写し済み / failed = 写せず以前の場所のまま
+           / override = ツールごとの環境変数(ENV_OVERRIDE)で決めた(写さない)
+    env を渡さない(本物の起動)ときは、決めたフォルダを register する(env を渡すテストは、プロセス全体の登録を変えない)"""
+    out = _prepare(tool, legacy_dir, items, env, log, free_bytes)
+    if env is None:
+        register(tool, out["dir"])
+    return out
+
+
+def _prepare(tool, legacy_dir, items, env, log, free_bytes):
     say = log or (lambda m: None)
     legacy_dir = os.path.abspath(legacy_dir)
+    o = override(tool, env)
+    if o:
+        return {"dir": o, "legacy": legacy_dir, "migrated": [], "warnings": [], "state": "override"}
     root = data_root(env)
     if root is None:
         return {"dir": legacy_dir, "legacy": legacy_dir, "migrated": [], "warnings": [], "state": "inplace"}

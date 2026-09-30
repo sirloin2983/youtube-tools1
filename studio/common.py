@@ -36,8 +36,8 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import fsio as _fsio, tools as _tools  # noqa: E402
-_home = os.path.abspath(os.environ.get("STUDIO_HOME") or CODE_DIR)   # data.json などの置き場所
+from ytt_core import datadir as _datadir, fsio as _fsio, tools as _tools  # noqa: E402
+_home = _datadir.override("studio") or os.path.abspath(CODE_DIR)   # data.json などの置き場所(STUDIO_HOME の規則は ytt_core.datadir の1か所)
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")
 VID_RE = re.compile(r"^[\w-]{11}\Z", re.ASCII)   # ASCII のみ・末尾の改行も不可

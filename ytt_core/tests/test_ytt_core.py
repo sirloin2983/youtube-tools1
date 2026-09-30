@@ -529,6 +529,57 @@ class TestDatadir(unittest.TestCase):
         datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
         self.assertFalse(os.path.lexists(os.path.join(self.new, "transcripts", "link.json")))
 
+    def test_resolve_precedence(self):
+        """置き場所の求め方は datadir の1か所(2026-10-01): 登録 → ツールごとの環境変数 → YTT_DATA_DIR・既定。env を渡したら登録を見ない"""
+        repo = os.path.join(self.tmp, "repo")
+        reg = os.path.join(self.tmp, "registered")
+        env = dict(self.env)
+        self.addCleanup(datadir.register, "transcribe", None)
+        self.addCleanup(datadir.register, "studio", None)
+        self.assertEqual(datadir.resolve("transcribe", repo, env), self.new)                                  # ③ YTT_DATA_DIR
+        self.assertEqual(datadir.resolve("transcribe", repo, {"YTT_DATA_DIR": "inplace"}), os.path.abspath(self.legacy))   # ③ inplace
+        self.assertEqual(datadir.resolve("studio", repo, {"YTT_DATA_DIR": "inplace"}), os.path.join(repo, "studio"))
+        env["TRANSCRIBE_DATA_DIR"] = os.path.join(self.tmp, "tx")
+        self.assertEqual(datadir.resolve("transcribe", repo, env), os.path.join(self.tmp, "tx"))             # ② 環境変数が先
+        self.assertEqual(datadir.resolve("studio", repo, env), os.path.join(self.tmp, "data", "studio"))     # 他のツールの環境変数は効かない
+        self.assertEqual(datadir.resolve("app", repo, dict(env, STUDIO_HOME="/s")), os.path.join(self.tmp, "data", "app"))
+        self.assertEqual(datadir.resolve("x", legacy_dir=self.legacy, env={"YTT_DATA_DIR": "inplace"}), os.path.abspath(self.legacy))
+        self.assertEqual(datadir.register("transcribe", reg), reg)
+        self.assertEqual(datadir.registered("transcribe"), reg)
+        self.assertEqual(datadir.resolve("transcribe", repo, env), os.path.join(self.tmp, "tx"))             # env を渡したら登録を見ない(テスト)
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(datadir.resolve("transcribe", repo), reg)                                       # ① 登録が先
+            self.assertEqual(datadir.locate("transcribe", repo), os.path.join(self.tmp, "tx"))              # locate は登録を見ない
+            self.assertEqual(datadir.resolve("studio", repo), os.path.join(self.tmp, "data", "studio"))     # 登録は tool ごと
+            datadir.register("transcribe", None)
+            self.assertIsNone(datadir.registered("transcribe"))
+            self.assertEqual(datadir.resolve("transcribe", repo), os.path.join(self.tmp, "tx"))
+
+    def test_prepare_override_and_register(self):
+        """prepare: ツールごとの環境変数があれば写さずにそこ(state=override)。env を渡さない(本物の起動)ときだけ登録する"""
+        self.addCleanup(datadir.register, "transcribe", None)
+        datadir.register("transcribe", None)
+        tx = os.path.join(self.tmp, "tx")
+        r = datadir.prepare("transcribe", self.legacy, ["transcripts"], dict(self.env, TRANSCRIBE_DATA_DIR=tx))
+        self.assertEqual((r["dir"], r["state"], r["migrated"]), (tx, "override", []))
+        self.assertFalse(os.path.exists(self.new))                        # 写さない
+        self.assertIsNone(datadir.registered("transcribe"))               # env を渡したら登録しない
+        datadir.prepare("transcribe", self.legacy, ["transcripts"], self.env)
+        self.assertIsNone(datadir.registered("transcribe"))
+        with mock.patch.dict(os.environ, self.env):
+            os.environ.pop("TRANSCRIBE_DATA_DIR", None)
+            r = datadir.prepare("transcribe", self.legacy, ["transcripts"])
+            self.assertEqual(r["dir"], self.new)
+            self.assertEqual(datadir.registered("transcribe"), self.new)  # 本物の起動は決めた場所を登録する
+            self.assertEqual(datadir.resolve("transcribe", os.path.join(self.tmp, "else")), self.new)
+            os.environ["TRANSCRIBE_DATA_DIR"] = tx
+            self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts"])["state"], "override")
+            self.assertEqual(datadir.registered("transcribe"), tx)
+        with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "inplace"}):
+            os.environ.pop("TRANSCRIBE_DATA_DIR", None)
+            self.assertEqual(datadir.prepare("transcribe", self.legacy, ["transcripts"])["state"], "inplace")
+            self.assertEqual(datadir.registered("transcribe"), os.path.abspath(self.legacy))   # inplace でも使う場所を登録する
+
     def test_every_server_test_isolates_data_dir(self):
         """サーバー(serve.py・入口)を動かすテストは、必ず YTT_DATA_DIR を指定する。忘れると、移し済みの PC で
         テストのサーバーが本物の作業データ(AppData\\youtube-tools)を読み書きしてしまう"""
@@ -762,9 +813,24 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(d["aaaaaaaaaaaa"]["segments"][0]["start"], 1.0)   # キャッシュの中身は変えない
 
     def test_folder_follows_transcribe_rules(self):
-        self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join("/d", "transcripts"))
+        self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join(os.path.abspath("/d"), "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "/x"}), os.path.join(os.path.abspath("/x"), "transcribe", "transcripts"))
+
+    def test_registered_dirs_are_read_by_other_tools(self):
+        """起動したツールが登録した場所(datadir.register)を、同じプロセスの他のツールが読む(env を渡したテストは見ない)"""
+        self.addCleanup(datadir.register, "transcribe", None)
+        self.addCleanup(txindex.use_packs_dir, None)
+        datadir.register("transcribe", "/tx")
+        txindex.use_packs_dir("/c2r/packs")
+        self.assertEqual(datadir.registered("cut2resolve"), os.path.abspath("/c2r"))
+        self.assertEqual(txindex.folder("/r"), os.path.join(os.path.abspath("/tx"), "transcripts"))
+        self.assertEqual(txindex.packs_dir(), os.path.join(os.path.abspath("/c2r"), "packs"))
+        self.assertEqual(txindex.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先(以前と同じ)
+        self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
+        self.assertEqual(txindex.packs_dir({"YTT_DATA_DIR": "inplace"}, "/other"), os.path.join(os.path.abspath("/other"), "packs"))
+        txindex.use_packs_dir(None)
+        self.assertIsNone(datadir.registered("cut2resolve"))
 
 
 class TestColors(unittest.TestCase):

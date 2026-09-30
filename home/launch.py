@@ -229,8 +229,9 @@ class Tool:
 
 # ---------- まとめて管理 ----------
 def app_data_dir(root):
-    """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace なら home フォルダ)。設定(settings.json)・窓の専用のプロファイル・記録"""
-    return datadir.tool_dir("app", layout.tool_dir("app", root))
+    """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace なら home フォルダ)。設定(settings.json)・窓の専用のプロファイル・記録。
+    入口自身が決める側なので、登録(datadir.register)は見ない(規則は ytt_core.datadir.locate の1か所。main() が登録し、案件などは resolve で読む)"""
+    return datadir.locate("app", root)
 
 
 def logs_dir_for(root):
@@ -1019,6 +1020,7 @@ def main(argv=None):
         except Exception:
             pass
     opts = parse_args(sys.argv[1:] if argv is None else argv)
+    datadir.register("app", app_data_dir(ROOT))   # 同じプロセスの案件など(datadir.resolve)が同じ場所を読む
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     srv, port = make_server(opts.port, sup)

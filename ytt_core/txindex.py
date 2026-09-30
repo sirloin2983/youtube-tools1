@@ -17,7 +17,7 @@ import hashlib
 import os
 import threading
 
-from . import datadir, fsio, layout, schemas
+from . import datadir, fsio, schemas
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
@@ -32,10 +32,9 @@ _lock = threading.Lock()
 
 
 def folder(repo_root, env=None):
-    """文字起こしの文書のフォルダ。文字起こしツールと同じ規則(環境変数 TRANSCRIBE_DATA_DIR → ytt_core.datadir)"""
-    env = os.environ if env is None else env
-    home = env.get("TRANSCRIBE_DATA_DIR") or datadir.tool_dir("transcribe", layout.tool_dir("transcribe", repo_root), env)
-    return os.path.join(home, "transcripts")
+    """文字起こしの文書のフォルダ。置き場所の規則は ytt_core.datadir.resolve の1か所(起動した「編集」が登録した場所 →
+    環境変数 TRANSCRIBE_DATA_DIR → YTT_DATA_DIR・既定の場所)"""
+    return os.path.join(datadir.resolve("transcribe", repo_root, env), "transcripts")
 
 
 def norm(p):
@@ -155,25 +154,19 @@ def pack_dir(media_path):
     return os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
 
 
-_packs_dir_used = None   # 起動した cut2resolve が知らせた記録のフォルダ(入口の中では同じプロセスの他のツールもここを読む)
-
-
 def use_packs_dir(path):
-    """cut2resolve の serve.py が起動したときに、自分の記録のフォルダを知らせる(テストがツールを一時フォルダに写して動かしても、
-    書く場所と読む場所がずれないように)"""
-    global _packs_dir_used
-    _packs_dir_used = os.path.abspath(path) if path else None
+    """cut2resolve の serve.py が起動したときに、自分の記録のフォルダ(<作業データ>/packs)を知らせる(テストがツールを一時フォルダに写して
+    動かしても、書く場所と読む場所がずれないように)。cut2resolve の作業データのフォルダとして ytt_core.datadir に登録する
+    (datadir.prepare も登録するので、今は念のため。None で取り消す)"""
+    datadir.register("cut2resolve", os.path.dirname(os.path.abspath(path)) if path else None)
 
 
 def packs_dir(env=None, c2r_dir=None):
     """パックを作った記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace なら cut2resolve のフォルダの中)。
-    起動した cut2resolve が知らせた場所(use_packs_dir)があればそれ(env を渡したときは使わない = テスト)。
+    置き場所の規則は ytt_core.datadir.resolve の1か所(起動した cut2resolve が登録した場所。env を渡したときは使わない = テスト)。
     c2r_dir: cut2resolve のコードのフォルダ(serve.py が自分の場所を渡す。無ければ環境変数 YTT_CUT2RESOLVE_DIR → リポジトリの cut2resolve)"""
-    if _packs_dir_used and env is None:
-        return _packs_dir_used
-    env = os.environ if env is None else env
-    legacy = c2r_dir or env.get("YTT_CUT2RESOLVE_DIR") or layout.tool_dir("cut2resolve", REPO_ROOT)
-    return os.path.join(datadir.tool_dir("cut2resolve", legacy, env), "packs")
+    legacy = c2r_dir or (os.environ if env is None else env).get("YTT_CUT2RESOLVE_DIR") or None
+    return os.path.join(datadir.resolve("cut2resolve", REPO_ROOT, env, legacy), "packs")
 
 
 def pack_key(dirpath):
