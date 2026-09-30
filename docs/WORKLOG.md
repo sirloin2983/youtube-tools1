@@ -2211,3 +2211,15 @@
 - exe は変わらないので版は据え置き(dist の zip の members.json は新しい)。`holo-colors/tests/CoreTests.cs` のペンライトはテストの中の見本のデータなのでそのまま
 - テスト: holo-colors\build.bat(21 件)・`python -m unittest ytt_core/tests/test_ytt_core.py`(61 件)OK
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code — ホロカラー 1.3.1: 衣装の色を外した・色の四角を大きく
+- ユーザー: 「衣装の色もいらない」「もうちょっと各色大きく」
+- 変更: `holo-colors/members.json`(「ブライト衣装・…」の 86 色と出典 s14 を外した。公式サイトの縁の色と同じ値で出典に s14 が並んでいた6人は、色を残して s14 だけ外した。
+  主な色は誰も変えていない。2つ目以降の色は 1〜2 つの人がほとんど、FLOW GLOW だけ 3 つ)、
+  `holo-colors/src/PaletteView.cs`(札 46 → 56px・最小の幅 148 → 172px・四角 14 → 22px・角丸と「+n」の幅も合わせた。四角は札の右半分に入るだけ、の決まりはそのまま)、
+  `holo-colors/tests/CoreTests.cs`(四角のテストの見本の窓を 640 → 760px。「+n」付きで3つ並ぶ幅)、`holo-colors/tests/e2e_holo_colors.py`(先頭の札をクリックする高さ)、
+  `holo-colors/src/Core.cs`・README(版・説明・変更の記録)、`docs/design/holo-colors.md`
+- 版: ホロカラー 1.3.0 → **1.3.1**
+- テスト: holo-colors\build.bat(21 件)・`python -m unittest ytt_core/tests/test_ytt_core.py`(61 件)OK。画面は --screenshot で確認。
+  e2e(本物の入力)は流していない(クリックする位置を札の高さに合わせて直しただけ。次に流すときに確かめる)
+- 未コミット: なし(このあとコミット)

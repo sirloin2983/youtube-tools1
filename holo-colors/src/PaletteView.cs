@@ -123,7 +123,8 @@ namespace HoloColors
             if (nameFont == null) MakeFonts();
             tiles.Clear();
             headers.Clear();
-            int pad = S(12), gap = S(8), minW = S(148), tileH = S(46), headH = S(28);
+            // 札は四角が大きく見えるように高め・広め(2026-09-30 ユーザー: 各色をもうちょっと大きく)。22px の四角が右半分に3つ入る幅
+            int pad = S(12), gap = S(8), minW = S(172), tileH = S(56), headH = S(28);
             int width = ClientSize.Width;
             int cols = Math.Max(1, (width - 2 * pad + gap) / (minW + gap));
             int tileW = Math.Max(S(60), (width - 2 * pad - (cols - 1) * gap) / cols);
@@ -155,14 +156,14 @@ namespace HoloColors
             t.More = 0;
             int extra = t.Entry.AllColors.Count - 1;
             if (extra <= 0) return;
-            int sw = S(14), sgap = S(4), margin = S(7);
+            int sw = S(22), sgap = S(5), margin = S(6);
             int n = Math.Min(MaxSwatches, extra);
-            int moreW = extra > n ? S(20) : 0;
+            int moreW = extra > n ? S(22) : 0;
             // 左半分(名前とカラーコード)にはかぶせない
             int fit = Math.Max(0, (t.Rect.Width / 2 - margin - moreW + sgap) / (sw + sgap));
             n = Math.Min(n, fit);
             t.More = extra - n;
-            int right = t.Rect.Right - margin - (t.More > 0 ? S(20) : 0);
+            int right = t.Rect.Right - margin - (t.More > 0 ? S(22) : 0);
             int top = t.Rect.Bottom - margin - sw;
             for (int i = n - 1; i >= 0; i--)
             {
@@ -315,7 +316,7 @@ namespace HoloColors
             {
                 Rectangle s = tile.Swatches[i];
                 s.Offset(off);
-                using (var path = RoundRect(s, S(3)))
+                using (var path = RoundRect(s, S(4)))
                 using (var b = new SolidBrush(HexColor.ToColor(colors[i + 1].Hex)))
                 using (var pen = new Pen(Color.FromArgb(hoverColor == i + 1 ? 255 : (dark ? 110 : 190), fg), hoverColor == i + 1 ? S(2) : 1f))
                 {
@@ -327,7 +328,7 @@ namespace HoloColors
             {
                 Rectangle last = tile.Swatches[tile.Swatches.Count - 1];
                 last.Offset(off);
-                var mr = new Rectangle(last.Right + S(2), last.Y - S(2), S(20), last.Height + S(4));
+                var mr = new Rectangle(last.Right + S(2), last.Y - S(2), S(22), last.Height + S(4));
                 TextRenderer.DrawText(g, "+" + tile.More, pillFont, mr, Color.FromArgb(dark ? 170 : 230, fg),
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }

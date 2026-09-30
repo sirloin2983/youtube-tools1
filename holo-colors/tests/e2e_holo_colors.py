@@ -409,7 +409,7 @@ class E2E:
         self.check(self.visible(), "ほかの窓へ移っても、一覧は開いたまま")
         pal = self.palette_child()
         k = user32.GetDpiForWindow(self.main) / 96.0
-        pt = wintypes.POINT(int(12 * k + 30 * k), int((4 + 28 + 23) * k))
+        pt = wintypes.POINT(int(12 * k + 30 * k), int((4 + 28 + 28) * k))   # 札の高さ 56 の真ん中
         user32.ClientToScreen(pal, ctypes.byref(pt))
         set_clipboard("before")
         user32.WindowFromPoint.argtypes = (wintypes.POINT,)

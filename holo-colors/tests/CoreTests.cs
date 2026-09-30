@@ -693,7 +693,7 @@ static class CoreTests
 
     static void PaletteSwatches()
     {
-        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(640, 420) })
+        using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, Size = new Size(760, 420) })
         {
             var v = new PaletteView { Dock = DockStyle.Fill, Font = new Font("Yu Gothic UI", 9f) };
             form.Controls.Add(v);
@@ -709,6 +709,7 @@ static class CoreTests
             v.SetGroups(new List<ColorGroup> { g }, "なし", false);
             Application.DoEvents();
 
+            // 四角は 22px(v1.3.x)。「+n」の分も要るので、この見本は広めの窓で(狭い窓では入るだけ並べる)
             Eq(0, v.Tiles[0].Swatches.Count, "1色の札に四角は無い");
             Eq(1, v.Tiles[1].Swatches.Count, "2色の札に四角が1つ");
             Eq(PaletteView.MaxSwatches, v.Tiles[2].Swatches.Count, "四角は最大 " + PaletteView.MaxSwatches + " つ");
