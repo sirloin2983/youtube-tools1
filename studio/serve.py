@@ -584,9 +584,38 @@ def prepare(port, base_path="/"):
     return runtime
 
 
+SHUTDOWN_WAIT = 5.0   # 終了の流れで、中止した解析・書き出しが終わるのを待つ秒数の上限(入口の子として動くときは、入口が約8秒で強制終了する)
+
+
+def shutdown_jobs(wait=SHUTDOWN_WAIT):
+    """終了の流れ(入口の「すべて終了」・Ctrl+C・黒い画面の×・SIGTERM)で、実行中の解析・書き出し・チャットの先読みを止める。
+    ① 中止を伝える(待ちの配信は「中止」で取り除く。解析・書き出しのジョブは「中止」で終わる)→ ② 子プロセス(ffmpeg・yt-dlp)を孫ごと止める
+    → ③ ジョブのスレッドが後始末(作業用のファイルを消す)を終えるのを wait 秒まで待つ。何も動いていなければすぐ戻る。
+    Windows では子が別のプロセスグループ・窓なしで起動しているので、止めないと入口が終わったあとも見えないまま残る(2026-09-30 の設計レビュー)。
+    中断したものは studio.log に残す(待ち行列・書き出しのジョブはメモリだけなので、起動し直すと画面からは消える)"""
+    names = BATCH.shutdown() if BATCH else []
+    exports = exporter.cancel_all()
+    pf = analyze.cancel_all_prefetch()
+    if not (names or exports or pf or common.children()):
+        return 0
+    killed = common.stop_children()
+    deadline = time.time() + wait
+    while time.time() < deadline and ((BATCH and BATCH.running_now()) or exporter.is_busy() or analyze.PREFETCH):
+        time.sleep(0.05)
+    killed += common.stop_children(1.0)   # 待つ間に次の段階が起動した子(中止を見る前に起動したもの)
+    left = bool((BATCH and BATCH.running_now()) or exporter.is_busy())
+    _log("終了のため中断しました: 解析 %d 本(%s)・書き出し %d 件・チャットの先読み %d 本・止めた子プロセス %d%s"
+         % (len(names), " / ".join(names)[:300], len(exports), pf, killed, "(終わりきらないものがありました)" if left else ""))
+    return killed
+
+
 def finish():
-    """終了の後始末(.runtime の記録を消す)。自分が書いた記録のときだけ消える。"""
-    handoff.remove_runtime(TOOL_ID, PORT)
+    """終了の後始末: 実行中の処理と子プロセスを止め(shutdown_jobs)、.runtime の記録を消す(自分が書いた記録のときだけ消える)。
+    入口の中では home/mount.py の Mount.stop() がこれを呼ぶ(「すべて終了」・入口の Ctrl+C・×)"""
+    try:
+        shutdown_jobs()
+    finally:
+        handoff.remove_runtime(TOOL_ID, PORT)
 
 
 def mounted_elsewhere():
@@ -635,6 +664,8 @@ def main():
     finally:   # シグナル(SystemExit)で抜けるときもここを通る
         if runtime:
             finish()
+        else:
+            shutdown_jobs()   # .runtime を書けなかったときも、実行中の子プロセスは止める
 
 
 if __name__ == "__main__":

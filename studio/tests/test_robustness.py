@@ -6,6 +6,7 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -16,6 +17,7 @@ os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import analyze
 import common
+import exporter
 import rank
 import serve
 from common import ApiError
@@ -269,6 +271,170 @@ class TestDataHome(unittest.TestCase):
         with patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "h")}):
             self.assertEqual(serve._data_home(), os.path.join(self.tmp, "h"))
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "data")))
+
+
+# 子プロセスが「生きている」の印: 0.1 秒ごとにファイルの中身を書き換える(Windows の os.kill(pid, 0) は止めてしまうので使わない)
+BEAT = "import sys, time\nwhile True:\n    open(sys.argv[1], 'w').write(str(time.time()))\n    time.sleep(0.1)\n"
+# 孫を起動してから、自分も出力を出しながら長く動く(yt-dlp が ffmpeg を起動するのと同じ形)
+PARENT = ("import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]])\n"
+          "while True:\n    print('tick', flush=True)\n    time.sleep(0.2)\n")
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _alive(path, wait=0.8):
+    """印のファイルが wait 秒のうちに書き換わるか(= その子プロセスが動いているか)。"""
+    before = _read(path)
+    time.sleep(wait)
+    after = _read(path)
+    return after is not None and after != before
+
+
+def _wait_file(path, sec=15):
+    t0 = time.time()
+    while time.time() - t0 < sec:
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+class TestStopChildren(Home):
+    """終了の流れで、実行中の子プロセス(ffmpeg・yt-dlp の代わりに長く動く python)を孫ごと止める(2026-09-30 の設計レビューの 1)。"""
+
+    def tearDown(self):
+        for p in common.children():
+            common.hard_kill(p)
+        super().tearDown()
+
+    def test_no_children_returns_at_once(self):
+        t0 = time.time()
+        self.assertEqual(common.stop_children(), 0)
+        self.assertLess(time.time() - t0, 0.2)   # 子が無いときの終了を遅くしない
+
+    def test_stops_child_and_grandchild(self):
+        beat = os.path.join(self.tmp, "grandchild.beat")
+        proc = common.spawn([sys.executable, "-c", PARENT, BEAT, beat], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertIn(proc, common.children())
+        self.assertTrue(_wait_file(beat), "孫が起動しなかった")
+        self.assertTrue(_alive(beat))
+        t0 = time.time()
+        self.assertEqual(common.stop_children(2.0), 1)
+        self.assertLess(time.time() - t0, 8)
+        self.assertIsNotNone(proc.poll())
+        self.assertEqual(common.children(), [])
+        self.assertFalse(_alive(beat), "孫(yt-dlp が起動した ffmpeg に当たる)が残っている")
+
+    def test_run_short_is_forgotten(self):
+        r = common.run_short([sys.executable, "-c", "print('ok')"], timeout=30)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "ok"))
+        self.assertEqual(common.children(), [])
+
+    def test_run_short_timeout_kills(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            common.run_short([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.5)
+        self.assertEqual(common.children(), [])
+
+
+class TestShutdownJobs(Home):
+    """serve.shutdown_jobs: 解析の待ち・実行中と、書き出しのジョブを「中止」で終わらせ、子プロセスを止め、studio.log に残す。"""
+
+    def setUp(self):
+        super().setUp()
+        serve.init(self.tmp)
+
+    def tearDown(self):
+        for p in common.children():
+            common.hard_kill(p)
+        for j in list(exporter._jobs.values()):
+            j["cancel"] = True
+        super().tearDown()
+
+    def _log(self):
+        p = os.path.join(self.tmp, "studio.log")
+        if not os.path.exists(p):
+            return ""
+        with open(p, encoding="utf-8") as f:
+            return f.read()
+
+    def test_nothing_running_is_quick(self):
+        t0 = time.time()
+        self.assertEqual(serve.shutdown_jobs(), 0)
+        self.assertLess(time.time() - t0, 0.3)
+        self.assertNotIn("終了のため中断", self._log())
+
+    def test_running_export_is_interrupted_and_child_killed(self):
+        beat = os.path.join(self.tmp, "export.beat")
+        src = os.path.join(self.tmp, "src.mp4")
+        open(src, "wb").close()
+
+        def fake_runner(job, spec, it, base):   # 書き出しの ffmpeg の代わりに、出力を出しながら長く動く子(孫つき)
+            exporter._pump(job, [sys.executable, "-c", PARENT, BEAT, beat], it, 60)
+            return spec["folder"] + "/" + base + ".mp4"
+        clips = [{"id": "m1", "start": 0.0, "end": 60.0, "title": "a", "label": "", "src": "manual", "markStatus": ""},
+                 {"id": "m2", "start": 60.0, "end": 90.0, "title": "b", "label": "", "src": "manual", "markStatus": ""}]
+        spec = {"videoId": "fabcdefghij", "title": "t", "clips": clips, "fast": False, "maxHeight": 0, "volume": 100, "loudness": None,
+                "kind": "file", "sourceTitle": "t", "sourceFile": src, "sourceDuration": 100, "combine": False, "mode": "file", "sourcePath": src}
+        with patch.object(exporter, "run_ffmpeg", fake_runner):
+            job = exporter.start_job(spec)
+            self.assertTrue(_wait_file(beat), "書き出しの子が起動しなかった")
+            self.assertTrue(exporter.is_busy())
+            t0 = time.time()
+            self.assertGreaterEqual(serve.shutdown_jobs(), 1)
+            self.assertLess(time.time() - t0, 8)
+        self.assertEqual(job["state"], "cancelled")
+        self.assertTrue(job.get("interrupted"))
+        self.assertEqual([i["status"] for i in job["items"]], ["cancelled", "cancelled"])   # 2本目は始めない
+        self.assertFalse(exporter.is_busy())
+        self.assertEqual(common.children(), [])
+        self.assertFalse(_alive(beat))
+        self.assertIn("終了のため中断しました: 解析 0 本", self._log())
+
+    def test_queue_waiting_and_running_are_cancelled(self):
+        b = serve.BATCH
+        src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
+        wait_it = b._new_item(src, {}, "待ちの配信", "")
+        run_it = b._new_item(dict(src, videoId="bbcdefghijk"), {}, "解析中の配信", "")
+        run_it["status"], run_it["job"] = "running", analyze.new_job({})
+        b.items += [run_it, wait_it]
+        self.assertEqual(sorted(b.shutdown()), sorted(["待ちの配信", "解析中の配信"]))
+        self.assertEqual((wait_it["status"], wait_it["error"]), ("cancelled", "終了のため中断しました"))
+        self.assertTrue(run_it["job"]["cancel"])
+        run_it["job"]["state"] = "cancelled"   # 解析のスレッドが中止を見て終わった
+        b._complete(run_it, run_it["job"])
+        self.assertEqual((run_it["status"], run_it["error"], run_it["phase"]), ("cancelled", "終了のため中断しました", "中断しました(終了)"))
+        self.assertFalse(b.is_busy())
+        with self.assertRaises(ApiError) as cm:   # 終了の流れのあとは新しく入れない
+            b.add([{"kind": "youtube", "videoId": "cbcdefghijk"}], {})
+        self.assertEqual(cm.exception.code, "closing")
+
+    def test_finish_stops_jobs_before_runtime(self):
+        calls = []
+        with patch.object(serve, "shutdown_jobs", lambda: calls.append("jobs")), \
+                patch.object(serve.handoff, "remove_runtime", lambda *a: calls.append("runtime")):
+            serve.finish()
+        self.assertEqual(calls, ["jobs", "runtime"])   # 入口の Mount.stop() → finish() で止まる
+
+
+class TestExportJobSettles(Home):
+    """書き出しのジョブが想定外の例外で「実行中」のまま残らない(設計レビューの 2)。"""
+
+    def test_unexpected_error_does_not_leave_running(self):
+        spec = {"videoId": "fabcdefghij", "clips": [{"id": "m1", "start": 0.0, "end": 1.0, "title": "a", "label": ""}]}
+        job = {"id": "x", "videoId": spec["videoId"], "state": "running", "cancel": False, "proc": None, "created": time.time(),
+               "items": [dict(c, status="queued", progress=0.0, file=None, error=None) for c in spec["clips"]]}
+        with patch.object(exporter, "_run_job", side_effect=ValueError("boom")):
+            with self.assertRaises(ValueError):
+                exporter.run_job(job, spec)
+        self.assertEqual(job["state"], "error")
+        self.assertEqual(job["items"][0]["status"], "error")
+        self.assertIn("studio-errors.log", job["items"][0]["error"])
 
 
 if __name__ == "__main__":

@@ -253,8 +253,7 @@ def media_info(path):
     if not ff:
         return None, False, False, ""
     try:
-        pr = subprocess.run([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace", timeout=60)
+        pr = run_short([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], timeout=60, merge_stderr=True)
     except (OSError, subprocess.SubprocessError):
         return None, False, False, ""
     out = pr.stdout or ""
@@ -278,13 +277,88 @@ def has_audio_stream(path):
 KILL_GRACE = 3.0   # SIGTERM のあと、この秒数で終わらなければ SIGKILL
 
 
+STOP_WAIT = 3.0    # 終了の流れ(stop_children)で、止める依頼のあと子プロセスが終わるのを待つ秒数。過ぎたら強制終了
+_children = set()  # spawn で起動して、まだ見届けていない子プロセス(終了の流れで止めるため。2026-09-30)
+_children_lock = threading.Lock()
+
+
 def spawn(cmd, **kw):
-    """外部コマンドを起動する。POSIX では新しいセッション(=プロセスグループ)にして、孫プロセスごと止められるようにする。"""
+    """外部コマンドを起動する。POSIX では新しいセッション(=プロセスグループ)にして、孫プロセスごと止められるようにする。
+    起動した子は _children に覚える(終わりを見届けた側が forget で外す。外し忘れても children() が終わったものを除く)。
+    Windows では別のプロセスグループ・窓なしなので、親が終わっても子は残る → 終了の流れで stop_children() を呼ぶ"""
     if os.name != "nt":
         kw["start_new_session"] = True
     else:   # 別のプロセスグループにして、黒い画面への Ctrl+C / Ctrl+Break を子に流さない・子の終了で画面が巻き込まれないようにする
         kw["creationflags"] = kw.get("creationflags", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return subprocess.Popen(cmd, **kw)
+    proc = subprocess.Popen(cmd, **kw)
+    with _children_lock:
+        _children.add(proc)
+    return proc
+
+
+def forget(proc):
+    """終わりを見届けた子プロセスを一覧から外す。"""
+    with _children_lock:
+        _children.discard(proc)
+
+
+def children():
+    """まだ動いている子プロセス(終わったものは一覧から外す)。"""
+    with _children_lock:
+        for proc in [x for x in _children if x.poll() is not None]:
+            _children.discard(proc)
+        return list(_children)
+
+
+def stop_children(wait=None):
+    """動いている子プロセスを孫ごと止める(終了の流れ用)。止めた数を返す。子が無ければ待たずにすぐ戻る。
+    止め方: POSIX は SIGTERM(穏やかに)→ wait 秒のうちに終わらなければ SIGKILL。
+    Windows は窓なし・別グループの子に穏やかな合図(Ctrl+Break・WM_CLOSE)が届かないので、taskkill /T /F で孫ごと止める
+    (書き出しは一時の名前に書いているので、途中で止めても完成品と同じ名前の壊れたファイルは残らない)"""
+    live = children()
+    if not live:
+        return 0
+    wait = STOP_WAIT if wait is None else wait
+    for proc in live:
+        terminate(proc, grace=wait)
+    deadline = time.time() + wait
+    for proc in live:
+        try:
+            proc.wait(max(0.05, deadline - time.time()))
+        except subprocess.TimeoutExpired:
+            pass
+    for proc in live:
+        if proc.poll() is None:
+            hard_kill(proc)
+            try:
+                proc.wait(2)
+            except subprocess.TimeoutExpired:
+                pass
+        if proc.poll() is not None:
+            forget(proc)
+    return len(live)
+
+
+def run_short(cmd, timeout, merge_stderr=False):
+    """すぐ終わる外部コマンド(情報を読むだけ: ffmpeg -i・ffprobe・yt-dlp -g)。subprocess.run の代わりに spawn を通す
+    (終了の流れで止められる・窓を出さない)。時間切れは孫ごと止めて subprocess.TimeoutExpired。戻り値は CompletedProcess"""
+    proc = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
+                 text=True, encoding="utf-8", errors="replace")
+    try:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            hard_kill(proc)
+            try:
+                proc.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, ValueError, OSError):
+                pass
+            raise
+    finally:
+        if proc.poll() is None:
+            hard_kill(proc)
+        forget(proc)
+    return subprocess.CompletedProcess(cmd, proc.returncode, out or "", err or "")
 
 
 def _signal_tree(proc, sig):
@@ -383,6 +457,7 @@ def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=
         job[slot] = None
         if p_.poll() is None:
             hard_kill(p_)
+        forget(p_)
     if job["cancel"]:
         raise Cancelled()
     if idle[0]:

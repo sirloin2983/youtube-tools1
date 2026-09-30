@@ -30,6 +30,7 @@ class Batch:
         self.running = None  # 実行中の qid
         self._fseq = 0
         self._thread = None
+        self.closing = False   # 終了の流れ(shutdown)のあと: 新しく入れない・待ちを始めない
 
     def start(self):
         """ワーカーを1つだけ起動する(何度呼んでも、同時に呼んでも、1つしか作らない)。"""
@@ -91,6 +92,8 @@ class Batch:
         settings = analyze.validate_settings(settings)
         added, rejected = [], []
         with self.cv:
+            if self.closing:
+                raise ApiError("closing", "終了しているところです。起動し直してから入れてください", 503)
             for raw in items[:100]:
                 label = (str(raw.get("path") if raw.get("kind") == "file" else (raw.get("url") or raw.get("videoId")) or "")[:200]) if isinstance(raw, dict) else ""
                 try:
@@ -177,6 +180,27 @@ class Batch:
                 analyze.cancel_job(run["job"])
             return self.cv.wait_for(lambda: run["status"] != "running", wait)
 
+    def shutdown(self, reason="終了のため中断しました"):
+        """終了の流れ用(serve.shutdown_jobs): 待ちの配信を「中止」にして取り除き、実行中の解析に中止を伝える(待たない)。
+        子プロセスは common.stop_children がまとめて止める。中断した配信の名前の一覧を返す"""
+        out = []
+        with self.cv:
+            self.closing = True
+            for it in list(self.items):
+                if it["status"] == "waiting":
+                    self._finish(it, "cancelled", reason, "中断しました(終了)")
+                    out.append(it["title"] or it["videoId"])
+                elif it["status"] == "running" and it.get("job"):
+                    it["job"]["interrupted"] = True
+                    it["job"]["cancel"] = True
+                    out.append(it["title"] or it["videoId"])
+            self.cv.notify_all()
+        return out
+
+    def running_now(self):
+        with self.cv:
+            return any(i["status"] == "running" for i in self.items)
+
     def clear(self):
         with self.cv:
             n = len(self.items)
@@ -200,7 +224,7 @@ class Batch:
         while True:
             with self.cv:
                 while True:
-                    it = next((i for i in self.items if i["status"] == "waiting"), None)
+                    it = None if self.closing else next((i for i in self.items if i["status"] == "waiting"), None)
                     if it:
                         break
                     self.cv.wait()
@@ -235,6 +259,8 @@ class Batch:
                 status, err = "error", "解析結果がありません"
             elif status == "error":
                 err = job.get("error") or "解析に失敗しました"
+            elif status == "cancelled" and job.get("interrupted"):
+                err = "終了のため中断しました"
             elif status != "cancelled":
                 status, err = "error", "解析が途中で止まりました"
         except Exception as e:
@@ -245,7 +271,7 @@ class Batch:
             it["job"] = None
             self.running = None
             if it in self.items:
-                self._finish(it, status, err)
+                self._finish(it, status, err, "中断しました(終了)" if status == "cancelled" and job.get("interrupted") else None)
             self.cv.notify_all()
 
     def _apply(self, it, job):

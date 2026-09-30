@@ -2000,3 +2000,25 @@
   再生 = P でカットの再生ボタン / 始まりの印を外すと「印の間を削る」/ 校正済みのキーを外すと精度・自動で再生の説明に Shift+Space が出ない)。
   通過: e2e_proofread_keys・e2e_edit_cut・e2e_ui_handoff・e2e_ui_mounted・e2e_row_editing・home/tests/e2e_keymap・node 9/9
 - 未コミット: なし
+
+## 2026-09-30 Claude Code(サブエージェント)— スタジオ: 終了のとき実行中の解析・書き出しの子プロセスを止める(夜間の設計レビュー studio の 1・2)
+- 担当: `studio/`(段3 の別のエージェントが `editor/`・`ui-kit/` を同時に編集中。触るファイルは重ならない)。`home/` は変えていない(`Mount.stop()` がすでに `finish()` を呼ぶので、`finish()` の中で止めれば入口の「すべて終了」・Ctrl+C・×の流れに乗る)
+- 問題: 終了の流れ(入口の「すべて終了」・単独起動の Ctrl+C / SIGTERM / SIGBREAK)が .runtime を消すだけで、実行中の ffmpeg / yt-dlp を止めなかった。
+  Windows では子を `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` で起動しているので、親が終わっても見えないまま CPU・回線・ディスクを使い続ける
+- 変更:
+  - `studio/common.py`: `spawn` が起動した子を1か所(`_children`)で覚え、`forget`(見届けたら外す。run_capture・_pump の finally)・`children()`(終わったものは自動で外す)・
+    `stop_children(wait)`(子が無ければすぐ戻る。POSIX は SIGTERM → wait 秒 → SIGKILL、Windows は `taskkill /T /F` で孫ごと)。
+    `run_short`: すぐ終わる読み取りのコマンド(`media_info` の ffmpeg -i・`stream_urls` の yt-dlp -g・`_ffprobe_json`)も spawn を通す(以前は subprocess.run で、止める手段が無く、中止も効かなかった)
+  - `studio/serve.py`: `shutdown_jobs()` = ① 解析の待ちを「中止」で取り除き、実行中の解析・書き出し・チャットの先読みに中止を伝える → ② `stop_children` → ③ ジョブのスレッドが後始末を終えるのを最大5秒待つ。
+    中断したものを studio.log に1行(「終了のため中断しました: 解析 N 本(名前)・書き出し N 件・…」)。`finish()` の先頭で呼ぶ(単独起動で .runtime を書けなかったときも main の finally で呼ぶ)
+  - `studio/batch.py`: `shutdown()`(closing の印。待ちを始めない・`add` は 503 closing)・`running_now()`。終了で中断した解析は status = cancelled・error「終了のため中断しました」・phase「中断しました(終了)」
+  - `studio/exporter.py`: `cancel_all()`(job["interrupted"])。**ついでにレビューの 2**: `run_job` を try/finally で包み、想定外の例外でも「実行中」のまま残さない(`_settle`: 中止を伝えていれば cancelled、そうでなければ error。
+    以前は is_busy が真のままになり、次の書き出し・出力先の変更・動画の削除が 409 のまま・まとめて実行が待ち続けた)
+  - `studio/analyze.py`: `cancel_all_prefetch()`
+- テスト(`studio/tests/test_robustness.py` に 9 件): 子が無いときはすぐ戻る / 孫を起動する python の子を孫ごと止める(印のファイルの書き換えが止まる)/ run_short の後始末・時間切れ /
+  書き出しの実行中に shutdown_jobs → 子と孫が止まる・ジョブは cancelled・2本目を始めない・studio.log に記録 / 解析の待ち・実行中が「終了のため中断」/ closing のあとの add は断る / finish は jobs → runtime の順 /
+  書き出しのジョブが想定外の例外でも error で終わる。通過: studio の unit 7 ファイル(236 件・skip 1)・home/tests/test_mount.py・studio/tests/e2e_analyze.py
+- 決定・理由: Windows では窓なし・別グループの子に穏やかな合図(Ctrl+Break・WM_CLOSE)が届かないので、中止の印(ジョブが次の段階に進まない)を先に立ててから taskkill /T /F で止める
+  (書き出しの途中のファイルは次の件で一時の名前にするので、強制終了でも完成品と同じ名前の壊れたファイルは残らない)。待ち行列・書き出しのジョブはメモリだけなので「中断」は studio.log に残す(画面に出すのはレビューの 13 = 保留)
+- 保留: 入口が落ちた(強制終了・クラッシュ)ときにも子を消す Windows の Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。ctypes)は設計の判断が要るので入れていない。入口の「すべて終了」の前に `busy()` を見て確認を出す(home 側の画面の変更)も保留
+- 未コミット: なし(このあとコミット)

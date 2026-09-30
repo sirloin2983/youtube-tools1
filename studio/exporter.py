@@ -319,6 +319,17 @@ def cancel(jid):
     common.terminate(j.get("proc"))
 
 
+def cancel_all():
+    """終了の流れ用(serve.shutdown_jobs): 実行中の書き出しに中止を伝える(待たない)。子プロセスは common.stop_children がまとめて止める。
+    中止したジョブの一覧を返す。ジョブは「中止」で終わり、終了のためであることは job["interrupted"] に残す"""
+    with _jobs_lock:
+        running = [j for j in _jobs.values() if j["state"] == "running"]
+    for j in running:
+        j["interrupted"] = True
+        j["cancel"] = True
+    return running
+
+
 def _pump(job, cmd, it, dur):
     """コマンドを実行して出力を読み、進捗(0〜1)を更新する。失敗時は ExportError。
     EXPORT_IDLE 秒のあいだ出力がなければ止める。中止・時間切れでは子プロセスごと止める。"""
@@ -369,6 +380,7 @@ def _pump(job, cmd, it, dur):
         job["proc"] = None
         if proc.poll() is None:
             common.hard_kill(proc)
+        common.forget(proc)
         if proc.poll() is not None:
             proc.stdout.close()
     if job["cancel"]:
@@ -467,7 +479,7 @@ def stream_urls(spec):
     """yt-dlp -g で映像/音声の直接URLを得る(取得だけで、ダウンロードはしない)。"""
     cmd = [find_tool("yt-dlp"), "--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
     try:
-        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", timeout=90)
+        p = common.run_short(cmd, timeout=90)   # spawn を通す(終了の流れで止められる・窓を出さない)
     except (OSError, subprocess.SubprocessError):
         raise ExportError("yt-dlp を実行できませんでした")
     urls = [l.strip() for l in (p.stdout or "").splitlines() if l.strip()]
@@ -704,8 +716,7 @@ def _ffprobe_json(args, timeout=30):
     if not fp:
         return None
     try:
-        r = subprocess.run([fp, "-v", "error", "-of", "json"] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        r = common.run_short([fp, "-v", "error", "-of", "json"] + args, timeout=timeout)
         return json.loads(r.stdout or "null") if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
@@ -782,17 +793,39 @@ def write_manifests(spec, it, mark_status):
 
 
 def run_job(job, spec, on_done=None):
-    """重い処理の同時実行数の上限(ytt_core.jobs)の順番を待ってから書き出す。待っている間は job["waiting"] が真"""
-    with jobs.SLOTS.slot("studio", "書き出し %d 本" % len(job["items"]), cancelled=lambda: job["cancel"],
-                         on_wait=lambda: job.update(waiting=True)) as ok:
-        job["waiting"] = False
-        if not ok:
-            for it in job["items"]:
-                if it["status"] == "queued":
-                    it["status"] = "cancelled"
-            job["state"] = "cancelled"
-            return
-        _run_job(job, spec, on_done)
+    """重い処理の同時実行数の上限(ytt_core.jobs)の順番を待ってから書き出す。待っている間は job["waiting"] が真。
+    想定外の例外でも、ジョブを「実行中」のまま残さない(残ると is_busy が真のままで、次の書き出し・出力先の変更・動画の削除が
+    サーバーを起動し直すまで 409 になり、終了の流れも止まるのを待ち続ける)"""
+    try:
+        with jobs.SLOTS.slot("studio", "書き出し %d 本" % len(job["items"]), cancelled=lambda: job["cancel"],
+                             on_wait=lambda: job.update(waiting=True)) as ok:
+            job["waiting"] = False
+            if not ok:
+                for it in job["items"]:
+                    if it["status"] == "queued":
+                        it["status"] = "cancelled"
+                job["state"] = "cancelled"
+                return
+            _run_job(job, spec, on_done)
+    except BaseException as e:
+        common.log_failure("書き出し(ジョブ全体)", e)
+        raise
+    finally:
+        _settle(job)
+
+
+def _settle(job):
+    """ジョブが「実行中」のまま終わったら、終わりの状態を付ける(中止を伝えていれば中止、そうでなければ失敗)。"""
+    if job["state"] != "running":
+        return
+    stop = bool(job["cancel"])
+    for it in job["items"] + ([job["combined"]] if job.get("combined") else []):
+        if it.get("status") in ("queued", "running"):
+            it["status"] = "cancelled" if stop else "error"
+            if not stop and not it.get("error"):
+                it["error"] = "内部エラーで止まりました(詳細は studio-errors.log)"
+    job["waiting"] = False
+    job["state"] = "cancelled" if stop else "error"
 
 
 def _run_job(job, spec, on_done=None):

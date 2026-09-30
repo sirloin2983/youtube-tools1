@@ -394,13 +394,23 @@ def prefetch_chat(vid, timeout, on_done=None):
     return "started"
 
 
-def cancel_prefetch(vid):
+def cancel_prefetch(vid, kill=True):
     with _pf_lock:
         pf = PREFETCH.get(vid)
     if pf:
         pf["job"]["cancel"] = True
-        for k in ("proc", "proc2"):
-            common.terminate(pf["job"].get(k))
+        if kill:
+            for k in ("proc", "proc2"):
+                common.terminate(pf["job"].get(k))
+
+
+def cancel_all_prefetch():
+    """終了の流れ用: 先読みをすべて中止する(止める依頼だけ。子プロセスは common.stop_children がまとめて止める)。中止した数"""
+    with _pf_lock:
+        vids = list(PREFETCH)
+    for vid in vids:
+        cancel_prefetch(vid, kill=False)
+    return len(vids)
 
 
 def start_chat(job, vid, wdir, timeout):
