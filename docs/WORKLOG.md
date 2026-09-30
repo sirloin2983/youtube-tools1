@@ -1782,3 +1782,13 @@
 - テスト(PC): home の unit 140 通過(飛ばしなし)・`python -m unittest editor/tests/test_metrics.py editor/tests/test_resolve_export.py` 171 通過(skip は前からの1件だけ)。
   `sys.platform='linux'` にして読み込むと test_window.py は skip 3 で通ることも確かめた(本物の Linux では流していない → **クラウドで流したときに skip 5 で緑になるかを次に確かめる**)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 追加1: スタジオの知らせが消えない(夜間の見直しの 3-ui-consistency の 1)
+- 原因: `studio/core.js` の `Studio.toast(msg, ms, kind)` が ms をそのまま `UIKit.toast` へ渡していた。スタジオの呼び出し(約 40 か所)は昔の「0 = 既定の秒数」で `toast(msg, 0, 'ok'|'err')` と書いているが、
+  ui-kit v7 で `ms: 0` が「消えない」に変わったため、成功の知らせも × を押すまで残っていた
+- 変更: `Studio.toast` は `ms || undefined` を渡す(0・省略 = ui-kit の既定。成功 2.5 秒・失敗 8 秒)。消えない知らせにしたいときは ms にオブジェクトを渡す(`Studio.toast(msg, { ms: 0, kind: 'err' })`。そのまま UIKit.toast へ。編集の `toast()` と同じ形)。
+  スタジオの呼び出しに「意図して消えない」ものは無かった(ui-kit の中の `ms: 0` は ui-kit から直接 `toastFn` を呼んでいるので影響なし)
+- テスト: `studio/tests/e2e_ui.py` に「0 → 既定・数字 → その秒数・オブジェクト → そのまま」「`toast(msg, 0, 'ok')` は既定の秒数で消える」「`{ ms: 0 }` は残る」を足した。
+  同じファイルの「設定を開いている間は ③ のショートカットが効かない」が、止めた直後の表示の更新(0:22.0 → 0:22.1)で不定に落ちるようになった(時間の流れが変わったため。2回に1回ほど)
+  → 表示の一致ではなく「1 秒の移動が無い(差 0.5 秒未満)」を見るように直した。通過: e2e_ui 147/147・e2e_ui --mounted 160/160
+- 未コミット: なし

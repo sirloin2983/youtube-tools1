@@ -256,6 +256,16 @@ def run_checks(port, fx, shots=None):
         pg2.goto(base); wait_js(pg2, "() => window.Studio && Studio.ready")
         c.ok(pg2.evaluate("Studio.toolUrl('transcribe', '/?media=x')") == "http://localhost:8779/?media=x", "受け渡しのリンクは /api/siblings で分かった実際のポートを使う")
         pg2.close()
+        # 段1: Studio.toast(msg, 0, kind) の 0 は昔の「既定の秒数」。ui-kit v7 の「消えない」(ms: 0)として渡さない。消えない知らせはオブジェクトで明示する
+        seen = pg.evaluate("""() => { const o = UIKit.toast, seen = []; UIKit.toast = (m, opt) => { seen.push(opt); return o(m, opt); };
+            try { Studio.toast('e2e-ok', 0, 'ok'); Studio.toast('e2e-err', 0, 'err'); Studio.toast('e2e-ms', 1200); Studio.toast('e2e-keep', { ms: 0, kind: 'err' }); } finally { UIKit.toast = o; }
+            return seen.map(x => [x.ms === undefined ? null : x.ms, x.kind || null]); }""")
+        c.ok(seen == [[None, "ok"], [None, "err"], [1200, None], [0, "err"]], "Studio.toast: 0 は既定の秒数・数字はその秒数・オブジェクトはそのまま(ms: 0 = 消えない): %s" % seen)
+        pg.evaluate("document.querySelectorAll('.ui-toast').forEach(t => t.remove()); Studio.toast('e2e-ok', 0, 'ok'); Studio.toast('e2e-keep', { ms: 0, kind: 'err' })")
+        c.ok(wait_js(pg, "() => ![...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('e2e-ok') >= 0)", 6000),
+             "Studio.toast(msg, 0, 'ok') の知らせは既定の秒数で消える(× を押すまで残らない)")
+        c.ok(pg.evaluate("[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('e2e-keep') >= 0)"), "オブジェクトで ms: 0 を渡した知らせは残る")
+        pg.evaluate("document.querySelectorAll('.ui-toast').forEach(t => t.remove())")
 
         print("[テーマ]")
         pg.click("[data-theme-toggle]")
@@ -419,7 +429,10 @@ def run_checks(port, fx, shots=None):
         now0 = pg.input_value("#rvNow")
         pg.keyboard.press("ArrowRight")
         pg.wait_for_timeout(200)
-        c.ok(pg.input_value("#rvNow") == now0, "設定を開いている間は ③ のショートカットが効かない")
+        now1 = pg.input_value("#rvNow")
+        # → は 1 秒進める。止めた直後の表示の更新(0.1 秒ほど)で文字がずれることがあるので、1 秒の移動が無いことを見る(段1: 表示の一致だけだと不定に落ちた)
+        sec = lambda t: sum(float(x) * 60 ** i for i, x in enumerate(reversed(t.split(":"))))
+        c.ok(abs(sec(now1) - sec(now0)) < 0.5, "設定を開いている間は ③ のショートカットが効かない: %s → %s" % (now0, now1))
         pg.click("#keySave")
         c.ok("入力してください" in (pg.text_content("#keyMsg") or "") and os.path.isfile(fx["config"]), "API キーの欄が空のまま「保存」を押しても、保存済みのキーは消えない")
         pg.click("#setReg summary")

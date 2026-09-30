@@ -45,8 +45,15 @@ Studio.portalApi = async (path, body) => {
   return j;
 };
 
-/* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。ui-kit の重ねて最大3つのトースト(入れ物は id="toast")を呼ぶだけ */
-Studio.toast = (msg, ms, kind) => { if (window.UIKit && UIKit.toast) UIKit.toast(msg, { ms, kind }); };
+/* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。ui-kit の重ねて最大3つのトースト(入れ物は id="toast")を呼ぶだけ。
+   ms が 0・省略なら ui-kit の既定の秒数(成功 2.5 秒・失敗 8 秒)。呼び出しの多くは昔の「0 = 既定」の形(toast(msg, 0, 'ok'))なので、
+   ui-kit v7 の ms: 0 =「消えない」をそのまま渡さない(段1。渡していたので、成功の知らせまで × を押すまで残っていた)。
+   消えない知らせにしたいときは ms にオブジェクトを渡す(例: Studio.toast(msg, { ms: 0, kind: 'err' })。そのまま UIKit.toast へ) */
+Studio.toast = (msg, ms, kind) => {
+  if (!(window.UIKit && UIKit.toast)) return;
+  if (ms && typeof ms === 'object') return UIKit.toast(msg, ms);
+  return UIKit.toast(msg, { ms: ms || undefined, kind });
+};
 Studio.showErr = msg => { const b = $('#errBar'); b.textContent = String(msg); b.hidden = false; };
 
 /* 状態の取得。続けて呼ばれたときは、最後に頼んだ分だけを反映する(古い応答で新しい状態を上書きしない) */
