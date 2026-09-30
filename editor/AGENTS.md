@@ -1,6 +1,6 @@
 # editor(「編集」= 文字起こし・カット・パック。2026-09-30 まで transcribe-tool)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.24.0**(2026-09-30、全体の計画の 段1「小さな直しと安全」: 声を覚えるの安全・引き出しと Alt+数字・Shift+右クリックの行のメニュー。`../docs/plan/phase1-small-fixes.md`)。v0.22.0 は精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印。下の「名簿の呼び名と配信ごとの文脈」)。
+現在 **v0.25.0**(2026-09-30、全体の計画の 段2「データを失わない・読み違えない」: 動画を選び直す・カットの読み込み失敗の区別・URL の ?doc=・設定の保存の失敗と差のキーだけの保存。`../docs/plan/phase2-data-safety.md`)。v0.24.0 は段1(声を覚えるの安全・引き出しと Alt+数字・Shift+右クリックの行のメニュー)。v0.22.0 は精度改善の計画 段1(名簿の呼び名・配信ごとの文脈・評価用として文字起こし)と S-3(幻覚の印。下の「名簿の呼び名と配信ごとの文脈」)。
 v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる対策(下の「再認識(範囲・全体)と声の検出のやり直し」。`../docs/design/whole-retranscribe-design.md`)・映像の上の字幕に話者の色。
 それより前の版の中身は `README.txt` の「■ v0.xx の変更」と `../docs/WORKLOG.md`(0.16.0 = 「編集」の統合・0.11.0 = 認識のワーカー分離・0.12.0 = Resolve パックの一本化 など)。
 画面の共通のルール(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)は `../docs/spec/ui-guidelines.md`。画面を直すときは必ず合わせる。いま何が途中かは `../docs/WORKLOG.md` の最後の数件で確かめる。
@@ -81,6 +81,9 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   パスの検査は `relink_path`(ネットワークはファイルに触る前に断る → realpath のあとでもう一度・「:」・拡張子・`DATA_DIR` の中)。書き換えるのは sourcePath・sourceName・updatedAt・`relinks`(最新 10 件)だけ。
   控え = `.bak/<id>.pre-relink.json`・`.bak/<id>.edit.pre-relink.json`・履歴。長さの決まりは `_relink_ref`(動画全体 = duration と ±max(1秒, 0.5%)、範囲 = end − 0.5 秒以上)。
   画面は `#relinkDlg`(app.js の `openRelink`)。再生の失敗の案内 `renderPlayerMsg` はカットのタブの `CUT.state().offCode === 'source_missing'` のときだけボタンを出す
+  **設定の保存**(段2 監査 11): 画面は最後に保存した内容との差のキーだけを `PUT /api/settings {"patch": {キー: 値 | null}}`(`merge_settings`。`SETTINGS_PATCH_KEYS` は変えない)。丸ごとの PUT も従来どおり受ける。
+  失敗は ui-kit の `UIKit.settings.status`(⚙ の印と引き出しの先頭)。読み込みに失敗したら `S.settingsLoadErr` を立て、読み直すまで保存しない(`saveKeymap` も)。
+  URL の `?doc=` は `setUrlDoc`(監査 06。replaceState)。カットの読み込みの失敗は `offCode = 'edit_load'`(監査 13。`#cutRetry`)
   **単語の時刻** `transcripts/<id>.words.json`(文書全体の単語の並び。認識と範囲の再認識が書く・削除で消す)と `POST /api/resplit`(今の文書を分け直す)。
   1つの字幕の最大文字数は設定の `subtitle`(`subtitle_settings`・`split_chars_for`)。行を分ける規則は `split_segment`(+2 文字まで許す)。細かい決まりは設計書の 12 ②。
   **再認識(範囲・全体)と声の検出のやり直し**(v0.21.0。`../docs/design/whole-retranscribe-design.md`): `POST /api/retranscribe` の `mode` = each(行ごと)/ range / **whole**(文書の範囲全体。`ids` はサーバーが「校正済みでない行」を入れる・上限は新規と同じ `MAX_SPAN_SEC`・声の検出は明示の off 以外「弱め」・評価用は断る)。

@@ -1901,3 +1901,12 @@
 - 通過: 編集の unit 一式(skip 1)・dev/tests/test_ui_kit_sync・node(編集 9/9・スタジオ 18/18)・studio e2e_ui 154/154・e2e_ui --mounted 167/167・ui-kit e2e_styleguide・home e2e_keymap・e2e_portal・
   編集の e2e 一式(edit_tabs・proofread_accuracy・proofread_keys・folder_marker_range・eval_set・row_editing・ui_handoff・edit_cut・edit_voices・edit_pack・ui_mounted)
 - 未コミット: なし(版上げ・README・ROADMAP は次の「段の終わり」のコミット)
+
+## 2026-09-30 Claude Code — 段2 の終わり: 版上げ・README・ROADMAP・計画の状態
+- 版: ホーム 0.13.1 → **0.14.0**(B-6 の新しい API・14)・編集 0.24.0 → **0.25.0**(B-4 の新しい API・13・06・11)・スタジオ 0.11.1 → **0.11.2**(11)・ui-kit v8 → **v9**(11 のコミットで済み)。cut2resolve は変えていない
+  (計画は 09-29 の版からの例 = 0.13.0/0.22.0/0.11.1/v7 だったので、段1 のあとの実物から上げた)
+- 変更: `home/launch.py`・`editor/serve.py`・`editor/app.js`・`studio/serve.py`・`studio/core.js` の版、3つの README.txt の見出しと変更の記録(編集は「■ 動画を選び直す」の使い方も)、
+  `editor/AGENTS.md`(先頭の版・動画を選び直す/設定の保存/?doc=/edit_load の説明)、`docs/ROADMAP.md`(版・段2 の状態 = 済み・「3. 実機で確かめること」に段2 の分)、`docs/plan/phase2-data-safety.md` の状態の1行
+- 保留: なし(計画の6項目をすべて実装)
+- 未完了・次: 実機で確かめること(ROADMAP の 3 の「段2」)。起動中の入口は古いコードのままなので「すべて終了」→ start.bat で起動し直す。版上げのあとの e2e はこのあと1本ずつ流す(下に追記)
+- 未コミット: なし
