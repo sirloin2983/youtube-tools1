@@ -5,7 +5,7 @@
 状態が変わったら、WORKLOG と一緒にここ(と該当の段の計画)も直す。細かい経緯は WORKLOG と各文書に書き、ここには1行だけ。
 **2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 
-版(2026-09-30): 入口 0.14.0・スタジオ 0.11.2・編集 0.25.0・cut2resolve 0.15.0・ui-kit v9・ホロカラー 1.2.1(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-09-30): 入口 0.14.0・スタジオ 0.11.2・編集 0.25.0・cut2resolve 0.15.0・ui-kit v9・ホロカラー 1.3.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
@@ -39,7 +39,7 @@
 | 4 | パックの表示と出力を一致 | 設定を変えたら見積もり直す(07)・前回のパックとの設定の違い(08)・覚える設定の整理(09)・zip に渡らない設定を明示(10)・字幕の見本とカットのタブに話者の色(12 の残り) | M | `docs/plan/phase4-pack-consistency.md` | 未着手 |
 | 5 | 見せ方をそろえる | まとめて実行の入口を1つの部品に(B-7)・文字起こしの一覧は編集の履歴を主に(B-5)・スタジオのマークの一覧を畳んだ行に・幅の崩れ2件・YouTube の準備待ちの時間切れ(監査 20) | M | `docs/plan/phase5-consistent-ui.md` | 未着手 |
 | 6 | 編集の機能を足す | 行の後の余白を設定に(B-1)・字幕のトラックで時刻を直す・行を分ける(B-2) | M〜L | `docs/plan/phase6-edit-features.md` | 未着手 |
-| 7 | ホロカラーの色を調べ直す | 全員の公式の色を調べ、複数の色を持てる形に・あとから自分で直せる(B-10) | M | `docs/plan/phase7-holo-colors.md` | 未着手 |
+| 7 | ホロカラーの色を調べ直す | 全員の公式の色を調べ、複数の色を持てる形に・あとから自分で直せる(B-10) | M | `docs/plan/phase7-holo-colors.md` | 済み(2026-09-30。ホロカラー 1.3.0。主な色を変えるか・ペンライトの色はユーザーに聞く: `docs/design/holo-colors-research.md`) |
 | 8 | 複数の切り抜きをつなげる | 素材を足す・並べ替え・EDL と Text+ を複数の素材に(B-3。**優先度 低**。素材は全部 30fps・8本まで) | L | `docs/plan/phase8-multi-clip.md` | 未着手 |
 
 - 並べ方の理由: 操作が塞がる・データが混ざる・失うものを先に(段1・2)、次に毎日の操作の小さな不一致(段3・4)、見た目の統一(段5)、新しい機能(段6〜8)
@@ -163,6 +163,7 @@ AI: 段0 ✅ → 段1 呼び名 → 段2 エンジン差し替え + GPU ──�
 | `docs/design/whole-retranscribe-design.md` | 動画全体の再認識(0.21.0 で実装済み。4-3 は提案のまま) |
 | `docs/design/resolve-pack-unification.md` | Resolve パックの一本化(実装済み) |
 | `docs/design/holo-colors.md` | ホロカラーの設計 |
+| `docs/design/holo-colors-research.md` | ホロカラーのメンバーの色の調べ方と記録(2026-09-30 に全員。ユーザーに聞くことが残る) |
 | `.design/ui-overhaul/DESIGN_REVIEW.md` | 画面の見直しのレビュー(「Should Fix(残り)」「Could Improve」が残る) |
 
 ### 古い資料(今の動きの根拠にしない)

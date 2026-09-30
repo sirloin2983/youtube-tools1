@@ -1947,3 +1947,27 @@
   `test_document_save.cjs` の openDoc の置き換えに `menuOpen` を足した。
   通過: e2e_edit_tabs・e2e_edit_cut・e2e_row_editing・e2e_ui_handoff・home/tests/e2e_keymap・node 9/9
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段7 7-3(全員を調べ直した)・7-8(段の終わり)
+- 版: ホロカラー 1.2.1 → **1.3.0**(`holo-colors/src/Core.cs` の AppInfo.Version・README の見出しと変更の記録)。members.json は version 2・updated 2026-09-30。ytt_core の変更はツールの版を上げない
+- 7-3: 86 人・20 グループすべてに `checked`(2026-09-30)と記録の表(`docs/design/holo-colors-research.md` の「記録」)。取得はサブエージェント(Sonnet。Web から HTML とテキストだけ・画像は取らない・リポジトリは触らない)、
+  members.json への反映と記録の表はまとめ役。ホロジュールの枠の色は自分でも数人を取り直して確かめた(#4E7FFC・#F9AFB2・#FF45D5・#F9F1E4・#266AFF)
+  - 今日のホロジュールで確かめた 62 人(1人の枠 50・共演の枠 10・FUWAMOCO の2人共用 2)は、**全員が今の主な色と同じ**。出ていない 24 人は保存版(s2)の記録のまま
+  - 主な色は変えていない(既定)。2つ目の色: 食い違いの4人(アキ・ローゼンタール・角巻わため・アイラニ・イオフィフティーン・九十九佐命)に公式サイトの画像の色(medium)、FUWAMOCO の2人にホロジュールの2人共用 #F9F1E4(high)
+  - 確かさの内訳(色 92 個): high 80・medium 10・low 2。公式の明示(①)は1件も取れなかった(ペンライトの色の案内は X の画像だけ)
+  - 採らなかったもの: ペンライトの色(非公式 wiki が公式 X の画像を書き写した名前。④)・公式カードゲームのカードの色(ゲームの分類)・wiki の見出し色(`alt` に wiki の2つ目の色を足した)。出典 s13(ペンライトの表)を足した
+  - 名簿: 新しいデビュー・卒業の差なし(公式の一覧 83 件はすべて入っている)。人見クリスは色の資料が見つからず、入れていない(確かめられなかった)
+- 7-8: `holo-colors/README.txt`(札の小さな四角・【メンバーの色を直す】・直した色の場所・変更の記録 1.3.0)、`docs/design/holo-colors.md`(作業データ member-colors.json・画面・テスト 21 件・2026-09-29 の決定 = 実装済み)、
+  `docs/ROADMAP.md`(先頭の版・段7 = 済み・索引に holo-colors-research.md)、`docs/plan/phase7-holo-colors.md`(状態の1行・ユーザーに聞くこと)。`dist/HoloColors.zip` を作り直した(build.bat)
+- テスト: `holo-colors\build.bat` 21 件 OK・`ytt_core/tests/test_ytt_core.py` OK(skip 1)・cut2resolve 291 件 OK・`home/tests/test_launch.py` OK。1.2.1 の exe(控え)で最後の members.json も 86 人読めた。
+  **`python holo-colors/tests/e2e_holo_colors.py` は2回とも途中で失敗**(1回目: 検索して Enter のあと「コピーしたら閉じる」が来ない、2回目: 11 件通ったあと「札のクリックで閉じる」が来ない。
+  段2 の別のエージェントが同時に画面のテストを流していて前面の窓・入力を取り合った可能性。新しく足した「小さな四角」の確認までは進んでいない)→ ユーザーの PC で、ほかに何も動かしていないときに流し直す
+- ユーザーに聞くこと(詳しくは `docs/design/holo-colors-research.md` の「ユーザーに聞くこと」):
+  1. 食い違いの4人の主な色を公式サイトの画像の色(またはペンライトの色)に替えるか(今はホロジュールの色が主)
+  2. FUWAMOCO の2つ目の色(2人共用 #F9F1E4)を残すか
+  3. ペンライトの色を2つ目以降に足すか(公式の画像で確かめてから。色合いが今の主な色と違う人の一覧あり)
+  4. 主な色を変えたほうがよい人は見つからなかった・名簿の差なし(確認だけ)
+- 実機で確かめること: 1.2.1 の exe のまま新しい members.json に差し替えて起動できる / 1.3.0 で2色以上の人(例: アキ・ローゼンタール)の小さな四角を押して Resolve に Ctrl+V /
+  右クリックの色ごとのコピー / 「色を直す…」で主な色を変える → 終了・起動しても残る → members.json を差し替えても残る / 同じ PC の「編集」のパックで配信者の欄にその人 → Text+ の文字が直した主な色(入口を起動し直さなくてよいか) /
+  DPI 125%・150% で札の四角が名前やカラーコードに重ならない / e2e_holo_colors.py を流し直す
+- 未コミット: なし
