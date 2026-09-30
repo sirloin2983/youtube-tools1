@@ -29,6 +29,8 @@ static class CoreTests
         Run("作業データ: 設定が残る・おかしな値は既定に戻す", StoreSettings);
         Run("作業データ: 壊れたファイルは取っておいて初めから", StoreCorrupt);
         Run("作業データ: 開けなかったファイルは上書きしない・保存の失敗は元に戻す", StoreLocked);
+        Run("作業データ: メンバーの色を直す・元に戻す・知らない id は残す(member-colors.json)", StoreMemberColors);
+        Run("作業データ: 直した色のファイルが壊れている・開けない・保存の失敗", StoreMemberColorsBroken);
         Run("members.json: 同梱のデータが正しい形", BundledMembers);
         Run("members.json: おかしなデータは読まない", BadMembers);
         Run("members.json: 1人に複数の色(colors)・古い形・壊れた色は飛ばす・2つ目の色で検索", MultiColors);
@@ -309,6 +311,149 @@ static class CoreTests
             Eq(1, s3.Mine.Items.Count, "保存できなかった削除は元に戻す");
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    // メンバー2人の members.json(1人は2色)を書いて読む
+    static Palette SamplePalette(string dir)
+    {
+        string f = Path.Combine(dir, "members.json");
+        File.WriteAllText(f, "{\"version\": 2, \"groups\": [{\"id\": \"g\", \"branch\": \"JP\", \"name\": \"x\", \"members\": ["
+            + "{\"id\": \"miko\", \"name\": \"さくらみこ\", \"en\": \"Sakura Miko\", \"hex\": \"#FF8FDF\", \"colors\": [{\"hex\": \"#FF8FDF\", \"label\": \"ホロジュール\"}, {\"hex\": \"#FE4B74\", \"label\": \"公式サイト\"}]},"
+            + "{\"id\": \"pekora\", \"name\": \"兎田ぺこら\", \"en\": \"Usada Pekora\", \"hex\": \"#7EC2FE\"}"
+            + "]}]}");
+        return Palette.Load(f);
+    }
+
+    static void StoreMemberColors()
+    {
+        string dir = TempDir(), apps = TempDir();
+        try
+        {
+            var s = new Store(dir);
+            s.Load();
+            var p = SamplePalette(apps);
+            s.ApplyMemberColors(p.Members);
+            var miko = p.Members.First(x => x.MemberId == "miko");
+            True(!miko.Customized && miko.Hex == "#FF8FDF", "直していなければ members.json の色");
+
+            // 主な色を入れ替えて、新しい色を足す
+            s.SetMemberColors(miko, new[] { new ColorOption("#fe4b74", " 公式サイト "), new ColorOption("#FF8FDF", "ホロジュール"), new ColorOption("#123456", "自分用") });
+            True(miko.Customized, "直した印");
+            Eq("#FE4B74", miko.Hex, "主な色が変わる");
+            Eq("#FE4B74,#FF8FDF,#123456", string.Join(",", miko.Colors.Select(c => c.Hex)), "直した色の並び");
+            Eq("公式サイト", miko.Colors[0].Label, "ラベルの前後の空白を除く");
+            True(SearchText.Matches(miko, "#1234") && SearchText.Matches(miko, "自分用"), "直した色でも検索できる");
+
+            // 起動し直しても残る・members.json を読み直しても残る
+            var s2 = new Store(dir);
+            s2.Load();
+            var p2 = SamplePalette(apps);
+            s2.ApplyMemberColors(p2.Members);
+            var miko2 = p2.Members.First(x => x.MemberId == "miko");
+            True(miko2.Customized && miko2.Hex == "#FE4B74", "起動し直しても直した色");
+            True(!p2.Members.First(x => x.MemberId == "pekora").Customized, "直していない人はそのまま");
+
+            // members.json に無い id は使わないが、消さずに残す
+            string text = File.ReadAllText(s2.MemberColorsPath).Replace("\"members\": {", "\"members\": {\"gone-member\": {\"colors\": [{\"hex\": \"#000001\", \"label\": \"\"}]}, ");
+            File.WriteAllText(s2.MemberColorsPath, text);
+            var s3 = new Store(dir);
+            s3.Load();
+            Eq(0, s3.Warnings.Count, "書き足したファイルが読める: " + string.Join(" / ", s3.Warnings));
+            True(s3.MemberColors.ContainsKey("gone-member"), "知らない id も読む");
+            var p3 = SamplePalette(apps);
+            s3.ApplyMemberColors(p3.Members);
+            var miko3 = p3.Members.First(x => x.MemberId == "miko");
+            s3.ResetMemberColors(miko3);
+            True(!miko3.Customized && miko3.Hex == "#FF8FDF" && miko3.Colors.Count == 2, "元に戻す = members.json の色");
+            var s4 = new Store(dir);
+            s4.Load();
+            True(!s4.MemberColors.ContainsKey("miko"), "元に戻した人はファイルから消える");
+            True(s4.MemberColors.ContainsKey("gone-member"), "知らない id は保存しても消えない");
+
+            // members.json と同じ色にしたら「元に戻す」と同じ
+            s4.ApplyMemberColors(p3.Members);
+            s4.SetMemberColors(miko3, new[] { new ColorOption("#FF8FDF", "ホロジュール"), new ColorOption("#FE4B74", "公式サイト") });
+            True(!miko3.Customized && !s4.MemberColors.ContainsKey("miko"), "元と同じ色は直していない扱い");
+
+            // 最低1色・形の違う色は断る(直した色はそのまま)
+            s4.SetMemberColors(miko3, new[] { new ColorOption("#010101", "") });
+            foreach (var bad in new[] { new ColorOption[0], new[] { new ColorOption("red", "") } })
+            {
+                try { s4.SetMemberColors(miko3, bad); throw new Exception("おかしな色が保存できてしまった"); }
+                catch (ArgumentException) { }
+            }
+            Eq("#010101", miko3.Hex, "断ったときは直した色のまま");
+            var pekora = p3.Members.First(x => x.MemberId == "pekora");
+            var mine = s4.Add("マイ", "#FFFFFF");
+            try { s4.SetMemberColors(mine, new[] { new ColorOption("#000000", "") }); throw new Exception("マイカラーを直せてしまった"); }
+            catch (ArgumentException) { }
+            s4.SetMemberColors(pekora, new[] { new ColorOption("#7EC2FE", ""), new ColorOption("#FFFFFF", "白") });
+            True(pekora.Customized && pekora.Colors.Count == 2, "1色の人に2色目を足せる");
+            True(Directory.GetFiles(dir, "*.part").Length == 0, "一時ファイルが残っていない");
+        }
+        finally { Directory.Delete(dir, true); Directory.Delete(apps, true); }
+    }
+
+    static void StoreMemberColorsBroken()
+    {
+        string dir = TempDir(), apps = TempDir();
+        try
+        {
+            var s = new Store(dir);
+            s.Load();
+            var p = SamplePalette(apps);
+            s.ApplyMemberColors(p.Members);
+            var miko = p.Members.First(x => x.MemberId == "miko");
+            s.SetMemberColors(miko, new[] { new ColorOption("#111111", "") });
+            string before = File.ReadAllText(s.MemberColorsPath);
+
+            // 壊れたファイル: 取っておいて、直していない状態で始める(落ちない)
+            File.WriteAllText(s.MemberColorsPath, "{\"members\": {\"miko\": ");
+            var s2 = new Store(dir);
+            s2.Load();
+            Eq(0, s2.MemberColors.Count, "壊れていれば直した色なし");
+            True(s2.Warnings.Count == 1 && s2.Warnings[0].Contains("member-colors.json"), "知らせる");
+            Eq(1, Directory.GetFiles(dir, "member-colors.json.corrupt-*").Length, "元のファイルは取っておく");
+
+            // 形の違う項目だけ飛ばす
+            File.WriteAllText(s.MemberColorsPath, "{\"members\": {\"miko\": {\"colors\": [{\"hex\": \"xyz\"}, {\"hex\": \"#abc\"}]}, \"pekora\": {\"colors\": []}, \"x\": 5, \"y\": {\"colors\": \"#FFFFFF\"}}}");
+            var s3 = new Store(dir);
+            s3.Load();
+            Eq("miko", string.Join(",", s3.MemberColors.Keys), "読める項目だけ");
+            Eq("#AABBCC", s3.MemberColors["miko"][0].Hex, "読める色だけ");
+
+            // 開けなかったときは上書きしない
+            File.WriteAllText(s.MemberColorsPath, before);
+            var s4 = new Store(dir);
+            using (new FileStream(s.MemberColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                s4.Load();
+            True(s4.Warnings.Any(w => w.Contains("保存を止め")), "開けないと知らせる");
+            var p4 = SamplePalette(apps);
+            s4.ApplyMemberColors(p4.Members);
+            var miko4 = p4.Members.First(x => x.MemberId == "miko");
+            try { s4.SetMemberColors(miko4, new[] { new ColorOption("#222222", "") }); throw new Exception("保存できてしまった"); }
+            catch (IOException) { }
+            True(!miko4.Customized && miko4.Hex == "#FF8FDF", "保存できなかった色は反映しない");
+            Eq(before, File.ReadAllText(s.MemberColorsPath), "元のファイルはそのまま");
+
+            // 保存の途中で失敗したら、元に戻す
+            var s5 = new Store(dir);
+            s5.Load();
+            var p5 = SamplePalette(apps);
+            s5.ApplyMemberColors(p5.Members);
+            var miko5 = p5.Members.First(x => x.MemberId == "miko");
+            using (new FileStream(s.MemberColorsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                try { s5.SetMemberColors(miko5, new[] { new ColorOption("#333333", "") }); throw new Exception("保存できてしまった"); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                try { s5.ResetMemberColors(miko5); throw new Exception("保存できてしまった"); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            True(miko5.Customized && miko5.Hex == "#111111" && s5.MemberColors["miko"][0].Hex == "#111111", "保存できなかったときは前の直した色のまま");
+        }
+        finally { Directory.Delete(dir, true); Directory.Delete(apps, true); }
     }
 
     // ---- 同梱のデータ ----

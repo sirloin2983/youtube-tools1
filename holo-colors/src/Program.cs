@@ -157,6 +157,7 @@ namespace HoloColors
                 Log.Write("members: " + ex);
             }
 
+            Store.ApplyMemberColors(Palette.Members);   // 作業データの直した色(member-colors.json)を重ねる
             RunningFromTemp = IsUnder(exeDir, Path.GetTempPath());
             FirstRun = !Store.Settings.Welcomed;
             main = new MainForm(this);
@@ -566,6 +567,34 @@ namespace HoloColors
             main.SetStatus("消しました: " + e.Name, false);
         }
 
+        // メンバーの色を直す(右クリック →「色を直す…」)。直した色は作業データの member-colors.json に残る
+        public void EditMemberColors(IWin32Window owner, ColorEntry e)
+        {
+            if (e == null || e.IsUser || e.MemberId == null) return;
+            if (modal != null && modal.Visible) { modal.Activate(); return; }
+            List<ColorOption> result;
+            bool reset;
+            using (var f = new MemberColorsForm(e))
+            {
+                modal = f;
+                try
+                {
+                    if (f.ShowDialog(owner) != DialogResult.OK) return;
+                }
+                finally { modal = null; }
+                result = f.Result;
+                reset = f.ResetToOriginal;
+            }
+            try
+            {
+                if (reset) Store.ResetMemberColors(e);
+                else Store.SetMemberColors(e, result);
+            }
+            catch (Exception ex) { SaveFailed(ex); return; }
+            main.Refill(true);
+            main.SetStatus((e.Customized ? "色を直しました: " : "元の色に戻しました: ") + e.Name + "  " + e.Hex, false, e.Hex);
+        }
+
         public void MoveColor(ColorEntry e, int delta)
         {
             try { Store.Move(e, delta); }
@@ -661,6 +690,14 @@ namespace HoloColors
                     Shot(f, Path.Combine(target, "edit.png"));
                     f.Close();
                 }
+                var member = Palette.Members.FirstOrDefault(x => x.AllColors.Count > 1) ?? Palette.Members.FirstOrDefault();
+                if (member != null)
+                    using (var f = new MemberColorsForm(member))
+                    {
+                        f.Show();
+                        Shot(f, Path.Combine(target, "member-colors.png"));
+                        f.Close();
+                    }
                 toast.Flash("#7EC2FE をコピーしました(兎田ぺこら)", "#7EC2FE");
                 Shot(toast, Path.Combine(target, "toast.png"));
             }

@@ -324,6 +324,8 @@ namespace HoloColors
             }
             else
             {
+                menu.Items.Add(new ToolStripSeparator());
+                menu.Items.Add(en.Customized ? "色を直す…(直した色を使っています)" : "色を直す…", null, (s, e) => app.EditMemberColors(this, en));
                 menu.Items.Add("この色をもとにマイカラーへ追加…", null, (s, e) => app.AddColor(this, en));
             }
             menu.Show(screen);

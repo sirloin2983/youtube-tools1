@@ -372,6 +372,12 @@ namespace HoloColors
             return dflt;
         }
 
+        public static IDictionary<string, object> Dict(IDictionary<string, object> d, string key)
+        {
+            object v;
+            return d != null && d.TryGetValue(key, out v) ? v as IDictionary<string, object> : null;
+        }
+
         public static IEnumerable<IDictionary<string, object>> List(IDictionary<string, object> d, string key)
         {
             object v;
@@ -626,8 +632,11 @@ namespace HoloColors
         public Settings Settings = new Settings();
         public readonly ColorGroup Mine = new ColorGroup { Id = "my", Branch = "MY", Name = "マイカラー" };
         public readonly List<string> Warnings = new List<string>();
+        // メンバーの色を直したもの(member-colors.json)。キーはメンバーの id(グループを入れない。卒業でグループが変わっても残る)。
+        // members.json に無い id も消さずに持っておく(使わない。members.json を戻したときのため)
+        public readonly Dictionary<string, List<ColorOption>> MemberColors = new Dictionary<string, List<ColorOption>>();
         // 読めなかった(ほかのソフトがつかんでいた・権限が無い)ファイルは、上書きして消さないように保存を止める
-        bool settingsLocked, colorsLocked;
+        bool settingsLocked, colorsLocked, memberColorsLocked;
 
         public Store(string dir)
         {
@@ -636,6 +645,7 @@ namespace HoloColors
 
         public string SettingsPath { get { return Path.Combine(Dir, "settings.json"); } }
         public string ColorsPath { get { return Path.Combine(Dir, "my-colors.json"); } }
+        public string MemberColorsPath { get { return Path.Combine(Dir, "member-colors.json"); } }
 
         public void Load()
         {
@@ -652,6 +662,100 @@ namespace HoloColors
                 if (string.IsNullOrEmpty(id) || Mine.Items.Any(x => x.Id == id)) id = NewId();
                 Mine.Items.Add(MakeEntry(id, name, hex));
             }
+            MemberColors.Clear();
+            var mc = Json.Dict(ReadJson(MemberColorsPath, out memberColorsLocked), "members");
+            if (mc != null)
+                foreach (var kv in mc)
+                {
+                    // 形の違う項目は飛ばす(色の読めない1つだけなら、その色を捨てて残りを使う)
+                    var list = new List<ColorOption>();
+                    foreach (var o in Json.List(kv.Value as IDictionary<string, object>, "colors"))
+                    {
+                        string h;
+                        if (HexColor.TryNormalize(Json.Str(o, "hex"), out h)) list.Add(new ColorOption(h, Json.Str(o, "label") ?? ""));
+                    }
+                    List<ColorOption> ok;
+                    var cleaned = list.Select(x => new ColorOption(x.Hex, x.Label.Trim().Length > ColorOption.MaxLabel ? x.Label.Trim().Substring(0, ColorOption.MaxLabel) : x.Label)).ToList();
+                    if (kv.Key.Length > 0 && ColorOption.Validate(cleaned, out ok) == null) MemberColors[kv.Key] = ok;
+                }
+        }
+
+        // 直した色を一覧のメンバーに反映する(members.json を読んだあと・直したあと)。直していない人は members.json の色
+        public void ApplyMemberColors(IEnumerable<ColorEntry> members)
+        {
+            foreach (var e in members)
+            {
+                if (e.IsUser || e.MemberId == null || e.OriginalColors == null) continue;
+                List<ColorOption> fixedColors;
+                if (MemberColors.TryGetValue(e.MemberId, out fixedColors))
+                {
+                    e.SetColors(fixedColors);
+                    e.Customized = true;
+                }
+                else
+                {
+                    e.SetColors(e.OriginalColors);
+                    e.Customized = false;
+                }
+            }
+        }
+
+        // メンバーの色を直す(先頭が主な色)。members.json の色と同じなら「元に戻す」と同じ。保存できなければ元に戻して投げる
+        public void SetMemberColors(ColorEntry e, IEnumerable<ColorOption> colors)
+        {
+            if (e == null || e.IsUser || string.IsNullOrEmpty(e.MemberId) || e.OriginalColors == null)
+                throw new ArgumentException("メンバーの色だけ直せます");
+            List<ColorOption> ok;
+            string err = ColorOption.Validate(colors, out ok);
+            if (err != null) throw new ArgumentException(err);
+            if (SameColors(ok, e.OriginalColors)) { ResetMemberColors(e); return; }
+            List<ColorOption> before;
+            bool had = MemberColors.TryGetValue(e.MemberId, out before);
+            MemberColors[e.MemberId] = ok;
+            try { SaveMemberColors(); }
+            catch
+            {
+                if (had) MemberColors[e.MemberId] = before; else MemberColors.Remove(e.MemberId);
+                throw;
+            }
+            ApplyMemberColors(new[] { e });
+        }
+
+        public void ResetMemberColors(ColorEntry e)
+        {
+            if (e == null || string.IsNullOrEmpty(e.MemberId)) return;
+            List<ColorOption> before;
+            if (MemberColors.TryGetValue(e.MemberId, out before))
+            {
+                MemberColors.Remove(e.MemberId);
+                try { SaveMemberColors(); }
+                catch
+                {
+                    MemberColors[e.MemberId] = before;
+                    throw;
+                }
+            }
+            ApplyMemberColors(new[] { e });
+        }
+
+        public static bool SameColors(IList<ColorOption> a, IList<ColorOption> b)
+        {
+            if (a == null || b == null || a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+                if (a[i].Hex != b[i].Hex || (a[i].Label ?? "") != (b[i].Label ?? "")) return false;
+            return true;
+        }
+
+        public void SaveMemberColors()
+        {
+            if (memberColorsLocked) throw new IOException("member-colors.json が開けなかったので、上書きしないように保存を止めています");
+            var members = new Dictionary<string, object>();
+            foreach (var kv in MemberColors)
+                members[kv.Key] = new Dictionary<string, object>
+                {
+                    { "colors", kv.Value.Select(x => (object)new Dictionary<string, object> { { "hex", x.Hex }, { "label", x.Label } }).ToList() },
+                };
+            Files.WriteAtomic(MemberColorsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "members", members } }));
         }
 
         // 読めないときは null。locked = ファイルはあるが開けなかった・取っておけなかった(このときは保存しない)

@@ -290,11 +290,14 @@ namespace HoloColors
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
                 return;
             }
-            // 直した色の札は右上に小さな印(✎)。名前はその手前で省略する
-            int markW = entry.Customized ? S(16) : 0;
+            // 直した色の札は右上の角に小さな三角の印。名前はその手前で省略する
+            int markW = entry.Customized ? S(10) : 0;
             if (entry.Customized)
-                TextRenderer.DrawText(g, "✎", pillFont, new Rectangle(r.Right - S(18), r.Y + S(3), S(14), S(14)), Color.FromArgb(dark ? 150 : 220, fg),
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            {
+                int m = S(12), inset = S(3);
+                var tri = new[] { new Point(r.Right - inset - m, r.Y + inset), new Point(r.Right - inset, r.Y + inset), new Point(r.Right - inset, r.Y + inset + m) };
+                using (var b = new SolidBrush(Color.FromArgb(dark ? 170 : 230, fg))) g.FillPolygon(b, tri);
+            }
             var text = new Rectangle(r.X + S(10), r.Y + S(4), r.Width - S(16) - markW, r.Height / 2);
             TextRenderer.DrawText(g, entry.Name, nameFont, text, fg, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
             // カラーコードは四角の手前まで

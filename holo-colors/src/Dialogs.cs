@@ -1,9 +1,11 @@
 // 設定の画面・色の追加/編集の画面・呼び出しのキーを受け取る欄・コピーしたときの小さな知らせ
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace HoloColors
@@ -483,6 +485,234 @@ namespace HoloColors
             }
             ResultName = name.Text.Trim();
             ResultHex = h;
+            DialogResult = DialogResult.OK;
+        }
+    }
+
+    // メンバーの色を直す画面(右クリック →「色を直す…」)。色の一覧(いちばん上が主な色)・追加・変更・削除・上へ(主にする)・元の色に戻す。
+    // 直した色は作業データの member-colors.json に置く(members.json を新しくしても消えない)
+    public class MemberColorsForm : Form
+    {
+        readonly ColorEntry entry;
+        readonly List<ColorOption> colors;
+        readonly ListBox list = new ListBox();
+        readonly TextBox hex = new TextBox();
+        readonly TextBox label = new TextBox();
+        readonly Button up = new Button(), down = new Button(), remove = new Button(), add = new Button(), change = new Button();
+        readonly Label error = new Label();
+        public List<ColorOption> Result;
+        public bool ResetToOriginal;
+
+        public MemberColorsForm(ColorEntry e)
+        {
+            entry = e;
+            colors = ColorOption.CloneAll(e.AllColors);
+            Text = "色を直す: " + e.Name;
+            Font = Ui.Normal;
+            AutoScaleMode = AutoScaleMode.None;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Icon = Ui.SmallIcon;
+
+            var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
+            var head = new Label
+            {
+                Text = "いちばん上が主な色です(札を押したとき・Enter でコピーする色。同じ PC の「編集」の字幕の色にもなります)。\n"
+                    + "2つ目からは、札の右下の小さな四角と右クリックのメニューでコピーできます。",
+                AutoSize = true,
+                MaximumSize = new Size(Ui.Px(420), 0),
+                Margin = new Padding(3, 0, 3, 8),
+            };
+            t.Controls.Add(head, 0, 0);
+            t.SetColumnSpan(head, 2);
+
+            list.DrawMode = DrawMode.OwnerDrawFixed;
+            list.ItemHeight = Ui.Px(26);
+            list.Size = Ui.Px(300, 26 * 5 + 4);
+            list.IntegralHeight = false;
+            list.DrawItem += DrawItem;
+            list.SelectedIndexChanged += (s, ev) => OnSelected();
+            t.Controls.Add(list, 0, 1);
+            var side = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(6, 0, 0, 0) };
+            up.Text = "上へ(主にする)";
+            down.Text = "下へ";
+            remove.Text = "削除";
+            foreach (var b in new[] { up, down, remove })
+            {
+                b.AutoSize = true;
+                b.MinimumSize = new Size(Ui.Px(110), 0);
+                side.Controls.Add(b);
+            }
+            up.Click += (s, ev) => MoveColor(-1);
+            down.Click += (s, ev) => MoveColor(1);
+            remove.Click += (s, ev) => RemoveColor();
+            t.Controls.Add(side, 1, 1);
+
+            var edit = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 8, 0, 0) };
+            edit.Controls.Add(new Label { Text = "カラーコード", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 6, 0) }, 0, 0);
+            hex.Width = Ui.Px(110);
+            hex.Font = Ui.Mono;
+            edit.Controls.Add(hex, 1, 0);
+            var pick = new Button { Text = "色を選ぶ…", AutoSize = true };
+            pick.Click += (s, ev) => PickColor();
+            edit.Controls.Add(pick, 2, 0);
+            edit.Controls.Add(new Label { Text = "ラベル", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 6, 0) }, 0, 1);
+            label.Width = Ui.Px(160);
+            label.MaxLength = ColorOption.MaxLabel;
+            edit.Controls.Add(label, 1, 1);
+            edit.SetColumnSpan(label, 2);
+            var editButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+            add.Text = "＋ 足す";
+            change.Text = "選んだ色を変える";
+            add.AutoSize = change.AutoSize = true;
+            add.Click += (s, ev) => AddColor();
+            change.Click += (s, ev) => ChangeColor();
+            editButtons.Controls.Add(add);
+            editButtons.Controls.Add(change);
+            edit.Controls.Add(editButtons, 1, 2);
+            edit.SetColumnSpan(editButtons, 3);
+            t.Controls.Add(edit, 0, 2);
+            t.SetColumnSpan(edit, 2);
+
+            error.AutoSize = true;
+            error.ForeColor = Color.FromArgb(190, 30, 30);
+            error.MaximumSize = new Size(Ui.Px(420), 0);
+            t.Controls.Add(error, 0, 3);
+            t.SetColumnSpan(error, 2);
+
+            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 0) };
+            var cancel = new Button { Text = "キャンセル", AutoSize = true, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = "保存", AutoSize = true };
+            ok.Click += (s, ev) => Save();
+            var reset = new Button { Text = "元の色に戻す", AutoSize = true, Enabled = e.Customized };
+            reset.Click += (s, ev) =>
+            {
+                ResetToOriginal = true;
+                DialogResult = DialogResult.OK;
+            };
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(ok);
+            buttons.Controls.Add(reset);
+            t.Controls.Add(buttons, 0, 4);
+            t.SetColumnSpan(buttons, 2);
+            Controls.Add(t);
+            AcceptButton = ok;
+            CancelButton = cancel;
+            Fill(0);
+        }
+
+        public ListBox ColorList { get { return list; } }
+
+        void Fill(int select)
+        {
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var c in colors) list.Items.Add(c.Text);
+            list.EndUpdate();
+            if (colors.Count > 0) list.SelectedIndex = Math.Max(0, Math.Min(colors.Count - 1, select));
+            OnSelected();
+        }
+
+        void OnSelected()
+        {
+            int i = list.SelectedIndex;
+            up.Enabled = i > 0;
+            down.Enabled = i >= 0 && i < colors.Count - 1;
+            remove.Enabled = i >= 0 && colors.Count > 1;   // 最低1色は残す(ぜんぶ消すなら「元の色に戻す」)
+            change.Enabled = i >= 0;
+            if (i >= 0)
+            {
+                hex.Text = colors[i].Hex;
+                label.Text = colors[i].Label;
+            }
+            error.Text = "";
+        }
+
+        void DrawItem(object sender, DrawItemEventArgs e)
+        {
+            e.DrawBackground();
+            if (e.Index < 0 || e.Index >= colors.Count) return;
+            var c = colors[e.Index];
+            int sw = Ui.Px(18);
+            var r = new Rectangle(e.Bounds.X + Ui.Px(4), e.Bounds.Y + (e.Bounds.Height - sw) / 2, sw, sw);
+            using (var b = new SolidBrush(HexColor.ToColor(c.Hex))) e.Graphics.FillRectangle(b, r);
+            using (var p = new Pen(Color.FromArgb(90, 0, 0, 0))) e.Graphics.DrawRectangle(p, r);
+            string text = c.Hex + "   " + c.Label + (e.Index == 0 ? "   (主な色)" : "");
+            TextRenderer.DrawText(e.Graphics, text, Font, new Rectangle(r.Right + Ui.Px(8), e.Bounds.Y, e.Bounds.Right - r.Right - Ui.Px(8), e.Bounds.Height), e.ForeColor,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            e.DrawFocusRectangle();
+        }
+
+        // 欄の色とラベル。読めなければ理由を出して null
+        ColorOption ReadFields()
+        {
+            string h;
+            if (!HexColor.TryNormalize(hex.Text, out h))
+            {
+                error.Text = "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください";
+                return null;
+            }
+            return new ColorOption(h, label.Text.Trim());
+        }
+
+        void AddColor()
+        {
+            var c = ReadFields();
+            if (c == null) return;
+            if (colors.Any(x => x.Hex == c.Hex)) { error.Text = c.Hex + " はもう入っています"; return; }
+            colors.Add(c);
+            Fill(colors.Count - 1);
+        }
+
+        void ChangeColor()
+        {
+            int i = list.SelectedIndex;
+            var c = ReadFields();
+            if (c == null || i < 0) return;
+            if (colors.Where((x, j) => j != i).Any(x => x.Hex == c.Hex)) { error.Text = c.Hex + " はもう入っています"; return; }
+            colors[i] = c;
+            Fill(i);
+        }
+
+        void MoveColor(int delta)
+        {
+            int i = list.SelectedIndex, j = i + delta;
+            if (i < 0 || j < 0 || j >= colors.Count) return;
+            var c = colors[i];
+            colors.RemoveAt(i);
+            colors.Insert(j, c);
+            Fill(j);
+        }
+
+        void RemoveColor()
+        {
+            int i = list.SelectedIndex;
+            if (i < 0 || colors.Count <= 1) return;
+            colors.RemoveAt(i);
+            Fill(Math.Min(i, colors.Count - 1));
+        }
+
+        void PickColor()
+        {
+            using (var dlg = new ColorDialog { FullOpen = true, AnyColor = true })
+            {
+                string h;
+                if (HexColor.TryNormalize(hex.Text, out h)) dlg.Color = HexColor.ToColor(h);
+                if (dlg.ShowDialog(this) == DialogResult.OK) hex.Text = HexColor.FromColor(dlg.Color);
+            }
+        }
+
+        void Save()
+        {
+            List<ColorOption> ok;
+            string err = ColorOption.Validate(colors, out ok);
+            if (err != null) { error.Text = err; return; }
+            Result = ok;
+            ResetToOriginal = entry.OriginalColors != null && Store.SameColors(ok, entry.OriginalColors);
             DialogResult = DialogResult.OK;
         }
     }
