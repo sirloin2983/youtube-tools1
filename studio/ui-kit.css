@@ -254,6 +254,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .notice code{background:var(--panel)}
 .errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
 .errbar a{color:#fff}
+.errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
 
 /* 進み具合 */
 .bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}

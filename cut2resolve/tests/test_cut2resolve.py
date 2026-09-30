@@ -292,6 +292,35 @@ class TestOutputSafety(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestCodecWarnings(unittest.TestCase):
+    """無料版の Resolve で読めないことがある形式の注意(srt2resolve.codec_warnings。試算・パックの warnings に出る)"""
+
+    def test_vp9_av1_hevc_warn(self):
+        for codec in ("vp9", "av1", "hevc", "h265"):
+            w = S.codec_warnings(codec, "yuv420p")
+            self.assertEqual(len(w), 1, codec)
+            self.assertIn("無料版", w[0])
+        self.assertIn("vp9", S.codec_warnings("vp9", "yuv420p")[0])
+        self.assertIn("H.265", S.codec_warnings("hevc", "yuv420p")[0])
+
+    def test_10bit_warns_for_any_codec(self):
+        for pf in ("yuv420p10le", "yuv422p10be", "p010le"):
+            w = S.codec_warnings("mpeg4", pf)
+            self.assertEqual(len(w), 1, pf)
+            self.assertIn("10bit", w[0])
+        self.assertEqual(len(S.codec_warnings("h264", "yuv420p10le")), 1)   # H.264 は今までの文言(形式を出す)
+        self.assertIn("yuv420p10le", S.codec_warnings("h264", "yuv420p10le")[0])
+        self.assertEqual(len(S.codec_warnings("hevc", "yuv420p10le")), 1)   # 二重には出ない
+        self.assertEqual(len(S.codec_warnings("av1", "yuv420p10le")), 1)
+
+    def test_normal_8bit_and_edit_codecs_do_not_warn(self):
+        self.assertEqual(S.codec_warnings("h264", "yuv420p"), [])
+        self.assertEqual(S.codec_warnings("mpeg4", "yuv420p"), [])
+        self.assertEqual(S.codec_warnings("h264", ""), [])
+        for codec in ("prores", "dnxhd", "cfhd"):
+            self.assertEqual(S.codec_warnings(codec, "yuv422p10le"), [], codec)
+
+
 class TestWithFfmpeg(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

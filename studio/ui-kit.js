@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v9 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v10 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -29,7 +29,8 @@
        stepLabel / runLabel = 状態の言葉)。
        UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
    v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
-   v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf() */
+   v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
+   v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -1724,7 +1725,90 @@
     estimateText: arEstimateText
   };
 
-  window.UIKit = { version: 8, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  /* ---- restart(v10・段9 9-3。docs/plan/phase9-ops-stability.md の 9-3)---- 版の赤い帯から入口ごと起動し直す。
+     取り込んだツールは入口と同じプロセスなので、版を入れ替えるには入口ごと起動し直す(入口の api/ytt/restart-self → home/restart.py)。
+     ボタンはホームから開いた画面(合言葉 ytt-token がある)だけ。単体で開いたときは今までどおりの案内の文だけ。
+     起動し直したあとは api/ping を数秒ごとに読み、戻ったら再読み込みする(新しい入口は合言葉が変わるので、読み込み直さないと書き込みができない) */
+  var RESTART_POLL = 2000, RESTART_TIMEOUT = 90000;
+  function restartPing(ms) {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var tm = ctl ? setTimeout(function () { ctl.abort(); }, ms) : null;
+    function done() { if (tm) clearTimeout(tm); }
+    return fetch('api/ping', { cache: 'no-store', credentials: 'same-origin', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) { done(); return j; }, function (e) { done(); throw e; });
+  }
+  /* 頼んで、戻るのを待って、読み込み直す。opts: from(今のサーバーの版)・onState(state, text)('waiting' | 'done' | 'timeout')・
+     interval・timeout(ミリ秒。テスト用)・reload(既定 location.reload)。-> Promise<true(読み込み直す) | false(戻らなかった)>。断られたら reject(理由の文) */
+  function restartRun(opts) {
+    opts = opts || {};
+    var interval = +opts.interval || RESTART_POLL, limit = +opts.timeout || RESTART_TIMEOUT;
+    var say = typeof opts.onState === 'function' ? opts.onState : function () {};
+    var from = opts.from == null ? null : String(opts.from);
+    var reload = typeof opts.reload === 'function' ? opts.reload : function () { location.reload(); };
+    return yttPost('restart-self', {}).then(function () {
+      say('waiting', '起動し直しています…(戻ったら画面を読み込み直します)');
+      return new Promise(function (resolve) {
+        var t0 = Date.now(), sawDown = false;
+        /* 戻った = 一度答えなくなってから答えた、か、版が変わった(古い入口は後始末の間もしばらく答える) */
+        function tick() {
+          restartPing(Math.max(1000, Math.min(interval, 5000))).then(function (j) {
+            var v = j && j.version != null ? String(j.version) : '';
+            if (sawDown || (from !== null && v && v !== from)) { say('done', '起動し直しました。読み込み直しています…'); resolve(true); reload(); return; }
+            next();
+          }, function () { sawDown = true; next(); });
+        }
+        function next() {
+          if (Date.now() - t0 > limit) { say('timeout', 'ホームが戻ってきませんでした。start.bat をダブルクリックして起動してください'); resolve(false); return; }
+          setTimeout(tick, interval);
+        }
+        setTimeout(tick, interval);
+      });
+    });
+  }
+  /* 帯(ツールの .errbar など)に版の違いと「起動し直す」を出す。-> el */
+  function restartBand(el, pageVersion, serverVersion, opts) {
+    if (!el) return null;
+    opts = opts || {};
+    var head = '画面(v' + pageVersion + ')とサーバー(v' + serverVersion + ')の版が違います。';
+    el.textContent = '';
+    var msg = document.createElement('span'); msg.className = 'ui-restart-msg';
+    el.appendChild(msg);
+    el.hidden = false;
+    if (!token()) { msg.textContent = head + '黒い画面を閉じて、起動し直してください'; el.removeAttribute('data-ui-restart'); return el; }
+    msg.textContent = head + '「起動し直す」で新しい版に入れ替えます(この画面は開いたままで大丈夫です)';
+    el.setAttribute('data-ui-restart', 'ready');
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small ui-restart-btn'; b.textContent = '起動し直す';
+    el.appendChild(b);
+    b.addEventListener('click', function () {
+      b.disabled = true;
+      el.setAttribute('data-ui-restart', 'sending');
+      msg.textContent = '起動し直すように頼んでいます…';
+      restartRun({ from: serverVersion, interval: opts.interval, timeout: opts.timeout, reload: opts.reload, onState: function (state, text) {
+        el.setAttribute('data-ui-restart', state);
+        msg.textContent = text;
+        if (state === 'timeout') b.hidden = true;   // 古い入口はもういない(合言葉も古い)。もう一度押しても届かない
+      } }).catch(function (e) {   // 断られた(実行中の処理がある・終了の途中など)・届かなかった: 理由を出して、もう一度押せるように
+        el.setAttribute('data-ui-restart', 'refused');
+        msg.textContent = head + (e && e.message ? e.message : '起動し直せませんでした');
+        b.disabled = false;
+      });
+    });
+    return el;
+  }
+  var restart = {
+    available: function () { return !!token(); },
+    /* 版が違えば帯を出して true。同じなら何もしないで false(ツールの起動時の /api/ping のあとに呼ぶ) */
+    check: function (el, pageVersion, serverVersion, opts) {
+      if (String(pageVersion) === String(serverVersion)) return false;
+      restartBand(el, pageVersion, serverVersion, opts);
+      return true;
+    },
+    band: restartBand,
+    run: restartRun
+  };
+
+  window.UIKit = { version: 10, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart };
 })();

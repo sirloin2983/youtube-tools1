@@ -263,6 +263,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .notice code{background:var(--panel)}
 .errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
 .errbar a{color:#fff}
+.errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
 
 /* 進み具合 */
 .bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
@@ -1626,8 +1627,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
            <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
            <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しい設定(タイムコード・リール名・zip など)</summary>
-             <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"></div>
-             <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"><span class="hint" id="pkSrcTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
+             <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"><span class="hint" id="pkRecTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
              <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
              <div class="fld"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
                <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip・まとめて実行(カットの無い文書)に効きます。前の余白 0.1 秒は変わりません</span>

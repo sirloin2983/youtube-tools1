@@ -178,6 +178,9 @@ def snap_fps(fr):
     return (f.numerator, f.denominator), True
 
 
+_EDIT_FRIENDLY_CODECS = ("prores", "dnxhd", "dnxhr", "cfhd", "v210", "v410")
+
+
 def codec_warnings(codec, pix_fmt):
     """無料版の DaVinci Resolve で読めないことが多い形式の警告(コンテナが .mov/.mp4 かは関係ない)"""
     if codec in ("vp9", "av1"):
@@ -189,6 +192,10 @@ def codec_warnings(codec, pix_fmt):
     if codec == "h264" and any(k in pix_fmt for k in ("10", "422", "444")):
         return [f"H.264 ですが形式が {pix_fmt} です(10bit や 4:2:2 など)。無料版の DaVinci Resolve では"
                 "再生できないことがあります。yuv420p(8bit)に変換してください。"]
+    # そのほかのコーデックでも 10bit(yuv420p10le・p010le など)は無料版で読めないことがある。ProRes・DNxHD などの編集用の形式は 10bit でも読めるので除く
+    if (re.search(r"10(le|be)$", pix_fmt) or pix_fmt.startswith("p010")) and codec not in _EDIT_FRIENDLY_CODECS:
+        return [f"映像が 10bit({pix_fmt})です。無料版の DaVinci Resolve では再生できないことがあります。"
+                "yuv420p(8bit)の H.264 に変換してください。"]
     return []
 
 

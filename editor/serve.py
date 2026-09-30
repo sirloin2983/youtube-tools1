@@ -6343,7 +6343,10 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(ROOT, u.path.lstrip("/")), "rb") as f:
                     return self._send(200, f.read(), "text/javascript; charset=utf-8")
             if u.path == "/api/ping":
-                return self._json(200, {"app": APP_ID, "version": SERVER_VERSION})
+                w = WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
+                return self._json(200, {"app": APP_ID, "version": SERVER_VERSION,
+                                        "worker": {"alive": w.alive(), "pid": (w.proc.pid if w.proc is not None else None), "starts": w.starts,
+                                                   "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": WORKER_SILENCE_TIMEOUT}})
             if u.path == "/api/siblings":
                 return self._json(200, pio().siblings(runtime_path_dir(), TOOL_ID, PORT, self_path=BASE_PATH))
             if u.path == "/api/clip-info":

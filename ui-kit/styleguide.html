@@ -132,6 +132,15 @@
     </section>
 
     <section class="card">
+      <div class="card-head"><h2 class="card-title">v10: 版の帯(UIKit.restart)</h2></div>
+      <div class="errbar" id="restartBandDemo" hidden role="alert"></div>
+      <div class="row">
+        <button class="btn" id="btnRestartBand">版が違う帯を出す(画面 v0.2.0・サーバー v0.1.0)</button>
+      </div>
+      <p class="hint">ホームから開いた画面(合言葉あり)だけ「起動し直す」が出る。単体で開いた見本では案内の文だけ。押すと入口の api/ytt/restart-self → api/ping が戻ったら読み込み直す。</p>
+    </section>
+
+    <section class="card">
       <div class="card-head"><h2 class="card-title">v6: 下の帯(UIKit.keybar)</h2></div>
       <div class="row">
         <button class="btn" id="btnKeybarSet">帯を出す(校正の場面)</button>

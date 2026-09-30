@@ -531,6 +531,26 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 404)
         self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
 
+    def test_health_api(self):
+        """「調子」(段9 9-1): 版・ワーカー・空き容量・エラーの件数・作業データの大きさ(別のスレッドで数える)"""
+        r, body = self.req("GET", "/api/health")
+        self.assertEqual(r.status, 200)
+        h = json.loads(body)
+        for k in ("at", "versions", "worker", "disk", "errors", "heavy", "computing", "data", "tools"):
+            self.assertIn(k, h)
+        self.assertEqual([v["tool"] for v in h["versions"]], [t.id for t in self.sup.tools])
+        self.assertTrue(h["disk"] and h["disk"][0]["totalBytes"] > 0)
+        self.assertEqual(h["errors"]["clientLast24h"], 0)
+        for _ in range(60):
+            if h["data"] is not None:
+                break
+            time.sleep(0.1)
+            h = json.loads(self.req("GET", "/api/health")[1])
+        self.assertIsNotNone(h["data"])
+        self.assertIn("ffmpeg", h["tools"])
+        r, body = self.req("GET", "/api/health?refresh=1")
+        self.assertEqual(r.status, 200)
+
     def test_csrf_token(self):
         """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""
         r, body = self.req("GET", "/")

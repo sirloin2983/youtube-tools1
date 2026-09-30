@@ -198,6 +198,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
         # 1b. 「詳しく」は既定で閉じている。テストのため開く(サーバーの管理の操作をクリックできるように)
         check(open_advanced(pg), "[A] 「詳しく」は既定で閉じている")
+        # 段9 9-1: 「調子」(版・認識ワーカー・外部プログラム・空き容量・作業データ・エラーの件数)が「詳しく」の先頭に出る
+        check(wait_js(pg, "[...document.querySelectorAll('#healthList > li')].length >= 6", 20000), "[A] 「調子」が出る(6 項目以上): %d" % pg.locator("#healthList > li").count())
+        ht = pg.inner_text("#healthList")
+        check("版" in ht and "認識ワーカー" in ht and "空き容量" in ht and "画面のエラー" in ht and "まとめて実行の失敗" in ht, "[A] 調子の項目: 版・認識ワーカー・空き容量・エラーの件数: %s" % " / ".join(ht.split())[:160])
+        check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
+        pg.click("#btnHealthRefresh")
+        check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
 
         for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)

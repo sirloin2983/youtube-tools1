@@ -20,6 +20,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
+  GET  /api/health[?refresh=1]            「調子」(段9 9-1。home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
@@ -38,6 +39,7 @@
 """
 import argparse
 import hmac
+import http.client
 import json
 import os
 import queue
@@ -63,6 +65,7 @@ import intake as intake_mod  # noqa: E402  (home/intake.py: 友人からの依�
 import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
+import health as health_mod  # noqa: E402  (home/health.py: 「調子」。段9 9-1)
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
@@ -602,6 +605,9 @@ class PortalHandler(BaseHTTPRequestHandler):
             st = sup.status()
             st["window"] = self.server.window.status()   # 画面を窓で開くか(段階7-3)
             return self._json(200, st)
+        if u.path == "/api/health":   # 「調子」(段9 9-1。重い物は別のスレッドで数え、10 分は前の値。?refresh=1 で数え直す)
+            q = urllib.parse.parse_qs(u.query)
+            return self._json(200, self.server.health.snapshot(refresh=(q.get("refresh") or ["0"])[0] == "1"))
         if u.path == "/api/log":
             q = urllib.parse.parse_qs(u.query)
             tid = (q.get("tool") or [""])[0]
@@ -755,6 +761,39 @@ class PortalServer(ThreadingHTTPServer):
         self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
+        self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs)   # 「調子」(段9 9-1)
+
+    def _worker_probe(self):
+        """「編集」の /api/ping の worker(認識ワーカーの状態)。動いていなければ None"""
+        t = self.sup.by_id.get("transcribe")
+        snap = t.snapshot() if t else None
+        if not snap or snap["state"] not in ("running", "external") or not snap.get("port"):
+            return None
+        path = snap.get("path") or "/"
+        conn = http.client.HTTPConnection("127.0.0.1", snap["port"], timeout=1.5)
+        try:
+            conn.request("GET", path + "api/ping", headers={"Host": "127.0.0.1:%d" % snap["port"], "Accept": "application/json"})
+            r = conn.getresponse()
+            if r.status != 200:
+                return None
+            d = json.loads(r.read(65536).decode("utf-8", "replace"))
+            w = d.get("worker") if isinstance(d, dict) else None
+            return w if isinstance(w, dict) else None
+        except (OSError, ValueError, http.client.HTTPException):
+            return None
+        finally:
+            conn.close()
+
+    def _extra_dirs(self):
+        """空き容量を見る追加の場所: スタジオの書き出し先(スタジオの settings.json の outDir。無ければ作業データの exports)"""
+        try:
+            sdir = datadir.resolve("studio", self.sup.root)
+            with open(os.path.join(sdir, "settings.json"), "r", encoding="utf-8") as f:
+                st = json.load(f)
+            out = st.get("outDir") if isinstance(st, dict) else None
+            return [out if isinstance(out, str) and out else os.path.join(sdir, "exports")]
+        except (OSError, ValueError):
+            return []
 
     def tool_ports(self):
         """別のプログラムとして動いているツールのポート(窓で開いてよい先。取り込んだツールは入口と同じポートなので含めない)"""

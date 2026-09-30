@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v9
+# ui-kit(共通の見た目)v10
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -126,6 +126,17 @@
 - (段3 3-2・監査 03。版は v9 のまま)**`UIKit.keys.derived(km)`** → `{ 'Shift+ArrowLeft': 'seekBack', … }`(← → に当たるキー + Shift = 5 秒の派生キー)。
   `UIKit.keys.playback`(押したとき)と `UIKit.keymap`(登録のときの重なりの検査)が同じこの関数を使う(派生の決まりを1か所に)。
   `UIKit.keymap.BLOCKED` に `<` `>`(編集 2 カット の Shift+, / Shift+. = 選んだ端を10コマ)を足した = 共通の再生キーにできない
+
+## v10(2026-10-01・段9 9-3。`UIKit.restart`。`docs/plan/phase9-ops-stability.md` の 9-3)
+版の赤い帯(画面の APP_VERSION と `/api/ping` の版が違う)から、入口ごと起動し直す。取り込んだツールは入口と同じプロセスなので、ツールだけの再起動では版が入れ替わらない。
+- **`UIKit.restart.check(el, 画面の版, サーバーの版, opts)`**: 版が違えば `el`(ツールの `.errbar`)に「画面(vX)とサーバー(vY)の版が違います。」を出して `true`、同じなら何もしないで `false`。
+  **ホームから開いた画面(合言葉 `ytt-token` がある)だけ**「起動し直す」のボタン(`.ui-restart-btn`)を付ける。単体で開いたときは今までどおり「黒い画面を閉じて、起動し直してください」の文だけ
+- ボタン → 入口の `POST api/ytt/restart-self`(相対パス。合言葉付き。入口が新しい入口を起動して自分は「すべて終了」と同じ後始末で終わる。`home/restart.py`)→
+  「起動し直しています…」→ `api/ping` を 2 秒ごとに読み、**一度答えなくなってから答えた・版が変わった**ら `location.reload()`(新しい入口は合言葉が変わるので読み込み直しが要る)。
+  断られた(409。実行中の処理がある・終了の途中)ら理由を帯に出してもう一度押せる。90 秒で戻らなければ「start.bat をダブルクリックして起動してください」にしてボタンを隠す
+- 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
+- ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
+  `UIKit.version` は 10(v9 では 8 のままだった)
 
 ## 重なりの順(z-index)の決まり(v6・段3-2)
 新しい値を作らず、この段のどれかにそろえる。

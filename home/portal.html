@@ -152,6 +152,11 @@
   <details class="ui-disclosure pt-advanced" id="advancedBox">
     <summary>詳しく(サーバーの管理)</summary>
     <div class="pt-advanced-body">
+      <!-- 調子(段9 9-1。/api/health): 版・認識ワーカー・ffmpeg/yt-dlp・空き容量・作業データの大きさ・エラーの件数。判定は portal.js -->
+      <section class="card flat pt-foot pt-health" id="healthBox">
+        <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
+        <ul class="pt-health-list" id="healthList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
+      </section>
       <ol class="pt-flow" id="flow" aria-label="ツールの起動状態"></ol>
 
       <section class="card flat pt-foot" id="dataBox" hidden>

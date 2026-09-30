@@ -74,6 +74,11 @@
     });
     document.getElementById('btnToastInfo').addEventListener('click', function () { UIKit.toast('自動では始めません', { kind: 'info' }); });
 
+    // ---- 版の帯(UIKit.restart。v10)。window.__restartDemoOpts はテストが待つ間隔を短くするため ----
+    document.getElementById('btnRestartBand').addEventListener('click', function () {
+      UIKit.restart.check(document.getElementById('restartBandDemo'), '0.2.0', '0.1.0', window.__restartDemoOpts || {});
+    });
+
     // ---- 下の帯(keybar) ----
     document.getElementById('btnKeybarSet').addEventListener('click', function () {
       UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: '↓', l: '次の行' }, { k: '↑', l: '前の行' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: '?', l: 'キー操作' }]);

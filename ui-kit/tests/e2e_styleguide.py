@@ -8,9 +8,11 @@ ui-kit/ をそのまま python の http.server で1つのポートに乗せ、st
 引き出し(UIKit.drawer: フォーカスの閉じ込め・Esc で閉じてフォーカスが戻る) / 確認ダイアログ(UIKit.dialog.confirm: ボタンと Esc) /
 通知(UIKit.toast: 失敗は role=alert) / 下の帯(UIKit.keybar: set/flash・ytt:keybar=0 で消える) /
 共通の再生キー(UIKit.keys.playback: Space/J/K/L/矢印/,/./I/O・入力欄では無視) / アイコン(UIKit.icon: 一覧すべて) /
-設定の引き出し(UIKit.settings: 文字の大きさが html[data-fs] に効いて保存される)。
+設定の引き出し(UIKit.settings: 文字の大きさが html[data-fs] に効いて保存される) /
+版の帯(UIKit.restart。v10: 単体では案内だけ・合言葉があれば「起動し直す」→ 断られた理由・ping を待って読み込み直す・戻らなければ案内)。
 """
 import functools
+import json
 import http.server
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -43,6 +45,89 @@ def wait_js(page, expr, timeout=8000):
         return True
     except Exception:
         return False
+
+
+def check_restart(browser, base, check):
+    """版の帯(UIKit.restart。v10・段9 9-3): 単体では案内だけ / 合言葉があれば「起動し直す」→ 断られたら理由 → 頼めたら ping を待って読み込み直す / 戻らなければ案内"""
+    st = {"calls": [], "mode": "refuse", "ping": 0, "ping_ok_after": 1}
+
+    def on_restart(route):
+        st["calls"].append(route.request.headers.get("x-ytt-token"))
+        if st["mode"] == "refuse":
+            route.fulfill(status=409, content_type="application/json",
+                          body=json.dumps({"error": "busy", "message": "実行中の処理があります(文字起こし)。終わってから起動し直してください"}, ensure_ascii=False))
+        else:
+            route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+
+    def on_ping(route):
+        st["ping"] += 1
+        if st["ping"] <= st["ping_ok_after"]:
+            route.abort()   # 古い入口が終わって、新しい入口がまだ待ち受けていない間
+        else:
+            route.fulfill(status=200, content_type="application/json", body='{"app": "x", "version": "0.2.0"}')
+
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    try:
+        pg = ctx.new_page()
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.route("**/api/ytt/restart-self", on_restart)
+        pg.route("**/api/ping", on_ping)
+        pg.goto(base + "styleguide.html")
+        pg.wait_for_selector("#btnRestartBand")
+        band = "#restartBandDemo"
+
+        pg.click("#btnRestartBand")
+        txt = pg.inner_text(band)
+        check(pg.evaluate("!document.getElementById('restartBandDemo').hidden") and "版が違います" in txt and "v0.2.0" in txt and "v0.1.0" in txt,
+              "版の帯: 画面とサーバーの版を出す")
+        check("黒い画面を閉じて" in txt and not pg.query_selector(band + " .ui-restart-btn"),
+              "単体で開いた画面(合言葉なし)は今までの案内だけで、「起動し直す」は出さない")
+        check(pg.evaluate("UIKit.restart.check(document.createElement('div'), '1.0', '1.0')") is False, "check: 版が同じなら何もしない(false)")
+
+        # ホームから開いた画面(合言葉あり)
+        pg.evaluate("const m = document.createElement('meta'); m.name = 'ytt-token'; m.content = 'tok-1'; document.head.appendChild(m);"
+                    "window.__marker = 1; window.__texts = [];"
+                    "new MutationObserver(() => window.__texts.push(document.getElementById('restartBandDemo').textContent))"
+                    "  .observe(document.getElementById('restartBandDemo'), { childList: true, subtree: true, characterData: true });"
+                    "window.__restartDemoOpts = { interval: 150, timeout: 6000, reload: () => { window.__reloaded = (window.__reloaded || 0) + 1; } };")
+        pg.click("#btnRestartBand")
+        check(pg.evaluate("UIKit.restart.available()") is True and pg.inner_text(band + " .ui-restart-btn") == "起動し直す",
+              "合言葉があれば「起動し直す」のボタンが出る")
+
+        pg.click(band + " .ui-restart-btn")
+        check(wait_js(pg, "document.getElementById('restartBandDemo').getAttribute('data-ui-restart') === 'refused'"), "断られた(409)ら refused")
+        check("実行中の処理があります(文字起こし)" in pg.inner_text(band), "断られた理由を帯に出す")
+        check(pg.evaluate("!document.querySelector('#restartBandDemo .ui-restart-btn').disabled"), "断られたら、もう一度押せる")
+        check(st["calls"] == ["tok-1"], "POST api/ytt/restart-self に合言葉(X-YTT-Token)を付ける: %s" % st["calls"])
+
+        st["mode"], st["ping"] = "ok", 0
+        pg.click(band + " .ui-restart-btn")
+        check(wait_js(pg, "window.__reloaded === 1"), "頼めたら ping が戻るのを待って読み込み直す")
+        check(pg.evaluate("window.__texts.some(t => t.includes('起動し直しています'))"), "待っている間は「起動し直しています…」")
+        check(st["ping"] >= 2 and pg.get_attribute(band, "data-ui-restart") == "done", "一度答えなくなってから答えたら戻った扱い(ping %d 回)" % st["ping"])
+        check(pg.evaluate("document.querySelector('#restartBandDemo .ui-restart-btn').disabled"), "起動し直している間はボタンを押せない")
+
+        # 戻らなかった(ping がずっと答えない)
+        st["ping"], st["ping_ok_after"] = 0, 10 ** 6
+        pg.evaluate("window.__restartDemoOpts = { interval: 150, timeout: 700, reload: () => { window.__reloaded = 99; } }")
+        pg.click("#btnRestartBand")
+        pg.click(band + " .ui-restart-btn")
+        check(wait_js(pg, "document.getElementById('restartBandDemo').getAttribute('data-ui-restart') === 'timeout'"), "決めた時間で戻らなければ timeout")
+        check("start.bat" in pg.inner_text(band) and pg.evaluate("document.querySelector('#restartBandDemo .ui-restart-btn').hidden")
+              and pg.evaluate("window.__reloaded") == 1, "戻らなければ start.bat の案内を出し、ボタンを隠す(読み込み直さない)")
+
+        # 既定(location.reload)で本当に読み込み直す
+        st["ping"], st["ping_ok_after"] = 0, 1
+        pg.evaluate("window.__restartDemoOpts = { interval: 150, timeout: 6000 }")
+        pg.click("#btnRestartBand")
+        with pg.expect_navigation(timeout=10000):
+            pg.click(band + " .ui-restart-btn")
+        pg.wait_for_selector("#btnRestartBand")
+        check(pg.evaluate("window.__marker") is None, "既定は location.reload で読み込み直す")
+        check(not errs, "画面のエラーなし(版の帯): %s" % errs[:5])
+    finally:
+        ctx.close()
 
 
 def main():
@@ -210,6 +295,9 @@ def main():
 
                 check(not errors, "コンソール・画面のエラーなし: %s" % errors[:5])
                 ctx.close()
+
+                # ---- v10: 版の帯(UIKit.restart)。入口の API は偽物(page.route)。409 などはコンソールに出るので、別の窓(context)で確かめる ----
+                check_restart(browser, base, check)
             finally:
                 browser.close()
     finally:

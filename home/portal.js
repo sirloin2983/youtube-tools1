@@ -808,6 +808,73 @@
     }).catch(function (e) { toast('始められませんでした: ' + e.message, 'err'); syncDocRunButton(); });
   }
 
+  /* ================================================================ 調子(段9 9-1。/api/health。数字は入口、良い/注意/悪い の判定はここ) ================================================================ */
+  var GB = 1024 * 1024 * 1024;
+  function fmtBytes(b) { b = Number(b) || 0; return b >= GB ? (b / GB).toFixed(b >= 10 * GB ? 0 : 1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
+  function fmtAgo(sec) { sec = Number(sec) || 0; return sec < 90 ? Math.round(sec) + ' 秒前' : sec < 5400 ? Math.round(sec / 60) + ' 分前' : sec < 172800 ? Math.round(sec / 3600) + ' 時間前' : Math.round(sec / 86400) + ' 日前'; }
+  var healthBusy = false, healthTimer = 0;
+  function loadHealth(refresh) {
+    if (healthBusy) return;
+    healthBusy = true;
+    api('/api/health' + (refresh ? '?refresh=1' : '')).then(function (h) {
+      renderHealth(h);
+      clearTimeout(healthTimer);
+      if (h.computing) healthTimer = setTimeout(function () { loadHealth(false); }, 1500);   // 数えている途中: 少し待って読み直す
+    }).catch(function (e) {
+      var ul = $('#healthList'); ul.textContent = '';
+      ul.appendChild(healthRow('bad', '調子を読めません', e.message));
+    }).then(function () { healthBusy = false; });
+  }
+  function healthRow(state, title, text, subs) {
+    var li = el('li'), pill = el('span', 'pill ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'err' : 'warn'), state === 'ok' ? '良い' : state === 'bad' ? '悪い' : '注意');
+    var body = el('div', 'pt-health-body');
+    body.appendChild(el('b', '', title));
+    if (text) body.appendChild(el('span', 'hint', ' ' + text));
+    if (subs && subs.length) { var ul = el('ul', 'pt-health-sub'); subs.forEach(function (s) { ul.appendChild(el('li', '', s)); }); body.appendChild(ul); }
+    li.appendChild(pill); li.appendChild(body);
+    return li;
+  }
+  function renderHealth(h) {
+    var ul = $('#healthList'); ul.textContent = '';
+    $('#healthWhen').textContent = h.countedAt ? '大きさは ' + fmtAgo((Date.now() - h.countedAt) / 1000) + 'に数えた' + (h.computing ? '(数えています…)' : '') : (h.computing ? '数えています…' : '');
+    // 版(期待 = ファイル、実際 = 動いている物)
+    var bad = (h.versions || []).filter(function (v) { return !v.ok; });
+    ul.appendChild(bad.length ? healthRow('bad', '版が違います', bad.map(function (v) { return v.name + '(動いているのは ' + v.version + '、ファイルは ' + v.expected + ')'; }).join('・') + '。「すべて終了」→ start.bat で起動し直してください')
+      : healthRow('ok', '版', (h.versions || []).filter(function (v) { return v.version; }).map(function (v) { return v.name + ' ' + v.version; }).join('・') || '(まだ動いていません)'));
+    // 認識ワーカー
+    var w = h.worker;
+    ul.appendChild(!w ? healthRow('warn', '認識ワーカー', '「編集」が動いていないか、状態を読めません')
+      : w.alive ? healthRow('ok', '認識ワーカー', '動いています(pid ' + w.pid + (w.lastUsedAgo != null ? '・' + fmtAgo(w.lastUsedAgo) + 'に使った' : '') + ')。' + Math.round((w.silenceTimeoutSec || 0) / 60) + ' 分応答が無ければ止めます')
+      : healthRow('ok', '認識ワーカー', '止まっています(次の文字起こしで起動します。起動した回数 ' + (w.starts || 0) + ')'));
+    // 外部プログラム
+    var t = h.tools;
+    if (t) {
+      var miss = ['ffmpeg', 'ffprobe', 'ytdlp'].filter(function (k) { return !(t[k] && t[k].path); });
+      ul.appendChild(miss.length ? healthRow('bad', '外部プログラム', miss.map(function (k) { return k === 'ytdlp' ? 'yt-dlp' : k; }).join('・') + ' が見つかりません(PATH か環境変数 YTT_FFMPEG などで場所を指定)')
+        : healthRow('ok', '外部プログラム', 'ffmpeg ' + t.ffmpeg.version + '・ffprobe ' + t.ffprobe.version + '・yt-dlp ' + t.ytdlp.version, [t.ffmpeg.path, t.ytdlp.path]));
+    }
+    // 空き容量
+    (h.disk || []).forEach(function (d) {
+      var st = d.freeBytes < 10 * GB ? 'bad' : d.freeBytes < 30 * GB ? 'warn' : 'ok';
+      ul.appendChild(healthRow(st, '空き容量 ' + (d.drive || d.path), fmtBytes(d.freeBytes) + ' / ' + fmtBytes(d.totalBytes) + (st !== 'ok' ? '。片付けを考えてください' : ''), [d.path]));
+    });
+    // 作業データの大きさ
+    if (h.data) {
+      var subs = (h.data.dirs || []).map(function (d) {
+        var top = (d.items || []).slice(0, 4).map(function (i) { return i.name + ' ' + fmtBytes(i.bytes); }).join('・');
+        return d.label + ' ' + fmtBytes(d.bytes) + '(' + d.files + ' ファイル' + (top ? '。' + top : '') + ')';
+      });
+      ul.appendChild(healthRow(h.data.bytes > 50 * GB ? 'warn' : 'ok', '作業データ ' + fmtBytes(h.data.bytes), h.data.root ? h.data.root : '(各ツールのフォルダの中)', subs));
+    } else ul.appendChild(healthRow('warn', '作業データ', '大きさを数えています…'));
+    // エラーの件数
+    var e = h.errors || {};
+    ul.appendChild(healthRow(e.clientLast24h ? 'warn' : 'ok', '画面のエラー(24 時間)', (e.clientLast24h || 0) + ' 件', [e.clientLog]));
+    ul.appendChild(healthRow(e.autorunFailedLast7d ? 'warn' : 'ok', 'まとめて実行の失敗(7 日)', (e.autorunFailedLast7d || 0) + ' 件' + (e.autorunFailedLast7d ? '(上の「まとめて実行の記録」に理由)' : ''), [e.autorunLog]));
+    // 重い処理
+    var hv = h.heavy;
+    if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
+  }
+
   /* ================================================================ 次にやること ================================================================ */
 
   function buildPathMap() {
@@ -1171,6 +1238,9 @@
     if (window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#docWho'));
 
     $('#btnQuit').addEventListener('click', quit);
+    $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
+    var adv = $('#healthBox') && $('#healthBox').closest('details');
+    if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
     $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
     $('#btnWinNow').addEventListener('click', openWinNow);
     $('#btnCopyData').addEventListener('click', function () {

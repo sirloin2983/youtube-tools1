@@ -387,6 +387,12 @@ function create(h){
   $('#pkLoud').addEventListener('change', () => saveLoud({ packLoudness: Number($('#pkLoud').value) }));
   $('#pkVol').addEventListener('change', () => { const v = Math.round(Number($('#pkVol').value)); if (v >= 1 && v <= 200) saveLoud({ packVolume: v }); else { h.toast('音量(%)は 1〜200 で入れてください', 4000, 'err'); render(); } });
   $('#pkDir').addEventListener('input', render);
+  // 開始タイムコードに ; 区切り(ドロップフレーム表記)を入れたら、その場で「ノンドロップとして扱う」と知らせる(作るときの結果の注意は今までどおり)
+  for (const id of ['pkSrcTc', 'pkRecTc']){
+    const inp = $('#' + id), hint = $('#' + id + 'Hint');
+    const upd = () => { hint.hidden = !inp.value.includes(';'); };
+    inp.addEventListener('input', upd); inp.addEventListener('change', upd); upd();
+  }
   $('#pkJob').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=pkcancel]') || !P.job) return;
     try { await h.c2rApi('api/job/cancel', { body: { id: P.job.id } }); } catch (er){ h.toast(er.message, 4000, 'err'); }

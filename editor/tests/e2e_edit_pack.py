@@ -97,6 +97,15 @@ def main():
             # ---- 段6 6-2(B-1): 詳しい設定の「行の後の余白」→ 設定 rowEdge.padAfter に保存。手で直したカットには効かない(案内)。要約には既定と違うときだけ
             pg.click("#pkMore summary")
             check(pg.input_value("#pkPadAfter") == "0.2", "行の後の余白の既定は 0.2 秒: " + pg.input_value("#pkPadAfter"))
+            # ---- 段9-5: 開始タイムコードに ; を入れるとドロップフレームの注意が欄の下に出る(消せば消える)
+            for _id in ("pkSrcTc", "pkRecTc"):
+                check(pg.evaluate("document.querySelector('#%sHint').hidden" % _id), "9-5: %s の注意は最初は出ていない" % _id)
+                pg.fill("#" + _id, "01:00:00;00")
+                check(wait_js(pg, "!document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: %s に ; を入れると注意が出る" % _id)
+                check("ノンドロップとして扱います" in pg.text_content("#" + _id + "Hint"), "9-5: 注意の文: " + pg.text_content("#" + _id + "Hint"))
+                pg.fill("#" + _id, "01:00:00:00")
+                check(wait_js(pg, "document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: : に直すと注意は消える")
+                pg.fill("#" + _id, "")
             pg.fill("#pkPadAfter", "0.5")
             pg.press("#pkPadAfter", "Tab")
             deadline = time.time() + 10
