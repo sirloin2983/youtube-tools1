@@ -112,6 +112,10 @@ def main():
             pg.keyboard.press("ArrowDown")
             pg.wait_for_timeout(150)
             check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav_before, "⚙ 設定の引き出しが開いている間は ↓ で行が動かない")
+            pg.keyboard.press("Alt+2")   # 監査01(段1): ⚙ 設定を開いている間は Alt+数字 でタブを変えない
+            pg.wait_for_timeout(150)
+            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") != "#cut" and pg.is_visible("#uiSettingsDrawer"),
+                  "⚙ 設定の引き出しが開いている間は Alt+2 でタブが変わらない")
             pg.keyboard.press("Escape")   # 開いている間は裏(ヘッダーの ⚙ も)が止まっているので、Esc で閉じる
             wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden")
             pg.keyboard.press("ArrowDown")

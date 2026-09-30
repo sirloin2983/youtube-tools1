@@ -105,12 +105,19 @@ function setEditTab(t, opt = {}){
   const was = EDT.tab;
   EDT.tab = t; EDT.overlay = false;
   document.querySelectorAll('[data-edtab]').forEach(b => { const on = b.dataset.edtab === t; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+  /* 監査01(段1): 隠れるタブの中で開いている引き出し(3 パック の設定など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
+     開いたまま隠すと見えない引き出しが全部の操作を塞ぐ(Alt+数字は下で止めるが、戻る・# のリンク・プログラムからの切り替えでも残さないための保険) */
+  let closedDrawer = false;
+  document.querySelectorAll('[data-edpanel]').forEach(p => {
+    if (p.dataset.edpanel === t) return;
+    p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; if (window.UIKit && UIKit.drawer) UIKit.drawer.close(d); else d.hidden = true; });
+  });
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
   if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
   applyView();
   if (was !== t) onEditTab(was, t);
-  if (opt.focus){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
+  if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
 }
 /* タブを移ったとき: 文字起こしのタブの映像は隠れるので止める(隠れたまま音だけ鳴らさない)。戻ったら行の高さと帯を描き直す */
 function onEditTab(from, to){
@@ -1979,7 +1986,7 @@ const menuHasKeys = t => !!(menuOpen() && isDrawer() && t && t.closest && t.clos
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
 window.addEventListener('keydown', e => {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]')) return;
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
   const m = /^Digit([123])$/.exec(e.code); if (!m) return;
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
   e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1]);

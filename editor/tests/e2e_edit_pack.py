@@ -74,8 +74,23 @@ def main():
             check((st.get("packLoudness"), st.get("packVolume")) == (0, 70), "編集の設定に残る: %s" % ((st.get("packLoudness"), st.get("packVolume")),))
             pg.select_option("#pkLoud", "-14")
             check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 -14 LUFS') >= 0", 5000), "LUFS に戻すと要約も戻る")
+            # 監査01(段1): 引き出しを開いたまま Alt+1 → タブは 3 パック のまま・引き出しも開いたまま(ダイアログと同じ扱い)
+            pg.keyboard.press("Alt+1")
+            pg.wait_for_timeout(150)
+            check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#pkSettingsDrawer"),
+                  "パックの設定を開いたまま Alt+1 を押しても、タブは 3 パック のまま・引き出しも開いたまま")
             pg.click("#pkSettingsClose")
             wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            # 開いたまま # を変えて(戻る・# のリンクと同じ)タブを移ると、引き出しを閉じ、裏の inert を残さない
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            check(pg.evaluate("!!document.querySelector('[inert]')"), "(前提)パックの設定は modal で裏が inert")
+            pg.evaluate("location.hash = '#tx'")
+            check(wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true' && document.querySelector('#pkSettingsDrawer').hidden && !document.querySelector('[inert]') && !document.querySelector('.ui-drawer-scrim')", 5000),
+                  "開いたまま # で 1 文字起こし へ移ると、引き出しが閉じて inert・幕が残らない")
+            check(pg.evaluate("document.activeElement === document.querySelector('[data-edtab=tx]')"), "フォーカスは移った先のタブのボタン: %s" % pg.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.outerHTML.slice(0, 80))"))
+            pg.click("[data-edtab=pack]")   # 裏が操作できる(クリックが通る)ことの確かめを兼ねる
+            check(wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 3000), "ヘッダーのタブのボタンが押せる(操作不能になっていない)")
             check("縦 1080" in pg.inner_text("#pkSummaryText"), "設定を変えると要約も変わる: " + pg.inner_text("#pkSummaryText"))
             # 配信者の名前(字幕の色。docs/archive/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色(pkWho は主画面にいつも見える)
             pg.fill("#pkWho", "ぺこら")

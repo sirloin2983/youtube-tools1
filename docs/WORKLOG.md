@@ -1741,3 +1741,11 @@
 - テスト: `home/tests/e2e_portal.py` の [A] に「href・新しいタブ・noopener」「開いたスタジオが `Studio.params.video === 'e2eCase0001'` で ③ 確認(`Studio.step === 'review'`)」を足して通過。
   home の unit 140 通過(1・2回目は `test_post_guards`/`test_security_checks` が ConnectionAbortedError で落ち、3回目に通過。この PC の既知の不定の落ち)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 2. 監査01 引き出しを開いたままの Alt+数字・タブの切り替え
+- 変更: `editor/app.js` の2か所(計画どおり両方)
+  1. タブの Alt+1/2/3 は `.ui-drawer:not([hidden])` のときも止める(ダイアログと同じ扱い。ほかの文書のキーと同じ規則)
+  2. `setEditTab` で、隠れるタブ(`[data-edpanel]`)の中の開いている引き出しを `UIKit.drawer.close()` で閉じてから隠し、閉じたときは移った先のタブのボタンへフォーカスを置き直す(戻る・# のリンク・プログラムからの切り替えでも `inert` と幕を残さない)。ui-kit は触っていない
+- テスト: `e2e_edit_pack.py` に「開いたまま Alt+1 → 3 パック のまま・引き出しも開いたまま」「開いたまま `location.hash='#tx'` → 引き出しが閉じ、`[inert]`・幕が無く、フォーカスは 1 文字起こし のボタン、ヘッダーのタブが押せる」、
+  `e2e_edit_tabs.py` に「⚙ 設定を開いている間は Alt+2 でタブが変わらない」を足した。通過: e2e_edit_pack・e2e_edit_tabs(77)・e2e_ui_mounted(1回目は Playwright の "Connection closed while reading from the driver"、流し直しで通過)
+- 未コミット: なし
