@@ -1799,3 +1799,18 @@
 - 変更: `.tt-tl-scroll:focus{outline:none}` + `.tt-tl-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}`(横スクロールの枠の内側に出す。マウスで押したときは出さない)
 - テスト: `e2e_edit_cut.py` に「キーボードで来たとき `:focus-visible` で outline 2px solid」を足して通過(直す前の CSS では outline が none で落ちる)。`dev/tests/test_ui_kit_sync.py` 通過(ui-kit の写しの部分は触っていない)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段1 の終わり: 版上げ・README・ROADMAP・全体のテスト
+- 版: ホーム 0.13.0 → **0.13.1**(B-8)・編集 0.23.0 → **0.24.0**(監査01・02/17/18・B-9・追加2。声を覚える API の形が変わったので minor)・スタジオ 0.11.0 → **0.11.1**(追加1)。cut2resolve・ui-kit は変えていない
+  (計画は 0.12.0/0.21.0 からの版上げを書いていたが、実物は段0 までに 0.13.0/0.23.0 だったのでそこから上げた。**段2 の計画の「スタジオ 0.11.0 → 0.11.1」は 0.11.2 に読み替える**)
+- 変更: `home/launch.py`・`editor/serve.py`・`editor/app.js`・`studio/serve.py`・`studio/core.js` の版、3つの README.txt の見出しと変更の記録、`editor/AGENTS.md` の先頭の版(0.22.0 のままだった)、
+  `docs/ROADMAP.md`(版・段1 の状態 = 済み・「3. 実機で確かめること」に段1 の分・索引)・`docs/plan/phase1-small-fixes.md` の状態の1行。home/README.txt の B-8 は変更の記録に書いた
+- 全体のテスト(リポジトリ直下・版上げのあと): unit = ytt_core・home 5 ファイル 140・studio 7 ファイル・editor(metrics/resolve_export/roster)・ui-kit の写し・Resolve パックの契約 すべて通過 /
+  e2e = home: portal・window・keymap / studio: e2e_ui 147/147・--mounted 160/160(1回目は落ち、流し直しで通過。1回目のログは上書きで残っていない)/
+  editor: edit_tabs・edit_cut・edit_pack・edit_voices・ui_mounted・eval_set・proofread_accuracy・proofread_keys・row_editing・ui_handoff / dev: e2e_pipeline すべて通過。
+  本物の作業データ(%LOCALAPPDATA%\youtube-tools)は、直近 4 時間の更新なし(ログを除く)
+- 保留: なし(計画の5項目と追加の2件をすべて実装)
+- 未完了・次: 実機で確かめること(ROADMAP の 3 の「段1」)。クラウド(Linux)で単体テストが skip 5 で通るかは未確認。起動中の入口は古いコードのままなので「すべて終了」→ start.bat で起動し直す。
+  B-7(段5)の候補: 「スタジオで開く」の場所を `/api/status` の studio の path・port から作る(取り込みに失敗して子プロセスで動いたとき用)。
+  夜間の見直し(3-ui-consistency)の残り(コントラスト・赤い帯・保存の状態・確認のダイアログを ui-kit に など)は段1 に入れていない
+- 未コミット: なし
