@@ -96,6 +96,28 @@
 .pt-history-item>.pill{flex:none}
 .pt-doc-runmsg{overflow-wrap:anywhere}
 
+/* ---- 依頼の受付(友人の依頼の自動受付。docs/design/friend-intake.md) ---- */
+.pt-h3{font-size:13.5px;margin:14px 0 6px;color:var(--ink-2)}
+.pt-intake{margin-top:4px;margin-bottom:22px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:4px 14px}
+.pt-intake>summary{padding:10px 2px;font-size:13.5px;color:var(--ink-2)}
+.pt-intake-body{padding:0 2px 12px}
+.pt-intake-body>.hint{margin:0 0 10px}
+.pt-intake-status{gap:6px 14px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.pt-intake-settings{padding:10px 12px;margin-bottom:6px}
+.pt-intake-settings .row{gap:8px 14px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.pt-intake-settings .hint{margin:0 0 8px}
+.pt-intake-folder input{width:min(56ch,100%)}
+.pt-intake-nums input{width:5em}
+.pt-intake-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.pt-intake-list:empty{display:none}
+.pt-intake-item{display:flex;flex-direction:column;gap:2px;padding:8px 2px}
+.pt-intake-item+.pt-intake-item{border-top:1px solid var(--line)}
+.pt-intake-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pt-intake-title{font-weight:600;overflow-wrap:anywhere;min-width:0;flex:1 1 auto}
+.pt-intake-sub{overflow-wrap:anywhere}
+.pt-intake-items{list-style:none;margin:2px 0 0;padding:0 0 0 12px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.pt-intake-items li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+
 /* ---- 詳しく(サーバーの管理) ---- */
 .pt-advanced{margin-top:28px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:4px 14px}
 .pt-advanced>summary{padding:10px 2px;font-size:13.5px;color:var(--ink-2)}

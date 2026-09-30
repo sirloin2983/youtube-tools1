@@ -16,6 +16,8 @@
   POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
+  GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(home/intake.py。docs/design/friend-intake.md)
+  POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
@@ -57,13 +59,14 @@ if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
 from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime  # noqa: E402
 import mount as mount_mod  # noqa: E402  (home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
+import intake as intake_mod  # noqa: E402  (home/intake.py: 友人からの依頼の受付)
 import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.14.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.15.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -617,6 +620,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             t = sup.by_id[tid]
             lines = tail(t.log_path, n)
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
+        if u.path == "/api/intake":   # 友人からの依頼の受付(home/intake.py)
+            return self._json(200, self.server.intake.snapshot())
         if u.path == "/api/autorun":   # まとめて実行の状態(home/autorun.py)
             return self._json(200, self.server.autorun.snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
@@ -689,6 +694,11 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._json(200, {"run": ar.cancel(body.get("runId"))})
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
+        if u.path == "/api/intake/scan":   # 今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)
+            if self.server.closing.is_set():
+                return self._fail(409, "closing", "終了の途中です")
+            self.server.intake.wake.set()
+            return self._json(200, self.server.intake.snapshot())
         if u.path == "/api/window":   # 画面を窓で開くか(次に起動したときから。段階7-3)
             try:
                 self.server.window.set_mode(body.get("mode"))
@@ -742,6 +752,8 @@ class PortalServer(ThreadingHTTPServer):
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(os.path.dirname(sup.logs_dir), fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
+        # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
+        self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
 
     def tool_ports(self):
         """別のプログラムとして動いているツールのポート(窓で開いてよい先。取り込んだツールは入口と同じポートなので含めない)"""
@@ -812,7 +824,10 @@ class PortalServer(ThreadingHTTPServer):
                 secs = body.get("sections")
                 return {"ok": True, "prefs": self.prefs.get([x for x in secs if isinstance(x, str)] if isinstance(secs, list) else None)}
             if op == "patch":
-                return {"ok": True, "value": self.prefs.patch(body.get("section"), body.get("value"))}
+                value = self.prefs.patch(body.get("section"), body.get("value"))
+                if body.get("section") == "intake":   # 受付の設定を変えたら、すぐ見直す(オン・フォルダ)
+                    self.intake.wake.set()
+                return {"ok": True, "value": value}
             if op == "remember":
                 return {"ok": True, "streamer": self.prefs.remember(body.get("kind"), body.get("key"), body.get("name"))}
         except OSError as e:
@@ -878,6 +893,7 @@ class PortalServer(ThreadingHTTPServer):
             return
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
+        self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         if self._autorun is not None:
             self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
         self.sup.stop_all()
@@ -1030,6 +1046,7 @@ def main(argv=None):
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
+        srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
             threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()
         while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ
@@ -1040,6 +1057,7 @@ def main(argv=None):
     finally:
         ignore_stop_signals()
         srv.closing.set()
+        srv.intake.close()
         sup.close()
         sup.stop_all()
         sup.unmount_all()

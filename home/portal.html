@@ -94,6 +94,45 @@
     </details>
   </section>
 
+  <details class="ui-disclosure pt-intake" id="intakeBox">
+    <summary><span>依頼の受付</span> <span class="pill wait" id="intakeState">確認中…</span></summary>
+    <div class="pt-intake-body">
+      <p class="hint">友人がアプリや共有フォルダで送ってきた「この配信(または動画)を切り抜いてほしい」という依頼を、フォルダを見張って自動で受け付けます。
+        受け付けた依頼は、解析(または文字起こし)まで自動で進み、進み具合は「次にやること」と「まとめて実行の記録」に出ます。</p>
+      <div class="row pt-intake-status">
+        <span class="hint" id="intakeMsg"></span>
+        <span class="hint num" id="intakeScan"></span>
+        <span class="hint num" id="intakeToday"></span>
+        <button type="button" class="btn small" id="intakeScanBtn">今すぐ確認</button>
+      </div>
+
+      <div class="pt-intake-settings card flat">
+        <div class="row">
+          <label class="lag"><input type="checkbox" class="ui-switch" id="intakeEnabled">依頼を受け付ける</label>
+        </div>
+        <div class="row">
+          <label class="lag pt-intake-folder">見張るフォルダ
+            <input id="intakeFolder" type="text" size="44" placeholder="例: C:\Users\(あなた)\Dropbox\アプリ\切り抜き依頼" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <p class="hint">Dropbox\アプリ\切り抜き依頼 など、友人と共有しているフォルダの場所(ドライブ名からの全部のパス)を入れます。</p>
+        <div class="row pt-intake-nums">
+          <label class="lag">既定の切り抜く数 <input id="intakeTop" type="number" min="1" max="10" step="1" value="3"></label>
+          <label class="lag">1日の上限(件) <input id="intakeDaily" type="number" min="1" max="50" step="1" value="10"></label>
+          <label class="lag">配信の長さの上限(時間) <input id="intakeHours" type="number" min="1" max="24" step="1" value="6"></label>
+          <label class="lag">動画の大きさの上限(GB) <input id="intakeGB" type="number" min="1" max="200" step="1" value="10"></label>
+        </div>
+        <div class="row">
+          <button type="button" class="btn small primary" id="intakeSave">設定を保存</button>
+          <span class="hint" id="intakeSaveMsg" role="status"></span>
+        </div>
+      </div>
+
+      <h3 class="pt-h3">届いた依頼</h3>
+      <p class="hint" id="intakeEmpty" hidden>まだ依頼は届いていません。</p>
+      <ol class="pt-intake-list" id="intakeList"></ol>
+    </div>
+  </details>
+
   <details class="ui-disclosure pt-history" id="historyBox">
     <summary>まとめて実行の記録</summary>
     <div class="pt-history-body">

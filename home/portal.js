@@ -29,7 +29,8 @@
   var runsByVideo = {}, runsByDoc = {}; // /api/autorun の実行(配信単位・文書単位)。最新のものだけ
   var pastByVideo = {}, pastByDoc = {}; // /api/autorun の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
   var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/autorun/history。開いたときだけ読む)
-  var wasActiveVideo = {}, wasActiveDoc = {};
+  var runsByFile = {};                  // /api/autorun の kind "file"(依頼の文字起こしだけ。videoId・docId が無いので実行の id で持つ)
+  var wasActiveVideo = {}, wasActiveDoc = {}, wasActiveFile = {};
   var autoTimer = null;
   var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
   var docVisibleCount = DOC_PAGE;       // 単体の文字起こしの「もっと見る」
@@ -874,12 +875,15 @@
       if (!active(r)) return;
       var total = r.steps.length, doneN = r.steps.filter(function (s) { return s.state === 'done' || s.state === 'skip'; }).length;
       var pct = total ? Math.round(doneN / total * 100) : 0;
-      items.push({ kind: 'running', updatedAt: r.created || 0, title: r.title || (r.docId ? '文書' : '配信'),
+      items.push({ kind: 'running', updatedAt: r.created || 0, title: r.title || (r.docId ? '文書' : r.kind === 'file' ? '依頼の動画' : '配信'),
         sub: r.modeLabel + ' ・ ' + (r.state === 'running' ? pct + '%' : '順番待ち'), href: hrefBase,
         pillText: r.state === 'running' ? '実行中' : '順番待ち', pillClass: r.state === 'running' ? 'run' : 'wait',
         progress: r.state === 'running' ? pct : null });
     }
-    Object.keys(runsByVideo).forEach(function (id) { push(runsByVideo[id], '#case-' + id); });
+    var known = {};
+    ((casesData && casesData.cases) || []).forEach(function (c) { known[c.id] = true; });
+    Object.keys(runsByVideo).forEach(function (id) { push(runsByVideo[id], known[id] ? '#case-' + id : '#intake'); });   // 依頼の解析は、案件の行がまだ無いことがある
+    Object.keys(runsByFile).forEach(function (id) { push(runsByFile[id], '#intake'); });
     Object.keys(runsByDoc).forEach(function (id) { push(runsByDoc[id], '#doc-' + id); });
     return items;
   }
@@ -930,11 +934,19 @@
   function pollAuto() {
     clearTimeout(autoTimer);
     api('/api/autorun').then(function (j) {
-      var latestV = {}, latestD = {}, anyActive = false, finished = false;
+      var latestV = {}, latestD = {}, latestF = {}, anyActive = false, finished = false;
       (j.runs || []).forEach(function (r) {
-        if (r.kind === 'doc') { if (!latestD[r.docId]) latestD[r.docId] = r; }
+        if (r.kind === 'doc') { if (r.docId && !latestD[r.docId]) latestD[r.docId] = r; }
+        else if (r.kind === 'file' || !r.videoId) latestF[r.id || ('f' + Object.keys(latestF).length)] = r;   // 依頼の文字起こしだけ(配信にも文書にも紐づかない)
         else if (!latestV[r.videoId]) latestV[r.videoId] = r;
       });
+      Object.keys(latestF).forEach(function (id) {
+        var r = latestF[id];
+        if (active(r)) anyActive = true;
+        if (wasActiveFile[id] && !active(r)) finished = true;
+        wasActiveFile[id] = active(r);
+      });
+      runsByFile = latestF;
       Object.keys(latestV).forEach(function (id) {
         var r = latestV[id];
         if (active(r)) anyActive = true;
@@ -964,6 +976,7 @@
         if (activeIn($all('.pt-case', g).map(function (n) { return n.dataset.id; }))) g.open = true;
       });
       Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
+      pollIntake();   // 依頼の受付も同じ周期で読む(別のタイマーは持たない)
       if (finished) {
         refreshCases();
         loadTxList().then(function () { renderDocs(); buildTodo(); });
@@ -975,6 +988,115 @@
     }).catch(function () { autoTimer = setTimeout(pollAuto, 5000); });
   }
 
+
+  /* ================================================================ 依頼の受付(友人の依頼の自動受付。docs/design/friend-intake.md の 6) ================================================================ */
+
+  var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
+  var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
+  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['dailyMax', '#intakeDaily', '1日の上限', 1, 50],
+    ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200]];
+
+  function fillIntakeSettings(d) {
+    $('#intakeEnabled').checked = !!d.enabled;
+    $('#intakeFolder').value = d.folder || '';
+    INTAKE_NUMS.forEach(function (n) { if (d[n[0]] != null) $(n[1]).value = String(d[n[0]]); });
+    intakeDirty = false;
+  }
+  function renderIntakeStatus(d) {
+    var pill = $('#intakeState');
+    pill.className = 'pill ' + (INTAKE_PILL[d.state] || 'wait');
+    pill.textContent = d.stateLabel || (d.enabled ? '見張り中' : 'オフ');
+    $('#intakeMsg').textContent = d.message || '';
+    $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
+    $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
+    $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' / ' + (d.dailyMax || 0) + ' 件' : '';
+    $('#intakeScanBtn').disabled = intakeBusy || !d.enabled;
+    $('#intakeScanBtn').title = d.enabled ? '' : '受付がオフのときは確認できません';
+  }
+  function intakeItemRow(it) {
+    var li = el('li');
+    li.appendChild(el('span', 'pill ' + (it.state === 'accepted' ? 'ok' : 'warn'), it.state === 'accepted' ? '受け付けた' : '断った'));
+    li.appendChild(el('span', '', it.label || ''));
+    if (it.reason) li.appendChild(el('span', 'hint', it.reason));
+    return li;
+  }
+  function intakeRow(r) {
+    var li = el('li', 'pt-intake-item');
+    var head = el('div', 'pt-intake-head');
+    head.appendChild(el('span', 'pill info', r.kind === 'url' ? 'URL' : '動画'));
+    head.appendChild(el('span', 'pt-intake-title', r.title || (r.kind === 'url' ? '(題名なし)' : '(ファイル名なし)')));
+    head.appendChild(el('span', 'pill ' + (r.state === 'accepted' ? 'ok' : 'warn'), r.stateLabel || (r.state === 'accepted' ? '受け付けた' : '断った')));
+    var t = el('span', 'hint pt-intake-when', ago(r.received)); t.title = r.received ? when(r.received) : '';
+    head.appendChild(t);
+    li.appendChild(head);
+    var sub = [r.streamer ? '配信者: ' + r.streamer : '', r.source === 'manual' ? 'フォルダに直接置かれた' : 'アプリから', r.memo ? 'メモ: ' + r.memo : ''].filter(Boolean).join(' ・ ');
+    if (sub) li.appendChild(el('span', 'hint pt-intake-sub', sub));
+    if (r.reason) li.appendChild(el('span', 'hint pt-intake-sub', (r.state === 'rejected' ? '断った理由: ' : '') + r.reason));
+    if (r.items && r.items.length) { var ul = el('ul', 'pt-intake-items'); r.items.forEach(function (it) { ul.appendChild(intakeItemRow(it)); }); li.appendChild(ul); }
+    return li;
+  }
+  function renderIntake(d) {
+    intakeData = d;
+    renderIntakeStatus(d);
+    var sig = JSON.stringify(d.requests || []);
+    if (sig !== intakeSig) {
+      intakeSig = sig;
+      var ol = $('#intakeList'); ol.textContent = '';
+      (d.requests || []).forEach(function (r) { ol.appendChild(intakeRow(r)); });
+      $('#intakeEmpty').hidden = !!(d.requests || []).length;
+    }
+    if (!intakeOpened) {   // 最初の1回だけ: 動いているとき・止まっているときは開いて見せる(オフのときは閉じたまま)
+      intakeOpened = true;
+      if (d.enabled || d.state === 'error') $('#intakeBox').open = true;
+      fillIntakeSettings(d);
+    } else if (!intakeDirty) fillIntakeSettings(d);
+  }
+  function pollIntake() {
+    return api('api/intake').then(renderIntake, function (e) {
+      if (e.status === 404) { $('#intakeBox').hidden = true; return; }   // 受付の無い版の入口(古いサーバー)では出さない
+      $('#intakeState').className = 'pill wait'; $('#intakeState').textContent = '読めません';
+    });
+  }
+  function intakeScanNow() {
+    if (intakeBusy) return;
+    intakeBusy = true; $('#intakeScanBtn').disabled = true;
+    api('api/intake/scan', 'POST', {}).then(function (d) { renderIntake(d); toast('確認しました'); },
+      function (e) { toast('確認できませんでした: ' + e.message, 'err'); })
+      .then(function () { intakeBusy = false; if (intakeData) renderIntakeStatus(intakeData); });
+  }
+  function intakeValue() {
+    var v = { enabled: $('#intakeEnabled').checked, folder: $('#intakeFolder').value.trim() };
+    for (var i = 0; i < INTAKE_NUMS.length; i++) {
+      var n = INTAKE_NUMS[i], x = Number($(n[1]).value);
+      if (!isFinite(x) || $(n[1]).value === '' || x < n[3] || x > n[4]) throw new Error(n[2] + 'は ' + n[3] + '〜' + n[4] + ' の数で入れてください');
+      v[n[0]] = Math.round(x);
+    }
+    return v;
+  }
+  function intakeSave(partial) {
+    var msg = $('#intakeSaveMsg'), v;
+    try { v = partial || intakeValue(); } catch (e) { msg.textContent = e.message; return Promise.resolve(); }
+    msg.textContent = '保存しています…';
+    return api('api/ytt/prefs', 'POST', { op: 'patch', section: 'intake', value: v }).then(function () {
+      msg.textContent = '保存しました';
+      if (!partial) intakeDirty = false;
+      return pollIntake();
+    }, function (e) {
+      msg.textContent = '保存できませんでした: ' + e.message;
+      toast('保存できませんでした: ' + e.message, 'err');
+      if (partial && intakeData) $('#intakeEnabled').checked = !!intakeData.enabled;   // スイッチだけの保存が断られたら、表示を元に戻す
+    });
+  }
+  function wireIntake() {
+    if (!$('#intakeBox')) return;
+    $('#intakeScanBtn').addEventListener('click', intakeScanNow);
+    $('#intakeSave').addEventListener('click', function () { intakeSave(); });
+    $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
+    ['#intakeFolder', '#intakeTop', '#intakeDaily', '#intakeHours', '#intakeGB'].forEach(function (s) {
+      $(s).addEventListener('input', function () { intakeDirty = true; $('#intakeSaveMsg').textContent = ''; });
+    });
+  }
+
   /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
 
   var HIST_PILL = { done: 'ok', error: 'err', cancelled: 'wait' };
@@ -984,8 +1106,9 @@
     pill.className = 'pill pt-history-pill ' + (r.nothing ? 'wait' : (HIST_PILL[r.state] || 'wait'));
     pill.textContent = runLabel(r);
     var a = $('.pt-history-title', li);
-    a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || '';
+    a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || (r.kind === 'file' ? '依頼の動画' : '');
     if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'tx'); a.target = '_blank'; a.rel = 'noopener'; a.title = '編集で開く'; }   // 文書 → 編集で開く
+    else if (r.kind === 'file' || !r.videoId) { a.href = '#intake'; a.title = '依頼の受付へ'; }
     else { a.href = '#case-' + encodeURIComponent(r.videoId || ''); a.title = '案件の行へ'; }   // 配信 → 案件の行
     var why = runReason(r);
     $('.pt-history-sub', li).textContent = (r.modeLabel || '') + (why ? ' ・ ' + why : '');
@@ -1019,6 +1142,7 @@
   function focusHash() {
     var h = location.hash;
     if (!h) return;
+    if (h === '#intake') { var ib = $('#intakeBox'); if (ib) { ib.open = true; ib.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
     if (h === '#cases') { var sec = $('#caseListSection'); if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     var m = /^#(case|doc)-(.+)$/.exec(h);
     if (!m) return;
@@ -1081,6 +1205,7 @@
     $('#todoMore').addEventListener('click', function () { todoShowAll = true; buildTodo(); });
     $('#historyBox').addEventListener('toggle', function () { if ($('#historyBox').open) loadHistory(true); });
     $('#historyMore').addEventListener('click', function () { loadHistory(false); });
+    wireIntake();
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため) */

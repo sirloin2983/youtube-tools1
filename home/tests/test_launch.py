@@ -608,6 +608,29 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/autorun/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_intake_api(self):
+        """友人からの依頼の受付(home/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
+        r, body = self.req("GET", "/api/intake")
+        j = json.loads(body)
+        self.assertEqual((r.status, j["enabled"], j["state"], j["requests"]), (200, False, "off", []))
+        folder = os.path.join(self.tmp, "依頼")
+        os.makedirs(folder)
+        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "intake", "value": {"folder": "\\\\srv\\share"}}).encode())
+        self.assertEqual(r.status, 400)
+        self.assertIn("ネットワーク", json.loads(body)["message"])
+        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "intake", "value": {"enabled": True, "folder": folder, "top": 4}}).encode())
+        self.assertEqual((r.status, json.loads(body)["value"]["top"]), (200, 4))
+        self.srv.intake.scan()
+        r, body = self.req("GET", "/api/intake")
+        j = json.loads(body)
+        self.assertEqual((j["enabled"], j["folder"], j["state"], j["top"]), (True, folder, "watching", 4))
+        r, body = self.post("/api/intake/scan", headers={"X-YTT-Token": "x"})   # 合言葉が要る
+        self.assertEqual(r.status, 403)
+        r, body = self.post("/api/intake/scan")
+        self.assertEqual((r.status, json.loads(body)["state"]), (200, "watching"))
+        r, _ = self.req("GET", "/api/intake", headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(r.status, 403)
+
     def test_shutdown_stops_children_and_server(self):
         self.sup.start_all()
         self.sup.start_monitor()

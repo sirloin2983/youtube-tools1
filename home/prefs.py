@@ -4,6 +4,7 @@
   autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
+  intake   … 友人からの依頼の受付(home/intake.py。docs/design/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・上限
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
 値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す。
 """
@@ -17,7 +18,7 @@ MAX_BYTES = 256 * 1024
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
 NAME_MAX = 60
 KEY_MAX = 120
-SECTIONS = ("autorun", "streamer", "keymap")
+SECTIONS = ("autorun", "streamer", "keymap", "intake")
 AUTORUN_MODES = ("full", "adopted", "transcribe")      # home/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
@@ -26,7 +27,11 @@ COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
 DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "rows", "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
-            "keymap": {"playback": {}}}
+            "keymap": {"playback": {}},
+            "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20}}
+INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
+                 "maxGB": (1, 200, "動画の大きさの上限(GB)")}
+FOLDER_MAX = 260
 
 
 class PrefsError(ValueError):
@@ -53,6 +58,34 @@ def _clean_autorun(v, cur):
         if v["onFail"] not in ON_FAIL:
             raise PrefsError("失敗したときの動きが正しくありません")
         out["onFail"] = v["onFail"]
+    return out
+
+
+def _clean_intake(v, cur):
+    """依頼の受付の設定。フォルダは PC の中の絶対パスだけ(ネットワークのパスは断る = 見張るたびにサーバーへ資格情報を送らない)。
+    フォルダがあるかは見張りの処理が毎回確かめて画面に出す(ここでは形だけ)"""
+    out = dict(cur)
+    if "enabled" in v:
+        out["enabled"] = v["enabled"] is True
+    if "folder" in v:
+        f = v["folder"]
+        if not isinstance(f, str):
+            raise PrefsError("フォルダは文字で指定してください")
+        f = f.strip().strip('"').strip()
+        if f:
+            if len(f) > FOLDER_MAX or any(ord(ch) < 32 for ch in f):
+                raise PrefsError("フォルダの指定が長すぎるか、使えない文字があります")
+            if f.replace("/", "\\").startswith("\\\\"):
+                raise PrefsError("ネットワーク上のフォルダは選べません(この PC のドライブのフォルダを指定してください)")
+            if not os.path.isabs(f) or (os.name == "nt" and not re.match(r"^[A-Za-z]:[\\/]", f)):
+                raise PrefsError("フォルダは C:\\… のような絶対パスで指定してください")
+        out["folder"] = f
+    for k, (lo, hi, label) in INTAKE_RANGES.items():
+        if k in v:
+            x = v[k]
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "dailyMax") and x != int(x)):
+                raise PrefsError("%sは %d〜%d で指定してください" % (label, lo, hi))
+            out[k] = int(x) if k in ("top", "dailyMax") else x
     return out
 
 
@@ -129,6 +162,11 @@ class Prefs:
                 return _clean_autorun(v if isinstance(v, dict) else {}, DEFAULTS["autorun"])
             except PrefsError:
                 return dict(DEFAULTS["autorun"])
+        if name == "intake":
+            try:
+                return _clean_intake(v if isinstance(v, dict) else {}, DEFAULTS["intake"])
+            except PrefsError:
+                return dict(DEFAULTS["intake"])
         if name == "keymap":
             try:
                 return _clean_keymap(v if isinstance(v, dict) else {}, DEFAULTS["keymap"])
@@ -156,14 +194,14 @@ class Prefs:
 
     def patch(self, section, value):
         """節を直す(送ったキーだけ)。-> その節の新しい値"""
-        if section not in ("autorun", "keymap"):
+        if section not in ("autorun", "keymap", "intake"):
             raise PrefsError("その設定は直せません: %s" % str(section)[:40])
         if not isinstance(value, dict):
             raise PrefsError("値の形が正しくありません")
         with self.lock:
             d, broken = self._load()
             cur = self._section(d, section)
-            new = _clean_autorun(value, cur) if section == "autorun" else _clean_keymap(value, cur)
+            new = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake}[section](value, cur)
             d[section] = new
             self._save(d, broken)
             return new

@@ -892,5 +892,69 @@ class TestRunLog(Base):
         self.assertEqual(self.r.history(), {"runs": [], "total": 0, "more": False, "offset": 0})
 
 
+class TestRequests(Base):
+    """友人からの依頼(home/intake.py)の形: request = 解析 → 採用 → 書き出し → 文字起こし(パックなし)/ file = 動画を文字起こしだけ"""
+    marks = []
+    analysis = False
+
+    def setUp(self):
+        super().setUp()
+        import prefs as P
+        from ytt_core import fsio
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.r.prefs = self.prefs
+        self.r.log_path = os.path.join(self.tmp, "logs", A.RUNS_LOG)
+        jobs = self.tools.h_transcribe_GET_api_jobs
+
+        def with_tid(path, body):   # 本物の「編集」のジョブは、できた文書の id(tid)を返す
+            st, obj = jobs(path, body)
+            for j in obj["jobs"]:
+                if j["state"] == "done":
+                    j["tid"] = "%012d" % int(j["id"][1:])
+            return st, obj
+        self.tools.h_transcribe_GET_api_jobs = with_tid
+
+    def wait(self, run, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def test_request_url(self):
+        self.tools.known = False
+        res = self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": "ch"}, {"id": "bad", "top": 2}], request_id="20261001-120000-abc123")
+        self.assertEqual(len(res["skipped"]), 1)
+        run = self.wait(res["runs"][0])
+        self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼: 解析 → 文字起こし", "20261001-120000-abc123"))
+        self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe"])
+        self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
+        self.assertNotIn("body", self.tools.c2r, "パックは作らない")
+        with self.assertRaisesRegex(ValueError, "1〜"):
+            self.r.start_request([])
+
+    def test_file(self):
+        media = os.path.join(self.tmp, "依頼.mp4")
+        open(media, "wb").close()
+        run = self.r.start_file(media, title="依頼", streamer="さくらみこ", request_id="rid")
+        with self.assertRaisesRegex(ValueError, "すでに"):
+            self.r.start_file(media)
+        run = self.wait(run)
+        self.assertEqual((run["state"], run["kind"], run["sourcePath"], run["modeLabel"]), ("done", "file", media, "依頼: 文字起こし"), run)
+        self.assertEqual([j["src"] for j in self.tools.tx_jobs.values()], [media])
+        self.assertEqual(run["docs"], ["000000000001"])
+        self.assertEqual(self.prefs.get(["streamer"])["streamer"]["docs"], {"000000000001": "さくらみこ"})   # パックのときの字幕の色
+        # 記録のファイルに kind file で残り、読み直せる
+        recs = A.read_runs_log(self.r.log_path)
+        self.assertEqual([(x["kind"], x["sourcePath"]) for x in recs], [("file", media)])
+        # もう一度: 文字起こし済みなので飛ばす
+        run = self.wait(self.r.start_file(media))
+        self.assertEqual(self.states(run), {"transcribe": "skip"})
+        with self.assertRaisesRegex(ValueError, "見つかりません"):
+            self.r.start_file(os.path.join(self.tmp, "nai.mp4"))
+
+
 if __name__ == "__main__":
     unittest.main()
