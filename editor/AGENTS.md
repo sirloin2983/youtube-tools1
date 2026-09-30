@@ -50,6 +50,8 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   **サーバー側のプロセスで numpy・faster_whisper・ctranslate2・sherpa_onnx を import しない**(入口に取り込むと、落ちたときスタジオ・cut2resolve まで止まる。`test_worker.py` が検査)。
   やり取り用の標準入力は fd 0 から離して読む(`_protocol_input`。Windows で標準入力のパイプを読んで待つ間に DLL を読み込むと止まるため。2026-09-26)。
   ワーカーが落ちたらそのジョブだけ失敗、次の要求で起動し直す。取り消しは `job["proc"]`(`_CancelHandle`)経由で伝え、15秒で止まらなければ強制終了。
+  **黙ったワーカー**(何も届かない)は `WORKER_SILENCE_TIMEOUT`(20 分)で強制終了してそのジョブを失敗にする(標準出力は読み取り専用のスレッド `_reader` が列に入れ、待つ側 `_read` は `queue.get(timeout)`。
+  待ち続けると SLOTS を持ったまま他のツールの重い処理を塞ぐため。2026-10-01)。
   `TRANSCRIBE_MODEL_IDLE_SEC`(既定900秒)使わなければワーカーごと終わらせる。GPU の有無も別プロセス(`tx_worker.py --probe`)で1回だけ調べる
 - `app.js` … 画面の JS(旧 index.html の即時関数の中身をそのまま移した)。状態 `S`(文書・今の行など)と `V`(表示の好み。localStorage)はこのファイルのトップレベル変数で、グローバルではない。
   主なまとまり(v0.15.0): 履歴の一覧(「保存済み一覧」の節。`L` = 絞り込み・並び替え・まとめ方(localStorage `tx.list.v1`)、`txGroups`・`txOpen`・`txLimit`。

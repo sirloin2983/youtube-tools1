@@ -53,7 +53,7 @@ class WorkerTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="tx-worker-store-")
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK)
+        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT)
         S.RUN_MARK = os.path.join(self.tmp, ".running.json")   # 起動中の印もリポジトリのフォルダに書かない
         S.TX_DIR, S.TMP_DIR = self.tmp, os.path.join(self.tmp, ".tmp")
         S.SETTINGS, S.EVAL_DIR = os.path.join(self.tmp, "settings.json"), os.path.join(self.tmp, "evals")
@@ -66,7 +66,7 @@ class WorkerTest(unittest.TestCase):
     def tearDown(self):
         S.WORKER.close()
         self.env.stop()
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK = self.saved
+        S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---- 手伝い
@@ -360,6 +360,23 @@ class WorkerTest(unittest.TestCase):
         os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.01"
         self.assertEqual(self.transcribe()["state"], "done")   # 次のジョブで起動し直す
         self.assertNotEqual(S.WORKER.proc.pid, pid)
+
+    def test_silent_worker_is_killed_after_timeout(self):
+        """黙ったワーカー(何も届かない)は WORKER_SILENCE_TIMEOUT で強制終了してそのジョブを失敗にする(SLOTS を持ったまま他のツールを塞がない)。次の要求で起動し直す"""
+        os.environ["TRANSCRIBE_FAKE_DELAY"] = "60"   # 1行ごとに60秒黙る
+        S.WORKER_SILENCE_TIMEOUT = 1.5
+        t0 = time.time()
+        job = self.transcribe()
+        self.assertLess(time.time() - t0, 30)
+        self.assertEqual(job["state"], "error", job.get("error"))
+        self.assertIn("応答しないため止めました", job["error"])
+        self.assertFalse(S.WORKER.alive())
+        self.assertIsNone(job.get("proc"))
+        self.assertIsNone(S.WORKER._busy_rid)
+        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.01"
+        S.WORKER_SILENCE_TIMEOUT = 60
+        self.assertEqual(self.transcribe()["state"], "done")   # 次のジョブで起動し直す(新しい列で、前のプロセスの読み残しは混ざらない)
+        self.assertEqual(S.WORKER.starts, 2)
 
     # ---- 異常終了
     def test_worker_crash_fails_only_that_job(self):

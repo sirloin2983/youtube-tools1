@@ -1686,6 +1686,7 @@ WORKER_SCRIPT = os.path.join(ROOT, "tx_worker.py")
 WORKER_LOG = os.path.join(DATA_DIR, "worker.log")
 WORKER_LOG_MAX = 1024 * 1024
 WORKER_CANCEL_GRACE = 15   # 取り消してから、この秒数で止まらなければワーカーを強制終了する
+WORKER_SILENCE_TIMEOUT = 20 * 60   # ワーカーから何も届かない時間の上限(秒)。超えたら強制終了してそのジョブを失敗にする(黙ったワーカーを待ち続けて SLOTS を持ったまま他のツールを塞がない。夜間の見直し 高。2026-10-01 ユーザー決定)
 WORKER_LINE_MAX = 8 * 1024 * 1024
 
 
@@ -1739,6 +1740,7 @@ class WorkerClient:
         self.starts = 0
         self.killed_rid = None            # 取り消しで強制終了した要求(その要求は「中止」にする)
         self.closed = False
+        self.q = queue.Queue()            # ワーカーの標準出力の行(読み取り専用のスレッドが入れる。待つ側は get(timeout) で時限を付ける)
 
     # ---- 起動・終了
     def alive(self):
@@ -1761,7 +1763,22 @@ class WorkerClient:
         self.proc = subprocess.Popen([worker_python(), "-u", WORKER_SCRIPT], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=self.log_fp or subprocess.DEVNULL, cwd=ROOT, env=worker_env(), creationflags=_worker_flags())
         self.starts += 1
+        self.q = queue.Queue()   # 起動ごとに新しい列(前のプロセスの読み残しを混ぜない)
+        threading.Thread(target=self._reader, args=(self.proc, self.q), daemon=True, name="tx-worker-reader").start()
         log.info("認識ワーカーを起動 pid=%s(%d回目)", self.proc.pid, self.starts)
+
+    @staticmethod
+    def _reader(p, q):
+        """ワーカーの標準出力を読む専用のスレッド。readline 自体は止められないので、待つ側(_read)を queue.get(timeout) にして時限を付ける。
+        EOF(b"")か、閉じられて読めなくなったら b"" を入れて終わる"""
+        try:
+            while True:
+                line = p.stdout.readline(WORKER_LINE_MAX)
+                q.put(line)
+                if not line:
+                    return
+        except (OSError, ValueError):
+            q.put(b"")
 
     def _ensure(self):
         if self.proc is not None and self.proc.poll() is not None:
@@ -1867,7 +1884,16 @@ class WorkerClient:
     _busy_rid = None
 
     def _read(self, rid):
-        line = self.proc.stdout.readline(WORKER_LINE_MAX)
+        try:
+            line = self.q.get(timeout=WORKER_SILENCE_TIMEOUT)
+        except queue.Empty:   # 黙ったワーカー(ネイティブの部品で止まった・デッドロック)。待ち続けると SLOTS を持ったまま他のツールの重い処理まで塞ぐので、強制終了して失敗にする
+            log.error("認識ワーカーから %.0f 秒なにも届かないため強制終了します", WORKER_SILENCE_TIMEOUT)
+            self.kill()
+            self._reap()
+            if self.killed_rid == rid:
+                raise Cancelled()
+            raise ApiError("worker_hung", "文字起こしの部品(認識を行う別プロセス)が %d 分なにも応答しないため止めました。もう一度実行すると部品を起動し直します"
+                                          "(モデルの初回のダウンロード中に出たときは、そのままもう一度実行してください。詳しくは worker.log)" % max(1, round(WORKER_SILENCE_TIMEOUT / 60)), 500)
         if not line:
             code = None
             try:
