@@ -762,7 +762,7 @@ static class CoreTests
             v.ColorActivated += (e, i) => got.Add(e.Name + ":" + i);
             v.FavoriteToggled += e => got.Add(e.Name + ":fav");
             var moved = new List<string>();
-            v.ItemMoved += (e, idx) => moved.Add(e.Name + "->" + idx);
+            v.ItemMoved += (e, target) => moved.Add(e.Name + "->" + target.Name);
             var md = typeof(Control).GetMethod("OnMouseDown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var mm = typeof(Control).GetMethod("OnMouseMove", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var mu = typeof(Control).GetMethod("OnMouseUp", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -798,7 +798,7 @@ static class CoreTests
             mm.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 0, from.X + 20, from.Y, 0) });
             mm.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 0, to.X, to.Y, 0) });
             mu.Invoke(v, new object[] { new MouseEventArgs(MouseButtons.Left, 1, to.X, to.Y, 0) });
-            Eq("m0->2", string.Join(",", moved), "ドラッグで並べ替え");
+            Eq("m0->m2", string.Join(",", moved), "ドラッグで並べ替え(落とした先の項目で渡す)");
             Eq(0, got.Count, "ドラッグしたときはコピーしない");
 
             string tipText = PaletteView.TipText(two);

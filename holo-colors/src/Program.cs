@@ -513,10 +513,10 @@ namespace HoloColors
             main.SetStatus((on ? "お気に入りに入れました: " : "お気に入りから外しました: ") + e.Name, false, e.IsWord ? null : e.Hex);
         }
 
-        // ドラッグで動かした(マイカラー・マイワードの中の新しい位置)
-        public void MoveItemTo(ColorEntry e, int index)
+        // ドラッグで動かした(target = 落とした先にあったマイカラー・マイワード。その位置へ)
+        public void MoveItemTo(ColorEntry e, ColorEntry target)
         {
-            try { Store.MoveTo(e, index); }
+            try { Store.MoveToEntry(e, target); }
             catch (Exception ex) { SaveFailed(ex); return; }
             main.Refill(true);
             main.View.SelectEntryIn(e, e.Group.Branch);

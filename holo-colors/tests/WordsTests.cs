@@ -92,6 +92,13 @@ public static class WordsTests
             try { s.UpdateWord(a, "x", "   "); throw new Exception("失敗: 空の本文で例外にならない"); }
             catch (ArgumentException) { }
             Eq("新しい本文", a.Text, "失敗した編集は反映しない");
+
+            // ドラッグの落とし先(項目)はマイワードでも同じ道。別のグループの項目へは動かない
+            True(s.MoveToEntry(a, c), "マイワードの MoveToEntry");          // a, c → c, a
+            Eq(a.Id, Reload(dir).Words.Items[1].Id, "落とした先(末尾)の位置へ・残る");
+            var color = s.Add("色", "#123456");
+            True(!s.MoveToEntry(a, color), "マイワードをマイカラーの位置へは動かない");
+            True(!s.MoveToEntry(color, a), "マイカラーをマイワードの位置へは動かない");
         }
         finally { Cleanup(dir); }
     }
@@ -199,6 +206,15 @@ public static class WordsTests
             True(!s.Move(a, 5), "範囲の外は動かない");
             Eq(c.Id, Reload(dir).Mine.Items[1].Id, "Move が残る");
             Eq(0, Reload(dir).Words.Items.Count, "マイワードのファイルには触れない");
+
+            // ドラッグの落とし先を項目で渡す(検索で一部が隠れていても Store の番号で動く)。並びは あ, う, い
+            var d = s.Add("え", "#444444");                    // あ, う, い, え
+            True(s.MoveToEntry(a, c), "あ を う の位置へ");    // う, あ, い, え
+            Eq("う,あ,い,え", string.Join(",", Reload(dir).Mine.Items.Select(x => x.Name)), "落とした先の項目の位置に入る");
+            True(s.MoveToEntry(a, d), "あ を末尾の え の位置へ");
+            Eq("う,い,え,あ", string.Join(",", Reload(dir).Mine.Items.Select(x => x.Name)), "後ろへ動かすと落とした先の後ろ");
+            True(!s.MoveToEntry(a, a), "同じ項目なら動かない");
+            s.Remove(d);
             s.Remove(b);
             var r = Reload(dir);
             Eq(2, r.Mine.Items.Count, "削除が残る");

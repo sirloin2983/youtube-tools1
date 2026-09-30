@@ -39,7 +39,8 @@ namespace HoloColors
         public event Action<ColorEntry, int> ColorActivated;         // 札のクリック(AllColors の番号。名前の段は 0。ワードは 0)
         public event Action<ColorEntry, Point> EntryContextRequested; // 右クリック(画面の座標)
         public event Action<ColorEntry> FavoriteToggled;             // ★ のクリック
-        public event Action<ColorEntry, int> ItemMoved;              // マイカラー・マイワードをドラッグで動かした(新しい位置)
+        public event Action<ColorEntry, ColorEntry> ItemMoved;       // マイカラー・マイワードをドラッグで動かした(動かした項目, 落とした先にあった項目)。
+                                                                     // 番号ではなく項目で渡す: 検索で隠れている札があると、画面の番号と Store の番号がずれるため
         public Func<ColorEntry, bool> IsFavorite = e => false;
 
         readonly List<Tile> tiles = new List<Tile>();
@@ -591,7 +592,7 @@ namespace HoloColors
                 pressedTile = -1;
                 Cursor = Cursors.Default;
                 Invalidate();
-                if (to >= 0 && to != from && ItemMoved != null) ItemMoved(src.Entry, to);
+                if (to >= 0 && to != from && to < same.Count && ItemMoved != null) ItemMoved(src.Entry, same[to].Entry);
                 return;
             }
             int ci;

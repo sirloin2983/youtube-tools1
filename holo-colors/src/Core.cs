@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.4.0";
+        public const string Version = "1.4.1";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }
@@ -1101,6 +1101,15 @@ namespace HoloColors
             if (g == null) return false;
             int i = g.Items.IndexOf(e);
             return i >= 0 && i + delta >= 0 && i + delta < g.Items.Count && MoveTo(e, i + delta);
+        }
+
+        // target(同じグループの項目)が今いる位置へ(ドラッグで落とした先)。画面の札の番号は検索で隠れた分だけずれるので、項目で受けてここで番号にする
+        public bool MoveToEntry(ColorEntry e, ColorEntry target)
+        {
+            var g = OwnGroup(e);
+            if (g == null || target == null || OwnGroup(target) != g) return false;
+            int j = g.Items.IndexOf(target);
+            return j >= 0 && MoveTo(e, j);
         }
 
         // 同じグループの中で index の位置へ(範囲の外は端に寄せる)。動かなければ false
