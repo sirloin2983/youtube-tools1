@@ -581,7 +581,18 @@ def prepare(port, base_path="/"):
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
     runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
     common.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
+    threading.Thread(target=_clean_leftovers, daemon=True, name="clean-partials").start()   # 出力先がネットワークドライブでも起動を待たせない
     return runtime
+
+
+def _clean_leftovers():
+    """前回の途中(強制終了・PC の不安定)で残った書き出しの書きかけ(*.partial.*)を消す。"""
+    try:
+        n = exporter.clean_partials()
+        if n:
+            _log("前回の書き出しの書きかけを %d 個消しました" % n)
+    except Exception as e:
+        common.log_failure("書きかけの片付け", e)
 
 
 SHUTDOWN_WAIT = 5.0   # 終了の流れで、中止した解析・書き出しが終わるのを待つ秒数の上限(入口の子として動くときは、入口が約8秒で強制終了する)

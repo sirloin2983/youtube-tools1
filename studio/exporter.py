@@ -35,9 +35,12 @@ EDIT_HANDLE_SEC = 10.0
 # Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
 # UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
 MAX_PATH_UNITS = 240
-SUFFIX_ROOM = 28    # base のあとに付く最長の名前(作業用/ + _edit.clip.json / _edit.mp4.vol.mp4 / yt-dlp の .f399.mp4.part など)
+SUFFIX_ROOM = 36    # base のあとに付く最長の名前(作業用/ + _edit.partial.mp4.vol.mp4 / yt-dlp の _edit.partial.f399.mp4.part など)
 BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
 LOG_MAX = 200000    # export-log.txt がこれを超えたら export-log.old.txt に回す
+# 書きかけの印(2026-09-30。設計レビュー studio の 4)。書き出しは <base>.partial.mp4 に書き、音量・ラウドネスまで仕上がったら <base>.mp4 へ置き換える
+# (途中で止まった・落ちたときに、壊れた・仕上がっていないファイルが完成品と同じ名前で残らないように)。拡張子は .mp4 のまま(ffmpeg は拡張子で形式を決める)
+PARTIAL = ".partial"
 _jobs = {}
 _jobs_lock = threading.Lock()
 
@@ -182,6 +185,68 @@ def unique_base(base, folder):
         name = "%s_%d" % (base, i)
         i += 1
     return name
+
+
+def partial_path(folder, base, ext=".mp4"):
+    """書きかけのファイルの場所(同じフォルダ・<base>.partial.mp4。置き換えが同じドライブの中で済む)。"""
+    return os.path.join(folder, base + PARTIAL + ext)
+
+
+def is_partial(path):
+    return os.path.splitext(os.path.basename(str(path or "")))[0].endswith(PARTIAL)
+
+
+def final_path(path):
+    """<base>.partial.<拡張子> → <base>.<拡張子>(書きかけでなければそのまま)。"""
+    if not is_partial(path):
+        return path
+    d, n = os.path.split(path)
+    root, ext = os.path.splitext(n)
+    return os.path.join(d, root[:-len(PARTIAL)] + ext)
+
+
+def promote(path):
+    """仕上がった書きかけのファイルを本当の名前へ置き換える(ytt_core.fsio.replace_retry。一時的な共有違反は再試行)。本当の名前を返す。"""
+    if not is_partial(path):
+        return path
+    final = final_path(path)
+    common.replace_file(path, final)
+    return final
+
+
+def drop_partial(path):
+    """失敗・中止のときに書きかけを消す(音量の調整の途中の .vol.mp4 も)。書きかけでない(仕上がった)ファイルは消さない。"""
+    if not path or not is_partial(path):
+        return
+    for p in (path, path + ".vol.mp4"):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def clean_partials(root=None):
+    """前回の途中で残った書きかけ(<出力先>/<動画>/ と その 作業用/ の *.partial.*)を消す(起動時に裏で1回)。
+    スタジオの印(.studio-id)のあるフォルダだけ(利用者が手で置いたファイルは触らない)。消した数を返す"""
+    root = root or common.get_out_dir()
+    n = 0
+    try:
+        folders = [e.path for e in os.scandir(root) if e.is_dir()]
+    except OSError:
+        return 0
+    for folder in folders:
+        if _read_owner(folder) is None:
+            continue
+        for d in (folder, os.path.join(folder, schemas.WORK_DIR)):
+            for f in glob.glob(glob.escape(d) + os.sep + "*" + PARTIAL + ".*"):
+                if is_busy():   # 起動の直後に書き出しが始まったら、その書きかけを消さないようにやめる
+                    return n
+                try:
+                    os.unlink(f)
+                    n += 1
+                except OSError:
+                    pass
+    return n
 
 
 # ---------- 依頼の検査 → spec ----------
@@ -397,7 +462,8 @@ COPY = ["-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststar
 
 
 def run_ffmpeg(job, spec, it, base):
-    out = os.path.join(spec["outDir"], base + ".mp4")
+    """戻り値は書きかけ(<base>.partial.mp4)の "フォルダ/名前"。本当の名前へは、仕上げのあと呼び出し側が promote で置き換える"""
+    out = partial_path(spec["outDir"], base)
     dur = it["end"] - it["start"]
     src_len, has_v, _a, _l = common.media_info(spec["sourcePath"])
     if not has_v:
@@ -452,14 +518,17 @@ def _ytdlp_sections(job, spec, it, base):
     cmd = [find_tool("yt-dlp"), "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg"), "--download-sections", "*%s-%s" % (fmt_ts(it["start"]), fmt_ts(it["end"]))]
     if not spec.get("fast"):   # 高速のときは切れ目で再エンコードしない(キーフレーム単位)
         cmd.append("--force-keyframes-at-cuts")
-    cmd += ["-f", _fsel(spec), "--merge-output-format", "mp4", "-o", common.ytdlp_out(spec["outDir"], base + ".%(ext)s"), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
+    part = base + PARTIAL   # 書きかけの名前で受け取る(yt-dlp の途中のファイル .f399.mp4.part なども、この名前から始まる)
+    cmd += ["-f", _fsel(spec), "--merge-output-format", "mp4", "-o", common.ytdlp_out(spec["outDir"], part + ".%(ext)s"), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
     tail = []
     try:
         tail = _pump(job, cmd, it, expected_len(spec, it))
-        files = [f for f in glob.glob(glob.escape(os.path.join(spec["outDir"], base)) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
+        files = [f for f in glob.glob(glob.escape(os.path.join(spec["outDir"], part)) + ".*")
+                 if not f.endswith((".part", ".ytdl", ".temp")) and ".temp." not in os.path.basename(f)]
         if not files:
             raise ExportError("出力ファイルが見つかりませんでした")
-        out = sorted(files)[0]
+        mp4 = os.path.join(spec["outDir"], part + ".mp4")
+        out = mp4 if mp4 in files else sorted(files)[0]
         verify_output(out, expected_len(spec, it), tail)
         it["method"] = "copy" if spec.get("fast") else "encode"   # --force-keyframes-at-cuts なし = キーフレーム単位
         return out
@@ -468,7 +537,7 @@ def _ytdlp_sections(job, spec, it, base):
         raise
     finally:
         if sys.exc_info()[0] is not None:
-            for f in glob.glob(glob.escape(os.path.join(spec["outDir"], base)) + ".*"):
+            for f in glob.glob(glob.escape(os.path.join(spec["outDir"], part)) + ".*"):
                 try:
                     os.unlink(f)
                 except OSError:
@@ -492,7 +561,7 @@ def stream_urls(spec):
 def _ytdlp_stream(job, spec, it, base):
     """方法2(予備): 直接URLを ffmpeg に渡して、その区間だけ読み込む。方法1で空になる場合に有効。"""
     urls = stream_urls(spec)
-    out = os.path.join(spec["outDir"], base + ".mp4")
+    out = partial_path(spec["outDir"], base)
     dur = expected_len(spec, it)
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,http,https,tcp,tls,crypto"]
     for u in urls:
@@ -632,10 +701,12 @@ def _run_combine(job, spec):
         comb["status"] = "running"
         items = job["items"]
         base = unique_base("つなぎ_%s-%s_%d本" % (compact_ts(items[0]["start"]), compact_ts(items[-1]["end"]), len(items)), spec["outDir"])
-        out = os.path.join(spec["outDir"], base + ".mp4")
+        out = partial_path(spec["outDir"], base)   # 書きかけに書いて、ラウドネスまで済んだら本当の名前へ
+        comb["path"] = out
         concat_pieces(job, comb, pieces, out)
-        comb["file"], comb["path"] = spec["folder"] + "/" + base + ".mp4", out
         apply_loudness(job, spec, comb)
+        comb["path"] = promote(out)
+        comb["file"] = spec["folder"] + "/" + os.path.basename(comb["path"])
         comb["status"], comb["progress"] = "done", 1.0
         job["state"] = "done"
     except ExportError as e:
@@ -655,6 +726,8 @@ def _run_combine(job, spec):
                     os.unlink(q)
                 except OSError:
                     pass
+        if comb.get("status") != "done":
+            drop_partial(comb.get("path"))
 
 
 def concat_pieces(job, it, pieces, out):
@@ -681,6 +754,19 @@ def concat_pieces(job, it, pieces, out):
         raise
 
 
+def _drop_edit(it):
+    """編集用素材を諦めるとき: 書きかけの素材と、その .edit.json を消す(仕上がった素材は消さない)。"""
+    path = it.pop("editPath", None)
+    if path and is_partial(path):
+        drop_partial(path)
+        side = it.pop("editSidecar", None)
+        if side:
+            try:
+                os.unlink(side)
+            except OSError:
+                pass
+
+
 def export_edit_media(job, spec, it, base, runner):
     """Create an additional media file with trim handles and a portable sidecar."""
     edit_it = dict(it)
@@ -690,20 +776,26 @@ def export_edit_media(job, spec, it, base, runner):
     # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ。2026-09-27)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
     os.makedirs(wspec["outDir"], exist_ok=True)
-    rel = runner(job, wspec, edit_it, base + "_edit")
-    apply_volume(job, wspec, edit_it, rel)
+    rel = runner(job, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4)
     media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
+    try:
+        apply_volume(job, wspec, edit_it, rel)
+    except BaseException:
+        drop_partial(media_path)
+        raise
     actual, _v, _a, _line = common.media_info(media_path)
     selection_in = float(it["start"]) - edit_it["start"]
     selected = float(it["end"]) - float(it["start"])
     expected = edit_it["end"] - edit_it["start"]
     handle_after = max(0.0, (actual if actual is not None else expected) - selection_in - selected)
     sidecar = os.path.join(wspec["outDir"], base + ".edit.json")
-    data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(media_path),
+    # 素材はまだ書きかけ(<base>_edit.partial.mp4)。仕上げのあと _run_job が本当の名前へ置き換えるので、そちらの名前を書く
+    data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(final_path(media_path)),
             "selectionIn": round(selection_in, 3), "handleBefore": round(selection_in, 3),
             "handleAfter": round(handle_after, 3), "sourceStart": edit_it["start"], "sourceEnd": edit_it["end"]}
+    it["editPath"] = media_path   # 先に覚える(.edit.json が書けなかったときも、書きかけを呼び出し側が消せるように)
+    it["editSidecar"] = sidecar
     common.atomic_write(sidecar, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))   # Windows の一時的なロックは再試行
-    it["editPath"] = media_path
     it["editRange"] = (edit_it["start"], edit_it["end"])
     it["editMethod"] = edit_it.get("method")
     it["editSrcLen"] = edit_it.get("srcLen")
@@ -853,17 +945,30 @@ def _run_job(job, spec, on_done=None):
             label = trim_units(safe_name(it["label"], 30), max(0, room))
             base = unique_base(head + ("_" + label if label else ""), spec["outDir"])
             runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
-            it["file"] = runner(job, spec, it, base)
+            it["file"] = runner(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
             it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
             apply_volume(job, spec, it, it["file"])
             warnings = []
             try:
                 it["editFile"] = export_edit_media(job, spec, it, base, runner)
             except Exception as e:
+                _drop_edit(it)
+                if job["cancel"]:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは下の finally で消える)
+                    raise ExportError("中止しました")
                 common.log_failure("Resolve edit media", e)
-                it.pop("editPath", None)
                 warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
             apply_loudness(job, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
+            # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは下の finally で消える)。切り抜き本体 → 編集用素材の順
+            it["path"] = promote(it["path"])
+            it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
+            if it.get("editPath"):
+                try:
+                    it["editPath"] = promote(it["editPath"])
+                    it["editFile"] = spec["folder"] + "/" + schemas.WORK_DIR + "/" + os.path.basename(it["editPath"])
+                except OSError as e:   # 本体はできているので、編集用素材だけ諦める(作れなかったときと同じ扱い)
+                    common.log_failure("Resolve edit media の仕上げ", e)
+                    _drop_edit(it)
+                    warnings.append("Resolve用の前後10秒素材を仕上げられませんでした: %s" % (e.strerror or e.__class__.__name__))
             recorded = False
             if on_done:
                 try:
@@ -891,4 +996,8 @@ def _run_job(job, spec, on_done=None):
         except Exception as e:  # 想定外の失敗でもジョブ全体は止めない
             common.log_failure("クリップ書き出し", e)
             it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+        finally:
+            if it["status"] != "done":   # 失敗・中止: 書きかけを残さない(仕上がって本当の名前になったものは消さない)
+                drop_partial(it.get("path"))
+                _drop_edit(it)
     job["state"] = "cancelled" if job["cancel"] else ("error" if any(i["status"] == "error" for i in job["items"]) else "done")

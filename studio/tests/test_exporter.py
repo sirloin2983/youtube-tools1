@@ -232,6 +232,88 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertNotIn("actualStart", d["export"])   # 分からないときは推定値を入れない
 
 
+    # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える(2026-09-30。設計レビュー studio の 4) ----
+    def _files(self, job):
+        folder = os.path.join(common.get_out_dir(), job["folder"])
+        out = []
+        for d in (folder, os.path.join(folder, schemas.WORK_DIR)):
+            if os.path.isdir(d):
+                out += [n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n)) and n != ".studio-id"]
+        return sorted(out)
+
+    def test_success_leaves_no_partial_and_sidecar_names_final(self):
+        clip = {"id": "m6", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
+        job, _ = self.export([clip])
+        it = job["items"][0]
+        self.assertEqual(it["status"], "done")
+        self.assertEqual([n for n in self._files(job) if exporter.PARTIAL in n], [])
+        self.assertFalse(exporter.is_partial(it["path"]) or exporter.is_partial(it["editPath"]))
+        self.assertEqual(it["file"], job["folder"] + "/" + os.path.basename(it["path"]))
+        side = os.path.join(os.path.dirname(it["editPath"]), os.path.splitext(os.path.basename(it["path"]))[0] + ".edit.json")
+        self.assertEqual(_read(side)["media"], os.path.basename(it["editPath"]))   # .edit.json は本当の名前を指す
+
+    def test_failure_after_cut_leaves_no_file(self):
+        """切り出しのあと(ラウドネスの調整など)で失敗しても、完成品の名前のファイル・書きかけ・.edit.json を残さない"""
+        clip = {"id": "m7", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
+        seen = []
+
+        def boom(job, spec, it):
+            seen.append((it["path"], it.get("editPath")))
+            raise exporter.ExportError("ラウドネス調整 失敗")
+        with patch.object(exporter, "apply_loudness", side_effect=boom):
+            job, calls = self.export([clip])
+        it = job["items"][0]
+        self.assertEqual((job["state"], it["status"]), ("error", "error"))
+        self.assertTrue(exporter.is_partial(seen[0][0]) and exporter.is_partial(seen[0][1]))   # 仕上げの間は書きかけの名前
+        self.assertEqual(self._files(job), [])
+        self.assertEqual(calls, [])   # 書き出し済みの記録もしない
+
+    def test_cancel_during_edit_media_leaves_no_file(self):
+        clip = {"id": "m8", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
+        real = exporter.apply_volume
+        state = {"n": 0}
+
+        def cancel_on_second(job, spec, it, rel):   # 1回目 = 本体、2回目 = 編集用素材 の音量の調整で「中止」
+            state["n"] += 1
+            if state["n"] == 2:
+                job["cancel"] = True
+                raise exporter.ExportError("中止しました")
+            return real(job, spec, it, rel)
+        with patch.object(exporter, "apply_volume", side_effect=cancel_on_second):
+            job, _ = self.export([clip])
+        self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
+        self.assertEqual(self._files(job), [])
+
+
+class TestPartialNames(unittest.TestCase):
+    def test_names(self):
+        p = os.path.join("d", "01_a.partial.mp4")
+        self.assertTrue(exporter.is_partial(p))
+        self.assertEqual(exporter.final_path(p), os.path.join("d", "01_a.mp4"))
+        self.assertEqual(exporter.final_path(os.path.join("d", "01_a.mp4")), os.path.join("d", "01_a.mp4"))
+        self.assertEqual(exporter.final_path("x.partial.webm"), "x.webm")
+        self.assertFalse(exporter.is_partial("x.partial.mp4.vol.mp4"))   # 音量の調整の途中は drop_partial が一緒に消す
+        self.assertEqual(exporter.partial_path("d", "b"), os.path.join("d", "b.partial.mp4"))
+
+    def test_clean_partials_only_in_studio_folders(self):
+        with tempfile.TemporaryDirectory() as root:
+            ours, theirs = os.path.join(root, "配信A"), os.path.join(root, "手で作った")
+            exporter._write_owner(ours, "abcdefghijk")
+            os.makedirs(theirs)
+            keep = [os.path.join(ours, "01_a.mp4"), os.path.join(ours, schemas.WORK_DIR, "01_a_edit.mp4"), os.path.join(theirs, "x.partial.mp4")]
+            gone = [os.path.join(ours, "02_b.partial.mp4"), os.path.join(ours, schemas.WORK_DIR, "02_b_edit.partial.mp4"),
+                    os.path.join(ours, "03_c.partial.f399.mp4.part"), os.path.join(ours, "02_b.partial.mp4.vol.mp4")]
+            for f in keep + gone:
+                open(f, "wb").close()
+            self.assertEqual(exporter.clean_partials(root), len(gone))
+            self.assertEqual([f for f in keep if os.path.exists(f)], keep)
+            self.assertEqual([f for f in gone if os.path.exists(f)], [])
+            with patch.object(exporter, "is_busy", return_value=True):   # 書き出しが始まっていたら消さない
+                open(gone[0], "wb").close()
+                self.assertEqual(exporter.clean_partials(root), 0)
+                self.assertTrue(os.path.exists(gone[0]))
+
+
 class TestManifestFailure(unittest.TestCase):
     def test_manifest_write_failure_is_only_a_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
