@@ -123,9 +123,9 @@ function create(h){
   async function load(docId){
     reset(docId);
     const seq = ++M.loading;
-    let ed = null, dr = null, drErr = null;
+    let ed = null, dr = null, drErr = null, edErr = null;
     await Promise.all([
-      h.api('/api/edit?id=' + encodeURIComponent(docId)).then(r => { ed = r; }).catch(() => { ed = null; }),
+      h.api('/api/edit?id=' + encodeURIComponent(docId)).then(r => { ed = r; }).catch(e => { edErr = e; }),
       h.api('/api/edit/draft?id=' + encodeURIComponent(docId)).then(r => { dr = r; }).catch(e => { drErr = e; })
     ]);
     if (seq !== M.loading || M.docId !== docId) return;
@@ -134,6 +134,13 @@ function create(h){
     if (dr){ M.fps = dr.fps; M.dur = dr.durationSec; M.planBeside = dr.planBeside || ''; }
     else if (e){ M.fps = e.sources[0].fps; M.dur = e.sources[0].duration; }
     if (drErr) setOff(drErr.message, drErr.code || 'draft');
+    /* 監査 13: 保存済みのカットを読めなかった(通信の失敗・サーバーのエラー)ときは、たたき台で始めない(新規と見分けがつかず、
+       違う区間でパックを作れてしまうため)。理由と「もう一度読み込む」を出し、区間を作らない(off なのでパックのタブも止まる)。
+       未作成 = ed.edit が null(何も言わない)・壊れている = ed.broken(下の知らせ)・読めない = ここ。404(文書が無い)は今までどおり */
+    else if (edErr && edErr.status !== 404){
+      setOff(`保存済みのカットを読み込めませんでした(${edErr.message})`, 'edit_load');
+      M.fps = null;
+    }
     M.loaded = true;   // 読み込みが終わった(使えない理由 offCode もここで決まる。1 文字起こし の再生の失敗の案内が使う)
     if (!M.fps){ render(); h.onCutState(); return; }
     M.total = Math.max(1, Math.round(M.dur * M.fps[0] / M.fps[1]));
@@ -155,7 +162,7 @@ function create(h){
     }
     M.lastDraftSig = rowSig();
     syncRowCuts(); render(); h.onCutState();
-    if (M.shown) onShown();
+    if (M.shown) onShown(true);
   }
   function setOff(msg, code){ M.off = msg; M.offCode = code; }
   const ready = () => !!(M.fps && M.docId && h.S.docId === M.docId);
@@ -917,9 +924,10 @@ function create(h){
       case 'Escape': if (M.sel || M.io.i !== null || M.io.o !== null){ run(() => { M.sel = null; M.io = { i: null, o: null }; render(); }); } return;
     }
   }
-  function onShown(){
+  function onShown(fromLoad){
     M.shown = true;
     cutKeybarScene(); renderKeysText();
+    if (fromLoad !== true && M.offCode === 'edit_load' && M.docId && M.loaded){ load(M.docId); return; }   // 保存済みのカットを読めなかった: タブを開き直したら読み直す(監査 13)
     if (!ready()) { render(); return; }
     ensureMedia();
     const v = V(), t = h.player().currentTime || 0;

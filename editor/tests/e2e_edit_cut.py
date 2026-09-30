@@ -13,6 +13,7 @@
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -456,6 +457,52 @@ def main():
                 time.sleep(0.2)
             c4 = [(c["in"], c["out"]) for c in e4["edit"]["clips"]]
             check(e4["rev"] >= 2 and c4[0] == (0.5, 2.0) and c4[-1][1] <= 4.01, "動画が短くなったら、後ろの区間を切って知らせ、保存し直す: %s" % c4)
+
+            # ---- 監査 13: 保存済みのカットを読み込めなかった(通信・サーバーの失敗)ときは、たたき台で始めない
+            v5 = make_video(os.path.join(srv.media, "読めないカット.webm"), sec=8, fps=FPS)
+            tid5 = srv.call("POST", "/api/open-video", {"path": v5})["id"]
+            r5 = srv.call("PUT", "/api/edit?id=" + tid5, {"baseRev": 0, "edit": {"sources": [{"fps": [FPS, 1], "duration": 8.0}],
+                                                                             "clips": [{"src": 0, "in": 1.0, "out": 3.0}, {"src": 0, "in": 5.0, "out": 7.0}]}})
+            check(r5.get("rev") == 1, "(準備)カットを保存した文書")
+            fail = {"n": 1}
+
+            def edit_get(route):
+                if route.request.method == "GET":
+                    fail["gets"] = fail.get("gets", 0) + 1
+                if route.request.method == "GET" and fail["n"] > 0:
+                    fail["n"] -= 1
+                    route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
+                else:
+                    route.continue_()
+            pat = re.compile(r".*/api/edit\?id=%s$" % tid5)
+            pg.route(pat, edit_get)
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            n_err = len(errors)
+            open_doc(pg, "読めないカット")
+            pg.keyboard.press("Alt+2")
+            wait_js(pg, "!document.querySelector('#cutOff').hidden && !document.querySelector('#cutRetry').hidden", 10000)
+            check("読み込めませんでした" in pg.inner_text("#cutOff") and "テストで失敗させた" in pg.inner_text("#cutOff") and pg.is_hidden("#cutRelink"),
+                  "読めないときは理由と「もう一度読み込む」: " + pg.inner_text("#cutOff"))
+            check(pg.locator("#tlVideo .tt-k").count() == 0 and pg.is_disabled("#cutSplit"), "たたき台(動画全体)で始めない・編集できない")
+            check(srv.get("/api/edit?id=" + tid5)["rev"] == 1, "保存済みのカットは書き換えない")
+            pg.keyboard.press("Alt+3")
+            wait_js(pg, "!document.querySelector('#pkOff').hidden", 10000)
+            check("読み込めませんでした" in pg.inner_text("#pkOff") and pg.is_disabled("#pkBuild"), "3 パック も止まる: " + pg.inner_text("#pkOff"))
+            fail["n"], gets = 1, fail.setdefault("gets", 0)
+            pg.keyboard.press("Alt+2")   # タブを開き直すと読み直す(ここではもう一度失敗させる)
+            wait_js(pg, "!document.querySelector('#cutRetry').hidden", 10000)
+            for _ in range(100):
+                if fail["n"] == 0:
+                    break
+                time.sleep(0.05)
+            check(fail["n"] == 0 and fail["gets"] > gets, "タブを開き直すと、保存済みのカットを読み直す")
+            pg.click("#cutRetry")
+            wait_js(pg, "document.querySelector('#cutOff').hidden && document.querySelectorAll('#tlVideo .tt-k').length > 0", 15000)
+            ks = pg.evaluate("[...document.querySelectorAll('#tlVideo .tt-k')].length")
+            check(ks == 2, "「もう一度読み込む」で保存済みの区間(2つ)が出る: %s" % ks)
+            pg.unroute(pat)
+            del errors[n_err:]   # 500 はブラウザがエラーとして記録する(想定どおり)
 
             # ---- 動画が見つからない文書
             r3 = srv.call("POST", "/api/open-video", {"path": v3})

@@ -1836,3 +1836,37 @@
   `test_document_save.cjs` の openDoc の置き換えに `renderPlayerMsg` を足した。
   通過: 編集の unit 197(skip 1)・node 9/9・e2e_edit_tabs・e2e_edit_cut(1回目は chromium の Target crashed、流し直しで通過)・e2e_edit_pack・e2e_ui_handoff・e2e_ui_mounted(1回目は ffmpeg が 0xC0000005 で落ち、流し直しで通過)・dev/tests/e2e_pipeline
 - 未コミット: なし
+
+## 2026-09-30 Claude Code(サブエージェント。まとめ役が代筆)— 段2 2. B-6 まとめて実行の記録をファイルに
+- 変更: `home/autorun.py`(終わった実行を `app\logsutorun-runs.jsonl` に1行ずつ。1行 = `Run.public()` + `v: 1`。書くのは `_loop` の finally・順番待ちの中止・入口の終了の3か所だけ。
+  `Run.logged` で二重に書かない。書き込みは `cv` の外の別のロック `_log_lock`。1MB で `.1` に回す(1世代・clientlog.py と同じ形)。書けなくても実行は止めず `log_error` に。
+  起動時に末尾 256KB を読む(足りなければ `.1` も)。壊れた行・版の違う行・終わっていない行は飛ばす。`snapshot()` に `past`(配信・文書ごとの最後の結果でメモリに無いもの、最大 50 件)。
+  `history(limit, offset)`(新しい順・既定 50・最大 200)。`AutoRunner(log_dir=None)` なら今までどおりメモリだけ)・
+  `home/launch.py`(`log_dir=self.sup.logs_dir` を渡す・`GET /api/autorun/history?limit=&offset=`・冒頭の API 一覧)・
+  `home/portal.js`・`portal.html`・`portal.css`(案件の行: メモリに無ければ `past` から「前回 …: 失敗 ・ 理由(3日前)」と段の札。単体の文字起こしの行も同じ。
+  案件の下に畳んだ `details.ui-disclosure#historyBox`「まとめて実行の記録」。開いたときだけ読む・「もっと見る」で 50 件ずつ)・`home/README.txt` の本文(置き場所・強制終了では残らない)
+- 決定・理由: `past` は `_trim` で落ちた分も書いたときに覚える(最大 500 件)。「もっと見る」は offset(開いている間に記録が増えると1件重なることがあるが最小の形として許容。段5 の部品化で見直す)
+- テスト: `home/tests/test_autorun.py` に TestRunLog(10 件)・`test_launch.py` に test_autorun_history・`e2e_autorun.py` に ④(入口を起動し直しても `past`・案件の行の前回・記録の3件)。
+  単体一式 151 OK・e2e_portal・e2e_autorun 42 OK
+- コミット: 274aaf9
+- 未コミット: なし
+
+## 2026-09-30 Claude Code(サブエージェント。まとめ役が代筆)— 段2 5. 監査 14 ホームのメモの保存の競合
+- 変更: `home/portal.js`(案件ごとに `memoSave[id] = {busy, sent, again, msg}`・1つずつ順に送る・送っている間の押し直しは `again` にして応答のあとで今の下書きを1回だけ送る・
+  送った値と今の下書きが同じときだけ下書きを消して「保存しました」、違えば「保存しました(そのあとの入力はまだ保存していません)」・書き込む先は ID で今の行と `casesData` から引く・保存中は「保存中…」と `aria-busy`)
+- 決定・理由: 押し直しのときにボタンは押せなくしない(最後の値を保存したい意図を again で受ける)。
+  テストは計画の `page.route` ではなく画面の fetch を包んで応答だけを止めた(同期版の page.route は止めている間 Playwright の操作も止まるため)
+- テスト: `home/tests/e2e_portal.py` に 2d-3(保存中の書き足し・行の作り直しでも入力が残る・二度押しで最後の値)。e2e_portal 121 OK・e2e_autorun OK・単体一式 151 OK
+  (1回目は test_launch の ConnectionAbortedError、2回目は Segmentation fault。3回目で通過。この PC の不定の落ち)
+- 注意: サブエージェントのコミットの Co-Authored-By は「Claude Opus 5.5」になっている(システムの指定に従った)
+- コミット: 1c97c7e
+- 未コミット: なし
+
+## 2026-09-30 Claude Code — 段2 3. 監査 13 カットの読み込み失敗を新規と区別
+- 変更: `editor/cut.js` の `load`(`/api/edit` の GET の失敗を `edErr` に取り、404 以外は `setOff('保存済みのカットを読み込めませんでした(理由)', 'edit_load')` にして fps を持たない = 区間を作らない・たたき台にしない。
+  動画が無いなど下書きの理由があるときはそちらを出す)・`#cutOff` の「もう一度読み込む」(`#cutRetry`。1 で作った置き場所)・タブを開き直したときも読み直す(`onShown`。load の中からの呼び出しでは読み直さない = 失敗し続けても繰り返さない)。
+  off なのでパックのタブも `block()` で止まる。3つの状態 = 未作成(何も言わない)・壊れている(今の知らせ)・読めない(上)
+- 注意: 前のコミット(0128127)で `docs/WORKLOG.md` の改行が CRLF 混じりから LF にそろった(autocrlf の正規化。中身は同じ。差分が全行になっている)
+- テスト: `e2e_edit_cut.py` に `page.route` で `/api/edit` の GET を 500 → 理由と「もう一度読み込む」・区間が無い・保存済みは rev 1 のまま・パックのタブの `#pkOff` と作れない → タブを開き直すと読み直す → 「もう一度読み込む」で保存済みの2区間。
+  通過: e2e_edit_cut・e2e_edit_pack・node test_document_save 9/9
+- 未コミット: なし
