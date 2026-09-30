@@ -2240,3 +2240,17 @@
 - テスト: build.bat 31 件・`python -m unittest ytt_core/tests/test_ytt_core.py` OK・e2e 24 件(ユーザーの許可を得て流した)。画面は --screenshot に見本の作業データを入れて確認
 - 注意: 作業データに my-words.json が増えた。settings.json に favorites・recent が増えた(古い版の exe はその欄を無視して読める)
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code(まとめ役 + サブエージェント Sonnet)— ホロカラー 1.4.1(検索中のドラッグの並べ替え)・文書を今の状態に(ROADMAP・HANDOVER・friend-intake)
+- ユーザー: 「気になる点と文書の古い所もこの後の作業の流れで適当にやっといて」(1.4.0 の軽い確認で見つけた1件と、版の食い違い)
+- 変更(ホロカラー 1.4.1。まとめ役): 検索で絞り込んだままマイカラー・マイワードをドラッグすると、画面に出ている札の番号を Store のグループ全体の番号として使っていたので、隠れている札の分だけ違う位置に入っていた。
+  `PaletteView.ItemMoved` は番号ではなく「落とした先にあった項目」を渡し、`Store.MoveToEntry(e, target)`(新規)がグループの中の番号にしてから `MoveTo`。Alt+矢印(`Move`)は前後1つなので影響なし。
+  `holo-colors/src/{Core,PaletteView,Program}.cs`・`tests/CoreTests.cs`(ドラッグの確認を項目名に)・`tests/WordsTests.cs`(MoveToEntry: 落とした先の位置・末尾・同じ項目・別のグループへは動かない)・README(版と変更の記録)・`docs/design/holo-colors.md`
+- 変更(文書。サブエージェント Sonnet = 決まった事実で直す作業): `docs/ROADMAP.md`(版の行: 編集 0.26.1・ホロカラー 1.4.1・送るアプリ 1.2.0 / 段7 の行: ペンライト・衣装の色は外した(ユーザー決定)/ 別件「依頼の受付」を 0.17.0・実機で通し確認済みに / 3 に実際の Dropbox で未確認の項目とホロカラー 1.4.1 の確認 / 索引)、
+  `docs/design/friend-intake.md`(状態の行を 10-01 に。2-2 の「Dropbox から消さない」は 2-3 と矛盾していたので「消すのは友人のアプリだけ」に)、
+  `docs/HANDOVER.md`(10-01 の状態に書き直し: push 済み・版・依頼の受付とホロカラー 1.3.1〜1.4.1 を「終わったこと」に・次にやることの 4・5・決めてもらったこと・再開用の指示文の版と現在地)。
+  まとめ役が読み直して、HANDOVER の「`Desktop\youtube-test\Sending.cs` を消してもらう」は実際にはもう無いので外した
+- テスト: `holo-colors\build.bat` 31 件 OK(zip も作り直した)・`python -m unittest ytt_core/tests/test_ytt_core.py` 61 件 OK。e2e(本物のキー入力)は流していない(ドラッグは e2e に無く、キー・窓の動きは変えていない)
+- 残っている古い所(触っていない): `docs/design/holo-colors-research.md` の「ユーザーに聞くこと」(食い違いの4人の主な色・FUWAMOCO の2つ目の色)は未決のまま。HANDOVER の「次にやること」3(夜間の見直しの「高」の残り)は 09-30 のまま
+- 未完了・次: 線 A 段4(`docs/plan/phase4-pack-consistency.md`)。計画の行番号は 09-29 時点なので今のコードで確かめ直してから
+- 未コミット: なし(このあと2つに分けてコミット: ホロカラー 1.4.1 / 文書)
