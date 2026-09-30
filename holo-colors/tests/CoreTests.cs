@@ -31,6 +31,7 @@ static class CoreTests
         Run("作業データ: 開けなかったファイルは上書きしない・保存の失敗は元に戻す", StoreLocked);
         Run("members.json: 同梱のデータが正しい形", BundledMembers);
         Run("members.json: おかしなデータは読まない", BadMembers);
+        Run("members.json: 1人に複数の色(colors)・古い形・壊れた色は飛ばす・2つ目の色で検索", MultiColors);
         Run("自動起動: 登録・外す・別の場所を指す", AutostartRegistry);
         Run("一覧: 札の並び・クリックの判定・キーでの移動", PaletteLayout);
         Run("一覧: スクロールしても札と文字が一緒に動く", PaletteScrollDrawing);
@@ -331,6 +332,30 @@ static class CoreTests
         }
         foreach (string b in new[] { "JP", "DEV_IS", "EN", "ID", "GRAD" })
             True(p.Groups.Any(g => g.Branch == b), "このグループが無い: " + b);
+
+        // version 2 の形: 全員に colors があり、先頭が hex(主な色)と同じ・メンバーの id は全体で一意(直した色のキー)・ラベルは 12 文字まで
+        var root = Json.Parse(File.ReadAllText(path, Encoding.UTF8));
+        Eq(2, Json.Int(root, "version", 0), "version");
+        var memberIds = new HashSet<string>();
+        foreach (var g in Json.List(root, "groups"))
+            foreach (var m in Json.List(g, "members"))
+            {
+                string id = Json.Str(m, "id"), name = Json.Str(m, "name");
+                True(!string.IsNullOrEmpty(id) && memberIds.Add(id), "メンバーの id が無いか重なっている: " + name + " / " + id);
+                var colors = Json.List(m, "colors").ToList();
+                True(colors.Count >= 1, "colors が無い: " + name);
+                string h0, hx;
+                True(HexColor.TryNormalize(Json.Str(colors[0], "hex"), out h0) && HexColor.TryNormalize(Json.Str(m, "hex"), out hx) && h0 == hx,
+                    "colors の先頭と hex が違う: " + name);
+                foreach (var c in colors)
+                {
+                    string h;
+                    True(HexColor.TryNormalize(Json.Str(c, "hex"), out h), "色のカラーコード: " + name);
+                    True((Json.Str(c, "label") ?? "").Length <= ColorOption.MaxLabel, "ラベルが長い: " + name + " / " + Json.Str(c, "label"));
+                    string conf = Json.Str(c, "confidence");
+                    True(conf == "high" || conf == "medium" || conf == "low", "確かさ(confidence)が無い: " + name + " " + h);
+                }
+            }
     }
 
     static void BadMembers()
@@ -359,6 +384,47 @@ static class CoreTests
                 catch (FormatException) { }
                 catch (ArgumentException) { }
             }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void MultiColors()
+    {
+        string dir = TempDir();
+        try
+        {
+            string f = Path.Combine(dir, "m.json");
+            File.WriteAllText(f, "{\"groups\": [{\"id\": \"a\", \"branch\": \"JP\", \"name\": \"x\", \"members\": ["
+                + "{\"id\": \"p\", \"name\": \"古い形\", \"en\": \"Old\", \"hex\": \"#111111\"},"
+                + "{\"id\": \"q\", \"name\": \"二色\", \"en\": \"Two\", \"hex\": \"#ff0000\", \"colors\": [{\"hex\": \"#FF0000\", \"label\": \"ホロジュール\"}, {\"hex\": \"#00AAFF\", \"label\": \"ペンライト: 水色\"}, {\"hex\": \"xyz\"}, 5, {\"hex\": \"#00aaff\"}]},"
+                + "{\"id\": \"r\", \"name\": \"順番違い\", \"en\": \"Order\", \"hex\": \"#222222\", \"colors\": [{\"hex\": \"#333333\", \"label\": \"とても長いラベルの名前ですよね\"}, {\"hex\": \"#222222\", \"label\": \"主\"}]},"
+                + "{\"id\": \"s\", \"name\": \"主が無い\", \"en\": \"NoMain\", \"hex\": \"#444444\", \"colors\": [{\"hex\": \"#555555\"}]}"
+                + "]}]}");
+            var p = Palette.Load(f);
+            var items = p.Groups[0].Items;
+            Eq(4, items.Count, "4人");
+            Eq(1, items[0].Colors.Count, "colors が無い古い形は hex の1色");
+            Eq("#111111", items[0].Colors[0].Hex, "古い形の色");
+            Eq("p", items[0].MemberId, "メンバーの id");
+            Eq("a/p", items[0].Id, "札の id はグループ付き(今までどおり)");
+            var two = items[1];
+            Eq("#FF0000,#00AAFF", string.Join(",", two.Colors.Select(c => c.Hex)), "壊れた色と同じ色の重なりは飛ばす");
+            Eq("ペンライト: 水色", two.Colors[1].Label, "ラベル");
+            Eq("#FF0000", two.Hex, "主な色は hex");
+            True(SearchText.Matches(two, "#00aa"), "2つ目の色のカラーコードで当たる");
+            True(SearchText.Matches(two, "ペンライト"), "ラベルで当たる");
+            True(!SearchText.Matches(items[0], "#00aa"), "ほかの人には当たらない");
+            Eq("#222222,#333333", string.Join(",", items[2].Colors.Select(c => c.Hex)), "hex と同じ色を先頭へ");
+            Eq(ColorOption.MaxLabel, items[2].Colors[1].Label.Length, "長いラベルは切る");
+            Eq("#444444,#555555", string.Join(",", items[3].Colors.Select(c => c.Hex)), "hex が colors に無ければ先頭に足す");
+            Eq(2, two.OriginalColors.Count, "元の色を取っておく");
+
+            List<ColorOption> ok;
+            True(ColorOption.Validate(new[] { new ColorOption("#abc", " ラベル "), new ColorOption("#AABBCC", "x") }, out ok) == null && ok.Count == 1 && ok[0].Label == "ラベル",
+                "Validate: そろえる・同じ色は1つ");
+            True(ColorOption.Validate(new ColorOption[0], out ok) != null, "Validate: 空は不可");
+            True(ColorOption.Validate(new[] { new ColorOption("red", "") }, out ok) != null, "Validate: 読めない色は不可");
+            True(ColorOption.Validate(new[] { new ColorOption("#FFFFFF", new string('あ', ColorOption.MaxLabel + 1)) }, out ok) != null, "Validate: 長いラベルは不可");
         }
         finally { Directory.Delete(dir, true); }
     }

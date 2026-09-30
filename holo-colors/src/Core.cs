@@ -21,16 +21,82 @@ namespace HoloColors
         public const string MembersFile = "members.json";
     }
 
+    // 1人の色の1つ(members.json の colors の1項目)。Label は画面に出す短い名前(空でもよい)
+    public class ColorOption
+    {
+        public const int MaxLabel = 12;
+        public string Hex;
+        public string Label;
+
+        public ColorOption(string hex, string label)
+        {
+            Hex = hex;
+            Label = label ?? "";
+        }
+
+        public ColorOption Clone()
+        {
+            return new ColorOption(Hex, Label);
+        }
+
+        // 画面の表示「#RRGGBB(ラベル)」
+        public string Text
+        {
+            get { return Label.Length > 0 ? Hex + "(" + Label + ")" : Hex; }
+        }
+
+        public static List<ColorOption> CloneAll(IEnumerable<ColorOption> list)
+        {
+            return list.Select(c => c.Clone()).ToList();
+        }
+
+        // 色の並びを確かめてそろえる(カラーコードの形・ラベルの長さ・同じ色の重なりは1つに)。問題があれば理由を返す(null なら良い)
+        public static string Validate(IEnumerable<ColorOption> input, out List<ColorOption> result)
+        {
+            result = new List<ColorOption>();
+            foreach (var c in input ?? new ColorOption[0])
+            {
+                if (c == null) continue;
+                string hex;
+                if (!HexColor.TryNormalize(c.Hex, out hex)) return "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください: " + c.Hex;
+                string label = (c.Label ?? "").Trim();
+                if (label.Length > MaxLabel) return "ラベルは " + MaxLabel + " 文字までです: " + label;
+                if (result.Any(x => x.Hex == hex)) continue;
+                result.Add(new ColorOption(hex, label));
+            }
+            if (result.Count == 0) return "色を1つ以上入れてください";
+            return null;
+        }
+    }
+
     public class ColorEntry
     {
         public string Id;
+        public string MemberId;   // members.json のメンバーの id(全体で一意。直した色のキー)。マイカラーは null
         public string Name;       // 表示名(日本語)
         public string Sub;        // ローマ字・英語名
-        public string Hex;        // #RRGGBB
+        public string Hex;        // #RRGGBB。主な色 = Colors[0].Hex
         public string Note;       // 卒業日など
         public ColorGroup Group;
         public bool IsUser;
         public string SearchKey;  // SearchText.SearchKey で作る
+        public List<ColorOption> Colors = new List<ColorOption>();   // 先頭が主な色。空なら Hex の1色(AllColors)
+        public List<ColorOption> OriginalColors;                     // members.json のままの色(直した色を戻すとき)。マイカラーは null
+        public bool Customized;   // 作業データの member-colors.json で直した色を使っている
+
+        // 色を入れ替える(Hex は先頭の色)
+        public void SetColors(List<ColorOption> colors)
+        {
+            Colors = ColorOption.CloneAll(colors);
+            if (Colors.Count > 0) Hex = Colors[0].Hex;
+            SearchKey = SearchText.SearchKey(this);
+        }
+
+        // 色の一覧(Colors が空の作り方でも Hex の1色)
+        public List<ColorOption> AllColors
+        {
+            get { return Colors != null && Colors.Count > 0 ? Colors : new List<ColorOption> { new ColorOption(Hex, "") }; }
+        }
     }
 
     public class ColorGroup
@@ -142,7 +208,15 @@ namespace HoloColors
         public static string SearchKey(ColorEntry e)
         {
             string g = e.Group == null ? "" : e.Group.Name + "|" + e.Group.Branch;
-            return string.Join("|", new[] { Fold(e.Name), Fold(e.Sub), Fold(g), Fold(e.Note), e.Hex == null ? "" : e.Hex.ToLowerInvariant() });
+            var parts = new List<string> { Fold(e.Name), Fold(e.Sub), Fold(g), Fold(e.Note), e.Hex == null ? "" : e.Hex.ToLowerInvariant() };
+            // 2つ目以降の色のカラーコードとラベルでも当たる
+            if (e.Colors != null)
+                foreach (var c in e.Colors)
+                {
+                    if (c.Hex != null && c.Hex != e.Hex) parts.Add(c.Hex.ToLowerInvariant());
+                    if (!string.IsNullOrEmpty(c.Label)) parts.Add(Fold(c.Label));
+                }
+            return string.Join("|", parts);
         }
 
         // 空白で区切った語がすべて含まれていれば当たり
@@ -444,9 +518,11 @@ namespace HoloColors
                     string name = Json.Str(m, "name");
                     if (string.IsNullOrWhiteSpace(name) || !HexColor.TryNormalize(Json.Str(m, "hex"), out hex))
                         throw new FormatException("名前かカラーコードが読めません: " + (name ?? "(名前なし)") + " / " + Json.Str(m, "hex"));
+                    string memberId = Json.Str(m, "id") ?? name;
                     var e = new ColorEntry
                     {
-                        Id = group.Id + "/" + (Json.Str(m, "id") ?? name),
+                        Id = group.Id + "/" + memberId,
+                        MemberId = memberId,
                         Name = name.Trim(),
                         Sub = Json.Str(m, "en") ?? "",
                         Hex = hex,
@@ -454,12 +530,43 @@ namespace HoloColors
                         Group = group,
                     };
                     if (!ids.Add(e.Id)) throw new FormatException("id が重なっています: " + e.Id);
+                    e.Colors = ReadColors(m, hex);
+                    e.OriginalColors = ColorOption.CloneAll(e.Colors);
                     e.SearchKey = SearchText.SearchKey(e);
                     group.Items.Add(e);
                 }
                 p.Groups.Add(group);
             }
             return p;
+        }
+
+        // members.json の colors(version 2)。主な色は hex(1.2.1 までの exe と字幕の色も hex を使う)なので、必ず先頭に置く。
+        // 壊れた項目(カラーコードが読めない)は飛ばす。colors が無い古い形は hex の1色
+        public static List<ColorOption> ReadColors(IDictionary<string, object> m, string mainHex)
+        {
+            var list = new List<ColorOption>();
+            foreach (var c in Json.List(m, "colors"))
+            {
+                string h;
+                if (!HexColor.TryNormalize(Json.Str(c, "hex"), out h) || list.Any(x => x.Hex == h)) continue;
+                string label = (Json.Str(c, "label") ?? "").Trim();
+                if (label.Length > ColorOption.MaxLabel) label = label.Substring(0, ColorOption.MaxLabel);
+                list.Add(new ColorOption(h, label));
+            }
+            int i = list.FindIndex(x => x.Hex == mainHex);
+            if (i > 0)
+            {
+                var main = list[i];
+                list.RemoveAt(i);
+                list.Insert(0, main);
+            }
+            else if (i < 0) list.Insert(0, new ColorOption(mainHex, ""));
+            return list;
+        }
+
+        public IEnumerable<ColorEntry> Members
+        {
+            get { return Groups.SelectMany(g => g.Items); }
         }
     }
 
@@ -610,7 +717,7 @@ namespace HoloColors
         ColorEntry MakeEntry(string id, string name, string hex)
         {
             var e = new ColorEntry { Id = id, Name = name, Sub = "", Hex = hex, Note = "", Group = Mine, IsUser = true };
-            e.SearchKey = SearchText.SearchKey(e);
+            e.SetColors(new List<ColorOption> { new ColorOption(hex, "") });   // マイカラーは1色
             return e;
         }
 
@@ -644,14 +751,12 @@ namespace HoloColors
             if (err != null) throw new ArgumentException(err);
             string oldName = e.Name, oldHex = e.Hex;
             e.Name = name.Trim();
-            e.Hex = hex;
-            e.SearchKey = SearchText.SearchKey(e);
+            e.SetColors(new List<ColorOption> { new ColorOption(hex, "") });
             try { SaveColors(); }
             catch
             {
                 e.Name = oldName;
-                e.Hex = oldHex;
-                e.SearchKey = SearchText.SearchKey(e);
+                e.SetColors(new List<ColorOption> { new ColorOption(oldHex, "") });
                 throw;
             }
         }
