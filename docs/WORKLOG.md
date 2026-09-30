@@ -2311,6 +2311,5 @@
 - 変更: `editor/serve.py`(/api/diarize の numSpeakers 1 = single_speaker・names = 照らし合わせをその名前だけ + 消去法)・`editor/index.html`(人数に 1人)・版 0.27.0、
   `home/autorun.py`(段「話者分離」。話す人があるときだけ、この実行で文字起こしした文書に)・`home/intake.py`(parse_speakers・一覧に「話す人」)・`home/portal.js`、
   テスト: editor test_voices +2(19 OK)・home autorun/intake +2(77 OK)、`docs/design/friend-intake.md` 2-4
-- 注意: **ホームの版は上げていない**。`home/launch.py`(VERSION)に別の作業(② 作業データの置き場所の WIP。home/cases.py・studio/*・ytt_core/* も)の未コミットの変更があるため触らなかった。
-  その作業が終わったら 0.17.0 → 0.18.0 にする
+- 版: 編集 0.27.0 は別の作業が先に使っていたので **0.28.0**、ホーム 0.17.0 → **0.18.0**(launch.py の別の作業は push.bat でコミット済みになっていた)
 - 未コミット: request-sender/(サブエージェントが作業中。終わったらコミット)。WIP の他の作業のファイルは触っていない
