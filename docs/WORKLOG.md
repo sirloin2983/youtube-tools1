@@ -2061,3 +2061,15 @@
   最後に文書の行の印がカットの中身と合っている)。同じファイルの後ろの `import re`(関数の中)を外した(先頭で読み込み済み。関数の中にあると、前の節の入れ子の関数から re が使えない)。
   通過: e2e_edit_cut・e2e_edit_tabs・e2e_proofread_accuracy・e2e_proofread_keys・e2e_folder_marker_range・e2e_eval_set・e2e_row_editing・node 9/9
 - 未コミット: なし
+
+## 2026-09-30 Claude Code(サブエージェント)— スタジオ: チャットのキャッシュに合計の大きさの上限(夜間の設計レビュー studio の 7)
+- 問題: `cache/chat` は件数(30)だけで制限していて、実機で 30 件・2.0GB(上限は 30 × 400MB = 12GB)。作業データの置き場(C: の AppData)が気づかないうちに大きくなる
+- 変更(`studio/analyze.py`): `prune_chat_cache(limit, keep)` が件数と**合計の大きさ**(既定 1GB。環境変数 `STUDIO_CHAT_CACHE_MB` で変えられる = `STUDIO_SOCKET_TIMEOUT` などと同じ仕組み)の両方に収まるまで、
+  最後に使った時刻(mtime。使うたびに utime で新しくしている)が古いものから消す。途中で止まった写し(`*.live_chat.json.tmp`)も消す。
+  **消さないもの**: 解析が使っている最中の動画(`use_chat_cache(vid, ±1)`。`run_analyze` の始めと finally)・チャットの先読みが取得中の動画(PREFETCH)・いちばん新しいもの(今入れたもの。1つで上限を超えていても)。
+  「使っていないと確かめた直後に使い始めた」を消さないよう、消す処理と使い始めは同じロック。Windows で開いていて消せないものは飛ばして次の機会に。
+  消すきっかけ: 今までどおりキャッシュに入れたとき + **起動時に裏で1回**(`serve._clean_leftovers`。減らした量を studio.log へ)。音量・付加情報のキャッシュ(件数だけ)は変えていない
+- テスト(`studio/tests/test_robustness.py` に 5 件): 合計で古い順に消す / 件数の上限も効く / 使用中・先読み中・いちばん新しいもの・*.tmp / 環境変数 / 起動時の片付け。
+  通過: studio の unit 7 ファイル(246 件・skip 1)・`studio/tests/e2e_analyze.py`。本物の作業データには触っていない(テストは一時フォルダ)
+- 保留(設計の判断が要る): レビューの根本の直し = 生の live_chat.json ではなく parse_chat の結果(1秒ごとの配列)を gzip で残す。上限を画面の設定から変える(画面の変更)
+- 未コミット: なし(このあとコミット)

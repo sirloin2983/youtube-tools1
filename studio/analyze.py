@@ -24,6 +24,8 @@ from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, nu
 
 API_BASE = "https://www.googleapis.com/youtube/v3/"
 CHAT_CACHE_KEEP = 30
+# チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
+CHAT_CACHE_MAX_BYTES = 1024 ** 3
 MAX_FEEDBACK_BYTES = 32 * 1024 * 1024   # 1行 500〜800 バイトなので約5万件。超えたら feedback.jsonl.old の末尾へ移す(消さない)
 MAX_DURATION = 12 * 3600
 AUDIO_DL_IDLE = 600      # 音声のダウンロードで、この秒数まったく出力がなければ中止
@@ -229,8 +231,83 @@ def prune_cache(d, pattern, keep=CHAT_CACHE_KEEP):
         pass
 
 
-def prune_chat_cache():
-    prune_cache(chat_cache_dir(), "*.live_chat.json")
+def chat_cache_limit():
+    """チャットのキャッシュの合計の上限(バイト)。環境変数 STUDIO_CHAT_CACHE_MB(1 以上の整数)があればそれ。"""
+    try:
+        mb = int(str(os.environ.get("STUDIO_CHAT_CACHE_MB") or "0").strip())
+    except ValueError:
+        mb = 0
+    return mb * 1024 * 1024 if mb > 0 else CHAT_CACHE_MAX_BYTES
+
+
+# 解析が使っているチャットのキャッシュ(動画ID → 数)。キャッシュを消すときはこれと先読み中(PREFETCH)の動画のものを飛ばす。
+# 消す処理(prune_chat_cache)と使い始め(use_chat_cache)は同じロックを取る(「使っていないと確かめた直後に使い始めた」を消さない)
+_chat_use_lock = threading.Lock()
+_chat_in_use = {}
+
+
+def use_chat_cache(vid, delta):
+    """解析がその動画のチャットのキャッシュを使い始める(+1)・使い終える(-1)。"""
+    with _chat_use_lock:
+        n = _chat_in_use.get(vid, 0) + delta
+        if n > 0:
+            _chat_in_use[vid] = n
+        else:
+            _chat_in_use.pop(vid, None)
+
+
+def prune_chat_cache(limit=None, keep=CHAT_CACHE_KEEP):
+    """件数(keep)と合計の大きさ(limit。既定は chat_cache_limit())の両方に収まるまで、最後に使った時刻が古いものから消す。
+    解析・先読みが使っている動画のものと、いちばん新しいもの(今入れたもの)は消さない。途中で止まった写し(*.tmp)も消す。消したバイト数を返す"""
+    limit = chat_cache_limit() if limit is None else limit
+    d = chat_cache_dir()
+    freed = 0
+    with _chat_use_lock:
+        with _pf_lock:
+            busy = set(_chat_in_use) | set(PREFETCH)
+        files, tmps = [], []
+        for p in glob.glob(os.path.join(glob.escape(d), "*.live_chat.json*")):
+            name = os.path.basename(p)
+            vid = name.split(".live_chat.json", 1)[0]
+            if vid in busy:
+                continue
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            if name.endswith(".live_chat.json"):
+                files.append((st.st_mtime, st.st_size, p))
+            elif name.endswith(".live_chat.json.tmp"):
+                tmps.append((st.st_size, p))
+        for size, p in tmps:
+            try:
+                os.remove(p)
+                freed += size
+            except OSError:
+                pass
+        files.sort()
+        # 合計と件数は、使っている最中で飛ばしたものも含めて数える(消せないものの分も上限に入る)
+        total, count = 0, 0
+        for p in glob.glob(os.path.join(glob.escape(d), "*.live_chat.json")):
+            try:
+                total += os.path.getsize(p)
+                count += 1
+            except OSError:
+                pass
+        newest = files[-1][2] if files else None
+        for _mtime, size, p in files:
+            if count <= keep and total <= limit:
+                break
+            if p == newest:
+                break   # いちばん新しいものは残す(今入れたもの。1つで上限を超えていても)
+            try:
+                os.remove(p)
+            except OSError:   # Windows で読み込み中などは消せない → 次の機会に
+                continue
+            total -= size
+            count -= 1
+            freed += size
+    return freed
 
 
 def sig_path(vid):
@@ -911,6 +988,9 @@ def run_analyze(job):
     spec = job["spec"]
     src = spec["source"]
     wdir = os.path.join(work_dir(), job["id"])
+    chat_vid = src["videoId"] if src["kind"] == "youtube" and spec["useChat"] else None
+    if chat_vid:
+        use_chat_cache(chat_vid, +1)   # 解析が終わるまで、この動画のチャットのキャッシュを消させない
     try:
         os.makedirs(wdir, exist_ok=True)
         if job["cancel"]:
@@ -1070,3 +1150,5 @@ def run_analyze(job):
             common.terminate(p)
             c["thread"].join(10)
         shutil.rmtree(wdir, ignore_errors=True)
+        if chat_vid:
+            use_chat_cache(chat_vid, -1)

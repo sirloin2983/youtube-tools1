@@ -146,6 +146,72 @@ class TestCaches(Home):
         self.assertEqual(analyze.load_sig("abcdefghijk")["dur"], 30.0)
 
 
+class TestChatCacheSize(Home):
+    """チャットのキャッシュは件数だけでなく合計の大きさでも古いものから消す(設計レビュー studio の 7。実機で 30 件・2.0GB だった)。"""
+
+    def make(self, vid, size, age):
+        d = analyze.chat_cache_dir()
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, vid + ".live_chat.json")
+        with open(p, "wb") as f:
+            f.write(b"x" * size)
+        t = time.time() - age
+        os.utime(p, (t, t))
+        return p
+
+    def left(self):
+        d = analyze.chat_cache_dir()
+        return sorted(n.split(".", 1)[0] for n in os.listdir(d)) if os.path.isdir(d) else []
+
+    def test_total_size_limit_removes_oldest_first(self):
+        for i, age in enumerate((500, 400, 300, 200, 100)):
+            self.make("v%010d" % i, 1000, age)
+        freed = analyze.prune_chat_cache(limit=2500)
+        self.assertEqual(freed, 3000)
+        self.assertEqual(self.left(), ["v0000000003", "v0000000004"])   # 新しい2つ(合計 2000 ≤ 2500)
+
+    def test_count_limit_still_applies(self):
+        for i in range(5):
+            self.make("c%010d" % i, 10, 100 - i)
+        analyze.prune_chat_cache(limit=10 ** 9, keep=3)
+        self.assertEqual(self.left(), ["c0000000002", "c0000000003", "c0000000004"])
+
+    def test_in_use_and_prefetch_and_newest_are_kept(self):
+        self.make("aaaaaaaaaaa", 1000, 500)   # 解析が使っている最中
+        self.make("bbbbbbbbbbb", 1000, 400)   # 先読みが取得中
+        self.make("ccccccccccc", 1000, 300)
+        self.make("ddddddddddd", 5000, 100)   # いちばん新しい(1つで上限を超えていても残す)
+        with open(os.path.join(analyze.chat_cache_dir(), "eeeeeeeeeee.live_chat.json.tmp"), "wb") as f:
+            f.write(b"t" * 10)   # 途中で止まった写し
+        analyze.use_chat_cache("aaaaaaaaaaa", +1)
+        with analyze._pf_lock:
+            analyze.PREFETCH["bbbbbbbbbbb"] = {"job": {}, "done": None, "why": "", "path": None}
+        try:
+            analyze.prune_chat_cache(limit=100)
+        finally:
+            analyze.use_chat_cache("aaaaaaaaaaa", -1)
+            with analyze._pf_lock:
+                analyze.PREFETCH.pop("bbbbbbbbbbb", None)
+        self.assertEqual(self.left(), ["aaaaaaaaaaa", "bbbbbbbbbbb", "ddddddddddd"])
+        self.assertEqual(analyze._chat_in_use, {})
+        analyze.prune_chat_cache(limit=100)   # 使い終わったら次の機会に消える
+        self.assertEqual(self.left(), ["ddddddddddd"])
+
+    def test_limit_from_env(self):
+        with patch.dict(os.environ, {"STUDIO_CHAT_CACHE_MB": "300"}):
+            self.assertEqual(analyze.chat_cache_limit(), 300 * 1024 * 1024)
+        for bad in ("", "0", "-5", "abc"):
+            with patch.dict(os.environ, {"STUDIO_CHAT_CACHE_MB": bad}):
+                self.assertEqual(analyze.chat_cache_limit(), 1024 ** 3)
+
+    def test_startup_cleanup_prunes(self):
+        for i in range(3):
+            self.make("s%010d" % i, 1000, 100 - i)
+        with patch.object(analyze, "chat_cache_limit", return_value=1500):
+            serve._clean_leftovers()
+        self.assertEqual(self.left(), ["s0000000002"])
+
+
 class TestLogs(Home):
     def test_rotated_logs_keep_log_extension(self):
         # *.log のまま回す(.gitignore の *.log に掛かる。以前の studio.log.old は掛からず公開リポジトリに載るおそれがあった)

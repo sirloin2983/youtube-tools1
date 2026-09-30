@@ -586,13 +586,19 @@ def prepare(port, base_path="/"):
 
 
 def _clean_leftovers():
-    """前回の途中(強制終了・PC の不安定)で残った書き出しの書きかけ(*.partial.*)を消す。"""
+    """前回の途中(強制終了・PC の不安定)で残った書き出しの書きかけ(*.partial.*)を消し、チャットのキャッシュを上限(件数・合計の大きさ)に収める。"""
     try:
         n = exporter.clean_partials()
         if n:
             _log("前回の書き出しの書きかけを %d 個消しました" % n)
     except Exception as e:
         common.log_failure("書きかけの片付け", e)
+    try:
+        freed = analyze.prune_chat_cache()
+        if freed:
+            _log("チャットのキャッシュを %.0f MB 減らしました(上限 %d MB)" % (freed / 1024 ** 2, analyze.chat_cache_limit() // 1024 ** 2))
+    except Exception as e:
+        common.log_failure("チャットのキャッシュの片付け", e)
 
 
 SHUTDOWN_WAIT = 5.0   # 終了の流れで、中止した解析・書き出しが終わるのを待つ秒数の上限(入口の子として動くときは、入口が約8秒で強制終了する)
