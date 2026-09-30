@@ -1917,3 +1917,21 @@
   editor: edit_tabs・edit_cut・edit_pack・edit_voices・ui_mounted・ui_handoff・row_editing・proofread_accuracy・proofread_keys・folder_marker_range・eval_set / dev: e2e_pipeline・e2e_datadir
 - 注意(問題ではない): e2e_portal の出力に ConnectionAbortedError(10053)の Traceback が3つ出る(画面の移動で閉じた接続をサーバーが書き込み中に知るもの。テストは「すべて OK」・終了コード 0)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段7(ホロカラーの色の調べ直し)7-1〜7-7 のコード
+- 担当: ホロカラー(`holo-colors/`)・`ytt_core/colors.py`(色の部分)・`docs/design/holo-colors*.md`。段2 の別のエージェントと並行(触るファイルは重ならない)
+- 変更:
+  - 7-1 `holo-colors/members.json` を version 2 に: 1人に `colors`(`hex`・`label`・`src`・`confidence`)。`hex` は主な色のまま(= `colors[0].hex`)。メンバーの `confidence` は `colors[0]` へ移した。`sources` に `retrieved`。
+    形と案の比較は `docs/design/holo-colors.md` の「形(version 2)」。1.2.1 の exe(build 済みの控え)で version 2 の members.json が 86 人とも読めることを確かめた
+  - 7-2 `docs/design/holo-colors-research.md`(新規): 出典の順位・確かさの基準・画像を入れない・取れない出典は推測で埋めない・1人の調べ方
+  - 7-4 `Core.cs`: `ColorOption`(Hex・Label)・`ColorEntry.Colors`/`OriginalColors`/`MemberId`/`Customized`・`Palette.ReadColors`(hex を先頭へ・壊れた色は飛ばす・colors の無い古い形は1色)。検索は2つ目以降の色コードとラベルでも当たる
+  - 7-5 `PaletteView.cs`: 2色以上の札の右下に小さな四角(最大3つ + 「+n」。左半分にはかぶせない)。四角を押すとその色をコピー(`HitTestColor`・`ColorActivated`。押した所と離した所が同じときだけ)。
+    ツールチップに全部の色とラベル。`MainForm.cs`: 右クリックに色ごとの「コピー #xxxxxx(ラベル)」(色の見本つき)。`Program.cs`: `Copy(entry, 色の番号)`。キー操作(矢印・Enter)は主な色のまま
+  - 7-6 作業データの `member-colors.json`(`{"version":1,"members":{"<メンバー id>":{"colors":[{"hex","label"}]}}}`)。`Store.SetMemberColors`/`ResetMemberColors`/`ApplyMemberColors`(書き込みは WriteAtomic・壊れていれば .corrupt-日時・開けなければ保存を止める・保存の失敗は元に戻す・members.json と同じ色にしたら「元に戻す」と同じ・知らない id は消さずに残す)。
+    右クリック「色を直す…」→ `MemberColorsForm`(一覧・上へ(主にする)・下へ・削除(最低1色)・足す・選んだ色を変える・元の色に戻す)。直した札は右上の角に小さな三角の印。`--screenshot` に member-colors.png
+  - 7-7 `ytt_core/colors.py`: `load()` が members.json の `colors` と `member-colors.json`(`member_colors_path`。inplace では読まない)を読み、`hex` = 主な色(直した色があればその先頭)。返す項目に `colors`・`custom`。使う側は今までどおり `hex` だけ
+- テスト: `holo-colors\build.bat` 21 件(17 → 21: 複数の色・直した色 2 件・札の四角。BundledMembers に version 2 の形の検査)。`ytt_core/tests/test_ytt_core.py` 61 件(直した色・colors の形・同梱の members.json の形)。
+  cut2resolve 291 件・`home/tests/test_launch.py` も通過。`e2e_holo_colors.py` に「札の中の小さな四角を押すとその色」を1件(段の最後に流す)
+- 決定・理由: 直した色のキーはメンバーの id だけ(卒業でグループが変わっても残る)。四角は札の右下(一覧の人数と並びが変わらない。押しにくい分は右クリックのメニューでも同じことができる)
+- 未完了・次: 7-3(全員を Web で調べる)・7-8(README・版 1.3.0・ROADMAP・e2e)
+- 未コミット: なし
