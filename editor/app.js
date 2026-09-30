@@ -1567,6 +1567,8 @@ async function openDoc(id, keep){
   let autoClosed = false;   // 画面が狭いとき(メニューを開いたままだと一覧が細くなる)は、文字起こしを開いた時点でメニューを閉じる
   if (!keep && V.menu && ($('.editor').clientWidth < 1300 || (window.matchMedia && matchMedia(OVERLAY_MID).matches))){ toggleMenu(false); autoClosed = true; }   // 重ねて開く幅(B-7)では、選んだら閉じて本文を見せる   // 1300: 1440px の画面でメニューを開いたままだと、映像・行が細くなるため(2026-09-27。以前は 1000)
   $('.app').classList.add('has-doc');   // 文字起こしを開いている間は、メニューを少し細く(GPT 版)
+  /* 並べて出すメニュー(1600px 以上)の履歴から開いたら、フォーカスをメニューの外へ(メニューの中のキーは文書を動かさないので、開いてすぐ ↓・S が効くように。3-1) */
+  if (!keep && menuOpen() && !isDrawer() && document.activeElement && $('#menuPanel').contains(document.activeElement)) document.activeElement.blur();
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
   { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + (pr.device === 'cuda' ? 'GPU' : 'CPU') : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + ({ weak: '弱め', normal: '標準', off: 'なし' }[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : ''}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / ' + (d.retranscribed.whole ? '全体を再認識' : '再認識') + ': ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
@@ -2095,8 +2097,10 @@ const KEY_FN = {
   del: () => deleteCur(), menu: () => toggleMenu()
 };
 function txActionOf(combo){ return KM ? KM.actionOf(combo) : null; }
-/* 左のメニューを本文の上に重ねて開いている間、メニューの中にフォーカスがあれば、文書を操作するキーは効かせない(GPT-04: 履歴のボタンで ↓ を押すと後ろの行が動いた) */
-const menuHasKeys = t => !!(menuOpen() && isDrawer() && t && t.closest && t.closest('#menuPanel'));
+/* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない(GPT-04・段3 3-1 監査 04):
+   (a) 本文の上に重ねて開いている間(フォーカスが幕・本文のどこにあっても)または (b) フォーカスがメニューの中にある間(並べて出す 1600px 以上でも)。
+   (a) だけだと並べて出す幅で、(b) だけだと幕の上で押したキーが後ろへ漏れるので両方。残すのは G(開閉)・Esc(閉じる)・Alt+1/2/3(タブ)・?(一覧) */
+const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.closest('#menuPanel')));
 /* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
@@ -2145,7 +2149,7 @@ window.addEventListener('keydown', e => {
 /* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き
    (段2 でやめたが、左手の操作と一緒に戻した。2026-09-27) */
 window.addEventListener('keydown', e => {
-  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;
+  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || menuHasKeys(e.target)) return;   // メニューの中の Tab はふつうのフォーカスの移動(3-1)
   const t = e.target;
   if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
   const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
@@ -2711,7 +2715,7 @@ $('#txList').addEventListener('click', e => {
   });
 });
 window.addEventListener('keydown', e => {
-  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;
+  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ。ここにも残っていたため1回押すと「再生 → すぐ停止」の2回分になっていた(2026-09-27 に削除) */
 });
