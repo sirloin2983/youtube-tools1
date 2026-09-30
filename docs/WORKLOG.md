@@ -1910,3 +1910,10 @@
 - 保留: なし(計画の6項目をすべて実装)
 - 未完了・次: 実機で確かめること(ROADMAP の 3 の「段2」)。起動中の入口は古いコードのままなので「すべて終了」→ start.bat で起動し直す。版上げのあとの e2e はこのあと1本ずつ流す(下に追記)
 - 未コミット: なし
+
+## 2026-09-30 Claude Code — 段2 の版上げのあとの全体のテスト
+- unit(すべて通過): home 5 ファイル・studio 7 ファイル(skip 1)・editor 一式(skip 1)・ytt_core(skip 1)・Resolve パックの契約(単独)・cut2resolve 291・ui-kit の写し・push_helper
+- e2e(1本ずつ順に。すべて通過・流し直しなし): home: portal・autorun・window・keymap / studio: e2e_ui・e2e_ui --mounted・e2e_analyze / ui-kit styleguide /
+  editor: edit_tabs・edit_cut・edit_pack・edit_voices・ui_mounted・ui_handoff・row_editing・proofread_accuracy・proofread_keys・folder_marker_range・eval_set / dev: e2e_pipeline・e2e_datadir
+- 注意(問題ではない): e2e_portal の出力に ConnectionAbortedError(10053)の Traceback が3つ出る(画面の移動で閉じた接続をサーバーが書き込み中に知るもの。テストは「すべて OK」・終了コード 0)
+- 未コミット: なし
