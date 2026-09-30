@@ -2203,3 +2203,11 @@
 - 注意: ユーザーの編集の設定には packLoudness 0・packVolume 30 がもう保存されていた。ホームの設定に autorun.cut は無かった = 今回から「カットしない」。
   delete_v2・日本語名の削除は実際の Dropbox で未確認
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code — ホロカラー: ペンライトの色を外した
+- ユーザーの判断: 「ペンライトの色はいらない」
+- 変更: `holo-colors/members.json`(「ペンライト: …」「ペンライト旧: …」の 123 色と出典 s13 を外した。主な色がペンライトの人はいない。86 人のまま)、
+  `holo-colors/README.txt`(候補の色の説明・変更の記録)、`docs/design/holo-colors.md`(決めたことに1項目)
+- exe は変わらないので版は据え置き(dist の zip の members.json は新しい)。`holo-colors/tests/CoreTests.cs` のペンライトはテストの中の見本のデータなのでそのまま
+- テスト: holo-colors\build.bat(21 件)・`python -m unittest ytt_core/tests/test_ytt_core.py`(61 件)OK
+- 未コミット: なし(このあとコミット)
