@@ -1042,12 +1042,8 @@
       var combo = comboOf(e); if (!combo) return false;
       var action = null, big = false;
       for (var id in km) if (km[id] && km[id] === combo) { action = id; break; }
-      /* ← → に当たる操作は Shift つきで5秒(割り当てたキー + Shift) */
-      if (!action && e.shiftKey && combo.indexOf('Shift+') === 0) {
-        var bare = combo.slice(6);
-        if (km.seekBack === bare) { action = 'seekBack'; big = true; }
-        else if (km.seekFwd === bare) { action = 'seekFwd'; big = true; }
-      }
+      /* ← → に当たる操作は Shift つきで5秒(割り当てたキー + Shift。決まりは derivedKeys の1か所 = キー配置の重なりの検査と同じ) */
+      if (!action) { var dv = derivedKeys(km); if (dv[combo]) { action = dv[combo]; big = true; } }
       if (!action) return false;
       if (action === 'playPause' && isSpaceControlTarget(e.target) && (combo === 'Space' || combo === 'Enter')) return false;   // ボタン・チェックなどは Space の既定の動きに任せる
       e.preventDefault();
@@ -1076,7 +1072,14 @@
       return true;
     };
   }
-  var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap };
+  /* 派生キー: 共通の再生キーの割り当て(km。足りない所は既定)から、「← → に当たるキー + Shift」(5秒)→ 操作の id。{ 'Shift+ArrowLeft': 'seekBack', … }
+     keysPlayback(押したとき)と keymap(登録のときの重なりの検査)が同じこれを使う(段3 3-2 監査 03。派生を増やすときはここだけ) */
+  function derivedKeys(km) {
+    var m = playbackMap(km), out = {};
+    ['seekBack', 'seekFwd'].forEach(function (id) { var d = kmDerived(m[id]); if (d && !out[d]) out[d] = id; });
+    return out;
+  }
+  var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap, derived: derivedKeys };
 
   /* ==== v8(気が利く画面へ 段6): keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
      ? の一覧と ⚙ の「キー配置」は同じ部品を出す(場所が 2 つでも中身は 1 つ)。キーのボタンを押す → その場で次のキーを待つ
@@ -1090,7 +1093,8 @@
     Tab: '入力欄の出入り', 'Shift+Tab': 'フォーカスの移動', Escape: '取り消し・閉じる', Enter: 'ボタンを押す', '?': 'キーの一覧',
     s: '編集 2 カット: 分割', x: '編集 2 カット: I〜O を削る', q: '編集 2 カット: 始まりの端', w: '編集 2 カット: 終わりの端',
     '[': '編集 2 カット: 前の区間', ']': '編集 2 カット: 次の区間', Delete: '編集 2 カット: 削る/戻す', Backspace: '編集 2 カット: 削る/戻す',
-    '+': '編集 2 カット: 拡大', '=': '編集 2 カット: 拡大', '-': '編集 2 カット: 縮小', Home: '編集 2 カット: 先頭へ', End: '編集 2 カット: 末尾へ' };
+    '+': '編集 2 カット: 拡大', '=': '編集 2 カット: 拡大', '-': '編集 2 カット: 縮小', Home: '編集 2 カット: 先頭へ', End: '編集 2 カット: 末尾へ',
+    '<': '編集 2 カット: 選んだ端を10コマ戻す(Shift+,)', '>': '編集 2 カット: 選んだ端を10コマ進める(Shift+.)' };   // Shift+, / Shift+. は e.key が < > になる(段3 3-2)
   for (var dgi = 0; dgi <= 9; dgi++) PB_BLOCKED[String(dgi)] = '編集: 話者の番号';
   var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* home/prefs.py の COMBO_RE と同じ */
   /* ← → に当たるキー + Shift(5 秒)。1文字の記号は Shift で文字そのものが変わるので派生しない(comboOf と同じ決まり) */
@@ -1130,7 +1134,8 @@
         if (k) used[k] = id;
         eff[id] = k;
       }
-      ['seekBack', 'seekFwd'].forEach(function (sid) { var d = kmDerived(eff[sid]); if (d && !used[d]) derived[d] = sid; });
+      var dvk = derivedKeys(eff);   // 外れた(eff が '')再生のキーからは派生しない
+      for (k in dvk) if (eff[dvk[k]] && !used[k]) derived[k] = dvk[k];
       for (i = 0; i < acts.length; i++) {
         id = acts[i].id; k = typeof self.tool[id] === 'string' ? self.tool[id].slice(0, 24) : acts[i].def;
         why = !k ? '' : !KM_COMBO_RE.test(k) ? '形が正しくない' : toolRefuse(k) ? '「' + toolRefuse(k) + '」に使う'
@@ -1185,18 +1190,20 @@
       if (!PB_IDS[id] && !byId[id]) return false;
       combo = combo || '';
       if (combo) { var why = refusal(id, combo); if (why) { say(why, 'warn'); return false; } }
-      var before = snapshot(), tool = copy(self.tool), pb = copy(self.pb), taken = [], k;
+      var before = snapshot(), tool = copy(self.tool), pb = copy(self.pb), taken = [], takenD = [], k;
       if (combo) {
         for (k in self.eff) if (k !== id && self.eff[k] === combo) {
           if (PB_IDS[k]) { pb[k] = ''; taken.push('「' + labelOf(k) + '」(共通の再生キー。スタジオ・編集とも)'); } else { tool[k] = ''; taken.push('「' + labelOf(k) + '」'); }
         }
         var d = (id === 'seekBack' || id === 'seekFwd') ? kmDerived(combo) : '';
-        if (d) for (k in self.eff) if (byId[k] && self.eff[k] === d) { tool[k] = ''; taken.push('「' + labelOf(k) + '」(' + keyText(d) + ')'); }
+        if (d) for (k in self.eff) if (byId[k] && self.eff[k] === d) { tool[k] = ''; takenD.push('「' + labelOf(k) + '」'); }   // Shift つき(5 秒)に使うキーを持っていた操作
       }
       (PB_IDS[id] ? pb : tool)[id] = combo;
       self.lastId = id;
-      commit(tool, pb, before, msg || (taken.length ? taken.join('・') + 'から ' + keyText(combo) + ' を外しました(未設定になりました)'
-        : combo ? '「' + labelOf(id) + '」を ' + keyText(combo) + ' にしました' : '「' + labelOf(id) + '」のキーを外しました'), taken.length ? 'warn' : '');
+      var lostMsg = [taken.length ? taken.join('・') + 'から ' + keyText(combo) + ' を外しました' : '',
+        takenD.length ? takenD.join('・') + 'から ' + keyText(d) + '(' + keyText(combo) + ' + Shift = 5秒に使う)を外しました' : ''].filter(Boolean).join('。');
+      commit(tool, pb, before, msg || (lostMsg ? lostMsg + '(未設定になりました)'
+        : combo ? '「' + labelOf(id) + '」を ' + keyText(combo) + ' にしました' : '「' + labelOf(id) + '」のキーを外しました'), lostMsg ? 'warn' : '');
       return true;
     }
     function undo() {

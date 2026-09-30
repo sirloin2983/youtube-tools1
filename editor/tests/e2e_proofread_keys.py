@@ -191,6 +191,23 @@ def main():
             _t.sleep(1.0)
             pg.keyboard.press("s"); check(navi() == 4, "標準に戻したあとは S で次の行")
             pg.keyboard.press("w")
+            # 段3 3-2(監査 03): 派生キー(1秒戻る/進むのキー + Shift = 5秒)と、2 カット の Shift+, / Shift+.(< >)は、ほかの操作に登録できない
+            check(km_set("rowNext", "Shift+ArrowLeft") == "S" and "5 秒" in km_set.note, "3-2: 「次の行」に Shift+← は断られて元のまま: " + km_set.note)
+            check(km_set("rowNext", "Shift+KeyH") == "Shift+H", "3-2: 「次の行」を Shift+H にできる")
+            check(km_set("seekBack", "KeyH") == "H" and km_text("rowNext") == "未設定" and "外しました" in km_set.note,
+                  "3-2: 「1秒戻る」を H にすると、Shift+H を持つ「次の行」から外れる(未設定): " + km_set.note)
+            pg.evaluate("document.querySelector('#player').pause(); document.querySelector('#player').currentTime = 8")
+            pg.wait_for_function("document.querySelector('#player').currentTime >= 7.9")
+            pg.keyboard.press("Shift+KeyH")
+            pg.wait_for_function("document.querySelector('#player').currentTime <= 3.5", timeout=4000)
+            check(navi() == 3, "3-2: Shift+H で5秒戻る(「1秒戻る」+ Shift。行は動かない)")
+            check(km_set("playPause", "Shift+Comma") == "Space" and "10コマ" in km_set.note, "3-2: 再生のキーに < (Shift+,)は断られる: " + km_set.note)
+            pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmGrid [data-km-reset]", state="visible")
+            pg.click("#kmGrid [data-km-reset]")
+            check(km_text("rowNext") == "S" and km_text("seekBack") == "←", "3-2: すべて標準に戻す")
+            pg.keyboard.press("Escape")
+            pg.wait_for_function("!document.querySelector('.ui-drawer:not([hidden])')", timeout=3000)
+            _t.sleep(1.0)
             # タグ(聞き取れない・声が重なる・BGM)と話者
             pg.keyboard.press("x")
             check(pg.locator("#segs .seg").nth(3).evaluate("e => e.classList.contains('tagged')"), "X で「聞き取れない」")
