@@ -351,6 +351,53 @@ def main():
             check([g.get("cutState") for g in d["segments"]] == [None, None, "cut", None, "cut"],
                   "字幕の一覧の「削る」→ 1 文字起こし の行もカット済。文書の行の印もサーバーで合わせてある: %s" % [g.get("cutState") for g in d["segments"]])
 
+            # ---- 段3 3-5(監査 05): 1 文字起こし の「元に戻す」(Ctrl+Z・ボタン)は、文字起こしの編集とカットのうち新しい方を1つ戻す
+            def undo_n():
+                m = re.search(r"\((\d+)\)", pg.inner_text("#btnUndo"))
+                return int(m.group(1)) if m else 0
+            end_of = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('[data-f=end]').value" % i)   # noqa: E731
+            is_cut = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].classList.contains('cut')" % i)   # noqa: E731
+            adj_end = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('[data-act=adj][data-f=end][data-d=\"-1\"]').click()" % i)   # noqa: E731
+            rev_now = lambda: srv.get("/api/edit?id=" + tid)["rev"]   # noqa: E731
+            def ctrl_z():
+                pg.evaluate("document.activeElement && document.activeElement.blur()")
+                pg.keyboard.press("Control+z")
+            sc0, n0, r0 = server_clips(), undo_n(), rev_now()
+            pg.locator("#segs .seg").nth(0).locator("[data-act=cut]").click()
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 5000)
+            wait_saved(r0 + 1)
+            check(server_clips() != sc0 and undo_n() == n0 + 1, "3-5: 行の「残す」→ 削る区間になり、「元に戻す(n)」が1つ増える(%d → %d)" % (n0, undo_n()))
+            r1 = rev_now()
+            ctrl_z()
+            check(wait_js(pg, "!document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 3000), "3-5: 1 文字起こし の Ctrl+Z でカットが戻る(行のカット済が消える)")
+            wait_saved(r1 + 1)
+            check(server_clips() == sc0 and undo_n() == n0, "3-5: 区間も元どおり・数も戻る: %s" % (server_clips()[:2],))
+            check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('カットを1つ戻しました') >= 0)", 3000), "3-5: カットを戻したことを知らせる")
+            # 文字起こし(行の終わりを早める)→ カット(行1を削る)→ 文字起こし(行4の終わり)の順に3つ → Ctrl+Z・Ctrl+Z・ボタンで新しい順に戻る
+            e1, e3 = end_of(1), end_of(3)
+            adj_end(1)
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value !== %s" % json.dumps(e1), 3000)
+            r2 = rev_now()
+            pg.locator("#segs .seg").nth(0).locator("[data-act=cut]").click()
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 5000)
+            wait_saved(r2 + 1)
+            adj_end(3)
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('[data-f=end]').value !== %s" % json.dumps(e3), 3000)
+            check(undo_n() == n0 + 3, "3-5: ボタンの数は文字起こしとカットの合計(%d → %d)" % (n0, undo_n()))
+            ctrl_z()
+            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('[data-f=end]').value === %s" % json.dumps(e3), 3000) and is_cut(0) and end_of(1) != e1,
+                  "3-5: 1回目の Ctrl+Z = いちばん新しい文字起こしの変更(行4)だけ戻る")
+            ctrl_z()
+            check(wait_js(pg, "!document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 3000) and end_of(1) != e1, "3-5: 2回目 = カット(行1)が戻る・行2の終わりはそのまま")
+            pg.click("#btnUndo")
+            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value === %s" % json.dumps(e1), 3000) and not is_cut(0),
+                  "3-5: 3回目(ボタン)= 行2の終わりが戻る。行のカット済は今のカットのまま")
+            check(undo_n() == n0, "3-5: 数も元どおり(%d)" % undo_n())
+            wait_js(pg, "!document.querySelector('#saveState') || document.querySelector('#saveState').textContent.indexOf('保存中') < 0", 5000)
+            time.sleep(1.5)
+            d = srv.get("/api/transcript?id=" + tid)
+            check([g.get("cutState") for g in d["segments"]] == [None, None, "cut", None, "cut"], "3-5: 文書の行の印はカットの中身と合っている: %s" % [g.get("cutState") for g in d["segments"]])
+
             # ---- 保存して読み直すと同じ
             shown = clips()
             pg.reload()   # 同じ URL への goto は読み直さない(# だけの移動になる)
@@ -433,7 +480,6 @@ def main():
             pg.click("#cutDraftSilenceGo")
             wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === 2", 30000)
             titles = clips()
-            import re
             nums = [[int(m[0]) * 60 + float(m[1]) for m in re.findall(r"(\d+):(\d+\.\d+)", t)[:2]] for t in titles]
             check(len(nums) == 2 and 0.6 < nums[0][0] < 1.0 and 3.0 < nums[0][1] < 3.4 and 4.6 < nums[1][0] < 5.0 and 8.0 < nums[1][1] < 8.4,
                   "無音のたたき台(cut2resolve の api/plan): 音の鳴っている所(1〜3秒・5〜8秒)だけ残る: %s" % nums)

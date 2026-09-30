@@ -1269,7 +1269,7 @@ $('#btnProofAll').addEventListener('click', () => {
   pushUndo();
   for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
   renderDoc(); markDirty();
-  UIKit.toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました', { kind: 'ok', ms: 8000, action: { label: '元に戻す', fn: doUndo } });
+  UIKit.toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました', { kind: 'ok', ms: 8000, action: { label: '元に戻す', fn: () => doUndo('tx') } });   // この知らせの「元に戻す」は文字起こしの側だけ(あとでカットを変えていても、カットは戻さない)
 });
 $('#btnProofSel').addEventListener('click', () => {
   if (!S.doc || !S.sel.size) return;
@@ -1689,16 +1689,31 @@ function renderSpeakers(){
   const cur = $('#spBulk').value;
   $('#spBulk').innerHTML = opts(cur);
 }
+/* 元に戻す(段3 3-5 監査 05・ユーザー決定 09-29): 文字起こしの履歴 S.undo とカットの履歴(cut.js の M.undo)は別々に持ち、
+   積むときに操作の通し番号(seq)を付ける。1 文字起こし の「元に戻す」・Ctrl+Z は、2つの一番上を比べて新しい方を1つ戻す(2 カット のタブの Ctrl+Z はカットだけ) */
+let opSeq = 0;
+const nextOp = () => ++opSeq;
 function pushUndo(){
-  S.undo.push(JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug })); if (S.undo.length > 30) S.undo.shift(); updateUndo();
+  S.undo.push({ seq: nextOp(), snap: JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments, sug: S.sug }) }); if (S.undo.length > 30) S.undo.shift(); updateUndo();
 }
-function updateUndo(){ $('#btnUndo').disabled = !S.undo.length; $('#btnUndo').textContent = S.undo.length ? `元に戻す(${S.undo.length})` : '元に戻す'; }
-function doUndo(){
+function updateUndo(){
+  const n = S.undo.length + (CUT && CUT.undoCount ? CUT.undoCount() : 0);   // ボタンの数 = 2つの合計
+  $('#btnUndo').disabled = !n; $('#btnUndo').textContent = n ? `元に戻す(${n})` : '元に戻す';
+}
+/* only = 'tx': 文字起こしの側だけ(全行を校正済みにした知らせの「元に戻す」) */
+function doUndo(only){
+  if (!S.doc || lockJob()) return;   // 処理中(話者判別・再認識など)はどちらも戻さない
+  const tx = S.undo.length ? S.undo[S.undo.length - 1].seq : 0, ct = only !== 'tx' && CUT && CUT.undoTop ? CUT.undoTop() : 0;
+  if (ct && ct > tx){   // カットの方が新しい: カットを1つ戻す。1 文字起こし からは見えない変化なので知らせる
+    if (CUT.undo()) toast('カットを1つ戻しました(2 カット のタブの区間)', 2500);
+    updateUndo(); return;
+  }
   if (!S.undo.length) return;
   const navId = navSnapshot();
-  const d = JSON.parse(S.undo.pop()); S.doc.speakers = d.speakers; S.doc.segments = d.segments; S.sel.clear(); if (d.sug) S.sug = d.sug;
+  const d = JSON.parse(S.undo.pop().snap); S.doc.speakers = d.speakers; S.doc.segments = d.segments; S.sel.clear(); if (d.sug) S.sug = d.sug;
   navRestore(navId, S.navIdx);
   renderDoc(); renderChips(); updateUndo(); markDirty();
+  if (CUT) CUT.docChanged();   // 控えの行の「カット済」は古いことがある → 今のカットから付け直す(markDirty の 0.3 秒後を待たない)
 }
 /* 開始/終了を、いまの再生位置にする(足した行の時刻を、聞きながら合わせるとき) */
 function setTimeNow(s, f){
@@ -2593,7 +2608,7 @@ function replaceAll(pairs){
 function withUndoReplace(pairs){
   const snap = JSON.stringify({ speakers: S.doc.speakers, segments: S.doc.segments });
   const n = replaceAll(pairs);
-  if (n){ S.undo.push(snap); if (S.undo.length > 30) S.undo.shift(); updateUndo(); renderDoc(); markDirty(); }
+  if (n){ S.undo.push({ seq: nextOp(), snap }); if (S.undo.length > 30) S.undo.shift(); updateUndo(); renderDoc(); markDirty(); }
   return n;
 }
 $('#repGo').addEventListener('click', () => {
@@ -2984,7 +2999,7 @@ function bulkCut(cut){
   if (CUT && CUT.active()){
     const idx = S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0);
     CUT.rowsCut(idx, cut);
-    return toast(`${idx.length}行を${cut ? '削る区間に' : '残す区間に'}しました(戻すには「選んだ行を${cut ? '残す' : 'カット'}」か、カットのタブの「元に戻す」)`, 4000);
+    return toast(`${idx.length}行を${cut ? '削る区間に' : '残す区間に'}しました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);
   }
   pushUndo(); let n = 0;
   for (const g of S.doc.segments) if (S.sel.has(g.id)){ if (cut) g.cutState = 'cut'; else delete g.cutState; n++; }
@@ -3018,6 +3033,7 @@ function confirmDlg(title, text, okLabel){
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 /* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */
 function onCutMarks(changed){
+  updateUndo();   // カットが変わった(変更・元に戻す・やり直す)→ 「元に戻す(n)」の数も(3-5)
   for (const i of changed){
     const row = document.querySelector(`#segs .seg[data-i="${i}"]`), g = S.doc && S.doc.segments[i]; if (!row || !g) continue;
     const cut = g.cutState === 'cut', b = row.querySelector('[data-act=cut]');
@@ -3037,7 +3053,7 @@ function onCutSaved(r){
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor,
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); if (PACK) PACK.changed(); }, relink: () => openRelink() }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 /* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */

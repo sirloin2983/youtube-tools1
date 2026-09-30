@@ -96,7 +96,7 @@ function create(h){
     const before = M.clips.map(c => c.slice());
     const next = fn(M.clips.map(c => c.slice()));
     if (!next || JSON.stringify(next) === JSON.stringify(before)) return false;
-    M.undo.push({ clips: before, origin: M.origin }); if (M.undo.length > UNDO_MAX) M.undo.shift();
+    M.undo.push({ clips: before, origin: M.origin, seq: opSeq() }); if (M.undo.length > UNDO_MAX) M.undo.shift();
     M.redo = [];
     M.clips = next; M.origin = opt.origin || 'manual';
     afterChange();
@@ -108,8 +108,10 @@ function create(h){
     if (M.sel && M.sel.kind === 'gap') M.sel = null;
     syncRowCuts(); render(); scheduleSave();
   }
+  /* 積むときに操作の通し番号(app.js の nextOp。文字起こしの履歴と同じ番号)を付ける = 1 文字起こし の「元に戻す」が新しい方を選ぶ(段3 3-5)。やり直しも新しい番号 */
+  const opSeq = () => (h.nextOp ? h.nextOp() : 0);
   function undo(){ const u = M.undo.pop(); if (!u) return; M.redo.push({ clips: M.clips, origin: M.origin }); M.clips = u.clips; M.origin = u.origin; M.sel = null; afterChange(); }
-  function redo(){ const r = M.redo.pop(); if (!r) return; M.undo.push({ clips: M.clips, origin: M.origin }); M.clips = r.clips; M.origin = r.origin; M.sel = null; afterChange(); }
+  function redo(){ const r = M.redo.pop(); if (!r) return; M.undo.push({ clips: M.clips, origin: M.origin, seq: opSeq() }); M.clips = r.clips; M.origin = r.origin; M.sel = null; afterChange(); }
 
   /* ---------- 読み込み(文書を開いたとき) ---------- */
   function reset(docId){
@@ -787,7 +789,7 @@ function create(h){
     M.drag = null; $('#tlTip').hidden = true; $('#tlSnap').hidden = true;
     if (cancel === true){ M.clips = d.before; render(); return; }
     if (JSON.stringify(d.before) !== JSON.stringify(M.clips)){
-      M.undo.push({ clips: d.before, origin: d.origin }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; M.origin = 'manual';
+      M.undo.push({ clips: d.before, origin: d.origin, seq: opSeq() }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; M.origin = 'manual';
       afterChange();
     } else render();
   }
@@ -960,6 +962,10 @@ function create(h){
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },
     keepsSec(){ return ready() ? M.clips.map(([a, b]) => [sec3(a), sec3(b)]) : null; },
     fps(){ return M.fps; },
+    /* 1 文字起こし の「元に戻す」から(段3 3-5): 一番上の操作の番号(使えないとき・空なら 0)・1つ戻す(戻したら true)・積んでいる数 */
+    undoTop(){ return ready() && M.undo.length ? (M.undo[M.undo.length - 1].seq || 0) : 0; },
+    undo(){ if (!ready() || !M.undo.length) return false; if (M.drag) endDrag(); undo(); return true; },
+    undoCount(){ return ready() ? M.undo.length : 0; },
     /* 1 文字起こし の「1コマ」(段3 3-4 監査 15): t 秒から n コマ動いた時刻(フレームの境目 + 0.5ms。stepFrames と同じ丸め = 2 カット と同じ位置に止まる)。
        fps が分からない(読み込み前・動画が無い・音声だけ)・別の文書なら null */
     frameStep(t, n){
