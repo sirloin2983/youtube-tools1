@@ -2098,3 +2098,11 @@
   - 終了で中断した解析の待ち・書き出しを、次の起動で画面に出す(レビューの 13。待ち行列をファイルに残す)
   - チャットのキャッシュを生の live_chat.json ではなく集計結果(1秒ごとの配列)で残す(レビューの 7 の根本の直し)
 - 未コミット: なし(このあとコミット)
+
+## 2026-09-30 Claude Code(サブエージェント)— 段3 の版上げのあとの全体のテスト
+- unit(通過): editor 一式 201(skip 1)・dev/tests/test_ui_kit_sync・node 編集 9/9(スタジオ 18/18 は 3-2 のあと)
+- e2e(1本ずつ順に。すべて通過・流し直しなし): editor: edit_tabs・edit_cut・edit_pack・edit_voices・ui_mounted・ui_handoff・row_editing・proofread_accuracy・proofread_keys・folder_marker_range・eval_set /
+  home: e2e_keymap / dev: e2e_pipeline。スタジオ e2e_ui 154/154・--mounted 167/167・ui-kit e2e_styleguide は 3-2(ui-kit の最後の変更)のあとに通過
+- 注意: 作業中に別のエージェントがスタジオ(`studio/serve.py`・`core.js`・`README.txt` など)を直していた(この記録の時点で未コミットの差分があるのはそのファイルで、段3 の作業ではない)。
+  本物の作業データ(%LOCALAPPDATA%\youtube-tools)の 18:36 ごろの更新(prefs の配信者・cut2resolve のパックの記録・dataset)は、起動中の入口からの操作で、テストのものではない(テストは YTT_DATA_DIR=inplace)
+- 未コミット: なし(段3 の分)
