@@ -2312,4 +2312,5 @@
   `home/autorun.py`(段「話者分離」。話す人があるときだけ、この実行で文字起こしした文書に)・`home/intake.py`(parse_speakers・一覧に「話す人」)・`home/portal.js`、
   テスト: editor test_voices +2(19 OK)・home autorun/intake +2(77 OK)、`docs/design/friend-intake.md` 2-4
 - 版: 編集 0.27.0 は別の作業が先に使っていたので **0.28.0**、ホーム 0.17.0 → **0.18.0**(launch.py の別の作業は push.bat でコミット済みになっていた)
-- 未コミット: request-sender/(サブエージェントが作業中。終わったらコミット)。WIP の他の作業のファイルは触っていない
+- 送るアプリ 1.3.0(Sonnet): 「話す人」の人数と名前・JSON の speakers。build 18 件 OK
+- 未コミット: なし

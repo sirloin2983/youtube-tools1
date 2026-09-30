@@ -23,6 +23,7 @@ static class CoreTests
         Run("id: 形(yyyyMMdd-HHmmss-6 桁の16進)と置き場所", Ids);
         Run("JSON: 動画の依頼(エスケープ・実際の名前・日本語はそのまま)", VideoJson);
         Run("JSON: URL の依頼", UrlJson);
+        Run("JSON: 話す人(speakers)", SpeakersJson);
         Run("JSON: 送った時刻は時差つきの ISO 8601", SentAt);
         Run("Dropbox-API-Arg: ASCII 以外と 0x7F を \\uXXXX にする", ApiArgEscape);
         Run("分け方: 150MB 以下は1回・超えたら 8MB ずつ", Chunks);
@@ -183,6 +184,23 @@ static class CoreTests
         Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new string[0], null, null, Flow.Auto, T)), "streamer"), "配信者なしは空");
         string ctrl = RequestJson.Video(id, new string[0], "", "a\u0001b\u2028c", Flow.Manual, T);
         True(ctrl.Contains("a\\u0001b\\u2028c"), "制御文字: " + ctrl);
+    }
+
+    static void SpeakersJson()
+    {
+        string id = "20261001-120000-abcdef";
+        string longName = new string('あ', 70);
+        var names = new[] { " さくらみこ ", "", "さくらみこ", "ホシマチスイセイ", longName, "4人目" };
+        foreach (string json in new[] { RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 3, names), RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 3, names) })
+        {
+            var sp = Json.Dict(Json.Parse(json), "speakers");
+            True(sp != null && Json.Long(sp, "count", -1) == 3, "speakers.count: " + json);
+            var list = (System.Collections.IEnumerable)sp["names"];
+            var got = list.Cast<object>().Select(o => (string)o).ToList();
+            Eq("さくらみこ|ホシマチスイセイ|" + new string('あ', 60), string.Join("|", got), "名前: 空・重複を除く・60 文字・人数まで");
+        }
+        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T).Contains("speakers"), "指定しないときは書かない(動画)");
+        True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, names).Contains("speakers"), "指定しないときは書かない(URL)");
     }
 
     static void UrlJson()

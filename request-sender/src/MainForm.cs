@@ -20,6 +20,11 @@ namespace RequestSender
         readonly ListBox files = new ListBox();
         readonly Button addBtn = new Button(), removeBtn = new Button(), sendBtn = new Button();
         readonly ComboBox streamer = new ComboBox();
+        const string NoSpeakerCount = "指定しない";
+        readonly ComboBox speakerCount = new ComboBox();
+        readonly ComboBox[] speakerNames = new ComboBox[Speakers.MaxCount];
+        readonly TableLayoutPanel speakerGrid = new TableLayoutPanel();
+        readonly Label speakerHint = new Label();
         readonly TextBox urls = new TextBox(), memo = new TextBox();
         readonly NumericUpDown top = new NumericUpDown();
         readonly RadioButton[] flowRadios = Flow.All.Select(f => new RadioButton { Text = Flow.Label(f), Tag = f, AutoSize = true }).ToArray();
@@ -40,8 +45,8 @@ namespace RequestSender
             Font = new Font("Yu Gothic UI", 10f);
             AutoScaleMode = AutoScaleMode.Font;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(540, 700);
-            ClientSize = new Size(580, 760);
+            MinimumSize = new Size(540, 760);
+            ClientSize = new Size(600, 840);
             AllowDrop = true;
             tabs.Dock = DockStyle.Fill;
             tabs.TabPages.Add(sendPage);
@@ -112,6 +117,46 @@ namespace RequestSender
             sRow.Controls.AddRange(new Control[] { sLabel, streamer });
             t.Controls.Add(sRow);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            // 話す人(人数を入れると PC が話者を分けて名前を付ける。名前は 2 列に並べる)
+            var spRow = FlowRow();
+            spRow.Controls.Add(new Label { Text = "話す人の数(任意):", AutoSize = true, Margin = new Padding(3, 7, 3, 0) });
+            speakerCount.DropDownStyle = ComboBoxStyle.DropDownList;
+            speakerCount.Width = 100;
+            speakerCount.Items.Add(NoSpeakerCount);
+            for (int i = 1; i <= Speakers.MaxCount; i++) speakerCount.Items.Add(i + " 人");
+            speakerCount.SelectedIndex = 0;
+            speakerCount.SelectedIndexChanged += (s, e) => UpdateSpeakerView();
+            spRow.Controls.Add(speakerCount);
+            t.Controls.Add(spRow);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            speakerGrid.AutoSize = true;
+            speakerGrid.Dock = DockStyle.Fill;
+            speakerGrid.ColumnCount = 4;
+            speakerGrid.Margin = new Padding(0);
+            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            for (int i = 0; i < speakerNames.Length; i++)
+            {
+                var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Dock = DockStyle.Fill, MaxLength = Speakers.MaxNameLength, MaxDropDownItems = 20, Margin = new Padding(3, 2, 8, 2) };
+                c.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                c.AutoCompleteSource = AutoCompleteSource.ListItems;
+                speakerNames[i] = c;
+                speakerGrid.Controls.Add(new Label { Text = (i + 1) + ".", AutoSize = true, Margin = new Padding(3, 6, 0, 0) }, (i % 2) * 2, i / 2);
+                speakerGrid.Controls.Add(c, (i % 2) * 2 + 1, i / 2);
+            }
+            t.Controls.Add(speakerGrid);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            speakerHint.Text = "人数を入れると、PC が話者を分けて名前を付けます(名前は覚えている声と照らし合わせます。分からない人は「話者1」などのまま)";
+            speakerHint.AutoSize = true;
+            speakerHint.ForeColor = Color.DimGray;
+            speakerHint.MaximumSize = new Size(540, 0);
+            speakerHint.Margin = new Padding(3, 2, 3, 0);
+            t.Controls.Add(speakerHint);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            UpdateSpeakerView();
 
             t.Controls.Add(Heading("配信を切り抜いてもらう(YouTube の URL。1行に1本)"));
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -204,6 +249,7 @@ namespace RequestSender
             {
                 status.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 50), 0);
                 flowExplain.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 80), 0);
+                speakerHint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 60), 0);
             };
             UpdateFileView();
         }
@@ -222,6 +268,16 @@ namespace RequestSender
             flowExplain.Text = Flow.Explain(SelectedFlow);
         }
 
+        int SelectedSpeakerCount { get { return speakerCount.SelectedIndex > 0 ? speakerCount.SelectedIndex : 0; } }
+
+        // 選んだ人数の分だけ名前の欄を出す(0 = 指定しない: 欄なし)
+        void UpdateSpeakerView()
+        {
+            int n = SelectedSpeakerCount;
+            for (int i = 0; i < speakerNames.Length; i++) speakerNames[i].Visible = speakerGrid.GetControlFromPosition((i % 2) * 2, i / 2).Visible = i < n;
+            speakerGrid.Visible = n > 0;
+        }
+
         static Label Heading(string text)
         {
             return new Label { Text = text, AutoSize = true, Font = new Font("Yu Gothic UI", 10f, FontStyle.Bold), Margin = new Padding(3, 10, 3, 4) };
@@ -235,7 +291,11 @@ namespace RequestSender
         void LoadMembers()
         {
             streamer.Items.Add(NoStreamer);
-            foreach (string n in Members.LoadNames(Path.Combine(exeDir, "members.json"))) streamer.Items.Add(n);
+            foreach (string n in Members.LoadNames(Path.Combine(exeDir, "members.json")))
+            {
+                streamer.Items.Add(n);
+                foreach (var c in speakerNames) c.Items.Add(n);
+            }
             streamer.SelectedIndex = 0;
             streamer.Enabled = streamer.Items.Count > 1;
         }
@@ -345,6 +405,8 @@ namespace RequestSender
                 Top = (int)top.Value,
                 Streamer = streamer.SelectedIndex > 0 ? (string)streamer.SelectedItem : "",
                 Memo = memo.Text.Trim(),
+                SpeakerCount = SelectedSpeakerCount,
+                SpeakerNames = Speakers.CleanNames(speakerNames.Take(SelectedSpeakerCount).Select(c => c.Text), SelectedSpeakerCount),
                 Flow = SelectedFlow,
             };
             var errs = new List<string>(parsed.Errors);
@@ -411,6 +473,8 @@ namespace RequestSender
                 urls.Clear();
                 memo.Clear();
                 streamer.SelectedIndex = 0;
+                speakerCount.SelectedIndex = 0;
+                foreach (var c in speakerNames) c.Text = "";
                 UpdateFileView();
                 return;
             }
@@ -434,6 +498,8 @@ namespace RequestSender
             memo.ReadOnly = busy;
             streamer.Enabled = !busy && streamer.Items.Count > 1;
             top.Enabled = !busy;
+            speakerCount.Enabled = !busy;
+            foreach (var c in speakerNames) c.Enabled = !busy;
             foreach (var r in flowRadios) r.Enabled = !busy;
             UseWaitCursor = false;
         }

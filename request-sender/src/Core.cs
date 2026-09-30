@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -216,9 +216,50 @@ namespace RequestSender
         }
     }
 
+    // 話す人(人数と名前)。count が 0 = 指定しない(JSON にキーを書かない)
+    public static class Speakers
+    {
+        public const int MaxCount = 10, MaxNameLength = 60;
+
+        // 名前: 前後の空白を除く・空は捨てる・60 文字まで・重複なし・人数を超えた分は捨てる
+        public static List<string> CleanNames(IEnumerable<string> raw, int count)
+        {
+            var names = new List<string>();
+            if (raw == null) return names;
+            foreach (string r in raw)
+            {
+                if (names.Count >= count) break;
+                string n = (r ?? "").Trim();
+                if (n.Length == 0) continue;
+                if (n.Length > MaxNameLength) n = n.Substring(0, MaxNameLength);
+                if (!names.Contains(n)) names.Add(n);
+            }
+            return names;
+        }
+
+        // ,"speakers":{"count":N,"names":[...]} を返す。指定しない(count が 1〜10 の外)なら ""
+        public static string JsonPart(int count, IEnumerable<string> rawNames)
+        {
+            if (count < 1 || count > MaxCount) return "";
+            var names = CleanNames(rawNames, count);
+            return ",\"speakers\":{\"count\":" + count.ToString(CultureInfo.InvariantCulture) +
+                   ",\"names\":[" + string.Join(",", names.Select(n => JsonText.Quote(n, false))) + "]}";
+        }
+    }
+
     public static class RequestJson
     {
         public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt)
+        {
+            return Video(id, uploadedNames, streamer, memo, flow, sentAt, 0, null);
+        }
+
+        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt)
+        {
+            return Url(id, urls, top, memo, flow, sentAt, 0, null);
+        }
+
+        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
@@ -226,11 +267,12 @@ namespace RequestSender
             sb.Append(",\"files\":[").Append(string.Join(",", uploadedNames.Select(n => JsonText.Quote(n, false)))).Append(']');
             sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer ?? "", false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
+            sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
 
-        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt)
+        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"url\",\"id\":").Append(JsonText.Quote(id, false));
@@ -238,6 +280,7 @@ namespace RequestSender
             sb.Append(",\"items\":[").Append(string.Join(",", urls.Select(u =>
                 "{\"url\":" + JsonText.Quote(u, false) + ",\"top\":" + top.ToString(CultureInfo.InvariantCulture) + "}"))).Append(']');
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
+            sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
