@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.13.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.13.1';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
@@ -208,7 +208,8 @@ const start = async () => {
   try {
     const p = await Studio.api('/api/ping');
     if (p.app !== 'clip-studio') throw new Error('このアドレスは切り抜きスタジオではありません');
-    if (p.version !== APP_VERSION) Studio.showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。黒い画面を閉じて起動し直してください');
+    if (p.version !== APP_VERSION && !(window.UIKit && UIKit.restart && UIKit.restart.check($('#errBar'), APP_VERSION, p.version)))   // 帯に「起動し直す」(段9 9-3)
+      Studio.showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。黒い画面を閉じて起動し直してください');
     await Studio.refreshState();
   } catch (e){ Studio.showErr(e.message); paneError(e.message); return; }
   Studio.ready = true;

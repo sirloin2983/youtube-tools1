@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.33.0';
+const APP_VERSION = '0.33.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -3329,7 +3329,8 @@ async function boot(){
   loadView(); setEditTab(tabFromHash() || 'tx', { hash: !!tabFromHash() });
   try {
     const ping = await api('/api/ping');
-    if (ping.version !== APP_VERSION) showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
+    if (ping.version !== APP_VERSION && !(window.UIKit && UIKit.restart && UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)))   // 帯に「起動し直す」(段9 9-3)
+      showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
   } catch (e){ return showErr(e.message + '。入口(youtube-tools フォルダの start.bat)から起動してください'); }
   try { S.tools = await api('/api/tools'); } catch {}
   $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))

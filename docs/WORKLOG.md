@@ -2438,3 +2438,14 @@
 - 実機で確かめること: 入口を起動し直して「詳しく」→「片付け」→「候補を探す」。E: の元動画を移すと `E:\Video\切り抜き動画素材\ごみ箱\<日付>\export\` に入る。14 日後の起動で消える
 - 残り: 段9 の 9-3(版の帯から起動し直す。部品 `home/restart.py` はある)・9-4(依頼の受付の運用)・9-5(小さな注意。一部は a5068a3 で入っている)
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-01 Claude Code — 段9 9-3 版の帯から「起動し直す」(入口 0.20.0・スタジオ 0.13.1・編集 0.33.1)
+- 状態を確かめたこと: 部品 `home/restart.py`(+ test_restart)と ui-kit v10 の `UIKit.restart`(帯のボタン・ping で戻りを待つ)は a5068a3 で入っていた。入口の API・`--wait-port`・各ツールの帯が未接続だった
+- 変更: `home/launch.py`(画面の共通の API `api/ytt/restart-self` → `restart_self`: `can_restart`(重い処理・まとめて実行・取り込んだツールの busy)で 409 → `spawn_new_launcher(restart_args(同じポート, --only, --no-mount))` → 0.3 秒後に「すべて終了」と同じ後始末。
+  起動の引数 `--wait-port`(`wait_port_free` で古い入口がポートを離すまで最大 30 秒)、`editor/app.js`・`studio/core.js`(版が違えば `UIKit.restart.check($('#errBar'), …)`。ui-kit が無い・単体で開いたときは今までの文)。
+  版: スタジオ 0.13.0 → **0.13.1**・編集 0.33.0 → **0.33.1**(各 serve.py・画面・README・editor/AGENTS.md)。入口は 0.20.0 のまま(9-1〜9-3)
+- テスト: `test_launch.py` に test_restart_self(忙しいと 409・空いていれば --wait-port で起こして後始末)。通した: test_launch + test_restart 49 OK・studio test_api OK・
+  studio e2e_ui 154/154・`--mounted` 176/176・editor e2e_ui_mounted ALL PASSED。
+  本物の入口でも確かめた(テスト用ポート 18791・一時フォルダの作業データ・--only cut2resolve): restart-self → 古い入口は 0.4 秒で終わり、新しい入口が 2.0 秒で同じポートに戻り、合言葉が新しくなる → 止めた
+- 文書: `home/README.txt`・`docs/ROADMAP.md`(版・段9 の行)・`docs/plan/phase9-ops-stability.md` の状態(残り 9-4・9-5)
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)

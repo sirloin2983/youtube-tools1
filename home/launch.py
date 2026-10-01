@@ -68,6 +68,7 @@ import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge �
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
 import health as health_mod  # noqa: E402  (home/health.py: 「調子」。段9 9-1)
 import cleanup as cleanup_mod  # noqa: E402  (home/cleanup.py: 片付け。段9 9-2)
+import restart as restart_mod  # noqa: E402  (home/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
@@ -790,6 +791,26 @@ class PortalServer(ThreadingHTTPServer):
         with self.cleanup_lock:
             return self.cleanup.candidates(cases, intake_dir=folder)
 
+    def restart_self(self):
+        """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
+        重い処理・まとめて実行・取り込んだツールの処理が動いていれば 409 で断る(理由の文)。-> (HTTP の番号, JSON)"""
+        if self.closing.is_set():
+            return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
+        runs = self._autorun.snapshot().get("runs") if self._autorun is not None else None
+        busy = [t.spec["name"] for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
+        why = restart_mod.can_restart(self.sup.status(), runs, busy)
+        if why:
+            return 409, {"ok": False, "error": "busy", "message": why}
+        only = [t.id for t in self.sup.tools] if len(self.sup.tools) < len(TOOLS) else ()
+        try:
+            restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts),
+                                           log=self.sup.log)
+        except OSError as e:
+            return 500, {"ok": False, "error": "spawn", "message": "新しい入口を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
+        self.sup.log("画面から「起動し直す」が押されました")
+        threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
+        return 200, {"ok": True}
+
     def purge_trash(self):
         """起動時: 14 日を過ぎたごみ箱フォルダの日付を消す(裏で)"""
         try:
@@ -850,6 +871,8 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "url": self.window.open_url(body.get("url"), self.server_address[1], self.tool_ports(), tuple(self.mounts))}
             if sub == "open-external":
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
+            if sub == "restart-self":   # 版の赤い帯の「起動し直す」(段9 9-3。ui-kit の UIKit.restart)
+                return self.restart_self()
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
             if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}
@@ -1077,6 +1100,7 @@ def parse_args(argv):
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="入口の画面のポート(既定 %d。使用中なら次の番号)" % DEFAULT_PORT)
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")
+    ap.add_argument("--wait-port", action="store_true", help="「起動し直す」用: --port が空くまで(最大 30 秒)待ってから待ち受ける")
     ap.add_argument("--no-mount", action="store_true",
                     help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
     a = ap.parse_args(argv)
@@ -1098,6 +1122,8 @@ def main(argv=None):
     datadir.register("app", app_data_dir(ROOT))   # 同じプロセスの案件など(datadir.resolve)が同じ場所を読む
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
+    if opts.wait_port and not restart_mod.wait_port_free(opts.port):   # 「起動し直す」で起こされた: 古い入口がポートを離すまで待つ(段9 9-3)
+        log("前の入口がポート %d を離しませんでした。次の番号で起動します" % opts.port)
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d/" % port
     if srv is None:

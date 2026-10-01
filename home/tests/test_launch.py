@@ -564,6 +564,32 @@ class PortalHttpTest(Base):
         r, body = self.post("/api/cleanup", body=json.dumps({"ids": ["nope"]}).encode())
         self.assertEqual((r.status, json.loads(body)["unknown"], json.loads(body)["moved"]), (200, ["nope"], []))
 
+    def test_restart_self(self):
+        """起動し直す(段9 9-3): 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
+        import restart as R
+        calls, stops = [], []
+        saved = (R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart)
+        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
+        self.srv.request_shutdown = lambda: stops.append(1)
+        try:
+            R.can_restart = lambda *a, **k: "実行中の処理があります(文字起こし)。終わってから起動し直してください"
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual((r.status, json.loads(body)["error"]), (409, "busy"))
+            self.assertEqual(calls, [])
+            R.can_restart = saved[2]
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual(r.status, 200, body)
+            self.assertEqual(len(calls), 1)
+            self.assertIn("--wait-port", calls[0])
+            self.assertEqual(calls[0][calls[0].index("--port") + 1], str(self.srv.server_address[1]))
+            for _ in range(30):
+                if stops:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(stops, [1])
+        finally:
+            R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart = saved
+
     def test_csrf_token(self):
         """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""
         r, body = self.req("GET", "/")
