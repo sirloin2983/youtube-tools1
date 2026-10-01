@@ -2460,3 +2460,9 @@
 - 文書: `docs/design/friend-intake.md` の 9・`docs/plan/phase9-ops-stability.md`(状態 = 済み)・`docs/ROADMAP.md`(段9 の行 = 済み)・`home/README.txt`
 - 次: ROADMAP の順番どおりなら段10(コードの整理。線 B 段2 の前)
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-01 Claude Code — 段10 コードの整理を始める(担当: editor/ の分割。終わるまでほかの AI は editor/ を触らない)
+- 計画: `docs/plan/phase10-code-split.md`(新規)。決定(ユーザー 2026-10-01): 案A(`ed_state.py` に置き場所などの値・役割ごとの `ed_*.py`・serve.py は起動と HTTP の振り分けと再輸出)・app.js も同じ段で serve.py のあと・Python 3.10 に固定して版を requirements に書く
+- 線 B 段1 は 09-29 に済んでいた(ROADMAP の「次は段1」が古かったので直した)
+- **担当: Claude Code(このセッション)が editor/ の serve.py・app.js・tests を分割中**。動きは変えない・版は上げない。項目ごとにコミットする
+- 未コミット: なし(このあと計画書・ROADMAP・WORKLOG をコミット)
