@@ -45,6 +45,7 @@ def main():
         port = s.getsockname()[1]
     env = dict(os.environ, YTT_RUNTIME_DIR=os.path.join(tmp, ".runtime"), TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.01")
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    started = time.time()   # 起動の 5 秒後に「評価用のフォルダの整理」が1回走る(下の仮置きの確認は、それが済んでから)
     errors, ok = [], True
 
     def check(cond, msg):
@@ -188,6 +189,7 @@ def main():
             pg.wait_for_selector("#segs .seg")
             check(pg.is_checked("#evalSet") and pg.is_disabled("#evalSet"), "評価用のフォルダの文書は、評価用のチェックを外せない")
             # 仮置き: 全行に話者 + 全行が校正済みの文書は、ほかの文書へ移ると、話した時間が最も長いメンバーのフォルダへ移る
+            time.sleep(max(0.0, 6.5 - (time.time() - started)))   # 起動時の整理(serve.py の prepare の 5 秒後)が仮置きを先に移してしまわないように
             stg = os.path.join(evdir, "評価用_仮置き")
             os.makedirs(stg)
             shutil.copy(wav, os.path.join(stg, "仮置きの動画.wav"))
