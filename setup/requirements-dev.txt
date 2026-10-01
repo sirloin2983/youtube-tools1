@@ -1,0 +1,4 @@
+# For tests only (UI e2e). Not needed to use the tools. ASCII only.
+# Install: py -3.10 -m pip install -r setup\requirements-dev.txt, then py -3.10 -m playwright install chromium
+# node tests (*.cjs): dev/run_editor_suite.py uses node from PATH, or the node bundled with Playwright.
+playwright==1.63.0

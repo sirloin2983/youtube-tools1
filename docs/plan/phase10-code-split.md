@@ -1,6 +1,6 @@
 # 段10: コードの整理(editor の serve.py・app.js を役割で分ける)
 
-> 状態(2026-10-01): **決定済み・着手**(ユーザー決定: 1 = 案A・2 = app.js も同じ段で serve.py のあと・3 = Python 3.10 に固定して版を requirements に書く)。大きな計画は `docs/plan/line-a-after-phase8.md` の段10。**動きは変えない・版は上げない**。終わりの条件は「分ける前と後で全部のテストが同じ結果」
+> 状態(2026-10-01): **済み**(10-1 serve.py → ed_*.py・10-2 app.js → app-*.js・10-3 Python 3.10 の固定と部品の版。分ける前と後でテスト一式が同じ結果。記録は WORKLOG の 10-01 の段10-1〜3)。ユーザー決定: 1 = 案A・2 = app.js も同じ段で serve.py のあと・3 = Python 3.10 に固定して版を requirements に書く。大きな計画は `docs/plan/line-a-after-phase8.md` の段10。**動きは変えない・版は上げない**。終わりの条件は「分ける前と後で全部のテストが同じ結果」
 > 線 B 段1(呼び名と文脈)は 2026-09-29 に済んでいた(編集 0.22.0。`docs/plan/transcription-overhaul-plan.md` の「1回目の結果」)。「段10 の前にやるか」の決定は不要になった
 
 ## 目的

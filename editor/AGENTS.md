@@ -43,6 +43,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   部品どうしは `ed_xxx.名前` で呼ぶたびに読む(`from … import` しない = 差し替えが効く)。**serve.py が名前の受付**: `serve.名前` は持ち主の部品から読み、`serve.名前 = …`(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)は持ち主の部品へ転送する。
   版の正は serve.py の `SERVER_VERSION`(入口が読む。部品は `ed_state.SERVER_VERSION`)。新しい名前は、役割に合う部品に書く(serve.py の名前を部品から使わない)。import のときに使ってよいのは `ed_state` の名前だけ(ほかの部品は呼ぶときに)。
   テストで serve.py を一時フォルダに写すときは `ed_*.py` も写す(各 e2e の一覧は `ed_` で始まる .py を足す形)。まとめて流す: `python dev/run_editor_suite.py`
+- **段10-2 で app.js も分けた**: 関数の定義は `app-core.js`(共通・表示の好み・⚙・設定・進行度)・`app-jobs.js`(新規ジョブ・フォルダ一括・連携・ジョブの進捗・話者判別・声を覚える・再認識)・`app-list.js`(履歴の一覧・選んでまとめて)・
+  `app-learn.js`(学習の候補・提案・校正済み・進み具合・精度・名簿・保管)・`app-rows.js`(編集画面の保存と開く・行・字幕の文字数・行の移動・話者の色・キー配置・用語・履歴・行の追加)・`app-tools.js`(付け替え・検索と置換・書き出し・左パネル・受け渡し・cut2resolve・確認・カット/パックのつなぎ)。
+  **状態(S・V など)・定数・ボタンの配線・起動は app.js に元の順番のまま**(包み `(() => {…})()` は外した = トップレベルの const/let と関数は同じ画面のスクリプトで共有)。読む順番は index.html(app-*.js → app.js)・静的配信は `ed_state.PAGE_JS`。
+  新しい関数は役割に合う app-*.js に、新しい配線・状態は app.js に。トップレベルの名前はブラウザの window の名前(close・open・name など)と重ねない。版 `APP_VERSION` は app.js のまま
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。
   ジョブは優先度付きの待機列(話者判別は、待っている文字起こしより先に処理。実行中のジョブは中断しない)。
   保存は `transcripts/<id>.json`(`segments` = 人が直した行、`original` = 機械の出力。精度測定・修正からの学習は、この2つを時刻の重なりで対応づける)

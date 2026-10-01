@@ -7,8 +7,10 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
 root = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 sh.CurrentDirectory = root
-' Same choice of Python as start.bat: the py launcher first, then python on PATH.
-If sh.Run("cmd /c py -3 --version >nul 2>&1", 0, True) = 0 Then
+' Same choice of Python as start.bat: py -3.10 first, then the py launcher, then python on PATH.
+If sh.Run("cmd /c py -3.10 --version >nul 2>&1", 0, True) = 0 Then
+  py = "py -3.10"
+ElseIf sh.Run("cmd /c py -3 --version >nul 2>&1", 0, True) = 0 Then
   py = "py -3"
 ElseIf sh.Run("cmd /c python --version >nul 2>&1", 0, True) = 0 Then
   py = "python"

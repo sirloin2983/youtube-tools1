@@ -19,7 +19,8 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
                                          主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は holo-colors\README.txt
 
 【準備(最初に1回)】
-  1. Python 3(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック)
+  1. Python 3.10(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック)
+       部品の版は 3.10 で確かめています(setup\requirements.txt)。start.bat・install.bat は 3.10 があればそれを使い、無ければほかの Python 3 を使います
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
      (入れたら黒い画面を開き直してください)

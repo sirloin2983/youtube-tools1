@@ -148,5 +148,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 ## 動作環境(ユーザーの PC)
 - Windows。このリポジトリは PC 上の `C:\dev\youtube-tools` にある(2026-09-30 まで `Desktop\youtube-test`)
 - CPU は Intel Core i9-13900KF、メモリ 32GB。GPU は **AMD Radeon RX 7800 XT**(16GB)(NVIDIA ではないので CUDA は使えない → faster-whisper は CPU で動く。GPU 前提の提案をしない)
-- Python 3・ffmpeg はインストール済み(`setup\install.bat`・リポジトリ直下の start.bat を使う)。Python が複数入っている可能性がある(`__pycache__` に 3.10 と 3.12 の両方)。
-  faster-whisper を入れた Python と `py -3` が同じかは未確認(`py -0p` で一覧が出る)
+- Python・ffmpeg はインストール済み(`setup\install.bat`・リポジトリ直下の start.bat を使う)。**動かすのは Python 3.10**(`py -3.10`。faster-whisper 1.2.1・sherpa-onnx 1.13.8 などは 3.10 に入っている。
+  版は `setup/requirements*.txt` に固定。段10-3 = 2026-10-01)。start.bat・install*.bat・home/start_hidden.vbs は `py -3.10` → `py -3` → `python` の順に選ぶ。
+  miniconda の Python 3.12 もある(playwright 入り。e2e は今はこちらで流している)。単体テストは 3.10 でも通る(段10-3 で確かめた)。
+  `setup/requirements*.txt` は **英数字だけ**で書く(この PC の pip 22 は Windows の文字コードで読み、日本語のコメントで落ちる)。node は PATH に無い(Playwright に入っている node を `dev/run_editor_suite.py` が使う)

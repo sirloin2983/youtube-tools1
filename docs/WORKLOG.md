@@ -2491,3 +2491,13 @@
 - 前後の結果(同じ): 編集の単体 225・test_mount 26・契約 34・eval_asr 4・ui-kit 5・node 9・e2e 12 本(項目数も 10-1 と同じ)・home の e2e_portal・e2e_keymap すべて OK
 - 次: 段10-3 Python 3.10 の固定と部品の版
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code — 段10-3 Python 3.10 の固定と部品の版 → 段10 は済み(担当の宣言を終える)
+- `setup/requirements.txt` に今この PC の Python 3.10 で動いている版(faster-whisper 1.2.1・ctranslate2 4.8.2・onnxruntime 1.23.2・numpy 2.2.6)、話者判別は新しい `requirements-diarize.txt`(sherpa-onnx 1.13.8・numpy 2.2.6。install-diarize.bat が読む)、
+  テスト用は新しい `requirements-dev.txt`(playwright 1.63.0)。`pip install --dry-run` で、今入っている版とまったく同じ(入れ直しが起きない)ことを確かめた
+- **requirements は英数字だけ**: この PC の pip 22.2 は requirements を Windows の文字コード(cp932)で読むので、日本語のコメントがあると UnicodeDecodeError で落ちる(最初に日本語で書いて気づいた)
+- start.bat・setup/install.bat・install-diarize.bat・install-gpu.bat・home/start_hidden.vbs: `py -3.10` → `py -3` → `python` の順に選ぶ(.bat・.vbs は ASCII のまま)
+- 3.10 で単体テストを流した: 編集の単体 225・test_mount 26・test_launch / test_restart / test_cleanup / test_intake・eval_asr・契約 すべて OK(e2e は playwright が 3.12 にしか無いので 3.12 のまま)
+- 文書: README.txt(準備の 1 を Python 3.10 に)・AGENTS.md(動作環境の Python の段落)・editor/AGENTS.md(app-*.js の決まり)・`docs/plan/phase10-code-split.md`(状態 = 済み)・ROADMAP(段10 = 済み)
+- **段10 は済み。担当の宣言(editor/ の分割)はここで終わり**。次は ROADMAP の順番どおり線 B 段2(エンジンの差し替え)。分けたので、認識の変更は主に `editor/ed_jobs.py` に閉じる
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
