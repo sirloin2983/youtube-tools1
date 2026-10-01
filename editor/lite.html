@@ -504,10 +504,28 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-step[hidden]{display:none!important}
 .lt-wrap{max-width:760px;margin:32px auto;padding:0 20px;width:100%;box-sizing:border-box}
 .lt-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:16px}
+.lt-sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 32px 24px}
+.lt-h{font-family:var(--font-display);font-size:20px;font-weight:650;margin:0 0 18px;letter-spacing:.01em}
+.lt-h2{font-size:14px;font-weight:600;color:var(--ink-2);margin:0 0 10px}
+.lt-resume{margin-top:28px}
+.lt-drop-ic{color:var(--ink-3);display:inline-block;margin-bottom:4px}
+.lt-drop-ic svg{width:32px;height:32px}
+.lt-sheet .lt-field{margin-top:22px}
+.btn.lg{padding:10px 22px;font-size:15px}
+/* 映像の上の字幕の見本(Resolve に出る字幕と同じ書体・話者の文字の色とふちの色。記号は除いた形) */
+.lt-video{position:relative}
+.lt-cap{position:absolute;left:4%;right:4%;bottom:7%;text-align:center;pointer-events:none;font-family:"MS Gothic","ＭＳ ゴシック",monospace;font-weight:700;
+  font-size:clamp(14px,2.1vw,26px);line-height:1.25;color:var(--c,#FFE600);paint-order:stroke fill;-webkit-text-stroke:.16em var(--o,#000);white-space:pre-wrap}
+.lt-cap:empty{display:none}
+@media (prefers-reduced-motion:reduce){.lt-bar>i{transition:none}}
 .lt-card h2{font-size:15px;margin:0 0 12px}
 .lt-lead{color:var(--ink-2);margin:0 0 16px;font-size:14px}
 .lt-drop{border:2px dashed var(--line-strong);border-radius:12px;padding:36px 20px;text-align:center;background:var(--panel-2);transition:background .15s,border-color .15s}
 .lt-drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.lt-drop.small{padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:12px}
+.lt-drop.small .lt-drop-ic{display:none}
+.lt-drop.small .lt-big{font-size:14px;font-weight:500;color:var(--ink-2);margin:0}
+.lt-drop.small .lt-note{margin:0}
 .lt-drop p{margin:6px 0;color:var(--ink-2)}
 .lt-drop .lt-big{font-size:17px;color:var(--ink);font-weight:600}
 .lt-file{display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2)}
@@ -590,26 +608,19 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 </header>
 <div id="errBar" class="lt-err" hidden></div>
 <main>
-  <!-- 1 読み込み -->
+  <!-- 1 読み込み(1枚の面: ドロップの場所が主役・入力欄はその下・前の作業は面の外の一覧) -->
   <section class="lt-step" id="stLoad" aria-labelledby="hLoad">
     <div class="lt-wrap">
-      <div class="lt-card" id="ltResume" hidden>
-        <h2>続きから</h2>
-        <div class="lt-works" id="ltWorks"></div>
-      </div>
-      <div class="lt-card">
-        <h2 id="hLoad">動画を選ぶ</h2>
+      <div class="lt-sheet">
+        <h2 id="hLoad" class="lt-h">字幕を作る動画を選ぶ</h2>
         <div class="lt-drop" id="ltDrop">
+          <span class="ui-icon lt-drop-ic" data-icon="film"></span>
           <p class="lt-big">動画をここにドロップ</p>
-          <p>または <button type="button" class="btn" id="ltPick">ファイルを選ぶ…</button></p>
-          <p class="lt-note">「ファイルを選ぶ」だと動画を写さないので速く、ディスクも使いません</p>
+          <p class="lt-note">または <button type="button" class="btn" id="ltPick">ファイルを選ぶ…</button>(写さないので速い)</p>
         </div>
         <div class="lt-bar" id="ltUpBar" hidden><i></i></div>
         <div class="lt-file" id="ltFile" hidden><span class="ui-icon" data-icon="film"></span><div><b id="ltFileName"></b><div class="lt-note" id="ltFileLen"></div></div></div>
         <div class="lt-warn" id="ltLenWarn" hidden></div>
-      </div>
-      <div class="lt-card">
-        <h2>動画のこと</h2>
         <div class="lt-field">
           <label for="ltStreamer">配信者<span class="lt-req">必須</span></label>
           <input id="ltStreamer" list="ltStreamerList" autocomplete="off" placeholder="名前を選ぶか入れる" maxlength="40">
@@ -621,9 +632,13 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
         </div>
         <div class="lt-actions">
           <span class="lt-note" id="ltStartHint">動画と配信者を選ぶと始められます</span>
-          <button type="button" class="btn primary" id="ltStart" disabled>文字起こしを始める</button>
+          <button type="button" class="btn primary lg" id="ltStart" disabled>文字起こしを始める</button>
         </div>
         <div class="lt-err" id="ltLoadErr" hidden></div>
+      </div>
+      <div class="lt-resume" id="ltResume" hidden>
+        <h2 class="lt-h2">前の作業の続き</h2>
+        <div class="lt-works" id="ltWorks"></div>
       </div>
     </div>
   </section>
@@ -651,7 +666,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
   <section class="lt-step" id="stProof" hidden aria-label="校正">
     <div class="lt-proof">
       <div class="lt-left">
-        <div class="lt-video"><video id="ltVideo" preload="metadata" playsinline></video></div>
+        <div class="lt-video"><video id="ltVideo" preload="metadata" playsinline></video><div class="lt-cap" id="ltCap" aria-hidden="true"></div></div>
         <div class="lt-now"><span id="ltNow">0:00.0</span><span id="ltDur"></span></div>
         <div class="lt-sec">
           <h3>話者(数字キーで付ける)</h3>
@@ -676,8 +691,8 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
           <span class="lt-spacer"></span>
           <button type="button" class="btn ghost sm" id="ltUndo" title="取り消し(Ctrl+Z)">取り消し</button>
           <button type="button" class="btn ghost sm" id="ltRedo" title="やり直し(Ctrl+Y)">やり直し</button>
-          <button type="button" class="btn ghost sm" id="ltNextUn" title="次の未確認の行へ(N)">次の未確認へ</button>
-          <button type="button" class="btn primary sm" id="ltToExport">書き出しへ</button>
+          <button type="button" class="btn primary sm" id="ltNextUn" title="次の未確認の行へ(N)">次の未確認へ</button>
+          <button type="button" class="btn sm" id="ltToExport">書き出しへ</button>
         </div>
         <div class="lt-err" id="ltConflict" hidden></div>
         <div class="lt-rows" id="ltRows" role="list" aria-label="字幕の行"></div>

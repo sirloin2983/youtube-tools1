@@ -41,7 +41,7 @@ NODE = find_node()
 if NODE:
     UNIT.append(("node 保存と切り替え", [NODE, "--test", "editor/tests/test_document_save.cjs"], False))
 E2E = ["e2e_proofread_accuracy", "e2e_proofread_keys", "e2e_folder_marker_range", "e2e_eval_set", "e2e_row_editing", "e2e_ui_handoff",
-       "e2e_edit_tabs", "e2e_edit_cut", "e2e_edit_voices", "e2e_edit_pack", "e2e_ui_mounted"]
+       "e2e_edit_tabs", "e2e_edit_cut", "e2e_edit_voices", "e2e_edit_pack", "e2e_ui_mounted", "e2e_lite"]
 SUITE = UNIT + [(n, [PY, "editor/tests/%s.py" % n], True) for n in E2E] + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)]
 
 

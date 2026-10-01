@@ -229,7 +229,11 @@ def start(req):
     url = _ev.safe_url(req.get("sourceUrl"))
     if str(req.get("sourceUrl") or "").strip() and not url:
         raise ed_state.ApiError("bad_url", "元の動画の URL は https:// から始まる形で入れてください(空のままでもかまいません)", 400)
-    spec = ed_jobs.validate_job({"sourcePath": req.get("path"), "model": lite_model(), "language": "ja", "vadMode": "weak", "autoDict": False,
+    src = os.path.abspath(str(req.get("path") or ""))
+    title = os.path.splitext(os.path.basename(src))[0]
+    if os.path.normcase(os.path.dirname(src)) == os.path.normcase(os.path.abspath(media_dir())):   # ドロップで受け取った動画: 受け取りのときに付けた番号を題名から外す
+        title = re.sub(r"^[0-9a-f]{8}_", "", title)
+    spec = ed_jobs.validate_job({"sourcePath": req.get("path"), "title": title[:120], "model": lite_model(), "language": "ja", "vadMode": "weak", "autoDict": False,
                                  "autoGloss": False, "autoContext": False, "autoLearned": False, "wordSplit": True, "autoRedo": False})
     spec["lite"] = {"streamer": streamer, "sourceUrl": url, "rulesVersion": _ev.RULES_VERSION, "formatVersion": _ev.FORMAT_VERSION}
     job = ed_jobs.add_job(spec)

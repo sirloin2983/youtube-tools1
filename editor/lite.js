@@ -122,6 +122,7 @@ function renderWorks(){
 function setFile(f){
   L.file = f;
   show($('#ltFile'), !!f);
+  $('#ltDrop').classList.toggle('small', !!f);   // 選んだら、ドロップの場所は小さく(次にやることは配信者を選んで始めること)
   $('#ltFileName').textContent = f ? f.name : '';
   $('#ltFileLen').textContent = f && f.durationSec ? `長さ ${fmtT(f.durationSec)}` : '';
   const warn = $('#ltLenWarn');
@@ -138,10 +139,10 @@ function updateStart(){
   $('#ltStartHint').textContent = ok ? '' : (!L.file ? '動画を選んでください' : !$('#ltStreamer').value.trim() ? '配信者を選んでください' : '');
 }
 
-async function probe(path){
+async function probe(path, shown){
   $('#ltLoadErr').hidden = true;
   const p = await api('/api/lite/probe', { body: { path } });
-  setFile({ path, name: p.name, durationSec: p.durationSec });
+  setFile({ path, name: shown || p.name, durationSec: p.durationSec });   // ドロップのときは元の名前を出す(受け取った写しの名前には番号が付く)
 }
 
 function upload(file){
@@ -168,9 +169,8 @@ async function takeDropped(files){
   if (!f) return;
   $('#ltLoadErr').hidden = true;
   try {
-    toast(`「${f.name}」を読み込んでいます`, 'info');
     const r = await upload(f);
-    await probe(r.path);
+    await probe(r.path, f.name);
   } catch (e){ showErr($('#ltLoadErr'), e); }
 }
 
@@ -338,6 +338,25 @@ window.addEventListener('beforeunload', () => { if (L.dirty) save(); });
 function updateCount(){
   const rs = rows(), ok = rs.filter(g => g.proofed === true).length;
   $('#ltCount').textContent = `確認済み ${ok}/${rs.length} 行`;
+  const all = rs.length > 0 && ok === rs.length;   // 次にやることだけを主のボタンに(未確認が残る間は「次の未確認へ」、全部済んだら「書き出しへ」)
+  $('#ltNextUn').classList.toggle('primary', !all);
+  $('#ltToExport').classList.toggle('primary', all);
+}
+
+/* 映像の上の字幕の見本: Resolve に出る字幕と同じ形(記号を除く。規則の正は ytt_core/evaldata.strip_marks。ここは見本だけ) */
+function capText(t){
+  return String(t || '').replace(/\[\?\]|\[笑\]/g, ' ').replace(/[ \t　]+/g, ' ')
+    .replace(/(?<=[^\x00-\x7f]) | (?=[^\x00-\x7f])/g, '').replace(/^[ 　、。,，.．]+/, '').trim();
+}
+function updateCaption(){
+  const cap = $('#ltCap'); if (!cap || !L.doc) return;
+  const rs = rows(), t = video.currentTime;
+  const k = !video.paused ? rs.findIndex(g => g.start <= t && t < g.end) : L.cur;
+  const g = rs[k];
+  const s = g && spk(g.speaker);
+  cap.textContent = g ? capText(g.text) : '';
+  cap.style.setProperty('--c', (s && s.color) || '#FFE600');
+  cap.style.setProperty('--o', (s && s.outline) || '#000000');
 }
 
 /* 話者 */
@@ -409,7 +428,7 @@ function rowEl(g, i){
     clearTimeout(ta._t); ta._t = setTimeout(() => { if (L.typing === i) L.typing = null; }, 1200);
     const v = ta.value.replace(/[\r\n]+/g, ' ');
     if (v !== ta.value) ta.value = v;
-    if (g.text !== v){ g.text = v; logOp({ op: 'text', row: g.id, len: v.length }); markDirty(); }
+    if (g.text !== v){ g.text = v; logOp({ op: 'text', row: g.id, len: v.length }); markDirty(); updateCaption(); }
     autosize(ta);
   });
   ta.addEventListener('keydown', ev => {
@@ -436,6 +455,7 @@ function markCur(){
   const box = $('#ltRows');
   for (const n of box.querySelectorAll('.lt-row.cur')) n.classList.remove('cur');
   const n = rowNode(L.cur); if (n) n.classList.add('cur');
+  updateCaption();
 }
 function select(i, seek){
   const rs = rows(); if (!rs.length) return;
@@ -549,7 +569,9 @@ video.addEventListener('timeupdate', () => {
   const rs = rows();
   const k = rs.findIndex(g => g.start <= t && t < g.end);
   if (k >= 0){ const n = rowNode(k); if (n) n.classList.add('playing'); if (!video.paused) L.played.add(rs[k].id); }
+  updateCaption();
 });
+video.addEventListener('pause', updateCaption);
 video.addEventListener('loadedmetadata', () => { $('#ltDur').textContent = '/ ' + fmtT(video.duration); });
 video.addEventListener('error', () => { if (L.step === 'proof') toast(friendly({ code: 'source_missing' }), 'err'); });
 
@@ -609,7 +631,7 @@ function renderExportSummary(){
 $('#ltExBack').addEventListener('click', () => setStep('proof'));
 $('#ltExport').addEventListener('click', async () => {
   if (!L.doc || L.exporting) return;
-  $('#ltExErr').hidden = true; show($('#ltDone'), false);
+  $('#ltExErr').hidden = true; show($('#ltDone'), false); $('#ltExport').classList.add('primary');
   L.exporting = true; $('#ltExport').disabled = true; show($('#ltExBarWrap'), true);
   try {
     clearTimeout(L.saveTimer); if (L.dirty) await save();
@@ -631,8 +653,9 @@ function exportDone(res){
   $('#ltExPhase').textContent = '';
   $('#ltZipName').textContent = res.zipName;
   const w = $('#ltExWarn'); w.textContent = '';
-  (res.warnings || []).forEach(x => { w.appendChild(el('li', '', x)); toast(x, 'info', 6000); });
+  (res.warnings || []).forEach(x => w.appendChild(el('li', '', x)));
   show($('#ltDone'), true);
+  $('#ltExport').classList.remove('primary'); $('#ltExport').disabled = false; $('#ltExport').textContent = 'もう一度書き出す';   // 書き出したあとの次の一手は「フォルダを開く」(主のボタンは1つ)
   toast('書き出しました', 'ok');
   openFolder('send');
 }
