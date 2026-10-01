@@ -2593,3 +2593,13 @@
   **版(serve.py・app.js・README)は、そちらが 0.36.0 をコミットしたあとに 0.36.1 で上げる**(README の変更の記録もそのとき)
 - 追記: 「計画の次」が 0.36.0 をコミットした(ff9a0ce)あと、編集を **0.36.1** に上げた(serve.py・app.js・README の変更の記録・editor/AGENTS.md・ROADMAP の版)。編集の単体・e2e_ui_mounted・e2e_eval_set OK
 - 未コミット: なし
+
+## 2026-10-02 Claude Code — 線 B 段2-2 の続き: whisper.cpp の余分な文字を減らす(ユーザー決定「1」= Silero の区間)を試した
+- `tx_engines`: whisper.cpp の vad_filter を「全体を認識 → Silero(faster-whisper の、ワーカーの中)で声のある所 → その外の行を捨てる」にした(`speech_spans`・`drop_outside_speech`。時刻はつながない)
+- **測ったら悪くなった**(評価用 18 本・温度 0): 27.0% → **33.8%**(抜け 243 → 588・余分 415 → 334)。BGM・ゲームの音で Silero が声を取りこぼす(今の faster-whisper の抜けが多いのも同じ理由とみられる)。no_speech の閾値を外しても同じ数
+  → 既定では使わない(測るときだけ `TRANSCRIBE_WCPP_SPEECH_FILTER=1`)。whisper.cpp 自身の声の検出も既定で使わない(`native_vad()`・`TRANSCRIBE_WCPP_VAD=1`)
+- 余分な文字を調べると、多くは声の無い所の幻覚ではなく**同じ文字の繰り返し**(「うううう…」76・25・16・13 字。その下の本当の行も消える)。原因は測る道具の `--temp0`(whisper.cpp では `-nf` = 温度のやり直しを止める)
+- **温度のやり直しあり(アプリで普段使う形)で測ると whisper.cpp large-v3 GPU = CER 21.6%**(置換 187 / 抜け 248 / 余分 272)・130 秒。faster-whisper(温度 0)21.7%・900 秒とほぼ同じで約 7 倍速い。
+  公平のため faster-whisper も「やり直しあり」で測っている(このあと)
+- テスト: test_whispercpp 10 件(Silero の区間で捨てる・捨てる規則)・編集の単体 OK
+- 未コミット: なし(このあとコミット)

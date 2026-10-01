@@ -67,11 +67,10 @@ class WhisperCppTest(unittest.TestCase):
         e.hooks = {"progress": prog.append}
         kw = S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3-turbo", "vadMode": "weak", "wordSplit": True,
                                "glossary": ["白上フブキ", "さくらみこ"]})
-        self.assertNotIn("vad_filter", S.filter_kwargs(e, kw))            # 既定では whisper.cpp の声の検出を使わない(文字が大きく抜けた)
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_VAD": "1"}):   # 測るときだけ使える
-            kw = S.filter_kwargs(e, kw)
+        kw = S.filter_kwargs(e, kw)
         self.assertNotIn("hotwords", kw)                                   # whisper.cpp に無い引数は渡さない
-        segs, info = e.transcribe(self.wav, **kw)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_VAD": "1"}):   # whisper.cpp 自身の声の検出は、測るときだけ
+            segs, info = e.transcribe(self.wav, **kw)
         segs = list(segs)
         a = self.sent_args()
         self.assertEqual(a[a.index("-l") + 1], "ja")
@@ -96,6 +95,32 @@ class WhisperCppTest(unittest.TestCase):
         # seg_to_dict(サーバーの行の整え方)がそのまま読める
         d = S.seg_to_dict(s)
         self.assertEqual((d["text"], d["words"][0][2], d["wordProbs"]), ("テスト文1", "テスト", [0.8, 0.5]))
+
+    def test_vad_drops_lines_outside_speech(self):
+        """TRANSCRIBE_WCPP_SPEECH_FILTER=1(測るときだけ): whisper.cpp には --vad を渡さず全体を認識し、Silero で出した声のある所の外の行だけ捨てる(時刻はそのまま)"""
+        e = self.engine()
+        os.environ["TRANSCRIBE_WCPP_SPEECH_FILTER"] = "1"
+        self.addCleanup(os.environ.pop, "TRANSCRIBE_WCPP_SPEECH_FILTER", None)
+        kw = S.filter_kwargs(e, S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3-turbo", "vadMode": "weak", "glossary": []}))
+        seen = {}
+
+        def spans(audio, vp):
+            seen["vp"] = vp
+            return [(0.0, 3.0), (8.5, 10.0)]                                # 0〜4 秒の行は 3/4 が声 → 残す / 4〜8 は 0 → 捨てる / 8〜10 は 3/4 → 残す
+        with mock.patch.object(E, "speech_spans", spans):
+            segs, info = e.transcribe(self.wav, **kw)
+        self.assertNotIn("--vad", self.sent_args())
+        self.assertEqual([(s.start, s.end) for s in segs], [(0.0, 4.0), (8.0, 10.0)])
+        self.assertEqual(seen["vp"]["threshold"], 0.3)                      # 「弱め」の設定を Silero に渡す
+        self.assertAlmostEqual(info.duration_after_vad, 4.5)                # サーバーの「捨てすぎたら緩める」が使う
+        with mock.patch.object(E, "speech_spans", lambda a, vp: None):     # faster-whisper が無ければ捨てない
+            segs, info = e.transcribe(self.wav, **kw)
+        self.assertEqual((len(list(segs)), info.duration_after_vad), (3, None))
+
+    def test_drop_outside_speech_rule(self):
+        seg = lambda a, b: __import__("types").SimpleNamespace(start=a, end=b)   # noqa: E731
+        keep = E.drop_outside_speech([seg(0, 2), seg(2, 4), seg(5, 5), seg(6, 6)], [(1.0, 3.5), (5.0, 5.5)])
+        self.assertEqual([(s.start, s.end) for s in keep], [(0, 2), (2, 4), (5, 5)])   # 半分ちょうどは残す・長さ 0 は始まりが声の中なら残す
 
     def test_temp0_and_cpu_and_samples(self):
         e = self.engine("cpu")

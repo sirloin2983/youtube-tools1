@@ -304,11 +304,13 @@ class WhisperCpp(Engine):
         return e
 
     def params(self):
-        """受け付ける引数。声の検出(vad_filter・vad_parameters)は既定で受け付けない: whisper.cpp の声の検出は声の所をつないで認識するので、
-        評価用の音声で行の文字が大きく抜けた(CER 36% → 80%。2026-10-02)。測るときだけ環境変数 TRANSCRIBE_WCPP_VAD=1 で使う"""
-        if os.environ.get("TRANSCRIBE_WCPP_VAD") == "1":
-            return list(self.PARAMS)
-        return [k for k in self.PARAMS if k not in ("vad_filter", "vad_parameters")]
+        return list(self.PARAMS)
+
+    @staticmethod
+    def native_vad():
+        """whisper.cpp 自身の声の検出(--vad)を使うか。既定は使わない: 声の所をつないで認識するので、評価用の音声で行の文字が大きく抜けた
+        (CER 36% → 80%。2026-10-02)。測るときだけ環境変数 TRANSCRIBE_WCPP_VAD=1。使わないときの vad_filter は、下の「声の無い所の行を捨てる」になる"""
+        return os.environ.get("TRANSCRIBE_WCPP_VAD") == "1"
 
     def args(self, wav, out_base, kw):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)"""
@@ -325,7 +327,7 @@ class WhisperCpp(Engine):
         prompt = re.sub(r"[\r\n]+", " ", str(kw.get("initial_prompt") or "")).strip()
         if prompt:
             a += ["--prompt", prompt]
-        if kw.get("vad_filter"):
+        if kw.get("vad_filter") and self.native_vad():
             vp = kw.get("vad_parameters") or {}
             a += ["--vad", "-vm", _ascii_path(self.model["vad"])]
             if vp.get("threshold") is not None:
@@ -357,8 +359,14 @@ class WhisperCpp(Engine):
             except (OSError, ValueError) as e:
                 raise EngineError("engine_failed", "whisper.cpp の結果を読めませんでした: %s" % str(e)[:160])
             segs = parse_json(data)
+            after = None   # 声の検出のあとの長さ(サーバーの「捨てすぎたら緩める」が使う)。検出しなければ分からない
+            if kw.get("vad_filter") and not self.native_vad() and os.environ.get("TRANSCRIBE_WCPP_SPEECH_FILTER") == "1":
+                spans = speech_spans(audio if not isinstance(audio, str) else wav, kw.get("vad_parameters") or {})
+                if spans is not None:
+                    segs = drop_outside_speech(segs, spans)
+                    after = sum(b - a for a, b in spans)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
-                                         duration=duration, duration_after_vad=None)   # whisper.cpp は声の検出のあとの長さを返さない
+                                         duration=duration, duration_after_vad=after)
             return iter(segs), info
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -439,6 +447,48 @@ def parse_json(data):
         out.append(types.SimpleNamespace(start=a, end=max(a, b), text=text, words=words,
                                          avg_logprob=(sum(lps) / len(lps)) if lps else None, no_speech_prob=None,
                                          compression_ratio=(len(raw) / len(zlib.compress(raw))) if raw else None))
+    return out
+
+
+# ---- 声の無い所の行を捨てる(whisper.cpp の声の検出の代わり。2026-10-02 ユーザー決定「1」で試した)
+# whisper.cpp は音声の全体を認識し(抜けが少ない)、faster-whisper と同じ Silero の声の検出で「声のある所」を出して、
+# その外にある行(声の無い所の幻覚)だけを捨てる。時刻をつながないので、行の文字・時刻は変わらない。
+# **測ったら悪くなった**(評価用 18 本: 27.0% → 33.8%。抜け 243 → 588。BGM・ゲームの音で Silero が声を取りこぼす)ので、既定では使わない。
+# 余分な文字の多くは声の無い所の幻覚ではなく、同じ文字の繰り返し(「うううう…」)だった。測るときだけ環境変数 TRANSCRIBE_WCPP_SPEECH_FILTER=1
+SPEECH_KEEP = 0.5   # 行の長さのうち、声のある所に入っている割合がこれ未満なら捨てる(評価用では調整しない。決めてから測る)
+
+
+def speech_spans(audio, vp):
+    """声のある所 [(開始秒, 終了秒)]。audio は wav のパスか float32 のサンプル(16kHz)。faster-whisper(の Silero)が無ければ None(捨てない)。
+    vp = faster-whisper の vad_parameters(threshold・min_silence_duration_ms・speech_pad_ms)。認識ワーカーの中だけで呼ぶ(numpy を読む)"""
+    try:
+        import numpy as np
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return None
+    if isinstance(audio, str):
+        with wave.open(audio, "rb") as w:
+            if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
+                return None
+            samples = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    else:
+        samples = np.asarray(audio, dtype=np.float32)
+    opts = VadOptions(**{k: vp[k] for k in ("threshold", "min_silence_duration_ms", "speech_pad_ms") if vp.get(k) is not None})
+    return [(t["start"] / 16000.0, t["end"] / 16000.0) for t in get_speech_timestamps(samples, opts)]
+
+
+def drop_outside_speech(segs, spans, keep=SPEECH_KEEP):
+    """声のある所 spans にほとんど入っていない行を捨てる(行の長さのうち spans と重なる割合 < keep)。長さ 0 の行は始まりが spans の中なら残す"""
+    out = []
+    for s in segs:
+        a, b = float(s.start), float(s.end)
+        if b <= a:
+            if any(x <= a <= y for x, y in spans):
+                out.append(s)
+            continue
+        ov = sum(max(0.0, min(b, y) - max(a, x)) for x, y in spans)
+        if ov / (b - a) >= keep:
+            out.append(s)
     return out
 
 
