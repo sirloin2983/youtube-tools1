@@ -1,0 +1,6 @@
+# Friend-facing simplified transcription (lite/start.bat installs this with uv into lite/.venv, Python 3.10).
+# Same versions as requirements.txt (tested on Python 3.10, 2026-10-01). Keep this file ASCII only.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+onnxruntime==1.23.2
+numpy==2.2.6

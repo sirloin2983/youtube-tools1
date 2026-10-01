@@ -1,0 +1,4 @@
+# NVIDIA GPU libraries for faster-whisper (ctranslate2 4.x needs CUDA 12 cuBLAS and cuDNN 9).
+# lite/start.bat installs this only when nvidia-smi is found. Keep this file ASCII only.
+nvidia-cublas-cu12>=12.4,<13
+nvidia-cudnn-cu12>=9,<10

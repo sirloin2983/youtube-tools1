@@ -1,0 +1,3 @@
+# Windows のバッチは CRLF で取り出す(LF だけだと cmd の goto・ラベルが誤動作することがある。GitHub の zip で配る lite/start.bat も)
+*.bat text eol=crlf
+*.cmd text eol=crlf

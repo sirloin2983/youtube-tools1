@@ -427,6 +427,12 @@ class HelpersTest(unittest.TestCase):
         with mock.patch("sys.stderr"):
             with self.assertRaises(SystemExit):
                 L.parse_args(["--only", "studio,../x"])
+        a = L.parse_args(["--only", "transcribe", "--open-path", "/transcribe/lite.html", "--app-window"])   # 友人用 簡易版の起動(lite/lite.py)
+        self.assertEqual((a.open_path, a.app_window), ("/transcribe/lite.html", True))
+        self.assertEqual((L.parse_args([]).open_path, L.parse_args([]).app_window), ("/", False))
+        for bad in ("transcribe/lite.html", "/../x", "//evil.example/x", "/a b", "/a?x=1", "/" + "a" * 200):
+            with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                L.parse_args(["--open-path", bad])
 
     def test_logger_does_not_block_when_console_is_stuck(self):
         # Windows の黒い画面で文字を選択している間は表示の書き込みが止まる。そのときも log() はすぐ戻り、ファイルには残る

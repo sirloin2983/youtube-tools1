@@ -1101,6 +1101,8 @@ def parse_args(argv):
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")
     ap.add_argument("--wait-port", action="store_true", help="「起動し直す」用: --port が空くまで(最大 30 秒)待ってから待ち受ける")
+    ap.add_argument("--open-path", default="/", help="最初に開く画面の場所(例: /transcribe/lite.html = 友人用 文字起こし簡易版)")
+    ap.add_argument("--app-window", action="store_true", help="設定にかかわらず Edge のアプリの窓で開く(無ければいつものブラウザ)")
     ap.add_argument("--no-mount", action="store_true",
                     help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
     a = ap.parse_args(argv)
@@ -1109,6 +1111,8 @@ def parse_args(argv):
     if bad:
         ap.error("--only に使えるのは %s です(%s は不明)" % (", ".join(TOOL_IDS), ", ".join(bad)))
     a.only = only
+    if not re.fullmatch(r"/[A-Za-z0-9._/\-]{0,120}", a.open_path) or ".." in a.open_path or "//" in a.open_path:
+        ap.error("--open-path は / で始まる英数字の場所にしてください(例: /transcribe/lite.html)")
     return a
 
 
@@ -1125,11 +1129,14 @@ def main(argv=None):
     if opts.wait_port and not restart_mod.wait_port_free(opts.port):   # 「起動し直す」で起こされた: 古い入口がポートを離すまで待つ(段9 9-3)
         log("前の入口がポート %d を離しませんでした。次の番号で起動します" % opts.port)
     srv, port = make_server(opts.port, sup)
-    url = "http://localhost:%d/" % port
+    url = "http://localhost:%d%s" % (port, opts.open_path)
     if srv is None:
         print("入口はすでに起動しています。画面を開きます:", url)
         if not opts.no_open:
-            appwindow_mod.Opener(app_data_dir(ROOT), fsio.atomic_write, log=log).open_start(url)
+            op = appwindow_mod.Opener(app_data_dir(ROOT), fsio.atomic_write, log=log)
+            if opts.app_window:
+                op.force_mode = "app"
+            op.open_start(url)
         return 0
     http_thread = None
     try:
@@ -1151,6 +1158,8 @@ def main(argv=None):
         sup.start_monitor()
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
+        if opts.app_window:   # 友人用 簡易版の起動(lite/lite.py): 設定にかかわらず窓で開く
+            srv.window.force_mode = "app"
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
             threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()
         while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ
