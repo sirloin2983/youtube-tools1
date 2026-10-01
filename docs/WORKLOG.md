@@ -2501,3 +2501,9 @@
 - 文書: README.txt(準備の 1 を Python 3.10 に)・AGENTS.md(動作環境の Python の段落)・editor/AGENTS.md(app-*.js の決まり)・`docs/plan/phase10-code-split.md`(状態 = 済み)・ROADMAP(段10 = 済み)
 - **段10 は済み。担当の宣言(editor/ の分割)はここで終わり**。次は ROADMAP の順番どおり線 B 段2(エンジンの差し替え)。分けたので、認識の変更は主に `editor/ed_jobs.py` に閉じる
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-02 Claude Code — 友人用 文字起こし簡易版(lite)を始める(担当の宣言)
+- 担当: 友人用 文字起こし簡易版(`editor/lite*`・`editor/ed_lite.py`・`lite/`・`ytt_core/evaldata.py`・`dev/eval_import.py`、cut2resolve の Text+ の型 `lite`)は Claude Code(PC)
+- 設計の正本: `.design/friend-transcribe-lite/DESIGN_BRIEF.md`(ユーザーの Downloads から写した)。計画: `docs/plan/friend-lite-plan.md`(段 L1〜L6)
+- 段0 の残り(旧フォルダの改名・AI の作業フォルダの向け直し)は実装に関係しないので並行(ユーザー「実装して」)
+- 未コミット: なし(このあとコミット)
