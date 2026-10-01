@@ -47,12 +47,15 @@ class Paths(unittest.TestCase):
     def test_scrub(self):
         home = r"C:\Users\taro"
         obj = {"sourcePath": r"C:\Users\taro\Videos\a b.mp4", "unc": r"\\server\share\x.mp4", "mac": "/Users/taro/v/x.mov",
-               "note": r"保存先 C:\Users\taro\Videos\x.mp4 を見る", "list": [r"D:\clips\y.mp4"], "n": 3, "ok": "そのまま"}
+               "note": r"保存先 C:\Users\taro\Videos\x.mp4 を見る", "list": [r"D:\clips\y.mp4"], "n": 3, "ok": "そのまま",
+               "url": "https://www.youtube.com/watch?v=abc", "path_url": "https://example.com/home/x"}
         out = E.scrub_paths(obj, home=home)
         self.assertEqual(out["sourcePath"], "a b.mp4")
         self.assertEqual(out["unc"], "x.mp4")
         self.assertEqual(out["mac"], "x.mov")
         self.assertEqual(out["list"], ["y.mp4"])
+        self.assertEqual(out["url"], obj["url"])            # URL はパスではない
+        self.assertEqual(out["path_url"], obj["path_url"])
         self.assertNotIn("taro", json.dumps(out, ensure_ascii=False))
         self.assertEqual(E.find_abs_paths(out), [])
         self.assertTrue(E.find_abs_paths(obj))

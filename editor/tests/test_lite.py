@@ -105,5 +105,181 @@ class LiteCoreSpeakers(unittest.TestCase):
         self.assertNotIn("outline", doc["speakers"][1])
 
 
+# ---------------------------------------------------------------- L2 書き出し(ed_lite)
+
+import io  # noqa: E402
+import zipfile  # noqa: E402
+import ed_lite  # noqa: E402
+from ytt_core import evaldata as EV  # noqa: E402
+
+
+def make_video(path, sec=16, fps=60):   # 疑似の文字起こしは 4 秒ごとに1行 = 4 行
+    """60fps・横 640x360・音つきのテスト用動画(Resolve の 30fps のプロジェクトに置く場合と同じ組み合わせ)"""
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=%d:duration=%d" % (fps, sec),
+                    "-f", "lavfi", "-i", "sine=f=440:d=%d" % sec, "-c:v", "mpeg4", "-q:v", "8", "-c:a", "aac", "-shortest", path], check=True)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg・ffprobe が必要")
+class LiteExport(_Store):
+    def setUp(self):
+        super().setUp()
+        self.out = os.path.join(self.tmp, "出力")
+        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "LITE_MODEL": "small",
+                                                "LITE_OUT_DIR": self.out})
+        self.env.start()
+        self.video = os.path.join(self.tmp, "配信 動画.mp4")
+        make_video(self.video)
+
+    def tearDown(self):
+        self.env.stop()
+        super().tearDown()
+
+    def transcribe(self, **req):
+        job = ed_lite.start(dict({"path": self.video, "streamer": "兎田ぺこら", "sourceUrl": "https://www.youtube.com/watch?v=abc"}, **req))
+        ed_jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
+        j = ed_jobs._jobs[job["id"]]
+        ed_jobs.run_job(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
+        return j["tid"]
+
+    def test_start_validation(self):
+        with self.assertRaises(S.ApiError) as c:
+            ed_lite.start({"path": self.video, "streamer": "  "})
+        self.assertEqual(c.exception.code, "no_streamer")
+        with self.assertRaises(S.ApiError) as c:
+            ed_lite.start({"path": self.video, "streamer": "a", "sourceUrl": "javascript:alert(1)"})
+        self.assertEqual(c.exception.code, "bad_url")
+
+    def test_new_doc_has_lite_and_default_speaker(self):
+        tid = self.transcribe()
+        doc = ed_store.read_transcript(tid)
+        self.assertEqual(doc["lite"]["streamer"], "兎田ぺこら")
+        self.assertEqual(doc["speakers"], [{"id": "A", "name": "兎田ぺこら", "color": "#FFE600", "outline": "#000000"}])
+        self.assertTrue(all(g["speaker"] == "A" for g in doc["segments"]))
+        self.assertEqual(ed_lite.load_settings()["streamers"][0], "兎田ぺこら")
+        self.assertEqual([w["id"] for w in ed_lite.works()], [tid])
+        # 保存しても印は消えない(sanitize_transcript は文書の他の項目を残す)
+        doc2 = ed_store.save_transcript(tid, {"speakers": doc["speakers"], "segments": doc["segments"], "baseUpdatedAt": doc["updatedAt"]})
+        self.assertEqual(doc2["lite"]["streamer"], "兎田ぺこら")
+
+    def test_export_pack_and_zip(self):
+        tid = self.transcribe()
+        doc = ed_store.read_transcript(tid)
+        segs = doc["segments"]
+        self.assertEqual(len(segs), 4)   # 4 行目は確認しないまま
+        segs[0].update(text="えー [笑] こんにちは", proofed=True)
+        segs[1].update(text="[?]", proofed=True, speaker="B")          # 記号だけ = 字幕にしない(評価には残す)
+        segs[2].update(text="それな(笑)", proofed=True, speaker="B")    # 形式違い = 評価でその行だけ外す
+        speakers = doc["speakers"] + [{"id": "B", "name": "さくらみこ", "color": "#FF8FC8", "outline": "#5C1B47"}]
+        ed_store.save_transcript(tid, {"speakers": speakers, "segments": segs, "baseUpdatedAt": doc["updatedAt"]})
+        r = ed_lite.append_ops({"id": tid, "ops": [{"op": "confirm", "row": segs[0]["id"], "played": True}, {"op": "confirm", "row": segs[1]["id"], "played": False},
+                                                   {"op": "hack", "row": "x"}, {"op": "time", "row": segs[0]["id"], "edge": "start", "from": 0, "to": 0.1}]})
+        self.assertEqual(r["saved"], 3)
+
+        res = ed_lite.export_now(tid)
+        date = time.strftime("%Y-%m-%d", time.localtime(ed_store.read_transcript(tid)["createdAt"] / 1000))
+        name = "%s_兎田ぺこら_%s" % (date, tid)
+        self.assertEqual(res["zipName"], name + ".zip")
+        zpath = os.path.join(self.out, name, "送る用ファイル", name + ".zip")
+        self.assertEqual(EV.check_zip(zpath)[1], [])
+        with zipfile.ZipFile(zpath) as z:
+            self.assertEqual(sorted(z.namelist()), sorted(EV.FILES))
+            final = json.loads(z.read("final.json"))
+            meta = json.loads(z.read("meta.json"))
+            raw = json.loads(z.read("asr_raw.json"))
+            edits = EV.read_edits(z.read("edits.jsonl"))
+            self.assertEqual(z.read("audio.flac")[:4], b"fLaC")
+            blob = b"".join(z.read(n) for n in ("final.json", "meta.json", "asr_raw.json", "edits.jsonl")).decode("utf-8")
+        # 記号は評価データに残す・生出力との対応・話者
+        self.assertEqual(final["rows"][0]["text"], "えー [笑] こんにちは")
+        self.assertEqual(final["rows"][1]["speaker"], "さくらみこ")
+        self.assertEqual(final["rows"][0]["raw"], [0])
+        self.assertTrue(final["rows"][0]["checked"])
+        self.assertEqual(raw["source"], "asr")
+        self.assertEqual(raw["run"]["model"], "small")
+        self.assertEqual(meta["streamer"], "兎田ぺこら")
+        self.assertEqual(meta["performers"], ["さくらみこ", "兎田ぺこら"])
+        self.assertEqual(meta["sourceUrl"], "https://www.youtube.com/watch?v=abc")
+        self.assertEqual(meta["sourceName"], "配信 動画.mp4")
+        self.assertEqual(meta["fps"], "60/1")
+        self.assertEqual(meta["rulesVersion"], EV.RULES_VERSION)
+        self.assertEqual(len(edits), 3)
+        self.assertEqual(meta["notes"]["confirmedWithoutListening"], 1)
+        # 絶対パス・PC のユーザー名を入れない
+        self.assertEqual(EV.find_abs_paths([final, meta, raw]), [])
+        self.assertNotIn(self.tmp.replace("\\", "\\\\"), blob)
+        self.assertNotIn(os.path.expanduser("~").replace("\\", "\\\\"), blob)
+        # 書き出しの知らせ: 未確認の行・形式違い
+        self.assertTrue(any("確認していない行" in w for w in res["warnings"]))
+        self.assertTrue(any("記号の形が違う行が 1 行" in w for w in res["warnings"]))
+        # Resolve 用ファイル: 記号を除いた字幕・空の行は無し・字幕の型 lite・話者ごとのふち
+        pack_dir = os.path.join(self.out, name, "Resolve用ファイル")
+        self.assertTrue(os.path.isfile(os.path.join(pack_dir, "Resolveでの手順.txt")))
+        self.assertTrue(os.path.isfile(os.path.join(pack_dir, "配信 動画.mp4")))
+        _pack, tp = ed_lite._pack_mod()
+        with open(os.path.join(pack_dir, "create_resolve_textplus_project.lua"), encoding="utf-8") as f:
+            plan = tp.read_script_plan(f.read())
+        texts = [c["text"].replace("\n", "") for c in plan["captions"]]
+        self.assertEqual(texts[0], "えーこんにちは")
+        self.assertNotIn("", texts)
+        self.assertFalse(any("[?]" in t or "[笑]" in t for t in texts))
+        self.assertIn("MS Gothic", plan["style"]["fonts"])
+        self.assertEqual(plan["target"]["fps"], 30)
+        self.assertEqual((plan["target"]["width"], plan["target"]["height"]), (1920, 1080))
+        self.assertEqual(plan["captions"][1].get("outline"), tp.hex_rgba("#5C1B47"))   # 2つ目の字幕 = 「それな(笑)」(さくらみこ)
+        self.assertEqual(plan["captions"][0].get("fill"), tp.hex_rgba("#FFE600"))
+        # 書き出し直し(上書き)もできる
+        self.assertEqual(ed_lite.export_now(tid)["zipName"], name + ".zip")
+        self.assertEqual(ed_lite.read_export_record(tid)["counts"]["rows"], len(segs))
+
+    def test_open_folder_only_inside_out_root(self):
+        tid = self.transcribe()
+        with self.assertRaises(S.ApiError):
+            ed_lite.open_folder({"id": tid})   # まだ書き出していない
+        ed_lite.export_now(tid)
+        with mock.patch.object(ed_lite, "_start_folder") as m:
+            ed_lite.open_folder({"id": tid, "what": "send"})
+            self.assertTrue(m.call_args[0][0].endswith("送る用ファイル"))
+        rec = ed_lite.read_export_record(tid)
+        rec["zip"] = os.path.join(self.tmp, "外", "x.zip")
+        os.makedirs(os.path.join(self.tmp, "外"))
+        S.atomic_write(ed_lite.export_record_path(tid), json.dumps(rec).encode("utf-8"))
+        with mock.patch.object(ed_lite, "_start_folder") as m, self.assertRaises(S.ApiError):
+            ed_lite.open_folder({"id": tid, "what": "send"})
+        m.assert_not_called()
+
+
+class LiteUpload(_Store):
+    def test_receive_upload(self):
+        data = b"x" * 1000
+        r = ed_lite.receive_upload(io.BytesIO(data), len(data), r"C:\Users\someone\動画 1.mp4")
+        self.assertTrue(r["path"].startswith(ed_lite.media_dir()))
+        self.assertTrue(r["name"].endswith("動画_1.mp4"))
+        with open(r["path"], "rb") as f:
+            self.assertEqual(f.read(), data)
+
+    def test_bad_uploads(self):
+        with self.assertRaises(S.ApiError):
+            ed_lite.receive_upload(io.BytesIO(b"x"), 1, "evil.exe")
+        with self.assertRaises(S.ApiError):
+            ed_lite.receive_upload(io.BytesIO(b"x"), 0, "a.mp4")
+        with self.assertRaises(S.ApiError) as c:
+            ed_lite.receive_upload(io.BytesIO(b"xx"), 10, "a.mp4")   # 途中で切れた
+        self.assertEqual(c.exception.code, "upload_cut")
+        self.assertEqual(os.listdir(ed_lite.media_dir()), [])   # 書きかけは残さない
+
+
+class LiteSettings(_Store):
+    def test_settings_and_palette(self):
+        s = ed_lite.save_settings({"worker": "友人<A>", "speakerStyles": {"さくらみこ": {"color": "#ff8fc8", "outline": "#000000"}, "bad": {"color": "red"}}})
+        self.assertEqual(s["worker"], "友人A")
+        self.assertEqual(s["speakerStyles"], {"さくらみこ": {"color": "#FF8FC8", "outline": "#000000"}})
+        p = ed_lite.palette()
+        self.assertEqual(p["text"][0]["hex"], "#FFE600")
+        self.assertEqual(p["outline"][0]["hex"], "#000000")
+        with mock.patch.object(ed_lite, "COLORS_FILE", os.path.join(self.tmp, "none.json")):
+            self.assertEqual(ed_lite.palette(), ed_lite.FALLBACK_COLORS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

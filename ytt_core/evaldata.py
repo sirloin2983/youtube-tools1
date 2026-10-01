@@ -123,7 +123,7 @@ def tidy_suspect(raw_texts, final_texts):
 # ---------------------------------------------------------------- パス
 
 _ABS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|//|/(?:Users|home|mnt|Volumes|private|tmp|var)/)")
-_ABS_ANY = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/]|/(?:Users|home)/[^/\s]+)")
+_ABS_ANY = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\[^\\/\s]+[\\/]|(?<![\w.])/(?:Users|home)/[^/\s]+)")   # 「https://」の s:/ は数えない
 
 
 def base_name(path):
@@ -146,7 +146,7 @@ def scrub_paths(obj, home=None):
         if home and len(home) > 3 and home.lower() in s.lower():
             s = re.sub(re.escape(home), "~", s, flags=re.IGNORECASE)
         if _ABS_ANY.search(s):
-            s = re.sub(r"(?:[A-Za-z]:[\\/]|\\\\)[^\s\"'<>|]*[\\/]", "", s)
+            s = re.sub(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\)[^\s\"'<>|]*[\\/]", "", s)
             s = re.sub(r"/(?:Users|home)/[^\s\"'<>|]*/", "", s)
         return s
     return obj

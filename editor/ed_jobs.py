@@ -35,6 +35,7 @@ import wave
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
+import ed_lite  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
@@ -1386,6 +1387,7 @@ def run_job(job):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             if spec.get("evalSet"):
                 doc["evalSet"] = True
+            ed_lite.on_new_doc(spec, doc)   # 友人用簡易版: 印(doc["lite"])と既定の話者(簡易版でなければ何もしない)
             ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         try:
             write_words(tid, all_words, spec["model"])
