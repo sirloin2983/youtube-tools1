@@ -2466,3 +2466,15 @@
 - 線 B 段1 は 09-29 に済んでいた(ROADMAP の「次は段1」が古かったので直した)
 - **担当: Claude Code(このセッション)が editor/ の serve.py・app.js・tests を分割中**。動きは変えない・版は上げない。項目ごとにコミットする
 - 未コミット: なし(このあと計画書・ROADMAP・WORKLOG をコミット)
+
+## 2026-10-01 Claude Code — 段10-1 editor/serve.py を役割ごとの部品に分けた(動きは同じ・版は上げない)
+- 計画: `docs/plan/phase10-code-split.md`(案A)。7,436 行の serve.py → `ed_state` 441・`ed_store` 877・`ed_relink` 706・`ed_media` 171・`ed_jobs` 2,151・`ed_speakers` 801・`ed_learn` 1,199・`ed_misc` 571・`serve` 879 行
+- 作り方: 手で移さず、節の見出しで行き先を決め、AST と symtable で各関数が使う大域の名前を調べて、ほかの部品の名前を `ed_xxx.名前` に書き換える道具で分けた(979 か所。`global` 文の中のほかの部品の名前は外して代入を `ed_xxx.名前 = …` に)。
+  import のときにほかの部品の名前を使っていた MIXED_FLAG・WEAK_FLAG・NONE_FLAG は ed_state へ。ed_state はほかの部品の読み込みを最後に置く(循環 import で値ができる前に読まれないように)
+- serve.py は名前の受付: PEP 562 の `__getattr__`(読む。sys.modules に登録しない読み込み = 契約テストでも働く)+ モジュールのクラスの `__setattr__`・`__delattr__`(書く・消すを持ち主の部品へ。
+  mock.patch.object は戻すときに消してから入れ直すので、持ち主は読み込んだ時点の表 `_ED_OWNER` で覚える)。**テストの差し替えは1行も直さずに済んだ**
+- 版の正は serve.py の `SERVER_VERSION` のまま(入口 home/launch.py がこの行を読むため)。部品は `ed_state.SERVER_VERSION`(serve.py が読み込みのときに入れる)
+- テストの写す一覧: e2e 7 本・test_backend・test_metrics・dev/tests/e2e_pipeline.py に `ed_*.py` を足した(`e2e_edit_common.py` はフォルダごと写すので不要)
+- 前後の結果(`python dev/run_editor_suite.py`。同じ): 編集の単体 225 OK・test_mount 26・契約 34・eval_asr 4・ui-kit 5・e2e 12 本(proofread_accuracy 38・proofread_keys 121・folder_marker_range 54・eval_set 27・row_editing 134・ui_handoff 66・edit_tabs 129・edit_cut 108・edit_voices 29・edit_pack 88・ui_mounted 41・e2e_pipeline 24)すべて OK。版の行を戻したあと単体・取り込み・ui_mounted・test_launch・契約をもう一度 OK
+- 次: 段10-2 app.js を分ける → 10-3 Python 3.10 の固定と部品の版
+- 未コミット: なし(このあとコミット。担当の宣言は段10 が終わるまで続く)

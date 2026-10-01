@@ -37,6 +37,12 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
 - テスト: `test_roster.py`(test_metrics から読む)。測る道具 `../dev/eval_asr.py run --context none|auto --temp0`
 
 ## 構成
+- **段10(2026-10-01)で serve.py を役割ごとの部品に分けた**(`../docs/plan/phase10-code-split.md`。動きは同じ): `ed_state.py`(置き場所・設定の値・共通の小道具・記録・作業データの切り替え)・
+  `ed_store.py`(保存・履歴・編集の内容)・`ed_relink.py`(付け替え・評価用のフォルダ)・`ed_media.py`(波形)・`ed_jobs.py`(ジョブ・認識ワーカー・声の検出のやり直し・単語の時刻・再認識・疑わしい所)・
+  `ed_speakers.py`(話者判別・声を覚える)・`ed_learn.py`(辞書・学習・提案・精度・基準・書き出し・保管)・`ed_misc.py`(設定の比較・clip-marker・進行度・フォルダの一括・受け渡し)・`serve.py`(版・起動・HTTP の振り分け)。
+  部品どうしは `ed_xxx.名前` で呼ぶたびに読む(`from … import` しない = 差し替えが効く)。**serve.py が名前の受付**: `serve.名前` は持ち主の部品から読み、`serve.名前 = …`(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)は持ち主の部品へ転送する。
+  版の正は serve.py の `SERVER_VERSION`(入口が読む。部品は `ed_state.SERVER_VERSION`)。新しい名前は、役割に合う部品に書く(serve.py の名前を部品から使わない)。import のときに使ってよいのは `ed_state` の名前だけ(ほかの部品は呼ぶときに)。
+  テストで serve.py を一時フォルダに写すときは `ed_*.py` も写す(各 e2e の一覧は `ed_` で始まる .py を足す形)。まとめて流す: `python dev/run_editor_suite.py`
 - `serve.py` … Python 標準ライブラリの HTTP サーバー(127.0.0.1:8775)。文字起こしは faster-whisper、話者判別は sherpa-onnx(任意)。
   ジョブは優先度付きの待機列(話者判別は、待っている文字起こしより先に処理。実行中のジョブは中断しない)。
   保存は `transcripts/<id>.json`(`segments` = 人が直した行、`original` = 機械の出力。精度測定・修正からの学習は、この2つを時刻の重なりで対応づける)

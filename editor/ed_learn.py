@@ -1,0 +1,1199 @@
+# -*- coding: utf-8 -*-
+"""「編集」のサーバーの部品: 置換辞書・修正からの学習・提案・認識精度の測定・評価用の基準・修正データの書き出し・データの保管(段10 で editor/serve.py から分けた。docs/plan/phase10-code-split.md)。
+
+名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
+ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+"""
+import array
+import bisect
+import difflib
+import faulthandler
+import gc
+import hashlib
+import itertools
+import json
+import logging
+import logging.handlers
+import math
+import os
+import queue
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import threading
+import time
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+import wave
+
+from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
+import roster as _roster  # noqa: E402,F401
+import ed_jobs  # noqa: E402,F401
+import ed_relink  # noqa: E402,F401
+import ed_state  # noqa: E402,F401
+import ed_store  # noqa: E402,F401
+# ---------- 置換辞書・修正からの学習 ----------
+def load_settings():
+    try:
+        with open(ed_state.SETTINGS, "r", encoding="utf-8-sig") as f:   # メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+# ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
+SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
+                       "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
+                       # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
+                       "packFps": lambda v: v in ("24", "25", "30", "50", "60"),
+                       "packSize": lambda v: v in ("1080x1920", "1920x1080"),
+                       "speakerColors": lambda v: isinstance(v, bool),
+                       "packBackup": lambda v: isinstance(v, bool),
+                       "packRender": lambda v: isinstance(v, bool),   # 粗編集の動画つき(段4 4-2: 覚える)
+                       # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
+                       "keymap": lambda v: _keymap_ok(v),
+                       # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
+                       "evalDirs": lambda v: ed_relink._eval_dirs_ok(v)}
+_KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
+_KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
+
+
+def _keymap_ok(v):
+    return (isinstance(v, dict) and len(v) <= 60
+            and all(isinstance(k, str) and _KM_ID_RE.fullmatch(k) and isinstance(c, str) and (c == "" or _KM_COMBO_RE.fullmatch(c)) for k, c in v.items()))
+
+
+_settings_lock = threading.Lock()
+
+
+def patch_settings(obj):
+    vals = obj.get("values")
+    if not isinstance(vals, dict) or not vals:
+        raise ed_state.ApiError("bad_request", "直す値がありません", 400)
+    for k, v in vals.items():
+        chk = SETTINGS_PATCH_KEYS.get(k)
+        if not chk or not chk(v):
+            raise ed_state.ApiError("bad_request", "その設定は直せません: %s" % str(k)[:40], 400)
+    with _settings_lock:
+        st = load_settings()
+        st.update(vals)
+        ed_state.atomic_write(ed_state.SETTINGS, json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"))
+    return {"ok": True, "values": {k: st[k] for k in vals}}
+
+
+def merge_settings(obj):
+    """PUT /api/settings {"patch": {キー: 値 | null}}: 最上位のキーだけを、ロックの中で今のファイルに合わせる(null = そのキーを消す)。
+    api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は、丸ごとの保存と同じくここでは変えない(値の検査があるそちらの API だけで直す)。
+    案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる
+    → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち。docs/plan/phase2-data-safety.md の 6)"""
+    p = obj.get("patch")
+    if set(obj) != {"patch"} or not isinstance(p, dict) or len(p) > 200             or any(not isinstance(k, str) or not k or len(k) > 60 for k in p):
+        raise ed_state.ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
+    with _settings_lock:
+        st = load_settings()
+        for k, v in p.items():
+            if k in SETTINGS_PATCH_KEYS:
+                continue
+            if v is None:
+                st.pop(k, None)
+            else:
+                st[k] = v
+        body = json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8")
+        if len(body) > 400000:
+            raise ed_state.ApiError("too_big", "設定が大きすぎます", 413)
+        ed_state.atomic_write(ed_state.SETTINGS, body)
+    return {"ok": True}
+
+
+def parse_replacements(text):
+    """「誤=>正」を1行に1つ書いた文字列 → [(誤, 正)](長い誤りから先に置換する)。"""
+    pairs = []
+    for line in str(text or "").splitlines():
+        k = line.find("=>")
+        if k > 0 and line[:k].strip():
+            pairs.append((line[:k].strip(), line[k + 2:].strip()))
+    return sorted(pairs[:500], key=lambda p: -len(p[0]))
+
+
+def _cc(ch):
+    """文字の種類。K=カタカナ(ー・を含む) / H=漢字 / A=英数字。それ以外(ひらがな・記号・空白)は空。単語の切れ目の判定に使う。"""
+    o = ord(ch)
+    if 0x30A1 <= o <= 0x30FA or ch in "ー・ヽヾ":
+        return "K"
+    if 0x4E00 <= o <= 0x9FFF or ch in "々〆":
+        return "H"
+    if (ch.isascii() and ch.isalnum()) or 0xFF10 <= o <= 0xFF19 or 0xFF21 <= o <= 0xFF3A or 0xFF41 <= o <= 0xFF5A:
+        return "A"
+    return ""
+
+
+def _bounded(text, k, w):
+    """text の位置 k にある w が、同じ種類の文字の並び(カタカナ・漢字・英数字)の途中で切れていないか。
+    例: 「トル」は「トルコ」の中では×、「トル様」の中なら○(ひらがな・記号との境目は切れ目とみなす)。"""
+    c = _cc(w[0])
+    if c and k > 0 and _cc(text[k - 1]) == c:
+        return False
+    c = _cc(w[-1])
+    if c and k + len(w) < len(text) and _cc(text[k + len(w)]) == c:
+        return False
+    return True
+
+
+def wb_split(w):
+    """置換辞書の「誤」が |語| の形なら、(語, True)。単語の途中には当てない指定。それ以外は (w, False)。"""
+    if len(w) >= 3 and w[0] == "|" and w[-1] == "|":
+        return w[1:-1], True
+    return w, False
+
+
+def apply_replacements(text, pairs):
+    n = 0
+    for w, r in pairs:
+        core, wb = wb_split(w)
+        if not core or core not in text:
+            continue
+        if not wb:
+            n += text.count(core)
+            text = text.replace(core, r)
+            continue
+        out, i, k = [], 0, text.find(core)
+        while k >= 0:
+            if _bounded(text, k, core):
+                out.append(text[i:k]); out.append(r); i = k + len(core); n += 1
+                k = text.find(core, i)
+            else:
+                k = text.find(core, k + 1)
+        out.append(text[i:]); text = "".join(out)
+    return text, n
+
+
+PUNCT_ONLY = re.compile(r"^[\s、。,.!?！？…・「」『』()（）ー〜~-]*$")
+
+
+def _groups(orig, segs):
+    """機械の出力(orig)と修正後(segs)を、時刻が重なるまとまりごとに対応づける(分割・結合・時刻の微調整があっても比べられる)。"""
+    items = sorted([(o["start"], o["end"], 0, i) for i, o in enumerate(orig)] + [(g["start"], g["end"], 1, i) for i, g in enumerate(segs)])
+    groups, cur, cur_end = [], None, -1.0
+    for a, b, k, i in items:
+        if cur is not None and a < cur_end - 0.05:
+            cur[k].append(i)
+            cur_end = max(cur_end, b)
+        else:
+            if cur is not None:
+                groups.append(cur)
+            cur = ([], [])
+            cur[k].append(i)
+            cur_end = b
+    if cur is not None:
+        groups.append(cur)
+    return groups
+
+
+def _prep(doc):
+    orig = sorted([o for o in (doc.get("original") or []) if isinstance(o, dict) and ed_state.num(o.get("start")) is not None and ed_state.num(o.get("end")) is not None],
+                  key=lambda o: o["start"])
+    segs = sorted([g for g in (doc.get("segments") or []) if isinstance(g, dict)], key=lambda g: g["start"])
+    return orig, segs
+
+
+def _norm(items, idx):
+    return re.sub(r"\s+", "", "".join(str(items[i].get("text", "")) for i in idx))
+
+
+def learn_events(doc):
+    """1件の文字起こしから、「機械の出力 → 人が直した文章」を (誤, 正, 前後1文字を足したか, 誤の直前2文字, 誤の直後2文字) で取り出す。"""
+    orig, segs = _prep(doc)
+    if not orig or not segs:
+        return []
+    out = []
+    for go, ge in _groups(orig, segs):
+        if not go or not ge:
+            continue   # 片方にしかない(行の追加・削除)は、置換ではないので対象外
+        a, b = _norm(orig, go), _norm(segs, ge)
+        if a == b or len(a) > 600 or len(b) > 600:
+            continue
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if tag != "replace":
+                continue
+            w, r = a[i1:i2], b[j1:j2]
+            if PUNCT_ONLY.match(w) or PUNCT_ONLY.match(r) or len(w) > 12 or len(r) > 12:
+                continue   # 句読点だけの違い・言い回しごと書き換えた箇所は、辞書向きでない
+            # 語の途中だけ(「ーイ→ワ」など)にならないよう、同じ種類の文字(カタカナ・漢字・英数字)が続く分は語の全体まで広げる
+            while i1 > 0 and j1 > 0 and a[i1 - 1] == b[j1 - 1] and _cc(a[i1 - 1]) and _cc(a[i1 - 1]) == _cc(a[i1]) == _cc(b[j1]):
+                i1 -= 1; j1 -= 1
+            while i2 < len(a) and j2 < len(b) and a[i2] == b[j2] and _cc(a[i2]) and _cc(a[i2]) == _cc(a[i2 - 1]) == _cc(b[j2 - 1]):
+                i2 += 1; j2 += 1
+            w, r = a[i1:i2], b[j1:j2]
+            if len(w) > 12 or len(r) > 12:
+                continue
+            ctx = False
+            si, ei = i1, i2
+            if len(w) < 2 and len(r) < 2:   # 1文字だけの違いは、前後1文字を足して誤爆を減らす
+                ctx = True
+                lc = a[i1 - 1] if i1 > 0 and j1 > 0 and a[i1 - 1] == b[j1 - 1] else ""
+                rc = a[i2] if i2 < len(a) and j2 < len(b) and a[i2] == b[j2] else ""
+                w, r = lc + w + rc, lc + r + rc
+                si, ei = i1 - len(lc), i2 + len(rc)
+            if len(w) >= 2 and w != r:
+                out.append((w, r, ctx, a[max(0, si - 2):si], a[ei:ei + 2]))
+    return out
+
+
+def learn_pairs(doc):
+    return [(w, r, c) for w, r, c, _l, _r in learn_events(doc)]
+
+
+def learn_groups(doc, scope="changed"):
+    """人が直した行(まとまり)を [{start,end,original,text}] で返す(修正データの書き出し用)。
+    scope="proofed" のときは、直した行に限らず、校正済みの行すべてを返す(直していない行は changed=False。original が無い文字起こしは original="")。"""
+    orig, segs = _prep(doc)
+    out = []
+    if scope == "proofed":
+        if not segs:
+            return out
+        if not orig:
+            for g in segs:
+                b = re.sub(r"\s+", "", str(g.get("text", "")))
+                if g.get("proofed") and b and "unclear" not in (g.get("tags") or []):
+                    out.append({"start": g["start"], "end": g["end"], "original": "", "text": b, "changed": True, "proofed": True})
+            return out
+        for go, ge in _groups(orig, segs):
+            if not go or not ge or not all(segs[i].get("proofed") and "unclear" not in (segs[i].get("tags") or []) for i in ge):
+                continue
+            a, b = _norm(orig, go), _norm(segs, ge)
+            if not b:
+                continue
+            out.append({"start": min(segs[i]["start"] for i in ge), "end": max(segs[i]["end"] for i in ge), "original": a, "text": b, "changed": a != b, "proofed": True})
+        return out
+    if not orig or not segs:
+        return out
+    for go, ge in _groups(orig, segs):
+        if not go or not ge:
+            continue
+        a, b = _norm(orig, go), _norm(segs, ge)
+        if a == b or not b:
+            continue
+        st, en = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
+        out.append({"start": st, "end": en, "original": a, "text": b})
+    return out
+
+
+_info_cache = {}
+
+
+def _doc_info(tid):
+    """文字起こし1件の学習用の情報(修正の一覧・各行の文章・修正した行数)。更新日時でキャッシュする。"""
+    mt = os.stat(ed_store.tx_path(tid)).st_mtime_ns
+    hit = _info_cache.get(tid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
+        d = json.load(f)
+    if d.get("evalSet") is True:
+        info = None   # 評価用は、辞書・提案・用語の自動追加・修正データの書き出しの元にしない(答えを見てから測ることになるため)
+    elif d.get("original"):
+        ev = learn_events(d)
+        info = {"events": ev, "lines": len(learn_groups(d)),
+                "texts": [re.sub(r"\s+", "", str(g.get("text", ""))) for g in (d.get("segments") or []) if isinstance(g, dict)]}
+    else:
+        info = None   # v0.5 より前の文字起こしは、機械の出力が残っていないので学習できない
+    _info_cache[tid] = (mt, info)
+    return info
+
+
+def _all_infos():
+    out = []
+    if os.path.isdir(ed_state.TX_DIR):
+        for name in sorted(os.listdir(ed_state.TX_DIR)):
+            tid = name[:-5]
+            if not name.endswith(".json") or not ed_state.TID_RE.match(tid):
+                continue
+            try:
+                info = _doc_info(tid)
+            except (OSError, ValueError):
+                continue
+            if info is not None:
+                out.append((tid, info))
+    return out
+
+
+def learned_candidates(min_count=1):
+    settings = load_settings()
+    have = {(wb_split(w)[0], r) for w, r in parse_replacements(settings.get("replacements"))}
+    ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
+    counts, docs, ctxs, used, lines = {}, {}, {}, 0, 0
+    for tid, info in _all_infos():
+        used += 1
+        lines += info["lines"]
+        for w, r, ctx, _l, _r in info["events"]:
+            pr = (w, r)
+            counts[pr] = counts.get(pr, 0) + 1
+            docs.setdefault(pr, set()).add(tid)
+            ctxs[pr] = ctx
+    items = [{"wrong": w, "right": r, "count": c, "docs": len(docs[(w, r)]), "ctx": ctxs[(w, r)]} for (w, r), c in counts.items()
+             if c >= min_count and (w, r) not in have and "%s=>%s" % (w, r) not in ignore]
+    items.sort(key=lambda x: (-x["count"], -len(x["wrong"]), x["wrong"]))
+    return {"items": items[:100], "docs": used, "lines": lines}
+
+
+# ---------- 文脈つきの統計 → 修正の提案 / 自動置換 / 用語集 ----------
+# 「直された回数」と「同じ語をそのまま残した回数」を数え、確度で3段階に分ける。
+#   高: 3回以上・2件以上の文字起こしで直され、そのまま残した例が1つもない → 自動置換の対象(設定でオン時のみ)
+#   中: 直した例が多く、そのまま残した例(と却下)より優勢 → 行に「候補」として出すだけ
+#   低: 何も出さない
+HIGH_POS, HIGH_DOCS, MID_RATIO, REJECT_WEIGHT = 3, 2, 0.6, 2
+MAX_RULES = 300
+_rules_cache = {"key": None, "val": None}
+_fb_lock = threading.Lock()
+
+
+def load_feedback():
+    try:
+        with open(ed_state.FEEDBACK, "r", encoding="utf-8-sig") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            return {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
+    except (OSError, ValueError):
+        pass
+    return {"stat": {}, "dismissed": {}}
+
+
+def record_feedback(obj):
+    tid = str(obj.get("tid") or "")
+    action = obj.get("action")
+    if action not in ("accept", "reject") or not ed_state.TID_RE.match(tid):
+        raise ed_state.ApiError("bad_request", "記録の内容が正しくありません", 400)
+    items = []
+    for x in (obj.get("items") or [])[:500]:
+        if isinstance(x, dict) and all(isinstance(x.get(k), str) and 0 < len(x[k]) <= 60 for k in ("wrong", "right")):
+            items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"]))
+    with _fb_lock:
+        fb = load_feedback()
+        for seg, w, r in items:
+            st = fb["stat"].setdefault("%s=>%s" % (w, r), {"acc": 0, "rej": 0})
+            st["acc" if action == "accept" else "rej"] += 1
+            if action == "reject" and seg:
+                lst = fb["dismissed"].setdefault(tid, [])
+                key = "%s|%s=>%s" % (seg, w, r)
+                if key not in lst:
+                    lst.append(key)
+                del lst[:-2000]
+        if len(fb["stat"]) > 5000:
+            fb["stat"] = dict(list(fb["stat"].items())[-5000:])
+        ed_state.atomic_write(ed_state.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"))
+    return len(items)
+
+
+def _spans(text, w, r):
+    """text の中で w がある位置(r の一部になっている箇所は除く)。"""
+    rs = []
+    if r:
+        k = text.find(r)
+        while k >= 0:
+            rs.append((k, k + len(r)))
+            k = text.find(r, k + 1)
+    out, k = [], text.find(w)
+    while k >= 0:
+        if not any(a <= k and k + len(w) <= b for a, b in rs) and _bounded(text, k, w):   # 単語の途中には当てない(トル→ポル が「トルコ」に当たらない)
+            out.append(k)
+        k = text.find(w, k + 1)
+    return out
+
+
+def learn_rules():
+    """全文字起こしの修正から、{(誤,正): {pos, docs, pctx, neg(そのまま残した例の前後), ctx}} を作る。"""
+    settings = load_settings()
+    have = {(wb_split(w)[0], r) for w, r in parse_replacements(settings.get("replacements"))}
+    ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
+    infos = _all_infos()
+    key = (tuple((t, _info_cache[t][0]) for t, _ in infos), tuple(sorted(have)), tuple(sorted(ignore)))
+    if _rules_cache["key"] == key:
+        return _rules_cache["val"]
+    rules = {}
+    for tid, info in infos:
+        for w, r, ctx, l, rr in info["events"]:
+            if (w, r) in have or "%s=>%s" % (w, r) in ignore:
+                continue
+            x = rules.setdefault((w, r), {"pos": 0, "docs": set(), "pctx": [], "neg": [], "ctx": False})
+            x["pos"] += 1
+            x["docs"].add(tid)
+            x["pctx"].append((l, rr))
+            x["ctx"] = x["ctx"] or ctx
+    top = sorted(rules.items(), key=lambda kv: -kv[1]["pos"])[:MAX_RULES]
+    rules = dict(top)
+    for tid, info in infos:
+        if not info["events"]:
+            continue   # 1か所も直していない文字起こしは、見直していない可能性があるので「そのまま残した例」に数えない
+        for text in info["texts"]:
+            for (w, r), x in rules.items():
+                if w in text:
+                    for k in _spans(text, w, r):
+                        x["neg"].append((text[max(0, k - 2):k], text[k + len(w):k + len(w) + 2]))
+    _rules_cache["key"], _rules_cache["val"] = key, rules
+    return rules
+
+
+def _match(cl, cr, L, R):
+    return bool((cl[-1:] and cl[-1:] == L[-1:]) or (cr[:1] and cr[:1] == R[:1]))
+
+
+def _tier(x, L, R, st):
+    """確度('high' / 'mid' / None)と、判断に使った (直した例, そのまま残した例)。"""
+    acc, rej = st.get("acc", 0), st.get("rej", 0)
+    pm, nm = x["pos"], 0
+    if x["neg"]:
+        pm = sum(1 for cl, cr in x["pctx"] if _match(cl, cr, L, R))
+        nm = sum(1 for cl, cr in x["neg"] if _match(cl, cr, L, R))
+        if pm + nm == 0:   # 前後の文字では判断できないときは、全体の比率で見る
+            pm, nm = x["pos"], len(x["neg"])
+    p, n = pm + acc, nm + REJECT_WEIGHT * rej
+    if not x["neg"] and rej == 0 and x["pos"] >= HIGH_POS and len(x["docs"]) >= HIGH_DOCS:
+        return "high", x["pos"], 0
+    if p >= 1 and p / (p + n) >= MID_RATIO:
+        return "mid", pm, nm
+    return None, pm, nm
+
+
+def find_suggestions(text, rules, fb, skip=(), only_high=False):
+    """1行の文章への提案 [{i, wrong, right, tier, pos, neg}]。長い誤りを優先し、重なる提案は出さない。"""
+    cands = []
+    for (w, r), x in rules.items():
+        if w not in text:
+            continue
+        st = fb["stat"].get("%s=>%s" % (w, r), {})
+        for k in _spans(text, w, r):
+            t, pm, nm = _tier(x, text[max(0, k - 2):k], text[k + len(w):k + len(w) + 2], st)
+            if t and (t == "high" or not only_high):
+                cands.append((k, w, r, t, pm, nm))
+    cands.sort(key=lambda c: (-len(c[1]), c[0]))
+    used, out = [], []
+    for k, w, r, t, pm, nm in cands:
+        if any(k < b and a < k + len(w) for a, b in used) or ("%s=>%s" % (w, r)) in skip:
+            continue
+        used.append((k, k + len(w)))
+        out.append({"i": k, "wrong": w, "right": r, "tier": t, "pos": pm, "neg": nm})
+    out.sort(key=lambda c: c["i"])
+    return out
+
+
+def suggest_for_doc(tid):
+    doc = ed_store.read_transcript(tid)
+    rules, fb = learn_rules(), load_feedback()
+    dismissed = set(fb["dismissed"].get(tid, []))
+    items = []
+    for g in doc.get("segments") or []:
+        if not isinstance(g, dict):
+            continue
+        text = str(g.get("text", ""))
+        skip = {d.split("|", 1)[1] for d in dismissed if d.split("|", 1)[0] == g.get("id") and "|" in d}
+        for sug in find_suggestions(text, rules, fb, skip):
+            sug["seg"] = g.get("id")
+            items.append(sug)
+            if len(items) >= 1000:
+                return {"items": items, "rules": len(rules)}
+    return {"items": items, "rules": len(rules)}
+
+
+def auto_learned_replace(text, rules, fb):
+    """確度が「高」の学習済み置換だけを適用する。(新しい文章, 置換した数)"""
+    sugs = find_suggestions(text, rules, fb, only_high=True)
+    for sg in reversed(sugs):
+        text = text[:sg["i"]] + sg["right"] + text[sg["i"] + len(sg["wrong"]):]
+    return text, len(sugs)
+
+
+def load_roster():
+    """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。"""
+    try:
+        with open(ed_state.ROSTER, "rb") as f:
+            d = json.loads(f.read().decode("utf-8-sig"))   # README で「直せます」と案内しているので、BOM 付きでも読む
+        groups = []
+        for g in d.get("groups") or []:
+            names = [str(n).strip() for n in g.get("names") or [] if str(n).strip()]
+            if names and g.get("id") and g.get("label"):
+                groups.append({"id": str(g["id"])[:40], "label": str(g["label"])[:80], "names": names[:100]})
+        return {"asOf": str(d.get("asOf") or "")[:20], "note": str(d.get("note") or "")[:400], "groups": groups}
+    except (OSError, ValueError):
+        return {"asOf": "", "note": "", "groups": []}
+
+
+def auto_glossary(user_terms, limit=150):
+    """よく直される正しい語を、認識のヒントとして自動で足す(ヒント全体が limit 文字に収まる範囲)。"""
+    have = list(user_terms)
+    out = []
+    ranked = sorted(((x["pos"], r) for (w, r), x in learn_rules().items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
+    for _pos, r in ranked:
+        if r in have or r in out:
+            continue
+        if len("、".join(have + out + [r])) > limit:
+            continue
+        out.append(r)
+        if len(out) >= 20:
+            break
+    return out
+
+
+# ---------- 認識精度の測定(文字誤り率 CER) ----------
+# 正解 = 人が「校正済み」にした行の文章 / 機械の出力 = original。句読点・空白・記号・全角半角・大文字小文字の違いは数えない。
+# CER = (置換 + 脱落 + 挿入) ÷ 正解の文字数。置換=別の字に間違えた、脱落=正解にある字が機械に無い、挿入=機械が余計な字を出した(幻覚など)。
+MAX_LEV_CELLS = 250000   # 1まとまりの文字数が多すぎるときは、厳密な編集距離をやめて近似にする
+
+
+def norm_cer(text):
+    t = unicodedata.normalize("NFKC", str(text or "")).lower()
+    return "".join(ch for ch in t if unicodedata.category(ch)[0] in "LNM")
+
+
+def lev_counts(ref, hyp):
+    """(置換, 脱落, 挿入)。ref=正解、hyp=機械の出力。編集距離が最小になる組み合わせで数える。"""
+    n, m = len(ref), len(hyp)
+    if n == 0:
+        return (0, 0, m)
+    if m == 0:
+        return (0, n, 0)
+    if n * m > MAX_LEV_CELLS:   # 近似(difflib)。極端に長い1まとまりだけ
+        s = d = i = 0
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ref, hyp, autojunk=False).get_opcodes():
+            if tag == "replace":
+                a, b = i2 - i1, j2 - j1
+                s += min(a, b)
+                d += max(0, a - b)
+                i += max(0, b - a)
+            elif tag == "delete":
+                d += i2 - i1
+            elif tag == "insert":
+                i += j2 - j1
+        return (s, d, i)
+    prev = [(j, 0, 0, j) for j in range(m + 1)]
+    for a in range(1, n + 1):
+        cur = [(a, 0, a, 0)]
+        ra = ref[a - 1]
+        for b in range(1, m + 1):
+            if ra == hyp[b - 1]:
+                best = prev[b - 1]
+            else:
+                p = prev[b - 1]
+                best = (p[0] + 1, p[1] + 1, p[2], p[3])
+                q = prev[b]
+                if q[0] + 1 < best[0]:
+                    best = (q[0] + 1, q[1], q[2] + 1, q[3])
+                r = cur[b - 1]
+                if r[0] + 1 < best[0]:
+                    best = (r[0] + 1, r[1], r[2], r[3] + 1)
+            cur.append(best)
+        prev = cur
+    return prev[m][1:]
+
+
+def metric_terms(settings=None):
+    """「用語が正しく出たか」を数えるための用語(用語集 + 置換辞書の「正」)。正規化済み・2文字以上。"""
+    st = settings if settings is not None else load_settings()
+    raw = [t.strip() for t in re.split(r"[\r\n,、]+", str(st.get("glossary") or "")) if t.strip()]
+    raw += [r for _w, r in parse_replacements(st.get("replacements")) if r]
+    out = []
+    for t in raw:
+        n = norm_cer(t)
+        if len(n) >= 2 and n not in out:
+            out.append(n)
+    return out[:300]
+
+
+def new_acc():
+    return {"groups": 0, "changed": 0, "refChars": 0, "sub": 0, "del": 0, "ins": 0, "termRef": 0, "termHit": 0, "termExtra": 0,
+            "machineOnly": 0, "machineOnlyChars": 0, "worst": []}
+
+
+def acc_line(acc, ref, hyp, terms=(), info=None, machine_only=False):
+    """1まとまり(正解 ref と機械の出力 hyp。どちらも norm_cer 済み)を集計に足す。"""
+    s, d, i = lev_counts(ref, hyp)
+    acc["groups"] += 1
+    acc["refChars"] += len(ref)
+    acc["sub"] += s
+    acc["del"] += d
+    acc["ins"] += i
+    if s + d + i:
+        acc["changed"] += 1
+        if info is not None:
+            acc["worst"].append({**info, "errs": s + d + i})
+            acc["worst"].sort(key=lambda x: -x["errs"])
+            del acc["worst"][10:]
+    if machine_only:
+        acc["machineOnly"] += 1
+        acc["machineOnlyChars"] += len(hyp)
+    for t in terms:
+        rc, hc = ref.count(t), hyp.count(t)
+        acc["termRef"] += rc
+        acc["termHit"] += min(rc, hc)
+        acc["termExtra"] += max(0, hc - rc)   # 正解に無いのに機械が出した用語(用語集が誘発した誤挿入の疑い)
+
+
+def acc_merge(a, b):
+    for k in ("groups", "changed", "refChars", "sub", "del", "ins", "termRef", "termHit", "termExtra", "machineOnly", "machineOnlyChars"):
+        a[k] += b[k]
+    a["worst"] = sorted(a["worst"] + b["worst"], key=lambda x: -x["errs"])[:10]
+
+
+def acc_finish(acc):
+    out = dict(acc)
+    errs = acc["sub"] + acc["del"] + acc["ins"]
+    out["errs"] = errs
+    out["cer"] = round(errs / acc["refChars"], 4) if acc["refChars"] else None
+    out["termRate"] = round(acc["termHit"] / acc["termRef"], 4) if acc["termRef"] else None
+    return out
+
+
+def doc_metrics(doc, legacy=False, terms=()):
+    """1件の文字起こしの集計。校正済みの行が無ければ None(legacy=True なら、校正済みの印が無くても、修正のある文書は全行を校正済みとみなして仮計算)。
+    数える対象: ①機械と人の両方にある まとまり(全行が校正済み) ②機械だけにある まとまり(人が行を消した=挿入の誤り。校正した範囲の中だけ)
+    ③人だけにある まとまり(人が足した行=脱落の誤り。全行が校正済み)"""
+    orig, segs = _prep(doc)
+    if not orig or not segs:
+        return None
+    proofed = [g for g in segs if g.get("proofed")]
+    basis = "proofed"
+    if proofed:
+        lo, hi = min(g["start"] for g in proofed), max(g["end"] for g in proofed)
+        is_ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
+    elif legacy:
+        if "".join(norm_cer(o.get("text", "")) for o in orig) == "".join(norm_cer(g.get("text", "")) for g in segs):
+            return None   # 修正が無い文書は、見直したのか分からないので数えない
+        basis = "legacy"
+        lo, hi = min(g["start"] for g in segs), max(g["end"] for g in segs)
+        is_ok = lambda g: "unclear" not in (g.get("tags") or [])
+    else:
+        return None
+    acc = new_acc()
+    for go, ge in _groups(orig, segs):
+        if go and ge:
+            if not all(is_ok(segs[i]) for i in ge):
+                continue
+            ref, hyp = norm_cer(_norm(segs, ge)), norm_cer(_norm(orig, go))
+            a, b, mo = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge), False
+            raw_ref, raw_hyp = _norm(segs, ge), _norm(orig, go)
+        elif go:
+            a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
+            if a < lo - 0.05 or b > hi + 0.05:
+                continue
+            raw_ref, raw_hyp = "", _norm(orig, go)
+            ref, hyp, mo = "", norm_cer(raw_hyp), True
+        else:
+            if not all(is_ok(segs[i]) for i in ge):
+                continue
+            a, b = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
+            raw_ref, raw_hyp = _norm(segs, ge), ""
+            ref, hyp, mo = norm_cer(raw_ref), "", False
+        if not ref and not hyp:
+            continue
+        acc_line(acc, ref, hyp, terms, {"start": round(a, 2), "end": round(b, 2), "ref": raw_ref[:120], "hyp": raw_hyp[:120]}, mo)
+    if not acc["groups"]:
+        return None
+    acc["basis"] = basis
+    return acc
+
+
+def config_key(d):
+    """認識の設定ごとに成績を分けて比べるための名前(モデル・用語集の有無・速度優先・再認識を含むか)。"""
+    p = d.get("params") or {}
+    parts = [str(d.get("model") or "?").split("/")[-1], "用語集あり" if p.get("glossary") else "用語集なし"]
+    if p.get("beam") == 1:
+        parts.append("速度優先")
+    if d.get("retranscribed"):
+        parts.append("再認識を含む")
+    return " / ".join(parts)
+
+
+def all_metrics(tid=None, legacy=False, scope="all"):
+    terms = metric_terms()
+    tids = [tid] if tid else sorted(n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]))
+    total, by_cfg, rows = new_acc(), {}, []
+    proofed_lines = docs_proofed = docs = 0
+    for t in tids:
+        try:
+            d = ed_store.read_transcript(t)
+        except ed_state.ApiError:
+            continue
+        if not tid and ((scope == "eval") != (d.get("evalSet") is True)) and scope != "all":
+            continue
+        docs += 1
+        n = sum(1 for g in d.get("segments") or [] if isinstance(g, dict) and g.get("proofed"))
+        proofed_lines += n
+        docs_proofed += 1 if n else 0
+        m = doc_metrics(d, legacy, terms)
+        if not m:
+            continue
+        cfg = config_key(d)
+        for w in m["worst"]:
+            w["doc"] = str(d.get("title") or "")[:40]
+        acc_merge(by_cfg.setdefault(cfg, new_acc()), m)
+        acc_merge(total, m)
+        row = acc_finish(m)
+        row.update({"id": t, "title": str(d.get("title") or "")[:60], "config": cfg})
+        row.pop("worst", None)
+        rows.append(row)
+    return {"scope": scope if not tid else "doc", "legacy": bool(legacy), "docs": docs, "docsProofed": docs_proofed, "proofedLines": proofed_lines, "overall": acc_finish(total),
+            "byConfig": sorted(({"config": k, **acc_finish(v)} for k, v in by_cfg.items()), key=lambda x: x["config"]), "byDoc": rows, "termCount": len(terms)}
+
+
+# ---------- 評価用の基準の記録 ----------
+EVAL_BASE = os.path.join(ed_state.DATA_DIR, "eval-baselines.json")
+_base_lock = threading.Lock()
+
+
+def read_baselines():
+    try:
+        with open(EVAL_BASE, "r", encoding="utf-8-sig") as f:
+            d = json.load(f)
+        return d if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def record_baseline(label):
+    """評価用の文書の、いまの成績を記録する(施策の前後で比べるため)。評価用が無い・校正済みが無いときは断る。"""
+    m = all_metrics(None, False, "eval")
+    o = m["overall"]
+    if not m["docs"]:
+        raise ed_state.ApiError("no_eval", "評価用の文字起こしがありません(画面の「評価用にする」で印を付けてください)", 400)
+    if not o.get("groups"):
+        raise ed_state.ApiError("no_proofed", "評価用に校正済みの行がまだありません", 400)
+    rec = {"at": int(time.time() * 1000), "label": str(label or "")[:80], "docs": m["docs"], "cer": o["cer"], "refChars": o["refChars"], "sub": o["sub"], "del": o["del"], "ins": o["ins"],
+           "configs": [{"config": c["config"], "cer": c["cer"], "refChars": c["refChars"]} for c in m["byConfig"]][:6],
+           "dict": len(parse_replacements(load_settings().get("replacements"))), "glossaryChars": len(str(load_settings().get("glossary") or ""))}
+    with _base_lock:
+        items = read_baselines()
+        items.append(rec)
+        ed_state.atomic_write(EVAL_BASE, json.dumps(items[-100:], ensure_ascii=False, indent=1).encode("utf-8"))
+    return rec
+
+
+# ---------- 修正データの書き出し(音声の範囲 + 直した文章) ----------
+MAX_EXPORT_CLIPS = 400
+MAX_CLIP_SEC = 20
+_export_lock = threading.Lock()
+EXPORT_README = """修正データ(文字起こしツールが書き出したもの)
+corrections.jsonl … 1行に1件。 doc=文字起こしのID / source=元ファイル名 / start,end=元の動画の中の秒 /
+  original=機械の出力(空白なし) / text=人が直した文章(空白なし) / audio=音声ファイル(audio/ の中。無い場合は null)
+audio/*.wav       … その範囲の音声(16kHz・モノラル)。音声を含めない設定のときは無い。
+校正済みの行すべてを書き出した場合(scope=proofed)は、直していない行も入ります(changed=false。original と text が同じ)。
+  original が空の行は、機械の出力が残っていない古い文字起こしの行です(text は人が確認した文章)。
+用途: 認識精度の測定(original と text の差)や、将来の追加学習用データとして。
+注意: 話者の声・会話の内容が含まれます。他人に渡すときは、相手の同意を得てください。
+"""
+
+
+def export_corrections(tid=None, audio=True, scope="changed"):
+    """修正した行(scope="proofed" なら校正済みの行すべて)を zip にまとめ、(パス, 件数, 音声つきの件数, とばした件数) を返す。呼び出し側が消す。"""
+    if not _export_lock.acquire(blocking=False):
+        raise ed_state.ApiError("busy", "別の書き出しの最中です", 409)
+    try:
+        ff = ed_state.find_ffmpeg() if audio else None
+        if scope == "proofed":
+            docs = [tid] if tid else sorted(n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]))
+        else:
+            docs = [tid] if tid else [t for t, _ in _all_infos()]
+        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
+        path = os.path.join(ed_state.TMP_DIR, "export-%s.zip" % uuid.uuid4().hex[:8])
+        try:
+            return _export_corrections_zip(path, docs, tid, ff, scope)
+        except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
+    finally:
+        _export_lock.release()
+
+
+def _export_corrections_zip(path, docs, tid, ff, scope):
+    n = na = skipped = 0
+    import zipfile
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        lines = []
+        for t in docs:
+            if n >= MAX_EXPORT_CLIPS:
+                break
+            try:
+                d = ed_store.read_transcript(t)
+            except ed_state.ApiError:
+                continue
+            if d.get("evalSet") is True:
+                if tid:
+                    raise ed_state.ApiError("eval_set", "評価用の文字起こしは、学習用のデータとして書き出しません(評価用を外すと書き出せますが、その時点から評価には使えなくなります)", 400)
+                continue
+            groups = learn_groups(d, "proofed") if scope == "proofed" else (learn_groups(d) if d.get("original") else [])
+            if not groups:
+                continue
+            try:
+                src = ed_state.check_source(d.get("sourcePath")) if ff else None
+            except ed_state.ApiError:
+                src = None
+            for g in groups:
+                if n >= MAX_EXPORT_CLIPS:
+                    skipped += 1
+                    continue
+                if g["end"] - g["start"] < 0.3:
+                    continue
+                n += 1
+                name = None
+                if ff and src:
+                    name = "audio/%s_%07d.wav" % (t, int(g["start"] * 100))
+                    tmp = os.path.join(ed_state.TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
+                    try:
+                        r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, g["start"] - 0.2), "-i", src,
+                                            "-t", "%.3f" % min(MAX_CLIP_SEC, g["end"] - g["start"] + 0.4), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", tmp],
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                        if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1000:
+                            z.write(tmp, name)
+                            na += 1
+                        else:
+                            name = None
+                    except (OSError, subprocess.SubprocessError):
+                        name = None
+                    finally:
+                        try:
+                            os.unlink(tmp)
+                        except OSError:
+                            pass
+                lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
+                                         "original": g["original"], "text": g["text"], "audio": name,
+                                         **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
+        z.writestr("corrections.jsonl", "\n".join(lines) + ("\n" if lines else ""))
+        z.writestr("README.txt", EXPORT_README)
+    return path, n, na, skipped
+
+
+# ---------- データの保管(将来の学習・声紋登録・再解析に使えるように、校正の成果と音声を残す) ----------
+# dataset/docs/<id>/{doc.json, lines.jsonl, manifest.json, full.flac, audio/*.flac} と dataset/index.jsonl。
+# 元の動画を移動・削除しても、あとから使えるように、音声も一緒に残す(16kHz・モノラルの FLAC)。
+ARCH_MAX_CLIP = 30           # 1行の音声の上限(秒)。Whisper の学習の単位が30秒
+ARCH_PAD = 0.2               # 行の前後に足す余裕(秒)
+ARCH_MIN_FREE = 1 << 30      # 空きがこれ未満なら保管しない(1GB)
+_arch_lock = threading.Lock()
+_arch = {"running": False, "tid": "", "done": 0, "total": 0, "errors": [], "finishedAt": 0}
+ARCH_README = """保管データ(文字起こしツールが自動で残したもの)  形式の版: 1
+index.jsonl          … 全文字起こしの行の一覧(1行に1件)。校正した行・人が消した行(負例)・「聞き取れない」の行が入ります
+docs/<ID>/doc.json   … その文字起こしの全体(修正後の行・機械の出力 original・話者・認識の設定)
+docs/<ID>/lines.jsonl … その文字起こしの行の一覧(index.jsonl と同じ形式。未校正の行も入ります)
+docs/<ID>/audio/*.flac … 行ごとの音声(16kHz・モノラル。前後0.2秒を含む)。校正済みの行と、人が消した行だけ
+docs/<ID>/full.flac  … その範囲の全体の音声(設定でオンのとき)。あとから別のモデルで認識し直せます
+docs/<ID>/manifest.json … 元ファイル名・サイズ・件数・話者ごとの時間など
+settings-snapshot.json … 保管した時点の用語集・置換辞書
+各行の項目:
+  kind      line=機械の出力と対応する行 / deleted=機械が出したが人が消した行(負例) / added=人が足した行
+  role      positive=正解として使える(校正済み・聞き取れないの印なし) / negative=消した行(校正した範囲の中。正解は空)
+            / unclear=校正済みだが「聞き取れない」の印つき / unproofed=未校正(学習には使わない)
+  text      人が確認した文章 / original=機械の出力(古い文字起こしは null) / start,end=元の動画の中の秒
+  speaker,speakerName=話者(声が混ざる行は mixed) / tags=unclear(聞き取れない)・overlap(声が重なる)・bgm(BGMやゲーム音が大きい)
+  split     train=学習に使える / eval=評価用(追加学習には使わない。精度を測るためだけに取ってある)
+  changed=機械の出力から直したか / flag=自動の「要確認」の理由 / audio=このフォルダからの音声のパス(無ければ null)
+  orig_start,orig_end=機械の出力の時刻(人が時刻を直した場合、start,end とずれます)
+使い道の例: 追加学習(LoRA)の学習データ、話者の声紋登録、認識精度の測定、別モデルでの再認識。
+注意: 話者の声・会話の内容が含まれます。他人に渡す・クラウドへ上げるときは、相手の同意と規約を確認してください。
+"""
+
+
+def _join_text(items):
+    out = ""
+    for it in items:
+        t = str(it.get("text", "")).strip()
+        if out and t and re.search(r"[A-Za-z0-9]$", out) and re.match(r"[A-Za-z0-9]", t):
+            out += " "
+        out += t
+    return out
+
+
+def archive_entries(doc):
+    """文字起こし1件を、あとで使い回せる行の一覧にする(機械の出力と修正後を、時刻の重なりで対応づける)。"""
+    orig, segs = _prep(doc)
+    proofed = [g for g in segs if g.get("proofed")]
+    lo = min((g["start"] for g in proofed), default=None)
+    hi = max((g["end"] for g in proofed), default=None)
+    have_orig = bool(orig)
+    groups = _groups(orig, segs) if have_orig else [([], [i]) for i in range(len(segs))]
+    names = {s.get("id"): str(s.get("name") or s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    out, used = [], set()
+    for go, ge in groups:
+        e = {"doc": doc.get("id", ""), "source": doc.get("sourceName", ""), "model": doc.get("model", ""), "language": doc.get("language", "")}
+        if ge:
+            gs = [segs[i] for i in ge]
+            e["kind"] = "line" if go or not have_orig else "added"
+            a, b = min(g["start"] for g in gs), max(g["end"] for g in gs)
+            e.update({"start": round(a, 2), "end": round(b, 2), "text": _join_text(gs)})
+            spk = sorted({g.get("speaker") for g in gs if g.get("speaker")})
+            e["speaker"] = spk[0] if len(spk) == 1 else ("mixed" if spk else "")
+            e["speakerName"] = names.get(spk[0], "") if len(spk) == 1 else ("" if not spk else "mixed")
+            e["tags"] = [t for t in ed_state.TAGS if any(t in (g.get("tags") or []) for g in gs)]
+            e["flag"] = "、".join(dict.fromkeys(g["flag"] for g in gs if g.get("flag")))[:200]
+            e["proofed"] = all(g.get("proofed") for g in gs)
+            if go:
+                e["original"] = _join_text([orig[i] for i in go])
+                e["orig_start"], e["orig_end"] = round(min(orig[i]["start"] for i in go), 2), round(max(orig[i]["end"] for i in go), 2)
+                e["changed"] = norm_cer(e["text"]) != norm_cer(e["original"])
+            else:
+                e["original"] = "" if have_orig else None
+                e["changed"] = True if have_orig else None
+            if not e["proofed"] or not e["text"].strip():
+                e["role"] = "unproofed"
+            else:
+                e["role"] = "unclear" if "unclear" in e["tags"] else "positive"
+        else:
+            a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
+            inside = lo is not None and a >= lo - 0.05 and b <= hi + 0.05
+            e.update({"kind": "deleted", "start": round(a, 2), "end": round(b, 2), "text": "", "original": _join_text([orig[i] for i in go]),
+                      "orig_start": round(a, 2), "orig_end": round(b, 2), "speaker": "", "speakerName": "", "tags": [], "flag": "", "proofed": False,
+                      "changed": True, "role": "negative" if inside else "unproofed"})
+        base = "%07d%s" % (int(e["start"] * 100), e["kind"][0])
+        key, n = base, 1
+        while key in used:
+            n += 1
+            key = "%s%d" % (base, n)
+        used.add(key)
+        e["key"] = key
+        e["audioSig"] = "%.2f-%.2f" % (e["start"], e["end"])
+        out.append(e)
+    return out
+
+
+def _flac_cut(ff, src, dst, ss, dur):
+    tmp = dst + ".part.flac"
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, ss), "-i", src, "-t", "%.3f" % dur,
+                            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "flac", tmp], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+        if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 200:
+            os.replace(tmp, dst)
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    return False
+
+
+def _dir_bytes(d):
+    n = 0
+    for root, _dirs, files in os.walk(d):
+        for f in files:
+            try:
+                n += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return n
+
+
+def archive_doc(tid, full=True):
+    """文字起こし1件を dataset/docs/<tid>/ に保管する(音声は、新しい行・時刻が変わった行だけ切り出す)。"""
+    doc = ed_store.read_transcript(tid)
+    doc["id"] = tid
+    root = os.path.join(ed_state.DATASET_DIR, "docs", tid)
+    adir = os.path.join(root, "audio")
+    os.makedirs(adir, exist_ok=True)
+    try:
+        with open(os.path.join(root, "manifest.json"), "r", encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        old = {}
+    old_sig = old.get("clips") if isinstance(old.get("clips"), dict) else {}
+    entries = archive_entries(doc)
+    for e in entries:
+        e["split"] = "eval" if doc.get("evalSet") is True else "train"   # 追加学習に使うときは、split が eval のものを必ず除く
+    want = [e for e in entries if e["role"] in ("positive", "unclear", "negative")]
+    ff = ed_state.find_ffmpeg()
+    src, note = None, ""
+    try:
+        src = ed_state.check_source(doc.get("sourcePath")) if ff else None
+        if not ff:
+            note = "ffmpeg が見つからないため、音声は保管していません"
+    except ed_state.ApiError:
+        note = "元のファイルが見つからないため、音声を新しく保管できませんでした(すでに保管した音声は残っています)"
+    start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
+    fpath = os.path.join(root, "full.flac")
+    todo = [e for e in want if not (old_sig.get(e["key"]) == e["audioSig"] and os.path.isfile(os.path.join(adir, e["key"] + ".flac")))]
+    wav = None
+    base = fpath if os.path.isfile(fpath) else None
+    if src and ((full and not base) or (todo and not base)):
+        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
+        wav = os.path.join(ed_state.TMP_DIR, "arch-%s.wav" % uuid.uuid4().hex[:8])
+        try:
+            ed_jobs.extract_audio({"cancel": False, "proc": None}, {"sourcePath": src, "start": start, "end": end, "boost": False}, wav)
+            if full and _flac_cut(ff, wav, fpath, 0, 1e7):
+                base = fpath
+            elif not base:
+                base = wav
+        except ed_state.ApiError as e:
+            note = e.message
+    made = 0
+    if base and ff:
+        for e in todo:
+            dur = min(ARCH_MAX_CLIP, e["end"] - e["start"]) + ARCH_PAD * 2
+            if e["end"] - e["start"] < 0.1:
+                continue
+            if _flac_cut(ff, base, os.path.join(adir, e["key"] + ".flac"), e["start"] - start - ARCH_PAD, dur):
+                made += 1
+    if wav:
+        try:
+            os.unlink(wav)
+        except OSError:
+            pass
+    keep, sig, spk_sec = set(), {}, {}
+    counts = {"lines": len(entries), "positive": 0, "negative": 0, "unclear": 0, "unproofed": 0, "added": 0, "positiveSec": 0.0, "negativeSec": 0.0}
+    lines = []
+    for e in entries:
+        f = os.path.join(adir, e["key"] + ".flac")
+        has = e["role"] in ("positive", "unclear", "negative") and os.path.isfile(f)
+        if has:
+            keep.add(e["key"] + ".flac")
+            sig[e["key"]] = e["audioSig"]
+        e["audio"] = "docs/%s/audio/%s.flac" % (tid, e["key"]) if has else None
+        e.pop("audioSig", None)
+        counts[e["role"]] += 1
+        if e["kind"] == "added":
+            counts["added"] += 1
+        d = e["end"] - e["start"]
+        if e["role"] == "positive":
+            counts["positiveSec"] += d
+            k = e["speakerName"] or "(話者なし)"
+            spk_sec[k] = round(spk_sec.get(k, 0.0) + d, 1)
+        elif e["role"] == "negative":
+            counts["negativeSec"] += d
+        lines.append(e)
+    for n in os.listdir(adir):   # 使わなくなった行(校正を外した・時刻が変わった)の音声は消す
+        if n.endswith(".flac") and n not in keep:
+            try:
+                os.unlink(os.path.join(adir, n))
+            except OSError:
+                pass
+    counts["positiveSec"], counts["negativeSec"] = round(counts["positiveSec"], 1), round(counts["negativeSec"], 1)
+    try:
+        st = os.stat(doc.get("sourcePath") or "")
+        ssize, smt = st.st_size, int(st.st_mtime)
+    except OSError:
+        ssize, smt = old.get("sourceSize"), old.get("sourceMtime")
+    ed_state.atomic_write(os.path.join(root, "lines.jsonl"), ("\n".join(json.dumps(e, ensure_ascii=False) for e in lines) + "\n").encode("utf-8"))
+    ed_state.atomic_write(os.path.join(root, "doc.json"), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    man = {"version": 1, "tid": tid, "title": str(doc.get("title") or "")[:120], "archivedAt": int(time.time() * 1000), "docUpdatedAt": doc.get("updatedAt", 0),
+           "sourceName": doc.get("sourceName", ""), "sourceSize": ssize, "sourceMtime": smt, "start": start, "end": end, "model": doc.get("model", ""), "language": doc.get("language", ""),
+           "split": "eval" if doc.get("evalSet") is True else "train", "counts": counts, "speakerSec": spk_sec, "clips": sig, "fullAudio": os.path.isfile(fpath), "audioBytes": _dir_bytes(root), "note": note, "newClips": made}
+    ed_state.atomic_write(os.path.join(root, "manifest.json"), json.dumps(man, ensure_ascii=False, indent=1).encode("utf-8"))
+    return man
+
+
+def archive_rebuild_index():
+    """docs/*/lines.jsonl から、全体の一覧 index.jsonl(校正した行・負例・聞き取れない行だけ)と、README・設定の写しを作り直す。"""
+    rows = []
+    dd = os.path.join(ed_state.DATASET_DIR, "docs")
+    for t in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
+        try:
+            with open(os.path.join(dd, t, "lines.jsonl"), "r", encoding="utf-8") as f:
+                for ln in f:
+                    if ln.strip() and json.loads(ln).get("role") != "unproofed":
+                        rows.append(ln.strip())
+        except (OSError, ValueError):
+            continue
+    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "index.jsonl"), ("\n".join(rows) + ("\n" if rows else "")).encode("utf-8"))
+    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "README.txt"), ARCH_README.encode("utf-8"))
+    st = load_settings()
+    snap = {k: st.get(k) for k in ("glossary", "replacements", "learnIgnore", "model", "language", "vadMode") if k in st}
+    snap["savedAt"] = int(time.time() * 1000)
+    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "settings-snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1).encode("utf-8"))
+
+
+def _arch_run(tids, full):
+    try:
+        for t in tids:
+            _arch["tid"] = t
+            try:
+                archive_doc(t, full)
+            except ed_state.ApiError as e:
+                _arch["errors"].append("%s: %s" % (t, e.message))
+            except Exception as e:   # 1件の失敗で、残りを止めない
+                _arch["errors"].append("%s: %s" % (t, e))
+            _arch["done"] += 1
+        archive_rebuild_index()
+    except Exception as e:
+        _arch["errors"].append(str(e))
+    finally:
+        with _arch_lock:
+            _arch.update({"running": False, "tid": "", "finishedAt": int(time.time() * 1000)})
+
+
+def start_archive(tid=None, full=True, wait=False):
+    if tid is not None and not ed_state.TID_RE.match(str(tid)):
+        raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
+    if tid:
+        ed_store.read_transcript(tid)
+        tids = [tid]
+    else:
+        tids = []
+        for n in sorted(os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []):
+            if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]):
+                try:
+                    if any(g.get("proofed") for g in ed_store.read_transcript(n[:-5]).get("segments") or []):
+                        tids.append(n[:-5])
+                except ed_state.ApiError:
+                    pass
+    if not tids:
+        raise ed_state.ApiError("empty", "保管できる文字起こしがありません(校正済みの行がある文字起こしが対象です)", 400)
+    os.makedirs(ed_state.DATASET_DIR, exist_ok=True)
+    if shutil.disk_usage(ed_state.DATASET_DIR).free < ARCH_MIN_FREE:
+        raise ed_state.ApiError("disk", "ディスクの空きが少ないため、保管できません(1GB以上の空きが必要です)", 507)
+    with _arch_lock:
+        if _arch["running"]:
+            raise ed_state.ApiError("busy", "別の保管の最中です", 409)
+        _arch.update({"running": True, "tid": "", "done": 0, "total": len(tids), "errors": []})
+    th = threading.Thread(target=_arch_run, args=(tids, bool(full)), daemon=True)
+    th.start()
+    if wait:
+        th.join()
+    return len(tids)
+
+
+def dataset_stats():
+    docs, tot = [], {"docs": 0, "positive": 0, "negative": 0, "unclear": 0, "positiveSec": 0.0, "negativeSec": 0.0, "audioBytes": 0, "stale": 0}
+    spk = {}
+    dd = os.path.join(ed_state.DATASET_DIR, "docs")
+    for t in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
+        try:
+            with open(os.path.join(dd, t, "manifest.json"), "r", encoding="utf-8") as f:
+                m = json.load(f)
+        except (OSError, ValueError):
+            continue
+        c = m.get("counts") or {}
+        cur_eval = False
+        try:
+            cur = ed_store.read_transcript(t)
+            stale = (cur.get("updatedAt") or 0) > (m.get("docUpdatedAt") or 0)
+            orphan = False
+            cur_eval = cur.get("evalSet") is True
+        except ed_state.ApiError:
+            stale, orphan = False, True
+        docs.append({"tid": t, "title": m.get("title", ""), "archivedAt": m.get("archivedAt", 0), "positive": c.get("positive", 0), "negative": c.get("negative", 0),
+                     "unclear": c.get("unclear", 0), "positiveSec": c.get("positiveSec", 0), "audioBytes": m.get("audioBytes", 0), "fullAudio": bool(m.get("fullAudio")),
+                     "stale": stale, "orphan": orphan, "note": m.get("note", "")})
+        is_eval = m.get("split") == "eval" or cur_eval
+        docs[-1]["split"] = "eval" if is_eval else "train"
+        tot["docs"] += 1
+        tot["stale"] += 1 if stale else 0
+        tot["audioBytes"] += m.get("audioBytes", 0)
+        if is_eval:   # 評価用は、学習に使える量には入れない
+            tot["evalSec"] = round(tot.get("evalSec", 0.0) + c.get("positiveSec", 0), 1)
+            continue
+        for k in ("positive", "negative", "unclear", "positiveSec", "negativeSec"):
+            tot[k] += c.get(k, 0)
+        for k, v in (m.get("speakerSec") or {}).items():
+            spk[k] = spk.get(k, 0.0) + v
+    tot["positiveSec"], tot["negativeSec"] = round(tot["positiveSec"], 1), round(tot["negativeSec"], 1)
+    with _arch_lock:
+        run = dict(_arch)
+    return {"running": run["running"], "progress": {"done": run["done"], "total": run["total"], "tid": run["tid"]}, "errors": run["errors"][:5], "finishedAt": run["finishedAt"],
+            "totals": tot, "speakers": {k: round(v, 1) for k, v in sorted(spk.items(), key=lambda x: -x[1])}, "docs": docs}
