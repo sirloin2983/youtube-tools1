@@ -485,8 +485,8 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 
 /* ---------- 簡易版の画面(色は ui-kit の変数だけ。クラスは lt-) ---------- */
 html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100vh}
-.lt-head{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;min-height:100dvh}
+.lt-head{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}   /* ui-kit の重なりの順: ヘッダー 40 */
 .lt-title{font-family:var(--font-display);font-weight:650;font-size:16px;margin:0;white-space:nowrap}
 .lt-steps{display:flex;gap:4px;margin:0;padding:0;list-style:none;flex:1;justify-content:center}
 .lt-steps button{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;color:var(--ink-3);font-size:13px}
@@ -505,7 +505,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-wrap{max-width:760px;margin:32px auto;padding:0 20px;width:100%;box-sizing:border-box}
 .lt-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:16px}
 .lt-sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 32px 24px}
-.lt-h{font-family:var(--font-display);font-size:20px;font-weight:650;margin:0 0 18px;letter-spacing:.01em}
+.lt-h{font-family:var(--font-display);font-size:20px;font-weight:650;margin:0 0 18px;text-wrap:balance}
 .lt-h2{font-size:14px;font-weight:600;color:var(--ink-2);margin:0 0 10px}
 .lt-resume{margin-top:28px}
 .lt-drop-ic{color:var(--ink-3);display:inline-block;margin-bottom:4px}
@@ -519,8 +519,10 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-cap:empty{display:none}
 @media (prefers-reduced-motion:reduce){.lt-bar>i{transition:none}}
 .lt-card h2{font-size:15px;margin:0 0 12px}
-.lt-lead{color:var(--ink-2);margin:0 0 16px;font-size:14px}
-.lt-drop{border:2px dashed var(--line-strong);border-radius:12px;padding:36px 20px;text-align:center;background:var(--panel-2);transition:background .15s,border-color .15s}
+.lt-lead{color:var(--ink-2);margin:0 0 16px;font-size:14px;text-wrap:pretty}
+.lt-note{text-wrap:pretty}
+.lt-card h2,.lt-h2{text-wrap:balance}
+.lt-drop{border:2px dashed var(--line-strong);border-radius:12px;padding:36px 20px;text-align:center;background:var(--panel-2)}
 .lt-drop.over{border-color:var(--accent);background:var(--accent-soft)}
 .lt-drop.small{padding:12px 16px;display:flex;align-items:center;justify-content:center;gap:12px}
 .lt-drop.small .lt-drop-ic{display:none}
@@ -546,33 +548,33 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-work .lt-w-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lt-work .lt-w-sub{font-size:12px;color:var(--ink-3)}
 .lt-bar{height:8px;background:var(--panel-3);border-radius:4px;overflow:hidden;margin:14px 0 8px}
-.lt-bar>i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.lt-bar>i{display:block;height:100%;width:100%;background:var(--accent);transform:scaleX(var(--p,0));transform-origin:left;transition:transform .2s ease-out}
 /* 校正 */
-.lt-proof{display:grid;grid-template-columns:minmax(380px,44%) 1fr;gap:0;height:calc(100vh - 53px - var(--keybar-h,0px))}
+.lt-proof{display:grid;grid-template-columns:minmax(380px,44%) 1fr;gap:0;height:calc(100dvh - 53px - var(--keybar-h,0px))}
 .lt-left{display:flex;flex-direction:column;gap:12px;padding:14px;border-right:1px solid var(--line);overflow:auto;background:var(--panel)}
 .lt-video{background:var(--stage-bg);border-radius:8px;overflow:hidden;aspect-ratio:16/9;display:grid;place-items:center}
 .lt-video video{width:100%;height:100%;display:block}
-.lt-now{display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.lt-now{display:flex;justify-content:space-between;font-family:var(--mono);font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
 .lt-sec h3{font-size:13px;margin:0 0 8px;color:var(--ink-2)}
 .lt-spk{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:6px 8px;align-items:center}
 .lt-spk .ui-kbd{justify-self:center}
 .lt-spk input{min-width:0}
-.lt-swatch{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-family:"MS Gothic","ＭＳ ゴシック",monospace;background:#585c66;
+.lt-swatch{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-family:"MS Gothic","ＭＳ ゴシック",monospace;background:var(--stage-bg);
   -webkit-text-stroke:0;text-shadow:-1px -1px 0 var(--o),1px -1px 0 var(--o),-1px 1px 0 var(--o),1px 1px 0 var(--o);color:var(--c)}
 .lt-keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--ink-2)}
 .lt-right{display:flex;flex-direction:column;min-height:0}
 .lt-tools{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
-.lt-count{font-weight:600}
+.lt-count{font-weight:600;font-variant-numeric:tabular-nums}
 .lt-count small{font-weight:400;color:var(--ink-3)}
 .lt-spacer{flex:1}
 .lt-rows{flex:1;overflow:auto;padding:8px 14px 40px}
-.lt-row{display:grid;grid-template-columns:28px 150px 120px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;border:1px solid transparent;margin-bottom:2px;--sp:#888}
+.lt-row{display:grid;grid-template-columns:28px 150px 120px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;border:1px solid transparent;margin-bottom:2px;--sp:var(--ink-4)}
 .lt-row:hover{background:var(--panel-2)}
 .lt-row.cur{background:var(--panel);border-color:var(--accent-line);box-shadow:inset 3px 0 0 var(--accent)}
 .lt-row.playing .lt-time{color:var(--accent-ink2)}
 .lt-chk{all:unset;cursor:pointer;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:2px solid var(--line-strong);color:transparent;font-size:13px;font-weight:700;margin-top:4px}
 .lt-chk:focus-visible{box-shadow:var(--ring)}
-.lt-row.ok .lt-chk{background:var(--ok);border-color:var(--ok);color:#fff}
+.lt-row.ok .lt-chk{background:var(--ok);border-color:var(--ok);color:var(--accent-ink)}
 .lt-time{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);line-height:1.5;padding-top:6px}
 .lt-time b{font-weight:500}
 .lt-sp{width:100%;font-size:12.5px;border-left:4px solid var(--sp)!important}
@@ -588,6 +590,8 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-done-list{list-style:none;padding:0;margin:0;display:grid;gap:10px}
 .lt-done-list li{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:8px}
 .lt-done-list .lt-w-main{flex:1;min-width:0}
+.lt-empty{padding:32px 16px;text-align:center;color:var(--ink-2)}
+.lt-empty p{margin:0 0 12px;text-wrap:pretty}
 .lt-done-list small{display:block;color:var(--ink-3);word-break:break-all}
 .lt-steps-ol{margin:8px 0 0 20px;padding:0;font-size:14px;color:var(--ink-2)}
 .lt-steps-ol li{margin:4px 0}
@@ -707,7 +711,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
         <h2 id="hExport">書き出す</h2>
         <p class="lt-lead">Resolve 用ファイルと、送る用ファイル(zip)を一度に作ります。何度でも作り直せます。</p>
         <p class="lt-note" id="ltExSummary"></p>
-        <div class="lt-bar" id="ltExBarWrap" hidden><i id="ltExBar" style="width:100%"></i></div>
+        <div class="lt-bar" id="ltExBarWrap" hidden><i id="ltExBar" style="--p:1"></i></div>
         <p class="lt-note" id="ltExPhase"></p>
         <div class="lt-err" id="ltExErr" hidden></div>
         <div class="lt-actions">

@@ -151,8 +151,8 @@ function upload(file){
     x.open('POST', apiUrl('/api/lite/upload?name=' + encodeURIComponent(file.name)));
     if (TOKEN) x.setRequestHeader('X-YTT-Token', TOKEN);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
-    const bar = $('#ltUpBar'); bar.hidden = false; bar.firstElementChild.style.width = '0';
-    x.upload.onprogress = ev => { if (ev.lengthComputable) bar.firstElementChild.style.width = (ev.loaded / ev.total * 100).toFixed(1) + '%'; };
+    const bar = $('#ltUpBar'); bar.hidden = false; bar.firstElementChild.style.setProperty('--p', 0);
+    x.upload.onprogress = ev => { if (ev.lengthComputable) bar.firstElementChild.style.setProperty('--p', (ev.loaded / ev.total).toFixed(3)); };
     x.onload = () => {
       bar.hidden = true;
       let j = {}; try { j = JSON.parse(x.responseText); } catch { /* 空 */ }
@@ -214,7 +214,7 @@ let runTimer = 0, runT0 = 0;
 function startRun(){
   runT0 = Date.now();
   $('#ltRunErr').hidden = true; show($('#ltRunBack'), false); show($('#ltCancel'), true);
-  $('#ltRunBar').style.width = '0';
+  $('#ltRunBar').style.setProperty('--p', 0);
   setStep('run');
   clearInterval(runTimer);
   runTimer = setInterval(pollRun, 1000);
@@ -227,7 +227,7 @@ async function pollRun(){
   $('#ltRunTitle').textContent = j.title || $('#ltRunTitle').textContent;
   $('#ltRunPhase').textContent = j.phase || '';
   const p = Math.max(0, Math.min(1, j.progress || 0));
-  $('#ltRunBar').style.width = (p * 100).toFixed(1) + '%';
+  $('#ltRunBar').style.setProperty('--p', p.toFixed(3));
   const el2 = (Date.now() - runT0) / 1000;
   $('#ltRunLeft').textContent = p > 0.03 && j.state === 'running' ? `残り およそ ${fmtMin(el2 / p * (1 - p))}` : '';
   $('#ltRunDevice').textContent = j.device === 'cuda' ? 'GPU で処理しています' : j.device === 'cpu' ? 'CPU で処理しています(GPU より時間がかかります)' : '';
@@ -254,6 +254,8 @@ function guessCode(msg){
 function runFailed(e){ showErr($('#ltRunErr'), e); show($('#ltCancel'), false); show($('#ltRunBack'), true); }
 $('#ltCancel').addEventListener('click', async () => {
   if (!L.jobId) return;
+  const ok = await UIKit.dialog.confirm({ title: '文字起こしをやめますか', body: 'ここまでの結果は残りません。もう一度始めると、最初からやり直しになります。', ok: 'やめる', cancel: '続ける', danger: true });
+  if (!ok || !L.jobId) return;
   try { await api('/api/transcribe/cancel', { body: { id: L.jobId } }); $('#ltRunPhase').textContent = 'やめています…'; } catch (e){ toast(friendly(e), 'err'); }
 });
 $('#ltRunBack').addEventListener('click', () => setStep('load'));
@@ -400,6 +402,19 @@ $('#ltSpkAdd').addEventListener('click', () => {
 /* 行 */
 function renderRows(){
   const box = $('#ltRows'); box.textContent = '';
+  if (!rows().length){   // 声が見つからなかった動画など: 次の一手(行を足す)を1つだけ出す
+    const e = el('div', 'lt-empty');
+    e.appendChild(el('p', '', '文字にできる声が見つかりませんでした。話している所があれば、行を足して書いてください。'));
+    const b = el('button', 'btn primary', '行を足す'); b.type = 'button';
+    b.addEventListener('click', () => {
+      pushUndo();
+      const t = Math.max(0, video.currentTime || 0), end = video.duration || L.doc.duration || t + 2;
+      L.doc.segments.push({ id: nextId(), start: r2(t), end: r2(Math.min(end, t + 2)), text: '', speaker: L.doc.speakers[0].id, flag: '' });
+      logOp({ op: 'add', row: L.doc.segments[0].id, start: r2(t) });
+      renderRows(); markDirty(); focusRow(0, true);
+    });
+    e.appendChild(b); box.appendChild(e); updateCount(); return;
+  }
   const frag = document.createDocumentFragment();
   rows().forEach((g, i) => frag.appendChild(rowEl(g, i)));
   box.appendChild(frag);
