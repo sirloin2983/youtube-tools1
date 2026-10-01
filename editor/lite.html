@@ -489,7 +489,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);disp
 .lt-head{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}   /* ui-kit の重なりの順: ヘッダー 40 */
 .lt-title{font-family:var(--font-display);font-weight:650;font-size:16px;margin:0;white-space:nowrap}
 .lt-steps{display:flex;gap:4px;margin:0;padding:0;list-style:none;flex:1;justify-content:center}
-.lt-steps button{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;color:var(--ink-3);font-size:13px}
+.lt-steps button{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;color:var(--ink-3);font-size:13px;white-space:nowrap}
 .lt-steps button:focus-visible{box-shadow:var(--ring)}
 .lt-steps button[disabled]{cursor:default;opacity:.55}
 .lt-steps .lt-num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1.5px solid currentColor;font-size:12px;font-weight:600}
@@ -497,7 +497,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);disp
 .lt-steps button[aria-current="step"] .lt-num{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .lt-steps button.done .lt-num::after{content:"✓"}
 .lt-steps button.done .lt-num span{display:none}
-.lt-save{font-size:12px;color:var(--ink-3);min-width:96px;text-align:right}
+.lt-save{font-size:12px;color:var(--ink-2);min-width:96px;text-align:right}
 .lt-save[data-state="err"]{color:var(--danger-ink)}
 main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-step{flex:1;min-height:0}
@@ -536,7 +536,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-field label{font-size:13px;color:var(--ink-2)}
 .lt-field input{width:100%;box-sizing:border-box}
 .lt-req{color:var(--danger-ink);font-size:12px;margin-left:4px}
-.lt-opt{color:var(--ink-3);font-size:12px;margin-left:4px}
+.lt-opt{color:var(--ink-2);font-size:12px;margin-left:4px}
 .lt-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:16px}
 .lt-note{font-size:13px;color:var(--ink-2)}
 .lt-warn{color:var(--warn-ink);background:var(--warn-soft);border-radius:8px;padding:8px 12px;font-size:13px;margin-top:12px}
@@ -546,7 +546,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-work:hover{background:var(--panel-2)}
 .lt-work .lt-w-main{flex:1;min-width:0}
 .lt-work .lt-w-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-work .lt-w-sub{font-size:12px;color:var(--ink-3)}
+.lt-work .lt-w-sub{font-size:12px;color:var(--ink-2)}
 .lt-bar{height:8px;background:var(--panel-3);border-radius:4px;overflow:hidden;margin:14px 0 8px}
 .lt-bar>i{display:block;height:100%;width:100%;background:var(--accent);transform:scaleX(var(--p,0));transform-origin:left;transition:transform .2s ease-out}
 /* 校正 */
@@ -581,7 +581,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-text{width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:15px;line-height:1.5;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--field);color:var(--ink);overflow:hidden;min-height:34px}
 .lt-text:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
 .lt-row.ok .lt-state{color:var(--ok-ink)}
-.lt-state{font-size:11px;color:var(--ink-3);display:block;margin-top:2px}
+.lt-state{font-size:12px;color:var(--ink-2);display:block;margin-top:2px}
 .lt-rowtools{grid-column:4;display:flex;gap:6px;margin-top:4px}
 .lt-row:not(.cur) .lt-rowtools{display:none}
 .lt-rules{font-size:13px}
@@ -592,20 +592,40 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-done-list .lt-w-main{flex:1;min-width:0}
 .lt-empty{padding:32px 16px;text-align:center;color:var(--ink-2)}
 .lt-empty p{margin:0 0 12px;text-wrap:pretty}
-.lt-done-list small{display:block;color:var(--ink-3);word-break:break-all}
+.lt-done-list small{display:block;color:var(--ink-2);word-break:break-all}
 .lt-steps-ol{margin:8px 0 0 20px;padding:0;font-size:14px;color:var(--ink-2)}
 .lt-steps-ol li{margin:4px 0}
-@media (max-width:900px){.lt-proof{grid-template-columns:1fr;height:auto}.lt-row{grid-template-columns:28px 1fr}.lt-row .lt-text,.lt-rowtools{grid-column:1/-1}}
+@media (max-width:900px){
+  .lt-proof{grid-template-columns:1fr;height:auto}
+  .lt-video{max-height:50dvh;aspect-ratio:auto}
+  .lt-video video{max-height:50dvh;object-fit:contain}
+  .lt-steps button:not([aria-current]) .lt-lbl{display:none}   /* 狭い画面: 今の段の名前だけ出す(番号は全部) */
+  .lt-head{gap:10px;padding:8px 12px}
+}
+@media (max-width:640px){
+  .lt-title{font-size:14px;flex:1}
+  .lt-head{flex-wrap:wrap}
+  .lt-steps{order:3;flex-basis:100%;justify-content:space-between}
+  .lt-save{display:none}
+  .lt-sheet{padding:20px 16px}
+  .lt-field{grid-template-columns:1fr;gap:4px}
+  .lt-field label{margin-top:8px}
+  .lt-row{grid-template-columns:28px 1fr auto;gap:6px 8px}
+  .lt-row .lt-sp{grid-column:3;width:auto;max-width:140px}
+  .lt-row>div:nth-child(4),.lt-rowtools{grid-column:1/-1}
+  .lt-actions{flex-wrap:wrap}
+}
+.lt-rowtools{flex-wrap:wrap}
 </style>
 </head>
 <body>
 <header class="lt-head">
   <h1 class="lt-title">文字起こし 簡易版</h1>
   <ol class="lt-steps" aria-label="手順">
-    <li><button type="button" data-step="load"><span class="lt-num"><span>1</span></span>読み込み</button></li>
-    <li><button type="button" data-step="run" disabled><span class="lt-num"><span>2</span></span>文字起こし</button></li>
-    <li><button type="button" data-step="proof" disabled><span class="lt-num"><span>3</span></span>校正</button></li>
-    <li><button type="button" data-step="export" disabled><span class="lt-num"><span>4</span></span>書き出し</button></li>
+    <li><button type="button" data-step="load"><span class="lt-num"><span>1</span></span><span class="lt-lbl">読み込み</span></button></li>
+    <li><button type="button" data-step="run" disabled><span class="lt-num"><span>2</span></span><span class="lt-lbl">文字起こし</span></button></li>
+    <li><button type="button" data-step="proof" disabled><span class="lt-num"><span>3</span></span><span class="lt-lbl">校正</span></button></li>
+    <li><button type="button" data-step="export" disabled><span class="lt-num"><span>4</span></span><span class="lt-lbl">書き出し</span></button></li>
   </ol>
   <span class="lt-save" id="ltSave" aria-live="polite"></span>
   <button type="button" class="btn ghost sm" data-theme-toggle title="画面の色(明るい・暗い)">画面の色</button>
@@ -680,7 +700,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
             <button type="button" class="btn sm" id="ltSpkAdd">話者を足す</button>
           </div>
         </div>
-        <details class="lt-sec lt-rules" id="ltRules" open>
+        <details class="lt-sec lt-rules" id="ltRules">
           <summary><b>書き方のルール</b></summary>
           <ol id="ltRuleList"></ol>
         </details>

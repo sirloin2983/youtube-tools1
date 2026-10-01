@@ -2507,3 +2507,21 @@
 - 設計の正本: `.design/friend-transcribe-lite/DESIGN_BRIEF.md`(ユーザーの Downloads から写した)。計画: `docs/plan/friend-lite-plan.md`(段 L1〜L6)
 - 段0 の残り(旧フォルダの改名・AI の作業フォルダの向け直し)は実装に関係しないので並行(ユーザー「実装して」)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code(まとめ役 Opus + サブエージェント Sonnet・Opus)— 友人用 文字起こし簡易版 L1〜L6(編集 0.34.0・ホーム 0.21.0・cut2resolve 0.17.0)
+- 計画 `docs/plan/friend-lite-plan.md`(状態 = 実装済み・実機の確認待ち)・設計 `.design/friend-transcribe-lite/DESIGN_BRIEF.md`・見直し `.design/friend-transcribe-lite/DESIGN_REVIEW.md`
+- 形: サーバーは「編集」をそのまま使い、友人用は別の画面(`editor/lite.html`・`lite.js`)。共通コア = ed_jobs(文字起こし・字幕分割)・cut2resolve の pack(Text+)・新しい `ytt_core/evaldata.py`(評価データの形式・記号・パスの除去・zip の検証)
+- L1 共通コア: `ytt_core/evaldata.py`(+ `ytt_core/tests/test_evaldata.py`)・cut2resolve 0.17.0 の字幕の型 `lite`(MS ゴシック・大きさ 0.08 は仮・要素5 を無効)と字幕ごとのふちの色(`build_pack(textplus_style, speaker_outlines)`。Sonnet)・
+  editor の生出力 `<id>.asr.json`(`capture_raw`。単語の確信度はワーカーの `probability` → `seg_to_dict` の `wordProbs`。words の3つ組は変えない)・`TRANSCRIBE_CUDA_COMPUTE`・話者の `outline`
+- L2 書き出し: `editor/ed_lite.py`(`/api/lite/state|settings|upload|probe|start|ops|export|open`)・`lite-colors.json`。書き出し = カットなしのパック(記号を除いた字幕・空の行は入れない)+ 送る用 zip(audio.flac 16kHz モノラル・asr_raw・final・edits.jsonl・meta。絶対パスを除いて find_abs_paths で確かめ、作ったあと check_zip で自分でも確かめる)。重い処理は SLOTS を通す
+- L3 画面: 一本道(読み込み → 文字起こし → 校正 → 書き出し)・続きから・Enter で確認して次へ・数字で話者・I/O・Z/X/C/V・時刻は前後の行と重ならない・取り消し/やり直し・作業の記録(確定の前に再生したか)。`editor/tests/e2e_lite.py`(35 項目)
+- L4 起動: `lite/start.bat`(ASCII・uv・Python 3.10。**python の行は `& exit /b`** = 更新でこのファイルが書き換わっても続きを読まない)・`lite/lite_start.py`(更新 → 部品(GPU があれば cuBLAS/cuDNN)→ ffmpeg(無ければ winget を聞く)→ 入口)・
+  `lite/lite_update.py`(取得元は `sirloin2983/youtube-tools1` の main に固定。git は origin が同じで変更が無いときだけ ff。zip は API で調べたコミットの zip だけを取り、名前を検証・PROTECTED は上書きしない。消えたファイルは消さない)・
+  入口の `--open-path` と `--app-window`(appwindow の `force_mode` = 設定に保存しない)・`.gitattributes`(*.bat を CRLF で取り出す)・`.gitignore`(lite/.venv・送る用ファイル・eval-intake)・`setup/requirements-lite*.txt`
+- L5 取り込みチェック(Opus): `dev/eval_import.py`(届いた zip を置き場所へ写して sha256 → check_zip → 展開 → 形式・作業ID・絶対パスの検証 → judge → check.json・index.jsonl。置き場所は `%LOCALAPPDATA%\youtube-tools\eval-intake`・リポジトリと git の作業フォルダの中は断る・routing.json の noTrain)。指摘を受けて evaldata の judge を形の違う中身に強くした
+- L6: /frontend-design(1枚の面・映像の上の字幕の見本・主のボタンは次の一手だけ)→ /baseline-ui(100dvh・transform・tabular-nums・トークン・z-index・確認・空のとき)→ /design-review(375px のはみ出し・行の並び・コントラスト・ブリーフの軽い知らせ・ルールを畳む)
+- テスト: editor の単体 238・test_lite 13・evaldata 14・eval_import 25・lite の起動 14・cut2resolve 310・契約 34・home の launch/window 70・test_mount 26・ui-kit の写し・e2e 一式(`dev/run_editor_suite.py` に e2e_lite を足した。e2e_eval_set だけ一式の中で時間切れ → 単独で通る = 以前からの不安定さ)
+- 気づき: `PYTHONIOENCODING=utf-8` を付けて home/tests/test_mount.py を流すと子プロセスの出力が読めず落ちる(以前からの件。付けない)。Python のヒアドキュメントで `\x00` などを書くと JS に本物の NUL が入る(raw 文字列で書く)
+- 実機で確かめてもらうこと: `docs/plan/friend-lite-realcheck.md`(60fps→30fps の字幕のずれ・字幕の大きさ 0.08・ふちの色)・友人の PC での lite\start.bat の初回(uv・CUDA の部品・int8_float16)・ドロップの受け取り(大きな動画)
+- 決めたこと(変えたければ言ってもらう): モデル large-v3-turbo・出力は ドキュメント\文字起こし簡易版\・Resolve のプロジェクトは 30fps 固定・同時に話す2人の行も時刻は重ねない(ブリーフの「重ならないよう制限」に合わせた)
+- 未コミット: なし(このあとコミット)

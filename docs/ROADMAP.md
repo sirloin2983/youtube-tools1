@@ -89,7 +89,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 
 ### 別件: 友人用 文字起こし簡易版(`docs/plan/friend-lite-plan.md`)
 - 友人が自分の PC(RTX 3060)で動画を文字起こしして校正し、字幕だけの Resolve 用ファイルと評価用 zip(送る用ファイル)を作る一本道の画面。サーバーは「編集」をそのまま使い、画面だけ別(`editor/lite.html`)。設計の正本は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`
-- 状態: **進行中**(2026-10-02。段 L1〜L6)
+- 状態: **実装済み・実機の確認待ち**(2026-10-02。L1〜L6。編集 0.34.0・ホーム 0.21.0・cut2resolve 0.17.0)。確かめてもらうことは `docs/plan/friend-lite-realcheck.md`(60fps の動画を 30fps のプロジェクトで・字幕の見た目)と友人の PC での start.bat の初回
 
 ## 3. 実機で確かめること(クラウドでは確かめられない。ユーザーの PC で)
 - 話者の名前から決めた字幕の色が Resolve の Text+ に入るか(Lua の SetInput)
@@ -216,7 +216,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 | `docs/plan/accuracy/USER_INPUT.md` | **ユーザーの記入待ち**(呼び名・書き方の規則) |
 | `docs/plan/accuracy/accuracy-baseline.md` | 精度の基準(評価セットがそろったら取り直す) |
 | `docs/design/friend-intake.md` | 友人からの依頼の受付(2026-10-01。実装済み・実機で通しは確認済み・実際の Dropbox で未確認の項目あり) |
-| `docs/plan/friend-lite-plan.md` | **進行中**。友人用 文字起こし簡易版(2026-10-02。設計は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`) |
+| `docs/plan/friend-lite-plan.md` | **実装済み・実機の確認待ち**。友人用 文字起こし簡易版(2026-10-02。設計は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`) |
 
 ### 完了した設計(経緯。「なぜそうなっているか」を調べるときに読む)
 | 文書 | 状態 |

@@ -125,11 +125,9 @@ function setFile(f){
   $('#ltDrop').classList.toggle('small', !!f);   // 選んだら、ドロップの場所は小さく(次にやることは配信者を選んで始めること)
   $('#ltFileName').textContent = f ? f.name : '';
   $('#ltFileLen').textContent = f && f.durationSec ? `長さ ${fmtT(f.durationSec)}` : '';
-  const warn = $('#ltLenWarn');
-  if (f && f.durationSec > LONG_NOTE){
-    warn.textContent = `${fmtMin(f.durationSec)}の長い動画です。文字起こしと校正に時間がかかります(GPU なら動画の長さの数分の1ほど)。`;
-    warn.hidden = false;
-  } else warn.hidden = true;
+  $('#ltLenWarn').hidden = true;
+  if (f && f.durationSec > LONG_NOTE)   // 止めずに知らせる(数秒で消える軽い表示。ブリーフの原則 2)。30 分超は始めるときに確認
+    toast(`${fmtMin(f.durationSec)}の長い動画です。文字起こしと校正に時間がかかります(GPU なら動画の長さの数分の1ほど)`, 'info', 6000);
   updateStart();
 }
 
@@ -283,6 +281,7 @@ async function openDoc(tid){
   $('#ltConflict').hidden = true;
   renderSpeakers(); renderRows();
   setSave('');
+  if (!lsGet('lite.rulesSeen')){ $('#ltRules').open = true; lsSet('lite.rulesSeen', '1'); }   // 書き方のルールは最初の1回だけ開く(あとは畳んで横に置く)
   setStep('proof');
 }
 
@@ -670,8 +669,9 @@ function exportDone(res){
   const w = $('#ltExWarn'); w.textContent = '';
   (res.warnings || []).forEach(x => w.appendChild(el('li', '', x)));
   show($('#ltDone'), true);
+  if ((res.warnings || []).length) toast(`書き出しました。気をつけることが ${res.warnings.length} つあります(下に出しています)`, 'info', 6000);
   $('#ltExport').classList.remove('primary'); $('#ltExport').disabled = false; $('#ltExport').textContent = 'もう一度書き出す';   // 書き出したあとの次の一手は「フォルダを開く」(主のボタンは1つ)
-  toast('書き出しました', 'ok');
+  if (!(res.warnings || []).length) toast('書き出しました', 'ok');
   openFolder('send');
 }
 async function openFolder(what){ try { await api('/api/lite/open', { body: { id: L.tid, what } }); } catch (e){ toast(friendly(e), 'err'); } }

@@ -1,6 +1,6 @@
 # 友人用 文字起こし簡易版(lite)の実装計画
 
-> 状態(2026-10-02): **進行中**(Claude Code。段 L1〜L6)。設計の正本は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`(grill-me・design-brief・10原則の確認は済み)。
+> 状態(2026-10-02): **L1〜L6 実装済み・実機の確認待ち**(Claude Code。編集 0.34.0・ホーム 0.21.0・cut2resolve 0.17.0。残りは 4 の実機の確認と 5 の保留)。見直しの記録は `.design/friend-transcribe-lite/DESIGN_REVIEW.md`。設計の正本は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`(grill-me・design-brief・10原則の確認は済み)。
 > 段0(フォルダ整理)はコードの部分は済み。残りの「旧フォルダの改名・AI の作業フォルダの向け直し」は実装に関係しないので並行(ユーザー 2026-10-02「実装して」)。
 
 ## 1. 形(決めたこと)
