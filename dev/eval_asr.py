@@ -306,7 +306,8 @@ def run_spec(S, args, settings):
             "vadMode": args.vad or (st.get("vadMode") if st.get("vadMode") in ("weak", "normal", "off") else "normal"),
             "boost": (st.get("boost") is True) if args.boost is None else args.boost == "on",
             "wordSplit": st.get("wordSplit") is not False, "splitChars": S.split_chars_for({}, st),
-            "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device, "temp0": bool(args.temp0)}
+            "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device, "temp0": bool(args.temp0),
+            "engine": args.engine}
 
 
 # ---------------------------------------------------------------- 表示
@@ -392,10 +393,14 @@ def cmd_run(S, args, data):
     terms = name_terms(S, settings)
     load_sec, device = 0.0, ""
     if S.backend_name() != "fake":
-        if not S.has_faster_whisper():
-            raise SystemExit("faster-whisper が入っていません")
+        S.ENGINE_DIR = data   # whisper.cpp の実行ファイル・モデルは本物の作業データの bin・models(serve の DATA_DIR は一時フォルダ)
+        try:
+            S.req_engine({"engine": spec["engine"]}, spec["model"])
+            S.check_engine(spec)
+        except S.ApiError as e:
+            raise SystemExit(e.message)
         t0 = time.monotonic()
-        _m, device = S.load_model(spec["model"], {"phase": "", "cancel": False}, spec["device"])
+        _m, device = S.load_model(spec["model"], {"phase": "", "cancel": False}, spec["device"], engine=spec["engine"])
         load_sec = time.monotonic() - t0
     groups, audio_sec, wall_sec, per_doc = [], 0.0, 0.0, []
     for n, d in enumerate(docs, 1):
@@ -417,8 +422,8 @@ def cmd_run(S, args, data):
         groups += score_doc(S, d, rows, terms, flag_from="hyp")
     failed = [p for p in per_doc if p.get("error")]
     meta = base_meta("run", args, docs, data)
-    meta.update({"engine": {"engine": "fake" if S.backend_name() == "fake" else "faster-whisper",
-                            "engineVersion": "" if S.backend_name() == "fake" else S.pkg_version("faster-whisper"),
+    run_rec = S.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
+    meta.update({"engine": {"engine": run_rec["engine"], "engineVersion": run_rec["engineVersion"],
                             "model": spec["model"], "device": device,
                             "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
                             "glossary": spec["glossary"][:50], "context": args.context},
@@ -506,7 +511,8 @@ def main(argv=None):
     p.add_argument("--beam", type=int)
     p.add_argument("--boost", choices=("on", "off"))
     p.add_argument("--glossary", help="認識のヒントに渡す語(、か改行区切り)。指定しなければ設定の用語集")
-    p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto", help="whisper.cpp では auto・cuda = GPU(Vulkan)")
+    p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp は setup/build-whisper-vulkan.bat で作ってから)")
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--no-save", action="store_true", help="結果を保存しない")

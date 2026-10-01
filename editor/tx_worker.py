@@ -205,6 +205,10 @@ def install_fakes(S):
         return turns
     S._diarize_local = fake_diarize
     S._embed_local = lambda job, wav, emb, groups: S.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
+    # whisper.cpp(段2-2)は偽の whisper-cli(tests/fake_whisper_cli.py)を動かす。モデルは取らない
+    E = S.tx_engines
+    E.WhisperCpp.COMMAND = [sys.executable, os.path.join(HERE, "tests", "fake_whisper_cli.py")]
+    E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
 
 
 # ---------------------------------------------------------------- 本体
@@ -232,6 +236,8 @@ def handle(S, m, out, cancels):
                 model, dev = S._load_model_local(name, job, dev, False, eng)
             audio = _audio(m.get("audio") or {})
             kw = m.get("kw") or {}
+            # 子プロセスで動くエンジン(whisper.cpp)は、終わるまで行が出ないので、取り消しと進み具合をエンジンに渡す
+            model.hooks = {"cancelled": lambda: rid in cancels, "progress": lambda v: job.__setitem__("progress", v)}
             segs, info = model.transcribe(audio, **kw)
             # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
             # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
@@ -256,6 +262,8 @@ def handle(S, m, out, cancels):
             out.send({"rid": rid, "ev": "error", "code": "bad_op", "message": "不明な要求: %s" % op, "status": 500})
     except S.Cancelled:
         out.send({"rid": rid, "ev": "error", "code": "cancelled", "message": "中止しました"})
+    except S.tx_engines.EngineError as e:
+        out.send({"rid": rid, "ev": "error", "code": e.code, "message": e.message, "status": e.status})
     except S.ApiError as e:
         out.send({"rid": rid, "ev": "error", "code": e.code, "message": e.message, "status": e.status})
     except MemoryError:

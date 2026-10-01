@@ -537,7 +537,7 @@ def validate_job(req):
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
     ctx = stream_context({"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
     return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into,
-            "duration": dur, "whole": whole, "model": model, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
+            "duration": dur, "whole": whole, "model": model, "engine": req_engine(req, model), "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False and not ev, "wordSplit": req.get("wordSplit") is not False,
@@ -730,6 +730,39 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     return "、".join(why)
 
 
+ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。精度を測る道具は自分の DATA_DIR を一時フォルダにするので、本物の作業データを入れる
+
+
+def engine_home():
+    return ENGINE_DIR or ed_state.DATA_DIR
+
+
+def engine_of(spec):
+    return str(spec.get("engine") or tx_engines.DEFAULT)
+
+
+def req_engine(req, model):
+    """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る"""
+    e = str(req.get("engine") or tx_engines.DEFAULT)
+    if not tx_engines.valid(e):
+        raise ed_state.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
+    if not tx_engines.get(e).valid_model(model):
+        raise ed_state.ApiError("bad_model", "%s では使えないモデルです: %s" % (e, model[:60]), 400)
+    return e
+
+
+def check_engine(spec):
+    """認識を始める前に、そのエンジンが使えるか(サーバー側。ネイティブの部品は読まない)"""
+    e = engine_of(spec)
+    if e == tx_engines.DEFAULT or ed_state.worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
+        if not ed_state.has_faster_whisper():
+            raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+        return
+    ok, why = tx_engines.get(e).ready(engine_home())
+    if not ok:
+        raise ed_state.ApiError("engine_missing", why, 400)
+
+
 def load_model(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAULT):
     """(モデル, 使用デバイス) を返す。サーバーのプロセスでは、モデルは認識ワーカー(別プロセス)の中に読み込み、
     ここではその代理(RemoteModel。transcribe() を呼ぶとワーカーで認識する)を返す。faster-whisper のネイティブコードが落ちても、
@@ -755,12 +788,10 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
         pref = "cpu"
     elif env in ("cuda", "cpu"):
         pref = env
-    if pref == "cpu":
-        order = ["cpu"]
-    elif pref == "cuda":
-        order = ["cuda"]
-    else:
-        order = ["cuda", "cpu"] if ed_state.gpu_ready() else ["cpu"]
+    # 試す機器の順はエンジンが決める(faster-whisper = CUDA → CPU、whisper.cpp = Vulkan だけ・CPU は明示のときだけ)。CUDA の有無を調べるのは faster-whisper のときだけ
+    order = eng.device_order(pref, eng is tx_engines.FasterWhisper and pref == "auto" and ed_state.gpu_ready())
+    hooks = {"cancelled": lambda: bool(job.get("cancel")),
+             "download": lambda r: job.__setitem__("phase", "モデルを取得中 %d%%(初回だけ)" % int(r * 100))}
     with _model_lock:
         last = None
         for dev in order:
@@ -775,8 +806,12 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
                 ed_state.log.info("モデルを読み込み: %s/%s/%s(メモリ %s)", eng.id, name, dev, ed_state._mem())
-                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", ed_state.log)
+                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", ed_state.log, engine_home(), hooks)
                 ed_state.log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, ed_state._mem())
+            except tx_engines.EngineError as e:   # エンジンが理由を書いた失敗(実行ファイルが無い・取得の失敗・GPU を使えない)はそのまま出す
+                if e.code == "cancelled":
+                    raise Cancelled()
+                raise ed_state.ApiError(e.code, e.message, e.status)
             except MemoryError:
                 raise ed_state.ApiError("no_memory", "メモリが足りずモデルを読み込めませんでした。他のアプリ(動画編集ソフトなど)を閉じてから、もう一度試してください", 500)
             except Exception as e:
@@ -858,6 +893,8 @@ def filter_kwargs(model, kw):
     """使っている faster-whisper が対応していない引数は渡さない(古い版でも動くように)。
     認識ワーカーの代理(RemoteModel)は、ワーカーが調べた引数の一覧(params)を持っている。"""
     params = getattr(model, "params", None)
+    if callable(params):   # エンジン(tx_engines)をその場で使うとき(認識ワーカーの中・道具)。代理(RemoteModel)は一覧を持っている
+        params = set(params())
     if params:
         return {k: v for k, v in kw.items() if k in params}
     try:
@@ -947,7 +984,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
 
 
 def transcribe_real(job, spec, wav, total):
-    model, device = load_model(spec["model"], job, spec.get("device", "auto"))
+    model, device = load_model(spec["model"], job, spec.get("device", "auto"), engine=engine_of(spec))
     job["device"] = device
     if job["cancel"]:
         raise Cancelled()
@@ -1108,7 +1145,7 @@ def recognition_run(spec, job, audio_sec, wall_sec):
     """文書の recognition.runs に残す、この認識の出どころ(エンジン・版・モデル・機器・かかった時間)。精度と速さを後から比べるため(計画 段0-1)"""
     fake = ed_state.backend_name() == "fake"
     eng = tx_engines.get(spec.get("engine"))
-    return {"engine": "fake" if fake else eng.id, "engineVersion": "" if fake else pkg_version(eng.package),
+    return {"engine": "fake" if fake else eng.id, "engineVersion": "" if fake else (pkg_version(eng.package) if eng.package else eng.version(engine_home())),
             "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
@@ -1331,8 +1368,7 @@ def run_job(job):
         if ed_state.backend_name() == "fake":
             gen = transcribe_fake(job, spec, wav, total)
         else:
-            if not ed_state.has_faster_whisper():
-                raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+            check_engine(spec)
             job["state"] = "loading"
             gen = transcribe_real(job, spec, wav, total)
         raw_asr = []   # 生出力(<id>.asr.json)
@@ -1515,7 +1551,7 @@ def validate_retranscribe(req):
         if b - a > MAX_RANGE_SEC:
             raise ed_state.ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
         rng = [a, b]
-    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "language": lang if lang in ed_state.LANGS else "ja", "beam": 5,
+    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": req_engine(req, model), "language": lang if lang in ed_state.LANGS else "ja", "beam": 5,
             # 全体は画面の設定によらず「弱め」から(抜けを拾うのが目的。捨てすぎたら「なし」へ緩める)。明示の「なし」だけは尊重する
             "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
             else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
@@ -1951,10 +1987,9 @@ def run_redo(job):
         extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         fake = ed_state.backend_name() == "fake"
         if not fake:
-            if not ed_state.has_faster_whisper():
-                raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+            check_engine(spec)
             job["state"] = "loading"
-            model, device = load_model(spec["model"], job, spec["device"])
+            model, device = load_model(spec["model"], job, spec["device"], engine=engine_of(spec))
             job["device"] = device
             audio = ed_speakers.read_wav_f32(wav)
             kw = filter_kwargs(model, redo_kwargs(spec))
@@ -2028,10 +2063,9 @@ class RangeRecognizer:
     def _load(self):
         if self.fake or self.model is not None:
             return
-        if not ed_state.has_faster_whisper():
-            raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+        check_engine(self.spec)
         self.job["state"] = "loading"
-        self.model, device = load_model(self.spec["model"], self.job, self.spec["device"])
+        self.model, device = load_model(self.spec["model"], self.job, self.spec["device"], engine=engine_of(self.spec))
         self.job["device"] = device
         self.audio = ed_speakers.read_wav_f32(self.wav)
         self.job["state"] = "running"
@@ -2299,10 +2333,9 @@ def run_retranscribe(job):
                 job["progress"] = (n + 1) / len(targets)
                 time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
         else:
-            if not ed_state.has_faster_whisper():
-                raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+            check_engine(spec)
             job["state"] = "loading"
-            model, device = load_model(spec["model"], job, spec["device"])
+            model, device = load_model(spec["model"], job, spec["device"], engine=engine_of(spec))
             job["device"] = device
             audio = ed_speakers.read_wav_f32(wav)
             job["state"], job["phase"] = "running", "再認識中"

@@ -2549,3 +2549,19 @@
 - 次(3回目): 段2-2 whisper.cpp Vulkan。**始める前にユーザーに聞く**: 実行ファイルをツールが取得するか(推奨 = URL・SHA-256 固定)・手で置くか(計画の 8 の 4)
 - 実機で確かめること(急がない): 15 分を超える文書の「全体を再認識」で処理状況に「(n / m 区間)」が出る・途中で中止してもう一度押すと「前回の途中から続けました」
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 線 B 段2-2 whisper.cpp Vulkan(コードとテスト。実機の作成と確認はこのあと)
+- 決定(ユーザー 2026-10-02): whisper.cpp は公式の配布に Windows の Vulkan 版が無い(CPU・BLAS・NVIDIA だけ。v1.9.4 = b5130 のリリースを API で確かめた)→ **公式のソースを決まったコミットで取り、この PC で作る**。
+  Vulkan SDK はユーザーが winget で入れる。llama.cpp(段2-3)は公式の win-vulkan-x64 の zip があるので、ツールが URL・SHA-256 固定で取得してよい
+- `setup/build-whisper-vulkan.bat`(ASCII)→ `setup/build_whisper_vulkan.py`: v1.9.4 を shallow clone → HEAD が `927cfce3…` と一致しなければ作らない → VS 2022 の CMake(Visual Studio 17 2022 の生成器 = 開発者用の画面が要らない)・`-DGGML_VULKAN=ON` → whisper-cli だけ作る → `--help` で動くか確かめる →
+  作業データの `bin\whisper.cpp-v1.9.4-vulkan\`(whisper-cli.exe・DLL・build.json = 版・コミット・各ファイルの SHA-256)。ソースは `build\`
+- `tx_engines.WhisperCpp`: whisper-cli を子プロセスで(引数のリスト・shell なし・窓なし)。**引数は応答ファイル `@args.txt`(UTF-8)で渡す**(コマンド行は Windows の文字コードで読まれ、日本語のヒントが化けるため。そのかわりパスは ASCII でないと開けないので、短い名前(8.3)にするか理由を出して止める)。
+  faster-whisper の引数を写す(language・beam・-mc 0・temperature 0 → -tp 0 -nf・no_speech → -nth・initial_prompt → --prompt・声の検出 → --vad + Silero v6.2 の ggml + 閾値・無音・余白。hotwords は無い)。
+  結果は -ojf の JSON → faster-whisper と同じ属性の行(単語 = 文字のトークン・確率。avg_logprob = トークンの確率の対数の平均、compression_ratio = 同じ式、no_speech_prob = なし、duration_after_vad = なし)。
+  **GPU を頼んだのに `whisper_backend_init_gpu: using Vulkan… backend` が無ければ止める**(黙って CPU にしない)。機器の順は auto/cuda → vulkan だけ・cpu → -ng。取り消し・進み具合はワーカーが `hooks` で渡す
+- モデル: ggml の large-v3(3.1GB)・large-v3-turbo(1.6GB)・Silero v6.2(885KB)を大きさと SHA-256 固定で `models\whispercpp\` に取る(`fetch_file`。https だけ・.part に書いて合ったときだけ名前を付ける・合わなければ消す)。anime-whisper は変換が要るので後回し
+- サーバー: 要求の `engine`(`req_engine`。一覧に無い名前・そのエンジンで使えないモデルは断る)・`check_engine`(faster-whisper は今までどおり、whisper.cpp は実行ファイルと build.json のコミット)・`load_model(…, engine=engine_of(spec))` を文字起こし・再認識・範囲/全体に。画面からはまだ選べない(比べて決めてから)
+- 精度を測る道具: `dev/eval_asr.py run --engine whisper.cpp`(実行ファイルとモデルは本物の作業データ = `S.ENGINE_DIR`)
+- テスト: `editor/tests/test_whispercpp.py`(test_metrics から読む。偽の whisper-cli `tests/fake_whisper_cli.py` で引数・UTF-8 のヒント・結果の読み取り・GPU が無いとき止める・失敗・取り消し・取得の大きさと SHA-256・サーバーの受付と準備)・
+  test_worker の `test_whispercpp_through_worker`(worker-fake のワーカーは偽の whisper-cli を使う)。編集の単体 254・test_mount 26・eval_asr 4 OK
+- 未コミット: なし(このあとコミット)。次: ユーザーが Vulkan SDK を入れたら、build-whisper-vulkan.bat で作り、本物の GPU で動くか・速さを確かめる → 版を上げる

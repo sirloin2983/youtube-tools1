@@ -879,6 +879,7 @@ from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3
 from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・open-video・peaks・intoDoc)
 from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
 from test_lite import *  # noqa: E402,F401,F403   友人用 文字起こし簡易版(docs/plan/friend-lite-plan.md)
+from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
 
 
 if __name__ == "__main__":
