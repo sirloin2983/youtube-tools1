@@ -461,6 +461,68 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertEqual(json.loads(p.stdout), {"cuda": False})
         self.assertNotIn("ctranslate2", sys.modules)
 
+    # ---- 認識エンジンの口(精度改善の計画 段2-1)
+    def test_engine_by_name_through_worker(self):
+        """エンジンを名前で選べる(今は faster-whisper だけ)。知らない名前はワーカーが断り、ワーカーは落ちない"""
+        job = {"phase": "", "progress": 0.0, "cancel": False}
+        m, dev = S.load_model("small", job, "cpu", engine="faster-whisper")
+        self.assertEqual((m.engine, dev), ("faster-whisper", "cpu"))
+        self.assertIn("vad_filter", m.params)   # 受け付ける引数はエンジン(の中のモデル)が答える
+        with self.assertRaises(S.ApiError) as cm:
+            S.load_model("small", job, "cpu", engine="whisper.cpp-nope")
+        self.assertEqual(cm.exception.code, "bad_engine")
+        with self.assertRaises(S.ApiError) as cm:   # 認識の要求でも、知らないエンジンは断る
+            S.WORKER.call("transcribe", {"name": "small", "device": "cpu", "engine": "../evil", "audio": {"wav": self.media}, "kw": {}}, job)
+        self.assertEqual(cm.exception.code, "bad_engine")
+        self.assertTrue(S.WORKER.alive())
+        self.assertEqual(self.transcribe()["state"], "done")
+
+
+class EngineTest(unittest.TestCase):
+    """tx_engines: faster-whisper のエンジンは、引数と結果をそのまま通す(エンジンの口を作る前と出力が1文字も変わらない)"""
+
+    def test_faster_whisper_passes_through(self):
+        import types
+        import tx_engines
+        sentinel, seen = (iter(()), object()), {}
+
+        class FakeModel:
+            def __init__(self, name, device=None, compute_type=None, local_files_only=False):
+                seen["init"] = (name, device, compute_type, local_files_only)
+
+            def transcribe(self, audio, language=None, beam_size=5, vad_filter=True, hotwords=None):
+                seen["call"] = (audio, language, beam_size, vad_filter, hotwords)
+                return sentinel
+
+        fw = types.ModuleType("faster_whisper")
+        fw.WhisperModel = FakeModel
+        with mock.patch.dict(sys.modules, {"faster_whisper": fw}):
+            e = tx_engines.get("faster-whisper").create("large-v3", "cpu", "int8")
+        self.assertEqual(seen["init"], ("large-v3", "cpu", "int8", True))
+        kw = {"language": "ja", "beam_size": 5, "vad_filter": False, "hotwords": "スバル"}
+        self.assertIs(e.transcribe("a.wav", **kw), sentinel)
+        self.assertEqual(seen["call"], ("a.wav", "ja", 5, False, "スバル"))
+        self.assertEqual(e.params(), ["audio", "beam_size", "hotwords", "language", "vad_filter"])
+        self.assertEqual(S.recognition_run({"model": "large-v3", "language": "ja", "beam": 5, "vadMode": "weak"}, {}, 1, 1)["engine"],
+                         "fake" if S.backend_name() == "fake" else "faster-whisper")
+
+    def test_unknown_engine(self):
+        import tx_engines
+        for bad in ("nope", "../x", "Engine", "__init__"):
+            self.assertFalse(tx_engines.valid(bad))
+            with self.assertRaises(ValueError):
+                tx_engines.get(bad)
+        self.assertTrue(tx_engines.valid(None))   # 無ければ既定(faster-whisper)
+        with self.assertRaises(S.ApiError) as cm:
+            S._load_model_local("small", {"phase": ""}, "cpu", False, "nope")
+        self.assertEqual(cm.exception.code, "bad_engine")
+
+    def test_engine_module_has_no_native_imports(self):
+        """tx_engines はサーバー側でも読む(名前と版)。ファイルの先頭でネイティブの部品を読み込まない"""
+        code = "import sys; sys.path.insert(0, sys.argv[1]); import tx_engines; print([m for m in ('numpy', 'faster_whisper', 'ctranslate2') if m in sys.modules])"
+        p = subprocess.run([sys.executable, "-c", code, HERE], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.stdout.strip(), "[]", p.stderr)
+
 
 class ProtocolTest(unittest.TestCase):
     """ワーカーの出力が壊れていても、サーバー側は読み飛ばす・異常終了として扱う。"""

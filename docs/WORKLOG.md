@@ -2525,3 +2525,13 @@
 - 実機で確かめてもらうこと: `docs/plan/friend-lite-realcheck.md`(60fps→30fps の字幕のずれ・字幕の大きさ 0.08・ふちの色)・友人の PC での lite\start.bat の初回(uv・CUDA の部品・int8_float16)・ドロップの受け取り(大きな動画)
 - 決めたこと(変えたければ言ってもらう): モデル large-v3-turbo・出力は ドキュメント\文字起こし簡易版\・Resolve のプロジェクトは 30fps 固定・同時に話す2人の行も時刻は重ねない(ブリーフの「重ならないよう制限」に合わせた)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 線 B 段2 の 2回目: 2-1 認識エンジンの口(担当の宣言: editor/ の認識の部分)
+- 担当: 線 B 段2(`editor/tx_engines.py`・`tx_worker.py`・`ed_jobs.py` の認識の部分)は Claude Code(PC)。ROADMAP の順番どおり(段10 → 線 B 段1・2)
+- 新しい `editor/tx_engines.py`: エンジンの形(`create(name, device, compute_type)`・`transcribe(audio, **kw)` = faster-whisper と同じ (行, 情報)・`params()`)と一覧 `ENGINES`。今は `FasterWhisper` だけ(引数と結果をそのまま通す)。
+  ネイティブの部品は `create` の中で読む(サーバー側も名前と版のために読むので、先頭で import しない)。知らない名前は ValueError(要求の文字列からクラスを探さない)
+- `ed_jobs`: `load_model(…, engine)`・`_load_model_local(…, engine)`(モデルの使い回しのキーを `(名前, 機器, エンジン)` に)・`_new_whisper` は `FasterWhisper.create` へ移した・`RemoteModel.engine`・`recognition_run` の engine/版はエンジンから。
+  既定のエンジンのときはワーカーへの要求に engine を足さない(今までと同じやり取り)
+- `tx_worker`: 要求の `engine`(無ければ faster-whisper。一覧に無ければ `bad_engine` で断り、ワーカーは落ちない)・受け付ける引数はエンジンの `params()`
+- テスト: test_worker に `test_engine_by_name_through_worker`・`EngineTest`(そのまま通す・知らない名前・先頭でネイティブを読まない)。写す一覧(`("tx_worker.py", …)` の9か所)に `tx_engines.py`。編集の単体 238 → そのまま通る
+- 未コミット: なし(このあとコミット)

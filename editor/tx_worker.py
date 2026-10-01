@@ -10,8 +10,9 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 中身の処理は serve.py の関数(_load_model_local・_diarize_local)をそのまま使う(2か所に同じ処理を書かない)。
 
 やり取り(1行1件の JSON。ASCII):
-  要求  {"rid": 1, "op": "load", "name": "large-v3", "pref": "auto", "force_cpu": false}
-        {"rid": 2, "op": "transcribe", "name", "device", "audio": {"wav": パス} | {"f32": パス}, "kw": {...}}
+  要求  {"rid": 1, "op": "load", "name": "large-v3", "pref": "auto", "force_cpu": false, "engine": "faster-whisper"}
+        {"rid": 2, "op": "transcribe", "name", "device", "engine", "audio": {"wav": パス} | {"wav", "from", "to"}, "kw": {...}}
+        engine = 認識エンジン(tx_engines.py の名前。無ければ faster-whisper。計画 段2-1)
         {"rid": 3, "op": "diarize", "wav": パス, "num": 0, "emb": "voxceleb"}
         {"rid": 4, "op": "embed", "wav": パス, "emb": "voxceleb", "groups": [[[開始, 終了], ...], ...]}   声の特徴(A-3。音声の先頭からの秒)
         {"op": "cancel", "rid": 2}   /   {"op": "quit"}
@@ -130,11 +131,8 @@ def _audio(a):
 
 
 def _accepted_params(model):
-    try:
-        import inspect
-        return sorted(inspect.signature(model.transcribe).parameters)
-    except (TypeError, ValueError):
-        return []
+    """エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)"""
+    return list(model.params())
 
 
 # ---------------------------------------------------------------- テスト用の偽物(TRANSCRIBE_BACKEND=worker-fake)
@@ -211,19 +209,27 @@ def install_fakes(S):
 
 # ---------------------------------------------------------------- 本体
 
+def _engine(S, m):
+    """要求の認識エンジンの名前(一覧に無ければ ApiError。要求の文字列からクラスを探さない)"""
+    e = str(m.get("engine") or S.tx_engines.DEFAULT)
+    if not S.tx_engines.valid(e):
+        raise S.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
+    return e
+
+
 def handle(S, m, out, cancels):
     rid, op = m.get("rid"), m.get("op")
     job = JobProxy(rid, out, cancels)
     try:
         if op == "load":
-            model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")))
+            model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(S, m))
             out.send({"rid": rid, "ev": "result", "v": {"device": dev, "params": _accepted_params(model)}})
         elif op == "transcribe":
-            name, dev = str(m.get("name")), str(m.get("device") or "cpu")
+            name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(S, m)
             with S._model_lock:
-                model = S._models.get((name, dev))
+                model = S._models.get((name, dev, eng))
             if model is None:   # 読み込んだあとに手放された(通常は起きない)→ 同じ機器で読み直す
-                model, dev = S._load_model_local(name, job, dev)
+                model, dev = S._load_model_local(name, job, dev, False, eng)
             audio = _audio(m.get("audio") or {})
             kw = m.get("kw") or {}
             segs, info = model.transcribe(audio, **kw)

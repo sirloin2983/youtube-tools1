@@ -41,6 +41,7 @@ import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 # ---------- ジョブ ----------
 _jobs = {}
 _order = []
@@ -70,7 +71,7 @@ def release_idle_models(now=None):
     with _model_lock:
         if not _models or now - _model_used[0] < MODEL_IDLE_SEC:
             return False
-        ed_state.log.info("しばらく使っていないモデルを解放: %s(メモリ %s)", ", ".join("%s/%s" % k for k in _models), ed_state._mem())
+        ed_state.log.info("しばらく使っていないモデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in _models), ed_state._mem())
         _models.clear()
     gc.collect()
     return True
@@ -442,8 +443,8 @@ class RemoteModel:
     """ワーカーの中のモデルの代理。transcribe() は faster-whisper の WhisperModel.transcribe と同じ形 (行の生成器, 情報) を返す。
     行は属性(start・end・text・avg_logprob・no_speech_prob・compression_ratio・words)で読めるので、呼び出し側のコードは変えなくてよい。"""
 
-    def __init__(self, client, name, device, params, job):
-        self.client, self.name, self.device, self.job = client, name, device, job
+    def __init__(self, client, name, device, params, job, engine=tx_engines.DEFAULT):
+        self.client, self.name, self.device, self.job, self.engine = client, name, device, job, engine
         self.params = set(params or ())
 
     def transcribe(self, audio, **kw):
@@ -455,7 +456,10 @@ class RemoteModel:
             a = {"wav": audio.path}
         else:
             raise TypeError("認識する音声は wav のパスか WavRef / WavSlice で渡してください")
-        g = self.client.stream("transcribe", {"name": self.name, "device": self.device, "audio": a, "kw": kw}, self.job)
+        args = {"name": self.name, "device": self.device, "audio": a, "kw": kw}
+        if self.engine != tx_engines.DEFAULT:
+            args["engine"] = self.engine
+        g = self.client.stream("transcribe", args, self.job)
         info = _Obj({"language": kw.get("language"), "duration": None, "duration_after_vad": None})
         first = None
         try:   # faster-whisper と同じく、声の検出の結果(info)は行を読む前に分かるようにする(最初の知らせを先に読む)
@@ -726,20 +730,26 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     return "、".join(why)
 
 
-def load_model(name, job, pref="auto", force_cpu=False):
+def load_model(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAULT):
     """(モデル, 使用デバイス) を返す。サーバーのプロセスでは、モデルは認識ワーカー(別プロセス)の中に読み込み、
     ここではその代理(RemoteModel。transcribe() を呼ぶとワーカーで認識する)を返す。faster-whisper のネイティブコードが落ちても、
-    落ちるのはワーカーだけになる(統合計画の段階3-3)。"""
+    落ちるのはワーカーだけになる(統合計画の段階3-3)。engine = 認識エンジン(tx_engines の名前。計画 段2-1)"""
     if IN_WORKER:
-        return _load_model_local(name, job, pref, force_cpu)
-    v = WORKER.call("load", {"name": name, "pref": pref, "force_cpu": bool(force_cpu)}, job)
-    return RemoteModel(WORKER, name, v["device"], v.get("params"), job), v["device"]
+        return _load_model_local(name, job, pref, force_cpu, engine)
+    args = {"name": name, "pref": pref, "force_cpu": bool(force_cpu)}
+    if engine != tx_engines.DEFAULT:   # 既定のエンジンは今までと同じ要求(古いワーカーとも同じやり取り)
+        args["engine"] = engine
+    v = WORKER.call("load", args, job)
+    return RemoteModel(WORKER, name, v["device"], v.get("params"), job, engine), v["device"]
 
 
-def _load_model_local(name, job, pref="auto", force_cpu=False):
-    """(モデル, 使用デバイス) を返す(認識ワーカーの中で動く本体)。同じ設定のモデルは使い回す。
+def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAULT):
+    """(モデル, 使用デバイス) を返す(認識ワーカーの中で動く本体)。同じエンジン・モデル・機器のものは使い回す。モデルは tx_engines のエンジン。
     pref: auto=GPU があれば GPU(失敗したら CPU) / cuda=GPU 固定(失敗したらエラー) / cpu=CPU 固定"""
-    from faster_whisper import WhisperModel
+    try:
+        eng = tx_engines.get(engine)
+    except ValueError as e:
+        raise ed_state.ApiError("bad_engine", str(e), 400)
     env = os.environ.get("TRANSCRIBE_DEVICE")
     if force_cpu:
         pref = "cpu"
@@ -754,18 +764,18 @@ def _load_model_local(name, job, pref="auto", force_cpu=False):
     with _model_lock:
         last = None
         for dev in order:
-            key = (name, dev)
+            key = (name, dev, eng.id)
             _model_used[0] = time.time()
             if key in _models:
                 return _models[key], dev
             if _models:   # 別のモデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
-                ed_state.log.info("モデルを解放: %s(メモリ %s)", ", ".join("%s/%s" % k for k in _models), ed_state._mem())
+                ed_state.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in _models), ed_state._mem())
                 _models.clear()
                 gc.collect()
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
-                ed_state.log.info("モデルを読み込み: %s/%s(メモリ %s)", name, dev, ed_state._mem())
-                m = _new_whisper(WhisperModel, name, dev)
+                ed_state.log.info("モデルを読み込み: %s/%s/%s(メモリ %s)", eng.id, name, dev, ed_state._mem())
+                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", ed_state.log)
                 ed_state.log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, ed_state._mem())
             except MemoryError:
                 raise ed_state.ApiError("no_memory", "メモリが足りずモデルを読み込めませんでした。他のアプリ(動画編集ソフトなど)を閉じてから、もう一度試してください", 500)
@@ -779,19 +789,6 @@ def _load_model_local(name, job, pref="auto", force_cpu=False):
             _models[key] = m
             return m, dev
         raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした: %s" % str(last)[:200], 500)
-
-
-def _new_whisper(WhisperModel, name, dev):
-    """モデルを作る。ダウンロード済みなら手元のファイルだけで読む(読むたびに Hugging Face へ版の確認の通信をしない。
-    オフラインでも読め、通信の待ちが無くなる。計画 段0-4)。手元に無い(初回)・手元だけでは読めないときは、今までどおりネットワークから取る"""
-    ct = cuda_compute() if dev == "cuda" else "int8"
-    try:
-        return WhisperModel(name, device=dev, compute_type=ct, local_files_only=True)
-    except MemoryError:
-        raise
-    except Exception as e:
-        ed_state.log.info("手元のファイルだけではモデルを読めないので、ネットワークから取ります: %s(%s)", name, str(e)[:120])
-    return WhisperModel(name, device=dev, compute_type=ct)
 
 
 CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")
@@ -1110,7 +1107,8 @@ def pkg_version(name):
 def recognition_run(spec, job, audio_sec, wall_sec):
     """文書の recognition.runs に残す、この認識の出どころ(エンジン・版・モデル・機器・かかった時間)。精度と速さを後から比べるため(計画 段0-1)"""
     fake = ed_state.backend_name() == "fake"
-    return {"engine": "fake" if fake else "faster-whisper", "engineVersion": "" if fake else pkg_version("faster-whisper"),
+    eng = tx_engines.get(spec.get("engine"))
+    return {"engine": "fake" if fake else eng.id, "engineVersion": "" if fake else pkg_version(eng.package),
             "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
