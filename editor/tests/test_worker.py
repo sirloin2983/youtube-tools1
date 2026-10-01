@@ -193,6 +193,62 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual((job["kept"], S.public_job(job)["kept"]), (1, 1))
         self.assertTrue(os.path.isfile(os.path.join(S.TX_DIR, ".bak", tid + ".pre-retranscribe.json")))
 
+    def test_whole_resumes_from_saved_parts(self):
+        """S-1: 長い動画の全体の再認識は区間ごとに書いておき、途中で落ちても、同じ設定でもう一度始めれば続きから。結果は通しで認識したときと同じ"""
+        tid_a, tid_b = self.transcribe()["tid"], self.transcribe()["tid"]    # 同じ動画の同じ文書を2つ(通しと、途中で落ちて続きから)
+        with mock.patch.object(S, "WHOLE_PART_SEC", 6):
+            _s, job = self._whole(tid_a)
+            self.assertEqual(job["state"], "done", job.get("error"))
+            self.assertFalse(os.path.exists(S.resume_path(tid_a)))           # 反映したら続きの記録は消す
+            calls, real = [], S.RangeRecognizer.main
+
+            def main_fails_second(rec, a, b, share=(0.0, 1.0)):
+                calls.append((a, b))
+                if len(calls) == 2:
+                    raise RuntimeError("落ちた")
+                return real(rec, a, b, share)
+            with mock.patch.object(S.RangeRecognizer, "main", main_fails_second):
+                _s, job = self._whole(tid_b)
+            self.assertEqual(job["state"], "error")
+            with open(S.resume_path(tid_b), encoding="utf-8") as f:
+                cp = json.load(f)
+            self.assertEqual((len(cp["parts"]), sorted(cp["done"])), (3, ["0"]))   # 20 秒 → 6 秒の目安で 3 区間・1つ目だけ済み
+            self.assertEqual(cp["parts"][0], [0.0, 6.0])                      # 行(4 秒ごと)にすき間が無い → 目安の所で区切る
+            calls.clear()
+            with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+                _s, job = self._whole(tid_b)
+            self.assertEqual(job["state"], "done", job.get("error"))
+            self.assertEqual(calls, [tuple(p) for p in cp["parts"][1:]])      # 済んだ区間は認識しない
+            self.assertEqual(job["resumed"], [1, 3])
+            self.assertTrue(any("前回の途中から続けました" in w for w in S.public_job(job)["warnings"]))
+            self.assertFalse(os.path.exists(S.resume_path(tid_b)))
+        strip = lambda d: [(g["start"], g["end"], g["text"]) for g in d["segments"]]   # noqa: E731
+        self.assertEqual(strip(self.doc(tid_b)), strip(self.doc(tid_a)))
+
+    def test_whole_resume_needs_same_settings(self):
+        """設定が違えば続きの記録は使わない(最初から認識して上書き)。短い動画は区間に分けず、記録も書かない"""
+        tid = self.transcribe()["tid"]
+        with mock.patch.object(S, "WHOLE_PART_SEC", 6):
+            calls, real = [], S.RangeRecognizer.main
+
+            def main_fails_second(rec, a, b, share=(0.0, 1.0)):
+                calls.append((a, b))
+                if len(calls) == 2:
+                    raise RuntimeError("落ちた")
+                return real(rec, a, b, share)
+            with mock.patch.object(S.RangeRecognizer, "main", main_fails_second):
+                self._whole(tid)
+            self.assertTrue(os.path.exists(S.resume_path(tid)))
+            calls.clear()
+            with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+                _s, job = self._whole(tid, model="large-v3")                 # モデルが違う
+            self.assertEqual((job["state"], len(calls), job.get("resumed")), ("done", 3, None))
+        calls.clear()
+        with mock.patch.object(S.RangeRecognizer, "main", lambda rec, a, b, share=(0.0, 1.0): calls.append((a, b)) or real(rec, a, b, share)):
+            _s, job = self._whole(tid)                                        # 既定の目安(600 秒)では 20 秒は1回で
+        self.assertEqual((job["state"], len(calls)), ("done", 1))
+        self.assertFalse(os.path.isdir(os.path.join(S.TX_DIR, ".resume")) and os.listdir(os.path.join(S.TX_DIR, ".resume")))
+
     def test_whole_keeps_rows_where_nothing_was_recognized(self):
         """新しい認識で 0 文字だった所(声が重なる所の代わり)は元の行を残して印を付ける。緩い条件で文字が出れば、それで埋める"""
         tid = self.transcribe()["tid"]                                        # 4 秒ごとの行(8〜12 秒 = テスト文3)
@@ -516,6 +572,19 @@ class EngineTest(unittest.TestCase):
         with self.assertRaises(S.ApiError) as cm:
             S._load_model_local("small", {"phase": ""}, "cpu", False, "nope")
         self.assertEqual(cm.exception.code, "bad_engine")
+
+    def test_whole_parts_cut_in_gaps(self):
+        """S-1: 区切りは目安の前後 WHOLE_SPLIT_WINDOW 秒の中で、行の無いいちばん長いすき間の真ん中。短ければ分けない"""
+        rows = lambda *ab: {"segments": [{"start": a, "end": b} for a, b in ab]}   # noqa: E731
+        self.assertEqual(S.whole_parts(rows(), 0.0, 900.0), [[0.0, 900.0]])          # 600 × 1.5 まで1つ
+        d = rows((0, 550), (560, 590), (620, 700), (700, 1300), (1310, 2000))
+        parts = S.whole_parts(d, 0.0, 2000.0)
+        self.assertEqual(parts[0], [0.0, 605.0])                                       # 590〜620 のすき間(10 秒より長い)の真ん中
+        self.assertEqual(parts[1][0], 605.0)
+        self.assertEqual(parts[1][1], 1205.0)                                          # 目安(1205)の前後 90 秒にすき間が無い(1300〜1310 は外)→ 目安の所
+        self.assertEqual(parts[2], [1205.0, 2000.0])                                   # 残り 795 秒は 600 × 1.5 以下 → 最後の区間
+        self.assertEqual(len(parts), 3)
+        self.assertTrue(all(p[0] < p[1] for p in parts) and all(parts[i][1] == parts[i + 1][0] for i in range(len(parts) - 1)))
 
     def test_engine_module_has_no_native_imports(self):
         """tx_engines はサーバー側でも読む(名前と版)。ファイルの先頭でネイティブの部品を読み込まない"""

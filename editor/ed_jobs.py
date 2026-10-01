@@ -2040,17 +2040,20 @@ class RangeRecognizer:
         lo, hi = max(0.0, a - self.offset - pad), b - self.offset + pad
         return self.audio[int(lo * 16000):int(hi * 16000)], lo
 
-    def main(self, a, b):
+    def main(self, a, b, share=(0.0, 1.0)):
+        """[a, b](元の動画の秒)を認識した行。行は [a, b] の内側に収める(全体を区間に分けたとき、隣の区間と重ならない)。
+        share = 進み具合のうち、この区間が受け持つ割合(全体を区間に分けたとき)"""
         if self.fake:
-            return self._fake(a, b, False)
+            return self._fake(a, b, False, share)
         self._load()
         chunk, lo = self._chunk(a, b, 0.3)
         if len(chunk) < 1600:
             return []
         total = max(1e-6, b - a + 0.6)
+        s0, s1 = share
 
         def progress(r, _n):
-            self.job["progress"] = min(0.9, 0.05 + r["end"] / total * 0.85)
+            self.job["progress"] = s0 + (s1 - s0) * min(0.9, 0.05 + r["end"] / total * 0.85)
 
         try:
             raw, self.vad = transcribe_vad_fallback(self.job, self.model, chunk, self.spec, progress)
@@ -2065,7 +2068,7 @@ class RangeRecognizer:
                 raise ed_state.ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
             else:
                 raise
-        return finish_range_lines(raw, self.spec, lo + self.offset)
+        return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset)
 
     def loose(self, spans):
         out = []
@@ -2095,7 +2098,7 @@ class RangeRecognizer:
             self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
         return out
 
-    def _fake(self, a, b, loose):
+    def _fake(self, a, b, loose, share=(0.0, 1.0)):
         """疑似: 3 秒ごとに「範囲再認識N」。TRANSCRIBE_FAKE_GAP の区間には出さない(声が重なって 0 文字の所の代わり)。
         loose のときは TRANSCRIBE_FAKE_LOOSE が 1 なら 1.5 秒ごとに「緩い条件N」(無ければ何も出ない)"""
         job = self.job
@@ -2113,9 +2116,134 @@ class RangeRecognizer:
                 k += 1
                 lines.append({"start": t0, "end": e, "raw": "%s%d" % (label, k), "flag": "自信が低い" if k % 2 == 0 and not loose else ""})
             t0 = e
-            job["progress"] = min(0.95, (t0 - a) / max(1e-6, b - a))
+            job["progress"] = share[0] + (share[1] - share[0]) * min(0.95, (t0 - a) / max(1e-6, b - a))
             time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
         return lines
+
+
+# ---------- 全体の再認識を区間ごとに保存して、続きから(計画の 9 の S-1) ----------
+# 全体の再認識は最大 6 時間。途中で落ちる・中止すると、それまでの認識が全部むだになっていた。
+# 長い動画は WHOLE_PART_SEC ごとの区間に分けて1つずつ認識し、終わった区間の行を transcripts/.resume/<id>.whole.json に書く。
+# 同じ文書・同じ設定・同じ動画でもう一度始めたら、書いてある区間は認識せずに使う。全部終わって文書に反映したら消す。
+# 短い動画(WHOLE_PART_SEC の 1.5 倍まで)は今までどおり1回で認識する(分けない = 結果は変わらない・書かない)
+WHOLE_PART_SEC = 600
+WHOLE_SPLIT_WINDOW = 90      # 区切りは、目安の前後この秒の中で、行の無いすき間の真ん中(話している途中で切らない)
+RESUME_KEEP_SEC = 7 * 86400  # 使われなかった続きの記録は、この秒数で消す
+RESUME_VERSION = 1
+
+
+def whole_parts(doc, a, b, part=None):
+    """[a, b] を、目安 part 秒ごとの区間 [[p0, p1], …] に分ける。区切りは、今の文書の行(どれでも)の無いすき間を選ぶ。無ければ目安の所"""
+    part = float(part or WHOLE_PART_SEC)
+    if b - a <= part * 1.5:
+        return [[a, b]]
+    rows = merge_spans([(float(g["start"]), float(g["end"])) for g in doc.get("segments") or []
+                        if isinstance(g, dict) and isinstance(g.get("start"), (int, float)) and isinstance(g.get("end"), (int, float))])
+    gaps = [(rows[i][1], rows[i + 1][0]) for i in range(len(rows) - 1)]
+    out, t = [], a
+    while b - t > part * 1.5:
+        target = t + part
+        lo, hi = max(t + part / 2, target - WHOLE_SPLIT_WINDOW), target + WHOLE_SPLIT_WINDOW
+        best = None
+        for g0, g1 in gaps:
+            x0, x1 = max(g0, lo), min(g1, hi)
+            if x1 > x0 and (best is None or x1 - x0 > best[1] - best[0]):
+                best = (x0, x1)
+        cut = round((best[0] + best[1]) / 2 if best else target, 3)
+        out.append([t, cut])
+        t = cut
+    out.append([t, b])
+    return out
+
+
+def resume_path(tid):
+    return os.path.join(ed_state.TX_DIR, ".resume", tid + ".whole.json")
+
+
+def whole_key(spec, doc):
+    """続きを使ってよいかの目印: 文書・範囲・行を作る設定・ヒントの語・エンジンとモデル・元の動画(大きさと更新日時)が同じ"""
+    try:
+        st = os.stat(str(doc.get("sourcePath") or ""))
+        src = [st.st_size, int(st.st_mtime)]
+    except OSError:
+        src = None
+    k = {"v": RESUME_VERSION, "tid": spec["tid"], "range": spec["range"], "engine": spec.get("engine") or tx_engines.DEFAULT, "model": spec["model"],
+         "backend": ed_state.backend_name(), "language": spec["language"], "beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")),
+         "wordSplit": bool(spec.get("wordSplit")), "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
+         "terms": prompt_terms(spec), "source": src, "part": WHOLE_PART_SEC}
+    return hashlib.sha256(json.dumps(k, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def read_resume(tid, key):
+    """続きの記録 {"parts", "done": {番号: {"lines", "vad"}}}。無い・目印が違う・壊れているときは None"""
+    try:
+        with open(resume_path(tid), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("key") != key or not isinstance(d.get("parts"), list) or not isinstance(d.get("done"), dict):
+        return None
+    return d
+
+
+def write_resume(tid, d):
+    path = resume_path(tid)
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    ed_state.atomic_write(path, json.dumps(dict(d, at=int(time.time() * 1000)), ensure_ascii=False).encode("utf-8"))
+    now = time.time()
+    for n in os.listdir(folder):   # 使われなかった古い続きの記録を消す
+        q = os.path.join(folder, n)
+        try:
+            if n.endswith(".whole.json") and q != path and now - os.path.getmtime(q) > RESUME_KEEP_SEC:
+                os.unlink(q)
+        except OSError:
+            pass
+
+
+def drop_resume(tid):
+    try:
+        os.unlink(resume_path(tid))
+    except OSError:
+        pass
+
+
+def whole_lines(job, spec, doc, rec):
+    """全体の再認識の認識の部分。長ければ区間に分けて1つずつ認識し、終わった区間を書いておく(続きから再開できる)。-> 行の一覧。
+    rec.vad には、声の検出をやり直した区間があればその記録を入れる(画面の知らせ)"""
+    a, b = spec["range"]
+    key = whole_key(spec, doc)
+    cp = read_resume(spec["tid"], key)
+    parts = cp["parts"] if cp else whole_parts(doc, a, b)
+    done = cp["done"] if cp else {}
+    n = len(parts)
+    reused = sum(1 for i in range(n) if str(i) in done)
+    if reused:
+        job["resumed"] = [reused, n]
+        job.setdefault("warnings", []).append("前回の途中から続けました(%d 区間のうち %d 区間は前回の認識を使いました)" % (n, reused))
+        ed_state.log.info("全体の再認識を前回の途中から続けます: %s %d/%d 区間", spec["tid"], reused, n)
+    lines, vads = [], []
+    for i, (p0, p1) in enumerate(parts):
+        if job["cancel"]:
+            raise Cancelled()
+        if str(i) in done:
+            lines += done[str(i)].get("lines") or []
+            vads.append(done[str(i)].get("vad"))
+            continue
+        job["phase"] = "全体を認識中(%d / %d 区間)" % (i + 1, n) if n > 1 else "全体を認識中"
+        got = rec.main(p0, p1, (i / n, (i + 1) / n))
+        if job["cancel"]:
+            raise Cancelled()   # 途中で止めた区間は書かない(行が欠けている)
+        lines += got
+        vads.append(rec.vad)
+        if n > 1:
+            done[str(i)] = {"lines": got, "vad": rec.vad}
+            try:
+                write_resume(spec["tid"], {"v": RESUME_VERSION, "key": key, "parts": parts, "done": done})
+            except (OSError, TypeError, ValueError) as e:   # 書けなくても認識は続ける(続きから再開できないだけ)
+                ed_state.log.warning("全体の再認識の続きの記録を書けませんでした: %s %s", spec["tid"], e)
+    rec.vad = next((v for v in vads if v and v.get("retries")), None) or (vads[-1] if vads else None)
+    return lines
 
 
 def run_retranscribe(job):
@@ -2140,7 +2268,7 @@ def run_retranscribe(job):
             a, b = spec["range"]
             rec = RangeRecognizer(job, spec, wav, start)
             job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
-            lines = rec.main(a, b)
+            lines = whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
             if job["cancel"]:
                 raise Cancelled()
             # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
@@ -2149,8 +2277,12 @@ def run_retranscribe(job):
             if job["cancel"]:
                 raise Cancelled()
             if not lines and not loose:
+                if whole:
+                    drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
                 raise ed_state.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
             r = apply_range(spec, lines, loose)
+            if whole:
+                drop_resume(spec["tid"])
             job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
             note = vad_note(rec.vad)
             if note:

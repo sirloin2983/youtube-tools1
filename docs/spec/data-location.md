@@ -12,7 +12,7 @@
 | フォルダ | 中身 | 以前の場所から写すもの |
 | --- | --- | --- |
 | `studio\` | data.json(.bak)・feedback.jsonl(.old)・registry.json・config.json(YouTube の API キー)・settings(-ui).json・cache\(チャット 約2.2GB など)・archive\・studio.log・work\(解析の一時ファイル)・exports\(既定の書き出し先) | 左のうち、ログと work 以外 |
-| `transcribe\` | transcripts\(.bak・.hist の控えを含む)・dataset\・evals\・models\diar\(話者判別のモデル)・settings.json・learn-feedback.json・eval-baselines.json・serve.log・worker.log・.running.json | 左のうち、ログと .running.json 以外 |
+| `transcribe\` | transcripts\(.bak・.hist の控え・.resume = 全体の再認識の続きの記録(7 日で消す)を含む)・dataset\・evals\・models\diar\(話者判別のモデル)・settings.json・learn-feedback.json・eval-baselines.json・serve.log・worker.log・.running.json | 左のうち、ログと .running.json 以外 |
 | `cut2resolve\` | work\uploads\(画面にドロップしたファイルの一時置き場。起動のたびに消える)・work\serve.log | なし(一時的なものだけ) |
 | `app\` | logs\(入口の launcher.log と各ツールの出力・画面のエラーの記録 client-errors.jsonl(段階7-0))・cases.json(案件の状態・メモ。下の「案件ファイル」)・settings.json(`"window"`: 窓で開くか。段階7-3)・browser-profile\(窓(Edge のアプリモード)の専用のプロファイル。閲覧の記録・Cookie・キャッシュが入り、数十〜数百 MB になる。消すと窓の設定・ログインが初期に戻るだけ) | なし |
 | 各フォルダの `.migrated.json` | いつ・どこから・何を写したか | — |

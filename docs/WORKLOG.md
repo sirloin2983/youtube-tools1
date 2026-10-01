@@ -2535,3 +2535,17 @@
 - `tx_worker`: 要求の `engine`(無ければ faster-whisper。一覧に無ければ `bad_engine` で断り、ワーカーは落ちない)・受け付ける引数はエンジンの `params()`
 - テスト: test_worker に `test_engine_by_name_through_worker`・`EngineTest`(そのまま通す・知らない名前・先頭でネイティブを読まない)。写す一覧(`("tx_worker.py", …)` の9か所)に `tx_engines.py`。編集の単体 238 → そのまま通る
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 線 B 段2 の 2回目: S-1 全体の再認識の区間ごとの保存・続きから → 編集 0.35.0(2回目は済み)
+- `ed_jobs.whole_lines`: 全体の再認識は、長さが `WHOLE_PART_SEC`(600 秒)の 1.5 倍を超えたら `whole_parts` で区間に分ける(区切り = 目安の前後 90 秒の中で、今の文書の行の無いいちばん長いすき間の真ん中。無ければ目安の所)。
+  区間ごとに `RangeRecognizer.main(p0, p1, share)`(行は区間の内側に切る・進み具合は区間の割合)。終わった区間の行を `transcripts/.resume/<id>.whole.json` に書き、
+  目印 `whole_key`(文書・範囲・行を作る設定・ヒントの語・エンジンとモデル・元の動画の大きさと更新日時)が同じならもう一度始めたときに使う(`job["resumed"]`・知らせ「前回の途中から続けました」)。
+  反映したら・文字が出なかったら消す。使われなかった記録は 7 日で消す。**短い動画は1区間 = 以前と同じ結果・記録を書かない**
+- 置き場所を TX_DIR の下にしたのは、テストが TX_DIR を一時フォルダに向けるため(DATA_DIR の直下だと inplace のテストでリポジトリに書く)。`docs/spec/data-location.md` に1行
+- 新しい文字起こし(`run_job`)はまだ1回で認識する(計画の S-1 は全体の再認識だけ)
+- テスト: test_worker に `test_whole_resumes_from_saved_parts`(2区間目で落ちる → 続きから → 通しと同じ行)・`test_whole_resume_needs_same_settings`・`EngineTest.test_whole_parts_cut_in_gaps`。
+  編集の単体 245(238 + 7)・test_mount 26・契約 34・eval_asr 4・ui-kit 5・node 9・e2e 12 本すべて OK(`dev/run_editor_suite.py`。e2e_eval_set も一式の中で通った)
+- 版: 編集 0.35.0(serve.py・app.js・README)。文書: editor/AGENTS.md(新しい節)・README の変更の記録・計画の「2回目の結果」と状態・ROADMAP(線 B と版の行)
+- 次(3回目): 段2-2 whisper.cpp Vulkan。**始める前にユーザーに聞く**: 実行ファイルをツールが取得するか(推奨 = URL・SHA-256 固定)・手で置くか(計画の 8 の 4)
+- 実機で確かめること(急がない): 15 分を超える文書の「全体を再認識」で処理状況に「(n / m 区間)」が出る・途中で中止してもう一度押すと「前回の途中から続けました」
+- 未コミット: なし(このあとコミット)

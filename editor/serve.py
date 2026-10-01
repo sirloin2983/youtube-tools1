@@ -102,7 +102,7 @@ import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, 
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.34.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.35.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
