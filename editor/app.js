@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.31.0';
+const APP_VERSION = '0.32.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1483,6 +1483,7 @@ function saveDoc(){
         const r = await api('/api/transcript?id=' + encodeURIComponent(id), { method: 'PUT', body });
         if (S.docId !== id) return false;
         S.baseUpdatedAt = r.updatedAt; S.forceNext = false;
+        if (r.evalSet === true && !S.doc.evalSet){ S.doc.evalSet = true; syncEval(); }   // 評価用のフォルダの動画はサーバーが印を付ける
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
         scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
         syncListItem(); cpAfterSave();
@@ -2705,14 +2706,52 @@ function closeDoc(){
 $('#q').addEventListener('input', applyFilter);
 $('#flagKind').addEventListener('change', applyFilter);
 $('#btnUndo').addEventListener('click', doUndo);
-function syncEval(){ const on = !!(S.doc && S.doc.evalSet); $('#evalSet').checked = on; $('#evalBanner').hidden = !on; renderVoiceLearn(); }   // 評価用では「声を覚える」を押せない(監査02)
+const EVAL_LOCK_MSG = '評価用のフォルダの動画なので、評価用の印は外せません(⚙ の「評価用のフォルダ」)';
+const EVAL_TITLE = $('#evalSet').parentElement.title;
+function syncEval(){
+  const on = !!(S.doc && S.doc.evalSet), lock = !!(S.doc && S.doc.evalLocked), cb = $('#evalSet');
+  cb.checked = on || lock; cb.disabled = lock; cb.parentElement.title = lock ? EVAL_LOCK_MSG : EVAL_TITLE;
+  $('#evalBanner').hidden = !(on || lock); renderVoiceLearn();   // 評価用では「声を覚える」を押せない(監査02)
+}
 $('#evalSet').addEventListener('change', e => {
   if (!S.doc) return;
+  if (S.doc.evalLocked && !e.target.checked){ e.target.checked = true; return toast(EVAL_LOCK_MSG, 5000); }
   S.doc.evalSet = e.target.checked; syncEval(); markDirty();
   const it = S.list.find(x => x.id === S.docId); if (it){ it.evalSet = S.doc.evalSet; renderList(); }
   toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)' : '評価用を外しました。この文字起こしは、学習用として扱われます', 6000);
   setTimeout(() => { loadProgress(); loadLearned(); loadAcc(); }, 1500);
 });
+/* 評価用のフォルダ(⚙。サーバーの設定 evalDirs = api/settings/patch。整理 = 動画の名前をそろえて文書を付け替える) */
+function evNote(info){
+  const l = info && info.last, el = $('#evNote');
+  if (!info) return void (el.textContent = '');
+  const miss = (info.dirs || []).length - (info.active || []).length;
+  el.textContent = (miss > 0 ? `見つからないフォルダが ${miss} 個あります(ドライブを確かめてください)。` : '')
+    + (l ? `前回の整理(${l.trigger === 'startup' ? '起動時' : 'ボタン'} ${new Date(l.at).toLocaleString()}): 動画 ${l.videos} 本・名前を変えた ${l.renamed.length} 本・評価用にした ${l.marked} 件` + (l.skipped.length ? `・飛ばした ${l.skipped.length} 本` : '') : (info.active || []).length ? 'まだ整理していません' : '');
+}
+async function loadEvalFolders(){
+  try { const info = await api('/api/eval-folders'); $('#evDirs').value = (info.dirs || []).join('\n'); evNote(info); } catch {}
+}
+$('#evSave').addEventListener('click', async () => {
+  const dirs = $('#evDirs').value.split(/\r?\n/).map(x => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
+  try {
+    await api('/api/settings/patch', { body: { values: { evalDirs: dirs } } });
+    toast(dirs.length ? '評価用のフォルダを保存しました' : '評価用のフォルダを空にしました', 3000); loadEvalFolders();
+  } catch (e){ toast('保存できませんでした(ドライブから始まるパスを1行に1つ入れてください): ' + e.message, 6000, 'err'); }
+});
+$('#evRun').addEventListener('click', async () => {
+  const b = $('#evRun'); b.disabled = true;
+  try {
+    if (S.doc && !(await saveDoc())) return toast('文書を保存できないため整理しませんでした', 5000, 'err');
+    const r = await api('/api/eval-folders/organize', { body: {} });
+    if (!r.dirs) return toast('評価用のフォルダが設定されていないか、見つかりません', 5000, 'err');
+    toast(`整理しました: 名前を変えた ${r.renamed.length} 本・評価用にした ${r.marked} 件` + (r.skipped.length ? `・飛ばした ${r.skipped.length} 本(${r.skipped[0].reason})` : ''), 7000, r.skipped.length ? 'err' : '');
+    if (S.doc && (r.marked || r.renamed.some(x => x.docs.includes(S.docId)))) await openDoc(S.docId, true);
+    loadList(); loadEvalFolders();
+  } catch (e){ toast('整理できませんでした: ' + e.message, 6000, 'err'); }
+  finally { b.disabled = false; }
+});
+loadEvalFolders();
 /* 評価用の文書では、正解を機械が書き換える操作(一括置換・提案の採用)を止める */
 document.addEventListener('click', e => {
   if (S.doc && S.doc.evalSet && e.target.closest && e.target.closest('#repGo, #repDictGo, #btnSugHigh, [data-act=sgok]')){ e.stopPropagation(); e.preventDefault(); toast('評価用の文字起こしでは使えません(正解が機械で書き換わるため)。評価用を外してから行ってください', 5000); }

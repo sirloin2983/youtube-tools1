@@ -1748,6 +1748,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
   </div>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
+  <h3 style="margin-top:18px">評価用のフォルダ</h3>
+  <p class="hint" style="margin:0 0 6px">この中(下のフォルダも)の動画は、評価用(精度を測るためだけ。学習・辞書に使わない)として文字起こしし、評価用の印は外せません。
+    「整理」は動画の名前を「フォルダ名_番号_済 / 未 / 未文字起こし」にそろえ、文書を新しい名前に付け替えます(入口の起動時にも自動で行います)。済 = 文字のある行がすべて校正済み。</p>
+  <div class="fld"><label for="evDirs">フォルダ(1行に1つ・10個まで)</label><textarea id="evDirs" rows="2" class="mono" spellcheck="false" autocomplete="off" placeholder="例: E:\動画\評価用データ"></textarea></div>
+  <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>
+  <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
   <h3 style="margin-top:18px">キー配置</h3>
   <div id="kmGrid"></div>   <!-- キーの一覧(?)と同じ部品(UIKit.keymap) -->
 </section>

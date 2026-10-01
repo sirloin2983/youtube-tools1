@@ -5,7 +5,7 @@
 状態が変わったら、WORKLOG と一緒にここ(と該当の段の計画)も直す。細かい経緯は WORKLOG と各文書に書き、ここには1行だけ。
 **2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 
-版(2026-10-01): 入口 0.19.0・スタジオ 0.13.0・編集 0.30.0・cut2resolve 0.16.0・ui-kit v9・ホロカラー 1.4.1・送るアプリ(`request-sender/`)1.2.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-10-01): 入口 0.19.0・スタジオ 0.13.0・編集 0.32.0・cut2resolve 0.16.0・ui-kit v9・ホロカラー 1.4.1・送るアプリ(`request-sender/`)1.2.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
@@ -219,6 +219,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 | `docs/design/integration-plan.md` | 統合計画の要約(段階0〜7 完了)。**正本は Claude Docs「動画編集ツール 統合計画」** |
 | `docs/design/edit-tool-design.md` | 「編集」ツール(E1〜E6・追加機能 ①〜⑦ 実装済み。10 の未決2件と 12 の保留が残る)。画面イメージは `docs/design/mockups/edit-*.png`、実装の細かい決まりは「11」 |
 | `docs/design/whole-retranscribe-design.md` | 動画全体の再認識(0.21.0 で実装済み。4-3 は提案のまま) |
+| `docs/design/eval-folder.md` | 評価用のフォルダ(0.32.0 で実装済み。中の動画は自動で評価用・名前を「フォルダ名_番号_状態」にそろえて付け替える) |
 | `docs/design/resolve-pack-unification.md` | Resolve パックの一本化(実装済み) |
 | `docs/design/holo-colors.md` | ホロカラーの設計 |
 | `docs/design/holo-colors-research.md` | ホロカラーのメンバーの色の調べ方と記録(2026-09-30 に全員。ユーザーに聞くことが残る) |

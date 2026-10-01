@@ -31,6 +31,7 @@ def call(port, method, path, body=None):
 
 def main():
     tmp = tempfile.mkdtemp()
+    evdir = tempfile.mkdtemp()   # 評価用のフォルダ(作業データ = tmp の外に置く。中は使えないため)
     for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py"):   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
     for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
@@ -162,12 +163,37 @@ def main():
             pg.click("#blGo")
             pg.wait_for_function("document.querySelectorAll('#blOut tr').length >= 3", timeout=10000)
             check("画面から" in pg.inner_text("#blOut"), "基準の記録が表に出る")
+            # 評価用のフォルダ(2026-10-01): 中の動画は印が付いて外せない・整理で名前をそろえて付け替える
+            mem = os.path.join(evdir, "評価用データ01_ときのそら")
+            os.makedirs(mem)
+            shutil.copy(wav, os.path.join(mem, "配信.wav"))
+            pg.evaluate("v => { document.querySelector('#evDirs').value = v; }", evdir)   # ⚙ の引き出しの中(開かずに入れる)
+            pg.evaluate("document.querySelector('#evSave').click()")
+            pg.wait_for_function("document.querySelector('#evNote').textContent.includes('まだ整理していません')", timeout=10000)
+            check(call(port, "GET", "/api/eval-folders")["active"] == [os.path.abspath(evdir)], "⚙ から評価用のフォルダを保存できる")
+            j = call(port, "POST", "/api/transcribe", {"sourcePath": os.path.join(mem, "配信.wav"), "model": "small", "language": "ja", "autoGloss": False})
+            for _ in range(200):
+                job = next(x for x in call(port, "GET", "/api/jobs")["jobs"] if x["id"] == j["id"])
+                if job["state"] in ("done", "error"):
+                    break
+                time.sleep(0.1)
+            ft = job["tid"]
+            check(call(port, "GET", "/api/transcript?id=" + ft).get("evalSet") is True, "評価用のフォルダの動画は、チェックが無くても評価用として文字起こしされる")
+            pg.evaluate("document.querySelector('#evRun').click()")
+            pg.wait_for_function("document.querySelector('#evNote').textContent.includes('名前を変えた 1 本')", timeout=15000)
+            d = call(port, "GET", "/api/transcript?id=" + ft)
+            check(d["sourceName"] == "評価用データ01_ときのそら_01_未.wav" and os.path.isfile(d["sourcePath"]) and d["evalLocked"] is True,
+                  "整理で名前が「フォルダ名_番号_状態」になり、文書も付け替わる: %s" % d["sourceName"])
+            pg.goto("http://localhost:%d/?doc=%s" % (port, ft))
+            pg.wait_for_selector("#segs .seg")
+            check(pg.is_checked("#evalSet") and pg.is_disabled("#evalSet"), "評価用のフォルダの文書は、評価用のチェックを外せない")
             br.close()
         check(not errors, "画面のエラーなし " + ("" if not errors else str(errors[:3])))
     finally:
         proc.terminate()
         proc.wait(timeout=10)
         shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(evdir, ignore_errors=True)
     print("ALL PASSED" if ok else "SOME FAILED")
     sys.exit(0 if ok else 1)
 

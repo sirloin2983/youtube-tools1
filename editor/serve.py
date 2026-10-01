@@ -101,7 +101,7 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.31.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.32.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -543,6 +543,8 @@ def sanitize_transcript(obj, base=None):
             out["evalSet"] = True
         else:
             out.pop("evalSet", None)
+    if in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
+        out["evalSet"] = True
     out.update({"title": str(obj.get("title", out.get("title", "")))[:120], "speakers": speakers, "segments": segs,
                 "updatedAt": int(time.time() * 1000)})
     return out
@@ -820,6 +822,8 @@ def restore_history(tid, ts):
                 old = json.load(f)
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
             old["updatedAt"] = int(time.time() * 1000)
+            if in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
+                old["evalSet"] = True
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
             atomic_write(tx_path(tid), json.dumps(old, ensure_ascii=False, indent=1).encode("utf-8"))
         except (OSError, ValueError):
@@ -1484,23 +1488,35 @@ def relink_doc(obj):
             raise ApiError("busy", "この文書は、いま別の処理(文字起こし・話者判別・再認識など)の最中です。終わってから付け替えてください", 409)
         if chk["mismatch"] and obj.get("acceptDiff") is not True:
             raise ApiError("duration_mismatch", "長さが元の動画と違います。別の動画でないか確かめてから付け替えてください", 409, {"check": chk})
-        bak = os.path.join(TX_DIR, ".bak")
-        os.makedirs(bak, exist_ok=True)
-        shutil.copy2(tx_path(tid), os.path.join(bak, tid + ".pre-relink.json"))   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)
-        if os.path.isfile(edit_path(tid)):
-            shutil.copy2(edit_path(tid), os.path.join(bak, tid + ".edit.pre-relink.json"))
-        try:
-            hist_snapshot(tid, force=True)   # 「以前の版に戻す」で元のパスへ戻せる
-        except OSError:
-            pass
-        now = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
-        prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
-        doc["relinks"] = (prev + [{"from": str(doc.get("sourcePath") or ""), "at": now, "diffSec": chk["diffSec"]}])[-RELINK_KEEP:]
-        doc.update({"sourcePath": chk["path"], "sourceName": chk["name"], "updatedAt": now})
-        apply_edit_cuts(tid, doc)
-        atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        now = _relink_write(tid, doc, chk["path"], chk["diffSec"])
     log.info("動画を付け替え: %s → %s", tid, chk["name"])
     return {"ok": True, "updatedAt": now, "sourcePath": chk["path"], "sourceName": chk["name"], "warnings": chk["warnings"]}
+
+
+def _relink_write(tid, doc, path, diff, why=None):
+    """付け替えの書き込み(_save_lock の中で呼ぶ)。控え .bak/<id>.pre-relink.json・履歴を残し、sourcePath・sourceName・updatedAt・relinks を直す。
+    評価用のフォルダの中へ付け替えたら評価用の印も付ける(ユーザー決定 2026-10-01: フォルダの中は外せない)。-> 新しい updatedAt"""
+    bak = os.path.join(TX_DIR, ".bak")
+    os.makedirs(bak, exist_ok=True)
+    shutil.copy2(tx_path(tid), os.path.join(bak, tid + ".pre-relink.json"))   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)
+    if os.path.isfile(edit_path(tid)):
+        shutil.copy2(edit_path(tid), os.path.join(bak, tid + ".edit.pre-relink.json"))
+    try:
+        hist_snapshot(tid, force=True)   # 「以前の版に戻す」で元のパスへ戻せる
+    except OSError:
+        pass
+    now = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
+    prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
+    rec = {"from": str(doc.get("sourcePath") or ""), "at": now, "diffSec": diff}
+    if why:
+        rec["why"] = why
+    doc["relinks"] = (prev + [rec])[-RELINK_KEEP:]
+    doc.update({"sourcePath": path, "sourceName": os.path.basename(path), "updatedAt": now})
+    if in_eval_dir(path):
+        doc["evalSet"] = True
+    apply_edit_cuts(tid, doc)
+    atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    return now
 
 
 # ---------- まとめて付け替える・「参照…」(2026-10-01。ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
@@ -1615,6 +1631,231 @@ def pick_path(obj):
     except _pick.PickError as e:
         raise ApiError("pick_unavailable", "%s。パスを貼り付けてください" % e, 400)
     return {"path": p}
+
+
+# ---------- 評価用のフォルダ(2026-10-01 ユーザー決定。docs/design/eval-folder.md) ----------
+# 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こしを始めたとき・保存・付け替え・履歴から戻したときに
+# 評価用の印(evalSet)を付け、画面からは外せない。「整理」は動画の名前を「フォルダ名_番号_状態」にそろえ、文書を付け替える
+# (入口の起動時に1回 + 画面のボタン)。状態 = 済(文字のある行がすべて校正済み)・未・未文字起こし
+EVAL_DIRS_MAX = 10
+EVAL_STATES = ("済", "未", "未文字起こし")
+EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
+EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
+EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(home/cleanup.py と同じ)
+_evalorg_lock = threading.Lock()
+_evalorg_last = {}
+
+
+def _eval_dirs_ok(v):
+    return (isinstance(v, list) and len(v) <= EVAL_DIRS_MAX
+            and all(isinstance(p, str) and 3 <= len(p) <= 1000 and os.path.isabs(p) and not _fsio.is_network_path(p)
+                    and not any(ch in p for ch in "\x00\r\n") and ":" not in os.path.splitdrive(p)[1] for p in v))
+
+
+def eval_dirs():
+    """設定の評価用のフォルダ(あるものだけ)。ネットワーク上・作業データの中は使わない"""
+    v = load_settings().get("evalDirs")
+    if not _eval_dirs_ok(v):
+        return []
+    out = []
+    for p in v:
+        p = os.path.abspath(p)
+        try:
+            if not _remote_drive(p) and os.path.isdir(p) and not _inside(p, DATA_DIR) and not _inside(DATA_DIR, p):
+                out.append(p)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def in_eval_dir(path, dirs=None):
+    """動画のパスが評価用のフォルダの中か(パスを比べるだけ。ネットワーク上のパスには触らない)"""
+    s = str(path or "")
+    if not s or _fsio.is_network_path(s) or not os.path.isabs(s):
+        return False
+    return any(_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
+
+
+def _eval_name_re(prefix):
+    return re.compile(r"^%s_(\d{2,4})_(%s)$" % (re.escape(prefix), "|".join(sorted(EVAL_STATES, key=len, reverse=True))))
+
+
+def _eval_state(sms):
+    """文書の要約の一覧 → 状態。行のある文書が無ければ「未文字起こし」、どれもすべての行が校正済みなら「済」"""
+    rows = [s for s in sms if s.get("rows")]
+    if not rows:
+        return "未文字起こし"
+    return "済" if all(s["proofed"] >= s["rows"] for s in rows) else "未"
+
+
+def _eval_videos(root):
+    """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く)"""
+    out, seen = {}, 0
+    for cur, dirs, files in os.walk(root):
+        depth = os.path.relpath(cur, root).count(os.sep) + (0 if cur == root else 1)
+        dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH]
+        seen += len(dirs) + len(files)
+        if seen > EVAL_WALK_MAX:
+            break
+        vids = [f for f in files if os.path.splitext(f)[1].lower() in MEDIA_TYPES and not os.path.splitext(f)[0].endswith("_edit")]
+        if vids:
+            out[cur] = vids
+    return out
+
+
+def _path_busy(path):
+    key = os.path.normcase(path)
+    with _jobs_lock:
+        return any(j["state"] in ACTIVE_STATES and os.path.normcase(str((j.get("spec") or {}).get("sourcePath") or "")) == key for j in _jobs.values())
+
+
+def _rename_sidecars(old, new):
+    """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)の名前も動画に合わせる。中身は書き換えない。-> [(古い, 新しい)]"""
+    done = []
+    ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
+    for folder in (_yschemas.work_dir(old), os.path.dirname(old)):
+        for suf in EVAL_SIDECARS:
+            a, b = os.path.join(folder, ostem + suf), os.path.join(folder, nstem + suf)
+            if os.path.isfile(a) and not os.path.exists(b):
+                os.rename(a, b)
+                done.append((a, b))
+    return done
+
+
+def eval_organize(trigger="button"):
+    """POST /api/eval-folders/organize: 評価用のフォルダの動画の名前をそろえて、文書を付け替える。
+    番号は動画のフォルダの中で、すでに付いた番号はそのまま・無いものは古い順に空いている番号。
+    動画を使うジョブが動いている・文書が処理中・同じ名前のファイルがある・名前を変えられない(開いている)ものは飛ばす。
+    -> {at, trigger, dirs, videos, renamed: [{from, to, docs}], marked, skipped: [{path, reason}]}"""
+    if not _evalorg_lock.acquire(blocking=False):
+        raise ApiError("busy", "評価用のフォルダの整理は、いま動いています", 409)
+    try:
+        dirs = eval_dirs()
+        res = {"at": int(time.time() * 1000), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": []}
+        if not dirs:
+            return res
+        by_path = {}
+        for tid in _tids():
+            sm = transcript_summary(tid)
+            sp = str((sm or {}).get("_sourcePath") or "")
+            if sp and in_eval_dir(sp, dirs):
+                by_path.setdefault(os.path.normcase(os.path.abspath(sp)), []).append(sm)
+        for root in dirs:
+            for folder, files in sorted(_eval_videos(root).items()):
+                prefix = os.path.basename(folder)
+                rx = _eval_name_re(prefix)
+                used, todo = set(), []
+                for f in files:
+                    m = rx.match(os.path.splitext(f)[0])
+                    if m and int(m.group(1)) not in used:
+                        used.add(int(m.group(1)))
+                        todo.append((f, int(m.group(1))))
+                    else:
+                        todo.append((f, None))
+
+                def mtime(f):
+                    try:
+                        return os.path.getmtime(os.path.join(folder, f))
+                    except OSError:
+                        return 0
+                nxt = 1
+                for f, n in sorted(todo, key=lambda t: (t[1] is None, t[1] or 0, mtime(t[0]), t[0])):
+                    res["videos"] += 1
+                    old = os.path.join(folder, f)
+                    sms = by_path.get(os.path.normcase(old), [])
+                    if n is None:
+                        while nxt in used:
+                            nxt += 1
+                        n = nxt
+                        used.add(n)
+                    new = os.path.join(folder, "%s_%02d_%s%s" % (prefix, n, _eval_state(sms), os.path.splitext(f)[1]))
+                    try:
+                        res["marked"] += _eval_mark_docs([s["id"] for s in sms if not s.get("evalSet")])
+                        if new == old:
+                            continue
+                        if os.path.exists(new) and os.path.normcase(new) != os.path.normcase(old):
+                            res["skipped"].append({"path": old, "reason": "同じ名前のファイルがあります: " + os.path.basename(new)})
+                            continue
+                        if _path_busy(old) or any(_doc_busy(s["id"]) for s in sms):
+                            res["skipped"].append({"path": old, "reason": "文字起こしなどの処理の最中です(終わってから整理してください)"})
+                            continue
+                        res["renamed"].append(_eval_rename(old, new, [s["id"] for s in sms]))
+                    except (OSError, ApiError) as e:
+                        res["skipped"].append({"path": old, "reason": "名前を変えられませんでした(動画を開いているかもしれません): %s" % (getattr(e, "message", None) or e)})
+        log.info("評価用のフォルダを整理(%s): 動画 %d・名前を変えた %d・評価用にした %d・飛ばした %d",
+                 trigger, res["videos"], len(res["renamed"]), res["marked"], len(res["skipped"]))
+        _evalorg_last.clear()
+        _evalorg_last.update(res)
+        return res
+    finally:
+        _evalorg_lock.release()
+
+
+def _eval_mark_docs(tids):
+    """評価用のフォルダの中の動画なのに印の無い文書に、評価用の印を付ける(行・時刻は変えない)。-> 付けた数"""
+    n = 0
+    for tid in tids:
+        with _save_lock:
+            doc = read_transcript(tid)
+            if doc.get("evalSet") is True or not in_eval_dir(doc.get("sourcePath")):
+                continue
+            try:
+                hist_snapshot(tid, force=True)
+            except OSError:
+                pass
+            doc["evalSet"] = True
+            doc["updatedAt"] = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
+            atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            n += 1
+    return n
+
+
+def _eval_rename(old, new, tids):
+    """動画と途中のファイルの名前を変えて、その動画を使う文書を付け替える。付け替えに失敗したら名前を元に戻す"""
+    os.rename(old, new)
+    side, done = [], []
+    try:
+        side = _rename_sidecars(old, new)
+        for tid in tids:
+            with _save_lock:
+                doc = read_transcript(tid)
+                if os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) != os.path.normcase(old):
+                    continue
+                _relink_write(tid, doc, new, 0.0, "evalOrganize")
+                done.append(tid)
+    except BaseException:
+        for tid in done:   # 付け替えた文書も元の名前へ(控えと履歴は残る)
+            try:
+                with _save_lock:
+                    _relink_write(tid, read_transcript(tid), old, 0.0, "evalOrganizeUndo")
+            except (OSError, ApiError):
+                log.exception("評価用の整理: 文書を元の名前へ戻せませんでした %s", tid)
+        for a, b in reversed(side):
+            try:
+                os.rename(b, a)
+            except OSError:
+                pass
+        try:
+            os.rename(new, old)
+        except OSError:
+            log.exception("評価用の整理: 名前を戻せませんでした %s", new)
+        raise
+    log.info("評価用の整理: %s → %s(文書 %d)", os.path.basename(old), os.path.basename(new), len(done))
+    return {"from": old, "to": new, "docs": done}
+
+
+def eval_folders_info():
+    """GET /api/eval-folders: 設定の値・使えるフォルダ・最後の整理の結果"""
+    v = load_settings().get("evalDirs")
+    return {"dirs": v if _eval_dirs_ok(v) else [], "active": eval_dirs(), "running": _evalorg_lock.locked(), "last": dict(_evalorg_last) or None}
+
+
+def _evalorg_startup():
+    try:
+        if eval_dirs():
+            eval_organize("startup")
+    except Exception:
+        log.exception("評価用のフォルダの整理(起動時)に失敗")
 
 
 # ---------- 音の波形(カットのタイムライン用。docs/design/edit-tool-design.md の 5・8) ----------
@@ -2237,6 +2478,7 @@ def validate_job(req):
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
+    ev = ev or in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
     if ev:
         glossary, gauto = [], []
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
@@ -3901,7 +4143,9 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "packBackup": lambda v: isinstance(v, bool),
                        "packRender": lambda v: isinstance(v, bool),   # 粗編集の動画つき(段4 4-2: 覚える)
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
-                       "keymap": lambda v: _keymap_ok(v)}
+                       "keymap": lambda v: _keymap_ok(v),
+                       # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
+                       "evalDirs": lambda v: _eval_dirs_ok(v)}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
 
@@ -6523,7 +6767,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/history":
                 return self._json(200, {"items": list_history((q.get("id") or [""])[0])})
             if u.path == "/api/transcript":
-                return self._json(200, read_transcript((q.get("id") or [""])[0]))
+                d = read_transcript((q.get("id") or [""])[0])
+                return self._json(200, dict(d, evalLocked=in_eval_dir(d.get("sourcePath"))))   # 評価用のフォルダの動画(画面で外せない)
+            if u.path == "/api/eval-folders":
+                return self._json(200, eval_folders_info())
             if u.path == "/api/edit":
                 return self._json(200, get_edit((q.get("id") or [""])[0]))
             if u.path == "/api/edit/draft":
@@ -6724,6 +6971,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, relink_missing())
             if path == "/api/relink/find":
                 return self._json(200, relink_find(obj))
+            if path == "/api/eval-folders/organize":
+                return self._json(200, eval_organize("button"))
             if path == "/api/pick":
                 return self._json(200, pick_path(obj))
             if path == "/api/resplit":
@@ -6761,7 +7010,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/transcript":
                 tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
                 doc = save_transcript(tid, obj)
-                return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"]})
+                return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True})
             if u.path == "/api/edit":
                 if len(json.dumps(obj)) > MAX_EDIT_BYTES:
                     raise ApiError("too_big", "区間が多すぎて保存できません", 413)
@@ -6952,6 +7201,9 @@ def prepare(port, base_path="/", hooks=False):
     if not _started:
         _started.append(True)
         threading.Thread(target=worker, daemon=True, name="tx-jobs").start()
+        t = threading.Timer(5.0, _evalorg_startup)   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
+        t.daemon = True
+        t.start()
     if not has_faster_whisper() and backend_name() != "fake":
         print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")
     return rt

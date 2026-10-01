@@ -2397,3 +2397,16 @@
 - 注意: 本物の「参照…」の窓は自動のテストでは開けない(実機で確かめる)。start.bat が使う Python(py -3 = Python310・miniconda)はどちらも tkinter あり。
   e2e_edit_tabs の前の節(動画を選び直す)が最後に動画を消すので、その文書の波形の 404 が後ろの節に届くことがある(この節の n_err で吸収)
 - 未コミット: なし
+
+## 2026-10-01 Claude Code — 評価用のフォルダ(編集 0.32.0)と、評価用データのフォルダの用意
+- 依頼: ユーザー「E:\Video\切り抜き動画素材 に評価用のデータを入れるフォルダを作る」→「このフォルダ内のデータは評価用として扱いたい」→「名前を適切にして再リンクする作業を定期的に。全ての行が済みかどうかで名前を変える」
+- フォルダ(リポジトリの外。PC の上だけ): `E:\Video\切り抜き動画素材\評価用データ\{1_JP|2_EN|3_ID}\<NN_グループ(デビュー順)>\評価用データNN_<メンバー>\`(70 人。`holo-colors/members.json` の卒業以外。DEV_IS は JP の中・holoAN は 2025-10〜12 デビューなので FLOW GLOW の後)
+- 決定(ユーザー 2026-10-01): フォルダの中は**自動で評価用**・**印は外せない**・名前は「**動画のフォルダ名_番号_済|未|未文字起こし**」・済 = **全行が校正済み**・整理は**入口の起動時 + ボタン**(Windows のタスクはやめた: 入口が止まっていると付け替えられない)
+- 変更: `editor/serve.py`(評価用のフォルダの節: 設定 `evalDirs`(`SETTINGS_PATCH_KEYS`)・`in_eval_dir`・`eval_organize`(`POST /api/eval-folders/organize`・`GET /api/eval-folders`・起動の5秒後に1回)。
+  印を付ける所 = `validate_job`・`sanitize_transcript`・`restore_history`・`_relink_write`(relink_doc の書き込みを関数に分けた。整理と共用)・`GET /api/transcript` の `evalLocked`・保存の応答に `evalSet`)、
+  `editor/app.js`・`index.html`(⚙ の「評価用のフォルダ」`#evDirs`・保存・今すぐ整理・`syncEval` でチェックを固定)・README・AGENTS.md。設計と限界: `docs/design/eval-folder.md`
+- 作業データの設定: ユーザーの `%LOCALAPPDATA%\youtube-tools\transcribe\settings.json` に `evalDirs` を入れた(入口は止まっていた。控え `settings.json.pre-evaldirs.bak`)
+- テスト: `test_edit.py` に TestEvalFolder(6)・`e2e_eval_set.py` に評価用のフォルダの節(⚙ から保存・自動で評価用・整理で改名と付け替え・チェックを外せない)。
+  通した: editor 単体 222 OK・e2e_eval_set・e2e_edit_tabs・e2e_ui_mounted・e2e_folder_marker_range ALL PASSED・home test_mount 26 OK・ytt_core 74 OK(別々に。同じ unittest で流すと環境変数が混ざって落ちる = 以前から)。node が無いので test_document_save.cjs は流していない
+- 注意: 「元動画の再リンク簡素化」のセッションのコミット(b5c1871)を待ってから editor/ を触った。起動中の入口は古いコードなので、「すべて終了」→ start.bat で起動し直すと効く
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)

@@ -1132,5 +1132,115 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertTrue(any("音声だけ" in w for w in a["warnings"]))
 
 
+class TestEvalFolder(StoreDir):
+    """評価用のフォルダ(2026-10-01): 中の動画は評価用で外せない・整理で「フォルダ名_番号_状態」にそろえて付け替える"""
+
+    def setUp(self):
+        super().setUp()
+        self.ev = tempfile.mkdtemp()
+        self.mem = os.path.join(self.ev, "1_JP", "01_0期生", "評価用データ01_ときのそら")
+        os.makedirs(self.mem)
+        write_json(S.SETTINGS, {"evalDirs": [self.ev]})
+
+    def tearDown(self):
+        shutil.rmtree(self.ev, ignore_errors=True)
+        super().tearDown()
+
+    def video(self, name, mtime):
+        p = os.path.join(self.mem, name)
+        with open(p, "wb") as f:
+            f.write(b"x")
+        os.utime(p, (mtime, mtime))
+        return p
+
+    def doc(self, tid=TID):
+        with open(S.tx_path(tid), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_settings_check_and_inside(self):
+        self.assertTrue(S._eval_dirs_ok([self.ev]))
+        for bad in (["relative\\x"], ["\\\\server\\share"], "E:\\x", [self.ev] * 11, ["C:\\a:b"]):
+            self.assertFalse(S._eval_dirs_ok(bad), bad)
+        self.assertEqual(S.eval_dirs(), [os.path.abspath(self.ev)])
+        self.assertTrue(S.in_eval_dir(os.path.join(self.mem, "a.mp4")))
+        self.assertFalse(S.in_eval_dir(self.ev + "x\\a.mp4"))   # 名前が前で一致するだけの隣のフォルダは外
+        self.assertFalse(S.in_eval_dir("\\\\server\\share\\a.mp4"))
+        write_json(S.SETTINGS, {"evalDirs": [os.path.join(self.ev, "無いフォルダ")]})
+        self.assertEqual(S.eval_dirs(), [])
+
+    def test_job_save_restore_force_eval(self):
+        p = self.video("a.mp4", 1000)
+        spec = S.validate_job({"sourcePath": p, "glossary": "用語"})
+        self.assertTrue(spec["evalSet"])
+        self.assertEqual(spec["glossary"], [])   # 評価用は用語集を渡さない
+        self.put_doc(doc_obj(sourcePath=p, evalSet=True))
+        S.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
+        self.assertTrue(self.doc()["evalSet"])   # 画面から外そうとしても残る
+        self.put_doc(doc_obj(sourcePath="C:\\x\\clip.mp4", evalSet=True))
+        S.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
+        self.assertNotIn("evalSet", self.doc())   # フォルダの外は今までどおり外せる
+
+    def test_organize_names_numbers_and_relinks(self):
+        old = self.video("配信の切り抜き.mp4", 2000)
+        self.video("評価用データ01_ときのそら_01_未.mp4", 3000)   # 番号が付いているものは番号をそのまま
+        newer = self.video("あとから.mp4", 4000)
+        work = os.path.join(self.mem, "作業用")
+        os.makedirs(work)
+        with open(os.path.join(work, "配信の切り抜き.clip.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        segs = [dict(s, proofed=True) for s in doc_obj()["segments"]]
+        self.put_doc(doc_obj(sourcePath=old, segments=segs))   # 全行が校正済み・印なし
+        r = S.eval_organize("test")
+        names = sorted(os.listdir(self.mem))
+        self.assertEqual(names, ["作業用", "評価用データ01_ときのそら_01_未文字起こし.mp4", "評価用データ01_ときのそら_02_済.mp4",
+                                 "評価用データ01_ときのそら_03_未文字起こし.mp4"])
+        self.assertEqual(os.listdir(work), ["評価用データ01_ときのそら_02_済.clip.json"])
+        d = self.doc()
+        self.assertEqual(d["sourcePath"], os.path.join(self.mem, "評価用データ01_ときのそら_02_済.mp4"))
+        self.assertTrue(d["evalSet"])
+        self.assertEqual(d["relinks"][-1]["why"], "evalOrganize")
+        self.assertEqual((r["videos"], len(r["renamed"]), r["marked"], r["skipped"]), (3, 3, 1, []))
+        self.assertFalse(os.path.exists(newer))
+        # 1行の校正を外すと「未」に・2回目は名前が同じなら何もしない
+        d["segments"][0]["proofed"] = False
+        self.put_doc(d)
+        r = S.eval_organize("test")
+        self.assertEqual(len(r["renamed"]), 1)
+        self.assertTrue(self.doc()["sourcePath"].endswith("_02_未.mp4"))
+        self.assertEqual(S.eval_organize("test")["renamed"], [])
+
+    def test_organize_skips_busy_and_name_clash(self):
+        p = self.video("a.mp4", 1000)
+        with S._jobs_lock:
+            S._jobs["evaltest1"] = {"id": "evaltest1", "state": "running", "kind": "transcribe", "spec": {"sourcePath": p}}
+        try:
+            r = S.eval_organize("test")
+        finally:
+            with S._jobs_lock:
+                S._jobs.pop("evaltest1")
+        self.assertEqual(len(r["skipped"]), 1)
+        self.assertTrue(os.path.exists(p))
+
+    def test_organize_rolls_back_when_relink_fails(self):
+        p = self.video("a.mp4", 1000)
+        self.put_doc(doc_obj(sourcePath=p, evalSet=True))
+        saved = S._relink_write
+
+        def boom(*a, **k):
+            raise OSError("disk")
+        S._relink_write = boom
+        try:
+            r = S.eval_organize("test")
+        finally:
+            S._relink_write = saved
+        self.assertEqual(len(r["skipped"]), 1)
+        self.assertTrue(os.path.exists(p))   # 名前は元に戻る
+        self.assertEqual(self.doc()["sourcePath"], p)
+
+    def test_no_dirs_does_nothing(self):
+        write_json(S.SETTINGS, {})
+        self.assertEqual(S.eval_organize("test")["dirs"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
