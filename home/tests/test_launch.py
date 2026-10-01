@@ -551,6 +551,19 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/api/health?refresh=1")
         self.assertEqual(r.status, 200)
 
+    def test_cleanup_api(self):
+        """片付け(段9 9-2): 候補の一覧の形・移す物が無い/候補に出していない物は移さない"""
+        r, body = self.req("GET", "/api/cleanup")
+        self.assertEqual(r.status, 200)
+        d = json.loads(body)
+        self.assertEqual([k["kind"] for k in d["kinds"]], ["export", "work", "cache", "log", "intake"])
+        for k in ("bytes", "trash", "trashRoots", "keepDays", "packAgeDays"):
+            self.assertIn(k, d)
+        r, _ = self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())
+        self.assertEqual(r.status, 400)
+        r, body = self.post("/api/cleanup", body=json.dumps({"ids": ["nope"]}).encode())
+        self.assertEqual((r.status, json.loads(body)["unknown"], json.loads(body)["moved"]), (200, ["nope"], []))
+
     def test_csrf_token(self):
         """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""
         r, body = self.req("GET", "/")

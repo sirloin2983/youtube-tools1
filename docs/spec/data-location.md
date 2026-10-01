@@ -75,6 +75,12 @@
   (`{"schema": "youtube-tools-cases/v1", "cases": {<動画ID>: {status, memo, statusUpdatedAt, last}}}`)。どちらも外すと案件ファイルからも消える
 - 各ツールのデータ(data.json・transcripts)は**読むだけ**。書き込みの API(`POST /api/cases/update`)は合言葉・Host/Origin の検査つき
 
+## ごみ箱フォルダ(段9 9-2。入口 0.20.0。2026-10-01 ユーザー決定)
+- ホームの「詳しく」の「片付け」で選んだ物は、すぐには消さず「ごみ箱フォルダ」の `<日付>\<種類>\` へ移す。14 日たった日付のフォルダは入口の起動時に消える(`home/cleanup.py` の `purge`)
+- 置き場所は**動画と同じドライブ**(別のドライブへ数 GB を写さない・C: を圧迫しない): 作業データと同じドライブ → `%LOCALAPPDATA%\youtube-tools\app\ごみ箱\`、
+  スタジオの書き出し先と同じドライブ → `<書き出し先>\ごみ箱\`、それ以外 → `<ドライブ>\youtube-tools ごみ箱\`。作業データの外に作った場所は `app\trash-roots.json` に残し、起動時の purge がそこも見る
+- 元の場所は日付のフォルダの `manifest.jsonl`(1行 = {from, to, kind, bytes, at})。戻すときはエクスプローラーで移す
+
 ## 残っていること
 - 0old・.whisper_models はユーザーが 2026-09-26 に削除済み
 - 段階4 はこれで一通り(置き場所の移動・案件ファイル・セリフの表示・重い処理の同時実行の上限)

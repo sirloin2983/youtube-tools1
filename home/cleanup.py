@@ -21,8 +21,12 @@ from ytt_core import datadir, schemas
 
 TRASH_DIR = "ごみ箱"
 KEEP_DAYS = 14
+PACK_AGE_DAYS = 14        # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(2026-10-01 ユーザー決定。案件の状態を変えなくても出る)
 MANIFEST = "manifest.jsonl"
-KINDS = (("export", "スタジオの書き出しの元動画(パック済み・案件が投稿済み/見送り)"),
+ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
+DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
+SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")   # 元動画と一緒に片付ける途中のファイル
+KINDS = (("export", "スタジオの書き出しの元動画(パック済みで、案件が投稿済み/見送り か パックから %d 日)" % PACK_AGE_DAYS),
          ("work", "作業用の途中のファイル(元の動画が無い)"),
          ("cache", "波形のキャッシュ(作り直せる)"),
          ("log", "古いログ"),
@@ -60,14 +64,34 @@ def _mtime(path):
         return 0
 
 
-def _item(kind, path, note=""):
-    return {"id": _id(path), "kind": kind, "path": path, "name": os.path.basename(path.rstrip("\\/")), "bytes": _size(path), "mtime": _mtime(path),
-            "dir": os.path.isdir(path), "note": note}
+def _item(kind, path, note="", extra=()):
+    """extra = 一緒に移す途中のファイル(元動画の _edit.mp4・作業用の .clip.json など)"""
+    extra = [x for x in extra if os.path.isfile(x)]
+    return {"id": _id(path), "kind": kind, "path": path, "name": os.path.basename(path.rstrip("\\/")), "bytes": _size(path) + sum(_size(x) for x in extra),
+            "mtime": _mtime(path), "dir": os.path.isdir(path), "note": note, "extra": extra}
+
+
+def _sidecars(video):
+    """元動画と同じ名前の途中のファイル(動画の隣と 作業用\\)"""
+    folder, stem = os.path.dirname(video), os.path.splitext(os.path.basename(video))[0]
+    out = []
+    for d in (folder, os.path.join(folder, schemas.WORK_DIR)):
+        for suf in SIDECARS:
+            q = os.path.join(d, stem + suf)
+            if os.path.isfile(q):
+                out.append(q)
+    return out
+
+
+def _drive(p):
+    return os.path.normcase(os.path.splitdrive(os.path.abspath(p))[0])
 
 
 class Cleanup:
-    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, pack_finder=None):
+    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, pack_finder=None, out_dirs=None):
+        """out_dirs = スタジオの書き出し先など(呼ぶたびに読む関数でもよい)。作業データと別のドライブの物は、そのドライブのここ\\ごみ箱\\ へ移す"""
         self.app_dir = os.path.abspath(app_dir)
+        self.out_dirs = out_dirs
         self.repo_root, self.env = repo_root, env
         self.log = log or (lambda m: None)
         self.clock, self.keep_days = clock, keep_days
@@ -77,6 +101,47 @@ class Cleanup:
     @property
     def trash_dir(self):
         return os.path.join(self.app_dir, TRASH_DIR)
+
+    def _out_dirs(self):
+        v = self.out_dirs() if callable(self.out_dirs) else self.out_dirs
+        return [os.path.abspath(x) for x in v or [] if isinstance(x, str) and x]
+
+    def trash_for(self, path):
+        """移す先のごみ箱フォルダ(2026-10-01 ユーザー決定: 動画と同じドライブ。別のドライブへ数 GB を写さない・C: を圧迫しない)。
+        作業データと同じドライブ → 作業データの ごみ箱、書き出し先と同じドライブ → <書き出し先>\\ごみ箱、それ以外 → <ドライブ>\\youtube-tools ごみ箱"""
+        d = _drive(path)
+        if d == _drive(self.app_dir):
+            return self.trash_dir
+        for o in self._out_dirs():
+            if _drive(o) == d:
+                return os.path.join(o, TRASH_DIR)
+        return os.path.join(os.path.splitdrive(os.path.abspath(path))[0] + os.sep, DRIVE_TRASH)
+
+    def trash_roots(self):
+        """purge が見るごみ箱フォルダ: 作業データ・書き出し先・作ったことのある場所(trash-roots.json)"""
+        roots = [self.trash_dir] + [os.path.join(o, TRASH_DIR) for o in self._out_dirs()]
+        try:
+            with open(os.path.join(self.app_dir, ROOTS_FILE), encoding="utf-8") as f:
+                v = json.load(f)
+            roots += [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+        except (OSError, ValueError):
+            pass
+        return list(dict.fromkeys(os.path.normcase(os.path.abspath(r)) for r in roots))
+
+    def _remember_root(self, root):
+        if os.path.normcase(root) == os.path.normcase(self.trash_dir):
+            return
+        p = os.path.join(self.app_dir, ROOTS_FILE)
+        try:
+            with open(p, encoding="utf-8") as f:
+                v = json.load(f)
+            v = v if isinstance(v, list) else []
+        except (OSError, ValueError):
+            v = []
+        if root not in v:
+            os.makedirs(self.app_dir, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(v + [root], f, ensure_ascii=False)
 
     # ---------- 候補 ----------
     def candidates(self, cases=None, intake_dir=None):
@@ -102,24 +167,37 @@ class Cleanup:
             b = sum(x["bytes"] for x in items)
             total += b
             kinds.append({"kind": k, "label": label, "count": len(items), "bytes": b, "items": items})
-        return {"kinds": kinds, "bytes": total, "trash": self.trash_dir, "keepDays": self.keep_days, "at": int(self.clock() * 1000)}
+        return {"kinds": kinds, "bytes": total, "trash": self.trash_dir, "trashRoots": self.trash_roots(), "keepDays": self.keep_days,
+                "packAgeDays": PACK_AGE_DAYS, "at": int(self.clock() * 1000)}
 
     def _exports(self, cases):
-        out, seen = [], set()
+        """パックがある元動画のうち、案件が投稿済み/見送り か、Text+ のパック(動画のコピー入り。元動画が無くても Resolve で開ける)を作って
+        PACK_AGE_DAYS 日たったもの。_edit.mp4・作業用の途中のファイルも一緒に(extra)"""
+        out, seen, now = [], set(), self.clock()
         for c in cases:
-            if not isinstance(c, dict) or c.get("status") not in DONE_STATUSES:
+            if not isinstance(c, dict):
                 continue
+            done = c.get("status") in DONE_STATUSES
             for cl in c.get("clips") or []:
                 p = cl.get("path") if isinstance(cl, dict) else None
                 if not p or not cl.get("exists") or not os.path.isfile(p):
                     continue
-                if not cl.get("pack") and not (self.pack_finder and self.pack_finder(p)):
+                pk = cl.get("pack") or (self.pack_finder(p) if self.pack_finder else None)
+                if not pk:
+                    continue
+                at = pk.get("updatedAt") if isinstance(pk, dict) else 0
+                aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \
+                    and now - at / 1000.0 > PACK_AGE_DAYS * 86400
+                if not (done or aged):
                     continue
                 key = os.path.normcase(p)
                 if key in seen:
                     continue
                 seen.add(key)
-                out.append(_item("export", p, "案件「%s」(%s)" % (str(c.get("title") or c.get("id") or "")[:40], "投稿済み" if c["status"] == "posted" else "見送り")))
+                title = str(c.get("title") or c.get("id") or "")[:40]
+                why = ("投稿済み" if c["status"] == "posted" else "見送り") if done else \
+                    "パックから %d 日" % int((now - at / 1000.0) // 86400)
+                out.append(_item("export", p, "案件「%s」(%s)" % (title, why), _sidecars(p)))
         return out
 
     def _work_orphans(self, cases):
@@ -216,18 +294,29 @@ class Cleanup:
                 unknown.append(str(i)[:40])
                 continue
             src = it["path"]
-            dest_dir = os.path.join(self.trash_dir, day, it["kind"])
+            root = self.trash_for(src)
+            dest_dir = os.path.join(root, day, it["kind"])
             try:
+                if it.get("extra"):   # 元動画と途中のファイルは <名前>\ にまとめる(作業用の物は その中の 作業用\)
+                    dest_dir = self._free(os.path.join(dest_dir, os.path.splitext(it["name"])[0]))
                 os.makedirs(dest_dir, exist_ok=True)
-                dest = os.path.join(dest_dir, it["name"])
-                k = 1
-                while os.path.lexists(dest):
-                    base, ext = os.path.splitext(it["name"])
-                    dest = os.path.join(dest_dir, "%s (%d)%s" % (base, k, ext))
-                    k += 1
+                self._remember_root(root)
+                dest = self._free(os.path.join(dest_dir, it["name"]))
                 shutil.move(src, dest)   # 同じドライブなら改名、別のドライブなら写して消す
-                with open(os.path.join(self.trash_dir, day, MANIFEST), "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"at": int(self.clock() * 1000), "kind": it["kind"], "from": src, "to": dest, "bytes": it["bytes"]}, ensure_ascii=False) + "\n")
+                rows = [{"from": src, "to": dest}]
+                for x in it.get("extra") or []:
+                    sub = schemas.WORK_DIR if os.path.basename(os.path.dirname(x)) == schemas.WORK_DIR else ""
+                    xd = os.path.join(dest_dir, sub) if sub else dest_dir
+                    try:
+                        os.makedirs(xd, exist_ok=True)
+                        xt = self._free(os.path.join(xd, os.path.basename(x)))
+                        shutil.move(x, xt)
+                        rows.append({"from": x, "to": xt})
+                    except (OSError, shutil.Error) as e:   # 途中のファイルが移せなくても元動画は移した(次の候補の work に出る)
+                        self.log("片付け: %s を移せませんでした: %r" % (x, e))
+                with open(os.path.join(root, day, MANIFEST), "a", encoding="utf-8") as f:
+                    for r in rows:
+                        f.write(json.dumps(dict(r, at=int(self.clock() * 1000), kind=it["kind"], bytes=_size(r["to"])), ensure_ascii=False) + "\n")
                 moved.append(dict(it, to=dest))
                 self._known.pop(it["id"], None)
                 self.log("片付け: %s → %s" % (src, dest))
@@ -235,15 +324,27 @@ class Cleanup:
                 failed.append({"id": it["id"], "path": src, "error": str(e)[:200]})
         return {"moved": moved, "failed": failed, "unknown": unknown, "trash": self.trash_dir}
 
+    @staticmethod
+    def _free(dest):
+        """同じ名前があれば (1) (2) … を付ける"""
+        k, (base, ext) = 1, os.path.splitext(dest)
+        while os.path.lexists(dest):
+            dest = "%s (%d)%s" % (base, k, ext)
+            k += 1
+        return dest
+
     def purge(self):
-        """KEEP_DAYS を過ぎた日付のフォルダを消す(起動時)。-> 消した日付のフォルダの数"""
+        """KEEP_DAYS を過ぎた日付のフォルダを消す(起動時。どのドライブのごみ箱フォルダも)。-> 消した日付のフォルダの数"""
+        return sum(self._purge_root(r) for r in self.trash_roots())
+
+    def _purge_root(self, root):
         try:
-            names = os.listdir(self.trash_dir)
+            names = os.listdir(root)
         except OSError:
             return 0
         n, now = 0, self.clock()
         for name in names:
-            p = os.path.join(self.trash_dir, name)
+            p = os.path.join(root, name)
             if not os.path.isdir(p):
                 continue
             try:

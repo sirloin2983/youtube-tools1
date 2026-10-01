@@ -2421,3 +2421,20 @@
 - テスト: `test_edit.py` TestEvalFolder に 3 件(移す・条件を満たすまで残す 3 通り・1件の settle)、`e2e_eval_set.py` に仮置きの節(ほかの文書へ移ると「_02_済」で移る)。
   通した: editor 単体 225 OK・e2e_eval_set・e2e_edit_tabs・e2e_ui_mounted ALL PASSED
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-01 Claude Code — 段9 9-2 片付けを画面まで(入口 0.20.0)
+- 依頼: ユーザー「元動画がどんどんたまっていくから何とかしたい」→ 段9 の 9-2(片付け)を画面まで仕上げる(ユーザー決定)
+- 状態を確かめたこと: 9-1「調子」(`home/health.py`・`/api/health`・ホームの節)・9-3 の部品 `home/restart.py`・9-2 の部品 `home/cleanup.py` は、
+  別のセッションが作って a5068a3(push.bat)でコミット済みだった(WORKLOG の記録は無かった)。9-2 は部品とテストだけで、入口の API・画面につながっていなかった
+- 追加の決定(ユーザー 2026-10-01): ごみ箱フォルダは**動画と同じドライブ**。元動画の条件は「おすすめで」→ 案件が投稿済み/見送り(計画どおり)に加えて **Text+ のパック(動画のコピー入り)を作って 14 日**
+  (Text+ でないパックは元動画を参照するので日数では出さない = Resolve で作業中の素材を消さない)
+- 変更: `home/cleanup.py`(`PACK_AGE_DAYS`・元動画と一緒に `_edit.mp4`・作業用の途中のファイル = `extra`・`trash_for`(作業データ / 書き出し先\ごみ箱 / <ドライブ>\youtube-tools ごみ箱)・
+  `trash-roots.json`・purge はどのごみ箱も・同じ名前は (1))、`home/launch.py`(`GET/POST /api/cleanup`・起動時の purge を裏で・版 0.19.0 → **0.20.0** = 9-1 と 9-2)、
+  `home/portal.{html,js,css}`(「詳しく」の「調子」の下に「片付け」: 候補を探す・種類ごとに選ぶ・確認の dialog・移す)、
+  `home/README.txt`・`docs/plan/phase9-ops-stability.md` の状態・`docs/ROADMAP.md`(版・段9 の行)・`docs/spec/data-location.md`(ごみ箱フォルダ)
+- テスト: `test_cleanup.py` +2(Text+ のパックから 14 日・途中のファイルも一緒に・同じドライブのごみ箱と purge)・`test_launch.py` +1(/api/cleanup)・`e2e_portal.py` に片付けの節。
+  通した: home の単体 8 組 199(test_mount の3件は PYTHONIOENCODING=utf-8 のときだけ落ちる以前からの文字コードの件。付けずに 26 OK)・e2e_portal すべて OK(129)。
+  途中で CSP(`style-src 'self'`)に HTML の style 属性が引っかかったので CSS のクラスにした
+- 実機で確かめること: 入口を起動し直して「詳しく」→「片付け」→「候補を探す」。E: の元動画を移すと `E:\Video\切り抜き動画素材\ごみ箱\<日付>\export\` に入る。14 日後の起動で消える
+- 残り: 段9 の 9-3(版の帯から起動し直す。部品 `home/restart.py` はある)・9-4(依頼の受付の運用)・9-5(小さな注意。一部は a5068a3 で入っている)
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)

@@ -205,6 +205,10 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
         pg.click("#btnHealthRefresh")
         check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
+        # 段9 9-2: 「片付け」の節。候補を探すと種類ごと(5 種類)に出て、何も選ばなければ移せない
+        pg.click("#btnCleanFind")
+        check(wait_js(pg, "document.querySelectorAll('#cleanKinds details').length === 5", 20000), "[A] 「片付け」の候補が種類ごとに出る: %d" % pg.locator("#cleanKinds details").count())
+        check(pg.is_disabled("#btnCleanMove") and "候補" in pg.text_content("#cleanWhen"), "[A] 何も選んでいなければ「ごみ箱フォルダへ移す」は押せない")
 
         for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
             meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)

@@ -109,6 +109,48 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.purge(), 1)
         self.assertFalse(os.path.isdir(os.path.join(self.app, "ごみ箱", day)))
 
+    def test_export_aged_textplus_pack_with_sidecars(self):
+        """パック(Text+)から 14 日たった元動画は、案件の状態が無くても候補。_edit.mp4・作業用の途中のファイルも一緒に移す"""
+        v = os.path.join(self.tmp, "vid")
+        a = touch(os.path.join(v, "a.mp4"), 100)
+        ed = touch(os.path.join(v, "作業用", "a_edit.mp4"), 40)
+        cj = touch(os.path.join(v, "作業用", "a.clip.json"), 5)
+        b = touch(os.path.join(v, "b.mp4"), 100)   # Text+ でないパック(動画のコピーなし) → 日数では出さない
+        c = touch(os.path.join(v, "c.mp4"), 100)   # 新しいパック → まだ
+        old = int((self.now[0] - 20 * 86400) * 1000)
+        cases = [{"id": "1", "title": "作業中", "status": "", "clips": [
+            {"path": a, "exists": True, "pack": {"dir": a + "_pack", "textplus": True, "updatedAt": old}},
+            {"path": b, "exists": True, "pack": {"dir": b + "_pack", "textplus": False, "updatedAt": old}},
+            {"path": c, "exists": True, "pack": {"dir": c + "_pack", "textplus": True, "updatedAt": int(self.now[0] * 1000)}}]}]
+        r = self.cl.candidates(cases)
+        exp = next(k for k in r["kinds"] if k["kind"] == "export")
+        self.assertEqual([i["path"] for i in exp["items"]], [a])
+        self.assertIn("パックから 20 日", exp["items"][0]["note"])
+        self.assertEqual(exp["items"][0]["bytes"], 145)
+        self.cl.move([exp["items"][0]["id"]])
+        day = time.strftime("%Y-%m-%d", time.localtime(self.now[0]))
+        base = os.path.join(self.app, "ごみ箱", day, "export", "a")
+        self.assertTrue(os.path.isfile(os.path.join(base, "a.mp4")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "作業用", "a_edit.mp4")) and os.path.isfile(os.path.join(base, "作業用", "a.clip.json")))
+        self.assertFalse(any(os.path.exists(x) for x in (a, ed, cj)))
+        self.assertTrue(os.path.exists(b) and os.path.exists(c))
+
+    def test_trash_on_the_same_drive(self):
+        """作業データと別のドライブの物は、そのドライブの書き出し先\\ごみ箱(無ければ <ドライブ>\\youtube-tools ごみ箱)。purge もそこを見る"""
+        out = os.path.join(self.tmp, "E", "切り抜き")
+        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], out_dirs=lambda: [out])
+        saved = C._drive
+        C._drive = lambda p: "e:" if os.path.normcase(os.path.abspath(p)).startswith(os.path.normcase(os.path.join(self.tmp, "E"))) else "c:"
+        try:
+            self.assertEqual(cl.trash_for(os.path.join(out, "x", "a.mp4")), os.path.join(out, "ごみ箱"))
+            self.assertEqual(cl.trash_for(os.path.join(self.app, "logs", "x.old.log")), os.path.join(self.app, "ごみ箱"))
+            day = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+            touch(os.path.join(out, "ごみ箱", day, "export", "a.mp4"))
+            self.assertEqual(cl.purge(), 1)
+            self.assertFalse(os.path.isdir(os.path.join(out, "ごみ箱", day)))
+        finally:
+            C._drive = saved
+
     def test_paths_not_offered_cannot_be_moved(self):
         secret = touch(os.path.join(self.tmp, "secret.txt"))
         res = self.cl.move([C._id(secret)])

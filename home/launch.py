@@ -21,6 +21,7 @@
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
+  GET  /api/cleanup                       片付けの候補(段9 9-2。home/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(14 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
@@ -66,10 +67,11 @@ import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ご�
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
 import health as health_mod  # noqa: E402  (home/health.py: 「調子」。段9 9-1)
+import cleanup as cleanup_mod  # noqa: E402  (home/cleanup.py: 片付け。段9 9-2)
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.19.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.20.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -608,6 +610,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         if u.path == "/api/health":   # 「調子」(段9 9-1。重い物は別のスレッドで数え、10 分は前の値。?refresh=1 で数え直す)
             q = urllib.parse.parse_qs(u.query)
             return self._json(200, self.server.health.snapshot(refresh=(q.get("refresh") or ["0"])[0] == "1"))
+        if u.path == "/api/cleanup":   # 片付けの候補(段9 9-2。候補の一覧は入口が持ち、POST は候補に出した物だけ)
+            return self._json(200, self.server.cleanup_candidates())
         if u.path == "/api/log":
             q = urllib.parse.parse_qs(u.query)
             tid = (q.get("tool") or [""])[0]
@@ -714,6 +718,12 @@ class PortalHandler(BaseHTTPRequestHandler):
             except OSError as e:
                 return self._fail(500, "write", "設定を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
             return self._json(200, {"window": self.server.window.status()})
+        if u.path == "/api/cleanup":   # 候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。14 日で起動時に消える)
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids or len(ids) > cleanup_mod.MAX_ITEMS * 5:
+                return self._fail(400, "bad_request", "移す物を選んでください")
+            with self.server.cleanup_lock:
+                return self._json(200, self.server.cleanup.move(ids))
         if u.path == "/api/shutdown":
             self._json(200, {"ok": True})
             threading.Thread(target=self.server.request_shutdown, daemon=True).start()
@@ -762,6 +772,32 @@ class PortalServer(ThreadingHTTPServer):
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs)   # 「調子」(段9 9-1)
+        # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
+        self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
+        self.cleanup_lock = threading.Lock()
+
+    def cleanup_candidates(self):
+        """片付けの候補(案件 = スタジオと文字起こしの紐づけ・依頼の受付のフォルダから)"""
+        try:
+            cases = cases_mod.snapshot(self.sup.root).get("cases") or []
+        except Exception as e:   # 案件を読めなくても、キャッシュ・ログの候補は出す
+            self.sup.log("片付け: 案件を読めませんでした: %r" % (e,))
+            cases = []
+        try:
+            folder = (self.intake._cfg() or {}).get("folder") or None
+        except Exception:
+            folder = None
+        with self.cleanup_lock:
+            return self.cleanup.candidates(cases, intake_dir=folder)
+
+    def purge_trash(self):
+        """起動時: 14 日を過ぎたごみ箱フォルダの日付を消す(裏で)"""
+        try:
+            n = self.cleanup.purge()
+            if n:
+                self.sup.log("ごみ箱フォルダから %d 日ぶんを消しました(%d 日を過ぎた)" % (n, cleanup_mod.KEEP_DAYS))
+        except Exception as e:
+            self.sup.log("ごみ箱フォルダを片付けられませんでした: %r" % (e,))
 
     def _worker_probe(self):
         """「編集」の /api/ping の worker(認識ワーカーの状態)。動いていなければ None"""
@@ -1088,6 +1124,7 @@ def main(argv=None):
         sup.start_all()
         sup.start_monitor()
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
+        threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
             threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()
         while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ

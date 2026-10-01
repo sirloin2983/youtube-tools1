@@ -813,6 +813,70 @@
   function fmtBytes(b) { b = Number(b) || 0; return b >= GB ? (b / GB).toFixed(b >= 10 * GB ? 0 : 1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
   function fmtAgo(sec) { sec = Number(sec) || 0; return sec < 90 ? Math.round(sec) + ' 秒前' : sec < 5400 ? Math.round(sec / 60) + ' 分前' : sec < 172800 ? Math.round(sec / 3600) + ' 時間前' : Math.round(sec / 86400) + ' 日前'; }
   var healthBusy = false, healthTimer = 0;
+  /* ================================================================ 片付け(段9 9-2。/api/cleanup。候補 → 選ぶ → ごみ箱フォルダへ移す) ================================================================ */
+  var cleanData = null, cleanBusy = false;
+  function loadCleanup() {
+    if (cleanBusy) return;
+    cleanBusy = true;
+    $('#cleanWhen').textContent = '探しています…';
+    api('/api/cleanup').then(renderCleanup, function (e) {
+      $('#cleanWhen').textContent = '';
+      var box = $('#cleanKinds'); box.textContent = '';
+      box.appendChild(el('p', 'hint', '候補を読めません: ' + e.message));
+    }).then(function () { cleanBusy = false; });
+  }
+  function cleanPicked() { return Array.prototype.map.call(document.querySelectorAll('#cleanKinds input[data-id]:checked'), function (c) { return c.getAttribute('data-id'); }); }
+  function cleanSync() {
+    var ids = cleanPicked(), bytes = 0;
+    (cleanData && cleanData.kinds || []).forEach(function (k) { k.items.forEach(function (i) { if (ids.indexOf(i.id) >= 0) bytes += i.bytes; }); });
+    $('#cleanSel').textContent = ids.length ? ids.length + ' 件・' + fmtBytes(bytes) + ' を選んでいます' : '';
+    $('#btnCleanMove').disabled = !ids.length;
+  }
+  function renderCleanup(d) {
+    cleanData = d;
+    $('#cleanWhen').textContent = '候補 ' + fmtBytes(d.bytes);
+    $('#cleanDays').textContent = d.keepDays;
+    var box = $('#cleanKinds'); box.textContent = '';
+    d.kinds.forEach(function (k) {
+      var det = el('details'), sum = el('summary');
+      var all = el('input'); all.type = 'checkbox'; all.disabled = !k.count; all.setAttribute('aria-label', k.label + 'をすべて選ぶ');
+      sum.appendChild(all); sum.appendChild(document.createTextNode(' ' + k.label + ' — ' + k.count + ' 件・' + fmtBytes(k.bytes)));
+      det.appendChild(sum);
+      var ul = el('ul');
+      k.items.forEach(function (i) {
+        var li = el('li'), lb = el('label'), cb = el('input');
+        cb.type = 'checkbox'; cb.setAttribute('data-id', i.id);
+        lb.appendChild(cb);
+        lb.appendChild(el('span', '', i.name + '(' + fmtBytes(i.bytes) + (i.extra && i.extra.length ? '・途中のファイル ' + i.extra.length + ' 個も' : '') + ')'));
+        if (i.note) lb.appendChild(el('span', 'hint', i.note));
+        lb.title = i.path;
+        li.appendChild(lb); ul.appendChild(li);
+      });
+      if (!k.count) ul.appendChild(el('li', 'hint', 'ありません'));
+      det.appendChild(ul);
+      all.addEventListener('click', function (e) { e.stopPropagation(); });
+      all.addEventListener('change', function () { ul.querySelectorAll('input[data-id]').forEach(function (c) { c.checked = all.checked; }); cleanSync(); });
+      ul.addEventListener('change', cleanSync);
+      box.appendChild(det);
+    });
+    cleanSync();
+  }
+  function moveCleanup() {
+    var ids = cleanPicked();
+    if (!ids.length) return;
+    var ask = window.UIKit && UIKit.dialog ? UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
+      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.keepDays + ' 日たつと入口の起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所はごみ箱フォルダの manifest.jsonl)。' })
+      : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
+    ask.then(function (ok) {
+      if (!ok) return;
+      $('#btnCleanMove').disabled = true;
+      return api('/api/cleanup', 'POST', { ids: ids }).then(function (r) {
+        toast(r.moved.length + ' 件をごみ箱フォルダへ移しました' + (r.failed.length ? '(' + r.failed.length + ' 件は移せませんでした: ' + r.failed[0].error + ')' : ''), r.failed.length ? 'err' : undefined);
+        loadCleanup();
+      }, function (e) { toast('移せませんでした: ' + e.message, 'err'); cleanSync(); });
+    });
+  }
+
   function loadHealth(refresh) {
     if (healthBusy) return;
     healthBusy = true;
@@ -1241,6 +1305,8 @@
     $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
     var adv = $('#healthBox') && $('#healthBox').closest('details');
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
+    $('#btnCleanFind').addEventListener('click', loadCleanup);
+    $('#btnCleanMove').addEventListener('click', moveCleanup);
     $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
     $('#btnWinNow').addEventListener('click', openWinNow);
     $('#btnCopyData').addEventListener('click', function () {
