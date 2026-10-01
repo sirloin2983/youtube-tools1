@@ -295,7 +295,8 @@ class Intake:
             except Exception as e:   # 想定外でも見張りは続ける(次の回でやり直す)
                 self.state, self.message = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
                 self.log("依頼の受付: " + self.message)
-            self.wake.wait(self.interval)
+            # 見る間隔: 設定の interval(段9 9-4。ホームの「依頼の受付」で変える)。テストで interval を渡したときはそれ
+            self.wake.wait(self.interval if self.interval != INTERVAL else float(self._cfg().get("interval") or INTERVAL))
             self.wake.clear()
 
     def snapshot(self):
@@ -405,7 +406,7 @@ class Intake:
             self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が読めません(%s)" % str(e)[:80]}])
             return {n}
         if not isinstance(d, dict) or d.get("v") != 1 or d.get("kind") not in ("video", "url") or not REQ_ID_RE.match(rid):
-            self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が正しくありません"}])
+            self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が正しくありません"}], rid=rid)
             return {n}
         memo = str(d.get("memo") or "")[:MEMO_MAX]
         flow = d.get("flow") if d.get("flow") in FLOW_LABELS else "check"   # 1.0.0 のアプリは flow を送らない = 今までどおり ②
@@ -421,13 +422,13 @@ class Intake:
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
         if not names:
-            self._record(folder, "video", "app", n, [n], "", memo, [], [{"label": n, "state": "rejected", "reason": "動画の名前が書かれていません"}])
+            self._record(folder, "video", "app", n, [n], "", memo, [], [{"label": n, "state": "rejected", "reason": "動画の名前が書かれていません"}], rid=rid)
             return {n}
         missing = [x for x in names if x not in ready]
         if missing:
             if self.clock() - os.path.getmtime(p) > WAIT_FILES:
                 self._record(folder, "video", "app", names[0], [n] + [x for x in names if x in files], d.get("streamer") or "", memo, [],
-                             [{"label": x, "state": "rejected", "reason": "動画が届きませんでした(送り直してください)"} for x in missing])
+                             [{"label": x, "state": "rejected", "reason": "動画が届きませんでした(送り直してください)"} for x in missing], rid=rid)
             return {n} | set(names)
         if self._room(cfg) <= 0:
             self.held += 1
@@ -441,7 +442,7 @@ class Intake:
             runs += [res["runId"]] if res.get("runId") else []
         if note:
             results.append({"label": "配信者", "state": "accepted", "reason": note})
-        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers)
+        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid)
         return {n} | set(names)
 
     def _handle_manual_video(self, folder, n, p, cfg):
@@ -515,7 +516,7 @@ class Intake:
         if not results:
             results.append({"label": title, "state": "rejected", "reason": "URL が書かれていません"})
         first = next((r["label"] for r in results if r["state"] == "accepted"), title)
-        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers)
+        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid)
 
     def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None):
         """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}"""
@@ -565,7 +566,7 @@ class Intake:
         return {"state": "accepted", "reason": "", "runId": run["id"]}
 
     # ------------------------------------------------------------ 後始末と記録
-    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None):
+    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None):
         accepted = any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
@@ -576,8 +577,27 @@ class Intake:
                "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30]}
         self.st["requests"] = ([rec] + self.st["requests"])[:KEEP_REQUESTS]
         self._move(folder, moved, state, items)
+        self._notify_rejected(folder, rid, rec["title"], items)
         self._save_state()
         self.log("依頼の受付: %s %s(%s)" % (REQ_LABELS[state], rec["title"], reason or "%d 件" % len(runs)))
+
+    def _notify_rejected(self, folder, rid, title, items):
+        """友人のアプリの依頼で、受け付けなかった物があれば 出力/<依頼 id>__<題>.失敗.txt に理由を置く(アプリの「受け取る」に出る。段9 9-4)。
+        処理が始まってから止まったときは autorun の _deliver_failure が同じ形で置く"""
+        bad = [i for i in items if i["state"] == "rejected"]
+        if not bad or not rid or not REQ_ID_RE.match(str(rid)):
+            return
+        whole = not any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
+        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", "%s__%s" % (rid, title or "依頼"))[:180] + ".失敗.txt"
+        text = ("依頼を受け付けられませんでした。" if whole else "依頼の一部を受け付けられませんでした(ほかは処理します)。") + "\r\n" + \
+            "\r\n".join("%s: %s" % (i["label"], i.get("reason") or "受け付けられませんでした") for i in bad)
+        try:
+            out = os.path.join(folder, OUT_DIR)
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, name), "w", encoding="utf-8-sig", newline="") as f:
+                f.write(text + "\r\n")
+        except OSError as e:
+            self.log("依頼の受付: 断った理由を 出力 に置けませんでした(%s)" % (e.strerror or e.__class__.__name__))
 
     def _move(self, folder, names, state, items):
         """元のファイルを 受付済み\\日付\\ か 失敗\\ へ(消さない)。断ったものには理由の .txt を添える"""

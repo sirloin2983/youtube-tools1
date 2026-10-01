@@ -167,7 +167,7 @@ def main():
                 state["patches"].clear()
                 pg.click("#intakeSave")
                 check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent === '保存しました'"), "保存できた: %s" % pg.text_content("#intakeSaveMsg"))
-                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "dailyMax": 20, "maxHours": 8, "maxGB": 30}
+                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "dailyMax": 20, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)
                 check(state["patches"] and state["patches"][-1] == want, "patch の本文(節 intake の全キー): %s" % (state["patches"][-1:],))
                 check(wait_js(pg, "document.getElementById('intakeState').textContent === '見張り中'"), "保存後に状態が見張り中になる")
                 check(not pg.is_disabled("#intakeScanBtn"), "見張り中は「今すぐ確認」を押せる")

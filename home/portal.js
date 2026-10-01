@@ -1125,7 +1125,7 @@
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
   var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['dailyMax', '#intakeDaily', '1日の上限', 1, 50],
-    ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200]];
+    ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200], ['interval', '#intakeInterval', '見る間隔', 10, 600]];
 
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
@@ -1223,7 +1223,7 @@
     $('#intakeScanBtn').addEventListener('click', intakeScanNow);
     $('#intakeSave').addEventListener('click', function () { intakeSave(); });
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-    ['#intakeFolder', '#intakeTop', '#intakeDaily', '#intakeHours', '#intakeGB'].forEach(function (s) {
+    ['#intakeFolder', '#intakeTop', '#intakeDaily', '#intakeHours', '#intakeGB', '#intakeInterval'].forEach(function (s) {
       $(s).addEventListener('input', function () { intakeDirty = true; $('#intakeSaveMsg').textContent = ''; });
     });
   }

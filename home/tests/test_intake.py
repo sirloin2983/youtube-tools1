@@ -112,8 +112,10 @@ class TestPrefs(unittest.TestCase):
             p = prefs_mod.Prefs(os.path.join(tmp, "prefs.json"), fsio.atomic_write)
             self.assertEqual(p.get(["intake"])["intake"], prefs_mod.DEFAULTS["intake"])
             v = p.patch("intake", {"enabled": True, "top": 5, "maxHours": 2.5})
-            self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["dailyMax"]), (True, 5, 2.5, 5))
+            self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["dailyMax"], v["interval"]), (True, 5, 2.5, 5, 30))
+            self.assertEqual(p.patch("intake", {"interval": 120})["interval"], 120)   # 見る間隔(段9 9-4)
             for bad in ({"top": 11}, {"top": 2.5}, {"dailyMax": 0}, {"maxGB": True}, {"folder": 3}, {"folder": "\\\\server\\share"},
+                        {"interval": 5}, {"interval": 601}, {"interval": 30.5},
                         {"folder": "//server/share"}, {"folder": "relative\\dir"}):
                 with self.assertRaises(prefs_mod.PrefsError, msg=str(bad)):
                     p.patch("intake", bad)
@@ -280,6 +282,22 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.files, [])
         self.assertTrue(os.path.isfile(self.failed(rid + ".request.json")))
+
+    def test_rejected_app_request_tells_friend(self):
+        """段9 9-4: 友人のアプリの依頼を受け付けなかったら、出力\\<依頼 id>__<題>.失敗.txt に理由(アプリの「受け取る」に出る)。
+        手で置いたファイル(依頼 id が無い)は 出力 に置かない"""
+        rid = "20261001-120000-abc131"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": []}))
+        self.put("手で置いた.txt", "https://example.com/not-youtube")
+        self.scan2()
+        out = os.path.join(self.folder, intake.OUT_DIR)
+        names = os.listdir(out)
+        self.assertEqual(len(names), 1)
+        self.assertTrue(names[0].startswith(rid + "__") and names[0].endswith(".失敗.txt"))
+        with open(os.path.join(out, names[0]), encoding="utf-8-sig") as f:
+            text = f.read()
+        self.assertIn("受け付けられませんでした", text)
+        self.assertIn("動画の名前が書かれていません", text)
 
     def test_flow_from_app(self):
         """友人が選んだ形(① auto / ② check / ③ manual)と、① のパックの届け先(見張るフォルダの 出力\\)をまとめて実行へ渡す(2026-10-01)"""

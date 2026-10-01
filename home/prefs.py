@@ -29,9 +29,9 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカ�
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
-            "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20}}
+            "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
-                 "maxGB": (1, 200, "動画の大きさの上限(GB)")}
+                 "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
 FOLDER_MAX = 260
 
 
@@ -84,9 +84,9 @@ def _clean_intake(v, cur):
     for k, (lo, hi, label) in INTAKE_RANGES.items():
         if k in v:
             x = v[k]
-            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "dailyMax") and x != int(x)):
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "dailyMax", "interval") and x != int(x)):
                 raise PrefsError("%sは %d〜%d で指定してください" % (label, lo, hi))
-            out[k] = int(x) if k in ("top", "dailyMax") else x
+            out[k] = int(x) if k in ("top", "dailyMax", "interval") else x
     return out
 
 

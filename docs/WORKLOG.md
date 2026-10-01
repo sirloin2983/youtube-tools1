@@ -2449,3 +2449,14 @@
   本物の入口でも確かめた(テスト用ポート 18791・一時フォルダの作業データ・--only cut2resolve): restart-self → 古い入口は 0.4 秒で終わり、新しい入口が 2.0 秒で同じポートに戻り、合言葉が新しくなる → 止めた
 - 文書: `home/README.txt`・`docs/ROADMAP.md`(版・段9 の行)・`docs/plan/phase9-ops-stability.md` の状態(残り 9-4・9-5)
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-01 Claude Code — 段9 9-4 依頼の受付の運用・9-5 の確認(段9 は済み。入口 0.20.0)
+- 状態を確かめたこと: 9-4 の「上限を画面から」(`home/prefs.py` の `INTAKE_RANGES`・ホームの欄)・②③ の失敗の知らせ(`autorun._deliver_failure` は deliver_dir があれば①②③とも)・
+  受け取った動画の片付け(9-2 の intake の候補)は入っていた。9-5 も a5068a3 で入っていた(VFR・AV1/H.265/10bit は cut2resolve の probe → `plan.warnings` → 見積もりの注意・ドロップフレームは欄の下 `#pkSrcTcHint`)
+- 足したもの: (1) 見る間隔を設定から(prefs の intake に `interval` 10〜600 秒・既定 30・整数。`Intake._loop` は設定の値で待つ。テストで interval を渡したときはそれ)。ホームの欄 `#intakeInterval`、
+  (2) 受付で断った依頼も友人に知らせる(`Intake._notify_rejected`: 友人のアプリの依頼 = 依頼 id が `REQ_ID_RE` に合うものだけ、`出力\<依頼 id>__<題>.失敗.txt`(①の止まったときと同じ形 = アプリの「受け取る」が読む)。一部だけ断ったときも)
+- テスト: `test_intake.py` +1(断った依頼の .失敗.txt・手で置いたファイルは置かない)と TestPrefs に interval、`e2e_intake_ui.py` の patch の本文に interval。
+  通した: test_intake 22・test_launch / test_autorun / test_cleanup OK・e2e_intake_ui すべて OK・e2e_portal すべて OK
+- 文書: `docs/design/friend-intake.md` の 9・`docs/plan/phase9-ops-stability.md`(状態 = 済み)・`docs/ROADMAP.md`(段9 の行 = 済み)・`home/README.txt`
+- 次: ROADMAP の順番どおりなら段10(コードの整理。線 B 段2 の前)
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
