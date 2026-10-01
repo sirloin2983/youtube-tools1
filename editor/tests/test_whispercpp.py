@@ -67,7 +67,9 @@ class WhisperCppTest(unittest.TestCase):
         e.hooks = {"progress": prog.append}
         kw = S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3-turbo", "vadMode": "weak", "wordSplit": True,
                                "glossary": ["白上フブキ", "さくらみこ"]})
-        kw = S.filter_kwargs(e, kw)
+        self.assertNotIn("vad_filter", S.filter_kwargs(e, kw))            # 既定では whisper.cpp の声の検出を使わない(文字が大きく抜けた)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_VAD": "1"}):   # 測るときだけ使える
+            kw = S.filter_kwargs(e, kw)
         self.assertNotIn("hotwords", kw)                                   # whisper.cpp に無い引数は渡さない
         segs, info = e.transcribe(self.wav, **kw)
         segs = list(segs)

@@ -42,6 +42,8 @@ def main():
         sys.stderr.write("ggml_vulkan: Found 1 Vulkan devices:\n")
         sys.stderr.write("ggml_vulkan: 0 = AMD Radeon RX 7800 XT (AMD proprietary driver) | uma: 0 | fp16: 1\n")
         sys.stderr.write("whisper_backend_init_gpu: using Vulkan0 backend\n")
+    if "--vad" in opt:   # 本物も、声の検出のモデル(CPU)を読むときに出す(認識のモデルの GPU の行より後)
+        sys.stderr.write("whisper_backend_init_gpu: no GPU found\n")
     sys.stderr.flush()
     if os.environ.get("FAKE_WCPP_FAIL") == "1":
         sys.stderr.write("error: failed to read audio\n")

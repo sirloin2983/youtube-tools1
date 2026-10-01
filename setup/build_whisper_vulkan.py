@@ -7,7 +7,8 @@
 
 要るもの: Git・Visual Studio 2022(C++ によるデスクトップ開発。CMake はその中のものを使う)・Vulkan SDK(LunarG。winget install KhronosGroup.VulkanSDK)。
 作った物: 作業データ(%LOCALAPPDATA%\\youtube-tools\\transcribe)の bin\\whisper.cpp-<版>-vulkan\\(whisper-cli.exe と DLL・build.json)。
-ソースと途中のファイルは build\\ に置く(作り直すときは消してよい)。
+ソースと途中のファイルは短い場所 C:\\ytt-build\\ に置き、できたら消す(MSBuild は 260 文字を超えるパスで失敗する。
+シェーダーを作る部品が入れ子のプロジェクトで約 190 文字を足すので、作業データの下(約 90 文字)では作れなかった。2026-10-02)。
 
     python setup/build_whisper_vulkan.py [--force]
 """
@@ -72,6 +73,19 @@ def find_vulkan_sdk():
          "    winget install --id KhronosGroup.VulkanSDK -e")
 
 
+def rmtree_all(path):
+    """読み取り専用のファイル(git の pack など)も消す"""
+    import stat
+
+    def onerror(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, onerror=onerror)
+
+
 def sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -99,21 +113,23 @@ def main():
     say("Vulkan SDK: %s" % sdk)
     say("CMake: %s" % cmake)
     ver, commit = E.WHISPER_CPP["version"], E.WHISPER_CPP["commit"]
-    src = os.path.join(data, "build", "whisper.cpp-%s" % ver)
+    work = os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "ytt-build")
+    src = os.path.join(work, "whisper.cpp-%s" % ver)
+    shutil.rmtree(os.path.join(data, "build"), ignore_errors=True)   # 以前の置き場所(パスが長くて作れなかった)
     if os.path.isdir(src):
         head = subprocess.run([git, "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         if head != commit:
             say("取ってあるソースのコミットが違うので取り直します(%s)" % head[:12])
-            shutil.rmtree(src)
+            rmtree_all(src)
     if not os.path.isdir(src):
         os.makedirs(os.path.dirname(src), exist_ok=True)
         run([git, "-c", "advice.detachedHead=false", "clone", "--depth", "1", "--branch", ver, E.WHISPER_CPP["repo"], src])
     head = subprocess.run([git, "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     if head != commit:   # 版の札が付け替えられていたら作らない(決めたコミットのソースだけを使う)
-        shutil.rmtree(src, ignore_errors=True)
+        rmtree_all(src)
         fail("取ったソースのコミットが想定と違います(%s ≠ %s)。作るのをやめました" % (head[:12], commit[:12]))
     say("ソース: %s(%s %s)" % (src, ver, commit[:12]))
-    build = os.path.join(src, "build-vulkan")
+    build = os.path.join(src, "b")
     env = dict(os.environ, VULKAN_SDK=sdk)
     run([cmake, "-S", src, "-B", build, "-G", "Visual Studio 17 2022", "-A", "x64", "-DGGML_VULKAN=ON", "-DWHISPER_BUILD_TESTS=OFF",
          "-DWHISPER_BUILD_EXAMPLES=ON", "-DWHISPER_SDL2=OFF"], env=env)
@@ -138,6 +154,7 @@ def main():
     if os.path.isdir(dest):
         shutil.rmtree(dest)
     os.replace(tmp, dest)
+    rmtree_all(work)   # ソースと途中のファイル(数百 MB)は要らない
     say("")
     say("できました: %s" % dest)
     say("「編集」で whisper.cpp を使うには、入口を「すべて終了」してから start.bat で起動し直してください")

@@ -2565,3 +2565,19 @@
 - テスト: `editor/tests/test_whispercpp.py`(test_metrics から読む。偽の whisper-cli `tests/fake_whisper_cli.py` で引数・UTF-8 のヒント・結果の読み取り・GPU が無いとき止める・失敗・取り消し・取得の大きさと SHA-256・サーバーの受付と準備)・
   test_worker の `test_whispercpp_through_worker`(worker-fake のワーカーは偽の whisper-cli を使う)。編集の単体 254・test_mount 26・eval_asr 4 OK
 - 未コミット: なし(このあとコミット)。次: ユーザーが Vulkan SDK を入れたら、build-whisper-vulkan.bat で作り、本物の GPU で動くか・速さを確かめる → 版を上げる
+
+## 2026-10-02 Claude Code — 線 B 段2-2 whisper.cpp Vulkan の実機の確認 → 編集 0.36.0(3回目は済み)
+- ユーザーが Vulkan SDK 1.4.363.0 を入れた → `setup/build-whisper-vulkan.bat` で作った(作業データの `bin\whisper.cpp-v1.9.4-vulkan\`。build.json にコミットと各ファイルの SHA-256)
+- 実機で分かって直したこと:
+  ① MSBuild は 260 文字を超えるパスで失敗する(FTK1011。シェーダーを作る入れ子のプロジェクトで約 190 文字)→ 作る場所を `C:\ytt-build\` に・できたら消す(git の読み取り専用のファイルも消す `rmtree_all`)
+  ② RX 7800 XT + AMD のドライバでは、最初の GPU の計算で何も出さずに 0xC0000409 で落ちる → 行列コアの経路を切る `GGML_VK_DISABLE_COOPMAT=1`(`wcpp_env`。指定があればそれに従う)。40 秒の音声が 6.8 秒(CPU 52.5 秒)
+  ③ 声の検出(--vad)のモデルは CPU で動き「no GPU found」の行を出す → GPU の確かめを、認識のモデルの `using … backend` の行で判断するように(偽の whisper-cli も同じ行を出す)
+  ④ whisper.cpp の声の検出は声の所をつないで認識するため、文字が大きく抜けた(turbo で CER 36% → 80%)→ 既定で受け付けない(`params()`。測るときだけ `TRANSCRIBE_WCPP_VAD=1`)
+  ⑤ 精度を測る道具は serve を登録せずに読み、認識はワーカーで動く → 実行ファイルとモデルの置き場所を環境変数 `TRANSCRIBE_ENGINE_DIR` で渡す(`engine_home()`)
+- 測った結果(評価用 18 本・1,229 秒・温度 0・文脈なし。結果は作業データの `evals/asr/20261002-*`): faster-whisper large-v3 CPU **21.7%**(141/468/102)900 秒 /
+  whisper.cpp large-v3 GPU 27.0%(223/243/415)180 秒 / turbo GPU 36.4% 86 秒。**GPU は 5 倍速く抜けは半分・余分が 4 倍 → 採用はまだ**。以前の基準 22.8% は評価用 21 本(フォルダの整理の前)なので、今後はこの 21.7% と比べる
+- 次の候補(計画の「3回目の結果」): whisper.cpp に faster-whisper の Silero の区間を渡す / 2-3 Qwen3-ASR / 段3 の2つ目のエンジン
+- テスト: 編集の単体 254・test_mount 26・契約 34・eval_asr 4・ui-kit 5・node 9・e2e 一式・通し確認 すべて OK(e2e_row_editing は一式の中で1回だけクリックの時間切れ → 単独で ALL PASSED)
+- 版: 編集 0.36.0。文書: editor/AGENTS.md・README・計画の「3回目の結果」・ROADMAP
+- 別のセッション(評価用データフォルダ構成)が `editor/ed_relink.py`・`editor/tests/test_edit.py` を直している(未コミット。このコミットには入れない。版は向こうが 0.36.1 で上げる)
+- 未コミット(こちらの分): なし

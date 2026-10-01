@@ -144,6 +144,15 @@ _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
 _VK_DEV = re.compile(r"ggml_vulkan: \d+ = ([^|(]+)")
 
 
+def wcpp_env():
+    """whisper-cli の環境変数。RX 7800 XT(AMD のドライバ)では行列コア(KHR_coopmat)の経路で、最初の GPU の計算のときに
+    何も出さずに落ちる(終了コード 0xC0000409。2026-10-02 に PC で再現。切ると 40 秒の音声が 6.8 秒で通る)ので、既定で切る。
+    環境変数で GGML_VK_DISABLE_COOPMAT を指定していればそれに従う(ドライバが直ったら 0 で試せる)"""
+    env = dict(os.environ)
+    env.setdefault("GGML_VK_DISABLE_COOPMAT", "1")
+    return env
+
+
 def wcpp_bin_dir(data_dir):
     return os.path.join(data_dir, "bin", "whisper.cpp-%s-vulkan" % WHISPER_CPP["version"])
 
@@ -295,7 +304,11 @@ class WhisperCpp(Engine):
         return e
 
     def params(self):
-        return list(self.PARAMS)
+        """受け付ける引数。声の検出(vad_filter・vad_parameters)は既定で受け付けない: whisper.cpp の声の検出は声の所をつないで認識するので、
+        評価用の音声で行の文字が大きく抜けた(CER 36% → 80%。2026-10-02)。測るときだけ環境変数 TRANSCRIBE_WCPP_VAD=1 で使う"""
+        if os.environ.get("TRANSCRIBE_WCPP_VAD") == "1":
+            return list(self.PARAMS)
+        return [k for k in self.PARAMS if k not in ("vad_filter", "vad_parameters")]
 
     def args(self, wav, out_base, kw):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)"""
@@ -352,7 +365,7 @@ class WhisperCpp(Engine):
 
     def _run(self, cmd):
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags)
+        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags, env=wcpp_env())
         lines = []
 
         def read():
@@ -382,12 +395,13 @@ class WhisperCpp(Engine):
         return lines
 
     def _check_gpu(self, log):
-        """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)"""
+        """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)。
+        声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す"""
         used = None
         for s in log:
             m = _GPU_LINE.search(s)
-            if m:
-                used = m.group(1) or ""
+            if m and (used is None or m.group(1)):
+                used = m.group(1) or used or ""
             d = _VK_DEV.search(s)
             if d:
                 self.gpu_name = d.group(1).strip()

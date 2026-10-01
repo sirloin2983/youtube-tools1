@@ -730,11 +730,12 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     return "、".join(why)
 
 
-ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。精度を測る道具は自分の DATA_DIR を一時フォルダにするので、本物の作業データを入れる
+ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)
 
 
 def engine_home():
-    return ENGINE_DIR or ed_state.DATA_DIR
+    """精度を測る道具は serve の DATA_DIR を一時フォルダにするので、本物の作業データを環境変数 TRANSCRIBE_ENGINE_DIR で渡す(認識ワーカーにも届く)"""
+    return ENGINE_DIR or os.environ.get("TRANSCRIBE_ENGINE_DIR") or ed_state.DATA_DIR
 
 
 def engine_of(spec):

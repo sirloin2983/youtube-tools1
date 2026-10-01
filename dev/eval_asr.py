@@ -393,7 +393,7 @@ def cmd_run(S, args, data):
     terms = name_terms(S, settings)
     load_sec, device = 0.0, ""
     if S.backend_name() != "fake":
-        S.ENGINE_DIR = data   # whisper.cpp の実行ファイル・モデルは本物の作業データの bin・models(serve の DATA_DIR は一時フォルダ)
+        os.environ["TRANSCRIBE_ENGINE_DIR"] = data   # whisper.cpp の実行ファイル・モデルは本物の作業データの bin・models(serve の DATA_DIR は一時フォルダ。認識ワーカーにも届く)
         try:
             S.req_engine({"engine": spec["engine"]}, spec["model"])
             S.check_engine(spec)
