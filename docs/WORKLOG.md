@@ -2591,4 +2591,5 @@
 - 別件: 10-01 23:26 の `/api/metrics` の TypeError('range_iterator')と直後の入口の異常終了は、同じ処理が 3.10・3.12 で正しく動き・今の入口でも正常なので、PC の不安定さ(CPU の件)による一時的なものとみた
 - 注意: 「計画の次」のセッションが editor/ を作業中(線 B 段2-2・0.36.0 が未コミット)だったので、私は ed_relink.py・test_edit.py・eval-folder.md だけを直してコミットした。
   **版(serve.py・app.js・README)は、そちらが 0.36.0 をコミットしたあとに 0.36.1 で上げる**(README の変更の記録もそのとき)
-- 未コミット: なし(私の分。別のセッションの editor/ の変更はそのまま)
+- 追記: 「計画の次」が 0.36.0 をコミットした(ff9a0ce)あと、編集を **0.36.1** に上げた(serve.py・app.js・README の変更の記録・editor/AGENTS.md・ROADMAP の版)。編集の単体・e2e_ui_mounted・e2e_eval_set OK
+- 未コミット: なし
