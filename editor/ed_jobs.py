@@ -783,7 +783,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False):
 def _new_whisper(WhisperModel, name, dev):
     """モデルを作る。ダウンロード済みなら手元のファイルだけで読む(読むたびに Hugging Face へ版の確認の通信をしない。
     オフラインでも読め、通信の待ちが無くなる。計画 段0-4)。手元に無い(初回)・手元だけでは読めないときは、今までどおりネットワークから取る"""
-    ct = "float16" if dev == "cuda" else "int8"
+    ct = cuda_compute() if dev == "cuda" else "int8"
     try:
         return WhisperModel(name, device=dev, compute_type=ct, local_files_only=True)
     except MemoryError:
@@ -791,6 +791,15 @@ def _new_whisper(WhisperModel, name, dev):
     except Exception as e:
         ed_state.log.info("手元のファイルだけではモデルを読めないので、ネットワークから取ります: %s(%s)", name, str(e)[:120])
     return WhisperModel(name, device=dev, compute_type=ct)
+
+
+CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")
+
+
+def cuda_compute():
+    """GPU で使う精度の型。環境変数 TRANSCRIBE_CUDA_COMPUTE(友人用簡易版の起動が int8_float16 = 8GB の GPU に収める)。無い・違えば float16(今まで)"""
+    v = os.environ.get("TRANSCRIBE_CUDA_COMPUTE", "").strip()
+    return v if v in CUDA_COMPUTE_TYPES else "float16"
 
 
 def whisper_kwargs(spec):
@@ -871,10 +880,20 @@ VAD_NAMES = {"normal": "標準", "weak": "弱め", "off": "なし"}
 
 def seg_to_dict(s, shift=0.0):
     """認識の1行(faster-whisper の行・ワーカーの代理)→ 辞書(秒は shift を足す)"""
-    words = [(float(w.start) + shift, float(w.end) + shift, str(w.word)) for w in (getattr(s, "words", None) or [])
-             if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
+    ws = [w for w in (getattr(s, "words", None) or []) if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
+    words = [(float(w.start) + shift, float(w.end) + shift, str(w.word)) for w in ws]
+    probs = [_prob(getattr(w, "probability", None)) for w in ws]   # words と同じ並びの確信度(3つ組は変えない。生出力 <id>.asr.json 用)
     return {"start": float(s.start) + shift, "end": float(s.end) + shift, "text": (s.text or "").strip(), "avg_logprob": getattr(s, "avg_logprob", None),
-            "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words}
+            "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words,
+            "wordProbs": probs}
+
+
+def _prob(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(f, 4) if f == f else None
 
 
 def vad_kept(info, mode):
@@ -1119,6 +1138,45 @@ def row_words(p, shift=0.0):
     return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
 
 
+# ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。友人用簡易版の評価データの asr_raw.json の元) ----------
+ASR_SCHEMA = "youtube-tools-asr-raw/v1"
+MAX_ASR_BYTES = 64 * 1024 * 1024
+
+
+def asr_path(tid):
+    return os.path.join(ed_state.TX_DIR, tid + ".asr.json")
+
+
+def capture_raw(gen, raw, shift=0.0):
+    """認識の行の流れ gen をそのまま流しながら、生出力を raw に足す(文字・時刻・自信の度合い・単語 [[開始, 終了, 文字, 確信度]])"""
+    for s in gen:
+        try:
+            ws, ps = s.get("words") or [], s.get("wordProbs") or []
+            raw.append({"start": round(float(s["start"]) + shift, 3), "end": round(float(s["end"]) + shift, 3), "text": str(s.get("text") or ""),
+                        **machine_conf(s), "words": [[round(a + shift, 3), round(b + shift, 3), t, ps[i] if i < len(ps) else None]
+                                                     for i, (a, b, t) in enumerate(ws)]})
+        except (KeyError, TypeError, ValueError):
+            pass   # 生出力が残せなくても文字起こしは止めない
+        yield s
+
+
+def write_asr(tid, segments, run):
+    """生出力を保存する(run = recognition.runs の1件 = モデル・設定・版)。書けなくても文字起こしは失敗にしない(呼び出し側)"""
+    body = {"schema": ASR_SCHEMA, "run": run, "segments": segments, "updatedAt": int(time.time() * 1000)}
+    ed_state.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def read_asr(tid):
+    """生出力 {"schema", "run", "segments"}。無い・壊れていれば None"""
+    try:
+        d = _fsio.read_json_file(asr_path(tid), MAX_ASR_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("schema") != ASR_SCHEMA or not isinstance(d.get("segments"), list):
+        return None
+    return d
+
+
 # ---------- 単語の時刻(12 ②。transcripts/<id>.words.json。行のデータには入れない = 画面の保存で落ちたり古くなったりしないように) ----------
 WORDS_SCHEMA = "youtube-tools-words/v1"
 MAX_WORDS_BYTES = 32 * 1024 * 1024
@@ -1278,6 +1336,8 @@ def run_job(job):
                 raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
             job["state"] = "loading"
             gen = transcribe_real(job, spec, wav, total)
+        raw_asr = []   # 生出力(<id>.asr.json)
+        gen = capture_raw(gen, raw_asr, spec["start"])
         segs, prev, original, pairs, dict_n, all_words = [], [], [], (ed_learn.parse_replacements(ed_learn.load_settings().get("replacements")) if spec.get("autoDict") else []), 0, []
         sparse_lp = {}   # 「長い区間に文字が少ない」行の avg_logprob(認識し直したときに、良くなったかを比べる。③-2)
         learn_n = 0
@@ -1331,6 +1391,10 @@ def run_job(job):
             write_words(tid, all_words, spec["model"])
         except OSError as e:
             ed_state.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
+        try:
+            write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
+        except (OSError, TypeError, ValueError) as e:
+            ed_state.log.warning("生出力を保存できませんでした: %s %s", tid, e)
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
         if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in segs):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:

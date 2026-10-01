@@ -54,8 +54,10 @@ def sanitize_transcript(obj, base=None):
         if not sid or sid in seen:
             continue
         seen.add(sid)
-        speakers.append({"id": sid, "name": str(s.get("name", ""))[:30] or sid,
-                         "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]})
+        one = {"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]}
+        if re.match(r"^#[0-9A-Fa-f]{6}$", str(s.get("outline", ""))):   # 字幕のふちの色(友人用簡易版。無ければ今までどおり)
+            one["outline"] = s["outline"]
+        speakers.append(one)
     segs, ids = [], set()
     for i, sg in enumerate(obj.get("segments") or []):
         if i >= ed_state.MAX_SEGMENTS:

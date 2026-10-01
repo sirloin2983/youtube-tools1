@@ -153,6 +153,41 @@ class TestTextStyle(unittest.TestCase):
         look = next(kv[2] for kv in RTP.style_inputs() if kv[0] == 'Priority5')              # 名前で入らなかったときの探し方
         self.assertEqual(look, {'names': ['Priority', '優先順位'], 'n': 5, 'ids': ['PriorityBack5']})
 
+    def test_lite_style(self):
+        """簡易版の見た目(lite): MS ゴシック・大きさ 0.08・要素 5 は切る。既定の出力は変わらない。不明な種類は ValueError"""
+        st = RTP.text_style(None, 'lite')
+        inputs = [kv[:2] for kv in RTP.style_inputs(st)]
+        d = dict((k, v) for k, v in inputs)
+        self.assertEqual(st['fonts'][0], 'MS Gothic')
+        self.assertEqual(d['Size'], 0.08)
+        self.assertEqual((d['Enabled1'], d['ElementShape1'], d['Enabled2'], d['ElementShape2'], d['Thickness2']), (1, 0, 1, 1, 0.15))
+        self.assertEqual(d['Enabled5'], 0)
+        self.assertEqual([k for k, _ in inputs if k.endswith('5')], ['Enabled5'])               # 要素 5 は Enabled だけ
+        self.assertEqual(RTP.text_style({'hex': '#FF0000'}, 'lite')['shading'][0]['rgba'], [1.0, 0.0, 0.0, 1.0])
+        sd = RTP._style_data(None, 'lite')
+        self.assertEqual((sd['fillN'], sd['outlineN']), (1, 2))
+        self.assertNotIn('outlineN', RTP._style_data())                                         # 既定の計画の中身は今までどおり
+        self.assertEqual(RTP._style_data(None, 'default', outlines=True)['outlineN'], 2)
+        self.assertEqual(RTP.text_style(None, 'default'), RTP.TEXT_STYLE)
+        with self.assertRaises(ValueError):
+            RTP.text_style(None, 'nope')
+
+    def test_import_plan_outlines_and_style(self):
+        plan = mock.Mock()
+        plan.video, plan.req.name = Path('v.mp4'), 'v'
+        plan.meta = {'fps': (30, 1), 'w': 1920, 'h': 1080, 'total': 900}
+        plan.keeps = [(0, 900)]
+        plan.cues_out = [(30, 120, 'あ'), (150, 200, 'い')]
+        ip = RTP.build_import_plan(plan, 'media/v.mp4', None, None, None, [[1, 0, 0, 1], None], [None, [0, 0, 1, 1]], 'lite')
+        self.assertEqual(ip['captions'][0]['fill'], [1.0, 0.0, 0.0, 1.0])
+        self.assertNotIn('outline', ip['captions'][0])
+        self.assertEqual(ip['captions'][1]['outline'], [0.0, 0.0, 1.0, 1.0])
+        self.assertNotIn('fill', ip['captions'][1])
+        self.assertEqual(ip['style']['outlineN'], 2)
+        self.assertEqual(ip['style']['fonts'][0], 'MS Gothic')
+        plain = RTP.build_import_plan(plan, 'media/v.mp4')
+        self.assertNotIn('outlineN', plain['style'])
+
     def test_wrap_caption(self):
         """Text+ 字幕の改行(12 ②): 1段 8(縦)/ 14(横)文字前後で2段。+2 文字までは改行しない・句読点/助詞のあと・漢字やカタカナの始まりで切る"""
         w, NL = RTP.wrap_caption, chr(10)
@@ -1072,6 +1107,34 @@ class TestMinimalPack(unittest.TestCase):
         pack.build_pack(plan, out2, textplus=True, **self.SCREEN)                   # 渡さなければ今までどおり
         ip2 = RTP.read_script_plan((out2 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
         self.assertFalse(any("fill" in c for c in ip2["captions"]))
+
+    def test_lite_style_with_speaker_outlines(self):
+        """簡易版: textplus_style="lite" と speaker_outlines。話者ごとに cap.fill・cap.outline が付く。不明な見た目は ToolError"""
+        d = Path(self.tmp.name)
+        doc = transcript_doc([(0.5, 2, "一", False), (3, 5, "二", False)])
+        doc["speakers"] = [{"id": 0, "name": "A"}, {"id": 1, "name": "B"}]
+        doc["segments"][0]["speaker"], doc["segments"][1]["speaker"] = 0, 1
+        tr = write(d / "lite.transcript.json", json.dumps(doc, ensure_ascii=False))
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        out = d / "lite"
+        res = pack.build_pack(plan, out, textplus=True, textplus_style="lite", speaker_colors={"A": "#FF0000", "B": "#00FF00"},
+                              speaker_outlines={"B": "#0000FF"}, **self.SCREEN)
+        lua = (out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")
+        ip = RTP.read_script_plan(lua)
+        self.assertEqual(ip["captions"][0]["fill"], [1.0, 0.0, 0.0, 1.0])
+        self.assertNotIn("outline", ip["captions"][0])                              # A のふちは決まらない = スタイルのまま
+        self.assertEqual(ip["captions"][1]["outline"], [0.0, 0.0, 1.0, 1.0])
+        self.assertEqual((ip["style"]["fillN"], ip["style"]["outlineN"]), (1, 2))
+        self.assertEqual(ip["style"]["fonts"][0], "MS Gothic")
+        self.assertIn("cap.outline", lua)
+        self.assertIn("簡易版", res["readme"])
+        out2 = d / "lite_only_outline"                                              # ふちだけ渡しても名前を引ける
+        pack.build_pack(plan, out2, textplus=True, textplus_style="lite", speaker_outlines={"A": "#112233"}, **self.SCREEN)
+        ip2 = RTP.read_script_plan((out2 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertIn("outline", ip2["captions"][0])
+        self.assertFalse(any("fill" in c for c in ip2["captions"]))
+        with self.assertRaises(C.ToolError):
+            pack.build_pack(plan, d / "bad", textplus=True, textplus_style="nope", **self.SCREEN)
 
     def test_edl_only_pack_without_readme_file(self):
         """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""

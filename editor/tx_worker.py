@@ -104,7 +104,8 @@ def _seg_dict(s):
     for w in getattr(s, "words", None) or []:
         a, b = getattr(w, "start", None), getattr(w, "end", None)
         if a is not None and b is not None:
-            words.append({"start": float(a), "end": float(b), "word": str(getattr(w, "word", ""))})
+            p = getattr(w, "probability", None)   # 単語の確信度(生出力 <id>.asr.json に残す。友人用簡易版の評価データ)
+            words.append({"start": float(a), "end": float(b), "word": str(getattr(w, "word", "")), "probability": float(p) if p is not None else None})
     d = {"start": float(s.start), "end": float(s.end), "text": s.text or "", "words": words}
     for k in ("avg_logprob", "no_speech_prob", "compression_ratio"):
         v = getattr(s, k, None)

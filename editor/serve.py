@@ -626,7 +626,8 @@ class Handler(BaseHTTPRequestHandler):
             with ed_store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
-                for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid)):   # 編集の内容(カット)・単語の時刻も一緒に
+                for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
+                              ed_jobs.asr_path(tid), os.path.join(ed_state.TX_DIR, tid + ".lite-edits.jsonl")):   # 編集の内容(カット)・単語の時刻も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

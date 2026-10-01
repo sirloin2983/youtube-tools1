@@ -42,6 +42,25 @@ TEXT_STYLE = {
         {"n": 5, "shape": 1, "thickness": 0.18, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 4, "offset": [0.0, 0.0]},
     ],
 }
+# 簡易版(友人向けの文字起こし簡易版。docs/plan/friend-lite-plan.md)の字幕の見た目: MS ゴシック・話者ごとの文字の色 + 話者ごとのふちの色。
+# 横の動画(ふつうの 16:9)に置く前提。シェード 1 = 塗り(既定は黄色。話者ごとの色 cap.fill で変える)/ 2 = ふち(既定は黒。cap.outline で変える)。
+# 要素 5(太い黒ふち)は使わないので、雛形に残っていても切る(enabled False)。
+# 大きさ 0.08 は仮(実機の Resolve で確かめる。docs/plan/friend-lite-realcheck.md)。
+TEXT_STYLE_LITE = {
+    "name": "MSゴシック・話者ごとの文字とふちの色(簡易版)",
+    "fonts": ["MS Gothic", "ＭＳ ゴシック", "MS ゴシック"], "styles": ["Regular", "標準"],
+    "autoFonts": list(TEXT_STYLE["autoFonts"]), "autoStyles": list(TEXT_STYLE["autoStyles"]),
+    "fallback": ["MS Gothic", "Regular"],
+    "text": [["Size", 0.08], ["CharacterSpacing", 1.0], ["LineSpacing", 1.0],
+             ["VerticalTopCenterBottom", 1.0], ["HorizontalLeftCenterRight", 0.0]],
+    "shading": [
+        {"n": 1, "shape": 0, "thickness": None, "rgba": [1.0, 0.902, 0.0, 1.0], "priority": 8, "offset": [0.0, 0.0]},
+        {"n": 2, "shape": 1, "thickness": 0.15, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 7, "offset": [0.0, 0.0]},
+        {"n": 5, "enabled": False},
+    ],
+}
+# 見た目の種類(pack.build_pack の textplus_style)。default = 今までの(けいふぉんと・縦の Shorts)
+TEXT_STYLES = {"default": TEXT_STYLE, "lite": TEXT_STYLE_LITE}
 
 
 def hex_rgba(hex_):
@@ -55,11 +74,13 @@ def hex_rgba(hex_):
         return None
 
 
-def text_style(color=None):
+def text_style(color=None, kind="default"):
     """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。docs/archive/followup-2026-09-27.md の 4)なら
     文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
     名前 → 色の照らし合わせは ytt_core/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
-    st = json.loads(json.dumps(TEXT_STYLE))
+    if kind not in TEXT_STYLES:
+        raise ValueError("Text+ の字幕の見た目は %s のどれかにしてください: %r" % (" / ".join(TEXT_STYLES), kind))
+    st = json.loads(json.dumps(TEXT_STYLES[kind]))
     if color and color.get("hex"):
         h = str(color["hex"]).lstrip("#")
         rgb = [round(int(h[i:i + 2], 16) / 255.0, 4) for i in (0, 2, 4)]
@@ -76,6 +97,9 @@ def style_inputs(style=None):
     out = [list(kv) for kv in st["text"]]
     for e in st["shading"]:
         n = e["n"]
+        if e.get("enabled") is False:   # 使わない要素(雛形に残っていても切る)。入れるのは Enabled だけ
+            out.append(["Enabled%d" % n, 0])
+            continue
         out.append(["Enabled%d" % n, 1])
         out.append(["ElementShape%d" % n, e["shape"]])
         if e.get("thickness") is not None:
@@ -199,9 +223,10 @@ def wrap_caption(text, per_line):
     return "\n".join(x for x in lines if x)
 
 
-def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None):
+def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default"):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
     fills: 字幕ごとの文字の色 [[r,g,b,a] | None, ...](字幕の並びと同じ。A-2: 話者ごとの色)。None の字幕は style のまま
+    outlines: 字幕ごとのふちの色(fills と同じ形。簡易版: 話者ごとのふちの色)。style: 見た目の種類(TEXT_STYLES のキー)
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
     wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)"""
     fps = plan.meta["fps"]
@@ -212,6 +237,9 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     for c, f in zip(caps, fills or []):
         if f:
             c["fill"] = [float(x) for x in f][:4]
+    for c, f in zip(caps, outlines or []):
+        if f:
+            c["outline"] = [float(x) for x in f][:4]
     return {
         "schema": SCHEMA,
         "title": plan.req.name or plan.video.stem,
@@ -226,7 +254,7 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
         "captionWrap": per_line,
         # 削除区間を戻すときのコピー元。カット済みタイムラインとは別に、元動画全体を残す。
         "sourceTimeline": {"startFrame": 0, "endFrame": int(plan.meta["total"])},
-        "style": _style_data(color),
+        "style": _style_data(color, style, outlines=bool(outlines)),
     }
 
 
@@ -234,12 +262,17 @@ def _lua_quote(value):
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def _style_data(color=None):
-    """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び(color: 文字の色。text_style)"""
-    st = text_style(color)
-    return {"name": st["name"], "fonts": st["fonts"], "styles": st["styles"], "autoFonts": st["autoFonts"],
+def _style_data(color=None, kind="default", outlines=False):
+    """計画(Lua に埋め込む)の style: フォントの候補と、入れる値の並び(color: 文字の色。text_style)。
+    outlineN(字幕ごとのふちの色 cap.outline を入れる先の要素の番号)は、簡易版か outlines=True のときだけ入れる
+    (既定の見た目の計画は今までと同じ中身のまま)"""
+    st = text_style(color, kind)
+    d = {"name": st["name"], "fonts": st["fonts"], "styles": st["styles"], "autoFonts": st["autoFonts"],
             "autoStyles": st["autoStyles"], "fallback": st["fallback"], "inputs": style_inputs(st),
-            "fillN": next(e["n"] for e in st["shading"] if e["shape"] == 0)}   # 文字の塗りの要素の番号(字幕ごとの色 cap.fill を入れる先)
+            "fillN": next(e["n"] for e in st["shading"] if e.get("shape") == 0)}   # 文字の塗りの要素の番号(字幕ごとの色 cap.fill を入れる先)
+    if kind != "default" or outlines:
+        d["outlineN"] = next(e["n"] for e in st["shading"] if e.get("enabled") is not False and e.get("shape") == 1)
+    return d
 
 
 def importer_script(plan):
@@ -545,6 +578,13 @@ local ok, err = pcall(function()
                         pcall(function() tool:SetInput(name, cap.fill[i]) end)
                     end
                 end
+                if cap.outline and DATA.style.outlineN then   -- 話者ごとのふちの色(簡易版): この字幕だけふちの色を変える(読み替えは文字の色と同じ)
+                    local n = tostring(DATA.style.outlineN)
+                    for i, k in ipairs({"Red", "Green", "Blue", "Alpha"}) do
+                        local name = styleUse[k .. n] or (k .. n)
+                        pcall(function() tool:SetInput(name, cap.outline[i]) end)
+                    end
+                end
                 added = added + 1
             else
                 failed = failed + 1
@@ -738,19 +778,19 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 {backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None):
+def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default"):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
-        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color), encoding="utf-8-sig", newline="\n")
+        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style), encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
@@ -758,9 +798,9 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color
             if key in paths}
 
 
-def readme_text(plan, target=None, backup=True, color=None):
+def readme_text(plan, target=None, backup=True, color=None, style="default"):
     """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)"""
-    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color)["name"])
+    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color, style)["name"])
 
 
 def readme_from_script(text, backup=True):
