@@ -2605,3 +2605,14 @@
 - 未コミット: なし(このあとコミット)
 - 追記(同じ日): faster-whisper large-v3 CPU も「やり直しあり」で同じ 18 本を測った = **21.1%**(150/439/104)・561 秒。whisper.cpp large-v3 GPU 21.6%・130 秒と誤差の範囲で同じ・約 4 倍速い。
   計画の「3回目の結果」と ROADMAP に表を書いた。主のエンジンにするかはユーザーに聞く。測るときは whisper.cpp を温度 0 で測らない(繰り返しで悪く出る)
+
+## 2026-10-02 Claude Code — AMD の GPU(whisper.cpp)を画面から選べる → 編集 0.37.0
+- 「続行」= 次の候補 ①(whisper.cpp を画面で選べるように)。既定は今までどおり「自動」(faster-whisper)。主のエンジンを替えるかは使ってみてから
+- 画面: 「認識の設定」の処理方式に「GPU(AMD など・whisper.cpp)」(`vulkan`)。`/api/tools` の `wcpp.ready`(作ってあるとき)だけ app.js が足す。保存した設定の device = vulkan は読み込み直しても残る
+  (`applySettings` は選択肢にある値だけ)。whisper.cpp で使えないモデルなら、その場で案内(`#optDevHint`)と「始める」の上の要約にも出す(「認識の設定」は閉じていることが多いため)。
+  ジョブ・設定の比較・文書の認識の設定の表示は `devLabel`(vulkan = 「GPU(whisper.cpp)」。以前は cuda 以外を CPU と出していた)。AMD の案内の文も直した
+- サーバー: `req_engine` が `device: "vulkan"` を whisper.cpp にする(spec の device は auto = Vulkan だけ・黙って CPU にしない)・使えないモデルは使えるモデルを案内する `bad_model`・`engines_info()` を `/api/tools` に
+- 設定の比較(A/B。`ed_misc`)は今までどおり faster-whisper(vulkan は auto 扱い)
+- 確かめた: 一時の作業データに作った印だけを置いた疑似のサーバーで、選択肢が出る・保存と読み込み直し・案内の出し入れ(内蔵のブラウザ)。テスト一式すべて OK(編集の単体 259・e2e 12 本・通し確認)
+- 実機で確かめてもらうこと: 入口を「すべて終了」→ start.bat → 「認識の設定」で GPU(AMD など・whisper.cpp)・large-v3 を選んで文字起こし → 処理状況に「GPU(whisper.cpp)」・速さ
+- 未コミット: なし

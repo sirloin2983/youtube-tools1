@@ -795,6 +795,7 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .tt-ra-st.ok{color:var(--ok-ink)}
 .tt-ra-st.err{color:var(--danger-ink)}
 .tt-ra-st.warn{color:var(--warn-ink)}
+.tt-dev-hint{color:var(--warn-ink);margin:6px 0 0}   /* 処理方式 GPU(whisper.cpp)で使えないモデル */
 .tt-ow-dir{overflow-wrap:anywhere;font-size:12px;color:var(--ink-2);margin:8px 0 4px}
 .tt-ow-files{margin:0;padding-left:18px;font:12px/1.6 var(--mono);color:var(--ink-2);max-height:180px;overflow:auto}
 /* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
@@ -1211,6 +1212,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <div class="row" style="margin-top:10px"><label class="lag">言語 <select id="optLang" style="width:auto"></select></label>
         <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
         <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="auto">自動(GPUがあれば使う)</option><option value="cuda">GPU(NVIDIA)</option><option value="cpu">CPU</option></select></label></div>
+      <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
       <div class="fld"><label for="optVad">無音・BGMの扱い(声の検出)</label>
         <select id="optVad"><option value="weak">弱め(声が抜けにくい・おすすめ)</option><option value="normal">標準(BGMでの誤認識が減る)</option><option value="off">使わない</option></select>
         <span class="hint">「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試してください。</span></div>

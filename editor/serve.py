@@ -102,7 +102,7 @@ import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, 
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.36.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.37.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -328,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/tools":
                 return self._json(200, {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
                                         "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
-                                        "envWarnings": list(_env_warnings)})
+                                        "envWarnings": list(_env_warnings), **ed_jobs.engines_info()})
             if u.path == "/api/settings":
                 try:
                     with open(ed_state.SETTINGS, "rb") as f:

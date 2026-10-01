@@ -263,17 +263,23 @@ function readOpts(){
 
 /* 「認識の設定」は既定で閉じるので(段2)、開かなくても分かるように「始める」の上へ1行の要約を出す */
 function renderOptSummary(){
+  // GPU(AMD など・whisper.cpp)で使えないモデルなら、始める前にその場で案内する(サーバーも断る)。「認識の設定」は閉じていることが多いので要約にも出す
+  const w = S.tools && S.tools.wcpp, vk = $('#optDevice').value === 'vulkan';
+  const bad = vk && w && !(w.models || []).includes($('#optModel').value);
+  const badText = bad ? `GPU(whisper.cpp)で使えるモデルは ${(w.models || []).join('・')} です。モデルを選び直してください。` : '';
+  const dh = $('#optDevHint');
+  if (dh){ dh.hidden = !bad; dh.textContent = badText; }
   const el = $('#optSummary'); if (!el) return;
   const model = $('#optModel').selectedOptions[0], lang = $('#optLang').selectedOptions[0];
   const q = $('#optQuality').value === 'fast' ? '速度優先' : '精度優先';
-  el.textContent = model ? `モデル: ${model.textContent} ・ 言語: ${lang ? lang.textContent : ''} ・ ${q}` : '';
+  el.textContent = model ? `モデル: ${model.textContent} ・ 言語: ${lang ? lang.textContent : ''} ・ ${q}${vk ? ' ・ GPU(whisper.cpp)' : ''}${bad ? ' ― ' + badText : ''}` : '';
 }
 
 function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = ['cuda', 'cpu'].includes(s.device) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoContext').checked = s.autoContext === true; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoContext').checked = s.autoContext === true; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
@@ -281,6 +287,9 @@ function applySettings(){
 }
 
 /* ---------- 準備状況 ---------- */
+
+// 処理の機器の表示(ジョブ・設定の比較・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp(精度改善の計画 段2-2)
+function devLabel(d){ return d === 'cuda' ? 'GPU' : d === 'vulkan' ? 'GPU(whisper.cpp)' : 'CPU'; }
 
 function renderSetup(){
   const t = S.tools, box = $('#setup'); if (!t){ box.innerHTML = ''; return; }
@@ -292,7 +301,8 @@ function renderSetup(){
   if (t.backend !== 'fake' && !miss.length){
     if (t.cuda) gpu = `<p class="hint" style="margin:0 0 10px">GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。</p>`;
     else if (t.nvidia) gpu = `<div class="notice"><b>${esc(t.nvidia)}</b> が見つかりましたが、GPU 用のライブラリが入っていないため CPU で処理します。<br>フォルダ内の <code>install-gpu.bat</code> を実行すると GPU が使えます(実行後に起動し直す)。</div>`;
-    else gpu = '<p class="hint" style="margin:0 0 10px">NVIDIA の GPU が見つからないため、CPU で処理します(AMD・Intel の GPU は使えません)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。</p>';
+    else if (t.wcpp && t.wcpp.ready) gpu = '<p class="hint" style="margin:0 0 10px">AMD などの GPU は、「認識の設定」の処理方式で「GPU(AMD など・whisper.cpp)」を選ぶと使えます(モデルは large-v3 か large-v3-turbo)。</p>';
+    else gpu = '<p class="hint" style="margin:0 0 10px">NVIDIA の GPU が見つからないため、CPU で処理します(AMD の GPU は setup フォルダの build-whisper-vulkan.bat で使えるようになります)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。</p>';
   }
   const env = (Array.isArray(t.envWarnings) ? t.envWarnings : []).slice(0, 8);   // サーバーの起動時の確認(ディスクの空き・OneDrive・部品の欠けなど)
   const envHtml = env.length ? `<details class="setup-banner"${miss.length ? '' : ' open'}><summary>起動時の確認(${env.length}件)</summary><div class="setup-body">${env.map(x => esc(x)).join('<br>')}</div></details>` : '';

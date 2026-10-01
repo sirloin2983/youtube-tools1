@@ -743,13 +743,22 @@ def engine_of(spec):
 
 
 def req_engine(req, model):
-    """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る"""
-    e = str(req.get("engine") or tx_engines.DEFAULT)
+    """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る。
+    画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)"""
+    e = str(req.get("engine") or (tx_engines.WhisperCpp.id if req.get("device") == "vulkan" else tx_engines.DEFAULT))
     if not tx_engines.valid(e):
         raise ed_state.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
     if not tx_engines.get(e).valid_model(model):
+        if e == tx_engines.WhisperCpp.id:
+            raise ed_state.ApiError("bad_model", "GPU(whisper.cpp)で使えるモデルは %s だけです(今は %s)。モデルを変えてください" % ("・".join(tx_engines.WCPP_MODELS), model[:60]), 400)
         raise ed_state.ApiError("bad_model", "%s では使えないモデルです: %s" % (e, model[:60]), 400)
     return e
+
+
+def engines_info():
+    """画面に出すエンジンの準備(/api/tools)。whisper.cpp は作ってあるときだけ「処理方式」に出す"""
+    ok, why = tx_engines.WhisperCpp.ready(engine_home())
+    return {"wcpp": {"ready": bool(ok), "why": why, "models": list(tx_engines.WCPP_MODELS), "version": tx_engines.WHISPER_CPP["version"]}}
 
 
 def check_engine(spec):

@@ -223,9 +223,24 @@ class WhisperCppTest(unittest.TestCase):
             with open(os.path.join(d, "build.json"), "w") as f:
                 json.dump({"commit": E.WHISPER_CPP["commit"]}, f)
             S.check_engine(spec)
+            self.assertEqual(S.engines_info()["wcpp"]["ready"], True)        # 画面の「処理方式」に GPU(whisper.cpp)を出す
+        self.assertEqual(S.engines_info()["wcpp"]["ready"], False)
         rec = S.recognition_run(dict(spec, beam=5, vadMode="weak"), {"device": "vulkan"}, 1, 1)
         if S.backend_name() != "fake":
             self.assertEqual((rec["engine"], rec["engineVersion"]), ("whisper.cpp", E.WHISPER_CPP["version"]))
+
+    def test_screen_device_vulkan_means_whispercpp(self):
+        """画面の処理方式「GPU(AMD など・whisper.cpp)」= device "vulkan" → エンジン whisper.cpp・機器は自動(= Vulkan。黙って CPU にしない)"""
+        media = os.path.join(self.tmp, "v.wav")
+        make_wav(media, 3)
+        with mock.patch.object(S, "media_duration", lambda p: 3.0):
+            spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "vulkan"})
+            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "auto"))
+            with self.assertRaises(S.ApiError) as cm:
+                S.validate_job({"sourcePath": media, "model": "kotoba-tech/kotoba-whisper-v2.0-faster", "device": "vulkan"})
+            self.assertEqual(cm.exception.code, "bad_model")
+            self.assertIn("large-v3", cm.exception.message)                 # 使えるモデルを案内する
+            self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda"})["engine"], "faster-whisper")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.36.1';
+const APP_VERSION = '0.37.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1230,6 +1230,9 @@ async function boot(){
   await loadRoster();
   if (S.tools){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+    if (S.tools.wcpp && S.tools.wcpp.ready && !$('#optDevice option[value="vulkan"]')){   // AMD などの GPU(whisper.cpp)は、作ってあるときだけ選べる(段2-2)
+      const o = document.createElement('option'); o.value = 'vulkan'; o.textContent = 'GPU(AMD など・whisper.cpp)'; $('#optDevice').append(o);
+    }
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない(監査 11)
