@@ -511,13 +511,52 @@ def _eval_settle_one(path, tids, members):
     return rec, None
 
 
+def _eval_copy_index(dirs):
+    """仮置きのコピーの付け替え先の候補: 評価用のフォルダの外の動画を指す、行のある文書 {正規化したファイル名: [要約]}(2026-10-02 ユーザー決定)"""
+    idx = {}
+    for tid in ed_store._tids():
+        sm = ed_store.transcript_summary(tid)
+        sp = str((sm or {}).get("_sourcePath") or "")
+        if not sp or not sm.get("rows") or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs):
+            continue
+        idx.setdefault(os.path.normcase(os.path.basename(sp)), []).append(sm)
+    return idx
+
+
+def _eval_adopt_copy(path, copies):
+    """仮置きの動画(文書の無いコピー)に、同じ名前で同じ大きさの元の動画を指す文書がちょうど1つあれば、その文書をこの動画へ付け替える。
+    元の動画が無い(大きさを比べられない)・候補が2つ以上・処理中なら付け替えない。-> (付け替えた文書の id または None, 理由 または None)"""
+    size = os.path.getsize(path)
+    hits = []
+    for sm in copies.get(os.path.normcase(os.path.basename(path)), []):
+        try:
+            if os.path.getsize(sm["_sourcePath"]) == size:
+                hits.append(sm)
+        except OSError:
+            continue   # 元の動画が無い・読めない: 中身が同じか分からないので候補にしない
+    if not hits:
+        return None, None
+    if len(hits) > 1:
+        return None, "同じ名前・同じ大きさの動画を指す文書が %d つあり、どれを付け替えるか決められません(「動画を選び直す」で選んでください)" % len(hits)
+    tid = hits[0]["id"]
+    if _doc_busy(tid):
+        return None, "文書が処理の最中です"
+    with ed_store._save_lock:
+        doc = ed_store.read_transcript(tid)
+        if os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) != os.path.normcase(os.path.abspath(hits[0]["_sourcePath"])):
+            return None, None   # 調べている間に付け替えられた
+        _relink_write(tid, doc, path, 0.0, "evalStagingCopy")
+    ed_state.log.info("評価用の仮置き: コピー %s に文書 %s を付け替えた(元 %s)", os.path.basename(path), tid, hits[0]["_sourcePath"])
+    return tid, None
+
+
 def _eval_staging_pass(dirs, by_path, res):
     """仮置きの動画のうち、移せるものを移す(eval_organize と eval_settle から。_evalorg_lock の中で呼ぶ)"""
     for root in dirs:
         stg = os.path.join(root, EVAL_STAGING)
         if not os.path.isdir(stg):
             continue
-        members = None
+        members, copies = None, None
         for folder, files in sorted(_eval_videos(stg, False).items()):
             for f in sorted(files):
                 old = os.path.join(folder, f)
@@ -525,6 +564,20 @@ def _eval_staging_pass(dirs, by_path, res):
                 if key not in by_path and res.get("_only"):
                     continue
                 sms = by_path.get(key, [])
+                if not sms and not res.get("_only"):   # 文書の無いコピー: 同じ名前・同じ大きさの動画を指す文書が1つだけなら、それをこのコピーへ付け替える
+                    if copies is None:
+                        copies = _eval_copy_index(dirs)
+                    try:
+                        tid, why = _eval_adopt_copy(old, copies)
+                    except (OSError, ed_state.ApiError) as e:
+                        tid, why = None, "文書を付け替えられませんでした: %s" % (getattr(e, "message", None) or e)
+                    if tid:
+                        res.setdefault("adopted", []).append({"path": old, "id": tid})
+                        sm = ed_store.transcript_summary(tid)
+                        sms = [sm] if sm else []
+                    elif why:
+                        res["staged"].append({"path": old, "reason": why})
+                        continue
                 res["marked"] += _eval_mark_docs([x["id"] for x in sms if not x.get("evalSet")])
                 if members is None:
                     members = _eval_members(root)

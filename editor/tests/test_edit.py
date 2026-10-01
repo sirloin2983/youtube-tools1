@@ -1281,6 +1281,50 @@ class TestEvalFolder(StoreDir):
             self.assertTrue(os.path.isfile(p))   # 仮置きの中は名前も変えない
             self.assertEqual(r["renamed"], [])
 
+    def test_staging_copy_adopts_the_original_doc(self):
+        """2026-10-02: 仮置きに置いたコピー(文書なし)は、同じ名前・同じ大きさの動画を指す文書が1つだけなら、その文書を付け替えてから移す"""
+        orig_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, orig_dir, True)
+        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        os.makedirs(stg)
+
+        def put(folder, name, data):
+            p = os.path.join(folder, name)
+            with open(p, "wb") as f:
+                f.write(data)
+            return p
+        orig = put(orig_dir, "clip.mp4", b"same-bytes")
+        copy = put(stg, "clip.mp4", b"same-bytes")
+        segs = [dict(g, proofed=True, speaker="A") for g in doc_obj()["segments"]]
+        self.put_doc(doc_obj(sourcePath=orig, segments=segs, speakers=[{"id": "A", "name": "ときのそら"}]))
+        put(stg, "other.mp4", b"different")                       # 大きさが違う → 付け替えない
+        put(orig_dir, "other.mp4", b"other-size!!")
+        self.put_doc(doc_obj(sourcePath=os.path.join(orig_dir, "other.mp4"), segments=segs, speakers=[{"id": "A", "name": "ときのそら"}]), tid="bbbbbbbbbbbb")
+        r = S.eval_organize("test")
+        self.assertEqual([a["id"] for a in r["adopted"]], [TID])
+        d = self.doc()
+        self.assertEqual((d["sourcePath"], d["evalSet"]), (os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4"), True))
+        self.assertEqual([x["why"] for x in d["relinks"]][-2:], ["evalStagingCopy", "evalSettle"])
+        self.assertTrue(os.path.isfile(orig) and not os.path.exists(copy))   # 元の動画は残す(消さない)
+        self.assertEqual([os.path.basename(s["path"]) for s in r["staged"]], ["other.mp4"])
+        self.assertEqual(self.doc("bbbbbbbbbbbb")["sourcePath"], os.path.join(orig_dir, "other.mp4"))
+
+    def test_staging_copy_with_two_candidates_is_left(self):
+        dirs = [tempfile.mkdtemp(), tempfile.mkdtemp()]
+        for d_ in dirs:
+            self.addCleanup(shutil.rmtree, d_, True)
+        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        os.makedirs(stg)
+        for i, d_ in enumerate(dirs):
+            with open(os.path.join(d_, "clip.mp4"), "wb") as f:
+                f.write(b"x")
+            self.put_doc(doc_obj(sourcePath=os.path.join(d_, "clip.mp4")), tid="%012d" % (i + 1))
+        with open(os.path.join(stg, "clip.mp4"), "wb") as f:
+            f.write(b"x")
+        r = S.eval_organize("test")
+        self.assertFalse(r.get("adopted"))
+        self.assertIn("決められません", r["staged"][0]["reason"])
+
     def test_settle_one_doc(self):
         p = self.staged()
         self.assertEqual(S.eval_settle({"id": TID})["moved"]["member"], "ときのそら")
