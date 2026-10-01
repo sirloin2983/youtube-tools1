@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.30.0';
+const APP_VERSION = '0.31.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -637,7 +637,7 @@ const ago = ms => (window.UIKit && UIKit.fmt) ? UIKit.fmt.ago(ms) : '';
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); scheduleProgress(); if (S.doc){ renderCutPack(); renderDocBar(); }
+  renderList(); renderMissing(); scheduleProgress(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 /* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
 const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
@@ -2478,6 +2478,180 @@ $('#rlGo').addEventListener('click', async () => {
     toast('付け替えられませんでした: ' + e.message, 8000, 'err');
   } finally { rlSync(); }
 });
+
+/* 「参照…」(2026-10-01): PC の標準の窓で選ぶ。窓はサーバーが開く(ブラウザからは実際のパスを知れないため。ytt_core/pick.py)。やめたら null */
+async function pickPath(kind, hint){
+  try { const r = await api('/api/pick', { body: { kind, hint: hint || '' } }); return r.path || null; }
+  catch (e){ toast(e.message, 6000, 'err'); return null; }
+}
+$('#rlBrowse').addEventListener('click', async () => {
+  const b = $('#rlBrowse'); b.disabled = true;
+  try {
+    const p = await pickPath('file', $('#rlPath').value.trim() || $('#rlOld').value);
+    if (p && $('#relinkDlg').open){ $('#rlPath').value = p; rlCheck(); }
+  } finally { b.disabled = false; }
+});
+
+/* ---------- 見つからない動画をまとめて付け替える(2026-10-01)。候補は「選んだフォルダの中の同じファイル名」か行ごとの「参照…」。
+   付け替えは1件ずつ /api/relink(控え・長さ・競合の確認は1件のときと同じ)。長さが違うものは最初は選ばない ---------- */
+const RA = { rows: [], seq: 0, busy: false, q: Promise.resolve() };
+function renderMissing(){
+  const n = S.list.filter(i => i.mediaOk === false && i.sourceName).length;
+  $('#txMissingText').textContent = `元の動画が見つからない文書が ${n} 件あります(移した・名前を変えた動画は、付け替えると再生・カット・パックに使えます)`;
+  $('#txMissing').hidden = !n;
+}
+$('#txMissingGo').addEventListener('click', () => openRelinkAll());
+function raSync(){
+  const n = RA.rows.filter(r => r.pick && r.check && !r.done).length;
+  $('#raGo').disabled = RA.busy || !n;
+  $('#raGo').textContent = n ? `付け替える(${n} 件)` : '付け替える';
+  for (const id of ['#raCancel', '#raBrowse', '#raFind']) $(id).disabled = RA.busy;
+}
+function raUpdate(r){
+  const st = r.elSt, c = r.check;
+  if (!st) return;
+  let text = '', cls = '';
+  if (r.done){ text = '付け替えました'; cls = 'ok'; }
+  else if (r.state === 'checking') text = '確かめています…(「オンラインのみ」のファイルは時間がかかることがあります)';
+  else if (r.state === 'saving') text = '付け替えています…';
+  else if (r.err){ text = '選べません: ' + r.err; cls = 'err'; }
+  else if (c && c.sameAsNow){ text = '今と同じ動画です'; cls = 'err'; }
+  else if (c && c.mismatch){
+    text = `長さが元の動画と違います(元 ${c.docDuration != null ? fmtT(c.docDuration) : '不明'} / 選んだ動画 ${fmtT(c.durationSec)})。別の動画でないか確かめてください。選ぶと、違うのを分かったうえで付け替えます`;
+    cls = 'warn';
+  } else if (c){
+    text = ['長さは元の動画と同じです', ...(c.warnings || [])].join('。'); cls = (c.warnings || []).length ? 'warn' : 'ok';
+  } else text = '動画を選んでください';
+  if (r.note && !r.done) text += '。' + r.note;
+  st.textContent = text; st.className = 'tt-ra-st' + (cls ? ' ' + cls : '');
+  r.elPick.checked = !!(r.pick && !r.done);
+  r.elPick.disabled = RA.busy || r.done || !c || c.sameAsNow || !!r.err || !!r.state;
+  r.elPath.disabled = r.elBrowse.disabled = RA.busy || r.done;
+  raSync();
+}
+function raCheck(r){
+  r.check = null; r.err = ''; r.pick = false; r.state = r.path ? 'checking' : ''; raUpdate(r);
+  if (!r.path) return;
+  const tok = r.tok = (r.tok || 0) + 1, seq = RA.seq;
+  RA.q = RA.q.then(async () => {   // 動画を調べる(ffprobe)のは1件ずつ
+    if (tok !== r.tok || seq !== RA.seq) return;
+    try {
+      const c = await api('/api/relink/check', { body: { id: r.id, path: r.path } });
+      if (tok !== r.tok || seq !== RA.seq) return;
+      r.check = c; r.pick = !c.mismatch && !c.sameAsNow;
+    } catch (e){ if (tok !== r.tok) return; r.err = e.message; }
+    r.state = ''; raUpdate(r);
+  });
+}
+function raSetPath(r, p, fromFind){ r.path = p; r.fromFind = fromFind; r.elPath.value = p; raCheck(r); }
+function renderRa(){
+  const box = $('#raList'); box.textContent = '';
+  for (const r of RA.rows){
+    const name = r.title || r.sourceName || '無題';
+    const row = document.createElement('div'); row.className = 'tt-ra-row'; row.dataset.id = r.id;
+    const pick = document.createElement('input'); pick.type = 'checkbox'; pick.setAttribute('aria-label', `${name} を付け替える`);
+    pick.addEventListener('change', () => { r.pick = pick.checked; raSync(); });
+    const main = document.createElement('div'); main.className = 'tt-ra-main';
+    const t = document.createElement('div'); t.className = 'tt-ra-title'; t.textContent = name;
+    const old = document.createElement('div'); old.className = 'tt-ra-old mono'; old.textContent = '元: ' + r.sourcePath;
+    const line = document.createElement('div'); line.className = 'tt-ra-path';
+    const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'mono'; inp.spellcheck = false; inp.autocomplete = 'off';
+    inp.placeholder = '新しいパス'; inp.setAttribute('aria-label', `${name} の新しいパス`);
+    inp.addEventListener('input', () => { r.check = null; r.err = ''; r.pick = false; r.note = ''; r.tok = (r.tok || 0) + 1; r.state = ''; raUpdate(r); });   // 確かめ直すまで選べない
+    inp.addEventListener('change', () => { const v = inp.value.trim(); if (v !== r.path || !r.check){ r.path = v; r.fromFind = false; raCheck(r); } });
+    const br = document.createElement('button'); br.type = 'button'; br.className = 'btn small'; br.textContent = '参照…';
+    br.addEventListener('click', async () => {
+      br.disabled = true;
+      try { const p = await pickPath('file', r.path || r.sourcePath); if (p && $('#relinkAllDlg').open){ r.note = ''; raSetPath(r, p, false); } }
+      finally { raUpdate(r); }
+    });
+    const st = document.createElement('div'); st.className = 'tt-ra-st'; st.setAttribute('role', 'status');
+    line.append(inp, br); main.append(t, old, line, st); row.append(pick, main); box.append(row);
+    Object.assign(r, { elPick: pick, elPath: inp, elBrowse: br, elSt: st });
+    raUpdate(r);
+  }
+}
+function openRelinkAll(){
+  const dlg = $('#relinkAllDlg');
+  if (dlg.open) return;
+  RA.seq++; RA.rows = []; RA.busy = false; $('#raList').textContent = ''; $('#raFolder').value = '';
+  $('#raNote').textContent = '元の動画が見つからない文書を調べています…'; raSync();
+  dlg.showModal(); $('#raFolder').focus();
+  const seq = RA.seq;
+  api('/api/relink/missing', { body: {} }).then(res => {
+    if (seq !== RA.seq) return;
+    RA.rows = res.items.map(i => ({ ...i, path: '', check: null, err: '', note: '', pick: false, state: '', done: false, fromFind: false }));
+    $('#raNote').textContent = (RA.rows.length ? `元の動画が見つからない文書: ${RA.rows.length} 件。動画を移したフォルダを選んでください` : '元の動画が見つからない文書はありません')
+      + (res.skipped ? `(ネットワーク上の動画を使う ${res.skipped} 件は調べていません)` : '');
+    renderRa();
+  }).catch(e => { if (seq === RA.seq) $('#raNote').textContent = '調べられませんでした: ' + e.message; });
+}
+async function raFind(){
+  const folder = $('#raFolder').value.trim();
+  if (!folder){ toast('フォルダを選ぶか、フォルダのパスを入れてください', 3000, 'err'); $('#raFolder').focus(); return; }
+  const rows = RA.rows.filter(r => !r.done && (!r.path || r.fromFind));   // 自分で選んだ動画は上書きしない
+  if (!rows.length || RA.busy) return;
+  const seq = RA.seq;
+  RA.busy = true; RA.rows.forEach(raUpdate);
+  $('#raNote').textContent = 'フォルダの中を探しています…';
+  try {
+    const res = await api('/api/relink/find', { body: { folder, ids: rows.map(r => r.id) } });
+    if (seq !== RA.seq) return;
+    RA.busy = false;
+    let hit = 0;
+    for (const r of rows){
+      const c = res.candidates[r.id] || [];
+      if (c.length){
+        hit++; r.note = c.length > 1 ? `同じ名前の動画が ${c.length} 件あります(1件目を入れました。違えば「参照…」で選んでください)` : '';
+        raSetPath(r, c[0], true);
+      } else {
+        r.note = 'このフォルダには同じ名前の動画がありません(「参照…」で選べます)';
+        if (r.fromFind){ r.path = ''; r.elPath.value = ''; r.check = null; r.pick = false; r.fromFind = false; }
+        raUpdate(r);
+      }
+    }
+    $('#raNote').textContent = `${hit} / ${rows.length} 件の動画が見つかりました` + (res.truncated ? '(フォルダが大きいので途中までしか探していません。動画のあるフォルダを選ぶと確実です)' : '');
+  } catch (e){ if (seq === RA.seq) $('#raNote').textContent = '探せませんでした: ' + e.message; }
+  finally { RA.busy = false; RA.rows.forEach(raUpdate); raSync(); }
+}
+$('#raFind').addEventListener('click', raFind);
+$('#raFolder').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); raFind(); } });
+$('#raBrowse').addEventListener('click', async () => {
+  const b = $('#raBrowse'); b.disabled = true;
+  try {
+    const first = RA.rows.find(r => !r.done);
+    const p = await pickPath('dir', $('#raFolder').value.trim() || (first ? first.sourcePath : ''));
+    if (p && $('#relinkAllDlg').open){ $('#raFolder').value = p; await raFind(); }
+  } finally { raSync(); }
+});
+$('#raGo').addEventListener('click', async () => {
+  const rows = RA.rows.filter(r => r.pick && r.check && !r.done);
+  if (!rows.length || RA.busy) return;
+  RA.busy = true; RA.rows.forEach(raUpdate);
+  const cur = S.docId, curIn = rows.some(r => r.id === cur);
+  let ok = 0;
+  try {
+    if (curIn && (!(await saveDoc()) || (CUT && !(await CUT.flush())))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    for (const r of rows){
+      r.state = 'saving'; raUpdate(r);
+      try {
+        await api('/api/relink', { body: { id: r.id, path: r.path, baseUpdatedAt: r.id === S.docId ? S.baseUpdatedAt : r.updatedAt, acceptDiff: !!r.check.mismatch } });
+        r.done = true; ok++;
+      } catch (e){
+        r.err = e.message; r.pick = false;
+        if (e.code === 'duration_mismatch' && e.data && e.data.check) r.check = e.data.check;
+      }
+      r.state = ''; raUpdate(r);
+    }
+    if (ok) toast(`${ok} 件を付け替えました(前の状態は各文書の「以前の版に戻す」で戻せます)`, 7000, 'ok');
+    if (ok < rows.length) toast(`${rows.length - ok} 件は付け替えられませんでした(理由は一覧に出しています)`, 8000, 'err');
+    await loadList();
+    if (curIn && S.docId === cur && rows.some(r => r.id === cur && r.done)) await openDoc(cur);   // 開いている文書は新しいパスで読み直す
+  } finally { RA.busy = false; RA.rows.forEach(raUpdate); raSync(); }
+});
+$('#raCancel').addEventListener('click', () => { if (!RA.busy) $('#relinkAllDlg').close(); });
+$('#relinkAllDlg').addEventListener('cancel', e => { if (RA.busy) e.preventDefault(); });   // 付け替えている途中は閉じない
+$('#relinkAllDlg').addEventListener('close', () => { RA.seq++; });
 player().addEventListener('playing', () => { $('#playerMsg').hidden = true; updateCaption(); });
 /* v0.9.6: 行の▶などで「そこだけ再生」した直後に手動で止めた場合、S.playEnd が残ったままだと、
    表示部(動画本体)の再生ボタンで再開したときにも、またそこで止まってしまう。

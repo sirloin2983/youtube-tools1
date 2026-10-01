@@ -15,7 +15,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from e2e_edit_common import Checks, Server, make_video, open_doc, wait_js
+from e2e_edit_common import Checks, Server, make_video, open_doc, wait_js, wait_url_doc
 
 
 def main():
@@ -490,6 +490,72 @@ def main():
                 check(pg.is_hidden("#playerMsg"), "1 文字起こし: 新しい動画を再生できる(案内が消える)")
                 del errors[n_err:]   # 見つからない動画の 404 はブラウザがエラーとして記録する(想定どおり)
             finally:
+                shutil.rmtree(outside, ignore_errors=True)
+
+            # ---- v0.31.0: まとめて付け替える。2本をフォルダごと移す + 1本は名前も変える → 履歴の上の案内 → フォルダで探す(同じ名前の2本)・
+            # 残りは行の「参照…」(PC の窓はテストで開けないので /api/pick の応答を差し替える)→ まとめて付け替える
+            n_err = len(errors)   # 前の節で動画を消した文書の波形・動画の 404 が、この節の準備の間に届くことがある(想定どおり)
+            ra_dir = os.path.join(srv.media, "まとめて")
+            os.makedirs(ra_dir, exist_ok=True)
+            ra_ids = [srv.transcribe(make_video(os.path.join(ra_dir, n), sec=s), t)
+                      for n, s, t in (("一本目.webm", 6, "まとめて一本目"), ("二本目.webm", 7, "まとめて二本目"), ("三本目.webm", 5, "まとめて三本目"))]
+            outside = tempfile.mkdtemp(prefix="edit-e2e-moved-all-")
+            new_dir = os.path.join(outside, "移した先", "下のフォルダ")
+            os.makedirs(new_dir)
+            shutil.move(os.path.join(ra_dir, "一本目.webm"), os.path.join(new_dir, "一本目.webm"))
+            shutil.move(os.path.join(ra_dir, "二本目.webm"), os.path.join(new_dir, "二本目.webm"))
+            renamed = os.path.join(outside, "名前を変えた三本目.webm")
+            shutil.move(os.path.join(ra_dir, "三本目.webm"), renamed)
+            picked = {"n": 0}
+
+            def pick_route(route):
+                picked["n"] += 1
+                route.fulfill(status=200, content_type="application/json", body=json.dumps({"path": renamed}))
+            try:
+                pg.route("**/api/pick", pick_route)
+                pg.goto(srv.base + "#tx")   # ?doc= を付けずに開く(前の節で動画を消した文書を開き直さない)
+                wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+                wait_url_doc(pg)   # 開いていた文書を開き終わるまで待つ(途中でメニューが閉じるため)
+                cls = pg.get_attribute(".app", "class") or ""
+                if "tab-wide" in cls:
+                    if "menu-overlay" not in cls:
+                        pg.click("[data-strip=files]")
+                else:
+                    if "menu-closed" in cls:
+                        pg.click("#btnMenu")
+                    pg.click("[data-side-tab=files]")
+                n_missing = sum(1 for i in srv.get("/api/transcripts")["items"] if i.get("mediaOk") is False and i.get("sourceName"))
+                wait_js(pg, "!document.querySelector('#txMissing').hidden", 15000)
+                check(n_missing >= 3 and ("%d 件" % n_missing) in pg.inner_text("#txMissing"),
+                      "履歴の上に「元の動画が見つからない文書が N 件」: " + pg.inner_text("#txMissing"))
+                pg.click("#txMissingGo")
+                wait_js(pg, "document.querySelector('#relinkAllDlg').open && document.querySelectorAll('#raList .tt-ra-row').length >= 3", 15000)
+                check(pg.locator("#raList .tt-ra-row").filter(has_text="まとめて").count() == 3 and pg.is_disabled("#raGo"),
+                      "まとめて: 見つからない文書が並び、選ぶまで「付け替える」は押せない: %d 行" % pg.locator("#raList .tt-ra-row").count())
+                pg.fill("#raFolder", '"%s"' % outside)
+                pg.press("#raFolder", "Enter")
+                wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 2", 30000)
+                row3 = pg.locator("#raList .tt-ra-row").filter(has_text="まとめて三本目")
+                check(pg.inner_text("#raNote").startswith("2 / ") and "同じ名前の動画がありません" in row3.inner_text(),
+                      "フォルダの下から同じ名前の2本が見つかり、名前を変えた1本は見つからない: " + pg.inner_text("#raNote"))
+                check("(2 件)" in pg.inner_text("#raGo") and pg.is_enabled("#raGo"), "長さが同じものは最初から選ばれる: " + pg.inner_text("#raGo"))
+                row3.get_by_role("button", name="参照…").click()
+                wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 3", 30000)
+                check(picked["n"] == 1 and row3.locator("input[type=text]").input_value() == renamed and "(3 件)" in pg.inner_text("#raGo"),
+                      "行の「参照…」で選んだ動画を確かめて選ぶ")
+                pg.click("#raGo")
+                wait_js(pg, "document.querySelector('#toast').textContent.includes('3 件を付け替えました')", 30000)
+                left = n_missing - 3   # この節より前のテストで動画を消した文書は残る
+                wait_js(pg, "document.querySelector('#txMissing').hidden" if not left else
+                        "document.querySelector('#txMissingText').textContent.includes(%s)" % json.dumps("%d 件" % left), 15000)
+                check(True, "まとめて付け替えたら、履歴の上の案内の件数が減る(0 なら消える)")
+                got = [os.path.normcase(srv.get("/api/transcript?id=" + t)["sourcePath"]) for t in ra_ids]
+                want = [os.path.normcase(os.path.realpath(p)) for p in (os.path.join(new_dir, "一本目.webm"), os.path.join(new_dir, "二本目.webm"), renamed)]
+                check(got == want, "3つの文書の動画のパスが新しい場所に: %s" % got)
+                pg.click("#raCancel")
+                del errors[n_err:]
+            finally:
+                pg.unroute("**/api/pick")
                 shutil.rmtree(outside, ignore_errors=True)
 
             # ---- 段2 監査 11: 設定の保存・読み込みの失敗を出す(⚙ の印と引き出しの先頭の [もう一度])・読めないまま空で上書きしない

@@ -2385,3 +2385,15 @@
 - 文書: `docs/ROADMAP.md`(版・段6 の行「済み」・B-1/B-2 の表・3 に段6 の実機の確認)・`docs/HANDOVER.md`(版)・`docs/design/edit-tool-design.md` 11・`cut2resolve/README.txt`
 - 未完了・次: 段9(運用の安定化。`docs/plan/line-a-after-phase8.md` の 5 から細かい計画 `phase9-*.md` を先に作る)。段9 は「決めてもらうこと」(片付けの対象・依頼の受付の上限)がある
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-01 Claude Code(まとめ役 Opus + サブエージェント Sonnet)— 動画の再リンクを簡単に(編集 0.31.0)
+- 決定(ユーザー 2026-10-01): 「参照…」でファイルを選ぶ + 履歴からまとめて付け替える。対象は「編集」だけ(スタジオは別の段)。
+  段2 B-4 の「候補の自動の推測はしない」を、**ユーザーが選んだフォルダの中の同じファイル名**に限って緩めた(付け替える前に1件ずつ長さを確かめ、長さが違うものは既定で選ばない)
+- 変更: `ytt_core/pick.py`(新規。PC の標準の窓を別プロセスの tkinter で開いてパスを返す・一度に1つ・10 分で閉じる)、
+  `editor/serve.py`(`POST /api/pick`・`/api/relink/missing`・`/api/relink/find`。付け替え自体は既存の `/api/relink` を1件ずつ = 控え・競合・長さの確認は同じ)、
+  `editor/app.js`・`index.html`(1件のダイアログに「参照…」・履歴の上の `#txMissing`・`#relinkAllDlg`)・README・AGENTS.md
+- テスト: 単体 +21(Sonnet。`test_edit.py` の TestRelinkFind・`test_ytt_core.py` の TestPick)、`e2e_edit_tabs.py` に「まとめて付け替える」の節(/api/pick は応答を差し替え)。
+  通した: editor 単体 216 OK・ytt_core 74 OK・home test_mount 26 OK・e2e_edit_tabs・e2e_ui_mounted ALL PASSED。node が PATH に無いので test_document_save.cjs は流していない(保存の処理は触っていない)
+- 注意: 本物の「参照…」の窓は自動のテストでは開けない(実機で確かめる)。start.bat が使う Python(py -3 = Python310・miniconda)はどちらも tkinter あり。
+  e2e_edit_tabs の前の節(動画を選び直す)が最後に動画を消すので、その文書の波形の 404 が後ろの節に届くことがある(この節の n_err で吸収)
+- 未コミット: なし

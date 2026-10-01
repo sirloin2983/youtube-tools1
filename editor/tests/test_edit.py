@@ -862,6 +862,161 @@ class TestRelinkStore(StoreDir):
         self.assertEqual(S.relink_path(vid.replace("\\", "/")), os.path.realpath(vid))
 
 
+class TestRelinkFind(StoreDir):
+    """まとめて付け替える・参照…(v0.31.0)のサーバー側: 見つからない文書の一覧・フォルダの中の同じファイル名の候補・参照の窓の API(窓そのものは差し替える)"""
+    T1, T2, T3, T4 = "0123456789ab", "0123456789ac", "0123456789ad", "0123456789ae"
+
+    def setUp(self):
+        super().setUp()
+        S._summary_cache.clear()   # 一時フォルダごとに同じ id・同じ大きさの文書を作るので、前のテストの要約を引かない
+        self.media = tempfile.mkdtemp()
+        self.saved_data = S.DATA_DIR
+
+    def tearDown(self):
+        S.DATA_DIR = self.saved_data
+        S._summary_cache.clear()
+        shutil.rmtree(self.media, ignore_errors=True)
+        super().tearDown()
+
+    def touch(self, *parts):
+        p = os.path.join(self.media, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"x")
+        return p
+
+    def doc(self, tid, source, **over):
+        self.put_doc(doc_obj(id=tid, sourcePath=source, sourceName=os.path.basename(source.replace("\\", "/")), **over), tid)
+
+    @unittest.skipUnless(os.name == "nt", "Windows のパスの形(ドライブ・ネットワークパス)")
+    def test_missing_lists_only_docs_with_lost_video(self):
+        here = self.touch("ある.mp4")
+        self.doc(self.T1, here, updatedAt=10)                                       # 動画がある → 出さない
+        self.doc(self.T2, os.path.join(self.media, "無い.mp4"), updatedAt=20, title="消えた")   # 動画が無い → 出す
+        self.doc(self.T3, "", updatedAt=30)                                         # パスの記録が無い → 出さない・数えもしない
+        self.doc(self.T4, os.path.join(self.media, "別の場所", "無い2.mp4"), updatedAt=40)       # フォルダごと無い → 出す
+        r = S.relink_missing()
+        self.assertEqual(r["skipped"], 0)
+        self.assertEqual([i["id"] for i in r["items"]], [self.T4, self.T2])         # 新しい順
+        it = r["items"][1]
+        self.assertEqual((it["title"], it["sourceName"], it["updatedAt"], it["sourcePath"]),
+                         ("消えた", "無い.mp4", 20, os.path.join(self.media, "無い.mp4")))
+
+    @unittest.skipUnless(os.name == "nt", "Windows のパスの形(ドライブ・ネットワークパス)")
+    def test_missing_skips_network_and_relative_paths(self):
+        self.doc(self.T1, "\\\\server\\share\\a.mp4")   # ネットワークパスには触らず、数だけ返す
+        self.doc(self.T2, "a.mp4")                      # 相対パスも調べない
+        self.doc(self.T3, os.path.join(self.media, "無い.mp4"))
+        r = S.relink_missing()
+        self.assertEqual(r["skipped"], 2)
+        self.assertEqual([i["id"] for i in r["items"]], [self.T3])
+
+    def test_find_matches_same_name_only(self):
+        self.doc(self.T1, "C:\\x\\clip.mp4")
+        a = self.touch("下", "clip.mp4")
+        b = self.touch("下", "さらに", "clip.mp4")
+        self.touch("下", "clip.txt")        # 拡張子が違う
+        self.touch("下", "clip2.mp4")       # 別名
+        self.touch("clip.mp4.bak")
+        r = S.relink_find({"folder": self.media, "ids": [self.T1]})
+        self.assertEqual(sorted(r["candidates"][self.T1]), sorted([a, b]))
+        self.assertFalse(r["truncated"])
+        self.assertGreater(r["scanned"], 0)
+        self.assertEqual(r["folder"], os.path.realpath(self.media))
+
+    def test_find_ignores_non_media_names_and_bad_ids(self):
+        self.doc(self.T1, "C:\\x\\clip.mp4")
+        self.doc(self.T2, "C:\\x\\notes.txt")    # 動画・音声の拡張子でない名前は探さない
+        self.touch("notes.txt")
+        r = S.relink_find({"folder": self.media, "ids": [self.T1, self.T2, "../bad", "zzz"]})
+        self.assertEqual(r["candidates"], {})
+
+    @unittest.skipUnless(os.name == "nt", "Windows のファイル名は大文字小文字を区別しない(normcase)")
+    def test_find_case_insensitive(self):
+        self.doc(self.T1, "C:\\x\\Clip.MP4")
+        p = self.touch("a", "CLIP.mp4")
+        r = S.relink_find({"folder": self.media, "ids": [self.T1]})
+        self.assertEqual(r["candidates"][self.T1], [p])
+
+    def test_find_skips_dot_dirs_and_data_dir(self):
+        self.doc(self.T1, "C:\\x\\clip.mp4")
+        ok = self.touch("ふつう", "clip.mp4")
+        self.touch(".隠し", "clip.mp4")
+        S.DATA_DIR = os.path.join(self.media, "作業データ")
+        self.touch("作業データ", "clip.mp4")
+        r = S.relink_find({"folder": self.media, "ids": [self.T1]})
+        self.assertEqual(r["candidates"][self.T1], [ok])
+
+    def test_find_depth_limit_truncates(self):
+        self.doc(self.T1, "C:\\x\\clip.mp4")
+        near = self.touch("a", "clip.mp4")
+        self.touch("a", "b", "clip.mp4")
+        saved = S.FIND_MAX_DEPTH
+        S.FIND_MAX_DEPTH = 1
+        try:
+            r = S.relink_find({"folder": self.media, "ids": [self.T1]})
+        finally:
+            S.FIND_MAX_DEPTH = saved
+        self.assertEqual(r["candidates"][self.T1], [near])   # 深さ 1 の中までは見る・その下は見ない
+        self.assertTrue(r["truncated"])                      # 見なかった下のフォルダがあると知らせる
+
+    def test_find_per_doc_limit(self):
+        self.doc(self.T1, "C:\\x\\clip.mp4")
+        for i in range(S.FIND_PER_DOC + 3):
+            self.touch("d%d" % i, "clip.mp4")
+        r = S.relink_find({"folder": self.media, "ids": [self.T1]})
+        self.assertEqual(len(r["candidates"][self.T1]), S.FIND_PER_DOC)
+
+    def test_find_folder_checks(self):
+        for bad, code in ((os.path.join(self.media, "無い"), "no_dir"), ("相対\\フォルダ", "bad_path"), ("", "bad_path"),
+                          (None, "bad_path"), ("a\nb", "bad_path")):
+            with self.assertRaises(S.ApiError, msg=repr(bad)) as c:
+                S.relink_find({"folder": bad, "ids": []})
+            self.assertEqual((c.exception.code, c.exception.status), (code, 400), repr(bad))
+        # 作業データの中は断る(フォルダ自体も、その下も)
+        S.DATA_DIR = self.media
+        for inside in (self.media, os.path.join(self.media, "sub")):
+            os.makedirs(inside, exist_ok=True)
+            with self.assertRaises(S.ApiError, msg=inside) as c:
+                S.relink_folder(inside)
+            self.assertEqual((c.exception.code, c.exception.status), ("bad_path", 400))
+
+    @unittest.skipUnless(os.name == "nt", "Windows のネットワークパス")
+    def test_find_folder_refuses_network_path(self):
+        with self.assertRaises(S.ApiError) as c:
+            S.relink_folder("\\\\server\\share\\動画")
+        self.assertEqual((c.exception.code, c.exception.status), ("network_path", 400))
+
+    def test_pick_path_maps_errors_and_kind(self):
+        from ytt_core import pick as _pick
+        saved = _pick.pick
+        calls = []
+
+        def fake(kind, title, hint, exts):
+            calls.append((kind, hint, exts))
+            return fake.result
+
+        _pick.pick = fake
+        try:
+            fake.result = os.path.join(self.media, "x.mp4")
+            self.assertEqual(S.pick_path({"kind": "dir", "hint": "D:\\動画"}), {"path": fake.result})
+            self.assertEqual(S.pick_path({"kind": "なんでも"})["path"], fake.result)   # dir 以外は file
+            self.assertEqual([c[0] for c in calls], ["dir", "file"])
+            self.assertEqual(calls[0][1], "D:\\動画")
+            self.assertIs(calls[0][2], S.MEDIA_TYPES)
+            fake.result = ""                                                         # やめたら "" のまま返す
+            self.assertEqual(S.pick_path({"kind": "file"}), {"path": ""})
+            for exc, status, code in ((_pick.PickBusy("開いている"), 409, "pick_busy"), (_pick.PickError("tk なし"), 400, "pick_unavailable")):
+                def boom(*a, _e=exc):
+                    raise _e
+                _pick.pick = boom
+                with self.assertRaises(S.ApiError) as c:
+                    S.pick_path({"kind": "file"})
+                self.assertEqual((c.exception.status, c.exception.code), (status, code))
+        finally:
+            _pick.pick = saved
+
+
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestRelinkHttp(unittest.TestCase):
     """POST /api/relink/check・/api/relink を本物の動画で(疑似モードのサーバー)。動画はサーバーの作業データの外の一時フォルダに置く"""

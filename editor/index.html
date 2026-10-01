@@ -781,6 +781,20 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .tt-rl-res dt{color:var(--ink-2);font-size:12.5px}
 .tt-rl-res dd{margin:0;overflow-wrap:anywhere}
 .tt-rl-res ul{margin:6px 0 0;padding-left:18px}
+#relinkAllDlg{width:min(860px,calc(100% - 32px));padding:0}
+.tt-rl-missing{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:6px 0}
+.tt-ra-list{margin:10px 0 0;display:flex;flex-direction:column;gap:8px;max-height:min(52vh,520px);overflow:auto}
+.tt-ra-row{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
+.tt-ra-row > input[type=checkbox]{margin-top:3px}
+.tt-ra-main{min-width:0;display:flex;flex-direction:column;gap:4px}
+.tt-ra-title{font-weight:600;overflow-wrap:anywhere}
+.tt-ra-old{color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
+.tt-ra-path{display:flex;gap:6px;align-items:center}
+.tt-ra-path input,.tt-ra-path select{flex:1;min-width:0}
+.tt-ra-st{font-size:12.5px;color:var(--ink-2)}
+.tt-ra-st.ok{color:var(--ok-ink)}
+.tt-ra-st.err{color:var(--danger-ink)}
+.tt-ra-st.warn{color:var(--warn-ink)}
 .tt-ow-dir{overflow-wrap:anywhere;font-size:12px;color:var(--ink-2);margin:8px 0 4px}
 .tt-ow-files{margin:0;padding-left:18px;font:12px/1.6 var(--mono);color:var(--ink-2);max-height:180px;overflow:auto}
 /* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
@@ -1268,6 +1282,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           入口の「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
       <div id="txRuns" aria-live="polite"></div>
     </div>
+    <p class="notice tt-rl-missing" id="txMissing" hidden role="status"><span id="txMissingText"></span><button type="button" class="btn small" id="txMissingGo">まとめて付け替える</button></p>
     <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
   <details class="card side-pane" data-side-pane="quality" id="accCard" open><summary>認識精度の測定</summary>
     <p class="hint" style="margin:6px 0 0">行の「校正済み」(聞いて確認して、文字が正しいと判断した印<span data-key="proof" data-key-fmt="。{k}">。Shift+Space</span>)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
@@ -1689,13 +1704,25 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="fld"><label class="l" for="rlOld">元のパス(見つかりません)</label>
       <div class="tt-rl-old"><input type="text" id="rlOld" class="mono" readonly><button type="button" class="btn small" id="rlCopy">コピー</button></div></div>
     <div class="fld"><label class="l" for="rlPath">新しいパス</label>
-      <input type="text" id="rlPath" class="mono" spellcheck="false" autocomplete="off" placeholder="例: D:\動画\配信.mp4"></div>
-    <p class="hint" style="margin:4px 0 0">エクスプローラーで動画を Shift+右クリック →「パスとしてコピー」で取ったパスを貼り付けます(前後の " はそのままでかまいません)。このパソコンのドライブの動画を選べます(ネットワーク上のファイルは選べません)</p>
+      <div class="tt-rl-old"><input type="text" id="rlPath" class="mono" spellcheck="false" autocomplete="off" placeholder="例: D:\動画\配信.mp4"><button type="button" class="btn small" id="rlBrowse" title="パソコンのファイルを選ぶ窓を開きます(選ぶと、すぐに確かめます)">参照…</button></div></div>
+    <p class="hint" style="margin:4px 0 0">「参照…」で動画を選ぶか、エクスプローラーで動画を Shift+右クリック →「パスとしてコピー」で取ったパスを貼り付けます(前後の " はそのままでかまいません)。このパソコンのドライブの動画を選べます(ネットワーク上のファイルは選べません)</p>
     <div class="row" style="margin-top:8px"><button type="button" class="btn" id="rlCheck">確かめる</button></div>
     <div class="tt-rl-res" id="rlResult" hidden role="status"></div>
     <label class="lag" id="rlAcceptRow" hidden style="margin-top:8px"><input type="checkbox" id="rlAccept">長さが違うのを分かったうえで付け替える</label>
     <p class="hint" style="margin:10px 0 0">前の状態は、付け替えたあとも「以前の版に戻す」で戻せます。</p>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="rlCancel">やめる</button><button type="button" class="btn primary" id="rlGo" disabled>付け替える</button></div>
+  </div>
+</dialog>
+<dialog id="relinkAllDlg" aria-labelledby="raT">
+  <div class="ui-dlg-head"><h2 id="raT">見つからない動画をまとめて付け替える</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
+  <div class="ui-dlg-body">
+    <p style="margin:0">動画を移したフォルダを選ぶと、その中(下のフォルダも)から<b>同じファイル名</b>の動画を探して入れます。見つからないものは行の「参照…」で選べます。行・校正・話者・カットはそのまま残ります。</p>
+    <div class="fld"><label class="l" for="raFolder">動画を移したフォルダ</label>
+      <div class="tt-rl-old"><input type="text" id="raFolder" class="mono" spellcheck="false" autocomplete="off" placeholder="例: D:\動画"><button type="button" class="btn small" id="raBrowse">フォルダを選ぶ…</button><button type="button" class="btn small" id="raFind">探す</button></div></div>
+    <p class="hint" id="raNote" style="margin:4px 0 0" role="status"></p>
+    <div class="tt-ra-list" id="raList"></div>
+    <p class="hint" style="margin:10px 0 0">長さが元の動画と違うものは、別の動画の可能性があるので最初は選びません(確かめてから選べます)。前の状態は、付け替えたあとも各文書の「以前の版に戻す」で戻せます。</p>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="raCancel">閉じる</button><button type="button" class="btn primary" id="raGo" disabled>付け替える</button></div>
   </div>
 </dialog>
 <dialog id="dlgConfirm" aria-labelledby="cfT">

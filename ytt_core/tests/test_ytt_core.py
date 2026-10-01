@@ -16,7 +16,7 @@ from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ytt_core/tests の2つ上 = リポジトリ直下
 sys.path.insert(0, REPO)
-from ytt_core import colors, datadir, fsio, httpsec, jobs, layout, runtime, schemas, tools, txindex  # noqa: E402
+from ytt_core import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, tools, txindex  # noqa: E402
 
 
 def locked(winerror=32):
@@ -960,6 +960,104 @@ class TestColors(unittest.TestCase):
                     self.assertIn(c.get("confidence"), ("high", "medium", "low"), m["name"])
                     self.assertTrue(set(c.get("src", [])) <= known, "知らない出典: %s %s" % (m["name"], c.get("src")))
                 self.assertTrue(set(m.get("src", [])) <= known, "知らない出典: %s" % m["name"])
+
+
+class TestPick(unittest.TestCase):
+    """参照…の窓(ytt_core/pick.py。2026-10-01)。subprocess.run を差し替えるので本物の窓は開かない"""
+
+    def run_result(self, stdout=b"", returncode=0, stderr=b""):
+        return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_returns_normalized_path(self):
+        out = json.dumps({"path": "C:/動画/a/../clip.mp4"}).encode("utf-8")
+        with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(out)) as run:
+            p = pick.pick("file", "動画を選ぶ", "", (".mp4",))
+        self.assertEqual(p, os.path.normpath("C:/動画/clip.mp4"))
+        arg = json.loads(run.call_args[0][0][-1])           # 窓のスクリプトへ渡した引数
+        self.assertEqual((arg["kind"], arg["title"]), ("file", "動画を選ぶ"))
+        self.assertEqual(arg["types"][-1], ["すべてのファイル", "*.*"])
+        self.assertEqual(run.call_args[1]["timeout"], pick.TIMEOUT)
+
+    def test_kind_other_than_dir_is_file(self):
+        with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(b'{"path": ""}')) as run:
+            pick.pick("なんでも")
+            self.assertEqual(json.loads(run.call_args[0][0][-1])["kind"], "file")
+            pick.pick("dir")
+            self.assertEqual(json.loads(run.call_args[0][0][-1])["kind"], "dir")
+
+    def test_cancel_is_empty_string(self):
+        for out in (b'{"path": ""}', b"{}", b""):
+            with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(out)):
+                self.assertEqual(pick.pick("file"), "", out)
+
+    def test_nonzero_returncode_is_pick_error(self):
+        err = "Traceback\nModuleNotFoundError: No module named 'tkinter'\n".encode("utf-8")
+        with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(returncode=1, stderr=err)):
+            with self.assertRaises(pick.PickError) as c:
+                pick.pick("file")
+        self.assertIn("tkinter", str(c.exception))          # 最後の行を理由に出す
+        with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(returncode=3)):
+            with self.assertRaises(pick.PickError) as c:
+                pick.pick("file")
+        self.assertIn("returncode 3", str(c.exception))
+
+    def test_unreadable_output_and_oserror_are_pick_error(self):
+        with mock.patch.object(pick.subprocess, "run", return_value=self.run_result(b"not json")):
+            with self.assertRaises(pick.PickError):
+                pick.pick("file")
+        with mock.patch.object(pick.subprocess, "run", side_effect=OSError("起動できない")):
+            with self.assertRaises(pick.PickError):
+                pick.pick("file")
+
+    def test_timeout_is_cancel_and_releases_lock(self):
+        with mock.patch.object(pick.subprocess, "run", side_effect=pick.subprocess.TimeoutExpired("x", 1)):
+            self.assertEqual(pick.pick("file"), "")
+        self.assertFalse(pick._lock.locked())               # 放っておかれて閉じたあとも、次の窓を開ける
+
+    def test_second_call_while_open_is_busy(self):
+        seen = []
+
+        def inner_run(*a, **k):
+            try:
+                pick.pick("file")                           # 窓が開いている間の2回目
+            except pick.PickBusy as e:
+                seen.append(e)
+            return self.run_result(b'{"path": ""}')
+
+        with mock.patch.object(pick.subprocess, "run", side_effect=inner_run):
+            self.assertEqual(pick.pick("file"), "")
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(pick._lock.locked())               # 終わったら次を受け付ける
+        with pick._lock:                                    # 別のスレッドが持っている間も同じ
+            with self.assertRaises(pick.PickBusy):
+                pick.pick("dir")
+
+    def test_types(self):
+        self.assertEqual(pick._types((".MP4", ".wav", ".mp4", "mp3", None, 5)),
+                         [["動画・音声", "*.mp4 *.wav"], ["すべてのファイル", "*.*"]])
+        self.assertEqual(pick._types(()), [["すべてのファイル", "*.*"]])
+        self.assertEqual(pick._types(None), [["すべてのファイル", "*.*"]])
+
+    def test_initial_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "a")
+            os.makedirs(sub)
+            self.assertEqual(pick.initial_dir(sub), os.path.abspath(sub))
+            # 存在しないファイル・フォルダは、存在するいちばん近い上のフォルダ
+            self.assertEqual(pick.initial_dir(os.path.join(sub, "消えた", "x", "clip.mp4")), os.path.abspath(sub))
+            self.assertEqual(pick.initial_dir('"%s"' % os.path.join(sub, "clip.mp4")), os.path.abspath(sub))   # 「パスとしてコピー」の "
+            f = os.path.join(sub, "実在.mp4")
+            with open(f, "wb") as fh:
+                fh.write(b"x")
+            self.assertEqual(pick.initial_dir(f), os.path.abspath(sub))   # ファイルならその入っているフォルダ
+        for bad in ("", None, "   ", "相対/パス/a.mp4", "clip.mp4"):
+            self.assertEqual(pick.initial_dir(bad), "", repr(bad))
+
+    @unittest.skipUnless(os.name == "nt", "Windows のネットワークパス")
+    def test_initial_dir_network_path_untouched(self):
+        with mock.patch.object(pick.os.path, "isdir") as isdir:
+            self.assertEqual(pick.initial_dir("\\\\server\\share\\x\\a.mp4"), "")
+            isdir.assert_not_called()                       # 存在の確認もしない(資格情報を送らない)
 
 
 class TestLoudness(unittest.TestCase):
