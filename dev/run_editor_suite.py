@@ -23,6 +23,23 @@ UNIT = [
     ("eval_asr", [PY, "-m", "unittest", "dev/tests/test_eval_asr.py"], False),
     ("ui-kit の写し", [PY, "-m", "unittest", "dev/tests/test_ui_kit_sync.py"], False),
 ]
+def find_node():
+    """node(PATH に無ければ Playwright に入っている node.exe)。無ければ None"""
+    import shutil
+    n = shutil.which("node")
+    if n:
+        return n
+    try:
+        import playwright
+        p = os.path.join(os.path.dirname(playwright.__file__), "driver", "node.exe" if os.name == "nt" else "node")
+        return p if os.path.isfile(p) else None
+    except ImportError:
+        return None
+
+
+NODE = find_node()
+if NODE:
+    UNIT.append(("node 保存と切り替え", [NODE, "--test", "editor/tests/test_document_save.cjs"], False))
 E2E = ["e2e_proofread_accuracy", "e2e_proofread_keys", "e2e_folder_marker_range", "e2e_eval_set", "e2e_row_editing", "e2e_ui_handoff",
        "e2e_edit_tabs", "e2e_edit_cut", "e2e_edit_voices", "e2e_edit_pack", "e2e_ui_mounted"]
 SUITE = UNIT + [(n, [PY, "editor/tests/%s.py" % n], True) for n in E2E] + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)]
@@ -35,6 +52,9 @@ def summary(out):
     oks, fails = len(re.findall(r"^\s*OK\s", out, re.M)), len(re.findall(r"^\s*(FAIL|NG)\s", out, re.M))
     if ran:
         return "Ran %s %s" % (ran[-1], res[-1] if res else "")
+    nt = re.findall(r"(?:ℹ|#) (tests|pass|fail) (\d+)", out)   # node --test の件数
+    if nt:
+        return " ".join("%s %s" % kv for kv in nt[-3:])
     return "OK %d / FAIL %d" % (oks, fails)
 
 

@@ -7,15 +7,27 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-// CSP 対応(script-src 'self')でアプリの JS は index.html から app.js へ外出しした。テストは app.js を直接読む
-const appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-function between(source, start, end) {
-  const a = source.indexOf(start), b = source.indexOf(end, a);
-  assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
-  return source.slice(a, b);
+// CSP 対応(script-src 'self')でアプリの JS は index.html から app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
+// テストは index.html が読む順番(app-*.js → app.js)にファイルをつなげて読み、使う関数・状態を名前で取り出す
+const editorDir = path.join(__dirname, '..');
+const appFiles = [...fs.readFileSync(path.join(editorDir, 'index.html'), 'utf8').matchAll(/<script src="(app[\w-]*\.js)"><\/script>/g)].map(m => m[1]);
+assert.ok(appFiles.includes('app.js'), 'index.html must load app.js');
+const appJs = appFiles.map(f => fs.readFileSync(path.join(editorDir, f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
+function fnSource(name) {   // トップレベルの function / async function name(…) の宣言(1行のものも、次の行頭の } までのものも)
+  const lines = appJs.split('\n'), re = new RegExp('^(async )?function ' + name.replace(/\$/g, '\\$') + '\\s*\\(');
+  const i = lines.findIndex(l => re.test(l));
+  assert.ok(i >= 0, 'application function must exist: ' + name);
+  if (/}\s*(\/\/.*)?$/.test(lines[i]) && (lines[i].match(/{/g) || []).length === (lines[i].match(/}/g) || []).length) return lines[i] + '\n';
+  const j = lines.findIndex((l, k) => k > i && l.startsWith('}'));
+  return lines.slice(i, j + 1).join('\n') + '\n';
 }
-const saveSource = between(appJs, 'const hhmm =', "$('#cfReload').addEventListener");
-const openSource = between(appJs, 'async function openDoc(', 'function opts(');
+function lineSource(prefix) {
+  const line = appJs.split('\n').find(l => l.startsWith(prefix));
+  assert.ok(line, 'application line must exist: ' + prefix);
+  return line + '\n';
+}
+const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc');
+const openSource = fnSource('openDoc') + fnSource('setUrlDoc');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -79,7 +91,7 @@ test('a network failure preserves edits, schedules retry, and then permits navig
   assert.equal(await h.context.openDoc('B'), true);
   assert.equal(h.S.docId, 'B');
   assert.equal(h.S.dirty, false);
-  assert.equal(h.timers.size, 0);
+  assert.equal(h.timers.size, 1);   // 保存のやり直しの予約は消え、残るのは「前の文書が評価用の仮置きなら移す」確認の予約だけ(編集 0.33.0 の evalSettle)
   assert.deepEqual(h.calls.map(x => x.method), ['PUT', 'PUT', 'GET']);
 });
 
@@ -179,6 +191,6 @@ test('app.js and ui-kit.js parse successfully (CSP: index.html has no inline <sc
     assert.ok(/\bsrc=/.test(attrs), 'index.html の <script> は src 付き(外部ファイル)であること');
     assert.equal(source.trim(), '');
   }
-  new vm.Script(appJs);
+  for (const f of appFiles) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
   new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8'));
 });

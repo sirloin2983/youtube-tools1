@@ -717,7 +717,7 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品
+    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
         shutil.copy(os.path.join(HERE, n), tmp)
     for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
         p = os.path.join(HERE, n)

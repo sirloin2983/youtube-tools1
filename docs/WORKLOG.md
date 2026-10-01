@@ -2478,3 +2478,16 @@
 - 前後の結果(`python dev/run_editor_suite.py`。同じ): 編集の単体 225 OK・test_mount 26・契約 34・eval_asr 4・ui-kit 5・e2e 12 本(proofread_accuracy 38・proofread_keys 121・folder_marker_range 54・eval_set 27・row_editing 134・ui_handoff 66・edit_tabs 129・edit_cut 108・edit_voices 29・edit_pack 88・ui_mounted 41・e2e_pipeline 24)すべて OK。版の行を戻したあと単体・取り込み・ui_mounted・test_launch・契約をもう一度 OK
 - 次: 段10-2 app.js を分ける → 10-3 Python 3.10 の固定と部品の版
 - 未コミット: なし(このあとコミット。担当の宣言は段10 が終わるまで続く)
+
+## 2026-10-01 Claude Code — 段10-2 editor/app.js を役割ごとのファイルに分けた(動きは同じ・版は上げない)
+- app.js(3,357 行)の関数の定義(トップレベルの function 203 個)を、区切りの見出しごとに `app-core.js`(343)・`app-jobs.js`(370)・`app-list.js`(222)・`app-learn.js`(260)・`app-rows.js`(639)・`app-tools.js`(660)へ。
+  状態(S・V など)・定数・ボタンの配線・起動は app.js(1,247 行)に**元の順番のまま**残した(関数は app.js より先に読むので、1ファイルのときと同じくどこからでも呼べる。読む順番は index.html の1か所)
+- app.js の包み `(() => { … })();` を外した(関数・状態をほかのファイルから見えるように = トップレベルの const/let は同じ画面のスクリプトで共有される)。
+  トップレベルの名前 402 個をブラウザの window の名前と比べてぶつからないことを確かめた。cut.js・pack-tab.js・ui-kit.js は包みのまま(外に出すのは EditCut・EditPack・UIKit だけ)
+- サーバーの静的配信 `ed_state.PAGE_JS` に app-*.js、テストの写す一覧に `app-*.js`(ed_*.py と同じ形)
+- `editor/tests/test_document_save.cjs`: index.html の読む順番でファイルをつなげ、関数を名前で取り出す形に(目印での切り出しは分けると壊れるため)。各ファイルを別々に構文の確認。
+  node は PC に無かったが **Playwright に入っている node(v24)で流せる**ことが分かった → `dev/run_editor_suite.py` が使う。
+  流してみたら1件落ちていた(編集 0.33.0 で openDoc に入れた「仮置きの確認」の予約が残るのを、テストが「予約なし」で見ていた)→ 期待を「その予約だけが1つ残る」に直した
+- 前後の結果(同じ): 編集の単体 225・test_mount 26・契約 34・eval_asr 4・ui-kit 5・node 9・e2e 12 本(項目数も 10-1 と同じ)・home の e2e_portal・e2e_keymap すべて OK
+- 次: 段10-3 Python 3.10 の固定と部品の版
+- 未コミット: なし(このあとコミット)
