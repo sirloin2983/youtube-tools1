@@ -123,7 +123,7 @@ def tidy_suspect(raw_texts, final_texts):
 # ---------------------------------------------------------------- パス
 
 _ABS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|//|/(?:Users|home|mnt|Volumes|private|tmp|var)/)")
-_ABS_ANY = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\[^\\/\s]+[\\/]|(?<![\w.])/(?:Users|home)/[^/\s]+)")   # 「https://」の s:/ は数えない
+_ABS_ANY = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\[^\\/\s]+[\\/]|(?<![A-Za-z0-9_.])/(?:Users|home)/[^/\s]+)")   # 「https://」の s:/ は数えない
 
 
 def base_name(path):
@@ -241,6 +241,8 @@ def check_rows(rows):
     """行ごとの判定 -> [{"id", "use", "reasons": [...]}]。確認済みでない行・形式違いの記号の行は外す(データは消さない)"""
     out = []
     for r in rows:
+        if not isinstance(r, dict):   # 形の違う行は飛ばす(届いた zip の中身は信用しない)
+            continue
         why = []
         if not r.get("checked"):
             why.append("未確認")
@@ -256,12 +258,12 @@ def check_rows(rows):
 def judge(final, asr_raw, edits=()):
     """取り込みの判定(書き出し時の知らせにも使う)。-> {"format", "rulesVersion", "work": {"use", "reasons"}, "rows": [...],
     "notes": {"confirmedWithoutListening": 再生せずに確定した数, "badMarkRows": 形式違いの行の数, "unchecked": 未確認の行の数}}"""
-    rows = list(final.get("rows") or [])
+    rows = [r for r in final.get("rows") or [] if isinstance(r, dict)]
     rcheck = check_rows(rows)
-    raw_texts = [str(s.get("text") or "") for s in asr_raw.get("segments") or []]
+    raw_texts = [str(s.get("text") or "") if isinstance(s, dict) else "" for s in asr_raw.get("segments") or []]
     checked = [r for r in rows if r.get("checked")]
     # 整えた疑いは、確認済みの行が重なる生出力の範囲だけで比べる(途中までの作業で、未校正の部分を数えない)
-    used = sorted({i for r in checked for i in (r.get("raw") or []) if isinstance(i, int) and 0 <= i < len(raw_texts)})
+    used = sorted({i for r in checked for i in (r.get("raw") if isinstance(r.get("raw"), list) else []) if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(raw_texts)})
     sus, why = tidy_suspect([raw_texts[i] for i in used], [r.get("text", "") for r in checked])
     work_reasons = [why] if sus else []
     if not checked:

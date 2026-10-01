@@ -530,6 +530,8 @@ def open_folder(req):
 
 
 def _start_folder(path):
+    if os.environ.get("LITE_NO_OPEN"):   # 画面のテスト(エクスプローラーを開かない)
+        return
     if os.name == "nt":
         os.startfile(path)  # noqa: S606(フォルダだけ。確かめてから)
     else:   # pragma: no cover - Windows 以外(テスト用)

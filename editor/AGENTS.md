@@ -136,7 +136,8 @@ python editor/tests/e2e_edit_voices.py          # 話者の声を覚える(A-3�
 python editor/tests/e2e_edit_pack.py            # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
 python editor/tests/e2e_ui_mounted.py           # 入口(home/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
                                               # 履歴の一覧(配信ごと・配信者)・パックのタブ(cut2resolve の API・上書きの確認・zip)
-python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
+python editor/tests/e2e_lite.py                # 友人用 文字起こし簡易版(lite.html・lite.js。入口に取り込んだ形。サーバー側は test_lite.py = test_metrics から読む)
+python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html・lite.html に埋め込んだ ui-kit の CSS が正本とずれていないか
 ```
 - e2e は serve.py を疑似モード(環境変数 `TRANSCRIBE_BACKEND=fake`)で起動して試す。ffmpeg と Playwright の chromium が必要。
   Windows のコンソールでは `PYTHONIOENCODING=utf-8` を付けて流す(付けないと ▶ などを表示できずに途中で止まる)。`e2e_ui_mounted.py` は Windows でも動く(ワーカーは PowerShell で数え、入口は Ctrl+Break で止める)
