@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '0.32.0';
+const APP_VERSION = '0.33.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1553,7 +1553,10 @@ async function openDoc(id, keep){
   }
   if (request !== docOpenSeq) return false;
   const previousDoc = S.doc, previousVersion = S.baseUpdatedAt;
-  if (!keep && S.docId && S.docId !== id) autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
+  if (!keep && S.docId && S.docId !== id){
+    autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
+    const prev = S.docId; setTimeout(() => evalSettle(prev), 1500);   // 評価用の仮置きの動画なら、条件を満たせばメンバーのフォルダへ(再生が切り替わってから)
+  }
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
   const scrollY = window.scrollY;
   let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ toast(e.message); return false; }
@@ -2727,7 +2730,7 @@ function evNote(info){
   if (!info) return void (el.textContent = '');
   const miss = (info.dirs || []).length - (info.active || []).length;
   el.textContent = (miss > 0 ? `見つからないフォルダが ${miss} 個あります(ドライブを確かめてください)。` : '')
-    + (l ? `前回の整理(${l.trigger === 'startup' ? '起動時' : 'ボタン'} ${new Date(l.at).toLocaleString()}): 動画 ${l.videos} 本・名前を変えた ${l.renamed.length} 本・評価用にした ${l.marked} 件` + (l.skipped.length ? `・飛ばした ${l.skipped.length} 本` : '') : (info.active || []).length ? 'まだ整理していません' : '');
+    + (l ? `前回の整理(${l.trigger === 'startup' ? '起動時' : 'ボタン'} ${new Date(l.at).toLocaleString()}): 動画 ${l.videos} 本・名前を変えた ${l.renamed.length} 本・仮置きから移した ${(l.moved || []).length} 本・評価用にした ${l.marked} 件` + ((l.staged || []).length ? `・仮置きに残した ${l.staged.length} 本` : '') + (l.skipped.length ? `・飛ばした ${l.skipped.length} 本` : '') : (info.active || []).length ? 'まだ整理していません' : '');
 }
 async function loadEvalFolders(){
   try { const info = await api('/api/eval-folders'); $('#evDirs').value = (info.dirs || []).join('\n'); evNote(info); } catch {}
@@ -2745,13 +2748,23 @@ $('#evRun').addEventListener('click', async () => {
     if (S.doc && !(await saveDoc())) return toast('文書を保存できないため整理しませんでした', 5000, 'err');
     const r = await api('/api/eval-folders/organize', { body: {} });
     if (!r.dirs) return toast('評価用のフォルダが設定されていないか、見つかりません', 5000, 'err');
-    toast(`整理しました: 名前を変えた ${r.renamed.length} 本・評価用にした ${r.marked} 件` + (r.skipped.length ? `・飛ばした ${r.skipped.length} 本(${r.skipped[0].reason})` : ''), 7000, r.skipped.length ? 'err' : '');
-    if (S.doc && (r.marked || r.renamed.some(x => x.docs.includes(S.docId)))) await openDoc(S.docId, true);
+    toast(`整理しました: 名前を変えた ${r.renamed.length} 本・仮置きから移した ${r.moved.length} 本・評価用にした ${r.marked} 件` + (r.skipped.length ? `・飛ばした ${r.skipped.length} 本(${r.skipped[0].reason})` : ''), 7000, r.skipped.length ? 'err' : '');
+    if (S.doc && (r.marked || r.renamed.concat(r.moved).some(x => x.docs.includes(S.docId)))) await openDoc(S.docId, true);
     loadList(); loadEvalFolders();
   } catch (e){ toast('整理できませんでした: ' + e.message, 6000, 'err'); }
   finally { b.disabled = false; }
 });
 loadEvalFolders();
+/* 評価用の仮置き: ほかの文書へ移ったとき、前の文書が「全行に話者 + 全行が校正済み」なら、話した時間が最も長いメンバーのフォルダへ移す(サーバーが判定) */
+async function evalSettle(id){
+  try {
+    const r = await api('/api/eval-folders/settle', { body: { id } });
+    if (!r.moved) return;
+    const to = r.moved.to.split(/[\\/]/);
+    toast(`評価用の仮置きから「${to[to.length - 2]}」へ移しました: ${to[to.length - 1]}`, 6000);
+    loadList();
+  } catch {}   // 文書が消えた・入口が止まった: 次の整理で移す
+}
 /* 評価用の文書では、正解を機械が書き換える操作(一括置換・提案の採用)を止める */
 document.addEventListener('click', e => {
   if (S.doc && S.doc.evalSet && e.target.closest && e.target.closest('#repGo, #repDictGo, #btnSugHigh, [data-act=sgok]')){ e.stopPropagation(); e.preventDefault(); toast('評価用の文字起こしでは使えません(正解が機械で書き換わるため)。評価用を外してから行ってください', 5000); }

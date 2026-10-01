@@ -1241,6 +1241,52 @@ class TestEvalFolder(StoreDir):
         write_json(S.SETTINGS, {})
         self.assertEqual(S.eval_organize("test")["dirs"], 0)
 
+    def staged(self, name="仮の動画.mp4", proofed=True, speakers=True, names=("ときのそら", "さくらみこ")):
+        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        os.makedirs(stg, exist_ok=True)
+        p = os.path.join(stg, name)
+        with open(p, "wb") as f:
+            f.write(b"x")
+        segs = doc_obj()["segments"]
+        for i, g in enumerate(segs):
+            g["proofed"] = proofed or i > 0
+            if speakers:
+                g["speaker"] = "A" if i != 1 else "B"   # A = 3 行(長い)・B = 1 行
+        self.put_doc(doc_obj(sourcePath=p, segments=segs, speakers=[{"id": "A", "name": names[0]}, {"id": "B", "name": names[1]}]))
+        return p
+
+    def test_staging_moves_when_ready(self):
+        self.video("評価用データ01_ときのそら_01_未.mp4", 1000)
+        os.makedirs(os.path.join(self.ev, "1_JP", "01_0期生", "評価用データ03_さくらみこ"))
+        p = self.staged()
+        os.makedirs(os.path.join(os.path.dirname(p), "作業用"))
+        with open(os.path.join(os.path.dirname(p), "作業用", "仮の動画.clip.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        r = S.eval_organize("test")
+        dst = os.path.join(self.mem, "評価用データ01_ときのそら_02_済.mp4")
+        self.assertEqual([(m["to"], m["member"]) for m in r["moved"]], [(dst, "ときのそら")])   # 長く話した人のフォルダ・空いている番号・済
+        self.assertTrue(os.path.isfile(dst) and not os.path.exists(p))
+        self.assertTrue(os.path.isfile(os.path.join(self.mem, "作業用", "評価用データ01_ときのそら_02_済.clip.json")))
+        d = self.doc()
+        self.assertEqual((d["sourcePath"], d["evalSet"], d["relinks"][-1]["why"]), (dst, True, "evalSettle"))
+        self.assertEqual([os.path.basename(x["to"]) for x in r["renamed"]], ["評価用データ01_ときのそら_01_未文字起こし.mp4"])   # 移したものは数え直して名前のまま
+
+    def test_staging_stays_until_ready(self):
+        for kw, why in (({"proofed": False}, "校正していない行"), ({"speakers": False}, "話者が付いていない行"),
+                        ({"names": ("話者1", "ゲスト")}, "移す先が決まりません")):
+            p = self.staged(**kw)
+            r = S.eval_organize("test")
+            self.assertEqual(r["moved"], [])
+            self.assertIn(why, r["staged"][0]["reason"])
+            self.assertTrue(os.path.isfile(p))   # 仮置きの中は名前も変えない
+            self.assertEqual(r["renamed"], [])
+
+    def test_settle_one_doc(self):
+        p = self.staged()
+        self.assertEqual(S.eval_settle({"id": TID})["moved"]["member"], "ときのそら")
+        self.assertFalse(os.path.exists(p))
+        self.assertEqual(S.eval_settle({"id": TID}), {"moved": None, "reason": None})   # もう仮置きではない
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -187,6 +187,27 @@ def main():
             pg.goto("http://localhost:%d/?doc=%s" % (port, ft))
             pg.wait_for_selector("#segs .seg")
             check(pg.is_checked("#evalSet") and pg.is_disabled("#evalSet"), "評価用のフォルダの文書は、評価用のチェックを外せない")
+            # 仮置き: 全行に話者 + 全行が校正済みの文書は、ほかの文書へ移ると、話した時間が最も長いメンバーのフォルダへ移る
+            stg = os.path.join(evdir, "評価用_仮置き")
+            os.makedirs(stg)
+            shutil.copy(wav, os.path.join(stg, "仮置きの動画.wav"))
+            j = call(port, "POST", "/api/transcribe", {"sourcePath": os.path.join(stg, "仮置きの動画.wav"), "model": "small", "language": "ja", "autoGloss": False})
+            for _ in range(200):
+                job = next(x for x in call(port, "GET", "/api/jobs")["jobs"] if x["id"] == j["id"])
+                if job["state"] in ("done", "error"):
+                    break
+                time.sleep(0.1)
+            st = job["tid"]
+            sd = call(port, "GET", "/api/transcript?id=" + st)
+            segs = [dict(g, proofed=True, speaker="A") for g in sd["segments"]]
+            call(port, "PUT", "/api/transcript?id=" + st, {"title": sd["title"], "speakers": [{"id": "A", "name": "ときのそら", "color": "#39f"}], "segments": segs})
+            pg.goto("http://localhost:%d/?doc=%s" % (port, st))
+            pg.wait_for_selector("#segs .seg")
+            pg.locator("#txList .txi").filter(has_text="評価用データ01_ときのそら_01").locator(".t").first.click()
+            pg.wait_for_function("document.querySelector('#toast').textContent.includes('仮置きから')", timeout=15000)
+            sd = call(port, "GET", "/api/transcript?id=" + st)
+            check(sd["sourceName"] == "評価用データ01_ときのそら_02_済.wav" and os.path.isfile(sd["sourcePath"]) and not os.path.exists(os.path.join(stg, "仮置きの動画.wav")),
+                  "仮置きの文書は、ほかの文書へ移るとメンバーのフォルダへ「_02_済」で移る: %s" % sd["sourceName"])
             br.close()
         check(not errors, "画面のエラーなし " + ("" if not errors else str(errors[:3])))
     finally:

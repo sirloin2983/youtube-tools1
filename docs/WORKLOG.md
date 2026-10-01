@@ -2410,3 +2410,14 @@
   通した: editor 単体 222 OK・e2e_eval_set・e2e_edit_tabs・e2e_ui_mounted・e2e_folder_marker_range ALL PASSED・home test_mount 26 OK・ytt_core 74 OK(別々に。同じ unittest で流すと環境変数が混ざって落ちる = 以前から)。node が無いので test_document_save.cjs は流していない
 - 注意: 「元動画の再リンク簡素化」のセッションのコミット(b5c1871)を待ってから editor/ を触った。起動中の入口は古いコードなので、「すべて終了」→ start.bat で起動し直すと効く
 - 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)
+
+## 2026-10-01 Claude Code — 評価用の仮置き(編集 0.33.0)
+- 依頼: ユーザー「評価用データ\評価用_仮置き に仮置きして作業する。話者を設定し全行校正済みになったら自動で対象フォルダに移動」
+- 決定(ユーザー 2026-10-01): 移す先 = **話した時間が最も長いメンバー**(話者の名前とメンバーのフォルダ名が同じ人。いなければ仮置きに残す)・話者の条件 = **全行に話者が付いていればよい**(仮の名前でも)・
+  いつ = **整理のとき + ほかの文書へ移ったとき**・仮置きの中の名前は**元のまま**
+- 変更: `editor/serve.py`(`EVAL_STAGING`・`_eval_members`・`_eval_ready`・`_eval_next_name`・`_eval_settle_one`・`_eval_staging_pass`(整理の最初の段。移したあと数え直す)・`POST /api/eval-folders/settle`(`eval_settle`)・
+  `_rename_sidecars` を別のフォルダへの移動にも対応・`_eval_rename` に記録の理由 `why`)、`editor/app.js`(`openDoc` で前の文書を 1.5 秒後に `evalSettle`・整理の結果に「仮置きから移した / 残した」)、`index.html`(⚙ の説明)、README・AGENTS.md・`docs/design/eval-folder.md` の「仮置き」・ROADMAP の版
+- フォルダ: `E:\Video\切り抜き動画素材\評価用データ\評価用_仮置き` を作った(PC の上だけ)
+- テスト: `test_edit.py` TestEvalFolder に 3 件(移す・条件を満たすまで残す 3 通り・1件の settle)、`e2e_eval_set.py` に仮置きの節(ほかの文書へ移ると「_02_済」で移る)。
+  通した: editor 単体 225 OK・e2e_eval_set・e2e_edit_tabs・e2e_ui_mounted ALL PASSED
+- 未コミット: なし(このあとコミット。`.design/friend-transcribe-lite/` は別のセッションのもの)

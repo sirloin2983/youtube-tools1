@@ -101,7 +101,7 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.32.0"  # app.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.33.0"  # app.js 側の APP_VERSION と揃える
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")
 APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
@@ -1642,6 +1642,10 @@ EVAL_STATES = ("済", "未", "未文字起こし")
 EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
 EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
 EVAL_SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4")   # 動画と同じ名前で持つ途中のファイル(home/cleanup.py と同じ)
+# 仮置き(2026-10-01 ユーザー決定): 評価用のフォルダの直下の「評価用_仮置き」で作業し、全行に話者が付いて全行が校正済みになったら、
+# 話した時間が最も長いメンバーのフォルダ(名前が「…数字_メンバー名」のフォルダ)へ「フォルダ名_番号_済」で移す。仮置きの中は名前を変えない
+EVAL_STAGING = "評価用_仮置き"
+_EVAL_MEMBER_RE = re.compile(r"^.*?\d+_(.+)$")
 _evalorg_lock = threading.Lock()
 _evalorg_last = {}
 
@@ -1688,12 +1692,13 @@ def _eval_state(sms):
     return "済" if all(s["proofed"] >= s["rows"] for s in rows) else "未"
 
 
-def _eval_videos(root):
-    """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く)"""
+def _eval_videos(root, skip_staging=True):
+    """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く。仮置きは skip_staging で除く)"""
     out, seen = {}, 0
     for cur, dirs, files in os.walk(root):
         depth = os.path.relpath(cur, root).count(os.sep) + (0 if cur == root else 1)
-        dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH]
+        dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH
+                   and not (skip_staging and cur == root and d == EVAL_STAGING)]
         seen += len(dirs) + len(files)
         if seen > EVAL_WALK_MAX:
             break
@@ -1710,16 +1715,123 @@ def _path_busy(path):
 
 
 def _rename_sidecars(old, new):
-    """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)の名前も動画に合わせる。中身は書き換えない。-> [(古い, 新しい)]"""
+    """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
+    中身は書き換えない。-> [(古い, 新しい)]"""
     done = []
     ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
-    for folder in (_yschemas.work_dir(old), os.path.dirname(old)):
+    for src, dst in ((_yschemas.work_dir(old), _yschemas.work_dir(new)), (os.path.dirname(old), os.path.dirname(new))):
         for suf in EVAL_SIDECARS:
-            a, b = os.path.join(folder, ostem + suf), os.path.join(folder, nstem + suf)
+            a, b = os.path.join(src, ostem + suf), os.path.join(dst, nstem + suf)
             if os.path.isfile(a) and not os.path.exists(b):
+                os.makedirs(dst, exist_ok=True)
                 os.rename(a, b)
                 done.append((a, b))
     return done
+
+
+def _norm_member(name):
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(name or ""))).lower()
+
+
+def _eval_members(root):
+    """評価用のフォルダの下のメンバーのフォルダ {正規化した名前: フォルダ}(「…数字_名前」の形。仮置き・作業用は除く)"""
+    out, seen = {}, 0
+    for cur, dirs, _files in os.walk(root):
+        depth = os.path.relpath(cur, root).count(os.sep) + (0 if cur == root else 1)
+        dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH
+                   and not (cur == root and d == EVAL_STAGING)]
+        seen += len(dirs)
+        if seen > EVAL_WALK_MAX:
+            break
+        for d in dirs:
+            m = _EVAL_MEMBER_RE.match(d)
+            if m:
+                out.setdefault(_norm_member(m.group(1)), os.path.join(cur, d))
+    return out
+
+
+def _eval_ready(doc):
+    """仮置きから移せるか。-> (話者の名前ごとの秒 [(名前, 秒)] 長い順, 理由 または None)。
+    条件 = 文字のある行が1つ以上・すべて校正済み・すべて話者付き(仮の名前でもよい。ユーザー決定)"""
+    names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    rows = [g for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()]
+    if not rows:
+        return [], "まだ文字起こしされていません"
+    if not all(g.get("proofed") is True for g in rows):
+        return [], "校正していない行があります"
+    if not all(g.get("speaker") in names for g in rows):
+        return [], "話者が付いていない行があります"
+    secs = {}
+    for g in rows:
+        nm = names[g["speaker"]]
+        secs[nm] = secs.get(nm, 0.0) + max(0.0, (num(g.get("end"), 0.0) or 0.0) - (num(g.get("start"), 0.0) or 0.0))
+    return sorted(secs.items(), key=lambda kv: -kv[1]), None
+
+
+def _eval_next_name(folder, ext, state):
+    """メンバーのフォルダで次に空いている番号の名前「フォルダ名_番号_状態.拡張子」"""
+    prefix = os.path.basename(folder)
+    rx = _eval_name_re(prefix)
+    used = set()
+    for f in os.listdir(folder) if os.path.isdir(folder) else []:
+        m = rx.match(os.path.splitext(f)[0])
+        if m:
+            used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return os.path.join(folder, "%s_%02d_%s%s" % (prefix, n, state, ext))
+
+
+def _eval_settle_one(path, tids, members):
+    """仮置きの動画1本を、条件を満たせばメンバーのフォルダへ移す。-> ({from, to, docs, member} または None, 理由 または None)"""
+    if not tids:
+        return None, "まだ文字起こしされていません"
+    if _path_busy(path) or any(_doc_busy(t) for t in tids):
+        return None, "文字起こしなどの処理の最中です"
+    best = None
+    for tid in tids:
+        secs, why = _eval_ready(read_transcript(tid))
+        if why:
+            return None, why
+        for nm, sec in secs:   # 長い順。メンバーのフォルダと同じ名前の最初の人
+            if _norm_member(nm) in members:
+                if best is None or sec > best[1]:
+                    best = (nm, sec)
+                break
+    if best is None:
+        return None, "移す先が決まりません(メンバーのフォルダと同じ名前の話者がいません)"
+    new = _eval_next_name(members[_norm_member(best[0])], os.path.splitext(path)[1], "済")
+    rec = _eval_rename(path, new, tids, "evalSettle")
+    rec["member"] = best[0]
+    return rec, None
+
+
+def _eval_staging_pass(dirs, by_path, res):
+    """仮置きの動画のうち、移せるものを移す(eval_organize と eval_settle から。_evalorg_lock の中で呼ぶ)"""
+    for root in dirs:
+        stg = os.path.join(root, EVAL_STAGING)
+        if not os.path.isdir(stg):
+            continue
+        members = None
+        for folder, files in sorted(_eval_videos(stg, False).items()):
+            for f in sorted(files):
+                old = os.path.join(folder, f)
+                key = os.path.normcase(old)
+                if key not in by_path and res.get("_only"):
+                    continue
+                sms = by_path.get(key, [])
+                res["marked"] += _eval_mark_docs([x["id"] for x in sms if not x.get("evalSet")])
+                if members is None:
+                    members = _eval_members(root)
+                try:
+                    rec, why = _eval_settle_one(old, [x["id"] for x in sms if x.get("rows")], members)
+                except (OSError, ApiError) as e:
+                    rec, why = None, "移せませんでした(動画を開いているかもしれません): %s" % (getattr(e, "message", None) or e)
+                if rec:
+                    res["moved"].append(rec)
+                else:
+                    res["staged"].append({"path": old, "reason": why})
 
 
 def eval_organize(trigger="button"):
@@ -1731,15 +1843,12 @@ def eval_organize(trigger="button"):
         raise ApiError("busy", "評価用のフォルダの整理は、いま動いています", 409)
     try:
         dirs = eval_dirs()
-        res = {"at": int(time.time() * 1000), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": []}
+        res = {"at": int(time.time() * 1000), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": [],
+               "moved": [], "staged": []}
         if not dirs:
             return res
-        by_path = {}
-        for tid in _tids():
-            sm = transcript_summary(tid)
-            sp = str((sm or {}).get("_sourcePath") or "")
-            if sp and in_eval_dir(sp, dirs):
-                by_path.setdefault(os.path.normcase(os.path.abspath(sp)), []).append(sm)
+        _eval_staging_pass(dirs, _eval_docs_by_path(dirs), res)
+        by_path = _eval_docs_by_path(dirs)   # 仮置きから移した分を入れて数え直す
         for root in dirs:
             for folder, files in sorted(_eval_videos(root).items()):
                 prefix = os.path.basename(folder)
@@ -1782,11 +1891,46 @@ def eval_organize(trigger="button"):
                         res["renamed"].append(_eval_rename(old, new, [s["id"] for s in sms]))
                     except (OSError, ApiError) as e:
                         res["skipped"].append({"path": old, "reason": "名前を変えられませんでした(動画を開いているかもしれません): %s" % (getattr(e, "message", None) or e)})
-        log.info("評価用のフォルダを整理(%s): 動画 %d・名前を変えた %d・評価用にした %d・飛ばした %d",
-                 trigger, res["videos"], len(res["renamed"]), res["marked"], len(res["skipped"]))
+        log.info("評価用のフォルダを整理(%s): 動画 %d・名前を変えた %d・仮置きから移した %d・評価用にした %d・飛ばした %d",
+                 trigger, res["videos"], len(res["renamed"]), len(res["moved"]), res["marked"], len(res["skipped"]))
         _evalorg_last.clear()
         _evalorg_last.update(res)
         return res
+    finally:
+        _evalorg_lock.release()
+
+
+def _eval_docs_by_path(dirs):
+    """評価用のフォルダの中の動画 → その動画を使う文書の要約の一覧"""
+    by_path = {}
+    for tid in _tids():
+        sm = transcript_summary(tid)
+        sp = str((sm or {}).get("_sourcePath") or "")
+        if sp and in_eval_dir(sp, dirs):
+            by_path.setdefault(os.path.normcase(os.path.abspath(sp)), []).append(sm)
+    return by_path
+
+
+def eval_settle(obj):
+    """POST /api/eval-folders/settle {"id"}: 画面がほかの文書へ移ったときに、前の文書の動画が仮置きにあって条件を満たせば移す。
+    -> {moved: {from, to, docs, member} | None, reason}(仮置きでない・整理が動いているときは moved なし)"""
+    tid = str(obj.get("id") or "")
+    doc = read_transcript(tid)
+    dirs = eval_dirs()
+    sp = str(doc.get("sourcePath") or "")
+    if not sp or not any(_inside(sp, os.path.join(r, EVAL_STAGING)) for r in dirs):
+        return {"moved": None, "reason": None}
+    if not _evalorg_lock.acquire(blocking=False):
+        return {"moved": None, "reason": "整理が動いています"}
+    try:
+        key = os.path.normcase(os.path.abspath(sp))
+        res = {"marked": 0, "moved": [], "staged": [], "_only": True}
+        _eval_staging_pass(dirs, {k: v for k, v in _eval_docs_by_path(dirs).items() if k == key}, res)
+        moved = res["moved"][0] if res["moved"] else None
+        reason = res["staged"][0]["reason"] if res["staged"] else None
+        if moved:
+            log.info("評価用の仮置きから移した: %s → %s", os.path.basename(moved["from"]), moved["to"])
+        return {"moved": moved, "reason": reason}
     finally:
         _evalorg_lock.release()
 
@@ -1810,8 +1954,8 @@ def _eval_mark_docs(tids):
     return n
 
 
-def _eval_rename(old, new, tids):
-    """動画と途中のファイルの名前を変えて、その動画を使う文書を付け替える。付け替えに失敗したら名前を元に戻す"""
+def _eval_rename(old, new, tids, why="evalOrganize"):
+    """動画と途中のファイルの名前を変えて(仮置きから移すときは別のフォルダへ)、その動画を使う文書を付け替える。付け替えに失敗したら名前を元に戻す"""
     os.rename(old, new)
     side, done = [], []
     try:
@@ -1821,13 +1965,13 @@ def _eval_rename(old, new, tids):
                 doc = read_transcript(tid)
                 if os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) != os.path.normcase(old):
                     continue
-                _relink_write(tid, doc, new, 0.0, "evalOrganize")
+                _relink_write(tid, doc, new, 0.0, why)
                 done.append(tid)
     except BaseException:
         for tid in done:   # 付け替えた文書も元の名前へ(控えと履歴は残る)
             try:
                 with _save_lock:
-                    _relink_write(tid, read_transcript(tid), old, 0.0, "evalOrganizeUndo")
+                    _relink_write(tid, read_transcript(tid), old, 0.0, why + "Undo")
             except (OSError, ApiError):
                 log.exception("評価用の整理: 文書を元の名前へ戻せませんでした %s", tid)
         for a, b in reversed(side):
@@ -6973,6 +7117,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, relink_find(obj))
             if path == "/api/eval-folders/organize":
                 return self._json(200, eval_organize("button"))
+            if path == "/api/eval-folders/settle":
+                return self._json(200, eval_settle(obj))
             if path == "/api/pick":
                 return self._json(200, pick_path(obj))
             if path == "/api/resplit":
