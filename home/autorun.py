@@ -49,6 +49,14 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし", "request_manual": "依頼 ③: 解析まで",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし", "file_manual": "依頼 ③: スタジオで解析まで"}
 FLOWS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}
+# 友人が時刻で指定した区間(送るアプリ 2.0.0。docs/design/friend-intake.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
+# 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
+REQUEST_URL_MODES = ("request", "request_auto")
+RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける)
+RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
+RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
+CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
+WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
               "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
 # 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
@@ -138,10 +146,48 @@ def _doc_id_ok(v):
     return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
 
 
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
+
+
+def clean_ranges(v):
+    """区間の一覧 [(開始, 終了), …](秒)を確かめる。-> 整えた一覧(None・空 = 区間なし)。形が違えば ValueError"""
+    if v in (None, [], ()):
+        return []
+    if not isinstance(v, (list, tuple)) or len(v) > RANGE_MAX:
+        raise ValueError("区間は %d 個までです" % RANGE_MAX)
+    out = []
+    for r in v:
+        if not isinstance(r, (list, tuple)) or len(r) != 2 or not _num(r[0]) or not _num(r[1]) or not 0 <= r[0] < r[1] or r[1] - r[0] > RANGE_MAX_SEC:
+            raise ValueError("区間の指定が正しくありません")
+        out.append((round(float(r[0]), 1), round(float(r[1]), 1)))
+    return out
+
+
+def clean_weights(v):
+    """解析の重み {"wAudio", "wChat", "wComments"}(0〜3)-> 小数1桁に整えたもの か None(指定なし・形が違う)"""
+    if not isinstance(v, dict) or not all(_num(v.get(k)) and 0 <= v[k] <= 3 for k in WEIGHT_KEYS):
+        return None
+    return {k: round(float(v[k]), 1) for k in WEIGHT_KEYS}
+
+
+def pad_range(s, e, duration=None):
+    """友人が入れた区間の前後に余白を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
+    pad = min(RANGE_PAD, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
+    a, b = max(0.0, s - pad), e + pad
+    if duration and duration > 0:
+        b = min(b, float(duration))
+    return [round(a, 1), round(max(b, a + 0.1), 1)]
+
+
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None):
+                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None):
         self.id = uuid.uuid4().hex[:10]
+        self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
+        self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
+        self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
+        self.duration = duration           # 受付のときに調べた配信の長さ(秒。スタジオにまだ無い配信の区間を端で切るのに使う)
         self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
         self.speakers = speakers         # 友人が入れた「話す人」{"count", "names"}。あれば文字起こしのあとに話者分離(2026-10-01)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
@@ -167,6 +213,8 @@ class Run:
         self.cancel = False
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         keys = list(MODE_STEPS[mode])
+        if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
+            keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
         if speakers and "transcribe" in keys:
             keys.insert(keys.index("transcribe") + 1, "diarize")
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
@@ -182,9 +230,9 @@ class Run:
 
     def public(self):
         return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
-                "sourcePath": self.source_path, "requestId": self.request_id,
+                "sourcePath": self.source_path, "requestId": self.request_id, "ranges": [list(r) for r in self.ranges] or None, "cut": self.cut,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
-                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode, DOC_LABEL)) + ("(%d本)" % len(self.marks) if self.marks else ""), "top": self.top,
+                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode, DOC_LABEL)) + ("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
@@ -406,11 +454,14 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
-        """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel"}]。配信ごとに1つの実行(mode request)。
-        すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None):
+        """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
+        配信ごとに1つの実行(mode request)。ranges = 時刻で指定した区間 [(開始, 終了)](③ では使わない)。top に足りない分は自動で埋める。
+        cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
             raise ValueError("配信は 1〜%d 本で指定してください" % MAX_NEW)
+        mode = FLOW_MODES["url"].get(flow, "request")
+        weights = clean_weights(weights)
         made, skipped = [], []
         with self.cv:
             active = [r for r in self.runs if r.state in ("queued", "running")]
@@ -418,6 +469,11 @@ class AutoRunner:
                 it = it if isinstance(it, dict) else {}
                 vid, top = it.get("id"), it.get("top")
                 title, channel = str(it.get("title") or "").strip()[:120], str(it.get("channel") or "").strip()[:100]
+                try:
+                    ranges = clean_ranges(it.get("ranges")) if mode in REQUEST_URL_MODES else []
+                except ValueError as e:
+                    skipped.append({"id": str(vid or "")[:40], "title": title, "reason": str(e)})
+                    continue
                 if not _yt_id_ok(vid) or not isinstance(top, int) or isinstance(top, bool) or not 1 <= top <= 30:
                     skipped.append({"id": str(vid or "")[:40], "title": title, "reason": "配信の指定が正しくありません"})
                 elif any(r.video_id == vid for r in active):
@@ -425,9 +481,11 @@ class AutoRunner:
                 elif len(active) >= MAX_WAITING:
                     skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
-                    run = Run(vid, title or vid, FLOW_MODES["url"].get(flow, "request"), top, fresh={"title": title, "channel": channel},
+                    # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(overwrite)
+                    run = Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
                               on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                              video_tracks=video_tracks)
+                              video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto",
+                              duration=it.get("duration") if _num(it.get("duration")) else None)
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -436,7 +494,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
         """友人が切り抜いた動画の依頼(home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
@@ -449,7 +507,7 @@ class AutoRunner:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
             run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
                       on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                      video_tracks=video_tracks)
+                      video_tracks=video_tracks, cut=cut)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -708,9 +766,17 @@ class AutoRunner:
             run.message = "完了"
 
     # 解析 -------------------------------------------------------
+    def _weights_differ(self, run, v):
+        """友人が指定した解析の重みが、今の解析の結果の重みと違うか(違えば解析し直す。音量・チャットの取り込み済みのデータは使い回される)"""
+        if not run.weights:
+            return False
+        spec = (v.get("analysis") or {}).get("spec") if isinstance(v.get("analysis"), dict) else None
+        spec = spec if isinstance(spec, dict) else {}
+        return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != run.weights[k] for k in WEIGHT_KEYS)
+
     def _step_analyze(self, run, st, v):
-        if v.get("analysis"):
-            st["state"], st["detail"] = "skip", "解析済み"
+        if v.get("analysis") and not self._weights_differ(run, v):
+            st["state"], st["detail"] = "skip", "解析済み(前の結果を使います)" if run.request_id else "解析済み"
             return None
         item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
         if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
@@ -728,6 +794,8 @@ class AutoRunner:
         # 解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze。段階7-1)。無ければスタジオの既定値
         saved = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("analyze")
         saved = saved if isinstance(saved, dict) else {}
+        if run.weights:   # 友人が指定した重み(ほかの解析の設定はスタジオのまま)
+            saved = dict(saved, **run.weights)
         res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": saved})
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
@@ -735,7 +803,8 @@ class AutoRunner:
             rej = (res.get("rejected") or [{}])[0].get("reason") or ""
             if "すでにキュー" not in rej:
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
-        st["detail"] = "解析中(%s)" % ("スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
+        st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % tuple(run.weights[k] for k in WEIGHT_KEYS) if run.weights
+                                    else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         while True:
             self._wait(run)
             items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
@@ -750,7 +819,30 @@ class AutoRunner:
                 raise StepError("解析が終わりませんでした: %s" % (it.get("error") or it.get("status")))
 
     # 採用 -------------------------------------------------------
+    def _step_adopt_request(self, run, st, v):
+        """友人からの依頼(URL): 時刻で指定した区間(前後に余白)を採用済みのマークにし、切り抜く数に足りない分を自動の上位で埋める。
+        この実行で扱うのは、その区間と自動の分だけ(run.marks)。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す"""
+        dur = v.get("duration") or run.duration
+        padded = [pad_range(s, e, dur) for s, e in run.ranges]
+        auto = max(0, run.top - len(padded))
+        body = {"id": run.video_id, "ranges": padded, "auto": auto}
+        if run.fresh:
+            body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
+        res = self.client.ok("studio", "POST", "/api/video/request-marks", body)
+        rids, aids = res.get("rangeIds") or [], res.get("autoIds") or []
+        run.marks = tuple(dict.fromkeys(rids + aids))
+        if not run.marks:
+            st["state"], st["detail"] = "skip", "採用できる候補がありません"
+            run.message = "採用できる候補がありませんでした"
+            return "stop"
+        parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), RANGE_PAD)] if rids else []) + \
+            (["自動で %d 個(点数の高い順)" % len(aids) + ("。候補が足りず %d 個は選べませんでした" % (auto - len(aids)) if len(aids) < auto else "")] if auto else [])
+        st["detail"] = "・".join(parts)
+        return None
+
     def _step_adopt(self, run, st, v):
+        if run.mode in REQUEST_URL_MODES:
+            return self._step_adopt_request(run, st, v)
         res = self.client.ok("studio", "POST", "/api/video/adopt-top", {"id": run.video_id, "top": run.top})
         ids = res.get("adopted") or []
         marks = (res.get("video") or {}).get("marks") or []
@@ -930,7 +1022,7 @@ class AutoRunner:
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-            method = self._cut_method()
+            method = run.cut or self._cut_method()   # 友人が選んだカット(① の依頼)。無ければホームの設定
             if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
@@ -1020,7 +1112,7 @@ class AutoRunner:
         if failed and not made:
             raise StepError("パックを作れませんでした: %s" % failed[0])
         st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
-            ("。前のパックを上書きしました" if run.overwrite else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
+            ("。前のパックを上書きしました" if run.overwrite and not run.request_id else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
         if failed:

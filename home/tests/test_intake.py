@@ -27,18 +27,18 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks}
+        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
         if self.fail:
             raise ValueError(self.fail)
         self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers,
-                           "tracks": video_tracks})
+                           "tracks": video_tracks, "cut": cut})
         return {"id": "f%d" % len(self.files)}
 
 
@@ -155,13 +155,15 @@ class TestText(Base):
         self.assertTrue(os.path.isfile(self.done("依頼.理由.txt")))   # 飛ばした行の理由
         snap = self.it.snapshot()
         self.assertEqual((snap["today"], snap["requests"][0]["state"], snap["requests"][0]["kind"]), (1, "accepted", "url"))
-        # 同じ配信をもう一度: 断る
+        # 同じ配信をもう一度: 断らない(2026-10-02 ユーザー。解析・切り抜き・文字起こしは、まとめて実行が使い回す)
         self.put("again.url", "[InternetShortcut]\nURL=https://www.youtube.com/watch?v=abcdefghijk\n")
         self.scan2()
-        self.assertEqual(len(self.runner.requests), 1)
-        self.assertTrue(os.path.isfile(self.failed("again.url")))
-        with open(self.failed("again.理由.txt"), encoding="utf-8-sig") as f:
-            self.assertIn("前に受け付けた配信", f.read())
+        self.assertEqual(len(self.runner.requests), 2)
+        self.assertTrue(os.path.isfile(self.done("again.url")))
+        # 1つの依頼の中で同じ配信を2回書いたら、1回だけ
+        self.put("twice.txt", "https://youtu.be/ccccccccccc\nhttps://www.youtube.com/watch?v=ccccccccccc 2\n")
+        self.scan2()
+        self.assertEqual([i["id"] for i in self.runner.requests[2][0]], ["ccccccccccc"])
 
     def test_long_and_live(self):
         self.infos = {"aaaaaaaaaaa": {"duration": 9 * 3600.0, "live": "was_live", "title": "", "channel": ""},
@@ -374,6 +376,73 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.last["tracks"], 1)
         self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 1本")
+
+    def test_ranges_cut_weights_from_app(self):
+        """2.0.0 のアプリ: 時刻で指定した区間(配信ごと)・カット(① だけ)・解析の重みを、形を確かめてまとめて実行へ"""
+        self.assertEqual(intake.parse_ranges(None), ([], []))
+        ok, bad = intake.parse_ranges([{"start": 10, "end": 20}, {"start": 5, "end": 5}, {"start": 0, "end": 3601}, {"start": "1", "end": 2}, "x",
+                                       {"start": True, "end": 2}, {"start": 10, "end": 20}])
+        self.assertEqual((ok, len(bad)), ([(10, 20)], 5))
+        self.assertEqual(len(intake.parse_ranges([{"start": i * 10, "end": i * 10 + 5} for i in range(12)])[0]), 10)
+        self.assertEqual([intake.parse_cut(x) for x in ("none", "silence", "rows", None, 1)], ["none", "silence", None, None, None])
+        self.assertEqual(intake.parse_weights({"audio": 1.5, "chat": 0, "comments": 3}), {"wAudio": 1.5, "wChat": 0.0, "wComments": 3.0})
+        for badw in (None, {}, {"audio": 1, "chat": 1}, {"audio": 4, "chat": 1, "comments": 1}, {"audio": "1", "chat": 1, "comments": 1}, {"audio": True, "chat": 1, "comments": 1}):
+            self.assertIsNone(intake.parse_weights(badw), badw)
+
+        self.prefs.patch("intake", {"dailyMax": 50})
+        self.infos["abcdefghijk"] = {"duration": 7200.0, "live": "not_live", "title": "長い配信", "channel": "ch"}
+        self.infos["bbbbbbbbbbb"] = {"duration": 600.0, "live": "not_live", "title": "短い配信", "channel": "ch"}
+        rid = "20261002-120000-abc201"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto", "videoTracks": 2, "cut": "silence",
+                                                     "weights": {"audio": 1.5, "chat": 1.0, "comments": 0.7}, "memo": "",
+                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 1, "ranges": [{"start": 5025, "end": 5110}, {"start": 60, "end": 90}]},
+                                                               {"url": "https://youtu.be/bbbbbbbbbbb", "top": 3, "ranges": [{"start": 590, "end": 650}, {"start": 700, "end": 720}, {"start": 9, "end": 3}]},
+                                                               {"url": "https://youtu.be/ccccccccccc", "top": 2}]}))
+        self.scan2()
+        (items, _rid), = self.runner.requests
+        by = {i["id"]: i for i in items}
+        self.assertEqual((by["abcdefghijk"]["top"], by["abcdefghijk"]["ranges"]), (2, [(5025, 5110), (60, 90)]))   # 切り抜く数は区間の数より小さくしない
+        self.assertEqual((by["bbbbbbbbbbb"]["top"], by["bbbbbbbbbbb"]["ranges"], by["bbbbbbbbbbb"]["duration"]), (2, [(590, 600.0)], 600.0))   # 配信の長さで切る・長さより後の区間の分は自動で埋めない
+        self.assertEqual((by["ccccccccccc"]["top"], by["ccccccccccc"]["ranges"]), (2, []))
+        self.assertEqual((self.runner.last["cut"], self.runner.last["weights"], self.runner.last["tracks"]), ("silence", {"wAudio": 1.5, "wChat": 1.0, "wComments": 0.7}, 2))
+        rec = self.it.snapshot()["requests"][0]
+        self.assertEqual((rec["rangesLabel"], rec["cutLabel"], rec["weightsLabel"]),
+                         ("区間: 1:23:45〜1:25:10・0:01:00〜0:01:30・0:09:50〜0:10:00", "カット: 無音を削る", "重み: 音声 1.5・チャット 1.0・コメント 0.7"))
+        reasons = [i["reason"] for i in rec["items"] if i["state"] == "rejected"]
+        self.assertEqual(len(reasons), 2, reasons)
+        self.assertTrue(any("より後です" in r for r in reasons) and any("終了が開始より前" in r for r in reasons), reasons)
+        # 断った区間は、友人のアプリの「受け取る」に理由が届く(ほかは進める)
+        note = [n for n in os.listdir(os.path.join(self.folder, "出力")) if n.startswith(rid)]
+        self.assertEqual(len(note), 1)
+
+        # ②: 区間は渡す・カットは渡さない / ③: 区間も渡さない / 動画の ①: カットを渡す
+        rid = "20261002-120000-abc202"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "cut": "silence",
+                                                     "items": [{"url": "https://youtu.be/ddddddddddd", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
+        self.scan2()
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.last["cut"], self.runner.last["weights"]), ([(1, 9)], None, None))
+        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "")
+        rid = "20261002-120000-abc203"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "manual",
+                                                     "items": [{"url": "https://youtu.be/eeeeeeeeeee", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
+        self.scan2()
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.requests[-1][0][0]["top"]), ([], 3))
+        rid = "20261002-120000-abc204"
+        self.put(rid + "__a.mp4", b"v")
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "flow": "auto", "files": [rid + "__a.mp4"], "cut": "silence"}))
+        self.scan2()
+        self.assertEqual(self.runner.files[-1]["cut"], "silence")
+        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "カット: 無音を削る")
+
+    def test_all_ranges_out_of_stream_rejects(self):
+        """指定した区間が全部、配信の長さより後(自動の分も無い)なら、その配信は流さない"""
+        self.infos["abcdefghijk"] = {"duration": 100.0, "live": "not_live", "title": "短い", "channel": ""}
+        rid = "20261002-120000-abc205"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check",
+                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 1, "ranges": [{"start": 200, "end": 260}]}]}))
+        self.scan2()
+        self.assertEqual(self.runner.requests, [])
+        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "rejected")
 
     def test_state_persists(self):
         self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")

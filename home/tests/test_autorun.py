@@ -99,6 +99,26 @@ class FakeTools:
             m["status"] = "adopted"
         return 200, {"adopted": [m["id"] for m in c], "video": self.video}
 
+    def h_studio_POST_api_video_request_marks(self, path, body):
+        """友人からの依頼: 区間を採用済みの手動マークに(同じ区間は使い回す)+ 自動の上位(区間と重ならないもの)で埋める"""
+        self.known = True
+        self.request_marks = body
+        rids = []
+        for s, e in body["ranges"]:
+            m = next((x for x in self.video["marks"] if abs(x["start"] - s) <= 0.5 and abs(x["end"] - e) <= 0.5), None)
+            if m is None:
+                m = {"id": "r%d" % (len(self.video["marks"]) + 1), "src": "manual", "status": "adopted", "score": None, "start": s, "end": e}
+                self.video["marks"].append(m)
+            elif m["status"] in ("", "rejected"):
+                m["status"] = "adopted"
+            rids.append(m["id"])
+        autos = sorted((m for m in self.video["marks"] if m.get("src") == "auto" and m["status"] != "rejected" and m["id"] not in rids
+                        and not any(m["start"] < e and s < m["end"] for s, e in body["ranges"])), key=lambda m: -m["score"])[:body["auto"]]
+        for m in autos:
+            if m["status"] == "":
+                m["status"] = "adopted"
+        return 200, {"ok": True, "rangeIds": rids, "autoIds": [m["id"] for m in autos], "video": self.video}
+
     def h_studio_POST_api_export(self, path, body):
         if self.export_busy:
             self.export_busy -= 1
@@ -933,6 +953,8 @@ class TestRequests(Base):
         self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼 ② 軽く確認: 解析 → 文字起こし", "20261001-120000-abc123"))
         self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe"])
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
+        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [], "auto": 2, "title": "配信", "channel": "ch"})   # 区間なし = 自動だけ
+        self.assertFalse(any(c[2] == "/api/video/adopt-top" for c in self.tools.calls))
         self.assertNotIn("body", self.tools.c2r, "パックは作らない")
         with self.assertRaisesRegex(ValueError, "1〜"):
             self.r.start_request([])
@@ -1023,9 +1045,90 @@ class TestRequests(Base):
 
     def test_request_manual(self):
         self.tools.known = False
-        run = self.wait(self.r.start_request([{"id": VID, "top": 3}], flow="manual")["runs"][0])
+        run = self.wait(self.r.start_request([{"id": VID, "top": 3, "ranges": [(10, 20)]}], flow="manual")["runs"][0])
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze"]))
-        self.assertFalse(any(c[2] == "/api/video/adopt-top" for c in self.tools.calls))
+        self.assertFalse(any(c[2] in ("/api/video/adopt-top", "/api/video/request-marks") for c in self.tools.calls))   # ③ は解析だけ(区間も使わない)
+        self.assertIsNone(run["ranges"])
+
+    def test_request_ranges_only_skips_analysis(self):
+        """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし"""
+        self.tools.known = False
+        res = self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": "ch", "ranges": [(100, 190), (1, 30)], "duration": 191.0}], request_id="rid")
+        run = self.wait(res["runs"][0])
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe"]), run)
+        self.assertFalse(any(c[2] == "/api/queue/add" for c in self.tools.calls), "解析しない")
+        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [[98.0, 191.0], [0.0, 32.0]], "auto": 0, "title": "配信", "channel": "ch"})   # 余白は 0 と配信の長さで切る
+        self.assertEqual(len(self.tools.export_body["markIds"]), 2)
+        self.assertEqual(run["ranges"], [[100.0, 190.0], [1.0, 30.0]])
+        self.assertIn("指定の区間 2 個", next(s for s in run["steps"] if s["key"] == "adopt")["detail"])
+
+    def test_request_ranges_filled_with_auto(self):
+        """区間が切り抜く数に足りない: 解析して、足りない分だけ自動の上位(区間と重ならないもの)で埋める。この実行はその分だけを扱う"""
+        self.tools.known = False
+        self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある採用済みのマークは扱わない
+        run = self.wait(self.r.start_request([{"id": VID, "top": 3, "ranges": [(18, 23)]}], request_id="rid")["runs"][0])
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe"]), run)
+        self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["auto"]), ([[16.0, 25.0]], 2))
+        by = {m["id"]: m for m in self.tools.video["marks"]}
+        got = sorted(self.tools.export_body["markIds"])
+        self.assertEqual(sorted((by[i]["start"], by[i]["src"]) for i in got), [(10, "auto"), (16.0, "manual"), (30, "auto")])   # 20〜25 秒の候補(a2)は区間と重なるので飛ばす
+        self.assertNotIn("old", got)
+        self.assertEqual(len(self.tools.tx_jobs), 3)
+
+    def test_request_cut_and_resend_rebuilds_pack(self):
+        """① 全自動: 友人が選んだカット(無音を削る)でパック。同じ配信・同じ区間の送り直しは、切り抜き・文字起こしを使い回してパックだけ作り直して届ける"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        item = {"id": VID, "top": 1, "title": "配信", "ranges": [(50, 60)]}
+        run = self.wait(self.r.start_request([dict(item)], request_id="rid1", flow="auto", deliver_dir=out, cut="silence", video_tracks=2)["runs"][0])
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe", "pack", "deliver"]), run)
+        self.assertEqual((self.tools.c2r["body"]["spec"]["mode"], self.tools.c2r["body"]["output"]["videoTracks"]), ("silence", 2))
+        self.assertEqual(len(self.zips(out)), 1)
+        jobs = len(self.tools.tx_jobs)
+        run = self.wait(self.r.start_request([dict(item)], request_id="rid2", flow="auto", deliver_dir=out, cut="none", video_tracks=3)["runs"][0])
+        st = self.states(run)
+        self.assertEqual((run["state"], st["export"], st["transcribe"], st["pack"], st["deliver"]), ("done", "skip", "skip", "done", "done"), run)
+        self.assertEqual(len(self.tools.tx_jobs), jobs, "文字起こしは使い回す")
+        body = self.tools.c2r["body"]
+        self.assertEqual((body["spec"].get("mode"), body["spec"].get("listKind"), body["output"]["videoTracks"], body["output"].get("force")), ("list", "drop", 3, True))
+        self.assertEqual(len(self.zips(out)), 2, "作り直したパックも届ける")
+        # カットの指定が無い依頼(1.4.0 までのアプリ)は、ホームの設定(既定 = カットしない)
+        self.wait(self.r.start_request([dict(item, ranges=[(70, 80)])], request_id="rid3", flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(self.tools.c2r["body"]["spec"].get("listKind"), "drop")
+
+    def test_request_weights_reanalyze_only_when_different(self):
+        """解析の重み: 指定があればその重みで解析。解析済みで同じ重みなら使い回す・違えば解析し直す"""
+        w = {"wAudio": 1.5, "wChat": 0.5, "wComments": 0.7}
+        self.tools.analyze = {"count": 12, "wAudio": 1.0}
+        self.tools.known = False
+        run = self.wait(self.r.start_request([{"id": VID, "top": 1}], weights=w)["runs"][0])
+        self.assertEqual(self.states(run)["analyze"], "done", run)
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[-1][3]["settings"], {"count": 12, "wAudio": 1.5, "wChat": 0.5, "wComments": 0.7})   # ほかの設定はスタジオのまま
+        self.tools.video["analysis"] = {"at": 3, "spec": dict(w, count=12)}
+        run = self.wait(self.r.start_request([{"id": VID, "top": 1}], weights=dict(w))["runs"][0])
+        self.assertEqual(self.states(run)["analyze"], "skip")
+        self.tools.queue.clear()
+        run = self.wait(self.r.start_request([{"id": VID, "top": 1}], weights=dict(w, wChat=2.0))["runs"][0])
+        self.assertEqual(self.states(run)["analyze"], "done", run)
+        self.assertEqual(len([c for c in self.tools.calls if c[2] == "/api/queue/add"]), 2)
+        run = self.wait(self.r.start_request([{"id": VID, "top": 1}])["runs"][0])   # 指定なし: 解析済みなら使い回す
+        self.assertEqual(self.states(run)["analyze"], "skip")
+        self.assertIsNone(A.clean_weights({"wAudio": 4, "wChat": 1, "wComments": 1}))
+        self.assertIsNone(A.clean_weights({"wAudio": True, "wChat": 1, "wComments": 1}))
+
+    def test_range_helpers(self):
+        self.assertEqual(A.pad_range(100, 190), [98.0, 192.0])
+        self.assertEqual(A.pad_range(1, 30, 31.0), [0.0, 31.0])
+        self.assertEqual(A.pad_range(0, 3600), [0.0, 3600.0])        # 長さの上限いっぱいなら余白は足さない
+        self.assertEqual(A.pad_range(10, 3609), [9.5, 3609.5])       # 余白を減らして上限に収める
+        self.assertEqual(A.clean_ranges(None), [])
+        self.assertEqual(A.clean_ranges([[1, 2.26], (3, 4)]), [(1.0, 2.3), (3.0, 4.0)])
+        for bad in ("x", [[1]], [[2, 1]], [[0, 3601]], [[-1, 5]], [["1", 2]], [[True, 2]], [[i, i + 1] for i in range(11)]):
+            with self.assertRaises(ValueError, msg=bad):
+                A.clean_ranges(bad)
+        res = self.r.start_request([{"id": VID, "top": 1, "ranges": [[5, 1]]}])
+        self.assertEqual((res["runs"], res["skipped"][0]["reason"]), ([], "区間の指定が正しくありません"))
 
 
 if __name__ == "__main__":

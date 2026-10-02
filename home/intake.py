@@ -13,7 +13,8 @@
 - 同期の途中を読まない: 大きさと更新時刻が SETTLE 秒以上変わらないファイルだけ。友人のプログラムの動画は JSON がそろってから
 - 受け付けた元のファイルは 受付済み\YYYY-MM-DD\ へ、断ったものは 失敗\ へ移し「<名前>.理由.txt」を添える(消さない)
 - 動画は作業データの intake\YYYY-MM-DD\ へコピーしてから文字起こしする(Dropbox の「オンラインのみ」や片付けで元が消えても、文書の元のパスが切れない)
-- 同じ動画(中身のハッシュ)・同じ配信は2回流さない(作業データの intake-state.json に覚える)
+- 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
+- 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。friend-intake.md の 2-6)
 - 1日の上限を超えた分は断らずにフォルダに残し、次の日に回す
 - URL は YouTube の配信・動画だけ。11 文字の ID を取り出し、それだけを yt-dlp に渡す(任意の URL を渡さない)
 - 動画は拡張子と ffprobe で形を確かめてから(他人が作ったファイルを ffmpeg で読むこと自体が攻撃の入口になり得るため)
@@ -196,6 +197,54 @@ def parse_speakers(v):
 
 
 VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
+RANGE_MAX, RANGE_MAX_SEC = 10, 3600   # 1本の配信の区間の数・1つの区間の長さ(まとめて実行・スタジオと同じ)
+CUT_LABELS = {"none": "カットしない", "silence": "無音を削る"}
+
+
+def hms(sec):
+    sec = int(sec)
+    return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+
+
+def parse_ranges(v):
+    """依頼の区間 [{"start": 秒, "end": 秒}, …](2.0.0 のアプリ)-> ([(開始, 終了)], [断った理由])。
+    0 ≤ 開始 < 終了・長さ 3600 秒まで・10 個まで。形が違うものだけ断る(ほかは進める)"""
+    ok, bad = [], []
+    if v is None:
+        return ok, bad
+    if not isinstance(v, list):
+        return ok, ["区間の形が正しくありません"]
+    for r in v[:50]:
+        s, e = (r.get("start"), r.get("end")) if isinstance(r, dict) else (None, None)
+        if not all(isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and 0 <= x <= 360000 for x in (s, e)):
+            bad.append("区間の形が正しくありません")
+        elif e <= s:
+            bad.append("区間 %s〜%s: 終了が開始より前です" % (hms(s), hms(e)))
+        elif e - s > RANGE_MAX_SEC:
+            bad.append("区間 %s〜%s: 1つの区間は 60 分までです" % (hms(s), hms(e)))
+        elif len(ok) >= RANGE_MAX:
+            bad.append("区間 %s〜%s: 1本の配信の区間は %d 個までです" % (hms(s), hms(e), RANGE_MAX))
+        elif (s, e) not in ok:
+            ok.append((s, e))
+    return ok, bad
+
+
+def parse_cut(v):
+    """依頼のカット(① のパック)-> "none" / "silence" か None(無い・知らない値 = ホームの設定)"""
+    return v if v in CUT_LABELS else None
+
+
+def parse_weights(v):
+    """依頼の解析の重み {"audio", "chat", "comments"}(0〜3)-> スタジオの解析の設定の名前 {"wAudio", "wChat", "wComments"} か None(無い・形が違う)"""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    for src, dst in (("audio", "wAudio"), ("chat", "wChat"), ("comments", "wComments")):
+        x = v.get(src)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or x != x or not 0 <= x <= 3:
+            return None
+        out[dst] = round(float(x), 1)
+    return out
 
 
 def parse_video_tracks(v):
@@ -406,13 +455,17 @@ class Intake:
         flow = d.get("flow") if d.get("flow") in FLOW_LABELS else "check"   # 1.0.0 のアプリは flow を送らない = 今までどおり ②
         speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
         tracks = parse_video_tracks(d.get("videoTracks")) if flow == "auto" else None   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
+        cut = parse_cut(d.get("cut")) if flow == "auto" else None   # カットの方法(パックを作る ① だけ。無ければホームの設定)
         if d["kind"] == "url":
-            raw = d.get("items") if isinstance(d.get("items"), list) else []
-            lines = "\n".join("%s %s" % (str((it or {}).get("url") or "")[:300], (it or {}).get("top", cfg["top"])) for it in raw[:MAX_URLS] if isinstance(it, dict))
+            raw = [it for it in (d.get("items") if isinstance(d.get("items"), list) else [])[:MAX_URLS] if isinstance(it, dict)]
+            lines = "\n".join("%s %s" % (str(it.get("url") or "")[:300], it.get("top", cfg["top"])) for it in raw)
+            # 時刻で指定した区間(配信の ID ごと。③ = 解析までの依頼では使わない)
+            ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw} if flow != "manual" else {}
             if self._room(cfg) <= 0:
                 self.held += 1
                 return {n}
-            self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks)
+            self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks, ranges=ranges, cut=cut,
+                               weights=parse_weights(d.get("weights")))
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
@@ -432,12 +485,12 @@ class Intake:
         results, runs = [], []
         for x in names:
             label = APP_FILE_RE.match(x).group(2) if APP_FILE_RE.match(x) else x
-            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers, tracks)
+            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers, tracks, cut)
             results.append(dict(res, label=label))
             runs += [res["runId"]] if res.get("runId") else []
         if note:
             results.append({"label": "配信者", "state": "accepted", "reason": note})
-        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks)
+        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut)
         return {n} | set(names)
 
     def _handle_manual_video(self, folder, n, p, cfg):
@@ -465,15 +518,19 @@ class Intake:
             return
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
-    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None):
+    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None):
+        """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)"""
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
         todo, seen = [], set()
         room = self._room(cfg)
         for it in ok[:MAX_URLS]:
-            label = "https://www.youtube.com/watch?v=%s(%d 個)" % (it["id"], it["top"])
-            if it["id"] in seen or it["id"] in self.st["videos"]:
-                results.append({"label": label, "state": "rejected", "reason": "前に受け付けた配信です"})
+            rs, rbad = (ranges or {}).get(it["id"]) or ([], [])
+            it["top"] = min(TOP_MAX, max(it["top"], len(rs)))   # 切り抜く数は区間の数より小さくしない
+            label = "https://www.youtube.com/watch?v=%s(%s)" % (it["id"], "指定 %d + 自動 %d" % (len(rs), it["top"] - len(rs)) if rs else "%d 個" % it["top"])
+            results += [{"label": label, "state": "rejected", "reason": r} for r in rbad]
+            if it["id"] in seen:
+                results.append({"label": label, "state": "rejected", "reason": "同じ配信が2回書かれています(1回だけ受け付けました)"})
                 continue
             if len(todo) >= room:
                 results.append({"label": label, "state": "rejected", "reason": "今日の上限(%d 件)を超えたので受け付けませんでした(明日送り直してください)" % cfg["dailyMax"]})
@@ -485,16 +542,24 @@ class Intake:
             if info.get("duration") and info["duration"] > float(cfg["maxHours"]) * 3600:
                 results.append({"label": label, "state": "rejected", "reason": "配信が長すぎます(%.1f 時間。上限 %s 時間)" % (info["duration"] / 3600, cfg["maxHours"])})
                 continue
+            if rs and info.get("duration"):   # 配信の長さの外の区間: 終わりで切る。長さより後から始まるものは断る
+                late = [(s, e) for s, e in rs if s >= info["duration"]]
+                results += [{"label": label, "state": "rejected", "reason": "区間 %s〜%s: 配信の長さ(%s)より後です" % (hms(s), hms(e), hms(info["duration"]))} for s, e in late]
+                rs = [(s, min(e, info["duration"])) for s, e in rs if s < info["duration"]]
+                it["top"] -= len(late)   # 断った区間の分は、自動で埋めない
+                if it["top"] <= 0:
+                    continue   # 指定した区間が全部だめ(自動の分も無い): この配信は流さない
             seen.add(it["id"])
-            todo.append(dict(it, title=info.get("title") or "", channel=info.get("channel") or "", label=label, checked=bool(info)))
+            todo.append(dict(it, title=info.get("title") or "", channel=info.get("channel") or "", label=label, checked=bool(info), ranges=rs,
+                             duration=info.get("duration")))
         for it in ok[MAX_URLS:]:
             results.append({"label": it["line"], "state": "rejected", "reason": "1つの依頼に書けるのは %d 本までです" % MAX_URLS})
         runs = []
         if todo:
             try:
-                out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel")} for it in todo], request_id=rid,
+                out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
                                                   flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
-                                                  video_tracks=tracks)
+                                                  video_tracks=tracks, cut=cut, weights=weights)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
             by_vid = {r["videoId"]: r for r in out.get("runs") or []}
@@ -512,9 +577,12 @@ class Intake:
         if not results:
             results.append({"label": title, "state": "rejected", "reason": "URL が書かれていません"})
         first = next((r["label"] for r in results if r["state"] == "accepted"), title)
-        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks)
+        n_ranges = sum(len(it["ranges"]) for it in todo)
+        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
+                     ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
+                     (" ほか %d" % (n_ranges - 3) if n_ranges > 3 else "") if n_ranges else "")
 
-    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None):
+    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None, cut=None):
         """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}。
         前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。2026-10-02 ユーザー)"""
         ext = os.path.splitext(p)[1].lower()
@@ -549,7 +617,7 @@ class Intake:
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
                                            deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
-                                           video_tracks=tracks)
+                                           video_tracks=tracks, cut=cut)
         except ValueError as e:
             try:
                 os.remove(dest)
@@ -560,7 +628,8 @@ class Intake:
         return {"state": "accepted", "reason": "", "runId": run["id"]}
 
     # ------------------------------------------------------------ 後始末と記録
-    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None):
+    def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None, cut=None,
+                weights=None, ranges_label=""):
         accepted = any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
@@ -569,6 +638,8 @@ class Intake:
                "flow": flow, "flowLabel": FLOW_LABELS.get(flow, ""),
                "speakersLabel": ("話す人: %d人" % speakers["count"] + ("(%s)" % "・".join(speakers["names"]) if speakers["names"] else "")) if speakers else "",
                "tracksLabel": "映像トラック: %d本" % tracks if tracks else "",
+               "rangesLabel": ranges_label, "cutLabel": "カット: %s" % CUT_LABELS[cut] if cut in CUT_LABELS else "",
+               "weightsLabel": "重み: 音声 %s・チャット %s・コメント %s" % (weights["wAudio"], weights["wChat"], weights["wComments"]) if weights else "",
                "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30]}
         self.st["requests"] = ([rec] + self.st["requests"])[:KEEP_REQUESTS]
         self._move(folder, moved, state, items)
