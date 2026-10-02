@@ -99,6 +99,7 @@ Studio.on = (name, fn) => document.addEventListener('studio:' + name, e => fn(e.
 Studio.isTyping = el => {
   if (!el || !el.tagName) return false;
   const tag = el.tagName;
+  if (el.classList && el.classList.contains('ui-time')) return true;   // 時刻の欄(UIKit.timebox。数字・矢印を自分で使う)
   return tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable || (tag === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'file'].includes(el.type));
 };
 /* 設定の引き出し・ダイアログが開いている間は、③ のショートカットを止める(裏の動画が勝手に動かないように) */

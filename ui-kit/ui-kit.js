@@ -1817,7 +1817,8 @@
      形は3つ: 時:分:秒(既定)/ 時:分:秒.0.1秒(tenths)/ 分:秒.0.1秒(short。短い切り抜きの字幕の行など。1時間を超えたら分が 60 以上)。
      入力欄(input)ではなく、フォーカスできる要素に自分で描く: 文字を打ち込めない・日本語入力に数字のキーを取られない・選んだ所をアクセントの色で見せられる。
      値は秒(tenths・short のときは 0.1 秒刻み)。入っていなければ null。変わるたびに要素へ 'ui-time'(detail: {value})、
-     欄を離れた・Enter を押したときに値が変わっていれば 'ui-time-commit'(input の change に当たる)、読めない貼り付けは 'ui-time-reject'(detail: {reason}) */
+     欄を離れた・Enter を押したときに値が変わっていれば 'ui-time-commit'(input の change に当たる。detail: {value, via: 'enter'|'blur', to: 移った先の要素 | null})、
+     読めない貼り付けは 'ui-time-reject'(detail: {reason}) */
   var TB_MAX = 99 * 3600 + 59 * 60 + 59;   // 秒
   /* 形ごとの区切り: unit = その場所の 1 が 0.1 秒いくつ分か。先頭は桁数を決めない(1桁打ったら次へ)・2桁の所は 0 を付けて出す・0.1 秒は1桁 */
   var TB_FORMS = {
@@ -1888,10 +1889,11 @@
       el.setAttribute('aria-valuetext', has ? tbText(v, form) + (on ? '(' + form[seg].name + 'を選択中)' : '') : '未入力');
     }
     function tell() { fire('ui-time', { value: has ? v / 10 : null }); }
-    function commit() {
+    function commit(via, to) {
       if (baseV === v && baseHas === has) return;
       baseV = v; baseHas = has;
-      fire('ui-time-commit', { value: has ? v / 10 : null });
+      /* via = 'enter' | 'blur'、to = 離れて移った先(画面を描き直す側が、フォーカスを奪い返さずに移った先へ戻せるように) */
+      fire('ui-time-commit', { value: has ? v / 10 : null, via: via, to: to || null });
     }
     function setPart(i, n) {
       var p = tbParts(v, form), sum = 0;
@@ -1924,7 +1926,7 @@
       else if (k === 'ArrowUp' || k === 'ArrowDown') { has = true; half = false; v = clamp(v + (k === 'ArrowUp' ? 1 : -1) * form[seg].unit * (e.shiftKey ? 10 : 1)); }
       else if (k === 'Backspace') { if (tbParts(v, form)[seg] === 0 && !half) seg = Math.max(0, seg - 1); else setPart(seg, 0); half = false; }
       else if (k === 'Delete') { v = 0; has = false; seg = 0; half = false; }
-      else if (k === 'Enter') { half = false; commit(); }
+      else if (k === 'Enter') { half = false; commit('enter', null); }
       else used = false;
       if (!used) return;
       e.preventDefault(); e.stopPropagation();   // 画面のキー操作(再生・矢印で 1 秒など)に渡さない
@@ -1939,7 +1941,7 @@
     });
     el.addEventListener('copy', function (e) { if (has && e.clipboardData) { e.clipboardData.setData('text/plain', tbText(v, form)); e.preventDefault(); } });
     el.addEventListener('focus', function () { seg = 0; half = false; baseV = v; baseHas = has; draw(); });   // 欄に入ったら、左の端から打ち始める
-    el.addEventListener('blur', function () { half = false; draw(); commit(); });
+    el.addEventListener('blur', function (e) { half = false; draw(); commit('blur', e.relatedTarget); });
     el.addEventListener('mousedown', function (e) {
       if (disabled()) { e.preventDefault(); return; }
       var t = e.target && e.target.closest ? e.target.closest('.ui-time-seg') : null, pick = t && has ? Number(t.getAttribute('data-seg')) : 0;

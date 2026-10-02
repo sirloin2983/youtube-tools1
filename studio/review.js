@@ -1544,7 +1544,7 @@ function reasonTags(c){
 function tfieldHTML(c, w, label){
   const k = (a, x) => `data-key="${esc(c.id)}|${a}|${x}"`;
   return `<div class="rv-tfield">
-    <div class="rv-trow"><span class="rv-fl rv-tlab">${label}</span><input class="mono" data-f="${w}" value="${fmt(c[w])}" aria-label="${label}時刻" autocomplete="off" ${k('in', w)}>
+    <div class="rv-trow"><span class="rv-fl rv-tlab">${label}</span><span class="mono" data-f="${w}" data-ui-time="${Number(c[w]) || 0}" data-ui-time-tenths aria-label="${label}時刻" ${k('in', w)}></span>
       <button type="button" class="btn small" data-act="setnow" data-w="${w}" ${k('setnow', w)} title="現在の再生位置にする">現在位置</button></div>
     <div class="rv-trow rv-nudges" role="group" aria-label="${label}を微調整">
       ${[-5, -1, -0.5, 0.5, 1, 5].map(d => `<button type="button" class="btn small" data-act="nudge" data-w="${w}" data-d="${d}" ${k('nudge', w + (d < 0 ? '-' : '+') + Math.abs(d))} aria-label="${label}を${d < 0 ? '' : '+'}${d}秒">${d < 0 ? '−' : '＋'}${Math.abs(d)}</button>`).join('')}
@@ -1609,7 +1609,7 @@ function renderList(){
     return;
   }
   S.rendering = true;
-  try { ol.innerHTML = list.map(markHTML).join(''); } finally { S.rendering = false; }
+  try { ol.innerHTML = list.map(markHTML).join(''); UIKit.timebox.attachAll(ol); } finally { S.rendering = false; }   // 時刻の欄(時:分:秒.0.1秒。数字だけで入れる。ui-kit v11)
   if (window.UIKit && UIKit.icon) UIKit.icon.fill(ol);   // 行の中の「…」の SVG(動的に描くので、読み込み後の一括の埋め込みには乗らない)
 }
 function renderStats(){
@@ -1772,7 +1772,7 @@ function wire(){
   });
   /* B-11: 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
   list.addEventListener('focusin', e => {
-    const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input') || e.target.classList.contains('rv-join')) return;   // つなぐのチェックでは選ばない(選び直すと上の行の微調整が畳まれて一覧がずれ、押したつもりが外れる)
+    const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input, .ui-time') || e.target.classList.contains('rv-join')) return;   // つなぐのチェックでは選ばない(選び直すと上の行の微調整が畳まれて一覧がずれ、押したつもりが外れる)
     S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
   });
   list.addEventListener('input', e => {
@@ -1780,20 +1780,23 @@ function wire(){
     const c = marks().find(x => x.id === e.target.closest('.rv-mark-row').dataset.id); if (!c) return;
     c.label = e.target.value; markDirty();
   });
-  list.addEventListener('change', e => {
-    if (S.rendering) return; // 再描画で入力欄が外れるときに出る blur 由来の change は無視
+  /* 開始・終了の時刻の欄(UIKit.timebox)を直した: Enter か欄を離れたときに確定(ui-time-commit = 入力欄の change に当たる) */
+  list.addEventListener('ui-time-commit', e => {
+    if (S.rendering) return; // 再描画で欄が外れるときに出る blur 由来の確定は無視
     const f = e.target.dataset.f;
     const li = e.target.closest('.rv-mark-row'); const c = li && marks().find(x => x.id === li.dataset.id); if (!c) return;
     if (f !== 'start' && f !== 'end') return;
-    const t = parseTime(e.target.value);
-    if (Number.isNaN(t)){ toast('時刻の形式が正しくありません(例: 1:23.5)'); e.target.value = fmt(c[f]); return; }
-    if (setBound(c, f, t)) refresh(c.id + '|in|' + f); else e.target.value = fmt(c[f]);
+    const t = e.detail.value;
+    if (t === null){ toast('時刻を空にはできません(元の時刻に戻しました)'); UIKit.timebox.set(e.target, c[f]); return; }
+    if (!setBound(c, f, t)){ UIKit.timebox.set(e.target, c[f]); return; }
+    /* 描き直したあとのフォーカス: Enter ならこの欄のまま。欄を離れて確定したときは、移った先(開始 → Tab → 終了 と続けて打てるように。一覧の外なら奪い返さない) */
+    const to = e.detail.to, key = to && to.getAttribute ? to.getAttribute('data-key') : null;
+    refresh(e.detail.via === 'blur' ? key : c.id + '|in|' + f);
   });
   list.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     const f = e.target.dataset && e.target.dataset.f;
-    if (f === 'start' || f === 'end'){ e.preventDefault(); e.target.dispatchEvent(new Event('change', { bubbles: true })); }
-    else if (f === 'label'){ e.preventDefault(); e.target.blur(); }
+    if (f === 'label'){ e.preventDefault(); e.target.blur(); }
   });
 
   // タイムライン(クリックで移動・ドラッグでスクラブ・区間は選択)と、グラフ上のクリック

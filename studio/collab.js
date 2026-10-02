@@ -161,17 +161,17 @@ function memberMeta(m){
 }
 function anchorFormHtml(g, m){
   return `<div class="cl-anchor">
-    <p class="hint">両方の配信で「同じ瞬間」(同じ発言・効果音など)を見つけて、その時刻を入力してください(例: 1:23.5、1時間以上は 1:02:03.5)。2点目も指定すると、配信中のわずかなズレの変化(<abbr class="ui-term" title="配信が長いと、2つの配信の時刻の差が少しずつ変わっていくこと">ドリフト</abbr>)も補正できます。</p>
+    <p class="hint">両方の配信で「同じ瞬間」(同じ発言・効果音など)を見つけて、その時刻を入れてください(数字だけで入ります: 012345 → 0:12:34.5。← → で場所を選び、↑ ↓ で動かす)。2点目も指定すると、配信中のわずかなズレの変化(<abbr class="ui-term" title="配信が長いと、2つの配信の時刻の差が少しずつ変わっていくこと">ドリフト</abbr>)も補正できます。</p>
     <div class="cl-apoints">
       <span class="cl-plabel">点1</span>
-      <label class="cs-opt"><span class="l">この配信 <span class="muted">${esc(m.title || m.id)}</span></span><input type="text" class="mono" id="clA1this" placeholder="0:00.0" autocomplete="off"></label>
-      <label class="cs-opt"><span class="l">基準 <span class="muted">${esc(baseTitle(g))}</span></span><input type="text" class="mono" id="clA1ref" placeholder="0:00.0" autocomplete="off"></label>
+      <div class="cs-opt"><span class="l">この配信 <span class="muted">${esc(m.title || m.id)}</span></span><span id="clA1this" data-ui-time data-ui-time-tenths aria-label="点1: この配信の時刻"></span></div>
+      <div class="cs-opt"><span class="l">基準 <span class="muted">${esc(baseTitle(g))}</span></span><span id="clA1ref" data-ui-time data-ui-time-tenths aria-label="点1: 基準の配信の時刻"></span></div>
     </div>
     <label class="lag cl-a2" for="clA2on"><input type="checkbox" class="ui-switch" id="clA2on">2点目も指定する</label>
     <div class="cl-apoints" id="clA2row" hidden>
       <span class="cl-plabel">点2</span>
-      <label class="cs-opt"><span class="l">この配信</span><input type="text" class="mono" id="clA2this" placeholder="0:00.0" autocomplete="off"></label>
-      <label class="cs-opt"><span class="l">基準</span><input type="text" class="mono" id="clA2ref" placeholder="0:00.0" autocomplete="off"></label>
+      <div class="cs-opt"><span class="l">この配信</span><span id="clA2this" data-ui-time data-ui-time-tenths aria-label="点2: この配信の時刻"></span></div>
+      <div class="cs-opt"><span class="l">基準</span><span id="clA2ref" data-ui-time data-ui-time-tenths aria-label="点2: 基準の配信の時刻"></span></div>
     </div>
     <div class="row cl-acts"><button type="button" class="btn primary" data-act="saveAnchor">計算して保存</button>
       <button type="button" class="btn ghost" data-act="cancelAnchor">キャンセル</button><span class="hint cl-amsg" id="clAnchorMsg" role="status"></span></div>
@@ -205,6 +205,7 @@ function groupHtml(g){
 function renderGroups(){
   const box = $('#clGroupList'); if (!box) return;
   box.innerHTML = C.groups.length ? C.groups.map(groupHtml).join('') : EMPTY_GROUPS;
+  UIKit.timebox.attachAll(box);   // 合わせる時刻の欄(時:分:秒.0.1秒。ui-kit v11)
 }
 
 /* ---------- 操作 ---------- */
@@ -260,12 +261,12 @@ function onVideoChange(e){
 }
 async function saveAnchor(gid, vid){
   const msg = $('#clAnchorMsg');
-  const t1 = parseTime($('#clA1this').value), r1 = parseTime($('#clA1ref').value);
-  if (!Number.isFinite(t1) || !Number.isFinite(r1)){ msg.textContent = '点1の時刻を入力してください(例: 1:23.5)'; return; }
+  const t1 = UIKit.timebox.get($('#clA1this')), r1 = UIKit.timebox.get($('#clA1ref'));   // 時刻の欄(入っていなければ null)
+  if (t1 === null || r1 === null){ msg.textContent = '点1の時刻を、この配信と基準の両方に入れてください'; (t1 === null ? $('#clA1this') : $('#clA1ref')).focus(); return; }
   const points = [[t1, r1]];
   if ($('#clA2on').checked){
-    const t2 = parseTime($('#clA2this').value), r2 = parseTime($('#clA2ref').value);
-    if (!Number.isFinite(t2) || !Number.isFinite(r2)){ msg.textContent = '点2の時刻を入力してください(例: 1:23.5)'; return; }
+    const t2 = UIKit.timebox.get($('#clA2this')), r2 = UIKit.timebox.get($('#clA2ref'));
+    if (t2 === null || r2 === null){ msg.textContent = '点2の時刻を、この配信と基準の両方に入れてください(使わないなら「2点目も指定する」を外す)'; (t2 === null ? $('#clA2this') : $('#clA2ref')).focus(); return; }
     points.push([t2, r2]);
   }
   const btn = document.querySelector('[data-act="saveAnchor"]');
@@ -304,7 +305,7 @@ async function onGroupClick(e){
   } else if (act === 'anchor'){
     C.anchorOpen = (C.anchorOpen && C.anchorOpen.gid === gid && C.anchorOpen.videoId === vid) ? null : { gid, videoId: vid };
     renderGroups();
-    const f = $('#clA1this'); if (f && C.anchorOpen) f.focus();
+    const f = $('#clA1this'); if (f && C.anchorOpen) f.focus();   // 時刻の欄は renderGroups が付ける(UIKit.timebox.attachAll)
   } else if (act === 'cancelAnchor'){
     C.anchorOpen = null; renderGroups();
   } else if (act === 'saveAnchor'){
@@ -344,9 +345,9 @@ function wire(){
   $('#clPicked').addEventListener('click', e => { const b = e.target.closest('[data-unpick]'); if (!b) return; C.checked.delete(b.dataset.unpick); renderVideoList(); });
   $('#clGroupList').addEventListener('click', onGroupClick);
   $('#clGroupList').addEventListener('change', onGroupChange);
-  $('#clGroupList').addEventListener('keydown', e => {   // 時刻の欄で Enter を押したら保存
-    if (e.key !== 'Enter' || !e.target.closest('.cl-anchor') || e.target.type !== 'text') return;
+  $('#clGroupList').addEventListener('keydown', e => {   // 時刻の欄で Enter を押したら保存(欄は Enter を自分で受けるので、捕捉の段階で見る)
+    if (e.key !== 'Enter' || !e.target.closest('.cl-anchor') || !e.target.classList.contains('ui-time')) return;
     e.preventDefault(); const li = e.target.closest('[data-gid][data-vid]'); if (li) saveAnchor(li.dataset.gid, li.dataset.vid);
-  });
+  }, true);
 }
 })();

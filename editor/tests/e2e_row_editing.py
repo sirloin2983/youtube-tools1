@@ -133,7 +133,13 @@ def main():
                 # 1回の evaluate でまとめて読む(1行ずつ locator を作ると、その間の再描画でずれることがあるため)
                 return [tuple(x) for x in pg.evaluate(
                     "[...document.querySelectorAll('#segs .seg')].map(r => "
-                    "[r.querySelector('input.t[data-f=start]').value, r.querySelector('input.t[data-f=end]').value])")]
+                    "[r.querySelector('.t[data-f=start]').textContent, r.querySelector('.t[data-f=end]').textContent])")]
+
+            def type_time(loc, digits):
+                """時刻の欄(UIKit.timebox。分:秒.0.1秒)に数字だけで入れて、欄を離れて確定する"""
+                loc.focus()
+                pg.keyboard.type(digits)
+                loc.evaluate("el => el.blur()")
 
             def select_row(i):
                 pg.locator("#segs textarea").nth(i).click()
@@ -406,10 +412,10 @@ def main():
             check(texts == ["一", "二", "", "三", "四"], "新しい行(空)は「二」の直後・「三」の前に入る: %s" % texts)
             check(pg.locator("#segs .seg").nth(2).locator(".times").evaluate("e => e.classList.contains('ovl')"),
                   "新しい行の .times には、「三」と重なっている印 .ovl が付く")
-            end4 = pg.locator("#segs .seg").nth(4).locator("input.t[data-f=end]")
-            check(end4.input_value() == "0:06.0", "前提: 「四」の終了は 0:06.0")
-            end4.fill("0:06.5")
-            end4.evaluate("el => el.blur()")
+            end4 = pg.locator("#segs .seg").nth(4).locator(".t[data-f=end]")
+            check(end4.text_content() == "0:06.0", "前提: 「四」の終了は 0:06.0: %r" % end4.text_content())
+            type_time(end4, "0065")
+            check(pg.locator("#segs .seg").nth(4).locator(".t[data-f=end]").text_content() == "0:06.5", "時刻の欄に 0065 → 0:06.5(「:」を打たない): %r" % pg.locator("#segs .seg").nth(4).locator(".t[data-f=end]").text_content())
             texts2 = pg.evaluate("[...document.querySelectorAll('#segs .seg textarea')].map(t => t.value)")
             check(texts2 == ["一", "二", "", "三", "四"],
                   "無関係な行(四)の時刻を書き換えて並べ替え(sortSegs)が走っても、新しい行は「三」の前のまま(開始だけの安定ソート): %s" % texts2)
@@ -434,10 +440,9 @@ def main():
             open_doc("重なり文書2")
             times = rows_times()
             check(times == [("0:00.0", "0:03.0"), ("0:02.0", "0:05.0")], "前提: C(0-3)・D(2-5)が重なっている: %s" % times)
-            c_end = pg.locator("#segs .seg").nth(0).locator("input.t[data-f=end]")
+            c_end = pg.locator("#segs .seg").nth(0).locator(".t[data-f=end]")
             check(pg.locator("#segs .seg").nth(0).locator(".times").evaluate("e => e.classList.contains('ovl')"), "前提: 重なっている")
-            c_end.fill("0:01.5")
-            c_end.evaluate("el => el.blur()")
+            type_time(c_end, "0015")
             check(not pg.locator("#segs .seg").nth(0).locator(".times").evaluate("e => e.classList.contains('ovl')"),
                   "時刻の入力欄に直接入力して重なりを解消しても、.ovl が外れる")
 

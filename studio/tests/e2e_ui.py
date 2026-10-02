@@ -294,6 +294,43 @@ def run_checks(port, fx, shots=None):
             c.ok(wait_js(pg, "() => { const r = document.activeElement.closest('.rv-mark-row'); return r && r.classList.contains('sel') && getComputedStyle(r.querySelector('.rv-nudges')).display !== 'none'; }", 3000),
                  "別のマークの欄に入ると、そのマークが選ばれて微調整のボタンが出る")
             pg.evaluate("document.activeElement.blur()")
+        # 開始・終了は時刻の欄(UIKit.timebox。時:分:秒.0.1秒): 「:」を打たずに数字だけ・Enter で確定・開始 → Tab で次へ進める・おかしな時刻は元に戻す
+        M1 = "document.querySelector('#rvList .rv-mark-row[data-id=\\\"m1\\\"]')"
+
+        def soon(js, ms=3000):
+            try:
+                return wait_js(pg, js, ms)
+            except TimeoutError:
+                return False
+
+        def tb(f):
+            return pg.evaluate("(() => { const el = %s.querySelector('[data-f=\\\"%s\\\"]'); return [el.classList.contains('ui-time'), el.textContent, UIKit.timebox.get(el)]; })()" % (M1, f))
+
+        s0, e0 = tb("start"), tb("end")
+        c.ok(s0[0] and e0[0] and s0[1].count(":") == 2 and "." in s0[1], "マークの開始・終了は時刻の欄(0:00:00.0 の形): %s %s" % (s0, e0))
+        pg.locator('#rvList .rv-mark-row[data-id="m1"] [data-f="end"]').focus()
+        new_end = round(s0[2] + 3.5, 1)
+        digits = "%d%02d%02d%d" % (int(new_end // 3600), int(new_end % 3600 // 60), int(new_end % 60), int(round(new_end * 10)) % 10)
+        pg.keyboard.type(digits)
+        pg.keyboard.press("Enter")
+        c.ok(soon("(() => { const el = %s.querySelector('[data-f=\\\"end\\\"]'); return el && UIKit.timebox.get(el) === %s && document.activeElement === el; })()" % (M1, new_end)),
+             "終了の欄に数字だけ(%s)→ Enter で確定し、フォーカスはその欄のまま: %s" % (digits, tb("end")))
+        pg.locator('#rvList .rv-mark-row[data-id="m1"] [data-f="start"]').focus()
+        for _ in range(3):
+            pg.keyboard.press("ArrowRight")
+        pg.keyboard.press("ArrowUp")
+        pg.keyboard.press("Tab")
+        c.ok(soon("(() => { const r = %s, el = r.querySelector('[data-f=\\\"start\\\"]'); return Math.abs(UIKit.timebox.get(el) - %s) < 0.01 && document.activeElement !== el && r.contains(document.activeElement); })()" % (M1, round(s0[2] + 0.1, 1))),
+             "開始を ↑ で 0.1 秒動かして Tab → 確定し、フォーカスは次の部品へ進む(開始の欄に奪い返さない): %s" % tb("start"))
+        pg.locator('#rvList .rv-mark-row[data-id="m1"] [data-f="end"]').focus()
+        pg.keyboard.press("Delete")
+        pg.keyboard.press("Enter")
+        c.ok(soon("UIKit.timebox.get(%s.querySelector('[data-f=\\\"end\\\"]')) === %s" % (M1, new_end)), "空にして確定しても、元の時刻に戻る: %s" % tb("end"))
+        now_before = pg.input_value("#rvNow")
+        pg.locator('#rvList .rv-mark-row[data-id="m1"] [data-f="start"]').focus()
+        pg.keyboard.press("ArrowRight")
+        c.ok(pg.input_value("#rvNow") == now_before, "時刻の欄の中の ← → は、配信の再生位置を動かさない")
+        pg.evaluate("document.activeElement.blur()")
         # 書き出しの引き出し: 1680px 以上は docked(主画面(映像・マーク)が右を空け、重ならない)。1440px は既定で閉じて、押すと重ねる(2026-09-27。並べるとマークの一覧が細くなりすぎたため)
         c.ok(pg.evaluate("() => document.querySelector('#rvExport').hidden"), "1440px: 書き出しの引き出しは既定で閉じている(マークの一覧を広く)")
         pg.set_viewport_size({"width": 1720, "height": 900})
@@ -349,7 +386,7 @@ def run_checks(port, fx, shots=None):
             c.ok(pg.is_hidden("#rvAuto"), "③ 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
             c.ok(pg.locator("#rvList [data-act=auto1]").count() == 0, "③ 単体で開いたときは「この後を ▸」も出さない")
         wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length >= 4")
-        bg = pg.eval_on_selector(".rv-trow input", "el => getComputedStyle(el).backgroundColor")
+        bg = pg.eval_on_selector(".rv-trow .ui-time", "el => getComputedStyle(el).backgroundColor")   # 時刻の欄(UIKit.timebox)
         c.ok(luminance(rgb_of(bg)) < 0.2, "ダーク表示でマークの時刻の入力欄が暗い背景(以前は白): %s" % bg)
         bg2 = pg.eval_on_selector(".rv-labelrow input", "el => getComputedStyle(el).backgroundColor")
         c.ok(luminance(rgb_of(bg2)) < 0.2, "ダーク表示でラベルの入力欄が暗い背景: %s" % bg2)
@@ -627,6 +664,14 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.locator(".cl-member").count() == 2 and "もう一度" in (pg.text_content('.cl-member:not(.is-base) [data-act="removeMember"]') or ""), "「グループから外す」は2回押しで確認する")
         pg.click('.cl-member:not(.is-base) [data-act="anchor"]')
         c.ok(pg.is_visible("#clA1this") and pg.evaluate("document.activeElement.id") == "clA1this", "アンカーの入力欄が開き、フォーカスが移る")
+        # 合わせる時刻は時刻の欄(UIKit.timebox。時:分:秒.0.1秒): 数字だけで入る・入れていなければ保存の前に知らせる
+        c.ok(pg.evaluate("document.getElementById('clA1this').classList.contains('ui-time')") and (pg.text_content("#clA1this") or "") == "0:00:00.0", "合わせる時刻は時刻の欄: %s" % pg.text_content("#clA1this"))
+        pg.keyboard.type("001235")
+        c.ok(pg.evaluate("UIKit.timebox.get(document.getElementById('clA1this'))") == 83.5 and (pg.text_content("#clA1this") or "") == "0:01:23.5", "001235 → 0:01:23.5: %s" % pg.text_content("#clA1this"))
+        pg.keyboard.press("Enter")
+        pg.wait_for_timeout(300)
+        c.ok("点1の時刻" in (pg.text_content("#clAnchorMsg") or "") and pg.evaluate("document.activeElement.id") == "clA1ref",
+             "基準の時刻が空のまま Enter(保存)→ 理由を出して、空の欄へ移る: %s" % pg.text_content("#clAnchorMsg"))
         pg.keyboard.press("Escape")
         c.ok(not pg.is_visible("#uiSettingsDrawer"), "Esc で設定(コラボを含む)を閉じる")
 

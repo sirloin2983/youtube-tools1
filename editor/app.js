@@ -509,14 +509,22 @@ $('#segs').addEventListener('change', e => {
   const f = e.target.dataset.f;
   if (e.target.classList.contains('sel')){ e.target.checked ? S.sel.add(s.id) : S.sel.delete(s.id); updateSel(); return; }
   if (f === 'speaker'){ pushUndo(); s.speaker = e.target.value; setRowSp(row, spById(s.speaker)); markDirty(); }
-  else if (f === 'start' || f === 'end'){
-    const v = parseT(e.target.value);
-    const ok = Number.isFinite(v) && (f === 'start' ? v < s.end : v > s.start);
-    if (!ok){ toast('時刻が正しくありません(開始は終了より前、例 1:23.5)'); e.target.value = fmtT(s[f], true); return; }
-    /* 時刻で並びが変わると、今の行(S.navIdx)の添字がずれる。直した行を id で探し直して、今の行にする */
-    pushUndo(); s[f] = Math.round(v * 100) / 100; sortSegs(); S.navIdx = S.doc.segments.indexOf(s); renderDoc(); markDirty();
+});
+/* 行の時刻の欄(UIKit.timebox。分:秒.0.1秒)を直した: Enter か欄を離れたときに確定(ui-time-commit = 入力欄の change に当たる)。
+   並びが変わらなければ、その行だけ直す(描き直さない = 開始を打って Tab で終了へ、と続けて打てる)。並びが変わるときだけ並べ直して描き直す */
+$('#segs').addEventListener('ui-time-commit', e => {
+  const row = e.target.closest('.seg'); if (!row) return;
+  const i = Number(row.dataset.i), s = S.doc.segments[i], f = e.target.dataset.f; if (!s || (f !== 'start' && f !== 'end')) return;
+  const v = e.detail.value;
+  const ok = v !== null && Number.isFinite(v) && (f === 'start' ? v < s.end : v > s.start);
+  if (!ok){ toast(v === null ? '時刻を空にはできません(元の時刻に戻しました)' : f === 'start' ? '開始は、終了より前にしてください(元の時刻に戻しました)' : '終了は、開始より後にしてください(元の時刻に戻しました)'); UIKit.timebox.set(e.target, s[f]); return; }
+  pushUndo(); s[f] = Math.round(v * 100) / 100; markDirty();
+  const segs = S.doc.segments;
+  if ((segs[i - 1] && segs[i - 1].start > s.start) || (segs[i + 1] && segs[i + 1].start < s.start)){
+    /* 時刻で並びが変わると、今の行(S.navIdx)の添字がずれる。直した行を探し直して、今の行にする */
+    sortSegs(); S.navIdx = segs.indexOf(s); renderDoc();
     rowsEl()[S.navIdx]?.querySelector('textarea')?.focus({ preventScroll: true });
-  }
+  } else markOvl(i);
 });
 $('#btnAddAt').addEventListener('click', () => { if (S.doc) insertAtTime(player().currentTime || 0); });
 $('#segs').addEventListener('click', e => {
@@ -678,7 +686,8 @@ $('#segs').addEventListener('mousedown', e => {
 $('#segs').addEventListener('focusin', e => { if (e.target.classList.contains('sel')) return; const i = rowIdxOf(e.target); if (i >= 0){ setNav(i); savePos(); } txKeybarScene(); });
 $('#segs').addEventListener('focusout', () => setTimeout(txKeybarScene, 0));   // 入力欄から抜けた直後(次の activeElement が決まってから)
 $('#btnNextUn').addEventListener('click', () => navigate('unproofed', 1));
-const isTextEntry = t => !!(t && t.matches && (t.matches('textarea,select,[contenteditable=""],[contenteditable=true]') || (t.matches('input') && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(t.type))));
+/* .ui-time = 時刻の欄(UIKit.timebox。数字・矢印を自分で使うので、入力欄と同じ扱いにする) */
+const isTextEntry = t => !!(t && t.matches && (t.matches('textarea,select,.ui-time,[contenteditable=""],[contenteditable=true]') || (t.matches('input') && !/^(checkbox|radio|button|submit|range|color|file)$/i.test(t.type))));
 let zArm = null;
 /* 左手だけの操作: キー単体(Shift 不要)。文字を入力しているとき(入力欄にカーソルがあるとき)は使えません(Esc で抜けます)。
    画面の全面見直し(段2)で W/S・A/D・Q/E・B・Tab をやめたが、ユーザーの指摘(「左手での操作が使いやすかった」2026-09-27)で戻した。
@@ -868,7 +877,7 @@ player().addEventListener('timeupdate', () => {
   updateCaption();
   const el = rows[i]; if (!el) return;
   el.classList.add('cur');
-  const typing = document.activeElement?.matches('#segs textarea, #segs input, #segs select');
+  const typing = document.activeElement?.matches('#segs textarea, #segs input, #segs select, #segs .ui-time');
   if (V.frameFollow && !typing && S.navIdx !== i) setNav(i);
   if ($('#follow').checked && !el.hidden && !typing) ensureVisible(el, 0.35);
 });

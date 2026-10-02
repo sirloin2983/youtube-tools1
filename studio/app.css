@@ -255,6 +255,7 @@ main{display:block}
 .cl-apoints{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px 12px;align-items:end;margin-top:8px}
 .cl-plabel{font:700 12px/1 var(--mono);color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:6px 8px;margin-bottom:6px}
 .cl-apoints input{font-family:var(--mono)}
+.cl-apoints .ui-time{width:100%;justify-content:flex-start}   /* 合わせる時刻の欄(UIKit.timebox) */
 .cl-apoints .cs-opt>.l{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cl-a2{margin-top:10px}
 .cl-amsg{color:var(--danger)}
