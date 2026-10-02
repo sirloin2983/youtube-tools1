@@ -2679,3 +2679,32 @@
 - テスト: test_intake の test_manual_video_with_name を「2回目も受け付ける」に・+1(同じ中身を映像トラックの数 1 と 2 で送り直し → 2 本とも受け付け・別のコピー)。home 142・e2e_intake_ui・通し確認 OK
 - 文書: friend-intake.md の重複・home/README.txt(0.22.0 の項に追記。版は据え置き)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 切り抜き依頼の機能追加と画面の全面見直し → 送るアプリ 2.0.0・ホーム 0.23.0・スタジオ 0.14.0
+- 依頼: ユーザー「配信の URL で時間を指定してその部分を切り取る / カットなしを初期値にして選べるように / UI の全面見直し(特に時間の入力)/ 便利な機能を提案 / AI モデルやサブエージェントを適切に」。
+  UI の作業の決まり(ui-dev-workflow)どおり、聞き取り → 設計書 → 確認 → 実装 → 見直しの順。設計書と決まったこと: `.design/request-sender-overhaul/DESIGN_BRIEF.md`、
+  見直し: 同 `DESIGN_REVIEW.md`、進め方の記録: 同 `IMPLEMENTATION.md`。PC 側の決まりは `docs/design/friend-intake.md` の 2-6
+- 決定(ユーザー 2026-10-02): ① 区間が「切り抜く数」に足りない分だけ自動で埋める ② カットは「しない(初期値)/ 無音を削る」の2つ ③ 時刻は1つの欄・「:」は打たない・
+  時 → 分 → 秒 の順に左から打つ(右から押し出す形は不採用)・← → で場所を選ぶ・「+30秒」などのボタンは要る ④ 前後の余白 2 秒は PC が自動で付ける(選ばせない)
+  ⑤ 仕上げ方は毎回 ①・ほかは覚える ⑥ URL の題名を出す ⑦ 届いた知らせは「窓を出すなどで絶対に操作の邪魔をしない」 ⑧ 同じ配信も受け付けて解析などは使い回す
+  ⑨ ③ + 時間指定はやらない ⑩ 配色はサイバー風の 4 つから選べる(右上)⑪ 解析の重みは 音声・チャット・コメント の数字を直接いじる。
+  提案して選ばれなかったもの: 時刻のメモをまとめて貼る・区間に題名・送った依頼の進み具合
+- 送るアプリ(`request-sender/`。C# 5): 画面を作り直した。`TimeCore.cs`(時刻の読み書き・時刻の欄の状態 `TimeEdit`・区間・カット・重み・題名・覚える設定)・`Theme.cs`(配色 A〜D・フォント・DPI)・
+  `Controls.cs`(自前で描く部品: ボタン・チェック・ラジオ・数の − / +・入力の枠・一覧・右クリックのメニュー)・`TimeBox.cs`(時刻の欄。自前の描画)・`StreamCard.cs`(配信のカード・区間の行・題名の問い合わせ)・
+  `MainForm.cs`(横2列・下の帯の要約・届いた知らせ)・`MainForm.Receive.cs`(配色・自前の一覧)・`Program.cs`(`--screenshot`)。
+  依頼の JSON に `items[].ranges`・`cut`・`weights`(`top` は配信ごと)。settings.json は保存先を消さずに足す(`LocalState.UpdateSettings`)。通信は Dropbox と YouTube の oEmbed(ID だけ渡す)
+- スタジオ: `POST /api/video/request-marks`(`store.request_marks`。区間を採用済みの手動マークに・足りない分を自動の上位(区間と重ならない)で採用・使い回す・学習の記録は書かない)
+- ホーム: `intake.parse_ranges`・`parse_cut`・`parse_weights`、配信の URL の重複を断らない、`autorun` の `Run.ranges`・`cut`・`weights`・`pad_range`(前後 2 秒)・`_step_adopt_request`・
+  `_weights_differ`(重みが違えば解析し直す)・① の送り直しはパックを作り直す(`overwrite`)。区間が切り抜く数に足りていれば段「解析」を外す。依頼の一覧に区間・カット・重みの札(portal.js)
+- 版: 送るアプリ 1.4.0 → 2.0.0・ホーム 0.22.0 → 0.23.0・スタジオ 0.13.1 → 0.14.0(serve.py・core.js・README)
+- テスト: build.bat 28 件(時刻・区間・JSON・設定・題名・時刻の欄のキー・配信のカード・要約)・スタジオの単体 249(+3)・ホームの単体(test_intake 28・test_autorun 62 ほか)・
+  e2e_intake_ui・e2e_autorun・e2e_portal・e2e_analyze・e2e_ui(163)・e2e_ui --mounted(176)・通し確認 e2e_pipeline すべて OK。push_helper check OK。
+  画面は `build\RequestSender.exe --screenshot`(窓ごと。配色 4 つ・最小/大きめ・③・誤り・送信中・送り終えた・受け取る)で確かめた
+- サブエージェント: 最初の調査(スタジオの API。Haiku・読むだけ)は使えた。**実装と見直しを頼んだサブエージェント(Opus / 既定のモデル)は、起動するたびにセッションごと落ちた(4 回)** ので、
+  画面も PC 側も見直しもまとめ役が直接行い、きりのいい所ごとにコミットした(WIP のコミットが 15 個ほどある)
+- 注意: **この PC は今も不安定**。python の単体テストが Segmentation fault・SystemError で落ちることがある(変更前のコードでも同じ。流し直すと通る)。
+  標準の出力をファイルへ向けて e2e を流すときは `PYTHONUTF8=1`(無いと cp932 で落ちる)。git bash の長いヒアドキュメントは失敗することがある(スクリプトをファイルに書いて流す)
+- 実機で確かめてもらうこと(ROADMAP の 3 にも): 友人の PC で時刻の欄の打ちやすさ・配色・DPI 125%/150%・題名・届いた知らせ。本物の YouTube で、区間だけの依頼(解析なし)・区間 + 自動・重みを指定・同じ配信の送り直し
+- ユーザーがやること: 入口を「すべて終了」→ start.bat(ホーム 0.23.0・スタジオ 0.14.0)。`request-sender\dist\RequestSender.zip`(2.0.0)を友人に渡し直す(鍵は同じ)
+- 未完了・次: 設計レビューの「余裕があれば」(− / + の押しっぱなし・開始のあと自動で終了へ・カードを畳む・Ctrl+Enter)はユーザーの判断待ち
+- 未コミット: なし

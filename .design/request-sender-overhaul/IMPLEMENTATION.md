@@ -1,6 +1,6 @@
 # 実装の進め方と引き継ぎ(切り抜き依頼 2.0.0・ホーム 0.23.0)
 
-> 状態(2026-10-02): 実装中。仕様の正は同じフォルダの `DESIGN_BRIEF.md`。この PC は不安定でセッションが落ちるので、**きりのいい所ごとにコミットし、下の「進み具合」を直す**。
+> 状態(2026-10-02): **実装済み・見直し済み**(残りは DESIGN_REVIEW.md の「余裕があれば」= ユーザーの判断待ちと、実機の確認)。仕様の正は同じフォルダの `DESIGN_BRIEF.md`。この PC は不安定でセッションが落ちるので、**きりのいい所ごとにコミットし、下の「進み具合」を直す**。
 > 再開するときの指示文: 「`.design/request-sender-overhaul/IMPLEMENTATION.md` の進み具合の続きから進めて」
 
 ## 分け方(担当するファイルが重ならない)
@@ -28,11 +28,11 @@
 - [x] A-1 TimeCore.cs(時刻の読み書き・時刻の欄の状態・区間・カット・重み・題名の読み取り・設定)+ テスト + build.bat
 - [x] A-2 RequestJson・Sending を新しい形に(items・ranges・cut・weights)
 - [x] B 画面(配色4つ・横2列・配信のカード・時刻の欄・知らせ・--screenshot)— まとめ役が直接書いた(サブエージェントは3回ともセッションごと落ちた)。残り: README.txt を 2.0.0 に
-- [ ] C-1 スタジオ request-marks + テスト
-- [ ] C-2 intake + テスト
-- [ ] C-3 autorun + テスト
-- [ ] C-4 portal.js・e2e
-- [ ] 版(アプリ 2.0.0・ホーム 0.23.0・スタジオ 0.14.0)・README・friend-intake.md・ROADMAP・WORKLOG
-- [ ] Phase 3: 画面の見直し(frontend-design・baseline-ui・design-review)と、ユーザーの依頼「完成したら最後にもう一度 UI を見直して改善点を探す」
+- [x] C-1 スタジオ request-marks + テスト
+- [x] C-2 intake + テスト
+- [x] C-3 autorun + テスト
+- [x] C-4 portal.js・e2e
+- [x] 版(アプリ 2.0.0・ホーム 0.23.0・スタジオ 0.14.0)・README・friend-intake.md・ROADMAP・WORKLOG
+- [x] Phase 3: 画面の見直し(frontend-design・baseline-ui・design-review)と、ユーザーの依頼「完成したら最後にもう一度 UI を見直して改善点を探す」
 
 ## B の進み具合(画面の担当が書く。落ちても続きから進められるように、終えた所を1行ずつ)
