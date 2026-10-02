@@ -98,7 +98,7 @@ namespace RequestSender
         // スクロールバーを持つ部品(一覧・複数行の欄・スクロールするパネル)だけ
         public static void DarkScroll(Control c)
         {
-            if (!(c is ListBox || c is ListView || c is ScrollableControl || (c is TextBox && ((TextBox)c).Multiline))) return;
+            if (!(c is ListBox || c is ScrollableControl || (c is TextBox && ((TextBox)c).Multiline))) return;
             try { SetWindowTheme(c.Handle, P.Dark ? "DarkMode_Explorer" : "Explorer", null); }
             catch (Exception) { }
         }

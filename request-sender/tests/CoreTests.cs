@@ -526,7 +526,7 @@ static class CoreTests
             File.WriteAllBytes(v, new byte[] { 1 });
             using (var f = new MainForm(dir, new[] { v, Path.Combine(dir, "x.txt"), dir }))
             {
-                var list = FindAll(f).OfType<System.Windows.Forms.ListBox>().Single();
+                var list = FindAll(f).OfType<FileList>().Single();
                 Eq(1, list.Items.Count, "入った動画");
                 True(FindAll(f).OfType<System.Windows.Forms.Label>().Any(l => l.Text.Contains("動画ではない")), "入れなかった理由が出る");
             }

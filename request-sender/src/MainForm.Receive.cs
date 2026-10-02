@@ -16,7 +16,8 @@ namespace RequestSender
         readonly LocalState state;
         readonly Pane recvPane = new Pane { OnPanel = true, Border = true }, listFrame = new Pane { Border = true };
         readonly SectionHead headRecv = new SectionHead("01", "届いたもの");
-        readonly ListView outList = new ListView();
+        readonly EntryList outList = new EntryList();
+        readonly EntryHeader listHeader = new EntryHeader();
         readonly TextBox detail = new TextBox();
         Field detailField;
         readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), deleteBtn = new Btn("消す", BtnKind.Normal),
@@ -41,44 +42,12 @@ namespace RequestSender
             recvHint.Font = Theme.Small;
             recvHint.AutoSize = false;
 
-            outList.View = View.Details;
-            outList.FullRowSelect = true;
-            outList.MultiSelect = false;
-            outList.HideSelection = false;
-            outList.BorderStyle = BorderStyle.None;
-            outList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
-            outList.Font = Theme.Body;
             outList.AccessibleName = "届いたものの一覧";
-            outList.Columns.Add("種類", Ui.S(70));
-            outList.Columns.Add("題", Ui.S(220));
-            outList.Columns.Add("大きさ", Ui.S(90), HorizontalAlignment.Right);
-            outList.Columns.Add("届いた日時", Ui.S(140));
+            outList.Texts = e => new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) };
             outList.SelectedIndexChanged += (s, e) => ShowSelected();
             outList.DoubleClick += (s, e) => { var x = SelectedEntry; if (x != null && x.Kind == OutputKind.Pack) StartDownload(); };
-            outList.Resize += (s, e) => FitColumns();
-            // 見出しと行を配色に合わせて自分で描く(標準の白い見出し・青い選択を出さない)
-            outList.OwnerDraw = true;
-            outList.DrawColumnHeader += (s, e) =>
-            {
-                var p = Theme.P;
-                using (var b = new SolidBrush(p.Panel)) e.Graphics.FillRectangle(b, e.Bounds);
-                using (var pen = new Pen(p.Line)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-                var r = Rectangle.Inflate(e.Bounds, -Ui.S(6), 0);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text, Theme.Small, r, p.Muted,
-                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left));
-            };
-            outList.DrawItem += (s, e) => { };
-            outList.DrawSubItem += (s, e) =>
-            {
-                var p = Theme.P;
-                var entry = e.Item.Tag as OutputEntry;
-                using (var b = new SolidBrush(e.Item.Selected ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
-                Color fg = e.ColumnIndex == 0 && entry != null && entry.Kind == OutputKind.Failure ? p.Error : e.ColumnIndex >= 2 ? p.Muted : p.Text;
-                var r = Rectangle.Inflate(e.Bounds, -Ui.S(6), 0);
-                TextRenderer.DrawText(e.Graphics, e.SubItem.Text, outList.Font, r, fg,
-                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis |
-                    (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left));
-            };
+            listHeader.List = outList;
+            listFrame.Controls.Add(listHeader);
             listFrame.Controls.Add(outList);
 
             detail.Multiline = true;
@@ -119,7 +88,8 @@ namespace RequestSender
             int top = m + Ui.S(54), foot = Ui.S(128), rest = Math.Max(Ui.S(120), h - top - foot - m);
             int listH = rest * 55 / 100;
             listFrame.SetBounds(m, top, iw, listH);
-            outList.SetBounds(1, 1, iw - 2, listH - 2);
+            listHeader.SetBounds(1, 1, iw - 2, Ui.S(24));
+            outList.SetBounds(1, 1 + Ui.S(24), iw - 2, listH - 2 - Ui.S(24));
             detailField.SetBounds(m, top + listH + Ui.S(8), iw, rest - listH - Ui.S(8));
             int y = top + rest + Ui.S(10);
             lDir.Location = new Point(m, y + Ui.S(5));
@@ -132,28 +102,18 @@ namespace RequestSender
             recvStatus.SetBounds(deleteBtn.Right + Ui.S(14), y + Ui.S(10), Math.Max(Ui.S(60), w - m - deleteBtn.Right - Ui.S(14)), Ui.S(20));
             y += Ui.S(48);
             recvBar.SetBounds(m, y, iw, Ui.S(3));
-            FitColumns();
-        }
-
-        // 一覧は標準の部品なので、地と文字の色をここで合わせる
-        void ThemeReceive()
-        {
-            outList.BackColor = Theme.P.Bg;
-            outList.ForeColor = Theme.P.Text;
+            listHeader.Invalidate();
             outList.Invalidate();
         }
 
-        void FitColumns()
+        void ThemeReceive()
         {
-            if (outList.Columns.Count < 4) return;
-            int fixedW = outList.Columns[0].Width + outList.Columns[2].Width + outList.Columns[3].Width;
-            int w = outList.ClientSize.Width - fixedW;   // 見出しの右に標準の白い余りを残さない
-            if (w > 80) outList.Columns[1].Width = w;
+            listHeader.Invalidate();
         }
 
         OutputEntry SelectedEntry
         {
-            get { return outList.SelectedItems.Count == 1 ? outList.SelectedItems[0].Tag as OutputEntry : null; }
+            get { return outList.SelectedItem as OutputEntry; }
         }
 
         void UpdateRecvButtons()
@@ -192,21 +152,16 @@ namespace RequestSender
             entries = listing.Entries;
             outList.BeginUpdate();
             outList.Items.Clear();
-            foreach (var e in entries)
-            {
-                var item = new ListViewItem(new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) });
-                item.Tag = e;
-                outList.Items.Add(item);
-            }
+            foreach (var e in entries) outList.Items.Add(e);
             outList.EndUpdate();
-            FitColumns();
+            listHeader.Invalidate();
             detail.Text = "";
             SetArrived(entries.Count, false);
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
                 SetRecvStatus(entries.Count + " 件あります。選んで「受け取る」を押してください。", false);
-                outList.Items[0].Selected = true;
+                outList.SelectedIndex = 0;
             }
             UpdateRecvButtons();
         }
@@ -333,11 +288,10 @@ namespace RequestSender
         {
             entries.Remove(e);
             failureTexts.Remove(e.Key);
-            foreach (ListViewItem it in outList.Items.Cast<ListViewItem>().ToList())
-                if (it.Tag == e) outList.Items.Remove(it);
+            outList.Items.Remove(e);
             SetArrived(entries.Count, false);
             detail.Text = "";
-            if (outList.Items.Count > 0) outList.Items[0].Selected = true;
+            if (outList.Items.Count > 0) outList.SelectedIndex = 0;
             UpdateRecvButtons();
         }
 

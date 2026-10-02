@@ -192,8 +192,16 @@ namespace RequestSender
                 using (var pen = new Pen(border)) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
                 if (filled && focus) using (var pen = new Pen(p.OnAccent)) g.DrawRectangle(pen, 2, 2, Width - 5, Height - 5);
             }
-            TextRenderer.DrawText(g, Text, Font, ClientRectangle, fg,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+            int dot = Kind == BtnKind.Tab ? Text.IndexOf('●') : -1;
+            if (dot < 0) { TextRenderer.DrawText(g, Text, Font, ClientRectangle, fg, flags); return; }
+            // 「受け取る ●2」: 届いた数はアクセントの色で
+            string head = Text.Substring(0, dot), tail = Text.Substring(dot);
+            var left = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            int wh = TextRenderer.MeasureText(g, head, Font, Size.Empty, left).Width, wt = TextRenderer.MeasureText(g, tail, Font, Size.Empty, left).Width;
+            int x = (Width - wh - wt) / 2;
+            TextRenderer.DrawText(g, head, Font, new Rectangle(x, 0, wh, Height), fg, left);
+            TextRenderer.DrawText(g, tail, Font, new Rectangle(x + wh, 0, wt + 2, Height), Enabled ? p.Accent : fg, left);
         }
     }
 
@@ -505,7 +513,7 @@ namespace RequestSender
             string path = Items[e.Index] as string ?? "";
             string name = Path.GetFileName(path), dir = Path.GetDirectoryName(path) ?? "";
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
-            int nameW = Math.Min(e.Bounds.Width - Ui.S(8), TextRenderer.MeasureText(e.Graphics, name, Font, Size.Empty, flags).Width + Ui.S(8));
+            int nameW = Math.Min(e.Bounds.Width - Ui.S(8), TextRenderer.MeasureText(e.Graphics, name, Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width + Ui.S(8));
             TextRenderer.DrawText(e.Graphics, name, Font, new Rectangle(e.Bounds.X + Ui.S(4), e.Bounds.Y, nameW, e.Bounds.Height), p.Text, flags);
             int rest = e.Bounds.Width - nameW - Ui.S(12);
             if (rest > Ui.S(60))
@@ -657,6 +665,89 @@ namespace RequestSender
         {
             base.OnClientSizeChanged(e);
             Arrange();
+        }
+    }
+    // ---- 届いたものの一覧(受け取る): 種類・題・大きさ・届いた日時。見出しは EntryHeader が描く ----
+    //   標準の一覧(ListView)は、暗い配色でスクロールバーか列の線が標準の見た目になるので使わない
+    public class EntryList : ListBox, IThemed
+    {
+        public Func<OutputEntry, string[]> Texts = e => new[] { "", e.Title, "", "" };
+
+        public EntryList()
+        {
+            DrawMode = DrawMode.OwnerDrawFixed;
+            BorderStyle = BorderStyle.None;
+            IntegralHeight = false;
+            ItemHeight = Ui.S(24);
+            Font = Theme.Body;
+            ApplyTheme();
+        }
+
+        public void ApplyTheme()
+        {
+            BackColor = Theme.P.Bg;
+            ForeColor = Theme.P.Text;
+            Invalidate();
+        }
+
+        // 列の位置(種類 | 題 | 大きさ(右寄せ)| 届いた日時)。幅は一覧の中身の幅
+        public static Rectangle[] Columns(int width, int y, int height)
+        {
+            int pad = Ui.S(8), kind = Ui.S(64), size = Ui.S(84), when = Ui.S(136);
+            int title = Math.Max(Ui.S(60), width - kind - size - when - pad * 2);
+            return new[]
+            {
+                new Rectangle(pad, y, kind, height), new Rectangle(pad + kind, y, title, height),
+                new Rectangle(pad + kind + title, y, size - Ui.S(12), height), new Rectangle(pad + kind + title + size, y, when, height),
+            };
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            var p = Theme.P;
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            using (var b = new SolidBrush(sel ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+            if (e.Index < 0 || e.Index >= Items.Count) return;
+            var entry = Items[e.Index] as OutputEntry;
+            if (entry == null) return;
+            string[] t = Texts(entry);
+            var cols = Columns(ClientSize.Width, e.Bounds.Y, e.Bounds.Height);
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
+            TextRenderer.DrawText(e.Graphics, t[0], Font, cols[0], entry.Kind == OutputKind.Failure ? p.Error : p.Text, flags);
+            TextRenderer.DrawText(e.Graphics, t[1], Font, cols[1], p.Text, flags);
+            TextRenderer.DrawText(e.Graphics, t[2], Font, cols[2], p.Muted, flags | TextFormatFlags.Right);
+            TextRenderer.DrawText(e.Graphics, t[3], Font, cols[3], p.Muted, flags);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Invalidate();
+        }
+    }
+
+    public class EntryHeader : Control, IThemed
+    {
+        static readonly string[] Titles = { "種類", "題", "大きさ", "届いた日時" };
+        public EntryList List;
+
+        public EntryHeader()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+        }
+
+        public void ApplyTheme() { Invalidate(); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = Theme.P;
+            using (var b = new SolidBrush(p.Panel)) e.Graphics.FillRectangle(b, ClientRectangle);
+            using (var pen = new Pen(p.Line)) e.Graphics.DrawLine(pen, 0, Height - 1, Width, Height - 1);
+            var cols = EntryList.Columns(List != null ? List.ClientSize.Width : Width, 0, Height);
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            for (int i = 0; i < cols.Length; i++)
+                TextRenderer.DrawText(e.Graphics, Titles[i], Theme.Small, cols[i], p.Muted, i == 2 ? flags | TextFormatFlags.Right : flags);
         }
     }
 }

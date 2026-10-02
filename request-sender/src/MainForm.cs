@@ -62,15 +62,15 @@ namespace RequestSender
         readonly Btn cutNone = new Btn("しない", BtnKind.Toggle), cutSilence = new Btn("無音を削る", BtnKind.Toggle);
         Stepper tracks, speakerCount;
         readonly HRow cutRow = new HRow(), tracksRow = new HRow(), speakerRow = new HRow();
-        readonly Check weightsOn = new Check("見どころの重みを指定する");
+        readonly Check weightsOn = new Check("見どころの重みを指定する(外すと PC の設定のまま)");
         readonly Pane weightsPane = new Pane { Inherit = true };
         readonly Stepper[] weightSteps = new Stepper[3];
-        readonly Lbl weightsHint = new Lbl("自動で選ぶ分の、見どころの選び方です。数字が大きいほど重く見ます。外しておくと PC の設定のままです。", Tone.Muted);
+        readonly Lbl weightsHint = new Lbl("自動で選ぶ分の、見どころの選び方です。数字が大きいほど重く見ます(1.0 が ふつう・0 は使わない)。", Tone.Muted);
         readonly Pane namesPane = new Pane { Inherit = true };
         readonly TextBox[] speakerNames = new TextBox[Speakers.MaxCount];
         readonly Field[] speakerFields = new Field[Speakers.MaxCount];
         readonly Lbl[] speakerNos = new Lbl[Speakers.MaxCount];
-        readonly Lbl speakerHint = new Lbl("人数を入れると、PC が話者を分けて名前を付けます(名前は任意。分からない人は「話者1」などのまま)。", Tone.Muted);
+        readonly Lbl speakerHint = new Lbl("人数を入れると、PC が話者を分けて名前を付けます。", Tone.Muted);
         readonly Lbl lMemo = new Lbl("メモ(任意。送り先の人が読みます)", Tone.Muted);
         readonly TextBox memo = new TextBox();
         Field memoField;
@@ -353,6 +353,8 @@ namespace RequestSender
             ArrangeCards();
             LayoutVideo();
             right.Arrange();
+            UpdateSpeakerView();
+            right.Arrange();
 
             bar.SetBounds(0, 0, w, Ui.S(3));
             sendBtn.SetBounds(w - m - Ui.S(150), Ui.S(14), Ui.S(150), Ui.S(40));
@@ -392,7 +394,7 @@ namespace RequestSender
         // 話す人の名前の欄: 選んだ人数の分だけ、2列に並べる
         void UpdateSpeakerView()
         {
-            int n = speakerCount.Value, colW = (Ui.S(340) - Ui.S(24)) / 2, rowH = Ui.S(30);
+            int n = speakerCount.Value, colW = Math.Max(Ui.S(120), (right.ClientSize.Width - right.Pad * 2 + Ui.S(6)) / 2), rowH = Ui.S(30);
             for (int i = 0; i < speakerNames.Length; i++)
             {
                 bool on = i < n;
@@ -516,9 +518,13 @@ namespace RequestSender
             UpdateAll();
         }
 
+        // 重みの欄は「指定する」を入れたときだけ出す(使わない人の画面を増やさない)
         void UpdateWeights()
         {
-            foreach (var s in weightSteps) if (s != null) s.Enabled = weightsOn.Checked;
+            foreach (var s in weightSteps) if (s != null) s.Enabled = weightsOn.Checked && weightsOn.Enabled;
+            right.SetShown(weightsPane, weightsOn.Checked);
+            right.SetShown(weightsHint, weightsOn.Checked);
+            right.Arrange();
         }
 
         Weights CurrentWeights()
@@ -954,10 +960,42 @@ namespace RequestSender
         }
 
         // 窓の中身を画像に保存する
+        // 見本: 動画ファイルの側(--tab video)
+        public void ShowVideoSample()
+        {
+            foreach (string n in new[] { @"C:\動画\切り抜き\にぇの叫び.mp4", @"C:\動画\切り抜き\雑談のいいところ_02.mp4" }) files.Items.Add(n);
+            streamer.Text = memberNames.Count > 1 ? memberNames[1] : "";
+            fileNote.Text = "動画ではないので入れませんでした(.mp4 / .mov / .mkv / .webm / .m4v だけ): メモ.txt";
+            UpdateFileView();
+            ShowLeft(true);
+            UpdateAll();
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
         public void RenderTo(string path)
         {
             LayoutAll();
             ApplyTheme();
+            Application.DoEvents();
+            // まず窓ごと(タイトルバー・スクロールバーが実際の見た目で写る)。だめなら中身だけ
+            using (var bmp = new Bitmap(Width, Height))
+            {
+                bool ok = false;
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    IntPtr hdc = g.GetHdc();
+                    try { ok = PrintWindow(Handle, hdc, 2 /* PW_RENDERFULLCONTENT */); }
+                    catch (Exception) { ok = false; }
+                    finally { g.ReleaseHdc(hdc); }
+                }
+                if (ok && bmp.GetPixel(bmp.Width / 2, bmp.Height / 2).A != 0 && bmp.GetPixel(bmp.Width / 2, bmp.Height - Ui.S(30)).ToArgb() != Color.Black.ToArgb())
+                {
+                    bmp.Save(path, ImageFormat.Png);
+                    return;
+                }
+            }
             using (var bmp = new Bitmap(root.Width, root.Height))
             {
                 root.DrawToBitmap(bmp, new Rectangle(Point.Empty, root.Size));

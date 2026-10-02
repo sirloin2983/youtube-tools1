@@ -1,7 +1,7 @@
 // 起動・右クリックの「送る」のショートカット・記録。
 //   RequestSender.exe                 … 画面を開く
 //   RequestSender.exe <動画> [<動画>…] … その動画を入れた状態で開く(右クリックの「送る」から)
-//   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|receive] [--sample]
+//   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample]
 //                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 using System;
 using System.IO;
@@ -120,6 +120,7 @@ namespace RequestSender
                     Theme.Set(Option(args, "--theme", "A"));
                     form.Show();
                     if (Array.IndexOf(args, "--sample") >= 0) form.ApplySample();
+                    if (Option(args, "--tab", "send") == "video") form.ShowVideoSample();
                     if (Option(args, "--tab", "send") == "receive")
                     {
                         form.ShowPage(false);
@@ -148,6 +149,12 @@ namespace RequestSender
             b.Size = 300; b.Modified = new DateTime(2026, 10, 2, 11, 40, 0); b.PathLower = "/出力/b.txt"; b.Rev = "2";
             l.Entries.Add(a);
             l.Entries.Add(b);
+            for (int i = 2; i <= 14; i++)
+            {
+                var c = OutputFolder.FromName("20261002-1000" + i.ToString("00") + "-0a1b2c__見本の切り抜き_" + i.ToString("00") + ".zip");
+                c.Size = 700L * 1024 * 1024; c.Modified = new DateTime(2026, 10, 2, 10, i, 0); c.PathLower = "/出力/c" + i + ".zip"; c.Rev = "c" + i;
+                if (Environment.GetEnvironmentVariable("REQUEST_SENDER_SHOT_MANY") == "1") l.Entries.Add(c);
+            }
             return l;
         }
 
