@@ -13,15 +13,6 @@ function fmt(t){
   const d = Math.round(t * 10), h = Math.floor(d / 36000), m = Math.floor(d % 36000 / 600), s = ((d % 600) / 10).toFixed(1).padStart(4, '0');
   return h ? `${h}:${pad(m)}:${s}` : `${m}:${s}`;
 }
-function parseTime(str){
-  str = String(str || '').trim().replace(/[：]/g, ':');
-  if (!str) return NaN;
-  const parts = str.split(':');
-  if (parts.length > 3) return NaN;
-  let t = 0;
-  for (const p of parts){ if (!/^\d+(\.\d+)?$/.test(p)) return NaN; t = t * 60 + parseFloat(p); }
-  return t;
-}
 /* 2回押しの確認。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1) */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 

@@ -140,20 +140,29 @@
 
 ## v11(2026-10-02・時刻の欄 `UIKit.timebox`)
 時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`request-sender/` の TimeBox)で決めた動き(`.design/request-sender-overhaul/DESIGN_BRIEF.md` の「時刻の欄」)を、Web の画面でも使い回すための部品。
-**時刻を手で入れる欄を新しく作るときは、これを使う**(`docs/spec/ui-guidelines.md` の 3-2)。今ある欄(スタジオの現在位置・マークの時刻など)の置き換えは、まだしていない(ユーザーと決めてから)。
+**時刻を手で入れる欄を新しく作るときは、これを使う**(`docs/spec/ui-guidelines.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
 - 置き方: `<span data-ui-time aria-label="開始の時刻"></span>`(DOMContentLoaded で自動)。画面をあとから作るときは `UIKit.timebox.attach(el, opt)` か `UIKit.timebox.create(opt)`(要素を返す)
-- 選べること(属性 / opt): はじめの値 `data-ui-time="83.5"` / `value`(秒)・**0.1 秒まで** `data-ui-time-tenths` / `tenths`(表示 `0:01:23.5`)・
+- 形は3つ: **時:分:秒**(既定。`1:23:45`)/ **時:分:秒.0.1秒**(`data-ui-time-tenths` / `tenths`。`0:01:23.5`。スタジオのマーク・コラボ)/
+  **分:秒.0.1秒**(`data-ui-time-short` / `short`。`1:23.5`。1時間を超えたら分が 60 以上 = `83:45.6`。編集の字幕の行。ユーザー決定 2026-10-02)。
+  どの形も、左の端(時か分)は1桁打ったら次へ進む
+- 選べること(属性 / opt): はじめの値 `data-ui-time="83.5"` / `value`(秒)・
   **YouTube の URL も読む** `data-ui-time-youtube` / `youtube`(…?t=5025・t=1h2m3s。**要る欄だけ**。既定はオフ)・上限 `data-ui-time-max="600"` / `max`(秒)・
   使えない `aria-disabled="true"`・誤り `aria-invalid="true"`(赤い枠。**誤りかどうかと理由の文は、使う画面が決めて出す**)
-- 値: `UIKit.timebox.get(el)` → 秒(入っていなければ `null`)・`UIKit.timebox.set(el, 秒 | null)`(画面から入れたときは `ui-time` を出さない)。
-  変わるたびに要素へ `ui-time`(`detail.value`。bubbles)、読めない貼り付けは `ui-time-reject`(`detail.reason`)、貼り付けた文字は `ui-time-paste`(`detail.text`。YouTube の URL から配信の ID を取りたいときに)
+- 値: `UIKit.timebox.get(el)` → 秒(入っていなければ `null`)・`UIKit.timebox.set(el, 秒 | null)`(画面から入れたときは `ui-time`・`ui-time-commit` を出さない)。
+  変わるたびに要素へ `ui-time`(`detail.value`。bubbles。打っている途中も出る)、
+  **Enter か欄を離れたときに、値が変わっていれば `ui-time-commit`**(入力欄の change に当たる。`detail: {value, via: 'enter'|'blur', to: 移った先の要素 | null}`)。
+  値を保存する・画面を描き直すのは `ui-time-commit` で行う(打つたびに描き直すと欄が作り直されて打てなくなる)。描き直したあとは、`via === 'blur'` なら `to`(移った先)へ
+  フォーカスを戻し、欄に奪い返さない(開始 → Tab → 終了 と続けて打てるように)。おかしな値は理由を出して `set(el, 元の値)` で戻す。
+  読めない貼り付けは `ui-time-reject`(`detail.reason`)、貼り付けた文字は `ui-time-paste`(`detail.text`。YouTube の URL から配信の ID を取りたいときに)
+- 画面を `innerHTML` で描き直したあとは `UIKit.timebox.attachAll(入れ物)`(中の `[data-ui-time]` を全部)。欄の文字をテストで読むときは `textContent`(`innerText` は区切りごとに改行が入る)
 - 動き: 欄に入ると「時」が選ばれる(反転)→ 数字で 時(1桁)→ 分(2桁)→ 秒(2桁)→(0.1 秒)と進む(`12345` → 1:23:45。分・秒の最初が 6〜9 なら1桁で次へ)。
   ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10。繰り上がりあり)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
   Ctrl+V = `1:23:45` / `83:45`(分:秒)/ `1h23m45s`。数字だけ(`5025`)は読まない(秒か 時分秒 か決められない)。入っていない欄は `-:--:--`
 - 入力欄(input)ではなく、フォーカスできる要素(`role="spinbutton"`)に自分で描いている: 文字を打ち込めない・日本語入力に数字のキーを取られない・選んだ所をアクセントで見せられる。
   欄が使ったキーは画面のキー操作に渡さない(`stopPropagation`)。`UIKit.keys.isTyping(el)` は時刻の欄を「入力中」と数える。
   **ツールが自分の「入力中か」の判定を持っているとき(スタジオの `Studio.isTyping` など)は、使う前に `.ui-time` を足す**
-- そのほか: `UIKit.timebox.parse(文字, {youtube, tenths})` → 秒 | null・`UIKit.timebox.format(秒, tenths)` → `1:23:45`
+- そのほか: `UIKit.timebox.parse(文字, {youtube, tenths})` → 秒 | null・`UIKit.timebox.format(秒, 形)` → `1:23:45`(形: 省略 / `true`・`'tenths'` / `'short'`)
+- 使っている所(2026-10-02): 編集の 1 文字起こし の行(short)・スタジオの ③ 確認のマークの開始/終了(tenths)・コラボの合わせる時刻(tenths)
 - 見本とテスト: `styleguide.html` の「v11: 時刻の欄」・`python ui-kit/tests/e2e_styleguide.py`(本物のキー入力)。`UIKit.version` は 11
 
 ## 重なりの順(z-index)の決まり(v6・段3-2)
