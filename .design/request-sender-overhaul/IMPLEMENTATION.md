@@ -34,3 +34,5 @@
 - [ ] C-4 portal.js・e2e
 - [ ] 版(アプリ 2.0.0・ホーム 0.23.0・スタジオ 0.14.0)・README・friend-intake.md・ROADMAP・WORKLOG
 - [ ] Phase 3: 画面の見直し(frontend-design・baseline-ui・design-review)と、ユーザーの依頼「完成したら最後にもう一度 UI を見直して改善点を探す」
+
+## B の進み具合(画面の担当が書く。落ちても続きから進められるように、終えた所を1行ずつ)
