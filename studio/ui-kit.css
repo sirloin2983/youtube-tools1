@@ -200,6 +200,17 @@ select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858da0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 10px center}
 select option{background:var(--panel);color:var(--ink)}
+/* ---------- 時刻の欄(v11。UIKit.timebox)---------- <span data-ui-time>。選んでいる所(時・分・秒)はアクセントで反転 */
+.ui-time{display:inline-flex;align-items:center;justify-content:center;min-width:96px;min-height:var(--ctl-h);padding:0 10px;box-sizing:border-box;
+  background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);font-family:var(--mono);font-variant-numeric:tabular-nums;
+  white-space:nowrap;cursor:text;user-select:none;-webkit-user-select:none;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.ui-time:hover{border-color:var(--line-strong)}
+.ui-time:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.ui-time.ui-time-empty{color:var(--ink-4)}
+.ui-time-seg{padding:1px;border-radius:var(--r-xs)}
+.ui-time:focus .ui-time-seg.on{background:var(--accent);color:var(--accent-ink)}
+.ui-time[aria-invalid=true]{border-color:var(--danger)}
+.ui-time[aria-disabled=true]{opacity:.55;cursor:not-allowed}
 input[type=checkbox],input[type=radio]{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer;margin:0}
 input[type=range]{accent-color:var(--accent);cursor:pointer}
 input[type=color]{border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--field);height:var(--ctl-h);padding:2px}

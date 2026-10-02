@@ -17,6 +17,9 @@ namespace RequestSender
         public event Action<string> PasteFailed;     // 読めなかった理由
         public event Action EnterPressed;            // Enter(次の欄へ)
 
+        // YouTube の「現在の時刻の動画の URL」(…?t=5025)の貼り付けも読むか。要る欄だけ true にする(ほかの画面で使い回すときは false のまま)
+        public bool AcceptYouTubeUrl;
+
         public TimeBox(string name)
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
@@ -29,10 +32,14 @@ namespace RequestSender
             Cursor = Cursors.IBeam;
             // マウスだけでも貼れるように(右クリック)
             var menu = new ThemedMenu();
-            menu.Add("貼り付け(YouTube の位置の URL か 1:23:45) Ctrl+V", () => { Focus(); DoPaste(); });
+            var pasteItem = menu.Add("貼り付け  Ctrl+V", () => { Focus(); DoPaste(); });
             var copy = menu.Add("コピー  Ctrl+C", () => { try { Clipboard.SetText(Text); } catch (Exception) { } });
             var clear = menu.Add("空にする  Delete", () => { Focus(); ClearValue(); });
-            menu.Opening += (s, e) => { copy.Enabled = clear.Enabled = edit.HasValue; };
+            menu.Opening += (s, e) =>
+            {
+                copy.Enabled = clear.Enabled = edit.HasValue;
+                pasteItem.Text = (AcceptYouTubeUrl ? "貼り付け(YouTube の位置の URL か 1:23:45)" : "貼り付け(1:23:45)") + "  Ctrl+V";
+            };
             ContextMenuStrip = menu;
             Render();
         }
@@ -182,13 +189,14 @@ namespace RequestSender
             try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
             catch (Exception) { text = ""; }
             int sec;
-            if (TimeText.TryParse(text, out sec))
+            if (TimeText.TryParse(text, AcceptYouTubeUrl, out sec))
             {
                 edit.Set(sec);
                 if (Pasted != null) Pasted(text);
             }
             else if (PasteFailed != null)
-                PasteFailed("時刻として読めませんでした。YouTube の「現在の時刻の動画の URL をコピー」か、1:23:45 の形を貼ってください");
+                PasteFailed(AcceptYouTubeUrl ? "時刻として読めませんでした。YouTube の「現在の時刻の動画の URL をコピー」か、1:23:45 の形を貼ってください"
+                                             : "時刻として読めませんでした。1:23:45 の形を貼ってください");
         }
     }
 }

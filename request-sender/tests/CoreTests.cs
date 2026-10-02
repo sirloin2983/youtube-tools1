@@ -271,6 +271,11 @@ static class CoreTests
             int sec;
             True(!TimeText.TryParse(ng, out sec), "読まない: " + ng);
         }
+        // YouTube の URL は、要る欄だけ(allowUrl)。ほかの画面で使い回すときは時刻の形だけ読む
+        int plain;
+        True(TimeText.TryParse("1:23:45", false, out plain) && plain == 5025 && TimeText.TryParse("1h2m3s", false, out plain) && plain == 3723, "URL なしでも時刻の形は読む");
+        True(!TimeText.TryParse("https://youtu.be/dQw4w9WgXcQ?t=5025", false, out plain) && !TimeText.TryParse("t=75", false, out plain) &&
+             !TimeText.TryParse("https://example.com/1h2m3s", false, out plain), "URL なしのときは YouTube の URL を読まない");
     }
 
     static void TimeEdits()
@@ -552,6 +557,7 @@ static class CoreTests
             int changed = 0;
             tb.ValueChanged += () => changed++;
             True(!tb.HasValue && tb.Text == "0:00:00", "はじめは空(形だけ出す)");
+            True(!tb.AcceptYouTubeUrl, "YouTube の URL の貼り付けは、指定した欄だけ(既定はオフ)");
             foreach (var k in new[] { System.Windows.Forms.Keys.D1, System.Windows.Forms.Keys.NumPad2, System.Windows.Forms.Keys.D3, System.Windows.Forms.Keys.D4, System.Windows.Forms.Keys.D5 }) Key(tb, k);
             Eq("1:23:45", tb.Text, "数字だけで入る(テンキーも)");
             True(tb.HasValue && tb.Value == 5025 && changed > 0, "値と知らせ");
@@ -586,6 +592,7 @@ static class CoreTests
             Eq("dQw4w9WgXcQ", c.VideoId, "1行目がこのカードに入る");
             Eq(2, more == null ? 0 : more.Length, "残りの行はカードを増やす(空の行は飛ばす)");
             var row = c.Rows.First();
+            True(row.Start.AcceptYouTubeUrl && row.End.AcceptYouTubeUrl, "配信の区間の欄は YouTube の URL も貼れる");
             True(row.Start.HasValue && row.Start.Value == 5025 && !row.End.HasValue, "t= つきの URL: 最初の区間の開始に入る");
             Eq(0, c.ToItem().Ranges.Count, "終了が無い区間は送らない");
             row.SetLength(60);

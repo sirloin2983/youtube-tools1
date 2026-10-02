@@ -170,6 +170,8 @@
   - 画面の確認: build\RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample]
     (窓を画像に保存して終わる。通信しない・設定を書かない・「送る」のショートカットを触らない)
   - 設計: .design\request-sender-overhaul\DESIGN_BRIEF.md(画面の全面見直し・時刻の欄・配色)・docs\design\friend-intake.md の 2-6(PC 側)
+  - 時刻の欄の使い回し: 動きは TimeCore.cs の TimeEdit(画面に依らない・テストあり)、画面は TimeBox.cs(Theme.cs と Controls.cs の ThemedMenu を使う)。
+    YouTube の URL の貼り付けは TimeBox.AcceptYouTubeUrl = true の欄だけ(既定はオフ)。Web の画面用は ui-kit の UIKit.timebox(同じ動き。ui-kit\README.md の v11)
   - テスト: build.bat が tests\CoreTests.cs を作って流す(通信はしない)
   - メンバーの一覧は holo-colors\members.json を写す(build.bat)
 

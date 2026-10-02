@@ -1865,7 +1865,7 @@
         html += '<span class="ui-time-seg' + (on && i === seg ? ' on' : '') + '" data-seg="' + i + '">' + txt[i] + '</span>';
       }
       el.innerHTML = html;
-      el.classList.toggle('empty', !has);
+      el.classList.toggle('ui-time-empty', !has);   // .empty は「空の状態の箱」の部品なので使わない
       el.setAttribute('aria-valuenow', String(v / 10));
       el.setAttribute('aria-valuetext', has ? tbFormat(v / 10, tenths) + (on ? '(' + NAMES[seg] + 'を選択中)' : '') : '未入力');
     }

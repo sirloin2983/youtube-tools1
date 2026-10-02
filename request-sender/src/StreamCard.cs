@@ -46,6 +46,7 @@ namespace RequestSender
             Controls.Add(problem);
             foreach (var b in new[] { Start, End })
             {
+                b.AcceptYouTubeUrl = true;   // 配信の時刻なので、YouTube の位置の URL も貼れる
                 b.ValueChanged += () => { pasteError = null; Refresh_(); };
                 b.PasteFailed += msg => { pasteError = msg; Refresh_(); };
                 b.Pasted += text => { if (UrlPasted != null && YouTubeUrl.ExtractId(text) != null) UrlPasted(text); };

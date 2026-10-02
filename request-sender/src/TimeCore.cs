@@ -46,11 +46,18 @@ namespace RequestSender
         // 数字だけ(「5025」)は 秒なのか 時分秒なのか決められないので読まない
         public static bool TryParse(string text, out int sec)
         {
+            return TryParse(text, true, out sec);
+        }
+
+        // allowUrl = YouTube の URL(t=)も読む。時刻の欄をほかの画面で使い回すときは false(URL は要る欄だけ)
+        public static bool TryParse(string text, bool allowUrl, out int sec)
+        {
             sec = 0;
             string s = (text ?? "").Trim();
             if (s.Length == 0 || s.Length > 2048) return false;
             var m = ParamRx.Match(s);
-            if (m.Success) return Units(m.Groups[1].Value, true, out sec);
+            if (m.Success) return allowUrl && Units(m.Groups[1].Value, true, out sec);
+            if (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return false;
             m = ColonRx.Match(s);
             if (m.Success)
             {
