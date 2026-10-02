@@ -112,6 +112,14 @@ def style_inputs(style=None):
         out.append(["Offset%d" % n, list(e["offset"])])
     return out
 DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
+VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1 = 動画 + 空の映像トラック)。字幕はその上 V(数+1)。簡易版で友人が 1〜5 から選ぶ(2026-10-02)
+
+
+def video_tracks_value(n):
+    """映像トラックの数を 1〜VIDEO_TRACKS_MAX の整数に。範囲の外・数でない値は ValueError"""
+    if isinstance(n, bool) or not isinstance(n, (int, str)) or not str(n).strip().isdigit() or not 1 <= int(n) <= VIDEO_TRACKS_MAX:
+        raise ValueError("映像トラックの数は 1〜%d の整数で指定してください" % VIDEO_TRACKS_MAX)
+    return int(n)
 TARGET_FPS = (24, 25, 30, 50, 60)
 
 
@@ -223,12 +231,14 @@ def wrap_caption(text, per_line):
     return "\n".join(x for x in lines if x)
 
 
-def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default"):
+def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default", video_tracks=1):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
     fills: 字幕ごとの文字の色 [[r,g,b,a] | None, ...](字幕の並びと同じ。A-2: 話者ごとの色)。None の字幕は style のまま
     outlines: 字幕ごとのふちの色(fills と同じ形。簡易版: 話者ごとのふちの色)。style: 見た目の種類(TEXT_STYLES のキー)
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
-    wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)"""
+    wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)
+    video_tracks: 映像トラックの数(V1 = 動画・V2〜 = 空)。字幕はその上。1 のときは計画に書かない(今までと同じ中身)"""
+    video_tracks = video_tracks_value(video_tracks)
     fps = plan.meta["fps"]
     per_line = default_wrap(target) if wrap is None else int(wrap)
     caps = caption_segments(plan.keeps, plan.cues_out)
@@ -240,7 +250,7 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     for c, f in zip(caps, outlines or []):
         if f:
             c["outline"] = [float(x) for x in f][:4]
-    return {
+    d = {
         "schema": SCHEMA,
         "title": plan.req.name or plan.video.stem,
         "fps": f"{fps[0]}/{fps[1]}",
@@ -256,6 +266,9 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
         "sourceTimeline": {"startFrame": 0, "endFrame": int(plan.meta["total"])},
         "style": _style_data(color, style, outlines=bool(outlines)),
     }
+    if video_tracks > 1:
+        d["videoTracks"] = video_tracks
+    return d
 
 
 def _lua_quote(value):
@@ -309,7 +322,8 @@ def importer_script(plan):
 
 
 LUA_TEMPLATE = r'''-- cut2resolve Text+ Import (v0.4.0; Resolve Free 21.1 Windows)
--- 開いているプロジェクトに、カット済みタイムライン CUT_TextPlus(V1 映像・A1 音声・V2 Text+)と
+-- 開いているプロジェクトに、カット済みタイムライン CUT_TextPlus(V1 映像・A1 音声・一番上の映像トラックに Text+。
+-- 映像トラックの数 DATA.videoTracks(既定 1)= V1 + 空のトラック。字幕は V(数+1))と
 -- 元動画全体の SOURCE_WITH_HANDLES を追加する。プロジェクトは作らない・設定は変えない。
 local DATA = __C2R_DATA__
 
@@ -453,9 +467,14 @@ local ok, err = pcall(function()
         if math.abs(item:GetDuration() - expected) > 1 then lengthOff = lengthOff + 1 end
     end
 
-    -- 4) Text+(V2)。置かれたクリップの位置 + 区間の先頭からのコマ(換算後)
-    -- Resolve の「Fusion タイトルを挿入」API は配置先を指定できない(V1 に入った)。雛形を V2 へ明示配置する。
-    if not cutTimeline:AddTrack("video") then error("PLACE|字幕用の映像トラックを追加できません") end
+    -- 4) Text+(一番上の映像トラック)。置かれたクリップの位置 + 区間の先頭からのコマ(換算後)
+    -- Resolve の「Fusion タイトルを挿入」API は配置先を指定できない(V1 に入った)。雛形を字幕のトラックへ明示配置する。
+    -- 映像トラックの数 N: V2〜VN は空(友人が素材を重ねる用)、字幕は V(N+1)
+    local videoTracks = math.max(1, math.min(5, math.floor(tonumber(DATA.videoTracks) or 1)))
+    for _ = 1, videoTracks do
+        if not cutTimeline:AddTrack("video") then error("PLACE|映像トラックを追加できません") end
+    end
+    local captionTrack = videoTracks + 1
     local added, failed = 0, 0
     -- 字幕の見た目(DATA.style.inputs = [[入力の名前, 値, 探し方?], ...])。最初の字幕で1つずつ入れて読み直す。
     -- 入らなかった入力は、探し方(kv[3])があれば この Resolve の入力の一覧から表示名(names)と要素の番号(n)で探す → 候補の名前(ids)の順に試し、
@@ -557,7 +576,7 @@ local ok, err = pcall(function()
         local title = nil
         if recordFrame and duration >= 1 then
             local titles = pool:AppendToTimeline({{mediaPoolItem=titleTemplate, startFrame=0,
-                endFrame=duration, trackIndex=2, recordFrame=recordFrame}})
+                endFrame=duration, trackIndex=captionTrack, recordFrame=recordFrame}})
             title = titles and titles[1]
         end
         if title then
@@ -611,7 +630,7 @@ local ok, err = pcall(function()
     local styleOk = (styleMiss == nil or #styleMiss == 0)
     local good = (failed == 0 and lengthOff == 0 and source ~= nil and fontOk and styleOk)
     local title = (failed == 0 and lengthOff == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
-    local note = "字幕 " .. added .. "/" .. #DATA.captions .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
+    local note = "字幕 " .. added .. "/" .. #DATA.captions .. (captionTrack > 2 and "(V" .. captionTrack .. ")" or "") .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
         "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" ..
         "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") ..
             (styleDump and "。入力の一覧: " .. styleDump or "") .. ")") ..
@@ -673,10 +692,14 @@ README_NAME = "友人へ.txt"                    # Text+ パックの手順書(�
 EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
 
 
-def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None):
+def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None, video_tracks=1):
     """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない"""
     t = dict(target or DEFAULT_TARGET)
     vertical = t["height"] > t["width"]
+    n = int(video_tracks)
+    cap_track = f"V{n + 1}"
+    tracks_desc = (f"V1 映像・A1 音声・{cap_track} Text+ 字幕" if n <= 1 else
+                   f"V1 映像・V2〜V{n} 空(素材を重ねる用)・{cap_track} Text+ 字幕(一番上)・A1 音声")
     info = []
     if meta:
         f = meta["fps"][0] / meta["fps"][1]
@@ -739,7 +762,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 
 ■ 3. できるもの
-・CUT_TextPlus … 編集用。V1 映像・A1 音声・V2 Text+ 字幕。
+・CUT_TextPlus … 編集用。{tracks_desc}。
     先頭のマーカー: 緑「cut2resolve 完了」= 問題なし / 黄 = 要確認(マーカーをダブルクリックするとメモに理由)
 ・SOURCE_WITH_HANDLES … 元動画の全体。削った部分を戻したいときに使う
 ・C2R_エラー_〜 … 失敗(理由は名前に書いてあります。空のタイムラインなので消してかまいません)
@@ -747,7 +770,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 
 ■ 4. 編集のしかた
-{pos_tip}・字幕の文字を直す: V2 の Text+ を選び、インスペクタ →「タイトル」で直す。長さ・位置はタイムライン上で調整
+{pos_tip}・字幕の文字を直す: {cap_track} の Text+ を選び、インスペクタ →「タイトル」で直す。長さ・位置はタイムライン上で調整
 ・字幕の見た目をそろえる: 1つを整えたら、右クリック →「コピー」、ほかの Text+ を選んで右クリック →「属性をペースト」
 ・削った部分を戻す: SOURCE_WITH_HANDLES で範囲を選び、映像と音声をまとめてコピー → CUT_TextPlus の戻す位置に貼り付け。
   貼り付けた後は、つなぎ目と音のずれを確認
@@ -778,19 +801,20 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 {backup_note}"""
 
 
-def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default"):
+def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default",
+                video_tracks=1):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
-        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style), encoding="utf-8-sig", newline="\n")
+        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style, video_tracks), encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
@@ -798,9 +822,10 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color
             if key in paths}
 
 
-def readme_text(plan, target=None, backup=True, color=None, style="default"):
+def readme_text(plan, target=None, backup=True, color=None, style="default", video_tracks=1):
     """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)"""
-    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color, style)["name"])
+    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color, style)["name"],
+                        video_tracks)
 
 
 def readme_from_script(text, backup=True):
@@ -809,7 +834,7 @@ def readme_from_script(text, backup=True):
     num, den = (int(x) for x in str(d["fps"]).split("/"))
     meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
     return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup,
-                        (d.get("style") or {}).get("name"))
+                        (d.get("style") or {}).get("name"), d.get("videoTracks") or 1)
 
 
 def read_script_plan(text):

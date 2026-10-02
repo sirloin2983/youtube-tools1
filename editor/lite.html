@@ -535,6 +535,7 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
 .lt-field{display:grid;grid-template-columns:150px 1fr;align-items:center;gap:8px 14px;margin:12px 0}
 .lt-field label{font-size:13px;color:var(--ink-2)}
 .lt-field input{width:100%;box-sizing:border-box}
+#ltTracksHint{margin-left:10px}
 .lt-req{color:var(--danger-ink);font-size:12px;margin-left:4px}
 .lt-opt{color:var(--ink-2);font-size:12px;margin-left:4px}
 .lt-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:16px}
@@ -731,6 +732,11 @@ main{flex:1;display:flex;flex-direction:column;min-height:0}
         <h2 id="hExport">書き出す</h2>
         <p class="lt-lead">Resolve 用ファイルと、送る用ファイル(zip)を一度に作ります。何度でも作り直せます。</p>
         <p class="lt-note" id="ltExSummary"></p>
+        <div class="lt-field">
+          <label for="ltTracks">映像トラックの数</label>
+          <div><select id="ltTracks" aria-describedby="ltTracksHint"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+          <span class="lt-note" id="ltTracksHint"></span></div>
+        </div>
         <div class="lt-bar" id="ltExBarWrap" hidden><i id="ltExBar" style="--p:1"></i></div>
         <p class="lt-note" id="ltExPhase"></p>
         <div class="lt-err" id="ltExErr" hidden></div>

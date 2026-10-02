@@ -95,6 +95,14 @@ def palette():
     return out
 
 
+VIDEO_TRACKS_MAX = 5   # Resolve の映像トラックの数(V1 = 動画 + 空)。字幕はその上。正は cut2resolve の resolve_textplus.VIDEO_TRACKS_MAX
+
+
+def video_tracks_of(v):
+    """映像トラックの数(1〜VIDEO_TRACKS_MAX の整数)か None"""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else None
+
+
 def load_settings():
     try:
         d = _fsio.read_json_file(settings_path(), 1024 * 1024)
@@ -106,11 +114,12 @@ def load_settings():
         if isinstance(st, dict) and HEX.match(str(st.get("color") or "")) and HEX.match(str(st.get("outline") or "")):
             styles[str(name)[:30]] = {"color": st["color"].upper(), "outline": st["outline"].upper()}
     return {"worker": str(d.get("worker") or "")[:30], "streamers": [str(s)[:40] for s in d.get("streamers") or [] if isinstance(s, str) and s.strip()][:20],
-            "speakerStyles": dict(list(styles.items())[:100])}
+            "speakerStyles": dict(list(styles.items())[:100]), "videoTracks": video_tracks_of(d.get("videoTracks")) or 1}
 
 
 def save_settings(patch):
-    """POST /api/lite/settings {worker?, speakerStyles?: {名前: {color, outline}}}(話者の色の組み合わせは名前ごとに覚えて次から使う)"""
+    """POST /api/lite/settings {worker?, speakerStyles?: {名前: {color, outline}}, videoTracks?: 1〜5}
+    (話者の色の組み合わせは名前ごとに覚えて次から使う。映像トラックの数も次の書き出しで使う)"""
     with _lock:
         cur = load_settings()
         if isinstance(patch.get("worker"), str):
@@ -123,6 +132,11 @@ def save_settings(patch):
                     cur["speakerStyles"][name] = {"color": st["color"].upper(), "outline": st["outline"].upper()}
             while len(cur["speakerStyles"]) > 100:
                 cur["speakerStyles"].pop(next(iter(cur["speakerStyles"])))
+        if "videoTracks" in patch:
+            n = video_tracks_of(patch["videoTracks"])
+            if n is None:
+                raise ed_state.ApiError("bad_tracks", "映像トラックの数は 1〜%d から選んでください" % VIDEO_TRACKS_MAX, 400)
+            cur["videoTracks"] = n
         os.makedirs(data_root(), exist_ok=True)
         ed_state.atomic_write(settings_path(), json.dumps(cur, ensure_ascii=False, indent=1).encode("utf-8"))
         return cur
@@ -311,11 +325,14 @@ def work_name(doc, tid):
 
 
 def export_start(req):
-    """POST /api/lite/export {id} → 書き出しを始める(別のスレッド。進み具合は GET /api/lite/export?id=)"""
+    """POST /api/lite/export {id, videoTracks?} → 書き出しを始める(別のスレッド。進み具合は GET /api/lite/export?id=)。
+    videoTracks があれば設定に覚えてから使う(画面の選択の保存と書き出しが前後しても、選んだ数で作る)"""
     tid = re.sub(r"[^0-9a-f]", "", str(req.get("id") or ""))[:12]
     doc = ed_store.read_transcript(tid)
     if not isinstance(doc.get("lite"), dict):
         raise ed_state.ApiError("not_lite", "簡易版で作った作業ではありません", 400)
+    if "videoTracks" in req:
+        save_settings({"videoTracks": req["videoTracks"]})
     with _lock:
         cur = _exports.get(tid)
         if cur and cur.get("state") in ("waiting", "running"):
@@ -360,7 +377,7 @@ def export_now(tid, say=lambda m: None):
     base = os.path.join(out_root(), name)
     pack_dir, send_dir = os.path.join(base, PACK_DIR_NAME), os.path.join(base, SEND_DIR_NAME)
     say("Resolve 用ファイルを作っています(動画のコピーに時間がかかることがあります)")
-    pinfo = build_pack(doc, pack_dir)
+    pinfo = build_pack(doc, pack_dir, load_settings()["videoTracks"])
     say("送る用ファイルを作っています(音声を取り出しています)")
     zpath, judged, counts = build_zip(doc, tid, send_dir, date, name, pinfo)
     warnings = list(pinfo["warnings"])
@@ -394,8 +411,8 @@ def subtitle_doc(doc):
     return dict(doc, segments=rows)
 
 
-def build_pack(doc, pack_dir):
-    """カットなし(動画全体を残す)・字幕の型 lite・話者ごとの文字の色とふちの色。-> {"captions", "fps", "width", "height", "durationSec", "warnings"}"""
+def build_pack(doc, pack_dir, video_tracks=1):
+    """カットなし(動画全体を残す)・字幕の型 lite・話者ごとの文字の色とふちの色・映像トラック video_tracks 本(字幕はその上)。-> {"captions", "fps", "width", "height", "durationSec", "warnings"}"""
     pack, tp = _pack_mod()
     sdoc = subtitle_doc(doc)
     if not sdoc["segments"]:
@@ -418,13 +435,14 @@ def build_pack(doc, pack_dir):
             outlines = {s["name"]: s["outline"] for s in doc.get("speakers") or [] if HEX.match(str(s.get("outline") or ""))}
             res = pack.build_pack(plan, Path(pack_dir), textplus=True, textplus_target=target, backup=False, plan_file=False, readme_file=False,
                                   textplus_wrap=tp.WRAP_DEFAULT["horizontal" if horizontal else "vertical"], force=True,
-                                  speaker_colors=colors or None, speaker_outlines=outlines or None, textplus_style="lite")
+                                  speaker_colors=colors or None, speaker_outlines=outlines or None, textplus_style="lite",
+                                  video_tracks=video_tracks)
         except pack.ToolError as e:
             raise ed_state.ApiError("pack_failed", "Resolve 用ファイルを作れませんでした: %s" % e, 400)
         ed_state.atomic_write(os.path.join(pack_dir, README_NAME), ("﻿" + res["readme"]).encode("utf-8"))
         fps = plan.meta["fps"]
         return {"captions": len(plan.cues_out or []), "fps": "%d/%d" % (fps[0], fps[1]), "fpsValue": round(fps[0] / fps[1], 3), "width": w, "height": h,
-                "durationSec": round(float(dur or 0), 2), "warnings": list(res["warnings"])}
+                "durationSec": round(float(dur or 0), 2), "warnings": list(res["warnings"]), "videoTracks": video_tracks}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

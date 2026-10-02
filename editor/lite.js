@@ -94,6 +94,7 @@ async function loadState(){
   (L.st.groups || []).forEach(g => (g.names || []).forEach(add));
   if (!$('#ltStreamer').value && L.st.settings.streamers[0]) $('#ltStreamer').value = L.st.settings.streamers[0];
   $('#ltWorker').value = L.st.settings.worker || '';
+  $('#ltTracks').value = String(L.st.settings.videoTracks || 1); tracksHint();
   $('#ltRuleList').textContent = '';
   L.st.rules.forEach(r => $('#ltRuleList').appendChild(el('li', '', r)));
   renderWorks();
@@ -642,6 +643,15 @@ function renderExportSummary(){
     ? `確認済み ${ok}/${rs.length} 行。まだ確認していない ${rs.length - ok} 行は、送る用ファイルでは使われません(書き出しはできます)。`
     : `すべての行(${rs.length} 行)を確認しました。`;
 }
+/* Resolve の映像トラックの数(V1 = 動画・V2〜 = 空)。字幕はその上のトラック。選んだ数は次から使う */
+function tracksHint(){
+  const n = Number($('#ltTracks').value) || 1;
+  $('#ltTracksHint').textContent = n === 1 ? 'V1 に動画、V2 に字幕' : `V1 に動画、V2〜V${n} は空、V${n + 1}(一番上)に字幕`;
+}
+$('#ltTracks').addEventListener('change', () => {
+  tracksHint();
+  api('/api/lite/settings', { body: { videoTracks: Number($('#ltTracks').value) } }).then(r => { if (L.st) L.st.settings = r; }).catch(() => {});
+});
 $('#ltExBack').addEventListener('click', () => setStep('proof'));
 $('#ltExport').addEventListener('click', async () => {
   if (!L.doc || L.exporting) return;
@@ -651,7 +661,7 @@ $('#ltExport').addEventListener('click', async () => {
     clearTimeout(L.saveTimer); if (L.dirty) await save();
     if (L.conflict) throw new Error('別の窓との食い違いを先に解決してください(校正の画面の上の案内)');
     await flushOps();
-    await api('/api/lite/export', { body: { id: L.tid } });
+    await api('/api/lite/export', { body: { id: L.tid, videoTracks: Number($('#ltTracks').value) || 1 } });
     for (;;){
       await new Promise(r => setTimeout(r, 800));
       const t = await api('/api/lite/export?id=' + encodeURIComponent(L.tid));

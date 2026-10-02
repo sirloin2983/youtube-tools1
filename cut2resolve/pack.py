@@ -584,7 +584,8 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
-               textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None):
+               textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
+               video_tracks=1):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
     "warnings", "plan": cut-plan の中身(書かなくても返す)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
@@ -592,6 +593,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
     textplus_style: 字幕の見た目の種類(resolve_textplus.TEXT_STYLES のキー。"default" = けいふぉんと / "lite" = 簡易版の MS ゴシック)。
     speaker_outlines: {話者の名前: "#RRGGBB"}(簡易版)。speaker_colors と同じ決め方で、字幕ごとのふちの色にする。
+    video_tracks: Text+ のタイムラインの映像トラックの数(1〜5。V1 = 動画・V2〜 = 空)。字幕はその上のトラックに置く。
     loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt_core/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
     同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない。
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
@@ -599,6 +601,10 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
         raise ToolError("粗編集の画質(--crf)は 0〜51 の整数で指定してください。")
+    try:
+        video_tracks = TP.video_tracks_value(video_tracks)
+    except ValueError as e:
+        raise ToolError(str(e))
     if textplus_style not in TP.TEXT_STYLES:
         raise ToolError("Text+ の字幕の見た目 %r は使えません(%s のどれか)。" % (textplus_style, " / ".join(TP.TEXT_STYLES)))
     if textplus and not plan.cues_out:
@@ -720,7 +726,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
             files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap,
-                                        color=textplus_color, fills=fills, outlines=outlines, style=textplus_style))
+                                        color=textplus_color, fills=fills, outlines=outlines, style=textplus_style,
+                                        video_tracks=video_tracks))
     finally:
         for tmp, _, _ in staged:
             try:
@@ -731,7 +738,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         files["video"] = paths["video"]
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
     # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
-    readme = TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style) if textplus else files["readme_text"]
+    readme = TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style, video_tracks) if textplus else files["readme_text"]
     return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings, "editMedia": m["edit"],
             "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud}
 

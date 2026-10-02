@@ -50,14 +50,14 @@ def _lua_runtime():
     return None
 
 
-def _textplus_plan(cues_out, keeps, fps=(60, 1), total=2064, target=None):
+def _textplus_plan(cues_out, keeps, fps=(60, 1), total=2064, target=None, video_tracks=1):
     plan = mock.Mock()
     plan.video = Path('test.mp4')
     plan.req.name = 'test'
     plan.meta = {'fps': fps, 'w': 1920, 'h': 1080, 'total': total}
     plan.cues_out = cues_out
     plan.keeps = keeps
-    return RTP.build_import_plan(plan, Path('media/test.mp4'), target)
+    return RTP.build_import_plan(plan, Path('media/test.mp4'), target, video_tracks=video_tracks)
 
 
 class TestResolveTextPlusScript(unittest.TestCase):
@@ -66,7 +66,7 @@ class TestResolveTextPlusScript(unittest.TestCase):
         for bad in ('CreateProject', 'SetSetting', 'LoadProject', 'InsertFusionTitleIntoTimeline'):
             self.assertNotIn(bad, script)
         self.assertIn('GetSetting("timelineFrameRate")', script)
-        self.assertIn('trackIndex=2, recordFrame=recordFrame', script)
+        self.assertIn('trackIndex=captionTrack, recordFrame=recordFrame', script)
         self.assertIn('tool:SetInput("Font", fontName)', script)
         self.assertIn('tool:SetInput("Style", fontStyle)', script)
         self.assertIn('GetFontList', script)
@@ -125,7 +125,7 @@ class TestResolveTextPlusScript(unittest.TestCase):
             readme = files['textplus_readme'].read_text(encoding='utf-8-sig')
             self.assertIn('1080 x 1920', readme)
             self.assertIn('最短辺をマッチ: 他をクロップ', readme)
-            self.assertIn('trackIndex=2', files['textplus_script'].read_text(encoding='utf-8'))
+            self.assertIn('trackIndex=captionTrack', files['textplus_script'].read_text(encoding='utf-8'))
 
 
 class TestTextStyle(unittest.TestCase):
@@ -281,6 +281,23 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=2 start=108300 dur=60 text=二', out)
         self.assertIn('item track=2 start=108550 dur=51 text=三', out)
         self.assertIn('marker=Green|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
+
+    def test_video_tracks_put_captions_on_top(self):
+        """映像トラックの数 3: V1 = 動画・V2〜V3 = 空・V4 = 字幕(一番上)。メモに字幕のトラック。既定 1 は今までどおり V2"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600)], video_tracks=3), s, fonts=self.KEI)
+        cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
+        self.assertIn('tracks=4\n', cut)
+        self.assertIn('item track=1 start=108000 dur=300', cut)
+        self.assertIn('item track=4 start=108030 dur=120 text=一', cut)
+        self.assertNotIn('item track=2', cut)
+        self.assertNotIn('item track=3', cut)
+        self.assertIn('marker=Green|cut2resolve 完了|字幕 1/1(V4)・カット 1/1', cut)
+        out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600)]), s, fonts=self.KEI)
+        cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
+        self.assertIn('tracks=2\n', cut)
+        self.assertIn('item track=2 start=108030 dur=120 text=一', cut)
+        self.assertIn('|字幕 1/1・カット 1/1', cut)
 
     def test_scaling_value_is_only_reported(self):
         base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
@@ -1135,6 +1152,16 @@ class TestMinimalPack(unittest.TestCase):
         self.assertFalse(any("fill" in c for c in ip2["captions"]))
         with self.assertRaises(C.ToolError):
             pack.build_pack(plan, d / "bad", textplus=True, textplus_style="nope", **self.SCREEN)
+        out3 = d / "lite_tracks"                                                    # 映像トラックの数(簡易版で友人が選ぶ)
+        res3 = pack.build_pack(plan, out3, textplus=True, textplus_style="lite", video_tracks=5, **self.SCREEN)
+        ip3 = RTP.read_script_plan((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual(ip3["videoTracks"], 5)
+        self.assertNotIn("videoTracks", ip2)                                        # 既定 1 は書かない(今までと同じ中身)
+        self.assertIn("V2〜V5 空(素材を重ねる用)・V6 Text+ 字幕(一番上)", res3["readme"])
+        self.assertIn("V6 の Text+ を選び", RTP.readme_from_script((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")))
+        for bad in (0, 6, "x", True):
+            with self.assertRaises(C.ToolError):
+                pack.build_pack(plan, d / "bad_tracks", textplus=True, video_tracks=bad, **self.SCREEN)
 
     def test_edl_only_pack_without_readme_file(self):
         """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""

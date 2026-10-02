@@ -118,6 +118,10 @@ def main():
             # 4 書き出し
             pg.click("#ltToExport")
             check("まだ確認していない 1 行" in pg.inner_text("#ltExSummary"), "未確認の行数を出す(止めない)")
+            check(pg.input_value("#ltTracks") == "1" and "V2 に字幕" in pg.inner_text("#ltTracksHint"), "映像トラックの数の既定 1")
+            pg.select_option("#ltTracks", "3")
+            check("V4(一番上)に字幕" in pg.inner_text("#ltTracksHint"), "映像トラックの数を選ぶと案内が変わる")
+            pg.screenshot(path=os.path.join(tempfile.gettempdir(), "e2e_lite_export.png"), full_page=False)
             pg.click("#ltExport")
             wait_js(pg, "!document.querySelector('#ltDone').hidden", 60000)
             name = pg.inner_text("#ltZipName")
@@ -130,7 +134,11 @@ def main():
             check(meta["worker"] == "友人A" and meta["sourceUrl"].endswith("v=abc"), "作業者の名前と元の URL")
             check(any(e["op"] == "confirm" for e in edits) and any(e["op"] == "time" for e in edits), "作業の記録(確定・時刻)")
             check(meta["notes"]["confirmedWithoutListening"] >= 1, "聞かずに確定を記録")
-            check(os.path.isfile(os.path.join(OUT, name[:-4], "Resolve用ファイル", "create_resolve_textplus_project.lua")), "Resolve 用ファイル")
+            lua_path = os.path.join(OUT, name[:-4], "Resolve用ファイル", "create_resolve_textplus_project.lua")
+            check(os.path.isfile(lua_path), "Resolve 用ファイル")
+            with open(lua_path, encoding="utf-8") as f:
+                check('["videoTracks"]=3' in f.read(), "選んだ映像トラックの数が Resolve 用ファイルに入る")
+            check(srv.get("/api/lite/state")["settings"]["videoTracks"] == 3, "映像トラックの数を覚える")
             check(pg.locator("#ltExport").inner_text() == "もう一度書き出す", "書き出しは何度でも")
 
             # 開き直すと続きから(書き出しの段)

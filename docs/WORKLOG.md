@@ -2630,3 +2630,15 @@
 - テスト: 編集の単体 275(skip 1)・test_qwen3 16・eval_asr 5 OK
 - 未完了・次: 段2-4 比較と決定(評価用の校正待ち)。Qwen3 1.7B は段3/4 の2つ目のエンジンの候補
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 簡易版: Resolve の映像トラックの数を選ぶ → 編集 0.39.0・cut2resolve 0.18.0
+- 依頼: ユーザー「友人側で映像トラック数(1〜5)を選択して、映像トラックをその数分追加する。その一番上に字幕」
+- 解釈(報告で確認を頼んだ): 数 N = 映像トラックの本数。V1 = 動画・V2〜VN = 空(素材を重ねる用)・字幕は V(N+1)。N = 1 は今までどおり(V1 動画・V2 字幕)
+- cut2resolve: `pack.build_pack(video_tracks=1)` → `resolve_textplus.write_files`/`build_import_plan`(計画の `videoTracks`。1 のときは書かない = 今までと同じ中身・契約テストも同じ)。
+  Lua は AddTrack を N 回 → `trackIndex=captionTrack`(N+1)。マーカーのメモに字幕のトラック(V3 以上のとき)。手順書(`instructions`・`readme_from_script`)のトラックの書き方も数に合わせる。範囲の外は ToolError(`video_tracks_value`)
+- 編集(簡易版): 書き出しの段に「映像トラックの数」の select `#ltTracks` と案内 `#ltTracksHint`。設定 `videoTracks`(`ed_lite.load_settings`/`save_settings`。1〜5 の整数だけ・既定 1)を覚えて次から使う。
+  書き出しの要求 `/api/lite/export {id, videoTracks}` でも渡して覚える(選択の保存と書き出しが前後しても選んだ数で作る)。lite/README.txt に1行
+- テスト: test_pack +1(偽の Resolve で V4 に字幕・tracks=4・既定は V2)・lite の build_pack の確かめ +・test_lite +1(設定)と書き出しで 3 を選んだときの Lua と手順書・e2e_lite に選択と案内と保存。
+  cut2resolve 312・編集の単体 290・契約 34・test_mount 26・e2e_lite・e2e_ui_mounted・e2e_edit_pack・通し確認 OK
+- 実機で確かめてもらうこと: 本物の Resolve で N = 3 などの Lua を流し、AddTrack で V2〜V4 ができ、字幕が V4 に入るか(偽物では確認済み)
+- 未コミット: なし(このあとコミット)

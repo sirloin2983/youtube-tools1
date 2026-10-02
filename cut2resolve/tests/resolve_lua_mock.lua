@@ -105,6 +105,7 @@ function MOCK.dump()
   p("media=" .. tostring(MOCK.out.mediaPath))
   for _, t in ipairs(project.timelines) do
     p("timeline=" .. t.name)
+    p("tracks=" .. #t.tracks)
     for ti, tr in ipairs(t.tracks) do
       for _, it in ipairs(tr) do
         local i = it.tool.inputs

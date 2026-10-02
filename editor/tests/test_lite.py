@@ -228,8 +228,18 @@ class LiteExport(_Store):
         self.assertEqual((plan["target"]["width"], plan["target"]["height"]), (1920, 1080))
         self.assertEqual(plan["captions"][1].get("outline"), tp.hex_rgba("#5C1B47"))   # 2つ目の字幕 = 「それな(笑)」(さくらみこ)
         self.assertEqual(plan["captions"][0].get("fill"), tp.hex_rgba("#FFE600"))
-        # 書き出し直し(上書き)もできる
+        self.assertNotIn("videoTracks", plan)                                        # 既定 = 映像トラック 1 本(V2 に字幕)
+        with open(os.path.join(pack_dir, "Resolveでの手順.txt"), encoding="utf-8-sig") as f:
+            self.assertIn("V1 映像・A1 音声・V2 Text+ 字幕", f.read())
+        # 書き出し直し(上書き)もできる。映像トラックの数を選ぶと、覚えて Lua と手順書に入る(字幕は一番上 = V4)
+        ed_lite.save_settings({"videoTracks": 3})
         self.assertEqual(ed_lite.export_now(tid)["zipName"], name + ".zip")
+        with open(os.path.join(pack_dir, "create_resolve_textplus_project.lua"), encoding="utf-8") as f:
+            self.assertEqual(tp.read_script_plan(f.read())["videoTracks"], 3)
+        with open(os.path.join(pack_dir, "Resolveでの手順.txt"), encoding="utf-8-sig") as f:
+            text = f.read()
+        self.assertIn("V2〜V3 空(素材を重ねる用)・V4 Text+ 字幕(一番上)", text)
+        self.assertIn("V4 の Text+ を選び", text)
         self.assertEqual(ed_lite.read_export_record(tid)["counts"]["rows"], len(segs))
 
     def test_open_folder_only_inside_out_root(self):
@@ -279,6 +289,16 @@ class LiteSettings(_Store):
         self.assertEqual(p["outline"][0]["hex"], "#000000")
         with mock.patch.object(ed_lite, "COLORS_FILE", os.path.join(self.tmp, "none.json")):
             self.assertEqual(ed_lite.palette(), ed_lite.FALLBACK_COLORS)
+
+    def test_video_tracks_setting(self):
+        """映像トラックの数: 既定 1・1〜5 だけ覚える(範囲の外・数でない値は断って前の値のまま)"""
+        self.assertEqual(ed_lite.load_settings()["videoTracks"], 1)
+        self.assertEqual(ed_lite.save_settings({"videoTracks": 5})["videoTracks"], 5)
+        for bad in (0, 6, "3", True, None, 2.0):
+            with self.assertRaises(S.ApiError):
+                ed_lite.save_settings({"videoTracks": bad})
+        self.assertEqual(ed_lite.load_settings()["videoTracks"], 5)
+        self.assertEqual(ed_lite.save_settings({"worker": "x"})["videoTracks"], 5)   # 他の設定を保存しても残る
 
 
 if __name__ == "__main__":
