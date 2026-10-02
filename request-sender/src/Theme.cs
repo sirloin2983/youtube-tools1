@@ -126,5 +126,13 @@ namespace RequestSender
         {
             return (int)Math.Round(px * Scale);
         }
+
+        // 小さな説明(ツールチップ)。× などの記号だけのボタンに付ける
+        static readonly ToolTip tips = new ToolTip();
+
+        public static void Tip(Control c, string text)
+        {
+            tips.SetToolTip(c, text);
+        }
     }
 }

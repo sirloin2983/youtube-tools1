@@ -1,7 +1,8 @@
 // 起動・右クリックの「送る」のショートカット・記録。
 //   RequestSender.exe                 … 画面を開く
 //   RequestSender.exe <動画> [<動画>…] … その動画を入れた状態で開く(右クリックの「送る」から)
-//   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample]
+//   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample] [--size 900x620]
+//                                      [--state manual|weights|strict|busy|done|focus]
 //                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 using System;
 using System.IO;
@@ -118,8 +119,12 @@ namespace RequestSender
                     form.Location = new System.Drawing.Point(-32000, -32000);
                     form.ShowInTaskbar = false;
                     Theme.Set(Option(args, "--theme", "A"));
+                    string[] size = Option(args, "--size", "").Split('x');
+                    int sw, sh;
+                    if (size.Length == 2 && int.TryParse(size[0], out sw) && int.TryParse(size[1], out sh)) form.ClientSize = new System.Drawing.Size(Ui.S(sw), Ui.S(sh));
                     form.Show();
                     if (Array.IndexOf(args, "--sample") >= 0) form.ApplySample();
+                    form.ApplyState(Option(args, "--state", ""));
                     if (Option(args, "--tab", "send") == "video") form.ShowVideoSample();
                     if (Option(args, "--tab", "send") == "receive")
                     {

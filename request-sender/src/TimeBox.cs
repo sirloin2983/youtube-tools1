@@ -1,13 +1,14 @@
 // 時刻の欄(2.0.0)。欄は1つ・「:」は打たない。時・分・秒 のどれかが反転していて、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る。
 // ←→ で場所を選ぶ(クリックでも)・↑↓ で選んだ単位を ±1(Shift で ±10)・BackSpace で 0・Delete で空・Ctrl+V で YouTube の位置の URL か 1:23:45。
-// 状態の動きは TimeEdit(TimeCore.cs。テストあり)。ここはキーを渡して、文字と選択範囲を映すだけ
+// 状態の動きは TimeEdit(TimeCore.cs。テストあり)。ここはキーを渡して、文字と反転を描くだけ。
+// 標準の入力欄(TextBox)を使わないのは、選んだ所の反転を配色のアクセントで描くため(標準の欄は Windows の青になる)と、文字を打ち込めないようにするため
 using System;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace RequestSender
 {
-    public class TimeBox : TextBox, IThemed
+    public class TimeBox : Control, IThemed
     {
         readonly TimeEdit edit = new TimeEdit();
 
@@ -18,18 +19,23 @@ namespace RequestSender
 
         public TimeBox(string name)
         {
-            BorderStyle = BorderStyle.None;
-            ReadOnly = true;                         // 文字は自分で作る(キーは OnKeyDown で受ける)
-            ShortcutsEnabled = false;
-            ContextMenuStrip = new ContextMenuStrip();   // 標準の右クリックのメニュー(貼り付けなど)で形を壊さない
-            ImeMode = ImeMode.Disable;
-            TextAlign = HorizontalAlignment.Center;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            TabStop = true;
+            ImeMode = ImeMode.Disable;               // 日本語入力が数字のキーを取らないように
             Font = Theme.Mono;
-            Width = Ui.S(84);
+            Size = new Size(Ui.S(84), TextRenderer.MeasureText("0", Theme.Mono).Height + 2);
             AccessibleName = name;
-            Cursor = Cursors.Default;
+            AccessibleRole = AccessibleRole.Text;
+            Cursor = Cursors.IBeam;
             Render();
         }
+
+        public bool ShowAsFocused;                   // 画面の確認(--state focus): 窓が前に無くても、選んだ所の反転を描く
+
+        bool Lit { get { return (Focused || ShowAsFocused) && Enabled; } }
+
+        // 画面の確認用: 時・分・秒 を選ぶ(0 = 時)
+        public void SelectSegment(int segment) { edit.Select(segment); Invalidate(); }
 
         public bool HasValue { get { return edit.HasValue; } }
         public int Value { get { return edit.Value; } }
@@ -59,51 +65,64 @@ namespace RequestSender
             if (ValueChanged != null) ValueChanged();
         }
 
-        // 文字・色・反転を今の状態に合わせる
         void Render()
         {
             string t = edit.Text;
             if (Text != t) Text = t;
+            AccessibleDescription = edit.HasValue ? t : "未入力";
             BackColor = Theme.P.Bg;
-            ForeColor = edit.HasValue ? Theme.P.Text : Theme.P.Muted;
-            if (Focused)
+            Invalidate();
+        }
+
+        // 文字の並びの左端と、1文字の幅(等幅のフォント)
+        void Metrics(out int x0, out int cw)
+        {
+            cw = TextRenderer.MeasureText("00", Font, Size.Empty, TextFormatFlags.NoPadding).Width / 2;
+            x0 = (Width - cw * Text.Length) / 2;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = Theme.P;
+            var g = e.Graphics;
+            using (var b = new SolidBrush(p.Bg)) g.FillRectangle(b, ClientRectangle);
+            string t = Text;
+            int x0, cw, start, len;
+            Metrics(out x0, out cw);
+            edit.SegmentRange(out start, out len);
+            Color fg = !Enabled ? Theme.Mix(p.Muted, p.Bg, 0.45) : edit.HasValue ? p.Text : p.Muted;
+            var flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter;
+            if (Lit)   // 選んでいる所(時・分・秒)をアクセントで反転
+                using (var b = new SolidBrush(p.Accent)) g.FillRectangle(b, x0 + start * cw - 1, 1, len * cw + 2, Height - 2);
+            for (int i = 0; i < t.Length; i++)
             {
-                int start, len;
-                edit.SegmentRange(out start, out len);
-                Select(start, len);
+                bool sel = Lit && i >= start && i < start + len;
+                TextRenderer.DrawText(g, t[i].ToString(), Font, new Rectangle(x0 + i * cw, 0, cw, Height), sel ? p.OnAccent : fg, flags);
             }
         }
 
         protected override void OnEnter(EventArgs e)
         {
             base.OnEnter(e);
-            edit.Focus();
-            BeginInvoke((Action)Render);   // クリックで入ったときは、標準のカーソルの移動のあとに反転させる
+            edit.Focus();   // 欄に入ったら、時から打ち始める
+            Invalidate();
         }
 
-        protected override void OnLeave(EventArgs e)
-        {
-            base.OnLeave(e);
-            Select(0, 0);
-        }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
 
-        protected override void OnMouseUp(MouseEventArgs e)
+        protected override void OnMouseDown(MouseEventArgs e)
         {
-            base.OnMouseUp(e);
-            if (e.Button != MouseButtons.Left) { Render(); return; }
-            if (edit.HasValue) edit.Select(TimeEdit.SegmentAt(Text, GetCharIndexFromPosition(e.Location) + (NearRightHalf(e.Location) ? 1 : 0)));
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            if (!Focused) Focus();
+            int x0, cw;
+            Metrics(out x0, out cw);
+            // 入っていない欄は時から。入っていれば、クリックした所(時・分・秒)を選ぶ
+            if (edit.HasValue) edit.Select(TimeEdit.SegmentAt(Text, Math.Max(0, Math.Min(Text.Length - 1, (e.X - x0) / Math.Max(1, cw)))));
             else edit.Focus();
-            Render();
-        }
-
-        // 文字の右半分をクリックしたか(「:」の右隣を選べるように、文字の境目で丸める)
-        bool NearRightHalf(Point pt)
-        {
-            int i = GetCharIndexFromPosition(pt);
-            if (i < 0 || i >= Text.Length) return false;
-            Point a = GetPositionFromCharIndex(i);
-            int w = TextRenderer.MeasureText("0", Font, Size.Empty, TextFormatFlags.NoPadding).Width;
-            return Text[i] == ':' && pt.X > a.X + w / 2;
+            Invalidate();
         }
 
         protected override bool IsInputKey(Keys keyData)

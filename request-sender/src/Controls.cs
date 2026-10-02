@@ -580,7 +580,7 @@ namespace RequestSender
 
         public int Pad = Ui.S(12);
         public Control Fill;            // 残りの高さを取る部品(1つだけ)
-        public int FillMin = Ui.S(56);
+        public int FillMin = Ui.S(44);
 
         public VStack()
         {
@@ -640,10 +640,11 @@ namespace RequestSender
                         if (it.C != Fill) total += it.Gap + it.C.Height;
                     }
                     if (Fill != null) { var f = items.Find(i => i.C == Fill); Fill.Height = Math.Max(FillMin, ClientSize.Height - total - (f != null ? f.Gap : 0) - Pad); }
-                    int y = Pad;
+                    int y = Pad, tab = 0;
                     Point o = AutoScrollPosition;
                     foreach (var it in items)
                     {
+                        it.C.TabIndex = tab++;
                         if (!it.Shown) continue;
                         y += it.Gap;
                         it.C.Location = new Point(Pad + o.X, y + o.Y);

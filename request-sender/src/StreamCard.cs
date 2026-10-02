@@ -34,10 +34,11 @@ namespace RequestSender
             startField = new Field(Start) { Width = Ui.S(100) };
             endField = new Field(End) { Width = Ui.S(100) };
             length.AutoSize = false;
-            length.Size = new Size(Ui.S(130), Ui.S(20));
+            length.Size = new Size(Ui.S(112), Ui.S(20));
             length.TextAlign = ContentAlignment.MiddleLeft;
             remove.Size = new Size(Ui.S(26), Ui.S(26));
             remove.AccessibleName = "この区間を外す";
+            Ui.Tip(remove, "この区間を外す");
             row.Add(lStart, 0).Add(startField, 6).Add(lEnd, 8).Add(endField, 6).Add(length, 10).Add(remove, 4);
             problem.Font = Theme.Small;
             problem.Visible = false;
@@ -68,6 +69,7 @@ namespace RequestSender
         {
             get
             {
+                if (!Enabled) return null;   // ③ のときなど、使わない間は誤りを出さない
                 if (pasteError != null) return pasteError;
                 string p = Ranges.Problem(Start.HasValue, Start.Value, End.HasValue, End.Value);
                 if (p != null && !strict && !(Start.HasValue && End.HasValue)) return null;
@@ -117,6 +119,12 @@ namespace RequestSender
             if (Changed != null) Changed();
         }
 
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            base.OnEnabledChanged(e);
+            Refresh_();
+        }
+
         void Arrange()
         {
             row.Arrange();
@@ -164,6 +172,7 @@ namespace RequestSender
             urlField = new Field(Url);
             remove.Size = new Size(Ui.S(26), Ui.S(26));
             remove.AccessibleName = "この配信を外す";
+            Ui.Tip(remove, "この配信を外す");
             title.AutoSize = false;
             title.AutoEllipsis = true;
             title.Font = Theme.Small;
@@ -417,7 +426,13 @@ namespace RequestSender
         // 中を並べて、高さを決める(幅は親が決める)
         public void Arrange()
         {
-            int pad = Ui.S(10), w = Math.Max(Ui.S(200), Width - pad * 2), y = pad;
+            int pad = Ui.S(10), w = Math.Max(Ui.S(200), Width - pad * 2), y = pad, tab = 0;
+            // Tab の順は見た目の順: URL → × → 切り抜く数 → 区間の行 → 「区間を足す」と「+30秒」など
+            urlField.TabIndex = tab++;
+            remove.TabIndex = tab++;
+            topRow.TabIndex = tab++;
+            foreach (var r in rows) r.TabIndex = tab++;
+            toolRow.TabIndex = tab++;
             urlField.SetBounds(pad, y, w - Ui.S(30), Ui.S(28));
             remove.Location = new Point(pad + w - Ui.S(26), y + Ui.S(1));
             y += Ui.S(30);

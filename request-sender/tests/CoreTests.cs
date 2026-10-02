@@ -571,7 +571,7 @@ static class CoreTests
             True(!tb.HasValue && tb.Text == "0:00:00", "Delete で空に");
             tb.SetValue(36000 + 62);
             Eq("10:01:02", tb.Text, "10 時間より後");
-            True(K != null && tb.ReadOnly && !tb.ShortcutsEnabled, "標準の貼り付け・打ち込みで形が壊れない");
+            True(K != null && !(((object)tb) is System.Windows.Forms.TextBoxBase), "標準の入力欄ではない(打ち込み・貼り付けで形が壊れない)");
         }
     }
 

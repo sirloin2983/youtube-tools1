@@ -41,9 +41,9 @@ namespace RequestSender
         readonly VStack cardList = new VStack { OnPanel = true };
         readonly List<StreamCard> cards = new List<StreamCard>();
         readonly Btn addCard = new Btn("+ 配信を足す", BtnKind.Normal);
-        readonly Lbl helpPaste = new Lbl("時刻の入れ方: 数字だけ打つ(12345 → 1:23:45。← → で 時・分・秒 を選び、↑ ↓ で動かす)。" +
-                                         "YouTube で動画を右クリック →「現在の時刻の動画の URL をコピー」→ 時刻の欄で Ctrl+V でも入ります。", Tone.Muted);
-        readonly Lbl helpHour = new Lbl("10 時間より後の位置は、「時」を選んで ↑ か、URL の貼り付けで入れます。区間の前後 2 秒は、PC が自動で足します。", Tone.Muted);
+        readonly Lbl helpTime = new Lbl("時刻の入れ方: 数字だけ打つ(12345 → 1:23:45)。← → で 時・分・秒 を選び、↑ ↓ で動かす。" +
+                                        "YouTube で動画を右クリック →「現在の時刻の動画の URL をコピー」→ 時刻の欄で Ctrl+V でも入ります。" +
+                                        "10 時間より後の位置は、「時」を選んで ↑ か、URL の貼り付けで。区間の前後 2 秒は、PC が自動で足します。", Tone.Muted);
         readonly Pane videoPanel = new Pane { OnPanel = true };
         readonly FileList files = new FileList();
         Field fileField, streamerField;
@@ -103,7 +103,7 @@ namespace RequestSender
             Font = Theme.Body;
             AutoScaleMode = AutoScaleMode.None;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(Ui.S(900), Ui.S(620));
+            MinimumSize = new Size(Ui.S(900), Ui.S(660));
             ClientSize = settings.WindowWidth > 0 ? new Size(settings.WindowWidth, settings.WindowHeight) : new Size(Ui.S(1000), Ui.S(700));
             AllowDrop = true;
 
@@ -173,9 +173,7 @@ namespace RequestSender
             modeUrl.Click += (s, e) => ShowLeft(false);
             modeVideo.Click += (s, e) => ShowLeft(true);
             cardList.Add(addCard, 10, false);
-            helpPaste.Font = helpHour.Font = Theme.Small;
-            cardList.Add(helpPaste, 14, true);
-            cardList.Add(helpHour, 4, true);
+            helpTime.Font = Theme.Small;
             addCard.Click += (s, e) => { var c = AddCard(null); ArrangeCards(); c.FocusUrl(); cardList.ScrollControlIntoView(c); };
 
             files.SelectionMode = SelectionMode.MultiExtended;
@@ -209,7 +207,7 @@ namespace RequestSender
             streamer.TextChanged += (s, e) => UpdateStreamerNote();
             streamerField = new Field(streamer) { Width = Ui.S(200) };
             videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote, lStreamer, streamerField, streamerNote, streamerHint });
-            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel });
+            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime });
 
             // ---- 右 ----
             right.Add(new SectionHead("02", "仕上げ方"), 0, true);
@@ -261,7 +259,7 @@ namespace RequestSender
             weightsHint.Font = Theme.Small;
             right.Add(weightsHint, 4, true);
 
-            right.Add(new SectionHead("03", "話す人・メモ"), 16, true);
+            right.Add(new SectionHead("03", "話す人・メモ"), 14, true);
             speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "話す人の数");
             speakerCount.Format = v => v == 0 ? "指定しない" : v + " 人";
             speakerCount.Show_();
@@ -348,8 +346,11 @@ namespace RequestSender
             modeUrl.Location = new Point(m, Ui.S(40));
             modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), Ui.S(40));
             var body = new Rectangle(1, Ui.S(76), leftPane.Width - 2, leftPane.Height - Ui.S(76) - 1);
-            cardList.Bounds = body;
             videoPanel.Bounds = body;
+            // 配信の URL の側は、下に時刻の入れ方を固定で出す(カードが増えても隠れない)
+            helpTime.Wrap(leftPane.Width - m * 2);
+            helpTime.Location = new Point(m, leftPane.Height - helpTime.Height - Ui.S(8));
+            cardList.Bounds = new Rectangle(body.X, body.Y, body.Width, helpTime.Top - Ui.S(6) - body.Y);
             ArrangeCards();
             LayoutVideo();
             right.Arrange();
@@ -360,7 +361,7 @@ namespace RequestSender
             sendBtn.SetBounds(w - m - Ui.S(150), Ui.S(14), Ui.S(150), Ui.S(40));
             cancelBtn.SetBounds(sendBtn.Left - Ui.S(8) - Ui.S(84), Ui.S(20), Ui.S(84), Ui.S(28));
             int textW = (cancelBtn.Visible ? cancelBtn.Left : sendBtn.Left) - m * 2 - Ui.S(4);
-            summary.SetBounds(Ui.S(16), Ui.S(12), textW, Ui.S(20));
+            summary.SetBounds(Ui.S(16), status.Text.Length > 0 ? Ui.S(12) : Ui.S(22), textW, Ui.S(20));   // 知らせが無い間は、要約を帯の中央に
             status.SetBounds(Ui.S(16), Ui.S(34), textW - (sendToLink.Visible ? sendToLink.Width + m : 0), Ui.S(20));
             sendToLink.Location = new Point(Ui.S(16) + textW - sendToLink.Width, Ui.S(35));
             LayoutReceive();
@@ -439,7 +440,7 @@ namespace RequestSender
         void ShowLeft(bool video)
         {
             showVideo = video;
-            cardList.Visible = !video;
+            cardList.Visible = helpTime.Visible = !video;
             videoPanel.Visible = video;
             modeUrl.On = !video;
             modeVideo.On = video;
@@ -689,7 +690,8 @@ namespace RequestSender
         }
 
         // ---------------------------------------------------------------- 送る
-        bool Busy { get { return worker != null && worker.IsAlive; } }
+        bool fakeBusy;   // 画面の確認(--state busy)
+        bool Busy { get { return fakeBusy || (worker != null && worker.IsAlive); } }
 
         void StartSend()
         {
@@ -736,6 +738,7 @@ namespace RequestSender
                 if (input.Videos.Count == 0 && input.Items.Count == 0) { ShowLeft(false); cards[0].FocusUrl(); }
                 return;
             }
+            if (Offline) return;   // 画面の確認・テストでは送らない
             Config config;
             try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
             catch (Exception ex) { SetStatus(ConfigProblem(ex), Tone.Error); return; }
@@ -831,6 +834,7 @@ namespace RequestSender
 
         void SetBusy(bool busy)
         {
+            if (Offline) fakeBusy = busy;
             sendBtn.Enabled = !busy;
             sendBtn.Text = busy ? "送っています…" : "送る";
             cancelBtn.Visible = busy;
@@ -854,6 +858,7 @@ namespace RequestSender
             status.Tone = tone;
             status.Text = (text ?? "").Replace("\r", "").Replace("\n", " ");
             tips.SetToolTip(status, status.Text);
+            if (built) summary.Top = status.Text.Length > 0 ? Ui.S(12) : Ui.S(22);
         }
 
         // ---------------------------------------------------------------- 届いた知らせ(邪魔をしない: 窓を出さない・前に出さない・音を出さない)
@@ -960,6 +965,29 @@ namespace RequestSender
         }
 
         // 窓の中身を画像に保存する
+        // 見本の状態(--state): ③ を選んだ・重みを指定して話す人 10 人・送ろうとして誤りが出た・送っている途中・送り終えた
+        public void ApplyState(string name)
+        {
+            if (name == "manual") flowRadios[2].Checked = true;
+            else if (name == "weights") { weightsOn.Checked = true; speakerCount.Value = Speakers.MaxCount; }
+            else if (name == "strict") StartSend();
+            else if (name == "focus") { var t = cards[0].Rows.First().End; t.ShowAsFocused = true; t.SelectSegment(TimeEdit.Minute); }
+            else if (name == "busy")
+            {
+                SetBusy(true);
+                bar.Value = 420;
+                SetStatus("動画を送っています(1 / 2): にぇの叫び.mp4… (512MB / 1.21GB)", Tone.Muted);
+            }
+            else if (name == "done")
+            {
+                ClearInputs(true, true);
+                bar.Value = 1000;
+                SetStatus("送りました ✓  できあがると「受け取る」に届きます(時間がかかります)", Tone.Accent);
+            }
+            LayoutAll();
+            UpdateAll();
+        }
+
         // 見本: 動画ファイルの側(--tab video)
         public void ShowVideoSample()
         {

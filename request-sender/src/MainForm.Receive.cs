@@ -85,7 +85,7 @@ namespace RequestSender
             headRecv.SetBounds(m, m, iw - refreshBtn.Width - m, Ui.S(20));
             refreshBtn.Location = new Point(w - m - refreshBtn.Width, m - Ui.S(4));
             recvHint.SetBounds(m, m + Ui.S(28), iw, Ui.S(18));
-            int top = m + Ui.S(54), foot = Ui.S(128), rest = Math.Max(Ui.S(120), h - top - foot - m);
+            int top = m + Ui.S(54), foot = Ui.S(104), rest = Math.Max(Ui.S(120), h - top - foot - m);
             int listH = rest * 55 / 100;
             listFrame.SetBounds(m, top, iw, listH);
             listHeader.SetBounds(1, 1, iw - 2, Ui.S(24));
