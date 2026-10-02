@@ -6,11 +6,11 @@
 html[data-pattern][data-theme]{
   --bg:#0A0E14;--bg-2:#070A0F;--panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;
   --field:#0A0E14;--field-hover:#0D131D;--line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;
-  --ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#7C8BA1;--ink-4:#56667D;
+  --ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
   --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);--accent-ink2:#5DE3F8;
   --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--ok-ink:#3DDC97;--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--warn-ink:#FFC14D;
-  --danger:#FF4D8D;--danger-soft:rgba(255,77,141,.12);--danger-ink:#FF7AA8;--info:#7AA8FF;--info-soft:rgba(122,168,255,.12);--info-ink:#9DBEFF;
-  --header-bg:rgba(10,14,20,.92);--scroll-thumb:#2C3D5C;
+  --danger:#FF5C93;--danger-soft:rgba(255,92,147,.12);--danger-ink:#FF7AA8;--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);--info-ink:#A9C4FF;
+  --header-bg:rgba(10,14,20,.92);--scroll-thumb:#2C3D5C;--knob:#FFFFFF;
   --ring:0 0 0 2px var(--accent);
 }
 html[data-pattern]{background:var(--bg);min-height:100%}
@@ -191,11 +191,6 @@ html[data-pattern][data-theme][data-palette=magenta]{   /* シンセウェーブ
   --line:#30245A;--line-2:#3D2F70;--line-strong:#55419A;--ink:#ECE6FF;--ink-2:#BBB0DD;--ink-3:#9288B8;--ink-4:#655A8A;
   --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(255,61,165,.13);--accent-line:rgba(255,61,165,.5);--accent-ink2:#FF74C0;
   --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B;--info:#38E1FF;--info-ink:#7BEAFF;--info-soft:rgba(56,225,255,.12);--header-bg:rgba(13,10,23,.92)}
-html[data-pattern][data-theme][data-palette=green]{     /* ターミナルグリーン: 黒緑の地に蛍光緑 */
-  --bg:#060B08;--bg-2:#040805;--panel:#0C1510;--panel-2:#09110C;--panel-3:#14241A;--field:#060B08;--field-hover:#09110C;
-  --line:#1E3527;--line-2:#284634;--line-strong:#386248;--ink:#D7F5E1;--ink-2:#A7C9B2;--ink-3:#6E8F7B;--ink-4:#4A6655;
-  --accent:#3DFF8B;--accent-hover:#7CFFB0;--accent-ink:#032611;--accent-soft:rgba(61,255,139,.11);--accent-line:rgba(61,255,139,.45);--accent-ink2:#7CFFB0;
-  --ok:#3DFF8B;--ok-ink:#7CFFB0;--danger:#FFC14D;--danger-soft:rgba(255,193,77,.12);--danger-ink:#FFD27A;--warn:#FF8A5C;--warn-ink:#FFA683;--warn-soft:rgba(255,138,92,.12);--header-bg:rgba(6,11,8,.92)}
 html[data-pattern][data-theme][data-palette=amber]{     /* 琥珀の CRT: 焦げ茶の地に琥珀(昔のモニター) */
   --bg:#0F0B06;--bg-2:#0A0704;--panel:#18120A;--panel-2:#130E08;--panel-3:#261C0F;--field:#0F0B06;--field-hover:#130E08;
   --line:#3A2B16;--line-2:#4B381D;--line-strong:#6A4F28;--ink:#FBE9CF;--ink-2:#D8BE97;--ink-3:#A08661;--ink-4:#6E5B40;
@@ -211,11 +206,6 @@ html[data-pattern][data-theme][data-palette=violet]{    /* 電子の紫: 黒紺�
   --line:#272645;--line-2:#33325A;--line-strong:#4A4882;--ink:#E6E5FF;--ink-2:#B3B1DA;--ink-3:#8583B0;--ink-4:#5C5A84;
   --accent:#9D8CFF;--accent-hover:#BDB1FF;--accent-ink:#130B3A;--accent-soft:rgba(157,140,255,.14);--accent-line:rgba(157,140,255,.5);--accent-ink2:#BDB1FF;
   --info:#38E1FF;--info-ink:#7BEAFF;--header-bg:rgba(10,10,20,.92)}
-html[data-pattern][data-theme][data-palette=steel]{     /* 鋼の白: 色を抑えた灰紺に白(アクセントも白に近い) */
-  --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
-  --line:#2A313B;--line-2:#363F4B;--line-strong:#4E5967;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#848E9B;--ink-4:#5B6470;
-  --accent:#E8F1FF;--accent-hover:#FFFFFF;--accent-ink:#0C0F13;--accent-soft:rgba(232,241,255,.10);--accent-line:rgba(232,241,255,.45);--accent-ink2:#FFFFFF;
-  --header-bg:rgba(12,15,19,.92)}
 html[data-pattern][data-theme][data-palette=dual]{      /* 二色: シアンの地の線 + 主な操作だけマゼンタ(2つの役割を色で分ける) */
   --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);--accent-ink2:#5DE3F8;
   --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B}
@@ -223,11 +213,34 @@ html[data-palette=dual][data-pattern=hud] .card::before,html[data-palette=dual][
 html[data-palette=dual][data-pattern=hud] .ui-tab[aria-pressed=true],html[data-palette=dual][data-pattern=hud] .ui-seg>button[aria-pressed=true]{color:#19D3F3;border-bottom-color:#19D3F3}
 html[data-palette=dual][data-pattern=hud] .bar>i{background:repeating-linear-gradient(90deg,#19D3F3 0 2px,transparent 2px 6px)}
 html[data-palette=dual] .pb-wave polyline{stroke:#19D3F3}
-html[data-pattern][data-palette=ice]{color-scheme:light}
-html[data-pattern][data-theme][data-palette=ice]{       /* アイスライト: 明るい地に青(明るいテーマが要るとき) */
+
+/* ================================================================ 調整した4つ(2026-10-02。ネオンシアンは上の土台の色)
+   直したこと(コントラストは WCAG: 文字 4.5:1 以上。数字は .design/cyber-theme/README の表):
+   - ネオンシアン: 薄い文字(--ink-3)を 4.6 → 5.8 に。失敗の色をマゼンタ寄りの赤にして、アクセントと離した。情報の色を明るく
+   - アイスライト: 「済み」の緑と「情報」の青が近かった → 情報を紫に。明るい地で薄すぎた文字・枠を濃く
+   - 鋼の白: スイッチをオンにすると白いつまみが白い地に消えた → つまみを地の色に。「注意」と「失敗」が近かった → 注意を黄色に寄せた
+   - ターミナルグリーン: 「済み」の緑がアクセントと同じだった → 済みを青緑に。注意と失敗が入れ替わっていた(失敗が黄色)→ 失敗を赤に戻した */
+html[data-pattern][data-theme][data-palette=ice]{
+  color-scheme:light;
   --bg:#EEF2F8;--bg-2:#E4EAF3;--panel:#FFFFFF;--panel-2:#F5F8FC;--panel-3:#E2E9F3;--field:#FFFFFF;--field-hover:#F7F9FC;
-  --line:#C3CFE2;--line-2:#AEBDD5;--line-strong:#8DA0BF;--ink:#0E1726;--ink-2:#334158;--ink-3:#5B6B84;--ink-4:#8593A8;
+  --line:#C3CFE2;--line-2:#9DAECB;--line-strong:#7E93B5;--ink:#0E1726;--ink-2:#334158;--ink-3:#55657E;--ink-4:#7A889E;
   --accent:#1F5BFF;--accent-hover:#0040E6;--accent-ink:#FFFFFF;--accent-soft:rgba(31,91,255,.09);--accent-line:rgba(31,91,255,.45);--accent-ink2:#1748CC;
-  --ok:#0E8A55;--ok-ink:#0B6E44;--ok-soft:rgba(14,138,85,.09);--warn:#A86A06;--warn-ink:#8A5300;--warn-soft:rgba(168,106,6,.1);
-  --danger:#D6336C;--danger-ink:#B4245A;--danger-soft:rgba(214,51,108,.09);--info:#0A74B3;--info-ink:#075F94;--info-soft:rgba(10,116,179,.09);
-  --header-bg:rgba(255,255,255,.92);--scroll-thumb:#AEBDD5}
+  --ok:#0B7A4B;--ok-ink:#0B7A4B;--ok-soft:rgba(11,122,75,.09);--warn:#8F5A00;--warn-ink:#8F5A00;--warn-soft:rgba(143,90,0,.1);
+  --danger:#C42660;--danger-ink:#C42660;--danger-soft:rgba(196,38,96,.08);--info:#6B46D6;--info-ink:#6B46D6;--info-soft:rgba(107,70,214,.09);
+  --header-bg:rgba(255,255,255,.94);--scroll-thumb:#9DAECB;--knob:#FFFFFF}
+html[data-pattern][data-theme][data-palette=steel]{
+  --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
+  --line:#2A313B;--line-2:#3A4350;--line-strong:#525D6C;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#8D97A4;--ink-4:#636D7A;
+  --accent:#E8F1FF;--accent-hover:#FFFFFF;--accent-ink:#0C0F13;--accent-soft:rgba(232,241,255,.10);--accent-line:rgba(232,241,255,.45);--accent-ink2:#FFFFFF;
+  --ok:#5FD3A0;--ok-ink:#5FD3A0;--ok-soft:rgba(95,211,160,.11);--warn:#E8D06A;--warn-ink:#E8D06A;--warn-soft:rgba(232,208,106,.11);
+  --danger:#FF6378;--danger-ink:#FF8191;--danger-soft:rgba(255,99,120,.12);--info:#8FB8E8;--info-ink:#A9C8EE;--info-soft:rgba(143,184,232,.11);
+  --header-bg:rgba(12,15,19,.92);--scroll-thumb:#3A4350;--knob:#0C0F13}
+html[data-pattern][data-theme][data-palette=green]{
+  --bg:#060B08;--bg-2:#040805;--panel:#0C1510;--panel-2:#09110C;--panel-3:#14241A;--field:#060B08;--field-hover:#09110C;
+  --line:#1E3527;--line-2:#2A4A36;--line-strong:#3B6A4E;--ink:#D7F5E1;--ink-2:#A7C9B2;--ink-3:#7D9E89;--ink-4:#55705F;
+  --accent:#3DFF8B;--accent-hover:#7CFFB0;--accent-ink:#032611;--accent-soft:rgba(61,255,139,.11);--accent-line:rgba(61,255,139,.45);--accent-ink2:#7CFFB0;
+  --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
+  --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
+  --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
+/* スイッチのつまみ: 配色ごとの色(鋼の白・ターミナルグリーンは、明るいアクセントの上で見えるように地の色) */
+html[data-pattern] input[type=checkbox].ui-switch:checked::after{background:var(--knob,#fff)}

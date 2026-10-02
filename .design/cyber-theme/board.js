@@ -13,8 +13,8 @@
   if (!NAMES[p]) p = 'hud';
   document.documentElement.setAttribute('data-pattern', p);
   document.documentElement.setAttribute('data-theme', 'dark');
-  var PAL = { cyan: 'ネオンシアン', magenta: 'シンセウェーブ', green: 'ターミナルグリーン', amber: '琥珀の CRT', red: '警戒の赤',
-              violet: '電子の紫', steel: '鋼の白', dual: '二色(シアン + マゼンタ)', ice: 'アイスライト(明るい)' };
+  var PAL = { cyan: 'ネオンシアン', magenta: 'シンセウェーブ', green: 'ターミナルグリーン(調整後)', amber: '琥珀の CRT', red: '警戒の赤',
+              violet: '電子の紫', steel: '鋼の白(調整後)', dual: '二色(シアン + マゼンタ)', ice: 'アイスライト(調整後)' };
   var c = (/[?&]c=([a-z]+)/.exec(location.search) || [])[1];
   if (c && PAL[c] && c !== 'cyan') document.documentElement.setAttribute('data-palette', c);
   NAMES[p] = [NAMES[p][0] + (c && PAL[c] ? ' × ' + PAL[c] : ''), NAMES[p][1]];
