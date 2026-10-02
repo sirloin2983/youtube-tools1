@@ -2722,3 +2722,22 @@
 - テスト: ui-kit の見本 e2e_styleguide(時刻の欄は本物のキー入力・Ctrl+V / Ctrl+C を含む)・test_ui_kit_sync・スタジオ e2e_ui --mounted 176・編集 e2e_ui_mounted・e2e_lite・ホーム e2e_portal・e2e_keymap・送るアプリ build.bat 28 件 すべて OK
 - 注意: Web の時刻の欄は右クリックの貼り付けが無い(ブラウザの決まりで、入力欄でない要素には出ない)。Ctrl+V だけ。送るアプリ(C#)は右クリックでも貼れる
 - 未コミット: なし
+
+## 2026-10-02 Claude Code — 時刻の欄を3か所に置き換え → 編集 0.40.0・スタジオ 0.15.0(ui-kit v11 のまま)
+- 依頼: ユーザー「スタジオのマークの開始・終了 / コラボの『合わせる時刻』/ 文字起こしの行」を `UIKit.timebox` に。文字起こしの行は「分の代わりに 0.1 秒単位」→ 確かめて **分:秒.0.1秒 の3つ**(ユーザー決定)
+- ui-kit(v11 のまま足した): 形 `short`(`data-ui-time-short`。分:秒.0.1秒。1時間を超えたら分が 60 以上)・確定の知らせ `ui-time-commit`(Enter か欄を離れたとき・値が変わっていれば。
+  `detail: {value, via: 'enter'|'blur', to}`)・`attachAll(入れ物)`・`get` / `set` は付いていなければ付ける・`format(秒, 形)`
+- 編集(0.40.0): `app-rows.js` の `segHTML`(`<span class="t" data-f data-ui-time data-ui-time-short>`)・`renderDoc` で `attachAll`・微調整(`nudge`)は `UIKit.timebox.set`。
+  確定は `app.js` の `#segs` の `ui-time-commit`: **並びが変わらなければ描き直さず `markOvl` だけ**(開始を打って Tab → 終了 と続けて打てる。以前は毎回描き直して文字の欄へフォーカスが移っていた)。
+  `isTextEntry` と再生の追従の「入力中か」に `.ui-time`。CSS は `index.html` の `.seg .t`(`min-width:0`・フォーカスの枠)
+- スタジオ(0.15.0): `review.js` の `tfieldHTML`(時:分:秒.0.1秒 = `data-ui-time-tenths`)・`renderList` で `attachAll`・確定は `ui-time-commit`(`S.rendering` の間は無視。
+  Enter ならその欄のまま・欄を離れて確定したら移った先へフォーカス = **開始 → Tab で次へ進める**。以前は開始の欄に戻っていた)・行を選ぶ focusin に `.ui-time`。
+  `core.js` の `Studio.isTyping` に `.ui-time`。`collab.js` の合わせる時刻 4 つ(`UIKit.timebox.get`。空なら理由を出してその欄へ)・使わなくなった `parseTime` を消した・Enter で保存は捕捉の段階で。
+  「現在位置」(`#rvNow`)は今までの入力欄のまま(秒の数字でジャンプできるため。ユーザーの選択に入っていない)
+- テスト: 欄の文字は `textContent`(`innerText` は区切りごとに改行が入る)・直すのは本物のキー入力。直したテスト: e2e_row_editing(`type_time`)・e2e_folder_marker_range・e2e_ui_handoff・e2e_edit_cut・
+  スタジオ e2e_ui(+8: 数字だけ → Enter・↑ で 0.1 秒 → Tab で次へ・空にしても元に戻る・欄の ← → は再生位置を動かさない・コラボ 001235 → 0:01:23.5・空の欄へ移る)・ui-kit の見本(short・確定・attachAll)。
+  結果: 編集の一式(単体 276・node 9・e2e 12 本・通し確認)・スタジオ e2e_ui 171 / --mounted 184・e2e_analyze・node 18・ui-kit の見本・ホーム e2e_portal / e2e_keymap・test_mount 26・契約 34 すべて OK
+  (スタジオ e2e_ui は1回だけ「『読み直す』で保存済みの設定が入り、印が消える」が NG → 流し直しで 171 件 OK。時刻の欄とは別の所・この PC の時間の揺れとみた)
+- 注意: 式の途中の行に `//` のコメントを足して後ろを消してしまい、編集の画面が動かなくなった(すぐ直した)。長い1行の式を直すときは、コメントは上の行に書く
+- 実機で確かめてもらうこと: 入口を「すべて終了」→ start.bat。編集の行・スタジオのマークで、数字だけで時刻が入るか・日本語入力がオンでも数字が入るか・Tab で続けて打てるか
+- 未コミット: なし

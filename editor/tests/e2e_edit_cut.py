@@ -355,7 +355,7 @@ def main():
             def undo_n():
                 m = re.search(r"\((\d+)\)", pg.inner_text("#btnUndo"))
                 return int(m.group(1)) if m else 0
-            end_of = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('[data-f=end]').value" % i)   # noqa: E731
+            end_of = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('.t[data-f=end]').textContent" % i)   # noqa: E731
             is_cut = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].classList.contains('cut')" % i)   # noqa: E731
             adj_end = lambda i: pg.evaluate("document.querySelectorAll('#segs .seg')[%d].querySelector('[data-act=adj][data-f=end][data-d=\"-1\"]').click()" % i)   # noqa: E731
             rev_now = lambda: srv.get("/api/edit?id=" + tid)["rev"]   # noqa: E731
@@ -376,21 +376,21 @@ def main():
             # 文字起こし(行の終わりを早める)→ カット(行1を削る)→ 文字起こし(行4の終わり)の順に3つ → Ctrl+Z・Ctrl+Z・ボタンで新しい順に戻る
             e1, e3 = end_of(1), end_of(3)
             adj_end(1)
-            wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value !== %s" % json.dumps(e1), 3000)
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('.t[data-f=end]').textContent !== %s" % json.dumps(e1), 3000)
             r2 = rev_now()
             pg.locator("#segs .seg").nth(0).locator("[data-act=cut]").click()
             wait_js(pg, "document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 5000)
             wait_saved(r2 + 1)
             adj_end(3)
-            wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('[data-f=end]').value !== %s" % json.dumps(e3), 3000)
+            wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('.t[data-f=end]').textContent !== %s" % json.dumps(e3), 3000)
             check(undo_n() == n0 + 3, "3-5: ボタンの数は文字起こしとカットの合計(%d → %d)" % (n0, undo_n()))
             ctrl_z()
-            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('[data-f=end]').value === %s" % json.dumps(e3), 3000) and is_cut(0) and end_of(1) != e1,
+            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[3].querySelector('.t[data-f=end]').textContent === %s" % json.dumps(e3), 3000) and is_cut(0) and end_of(1) != e1,
                   "3-5: 1回目の Ctrl+Z = いちばん新しい文字起こしの変更(行4)だけ戻る")
             ctrl_z()
             check(wait_js(pg, "!document.querySelectorAll('#segs .seg')[0].classList.contains('cut')", 3000) and end_of(1) != e1, "3-5: 2回目 = カット(行1)が戻る・行2の終わりはそのまま")
             pg.click("#btnUndo")
-            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value === %s" % json.dumps(e1), 3000) and not is_cut(0),
+            check(wait_js(pg, "document.querySelectorAll('#segs .seg')[1].querySelector('.t[data-f=end]').textContent === %s" % json.dumps(e1), 3000) and not is_cut(0),
                   "3-5: 3回目(ボタン)= 行2の終わりが戻る。行のカット済は今のカットのまま")
             check(undo_n() == n0, "3-5: 数も元どおり(%d)" % undo_n())
             wait_js(pg, "!document.querySelector('#saveState') || document.querySelector('#saveState').textContent.indexOf('保存中') < 0", 5000)
@@ -448,7 +448,7 @@ def main():
             wait_saved()
             seg1 = srv.get("/api/transcript?id=" + tid)["segments"][1]
             check(abs(seg1["end"] - 6.7) < 1e-6, "6-3: 行の終わりが 0.2 秒後ろへ動いて文書に保存される(0.01 秒に丸め): %s" % seg1["end"])
-            check("6.7" in pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value"), "1 文字起こし のタブの時刻も変わっている: %s" % pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('[data-f=end]').value"))
+            check("6.7" in pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('.t[data-f=end]').textContent"), "1 文字起こし のタブの時刻も変わっている: %s" % pg.evaluate("document.querySelectorAll('#segs .seg')[1].querySelector('.t[data-f=end]').textContent"))
             clips_after = server_clips()
             check(any(a <= 6.5 + 1e-6 and b >= 6.7 - 1e-6 for a, b in clips_after) and not any(a <= 6.8 <= b for a, b in clips_after),
                   "6-4: 残す行を外へ広げた分(6.5〜6.7)だけ残す区間も広がり、6.7〜6.9 は削る区間のまま: %s → %s" % (clips_before, clips_after))

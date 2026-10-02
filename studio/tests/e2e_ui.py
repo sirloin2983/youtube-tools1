@@ -668,6 +668,8 @@ def run_checks(port, fx, shots=None):
         c.ok(pg.evaluate("document.getElementById('clA1this').classList.contains('ui-time')") and (pg.text_content("#clA1this") or "") == "0:00:00.0", "合わせる時刻は時刻の欄: %s" % pg.text_content("#clA1this"))
         pg.keyboard.type("001235")
         c.ok(pg.evaluate("UIKit.timebox.get(document.getElementById('clA1this'))") == 83.5 and (pg.text_content("#clA1this") or "") == "0:01:23.5", "001235 → 0:01:23.5: %s" % pg.text_content("#clA1this"))
+        if os.environ.get("SHOT_ANCHOR"):   # 見た目の確認用(合わせる時刻の欄)
+            pg.screenshot(path=os.environ["SHOT_ANCHOR"])
         pg.keyboard.press("Enter")
         pg.wait_for_timeout(300)
         c.ok("点1の時刻" in (pg.text_content("#clAnchorMsg") or "") and pg.evaluate("document.activeElement.id") == "clA1ref",
