@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -29,6 +30,9 @@ namespace RequestSender
         readonly NumericUpDown top = new NumericUpDown();
         readonly RadioButton[] flowRadios = Flow.All.Select(f => new RadioButton { Text = Flow.Label(f), Tag = f, AutoSize = true }).ToArray();
         readonly Label flowExplain = new Label();
+        readonly ComboBox videoTracks = new ComboBox();
+        readonly Label videoTracksHint = new Label();
+        FlowLayoutPanel videoTracksRow;
         readonly ProgressBar bar = new ProgressBar();
         readonly Label status = new Label(), dropHint = new Label();
         readonly LinkLabel sendToLink = new LinkLabel();
@@ -211,6 +215,24 @@ namespace RequestSender
             flowExplain.MaximumSize = new Size(500, 0);
             t.Controls.Add(flowExplain);
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            // Resolve の映像トラックの数(① 全自動のときだけ。PC が作るパックのタイムライン。送るたびに選ぶ。覚えない)
+            videoTracksRow = FlowRow();
+            videoTracksRow.Margin = new Padding(18, 2, 0, 0);
+            videoTracksRow.Controls.Add(new Label { Text = "Resolve の映像トラックの数:", AutoSize = true, Margin = new Padding(3, 7, 3, 0) });
+            videoTracks.DropDownStyle = ComboBoxStyle.DropDownList;
+            videoTracks.Width = 60;
+            for (int i = VideoTracks.Min; i <= VideoTracks.Max; i++) videoTracks.Items.Add(i.ToString(CultureInfo.InvariantCulture));
+            videoTracks.SelectedIndex = VideoTracks.Default - VideoTracks.Min;
+            videoTracks.SelectedIndexChanged += (s, e) => videoTracksHint.Text = VideoTracks.Hint(SelectedVideoTracks);
+            videoTracksRow.Controls.Add(videoTracks);
+            videoTracksHint.AutoSize = true;
+            videoTracksHint.ForeColor = Color.DimGray;
+            videoTracksHint.Margin = new Padding(3, 7, 3, 0);
+            videoTracksHint.Text = VideoTracks.Hint(SelectedVideoTracks);
+            videoTracksRow.Controls.Add(videoTracksHint);
+            t.Controls.Add(videoTracksRow);
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             UpdateFlowExplain();
 
             sendBtn.Text = "送る";
@@ -266,7 +288,10 @@ namespace RequestSender
         void UpdateFlowExplain()
         {
             flowExplain.Text = Flow.Explain(SelectedFlow);
+            if (videoTracksRow != null) videoTracksRow.Enabled = SelectedFlow == Flow.Auto;   // ②③ はパックを PC で作らないので使わない
         }
+
+        int SelectedVideoTracks { get { return videoTracks.SelectedIndex >= 0 ? videoTracks.SelectedIndex + VideoTracks.Min : VideoTracks.Default; } }
 
         int SelectedSpeakerCount { get { return speakerCount.SelectedIndex > 0 ? speakerCount.SelectedIndex : 0; } }
 
@@ -408,6 +433,7 @@ namespace RequestSender
                 SpeakerCount = SelectedSpeakerCount,
                 SpeakerNames = Speakers.CleanNames(speakerNames.Take(SelectedSpeakerCount).Select(c => c.Text), SelectedSpeakerCount),
                 Flow = SelectedFlow,
+                VideoTracks = SelectedVideoTracks,
             };
             var errs = new List<string>(parsed.Errors);
             errs.AddRange(Sending.Check(input));

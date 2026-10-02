@@ -72,7 +72,7 @@ import restart as restart_mod  # noqa: E402  (home/restart.py: 入口ごと起�
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.21.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.22.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20

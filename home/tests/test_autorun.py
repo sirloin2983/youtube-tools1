@@ -983,6 +983,7 @@ class TestRequests(Base):
         run = self.wait(self.r.start_file(media, title="依頼", streamer="さくらみこ", request_id="rid1", flow="auto", deliver_dir=out))
         self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_auto", ["transcribe", "pack", "deliver"]), run)
         self.assertEqual(self.tools.c2r["body"]["output"].get("streamer"), "さくらみこ")   # 選んだ配信者の色でパック
+        self.assertNotIn("videoTracks", self.tools.c2r["body"]["output"])                 # 選ばなければ送らない(= 1)
         self.assertEqual(sorted(self.zips(out)), ["rid1__依頼.zip"])
         media2 = os.path.join(self.tmp, "b.mp4")
         open(media2, "wb").close()
@@ -991,6 +992,14 @@ class TestRequests(Base):
         self.assertEqual(run["state"], "error")
         with open(os.path.join(out, "rid2__二本目.失敗.txt"), encoding="utf-8-sig") as f:
             self.assertIn("モデルが読めません", f.read())
+
+    def test_file_auto_video_tracks_to_pack(self):
+        """友人が選んだ映像トラックの数をパックの output.videoTracks へ"""
+        media = os.path.join(self.tmp, "トラック.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, title="トラック", request_id="rid9", flow="auto", deliver_dir=os.path.join(self.tmp, "out9"), video_tracks=4))
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.tools.c2r["body"]["output"]["videoTracks"], 4)
 
     def test_file_with_speakers_diarizes_new_doc(self):
         """話す人があれば、文字起こしのあとに話者分離(人数と名前を「編集」の /api/diarize へ)"""

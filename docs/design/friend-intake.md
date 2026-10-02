@@ -52,6 +52,11 @@
 - 名前の分からない人は「話者1」などのまま。失敗しても依頼は止めない(一部失敗)。① 全自動ではパックの前なので、字幕の色は付いた名前で決まる
 - 「編集」の話者判別の人数にも「1人」を足した
 
+### 2-5. 映像トラックの数(2026-10-02 ユーザー。ホーム 0.22.0・cut2resolve 0.19.0・送るアプリ 1.4.0)
+- 友人が ① 全自動のときに「Resolve の映像トラックの数」(1〜5)を選ぶ。2 以上なら JSON の `videoTracks`(②③・1 は書かない)
+- PC: `intake.parse_video_tracks`(2〜5 の整数だけ・① のときだけ)→ `autorun.Run.video_tracks` → cut2resolve の `/api/build` の `output.videoTracks` → `pack.build_pack(video_tracks=)`。
+  V1 = 動画・V2〜VN = 空・字幕は V(N+1)(簡易版の書き出しと同じ。編集 0.39.0 / cut2resolve 0.18.0)
+
 ## 3. 全体の流れ
 ```
 友人の PC                          ユーザーの Dropbox(2TB)                  ユーザーの PC

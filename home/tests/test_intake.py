@@ -27,17 +27,18 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers}
+        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
         if self.fail:
             raise ValueError(self.fail)
-        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers})
+        self.files.append({"path": path, "title": title, "streamer": streamer, "rid": request_id, "flow": flow, "deliver": deliver_dir, "speakers": speakers,
+                           "tracks": video_tracks})
         return {"id": "f%d" % len(self.files)}
 
 
@@ -338,6 +339,23 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.last["speakers"], {"count": 1, "names": ["さくらみこ"]})
         self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "話す人: 1人(さくらみこ)")
+
+    def test_video_tracks_passed_only_for_auto(self):
+        """映像トラックの数(1.4.0 のアプリ。① 全自動のときだけ): 2〜5 をまとめて実行へ。②③・形が違えば渡さない"""
+        for v, want in ((3, 3), (5, 5), (1, None), (6, None), ("3", None), (True, None), (None, None)):
+            self.assertEqual(intake.parse_video_tracks(v), want, v)
+        rid = "20261001-120000-abc131"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto", "videoTracks": 3,
+                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}))
+        self.scan2()
+        self.assertEqual(self.runner.last["tracks"], 3)
+        self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 3本")
+        rid = "20261001-120000-abc132"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "videoTracks": 3,
+                                                     "items": [{"url": "https://youtu.be/bbbbbbbbbbb", "top": 2}]}))
+        self.scan2()
+        self.assertIsNone(self.runner.last["tracks"])
+        self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "")
 
     def test_state_persists(self):
         self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")

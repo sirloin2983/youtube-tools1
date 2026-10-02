@@ -605,6 +605,14 @@ class TestJobs(ServerBase):
             self.assertIn("見つかりません", e["message"])
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "textplusWrap": 99}})
         self.assertEqual((st, e["error"]), (400, "bad_value"))                  # 字幕の1段の文字数は 0〜40
+        # 映像トラックの数(友人の依頼の ① 全自動。字幕はその上のトラック)
+        out3 = self.dir / "tp_tracks"
+        j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out3), "textplus": True, "videoTracks": 4}})
+        self.assertEqual(j["state"], "done", j)
+        self.assertEqual(serve.TP.read_script_plan((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))["videoTracks"], 4)
+        self.assertIn("V5 Text+ 字幕(一番上)", j["result"]["readme"])
+        st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_t6"), "textplus": True, "videoTracks": 6}})
+        self.assertEqual((st, e["error"]), (400, "bad_tracks"))
 
     def test_output_dir_must_not_be_input(self):
         st, j = self.c.json("POST", "/api/build", {"spec": self.spec(), "output": {"dir": str(self.srt)}})
@@ -717,6 +725,16 @@ class TestTextPlusTargetOption(unittest.TestCase):
             with self.assertRaises(serve.ApiError, msg=bad) as cm:
                 serve.output_from_spec(bad, v)
             self.assertEqual(cm.exception.code, "bad_loudness")
+
+    def test_output_video_tracks(self):
+        """output.videoTracks: 省略 = 1・1〜5 だけ"""
+        v = Path(tempfile.gettempdir()) / "x.mp4"
+        self.assertEqual(serve.output_from_spec({}, v)["videoTracks"], 1)
+        self.assertEqual(serve.output_from_spec({"videoTracks": 5}, v)["videoTracks"], 5)
+        for bad in (0, 6, True, "x", 2.5):
+            with self.assertRaises(serve.ApiError, msg=bad) as cm:
+                serve.output_from_spec({"videoTracks": bad}, v)
+            self.assertEqual(cm.exception.code, "bad_tracks")
 
     def test_bad_target_is_400(self):
         v = Path(tempfile.gettempdir()) / "x.mp4"

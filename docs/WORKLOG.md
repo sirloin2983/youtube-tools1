@@ -2642,3 +2642,16 @@
   cut2resolve 312・編集の単体 290・契約 34・test_mount 26・e2e_lite・e2e_ui_mounted・e2e_edit_pack・通し確認 OK
 - 実機で確かめてもらうこと: 本物の Resolve で N = 3 などの Lua を流し、AddTrack で V2〜V4 ができ、字幕が V4 に入るか(偽物では確認済み)
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 友人の依頼に映像トラックの数 → 送るアプリ 1.4.0・ホーム 0.22.0・cut2resolve 0.19.0
+- 依頼: ユーザー「友人のアプリから送る依頼につける」(直前の簡易版の映像トラックの数と同じものを、送るアプリの ① 全自動のパックにも)
+- 送るアプリ: 「PC でどこまでやるか」の下に「Resolve の映像トラックの数」(1〜5)と案内。① 全自動のときだけ有効(②③ はパックを PC で作らないため)。送るたびに選ぶ・覚えない。
+  JSON は 2 以上・① のときだけ `"videoTracks":N`(`VideoTracks.JsonPart`。1.3.0 までの呼び出しはそのまま)。build.bat のテスト 19 件 OK・画面は DrawToBitmap で確認(②で灰色)
+- ホーム: `intake.parse_video_tracks`(2〜5 の整数・flow が auto のときだけ)→ `start_request`/`start_file(video_tracks=)` → `Run.video_tracks` → `_pack_one` が `output.videoTracks`。
+  依頼の一覧に「映像トラック: N本」(`tracksLabel`・portal.js)
+- cut2resolve: `/api/build` の `output.videoTracks`(省略 = 1・範囲の外は 400 bad_tracks)→ `pack.build_pack(video_tracks=)`
+- 文書: friend-intake.md の 2-5・各 README・ROADMAP の版
+- テスト: home 186・cut2resolve 314・契約 34・push_helper・e2e_portal・e2e_intake_ui・e2e_autorun・通し確認 OK(test_launch の test_autorun_history が1回だけ落ち、単独・流し直しで OK = 時間の揺れ)
+- 回答(ユーザーの質問): 依頼のカットの既定は「カットしない」(home/prefs.py の DEFAULTS autorun.cut = "none"。この PC の prefs.json も未設定 = none)
+- 友人へ: dist\RequestSender.zip(1.4.0)を渡し直す。ユーザーは入口を「すべて終了」→ start.bat
+- 未コミット: なし(このあとコミット)

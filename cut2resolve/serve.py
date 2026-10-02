@@ -22,6 +22,7 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
                                   output.loudness = 聞こえ方の音量をそろえる目標(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない)。
                                   カットで残す区間だけ測り、同梱の動画は音声だけ作り直す。結果の loudness = {target, measured, gainDb} か {target, skipped}
                                   output.volume = 音量(%。1〜200。元 = 100)。loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
+                                  output.videoTracks = Text+ のタイムラインの映像トラックの数(1〜5。省略 = 1)。V1 = 動画・V2〜 = 空・字幕はその上
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
@@ -564,7 +565,11 @@ def output_from_spec(o, video):
         vol = None if loud is not None else _loud.check_volume(o.get("volume"))   # LUFS でそろえないときの音量(%。元 = 100)
     except ValueError as e:
         raise ApiError("bad_loudness", str(e))
-    return {"textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
+    try:   # 映像トラックの数(友人の依頼の ① 全自動で選ぶ。2026-10-02)。省略 = 1(今までどおり V1 動画・V2 字幕)
+        tracks = 1 if o.get("videoTracks") in (None, "") else TP.video_tracks_value(o.get("videoTracks"))
+    except ValueError as e:
+        raise ApiError("bad_tracks", str(e))
+    return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
@@ -982,7 +987,8 @@ class Handler(BaseHTTPRequestHandler):
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
                                   textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
-                                  speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"])
+                                  speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
+                                  video_tracks=out["videoTracks"])
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])

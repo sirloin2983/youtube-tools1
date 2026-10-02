@@ -140,8 +140,9 @@ def _doc_id_ok(v):
 
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None, deliver_dir=None, speakers=None):
+                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None):
         self.id = uuid.uuid4().hex[:10]
+        self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
         self.speakers = speakers         # 友人が入れた「話す人」{"count", "names"}。あれば文字起こしのあとに話者分離(2026-10-01)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
@@ -405,7 +406,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
         """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel"}]。配信ごとに1つの実行(mode request)。
         すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
@@ -425,7 +426,8 @@ class AutoRunner:
                     skipped.append({"id": vid, "title": title, "reason": "順番待ちが多すぎます(%d本まで)" % MAX_WAITING})
                 else:
                     run = Run(vid, title or vid, FLOW_MODES["url"].get(flow, "request"), top, fresh={"title": title, "channel": channel},
-                              on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers)
+                              on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
+                              video_tracks=video_tracks)
                     self.runs.append(run)
                     active.append(run)
                     made.append(run.public())
@@ -434,7 +436,7 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None):
         """友人が切り抜いた動画の依頼(home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
@@ -446,7 +448,8 @@ class AutoRunner:
             if len(active) >= MAX_WAITING:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
             run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
-                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers)
+                      on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
+                      video_tracks=video_tracks)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -939,6 +942,8 @@ class AutoRunner:
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
         if force:
             body["output"]["force"] = True
+        if run.video_tracks:   # 友人が選んだ映像トラックの数(字幕はその上のトラック)
+            body["output"]["videoTracks"] = run.video_tracks
         self._auto_streamer(run, doc)
         if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
             body["output"]["streamer"] = run.streamer

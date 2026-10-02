@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "1.3.0";
+        public const string Version = "1.4.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -247,6 +247,24 @@ namespace RequestSender
         }
     }
 
+    // Resolve の映像トラックの数(1〜5。V1 = 動画・V2〜 = 空・字幕はその上)。PC がパックを作る ① 全自動のときだけ意味がある。
+    // 1(既定)と ①以外は JSON にキーを書かない(1.3.0 までと同じ中身)
+    public static class VideoTracks
+    {
+        public const int Min = 1, Max = 5, Default = 1;
+
+        public static string JsonPart(string flow, int count)
+        {
+            if (flow != Flow.Auto || count <= Default || count > Max) return "";
+            return ",\"videoTracks\":" + count.ToString(CultureInfo.InvariantCulture);
+        }
+
+        public static string Hint(int count)
+        {
+            return count <= 1 ? "V1 に動画、V2 に字幕" : "V1 に動画、V2〜V" + count + " は空、V" + (count + 1) + "(いちばん上)に字幕";
+        }
+    }
+
     public static class RequestJson
     {
         public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt)
@@ -261,6 +279,16 @@ namespace RequestSender
 
         public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
         {
+            return Video(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, VideoTracks.Default);
+        }
+
+        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
+        {
+            return Url(id, urls, top, memo, flow, sentAt, speakerCount, speakerNames, VideoTracks.Default);
+        }
+
+        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
+        {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
             sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
@@ -268,11 +296,12 @@ namespace RequestSender
             sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer ?? "", false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
+            sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
 
-        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
+        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"url\",\"id\":").Append(JsonText.Quote(id, false));
@@ -281,6 +310,7 @@ namespace RequestSender
                 "{\"url\":" + JsonText.Quote(u, false) + ",\"top\":" + top.ToString(CultureInfo.InvariantCulture) + "}"))).Append(']');
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
+            sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
