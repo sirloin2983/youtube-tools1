@@ -1,4 +1,4 @@
-/* ui-kit v10 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v11 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -29,7 +29,8 @@
        UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
    v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
    v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
-   v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self) */
+   v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
+   v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -959,6 +960,7 @@
     var tag = (t.tagName || '').toLowerCase();
     if (tag === 'textarea' || tag === 'select') return true;
     if (t.isContentEditable) return true;
+    if (t.classList && t.classList.contains('ui-time')) return true;   // 時刻の欄(v11。数字・矢印を自分で使う)
     if (tag === 'input') return !!TYPING_INPUT_TYPES[String(t.type || 'text').toLowerCase()];
     return false;
   }
@@ -1807,7 +1809,151 @@
     run: restartRun
   };
 
-  window.UIKit = { version: 10, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
+     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(request-sender の TimeBox)と同じ動き(.design/request-sender-overhaul/DESIGN_BRIEF.md):
+       欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
+       ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
+       貼り付け(1:23:45 / 83:45 / 1h23m45s。youtube: true のときだけ YouTube の URL の t= も読む)。
+     入力欄(input)ではなく、フォーカスできる要素に自分で描く: 文字を打ち込めない・日本語入力に数字のキーを取られない・選んだ所をアクセントの色で見せられる。
+     値は秒(tenths のときは 0.1 秒刻み)。入っていなければ null。変わるたびに要素へ 'ui-time'(detail: {value})、読めない貼り付けは 'ui-time-reject'(detail: {reason}) */
+  var TB_MAX = 99 * 3600 + 59 * 60 + 59;   // 秒
+  function tbParts(t10) { var s = Math.floor(t10 / 10); return [Math.floor(s / 3600), Math.floor(s % 3600 / 60), s % 60, t10 % 10]; }
+  function tbPad(n) { return (n < 10 ? '0' : '') + n; }
+  function tbFormat(sec, tenths) {
+    var p = tbParts(Math.round((Number(sec) || 0) * 10));
+    return p[0] + ':' + tbPad(p[1]) + ':' + tbPad(p[2]) + (tenths ? '.' + p[3] : '');
+  }
+  /* 貼り付けた文字 → 秒(読めなければ null)。数字だけ(「5025」)は 秒なのか 時分秒なのか決められないので読まない */
+  function tbParse(text, opt) {
+    opt = opt || {};
+    var s = String(text == null ? '' : text).trim(), m;
+    if (!s || s.length > 2048) return null;
+    function units(v, bare) {
+      if (/^\d+$/.test(v)) return bare ? Number(v) : null;
+      var x = /^(?:(\d{1,3})h)?(?:(\d{1,4})m)?(?:(\d{1,6})s?)?$/i.exec(v);
+      return x && v ? (Number(x[1]) || 0) * 3600 + (Number(x[2]) || 0) * 60 + (Number(x[3]) || 0) : null;
+    }
+    var sec = null;
+    if (opt.youtube && (m = /(?:^|[?&#\s])t=([0-9hms]+)/i.exec(s))) sec = units(m[1], true);
+    else if ((m = /^(\d{1,3})[:：](\d{1,2})(?:[:：](\d{1,2}))?(?:\.(\d))?$/.exec(s))) {
+      sec = m[3] !== undefined ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : Number(m[1]) * 60 + Number(m[2]);
+      if (m[4] && opt.tenths) sec += Number(m[4]) / 10;
+    } else if (!/^https?:/i.test(s)) sec = units(s, false);
+    return sec === null || sec > TB_MAX ? null : sec;
+  }
+  function attachTime(el, opt) {
+    if (!el) return null;
+    if (el.__uiTime) return el.__uiTime;
+    opt = opt || {};
+    var tenths = opt.tenths !== undefined ? !!opt.tenths : el.hasAttribute('data-ui-time-tenths');
+    var youtube = opt.youtube !== undefined ? !!opt.youtube : el.hasAttribute('data-ui-time-youtube');
+    var maxSec = Number(opt.max !== undefined ? opt.max : el.getAttribute('data-ui-time-max')) || TB_MAX;
+    var NAMES = ['時', '分', '秒', '0.1秒'], UNIT = [36000, 600, 10, 1], last = tenths ? 3 : 2;
+    var v = 0, has = false, seg = 0, half = false;   // v = 0.1 秒の数。half = 分・秒の1桁目だけ打った所
+    el.classList.add('ui-time');
+    el.setAttribute('role', 'spinbutton');
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', '時刻');
+    el.title = el.title || '数字だけ打つ(12345 → 1:23:45)。← → で 時・分・秒 を選び、↑ ↓ で動かす。Delete で空に';
+    function clamp(x) { return Math.max(0, Math.min(Math.round(maxSec * 10), Math.round(x))); }
+    function disabled() { return el.getAttribute('aria-disabled') === 'true'; }
+    function draw() {
+      var p = tbParts(v), on = document.activeElement === el, shown = has || on;
+      var txt = [shown ? String(p[0]) : '-', shown ? tbPad(p[1]) : '--', shown ? tbPad(p[2]) : '--', shown ? String(p[3]) : '-'], html = '';
+      for (var i = 0; i <= last; i++) {
+        if (i) html += '<span class="ui-time-sep" aria-hidden="true">' + (i === 3 ? '.' : ':') + '</span>';
+        html += '<span class="ui-time-seg' + (on && i === seg ? ' on' : '') + '" data-seg="' + i + '">' + txt[i] + '</span>';
+      }
+      el.innerHTML = html;
+      el.classList.toggle('empty', !has);
+      el.setAttribute('aria-valuenow', String(v / 10));
+      el.setAttribute('aria-valuetext', has ? tbFormat(v / 10, tenths) + (on ? '(' + NAMES[seg] + 'を選択中)' : '') : '未入力');
+    }
+    function tell() { try { el.dispatchEvent(new CustomEvent('ui-time', { bubbles: true, detail: { value: has ? v / 10 : null } })); } catch (e) { /* 古いブラウザ */ } }
+    function setPart(i, n) { var p = tbParts(v); p[i] = n; v = clamp(p[0] * 36000 + p[1] * 600 + p[2] * 10 + p[3]); }
+    function advance() { half = false; if (seg < last) seg++; }
+    function digit(d) {
+      has = true;
+      if (seg === 0) { setPart(0, d); seg = 1; half = false; }
+      else if (seg === 3) setPart(3, d);
+      else if (!half) { setPart(seg, d); if (d >= 6) advance(); else half = true; }
+      else { setPart(seg, tbParts(v)[seg] * 10 + d); advance(); }
+    }
+    function paste(text) {
+      var sec = tbParse(text, { youtube: youtube, tenths: tenths });
+      if (sec === null) {
+        try { el.dispatchEvent(new CustomEvent('ui-time-reject', { bubbles: true, detail: { reason: youtube ? '時刻として読めませんでした。YouTube の「現在の時刻の動画の URL をコピー」か、1:23:45 の形を貼ってください' : '時刻として読めませんでした。1:23:45 の形を貼ってください' } })); } catch (e) { /* 古いブラウザ */ }
+        return false;
+      }
+      v = clamp(sec * 10); has = true; half = false;
+      return true;
+    }
+    el.addEventListener('keydown', function (e) {
+      if (disabled() || e.ctrlKey || e.metaKey || e.altKey) return;
+      var k = e.key, before = v, had = has, used = true;
+      if (/^[0-9]$/.test(k)) digit(Number(k));
+      else if (k === 'ArrowLeft') { seg = Math.max(0, seg - 1); half = false; }
+      else if (k === 'ArrowRight') { seg = Math.min(last, seg + 1); half = false; }
+      else if (k === 'ArrowUp' || k === 'ArrowDown') { has = true; half = false; v = clamp(v + (k === 'ArrowUp' ? 1 : -1) * UNIT[seg] * (e.shiftKey ? 10 : 1)); }
+      else if (k === 'Backspace') { if (tbParts(v)[seg] === 0 && !half) seg = Math.max(0, seg - 1); else setPart(seg, 0); half = false; }
+      else if (k === 'Delete') { v = 0; has = false; seg = 0; half = false; }
+      else used = false;
+      if (!used) return;
+      e.preventDefault(); e.stopPropagation();   // 画面のキー操作(再生・矢印で 1 秒など)に渡さない
+      draw();
+      if (before !== v || had !== has) tell();
+    });
+    el.addEventListener('paste', function (e) {
+      if (disabled()) return;
+      e.preventDefault();
+      var before = v, had = has, text = (e.clipboardData || window.clipboardData).getData('text');
+      if (paste(text)) { draw(); if (before !== v || had !== has) tell(); try { el.dispatchEvent(new CustomEvent('ui-time-paste', { bubbles: true, detail: { text: text } })); } catch (x) { /* 古いブラウザ */ } }
+    });
+    el.addEventListener('copy', function (e) { if (has && e.clipboardData) { e.clipboardData.setData('text/plain', tbFormat(v / 10, tenths)); e.preventDefault(); } });
+    el.addEventListener('focus', function () { seg = 0; half = false; draw(); });   // 欄に入ったら、時から打ち始める
+    el.addEventListener('blur', function () { half = false; draw(); });
+    el.addEventListener('mousedown', function (e) {
+      if (disabled()) { e.preventDefault(); return; }
+      var t = e.target && e.target.closest ? e.target.closest('.ui-time-seg') : null, pick = t && has ? Number(t.getAttribute('data-seg')) : 0;
+      if (document.activeElement !== el) el.focus();   // focus で時に戻るので、そのあとでクリックした所を選ぶ
+      seg = pick; half = false; draw();
+      e.preventDefault();
+    });
+    var api = el.__uiTime = {
+      el: el,
+      get: function () { return has ? v / 10 : null; },
+      set: function (sec) {   // null・'' で空に。画面から入れたときは 'ui-time' を出さない(入れた側が知っているため)
+        if (sec === null || sec === undefined || sec === '' || isNaN(Number(sec))) { v = 0; has = false; } else { v = clamp(Number(sec) * 10); has = true; }
+        half = false; draw();
+      },
+      text: function () { return has ? tbFormat(v / 10, tenths) : ''; },
+      focus: function () { el.focus(); }
+    };
+    var init = opt.value !== undefined ? opt.value : el.getAttribute('data-ui-time');
+    api.set(init === null || init === '' ? null : init);
+    return api;
+  }
+  var timebox = {
+    attach: attachTime,
+    /* 要素を作って返す(画面をあとから作るとき)。opt: {tenths, youtube, max, value, label} */
+    create: function (opt) {
+      opt = opt || {};
+      var el = document.createElement('span');
+      if (opt.label) el.setAttribute('aria-label', opt.label);
+      attachTime(el, opt);
+      return el;
+    },
+    get: function (el) { return el && el.__uiTime ? el.__uiTime.get() : null; },
+    set: function (el, sec) { var a = attachTime(el); if (a) a.set(sec); },
+    parse: tbParse,
+    format: tbFormat
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    var list = document.querySelectorAll('[data-ui-time]');
+    for (var i = 0; i < list.length; i++) attachTime(list[i]);
+  });
+
+  window.UIKit = { version: 11, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox };
 })();

@@ -79,6 +79,23 @@
       UIKit.restart.check(document.getElementById('restartBandDemo'), '0.2.0', '0.1.0', window.__restartDemoOpts || {});
     });
 
+    // ---- 時刻の欄(UIKit.timebox。v11) ----
+    var tbStart = document.getElementById('tbStart'), tbEnd = document.getElementById('tbEnd'), tbMsg = document.getElementById('tbMsg'), tbHelp = tbMsg.textContent;
+    function tbShowLen() {
+      var a = UIKit.timebox.get(tbStart), b = UIKit.timebox.get(tbEnd), bad = a !== null && b !== null && b <= a;
+      document.getElementById('tbLen').textContent = a !== null && b !== null && b > a ? '長さ ' + UIKit.fmt.dur(b - a) : '長さ —';
+      if (bad) tbEnd.setAttribute('aria-invalid', 'true'); else tbEnd.removeAttribute('aria-invalid');   // 誤りの見せ方は使う画面が決める
+      tbMsg.textContent = bad ? '終了が開始より前です。終了の時刻を直してください' : tbHelp;
+    }
+    document.addEventListener('ui-time', function (e) { window.__tbLast = { id: e.target.id, value: e.detail.value }; tbShowLen(); });
+    document.addEventListener('ui-time-reject', function (e) { window.__tbReject = { id: e.target.id, reason: e.detail.reason }; tbMsg.textContent = e.detail.reason; });
+    document.getElementById('tbPlus30').addEventListener('click', function () {
+      var a = UIKit.timebox.get(tbStart);
+      if (a === null) { tbMsg.textContent = '先に開始の時刻を入れてください'; tbStart.focus(); return; }
+      UIKit.timebox.set(tbEnd, a + 30);
+      tbShowLen();
+    });
+
     // ---- 下の帯(keybar) ----
     document.getElementById('btnKeybarSet').addEventListener('click', function () {
       UIKit.keybar.set([{ k: 'Space', l: '再生・停止' }, { k: '↓', l: '次の行' }, { k: '↑', l: '前の行' }, { k: 'Shift+Space', l: '校正済みで次へ' }, { k: '?', l: 'キー操作' }]);

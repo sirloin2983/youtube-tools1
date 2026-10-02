@@ -9,7 +9,8 @@ ui-kit/ をそのまま python の http.server で1つのポートに乗せ、st
 通知(UIKit.toast: 失敗は role=alert) / 下の帯(UIKit.keybar: set/flash・ytt:keybar=0 で消える) /
 共通の再生キー(UIKit.keys.playback: Space/J/K/L/矢印/,/./I/O・入力欄では無視) / アイコン(UIKit.icon: 一覧すべて) /
 設定の引き出し(UIKit.settings: 文字の大きさが html[data-fs] に効いて保存される) /
-版の帯(UIKit.restart。v10: 単体では案内だけ・合言葉があれば「起動し直す」→ 断られた理由・ping を待って読み込み直す・戻らなければ案内)。
+版の帯(UIKit.restart。v10: 単体では案内だけ・合言葉があれば「起動し直す」→ 断られた理由・ping を待って読み込み直す・戻らなければ案内)/
+時刻の欄(UIKit.timebox。v11: 数字だけで 時 → 分 → 秒・← →・↑ ↓・BackSpace・Delete・貼り付け・0.1 秒・YouTube の URL は指定した欄だけ・上限・使えない欄)。
 """
 import functools
 import json
@@ -128,6 +129,95 @@ def check_restart(browser, base, check):
         check(not errs, "画面のエラーなし(版の帯): %s" % errs[:5])
     finally:
         ctx.close()
+
+
+def check_timebox(pg, check):
+    """時刻の欄(UIKit.timebox。v11): 本物のキー入力で確かめる。貼り付けは paste イベント(クリップボードは使わない)"""
+    def text(sel):
+        return pg.evaluate("s => document.querySelector(s).textContent", sel)
+
+    def value(sel):
+        return pg.evaluate("s => UIKit.timebox.get(document.querySelector(s))", sel)
+
+    def paste(sel, s):
+        pg.evaluate("""([sel, s]) => { const el = document.querySelector(sel); el.focus(); const dt = new DataTransfer(); dt.setData('text/plain', s);
+            el.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }""", [sel, s])
+
+    check(pg.evaluate("UIKit.version") == 11, "UIKit.version は 11")
+    check((text("#tbStart"), value("#tbStart")) == ("-:--:--", None), "入っていない欄は -:--:--(値は null): %s" % text("#tbStart"))
+    pg.focus("#tbStart")
+    check(text("#tbStart") == "0:00:00" and pg.evaluate("document.querySelector('#tbStart .ui-time-seg.on').dataset.seg") == "0", "欄に入ると 0:00:00 で「時」が選ばれる")
+    pg.keyboard.type("12345")
+    check((text("#tbStart"), value("#tbStart")) == ("1:23:45", 5025), "12345 → 1:23:45(時 1 桁 → 分 2 桁 → 秒 2 桁): %s" % text("#tbStart"))
+    check(pg.evaluate("window.__tbLast") == {"id": "tbStart", "value": 5025}, "変わるたびに ui-time(detail.value)")
+    pg.keyboard.type(":a ")
+    check(text("#tbStart") == "1:23:45", "「:」や文字は入らない")
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.press("ArrowUp")
+    check(text("#tbStart") == "1:24:45", "← で分を選んで ↑")
+    pg.keyboard.press("Shift+ArrowDown")
+    check(text("#tbStart") == "1:14:45", "Shift+↓ は 10 ずつ")
+    pg.keyboard.press("Backspace")
+    check(text("#tbStart") == "1:00:45", "BackSpace は選んだ所を 0 に")
+    pg.keyboard.type("78")
+    check(text("#tbStart") == "1:07:08", "分・秒で 6〜9 を最初に打ったら1桁で次へ: %s" % text("#tbStart"))
+    pg.keyboard.press("ArrowDown")
+    for _ in range(8):
+        pg.keyboard.press("ArrowDown")
+    check(text("#tbStart") == "1:06:59", "↓ で繰り下がる: %s" % text("#tbStart"))
+    check(pg.evaluate("document.getElementById('fakeTime').textContent") == "0.00", "欄のキーは画面の再生キーに渡らない(矢印で 1 秒など)")
+    pg.click("#tbStart .ui-time-seg[data-seg='0']")
+    pg.keyboard.type("0")
+    check(text("#tbStart") == "0:06:59" and pg.evaluate("document.querySelector('#tbStart .ui-time-seg.on').dataset.seg") == "1", "クリックで「時」を選んで打ち直す → 分へ進む")
+
+    # 終了: +30秒・開始より前は使う画面が誤りにする
+    pg.click("#tbPlus30")
+    check((text("#tbEnd"), text("#tbLen")) == ("0:07:29", "長さ 0:30"), "set で入れる(+30秒): %s %s" % (text("#tbEnd"), text("#tbLen")))
+    pg.focus("#tbEnd")
+    pg.keyboard.type("00100")
+    check(pg.get_attribute("#tbEnd", "aria-invalid") == "true" and "終了が開始より前" in text("#tbMsg"), "終了 ≤ 開始は、画面が aria-invalid と理由を出す")
+    pg.keyboard.press("Delete")
+    check((text("#tbEnd"), value("#tbEnd"), pg.get_attribute("#tbEnd", "aria-invalid")) == ("0:00:00", None, None), "Delete で空に(フォーカス中は 0:00:00)")
+    pg.keyboard.press("Tab")
+    check(text("#tbEnd") == "-:--:--", "離れたら -:--:--")
+
+    # 貼り付け: 1:23:45 / 83:45 / 1h23m45s。URL は「YouTube の URL も」の欄だけ
+    for src, want in (("1:23:45", 5025), (" 83:45 ", 5025), ("1h23m45s", 5025), ("2m", 120)):
+        paste("#tbEnd", src)
+        check(value("#tbEnd") == want, "貼り付け %s → %s" % (src, want))
+    pg.evaluate("window.__tbReject = null")
+    paste("#tbEnd", "https://youtu.be/dQw4w9WgXcQ?t=7000")
+    check(value("#tbEnd") == 120 and (pg.evaluate("window.__tbReject") or {}).get("id") == "tbEnd", "ふつうの欄は YouTube の URL を読まない(ui-time-reject)")
+    paste("#tbEnd", "5025")
+    check(value("#tbEnd") == 120, "数字だけの貼り付けは読まない(秒か 時分秒 か決められない)")
+    paste("#tbYoutube", "https://youtu.be/dQw4w9WgXcQ?t=5025")
+    check((text("#tbYoutube"), value("#tbYoutube")) == ("1:23:45", 5025), "YouTube の URL も の欄は t= を読む")
+    paste("#tbYoutube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1h2m3s")
+    check(value("#tbYoutube") == 3723, "t=1h2m3s")
+    paste("#tbYoutube", "https://youtu.be/dQw4w9WgXcQ")
+    check(value("#tbYoutube") == 3723 and "YouTube" in (pg.evaluate("window.__tbReject") or {}).get("reason", ""), "時刻の無い URL は読まない(理由に YouTube の案内)")
+
+    # 0.1 秒・上限・使えない欄・コピー
+    check((text("#tbTenths"), value("#tbTenths")) == ("0:01:23.5", 83.5), "0.1 秒までの欄(data-ui-time=83.5): %s" % text("#tbTenths"))
+    pg.focus("#tbTenths")
+    pg.keyboard.type("012345")
+    pg.keyboard.type("6")
+    check((text("#tbTenths"), value("#tbTenths")) == ("0:12:34.6", 754.6), "0.1 秒の桁まで進む・最後の桁は打ち直し: %s" % text("#tbTenths"))
+    pg.keyboard.press("ArrowUp")
+    check(value("#tbTenths") == 754.7, "0.1 秒の桁で ↑ は 0.1 秒")
+    paste("#tbTenths", "1:23.5")
+    check(value("#tbTenths") == 83.5, "貼り付け 1:23.5")
+    pg.focus("#tbMax")
+    pg.keyboard.type("15959")
+    check((text("#tbMax"), value("#tbMax")) == ("0:10:00", 600), "上限(data-ui-time-max=600)を超えない: %s" % text("#tbMax"))
+    pg.click("#tbOff", force=True)
+    pg.keyboard.type("9")
+    check((text("#tbOff"), value("#tbOff")) == ("1:23:45", 5025), "使えない欄(aria-disabled)は変わらない")
+    check(pg.evaluate("UIKit.keys.isTyping(document.getElementById('tbStart'))") is True, "UIKit.keys.isTyping は時刻の欄を入力中と数える")
+    check(pg.evaluate("[UIKit.timebox.format(5025), UIKit.timebox.format(83.5, true), UIKit.timebox.parse('1:23:45'), UIKit.timebox.parse('x'), UIKit.timebox.parse('https://youtu.be/a?t=9'), UIKit.timebox.parse('https://youtu.be/a?t=9', {youtube: true})]")
+          == ["1:23:45", "0:01:23.5", 5025, None, None, 9], "format / parse")
+    made = pg.evaluate("(() => { const el = UIKit.timebox.create({value: 61, label: '作った欄'}); document.body.appendChild(el); const r = [el.textContent, el.getAttribute('aria-label'), el.getAttribute('role'), UIKit.timebox.get(el)]; el.remove(); return r; })()")
+    check(made == ["0:01:01", "作った欄", "spinbutton", 61], "create(あとから作る): %s" % made)
 
 
 def main():
@@ -292,6 +382,9 @@ def main():
                 pg.reload()
                 pg.wait_for_selector("#iconGrid .ui-icon svg", timeout=10000)
                 check(pg.evaluate("document.documentElement.getAttribute('data-fs') === 'lg'"), "読み込み直しても保持される(永続化)")
+
+                # ---- v11: 時刻の欄(UIKit.timebox) ----
+                check_timebox(pg, check)
 
                 check(not errors, "コンソール・画面のエラーなし: %s" % errors[:5])
                 ctx.close()

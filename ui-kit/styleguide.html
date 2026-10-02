@@ -141,6 +141,24 @@
     </section>
 
     <section class="card">
+      <div class="card-head"><h2 class="card-title">v11: 時刻の欄(UIKit.timebox)</h2><span class="card-sub">「:」を打たない。時 → 分 → 秒 の順に数字だけ</span></div>
+      <div class="row">
+        <label class="lag keep">開始 <span data-ui-time id="tbStart" aria-label="開始の時刻"></span></label>
+        <label class="lag keep">終了 <span data-ui-time id="tbEnd" aria-label="終了の時刻"></span></label>
+        <span class="hint" id="tbLen">長さ —</span>
+        <button class="btn small" id="tbPlus30">+30秒</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="lag keep">0.1 秒まで <span data-ui-time="83.5" data-ui-time-tenths id="tbTenths" aria-label="0.1 秒までの時刻"></span></label>
+        <label class="lag keep">YouTube の URL も <span data-ui-time data-ui-time-youtube id="tbYoutube" aria-label="YouTube の位置も貼れる時刻"></span></label>
+        <label class="lag keep">上限 10 分 <span data-ui-time data-ui-time-max="600" id="tbMax" aria-label="10 分までの時刻"></span></label>
+        <label class="lag keep">使えない <span data-ui-time="5025" aria-disabled="true" id="tbOff" aria-label="使えない時刻"></span></label>
+      </div>
+      <p class="hint" id="tbMsg" aria-live="polite">欄を選んで 12345 → 1:23:45。← → で 時・分・秒 を選び、↑ ↓ で ±1(Shift で ±10)。BackSpace = 選んだ所を 0・Delete = 空に・Ctrl+V = 1:23:45 / 83:45 / 1h23m45s
+        (「YouTube の URL も」の欄だけ、…?t=5025 の URL も読む)。</p>
+    </section>
+
+    <section class="card">
       <div class="card-head"><h2 class="card-title">v6: 下の帯(UIKit.keybar)</h2></div>
       <div class="row">
         <button class="btn" id="btnKeybarSet">帯を出す(校正の場面)</button>
