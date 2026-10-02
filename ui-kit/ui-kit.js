@@ -860,13 +860,16 @@
     var themeLabel = document.createElement('span'); themeLabel.textContent = 'テーマ';
     var themeSel = document.createElement('select');
     /* v12: 配色を選ぶ。明るい = アイスライト / 暗い = 3つ / OSに合わせる(暗いときは、最後に選んだ暗い配色) */
-    addOpt(themeSel, 'light', 'アイスライト(明るい)'); addOpt(themeSel, 'cyan', 'ネオンシアン(暗い)'); addOpt(themeSel, 'steel', '鋼の白(暗い)');
+    /* 値: light = アイスライト / dark = ネオンシアン(以前の「暗い」と同じ値。画面のテスト・以前の保存とそろえる)/ steel・green = 暗い + その配色 */
+    addOpt(themeSel, 'light', 'アイスライト(明るい)'); addOpt(themeSel, 'dark', 'ネオンシアン(暗い)'); addOpt(themeSel, 'steel', '鋼の白(暗い)');
     addOpt(themeSel, 'green', 'ターミナルグリーン(暗い)'); addOpt(themeSel, 'system', 'OSに合わせる');
-    var themeValue = function (p) { return p === 'dark' ? theme.palette() : p; };
+    var themeValue = function (p) { var c = theme.palette(); return p === 'dark' && c !== 'cyan' ? c : p; };
     themeSel.value = themeValue(theme.get());
     themeSel.addEventListener('change', function () {
       var v = themeSel.value;
-      if (DARK_PALETTES[v]) { theme.palette(v); theme.set('dark'); } else theme.set(v);
+      if (v === 'dark') { theme.palette('cyan'); theme.set('dark'); }
+      else if (DARK_PALETTES[v]) { theme.palette(v); theme.set('dark'); }
+      else theme.set(v);
     });
     theme.onChange(function (t, p) { themeSel.value = themeValue(p); });
     themeRow.appendChild(themeLabel); themeRow.appendChild(themeSel);
