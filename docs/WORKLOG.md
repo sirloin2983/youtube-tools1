@@ -2708,3 +2708,17 @@
 - ユーザーがやること: 入口を「すべて終了」→ start.bat(ホーム 0.23.0・スタジオ 0.14.0)。`request-sender\dist\RequestSender.zip`(2.0.0)を友人に渡し直す(鍵は同じ)
 - 未完了・次: 設計レビューの「余裕があれば」(− / + の押しっぱなし・開始のあと自動で終了へ・カードを畳む・Ctrl+Enter)はユーザーの判断待ち
 - 未コミット: なし
+
+## 2026-10-02 Claude Code — 時刻の欄を使い回せる部品に → ui-kit v11(`UIKit.timebox`)・送るアプリは YouTube の URL を要る欄だけ
+- 依頼: ユーザー「今回使った時間入力の UI を使いまわしたい(YouTube の時間機能は必要な時だけでいい)」
+- ui-kit v11: `UIKit.timebox`(`<span data-ui-time>`・`attach` / `create` / `get` / `set` / `parse` / `format`)。送るアプリの TimeBox と同じ動き(「:」を打たない・時 → 分 → 秒・← →・↑ ↓・
+  BackSpace・Delete・貼り付け)。選べること: 0.1 秒まで(`data-ui-time-tenths`)・**YouTube の URL も読む(`data-ui-time-youtube`。既定はオフ)**・上限(`data-ui-time-max`)・使えない(`aria-disabled`)。
+  入力欄ではなくフォーカスできる要素に自分で描く(日本語入力に数字を取られない・選んだ所をアクセントで反転)。イベント `ui-time`・`ui-time-reject`・`ui-time-paste`。
+  `UIKit.keys.isTyping` は時刻の欄を入力中と数える。CSS は `.ui-time`(空のときのクラスは `ui-time-empty`。`.empty` は「空の状態の箱」の部品と衝突するので使わない)
+- 送るアプリ: `TimeBox.AcceptYouTubeUrl`(既定オフ。配信の区間の欄だけ true)・`TimeText.TryParse(text, allowUrl, out sec)`。動きは今までどおり(版は 2.0.0 のまま。まだ配っていない)
+- 文書: `ui-kit/README.md` の v11・`docs/spec/ui-guidelines.md` の 3-2(時刻を手で入れる欄を新しく作るときは UIKit.timebox を使う・YouTube の URL は配信の位置の欄だけ)・request-sender/README.txt の開発の節
+- **まだしていないこと(ユーザーに聞いた)**: 今ある時刻の欄の置き換え(スタジオの現在位置 `#rvNow`・マークの開始/終了・コラボの合わせる時刻。どれも 0.1 秒の欄)。
+  置き換えるときは `data-ui-time-tenths` にして、スタジオの `Studio.isTyping`(core.js)に `.ui-time` を足す
+- テスト: ui-kit の見本 e2e_styleguide(時刻の欄は本物のキー入力・Ctrl+V / Ctrl+C を含む)・test_ui_kit_sync・スタジオ e2e_ui --mounted 176・編集 e2e_ui_mounted・e2e_lite・ホーム e2e_portal・e2e_keymap・送るアプリ build.bat 28 件 すべて OK
+- 注意: Web の時刻の欄は右クリックの貼り付けが無い(ブラウザの決まりで、入力欄でない要素には出ない)。Ctrl+V だけ。送るアプリ(C#)は右クリックでも貼れる
+- 未コミット: なし
