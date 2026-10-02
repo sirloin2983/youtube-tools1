@@ -5,7 +5,7 @@
 
 ## 分け方(担当するファイルが重ならない)
 - A. 友人のアプリの画面に依らない部品 … `request-sender/src/TimeCore.cs`(新規)・`Core.cs`・`Sending.cs`・`tests/CoreTests.cs`(まとめ役 = Fable)
-- B. 友人のアプリの画面 … `request-sender/src/Theme.cs`・`Controls.cs`・`MainForm*.cs`・`Program.cs`・`README.txt`(サブエージェント Opus。A の API の上に載せる)
+- B. 友人のアプリの画面 … `request-sender/src/Theme.cs`・`Controls.cs`・`TimeBox.cs`・`StreamCard.cs`・`MainForm*.cs`・`Program.cs`・`README.txt`(まとめ役が直接。画面の確認は `build\RequestSender.exe --screenshot <png> [--theme A-D] [--tab send|video|receive] [--sample]`)
 - C. PC 側 … `studio/store.py`・`studio/serve.py`・`home/intake.py`・`home/autorun.py`・`home/portal.js`・テスト・文書(まとめ役 = Fable)
 
 ## C. PC 側の設計(決めたこと)
@@ -27,7 +27,7 @@
 ## 進み具合
 - [x] A-1 TimeCore.cs(時刻の読み書き・時刻の欄の状態・区間・カット・重み・題名の読み取り・設定)+ テスト + build.bat
 - [x] A-2 RequestJson・Sending を新しい形に(items・ranges・cut・weights)
-- [ ] B 画面(配色4つ・横2列・配信のカード・時刻の欄・知らせ・--screenshot)
+- [x] B 画面(配色4つ・横2列・配信のカード・時刻の欄・知らせ・--screenshot)— まとめ役が直接書いた(サブエージェントは3回ともセッションごと落ちた)。残り: README.txt を 2.0.0 に
 - [ ] C-1 スタジオ request-marks + テスト
 - [ ] C-2 intake + テスト
 - [ ] C-3 autorun + テスト
