@@ -426,8 +426,7 @@ namespace RequestSender
             var input = new SendInput
             {
                 Videos = files.Items.Cast<string>().ToList(),
-                Urls = parsed.Urls,
-                Top = (int)top.Value,
+                Items = parsed.Urls.Select(u => new UrlItem { Url = u, Top = (int)top.Value }).ToList(),
                 Streamer = streamer.SelectedIndex > 0 ? (string)streamer.SelectedItem : "",
                 Memo = memo.Text.Trim(),
                 SpeakerCount = SelectedSpeakerCount,
@@ -450,7 +449,7 @@ namespace RequestSender
             SetBusy(true);
             bar.Value = 0;
             SetStatus("送る準備をしています…", false);
-            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Urls.Count + " flow=" + input.Flow);
+            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " flow=" + input.Flow);
             var client = new DropboxClient(config) { IsCanceled = () => cancel, Log = Log.Write };
             var sending = new Sending(client);
             int lastPermille = -1;

@@ -26,6 +26,12 @@ static class CoreTests
         Run("JSON: 話す人(speakers)", SpeakersJson);
         Run("JSON: 映像トラックの数(① 全自動のときだけ・1〜5・範囲の外は 1)", VideoTracksJson);
         Run("JSON: 送った時刻は時差つきの ISO 8601", SentAt);
+        Run("時刻: 書式・長さの言い方・貼り付けの読み取り(t= / 1:23:45 / 83:45)", TimeTexts);
+        Run("時刻の欄: 時 → 分 → 秒 の順に数字で入る・←→・↑↓・BackSpace・Delete", TimeEdits);
+        Run("区間: 誤りの文・JSON(③ は書かない)・切り抜く数は区間の数以上", RangeRules);
+        Run("JSON: 配信ごとの区間・カット(① だけ)・重み(指定したときだけ)", RequestJson2);
+        Run("題名: oEmbed の問い合わせ先と返事の読み取り", OEmbeds);
+        Run("設定: 覚える値の読み書き・保存先を消さない・壊れた値は既定", SettingsRoundTrip);
         Run("Dropbox-API-Arg: ASCII 以外と 0x7F を \\uXXXX にする", ApiArgEscape);
         Run("分け方: 150MB 以下は1回・超えたら 8MB ずつ", Chunks);
         Run("config.json: 読める・無い・足りない", ConfigLoad);
@@ -132,10 +138,17 @@ static class CoreTests
         True(!Validation.TopInRange(0) && !Validation.TopInRange(11) && !Validation.TopInRange(-1), "範囲の外");
 
         True(Sending.Check(new SendInput()).Count == 1, "何も入っていない");
-        var u = new SendInput { Urls = new List<string> { Norm }, Top = 11 };
+        var u = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 11 } } };
         True(Sending.Check(u).Any(x => x.Contains("切り抜く数")), "数の範囲");
-        u.Top = 10;
+        u.Items[0].Top = 10;
         Eq(0, Sending.Check(u).Count, "URL だけで送れる");
+        u.Items[0].Ranges.Add(new ClipRange(100, 90));
+        True(Sending.Check(u).Any(x => x.Contains("終了が開始より前")), "区間の誤りは送る前に止める");
+        u.Items[0].Ranges[0] = new ClipRange(100, 190);
+        u.Cut = "bogus";
+        True(Sending.Check(u).Any(x => x.Contains("カット")), "知らないカットは送らない");
+        u.Cut = Cut.Silence;
+        Eq(0, Sending.Check(u).Count, "区間とカットつきで送れる");
 
         string dir = TempDir();
         try
@@ -146,7 +159,7 @@ static class CoreTests
             File.WriteAllBytes(good, new byte[] { 1, 2, 3 });
             string txt = Path.Combine(dir, "memo.txt");
             File.WriteAllText(txt, "x");
-            var v = new SendInput { Videos = new List<string> { empty, good, txt, Path.Combine(dir, "none.mp4") }, Top = 99 };
+            var v = new SendInput { Videos = new List<string> { empty, good, txt, Path.Combine(dir, "none.mp4") } };
             var errs = Sending.Check(v);
             Eq(3, errs.Count, "空・動画でない・無い(URL が無いときは数を見ない): " + string.Join(" / ", errs));
             v.Videos = new List<string> { good };
@@ -225,6 +238,191 @@ static class CoreTests
         Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"flow\":\"manual\",\"items\":[{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":5}," +
            "{\"url\":\"https://www.youtube.com/watch?v=AAAAAAAAAAA\",\"top\":5}],\"memo\":\"\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
         Json.Parse(json);
+    }
+
+    static void TimeTexts()
+    {
+        Eq("0:00:00", TimeText.Format(0), "0");
+        Eq("1:23:45", TimeText.Format(5025), "時は 0 を付けない");
+        Eq("12:03:04", TimeText.Format(12 * 3600 + 184), "10 時間からは2桁");
+        Eq("99:59:59", TimeText.Format(int.MaxValue), "上限で止める");
+        Eq("45秒", TimeText.Length(45), "秒だけ");
+        Eq("1分25秒", TimeText.Length(85), "分と秒");
+        Eq("1時間", TimeText.Length(3600), "ちょうど");
+        Eq("0秒", TimeText.Length(0), "0");
+        var ok = new Dictionary<string, int>
+        {
+            { "https://youtu.be/dQw4w9WgXcQ?t=5025", 5025 }, { "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=5025s", 5025 },
+            { "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1h23m45s", 5025 }, { "https://youtu.be/dQw4w9WgXcQ?si=abc&t=90", 90 },
+            { "1:23:45", 5025 }, { " 83:45 ", 5025 }, { "1：23：45", 5025 }, { "1h23m45s", 5025 }, { "2m", 120 }, { "t=75", 75 },
+        };
+        foreach (var kv in ok)
+        {
+            int sec;
+            True(TimeText.TryParse(kv.Key, out sec), "読める: " + kv.Key);
+            Eq(kv.Value, sec, kv.Key);
+        }
+        foreach (string ng in new[] { "", null, "5025", "abc", "https://youtu.be/dQw4w9WgXcQ", "1:2:3:4", "t=abc", "999:00:00", "1.5" })
+        {
+            int sec;
+            True(!TimeText.TryParse(ng, out sec), "読まない: " + ng);
+        }
+    }
+
+    static void TimeEdits()
+    {
+        var e = new TimeEdit();
+        True(!e.HasValue, "はじめは空");
+        Eq("0:00:00", e.Text, "空でも形は出す");
+        e.Focus();
+        foreach (char c in "12345") e.Digit(c - '0');
+        Eq("1:23:45", e.Text, "12345 → 1:23:45(時 1 桁 → 分 2 桁 → 秒 2 桁)");
+        True(e.HasValue && e.Segment == TimeEdit.Second, "打ち終えたら秒にいる");
+        e.Digit(0); e.Digit(7);
+        Eq("1:23:07", e.Text, "秒は続けて打つと打ち直し");
+
+        e = new TimeEdit();
+        e.Focus();
+        foreach (char c in "02345") e.Digit(c - '0');
+        Eq("0:23:45", e.Text, "1時間より前は 0 から");
+
+        e = new TimeEdit();
+        e.Focus();
+        e.Digit(0); e.Digit(7); e.Digit(8);
+        Eq("0:07:08", e.Text, "分・秒で 6〜9 を最初に打ったら1桁で次へ");
+
+        e.Left();
+        Eq(TimeEdit.Minute, e.Segment, "← で分へ");
+        e.Digit(3); e.Digit(0);
+        Eq("0:30:08", e.Text, "選んだ所だけ打ち直す");
+        Eq(TimeEdit.Second, e.Segment, "2桁で次へ");
+        e.Left(); e.Left(); e.Left();
+        Eq(TimeEdit.Hour, e.Segment, "← は時で止まる");
+        e.Right(); e.Right(); e.Right();
+        Eq(TimeEdit.Second, e.Segment, "→ は秒で止まる");
+
+        e.Set(59);
+        e.Select(TimeEdit.Second);
+        e.Step(1, false);
+        Eq("0:01:00", e.Text, "↑ で繰り上がり");
+        e.Step(-1, false);
+        Eq("0:00:59", e.Text, "↓ で繰り下がり");
+        e.Select(TimeEdit.Minute);
+        e.Step(1, true);
+        Eq("0:10:59", e.Text, "Shift+↑ は ±10(分を選んでいれば 10 分)");
+        e.Step(-1, true); e.Step(-1, true);
+        Eq("0:00:00", e.Text, "0 より前には行かない");
+        e.Select(TimeEdit.Hour);
+        for (int i = 0; i < 11; i++) e.Step(1, false);
+        Eq("11:00:00", e.Text, "10 時間より後は 時 を選んで ↑");
+
+        e.Set(5025);
+        e.Select(TimeEdit.Second);
+        e.Backspace();
+        Eq("1:23:00", e.Text, "BackSpace は選んだ所を 0 に");
+        e.Backspace();
+        Eq(TimeEdit.Minute, e.Segment, "もう 0 なら左へ");
+        e.Clear();
+        True(!e.HasValue && e.Value == 0 && e.Segment == TimeEdit.Hour, "Delete で空に");
+
+        e.Set(5025);
+        int start, len;
+        e.Select(TimeEdit.Hour); e.SegmentRange(out start, out len);
+        Eq("0+1", start + "+" + len, "時の範囲");
+        e.Select(TimeEdit.Minute); e.SegmentRange(out start, out len);
+        Eq("2+2", start + "+" + len, "分の範囲");
+        e.Select(TimeEdit.Second); e.SegmentRange(out start, out len);
+        Eq("5+2", start + "+" + len, "秒の範囲");
+        Eq(TimeEdit.Hour, TimeEdit.SegmentAt("1:23:45", 0), "クリック: 時");
+        Eq(TimeEdit.Minute, TimeEdit.SegmentAt("1:23:45", 3), "クリック: 分");
+        Eq(TimeEdit.Second, TimeEdit.SegmentAt("1:23:45", 7), "クリック: 秒");
+    }
+
+    static void RangeRules()
+    {
+        Eq(null, Ranges.Problem(false, 0, false, 0), "空の行は誤りではない");
+        True(Ranges.Problem(true, 10, false, 0).Contains("終了の時刻"), "終了が無い");
+        True(Ranges.Problem(false, 0, true, 10).Contains("開始の時刻"), "開始が無い");
+        True(Ranges.Problem(true, 10, true, 10).Contains("終了が開始より前"), "同じ時刻");
+        True(Ranges.Problem(true, 0, true, 3601).Contains("60 分"), "長すぎる");
+        Eq(null, Ranges.Problem(true, 0, true, 3600), "ちょうど 60 分はよい");
+        var rs = new List<ClipRange> { new ClipRange(5025, 5110), new ClipRange(60, 90) };
+        Eq(",\"ranges\":[{\"start\":5025,\"end\":5110},{\"start\":60,\"end\":90}]", Ranges.JsonPart(Flow.Auto, rs), "①");
+        Eq(Ranges.JsonPart(Flow.Auto, rs), Ranges.JsonPart(Flow.Check, rs), "② も同じ");
+        Eq("", Ranges.JsonPart(Flow.Manual, rs), "③ は書かない");
+        Eq("", Ranges.JsonPart(Flow.Auto, new List<ClipRange>()), "区間なし");
+        var it = new UrlItem { Url = Norm, Top = 1, Ranges = rs };
+        Eq(2, it.EffectiveTop(Flow.Auto), "切り抜く数は区間の数以上");
+        Eq(0, it.AutoCount, "自動 0");
+        Eq(1, it.EffectiveTop(Flow.Manual), "③ は区間を数えない");
+        it.Top = 5;
+        Eq(3, it.AutoCount, "指定 2 + 自動 3");
+    }
+
+    static void RequestJson2()
+    {
+        string id = "20261001-120000-000001";
+        var items = new List<UrlItem>
+        {
+            new UrlItem { Url = Norm, Top = 3, Ranges = new List<ClipRange> { new ClipRange(5025, 5110) } },
+            new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA", Top = 2 },
+        };
+        var w = new Weights { Enabled = true, Audio = 1.5, Chat = 0.04, Comments = 9 };
+        string json = RequestJson.Url(id, items, "メモ", Flow.Auto, T, 0, null, 2, Cut.Silence, w);
+        Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"flow\":\"auto\",\"items\":[" +
+           "{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":3,\"ranges\":[{\"start\":5025,\"end\":5110}]}," +
+           "{\"url\":\"https://www.youtube.com/watch?v=AAAAAAAAAAA\",\"top\":2}],\"memo\":\"メモ\",\"videoTracks\":2,\"cut\":\"silence\"," +
+           "\"weights\":{\"audio\":1.5,\"chat\":0.0,\"comments\":3.0},\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "① の形(順番も)");
+        Json.Parse(json);
+
+        string check = RequestJson.Url(id, items, "", Flow.Check, T, 0, null, 2, Cut.Silence, new Weights());
+        True(check.Contains("\"ranges\"") && !check.Contains("\"cut\"") && !check.Contains("\"videoTracks\"") && !check.Contains("\"weights\""), "② は区間だけ(カット・トラック・指定しない重みは書かない): " + check);
+        string manual = RequestJson.Url(id, items, "", Flow.Manual, T, 0, null, 2, Cut.Silence, w);
+        True(!manual.Contains("\"ranges\"") && !manual.Contains("\"cut\"") && manual.Contains("\"weights\""), "③ は区間を書かない・重みは書く(解析に使う): " + manual);
+        True(RequestJson.Url(id, items, "", Flow.Auto, T, 0, null, 1, "bogus", null).Contains("\"cut\":\"none\""), "知らないカットは none");
+
+        string video = RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1, Cut.Silence);
+        True(video.Contains("\"videoTracks\":1,\"cut\":\"silence\",\"sentAt\""), "動画の依頼にもカット(トラックの後): " + video);
+        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Check, T, 0, null, 1, Cut.Silence).Contains("\"cut\""), "動画の ② はカットを書かない");
+        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1).Contains("\"cut\""), "1.4.0 までの呼び方はそのまま");
+    }
+
+    static void OEmbeds()
+    {
+        Eq("https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&format=json", OEmbed.Url("dQw4w9WgXcQ"), "問い合わせ先");
+        foreach (string ng in new[] { null, "", "short", "dQw4w9WgXcQ&x=1", "../../etc/pw", "dQw4w9WgXc Q" }) Eq(null, OEmbed.Url(ng), "ID の形でなければ問い合わせない: " + ng);
+        Eq("【雑談】題名", OEmbed.ParseTitle("{\"title\":\" 【雑談】題名\\n \",\"author_name\":\"x\"}"), "題名(制御文字と前後の空白を除く)");
+        Eq(OEmbed.MaxTitle + 1, OEmbed.ParseTitle("{\"title\":\"" + new string('あ', 200) + "\"}").Length, "長い題名は切る");
+        foreach (string ng in new[] { null, "", "Not Found", "[]", "{}", "{\"title\":5}", "{\"title\":\"  \"}" }) Eq(null, OEmbed.ParseTitle(ng), "題名なし: " + ng);
+    }
+
+    static void SettingsRoundTrip()
+    {
+        string dir = TempDir();
+        try
+        {
+            var st = new LocalState(dir);
+            var s = st.LoadSettings();
+            True(s.Cut == Cut.None && s.VideoTracks == 1 && s.Top == 3 && !s.Weights.Enabled && s.Theme == "A" && s.WindowWidth == 0, "無いときは既定");
+            st.SaveDownloadDir(@"D:\受け取る");
+            s.Cut = Cut.Silence; s.VideoTracks = 4; s.Top = 7; s.Theme = "C"; s.WindowWidth = 1200; s.WindowHeight = 800;
+            s.Weights.Enabled = true; s.Weights.Audio = 1.5; s.Weights.Chat = 0.5; s.Weights.Comments = 2.0;
+            st.SaveSettings(s);
+            Eq(@"D:\受け取る", st.LoadDownloadDir(), "設定を書いても保存先は残る");
+            var r = new LocalState(dir).LoadSettings();
+            True(r.Cut == Cut.Silence && r.VideoTracks == 4 && r.Top == 7 && r.Theme == "C" && r.WindowWidth == 1200 && r.WindowHeight == 800, "読み直せる");
+            True(r.Weights.Enabled && r.Weights.Audio == 1.5 && r.Weights.Chat == 0.5 && r.Weights.Comments == 2.0, "重みも");
+            st.SaveDownloadDir(@"E:\x");
+            Eq(Cut.Silence, st.LoadSettings().Cut, "保存先を書いても設定は残る");
+
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"cut\":\"x\",\"videoTracks\":9,\"top\":0,\"theme\":\"Z\",\"weights\":{\"audio\":99,\"chat\":\"a\"},\"windowWidth\":5}", new UTF8Encoding(false));
+            var b = st.LoadSettings();
+            True(b.Cut == Cut.None && b.VideoTracks == 1 && b.Top == 3 && b.Theme == "A" && b.WindowWidth == 0, "形が違う値は既定");
+            True(b.Weights.Audio == 3.0 && b.Weights.Chat == 1.0 && !b.Weights.Enabled, "重みは範囲に収める");
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "こわれた", new UTF8Encoding(false));
+            Eq(Cut.None, st.LoadSettings().Cut, "壊れていても動く");
+        }
+        finally { Directory.Delete(dir, true); }
     }
 
     static void SentAt()
@@ -351,7 +549,7 @@ static class CoreTests
         Eq(Flow.Auto, new SendInput().Flow, "SendInput の既定");
         True(Flow.Label(Flow.Auto).StartsWith("①") && Flow.Label(Flow.Check).StartsWith("②") && Flow.Label(Flow.Manual).StartsWith("③"), "表示の名前");
         True(Flow.Explain(Flow.Auto).Contains("受け取る") && Flow.Explain(Flow.Check).Contains("字幕を直して") && Flow.Explain(Flow.Manual).Contains("切り抜く所から"), "説明");
-        var u = new SendInput { Urls = new List<string> { Norm }, Flow = "bogus" };
+        var u = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm } }, Flow = "bogus" };
         True(Sending.Check(u).Any(x => x.Contains("どこまで")), "知らない値は送る前に止める");
         string id = "20261001-120000-abcdef";
         Eq("auto", Json.Str(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", "bogus", T)), "flow"), "JSON には知らない値を書かない");

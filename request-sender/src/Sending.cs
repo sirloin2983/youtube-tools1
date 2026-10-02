@@ -10,13 +10,14 @@ namespace RequestSender
     public class SendInput
     {
         public List<string> Videos = new List<string>();
-        public List<string> Urls = new List<string>();   // 正規化済み
-        public int Top = Validation.DefaultTop;
+        public List<UrlItem> Items = new List<UrlItem>();   // 配信ごとの URL(正規化済み)・切り抜く数・区間
         public string Streamer = "", Memo = "";
         public int SpeakerCount = 0;                     // 話す人の数(0 = 指定しない)
         public List<string> SpeakerNames = new List<string>();
         public string Flow = RequestSender.Flow.Auto;   // PC でどこまでやるか(動画と URL の両方にかかる)
         public int VideoTracks = RequestSender.VideoTracks.Default;   // Resolve の映像トラックの数(① 全自動のときだけ送る)
+        public string Cut = RequestSender.Cut.None;                   // カット(① 全自動のときだけ送る)
+        public Weights Weights = new Weights();                       // 解析の重み(指定したときだけ・URL の依頼だけ)
     }
 
     public class SendProgress
@@ -40,9 +41,18 @@ namespace RequestSender
         public static List<string> Check(SendInput input)
         {
             var errs = new List<string>();
-            if (input.Videos.Count == 0 && input.Urls.Count == 0) errs.Add("動画か配信の URL を入れてください。");
-            if (input.Urls.Count > 0 && !Validation.TopInRange(input.Top))
-                errs.Add("切り抜く数は " + Validation.MinTop + "〜" + Validation.MaxTop + " にしてください。");
+            if (input.Videos.Count == 0 && input.Items.Count == 0) errs.Add("動画か配信の URL を入れてください。");
+            foreach (var it in input.Items)
+            {
+                if (!Validation.TopInRange(it.Top)) errs.Add("切り抜く数は " + Validation.MinTop + "〜" + Validation.MaxTop + " にしてください。");
+                if (it.Ranges.Count > Ranges.MaxCount) errs.Add("1本の配信の区間は " + Ranges.MaxCount + " 個までにしてください。");
+                foreach (var r in it.Ranges)
+                {
+                    string p = Ranges.Problem(true, r.Start, true, r.End);
+                    if (p != null) errs.Add(TimeText.Format(r.Start) + "〜" + TimeText.Format(r.End) + ": " + p);
+                }
+            }
+            if (!RequestSender.Cut.IsValid(input.Cut)) errs.Add("カットの方法を選んでください。");
             foreach (string v in input.Videos)
             {
                 if (!Validation.IsVideoFile(v)) errs.Add("動画ではないファイルです: " + Path.GetFileName(v));
@@ -61,14 +71,14 @@ namespace RequestSender
             DateTimeOffset now = DateTimeOffset.Now;
 
             string urlId = null;
-            if (input.Urls.Count > 0)
+            if (input.Items.Count > 0)
             {
                 string id = urlId = RequestId.New(now.LocalDateTime);
                 prog.Step = "配信の URL を送っています";
                 Progress(prog);
-                string json = RequestJson.Url(id, input.Urls, input.Top, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks);
+                string json = RequestJson.Url(id, input.Items, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks, input.Cut, input.Weights);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
-                Sent.Add("配信の URL(" + input.Urls.Count + " 本)");
+                Sent.Add("配信の URL(" + input.Items.Count + " 本)");
             }
 
             if (input.Videos.Count > 0)
@@ -91,7 +101,7 @@ namespace RequestSender
                 }
                 prog.Step = "依頼を送っています";
                 Progress(new SendProgress { Done = total, Total = prog.Total, Step = prog.Step });
-                string json = RequestJson.Video(id, names, input.Streamer, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks);
+                string json = RequestJson.Video(id, names, input.Streamer, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks, input.Cut);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("動画(" + input.Videos.Count + " 本)");
             }

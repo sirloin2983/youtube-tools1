@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "1.4.0";
+        public const string Version = "2.0.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -291,6 +291,17 @@ namespace RequestSender
 
         public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
         {
+            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, "");
+        }
+
+        // 2.0.0: カット(① のときだけ書く)
+        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cut)
+        {
+            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, Cut.JsonPart(FlowOrDefault(flow), cut));
+        }
+
+        static string VideoCore(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cutPart)
+        {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
             sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
@@ -299,20 +310,36 @@ namespace RequestSender
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
             sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
+            sb.Append(cutPart);
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
 
         public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
         {
+            return UrlCore(id, urls.Select(u => new UrlItem { Url = u, Top = top }).ToList(), u => top, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, "", "");
+        }
+
+        // 2.0.0: 配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)
+        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cut, Weights weights)
+        {
+            string f = FlowOrDefault(flow);
+            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, speakerCount, speakerNames, videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
+        }
+
+        static string UrlCore(string id, IList<UrlItem> items, Func<UrlItem, int> top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cutPart, string weightsPart)
+        {
+            string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"url\",\"id\":").Append(JsonText.Quote(id, false));
-            sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
-            sb.Append(",\"items\":[").Append(string.Join(",", urls.Select(u =>
-                "{\"url\":" + JsonText.Quote(u, false) + ",\"top\":" + top.ToString(CultureInfo.InvariantCulture) + "}"))).Append(']');
+            sb.Append(",\"flow\":").Append(JsonText.Quote(f, false));
+            sb.Append(",\"items\":[").Append(string.Join(",", items.Select(u =>
+                "{\"url\":" + JsonText.Quote(u.Url, false) + ",\"top\":" + top(u).ToString(CultureInfo.InvariantCulture) + Ranges.JsonPart(f, u.Ranges) + "}"))).Append(']');
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
             sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
-            sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
+            sb.Append(VideoTracks.JsonPart(f, videoTracks));
+            sb.Append(cutPart);
+            sb.Append(weightsPart);
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
@@ -556,26 +583,47 @@ namespace RequestSender
             WriteAtomic(ReceivedPath, string.Join("\r\n", lines) + "\r\n");
         }
 
-        public string LoadDownloadDir()
+        // settings.json の中身(無い・壊れていれば空)。キー: downloadDir と AppSettings のもの
+        public IDictionary<string, object> LoadSettingsDict()
         {
             try
             {
-                if (File.Exists(SettingsPath))
-                {
-                    string d = (Json.Str(Json.Parse(File.ReadAllText(SettingsPath, Encoding.UTF8)), "downloadDir") ?? "").Trim();
-                    if (d.Length > 0 && System.IO.Path.IsPathRooted(d)) return d;
-                }
+                if (File.Exists(SettingsPath)) return Json.Parse(File.ReadAllText(SettingsPath, Encoding.UTF8));
             }
             catch (Exception ex)
             {
                 if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
             }
-            return DefaultDownloadDir();
+            return new Dictionary<string, object>();
+        }
+
+        // 読んで・直して・書く(ほかのキーを消さない。保存先と覚える設定が同じファイルにあるため)
+        public void UpdateSettings(Action<IDictionary<string, object>> change)
+        {
+            var d = LoadSettingsDict();
+            change(d);
+            WriteAtomic(SettingsPath, new JavaScriptSerializer().Serialize(d) + "\r\n");
+        }
+
+        public AppSettings LoadSettings()
+        {
+            return AppSettings.From(LoadSettingsDict());
+        }
+
+        public void SaveSettings(AppSettings settings)
+        {
+            UpdateSettings(settings.Into);
+        }
+
+        public string LoadDownloadDir()
+        {
+            string d = (Json.Str(LoadSettingsDict(), "downloadDir") ?? "").Trim();
+            return d.Length > 0 && System.IO.Path.IsPathRooted(d) ? d : DefaultDownloadDir();
         }
 
         public void SaveDownloadDir(string path)
         {
-            WriteAtomic(SettingsPath, "{\"downloadDir\":" + JsonText.Quote(path, false) + "}\r\n");
+            UpdateSettings(d => d["downloadDir"] = path);
         }
 
         void WriteAtomic(string path, string text)
