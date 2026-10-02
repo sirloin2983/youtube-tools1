@@ -247,15 +247,16 @@ namespace RequestSender
         }
     }
 
-    // Resolve の映像トラックの数(1〜5。V1 = 動画・V2〜 = 空・字幕はその上)。PC がパックを作る ① 全自動のときだけ意味がある。
-    // 1(既定)と ①以外は JSON にキーを書かない(1.3.0 までと同じ中身)
+    // Resolve の映像トラックの数(1〜5。V1 = 動画・V2〜 = 空・字幕はその上)。PC がパックを作る ① 全自動のときだけ JSON に書く
+    // (②③ はキーを書かない。範囲の外は既定の 1 にする)
     public static class VideoTracks
     {
         public const int Min = 1, Max = 5, Default = 1;
 
         public static string JsonPart(string flow, int count)
         {
-            if (flow != Flow.Auto || count <= Default || count > Max) return "";
+            if (flow != Flow.Auto) return "";
+            if (count < Min || count > Max) count = Default;
             return ",\"videoTracks\":" + count.ToString(CultureInfo.InvariantCulture);
         }
 

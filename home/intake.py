@@ -209,9 +209,12 @@ def parse_speakers(v):
     return {"count": n, "names": names[:n]}
 
 
+VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
+
+
 def parse_video_tracks(v):
-    """依頼の「映像トラックの数」(2〜5。1.4.0 のアプリが ① 全自動のときだけ送る)-> 整数 か None(無い・形が違う = 既定の 1)"""
-    return v if isinstance(v, int) and not isinstance(v, bool) and 2 <= v <= 5 else None
+    """依頼の「映像トラックの数」(1〜5。1.4.0 のアプリが ① 全自動のときに送る)-> 1〜5 の整数(無い・形が違う = 既定の 1)"""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else VIDEO_TRACKS_DEFAULT
 
 
 def _safe_name(name):
@@ -416,7 +419,7 @@ class Intake:
         memo = str(d.get("memo") or "")[:MEMO_MAX]
         flow = d.get("flow") if d.get("flow") in FLOW_LABELS else "check"   # 1.0.0 のアプリは flow を送らない = 今までどおり ②
         speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
-        tracks = parse_video_tracks(d.get("videoTracks")) if flow == "auto" else None   # 映像トラックの数(パックを作る ① だけ)
+        tracks = parse_video_tracks(d.get("videoTracks")) if flow == "auto" else None   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
         if d["kind"] == "url":
             raw = d.get("items") if isinstance(d.get("items"), list) else []
             lines = "\n".join("%s %s" % (str((it or {}).get("url") or "")[:300], (it or {}).get("top", cfg["top"])) for it in raw[:MAX_URLS] if isinstance(it, dict))

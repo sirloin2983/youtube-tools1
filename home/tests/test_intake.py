@@ -341,8 +341,8 @@ class TestVideo(Base):
         self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "話す人: 1人(さくらみこ)")
 
     def test_video_tracks_passed_only_for_auto(self):
-        """映像トラックの数(1.4.0 のアプリ。① 全自動のときだけ): 2〜5 をまとめて実行へ。②③・形が違えば渡さない"""
-        for v, want in ((3, 3), (5, 5), (1, None), (6, None), ("3", None), (True, None), (None, None)):
+        """映像トラックの数(1.4.0 のアプリ。① 全自動のときだけ): 1〜5 をまとめて実行へ。無い・形が違えば 1。②③ は渡さない"""
+        for v, want in ((3, 3), (5, 5), (1, 1), (6, 1), (0, 1), ("3", 1), (True, 1), (None, 1)):
             self.assertEqual(intake.parse_video_tracks(v), want, v)
         rid = "20261001-120000-abc131"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto", "videoTracks": 3,
@@ -356,6 +356,12 @@ class TestVideo(Base):
         self.scan2()
         self.assertIsNone(self.runner.last["tracks"])
         self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "")
+        rid = "20261001-120000-abc133"                                   # ① で指定が無い(1.3.0 までのアプリ)= 1
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto",
+                                                     "items": [{"url": "https://youtu.be/ccccccccccc", "top": 2}]}))
+        self.scan2()
+        self.assertEqual(self.runner.last["tracks"], 1)
+        self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 1本")
 
     def test_state_persists(self):
         self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")

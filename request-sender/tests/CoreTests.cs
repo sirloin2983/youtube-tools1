@@ -24,7 +24,7 @@ static class CoreTests
         Run("JSON: 動画の依頼(エスケープ・実際の名前・日本語はそのまま)", VideoJson);
         Run("JSON: URL の依頼", UrlJson);
         Run("JSON: 話す人(speakers)", SpeakersJson);
-        Run("JSON: 映像トラックの数(① 全自動・2〜5 のときだけ)", VideoTracksJson);
+        Run("JSON: 映像トラックの数(① 全自動のときだけ・1〜5・範囲の外は 1)", VideoTracksJson);
         Run("JSON: 送った時刻は時差つきの ISO 8601", SentAt);
         Run("Dropbox-API-Arg: ASCII 以外と 0x7F を \\uXXXX にする", ApiArgEscape);
         Run("分け方: 150MB 以下は1回・超えたら 8MB ずつ", Chunks);
@@ -209,11 +209,11 @@ static class CoreTests
         string id = "20261001-120000-abcdef";
         Eq(3L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 3)), "videoTracks", -1), "URL・①・3");
         Eq(5L, Json.Long(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 5)), "videoTracks", -1), "動画・①・5");
-        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1).Contains("videoTracks"), "1 は書かない");
+        Eq(1L, Json.Long(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1)), "videoTracks", -1), "1 も書く");
         True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Check, T, 0, null, 3).Contains("videoTracks"), "② は書かない");
         True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Manual, T, 0, null, 3).Contains("videoTracks"), "③ は書かない");
-        True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 6).Contains("videoTracks"), "範囲の外は書かない");
-        True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T).Contains("videoTracks"), "前の形の呼び出しは書かない");
+        Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 6)), "videoTracks", -1), "範囲の外は 1");
+        Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T)), "videoTracks", -1), "前の形の呼び出しは既定の 1");
         Eq("V1 に動画、V2〜V3 は空、V4(いちばん上)に字幕", VideoTracks.Hint(3), "案内");
     }
 
