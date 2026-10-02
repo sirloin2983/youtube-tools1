@@ -183,3 +183,51 @@ html[data-pattern=blueprint]{background-color:var(--bg);
 
 /* 動きを減らす設定のとき: 発光の点滅・回転は止める */
 @media (prefers-reduced-motion:reduce){html[data-pattern] *{animation:none!important}}
+
+/* ================================================================ 配色(?c=。A 計器盤で見比べる用。形はそのまま、色の変数だけ替える)
+   どれも 文字/地 は 4.5:1 以上・アクセントの上の文字(--accent-ink)も 4.5:1 以上になるように選んだ */
+html[data-pattern][data-theme][data-palette=magenta]{   /* シンセウェーブ: 紫がかった地にマゼンタ */
+  --bg:#0D0A17;--bg-2:#09070F;--panel:#161129;--panel-2:#110D20;--panel-3:#221A3D;--field:#0D0A17;--field-hover:#110D20;
+  --line:#30245A;--line-2:#3D2F70;--line-strong:#55419A;--ink:#ECE6FF;--ink-2:#BBB0DD;--ink-3:#9288B8;--ink-4:#655A8A;
+  --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(255,61,165,.13);--accent-line:rgba(255,61,165,.5);--accent-ink2:#FF74C0;
+  --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B;--info:#38E1FF;--info-ink:#7BEAFF;--info-soft:rgba(56,225,255,.12);--header-bg:rgba(13,10,23,.92)}
+html[data-pattern][data-theme][data-palette=green]{     /* ターミナルグリーン: 黒緑の地に蛍光緑 */
+  --bg:#060B08;--bg-2:#040805;--panel:#0C1510;--panel-2:#09110C;--panel-3:#14241A;--field:#060B08;--field-hover:#09110C;
+  --line:#1E3527;--line-2:#284634;--line-strong:#386248;--ink:#D7F5E1;--ink-2:#A7C9B2;--ink-3:#6E8F7B;--ink-4:#4A6655;
+  --accent:#3DFF8B;--accent-hover:#7CFFB0;--accent-ink:#032611;--accent-soft:rgba(61,255,139,.11);--accent-line:rgba(61,255,139,.45);--accent-ink2:#7CFFB0;
+  --ok:#3DFF8B;--ok-ink:#7CFFB0;--danger:#FFC14D;--danger-soft:rgba(255,193,77,.12);--danger-ink:#FFD27A;--warn:#FF8A5C;--warn-ink:#FFA683;--warn-soft:rgba(255,138,92,.12);--header-bg:rgba(6,11,8,.92)}
+html[data-pattern][data-theme][data-palette=amber]{     /* 琥珀の CRT: 焦げ茶の地に琥珀(昔のモニター) */
+  --bg:#0F0B06;--bg-2:#0A0704;--panel:#18120A;--panel-2:#130E08;--panel-3:#261C0F;--field:#0F0B06;--field-hover:#130E08;
+  --line:#3A2B16;--line-2:#4B381D;--line-strong:#6A4F28;--ink:#FBE9CF;--ink-2:#D8BE97;--ink-3:#A08661;--ink-4:#6E5B40;
+  --accent:#FFB000;--accent-hover:#FFC94D;--accent-ink:#2B1C00;--accent-soft:rgba(255,176,0,.12);--accent-line:rgba(255,176,0,.5);--accent-ink2:#FFC94D;
+  --warn:#FF7A3D;--warn-ink:#FF9A6B;--warn-soft:rgba(255,122,61,.12);--danger:#FF4D5E;--danger-ink:#FF7A86;--info:#7FD1FF;--info-ink:#A6DEFF;--header-bg:rgba(15,11,6,.92)}
+html[data-pattern][data-theme][data-palette=red]{       /* 警戒の赤: 黒に深紅(緊急の操作盤) */
+  --bg:#0C0809;--bg-2:#080506;--panel:#160E10;--panel-2:#120B0D;--panel-3:#24161A;--field:#0C0809;--field-hover:#120B0D;
+  --line:#3A2228;--line-2:#4C2C33;--line-strong:#6C3E48;--ink:#F6E3E6;--ink-2:#CDAEB4;--ink-3:#9A7B81;--ink-4:#6A5257;
+  --accent:#FF3B4E;--accent-hover:#FF6E7C;--accent-ink:#2B0307;--accent-soft:rgba(255,59,78,.13);--accent-line:rgba(255,59,78,.5);--accent-ink2:#FF6E7C;
+  --danger:#FFB84D;--danger-soft:rgba(255,184,77,.12);--danger-ink:#FFCB7A;--info:#8FB8FF;--info-ink:#B0CDFF;--header-bg:rgba(12,8,9,.92)}
+html[data-pattern][data-theme][data-palette=violet]{    /* 電子の紫: 黒紺に青紫 */
+  --bg:#0A0A14;--bg-2:#07070F;--panel:#12121F;--panel-2:#0E0E1A;--panel-3:#1C1C33;--field:#0A0A14;--field-hover:#0E0E1A;
+  --line:#272645;--line-2:#33325A;--line-strong:#4A4882;--ink:#E6E5FF;--ink-2:#B3B1DA;--ink-3:#8583B0;--ink-4:#5C5A84;
+  --accent:#9D8CFF;--accent-hover:#BDB1FF;--accent-ink:#130B3A;--accent-soft:rgba(157,140,255,.14);--accent-line:rgba(157,140,255,.5);--accent-ink2:#BDB1FF;
+  --info:#38E1FF;--info-ink:#7BEAFF;--header-bg:rgba(10,10,20,.92)}
+html[data-pattern][data-theme][data-palette=steel]{     /* 鋼の白: 色を抑えた灰紺に白(アクセントも白に近い) */
+  --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
+  --line:#2A313B;--line-2:#363F4B;--line-strong:#4E5967;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#848E9B;--ink-4:#5B6470;
+  --accent:#E8F1FF;--accent-hover:#FFFFFF;--accent-ink:#0C0F13;--accent-soft:rgba(232,241,255,.10);--accent-line:rgba(232,241,255,.45);--accent-ink2:#FFFFFF;
+  --header-bg:rgba(12,15,19,.92)}
+html[data-pattern][data-theme][data-palette=dual]{      /* 二色: シアンの地の線 + 主な操作だけマゼンタ(2つの役割を色で分ける) */
+  --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);--accent-ink2:#5DE3F8;
+  --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B}
+html[data-palette=dual][data-pattern=hud] .card::before,html[data-palette=dual][data-pattern=hud] .card::after{border-color:#19D3F3}
+html[data-palette=dual][data-pattern=hud] .ui-tab[aria-pressed=true],html[data-palette=dual][data-pattern=hud] .ui-seg>button[aria-pressed=true]{color:#19D3F3;border-bottom-color:#19D3F3}
+html[data-palette=dual][data-pattern=hud] .bar>i{background:repeating-linear-gradient(90deg,#19D3F3 0 2px,transparent 2px 6px)}
+html[data-palette=dual] .pb-wave polyline{stroke:#19D3F3}
+html[data-pattern][data-palette=ice]{color-scheme:light}
+html[data-pattern][data-theme][data-palette=ice]{       /* アイスライト: 明るい地に青(明るいテーマが要るとき) */
+  --bg:#EEF2F8;--bg-2:#E4EAF3;--panel:#FFFFFF;--panel-2:#F5F8FC;--panel-3:#E2E9F3;--field:#FFFFFF;--field-hover:#F7F9FC;
+  --line:#C3CFE2;--line-2:#AEBDD5;--line-strong:#8DA0BF;--ink:#0E1726;--ink-2:#334158;--ink-3:#5B6B84;--ink-4:#8593A8;
+  --accent:#1F5BFF;--accent-hover:#0040E6;--accent-ink:#FFFFFF;--accent-soft:rgba(31,91,255,.09);--accent-line:rgba(31,91,255,.45);--accent-ink2:#1748CC;
+  --ok:#0E8A55;--ok-ink:#0B6E44;--ok-soft:rgba(14,138,85,.09);--warn:#A86A06;--warn-ink:#8A5300;--warn-soft:rgba(168,106,6,.1);
+  --danger:#D6336C;--danger-ink:#B4245A;--danger-soft:rgba(214,51,108,.09);--info:#0A74B3;--info-ink:#075F94;--info-soft:rgba(10,116,179,.09);
+  --header-bg:rgba(255,255,255,.92);--scroll-thumb:#AEBDD5}
