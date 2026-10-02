@@ -143,7 +143,7 @@ def check_timebox(pg, check):
         pg.evaluate("""([sel, s]) => { const el = document.querySelector(sel); el.focus(); const dt = new DataTransfer(); dt.setData('text/plain', s);
             el.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }""", [sel, s])
 
-    check(pg.evaluate("UIKit.version") == 11, "UIKit.version は 11")
+    check(pg.evaluate("UIKit.version") >= 11, "UIKit.version は 11 以上")
     check((text("#tbStart"), value("#tbStart")) == ("-:--:--", None), "入っていない欄は -:--:--(値は null): %s" % text("#tbStart"))
     pg.focus("#tbStart")
     check(text("#tbStart") == "0:00:00" and pg.evaluate("document.querySelector('#tbStart .ui-time-seg.on').dataset.seg") == "0", "欄に入ると 0:00:00 で「時」が選ばれる")
@@ -302,6 +302,24 @@ def main():
                 check(pg.evaluate("localStorage.getItem('ytt:theme')") == "dark", "選んだ値が保存される")
                 pg.click("[data-theme-toggle]")
                 check(pg.get_attribute("html", "data-theme") == "light", "もう一度でライトに戻る")
+
+                # ---- v12: 配色(明るい = アイスライト・暗い = ネオンシアン / 鋼の白 / ターミナルグリーン) ----
+                check(pg.get_attribute("html", "data-palette") == "ice", "明るいときの配色はアイスライト")
+                bg = lambda: pg.evaluate("getComputedStyle(document.body).backgroundColor")
+                light_bg = bg()
+                pg.click("[data-theme-toggle]")
+                check(pg.get_attribute("html", "data-palette") == "cyan" and bg() != light_bg, "暗いときの既定はネオンシアン: %s" % bg())
+                pg.evaluate("UIKit.theme.palette('steel')")
+                check(pg.get_attribute("html", "data-palette") == "steel" and pg.evaluate("localStorage.getItem('ytt:palette')") == "steel", "palette('steel') で鋼の白・保存される")
+                acc = pg.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()").lower()
+                check(acc == "#e8f1ff", "鋼の白のアクセントは白: %s" % acc)
+                pg.click("[data-theme-toggle]")
+                check(pg.get_attribute("html", "data-palette") == "ice", "明るいに戻すとアイスライト")
+                pg.click("[data-theme-toggle]")
+                check(pg.get_attribute("html", "data-palette") == "steel", "暗いに戻すと、最後に選んだ暗い配色(鋼の白)")
+                pg.evaluate("UIKit.theme.palette('bogus')")
+                check(pg.get_attribute("html", "data-palette") == "steel", "知らない配色は無視")
+                pg.evaluate("UIKit.theme.palette('cyan'); UIKit.theme.set('light')")
 
                 # ---- 引き出し(UIKit.drawer) ----
                 pg.click("#btnDrawerModal")

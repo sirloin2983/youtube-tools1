@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v11
+# ui-kit(共通の見た目)v12
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,18 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v12(2026-10-02・サイバー風: 計器盤の形と配色4つ)
+ユーザーが見本(`.design/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
+- 形(`ui-kit.css` の末尾の「v12」): 角はほぼ直角(`--r` = 2px)・細い 1px の線・`.card` の左上と右下に角の括弧(`::before` / `::after`。**ツールで `.card` の疑似要素を使わない**)・
+  タブと `.ui-seg` は下線・`.pill` は枠だけで等幅・`.bar` は目盛り・`.notice` は左の線・`th` と `.card-sub` は等幅。光らせない
+- 色: 明るい = **アイスライト**(`:root`)/ 暗い = **ネオンシアン**(`:root[data-theme=dark]`)。暗いときだけ `data-palette` で **鋼の白**(`steel`)・**ターミナルグリーン**(`green`)に替えられる
+  (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `.design/cyber-theme/patterns.css` の「調整した4つ」)
+- JS: `<html data-palette="ice|cyan|steel|green">` を `UIKit.theme` が付ける。暗いときの配色は `UIKit.theme.palette()`(読む)・`palette('steel')`(変えて `localStorage['ytt:palette']` に保存)。
+  明るい/暗い(`ytt:theme`)とは別に持つので、切り替えボタン・「OSに合わせる」・以前の保存はそのまま使える(暗くしたときに、最後に選んだ暗い配色になる)
+- ⚙ 設定の「テーマ」: アイスライト(明るい)/ ネオンシアン / 鋼の白 / ターミナルグリーン(暗い)/ OSに合わせる
+- 色は必ず変数で書く決まりは今までどおり(固定の色は、配色を替えたときに浮く)。スイッチのつまみは `--knob`(鋼の白・ターミナルグリーンは明るいアクセントの上で見えるように地の色)
+- 送るアプリ(`request-sender/`)の配色は別(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)
 
 ## v11(2026-10-02・時刻の欄 `UIKit.timebox`)
 時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`request-sender/` の TimeBox)で決めた動き(`.design/request-sender-overhaul/DESIGN_BRIEF.md` の「時刻の欄」)を、Web の画面でも使い回すための部品。

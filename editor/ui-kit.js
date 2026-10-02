@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v11 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v12 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -31,10 +31,17 @@
    v8(2026-09-29・気が利く画面へ 段6): UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)
    v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
    v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
+   v12(2026-10-02): サイバー風(計器盤)の形と配色4つ。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーンから選ぶ(UIKit.theme.palette。README.md の「v12」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
+  /* v12: 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン)。明るいときはアイスライト(ice)だけ。
+     明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる・以前の保存がそのまま使える */
+  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン' };
+  function darkPalette() {
+    try { var v = localStorage.getItem(PAL_KEY); return DARK_PALETTES[v] ? v : 'cyan'; } catch (e) { return 'cyan'; }
+  }
   var root = document.documentElement;
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   var subs = [];
@@ -56,6 +63,7 @@
   function paint(p) {
     var t = resolve(p);
     root.setAttribute('data-theme', t);
+    root.setAttribute('data-palette', t === 'dark' ? darkPalette() : 'ice');
     root.setAttribute('data-theme-pref', p);
     syncButtons();
     for (var j = 0; j < subs.length; j++) { try { subs[j](t, p); } catch (e) { /* 購読側の失敗は無視 */ } }
@@ -70,6 +78,15 @@
     resolved: function () { return resolve(pref()); },
     set: set,
     toggle: function () { set(resolve(pref()) === 'dark' ? 'light' : 'dark'); },
+    /* v12: 暗いときの配色。palette() → 'cyan' | 'steel' | 'green'、palette(name) で変えて保存する(明るい/暗いは変えない) */
+    palette: function (name) {
+      if (name === undefined) return darkPalette();
+      if (!DARK_PALETTES[name]) return darkPalette();
+      try { localStorage.setItem(PAL_KEY, name); } catch (e) { /* 保存できなくても見た目は変える */ }
+      paint(pref());
+      return name;
+    },
+    PALETTES: DARK_PALETTES,
     onChange: function (fn) { if (typeof fn === 'function') subs.push(fn); }
   };
   paint(pref());
@@ -78,7 +95,7 @@
     if (mq.addEventListener) mq.addEventListener('change', onSys); else if (mq.addListener) mq.addListener(onSys);
   }
   /* 別のタブで切り替えたら、このタブも合わせる */
-  window.addEventListener('storage', function (e) { if (e.key === KEY) paint(pref()); });
+  window.addEventListener('storage', function (e) { if (e.key === KEY || e.key === PAL_KEY) paint(pref()); });
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('[data-theme-toggle]') : null;
     if (b) { e.preventDefault(); theme.toggle(); }
@@ -843,10 +860,16 @@
     var themeRow = document.createElement('div'); themeRow.className = 'ui-settings-row';
     var themeLabel = document.createElement('span'); themeLabel.textContent = 'テーマ';
     var themeSel = document.createElement('select');
-    addOpt(themeSel, 'light', '明るい'); addOpt(themeSel, 'dark', '暗い'); addOpt(themeSel, 'system', 'OSに合わせる');
-    themeSel.value = theme.get();
-    themeSel.addEventListener('change', function () { theme.set(themeSel.value); });
-    theme.onChange(function (t, p) { themeSel.value = p; });
+    /* v12: 配色を選ぶ。明るい = アイスライト / 暗い = 3つ / OSに合わせる(暗いときは、最後に選んだ暗い配色) */
+    addOpt(themeSel, 'light', 'アイスライト(明るい)'); addOpt(themeSel, 'cyan', 'ネオンシアン(暗い)'); addOpt(themeSel, 'steel', '鋼の白(暗い)');
+    addOpt(themeSel, 'green', 'ターミナルグリーン(暗い)'); addOpt(themeSel, 'system', 'OSに合わせる');
+    var themeValue = function (p) { return p === 'dark' ? theme.palette() : p; };
+    themeSel.value = themeValue(theme.get());
+    themeSel.addEventListener('change', function () {
+      var v = themeSel.value;
+      if (DARK_PALETTES[v]) { theme.palette(v); theme.set('dark'); } else theme.set(v);
+    });
+    theme.onChange(function (t, p) { themeSel.value = themeValue(p); });
     themeRow.appendChild(themeLabel); themeRow.appendChild(themeSel);
 
     var fsRow = document.createElement('div'); fsRow.className = 'ui-settings-row';
@@ -1986,7 +2009,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  window.UIKit = { version: 11, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 12, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox };
 })();
