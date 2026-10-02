@@ -601,5 +601,53 @@ class TestAdoptTop(Base):
         self.assertEqual(self.req("POST", "/api/video/adopt-top", {"id": "nothere0000", "top": 1})[0], 404)
 
 
+class TestRequestMarks(Base):
+    """POST /api/video/request-marks: 友人からの依頼。時刻で指定した区間を採用済みの手動マークに、足りない分を自動の上位で埋める"""
+    def marks(self, j):
+        return {m["id"]: m for m in j["video"]["marks"]}
+
+    def test_ranges_without_analysis(self):
+        """解析していない配信でも、区間だけで使える(配信の記録を作る・題名とチャンネルを覚える)"""
+        vid = "reqmarks001"
+        st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "title": "題", "channel": "ch", "ranges": [[98, 192.04], [10, 20]], "auto": 0})
+        self.assertEqual(st, 200, j)
+        by = self.marks(j)
+        self.assertEqual([(by[i]["start"], by[i]["end"], by[i]["status"], by[i]["src"]) for i in j["rangeIds"]],
+                         [(98.0, 192.0, "adopted", "manual"), (10.0, 20.0, "adopted", "manual")])   # ranges の順・小数1桁
+        self.assertEqual((j["autoIds"], j["video"]["title"], j["video"]["channel"], j["video"]["analysis"]), ([], "題", "ch", None))
+        st, j2, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[98.3, 192], [10, 20]], "auto": 2})
+        self.assertEqual((st, j2["rangeIds"], j2["autoIds"], len(j2["video"]["marks"])), (200, j["rangeIds"], [], 2))   # 同じ区間(±0.5 秒)は使い回す・自動の候補は無い
+
+    def test_fills_with_top_auto_and_reuses(self):
+        vid = "reqmarks002"
+        serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
+        cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0), (70, 7.0))]
+        serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
+        fb = analyze.feedback_path()
+        before = os.path.getsize(fb) if os.path.exists(fb) else 0
+        st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "auto": 2})
+        self.assertEqual(st, 200, j)
+        by = self.marks(j)
+        self.assertEqual([by[i]["start"] for i in j["autoIds"]], [70.0, 50.0])   # 点数の高い順。区間と重なる 30 秒の候補は飛ばす
+        self.assertEqual(sorted(m["start"] for m in by.values() if m["status"] == "adopted"), [28.0, 50.0, 70.0])
+        self.assertEqual(os.path.getsize(fb) if os.path.exists(fb) else 0, before)   # 人の判定ではないので記録しない
+        # 送り直し: 採用済みの自動マークも数に入れる(増やさない)。数を増やせば次の候補を足す
+        st, j2, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "auto": 2})
+        self.assertEqual((j2["rangeIds"], j2["autoIds"], j2["video"]["rev"]), (j["rangeIds"], j["autoIds"], j["video"]["rev"]))   # 何も変えない
+        st, j3, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [], "auto": 3})
+        self.assertEqual([self.marks(j3)[i]["start"] for i in j3["autoIds"]], [30.0, 70.0, 50.0])   # 区間が無ければ 30 秒の候補も入る
+        # 区間が動画の長さを超えたら終わりで切る。長さの外から始まる区間は断る
+        st, j4, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[90, 130]], "auto": 0})
+        self.assertEqual((st, self.marks(j4)[j4["rangeIds"][0]]["end"]), (200, 100.0))
+        self.assertEqual(self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[100, 130]], "auto": 0})[0], 400)
+
+    def test_rejects_bad_input(self):
+        vid = "reqmarks003"
+        ok = {"id": vid, "ranges": [[1, 2]], "auto": 0}
+        for bad in ({"ranges": [[5, 5]]}, {"ranges": [[-1, 5]]}, {"ranges": [[0, 3601]]}, {"ranges": [["1", 2]]}, {"ranges": [[1, 2, 3]]}, {"ranges": "x"},
+                    {"ranges": [[i, i + 1] for i in range(11)]}, {"auto": -1}, {"auto": 31}, {"auto": "1"}, {"auto": True}, {"id": "../etc"}, {"id": "x" * 30}):
+            self.assertEqual(self.req("POST", "/api/video/request-marks", dict(ok, **bad))[0], 400, bad)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

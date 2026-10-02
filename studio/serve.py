@@ -341,6 +341,18 @@ def _adopt_top(o):
     return {"ok": True, "adopted": ids, "video": v}
 
 
+def _request_marks(o):
+    """友人からの依頼(入口のまとめて実行)から: 配信を(無ければ)登録し、時刻で指定した区間を採用済みのマークに、足りない分を自動の上位で埋める。
+    解析していない配信でも区間だけなら使える(その区間だけを書き出しのときに取りに行く)"""
+    vid = str(o.get("id") or "")
+    if not STORE.has(vid):
+        src = analyze.validate_source({"kind": "youtube", "videoId": vid})   # YouTube の ID の形だけ受け付ける
+        STORE.ensure(src, o.get("title") if isinstance(o.get("title"), str) else "", o.get("channel") if isinstance(o.get("channel"), str) else "")
+        vid = src["videoId"]
+    rids, aids, v = STORE.request_marks(vid, o.get("ranges"), o.get("auto"))
+    return {"ok": True, "rangeIds": rids, "autoIds": aids, "video": v}
+
+
 def _outdir(o):
     return {"ok": True, "outDir": common.set_out_dir(o.get("path"), busy), "defaultOutDir": common.default_out_dir()}
 
@@ -405,6 +417,7 @@ POST_ROUTES = {
     "/api/videos/open": _open_video,
     "/api/video/delete": _video_delete,
     "/api/video/adopt-top": _adopt_top,   # まとめて実行(入口の案件の画面)から: 自動マークの上位を採用に(学習の記録は書かない)
+    "/api/video/request-marks": _request_marks,   # 友人からの依頼: 区間を採用済みのマークに + 自動の上位で埋める(学習の記録は書かない)
     "/api/export": _export,
     "/api/export/cancel": _export_cancel,
     "/api/collab/group": _collab_create,

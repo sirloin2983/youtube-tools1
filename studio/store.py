@@ -25,6 +25,7 @@ SCHEMA = "clip-studio/v1"
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 MAX_MARKS = 500
 MAX_MARK_SEC = 3600
+MAX_REQUEST_RANGES = 10  # 友人の依頼で1本の配信に指定できる区間の数(request_marks)
 MAX_TIME = 1e7          # 秒。これを超える値は不正(巨大な数値対策)
 PART_KEYS = ("audio", "chat", "comments")
 STATUS_CLIENT = ("", "adopted", "rejected")   # クライアントが設定できる状態(exported はサーバーだけ)
@@ -680,6 +681,63 @@ class Store:
             nv["updatedAt"] = now_ms()
             self._commit(nv["id"], nv)
             return [m["id"] for m in cands], self._pub(nv)
+
+    def request_marks(self, vid, ranges, auto):
+        """友人からの依頼(入口の home/autorun.py)用: 時刻で指定した区間を手動マーク(採用)にし、足りない分を自動マークの上位で埋める。
+        ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す。
+        auto = 自動で埋める数。自動マーク(不採用でない・ranges と重ならない)を点数の高い順に auto 個選び、候補のものは採用にする。
+        採用・書き出し済みのものも数に入れる(同じ配信の送り直しで、前の分を使い回す)。
+        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない(adopt_top と同じ)。
+        -> (区間のマークの id(ranges の順), 自動のマークの id(点数の高い順), 公開用の動画)"""
+        if not isinstance(ranges, list) or len(ranges) > MAX_REQUEST_RANGES:
+            raise ApiError("bad_request", "区間は%d個までです" % MAX_REQUEST_RANGES, 400)
+        if not isinstance(auto, int) or isinstance(auto, bool) or not (0 <= auto <= 30):
+            raise ApiError("bad_request", "自動で選ぶ数は0〜30です", 400)
+        want = []
+        for r in ranges:
+            if not isinstance(r, (list, tuple)) or len(r) != 2:
+                raise ApiError("bad_request", "区間の形が正しくありません([開始, 終了])", 400)
+            try:
+                want.append(check_times(r[0], r[1]))
+            except BadMark as e:
+                raise ApiError("bad_request", "区間が正しくありません: %s" % e, 400)
+        with self.lock:
+            v = self.videos.get(str(vid or ""))
+            if not v:
+                raise ApiError("not_found", "動画が見つかりません", 404)
+            nv = copy.deepcopy(v)
+            dur = round(float(nv["duration"]), 1) if nv["duration"] and nv["duration"] > 0 else 0
+            range_ids, changed = [], False
+            for s, e in want:
+                if dur:
+                    e = min(e, dur)
+                    if e <= s:
+                        raise ApiError("bad_request", "区間が動画の長さの外です(%s 秒から)" % s, 400)
+                m = next((x for x in nv["marks"] if _same(x, {"start": s, "end": e})), None)
+                if m is None:
+                    if len(nv["marks"]) >= MAX_MARKS:
+                        raise ApiError("bad_request", "マークは%d件までです" % MAX_MARKS, 400)
+                    m = _build_mark({"id": "r" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": "adopted", "createdAt": now_ms()}, None)
+                    nv["marks"].append(m)
+                    changed = True
+                elif m["status"] in ("", "rejected"):
+                    m["status"] = "adopted"
+                    changed = True
+                if m["id"] not in range_ids:
+                    range_ids.append(m["id"])
+            picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in range_ids]
+            autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in range_ids
+                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=lambda m: -(m["score"] or 0))[:auto]
+            for m in autos:
+                if m["status"] == "":
+                    m["status"] = "adopted"
+                    changed = True
+            if changed:
+                nv["marks"] = sorted(nv["marks"], key=lambda x: (x["start"], x["end"]))
+                nv["rev"] += 1
+                nv["updatedAt"] = now_ms()
+                self._commit(nv["id"], nv)
+            return range_ids, [m["id"] for m in autos], self._pub(nv)
 
     def set_title(self, vid, title):
         with self.lock:
