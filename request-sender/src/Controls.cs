@@ -751,4 +751,40 @@ namespace RequestSender
                 TextRenderer.DrawText(e.Graphics, Titles[i], Theme.Small, cols[i], p.Muted, i == 2 ? flags | TextFormatFlags.Right : flags);
         }
     }
+    // ---- 右クリックのメニュー(配色に合わせる。時刻の欄の「貼り付け」など、マウスだけでも使えるように) ----
+    public class ThemedMenu : ContextMenuStrip
+    {
+        class Colors : ProfessionalColorTable
+        {
+            public override Color MenuBorder { get { return Theme.P.Line; } }
+            public override Color ToolStripDropDownBackground { get { return Theme.P.Panel; } }
+            public override Color MenuItemSelected { get { return Theme.Mix(Theme.P.Panel, Theme.P.Accent, 0.25); } }
+            public override Color MenuItemBorder { get { return Theme.P.Accent; } }
+            public override Color ImageMarginGradientBegin { get { return Theme.P.Panel; } }
+            public override Color ImageMarginGradientMiddle { get { return Theme.P.Panel; } }
+            public override Color ImageMarginGradientEnd { get { return Theme.P.Panel; } }
+            public override Color SeparatorDark { get { return Theme.P.Line; } }
+            public override Color SeparatorLight { get { return Theme.P.Line; } }
+        }
+
+        public ThemedMenu()
+        {
+            Renderer = new ToolStripProfessionalRenderer(new Colors()) { RoundedEdges = false };
+            ShowImageMargin = false;
+            Font = Theme.Body;
+            Opening += (s, e) =>
+            {
+                BackColor = Theme.P.Panel;
+                foreach (ToolStripItem it in Items) it.ForeColor = it.Enabled ? Theme.P.Text : Theme.P.Muted;
+            };
+        }
+
+        public ToolStripMenuItem Add(string text, Action run)
+        {
+            var it = new ToolStripMenuItem(text);
+            it.Click += (s, e) => run();
+            Items.Add(it);
+            return it;
+        }
+    }
 }

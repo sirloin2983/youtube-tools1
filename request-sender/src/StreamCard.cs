@@ -113,7 +113,7 @@ namespace RequestSender
             bool startBad = p != null && (!Start.HasValue || pasteError != null && Start.Focused);
             startField.Error = startBad;
             endField.Error = p != null && !startBad;
-            problem.Text = p ?? "";
+            problem.Text = p != null ? "⚠ " + p : "";
             problem.Visible = p != null;
             Arrange();
             if (Changed != null) Changed();
@@ -168,6 +168,7 @@ namespace RequestSender
             Border = true;
             Url.MaxLength = 2048;
             Url.AccessibleName = "配信の URL";
+            Url.HandleCreated += (s, e) => Ui.Cue(Url, "ここに YouTube の URL を貼る(Ctrl+V)");
             Url.AllowDrop = true;
             urlField = new Field(Url);
             remove.Size = new Size(Ui.S(26), Ui.S(26));

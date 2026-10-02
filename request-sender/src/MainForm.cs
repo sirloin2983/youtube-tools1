@@ -41,9 +41,10 @@ namespace RequestSender
         readonly VStack cardList = new VStack { OnPanel = true };
         readonly List<StreamCard> cards = new List<StreamCard>();
         readonly Btn addCard = new Btn("+ 配信を足す", BtnKind.Normal);
-        readonly Lbl helpTime = new Lbl("時刻の入れ方: 数字だけ打つ(12345 → 1:23:45)。← → で 時・分・秒 を選び、↑ ↓ で動かす。" +
-                                        "YouTube で動画を右クリック →「現在の時刻の動画の URL をコピー」→ 時刻の欄で Ctrl+V でも入ります。" +
-                                        "10 時間より後の位置は、「時」を選んで ↑ か、URL の貼り付けで。区間の前後 2 秒は、PC が自動で足します。", Tone.Muted);
+        readonly Lbl helpTime = new Lbl("時刻の入れ方 ― 数字だけ打つ(12345 → 1:23:45)/ ← → で 時・分・秒 を選ぶ / ↑ ↓ で動かす / " +
+                                        "YouTube で動画を右クリック →「現在の時刻の動画の URL をコピー」→ 時刻の欄に貼る(Ctrl+V か右クリック)", Tone.Muted);
+        readonly Lbl helpMore = new Lbl("10 時間より後の位置は「時」を選んで ↑ か、URL の貼り付けで。区間の前後 2 秒は PC が自動で足します。", Tone.Muted);
+        readonly Lbl lTheme = new Lbl("配色", Tone.Muted);
         readonly Pane videoPanel = new Pane { OnPanel = true };
         readonly FileList files = new FileList();
         Field fileField, streamerField;
@@ -83,7 +84,7 @@ namespace RequestSender
         readonly LinkLabel sendToLink = new LinkLabel();
 
         string cut = Cut.None;
-        bool showVideo, built;
+        bool showVideo, built, justSent;
         Thread worker;
         volatile bool cancel;
         int arrived;
@@ -132,6 +133,7 @@ namespace RequestSender
             {
                 ApplyTheme();
                 LayoutAll();
+                if (files.Items.Count == 0) cards[0].FocusUrl();   // 開いたら、すぐ URL を貼れる
                 if (Offline) return;
                 CheckConfig();
                 Program.MaybeAskSendTo(this);
@@ -154,7 +156,8 @@ namespace RequestSender
             tabSend.Click += (s, e) => ShowPage(true);
             tabRecv.Click += (s, e) => ShowPage(false);
             brand.Font = Theme.MonoSmall;
-            topBar.Controls.AddRange(new Control[] { tabSend, tabRecv, brand });
+            lTheme.Font = Theme.Small;
+            topBar.Controls.AddRange(new Control[] { tabSend, tabRecv, brand, lTheme });
             foreach (var p in Theme.All)
             {
                 var sw = new Swatch(p);
@@ -173,7 +176,7 @@ namespace RequestSender
             modeUrl.Click += (s, e) => ShowLeft(false);
             modeVideo.Click += (s, e) => ShowLeft(true);
             cardList.Add(addCard, 10, false);
-            helpTime.Font = Theme.Small;
+            helpTime.Font = helpMore.Font = Theme.Small;
             addCard.Click += (s, e) => { var c = AddCard(null); ArrangeCards(); c.FocusUrl(); cardList.ScrollControlIntoView(c); };
 
             files.SelectionMode = SelectionMode.MultiExtended;
@@ -207,7 +210,7 @@ namespace RequestSender
             streamer.TextChanged += (s, e) => UpdateStreamerNote();
             streamerField = new Field(streamer) { Width = Ui.S(200) };
             videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote, lStreamer, streamerField, streamerNote, streamerHint });
-            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime });
+            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime, helpMore });
 
             // ---- 右 ----
             right.Add(new SectionHead("02", "仕上げ方"), 0, true);
@@ -330,7 +333,9 @@ namespace RequestSender
                 swatches[i].Location = new Point(x, (top - swatches[i].Height) / 2);
                 x -= Ui.S(4);
             }
-            brand.Location = new Point(x - Ui.S(12) - brand.Width, (top - brand.Height) / 2);
+            lTheme.Location = new Point(x - Ui.S(2) - lTheme.Width, (top - lTheme.Height) / 2);
+            x = lTheme.Left;
+            brand.Location = new Point(x - Ui.S(16) - brand.Width, (top - brand.Height) / 2);
             brand.Visible = brand.Left > tabRecv.Right + m;
 
             int ph = h - top;
@@ -348,8 +353,10 @@ namespace RequestSender
             var body = new Rectangle(1, Ui.S(76), leftPane.Width - 2, leftPane.Height - Ui.S(76) - 1);
             videoPanel.Bounds = body;
             // 配信の URL の側は、下に時刻の入れ方を固定で出す(カードが増えても隠れない)
+            helpMore.Wrap(leftPane.Width - m * 2);
+            helpMore.Location = new Point(m, leftPane.Height - helpMore.Height - Ui.S(8));
             helpTime.Wrap(leftPane.Width - m * 2);
-            helpTime.Location = new Point(m, leftPane.Height - helpTime.Height - Ui.S(8));
+            helpTime.Location = new Point(m, helpMore.Top - helpTime.Height - Ui.S(2));
             cardList.Bounds = new Rectangle(body.X, body.Y, body.Width, helpTime.Top - Ui.S(6) - body.Y);
             ArrangeCards();
             LayoutVideo();
@@ -440,7 +447,7 @@ namespace RequestSender
         void ShowLeft(bool video)
         {
             showVideo = video;
-            cardList.Visible = helpTime.Visible = !video;
+            cardList.Visible = helpTime.Visible = helpMore.Visible = !video;
             videoPanel.Visible = video;
             modeUrl.On = !video;
             modeVideo.On = video;
@@ -450,8 +457,8 @@ namespace RequestSender
         void UpdateModeButtons()
         {
             int n = cards.Count(c => !c.IsBlank);
-            modeUrl.Text = "配信の URL " + n;
-            modeVideo.Text = "動画ファイル " + files.Items.Count;
+            modeUrl.Text = n > 0 ? "配信の URL(" + n + ")" : "配信の URL";
+            modeVideo.Text = files.Items.Count > 0 ? "動画ファイル(" + files.Items.Count + ")" : "動画ファイル";
             modeUrl.FitWidth();
             modeVideo.FitWidth();
             modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), modeVideo.Top);
@@ -547,7 +554,15 @@ namespace RequestSender
                 parts.Add("配信 " + live.Count + " 本" + (f == Flow.Manual ? "" : "(指定 " + ranges + " + 自動 " + auto + ")"));
             }
             if (files.Items.Count > 0) parts.Add("動画 " + files.Items.Count + " 本");
-            if (parts.Count == 0) { summary.Tone = Tone.Muted; summary.Text = "送るものを入れてください(配信の URL か、動画のファイル)"; return; }
+            if (parts.Count == 0)
+            {
+                summary.Font = justSent ? Theme.Bold : Theme.Body;
+                summary.Tone = justSent ? Tone.Accent : Tone.Muted;
+                summary.Text = justSent ? "送りました ✓" : "送るものを入れてください(配信の URL か、動画のファイル)";
+                return;
+            }
+            justSent = false;
+            summary.Font = Theme.Body;
             parts.Add(Flow.Label(f).Split('(')[0]);
             if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); }
             if (speakerCount.Value > 0) parts.Add("話す人 " + speakerCount.Value + " 人");
@@ -714,7 +729,7 @@ namespace RequestSender
                 ShowLeft(false);
                 cardList.ScrollControlIntoView(bad);
                 bad.Focus();
-                SetStatus("赤い所を直してから、もう一度「送る」を押してください。", Tone.Error);
+                SetStatus("⚠ 直す所があります(枠の色が変わった欄の下に理由があります)。直してから、もう一度「送る」を押してください。", Tone.Error);
                 return;
             }
             int n = speakerCount.Value;
@@ -792,9 +807,8 @@ namespace RequestSender
             {
                 Log.Write("send: ok");
                 bar.Value = 1000;
-                SetStatus(input.Flow == Flow.Auto ? "送りました ✓  できあがると「受け取る」に届きます(時間がかかります)" : "送りました ✓", Tone.Accent);
                 SaveSettings();
-                ClearInputs(true, true);
+                ShowSent(input.Flow == Flow.Auto);
                 return;
             }
             Log.Write("send: failed: " + error);
@@ -806,6 +820,15 @@ namespace RequestSender
                 if (sent.Any(x => x.StartsWith("配信"))) ClearInputs(true, false);
             }
             SetStatus(msg, Tone.Error);
+        }
+
+        // 送り終えた: 入れたものを空にして、下の帯に「送りました ✓」を大きく出す(次に何か入れるまで)
+        void ShowSent(bool auto)
+        {
+            ClearInputs(true, true);
+            justSent = true;
+            SetStatus(auto ? "できあがると「受け取る」に届きます(時間がかかります)。続けて送ることもできます" : "続けて送ることもできます", Tone.Muted);
+            UpdateAll();
         }
 
         // 送ったものを空にする(覚える設定はそのまま)
@@ -980,9 +1003,8 @@ namespace RequestSender
             }
             else if (name == "done")
             {
-                ClearInputs(true, true);
                 bar.Value = 1000;
-                SetStatus("送りました ✓  できあがると「受け取る」に届きます(時間がかかります)", Tone.Accent);
+                ShowSent(true);
             }
             LayoutAll();
             UpdateAll();

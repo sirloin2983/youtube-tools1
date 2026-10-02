@@ -27,7 +27,24 @@ namespace RequestSender
             AccessibleName = name;
             AccessibleRole = AccessibleRole.Text;
             Cursor = Cursors.IBeam;
+            // マウスだけでも貼れるように(右クリック)
+            var menu = new ThemedMenu();
+            menu.Add("貼り付け(YouTube の位置の URL か 1:23:45) Ctrl+V", () => { Focus(); DoPaste(); });
+            var copy = menu.Add("コピー  Ctrl+C", () => { try { Clipboard.SetText(Text); } catch (Exception) { } });
+            var clear = menu.Add("空にする  Delete", () => { Focus(); ClearValue(); });
+            menu.Opening += (s, e) => { copy.Enabled = clear.Enabled = edit.HasValue; };
+            ContextMenuStrip = menu;
             Render();
+        }
+
+        // 貼り付けて、変わったら知らせる(Ctrl+V・右クリックのメニュー)
+        void DoPaste()
+        {
+            int before = edit.Value;
+            bool had = edit.HasValue;
+            Paste_();
+            Render();
+            if (before != edit.Value || had != edit.HasValue) Fire();
         }
 
         public bool ShowAsFocused;                   // 画面の確認(--state focus): 窓が前に無くても、選んだ所の反転を描く
@@ -87,7 +104,7 @@ namespace RequestSender
             var p = Theme.P;
             var g = e.Graphics;
             using (var b = new SolidBrush(p.Bg)) g.FillRectangle(b, ClientRectangle);
-            string t = Text;
+            string t = !edit.HasValue && !Lit ? "-:--:--" : Text;   // 入っていない欄は、値(0:00:00)に見えないように
             int x0, cw, start, len;
             Metrics(out x0, out cw);
             edit.SegmentRange(out start, out len);

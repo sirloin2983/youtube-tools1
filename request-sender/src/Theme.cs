@@ -37,7 +37,7 @@ namespace RequestSender
         public static readonly Palette[] All =
         {
             new Palette("A", "ネオンシアン", true, "#0A0E14", "#111824", "#22304A", "#DCE7F5", "#7C8BA1", "#19D3F3", "#04222A", "#FF4D8D"),
-            new Palette("B", "シンセウェーブ", true, "#0D0A17", "#161129", "#30245A", "#ECE6FF", "#9288B8", "#FF3DA5", "#2A0418", "#38E1FF"),
+            new Palette("B", "シンセウェーブ", true, "#0D0A17", "#161129", "#30245A", "#ECE6FF", "#9288B8", "#FF3DA5", "#2A0418", "#FF8A3D"),
             new Palette("C", "ターミナルグリーン", true, "#060B08", "#0C1510", "#1E3527", "#D7F5E1", "#6E8F7B", "#3DFF8B", "#032611", "#FFC14D"),
             new Palette("D", "アイスライト", false, "#EEF2F8", "#FFFFFF", "#C3CFE2", "#0E1726", "#5B6B84", "#1F5BFF", "#FFFFFF", "#D6336C"),
         };
@@ -125,6 +125,16 @@ namespace RequestSender
         public static int S(int px)
         {
             return (int)Math.Round(px * Scale);
+        }
+
+        // 空の入力欄に薄く出す案内(1行の欄だけ。打ち始めると消える)
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, string lparam);
+
+        public static void Cue(TextBox box, string text)
+        {
+            try { SendMessage(box.Handle, 0x1501 /* EM_SETCUEBANNER */, (IntPtr)1, text); }
+            catch (Exception) { }
         }
 
         // 小さな説明(ツールチップ)。× などの記号だけのボタンに付ける
