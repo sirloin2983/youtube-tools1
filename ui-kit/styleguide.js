@@ -88,6 +88,7 @@
       tbMsg.textContent = bad ? '終了が開始より前です。終了の時刻を直してください' : tbHelp;
     }
     document.addEventListener('ui-time', function (e) { window.__tbLast = { id: e.target.id, value: e.detail.value }; tbShowLen(); });
+    document.addEventListener('ui-time-commit', function (e) { (window.__tbCommits = window.__tbCommits || []).push({ id: e.target.id, value: e.detail.value }); });
     document.addEventListener('ui-time-reject', function (e) { window.__tbReject = { id: e.target.id, reason: e.detail.reason }; tbMsg.textContent = e.detail.reason; });
     document.getElementById('tbPlus30').addEventListener('click', function () {
       var a = UIKit.timebox.get(tbStart);

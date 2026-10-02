@@ -209,6 +209,41 @@ def check_timebox(pg, check):
     except Exception as e:   # クリップボードを使えない環境
         check(False, "クリップボードの確認ができませんでした: %s" % str(e)[:120])
 
+    # 分:秒.0.1秒 の形(short。字幕の行など): 分(1桁で次へ)→ 秒 → 0.1秒。1時間を超えたら分が 60 以上
+    check((text("#tbShort"), value("#tbShort")) == ("1:23.5", 83.5), "分:秒.0.1秒 の欄(data-ui-time-short): %s" % text("#tbShort"))
+    pg.focus("#tbShort")
+    pg.keyboard.type("2345")
+    check((text("#tbShort"), value("#tbShort")) == ("2:34.5", 154.5), "2345 → 2:34.5: %s" % text("#tbShort"))
+    pg.keyboard.press("ArrowUp")
+    pg.keyboard.press("Shift+ArrowUp")
+    check(value("#tbShort") == 155.6, "0.1秒 を選んで ↑ は 0.1 秒・Shift+↑ は 1 秒: %s" % value("#tbShort"))
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.press("ArrowLeft")
+    for _ in range(60):
+        pg.keyboard.press("ArrowUp")
+    check((text("#tbShort"), value("#tbShort")) == ("62:35.6", 3755.6), "分は 60 を超えられる(1時間超の文書): %s" % text("#tbShort"))
+    paste("#tbShort", "1:02:03")
+    check((text("#tbShort"), value("#tbShort")) == ("62:03.0", 3723), "貼り付け 1:02:03 → 62:03.0")
+
+    # 確定の知らせ(ui-time-commit = input の change に当たる): 打っている間は出ない・Enter か欄を離れたときに、変わっていれば1回
+    pg.evaluate("window.__tbCommits = []")
+    pg.focus("#tbShort")
+    pg.keyboard.type("123")
+    check(pg.evaluate("window.__tbCommits.length") == 0, "打っている間は確定しない")
+    pg.keyboard.press("Enter")
+    check(pg.evaluate("window.__tbCommits") == [{"id": "tbShort", "value": 83.0}], "Enter で確定: %s" % pg.evaluate("window.__tbCommits"))
+    pg.keyboard.press("Enter")
+    pg.keyboard.press("Tab")
+    check(pg.evaluate("window.__tbCommits.length") == 1, "変わっていなければ、Enter・離れても確定は出ない")
+    pg.focus("#tbShort")
+    pg.keyboard.press("ArrowUp")
+    pg.keyboard.press("Tab")
+    check(pg.evaluate("window.__tbCommits[1]") == {"id": "tbShort", "value": 143.0}, "欄を離れたときに確定")
+    pg.evaluate("UIKit.timebox.set(document.getElementById('tbShort'), 5)")
+    pg.focus("#tbShort")
+    pg.keyboard.press("Tab")
+    check(pg.evaluate("window.__tbCommits.length") == 2, "set で入れた値は確定の知らせを出さない")
+
     # 0.1 秒・上限・使えない欄・コピー
     check((text("#tbTenths"), value("#tbTenths")) == ("0:01:23.5", 83.5), "0.1 秒までの欄(data-ui-time=83.5): %s" % text("#tbTenths"))
     pg.focus("#tbTenths")
@@ -228,6 +263,9 @@ def check_timebox(pg, check):
     check(pg.evaluate("UIKit.keys.isTyping(document.getElementById('tbStart'))") is True, "UIKit.keys.isTyping は時刻の欄を入力中と数える")
     check(pg.evaluate("[UIKit.timebox.format(5025), UIKit.timebox.format(83.5, true), UIKit.timebox.parse('1:23:45'), UIKit.timebox.parse('x'), UIKit.timebox.parse('https://youtu.be/a?t=9'), UIKit.timebox.parse('https://youtu.be/a?t=9', {youtube: true})]")
           == ["1:23:45", "0:01:23.5", 5025, None, None, 9], "format / parse")
+    check(pg.evaluate("[UIKit.timebox.format(83.5, 'short'), UIKit.timebox.format(3755.6, 'short'), UIKit.timebox.format(0, 'short')]") == ["1:23.5", "62:35.6", "0:00.0"], "format(short)")
+    made = pg.evaluate("(() => { const d = document.createElement('div'); d.innerHTML = '<span data-ui-time=\"12.3\" data-ui-time-short></span><span data-ui-time></span>'; document.body.appendChild(d); UIKit.timebox.attachAll(d); const r = [...d.children].map(x => x.textContent); d.remove(); return r; })()")
+    check(made == ["0:12.3", "-:--:--"], "attachAll(描き直したあとにまとめて): %s" % made)
     made = pg.evaluate("(() => { const el = UIKit.timebox.create({value: 61, label: '作った欄'}); document.body.appendChild(el); const r = [el.textContent, el.getAttribute('aria-label'), el.getAttribute('role'), UIKit.timebox.get(el)]; el.remove(); return r; })()")
     check(made == ["0:01:01", "作った欄", "spinbutton", 61], "create(あとから作る): %s" % made)
 
