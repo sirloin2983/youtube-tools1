@@ -230,11 +230,11 @@ class TestVideo(Base):
         self.assertTrue(os.path.isfile(f["path"]))
         self.assertEqual(f["streamer"], "さくらみこ")
         self.assertTrue(os.path.isfile(self.done("【さくらみこ】にぇ.mp4")))
-        # 同じ中身をもう一度: 断る
+        # 同じ中身をもう一度: 断らない(送り直し。2026-10-02 ユーザー)
         self.put("copy.mp4", b"video-bytes-1")
         self.scan2()
-        self.assertEqual(len(self.runner.files), 1)
-        self.assertIn("同じ", self.it.snapshot()["requests"][0]["reason"])
+        self.assertEqual(len(self.runner.files), 2)
+        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
 
     def test_unknown_streamer_goes_without_color(self):
         self.put("【だれでもない人】x.mp4", b"v2")
@@ -267,6 +267,18 @@ class TestVideo(Base):
         self.assertEqual((r["source"], r["memo"], r["state"]), ("app", "最後のところ", "accepted"))
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
         self.assertTrue(os.path.isfile(self.done(rid + "__にぇの叫び.mp4")))
+
+    def test_same_video_is_accepted_again(self):
+        """前に受け付けた動画と同じ中身でも断らない(送り直し。2026-10-02 ユーザー)"""
+        for i, rid in enumerate(("20261001-120000-abc140", "20261001-120000-abc141")):
+            self.put(rid + "__同じ.mp4", b"same clip")
+            self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": [rid + "__同じ.mp4"], "flow": "auto",
+                                                         "videoTracks": i + 1}))
+            self.scan2()
+        self.assertEqual([(f["rid"], f["tracks"]) for f in self.runner.files],
+                         [("20261001-120000-abc140", 1), ("20261001-120000-abc141", 2)])
+        self.assertEqual([r["state"] for r in self.it.snapshot()["requests"]], ["accepted", "accepted"])
+        self.assertEqual(len({f["path"] for f in self.runner.files}), 2, "作業データには別のコピーとして入る")
 
     def test_app_request_missing_video_times_out(self):
         rid = "20261001-120000-abc124"

@@ -2671,3 +2671,11 @@
 - **実機で確かめること**: 本物の Resolve 21.1 で `mediaType=1` と `recordFrame` を指定した AppendToTimeline が V2 以上に映像だけを置くか(API の文書にはあるが、この PC ではまだ試していない)
 - テスト: cut2resolve 314・test_lite 14・契約 34・e2e_lite・test_intake/test_autorun 80・build.bat 19 件 OK
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 依頼の受付で同じ動画を断らない
+- ユーザー「同じ動画を断らないようにする」→ `home/intake.py` の `_accept_video` の重複の検査(大きさ + 先頭と末尾 4MB のハッシュ `file_key` と `st["files"]`)を外した。`file_key`・`HASH_PART`・hashlib も消した。
+  送り直すたびに作業データへ別のコピー(同じ名前なら末尾に乱数)として入り、別の実行になる。状態の `files` は読み込みだけ残す(以前の記録。増えない)
+- 配信の URL は今までどおり「前に受け付けた配信です」で断る(今回の対象外。必要なら同じように外せる)
+- テスト: test_intake の test_manual_video_with_name を「2回目も受け付ける」に・+1(同じ中身を映像トラックの数 1 と 2 で送り直し → 2 本とも受け付け・別のコピー)。home 142・e2e_intake_ui・通し確認 OK
+- 文書: friend-intake.md の重複・home/README.txt(0.22.0 の項に追記。版は据え置き)
+- 未コミット: なし(このあとコミット)

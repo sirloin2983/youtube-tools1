@@ -19,7 +19,6 @@
 - 動画は拡張子と ffprobe で形を確かめてから(他人が作ったファイルを ffmpeg で読むこと自体が攻撃の入口になり得るため)
 """
 import datetime
-import hashlib
 import json
 import os
 import re
@@ -52,7 +51,6 @@ STATE_FILE = "intake-state.json"
 # OS・同期のアプリが勝手に置くファイル(依頼ではない)。断って 失敗\ へ移すと、すぐまた作られて「断った」が毎回増えるので、見ない
 OS_FILES = ("desktop.ini", "thumbs.db", "ehthumbs.db", ".ds_store", "icon\r", ".dropbox", ".dropbox.attr")
 _HIDDEN = 0x2 | 0x4   # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
-HASH_PART = 4 * 1024 * 1024
 STATE_LABELS = {"off": "オフ", "watching": "見張り中", "error": "止まっています"}
 REQ_LABELS = {"accepted": "受け付けた", "rejected": "断った"}
 _YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com")
@@ -168,18 +166,6 @@ def youtube_info(vid):
     except ValueError:
         dur = None
     return {"duration": dur, "live": parts[1], "channel": parts[2][:100] if parts[2] != "NA" else "", "title": parts[3][:120] if parts[3] != "NA" else ""}
-
-
-def file_key(path):
-    """同じ動画かを見る鍵(大きさ + 先頭と末尾の数 MB のハッシュ。全部を読むと大きな動画で遅いため)"""
-    size = os.path.getsize(path)
-    h = hashlib.sha256(str(size).encode())
-    with open(path, "rb") as f:
-        h.update(f.read(HASH_PART))
-        if size > HASH_PART * 2:
-            f.seek(size - HASH_PART)
-            h.update(f.read(HASH_PART))
-    return h.hexdigest()
 
 
 def is_os_file(name, path=None):
@@ -529,7 +515,8 @@ class Intake:
         self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks)
 
     def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None):
-        """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}"""
+        """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}。
+        前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。2026-10-02 ユーザー)"""
         ext = os.path.splitext(p)[1].lower()
         if ext not in VIDEO_EXT:
             return {"state": "rejected", "reason": "受け付けない種類のファイルです"}
@@ -537,11 +524,8 @@ class Intake:
             size = os.path.getsize(p)
             if size > float(cfg["maxGB"]) * 1024 ** 3:
                 return {"state": "rejected", "reason": "動画が大きすぎます(%.1f GB。上限 %s GB)" % (size / 1024 ** 3, cfg["maxGB"])}
-            key = file_key(p)
         except OSError as e:
             return {"state": "rejected", "reason": "動画を読めませんでした(%s)" % (e.strerror or e.__class__.__name__)}
-        if key in self.st["files"]:
-            return {"state": "rejected", "reason": "前に受け付けた動画と同じです"}
         pr = self.probe(p)
         if not pr.get("ok"):
             return {"state": "rejected", "reason": pr.get("reason") or "動画として読めませんでした"}
@@ -572,7 +556,6 @@ class Intake:
             except OSError:
                 pass
             return {"state": "rejected", "reason": "文字起こしに入れられませんでした(%s)" % e}
-        self.st["files"][key] = int(self.clock())
         self._count()
         return {"state": "accepted", "reason": "", "runId": run["id"]}
 
