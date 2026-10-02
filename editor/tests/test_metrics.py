@@ -880,6 +880,7 @@ from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側
 from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
 from test_lite import *  # noqa: E402,F401,F403   友人用 文字起こし簡易版(docs/plan/friend-lite-plan.md)
 from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
+from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
 
 
 if __name__ == "__main__":

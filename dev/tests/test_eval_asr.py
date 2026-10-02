@@ -92,6 +92,17 @@ class EvalAsrTest(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)                       # 文書は書き換えない
         allres = quiet(E.main, ["stored", "--data", self.data, "--scope", "all", "--no-save"])
         self.assertEqual(sorted(allres["meta"]["docs"]), ["aaaaaaaaaaa1", "bbbbbbbbbbb2"])
+        # 時刻によらない数え方(段2-3): 数えたまとまりの文字を通しでつないで比べる。まとまりの数え方と同じ文字数・誤りはそれ以下
+        dt = res["summary"]["docText"]
+        self.assertEqual(dt["refChars"], 15)
+        self.assertLessEqual(dt["sub"] + dt["del"] + dt["ins"], o["errs"])
+
+    def test_doc_text_ignores_time_shift(self):
+        """行の時刻がずれて文字が隣のまとまりへ移っても、時刻によらない数え方では誤りにならない"""
+        S = E.load_serve("fake")
+        groups = [{"doc": "d", "start": 0.0, "ref": "あいう", "hyp": "あい"}, {"doc": "d", "start": 5.0, "ref": "えお", "hyp": "うえお"}]
+        dt = E.doc_text(S, groups)
+        self.assertEqual((dt["refChars"], dt["sub"], dt["del"], dt["ins"], dt["cer"]), (5, 0, 0, 0, 0.0))
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_run_recognizes_and_saves_without_touching_docs(self):

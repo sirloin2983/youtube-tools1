@@ -2616,3 +2616,17 @@
 - 確かめた: 一時の作業データに作った印だけを置いた疑似のサーバーで、選択肢が出る・保存と読み込み直し・案内の出し入れ(内蔵のブラウザ)。テスト一式すべて OK(編集の単体 259・e2e 12 本・通し確認)
 - 実機で確かめてもらうこと: 入口を「すべて終了」→ start.bat → 「認識の設定」で GPU(AMD など・whisper.cpp)・large-v3 を選んで文字起こし → 処理状況に「GPU(whisper.cpp)」・速さ
 - 未コミット: なし
+
+## 2026-10-02 Claude Code — 線 B 段2-3 Qwen3-ASR を試した → 編集 0.38.0
+- 依頼: ユーザー「とりあえず 2-3 までやって」
+- 変更: `editor/tx_engines.py`(Qwen3-ASR の共通の元 `_Qwen3Chunked`・`Qwen3Asr` = 0.6B sherpa-onnx CPU・`LlamaQwen3` = 1.7B llama-server Vulkan・区切り `q3_chunks`・行 `q3_rows`・繰り返し `q3_squash`・答え `q3_parse`・安全な展開 `_safe_extract`/`_safe_unzip`・ジョブオブジェクト `_kill_on_close_job`)、
+  `dev/eval_asr.py`(`--engine qwen3-asr|llama.cpp`・エンジンの既定のモデル・**時刻によらない CER** `doc_text`)、テスト `editor/tests/test_qwen3.py`・`fake_llama_server.py`(test_metrics から読む)・`dev/tests/test_eval_asr.py` +1、
+  版 0.37.0 → 0.38.0(serve.py・app.js・README の変更の記録)、editor/AGENTS.md、計画の「4回目の結果」、ROADMAP。README の以前の版の記録で `setup\build-…` の `\b` が制御文字になっていたのも直した
+- 新しい依存は無し(sherpa-onnx は入っている版)。取得するもの(作業データの中・どれも URL・大きさ・SHA-256 固定): sherpa の 0.6B(879MB)・llama.cpp b11326 の win-vulkan-x64(33MB。10-02 に取得の許可済み)・ggml-org の 1.7B Q8_0 GGUF と mmproj(2.5GB)
+- 結果(評価用 18 本・時刻によらない CER): faster-whisper 20.2%・561 秒 / whisper.cpp 18.7%・130 秒 / **Qwen3 1.7B GPU 27.2%・32 秒** / Qwen3 0.6B CPU 32.9%・169 秒。文脈のヒントは悪化。主のエンジンにはしない(画面にも出さない)。
+  結果のファイルは作業データの `evals/asr/20261002-055502_段2-3-qwen3-0.6b-ja.json`・`20261002-060650_段2-3-qwen3-1.7b-gpu.json`
+- 注意: **この PC は今とても不安定**(CPU の件)。sherpa-onnx の読み込み・llama-server の起動・Python 自体(正規表現の解析の中など)がまれに落ちる。読み込みと起動は1回だけやり直すようにした。
+  測定は途中で文書が「とばしました」になったら数に入らないので、全部そろった回だけ比べる。単体テストも同じ理由でまれに落ちる(流し直すと通る)
+- テスト: 編集の単体 275(skip 1)・test_qwen3 16・eval_asr 5 OK
+- 未完了・次: 段2-4 比較と決定(評価用の校正待ち)。Qwen3 1.7B は段3/4 の2つ目のエンジンの候補
+- 未コミット: なし(このあとコミット)

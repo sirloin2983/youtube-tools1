@@ -240,8 +240,27 @@ def lp_bin(lp):
     return LP_BINS[-1][1]
 
 
-def summarize(groups, docs):
+def doc_text(S, groups):
+    """時刻によらない数え方: 文書ごとに、数えたまとまりの正解と機械の文字を時刻の順に通しでつないで比べる。
+    行の時刻が目安のエンジン(Qwen3-ASR。段2-3)は、まとまりごとの数え方だと文字が隣のまとまりへずれて抜けと余分が二重に出るので、文字の正しさはこちらで比べる"""
+    t = {"refChars": 0, "sub": 0, "del": 0, "ins": 0}
+    by = {}
+    for g in groups:
+        by.setdefault(g["doc"], []).append(g)
+    for gs in by.values():
+        gs = sorted(gs, key=lambda g: g["start"])
+        ref, hyp = S.norm_cer("".join(g["ref"] for g in gs)), S.norm_cer("".join(g["hyp"] for g in gs))
+        a, b, c = S.lev_counts(ref, hyp)
+        t["refChars"] += len(ref)
+        t["sub"], t["del"], t["ins"] = t["sub"] + a, t["del"] + b, t["ins"] + c
+    t["cer"] = round((t["sub"] + t["del"] + t["ins"]) / t["refChars"], 4) if t["refChars"] else None
+    return t
+
+
+def summarize(groups, docs, S=None):
     s = {"overall": total(groups), "ci95": boot_ci(groups)}
+    if S is not None:
+        s["docText"] = doc_text(S, groups)
     s["byTag"] = {TAG_NAMES[k]: total([g for g in groups if ((k in g["tags"]) if k != "none" else not g["tags"])]) for k in ("overlap", "bgm", "none")}
     # 人が足した行(機械の行が無い = 抜け)は、印・自信の度合いを持たないので別の欄に(「印なし」「不明」に混ぜると、印の当たり方を読み違える)
     NO_HYP = "機械の行なし(抜け)"
@@ -302,7 +321,11 @@ def run_spec(S, args, settings):
     st = settings or {}
     glossary = [t.strip() for t in re.split(r"[\r\n,、]+", args.glossary if args.glossary is not None else str(st.get("glossary") or "")) if t.strip()]
     beam = args.beam if args.beam else (1 if st.get("quality") == "fast" else 5)
-    return {"model": args.model or st.get("model") or "large-v3", "language": "ja", "beam": beam,
+    model = args.model or st.get("model") or "large-v3"
+    eng = S.tx_engines.get(args.engine)
+    if not args.model and not eng.valid_model(model) and getattr(eng, "DEFAULT_MODEL", ""):
+        model = eng.DEFAULT_MODEL   # 設定のモデル(whisper の名前)は Qwen3-ASR のエンジンでは使えない
+    return {"model": model, "language": "ja", "beam": beam,
             "vadMode": args.vad or (st.get("vadMode") if st.get("vadMode") in ("weak", "normal", "off") else "normal"),
             "boost": (st.get("boost") is True) if args.boost is None else args.boost == "on",
             "wordSplit": st.get("wordSplit") is not False, "splitChars": S.split_chars_for({}, st),
@@ -328,6 +351,9 @@ def print_summary(res):
     print("文書 %d 本・正解 %d 字・まとまり %d" % (len(s["byDoc"]), o["refChars"], o["groups"]))
     ci = s.get("ci95")
     print("CER %s(95%%の範囲 %s)  置換 %d / 抜け %d / 余分 %d" % (pct(o["cer"]), "%s〜%s" % (pct(ci[0]).strip(), pct(ci[1]).strip()) if ci else "—", o["sub"], o["del"], o["ins"]))
+    dt = s.get("docText")
+    if dt and dt["refChars"]:
+        print("時刻によらない CER %s  置換 %d / 抜け %d / 余分 %d(文書の文字を通しで比べる。行の時刻のずれを数えない)" % (pct(dt["cer"]), dt["sub"], dt["del"], dt["ins"]))
     if o["termRef"]:
         print("名前・用語の再現率 %s(%d/%d)・正解に無いのに出た %d" % (pct(o["termRate"]), o["termHit"], o["termRef"], o["termExtra"]))
     for title, key in (("条件(人の行のメモ)", "byTag"), ("要確認の印", "byFlag"), ("自信の度合い(機械の行の avg_logprob の最小)", "byConfidence"), ("まとまりの種類", "byKind")):
@@ -379,7 +405,7 @@ def cmd_stored(S, args, data):
             mismatch.append(d["id"])
     if mismatch:
         print("注意: 画面の測定と数が合わない文書があります(この道具の採点の規則を直す必要があります): " + ", ".join(mismatch))
-    res = {"meta": base_meta("stored", args, docs, data), "summary": summarize(groups, docs), "groups": groups, "terms": terms}
+    res = {"meta": base_meta("stored", args, docs, data), "summary": summarize(groups, docs, S), "groups": groups, "terms": terms}
     res["meta"]["mismatch"] = mismatch
     return res
 
@@ -431,7 +457,7 @@ def cmd_run(S, args, data):
                  "perDoc": per_doc, "failed": len(failed)})
     if failed:
         print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
-    return {"meta": meta, "summary": summarize(groups, docs), "groups": groups, "terms": terms}
+    return {"meta": meta, "summary": summarize(groups, docs, S), "groups": groups, "terms": terms}
 
 
 def cmd_compare(a_path, b_path, n=BOOT, seed=1):
@@ -512,7 +538,7 @@ def main(argv=None):
     p.add_argument("--boost", choices=("on", "off"))
     p.add_argument("--glossary", help="認識のヒントに渡す語(、か改行区切り)。指定しなければ設定の用語集")
     p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto", help="whisper.cpp では auto・cuda = GPU(Vulkan)")
-    p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp は setup/build-whisper-vulkan.bat で作ってから)")
+    p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp は setup/build-whisper-vulkan.bat で作ってから。qwen3-asr = Qwen3-ASR 0.6B の CPU(初回にモデル 879MB)・llama.cpp = Qwen3-ASR 1.7B の GPU(初回に実行ファイル 33MB とモデル 2.5GB))")
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--no-save", action="store_true", help="結果を保存しない")

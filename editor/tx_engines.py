@@ -4,7 +4,9 @@
 認識ワーカー(tx_worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
   faster-whisper … 今までのエンジン(CPU / NVIDIA の GPU)。段2-1
   whisper.cpp    … whisper-cli.exe を子プロセスで動かす。AMD の GPU(Vulkan)で large-v3 などを動かす。段2-2
-新しいエンジン(Qwen3-ASR など)は、同じ形のクラスをここに足し、ENGINES に登録する。
+  qwen3-asr      … Qwen3-ASR 0.6B を sherpa-onnx の CPU で動かす(時刻は区切りの中の目安)。段2-3
+  llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(同じ区切り方)。段2-3
+新しいエンジンは、同じ形のクラスをここに足し、ENGINES に登録する。
 
 エンジンの形(Engine):
   device_order(pref, cuda_ok) -> [機器]            処理方式(auto / cuda / cpu)から試す機器の順
@@ -523,7 +525,530 @@ def _write_wav(path, samples):
         w.writeframes(ints)
 
 
-ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp}
+# ---------------------------------------------------------------- Qwen3-ASR(段2-3)
+# 公開の比較で日本語に強い Qwen3-ASR を、入っている sherpa-onnx(1.13.8)の CPU で動かす(新しい依存は足さない)。
+# モデルは sherpa-onnx の公式の配布(0.6B・int8)を URL・大きさ・SHA-256 固定で取る(計画の 7)。1.7B は sherpa の形式の配布が無い。
+# 時刻を出さないモデルなので、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする(行の時刻は区切りの中で字数に比例させた目安)。
+QWEN3_MODELS = {   # 2026-10-02 に GitHub の API で大きさと SHA-256 を確かめた
+    "qwen3-asr-0.6b": {"dir": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25", "file": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+                       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+                       "size": 878702423, "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+                       "parts": ("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx", "tokenizer/vocab.json", "tokenizer/merges.txt")},
+}
+Q3_FRAME = 0.05                 # 音の大きさを見る1コマ(秒)
+Q3_MIN, Q3_MAX = 12.0, 28.0     # 区切りの長さ(秒)。28 秒を超えると 1 回の出力の上限(トークン)に近づく
+Q3_SILENT = 0.003               # 区切りの中の最大の音の大きさ(RMS)がこれ未満なら認識しない(約 -50 dBFS。無音で文を作らせない)
+Q3_SENT = re.compile(r"(?<=[。！？!?])")
+Q3_TOKENS_PER_SEC, Q3_TOKENS_MIN = 12, 32   # 1 回の出力の上限(区切りの秒 × これ。日本語の早口で 1 秒 8〜10 字)。繰り返しが止まらないとき長く続けない
+Q3_REPEAT_KEEP = 4              # 同じ並び(1〜10 字)が続くとき、残す回数(「OKOKOKOK」は人の行にもあるので 0 にはしない)
+Q3_LANG = {"ja": "Japanese", "en": "English", "zh": "Chinese", "ko": "Korean"}   # Qwen3-ASR の言語の名前。自動判定に任せると日本語の区切りが中国語になった
+_Q3_SPECIAL = re.compile(r"<\|")   # 特別なトークン(<|endoftext|> など)から先は捨てる(用語のヒントを区切りごとに渡すと、その先に関係ない英文が続いた)
+
+
+def q3_model_dir(data_dir):
+    return os.path.join(data_dir, "models", "qwen3asr")
+
+
+def q3_chunks(rms, frame=Q3_FRAME, lo=Q3_MIN, hi=Q3_MAX):
+    """音の大きさの並び(1コマ = frame 秒)→ 区切り [(始めのコマ, 終わりのコマ)]。残りが hi 秒以下ならそこまで、
+    それより長ければ lo〜hi 秒の間で、前後 0.3 秒をならした音のいちばん小さい所で切る(声の途中で切りにくくする)"""
+    n = len(rms)
+    a_lo, a_hi, w = int(round(lo / frame)), int(round(hi / frame)), max(1, int(round(0.15 / frame)))
+    out, s = [], 0
+    while s < n:
+        if n - s <= a_hi:
+            out.append((s, n))
+            break
+        best, cut = None, s + a_hi
+        for i in range(s + a_lo, s + a_hi + 1):
+            seg = rms[max(0, i - w):i + w + 1]
+            v = sum(seg) / len(seg)
+            if best is None or v < best:
+                best, cut = v, i
+        out.append((s, cut))
+        s = cut
+    return out
+
+
+def q3_rows(text, a, b, max_chars=16, voiced=None):
+    """区切り(a〜b 秒)の文章 → 行 [(始め, 終わり, 文)]。文の終わり(。？！)で分け、max_chars の 2 倍を超える文は「、」でも分ける。
+    時刻は目安(モデルが時刻を出さないため): voiced(a からの1コマ = Q3_FRAME 秒ごとに、声がありそうか)があれば、
+    声のあるコマの数を字数に比例させて割り振る(間の静かな所に行をかけない)。無ければ a〜b を字数に比例させる"""
+    text = q3_squash(_Q3_SPECIAL.split(str(text or ""), 1)[0].strip())
+    parts = []
+    for sent in (x.strip() for x in Q3_SENT.split(text)):
+        if not sent:
+            continue
+        if len(sent) <= max_chars * 2:
+            parts.append(sent)
+            continue
+        cur = ""
+        for piece in re.split(r"(?<=[、,])", sent):
+            if cur and len(cur) + len(piece) > max_chars * 2:
+                parts.append(cur)
+                cur = ""
+            cur += piece
+        if cur:
+            parts.append(cur)
+    total = sum(len(p) for p in parts)
+    if not total:
+        return []
+    on = [i for i, v in enumerate(voiced or []) if v]
+    out, k = [], 0
+    for p in parts:
+        k0, k = k, k + len(p)
+        if on:   # この行の字の範囲 → 声のあるコマの範囲(少なくとも1コマ)
+            i0 = min(len(on) - 1, int(len(on) * k0 / total))
+            i1 = max(i0, min(len(on) - 1, int(math.ceil(len(on) * k / total)) - 1))
+            t0, t1 = a + on[i0] * Q3_FRAME, a + (on[i1] + 1) * Q3_FRAME
+        else:
+            t0, t1 = a + (b - a) * k0 / total, a + (b - a) * k / total
+        out.append((round(t0, 3), round(min(b, t1), 3), p))
+    return out
+
+
+def q3_squash(text, keep=Q3_REPEAT_KEEP):
+    """同じ並び(1〜10 字)が keep 回を超えて続く所を keep 回にする(「过来，来过来，来…」のような止まらない繰り返し)"""
+    for n in range(1, 11):
+        text = re.sub(r"(.{%d})\1{%d,}" % (n, keep), lambda m: m.group(1) * keep, text, flags=re.S)
+    return text
+
+
+def q3_floor(rms):
+    """声がありそうなコマの下限: 区切りの中の静かな側(下から 20%)の音の大きさの 2 倍か、最大の 5% の大きいほう(BGM が鳴り続ける配信でも、話していない所を分ける)"""
+    v = sorted(rms)
+    if not v:
+        return 0.0
+    return max(v[int(len(v) * 0.2)] * 2.0, v[-1] * 0.05)
+
+
+def _safe_extract(tar_path, folder, top):
+    """tar.bz2 を folder に展開する。中身は top の下の普通のファイル・フォルダだけ(絶対パス・..・リンクがあれば展開しない)"""
+    import tarfile
+    root = os.path.realpath(folder)
+    with tarfile.open(tar_path, "r:bz2") as t:
+        members = t.getmembers()
+        for m in members:
+            name = m.name.replace("\\", "/")
+            dest = os.path.realpath(os.path.join(root, name))
+            if (not (m.isfile() or m.isdir()) or name.startswith("/") or ".." in name.split("/")
+                    or not (name == top or name.startswith(top + "/")) or not dest.startswith(root + os.sep)):
+                raise EngineError("fetch_failed", "モデルの圧縮ファイルの中身が想定と違うので使いません: %s" % name[:80])
+        t.extractall(root, members=members)
+
+
+def _read_16k(audio, what):
+    """wav のパス(16kHz・モノラル・16bit)か float32 のサンプル → numpy の float32。認識ワーカーの中だけで呼ぶ"""
+    import numpy as np
+    if isinstance(audio, str):
+        with wave.open(audio, "rb") as w:
+            if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
+                raise EngineError("engine_failed", "%s に渡す音声の形が想定と違います(16kHz・モノラル・16bit)" % what)
+            return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    return np.asarray(audio, dtype=np.float32)
+
+
+class _Qwen3Chunked(Engine):
+    """Qwen3-ASR の共通部分: 音の小さい所で区切り(q3_chunks)、区切りごとに _decode で文章にし、q3_rows で行にする。
+    時刻・自信の度合いを出さないので、行の時刻は目安・avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
+    PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # language は区切りごとに指定・vad と単語の時刻は受け取るだけ
+    DEFAULT_MODEL = ""
+    WHAT = "Qwen3-ASR"
+
+    def params(self):
+        return list(self.PARAMS)
+
+    def _decode(self, samples, lang, hot, max_tokens):
+        raise NotImplementedError
+
+    def transcribe(self, audio, **kw):
+        import numpy as np
+        x = _read_16k(audio, self.WHAT)
+        hot = ",".join(t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip())
+        lang = Q3_LANG.get(str(kw.get("language") or ""), "")
+        f = int(16000 * Q3_FRAME)
+        nf = len(x) // f + (1 if len(x) % f else 0)
+        rms = [float(np.sqrt(np.mean(np.square(x[i * f:(i + 1) * f])))) if len(x[i * f:(i + 1) * f]) else 0.0 for i in range(nf)]
+        chunks = q3_chunks(rms)
+        info = types.SimpleNamespace(language=kw.get("language") or "ja", duration=len(x) / 16000.0, duration_after_vad=None)
+
+        def gen():
+            for n, (a, b) in enumerate(chunks):
+                if self._cancelled():
+                    raise EngineError("cancelled", "中止しました")
+                self._progress(min(0.99, n / max(1, len(chunks))))
+                if max(rms[a:b] or [0.0]) < Q3_SILENT:
+                    continue
+                text = self._decode(x[a * f:b * f], lang, hot, max(Q3_TOKENS_MIN, int((b - a) * Q3_FRAME * Q3_TOKENS_PER_SEC)))
+                floor = q3_floor(rms[a:b])
+                for t0, t1, line in q3_rows(text, a * Q3_FRAME, b * Q3_FRAME, voiced=[v > floor for v in rms[a:b]]):
+                    raw = line.encode("utf-8")
+                    yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
+                                                compression_ratio=len(raw) / len(zlib.compress(raw)))
+        return gen(), info
+
+
+class Qwen3Asr(_Qwen3Chunked):
+    """Qwen3-ASR 0.6B(sherpa-onnx・CPU)。用語のヒント(hotwords)は認識器を作るときに渡す(区切りごとに渡すと崩れた)"""
+    id = "qwen3-asr"
+    package = "sherpa-onnx"
+    DEFAULT_MODEL = "qwen3-asr-0.6b"
+
+    @classmethod
+    def device_order(cls, pref, cuda_ok):
+        return ["cpu"]   # AMD の GPU は onnxruntime の対象外(sherpa-onnx の provider は cpu / cuda)
+
+    @classmethod
+    def valid_model(cls, name):
+        return name in QWEN3_MODELS
+
+    @classmethod
+    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+        spec = QWEN3_MODELS.get(name)
+        if spec is None:
+            raise EngineError("bad_model", "Qwen3-ASR で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(QWEN3_MODELS)), 400)
+        try:
+            import sherpa_onnx  # noqa: F401
+        except ImportError:
+            raise EngineError("engine_missing", "sherpa-onnx が入っていません(setup\\install.bat を実行してください)", 400)
+        hooks = hooks or {}
+        folder = q3_model_dir(data_dir)
+        mdir = os.path.join(folder, spec["dir"])
+        if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+            tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
+            _safe_extract(tar, folder, spec["dir"])
+            _unlink(tar)
+            if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+                raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
+        e = cls(name, device, {"dir": mdir, "rec": {}})
+        try:
+            e._recognizer("")   # 読み込めるかをここで確かめる
+        except RuntimeError as ex:   # この PC では、同じファイルでもまれに読み込みが失敗した(2026-10-02。CPU の不安定さとみている)ので1回だけやり直す
+            if log:
+                log.warning("Qwen3-ASR の読み込みをやり直します: %s", str(ex)[:160])
+            e.model["rec"].clear()
+            e._recognizer("")
+        return e
+
+    def _recognizer(self, hotwords):
+        rec = self.model["rec"]
+        if hotwords not in rec:
+            import sherpa_onnx
+            rec.clear()   # ヒントの違う認識器は1つだけ持つ(メモリを積み上げない)
+            d = self.model["dir"]
+            rec[hotwords] = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
+                conv_frontend=os.path.join(d, "conv_frontend.onnx"), encoder=os.path.join(d, "encoder.int8.onnx"),
+                decoder=os.path.join(d, "decoder.int8.onnx"), tokenizer=os.path.join(d, "tokenizer"),
+                num_threads=max(1, min(8, (os.cpu_count() or 4) // 2)), max_new_tokens=512, max_total_len=1536, hotwords=hotwords)
+        return rec[hotwords]
+
+    def _decode(self, samples, lang, hot, max_tokens):
+        rec = self._recognizer(hot)
+        s = rec.create_stream()
+        if lang:
+            s.set_option("language", lang)   # 「language Japanese」をモデルへの指示に入れる(sherpa-onnx の Qwen3-ASR の実装)
+        s.set_option("max_new_tokens", str(max_tokens))
+        s.accept_waveform(16000, samples)
+        rec.decode_stream(s)
+        return s.result.text
+
+
+# ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3。2026-10-02)
+# 実行ファイルは公式の配布(win-vulkan-x64 の zip)を URL・大きさ・SHA-256 固定で取る(2026-10-02 ユーザー決定「llama.cpp は取得してよい」)。
+# llama-server を 127.0.0.1 のあいているポートで1つ起動し、区切りごとに音声を送る(コマンドを毎回起動すると、そのたびにモデルを読む)。
+# server には毎回作る合言葉(--api-key)を付ける(付けないと同じ PC のブラウザのページから呼べる = llama.cpp は CORS をすべて許す)。
+# 認識ワーカーが落ちても server が残らないよう、Windows ではジョブオブジェクト(閉じたら中のプロセスを終わらせる)に入れる。
+LLAMA_CPP = {"version": "b11326", "file": "llama-b11326-bin-win-vulkan-x64.zip", "size": 33208182,
+             "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11326/llama-b11326-bin-win-vulkan-x64.zip",
+             "sha256": "fcea764f150fa7e6a915376628a1639042d4fb12ea52190cb3a7ce84c0ac166e"}
+_GGUF = "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main/"
+LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256 を確かめた
+    "qwen3-asr-1.7b": {"model": {"file": "Qwen3-ASR-1.7B-Q8_0.gguf", "url": _GGUF + "Qwen3-ASR-1.7B-Q8_0.gguf", "size": 2165034944,
+                                 "sha256": "58e22d0532d4eacaf034cfac17a6fed159f37c41390c710186783be439d1fc57"},
+                       "mmproj": {"file": "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf", "url": _GGUF + "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf", "size": 355709344,
+                                  "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
+}
+LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
+LLAMA_THREADS = 8        # 24 にすると、この PC では起動の途中でよく落ちた(2026-10-02)
+LLAMA_START_SEC = 180    # 起動(モデルの読み込み)を待つ上限
+_ASR_TEXT = "<asr_text>"
+
+
+def llama_bin_dir(data_dir):
+    return os.path.join(data_dir, "bin", "llama.cpp-%s-vulkan" % LLAMA_CPP["version"])
+
+
+def llama_model_dir(data_dir):
+    return os.path.join(data_dir, "models", "qwen3asr-gguf")
+
+
+def _safe_unzip(zip_path, folder):
+    """zip を folder に展開する(絶対パス・.. を含む名前があれば展開しない)"""
+    import zipfile
+    root = os.path.realpath(folder)
+    with zipfile.ZipFile(zip_path) as z:
+        for n in z.namelist():
+            name = n.replace("\\", "/")
+            dest = os.path.realpath(os.path.join(root, name))
+            if name.startswith("/") or ".." in name.split("/") or ":" in name or not (dest == root or dest.startswith(root + os.sep)):
+                raise EngineError("fetch_failed", "llama.cpp の圧縮ファイルの中身が想定と違うので使いません: %s" % name[:80])
+        z.extractall(root)
+
+
+def q3_parse(content):
+    """llama-server の答え「language Japanese<asr_text>文章」→ (言語, 文章)。<asr_text> が無ければ全体を文章とみる"""
+    c = str(content or "")
+    if _ASR_TEXT in c:
+        head, text = c.rsplit(_ASR_TEXT, 1)
+        m = re.search(r"language\s+(\S+)\s*$", head.strip())
+        return (m.group(1) if m else ""), text.strip()
+    return "", c.strip()
+
+
+def _wav_bytes(samples):
+    import io as _io
+    import numpy as np
+    buf = _io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes((np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
+    return buf.getvalue()
+
+
+def _kill_on_close_job(proc):
+    """Windows: proc をジョブオブジェクト(閉じたら中のプロセスを終わらせる)に入れ、ハンドルを返す(このプロセスが終われば閉じる)。他の OS・失敗は None"""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.OpenProcess.restype = wintypes.HANDLE
+        job = k.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        class LIMIT(ctypes.Structure):
+            _fields_ = [("a", ctypes.c_int64), ("b", ctypes.c_int64), ("LimitFlags", wintypes.DWORD), ("c", ctypes.c_size_t), ("d", ctypes.c_size_t),
+                        ("e", wintypes.DWORD), ("f", ctypes.c_size_t), ("g", wintypes.DWORD), ("h", wintypes.DWORD)]
+
+        class IOC(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_uint64 * 6)]
+
+        class EXT(ctypes.Structure):
+            _fields_ = [("Basic", LIMIT), ("Io", IOC), ("p", ctypes.c_size_t), ("q", ctypes.c_size_t), ("r", ctypes.c_size_t), ("s", ctypes.c_size_t)]
+        info = EXT()
+        info.Basic.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k.SetInformationJobObject(wintypes.HANDLE(job), 9, ctypes.byref(info), ctypes.sizeof(info)):   # JobObjectExtendedLimitInformation
+            k.CloseHandle(wintypes.HANDLE(job))
+            return None
+        h = k.OpenProcess(0x0101, False, proc.pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+        ok = bool(h) and k.AssignProcessToJobObject(wintypes.HANDLE(job), wintypes.HANDLE(h))
+        if h:
+            k.CloseHandle(wintypes.HANDLE(h))
+        if not ok:
+            k.CloseHandle(wintypes.HANDLE(job))
+            return None
+        return job
+    except Exception:
+        return None
+
+
+class LlamaQwen3(_Qwen3Chunked):
+    """Qwen3-ASR 1.7B を llama.cpp(llama-server・Vulkan)で。機器は vulkan(AMD などの GPU)か cpu。
+    用語のヒントは system の文(Qwen3-ASR の文脈)に入れる。言語は答えの頭「language Japanese<asr_text>」を先に書いておく"""
+    id = "llama.cpp"
+    package = ""
+    DEFAULT_MODEL = "qwen3-asr-1.7b"
+    WHAT = "llama.cpp"
+    COMMAND = None   # テスト用: 偽の server に差し替える
+
+    @classmethod
+    def device_order(cls, pref, cuda_ok):
+        return ["cpu"] if pref == "cpu" else ["vulkan"]
+
+    @classmethod
+    def valid_model(cls, name):
+        return name in LLAMA_MODELS
+
+    @classmethod
+    def version(cls, data_dir=None):
+        return LLAMA_CPP["version"]
+
+    @classmethod
+    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+        spec = LLAMA_MODELS.get(name)
+        if spec is None:
+            raise EngineError("bad_model", "llama.cpp で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(LLAMA_MODELS)), 400)
+        hooks = hooks or {}
+        bdir = llama_bin_dir(data_dir)
+        if not cls.COMMAND and not os.path.isfile(os.path.join(bdir, LLAMA_EXE)):
+            z = fetch_file(LLAMA_CPP, os.path.dirname(bdir), log, hooks.get("cancelled"))
+            os.makedirs(bdir, exist_ok=True)
+            _safe_unzip(z, bdir)
+            _unlink(z)
+        mdir = llama_model_dir(data_dir)
+        model = fetch_file(spec["model"], mdir, log, hooks.get("cancelled"), hooks.get("download"))
+        mmproj = fetch_file(spec["mmproj"], mdir, log, hooks.get("cancelled"))
+        e = cls(name, device, {"cmd": list(cls.COMMAND) if cls.COMMAND else [os.path.join(bdir, LLAMA_EXE)], "model": model, "mmproj": mmproj})
+        e.proc = e.job = e.errlog = None
+        e.gpu_name = ""
+        try:
+            e._start(hooks.get("cancelled"))
+        except EngineError as ex:   # この PC では起動の途中でまれに落ちた(2026-10-02)ので1回だけやり直す
+            if ex.code in ("cancelled", "gpu_failed"):
+                raise
+            if log:
+                log.warning("llama-server の起動をやり直します: %s", ex.message[:160])
+            e._start(hooks.get("cancelled"))
+        return e
+
+    def _start(self, cancelled=None):
+        import secrets
+        import socket
+        import urllib.request
+        self.close()
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        self.port = s.getsockname()[1]
+        s.close()
+        self.key = secrets.token_hex(16)
+        args = ["-m", self.model["model"], "--mmproj", self.model["mmproj"], "--host", "127.0.0.1", "--port", str(self.port),
+                "--api-key", self.key, "--no-webui", "-c", "4096", "-np", "1", "-t", str(LLAMA_THREADS), "-tb", str(LLAMA_THREADS),
+                "-ngl", "0" if self.device == "cpu" else "99", "-lv", "4"]   # -lv 4: GPU に載ったかの行(offloaded n/m layers to GPU)を記録に出す
+        self.errlog = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        env = wcpp_env()   # GGML_VK_DISABLE_COOPMAT=1(whisper.cpp と同じ ggml の Vulkan。RX 7800 XT で行列コアの経路が落ちる)
+        if self.device == "cpu":
+            env["GGML_VK_VISIBLE_DEVICES"] = ""
+        self.proc = subprocess.Popen(self.model["cmd"] + args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=self.errlog,
+                                     creationflags=flags, env=env)
+        self.job = _kill_on_close_job(self.proc)
+        t0 = time.monotonic()
+        while True:
+            if cancelled and cancelled():
+                self.close()
+                raise EngineError("cancelled", "中止しました")
+            rc = self.proc.poll()
+            if rc is not None:
+                tail = self._log_tail()
+                self.close()
+                raise EngineError("engine_failed", "llama-server が起動の途中で止まりました(終了コード %s): %s" % (rc, tail))
+            try:
+                req = urllib.request.Request("http://127.0.0.1:%d/health" % self.port, headers={"Authorization": "Bearer " + self.key})
+                with urllib.request.urlopen(req, timeout=2) as r:
+                    if r.status == 200:
+                        break
+            except OSError:
+                pass
+            if time.monotonic() - t0 > LLAMA_START_SEC:
+                self.close()
+                raise EngineError("engine_failed", "llama-server の起動が %d 秒で終わりませんでした" % LLAMA_START_SEC)
+            time.sleep(0.3)
+        self._check_gpu()
+
+    def _log_text(self):
+        try:
+            with open(self.errlog.name, "rb") as f:
+                return f.read().decode("utf-8", errors="replace")
+        except (OSError, AttributeError):
+            return ""
+
+    def _log_tail(self, n=6):
+        lines = [re.sub(r"\x1b\[[0-9;]*m", "", x) for x in self._log_text().splitlines() if x.strip()]   # 色の制御文字を除く
+        return " / ".join(lines[-n:])[-300:]
+
+    def _check_gpu(self):
+        """GPU を頼んだのに Vulkan に載っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)"""
+        if self.device != "vulkan":
+            return
+        log = self._log_text()
+        m = re.search(r"Vulkan\d+ \(([^)]+)\)", log) or re.search(r"Vulkan\d+: ([^(\r\n]+)", log)
+        if m:
+            self.gpu_name = m.group(1).strip()
+        if not re.search(r"offloaded [1-9]\d*/\d+ layers to GPU", log):
+            self.close()
+            raise EngineError("gpu_failed", "GPU(Vulkan)を使えませんでした。GPU のドライバを確かめるか、処理方式を「CPU」にしてください")
+
+    def close(self):
+        p = getattr(self, "proc", None)
+        if p is not None and p.poll() is None:
+            p.kill()
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
+        self.proc = None
+        j = getattr(self, "job", None)
+        if j:
+            try:
+                import ctypes
+                from ctypes import wintypes
+                ctypes.WinDLL("kernel32").CloseHandle(wintypes.HANDLE(j))
+            except Exception:
+                pass
+        self.job = None
+        el = getattr(self, "errlog", None)
+        if el is not None:
+            try:
+                el.close()
+                os.unlink(el.name)
+            except OSError:
+                pass
+        self.errlog = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _decode(self, samples, lang, hot, max_tokens):
+        """区切り1つを認識する。server が落ちていたら(この PC では長い測定の途中で落ちた。2026-10-02)起動し直して1回だけやり直す"""
+        try:
+            return self._ask(samples, lang, hot, max_tokens)
+        except EngineError as e:
+            if e.code != "server_down":
+                raise
+            self._start(self.hooks.get("cancelled"))
+            try:
+                return self._ask(samples, lang, hot, max_tokens)
+            except EngineError as e2:
+                if e2.code == "server_down":
+                    raise EngineError("engine_failed", e2.message)
+                raise
+
+    def _ask(self, samples, lang, hot, max_tokens):
+        import base64
+        import urllib.error
+        import urllib.request
+        if self.proc is None or self.proc.poll() is not None:
+            raise EngineError("server_down", "llama-server が止まっています: %s" % self._log_tail())
+        msgs = []
+        if hot:
+            msgs.append({"role": "system", "content": hot.replace(",", "、")})
+        msgs.append({"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": base64.b64encode(_wav_bytes(samples)).decode("ascii"), "format": "wav"}}]})
+        if lang:
+            msgs.append({"role": "assistant", "content": "language %s%s" % (lang, _ASR_TEXT)})   # 言語を先に書いておく(自動の判定で中国語にならないように)
+        body = json.dumps({"messages": msgs, "temperature": 0, "max_tokens": int(max_tokens), "cache_prompt": False}).encode("utf-8")
+        req = urllib.request.Request("http://127.0.0.1:%d/v1/chat/completions" % self.port, body,
+                                     {"Content-Type": "application/json", "Authorization": "Bearer " + self.key})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            raise EngineError("engine_failed", "llama-server が失敗しました(%s): %s" % (e.code, e.read()[:200].decode("utf-8", errors="replace")))
+        except OSError as e:
+            code = "server_down" if self.proc is None or self.proc.poll() is not None or isinstance(e, ConnectionError) else "engine_failed"
+            raise EngineError(code, "llama-server に届きませんでした: %s / %s" % (str(e)[:120], self._log_tail()))
+        content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        return q3_parse(content)[1]
+
+
+ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3}
 
 
 def get(engine_id):
