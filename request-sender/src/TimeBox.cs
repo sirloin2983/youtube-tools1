@@ -77,7 +77,8 @@ namespace RequestSender
         // 文字の並びの左端と、1文字の幅(等幅のフォント)
         void Metrics(out int x0, out int cw)
         {
-            cw = TextRenderer.MeasureText("00", Font, Size.Empty, TextFormatFlags.NoPadding).Width / 2;
+            // 1文字の幅 = (10 文字 − 1 文字) / 9(測った幅に付く前後の余白を打ち消す)
+            cw = (TextRenderer.MeasureText("0000000000", Font).Width - TextRenderer.MeasureText("0", Font).Width + 4) / 9;
             x0 = (Width - cw * Text.Length) / 2;
         }
 
