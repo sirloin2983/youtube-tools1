@@ -238,7 +238,7 @@ class LiteExport(_Store):
             self.assertEqual(tp.read_script_plan(f.read())["videoTracks"], 3)
         with open(os.path.join(pack_dir, "Resolveでの手順.txt"), encoding="utf-8-sig") as f:
             text = f.read()
-        self.assertIn("V2〜V3 空(素材を重ねる用)・V4 Text+ 字幕(一番上)", text)
+        self.assertIn("V1〜V3 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V4 Text+ 字幕(一番上)", text)
         self.assertIn("V4 の Text+ を選び", text)
         self.assertEqual(ed_lite.read_export_record(tid)["counts"]["rows"], len(segs))
 

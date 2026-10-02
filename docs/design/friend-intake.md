@@ -55,7 +55,7 @@
 ### 2-5. 映像トラックの数(2026-10-02 ユーザー。ホーム 0.22.0・cut2resolve 0.19.0・送るアプリ 1.4.0)
 - 友人が ① 全自動のときに「Resolve の映像トラックの数」(1〜5・既定 1)を選ぶ。JSON の `videoTracks`(②③ は書かない)
 - PC: `intake.parse_video_tracks`(1〜5 の整数・無い/形が違えば 1・① のときだけ。2026-10-02 ユーザー「1〜5 で指定・初期値は 1」)→ `autorun.Run.video_tracks` → cut2resolve の `/api/build` の `output.videoTracks` → `pack.build_pack(video_tracks=)`。
-  V1 = 動画・V2〜VN = 空・字幕は V(N+1)(簡易版の書き出しと同じ。編集 0.39.0 / cut2resolve 0.18.0)
+  V1〜VN = 同じカットの動画(V2 から上は映像だけ = mediaType 1。音は A1 の1本)・字幕は V(N+1)(簡易版の書き出しと同じ。2026-10-02 ユーザー: 空のトラックではなく同じ動画を重ねる)
 
 ## 3. 全体の流れ
 ```

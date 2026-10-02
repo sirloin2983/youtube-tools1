@@ -120,7 +120,7 @@ def main():
             check("まだ確認していない 1 行" in pg.inner_text("#ltExSummary"), "未確認の行数を出す(止めない)")
             check(pg.input_value("#ltTracks") == "1" and "V2 に字幕" in pg.inner_text("#ltTracksHint"), "映像トラックの数の既定 1")
             pg.select_option("#ltTracks", "3")
-            check("V4(一番上)に字幕" in pg.inner_text("#ltTracksHint"), "映像トラックの数を選ぶと案内が変わる")
+            check("V1〜V3 に同じ動画" in pg.inner_text("#ltTracksHint") and "V4(一番上)に字幕" in pg.inner_text("#ltTracksHint"), "映像トラックの数を選ぶと案内が変わる")
             pg.screenshot(path=os.path.join(tempfile.gettempdir(), "e2e_lite_export.png"), full_page=False)
             pg.click("#ltExport")
             wait_js(pg, "!document.querySelector('#ltDone').hidden", 60000)

@@ -247,7 +247,7 @@ namespace RequestSender
         }
     }
 
-    // Resolve の映像トラックの数(1〜5。V1 = 動画・V2〜 = 空・字幕はその上)。PC がパックを作る ① 全自動のときだけ JSON に書く
+    // Resolve の映像トラックの数(1〜5。V1〜V数 に同じ動画・字幕はその上)。PC がパックを作る ① 全自動のときだけ JSON に書く
     // (②③ はキーを書かない。範囲の外は既定の 1 にする)
     public static class VideoTracks
     {
@@ -262,7 +262,8 @@ namespace RequestSender
 
         public static string Hint(int count)
         {
-            return count <= 1 ? "V1 に動画、V2 に字幕" : "V1 に動画、V2〜V" + count + " は空、V" + (count + 1) + "(いちばん上)に字幕";
+            if (count <= 1) return "V1 に動画、V2 に字幕";
+            return "V1〜V" + count + " に同じ動画(重ねて加工する用)、V" + (count + 1) + "(いちばん上)に字幕";
         }
     }
 

@@ -214,7 +214,8 @@ static class CoreTests
         True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Manual, T, 0, null, 3).Contains("videoTracks"), "③ は書かない");
         Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 6)), "videoTracks", -1), "範囲の外は 1");
         Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T)), "videoTracks", -1), "前の形の呼び出しは既定の 1");
-        Eq("V1 に動画、V2〜V3 は空、V4(いちばん上)に字幕", VideoTracks.Hint(3), "案内");
+        Eq("V1〜V3 に同じ動画(重ねて加工する用)、V4(いちばん上)に字幕", VideoTracks.Hint(3), "案内");
+        Eq("V1 に動画、V2 に字幕", VideoTracks.Hint(1), "案内(1)");
     }
 
     static void UrlJson()

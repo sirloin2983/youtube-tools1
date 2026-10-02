@@ -283,21 +283,23 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('marker=Green|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
 
     def test_video_tracks_put_captions_on_top(self):
-        """映像トラックの数 3: V1 = 動画・V2〜V3 = 空・V4 = 字幕(一番上)。メモに字幕のトラック。既定 1 は今までどおり V2"""
+        """映像トラックの数 3: V1〜V3 = 同じカットの動画(V2・V3 は映像だけ = mediaType 1)・V4 = 字幕(一番上)。既定 1 は今までどおり V2"""
         s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
-        out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600)], video_tracks=3), s, fonts=self.KEI)
+        out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600), (1000, 1601)], video_tracks=3), s, fonts=self.KEI)
         cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
         self.assertIn('tracks=4\n', cut)
-        self.assertIn('item track=1 start=108000 dur=300', cut)
+        for k in (1, 2, 3):                                                   # 各トラックに 2 区間・同じ位置と長さ
+            self.assertIn('item track=%d start=108000 dur=300' % k, cut)
+            self.assertIn('item track=%d start=108300 dur=301' % k, cut)
+        self.assertEqual(cut.count('  mediaType=1'), 4)                         # V2・V3 の 2 区間ずつ = 映像だけ(音声は A1 だけ)
         self.assertIn('item track=4 start=108030 dur=120 text=一', cut)
-        self.assertNotIn('item track=2', cut)
-        self.assertNotIn('item track=3', cut)
-        self.assertIn('marker=Green|cut2resolve 完了|字幕 1/1(V4)・カット 1/1', cut)
+        self.assertIn('marker=Green|cut2resolve 完了|字幕 1/1(V4)・カット 2/2・同じ映像 V1〜V3・', cut)
         out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600)]), s, fonts=self.KEI)
         cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
         self.assertIn('tracks=2\n', cut)
         self.assertIn('item track=2 start=108030 dur=120 text=一', cut)
-        self.assertIn('|字幕 1/1・カット 1/1', cut)
+        self.assertIn('|字幕 1/1・カット 1/1・長さ', cut)
+        self.assertNotIn('mediaType', cut)
 
     def test_scaling_value_is_only_reported(self):
         base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
@@ -1157,7 +1159,7 @@ class TestMinimalPack(unittest.TestCase):
         ip3 = RTP.read_script_plan((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
         self.assertEqual(ip3["videoTracks"], 5)
         self.assertNotIn("videoTracks", ip2)                                        # 既定 1 は書かない(今までと同じ中身)
-        self.assertIn("V2〜V5 空(素材を重ねる用)・V6 Text+ 字幕(一番上)", res3["readme"])
+        self.assertIn("V1〜V5 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V6 Text+ 字幕(一番上)", res3["readme"])
         self.assertIn("V6 の Text+ を選び", RTP.readme_from_script((out3 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8")))
         for bad in (0, 6, "x", True):
             with self.assertRaises(C.ToolError):

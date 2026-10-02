@@ -61,7 +61,14 @@ function pool:AppendToTimeline(entries)
   local t = project.current
   local res = {}
   for _, e in ipairs(entries) do
-    if e.trackIndex then
+    if e.trackIndex and e.mediaPoolItem and e.mediaPoolItem.isMedia then   -- 動画を位置を決めて置く(映像だけ = mediaType 1)
+      local n = e.endFrame - e.startFrame + 1
+      local dur = math.floor(n * (tonumber(MOCK.settings.timelineFrameRate) / MOCK.mediaFps) + 0.5)
+      local it = newItem(e.recordFrame, dur, nil)
+      it.mediaType = e.mediaType
+      t.tracks[e.trackIndex] = t.tracks[e.trackIndex] or {}
+      table.insert(t.tracks[e.trackIndex], it); table.insert(res, it)
+    elseif e.trackIndex then
       local it = newItem(e.recordFrame, e.endFrame - e.startFrame, nil)
       t.tracks[e.trackIndex] = t.tracks[e.trackIndex] or {}
       table.insert(t.tracks[e.trackIndex], it); table.insert(res, it)
@@ -111,6 +118,7 @@ function MOCK.dump()
         local i = it.tool.inputs
         p(string.format("item track=%d start=%d dur=%d text=%s font=%s", ti, it.start, it.dur,
           tostring(i.StyledText), tostring(i.Font)))
+        if it.mediaType then p("  mediaType=" .. tostring(it.mediaType)) end
         if i.StyledText then
           p(string.format("  style=%s fill=%s,%s,%s outline=%s:%s,%s,%s", tostring(i.Style), tostring(i.Red1), tostring(i.Green1),
             tostring(i.Blue1), tostring(i.Enabled2), tostring(i.Red2), tostring(i.Green2), tostring(i.Blue2)))

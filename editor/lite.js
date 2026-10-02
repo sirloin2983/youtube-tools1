@@ -643,10 +643,10 @@ function renderExportSummary(){
     ? `確認済み ${ok}/${rs.length} 行。まだ確認していない ${rs.length - ok} 行は、送る用ファイルでは使われません(書き出しはできます)。`
     : `すべての行(${rs.length} 行)を確認しました。`;
 }
-/* Resolve の映像トラックの数(V1 = 動画・V2〜 = 空)。字幕はその上のトラック。選んだ数は次から使う */
+/* Resolve の映像トラックの数(V1〜V数 に同じ動画)。字幕はその上のトラック。選んだ数は次から使う */
 function tracksHint(){
   const n = Number($('#ltTracks').value) || 1;
-  $('#ltTracksHint').textContent = n === 1 ? 'V1 に動画、V2 に字幕' : `V1 に動画、V2〜V${n} は空、V${n + 1}(一番上)に字幕`;
+  $('#ltTracksHint').textContent = n === 1 ? 'V1 に動画、V2 に字幕' : `V1〜V${n} に同じ動画(重ねて加工する用)、V${n + 1}(一番上)に字幕`;
 }
 $('#ltTracks').addEventListener('change', () => {
   tracksHint();

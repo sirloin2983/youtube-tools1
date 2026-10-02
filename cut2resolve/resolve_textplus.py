@@ -112,7 +112,7 @@ def style_inputs(style=None):
         out.append(["Offset%d" % n, list(e["offset"])])
     return out
 DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
-VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1 = 動画 + 空の映像トラック)。字幕はその上 V(数+1)。簡易版で友人が 1〜5 から選ぶ(2026-10-02)
+VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ(2026-10-02)
 
 
 def video_tracks_value(n):
@@ -237,7 +237,7 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     outlines: 字幕ごとのふちの色(fills と同じ形。簡易版: 話者ごとのふちの色)。style: 見た目の種類(TEXT_STYLES のキー)
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
     wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)
-    video_tracks: 映像トラックの数(V1 = 動画・V2〜 = 空)。字幕はその上。1 のときは計画に書かない(今までと同じ中身)"""
+    video_tracks: 映像トラックの数(V1〜VN に同じカットの動画。V2 から上は映像だけ)。字幕はその上。1 のときは計画に書かない(今までと同じ中身)"""
     video_tracks = video_tracks_value(video_tracks)
     fps = plan.meta["fps"]
     per_line = default_wrap(target) if wrap is None else int(wrap)
@@ -323,7 +323,7 @@ def importer_script(plan):
 
 LUA_TEMPLATE = r'''-- cut2resolve Text+ Import (v0.4.0; Resolve Free 21.1 Windows)
 -- 開いているプロジェクトに、カット済みタイムライン CUT_TextPlus(V1 映像・A1 音声・一番上の映像トラックに Text+。
--- 映像トラックの数 DATA.videoTracks(既定 1)= V1 + 空のトラック。字幕は V(数+1))と
+-- 映像トラックの数 DATA.videoTracks(既定 1)= V1〜V数 に同じカットの動画(V2 から上は映像だけ)。字幕は V(数+1))と
 -- 元動画全体の SOURCE_WITH_HANDLES を追加する。プロジェクトは作らない・設定は変えない。
 local DATA = __C2R_DATA__
 
@@ -469,12 +469,25 @@ local ok, err = pcall(function()
 
     -- 4) Text+(一番上の映像トラック)。置かれたクリップの位置 + 区間の先頭からのコマ(換算後)
     -- Resolve の「Fusion タイトルを挿入」API は配置先を指定できない(V1 に入った)。雛形を字幕のトラックへ明示配置する。
-    -- 映像トラックの数 N: V2〜VN は空(友人が素材を重ねる用)、字幕は V(N+1)
+    -- 映像トラックの数 N: V1〜VN に同じカットの動画(重ねて加工する用)、字幕は V(N+1)
     local videoTracks = math.max(1, math.min(5, math.floor(tonumber(DATA.videoTracks) or 1)))
     for _ = 1, videoTracks do
         if not cutTimeline:AddTrack("video") then error("PLACE|映像トラックを追加できません") end
     end
     local captionTrack = videoTracks + 1
+    -- V2〜VN: V1 の各区間と同じ位置・同じ長さに、映像だけ(mediaType=1)。音声も重ねると音が二重になるので A1 だけにする
+    local dupFailed = 0
+    for k = 2, videoTracks do
+        for i, cut in ipairs(DATA.cuts) do
+            local base = edits[i]
+            local placed = base and pool:AppendToTimeline({{mediaPoolItem=clip, startFrame=cut.sourceStartFrame,
+                endFrame=cut.sourceEndFrame - 1, mediaType=1, trackIndex=k, recordFrame=base:GetStart()}})
+            local item = placed and placed[1]
+            if not item or item:GetStart() ~= base:GetStart() or math.abs(item:GetDuration() - base:GetDuration()) > 1 then
+                dupFailed = dupFailed + 1
+            end
+        end
+    end
     local added, failed = 0, 0
     -- 字幕の見た目(DATA.style.inputs = [[入力の名前, 値, 探し方?], ...])。最初の字幕で1つずつ入れて読み直す。
     -- 入らなかった入力は、探し方(kv[3])があれば この Resolve の入力の一覧から表示名(names)と要素の番号(n)で探す → 候補の名前(ids)の順に試し、
@@ -628,9 +641,10 @@ local ok, err = pcall(function()
     -- GetSetting は scaleToFit を返したので(2026-09-25)、この値で警告すると正しい設定でも黄色になってしまう
     local scaling = tostring(project:GetSetting("timelineInputResMismatchBehavior"))
     local styleOk = (styleMiss == nil or #styleMiss == 0)
-    local good = (failed == 0 and lengthOff == 0 and source ~= nil and fontOk and styleOk)
-    local title = (failed == 0 and lengthOff == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
+    local good = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil and fontOk and styleOk)
+    local title = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
     local note = "字幕 " .. added .. "/" .. #DATA.captions .. (captionTrack > 2 and "(V" .. captionTrack .. ")" or "") .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
+        (videoTracks > 1 and "・同じ映像 V1〜V" .. videoTracks .. (dupFailed > 0 and "(置けなかった " .. dupFailed .. ")" or "") or "") ..
         "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" ..
         "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") ..
             (styleDump and "。入力の一覧: " .. styleDump or "") .. ")") ..
@@ -699,7 +713,7 @@ def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=Non
     n = int(video_tracks)
     cap_track = f"V{n + 1}"
     tracks_desc = (f"V1 映像・A1 音声・{cap_track} Text+ 字幕" if n <= 1 else
-                   f"V1 映像・V2〜V{n} 空(素材を重ねる用)・{cap_track} Text+ 字幕(一番上)・A1 音声")
+                   f"V1〜V{n} 同じ映像(重ねて加工する用。V2 から上は映像だけ)・{cap_track} Text+ 字幕(一番上)・A1 音声")
     info = []
     if meta:
         f = meta["fps"][0] / meta["fps"][1]

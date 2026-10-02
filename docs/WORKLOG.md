@@ -2661,3 +2661,13 @@
 - 送るアプリも ① のときは 1 を含めて毎回 `videoTracks`(1〜5。範囲の外は 1)を書く。②③ は今までどおり書かない。版は据え置き(ホーム 0.22.0・アプリ 1.4.0 はまだ配っていない)
 - テスト: test_intake・test_autorun 80・home の残り・e2e_intake_ui・build.bat 19 件 OK
 - 未コミット: なし(このあとコミット)
+
+## 2026-10-02 Claude Code — 映像トラックの数の意味を直した: 空のトラック → 同じ動画を V1〜VN に重ねる
+- ユーザー: 案内の「V2 は空」を見て「何これ? やりたいことの意味わかってる?」→ 確かめたら「1」= **同じ動画を N 本のトラック全部に置く**(重ねて加工する用)。私の解釈(V2〜VN を空に)が違っていた
+- Lua: AddTrack を N 回(字幕は今までどおり V(N+1))→ V2〜VN に V1 の各区間と同じ位置(`recordFrame = edits[i]:GetStart()`)・同じ範囲で **映像だけ**(`mediaType=1`。音声まで重ねると音が二重になるため、音は A1 の1本)。
+  置けなかった・位置か長さが合わない区間は数えてマーカーのメモ(「同じ映像 V1〜VN(置けなかった n)」)と黄色/一部失敗に
+- 偽の Resolve(resolve_lua_mock.lua): 動画を trackIndex で置いたら長さをタイムラインのコマに換算し、mediaType を出す。test_pack の 3 本で V1〜V3 に 2 区間ずつ・mediaType=1 が 4 つ
+- 案内の文(簡易版・送るアプリ)と手順書・各 README・friend-intake.md を「V1〜VN に同じ動画、V(N+1)(いちばん上)に字幕」に。版は据え置き(まだ配っていない)
+- **実機で確かめること**: 本物の Resolve 21.1 で `mediaType=1` と `recordFrame` を指定した AppendToTimeline が V2 以上に映像だけを置くか(API の文書にはあるが、この PC ではまだ試していない)
+- テスト: cut2resolve 314・test_lite 14・契約 34・e2e_lite・test_intake/test_autorun 80・build.bat 19 件 OK
+- 未コミット: なし(このあとコミット)
