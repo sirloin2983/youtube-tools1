@@ -197,6 +197,18 @@ def check_timebox(pg, check):
     paste("#tbYoutube", "https://youtu.be/dQw4w9WgXcQ")
     check(value("#tbYoutube") == 3723 and "YouTube" in (pg.evaluate("window.__tbReject") or {}).get("reason", ""), "時刻の無い URL は読まない(理由に YouTube の案内)")
 
+    # 本物の Ctrl+V(入力欄ではない要素でも paste が届くこと)と Ctrl+C(選んだ所だけでなく、時刻の全体をコピー)
+    try:
+        pg.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        pg.evaluate("navigator.clipboard.writeText('1:02:03')")
+        pg.focus("#tbEnd")
+        pg.keyboard.press("Control+V")
+        check(wait_js(pg, "UIKit.timebox.get(document.getElementById('tbEnd')) === 3723", 3000), "本物の Ctrl+V で貼れる: %s" % value("#tbEnd"))
+        pg.keyboard.press("Control+C")
+        check(wait_js(pg, "navigator.clipboard.readText().then(t => t === '1:02:03')", 3000), "Ctrl+C は時刻の全体(1:02:03)をコピーする")
+    except Exception as e:   # クリップボードを使えない環境
+        check(False, "クリップボードの確認ができませんでした: %s" % str(e)[:120])
+
     # 0.1 秒・上限・使えない欄・コピー
     check((text("#tbTenths"), value("#tbTenths")) == ("0:01:23.5", 83.5), "0.1 秒までの欄(data-ui-time=83.5): %s" % text("#tbTenths"))
     pg.focus("#tbTenths")
