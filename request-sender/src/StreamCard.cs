@@ -367,7 +367,7 @@ namespace RequestSender
             {
                 bool need = strict && !rows.All(r => r.IsEmpty);
                 title.Tone = need ? Tone.Error : Tone.Muted;
-                title.Text = need ? "配信の URL を入れてください" : "YouTube の配信・動画の URL を貼ってください(何行か貼ると、配信を増やします)";
+                title.Text = need ? "配信の URL を入れてください" : "貼ると、ここに配信の題名が出ます(何行かまとめて貼ると、配信が増えます)";
                 urlField.Error = need;
             }
             else if (id == null)

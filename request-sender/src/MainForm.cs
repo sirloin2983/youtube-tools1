@@ -728,7 +728,7 @@ namespace RequestSender
                 // 誤りのある欄へ移す(理由はその欄の下に出ている)
                 ShowLeft(false);
                 cardList.ScrollControlIntoView(bad);
-                bad.Focus();
+                bad.Select();
                 SetStatus("⚠ 直す所があります(枠の色が変わった欄の下に理由があります)。直してから、もう一度「送る」を押してください。", Tone.Error);
                 return;
             }
