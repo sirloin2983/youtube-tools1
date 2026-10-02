@@ -1,6 +1,8 @@
 // 起動・右クリックの「送る」のショートカット・記録。
 //   RequestSender.exe                 … 画面を開く
 //   RequestSender.exe <動画> [<動画>…] … その動画を入れた状態で開く(右クリックの「送る」から)
+//   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|receive] [--sample]
+//                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 using System;
 using System.IO;
 using System.Linq;
@@ -89,9 +91,64 @@ namespace RequestSender
             Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += (s, e) => Fatal(e.Exception);
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Fatal(e.ExceptionObject as Exception);
+            int shot = Array.IndexOf(args, "--screenshot");
+            if (shot >= 0 && shot + 1 < args.Length) return Screenshot(args, args[shot + 1]);
             var form = new MainForm(ExeDir, args.Where(a => !a.StartsWith("--")).ToArray());
             Application.Run(form);
             return 0;
+        }
+
+        static string Option(string[] args, string name, string dflt)
+        {
+            int i = Array.IndexOf(args, name);
+            return i >= 0 && i + 1 < args.Length ? args[i + 1] : dflt;
+        }
+
+        // 見た目の確認: 窓を画面の外に出して、中身を画像に保存して終わる
+        static int Screenshot(string[] args, string png)
+        {
+            try
+            {
+                MainForm.Offline = true;
+                string data = Path.Combine(Path.GetTempPath(), "RequestSender-shot-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                Theme.Set(Option(args, "--theme", "A"));
+                using (var form = new MainForm(ExeDir, new string[0], data))
+                {
+                    form.StartPosition = FormStartPosition.Manual;
+                    form.Location = new System.Drawing.Point(-32000, -32000);
+                    form.ShowInTaskbar = false;
+                    Theme.Set(Option(args, "--theme", "A"));
+                    form.Show();
+                    if (Array.IndexOf(args, "--sample") >= 0) form.ApplySample();
+                    if (Option(args, "--tab", "send") == "receive")
+                    {
+                        form.ShowPage(false);
+                        if (Array.IndexOf(args, "--sample") >= 0) form.ShowEntries(SampleListing());
+                    }
+                    Application.DoEvents();
+                    form.RenderTo(png);
+                    form.Hide();
+                }
+                try { if (Directory.Exists(data)) Directory.Delete(data, true); } catch (IOException) { }
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Log.Write("screenshot: " + ex);
+                return 1;
+            }
+        }
+
+        static OutputListing SampleListing()
+        {
+            var l = new OutputListing();
+            var a = OutputFolder.FromName("20261002-120000-0a1b2c__【雑談】見本の配信_01.zip");
+            a.Size = 1536L * 1024 * 1024; a.Modified = new DateTime(2026, 10, 2, 13, 5, 0); a.PathLower = "/出力/a.zip"; a.Rev = "1";
+            var b = OutputFolder.FromName("20261002-110000-0d4e5f__もう1本の見本.失敗.txt");
+            b.Size = 300; b.Modified = new DateTime(2026, 10, 2, 11, 40, 0); b.PathLower = "/出力/b.txt"; b.Rev = "2";
+            l.Entries.Add(a);
+            l.Entries.Add(b);
+            return l;
         }
 
         static void Fatal(Exception ex)

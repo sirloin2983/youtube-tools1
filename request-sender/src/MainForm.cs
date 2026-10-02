@@ -1,11 +1,14 @@
-// 画面: タブ「送る」= 動画(ドラッグ)/ 配信者 / 配信の URL と切り抜く数 / メモ / PC でどこまでやるか / 「送る」/ 進み具合と「送りました ✓」
-//       タブ「受け取る」= PC が「/出力/」に置いたパックと失敗の知らせの一覧 / 「更新」/「受け取る」/ 保存先 /「フォルダを開く」
+// 画面(2.0.0。設計: .design/request-sender-overhaul/DESIGN_BRIEF.md)
+//   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
+//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル)、右 = 02 仕上げ方・03 話す人とメモ、下 = 要約・進み具合・「送る」
+//   受け取る: MainForm.Receive.cs
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Globalization;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -13,31 +16,77 @@ namespace RequestSender
 {
     public partial class MainForm : Form
     {
-        const string NoStreamer = "(選ばない)";
+        // 通信しない・設定を書かない・右クリックの「送る」を触らない(画面の確認 --screenshot とテスト)
+        public static bool Offline;
+
+        const int PollMs = 3 * 60 * 1000;   // 届いたものを確かめる間隔
+        const int MaxCards = 10;            // 1回に送れる配信の数(PC 側の上限と同じ)
 
         readonly string exeDir;
-        readonly TabControl tabs = new TabControl();
-        readonly TabPage sendPage = new TabPage("送る"), recvPage = new TabPage("受け取る");
-        readonly ListBox files = new ListBox();
-        readonly Button addBtn = new Button(), removeBtn = new Button(), sendBtn = new Button();
-        readonly ComboBox streamer = new ComboBox();
-        const string NoSpeakerCount = "指定しない";
-        readonly ComboBox speakerCount = new ComboBox();
-        readonly ComboBox[] speakerNames = new ComboBox[Speakers.MaxCount];
-        readonly TableLayoutPanel speakerGrid = new TableLayoutPanel();
-        readonly Label speakerHint = new Label();
-        readonly TextBox urls = new TextBox(), memo = new TextBox();
-        readonly NumericUpDown top = new NumericUpDown();
-        readonly RadioButton[] flowRadios = Flow.All.Select(f => new RadioButton { Text = Flow.Label(f), Tag = f, AutoSize = true }).ToArray();
-        readonly Label flowExplain = new Label();
-        readonly ComboBox videoTracks = new ComboBox();
-        readonly Label videoTracksHint = new Label();
-        FlowLayoutPanel videoTracksRow;
-        readonly ProgressBar bar = new ProgressBar();
-        readonly Label status = new Label(), dropHint = new Label();
+        readonly AppSettings settings;
+        readonly TitleLookup titles = new TitleLookup();
+        readonly ToolTip tips = new ToolTip();
+        readonly System.Windows.Forms.Timer poll = new System.Windows.Forms.Timer();
+
+        // 上の帯とページ
+        readonly Pane root = new Pane(), topBar = new Pane { OnPanel = true }, sendPage = new Pane(), recvPage = new Pane();
+        readonly Btn tabSend = new Btn("送る", BtnKind.Tab), tabRecv = new Btn("受け取る", BtnKind.Tab);
+        readonly Lbl brand = new Lbl("CLIP REQUEST v" + AppInfo.Version, Tone.Muted);
+        readonly List<Swatch> swatches = new List<Swatch>();
+
+        // 左: 送るもの
+        readonly Pane leftPane = new Pane { OnPanel = true, Border = true };
+        readonly SectionHead headWhat = new SectionHead("01", "送るもの");
+        readonly Btn modeUrl = new Btn("配信の URL", BtnKind.Toggle), modeVideo = new Btn("動画ファイル", BtnKind.Toggle);
+        readonly VStack cardList = new VStack { OnPanel = true };
+        readonly List<StreamCard> cards = new List<StreamCard>();
+        readonly Btn addCard = new Btn("+ 配信を足す", BtnKind.Normal);
+        readonly Lbl helpPaste = new Lbl("時刻の入れ方: 数字だけ打つ(12345 → 1:23:45。← → で 時・分・秒 を選び、↑ ↓ で動かす)。" +
+                                         "YouTube で動画を右クリック →「現在の時刻の動画の URL をコピー」→ 時刻の欄で Ctrl+V でも入ります。", Tone.Muted);
+        readonly Lbl helpHour = new Lbl("10 時間より後の位置は、「時」を選んで ↑ か、URL の貼り付けで入れます。区間の前後 2 秒は、PC が自動で足します。", Tone.Muted);
+        readonly Pane videoPanel = new Pane { OnPanel = true };
+        readonly FileList files = new FileList();
+        Field fileField, streamerField;
+        readonly Lbl dropHint = new Lbl("動画のファイルをここへドラッグ(.mp4 .mov .mkv .webm .m4v)\nクリックして選ぶこともできます", Tone.Muted);
+        readonly Btn addBtn = new Btn("ファイルを選ぶ…", BtnKind.Normal), removeBtn = new Btn("選んだものを外す", BtnKind.Normal);
+        readonly Lbl fileNote = new Lbl("", Tone.Error), lStreamer = new Lbl("配信者(任意)", Tone.Muted), streamerNote = new Lbl("", Tone.Muted);
+        readonly Lbl streamerHint = new Lbl("配信者を入れると、字幕がその人の色になります(名前を打つと候補が出ます)。", Tone.Muted);
+        readonly TextBox streamer = new TextBox();
+        List<string> memberNames = new List<string>();
+
+        // 右: 仕上げ方・話す人・メモ
+        readonly VStack right = new VStack { OnPanel = true, Border = true };
+        readonly Radio[] flowRadios = Flow.All.Select(f => new Radio(Flow.Label(f)) { Tag = f }).ToArray();
+        readonly Lbl flowExplain = new Lbl("", Tone.Muted);
+        readonly Lbl lCut = new Lbl("カット", Tone.Text), lTracks = new Lbl("映像トラックの数", Tone.Text), tracksHint = new Lbl("", Tone.Muted);
+        readonly Btn cutNone = new Btn("しない", BtnKind.Toggle), cutSilence = new Btn("無音を削る", BtnKind.Toggle);
+        Stepper tracks, speakerCount;
+        readonly HRow cutRow = new HRow(), tracksRow = new HRow(), speakerRow = new HRow();
+        readonly Check weightsOn = new Check("見どころの重みを指定する");
+        readonly Pane weightsPane = new Pane { Inherit = true };
+        readonly Stepper[] weightSteps = new Stepper[3];
+        readonly Lbl weightsHint = new Lbl("自動で選ぶ分の、見どころの選び方です。数字が大きいほど重く見ます。外しておくと PC の設定のままです。", Tone.Muted);
+        readonly Pane namesPane = new Pane { Inherit = true };
+        readonly TextBox[] speakerNames = new TextBox[Speakers.MaxCount];
+        readonly Field[] speakerFields = new Field[Speakers.MaxCount];
+        readonly Lbl[] speakerNos = new Lbl[Speakers.MaxCount];
+        readonly Lbl speakerHint = new Lbl("人数を入れると、PC が話者を分けて名前を付けます(名前は任意。分からない人は「話者1」などのまま)。", Tone.Muted);
+        readonly Lbl lMemo = new Lbl("メモ(任意。送り先の人が読みます)", Tone.Muted);
+        readonly TextBox memo = new TextBox();
+        Field memoField;
+
+        // 下の帯
+        readonly Pane bottom = new Pane { OnPanel = true };
+        readonly Bar bar = new Bar();
+        readonly Lbl summary = new Lbl("", Tone.Text), status = new Lbl("", Tone.Muted);
+        readonly Btn sendBtn = new Btn("送る", BtnKind.Primary), cancelBtn = new Btn("やめる", BtnKind.Normal);
         readonly LinkLabel sendToLink = new LinkLabel();
+
+        string cut = Cut.None;
+        bool showVideo, built;
         Thread worker;
         volatile bool cancel;
+        int arrived;
 
         public MainForm(string exeDir, string[] initialFiles) : this(exeDir, initialFiles, Program.DataDir ?? Path.Combine(exeDir, "state")) { }
 
@@ -45,237 +94,401 @@ namespace RequestSender
         {
             this.exeDir = exeDir;
             state = new LocalState(dataDir);
+            settings = state.LoadSettings();
+            titles.Offline = Offline;
+            Theme.Set(settings.Theme);
+            cut = settings.Cut;
+
             Text = AppInfo.Title;
-            Font = new Font("Yu Gothic UI", 10f);
-            AutoScaleMode = AutoScaleMode.Font;
+            Font = Theme.Body;
+            AutoScaleMode = AutoScaleMode.None;
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(540, 760);
-            ClientSize = new Size(600, 840);
+            MinimumSize = new Size(Ui.S(900), Ui.S(620));
+            ClientSize = settings.WindowWidth > 0 ? new Size(settings.WindowWidth, settings.WindowHeight) : new Size(Ui.S(1000), Ui.S(700));
             AllowDrop = true;
-            tabs.Dock = DockStyle.Fill;
-            tabs.TabPages.Add(sendPage);
-            tabs.TabPages.Add(recvPage);
-            tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedTab == recvPage && !listedOnce) RefreshList(); };
-            Controls.Add(tabs);
-            BuildLayout();
+
+            root.Dock = DockStyle.Fill;
+            Controls.Add(root);
+            BuildTopBar();
+            BuildSendPage();
             BuildReceiveLayout();
+            root.Controls.AddRange(new Control[] { topBar, sendPage, recvPage });
             LoadMembers();
+            AddCard(null);
             AddFiles(initialFiles, false);
+            built = true;
+            ShowPage(true);
+            ShowLeft(files.Items.Count > 0);
+            UpdateFlow();
+            UpdateAll();
+            ApplyTheme();
+            LayoutAll();
+
+            Theme.Changed += OnThemeChanged;
+            Resize += (s, e) => LayoutAll();
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
             Shown += (s, e) =>
             {
+                ApplyTheme();
+                LayoutAll();
+                if (Offline) return;
                 CheckConfig();
                 Program.MaybeAskSendTo(this);
                 UpdateSendToLink();
+                poll.Interval = PollMs;
+                poll.Tick += (s2, e2) => PollArrivals();
+                poll.Start();
+                PollArrivals();
             };
             FormClosing += OnClosing;
+            Disposed += (s, e) => { Theme.Changed -= OnThemeChanged; poll.Dispose(); tips.Dispose(); };
         }
 
-        void BuildLayout()
+        // ---------------------------------------------------------------- 組み立て
+        void BuildTopBar()
         {
-            var t = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1, AutoSize = false };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            tabSend.Height = tabRecv.Height = Ui.S(40);
+            tabSend.Font = tabRecv.Font = Theme.Bold;
+            tabSend.Width = Ui.S(76);
+            tabSend.Click += (s, e) => ShowPage(true);
+            tabRecv.Click += (s, e) => ShowPage(false);
+            brand.Font = Theme.MonoSmall;
+            topBar.Controls.AddRange(new Control[] { tabSend, tabRecv, brand });
+            foreach (var p in Theme.All)
+            {
+                var sw = new Swatch(p);
+                string name = p.Name;
+                sw.Click += (s, e) => { Theme.Set(name); settings.Theme = name; SaveSettings(); };
+                tips.SetToolTip(sw, "配色 " + p.Name + ": " + p.Label);
+                swatches.Add(sw);
+                topBar.Controls.Add(sw);
+            }
+            UpdateRecvTab();
+        }
 
-            t.Controls.Add(Heading("動画を送る(ここへドラッグ。いくつでも)"));
-            files.Dock = DockStyle.Fill;
+        void BuildSendPage()
+        {
+            // ---- 左 ----
+            modeUrl.Click += (s, e) => ShowLeft(false);
+            modeVideo.Click += (s, e) => ShowLeft(true);
+            cardList.Add(addCard, 10, false);
+            helpPaste.Font = helpHour.Font = Theme.Small;
+            cardList.Add(helpPaste, 14, true);
+            cardList.Add(helpHour, 4, true);
+            addCard.Click += (s, e) => { var c = AddCard(null); ArrangeCards(); c.FocusUrl(); cardList.ScrollControlIntoView(c); };
+
             files.SelectionMode = SelectionMode.MultiExtended;
             files.AllowDrop = true;
-            files.HorizontalScrollbar = true;
             files.DragEnter += OnDragEnter;
             files.DragDrop += OnDragDrop;
             files.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) RemoveSelected(); };
-            var filePanel = new Panel { Dock = DockStyle.Fill, Height = 110 };
-            dropHint.Text = "動画のファイルをここへドラッグ(.mp4 .mov .mkv .webm .m4v)";
-            dropHint.ForeColor = SystemColors.GrayText;
-            dropHint.BackColor = SystemColors.Window;
+            files.SelectedIndexChanged += (s, e) => UpdateFileView();
+            files.AccessibleName = "送る動画";
+            fileField = new Field(files);
+            fileField.AllowDrop = true;
+            fileField.DragEnter += OnDragEnter;
+            fileField.DragDrop += OnDragDrop;
+            dropHint.AutoSize = false;
             dropHint.TextAlign = ContentAlignment.MiddleCenter;
-            dropHint.Dock = DockStyle.Fill;
             dropHint.AllowDrop = true;
-            dropHint.BorderStyle = BorderStyle.FixedSingle;
             dropHint.DragEnter += OnDragEnter;
             dropHint.DragDrop += OnDragDrop;
             dropHint.Click += (s, e) => PickFiles();
-            filePanel.Controls.Add(dropHint);
-            filePanel.Controls.Add(files);
-            t.Controls.Add(filePanel);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
-
-            var fileBtns = FlowRow();
-            addBtn.Text = "ファイルを選ぶ…";
-            addBtn.AutoSize = true;
+            dropHint.Cursor = Cursors.Hand;
+            fileField.Controls.Add(dropHint);
+            dropHint.BringToFront();
             addBtn.Click += (s, e) => PickFiles();
-            removeBtn.Text = "選んだものを外す";
-            removeBtn.AutoSize = true;
             removeBtn.Click += (s, e) => RemoveSelected();
-            fileBtns.Controls.AddRange(new Control[] { addBtn, removeBtn });
-            t.Controls.Add(fileBtns);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            fileNote.Font = streamerHint.Font = streamerNote.Font = Theme.Small;
+            fileNote.AutoSize = false;
+            fileNote.AutoEllipsis = true;
+            streamerHint.AutoSize = false;
+            streamer.MaxLength = Speakers.MaxNameLength;
+            streamer.AccessibleName = "配信者";
+            streamer.TextChanged += (s, e) => UpdateStreamerNote();
+            streamerField = new Field(streamer) { Width = Ui.S(200) };
+            videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote, lStreamer, streamerField, streamerNote, streamerHint });
+            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel });
 
-            var sRow = FlowRow();
-            var sLabel = new Label { Text = "配信者(任意。字幕の色に使う):", AutoSize = true, Margin = new Padding(3, 7, 3, 0) };
-            streamer.DropDownStyle = ComboBoxStyle.DropDownList;
-            streamer.Width = 200;
-            streamer.MaxDropDownItems = 20;
-            sRow.Controls.AddRange(new Control[] { sLabel, streamer });
-            t.Controls.Add(sRow);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            // ---- 右 ----
+            right.Add(new SectionHead("02", "仕上げ方"), 0, true);
+            for (int i = 0; i < flowRadios.Length; i++)
+            {
+                var r = flowRadios[i];
+                r.CheckedChanged += (s, e) => { if (((Radio)s).Checked) { UpdateFlow(); UpdateAll(); } };
+                right.Add(r, i == 0 ? 8 : 2, false);
+            }
+            flowRadios[0].Checked = true;   // 起動したときはいつも ①(覚えない)
+            flowExplain.Font = Theme.Small;
+            right.Add(flowExplain, 4, true);
 
-            // 話す人(人数を入れると PC が話者を分けて名前を付ける。名前は 2 列に並べる)
-            var spRow = FlowRow();
-            spRow.Controls.Add(new Label { Text = "話す人の数(任意):", AutoSize = true, Margin = new Padding(3, 7, 3, 0) });
-            speakerCount.DropDownStyle = ComboBoxStyle.DropDownList;
-            speakerCount.Width = 100;
-            speakerCount.Items.Add(NoSpeakerCount);
-            for (int i = 1; i <= Speakers.MaxCount; i++) speakerCount.Items.Add(i + " 人");
-            speakerCount.SelectedIndex = 0;
-            speakerCount.SelectedIndexChanged += (s, e) => UpdateSpeakerView();
-            spRow.Controls.Add(speakerCount);
-            t.Controls.Add(spRow);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            speakerGrid.AutoSize = true;
-            speakerGrid.Dock = DockStyle.Fill;
-            speakerGrid.ColumnCount = 4;
-            speakerGrid.Margin = new Padding(0);
-            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            speakerGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            cutNone.Click += (s, e) => SetCut(Cut.None);
+            cutSilence.Click += (s, e) => SetCut(Cut.Silence);
+            cutNone.AccessibleName = "カットしない";
+            cutSilence.AccessibleName = "無音の所を削る";
+            lCut.AutoSize = lTracks.AutoSize = false;
+            lCut.Size = lTracks.Size = new Size(Ui.S(112), Ui.S(20));
+            lCut.TextAlign = lTracks.TextAlign = ContentAlignment.MiddleLeft;
+            cutRow.Add(lCut, 0).Add(cutNone, 0).Add(cutSilence, 4);
+            right.Add(cutRow, 10, false);
+            tracks = new Stepper(VideoTracks.Min, VideoTracks.Max, settings.VideoTracks, Ui.S(34), "映像トラックの数");
+            tracks.ValueChanged += () => { tracksHint.Text = VideoTracks.Hint(tracks.Value); right.Arrange(); UpdateAll(); };
+            tracksRow.Add(lTracks, 0).Add(tracks, 0);
+            right.Add(tracksRow, 6, false);
+            tracksHint.Font = Theme.Small;
+            tracksHint.Text = VideoTracks.Hint(tracks.Value);
+            right.Add(tracksHint, 2, true);
+
+            weightsOn.Checked = settings.Weights.Enabled;
+            weightsOn.CheckedChanged += (s, e) => { UpdateWeights(); UpdateAll(); };
+            right.Add(weightsOn, 10, false);
+            string[] wNames = { "音声", "チャット", "コメント" };
+            double[] wValues = { settings.Weights.Audio, settings.Weights.Chat, settings.Weights.Comments };
+            for (int i = 0; i < 3; i++)
+            {
+                var l = new Lbl(wNames[i], Tone.Muted) { Font = Theme.Small, Location = new Point(Ui.S(104) * i, 0) };
+                var st = new Stepper(0, 30, (int)Math.Round(Weights.Clean(wValues[i]) * 10), Ui.S(40), wNames[i] + "の重み");
+                st.Format = v => (v / 10.0).ToString("0.0");
+                st.Show_();
+                st.Location = new Point(Ui.S(104) * i, Ui.S(18));
+                weightSteps[i] = st;
+                weightsPane.Controls.Add(l);
+                weightsPane.Controls.Add(st);
+            }
+            weightsPane.Size = new Size(Ui.S(304), Ui.S(46));
+            right.Add(weightsPane, 4, false);
+            weightsHint.Font = Theme.Small;
+            right.Add(weightsHint, 4, true);
+
+            right.Add(new SectionHead("03", "話す人・メモ"), 16, true);
+            speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "話す人の数");
+            speakerCount.Format = v => v == 0 ? "指定しない" : v + " 人";
+            speakerCount.Show_();
+            speakerCount.ValueChanged += () => { UpdateSpeakerView(); right.Arrange(); UpdateAll(); };
+            var lSp = new Lbl("話す人の数", Tone.Text) { AutoSize = false, Size = new Size(Ui.S(112), Ui.S(20)), TextAlign = ContentAlignment.MiddleLeft };
+            speakerRow.Add(lSp, 0).Add(speakerCount, 0);
+            right.Add(speakerRow, 8, false);
             for (int i = 0; i < speakerNames.Length; i++)
             {
-                var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Dock = DockStyle.Fill, MaxLength = Speakers.MaxNameLength, MaxDropDownItems = 20, Margin = new Padding(3, 2, 8, 2) };
-                c.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                c.AutoCompleteSource = AutoCompleteSource.ListItems;
-                speakerNames[i] = c;
-                speakerGrid.Controls.Add(new Label { Text = (i + 1) + ".", AutoSize = true, Margin = new Padding(3, 6, 0, 0) }, (i % 2) * 2, i / 2);
-                speakerGrid.Controls.Add(c, (i % 2) * 2 + 1, i / 2);
+                var t = new TextBox { MaxLength = Speakers.MaxNameLength, AccessibleName = "話す人 " + (i + 1) + " の名前" };
+                speakerNames[i] = t;
+                speakerFields[i] = new Field(t);
+                speakerNos[i] = new Lbl((i + 1) + ".", Tone.Muted) { Font = Theme.MonoSmall };
+                namesPane.Controls.Add(speakerNos[i]);
+                namesPane.Controls.Add(speakerFields[i]);
             }
-            t.Controls.Add(speakerGrid);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            speakerHint.Text = "人数を入れると、PC が話者を分けて名前を付けます(名前は覚えている声と照らし合わせます。分からない人は「話者1」などのまま)";
-            speakerHint.AutoSize = true;
-            speakerHint.ForeColor = Color.DimGray;
-            speakerHint.MaximumSize = new Size(540, 0);
-            speakerHint.Margin = new Padding(3, 2, 3, 0);
-            t.Controls.Add(speakerHint);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            UpdateSpeakerView();
-
-            t.Controls.Add(Heading("配信を切り抜いてもらう(YouTube の URL。1行に1本)"));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            urls.Multiline = true;
-            urls.ScrollBars = ScrollBars.Vertical;
-            urls.AcceptsReturn = true;
-            urls.WordWrap = false;
-            urls.Dock = DockStyle.Fill;
-            urls.AllowDrop = true;
-            urls.DragEnter += OnDragEnter;
-            urls.DragDrop += OnDragDrop;
-            t.Controls.Add(urls);
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
-
-            var topRow = FlowRow();
-            top.Minimum = Validation.MinTop;
-            top.Maximum = Validation.MaxTop;
-            top.Value = Validation.DefaultTop;
-            top.Width = 60;
-            topRow.Controls.Add(new Label { Text = "1本の配信から切り抜く数:", AutoSize = true, Margin = new Padding(3, 7, 3, 0) });
-            topRow.Controls.Add(top);
-            topRow.Controls.Add(new Label { Text = "(" + Validation.MinTop + "〜" + Validation.MaxTop + ")", AutoSize = true, Margin = new Padding(3, 7, 3, 0), ForeColor = SystemColors.GrayText });
-            t.Controls.Add(topRow);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            t.Controls.Add(Heading("メモ(任意。送り先の人が読みます)"));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            right.Add(namesPane, 6, true);
+            speakerHint.Font = Theme.Small;
+            right.Add(speakerHint, 4, true);
+            lMemo.Font = Theme.Small;
+            right.Add(lMemo, 10, false);
             memo.Multiline = true;
             memo.ScrollBars = ScrollBars.Vertical;
             memo.AcceptsReturn = true;
             memo.MaxLength = 2000;
-            memo.Dock = DockStyle.Fill;
-            t.Controls.Add(memo);
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+            memo.AccessibleName = "メモ";
+            memoField = new Field(memo);
+            right.Add(memoField, 4, true);
+            right.Fill = memoField;
 
-            // PC でどこまでやるか(送るたびに選ぶ。起動したときはいつも ①。覚えない)
-            t.Controls.Add(Heading("PC でどこまでやるか(動画と URL の両方)"));
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var flowPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
-            foreach (var r in flowRadios)
-            {
-                r.Margin = new Padding(6, 1, 3, 1);
-                r.CheckedChanged += (s, e) => UpdateFlowExplain();
-                flowPanel.Controls.Add(r);
-            }
-            flowRadios[0].Checked = true;
-            t.Controls.Add(flowPanel);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            flowExplain.AutoSize = true;
-            flowExplain.ForeColor = Color.DimGray;
-            flowExplain.Margin = new Padding(24, 2, 3, 0);
-            flowExplain.MaximumSize = new Size(500, 0);
-            t.Controls.Add(flowExplain);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            // Resolve の映像トラックの数(① 全自動のときだけ。PC が作るパックのタイムライン。送るたびに選ぶ。覚えない)
-            videoTracksRow = FlowRow();
-            videoTracksRow.Margin = new Padding(18, 2, 0, 0);
-            videoTracksRow.Controls.Add(new Label { Text = "Resolve の映像トラックの数:", AutoSize = true, Margin = new Padding(3, 7, 3, 0) });
-            videoTracks.DropDownStyle = ComboBoxStyle.DropDownList;
-            videoTracks.Width = 60;
-            for (int i = VideoTracks.Min; i <= VideoTracks.Max; i++) videoTracks.Items.Add(i.ToString(CultureInfo.InvariantCulture));
-            videoTracks.SelectedIndex = VideoTracks.Default - VideoTracks.Min;
-            videoTracks.SelectedIndexChanged += (s, e) => videoTracksHint.Text = VideoTracks.Hint(SelectedVideoTracks);
-            videoTracksRow.Controls.Add(videoTracks);
-            videoTracksHint.AutoSize = true;
-            videoTracksHint.ForeColor = Color.DimGray;
-            videoTracksHint.Margin = new Padding(3, 7, 3, 0);
-            videoTracksHint.Text = VideoTracks.Hint(SelectedVideoTracks);
-            videoTracksRow.Controls.Add(videoTracksHint);
-            t.Controls.Add(videoTracksRow);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            UpdateFlowExplain();
-
-            sendBtn.Text = "送る";
-            sendBtn.Font = new Font(Font.FontFamily, 12f, FontStyle.Bold);
-            sendBtn.Dock = DockStyle.Fill;
-            sendBtn.Height = 44;
-            sendBtn.Margin = new Padding(3, 10, 3, 6);
+            // ---- 下の帯 ----
+            summary.AutoSize = status.AutoSize = false;
+            summary.AutoEllipsis = status.AutoEllipsis = true;
+            status.Font = Theme.Small;
+            sendBtn.Font = Theme.Big;
             sendBtn.Click += (s, e) => StartSend();
-            t.Controls.Add(sendBtn);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            bar.Dock = DockStyle.Fill;
-            bar.Height = 18;
-            bar.Maximum = 1000;
-            t.Controls.Add(bar);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            status.AutoSize = true;
-            status.MaximumSize = new Size(520, 0);
-            status.Margin = new Padding(3, 6, 3, 6);
-            t.Controls.Add(status);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
+            cancelBtn.Click += (s, e) => { cancel = true; SetStatus("やめています…", Tone.Muted); };
+            cancelBtn.Visible = false;
             sendToLink.AutoSize = true;
+            sendToLink.Font = Theme.Small;
             sendToLink.Text = "動画の右クリックの「送る」にも出す";
+            sendToLink.Visible = false;
             sendToLink.LinkClicked += (s, e) =>
             {
-                if (Program.CreateSendTo(this)) SetStatus("右クリック →「送る」→「切り抜き依頼」で送れるようになりました。", false);
+                if (Program.CreateSendTo(this)) SetStatus("右クリック →「送る」→「切り抜き依頼」で送れるようになりました。", Tone.Muted);
                 UpdateSendToLink();
             };
-            t.Controls.Add(sendToLink);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            bottom.Controls.AddRange(new Control[] { bar, summary, status, sendToLink, cancelBtn, sendBtn });
 
-            sendPage.Controls.Add(t);
-            Resize += (s, e) =>
-            {
-                status.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 50), 0);
-                flowExplain.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 80), 0);
-                speakerHint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 60), 0);
-            };
-            UpdateFileView();
+            sendPage.Controls.AddRange(new Control[] { leftPane, right, bottom });
+            SetCut(cut);
+            UpdateWeights();
+            UpdateSpeakerView();
         }
 
+        // ---------------------------------------------------------------- 並べる
+        void LayoutAll()
+        {
+            if (!built || WindowState == FormWindowState.Minimized) return;
+            int w = root.ClientSize.Width, h = root.ClientSize.Height, top = Ui.S(40), m = Ui.S(12);
+            topBar.SetBounds(0, 0, w, top);
+            tabSend.Location = new Point(m, 0);
+            tabRecv.Location = new Point(tabSend.Right + Ui.S(4), 0);
+            int x = w - m;
+            for (int i = swatches.Count - 1; i >= 0; i--)
+            {
+                x -= swatches[i].Width;
+                swatches[i].Location = new Point(x, (top - swatches[i].Height) / 2);
+                x -= Ui.S(4);
+            }
+            brand.Location = new Point(x - Ui.S(12) - brand.Width, (top - brand.Height) / 2);
+            brand.Visible = brand.Left > tabRecv.Right + m;
+
+            int ph = h - top;
+            sendPage.SetBounds(0, top, w, ph);
+            recvPage.SetBounds(0, top, w, ph);
+
+            int bottomH = Ui.S(64), rightW = Ui.S(340), bodyH = ph - bottomH - m * 2;
+            leftPane.SetBounds(m, m, w - rightW - m * 3, bodyH);
+            right.SetBounds(w - rightW - m, m, rightW, bodyH);
+            bottom.SetBounds(0, ph - bottomH, w, bottomH);
+
+            headWhat.SetBounds(m, m, leftPane.Width - m * 2, Ui.S(20));
+            modeUrl.Location = new Point(m, Ui.S(40));
+            modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), Ui.S(40));
+            var body = new Rectangle(1, Ui.S(76), leftPane.Width - 2, leftPane.Height - Ui.S(76) - 1);
+            cardList.Bounds = body;
+            videoPanel.Bounds = body;
+            ArrangeCards();
+            LayoutVideo();
+            right.Arrange();
+
+            bar.SetBounds(0, 0, w, Ui.S(3));
+            sendBtn.SetBounds(w - m - Ui.S(150), Ui.S(14), Ui.S(150), Ui.S(40));
+            cancelBtn.SetBounds(sendBtn.Left - Ui.S(8) - Ui.S(84), Ui.S(20), Ui.S(84), Ui.S(28));
+            int textW = (cancelBtn.Visible ? cancelBtn.Left : sendBtn.Left) - m * 2 - Ui.S(4);
+            summary.SetBounds(Ui.S(16), Ui.S(12), textW, Ui.S(20));
+            status.SetBounds(Ui.S(16), Ui.S(34), textW - (sendToLink.Visible ? sendToLink.Width + m : 0), Ui.S(20));
+            sendToLink.Location = new Point(Ui.S(16) + textW - sendToLink.Width, Ui.S(35));
+            LayoutReceive();
+        }
+
+        void ArrangeCards()
+        {
+            foreach (var c in cards) c.Arrange();
+            cardList.Arrange();
+        }
+
+        void LayoutVideo()
+        {
+            int m = Ui.S(12), w = videoPanel.Width - m * 2, h = videoPanel.Height;
+            int below = Ui.S(132);
+            fileField.SetBounds(m, 0, w, Math.Max(Ui.S(80), h - below - m));
+            dropHint.SetBounds(1, 1, fileField.Width - 2, fileField.Height - 2);
+            int y = fileField.Bottom + Ui.S(8);
+            addBtn.Location = new Point(m, y);
+            removeBtn.Location = new Point(addBtn.Right + Ui.S(6), y);
+            y += Ui.S(32);
+            fileNote.SetBounds(m, y, w, Ui.S(18));
+            y += Ui.S(22);
+            lStreamer.Location = new Point(m, y + Ui.S(5));
+            streamerField.Location = new Point(lStreamer.Right + Ui.S(8), y);
+            streamerNote.Location = new Point(streamerField.Right + Ui.S(8), y + Ui.S(6));
+            y += Ui.S(32);
+            streamerHint.SetBounds(m, y, w, Ui.S(18));
+        }
+
+        // 話す人の名前の欄: 選んだ人数の分だけ、2列に並べる
+        void UpdateSpeakerView()
+        {
+            int n = speakerCount.Value, colW = (Ui.S(340) - Ui.S(24)) / 2, rowH = Ui.S(30);
+            for (int i = 0; i < speakerNames.Length; i++)
+            {
+                bool on = i < n;
+                speakerNos[i].Visible = speakerFields[i].Visible = on;
+                if (!on) continue;
+                int x = (i % 2) * colW, y = (i / 2) * rowH;
+                speakerNos[i].Location = new Point(x, y + Ui.S(6));
+                speakerFields[i].SetBounds(x + Ui.S(24), y, colW - Ui.S(30), Ui.S(26));
+            }
+            namesPane.Height = (n + 1) / 2 * rowH;
+            right.SetShown(namesPane, n > 0);
+        }
+
+        // ---------------------------------------------------------------- 配色
+        void OnThemeChanged()
+        {
+            ApplyTheme();
+        }
+
+        void ApplyTheme()
+        {
+            BackColor = Theme.P.Bg;
+            ForeColor = Theme.P.Text;
+            Theme.Apply(root);
+            sendToLink.LinkColor = sendToLink.ActiveLinkColor = Theme.P.Accent;
+            sendToLink.BackColor = Theme.P.Panel;
+            ThemeReceive();
+            Theme.TitleBar(this);
+            Invalidate(true);
+        }
+
+        // ---------------------------------------------------------------- ページと左の切り替え
+        public void ShowPage(bool send)
+        {
+            sendPage.Visible = send;
+            recvPage.Visible = !send;
+            tabSend.On = send;
+            tabRecv.On = !send;
+            if (!send && !Offline && (!listedOnce || arrived != entries.Count)) RefreshList();
+        }
+
+        void ShowLeft(bool video)
+        {
+            showVideo = video;
+            cardList.Visible = !video;
+            videoPanel.Visible = video;
+            modeUrl.On = !video;
+            modeVideo.On = video;
+            if (!video) ArrangeCards();
+        }
+
+        void UpdateModeButtons()
+        {
+            int n = cards.Count(c => !c.IsBlank);
+            modeUrl.Text = "配信の URL " + n;
+            modeVideo.Text = "動画ファイル " + files.Items.Count;
+            modeUrl.FitWidth();
+            modeVideo.FitWidth();
+            modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), modeVideo.Top);
+        }
+
+        // ---------------------------------------------------------------- 配信のカード
+        StreamCard AddCard(string url)
+        {
+            var c = new StreamCard(cards.Count > 0 ? cards[cards.Count - 1].TopCount : settings.Top);
+            c.Changed += () => { cardList.Arrange(); UpdateAll(); };
+            c.RemoveClicked += () => RemoveCard(c);
+            c.IdChanged += id => titles.Request(id, (i, t) => OnUi(() => { foreach (var x in cards) x.SetTitle(i, t); }));
+            c.MoreUrls += lines =>
+            {
+                foreach (string line in lines.Take(Math.Max(0, MaxCards - cards.Count))) AddCard(line);
+                ArrangeCards();
+                UpdateAll();
+            };
+            cards.Add(c);
+            cardList.Insert(cardList.IndexOf(addCard), c, cards.Count == 1 ? 0 : 8, true);
+            Theme.Apply(c);
+            c.SetManual(SelectedFlow == Flow.Manual);
+            if (!string.IsNullOrEmpty(url)) c.SetUrlLines(url);
+            addCard.Enabled = cards.Count < MaxCards;
+            return c;
+        }
+
+        void RemoveCard(StreamCard c)
+        {
+            if (Busy) return;
+            cards.Remove(c);
+            cardList.Remove(c);
+            c.Dispose();
+            if (cards.Count == 0) AddCard(null);
+            addCard.Enabled = cards.Count < MaxCards;
+            ArrangeCards();
+            UpdateAll();
+        }
+
+        // ---------------------------------------------------------------- 仕上げ方
         string SelectedFlow
         {
             get
@@ -285,44 +498,93 @@ namespace RequestSender
             }
         }
 
-        void UpdateFlowExplain()
+        void UpdateFlow()
         {
-            flowExplain.Text = Flow.Explain(SelectedFlow);
-            if (videoTracksRow != null) videoTracksRow.Enabled = SelectedFlow == Flow.Auto;   // ②③ はパックを PC で作らないので使わない
+            string f = SelectedFlow;
+            flowExplain.Text = Flow.Explain(f);
+            bool auto = f == Flow.Auto;   // ②③ はパックを PC で作らないので、カットとトラックは使わない
+            cutRow.Enabled = tracksRow.Enabled = tracksHint.Enabled = auto;
+            foreach (var c in cards) c.SetManual(f == Flow.Manual);
+            right.Arrange();
         }
 
-        int SelectedVideoTracks { get { return videoTracks.SelectedIndex >= 0 ? videoTracks.SelectedIndex + VideoTracks.Min : VideoTracks.Default; } }
-
-        int SelectedSpeakerCount { get { return speakerCount.SelectedIndex > 0 ? speakerCount.SelectedIndex : 0; } }
-
-        // 選んだ人数の分だけ名前の欄を出す(0 = 指定しない: 欄なし)
-        void UpdateSpeakerView()
+        void SetCut(string value)
         {
-            int n = SelectedSpeakerCount;
-            for (int i = 0; i < speakerNames.Length; i++) speakerNames[i].Visible = speakerGrid.GetControlFromPosition((i % 2) * 2, i / 2).Visible = i < n;
-            speakerGrid.Visible = n > 0;
+            cut = Cut.IsValid(value) ? value : Cut.None;
+            cutNone.On = cut == Cut.None;
+            cutSilence.On = cut == Cut.Silence;
+            UpdateAll();
         }
 
-        static Label Heading(string text)
+        void UpdateWeights()
         {
-            return new Label { Text = text, AutoSize = true, Font = new Font("Yu Gothic UI", 10f, FontStyle.Bold), Margin = new Padding(3, 10, 3, 4) };
+            foreach (var s in weightSteps) if (s != null) s.Enabled = weightsOn.Checked;
         }
 
-        static FlowLayoutPanel FlowRow()
+        Weights CurrentWeights()
         {
-            return new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0) };
+            return new Weights { Enabled = weightsOn.Checked, Audio = weightSteps[0].Value / 10.0, Chat = weightSteps[1].Value / 10.0, Comments = weightSteps[2].Value / 10.0 };
         }
 
+        // ---------------------------------------------------------------- 要約(下の帯にいつも出す)
+        void UpdateAll()
+        {
+            if (!built) return;
+            UpdateModeButtons();
+            string f = SelectedFlow;
+            var live = cards.Where(c => !c.IsBlank).ToList();
+            var parts = new List<string>();
+            if (live.Count > 0)
+            {
+                int ranges = live.Sum(c => c.ValidRanges().Count), auto = live.Sum(c => Math.Max(0, c.TopCount - c.ValidRanges().Count));
+                parts.Add("配信 " + live.Count + " 本" + (f == Flow.Manual ? "" : "(指定 " + ranges + " + 自動 " + auto + ")"));
+            }
+            if (files.Items.Count > 0) parts.Add("動画 " + files.Items.Count + " 本");
+            if (parts.Count == 0) { summary.Tone = Tone.Muted; summary.Text = "送るものを入れてください(配信の URL か、動画のファイル)"; return; }
+            parts.Add(Flow.Label(f).Split('(')[0]);
+            if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); }
+            if (speakerCount.Value > 0) parts.Add("話す人 " + speakerCount.Value + " 人");
+            summary.Tone = Tone.Text;
+            summary.Text = string.Join(" ・ ", parts);
+        }
+
+        // ---------------------------------------------------------------- 設定(覚える)
         void LoadMembers()
         {
-            streamer.Items.Add(NoStreamer);
-            foreach (string n in Members.LoadNames(Path.Combine(exeDir, "members.json")))
+            memberNames = Members.LoadNames(Path.Combine(exeDir, "members.json"));
+            var src = new AutoCompleteStringCollection();
+            src.AddRange(memberNames.ToArray());
+            foreach (var t in speakerNames.Concat(new[] { streamer }))
             {
-                streamer.Items.Add(n);
-                foreach (var c in speakerNames) c.Items.Add(n);
+                t.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                t.AutoCompleteSource = AutoCompleteSource.CustomSource;
+                t.AutoCompleteCustomSource = src;
             }
-            streamer.SelectedIndex = 0;
-            streamer.Enabled = streamer.Items.Count > 1;
+            UpdateStreamerNote();
+        }
+
+        void UpdateStreamerNote()
+        {
+            string s = streamer.Text.Trim();
+            if (s.Length == 0) { streamerNote.Tone = Tone.Muted; streamerNote.Text = ""; }
+            else if (memberNames.Contains(s)) { streamerNote.Tone = Tone.Accent; streamerNote.Text = "✓ この人の色を字幕に使います"; }
+            else { streamerNote.Tone = Tone.Muted; streamerNote.Text = "一覧に無い名前です(合わなければ色なしで進みます)"; }
+        }
+
+        void SaveSettings()
+        {
+            if (Offline || !built) return;
+            try
+            {
+                settings.Cut = cut;
+                settings.VideoTracks = tracks.Value;
+                if (cards.Count > 0) settings.Top = cards[0].TopCount;
+                settings.Weights = CurrentWeights();
+                settings.Theme = Theme.P.Name;
+                if (WindowState == FormWindowState.Normal) { settings.WindowWidth = ClientSize.Width; settings.WindowHeight = ClientSize.Height; }
+                state.SaveSettings(settings);
+            }
+            catch (Exception ex) { Log.Write("settings: " + ex.Message); }
         }
 
         void CheckConfig()
@@ -333,7 +595,7 @@ namespace RequestSender
             }
             catch (Exception ex)
             {
-                SetStatus(ConfigProblem(ex), true);
+                SetStatus(ConfigProblem(ex), Tone.Error);
             }
         }
 
@@ -345,10 +607,11 @@ namespace RequestSender
 
         void UpdateSendToLink()
         {
-            sendToLink.Visible = !SendToShortcut.Exists();
+            sendToLink.Visible = !Offline && !SendToShortcut.Exists();
+            LayoutAll();
         }
 
-        // ---- 動画の出し入れ ----
+        // ---------------------------------------------------------------- 動画の出し入れ
         void OnDragEnter(object sender, DragEventArgs e)
         {
             if (Busy) { e.Effect = DragDropEffects.None; return; }
@@ -361,15 +624,17 @@ namespace RequestSender
         {
             if (Busy) return;
             var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
-            if (paths != null) { AddFiles(paths, true); return; }
-            // ブラウザのアドレスをドラッグしたとき: URL の欄に足す
+            if (paths != null) { ShowPage(true); ShowLeft(true); AddFiles(paths, true); return; }
+            // ブラウザのアドレスをドラッグしたとき: 空いているカード(無ければ新しいカード)に入れる
             string text = (e.Data.GetData(DataFormats.UnicodeText) ?? e.Data.GetData(DataFormats.Text)) as string;
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                string cur = urls.Text.TrimEnd();
-                urls.Text = (cur.Length > 0 ? cur + "\r\n" : "") + text.Trim() + "\r\n";
-                urls.SelectionStart = urls.Text.Length;
-            }
+            if (string.IsNullOrWhiteSpace(text)) return;
+            ShowPage(true);
+            ShowLeft(false);
+            var c = cards.FirstOrDefault(x => !x.HasUrlText) ?? (cards.Count < MaxCards ? AddCard(null) : null);
+            if (c == null) return;
+            c.SetUrlLines(text);
+            ArrangeCards();
+            UpdateAll();
         }
 
         void PickFiles()
@@ -395,11 +660,11 @@ namespace RequestSender
                 if (Directory.Exists(full) || !File.Exists(full) || !Validation.IsVideoFile(full)) { skipped.Add(Path.GetFileName(full)); continue; }
                 if (!files.Items.Cast<string>().Any(x => string.Equals(x, full, StringComparison.OrdinalIgnoreCase))) files.Items.Add(full);
             }
+            fileNote.Text = skipped.Count == 0 ? "" :
+                "動画ではないので入れませんでした(" + string.Join(" / ", Validation.VideoExts) + " だけ): " +
+                string.Join("、", skipped.Take(5)) + (skipped.Count > 5 ? " ほか " + (skipped.Count - 5) + " 個" : "");
             UpdateFileView();
-            if (skipped.Count > 0)
-                SetStatus("動画ではないので入れませんでした(" + string.Join(" / ", Validation.VideoExts) + " だけ): " +
-                          string.Join("、", skipped.Take(5)) + (skipped.Count > 5 ? " ほか " + (skipped.Count - 5) + " 個" : ""), true);
-            else if (fromUser) SetStatus("", false);
+            UpdateAll();
         }
 
         void RemoveSelected()
@@ -407,49 +672,73 @@ namespace RequestSender
             if (Busy) return;
             foreach (var item in files.SelectedItems.Cast<object>().ToList()) files.Items.Remove(item);
             UpdateFileView();
+            UpdateAll();
         }
 
         void UpdateFileView()
         {
             dropHint.Visible = files.Items.Count == 0;   // 重ねず、どちらか一方だけ出す
             files.Visible = files.Items.Count > 0;
-            removeBtn.Enabled = files.Items.Count > 0 && !Busy;
+            removeBtn.Enabled = files.SelectedItems.Count > 0 && !Busy;
         }
 
-        // ---- 送る ----
+        // ---------------------------------------------------------------- 送る
         bool Busy { get { return worker != null && worker.IsAlive; } }
 
         void StartSend()
         {
             if (Busy) return;
-            var parsed = Validation.ParseUrlLines(urls.Text);
+            string flow = SelectedFlow;
+            var seen = new HashSet<string>();
+            var items = new List<UrlItem>();
+            Control bad = null;
+            foreach (var c in cards)
+            {
+                if (c.IsBlank) continue;
+                var b = c.Validate_(seen);
+                if (b == null) items.Add(c.ToItem());
+                else if (bad == null) bad = b;
+            }
+            ArrangeCards();
+            if (bad != null)
+            {
+                // 誤りのある欄へ移す(理由はその欄の下に出ている)
+                ShowLeft(false);
+                cardList.ScrollControlIntoView(bad);
+                bad.Focus();
+                SetStatus("赤い所を直してから、もう一度「送る」を押してください。", Tone.Error);
+                return;
+            }
+            int n = speakerCount.Value;
             var input = new SendInput
             {
                 Videos = files.Items.Cast<string>().ToList(),
-                Items = parsed.Urls.Select(u => new UrlItem { Url = u, Top = (int)top.Value }).ToList(),
-                Streamer = streamer.SelectedIndex > 0 ? (string)streamer.SelectedItem : "",
+                Items = items,
+                Streamer = streamer.Text.Trim(),
                 Memo = memo.Text.Trim(),
-                SpeakerCount = SelectedSpeakerCount,
-                SpeakerNames = Speakers.CleanNames(speakerNames.Take(SelectedSpeakerCount).Select(c => c.Text), SelectedSpeakerCount),
-                Flow = SelectedFlow,
-                VideoTracks = SelectedVideoTracks,
+                SpeakerCount = n,
+                SpeakerNames = Speakers.CleanNames(speakerNames.Take(n).Select(c => c.Text), n),
+                Flow = flow,
+                VideoTracks = tracks.Value,
+                Cut = cut,
+                Weights = CurrentWeights(),
             };
-            var errs = new List<string>(parsed.Errors);
-            errs.AddRange(Sending.Check(input));
+            var errs = Sending.Check(input);
             if (errs.Count > 0)
             {
-                SetStatus(string.Join("\n", errs.Take(8)) + (errs.Count > 8 ? "\nほか " + (errs.Count - 8) + " 件" : ""), true);
+                SetStatus(string.Join(" / ", errs.Take(3)) + (errs.Count > 3 ? " ほか " + (errs.Count - 3) + " 件" : ""), Tone.Error);
+                if (input.Videos.Count == 0 && input.Items.Count == 0) { ShowLeft(false); cards[0].FocusUrl(); }
                 return;
             }
             Config config;
             try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetStatus(ConfigProblem(ex), true); return; }
+            catch (Exception ex) { SetStatus(ConfigProblem(ex), Tone.Error); return; }
 
             cancel = false;
             SetBusy(true);
             bar.Value = 0;
-            SetStatus("送る準備をしています…", false);
-            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " flow=" + input.Flow);
+            SetStatus("送る準備をしています…", Tone.Muted);
+            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " ranges=" + input.Items.Sum(i => i.Ranges.Count) + " flow=" + input.Flow);
             var client = new DropboxClient(config) { IsCanceled = () => cancel, Log = Log.Write };
             var sending = new Sending(client);
             int lastPermille = -1;
@@ -461,7 +750,7 @@ namespace RequestSender
                 if (permille == lastPermille && p.Step == lastStep) return;
                 lastPermille = permille;
                 lastStep = p.Step;
-                Ui(() => ShowProgress(input, p, permille));
+                OnUi(() => ShowProgress(input, p, permille));
             };
             worker = new Thread(() =>
             {
@@ -472,7 +761,7 @@ namespace RequestSender
                 catch (IOException ex) { error = "ファイルを読めませんでした: " + ex.Message; Log.Write("io: " + ex); }
                 catch (UnauthorizedAccessException ex) { error = "ファイルを読めませんでした: " + ex.Message; Log.Write("io: " + ex); }
                 catch (Exception ex) { error = "思わぬエラーで送れませんでした: " + ex.Message; Log.Write("error: " + ex); }
-                Ui(() => Finished(input, sending.Sent, error));
+                OnUi(() => Finished(input, sending.Sent, error));
             });
             worker.IsBackground = true;
             worker.Start();
@@ -483,75 +772,163 @@ namespace RequestSender
             if (!Busy) return;
             bar.Value = permille;
             string size = input.Videos.Count > 0 ? "(" + Mb(p.Done) + " / " + Mb(p.Total) + ")" : "";
-            SetStatus(p.Step + "… " + size, false);
+            SetStatus(p.Step + "… " + size, Tone.Muted);
         }
 
         void Finished(SendInput input, List<string> sent, string error)
         {
+            worker = null;
             SetBusy(false);
             if (error == null)
             {
                 Log.Write("send: ok");
                 bar.Value = 1000;
-                SetStatus(input.Flow == Flow.Auto ? "送りました ✓\nできあがると「受け取る」に届きます(時間がかかります)" : "送りました ✓", false, true);
-                files.Items.Clear();
-                urls.Clear();
-                memo.Clear();
-                streamer.SelectedIndex = 0;
-                speakerCount.SelectedIndex = 0;
-                foreach (var c in speakerNames) c.Text = "";
-                UpdateFileView();
+                SetStatus(input.Flow == Flow.Auto ? "送りました ✓  できあがると「受け取る」に届きます(時間がかかります)" : "送りました ✓", Tone.Accent);
+                SaveSettings();
+                ClearInputs(true, true);
                 return;
             }
             Log.Write("send: failed: " + error);
+            bar.Value = 0;
             string msg = "送れませんでした: " + error;
             if (sent.Count > 0)
             {
-                msg += "\n(" + string.Join("・", sent) + " は送れています。残りだけもう一度送ってください)";
-                if (sent.Any(x => x.StartsWith("配信"))) urls.Clear();
+                msg += "(" + string.Join("・", sent) + " は送れています。残りだけもう一度送ってください)";
+                if (sent.Any(x => x.StartsWith("配信"))) ClearInputs(true, false);
             }
-            SetStatus(msg, true);
+            SetStatus(msg, Tone.Error);
+        }
+
+        // 送ったものを空にする(覚える設定はそのまま)
+        void ClearInputs(bool urls, bool rest)
+        {
+            if (urls)
+            {
+                settings.Top = cards.Count > 0 ? cards[0].TopCount : settings.Top;
+                foreach (var c in cards.ToList()) { cardList.Remove(c); c.Dispose(); }
+                cards.Clear();
+                AddCard(null);
+            }
+            if (rest)
+            {
+                files.Items.Clear();
+                fileNote.Text = "";
+                memo.Clear();
+                streamer.Clear();
+                speakerCount.Value = 0;
+                foreach (var c in speakerNames) c.Text = "";
+                UpdateFileView();
+            }
+            ArrangeCards();
+            UpdateAll();
         }
 
         void SetBusy(bool busy)
         {
             sendBtn.Enabled = !busy;
             sendBtn.Text = busy ? "送っています…" : "送る";
+            cancelBtn.Visible = busy;
+            cancelBtn.Enabled = true;
             addBtn.Enabled = !busy;
-            removeBtn.Enabled = !busy && files.Items.Count > 0;
-            urls.ReadOnly = busy;
-            memo.ReadOnly = busy;
-            streamer.Enabled = !busy && streamer.Items.Count > 1;
-            top.Enabled = !busy;
-            speakerCount.Enabled = !busy;
-            foreach (var c in speakerNames) c.Enabled = !busy;
+            removeBtn.Enabled = !busy && files.SelectedItems.Count > 0;
+            addCard.Enabled = !busy && cards.Count < MaxCards;
+            foreach (var c in cards) c.SetBusy(busy);
+            memo.ReadOnly = streamer.ReadOnly = busy;
+            foreach (var c in speakerNames) c.ReadOnly = busy;
+            speakerCount.Enabled = tracks.Enabled = !busy;
+            cutNone.Enabled = cutSilence.Enabled = weightsOn.Enabled = !busy;
             foreach (var r in flowRadios) r.Enabled = !busy;
-            UseWaitCursor = false;
+            if (!busy) { UpdateFlow(); UpdateWeights(); }
+            else foreach (var s in weightSteps) s.Enabled = false;
+            LayoutAll();
         }
 
-        void SetStatus(string text, bool error, bool success = false)
+        void SetStatus(string text, Tone tone)
         {
-            status.Text = text;
-            status.ForeColor = error ? Color.Firebrick : success ? Color.ForestGreen : SystemColors.ControlText;
-            status.Font = success ? new Font(Font.FontFamily, 12f, FontStyle.Bold) : Font;
+            status.Tone = tone;
+            status.Text = (text ?? "").Replace("\r", "").Replace("\n", " ");
+            tips.SetToolTip(status, status.Text);
         }
 
+        // ---------------------------------------------------------------- 届いた知らせ(邪魔をしない: 窓を出さない・前に出さない・音を出さない)
+        [StructLayout(LayoutKind.Sequential)]
+        struct FLASHWINFO
+        {
+            public uint cbSize;
+            public IntPtr hwnd;
+            public uint dwFlags, uCount, dwTimeout;
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool FlashWindowEx(ref FLASHWINFO info);
+
+        bool polling;
+
+        void PollArrivals()
+        {
+            if (Offline || polling || Busy || RecvBusy || IsDisposed) return;
+            Config config;
+            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
+            catch (Exception) { return; }
+            polling = true;
+            var client = new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write };
+            var t = new Thread(() =>
+            {
+                int count = -1;
+                try { count = new Receiving(client).List().Entries.Count; }
+                catch (Exception ex) { Log.Write("poll: " + ex.GetType().Name + ": " + ex.Message); }
+                OnUi(() => { polling = false; if (count >= 0) SetArrived(count, true); });
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        // 届いている数を、タブ・窓の題名に出す。増えたとき、窓が前に無ければタスクバーのボタンを 3 回光らせる
+        void SetArrived(int count, bool fromPoll)
+        {
+            bool more = count > arrived;
+            arrived = count;
+            UpdateRecvTab();
+            LayoutAll();
+            if (!fromPoll || !more || Form.ActiveForm == this || !IsHandleCreated) return;
+            try
+            {
+                var fi = new FLASHWINFO { hwnd = Handle, dwFlags = 2 /* FLASHW_TRAY */, uCount = 3, dwTimeout = 0 };
+                fi.cbSize = (uint)Marshal.SizeOf(fi);
+                FlashWindowEx(ref fi);
+            }
+            catch (Exception) { }
+        }
+
+        void UpdateRecvTab()
+        {
+            tabRecv.Text = arrived > 0 ? "受け取る ●" + arrived : "受け取る";
+            tabRecv.Width = TextRenderer.MeasureText(tabRecv.Text, tabRecv.Font).Width + Ui.S(28);
+            tabRecv.AccessibleName = arrived > 0 ? "受け取る(" + arrived + " 件届いています)" : "受け取る";
+            Text = arrived > 0 ? AppInfo.Title + "(" + arrived + " 件届いています)" : AppInfo.Title;
+        }
+
+        // ---------------------------------------------------------------- 閉じる・ほか
         void OnClosing(object sender, FormClosingEventArgs e)
         {
-            if (!Busy && !RecvBusy) return;
-            string what = Busy ? "送っている途中です。やめて閉じますか?" : "受け取っている途中です。やめて閉じますか?(途中のファイルは消します)";
-            var ans = MessageBox.Show(this, what, AppInfo.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-            if (ans != DialogResult.Yes) { e.Cancel = true; return; }
-            cancel = true;
-            recvCancel = true;
-            Log.Write("canceled by closing");
-            // 受け取りの途中なら .part を消し終えるまで少し待つ(バックグラウンドのスレッドなので、待ちきれなくても閉じる)
-            if (recvWorker != null) recvWorker.Join(3000);
+            if (Busy || RecvBusy)
+            {
+                string what = Busy ? "送っている途中です。やめて閉じますか?" : "受け取っている途中です。やめて閉じますか?(途中のファイルは消します)";
+                var ans = MessageBox.Show(this, what, AppInfo.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (ans != DialogResult.Yes) { e.Cancel = true; return; }
+                cancel = true;
+                recvCancel = true;
+                Log.Write("canceled by closing");
+                // 受け取りの途中なら .part を消し終えるまで少し待つ(バックグラウンドのスレッドなので、待ちきれなくても閉じる)
+                if (recvWorker != null) recvWorker.Join(3000);
+            }
+            poll.Stop();
+            SaveSettings();
         }
 
-        void Ui(Action a)
+        void OnUi(Action a)
         {
-            if (IsDisposed) return;
+            if (IsDisposed || !IsHandleCreated) return;
             try { BeginInvoke(a); }
             catch (InvalidOperationException) { }
         }
@@ -559,6 +936,33 @@ namespace RequestSender
         static string Mb(long bytes)
         {
             return bytes >= 1024L * 1024 * 1024 ? (bytes / (1024.0 * 1024 * 1024)).ToString("0.00") + "GB" : (bytes / (1024.0 * 1024)).ToString("0") + "MB";
+        }
+
+        // ---------------------------------------------------------------- 画面の確認(--screenshot)
+        // 見本の中身を入れる(配信2本: 題名つき・区間2つ / 終了が開始より前の誤り、話す人 2 人)
+        public void ApplySample()
+        {
+            cards[0].Sample("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "【雑談】見本の配信の題名(ここに YouTube の題名が出ます)", 3, 5025, 5110, 7260, 7335);
+            var c = AddCard(null);
+            c.Sample("https://youtu.be/AAAAAAAAAAA", "【ゲーム】もう1本の見本", 2, 600, 540);
+            speakerCount.Value = 2;
+            speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "話す人 A";
+            memo.Text = "2本目は後半の所をお願いします";
+            SetArrived(1, false);
+            ArrangeCards();
+            UpdateAll();
+        }
+
+        // 窓の中身を画像に保存する
+        public void RenderTo(string path)
+        {
+            LayoutAll();
+            ApplyTheme();
+            using (var bmp = new Bitmap(root.Width, root.Height))
+            {
+                root.DrawToBitmap(bmp, new Rectangle(Point.Empty, root.Size));
+                bmp.Save(path, ImageFormat.Png);
+            }
         }
     }
 }

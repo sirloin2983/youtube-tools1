@@ -24,10 +24,18 @@ namespace RequestSender
             ApplyTheme();
         }
 
+        public bool Inherit;            // 親と同じ地の色にする(行をまとめるだけのパネル)
+
         public virtual void ApplyTheme()
         {
-            BackColor = OnPanel ? Theme.P.Panel : Theme.P.Bg;
+            BackColor = Inherit && Parent != null ? Parent.BackColor : OnPanel ? Theme.P.Panel : Theme.P.Bg;
             ForeColor = Theme.P.Text;
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            base.OnParentChanged(e);
+            if (Inherit) ApplyTheme();
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -307,6 +315,7 @@ namespace RequestSender
         public Stepper(int min, int max, int start, int valueWidth, string name)
         {
             Minimum = min; Maximum = max; value = Math.Max(min, Math.Min(max, start));
+            Inherit = true;
             int h = Ui.S(26);
             minus.Size = plus.Size = new Size(h, h);
             minus.Font = plus.Font = Theme.Mono;
@@ -355,13 +364,6 @@ namespace RequestSender
             plus.Enabled = Enabled && value < Maximum;
         }
 
-        public override void ApplyTheme()
-        {
-            OnPanel = false;
-            BackColor = Parent != null ? Parent.BackColor : Theme.P.Bg;
-        }
-
-        protected override void OnParentChanged(EventArgs e) { base.OnParentChanged(e); ApplyTheme(); }
         protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Show_(); }
     }
 
@@ -508,6 +510,153 @@ namespace RequestSender
             int rest = e.Bounds.Width - nameW - Ui.S(12);
             if (rest > Ui.S(60))
                 TextRenderer.DrawText(e.Graphics, dir, Theme.Small, new Rectangle(e.Bounds.X + Ui.S(8) + nameW, e.Bounds.Y, rest, e.Bounds.Height), p.Muted, flags | TextFormatFlags.PathEllipsis);
+        }
+    }
+    // ---- 横に並べる行(左から順に・縦は中央)。地の色は親と同じ ----
+    public class HRow : Pane
+    {
+        readonly System.Collections.Generic.List<Control> items = new System.Collections.Generic.List<Control>();
+        readonly System.Collections.Generic.Dictionary<Control, int> gaps = new System.Collections.Generic.Dictionary<Control, int>();
+        readonly System.Collections.Generic.HashSet<Control> hidden = new System.Collections.Generic.HashSet<Control>();
+
+        public HRow()
+        {
+            Inherit = true;
+            Height = Ui.S(28);
+        }
+
+        public HRow Add(Control c, int gap)
+        {
+            items.Add(c);
+            gaps[c] = Ui.S(gap);
+            Controls.Add(c);
+            Arrange();
+            return this;
+        }
+
+        public void SetShown(Control c, bool shown)
+        {
+            if (shown) hidden.Remove(c); else hidden.Add(c);
+            c.Visible = shown;
+            Arrange();
+        }
+
+        // 並べ直す(中の部品の幅・文字が変わったら呼ぶ)
+        public void Arrange()
+        {
+            int x = 0, h = Ui.S(28);
+            foreach (var c in items) if (!hidden.Contains(c)) h = Math.Max(h, c.Height);
+            foreach (var c in items)
+            {
+                if (hidden.Contains(c)) continue;
+                x += gaps[c];
+                c.Location = new Point(x, (h - c.Height) / 2);
+                x += c.Width;
+            }
+            Size = new Size(x, h);
+        }
+    }
+
+    // ---- 縦に積むパネル(はみ出したら中だけスクロール)。幅いっぱいにする部品・折り返す文・残りの高さを取る部品を指定できる ----
+    public class VStack : Pane
+    {
+        class Item
+        {
+            public Control C;
+            public int Gap;
+            public bool Stretch, Shown = true;
+        }
+
+        readonly System.Collections.Generic.List<Item> items = new System.Collections.Generic.List<Item>();
+        bool arranging;
+
+        public int Pad = Ui.S(12);
+        public Control Fill;            // 残りの高さを取る部品(1つだけ)
+        public int FillMin = Ui.S(56);
+
+        public VStack()
+        {
+            AutoScroll = true;
+        }
+
+        public T Add<T>(T c, int gap, bool stretch) where T : Control
+        {
+            items.Add(new Item { C = c, Gap = Ui.S(gap), Stretch = stretch });
+            Controls.Add(c);
+            return c;
+        }
+
+        public void Insert(int index, Control c, int gap, bool stretch)
+        {
+            items.Insert(Math.Max(0, Math.Min(items.Count, index)), new Item { C = c, Gap = Ui.S(gap), Stretch = stretch });
+            Controls.Add(c);
+        }
+
+        public void Remove(Control c)
+        {
+            items.RemoveAll(i => i.C == c);
+            Controls.Remove(c);
+        }
+
+        public int IndexOf(Control c)
+        {
+            return items.FindIndex(i => i.C == c);
+        }
+
+        public void SetShown(Control c, bool shown)
+        {
+            var it = items.Find(i => i.C == c);
+            if (it == null) return;
+            it.Shown = shown;
+            c.Visible = shown;
+        }
+
+        public void Arrange()
+        {
+            if (arranging) return;
+            arranging = true;
+            SuspendLayout();
+            try
+            {
+                for (int pass = 0; pass < 2; pass++)   // スクロールバーが出て幅が変わったら、もう一度
+                {
+                    int w = Math.Max(Ui.S(120), ClientSize.Width - Pad * 2), total = Pad;
+                    foreach (var it in items)
+                    {
+                        if (!it.Shown) continue;
+                        var l = it.C as Lbl;
+                        if (it.Stretch && l != null) l.Wrap(w);
+                        else if (it.Stretch) it.C.Width = w;
+                        var row = it.C as HRow;
+                        if (row != null) row.Arrange();
+                        if (it.C != Fill) total += it.Gap + it.C.Height;
+                    }
+                    if (Fill != null) { var f = items.Find(i => i.C == Fill); Fill.Height = Math.Max(FillMin, ClientSize.Height - total - (f != null ? f.Gap : 0) - Pad); }
+                    int y = Pad;
+                    Point o = AutoScrollPosition;
+                    foreach (var it in items)
+                    {
+                        if (!it.Shown) continue;
+                        y += it.Gap;
+                        it.C.Location = new Point(Pad + o.X, y + o.Y);
+                        y += it.C.Height;
+                    }
+                    int before = ClientSize.Width;
+                    AutoScrollMinSize = new Size(0, y + Pad);
+                    if (ClientSize.Width == before) break;
+                }
+            }
+            finally
+            {
+                ResumeLayout();
+                arranging = false;
+            }
+        }
+
+        protected override void OnClientSizeChanged(EventArgs e)
+        {
+            base.OnClientSizeChanged(e);
+            Arrange();
         }
     }
 }

@@ -14,11 +14,16 @@ namespace RequestSender
     public partial class MainForm
     {
         readonly LocalState state;
+        readonly Pane recvPane = new Pane { OnPanel = true, Border = true }, listFrame = new Pane { Border = true };
+        readonly SectionHead headRecv = new SectionHead("01", "届いたもの");
         readonly ListView outList = new ListView();
         readonly TextBox detail = new TextBox();
-        readonly Button refreshBtn = new Button(), receiveBtn = new Button(), deleteBtn = new Button(), openFolderBtn = new Button(), changeDirBtn = new Button();
-        readonly Label recvStatus = new Label(), dirLabel = new Label();
-        readonly ProgressBar recvBar = new ProgressBar();
+        Field detailField;
+        readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), deleteBtn = new Btn("消す", BtnKind.Normal),
+                     openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
+        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます。できた順に1本ずつ届き、受け取ると一覧から消えます。", Tone.Muted);
+        readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
+        readonly Bar recvBar = new Bar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
         List<OutputEntry> entries = new List<OutputEntry>();
         string downloadDir, lastDownloaded;
@@ -32,110 +37,117 @@ namespace RequestSender
 
         void BuildReceiveLayout()
         {
-            var t = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 1 };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            var head = FlowRow();
-            refreshBtn.Text = "更新";
-            refreshBtn.AutoSize = true;
             refreshBtn.Click += (s, e) => RefreshList();
-            head.Controls.Add(refreshBtn);
-            head.Controls.Add(new Label
-            {
-                Text = "「① 全自動」で送ったものは、できあがるとここに届きます。",
-                AutoSize = true, Margin = new Padding(6, 7, 3, 0), ForeColor = Color.DimGray,
-            });
-            t.Controls.Add(head);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.Controls.Add(new Label
-            {
-                Text = "できた順に1本ずつ届きます。受け取ると一覧から消えます",
-                AutoSize = true, Margin = new Padding(9, 0, 3, 4), ForeColor = Color.DimGray,
-            });
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            recvHint.Font = Theme.Small;
+            recvHint.AutoSize = false;
 
             outList.View = View.Details;
             outList.FullRowSelect = true;
             outList.MultiSelect = false;
             outList.HideSelection = false;
-            outList.Dock = DockStyle.Fill;
-            outList.Columns.Add("種類", 64);
-            outList.Columns.Add("題", 220);
-            outList.Columns.Add("大きさ", 80, HorizontalAlignment.Right);
-            outList.Columns.Add("届いた日時", 118);
+            outList.BorderStyle = BorderStyle.None;
+            outList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
+            outList.Font = Theme.Body;
+            outList.AccessibleName = "届いたものの一覧";
+            outList.Columns.Add("種類", Ui.S(70));
+            outList.Columns.Add("題", Ui.S(220));
+            outList.Columns.Add("大きさ", Ui.S(90), HorizontalAlignment.Right);
+            outList.Columns.Add("届いた日時", Ui.S(140));
             outList.SelectedIndexChanged += (s, e) => ShowSelected();
             outList.DoubleClick += (s, e) => { var x = SelectedEntry; if (x != null && x.Kind == OutputKind.Pack) StartDownload(); };
             outList.Resize += (s, e) => FitColumns();
-            t.Controls.Add(outList);
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+            // 見出しと行を配色に合わせて自分で描く(標準の白い見出し・青い選択を出さない)
+            outList.OwnerDraw = true;
+            outList.DrawColumnHeader += (s, e) =>
+            {
+                var p = Theme.P;
+                using (var b = new SolidBrush(p.Panel)) e.Graphics.FillRectangle(b, e.Bounds);
+                using (var pen = new Pen(p.Line)) e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+                var r = Rectangle.Inflate(e.Bounds, -Ui.S(6), 0);
+                TextRenderer.DrawText(e.Graphics, e.Header.Text, Theme.Small, r, p.Muted,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left));
+            };
+            outList.DrawItem += (s, e) => { };
+            outList.DrawSubItem += (s, e) =>
+            {
+                var p = Theme.P;
+                var entry = e.Item.Tag as OutputEntry;
+                using (var b = new SolidBrush(e.Item.Selected ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+                Color fg = e.ColumnIndex == 0 && entry != null && entry.Kind == OutputKind.Failure ? p.Error : e.ColumnIndex >= 2 ? p.Muted : p.Text;
+                var r = Rectangle.Inflate(e.Bounds, -Ui.S(6), 0);
+                TextRenderer.DrawText(e.Graphics, e.SubItem.Text, outList.Font, r, fg,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis |
+                    (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left));
+            };
+            listFrame.Controls.Add(outList);
 
             detail.Multiline = true;
             detail.ReadOnly = true;
             detail.ScrollBars = ScrollBars.Vertical;
-            detail.Dock = DockStyle.Fill;
-            detail.BackColor = SystemColors.Window;
-            t.Controls.Add(detail);
-            t.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+            detail.AccessibleName = "選んだものの説明";
+            detailField = new Field(detail);
 
-            var dirRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 6, 0, 0) };
-            dirRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            dirRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            dirRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            dirRow.Controls.Add(new Label { Text = "保存先:", AutoSize = true, Margin = new Padding(3, 7, 3, 0) }, 0, 0);
             dirLabel.AutoSize = false;
             dirLabel.AutoEllipsis = true;
-            dirLabel.Dock = DockStyle.Fill;
             dirLabel.TextAlign = ContentAlignment.MiddleLeft;
-            dirRow.Controls.Add(dirLabel, 1, 0);
-            changeDirBtn.Text = "変える…";
-            changeDirBtn.AutoSize = true;
             changeDirBtn.Click += (s, e) => ChangeDir();
-            dirRow.Controls.Add(changeDirBtn, 2, 0);
-            t.Controls.Add(dirRow);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            var btns = FlowRow();
-            receiveBtn.Text = "受け取る";
-            receiveBtn.Font = new Font(Font.FontFamily, 12f, FontStyle.Bold);
-            receiveBtn.Size = new Size(160, 44);
-            receiveBtn.Margin = new Padding(3, 8, 3, 6);
+            receiveBtn.Font = Theme.Big;
             receiveBtn.Click += (s, e) => StartDownload();
-            openFolderBtn.Text = "フォルダを開く";
-            openFolderBtn.AutoSize = true;
-            openFolderBtn.Margin = new Padding(8, 16, 3, 6);
             openFolderBtn.Click += (s, e) => OpenFolder();
-            deleteBtn.Text = "消す";
-            deleteBtn.AutoSize = true;
-            deleteBtn.Margin = new Padding(8, 16, 3, 6);
             deleteBtn.Click += (s, e) => StartDeleteFailure();
-            btns.Controls.AddRange(new Control[] { receiveBtn, openFolderBtn, deleteBtn });
-            t.Controls.Add(btns);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            recvStatus.AutoSize = false;
+            recvStatus.AutoEllipsis = true;
 
-            recvBar.Dock = DockStyle.Fill;
-            recvBar.Height = 18;
-            recvBar.Maximum = 1000;
-            t.Controls.Add(recvBar);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            recvStatus.AutoSize = true;
-            recvStatus.MaximumSize = new Size(520, 0);
-            recvStatus.Margin = new Padding(3, 6, 3, 6);
-            t.Controls.Add(recvStatus);
-            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            recvPage.Controls.Add(t);
-            Resize += (s, e) => recvStatus.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 50), 0);
+            recvPane.Controls.AddRange(new Control[] { headRecv, refreshBtn, recvHint, listFrame, detailField, lDir, dirLabel, changeDirBtn,
+                                                       receiveBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
+            recvPage.Controls.Add(recvPane);
 
             downloadDir = state.LoadDownloadDir();
             dirLabel.Text = downloadDir;
             UpdateRecvButtons();
         }
 
+        void LayoutReceive()
+        {
+            int m = Ui.S(12), w = recvPage.Width - m * 2, h = recvPage.Height - m * 2;
+            if (w <= 0 || h <= 0) return;
+            recvPane.SetBounds(m, m, w, h);
+            int iw = w - m * 2;
+            headRecv.SetBounds(m, m, iw - refreshBtn.Width - m, Ui.S(20));
+            refreshBtn.Location = new Point(w - m - refreshBtn.Width, m - Ui.S(4));
+            recvHint.SetBounds(m, m + Ui.S(28), iw, Ui.S(18));
+            int top = m + Ui.S(54), foot = Ui.S(128), rest = Math.Max(Ui.S(120), h - top - foot - m);
+            int listH = rest * 55 / 100;
+            listFrame.SetBounds(m, top, iw, listH);
+            outList.SetBounds(1, 1, iw - 2, listH - 2);
+            detailField.SetBounds(m, top + listH + Ui.S(8), iw, rest - listH - Ui.S(8));
+            int y = top + rest + Ui.S(10);
+            lDir.Location = new Point(m, y + Ui.S(5));
+            changeDirBtn.Location = new Point(w - m - changeDirBtn.Width, y);
+            dirLabel.SetBounds(lDir.Right + Ui.S(8), y, changeDirBtn.Left - lDir.Right - Ui.S(16), Ui.S(28));
+            y += Ui.S(38);
+            receiveBtn.SetBounds(m, y, Ui.S(150), Ui.S(40));
+            openFolderBtn.Location = new Point(receiveBtn.Right + Ui.S(8), y + Ui.S(6));
+            deleteBtn.Location = new Point(openFolderBtn.Right + Ui.S(6), y + Ui.S(6));
+            recvStatus.SetBounds(deleteBtn.Right + Ui.S(14), y + Ui.S(10), Math.Max(Ui.S(60), w - m - deleteBtn.Right - Ui.S(14)), Ui.S(20));
+            y += Ui.S(48);
+            recvBar.SetBounds(m, y, iw, Ui.S(3));
+            FitColumns();
+        }
+
+        // 一覧は標準の部品なので、地と文字の色をここで合わせる
+        void ThemeReceive()
+        {
+            outList.BackColor = Theme.P.Bg;
+            outList.ForeColor = Theme.P.Text;
+            outList.Invalidate();
+        }
+
         void FitColumns()
         {
+            if (outList.Columns.Count < 4) return;
             int fixedW = outList.Columns[0].Width + outList.Columns[2].Width + outList.Columns[3].Width;
-            int w = outList.ClientSize.Width - fixedW - 4;
+            int w = outList.ClientSize.Width - fixedW;   // 見出しの右に標準の白い余りを残さない
             if (w > 80) outList.Columns[1].Width = w;
         }
 
@@ -170,7 +182,7 @@ namespace RequestSender
             RunRecv(() =>
             {
                 var listing = new Receiving(client).List();
-                Ui(() => ShowEntries(listing));
+                OnUi(() => ShowEntries(listing));
             });
         }
 
@@ -184,12 +196,12 @@ namespace RequestSender
             {
                 var item = new ListViewItem(new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) });
                 item.Tag = e;
-                if (e.Kind == OutputKind.Failure) item.ForeColor = Color.Firebrick;
                 outList.Items.Add(item);
             }
             outList.EndUpdate();
             FitColumns();
             detail.Text = "";
+            SetArrived(entries.Count, false);
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
@@ -223,7 +235,7 @@ namespace RequestSender
             RunRecv(() =>
             {
                 string reason = new Receiving(client).FailureText(e);
-                Ui(() =>
+                OnUi(() =>
                 {
                     failureTexts[e.Key] = reason;
                     if (SelectedEntry == e) ShowFailure(e, reason);
@@ -262,7 +274,7 @@ namespace RequestSender
                     if (permille == lastPermille && step == lastStep) return;
                     lastPermille = permille;
                     lastStep = step;
-                    Ui(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
+                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
                 });
                 Log.Write("receive: ok " + path);
                 // 大きさと hash を確かめて名前を変えたあと(Download が例外なく返った)だけ、Dropbox から消す
@@ -273,7 +285,7 @@ namespace RequestSender
                     deleted = false;
                     Log.Write("receive: delete failed " + e.Name + ": " + ex.Message);
                 }
-                Ui(() =>
+                OnUi(() =>
                 {
                     lastDownloaded = path;
                     recvBar.Value = 1000;
@@ -308,7 +320,7 @@ namespace RequestSender
             RunRecv(() =>
             {
                 new Receiving(client).Delete(e);
-                Ui(() =>
+                OnUi(() =>
                 {
                     RemoveEntry(e);
                     SetRecvStatus("消しました", false);
@@ -323,6 +335,7 @@ namespace RequestSender
             failureTexts.Remove(e.Key);
             foreach (ListViewItem it in outList.Items.Cast<ListViewItem>().ToList())
                 if (it.Tag == e) outList.Items.Remove(it);
+            SetArrived(entries.Count, false);
             detail.Text = "";
             if (outList.Items.Count > 0) outList.Items[0].Selected = true;
             UpdateRecvButtons();
@@ -336,7 +349,7 @@ namespace RequestSender
                 string error = null;
                 try { work(); }
                 catch (Exception ex) { error = RecvError(ex); }
-                Ui(() =>
+                OnUi(() =>
                 {
                     recvRunning = false;
                     recvDownloading = false;
@@ -410,9 +423,10 @@ namespace RequestSender
 
         void SetRecvStatus(string text, bool error, bool success = false)
         {
-            recvStatus.Text = text;
-            recvStatus.ForeColor = error ? Color.Firebrick : success ? Color.ForestGreen : SystemColors.ControlText;
-            recvStatus.Font = success ? new Font(Font.FontFamily, 11f, FontStyle.Bold) : Font;
+            recvStatus.Tone = error ? Tone.Error : success ? Tone.Accent : Tone.Muted;
+            recvStatus.Font = success ? Theme.Bold : Theme.Body;
+            recvStatus.Text = (text ?? "").Replace("\r", "").Replace("\n", " ");
+            tips.SetToolTip(recvStatus, recvStatus.Text);
         }
 
         static string SizeText(long bytes)
