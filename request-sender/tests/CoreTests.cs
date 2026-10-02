@@ -16,6 +16,7 @@ static class CoreTests
     static int Main()
     {
         Console.OutputEncoding = Encoding.UTF8;
+        MainForm.Offline = true;   // テストは通信しない(配信の題名の問い合わせ・届いたものの確認)・設定を書かない
         Run("URL: watch?v= / youtu.be / live / shorts から id を取り出して正規化する", UrlForms);
         Run("URL: YouTube ではない・形が違うものは断る", UrlRejects);
         Run("URL: 複数行・空の行・重なり・おかしな行の行番号", UrlLines);
@@ -41,6 +42,9 @@ static class CoreTests
         Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
+        Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
+        Run("画面: 配信のカード(t= つきの URL・+1分・③ では区間を送らない・誤りの欄・何行も貼る)", StreamCards);
+        Run("画面: 見本を入れると、下の帯の要約に 指定 + 自動 が出る", FormSummary);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -529,6 +533,104 @@ static class CoreTests
                 var list = FindAll(f).OfType<FileList>().Single();
                 Eq(1, list.Items.Count, "入った動画");
                 True(FindAll(f).OfType<System.Windows.Forms.Label>().Any(l => l.Text.Contains("動画ではない")), "入れなかった理由が出る");
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void Key(System.Windows.Forms.Control c, System.Windows.Forms.Keys k)
+    {
+        typeof(System.Windows.Forms.Control).GetMethod("OnKeyDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .Invoke(c, new object[] { new System.Windows.Forms.KeyEventArgs(k) });
+    }
+
+    static void TimeBoxKeys()
+    {
+        using (var tb = new TimeBox("開始の時刻"))
+        {
+            var K = typeof(System.Windows.Forms.Keys);
+            int changed = 0;
+            tb.ValueChanged += () => changed++;
+            True(!tb.HasValue && tb.Text == "0:00:00", "はじめは空(形だけ出す)");
+            foreach (var k in new[] { System.Windows.Forms.Keys.D1, System.Windows.Forms.Keys.NumPad2, System.Windows.Forms.Keys.D3, System.Windows.Forms.Keys.D4, System.Windows.Forms.Keys.D5 }) Key(tb, k);
+            Eq("1:23:45", tb.Text, "数字だけで入る(テンキーも)");
+            True(tb.HasValue && tb.Value == 5025 && changed > 0, "値と知らせ");
+            Key(tb, System.Windows.Forms.Keys.OemSemicolon);
+            Key(tb, System.Windows.Forms.Keys.A);
+            Eq("1:23:45", tb.Text, "「:」や文字は入らない");
+            Key(tb, System.Windows.Forms.Keys.Left);
+            Key(tb, System.Windows.Forms.Keys.Up);
+            Eq("1:24:45", tb.Text, "← で分を選んで ↑");
+            Key(tb, System.Windows.Forms.Keys.Down | System.Windows.Forms.Keys.Shift);
+            Eq("1:14:45", tb.Text, "Shift+↓ は 10 ずつ");
+            Key(tb, System.Windows.Forms.Keys.Back);
+            Eq("1:00:45", tb.Text, "BackSpace は選んだ所を 0 に");
+            Key(tb, System.Windows.Forms.Keys.D3); Key(tb, System.Windows.Forms.Keys.D0);
+            Eq("1:30:45", tb.Text, "選んだ所だけ打ち直す");
+            Key(tb, System.Windows.Forms.Keys.Delete);
+            True(!tb.HasValue && tb.Text == "0:00:00", "Delete で空に");
+            tb.SetValue(36000 + 62);
+            Eq("10:01:02", tb.Text, "10 時間より後");
+            True(K != null && tb.ReadOnly && !tb.ShortcutsEnabled, "標準の貼り付け・打ち込みで形が壊れない");
+        }
+    }
+
+    static void StreamCards()
+    {
+        using (var c = new StreamCard(3))
+        {
+            True(c.IsBlank && c.VideoId == null, "はじめは空");
+            string[] more = null;
+            c.MoreUrls += lines => more = lines;
+            c.SetUrlLines("https://youtu.be/dQw4w9WgXcQ?t=5025\r\n\r\nhttps://youtu.be/AAAAAAAAAAA\nhttps://example.com/x");
+            Eq("dQw4w9WgXcQ", c.VideoId, "1行目がこのカードに入る");
+            Eq(2, more == null ? 0 : more.Length, "残りの行はカードを増やす(空の行は飛ばす)");
+            var row = c.Rows.First();
+            True(row.Start.HasValue && row.Start.Value == 5025 && !row.End.HasValue, "t= つきの URL: 最初の区間の開始に入る");
+            Eq(0, c.ToItem().Ranges.Count, "終了が無い区間は送らない");
+            row.SetLength(60);
+            var item = c.ToItem();
+            Eq(Norm, item.Url, "URL は正規化して送る");
+            True(item.Ranges.Count == 1 && item.Ranges[0].Start == 5025 && item.Ranges[0].End == 5085 && item.Top == 3 && item.AutoCount == 2, "+1分 → 指定 1 + 自動 2");
+            Eq(null, c.Validate_(new HashSet<string>()), "誤りなし");
+            True(c.Validate_(new HashSet<string> { "dQw4w9WgXcQ" }) == c.Url, "同じ配信が上にあれば URL の欄へ");
+
+            row.End.SetValue(5000);
+            True(row.Problem != null && row.Problem.Contains("終了が開始より前") && c.Validate_(new HashSet<string>()) == row.End, "終了 ≤ 開始は、その場で誤り・送るときは終了の欄へ");
+            Eq(0, c.ToItem().Ranges.Count, "誤りの区間は送らない");
+            row.End.SetValue(5100);
+            c.SetManual(true);
+            Eq(0, c.ToItem().Ranges.Count, "③ では区間を送らない");
+            Eq(null, c.Validate_(new HashSet<string>()), "③ では区間を確かめない");
+            c.SetManual(false);
+            Eq(1, c.ToItem().Ranges.Count, "①② に戻すと値は残っている");
+        }
+        using (var c = new StreamCard(1))
+        {
+            var row = c.Rows.First();
+            row.Start.SetValue(10);
+            True(row.Problem == null, "打っている途中(終了がまだ)は急かさない");
+            c.SetUrlLines("https://example.com/watch?v=dQw4w9WgXcQ");
+            True(c.Validate_(new HashSet<string>()) == c.Url, "YouTube でない URL は URL の欄へ");
+            c.Url.Text = "https://youtu.be/dQw4w9WgXcQ";
+            True(c.Validate_(new HashSet<string>()) == row.End && row.Problem.Contains("終了の時刻"), "送るときは、終了の無い区間を誤りにする");
+        }
+    }
+
+    static void FormSummary()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                f.ApplySample();
+                var texts = FindAll(f).OfType<Lbl>().Select(l => l.Text).ToList();
+                True(texts.Any(t => t.StartsWith("配信 2 本(指定 2 + 自動 3)") && t.Contains("① 全自動") && t.Contains("カットしない") && t.Contains("トラック 1") && t.Contains("話す人 2 人")),
+                     "下の帯の要約: " + string.Join(" | ", texts.Where(t => t.StartsWith("配信"))));
+                True(texts.Any(t => t.Contains("終了が開始より前")), "誤りの区間の理由が出る");
+                Eq(2, FindAll(f).OfType<StreamCard>().Count(), "配信のカード");
+                True(f.Text.Contains("1 件届いています"), "届いた数を窓の題名に: " + f.Text);
             }
         }
         finally { Directory.Delete(dir, true); }
