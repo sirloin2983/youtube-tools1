@@ -2977,3 +2977,17 @@
 - 注意: `home/tests/test_mount.py` の単独起動の3件は、ほかのテストと同時に流したとき・`PYTHONIOENCODING=utf-8` を付けたときに落ちる(付けずに単独で流せば 26 件通る。以前からの件)
 - 次: S2(faster-whisper・sherpa のスレッド数を測る・テストの `-threads 1`)→ Q1 の残り
 - 未コミット: なし(Q1 の途中のファイル `ytt_core/normalize.py`・`studio/exporter.py` などは次のコミット)
+
+## 2026-10-04 Claude Code — S2 測って決めた分・Q1 30fps にそろえる・Q2/Q3 の盛り上がりの分(スタジオ 0.18.0 → 0.19.0・編集 0.44.0 → 0.45.0・cut2resolve 0.19.0 → 0.20.0)
+- S2(0ccdd78): faster-whisper の cpu_threads を測った(small・3.5 分・ビーム 5: 4 = 106 秒・8 = 97 秒・16 = 92 秒で文字数が変わった)→ 既定 8(`TRANSCRIBE_CPU_THREADS`)。話者判別も 8(`TRANSCRIBE_DIAR_THREADS`。モデルが無く測っていない)。
+  テスト用 VP9 の複数スレッドを 50 回で失敗 0 → `-threads 1` を 4 か所から外した。結果は `docs/plan/stability-review-2026-10.md` の 3
+- Q1(86e5ac1・8decef1・9188361・a9cc932・12931e6): `ytt_core/normalize.py`(probe・needs_normalize・normalize。H.264/8bit/yuv420p/30/1 CFR/AAC ならそのまま・違えば libx264 crf 18 で作り直し・一時名 → 検証 → 改名・古い ffmpeg は -vsync cfr)。
+  スタジオの書き出しはいつも 30fps(高速も ultrafast で作り直し・位置ちょうど・actualStart は付かない・YouTube は区間をそのまま取ってから正確に切る2段)。依頼の受付は写しを 30fps に(失敗しても依頼は続く)。
+  編集の単体の文字起こしは、文字起こしのあと隣に `<名前>_30fps.mp4` を作って付け替え(評価用は作らない・失敗しても文書は元の動画のまま)・選び直しは付け替えてから裏で・まとめて付け替えるは作らない・簡易版は lite-media に写し。
+  付け替える前のパスからも文書が見つかる(txindex の aliases・find_doc_for_media)。3 パック は素材がちょうど 30fps なら 30 固定(古い素材は今までどおり選択と注意)・Lua は 30fps の素材を 30 以外のプロジェクトに置くとき止めずに警告・まとめて実行も素材が 30fps なら 30
+- Q2 盛り上がり(d3f8d7a・fdae07f): feedback.jsonl に manual_add(見逃し。近くの自動マークの点数と距離)・manual_remove・unadopt・delete_judged、全行に markId、機械が採用にしたマークに `adoptedBy`(auto / request。人が状態を変えたら外れる)、再解析で消える最初の点数を `auto0Orig` に
+- Q3(2839916): `dev/eval_marks.py`(上位 N の採用率・書き出し/パック/届け・見逃し・端のずれ・取り消し・--since/--until・機械の採用は数えない・配信 10 本未満は参考)
+- 仮で決めたこと(最後にユーザーに確認): 29.97fps の古い素材は 30 とみなさない(30 のプロジェクトに置くと 10 分で十数コマずれ得る)/ 選び直しで 30fps でない動画を選ぶと作り直す / 「文字起こしせずに開く」は作り直さない
+- サブエージェント: 30fps の共通部品と編集の入口 = Opus(多くの入口が使う・文書の付け替えが絡む)・受付/パックの fps/盛り上がりの記録/測る道具 = Sonnet
+- 注意: 入口の版は 0.29.0 のまま(受付の 30fps は README の「次の版に入る予定」。線 D P1 と一緒に上げる)
+- 未コミット: なし(このあと Q2 の編集側と線 D P1 が作業中)
