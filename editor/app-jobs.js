@@ -174,19 +174,21 @@ function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
 async function pollJobs(){
   let j; try { j = await api('/api/jobs'); } catch { return; }
   S.jobs = j.jobs.slice().reverse();
-  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null, voiceDone = null;
+  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null, voiceDone = null, normDone = [];
   for (const x of S.jobs){
     if (S.seen.has(x.id)) continue;
-    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.tid) txDone.push(x); }
+    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.kind === 'normalize') normDone.push(x); else if (x.tid) txDone.push(x); }
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
   for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した(4-2)。今回終わった文字起こしだけ
+  for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった(Q1)
   if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
   if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
   if (doneNew){
     await loadList();
+    if (S.doc && normDone.some(x => x.tid === S.docId && x.normOk)) await openDoc(S.docId, true);   // 開いている文書の動画を 30fps の写しに付け替えた → 読み直す(更新日時は変わらないので保存は競合しない)
     if (diar){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
       loadLearned();
@@ -231,7 +233,7 @@ function renderJobs(){
     ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
-    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'voice-learn' ? (j.learned || []).length + '人の声を覚えた' : j.kind === 'diarize' ? j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : '') : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
+    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'voice-learn' ? (j.learned || []).length + '人の声を覚えた' : j.kind === 'diarize' ? j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : '') : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.kind === 'normalize' ? (j.normOk ? '30fps にそろえました' : '元の動画のまま') : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
 }
 

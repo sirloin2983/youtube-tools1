@@ -575,7 +575,7 @@ def add_job(spec, kind="transcribe"):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
             raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn") else None, "error": None,
+        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
         _jobs[jid] = job
         _order.append(jid)
@@ -601,6 +601,8 @@ def public_job(j):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
     out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
+    out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。ed_relink.norm_run)
+    out["normOk"] = bool(j.get("normOk"))
     out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
     return out
 
@@ -1378,6 +1380,8 @@ def run_job(job):
         return run_redo(job)
     if job.get("kind") == "abtest":
         return ed_misc.run_abtest(job)
+    if job.get("kind") == "normalize":   # 動画を選び直したあとの 30fps の作り直し(Q1。ed_relink)
+        return ed_relink.run_normalize(job)
     spec = job["spec"]
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
     try:
@@ -1452,6 +1456,9 @@ def run_job(job):
             write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
         except (OSError, TypeError, ValueError) as e:
             ed_state.log.warning("生出力を保存できませんでした: %s %s", tid, e)
+        # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
+        # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
+        ed_relink.norm_after_transcribe(job, spec, tid)
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
         if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in segs):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:

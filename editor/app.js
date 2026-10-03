@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.44.0';
+const APP_VERSION = '0.45.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -908,11 +908,13 @@ $('#rlGo').addEventListener('click', async () => {
   b.disabled = true;
   try {
     if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
-    await api('/api/relink', { body: { id, path: RL.path, baseUpdatedAt: S.baseUpdatedAt, acceptDiff: $('#rlAccept').checked } });
+    const r = await api('/api/relink', { body: { id, path: RL.path, baseUpdatedAt: S.baseUpdatedAt, acceptDiff: $('#rlAccept').checked } });
     $('#relinkDlg').close();
     await openDoc(id);   // 同じ文書でも読み直す(映像・カット・パックを新しいパスで)
     loadList();
-    toast('付け替えました(前の状態は「以前の版に戻す」で戻せます)', 7000, 'ok');
+    toast('付け替えました(前の状態は「以前の版に戻す」で戻せます)' + (r && r.normalizing ? '。30fps でないので、隣に 30fps の動画を作っています(終わると自動でそちらに付け替えます。進み具合は「処理状況」)' : ''), 9000, 'ok');
+    if (r && r.normNote) toast(r.normNote, 8000);   // 30fps にそろえられない理由(ネットワーク上など。付け替えは済んでいる)
+    if (r && r.normalizing) startPolling();
   } catch (e){
     if (e.code === 'duration_mismatch' && e.data && e.data.check){ RL.check = e.data.check; renderRlResult(e.data.check); }
     toast('付け替えられませんでした: ' + e.message, 8000, 'err');
@@ -952,7 +954,7 @@ $('#raGo').addEventListener('click', async () => {
     for (const r of rows){
       r.state = 'saving'; raUpdate(r);
       try {
-        await api('/api/relink', { body: { id: r.id, path: r.path, baseUpdatedAt: r.id === S.docId ? S.baseUpdatedAt : r.updatedAt, acceptDiff: !!r.check.mismatch } });
+        await api('/api/relink', { body: { id: r.id, path: r.path, baseUpdatedAt: r.id === S.docId ? S.baseUpdatedAt : r.updatedAt, acceptDiff: !!r.check.mismatch, normalize: false } });   // まとめて付け替える = 以前の文書の動画を移したとき。30fps に作り直さない(Q1: 以前の動画はそのまま)
         r.done = true; ok++;
       } catch (e){
         r.err = e.message; r.pick = false;

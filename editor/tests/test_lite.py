@@ -201,7 +201,7 @@ class LiteExport(_Store):
         self.assertEqual(meta["performers"], ["さくらみこ", "兎田ぺこら"])
         self.assertEqual(meta["sourceUrl"], "https://www.youtube.com/watch?v=abc")
         self.assertEqual(meta["sourceName"], "配信 動画.mp4")
-        self.assertEqual(meta["fps"], "60/1")
+        self.assertEqual(meta["fps"], "30/1")   # 60fps の動画は lite-media/ に 30fps の写しを作って使う(Q1。名前は元のまま)
         self.assertEqual(meta["rulesVersion"], EV.RULES_VERSION)
         self.assertEqual(len(edits), 3)
         self.assertEqual(meta["notes"]["confirmedWithoutListening"], 1)

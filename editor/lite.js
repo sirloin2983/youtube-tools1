@@ -15,7 +15,7 @@ const NUDGE = 0.1, MIN_LEN = 0.1;
 const L = {
   step: 'load', st: null, file: null, jobId: '', doc: null, tid: '', base: null, cur: 0,
   undo: [], redo: [], typing: null, dirty: false, saving: false, saveTimer: 0, conflict: false,
-  played: new Set(), ops: [], keymap: null, exporting: false, lastExport: null
+  played: new Set(), ops: [], keymap: null, exporting: false, lastExport: null, runNorm: false
 };
 
 /* ---------- 小道具 ---------- */
@@ -211,6 +211,7 @@ $('#ltStart').addEventListener('click', async () => {
 /* ---------- 2 文字起こし中 ---------- */
 let runTimer = 0, runT0 = 0;
 function startRun(){
+  L.runNorm = false;
   runT0 = Date.now();
   $('#ltRunErr').hidden = true; show($('#ltRunBack'), false); show($('#ltCancel'), true);
   $('#ltRunBar').style.setProperty('--p', 0);
@@ -224,8 +225,10 @@ async function pollRun(){
   try { j = (await api('/api/jobs')).jobs.find(x => x.id === L.jobId); } catch (e){ $('#ltRunPhase').textContent = friendly(e); return; }
   if (!j){ clearInterval(runTimer); L.jobId = ''; lsSet(LS.job, ''); runFailed({ message: 'ツールを起動し直したため、文字起こしが止まりました。もう一度始めてください。' }); return; }
   $('#ltRunTitle').textContent = j.title || $('#ltRunTitle').textContent;
-  $('#ltRunPhase').textContent = j.phase || '';
-  const p = Math.max(0, Math.min(1, j.progress || 0));
+  const p = Math.max(0, Math.min(1, j.progress || 0)), norm = isNormPhase(j);
+  if (norm && !L.runNorm) runT0 = Date.now();   // 文字起こしのあとの 30fps の作り直し(Q1): 進み具合が 0 から数え直すので、残りの見積もりも数え直す
+  L.runNorm = norm;
+  $('#ltRunPhase').textContent = (j.phase || '') + (norm ? ' ' + Math.round(p * 100) + '%' : '');
   $('#ltRunBar').style.setProperty('--p', p.toFixed(3));
   const el2 = (Date.now() - runT0) / 1000;
   $('#ltRunLeft').textContent = p > 0.03 && j.state === 'running' ? `残り およそ ${fmtMin(el2 / p * (1 - p))}` : '';
@@ -242,6 +245,8 @@ async function pollRun(){
     toast('文字起こしをやめました', 'info'); setStep('load');
   }
 }
+/* 文字起こしが終わり、動画を 30fps にそろえている所か(サーバーの ed_relink.NORM_PHASE。この間に止めても文字起こしの結果は残る) */
+function isNormPhase(j){ return !!j && j.state === 'running' && /^30fps/.test(j.phase || ''); }
 function guessCode(msg){
   msg = String(msg || '');
   if (/GPU/.test(msg)) return 'gpu_failed';
@@ -253,7 +258,9 @@ function guessCode(msg){
 function runFailed(e){ showErr($('#ltRunErr'), e); show($('#ltCancel'), false); show($('#ltRunBack'), true); }
 $('#ltCancel').addEventListener('click', async () => {
   if (!L.jobId) return;
-  const ok = await UIKit.dialog.confirm({ title: '文字起こしをやめますか', body: 'ここまでの結果は残りません。もう一度始めると、最初からやり直しになります。', ok: 'やめる', cancel: '続ける', danger: true });
+  const ok = L.runNorm
+    ? await UIKit.dialog.confirm({ title: '30fps にそろえるのをやめますか', body: '文字起こしは終わっています。やめても文字起こしの結果は残り、元の動画のまま校正に進みます。', ok: 'やめる', cancel: '続ける' })
+    : await UIKit.dialog.confirm({ title: '文字起こしをやめますか', body: 'ここまでの結果は残りません。もう一度始めると、最初からやり直しになります。', ok: 'やめる', cancel: '続ける', danger: true });
   if (!ok || !L.jobId) return;
   try { await api('/api/transcribe/cancel', { body: { id: L.jobId } }); $('#ltRunPhase').textContent = 'やめています…'; } catch (e){ toast(friendly(e), 'err'); }
 });

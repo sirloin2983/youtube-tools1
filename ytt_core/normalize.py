@@ -66,6 +66,24 @@ ENC_ARGS = encode_args()                     # スタジオの「精密」
 ENC_FAST_ARGS = encode_args(FAST_PRESET)     # スタジオの「高速」
 
 
+# ---------- 古い ffmpeg への備え ----------
+# -fps_mode は ffmpeg 5.1 から。それより古い ffmpeg(友人の PC など)は「Unrecognized option 'fps_mode'」で失敗するので、
+# 同じ意味の古い書き方 -vsync cfr に替えて1回だけやり直す(新しい ffmpeg 7 以降は逆に -vsync が無いので、最初から -vsync にはしない)
+def legacy_args(args):
+    """-fps_mode X を -vsync X に替えた引数のリスト(ほかはそのまま)"""
+    out = list(args)
+    for i, a in enumerate(out):
+        if a == "-fps_mode":
+            out[i] = "-vsync"
+    return out
+
+
+def is_fps_mode_error(text):
+    """ffmpeg のエラーの文が「-fps_mode を知らない」か(Unrecognized option 'fps_mode' / Option fps_mode not found など)"""
+    t = str(text or "")
+    return "fps_mode" in t and bool(re.search(r"Unrecognized option|not found|Invalid option|unknown option", t, re.I))
+
+
 # ---------- 調べる ----------
 def _ratio(s):
     """"30000/1001" → Fraction。0/0・読めないときは None"""
@@ -202,6 +220,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     - on_progress(0〜1): ffmpeg の -progress の out_time から
     - priority_low: Windows では「通常より下」の優先度で動かす(画面の操作・ほかのツールが先に CPU を取れる)
     - popen: 子プロセスの起動を差し替える(呼ぶ側が終了の流れで止めるために覚えたいとき。既定 subprocess.Popen)
+    - ffmpeg が 5.1 より古く -fps_mode を知らなければ、-vsync cfr に替えて1回だけやり直す(legacy_args)
     SLOTS(ytt_core.jobs)は呼ぶ側が持つ。"""
     cancelled = cancelled or (lambda: False)
     ff = ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
@@ -214,32 +233,34 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
         raise NormalizeError("映像がありません")
     dur = info.get("duration") or 0.0
     tmp = temp_path(dst)
-    cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] \
-        + encode_args(preset) + ["-progress", "pipe:1", "-nostats", tmp]
+    base = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
+    enc = encode_args(preset)
     flags = _no_window()
     if os.name == "nt" and priority_low:
         flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-    tail = []
-    try:
-        proc = (popen or subprocess.Popen)(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                           creationflags=flags)
-    except OSError as e:
-        raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
-    state = {"last": time.time(), "why": None}
-    done = threading.Event()
 
-    def watchdog():
-        while not done.wait(0.3):
-            if cancelled():
-                state["why"] = "cancel"
-            elif time.time() - state["last"] > idle_sec:
-                state["why"] = "idle"
-            else:
-                continue
-            _kill(proc)
-            return
-    threading.Thread(target=watchdog, daemon=True).start()
-    try:
+    def run(args):
+        """ffmpeg を1回動かす。-> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")"""
+        tail = []
+        try:
+            proc = (popen or subprocess.Popen)(base + args + ["-progress", "pipe:1", "-nostats", tmp], stdin=subprocess.DEVNULL,
+                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags)
+        except OSError as e:
+            raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
+        state = {"last": time.time(), "why": None}
+        done = threading.Event()
+
+        def watchdog():
+            while not done.wait(0.3):
+                if cancelled():
+                    state["why"] = "cancel"
+                elif time.time() - state["last"] > idle_sec:
+                    state["why"] = "idle"
+                else:
+                    continue
+                _kill(proc)
+                return
+        threading.Thread(target=watchdog, daemon=True).start()
         try:
             for raw in proc.stdout:
                 state["last"] = time.time()
@@ -262,12 +283,20 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
                 proc.stdout.close()
             except OSError:
                 pass
-        if state["why"] == "cancel" or cancelled():
+        return proc.returncode, tail, state["why"]
+
+    try:
+        code, tail, why = run(enc)
+        if code != 0 and why is None and not cancelled() and is_fps_mode_error("\n".join(tail)):
+            # ffmpeg 5.1 より古い: -fps_mode を知らない → -vsync cfr で1回だけやり直す(書きかけは消してから)
+            _unlink(tmp)
+            code, tail, why = run(legacy_args(enc))
+        if why == "cancel" or cancelled():
             raise Cancelled("取り消しました")
-        if state["why"] == "idle":
+        if why == "idle":
             raise NormalizeError("ffmpeg が %d 秒間なにも出力しなかったので止めました" % idle_sec)
-        if proc.returncode != 0:
-            raise NormalizeError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % proc.returncode))
+        if code != 0:
+            raise NormalizeError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
         out = probe(tmp, ffprobe)
         if not is_30fps(out):
             raise NormalizeError("作り直した動画が 30fps になっていません(%s)" % ((out or {}).get("r_frame_rate") or "読めません"))

@@ -160,7 +160,8 @@ def main():
             json.dump({"videos": {"vidE2E00001": {"title": "【雑談】テストの配信", "channel": "テスト配信者", "marks": []}}}, f, ensure_ascii=False)
 
         port = free_port()
-        env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND="worker-fake", TRANSCRIBE_FAKE_DELAY="0.05", TRANSCRIBE_STUDIO_DATA=studio_data)
+        env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND="worker-fake", TRANSCRIBE_FAKE_DELAY="0.05", TRANSCRIBE_STUDIO_DATA=studio_data,
+                   TRANSCRIBE_NORMALIZE="off")   # 30fps の写し(H.264)は作らない(Q1): chromium で再生できる webm(24fps)のまま、どの fps でも動くパックの道(保険)を確かめる
         proc = subprocess.Popen([sys.executable, os.path.join(tmp, HOME, "launch.py"), "--port", str(port), "--no-open", "--only", "transcribe,cut2resolve"],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))   # Windows: Ctrl+Break を入口にだけ送るため

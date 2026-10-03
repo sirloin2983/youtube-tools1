@@ -623,6 +623,45 @@ def main():
             pg.unroute(spat)
             del errors[n_err:]   # 500 はブラウザがエラーとして記録する(想定どおり)
 
+            # ---- Q1: 30fps にそろえる(作り直しを有効にした別のサーバー)。文字起こしのあと隣に <名前>_30fps.mp4・処理状況の札・
+            # 選び直しで 30fps でない動画 → 付け替えたあと裏で作り直し → 終わると開いている文書を読み直す
+            srv2 = Server(normalize=True)
+            outside2 = tempfile.mkdtemp(prefix="edit-e2e-norm-")
+            try:
+                v60 = make_video(os.path.join(srv2.media, "そろえる前.webm"), sec=6, fps=60)
+                ntid = srv2.transcribe(v60, "そろえる文書")
+                nd = srv2.get("/api/transcript?id=" + ntid)
+                nj = next(j for j in srv2.get("/api/jobs")["jobs"] if j.get("tid") == ntid)
+                check(nd["sourcePath"].endswith("そろえる前_30fps.mp4") and os.path.isfile(v60) and nj.get("normOk") is True,
+                      "文字起こしのあと、隣に 30fps の動画を作って付け替える(元は残る): %s" % nj.get("normNote"))
+                pg3 = b.new_page(viewport={"width": 1440, "height": 900})
+                err3 = []
+                pg3.on("pageerror", lambda e: err3.append(str(e)))
+                pg3.goto(srv2.base + "?doc=" + ntid + "#tx")
+                wait_js(pg3, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === 'そろえる文書'", 15000)
+                check("そろえる文書" in pg3.text_content("#jobs") and pg3.locator("#jobs .job").first.text_content().count("行") >= 1,
+                      "処理状況に文字起こしのジョブ(行数)")
+                other = make_video(os.path.join(outside2, "選び直す60.webm"), sec=6, fps=60)
+                pg3.evaluate("openRelink()")
+                wait_js(pg3, "document.querySelector('#relinkDlg').open")
+                pg3.fill("#rlPath", other)
+                pg3.click("#rlCheck")
+                wait_js(pg3, "document.querySelector('#rlResult').textContent.includes('選び直す60.webm') && !document.querySelector('#rlGo').disabled", 20000)
+                pg3.click("#rlGo")
+                wait_js(pg3, "document.querySelector('#toast').textContent.includes('30fps でないので')", 20000)
+                check(True, "選び直しで 30fps でない動画: 付け替えて、30fps の動画を作っていると知らせる")
+                wait_js(pg3, "S.doc && S.doc.sourcePath.endsWith('選び直す60_30fps.mp4')", 30000)
+                check(True, "作り直しが終わると、開いている文書を読み直す(動画は 30fps の写し)")
+                wait_js(pg3, "[...document.querySelectorAll('#jobs .job')].some(j => j.textContent.includes('30fps にそろえました'))", 10000)
+                check(True, "処理状況に「30fps にそろえました」")
+                d3 = srv2.get("/api/transcript?id=" + ntid)
+                check(d3["relinks"][-1].get("why") == "normalize30" and os.path.isfile(other), "付け替えの記録・元の動画は残る")
+                check(not err3, "画面のエラーが無い(30fps): %s" % err3[:3])
+                pg3.close()
+            finally:
+                srv2.stop()
+                shutil.rmtree(outside2, ignore_errors=True)
+
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()
     finally:

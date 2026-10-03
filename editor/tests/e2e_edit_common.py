@@ -77,9 +77,11 @@ class Checks:
 
 
 class Server:
-    """疑似モードの文字起こし(= 編集)のサーバー。mounted=True なら入口(cut2resolve も取り込む)"""
+    """疑似モードの文字起こし(= 編集)のサーバー。mounted=True なら入口(cut2resolve も取り込む)。
+    normalize=False(既定): 文字起こし・選び直しのあとに 30fps の写し(H.264)を作らない(Q1。TRANSCRIBE_NORMALIZE=off)。
+    テストの動画は Playwright の chromium で再生できる webm(VP9)で、作り直した H.264 は再生できないため。作り直しを確かめるテストだけ True"""
 
-    def __init__(self, mounted=False, backend="fake"):
+    def __init__(self, mounted=False, backend="fake", normalize=False):
         self.tmp = tempfile.mkdtemp(prefix="edit-e2e-")
         self.mounted, self.port, self.proc, self.token = mounted, free_port(), None, ""
         self.media = os.path.join(self.tmp, "media")
@@ -87,7 +89,8 @@ class Server:
         rt = os.path.join(self.tmp, ".runtime")
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01",
                    TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"),
-                   YTT_HOLO_MEMBERS=os.path.join(REPO, "holo-colors", "members.json"))   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧を読む)
+                   YTT_HOLO_MEMBERS=os.path.join(REPO, "holo-colors", "members.json"),   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧を読む)
+                   TRANSCRIBE_NORMALIZE="" if normalize else "off")
         if mounted:
             for d in (_layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"], _layout.TOOL_DIRS["cut2resolve"]):
                 copy_tool(os.path.join(REPO, d), os.path.join(self.tmp, d))

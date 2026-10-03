@@ -39,7 +39,7 @@ def drop_file(pg, path):
 
 def main():
     check = Checks()
-    srv = Server(mounted=True)
+    srv = Server(mounted=True, normalize=True)   # ドロップした動画を lite-media に 30fps で写す(Q1。校正の画面では再生まで確かめない)
     errors = []
     try:
         video = make_video(os.path.join(srv.media, "配信テスト.webm"), sec=12)
@@ -114,6 +114,16 @@ def main():
             check(doc["segments"][0]["text"] == "えー [笑] こんにちは" and doc["segments"][0].get("proofed") is True, "保存した文書")
             check(doc["segments"][1]["speaker"] == "B" and doc["speakers"][1]["name"] == "さくらみこ", "話者も保存")
             check(doc["lite"]["streamer"] == "兎田ぺこら", "簡易版の印")
+            # 30fps にそろえる(Q1): ドロップした webm(VP9)は lite-media/<番号>/配信テスト.mp4 に 30fps(H.264)の写しを作って使う
+            sp = doc["sourcePath"]
+            job = next((j for j in srv.get("/api/jobs")["jobs"] if j.get("tid") == tid), {})
+            sys.path.insert(0, REPO)
+            from ytt_core import normalize as N  # noqa: E402
+            check(os.path.basename(sp) == "配信テスト.mp4" and os.path.basename(os.path.dirname(os.path.dirname(sp))) == "lite-media"
+                  and N.is_30fps(N.probe(sp)) and job.get("normOk") is True,
+                  "ドロップした動画は lite-media に 30fps の写しを作って使う: %s / %s" % (sp, job.get("normNote")))
+            check(pg.evaluate("isNormPhase({state: 'running', phase: '30fps にそろえています…'}) && !isNormPhase({state: 'running', phase: '文字起こし中'})"),
+                  "文字起こし中の画面は、30fps にそろえている所を見分けて「… n%」を出す")
 
             # 4 書き出し
             pg.click("#ltToExport")

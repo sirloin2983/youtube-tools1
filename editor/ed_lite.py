@@ -56,6 +56,24 @@ def media_dir():
     return os.path.join(data_root(), "lite-media")
 
 
+def in_media_dir(path):
+    """lite-media/ の直下のファイルか(= ドロップで受け取った写し。30fps の写しは lite-media/<番号>/ の中)"""
+    try:
+        return os.path.normcase(os.path.dirname(os.path.abspath(str(path or "")))) == os.path.normcase(os.path.abspath(media_dir()))
+    except (TypeError, ValueError):
+        return False
+
+
+def norm_dst(src):
+    """30fps の写しの置き場所(Q1。ドロップ・「ファイルを選ぶ」のどちらも lite-media/ に作る。友人の動画のフォルダには書かない)。
+    lite-media/<新しい番号>/<元の名前>.mp4(ドロップの写しは受け取りのときに付けた番号を外す)。フォルダを分けるのは、
+    Resolve 用ファイルに写る動画の名前と送る用 zip の sourceName を元の名前のままにするため"""
+    stem = os.path.splitext(os.path.basename(src))[0]
+    if in_media_dir(src):
+        stem = re.sub(r"^[0-9a-f]{8}_", "", stem)
+    return os.path.join(media_dir(), uuid.uuid4().hex[:8], (stem or "video") + ".mp4")
+
+
 def out_root():
     """書き出しの置き場所: ドキュメント\\文字起こし簡易版(テストは環境変数 LITE_OUT_DIR)"""
     env = os.environ.get("LITE_OUT_DIR")

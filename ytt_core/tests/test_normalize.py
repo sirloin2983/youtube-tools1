@@ -65,6 +65,17 @@ class TestRules(unittest.TestCase):
         self.assertEqual(normalize.fps_filter("scale=-2:720"), "scale=-2:720,fps=30")
         self.assertNotIn("-vf", normalize.encode_args(in_graph=True))
 
+    def test_legacy_rules(self):
+        """古い ffmpeg への備え: -fps_mode → -vsync の読み替えと、エラーの文の見分け"""
+        a = normalize.legacy_args(normalize.ENC_ARGS)
+        self.assertEqual(a[a.index("-vsync"):a.index("-vsync") + 2], ["-vsync", "cfr"])
+        self.assertNotIn("-fps_mode", a)
+        self.assertIn("-fps_mode", normalize.ENC_ARGS)   # 元のリストは変えない
+        self.assertTrue(normalize.is_fps_mode_error("Unrecognized option 'fps_mode'.\nError splitting the argument list: Option not found"))
+        self.assertTrue(normalize.is_fps_mode_error("Option fps_mode not found."))
+        self.assertFalse(normalize.is_fps_mode_error("Unrecognized option 'no_such_option_xyz'."))
+        self.assertFalse(normalize.is_fps_mode_error("Invalid data found when processing input"))
+
     def test_probe_without_ffprobe(self):
         with mock.patch.object(tools, "find_tool", return_value=None):
             self.assertIsNone(normalize.probe("x.mp4"))
@@ -164,6 +175,78 @@ class TestNormalize(unittest.TestCase):
         self.assertIn("長さ", str(cm.exception))
         self.assertFalse(os.path.exists(dst))
         self.assertEqual(self.leftovers(), [])
+
+
+class OldFfmpeg:
+    """ffmpeg 5.1 より古い ffmpeg のふり(normalize の popen に渡す): -fps_mode を知らずに失敗し、-vsync は分かる。
+    -vsync の呼び出しは、本物の ffmpeg(7 以降は -vsync が無い)に -fps_mode へ読み替えて渡す。vsync_ok=False なら -vsync でも失敗する"""
+    MSG = "Unrecognized option '%s'.\nError splitting the argument list: Option not found\n"
+
+    def __init__(self, vsync_ok=True):
+        self.calls, self.vsync_ok = [], vsync_ok
+
+    def fail(self, opt, kw):
+        code = "import sys; sys.stdout.write(%r); sys.exit(8)" % (self.MSG % opt)
+        return subprocess.Popen([sys.executable, "-c", code], **kw)
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(list(cmd))
+        if "-fps_mode" in cmd:
+            return self.fail("fps_mode", kw)
+        if not self.vsync_ok:
+            return self.fail("vsync", kw)
+        return subprocess.Popen(["-fps_mode" if a == "-vsync" else a for a in cmd], **kw)
+
+
+@unittest.skipUnless(FF and FP, "ffmpeg・ffprobe が無い環境ではスキップ")
+class TestOldFfmpeg(unittest.TestCase):
+    """-fps_mode を知らない古い ffmpeg: -vsync cfr に替えて1回だけやり直す(Q1 の 4。友人の PC の ffmpeg が古いとき)"""
+    @classmethod
+    def setUpClass(cls):
+        cls.src = tempfile.mkdtemp()
+        cls.v60 = make(os.path.join(cls.src, "v60.mp4"), 60, 2)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.src, ignore_errors=True)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_retry_with_vsync(self):
+        fake = OldFfmpeg()
+        dst = os.path.join(self.tmp, "old.mp4")
+        out = normalize.normalize(self.v60, dst, popen=fake)
+        self.assertEqual(len(fake.calls), 2)
+        self.assertIn("-fps_mode", fake.calls[0])
+        self.assertNotIn("-fps_mode", fake.calls[1])
+        i = fake.calls[1].index("-vsync")
+        self.assertEqual(fake.calls[1][i + 1], "cfr")
+        self.assertEqual(out["r_frame_rate"], "30/1")
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["old.mp4"])   # 1回目の書きかけは残らない
+
+    def test_retry_only_once(self):
+        fake = OldFfmpeg(vsync_ok=False)
+        dst = os.path.join(self.tmp, "old.mp4")
+        with self.assertRaises(normalize.NormalizeError) as cm:
+            normalize.normalize(self.v60, dst, popen=fake)
+        self.assertEqual(len(fake.calls), 2)
+        self.assertIn("vsync", str(cm.exception))
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_other_errors_are_not_retried(self):
+        calls = []
+
+        def popen(cmd, **kw):
+            calls.append(cmd)
+            return subprocess.Popen(cmd, **kw)
+        with mock.patch.object(normalize, "encode_args", return_value=["-no_such_option_xyz", "1"]):
+            with self.assertRaises(normalize.NormalizeError):
+                normalize.normalize(self.v60, os.path.join(self.tmp, "x.mp4"), popen=popen)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

@@ -1019,7 +1019,8 @@ class TestRelinkFind(StoreDir):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
 class TestRelinkHttp(unittest.TestCase):
-    """POST /api/relink/check・/api/relink を本物の動画で(疑似モードのサーバー)。動画はサーバーの作業データの外の一時フォルダに置く"""
+    """POST /api/relink/check・/api/relink を本物の動画で(疑似モードのサーバー)。動画はサーバーの作業データの外の一時フォルダに置く。
+    付け替えのあとの 30fps の作り直し(Q1)は test_normalize30.py で確かめるので、ここでは "normalize": False で止める(裏のジョブで付け替え直されて、確かめる途中で動画が変わらないように)"""
 
     @classmethod
     def setUpClass(cls):
@@ -1077,7 +1078,7 @@ class TestRelinkHttp(unittest.TestCase):
         d = self.call("GET", "/api/transcript?id=" + tid)
         self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": d["updatedAt"], "dir": os.path.join(self.media_dir, "p_pack")})
         self.assertFalse(self.call("GET", "/api/edit?id=" + tid)["packStale"])
-        r = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"]})
+        r = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "normalize": False})
         self.assertEqual(r["_status"], 200, r)
         d2 = self.call("GET", "/api/transcript?id=" + tid)
         self.assertEqual((os.path.normcase(d2["sourcePath"]), d2["sourceName"]), (os.path.normcase(os.path.realpath(moved)), "移した先.mkv"))
@@ -1087,9 +1088,9 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertIn("fps", self.call("GET", "/api/edit/draft?id=" + tid))       # カットのタブが使える
         st, _hd, _b = self.call("GET", "/media?id=" + tid, raw=True)
         self.assertEqual(st, 200)
-        again = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d2["updatedAt"]})
+        again = self.call("POST", "/api/relink", {"id": tid, "path": moved, "baseUpdatedAt": d2["updatedAt"], "normalize": False})
         self.assertEqual((again["_status"], again["error"]), (400, "same_path"))
-        old = self.call("POST", "/api/relink", {"id": tid, "path": self.v6, "baseUpdatedAt": d["updatedAt"]})   # 古い updatedAt
+        old = self.call("POST", "/api/relink", {"id": tid, "path": self.v6, "baseUpdatedAt": d["updatedAt"], "normalize": False})   # 古い updatedAt
         self.assertEqual((old["_status"], old["error"]), (409, "conflict"))
         # 履歴から元のパスへ戻せる
         items = self.call("GET", "/api/history?id=" + tid)["items"]
@@ -1104,10 +1105,10 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertEqual((c["mismatch"], c["fps"], c["rowsAfterEnd"]), (True, [25, 1], 1))
         self.assertTrue(any("長さ" in w for w in c["warnings"]))
         d = self.call("GET", "/api/transcript?id=" + tid)
-        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"]})
+        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"], "normalize": False})
         self.assertEqual((r["_status"], r["error"]), (409, "duration_mismatch"))
         self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["sourcePath"], d["sourcePath"])
-        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
+        r = self.call("POST", "/api/relink", {"id": tid, "path": self.v3, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True, "normalize": False})
         self.assertEqual(r["_status"], 200, r)
         self.assertLess(self.call("GET", "/api/transcript?id=" + tid)["relinks"][-1]["diffSec"], -2)
 
