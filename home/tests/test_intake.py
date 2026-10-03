@@ -5,6 +5,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -19,7 +20,10 @@ for p in (HOME, ROOT):
 
 import intake  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt_core import fsio, normalize, tools  # noqa: E402
+
+OK_30FPS = {"has_video": True, "has_audio": True, "vcodec": "h264", "bit_depth": 8, "pix_fmt": "yuv420p", "r_frame_rate": "30/1",
+            "avg_fps": 30.0, "acodec": "aac"}   # normalize.probe の結果の形(作り直しが要らない動画)
 
 
 class FakeRunner:
@@ -56,10 +60,16 @@ class Base(unittest.TestCase):
         self.probes = {}
         self.it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now,
                                 probe=lambda p: self.probes.get(os.path.basename(p), {"ok": True, "duration": 60.0, "reason": ""}),
-                                info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}))
+                                info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}),
+                                norm_probe=lambda p: dict(OK_30FPS), norm_run=self.norm_run)   # 既定は 30fps 済み(作り直さない)。作り直しのテストは TestNormalize
+        self.norm_calls = []
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def norm_run(self, src, dst, **kw):
+        self.norm_calls.append((src, dst))
+        raise AssertionError("30fps 済みの動画を作り直そうとした")
 
     def put(self, name, data):
         p = os.path.join(self.folder, name)
@@ -460,6 +470,87 @@ class TestVideo(Base):
         again = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now, info=lambda v: None)
         self.assertEqual(again.snapshot()["today"], 1)
         self.assertIn("aaaaaaaaaaa", again.st["videos"])
+
+
+@unittest.skipUnless(tools.find_tool("ffmpeg") and tools.find_tool("ffprobe"), "ffmpeg / ffprobe が無い")
+class TestNormalize(Base):
+    """友人の動画を 30fps にそろえる(Q1。2026-10-04)。本物の ffmpeg で、lavfi の短い動画を「届いた動画」にする"""
+
+    def setUp(self):
+        super().setUp()
+        self.logs = []
+        self.it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now, log=self.logs.append,
+                                probe=lambda p: {"ok": True, "duration": 2.0, "reason": ""}, info=lambda v: None)   # norm_probe・norm_run は本物
+
+    def make(self, name, fps, ext=".mp4", vcodec="libx264"):
+        path = os.path.join(self.folder, name + ext)
+        subprocess.run([tools.find_tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=%s:duration=2" % fps,
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", vcodec, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path],
+                       check=True, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return path
+
+    def copied(self):
+        f, = self.runner.files
+        return f["path"]
+
+    def test_60fps_copy_is_replaced_with_30fps(self):
+        src = self.make("【さくらみこ】にぇ", 60)
+        before = os.path.getsize(src)
+        self.scan2()
+        p = self.copied()
+        info = normalize.probe(p)
+        self.assertEqual(info["r_frame_rate"], "30/1")
+        self.assertEqual((info["vcodec"], info["acodec"]), ("h264", "aac"))
+        self.assertTrue(p.startswith(os.path.join(self.data, "intake")))
+        self.assertEqual([n for n in os.listdir(os.path.dirname(p)) if normalize.PART in n or n.endswith(".copying")], [], "途中のファイルは残さない")
+        # 友人の元のファイルは受付済みへ移るだけで、作り直さない(60fps のまま)
+        moved = self.done("【さくらみこ】にぇ.mp4")
+        self.assertEqual(os.path.getsize(moved), before)
+        self.assertEqual(normalize.probe(moved)["r_frame_rate"], "60/1")
+        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
+        self.assertEqual(self.it.message, "")
+
+    def test_30fps_h264_aac_is_not_reencoded(self):
+        src = self.make("そのまま", 30)
+        with open(src, "rb") as f:
+            original = f.read()
+        self.scan2()
+        with open(self.copied(), "rb") as f:
+            self.assertEqual(f.read(), original, "30fps の H.264 + AAC はコピーのまま")
+
+    def test_mov_becomes_mp4_and_old_copy_removed(self):
+        self.make("めっきー", 60, ".mov")
+        self.scan2()
+        p = self.copied()
+        self.assertTrue(p.endswith(".mp4"))
+        self.assertEqual(normalize.probe(p)["r_frame_rate"], "30/1")
+        self.assertEqual([n for n in os.listdir(os.path.dirname(p)) if n.endswith(".mov")], [])
+
+    def test_failure_does_not_stop_request(self):
+        def boom(src, dst, **kw):
+            raise normalize.NormalizeError("作り直しに失敗しました: テスト")
+        self.it.norm_run = boom
+        src = self.make("失敗", 60)
+        with open(src, "rb") as f:
+            original = f.read()
+        self.scan2()
+        with open(self.copied(), "rb") as f:
+            self.assertEqual(f.read(), original, "写しのまま続ける")
+        r = self.it.snapshot()["requests"][0]
+        self.assertEqual(r["state"], "accepted")
+        self.assertIn("30fps にそろえられませんでした", r["items"][0]["reason"])
+        self.assertTrue(any("30fps にできませんでした" in m for m in self.logs))
+        with open(self.done("失敗.理由.txt"), encoding="utf-8-sig") as f:
+            self.assertIn("30fps にそろえられませんでした", f.read())   # 友人の Dropbox の受付済みにも理由が残る
+
+    def test_unexpected_error_also_continues(self):
+        def boom(src, dst, **kw):
+            raise RuntimeError("想定外")
+        self.it.norm_run = boom
+        self.make("想定外", 60)
+        self.scan2()
+        self.assertEqual(len(self.runner.files), 1)
+        self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
 
 
 if __name__ == "__main__":

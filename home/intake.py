@@ -13,6 +13,7 @@
 - 同期の途中を読まない: 大きさと更新時刻が SETTLE 秒以上変わらないファイルだけ。友人のプログラムの動画は JSON がそろってから
 - 受け付けた元のファイルは 受付済み\YYYY-MM-DD\ へ、断ったものは 失敗\ へ移し「<名前>.理由.txt」を添える(消さない)
 - 動画は作業データの intake\YYYY-MM-DD\ へコピーしてから文字起こしする(Dropbox の「オンラインのみ」や片付けで元が消えても、文書の元のパスが切れない)
+  コピーが 30fps(H.264・AAC)でなければ、コピーを ytt_core.normalize で作り直して置き換える(SLOTS を通す。元は触らない。失敗してもコピーのまま続ける)
 - 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。friend-intake.md の 2-6)
 - 1日の上限を超えた分は断らずにフォルダに残し、次の日に回す
@@ -29,7 +30,7 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, tools
+from ytt_core import colors, fsio, jobs, normalize, tools
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
@@ -271,13 +272,16 @@ def _streamer(name):
 
 
 class Intake:
-    def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE):
+    def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
+                 norm_probe=None, norm_run=None):
         """prefs: home/prefs.py の Prefs(節 intake)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
-        probe・info: 動画・配信を調べる関数(テストで差し替える)"""
+        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)"""
         self.prefs, self.runner, self.data_dir = prefs, runner, data_dir
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.probe = probe or probe_video
+        self.norm_probe = norm_probe or normalize.probe
+        self.norm_run = norm_run or normalize.normalize
         self.info = info or youtube_info
         self.interval, self.settle = interval, settle
         self.state_path = os.path.join(data_dir, STATE_FILE)
@@ -344,11 +348,16 @@ class Intake:
 
     def snapshot(self):
         cfg = self._cfg()
-        with self.lock:
+        # 見る処理が長い(動画を 30fps にそろえている間は数分〜)ときに画面の表示を止めないよう、ロックは短く待つだけ(取れなくても読むだけなので安全)
+        got = self.lock.acquire(timeout=0.3)
+        try:
             return dict(cfg, state=self.state, stateLabel=STATE_LABELS[self.state], message=self.message,
                         lastScan=int(self.last_scan * 1000) if self.last_scan else None,
                         today=int(self.st["daily"].get(self._today(), 0)), held=self.held,
-                        requests=[dict(r) for r in self.st["requests"]])
+                        requests=[dict(r) for r in list(self.st["requests"])])
+        finally:
+            if got:
+                self.lock.release()
 
     def _cfg(self):
         try:
@@ -618,6 +627,7 @@ class Intake:
             os.replace(tmp, dest)
         except OSError as e:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % (e.strerror or e.__class__.__name__)}
+        dest, note = self._normalize_copy(dest, label)   # 30fps でなければ写しを作り直す(元の動画は触らない。失敗しても写しのまま続ける)
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
                                            deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
@@ -629,7 +639,50 @@ class Intake:
                 pass
             return {"state": "rejected", "reason": "文字起こしに入れられませんでした(%s)" % e}
         self._count()
-        return {"state": "accepted", "reason": "", "runId": run["id"]}
+        return {"state": "accepted", "reason": note, "runId": run["id"]}
+
+    def _normalize_copy(self, dest, label):
+        """作業データへコピーした動画 dest が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える(Q1。2026-10-04 ユーザー決定)。
+        友人の元のファイル(Dropbox 側)は触らない。-> (使うパス, 知らせ)。知らせは作り直せなかったときだけ(受付済みの「理由.txt」・依頼の一覧に残る)。
+        作り直せなくても依頼は止めない(写しのまま続ける)。出力は mp4 なので、拡張子が違えば .mp4 の名前にして古い写しを消す"""
+        try:
+            need, why = normalize.needs_normalize(self.norm_probe(dest))
+        except Exception as e:   # 調べられなくても依頼は進める
+            need, why = False, []
+            self.log("依頼の受付: %s の形を調べられませんでした(%s)" % (label, e.__class__.__name__))
+        if not need:
+            return dest, ""
+        target = os.path.splitext(dest)[0] + ".mp4"
+        if target != dest and os.path.exists(target):
+            target = "%s-%s.mp4" % (os.path.splitext(dest)[0], uuid.uuid4().hex[:6])
+        last = [-1]
+
+        def progress(x):
+            pct = int(x * 100)
+            if pct != last[0]:
+                last[0] = pct
+                self.message = "30fps にそろえています: %s(%d%%)" % (label[:60], pct)
+        self.message = "30fps にそろえています: %s" % label[:60]
+        self.log("依頼の受付: %s を 30fps にそろえます(%s)" % (label, " / ".join(why)))
+        try:
+            with jobs.SLOTS.slot("intake", "30fps にそろえる: " + label, cancelled=lambda: self.closed) as ok:
+                if not ok:
+                    raise normalize.Cancelled("取り消しました")
+                self.norm_run(dest, target, cancelled=lambda: self.closed, on_progress=progress)
+        except normalize.NormalizeError as e:
+            self.log("依頼の受付: %s を 30fps にできませんでした。写しのまま進めます(%s)" % (label, e))
+            return dest, "30fps にそろえられませんでした。元の動画のまま進めます(%s)" % str(e)[:150]
+        except Exception as e:
+            self.log("依頼の受付: %s を 30fps にできませんでした。写しのまま進めます(%s %s)" % (label, e.__class__.__name__, e))
+            return dest, "30fps にそろえられませんでした。元の動画のまま進めます(%s)" % e.__class__.__name__
+        finally:
+            self.message = ""
+        if target != dest:
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+        return target, ""
 
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None, cut=None,
