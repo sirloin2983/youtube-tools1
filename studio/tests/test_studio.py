@@ -215,22 +215,89 @@ class TestFeedback(Base):
         cur = self.marks()
         self.put([m for m in cur if m["id"] == a["id"]])     # b, c(候補)を削除 → bad ×2、a は残す
         self.assertEqual(sorted(self.verdicts()), ["bad", "bad", "good"])
-        self.put([])                                         # 採用済み a を削除 → 記録しない
-        self.assertEqual(len(self.feedback()), 3)
+        self.put([])                                         # 採用済み a を削除 → good / bad は増やさず、取り消しの行(delete_judged)を1行足す
+        self.assertEqual(sorted(self.verdicts()), ["bad", "bad", "good", "retract"])
+        row = [r for r in self.feedback() if r["event"] == "delete_judged"][0]
+        self.assertEqual((row["prevStatus"], row["start"], row["auto0"]), ("adopted", a["start"], a["auto0"]))
 
-    def test_manual_marks_recorded_only_when_adopted_or_rejected(self):
-        self.put([{"id": "m1", "start": 500, "end": 520}])                       # 候補のまま作っただけ: 記録しない
-        self.assertEqual([r for r in self.feedback() if r["start"] == 500], [])
+    def fb_at(self, start, *events):
+        return [(r["verdict"], r["src"], r["event"]) for r in self.feedback() if r["start"] == start and (not events or r["event"] in events)]
+
+    def test_manual_marks_good_bad_only_when_adopted_or_rejected(self):
+        self.put(self.marks() + [{"id": "m1", "start": 500, "end": 520}])        # 候補のまま作っただけ: good / bad は書かない(見逃しの行だけ)
+        self.assertEqual(self.fb_at(500), [("miss", "manual", "manual_add")])
         self.put([dict(m, status="adopted") if m["id"] == "m1" else m for m in self.marks()])
-        rows = [r for r in self.feedback() if r["start"] == 500]
+        rows = [r for r in self.feedback() if r["start"] == 500 and r["event"] == "adopt"]
         self.assertEqual([(r["verdict"], r["src"], r["event"]) for r in rows], [("good", "manual", "adopt")])
         self.assertNotIn("auto0", rows[0])
-        self.put([m for m in self.marks() if m["id"] != "m1"])                    # 手動の削除は記録しない
-        self.assertEqual(len([r for r in self.feedback() if r["start"] == 500]), 1)
+        self.assertEqual(len(self.fb_at(500)), 2)
 
     def test_manual_created_already_adopted_is_recorded(self):
-        self.put([{"id": "m2", "start": 700, "end": 730, "status": "adopted"}])
-        self.assertEqual([(r["verdict"], r["src"]) for r in self.feedback() if r["start"] == 700], [("good", "manual")])
+        self.put(self.marks() + [{"id": "m2", "start": 700, "end": 730, "status": "adopted"}])
+        self.assertEqual(sorted(self.fb_at(700)), [("good", "manual", "adopt"), ("miss", "manual", "manual_add")])
+
+    def test_manual_add_records_nearest_auto(self):
+        a, b, c = self.ms   # (10,40) (100,130) (200,230)、点数はどれも 5.0
+        self.put(self.ms + [{"id": "m4", "start": 135, "end": 150}])
+        row = [r for r in self.feedback() if r["event"] == "manual_add"][0]
+        self.assertEqual((row["verdict"], row["src"], row["autoCount"]), ("miss", "manual", 3))
+        self.assertEqual(row["nearAuto"], {"score": 5.0, "distance": 5.0, "start": b["start"], "end": b["end"], "status": ""})
+        self.assertNotIn("auto0", row)
+        self.put(self.marks() + [{"id": "m5", "start": 120, "end": 125}])        # 自動マークの中: 距離 0
+        row = [r for r in self.feedback() if r["event"] == "manual_add"][-1]
+        self.assertEqual(row["nearAuto"]["distance"], 0.0)
+
+    def test_manual_add_without_auto_marks(self):
+        self.put([])                                                             # 自動マークを全部消したあとに足す(同じ保存の中で消した自動マークは「その時あった」ものとして数える)
+        self.put([{"id": "m6", "start": 300, "end": 320}])
+        row = [r for r in self.feedback() if r["event"] == "manual_add"][0]
+        self.assertEqual((row["autoCount"], row["nearAuto"]), (0, None))
+
+    def test_manual_remove_recorded(self):
+        self.put(self.marks() + [{"id": "m1", "start": 500, "end": 520}])
+        self.put([m for m in self.marks() if m["id"] != "m1"])                    # 手で足した候補を消した
+        self.assertEqual(self.fb_at(500), [("miss", "manual", "manual_add"), ("unmiss", "manual", "manual_remove")])
+
+    def test_unadopt_recorded(self):
+        a = self.ms[0]
+        self.put([dict(a, status="adopted"), self.ms[1], self.ms[2]])
+        self.put([dict(m, status="") if m["id"] == a["id"] else m for m in self.marks()])
+        self.assertEqual(self.fb_at(a["start"]), [("good", "auto", "adopt"), ("retract", "auto", "unadopt")])
+        row = [r for r in self.feedback() if r["event"] == "unadopt"][0]
+        self.assertEqual(row["prevStatus"], "adopted")
+        self.put([dict(m, status="rejected") if m["id"] == a["id"] else m for m in self.marks()])   # 候補 → 不採用は今までどおり reject だけ
+        self.assertEqual([r["event"] for r in self.feedback() if r["start"] == a["start"]], ["adopt", "unadopt", "reject"])
+
+    def test_delete_judged_rejected_and_exported(self):
+        a, b, c = self.ms
+        self.put([dict(a, status="rejected"), b, c])
+        self.st.mark_exported(YT["videoId"], b["id"], "f/b.mp4", b["start"], b["end"])
+        self.put([m for m in self.marks() if m["id"] == c["id"]])                 # 不採用の a と書き出し済みの b を削除
+        rows = {r["start"]: r for r in self.feedback() if r["event"] == "delete_judged"}
+        self.assertEqual((rows[a["start"]]["prevStatus"], rows[b["start"]]["prevStatus"]), ("rejected", "exported"))
+        self.assertEqual(rows[a["start"]]["verdict"], "retract")
+
+    def test_unchanged_save_writes_nothing(self):
+        n = len(self.feedback())
+        self.put(self.marks())
+        self.assertEqual(len(self.feedback()), n)
+
+    def test_auto_adoption_is_not_recorded(self):
+        ids, _ = self.st.adopt_top(YT["videoId"], 2)
+        self.assertEqual(len(ids), 2)
+        self.assertEqual(self.feedback(), [])
+        self.st.request_marks(YT["videoId"], [[400, 420]], 1)
+        self.assertEqual(self.feedback(), [])
+
+    def test_reanalyzed_mark_keeps_auto0_in_feedback(self):
+        a = self.ms[0]
+        self.put([dict(a, status="adopted", start=a["start"] - 5), self.ms[1], self.ms[2]])
+        self.auto((10, 40), (100, 130), (300, 330))                               # 再解析: a は手動に変わる
+        kept = [m for m in self.marks() if m["status"] == "adopted"][0]
+        self.assertEqual((kept["src"], kept["auto0"] if "auto0" in kept else None, kept["auto0Orig"]), ("manual", None, a["auto0"]))
+        self.st.mark_exported(YT["videoId"], kept["id"], "f/a.mp4", kept["start"], kept["end"])
+        row = [r for r in self.feedback() if r["event"] == "export"][0]
+        self.assertEqual((row["src"], row["auto0"], row["dStart"], row["reanalyzed"]), ("manual", a["auto0"], -5.0, True))
 
     def test_events_and_edit_deltas_recorded(self):
         a, b, c = self.ms
@@ -244,11 +311,10 @@ class TestFeedback(Base):
         self.assertIn("delete", [r["event"] for r in self.feedback()])
 
     def test_manual_export_recorded_as_good(self):
-        self.put([{"id": "m3", "start": 900, "end": 960}])
+        self.put(self.marks() + [{"id": "m3", "start": 900, "end": 960}])
         self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
         self.st.mark_exported(YT["videoId"], "m3", "f/m.mp4", 900, 960)
-        rows = [r for r in self.feedback() if r["start"] == 900]
-        self.assertEqual([(r["verdict"], r["src"], r["event"]) for r in rows], [("good", "manual", "export")])
+        self.assertEqual(self.fb_at(900, "export"), [("good", "manual", "export")])
 
     def test_export_first_time_good_only(self):
         a = self.ms[0]
@@ -275,7 +341,17 @@ class TestReplaceAuto(Base):
         self.assertEqual(by[10.0]["status"], "rejected")
         self.assertEqual(by[10.0]["src"], "manual")
         self.assertNotIn("auto0", by[10.0])
+        self.assertEqual(by[10.0]["auto0Orig"], [10.0, 40.0])   # 手動に変わっても最初の自動区間は残る(3つとも)
+        self.assertEqual(by[100.0]["auto0Orig"], [100.0, 130.0])
+        self.assertEqual(by[203.0]["auto0Orig"], [200.0, 230.0])
+        self.assertNotIn("auto0Orig", by[400.0])
         self.assertEqual(by[400.0]["src"], "auto")
+        st2 = store.Store(self.path)   # 保存し直しても消えない・画面から送り直しても書き換えられない
+        self.assertEqual(st2.get(YT["videoId"])[0]["marks"], ms)
+        r = self.put([dict(m, auto0Orig=[1, 2]) if m["start"] == 10.0 else m for m in ms])
+        self.assertEqual([m for m in r["marks"] if m["start"] == 10.0][0]["auto0Orig"], [10.0, 40.0])
+        r = self.put(r["marks"] + [{"id": "mx", "start": 700, "end": 710, "auto0Orig": [1, 2]}])
+        self.assertNotIn("auto0Orig", [m for m in r["marks"] if m["id"] == "mx"][0])
         self.assertEqual(sum(1 for m in ms if abs(m["start"] - 10) < 1), 1)   # 不採用が復活して重複しない
 
     def test_exported_kept(self):

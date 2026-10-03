@@ -127,6 +127,7 @@ def _clean_server(d):
             "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
             "createdAt": ca if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0 else now_ms(),
             "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
+            "auto0Orig": _auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
             "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None}
 
 
@@ -162,6 +163,8 @@ def _build_mark(m, old, trusted=False):
         d["path"] = srv["path"]
     if srv["auto0"]:
         d["auto0"] = srv["auto0"]
+    if srv.get("auto0Orig"):
+        d["auto0Orig"] = srv["auto0Orig"]
     if srv.get("collabFrom"):
         d["collabFrom"] = srv["collabFrom"]
     return d
@@ -629,12 +632,23 @@ class Store:
             new = validate_marks(marks_raw, v["marks"])   # 1件でも不正なら 400(何も変えない)
             ids = {m["id"] for m in new}
             old_by = {m["id"]: m for m in v["marks"]}
-            # 判定を記録: 採用 = よかった / 不採用 = ちがう / 候補のまま削除 = ちがう(判定済みの削除は二重に記録しない)。
-            # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ(手動の削除は記録しない)
+            # 判定を記録: 採用 = よかった / 不採用 = ちがう / 候補のまま削除 = ちがう。
+            # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ good / bad。
+            # それとは別に、人の最終の操作を記録する(Q2。verdict は miss / unmiss / retract。analyze.FB_EXTRA_EVENTS):
+            # 手で足した = 自動の見逃し(その時いちばん近い自動マークの点数と距離つき)・手で足した候補を消した・採用を取り消した・判定済みを削除した。
+            # まとめて実行(adopt_top・request_marks)は put_video を通らないので書かれない(人の判断ではないため)
             verdicts = []
+            extras = []
             for m in v["marks"]:
-                if m["src"] == "auto" and m["id"] not in ids and m["status"] == "":
-                    verdicts.append((m, "bad", "delete"))
+                if m["id"] in ids:
+                    continue
+                if m["status"] == "":
+                    if m["src"] == "auto" or m.get("auto0Orig"):   # 候補のままの自動マーク(再解析で手動に変わったものも元は自動)
+                        verdicts.append((m, "bad", "delete"))
+                    elif m["src"] == "manual":
+                        extras.append((m, "manual_remove", {}))
+                elif m["status"] in ("adopted", "rejected", "exported"):   # 判定済みの削除(採用・不採用の記録は残っているので、取り消しとして1行足す)
+                    extras.append((m, "delete_judged", {"prevStatus": m["status"]}))
             for m in new:
                 o = old_by.get(m["id"])
                 changed = (m["status"] != o["status"]) if o is not None else (m["status"] in ("adopted", "rejected"))
@@ -643,6 +657,10 @@ class Store:
                         verdicts.append((m, "good", "adopt"))
                     elif m["status"] == "rejected":
                         verdicts.append((m, "bad", "reject"))
+                if o is None and m["src"] == "manual":
+                    extras.append((m, "manual_add", analyze.nearest_auto(v["marks"], m["start"], m["end"])))
+                elif o is not None and o["status"] in ("adopted", "exported") and m["status"] == "":
+                    extras.append((m, "unadopt", {"prevStatus": o["status"]}))
             nv = copy.deepcopy(v)
             nv["marks"] = new
             if isinstance(title, str):   # 空文字はタイトルを消す
@@ -655,6 +673,8 @@ class Store:
             analyze.feedback_for_mark(snap, m, verdict, event)
             if event == "adopt":   # コラボグループに入っていれば、他の動画へ候補として転写する
                 self._transfer_collab(vid, m)
+        for m, event, extra in extras:
+            analyze.feedback_event(snap, m, event, extra)
         return snap
 
     def adopt_top(self, vid, top):
@@ -762,7 +782,12 @@ class Store:
                     kept.append(m)
                 elif _touched(m):
                     k = dict(m, src="manual")
-                    k.pop("auto0", None)
+                    a0 = k.pop("auto0", None)
+                    if a0:
+                        # 手動に変わると auto0 が消えて「機械の最初の結果」が失われるので、マークの側に残す。
+                        # マークの側にした理由: 後の採用・書き出しの feedback の行も auto0 と手で直した量(dStart/dEnd)を持てる・
+                        # data.json とアーカイブにマークと一緒に残る(feedback の「消えた」行だと、後の行と区間で突き合わせる必要がある)
+                        k["auto0Orig"] = a0
                     kept.append(k)
             autos = []
             for c in cands:
