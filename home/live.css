@@ -17,3 +17,10 @@
 .lv-item .lv-sub{display:block;color:var(--ink-3);font-size:12.5px}
 .lv-item.playing{border-color:var(--accent, #8f6bff)}
 @media (max-width:560px){.lv-main{padding:14px 12px 40px}}
+/* P2: マークと書き出し */
+.lv-markbar{align-items:center}
+.lv-mark .lv-when{font-size:13px;white-space:nowrap}
+.lv-mark .lv-label{flex:1 1 160px;min-width:0;max-width:260px}
+.lv-mark .lv-job{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.lv-mark .lv-job .lv-sub{display:block;color:var(--ink-3);font-size:12.5px}
+.lv-mark[data-export="error"] .lv-job .lv-sub{color:var(--danger-ink, var(--danger))}

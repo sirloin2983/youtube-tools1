@@ -9,12 +9,16 @@
   - オン: 画面(CSP に media-src blob:・合言葉)・hls.js の同梱・録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・
     Sec-Fetch-Site と入口の合言葉の検査・知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)・「調子」の行
   - 見回り: 手元の録画の部品(recorder/recorder.py)を切り離して起動する → 動いている → 古い版なら終わってもらって起動し直す
+  - P2 マークと書き出し(home/live_export.py): マークの API(オフなら 404・検査・fsync した正本)・本物の録画の部品(--source direct)で
+    録画中にマーク → 録画待ち → 届いたら取得 → 30fps(30/1・長さ)→ スタジオと同じ置き場所・名前・.clip.json(source.kind live)→
+    文字起こしへ(偽のまとめて実行)・取り消し・録画が先に終わった(録れた所まで)・録画元が落ちた(失敗と理由)・欠け(要差し替え)・起動し直したらやり直す
 """
 import http.client
 import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -32,8 +36,11 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import live as LV  # noqa: E402
+import live_export as LX  # noqa: E402
 import prefs as P  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt_core import fsio, normalize, schemas  # noqa: E402
+sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+import hls_fixture as F  # noqa: E402
 
 TOKEN = "t" * 40
 
@@ -154,6 +161,8 @@ class PortalLiveTest(unittest.TestCase):
         self.srv, self.port = L.make_server(0, self.sup)
         self.sup.attach(self.srv)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.srv.live.store_dir = os.path.join(self.tmp, "live")   # マークと書き出しの記録(テストはリポジトリの中に書かない)
+        self.srv.live.out_dir = lambda: os.path.join(self.tmp, "out")
         self.fake = FakeRecorder()
 
     def tearDown(self):
@@ -192,10 +201,14 @@ class PortalLiveTest(unittest.TestCase):
 
     def test_off_is_unchanged(self):
         base = self.jreq("GET", "/no-such-thing")
-        for path in ("/live", "/live/", "/live/live.js", "/live/hls.min.js", "/live/api/info", "/live/r/local/list"):
+        for path in ("/live", "/live/", "/live/live.js", "/live/hls.min.js", "/live/api/info", "/live/r/local/list",
+                     "/live/api/marks?recorder=local&recording=20261004-000000-a", "/live/api/exports"):
             self.assertEqual(self.jreq("GET", path), base, path)   # 今までと同じ 404
         base_post = self.jreq("POST", "/api/no-such", {})
         self.assertEqual(self.jreq("POST", "/live/r/local/start", {"url": "x"}), base_post)
+        for path in ("/live/api/marks", "/live/api/export", "/live/api/export/cancel"):
+            self.assertEqual(self.jreq("POST", path, {"op": "add"}), base_post, path)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "live")))   # オフの間は作業データに何も作らない
         self.assertEqual(self.req("POST", "/live/r/local/start", {}, token=False)[0], 403)   # 合言葉の検査も今までどおり
         self.assertNotIn("live", self.jreq("GET", "/api/health")[1])
         self.assertEqual(self.srv.live.tick(), "off")   # 見回りは何もしない(録画の部品を起動しない)
@@ -263,6 +276,43 @@ class PortalLiveTest(unittest.TestCase):
         self.assertFalse(h["live"]["recorders"][0]["ok"])
         self.fake = FakeRecorder()   # tearDown で閉じる分
 
+    def test_marks_api(self):
+        self.enable()
+        rec = "20261004-000000-a"
+        q = "/live/api/marks?recorder=fake&recording=" + rec
+        code, d = self.jreq("GET", q)
+        self.assertEqual((code, d["marks"], d["exports"]), (200, [], []))
+        code, d = self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": rec, "start": "2026-10-04T06:00:00.000Z",
+                                                        "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信<b>"})
+        self.assertEqual(code, 200, d)
+        m = d["mark"]
+        self.assertEqual((m["n"], m["start"], m["end"]), (1, "2026-10-04T06:00:00.000Z", None))
+        path = os.path.join(self.tmp, "live", "marks", "fake__%s.json" % rec)
+        with open(path, encoding="utf-8") as f:   # 正本(押すたびに置き換える)
+            saved = json.load(f)
+        self.assertEqual((saved["schema"], saved["title"], len(saved["marks"])), (LX.MARKS_SCHEMA, "配信<b>", 1))
+        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec, "markId": m["id"]})
+        self.assertEqual(code, 400)   # 終了が無いと書き出せない
+        for bad in ({"op": "update", "id": m["id"], "end": "2026-10-04T05:59:59.000Z"},     # 開始より前
+                    {"op": "update", "id": m["id"], "end": "2026-10-04T07:00:01.000Z"},     # 1 時間を超える
+                    {"op": "update", "id": m["id"], "end": "x"}, {"op": "add"}, {"op": "add", "start": "2026-13-01T00:00:00Z"},
+                    {"op": "nope"}):
+            code, d = self.jreq("POST", "/live/api/marks", dict(bad, recorder="fake", recording=rec))
+            self.assertEqual(code, 400, (bad, d))
+        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "update", "id": "lm-0000000000", "recorder": "fake", "recording": rec,
+                                                               "label": "x"})[0], 404)
+        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "nope", "recording": rec, "start": m["start"]})[0], 404)
+        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": "../x", "start": m["start"]})[0], 400)
+        code, d = self.jreq("POST", "/live/api/marks", {"op": "update", "id": m["id"], "recorder": "fake", "recording": rec,
+                                                        "end": "2026-10-04T06:00:30.5Z", "label": "見どころ\n"})
+        self.assertEqual((code, d["mark"]["end"], d["mark"]["label"]), (200, "2026-10-04T06:00:30.500Z", "見どころ"), d)
+        self.assertEqual(self.req("POST", "/live/api/marks", {"op": "delete", "id": m["id"], "recorder": "fake", "recording": rec}, token=False)[0], 403)
+        code, d = self.jreq("POST", "/live/api/marks", {"op": "delete", "id": m["id"], "recorder": "fake", "recording": rec})
+        self.assertEqual((code, d["marks"]), (200, []))
+        code, d = self.jreq("GET", "/live/api/exports")
+        self.assertEqual((code, d["jobs"]), (200, []))
+        self.assertEqual(self.jreq("POST", "/live/api/export/cancel", {"id": "lx-0000000000"})[0], 404)
+
     def test_default_recorder_is_local(self):
         self.jreq("POST", "/api/ytt/prefs", {"op": "patch", "section": "live", "value": {"enabled": True}})
         code, d = self.jreq("GET", "/live/api/info")
@@ -324,6 +374,290 @@ class SpawnTest(unittest.TestCase):
         self.prefs.patch("live", {"enabled": False})
         self.assertEqual(self.live.tick(), "off")
         self.assertTrue(self.live.ping(rc))
+
+
+class FakeRunner:
+    """まとめて実行の代わり(文字起こしへ渡した動画を覚える)"""
+
+    def __init__(self):
+        self.files = []
+
+    def start_file(self, path, title="", flow="check", **kw):
+        self.files.append((path, title, flow))
+        return {"id": "run-%d" % len(self.files)}
+
+    def snapshot(self):
+        return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち"} for i in range(len(self.files))]}
+
+
+_SRC = {}
+
+
+def source(seconds=60):
+    if seconds not in _SRC:
+        d = tempfile.mkdtemp(prefix="ytt-live-src-")
+        _SRC[seconds] = (d, F.make_source(d, seconds))
+    return _SRC[seconds]
+
+
+class ExportTest(unittest.TestCase):
+    """本物の録画の部品(--source direct)で配信中のふりの HLS を録り、マーク → 書き出す"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src_dir, cls.segs = source(60)
+
+    @classmethod
+    def tearDownClass(cls):
+        for d, _ in _SRC.values():
+            shutil.rmtree(d, ignore_errors=True)
+        _SRC.clear()
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-export-")
+        self.src = F.LiveServer(self.src_dir, self.segs, start=3, rate=1.0)
+        self.src.end = False
+        self.port = free_port()
+        self.rdata = os.path.join(self.tmp, "recdata")
+        self.proc = subprocess.Popen([sys.executable, os.path.join(REPO, "recorder", "recorder.py"), "--port", str(self.port), "--data-dir", self.rdata,
+                                      "--folder", os.path.join(self.tmp, "live-rec"), "--source", "direct", "--hls-time", "1", "--quiet"],
+                                     env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        self.assertTrue(wait_for(lambda: os.path.isfile(os.path.join(self.rdata, "token.txt")), 20))
+        time.sleep(0.2)
+        with open(os.path.join(self.rdata, "token.txt"), encoding="ascii") as f:
+            token = f.read().strip()
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.prefs.patch("live", {"enabled": True, "recorders": [{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % self.port, "token": token}]})
+        self.runner = FakeRunner()
+        self.out = os.path.join(self.tmp, "out")
+        self.live = LV.Live(self.prefs, REPO, os.path.join(self.tmp, "logs"), store_dir=os.path.join(self.tmp, "live"),
+                            out_dir=lambda: self.out, runner=lambda: self.runner, spawn=False)
+        self.rc = self.live.find("local")
+        self.assertTrue(wait_for(lambda: self.live.ping(self.rc), 20))
+        self.ex = self.live.exporter
+        self.ex.poll, self.ex.down_sec = 0.3, 3.0
+
+    def tearDown(self):
+        self.live.close()
+        try:
+            for r in (self.live.call(self.rc, "GET", "/live/list")[1] or {}).get("recordings") or []:
+                if r.get("active"):
+                    self.live.call(self.rc, "POST", "/live/%s/stop" % r["id"], {}, timeout=40)
+            self.live.call(self.rc, "POST", "/live/quit", {})
+            self.proc.wait(20)
+        except Exception:
+            self.proc.kill()
+        self.src.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def start_rec(self, n=4):
+        code, d = self.live.call(self.rc, "POST", "/live/start", {"url": self.src.url, "title": "テストの配信"}, timeout=10)
+        self.assertEqual(code, 200, d)
+        rid = d["recording"]["id"]
+        self.assertTrue(wait_for(lambda: (self.live.call(self.rc, "GET", "/live/%s/status" % rid)[1] or {}).get("segments", 0) >= n, 40))
+        return rid
+
+    def status(self, rid):
+        return self.live.call(self.rc, "GET", "/live/%s/status" % rid)[1]
+
+    def mark(self, rid, start, end, label=""):
+        m, _ = self.ex.marks.apply("local", rid, {"op": "add", "start": LX.epoch_iso(start), "end": LX.epoch_iso(end), "label": label,
+                                                  "url": self.src.url, "title": "テストの配信"})
+        return m
+
+    def job(self, jid):
+        return next(j for j in self.ex.snapshot() if j["id"] == jid)
+
+    def wait_state(self, jid, states, timeout=60):
+        return wait_for(lambda: self.job(jid)["state"] in states and self.job(jid), timeout, 0.3)
+
+    def test_mark_wait_export_transcribe_cancel(self):
+        rid = self.start_rec()
+        st = self.status(rid)
+        first, last = LX.iso_epoch(st["firstPdt"]), LX.iso_epoch(st["lastPdt"])
+        # 録画中: 終わりがまだ録れていない所までのマーク → 録画待ち → 届いたら書き出す
+        a, b = first + 1.5, last + 3.0
+        m = self.mark(rid, a, b, "見どころ: 1")
+        j = self.ex.add("local", rid, m["id"], transcribe=True)
+        self.assertEqual(j["state"], "wait")
+        self.assertTrue(wait_for(lambda: "待っています" in (self.job(j["id"]).get("message") or "") or self.job(j["id"])["state"] != "wait", 10))
+        done = self.wait_state(j["id"], ("done", "error"), 90)
+        self.assertEqual(done["state"], "done", done)
+        path = done["path"]
+        self.assertTrue(os.path.isfile(path), path)
+        self.assertEqual(os.path.dirname(os.path.dirname(path)), self.out)   # 書き出し先\<配信の名前>\
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "テストの配信")
+        self.assertRegex(os.path.basename(path), r"^01_00h00m0\ds-00h00m\d\ds_見どころ_ 1\.mp4$")
+        info = normalize.probe(path)
+        self.assertTrue(normalize.is_30fps(info), info)
+        self.assertAlmostEqual(info["duration"], b - a, delta=0.1)
+        self.assertFalse([n for n in os.listdir(os.path.dirname(path)) if ".partial" in n])   # 書きかけは残さない
+        clip, warn = schemas.load_clip_file(schemas.find_clip_path(path))
+        self.assertIsNone(warn)
+        self.assertEqual(clip["source"]["kind"], "live")
+        self.assertIsNone(clip["source"]["url"])
+        self.assertEqual((clip["source"]["live"]["recording"], clip["source"]["live"]["recorder"]), (rid, "local"))
+        self.assertEqual(clip["source"]["live"]["start"], LX.epoch_iso(a))
+        self.assertAlmostEqual(clip["range"]["start"], a - LX.iso_epoch(clip["source"]["live"]["base"]), delta=0.01)
+        self.assertAlmostEqual(clip["range"]["end"] - clip["range"]["start"], b - a, delta=0.01)
+        self.assertEqual((clip["mark"]["id"], clip["mark"]["label"], clip["export"]["mode"]), (m["id"], "見どころ: 1", "precise"))
+        self.assertEqual(self.runner.files, [(path, os.path.splitext(os.path.basename(path))[0], "check")])   # 文字起こしへ(まとめて実行の文字起こしだけ)
+        self.assertEqual(done["runId"], "run-1")
+        self.assertEqual(self.job(j["id"])["tx"]["state"], "queued")
+        self.assertFalse(os.listdir(os.path.join(self.tmp, "live", "work")))   # 取ったセグメントは片付ける
+        # 文字起こしなし・同じマークをもう一度 → 別の名前
+        j2 = self.ex.add("local", rid, m["id"], transcribe=False)
+        d2 = self.wait_state(j2["id"], ("done", "error"), 90)
+        self.assertEqual(d2["state"], "done", d2)
+        self.assertNotEqual(d2["path"], path)
+        self.assertEqual(len(self.runner.files), 1)
+        # 取り消し(録画待ちの間)
+        far = self.mark(rid, last + 100, last + 110)
+        j3 = self.ex.add("local", rid, far["id"])
+        with self.assertRaises(LX.LiveError):
+            self.ex.add("local", rid, far["id"])   # 同じマークは途中のものがあれば断る
+        self.assertEqual(self.ex.cancel(j3["id"])["state"], "cancelled")
+        # 記録は exports.json に残る(起動し直しても見える)
+        again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
+        self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled"})
+
+    def test_cancel_while_encoding(self):
+        rid = self.start_rec(12)
+        st = self.status(rid)
+        first = LX.iso_epoch(st["firstPdt"])
+        m = self.mark(rid, first + 0.5, first + 10.0)
+        real = normalize.encode_args
+        with mock.patch.object(normalize, "encode_args", lambda *a, **k: [x if x != "veryfast" else "veryslow" for x in real(*a, **k)]):
+            j = self.ex.add("local", rid, m["id"])
+            self.assertTrue(self.wait_state(j["id"], ("encode", "done", "error"), 60))
+            self.ex.cancel(j["id"])
+            got = self.wait_state(j["id"], ("cancelled", "done", "error"), 30)
+        self.assertEqual(got["state"], "cancelled", got)
+        folder = os.path.join(self.out, "テストの配信")
+        self.assertFalse([n for n in os.listdir(folder) if n.endswith(".mp4")] if os.path.isdir(folder) else [])   # 書きかけも残さない
+
+    def test_recording_ended_and_recorder_down(self):
+        rid = self.start_rec()
+        self.live.call(self.rc, "POST", "/live/%s/stop" % rid, {}, timeout=40)
+        st = self.status(rid)
+        first, last = LX.iso_epoch(st["firstPdt"]), LX.iso_epoch(st["lastPdt"])
+        # 録画が先に終わった: 録れた所までで切る
+        m = self.mark(rid, first + 0.5, last + 20)
+        j = self.ex.add("local", rid, m["id"], transcribe=False)
+        d = self.wait_state(j["id"], ("done", "error"), 90)
+        self.assertEqual(d["state"], "done", d)
+        self.assertIn("録画の終わり", d["warning"])
+        self.assertAlmostEqual(normalize.probe(d["path"])["duration"], last - (first + 0.5), delta=0.15)
+        # 区間に録画が無い(録画より後)→ 失敗と理由
+        m2 = self.mark(rid, last + 30, last + 40)
+        j2 = self.ex.add("local", rid, m2["id"])
+        d2 = self.wait_state(j2["id"], ("done", "error"), 30)
+        self.assertEqual(d2["state"], "error")
+        self.assertIn("届きませんでした", d2["error"])
+        # 録画元が落ちた → 録画待ちのまま down_sec 秒 → 失敗と理由
+        self.live.call(self.rc, "POST", "/live/quit", {})
+        self.proc.wait(20)
+        m3 = self.mark(rid, first + 1, first + 3)
+        j3 = self.ex.add("local", rid, m3["id"])
+        d3 = self.wait_state(j3["id"], ("done", "error"), 30)
+        self.assertEqual(d3["state"], "error", d3)
+        self.assertIn("つながりませんでした", d3["error"])
+
+
+class ExportPiecesTest(unittest.TestCase):
+    tearDownClass = ExportTest.tearDownClass   # lavfi の HLS(source)を片付ける
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-pieces-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_names_like_studio(self):
+        self.assertEqual(LX.compact_ts(3725.9), "01h02m05s")
+        self.assertEqual(LX.safe_name('a/b:c*?"<>|%d', 30), "a_b_c_d")
+        self.assertEqual(LX.video_id_of("https://www.youtube.com/watch?v=abcdefghijk"), "abcdefghijk")
+        self.assertEqual(LX.video_id_of("https://youtu.be/abcdefghij-"), "abcdefghij-")
+        self.assertEqual(LX.video_id_of("https://www.youtube.com/@x/live", "20261004-000000-ab-defghijk"), "ab-defghijk")
+        self.assertEqual(LX.video_id_of("http://127.0.0.1:1/live.m3u8", "20261004-000000-a1b2c3"), "")
+        root = os.path.join(self.tmp, "out")
+        os.makedirs(root)
+        p1 = LX.pick_folder(root, "配信:1", "abcdefghijk")
+        self.assertEqual(os.path.basename(p1), "配信_1")
+        self.assertEqual(LX.pick_folder(root, "配信:1", "abcdefghijk"), p1)        # 同じ配信は同じフォルダ
+        self.assertEqual(os.path.basename(LX.pick_folder(root, "配信:1", "live-x")), "配信_1_2")   # 同じ名前の別の配信とは混ぜない
+        with open(os.path.join(p1, schemas.WORK_DIR, ".studio-id"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "abcdefghijk")   # スタジオと同じ持ち主の印
+        open(os.path.join(p1, "01_x.mp4"), "wb").close()
+        os.makedirs(os.path.join(p1, schemas.WORK_DIR), exist_ok=True)
+        open(os.path.join(p1, schemas.WORK_DIR, "01_x_2_edit.mp4"), "wb").close()
+        self.assertEqual(LX.unique_base("01_x", p1), "01_x_3")
+
+    def test_restart_resets_running_jobs(self):
+        folder = os.path.join(self.tmp, "live")
+        os.makedirs(os.path.join(folder, "work", "lx-0123456789"))
+        jobs_ = [{"id": "lx-0123456789", "state": "encode", "recorder": "local", "recording": "20261004-000000-a", "markId": "lm-0123456789"},
+                 {"id": "lx-9876543210", "state": "done", "recorder": "local", "recording": "20261004-000000-a", "markId": "lm-0123456789"},
+                 {"id": "bad", "state": "wait"}]
+        fsio.write_json(os.path.join(folder, "exports.json"), {"schema": LX.JOBS_SCHEMA, "jobs": jobs_})
+        ex = LX.Exporter(mock.Mock(), folder, lambda: self.tmp)
+        self.assertEqual([(j["id"], j["state"]) for j in ex.jobs], [("lx-0123456789", "wait"), ("lx-9876543210", "done")])
+        self.assertIn("やり直します", ex.jobs[0]["message"])
+        self.assertFalse(os.path.exists(os.path.join(folder, "work")))   # 前回の取りかけは消す
+        self.assertTrue(ex.pending())
+
+    def test_encode_across_sessions(self):
+        """繋ぎ直しをまたぐ(欠けは無い)区間: セッションごとのファイルを concat でつないで、区間の長さ・30/1 で書き出す"""
+        src_dir, segs = source(60)
+        folder = os.path.join(self.tmp, "live")
+        ex = LX.Exporter(mock.Mock(), folder, lambda: os.path.join(self.tmp, "out"))
+        wdir = os.path.join(folder, "work", "lx-0000000001")
+        os.makedirs(wdir)
+        files = []
+        for k, part in enumerate((segs[2:5], segs[5:9])):
+            p = os.path.join(wdir, "part_%02d.ts" % k)
+            with open(p, "wb") as f:
+                for name, _ in part:
+                    with open(os.path.join(src_dir, name), "rb") as g:
+                        f.write(g.read())
+            files.append((p, "session_%03d" % (k + 1)))
+        a = LX.iso_epoch("2026-10-04T06:00:00Z")
+        seg_list = [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": LX.epoch_iso(a - 0.5), "dur": 1.0}]
+        job = {"id": "lx-0000000001", "n": 3, "label": "", "recorder": "local", "recording": "20261004-000000-a"}
+        d = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "またぐ", "firstPdt": LX.epoch_iso(a - 60)}
+        out, tmp = ex._encode(job, {"id": "local"}, job["recording"], d, seg_list, files, a, a + 5.0, wdir)
+        self.assertIsNone(tmp)
+        self.assertTrue(normalize.is_30fps(out))
+        self.assertAlmostEqual(out["duration"], 5.0, delta=0.1)
+        self.assertEqual(os.path.basename(out["path"]), "03_00h01m00s-00h01m05s.mp4")   # 名前の時刻は録画の頭(firstPdt)からの秒
+        self.assertEqual(os.path.basename(os.path.dirname(out["path"])), "またぐ")
+
+    def test_gap_means_needs_archive(self):
+        """区間に欠け(繋ぎ直しの間)があれば、書き出さずに「要差し替え」"""
+        folder = os.path.join(self.tmp, "live")
+        live = mock.Mock()
+        live.find.return_value = {"id": "local", "name": "この PC"}
+        live.recorders.return_value = [{"id": "local", "name": "この PC"}]
+        ex = LX.Exporter(live, folder, lambda: os.path.join(self.tmp, "out"))
+        m, _ = ex.marks.apply("local", "20261004-000000-a", {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:20Z"})
+        job = ex.add("local", "20261004-000000-a", m["id"])
+        ex.close()   # 見回りは止めて、ここで1本だけ動かす
+        ex._halt.clear()
+        ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "state": "recording", "active": True, "lastPdt": "2026-10-04T06:10:00.000Z",
+               "firstPdt": "2026-10-04T05:00:00.000Z", "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001",
+                                                                     "pdt": "2026-10-04T05:59:58.000Z", "dur": 4.0}],
+               "gaps": [{"from": "2026-10-04T06:00:02.000Z", "to": "2026-10-04T06:00:12.000Z", "sec": 10.0}]}
+        with mock.patch.object(ex, "_query", return_value=(200, ans)):
+            j = ex.jobs[0]
+            self.assertIs(ex._next_ready(), j)
+            ex._process(j)
+        self.assertEqual(j["state"], "error")
+        self.assertTrue(j["needsArchive"])
+        self.assertIn("要差し替え", j["error"])
+        self.assertIn("06:00:02", j["error"])
+        live.request.assert_not_called()   # 欠けのある録画は取りに行かない
+        self.assertEqual(job["id"], j["id"])
 
 
 if __name__ == "__main__":

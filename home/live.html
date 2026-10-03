@@ -11,7 +11,7 @@
 <script src="live.js" defer></script>
 </head>
 <body>
-<!-- リアルタイム切り抜き(線 D の P1。home/live.py)。録画元(recorder/)へは入口の /live/r/<録画元>/… を通す。ホームの設定でオンのときだけ開ける -->
+<!-- リアルタイム切り抜き(線 D の P1・P2。home/live.py・home/live_export.py)。録画元(recorder/)へは入口の /live/r/<録画元>/… を通す。ホームの設定でオンのときだけ開ける -->
 <header class="ui-header">
   <nav class="ui-appnav" data-ui-appnav="portal" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver">リアルタイム切り抜き(試験中)</span>
@@ -21,7 +21,7 @@
 
 <main class="lv-main">
   <h1 class="lv-h1">リアルタイム切り抜き(試験中)</h1>
-  <p class="hint">配信を録画しながら、録画済みの所を再生・シークできます。いまは録画と再生だけです(マークと書き出しは次の段)。
+  <p class="hint">配信を録画しながら、録画済みの所を再生・シークして、区間をマークして書き出せます(30fps。書き出したら文字起こしへ)。
     録画はホームを終えても続きます。</p>
 
   <section class="card flat lv-box" id="recBox">
@@ -74,6 +74,22 @@
     </div>
     <video id="player" class="lv-video" controls playsinline></video>
     <p class="hint" id="playerMsg" role="status"></p>
+    <div class="row lv-markbar" id="markBar">
+      <button type="button" class="btn small" id="markIn" title="再生している所から始まるマークを付ける(保存はすぐ)">開始 <kbd class="ui-kbd">I</kbd></button>
+      <button type="button" class="btn small" id="markOut" title="開始だけのマークの終わりを、再生している所にする">終了 <kbd class="ui-kbd">O</kbd></button>
+      <button type="button" class="btn small" id="markQuick" title="再生している所までの直前の秒数をマークにする">直前 <span id="quickSec">30</span> 秒 <kbd class="ui-kbd">N</kbd></button>
+      <label class="lag"><input type="checkbox" id="autoExport"> 終了をマークしたら書き出す</label>
+      <label class="lag"><input type="checkbox" id="autoTx"> 書き出したら文字起こしへ</label>
+    </div>
+    <p class="hint" id="markMsg" role="status"></p>
+  </section>
+
+  <section class="card flat lv-box" id="marksBox" hidden>
+    <div class="row"><b class="grow">マークと書き出し</b><span class="hint" id="marksFor"></span></div>
+    <p class="hint">マークは押すたびにホームの作業データへ保存します。書き出しは、終わりの時刻まで録画が届くのを待ってから、
+      録画元から区間のセグメントを取り、30fps に作り直して、スタジオの書き出し先(配信の名前のフォルダ)に置きます。</p>
+    <p class="hint" id="marksEmpty">まだマークはありません。再生しながら I(開始)・O(終了)・N(直前の秒数)で付けます。</p>
+    <ol class="lv-list" id="marks"></ol>
   </section>
 
   <section class="card flat lv-box" id="listBox">

@@ -45,7 +45,7 @@
 }
 ```
 - `range` は**元の配信**の秒。切り抜きの中の時刻 `t` は、元の配信では `range.start + t`(fast 書き出しでキーフレームにずれた場合は `export.actualStart` があればそれを優先。**2026-10-04(Q1)から書き出しはいつも 30fps に作り直すので位置ちょうど・actualStart は付かない**。以前の切り抜きのために読む側は残す)
-- `source.kind` は `youtube` か `file`。`file` のときは `path` に元のファイル、`videoId` は内部のID
+- `source.kind` は `youtube` か `file`(2026-10-04 から、リアルタイム切り抜き(線 D・既定オフ)の書き出しは `live`: range は録画の最初のセグメントの受信時刻からの秒・絶対時刻と録画の素性は `source.live`・`url` は null(アーカイブの秒とずれるため)。`home/live_export.py`)。`file` のときは `path` に元のファイル、`videoId` は内部のID
 - 秘密情報(API キーなど)や、元動画以外の個人のパスは入れない
 
 ### 2.2 `youtube-tools-transcript/v1` — 文字起こしの結果(文字起こしツールが書く)

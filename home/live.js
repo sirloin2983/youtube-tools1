@@ -1,4 +1,6 @@
-/* リアルタイム切り抜き(試験中)の画面(線 D の P1。home/live.py・recorder/)。
+/* リアルタイム切り抜き(試験中)の画面(線 D の P1・P2。home/live.py・home/live_export.py・recorder/)。
+   P2: 再生しながら I(開始)・O(終了)・N(直前の秒数)でマーク → 入口の api/marks に保存(押すたびに fsync)→ 書き出し(api/export。録画待ち → 取得 → 30fps → 検証 → 文字起こしへ)。
+   マークの時刻は hls.js の playingDate(録画元の受信時刻 = 絶対時刻)。
    録画元への要求はすべて入口の中継 r/<録画元>/<残り>(同じオリジン。合言葉は入口が付ける)。書き込み(POST)は入口の合言葉 X-YTT-Token。
    再生は hls.js(home/vendor/hls.min.js を同梱。CSP script-src 'self' のまま)。Web Worker は使わない(CSP に worker-src を足さないため) */
 (function () {
@@ -9,6 +11,9 @@
   var GB = 1024 * 1024 * 1024;
   var info = null, rid = null, listData = null, pollTimer = null, busy = false;
   var hls = null, playing = null, clockTimer = null;
+  var JOB_PILL = { wait: 'wait', fetch: 'run', encode: 'run', done: 'ok', error: 'err', cancelled: 'warn' };
+  var QUICK_SEC = 30;
+  var markData = null, markBusy = false, markSeq = 0;
 
   function $(s) { return document.querySelector(s); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -128,6 +133,7 @@
     api(rpath('list')).then(function (d) {
       listData = d; err('');
       renderRecorder(d, null); renderList(d);
+      return loadMarks();
     }, function (e) {
       if (e.status === 404 && !listData) { err('リアルタイム切り抜きはオフです。ホームの「詳しく」→「試験中の機能」でオンにしてください。'); }
       renderRecorder(null, e);
@@ -161,6 +167,7 @@
     clearInterval(clockTimer);
     var v = $('#player'); v.removeAttribute('src'); try { v.load(); } catch (e) { /* 空にするだけ */ }
     playing = null; $('#playerBox').hidden = true;
+    markData = null; $('#marksBox').hidden = true;
     if (listData) renderList(listData);
   }
 
@@ -197,6 +204,9 @@
       $('#playerClock').textContent = d ? '再生位置の時刻 ' + fmtTime(d.toISOString()) : '';
     }, 500);
     renderList(listData);
+    $('#marksBox').hidden = false; $('#marksFor').textContent = r.title || r.url || r.id;
+    $('#markMsg').textContent = '';
+    loadMarks();
   }
 
   function goLive() {
@@ -204,6 +214,143 @@
     if (hls && hls.liveSyncPosition != null) v.currentTime = hls.liveSyncPosition;
     else if (v.seekable && v.seekable.length) v.currentTime = v.seekable.end(v.seekable.length - 1) - 1;
     v.play().catch(function () { /* ▶ で */ });
+  }
+
+  /* ---------------- マークと書き出し(P2) ---------------- */
+  function curRec() { return ((listData && listData.recordings) || []).filter(function (x) { return x.id === playing; })[0] || {}; }
+  function fmtClock(iso) {
+    var d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  function nowIso() {
+    var d = hls && hls.playingDate;
+    return d && !isNaN(d) ? d.toISOString() : null;
+  }
+  function markMsg(t) { $('#markMsg').textContent = t || ''; }
+
+  function loadMarks() {
+    if (!playing || !rid) return Promise.resolve();
+    var want = playing, seq = ++markSeq;
+    return api('api/marks?recorder=' + encodeURIComponent(rid) + '&recording=' + encodeURIComponent(want)).then(function (d) {
+      if (want !== playing || seq !== markSeq) return;
+      markData = d; renderMarks();
+    }, function (e) { if (want === playing) markMsg('マークを読めませんでした: ' + e.message); });
+  }
+
+  function jobFor(mid) { return ((markData && markData.exports) || []).filter(function (j) { return j.markId === mid; })[0] || null; }
+
+  function renderMarks() {
+    var ol = $('#marks'), marks = ((markData && markData.marks) || []).slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+    if (document.activeElement && document.activeElement.getAttribute('data-label-of')) return;   // ラベルを入力している間は描き直さない(入力が消えないように)
+    ol.textContent = '';
+    $('#marksEmpty').hidden = !!marks.length;
+    marks.forEach(function (m) {
+      var j = jobFor(m.id), active = !!j && (j.state === 'wait' || j.state === 'fetch' || j.state === 'encode');
+      var li = el('li', 'lv-item lv-mark');
+      li.setAttribute('data-mark', m.id);
+      li.setAttribute('data-export', j ? j.state : '');
+      li.appendChild(el('span', 'pill', '#' + m.n));
+      var len = m.end ? (new Date(m.end) - new Date(m.start)) / 1000 : null;
+      li.appendChild(el('span', 'num lv-when', fmtClock(m.start) + ' 〜 ' + (m.end ? fmtClock(m.end) + '(' + fmtDur(len) + ')' : '終了待ち')));
+      var lab = el('input', 'lv-label'); lab.type = 'text'; lab.maxLength = 80; lab.placeholder = 'ラベル'; lab.value = m.label || '';
+      lab.setAttribute('data-label-of', m.id); lab.setAttribute('aria-label', 'マーク #' + m.n + ' のラベル');
+      lab.addEventListener('change', function () { updateMark(m.id, { label: lab.value }); });
+      lab.addEventListener('keydown', function (e) { if (e.key === 'Enter') lab.blur(); });
+      li.appendChild(lab);
+      var st = el('span', 'lv-job');
+      if (j) {
+        st.appendChild(el('span', 'pill ' + (JOB_PILL[j.state] || 'wait'), j.stateLabel + (active && j.progress ? ' ' + Math.round(j.progress * 100) + '%' : '')));
+        var detail = j.state === 'error' ? j.error : j.state === 'done' ? (j.path || '') : (j.message || '');
+        if (j.state === 'done' && j.tx) detail += '(文字起こし: ' + (j.tx.label || j.tx.state) + (j.tx.state === 'error' && j.tx.message ? ' ' + j.tx.message : '') + ')';
+        if (j.warning) detail += (detail ? '。' : '') + j.warning;
+        if (detail) st.appendChild(el('span', 'lv-sub', detail));
+      }
+      li.appendChild(st);
+      if (active) {
+        var cancel = el('button', 'btn small', '取り消し'); cancel.type = 'button';
+        cancel.addEventListener('click', function () { cancelJob(j.id, cancel); });
+        li.appendChild(cancel);
+      } else if (m.end) {
+        var ex = el('button', 'btn small' + (j ? '' : ' primary'), j && j.state === 'done' ? 'もう一度書き出す' : j ? 'やり直す' : '書き出す'); ex.type = 'button';
+        ex.addEventListener('click', function () { exportMark(m.id); });
+        li.appendChild(ex);
+      }
+      var del = el('button', 'btn small ghost', '削除'); del.type = 'button';
+      del.addEventListener('click', function () {
+        if (!window.confirm('マーク #' + m.n + ' を消しますか?(書き出した動画は消えません)')) return;
+        postMark({ op: 'delete', id: m.id }).then(function () { toast('マークを消しました'); }, function () {});
+      });
+      li.appendChild(del);
+      ol.appendChild(li);
+    });
+  }
+
+  function postMark(body) {
+    if (!playing || !rid) return Promise.reject(new Error('再生している録画がありません'));
+    var r = curRec();
+    body.recorder = rid; body.recording = playing;
+    if (body.op === 'add') { body.url = r.url || ''; body.title = r.title || ''; }
+    if (markBusy) { markMsg('保存の途中です。少し待ってからもう一度押してください'); return Promise.reject(new Error('保存の途中です')); }
+    markBusy = true;
+    return api('api/marks', 'POST', body).then(function (j) {
+      markBusy = false;
+      if (markData) markData.marks = j.marks; else markData = { marks: j.marks, exports: [] };
+      renderMarks();
+      return j;
+    }, function (e) { markBusy = false; markMsg('保存できませんでした: ' + e.message); throw e; });
+  }
+  function updateMark(id, fields) { fields.op = 'update'; fields.id = id; return postMark(fields).catch(function () { /* 知らせは markMsg */ }); }
+
+  function openMark() {
+    var ms = ((markData && markData.marks) || []).filter(function (m) { return !m.end; });
+    return ms.sort(function (a, b) { return a.created < b.created ? 1 : -1; })[0] || null;
+  }
+
+  function markIn() {
+    var t = nowIso();
+    if (!t) { markMsg('再生している所の時刻が取れません(再生を始めてから押してください)'); return; }
+    postMark({ op: 'add', start: t }).then(function (j) { markMsg('開始をマークしました(#' + j.mark.n + ')。終わりで O を押します'); }, function () {});
+  }
+  function markOut() {
+    var t = nowIso(), m = openMark();
+    if (!t) { markMsg('再生している所の時刻が取れません(再生を始めてから押してください)'); return; }
+    if (!m) { markMsg('先に I で開始をマークしてください'); return; }
+    postMark({ op: 'update', id: m.id, end: t }).then(function (j) {
+      markMsg('マーク #' + j.mark.n + ' を付けました');
+      if ($('#autoExport').checked) exportMark(j.mark.id);
+    }, function () {});
+  }
+  function markQuick() {
+    var t = nowIso();
+    if (!t) { markMsg('再生している所の時刻が取れません(再生を始めてから押してください)'); return; }
+    var start = new Date(new Date(t).getTime() - QUICK_SEC * 1000).toISOString();
+    postMark({ op: 'add', start: start, end: t }).then(function (j) {
+      markMsg('直前 ' + QUICK_SEC + ' 秒をマークしました(#' + j.mark.n + ')');
+      if ($('#autoExport').checked) exportMark(j.mark.id);
+    }, function () {});
+  }
+  function exportMark(mid) {
+    api('api/export', 'POST', { recorder: rid, recording: playing, markId: mid, transcribe: $('#autoTx').checked }).then(function () {
+      toast('書き出しを頼みました(録画が届くのを待ってから作ります)');
+      loadMarks();
+    }, function (e) { markMsg('書き出せません: ' + e.message); });
+  }
+  function cancelJob(id, btn) {
+    btn.disabled = true;
+    api('api/export/cancel', 'POST', { id: id }).then(function () { toast('取り消しました'); loadMarks(); },
+      function (e) { toast('取り消せませんでした: ' + e.message, 'err'); btn.disabled = false; });
+  }
+
+  /* キー: 共通の再生キー(UIKit.keys.playback。Space・J/K/L・← →・I/O)+ N(直前の秒数)。再生している録画があるときだけ */
+  var playbackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
+    media: function () { return $('#player'); }, enabled: function () { return !!playing; }, onIn: markIn, onOut: markOut
+  }) : null;
+  function onKey(e) {
+    if (playbackKeys && playbackKeys(e)) return;
+    if (!playing || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (window.UIKit && UIKit.keys && UIKit.keys.isTyping(e.target)) return;
+    if (!playbackKeys && (e.key === 'i' || e.key === 'o')) { e.preventDefault(); (e.key === 'i' ? markIn : markOut)(); return; }
+    if (e.key === 'n' && !e.repeat) { e.preventDefault(); markQuick(); }
   }
 
   /* ---------------- 置き場所 ---------------- */
@@ -223,6 +370,15 @@
     $('#playerClose').addEventListener('click', closePlayer);
     $('#playerLive').addEventListener('click', goLive);
     $('#folderSave').addEventListener('click', saveFolder);
+    $('#markIn').addEventListener('click', markIn);
+    $('#markOut').addEventListener('click', markOut);
+    $('#markQuick').addEventListener('click', markQuick);
+    $('#quickSec').textContent = String(QUICK_SEC);
+    [['autoExport', 'auto-export'], ['autoTx', 'auto-tx']].forEach(function (p) {
+      var box = $('#' + p[0]); box.checked = lsGet(p[1]) !== '0';
+      box.addEventListener('change', function () { lsSet(p[1], box.checked ? '1' : '0'); });
+    });
+    document.addEventListener('keydown', onKey);
     $('#folderInput').addEventListener('input', function () { this.dataset.dirty = '1'; $('#folderMsg').textContent = ''; });
     $('#recPick').addEventListener('change', function () { rid = this.value; lsSet('recorder', rid); closePlayer(); listData = null; poll(); });
     if (window.UIKit && UIKit.life) UIKit.life.onReturn(function () { poll(); });

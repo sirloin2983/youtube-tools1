@@ -10,6 +10,9 @@ AI 向けの決まり。計画は `docs/plan/live-clipping-plan.md`(**0. 10-04 �
 - ブラウザは録画の部品へ直接つながない(Origin・Sec-Fetch-Site がある要求は 403)。画面は入口の `/live/r/<録画元>/…` の中継を通す
   (同じオリジン・CSP `script-src 'self'`・入口の合言葉のまま。CORS は要らない)。入口とスタジオは「録画元の一覧」(設定 `live.recorders`)を通して読む
 - `rec_core.py` が録画の中身(セッション・再生リスト・繋ぎ直し・起動時の復旧)、`recorder.py` が HTTP と起動
+- P2(マークと書き出し)は入口の側(`home/live_export.py`。マークの正本・書き出しのジョブ)。この部品は「区間の取得」
+  `GET /live/<id>/segments?start=&end=`(UTC の時刻。区間にかかるセグメント `{uri, session, pdt, dur}`・欠け `gaps`・`lastPdt`・`active`)と
+  セグメント本体を返すだけ(書き出し・作り直しはしない = 2台のときもノート PC は録るだけ)。欠けの規則は `rec_core.pick_segments`(GAP_TOL 秒より空いたら欠け)
 
 ## 決めたこと(2026-10-04)
 - 録画は `-c copy` の HLS(`-hls_playlist_type event`・`temp_file+program_date_time`)。時刻は受信時刻(PDT)を UTC にそろえて返す
@@ -18,6 +21,7 @@ AI 向けの決まり。計画は `docs/plan/live-clipping-plan.md`(**0. 10-04 �
 - 配信の終わりの見分け: streamlink は切断でも終了コード 0 で終わる。記録に `No new segments`・`Reloading failed` が無い 0 だけを「終わり」とする(8.6.1 で確かめた)。
   `--stream-types hls` で、終わった配信(アーカイブ)を取りに行かない。それでも実際の時間の 3 倍より速く取れたらアーカイブとみなして止める
 - 置き場所のドライブが無いときは作業データの中へ逃がさない(画面で案内)。空きが 1GB を切ったら録画を止める。自動では消さない
+- API を足したら版を上げる(入口の見回りが、録画中でなければ新しい版で起動し直す。古い版のままだと新しい API が 404 になる)
 
 ## テストの実行(リポジトリ直下から)
 - `py -3.10 -m unittest recorder/tests/test_recorder.py`(ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出し、

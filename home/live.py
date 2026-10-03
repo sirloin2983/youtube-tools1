@@ -7,6 +7,11 @@
   GET  /live/api/info                 録画元の一覧(名前・URL。合言葉は出さない)・録画の置き場所の設定
   GET|POST /live/r/<録画元>/<残り>    録画元(recorder/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
                                        例: /live/r/local/list・/live/r/local/start・/live/r/local/<録画>/index.m3u8・…/session_001/seg_000000.ts
+  GET  /live/api/marks?recorder=&recording=   録画1本のマークと書き出し(P2。中身は home/live_export.py)
+  POST /live/api/marks   {op: add|update|delete, recorder, recording, id?, start?, end?, label?, url?, title?}  マーク(押すたびに fsync)
+  GET  /live/api/exports                 書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し)
+  POST /live/api/export  {recorder, recording, markId, transcribe}   書き出しを頼む(録画待ち → 取得 → 30fps → 検証 → 文字起こしへ)
+  POST /live/api/export/cancel  {id}     取り消し
   検査は入口の API と同じ(Host・Sec-Fetch-Site。POST は Origin と入口の合言葉 X-YTT-Token も。launch.py の do_GET / do_POST が先に通す)
 
 録画元の一覧(設定 live.recorders。空 = 手元の1つ「この PC」http://127.0.0.1:8730)を通して読む: 2台(P5)のときは一覧に1行足すだけ。
@@ -28,6 +33,7 @@ import time
 import urllib.parse
 
 from ytt_core import datadir
+import live_export  # noqa: E402  (マークと書き出し。P2)
 import mount as mount_mod  # noqa: E402  (入口と同じ合言葉を画面に渡す)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -61,10 +67,33 @@ def is_local_url(url):
         return False
 
 
+def studio_out_dir(root):
+    """スタジオの書き出し先(スタジオの settings.json の outDir。無ければスタジオの作業データの exports。読むだけ。launch.py の _extra_dirs と同じ)"""
+    sdir = datadir.resolve("studio", root)
+    try:
+        with open(os.path.join(sdir, "settings.json"), "r", encoding="utf-8") as f:
+            st = json.load(f)
+        out = st.get("outDir") if isinstance(st, dict) else None
+        if isinstance(out, str) and out and os.path.isabs(out):
+            return out
+    except (OSError, ValueError):
+        pass
+    return os.path.join(sdir, "exports")
+
+
 class Live:
-    def __init__(self, prefs, root, logs_dir, log=None, python=None, data_dir=None, watch_sec=WATCH_SEC, spawn=True):
-        """prefs: home/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)"""
+    def __init__(self, prefs, root, logs_dir, log=None, python=None, data_dir=None, watch_sec=WATCH_SEC, spawn=True,
+                 store_dir=None, out_dir=None, runner=None):
+        """prefs: home/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
+        store_dir: マークと書き出しの記録(既定 入口の作業データの live)。out_dir(): 書き出し先(既定 スタジオの書き出し先)。
+        runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)"""
         self.prefs, self.root, self.logs_dir = prefs, root, logs_dir
+        self.store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
+        self.out_dir = out_dir or (lambda: studio_out_dir(self.root))
+        self.runner = runner or (lambda: getattr(self._server, "autorun", None) if self._server is not None else None)
+        self._server = None
+        self._exporter = None
+        self._ex_lock = threading.Lock()
         self.log = log or (lambda m: None)
         self.python = python or sys.executable
         self.data_dir = data_dir or recorder_data_dir(root)
@@ -98,6 +127,14 @@ class Live:
 
     def find(self, rid):
         return next((r for r in self.recorders() if r.get("id") == rid), None)
+
+    @property
+    def exporter(self):
+        """マークと書き出し(home/live_export.py)。オンにして初めて使うときに作る(オフの間は作業データに何も作らない)"""
+        with self._ex_lock:
+            if self._exporter is None:
+                self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log)
+            return self._exporter
 
     def local_token(self):
         try:
@@ -176,6 +213,19 @@ class Live:
             h._send(200, body, TYPES[os.path.splitext(name)[1]],
                     {"Content-Security-Policy": PAGE_CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
             return True
+        if u.path in ("/live/api/marks", "/live/api/exports"):
+            self._server = h.server
+            q = urllib.parse.parse_qs(u.query)
+            try:
+                if u.path == "/live/api/exports":
+                    return h._json(200, {"jobs": self.exporter.snapshot()}) or True
+                rc, rec = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0]
+                d = self.exporter.marks.load(rc, rec)
+                h._json(200, {"marks": d["marks"], "title": d.get("title") or "", "url": d.get("url") or "",
+                              "exports": self.exporter.snapshot(rc, rec)})
+            except live_export.LiveError as e:
+                h._fail(e.code, "bad_request" if e.code == 400 else "not_found" if e.code == 404 else "error", str(e))
+            return True
         if u.path == "/live/api/info":
             cfg = self.cfg()
             h._json(200, {"enabled": True, "folder": cfg.get("folder") or "", "defaultFolder": DEFAULT_FOLDER,
@@ -192,12 +242,34 @@ class Live:
         """POST /live…(入口の合言葉・Origin の検査と本文の読み取りは launch.py が済ませてある)。オフなら False"""
         if not self.enabled():
             return False
+        if u.path.startswith("/live/api/"):
+            self._server = h.server
+            self._api_post(h, u.path, body)
+            return True
         m = RELAY_RE.match(u.path)
         if m and ".." not in m.group(2) and "//" not in m.group(2):
             self._relay(h, "POST", m.group(1), m.group(2), "", body)
             return True
         h._fail(404, "not_found", "その操作はありません")
         return True
+
+    def _api_post(self, h, path, body):
+        """マークと書き出し(P2)"""
+        ex = self.exporter
+        try:
+            if path == "/live/api/marks":
+                rc, rec = body.get("recorder"), body.get("recording")
+                if self.find(rc) is None:
+                    raise live_export.LiveError("その録画元はありません", 404)
+                m, marks = ex.marks.apply(rc, rec, body)
+                return h._json(200, {"mark": m, "marks": marks})
+            if path == "/live/api/export":
+                return h._json(200, {"job": ex.add(body.get("recorder"), body.get("recording"), body.get("markId"), body.get("transcribe") is not False)})
+            if path == "/live/api/export/cancel":
+                return h._json(200, {"job": ex.cancel(body.get("id"))})
+        except live_export.LiveError as e:
+            return h._fail(e.code, "bad_request" if e.code == 400 else "not_found" if e.code == 404 else "conflict" if e.code == 409 else "error", str(e))
+        h._fail(404, "not_found", "その操作はありません")
 
     def _relay(self, h, method, rid, rest, query="", body=None):
         rc = self.find(rid)
@@ -255,6 +327,8 @@ class Live:
         """入口の終了: 見回りだけ止める(録画の部品は止めない = 入口を起動し直しても録画は続く。計画の 0-3)"""
         self._halt.set()
         self.wake.set()
+        if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
+            self._exporter.close()
 
     def _watch(self):
         while not self._halt.is_set():
@@ -271,6 +345,8 @@ class Live:
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
+        if os.path.isfile(os.path.join(self.store_dir, "exports.json")) and self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける
+            self.exporter.start()
         local = next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
         if local is None:
             return "off"

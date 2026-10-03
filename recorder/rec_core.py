@@ -63,6 +63,9 @@ ARCHIVE_SPEED = 3.0            # 実際の時間のこれ倍より速く取れ�
 TITLE_MAX = 200
 URL_MAX = 500
 PLAYLIST_MAX = 16 * 1024 * 1024
+GAP_TOL = 1.0                  # 区間のセグメントの間がこれより空いていたら「欠け」(P2 の書き出し。PDT の揺れは 0.1 秒ほど)
+RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
+SEGMENTS_MAX = 5000
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -96,6 +99,43 @@ def pdt_epoch(pdt):
         return datetime.datetime.strptime(pdt, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=datetime.timezone.utc).timestamp()
     except (TypeError, ValueError):
         return None
+
+
+def iso_epoch(s):
+    """画面・入口から来た UTC の時刻(2026-10-04T06:30:12.345Z / ミリ秒なし / +00:00)→ epoch 秒。読めなければ None"""
+    if not isinstance(s, str) or len(s) > 40:
+        return None
+    t = s.strip().replace("+00:00", "Z")
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.datetime.strptime(t, fmt).replace(tzinfo=datetime.timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def epoch_iso(e):
+    return datetime.datetime.fromtimestamp(e, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def pick_segments(flat, start, end, tol=GAP_TOL):
+    """区間 [start, end)(epoch 秒)にかかるセグメントと欠け(P2 の書き出しの「取得」。計画の 6 の segments_for)。
+    flat: [{"uri", "pdt", "dur", …}](pdt は UTC の "…Z")。-> (時刻順のセグメント, 欠け [(from, to)])。
+    欠け = 区間の中で、どのセグメントにも入っていない tol 秒より長い所(繋ぎ直しの間・まだ録れていない終わり・録画の前の頭)"""
+    segs = []
+    for s in flat:
+        e = pdt_epoch(s.get("pdt"))
+        if e is not None and e < end and e + s["dur"] > start:
+            segs.append((e, s))
+    segs.sort(key=lambda x: x[0])
+    gaps, cursor = [], start
+    for e, s in segs:
+        if e - cursor > tol:
+            gaps.append((cursor, e))
+        cursor = max(cursor, e + s["dur"])
+    if end - cursor > tol:
+        gaps.append((cursor, end))
+    return [s for _, s in segs], gaps
 
 
 def validate_url(url, allow_local=False):
@@ -395,6 +435,24 @@ class Recording:
             out["since"] = since
             out["segmentList"] = flat[since:since + 5000]
         return out
+
+    def segments_in(self, start, end):
+        """区間の取得(P2 の書き出し。GET /live/<id>/segments)。start・end は UTC の文字列。
+        -> {"id", "url", "title", "state", "active", "firstPdt", "lastPdt", "start", "end", "segments": [{"uri", "session", "pdt", "dur"}], "gaps": […]}"""
+        a, b = iso_epoch(start), iso_epoch(end)
+        if a is None or b is None or b <= a:
+            raise RecError("区間(start・end)の時刻が正しくありません")
+        if b - a > RANGE_MAX_SEC:
+            raise RecError("区間が長すぎます(%d 時間まで)" % (RANGE_MAX_SEC // 3600))
+        s = self.summary()
+        flat = [dict(x, uri="%s/%s" % (n, x["uri"]), session=n) for n, segs in self.all_segments() for x in segs]
+        picked, gaps = pick_segments(flat, a, b)
+        if len(picked) > SEGMENTS_MAX:
+            raise RecError("セグメントが多すぎます")
+        return {"id": self.id, "url": s["url"], "title": s["title"], "state": s["state"], "active": s["active"], "message": s["message"],
+                "firstPdt": s["firstPdt"], "lastPdt": s["lastPdt"], "start": epoch_iso(a), "end": epoch_iso(b),
+                "segments": [{"uri": x["uri"], "session": x["session"], "pdt": x["pdt"], "dur": x["dur"]} for x in picked],
+                "gaps": [{"from": epoch_iso(f), "to": epoch_iso(t), "sec": round(t - f, 3)} for f, t in gaps]}
 
     def segment_path(self, session, name):
         if not SESSION_RE.match(session or "") or not SEG_RE.match(name or ""):

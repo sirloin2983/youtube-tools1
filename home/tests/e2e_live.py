@@ -11,6 +11,9 @@
   2. オンにする → リンクが出る → 録画の画面: 録画元につながる・置き場所と空き容量
   3. 録画を始める → 一覧に「録画中」→ 再生(hls.js): 再生リストを読めた・セグメントを読めた・致命的なエラーなし。
      Edge(H.264 を再生できる)があれば、実際に再生が進む・シークできることまで(Playwright 同梱の chromium は H.264 を再生できない)
+  3b. P2 マークと書き出し: 再生しながら I → O(Edge。chromium では API でマーク)→「終了をマークしたら書き出す」で
+     録画待ち → 取得 → 30fps → 済み(30/1・長さ・.clip.json の source.kind live)→ 文字起こしへ(偽のまとめて実行)・N(直前の秒数)・
+     ラベルの変更・録画待ちの取り消し・マークの削除
   4. 停止(確認の窓)→「停止」・終わった録画も再生できる
   5. 置き場所を無いドライブにする → 案内が出て「録画を始める」は押せない
   6. 狭い画面で横にはみ出さない・コンソールのエラーなし
@@ -40,6 +43,7 @@ sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
 import launch as L  # noqa: E402
 import hls_fixture as F  # noqa: E402
+from ytt_core import normalize, schemas  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
 
@@ -51,6 +55,11 @@ def wait_js(pg, expr, timeout=20000):
             return True
         time.sleep(0.15)
     return False
+
+
+def datetime_of(iso):
+    from datetime import datetime
+    return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%S.%fZ").timestamp()
 
 
 def missing_drive():
@@ -97,6 +106,21 @@ def main():
         rtoken = f.read().strip()
     # 録画元の一覧(この部品だけ。オンにするのは画面のスイッチで)
     srv.prefs.patch("live", {"recorders": [{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % rport, "token": rtoken}]})
+    # 書き出し(P2): 記録・書き出し先は一時フォルダ・文字起こしへは偽のまとめて実行
+    out_dir = os.path.join(tmp, "out")
+    srv.live.store_dir = os.path.join(tmp, "live")
+    srv.live.out_dir = lambda: out_dir
+    handed = []
+
+    class FakeRunner:
+        def start_file(self, path, title="", flow="check", **kw):
+            handed.append((path, flow))
+            return {"id": "run-%d" % len(handed)}
+
+        def snapshot(self):
+            return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち"} for i in range(len(handed))]}
+    fake_runner = FakeRunner()
+    srv.live.runner = lambda: fake_runner
 
     errors, notfound = [], []
     try:
@@ -165,6 +189,67 @@ def main():
                 else:
                     err = pg.evaluate("document.getElementById('player').getAttribute('data-error')") or ""
                     check(not err or "codec" in err.lower() or "buffer" in err.lower(), "致命的なエラーは H.264 を再生できないことだけ: %s" % err)
+                # 3b. マークと書き出し(P2)
+                check(pg.evaluate("document.getElementById('marksBox').hidden") is False, "再生するとマークの欄が出る")
+                check(pg.evaluate("document.getElementById('autoExport').checked && document.getElementById('autoTx').checked"),
+                      "既定: 終了をマークしたら書き出す・文字起こしへ")
+                if edge:
+                    pg.evaluate("document.activeElement && document.activeElement.blur(); document.getElementById('player').play().catch(() => {})")   # 入力欄の外で・再生しながら
+                    pg.keyboard.press("i")
+                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "I で開始のマーク: %s" % pg.text_content("#markMsg"))
+                    check("終了待ち" in pg.text_content("#marks"), "開始だけのマークは「終了待ち」")
+                    time.sleep(3)
+                    pg.keyboard.press("o")
+                else:   # chromium は H.264 を再生できない(再生位置の時刻が取れない)ので、録画の時刻で API から付けて「書き出す」を押す
+                    rec_id = pg.evaluate("document.querySelector('.lv-item[data-state=\"recording\"]').getAttribute('data-rec')")
+                    st = json.loads(urllib.request.urlopen(urllib.request.Request(
+                        "http://127.0.0.1:%d/live/%s/status" % (rport, rec_id), headers={"Authorization": "Bearer " + rtoken}), timeout=5).read())
+                    from datetime import datetime, timedelta
+                    t0 = datetime.strptime(st["firstPdt"], "%Y-%m-%dT%H:%M:%S.%fZ")
+                    iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (d.microsecond // 1000)
+                    pg.evaluate("""([rec, a, b]) => fetch('api/marks', {method: 'POST', headers: {'Content-Type': 'application/json',
+                        'X-YTT-Token': document.querySelector('meta[name="ytt-token"]').content},
+                        body: JSON.stringify({op: 'add', recorder: 'local', recording: rec, start: a, end: b})}).then(r => r.status)""",
+                                [rec_id, iso(t0 + timedelta(seconds=0.5)), iso(t0 + timedelta(seconds=3.5))])
+                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "マークが一覧に出る")
+                    pg.click("#marks .lv-mark button:has-text('書き出す')")
+                check(wait_js(pg, "(() => { const li = document.querySelector('#marks .lv-mark'); return li && li.getAttribute('data-export') === 'done'; })()", 90000),
+                      "録画待ち → 取得 → 30fps → 済み: %s / %s" % (pg.evaluate("(document.querySelector('#marks .lv-mark') || {}).textContent"),
+                                                              pg.text_content("#markMsg")))
+                if not srv.live.exporter.jobs:
+                    raise SystemExit("書き出しのジョブができませんでした")
+                jobs = srv.live.exporter.snapshot()
+                done = [j for j in jobs if j["state"] == "done"]
+                if done:
+                    info = normalize.probe(done[0]["path"])
+                    check(normalize.is_30fps(info), "書き出した動画は 30/1: %s" % (info or {}).get("r_frame_rate"))
+                    want = (datetime_of(done[0]["end"]) - datetime_of(done[0]["start"]))
+                    check(abs((info or {}).get("duration", 0) - want) <= 0.1, "長さが区間と同じ: %s / %s" % ((info or {}).get("duration"), want))
+                    clip, warn = schemas.load_clip_file(schemas.find_clip_path(done[0]["path"]))
+                    check(clip and clip["source"]["kind"] == "live", ".clip.json の source.kind は live: %s" % warn)
+                    check(os.path.dirname(os.path.dirname(done[0]["path"])) == out_dir, "スタジオの書き出し先の配信の名前のフォルダ: %s" % done[0]["path"])
+                    check(handed == [(done[0]["path"], "check")], "文字起こしへ渡した(まとめて実行の文字起こしだけ): %s" % handed)
+                    check(wait_js(pg, "/文字起こし: 待ち/.test(document.getElementById('marks').textContent)", 10000), "画面に文字起こしの状態")
+                pg.fill("#marks .lv-mark .lv-label", "見どころ")
+                pg.press("#marks .lv-mark .lv-label", "Enter")
+                time.sleep(0.8)
+                labels = [m.get("label") for m in srv.live.exporter.marks.load("local", srv.live.exporter.jobs[0]["recording"])["marks"]]
+                check(labels == ["見どころ"], "ラベルを保存: %s" % labels)
+                if edge:   # N = 直前の秒数(自動で書き出さないようにして)
+                    pg.click("#autoExport")
+                    pg.evaluate("document.activeElement && document.activeElement.blur(); document.getElementById('player').play().catch(() => {})")
+                    pg.keyboard.press("n")
+                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 2", 10000), "N で直前の秒数のマーク: %s" % pg.text_content("#markMsg"))
+                    pg.click("#autoExport")
+                    pg.click("#marks .lv-mark[data-export=''] button:has-text('削除')")
+                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "マークを消せる")
+                # 録画待ちの取り消し(まだ録れていない先の時刻のマークを API で付けて、画面で取り消す)
+                rec_id = srv.live.exporter.jobs[0]["recording"]
+                far, _ = srv.live.exporter.marks.apply("local", rec_id, {"op": "add", "start": "2099-01-01T00:00:00Z", "end": "2099-01-01T00:00:10Z"})
+                srv.live.exporter.add("local", rec_id, far["id"], transcribe=False)
+                check(wait_js(pg, "!!document.querySelector('#marks .lv-mark[data-export=\"wait\"]')", 10000), "録画待ちの札")
+                pg.click("#marks .lv-mark[data-export=\"wait\"] button:has-text('取り消し')")
+                check(wait_js(pg, "!!document.querySelector('#marks .lv-mark[data-export=\"cancelled\"]')", 10000), "取り消せる")
                 if a.shots:
                     os.makedirs(a.shots, exist_ok=True)
                     pg.screenshot(path=os.path.join(a.shots, "live-recording.png"), full_page=True)
@@ -212,6 +297,7 @@ def main():
         except Exception:
             rproc.kill()
         live_src.close()
+        srv.live.close()
         srv.shutdown()
         srv.server_close()
         patch.stop()

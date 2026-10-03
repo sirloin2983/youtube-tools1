@@ -7,7 +7,8 @@
 確かめること: 再生リストの読み書き・URL の検査・置き場所(無いドライブ・空き容量)・書きかけの片付け /
 録画 → 切断 → 繋ぎ直し(新しいセッション・#EXT-X-DISCONTINUITY)→ 停止(#EXT-X-ENDLIST)/ 配信の終わり /
 起動時の復旧(書きかけを消す・読めないセッション・中断 → 新しいセッションで続ける)/
-HTTP: 合言葉なしは 403・Host の検査・ブラウザからの直接は 403・セグメントと再生リスト・パスの検査・置き場所の変更・終わる
+HTTP: 合言葉なしは 403・Host の検査・ブラウザからの直接は 403・セグメントと再生リスト・パスの検査・置き場所の変更・終わる /
+P2: 区間にかかるセグメントと欠け(pick_segments・GET /live/<id>/segments)
 """
 import http.client
 import json
@@ -87,6 +88,27 @@ class TestPieces(unittest.TestCase):
         self.assertNotIn("#EXT-X-ENDLIST", out)
         self.assertIn("#EXT-X-TARGETDURATION:4", out)
         self.assertIn("#EXT-X-ENDLIST", R.build_playlist([("session_001", segs)], finished=True))
+
+    def test_pick_segments(self):
+        base = R.iso_epoch("2026-10-04T06:00:00Z")
+        flat = [{"uri": "s1/a", "pdt": R.epoch_iso(base + i * 4), "dur": 4.0} for i in range(5)]               # 0〜20 秒
+        flat += [{"uri": "s2/b", "pdt": R.epoch_iso(base + 30 + i * 4), "dur": 4.0} for i in range(3)]         # 30〜42 秒(繋ぎ直しの間 20〜30)
+        segs, gaps = R.pick_segments(flat, base + 5, base + 15)
+        self.assertEqual([s["pdt"] for s in segs], [R.epoch_iso(base + 4), R.epoch_iso(base + 8), R.epoch_iso(base + 12)])
+        self.assertEqual(gaps, [])
+        segs, gaps = R.pick_segments(flat, base + 18, base + 33)
+        self.assertEqual(len(segs), 2)
+        self.assertEqual(gaps, [(base + 20, base + 30)])                    # 繋ぎ直しの間
+        segs, gaps = R.pick_segments(flat, base + 40, base + 50)
+        self.assertEqual(gaps, [(base + 42, base + 50)])                    # まだ録れていない終わり
+        segs, gaps = R.pick_segments(flat, base - 10, base + 2)
+        self.assertEqual(gaps, [(base - 10, base)])                         # 録画の前
+        flat2 = [dict(flat[0]), dict(flat[1], pdt=R.epoch_iso(base + 4.5))]   # 受信時刻の揺れ(1 秒より短い)は欠けにしない
+        self.assertEqual(R.pick_segments(flat2, base, base + 8)[1], [])
+        self.assertEqual(R.iso_epoch("2026-10-04T06:00:00.250Z"), base + 0.25)
+        self.assertEqual(R.iso_epoch("2026-10-04T06:00:00+00:00"), base)
+        for bad in (None, "", "2026-10-04 06:00:00", "x" * 50, 5):
+            self.assertIsNone(R.iso_epoch(bad))
 
     def test_validate_url(self):
         for ok in ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/live/dQw4w9WgXcQ",
@@ -434,6 +456,23 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(code, 409)
         code, _ = self.call("POST", "/live/config", {"folder": os.path.join(self.tmp, "other")})   # 録画中は置き場所を変えない
         self.assertEqual(code, 409)
+        # 区間の取得(P2): 区間にかかるセグメント・欠け・録画済みの最後の時刻
+        first, last = R.iso_epoch(st["firstPdt"]), R.iso_epoch(st["lastPdt"])
+        q = "/live/%s/segments?start=%s&end=%s" % (rid, R.epoch_iso(first + 0.5), R.epoch_iso(first + 2.5))
+        code, sg = self.call("GET", q)
+        self.assertEqual(code, 200, sg)
+        self.assertTrue(sg["active"])
+        self.assertEqual(sg["url"], self.srv.url)
+        self.assertGreaterEqual(len(sg["segments"]), 2)
+        self.assertEqual(sg["gaps"], [])
+        self.assertTrue(all(x["uri"].startswith("session_001/seg_") and x["session"] == "session_001" for x in sg["segments"]))
+        self.assertLessEqual(R.iso_epoch(sg["segments"][0]["pdt"]), first + 0.5)
+        code, sg = self.call("GET", "/live/%s/segments?start=%s&end=%s" % (rid, R.epoch_iso(last + 100), R.epoch_iso(last + 110)))
+        self.assertEqual((code, sg["segments"], len(sg["gaps"])), (200, [], 1))   # まだ録れていない
+        for bad in ("start=x&end=y", "start=%s&end=%s" % (R.epoch_iso(first + 5), R.epoch_iso(first)),
+                    "start=%s&end=%s" % (R.epoch_iso(first), R.epoch_iso(first + 4 * 3600)), ""):
+            self.assertEqual(self.call("GET", "/live/%s/segments?%s" % (rid, bad))[0], 400, bad)
+        self.assertEqual(self._raw("GET", q)[0], 403)   # 合言葉なし
         code, d = self.call("POST", "/live/%s/stop" % rid, {})
         self.assertEqual(code, 200)
         self.assertEqual(d["recording"]["state"], "stopped")

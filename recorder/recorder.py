@@ -14,6 +14,7 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p
   POST /live/<id>/stop  {}                 手で止める
   GET  /live/<id>/status?since=N           録画の状態・セッション・セグメント(N 個目から)
+  GET  /live/<id>/segments?start=&end=    区間(UTC の時刻)にかかるセグメント(uri・pdt・dur)と欠け・録画済みの最後の時刻(P2 の書き出し)
   GET  /live/<id>/index.m3u8              全セッションをつないだ再生リスト(Cache-Control: no-cache)
   GET  /live/<id>/<session>/<seg>.ts       セグメント
   GET  /live/config ・ POST /live/config {folder}  録画の置き場所(録画中は変えられない)
@@ -47,7 +48,7 @@ from ytt_core import datadir, fsio, httpsec  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.1.0"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = "0.2.0"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -217,6 +218,12 @@ class Handler(BaseHTTPRequestHandler):
         if rest == "status":
             q = urllib.parse.parse_qs(u.query)
             return self._json(200, r.summary(detail=True, since=(q.get("since") or ["0"])[0]))
+        if rest == "segments":   # 区間にかかるセグメントと欠け(入口の書き出しの「録画待ち」と「取得」。P2)
+            q = urllib.parse.parse_qs(u.query)
+            try:
+                return self._json(200, r.segments_in((q.get("start") or [""])[0], (q.get("end") or [""])[0]))
+            except rec_core.RecError as e:
+                return self._fail(e.code, "bad_request", str(e))
         if rest == "index.m3u8":
             return self._send(200, r.playlist().encode("utf-8"), "application/vnd.apple.mpegurl", {"Cache-Control": "no-cache"})
         parts = rest.split("/")
