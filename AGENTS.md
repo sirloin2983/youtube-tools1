@@ -147,7 +147,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 
 ## 動作環境(ユーザーの PC)
 - Windows。このリポジトリは PC 上の `C:\dev\youtube-tools` にある(2026-09-30 まで `Desktop\youtube-test`)
-- CPU は Intel Core i9-13900KF、メモリ 32GB。GPU は **AMD Radeon RX 7800 XT**(16GB)(NVIDIA ではないので CUDA は使えない → faster-whisper は CPU で動く。GPU 前提の提案をしない)
+- CPU は Intel Core i9-12900KF(2026-10-04 に確認。以前の i9-13900KF はよく落ちたので替えた)、メモリ 32GB。GPU は **AMD Radeon RX 7800 XT**(16GB)(NVIDIA ではないので CUDA は使えない → faster-whisper は CPU で動く。GPU 前提の提案をしない)
 - Python・ffmpeg はインストール済み(`setup\install.bat`・リポジトリ直下の start.bat を使う)。**動かすのは Python 3.10**(`py -3.10`。faster-whisper 1.2.1・sherpa-onnx 1.13.8 などは 3.10 に入っている。
   版は `setup/requirements*.txt` に固定。段10-3 = 2026-10-01)。start.bat・install*.bat・home/start_hidden.vbs は `py -3.10` → `py -3` → `python` の順に選ぶ。
   **2026-10-03 に Windows を入れ直した**(作業データ `%LOCALAPPDATA%\youtube-tools\` は消えて、新しく作り直されている。10-03 から入口が `D:\backup\youtube-tools-data` へ自動でバックアップする = `docs/spec/data-location.md`)。入れ直しのあとは、miniconda は無い。Python は py ランチャーの 3.10.11(winget で入れた)と 3.12(普通の Python。`py` の既定。追加の部品は入れていない)。動かすのも、テストを流す(e2e を含む)のも 3.10。

@@ -53,7 +53,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   **毎回作る合言葉 `--api-key`**(llama.cpp は CORS をすべて許すので、付けないと同じ PC のブラウザのページから呼べる)・`-t 8`(24 だとこの PC で起動中によく落ちた)・`-lv 4`(GPU に載ったかの行 `offloaded n/m layers to GPU` を `_check_gpu` が見る。黙って CPU にしない)・
   ワーカーが落ちても server が残らないよう Windows のジョブオブジェクト(`_kill_on_close_job`。閉じたら中を終わらせる)・答えは `/v1/chat/completions` に音声(wav の base64)と assistant の先書き「language Japanese<asr_text>」→ `q3_parse`。
   server が落ちていたら起動し直して区切りを1回だけやり直す(`_decode` → `_ask` の `server_down`)。テスト: `tests/test_qwen3.py`(偽の server `tests/fake_llama_server.py`)
-  **この PC(13900KF)ではネイティブの部品の読み込み・起動がまれに落ちる**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す。測った結果は計画の「4回目の結果」
+  **この PC(当時の 13900KF。10-04 に 12900KF に替えた)ではネイティブの部品の読み込み・起動がまれに落ちた**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す。測った結果は計画の「4回目の結果」
 
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
 - 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(aliases = 呼び名・common = 普通の言葉と重なる呼び名・
