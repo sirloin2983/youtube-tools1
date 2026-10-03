@@ -5,27 +5,38 @@
 
 - 写す先: 設定(home/prefs.py の節 backup)の folder の下の `youtube-tools-data\\<ツールID>\\…`(作業データと同じ形。戻すときはそのまま写し戻す)
 - 写すもの: 作り直せないもの(文字起こしと校正・カット・スタジオの data.json とマーク・採用の記録・設定・声の登録・パックの記録・案件)。
-  写さないもの(SKIP_DIRS・SKIP_SUFFIX): キャッシュ・一時ファイル・ログ・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)
+  写さないもの(SKIP_DIRS・SKIP_SUFFIX): キャッシュ・一時ファイル・ログ・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
+  例外: `transcribe\\bin\\whisper.cpp-*`(作り直すのに Visual Studio が要るので写す。llama.cpp などダウンロードし直せるものは写さない)。
+  評価用の音声 `transcribe\\eval-audio\\` は写す(SKIP に入れない。作り直せない)
 - 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。**写す先のファイルは消さない**
   (作業データで消したもの・壊れて空になったものに、バックアップを合わせて消さないため。古い分はたまる)。上書きされるファイルは、
   その日の最初の1回だけ `.prev` の名前で1つ前を残す(data.json などが壊れた形で上書きされても1つ前へ戻せる)
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
+- 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)のほかに、**変わったらすぐ写す**: 写す対象のファイルが前回の写し始めより新しく更新され、
+  最後の変更から QUIET 秒(保存が続いている間は待つ)たっていれば、間隔を待たずに写す(CHECK_EVERY ごとに見る)
+- 写し戻し: `restore_once`(コマンド `py -3.10 home/backup.py --restore <folder>`)。手順は docs/spec/data-location.md の「写し戻しの手順」
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
 """
+import argparse
 import datetime
 import json
 import os
 import shutil
+import sys
 import threading
 import time
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
 FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動・以前の場所からのコピーとぶつけない)
-CHECK_EVERY = 600          # 時間が来たかを見る間隔(秒)
+CHECK_EVERY = 180          # 時間が来たか・変わったかを見る間隔(秒)
+QUIET = 120                # 最後の変更からこの秒数たってから、変わった分を写す(校正の保存が続いている間は待つ)
 SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__"}
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
 SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
+KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
+NOISY = (STATE_FILE, ".running.json")   # 写す対象だが「変わった」の判定には使わない(写すたびに・ジョブのたびに書き換わる)
+PREV_SUFFIX = ".prev"
 MAX_ERRORS = 20
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "running": "写しています…", "error": "止まっています"}
 
@@ -47,10 +58,11 @@ def skip(name, is_dir):
 
 
 def plan(source):
-    """写す候補を順に返す: (作業データからの相対パス, 大きさ, 更新時刻)。シンボリックリンクはたどらない"""
-    stack = [""]
+    """写す候補を順に返す: (作業データからの相対パス, 大きさ, 更新時刻)。シンボリックリンクはたどらない。
+    transcribe\\bin の下は whisper.cpp- で始まるフォルダだけ入り、その中はフォルダ名で除かない(build の bin\\Release などの名前でも写す)"""
+    stack = [("", None)]   # (相対パス, 入り方) None = ふつう / "bin" = whisper.cpp- のフォルダだけ / "keep" = フォルダ名で除かない
     while stack:
-        rel = stack.pop()
+        rel, mode = stack.pop()
         try:
             entries = sorted(os.scandir(os.path.join(source, rel)), key=lambda e: e.name)
         except OSError:
@@ -61,13 +73,32 @@ def plan(source):
                     continue
                 r = os.path.join(rel, e.name)
                 if e.is_dir(follow_symlinks=False):
-                    if not skip(e.name, True):
-                        stack.append(r)
-                elif e.is_file(follow_symlinks=False) and not skip(e.name, False):
+                    low = e.name.lower()
+                    if mode == "bin":
+                        if low.startswith(KEEP_BIN_PREFIX):
+                            stack.append((r, "keep"))
+                    elif mode == "keep":
+                        stack.append((r, "keep"))
+                    elif low == "bin" and rel.lower() == "transcribe":
+                        stack.append((r, "bin"))
+                    elif not skip(e.name, True):
+                        stack.append((r, None))
+                elif mode != "bin" and e.is_file(follow_symlinks=False) and not skip(e.name, False):
                     st = e.stat(follow_symlinks=False)
                     yield r, st.st_size, st.st_mtime
             except OSError:
                 continue
+
+
+def latest_change(source):
+    """写す対象のファイルの、いちばん新しい更新時刻(無ければ None)。NOISY の名前は数えない"""
+    newest = None
+    for rel, _size, mtime in plan(source):
+        if os.path.basename(rel).lower() in NOISY:
+            continue
+        if newest is None or mtime > newest:
+            newest = mtime
+    return newest
 
 
 def same(dst, size, mtime):
@@ -209,9 +240,17 @@ class Backup:
                 self.log("バックアップ: " + self.message)
             self.wake.wait(self.check_every)
 
+    def changed(self, cfg):
+        """前回の写し始めより新しく更新された対象があり、最後の変更から QUIET 秒たっているか(まだ写したことが無いときは due が決める)"""
+        base = self.last.get("started", self.last.get("ok"))
+        if not isinstance(base, (int, float)) or self.last.get("folder") != cfg.get("folder"):
+            return False
+        newest = latest_change(self.source)
+        return newest is not None and newest > base and self.clock() - newest >= QUIET
+
     def due(self, cfg):
         ok = self.last.get("ok")
-        return not isinstance(ok, (int, float)) or self.clock() - ok >= float(cfg.get("everyHours") or 24) * 3600 \
+        return not isinstance(ok, (int, float)) or self.clock() - ok >= float(cfg.get("everyHours") or 1) * 3600 \
             or self.last.get("folder") != cfg.get("folder")
 
     def tick(self):
@@ -224,7 +263,7 @@ class Backup:
         if not cfg.get("enabled"):
             self.state, self.message = "off", "" if cfg.get("folder") else "バックアップ先のフォルダを決めて、オンにしてください"
             return None
-        if not force and not self.due(cfg):
+        if not force and not self.due(cfg) and not self.changed(cfg):
             if self.state != "error":
                 self.state = "idle"
             return None
@@ -240,7 +279,9 @@ class Backup:
                 self.log("バックアップ: " + str(e))
                 return None
             now = self.clock()
-            self.last = {"ok": now, "tried": now, "folder": cfg.get("folder"), "dest": r["dest"], "copied": r["copied"], "same": r["same"],
+            # started: 次の「変わった」の基準。写せなかったファイルがあれば進めない(静かになってから、もう一度写す)
+            started = t0 if not r["errors"] else self.last.get("started", 0.0)
+            self.last = {"ok": now, "tried": now, "started": started, "folder": cfg.get("folder"), "dest": r["dest"], "copied": r["copied"], "same": r["same"],
                          "bytes": r["bytes"], "errors": r["errors"], "seconds": round(now - t0, 1)}
             self._save_state()
             self.state = "idle"
@@ -256,3 +297,117 @@ class Backup:
                     lastOk=int(ok * 1000) if isinstance(ok, (int, float)) else None, dest=self.last.get("dest"),
                     copied=self.last.get("copied"), same=self.last.get("same"), bytes=self.last.get("bytes"),
                     errors=list(self.last.get("errors") or [])[:MAX_ERRORS])
+
+
+def _walk_backup(root):
+    """バックアップ側の (相対パス, 大きさ, 更新時刻)。`.prev`(1つ前の控え)と途中のファイルは数えない。シンボリックリンクはたどらない"""
+    stack = [""]
+    while stack:
+        rel = stack.pop()
+        try:
+            entries = sorted(os.scandir(os.path.join(root, rel)), key=lambda e: e.name)
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_symlink():
+                    continue
+                r = os.path.join(rel, e.name)
+                if e.is_dir(follow_symlinks=False):
+                    stack.append(r)
+                elif e.is_file(follow_symlinks=False) and not e.name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in e.name.lower():
+                    st = e.stat(follow_symlinks=False)
+                    yield r, st.st_size, st.st_mtime
+            except OSError:
+                continue
+
+
+def _put(src, dst):
+    """一時的な名前へ写してから改名(写し戻し用。1つ前は残さない)"""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    tmp = "%s%s%d" % (dst, SKIP_MARK, os.getpid())
+    try:
+        shutil.copy2(src, tmp)
+        os.replace(tmp, dst)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def restore_once(folder, target, stop=None, dry_run=False):
+    """`<folder>\\youtube-tools-data\\` から target(作業データ)へ、無い・違うファイルを写し戻す。
+    -> {"copied", "same", "newer", "bytes", "errors": [..], "source"}。newer = target のほうが新しいので上書きしなかった数。
+    `.prev` は写さない・シンボリックリンクはたどらない・target のファイルは消さない。dry_run なら写さずに数だけ(copied = 写すことになる数)。
+    場所が正しくないときは ValueError"""
+    if not folder or not os.path.isabs(folder):
+        raise ValueError("バックアップのフォルダを絶対パスで指定してください")
+    src_root = os.path.join(os.path.abspath(folder), DEST_NAME)
+    if not os.path.isdir(src_root):
+        raise ValueError("バックアップが見つかりません(%s)" % src_root)
+    if not target:
+        raise ValueError("写し戻す先(作業データ)が決まっていません")
+    target = os.path.abspath(target)
+    if _inside(src_root, target) or _inside(target, src_root):
+        raise ValueError("バックアップと写し戻す先が重なっています")
+    out = {"copied": 0, "same": 0, "newer": 0, "bytes": 0, "errors": [], "source": src_root}
+    for rel, size, mtime in _walk_backup(src_root):
+        if stop is not None and stop():
+            break
+        dst = os.path.join(target, rel)
+        if same(dst, size, mtime):
+            out["same"] += 1
+            continue
+        try:
+            if os.path.exists(dst) and os.stat(dst).st_mtime > mtime + 2.0:   # target のほうが新しい(バックアップのあとで直した)
+                out["newer"] += 1
+                continue
+            if not dry_run:
+                _put(os.path.join(src_root, rel), dst)
+            out["copied"] += 1
+            out["bytes"] += size
+        except OSError as e:
+            if len(out["errors"]) < MAX_ERRORS:
+                out["errors"].append("%s: %s" % (rel, e.strerror or e.__class__.__name__))
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="作業データのバックアップの写し戻し(入口を止めてから。docs/spec/data-location.md)")
+    ap.add_argument("--restore", metavar="FOLDER", required=True, help="バックアップ先のフォルダ(その下の youtube-tools-data から写し戻す)")
+    ap.add_argument("--target", metavar="DIR", help="写し戻す先(既定: 作業データの本物の場所)")
+    ap.add_argument("--yes", action="store_true", help="確認を聞かない")
+    a = ap.parse_args(argv)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    target = a.target
+    if not target:
+        from ytt_core import datadir
+        target = datadir.data_root()
+    try:
+        r = restore_once(a.restore, target, dry_run=True)
+    except ValueError as e:
+        print("できません: %s" % e)
+        return 2
+    print("写し戻し元: %s\n写し戻す先: %s" % (r["source"], os.path.abspath(target)))
+    print("写す %d 個(%.1f MB)・同じ %d 個・写す先のほうが新しいので上書きしない %d 個" % (r["copied"], r["bytes"] / 1048576.0, r["same"], r["newer"]))
+    for m in r["errors"]:
+        print("  読めない: " + m)
+    if not r["copied"]:
+        print("写すものはありません。")
+        return 0
+    if not a.yes and input("入口を止めてありますか。写し戻しますか? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("やめました。")
+        return 1
+    r = restore_once(a.restore, target)
+    print("写し戻しました: %d 個(%.1f MB)・上書きしなかった %d 個・失敗 %d 個" % (r["copied"], r["bytes"] / 1048576.0, r["newer"], len(r["errors"])))
+    for m in r["errors"]:
+        print("  失敗: " + m)
+    return 0 if not r["errors"] else 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1111,6 +1111,12 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertEqual(r["_status"], 200, r)
         self.assertLess(self.call("GET", "/api/transcript?id=" + tid)["relinks"][-1]["diffSec"], -2)
 
+    def test_eval_audio_status_api(self):
+        """GET /api/eval-audio: 評価用のフォルダが無ければ何も作らず、状態だけ返す"""
+        r = self.call("GET", "/api/eval-audio")
+        self.assertEqual(r["_status"], 200, r)
+        self.assertEqual((r["enabled"], r["made"], r["gone"], r["failed"], r["lastError"]), (False, 0, 0, 0, None))
+
     def test_rejects(self):
         tid, src = self.make_doc("断る.mkv")
         inside = os.path.join(self.tmp, "作業データの中.mkv")   # サーバーの作業データ(inplace = 写したフォルダ)の中
@@ -1179,6 +1185,45 @@ class TestEvalFolder(StoreDir):
         self.put_doc(doc_obj(sourcePath="C:\\x\\clip.mp4", evalSet=True))
         S.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
         self.assertNotIn("evalSet", self.doc())   # フォルダの外は今までどおり外せる
+
+    def test_unset_eval_dirs_stops_eval_named_folder(self):
+        """評価用のフォルダの設定が消えている(空)のに、フォルダ名に「評価用」を含む動画を文字起こし・付け替えしようとしたら止める(master-plan Q0)"""
+        other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        folder = os.path.join(other, "評価用データ", "評価用_仮置き")
+        os.makedirs(folder)
+        p = os.path.join(folder, "x.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x")
+        plain = os.path.join(other, "切り抜き", "y.mp4")
+        os.makedirs(os.path.dirname(plain))
+        with open(plain, "wb") as f:
+            f.write(b"x")
+        self.put_doc(doc_obj(sourcePath=plain))
+        for unset in ({}, {"evalDirs": []}, {"evalDirs": "壊れた"}):
+            write_json(S.SETTINGS, unset)
+            with self.assertRaises(S.ApiError) as cm:
+                S.validate_job({"sourcePath": p})
+            self.assertEqual((cm.exception.code, cm.exception.status), ("eval_dir_unset", 400))
+            self.assertIn("評価用のフォルダ", cm.exception.message)
+            with self.assertRaises(S.ApiError) as cm:
+                S.relink_check({"id": TID, "path": p})
+            self.assertEqual(cm.exception.code, "eval_dir_unset")
+            self.assertIn("付け替え", cm.exception.message)
+            self.assertEqual(S.validate_job({"sourcePath": plain})["evalSet"], False)   # 名前に「評価用」が無い動画は今までどおり
+            self.assertTrue(S.validate_job({"sourcePath": p, "evalSet": True})["evalSet"])   # 評価用として始めるなら学習用に混ざらないので通す
+        # 設定があれば今までどおり(そのフォルダの外でも、名前だけでは止めない)
+        write_json(S.SETTINGS, {"evalDirs": [os.path.join(other, "評価用データ")]})
+        self.assertTrue(S.validate_job({"sourcePath": p})["evalSet"])
+        write_json(S.SETTINGS, {"evalDirs": [self.ev]})
+        self.assertFalse(S.validate_job({"sourcePath": p})["evalSet"])
+        # すでに評価用の文書の付け替えは止めない(評価用のまま動かすだけ)
+        write_json(S.SETTINGS, {})
+        self.put_doc(doc_obj(sourcePath=plain, evalSet=True))
+        try:
+            S.relink_check({"id": TID, "path": p})
+        except S.ApiError as e:
+            self.assertNotEqual(e.code, "eval_dir_unset")
 
     def test_organize_names_numbers_and_relinks(self):
         old = self.video("配信の切り抜き.mp4", 2000)

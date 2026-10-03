@@ -119,6 +119,7 @@ def relink_check(obj):
     tid = str(obj.get("id") or "")
     doc = ed_store.read_transcript(tid)
     p = relink_path(obj.get("path"))
+    eval_name_guard(p, doc.get("evalSet") is True, "付け替えてください")   # 評価用のフォルダの設定が消えているときは、評価用のフォルダへの付け替えを止める
     dur, has_v, has_a = ed_store.probe_media(p)
     if not (has_v or has_a):
         raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
@@ -382,6 +383,22 @@ def in_eval_dir(path, dirs=None):
     if not s or _fsio.is_network_path(s) or not os.path.isabs(s):
         return False
     return any(_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
+
+
+EVAL_NAME_WORD = "評価用"
+
+
+def eval_name_guard(path, is_eval=False, todo="文字起こししてください"):
+    """設定 evalDirs が空(未設定・消えた)なのに、動画のパスのフォルダ名のどこかに「評価用」が入っているときは止めて案内する
+    (設定が消えたまま文字起こしすると、評価用の動画が学習用の文書に混ざる。master-plan Q0)。設定があれば今までどおり(何もしない)。
+    is_eval: 評価用として始める(画面のチェック・評価用の文書)なら混ざらないので通す。パスの文字を調べるだけでファイルには触らない"""
+    if is_eval:
+        return
+    v = ed_learn.load_settings().get("evalDirs")
+    if _eval_dirs_ok(v) and v:
+        return
+    if any(EVAL_NAME_WORD in part for part in re.split(r"[\\/]+", os.path.dirname(str(path or "")))):
+        raise ed_state.ApiError("eval_dir_unset", "評価用のフォルダの中の動画のようです。⚙ の『評価用のフォルダ』を設定してから%s(設定が無いと学習用に混ざります)" % todo, 400)
 
 
 def _eval_name_re(prefix):

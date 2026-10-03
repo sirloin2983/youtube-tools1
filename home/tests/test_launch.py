@@ -700,7 +700,7 @@ class PortalHttpTest(Base):
         """作業データのバックアップ(home/backup.py): 状態・設定(api/ytt/prefs の節 backup)・今すぐ写す。テスト(inplace)では作業データの親が無いので写さない"""
         r, body = self.req("GET", "/api/backup")
         j = json.loads(body)
-        self.assertEqual((r.status, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 24, None))
+        self.assertEqual((r.status, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 1, None))
         r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"enabled": True}}).encode())
         self.assertEqual(r.status, 400)   # 先のフォルダが無いままではオンにできない
         r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"folder": "\\\\srv\\share"}}).encode())

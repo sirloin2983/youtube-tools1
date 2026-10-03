@@ -541,6 +541,7 @@ def validate_job(req):
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
+    ed_relink.eval_name_guard(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。master-plan Q0)
     ev = ev or ed_relink.in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
     if ev:
         glossary, gauto = [], []

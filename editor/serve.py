@@ -98,18 +98,18 @@ def _load_core():
 _load_core()
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文脈。隣の部品)
-import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite  # noqa: E402,F401  (分けた部品。段10。ed_lite = 友人用簡易版)
+import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_lite = 友人用簡易版・ed_evalaudio = 評価用の音声)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.43.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.44.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
 # ---------- 分けた部品(段10。docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite)
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -383,6 +383,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, dict(d, evalLocked=ed_relink.in_eval_dir(d.get("sourcePath"))))   # 評価用のフォルダの動画(画面で外せない)
             if u.path == "/api/eval-folders":
                 return self._json(200, ed_relink.eval_folders_info())
+            if u.path == "/api/eval-audio":   # 評価用の音声(flac)の作成の状態(本数・作った数・残り・大きさ・最後のエラー)
+                return self._json(200, ed_evalaudio.status())
             if u.path == "/api/edit":
                 return self._json(200, ed_store.get_edit((q.get("id") or [""])[0]))
             if u.path == "/api/edit/draft":
@@ -827,6 +829,7 @@ def prepare(port, base_path="/", hooks=False):
         t = threading.Timer(5.0, ed_relink._evalorg_startup)   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
         t.daemon = True
         t.start()
+        ed_evalaudio.start_background()   # 評価用の音声(flac)の作成(起動の5分後と6時間ごと。評価用のフォルダが無ければ何もしない)
     if not ed_state.has_faster_whisper() and ed_state.backend_name() != "fake":
         print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")
     return rt

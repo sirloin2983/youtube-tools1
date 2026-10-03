@@ -2956,3 +2956,24 @@
   - `docs/plan/master-plan-2026-10.md`・`docs/ROADMAP.md`: 線 D はユーザーの作業待ちが無くなった(Q1 のあと P1・P2 を Q2〜Q4 と並べて → P3(I-4 と重ねない)→ P4、P5 は任意)。様子を見るものの PC の不安定さに CPU の交換を注記
   - `AGENTS.md`(動作環境の CPU を i9-12900KF に)・`editor/AGENTS.md`(落ちたのは当時の 13900KF と注記。1回だけやり直す作りはそのまま)
 - 未コミット: なし
+
+## 2026-10-04 Claude Code — S1 安定した PC を前提にした見直し・Q0 入れ直しの後始末(ホーム 0.27.0 → 0.29.0・編集 0.43.0 → 0.44.0)
+- ユーザーの依頼(10-04): 「①全体の計画(特に頻繁にクラッシュする前提の部分を見直して最適化)②計画の各段階を実装」。サブエージェントを使い、重要な判断は Fable と相談。確認が要る点は仮で進めて最後にまとめて聞く
+- ユーザーの決定(最初の質問で): 落ちる前提の仕組みは**基本は速い側へ・大切な所は仕組みだけ残す(判断は任せる)**/ 今回は Q0〜Q4 まで / 線 D はおすすめの時期に実装するが**既定はオフ**(ホームの設定でオンにするまで画面に出さない)/ 30fps の作り直しは CPU(x264)から・GPU は測ってから /
+  依存の追加 streamlink・hls.js(同梱)は可 / 録画の置き場所の既定は E:\ の配下 / 入れ直しの前の 30fps でない文書・動画はそのまま
+- 計画: `docs/plan/stability-review-2026-10.md`(新。落ちる前提の 23 件の洗い出し(Sonnet)と Fable との相談の結果の表)・`docs/plan/master-plan-2026-10.md` の 6 に順番 S1 → Q0 → S2 → Q1 → Q2 + 線 D P1 → Q3 + 線 D P2 → Q4
+- S1(コミット 4c77e89・56244ec): 認識のワーカーのアイドル終了 15 → 60 分・ワーカーを「通常より下」の優先度で起動(`ed_jobs._worker_priority`。SLOTS は 2 のまま = Fable の助言: 使う側がどれも CPU を全部使うので並列を増やしても縮まない・待たされる問題は優先度で)・
+  llama-server のスレッドを環境変数 `TRANSCRIBE_LLAMA_THREADS` に・1回だけの再試行は残してコメントを直した・「テストが1回落ちたら流し直す」ルールをやめた(HANDOVER)・
+  入口の「調子」に「異常終了(7日)」(`home/health.py` の `crash_counts`: Kernel-Power 41・EventLog 6008・WHEA・Application Error 1000 を exe ごと・編集の serve.log の認識ワーカーの落ち/強制終了。10-04 の実機は OS 側 0 件)
+- Q0:
+  - バックアップ(`home/backup.py`): ファイルが変わったら間隔を待たずに写す(3 分ごとに見て、最後の変更から 2 分の静けさ)・間隔の既定 24 → 1 時間(保存済みの設定は変えない)・`transcribe/bin/whisper.cpp-*` を写す・`eval-audio/` を写す・
+    写し戻し `restore_once` と `py -3.10 home/backup.py --restore <写す先>`(新しいほうは上書きしない・.prev は戻さない)・手順を `docs/spec/data-location.md` に
+  - 評価用(`editor/ed_relink.eval_name_guard`): 設定 evalDirs が空なのに「評価用」の名前のフォルダの動画を文字起こし・付け替えしようとしたら止める(評価用として始めたものは通す)
+  - 評価用の音声 `editor/ed_evalaudio.py`(新): 評価用のフォルダの動画から 16kHz モノラルの flac を作業データの `eval-audio/` に(起動の 5 分後と 6 時間ごと・1本ごとに SLOTS・ジョブが動いている間はしない・優先度は通常より下・`GET api/eval-audio`・`TRANSCRIBE_EVAL_AUDIO=off`)
+  - `setup/bootstrap.bat`(新。ASCII): winget で Python 3.10・ffmpeg・yt-dlp・Deno(入っていれば飛ばす)→ install.bat → 開発用は y のときだけ。VS と Vulkan SDK は案内だけ
+  - `setup/install*.bat` の 40 行目: if の中の echo の括弧で「. was unexpected」になっていたのを `^(` `^)` に
+- テスト: 編集の単体 295 + e2e_ui_mounted・e2e_eval_set、ホームの 8 ファイル 223 + test_health 15 + e2e_portal・e2e_backup_ui、通った
+- サブエージェント: 洗い出し = Sonnet(読む量が多く判断は軽い)・判断の相談 = Fable・見張り役/バックアップ/評価用/bootstrap = Sonnet(仕様がはっきりした直し)・Q1 の共通部品 = Opus(多くの入口が使う部品)
+- 注意: `home/tests/test_mount.py` の単独起動の3件は、ほかのテストと同時に流したとき・`PYTHONIOENCODING=utf-8` を付けたときに落ちる(付けずに単独で流せば 26 件通る。以前からの件)
+- 次: S2(faster-whisper・sherpa のスレッド数を測る・テストの `-threads 1`)→ Q1 の残り
+- 未コミット: なし(Q1 の途中のファイル `ytt_core/normalize.py`・`studio/exporter.py` などは次のコミット)

@@ -19,6 +19,10 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
                                          主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は holo-colors\README.txt
 
 【準備(最初に1回)】
+  Windows を入れ直したあとなど、まとめて入れたいとき: setup フォルダの bootstrap.bat をダブルクリック(下の 1〜4 を winget で入れ、続けて install.bat も流します。
+    入っているものは飛ばします。winget の同意を代わりに受け入れるので、最初の表示を読んでから進めてください。
+    Visual Studio Build Tools と Vulkan SDK(GPU 用の whisper.cpp を作るときだけ)は同意が要るので入れず、入れ方の案内だけ出します。
+    入れたあとの ffmpeg などは、新しい黒い画面から使えます)
   1. Python 3.10(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック。
        winget なら Windows: winget install Python.Python.3.10 。入れたあとは py -3.10 で動かせます)
        部品の版は 3.10 で確かめています(setup\requirements.txt)。start.bat・install.bat は 3.10 があればそれを使い、無ければほかの Python 3 を使います

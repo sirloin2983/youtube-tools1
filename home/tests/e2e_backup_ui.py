@@ -89,7 +89,7 @@ def main():
                 check(pg.evaluate("document.getElementById('backupBox').open") is True, "まだ決めていないときは開いて見せる")
                 check("フォルダを決めて" in pg.text_content("#backupMsg"), "案内が出る: %s" % pg.text_content("#backupMsg"))
                 check(pg.is_disabled("#backupRunBtn"), "オフのときは「今すぐ写す」を押せない")
-                check(pg.input_value("#backupEvery") == "24", "間隔の既定は 24 時間")
+                check(pg.input_value("#backupEvery") == "1", "間隔の既定は 1 時間")
 
                 # 2. フォルダが空ではオンにできない(送らない・スイッチは戻る)
                 pg.click("#backupEnabled")

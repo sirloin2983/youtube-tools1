@@ -39,7 +39,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカ�
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
-            "backup": {"enabled": False, "folder": "", "everyHours": 24},
+            "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
