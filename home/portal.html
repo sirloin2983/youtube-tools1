@@ -186,7 +186,7 @@
     <div class="pt-advanced-body">
       <!-- 調子(段9 9-1。/api/health): 版・認識ワーカー・ffmpeg/yt-dlp・空き容量・作業データの大きさ・エラーの件数。判定は portal.js -->
       <section class="card flat pt-foot pt-health" id="healthBox">
-        <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
+        <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnAccuracyNow" hidden title="人が直した記録に対する精度(文字起こし・盛り上がり・話者)を、手が空くのを待って測ります。夜に自動でも測ります">精度を今すぐ測る</button><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
         <ul class="pt-health-list" id="healthList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
       </section>
       <!-- 片付け(段9 9-2。/api/cleanup): 候補を種類ごとに → 選んで ごみ箱フォルダ へ移す(14 日で起動時に消える。自動では移さない) -->

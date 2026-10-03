@@ -6,6 +6,7 @@
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(home/intake.py。docs/design/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・上限
   backup   … 作業データのバックアップ(home/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
+  accuracy … 精度の自動測定(home/accuracy.py。docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:\Video\live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
@@ -23,8 +24,8 @@ MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
 NAME_MAX = 60
 KEY_MAX = 120
-SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live")
-PATCHABLE = ("autorun", "keymap", "intake", "backup", "live")
+SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live", "accuracy")
+PATCHABLE = ("autorun", "keymap", "intake", "backup", "live", "accuracy")
 AUTORUN_MODES = ("full", "adopted", "transcribe")      # home/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
@@ -43,7 +44,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカ�
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
-            "live": {"enabled": False, "folder": "", "recorders": []}}
+            "live": {"enabled": False, "folder": "", "recorders": []},
+            "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
 FOLDER_MAX = 260
@@ -109,6 +111,22 @@ def _clean_backup(v, cur):
         out["everyHours"] = x
     if out["enabled"] and not out["folder"]:
         raise PrefsError("バックアップ先のフォルダを指定してから、オンにしてください")
+    return out
+
+
+def _clean_accuracy(v, cur):
+    """精度の自動測定の設定(home/accuracy.py)。夜の窓は時(開始 0〜23・終わり 1〜24。0 → 24 は一日中)。開始と終わりが同じだと窓が無いので断る(日をまたぐ 22 → 6 は可)"""
+    out = dict(cur)
+    if "enabled" in v:
+        out["enabled"] = v["enabled"] is True
+    for k, lo, hi, label in (("nightFrom", 0, 23, "夜の窓の開始(時)"), ("nightTo", 1, 24, "夜の窓の終わり(時)")):
+        if k in v:
+            x = v[k]
+            if isinstance(x, bool) or not isinstance(x, int) or not lo <= x <= hi:
+                raise PrefsError("%sは %d〜%d の整数で指定してください" % (label, lo, hi))
+            out[k] = x
+    if out["nightFrom"] == out["nightTo"]:
+        raise PrefsError("夜の窓の開始と終わりは違う時刻にしてください")
     return out
 
 
@@ -253,6 +271,11 @@ class Prefs:
                 return _clean_backup(v if isinstance(v, dict) else {}, DEFAULTS["backup"])
             except PrefsError:
                 return dict(DEFAULTS["backup"])
+        if name == "accuracy":
+            try:
+                return _clean_accuracy(v if isinstance(v, dict) else {}, DEFAULTS["accuracy"])
+            except PrefsError:
+                return dict(DEFAULTS["accuracy"])
         if name == "keymap":
             try:
                 return _clean_keymap(v if isinstance(v, dict) else {}, DEFAULTS["keymap"])
@@ -295,7 +318,7 @@ class Prefs:
             d, broken = self._load()
             cur = self._section(d, section)
             new = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake, "backup": _clean_backup,
-                   "live": _clean_live}[section](value, cur)
+                   "live": _clean_live, "accuracy": _clean_accuracy}[section](value, cur)
             d[section] = new
             self._save(d, broken)
             return new

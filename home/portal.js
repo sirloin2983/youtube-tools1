@@ -923,7 +923,8 @@
     }).then(function () { healthBusy = false; });
   }
   function healthRow(state, title, text, subs) {
-    var li = el('li'), pill = el('span', 'pill ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'err' : 'warn'), state === 'ok' ? '良い' : state === 'bad' ? '悪い' : '注意');
+    var li = el('li'), pill = state === 'info' ? el('span', 'pill wait', '測定')   // info = 良い・悪いを決めない数字(精度)
+      : el('span', 'pill ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'err' : 'warn'), state === 'ok' ? '良い' : state === 'bad' ? '悪い' : '注意');
     var body = el('div', 'pt-health-body');
     body.appendChild(el('b', '', title));
     if (text) body.appendChild(el('span', 'hint', ' ' + text));
@@ -994,6 +995,49 @@
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
+    renderAccuracy(h.accuracy, ul);
+  }
+
+  /* ---- 精度(Q3。home/accuracy.py): 領域ごとに「直近 x(前回 y)・日時・文書数」。手が空いた夜に 1 日 1 回測る。「今すぐ測る」はいつでも ---- */
+  var accTimer = 0;
+  function accPct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
+  function accuracyRow(a) {
+    var title = '精度 ' + a.label, l = a.latest;
+    if (!l) return a.error ? healthRow('warn', title, '測れませんでした: ' + a.error) : healthRow('info', title, 'まだ測っていません(手が空いた夜に自動で測ります)');
+    var s = l.summary || {}, p = a.prev && a.prev.summary;
+    var parts = [(s.label || '') + ' ' + accPct(s.value) + (s.range ? '(95% の範囲 ' + accPct(s.range[0]) + '〜' + accPct(s.range[1]) + ')' : '')];
+    if (p && p.value != null) parts.push('前回 ' + accPct(p.value));
+    parts.push((s.unit || '文書') + ' ' + (s.docs || 0) + ' 本');
+    parts.push(ago(l.at));
+    var text = (s.few ? 'まだ少ない: ' : '') + parts.join('・') + (s.lowData && !s.few ? '(参考。データがまだ少ない)' : '');
+    var subs = (s.extra || []).filter(function (x) { return x.value != null; }).map(function (x) {
+      var pe = ((p && p.extra) || []).filter(function (y) { return y.label === x.label && y.value != null; })[0];
+      return x.label + ' ' + accPct(x.value) + (pe ? '(前回 ' + accPct(pe.value) + ')' : '');
+    });
+    if (a.error) subs.push('最後の測定は失敗しました: ' + a.error);
+    var row = healthRow(a.error ? 'warn' : 'info', title, text, subs);
+    row.title = when(l.at) + ' に測った結果のファイル: ' + l.file;
+    return row;
+  }
+  function renderAccuracy(ac, ul) {
+    var btn = $('#btnAccuracyNow');
+    if (!btn) return;
+    clearTimeout(accTimer);
+    btn.hidden = !ac;
+    if (!ac) return;
+    var live = ac.state === 'running' || (ac.forced && ac.state !== 'off');
+    btn.disabled = !ac.enabled || live;
+    btn.textContent = ac.state === 'running' ? '測っています…' : ac.forced && ac.enabled ? '手が空くのを待っています' : '精度を今すぐ測る';
+    var win = '夜 ' + ac.nightFrom + '〜' + ac.nightTo + ' 時に手が空いていれば 1 日 1 回';
+    ul.appendChild(healthRow('info', '精度の自動測定', ac.stateLabel + (ac.message ? '。' + ac.message : '') + (ac.enabled ? '(' + win + (ac.lastRun ? '・最後に ' + ago(ac.lastRun) : '') + ')' : '')));
+    (ac.areas || []).forEach(function (a) { if (a.available || a.latest || a.error) ul.appendChild(accuracyRow(a)); });
+    if (live) accTimer = setTimeout(function () { loadHealth(false); }, 2500);   // 測っている間・手が空くのを待っている間は軽く読み直す
+  }
+  function accuracyNow() {
+    var btn = $('#btnAccuracyNow');
+    btn.disabled = true;
+    api('api/accuracy/run', 'POST', {}).then(function () { toast('精度の測定を受け付けました(手が空くまで待つことがあります)'); loadHealth(false); },
+      function (e) { toast('測れませんでした: ' + e.message, 'err'); loadHealth(false); });
   }
 
   /* ================================================================ 次にやること ================================================================ */
@@ -1509,6 +1553,7 @@
 
     $('#btnQuit').addEventListener('click', quit);
     $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
+    $('#btnAccuracyNow').addEventListener('click', accuracyNow);
     var adv = $('#healthBox') && $('#healthBox').closest('details');
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
     $('#btnCleanFind').addEventListener('click', loadCleanup);

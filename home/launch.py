@@ -20,6 +20,8 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(home/backup.py。docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
+  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回(home/accuracy.py。docs/plan/q3-q4-design.md の (a))
+  POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
@@ -70,6 +72,7 @@ import mount as mount_mod  # noqa: E402  (home/mount.py: 統合サーバーへ�
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (home/intake.py: 友人からの依頼の受付)
 import backup as backup_mod  # noqa: E402  (home/backup.py: 作業データのバックアップ)
+import accuracy as accuracy_mod  # noqa: E402  (home/accuracy.py: 精度の自動測定 = dev/eval_*.py を手が空いた夜に子プロセスで)
 import deliver as deliver_mod  # noqa: E402  (home/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
@@ -81,7 +84,7 @@ import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。�
 import live as live_mod  # noqa: E402  (home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.30.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.31.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -649,6 +652,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, self.server.intake.snapshot())
         if u.path == "/api/backup":   # 作業データのバックアップの状態と設定(home/backup.py)
             return self._json(200, self.server.backup.snapshot())
+        if u.path == "/api/accuracy":   # 精度の自動測定の状態(home/accuracy.py)
+            return self._json(200, self.server.accuracy.snapshot())
         if u.path == "/api/autorun":   # まとめて実行の状態(home/autorun.py)
             return self._json(200, self.server.autorun.snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
@@ -738,6 +743,12 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(409, "closing", "終了の途中です")
             self.server.backup.run_now()
             return self._json(200, self.server.backup.snapshot())
+        if u.path == "/api/accuracy/run":   # 今すぐ測る(裏で。手が空くまで待つ。応答は今の状態)
+            if self.server.closing.is_set():
+                return self._fail(409, "closing", "終了の途中です")
+            if not self.server.accuracy.run_now():
+                return self._fail(409, "off", "精度の自動測定がオフです")
+            return self._json(200, self.server.accuracy.snapshot())
         if u.path == "/api/window":   # 画面を窓で開くか(次に起動したときから。段階7-3)
             try:
                 self.server.window.set_mode(body.get("mode"))
@@ -801,15 +812,52 @@ class PortalServer(ThreadingHTTPServer):
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
+        # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
+        self.accuracy = accuracy_mod.Accuracy(self.prefs, os.path.dirname(sup.logs_dir), sup.root, busy=self._accuracy_busy,
+                                              last_edit=self._accuracy_last_edit, log=sup.log)
         self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
                                                  txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
-                                        live_probe=self.live.health)   # 「調子」(段9 9-1。録画の行はオンのときだけ)
+                                        live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
+
+    def _accuracy_busy(self):
+        """精度の自動測定の「手が空いているか」。空いていなければ理由の文、空いていれば None。
+        入口の重い処理の順番(SLOTS)・まとめて実行・「編集」のジョブ(入口から loopback で /api/jobs を読む。編集が動いていなければ動いているジョブも無い)"""
+        hv = jobs.SLOTS.snapshot()
+        if hv.get("active") or hv.get("waiting"):
+            return "重い処理"
+        if self._autorun is not None and any(r.get("state") in ("queued", "running") for r in self._autorun.snapshot().get("runs") or []):
+            return "まとめて実行"
+        try:
+            st, obj = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=5).call("transcribe", "GET", "/api/jobs")
+        except autorun_mod.StepError:
+            return None
+        if st == 200 and any(j.get("state") in ("queued", "loading", "extracting", "running") for j in obj.get("jobs") or [] if isinstance(j, dict)):
+            return "文字起こしのジョブ"
+        return None
+
+    def _accuracy_last_edit(self):
+        """文字起こしの文書(transcripts の直下のファイル)の最後の更新(エポック秒。無ければ None)"""
+        d = cases_mod.locations(self.sup.root)["transcripts"]
+        newest = None
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_file():
+                            m = e.stat().st_mtime
+                            if newest is None or m > newest:
+                                newest = m
+                    except OSError:
+                        continue
+        except OSError:
+            return None
+        return newest
 
     def cleanup_candidates(self):
         """片付けの候補(案件 = スタジオと文字起こしの紐づけ・依頼の受付のフォルダから)"""
@@ -970,6 +1018,8 @@ class PortalServer(ThreadingHTTPServer):
                     self.intake.wake.set()
                 if body.get("section") == "backup":   # バックアップの設定を変えたら、すぐ見直す(オンにした・先を変えた → 最初の1回を写す)
                     self.backup.wake.set()
+                if body.get("section") == "accuracy":   # 精度の自動測定の設定を変えたら、すぐ見直す(オフにした → 待っていた「今すぐ」を取り下げる)
+                    self.accuracy.wake.set()
                 if body.get("section") == "live":   # リアルタイム切り抜き: オンにした・置き場所を変えた → 見回りをすぐ(録画の部品を起こす・置き場所を伝える)
                     self.live.on_patch(None, value)
                     value = dict(value, recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in value.get("recorders") or []])
@@ -1044,6 +1094,7 @@ class PortalServer(ThreadingHTTPServer):
         self.sup.log("画面から「すべて終了」が押されました")
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         self.backup.close()
+        self.accuracy.close()   # 測っている子プロセスも止める
         self.live.close()     # 録画の部品の見回りだけ止める(録画の部品は止めない = 録画は続く)
         if self._autorun is not None:
             self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
@@ -1210,6 +1261,7 @@ def main(argv=None):
         sup.start_monitor()
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
+        srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)
         srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
         if opts.app_window:   # 友人用 簡易版の起動(lite/lite.py): 設定にかかわらず窓で開く
@@ -1226,6 +1278,7 @@ def main(argv=None):
         srv.closing.set()
         srv.intake.close()
         srv.backup.close()
+        srv.accuracy.close()
         srv.live.close()
         sup.close()
         sup.stop_all()

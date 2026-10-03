@@ -294,10 +294,12 @@ class Health:
     extra_dirs() = 空き容量を見る追加の場所(スタジオの書き出し先など)"""
 
     def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None,
-                 live_probe=None):
-        """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(home/live.py の Live.health)。オフなら None を返す = 「調子」に出さない"""
+                 live_probe=None, accuracy_probe=None):
+        """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(home/live.py の Live.health)。オフなら None を返す = 「調子」に出さない。
+        accuracy_probe() = 精度の自動測定の状態と領域ごとの直近・前回(home/accuracy.py の Accuracy.snapshot。軽い。無ければ「調子」に出さない)"""
         self.sup, self.logs_dir, self.repo_root = sup, logs_dir, repo_root
         self.live_probe = live_probe
+        self.accuracy_probe = accuracy_probe
         self.crash_fn = crash_fn or crash_counts
         self.worker_probe = worker_probe or (lambda: None)
         self.extra_dirs = extra_dirs or (lambda: [])
@@ -384,6 +386,11 @@ class Health:
                 lv = None
             if lv is not None:
                 out["live"] = lv
+        if self.accuracy_probe is not None:   # 精度(Q3): 領域ごとの直近・前回と、いつ測るか。軽い(記録を返すだけ)
+            try:
+                out["accuracy"] = self.accuracy_probe()
+            except Exception:
+                pass
         if slow:
             out["data"] = slow["data"]
             out["tools"] = slow["tools"]
