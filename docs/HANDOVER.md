@@ -1,11 +1,15 @@
 # HANDOVER — 次のセッションへの引き継ぎ(2026-10-01・段0〜4・段7・友人からの依頼の受付・ホロカラー 1.4.1・夜間の見直しの「高」3件・段5・段6 のあと。次は段9)
 
+> **2026-10-03 追記: Windows を入れ直した。下は 10-01 時点の内容で、版・HEAD は古い。今の状態は `docs/ROADMAP.md` と `docs/WORKLOG.md` の末尾を読むこと。**
+> 作業データ(文字起こしと校正・スタジオの解析・設定・案件・測定の記録など)は失われた。ほかにも、`miniconda` と Lua は無い・`Desktop\youtube-test` は PC にもう無い(バックアップ: `D:\backup\Desktop\youtube-test`)・スタートアップのショートカットと送るアプリの zip は作り直し・線 B の校正済みは 0 に戻った、の点が下の文と変わった(該当の行に注記した)。
+
 セッションを切り替えるたびに上書きする。全体のまとめと文書の索引は `docs/ROADMAP.md`、詳しい経緯は `docs/WORKLOG.md`、ルールは `AGENTS.md`、画面の共通のルールは `docs/spec/ui-guidelines.md` と
 `docs/spec/usability-heuristics.md`(Nielsen の 10 の原則)、ユーザー向けの使い方はリポジトリ直下の `README.txt`。
 
 ## いまの場所と状態
 - 作業フォルダは **`C:\dev\youtube-tools`**(段0 で clone し直した。GitHub: https://github.com/sirloin2983/youtube-tools1)。`Desktop\youtube-test` は古い写し(分かれたまま)。**そこで push.bat を実行しない・そこのファイルを直さない**
   (改名案: `youtube-test_old`。Codex・Claude Code・Cowork の作業フォルダの向け直しが済んだかは未確認)
+  (10-03: `Desktop\youtube-test` は入れ直しで PC にもう無い。改名は要らない。バックアップは `D:\backup\Desktop\youtube-test` で、09-30 08:17 時点のリポジトリ)
 - **すべてコミット済み・push 済みで origin/main と一致**(2026-10-01。HEAD a60dacc。`git status` はきれい)。**push はユーザーが `C:\dev\youtube-tools\push.bat` で行う**(AI は push しない)
 - 版(2026-10-01。実物のファイルで確かめた): 入口 0.19.0・スタジオ 0.13.0・編集 0.30.0・cut2resolve 0.16.0・ui-kit v9・ホロカラー 1.4.1・送るアプリ(`request-sender/`)1.2.0(正は各ツールのファイル。`ROADMAP.md` の先頭の行にも同じ)
 - 統合計画(`docs/design/integration-plan.md`)は段階0〜7 まで完了。ポートは 8700 で確定。Edge のアプリの窓を既定・新着配信の監視はやらない(09-27 ユーザー決定)
@@ -20,7 +24,7 @@
 - キーの件の決定: 校正の S/W/Q と 2 カットの S/Q/W が同じキーで別の意味 → **現状維持**(ガイドライン 2-3 に例外として記載)
 - **友人からの依頼の受付**(`docs/design/friend-intake.md`): ホーム 0.15.0 → 0.15.1(desktop.ini を断らない)→ 0.16.0(友人が ①全自動 / ②文字起こしまで / ③解析まで を選ぶ。送るアプリ 1.1.0)→
   0.17.0(既定はカットしない・音量 30%・① はパックを1本ずつ Dropbox の 出力\ へ・受け取ったら Dropbox から消す・送るアプリ 1.2.0・`start-background.bat` と `home/start_hidden.vbs` で裏から自動起動)。
-  **実機(ユーザーの PC)で、友人のアプリから送った動画が受け付けられて通しで動いた**。ユーザーの PC のスタートアップに「youtube-tools (裏で起動)」を置いた(やめるときは shell:startup で消す)
+  **実機(ユーザーの PC)で、友人のアプリから送った動画が受け付けられて通しで動いた**。ユーザーの PC のスタートアップに「youtube-tools (裏で起動)」を置いた(やめるときは shell:startup で消す。10-03: 入れ直しで消えた。置き直すかはユーザーが決める)
 - ホロカラー: 1.3.0 → 1.3.1(衣装の色・ペンライトの色を外した(ユーザー決定)・色の四角を大きく)→ **1.4.0**(札 = 名前 + 色の帯・マイワード・お気に入り・最近使ったもの・並べ替え(ドラッグ / Alt+矢印)・メンバーに色を追加。
   e2e 24 件 OK)。主な色は誰も変えていない。早見表の3色(ホロジュール・公式サイトの濃い色と縁)は全員そろえた。データは作業データの my-words.json・settings.json の favorites・recent が増えた
 - ホロカラーの e2e(本物のキー入力)を単独で流して 24 件すべて通過
@@ -28,10 +32,10 @@
 ## 次にやること(順に)
 1. **線 A 段9**(運用の安定化。`docs/plan/line-a-after-phase8.md` の 5 から細かい計画 `docs/plan/phase9-*.md` を先に作る。「決めてもらうこと」= 片付けの対象・依頼の受付の上限)→ 段10 → 線 B 段1・2 → 線 C → 12 → 8 → 15。段4〜6 は 10-01 に済み(編集 0.30.0・ホーム 0.19.0・スタジオ 0.13.0・cut2resolve 0.16.0)。
    計画の行番号は 09-29 時点なので、始める前に今のコードで読み直す。版は実物から上げる(段ごとに serve.py・画面・README の3か所)
-2. **線 B**(精度改善)は**ユーザーの評価用の校正と `docs/plan/accuracy/USER_INPUT.md` の記入待ち**。AI が先にやれるのは段1 呼び名(効果の判定は評価セットのあと)。線 A と `editor/serve.py`・`app.js` が重なるので同時に進めない
+2. **線 B**(精度改善)は**ユーザーの評価用の校正と `docs/plan/accuracy/USER_INPUT.md` の記入待ち**(10-03: 校正済みの評価用・学習用は 0 に戻った。材料は `E:\Video\切り抜き動画素材\評価用データ\評価用_仮置き` の 360本。どの場面を校正するかをユーザーが決める)。AI が先にやれるのは段1 呼び名(効果の判定は評価セットのあと)。線 A と `editor/serve.py`・`app.js` が重なるので同時に進めない
 3. 夜間の見直しの「高」の残り 3 件は **2026-10-01 に決めて直した**(WORKLOG の同じ日): ① 認識ワーカーの待ちに時限(20 分。`WORKER_SILENCE_TIMEOUT`)/ ② 作業データの置き場所の求め方を `ytt_core/datadir.resolve`・`register` の1か所に / ③ 「動画のファイル名に日本語」の注意は EDL を書くときだけ(cut2resolve 0.15.1)。 残りの確認: `AGENTS.md` の「いま進行中」の行は ROADMAP の 2 への参照に直した(10-01)。見直しの「中」「低」はユーザーのデスクトップのまとめの HTML(リポジトリには無い)。段5(見せ方)と重なるものはその段で一緒に直す
 4. **実際の Dropbox での依頼の受付の確認**(URL の依頼・150MB 超の動画・受け取り後の削除(files/delete_v2。日本語名も)・ダウンロードの続き(Range)・権限不足のエラー・content_hash)。
-   **1.0.0 の鍵では受け取れない**(権限 3 つの鍵で作り直した zip を渡す)
+   **1.0.0 の鍵では受け取れない**(権限 3 つの鍵で作り直した zip を渡す。10-03: 鍵 `request-sender/config.json` と `dist` は clone で戻らない。`dev\dropbox_auth.py` で鍵を作り直し、`request-sender\build.bat` で zip を作り直す)
 5. ホロカラー 1.4.1 の実機の確認(友人の PC・DPI 125%/150%・古い exe に新しい members.json を差し替えて読めるか)
 
 ## ユーザーが実機で確かめること
@@ -60,11 +64,11 @@
   並列にするときは担当のファイルを分ける。**WORKLOG は追記の直前に `git diff docs/WORKLOG.md` で他の未コミットの差分を確かめる**(ほかの AI の追記を巻き込まない・上書きしない)
 - テストの流し方: 単体テスト(unittest)には `PYTHONIOENCODING=utf-8` を付けない・**画面テスト(e2e)には付ける**(付けないと `e2e_portal`・`e2e_window` は cp932 の UnicodeEncodeError)。e2e は **1 本ずつ**流す。
   契約テスト `dev/tests/test_resolve_pack_contract.py` は単独で。**`holo-colors/tests/e2e_holo_colors.py` は本物のキー入力を送るので、ほかのテスト・エージェントと同時に流さない**(前面の窓を取り合って落ちる。段7 のときに2回落ちた)
-- **node は bash から見えない → Playwright 同梱の `C:\Users\you11\miniconda3\Lib\site-packages\playwright\driver\node.exe` で `--test studio/tests/test_review.cjs`(と `editor/tests/test_document_save.cjs`)**
+- **node は bash から見えない → Playwright 同梱の node で `--test studio/tests/test_review.cjs`(と `editor/tests/test_document_save.cjs`)**(10-03: miniconda は無い。node は Python 3.10 に入れた Playwright 同梱のものを `dev/run_editor_suite.py` が自動で見つける。Lua も無い)
 - `holo-colors\build.bat` は Git Bash からだと「認識されない」→ PowerShell から `cmd /c ".\build.bat < NUL"`
 - **説明文(docstring)にバックスラッシュを書かない**(`作業用\ ` は Python の不正なエスケープの警告 → 将来エラー)。パスの例は `/` で書く
 - パッチを当てるときは、書き換える前の文字列がファイルにちょうど1回あることを確かめる(スクラッチの Python スクリプトでこの形にした)
-- テスト用のサーバーは `CREATE_NEW_PROCESS_GROUP` で起動して Ctrl+Break で止める。Python は miniconda(`C:\Users\you11\miniconda3`。Playwright・lua もここ)
+- テスト用のサーバーは `CREATE_NEW_PROCESS_GROUP` で起動して Ctrl+Break で止める。Python は miniconda(`C:\Users\you11\miniconda3`。Playwright・lua もここ)(10-03: miniconda も Lua も無い。Python 3.10 + Playwright 1.63.0 + chromium で e2e を流す)
 - Playwright 同梱の chromium は H.264 を再生できない(webm VP9)。CSP のある画面では `page.wait_for_function` が動かない(`evaluate` で待つ `wait_js`)
 - サーバーを動かすテストは先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`。画面テストで配信者の色の一覧を使うときは `YTT_HOLO_MEMBERS`(ytt_core を写しても
   リポジトリの `holo-colors/members.json` を読む)
@@ -81,7 +85,8 @@
 
 ## 次のセッションに貼る指示文(Claude Code 用)
 ```
-リポジトリは今いるフォルダ(C:\dev\youtube-tools。Desktop\youtube-test は古い写しなので触らない・そこで push.bat を実行しない。GitHub: https://github.com/sirloin2983/youtube-tools1)。
+リポジトリは今いるフォルダ(C:\dev\youtube-tools。GitHub: https://github.com/sirloin2983/youtube-tools1)。
+(2026-10-03 追記: Windows を入れ直した。この指示文の「現在地」は 10-01 時点で古い。先に docs/ROADMAP.md の先頭と docs/WORKLOG.md の末尾の 2026-10-03 の項目を読むこと。Desktop\youtube-test はもう PC に無い。)
 応答は日本語で、10〜20 分ごとに中間報告して(残り時間の目安も)。
 
 ■ 最初に読む(この順)
@@ -93,7 +98,7 @@
 - 段0(フォルダの整理)・段1〜段6・段7 が済み(段6 = 編集 0.30.0・cut2resolve 0.16.0。行の後の余白・字幕の段で行の時刻を直す/分ける)、ホーム 0.19.0・スタジオ 0.13.0。友人からの依頼の受付(ホーム 0.17.0・送るアプリ 1.2.0)とホロカラー 1.4.1 も入った。すべてコミット・push 済みで origin/main と一致(HEAD a60dacc)。push は私が push.bat でやる(AI は push しない)
 - 依頼の受付は友人のアプリから送った動画 1 本で通しを確認済み。実際の Dropbox で未確認の項目は ROADMAP の 3(URL の依頼・150MB 超・受け取り後の削除・Range・権限不足・content_hash)
 - キーの意味がタブで違う件は現状維持(ガイドラインに例外)。ホロカラーの色は迷った候補を全部入れた(ペンライト・衣装の色は外した)
-- 線 B(精度改善)は私の評価用の校正待ち。PC が不安定な可能性あり(HANDOVER の「注意」)。テストが1回だけ異常終了で落ちたら、まず流し直して
+- 線 B(精度改善)は私の評価用の校正待ち(10-03: 校正済みは 0 に戻った。評価用_仮置き の 360本から選び直す)。PC が不安定な可能性あり(HANDOVER の「注意」)。テストが1回だけ異常終了で落ちたら、まず流し直して
 
 ■ やること
 - 線 A の段9(運用の安定化)から。まず docs/plan/line-a-after-phase8.md の 5 を読んで細かい計画 docs/plan/phase9-*.md を作り、「決めてもらうこと」を私に聞いてから実装。段4〜6 と夜間の見直しの「高」3件は 10-01 に済み(WORKLOG)。

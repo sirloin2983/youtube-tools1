@@ -233,6 +233,8 @@
   1. Python 3(https://www.python.org/downloads/ 。Windows は「Add python.exe to PATH」にチェック)
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
+     Deno       Windows: winget install DenoLand.Deno  / Mac: brew install deno
+       (今の yt-dlp は YouTube の取得に JavaScript の実行環境として Deno を使います。yt-dlp と一緒に入ることもあります)
      (入れたら黒い画面を開き直してください。旧ツールで入れたものと共通です)
   4. リポジトリ直下の start.bat をダブルクリック(入口。準備と起動の全体はリポジトリ直下の README.txt)
      入口の画面の「切り抜きスタジオ」の「開く」で http://localhost:8700/studio/ が開きます。※ 127.0.0.1 ではなく localhost で開いてください(YouTube埋め込みのため)
@@ -294,11 +296,11 @@
   ・文字起こしツールは含みません(保留中)
   旧ツールのフォルダはそのまま使えます(このツールとは別のデータです)。
 
-【データについて】(すべてこのフォルダ内)
+【データについて】(置き場所は %LOCALAPPDATA%\youtube-tools\studio\。v0.4.0 からリポジトリの外。Windows を入れ直すと消えるので、ときどき別のドライブへコピーしておいてください)
   data.json(動画・マーク。壊れたときは data.json.corrupt-日時 に退避して新しく始まります。.bak は直前の控え)/ settings-ui.json / registry.json / config.json(APIキー)/
   feedback.jsonl / cache/(チャット・音量・グラフ)/ work/(作業用・自動で消えます)/ exports/(書き出し結果。動画ごとに .clip.json も)/
   studio.log・studio-errors.log(1MB を超えると *.old.log に1世代だけ残します)
-  他の人にフォルダを渡すときは config.json を抜いてください。解析結果のグラフは cache/series/ に保存され(最新60本)、再起動後も表示されます。
+  他の人にこのデータのフォルダを渡すときは config.json を抜いてください。解析結果のグラフは cache/series/ に保存され(最新60本)、再起動後も表示されます。
 
 【できないこと・注意】
   ・笑い声や叫び声を聞き分けているわけではありません。大きい音・高い音の急上昇を見ています。ゲームの効果音・BGM・音量の急変にも反応します
@@ -311,11 +313,11 @@
   ・サーバーは自分のPC(127.0.0.1)だけで待ち受けます。外に公開しないでください
 
 【困ったとき】
-  ・途中で終了して黒い画面も閉じてしまう: v0.1.3 から、終了時に画面を閉じず理由を表示し、studio.log(このフォルダ)に終了の原因を記録します。
+  ・途中で終了して黒い画面も閉じてしまう: v0.1.3 から、終了時に画面を閉じず理由を表示し、studio.log(作業データの studio フォルダ)に終了の原因を記録します。
     起きたら、黒い画面のメッセージと studio.log(と studio.crash.log があればそれ)を教えてください
   ・画面の上に赤い帯: 古いサーバーが残っています。入口の「すべて終了」→ start.bat で起動し直してください
   ・YouTubeのプレイヤーが出ない / 黒いまま: 必ず http://localhost:ポート/ で開いてください。広告ブロッカーが埋め込みを止めていないかも確認を
-  ・「音声を取得できませんでした」: yt-dlp が古い可能性があります。yt-dlp -U で更新してください
+  ・「音声を取得できませんでした」: yt-dlp が古い可能性があります。yt-dlp -U で更新してください(winget で入れたときは winget upgrade yt-dlp.yt-dlp)
   ・入口のポート8700が使用中のときは次の番号(8701…)で起動します。黒い画面に表示されたアドレスを開いてください
 
 DaVinci Resolve用の編集余白

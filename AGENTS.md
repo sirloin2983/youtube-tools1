@@ -44,7 +44,7 @@
 - フォルダ名は 2026-09-30 に変えた(段0。`app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、`start-all.bat`→`start.bat`。対応表は `docs/plan/phase0-restructure.md`)。
   **フォルダ名と識別子は別**: `/api/ping` の `"clip-studio"`・`"transcribe-tool"`、JSON の tool.name・schema、作業データの ID(`app`・`studio`・`transcribe`)は互換のため変えていない(grep で当たっても直さない)
 
-- 画面のテストは Playwright(chromium)+ ffmpeg が必要。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
+- 画面のテストは Playwright(chromium)+ ffmpeg が必要(入れ方は `setup/requirements-dev.txt` の先頭のコメント)。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)
 - ツールを一時フォルダに写して動かすテストが多い。新しいファイルを足したら、写すファイルの一覧(各 e2e の先頭)にも足す
 - **サーバーを動かすテストは先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`**(忘れると移し済みの PC で本物の作業データを読み書きする。`ytt_core/tests/test_ytt_core.py` が検査)
 
@@ -150,5 +150,10 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - CPU は Intel Core i9-13900KF、メモリ 32GB。GPU は **AMD Radeon RX 7800 XT**(16GB)(NVIDIA ではないので CUDA は使えない → faster-whisper は CPU で動く。GPU 前提の提案をしない)
 - Python・ffmpeg はインストール済み(`setup\install.bat`・リポジトリ直下の start.bat を使う)。**動かすのは Python 3.10**(`py -3.10`。faster-whisper 1.2.1・sherpa-onnx 1.13.8 などは 3.10 に入っている。
   版は `setup/requirements*.txt` に固定。段10-3 = 2026-10-01)。start.bat・install*.bat・home/start_hidden.vbs は `py -3.10` → `py -3` → `python` の順に選ぶ。
-  miniconda の Python 3.12 もある(playwright 入り。e2e は今はこちらで流している)。単体テストは 3.10 でも通る(段10-3 で確かめた)。
-  `setup/requirements*.txt` は **英数字だけ**で書く(この PC の pip 22 は Windows の文字コードで読み、日本語のコメントで落ちる)。node は PATH に無い(Playwright に入っている node を `dev/run_editor_suite.py` が使う)
+  **2026-10-03 に Windows を入れ直した**(作業データ `%LOCALAPPDATA%\youtube-tools\` は消えて、新しく作り直されている)。入れ直しのあとは、miniconda は無い。Python は py ランチャーの 3.10.11(winget で入れた)と 3.12(普通の Python。`py` の既定。追加の部品は入れていない)。動かすのも、テストを流す(e2e を含む)のも 3.10。
+  Playwright 1.63.0 と chromium は 3.10 に入れた(`py -3.10 -m pip install -r setup\requirements-dev.txt` → `py -3.10 -m playwright install chromium`)。単体テストは 3.10 でも通る(段10-3 で確かめた)。
+  `setup/requirements*.txt` は **英数字だけ**で書く(以前の PC の pip 22 は Windows の文字コードで読み、日本語のコメントで落ちた。今の pip は 23.0.1 だが、決まりはそのまま残す)。node は PATH に無い(Playwright に入っている node を `dev/run_editor_suite.py` の find_node が自動で見つけて使う)。
+  **`python` と打つと Microsoft Store の別名(WindowsApps\python.exe)に当たって動かないことがある**。資料のテストのコマンドは `python ...` と書いてあるが、この PC では `py -3.10 ...` と読み替える。
+  ffmpeg・ffprobe は winget の Gyan.FFmpeg 9.0.2(full_build。PATH で先に見つかる)。yt-dlp 2026.08.19(winget の yt-dlp.yt-dlp)と Deno 2.9.7(winget の DenoLand.Deno)も入っている(今の yt-dlp は YouTube の取得に JavaScript の実行環境 Deno を使う)。
+  Lua は無い(`cut2resolve/tests/test_pack.py` の Lua を実行するテストは skip になる)。Visual Studio 2022(C++)と Vulkan SDK も無く、作業データの中の whisper.cpp の実行ファイル・モデル(`models/whispercpp/`)・Qwen3-ASR のモデルも消えた
+  → GPU(whisper.cpp)は `setup\build-whisper-vulkan.bat` で作り直すまで選べない。Whisper のモデルは small だけ取得済み(ほかは次に使うときに取得し直す)。Windows のユーザー名は以前と違う(資料の `C:\Users\you11\...` のような具体的な名前は `<ユーザー名>` と読む)

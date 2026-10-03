@@ -2789,3 +2789,30 @@
   AGENTS.md の「動作環境」の「miniconda の Python 3.12(playwright 入り)」は今の PC と合っていない(入れ直したら直す)。
   PATH の ffmpeg は winget の yt-dlp 用のもの(`...\WinGet\Links\ffmpeg.exe`)が先に見つかる
 - 未コミット: なし
+
+## 2026-10-03 Claude Code — 入れ直した PC に合わせて資料を直した・Playwright を 3.10 に・カットの保存の表示の直し → 編集 0.40.1
+- 依頼: 「リポジトリの中の全部(コード・資料・指示書)を精査して、Windows を入れ直したあとに合うように直す」。確認が要るものは仮で進めて最後に確認、の指示
+- 調べた結果(コード): 実行するコードに PC に依存する絶対パスは無い(Python・ffmpeg・yt-dlp・Edge・csc は PATH・環境変数・レジストリで探す)。直す所は無かった
+- 入れたもの(仮。ユーザーの確認待ち): **Playwright 1.63.0 + chromium を Python 3.10 に**(`setup/requirements-dev.txt` のとおり)。miniconda は無いので、動かすのもテスト(e2e を含む)も 3.10 にまとめた
+- 変更(資料。過去の測定値・記録は消さず、注記を足した):
+  - 環境と手順: `AGENTS.md`(動作環境: miniconda なし・3.10 に Playwright・pip 23.0.1・`python` は Store の別名に当たることがあるので `py -3.10`・ffmpeg は Gyan 9.0.2・yt-dlp と Deno・Lua なし・Visual Studio と Vulkan SDK なし)・
+    `editor/AGENTS.md`(進み具合は ROADMAP を見る・whisper.cpp は作り直し・Playwright の入れ方)・`README.txt`(winget の Python 3.10・Deno・バックアップ)・
+    `studio/README.txt`(データの場所を %LOCALAPPDATA% に・Deno・winget upgrade)・`editor/README.txt`(install*.bat は `setup\`・Python 3.10・データとバックアップの場所)・
+    `docs/spec/data-location.md`(ユーザー名の例を `<ユーザー名>` に・**「バックアップ」の節**を足した)
+  - 状態と計画: `docs/ROADMAP.md`(入れ直しの段落・線 B は校正済みが 0 に戻り材料は 評価用_仮置き 360本・測定値は 10-02 までの記録・whisper.cpp と Qwen3 のモデルは消えた・線 C の記録は 0 に・
+    3 に「入れ直しでやり直しになること」・夏色まつり(042eed22f3d8)の2件は閉じた)・`docs/plan/transcription-overhaul-plan.md`・`docs/plan/accuracy/accuracy-baseline.md`・`USER_INPUT.md`・
+    `docs/plan/phase2-data-safety.md`・`phase5-consistent-ui.md`・`line-a-after-phase8.md`(該当の行に注記)・`docs/HANDOVER.md`(先頭に 10-03 の追記・miniconda と Desktop\youtube-test の行)・
+    `.design/friend-transcribe-lite/DESIGN_REVIEW.md`・`.design/ui-overhaul/DESIGN_REVIEW.md`(写真は消えた・バックアップの場所・`dev/demo_env.py`)
+- 変更(コード): `editor/cut.js` の `save` … `M.saving` を入れたあとで `renderSaveState` を呼ぶ。それまでは async の最初の `renderSaveState` が代入の前に走り、PUT を送っている間も「カットを保存しました」と出ていた
+  (保存そのものは正しい)。入れ直した PC では PUT が少し遅く、`e2e_edit_cut.py` が「保存しました」を見てすぐサーバーを読んで 5〜7件落ちた(落ちる項目は毎回違う)ことで分かった
+- 版: 編集 0.40.0 → 0.40.1(serve.py・app.js・README.txt・editor/AGENTS.md・ROADMAP)
+- テスト(すべて `py -3.10`): 単体 = ytt_core 88・home 194・studio 249・cut2resolve 314(skip 20 = Lua など)・dev 63・契約 34 OK。e2e = 編集の一式(`dev/run_editor_suite.py`)・ホーム 5本・スタジオ 3本・ui-kit・e2e_pipeline・e2e_datadir OK
+  (`e2e_edit_cut.py` は直したあと単独で 7回 ALL PASSED。まとめて流した1回は、2つ目のタブで動画の情報を読む前に currentTime を入れて待ちが切れた → テストに `readyState >= 1` の待ちを足した)。`holo-colors\build.bat`(31件 OK・dist を作り直した)・`request-sender\build.bat`(28件 OK。鍵が無いので zip に鍵は入っていない)。
+  流していない: `holo-colors/tests/e2e_holo_colors.py`(本物のキー入力を送るため)
+- 訂正: 1つ前の記録の「Playwright が入っていない」は、この作業で入れたので今は当たらない。「PATH の ffmpeg は yt-dlp 用のものが先」は誤りで、先に見つかるのは Gyan.FFmpeg 9.0.2(`WinGet\Links\ffmpeg.exe`)。yt-dlp 用の ffmpeg は PATH の後ろ
+- 決定・理由: 資料のテストのコマンド(`python ...`)は書き換えず、AGENTS.md の動作環境に「`py -3.10` と読み替える」と書いた(コマンドは PC によらない書き方のままにする)
+- 未完了・次(ユーザーの確認待ち): (1) Playwright を 3.10 にまとめたままでよいか (2) 評価用_仮置き の 360本からどの場面を校正するか(線 B の律速) (3) GPU(whisper.cpp)を使うなら Visual Studio 2022(C++)と Vulkan SDK を入れて
+  `setup\build-whisper-vulkan.bat` (4) 友人に zip を渡し直すなら `py -3.10 dev\dropbox_auth.py <App key>` で鍵を作り直して `request-sender\build.bat` (5) 編集の ⚙・依頼の受付・スタートアップのショートカットの入れ直し
+  (6) 作業データのバックアップの仕方(手で写す / 道具を作る)。`.design/request-sender-overhaul/DESIGN_REVIEW.md` の写真の注記は足していない
+- 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start.bat で起動し直す(編集 0.40.1)
+- 未コミット: なし

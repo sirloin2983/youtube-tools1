@@ -548,6 +548,7 @@ def main():
             wait_js(pg2, "document.querySelector('#ver').textContent.startsWith('v')")
             open_doc(pg2, "カットの確認")
             wait_js(pg2, "document.querySelectorAll('#tlVideo .tt-k').length === %d" % len(shown), 20000)
+            wait_js(pg2, "document.querySelector('#cutPlayer').readyState >= 1", 20000)   # 動画の情報を読む前に currentTime を入れると効かないことがある(2つ目のタブは読み込みが遅れる)
             pg2.evaluate("document.querySelector('#cutPlayer').currentTime = 12.0")
             wait_js(pg2, "Math.abs(document.querySelector('#cutPlayer').currentTime - 12.0) < 0.01")
             pg2.focus("#tlScroll")

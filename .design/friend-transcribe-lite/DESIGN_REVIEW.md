@@ -20,6 +20,7 @@ Date: 2026-10-02(Claude Code。/frontend-design → /baseline-ui → /design-rev
 | `screenshots/review-export-done-*.png` | 3幅 + 暗い | 4 書き出し(できた・送り方・注意) |
 
 > 写真は `.design/friend-transcribe-lite/screenshots/`(`.gitignore` の対象。撮り直すスクリプトはセッションの一時フォルダ。e2e の `editor/tests/e2e_lite.py` と同じ流れ)。
+> 2026-10-03: 写真は Windows の入れ直しで PC から消えた(`.gitignore` の対象なので clone でも戻らない)。バックアップ `D:\backup\Desktop\youtube-test\.design\` にある。撮り直しは見本の画面を出す道具 `dev/demo_env.py` で。
 
 ## Summary
 

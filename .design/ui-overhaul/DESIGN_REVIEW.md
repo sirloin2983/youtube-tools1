@@ -6,7 +6,8 @@ Date: 2026-09-27(Claude Code。ui-dev-workflow の段階3: /frontend-design → 
 
 ## Screenshots Captured
 
-見本のデータ(`python tools/demo_env.py --port 8750`)で撮影。写真は `.design/ui-overhaul/screenshots/`(git には入れない。撮り直しは同じ手順)。
+見本のデータ(`python dev/demo_env.py --port 8750`。撮った当時は `tools/demo_env.py`。フォルダ名を 09-30 に変えた)で撮影。写真は `.design/ui-overhaul/screenshots/`(git には入れない。撮り直しは同じ手順)。
+2026-10-03: 写真は Windows の入れ直しで PC から消えた(`.gitignore` の対象なので clone でも戻らない)。バックアップ `D:\backup\Desktop\youtube-test\.design\` にある。撮り直しは `dev/demo_env.py`。
 
 | Screenshot | Breakpoint | Description |
 | --- | --- | --- |

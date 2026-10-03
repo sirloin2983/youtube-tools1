@@ -207,6 +207,7 @@ function create(h){
       }
       return !M.dirty;
     })().finally(() => { M.saving = null; renderSaveState(); });
+    renderSaveState();   // M.saving が入ってから表示し直す(上の async の最初の renderSaveState は代入の前に走るので、送っている間も「保存しました」に見えていた)
     return M.saving;
   }
   async function flush(){

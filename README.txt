@@ -19,10 +19,13 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
                                          主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は holo-colors\README.txt
 
 【準備(最初に1回)】
-  1. Python 3.10(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック)
+  1. Python 3.10(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック。
+       winget なら Windows: winget install Python.Python.3.10 。入れたあとは py -3.10 で動かせます)
        部品の版は 3.10 で確かめています(setup\requirements.txt)。start.bat・install.bat は 3.10 があればそれを使い、無ければほかの Python 3 を使います
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
+     Deno       Windows: winget install DenoLand.Deno  / Mac: brew install deno
+       (今の yt-dlp は YouTube の取得に JavaScript の実行環境として Deno を使います。yt-dlp と一緒に入ることもあります)
      (入れたら黒い画面を開き直してください)
   4. 文字起こしの部品: setup フォルダの install.bat をダブルクリック(Mac は install.command)
        話者の自動判別を使うなら install-diarize.bat も。NVIDIA の GPU がある人だけ install-gpu.bat
@@ -95,6 +98,8 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   %LOCALAPPDATA%\youtube-tools\(例 C:\Users\<名前>\AppData\Local\youtube-tools\)にあります。
   ホームの「詳しく」の「作業データの置き場所」にパスが出ます(隠しフォルダなので、パスをコピーしてエクスプローラーに貼ります)。
   詳しくは docs\spec\data-location.md。書き出した切り抜き・パックは、スタジオの設定の出力先と、動画の隣です。
+  作業データはリポジトリの外にあるので、git にも GitHub にも入りません。Windows を入れ直すと消えます(2026-10-03 に実際に失いました)。
+  ときどき別のドライブへコピーしておき、入れ直す前には必ずコピーしてください(特に transcribe と studio。docs\spec\data-location.md の「バックアップ」)。
 
 【変更を GitHub に保存する(push.bat)】
   push.bat をダブルクリックすると、変更をまとめてコミットして GitHub に送ります。途中で次のことを自動で行います:
