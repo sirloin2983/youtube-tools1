@@ -155,5 +155,13 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
   `setup/requirements*.txt` は **英数字だけ**で書く(以前の PC の pip 22 は Windows の文字コードで読み、日本語のコメントで落ちた。今の pip は 23.0.1 だが、決まりはそのまま残す)。node は PATH に無い(Playwright に入っている node を `dev/run_editor_suite.py` の find_node が自動で見つけて使う)。
   **`python` と打つと Microsoft Store の別名(WindowsApps\python.exe)に当たって動かないことがある**。資料のテストのコマンドは `python ...` と書いてあるが、この PC では `py -3.10 ...` と読み替える。
   ffmpeg・ffprobe は winget の Gyan.FFmpeg 9.0.2(full_build。PATH で先に見つかる)。yt-dlp 2026.08.19(winget の yt-dlp.yt-dlp)と Deno 2.9.7(winget の DenoLand.Deno)も入っている(今の yt-dlp は YouTube の取得に JavaScript の実行環境 Deno を使う)。
-  Lua は無い(`cut2resolve/tests/test_pack.py` の Lua を実行するテストは skip になる)。Visual Studio 2022(C++)と Vulkan SDK も無く、作業データの中の whisper.cpp の実行ファイル・モデル(`models/whispercpp/`)・Qwen3-ASR のモデルも消えた
-  → GPU(whisper.cpp)は `setup\build-whisper-vulkan.bat` で作り直すまで選べない。Whisper のモデルは small だけ取得済み(ほかは次に使うときに取得し直す)。Windows のユーザー名は以前と違う(資料の `C:\Users\you11\...` のような具体的な名前は `<ユーザー名>` と読む)
+  Lua は無い(`cut2resolve/tests/test_pack.py` の Lua を実行するテストは skip になる)。Visual Studio Build Tools 2022(C++。17.14)と Vulkan SDK 1.4.363.0 は 10-04 に入った。
+  whisper.cpp v1.9.4 の Vulkan 版は 10-04 に作り直した(作業データの `transcribe\bin\whisper.cpp-v1.9.4-vulkan\`。RX 7800 XT を認識)。Whisper の ggml のモデル・Qwen3-ASR のモデルは次に使うときに取得し直す。
+- **【Claude のデスクトップアプリ(Code タブ)から動かす AI の注意】(2026-10-04 に分かった)** アプリが MSIX のパッケージなので、AI のシェル(とそこから起動したプロセス)が `%LOCALAPPDATA%` に書いたファイルは、
+  本物の場所ではなく `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\` の写しに入る。AI からは両方が重なって見えるので気づけないが、ユーザーが start.bat で動かす入口からは見えない
+  (10-03〜04 に AI が戻したパック 15件・声の登録・編集の設定、作った whisper.cpp がこれで本物の場所に無かった → 10-04 に写した)。
+  **作業データ(`%LOCALAPPDATA%\youtube-tools\`)へ AI が直接書くときは、パッケージの外のプロセスで書く**(例: `Invoke-CimMethod Win32_Process Create` で cmd・robocopy を動かす。WMI から作ったプロセスはパッケージの外になる)。
+  本物の中身を確かめるときも同じ形で dir する。できれば入口の API(画面)を通して書く。AI が入口・start_hidden.vbs を起動すると、その入口もパッケージの中で動く(ユーザーに start.bat・デスクトップのショートカットで起動し直してもらう)。
+  `C:\dev\`・`D:\`・`E:\`・`%USERPROFILE%` の直下は写しにならない。Python 3.10 の部品(faster-whisper・sherpa-onnx・Playwright)は本物の場所に入っている(10-04 にパッケージの外から確かめた)が、
+  Playwright の chromium(`%LOCALAPPDATA%\ms-playwright`)は写しの中だけ(AI が流す画面のテストは動く。パッケージの外で流すなら `py -3.10 -m playwright install chromium` をし直す)
+- Whisper のモデルは small だけ取得済み(ほかは次に使うときに取得し直す)。Windows のユーザー名は以前と違う(資料の `C:\Users\you11\...` のような具体的な名前は `<ユーザー名>` と読む)

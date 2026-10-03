@@ -2932,3 +2932,16 @@
 - 次: ユーザーの「始めて」で Q0 から。ユーザーがやること: Visual Studio 2022(C++)と Vulkan SDK を入れる
 - 調べもののモデル: fps・評価用・記録の有無 = Sonnet(読む量が多く判断は軽い)、課題の一覧・線 C/D の要約 = Haiku、まとめと判断 = Opus
 - 未コミット: なし
+
+## 2026-10-04 Claude Code — whisper.cpp(Vulkan)を作り直した・AI の書き込みがアプリの写しに入っていた件を直した
+- whisper.cpp: Visual Studio Build Tools 2022(17.14)と Vulkan SDK 1.4.363.0 はユーザーが入れてあった。`setup/build_whisper_vulkan.py` で v1.9.4 を作った → `transcribe\bin\whisper.cpp-v1.9.4-vulkan\`。
+  `tx_engines.WhisperCpp.ready` = True・whisper-cli が AMD Radeon RX 7800 XT を Vulkan で認識(matrix cores: none)。モデル(ggml)はまだ取得していない(初めて GPU を選んで文字起こししたときに取得)
+- **分かったこと**: Claude のデスクトップアプリは MSIX のパッケージで、AI のシェルが `%LOCALAPPDATA%` に書いたものは `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\` の写しに入る
+  (AI からは重なって見える・ユーザーの start.bat の入口からは見えない)。パッケージの外(WMI の Win32_Process Create)から本物の場所を見ると、
+  作った whisper.cpp・10-03 に戻したパック 15件と声の登録(voxceleb.json)・編集の設定 settings.json(evalDirs を含む)が本物の場所に無かった
+- 直したこと: パッケージの外で robocopy(/XC /XN /XO = 上書きしない・消さない)で、写しから本物の場所へ bin・voices・settings.json・packs 15件を写した(本物にあった 44e1ac6e… はそのまま)。
+  Python 3.10 の部品は本物の場所にあった。Playwright の chromium は写しの中だけ(AI のテストには困らない)
+- `AGENTS.md` の動作環境に注意を書いた(作業データへ AI が書くときはパッケージの外のプロセスで・確かめるときも外から)
+- ユーザーがやること: 入口を「すべて終了」→ デスクトップの youtube-tools(start.bat)で起動し直す(AI が 10-04 に start_hidden.vbs で起動した入口はパッケージの中で動いていた可能性がある)。
+  そのあと編集の ⚙ の処理方式で「GPU(AMD など・whisper.cpp)」が選べる
+- 未コミット: なし
