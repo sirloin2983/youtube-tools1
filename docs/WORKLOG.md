@@ -2771,3 +2771,21 @@
 - 注意: バックアップの .git にある段0 コミット2(bd6cb40)・2e3c069 は origin に無い(origin は c422f14 で同じ内容を入れ直している)。拾わなくてよい
 - ユーザーがやること: 起動後、スタジオ・編集の設定を入れ直す
 - 未コミット: なし
+
+## 2026-10-03 Claude Code — 入れ直しのあとの続き: 動かすソフトの入れ直し・API キー・動作確認・評価用データの整理(記録だけ)
+- 変更: この記録だけ(コードの変更なし)。ユーザーが貼った作業の記録のうち、上の件に無かった分を残す
+- 入れ直したソフト: Python 3.10.11(winget)・yt-dlp 2026.08.19(winget。Deno と yt-dlp 用の ffmpeg も一緒に入った)・
+  `setup/requirements.txt`(faster-whisper 1.2.1・ctranslate2 4.8.2・onnxruntime 1.23.2・numpy 2.2.6)・`setup/requirements-diarize.txt`(sherpa-onnx 1.13.8)。
+  Python 3.10 で部品を読み込めた。ytt_core のテスト 74件 OK
+- YouTube Data API のキー: 消えていたので Google Cloud Console で作り直した(名前「youtube-tools スタジオ」・API の制限 = YouTube Data API v3 だけ・アプリケーションの制限なし)。
+  スタジオの ⚙ で入れた → `%LOCALAPPDATA%\youtube-tools\studio\config.json`(リポジトリの外)
+- 動作確認: start.bat → 文字起こし → パック化まで動いた。パックの記録は 16件(戻した 15 + 新しい 1)。画面のエラーの記録・入口のログにエラーなし
+- 評価用データ: `E:\Video\切り抜き動画素材\評価用データ\1_JP` の動画 18本(682MB)を `評価用_仮置き` へ移した(上書きなし。1_JP には空のフォルダが残っている)。
+  `評価用_仮置き` は 360本(mov 334・mp4 25・mkv 1)・合計 3時間42分01秒(平均 約37秒)
+- 未完了・次: push.bat で push(ac231bd とこの記録)。以前の文字起こしと校正・スタジオの解析とマークは戻せない(元の動画があれば作り直せる)。
+  「編集」の設定(パックの音量・fps・キー配置など)は初期値に戻っている
+- 注意: **Playwright が入っていない**(10-03 に確認。Python 3.10・3.12 のどちらにも無く、`%LOCALAPPDATA%\ms-playwright` も無い。miniconda も無くなり、3.12 は普通の Python)。
+  画面のテスト(e2e)と node を使うテスト(`dev/run_editor_suite.py` は Playwright の node を使う)は、`pip install playwright` → `playwright install chromium` をするまで流せない。
+  AGENTS.md の「動作環境」の「miniconda の Python 3.12(playwright 入り)」は今の PC と合っていない(入れ直したら直す)。
+  PATH の ffmpeg は winget の yt-dlp 用のもの(`...\WinGet\Links\ffmpeg.exe`)が先に見つかる
+- 未コミット: なし
