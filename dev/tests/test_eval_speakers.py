@@ -1,0 +1,323 @@
+"""dev/eval_speakers.py(話者の判別・声の照合を、人が直した最終で測る道具)のテスト。リポジトリ直下で:
+
+    py -3.10 -m unittest dev/tests/test_eval_speakers.py
+
+作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバーは動かさない。
+"""
+import contextlib
+import io
+import itertools
+import json
+import os
+import sys
+import tempfile
+import time
+import unittest
+
+os.environ.setdefault("YTT_DATA_DIR", "inplace")
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+sys.path.insert(0, REPO)
+import eval_speakers as E  # noqa: E402
+
+
+def ms(day, hhmm="12:00:00"):
+    return int(time.mktime(time.strptime("%sT%s" % (day, hhmm), "%Y-%m-%dT%H:%M:%S")) * 1000)
+
+
+class Env:
+    """一時の作業データ(<root>/transcribe/transcripts/)に、文書と判別の記録を作る"""
+
+    def __init__(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        self.tdir = os.path.join(self.root, "transcribe", "transcripts")
+        os.makedirs(self.tdir)
+
+    def close(self):
+        self._tmp.cleanup()
+
+    def doc(self, tid, speakers, rows, diar=None, history=None, original=None, eval_set=False, updated=None, title="t"):
+        """speakers: {id: 名前}。rows: [(行 id, 人の話者 id or "", 機械のラベル or None, 追加の項目(mixed・weak・proofed・proofedAt・start・end))]。
+        diar=None なら判別の記録を作らない。機械のラベル None = 機械が付けなかった行。diar は {"voices": {...}, "engine": {...}} など"""
+        segs, drows = [], {}
+        for i, (rid, hsp, label, kw) in enumerate(rows):
+            kw = dict(kw)
+            seg = {"id": rid, "start": kw.pop("start", i * 2.0), "end": kw.pop("end", i * 2.0 + 1.5), "text": "あ", "speaker": hsp, "flag": ""}
+            drows[rid] = {"label": 0 if label else None, "speaker": label or "", "ratio": 1.0, "mixed": bool(kw.pop("mixed", False)), "weak": bool(kw.pop("weak", False))}
+            for k in ("proofed", "proofedAt"):
+                if k in kw:
+                    seg[k] = kw.pop(k)
+            segs.append(seg)
+        d = {"schema": "youtube-tools-transcript/v1", "id": tid, "title": title, "segments": segs, "updatedAt": updated or ms("2026-10-01"),
+             "speakers": [{"id": k, "name": v, "color": "#000"} for k, v in speakers.items()]}
+        if original is not None:
+            d["original"] = original
+        if eval_set:
+            d["evalSet"] = True
+        self._write(tid + ".json", d)
+        if diar is not None:
+            latest = {"at": 1, "engine": diar.get("engine") or {"name": "sherpa-onnx", "embedding": "voxceleb", "clusterThreshold": 0.5, "requested": "auto"},
+                      "rows": diar.get("rows") or drows, "speakers": diar.get("speakers", len({r["speaker"] for r in drows.values() if r["speaker"]})),
+                      "voices": diar.get("voices") or {"checked": False}}
+            hist = []
+            for h in history or []:
+                hr = {"at": 0, "engine": h.get("engine") or {"name": "sherpa-onnx", "embedding": "other", "clusterThreshold": 0.6, "requested": "auto"}, "rows": h["rows"],
+                      "speakers": 2, "voices": {"checked": False}}
+                hist.append(hr)
+            self._write(tid + ".diar.json", {"schema": "youtube-tools-diar/v1", "latest": latest, "history": hist})
+
+    def _write(self, name, d):
+        with open(os.path.join(self.tdir, name), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+
+    def run(self, **kw):
+        return E.evaluate(self.root, **kw)
+
+
+def vinfo(top, score, second=None, second_score=None, decided=None, by=None, reason=None):
+    return {"top": top, "score": score, "second": second, "secondScore": second_score, "decided": decided, "by": by, "reason": reason}
+
+
+class TestMapping(unittest.TestCase):
+    def test_hungarian_matches_brute_force(self):
+        import random
+        rnd = random.Random(7)
+        for _ in range(60):
+            r, c = rnd.randint(1, 5), rnd.randint(1, 5)
+            w = [[rnd.randint(0, 9) for _ in range(c)] for _ in range(r)]
+            got = E.hungarian_max(w)
+            self.assertEqual(len(set(got.values())), len(got))
+            best = 0
+            for perm in itertools.permutations(range(max(r, c))):
+                best = max(best, sum(w[i][perm[i]] for i in range(r) if perm[i] < c))
+            self.assertEqual(sum(w[i][j] for i, j in got.items()), best)
+
+    def test_best_mapping_swapped_labels_and_oversplit(self):
+        rows = [{"label": "S1", "human": "B"}] * 4 + [{"label": "S2", "human": "A"}] * 3 + [{"label": "S3", "human": "A"}] * 1 + [{"label": "", "human": "A"}]
+        m = E.best_mapping(rows)
+        self.assertEqual(m, {"S1": "B", "S2": "A"})   # S3 は A に対応できない(分けすぎ)
+
+
+class TestRows(unittest.TestCase):
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+
+    def test_swapped_labels_are_correct_and_counts(self):
+        # 機械の S1 = 人の B、機械の S2 = 人の A(入れ替わり)。1行は取り違え・1行は機械が付けなかった・1行は重なり(mixed)で取り違え
+        rows = [("r%d" % i, "S2", "S1", {}) for i in range(6)] + [("a%d" % i, "S1", "S2", {}) for i in range(4)]
+        rows += [("w1", "S1", "S1", {}), ("n1", "S1", None, {}), ("m1", "S1", "S1", {"mixed": True}), ("m2", "S1", "S2", {"mixed": True}), ("k1", "S2", "S1", {"weak": True})]
+        self.env.doc("aaaaaaaaaaaa", {"S1": "A", "S2": "B"}, rows, diar={})
+        res = self.env.run()
+        a = res["subsets"]["all"]
+        self.assertEqual(a["rows"], 15)
+        # 正しい: r0-5(B→S1)=6・a0-3(A→S2)=4・m2(A→S2)=1・k1(B→S1)=1 → 12 / 間違い: w1・n1(未割り当て)・m1(S1=B なのに人は A)
+        self.assertEqual(a["correct"], 12)
+        self.assertEqual(a["unassigned"], 1)
+        self.assertEqual(a["mixed"], {"rows": 2, "correct": 1, "rate": 0.5})
+        self.assertEqual(a["weak"], {"rows": 1, "correct": 1, "rate": 1.0})
+        self.assertEqual(a["plain"]["rows"], 12)
+        self.assertEqual(a["plain"]["correct"], 10)
+        self.assertEqual(a["rate"], round(12 / 15, 4))
+        self.assertEqual(res["speakerCount"]["exact"], 1)
+
+    def test_draft_names_unlabeled_and_no_record_rows_are_excluded(self):
+        rows = [("r1", "S1", "S1", {}), ("r2", "S1", "S1", {}), ("d1", "S2", "S2", {}), ("u1", "", "S1", {}), ("x1", "S1", "S1", {})]
+        self.env.doc("bbbbbbbbbbbb", {"S1": "A", "S2": "話者2"}, rows, diar={"rows": {k: {"label": 0, "speaker": "S1", "mixed": False, "weak": False} for k in ("r1", "r2", "d1", "u1")}})
+        res = self.env.run()
+        self.assertEqual(res["subsets"]["all"]["rows"], 2)         # d1(仮の名前)・u1(話者なし)・x1(機械の記録なし)は外れる
+        self.assertEqual(res["meta"]["draftRows"], 1)
+        self.assertEqual(res["meta"]["noRecordRows"], 1)
+        res2 = self.env.run(include_draft=True)
+        self.assertEqual(res2["subsets"]["all"]["rows"], 3)
+
+    def test_over_split_speaker_count_and_wrong_rows(self):
+        rows = [("a%d" % i, "S1", "S1", {}) for i in range(5)] + [("b%d" % i, "S2", "S2", {}) for i in range(5)] + [("c%d" % i, "S2", "S3", {}) for i in range(2)]
+        self.env.doc("cccccccccccc", {"S1": "A", "S2": "B"}, rows, diar={})
+        res = self.env.run()
+        self.assertEqual(res["subsets"]["all"]["correct"], 10)
+        self.assertEqual(res["speakerCount"]["diff"], {"1": 1})
+        self.assertEqual(res["speakerCount"]["over"], 1)
+        self.assertEqual(res["speakerCount"]["exactRate"], 0.0)
+
+    def test_proofed_subset_and_time_edited_subset(self):
+        orig = [{"start": 0.0, "end": 1.5, "text": "あ"}, {"start": 2.0, "end": 3.5, "text": "あ"}, {"start": 4.0, "end": 5.5, "text": "あ"}]
+        rows = [("r0", "S1", "S1", {"proofed": True}),
+                ("r1", "S1", "S2", {"proofed": True, "start": 2.0, "end": 3.9}),    # 終わりを直した(間違い)
+                ("r2", "S1", "S1", {"start": 4.3, "end": 5.5})]                      # 始まりを直した
+        self.env.doc("dddddddddddd", {"S1": "A", "S2": "B"}, rows, diar={}, original=orig)
+        res = self.env.run()
+        self.assertEqual(res["subsets"]["all"]["rows"], 3)
+        self.assertEqual(res["subsets"]["proofed"]["rows"], 2)
+        te = res["subsets"]["timeEdited"]
+        self.assertEqual(te["rows"], 2)
+        self.assertEqual(te["correct"], 1)
+        # original が無い文書は時刻を直したか分からないので、その行の集まりには入らない
+        self.env.doc("eeeeeeeeeeee", {"S1": "A"}, [("r0", "S1", "S1", {})], diar={})
+        self.assertEqual(self.env.run()["subsets"]["timeEdited"]["rows"], 2)
+
+    def test_period_by_proofed_at_or_doc_updated_at(self):
+        rows = [("r0", "S1", "S1", {"proofed": True, "proofedAt": ms("2026-09-10")}),
+                ("r1", "S1", "S1", {"proofed": True, "proofedAt": ms("2026-09-20")}),
+                ("r2", "S1", "S1", {})]                                            # 時刻なし → 文書の更新時刻 10-01
+        self.env.doc("ffffffffffff", {"S1": "A"}, rows, diar={})
+        self.assertEqual(self.env.run()["subsets"]["all"]["rows"], 3)
+        self.assertEqual(self.env.run(since="2026-09-15")["subsets"]["all"]["rows"], 2)
+        self.assertEqual(self.env.run(since="2026-09-15", until="2026-09-20")["subsets"]["all"]["rows"], 1)   # until はその日を含む
+        self.assertEqual(self.env.run(until="2026-09-10")["subsets"]["all"]["rows"], 1)
+        self.assertEqual(self.env.run(since="2026-10-02")["meta"]["docs"], 0)
+
+    def test_eval_set_included_by_default_and_excludable(self):
+        self.env.doc("111111111111", {"S1": "A"}, [("r0", "S1", "S1", {})], diar={}, eval_set=True)
+        self.env.doc("222222222222", {"S1": "A"}, [("r0", "S1", "S1", {})], diar={})
+        self.assertEqual(self.env.run()["meta"]["docs"], 2)
+        r = self.env.run(include_eval=False)
+        self.assertEqual((r["meta"]["docs"], r["meta"]["skipped"]["evalSet"]), (1, 1))
+
+    def test_history_runs_grouped_by_engine(self):
+        rows = [("r0", "S1", "S1", {}), ("r1", "S2", "S2", {}), ("r2", "S2", "S2", {})]
+        old = {"r0": {"label": 0, "speaker": "S1"}, "r1": {"label": 0, "speaker": "S1"}, "r2": {"label": 1, "speaker": "S2"}}   # 前の回は r1 を取り違えた
+        self.env.doc("333333333333", {"S1": "A", "S2": "B"}, rows, diar={}, history=[{"rows": old}])
+        be = self.env.run()["byEngine"]
+        self.assertEqual(len(be), 2)
+        new = [v for k, v in be.items() if "voxceleb" in k][0]
+        prev = [v for k, v in be.items() if "other" in k][0]
+        self.assertEqual((new["rate"], prev["correct"], prev["rows"]), (1.0, 2, 3))
+
+    def test_single_and_missing_diar_are_skipped(self):
+        self.env.doc("444444444444", {"S1": "A"}, [("r0", "S1", "S1", {})], diar={"engine": {"name": "single", "requested": 1}})
+        self.env.doc("555555555555", {"S1": "A"}, [("r0", "S1", "S1", {})])
+        r = self.env.run()
+        self.assertEqual((r["meta"]["docs"], r["meta"]["skipped"]["single"], r["meta"]["skipped"]["noDiar"]), (0, 1, 1))
+
+
+class TestVoices(unittest.TestCase):
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+
+    def make(self):
+        # 機械の S1 = 人の A(照合も A で正解・点数 0.80・差 0.30)/ S2 = 人の B(照合は C で間違い・点数 0.70・差 0.20)/
+        # S3 = 人の D(しきい値に届かず付けなかったが、1位は D = 取りこぼし 0.55)/ S4 = 人の E(特徴が取れない)/ S5 = 行が無い
+        rows = [("a%d" % i, "S1", "S1", {}) for i in range(4)] + [("b%d" % i, "S2", "S2", {}) for i in range(3)]
+        rows += [("d%d" % i, "S3", "S3", {"proofed": True}) for i in range(2)] + [("e0", "S4", "S4", {})]
+        voices = {"checked": True, "speakers": {
+            "S1": vinfo("A", 0.80, "B", 0.50, decided="A", by="threshold"),
+            "S2": vinfo("C", 0.70, "A", 0.50, decided="C", by="threshold"),
+            "S3": vinfo("D", 0.55, "A", 0.20, reason="below_match"),
+            "S4": vinfo(None, None, reason="no_feature"),
+            "S5": vinfo("Z", 0.90, "Y", 0.10, decided="Z", by="elimination")}}
+        self.env.doc("666666666666", {"S1": "A", "S2": "B", "S3": "D", "S4": "E"}, rows, diar={"voices": voices})
+
+    def test_voice_correctness_reasons_and_missed(self):
+        self.make()
+        v = self.env.run()["subsets"]["all"]["voices"]
+        self.assertEqual((v["decided"], v["correct"], v["wrong"], v["unverified"]), (2, 1, 1, 1))   # S5 は行が無く確かめられない
+        self.assertEqual(v["rate"], 0.5)
+        self.assertEqual(v["undecided"], {"below_match": 1, "no_feature": 1})
+        self.assertEqual(v["correctScore"]["median"], 0.8)
+        self.assertEqual(v["wrongScore"]["median"], 0.7)
+        self.assertEqual(v["correctMargin"]["median"], 0.3)
+        self.assertEqual(v["wrongMargin"]["median"], 0.2)
+        self.assertEqual(v["missed"]["n"], 1)
+        self.assertEqual(v["missed"]["score"]["median"], 0.55)
+        self.assertEqual(v["missed"]["byReason"], {"below_match": 1})
+
+    def test_voice_threshold_sweep(self):
+        self.make()
+        sw = {(x["match"], x["margin"]): x for x in self.env.run()["subsets"]["all"]["voices"]["sweep"]}
+        # 点数と差が分かるのは S1(A 正解 0.80/0.30)・S2(C 間違い 0.70/0.20)・S3(D 正解 0.55/0.35)・S5 は行が無いので入らない
+        self.assertEqual((sw[(0.6, 0.08)]["decided"], sw[(0.6, 0.08)]["correct"]), (2, 1))
+        self.assertEqual((sw[(0.5, 0.08)]["decided"], sw[(0.5, 0.08)]["correct"]), (3, 2))   # しきい値を下げると D も決まる
+        self.assertEqual((sw[(0.75, 0.0)]["decided"], sw[(0.75, 0.0)]["correct"]), (1, 1))   # 上げると間違いが消える
+        self.assertEqual(sw[(0.8, 0.12)]["precision"], 1.0)
+
+    def test_proofed_subset_voices_use_only_proofed_rows(self):
+        self.make()
+        v = self.env.run()["subsets"]["proofed"]["voices"]
+        # 校正済みの行は S3 の2行だけ。S3 は付けなかった(1位 D が人の名前 = 取りこぼし)。S1・S2 は行が無いので確かめられない
+        self.assertEqual((v["decided"], v["unverified"]), (0, 3))
+        self.assertEqual(v["missed"]["n"], 1)
+
+    def test_request_and_unchecked_voices_are_not_measured(self):
+        rows = [("a0", "S1", "S1", {})]
+        self.env.doc("777777777777", {"S1": "A"}, rows, diar={"voices": {"checked": True, "speakers": {"S1": vinfo(None, None, decided="A", by="request")}}})
+        self.env.doc("888888888888", {"S1": "A"}, rows, diar={"voices": {"checked": False}})
+        v = self.env.run()["subsets"]["all"]["voices"]
+        self.assertEqual((v["decided"], v["unverified"], v["undecidedTotal"]), (0, 0, 0))
+
+
+class TestCli(unittest.TestCase):
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+
+    def snapshot(self):
+        out = {}
+        for dp, _, fns in os.walk(self.env.root):
+            for fn in fns:
+                p = os.path.join(dp, fn)
+                out[p] = (os.path.getsize(p), os.path.getmtime(p))
+        return out
+
+    def test_empty_data_does_not_crash(self):
+        res = self.env.run()
+        self.assertEqual(res["meta"]["docs"], 0)
+        self.assertTrue(res["meta"]["few"])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            E.print_report(res)
+        self.assertIn("まだ少ない(参考)", buf.getvalue())
+        shutil_root = tempfile.mkdtemp()
+        try:
+            r = E.evaluate(os.path.join(shutil_root, "nothing"))   # transcribe フォルダも無い
+            self.assertEqual(r["meta"]["docs"], 0)
+        finally:
+            os.rmdir(shutil_root)
+
+    def test_report_and_json_save_and_read_only(self):
+        rows = [("r%d" % i, "S1", "S1", {}) for i in range(5)]
+        self.env.doc("999999999999", {"S1": "A"}, rows, diar={"voices": {"checked": True, "speakers": {"S1": vinfo("A", 0.7, "B", 0.3, decided="A", by="threshold")}}})
+        before = self.snapshot()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            E.main(["--data-dir", self.env.root])
+        text = buf.getvalue()
+        self.assertIn("話者の判別の測定", text)
+        self.assertIn("行ごとの正しさ", text)
+        self.assertEqual(self.snapshot(), before)     # --json なしでは何も書かない
+        with contextlib.redirect_stdout(io.StringIO()):
+            E.main(["--data-dir", self.env.root, "--json", "--no-eval"])
+        d = os.path.join(self.env.root, "transcribe", "evals", "speakers")
+        files = os.listdir(d)
+        self.assertEqual(len(files), 1)
+        with open(os.path.join(d, files[0]), encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertEqual(saved["meta"]["schema"], E.SCHEMA)
+        self.assertEqual(saved["subsets"]["all"]["rows"], 5)
+        self.assertFalse(saved["meta"]["includeEval"])
+        # 元の文書・判別の記録は変わらない
+        for p, v in before.items():
+            self.assertEqual((os.path.getsize(p), os.path.getmtime(p)), v)
+
+    def test_broken_files_are_skipped(self):
+        with open(os.path.join(self.env.tdir, "aaaaaaaaaaaa.json"), "w") as f:
+            f.write("{broken")
+        self.env.doc("bbbbbbbbbbbb", {"S1": "A"}, [("r0", "S1", "S1", {})])
+        with open(os.path.join(self.env.tdir, "bbbbbbbbbbbb.diar.json"), "w") as f:
+            f.write("not json")
+        r = self.env.run()
+        self.assertEqual((r["meta"]["docs"], r["meta"]["skipped"]["broken"], r["meta"]["skipped"]["noDiar"]), (0, 1, 1))
+
+    def test_few_note_disappears_at_200_rows(self):
+        rows = [("r%d" % i, "S1", "S1", {"start": i * 2.0, "end": i * 2.0 + 1.0}) for i in range(E.FEW_ROWS)]
+        self.env.doc("cccccccccccc", {"S1": "A"}, rows, diar={})
+        r = self.env.run()
+        self.assertFalse(r["meta"]["few"])
+        self.assertEqual(r["meta"]["fewNote"], "")
+
+
+if __name__ == "__main__":
+    unittest.main()
