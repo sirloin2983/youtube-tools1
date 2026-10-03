@@ -1,6 +1,6 @@
 # Q3 自動の測定・Q4 評価ドリルと定点 の実装の決めごと(2026-10-04 Claude Code + Fable)
 
-> **状態(2026-10-04): 実装中**。上の計画は `docs/plan/master-plan-2026-10.md` の Q3・Q4。ここは実装の細部の決めごと(Fable と相談して決めた)。
+> **状態(2026-10-04): 実装済み**(ホーム 0.31.0・編集 0.47.0)。上の計画は `docs/plan/master-plan-2026-10.md` の Q3・Q4。ここは実装の細部の決めごと(Fable と相談して決めた)。
 
 ## (a) 自動の測定(Q3)
 - 置き場所: 入口の新しい見張り `home/accuracy.py`(`home/backup.py` と同じ形: 設定の節 `accuracy` {enabled, nightFrom: 1, nightTo: 6}・`_loop` / `tick` / `snapshot`・記録 `app/accuracy-state.json`)。

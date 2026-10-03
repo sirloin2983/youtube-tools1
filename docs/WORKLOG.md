@@ -2991,3 +2991,19 @@
 - サブエージェント: 30fps の共通部品と編集の入口 = Opus(多くの入口が使う・文書の付け替えが絡む)・受付/パックの fps/盛り上がりの記録/測る道具 = Sonnet
 - 注意: 入口の版は 0.29.0 のまま(受付の 30fps は README の「次の版に入る予定」。線 D P1 と一緒に上げる)
 - 未コミット: なし(このあと Q2 の編集側と線 D P1 が作業中)
+
+## 2026-10-04 Claude Code — Q2 記録の土台(編集)・Q3 測る道具と自動の測定・Q4 評価ドリルと定点・線 D P1/P2(既定オフ)(ホーム 0.30.0 → 0.32.0・編集 0.46.0 → 0.47.0・recorder 0.1.0 → 0.2.0)
+- Q2 編集(2cf5685): 行の `proofedAt`(サーバーが付ける・この版より前の校正済みの行には付けない)・再認識の前の機械の結果を `recognition.runs`(kind each/range/whole/redo・replaced。30 件・2 万行まで)・辞書の版(settings.dict のハッシュ)・
+  edit.json の `draft`(初めての保存のときだけ・画面が送る)・校正の手間 `effort`(`POST /api/effort`・updatedAt を変えない)・話者判別の `<id>.diar.json`(最新 5 回・照合の点数と付けなかった理由・文書を消すと一緒に消える)。簡易版の生出力の代わりは kind の無い runs を読む
+- Q3(2839916・3afaa61・cd2ca85・2cf5685・360d2e5): `dev/eval_marks.py`・`eval_speakers.py`・`eval_cut.py`(最終はパックと保存したカットの新しい方)・`eval_asr.py` の --since/--until・--source eval|daily|all|friend・--group-by・下書きのエンジンの注意・
+  入口の精度の自動測定 `home/accuracy.py`(夜 1〜6 時・手が空いたとき 1 日 1 回・子プロセス・自動で作った結果は 30 件まで・調子に「精度」と「今すぐ測る」・既定オン。認識し直す重い測定は入れていない)。設計: `docs/plan/q3-q4-design.md`(Fable と相談)
+- Q4(08d6acc): 評価ドリル `editor/drill.html`・`drill.js`・`ed_drill.py`(評価用の未校正の行をランダムに 20 行・行ごとに保存・409・updatedAt を上げる・Enter 済み / D 飛ばす / 1〜9 話者)・定点の「あと何分」と条件・
+  評価用_仮置き のまとめての文字起こし `ed_evalbatch.py`(⚙ のボタン・待ち 2 件まで少しずつ・止めるまで続く)・「全行をこの人に」(話者のカード・既存の 1 人指定)
+- 線 D(d677ad1・08c1b86。**既定はオフ**。ホームの「詳しく → 試験中の機能」でオン): P1 = `recorder/`(streamlink 8.6.1 + ffmpeg の HLS・再接続・復旧・127.0.0.1:8730・合言葉・ブラウザから直接は 403)・入口の中継 `/live/`・hls.js 1.7.3 同梱・入口が 30 秒ごとに見回って起動(「すべて終了」で止まらない)。
+  P2 = マーク(押すたびに fsync・`live\marks\`)・書き出し(録画待ち → 区間のセグメント → 30fps → 検証 → スタジオと同じ置き場所・`.clip.json` の kind "live")→ まとめて実行の文字起こしへ。録画元の URL を変えたら前の合言葉は送らない(まとめ役が直した)
+- 確かめたテスト(最後に通しで): 編集の単体 368・e2e(ui_mounted・edit_tabs・edit_voices・eval_set・drill・edit_cut・proofread_keys・lite)・node 9・ホームの単体と e2e(portal・window・backup_ui・autorun・keymap・intake_ui・live)・スタジオ(単体 263・e2e_ui 192/214)・cut2resolve 318・契約 34・e2e_pipeline・e2e_datadir・ui-kit の同期・dev の道具 一式、すべて通った
+- ユーザーに確かめること(仮で決めた。最終の報告にまとめた): 29.97fps の古い素材の扱い・選び直しで作り直す・proofedAt の無い昔の校正の扱い・簡易版の校正の時間・定点の条件の数え方と目標が 2 つ並ぶ件・全行をこの人には今の話者も置き換える・精度の自動測定を既定オン・
+  線 D(streamlink の終わりの判定・つながらない 10 分/配信前 6 時間・空き 1GB で止める・既定の画質・書き出しの音量・反応の遅れの補正・実際の配信での確認)
+- サブエージェント: 設計の判断 = Fable 2 回・共通部品/入口/新しい部品/保存の競合が絡むもの = Opus・決まった仕様の直しと測る道具 = Sonnet・調べもの = Haiku/Sonnet
+- 次: ユーザーが「すべて終了」→ start.bat で起動し直す。使ってデータをためる(ドリル 1日1〜2回・⚙ の「仮置きをまとめて文字起こし」)。I-1〜I-5 はデータがたまってから。線 D の P3・P4 は相談してから
+- 未コミット: なし

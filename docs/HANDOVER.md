@@ -3,6 +3,11 @@
 > **2026-10-03 追記: Windows を入れ直した。下は 10-01 時点の内容で、版・HEAD は古い。今の状態は `docs/ROADMAP.md` と `docs/WORKLOG.md` の末尾を読むこと。**
 > 作業データ(文字起こしと校正・スタジオの解析・設定・案件・測定の記録など)は失われた。ほかにも、`miniconda` と Lua は無い・`Desktop\youtube-test` は PC にもう無い(バックアップ: `D:\backup\Desktop\youtube-test`)・スタートアップのショートカットと送るアプリの zip は作り直し・線 B の校正済みは 0 に戻った、の点が下の文と変わった(該当の行に注記した)。
 
+> **2026-10-04 夜 追記(最新)**: 計画の見直し(落ちる前提の見直し S1/S2)と Q0〜Q4・線 D P1/P2(既定オフ)を実装した。版: 入口 0.32.0・スタジオ 0.19.0・編集 0.47.0・cut2resolve 0.20.0・recorder 0.2.0。
+> 全部コミット済み(push はユーザーの push.bat)。何をしたかは WORKLOG の末尾 3 件、順番と状態は `docs/ROADMAP.md` の 2、落ちる前提の見直しは `docs/plan/stability-review-2026-10.md`、Q3/Q4 の細部は `docs/plan/q3-q4-design.md`。
+> 次: ユーザーが入口を起動し直して使う(ドリル・まとめての文字起こし)→ データがたまったら I-1a(エンジンの決定)から。線 D の P3・P4 はユーザーと相談してから。
+> **次のセッションに貼る指示文**: 「AGENTS.md → docs/ROADMAP.md → docs/WORKLOG.md の末尾 3 件を読んで、git status と git log -5 を見てから、ROADMAP の 2 の表で次の段を確かめて。ユーザーが確認した仮の決定があれば反映して。」
+
 セッションを切り替えるたびに上書きする。全体のまとめと文書の索引は `docs/ROADMAP.md`、詳しい経緯は `docs/WORKLOG.md`、ルールは `AGENTS.md`、画面の共通のルールは `docs/spec/ui-guidelines.md` と
 `docs/spec/usability-heuristics.md`(Nielsen の 10 の原則)、ユーザー向けの使い方はリポジトリ直下の `README.txt`。
 
