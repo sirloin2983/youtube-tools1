@@ -2847,3 +2847,25 @@
 - 注意: シェル(Bash の道具)経由で Python に文字列を渡すと、バックスラッシュ2つが1つに縮むことがあった(`D:\backup` の `\b` がバックスペースになってファイルに入った → 見つけて直した)。
   バックスラッシュを含む文字は、ファイルに書いてから実行するか `chr(92)` で作る
 - 未コミット: なし
+
+## 2026-10-04 Claude Code — 一覧の項目を任意に非表示に → ホーム 0.25.0・スタジオ 0.16.0・編集 0.41.0・ui-kit v13
+- ユーザーの依頼: 「任意に非表示にできる機能を追加」。対象は「ホームの案件や次にやること、スタジオ・文字起こしの履歴などどんどん増えていくものすべて」
+- 作り: 共通の部品 `UIKit.hide`(ui-kit v13)+ ホームの設定(prefs.json)の新しい節 `hidden`(一覧の名前 → {id: 隠した時刻})。足す・外すは api/ytt/prefs の op `hide` で1件ずつ
+  (節ごとに送ると、窓を2つ並べたときに相手の分を消すため)。一覧の名前: cases・todo・transcripts・videos・intake・runs(`home/prefs.py` の HIDE_LISTS。一覧ごとに 2000 件まで)
+- 組み込んだ一覧: ホーム = 案件・次にやること(校正待ち・パック待ちの1行。実行中は隠せない)・単体の文字起こし・届いた依頼・まとめて実行の記録 /
+  スタジオ ③ の配信の一覧(videos)/ 編集の履歴(transcripts。ホームの単体の文字起こしと共通)
+- 決定・理由:
+  - データは消さない(表示だけ)。一覧の上の「非表示 n件を表示」で薄く出し(`.ui-hidden-item`・札 `.ui-hidden-tag`)、「表示に戻す」。隠した直後の知らせに「元に戻す」
+  - 「非表示 n件を表示」はその画面の間だけ(覚えない = 開き直すとまた隠れている)
+  - 案件・文字起こしを隠すと、その分の「次にやること」も出さない。今開いている文書・配信、まとめて実行中の案件は隠していても一覧に出す(迷わないため)
+  - 覚える場所をブラウザ(localStorage)でなくホームの設定にした … 窓・ツールをまたいで同じ・バックアップにも入る。ホームから開いていない(合言葉のない)画面では操作を出さない
+  - スタジオと案件は同じ配信 id だが、別の一覧として扱う(ホームで隠してもスタジオには出る)
+  - prefs.json の読む上限を 256KB → 1MB に
+- 変更: `home/prefs.py`・`home/launch.py`・`home/portal.js`・`portal.html`・`portal.css`・`home/README.txt`・`ui-kit/ui-kit.js`・`ui-kit.css`・`ui-kit/README.md`(v13)と各ツールへの写し・
+  `editor/app-list.js`・`app.js`・`index.html`・`serve.py`・`README.txt`・`AGENTS.md`・`studio/review.js`・`review.css`・`serve.py`・`core.js`・`README.txt`・`.gitignore`(home/prefs.json)・`docs/ROADMAP.md`
+- 進め方: 共通の部品とホームはまとめ役(Opus)、編集とスタジオの組み込みはサブエージェント(Sonnet。規則がはっきりした直しとテスト)に並列で
+- テスト(`py -3.10`): home の単体一式 204件(test_window に test_hide_add_remove_and_limit)・e2e_portal 140件(非表示の確認を足した)・e2e_intake_ui・e2e_autorun・e2e_window・e2e_keymap・
+  test_ui_kit_sync・e2e_styleguide・編集の単体 276件と e2e 一式(e2e_ui_mounted に非表示を足した)・スタジオの単体 249件・test_review.cjs・e2e_analyze・e2e_ui 172件・e2e_ui --mounted 194件(非表示を足した) すべて OK
+- 注意: 隠すと一覧を描き直すので、押した要素が DOM から外れて ui-kit の「外側のクリックで閉じる」が働くことがある(スタジオの配信の一覧では stopPropagation で避けた。描き直す他のボタンも同じ形になりうる)
+- 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start.bat で起動し直す
+- 未コミット: なし

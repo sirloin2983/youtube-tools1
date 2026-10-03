@@ -72,6 +72,29 @@
     if (text != null) e.textContent = text;
     return e;
   }
+  /* ---- 一覧の非表示(ui-kit の UIKit.hide。2026-10-04)---- 案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録。
+     覚える場所はホームの設定の節 hidden(どの窓・ツールでも同じ)。データは消さない。「非表示 n件を表示」で薄く出して「表示に戻す」 */
+  function hideApi() { return window.UIKit && UIKit.hide && UIKit.hide.available() ? UIKit.hide : null; }
+  function isHid(list, id) { var h = hideApi(); return !!(h && h.has(list, id)); }
+  function showHid(list) { var h = hideApi(); return !!(h && h.showing(list)); }
+  function hideBtn(list, id, label) {
+    var on = isHid(list, id);
+    var b = el('button', 'btn small ghost pt-hide', on ? '表示に戻す' : '非表示にする');
+    b.type = 'button';
+    b.title = on ? '一覧に戻します' : '一覧に出さないようにします(データは消しません。一覧の「非表示 n件を表示」で出せます)';
+    b.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var h = hideApi(); if (h) h.set(list, [id], !on, { label: label }).catch(function () { /* 知らせは部品が出す */ });
+    });
+    return b;
+  }
+  function markHid(node, list, id, tagBox) {
+    if (!isHid(list, id)) return;
+    node.classList.add('ui-hidden-item');
+    if (tagBox) tagBox.appendChild(el('span', 'ui-hidden-tag', '非表示'));
+  }
+  function hideToggle(sel, list, n) { if (window.UIKit && UIKit.hide) UIKit.hide.toggle($(sel), list, n); }
+
   function term(word, title) {
     if (termShown[word]) return document.createTextNode(word);
     termShown[word] = true;
@@ -485,6 +508,7 @@
     pk.hidden = !pkt; pk.textContent = pkt;
     var nx = $('.pt-case-next', node);
     nx.hidden = !c.next; nx.textContent = c.next ? c.next.label + ' ' + c.next.count + '本' : '';
+    markHid(node, 'cases', c.id, $('.pt-case-main', node));
 
     node.open = !!openCases[c.id] || active(runsByVideo[c.id]);
     $('.pt-case-row', node).addEventListener('click', function (e) {
@@ -505,6 +529,7 @@
     // B-8(段1): その配信をスタジオの ③ 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を正規表現で確かめ、保存済みなら ③ で開く)。
     // スタジオから消えた配信は開いても ① に落ちるので出さない。場所は /studio/ の直書き(docHref が /transcribe/ を直書きしているのと同じ。取り込みに失敗して子プロセスで動いたときは合わない → B-7 で見直す候補)
     if (!c.gone) $('.pt-case-studio', node).appendChild(link('スタジオで開く', '/studio/?video=' + encodeURIComponent(c.id)));
+    if (hideApi()) $('.pt-case-studio', node).parentNode.appendChild(hideBtn('cases', c.id, c.title || c.id));
     fillClips(node, c);
     wireAuto(node, c);
     var ta = $('textarea', node);
@@ -580,7 +605,9 @@
     });
   }
 
-  function visible(c) {
+  /* noHide: 非表示かどうかを見ない(「非表示 n件を表示」の数を数えるため)。実行中の案件は隠していても出す */
+  function visible(c, noHide) {
+    if (!noHide && isHid('cases', c.id) && !showHid('cases') && !active(runsByVideo[c.id])) return false;
     var fs = $('#fStatus').value, q = $('#fText').value.trim().toLowerCase();
     if (fs === 'none' && c.status) return false;
     if (fs && fs !== 'none' && c.status !== fs) return false;
@@ -662,6 +689,7 @@
     var moreBox = $('#moreBox'), moreBtn = $('#btnMore'), rest = totalCount - shown.length;
     moreBox.hidden = rest <= 0;
     if (rest > 0) moreBtn.textContent = 'もっと見る(あと ' + rest + ' 件)';
+    hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
     var narrowed = gval || $('#fStatus').value || $('#fText').value.trim();
     $('#count').textContent = narrowed ? shown.length + ' / ' + totalCount + ' 件' : totalCount + ' 件';
     restoreFocus(focusInfo);
@@ -672,8 +700,10 @@
   function updateSummaryLine() {
     if (!casesData) return;
     var n = { '': 0, working: 0, posted: 0, skipped: 0 };
-    casesData.cases.forEach(function (c) { n[c.status || ''] = (n[c.status || ''] || 0) + 1; });
-    $('#summary').textContent = '配信 ' + casesData.cases.length + ' 本(作業中 ' + n.working + '・投稿済み ' + n.posted + '・見送り ' + n.skipped + '・未設定 ' + n[''] + ')';
+    var hid = 0;
+    casesData.cases.forEach(function (c) { n[c.status || ''] = (n[c.status || ''] || 0) + 1; if (isHid('cases', c.id)) hid++; });
+    $('#summary').textContent = '配信 ' + casesData.cases.length + ' 本(作業中 ' + n.working + '・投稿済み ' + n.posted + '・見送り ' + n.skipped + '・未設定 ' + n[''] + ')' +
+      (hid ? ' ・ 非表示 ' + hid + ' 本' : '');
   }
 
   function loadCases() {
@@ -713,9 +743,9 @@
              packKnown: true, updatedAt: tx.updatedAt || u.updatedAt || 0, sourcePath: u.sourcePath };
   }
 
-  function docSearchList() {
+  function docSearchList(noHide) {
     var q = $('#docSearch').value.trim().toLowerCase();
-    var list = ((casesData && casesData.unlinked) || []).slice();
+    var list = ((casesData && casesData.unlinked) || []).filter(function (u) { return noHide || !isHid('transcripts', u.id) || showHid('transcripts'); });
     if (q) list = list.filter(function (u) { return (mergedDoc(u).title || '').toLowerCase().indexOf(q) >= 0; });
     list.sort(function (a, b) { return (mergedDoc(b).updatedAt || 0) - (mergedDoc(a).updatedAt || 0); });
     return list;
@@ -735,6 +765,8 @@
     chk.addEventListener('change', function () { if (chk.checked) docPicked[d.id] = true; else delete docPicked[d.id]; syncDocRunButton(); });
     var openA = $('.pt-doc-open', li);
     openA.href = docHref(d.id, d.sourcePath, 'tx'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
+    if (hideApi()) $('.pt-doc-steps', li).appendChild(hideBtn('transcripts', d.id, d.title));
+    markHid(li, 'transcripts', d.id, $('.pt-doc-title', li).parentNode);
     return li;
   }
 
@@ -780,6 +812,7 @@
     ul.textContent = '';
     shown.forEach(function (u) { ul.appendChild(docCard(u)); });
     Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
+    hideToggle('#docHidden', 'transcripts', docSearchList(true).filter(function (u) { return isHid('transcripts', u.id); }).length);
     var narrowed = $('#docSearch').value.trim();
     $('#docCount').textContent = narrowed ? shown.length + ' / ' + full.length + ' 件' : full.length + ' 件';
     var rest = full.length - shown.length;
@@ -967,13 +1000,14 @@
       var hint = clipHint(it), suffix = hint ? '(' + hint + ')' : '';
       var loc = pathMap[it.id];
       if (loc && loc.kase && DONE_STATUS[loc.kase.status]) return;
+      if (isHid('transcripts', it.id) || (loc && loc.kase && isHid('cases', loc.kase.id))) return;   // 非表示にした文書・案件の作業は勧めない
       /* どの配信か分かるように、配信者と配信日(案件に無ければ文字起こしの配信者)を添える(B-5) */
       var kase = loc && loc.kase, who = (kase && kase.channel) || it.channel || '';
       var day = kase && kase.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(kase.streamedAt).split(' ')[0] : '';
       var meta = [who, day ? day + ' の配信' : ''].filter(Boolean).join(' ・ ');
       if (meta) suffix = ' ・ ' + meta + suffix;
       if (proofed < rows) {
-        items.push({ kind: 'proof', updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行' + suffix,
+        items.push({ kind: 'proof', key: 'proof:' + it.id, updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行' + suffix,
           href: docHref(it.id, loc && loc.path, 'tx'), pillText: '校正待ち', pillClass: 'wait' });
       }
       // パック待ち・作り直しは、校正が済んでいて(proofed >= rows)、かつ元の動画の有無を実際に確かめられたとき(mediaOk === true)だけ出す。
@@ -981,7 +1015,7 @@
       // ときもある(editor/serve.py の _files_state)。それらまで「パック待ち」にすると、校正中の文書と重複したり
       // 見当違いの案内になる(E2 finding 2)
       if (proofed >= rows && it.mediaOk === true && (!it.pack || it.packStale)) {
-        items.push({ kind: 'pack', updatedAt: it.updatedAt || 0, title: title, sub: (it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません') + suffix,
+        items.push({ kind: 'pack', key: 'pack:' + it.id, updatedAt: it.updatedAt || 0, title: title, sub: (it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません') + suffix,
           href: docHref(it.id, loc && loc.path, 'pack'), pillText: it.pack ? '作り直し' : 'パック待ち', pillClass: it.pack ? 'warn' : 'wait' });
       }
     });
@@ -990,12 +1024,12 @@
   function buildTodoCoarse() {
     var items = [];
     ((casesData && casesData.cases) || []).forEach(function (c) {
-      if (!c.next || DONE_STATUS[c.status]) return;
+      if (!c.next || DONE_STATUS[c.status] || isHid('cases', c.id)) return;
       var meta = [c.channel, c.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(c.streamedAt).split(' ')[0] + ' の配信' : ''].filter(Boolean).join(' ・ ');
       meta = meta ? ' ・ ' + meta : '';
-      if (c.next.kind === 'proof') items.push({ kind: 'proof', updatedAt: c.updatedAt || 0, title: c.title, sub: '校正 ' + c.next.count + '本' + meta,
+      if (c.next.kind === 'proof') items.push({ kind: 'proof', key: 'proof:case:' + c.id, updatedAt: c.updatedAt || 0, title: c.title, sub: '校正 ' + c.next.count + '本' + meta,
         href: '#case-' + c.id, pillText: '校正待ち', pillClass: 'wait' });
-      else if (c.next.kind === 'pack') items.push({ kind: 'pack', updatedAt: c.updatedAt || 0, title: c.title, sub: 'パック ' + c.next.count + '本' + meta,
+      else if (c.next.kind === 'pack') items.push({ kind: 'pack', key: 'pack:case:' + c.id, updatedAt: c.updatedAt || 0, title: c.title, sub: 'パック ' + c.next.count + '本' + meta,
         href: '#case-' + c.id, pillText: 'パック待ち', pillClass: 'wait' });
     });
     return items;
@@ -1030,10 +1064,19 @@
     $('.pt-todo-sub', li).textContent = it.sub || '';
     var prog = $('.pt-todo-prog', li);
     if (typeof it.progress === 'number') { prog.hidden = false; prog.style.setProperty('--p', it.progress + '%'); }
+    if (it.key && hideApi()) {   // 実行中の行は隠せない(終われば消える)
+      var hb = hideBtn('todo', it.key, it.title);
+      hb.classList.add('pt-todo-hide');
+      li.appendChild(hb);
+      markHid(li, 'todo', it.key, $('.pt-todo-main', li));
+    }
     return li;
   }
   function renderTodo(all) {
     var box = $('#todoList'), empty = $('#todoEmpty'), more = $('#todoMore');
+    var hidN = all.filter(function (it) { return it.key && isHid('todo', it.key); }).length;
+    if (!showHid('todo')) all = all.filter(function (it) { return !it.key || !isHid('todo', it.key); });
+    hideToggle('#todoHidden', 'todo', hidN);
     box.textContent = '';
     if (!all.length) {
       empty.hidden = false;
@@ -1160,6 +1203,8 @@
     head.appendChild(el('span', 'pill ' + (r.state === 'accepted' ? 'ok' : 'warn'), r.stateLabel || (r.state === 'accepted' ? '受け付けた' : '断った')));
     var t = el('span', 'hint pt-intake-when', ago(r.received)); t.title = r.received ? when(r.received) : '';
     head.appendChild(t);
+    if (r.id && hideApi()) head.appendChild(hideBtn('intake', r.id, r.title));
+    if (r.id) markHid(li, 'intake', r.id, head);
     li.appendChild(head);
     var sub = [r.flowLabel || '', r.rangesLabel || '', r.cutLabel || '', r.weightsLabel || '', r.speakersLabel || '', r.tracksLabel || '', r.streamer ? '配信者: ' + r.streamer : '', r.source === 'manual' ? 'フォルダに直接置かれた' : 'アプリから', r.memo ? 'メモ: ' + r.memo : ''].filter(Boolean).join(' ・ ');
     if (sub) li.appendChild(el('span', 'hint pt-intake-sub', sub));
@@ -1170,13 +1215,18 @@
   function renderIntake(d) {
     intakeData = d;
     renderIntakeStatus(d);
-    var sig = JSON.stringify(d.requests || []);
+    var reqs = d.requests || [];
+    var hidN = reqs.filter(function (r) { return isHid('intake', r.id); }).length;
+    if (!showHid('intake')) reqs = reqs.filter(function (r) { return !isHid('intake', r.id); });
+    var sig = JSON.stringify(reqs) + '|' + showHid('intake') + '|' + reqs.map(function (r) { return isHid('intake', r.id) ? 1 : 0; }).join('');
     if (sig !== intakeSig) {
       intakeSig = sig;
       var ol = $('#intakeList'); ol.textContent = '';
-      (d.requests || []).forEach(function (r) { ol.appendChild(intakeRow(r)); });
-      $('#intakeEmpty').hidden = !!(d.requests || []).length;
+      reqs.forEach(function (r) { ol.appendChild(intakeRow(r)); });
+      $('#intakeEmpty').hidden = !!reqs.length;
+      $('#intakeEmpty').textContent = (d.requests || []).length ? '表示する依頼はありません(すべて非表示にしています)。' : 'まだ依頼は届いていません。';
     }
+    hideToggle('#intakeHidden', 'intake', hidN);
     if (!intakeOpened) {   // 最初の1回だけ: 動いているとき・止まっているときは開いて見せる(オフのときは閉じたまま)
       intakeOpened = true;
       if (d.enabled || d.state === 'error') $('#intakeBox').open = true;
@@ -1327,7 +1377,29 @@
     $('.pt-history-sub', li).textContent = (r.modeLabel || '') + (why ? ' ・ ' + why : '');
     var t = $('.pt-history-when', li), at = r.finished || r.created;
     t.textContent = ago(at); t.title = at ? when(at) : '';
+    if (r.id) {
+      li.dataset.id = r.id;
+      li.dataset.title = r.title || '';
+      if (hideApi()) li.appendChild(hideBtn('runs', r.id, r.title));
+    }
     return li;
+  }
+  /* 記録は少しずつ読む(もっと見る)ので、非表示は読んだ行の hidden で切り替える(読み直さない)。行の中のボタン・札もここで合わせる */
+  function applyHistoryHidden() {
+    var n = 0;
+    $all('#historyList > li').forEach(function (li) {
+      var id = li.dataset.id; if (!id) return;
+      var on = isHid('runs', id);
+      if (on) n++;
+      li.hidden = on && !showHid('runs');
+      li.classList.toggle('ui-hidden-item', on);
+      var tag = $('.ui-hidden-tag', li);
+      if (on && !tag) $('.pt-history-main', li).appendChild(el('span', 'ui-hidden-tag', '非表示'));
+      if (!on && tag) tag.remove();
+      var old = $('.pt-hide', li);
+      if (old) old.replaceWith(hideBtn('runs', id, li.dataset.title || ''));
+    });
+    hideToggle('#historyHidden', 'runs', n);
   }
   function loadHistory(reset) {
     if (histBusy) return;
@@ -1339,6 +1411,7 @@
       if (reset) ol.textContent = '';
       runs.forEach(function (r) { ol.appendChild(historyRow(r)); });
       histOffset += runs.length;
+      applyHistoryHidden();
       empty.hidden = !!ol.children.length;
       empty.textContent = 'まだ記録はありません。まとめて実行が終わると、ここに出ます。';
       var rest = Math.max(0, (j.total || 0) - histOffset);
@@ -1425,6 +1498,16 @@
     $('#historyMore').addEventListener('click', function () { loadHistory(false); });
     wireIntake();
     wireBackup();
+    if (window.UIKit && UIKit.hide) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
+      UIKit.hide.onChange(function (list) {
+        if (!list || list === 'cases') render();
+        if (!list || list === 'transcripts') renderDocs();
+        if (!list || list === 'cases' || list === 'transcripts' || list === 'todo') buildTodo();
+        if ((!list || list === 'intake') && intakeData) renderIntake(intakeData);
+        if (!list || list === 'runs') applyHistoryHidden();
+      });
+      UIKit.hide.load();
+    }
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため) */

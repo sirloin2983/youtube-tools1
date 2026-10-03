@@ -170,3 +170,9 @@
    (CJK は文字の間で折り返せるため、flex item が min-content = 1文字ぶんまで縮む)。ui-kit/ は直接触らないので、
    ここで nowrap にして防ぐ(足りなければ select 側が丸ごと次の行へ。audit #2) */
 .lag{white-space:nowrap}
+/* 一覧の非表示(UIKit.hide。2026-10-04): 「非表示にする」は行の右に控えめに(触れる・フォーカスで濃く) */
+.pt-todo-item{display:flex;align-items:center;background:var(--panel)}
+.pt-todo-item>.pt-todo-link{flex:1;min-width:0}
+.pt-hide{flex:none;opacity:.6}
+.pt-hide:hover,.pt-hide:focus-visible,.ui-hidden-item .pt-hide{opacity:1}
+.pt-todo-hide{margin-right:8px}

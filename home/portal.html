@@ -32,6 +32,7 @@
     <p class="hint" id="todoEmpty" hidden>いま手が要る作業はありません。</p>
     <ul class="pt-todo-list" id="todoList"></ul>
     <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る(あと <span id="todoMoreN"></span>件)</button>
+    <button type="button" class="btn small ghost" id="todoHidden" hidden></button>
   </section>
 
   <section class="pt-cases-box" id="caseListSection">
@@ -60,6 +61,7 @@
         <option value="status">状態ごとにまとめる</option>
       </select>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
+      <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
       <span class="ui-count" id="count"></span>
     </div>
     <p class="hint" id="summary"></p>
@@ -79,6 +81,7 @@
         <p class="hint">検索して選ぶと、まとめて文字起こし・パックを進められます(「編集」の履歴の「選んで、まとめて実行」と同じ)。</p>
         <div class="ui-listbar">
           <input id="docSearch" type="search" placeholder="文書のタイトルで絞り込み" aria-label="文書のタイトルで絞り込み">
+          <button type="button" class="btn small ghost" id="docHidden" hidden></button>
           <span class="ui-count" id="docCount"></span>
         </div>
         <ul class="pt-clips" id="docList"></ul>
@@ -134,7 +137,7 @@
         </div>
       </div>
 
-      <h3 class="pt-h3">届いた依頼</h3>
+      <div class="row"><h3 class="pt-h3 grow">届いた依頼</h3><button type="button" class="btn small ghost" id="intakeHidden" hidden></button></div>
       <p class="hint" id="intakeEmpty" hidden>まだ依頼は届いていません。</p>
       <ol class="pt-intake-list" id="intakeList"></ol>
     </div>
@@ -176,6 +179,7 @@
     <div class="pt-history-body">
       <p class="hint">終わったまとめて実行の結果です(新しい順)。ホームを終えても残ります(強制終了したときに実行中だった分は残りません)。</p>
       <p class="hint" id="historyEmpty" hidden>まだ記録はありません。まとめて実行が終わると、ここに出ます。</p>
+      <div class="row"><button type="button" class="btn small ghost" id="historyHidden" hidden></button></div>
       <ol class="pt-history-list" id="historyList"></ol>
       <div class="row" id="historyMoreBox" hidden><button type="button" class="btn small ghost" id="historyMore">もっと見る</button></div>
     </div>

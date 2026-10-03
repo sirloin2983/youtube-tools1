@@ -251,6 +251,25 @@ def main():
             pg.select_option("#txState", "done")
             check("条件に合う文字起こしはありません" in pg.inner_text("#txList") and "0 / 1件" in pg.inner_text("#txCount"), "状態「校正済み」で絞り込める(まだ無い): " + pg.inner_text("#txCount"))
             pg.select_option("#txState", "all")
+            # 履歴の項目の非表示(UIKit.hide。入口から開いた = 合言葉ありのときだけ)。今の文書は隠しても一覧に残る → 閉じると消える → 切り替えで薄く出る → 表示に戻す
+            pg.locator("#txList .txi.cur .txi-menu summary").click()
+            pg.locator("#txList .txi.cur [data-act=hide]").click()
+            wait_js(pg, "document.querySelector('#txList .txi.cur.ui-hidden-item .ui-hidden-tag')", 10000)
+            check(pg.evaluate("document.querySelector('#txHiddenToggle').hidden") is True, "今開いている文書は、隠しても一覧に残る(切り替えの帯は出ない)")
+            pg.evaluate("closeDoc()")
+            wait_js(pg, "!document.querySelector('#txList .txi') && !document.querySelector('#txHiddenToggle').hidden", 10000)
+            check("非表示 1件" in pg.inner_text("#txHiddenToggle"), "非表示にした文書は一覧から消え、「非表示 1件を表示」が出る: " + pg.inner_text("#txHiddenToggle"))
+            pg.click("#txHiddenToggle")
+            wait_js(pg, "document.querySelector('#txList .txi.ui-hidden-item .ui-hidden-tag')", 10000)
+            check(pg.evaluate("getComputedStyle(document.querySelector('#txList .txi.ui-hidden-item')).opacity") != "1", "出した非表示の行は薄く、札が付く")
+            pg.locator("#txList .txi.ui-hidden-item .txi-menu summary").click()
+            pg.locator("#txList .txi.ui-hidden-item [data-act=unhide]").click()
+            wait_js(pg, "document.querySelector('#txList .txi') && !document.querySelector('#txList .txi.ui-hidden-item')", 10000)
+            pg.click("#txHiddenToggle")   # 出している状態を戻す(出している間は、帯は隠すための切り替えとして残る)
+            wait_js(pg, "document.querySelector('#txHiddenToggle').hidden", 10000)
+            check(pg.locator("#txList .txi").count() == 1, "表示に戻した文書は、切り替えなしで一覧に出る")
+            pg.locator("#txList .txi .t").first.click()   # このあとの手順のために、文書を開き直す
+            wait_js(pg, "S.docId", 20000)
 
             # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
             pg.click("[data-edtab=pack]")

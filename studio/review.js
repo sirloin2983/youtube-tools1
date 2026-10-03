@@ -123,6 +123,7 @@ function buildDOM(){
           <select id="rvPickF" aria-label="絞り込み">${PICK_FILTERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
           <select id="rvPickSort" aria-label="並び順"><option value="recent">新しい順</option><option value="channel">配信者ごと</option></select>
           <span class="ui-count" id="rvPickN"></span>
+          <button type="button" class="btn small ghost" id="rvPickHidden" hidden></button>
         </div>
         <div class="rv-picklist" id="rvPickList"></div>
         <form class="rv-open" id="rvOpenForm" autocomplete="off">
@@ -469,18 +470,27 @@ function pickMatch(v){
   const hay = (vLabel(v) + ' ' + vWho(v) + ' ' + v.id).toLowerCase();
   return q.split(/\s+/).every(w => hay.includes(w));
 }
+/* 非表示にした配信(UIKit.hide の一覧 'videos'。入口から開いたときだけ)。今開いている配信は隠していても一覧に残す */
+const HIDE = window.UIKit && UIKit.hide;
+const pickHidden = v => !!(HIDE && HIDE.available() && HIDE.has('videos', v.id) && !(S.cur && S.cur.id === v.id));
 function pickRowHTML(v){
   const cur = S.cur && S.cur.id === v.id, t = v.createdAt || v.updatedAt;
+  const hid = HIDE && HIDE.available() && HIDE.has('videos', v.id);
   const pills = [nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
-    nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : ''].join('');
-  return `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
+    nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : '', hid ? '<span class="ui-hidden-tag">非表示</span>' : ''].join('');
+  const row = `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
     <span class="rv-prow-t">${esc(vLabel(v))}</span>
     <span class="rv-prow-m"><span>${esc(vWho(v))}</span>${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(Studio.date(t))}">${esc(Studio.ago(t))}</span>` : ''}${pills ? `<span class="rv-prow-p">${pills}</span>` : ''}</span></button>`;
+  if (!(HIDE && HIDE.available())) return row;
+  const tip = hid ? '表示に戻す' : '一覧で非表示にする(配信のデータは消しません)';
+  return `<div class="rv-prow-wrap${hid ? ' ui-hidden-item' : ''}">${row}<button type="button" class="btn small ghost rv-prow-hide" data-hide-vid="${esc(v.id)}" data-hide-on="${hid ? '0' : '1'}" title="${tip}" aria-label="${esc(vLabel(v))}: ${tip}">${hid ? '戻す' : '隠す'}</button></div>`;
 }
 function renderPickList(){
   const box = $('#rvPickList'); if (!box || !$('#rvPick').open) return;
   const vs = S.videos.map(v0 => (S.cur && S.cur.id === v0.id ? { ...v0, title: S.cur.title } : v0));
-  const hit = vs.filter(pickMatch);
+  const base = vs.filter(pickMatch), showHid = !HIDE || HIDE.showing('videos');
+  const hit = showHid ? base : base.filter(v => !pickHidden(v));
+  if (HIDE) HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
   $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
   if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
   if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字を消すか、絞り込みを「すべて」にしてください。</div>'; return; }
@@ -1852,6 +1862,13 @@ function wire(){
   $('#rvPickSort').addEventListener('change', e => { PK.sort = e.target.value === 'channel' ? 'channel' : 'recent'; renderPickList(); });
   plist.addEventListener('click', e => {
     if (e.target.closest('[data-pick-more]')){ PK.limit += 200; renderPickList(); return; }
+    const hb = e.target.closest('[data-hide-vid]');
+    if (hb){
+      e.stopPropagation();   // 描き直しで押した行が DOM から外れると、ui-kit の「外側のクリックで閉じる」が外側と見なして一覧を閉じるため
+      const hv = S.videos.find(x => x.id === hb.dataset.hideVid);
+      HIDE.set('videos', [hb.dataset.hideVid], hb.dataset.hideOn === '1', { label: hv ? vLabel(hv) : hb.dataset.hideVid }).catch(() => {});
+      return;
+    }
     const r = e.target.closest('.rv-prow'); if (!r) return;
     pick.open = false; $('#rvPickBtn').focus({ preventScroll: true });
     if (!S.cur || r.dataset.vid !== S.cur.id) loadVideo(r.dataset.vid);
@@ -2115,6 +2132,7 @@ Studio.onReady(() => {
   buildDOM(); S.built = true; placeJump();
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
+  if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }
   $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
   if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
   if (window.UIKit && UIKit.autorun && Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定

@@ -545,3 +545,7 @@ input[type=checkbox].ui-switch:checked::after{background:var(--knob)}
 th{font-family:var(--mono);font-weight:500}
 kbd,.kbd{border-bottom-width:1px}
 .ui-header{border-bottom:1px solid var(--line);box-shadow:none}
+/* v13: 非表示にした項目(UIKit.hide。「非表示 n件を表示」で出したとき)は薄く。札 .ui-hidden-tag で非表示だと分かるように */
+.ui-hidden-item{opacity:.55}
+.ui-hidden-item:hover,.ui-hidden-item:focus-within{opacity:.85}
+.ui-hidden-tag{font-size:11px;color:var(--ink-3);border:1px dashed var(--line-2);border-radius:var(--r-xs,3px);padding:0 5px;white-space:nowrap}

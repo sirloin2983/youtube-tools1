@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v12
+# ui-kit(共通の見た目)v13
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,20 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v13(2026-10-04・一覧の項目を任意に非表示に `UIKit.hide`)
+増えていく一覧(ホームの案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録、スタジオ ③ の配信、「編集」の履歴)の項目を隠す部品。
+**新しく増えていく一覧を作るときは、これで隠せるようにする**。データは消さない(表示だけ)。
+- 覚える場所: ホームの設定の節 `hidden`(`home/prefs.py`。一覧の名前 → `{id: 隠した時刻}`。一覧の名前は `HIDE_LISTS` = `cases`・`todo`・`transcripts`・`videos`・`intake`・`runs`。
+  新しい一覧はそこに足す)。足す・外すは `api/ytt/prefs` の op `hide`(`{list, ids, hidden}`)で1件ずつ = 窓を2つ並べても相手の分を消さない
+- `available()`: ホームから開いた(合言葉がある)ときだけ true。false のときは隠す操作・切り替えを出さない
+- `load(force)` → Promise(最初の1回と、画面に戻ったとき(`UIKit.life.onReturn`)に読み直す)・`has(list, id)`・`count(list, ids)`
+- `set(list, ids, on, {label, undo, quiet})`: 先に覚えている内容を変えて `onChange` を呼び、送る。知らせ「「…」を非表示にしました [元に戻す]」は部品が出す。失敗したら戻して知らせる
+- `showing(list)` / `setShowing(list, on)`: 隠したものも出すか(その画面の間だけ。覚えない)
+- `toggle(btn, list, n)`: 「非表示 n件を表示」/「非表示のものを隠す」の切り替えボタンを描く(一覧を描くたびに呼ぶ。n = 今の絞り込みで隠れている数。0 で出していないときは隠す)
+- `onChange(fn(list))`: 変わったら(list = その一覧、null = 全部を読み直した)
+- 見た目: 隠したものを出しているときの行に `.ui-hidden-item`(薄く)、札 `<span class="ui-hidden-tag">非表示</span>`
+- 決まり: 今開いている・実行中の項目は、隠していても一覧から消さない(迷わないため)
 
 ## v12(2026-10-02・サイバー風: 計器盤の形と配色4つ)
 ユーザーが見本(`.design/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。

@@ -32,6 +32,8 @@
    v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
    v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
    v12(2026-10-02): サイバー風(計器盤)の形と配色4つ。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーンから選ぶ(UIKit.theme.palette。README.md の「v12」)
+   v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
+       toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
 (function () {
   'use strict';
@@ -796,6 +798,78 @@
       return yttPost('prefs', { op: 'remember', kind: kind, key: key, name: name }).then(function (j) { return j.streamer; }, function (e) { prefsFail('streamer', e); throw e; });
     }
   };
+
+  /* ---- hide(一覧の項目を非表示に。v13)---- 覚える場所はホームの設定の節 hidden(home/prefs.py: 一覧の名前 → {id: 時刻})。
+     どの窓・どのツールで隠しても同じ(戻ったときに読み直す)。足す・外すは1件ずつ(op "hide")送る = 窓を2つ並べても相手の分を消さない。
+     「非表示のものも出す」はこの画面の間だけ(覚えない = 開き直すといつも隠れている)。入口の外(合言葉なし)では available() が false */
+  var hideMap = null, hideP = null, hideSubs = [], hideShow = {};
+  function hideNotify(list) { for (var i = 0; i < hideSubs.length; i++) { try { hideSubs[i](list || null); } catch (e) { /* 1つの失敗で他を止めない */ } } }
+  function hideLoad(force) {
+    if (!token()) { hideMap = hideMap || {}; return Promise.resolve(hideMap); }
+    if (hideP && !force) return hideP;
+    var p = hideP = yttPost('prefs', { op: 'get', sections: ['hidden'] }).then(function (j) {
+      var before = JSON.stringify(hideMap);
+      hideMap = (j.prefs && j.prefs.hidden) || {};
+      if (before !== JSON.stringify(hideMap)) hideNotify(null);
+      return hideMap;
+    }, function () { if (hideP === p) hideP = null; hideMap = hideMap || {}; return hideMap; });
+    return p;
+  }
+  function hideSetLocal(list, ids, on) {
+    hideMap = hideMap || {};
+    var m = hideMap[list] || (hideMap[list] = {}), now = Date.now();
+    for (var i = 0; i < ids.length; i++) { if (on) m[ids[i]] = now; else delete m[ids[i]]; }
+  }
+  var hide = {
+    available: function () { return !!token(); },
+    load: function (force) { return hideLoad(force); },
+    has: function (list, id) { return !!(hideMap && hideMap[list] && id != null && Object.prototype.hasOwnProperty.call(hideMap[list], String(id))); },
+    /* ids(配列)のうち非表示の数。ids を省くと、その一覧で覚えている数 */
+    count: function (list, ids) {
+      if (!ids) return hideMap && hideMap[list] ? Object.keys(hideMap[list]).length : 0;
+      var n = 0; for (var i = 0; i < ids.length; i++) if (hide.has(list, ids[i])) n++;
+      return n;
+    },
+    /* 非表示にする(on = true)・表示に戻す(false)。先に画面を変えて(onChange)から送り、失敗したら戻して知らせる。
+       opt.label: 知らせの文の項目名、opt.undo: false で「元に戻す」を出さない、opt.quiet: 知らせを出さない */
+    set: function (list, ids, on, opt) {
+      opt = opt || {};
+      ids = (Array.isArray(ids) ? ids : [ids]).filter(function (x) { return x != null && x !== ''; }).map(String);
+      if (!ids.length) return Promise.resolve(null);
+      on = on !== false;
+      hideSetLocal(list, ids, on); hideNotify(list);
+      return yttPost('prefs', { op: 'hide', list: list, ids: ids, hidden: on }).then(function (j) {
+        hideMap[list] = j.hidden || {};
+        if (!opt.quiet) {
+          var what = opt.label ? '「' + clip(opt.label, 40) + '」を' : ids.length > 1 ? ids.length + '件を' : '';
+          toastFn(on ? what + '非表示にしました' : what + '表示に戻しました', on && opt.undo !== false ? { ms: 6000, action: { label: '元に戻す', fn: function () { hide.set(list, ids, false, { quiet: true }); } } } : undefined);
+        }
+        return j.hidden;
+      }, function (e) {
+        hideSetLocal(list, ids, !on); hideNotify(list);
+        toastFn((on ? '非表示にできませんでした: ' : '表示に戻せませんでした: ') + (e && e.message ? e.message : ''), { kind: 'err' });
+        throw e;
+      });
+    },
+    showing: function (list) { return !!hideShow[list]; },
+    setShowing: function (list, on) { hideShow[list] = !!on; hideNotify(list); },
+    /* 「非表示 n件を表示」の切り替えのボタン(n = 今の絞り込みで隠れている数)。描くたびに呼ぶ。押したら setShowing(→ onChange) */
+    toggle: function (btn, list, n) {
+      if (!btn) return;
+      if (!btn.__uiHide) {
+        btn.__uiHide = true;
+        btn.addEventListener('click', function () { hide.setShowing(btn.getAttribute('data-hide-list'), !hide.showing(btn.getAttribute('data-hide-list'))); });
+      }
+      var on = hide.showing(list);
+      btn.setAttribute('data-hide-list', list);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = on ? '非表示のものを隠す' : '非表示 ' + n + '件を表示';
+      btn.title = on ? '非表示にした項目を、また隠します' : '非表示にした項目も一覧に出します(薄く表示。「表示に戻す」で元に戻せます)';
+      btn.hidden = !hide.available() || (!on && !n);
+    },
+    onChange: function (fn) { if (typeof fn === 'function') hideSubs.push(fn); }
+  };
+  life.onReturn(function () { if (hideMap && token()) hideLoad(true); });   /* 別の窓・ツールで隠した分を、戻ったときに読み直す */
 
   /* ---- keybar(画面の下の細い帯。いま使えるキー) ---- 既定は表示。設定「キーの帯を出す」(localStorage 'ytt:keybar' === '0' で消す) */
   var keybarEl = null, keybarItems = [];
@@ -2012,7 +2086,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  window.UIKit = { version: 12, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 13, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide };
 })();

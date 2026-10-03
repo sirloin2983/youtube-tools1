@@ -93,3 +93,6 @@ lite/.update/
 **/送る用ファイル/
 **/Resolve用ファイル/
 **/eval-intake/
+
+# テストを YTT_DATA_DIR=inplace で動かしたときのホームの設定(2026-10-04)
+home/prefs.json

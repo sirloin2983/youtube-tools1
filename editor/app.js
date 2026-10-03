@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.40.1';
+const APP_VERSION = '0.41.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1140,6 +1140,10 @@ $('#txList').addEventListener('click', e => {
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
+  else if (b.dataset.act === 'hide' || b.dataset.act === 'unhide'){
+    const it = S.list.find(x => x.id === id), menu = b.closest('details'); if (menu) menu.open = false;
+    UIKit.hide.set('transcripts', [id], b.dataset.act === 'hide', { label: it && it.title ? it.title : '無題' });
+  }
   else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ(段2 B-4)
     const menu = b.closest('details'); if (menu) menu.open = false;
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) openRelink(); });
@@ -1253,6 +1257,7 @@ async function boot(){
   takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
+  if (window.UIKit && UIKit.hide){ UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList()); }
   await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDataset(), loadProgress(), loadBaselines()]);
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }

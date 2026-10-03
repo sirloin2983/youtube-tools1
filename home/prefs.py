@@ -6,6 +6,8 @@
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(home/intake.py。docs/design/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・上限
   backup   … 作業データのバックアップ(home/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
+  hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
+             画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
 値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す。
 """
@@ -15,16 +17,21 @@ import re
 import threading
 import time
 
-MAX_BYTES = 256 * 1024
+MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分)
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
 NAME_MAX = 60
 KEY_MAX = 120
-SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup")
+SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden")
 PATCHABLE = ("autorun", "keymap", "intake", "backup")
 AUTORUN_MODES = ("full", "adopted", "transcribe")      # home/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
 STREAMER_KINDS = ("docs", "videos", "channels")
+# 非表示にできる一覧(UIKit.hide の list と同じ名前): 案件(ホーム。配信の id)・次にやること(ホーム。"<種類>:<id>")・
+# 文字起こし(編集の履歴・ホームの単体の文字起こし。文書の id)・配信(スタジオ ③ の配信の一覧。配信の id)・届いた依頼・まとめて実行の記録
+HIDE_LISTS = ("cases", "todo", "transcripts", "videos", "intake", "runs")
+HIDE_MAX = 2000            # 一覧ごとにこの件数まで(古い順に捨てる = 古い項目がまた見えるだけで、データは消えない)
+HIDE_IDS_MAX = 200         # 1回で送れる数
 COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(Shift+ と、1文字かキーの名前)
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
 DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカットしない(2026-10-01 ユーザー決定)
@@ -32,7 +39,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカ�
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
-            "backup": {"enabled": False, "folder": "", "everyHours": 24}}
+            "backup": {"enabled": False, "folder": "", "everyHours": 24},
+            "hidden": {k: {} for k in HIDE_LISTS}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
 FOLDER_MAX = 260
@@ -146,6 +154,15 @@ def _read_streamer(v):
     return out
 
 
+def _read_hidden(v):
+    out = {}
+    for k in HIDE_LISTS:
+        d = v.get(k) if isinstance(v, dict) else None
+        out[k] = {str(a)[:KEY_MAX]: int(b) for a, b in (d.items() if isinstance(d, dict) else [])
+                  if isinstance(b, (int, float)) and not isinstance(b, bool)}
+    return out
+
+
 def guess_streamer(prefs, doc_id=None, video_id=None, channel=None, from_channel=None):
     """配信者(字幕の色)の名前を決める(気が利く画面へ 段5)。順: 文書に覚えた名前 → 配信に覚えた名前 → チャンネルに覚えた名前 →
     チャンネル名から(from_channel(channel) -> 名前 か None。1人に決まるときだけ)。
@@ -202,6 +219,8 @@ class Prefs:
                 return _clean_keymap(v if isinstance(v, dict) else {}, DEFAULTS["keymap"])
             except PrefsError:
                 return {"playback": {}}
+        if name == "hidden":
+            return _read_hidden(v)
         return _read_streamer(v)
 
     def get(self, sections=None):
@@ -255,3 +274,30 @@ class Prefs:
             d["streamer"] = st
             self._save(d, broken)
             return st
+
+    def hide(self, lst, ids, hidden=True):
+        """一覧 lst の項目 ids を非表示にする(hidden=False で表示に戻す)。-> その一覧の {id: 時刻}。
+        同じ id はつけ直すと新しい方へ動かし、HIDE_MAX を超えたら古い順に捨てる"""
+        if lst not in HIDE_LISTS:
+            raise PrefsError("非表示にできない一覧です: %s" % str(lst)[:40])
+        if isinstance(ids, str):
+            ids = [ids]
+        if not isinstance(ids, list) or not ids or len(ids) > HIDE_IDS_MAX:
+            raise PrefsError("非表示にする項目の指定が正しくありません")
+        for i in ids:
+            if not isinstance(i, str) or not i.strip() or len(i) > KEY_MAX or any(ord(ch) < 32 for ch in i):
+                raise PrefsError("非表示にする項目の指定が正しくありません")
+        now = int(time.time() * 1000)
+        with self.lock:
+            d, broken = self._load()
+            hd = _read_hidden(d.get("hidden"))
+            m = hd[lst]
+            for i in ids:
+                m.pop(i, None)
+                if hidden is not False:
+                    m[i] = now
+            while len(m) > HIDE_MAX:
+                m.pop(next(iter(m)))
+            d["hidden"] = hd
+            self._save(d, broken)
+            return m

@@ -453,6 +453,42 @@ def run_mounted_phase(browser, tmp, shots, check, events):
               "[A] 並び替え・まとめ方はブラウザに覚えている(読み込み直しても)")
         pg.select_option("#fGroup", "")
         pg.select_option("#fSort", "new")
+
+        # 2g-2. 一覧の非表示(UIKit.hide。2026-10-04): 案件を隠す → 消える → 読み込み直しても隠れたまま → 「非表示 n件を表示」で薄く出る → 戻す
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case .pt-hide').length >= 1 && document.getElementById('casesHidden').hidden", 10000),
+              "[A] 非表示: 案件の行に「非表示にする」があり、隠したものが無いときは切り替えを出さない")
+        hid_id = pg.evaluate("document.querySelector('#list .pt-case').dataset.id")
+        pg.evaluate("document.querySelector('#list .pt-case .pt-hide').click()")
+        check(wait_js(pg, "!document.getElementById('case-' + %r) && !document.getElementById('casesHidden').hidden" % hid_id, 10000),
+              "[A] 非表示: 隠した案件が一覧から消え、「非表示 n件を表示」が出る")
+        check(pg.text_content("#casesHidden").strip() == "非表示 1件を表示" and "非表示 1 本" in pg.text_content("#summary"),
+              "[A] 非表示: 切り替えと要約に隠した数: %s / %s" % (pg.text_content("#casesHidden"), pg.text_content("#summary")))
+        check(wait_js(pg, "[...document.querySelectorAll('.ui-toast-msg')].some(e => e.textContent.indexOf('非表示にしました') >= 0)", 5000),
+              "[A] 非表示: 知らせ(元に戻す つき)が出る")
+        pg.reload()
+        pg.evaluate("document.getElementById('advancedBox').open = true")   # あとの「すべて終了」のため(読み込み直すと閉じる)
+        check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length >= 1 && !document.getElementById('case-' + %r) && !document.getElementById('casesHidden').hidden" % hid_id, 15000),
+              "[A] 非表示: 読み込み直しても隠れたまま(ホームの設定に覚えている)")
+        pg.click("#casesHidden")
+        check(wait_js(pg, "!!document.getElementById('case-' + %r) && document.getElementById('case-' + %r).classList.contains('ui-hidden-item')" % (hid_id, hid_id), 10000),
+              "[A] 非表示: 「非表示 n件を表示」で薄く出る")
+        check(pg.evaluate("document.querySelector('#case-' + CSS.escape(%r) + ' .pt-hide').textContent" % hid_id) == "表示に戻す", "[A] 非表示: 出した行のボタンは「表示に戻す」")
+        pg.evaluate("document.querySelector('#case-' + CSS.escape(%r) + ' .pt-hide').click()" % hid_id)
+        check(wait_js(pg, "!document.getElementById('case-' + %r).classList.contains('ui-hidden-item')" % hid_id, 10000), "[A] 非表示: 「表示に戻す」で戻る")
+        pg.click("#casesHidden")   # 「非表示のものを隠す」→ 隠したものが無いので切り替えは消える
+        check(wait_js(pg, "document.getElementById('casesHidden').hidden", 5000), "[A] 非表示: 隠したものが無くなれば切り替えも消える")
+        # 次にやること: 1行を隠す → 「元に戻す」で戻る
+        n_todo = pg.evaluate("document.querySelectorAll('#todoList .pt-todo-hide').length")
+        if n_todo:
+            pg.evaluate("document.querySelector('#todoList .pt-todo-hide').click()")
+            check(wait_js(pg, "document.querySelectorAll('#todoList .pt-todo-hide').length === %d && !document.getElementById('todoHidden').hidden" % (n_todo - 1), 10000),
+                  "[A] 非表示: 次にやることの1行を隠せる")
+            wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('非表示にしました') >= 0 && t.querySelector('.ui-toast-act'))", 5000)   # 知らせは送ったあとに出る
+            pg.evaluate("[...document.querySelectorAll('.ui-toast')].reverse().find(t => t.textContent.indexOf('非表示にしました') >= 0).querySelector('.ui-toast-act').click()")
+            check(wait_js(pg, "document.querySelectorAll('#todoList .pt-todo-hide').length === %d && document.getElementById('todoHidden').hidden" % n_todo, 10000),
+                  "[A] 非表示: 知らせの「元に戻す」で戻る")
+        else:
+            check(False, "[A] 非表示: 次にやることに隠せる行が無い(見本のデータを確かめる)")
         real = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
         check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
 

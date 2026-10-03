@@ -282,6 +282,27 @@ def run_checks(port, fx, shots=None):
         wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 1")
         c.ok("1 / 3" in (pg.text_content("#rvPickN") or ""), "③ 配信の選択: 題名で探せる(件数も出る)")
         pg.fill("#rvPickQ", "")
+        # 配信の非表示(UIKit.hide。入口から開いたときだけ。覚える場所はホームの設定): 隠す → 消える → 「非表示 n件を表示」で出る(札つき) → 戻す
+        HAD_PREFS = os.path.isfile(os.path.join(os.path.dirname(HERE), "home", "prefs.json"))
+        if MOUNT["token"]:
+            c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow-hide').length === 3"), "③ 配信の非表示: 入口から開いたときは各行に「隠す」が出る")
+            c.ok(pg.evaluate("document.getElementById('rvPickHidden').hidden"), "③ 配信の非表示: 隠したものが無いうちは切り替えボタンを出さない")
+            pg.click('#rvPickList [data-hide-vid="%s"]' % fx["a"])
+            c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 2"), "③ 配信の非表示: 隠した配信は一覧から消える")
+            c.ok(wait_js(pg, "() => { const b = document.getElementById('rvPickHidden'); return !b.hidden && b.textContent.indexOf('非表示 1件') >= 0; }"), "③ 配信の非表示: 「非表示 1件を表示」が出る")
+            c.ok(pg.evaluate("document.querySelectorAll('#rvPickList .rv-prow[data-vid=\"%s\"]').length" % fx["a"]) == 0, "③ 配信の非表示: 隠したのは選んだ配信")
+            pg.click("#rvPickHidden")
+            c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 3 && document.querySelectorAll('#rvPickList .ui-hidden-tag').length === 1"), "③ 配信の非表示: 切り替えで出る(「非表示」の札つき)")
+            c.ok(pg.evaluate("document.querySelector('#rvPickList .ui-hidden-item .rv-prow-hide').textContent") == "戻す", "③ 配信の非表示: 隠した行の操作は「戻す」")
+            pg.click('#rvPickList [data-hide-vid="%s"]' % fx["a"])
+            c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .ui-hidden-tag').length === 0"), "③ 配信の非表示: 戻すと札が消える")
+            pg.click("#rvPickHidden")   # 表示中の切り替えは「非表示のものを隠す」。押すと元の(隠す側の)状態に戻り、隠したものが無いのでボタンも消える
+            c.ok(wait_js(pg, "() => document.getElementById('rvPickHidden').hidden"), "③ 配信の非表示: 切り替えを戻すと、隠したものが無いのでボタンも消える")
+            c.ok(wait_js(pg, "() => document.querySelectorAll('#rvPickList .rv-prow').length === 3"), "③ 配信の非表示: 戻した配信が一覧にある")
+            hp = os.path.join(os.path.dirname(HERE), "home", "prefs.json")   # 取り込みの試験は inplace なので、入口の設定の置き場所はリポジトリの home/。最初から無かったファイルだけ後片付けで消す
+            if not HAD_PREFS and os.path.isfile(hp): os.remove(hp)
+        else:
+            c.ok(pg.evaluate("document.querySelectorAll('#rvPickList .rv-prow-hide').length === 0 && document.getElementById('rvPickHidden').hidden"), "③ 配信の非表示: 入口から開かないときは操作も切り替えも出ない")
         open_video(pg, fx["a"])
         pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
         c.ok("動画ファイル" in (pg.text_content("#rvChips") or ""), "③ 開いている配信の「だれの」(動画ファイル・配信者)を出す")

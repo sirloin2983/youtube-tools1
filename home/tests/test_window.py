@@ -383,6 +383,35 @@ class TestPrefs(unittest.TestCase):
         self.p.remember("docs", "d1", "")
         self.assertEqual(g(doc_id="d1", video_id="v1"), {"name": "", "source": "doc"})   # 空にした = 色なし(自動で入れ直さない)
 
+    def test_hide_add_remove_and_limit(self):
+        """一覧の非表示(2026-10-04。UIKit.hide): 1件ずつ足す・外す・他の一覧と節は消さない・上限は古い順に捨てる・形の検査"""
+        self.p.remember("docs", "d1", "兎田ぺこら")
+        self.assertEqual(list(self.p.hide("cases", ["v1", "v2"])), ["v1", "v2"])
+        self.p.hide("transcripts", "t1")                      # 1件は文字でもよい
+        self.assertEqual(list(self.p.hide("cases", ["v1"], hidden=False)), ["v2"])
+        g = self.p.get()
+        self.assertEqual(list(g["hidden"]["cases"]), ["v2"])
+        self.assertEqual(list(g["hidden"]["transcripts"]), ["t1"])
+        self.assertEqual(g["hidden"]["todo"], {})
+        self.assertEqual(g["streamer"]["docs"], {"d1": "兎田ぺこら"})   # 他の節は消えない
+        self.p.patch("autorun", {"top": 4})
+        self.assertEqual(list(self.p.get(["hidden"])["hidden"]["cases"]), ["v2"])   # 節ごとの patch で消えない
+        old = PR.HIDE_MAX
+        PR.HIDE_MAX = 3
+        try:
+            for i in range(4):
+                self.p.hide("runs", "r%d" % i)
+            self.p.hide("runs", "r1")   # つけ直すと新しい方へ
+            self.assertEqual(list(self.p.get(["hidden"])["hidden"]["runs"]), ["r2", "r3", "r1"])
+        finally:
+            PR.HIDE_MAX = old
+        for lst, ids in [("nope", ["a"]), ("cases", []), ("cases", [""]), ("cases", ["a\n"]), ("cases", [3]), ("cases", ["x" * 121]),
+                         ("cases", ["a"] * (PR.HIDE_IDS_MAX + 1)), ("cases", {"a": 1})]:
+            with self.assertRaises(PR.PrefsError, msg=(lst, ids)):
+                self.p.hide(lst, ids)
+        with self.assertRaises(PR.PrefsError):
+            self.p.patch("hidden", {"cases": {}})   # 節ごとには直せない(1件ずつ)
+
     def test_broken_file(self):
         os.makedirs(os.path.dirname(self.path))
         with open(self.path, "w", encoding="utf-8") as f:
