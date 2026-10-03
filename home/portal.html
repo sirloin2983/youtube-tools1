@@ -140,6 +140,37 @@
     </div>
   </details>
 
+  <details class="ui-disclosure pt-intake" id="backupBox">
+    <summary><span>作業データのバックアップ</span> <span class="pill wait" id="backupState">確認中…</span></summary>
+    <div class="pt-intake-body">
+      <p class="hint">文字起こしと校正・カット・スタジオのマーク・設定などの作業データを、決めた間隔で別のドライブのフォルダへ写します(入口が動いている間)。
+        キャッシュ・ログ・モデルなど取り直せるものは写しません。写した先のファイルは消しません。</p>
+      <div class="row pt-intake-status">
+        <span class="hint" id="backupMsg"></span>
+        <span class="hint num" id="backupLast"></span>
+        <button type="button" class="btn small" id="backupRunBtn">今すぐ写す</button>
+      </div>
+      <div class="pt-intake-settings card flat">
+        <div class="row">
+          <label class="lag"><input type="checkbox" class="ui-switch" id="backupEnabled">自動でバックアップする</label>
+        </div>
+        <div class="row">
+          <label class="lag pt-intake-folder">写す先のフォルダ
+            <input id="backupFolder" type="text" size="44" placeholder="例: D:\backup" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <p class="hint">作業データとは別のドライブのフォルダ(ドライブ名からの全部のパス)を入れます。その中の youtube-tools-data に写します。
+          API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。</p>
+        <div class="row pt-intake-nums">
+          <label class="lag">間隔(時間) <input id="backupEvery" type="number" min="1" max="168" step="1" value="24"></label>
+        </div>
+        <div class="row">
+          <button type="button" class="btn small primary" id="backupSave">設定を保存</button>
+          <span class="hint" id="backupSaveMsg" role="status"></span>
+        </div>
+      </div>
+    </div>
+  </details>
+
   <details class="ui-disclosure pt-history" id="historyBox">
     <summary>まとめて実行の記録</summary>
     <div class="pt-history-body">

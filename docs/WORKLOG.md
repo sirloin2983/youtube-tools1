@@ -2816,3 +2816,34 @@
   (6) 作業データのバックアップの仕方(手で写す / 道具を作る)。`.design/request-sender-overhaul/DESIGN_REVIEW.md` の写真の注記は足していない
 - 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start.bat で起動し直す(編集 0.40.1)
 - 未コミット: なし
+
+## 2026-10-03 Claude Code — 作業データの自動のバックアップ → ホーム 0.24.0・入れ直しのあとの確認の答え
+- ユーザーの答え(10-03): (1) Playwright は Python 3.10 のままでよい (2) 評価用_仮置き の 360本は**順番に校正していく** (3) GPU(whisper.cpp)は使う (4) 送るアプリの鍵は作り直す
+  (5) **バックアップは自動にして D ドライブへ**
+- 変更(バックアップ): `home/backup.py`(新。写す処理 `run_once`・入口の中の見張り `Backup`)・`home/prefs.py`(節 `backup` = enabled・folder・everyHours。フォルダの検査を `_clean_folder` にまとめて intake と共用)・
+  `home/launch.py`(`GET /api/backup`・`POST /api/backup/run`・起動と終了・設定を変えたらすぐ見直す)・`home/portal.html`・`portal.js`(「作業データのバックアップ」の欄: スイッチ・写す先・間隔・今すぐ写す・最後に写した)・
+  `home/tests/test_backup.py`(新 8件)・`home/tests/e2e_backup_ui.py`(新 21件。バックエンドは本物・一時フォルダ)・`home/tests/test_launch.py`(test_backup_api)・
+  `home/README.txt`・`docs/spec/data-location.md`(「バックアップ」の節を書き直した)・`AGENTS.md`(home の行・動作環境)・`docs/ROADMAP.md`・`docs/plan/transcription-overhaul-plan.md`(校正の順番の決定)
+- 変更(入口の POST を断るとき): `home/mount.py` に `drain_body`(断る要求の本文を上限 1MB まで読み捨てる)。入口の `do_POST`(Host / Origin の検査・合言葉)・`read_json_body`(415・413)・
+  取り込んだツールの合言葉の検査で、断る前に呼ぶ。本文を読まずに接続を閉じると、Windows では接続ごと切られて(RST)403 などの応答が相手に届かないことがある。
+  以前からの作りだが、入れ直した PC では `test_csrf_token`・`test_security_checks`・`test_post_guards` が数回に1回 `ConnectionAbortedError` で落ちて分かった(直したあと 4回続けて 203件 OK)。
+  検査の順番と断る条件は変えていない(本文の中身は見ない)
+- 版: ホーム 0.23.0 → 0.24.0
+- 決定・理由:
+  - 入口の中のスレッドで写す(Windows のタスクスケジューラは使わない)… システムの設定を足さずに済み、入口の「調子」と同じ所で状態が見える。代わりに、入口を動かしていない間は写らない
+  - 写すのは作り直せないものだけ(`SKIP_DIRS` = cache・work・logs・models・bin・browser-profile・exports)… チャットのキャッシュ(約 2GB)やモデルは取り直せる。毎日写しても軽い
+  - **写す先のファイルは消さない**・上書きはその日の最初の1回だけ1つ前を `.prev` に残す … 作業データで消えた・壊れて空になったものに、バックアップを合わせて壊さないため(鏡のように同じにする写し方はしない)
+  - `YTT_DATA_DIR=inplace`(テスト)では写さない … テストが本物のドライブへ書かない
+  - 写す先は設定(prefs.json)に持ち、コードに `D:\` を書かない(リポジトリは Public。PC ごとに違う)
+- この PC でやったこと: prefs.json の backup を `D:\backup`・24 時間・オンにして、最初の1回を写した(32 個・0.1MB → `D:\backup\youtube-tools-data`)。
+  友人用の `request-sender\build.bat`・`holo-colors\build.bat` は前の作業で通した(dist は作り直し済み。送るアプリの zip に鍵はまだ無い)
+- テスト(`py -3.10`): home の単体一式 203件(test_backup 8・test_launch +1 を含む)・home の e2e 6本(e2e_backup_ui を含む)・e2e_datadir・e2e_pipeline・editor の e2e_ui_mounted・スタジオの e2e_ui --mounted・ytt_core すべて OK。
+  home の単体は `PYTHONIOENCODING` を付けずに流す(付けると test_mount の test_standalone_start_opens_the_mounted_one が落ちる。以前からの件)
+- 未完了・次(ユーザーがやること):
+  - GPU: `winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--passive --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` と
+    `winget install --id KhronosGroup.VulkanSDK -e`(ライセンスの同意と管理者の許可が要るので AI は入れていない)→ 入ったら `setup\build-whisper-vulkan.bat`(AI に頼んでもよい)
+  - 送るアプリの鍵: `py -3.10 dev\dropbox_auth.py <App key>`(ブラウザで「許可」→ コードを貼る。AI は代わりにできない)→ `request-sender\build.bat` → zip を渡し直す
+  - 入口を「すべて終了」→ start.bat(ホーム 0.24.0・編集 0.40.1 にする。バックアップの見張りは新しい入口から動く)
+- 注意: シェル(Bash の道具)経由で Python に文字列を渡すと、バックスラッシュ2つが1つに縮むことがあった(`D:\backup` の `\b` がバックスペースになってファイルに入った → 見つけて直した)。
+  バックスラッシュを含む文字は、ファイルに書いてから実行するか `chr(92)` で作る
+- 未コミット: なし

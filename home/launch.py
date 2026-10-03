@@ -18,6 +18,8 @@
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(home/intake.py。docs/design/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
+  GET  /api/backup                        作業データのバックアップの状態・設定(home/backup.py。docs/spec/data-location.md の「バックアップ」)
+  POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
@@ -63,6 +65,7 @@ from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout,
 import mount as mount_mod  # noqa: E402  (home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (home/intake.py: 友人からの依頼の受付)
+import backup as backup_mod  # noqa: E402  (home/backup.py: 作業データのバックアップ)
 import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
@@ -72,7 +75,7 @@ import restart as restart_mod  # noqa: E402  (home/restart.py: 入口ごと起�
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.23.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.24.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -528,12 +531,14 @@ def read_json_body(headers, rfile, limit=MAX_BODY):
     """要求の本文(JSON のオブジェクト)。-> (辞書, None) か (None, (HTTP の番号, エラーの JSON))。
     application/json だけを受け付ける(他サイトからのフォーム送信は、この形を作れない)"""
     if (headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+        mount_mod.drain_body(headers, rfile)   # 断るときも本文は読み捨てる(読まずに閉じると、Windows では応答が届かないことがある。mount.drain_body)
         return None, (415, {"error": "content_type", "message": "application/json だけを受け付けます"})
     try:
         length = int(headers.get("Content-Length") or 0)
     except ValueError:
         length = -1
     if length < 0 or length > limit:
+        mount_mod.drain_body(headers, rfile)
         return None, (413, {"error": "size", "message": "本文の大きさが正しくありません"})
     try:
         raw = rfile.read(length) if length else b"{}"
@@ -634,6 +639,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
         if u.path == "/api/intake":   # 友人からの依頼の受付(home/intake.py)
             return self._json(200, self.server.intake.snapshot())
+        if u.path == "/api/backup":   # 作業データのバックアップの状態と設定(home/backup.py)
+            return self._json(200, self.server.backup.snapshot())
         if u.path == "/api/autorun":   # まとめて実行の状態(home/autorun.py)
             return self._json(200, self.server.autorun.snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
@@ -663,8 +670,10 @@ class PortalHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and self._origin_ok() and self._site_ok()):
+            mount_mod.drain_body(self.headers, self.rfile)
             return self._send(403, b"forbidden")
         if not hmac.compare_digest(self.headers.get(mount_mod.TOKEN_HEADER) or "", self.server.token):
+            mount_mod.drain_body(self.headers, self.rfile)
             return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
         if u.path.startswith(YTT_API):   # 画面の共通の API(取り込んだツールの画面からも同じ所へ来る)
             return self.server.ytt_request(self, "portal", VERSION)
@@ -711,6 +720,11 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(409, "closing", "終了の途中です")
             self.server.intake.wake.set()
             return self._json(200, self.server.intake.snapshot())
+        if u.path == "/api/backup/run":   # 今すぐ写す(裏で。応答は今の状態)
+            if self.server.closing.is_set():
+                return self._fail(409, "closing", "終了の途中です")
+            self.server.backup.run_now()
+            return self._json(200, self.server.backup.snapshot())
         if u.path == "/api/window":   # 画面を窓で開くか(次に起動したときから。段階7-3)
             try:
                 self.server.window.set_mode(body.get("mode"))
@@ -772,6 +786,8 @@ class PortalServer(ThreadingHTTPServer):
         self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
+        # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
+        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs)   # 「調子」(段9 9-1)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
@@ -926,6 +942,8 @@ class PortalServer(ThreadingHTTPServer):
                 value = self.prefs.patch(body.get("section"), body.get("value"))
                 if body.get("section") == "intake":   # 受付の設定を変えたら、すぐ見直す(オン・フォルダ)
                     self.intake.wake.set()
+                if body.get("section") == "backup":   # バックアップの設定を変えたら、すぐ見直す(オンにした・先を変えた → 最初の1回を写す)
+                    self.backup.wake.set()
                 return {"ok": True, "value": value}
             if op == "remember":
                 return {"ok": True, "streamer": self.prefs.remember(body.get("kind"), body.get("key"), body.get("name"))}
@@ -993,6 +1011,7 @@ class PortalServer(ThreadingHTTPServer):
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
+        self.backup.close()
         if self._autorun is not None:
             self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
         self.sup.stop_all()
@@ -1157,6 +1176,7 @@ def main(argv=None):
         sup.start_all()
         sup.start_monitor()
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
+        srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
         if opts.app_window:   # 友人用 簡易版の起動(lite/lite.py): 設定にかかわらず窓で開く
             srv.window.force_mode = "app"
@@ -1171,6 +1191,7 @@ def main(argv=None):
         ignore_stop_signals()
         srv.closing.set()
         srv.intake.close()
+        srv.backup.close()
         sup.close()
         sup.stop_all()
         sup.unmount_all()

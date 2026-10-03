@@ -48,6 +48,20 @@ class MountError(Exception):
     pass
 
 
+DRAIN_MAX = 1024 * 1024   # 断る要求の本文を読み捨てる上限(これより大きい本文は読まずに閉じる)
+
+
+def drain_body(headers, rfile, limit=DRAIN_MAX):
+    """断る要求の本文を読み捨てる(中身は見ない。上限まで)。読まずに接続を閉じると、Windows では受け取っていない本文が残っているために
+    接続ごと切られ(RST)、相手に 403 の応答が届かないことがある(2026-10-03。入れ直した PC で test_csrf_token などがときどき落ちて分かった)"""
+    try:
+        length = int(headers.get("Content-Length") or 0)
+        if 0 < length <= limit:
+            rfile.read(length)
+    except (OSError, ValueError):
+        pass
+
+
 def tool_modules(tool_dir):
     """ツールのフォルダにある部品の名前(serve・テスト・e2e を除く)。"""
     out = set()
@@ -131,6 +145,7 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
             if page_to and self.command in SAFE_METHODS and self._page_moved():
                 return False
             if self.command not in SAFE_METHODS and not hmac.compare_digest(self.headers.get(TOKEN_HEADER) or "", token):
+                drain_body(self.headers, self.rfile)
                 self._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
                 return False
             if urllib.parse.urlsplit(self.path).path.startswith(YTT_API):   # 画面の共通の API は入口へ(ツールには渡さない)

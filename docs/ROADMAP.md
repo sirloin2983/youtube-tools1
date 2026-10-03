@@ -6,7 +6,7 @@
 **2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 **2026-10-03 に PC の Windows を入れ直した**(リポジトリは GitHub から clone し直し・場所は同じ `C:\dev\youtube-tools`)。10-02 19:22(19e0316)以降の未 push の作業と、作業データ `%LOCALAPPDATA%\youtube-tools\`(文字起こしと校正・評価用・スタジオの解析とマーク・採用の記録・設定・案件・`evals/asr/` の測定の記録・whisper.cpp とモデル)は失われた。戻せたのは cut2resolve の packs 15件と声の登録だけ。詳しくは WORKLOG の末尾の 2026-10-03 の項目。下の測定値や「待ち」はこの前の記録で、元のデータが今は無いものがある(該当の所に注記)。
 
-版(2026-10-03): 入口 0.23.0・スタジオ 0.15.0・編集 0.40.1・cut2resolve 0.19.0・ui-kit v12(サイバー風 = 計器盤の形・配色4つ。v11 = 時刻の欄 `UIKit.timebox`)・ホロカラー 1.4.1・送るアプリ(`request-sender/`)2.0.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-10-03): 入口 0.24.0(作業データの自動のバックアップ)・スタジオ 0.15.0・編集 0.40.1・cut2resolve 0.19.0・ui-kit v12(サイバー風 = 計器盤の形・配色4つ。v11 = 時刻の欄 `UIKit.timebox`)・ホロカラー 1.4.1・送るアプリ(`request-sender/`)2.0.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
@@ -62,7 +62,7 @@ AI: 段0 ✅ → 段1 呼び名 → 段2 エンジン差し替え + GPU ──�
   動画全体の再認識・声の検出が捨てすぎたら緩める・0 文字の所は元の行を残す(編集 0.21.0。`docs/design/whole-retranscribe-design.md`)
 - **律速 = ユーザーの作業**: 評価用の校正(合計 15〜30 分・話者 4 人以上・配信 3 本以上。重なり声・BGM・呼び名の多い場面)、
   `docs/plan/accuracy/USER_INPUT.md` の記入(1 呼び名・2 誤りやすい形・7 字幕の書き方の規則。3〜6 の評価用の動画・コラボの別視点・用語・口癖も)
-- **2026-10-03**: 校正済みの評価用・学習用は入れ直しで失われた(0 に戻った)。材料は `E:\Video\切り抜き動画素材\評価用データ\評価用_仮置き` の 360本(3時間42分01秒・まだ文字起こしも校正もしていない)。**決めること(ユーザー)**: ここからどの場面を校正するか(`docs/plan/transcription-overhaul-plan.md` の「ユーザーに決めてもらうこと」)
+- **2026-10-03**: 校正済みの評価用・学習用は入れ直しで失われた(0 に戻った)。材料は `E:\Video\切り抜き動画素材\評価用データ\評価用_仮置き` の 360本(3時間42分01秒・まだ文字起こしも校正もしていない)。**決定(ユーザー 10-03)**: 評価用_仮置き の動画を、順番に校正していく(場面を選ばず、並んでいる順に進める)
 - 済み(09-29): 段1 呼び名と文脈(編集 0.22.0。文脈は測った結果 不採用 = 既定オフのまま)。
 - 済み(10-02): 段2 の 2回目 = 2-1 エンジンの口(`editor/tx_engines.py`)と S-1 全体の再認識の区間ごとの保存・続きから(編集 0.35.0)。
 - 済み(10-02): 段2-2 whisper.cpp Vulkan(編集 0.36.0。`setup/build-whisper-vulkan.bat` で公式ソースから作る)。RX 7800 XT で動く(**whisper.cpp の実行ファイルとモデルは 10-03 に消えた。`setup\build-whisper-vulkan.bat` で作り直すまで画面からも GPU は選べない。先に Visual Studio 2022 の C++ と Vulkan SDK を入れる**)。**以下の測定値は 2026-10-02 までの記録(元の校正と `evals/asr/` は 10-03 に失われ、同じ値は測り直せない)**。**温度のやり直しありで比べると whisper.cpp large-v3 GPU 21.6%・130 秒 / faster-whisper large-v3 CPU 21.1%・561 秒 = 精度は同じで約 4 倍速い**(抜けは GPU が少なく、余分は多い)。Silero で声の無い所の行を捨てる案は悪化(既定オフ)。編集 0.37.0 で画面の処理方式から「GPU(AMD など・whisper.cpp)」を選べる(既定は今までどおり)。主のエンジンにするかは使ってから決める。
@@ -106,7 +106,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 - ホームの依頼の受付の設定(見張るフォルダ)を入れ直す。スタートアップのショートカット(裏で起動)も作り直す
 - 友人に zip を渡し直すなら、鍵(`request-sender/config.json`)を `dev\dropbox_auth.py` で作り直し、`request-sender\build.bat` で `dist` を作り直す(`holo-colors\build.bat` も。`dist` は clone で戻らない)
 - GPU(whisper.cpp)を使うなら、Visual Studio 2022(C++)と Vulkan SDK を入れ、`setup\build-whisper-vulkan.bat` で作り直す
-- 作業データのバックアップを取る(`docs/spec/data-location.md`。今回は作業データがリポジトリの外にあったためバックアップに入っていなかった)
+- ~~作業データのバックアップを取る~~ → 自動にした(10-03。ホーム 0.24.0 の「作業データのバックアップ」。写す先は `D:\backup`。`docs/spec/data-location.md`)
 
 - 話者の名前から決めた字幕の色が Resolve の Text+ に入るか(Lua の SetInput)
 - 「声を覚える」の照らし合わせの精度(しきい値 0.60・差 0.08 は仮)

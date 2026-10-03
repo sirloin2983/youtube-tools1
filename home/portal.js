@@ -1108,6 +1108,7 @@
       });
       Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
       pollIntake();   // 依頼の受付も同じ周期で読む(別のタイマーは持たない)
+      pollBackup();
       if (finished) {
         refreshCases();
         loadTxList().then(function () { renderDocs(); buildTodo(); });
@@ -1228,6 +1229,87 @@
     });
   }
 
+  /* ================================================================ 作業データのバックアップ(home/backup.py。docs/spec/data-location.md の「バックアップ」) ================================================================ */
+
+  var BACKUP_PILL = { off: 'wait', idle: 'ok', running: 'run', error: 'err' };
+  var backupData = null, backupBusy = false, backupDirty = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;
+
+  function fillBackupSettings(d) {
+    $('#backupEnabled').checked = !!d.enabled;
+    $('#backupFolder').value = d.folder || '';
+    if (d.everyHours != null) $('#backupEvery').value = String(d.everyHours);
+    backupDirty = false;
+  }
+  function renderBackupStatus(d) {
+    var pill = $('#backupState');
+    pill.className = 'pill ' + (BACKUP_PILL[d.state] || 'wait');
+    pill.textContent = d.stateLabel || (d.enabled ? '動いています' : 'オフ');
+    var n = (d.errors || []).length;
+    $('#backupMsg').textContent = d.message || '';
+    $('#backupMsg').title = n ? d.errors.join(' / ') : '';
+    $('#backupLast').textContent = d.lastOk ? '最後に写した: ' + ago(d.lastOk) + '(' + (d.copied || 0) + ' 個・' + fmtBytes(d.bytes) + ')' : (d.enabled ? 'まだ写していません' : '');
+    $('#backupLast').title = d.lastOk ? when(d.lastOk) + (d.dest ? ' → ' + d.dest : '') : '';
+    $('#backupRunBtn').disabled = backupBusy || !d.enabled || d.state === 'running';
+    $('#backupRunBtn').title = d.enabled ? '' : 'バックアップがオフのときは写せません';
+  }
+  function renderBackup(d) {
+    backupData = d;
+    renderBackupStatus(d);
+    clearTimeout(backupTimer);   // 写している間・保存や「今すぐ」の直後は、短い間隔で読み直す(まとめて実行の周期 15 秒を待たない)
+    if (d.state === 'running' || Date.now() < backupFastUntil) backupTimer = setTimeout(pollBackup, 1500);
+    if (!backupOpened) {   // 最初の1回だけ: まだ決めていない・止まっているときは開いて見せる(動いているときは閉じたまま)
+      backupOpened = true;
+      if ((!d.enabled && d.source) || d.state === 'error') $('#backupBox').open = true;
+      fillBackupSettings(d);
+    } else if (!backupDirty) fillBackupSettings(d);
+  }
+  function pollBackup() {
+    if (!$('#backupBox')) return Promise.resolve();
+    return api('api/backup').then(renderBackup, function (e) {
+      if (e.status === 404) { $('#backupBox').hidden = true; return; }   // バックアップの無い版の入口(古いサーバー)では出さない
+      $('#backupState').className = 'pill wait'; $('#backupState').textContent = '読めません';
+    });
+  }
+  function backupRunNow() {
+    if (backupBusy) return;
+    backupBusy = true; $('#backupRunBtn').disabled = true;
+    backupFastUntil = Date.now() + 30000;
+    api('api/backup/run', 'POST', {}).then(function (d) { renderBackup(d); toast('バックアップを始めました'); },
+      function (e) { toast('バックアップを始められませんでした: ' + e.message, 'err'); })
+      .then(function () { backupBusy = false; if (backupData) renderBackupStatus(backupData); });
+  }
+  function backupValue() {
+    var x = Number($('#backupEvery').value);
+    if (!isFinite(x) || $('#backupEvery').value === '' || x < 1 || x > 168) throw new Error('間隔は 1〜168 の数で入れてください');
+    var v = { enabled: $('#backupEnabled').checked, folder: $('#backupFolder').value.trim(), everyHours: Math.round(x) };
+    if (v.enabled && !v.folder) throw new Error('写す先のフォルダを入れてください');
+    return v;
+  }
+  function backupSave(partial) {
+    var msg = $('#backupSaveMsg'), v;
+    try { v = partial || backupValue(); } catch (e) { msg.textContent = e.message; if (partial === undefined && backupData) $('#backupEnabled').checked = !!backupData.enabled; return Promise.resolve(); }
+    msg.textContent = '保存しています…';
+    return api('api/ytt/prefs', 'POST', { op: 'patch', section: 'backup', value: v }).then(function () {
+      msg.textContent = '保存しました';
+      backupDirty = false;
+      backupFastUntil = Date.now() + 30000;
+      return pollBackup();
+    }, function (e) {
+      msg.textContent = '保存できませんでした: ' + e.message;
+      toast('保存できませんでした: ' + e.message, 'err');
+      if (backupData) $('#backupEnabled').checked = !!backupData.enabled;   // 断られたら、スイッチの表示を元に戻す
+    });
+  }
+  function wireBackup() {
+    if (!$('#backupBox')) return;
+    $('#backupRunBtn').addEventListener('click', backupRunNow);
+    $('#backupSave').addEventListener('click', function () { backupSave(); });
+    $('#backupEnabled').addEventListener('change', function () { backupSave(); });   // スイッチは押したらすぐ効く(フォルダと一緒に送る。フォルダが空ならオンにできない)
+    ['#backupFolder', '#backupEvery'].forEach(function (s) {
+      $(s).addEventListener('input', function () { backupDirty = true; $('#backupSaveMsg').textContent = ''; });
+    });
+  }
+
   /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
 
   var HIST_PILL = { done: 'ok', error: 'err', cancelled: 'wait' };
@@ -1342,6 +1424,7 @@
     $('#historyBox').addEventListener('toggle', function () { if ($('#historyBox').open) loadHistory(true); });
     $('#historyMore').addEventListener('click', function () { loadHistory(false); });
     wireIntake();
+    wireBackup();
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため) */

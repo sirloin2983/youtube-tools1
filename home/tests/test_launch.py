@@ -696,6 +696,27 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/intake", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
 
+    def test_backup_api(self):
+        """作業データのバックアップ(home/backup.py): 状態・設定(api/ytt/prefs の節 backup)・今すぐ写す。テスト(inplace)では作業データの親が無いので写さない"""
+        r, body = self.req("GET", "/api/backup")
+        j = json.loads(body)
+        self.assertEqual((r.status, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 24, None))
+        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"enabled": True}}).encode())
+        self.assertEqual(r.status, 400)   # 先のフォルダが無いままではオンにできない
+        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"folder": "\\\\srv\\share"}}).encode())
+        self.assertEqual(r.status, 400)
+        dest = os.path.join(self.tmp, "先")
+        r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "patch", "section": "backup", "value": {"enabled": True, "folder": dest, "everyHours": 12}}).encode())
+        self.assertEqual((r.status, json.loads(body)["value"]), (200, {"enabled": True, "folder": dest, "everyHours": 12}))
+        r, body = self.post("/api/backup/run", headers={"X-YTT-Token": "x"})   # 合言葉が要る
+        self.assertEqual(r.status, 403)
+        r, body = self.post("/api/backup/run")
+        self.assertEqual((r.status, json.loads(body)["folder"]), (200, dest))
+        self.srv.backup.tick()   # inplace では写さない(本物の作業データに触らない)
+        self.assertEqual((self.srv.backup.state, os.path.exists(dest)), ("off", False))
+        r, _ = self.req("GET", "/api/backup", headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(r.status, 403)
+
     def test_shutdown_stops_children_and_server(self):
         self.sup.start_all()
         self.sup.start_monitor()
