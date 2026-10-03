@@ -269,6 +269,61 @@ async function startDiarize(){
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
 }
 
+/* ---------- 全行をこの人に(評価用。マスタープラン Q4。docs/plan/q3-q4-design.md の (c)) ----------
+   評価用の文書で話者の無い行があるとき(評価用のフォルダへ移すには全行に話者が要る)、候補(GET api/drill/candidates =
+   この文書の覚えた声 → メンバーのフォルダ → 配信の文脈 → ほかの覚えた声・メンバー)から1人選び、既存の 1人指定
+   (POST api/diarize の numSpeakers 1 + names。サーバーの single_speaker が全行をその人にして diar.json も書く)で付ける。状態は app.js の SPALL */
+
+function spAllNeeded(){
+  const d = S.doc; if (!d || d.evalSet !== true) return false;
+  const ids = new Set((d.speakers || []).map(s => s.id));
+  return d.segments.some(s => String(s.text || '').trim() && !ids.has(s.speaker));
+}
+
+function renderSpAll(){
+  const box = $('#spAllBox'); if (!box) return;
+  const on = spAllNeeded(); box.hidden = !on;
+  if (!on) return;
+  if (SPALL.id !== S.docId){ SPALL.id = S.docId; SPALL.cands = []; SPALL.suggest = ''; fillSpAll(); loadSpAll(S.docId); }
+  const ids = new Set(S.doc.speakers.map(s => s.id)), none = S.doc.segments.filter(s => String(s.text || '').trim() && !ids.has(s.speaker)).length;
+  $('#spAllHint').textContent = `話者の無い行が ${none} 行あります(評価用のフォルダへ移すには、全行に話者が要ります)。1人で話している動画なら、候補から選んで全行に付けられます(今付いている話者も置き換わります)。`;
+  $('#spAllGo').disabled = !!lockJob();
+}
+
+async function loadSpAll(id){
+  let r; try { r = await api('/api/drill/candidates?id=' + encodeURIComponent(id)); } catch { return; }
+  if (SPALL.id !== id) return;   // 待っている間に別の文書を開いた
+  SPALL.cands = r.candidates || []; SPALL.suggest = r.suggest || '';
+  fillSpAll();
+}
+
+function fillSpAll(){
+  const sel = $('#spAllName'), keep = sel.value;
+  sel.textContent = '';   // 名前は外から来る文字なので Option(textContent)で入れる
+  if (!SPALL.suggest) sel.append(new Option('(選んでください)', ''));
+  for (const c of SPALL.cands) sel.append(new Option(`${c.name}(${SPALL_FROM[c.from] || c.from}${c.near ? '' : '・ほかの文書'})`, c.name));
+  sel.append(new Option('ほかの名前を入れる…', 'other'));
+  sel.value = [...sel.options].some(o => o.value === keep && keep) ? keep : SPALL.suggest;
+  syncSpAllNew();
+}
+
+function syncSpAllNew(){ const on = $('#spAllName').value === 'other'; $('#spAllNew').hidden = !on; if (!on) $('#spAllNew').value = ''; }
+
+async function spAllGo(){
+  if (!S.doc || lockJob()) return;
+  const v = $('#spAllName').value, name = (v === 'other' ? $('#spAllNew').value : v).trim();
+  if (!name){ toast('全行に付ける話者を選んでください'); return v === 'other' ? $('#spAllNew').focus() : $('#spAllName').focus(); }
+  if (DEFAULT_SPK.test(name)) return toast('「話者1」のような仮の名前ではなく、配信者の名前を選んでください');
+  const n = S.doc.segments.length, ids = new Set(S.doc.speakers.map(s => s.id)), had = S.doc.segments.filter(s => ids.has(s.speaker)).length;
+  const ok = await UIKit.dialog.confirm({ title: `全行の話者を「${name}」にしますか`, ok: '全行をこの人に',
+    body: `この文字起こしの ${n} 行すべての話者を「${name}」1人にします。${had ? `今 話者が付いている ${had} 行も置き換わります。` : ''}1人で話している動画のときだけ使ってください(元に戻すときは「以前の版に戻す」から)。` });
+  if (!ok) return;
+  await saveDoc();
+  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: 1, names: [name], recognize: false } });
+  startPolling(); await pollJobs(); toast(`全行の話者を「${name}」にしています`);
+}
+
 /* ---------- 声を覚える(A-3)。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
    声の特徴そのものは画面に来ない(一覧は名前・行の数・秒だけ) ---------- */
 

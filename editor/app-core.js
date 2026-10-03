@@ -348,6 +348,6 @@ function renderProgress(){
   } catch {}
 }
 
-async function loadProgress(){ try { PG = await api('/api/progress'); } catch { return; } renderProgress(); }
+async function loadProgress(){ loadDrillStat(); try { PG = await api('/api/progress'); } catch { return; } renderProgress(); }   // 定点の「あと何分」(Q4)も一緒に
 
 function scheduleProgress(){ clearTimeout(scheduleProgress.t); scheduleProgress.t = setTimeout(loadProgress, 2500); }

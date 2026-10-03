@@ -269,6 +269,44 @@ async function evalSettle(id){
   } catch {}   // 文書が消えた・入口が止まった: 次の整理で移す
 }
 
+/* 評価用の動画をまとめて文字起こし(⚙。サーバーの ed_evalbatch。始めるのはこのボタンだけ・止めるまで続く。待ちが 2 件までなので、ほかの操作が割り込める) */
+let evbTimer = 0;
+function evbRender(s){
+  const note = $('#evbNote'), on = !!s.enabled;
+  $('#evbStart').disabled = on; $('#evbStop').hidden = !on;
+  let t = '';
+  if (on){
+    t = `動いています: 入れた ${s.enqueued} 本・残り ${s.remaining == null ? '調べています' : s.remaining + ' 本'}・今 ${s.active} 件(待ち・処理中)`
+      + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.deferred ? `。${s.deferred}` : '');
+  } else if (s.finished){
+    t = `終わりました: 済 ${s.done} 本` + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.finishedAt ? `(${new Date(s.finishedAt).toLocaleString()})` : '');
+  } else if (s.stoppedAt){
+    t = `止めています(${new Date(s.stoppedAt).toLocaleString()})。もう一度押すと続きから入れます` + (s.active ? `。動いている ${s.active} 件は最後まで動きます` : '');
+  }
+  if (s.lastError) t += (t ? '。' : '') + `最後のエラー: ${s.lastError.src}: ${s.lastError.message}`;
+  note.textContent = t;
+  clearInterval(evbTimer); evbTimer = on || s.active ? setInterval(() => { if (!document.hidden) loadEvalBatch(); }, 15000) : 0;
+}
+async function loadEvalBatch(){
+  try { evbRender(await api('/api/eval-batch')); }
+  catch (e){ if (e.status === 404) $('#evbRow').hidden = true; }   // 古いサーバー(まだ部品が無い)では出さない
+}
+async function evbStart(){
+  if (!await confirmDlg('仮置きをまとめて文字起こし', '評価用の動画を、手が空いたとき少しずつ文字起こしします。数が多いと CPU で数時間かかります(止めるまで続きます)。始めますか?', '始める')) return;
+  try { evbRender(await api('/api/eval-batch/start', { body: {} })); toast('まとめての文字起こしを始めました(手が空いたとき少しずつ入れます)', 5000, 'ok'); }
+  catch (e){ toast('始められませんでした: ' + e.message, 6000, 'err'); }
+}
+async function evbStop(){
+  try { evbRender(await api('/api/eval-batch/stop', { body: {} })); toast('まとめての文字起こしを止めました', 4000); }
+  catch (e){ toast('止められませんでした: ' + e.message, 6000, 'err'); }
+}
+function evbInit(){   // $ と api は app.js が先に読まれたあとで使える(この部品は app.js より先に読まれるので、読み込みが終わってから)
+  $('#evbStart').addEventListener('click', evbStart);
+  $('#evbStop').addEventListener('click', evbStop);
+  loadEvalBatch();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', evbInit); else evbInit();
+
 function renderSpNames(){
   let dl = document.getElementById('spNames');
   if (!dl){ dl = document.createElement('datalist'); dl.id = 'spNames'; document.body.appendChild(dl); }

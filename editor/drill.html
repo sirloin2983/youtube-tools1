@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>評価ドリル</title>
+<!-- 評価ドリル(マスタープラン Q4。docs/plan/q3-q4-design.md の (c))。評価用の文書の未校正の行を乱数で 20 行、1 行ずつ聞いて直す。
+     サーバーは「編集」と同じ(/api/drill/… = ed_drill.py・再生は /media)。CSP(script-src 'self')のため JS は drill.js。
+     ui-kit の CSS は ui-kit.css(サーバーが index.html の ui-kit の CSS を切り出して配る。ここに写しを作らない)。この画面だけの CSS は dr- を付ける -->
+<script src="ui-kit.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<style>
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font)}
+.dr-title{margin:0;font:650 16px/1.3 var(--font-display)}
+.dr-main{max-width:820px;margin:0 auto;padding:16px}
+.dr-h{margin:0 0 6px;font:650 14.5px/1.35 var(--font-display)}
+.dr-left{margin:2px 0 8px;font-size:15px}
+.dr-left b{font-size:20px;font-variant-numeric:tabular-nums}
+.dr-bar{height:6px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
+.dr-bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:inherit}
+.dr-conds{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px}
+.dr-conds li{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-variant-numeric:tabular-nums}
+.dr-pos{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-bottom:8px}
+.dr-pos b{font-variant-numeric:tabular-nums}
+.dr-doc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.dr-stage{background:var(--stage-bg);border-radius:var(--r);overflow:hidden;max-width:480px;aspect-ratio:16/9;margin-bottom:8px}
+.dr-stage video{display:block;width:100%;height:100%;object-fit:contain;background:var(--stage-bg)}
+.dr-text{width:100%;box-sizing:border-box;font-size:17px;line-height:1.5;resize:vertical}
+.dr-fld{margin-top:10px}
+.dr-fld>label,.dr-fld>.l{display:block;font-size:13px;color:var(--ink-2);margin-bottom:4px}
+.dr-actions{justify-content:flex-end;margin-top:12px}
+.dr-note{margin:8px 0 0}
+.dr-keys{margin:10px 0 0;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.dr-keys span{display:inline-flex;gap:4px;align-items:center}
+.dr-sum{list-style:none;padding:0;margin:6px 0 10px;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
+@media (max-width:520px){.dr-main{padding:10px}.dr-actions{justify-content:stretch}.dr-actions .btn{flex:1}}
+</style>
+</head>
+<body>
+<header class="ui-header top">
+  <nav class="ui-appnav" data-ui-appnav="transcribe" aria-label="ホーム/スタジオ/編集"></nav>
+  <h1 class="dr-title">評価ドリル</h1>
+  <div class="ui-header-actions"><a class="btn ghost small" id="drBack" href="./">編集へ戻る</a></div>
+</header>
+<main class="dr-main">
+  <!-- 定点の「あと何分」と条件(編集の「精度」の進行度のカードと同じ数字 = GET api/drill/status) -->
+  <section class="card" id="drGoal" aria-labelledby="drGoalH">
+    <h2 class="dr-h" id="drGoalH">定点(評価用の校正済み 15 分)</h2>
+    <p class="dr-left" id="drLeft" role="status">読み込んでいます…</p>
+    <div class="dr-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="定点 15 分に対する校正済みの量" id="drBar"><i id="drBarFill"></i></div>
+    <ul class="dr-conds" id="drConds" aria-label="定点の条件"></ul>
+    <p class="hint" style="margin:8px 0 0">エンジン・設定を比べる物差し(定点)にするため、評価用の文書の行を少しずつ聞いて直します。
+      行は乱数で選びます(自信の低い行だけを選ぶと、数字が悪い側に偏るため)。1 日 1〜2 回・1〜2 分が目安です。</p>
+  </section>
+
+  <!-- 始める前(自動で再生するので、最初の 1 回は押してから) -->
+  <section class="card" id="drStart">
+    <h2 class="dr-h">20 行を聞いて直す</h2>
+    <p class="hint" style="margin:0 0 10px">1 行ずつ自動で再生します。文字を直して「済み」(Enter)。聞き取れない行は「飛ばす」(D)。話者も選べます(1〜9)。</p>
+    <div class="row"><button type="button" class="btn primary" id="drGo">始める</button><span class="hint" id="drStartNote" role="status"></span></div>
+  </section>
+
+  <!-- 1 行ずつ -->
+  <section class="card" id="drRun" hidden aria-labelledby="drPos">
+    <div class="dr-pos"><b id="drPos"></b><span class="hint dr-doc" id="drDoc"></span><span class="hint" id="drTime"></span></div>
+    <p class="notice dr-note" id="drNote" hidden role="status"></p>
+    <div class="dr-stage"><video id="drVideo" preload="metadata" playsinline></video></div>
+    <div class="row"><button type="button" class="btn" id="drPlay">▶ 聞く <kbd class="ui-kbd">Space</kbd></button>
+      <span class="hint">Ctrl+Enter でも聞き直せます(文字を直している間も)</span></div>
+    <div class="dr-fld"><label for="drText">文字(聞こえたとおりに直す)</label><textarea id="drText" class="dr-text" rows="2" spellcheck="false" autocomplete="off"></textarea></div>
+    <div class="dr-fld"><span class="l">話者</span>
+      <div class="row"><select id="drSpk" aria-label="話者"></select>
+        <input id="drSpkNew" type="text" maxlength="30" placeholder="新しい名前(例: さくらみこ)" aria-label="新しい話者の名前" hidden></div></div>
+    <div class="dr-fld"><span class="l">音のメモ</span>
+      <div class="row">
+        <label class="lag"><input type="checkbox" id="drTagOverlap">声が重なる</label>
+        <label class="lag"><input type="checkbox" id="drTagBgm">BGM が大きい</label>
+        <label class="lag" title="印を付けて「済み」にすると、精度の測定に使いません(次からドリルにも出ません)"><input type="checkbox" id="drTagUnclear">聞き取れない</label></div></div>
+    <p class="notice dr-note" id="drErr" hidden role="alert"></p>
+    <div class="row dr-actions"><button type="button" class="btn ghost" id="drSkip" title="この行は直さずに次へ(聞き取れない・判断できないとき)">飛ばす <kbd class="ui-kbd">D</kbd></button>
+      <button type="button" class="btn primary" id="drDone" title="この行を校正済みにして次へ">済み <kbd class="ui-kbd">Enter</kbd></button></div>
+    <p class="hint dr-keys" id="drKeys"></p>
+  </section>
+
+  <!-- 終わり -->
+  <section class="card" id="drEnd" hidden aria-labelledby="drEndH">
+    <h2 class="dr-h" id="drEndH">終わりました</h2>
+    <ul class="dr-sum" id="drSum"></ul>
+    <div class="row"><button type="button" class="btn primary" id="drAgain">もう一度(新しい 20 行)</button><a class="btn" href="./">編集へ戻る</a></div>
+  </section>
+
+  <!-- 選べる行が無いとき(2 文: 何が無いか + どうすれば出るか) -->
+  <section class="card" id="drEmpty" hidden>
+    <h2 class="dr-h">いま直せる行はありません</h2>
+    <p class="hint" id="drEmptyText" style="margin:0"></p>
+  </section>
+</main>
+<div class="ui-toasts" id="toast" aria-live="polite"></div>
+<script src="drill.js"></script>
+</body>
+</html>

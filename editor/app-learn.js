@@ -194,6 +194,18 @@ function renderAcc(m){
     <details style="margin-top:6px"><summary class="hint">誤りが多い場所(上位)</summary>${o.worst.map(w => `<div class="wl"><span class="mono">${esc(w.doc || '')} ${fmtT(w.start)}</span><br>正: ${esc(w.ref) || '(人が消した行)'}<br>機: ${esc(w.hyp) || '(聞き逃し)'}</div>`).join('')}</details>`;
 }
 
+/* ---------- 定点の「あと何分」と条件(マスタープラン Q4。評価ドリル drill.html と同じ数字 = GET api/drill/status) ---------- */
+
+async function loadDrillStat(){ try { renderDrillStat(await api('/api/drill/status')); } catch { /* 古いサーバー・つながらない: 前の表示のまま */ } }
+
+function renderDrillStat(st){
+  if (!st || !$('#drillLeft')) return;
+  $('#drillLeft').textContent = st.leftSec > 0 ? `あと ${Math.ceil(st.leftSec / 60)} 分(校正済み ${fmtDur(st.proofedSec)} / 15 分・まだの行 ${st.pendingRows} 行)`
+    : `15 分に届きました(校正済み ${fmtDur(st.proofedSec)})`;
+  $('#drillConds').textContent = (st.conds || []).map(c => `${c.ok ? '✓' : '・'}${c.label} ${c.have}/${c.need}${c.unit}`).join('  ')
+    + (st.ready ? '  — 条件がそろいました。「認識精度の測定」の「基準を記録」で出発点を残せます' : '');
+}
+
 /* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
 
 function glossFit(terms){   // 先頭から何語がヒントに収まるか

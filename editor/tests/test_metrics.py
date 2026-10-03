@@ -881,9 +881,11 @@ from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信�
 from test_lite import *  # noqa: E402,F401,F403   友人用 文字起こし簡易版(docs/plan/friend-lite-plan.md)
 from test_normalize30 import *  # noqa: E402,F401,F403   素材を 30fps にそろえる(マスタープラン Q1。文字起こし・選び直し・簡易版)
 from test_evalaudio import *  # noqa: E402,F401,F403   評価用の音声 flac(マスタープラン Q0)
+from test_evalbatch import *  # noqa: E402,F401,F403   評価用の動画の手が空いたときのまとめての文字起こし(マスタープラン Q4(b))
 from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
 from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
 from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタープラン Q2。proofedAt・再認識の前の機械の出力・辞書の版・カットの draft・校正の手間)
+from test_drill import *  # noqa: E402,F401,F403   評価ドリルと定点の「あと何分」(マスタープラン Q4(c)。ed_drill.py)
 
 
 class TestThreadDefaults(unittest.TestCase):

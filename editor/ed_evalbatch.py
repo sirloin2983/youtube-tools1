@@ -1,0 +1,368 @@
+# -*- coding: utf-8 -*-
+"""「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b)。docs/plan/q3-q4-design.md)。
+
+評価用のフォルダ(設定 evalDirs)の「評価用_仮置き」と、名前が「…_NN_未文字起こし」の動画のうち、文字のある文書がまだ無い・動いていないものを、
+**待っているジョブが 2 件までになるよう少しずつ**文字起こしの待機列に入れる(一度に全部を入れるフォルダ一括と違い、ユーザーの操作が割り込める)。
+  - 始めるのはボタンだけ(API の start)。止めるまで続く(止める = stop。残りがなくなったら自分で止まる)。夜間の自動開始はしない
+  - 起動し直しても、状態 `eval-batch.json`(作業データ)の enabled が真なら続ける
+  - 評価用の印(evalSet: True)を明示し、ヒント(用語集・文脈・置換辞書・学習した置換)は `validate_job` の評価用の規則で付かない。
+    処理方式・モデル・言語などは編集の設定(settings.json)のまま
+  - ユーザーのジョブ(自分が入れたもの以外)が動いている・待っている間と、評価用のフォルダの整理の間は、自分の分を増やさない
+  - 失敗したら 2 回までやり直し、それでもだめなら飛ばす(同じ動画を延々と入れ直さない)。取り消されたら飛ばす
+  - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(ed_evalaudio の `_file_lock`)で重ならない
+
+名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
+ほかの部品は `ed_xxx.名前` で呼ぶたびに読む。
+"""
+import json
+import os
+import re
+import threading
+import time
+
+from ytt_core import fsio as _fsio  # noqa: E402,F401
+import ed_evalaudio  # noqa: E402,F401
+import ed_jobs  # noqa: E402,F401
+import ed_learn  # noqa: E402,F401
+import ed_relink  # noqa: E402,F401
+import ed_state  # noqa: E402,F401
+import ed_store  # noqa: E402,F401
+
+EB_SCHEMA = "ytt-eval-batch/v1"
+EB_FILE = "eval-batch.json"
+EB_LOCK = "eval-batch.lock"
+EB_MAX_WAIT = 2                  # 自分のジョブで、待っている・動いているものの上限(これを超えて入れない)
+EB_FIRST_DELAY_SEC = 60          # 起動してから最初に見るまで(起動直後は文字起こしの準備・整理が重なるので待つ)
+EB_INTERVAL_SEC = 30             # 見回る間隔(1 本の文字起こしは数分かかる。待ちが 1 件に減ったら補う)
+EB_MAX_FAILS = 2                 # 同じ動画で失敗したら、あきらめる回数
+EB_MAX_TRIES = 3                 # 同じ動画を入れる回数の上限(文字が 0 行のまま「文字のある文書」にならない動画を入れ直し続けない)
+EB_MAX_ITEMS = 5000
+EB_STATE_MAX_BYTES = 8 * 1024 * 1024
+EB_UNTRANSCRIBED_RE = re.compile(r"_\d{2,4}_未文字起こし$")   # 評価用の整理の名前の規則(ed_relink._eval_name_re と同じ形)
+_eb_state_lock = threading.RLock()   # 状態ファイルの読み書き・ジョブを足す瞬間(start / stop / 見回りが重ならない)
+_eb_pass_lock = threading.Lock()     # 見回りは同時に1つ
+_eb_wake = threading.Event()
+_eb_halt = threading.Event()
+_eb_threads = []
+
+
+# ---------------------------------------------------------------- 置き場所・状態
+
+def eb_path():
+    """作業データの eval-batch.json(テストは設定の置き場所の隣)"""
+    return os.path.join(os.path.dirname(ed_state.SETTINGS), EB_FILE)
+
+
+def eb_lock_path():
+    return os.path.join(os.path.dirname(ed_state.SETTINGS), EB_LOCK)
+
+
+def eb_key(path):
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def _eb_empty():
+    return {"schema": EB_SCHEMA, "enabled": False, "startedAt": None, "stoppedAt": None, "finishedAt": None, "enqueued": 0,
+            "remaining": None, "deferred": None, "lastError": None, "lastAddedAt": None, "items": {}, "updatedAt": 0}
+
+
+def eb_read():
+    try:
+        d = _fsio.read_json_file(eb_path(), EB_STATE_MAX_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return _eb_empty()
+    if not isinstance(d, dict):
+        return _eb_empty()
+    out = _eb_empty()
+    for k in out:
+        if k in d and k not in ("schema", "items"):
+            out[k] = d[k]
+    if isinstance(d.get("items"), dict):
+        out["items"] = {k: v for k, v in d["items"].items() if isinstance(v, dict)}
+    out["enabled"] = d.get("enabled") is True
+    return out
+
+
+def _eb_write(st):
+    st["schema"] = EB_SCHEMA
+    st["updatedAt"] = int(time.time() * 1000)
+    ed_state.atomic_write(eb_path(), json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"))
+
+
+def _eb_jobs():
+    """ジョブの表のコピー(表のロックは持ち続けない。add_job が同じロックを取る)"""
+    with ed_jobs._jobs_lock:
+        return list(ed_jobs._jobs.values())
+
+
+def _eb_mine(j):
+    return bool((j.get("spec") or {}).get("evalBatch"))
+
+
+# ---------------------------------------------------------------- 状態(GET /api/eval-batch)
+
+def eval_batch_status():
+    """-> {enabled, running(見回りのスレッドが動いている), enqueued(始めてから入れた本数), remaining(まだ入れていない本数。最後に調べたとき),
+    active(自分のジョブで待っている・動いている件数), done, failed, finished(残りがなくなって止まった), startedAt, stoppedAt, finishedAt,
+    deferred(増やさなかった理由), lastError}。ファイルは探さない(状態を読むだけ)"""
+    st = eb_read()
+    items = list(st["items"].values())
+    mine = [j for j in _eb_jobs() if _eb_mine(j) and j.get("state") in ed_jobs.ACTIVE_STATES]
+    return {"enabled": st["enabled"], "running": any(t.is_alive() for t in _eb_threads), "enqueued": int(st.get("enqueued") or 0),
+            "remaining": st.get("remaining"), "active": len(mine), "done": sum(1 for i in items if i.get("done")),
+            "failed": sum(1 for i in items if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS),
+            "finished": bool(st.get("finishedAt")) and not st["enabled"], "startedAt": st.get("startedAt"), "stoppedAt": st.get("stoppedAt"),
+            "finishedAt": st.get("finishedAt"), "deferred": st.get("deferred") if st["enabled"] else None, "lastError": st.get("lastError"),
+            "titles": [str(j.get("title") or "")[:60] for j in mine]}
+
+
+# ---------------------------------------------------------------- 始める・止める
+
+def eval_batch_start(req=None):
+    """POST /api/eval-batch/start。評価用のフォルダが見えていて ffmpeg があれば enabled にして、見回りのスレッドを起こす(すぐに1回見回る)。
+    もう enabled なら何も変えない(入れた数を数え直さない)。止めたあとの再開は、入れた数・失敗の記録を数え直す(失敗した動画もやり直す)"""
+    if not ed_relink.eval_dirs():
+        raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
+    if not ed_state.find_ffmpeg():
+        raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+    with _eb_state_lock:
+        st = eb_read()
+        if not st["enabled"]:
+            st = dict(_eb_empty(), enabled=True, startedAt=int(time.time() * 1000))
+            _eb_write(st)
+            ed_state.log.info("評価用のまとめての文字起こしを始めました")
+    eb_start_background()
+    _eb_wake.set()
+    return eval_batch_status()
+
+
+def eval_batch_stop(req=None):
+    """POST /api/eval-batch/stop。新しく入れるのをやめ、まだ始まっていない(待っている)自分のジョブを取り消す。
+    動いている 1 本は(途中までの時間を捨てないよう)そのまま最後まで動かす"""
+    with _eb_state_lock:
+        st = eb_read()
+        if st["enabled"]:
+            st["enabled"], st["stoppedAt"], st["deferred"] = False, int(time.time() * 1000), None
+            _eb_write(st)
+            ed_state.log.info("評価用のまとめての文字起こしを止めました")
+    for j in _eb_jobs():   # enabled を外したあとなので、見回りがこの先で足すことはない
+        if _eb_mine(j) and j.get("state") == "queued":
+            j["evalBatchStop"] = True   # 自分で取り消したもの(ユーザーの取り消しと区別する)
+            try:
+                ed_jobs.cancel_job(j["id"])
+            except ed_state.ApiError:
+                pass
+    return eval_batch_status()
+
+
+# ---------------------------------------------------------------- 入れる動画を決める
+
+def eb_scan():
+    """評価用のフォルダの下の「評価用_仮置き」と「…_NN_未文字起こし」の動画 [パス](並びは名前順)"""
+    out, seen = [], set()
+    for root in ed_relink.eval_dirs():
+        stg = os.path.join(root, ed_relink.EVAL_STAGING)
+        for folder, names in sorted(ed_relink._eval_videos(root, skip_staging=False).items()):
+            staged = ed_relink._inside(folder, stg)
+            for n in sorted(names):
+                if not (staged or EB_UNTRANSCRIBED_RE.search(os.path.splitext(n)[0])):
+                    continue
+                p = os.path.join(folder, n)
+                k = eb_key(p)
+                if k not in seen:
+                    seen.add(k)
+                    out.append(p)
+    return out
+
+
+def eb_candidates(items, busy_paths=()):
+    """入れる動画 [(パス, 入れ先の文書の id または None)]。除くもの = 文字のある文書がある・待っている/動いている(busy_paths)・
+    済んだ・あきらめた(失敗 EB_MAX_FAILS 回・入れた回数 EB_MAX_TRIES 回)。
+    文字の無い文書(「文字起こしせずに開いた」動画)だけがあるときは、その文書へ入れる(intoDoc。文書が2つにならない)"""
+    paths = eb_scan()
+    want = {eb_key(p) for p in paths}
+    docs = {}
+    for tid in ed_store._tids():
+        sm = ed_store.transcript_summary(tid)
+        sp = str((sm or {}).get("_sourcePath") or "")
+        if sp and eb_key(sp) in want:
+            docs.setdefault(eb_key(sp), []).append(sm)
+    out = []
+    for p in paths:
+        k = eb_key(p)
+        it = items.get(k) or {}
+        if k in busy_paths or it.get("done") or int(it.get("fails") or 0) >= EB_MAX_FAILS or int(it.get("tries") or 0) >= EB_MAX_TRIES:
+            continue
+        sms = docs.get(k, [])
+        if any(s.get("rows") for s in sms):
+            continue
+        out.append((p, sorted(s["id"] for s in sms)[0] if sms else None))
+    return out
+
+
+def eb_request(path, into):
+    """validate_job に渡す要求: 編集の設定そのまま + 動画全体 + 評価用の印。ヒントは評価用の規則(validate_job の ev)で外れる"""
+    req = dict(ed_learn.load_settings(), sourcePath=path, title="", start=0, end=None, evalSet=True)
+    req.pop("intoDoc", None)
+    if into:
+        req["intoDoc"] = into
+    return req
+
+
+# ---------------------------------------------------------------- 見回る
+
+def _eb_absorb(st, mine):
+    """自分のジョブの結果を状態に写す(済んだ・失敗・取り消された)。同じジョブは1回だけ数える"""
+    now = int(time.time() * 1000)
+    for j in mine:
+        sp = (j.get("spec") or {}).get("sourcePath")
+        if not sp or j.get("state") in ed_jobs.ACTIVE_STATES:
+            continue
+        it = st["items"].setdefault(eb_key(sp), {"src": sp, "tries": 0, "fails": 0, "failJobs": [], "done": False})
+        if j.get("state") == "done":
+            it["done"] = True
+        elif j.get("id") not in it["failJobs"] and not j.get("evalBatchStop"):
+            it["failJobs"] = (it["failJobs"] + [j.get("id")])[-10:]
+            if j.get("state") == "error":
+                it["fails"] = int(it.get("fails") or 0) + 1
+                it["error"] = str(j.get("error") or "")[:300]
+                st["lastError"] = {"at": now, "src": os.path.basename(sp), "message": it["error"]}
+            else:   # 取り消された(ユーザーが): もう入れない
+                it["fails"] = EB_MAX_FAILS
+                it["error"] = "取り消されました"
+
+
+def eb_tick(why="tick", log=None):
+    """1回見回る。-> {added, remaining, deferred(増やさなかった理由)} か {skipped: 理由}。
+    ユーザーのジョブが動いている・待っているときは増やさない。自分のジョブが EB_MAX_WAIT 件に満たなければ、その分だけ入れる"""
+    log = log or (lambda m: ed_state.log.info("評価用のまとめての文字起こし: %s", m))
+    if not eb_read()["enabled"]:
+        return {"skipped": "stopped"}
+    if not _eb_pass_lock.acquire(blocking=False):
+        return {"skipped": "running"}
+    try:
+        with ed_evalaudio._file_lock(eb_lock_path()) as got:
+            if not got:
+                return {"skipped": "running"}
+            return _eb_tick_locked(why, log)
+    finally:
+        _eb_pass_lock.release()
+
+
+def _eb_tick_locked(why, log):
+    jobs = _eb_jobs()
+    active = [j for j in jobs if j.get("state") in ed_jobs.ACTIVE_STATES]
+    mine_active = [j for j in active if _eb_mine(j)]
+    others = [j for j in active if not _eb_mine(j)]
+    busy_paths = {eb_key(sp) for sp in ((j.get("spec") or {}).get("sourcePath") for j in active) if sp}
+    with _eb_state_lock:
+        st = eb_read()
+        if not st["enabled"]:
+            return {"skipped": "stopped"}
+        before = json.dumps(st, sort_keys=True)
+        _eb_absorb(st, [j for j in jobs if _eb_mine(j)])
+        if not ed_relink.eval_dirs():   # ドライブを外している間: 何もしない(終わったことにも、止めたことにもしない)
+            st["deferred"] = "評価用のフォルダが見つかりません(ドライブを確かめてください)"
+            res = {"skipped": "no_eval_dirs"}
+        elif others:
+            st["deferred"] = "ほかのジョブが動いています(終わるまで待ちます)"
+            res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
+        elif ed_relink._evalorg_lock.locked():
+            st["deferred"] = "評価用のフォルダを整理中です"
+            res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
+        else:
+            st["deferred"], res = None, None
+        items_snapshot = json.loads(json.dumps(st["items"]))
+        if json.dumps(st, sort_keys=True) != before:
+            _eb_write(st)
+    if res is not None:
+        return res
+    room = EB_MAX_WAIT - len(mine_active)
+    if room <= 0:   # 待ちが上限まで入っている: 動画を探さない(終わったら次の見回りで補う)
+        return {"added": 0, "remaining": eb_read().get("remaining"), "deferred": None}
+    cands = eb_candidates(items_snapshot, busy_paths)   # フォルダを歩く・文書の要約を読む(時間がかかるので、状態のロックの外で)
+    added, rest = 0, list(cands)
+    while rest and added < room:
+        path, into = rest[0]
+        try:
+            spec = ed_jobs.validate_job(eb_request(path, into))
+            err = None
+        except ed_state.ApiError as e:   # 6 時間を超える・動画が壊れている・文書が変わった など。この動画は飛ばして次へ
+            spec, err = None, e
+        with _eb_state_lock:
+            st = eb_read()
+            if not st["enabled"]:   # 調べている間に止められた
+                return {"added": added, "remaining": len(rest), "deferred": None}
+            it = st["items"].setdefault(eb_key(path), {"src": path, "tries": 0, "fails": 0, "failJobs": [], "done": False})
+            if err is not None:
+                it["fails"], it["error"] = EB_MAX_FAILS, err.message[:300]
+                st["lastError"] = {"at": int(time.time() * 1000), "src": os.path.basename(path), "message": err.message[:300]}
+                log("飛ばします %s: %s" % (os.path.basename(path), err.message))
+                rest.pop(0)
+                _eb_write(st)
+                continue
+            spec["evalBatch"] = True   # 自分が入れたジョブの印(ユーザーのジョブと区別する)
+            try:
+                ed_jobs.add_job(spec)
+            except ed_state.ApiError as e:   # 待機列がいっぱい(busy): 次の見回りで
+                st["deferred"] = e.message
+                _eb_write(st)
+                return {"added": added, "remaining": len(rest), "deferred": e.message}
+            it["tries"] = int(it.get("tries") or 0) + 1
+            st["enqueued"] = int(st.get("enqueued") or 0) + 1
+            st["lastAddedAt"] = int(time.time() * 1000)
+            rest.pop(0)
+            added += 1
+            _eb_write(st)
+        log("入れました %s" % os.path.basename(path))
+    with _eb_state_lock:
+        st = eb_read()
+        if not st["enabled"]:
+            return {"added": added, "remaining": len(rest), "deferred": None}
+        st["remaining"] = len(rest)
+        if not rest and len(mine_active) + added == 0:   # 残りがなく、動いているものもない: 終わり
+            st["enabled"], st["finishedAt"] = False, int(time.time() * 1000)
+            log("終わりました(入れた %d 本・済 %d 本・飛ばした %d 本)" % (
+                st["enqueued"], sum(1 for i in st["items"].values() if i.get("done")),
+                sum(1 for i in st["items"].values() if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS)))
+        _eb_write(st)
+    return {"added": added, "remaining": len(rest), "deferred": None}
+
+
+# ---------------------------------------------------------------- 裏のスレッド
+
+def eb_start_background(first_delay=EB_FIRST_DELAY_SEC, interval=EB_INTERVAL_SEC):
+    """見回りの裏のスレッド(serve.py の prepare から1回。start でも確かめる)。enabled でなければ何もしない(30 秒ごとに状態を読むだけ)。
+    start が起こすとすぐに見回る。環境変数 TRANSCRIBE_EVAL_BATCH=off で始めない"""
+    if os.environ.get("TRANSCRIBE_EVAL_BATCH", "").strip().lower() in ("off", "0", "no", "false") or any(t.is_alive() for t in _eb_threads):
+        return None
+    _eb_halt.clear()
+
+    def loop():
+        delay = first_delay
+        while not _eb_halt.is_set():
+            _eb_wake.wait(delay)
+            if _eb_halt.is_set():
+                break
+            _eb_wake.clear()
+            try:
+                if eb_read()["enabled"]:
+                    eb_tick("background")
+            except Exception:
+                ed_state.log.exception("評価用のまとめての文字起こしの見回りに失敗")
+            delay = interval
+
+    t = threading.Thread(target=loop, daemon=True, name="eval-batch")
+    _eb_threads[:] = [t]
+    t.start()
+    return t
+
+
+def eb_shutdown():
+    """裏のスレッドを止める(テスト用)"""
+    _eb_halt.set()
+    _eb_wake.set()
+    for t in list(_eb_threads):
+        t.join(5)
+    _eb_threads.clear()
+    _eb_wake.clear()

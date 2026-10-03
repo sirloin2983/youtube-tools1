@@ -1323,6 +1323,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
     <div id="goalMs"></div>
     <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
+    <!-- 定点(評価用の校正済み 15 分)の「あと何分」と条件(マスタープラン Q4。GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口 -->
+    <div id="drillStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+      <div style="font-weight:600;font-size:13.5px">定点(評価用の校正済み 15 分)</div>
+      <p id="drillLeft" style="margin:4px 0 0;font-size:13.5px"></p>
+      <p class="hint" id="drillConds" style="margin:2px 0 0"></p>
+      <a class="ui-next" id="drillLink" href="drill.html" title="評価用の文書の未校正の行を、乱数で 20 行選んで 1 行ずつ聞いて直します(1〜2 分)">評価ドリルで 20 行を直す →</a></div>
     <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
     <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
@@ -1496,6 +1502,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     </div>
 
     <details class="card tt-tool tt-lockable" id="spDetails"><summary>話者 <span class="hint">自動判別・名前・割り当て</span></summary>
+      <!-- 評価用で話者の無い行があるとき(マスタープラン Q4): 候補(覚えた声 → メンバーのフォルダ → 配信の文脈)から1人選んで全行に(既存の 1人指定 = 話者判別の「1人」)。app-jobs.js の renderSpAll -->
+      <div class="fld" id="spAllBox" hidden><span class="l">全行をこの人に(評価用)</span>
+        <div class="row"><select id="spAllName" aria-label="全行に付ける話者" style="width:auto;max-width:300px"></select>
+          <input id="spAllNew" type="text" maxlength="30" placeholder="名前(例: さくらみこ)" aria-label="全行に付ける話者の名前" hidden style="width:12em">
+          <button type="button" class="btn small" id="spAllGo">全行をこの人に</button></div>
+        <span class="hint" id="spAllHint"></span></div>
       <div class="fld"><span class="l">話者の自動判別</span>
         <div id="diarSetup"></div>
         <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="1">1人(判別せず全部の行を1人に)</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
@@ -1830,6 +1842,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div class="fld"><label for="evDirs">フォルダ(1行に1つ・10個まで)</label><textarea id="evDirs" rows="2" class="mono" spellcheck="false" autocomplete="off" placeholder="例: E:\動画\評価用データ"></textarea></div>
   <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>
   <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
+  <div id="evbRow">
+    <p class="hint" style="margin:10px 0 6px">「評価用_仮置き」と、名前が「…_未文字起こし」の動画のうち、まだ文字起こしの無いものを、PC が空いているとき少しずつ文字起こしします(評価用・ヒントなし。処理方式・モデルは編集の設定のまま)。
+      待ちは 2 件までしか入れないので、ほかの操作が割り込めます。止めるまで続きます(編集を起動し直しても続きます)。360 本なら CPU で数時間かかります。</p>
+    <div class="row" style="gap:6px"><button type="button" class="btn small" id="evbStart" title="評価用の動画を、手が空いたとき少しずつ文字起こしします">仮置きをまとめて文字起こし(手が空いたとき少しずつ)</button><button type="button" class="btn small" id="evbStop" hidden title="新しく入れるのをやめ、まだ始まっていない分を取り消します(動いている 1 本は最後まで動きます)">止める</button></div>
+    <p class="hint" id="evbNote" style="margin:6px 0 0" role="status"></p>
+  </div>
   <h3 style="margin-top:18px">キー配置</h3>
   <p class="hint" style="margin:0 0 6px">キーを変えるのは、キー操作の一覧(?)の中です。</p>
   <button type="button" class="btn small" id="setKeysOpen">キー配置を変える(?)</button>

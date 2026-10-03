@@ -49,6 +49,12 @@
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
+  評価ドリル(マスタープラン Q4。docs/plan/q3-q4-design.md の (c)。本体は ed_drill.py):
+  GET  /drill.html, /drill.js, /ui-kit.css   画面(ui-kit.css は index.html の ui-kit の CSS を切り出したもの)
+  GET  /api/drill/pick?n=&seed=   評価用の未校正の行を乱数で n 行(同じ文書から 2 行まで・直近 10 分に更新した文書は除く)
+  POST /api/drill/row        {id, rowId, baseUpdatedAt, text, speaker | speakerName, tags, proofed, activeSec?, newSession?} 1 行の保存(updatedAt が違えば 409)
+  GET  /api/drill/status     定点(評価用の校正済み 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名)
+  GET  /api/drill/candidates?id=  話者の候補(覚えた声 → メンバーのフォルダ → 配信の文脈)
 
 127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
 """
@@ -102,17 +108,19 @@ _load_core()
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文脈。隣の部品)
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_lite = 友人用簡易版・ed_evalaudio = 評価用の音声)
+import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
+import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.46.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.47.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
 # ---------- 分けた部品(段10。docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio)
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio, ed_drill, ed_evalbatch)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -159,7 +167,7 @@ if _me is not None and _me.__dict__ is globals():   # 登録されて読み込�
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/api/lite/export", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/api/lite/export", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -302,6 +310,16 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/lite", "/lite.html"):   # 友人用 文字起こし簡易版の画面(docs/plan/friend-lite-plan.md)
                 with open(ed_state.LITE_HTML, "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
+            if u.path in ("/drill", "/drill.html", "/drill.js") and os.path.isfile(os.path.join(ed_state.ROOT, (u.path if "." in u.path else u.path + ".html").lstrip("/"))):
+                # 評価ドリルの画面(マスタープラン Q4。docs/plan/q3-q4-design.md の (c))。簡易版と同じ配り方(CSP のため JS は別ファイル)
+                n = (u.path if "." in u.path else u.path + ".html").lstrip("/")
+                with open(os.path.join(ed_state.ROOT, n), "rb") as f:
+                    body = f.read()
+                ext = n.rsplit(".", 1)[1]
+                return self._send(200, body, {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8"}[ext],
+                                  PAGE_HEADERS if ext == "html" else None)
+            if u.path == "/ui-kit.css":   # ui-kit の CSS(index.html の印の間を切り出す。drill.html が読む。ed_drill.drill_kit_css)
+                return self._send(200, ed_drill.drill_kit_css(), "text/css; charset=utf-8")
             if u.path == "/app.js":
                 with open(ed_state.APP_JS, "rb") as f:
                     return self._send(200, f.read(), "text/javascript; charset=utf-8")
@@ -377,6 +395,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_misc.read_eval((q.get("id") or [""])[0]))
             if u.path == "/api/progress":
                 return self._json(200, ed_misc.progress_stats())
+            if u.path == "/api/drill/status":   # 評価ドリル(Q4): 定点の「あと何分」と条件
+                return self._json(200, ed_drill.drill_status())
+            if u.path == "/api/drill/pick":     # 評価用の未校正の行を乱数で(読むだけ)
+                n, seed = (q.get("n") or [""])[0], (q.get("seed") or [""])[0]
+                return self._json(200, ed_drill.drill_pick(int(n) if n.isdigit() else ed_drill.DRILL_ROWS, seed or None))
+            if u.path == "/api/drill/candidates":   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
+                return self._json(200, ed_drill.drill_candidates((q.get("id") or [""])[0]))
             if u.path == "/api/dataset":
                 return self._json(200, ed_learn.dataset_stats())
             if u.path == "/api/history":
@@ -388,6 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_relink.eval_folders_info())
             if u.path == "/api/eval-audio":   # 評価用の音声(flac)の作成の状態(本数・作った数・残り・大きさ・最後のエラー)
                 return self._json(200, ed_evalaudio.status())
+            if u.path == "/api/eval-batch":   # 評価用の動画のまとめての文字起こしの状態(Q4)
+                return self._json(200, ed_evalbatch.eval_batch_status())
             if u.path == "/api/edit":
                 return self._json(200, ed_store.get_edit((q.get("id") or [""])[0]))
             if u.path == "/api/edit/draft":
@@ -600,6 +627,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_relink.eval_organize("button"))
             if path == "/api/eval-folders/settle":
                 return self._json(200, ed_relink.eval_settle(obj))
+            if path == "/api/eval-batch/start":
+                return self._json(200, ed_evalbatch.eval_batch_start(obj))
+            if path == "/api/eval-batch/stop":
+                return self._json(200, ed_evalbatch.eval_batch_stop(obj))
             if path == "/api/pick":
                 return self._json(200, ed_relink.pick_path(obj))
             if path == "/api/resplit":
@@ -610,6 +641,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_store.edit_preview(obj))
             if path == "/api/effort":
                 return self._json(200, ed_store.add_effort(obj))
+            if path == "/api/drill/row":   # 評価ドリル(Q4): 1 行の保存(409 = 別の所で変わった)
+                return self._json(200, ed_drill.drill_row(obj))
             if path == "/api/transcribe/cancel":
                 ed_jobs.cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})
@@ -834,6 +867,7 @@ def prepare(port, base_path="/", hooks=False):
         t = threading.Timer(5.0, ed_relink._evalorg_startup)   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
         t.daemon = True
         t.start()
+        ed_evalbatch.eb_start_background()   # 評価用の動画のまとめての文字起こし(ボタンでオンにしたときだけ動く。オフなら状態を読むだけ)
         ed_evalaudio.start_background()   # 評価用の音声(flac)の作成(起動の5分後と6時間ごと。評価用のフォルダが無ければ何もしない)
     if not ed_state.has_faster_whisper() and ed_state.backend_name() != "fake":
         print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")

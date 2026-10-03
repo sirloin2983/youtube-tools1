@@ -236,6 +236,7 @@ function renderSpeakers(){
   renderSpNames();
   const cur = $('#spBulk').value;
   $('#spBulk').innerHTML = opts(cur);
+  renderSpAll();   // 評価用で話者の無い行があれば「全行をこの人に」(マスタープラン Q4。app-jobs.js)
 }
 
 function pushUndo(seq){   // seq: 2 カット の字幕の段の1回の操作(行の時刻 + 残す区間)は、カットの元に戻すと同じ番号で積む(段6 6-4)
