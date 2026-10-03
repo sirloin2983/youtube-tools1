@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.42.0';
+const APP_VERSION = '0.43.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -826,7 +826,13 @@ window.addEventListener('keydown', e => {
   if (e.key !== '?' || e.defaultPrevented || !d.open || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTextEntry(e.target)) return;   // defaultPrevented = 同じ ? で今開いたところ
   e.preventDefault(); if (!e.repeat) d.close();
 });
-if (KM){ KM.mount($('#keysList')); KM.mount($('#kmGrid')); }
+if (KM){ KM.mount($('#keysList')); }
+/* ⚙ の「キー配置を変える(?)」: キーを変える場所は ? の一覧だけ。設定の引き出しを閉じてから一覧を開く */
+$('#setKeysOpen').addEventListener('click', () => {
+  const dr = document.getElementById('uiSettingsDrawer');
+  if (dr && window.UIKit && UIKit.drawer) UIKit.drawer.close(dr);
+  openKeys();
+});
 renderKeyUI();
 
 /* ---------- 用語のワンクリック挿入 ---------- */
@@ -984,7 +990,9 @@ $('#evalSet').addEventListener('change', e => {
   if (S.doc.evalLocked && !e.target.checked){ e.target.checked = true; return toast(EVAL_LOCK_MSG, 5000); }
   S.doc.evalSet = e.target.checked; syncEval(); markDirty();
   const it = S.list.find(x => x.id === S.docId); if (it){ it.evalSet = S.doc.evalSet; renderList(); }
-  toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)' : '評価用を外しました。この文字起こしは、学習用として扱われます', 6000);
+  toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)。'
+    + (S.evalDirsActive ? 'ほかの文書へ移ると、動画を評価用のフォルダへ移します(すべて校正済みならメンバーのフォルダ、それ以外は仮置き)' : '')
+    : '評価用を外しました。この文字起こしは、学習用として扱われます', 7000);
   setTimeout(() => { loadProgress(); loadLearned(); loadAcc(); }, 1500);
 });
 $('#evSave').addEventListener('click', async () => {
@@ -1000,8 +1008,9 @@ $('#evRun').addEventListener('click', async () => {
     if (S.doc && !(await saveDoc())) return toast('文書を保存できないため整理しませんでした', 5000, 'err');
     const r = await api('/api/eval-folders/organize', { body: {} });
     if (!r.dirs) return toast('評価用のフォルダが設定されていないか、見つかりません', 5000, 'err');
-    toast(`整理しました: 名前を変えた ${r.renamed.length} 本・仮置きから移した ${r.moved.length} 本・評価用にした ${r.marked} 件` + (r.skipped.length ? `・飛ばした ${r.skipped.length} 本(${r.skipped[0].reason})` : ''), 7000, r.skipped.length ? 'err' : '');
-    if (S.doc && (r.marked || r.renamed.concat(r.moved).some(x => x.docs.includes(S.docId)))) await openDoc(S.docId, true);
+    const intaken = r.intaken || [];
+    toast(`整理しました: 外から取り込んだ ${intaken.length} 本・名前を変えた ${r.renamed.length} 本・仮置きから移した ${r.moved.length} 本・評価用にした ${r.marked} 件` + (r.skipped.length ? `・飛ばした ${r.skipped.length} 本(${r.skipped[0].reason})` : ''), 7000, r.skipped.length ? 'err' : '');
+    if (S.doc && (r.marked || r.renamed.concat(r.moved, intaken).some(x => x.docs.includes(S.docId)))) await openDoc(S.docId, true);
     loadList(); loadEvalFolders();
   } catch (e){ toast('整理できませんでした: ' + e.message, 6000, 'err'); }
   finally { b.disabled = false; }

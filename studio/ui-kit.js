@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v12 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v14 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -32,6 +32,7 @@
    v9(2026-09-30・全体の計画 段2 監査 11): UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
    v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
    v12(2026-10-02): サイバー風(計器盤)の形と配色4つ。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーンから選ぶ(UIKit.theme.palette。README.md の「v12」)
+   v14(2026-10-04): ヘッダーの明暗の切り替えボタン(.ui-theme-toggle)をやめた(配色は ⚙ 設定の「テーマ」の 4 つから選ぶ)。CSS を消した。UIKit.theme.toggle と [data-theme-toggle] の動きは残す(ボタンの無い軽い画面 lite.html が使う)。キーを変える場所は ? の一覧の 1 か所に(⚙ にはボタンだけ)
    v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
@@ -1185,7 +1186,7 @@
   var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap, derived: derivedKeys };
 
   /* ==== v8(気が利く画面へ 段6): keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
-     ? の一覧と ⚙ の「キー配置」は同じ部品を出す(場所が 2 つでも中身は 1 つ)。キーのボタンを押す → その場で次のキーを待つ
+     キーを変える場所は ? の一覧の 1 か所(⚙ の設定には「キー配置を変える(?)」のボタンだけを置き、同じ一覧を開く。場所を重ねない)。キーのボタンを押す → その場で次のキーを待つ
      (Esc = 取り消しだけ・一覧は閉じない / Delete = 外す)。重なったら一覧の中に「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせは一覧の中に出す)。
      共通の再生キー(PLAYBACK_ACTIONS)はホームの設定 keymap.playback に 1 つ(どのツールで変えても同じ)。ツールのキーは各ツールが保存する。
      重なりの検査はここ 1 か所: 変えられないキー(全ツール)・共通の再生キー・ツールのキー・派生キー(← → に当たるキー + Shift = 5 秒。GPT-03) */

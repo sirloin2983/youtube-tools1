@@ -145,19 +145,45 @@
 .rv-draft{position:absolute;top:3px;bottom:3px;border-radius:4px;border:1.5px dashed var(--cs-in);background:color-mix(in srgb,var(--cs-in) 18%,transparent);pointer-events:none;z-index:1}
 .rv-ph{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;z-index:3}
 .rv-ph::before{content:"";position:absolute;top:0;left:-4px;width:10px;height:6px;background:var(--accent);clip-path:polygon(0 0,100% 0,50% 100%)}
-/* 高さを大きく(横幅と時間の目盛りはタイムラインの .rv-tl とそろえたまま。IMPLEMENTATION.md 4) */
-.rv-graph{position:relative;height:104px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);overflow:hidden;cursor:pointer}
-.rv-gsvg,.rv-gsvg svg{display:block;width:100%;height:100%}
-.rv-g-area{fill:var(--accent);fill-opacity:.24;stroke:var(--accent);stroke-width:1;vector-effect:non-scaling-stroke}
-/* 山の札(順位 + 理由)。押すとその山の5秒前へ */
-.rv-gpeaks{position:absolute;inset:0;pointer-events:none}
-.rv-gpeak{position:absolute;top:4px;transform:translateX(-50%);pointer-events:auto;display:inline-flex;align-items:center;gap:3px;max-width:120px;padding:1px 6px;border:1px solid var(--accent-line);border-radius:var(--r-pill);background:var(--panel);color:var(--accent-ink2);font:600 10.5px/1.5 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:var(--shadow-1)}
-.rv-gpeak:hover,.rv-gpeak:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
-.rv-gpeak:nth-of-type(1){top:4px}.rv-gpeak:nth-of-type(2){top:24px}.rv-gpeak:nth-of-type(3){top:44px}.rv-gpeak:nth-of-type(4){top:64px}.rv-gpeak:nth-of-type(5){top:82px}
-.rv-g-band{fill:var(--cs-auto);fill-opacity:.16}
-.rv-g-line{fill:none;stroke-width:1.2;vector-effect:non-scaling-stroke;opacity:.95}
+/* 盛り上がりグラフ(2026-10-04 見やすく。横幅と時間はタイムラインの .rv-tl とそろえたまま)。
+   上から: 山の札の段(--g-top。段の数で JS が決める)→ 曲線(.rv-gplot)→ 時間の目盛りの帯(--g-axis)。帯と補助線(.rv-gbg)は上から目盛りの帯まで */
+.rv-graph{--g-top:28px;--g-axis:17px;position:relative;height:152px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);overflow:hidden;cursor:crosshair}
+@media (max-width:640px){.rv-graph{height:128px}}
+.rv-gsvg{position:absolute;inset:0}
+.rv-gsvg svg{position:absolute;left:0;width:100%;display:block}
+.rv-gbg{top:0;height:calc(100% - var(--g-axis))}
+.rv-gplot{top:var(--g-top);height:calc(100% - var(--g-top) - var(--g-axis));overflow:visible}
+.rv-g-area{fill:var(--accent);fill-opacity:.28;stroke:var(--accent);stroke-width:1.75;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.rv-g-grid{stroke:var(--ink-4);stroke-opacity:.35;stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+/* マークの帯: 状態の色(タイムラインの .rv-seg と同じ色)。端に線。選んでいるマークは濃く・太い端 */
+.rv-g-band rect{fill:var(--cs-auto);fill-opacity:.2}
+.rv-g-band line{stroke:var(--cs-auto);stroke-opacity:.75;stroke-width:1;vector-effect:non-scaling-stroke}
+.rv-g-band.st-adopted rect{fill:var(--ok);fill-opacity:.24}.rv-g-band.st-adopted line{stroke:var(--ok)}
+.rv-g-band.st-rejected rect{fill:var(--ink-4);fill-opacity:.16}.rv-g-band.st-rejected line{stroke:var(--ink-4);stroke-opacity:.5;stroke-dasharray:3 3}
+.rv-g-band.st-exported rect{fill:var(--ink-3);fill-opacity:.16}.rv-g-band.st-exported line{stroke:var(--ink-3)}
+.rv-g-band.sel rect{fill-opacity:.38}.rv-g-band.sel line{stroke:var(--ink);stroke-opacity:1;stroke-width:2;stroke-dasharray:none}
+.rv-g-line{fill:none;stroke-width:1.5;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.95}
 .rv-g-line.a{stroke:var(--c-audio)}.rv-g-line.c{stroke:var(--c-chat)}.rv-g-line.m{stroke:var(--c-com)}
-.rv-gcur{position:absolute;top:0;bottom:0;width:1px;background:var(--accent);pointer-events:none}
+/* 時間の目盛り(下の帯) */
+.rv-gticks{position:absolute;left:0;right:0;bottom:0;height:var(--g-axis);border-top:1px solid var(--line);background:var(--panel);pointer-events:none}
+.rv-gtick{position:absolute;top:0;transform:translateX(-50%);font:500 10.5px/16px var(--mono);color:var(--ink-3);white-space:nowrap}
+.rv-gtick::before{content:"";position:absolute;left:50%;top:-1px;height:4px;border-left:1px solid var(--ink-4)}
+/* 山の札(順位 + 理由)・縦の線・曲線の上の点。押すとその山の5秒前へ。札の段と横の位置は JS(重ならない) */
+.rv-gpeaks{position:absolute;inset:0;pointer-events:none}
+.rv-gpeak{position:absolute;top:5px;z-index:2;pointer-events:auto;display:inline-flex;align-items:center;gap:4px;max-width:150px;height:19px;padding:0 7px 0 2px;border:1px solid var(--accent-line);border-radius:var(--r-pill);background:var(--panel);color:var(--ink);font:600 11.5px/1 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:var(--shadow-1)}
+.rv-gpk-n{display:inline-grid;place-items:center;flex:none;min-width:15px;height:15px;padding:0 3px;border-radius:var(--r-pill);background:var(--accent-soft);color:var(--accent-ink2);font:700 10.5px/1 var(--mono)}
+.rv-gpeak.r1{border-color:var(--accent)}
+.rv-gpeak.r1 .rv-gpk-n{background:var(--accent);color:var(--accent-ink)}
+.rv-gpeak:hover,.rv-gpeak:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
+.rv-gpk-stem{position:absolute;bottom:var(--g-axis);width:0;border-left:1px dashed var(--accent-line);pointer-events:none}
+.rv-gpk-stem.r1{border-left-color:var(--accent)}
+.rv-gpk-dot{position:absolute;top:calc(var(--g-top) + (100% - var(--g-top) - var(--g-axis)) * var(--f));width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);box-sizing:border-box;pointer-events:none}
+.rv-gpk-dot.r1{background:var(--accent)}
+.rv-gcur{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;z-index:1}
+/* マウスの位置の時刻 */
+.rv-ghover{position:absolute;top:0;bottom:0;width:0;border-left:1px solid var(--ink-3);pointer-events:none;z-index:1}
+.rv-ghover>span{position:absolute;bottom:1px;left:3px;padding:0 4px;border-radius:var(--r-xs);background:var(--ink);color:var(--panel);font:600 10.5px/15px var(--mono);white-space:nowrap}
+.rv-ghover.flip>span{left:auto;right:3px}
 .rv-scale{display:flex;justify-content:space-between;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--ink-3);min-height:20px}
 .rv-glegend{flex:1 1 auto;display:flex;flex-wrap:wrap;justify-content:center;gap:2px 14px;align-items:center;font:11.5px/1.4 var(--font);color:var(--ink-2)}
 .rv-glegend .rv-check{font-size:11.5px}
@@ -165,7 +191,10 @@
 .rv-lg{display:inline-flex;align-items:center;gap:5px}
 .rv-sw{display:inline-block;width:14px;height:8px;border-radius:2px}
 .rv-sw.tot{background:color-mix(in srgb,var(--accent) 30%,transparent);border:1px solid var(--accent)}
-.rv-sw.band{background:color-mix(in srgb,var(--cs-auto) 30%,transparent)}
+.rv-sw.band{background:color-mix(in srgb,var(--cs-auto) 30%,transparent);border:1px solid var(--cs-auto)}
+.rv-sw.band.ok{background:color-mix(in srgb,var(--ok) 30%,transparent);border-color:var(--ok)}
+.rv-sw.band.ng{background:color-mix(in srgb,var(--ink-4) 18%,transparent);border:1px dashed var(--ink-4)}
+.rv-sw.band+.rv-sw.band{margin-left:6px}
 .rv-sw.a{background:var(--c-audio)}.rv-sw.c{background:var(--c-chat)}.rv-sw.m{background:var(--c-com)}
 .rv-transport{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding-top:6px;margin-top:2px;border-top:1px solid var(--line)}
 .rv-nowbox{display:flex;align-items:baseline;gap:8px}
@@ -239,8 +268,8 @@
 .rv-setrow select{width:auto}
 .rv-adv{margin-top:10px}
 .rv-adv>summary{font-size:12.5px;font-weight:550}
-.rv-keygrid{margin-top:6px}
-.ui-km-row .rv-stepper{flex:none}   /* キー配置(UIKit.keymap)の「今をマーク」の行の長さ − ＋ */
+
+.ui-km-row .rv-kmspan{flex:none;font-size:12px}   /* キー配置(UIKit.keymap)の「今をマーク」の行の長さ(見せるだけ) */
 .btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
 
 /* ---- 書き出し(ui-drawer #rvExport。主な操作「書き出す」はいつも見える。設定は閉じておく) ---- */

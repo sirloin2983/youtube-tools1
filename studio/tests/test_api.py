@@ -648,6 +648,42 @@ class TestRequestMarks(Base):
                     {"ranges": [[i, i + 1] for i in range(11)]}, {"auto": -1}, {"auto": 31}, {"auto": "1"}, {"auto": True}, {"id": "../etc"}, {"id": "x" * 30}):
             self.assertEqual(self.req("POST", "/api/video/request-marks", dict(ok, **bad))[0], 400, bad)
 
+class TestRankSearch(Base):
+    """① 探す: 「10分以上の動画だけ」(minDur。2026-10-04)の検査と絞り込み(疑似の YouTube API)"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import rank
+        cls.rank = rank
+        rank.import_official_channels("hololive")
+        rank.resolve("hololive")
+
+    def run_search(self, **kw):
+        req = dict({"start": "2000-01-01", "end": "2100-12-31", "agencies": ["hololive"], "top": 100, "archiveOnly": False, "noShorts": False}, **kw)
+        req["end"] = time.strftime("%Y-%m-%d")
+        req["start"] = time.strftime("%Y-%m-%d", time.localtime(time.time() - 700 * 86400))
+        job = {"id": "t", "state": "running", "phase": "", "progress": 0.0, "cancel": False, "error": "", "result": None}
+        self.rank.run_search(job, self.rank.validate_search(req))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        return [it["dur"] for a in job["result"]["agencies"] for it in a["items"]]
+
+    def test_validate_min_dur(self):
+        base = {"start": "2026-01-01", "end": "2026-01-31", "agencies": ["hololive"]}
+        self.assertEqual(self.rank.validate_search(base)["minDur"], 0)   # 送らなければ絞らない(以前の画面・CLI)
+        self.assertEqual(self.rank.validate_search(dict(base, minDur=600))["minDur"], 600)
+        self.assertEqual(self.rank.validate_search(dict(base, minDur="600"))["minDur"], 600)
+        for bad in (-1, 86401, "x", [1]):
+            with self.assertRaises(self.rank.ApiError, msg=bad):
+                self.rank.validate_search(dict(base, minDur=bad))
+
+    def test_min_dur_filters_short_videos(self):
+        all_durs = self.run_search(minDur=0)
+        self.assertTrue(any(d < 600 for d in all_durs) and any(d >= 600 for d in all_durs), all_durs)   # 疑似データに両方ある(確かめの前提)
+        long_durs = self.run_search(minDur=600)
+        self.assertTrue(long_durs and all(d >= 600 for d in long_durs), long_durs)
+        self.assertGreaterEqual(len(long_durs), sum(1 for d in all_durs if d >= 600))   # 10分以上のものは減らない(上位 top 本で切るので、短いものが抜けた分だけ増えうる)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

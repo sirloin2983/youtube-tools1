@@ -149,23 +149,23 @@ def main():
             check(pg.evaluate("document.activeElement === document.querySelectorAll('#segs textarea')[3]"), "Tab で選んだ行の入力欄へ")
             pg.keyboard.press("Tab")
             check(pg.evaluate(active_body) and navi() == 3, "入力中の Tab で入力欄から抜ける")
-            # キー配置(⚙ 設定。2026-09-27。段6 から ? の一覧と同じ部品 UIKit.keymap): 割り当てを変える・使えないキーは断る・重なりは外す・開き直しても残る・標準に戻す
-            KB = "#kmGrid .ui-km-key[data-km=%s]"
+            # キー配置(? の一覧。2026-09-27。段6 から部品 UIKit.keymap。2026-10-04 から変える場所は ? の一覧だけ・⚙ にはそこを開くボタンだけ): 割り当てを変える・使えないキーは断る・重なりは外す・開き直しても残る・標準に戻す
+            KB = "#keysList .ui-km-key[data-km=%s]"
             def km_text(action_id):
                 return pg.inner_text(KB % action_id).replace("\n", "").replace(" ", "")
             def km_set(action_id, key):
-                pg.click("[data-ui-settings]")
+                pg.click("#btnKeys")
                 pg.wait_for_selector(KB % action_id, state="visible")
                 pg.click(KB % action_id)
                 check(pg.inner_text(KB % action_id) == "キーを押す…", "キー配置: ボタンを押すと「キーを押す…」になる(%s)" % action_id)
                 pg.keyboard.press(key)
-                note = pg.inner_text("#kmGrid .ui-km-note")
+                note = pg.inner_text("#keysList .ui-km-note")
                 if pg.evaluate("UIKit.keymap.capturing()"):   # 断られた = 待つのを続けている → Esc で取り消し(Esc で引き出しは閉じない)
                     pg.keyboard.press("Escape")
-                    check(pg.evaluate("!!document.querySelector('.ui-drawer:not([hidden])')"), "キーを待っている間の Esc は取り消しだけ(引き出しは閉じない)")
+                    check(pg.evaluate("document.querySelector('#keys').open"), "キーを待っている間の Esc は取り消しだけ(一覧は閉じない)")
                 txt = km_text(action_id)
-                pg.keyboard.press("Escape")   # 引き出しを閉じる
-                pg.wait_for_function("!document.querySelector('.ui-drawer:not([hidden])')", timeout=3000)
+                pg.click("#keys .ui-dlg-head button")   # 一覧を閉じる(Esc を2回続けると2回目は Chrome が閉じないので、閉じるボタンで)
+                pg.wait_for_function("!document.querySelector('#keys').open", timeout=3000)
                 km_set.note = note
                 return txt
             check(km_set("rowNext", "h") == "H", "キー配置: 「次の行」を H に変えられる")
@@ -184,8 +184,8 @@ def main():
             pg.keyboard.press("p"); pg.wait_for_timeout(300)
             check(not pg.evaluate("document.querySelector('#player').paused"), "P で再生になる")
             pg.keyboard.press("k")
-            pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmGrid [data-km-reset]", state="visible")
-            pg.click("#kmGrid [data-km-reset]")
+            pg.click("#btnKeys"); pg.wait_for_selector("#keysList [data-km-reset]", state="visible")
+            pg.click("#keysList [data-km-reset]")
             check(km_text("rowNext") == "S" and km_text("playPause") == "Space", "「すべて標準に戻す」で元の配置に戻る")
             pg.keyboard.press("Escape")
             _t.sleep(1.0)
@@ -219,8 +219,8 @@ def main():
             check(km_set("markIn", "Delete") == "未設定" and pg.evaluate("document.querySelector('#cutIOLabel').textContent") == "印の間を削る", "3-3: 始まりの印を外すと「I〜O を削る」は「印の間を削る」: " + pg.evaluate("document.querySelector('#cutIOLabel').textContent"))
             check(km_set("proof", "Delete") == "未設定" and "Shift+Space" not in pg.evaluate("document.querySelector('#accCard').textContent") and "Shift+Space" not in (pg.get_attribute("#autoNextLbl", "title") or ""),
                   "3-3: 校正済みのキーを外すと、精度の説明・自動で再生の説明に Shift+Space が出ない")
-            pg.click("[data-ui-settings]"); pg.wait_for_selector("#kmGrid [data-km-reset]", state="visible")
-            pg.click("#kmGrid [data-km-reset]")
+            pg.click("#btnKeys"); pg.wait_for_selector("#keysList [data-km-reset]", state="visible")
+            pg.click("#keysList [data-km-reset]")
             check(km_text("rowNext") == "S" and km_text("seekBack") == "←", "3-2: すべて標準に戻す")
             pg.keyboard.press("Escape")
             pg.wait_for_function("!document.querySelector('.ui-drawer:not([hidden])')", timeout=3000)

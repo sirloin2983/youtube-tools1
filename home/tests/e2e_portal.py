@@ -507,9 +507,15 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
         # 7. テーマ(ui-kit)
         before = pg.get_attribute("html", "data-theme")
-        pg.click("[data-theme-toggle]")
+        check(pg.locator("[data-theme-toggle]").count() == 0, "[A] ヘッダーに明暗の切り替えボタンは無い(⚙ 設定のテーマで選ぶ)")
+        want = "dark" if before != "dark" else "light"
+        pg.click("[data-ui-settings]")
+        theme_sel = "#uiSettingsDrawer .ui-settings-row:has-text('テーマ') select"
+        pg.wait_for_selector(theme_sel, state="visible")
+        pg.select_option(theme_sel, want)
         after = pg.get_attribute("html", "data-theme")
-        check(before != after and after in ("light", "dark"), "[A] テーマの切り替え %s → %s" % (before, after))
+        check(before != after and after == want, "[A] ⚙ 設定のテーマで切り替え %s → %s" % (before, after))
+        pg.keyboard.press("Escape")
 
         # 8. 狭い画面(縦に並ぶ・横にはみ出さない)。案件の一覧(いまの主役)で確かめる
         mob = ctx.new_page()

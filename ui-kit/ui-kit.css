@@ -130,15 +130,6 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-tab[aria-pressed=true] .ui-tab-n,.ui-tab[aria-selected=true] .ui-tab-n,.ui-tab[aria-current=page] .ui-tab-n{background:var(--accent);color:var(--accent-ink)}
 @media (max-width:720px){.ui-tab{flex:1 1 auto;justify-content:center;padding:0 8px}}
 
-/* テーマ切り替えボタン(theme.js が [data-theme-toggle] に動作を付ける) */
-.ui-theme-toggle{position:relative;width:var(--ctl-h);height:var(--ctl-h);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:var(--ink-2);padding:0;flex:none;
-  transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
-.ui-theme-toggle:hover{color:var(--ink);border-color:var(--line-strong)}
-.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .2s var(--ease),opacity .2s var(--ease)}
-.ui-theme-toggle .i-sun{opacity:0;transform:rotate(-60deg) scale(.6)}
-:root[data-theme=dark] .ui-theme-toggle .i-sun{opacity:1;transform:none}
-:root[data-theme=dark] .ui-theme-toggle .i-moon{opacity:0;transform:rotate(60deg) scale(.6)}
-
 /* 他のツールへのリンク(<details class="ui-menu">) */
 .ui-menu{position:relative}
 .ui-menu>summary{list-style:none;cursor:pointer}

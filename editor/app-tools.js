@@ -250,13 +250,18 @@ function evNote(info){
 }
 
 async function loadEvalFolders(){
-  try { const info = await api('/api/eval-folders'); $('#evDirs').value = (info.dirs || []).join('\n'); evNote(info); } catch {}
+  try { const info = await api('/api/eval-folders'); S.evalDirsActive = !!(info.active || []).length; $('#evDirs').value = (info.dirs || []).join('\n'); evNote(info); } catch {}
 }
 
 /* 評価用の仮置き: ほかの文書へ移ったとき、前の文書が「全行に話者 + 全行が校正済み」なら、話した時間が最も長いメンバーのフォルダへ移す(サーバーが判定) */
 async function evalSettle(id){
   try {
     const r = await api('/api/eval-folders/settle', { body: { id } });
+    if (r.intake){   // 評価用にした文書の動画を、評価用のフォルダへ取り込み始めた(別のドライブへのコピーは裏で。終わったら一覧に出る)
+      toast('評価用にした動画を、評価用のフォルダへ移しています(すべて校正済みならメンバーのフォルダ、それ以外は仮置き)', 6000);
+      for (const ms of [5000, 30000, 120000]) setTimeout(() => loadList(), ms);
+      return;
+    }
     if (!r.moved) return;
     const to = r.moved.to.split(/[\\/]/);
     toast(`評価用の仮置きから「${to[to.length - 2]}」へ移しました: ${to[to.length - 1]}`, 6000);

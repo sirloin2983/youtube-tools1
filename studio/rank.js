@@ -144,7 +144,7 @@ function paneHtml(){
     <div class="cs-search-grid">
       <div class="fld cs-period"><span class="l">期間</span>
         <div class="row cs-dates"><input type="date" id="dStart" aria-label="開始日"><span class="muted">〜</span><input type="date" id="dEnd" aria-label="終了日"></div>
-        <div class="cs-quick" role="group" aria-label="期間の早見"><button type="button" class="btn small ghost" data-days="7">直近7日</button><button type="button" class="btn small ghost" data-days="30">直近30日</button><button type="button" class="btn small ghost" data-days="90">直近90日</button><button type="button" class="btn small ghost" data-m="0">今月</button><button type="button" class="btn small ghost" data-m="1">先月</button></div></div>
+        <div class="cs-quick" role="group" aria-label="期間の早見"><button type="button" class="btn small ghost" data-yday title="前日の0時から今の時刻まで(昨日と今日)">昨日0時〜今</button><button type="button" class="btn small ghost" data-days="7">直近7日</button><button type="button" class="btn small ghost" data-days="30">直近30日</button><button type="button" class="btn small ghost" data-days="90">直近90日</button><button type="button" class="btn small ghost" data-m="0">今月</button><button type="button" class="btn small ghost" data-m="1">先月</button></div></div>
       <div class="fld cs-words"><label class="l" for="words">ワード <span class="muted">(任意)</span></label><input type="search" id="words" placeholder="例: マイクラ 歌枠" maxlength="200" autocomplete="off"><span class="hint">空白かカンマで区切ります。空なら人気順だけ</span></div>
     </div>
     <div class="fld"><span class="l">対象の事務所 <span class="muted">(チャンネルの登録は「設定」の「事務所の登録」)</span></span><div class="chips" id="agChecks" role="group" aria-label="対象の事務所"></div></div>
@@ -157,7 +157,8 @@ function paneHtml(){
       </div>
       <div class="row cs-checks">
         <label class="lag"><input type="checkbox" class="ui-switch" id="archiveOnly" checked>配信アーカイブだけ(通常の投稿動画を除く)</label>
-        <label class="lag"><input type="checkbox" class="ui-switch" id="noShorts" checked>ショート動画を除く</label></div>
+        <label class="lag"><input type="checkbox" class="ui-switch" id="noShorts" checked>ショート動画を除く</label>
+        <label class="lag" title="再生時間が10分未満の動画を結果に出しません"><input type="checkbox" class="ui-switch" id="minDur10" checked>10分以上の動画だけ</label></div>
     </details>
     <div class="row cs-go"><button type="button" class="btn primary lg" id="btnGo">検索する</button><button type="button" class="btn" id="btnCancel" hidden>中止</button><span class="hint" id="phase" role="status"></span></div>
     <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
@@ -191,12 +192,13 @@ function renderAgChecks(){
   box.innerHTML = R.reg.agencies.map(a => { const n = okCount(a);
     return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="agc" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
 }
+const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
 function condBody(){
   return { start: $('#dStart').value, end: $('#dEnd').value, words: $('#words').value, mode: $('#mode').value, inDesc: $('#inDesc').value === '1', top: Number($('#top').value),
-    minViews: Number($('#minViews').value) || 0, archiveOnly: $('#archiveOnly').checked, noShorts: $('#noShorts').checked, agencies: [...document.querySelectorAll('.agc:checked')].map(x => x.value) };
+    minViews: Number($('#minViews').value) || 0, archiveOnly: $('#archiveOnly').checked, noShorts: $('#noShorts').checked, minDur: $('#minDur10').checked ? MIN_DUR : 0, agencies: [...document.querySelectorAll('.agc:checked')].map(x => x.value) };
 }
-function saveCond(){ const c = condBody(); lsSet('cond', { words: c.words, mode: c.mode, inDesc: c.inDesc, top: c.top, minViews: c.minViews, archiveOnly: c.archiveOnly, noShorts: c.noShorts, start: c.start, end: c.end }); advSummary(); }
+function saveCond(){ const c = condBody(); lsSet('cond', { words: c.words, mode: c.mode, inDesc: c.inDesc, top: c.top, minViews: c.minViews, archiveOnly: c.archiveOnly, noShorts: c.noShorts, minDur: c.minDur, start: c.start, end: c.end }); advSummary(); }
 /* 「詳しい条件」を閉じていても、いまの条件が分かるように見出しの横に短く出す */
 function advSummary(){
   const el = $('#rkAdvSum'); if (!el) return;
@@ -206,6 +208,7 @@ function advSummary(){
   if (c.minViews > 0) parts.push(fmtN(c.minViews) + '回以上');
   parts.push(c.archiveOnly ? 'アーカイブだけ' : '投稿動画も含む');
   if (c.noShorts) parts.push('ショートを除く');
+  if (c.minDur) parts.push('10分以上');
   el.textContent = parts.join(' ・ ');
 }
 function setBusy(b){ $('#btnGo').disabled = b || noKey(); $('#btnCancel').hidden = !b; $('#barWrap').hidden = !b; if (!b){ $('#phase').textContent = ''; $('#bar').style.width = '0'; } }
@@ -371,12 +374,14 @@ S.onReady(async () => {
   loadAgPick();
   { const v = lsGet('view'), l = lsGet('limit'); if (v === 'ag' || v === 'all') R.view = v; if (LIMITS.includes(l)) R.limit = l; }
   const c = lsGet('cond');
-  if (c){ $('#words').value = c.words || ''; $('#mode').value = c.mode === 'all' ? 'all' : 'any'; $('#inDesc').value = c.inDesc === false ? '0' : '1'; if ([10, 20, 50, 100].includes(c.top)) $('#top').value = String(c.top); $('#minViews').value = c.minViews || 0; $('#archiveOnly').checked = c.archiveOnly !== false; $('#noShorts').checked = c.noShorts !== false; }
+  if (c){ $('#words').value = c.words || ''; $('#mode').value = c.mode === 'all' ? 'all' : 'any'; $('#inDesc').value = c.inDesc === false ? '0' : '1'; if ([10, 20, 50, 100].includes(c.top)) $('#top').value = String(c.top); $('#minViews').value = c.minViews || 0; $('#archiveOnly').checked = c.archiveOnly !== false; $('#noShorts').checked = c.noShorts !== false; $('#minDur10').checked = c.minDur !== 0; }
   if (c && /^\d{4}-\d\d-\d\d$/.test(c.start || '') && /^\d{4}-\d\d-\d\d$/.test(c.end || '')) setRange(new Date(c.start + 'T00:00:00'), new Date(c.end + 'T00:00:00'));
   else { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 29); setRange(s, e); }
+  /* 昨日0時〜今: 日付の単位で「昨日〜今日」(サーバーは終了日の翌日0時(日本時間)の手前までを探すので、今の時刻までが入る) */
+  document.querySelectorAll('[data-yday]').forEach(b => b.addEventListener('click', () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 1); setRange(s, e); saveCond(); }));
   document.querySelectorAll('[data-days]').forEach(b => b.addEventListener('click', () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - (Number(b.dataset.days) - 1)); setRange(s, e); saveCond(); }));
   document.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => { const n = new Date(), k = Number(b.dataset.m); setRange(new Date(n.getFullYear(), n.getMonth() - k, 1), k ? new Date(n.getFullYear(), n.getMonth(), 0) : n); saveCond(); }));
-  ['words', 'mode', 'inDesc', 'top', 'minViews', 'archiveOnly', 'noShorts', 'dStart', 'dEnd'].forEach(id => $('#' + id).addEventListener('change', saveCond));
+  ['words', 'mode', 'inDesc', 'top', 'minViews', 'archiveOnly', 'noShorts', 'minDur10', 'dStart', 'dEnd'].forEach(id => $('#' + id).addEventListener('change', saveCond));
   advSummary();
   $('#words').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); startSearch(); } });
   /* 事務所のチェックは、ユーザーが変えたものだけ覚える(触っていない事務所は、チャンネルを登録すれば自動で選ばれる) */

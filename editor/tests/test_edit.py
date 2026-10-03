@@ -1331,6 +1331,99 @@ class TestEvalFolder(StoreDir):
         self.assertFalse(os.path.exists(p))
         self.assertEqual(S.eval_settle({"id": TID}), {"moved": None, "reason": None})   # もう仮置きではない
 
+    # ---- 2026-10-04: 評価用にした文書の動画を、評価用のフォルダの外から取り込む
+    def outside(self, name="外の切り抜き.mp4", proofed=True, eval_set=True, tid=TID, names=("ときのそら", "さくらみこ")):
+        src = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, src, True)
+        p = os.path.join(src, name)
+        with open(p, "wb") as f:
+            f.write(b"video")
+        os.makedirs(os.path.join(src, "作業用"))
+        with open(os.path.join(src, "作業用", os.path.splitext(name)[0] + ".clip.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        segs = doc_obj()["segments"]
+        for i, g in enumerate(segs):
+            g["proofed"] = proofed or i > 0
+            g["speaker"] = "A" if i != 1 else "B"
+        kw = {"evalSet": True} if eval_set else {}
+        self.put_doc(doc_obj(sourcePath=p, segments=segs, speakers=[{"id": "A", "name": names[0]}, {"id": "B", "name": names[1]}], **kw), tid)
+        return p
+
+    def test_intake_ready_goes_to_member_folder(self):
+        p = self.outside()
+        r = S.eval_organize("test")
+        dst = os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4")
+        self.assertEqual([(x["from"], x["to"], x["member"], x["staged"]) for x in r["intaken"]], [(p, dst, "ときのそら", None)])
+        self.assertTrue(os.path.isfile(dst) and not os.path.exists(p))
+        self.assertTrue(os.path.isfile(os.path.join(self.mem, "作業用", "評価用データ01_ときのそら_01_済.clip.json")))
+        d = self.doc()
+        self.assertEqual((d["sourcePath"], d["evalSet"], d["relinks"][-1]["why"]), (dst, True, "evalIntake"))
+        self.assertEqual(S.eval_organize("test")["intaken"], [])   # 2回目は何もしない
+
+    def test_intake_not_ready_goes_to_staging(self):
+        p = self.outside(proofed=False)
+        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        os.makedirs(stg)
+        with open(os.path.join(stg, "外の切り抜き.mp4"), "wb") as f:   # 同じ名前が仮置きにある → 「 (2)」
+            f.write(b"other")
+        r = S.eval_organize("test")
+        dst = os.path.join(stg, "外の切り抜き (2).mp4")
+        self.assertEqual([(x["to"], x["member"]) for x in r["intaken"]], [(dst, None)])
+        self.assertIn("校正していない行", r["intaken"][0]["staged"])
+        self.assertEqual(self.doc()["sourcePath"], dst)
+        self.assertFalse(os.path.exists(p))
+
+    def test_intake_skips_unmarked_and_shared(self):
+        self.outside(eval_set=False)
+        self.assertEqual(S.eval_organize("test")["intaken"], [])   # 評価用の印が無ければ動かさない
+        p = self.outside()
+        self.put_doc(doc_obj(sourcePath=p), "b" * len(TID))   # 同じ動画を、評価用でない文書も使っている
+        r = S.eval_organize("test")
+        self.assertEqual(r["intaken"], [])
+        self.assertIn("評価用でない文書", r["skipped"][0]["reason"])
+        self.assertTrue(os.path.isfile(p))
+
+    def test_intake_across_drives_and_rollback(self):
+        import ed_relink
+        from unittest import mock
+        real = os.rename
+
+        def no_rename_across(a, b):   # 別のドライブ: 名前の変更ができない(WinError 17)。.part → 本名 の同じフォルダの中だけ通す
+            if os.path.dirname(a) != os.path.dirname(b):
+                raise OSError(17, "別のドライブ")
+            return real(a, b)
+        p = self.outside()
+        with mock.patch.object(ed_relink, "_same_drive", lambda a, b: False), mock.patch.object(ed_relink.os, "rename", no_rename_across):
+            r = S.eval_organize("test")
+        dst = os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4")
+        self.assertEqual([x["to"] for x in r["intaken"]], [dst])
+        with open(dst, "rb") as f:
+            self.assertEqual(f.read(), b"video")
+        self.assertFalse(os.path.exists(p))
+        self.assertTrue(os.path.isfile(os.path.join(self.mem, "作業用", "評価用データ01_ときのそら_01_済.clip.json")))
+        self.assertEqual([f for f in os.listdir(self.mem) if f.endswith(".part")], [])
+        # 元を消せない(開いている): コピーを消して元のまま・文書も元のまま
+        p2 = self.outside(name="開いている.mp4", tid="c" * len(TID))
+        real_remove = os.remove
+        with mock.patch.object(ed_relink, "_same_drive", lambda a, b: False), mock.patch.object(ed_relink.os, "rename", no_rename_across), \
+                mock.patch.object(ed_relink.os, "remove", lambda x: (_ for _ in ()).throw(PermissionError(13, "使用中")) if x == p2 else real_remove(x)):
+            r = S.eval_organize("test")
+        self.assertEqual(r["intaken"], [])
+        self.assertTrue(os.path.isfile(p2))
+        self.assertFalse(any(f.startswith("評価用データ01_ときのそら_02") for f in os.listdir(self.mem)))
+        self.assertEqual(self.doc("c" * len(TID))["sourcePath"], p2)
+
+    def test_settle_intakes_in_background(self):
+        p = self.outside()
+        r = S.eval_settle({"id": TID})
+        self.assertEqual(r, {"moved": None, "reason": None, "intake": True})
+        for _ in range(100):
+            if not S._evalorg_lock.locked():
+                break
+            time.sleep(0.05)
+        self.assertFalse(os.path.exists(p))
+        self.assertTrue(self.doc()["sourcePath"].endswith("_01_済.mp4"))
+
 
 if __name__ == "__main__":
     unittest.main()

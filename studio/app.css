@@ -90,6 +90,8 @@ main{display:block}
 .cs-keyhelp{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:hidden}
 .cs-keyhelp[open]{display:flex;flex-direction:column}
 #keyHelpBody{padding:14px 20px 20px;overflow-y:auto}
+.cs-keypreset{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px 0}
+.cs-keypreset select{max-width:100%;min-width:0;flex:1 1 260px}
 .cs-khint{margin:14px 0 4px}
 
 

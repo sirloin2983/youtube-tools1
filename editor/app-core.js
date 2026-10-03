@@ -69,7 +69,7 @@ function loadView(){
     const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}');
     if (o && typeof o === 'object'){
       for (const k of Object.keys(V)) if (k in o && typeof o[k] === typeof V[k]) V[k] = o[k];
-      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した(ヘッダーの切り替えボタンと設定の引き出しのどちらで変えても同じ所に保存)。
+      /* 画面の色は ui-kit(localStorage の ytt:theme)に1本化した(設定の引き出しで変える。保存先は1か所。ヘッダーの切り替えボタンは v14 でやめた)。
          以前の版が tx.view.v1 の theme に保存していた選択は、ui-kit にまだ選択が無いときだけ引き継ぐ。
          v6 から ytt:theme が無いときの既定は 'system' ではなく 'light' になったので、「無い」の判定は UIKit.theme.get() ではなく
          localStorage を直接見る(以前は既定が 'system' だったことを前提にしていたため、v6 のままだと引き継ぎが動かなかった) */

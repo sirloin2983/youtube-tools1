@@ -140,15 +140,6 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-tab[aria-pressed=true] .ui-tab-n,.ui-tab[aria-selected=true] .ui-tab-n,.ui-tab[aria-current=page] .ui-tab-n{background:var(--accent);color:var(--accent-ink)}
 @media (max-width:720px){.ui-tab{flex:1 1 auto;justify-content:center;padding:0 8px}}
 
-/* テーマ切り替えボタン(theme.js が [data-theme-toggle] に動作を付ける) */
-.ui-theme-toggle{position:relative;width:var(--ctl-h);height:var(--ctl-h);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r);cursor:pointer;color:var(--ink-2);padding:0;flex:none;
-  transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease)}
-.ui-theme-toggle:hover{color:var(--ink);border-color:var(--line-strong)}
-.ui-theme-toggle svg{width:17px;height:17px;grid-area:1/1;transition:transform .2s var(--ease),opacity .2s var(--ease)}
-.ui-theme-toggle .i-sun{opacity:0;transform:rotate(-60deg) scale(.6)}
-:root[data-theme=dark] .ui-theme-toggle .i-sun{opacity:1;transform:none}
-:root[data-theme=dark] .ui-theme-toggle .i-moon{opacity:0;transform:rotate(60deg) scale(.6)}
-
 /* 他のツールへのリンク(<details class="ui-menu">) */
 .ui-menu{position:relative}
 .ui-menu>summary{list-style:none;cursor:pointer}
@@ -1220,10 +1211,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     </div>
     <button type="button" class="btn ghost small tt-hbtn" id="btnKeys" title="キー操作の一覧(?)" aria-haspopup="dialog"><span class="ui-icon" data-icon="keyboard" aria-hidden="true"></span><span class="tt-hlabel">キー操作</span></button>
     <button type="button" class="btn ghost small tt-hbtn" data-ui-settings title="設定(表示・キーの帯・テーマなど)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span><span class="tt-hlabel">設定</span></button>
-    <button type="button" class="ui-theme-toggle" data-theme-toggle>
-      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-    </button>
   </div>
 </header>
 <div class="errbar" id="errBar" hidden role="alert"></div>
@@ -1767,7 +1754,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 <dialog id="keys" aria-labelledby="keysT">
   <div class="ui-dlg-head"><h2 id="keysT">キー操作の一覧</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc・?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
-  <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap。⚙ 設定の「キー配置」と同じ部品) -->
+  <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap)。キーを変える場所はここだけ(⚙ 設定には開くボタンだけ) -->
   <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- 段3 3-4。renderFpsNote() -->
   <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
   <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
@@ -1842,7 +1829,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>
   <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
   <h3 style="margin-top:18px">キー配置</h3>
-  <div id="kmGrid"></div>   <!-- キーの一覧(?)と同じ部品(UIKit.keymap) -->
+  <p class="hint" style="margin:0 0 6px">キーを変えるのは、キー操作の一覧(?)の中です。</p>
+  <button type="button" class="btn small" id="setKeysOpen">キー配置を変える(?)</button>
 </section>
 
 <script src="cut.js"></script>

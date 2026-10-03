@@ -175,6 +175,16 @@ class TestText(Base):
         self.assertEqual(r["state"], "rejected")
         self.assertIn("長すぎます", r["items"][0]["reason"])
         self.assertIn("配信中", r["items"][1]["reason"])
+        self.assertEqual(r["title"], "x.txt", "題名が分からなければファイル名")
+
+    def test_rejected_shows_stream_title(self):
+        """断った配信も、題名が分かれば URL ではなく題名で出す(2026-10-04。一覧で読めるように)"""
+        self.infos = {"bbbbbbbbbbb": {"duration": None, "live": "is_live", "title": "【雑談】配信中の題名", "channel": ""}}
+        self.put("y.txt", "https://youtu.be/bbbbbbbbbbb 2\n")
+        self.scan2()
+        r = self.it.snapshot()["requests"][0]
+        self.assertEqual(r["title"], "【雑談】配信中の題名")
+        self.assertEqual(r["items"][0]["label"], "【雑談】配信中の題名(2 個)")
 
     def test_daily_limit_holds(self):
         self.prefs.patch("intake", {"dailyMax": 1})

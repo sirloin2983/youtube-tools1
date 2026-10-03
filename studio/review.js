@@ -182,7 +182,7 @@ function buildDOM(){
         <div class="rv-tl" id="rvTl" role="group" aria-label="タイムライン。クリックでその位置へ移動">
           <div id="rvSegs"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
         </div>
-        <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gpeaks" id="rvGPeaks"></div><div class="rv-gcur" id="rvGCur"></div></div>
+        <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gticks" id="rvGTicks" aria-hidden="true"></div><div class="rv-gcur" id="rvGCur"></div><div class="rv-ghover" id="rvGHover" hidden aria-hidden="true"><span></span></div><div class="rv-gpeaks" id="rvGPeaks"></div></div>
         <div class="rv-scale" aria-hidden="true"><span>0:00.0</span><div class="rv-glegend" id="rvGLegend" hidden></div><span id="rvTlEnd">--</span></div>
 
         <div class="rv-transport">
@@ -259,9 +259,8 @@ function buildDOM(){
           </section>
           <section class="rv-sec">
             <h3>キー配置</h3>
-            <p class="rv-sechint">ヘッダーの「キー操作」(? キー)の一覧と同じです。まとめて変えるときは、下の組み合わせから選びます。</p>
-            <div class="rv-setrow"><select id="rvKeyPreset" aria-label="キー配置の組み合わせ"><option value="standard">標準</option><option value="left">左手だけ</option><option value="custom" disabled>今の配置(手で変えた)</option></select></div>
-            <div class="rv-keygrid" id="rvKeyGrid"></div>
+            <p class="rv-sechint">キーの割り当ては、ヘッダーの「キー操作」(? キー)の一覧の1か所で変えます。「標準」「左手だけ」の組み合わせも一覧の上で選べます。</p>
+            <div class="rv-setrow"><button type="button" class="btn small" id="rvKeysOpen">キー配置を変える(?)</button></div>
           </section>
           <section class="rv-sec">
             <h3>ライブ配信向け</h3>
@@ -877,7 +876,7 @@ function currentPreset(){
   const km = S.settings.keymap;
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
-const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
+const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは ③ のボタンの横の − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']]];
 /* 割り当てられないキー(固定の意味がある)。値は使い道 */
 const STUDIO_FIXED = { Escape: '閉じる・取り消し', Enter: '確定', Tab: 'フォーカスの移動', 'Shift+Tab': 'フォーカスの移動', '?': 'キー操作の一覧' };
 const PRESET_NAMES = { standard: '標準', left: '左手だけ' };
@@ -895,7 +894,8 @@ const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
   intro: '③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。',
   fixed: [{ title: '全体', rows: [['?', 'この一覧を開く・閉じる', '一覧を開くキー'], ['Esc', '一覧・設定を閉じる', '閉じるキー']] },
     { title: 'その他', why: '入力欄のキー', rows: [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']] }],
-  extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? spanSelHTML(m[1] ? Number(m[1]) - 1 : 0) : ''; },
+  /* 今をマークの長さは見せるだけ(変えるのは ③ のボタンの横の − ＋ の1か所。設定の場所を重ねない 2026-10-04) */
+  extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? `<span class="muted rv-kmspan">前後${spanLabel((S.settings ? S.settings.quickSpans : DEFAULT_QUICK_SPANS)[m[1] ? Number(m[1]) - 1 : 0])}</span>` : ''; },
   footNote: '「すべて標準に戻す」は共通の再生キーも標準に戻します(編集も同じ割り当てです)。',
   load: () => (S.settings && S.settings.keymap) || {},
   save: km => { S.settings.keymap = km; touchSettings(); },
@@ -925,7 +925,6 @@ function renderKeyUI(){
     for (const o of pre.options) if (PRESET_NAMES[o.value]) o.textContent = presetLabel(o.value);
     pre.value = currentPreset();
   }
-  if (KM && !$('#rvKeyGrid').classList.contains('ui-km')) KM.mount($('#rvKeyGrid'));
   if (Studio.step === 'review') keybarScene();   // キー配置を変えたら、下の帯もすぐ合わせる
 }
 
@@ -1473,11 +1472,19 @@ function renderTimeline(){
   renderDuration(); renderPlayhead(); renderDraft(); renderGraph();
 }
 
-/* 盛り上がりグラフ: series.total の面グラフ + 自動マークの帯。プレイヘッドの動きでは再描画しない(カーソル線だけ動かす) */
-const GW = 1000, GH = 40;
-/* 盛り上がりの山の順位と理由(画面の側で計算。API は変えない。IMPLEMENTATION.md 4)。
-   山: total の極大点を高い順に、近すぎる(同じ山とみなす)ものを除きながら最大5つ。
-   理由: 山の前後(±win)の平均が、その系列自身の平均よりいちばん上回っているもの */
+/* 盛り上がりグラフ: series.total の面グラフ + マークの帯。プレイヘッドの動きでは再描画しない(カーソル線だけ動かす)。
+   2026-10-04 見やすく: 高さ 150px・時間の目盛りと縦の補助線・帯をマークの状態(候補・採用・不採用・書き出し済み)の色に・選んだマークを強調・
+   山に点と縦の線・山の札は横に重ならないよう段を分ける(段の数だけ上を空けて、曲線と札が重ならない)・マウスの位置の時刻。
+   形: 背景の SVG(補助線・帯。上から下の目盛りの帯まで)+ 曲線の SVG(札の段の下から)+ HTML(札・点・目盛りの文字。SVG は縦横に伸ばすので、丸や文字は HTML で置く) */
+const GW = 1000, GH = 100;
+const G_LANE = 21, G_PAD = 5;   // 札の1段の高さ・上の余白(px)。下の目盛りの帯の高さは review.css の --g-axis
+const TICK_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+/* 目盛りの間隔: 画面の幅で 70px 以上空く、いちばん細かい間隔 */
+function tickStep(dur, w){ return TICK_STEPS.find(st => st / dur * w >= 70) || TICK_STEPS[TICK_STEPS.length - 1]; }
+function tickLabel(t){
+  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = Math.floor(t % 60), p2 = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p2(m)}:${p2(sec)}` : `${m}:${p2(sec)}`;
+}
 const PEAK_MAX = 5;
 function findPeaks(total){
   const idx = [];
@@ -1506,40 +1513,65 @@ function peakReason(s, idx, win){
   return best;
 }
 function renderGraph(){
-  const box = $('#rvGraph'), leg = $('#rvGLegend'), peaksEl = $('#rvGPeaks'), v = S.cur, s = S.series;
-  if (!v){ box.hidden = true; leg.hidden = true; if (peaksEl) peaksEl.innerHTML = ''; return; }
+  const box = $('#rvGraph'), leg = $('#rvGLegend'), peaksEl = $('#rvGPeaks'), ticksEl = $('#rvGTicks'), v = S.cur, s = S.series;
+  const clear = () => { if (peaksEl) peaksEl.innerHTML = ''; if (ticksEl) ticksEl.innerHTML = ''; };
+  if (!v){ box.hidden = true; leg.hidden = true; clear(); return; }
   if (!s || !Array.isArray(s.total) || !s.total.length){
     box.hidden = true;
     const hasAuto = v.marks.some(isAutoLike) || !!v.analysis;
     leg.hidden = !hasAuto;
     if (hasAuto) leg.innerHTML = '<span class="hint" title="盛り上がりのグラフは、解析した直後だけ出ます(ホームのサーバーを終了すると消えます)">グラフは解析した直後だけ出ます</span>';
-    if (peaksEl) peaksEl.innerHTML = '';
+    clear();
     return;
   }
+  box.hidden = false; leg.hidden = false;
+  const W = box.clientWidth || 800;   // まだ見えていない(幅 0)ときは仮の幅。見えたら ResizeObserver で描き直す
   const dur = totalDur(), step = Number(s.step) > 0 ? Number(s.step) : 1;
   const X = i => Math.min(GW, i * step / dur * GW);
-  const line = arr => {
-    const mx = Math.max(1e-9, ...arr);
-    return arr.map((y, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + (GH - 2 - (y / mx) * (GH - 4)).toFixed(1)).join('');
-  };
+  const Y = (y, mx) => (GH - (y / mx) * (GH - 4)).toFixed(1);   // 上に 4% だけ余白(山の頂上が枠に付かない)
+  const line = arr => { const mx = Math.max(1e-9, ...arr); return arr.map((y, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(y, mx)).join(''); };
   const total = s.total, mx = Math.max(1e-9, ...total);
-  const pts = total.map((y, i) => X(i).toFixed(1) + ' ' + (GH - 1 - (y / mx) * (GH - 4)).toFixed(1));
-  const area = `M${X(0).toFixed(1)} ${GH}L${pts.join('L')}L${X(total.length - 1).toFixed(1)} ${GH}Z`;
-  const bands = v.marks.filter(isAutoLike).map(m => {
-    const x = Math.min(GW, m.start / dur * GW), w = Math.max(2, Math.min(GW, m.end / dur * GW) - x);
-    return `<rect class="rv-g-band" x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${GH}"/>`;
+  const area = `M${X(0).toFixed(1)} ${GH}L${total.map((y, i) => X(i).toFixed(1) + ' ' + Y(y, mx)).join('L')}L${X(total.length - 1).toFixed(1)} ${GH}Z`;
+
+  /* 山の札: 位置(x)の順に、前の札と横に重ならない最初の段へ。段の数だけ上を空ける(曲線は札の段の下から描く) */
+  const win = Math.max(1, Math.round(total.length * 0.015));
+  const peaks = findPeaks(total).map((idx, i) => ({ idx, t: idx * step, rank: i + 1, reason: peakReason(s, idx, win), x: X(idx) / GW * W }));
+  let lanesN = 1;
+  if (peaksEl){
+    peaksEl.innerHTML = peaks.map(p => `<button type="button" class="rv-gpeak${p.rank === 1 ? ' r1' : ''}" data-t="${p.t}" title="${p.rank}位の山${p.reason ? ' ' + esc(p.reason) : ''}(${tickLabel(p.t)}付近。押すと5秒前へ)"><b class="rv-gpk-n">${p.rank}</b>${p.reason ? ' ' + esc(p.reason) : ''}</button>`).join('');
+    const btns = [...peaksEl.querySelectorAll('.rv-gpeak')], lanes = [];
+    peaks.forEach((p, i) => { p.el = btns[i]; p.w = btns[i].offsetWidth || (p.reason.length * 12 + 26); });
+    [...peaks].sort((a, b) => a.x - b.x).forEach(p => {
+      p.left = Math.max(2, Math.min(W - p.w - 2, p.x - p.w / 2));
+      let k = lanes.findIndex(r => r + 4 <= p.left); if (k < 0){ k = lanes.length; lanes.push(0); }
+      lanes[k] = p.left + p.w; p.lane = k;
+    });
+    lanesN = Math.max(1, lanes.length);
+    for (const p of peaks){
+      const top = G_PAD + p.lane * G_LANE, x = (p.x / W * 100).toFixed(2) + '%', f = (Number(Y(total[p.idx], mx)) / GH).toFixed(4), r1 = p.rank === 1 ? ' r1' : '';
+      p.el.style.left = p.left.toFixed(1) + 'px'; p.el.style.top = top + 'px';
+      /* 縦の線(札の下から目盛りの帯まで)と、曲線の上の点(--f = 曲線の SVG の中の縦の位置 0〜1) */
+      p.el.insertAdjacentHTML('beforebegin', `<i class="rv-gpk-stem${r1}" style="left:${x};top:${top + 18}px"></i><i class="rv-gpk-dot${r1}" style="left:${x};--f:${f}"></i>`);
+    }
+  }
+  box.style.setProperty('--g-top', (G_PAD + lanesN * G_LANE + 2) + 'px');
+
+  /* 時間の目盛り(縦の補助線と文字)。端の近く(下の 0:00 / 長さの文字と重なる所)は出さない */
+  const ts = tickStep(dur, W), ticks = [];
+  for (let t = ts; t < dur - ts * 0.35; t += ts) ticks.push(t);
+  const grid = ticks.map(t => { const x = (t / dur * GW).toFixed(1); return `<line class="rv-g-grid" x1="${x}" x2="${x}" y1="0" y2="${GH}"/>`; }).join('');
+  if (ticksEl) ticksEl.innerHTML = ticks.map(t => `<span class="rv-gtick" style="left:${(t / dur * 100).toFixed(2)}%">${tickLabel(t)}</span>`).join('');
+
+  /* マークの帯: 自動マーク(+ 選んでいる手動のマーク)。色はマークの状態(候補・採用・不採用・書き出し済み)、選んでいるマークは強調 */
+  const bands = v.marks.filter(m => isAutoLike(m) || m.id === S.sel).map(m => {
+    const x = Math.min(GW, m.start / dur * GW), w = Math.max(2, Math.min(GW, m.end / dur * GW) - x), x1 = x.toFixed(1), x2 = (x + w).toFixed(1);
+    const cls = 'st-' + (STATUS_LABEL[m.status || ''] && m.status ? m.status : 'cand') + (m.id === S.sel ? ' sel' : '');
+    return `<g class="rv-g-band ${cls}" data-id="${esc(m.id)}"><rect x="${x1}" y="0" width="${w.toFixed(1)}" height="${GH}"/><line x1="${x1}" x2="${x1}" y1="0" y2="${GH}"/><line x1="${x2}" x2="${x2}" y1="0" y2="${GH}"/></g>`;
   }).join('');
   const lines = S.settings.graphLines ? [['audio', 'a'], ['chat', 'c'], ['comments', 'm']].filter(([k]) => Array.isArray(s[k]) && s[k].length).map(([k, c]) => `<path class="rv-g-line ${c}" d="${line(s[k])}"/>`).join('') : '';
-  $('#rvGSvg').innerHTML = `<svg viewBox="0 0 ${GW} ${GH}" preserveAspectRatio="none" role="img" aria-label="盛り上がりグラフ"><path class="rv-g-area" d="${area}"/>${bands}${lines}</svg>`;
-  box.hidden = false; leg.hidden = false;
-  if (peaksEl){
-    const win = Math.max(1, Math.round(total.length * 0.015));
-    peaksEl.innerHTML = findPeaks(total).map((idx, i) => {
-      const t = idx * step, reason = peakReason(s, idx, win), label = reason ? (i + 1) + ' ' + reason : String(i + 1);
-      return `<button type="button" class="rv-gpeak" style="left:${(X(idx) / GW * 100).toFixed(2)}%" data-t="${t}" title="${esc(label)}(${fmt(t)}付近。押すと5秒前へ)">${esc(label)}</button>`;
-    }).join('');
-  }
-  leg.innerHTML = `<span class="rv-lg"><i class="rv-sw tot"></i>盛り上がり(合計)</span><span class="rv-lg"><i class="rv-sw band"></i>自動マークの範囲</span>` +
+  $('#rvGSvg').innerHTML = `<svg class="rv-gbg" viewBox="0 0 ${GW} ${GH}" preserveAspectRatio="none" aria-hidden="true">${grid}${bands}</svg>` +
+    `<svg class="rv-gplot" viewBox="0 0 ${GW} ${GH}" preserveAspectRatio="none" role="img" aria-label="盛り上がりグラフ"><path class="rv-g-area" d="${area}"/>${lines}</svg>`;
+  leg.innerHTML = `<span class="rv-lg"><i class="rv-sw tot"></i>盛り上がり(合計)</span><span class="rv-lg" title="自動マークの範囲。色はマークの状態"><i class="rv-sw band"></i>候補<i class="rv-sw band ok"></i>採用<i class="rv-sw band ng"></i>不採用</span>` +
     (S.settings.graphLines ? '<span class="rv-lg"><i class="rv-sw a"></i>音量</span><span class="rv-lg"><i class="rv-sw c"></i>チャット</span><span class="rv-lg"><i class="rv-sw m"></i>コメント</span>' : '') +
     `<label class="rv-check"><input type="checkbox" id="rvGLines"${S.settings.graphLines ? ' checked' : ''}>材料ごとの線も表示</label>`;
   renderPlayhead();
@@ -1847,6 +1879,21 @@ function wire(){
     if (p){ scrub(Math.max(0, Number(p.dataset.t) - 5), true); return; }
     scrub(timeAt(e, $('#rvGraph')), true);
   });
+  /* マウスの位置の時刻(押すとそこへ移る、の手がかり)。山の札の上では出さない */
+  const gHover = $('#rvGHover');
+  $('#rvGraph').addEventListener('pointermove', e => {
+    if (e.pointerType === 'touch' || e.target.closest('.rv-gpeak')){ gHover.hidden = true; return; }
+    const r = $('#rvGraph').getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    gHover.hidden = false; gHover.style.left = (f * 100).toFixed(2) + '%';
+    gHover.classList.toggle('flip', f > 0.9);   // 右の端では文字を線の左へ
+    gHover.firstChild.textContent = tickLabel(f * totalDur());
+  });
+  $('#rvGraph').addEventListener('pointerleave', () => { gHover.hidden = true; });
+  /* 幅が変わったら描き直す(目盛りの間隔と札の段は幅で決まる。見えていなかった ③ を開いたときも) */
+  if (window.ResizeObserver){
+    let gw = 0;
+    new ResizeObserver(() => { const w = $('#rvGraph').clientWidth; if (w && Math.abs(w - gw) > 1){ gw = w; renderGraph(); } }).observe($('#rvGraph'));
+  }
   $('#rvGLegend').addEventListener('change', e => { if (e.target.id === 'rvGLines'){ S.settings.graphLines = e.target.checked; renderGraph(); touchSettings(); } });
 
   // 配信の選択・開く・保存
@@ -1931,7 +1978,9 @@ function wire(){
   $('#rvMomBefore').addEventListener('change', e => setMomentSec('momentBefore', e.target));
   $('#rvMomAfter').addEventListener('change', e => setMomentSec('momentAfter', e.target));
   renderMomentSet();
-  $('#rvKeyGrid').addEventListener('click', onSpanStep);
+  /* キー配置は ? の一覧の1か所(2026-10-04。以前は ③ の「操作の設定」にも同じ一覧があった)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
+  $('#rvKeysOpen').addEventListener('click', () => Studio.openKeyHelp());
+  $('#keyPresetRow').hidden = false;
   $('#rvKeyPreset').addEventListener('change', e => {
     const pr = KEY_PRESETS[e.target.value]; if (!pr) return;
     if (KM) KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);

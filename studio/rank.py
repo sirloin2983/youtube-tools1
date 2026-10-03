@@ -404,11 +404,15 @@ def validate_search(req):
     try:
         top = max(1, min(100, int(req.get("top") or 20)))
         min_views = max(0, int(req.get("minViews") or 0))
+        # 最低の再生時間(秒)。画面の「10分以上だけ」= 600(2026-10-04)。送られなければ 0 = 絞らない(以前の画面・CLI と同じ結果)
+        min_dur = int(req.get("minDur") or 0)
     except (TypeError, ValueError):
         raise ApiError("bad_request", "数値が正しくありません", 400)
+    if not 0 <= min_dur <= 86400:
+        raise ApiError("bad_request", "最低の再生時間が正しくありません(0〜86400秒)", 400)
     return {"start": d0, "end": d1, "words": words, "mode": "all" if req.get("mode") == "all" else "any", "inDesc": req.get("inDesc") is not False,
             "archiveOnly": req.get("archiveOnly") is not False, "noShorts": req.get("noShorts") is not False, "top": top, "minViews": min_views,
-            "agencies": ags}
+            "minDur": min_dur, "agencies": ags}
 
 
 def _cached(key, fn):
@@ -548,6 +552,9 @@ def run_search(job, spec):
             if spec["archiveOnly"] and not row["archive"]:
                 continue
             if spec["noShorts"] and row["dur"] <= 61:
+                continue
+            # 再生時間が分からない動画(dur 0 = 配信中・予定。アーカイブではない)も、最低の再生時間を決めたときは除く(ショートを除くのと同じ扱い)
+            if row["dur"] < spec.get("minDur", 0):
                 continue
             if row["views"] < spec["minViews"] or not matches(row, spec):
                 continue

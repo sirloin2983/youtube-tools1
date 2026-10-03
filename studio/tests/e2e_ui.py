@@ -269,8 +269,10 @@ def run_checks(port, fx, shots=None):
         pg.evaluate("document.querySelectorAll('.ui-toast').forEach(t => t.remove())")
 
         print("[テーマ]")
-        pg.click("[data-theme-toggle]")
-        c.ok(pg.get_attribute("html", "data-theme") == "dark", "切り替えボタンでダークになる")
+        # ヘッダーの明るい/暗いの切り替えボタンは消した(2026-10-04。配色は ⚙ 設定の「テーマ」の4種類から選ぶ)
+        c.ok(pg.locator("[data-theme-toggle]").count() == 0, "ヘッダーに明るい/暗いの切り替えボタンが無い(配色は設定の4種類から選ぶ)")
+        pg.evaluate("UIKit.theme.set('dark')")
+        c.ok(pg.get_attribute("html", "data-theme") == "dark", "UIKit.theme.set('dark') でダークになる")
         pg.reload(); pg.wait_for_selector("#rvPickBtn")
         c.ok(pg.get_attribute("html", "data-theme") == "dark" and pg.evaluate("localStorage.getItem('ytt:theme')") == "dark", "テーマの選択が保存され、再読み込み後もダーク")
 
@@ -423,6 +425,27 @@ def run_checks(port, fx, shots=None):
         first_label = (pg.text_content("#rvGPeaks .rv-gpeak >> nth=0") or "").strip()
         c.ok(first_label.startswith("1"), "いちばん高い山の札は「1」から始まる: %s" % first_label)
         c.ok("声" in first_label or "笑い" in first_label, "理由が付く(この見本データは音量の山なので「声・笑い」): %s" % first_label)
+        # グラフを見やすく(2026-10-04): 時間の目盛り・状態の色の帯・山の点と線・札が重ならない・マウスの位置の時刻
+        g = pg.evaluate("""() => {
+          const r = el => el.getBoundingClientRect(), pk = [...document.querySelectorAll('#rvGPeaks .rv-gpeak')].map(r);
+          let overlap = 0;
+          for (let i = 0; i < pk.length; i++) for (let j = i + 1; j < pk.length; j++){ const a = pk[i], b = pk[j];
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) overlap++; }
+          const box = r(document.querySelector('#rvGraph')), out = pk.filter(a => a.left < box.left - 1 || a.right > box.right + 1).length;
+          return { ticks: [...document.querySelectorAll('#rvGTicks .rv-gtick')].map(e => e.textContent), grid: document.querySelectorAll('#rvGSvg .rv-g-grid').length,
+            bands: [...document.querySelectorAll('#rvGSvg .rv-g-band')].map(e => e.getAttribute('class')),
+            dots: document.querySelectorAll('#rvGPeaks .rv-gpk-dot').length, stems: document.querySelectorAll('#rvGPeaks .rv-gpk-stem').length,
+            peaks: pk.length, overlap, out, h: box.height }; }""")
+        c.ok(len(g["ticks"]) >= 2 and g["grid"] == len(g["ticks"]) and all(":" in t for t in g["ticks"]), "グラフに時間の目盛り(文字と縦の補助線): %s" % g["ticks"])
+        c.ok(g["bands"] and all("st-" in b for b in g["bands"]) and any("st-cand" in b for b in g["bands"]), "マークの帯に状態の印(候補 = st-cand など): %s" % g["bands"])
+        c.ok(g["dots"] == g["peaks"] and g["stems"] == g["peaks"], "山ごとに点と縦の線: %s" % g)
+        c.ok(g["overlap"] == 0 and g["out"] == 0, "山の札どうしが重ならず、グラフの外にはみ出さない: %s" % g)
+        c.ok(g["h"] >= 140, "グラフの高さ(以前の 104px より高く): %.0f" % g["h"])
+        gb = pg.locator("#rvGraph").bounding_box()
+        pg.mouse.move(gb["x"] + gb["width"] * 0.5, gb["y"] + gb["height"] - 30)
+        c.ok(pg.is_visible("#rvGHover") and ":" in (pg.text_content("#rvGHover") or ""), "グラフの上ではマウスの位置の時刻が出る: %s" % pg.text_content("#rvGHover"))
+        pg.mouse.move(gb["x"] + gb["width"] * 0.5, gb["y"] + gb["height"] + 200)
+        c.ok(pg.is_hidden("#rvGHover"), "グラフから出ると時刻は消える")
         before = pg.evaluate("() => document.querySelector('#rvHost video').currentTime")
         peak_t = float(pg.get_attribute("#rvGPeaks .rv-gpeak >> nth=0", "data-t"))
         pg.click("#rvGPeaks .rv-gpeak >> nth=0")
@@ -440,6 +463,7 @@ def run_checks(port, fx, shots=None):
         wait_js(pg, "() => document.querySelector('#rvSave').dataset.k === 'saved'", 5000)
         v = api(port, "GET", "/api/video?id=" + fx["a"])["video"]
         c.ok(next(m for m in v["marks"] if m["id"] == first)["status"] == "adopted", "採用がサーバーに保存される")
+        c.ok(pg.locator('#rvGSvg .rv-g-band.st-adopted[data-id="%s"]' % first).count() == 1, "採用すると、グラフの帯も採用の色になる")
         pg.click(sel + ' [data-act="st"][data-st="rejected"]')
         wait_js(pg, "() => document.querySelector('#rvSave').dataset.k === 'saved'", 5000)
         pg.wait_for_timeout(200)
@@ -475,8 +499,19 @@ def run_checks(port, fx, shots=None):
         if shots:
             for sc in ("dark",):
                 pg.screenshot(path=os.path.join(shots, "cs_keyhelp_%s.png" % sc))
+        c.ok(pg.is_visible("#keyPresetRow #rvKeyPreset") and pg.evaluate("document.querySelector('#rvKeyPreset').value") == "standard",
+             "? の一覧の上に、キー配置の組み合わせ(標準・左手だけ)の選択がある")
         pg.keyboard.press("Escape")
         c.ok(not pg.is_visible("#keyHelp"), "Esc で閉じる")
+        # キー配置を変える場所は ? の一覧の1か所(2026-10-04): ③ の「操作の設定」には一覧を置かず、同じ一覧を開くボタンだけ
+        c.ok(pg.locator("#rvRoot .ui-km").count() == 0 and pg.locator("#rvKeysOpen").count() == 1, "③ の操作の設定にはキー配置の一覧が無く、「キー配置を変える(?)」のボタンだけ")
+        pg.evaluate("document.querySelector('#rvKeysOpen').click()")
+        c.ok(pg.is_visible("#keyHelp") and pg.locator("#keyHelpBody .ui-km-key").count() > 5, "「キー配置を変える(?)」で ? の一覧が開く")
+        pg.select_option("#rvKeyPreset", "left")
+        c.ok(wait_js(pg, "() => document.querySelector('#rvKeyPreset').value === 'left'"), "一覧の上で「左手だけ」を選べる")
+        pg.select_option("#rvKeyPreset", "standard")
+        c.ok(wait_js(pg, "() => document.querySelector('#rvKeyPreset').value === 'standard'"), "「標準」に戻せる")
+        pg.click("#keyHelpClose")
         pg.click("#btnSettings")
         c.ok(pg.is_visible("#uiSettingsDrawer") and pg.is_visible("#setKey"), "設定の引き出しが開く")
         if MOUNT["token"]:
@@ -714,6 +749,28 @@ def run_checks(port, fx, shots=None):
         pg.reload(); pg.wait_for_selector("#agChecks .agc")
         wait_js(pg, "() => document.querySelectorAll('#agChecks .agc').length === 4")
         c.ok(checks() == {"hololive": True, "nijisanji": False, "vspo": True, "neoporte": False}, "自分で外した事務所は、読み込み直しても外れたまま: %s" % checks())
+
+        print("[① 探す: 期間の早見「昨日0時〜今」と「10分以上の動画だけ」(2026-10-04)]")
+        c.ok(pg.evaluate("document.querySelector('#rkCond .cs-quick .btn').hasAttribute('data-yday')"), "期間の早見の先頭は「昨日0時〜今」")
+        pg.click("#rkCond [data-yday]")
+        want = pg.evaluate("""() => { const f = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            const e = new Date(), s = new Date(); s.setDate(s.getDate() - 1); return [f(s), f(e)]; }""")
+        c.ok([pg.input_value("#dStart"), pg.input_value("#dEnd")] == want, "「昨日0時〜今」で 開始 = 昨日・終了 = 今日 になる: %s" % want)
+        c.ok(pg.is_checked("#minDur10") and "10分以上" in (pg.text_content("#rkAdvSum") or ""), "「10分以上の動画だけ」は既定でオン(閉じた見出しの要約にも出る)")
+        pg.click("#rkCond [data-days=\"30\"]")
+        with pg.expect_request(lambda r: r.url.endswith("/api/rank/search") and r.method == "POST") as rq:
+            pg.click("#btnGo")
+        body = json.loads(rq.value.post_data or "{}")
+        c.ok(body.get("minDur") == 600, "検索の条件に最低の再生時間 600 秒を送る: %s" % body.get("minDur"))
+        pg.wait_for_selector("#results .rk-table", timeout=30000)
+        pg.evaluate("document.querySelector('#rkAdv').open = true")
+        pg.uncheck("#minDur10")
+        c.ok("10分以上" not in (pg.text_content("#rkAdvSum") or ""), "オフにすると要約から消える")
+        pg.reload(); pg.wait_for_selector("#minDur10", state="attached")
+        c.ok(not pg.is_checked("#minDur10"), "「10分以上の動画だけ」のオフは読み込み直しても残る")
+        pg.evaluate("document.querySelector('#rkAdv').open = true")
+        pg.check("#minDur10")
+        pg.evaluate("document.querySelector('#rkAdv').open = false")
 
         print("[① 探す(疑似の YouTube API)]")
         pg.click("#btnGo")

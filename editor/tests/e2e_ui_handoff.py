@@ -261,14 +261,15 @@ def main():
             hrefs = pg.evaluate("[...document.querySelectorAll('[data-ui-appnav] a')].map(a => a.getAttribute('href'))")
             check(not any(":%d/" % c2r_port in (h or "") for h in hrefs), "cut2resolve の URL も appnav のリンクに出ない: %s" % hrefs)
 
-            # ==================== 5) テーマ: ヘッダーのボタンと設定の引き出し(全体の節)は1つ ====================
+            # ==================== 5) テーマ: 設定の引き出し(全体の節)で選ぶ ====================
             before = pg.evaluate("document.documentElement.dataset.theme")
-            pg.click("[data-theme-toggle]")
-            after = pg.evaluate("document.documentElement.dataset.theme")
-            check(after != before and pg.evaluate("localStorage.getItem('ytt:theme')") == after, "ヘッダーの切り替えボタンで色が変わり、ui-kit の保存場所(ytt:theme)に残る")
+            check(pg.locator("[data-theme-toggle]").count() == 0, "ヘッダーに明暗の切り替えボタンは無い(ui-kit v14。⚙ 設定のテーマで選ぶ)")
             pg.click("[data-ui-settings]")
             theme_sel = "#uiSettingsDrawer .ui-settings-row:has-text('テーマ') select"
             pg.wait_for_selector(theme_sel, state="visible")
+            pg.select_option(theme_sel, "dark" if before != "dark" else "light")
+            after = pg.evaluate("document.documentElement.dataset.theme")
+            check(after != before and pg.evaluate("localStorage.getItem('ytt:theme')") == after, "設定の引き出しのテーマで色が変わり、ui-kit の保存場所(ytt:theme)に残る")
             check(pg.input_value(theme_sel) == after, "設定の引き出し(全体の節)のテーマの選択肢も同じ値になる: %s" % pg.input_value(theme_sel))
             pg.select_option(theme_sel, "system")
             check(pg.evaluate("localStorage.getItem('ytt:theme')") == "system" and pg.evaluate("document.documentElement.dataset.themePref") == "system",

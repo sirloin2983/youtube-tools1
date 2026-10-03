@@ -152,7 +152,7 @@ def youtube_info(vid):
     if not yd or not re.fullmatch(_ID, vid or ""):
         return None
     try:
-        r = subprocess.run([yd, "--skip-download", "--no-warnings", "--no-playlist", "--print",
+        r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--print",   # --encoding: 付けないと Windows の文字コード(cp932)で出して題名が化ける
                             "%(duration)s\t%(live_status)s\t%(channel)s\t%(title)s", "--", "https://www.youtube.com/watch?v=" + vid],
                            capture_output=True, timeout=90, **_no_window())
     except (OSError, subprocess.TimeoutExpired):
@@ -522,12 +522,13 @@ class Intake:
         """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)"""
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
-        todo, seen = [], set()
+        todo, seen, known = [], set(), []
         room = self._room(cfg)
         for it in ok[:MAX_URLS]:
             rs, rbad = (ranges or {}).get(it["id"]) or ([], [])
             it["top"] = min(TOP_MAX, max(it["top"], len(rs)))   # 切り抜く数は区間の数より小さくしない
-            label = "https://www.youtube.com/watch?v=%s(%s)" % (it["id"], "指定 %d + 自動 %d" % (len(rs), it["top"] - len(rs)) if rs else "%d 個" % it["top"])
+            how = "指定 %d + 自動 %d" % (len(rs), it["top"] - len(rs)) if rs else "%d 個" % it["top"]
+            label = "https://www.youtube.com/watch?v=%s(%s)" % (it["id"], how)
             results += [{"label": label, "state": "rejected", "reason": r} for r in rbad]
             if it["id"] in seen:
                 results.append({"label": label, "state": "rejected", "reason": "同じ配信が2回書かれています(1回だけ受け付けました)"})
@@ -536,6 +537,9 @@ class Intake:
                 results.append({"label": label, "state": "rejected", "reason": "今日の上限(%d 件)を超えたので受け付けませんでした(明日送り直してください)" % cfg["dailyMax"]})
                 continue
             info = self.info(it["id"]) or {}
+            if info.get("title"):   # 題名が分かれば、断った理由の行も URL ではなく題名で出す(一覧で読めるように。2026-10-04)
+                label = "%s(%s)" % (info["title"], how)
+                known.append(info["title"])
             if info.get("live") in ("is_live", "is_upcoming", "post_live"):
                 results.append({"label": label, "state": "rejected", "reason": "配信中・配信前の配信です(終わって見られるようになってから送ってください)"})
                 continue
@@ -576,7 +580,7 @@ class Intake:
                     results.append({"label": it["label"], "state": "rejected", "reason": skip.get(it["id"]) or "まとめて実行に入れられませんでした"})
         if not results:
             results.append({"label": title, "state": "rejected", "reason": "URL が書かれていません"})
-        first = next((r["label"] for r in results if r["state"] == "accepted"), title)
+        first = next((r["label"] for r in results if r["state"] == "accepted"), known[0] if known else title)   # 受け付けた配信 → 題名の分かった配信 → ファイル名
         n_ranges = sum(len(it["ranges"]) for it in todo)
         self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +

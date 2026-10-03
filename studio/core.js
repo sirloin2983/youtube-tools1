@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.16.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.17.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
@@ -155,7 +155,7 @@ Studio.openKeyHelp = () => {
   html += `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定を閉じる']])}</section>`;
   const groups = Studio.review && Studio.review.keyHelp ? Studio.review.keyHelp() : [];
   if (groups.length){
-    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。共通の再生キーの下は、③ の「操作の設定」→「キー配置」で変えられます。</p>`;
+    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。共通の再生キーの下は、この一覧の上の「まとめて変える」で組み合わせを選べます。</p>`;
     html += `<div class="ui-kgrid">${groups.map(([h, rows]) => `<section class="ui-kgroup"><h3 class="section-title">${Studio.esc(h)}</h3>${keyRows(rows)}</section>`).join('')}</div>`;
   }
   $('#keyHelpBody').innerHTML = html;

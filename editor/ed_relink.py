@@ -418,6 +418,41 @@ def _path_busy(path):
         return any(j["state"] in ed_jobs.ACTIVE_STATES and os.path.normcase(str((j.get("spec") or {}).get("sourcePath") or "")) == key for j in ed_jobs._jobs.values())
 
 
+def _same_drive(a, b):
+    return os.path.splitdrive(os.path.abspath(a))[0].lower() == os.path.splitdrive(os.path.abspath(b))[0].lower()
+
+
+def _move(a, b):
+    """ファイルを移す。同じドライブなら名前を変えるだけ。別のドライブ(C: → E: など。評価用のフォルダへ取り込むとき)は
+    コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せなければ(開いているなど)コピーを消して OSError(元のまま)"""
+    try:
+        os.rename(a, b)
+        return
+    except OSError as e:
+        if _same_drive(a, b) or os.path.exists(b):
+            raise
+        first = e
+    part = b + ".part"
+    try:
+        shutil.copy2(a, part)
+        if os.path.getsize(part) != os.path.getsize(a):
+            raise OSError("コピーの大きさが合いません: %s" % os.path.basename(a))
+        os.rename(part, b)
+        try:
+            os.remove(a)
+        except OSError:
+            os.remove(b)
+            raise
+    except BaseException:
+        if os.path.exists(part):
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+        raise
+    ed_state.log.info("別のドライブへ移した: %s → %s(最初の名前の変更: %s)", a, b, first)
+
+
 def _rename_sidecars(old, new):
     """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
     中身は書き換えない。-> [(古い, 新しい)]"""
@@ -428,7 +463,7 @@ def _rename_sidecars(old, new):
             a, b = os.path.join(src, ostem + suf), os.path.join(dst, nstem + suf)
             if os.path.isfile(a) and not os.path.exists(b):
                 os.makedirs(dst, exist_ok=True)
-                os.rename(a, b)
+                _move(a, b)
                 done.append((a, b))
     return done
 
@@ -591,6 +626,82 @@ def _eval_staging_pass(dirs, by_path, res):
                     res["staged"].append({"path": old, "reason": why})
 
 
+def _eval_outside_docs(dirs, only=None):
+    """評価用の印があるのに、動画が評価用のフォルダの外にある文書 {動画のパス(正規化): (動画のパス, [要約])}。
+    同じ動画を使う文書は印の無いものも入れる(断るかを決めるため)。only: この文書の動画だけ"""
+    by_path, marked = {}, set()
+    for tid in ed_store._tids():
+        sm = ed_store.transcript_summary(tid)
+        sp = str((sm or {}).get("_sourcePath") or "")
+        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _inside(sp, ed_state.DATA_DIR):
+            continue
+        key = os.path.normcase(os.path.abspath(sp))
+        by_path.setdefault(key, (sp, []))[1].append(sm)
+        if sm.get("evalSet") and (only is None or sm["id"] == only):
+            marked.add(key)
+    return {k: v for k, v in by_path.items() if k in marked}
+
+
+def _eval_free_name(folder, name):
+    """folder の中で使われていない名前(同じ名前があれば「名前 (2).拡張子」…)"""
+    stem, ext = os.path.splitext(name)
+    p, n = os.path.join(folder, name), 2
+    while os.path.exists(p):
+        p, n = os.path.join(folder, "%s (%d)%s" % (stem, n, ext)), n + 1
+    return p
+
+
+def _eval_intake_one(path, sms, root):
+    """評価用にした文書の動画1本を、評価用のフォルダへ取り込む(2026-10-04 ユーザー決定)。すべての行が校正済み・話者付きで
+    メンバーのフォルダが決まれば そのフォルダの「フォルダ名_番号_済」、それ以外は仮置き(名前はそのまま。そろったら仮置きから移る)。
+    -> ({from, to, docs, member, staged} または None, 理由 または None)"""
+    if not os.path.isfile(path):
+        return None, "動画が見つかりません"
+    if any(not s.get("evalSet") for s in sms):
+        return None, "評価用でない文書もこの動画を使っています(その文書にも「評価用」の印を付けるか、動画を選び直してください)"
+    tids = [s["id"] for s in sms]
+    if _path_busy(path) or any(_doc_busy(t) for t in tids):
+        return None, "文字起こしなどの処理の最中です"
+    members, best, why = _eval_members(root), None, None
+    rowed = [s["id"] for s in sms if s.get("rows")]
+    if not rowed:
+        why = "まだ文字起こしされていません"
+    for tid in rowed:
+        secs, why = _eval_ready(ed_store.read_transcript(tid))
+        if why:
+            break
+        for nm, sec in secs:   # 長い順。メンバーのフォルダと同じ名前の最初の人
+            if _norm_member(nm) in members:
+                if best is None or sec > best[1]:
+                    best = (nm, sec)
+                break
+    if not why and best is None:
+        why = "メンバーのフォルダと同じ名前の話者がいません"
+    if why:
+        stg = os.path.join(root, EVAL_STAGING)
+        os.makedirs(stg, exist_ok=True)
+        new = _eval_free_name(stg, os.path.basename(path))
+    else:
+        new = _eval_next_name(members[_norm_member(best[0])], os.path.splitext(path)[1], "済")
+    rec = _eval_rename(path, new, tids, "evalIntake")
+    rec["member"] = None if why else best[0]
+    rec["staged"] = why   # 仮置きへ置いた理由(メンバーのフォルダへ移したときは None)
+    return rec, None
+
+
+def _eval_intake_pass(dirs, res, only=None):
+    """評価用の印がある文書の動画が評価用のフォルダの外にあれば、最初の評価用のフォルダへ取り込む(_evalorg_lock の中で呼ぶ)"""
+    for _key, (path, sms) in sorted(_eval_outside_docs(dirs, only).items()):
+        try:
+            rec, why = _eval_intake_one(path, sms, dirs[0])
+        except (OSError, ed_state.ApiError) as e:
+            rec, why = None, "移せませんでした(動画を開いているかもしれません): %s" % (getattr(e, "message", None) or e)
+        if rec:
+            res.setdefault("intaken", []).append(rec)
+        else:
+            res["skipped"].append({"path": path, "reason": "評価用のフォルダへ移せませんでした: " + why})
+
+
 def eval_organize(trigger="button"):
     """POST /api/eval-folders/organize: 評価用のフォルダの動画の名前をそろえて、文書を付け替える。
     番号は動画のフォルダの中で、すでに付いた番号はそのまま・無いものは古い順に空いている番号。
@@ -601,9 +712,10 @@ def eval_organize(trigger="button"):
     try:
         dirs = eval_dirs()
         res = {"at": int(time.time() * 1000), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": [],
-               "moved": [], "staged": []}
+               "moved": [], "staged": [], "intaken": []}
         if not dirs:
             return res
+        _eval_intake_pass(dirs, res)   # 評価用にした文書の動画を外から取り込む(仮置きか、そろっていればメンバーのフォルダへ)
         _eval_staging_pass(dirs, _eval_docs_by_path(dirs), res)
         by_path = _eval_docs_by_path(dirs)   # 仮置きから移した分を入れて数え直す
         for root in dirs:
@@ -648,8 +760,8 @@ def eval_organize(trigger="button"):
                         res["renamed"].append(_eval_rename(old, new, [s["id"] for s in sms]))
                     except (OSError, ed_state.ApiError) as e:
                         res["skipped"].append({"path": old, "reason": "名前を変えられませんでした(動画を開いているかもしれません): %s" % (getattr(e, "message", None) or e)})
-        ed_state.log.info("評価用のフォルダを整理(%s): 動画 %d・名前を変えた %d・仮置きから移した %d・評価用にした %d・飛ばした %d",
-                 trigger, res["videos"], len(res["renamed"]), len(res["moved"]), res["marked"], len(res["skipped"]))
+        ed_state.log.info("評価用のフォルダを整理(%s): 動画 %d・名前を変えた %d・外から取り込んだ %d・仮置きから移した %d・評価用にした %d・飛ばした %d",
+                 trigger, res["videos"], len(res["renamed"]), len(res["intaken"]), len(res["moved"]), res["marked"], len(res["skipped"]))
         _evalorg_last.clear()
         _evalorg_last.update(res)
         return res
@@ -675,6 +787,27 @@ def eval_settle(obj):
     doc = ed_store.read_transcript(tid)
     dirs = eval_dirs()
     sp = str(doc.get("sourcePath") or "")
+    if dirs and sp and doc.get("evalSet") is True and not in_eval_dir(sp, dirs) and _eval_outside_docs(dirs, tid):
+        # 評価用にした文書の動画が外にある: 評価用のフォルダへ取り込む(別のドライブへのコピーは時間がかかるので裏で。結果はログと整理の記録)
+        if not _evalorg_lock.acquire(blocking=False):
+            return {"moved": None, "reason": "整理が動いています"}
+
+        def run():
+            try:
+                res = {"at": int(time.time() * 1000), "trigger": "settle", "skipped": [], "intaken": []}
+                _eval_intake_pass(dirs, res, only=tid)
+                for r in res["intaken"]:
+                    ed_state.log.info("評価用のフォルダへ取り込んだ: %s → %s", r["from"], r["to"])
+                for r in res["skipped"]:
+                    ed_state.log.warning("%s: %s", r["path"], r["reason"])
+                _evalorg_last.clear()
+                _evalorg_last.update(res)
+            except Exception:
+                ed_state.log.exception("評価用のフォルダへの取り込みに失敗")
+            finally:
+                _evalorg_lock.release()
+        threading.Thread(target=run, daemon=True, name="eval-intake").start()
+        return {"moved": None, "reason": None, "intake": True}
     if not sp or not any(_inside(sp, os.path.join(r, EVAL_STAGING)) for r in dirs):
         return {"moved": None, "reason": None}
     if not _evalorg_lock.acquire(blocking=False):
@@ -712,8 +845,9 @@ def _eval_mark_docs(tids):
 
 
 def _eval_rename(old, new, tids, why="evalOrganize"):
-    """動画と途中のファイルの名前を変えて(仮置きから移すときは別のフォルダへ)、その動画を使う文書を付け替える。付け替えに失敗したら名前を元に戻す"""
-    os.rename(old, new)
+    """動画と途中のファイルの名前を変えて(仮置きから移すとき・外から取り込むときは別のフォルダ・別のドライブへ)、その動画を使う文書を付け替える。
+    付け替えに失敗したら名前を元に戻す"""
+    _move(old, new)
     side, done = [], []
     try:
         side = _rename_sidecars(old, new)
@@ -733,11 +867,11 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
                 ed_state.log.exception("評価用の整理: 文書を元の名前へ戻せませんでした %s", tid)
         for a, b in reversed(side):
             try:
-                os.rename(b, a)
+                _move(b, a)
             except OSError:
                 pass
         try:
-            os.rename(new, old)
+            _move(new, old)
         except OSError:
             ed_state.log.exception("評価用の整理: 名前を戻せませんでした %s", new)
         raise
