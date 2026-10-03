@@ -124,7 +124,7 @@ function create(h){
     clearTimeout(M.saveT);
     Object.assign(M, { docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
       io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
-      planBeside: '', draftBusy: false, lastDraftSig: '', fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
+      planBeside: '', draftBusy: false, lastDraftSig: '', draft: null, fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
     const v = V(); v.pause(); v.removeAttribute('src'); v.load();
     renderSaveState();   // 競合の案内・保存の状態も初めに戻す(読み直したとき)
   }
@@ -166,6 +166,7 @@ function create(h){
       if (ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     } else if (dr){
       M.clips = norm(dr.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = dr.base === 'rows' ? 'rows' : 'all'; M.pristine = true; M.rev = ed ? ed.rev : 0;
+      noteDraft(M.origin, dr.keepsSec, M.origin === 'rows' ? edgeSetting() : {});
       if (ed && ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     }
     M.lastDraftSig = rowSig();
@@ -180,7 +181,14 @@ function create(h){
   /* ---------- 保存(0.8 秒まとめて PUT・rev で競合を見る) ---------- */
   function scheduleSave(){ M.dirty = true; clearTimeout(M.saveT); if (!M.drag) M.saveT = setTimeout(save, SAVE_DELAY); renderSaveState(); }
   function body(baseRev){
-    return { baseRev, edit: { sources: [{ fps: M.fps, duration: Math.round(M.dur * 1000) / 1000 }], clips: M.clips.map(([a, b]) => ({ src: 0, in: sec3(a), out: sec3(b) })), origin: M.origin } };
+    return { baseRev, edit: { sources: [{ fps: M.fps, duration: Math.round(M.dur * 1000) / 1000 }], clips: M.clips.map(([a, b]) => ({ src: 0, in: sec3(a), out: sec3(b) })), origin: M.origin },
+      ...(baseRev === 0 && M.draft ? { draft: M.draft } : {}) };   // 初めての保存だけ、始めたたき台を添える(サーバーが edit.json に一度だけ書く)
+  }
+  /* 始めたたき台の記録(マスタープラン Q2。機械の最初の結果 = たたき台と、人の最終 = 保存したカット・パックを並べて、たたき台の規則を直すため)。
+     まだ1回も保存していない間は、最後に作ったたたき台(種類・設定・区間の秒)を覚えておき、初めての保存に添える。保存済みのカットがあれば送らない */
+  function noteDraft(origin, keepsSec, settings){
+    if (M.rev) return;
+    M.draft = { origin, settings: settings || {}, keepsSec: (keepsSec || []).map(([a, b]) => [Math.round(a * 1000) / 1000, Math.round(b * 1000) / 1000]), at: Date.now() };
   }
   function save(force){
     clearTimeout(M.saveT);
@@ -245,6 +253,7 @@ function create(h){
       const r = await h.api('/api/edit/draft?rows=1&id=' + encodeURIComponent(M.docId));
       if (r.unavailable) return h.toast(r.unavailable.message, 6000, 'err');
       for (const w of (r.warnings || []).slice(0, 2)) h.toast(w, 7000);
+      noteDraft(r.base === 'rows' ? 'rows' : 'all', r.keepsSec, r.base === 'rows' ? edgeSetting() : {});
       applyKeeps(r.keepsSec, 'rows', r.base === 'rows' ? '文字起こしの行から' : '(残す行が無いので)動画全体');
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
@@ -253,6 +262,7 @@ function create(h){
   async function draftWhole(){
     if (!editable() || M.draftBusy) return;
     if (!(await confirmReplace())) return;
+    noteDraft('whole', [[0, M.dur]], {});
     applyKeeps([[0, M.dur]], 'whole', 'カットしない(動画全体)');
   }
   async function draftC2R(kind){
@@ -280,6 +290,7 @@ function create(h){
       const res = await h.c2rWait(j.job);
       if (h.S.docId !== M.docId) return;
       for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
+      noteDraft(kind, res.keepsSec || [], kind === 'silence' ? spec.silence : kind === 'list' ? { lines: spec.listText.split(/\r?\n/).filter(x => x.trim()).length } : {});
       applyKeeps(res.keepsSec || [], kind, label);
       document.querySelectorAll('#tabCut details.pop[open]').forEach(d => { d.open = false; });
     } catch (e){ h.toast(label + 'のたたき台を作れませんでした: ' + (e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message), 7000, 'err'); }
@@ -313,6 +324,7 @@ function create(h){
           const r = await h.api('/api/edit/draft?rows=1&id=' + encodeURIComponent(M.docId));
           if (!M.pristine || M.docId !== h.S.docId || r.unavailable) return;
           M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' ? 'rows' : 'all'; M.lastDraftSig = rowSig();
+          noteDraft(M.origin, r.keepsSec, M.origin === 'rows' ? edgeSetting() : {});
           syncRowCuts(); render(); h.onCutState();
         } catch {}
       }, 1500); }

@@ -59,7 +59,8 @@ function harness(respond) {
     'renderDataset', 'syncEval', 'renderDoc', 'renderList', 'updateUndo', 'applyLock', 'loadSuggest',
     'renderAb', 'loadEvals', 'renderTerms', 'navRestore', 'renderDocExtras', 'updateDocTitle',
     // v0.15.0: 一覧の進み具合の同期・カットとパック・狭い画面の引き出し(保存と切り替えの競合には関係しない)
-    'syncListItem', 'cpAfterSave', 'cpReset', 'cpDefaultFold', 'schedulePlan', 'isDrawer']) context[name] = () => {};
+    'syncListItem', 'cpAfterSave', 'cpReset', 'cpDefaultFold', 'schedulePlan', 'isDrawer',
+    'effortStart']) context[name] = () => {};   // 校正の手間を送る(マスタープラン Q2。保存とは別の API なので、このテストには関係しない)
   context.apiUrl = p => p;
   vm.createContext(context);
   vm.runInContext(saveSource + '\n' + openSource, context);

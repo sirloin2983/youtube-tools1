@@ -112,6 +112,7 @@ async function openDoc(id, keep){
     toast('読み込み中に編集されたため、現在の内容を保持しました。もう一度開いてください'); return false;
   }
   const sameDoc = S.docId === id;
+  if (!sameDoc) effortStart(id);   // 前の文書の校正の手間を送ってから、この文書で数え始める(Q2)
   S.doc = d; S.docId = id; S.undo = []; S.sug = []; S.sel = new Set(); S.curIdx = -1; S.dirty = false; S.conflict = false; S.forceNext = false; S.baseUpdatedAt = d.updatedAt || null; $('#conflictBar').hidden = true;
   if (!keep) S.navIdx = -1; else navRestore(navId, S.navIdx);
   const pos = keep ? null : loadPos(id), resumeIdx = pos ? d.segments.findIndex(x => x.id === pos.id) : -1;

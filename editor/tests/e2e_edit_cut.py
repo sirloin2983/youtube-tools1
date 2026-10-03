@@ -178,6 +178,10 @@ def main():
             sc = server_clips()
             check(sc is not None and abs(sc[1][1] - (6.5 + 2 / FPS)) < 1e-3 and sc[1][1] == round((195 + 2) / FPS, 3),
                   "区間の端が2フレーム動いて保存される(元の動画のフレームの境目の秒): %s" % ((sc[1] if sc else None),))
+            dr0 = (srv.get("/api/edit?id=" + tid)["edit"] or {}).get("draft") or {}
+            check(dr0.get("origin") == "rows" and len(dr0.get("keepsSec") or []) == 5 and isinstance((dr0.get("settings") or {}).get("on"), bool)
+                  and abs(dr0["keepsSec"][1][1] - 6.5) < 0.05,
+                  "初めての保存で、始めたたき台(行から・5区間・行の端の設定・手で直す前の区間)が edit.json の draft に残る(Q2): %s" % (dr0,))
             pg.keyboard.press(".")
             pg.keyboard.press(".")
             pg.keyboard.press(",")
@@ -325,6 +329,8 @@ def main():
             sc = server_clips()
             check(len(sc) == 1 and sc[0][0] == 0.0 and sc[0][1] >= 19.9, "カットしない = 残す区間は動画全体: %s" % (sc,))
             check("カットしない" in pg.inner_text("#cutStatus"), "下の行に「カットしない」: " + pg.inner_text("#cutStatus"))
+            check(((srv.get("/api/edit?id=" + tid)["edit"] or {}).get("draft") or {}) == dr0,
+                  "保存済みのカットにあとからたたき台を当てても、draft は初めのまま(一度だけ書く)")
             check(pg.evaluate("[...document.querySelectorAll('#segs .seg.cut')].length") == 0, "カット済の行が無くなる(字幕も全部出る)")
             pg.keyboard.press("Control+z")
             wait_saved()

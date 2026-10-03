@@ -110,6 +110,34 @@ function updateSess(){
   $('#sessStat').textContent = `未校正 ${un.length}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'}) ・ 今回 +${S.sess.n}行 ・ 作業${m}分`;
 }
 
+/* ---------- 校正の手間(マスタープラン Q2): 文書ごとに操作していた時間をため、api/effort へ送る ----------
+   時間は上の S.sess.activeMs と同じ 30 秒刻み(2 分操作しなければ数えない)。1 文字起こし のタブ = activeSec、2 カット・3 パック = cutSec。
+   送るのは 5 分たまったとき・画面を離れたとき・別の文書を開くとき。文書の保存とは別の API なので、文書の updatedAt を変えない(保存の競合 409 に巻き込まない)。
+   校正済みにした行の数は、保存のときにサーバーが数える(ここでは数えない) */
+function effortTick(ms){
+  if (!S.docId || !S.doc) return;
+  if (S.eff.id !== S.docId) effortStart(S.docId);
+  if (EDT.tab === 'tx') S.eff.tx += ms; else S.eff.cut += ms;
+  if (S.eff.tx + S.eff.cut >= 300000) effortFlush();
+}
+
+function effortStart(id){
+  if (S.eff.id === id) return;
+  effortFlush();
+  S.eff = { id, tx: 0, cut: 0, fresh: true };
+}
+
+function effortFlush(keepalive){
+  const e = S.eff;
+  if (!e.id || !(e.tx || e.cut)) return;
+  const body = { id: e.id, activeSec: Math.round(e.tx / 1000), cutSec: Math.round(e.cut / 1000), newSession: e.fresh };
+  e.tx = 0; e.cut = 0; e.fresh = false;
+  api('/api/effort', { body, keepalive: !!keepalive }).catch(err => {   // 記録なので、失敗しても作業は止めない
+    if (err.status && err.status < 500) return;   // 文書が消えた・形が違う: 送り直さない
+    if (S.eff.id === body.id){ S.eff.tx += body.activeSec * 1000; S.eff.cut += body.cutSec * 1000; S.eff.fresh = S.eff.fresh || body.newSession; }   // 通信の失敗: 次に送る
+  });
+}
+
 /* ---------- 進み具合の帯(校正済み・要確認・未校正を、時間軸で見る) ---------- */
 
 function drawStripSoon(){ if (!stripQ) stripQ = requestAnimationFrame(() => { stripQ = 0; drawStrip(); }); }

@@ -32,7 +32,10 @@
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
   「編集」(docs/design/edit-tool-design.md の 5):
-  GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev"} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる)
+  GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev", "draft"?} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる。
+                             draft = 始めたたき台。初めての保存のときだけ edit.json に一度書く = マスタープラン Q2)
+  POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
+                             校正済みにした行の数は保存のときにサーバーが数える。Q2)
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
@@ -102,7 +105,7 @@ import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, 
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.45.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.46.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -156,7 +159,7 @@ if _me is not None and _me.__dict__ is globals():   # 登録されて読み込�
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/api/lite/export", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/api/lite/export", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -605,6 +608,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_store.record_pack(obj))
             if path == "/api/edit/preview":
                 return self._json(200, ed_store.edit_preview(obj))
+            if path == "/api/effort":
+                return self._json(200, ed_store.add_effort(obj))
             if path == "/api/transcribe/cancel":
                 ed_jobs.cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})
@@ -657,7 +662,7 @@ class Handler(BaseHTTPRequestHandler):
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
-                              ed_jobs.asr_path(tid), ed_lite.edits_path(tid), ed_lite.export_record_path(tid)):   # 編集の内容(カット)・単語の時刻も一緒に
+                              ed_jobs.asr_path(tid), ed_lite.edits_path(tid), ed_lite.export_record_path(tid), ed_speakers.diar_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

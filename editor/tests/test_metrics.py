@@ -883,6 +883,7 @@ from test_normalize30 import *  # noqa: E402,F401,F403   素材を 30fps にそ�
 from test_evalaudio import *  # noqa: E402,F401,F403   評価用の音声 flac(マスタープラン Q0)
 from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
 from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
+from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタープラン Q2。proofedAt・再認識の前の機械の出力・辞書の版・カットの draft・校正の手間)
 
 
 class TestThreadDefaults(unittest.TestCase):

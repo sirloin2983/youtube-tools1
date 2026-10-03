@@ -374,6 +374,26 @@ def main():
             pg.locator("#segs textarea").nth(0).fill("読み込み直してから直した")
             pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存しました')", timeout=8000)
             check(call(port, "GET", "/api/transcript?id=" + tid)["segments"][0]["text"] == "読み込み直してから直した", "読み込み直したあとは通常どおり保存できる")
+            # ---- 記録の土台(マスタープラン Q2): 校正した時刻・校正の手間 ----
+            cur = call(port, "GET", "/api/transcript?id=" + tid)
+            pf = [g for g in cur["segments"] if g.get("proofed")]
+            check(len(pf) >= 4 and all(isinstance(g.get("proofedAt"), int) and g["proofedAt"] > 1.7e12 for g in pf),
+                  "画面で校正済みにした行に、校正した時刻 proofedAt(ミリ秒)が付く: %s" % [g.get("proofedAt") for g in pf][:6])
+            check((cur.get("effort") or {}).get("proofedRows", 0) >= 3, "校正済みにした行の数を、保存のときにサーバーが数える: %s" % (cur.get("effort"),))
+            ua = cur["updatedAt"]
+            pg.evaluate("effortTick(60000); effortFlush()")   # 30 秒刻みの数えを2回分進めて、送る(離れたとき・文書を切り替えるときと同じ関数)
+            for _ in range(50):
+                ef = call(port, "GET", "/api/transcript?id=" + tid).get("effort") or {}
+                if ef.get("activeSec", 0) >= 60:
+                    break
+                time.sleep(0.1)
+            cur = call(port, "GET", "/api/transcript?id=" + tid)
+            check(cur["effort"]["activeSec"] >= 60 and cur["effort"]["sessions"] >= 1 and cur["updatedAt"] == ua,
+                  "校正の手間(操作していた秒・回数)が文書の effort に足され、updatedAt は変わらない: %s" % (cur["effort"],))
+            pg.locator("#segs textarea").nth(0).fill("手間を送ったあとに直した")
+            pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存しました')", timeout=8000)
+            check(pg.is_hidden("#conflictBar") and call(port, "GET", "/api/transcript?id=" + tid)["segments"][0]["text"] == "手間を送ったあとに直した",
+                  "手間を送っても、開いている画面の次の保存は競合(409)にならない")
             # 履歴から戻す
             hs = call(port, "GET", "/api/history?id=" + tid)["items"]
             pg.click("#hiRefresh")

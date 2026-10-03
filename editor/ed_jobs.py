@@ -1172,9 +1172,112 @@ def recognition_run(spec, job, audio_sec, wall_sec):
             "model": spec["model"], "device": job.get("device", ""), "language": spec["language"],
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
-                         "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]},
+                         "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []], "dict": dict_version(spec)},
             "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000),
             **vad_record(job.get("vad"))}
+
+
+def short_hash(text):
+    """辞書などの中身の版(SHA-256 の先頭 10 文字)。中身そのものは残さず、同じ版かどうかだけ分かるようにする"""
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:10]
+
+
+_roster_hash = {"key": None, "val": ""}
+
+
+def roster_hash():
+    """名簿のファイル(配信ごとの文脈・用語の自動追加の材料)の版。ファイルの更新日時と大きさが同じなら前の結果。読めなければ ''"""
+    try:
+        st = os.stat(ed_state.ROSTER)
+        key = (ed_state.ROSTER, st.st_mtime_ns, st.st_size)
+        if _roster_hash["key"] != key:
+            with open(ed_state.ROSTER, "rb") as f:
+                _roster_hash.update({"key": key, "val": hashlib.sha256(f.read()).hexdigest()[:10]})
+        return _roster_hash["val"]
+    except OSError:
+        return ""
+
+
+def dict_version(spec):
+    """この認識に使った辞書の版(マスタープラン Q2。recognition.runs の settings.dict と文書の params.dict)。
+    glossary = 用語集(自動で足した語を含む。ヒントに入った語)・replacements = 置換辞書(autoDict のとき)・
+    learned = 学習済みの置換と採用・却下の記録(autoLearned のとき)・roster = 名簿のファイル。
+    辞書を変えた前後で成績を分ける・同じ版どうしで比べるために、中身ではなく短いハッシュだけを残す。使っていない・読めないものは入れない"""
+    out = {}
+    try:
+        gl = [str(t) for t in spec.get("glossary") or []]
+        if gl:
+            out["glossary"] = short_hash("\n".join(gl))
+        if spec.get("autoDict"):
+            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))))
+        if spec.get("autoLearned"):
+            rules = ed_learn.learn_rules()
+            out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": ed_learn.load_feedback()},
+                                                   ensure_ascii=False, sort_keys=True))
+    except (OSError, ValueError, TypeError, KeyError) as e:   # 記録のための値なので、作れなくても認識は止めない
+        ed_state.log.warning("辞書の版を作れませんでした: %s", e)
+    rh = roster_hash()
+    if rh:
+        out["roster"] = rh
+    return out
+
+
+# ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2。original を差し替える前の分を recognition.runs に残す) ----------
+MAX_RERUNS = 30             # recognition.runs に残す再認識の記録の件数(古いものから捨てる。最初の認識の記録 = kind の無いものは捨てない)
+MAX_REPLACED_ROWS = 20000   # 再認識の記録の replaced の行の合計の上限(超えたら古い記録から捨てる。文書が大きくなりすぎないように)
+
+
+def replaced_rows(orig, spans, keep=()):
+    """original のうち、spans のどれかに真ん中が入り、keep に入らない行(= これから差し替えられる機械の出力)。
+    replace_original・replace_original_multi と同じ決まり(真ん中で決める)"""
+    out = []
+    for o in orig or []:
+        if not isinstance(o, dict):
+            continue
+        try:
+            m = (float(o["start"]) + float(o["end"])) / 2
+        except (KeyError, TypeError, ValueError):
+            continue
+        if any(a <= m <= b for a, b in spans) and not _in_spans(m, keep):
+            out.append(dict(o))
+    return out
+
+
+def record_rerun(doc, spec, kind, spans, replaced):
+    """再認識で original を差し替える前に、差し替えられる機械の出力を recognition.runs に1件足す(文書を書くのは呼び出し側。_save_lock の中)。
+    1件 = {"kind": "each" | "range" | "whole" | "redo", 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
+           "range": [最初, 最後], "spans"?: 行ごとの範囲(each・redo で2つ以上のとき), "replaced": [差し替えられた original の行], "at"}。
+    original の無い文書(文字起こしせずに開いた)でも、いつ・何で認識し直したかは残す(replaced は空)"""
+    spans = [[round(float(a), 3), round(float(b), 3)] for a, b in spans]
+    if not spans:
+        return
+    fake = ed_state.backend_name() == "fake"
+    try:
+        eng = tx_engines.get(engine_of(spec))
+        eid, ever = ("fake", "") if fake else (eng.id, pkg_version(eng.package) if eng.package else eng.version(engine_home()))
+    except Exception:   # 記録のための値なので、エンジンの版が分からなくても差し替えは止めない
+        eid, ever = ("fake" if fake else engine_of(spec)), ""
+    rep = replaced[:MAX_REPLACED_ROWS]
+    run = {"kind": kind, "engine": eid, "engineVersion": ever, "model": str(spec.get("model") or ""), "device": str(spec.get("device") or ""),
+           "language": str(spec.get("language") or ""),
+           "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
+                        "autoDict": bool(spec.get("autoDict")), "dict": dict_version(spec)},
+           "range": [min(a for a, _ in spans), max(b for _, b in spans)], "replaced": rep, "at": int(time.time() * 1000)}
+    if len(spans) > 1:
+        run["spans"] = spans[:MAX_REPLACED_ROWS]
+    if len(replaced) > len(rep):
+        run["replacedOmitted"] = len(replaced) - len(rep)
+    rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
+    runs = [r for r in rec.get("runs") or [] if isinstance(r, dict)] + [run]
+    reruns = [r for r in runs if r.get("kind")]
+    total = sum(len(r.get("replaced") or []) for r in reruns)
+    drop = set()
+    for r in reruns[:-1]:   # 古い記録から捨てる(今回の分は残す)
+        if len(reruns) - len(drop) <= MAX_RERUNS and total <= MAX_REPLACED_ROWS:
+            break
+        drop.add(id(r))
+        total -= len(r.get("replaced") or [])
+    doc["recognition"] = dict(rec, runs=[r for r in runs if id(r) not in drop])
 
 
 def context_record(spec):
@@ -1431,6 +1534,7 @@ def run_job(job):
                                                            "context": context_record(spec)},
                   "speakers": [], "segments": segs, "original": original, "updatedAt": now,
                   "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec)]}}
+        fields["params"]["dict"] = fields["recognition"]["runs"][0]["settings"]["dict"]   # その時の辞書の版(マスタープラン Q2)
         if job.get("vad"):
             fields["params"]["vadUsed"] = job["vad"].get("used")
             note = vad_note(job["vad"])
@@ -1643,6 +1747,8 @@ def _apply_retranscribe(spec, results):
     pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements")) if spec.get("autoDict") else []
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
+    spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
+    record_rerun(doc, spec, "each", spans, replaced_rows(orig, spans))   # 差し替える前の機械の出力を残す(マスタープラン Q2)
     done = unsure = 0
     for sg in doc.get("segments") or []:
         r = results.get(sg["id"])
@@ -1652,6 +1758,7 @@ def _apply_retranscribe(spec, results):
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
         sg["text"], _ = ed_learn.apply_replacements(raw[:ed_state.MAX_TEXT], pairs)
         sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
+        sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
         sg["flag"] = "、".join(([flag] if flag else []) + keep)[:100]
         unsure += 1 if flag else 0
         done += 1
@@ -1807,6 +1914,8 @@ def _apply_range(spec, lines, loose=()):
         new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
         unsure += 1 if x.get("flag") else 0
     doc["segments"] = sorted(rest + new, key=lambda g: (g["start"], g["end"]))
+    record_rerun(doc, spec, "whole" if spec.get("mode") == "whole" else "range", [(a, b)],
+                 replaced_rows(doc.get("original") if isinstance(doc.get("original"), list) else [], [(a, b)], keep_spans))   # 差し替える前の機械の出力を残す(Q2)
     if isinstance(doc.get("original"), list):   # 守った行・元のまま残した行の機械の出力は古いまま(人が直した行との対応を壊さない)
         doc["original"] = replace_original_multi(doc["original"], a, b, new_lines, keep_spans)
     bak = os.path.join(ed_state.TX_DIR, ".bak")
@@ -1958,7 +2067,7 @@ def apply_redo(spec, results):
         segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
         by_id = {g["id"]: g for g in segs}
         used = {g["id"] for g in segs}
-        n_rep, new_words, drop = 0, [], set()
+        n_rep, new_words, drop, spans, replaced = 0, [], set(), [], []
         for rid, old_text, a, b, lines in results:
             g = by_id.get(rid)
             if not g or g.get("proofed") is True or g.get("text") != old_text:
@@ -1975,11 +2084,14 @@ def apply_redo(spec, results):
                         break
                 segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:ed_state.MAX_TEXT],
                              "speaker": g.get("speaker", ""), "flag": str(x.get("flag") or "")[:100]})
+            spans.append((a, b))
             if isinstance(doc.get("original"), list):
+                replaced += replaced_rows(doc["original"], [(a, b)])   # 差し替える前の機械の出力(下で recognition.runs に残す。Q2)
                 doc["original"] = replace_original_multi(doc["original"], a, b, lines)
             new_words.append((a, b, [w for x in lines for w in x.get("words") or []]))
         if not n_rep:
             return 0
+        record_rerun(doc, spec, "redo", spans, replaced)
         try:
             ed_store.hist_snapshot(tid, force=True)
         except OSError:

@@ -56,6 +56,7 @@ DIAR_EMBS = {
 }
 DIAR_EMB_DEFAULT = "voxceleb"
 MAX_DIAR_SEC = 3 * 3600
+DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.5, 0.1, 0.3   # sherpa-onnx の設定(_diarize_local と、判別の記録 <id>.diar.json の engine に同じ値を使う)
 MAX_SPEAKERS = 20
 SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]
 
@@ -199,8 +200,8 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT):
         segmentation=so.OfflineSpeakerSegmentationModelConfig(
             pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=_diar_path(DIAR_SEG)), num_threads=threads),
         embedding=so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads),
-        clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=0.5),
-        min_duration_on=0.1, min_duration_off=0.3)   # 短い相づちを落としにくくする
+        clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=DIAR_CLUSTER_THRESHOLD),
+        min_duration_on=DIAR_MIN_ON, min_duration_off=DIAR_MIN_OFF)   # 短い相づちを落としにくくする
     if not cfg.validate():
         raise ed_state.ApiError("diar_failed", "話者判別の設定を読み込めませんでした(モデルファイルが壊れている可能性があります。models フォルダを削除して、もう一度試してください)", 500)
     sd = so.OfflineSpeakerDiarization(cfg)
@@ -264,6 +265,104 @@ def assign_speakers(segs, turns, offset):
     return out
 
 
+# ---------- 判別の記録(transcripts/<id>.diar.json。Q2。docs/plan/master-plan-2026-10.md) ----------
+# 機械の最初の結果を残す(行の speaker・名前は人が直すので、あとから「機械はこう割り当てた」を比べられるように)。判別・声の照合のたびに書き、
+# し直したら前の回は同じファイルの history に残す(最新を含めて DIAR_KEEP 回まで。付き物を1つのファイルにして、削除・付け替えの扱いを1か所で済ませるため)。
+# 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(_record_diar)
+DIAR_SCHEMA = "youtube-tools-diar/v1"
+DIAR_KEEP = 5
+MAX_DIAR_BYTES = 32 * 1024 * 1024
+MAX_DIAR_OVERLAPS = 5000
+_diar_lock = threading.Lock()
+
+
+def diar_path(tid):
+    return os.path.join(ed_state.TX_DIR, tid + ".diar.json")
+
+
+def read_diar(tid):
+    """{"schema", "latest": {…}, "history": [前の回(新しい順)]}。無い・壊れていれば None"""
+    try:
+        d = _fsio.read_json_file(diar_path(tid), MAX_DIAR_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("schema") != DIAR_SCHEMA or not isinstance(d.get("latest"), dict):
+        return None
+    return d
+
+
+def write_diar(tid, run):
+    """run を最新として書く。前の最新は history の先頭へ(DIAR_KEEP 回まで)"""
+    with _diar_lock:
+        old = read_diar(tid)
+        hist = ([old["latest"]] + [h for h in old.get("history") or [] if isinstance(h, dict)]) if old else []
+        body = {"schema": DIAR_SCHEMA, "latest": run, "history": hist[:DIAR_KEEP - 1]}
+        ed_state.atomic_write(diar_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def update_diar_voices(tid, voices):
+    """最新の回の「覚えた声との照合」を書く(話者のラベルは labelMap から付ける)。判別の記録が無ければ何もしない"""
+    with _diar_lock:
+        d = read_diar(tid)
+        if not d:
+            return False
+        latest = d["latest"]
+        inv = {v: (int(k) if str(k).isdigit() else k) for k, v in (latest.get("labelMap") or {}).items()}
+        for sid, one in (voices.get("speakers") or {}).items():
+            one["label"] = inv.get(sid)
+        latest["voices"] = voices
+        ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        return True
+
+
+def _diar_engine(emb, requested):
+    if ed_state.backend_name() == "fake":
+        return {"name": "fake", "requested": requested or "auto"}
+    return {"name": "sherpa-onnx", "segmentation": "pyannote-segmentation-3-0", "embedding": emb, "embeddingFile": DIAR_EMBS[emb]["file"],
+            "requested": requested or "auto", "clusterThreshold": DIAR_CLUSTER_THRESHOLD, "minDurationOn": DIAR_MIN_ON, "minDurationOff": DIAR_MIN_OFF,
+            "threads": diar_threads(), "nearGapSec": 1.5, "voiceMatch": VOICE_MATCH, "voiceMargin": VOICE_MARGIN}
+
+
+def _turn_overlaps(ts):
+    """別の話者の区間が重なる所 [[開始, 終了]](つなげたもの)。ts = [(開始, 終了, ラベル)](開始の順)"""
+    raw, active = [], []
+    for a, b, s in ts:
+        active = [x for x in active if x[1] > a]
+        for _, y, t in active:
+            if t != s:
+                raw.append((a, min(b, y)))
+        active.append((a, b, s))
+    merged = []
+    for a, b in sorted(raw):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [[round(a, 2), round(b, 2)] for a, b in merged[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
+
+
+def build_diar_run(segs, res, turns, offset, requested, emb, idmap):
+    """判別の1回分の記録。時刻は元動画の秒(行と同じ)。rows[行の id] = {"label": 機械が割り当てたラベル, "speaker": 付けた話者の id,
+    "ratio": その行のうち、そのラベルの区間に入っている割合, "mixed": 声が混ざっている印, "weak": 不確かの印}"""
+    ts = sorted((a + offset, b + offset, s) for a, b, s in turns)
+    rows = {}
+    for sg, (sp, mixed, weak) in zip(segs, res):
+        a, b = sg["start"], sg["end"]
+        cover = sum(max(0.0, min(b, y) - max(a, x)) for x, y, s in ts if s == sp and x < b and y > a) if sp is not None else 0.0
+        rows[str(sg.get("id"))] = {"label": sp, "speaker": idmap.get(sp, ""), "ratio": round(min(1.0, cover / max(1e-6, b - a)), 3), "mixed": bool(mixed), "weak": bool(weak)}
+    return {"at": int(time.time() * 1000), "engine": _diar_engine(emb, requested), "offset": round(float(offset), 3),
+            "turns": [{"start": round(a, 2), "end": round(b, 2), "label": s} for a, b, s in ts],
+            "overlaps": _turn_overlaps(ts), "labelMap": {str(k): v for k, v in idmap.items()}, "speakers": len(idmap), "rows": rows,
+            "voices": {"checked": False}}
+
+
+def _record_diar(tid, run):
+    try:
+        write_diar(tid, run)
+    except Exception as e:   # 記録が書けなくても判別の結果は残す
+        ed_state.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+
+
 def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT):
     """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
     読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。"""
@@ -301,6 +400,7 @@ def _apply_diarization(tid, turns, offset, requested, emb):
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": {"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)}})
     ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    _record_diar(tid, build_diar_run(segs, res, turns, offset, requested, emb, idmap))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 
 
@@ -345,6 +445,10 @@ def single_speaker(tid, name):
         doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}], "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
         ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        _record_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "single", "requested": 1}, "offset": 0.0, "turns": [], "overlaps": [],
+                           "labelMap": {"0": "S1"}, "speakers": 1,
+                           "rows": {str(sg.get("id")): {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False} for sg in segs},
+                           "voices": {"checked": False, "speakers": {"S1": {"label": 0, "decided": name, "by": "request", "reason": None}} if name else {}}})
         return len(segs)
 
 
@@ -397,6 +501,10 @@ def run_diarize(job):
             except Exception as e:
                 ed_state.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
                 job["voiceError"] = "覚えている声との照らし合わせに失敗しました(話者の判別の結果はそのまま): %s" % str(e)[:120]
+                try:
+                    update_diar_voices(spec["tid"], {"checked": False, "error": "%s %s" % (e.__class__.__name__, str(e)[:150]), "speakers": {}})
+                except Exception:
+                    pass
         job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
     except ed_jobs.Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -570,33 +678,54 @@ def _embed_local(job, wav, emb, groups):
 def match_voices(found, voices):
     """found: {話者の id: 特徴}、voices: 覚えている声。-> {話者の id: (名前, 似ている度合い)}。
     VOICE_MATCH 以上・2番目との差が VOICE_MARGIN 以上のときだけ。1つの名前は1人にだけ(似ている順に決める)"""
+    return match_voices_explain(found, voices)[0]
+
+
+def match_voices_explain(found, voices):
+    """match_voices と同じ決め方で、決まった結果に加えて話者ごとの経過も返す(判別の記録 <id>.diar.json 用)。
+    -> (match_voices と同じ, {話者の id: {"top", "score", "second", "secondScore", "decided", "by", "reason"}})。
+    reason = 付けなかった理由: no_feature(特徴が取れない)・no_voices(比べる声が無い)・below_match(しきい値に届かない)・margin(2位との差が足りない)・name_taken(同じ名前を別の人が先に取った)"""
     names = list(voices)
-    cands = []
+    cands, info = [], {}
     for sid, v in found.items():
+        d = info[sid] = {"top": None, "score": None, "second": None, "secondScore": None, "decided": None, "by": None, "reason": None}
         if not v:
+            d["reason"] = "no_feature"
             continue
         sc = sorted(((_cos(v, voices[n]["vec"]), n) for n in names), reverse=True)
-        if not sc or sc[0][0] < VOICE_MATCH:
+        if not sc:
+            d["reason"] = "no_voices"
+            continue
+        d["top"], d["score"] = sc[0][1], round(sc[0][0], 3)
+        if len(sc) > 1:
+            d["second"], d["secondScore"] = sc[1][1], round(sc[1][0], 3)
+        if sc[0][0] < VOICE_MATCH:
+            d["reason"] = "below_match"
             continue
         if len(sc) > 1 and sc[0][0] - sc[1][0] < VOICE_MARGIN:
+            d["reason"] = "margin"
             continue
         cands.append((sc[0][0], sid, sc[0][1]))
     out, used = {}, set()
     for score, sid, name in sorted(cands, reverse=True):
-        if sid in out or name in used:
+        if sid in out:
+            continue
+        if name in used:
+            info[sid]["reason"] = "name_taken"
             continue
         out[sid] = (name, round(score, 3))
         used.add(name)
-    return out
+        info[sid]["decided"], info[sid]["by"] = name, "threshold"
+    return out, info
 
 
 def recognize_voices(job, tid, wav, offset, emb, names=None):
     """話者判別のあと: 見つかった話者を覚えている声と比べ、仮の名前(話者n)のままの話者に名前を付ける。-> [{"speaker", "name", "score"}]。
-    names(出てくる人の名前。友人からの依頼)があれば、照らし合わせをその名前だけにし、最後に仮の名前の話者と使っていない名前が1つずつ残れば消去法で付ける(score None)"""
-    voices = load_voices(emb)
-    if names:
-        voices = {n: v for n, v in voices.items() if n in names}
-    got = {}
+    names(出てくる人の名前。友人からの依頼)があれば、照らし合わせをその名前だけにし、最後に仮の名前の話者と使っていない名前が1つずつ残れば消去法で付ける(score None)。
+    照合の経過(点数・2位との差・決まり方・付けなかった理由)は <id>.diar.json の voices に残す(update_diar_voices。書けなくても名前付けは続ける)"""
+    all_voices = load_voices(emb)
+    voices = {n: v for n, v in all_voices.items() if n in names} if names else all_voices
+    got, detail = {}, {}
     if voices:
         doc = ed_store.read_transcript(tid)
         grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") or "")
@@ -604,8 +733,31 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
         if ids:
             job["phase"] = "覚えている声と照らし合わせ中"
             vecs = embed_groups(job, wav, emb, [grp[i][0] for i in ids], offset)
-            got = match_voices(dict(zip(ids, vecs)), voices)
+            got, detail = match_voices_explain(dict(zip(ids, vecs)), voices)
+
+    def record(doc, named):
+        """diar.json の voices(話者ごとの経過 + 名前を付けた結果)。失敗しても名前付けには響かせない"""
+        try:
+            rec = {}
+            for s in doc.get("speakers") or []:
+                if not isinstance(s, dict):
+                    continue
+                d = dict(detail.get(s.get("id")) or {"top": None, "score": None, "second": None, "secondScore": None, "decided": None, "by": None,
+                                                     "reason": "no_voices" if not voices else "no_rows"})
+                hit = next((n for n in named if n["speaker"] == s.get("id")), None)
+                if hit:
+                    d["decided"], d["by"], d["reason"] = hit["name"], ("elimination" if hit["score"] is None else "threshold"), None
+                elif d.get("decided"):   # しきい値は通ったが、名前が付かなかった(自分で付けた名前・別の人が使っている名前)
+                    d["reason"] = "already_named" if not DEFAULT_SPK_NAME.match(str(s.get("name") or "")) else "name_in_use"
+                    d["decided"], d["by"] = None, None
+                rec[str(s.get("id"))] = d
+            update_diar_voices(tid, {"checked": True, "embedding": emb, "registered": len(all_voices), "restrictedNames": list(names) if names else None,
+                                     "match": VOICE_MATCH, "margin": VOICE_MARGIN, "speakers": rec})
+        except Exception as e:
+            ed_state.log.warning("声の照合の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+
     if not got and not names:
+        record(ed_store.read_transcript(tid), [])
         return []
     named = []
     with ed_store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
@@ -626,6 +778,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
             ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    record(doc, named)
     return named
 
 

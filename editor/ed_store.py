@@ -59,6 +59,12 @@ def sanitize_transcript(obj, base=None):
             one["outline"] = s["outline"]
         speakers.append(one)
     segs, ids = [], set()
+    now = int(time.time() * 1000)
+    base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
+    for g in (base or {}).get("segments") or []:
+        if isinstance(g, dict) and g.get("proofed") is True and isinstance(g.get("id"), str):
+            at = g.get("proofedAt")
+            base_at[g["id"]] = at if isinstance(at, int) and not isinstance(at, bool) and at > 0 else None
     for i, sg in enumerate(obj.get("segments") or []):
         if i >= ed_state.MAX_SEGMENTS:
             raise ed_state.ApiError("too_many", "行数が多すぎます", 400)
@@ -79,6 +85,12 @@ def sanitize_transcript(obj, base=None):
             one["tags"] = tg
         if sg.get("proofed") is True:   # 校正済み(人が聞いて、この行の文字が正しいと確認した印)。学習・精度測定の正解データに使う
             one["proofed"] = True
+            # 初めて校正済みにした時刻(ミリ秒。マスタープラン Q2 = 時期で分けて測る)。保存済みの同じ id の行から引き継ぎ(画面の値は使わない)、
+            # 保存済みで校正済みでなかった行は今。外した行は残さない(次に校正済みにした時刻から数え直す)。
+            # この項目より前に校正済みだった行は時刻を作らない(分からないまま。時期で分けるときは「時刻なし = この版より前」)
+            at = base_at[sid] if sid in base_at else now
+            if at is not None:
+                one["proofedAt"] = at
         if sg.get("cutState") == "cut":
             one["cutState"] = "cut"
         segs.append(one)
@@ -91,7 +103,7 @@ def sanitize_transcript(obj, base=None):
     if ed_relink.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
         out["evalSet"] = True
     out.update({"title": str(obj.get("title", out.get("title", "")))[:120], "speakers": speakers, "segments": segs,
-                "updatedAt": int(time.time() * 1000)})
+                "updatedAt": now})
     return out
 
 
@@ -348,6 +360,7 @@ def save_transcript(tid, obj):
         if b is not None and not obj.get("force") and base.get("updatedAt") and b != base.get("updatedAt"):
             raise ed_state.ApiError("conflict", "別の場所で先に更新されています(別のタブ、再認識、話者分離など)。読み込み直すか、この内容で上書きするか選んでください", 409)
         doc = sanitize_transcript(obj, base)
+        effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
         apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
         try:
             hist_snapshot(tid)
@@ -368,6 +381,11 @@ def restore_history(tid, ts):
                 old = json.load(f)
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
             old["updatedAt"] = int(time.time() * 1000)
+            cur = read_transcript(tid)
+            if isinstance(cur.get("effort"), dict):   # 校正の手間の累計は戻さない(戻すのは文字と行。マスタープラン Q2)
+                old["effort"] = cur["effort"]
+            else:
+                old.pop("effort", None)
             if ed_relink.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
                 old["evalSet"] = True
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
@@ -375,6 +393,61 @@ def restore_history(tid, ts):
         except (OSError, ValueError):
             raise ed_state.ApiError("broken", "履歴を読み込めません", 500)
         return old
+
+
+# ---------- 校正の手間(マスタープラン Q2。文書ごとの累計 effort = {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"}) ----------
+# 時間(activeSec = 1 文字起こし のタブで操作していた秒・cutSec = 2 カット / 3 パック・sessions = 開いて作業した回数)は画面が POST /api/effort で送る。
+# 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(簡易版を含め、どの画面から保存しても同じ数え方)。
+# どれも文書の updatedAt を動かさない(記録のために画面の保存の競合 baseUpdatedAt / 409 を起こさない)
+MAX_EFFORT_SEC = 3600   # 1回に足せる秒の上限(画面は 30 秒刻みで数え、5 分たまったとき・離れたとき・文書を切り替えるときに送る)
+EFFORT_KEYS = ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows")
+
+
+def _plain_int(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def _effort_of(doc):
+    ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
+    out = {k: max(0, _plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
+    if _plain_int(ef.get("lastAt")):
+        out["lastAt"] = ef["lastAt"]
+    return out
+
+
+def effort_rows(base, doc):
+    """保存で校正済みにした行・外した行(保存済みの文書 base と、これから書く doc の同じ id の行を比べる)を doc の effort に足す"""
+    before = {g.get("id") for g in (base or {}).get("segments") or [] if isinstance(g, dict) and g.get("proofed") is True}
+    after = {g["id"]: g.get("proofed") is True for g in doc.get("segments") or []}
+    on = sum(1 for i, p in after.items() if p and i not in before)
+    off = sum(1 for i in before if i in after and not after[i])
+    if on or off:
+        ef = _effort_of(doc)
+        ef["proofedRows"] += on
+        ef["unproofedRows"] += off
+        ef["lastAt"] = doc.get("updatedAt") or int(time.time() * 1000)
+        doc["effort"] = ef
+
+
+def add_effort(obj):
+    """POST /api/effort {"id", "activeSec", "cutSec"?, "newSession"?} -> {"effort": 累計}。文書の effort の時間と回数に足す。
+    **文書の updatedAt は変えない**。保存と同じロックの中で読み直して足す"""
+    tid = str(obj.get("id") or "")
+    sec, cut = _plain_int(obj.get("activeSec", 0)), _plain_int(obj.get("cutSec", 0))
+    if sec is None or cut is None or not 0 <= sec <= MAX_EFFORT_SEC or not 0 <= cut <= MAX_EFFORT_SEC:
+        raise ed_state.ApiError("bad_request", "activeSec・cutSec は 0〜%d 秒の整数にしてください" % MAX_EFFORT_SEC, 400)
+    with _save_lock:
+        doc = read_transcript(tid)
+        ef = _effort_of(doc)
+        if not sec and not cut:
+            return {"effort": ef}
+        ef["activeSec"] += sec
+        ef["cutSec"] += cut
+        ef["sessions"] += 1 if obj.get("newSession") is True else 0
+        ef["lastAt"] = int(time.time() * 1000)
+        doc["effort"] = ef
+        ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        return {"effort": ef}
 
 
 # ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/design/edit-tool-design.md の 4・5) ----------
@@ -446,6 +519,39 @@ def sanitize_edit(obj):
             "origin": obj.get("origin") if obj.get("origin") in EDIT_ORIGINS else "manual"}
 
 
+DRAFT_ORIGINS = ("rows", "all", "whole", "silence", "list", "plan")   # 機械が作るたたき台(manual は人の操作なので入れない)
+
+
+def sanitize_draft(v):
+    """初めてのたたき台の記録 draft(マスタープラン Q2。人の最終 = 保存したカット・パックの cutPlan と並べて、たたき台の規則を直すため)を確かめる。
+    {"origin": たたき台の種類, "settings": {名前: 数・真偽・短い文字}(行から = 行の端の設定 rowEdge・無音 = しきい値など), "keepsSec": [[開始, 終了], …], "at"}。
+    記録のための値なので、正しくなければ None(= 保存しない。カットの保存は止めない)"""
+    if not isinstance(v, dict) or v.get("origin") not in DRAFT_ORIGINS:
+        return None
+    keeps = v.get("keepsSec")
+    if not isinstance(keeps, list) or len(keeps) > MAX_CLIPS:
+        return None
+    out_k, prev = [], 0.0
+    for x in keeps:
+        a, b = (_real(x[0]), _real(x[1])) if isinstance(x, list) and len(x) == 2 else (None, None)
+        if a is None or b is None or not 0 <= a < b <= MAX_MEDIA_SEC or a < prev - 1e-6:
+            return None
+        out_k.append([round(a, 3), round(b, 3)])
+        prev = b
+    st = v.get("settings") if isinstance(v.get("settings"), dict) else {}
+    settings = {}
+    for k, x in list(st.items())[:20]:
+        if not isinstance(k, str) or not re.fullmatch(r"[A-Za-z][\w]{0,29}", k, re.A):
+            continue
+        if isinstance(x, bool) or (isinstance(x, str) and len(x) <= 100 and not any(ord(ch) < 32 for ch in x)):
+            settings[k] = x
+        elif _real(x) is not None:
+            settings[k] = round(_real(x), 4)
+    at = v.get("at")
+    return {"origin": v["origin"], "settings": settings, "keepsSec": out_k,
+            "at": at if isinstance(at, int) and not isinstance(at, bool) and at > 0 else int(time.time() * 1000)}
+
+
 def read_edit(tid):
     """保存済みの編集の内容。-> (中身 または None, 壊れているか)。形が正しくないもの(手で書き換えた・書きかけ)は壊れている扱い"""
     try:
@@ -467,6 +573,9 @@ def read_edit(tid):
                 "packRev": pr if isinstance(pr, int) and not isinstance(pr, bool) and pr >= 0 else 0})
     if isinstance(d.get("pack"), dict):
         out["pack"] = d["pack"]
+    draft = sanitize_draft(d.get("draft"))   # 初めてのたたき台の記録(Q2。以前の edit.json には無い)
+    if draft:
+        out["draft"] = draft
     return out, False
 
 
@@ -638,7 +747,8 @@ def get_edit(tid):
 
 
 def save_edit(tid, obj):
-    """PUT /api/edit?id= {"edit", "baseRev"} -> {"rev", "cutRows", "updatedAt"}。baseRev が保存済みの rev と違えば 409(別のタブ・窓で先に保存された)。
+    """PUT /api/edit?id= {"edit", "baseRev", "draft"?} -> {"rev", "cutRows", "updatedAt"}。baseRev が保存済みの rev と違えば 409(別のタブ・窓で先に保存された)。
+    draft = 画面がそのカットを始めたたき台(sanitize_draft)。保存済みの edit.json に draft が無いときだけ一度だけ書く(上書きしない。Q2)。
     文書の行の cutState も同じロックの中で合わせる(画面から2回に分けて送らない)。文書の updatedAt は変えない
     (cutState は編集の内容から決まる値なので、校正の保存の競合の検出(baseUpdatedAt)に巻き込まない)"""
     base = obj.get("baseRev")
@@ -660,6 +770,12 @@ def save_edit(tid, obj):
         d = dict(clean, schema=EDIT_SCHEMA, rev=rev + 1, updatedAt=now, packRev=cur["packRev"] if cur else 0)
         if cur and cur.get("pack"):
             d["pack"] = cur["pack"]
+        if cur and cur.get("draft"):
+            d["draft"] = cur["draft"]
+        elif not cur:   # 初めての保存(壊れていたファイルの上書きを含む)のときだけ。以前の版で作った edit.json には後から足さない(始めたたき台が分からないため)
+            draft = sanitize_draft(obj.get("draft"))
+            if draft:
+                d["draft"] = draft
         body = json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8")
         if len(body) > MAX_EDIT_BYTES:
             raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)

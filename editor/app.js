@@ -1,10 +1,11 @@
 'use strict';
-const APP_VERSION = '0.45.0';
+const APP_VERSION = '0.46.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
   undo: [], sel: new Set(), curIdx: -1, playEnd: null, seen: new Set(), pollT: null,
-  navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() } };
+  navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
+  eff: { id: null, tx: 0, cut: 0, fresh: true } };   // eff = 文書ごとの校正の手間のまだ送っていない分(effortFlush。マスタープラン Q2)
 const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
 
 /* ---------- 共通 ---------- */
@@ -353,6 +354,7 @@ $('#btnSugHigh').addEventListener('click', () => {
 setInterval(() => {   // 操作している時間だけ数える(放置している間は進めない)。休憩のお知らせも、この時間で出す
   if (Date.now() - S.sess.lastAct < 120000){
     S.sess.activeMs += 30000; updateSess();
+    effortTick(30000);   // 文書ごとの校正の手間にも同じ時間を足す(開いている文書・今のタブ)
     const b = Number(V.brk) * 60000;
     if (b && S.sess.activeMs - S.sess.lastBreak >= b){ S.sess.lastBreak = S.sess.activeMs; toast(`操作を始めて${Math.round(S.sess.activeMs / 60000)}分たちました。少し休憩しませんか(目を離す・肩を回す・水分)`, 9000); }
   }
@@ -468,6 +470,7 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
   S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc(); if (CUT) CUT.refresh();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
+onLeave(() => effortFlush(true));   // 校正の手間のまだ送っていない分も送る(保存とは別の小さな POST。'blur' でも送るだけ = 重い処理はしない。閉じるときも届くよう keepalive)
 /* ---------- 字幕の文字数(docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
 const SUB_DEFAULT = { orientation: 'vertical', maxChars: { vertical: 16, horizontal: 28 }, wrapChars: { vertical: 8, horizontal: 14 } };
 

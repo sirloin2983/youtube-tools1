@@ -494,7 +494,9 @@ def bundle_parts(doc, tid, date, pinfo, edits_bytes):
         raw_segs, run, source = asr["segments"], asr.get("run") or {}, "asr"
     else:   # 生出力が無い(簡易版より前の文書)ときは、文書の機械の出力で代わりにする
         raw_segs = [dict(o, words=[]) for o in doc.get("original") or [] if isinstance(o, dict)]
-        run, source = ((doc.get("recognition") or {}).get("runs") or [{}])[-1], "original"
+        # 最後の「認識の記録」(再認識の記録 kind = each/range/whole/redo は除く。2026-10-04 Q2 で runs に足すようになった)
+        runs = [r for r in (doc.get("recognition") or {}).get("runs") or [] if isinstance(r, dict) and not r.get("kind")]
+        run, source = (runs or [{}])[-1], "original"
     names = {s.get("id"): s.get("name") or s.get("id") for s in doc.get("speakers") or []}
     rows = []
     for g in ed_state.pio().sorted_segments(doc):

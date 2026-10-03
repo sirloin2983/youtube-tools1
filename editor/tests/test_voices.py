@@ -11,10 +11,13 @@
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+import shutil
+import tempfile
 import unittest
+import urllib.request
 from unittest import mock
 
-from test_backend import S, TID, StoreDir
+from test_backend import S, TID, StoreDir, free_port, start_server, write_json
 
 
 def unit(*xs):
@@ -275,6 +278,157 @@ class TestVoiceStore(StoreDir):
             d = json.load(f)
         self.assertEqual(([s["name"] for s in d["speakers"]], {g["speaker"] for g in d["segments"]}, {g["flag"] for g in d["segments"]}),
                          (["さくらみこ"], {"S1"}, {""}))
+
+
+class TestDiarRecord(StoreDir):
+    """判別の記録 <id>.diar.json(Q2): 機械の最初の割り当て・覚えた声との照合の経過を残す。行の speaker・名前(人の最終)は変えない"""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_vdir = S.VOICES_DIR
+        S.VOICES_DIR = os.path.join(self.tmp, "voices")
+        self.saved_delay = os.environ.get("TRANSCRIBE_FAKE_DELAY")
+        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0.001"
+
+    def tearDown(self):
+        if self.saved_delay is None:
+            os.environ.pop("TRANSCRIBE_FAKE_DELAY", None)
+        else:
+            os.environ["TRANSCRIBE_FAKE_DELAY"] = self.saved_delay
+        S.VOICES_DIR = self.saved_vdir
+        super().tearDown()
+
+    def job(self, spec):
+        return {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "speakers": 0}
+
+    def diarize(self, req):
+        with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
+                mock.patch.object(S, "backend_name", lambda: "fake"), mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [unit(1, 0, 0) for _ in groups]):
+            spec = S.validate_diarize(dict(req, tid=TID))
+            j = self.job(spec)
+            S.run_diarize(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
+        return j
+
+    def doc(self):
+        return doc_with_speakers([], [(0, 5, "", ""), (8, 14, "", ""), (14.5, 19, "", ""), (21, 28, "", "")])
+
+    def read(self):
+        with open(S.diar_path(TID), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_fake_diarize_writes_diar_json(self):
+        self.put_doc(self.doc())
+        self.diarize({"numSpeakers": 2})
+        d = self.read()
+        self.assertEqual(d["schema"], "youtube-tools-diar/v1")
+        run = d["latest"]
+        self.assertEqual((d["history"], run["engine"]["name"], run["engine"]["requested"]), ([], "fake", 2))
+        self.assertEqual(run["turns"][0], {"start": 0.0, "end": 10.0, "label": 0})
+        self.assertEqual(run["labelMap"], {"0": "S1", "1": "S2"})
+        self.assertEqual(sorted(run["rows"]), ["s1", "s2", "s3", "s4"])
+        self.assertEqual((run["rows"]["s1"]["speaker"], run["rows"]["s1"]["ratio"], run["rows"]["s1"]["weak"]), ("S1", 1.0, False))
+        self.assertTrue(run["rows"]["s2"]["mixed"] or run["rows"]["s2"]["weak"] or run["rows"]["s2"]["ratio"] < 1.0)   # 10 秒でまたぐ行
+        self.assertEqual(run["voices"]["checked"], True)   # 覚えた声が無い → 理由 no_voices
+        self.assertEqual(run["voices"]["speakers"]["S1"]["reason"], "no_voices")
+        self.assertEqual(run["voices"]["speakers"]["S1"]["label"], 0)
+        with open(S.tx_path(TID), encoding="utf-8") as f:   # 人の最終(今の行の speaker・名前)は文書のまま
+            doc = json.load(f)
+        self.assertEqual([g["speaker"] for g in doc["segments"]], [run["rows"][k]["speaker"] for k in ("s1", "s2", "s3", "s4")])
+        self.assertNotIn("vec", json.dumps(d))
+
+    def test_overlaps_from_turns(self):
+        ts = [(0.0, 10.0, 0), (8.0, 12.0, 1), (11.0, 15.0, 0), (20.0, 25.0, 1)]
+        self.assertEqual(S._turn_overlaps(ts), [[8.0, 10.0], [11.0, 12.0]])
+        self.assertEqual(S._turn_overlaps([(0, 5, 0), (3, 8, 0)]), [])   # 同じ話者どうしは重なりに数えない
+
+    def test_voice_matching_details_recorded(self):
+        S.save_voices("voxceleb", {"兎田ぺこら": {"vec": unit(1, 0, 0), "rows": 3, "sec": 30, "updatedAt": 1}})
+        self.put_doc(self.doc())
+        j = self.diarize({"numSpeakers": 2})
+        named = j["named"]
+        v = self.read()["latest"]["voices"]
+        self.assertEqual(v["registered"], 1)
+        hit = [sid for sid, x in v["speakers"].items() if x["decided"]]
+        self.assertEqual([(n["speaker"]) for n in named], hit)   # 付いた名前と記録が同じ
+        one = v["speakers"][hit[0]]
+        self.assertEqual((one["top"], one["by"], one["reason"], one["score"] >= 0.6), ("兎田ぺこら", "threshold", None, True))
+        other = [x for sid, x in v["speakers"].items() if sid not in hit]   # 同じ名前は1人だけ → もう1人は付かない
+        self.assertTrue(all(x["decided"] is None and x["reason"] in ("name_taken", "already_named", "name_in_use") for x in other), other)
+
+    def test_explain_reasons(self):
+        voices = {"a": {"vec": unit(1, 0, 0)}, "b": {"vec": unit(0.9, 0.2, 0)}}
+        out, info = S.match_voices_explain({"S1": unit(0, 0, 1), "S2": unit(1, 0.1, 0), "S3": None}, voices)
+        self.assertEqual(out, {})
+        self.assertEqual((info["S1"]["reason"], info["S2"]["reason"], info["S3"]["reason"]), ("below_match", "margin", "no_feature"))
+        self.assertEqual((info["S2"]["top"], info["S2"]["second"]), ("a", "b"))
+        self.assertTrue(info["S2"]["score"] - info["S2"]["secondScore"] < S.VOICE_MARGIN)
+        out, info = S.match_voices_explain({"S1": unit(1, 0, 0)}, {"a": {"vec": unit(1, 0, 0)}})
+        self.assertEqual((out, info["S1"]["by"]), ({"S1": ("a", 1.0)}, "threshold"))
+
+    def test_single_speaker_writes_diar_json(self):
+        self.put_doc(self.doc())
+        with mock.patch.object(S, "check_source", lambda p: p):
+            spec = S.validate_diarize({"tid": TID, "numSpeakers": 1, "names": ["さくらみこ"]})
+        j = self.job(spec)
+        S.run_diarize(j)
+        self.assertEqual(j["state"], "done", j.get("error"))
+        run = self.read()["latest"]
+        self.assertEqual((run["engine"]["name"], run["turns"], sorted(run["rows"]), run["voices"]["speakers"]["S1"]["decided"]), ("single", [], ["s1", "s2", "s3", "s4"], "さくらみこ"))
+        self.assertEqual({r["speaker"] for r in run["rows"].values()}, {"S1"})
+
+    def test_redo_keeps_previous_runs(self):
+        self.put_doc(self.doc())
+        self.diarize({"numSpeakers": 2})
+        first = self.read()["latest"]["at"]
+        self.diarize({"numSpeakers": 3})
+        d = self.read()
+        self.assertEqual((len(d["history"]), d["history"][0]["at"], d["history"][0]["engine"]["requested"], d["latest"]["engine"]["requested"]), (1, first, 2, 3))
+        with mock.patch.object(S, "check_source", lambda p: p):
+            S.run_diarize(self.job(S.validate_diarize({"tid": TID, "numSpeakers": 1})))   # 1人指定のし直しも前を残す
+        d = self.read()
+        self.assertEqual(([h["engine"]["requested"] for h in d["history"]], d["latest"]["engine"]["name"]), ([3, 2], "single"))
+        for n in range(6):
+            self.diarize({"numSpeakers": 2})
+        d = self.read()
+        self.assertEqual(len(d["history"]), S.DIAR_KEEP - 1)   # 最新を含めて 5 回まで
+
+    def test_write_failure_does_not_fail_diarize(self):
+        self.put_doc(self.doc())
+        with mock.patch.object(S, "write_diar", side_effect=OSError("disk full")):
+            self.diarize({"numSpeakers": 2})
+        self.assertFalse(os.path.exists(S.diar_path(TID)))
+        with open(S.tx_path(TID), encoding="utf-8") as f:
+            self.assertTrue(json.load(f)["speakers"])   # 判別の結果は残る
+
+
+class TestDiarDelete(unittest.TestCase):
+    """文書を消すと <id>.diar.json も消える(serve.py の _delete)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.port = free_port()
+        cls.proc = start_server(cls.tmp, cls.port, os.path.join(cls.tmp, ".runtime"))
+        cls.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+        cls.proc.wait(timeout=10)
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_delete_removes_diar_json(self):
+        txdir = os.path.join(self.tmp, "transcripts")
+        os.makedirs(txdir, exist_ok=True)
+        write_json(os.path.join(txdir, TID + ".json"), doc_with_speakers([("S1", "話者1")], [(0, 5, "S1", "")]))
+        dp = os.path.join(txdir, TID + ".diar.json")
+        write_json(dp, {"schema": "youtube-tools-diar/v1", "latest": {"rows": {}}, "history": []})
+        req = urllib.request.Request("http://127.0.0.1:%d/api/transcript?id=%s" % (self.port, TID), method="DELETE")
+        with self.opener.open(req, timeout=30) as r:
+            self.assertEqual(r.status, 200)
+        self.assertFalse(os.path.exists(dp))
+        self.assertFalse(os.path.exists(os.path.join(txdir, TID + ".json")))
 
 
 if __name__ == "__main__":

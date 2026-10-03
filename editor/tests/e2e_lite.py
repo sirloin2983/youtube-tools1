@@ -114,6 +114,9 @@ def main():
             check(doc["segments"][0]["text"] == "えー [笑] こんにちは" and doc["segments"][0].get("proofed") is True, "保存した文書")
             check(doc["segments"][1]["speaker"] == "B" and doc["speakers"][1]["name"] == "さくらみこ", "話者も保存")
             check(doc["lite"]["streamer"] == "兎田ぺこら", "簡易版の印")
+            check(isinstance(doc["segments"][0].get("proofedAt"), int) and (doc.get("effort") or {}).get("proofedRows", 0) >= 1,
+                  "簡易版で確認済みにした行にも、校正した時刻(proofedAt)と校正済みにした行の数(effort)が残る(Q2): %s %s"
+                  % (doc["segments"][0].get("proofedAt"), doc.get("effort")))
             # 30fps にそろえる(Q1): ドロップした webm(VP9)は lite-media/<番号>/配信テスト.mp4 に 30fps(H.264)の写しを作って使う
             sp = doc["sourcePath"]
             job = next((j for j in srv.get("/api/jobs")["jobs"] if j.get("tid") == tid), {})

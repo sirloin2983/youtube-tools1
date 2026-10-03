@@ -235,6 +235,19 @@ def main():
             st, doc1 = call(port, "GET", "/api/transcript?id=" + urllib.parse.quote(tid1))
             check(st == 200 and doc1.get("segments", [{}])[0].get("text") == "直した文1",
                   "編集した行がサーバーに保存されている(Python から GET で確認): %s" % (doc1.get("segments", [{}])[0].get("text") if st == 200 else (st, doc1)))
+            # 校正の手間(マスタープラン Q2): 入口に取り込んだ形でも api() が合言葉を付けて /transcribe/api/effort へ送れる・updatedAt は変わらない
+            pg.evaluate("effortTick(30000); effortFlush()")
+            ef = {}
+            for _ in range(50):
+                st, d = call(port, "GET", "/api/transcript?id=" + urllib.parse.quote(tid1))
+                ef = d.get("effort") or {}
+                if ef.get("activeSec"):
+                    break
+                time.sleep(0.1)
+            check(ef.get("activeSec") == 30 and ef.get("sessions") == 1 and d.get("updatedAt") == doc1.get("updatedAt"),
+                  "校正の手間を送れる(合言葉つきの POST)・文書の updatedAt は変わらない: %s" % (ef,))
+            st, body = call(port, "POST", "/api/effort", body={"id": tid1, "activeSec": 30})
+            check(st == 403, "校正の手間の API も合言葉なしは 403: %s" % st)
 
             # ==================== 3b) 履歴の一覧(v0.15.0): 配信ごとのまとまり・配信者・校正の進み具合 ====================
             st, lst = call(port, "GET", "/api/transcripts")
