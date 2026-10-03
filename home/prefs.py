@@ -6,6 +6,8 @@
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
   intake   … 友人からの依頼の受付(home/intake.py。docs/design/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・上限
   backup   … 作業データのバックアップ(home/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
+  live     … リアルタイム切り抜き(線 D。home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:\Video\live-rec)・
+             録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -21,8 +23,8 @@ MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
 NAME_MAX = 60
 KEY_MAX = 120
-SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden")
-PATCHABLE = ("autorun", "keymap", "intake", "backup")
+SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live")
+PATCHABLE = ("autorun", "keymap", "intake", "backup", "live")
 AUTORUN_MODES = ("full", "adopted", "transcribe")      # home/autorun.py の MODES と同じ名前
 CUT_METHODS = ("rows", "none", "silence")
 ON_FAIL = ("next", "stop")
@@ -40,10 +42,15 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカ�
             "keymap": {"playback": {}},
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
-            "hidden": {k: {} for k in HIDE_LISTS}}
+            "hidden": {k: {} for k in HIDE_LISTS},
+            "live": {"enabled": False, "folder": "", "recorders": []}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
 FOLDER_MAX = 260
+RECORDERS_MAX = 8
+RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
+RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
+RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 
 
 class PrefsError(ValueError):
@@ -102,6 +109,38 @@ def _clean_backup(v, cur):
         out["everyHours"] = x
     if out["enabled"] and not out["folder"]:
         raise PrefsError("バックアップ先のフォルダを指定してから、オンにしてください")
+    return out
+
+
+def _clean_live(v, cur):
+    """リアルタイム切り抜きの設定(home/live.py)。置き場所のドライブがあるかは録画の部品が確かめて画面に出す(ここでは形だけ)。
+    録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
+    out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []]}
+    if "enabled" in v:
+        out["enabled"] = v["enabled"] is True
+    if "folder" in v:
+        out["folder"] = _clean_folder(v["folder"])
+    if "recorders" in v:
+        rs = v["recorders"]
+        if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:
+            raise PrefsError("録画元の一覧の形が正しくありません(%d まで)" % RECORDERS_MAX)
+        old = {r.get("id"): r for r in out["recorders"]}
+        clean, ids = [], set()
+        for r in rs:
+            if not isinstance(r, dict):
+                raise PrefsError("録画元の一覧の形が正しくありません")
+            rid, url, token = r.get("id"), r.get("url"), r.get("token") or ""
+            if not isinstance(rid, str) or not RECORDER_ID_RE.match(rid) or rid in ids:
+                raise PrefsError("録画元の id は英小文字で始まる 16 字までで、重ならないようにしてください")
+            if not isinstance(url, str) or not RECORDER_URL_RE.match(url) or not 1024 <= int(url.rsplit(":", 1)[1]) <= 65535:
+                raise PrefsError("録画元の URL は http://<名前か IP>:<ポート> で指定してください")
+            if not isinstance(token, str) or (token and not RECORDER_TOKEN_RE.match(token)):
+                raise PrefsError("録画元の合言葉の形が正しくありません")
+            if not token and (old.get(rid) or {}).get("url") == url:   # URL を変えたら前の合言葉は使わない(別の相手へ送らない)
+                token = (old.get(rid) or {}).get("token") or ""
+            ids.add(rid)
+            clean.append({"id": rid, "name": _clean_name(r.get("name") or rid) or rid, "url": url, "token": token})
+        out["recorders"] = clean
     return out
 
 
@@ -221,6 +260,11 @@ class Prefs:
                 return {"playback": {}}
         if name == "hidden":
             return _read_hidden(v)
+        if name == "live":
+            try:
+                return _clean_live(v if isinstance(v, dict) else {}, DEFAULTS["live"])
+            except PrefsError:
+                return {"enabled": False, "folder": "", "recorders": []}
         return _read_streamer(v)
 
     def get(self, sections=None):
@@ -250,7 +294,8 @@ class Prefs:
         with self.lock:
             d, broken = self._load()
             cur = self._section(d, section)
-            new = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake, "backup": _clean_backup}[section](value, cur)
+            new = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake, "backup": _clean_backup,
+                   "live": _clean_live}[section](value, cur)
             d[section] = new
             self._save(d, broken)
             return new

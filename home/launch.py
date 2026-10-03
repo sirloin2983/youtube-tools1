@@ -31,6 +31,8 @@
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
+  GET  /live/…・POST /live/r/…            リアルタイム切り抜き(線 D の P1。home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
+                                          録画と再生の画面 /live/・録画元(recorder/recorder.py)への中継 /live/r/<録画元>/<残り>
   POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
                                           (Dropbox の見張るフォルダの 出力 に zip で置く。home/deliver.py。2026-10-04)
 
@@ -76,9 +78,10 @@ import health as health_mod  # noqa: E402  (home/health.py: 「調子」。段9 
 import cleanup as cleanup_mod  # noqa: E402  (home/cleanup.py: 片付け。段9 9-2)
 import restart as restart_mod  # noqa: E402  (home/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
+import live as live_mod  # noqa: E402  (home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.29.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.30.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -595,6 +598,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and (self._site_ok() or self._navigation_ok(u.path))):
             return self._send(403, b"forbidden")
+        if (u.path == "/live" or u.path.startswith("/live/")) and self.server.live.handle_get(self, u):   # リアルタイム切り抜き(オフなら下の 404 のまま)
+            return
         if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームの案件の一覧へ
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/#cases"})
         if u.path in STATIC:
@@ -680,6 +685,11 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
         if u.path.startswith(YTT_API):   # 画面の共通の API(取り込んだツールの画面からも同じ所へ来る)
             return self.server.ytt_request(self, "portal", VERSION)
+        if u.path.startswith("/live/") and self.server.live.enabled():   # リアルタイム切り抜き: 録画元へ中継(オフなら下の 404 のまま)
+            body = self._read_json()
+            if body is not None:
+                self.server.live.handle_post(self, u, body)
+            return
         body = self._read_json()
         if body is None:
             return
@@ -793,7 +803,10 @@ class PortalServer(ThreadingHTTPServer):
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
         self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
                                                  txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
-        self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs)   # 「調子」(段9 9-1)
+        # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
+        self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log)
+        self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
+                                        live_probe=self.live.health)   # 「調子」(段9 9-1。録画の行はオンのときだけ)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
@@ -947,13 +960,19 @@ class PortalServer(ThreadingHTTPServer):
         try:
             if op == "get":
                 secs = body.get("sections")
-                return {"ok": True, "prefs": self.prefs.get([x for x in secs if isinstance(x, str)] if isinstance(secs, list) else None)}
+                got = self.prefs.get([x for x in secs if isinstance(x, str)] if isinstance(secs, list) else None)
+                if "live" in got:   # 録画元の合言葉は画面に渡さない(あるかどうかだけ)
+                    got["live"] = dict(got["live"], recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in got["live"].get("recorders") or []])
+                return {"ok": True, "prefs": got}
             if op == "patch":
                 value = self.prefs.patch(body.get("section"), body.get("value"))
                 if body.get("section") == "intake":   # 受付の設定を変えたら、すぐ見直す(オン・フォルダ)
                     self.intake.wake.set()
                 if body.get("section") == "backup":   # バックアップの設定を変えたら、すぐ見直す(オンにした・先を変えた → 最初の1回を写す)
                     self.backup.wake.set()
+                if body.get("section") == "live":   # リアルタイム切り抜き: オンにした・置き場所を変えた → 見回りをすぐ(録画の部品を起こす・置き場所を伝える)
+                    self.live.on_patch(None, value)
+                    value = dict(value, recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in value.get("recorders") or []])
                 return {"ok": True, "value": value}
             if op == "remember":
                 return {"ok": True, "streamer": self.prefs.remember(body.get("kind"), body.get("key"), body.get("name"))}
@@ -1025,6 +1044,7 @@ class PortalServer(ThreadingHTTPServer):
         self.sup.log("画面から「すべて終了」が押されました")
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         self.backup.close()
+        self.live.close()     # 録画の部品の見回りだけ止める(録画の部品は止めない = 録画は続く)
         if self._autorun is not None:
             self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
         self.sup.stop_all()
@@ -1190,6 +1210,7 @@ def main(argv=None):
         sup.start_monitor()
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
+        srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
         if opts.app_window:   # 友人用 簡易版の起動(lite/lite.py): 設定にかかわらず窓で開く
             srv.window.force_mode = "app"
@@ -1205,6 +1226,7 @@ def main(argv=None):
         srv.closing.set()
         srv.intake.close()
         srv.backup.close()
+        srv.live.close()
         sup.close()
         sup.stop_all()
         sup.unmount_all()

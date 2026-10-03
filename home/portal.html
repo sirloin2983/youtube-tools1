@@ -217,6 +217,18 @@
           <button type="button" class="btn" id="btnWinNow" hidden>いま窓で開く</button>
         </div>
       </section>
+      <!-- 試験中の機能(既定はオフ。オンにするまで画面にも出さず、裏でも動かさない)。リアルタイム切り抜き = 線 D(home/live.py・recorder/) -->
+      <section class="card flat pt-foot" id="labBox">
+        <div class="row">
+          <div class="grow">
+            <b>試験中の機能</b>
+            <div class="hint">まだ試している機能です。オンにするまで、画面にも出ず、裏でも動きません。</div>
+          </div>
+          <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveEnabled">リアルタイム切り抜き(試験中)</label>
+          <a class="btn" id="liveLink" href="/live/" hidden>録画の画面を開く</a>
+        </div>
+        <p class="hint" id="liveMsg" role="status" hidden></p>
+      </section>
       <section class="card flat pt-foot">
         <div class="row">
           <div class="grow">

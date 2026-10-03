@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>リアルタイム切り抜き(試験中) — ホーム</title>
+<script src="../ui-kit.js"></script>
+<link rel="stylesheet" href="../ui-kit.css">
+<link rel="stylesheet" href="live.css">
+<script src="hls.min.js" defer></script>
+<script src="live.js" defer></script>
+</head>
+<body>
+<!-- リアルタイム切り抜き(線 D の P1。home/live.py)。録画元(recorder/)へは入口の /live/r/<録画元>/… を通す。ホームの設定でオンのときだけ開ける -->
+<header class="ui-header">
+  <nav class="ui-appnav" data-ui-appnav="portal" aria-label="ホーム/スタジオ/編集"></nav>
+  <span class="ui-ver">リアルタイム切り抜き(試験中)</span>
+  <div class="ui-header-actions"><span class="pill wait" id="conn">接続中…</span></div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="lv-main">
+  <h1 class="lv-h1">リアルタイム切り抜き(試験中)</h1>
+  <p class="hint">配信を録画しながら、録画済みの所を再生・シークできます。いまは録画と再生だけです(マークと書き出しは次の段)。
+    録画はホームを終えても続きます。</p>
+
+  <section class="card flat lv-box" id="recBox">
+    <div class="row">
+      <b class="grow">録画元</b>
+      <label class="lag" id="recPickLabel" hidden>録画元 <select id="recPick"></select></label>
+      <span class="pill wait" id="recState">確認中…</span>
+    </div>
+    <p class="hint" id="recMsg" hidden></p>
+    <dl class="lv-facts">
+      <dt>置き場所</dt><dd><code id="recFolder">—</code></dd>
+      <dt>空き</dt><dd class="num" id="recFree">—</dd>
+    </dl>
+    <div class="lv-guide" id="recGuide" role="status" hidden></div>
+    <details class="ui-disclosure lv-folder">
+      <summary>置き場所を変える</summary>
+      <div class="row">
+        <label class="lag lv-grow">録画の置き場所
+          <input id="folderInput" type="text" size="40" placeholder="E:\Video\live-rec" autocomplete="off" spellcheck="false"></label>
+        <button type="button" class="btn small" id="folderSave">保存</button>
+      </div>
+      <p class="hint">C 以外のドライブのフォルダ(ドライブ名からの全部のパス)を勧めます。1時間あたり約 3〜4GB 使います。録画中は変えられません。
+        空にすると既定(<span id="folderDefault"></span>)です。</p>
+      <p class="hint" id="folderMsg" role="status"></p>
+    </details>
+  </section>
+
+  <section class="card flat lv-box" id="startBox">
+    <b>録画を始める</b>
+    <div class="row lv-start">
+      <label class="lag lv-grow">配信の URL
+        <input id="startUrl" type="text" size="44" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false"></label>
+      <label class="lag">画質 <select id="startQuality">
+        <option value="best">いちばん良い</option><option value="1080p">1080p</option><option value="720p">720p(容量を抑える)</option></select></label>
+    </div>
+    <div class="row">
+      <label class="lag lv-grow">名前(なくても可) <input id="startTitle" type="text" size="32" maxlength="200" autocomplete="off"></label>
+      <button type="button" class="btn primary" id="startBtn">録画を始める</button>
+    </div>
+    <p class="hint">配信の前でも始められます(始まると自動で録画します)。切れたら 5 → 10 → 30 秒の間を空けて繋ぎ直します。</p>
+    <p class="hint" id="startMsg" role="status"></p>
+  </section>
+
+  <section class="card flat lv-box" id="playerBox" hidden>
+    <div class="row">
+      <b class="grow" id="playerTitle">再生</b>
+      <span class="hint num" id="playerClock"></span>
+      <button type="button" class="btn small" id="playerLive">ライブに戻る</button>
+      <button type="button" class="btn small ghost" id="playerClose">閉じる</button>
+    </div>
+    <video id="player" class="lv-video" controls playsinline></video>
+    <p class="hint" id="playerMsg" role="status"></p>
+  </section>
+
+  <section class="card flat lv-box" id="listBox">
+    <b>録画</b>
+    <p class="hint" id="listEmpty" hidden>まだ録画はありません。</p>
+    <ol class="lv-list" id="list"></ol>
+  </section>
+</main>
+</body>
+</html>

@@ -39,6 +39,7 @@
 | `setup/` | ユーザーが実行するインストールと片付け(`install.bat`・`install-gpu.bat`・`install-diarize.bat`・Mac の `.command`(`editor/.venv` を作る)・`requirements.txt`・`cleanup_legacy_data.bat`) | `.bat` は ASCII だけ。片付けのテストは `dev/tests/` |
 | `request-sender/` | 友人が依頼を送るプログラム(C# 5・WinForms。Dropbox の API でアプリ専用のフォルダへ。`docs/design/friend-intake.md`)。受け取る側は `home/intake.py`。鍵(`config.json`)はコミットしない | `request-sender\build.bat`(コンパイル → テスト → `dist/RequestSender.zip`)。鍵を作る `dev/dropbox_auth.py` を変えたら `python -m unittest dev/tests/test_dropbox_auth.py`。盛り上がりの検出を人の判定の記録で測る道具 `dev/eval_marks.py`(読むだけ。Q3)を変えたら `python -m unittest dev/tests/test_eval_marks.py` |
 | `holo-colors/` | ホロカラー(メンバーカラーをコピーする Windows の常駐アプリ。C# 5・WinForms。`src/`・`members.json`・`tests/`) | `holo-colors\build.bat`(コンパイル → テスト 31 件 → `dist/HoloColors.zip`)。キー・窓の動きを変えたら `python holo-colors/tests/e2e_holo_colors.py`(本物のキー入力を送る。流す間は触らない) |
+| `recorder/` | 録画の部品(線 D のリアルタイム切り抜き。**既定はオフ**。入口と別のプロセス・streamlink + ffmpeg の HLS・API と合言葉。`recorder/AGENTS.md`) | `python -m unittest recorder/tests/test_recorder.py`、入口の側(`home/live.py`・`live.*`)を変えたら `python -m unittest home/tests/test_live.py` と `python home/tests/e2e_live.py` |
 | `docs/` | 作業記録(ROADMAP・WORKLOG・HANDOVER)と資料(`spec/` 今の決まり・`plan/` これからの計画・`design/` 済んだ設計・`archive/` 古い経緯。下の「資料の場所」) | — |
 
 - フォルダ名は 2026-09-30 に変えた(段0。`app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、`start-all.bat`→`start.bat`。対応表は `docs/plan/phase0-restructure.md`)。

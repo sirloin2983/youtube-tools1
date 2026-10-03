@@ -293,8 +293,11 @@ class Health:
     """入口の「調子」。sup = Supervisor(status() を使う)。worker_probe() = 「編集」の /api/ping の worker(無ければ None)。
     extra_dirs() = 空き容量を見る追加の場所(スタジオの書き出し先など)"""
 
-    def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None):
+    def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None,
+                 live_probe=None):
+        """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(home/live.py の Live.health)。オフなら None を返す = 「調子」に出さない"""
         self.sup, self.logs_dir, self.repo_root = sup, logs_dir, repo_root
+        self.live_probe = live_probe
         self.crash_fn = crash_fn or crash_counts
         self.worker_probe = worker_probe or (lambda: None)
         self.extra_dirs = extra_dirs or (lambda: [])
@@ -374,6 +377,13 @@ class Health:
             "heavy": st.get("heavy"),
             "computing": computing,
         }
+        if self.live_probe is not None:   # リアルタイム切り抜き(線 D): オンのときだけ "live" を足す(オフなら今までと同じ形)
+            try:
+                lv = self.live_probe()
+            except Exception:
+                lv = None
+            if lv is not None:
+                out["live"] = lv
         if slow:
             out["data"] = slow["data"]
             out["tools"] = slow["tools"]

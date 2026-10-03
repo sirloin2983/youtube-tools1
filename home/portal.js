@@ -981,6 +981,16 @@
       ul.appendChild(healthRow(co.total ? 'warn' : 'ok', '異常終了(7 日)', none ? 'なし'
         : co.total ? parts.join('。') + '。PC が不安定かもしれません。設定を遅い側に戻す目安: docs/plan/stability-review-2026-10.md' : parts.join('。')));
     }
+    // リアルタイム切り抜き(線 D。オンのときだけ h.live がある): 録画元ごとにつながるか・置き場所と空き容量・録画中の本数
+    if (h.live) (h.live.recorders || []).forEach(function (r) {
+      if (!r.ok) { ul.appendChild(healthRow('bad', '録画元 ' + r.name, r.message || 'つながりません', [r.url])); return; }
+      var lst = r.freeBytes == null ? 'warn' : r.freeBytes < 10 * GB ? 'bad' : r.freeBytes < 30 * GB ? 'warn' : 'ok';
+      var st = !r.folderOk || r.streamlink === false || (r.expected && r.version !== r.expected) ? 'bad' : lst;
+      var text = (r.active ? '録画中 ' + r.active + ' 本' : '録画していません') + '・空き ' + (r.freeBytes != null ? fmtBytes(r.freeBytes) + ' / ' + fmtBytes(r.totalBytes) : '不明')
+        + (r.expected && r.version !== r.expected ? '。版が違います(動いているのは ' + r.version + '、ファイルは ' + r.expected + '。録画中でなければ、ホームが 30 秒以内に起動し直します)' : '')
+        + (r.streamlink === false ? '。streamlink が入っていません(setup\install.bat)' : '') + (r.folderMessage ? '。' + r.folderMessage : '');
+      ul.appendChild(healthRow(st, '録画元 ' + r.name, text, [r.folder || '', r.url].concat((r.recordings || []).map(function (x) { return (x.title || x.id) + ' ' + x.state + (x.message ? '(' + x.message + ')' : ''); }))));
+    });
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
@@ -1437,6 +1447,33 @@
     }).then(function () { histBusy = false; });
   }
 
+  /* ================================================================ 試験中の機能: リアルタイム切り抜き(線 D。home/live.py)================================================================
+     ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。オンのときだけ録画の画面へのリンクを出す */
+  function renderLive(v) {
+    var on = !!(v && v.enabled);
+    $('#liveEnabled').checked = on;
+    $('#liveLink').hidden = !on;
+  }
+  function loadLive() {
+    return api('api/ytt/prefs', 'POST', { op: 'get', sections: ['live'] }).then(function (j) { renderLive((j.prefs || {}).live); },
+      function () { $('#labBox').hidden = true; });   // 設定を読めない(古い入口)なら出さない
+  }
+  function wireLive() {
+    if (!$('#labBox')) return;
+    $('#liveEnabled').addEventListener('change', function () {
+      var on = $('#liveEnabled').checked, msg = $('#liveMsg');
+      api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: { enabled: on } }).then(function (j) {
+        renderLive(j.value);
+        msg.hidden = false;
+        msg.textContent = on ? 'オンにしました。録画の部品を裏で起動します(数秒かかります)。録画の画面から使えます' : 'オフにしました(録画中の物があれば、録画の部品はそのまま続けます)';
+      }, function (e) {
+        $('#liveEnabled').checked = !on;
+        toast('切り替えられませんでした: ' + e.message, 'err');
+      });
+    });
+    loadLive();
+  }
+
   /* ================================================================ ハッシュ(#cases・#case-<id>・#doc-<id>): 次にやることのリンク先へ移る ================================================================ */
 
   function focusHash() {
@@ -1512,6 +1549,7 @@
     $('#historyMore').addEventListener('click', function () { loadHistory(false); });
     wireIntake();
     wireBackup();
+    wireLive();
     if (window.UIKit && UIKit.hide) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
       UIKit.hide.onChange(function (list) {
         if (!list || list === 'cases') render();
