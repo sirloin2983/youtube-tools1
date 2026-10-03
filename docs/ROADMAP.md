@@ -6,7 +6,7 @@
 **2026-09-30 にフォルダ名と置き場所を変えた**(段0): `app/`→`home/`・`clip-studio/`→`studio/`・`transcribe-tool/`→`editor/`・`tools/`→`dev/`・`setup/`、テストは各ツールの `tests/`、docs は `spec/`・`plan/`・`design/`・`archive/`、リポジトリは `C:\dev\youtube-tools`。対応表は `docs/plan/phase0-restructure.md`(WORKLOG・`docs/design/`・`docs/archive/` の中の旧いパスは当時のまま)。
 **2026-10-03 に PC の Windows を入れ直した**(リポジトリは GitHub から clone し直し・場所は同じ `C:\dev\youtube-tools`)。10-02 19:22(19e0316)以降の未 push の作業と、作業データ `%LOCALAPPDATA%\youtube-tools\`(文字起こしと校正・評価用・スタジオの解析とマーク・採用の記録・設定・案件・`evals/asr/` の測定の記録・whisper.cpp とモデル)は失われた。戻せたのは cut2resolve の packs 15件と声の登録だけ。詳しくは WORKLOG の末尾の 2026-10-03 の項目。下の測定値や「待ち」はこの前の記録で、元のデータが今は無いものがある(該当の所に注記)。
 
-版(2026-10-04): 入口 0.25.0(一覧の項目を任意に非表示に)・スタジオ 0.16.0・編集 0.41.0・cut2resolve 0.19.0・ui-kit v13(`UIKit.hide` = 一覧の非表示。v12 = サイバー風 = 計器盤の形・配色4つ。v11 = 時刻の欄 `UIKit.timebox`)・ホロカラー 1.4.1・送るアプリ(`request-sender/`)2.0.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
+版(2026-10-04): 入口 0.26.0(パックを友人へ届ける api/ytt/deliver。0.25.0 = 一覧の項目を任意に非表示に)・スタジオ 0.16.0・編集 0.42.0(③ パックの「友人へ届ける」)・cut2resolve 0.19.0・ui-kit v13(`UIKit.hide` = 一覧の非表示。v12 = サイバー風 = 計器盤の形・配色4つ。v11 = 時刻の欄 `UIKit.timebox`)・ホロカラー 1.4.1・送るアプリ(`request-sender/`)2.0.0(正は各ツールのファイル。`AGENTS.md` の「版を上げるとき」)
 
 ---
 
@@ -93,6 +93,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
   **実際の Dropbox で未確認のもの**は下の 3
 - **2026-10-02 送るアプリ 2.0.0・ホーム 0.23.0・スタジオ 0.14.0**: 配信の URL に時間(区間)を指定して切り抜く(足りない分は自動で埋める・前後 2 秒の余白)・① のカットを友人が選ぶ(しない / 無音を削る)・
   解析の重みを友人が指定・同じ配信の送り直しを受け付けて使い回す・送るアプリの画面を全面見直し(横2列・時刻は数字だけで入る欄・配色 4 つ・届いた知らせ)。設計: `.design/request-sender-overhaul/DESIGN_BRIEF.md`・`docs/design/friend-intake.md` の 2-6
+- **2026-10-04 ホーム 0.26.0・編集 0.42.0**: 「編集」の ③ パックの「友人へ届ける」(校正したあとのパックなどを手で Dropbox の 出力 へ。送るアプリの「受け取る」に題名で出る)。friend-intake.md の 2-7。実際の Dropbox を通して友人が受け取るのは未確認
 
 ### 別件: 友人用 文字起こし簡易版(`docs/plan/friend-lite-plan.md`)
 - 友人が自分の PC(RTX 3060)で動画を文字起こしして校正し、字幕だけの Resolve 用ファイルと評価用 zip(送る用ファイル)を作る一本道の画面。サーバーは「編集」をそのまま使い、画面だけ別(`editor/lite.html`)。設計の正本は `.design/friend-transcribe-lite/DESIGN_BRIEF.md`

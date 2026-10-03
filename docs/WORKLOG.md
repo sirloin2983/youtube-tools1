@@ -2877,3 +2877,20 @@
   start_hidden.vbs を1回動かし、入口 0.25.0 が裏で起動したのを /api/ping で確かめた
 - ROADMAP の「入れ直しでやり直しになること」の該当の行を済みに
 - 未コミット: なし
+
+## 2026-10-04 Claude Code — 「編集」の ③ パックに「友人へ届ける」→ ホーム 0.26.0・編集 0.42.0
+- ユーザーの依頼: 「友人へ届けるボタン作って」(手で 出力 に置いた zip も友人のアプリで受け取れると確かめたあと)
+- 作り: 入口の画面の共通の API `api/ytt/deliver`(`{op: "start", dir, title}` → 裏の仕事 / `{op: "status", job}`)と `home/deliver.py`(新。`zip_pack`・`Deliveries`)。
+  「編集」の `pack-tab.js` の「前回のパック」に `#pkDeliver`(入口から開いたときだけ)。押すと `UIKit.dialog.confirm` → 1秒ごとに状態 → `#pkDeliverMsg`
+- 決定・理由:
+  - zip の作り方は `deliver.zip_pack` の1か所。① 全自動の `autorun._deliver_one` もこれを使うように直した(二重にしない)。Dropbox の外で作ってから移す・同じ名前は末尾に4文字
+  - 名前 `<YYYYMMDD-HHMMSS-xxxxxx>__<文書の題名>.zip` = 送るアプリの `OutputFolder.NameRx` と同じ形 → アプリは題名だけを出す(送るアプリは変えていない)
+  - 送れるのは cut2resolve が作ったパックのフォルダだけ(`txindex.is_pack_dir`)。合言葉つきの画面からでも、任意のフォルダを Dropbox(= 外)へ出させない
+  - 外へ出す操作なので確認を出す。作ったあとにカット・字幕が変わっていれば注意も
+  - 重い処理の枠(`jobs.SLOTS`)は通さない: 動画は ZIP_STORED で CPU をほとんど使わない・文字起こしの後ろで何時間も待たせないため。代わりに同時に作るのは1本
+- 変更: `home/deliver.py`(新)・`home/launch.py`・`home/autorun.py`(_deliver_one・使わなくなった import・docstring のエスケープ)・`home/README.txt`・`home/tests/test_deliver.py`(新 11件)・
+  `editor/pack-tab.js`・`index.html`・`serve.py`・`app.js`・`README.txt`・`AGENTS.md`・`editor/tests/e2e_edit_pack.py`(届ける・断る・zip の中身)・`AGENTS.md`(home のテストの一覧)・`docs/design/friend-intake.md`(2-7)・`docs/ROADMAP.md`
+- テスト(`py -3.10`): home の単体一式 215件・編集の単体 276件・e2e_edit_pack・e2e_ui_mounted すべて OK
+- 未確認: 実際の Dropbox を通して友人のアプリで受け取れるか(① 全自動と同じく未確認)
+- 注意: 起動中の入口は古いコードのまま。「すべて終了」→ start.bat(またはデスクトップの youtube-tools)で起動し直す
+- 未コミット: なし

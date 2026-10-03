@@ -12,8 +12,10 @@
 """
 import json
 import os
+import re
 import sys
 import time
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -250,6 +252,26 @@ def main():
             check(out.get("fps") == "30" and out.get("size") == "1080x1920" and out.get("streamer") == "ぺこら" and out.get("render") is False and out.get("loudness") == -14,
                   "作った記録に出力の設定(output): %s" % out)
             check(pg.is_hidden("#pkLastDiff") and pg.inner_text("#pkLastPill") == "前回のパック", "設定が作ったときと同じなら、違いは出ない")
+            # ---- 友人へ届ける(編集 0.42.0・入口の api/ytt/deliver → home/deliver.py): 依頼の受付のフォルダの 出力 に zip を置く
+            check(pg.is_visible("#pkDeliver"), "入口から開くと「友人へ届ける」が出る")
+            r = srv.call("POST", "/api/ytt/deliver", {"op": "start", "dir": packdir, "title": "x"})   # 画面から押すと 400 がコンソールのエラーに出るので API で
+            check(r.get("error") == "bad_request" and "決まっていません" in r.get("message", ""), "受付のフォルダが無ければ断る: %s" % r)
+            dbx = os.path.join(srv.tmp, "Dropbox")
+            os.makedirs(dbx)
+            r = srv.call("POST", "/api/ytt/prefs", {"op": "patch", "section": "intake", "value": {"folder": dbx}})
+            check(r.get("ok"), "(準備)受付のフォルダを決める: %s" % r)
+            pg.click("#pkDeliver")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog .ui-dlg-actions button:has-text('届ける')")
+            check(wait_js(pg, "document.querySelector('#pkDeliverMsg').classList.contains('tt-pk-dl-ok')", 60000), "届けた: " + pg.inner_text("#pkDeliverMsg"))
+            outs = os.listdir(os.path.join(dbx, "出力"))
+            check(len(outs) == 1 and re.match(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}__.+\.zip$", outs[0]), "出力 に友人のアプリが読む名前の zip: %s" % outs)
+            with zipfile.ZipFile(os.path.join(dbx, "出力", outs[0])) as z:
+                names = [n.replace("\\", "/") for n in z.namelist()]
+            check(names and all(n.startswith(os.path.basename(packdir) + "/") for n in names) and any(n.endswith(".webm") for n in names),
+                  "zip の中はパックのフォルダごと: %s" % names[:5])
+            r = srv.call("POST", "/api/ytt/deliver", {"op": "start", "dir": srv.media, "title": "x"})
+            check(r.get("error") == "bad_request", "パックではないフォルダは断る: %s" % r)
             pg.click("#pkSettingsBtn")
             pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
             pg.click("#pkFps [data-v='60']")

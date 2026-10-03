@@ -295,6 +295,7 @@ function create(h){
     $('#pkLastFiles').innerHTML = [...groups].map(([k, ns]) => `<div class="tt-pk-file"><span class="mono">${esc(ns.join(' ・ '))}</span><span class="hint">${esc(k)}</span></div>`).join('');
     $('#pkLastDir').textContent = pk.dir || ''; $('#pkLastDir').title = pk.dir || '';
     $('#pkOpen').hidden = !h.c2rBase();
+    $('#pkDeliver').hidden = !h.TOKEN;   // 友人へ届ける(入口の api/ytt/deliver)はホームから開いたときだけ
   }
   function renderJob(){
     const box = $('#pkJob'), j = P.job;
@@ -400,6 +401,30 @@ function create(h){
   $('#pkOpen').addEventListener('click', async () => {
     if (!P.pack) return;
     try { await h.c2rApi('api/open-folder', { body: { path: P.pack.dir } }); } catch (er){ h.toast('フォルダを開けませんでした: ' + er.message, 5000, 'err'); }
+  });
+  /* 友人へ届ける: パックのフォルダを zip にして Dropbox の 出力 に置く(入口の api/ytt/deliver → home/deliver.py。① 全自動と同じ作り方)。
+     友人のアプリの「受け取る」に出る = 外へ出す操作なので確認してから。数 GB の zip は時間がかかるので、仕事の状態を聞き直す */
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function deliverMsg(text, tone){ const m = $('#pkDeliverMsg'); m.hidden = !text; m.textContent = text || ''; m.className = 'hint' + (tone ? ' tt-pk-dl-' + tone : ''); }
+  $('#pkDeliver').addEventListener('click', async () => {
+    const pk = P.pack, b = $('#pkDeliver'); if (!pk || !pk.dir || b.disabled) return;
+    const title = String(h.S.doc && h.S.doc.title || '').trim();
+    const ok = await UIKit.dialog.confirm({ title: '友人へ届けますか', ok: '届ける',
+      body: `このパックを zip にして Dropbox の「出力」に置きます。同期が終わると、友人の送るアプリの「受け取る」に「${title || 'パック'}」として出ます。`
+        + (isStale() ? ' 注意: カットか字幕が、パックを作ったあとに変わっています。今の内容で届けるなら、先にパックを作り直してください。' : '') });
+    if (!ok) return;
+    b.disabled = true; deliverMsg('zip にしています…');
+    try {
+      let j = (await h.api('/api/ytt/deliver', { body: { op: 'start', dir: pk.dir, title } })).job;
+      while (j.state === 'running'){
+        deliverMsg(`${j.message}…${j.progress ? ' ' + Math.round(j.progress * 100) + '%' : ''}`);
+        await sleep(1000);
+        j = (await h.api('/api/ytt/deliver', { body: { op: 'status', job: j.id } })).job;
+      }
+      if (j.state === 'done'){ deliverMsg(`${j.message}(${j.name})`, 'ok'); h.toast('友人へ届けました(Dropbox の 出力 に置きました)', 5000, 'ok'); }
+      else { deliverMsg(j.message, 'err'); h.toast(j.message, 7000, 'err'); }
+    } catch (e){ deliverMsg('届けられませんでした: ' + e.message, 'err'); h.toast('届けられませんでした: ' + e.message, 7000, 'err'); }
+    finally { b.disabled = false; }
   });
   $('#pkCopy').addEventListener('click', async () => {
     if (!P.pack) return;

@@ -23,8 +23,6 @@
 """
 import collections
 import http.client
-import shutil
-import zipfile
 import json
 import os
 import re
@@ -1285,7 +1283,7 @@ class AutoRunner:
         return name
 
     def _deliver(self, run, st, dirs):
-        """① 全自動: パックのフォルダを zip にして Dropbox の 出力\ へ置く(友人のアプリの「受け取る」に出る)。
+        """① 全自動: パックのフォルダを zip にして Dropbox の 出力\\ へ置く(友人のアプリの「受け取る」に出る)。
         zip は Dropbox の外(パックの隣)で作ってから移す(書きかけを同期させない・友人の一覧に出さない)"""
         dirs = [d for d in dict.fromkeys(os.path.normpath(x) for x in dirs if x) if os.path.isdir(d)]
         if not run.deliver_dir:
@@ -1303,36 +1301,16 @@ class AutoRunner:
         return None
 
     def _deliver_one(self, run, d):
-        """1本のパックのフォルダを zip にして 出力\\ へ置く"""
+        """1本のパックのフォルダを zip にして 出力\\ へ置く(作り方は home/deliver.py。「編集」の「友人へ届ける」と同じ)"""
+        import deliver as deliver_mod
         d = os.path.normpath(d)
         if d in run.delivered or not os.path.isdir(d):
             return
-        os.makedirs(run.deliver_dir, exist_ok=True)
-        tmp = os.path.join(os.path.dirname(d), ".deliver-%s.zip" % uuid.uuid4().hex[:8])
         try:
-            with zipfile.ZipFile(tmp, "w", allowZip64=True) as z:
-                top = os.path.basename(d)
-                for base, _dirs, files in os.walk(d):
-                    for f in sorted(files):
-                        p = os.path.join(base, f)
-                        arc = os.path.join(top, os.path.relpath(p, d))
-                        video = os.path.splitext(f)[1].lower() in (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")
-                        z.write(p, arc, compress_type=zipfile.ZIP_STORED if video else zipfile.ZIP_DEFLATED)
-                    self._check(run)
-            name = self._deliver_name(run, d) + ".zip"
-            dest = os.path.join(run.deliver_dir, name)
-            if os.path.exists(dest):
-                dest = os.path.join(run.deliver_dir, "%s-%s.zip" % (name[:-4], uuid.uuid4().hex[:4]))
-            shutil.move(tmp, dest)
+            deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, d), check=lambda: self._check(run))
             run.delivered.append(d)
         except OSError as e:
             raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""

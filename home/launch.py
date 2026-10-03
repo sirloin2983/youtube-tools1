@@ -31,6 +31,8 @@
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
+  POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
+                                          (Dropbox の見張るフォルダの 出力 に zip で置く。home/deliver.py。2026-10-04)
 
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
@@ -61,11 +63,12 @@ CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime  # noqa: E402
+from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, txindex  # noqa: E402
 import mount as mount_mod  # noqa: E402  (home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (home/intake.py: 友人からの依頼の受付)
 import backup as backup_mod  # noqa: E402  (home/backup.py: 作業データのバックアップ)
+import deliver as deliver_mod  # noqa: E402  (home/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 import cases as cases_mod  # noqa: E402  (home/cases.py: 案件(配信1本)ごとの紐づけ)
 import appwindow as appwindow_mod  # noqa: E402  (home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (home/clientlog.py: 画面のエラーの記録。段階7-0)
@@ -75,7 +78,7 @@ import restart as restart_mod  # noqa: E402  (home/restart.py: 入口ごと起�
 import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.25.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.26.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -788,6 +791,8 @@ class PortalServer(ThreadingHTTPServer):
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
+        self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
+                                                 txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs)   # 「調子」(段9 9-1)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
@@ -893,6 +898,11 @@ class PortalServer(ThreadingHTTPServer):
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
             if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}
                 return 200, self.streamer_guess(body.get("docId"), body.get("videoId"), body.get("channel"))
+            if sub == "deliver":   # 「編集」の ③ パックの「友人へ届ける」。{op: "start", dir, title} → 裏で zip / {op: "status", job}
+                if body.get("op") == "status":
+                    j = self.deliveries.status(body.get("job"))
+                    return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(入口を起動し直しましたか)"})
+                return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
             if sub == "prefs":   # ホームの設定(home/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)
