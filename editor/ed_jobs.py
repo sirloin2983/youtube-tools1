@@ -53,11 +53,12 @@ _models = {}
 _model_lock = threading.Lock()
 _model_used = [0.0]   # 最後にモデルを使った時刻(ジョブの終わりにも更新する)
 try:
-    MODEL_IDLE_SEC = max(0, int(os.environ.get("TRANSCRIBE_MODEL_IDLE_SEC", "900")))
+    MODEL_IDLE_SEC = max(0, int(os.environ.get("TRANSCRIBE_MODEL_IDLE_SEC", "3600")))
 except ValueError:
-    MODEL_IDLE_SEC = 900
+    MODEL_IDLE_SEC = 3600
 # 読み込んだモデル(large-v3 で数GB)は次のジョブのために残すが、この秒数ジョブが無ければ手放す(0 = 手放さない)。
 # 画面を開いたまま他の作業(動画編集など)をするときにメモリを返すため。次の文字起こしでは読み込み直し(10〜30秒程度)が入る。
+# 既定は 60 分(2026-10-04 に 15 分から延ばした。続けて作業するたびの読み込みを減らす。32GB なら large-v3 + 話者判別を1時間持ってよい。docs/plan/stability-review-2026-10.md)
 
 
 def release_idle_models(now=None):
@@ -101,6 +102,15 @@ def _worker_flags():
     if os.name != "nt":
         return 0
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+
+def _worker_priority():
+    """Windows: 認識のワーカーは「通常より下」の優先度で動かす(2026-10-04)。長い文字起こしが CPU を使っている間も、
+    画面の操作・スタジオの書き出し・パック作りが先に CPU を取れる(同時実行の上限 SLOTS は 2 のまま。docs/plan/stability-review-2026-10.md)。
+    環境変数 TRANSCRIBE_WORKER_PRIORITY=normal で今までどおり"""
+    if os.name != "nt" or os.environ.get("TRANSCRIBE_WORKER_PRIORITY", "").strip().lower() == "normal":
+        return 0
+    return getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
 
 
 def worker_env():
@@ -167,7 +177,7 @@ class WorkerClient:
         except OSError:
             self.log_fp = None
         self.proc = subprocess.Popen([ed_state.worker_python(), "-u", WORKER_SCRIPT], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=self.log_fp or subprocess.DEVNULL, cwd=ed_state.ROOT, env=worker_env(), creationflags=_worker_flags())
+                                     stderr=self.log_fp or subprocess.DEVNULL, cwd=ed_state.ROOT, env=worker_env(), creationflags=_worker_flags() | _worker_priority())
         self.starts += 1
         self.q = queue.Queue()   # 起動ごとに新しい列(前のプロセスの読み残しを混ぜない)
         threading.Thread(target=self._reader, args=(self.proc, self.q), daemon=True, name="tx-worker-reader").start()

@@ -50,10 +50,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   `Qwen3Asr`(engine `qwen3-asr`・モデル `qwen3-asr-0.6b`): 入っている sherpa-onnx 1.13.8 の `from_qwen3_asr`。モデルは sherpa-onnx の公式の tar.bz2(`QWEN3_MODELS`。`_safe_extract` は top の下の普通のファイルだけ)。
   用語のヒントは認識器を作るときに渡す(区切りごとの `set_option("hotwords")` は `<|endoftext|>` のあとに関係ない英文が続いた)。
   `LlamaQwen3`(engine `llama.cpp`・モデル `qwen3-asr-1.7b`): 公式の win-vulkan-x64 の zip(`LLAMA_CPP`。`_safe_unzip`)と ggml-org の GGUF(`LLAMA_MODELS`)。llama-server を 127.0.0.1 のあいているポートで1つ起動し、
-  **毎回作る合言葉 `--api-key`**(llama.cpp は CORS をすべて許すので、付けないと同じ PC のブラウザのページから呼べる)・`-t 8`(24 だとこの PC で起動中によく落ちた)・`-lv 4`(GPU に載ったかの行 `offloaded n/m layers to GPU` を `_check_gpu` が見る。黙って CPU にしない)・
+  **毎回作る合言葉 `--api-key`**(llama.cpp は CORS をすべて許すので、付けないと同じ PC のブラウザのページから呼べる)・`-t 8`(24 だと当時の 13900KF で起動中によく落ちた。環境変数 `TRANSCRIBE_LLAMA_THREADS` で変えられる。10-04)・`-lv 4`(GPU に載ったかの行 `offloaded n/m layers to GPU` を `_check_gpu` が見る。黙って CPU にしない)・
   ワーカーが落ちても server が残らないよう Windows のジョブオブジェクト(`_kill_on_close_job`。閉じたら中を終わらせる)・答えは `/v1/chat/completions` に音声(wav の base64)と assistant の先書き「language Japanese<asr_text>」→ `q3_parse`。
   server が落ちていたら起動し直して区切りを1回だけやり直す(`_decode` → `_ask` の `server_down`)。テスト: `tests/test_qwen3.py`(偽の server `tests/fake_llama_server.py`)
-  **この PC(当時の 13900KF。10-04 に 12900KF に替えた)ではネイティブの部品の読み込み・起動がまれに落ちた**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す。測った結果は計画の「4回目の結果」
+  **この PC(当時の 13900KF。10-04 に 12900KF に替えた)ではネイティブの部品の読み込み・起動がまれに落ちた**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す(10-04 の見直しでも残した: 一時的な失敗への備え・本物の失敗は2回目でそのまま出る。`docs/plan/stability-review-2026-10.md`)。測った結果は計画の「4回目の結果」
 
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
 - 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(aliases = 呼び名・common = 普通の言葉と重なる呼び名・
@@ -94,7 +94,8 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   ワーカーが落ちたらそのジョブだけ失敗、次の要求で起動し直す。取り消しは `job["proc"]`(`_CancelHandle`)経由で伝え、15秒で止まらなければ強制終了。
   **黙ったワーカー**(何も届かない)は `WORKER_SILENCE_TIMEOUT`(20 分)で強制終了してそのジョブを失敗にする(標準出力は読み取り専用のスレッド `_reader` が列に入れ、待つ側 `_read` は `queue.get(timeout)`。
   待ち続けると SLOTS を持ったまま他のツールの重い処理を塞ぐため。2026-10-01)。
-  `TRANSCRIBE_MODEL_IDLE_SEC`(既定900秒)使わなければワーカーごと終わらせる。GPU の有無も別プロセス(`tx_worker.py --probe`)で1回だけ調べる
+  `TRANSCRIBE_MODEL_IDLE_SEC`(既定3600秒。10-04 に 900 から延ばした)使わなければワーカーごと終わらせる。GPU の有無も別プロセス(`tx_worker.py --probe`)で1回だけ調べる
+  ワーカーは Windows で「通常より下」の優先度で起動する(`_worker_priority`。画面・書き出し・パックが先に CPU を取る。`TRANSCRIBE_WORKER_PRIORITY=normal` で今までどおり。10-04)
 - `app.js` … 画面の JS(旧 index.html の即時関数の中身をそのまま移した)。状態 `S`(文書・今の行など)と `V`(表示の好み。localStorage)はこのファイルのトップレベル変数で、グローバルではない。
   主なまとまり(v0.15.0): 履歴の一覧(「保存済み一覧」の節。`L` = 絞り込み・並び替え・まとめ方(localStorage `tx.list.v1`)、`txGroups`・`txOpen`・`txLimit`。
   開いているまとまりの分だけ描き、まとまりごとに「もっと見る」)、「編集」のタブ(`EDT`・`setEditTab()`・題名の行 `renderDocBar()`)、

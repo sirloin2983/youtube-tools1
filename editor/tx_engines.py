@@ -723,7 +723,8 @@ class Qwen3Asr(_Qwen3Chunked):
         e = cls(name, device, {"dir": mdir, "rec": {}})
         try:
             e._recognizer("")   # 読み込めるかをここで確かめる
-        except RuntimeError as ex:   # この PC では、同じファイルでもまれに読み込みが失敗した(2026-10-02。CPU の不安定さとみている)ので1回だけやり直す
+        except RuntimeError as ex:   # 同じファイルでもまれに読み込みが失敗した(2026-10-02)ので1回だけやり直す。CPU を替えたあと(10-04)も、
+            # 一時的な失敗(ファイルのロック・ドライバ)への備えとして残す。本物の失敗は2回目でそのまま出る
             if log:
                 log.warning("Qwen3-ASR の読み込みをやり直します: %s", str(ex)[:160])
             e.model["rec"].clear()
@@ -769,7 +770,16 @@ LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256
                                   "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
 }
 LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
-LLAMA_THREADS = 8        # 24 にすると、この PC では起動の途中でよく落ちた(2026-10-02)
+def _env_int(name, default, lo=1, hi=64):
+    try:
+        return min(hi, max(lo, int(str(os.environ.get(name) or default).strip())))
+    except ValueError:
+        return default
+
+
+# 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた(2026-10-02)。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
+# CPU を替えたので(10-04)環境変数 TRANSCRIBE_LLAMA_THREADS で変えられるようにした
+LLAMA_THREADS = _env_int("TRANSCRIBE_LLAMA_THREADS", 8)
 LLAMA_START_SEC = 180    # 起動(モデルの読み込み)を待つ上限
 _ASR_TEXT = "<asr_text>"
 
@@ -898,7 +908,7 @@ class LlamaQwen3(_Qwen3Chunked):
         e.gpu_name = ""
         try:
             e._start(hooks.get("cancelled"))
-        except EngineError as ex:   # この PC では起動の途中でまれに落ちた(2026-10-02)ので1回だけやり直す
+        except EngineError as ex:   # 起動の途中でまれに落ちた(2026-10-02。当時の CPU)ので1回だけやり直す。一時的な失敗(GPU のドライバ)への備えとして残す
             if ex.code in ("cancelled", "gpu_failed"):
                 raise
             if log:
