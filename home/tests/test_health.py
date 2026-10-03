@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sys
+import subprocess
 import tempfile
 import time
 import unittest
@@ -98,6 +99,87 @@ class ErrorsTest(unittest.TestCase):
         self.assertEqual(H.count_autorun_failed(p, now), 1)
 
 
+NS = "http://schemas.microsoft.com/win/2004/08/events/event"
+
+
+def _evt(provider, eid, data=None):
+    d = "".join("<Data>%s</Data>" % x for x in (data or []))
+    return ('<Event xmlns="%s"><System><Provider Name="%s"/><EventID Qualifiers="16384">%s</EventID></System>'
+            '<EventData>%s</EventData></Event>' % (NS, provider, eid, d))
+
+
+class FakeRun:
+    """subprocess.run の代わり。ログ名(System / Application)ごとに XML を返す。out が None なら wevtutil が無い"""
+
+    def __init__(self, system, application, code=0):
+        self.by_log, self.code, self.calls = {"System": system, "Application": application}, code, []
+
+    def __call__(self, cmd, **kw):
+        self.calls.append((cmd, kw))
+        out = self.by_log[cmd[2]]
+
+        class R:
+            returncode = self.code
+            stdout = out.encode("utf-8")
+        return R()
+
+
+class CrashCountsTest(unittest.TestCase):
+    def test_counts_os_and_apps(self):
+        system = "".join([_evt("Microsoft-Windows-Kernel-Power", 41), _evt("Microsoft-Windows-Kernel-Power", 41),
+                          _evt("Microsoft-Windows-Kernel-Power", 42),            # 41 以外は数えない
+                          _evt("EventLog", 6008), _evt("Microsoft-Windows-WHEA-Logger", 17), _evt("Microsoft-Windows-WHEA-Logger", 18)])
+        app = "".join([_evt("Application Error", 1000, ["Python.EXE", "3.10"]), _evt("Application Error", 1000, ["ffmpeg.exe"]),
+                       _evt("Application Error", 1000, ["MSEdge.exe"]), _evt("Application Error", 1000, ["notepad.exe"]),
+                       _evt("Application Error", 1000, ["explorer.exe"]), _evt("Application Error", 1001, ["python.exe"])])
+        run = FakeRun(system, app)
+        r = H.crash_counts(runner=run)
+        self.assertEqual(r["windowSec"], 7 * 24 * 3600)
+        self.assertEqual(r["os"], {"kernelPower41": 2, "unexpectedShutdown6008": 1, "whea": 2, "total": 5})
+        self.assertEqual((r["apps"]["python.exe"], r["apps"]["ffmpeg.exe"], r["apps"]["msedge.exe"], r["apps"]["pythonw.exe"]), (1, 1, 1, 0))
+        self.assertEqual((r["apps"]["other"], r["apps"]["total"]), (2, 5))     # 名前は小文字にそろえる。1001 は数えない
+        cmd, kw = run.calls[0]
+        self.assertEqual(cmd[:3], ["wevtutil", "qe", "System"])
+        self.assertIn("604800000", cmd[3])                                     # 7 日(ミリ秒)
+        self.assertEqual(kw["timeout"], 15.0)
+        self.assertEqual(run.calls[1][0][2], "Application")
+
+    def test_empty_logs_are_zero(self):
+        r = H.crash_counts(runner=FakeRun("", ""))
+        self.assertEqual(r["os"]["total"], 0)
+        self.assertEqual(r["apps"]["total"], 0)
+
+    def test_failure_returns_none(self):
+        self.assertIsNone(H.crash_counts(runner=FakeRun("", "", code=5)))      # 権限(アクセスが拒否された)
+        self.assertIsNone(H.crash_counts(runner=FakeRun("<broken", "")))       # 解析できない
+
+        def missing(cmd, **kw):
+            raise FileNotFoundError("wevtutil")
+
+        def slow(cmd, **kw):
+            raise subprocess.TimeoutExpired(cmd, 15)
+        self.assertIsNone(H.crash_counts(runner=missing))
+        self.assertIsNone(H.crash_counts(runner=slow))
+
+    def test_count_worker_incidents(self):
+        tmp = tempfile.mkdtemp(prefix="ytt-health-")
+        try:
+            now = time.time()
+            stamp = lambda t: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) + ",123"  # noqa: E731
+            p = os.path.join(tmp, "serve.log")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(stamp(now - 60) + " 認識ワーカーが異常終了しました(終了コード -1073741819)\n")
+                f.write(stamp(now - 3600) + " 認識ワーカーから 600 秒なにも届かないため強制終了します\n")
+                f.write(stamp(now - 10 * 86400) + " 認識ワーカーが異常終了しました(終了コード 1)\n")   # 7 日より前
+                f.write(stamp(now - 60) + " ジョブ開始\n")
+            with open(p + ".1", "w", encoding="utf-8") as f:
+                f.write(stamp(now - 86400) + " 認識ワーカーが異常終了しました(終了コード None)\n")
+            self.assertEqual(H.count_worker_incidents(p, now), {"crashed": 2, "hung": 1})
+            self.assertEqual(H.count_worker_incidents(os.path.join(tmp, "none.log"), now), {"crashed": 0, "hung": 0})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class FakeSup:
     def __init__(self, tools):
         self.tools = tools
@@ -135,16 +217,31 @@ class HealthTest(unittest.TestCase):
         self.assertIn("ffmpeg", s["tools"])
         self.assertIn("countedAt", s)
 
+    def test_snapshot_crashes(self):
+        """異常終了の件数は data・tools のあとに入る(wevtutil が遅くても先の物は出る)。読めなければ events が None"""
+        for fn, want in ((lambda: {"os": {"total": 1}}, {"os": {"total": 1}}), (lambda: None, None)):
+            h = H.Health(FakeSup([]), self.logs, crash_fn=fn)
+            s = h.snapshot()
+            for _ in range(50):
+                if s["crashes"] is not None:
+                    break
+                time.sleep(0.1)
+                s = h.snapshot()
+            self.assertEqual(s["crashes"]["events"], want)
+            self.assertEqual(s["crashes"]["windowSec"], 7 * 24 * 3600)
+            self.assertIsInstance(s["crashes"]["tool"], dict)
+            self.assertFalse(s["computing"])
+
     def test_cache_and_refresh(self):
         calls = []
         orig = H.data_sizes
         H.data_sizes = lambda *a, **k: (calls.append(1), {"root": None, "dirs": [], "bytes": 0})[1]
         try:
             now = [1000.0]
-            h = H.Health(FakeSup([]), self.logs, clock=lambda: now[0], cache_sec=100)
+            h = H.Health(FakeSup([]), self.logs, clock=lambda: now[0], cache_sec=100, crash_fn=lambda: None)
             h.snapshot()
             for _ in range(50):
-                if h._slow:
+                if h._slow and not h._computing:   # 異常終了の件数まで終わるのを待つ(終わるまで次の数え直しは始まらない)
                     break
                 time.sleep(0.05)
             h.snapshot(); h.snapshot()
@@ -152,7 +249,7 @@ class HealthTest(unittest.TestCase):
             now[0] += 200
             h.snapshot()
             for _ in range(50):
-                if len(calls) >= 2:
+                if len(calls) >= 2 and not h._computing:
                     break
                 time.sleep(0.05)
             self.assertEqual(len(calls), 2)             # 期限が過ぎたら数え直す

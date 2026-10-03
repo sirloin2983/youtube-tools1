@@ -967,6 +967,20 @@
     var e = h.errors || {};
     ul.appendChild(healthRow(e.clientLast24h ? 'warn' : 'ok', '画面のエラー(24 時間)', (e.clientLast24h || 0) + ' 件', [e.clientLog]));
     ul.appendChild(healthRow(e.autorunFailedLast7d ? 'warn' : 'ok', 'まとめて実行の失敗(7 日)', (e.autorunFailedLast7d || 0) + ' 件' + (e.autorunFailedLast7d ? '(上の「まとめて実行の記録」に理由)' : ''), [e.autorunLog]));
+    // 異常終了(見張り役。docs/plan/stability-review-2026-10.md)。OS 側が増えたら PC の不安定、アプリ側だけならこのツールの不具合の目安
+    var cr = h.crashes;
+    if (!cr) ul.appendChild(healthRow('warn', '異常終了(7 日)', h.computing ? '数えています…' : '読めませんでした'));
+    else if (!cr.events) ul.appendChild(healthRow('warn', '異常終了(7 日)', '読めませんでした(Windows のイベントログ)'));
+    else {
+      var co = cr.events.os, ca = cr.events.apps, wk = cr.tool;
+      var appText = Object.keys(ca).filter(function (k) { return k !== 'total' && ca[k]; }).map(function (k) { return k + ' ' + ca[k]; }).join('・');
+      var parts = ['OS ' + co.total + ' 件' + (co.total ? '(電源断 ' + co.kernelPower41 + '・予期しない終了 ' + co.unexpectedShutdown6008 + '・ハードのエラー ' + co.whea + ')' : ''),
+        'アプリ ' + ca.total + ' 件' + (appText ? '(' + appText + ')' : '')];
+      if (wk) parts.push('認識ワーカー ' + (wk.crashed + wk.hung) + ' 件' + (wk.crashed + wk.hung ? '(落ちた ' + wk.crashed + '・黙って強制終了 ' + wk.hung + ')' : ''));
+      var none = !co.total && !ca.total && !(wk && wk.crashed + wk.hung);
+      ul.appendChild(healthRow(co.total ? 'warn' : 'ok', '異常終了(7 日)', none ? 'なし'
+        : co.total ? parts.join('。') + '。PC が不安定かもしれません。設定を遅い側に戻す目安: docs/plan/stability-review-2026-10.md' : parts.join('。')));
+    }
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
