@@ -22,7 +22,7 @@ sys.path.insert(0, HERE)
 import common
 import exporter
 import handoff
-from ytt_core import schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
+from ytt_core import normalize, schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
 
 
 def _make_clip(path, sec=2.0):
@@ -105,10 +105,11 @@ class TestExportCompletion(unittest.TestCase):
             self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
 
 
-def _make_source(path, sec=30, gop=50):
-    """キーフレームが5秒ごと(10fps・gop=50)の合成動画(映像+音声)。速度優先(コピー)の開始のずれを確かめるため。"""
+def _make_source(path, sec=30, gop=300, rate=60, video=None):
+    """キーフレームが5秒ごと(60fps・gop=300)の合成動画(映像+音声)。配信の録画によくある 60fps(書き出しで 30fps に作り直される。2026-10-04 Q1)。
+    video: 映像の lavfi の指定を差し替える(明るさで時刻が分かる映像など)"""
     ff = common.find_tool("ffmpeg")
-    cmd = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=%d" % sec,
+    cmd = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", video or "testsrc=size=64x64:rate=%d:duration=%d" % (rate, sec),
            "-f", "lavfi", "-i", "sine=frequency=440:duration=%d" % sec, "-c:v", "libx264", "-preset", "veryfast", "-g", str(gop),
            "-keyint_min", str(gop), "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path]
     return subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode == 0 and os.path.isfile(path)
@@ -127,6 +128,12 @@ def _spec(src, clips, fast=False, volume=75):
 def _read(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _fps(path):
+    """r_frame_rate(ffprobe が無ければ None)"""
+    i = normalize.probe(path)
+    return i and i["r_frame_rate"]
 
 
 @unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
@@ -177,6 +184,8 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(d["source"], {"kind": "file", "videoId": "f0123456789", "url": None, "title": "テスト 配信", "path": self.src})
         self.assertEqual(d["mark"], {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"})
         self.assertEqual(d["export"], {"mode": "precise", "volume": 75})   # 精度優先は actualStart なし(= range.start)
+        if common.find_tool("ffprobe"):   # 60fps の元から、切り抜きも編集用素材も 30fps に作り直される(Q1)
+            self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         # 前後10秒の編集用素材にも、その範囲の .clip.json が付く
         e = _read(it["editManifest"])
         self.assertEqual(e["media"]["path"], it["editPath"])
@@ -208,29 +217,41 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(_read(it["manifest"])["range"], {"start": 25.0, "end": 30.0})
         self.assertEqual(_read(it["editManifest"])["range"], {"start": 15.0, "end": 30.0})
 
-    @unittest.skipUnless(common.find_tool("ffprobe"), "ffprobe が無い環境では actualStart を出さない")
-    def test_fast_copy_records_actual_start(self):
+    def test_fast_reencodes_to_30fps_at_exact_position(self):
+        """高速 = 速い設定(ultrafast)での作り直し(2026-10-04 Q1。以前のコピーは fps を変えられず、開始もキーフレームへずれた)。
+        位置ちょうどなので actualStart は付けない"""
         clip = {"id": "m4", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": "adopted"}
-        job, _ = self.export([clip], fast=True)
-        it = job["items"][0]
-        d = _read(it["manifest"])
-        self.assertEqual(d["export"]["mode"], "fast")
-        # キーフレームは 0,5,10… 秒。7秒からのコピーは 5秒のキーフレームから始まる(B フレームの遅延ぶん少し前)
-        self.assertGreater(d["export"]["actualStart"], 4.5)
-        self.assertLessEqual(d["export"]["actualStart"], 5.0)
-        self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})
-        # 実際の中身の長さも、開始がずれた分だけ長い(= actualStart から range.end まで)
-        self.assertAlmostEqual(d["media"]["durationSec"], d["range"]["end"] - d["export"]["actualStart"], delta=0.4)
+        cmds = []
+        real = exporter._pump
 
-    def test_fast_without_ffprobe_omits_actual_start(self):
-        clip = {"id": "m5", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
-        real = common.find_tool
-        with patch.object(exporter, "find_tool", side_effect=lambda n: None if n == "ffprobe" else real(n)):
+        def spy(job, cmd, it, dur, *a, **kw):
+            cmds.append(cmd)
+            return real(job, cmd, it, dur, *a, **kw)
+        with patch.object(exporter, "_pump", side_effect=spy):
             job, _ = self.export([clip], fast=True)
-        d = _read(job["items"][0]["manifest"])
-        self.assertEqual(d["export"]["mode"], "fast")
-        self.assertNotIn("actualStart", d["export"])   # 分からないときは推定値を入れない
+        it = job["items"][0]
+        self.assertEqual(it["status"], "done", it.get("error"))
+        d = _read(it["manifest"])
+        self.assertEqual(d["export"], {"mode": "fast", "volume": 75})
+        self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})
+        self.assertAlmostEqual(d["media"]["durationSec"], 5.0, delta=0.2)
+        cut = [c for c in cmds if "-preset" in c]
+        self.assertTrue(cut and all(c[c.index("-preset") + 1] == "ultrafast" and c[c.index("-crf") + 1] == "18" for c in cut))
+        self.assertFalse(any("copy" == c[c.index("-c") + 1] for c in cmds if "-c" in c))   # コピーはもう使わない
+        if common.find_tool("ffprobe"):
+            self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
 
+    def test_combine_is_30fps(self):
+        clips = [{"id": "a", "start": 2.0, "end": 4.0, "title": "a", "label": "a", "src": "manual", "markStatus": ""},
+                 {"id": "b", "start": 10.0, "end": 12.0, "title": "b", "label": "b", "src": "manual", "markStatus": ""}]
+        spec = dict(_spec(self.src, clips), combine=True)
+        job = dict(_job(clips, common.get_out_dir()), combined=None)
+        exporter.run_job(job, spec)
+        c = job["combined"]
+        self.assertEqual((job["state"], c["status"]), ("done", "done"), c.get("error"))
+        self.assertAlmostEqual(common.media_info(c["path"])[0], 4.0, delta=0.3)
+        if common.find_tool("ffprobe"):
+            self.assertEqual(_fps(c["path"]), "30/1")
 
     # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える(2026-09-30。設計レビュー studio の 4) ----
     def _files(self, job):
@@ -554,6 +575,131 @@ class TestLoudness(unittest.TestCase):
         with patch.object(exporter, "_reencode_audio") as re_:
             exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75, "loudness": -14.0}, {"start": 0, "end": 1}, "x.mp4")
         re_.assert_not_called()
+
+
+# 偽物の yt-dlp: --download-sections の区間を、手元の動画から本物の yt-dlp と同じ形(入力側の -ss + コピー)で取る。
+# 受け取った引数を FAKE_YTDLP_LOG に1行ずつ残す。FAKE_YTDLP_PREROLL=1 なら頼んだより3秒手前から取る(位置が分からない場合)。-g(方法2)は失敗する
+FAKE_YTDLP = r'''
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_YTDLP_LOG"], "a", encoding="utf-8") as f:
+    f.write(json.dumps(args) + "\n")
+if "-g" in args:
+    print("ERROR: fake", file=sys.stderr)
+    sys.exit(1)
+val = lambda k: args[args.index(k) + 1]
+def secs(t):
+    h, m, s = t.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
+a, b = val("--download-sections").lstrip("*").split("-")
+s, e = secs(a), secs(b)
+if os.environ.get("FAKE_YTDLP_PREROLL") == "1":
+    s = max(0.0, s - 3)
+out = val("-o").replace("%(ext)s", "mp4").replace("%%", "%")
+print("[download] Destination: " + out, flush=True)
+r = subprocess.run([val("--ffmpeg-location"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", "%.3f" % s, "-t", "%.3f" % (e - s),
+                    "-i", os.environ["FAKE_YTDLP_SRC"], "-c", "copy", "-f", "mp4", out], stdin=subprocess.DEVNULL)
+sys.exit(r.returncode)
+'''
+
+
+def _y_avg(path):
+    """最初のコマの明るさの平均(signalstats の YAVG)"""
+    r = subprocess.run([common.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+                        "-frames:v", "1", "-f", "null", "-"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+    import re
+    m = re.search(r"YAVG=([\d.]+)", r.stdout)
+    return float(m.group(1)) if m else None
+
+
+@unittest.skipUnless(common.find_tool("ffmpeg") and common.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
+class TestYoutubeTwoStage(unittest.TestCase):
+    """YouTube の区間取得は2段(2026-10-04 Q1): yt-dlp で区間をそのまま取る(前後に余裕・作り直さない)→ ffmpeg の ENC で正確な区間に切って 30fps に"""
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        cls.src = os.path.join(cls.dir, "yt.mp4")
+        # 明るさ = 秒 × 8(7 秒のコマは 56)。60fps・キーフレームは5秒ごと
+        video = "color=c=gray:size=64x64:rate=60:duration=30,format=yuv420p,geq=lum='min(250,T*8)':cb=128:cr=128"
+        if not _make_source(cls.src, video=video):
+            raise unittest.SkipTest("テスト用動画を作れなかった")
+        cls.fake = os.path.join(cls.dir, "fake_ytdlp.py")
+        with open(cls.fake, "w", encoding="utf-8") as f:
+            f.write(FAKE_YTDLP)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        common.set_home(self.tmp)
+        self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def export(self, clip, fast=False, preroll=False):
+        spec = dict(_spec(None, [clip], fast), kind="youtube", videoId="abcdefghijk", sourceFile=None, mode="url")
+        spec.pop("sourcePath")
+        job = _job([clip], common.get_out_dir())
+        env = {"FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": "1" if preroll else ""}
+        with patch.dict(os.environ, env), patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake]):
+            exporter.run_job(job, spec, lambda *a: True)
+        with open(self.log, encoding="utf-8") as f:
+            calls = [json.loads(l) for l in f]
+        return job, calls
+
+    def test_two_stage_exact_and_30fps(self):
+        clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        job, calls = self.export(clip)
+        it = job["items"][0]
+        self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
+        # 1段目: 前後に SECTION_PAD 秒の余裕・作り直さない(--force-keyframes-at-cuts を付けない)。本体と前後10秒の編集用素材の2回
+        sections = [c[c.index("--download-sections") + 1] for c in calls]
+        self.assertEqual(sections, ["*00:00:05.000-00:00:14.000", "*00:00:00.000-00:00:24.000"])
+        self.assertFalse(any("--force-keyframes-at-cuts" in c for c in calls))
+        # 2段目: 正確な区間・30fps・crf 18
+        self.assertAlmostEqual(common.media_info(it["path"])[0], 5.0, delta=0.2)
+        self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
+        self.assertAlmostEqual(_y_avg(it["path"]), 56, delta=3)      # 最初のコマ = 元の 7 秒(余裕の 2 秒ぶんずれていない)
+        self.assertAlmostEqual(_y_avg(it["editPath"]), 0, delta=3)   # 編集用素材は 0 秒から
+        d = _read(it["manifest"])
+        self.assertEqual((d["range"], d["export"]["mode"], d["source"]["kind"]), ({"start": 7.0, "end": 12.0}, "precise", "youtube"))
+        # 取った区間(_dl)は残さない
+        folder = os.path.dirname(it["path"])
+        left = [n for dd in (folder, os.path.join(folder, schemas.WORK_DIR)) for n in os.listdir(dd) if exporter.DL_TAG in n or exporter.PARTIAL in n]
+        self.assertEqual(left, [])
+
+    def test_fast_uses_ultrafast(self):
+        clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        cmds = []
+        real = exporter._pump
+
+        def spy(job, cmd, it, dur, *a, **kw):
+            cmds.append(cmd)
+            return real(job, cmd, it, dur, *a, **kw)
+        with patch.object(exporter, "_pump", side_effect=spy):
+            job, _ = self.export(clip, fast=True)
+        it = job["items"][0]
+        self.assertEqual(it["status"], "done", it.get("error"))
+        cut = [c for c in cmds if "-preset" in c]
+        self.assertEqual([c[c.index("-preset") + 1] for c in cut], ["ultrafast", "ultrafast"])
+        self.assertEqual(_read(it["manifest"])["export"]["mode"], "fast")
+        self.assertAlmostEqual(_y_avg(it["path"]), 56, delta=3)
+
+    def test_unknown_start_falls_back_and_cleans_up(self):
+        """取ったファイルが頼んだより長い(手前のキーフレームから見えている)ときは、位置が分からないので方法2(直接指定)へ回す"""
+        clip = {"id": "m1", "start": 9.5, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        job, calls = self.export(clip, preroll=True)
+        it = job["items"][0]
+        self.assertEqual(it["status"], "error")
+        self.assertIn("開始の位置", it["error"])
+        self.assertIn("-g", calls[-1])   # 方法2 を試した
+        folder = os.path.join(common.get_out_dir(), job["folder"])
+        left = [n for dd in (folder, os.path.join(folder, schemas.WORK_DIR)) if os.path.isdir(dd) for n in os.listdir(dd)
+                if os.path.isfile(os.path.join(dd, n)) and n != ".studio-id"]
+        self.assertEqual(left, [])
 
 
 if __name__ == "__main__":

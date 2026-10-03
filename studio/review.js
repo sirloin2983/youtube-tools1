@@ -305,7 +305,7 @@ function buildDOM(){
               <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
                 <select id="rvExpTarget"><option value="adopted">採用のみ(おすすめ)</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも)</option></select></div>
               <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
-                <select id="rvPrecision" title="高速は切れ目がキーフレーム(数秒間隔)に寄るため、開始が最大数秒手前にずれます。失敗した場合は自動で精密方式に切り替えます。"><option value="accurate">精密(位置ちょうど・おすすめ)</option><option value="fast">高速(数秒手前から始まることあり)</option></select>
+                <select id="rvPrecision" title="どちらも 30fps に作り直し、位置はちょうどです。高速は速い設定で作り直すので、ファイルが少し大きくなります。"><option value="accurate">精密(おすすめ)</option><option value="fast">高速(ファイルが少し大きい)</option></select>
                 </div>
               <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
                 <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
