@@ -31,6 +31,11 @@ cut2resolve/packs/
 **/feedback.jsonl
 **/feedback.jsonl.old
 **/.running.json
+# 秘密情報・個人データの名前(dev/push_helper.py の BAD_NAMES と同じ。push.bat を通さない git add でも入らないように)
+**/.env
+**/cookies.txt
+**/cases.json
+**/.migrated.json
 **/*.onnx
 
 # cut2resolve / srt2resolve の変換結果フォルダ

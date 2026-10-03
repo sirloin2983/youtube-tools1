@@ -2758,3 +2758,16 @@
 - 送るアプリ(`request-sender/`)の配色は別のまま(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)。そろえるかは未定
 - ユーザーがやること: 入口を「すべて終了」→ start.bat(ui-kit の写しが変わった)。⚙ の「テーマ」で4つを試す
 - 未コミット: なし
+
+## 2026-10-03 Claude Code — Windows の入れ直しのあとの復元・.gitignore に秘密情報の名前を足した
+- 経緯: ユーザーが PC の Windows を入れ直し、C:\dev\youtube-tools を GitHub から clone し直した(最新 19e0316 = 10-02 19:22)。
+  10-02 19:22 以降の未 push の作業と、作業データ `%LOCALAPPDATA%\youtube-tools\`(data.json・feedback.jsonl・config.json・settings・cache・transcripts・dataset・evals)は失われた
+  (C:\Windows.old は空。デスクトップのバックアップ `D:\backup\Desktop\youtube-test` は 09-30 08:17 の段0 の途中で、作業データは 09-26 から外にあったので入っていない)
+- 復元(バックアップから。上書きなし・diff/cmp で一致を確認): cut2resolve の packs 15件 → `%LOCALAPPDATA%\youtube-tools\cut2resolve\packs\`、
+  editor の voices/voxceleb.json → `%LOCALAPPDATA%\youtube-tools\transcribe\voices\`、`Claude outputs/`、`cut2resolve/tests/fixtures/resolve-ui-test/` の test35.mov ×2。
+  写していない(ユーザーの選択): .design の写真・holo-colors の build/dist・cut2resolve/exports・古いログ・.runtime
+- 変更: `.gitignore` に `**/.env`・`**/cookies.txt`・`**/cases.json`・`**/.migrated.json`(push_helper の BAD_NAMES にあるが .gitignore に無かった。push.bat を通さない `git add .` で入るおそれ)。
+  追跡中のファイルと全履歴をキー・トークンの形で調べ、本物は無かった(当たったのは test_push_helper.py のダミーだけ)
+- 注意: バックアップの .git にある段0 コミット2(bd6cb40)・2e3c069 は origin に無い(origin は c422f14 で同じ内容を入れ直している)。拾わなくてよい
+- ユーザーがやること: 起動後、スタジオ・編集の設定を入れ直す
+- 未コミット: なし
