@@ -796,6 +796,21 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(txindex.pick(docs, "zzzzzzzzzzz", "m1", "")[:2], (None, 0))
         self.assertEqual(txindex.summary(best), {"id": "bbbbbbbbbbbb", "title": "tbbbbbbbbbbbb", "segments": 2, "proofed": 1, "cut": 1, "updatedAt": 5})
 
+    def test_match_by_path_before_normalize30(self):
+        """2026-10-04 Q1: 「編集」が 30fps の写しへ付け替えた文書は、付け替える前のパス(relinks の why normalize30)でも見つかる"""
+        p = os.path.join(self.dir, "aaaaaaaaaaaa.json")
+        self.doc("aaaaaaaaaaaa", self.clip.replace(".mp4", "_30fps.mp4"))
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        d["relinks"] = [{"from": self.clip, "at": 1, "why": "normalize30"}, {"from": os.path.join(self.tmp, "other.mp4"), "at": 2}]
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+        os.utime(p, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
+        docs = txindex.load(self.dir)
+        self.assertEqual(txindex.pick(docs, "", "", self.clip)[1], 1)
+        self.assertEqual(txindex.pick(docs, "", "", self.clip.replace(".mp4", "_30fps.mp4"))[1], 1)
+        self.assertEqual(txindex.pick(docs, "", "", os.path.join(self.tmp, "other.mp4"))[1], 0)   # 選び直しの前のパス(why なし)は数えない
+
     def test_offset_sources(self):
         self.doc("aaaaaaaaaaaa", self.clip, clip=self.clipobj(start=100.0, actual=98.5))
         self.doc("bbbbbbbbbbbb", self.clip, clip=self.clipobj(vid="zzzzzzzzzzz", start=500.0))   # 別の配信の .clip.json は使わない

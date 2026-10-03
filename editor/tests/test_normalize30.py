@@ -121,6 +121,8 @@ class TestTranscribeNormalize(_Base):
         self.assertTrue(ed_jobs.public_job(job)["normOk"])
         self.assertIn("30fps", ed_jobs.public_job(job)["normNote"])
         self.assertEqual([n for n in os.listdir(self.media) if N.PART in n], [])
+        self.assertEqual(ed_store.find_doc_for_media(src)["id"], job["tid"])   # 付け替える前のパスからも見つかる(?media=・スタジオから開く)
+        self.assertEqual(ed_store.find_doc_for_media(dst)["id"], job["tid"])
 
     def test_30fps_is_not_remade(self):
         src = self.copy(self.v30, "そのまま.mp4")

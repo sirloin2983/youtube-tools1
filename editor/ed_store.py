@@ -137,7 +137,8 @@ def transcript_summary(tid):
           "flagged": sum(1 for s in segs if str(s.get("flag") or "").strip()), "durationSec": round(max(0.0, length), 1),
           "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
           "clipStart": ed_state.num(rng.get("start")), "clipEnd": ed_state.num(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
-          "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole"))}
+          "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
+          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:]}   # 30fps の写しへ付け替える前のパス(Q1)
     _summary_cache[tid] = (key, sm)
     return sm
 
@@ -843,7 +844,7 @@ def find_doc_for_media(path):
     best = None
     for tid in _tids():
         sm = transcript_summary(tid)
-        if not sm or not sm["_sourcePath"] or os.path.normcase(os.path.abspath(sm["_sourcePath"])) != key:
+        if not sm or not any(p and os.path.normcase(os.path.abspath(p)) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
             continue
         rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
         if best is None or rank > best[0]:

@@ -2,7 +2,7 @@
 
 入口の案件の画面(home/cases.py)と、スタジオのセリフの表示(studio/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
   切り抜き(スタジオの書き出し済みのマーク)の文字起こし =
-    ① 文書の sourcePath が、書き出した mp4 のパスと同じ
+    ① 文書の sourcePath が、書き出した mp4 のパスと同じ(30fps にそろえて付け替えた文書は、付け替える前のパス = relinks の why "normalize30" の from も。2026-10-04 Q1)
     ② 無ければ、文書の clip(.clip.json の中身)の source.videoId・mark.id が、その配信・マークと同じ(動画を動かした後でも見つかる)
   同じ切り抜きに複数あれば、更新が新しいもの。
 文書の行の時刻は切り抜きの中の時刻。元の配信の時刻 = offset + t(offset は .clip.json の export.actualStart → range.start の順。
@@ -18,6 +18,8 @@ import os
 import threading
 
 from . import datadir, fsio, schemas
+
+NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(editor/ed_relink.py の NORM_WHY と同じ)
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
@@ -64,8 +66,9 @@ def _parse(d, fallback_id):
                      "proofed": s.get("proofed") is True, "cut": s.get("cutState") == "cut"})
     clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
     up = d.get("updatedAt")
+    aliases = [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == NORM_WHY and isinstance(r.get("from"), str) and r["from"]]
     return {"id": str(d.get("id") or fallback_id)[:40], "title": str(d.get("title") or "")[:120],
-            "sourcePath": d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else "",
+            "sourcePath": d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else "", "aliases": aliases[-5:],
             "clip": clip, "segments": segs, "updatedAt": up if isinstance(up, int) and not isinstance(up, bool) else 0,
             "count": len(segs), "proofed": sum(1 for s in segs if s["proofed"]), "cut": sum(1 for s in segs if s["cut"])}
 
@@ -108,7 +111,7 @@ def summary(doc):
 
 def matches(doc, video_id, mark_id, media_path):
     media = norm(media_path)
-    if media and norm(doc["sourcePath"]) == media:
+    if media and (norm(doc["sourcePath"]) == media or any(norm(a) == media for a in doc.get("aliases") or ())):
         return True
     c = doc.get("clip") or {}
     src = c.get("source") if isinstance(c.get("source"), dict) else {}
