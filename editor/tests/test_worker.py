@@ -561,7 +561,7 @@ class EngineTest(unittest.TestCase):
         sentinel, seen = (iter(()), object()), {}
 
         class FakeModel:
-            def __init__(self, name, device=None, compute_type=None, local_files_only=False):
+            def __init__(self, name, device=None, compute_type=None, local_files_only=False, cpu_threads=0):
                 seen["init"] = (name, device, compute_type, local_files_only)
 
             def transcribe(self, audio, language=None, beam_size=5, vad_filter=True, hotwords=None):

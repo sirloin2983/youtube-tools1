@@ -153,7 +153,7 @@ def install_fakes(S):
                           types.SimpleNamespace(start=(a + b) / 2, end=b, word=text[len(text) // 2:])]
 
     class FakeWhisper:
-        def __init__(self, name, device="cpu", compute_type="int8", local_files_only=False):
+        def __init__(self, name, device="cpu", compute_type="int8", local_files_only=False, cpu_threads=0):
             self.name = name
             print("偽のモデルを読み込み: %s" % name)        # ライブラリの print・ネイティブの出力が、やり取りに混ざらないことの確認用
             os.write(1, b"native-like output on fd 1\n")

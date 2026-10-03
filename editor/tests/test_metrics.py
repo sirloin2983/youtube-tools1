@@ -359,7 +359,7 @@ class TestSplitAndRobust(unittest.TestCase):
         made = []
 
         class FakeModel:
-            def __init__(self, name, device=None, compute_type=None):
+            def __init__(self, name, device=None, compute_type=None, cpu_threads=0):
                 made.append(name)
 
         fw = types.ModuleType("faster_whisper")
@@ -388,7 +388,7 @@ class TestSplitAndRobust(unittest.TestCase):
         calls = []
 
         class FakeModel:
-            def __init__(self, name, device=None, compute_type=None, local_files_only=False):
+            def __init__(self, name, device=None, compute_type=None, local_files_only=False, cpu_threads=0):
                 calls.append((name, local_files_only))
                 if local_files_only and name == "not-downloaded":
                     raise OSError("not in cache")
@@ -882,6 +882,27 @@ from test_lite import *  # noqa: E402,F401,F403   友人用 文字起こし簡�
 from test_evalaudio import *  # noqa: E402,F401,F403   評価用の音声 flac(マスタープラン Q0)
 from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
 from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
+
+
+class TestThreadDefaults(unittest.TestCase):
+    """2026-10-04 S2: CPU のスレッド数の既定(faster-whisper 8・話者判別 8)と環境変数(docs/plan/stability-review-2026-10.md)"""
+
+    def test_faster_whisper_threads(self):
+        import tx_engines
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_CPU_THREADS": ""}), mock.patch("os.cpu_count", return_value=24):
+            self.assertEqual(tx_engines.FasterWhisper.thread_kw("cpu"), {"cpu_threads": 8})
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_CPU_THREADS": "16"}):
+            self.assertEqual(tx_engines.FasterWhisper.thread_kw("cpu"), {"cpu_threads": 16})
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_CPU_THREADS": "0"}):
+            self.assertEqual(tx_engines.FasterWhisper.thread_kw("cpu"), {})   # 0 = ライブラリの既定
+        self.assertEqual(tx_engines.FasterWhisper.thread_kw("cuda"), {})
+
+    def test_diar_threads(self):
+        import ed_speakers
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": ""}), mock.patch("os.cpu_count", return_value=24):
+            self.assertEqual(ed_speakers.diar_threads(), 8)
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": "12"}):
+            self.assertEqual(ed_speakers.diar_threads(), 12)
 
 
 if __name__ == "__main__":

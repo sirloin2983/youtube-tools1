@@ -145,7 +145,7 @@ def main():
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                         "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24:duration=20",
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=20",
-                        "-shortest", "-c:v", "libvpx-vp9", "-b:v", "300k", "-threads", "1", "-c:a", "libopus", media],   # 1スレッド: VP9 が複数スレッドで時々落ちる(e2e_edit_common.py)
+                        "-shortest", "-c:v", "libvpx-vp9", "-b:v", "300k", "-c:a", "libopus", media],
                        check=True, timeout=60)
         # 切り抜きスタジオが書き出した切り抜きのふり: 隣の .clip.json(元の配信)と、スタジオの data.json(配信者。文字起こしは読むだけ)
         sys.path.insert(0, tmp)

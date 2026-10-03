@@ -108,14 +108,23 @@ class FasterWhisper(Engine):
     def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
         from faster_whisper import WhisperModel
         try:
-            m = WhisperModel(name, device=device, compute_type=compute_type, local_files_only=True)
+            m = WhisperModel(name, device=device, compute_type=compute_type, local_files_only=True, **cls.thread_kw(device))
         except MemoryError:
             raise
         except Exception as e:   # 手元に無い(初回)・手元だけでは読めない → 今までどおりネットワークから取る
             if log:
                 log.info("手元のファイルだけではモデルを読めないので、ネットワークから取ります: %s(%s)", name, str(e)[:120])
-            m = WhisperModel(name, device=device, compute_type=compute_type)
+            m = WhisperModel(name, device=device, compute_type=compute_type, **cls.thread_kw(device))
         return cls(name, device, m)
+
+    @staticmethod
+    def thread_kw(device):
+        """CPU のときのスレッド数。ライブラリの既定は 4。2026-10-04 に測った(small・3.5 分の音声)ら 4 → 8 で 9% 速く、16 は 5% しか伸びず結果の文字が変わったので、
+        既定は 8(この PC の P コアの数)。環境変数 TRANSCRIBE_CPU_THREADS で変えられる(0 = ライブラリの既定)。docs/plan/stability-review-2026-10.md の S2"""
+        if device != "cpu":
+            return {}
+        n = _env_int("TRANSCRIBE_CPU_THREADS", min(8, os.cpu_count() or 4), lo=0)
+        return {"cpu_threads": n} if n > 0 else {}
 
     def transcribe(self, audio, **kw):
         return self.model.transcribe(audio, **kw)   # 引数・結果はそのまま(エンジンの口を作る前と1文字も変わらない)

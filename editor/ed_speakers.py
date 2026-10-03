@@ -60,6 +60,16 @@ MAX_SPEAKERS = 20
 SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]
 
 
+def diar_threads():
+    """話者判別(sherpa-onnx)のスレッド数。既定は min(8, CPU)(2026-10-04 に 4 から上げた。P コアの数。環境変数 TRANSCRIBE_DIAR_THREADS で変えられる。
+    docs/plan/stability-review-2026-10.md の S2)"""
+    try:
+        n = int(str(os.environ.get("TRANSCRIBE_DIAR_THREADS") or 0).strip())
+    except ValueError:
+        n = 0
+    return max(1, min(64, n)) if n > 0 else max(1, min(8, os.cpu_count() or 2))
+
+
 def has_sherpa():
     if ed_state.worker_fake():
         return True
@@ -184,7 +194,7 @@ def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT):
 
 def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT):
     import sherpa_onnx as so
-    threads = max(1, min(4, os.cpu_count() or 2))
+    threads = diar_threads()
     cfg = so.OfflineSpeakerDiarizationConfig(
         segmentation=so.OfflineSpeakerSegmentationModelConfig(
             pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=_diar_path(DIAR_SEG)), num_threads=threads),
@@ -521,7 +531,7 @@ def _embed_local(job, wav, emb, groups):
     """認識ワーカーの中だけで動く(numpy・sherpa-onnx)。区間ごとの特徴を長さで重みを付けて平均し、長さ 1 に"""
     import numpy as np
     import sherpa_onnx as so
-    threads = max(1, min(4, os.cpu_count() or 2))
+    threads = diar_threads()
     cfg = so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads)
     if not cfg.validate():
         raise ed_state.ApiError("diar_failed", "声の特徴のモデルを読み込めませんでした(models フォルダを削除して、もう一度試してください)", 500)
