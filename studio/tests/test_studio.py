@@ -289,6 +289,25 @@ class TestFeedback(Base):
         self.st.request_marks(YT["videoId"], [[400, 420]], 1)
         self.assertEqual(self.feedback(), [])
 
+    def test_machine_adoption_is_marked_and_cleared_by_human(self):
+        """機械が採用にしたマークには adoptedBy(auto / request)。書き出しの行にも付く(人の「よかった」と分ける)。人が状態を変えたら外れる"""
+        ids, _ = self.st.adopt_top(YT["videoId"], 2)
+        by = {m["id"]: m for m in self.marks()}
+        self.assertEqual({by[i].get("adoptedBy") for i in ids}, {"auto"})
+        rids, _, _ = self.st.request_marks(YT["videoId"], [[400, 420]], 0)
+        self.assertEqual({m["id"]: m for m in self.marks()}[rids[0]].get("adoptedBy"), "request")
+        m0 = by[ids[0]]
+        self.st.mark_exported(YT["videoId"], m0["id"], "f/x.mp4", m0["start"], m0["end"])
+        row = [r for r in self.feedback() if r["event"] == "export"][0]
+        self.assertEqual((row["adoptedBy"], row["markId"]), ("auto", m0["id"]))
+        self.put([dict(m, status="") if m["id"] == ids[1] else m for m in self.marks()])     # 人が候補に戻す
+        self.put([dict(m, status="adopted") if m["id"] == ids[1] else m for m in self.marks()])   # 人が採用にし直す
+        again = {m["id"]: m for m in self.marks()}[ids[1]]
+        self.assertNotIn("adoptedBy", again)
+        row = [r for r in self.feedback() if r["event"] == "adopt"][-1]
+        self.assertNotIn("adoptedBy", row)
+        self.assertEqual(row["markId"], ids[1])
+
     def test_reanalyzed_mark_keeps_auto0_in_feedback(self):
         a = self.ms[0]
         self.put([dict(a, status="adopted", start=a["start"] - 5), self.ms[1], self.ms[2]])

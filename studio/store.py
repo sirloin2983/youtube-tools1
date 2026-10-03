@@ -128,7 +128,9 @@ def _clean_server(d):
             "createdAt": ca if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0 else now_ms(),
             "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "auto0Orig": _auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
-            "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None}
+            "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None,
+            # 人ではなく機械が採用にした印(Q2。adopt_top = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(_build_mark)
+            "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
 
 
 def _build_mark(m, old, trusted=False):
@@ -146,6 +148,8 @@ def _build_mark(m, old, trusted=False):
                 srv["status"], srv["file"] = "adopted", ""
         elif cs is not None:
             srv["status"] = cs
+        if cs is not None and cs != old.get("status"):
+            srv["adoptedBy"] = None   # 人が状態を変えた = 人の判断になった
     elif trusted:
         srv = _clean_server(m)
     else:
@@ -167,6 +171,8 @@ def _build_mark(m, old, trusted=False):
         d["auto0Orig"] = srv["auto0Orig"]
     if srv.get("collabFrom"):
         d["collabFrom"] = srv["collabFrom"]
+    if srv.get("adoptedBy") and d["status"] in ("adopted", "exported"):
+        d["adoptedBy"] = srv["adoptedBy"]
     return d
 
 
@@ -696,7 +702,7 @@ class Store:
             nv = copy.deepcopy(v)
             for m in nv["marks"]:
                 if m["id"] in ids:
-                    m["status"] = "adopted"
+                    m["status"], m["adoptedBy"] = "adopted", "auto"
             nv["rev"] += 1
             nv["updatedAt"] = now_ms()
             self._commit(nv["id"], nv)
@@ -738,10 +744,11 @@ class Store:
                     if len(nv["marks"]) >= MAX_MARKS:
                         raise ApiError("bad_request", "マークは%d件までです" % MAX_MARKS, 400)
                     m = _build_mark({"id": "r" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": "adopted", "createdAt": now_ms()}, None)
+                    m["adoptedBy"] = "request"
                     nv["marks"].append(m)
                     changed = True
                 elif m["status"] in ("", "rejected"):
-                    m["status"] = "adopted"
+                    m["status"], m["adoptedBy"] = "adopted", "request"
                     changed = True
                 if m["id"] not in range_ids:
                     range_ids.append(m["id"])
@@ -750,7 +757,7 @@ class Store:
                             and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=lambda m: -(m["score"] or 0))[:auto]
             for m in autos:
                 if m["status"] == "":
-                    m["status"] = "adopted"
+                    m["status"], m["adoptedBy"] = "adopted", "auto"
                     changed = True
             if changed:
                 nv["marks"] = sorted(nv["marks"], key=lambda x: (x["start"], x["end"]))

@@ -136,7 +136,9 @@ def _feedback_row(video, mark, verdict, event):
     row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "videoId": video.get("id", ""), "kind": video.get("kind"), "start": mark.get("start"), "end": mark.get("end"),
            "peak": mark.get("peak"), "score": mark.get("score"), "parts": mark.get("parts") or {}, "verdict": verdict, "signals": an.get("signals") or {},
            "settings": {k: sp[k] for k in FB_SETTING_KEYS if k in sp}, "source": "review", "src": mark.get("src", "auto"), "event": event,
-           "duration": video.get("duration"), "type": an.get("type")}
+           "duration": video.get("duration"), "type": an.get("type"), "markId": mark.get("id")}
+    if mark.get("adoptedBy"):   # 機械が採用にしたマーク(まとめて実行・依頼)。書き出しの行が人の「よかった」に混ざらないように(Q2)
+        row["adoptedBy"] = mark["adoptedBy"]
     a0 = mark.get("auto0")
     if not a0 and mark.get("auto0Orig"):
         a0 = mark["auto0Orig"]
