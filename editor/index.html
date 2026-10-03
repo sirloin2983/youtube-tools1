@@ -1696,7 +1696,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <div class="ui-drawer-body">
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h"><span class="tt-pk-n">1</span>置き先のプロジェクト(Resolve で作るもの)</h3>
-           <div class="tt-pk-row"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
+           <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
+             <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
+           <div class="tt-pk-row" id="pkFpsRow" hidden><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
              <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
            <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
              <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
@@ -1721,7 +1723,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
                <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip・まとめて実行(カットの無い文書)に効きます。前の余白 0.1 秒は変わりません</span>
                <span class="hint" id="pkPadAfterNote"></span></div>
-             <div class="fld"><label for="pkFpsOther">その他のフレームレート(置き先)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
+             <div class="fld" id="pkFpsOtherFld" hidden><label for="pkFpsOther">その他のフレームレート(置き先。30fps でない古い素材のとき)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
                <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
                <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>

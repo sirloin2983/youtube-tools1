@@ -84,6 +84,17 @@ TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDi
            "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
 
 
+
+def _media_is_30fps(path):
+    """素材がちょうど 30fps か(ytt_core.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
+    try:
+        from ytt_core import normalize
+        info = normalize.probe(path)
+    except Exception:
+        return False
+    fps = (info or {}).get("fps")
+    return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
+
 class Cancelled(Exception):
     pass
 
@@ -980,6 +991,8 @@ class AutoRunner:
             row_edge = None
         size = tx_settings.get("packSize") if tx_settings.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
         fps = str(tx_settings.get("packFps") or "30")
+        # 素材は 30fps にそろえる(2026-10-04 Q1)。素材がちょうど 30fps のときは、設定の packFps(60 など)に関係なく 30 にする
+        # (「編集」の 3 パック と同じ。30fps でない古い素材だけ設定の値を使う)。素材の fps は _source_fps が分かるときだけ
         sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
         wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
         wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
@@ -1012,6 +1025,8 @@ class AutoRunner:
         """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
         無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
         row_edge, wrap_out, cut_silence = pack_opts[:3]
+        if wrap_out.get("textplusFps", "30") != "30" and _media_is_30fps(media):
+            wrap_out = dict(wrap_out, textplusFps="30")   # 素材がちょうど 30fps なら設定の packFps に関係なく 30(Q1。_pack_settings の説明)
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])

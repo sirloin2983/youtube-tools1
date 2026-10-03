@@ -1131,5 +1131,24 @@ class TestRequests(Base):
         self.assertEqual((res["runs"], res["skipped"][0]["reason"]), ([], "区間の指定が正しくありません"))
 
 
+class TestMedia30fps(unittest.TestCase):
+    """2026-10-04 Q1: 素材がちょうど 30fps なら、まとめて実行のパックは設定の packFps に関係なく 30"""
+
+    def test_media_is_30fps(self):
+        import shutil, subprocess, tempfile
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg が無い")
+        d = tempfile.mkdtemp()
+        try:
+            for fps, want in (("30", True), ("60", False), ("30000/1001", False)):
+                p = os.path.join(d, "v%s.mp4" % fps.replace("/", "_"))
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=%s:duration=1" % fps,
+                                "-c:v", "libx264", "-pix_fmt", "yuv420p", p], check=True, timeout=60)
+                self.assertEqual(A._media_is_30fps(p), want, fps)
+            self.assertFalse(A._media_is_30fps(os.path.join(d, "none.mp4")))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

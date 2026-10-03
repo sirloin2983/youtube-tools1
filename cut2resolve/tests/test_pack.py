@@ -67,6 +67,19 @@ class TestResolveTextPlusScript(unittest.TestCase):
             self.assertNotIn(bad, script)
         self.assertIn('GetSetting("timelineFrameRate")', script)
         self.assertIn('trackIndex=captionTrack, recordFrame=recordFrame', script)
+
+    def test_script_warns_but_does_not_stop_for_30fps_media(self):
+        """素材が 30fps(Q1)なら、プロジェクトが 30 以外でも止めずに警告(マーカーを黄色に)。60fps など 30 でない素材は今までどおり止める。
+        Lua を実行するテスト(TestResolveTextPlusLuaRun)は Lua が無いと skip になるので、ここでは文字列で確かめる"""
+        script = RTP.importer_script(_textplus_plan([(30, 150, '字幕')], [(0, 900)], fps=(30, 1), total=900))
+        self.assertIn('local media30 = math.abs(DATA.mediaFps - 30) <= 0.01', script)
+        self.assertIn('if tfps and media30 and math.abs(tfps - 30) > 0.01 then', script)
+        self.assertIn('(not media30 and math.abs(tfps - T.fps) > 0.01)', script)       # 30fps の素材は fps だけでは止めない(大きさの違いは止める)
+        self.assertIn('tw ~= T.width or th ~= T.height', script)
+        self.assertIn('fontOk and styleOk and fpsWarn == nil', script)                  # 警告があれば黄色(要確認)
+        self.assertIn('(fpsWarn and "・注意 " .. fpsWarn or "")', script)
+        self.assertIn('local ratio = tfps / DATA.mediaFps', script)                     # 素材とプロジェクトの fps が違うときの換算は残す
+        self.assertEqual(RTP.read_script_plan(script)['mediaFps'], 30)
         self.assertIn('tool:SetInput("Font", fontName)', script)
         self.assertIn('tool:SetInput("Style", fontStyle)', script)
         self.assertIn('GetFontList', script)
@@ -375,6 +388,23 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('timeline=C2R_エラー_プロジェクトのfps・解像度が違う', out)
         self.assertNotIn('CUT_TextPlus', out)
         self.assertIn('media=nil', out)                 # 動画も読み込まない
+
+    def test_30fps_media_on_60fps_project_warns_without_stopping(self):
+        """素材が 30fps(Q1)のとき、プロジェクトが 60fps でも止めずに置く(換算 x2)。マーカーは黄色で注意を出す。大きさが違うときは今までどおり止める"""
+        plan = _textplus_plan([(30, 150, '一')], [(0, 300)], fps=(30, 1), total=900)
+        out = self.run_lua(plan, {'timelineFrameRate': '60', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'},
+                           media_fps=30, fonts=self.KEI)
+        self.assertNotIn('C2R_エラー', out)
+        self.assertIn('item track=1 start=108000 dur=600', out)                       # 300 コマ x (60/30)
+        self.assertIn('item track=2 start=108060 dur=240 text=一', out)               # 字幕も換算(開始 30 コマ → 60、長さ 120 → 240)
+        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|', out)
+        self.assertIn('・注意 素材は30fpsですがプロジェクトは60', out)
+        out = self.run_lua(plan, {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'},
+                           media_fps=30, fonts=self.KEI)
+        self.assertIn('marker=Green|', out)                                            # 30fps のプロジェクトなら警告なし
+        self.assertNotIn('注意 素材は', out)
+        out = self.run_lua(plan, {'timelineFrameRate': '30', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'}, media_fps=30)
+        self.assertIn('timeline=C2R_エラー_プロジェクトのfps・解像度が違う', out)         # 大きさが違えば止める
 
     def test_only_fps_differs_also_stops(self):
         out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),

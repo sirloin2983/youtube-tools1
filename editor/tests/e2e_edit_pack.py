@@ -3,7 +3,7 @@
 
 - カット(手で決めた区間。60fps の元の動画)のとおりにパックができる(Lua に埋め込んだ区間 = 編集の内容のフレーム)
 - パックは最小限(④): 動画(直下)・Lua・雛形・登録用の ps1/bat だけ(手順書は画面の「Resolve での手順を見る」)。「予備も入れる」で EDL・予備の手順書・SRT
-- 作る前の注意: とても短い区間・60fps の動画を 30fps のプロジェクトへ
+- 作る前の注意: とても短い区間・60fps の古い動画を 30fps のプロジェクトへ(Q1: 30fps の素材は fps の選択を出さず 30 固定)
 - 作ったら「前回のパック」と packRev(一覧の API)
 - 文字起こしの無い動画: Text+ なし(EDL と元の動画のコピー)のパック
 - 作っている途中の「中止」
@@ -90,6 +90,8 @@ def main():
             check("30fps" in pg.inner_text("#pkSummaryText"), "前回の設定の要約が出る(既定は 30fps): " + pg.inner_text("#pkSummaryText"))
             pg.click("#pkSettingsBtn")
             pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            # 60fps の古い素材(30fps でない入れ直し前の文書)なら、今までどおり選択と 60↔30 の注意が出る(Q1。30fps の素材は下で選択を出さないことを確かめる)
+            check(pg.is_visible("#pkFpsRow") and pg.is_hidden("#pkFpsFixedRow") and pg.evaluate("!document.querySelector('#pkFpsOtherFld').hidden"),"60fps の古い素材: フレームレートの選択(30/60・その他)が出る")
             check(pg.is_visible("#pkFpsWarn") and "60fps" in pg.inner_text("#pkFpsWarn"), "60fps の元の動画を 30fps のプロジェクトに入れるときの注意: " + pg.inner_text("#pkFpsWarn"))
             pg.click("#pkFps [data-v='60']")
             wait_js(pg, "document.querySelector('#pkFpsWarn').hidden", 3000)
@@ -365,6 +367,24 @@ def main():
             files = sorted(os.listdir(pd2))
             check(files == sorted(["字幕なし.edl", "字幕なし.webm"]), "文字起こしの無い動画のパック: EDL・元の動画のコピー(Text+ なし。cut-plan.json・友人へ.txt は入れない): %s" % files)
             check(pg.is_disabled("#pkBackup") and pg.is_checked("#pkBackup"), "字幕が無いパックでは「予備も入れる」は選べない(EDL が本体)")
+
+            # ---- Q1: 素材が 30fps なら、プロジェクトの fps は 30 固定で選択を出さない(保存してある packFps = 60 は使わない・消さない)
+            r = srv.call("POST", "/api/settings/patch", {"values": {"packFps": "60"}})
+            check(srv.get("/api/settings").get("packFps") == "60", "(準備)保存してある設定を packFps = 60 にする: %s" % r)
+            pg.reload()
+            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+            wait_url_doc(pg)
+            pg.keyboard.press("Alt+3")
+            wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && !document.querySelector('#pkBuild').disabled", 30000)
+            check("30fps" in pg.inner_text("#pkSummaryText") and "60fps" not in pg.inner_text("#pkSummaryText"), "30fps の素材: 設定が 60 でも要約は 30fps: " + pg.inner_text("#pkSummaryText"))
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            check(pg.is_hidden("#pkFpsRow") and pg.evaluate("document.querySelector('#pkFpsOtherFld').hidden") and pg.is_visible("#pkFpsFixedRow"), "30fps の素材: フレームレートの選択は出さない")
+            check(pg.inner_text("#pkFpsFixed") == "素材とプロジェクトは 30fps" and pg.is_hidden("#pkFpsWarn"), "30fps の素材: 1行の説明だけ・60↔30 の注意は出ない: " + pg.inner_text("#pkFpsFixed"))
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            check(srv.get("/api/settings").get("packFps") == "60", "保存してある設定 packFps は消さない")
+            srv.call("POST", "/api/settings/patch", {"values": {"packFps": "30"}})
 
             # ---- 選んだ文書をまとめて「文字起こし → パック」(12 ⑦(b)。入口の /api/autorun/start-docs)
             v3 = make_video(os.path.join(srv.media, "まとめて.webm"), sec=6, fps=30)

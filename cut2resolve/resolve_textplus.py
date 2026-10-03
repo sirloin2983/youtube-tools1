@@ -424,7 +424,14 @@ local ok, err = pcall(function()
     local tfps = tonumber(project:GetSetting("timelineFrameRate"))
     local tw = tonumber(project:GetSetting("timelineResolutionWidth"))
     local th = tonumber(project:GetSetting("timelineResolutionHeight"))
-    if not tfps or math.abs(tfps - T.fps) > 0.01 or tw ~= T.width or th ~= T.height then
+    -- 素材が 30fps(2026-10-04 から素材は 30fps にそろえる)のときは、プロジェクトの fps が 30 以外でも止めない
+    -- (止めると Resolve の設定を変えられない人が使えなくなる)。換算(下の ratio)で置いて、マーカーを黄色にして知らせる
+    local media30 = math.abs(DATA.mediaFps - 30) <= 0.01   -- 29.97 は含めない(古い素材は今までどおり止める)
+    local fpsWarn = nil
+    if tfps and media30 and math.abs(tfps - 30) > 0.01 then
+        fpsWarn = "素材は30fpsですがプロジェクトは" .. tfps .. "fpsです(区間の端が丸められて1コマずれることがあります。30fpsのプロジェクトをおすすめします)"
+    end
+    if not tfps or (not media30 and math.abs(tfps - T.fps) > 0.01) or tw ~= T.width or th ~= T.height then
         error("SETTINGS|" .. T.fps .. "fps・" .. T.width .. "x" .. T.height .. " のプロジェクトで実行してください(今は " ..
             tostring(tfps) .. "fps・" .. tostring(tw) .. "x" .. tostring(th) .. ")")
     end
@@ -641,7 +648,7 @@ local ok, err = pcall(function()
     -- GetSetting は scaleToFit を返したので(2026-09-25)、この値で警告すると正しい設定でも黄色になってしまう
     local scaling = tostring(project:GetSetting("timelineInputResMismatchBehavior"))
     local styleOk = (styleMiss == nil or #styleMiss == 0)
-    local good = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil and fontOk and styleOk)
+    local good = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil and fontOk and styleOk and fpsWarn == nil)
     local title = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
     local note = "字幕 " .. added .. "/" .. #DATA.captions .. (captionTrack > 2 and "(V" .. captionTrack .. ")" or "") .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
         (videoTracks > 1 and "・同じ映像 V1〜V" .. videoTracks .. (dupFailed > 0 and "(置けなかった " .. dupFailed .. ")" or "") or "") ..
@@ -650,6 +657,7 @@ local ok, err = pcall(function()
             (styleDump and "。入力の一覧: " .. styleDump or "") .. ")") ..
         (#styleRenamed > 0 and "・入力の名前を読み替え: " .. table.concat(styleRenamed, ", ") or "") ..
         "・復旧用 " .. (source and "あり" or "作れず") ..
+        (fpsWarn and "・注意 " .. fpsWarn or "") ..
         "・" .. tfps .. "fps " .. tw .. "x" .. th .. "・拡大設定(参考) " .. scaling
     pcall(function()
         cutTimeline:AddMarker(0, good and "Green" or "Yellow", title, note, 1)
