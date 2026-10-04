@@ -163,6 +163,15 @@ def main():
                 check(os.path.normcase(pg.text_content("#recFolder")) == os.path.normcase(rfolder), "置き場所: %s" % pg.text_content("#recFolder"))
                 check("GB" in pg.text_content("#recFree") or "MB" in pg.text_content("#recFree"), "空き容量: %s" % pg.text_content("#recFree"))
                 check(pg.evaluate("document.getElementById('startBtn').disabled") is False, "録画を始められる")
+                check(pg.evaluate("document.getElementById('startQuality').value") == "1080p", "画質の既定は 1080p")
+                check(pg.evaluate("[...document.querySelectorAll('#markLag option')].map(o => o.value).join(',')") == "0,2,3,5"
+                      and pg.evaluate("document.getElementById('markLag').value") == "0", "開始の補正: なし/−2/−3/−5秒・既定はなし(スタジオと同じ)")
+                check("スタジオの「書き出しの設定」に合わせています" in pg.text_content("#audioNote") and ("LUFS" in pg.text_content("#audioNote") or "%" in pg.text_content("#audioNote")),
+                      "書き出しの音量の案内: %s" % pg.text_content("#audioNote"))
+                # 変えたら覚える(この画面の localStorage。再生の欄は録画を再生するまで隠れているので、値を直接変えて change を送る)
+                lag_set = "(v) => { const s = document.getElementById('markLag'); s.value = v; s.dispatchEvent(new Event('change')); return localStorage.getItem('ytt-live-lag'); }"
+                check(pg.evaluate(lag_set, "3") == "3", "開始の補正を覚える")
+                check(pg.evaluate(lag_set, "0") == "0", "開始の補正を戻す")
 
                 # 3. 録画 → 再生
                 pg.fill("#startUrl", live_src.url)

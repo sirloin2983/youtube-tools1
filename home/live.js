@@ -63,7 +63,20 @@
       $('#folderDefault').textContent = d.defaultFolder || '';
       $('#folderInput').placeholder = d.defaultFolder || '';
       if (!$('#folderInput').dataset.dirty) $('#folderInput').value = d.folder || '';
+      initLag(d.lag);
+      var a = d.audio || {};
+      $('#audioNote').textContent = '書き出しの音量: スタジオの「書き出しの設定」に合わせています(' +
+        (a.loudness ? a.loudness + ' LUFS にそろえる' : '音量 ' + (a.volume || 100) + '%') + ')。変えるときはスタジオの書き出しの設定で。';
     });
+  }
+
+  /* 開始(I)の反応の遅れ補正: スタジオと同じ選択肢(なし/−2/−3/−5秒)と既定値(なし)。最初の選び方はスタジオの設定、
+     変えたらこの画面の好みとして覚える(localStorage。覚えられなくても動く) */
+  var LAGS = [0, 2, 3, 5];
+  function lagSec() { var v = Number($('#markLag').value); return LAGS.indexOf(v) >= 0 ? v : 0; }
+  function initLag(studioLag) {
+    var saved = lsGet('lag'), v = saved != null && saved !== '' ? Number(saved) : Number(studioLag);
+    $('#markLag').value = String(LAGS.indexOf(v) >= 0 ? v : 0);
   }
 
   function setConn(state, text) { var c = $('#conn'); c.className = 'pill ' + state; c.textContent = text; }
@@ -309,7 +322,11 @@
   function markIn() {
     var t = nowIso();
     if (!t) { markMsg('再生している所の時刻が取れません(再生を始めてから押してください)'); return; }
-    postMark({ op: 'add', start: t }).then(function (j) { markMsg('開始をマークしました(#' + j.mark.n + ')。終わりで O を押します'); }, function () {});
+    var lag = lagSec();
+    if (lag) t = new Date(new Date(t).getTime() - lag * 1000).toISOString();
+    postMark({ op: 'add', start: t }).then(function (j) {
+      markMsg('開始をマークしました(#' + j.mark.n + (lag ? '。' + lag + ' 秒前から' : '') + ')。終わりで O を押します');
+    }, function () {});
   }
   function markOut() {
     var t = nowIso(), m = openMark();
@@ -374,6 +391,7 @@
     $('#markOut').addEventListener('click', markOut);
     $('#markQuick').addEventListener('click', markQuick);
     $('#quickSec').textContent = String(QUICK_SEC);
+    $('#markLag').addEventListener('change', function () { lsSet('lag', String(lagSec())); });
     [['autoExport', 'auto-export'], ['autoTx', 'auto-tx']].forEach(function (p) {
       var box = $('#' + p[0]); box.checked = lsGet(p[1]) !== '0';
       box.addEventListener('change', function () { lsSet(p[1], box.checked ? '1' : '0'); });

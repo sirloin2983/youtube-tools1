@@ -312,6 +312,16 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertEqual(ff[ff.index("-c") + 1], "copy")
         self.assertIn("temp_file+program_date_time", ff)
 
+    def test_default_quality_is_1080p(self):
+        """画質の既定は 1080p(2026-10-04 ユーザー決定。4K の配信で容量が膨らむのを避ける)。720p・best は今までどおり選べる"""
+        import inspect
+        self.assertEqual(R.DEFAULT_QUALITY, "1080p")
+        self.assertEqual(inspect.signature(R.Recorder.start).parameters["quality"].default, "1080p")
+        r = R.Recording(self.rec, "20261004-000000-y", os.path.join(self.folder, "y"), {"url": "https://www.youtube.com/watch?v=y", "quality": R.DEFAULT_QUALITY})
+        self.assertEqual(r._commands("session_001")[0][-1], "1080p60,1080p,best")
+        for q in ("best", "720p"):
+            self.assertIn(q, R.QUALITIES)
+
     def test_disconnect_is_not_the_end(self):
         """streamlink は切断でも終了コード 0 で終わる。記録の「No new segments」で見分けて、終わりにせず繋ぎ直す"""
         self.srv.end = False

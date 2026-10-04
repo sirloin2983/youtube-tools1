@@ -55,7 +55,7 @@
       <label class="lag lv-grow">配信の URL
         <input id="startUrl" type="text" size="44" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false"></label>
       <label class="lag">画質 <select id="startQuality">
-        <option value="best">いちばん良い</option><option value="1080p">1080p</option><option value="720p">720p(容量を抑える)</option></select></label>
+        <option value="best">いちばん良い(4K の配信は容量が大きい)</option><option value="1080p" selected>1080p(既定)</option><option value="720p">720p(容量を抑える)</option></select></label>
     </div>
     <div class="row">
       <label class="lag lv-grow">名前(なくても可) <input id="startTitle" type="text" size="32" maxlength="200" autocomplete="off"></label>
@@ -78,6 +78,7 @@
       <button type="button" class="btn small" id="markIn" title="再生している所から始まるマークを付ける(保存はすぐ)">開始 <kbd class="ui-kbd">I</kbd></button>
       <button type="button" class="btn small" id="markOut" title="開始だけのマークの終わりを、再生している所にする">終了 <kbd class="ui-kbd">O</kbd></button>
       <button type="button" class="btn small" id="markQuick" title="再生している所までの直前の秒数をマークにする">直前 <span id="quickSec">30</span> 秒 <kbd class="ui-kbd">N</kbd></button>
+      <label class="lag" title="反応が遅れた分だけ、再生している所より前を開始にします(スタジオの「反応の遅れ補正」と同じ)">開始の補正 <select id="markLag"><option value="0">なし</option><option value="2">−2秒</option><option value="3">−3秒</option><option value="5">−5秒</option></select></label>
       <label class="lag"><input type="checkbox" id="autoExport"> 終了をマークしたら書き出す</label>
       <label class="lag"><input type="checkbox" id="autoTx"> 書き出したら文字起こしへ</label>
     </div>
@@ -88,6 +89,7 @@
     <div class="row"><b class="grow">マークと書き出し</b><span class="hint" id="marksFor"></span></div>
     <p class="hint">マークは押すたびにホームの作業データへ保存します。書き出しは、終わりの時刻まで録画が届くのを待ってから、
       録画元から区間のセグメントを取り、30fps に作り直して、スタジオの書き出し先(配信の名前のフォルダ)に置きます。</p>
+    <p class="hint" id="audioNote"></p>
     <p class="hint" id="marksEmpty">まだマークはありません。再生しながら I(開始)・O(終了)・N(直前の秒数)で付けます。</p>
     <ol class="lv-list" id="marks"></ol>
   </section>

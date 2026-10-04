@@ -11,7 +11,7 @@
 API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。token は <作業データ>/recorder/token.txt):
   GET  /api/ping                          {"app": "ytt-recorder", "version"}(合言葉なし。生きているかの確認)
   GET  /live/list                         置き場所・空き容量・streamlink の有無・録画の一覧
-  POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p
+  POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p(省略は 1080p)
   POST /live/<id>/stop  {}                 手で止める
   GET  /live/<id>/status?since=N           録画の状態・セッション・セグメント(N 個目から)
   GET  /live/<id>/segments?start=&end=    区間(UTC の時刻)にかかるセグメント(uri・pdt・dur)と欠け・録画済みの最後の時刻(P2 の書き出し)
@@ -48,7 +48,7 @@ from ytt_core import datadir, fsio, httpsec  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.2.0"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = "0.2.1"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -287,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
         rec = self.server.rec
         try:
             if u.path == "/live/start":
-                return self._json(200, {"recording": rec.start(body.get("url"), body.get("quality") or "best", body.get("title") or "")})
+                return self._json(200, {"recording": rec.start(body.get("url"), body.get("quality") or rec_core.DEFAULT_QUALITY, body.get("title") or "")})
             if u.path == "/live/config":
                 folder = clean_folder(body.get("folder"))
                 if os.path.normcase(folder) != os.path.normcase(rec.folder or ""):

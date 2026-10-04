@@ -14,6 +14,8 @@
   2. 取得     … 区間にかかるセグメント(4 秒ごとの .ts)だけを録画元から取る。録画元は 主 → 予備(同じ配信を録っている別の録画元。2台のとき)の順。
                  区間に欠け(繋ぎ直しの間など)があれば書き出さずに「要差し替え」(P4 のアーカイブで作り直す)
   3. 作り直し … セッションごとにつないで(TS はそのままつなげる)、正確な区間に切って ytt_core.normalize と同じ設定で 30fps に(SLOTS を通す)
+  3b. 音量    … スタジオの書き出しと同じ扱い(audio()。既定はスタジオの「書き出しの設定」= 音量 75% か、ラウドネスをそろえる -14 LUFS など)。
+                 ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt_core.loudness)
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
   5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先\<配信の名前>\)・名前の規則・作業用\<名前>.clip.json。
                  文字起こしへ(任意)は入口の「まとめて実行」の文字起こしだけの形(autorun.start_file。mode file)に入れる
@@ -35,7 +37,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import fsio, jobs, normalize, schemas, tools
+from ytt_core import fsio, jobs, loudness, normalize, schemas, tools
 
 VERSION = "0.1.0"
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -302,10 +304,11 @@ class MarkStore:
 
 # ---------- 書き出しのジョブ ----------
 class Exporter:
-    def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None):
+    def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None):
         """live: home/live.py の Live(録画元の一覧と要求)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
-        runner(): まとめて実行(home/autorun.py の AutoRunner。文字起こしへ渡す)か None"""
-        self.live, self.folder, self.out_dir, self.runner = live, folder, out_dir, runner
+        runner(): まとめて実行(home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
+        audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(home/live.py の studio_audio)。None なら音量を変えない"""
+        self.live, self.folder, self.out_dir, self.runner, self.audio = live, folder, out_dir, runner, audio
         self.log = log or (lambda m: None)
         self.slots = slots or jobs.SLOTS
         self.poll, self.down_sec = poll, down_sec
@@ -681,6 +684,11 @@ class Exporter:
         if code != 0:
             _unlink(tmp)
             raise LiveError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
+        try:
+            audio = self._adjust_audio(job, ff, tmp, dur, flags)
+        except BaseException:   # 取り消し・入口の終了・失敗: 書きかけは残さない
+            _unlink(tmp)
+            raise
         info = normalize.probe(tmp, self.ffprobe)
         if not normalize.is_30fps(info):
             _unlink(tmp)
@@ -691,7 +699,66 @@ class Exporter:
                             % (dur, "不明" if info.get("duration") is None else "%.2f" % info["duration"]))
         final = os.path.join(folder, base + ".mp4")
         fsio.replace_retry(tmp, final)
-        return dict(info, path=final, title=title), None
+        return dict(info, path=final, title=title, audio=audio), None
+
+    def _audio_cfg(self):
+        """-> (音量(%。100 = 変えない), ラウドネスの目標 LUFS か None)。形が正しくなければ「変えない」"""
+        try:
+            a = self.audio() if self.audio else None
+        except Exception:
+            a = None
+        a = a if isinstance(a, dict) else {}
+        try:
+            loud = loudness.check_target(a.get("loudness"))
+        except ValueError:
+            loud = None
+        try:
+            vol = loudness.check_volume(a.get("volume")) or 100
+        except ValueError:
+            vol = 100
+        return vol, loud
+
+    def _adjust_audio(self, job, ff, path, dur, flags):
+        """作り直した動画の音量を、スタジオの書き出しと同じ設定にそろえる(音声だけ作り直し。映像は -c:v copy で無劣化)。
+        ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt_core.loudness.gain(音が割れない・上げすぎない範囲)。
+        -> .clip.json の export に足す項目({"loudness": {...}} か {"volume": %}。スタジオの _clip_export_info と同じ形)"""
+        vol, loud = self._audio_cfg()
+        if not loud and vol == 100:
+            return {"volume": 100}
+        info = normalize.probe(path, self.ffprobe)
+        if info is not None and not info.get("has_audio"):   # 音声の無い録画: 何もしない
+            return {"loudness": {"target": loud, "skipped": "音声がありません"}} if loud else {"volume": vol}
+        if loud:
+            self._set(job, message="音量(%g LUFS)をそろえています" % loud)
+            cmd = [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-",
+                   "-progress", "pipe:1", "-nostats"]
+            code, tail, why = self._run(job, cmd, dur, flags)
+            if why == "cancel":
+                self._cancelled(job)
+                raise Cancelled()
+            i, tp = loudness.parse(" ".join(tail)) if code == 0 else (None, None)
+            if i is None:   # 無音・測れない: 音量は変えない(スタジオと同じ)
+                return {"loudness": {"target": loud, "skipped": "音声が無いか、無音のため測れませんでした"}}
+            g = loudness.gain(loud, i, tp)
+            res = {"loudness": loudness.result(loud, i, g)}
+            if abs(g) < loudness.MIN_GAIN_DB:
+                return res
+            af, what = "volume=%.2fdB" % g, "ラウドネス調整"
+        else:
+            res, af, what = {"volume": vol}, "volume=%.3f" % (vol / 100.0), "音量調整"
+        self._set(job, message="音量を調整しています")
+        out = path + ".vol.mp4"
+        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
+               "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
+        code, tail, why = self._run(job, cmd, dur, flags)
+        if why == "cancel" or code != 0:
+            _unlink(out)
+            if why == "cancel":
+                self._cancelled(job)
+                raise Cancelled()
+            raise LiveError("%sに失敗しました: %s" % (what, " / ".join(tail[-3:]) or "終了コード %s" % code))
+        fsio.replace_retry(out, path)
+        return res
 
     def _run(self, job, cmd, dur, flags):
         """ffmpeg を1回動かす(取り消し・入口の終了で止める)。-> (終了コード, エラーの行, None|"cancel")"""
@@ -749,7 +816,7 @@ class Exporter:
         vid = video_id_of(d.get("url"), rec)
         clip = schemas.build_clip(media, out.get("duration"), {"kind": "youtube", "videoId": vid, "title": out["title"]},
                                   (a - base, b - base), {"id": job["markId"], "label": job.get("label") or "", "status": "exported", "src": "manual"},
-                                  {"mode": "precise", "volume": 100, "fps": "30/1", "from": "live-recording"}, TOOL)
+                                  dict({"mode": "precise", "fps": "30/1", "from": "live-recording"}, **(out.get("audio") or {"volume": 100})), TOOL)   # 音量は実際にかけた値(スタジオの _clip_export_info と同じ形)
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"]}}

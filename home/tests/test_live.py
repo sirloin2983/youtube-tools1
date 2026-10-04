@@ -38,7 +38,7 @@ import launch as L  # noqa: E402
 import live as LV  # noqa: E402
 import live_export as LX  # noqa: E402
 import prefs as P  # noqa: E402
-from ytt_core import fsio, normalize, schemas  # noqa: E402
+from ytt_core import fsio, loudness, normalize, schemas, tools  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
 import hls_fixture as F  # noqa: E402
 
@@ -235,6 +235,8 @@ class PortalLiveTest(unittest.TestCase):
         self.assertGreater(len(raw), 100000)
         code, d = self.jreq("GET", "/live/api/info")
         self.assertEqual([r["id"] for r in d["recorders"]], ["fake"])
+        self.assertEqual(sorted(d["audio"]), ["loudness", "volume"])   # 書き出しの音量(スタジオと同じ設定)・開始の補正の最初の値
+        self.assertIn(d["lag"], (0, 2, 3, 5))
         self.assertNotIn(TOKEN, json.dumps(d))
         # 中継: 合言葉と Host を付ける。ブラウザの Origin は渡さない
         code, d = self.jreq("GET", "/live/r/fake/list")
@@ -431,8 +433,9 @@ class ExportTest(unittest.TestCase):
         self.prefs.patch("live", {"enabled": True, "recorders": [{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % self.port, "token": token}]})
         self.runner = FakeRunner()
         self.out = os.path.join(self.tmp, "out")
+        self.audio = {"volume": 100, "loudness": None}   # 既定の書き出しは音量そのまま(音量の確認は test_audio_like_studio)
         self.live = LV.Live(self.prefs, REPO, os.path.join(self.tmp, "logs"), store_dir=os.path.join(self.tmp, "live"),
-                            out_dir=lambda: self.out, runner=lambda: self.runner, spawn=False)
+                            out_dir=lambda: self.out, runner=lambda: self.runner, spawn=False, audio=lambda: self.audio)
         self.rc = self.live.find("local")
         self.assertTrue(wait_for(lambda: self.live.ping(self.rc), 20))
         self.ex = self.live.exporter
@@ -522,6 +525,44 @@ class ExportTest(unittest.TestCase):
         again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
         self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled"})
 
+    def loud_of(self, path):
+        """書き出した動画の聞こえ方の音量(LUFS)とピーク(dBTP)。ffmpeg の loudnorm で測るだけ"""
+        r = subprocess.run([tools.find_tool("ffmpeg", "YTT_FFMPEG"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
+                            "-f", "null", "-"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return loudness.parse(r.stdout.decode("utf-8", "replace"))
+
+    def test_audio_like_studio(self):
+        """書き出しの音量はスタジオと同じ扱い: ラウドネスをそろえる(測って音声だけ作り直し・.clip.json に結果)/ 音量(%)/ 変えない。30fps・長さはそのまま"""
+        rid = self.start_rec(10)
+        first = LX.iso_epoch(self.status(rid)["firstPdt"])
+        a, b = first + 1.0, first + 7.0
+        m = self.mark(rid, a, b)
+
+        def run(audio):
+            self.audio = audio
+            j = self.ex.add("local", rid, m["id"], transcribe=False)
+            d = self.wait_state(j["id"], ("done", "error"), 90)
+            self.assertEqual(d["state"], "done", d)
+            info = normalize.probe(d["path"])
+            self.assertTrue(normalize.is_30fps(info), info)
+            self.assertAlmostEqual(info["duration"], b - a, delta=0.2)
+            self.assertEqual(info["acodec"], "aac")
+            self.assertFalse([n for n in os.listdir(os.path.dirname(d["path"])) if ".partial" in n or ".vol" in n])
+            return d["path"], schemas.load_clip_file(schemas.find_clip_path(d["path"]))[0]["export"]
+        p0, ex0 = run({"volume": 100, "loudness": None})
+        self.assertEqual(ex0["volume"], 100)
+        base_i, _tp = self.loud_of(p0)
+        p1, ex1 = run({"volume": 50, "loudness": None})   # 50% = -6 dB
+        self.assertEqual((ex1["volume"], "loudness" in ex1), (50, False))
+        self.assertAlmostEqual(self.loud_of(p1)[0], base_i - 6.02, delta=0.6)
+        p2, ex2 = run({"volume": 75, "loudness": -14.0})   # ラウドネスがあるときは音量(%)は使わない
+        self.assertNotIn("volume", ex2)
+        self.assertEqual(ex2["loudness"]["target"], -14.0)
+        self.assertAlmostEqual(ex2["loudness"]["measured"], base_i, delta=0.6)   # 測った値 = そろえる前の聞こえ方
+        self.assertAlmostEqual(ex2["loudness"]["gainDb"], -14.0 - base_i, delta=0.6)
+        self.assertAlmostEqual(self.loud_of(p2)[0], -14.0, delta=1.0)             # そろった
+        self.assertEqual(os.path.dirname(p0), os.path.dirname(p2))
+
     def test_cancel_while_encoding(self):
         rid = self.start_rec(12)
         st = self.status(rid)
@@ -563,6 +604,56 @@ class ExportTest(unittest.TestCase):
         d3 = self.wait_state(j3["id"], ("done", "error"), 30)
         self.assertEqual(d3["state"], "error", d3)
         self.assertIn("つながりませんでした", d3["error"])
+
+
+class StudioSettingsTest(unittest.TestCase):
+    """書き出しの音量・反応の遅れ補正はスタジオの設定(settings-ui.json の review)に合わせる。読めないときはスタジオの既定(75% ・ -14 LUFS ・ なし)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-studio-")
+        self.patch = mock.patch.object(LV.datadir, "resolve", lambda tool, root=None, **kw: self.tmp)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def put(self, review):
+        with open(os.path.join(self.tmp, "settings-ui.json"), "w", encoding="utf-8") as f:
+            json.dump({"review": review, "other": {}}, f)
+
+    def test_defaults_when_unreadable(self):
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 75, "loudness": -14.0})   # studio/review.js の DEFAULT_SETTINGS と同じ
+        self.assertEqual(LV.studio_lag(REPO), 0)
+        with open(os.path.join(self.tmp, "settings-ui.json"), "w", encoding="utf-8") as f:
+            f.write("{ broken")
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 75, "loudness": -14.0})
+        self.put({})
+        self.assertEqual((LV.studio_audio(REPO), LV.studio_lag(REPO)), ({"volume": 75, "loudness": -14.0}, 0))
+
+    def test_follows_studio_settings(self):
+        self.put({"exportVolume": 90, "exportLoudness": 0, "lag": 3})   # 0 = そろえない(音量 % を使う)
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 90, "loudness": None})
+        self.assertEqual(LV.studio_lag(REPO), 3)
+        self.put({"exportVolume": 120.4, "exportLoudness": -16, "lag": 5})
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 120, "loudness": -16.0})
+        self.assertEqual(LV.studio_lag(REPO), 5)
+
+    def test_bad_values_fall_back_like_studio(self):
+        self.put({"exportVolume": 9999, "exportLoudness": -99, "lag": 7})
+        self.assertEqual(LV.studio_audio(REPO), {"volume": 200, "loudness": -14.0})   # 範囲に丸める・選べない値は既定
+        self.assertEqual(LV.studio_lag(REPO), 0)
+        self.put({"exportVolume": "x", "exportLoudness": None, "lag": None})
+        self.assertEqual((LV.studio_audio(REPO), LV.studio_lag(REPO)), ({"volume": 75, "loudness": -14.0}, 0))
+        self.put({"exportVolume": -5, "exportLoudness": "abc", "lag": [1]})
+        self.assertEqual((LV.studio_audio(REPO), LV.studio_lag(REPO)), ({"volume": 1, "loudness": -14.0}, 0))
+
+    def test_exporter_ignores_bad_audio(self):
+        for bad, want in ((None, (100, None)), ({"volume": 50, "loudness": None}, (50, None)), ({"volume": 75, "loudness": -14}, (75, -14.0)),
+                          ({"volume": 999, "loudness": -3}, (100, None)), ("x", (100, None))):
+            ex = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp, audio=(lambda b=bad: b) if bad is not None else None)
+            self.assertEqual(ex._audio_cfg(), want, bad)
+        self.assertEqual(LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp, audio=mock.Mock(side_effect=OSError))._audio_cfg(), (100, None))
 
 
 class ExportPiecesTest(unittest.TestCase):

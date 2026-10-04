@@ -81,15 +81,60 @@ def studio_out_dir(root):
     return os.path.join(sdir, "exports")
 
 
+# スタジオの「書き出しの設定」の既定(studio/review.js の DEFAULT_SETTINGS の exportVolume・exportLoudness・lag と同じ値。ツールをまたいで import しない)
+STUDIO_EXPORT_VOLUME, STUDIO_EXPORT_LOUDNESS, STUDIO_LAG = 75, -14.0, 0
+STUDIO_LOUDNESS_CHOICES = (0, -11, -14, -16, -18)   # 0 = そろえない(音量(%)を使う)
+STUDIO_LAGS = (0, 2, 3, 5)
+
+
+def studio_review(root):
+    """スタジオが覚えている画面の設定の節 review(スタジオの作業データの settings-ui.json。読むだけ)。読めなければ {}"""
+    try:
+        with open(os.path.join(datadir.resolve("studio", root), "settings-ui.json"), "r", encoding="utf-8") as f:
+            d = json.load(f)
+        r = d.get("review") if isinstance(d, dict) else None
+        return r if isinstance(r, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def studio_audio(root):
+    """書き出しの音量の設定(スタジオの書き出しの設定と同じ値を使う。sanitizeSettings(studio/review.js)と同じ丸め方):
+    -> {"volume": 1〜200(%。既定 75), "loudness": -11|-14|-16|-18(LUFS)か None(そろえない)}。loudness があるときは音量(%)は使わない"""
+    r = studio_review(root)
+    try:
+        vol = min(200, max(1, int(round(float(r.get("exportVolume", STUDIO_EXPORT_VOLUME))))))
+    except (TypeError, ValueError, OverflowError):
+        vol = STUDIO_EXPORT_VOLUME
+    try:
+        loud = float(r.get("exportLoudness", STUDIO_EXPORT_LOUDNESS))
+    except (TypeError, ValueError):
+        loud = STUDIO_EXPORT_LOUDNESS
+    if loud not in STUDIO_LOUDNESS_CHOICES:
+        loud = STUDIO_EXPORT_LOUDNESS
+    return {"volume": vol, "loudness": loud or None}
+
+
+def studio_lag(root):
+    """スタジオの「反応の遅れ補正」(秒。なし 0 / 2 / 3 / 5)。録画の画面の I(開始)の最初の選び方に使う"""
+    try:
+        v = int(float(studio_review(root).get("lag", STUDIO_LAG)))
+    except (TypeError, ValueError, OverflowError):
+        return STUDIO_LAG
+    return v if v in STUDIO_LAGS else STUDIO_LAG
+
+
 class Live:
     def __init__(self, prefs, root, logs_dir, log=None, python=None, data_dir=None, watch_sec=WATCH_SEC, spawn=True,
-                 store_dir=None, out_dir=None, runner=None):
+                 store_dir=None, out_dir=None, runner=None, audio=None):
         """prefs: home/prefs.py の Prefs。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
         store_dir: マークと書き出しの記録(既定 入口の作業データの live)。out_dir(): 書き出し先(既定 スタジオの書き出し先)。
-        runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)"""
+        runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)。
+        audio(): 書き出しの音量の設定 {"volume", "loudness"}(既定 スタジオの書き出しの設定 = studio_audio)"""
         self.prefs, self.root, self.logs_dir = prefs, root, logs_dir
         self.store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
         self.out_dir = out_dir or (lambda: studio_out_dir(self.root))
+        self.audio = audio or (lambda: studio_audio(self.root))
         self.runner = runner or (lambda: getattr(self._server, "autorun", None) if self._server is not None else None)
         self._server = None
         self._exporter = None
@@ -133,7 +178,7 @@ class Live:
         """マークと書き出し(home/live_export.py)。オンにして初めて使うときに作る(オフの間は作業データに何も作らない)"""
         with self._ex_lock:
             if self._exporter is None:
-                self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log)
+                self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log, audio=lambda: self.audio())
             return self._exporter
 
     def local_token(self):
@@ -229,6 +274,7 @@ class Live:
         if u.path == "/live/api/info":
             cfg = self.cfg()
             h._json(200, {"enabled": True, "folder": cfg.get("folder") or "", "defaultFolder": DEFAULT_FOLDER,
+                          "audio": self.audio(), "lag": studio_lag(self.root),   # 書き出しの音量(スタジオと同じ)・反応の遅れ補正の最初の選び方(スタジオの値)
                           "recorders": [{"id": r["id"], "name": r["name"], "url": r["url"], "local": is_local_url(r["url"])} for r in self.recorders(cfg)]})
             return True
         m = RELAY_RE.match(u.path)

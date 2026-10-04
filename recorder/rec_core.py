@@ -47,6 +47,7 @@ SEG_RE = re.compile(r"^seg_\d{6,9}\.ts\Z")
 ACTIVE = ("waiting", "recording", "reconnecting")
 STATES = ACTIVE + ("stopped", "ended", "error")
 QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p,best"}   # streamlink の画質(左から順に試す)
+DEFAULT_QUALITY = "1080p"   # 既定(2026-10-04 ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 BACKOFF = (5, 10, 30)          # 繋ぎ直すまでの秒(最後の値を繰り返す)
 IDLE_END = 600                 # 途中で切れて、この秒数データが来なければ「終了」(終わった配信は --stream-types hls で取れなくなる)
@@ -808,7 +809,7 @@ class Recorder:
         return resumed
 
     # --- 操作 ---
-    def start(self, url, quality="best", title=""):
+    def start(self, url, quality=DEFAULT_QUALITY, title=""):
         if self.closing:
             raise RecError("録画の部品は終了の途中です", 409)
         url = validate_url(url, allow_local=(self.source == "direct"))
