@@ -270,6 +270,44 @@ class TestAltJob(_AltStore):
         self.assertEqual([(x["wrong"], x["right"]) for x in alts], [("文", "分")] * len(before["segments"]))
         self.assertEqual(r["alt"]["count"], len(before["segments"]))
 
+    def test_job_applies_row_post_processing(self):
+        """主の文字起こしと同じ行の後処理(長さより後ろの行を捨てる・whisper.cpp のときだけ音の谷へ寄せる)を通し、alt.json に印を残す(v0.52.1)"""
+        tid = self.transcribe()
+        job = self._take(ed_jobs.add_job(S.alt_spec(tid, {}), "alt"))
+        calls = []
+        real = ed_jobs.expand_segments
+
+        def spy(gen, spec, dur=None, levels=None):
+            calls.append((dur, levels))
+            return real(gen, spec, dur, levels)
+
+        def fake(job, spec, wav, total):   # 9 秒の動画に、長さの外(100 秒)の行
+            yield {"start": 0.0, "end": 4.0, "text": "中の行"}
+            yield {"start": 100.0, "end": 104.0, "text": "外の行"}
+        with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "transcribe_fake", fake):
+            ed_jobs.run_job(job)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertEqual(len(calls), 1)
+        self.assertAlmostEqual(calls[0][0], 9.0, delta=0.5)   # dur = 音声の長さ
+        self.assertIsNone(calls[0][1])                        # llama.cpp は音の谷へ寄せない
+        alt = S.read_alt(tid)
+        self.assertEqual([r["text"] for r in alt["rows"]], ["中の行"])
+        self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True, "pullEnds": False})
+
+    def test_job_pulls_ends_only_for_whisper_cpp(self):
+        tid = self.transcribe()
+        job = self._take(ed_jobs.add_job(S.alt_spec(tid, {"engine": "whisper.cpp"}), "alt"))
+        got = []
+        sentinel = object()
+
+        def spy(gen, spec, dur=None, levels=None):
+            got.append(levels)
+            return iter(())
+        with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "row_levels", lambda spec, wav, base=0.0: sentinel):
+            ed_jobs.run_job(job)
+        self.assertEqual(got, [sentinel])
+        self.assertTrue(S.read_alt(tid)["post"]["pullEnds"])
+
     def test_refusals(self):
         tid = self.transcribe()
         d = ed_store.read_transcript(tid)

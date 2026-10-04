@@ -74,6 +74,7 @@ DRAFT_NONE = "不明(記録なし)"
 ORIGINS = (("raw", "編集前"), ("short", "ショート"))
 ORIGIN_NAME = dict(ORIGINS)
 ORIGIN_EPS = 0.005   # compare で、出どころごとの差と全体の差の「向き」を見るとき、これ(0.5 pt)に届かない差は向きを持たないものとして見る
+POST_NOTE = "行の後処理が違う結果どうしです(0.51.0 より前の測定とは比べられません)"   # compare で meta.post(行の後処理の印)が違うとき
 TAG_NAMES = {"overlap": "声が重なる", "bgm": "BGM・音が大きい", "none": "メモなし"}
 LP_BINS = ((-1.0, "自信 低(< -1.0)"), (-0.5, "自信 中(-1.0〜-0.5)"), (99.0, "自信 高(≥ -0.5)"))
 
@@ -727,7 +728,8 @@ def recognize_doc(S, doc, spec, data):
         t0 = time.monotonic()
         gen = S.transcribe_fake(job, spec, wav, audio_sec) if S.backend_name() == "fake" else S.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
-        for s in S.expand_segments(gen, spec):   # 文字起こしのジョブ(run_job)と同じ整え方
+        # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・whisper.cpp は行の終わりを音の谷へ)。wav の 0 秒 = 行の 0 秒なので base は 0
+        for s in S.expand_segments(gen, spec, audio_sec, S.row_levels(spec, wav)):
             if not s["text"]:
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:S.MAX_TEXT], **S.machine_conf(s)}
@@ -863,6 +865,12 @@ def base_meta(mode, args, docs, data, sel=None):
             "docs": [d["id"] for d in docs], "dataFingerprint": fingerprint(docs), "dataDir": data}
 
 
+def post_meta(S, spec):
+    """行の後処理(編集 0.51.0 から。expand_segments の clip_rows・merge_repeats・pull_ends)の印。pullEnds は音の大きさを使う whisper.cpp のときだけ。
+    これが無い結果は 0.51.0 より前の測定(compare が違いを知らせる)"""
+    return {"clip": True, "mergeRepeats": True, "pullEnds": S.engine_of(spec) == S.tx_engines.WhisperCpp.id}
+
+
 def group_spec(args, mode):
     """--group-by -> summarize の group(見出し, 文書 -> 組の名前)か None。
     stored = 文書の認識の記録すべて(途中で変わった文書は「混在」)/ run = 比べるエンジンは全部同じなので、下書きを作ったエンジンで分ける"""
@@ -937,7 +945,7 @@ def cmd_run(S, args, data):
                             "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
                             "glossary": spec["glossary"][:50], "context": args.context, "hintFree": hint_free},
                  "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_memory_mb(),
-                 "perDoc": per_doc, "failed": len(failed)})
+                 "post": post_meta(S, spec), "perDoc": per_doc, "failed": len(failed)})
     if rep:
         meta["repeat"] = rep   # 付くのは --repeat 2 以上のときだけ(1 回なら今までと同じ出力)
         if not rep["complete"]:
@@ -1036,6 +1044,10 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     warn = []
     if A["meta"].get("dataFingerprint") != B["meta"].get("dataFingerprint"):
         warn.append("2つの結果は、正解のデータ(文書・版)が違います。同じ文書だけで比べます")
+    post_note = ""
+    if A["meta"].get("post") != B["meta"].get("post"):   # 片方に無い(0.51.0 より前の測定)か、中身が違う
+        post_note = POST_NOTE
+        warn.append(post_note)
     per = {}
     for side, R in (("a", A), ("b", B)):
         for g in R["groups"]:
@@ -1069,6 +1081,8 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     out = {"a": a_path, "b": b_path, "docs": len(keys), "cerA": round(cer("a", keys), 4), "cerB": round(cer("b", keys), 4),
            "diff": round(diff, 4), "ci95": [round(lo, 4), round(hi, 4)], "verdict": verdict, "warnings": warn,
            "byDoc": [{"id": k, "cerA": round(cer("a", [k]), 4), "cerB": round(cer("b", [k]), 4)} for k in keys]}
+    if post_note:
+        out["postNote"] = post_note
     ga, gb = A["summary"].get("gate"), B["summary"].get("gate")
     if isinstance(ga, dict) and isinstance(gb, dict):   # 関門が無い(古い)結果のときは出さない
         out["gate"] = gate_of(min(ga.get("sec") or 0, gb.get("sec") or 0))   # 2つのうち定点の少ない方

@@ -3161,3 +3161,27 @@
 - ユーザーがやること: 入口を「すべて終了」→ start.bat → ⚙ の「未確認の評価用を作り直す」(まとめての文字起こしと話者の後追いも一緒に動く)
 - 未完了: `dev/eval_asr.py` と `ed_alt.py` の expand_segments には長さと音量を渡していない(merge_repeats だけかかる)。測る道具を文字起こしと同じにするなら別に直す
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — データを待たずに作れる測る道具 4 つ(編集 0.52.0 → 0.52.1)
+- ユーザーの指示(10-04): 「文字起こしのデータがたまる前にできる改善」の提案の 1〜4 を実装
+- 変更:
+  1. **測る道具と 2つ目のエンジンの候補を本番と同じ行の後処理に**: `dev/eval_asr.py` の `recognize_doc` と `editor/ed_alt.py` の `run_alt` が `expand_segments(gen, spec, 長さ, row_levels(spec, wav))`(長さより後ろを捨てる・whisper.cpp は行の終わりを音の谷へ)。
+     run の結果の `meta.post`・alt.json の `post` = `{clip, mergeRepeats, pullEnds}`。compare は post が違う・片方に無い結果どうしで注意(`postNote`)= **0.51.0 より前の測定とは比べられない**
+  2. `dev/eval_alt.py`(新・読むだけ)・`dev/tests/test_eval_alt.py`(16 件): 候補の当たり率(当たり / 外れ / 別の直し / 分からない)・拾えた率・採否の記録・出さなかった数の内訳。今は alt.json が 0 件で「対象なし」
+  3. `dev/eval_effort.py`(新・読むだけ)・`dev/tests/test_eval_effort.py`(24 件): 校正の手間の倍率(校正の時間 ÷ 動画の秒。終わった文書だけ)・直しの量(文字・足した・消した・時刻・話者)・CER・エンジン/出どころ/候補の有無/週ごと
+  4. I-2a 話者: `dev/eval_speakers.py` に `--reviewed`(既定 only)・人が確かめた行だけを数える・重なりの適合率/再現率・`run`(しきい値・人数・埋め込み・min-on/off を変えて判別し直す。道具のプロセスの中で)。
+     `editor/ed_speakers.py`・`editor/tx_worker.py`: 判別の任意の引数 threshold・min_on・min_off(渡さなければ以前と同じ要求の形・同じ値)。**既定の値は変えていない**
+  - 文書: `AGENTS.md`(dev のテスト)・`editor/AGENTS.md`(話者を測る道具・候補を測る道具・後処理の節)・`editor/README.txt`・`docs/ROADMAP.md`
+- 本物の作業データで分かったこと(読むだけ):
+  - **話者の測定の 100% は甘かった**: 評価用 106 本のうち確かめ済みは 2 本(35 行)。残りの 1778 行は自動の判別と名前付けがそのまま正解に数えられていた → 今は数えない
+  - 校正の手間: 確かめ済みの 2 本で **1 分の動画に約 12 分**(×10.8・×14.1)。時刻を直した行 31 / 35・文字を直した行 14。どちらも 0.51.0 の後処理の前の文字起こし(作り直したあとの文書と比べる)
+  - 話者の run(しきい値 0.5 / 0.7 / 0.9・確かめ済みの 2 本 = どちらも 1 人): どれも 100%・分けすぎなし。2 本では決められない
+- テスト(まとめ役が合わせた状態で流し直した): dev の eval_asr + eval_alt 59・eval_effort + eval_speakers + eval_cut + eval_marks + push_helper 98・`home/tests/test_accuracy.py` 23・編集の単体 424(skip 1)・`ytt_core` 75・`home/tests/test_mount.py` 26。担当が流した分: e2e_alt・e2e_edit_voices
+- サブエージェント: 1〜3 = Sonnet(仕様がはっきりした直し・新しい道具)・4 = Opus(認識ワーカーの経路に触る)・今ある機能の一覧 = Haiku(読むだけ)
+- 未完了・次:
+  - pyannote との比較(I-2a の残り)は依存の追加になるのでやっていない(ユーザーの判断待ち)。似た声の話者をまとめる後処理は案だけ(`editor/AGENTS.md` の話者を測る道具の最後)
+  - 見つけたこと(直していない): `dev/eval_asr.py` の `load_serve` は `mod.IN_WORKER = True` を serve に入れているが、sys.modules に登録していない serve では部品(`ed_jobs.IN_WORKER`)まで届かない疑い = run が説明と違って認識ワーカー経由で動いている可能性。精度の数字には影響しないはずだが、速さの測定に影響しうる。確かめて直す
+  - `home/tests/test_mount.py` は `PYTHONIOENCODING=utf-8` を付けると 3 件落ちる(子プロセスの出力を cp932 で読む所。付けなければ通る。以前から)
+  - ユーザー: 入口を起動し直す(編集 0.52.1)→ ⚙ の「未確認の評価用を作り直す」→ 評価ドリル。確かめ済みが 10 本ほどになったら `py -3.10 dev/eval_effort.py` と `py -3.10 dev/eval_speakers.py run --threshold 0.5,0.6,0.7`
+- 次の作業(ユーザーの指示 10-04 夜): 友人用 文字起こし簡易版を消す(「いったん使わないから消してよい」)。この記録のあとに別のコミットで
+- 未コミット: なし

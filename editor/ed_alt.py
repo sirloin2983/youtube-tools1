@@ -180,7 +180,8 @@ def run_alt(job):
             job["state"] = "loading"
             gen = ed_jobs.transcribe_real(job, spec, wav, total)
         rows = []
-        for s in ed_jobs.expand_segments(gen, spec):   # 文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方)。置換・学習はかけない
+        levels = ed_jobs.row_levels(spec, wav)   # whisper.cpp のときだけ(行の終わりを音の谷へ)
+        for s in ed_jobs.expand_segments(gen, spec, total, levels):   # 文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる)。置換・学習はかけない
             if not s["text"]:
                 continue
             rows.append({"start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2), "text": s["text"][:ed_state.MAX_TEXT]})
@@ -189,7 +190,8 @@ def run_alt(job):
             raise ed_jobs.Cancelled()
         body = {"schema": ALT_SCHEMA, "id": tid, "engine": spec["engine"], "engineVersion": alt_engine_version(spec), "model": spec["model"],
                 "device": job.get("device", ""), "at": int(time.time() * 1000), "range": [spec["start"], spec["end"]],
-                "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows}
+                "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows,
+                "post": {"clip": True, "mergeRepeats": True, "pullEnds": levels is not None}}   # 行の後処理の印(0.52.1 より前の alt.json には無い)
         if ed_state.backend_name() == "fake":
             body["fake"] = True
         with ed_store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)

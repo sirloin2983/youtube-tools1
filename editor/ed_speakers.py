@@ -187,23 +187,47 @@ def read_wav_f32(path):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT):
-    """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。"""
+DIAR_TUNE = (("threshold", "threshold"), ("min_on", "minOn"), ("min_off", "minOff"))   # 判別の設定を変えて測るときの任意の引数(引数の名前, ワーカーの要求の鍵)
+
+
+def diar_tune(threshold=None, min_on=None, min_off=None):
+    """判別の設定の任意の引数を確かめる -> {引数の名前: 値}(渡したものだけ。どれも 0 以上 10 未満の数)。dev/eval_speakers.py の run が使う"""
+    out = {}
+    for (k, _w), v in zip(DIAR_TUNE, (threshold, min_on, min_off)):
+        if v is None:
+            continue
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            x = -1.0
+        if not 0.0 <= x < 10.0:   # NaN もここで断る
+            raise ed_state.ApiError("bad_request", "話者判別の設定(%s)が正しくありません" % k, 400)
+        out[k] = x
+    return out
+
+
+def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
+    """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。
+    threshold・min_on・min_off は判別の設定を変えて測るとき(dev/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求も以前と同じ形"""
+    tune = diar_tune(threshold, min_on, min_off)
     if ed_jobs.IN_WORKER:
-        return _diarize_local(job, wav, num, emb)
-    turns = ed_jobs.WORKER.call("diarize", {"wav": wav, "num": int(num), "emb": emb}, job)
+        return _diarize_local(job, wav, num, emb, **tune)
+    args = {"wav": wav, "num": int(num), "emb": emb}
+    args.update({w: tune[k] for k, w in DIAR_TUNE if k in tune})
+    turns = ed_jobs.WORKER.call("diarize", args, job)
     return [(float(a), float(b), int(k)) for a, b, k in turns]
 
 
-def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT):
+def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
     import sherpa_onnx as so
     threads = diar_threads()
+    tune = diar_tune(threshold, min_on, min_off)
     cfg = so.OfflineSpeakerDiarizationConfig(
         segmentation=so.OfflineSpeakerSegmentationModelConfig(
             pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=_diar_path(DIAR_SEG)), num_threads=threads),
         embedding=so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads),
-        clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=DIAR_CLUSTER_THRESHOLD),
-        min_duration_on=DIAR_MIN_ON, min_duration_off=DIAR_MIN_OFF)   # 短い相づちを落としにくくする
+        clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=tune.get("threshold", DIAR_CLUSTER_THRESHOLD)),
+        min_duration_on=tune.get("min_on", DIAR_MIN_ON), min_duration_off=tune.get("min_off", DIAR_MIN_OFF))   # 短い相づちを落としにくくする
     if not cfg.validate():
         raise ed_state.ApiError("diar_failed", "話者判別の設定を読み込めませんでした(モデルファイルが壊れている可能性があります。models フォルダを削除して、もう一度試してください)", 500)
     sd = so.OfflineSpeakerDiarization(cfg)
@@ -222,9 +246,10 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT):
     return [(float(r.start), float(r.end), int(r.speaker)) for r in res]
 
 
-def diarize_fake(job, total, num):
-    """テスト用: 10秒ごとに話者が入れ替わる(行の途中で切り替わる場面も作る)。"""
-    n, t, k, turns = (num or 2), 0.0, 0, []
+def diarize_fake(job, total, num, threshold=None):
+    """テスト用: 10秒ごとに話者が入れ替わる(行の途中で切り替わる場面も作る)。
+    threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ以前と同じ"""
+    n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []
     while t < total:
         if job["cancel"]:
             raise ed_jobs.Cancelled()

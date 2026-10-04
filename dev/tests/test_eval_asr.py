@@ -12,10 +12,12 @@ import os
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 import wave
 import zipfile
 from contextlib import redirect_stdout
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
@@ -155,6 +157,84 @@ class EvalAsrTest(unittest.TestCase):
             self.assertEqual((base["meta"]["perDoc"][0]["context"], base["meta"]["engine"]["context"]), ([], "none"))
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_recognize_doc_applies_row_post_processing(self):
+        """本番(run_job)と同じ行の後処理を通す(0.52.1): 長さより後ろの行を捨てる・dur と levels(whisper.cpp のときだけ)を expand_segments へ渡す"""
+        os.environ["TRANSCRIBE_BACKEND"] = "fake"
+        try:
+            S = E.load_serve("fake")
+            src = os.path.join(self.tmp, "clip.wav")
+            silence_wav(src, 8.0)
+            doc = {"id": "eeeeeeeeeee5", "sourcePath": src, "start": 0, "end": 8}
+            ed_jobs = S.ed_jobs
+            real = ed_jobs.expand_segments
+            calls = []
+
+            def spy(gen, spec, dur=None, levels=None):
+                calls.append((dur, levels))
+                return real(gen, spec, dur, levels)
+
+            def fake(job, spec, wav, total):   # 8 秒の音声に、長さの外(100 秒)の行
+                yield {"start": 0.0, "end": 4.0, "text": "中の行"}
+                yield {"start": 100.0, "end": 104.0, "text": "外の行"}
+
+            def spec_of(engine):
+                a = types.SimpleNamespace(glossary=None, beam=0, model="small", engine=engine, vad=None, boost=None, device="auto", temp0=False)
+                return dict(E.run_spec(S, a, {}, True), context={"members": []})
+            with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "transcribe_fake", fake):
+                rows, audio_sec, _w, _where, _dev = E.recognize_doc(S, doc, spec_of("faster-whisper"), self.data)
+                self.assertEqual([r["text"] for r in rows], ["中の行"])
+                self.assertAlmostEqual(calls[-1][0], audio_sec)
+                self.assertIsNone(calls[-1][1])                                    # faster-whisper は音の谷へ寄せない
+                E.recognize_doc(S, doc, spec_of("whisper.cpp"), self.data)
+                self.assertIsNotNone(calls[-1][1])                                 # whisper.cpp は音の大きさ(WavLevels)を渡す
+            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False})
+            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "pullEnds": True})
+        finally:
+            os.environ.pop("TRANSCRIBE_BACKEND", None)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_run_result_has_post_mark(self):
+        os.environ["TRANSCRIBE_BACKEND"] = "fake"
+        try:
+            src = os.path.join(self.tmp, "clip.wav")
+            silence_wav(src, 8.0)
+            self.write("ffffffffff06", evalSet=True, sourcePath=src, start=0, end=8,
+                       segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
+            res = quiet(E.main, ["run", "--data", self.data, "--docs", "ffffffffff06", "--no-save"])
+            self.assertEqual(res["meta"]["post"], {"clip": True, "mergeRepeats": True, "pullEnds": False})
+        finally:
+            os.environ.pop("TRANSCRIBE_BACKEND", None)
+
+    def test_compare_notes_different_row_post_processing(self):
+        """片方に post が無い(0.51.0 より前の測定)・中身が違う結果どうしは、注意を出す。同じ・両方無いなら出さない"""
+        a = quiet(E.main, ["stored", "--data", self.data, "--label", "a"])
+        pa = os.path.join(self.data, "evals", "asr", sorted(os.listdir(os.path.join(self.data, "evals", "asr")))[0])
+        post = {"clip": True, "mergeRepeats": True, "pullEnds": False}
+
+        def variant(name, p):
+            r = json.loads(json.dumps(a))
+            if p is not None:
+                r["meta"]["post"] = p
+            path = os.path.join(self.tmp, name)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(r, f, ensure_ascii=False)
+            return path
+        p_none, p_new, p_new2, p_pull = variant("n.json", None), variant("a.json", post), variant("b.json", post), variant("c.json", dict(post, pullEnds=True))
+        res = quiet(E.cmd_compare, p_none, p_new)
+        self.assertIn(E.POST_NOTE, res["warnings"])
+        self.assertEqual(res["postNote"], E.POST_NOTE)
+        self.assertIn("行の後処理が違う結果どうしです", res["postNote"])
+        self.assertIn(E.POST_NOTE, quiet(E.cmd_compare, p_new, p_pull)["warnings"])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            E.cmd_compare(p_new, p_none)
+        self.assertIn(E.POST_NOTE, buf.getvalue())
+        for x, y in ((p_new, p_new2), (p_none, p_none)):
+            res = quiet(E.cmd_compare, x, y)
+            self.assertNotIn("postNote", res)
+            self.assertNotIn(E.POST_NOTE, res["warnings"])
 
     def test_compare_same_docs(self):
         a = quiet(E.main, ["stored", "--data", self.data, "--label", "a"])

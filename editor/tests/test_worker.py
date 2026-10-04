@@ -349,6 +349,19 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(job["speakers"], 2)
         self.assertEqual(len(self.doc(tid)["speakers"]), 2)
 
+    def test_diarize_tune_through_worker(self):
+        """判別の設定(dev/eval_speakers.py の run 用。任意)がワーカーまで届く。偽の判別はしきい値 1.0 以上・人数 自動で 1 人にまとめる"""
+        os.makedirs(S.TMP_DIR, exist_ok=True)
+        wav = os.path.join(S.TMP_DIR, "tune.wav")
+        job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+        S.extract_audio(job, {"sourcePath": self.media, "start": 0.0, "end": None}, wav)
+        try:
+            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb")}, {0, 1})               # 渡さない = 以前と同じ
+            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 0, "voxceleb", threshold=1.5)}, {0})
+            self.assertEqual({k for _, _, k in S.diarize_real(job, wav, 2, "voxceleb", threshold=1.5, min_on=0.2, min_off=0.4)}, {0, 1})
+        finally:
+            os.unlink(wav)
+
     def test_voice_learn_and_recognize_through_worker(self):
         """A-3: 名前を付けた話者の声を覚え(ワーカーで声の特徴)、もう一度判別すると、覚えた声の話者に名前が付く"""
         saved = S.VOICES_DIR
@@ -632,6 +645,24 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(job["tid"], "x")
         self.assertEqual(job["progress"], 0.99)
         self.assertEqual(len(job["phase"]), 200)
+
+    def test_diarize_request_tune_is_optional(self):
+        """ワーカーの diarize: threshold・minOn・minOff が無い要求は以前と同じ呼び方(引数 4 つ)。あれば名前つきで渡す"""
+        import tx_worker
+        got, sent = [], []
+
+        def fake(job, wav, num, emb, **kw):
+            got.append(((wav, num, emb), kw))
+            return [(0.0, 1.0, 0)]
+
+        class Out:
+            def send(self, obj):
+                sent.append(obj)
+        with mock.patch.object(S, "_diarize_local", fake):
+            tx_worker.handle(S, {"rid": 1, "op": "diarize", "wav": "a.wav", "num": 0, "emb": "voxceleb"}, Out(), set())
+            tx_worker.handle(S, {"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}, Out(), set())
+        self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_off": 0.5})])
+        self.assertEqual([m["ev"] for m in sent], ["result", "result"])
 
 
 if __name__ == "__main__":
