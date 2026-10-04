@@ -53,6 +53,10 @@ class TestPure(unittest.TestCase):
     def test_norm_cer(self):
         self.assertEqual(S.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ホロライブtestー")
         self.assertEqual(S.norm_cer(" 、。 "), "")
+        # 〜・～・~ は ー と同じに数える(2026-10-04 ユーザー決定)
+        self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
+        self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
+        self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
 
     def test_lev_counts_matches_reference(self):
         self.assertEqual(S.lev_counts("あいうえお", "あいくえおか"), (1, 0, 1))

@@ -561,8 +561,13 @@ def auto_glossary(user_terms, limit=150):
 MAX_LEV_CELLS = 250000   # 1まとまりの文字数が多すぎるときは、厳密な編集距離をやめて近似にする
 
 
+# 伸ばしの「〜」(波ダッシュ・全角チルダ・半角の ~)は長音「ー」と同じに数える(ユーザー決定 2026-10-04:「〜 と ー の違いは無視する」)。
+# NFKC で全角チルダ ～ は ~ になる。〜 は記号なので、読み替えないと下の絞り込みで消え、「すご〜い」と「すごーい」が 1 文字違いになっていた
+_LONG_MARKS = str.maketrans({"〜": "ー", "~": "ー", "⁓": "ー", "∼": "ー"})
+
+
 def norm_cer(text):
-    t = unicodedata.normalize("NFKC", str(text or "")).lower()
+    t = unicodedata.normalize("NFKC", str(text or "")).lower().translate(_LONG_MARKS)
     return "".join(ch for ch in t if unicodedata.category(ch)[0] in "LNM")
 
 
