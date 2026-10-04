@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v14
+# ui-kit(共通の見た目)v15
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,12 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v15(2026-10-04・引き出しの中から開くダイアログが固まる不具合)
+- 引き出し(`UIKit.drawer.open(el, {modal: true})`。⚙ 設定など)は裏の要素を `inert` にする。そのとき、ページに最初からある `<dialog>`(編集の `#dlgConfirm` など)まで `inert` にしていたので、
+  引き出しの中から `showModal` で開いた確認が、表示はされるのにクリックもキーも受け付けず固まっていた(ユーザーの報告: ⚙ の「仮置きをまとめて文字起こし」の確認)。
+  → `drawerInert` は `<dialog>` を `inert` にしない(閉じた dialog は表示されず、開いた modal の dialog は showModal が裏を止める)。`UIKit.version` は 15(v14 の間は 13 のままだった)。
+  テスト: `editor/tests/e2e_eval_set.py` の「⚙ の中から開いた確認のダイアログを押せて閉じられる」(直す前の ui-kit では FAIL になることを確かめた)
 
 ## v14(2026-10-04・ヘッダーの明暗ボタンをやめる・キーを変える場所を1つに)
 - ヘッダーの明るい/暗いの切り替えボタン(`.ui-theme-toggle`)と、その CSS を消した。配色は ⚙ 設定の「テーマ」(4つ + OSに合わせる)から選ぶ。`UIKit.theme.toggle()` と `[data-theme-toggle]` のクリックの動きは残す(ボタンの無い軽い画面 `editor/lite.html` が使う)。

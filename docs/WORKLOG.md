@@ -3019,3 +3019,13 @@
 - 設計の文書: `docs/plan/q3-q4-design.md` の (c) を書き直した
 - サブエージェント: 線 D の直し・測る道具 = Sonnet(仕様がはっきり)・ドリルの作り直し = Opus(編集の画面と保存の競合)
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — ⚙ の「仮置きをまとめて文字起こし」の確認で固まる不具合(ui-kit v14 → v15)
+- ユーザーの報告: ⚙ 設定の「仮置きをまとめて文字起こし」→ 確認のダイアログで固まる(押せない)。サーバーの状態は enabled: false のまま = 要求が届いていない
+- 原因: ⚙ の引き出し(`UIKit.drawer.open(..., {modal: true})`)は裏の要素を `inert` にする。そのとき body の直接の子のページに最初からある `<dialog id="dlgConfirm">` まで `inert` にしていたため、
+  引き出しの中から `showModal` で開いた確認が、前面に表示されるのにクリックもキーも受け付けなかった(`UIKit.dialog` は開くたびに作って足すので当たらず、編集の `confirmDlg`・`#relinkDlg` などページに最初からある dialog だけが当たる)
+- 直し: `ui-kit/ui-kit.js` の `drawerInert` は `<dialog>` を inert にしない(閉じた dialog は表示されず、開いた modal の dialog は showModal が裏を止める)→ `dev/sync_ui_kit.py` で編集・スタジオへ写した。`UIKit.version` を 15 に(v14 の間は 13 のままだった)
+- テスト: `editor/tests/e2e_eval_set.py` に「⚙ の中から開いた確認のダイアログを押せて閉じられる」を足した(直す前の ui-kit に戻すと FAIL・直すと OK を確かめた)。ui-kit の同期・e2e_styleguide・e2e_edit_tabs・e2e_ui_mounted・e2e_edit_pack・e2e_portal・スタジオの e2e_ui --mounted も通った
+- 注意: スタジオの e2e_ui --mounted が1回だけ「Permissions policy violation: compute-pressure is not allowed」で画面のエラーの確認に落ちた(2回目は 214/214)。埋め込みの YouTube のプレーヤー(外部)が出す警告で今回の直しとは無関係。また出るならテストの除外に足すか調べる
+- ユーザーがやること: 入口を「すべて終了」→ start.bat で起動し直してから、もう一度「始める」
+- 未コミット: なし

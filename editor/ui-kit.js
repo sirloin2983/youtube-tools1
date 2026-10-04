@@ -1,5 +1,5 @@
 /* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */
-/* ui-kit v14 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v15 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -33,6 +33,7 @@
    v10(2026-10-01・段9 9-3): UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)
    v12(2026-10-02): サイバー風(計器盤)の形と配色4つ。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーンから選ぶ(UIKit.theme.palette。README.md の「v12」)
    v14(2026-10-04): ヘッダーの明暗の切り替えボタン(.ui-theme-toggle)をやめた(配色は ⚙ 設定の「テーマ」の 4 つから選ぶ)。CSS を消した。UIKit.theme.toggle と [data-theme-toggle] の動きは残す(ボタンの無い軽い画面 lite.html が使う)。キーを変える場所は ? の一覧の 1 か所に(⚙ にはボタンだけ)
+   v15(2026-10-04): 引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める)。ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開くと、表示はされるが inert で操作できず固まっていた
    v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
@@ -559,7 +560,8 @@
   }
   function drawerInert(keep, on) {
     /* 引き出しから body までの道すじの各段で、道すじ以外の兄弟を inert にする(引き出しが body の直接の子でなくても、裏の全部を止める)。
-       保つ要素(幕・トースト・キーの帯)を含む兄弟は inert にしない */
+       保つ要素(幕・トースト・キーの帯)を含む兄弟は inert にしない。<dialog> も inert にしない(v15: showModal で開く確認などが操作できなくなるため。
+       閉じた dialog は表示されず、開いた modal の dialog は showModal が裏(引き出しを含む)を止める) */
     var body = document.body; if (!body) return;
     var node = keep[0];
     while (node && node !== body && node.parentNode) {
@@ -567,7 +569,7 @@
       for (var i = 0; i < sibs.length; i++) {
         var k = sibs[i], keepThis = k === node;
         for (var j = 1; !keepThis && j < keep.length; j++) if (keep[j] && k.contains(keep[j])) keepThis = true;
-        if (!keepThis) k.inert = on;
+        if (!keepThis && k.tagName !== 'DIALOG') k.inert = on;
       }
       node = node.parentNode;
     }
@@ -2087,7 +2089,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  window.UIKit = { version: 13, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 15, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide };
 })();

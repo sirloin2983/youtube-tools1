@@ -172,6 +172,21 @@ def main():
             pg.evaluate("document.querySelector('#evSave').click()")
             pg.wait_for_function("document.querySelector('#evNote').textContent.includes('まだ整理していません')", timeout=10000)
             check(call(port, "GET", "/api/eval-folders")["active"] == [os.path.abspath(evdir)], "⚙ から評価用のフォルダを保存できる")
+            # ⚙ の引き出しの中から確認のダイアログを開いても操作できる(2026-10-04 ユーザーの報告:「仮置きをまとめて文字起こし」の確認で固まった。
+            # 引き出しが裏を inert にしたとき、ページに最初からある #dlgConfirm まで止めていた。ui-kit v15 で <dialog> を外した)
+            pg.click("[data-ui-settings]")
+            pg.wait_for_function("!document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
+            pg.click("#evbStart")
+            pg.wait_for_function("document.querySelector('#dlgConfirm').open", timeout=5000)
+            ok_click = True
+            try:
+                pg.click("#cfCancel", timeout=3000)
+            except Exception:
+                ok_click = False
+            check(ok_click and pg.evaluate("!document.querySelector('#dlgConfirm').open") and not pg.evaluate("document.querySelector('#dlgConfirm').inert"),
+                  "⚙ の中から開いた確認のダイアログ(仮置きをまとめて文字起こし)を押せて閉じられる")
+            pg.keyboard.press("Escape")
+            pg.wait_for_function("document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
             j = call(port, "POST", "/api/transcribe", {"sourcePath": os.path.join(mem, "配信.wav"), "model": "small", "language": "ja", "autoGloss": False})
             for _ in range(200):
                 job = next(x for x in call(port, "GET", "/api/jobs")["jobs"] if x["id"] == j["id"])
