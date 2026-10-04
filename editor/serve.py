@@ -116,7 +116,7 @@ import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの�
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.53.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.53.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 

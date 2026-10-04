@@ -350,13 +350,32 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual([r["text"] for r in out], ["前の行次の行"])                     # 5 秒より後ろの行は捨てる
         self.assertEqual(out[0]["end"], 4.0)
         seg2 = {"start": 0.0, "end": 4.0, "text": "前の行次の行", "words": [(0.0, 1.98, "前の行"), (2.0, 4.0, "次の行")]}
-        # 単語の時刻で分けた行(splitChars 3)の境目が、声の終わりへ寄る
+        # 2026-10-05: 音の谷へ寄せる後処理は既定でやめた(前で切れすぎた)。代わりに続いている行の終わりを END_TRIM(0.1 秒)だけ早める(ユーザーの目安)
         out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0, S.row_levels(spec, wav)))
         self.assertEqual([r["text"] for r in out], ["前の行", "次の行"])
+        self.assertAlmostEqual(out[0]["end"], 1.88, places=3)
+        self.assertEqual(out[1]["start"], 2.0)                                             # 次の行の始まりは変えない
+        self.assertEqual(out[1]["end"], 4.0)                                               # 最後の行(次が無い)は変えない
+        # TRANSCRIBE_PULL_ENDS=1 のときだけ、単語の時刻で分けた行(splitChars 3)の境目が声の終わりへ寄る
+        with mock.patch.object(S, "PULL_ENDS_ON", True):
+            out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0, S.row_levels(spec, wav)))
         self.assertAlmostEqual(out[0]["end"], 1.75, delta=0.03)
         self.assertEqual(out[1]["start"], 2.0)                                             # 次の行の始まりは変えない
         out = list(S.expand_segments([seg2], dict(spec, splitChars=3, engine="faster-whisper"), 5.0, S.row_levels(dict(spec, engine="faster-whisper"), wav)))
         self.assertEqual(out[0]["end"], 1.98)                                              # faster-whisper は寄せない
+
+    def test_trim_ends(self):
+        rows = [row(0.0, 1.0, "a"), row(1.1, 2.0, "b"), row(3.0, 3.25, "c"), row(3.3, 4.0, "d")]
+        out = list(S.trim_ends(iter(rows), 0.1))
+        self.assertAlmostEqual(out[0]["end"], 0.9, places=3)        # 次とのすき間 0.1 秒 → 0.1 秒早める
+        self.assertEqual(out[1]["end"], 2.0)                         # 次まで 1 秒空いている → そのまま
+        self.assertEqual(out[2]["end"], 3.25)                        # 短い行(PULL_MIN より短くなる)は早めない(のばしもしない)
+        self.assertEqual(out[3]["end"], 4.0)                         # 最後の行はそのまま
+        with mock.patch.object(S, "END_TRIM", 0.0):
+            out = list(S.expand_segments([row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")], {"wordSplit": False, "engine": "whisper.cpp"}, None, None))
+            self.assertEqual(out[0]["end"], 1.0)                     # 0 ならしない
+        out = list(S.expand_segments([row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")], {"wordSplit": False, "engine": "whisper.cpp"}, None, None))
+        self.assertAlmostEqual(out[0]["end"], 0.9, places=3)         # 既定(0.1 秒)
 
 
 if __name__ == "__main__":

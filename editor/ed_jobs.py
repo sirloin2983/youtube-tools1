@@ -1146,8 +1146,10 @@ def expand_segments(gen, spec, dur=None, levels=None):
     if dur:
         rows = clip_rows(rows, dur)
     rows = merge_repeats(rows)
-    if levels is not None:
+    if levels is not None and PULL_ENDS_ON:
         rows = pull_ends(rows, levels)
+    elif spec.get("engine") == tx_engines.WhisperCpp.id and END_TRIM > 0:
+        rows = trim_ends(rows, END_TRIM)
     for p in rows:
         yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
 
@@ -1157,6 +1159,14 @@ def expand_segments(gen, spec, dur=None, levels=None):
 REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
 REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
 REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
+# 2026-10-05: 既定でやめた(ユーザーの報告「今度は前で切れすぎる」)。早める量は、人が直した行の終わりに合わせて決めたが、その人の直しは
+# 「この行だけ再生」が平均 0.12 秒行き過ぎていた画面(c6f4e1f で直した)の上で決めた値で、早め側にずれていた。再生を正確に止めた今は二重に早めて言葉の終わりが切れる。
+# 1 秒丸め(フラッシュアテンション)は -nfa で直っているので、それだけで足りる。TRANSCRIBE_PULL_ENDS=1 で戻せる(測り直すとき用)
+PULL_ENDS_ON = os.environ.get("TRANSCRIBE_PULL_ENDS", "").strip() == "1"
+try:   # whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒。TRANSCRIBE_END_TRIM で変える・0 でしない)
+    END_TRIM = max(0.0, min(0.5, float(os.environ.get("TRANSCRIBE_END_TRIM", "0.1"))))
+except ValueError:
+    END_TRIM = 0.1
 PULL_GAP = 0.3        # 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを寄せる
 PULL_BACK = 0.4       # 終わりを早める上限(秒)。この幅の中の音の谷(いちばん小さい所)の左の端へ寄せる
 PULL_RISE = 6.0       # 谷から何 dB 上までを「谷の続き」とみるか
@@ -1310,6 +1320,22 @@ def pull_end(row, nxt, levels):
     if new >= x - 0.005:
         return row
     return _clip_words({**row, "end": new}, row["start"], new)
+
+
+def trim_ends(rows, sec):
+    """whisper.cpp の行のうち、次の行とのすき間が PULL_GAP 秒以下の行の終わりを sec 秒だけ早める(行の長さは PULL_MIN 秒を残す。次の行の始まり・文字は変えない)。
+    2026-10-05 ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。音の谷へ寄せる pull_ends は早めすぎた(上の PULL_ENDS_ON)"""
+    prev = None
+    for p in rows:
+        if prev is not None:
+            if p["start"] - prev["end"] <= PULL_GAP:
+                new = round(max(prev["start"] + PULL_MIN, prev["end"] - sec), 3)
+                if new < prev["end"] - 0.005:
+                    prev = _clip_words({**prev, "end": new}, prev["start"], new)
+            yield prev
+        prev = p
+    if prev is not None:
+        yield prev
 
 
 def pull_ends(rows, levels):
