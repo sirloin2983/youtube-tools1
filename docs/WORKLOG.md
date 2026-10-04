@@ -3082,3 +3082,12 @@
 - 注意: 評価用の音声 `eval-audio/` の索引では、移した 313 本が gone になる(flac は残る)。DEV_IS(ReGLOSS・FLOW GLOW の一部ほか)と卒業した人は channel が無く、配信からの取得の対象外。
   取得した区間が、学習用のショートと同じ場面になるのを避けるため --since は「ショートのいちばん新しい日付の翌日」(これから作るショートを学習用に足すときは、定点に取った配信(fetch-plan.json の done)の場面を学習用に入れない)
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — 測る道具: 定点の出どころ別の集計(編集前 / ショート)
+- 変更: `dev/eval_asr.py`・`dev/tests/test_eval_asr.py`(40 件): `origin_of(d)`(文書に clip.source の videoId か kind があれば raw = 編集前・無ければ short = ショート。友人の zip は short)・`summary.origins`(出どころごとの文書の数・確かめ済みの秒・CER・置換/抜け/余分・ci95・docText)・
+  表示の 2 行(両方あるときだけ)・`--group-by origin`・compare の `origins`・`originConflict`・`originNote`(出どころの差が全体と逆向きで、どちらも 0.5 pt(`ORIGIN_EPS`)以上のとき「向きが食い違っています(採らない)」)。既存の鍵はそのまま(`home/tests/test_accuracy.py` 23 件で確かめた)
+- 理由: 計画 第2版の原則 3「物差しは 2 本・食い違ったら採らない」を道具で確かめられるように
+- D1-a(下書きを GPU で)は作るものが無かった: 入口の `/api/tools` の wcpp.ready は true・編集の設定は device vulkan・model large-v3 = まとめての文字起こしもフォルダ一括も GPU(whisper.cpp)で動く
+- サブエージェント: Sonnet(仕様がはっきりした直し)
+- 未完了・次: D1-b(食い違いの候補。編集 0.49.0)を別のエージェント(Opus)が `editor/` で実装中 = **`editor/` の未コミットの変更はその作業途中**。配信からの取得は裏で続いている(23/60)
+- 未コミット: `editor/` の D1-b の作業途中のファイル(終わったらまとめてコミット)

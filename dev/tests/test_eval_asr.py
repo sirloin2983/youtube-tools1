@@ -805,5 +805,157 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
         self.assertNotIn("そろっていません", out)
 
 
+class EvalAsrOriginTest(unittest.TestCase):
+    """定点の出どころ別(編集前・ショート。計画 3-3): origin_of・summary.origins・表示の 2 行・--group-by origin・compare の食い違いの注意"""
+
+    CLIP = {"schema": "youtube-tools-clip/v1", "source": {"kind": "youtube", "videoId": "abcdefghijk"}}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_origin_")
+        self.data = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(self.data, "transcripts"))
+        os.environ["TRANSCRIBE_FAKE_DELAY"] = "0"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, tid, dur, heard="こんにちは", **kw):
+        """確かめ済みの評価用の文書(正解は「こんにちは」。機械の出力が heard)"""
+        doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja", "speakers": [],
+               "updatedAt": 1, "evalSet": True, "evalReviewed": {"at": 5, "rows": 1, "durationSec": dur, "via": "drill"},
+               "segments": [seg(1, 10.0, 14.0, "こんにちは")], "original": [{"start": 10.0, "end": 14.0, "text": heard}], **kw}
+        with open(os.path.join(self.data, "transcripts", tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+
+    def stored(self, *argv):
+        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+
+    def printed(self, res):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            E.print_summary(res)
+        return out.getvalue()
+
+    def test_origin_of(self):
+        self.assertEqual(E.origin_of({"clip": self.CLIP}), "raw")
+        self.assertEqual(E.origin_of({"clip": {"source": {"videoId": "x"}}}), "raw")
+        self.assertEqual(E.origin_of({"clip": {"source": {"kind": "local"}}}), "raw")          # videoId が無くても kind があれば編集前
+        self.assertEqual(E.origin_of({}), "short")                                              # clip が無い = ショート
+        for clip in (None, "x", [], {}, {"source": None}, {"source": {}}, {"source": "x"}, {"source": {"videoId": ""}}):
+            self.assertEqual(E.origin_of({"clip": clip}), "short")
+        self.assertEqual(E.origin_of(None), "short")
+
+    def test_summary_origins_both(self):
+        self.write("aaaaaaaaaa01", 300.0, heard="こんにちわ", clip=self.CLIP)   # 編集前: 置換 1 / 5 字 = 20%
+        self.write("bbbbbbbbbb01", 120.0)                                       # ショート: 全部合う
+        res = self.stored()
+        og = res["summary"]["origins"]
+        self.assertEqual(sorted(og), ["raw", "short"])
+        self.assertEqual((og["raw"]["docs"], og["raw"]["ids"], og["raw"]["reviewedSec"], og["raw"]["cer"]), (1, ["aaaaaaaaaa01"], 300.0, 0.2))
+        self.assertEqual((og["short"]["docs"], og["short"]["reviewedSec"], og["short"]["cer"]), (1, 120.0, 0.0))
+        self.assertEqual((og["raw"]["sub"], og["raw"]["del"], og["raw"]["ins"], og["raw"]["refChars"]), (1, 0, 0, 5))
+        self.assertIn("docText", og["raw"])                                                     # 時刻によらない CER も
+        # 全体の数字・既存の鍵はそのまま(home/accuracy.py が読む)
+        self.assertEqual(res["summary"]["overall"]["refChars"], 10)
+        for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec", "gate", "reviewed", "byKind"):
+            self.assertIn(k, res["summary"])
+        self.assertEqual({d["id"]: d["origin"] for d in res["summary"]["byDoc"]}, {"aaaaaaaaaa01": "raw", "bbbbbbbbbb01": "short"})
+        out = self.printed(res)
+        self.assertIn("  編集前: 1 本・5 分・CER 20.0%", out)
+        self.assertIn("  ショート: 1 本・2 分・CER 0.0%", out)
+
+    def test_summary_origins_one_side_only(self):
+        self.write("bbbbbbbbbb01", 120.0)
+        res = self.stored()
+        self.assertEqual(list(res["summary"]["origins"]), ["short"])                           # ある方だけ
+        out = self.printed(res)
+        self.assertNotIn("編集前:", out)                                                        # 両方あるときだけ表示する
+        self.assertNotIn("ショート:", out)
+        self.write("aaaaaaaaaa01", 120.0, clip=self.CLIP)
+        os.unlink(os.path.join(self.data, "transcripts", "bbbbbbbbbb01.json"))
+        self.assertEqual(list(self.stored()["summary"]["origins"]), ["raw"])
+
+    def test_group_by_origin(self):
+        self.write("aaaaaaaaaa01", 300.0, heard="こんにちわ", clip=self.CLIP)
+        self.write("bbbbbbbbbb01", 120.0)
+        res = self.stored("--group-by", "origin")
+        by = res["summary"]["byGroup"]
+        self.assertEqual(sorted(by), ["ショート", "編集前"])
+        self.assertEqual((by["編集前"]["cer"], by["ショート"]["cer"], by["編集前"]["docs"]), (0.2, 0.0, 1))
+        self.assertIn("出どころごと", res["summary"]["groupBy"])
+
+    def make_result(self, path, raw_errs, short_errs, origins=True):
+        """compare が読む最小の結果。raw の文書は r0.. / short の文書は s0..(正解は 100 字ずつ)"""
+        ids = {"raw": ["r%d" % i for i in range(len(raw_errs))], "short": ["s%d" % i for i in range(len(short_errs))]}
+        groups = [{"doc": i, "sub": e, "del": 0, "ins": 0, "refChars": 100} for k, errs in (("raw", raw_errs), ("short", short_errs)) for i, e in zip(ids[k], errs)]
+        summary = {"byTag": {}, "byKind": {}}
+        if origins:
+            summary["origins"] = {k: {"ids": v, "docs": len(v)} for k, v in ids.items() if v}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"meta": {"dataFingerprint": "x"}, "summary": summary, "groups": groups}, f)
+        return path
+
+    def compare(self, a, b):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            res = E.cmd_compare(a, b)
+        return res, buf.getvalue()
+
+    def path(self, name):
+        return os.path.join(self.tmp, name)
+
+    def test_compare_origin_conflict_is_noted(self):
+        pa = self.make_result(self.path("a.json"), [10, 10, 10], [10, 10, 10])
+        # 編集前は良くなる(-8 pt)・ショートは悪くなる(+2 pt)・全体は良くなる(-3 pt)→ ショートの向きが食い違う
+        pb = self.make_result(self.path("b.json"), [2, 2, 2], [12, 12, 12])
+        res, out = self.compare(pa, pb)
+        self.assertLess(res["diff"], 0)
+        self.assertEqual(res["origins"]["raw"]["diff"], -0.08)
+        self.assertEqual((res["origins"]["short"]["diff"], res["origins"]["short"]["cerA"], res["origins"]["short"]["cerB"]), (0.02, 0.1, 0.12))
+        self.assertEqual((res["origins"]["raw"]["docs"], len(res["origins"]["raw"]["ci95"])), (3, 2))
+        self.assertEqual((res["origins"]["raw"]["conflict"], res["origins"]["short"]["conflict"]), (False, True))
+        self.assertEqual(res["originConflict"], ["short"])
+        self.assertIn("ショートで向きが食い違っています", res["originNote"])
+        self.assertIn("採らない", out)
+        self.assertIn("編集前 3 本: A 10.0% → B 2.0%", out)
+        for k in ("a", "b", "docs", "cerA", "cerB", "diff", "ci95", "verdict", "warnings", "byDoc"):   # 今までの鍵はそのまま
+            self.assertIn(k, res)
+
+    def test_compare_origin_agreeing_has_no_note(self):
+        pa = self.make_result(self.path("a.json"), [10, 10, 10], [10, 10, 10])
+        pb = self.make_result(self.path("b.json"), [2, 2, 2], [8, 8, 8])                        # どちらも良くなる
+        res, out = self.compare(pa, pb)
+        self.assertEqual(res["originConflict"], [])
+        self.assertNotIn("originNote", res)
+        self.assertNotIn("食い違", out)
+        self.assertIn("ショート 3 本", out)
+        # 小さい差(0.5 pt に届かない)は向きを見ない
+        pc = self.make_result(self.path("c.json"), [2, 2, 2], [10, 10, 10])                      # ショートは差 0
+        self.assertEqual(self.compare(pa, pc)[0]["originConflict"], [])
+
+    def test_compare_single_doc_origin_has_no_range(self):
+        pa = self.make_result(self.path("a.json"), [10, 10, 10], [10])
+        pb = self.make_result(self.path("b.json"), [2, 2, 2], [10])
+        res, out = self.compare(pa, pb)
+        self.assertIsNone(res["origins"]["short"]["ci95"])
+        self.assertIn("範囲は出せない", out)
+
+    def test_compare_old_result_without_origins_works_as_before(self):
+        pa = self.make_result(self.path("a.json"), [10, 10, 10], [10, 10, 10], origins=False)
+        pb = self.make_result(self.path("b.json"), [2, 2, 2], [12, 12, 12])
+        for x, y in ((pa, pb), (pb, pa), (pa, pa)):                                              # 片方・両方が古くても落ちない・出どころの鍵は付かない
+            res, out = self.compare(x, y)
+            self.assertNotIn("origins", res)
+            self.assertNotIn("originConflict", res)
+            self.assertNotIn("食い違", out)
+            self.assertIn("verdict", res)
+
+    def test_compare_origin_only_in_both_results_is_shown(self):
+        pa = self.make_result(self.path("a.json"), [10, 10, 10], [10])
+        pb = self.make_result(self.path("b.json"), [2, 2, 2], [])                                # ショートは B に無い
+        res, _ = self.compare(pa, pb)
+        self.assertEqual(list(res["origins"]), ["raw"])
+
+
 if __name__ == "__main__":
     unittest.main()

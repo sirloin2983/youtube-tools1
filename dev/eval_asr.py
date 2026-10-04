@@ -10,6 +10,7 @@
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
     python dev/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
+        両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
     python dev/eval_asr.py list
         今までの結果の一覧
 
@@ -22,8 +23,9 @@
                                      all = 評価用 + 普段 + 友人。--scope(eval|train|all。all = 自分の文書だけ)は今までどおり使える
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
                                      無い文書は updatedAt(友人の zip は書き出した時刻)。どちらも無い文書は、時期を指定したときは数えない
-    --group-by engine|model          文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
-                                     engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組
+    --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
+                                     engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組。
+                                     origin = 出どころ(編集前 = clip がある文書 / ショート = 無い文書。計画 3-3)で分ける。出どころ別の小計は --group-by なしでも summary.origins にいつも入る
     --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。editor/ed_drill.py の drill_is_reviewed と同じ条件)の扱い。
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
@@ -68,6 +70,10 @@ GATES = (("G0", 5 * 60), ("G1", 15 * 60), ("G2", 30 * 60), ("G3", 60 * 60))
 GATE_GUIDE = {None: "決めてよいことはまだ無い", "G0": "10 pt 以上の悪化の検出だけ", "G1": "エンジンの決定", "G2": "5 pt 前後の差", "G3": "2〜3 pt の差"}
 STORED = "stored"        # summarize の compared: 保存してある機械の出力(= 下書きそのもの)を測るとき
 DRAFT_NONE = "不明(記録なし)"
+# 定点の出どころ(編集前 = 配信から取得した区間・スタジオが書き出した切り抜き / ショート = 完成したショート動画)。計画 3-3。表示の順
+ORIGINS = (("raw", "編集前"), ("short", "ショート"))
+ORIGIN_NAME = dict(ORIGINS)
+ORIGIN_EPS = 0.005   # compare で、出どころごとの差と全体の差の「向き」を見るとき、これ(0.5 pt)に届かない差は向きを持たないものとして見る
 TAG_NAMES = {"overlap": "声が重なる", "bgm": "BGM・音が大きい", "none": "メモなし"}
 LP_BINS = ((-1.0, "自信 低(< -1.0)"), (-0.5, "自信 中(-1.0〜-0.5)"), (99.0, "自信 高(≥ -0.5)"))
 
@@ -388,6 +394,13 @@ def engine_key(d, detail="model"):
     return DRAFT_NONE if not ks else ks[0] if len(ks) == 1 else "混在: " + " + ".join(ks)
 
 
+def origin_of(d):
+    """文書の出どころ: clip(youtube-tools-clip/v1)があり clip.source に videoId か kind があれば "raw"(編集前。配信から取得した区間・スタジオの切り抜き)、無ければ "short"(完成したショート)"""
+    clip = d.get("clip") if isinstance(d, dict) else None
+    src = clip.get("source") if isinstance(clip, dict) else None
+    return "raw" if isinstance(src, dict) and (src.get("videoId") or src.get("kind")) else "short"
+
+
 def source_of(d):
     return d.get("_source") or ("eval" if d.get("evalSet") is True else "daily")
 
@@ -415,7 +428,7 @@ def doc_info(d, compared=STORED, detail="engine"):
         runs.append({"kind": r.get("kind") or "", "engine": r.get("engine") or "", "model": r.get("model") or "", "engineVersion": r.get("engineVersion") or "",
                      "at": r.get("at"), "settings": {k: st[k] for k in ("beam", "vadMode", "boost", "wordSplit", "glossaryChars", "promptChars", "autoDict", "dict") if k in st}})
     whole = whole_video(d)
-    return {"source": source_of(d), "timeAt": t, "timeBasis": basis, "reviewed": whole, "reviewedSec": round(reviewed_sec(d), 1) if whole else None,
+    return {"source": source_of(d), "origin": origin_of(d), "timeAt": t, "timeBasis": basis, "reviewed": whole, "reviewedSec": round(reviewed_sec(d), 1) if whole else None,
             "draft": run_label(dr) if dr else DRAFT_NONE, "engineKey": engine_key(d, detail), "runs": runs, "draftBias": draft_bias(d, compared)}
 
 
@@ -628,6 +641,23 @@ def gate_line(g):
     return head + ("・次の %s まであと %s 分" % (g["next"], _min(g["nextSec"])) if g["next"] and (g["gate"] or g["sec"] > 0) else "")
 
 
+def origin_summary(groups, docs, S=None):
+    """出どころ別の小計(編集前・ショート。文書がある出どころだけ)。全体の集計と同じ関数で出す: total の鍵 + docs(文書の数)・ids・
+    reviewedSec(確かめ済みの秒 = 定点の量)・proofedSec・ci95、S があれば docText(時刻によらない CER)"""
+    out = {}
+    for o, _name in ORIGINS:
+        ds = [d for d in docs if origin_of(d) == o]
+        if not ds:
+            continue
+        ids = {d["id"] for d in ds}
+        mine = [g for g in groups if g["doc"] in ids]
+        t = dict(total(mine), docs=len(ds), ids=sorted(ids), reviewedSec=reviewed_summary(mine, ds)["sec"], proofedSec=proofed_sec(mine, ds), ci95=boot_ci(mine))
+        if S is not None:
+            t["docText"] = doc_text(S, mine)
+        out[o] = t
+    return out
+
+
 def summarize(groups, docs, S=None, compared=STORED, group=None):
     """結果のまとめ。compared = 比べるエンジン(STORED = 保存してある出力)。下書きのエンジンとの注意(draftBias)に使う。
     group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す"""
@@ -635,6 +665,7 @@ def summarize(groups, docs, S=None, compared=STORED, group=None):
     s["proofedSec"] = proofed_sec(groups, docs)
     s["reviewed"] = reviewed_summary(groups, docs)
     s["gate"] = gate_of(s["reviewed"]["sec"])        # 量の関門(定点 = 確かめ済みの文書の長さの合計)
+    s["origins"] = origin_summary(groups, docs, S)   # 出どころ別(編集前・ショート)。いつも入れる(片方しか無ければある方だけ)
     s["lowData"] = s["proofedSec"] < LOW_DATA_SEC   # 校正済みが少ない間は「まだ少ない(参考)」(結果は出すが、決めるのに使わない)
     if S is not None:
         s["docText"] = doc_text(S, groups)
@@ -766,6 +797,10 @@ def print_summary(res):
     if rp:
         print("%d 回の CER: %s(幅 %.1f pt)・代表は %d 回目%s" % (rp["n"], " / ".join(pct(c).strip() for c in rp["cers"]), (rp["spread"] or 0) * 100, rp["median"] + 1,
                                                           "" if rp.get("complete", True) else "  ※ 回ごとに数えた文書がそろっていない(そろった文書だけで選んだ)"))
+    og = s.get("origins") or {}
+    if all(k in og for k, _n in ORIGINS):   # 両方あるときだけ(片方だけなら全体と同じ)
+        for k, name in ORIGINS:
+            print("  %s: %d 本・%s 分・CER %s" % (name, og[k]["docs"], _min(og[k]["reviewedSec"]), pct(og[k]["cer"]).strip()))
     if s.get("lowData"):
         print("※ まだ少ない(参考): 校正済みが %d 分に届いていません。決めるのには使わない" % (LOW_DATA_SEC // 60))
     ci = s.get("ci95")
@@ -834,6 +869,8 @@ def group_spec(args, mode):
     gb = getattr(args, "group_by", None)
     if not gb:
         return None
+    if gb == "origin":   # 文書の出どころ(編集前・ショート)で分ける。stored・run どちらも同じ
+        return ("出どころごと(--group-by origin)", lambda d: ORIGIN_NAME[origin_of(d)])
     if mode == "stored":
         return ("エンジン・設定・辞書の版ごと(--group-by %s)" % gb, lambda d: engine_key(d, gb))
     return ("下書きを作ったエンジンごと(--group-by %s)" % gb, lambda d: run_label(draft_run(d), gb) if draft_run(d) else DRAFT_NONE)
@@ -969,6 +1006,28 @@ def gate_verdict(g, lo, hi):
     return "関門(小さい方): %s(定点 %s 分。決めてよいのは %s)→ %s" % (g["gate"] or "まだ", _min(g["sec"]), GATE_GUIDE[g["gate"]], what)
 
 
+def compare_origins(A, B, keys, cer, paired_ci, diff):
+    """compare の出どころ別の差。-> {出どころ: {"docs", "cerA", "cerB", "diff", "ci95"(文書が 2 本未満なら None), "conflict"}}(共通の文書がある出どころだけ。
+    出どころ別の小計 summary.origins が無い(古い)結果なら空)。conflict = 全体の差と向きが逆(どちらも ORIGIN_EPS 以上のときだけ数える)"""
+    oa, ob = A["summary"].get("origins"), B["summary"].get("origins")
+    if not isinstance(oa, dict) or not isinstance(ob, dict):
+        return {}
+    out = {}
+    for k, _name in ORIGINS:
+        if k not in oa or k not in ob:
+            continue
+        ids = set(oa[k].get("ids") or []) | set(ob[k].get("ids") or [])
+        ks = [x for x in keys if x in ids]
+        if not ks:
+            continue
+        d = cer("b", ks) - cer("a", ks)
+        ci = paired_ci(ks) if len(ks) >= 2 else None
+        out[k] = {"docs": len(ks), "cerA": round(cer("a", ks), 4), "cerB": round(cer("b", ks), 4), "diff": round(d, 4),
+                  "ci95": [round(ci[0], 4), round(ci[1], 4)] if ci else None,
+                  "conflict": abs(d) >= ORIGIN_EPS and abs(diff) >= ORIGIN_EPS and (d > 0) != (diff > 0)}
+    return out
+
+
 def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     """同じ文書どうしで CER の差(B − A)と、文書を選び直した 95% の範囲。-> 結果の dict(表示もする)"""
     A, B = read_json(a_path), read_json(b_path)
@@ -991,13 +1050,16 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
         e = sum(per[k][side][0] for k in ks)
         r = sum(per[k][side][1] for k in ks)
         return e / r if r else 0.0
+    def paired_ci(ks):
+        """文書 ks を選び直して(重複あり)、差(B − A)の 95% の範囲 (lo, hi)"""
+        rnd, vals = random.Random(seed), []
+        for _ in range(n):
+            pick = [rnd.choice(ks) for _k in ks]
+            vals.append(cer("b", pick) - cer("a", pick))
+        vals.sort()
+        return vals[int(len(vals) * 0.025)], vals[min(len(vals) - 1, int(len(vals) * 0.975))]
     diff = cer("b", keys) - cer("a", keys)
-    rnd, vals = random.Random(seed), []
-    for _ in range(n):
-        ks = [rnd.choice(keys) for _k in keys]
-        vals.append(cer("b", ks) - cer("a", ks))
-    vals.sort()
-    lo, hi = vals[int(len(vals) * 0.025)], vals[min(len(vals) - 1, int(len(vals) * 0.975))]
+    lo, hi = paired_ci(keys)
     if hi < 0:
         verdict = "B の方が良い(差の範囲がすべて 0 より下)"
     elif lo > 0:
@@ -1011,12 +1073,23 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     if isinstance(ga, dict) and isinstance(gb, dict):   # 関門が無い(古い)結果のときは出さない
         out["gate"] = gate_of(min(ga.get("sec") or 0, gb.get("sec") or 0))   # 2つのうち定点の少ない方
         out["gateVerdict"] = gate_verdict(out["gate"], lo, hi)
+    origins = compare_origins(A, B, keys, cer, paired_ci, diff)
+    if origins:   # 両方の結果に出どころ別の小計があり、同じ出どころが両方にあるときだけ(古い結果には無い)
+        out["origins"] = origins
+        out["originConflict"] = [k for k, v in origins.items() if v["conflict"]]
+        if out["originConflict"]:
+            out["originNote"] = "%sで向きが食い違っています(全体の差と逆。2 本の物差しが食い違うので採らない)" % "・".join(ORIGIN_NAME[k] for k in out["originConflict"])
     for w in warn:
         print("注意: " + w)
     print("A %s: CER %s\nB %s: CER %s" % (os.path.basename(a_path), pct(out["cerA"]), os.path.basename(b_path), pct(out["cerB"])))
     print("差(B − A) %+.2f ポイント(95%%の範囲 %+.2f 〜 %+.2f)→ %s" % (diff * 100, lo * 100, hi * 100, verdict))
     if "gate" in out:
         print(out["gateVerdict"])
+    for k, v in (origins or {}).items():
+        print("  %s %d 本: A %s → B %s(差 %+.2f pt%s)" % (ORIGIN_NAME[k], v["docs"], pct(v["cerA"]).strip(), pct(v["cerB"]).strip(), v["diff"] * 100,
+              "・95%%の範囲 %+.2f 〜 %+.2f" % (v["ci95"][0] * 100, v["ci95"][1] * 100) if v["ci95"] else "・文書が 1 本で範囲は出せない"))
+    if out.get("originNote"):
+        print("注意: " + out["originNote"])
     for key in ("byTag", "byKind"):
         for k in A["summary"][key]:
             va, vb = A["summary"][key][k], B["summary"][key].get(k) or {}
@@ -1053,8 +1126,8 @@ def main(argv=None):
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")
     p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
-    p.add_argument("--group-by", dest="group_by", choices=("engine", "model"),
-                   help="エンジン・設定・辞書の版ごとに集計する(engine = beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ)")
+    p.add_argument("--group-by", dest="group_by", choices=("engine", "model", "origin"),
+                   help="エンジン・設定・辞書の版ごとに集計する(engine = beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ)/ origin = 出どころ(編集前・ショート)ごと")
     p.add_argument("--intake", help="友人の zip の取り込み先(既定は dev/eval_import.py と同じ eval-intake)")
     p.add_argument("--docs", help="文書の id をカンマ区切りで(scope・source より優先。時期の指定は効く)")
     p.add_argument("--label", help="結果に付ける名前")
