@@ -23,6 +23,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   採点は serve.py の `_groups`・`norm_cer`・`lev_counts` を使い、`doc_metrics`(画面の測定)と同じ数になることを `stored` のたびに照らし合わせる(ずれたら注意を出す)。
   `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ保管データの `full.flac`。テスト: リポジトリ直下で `python -m unittest dev/tests/test_eval_asr.py`
   2026-10-04(Q3): `--since/--until`(行の proofedAt の最大 → updatedAt)・`--source eval|daily|all|friend`(普段の文書・友人の zip `eval-intake`)・`--group-by engine|model`・下書きのエンジン(runs の最初の認識の記録)と同じときの注意・評価用以外はヒントなしで認識し直す・15 分未満は「まだ少ない」
+  2026-10-04 夜: `--reviewed only|prefer|ignore`(評価用の既定は only。確かめ済みが 0 本なら従来の選び方に戻して注意)。確かめ済み(`drill_is_reviewed` と同条件)の文書は動画全体(0〜durationSec)が正解で、人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け。結果の `summary.reviewed`(docs・sec・missChars・extraChars・extraOutsideChars)
 
 ## 認識エンジンの口と全体の再認識の続きから(計画 段2-1・S-1。v0.35.0)
 - `tx_engines.py`: 認識エンジンの形(`create(name, device, compute_type, log)` → エンジン・`transcribe(audio, **kw)` = faster-whisper の WhisperModel.transcribe と同じ (行, 情報)・`params()`)と一覧 `ENGINES`(今は `FasterWhisper` だけ。引数と結果をそのまま通す)。

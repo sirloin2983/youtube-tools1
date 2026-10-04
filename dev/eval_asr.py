@@ -20,6 +20,12 @@
                                      無い文書は updatedAt(友人の zip は書き出した時刻)。どちらも無い文書は、時期を指定したときは数えない
     --group-by engine|model          文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
                                      engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組
+    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。editor/ed_drill.py の drill_is_reviewed と同じ条件)の扱い。
+                                     確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
+                                     人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
+                                     only = 確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
+                                     prefer = 確かめ済みは全体で、確かめ済みでない文書も今までどおり混ぜる(普段・友人・--docs のときの既定)/
+                                     ignore = 印を見ない(今までどおりの測り方だけ)
   普段の文書・友人の zip を run で認識し直すときは、用語のヒント・辞書を使わない(評価用と同じ条件。--glossary・--context auto を自分で付けたときだけ渡す)。
   普段のデータは「下書きを作ったエンジン」に甘く出る(人は迷うと下書きを直さずに通す)ので、結果に下書きのエンジンを出し、比べるエンジンと同じなら注意する。
   校正済みが 15 分に届かないときは「まだ少ない(参考)」
@@ -108,10 +114,41 @@ def load_docs(data, scope, only=None):
         ev = d.get("evalSet") is True
         if not only and scope != "all" and ev != (scope == "eval"):
             continue
-        if not any(isinstance(g, dict) and g.get("proofed") for g in d.get("segments") or []):
+        if not has_proofed(d) and not is_reviewed(d):   # 確かめ済みの文書は行が無くても使える(「何も話していない」が正解)
             continue
         out.append(d)
     return out
+
+
+def has_proofed(d):
+    return any(isinstance(g, dict) and g.get("proofed") for g in d.get("segments") or [])
+
+
+def is_reviewed(d):
+    """動画を全部聞いて確かめた文書か(editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
+    return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
+
+
+def whole_video(d):
+    """動画全体を正解として採点する文書か。select_docs が --reviewed ignore のとき _reviewed = False を付ける(付いていなければ印のとおり)"""
+    r = d.get("_reviewed")
+    return is_reviewed(d) if r is None else bool(r) and is_reviewed(d)
+
+
+def reviewed_sec(d):
+    """確かめ済みの文書の長さ(秒): 印の durationSec → 無ければ範囲(start〜end)→ 最後の行の終わり(ed_store.doc_length と同じ決め方)"""
+    def num(x):
+        return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+    rv = d.get("evalReviewed") if isinstance(d.get("evalReviewed"), dict) else {}
+    sec = num(rv.get("durationSec"))
+    if sec is not None and sec > 0:
+        return sec
+    a, b, dur = num(d.get("start")) or 0.0, num(d.get("end")), num(d.get("duration"))
+    if b is not None and b > a:
+        return b - a
+    if dur is not None and dur > a:
+        return dur - a
+    return max(0.0, max([num(g.get("end")) or 0.0 for g in d.get("segments") or [] if isinstance(g, dict)] or [0.0]) - a)
 
 
 # ---------------------------------------------------------------- 出どころ(評価用・普段・友人)・時期・下書きのエンジン
@@ -264,7 +301,33 @@ def select_docs(data, args, intake=None):
             else:
                 keep.append(d)
         docs = keep
-    return docs, sel
+    return pick_reviewed(docs, sel, args, src), sel
+
+
+def resolve_reviewed(args, src):
+    """--reviewed の既定: 評価用だけを測る(--docs なし)ときは only(確かめ済みだけが定点)、それ以外は prefer"""
+    r = getattr(args, "reviewed", None)
+    if r:
+        return r
+    return "only" if src == "eval" and not args.docs else "prefer"
+
+
+def pick_reviewed(docs, sel, args, src):
+    """確かめ済みの扱い(--reviewed)で文書を絞り、各文書に _reviewed(動画全体で採点するか)を付ける。sel["reviewed"] に記録する。
+    only で確かめ済みが 0 本のときは今までどおりの選び方(校正済みの行の範囲)に戻し、fallback = True にする"""
+    mode = resolve_reviewed(args, src)
+    n_rev = sum(1 for d in docs if is_reviewed(d))
+    info = {"mode": mode, "effective": mode, "candidates": len(docs), "reviewedDocs": n_rev, "fallback": False}
+    sel["reviewed"] = info
+    if mode == "only" and not n_rev:
+        info["effective"], info["fallback"] = "ignore", True
+    if info["effective"] == "ignore":
+        for d in docs:
+            d["_reviewed"] = False
+        return [d for d in docs if has_proofed(d)]   # 行の無い確かめ済みの文書は、印を見ないなら測る正解が無い
+    for d in docs:
+        d["_reviewed"] = is_reviewed(d)
+    return [d for d in docs if is_reviewed(d)] if mode == "only" else docs
 
 
 def runs_of(d):
@@ -344,13 +407,17 @@ def doc_info(d, compared=STORED, detail="engine"):
         st = _settings_of(r)
         runs.append({"kind": r.get("kind") or "", "engine": r.get("engine") or "", "model": r.get("model") or "", "engineVersion": r.get("engineVersion") or "",
                      "at": r.get("at"), "settings": {k: st[k] for k in ("beam", "vadMode", "boost", "wordSplit", "glossaryChars", "promptChars", "autoDict", "dict") if k in st}})
-    return {"source": source_of(d), "timeAt": t, "timeBasis": basis,
+    whole = whole_video(d)
+    return {"source": source_of(d), "timeAt": t, "timeBasis": basis, "reviewed": whole, "reviewedSec": round(reviewed_sec(d), 1) if whole else None,
             "draft": run_label(dr) if dr else DRAFT_NONE, "engineKey": engine_key(d, detail), "runs": runs, "draftBias": draft_bias(d, compared)}
 
 
-def proofed_sec(groups):
-    """数えた校正済みの長さ(秒): 人の行があるまとまり(両方にある・人が足した)の時刻の幅の合計"""
-    return round(sum(max(0.0, g["end"] - g["start"]) for g in groups if g["kind"] in ("both", "humanOnly")), 1)
+def proofed_sec(groups, docs=()):
+    """数えた校正済みの長さ(秒): 人の行があるまとまり(両方にある・人が足した)の時刻の幅の合計。
+    docs に動画全体で採点した(確かめ済みの)文書があれば、その文書は動画の長さ(すき間まで聞いたので全体が正解)で数える"""
+    whole = {d["id"]: reviewed_sec(d) for d in docs if whole_video(d)}
+    sec = sum(max(0.0, g["end"] - g["start"]) for g in groups if g["kind"] in ("both", "humanOnly") and g["doc"] not in whole)
+    return round(sec + sum(whole.values()), 1)
 
 
 def fingerprint(docs):
@@ -416,9 +483,10 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
     vdoc = dict(doc, original=hyp)
     orig, segs = S._prep(vdoc)
     proofed = [g for g in segs if g.get("proofed")]
-    if not orig or not proofed:
+    whole = whole_video(doc)   # 確かめ済み = 動画全体が正解。人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け(範囲の外でも捨てない)
+    if not whole and (not orig or not proofed):
         return []
-    lo, hi = min(g["start"] for g in proofed), max(g["end"] for g in proofed)
+    lo, hi = (min(g["start"] for g in proofed), max(g["end"] for g in proofed)) if proofed else (0.0, 0.0)
     ok = lambda g: bool(g.get("proofed")) and "unclear" not in (g.get("tags") or [])
     out = []
     for go, ge in S._groups(orig, segs):
@@ -430,7 +498,8 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
         elif go:
             kind = "machineOnly"
             a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
-            if a < lo - 0.05 or b > hi + 0.05:
+            outside = a < lo - 0.05 or b > hi + 0.05   # 校正した行の範囲の外(確かめ済みでないときは数えない)
+            if outside and not whole:
                 continue
         else:
             kind = "humanOnly"
@@ -451,6 +520,10 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
                     "lp": round(min(lps), 4) if lps else None,
                     "termRef": sum(ref.count(t) for t in terms), "termHit": th,
                     "termExtra": sum(max(0, hyp_n.count(t) - ref.count(t)) for t in terms)})
+        if whole:
+            out[-1]["whole"] = True
+            if kind == "machineOnly" and outside:
+                out[-1]["outside"] = True   # 今までなら捨てていた(校正した行の範囲の外)余分
     return out
 
 
@@ -514,11 +587,23 @@ def doc_text(S, groups):
     return t
 
 
+def reviewed_summary(groups, docs):
+    """確かめ済みの文書(動画全体で採点したもの)のまとめ: 本数・秒(動画の長さの合計)・抜け(人だけにある文字 = 機械が出していない)・
+    余分(機械だけにある文字 = 人の行の無い所に機械が出した)の文字数。extraOutsideChars は余分のうち、今までなら捨てていた(校正した行の範囲の外)分"""
+    ids = {d["id"] for d in docs if whole_video(d)}
+    mine = [g for g in groups if g["doc"] in ids]
+    return {"docs": len(ids), "sec": round(sum(reviewed_sec(d) for d in docs if d["id"] in ids), 1), "refChars": sum(g["refChars"] for g in mine),
+            "missChars": sum(g["refChars"] for g in mine if g["kind"] == "humanOnly"),
+            "extraChars": sum(g["ins"] for g in mine if g["kind"] == "machineOnly"),
+            "extraOutsideChars": sum(g["ins"] for g in mine if g.get("outside"))}
+
+
 def summarize(groups, docs, S=None, compared=STORED, group=None):
     """結果のまとめ。compared = 比べるエンジン(STORED = 保存してある出力)。下書きのエンジンとの注意(draftBias)に使う。
     group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す"""
     s = {"overall": total(groups), "ci95": boot_ci(groups)}
-    s["proofedSec"] = proofed_sec(groups)
+    s["proofedSec"] = proofed_sec(groups, docs)
+    s["reviewed"] = reviewed_summary(groups, docs)
     s["lowData"] = s["proofedSec"] < LOW_DATA_SEC   # 校正済みが少ない間は「まだ少ない(参考)」(結果は出すが、決めるのに使わない)
     if S is not None:
         s["docText"] = doc_text(S, groups)
@@ -552,7 +637,7 @@ def summarize(groups, docs, S=None, compared=STORED, group=None):
             by.setdefault(keys.get(g["doc"], DRAFT_NONE), []).append(g)
         s["byGroup"] = {}
         for k, v in sorted(by.items()):
-            t = dict(total(v), docs=len({g["doc"] for g in v}), proofedSec=proofed_sec(v), ci95=boot_ci(v))
+            t = dict(total(v), docs=len({g["doc"] for g in v}), proofedSec=proofed_sec(v, [d for d in docs if keys.get(d["id"]) == k]), ci95=boot_ci(v))
             t["lowData"] = t["proofedSec"] < LOW_DATA_SEC
             s["byGroup"][k] = t
     return s
@@ -638,6 +723,12 @@ def print_summary(res):
     for sk in sel.get("friendSkipped") or []:
         print("  友人の zip を数えず: %s %s" % (sk["id"], sk["why"]))
     print("文書 %d 本・正解 %d 字・まとまり %d・校正済み %.1f 分" % (len(s["byDoc"]), o["refChars"], o["groups"], s.get("proofedSec", 0) / 60))
+    rv, rsel = s.get("reviewed") or {}, (sel.get("reviewed") or {})
+    if rsel.get("fallback"):
+        print("注意: 確かめ済みの動画が 0 本なので、今までどおり校正済みの行の範囲だけで測りました(--reviewed only の戻り。ドリルで動画を確かめると定点になります)")
+    if rv.get("docs"):
+        print("確かめ済み %d 本・%.1f 分(動画全体を正解として採点。--reviewed %s)・抜け(人だけ)%d 字・余分(機械だけ)%d 字(うち人の行の範囲の外 %d 字)"
+              % (rv["docs"], rv["sec"] / 60, rsel.get("effective") or "?", rv["missChars"], rv["extraChars"], rv["extraOutsideChars"]))
     if s.get("lowData"):
         print("※ まだ少ない(参考): 校正済みが %d 分に届いていません。決めるのには使わない" % (LOW_DATA_SEC // 60))
     ci = s.get("ci95")
@@ -720,7 +811,8 @@ def cmd_stored(S, args, data):
         mine = score_doc(S, d, d.get("original") or [], terms, flag_from="ref")
         groups += mine
         ref = S.doc_metrics(d, False, terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
-        t = total(mine)
+        # 確かめ済みの文書(動画全体で採点)は画面の測定(校正した行の範囲だけ)と数が違って当たり前なので、今までの規則で数え直した方と比べる
+        t = total(score_doc(S, dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
         want = (ref["sub"], ref["del"], ref["ins"], ref["refChars"]) if ref else (0, 0, 0, 0)
         if want != (t["sub"], t["del"], t["ins"], t["refChars"]):
             mismatch.append(d["id"])
@@ -781,7 +873,8 @@ def cmd_run(S, args, data):
                  "perDoc": per_doc, "failed": len(failed)})
     if failed:
         print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
-    summary = summarize(groups, docs, S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"))
+    done = {p["id"] for p in per_doc if not p.get("error")}   # 認識できなかった文書は、確かめ済みの秒にも入れない
+    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"))
     return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
 
 
@@ -858,6 +951,9 @@ def main(argv=None):
     p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて(友人の zip は入れない)")
     p.add_argument("--source", choices=("eval", "daily", "all", "friend"),
                    help="測る文書の出どころ(--scope より優先)。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ friend = 友人の zip / all = 全部")
+    p.add_argument("--reviewed", choices=("only", "prefer", "ignore"),
+                   help="確かめ済み(動画を全部聞いて直した評価用の文書)の扱い。確かめ済みは動画全体が正解(人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け)。"
+                        "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")
     p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
     p.add_argument("--group-by", dest="group_by", choices=("engine", "model"),

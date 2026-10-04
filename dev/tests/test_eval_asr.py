@@ -446,5 +446,142 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.assertEqual({k: v["lowData"] for k, v in res["summary"]["byGroup"].items()}, {E.DRAFT_NONE: False, "faster-whisper large-v3 v1.0": True})
 
 
+class EvalAsrReviewedTest(unittest.TestCase):
+    """確かめ済み(evalReviewed = 動画を全部聞いて直した印)の文書は、動画全体が正解。--reviewed の選び分け・確かめ済みが 0 本のときの戻り"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_rev_")
+        self.data = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(self.data, "transcripts"))
+        # 人の行は 10〜14 と 30〜33(足した行 = 機械が出していない)。機械は 0〜3(ええと)と 50〜54(ご視聴…)に人の行の無い所へ出した
+        self.human = [seg(1, 10.0, 14.0, "こんにちは"), seg(2, 30.0, 33.0, "足した行")]
+        self.machine = [{"start": 0.0, "end": 3.0, "text": "ええと"}, {"start": 10.0, "end": 14.0, "text": "こんにちは"},
+                        {"start": 50.0, "end": 54.0, "text": "ご視聴ありがとう"}]
+        self.write("aaaaaaaaaa01", evalSet=True, evalReviewed={"at": 5, "rows": 2, "durationSec": 60.0, "via": "drill"}, segments=self.human, original=self.machine)
+        self.write("bbbbbbbbbb01", evalSet=True, segments=self.human, original=self.machine)        # 同じ中身で確かめ済みの印なし
+        self.write("dddddddddd01", segments=self.human, original=self.machine)                     # 普段の文書(評価用でない)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, tid, **kw):
+        doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
+               "speakers": [], "updatedAt": 1, **kw}
+        with open(os.path.join(self.data, "transcripts", tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+
+    def stored(self, *argv):
+        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+
+    def by_doc(self, res):
+        return {d["id"]: d for d in res["summary"]["byDoc"]}
+
+    def printed(self, res):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            E.print_summary(res)
+        return out.getvalue()
+
+    def test_reviewed_doc_is_scored_over_the_whole_video(self):
+        res = self.stored()                                    # 評価用の既定は only = 確かめ済みの動画だけ
+        self.assertEqual(res["meta"]["docs"], ["aaaaaaaaaa01"])
+        self.assertEqual(res["meta"]["mismatch"], [])           # 画面の測定との照合は、今までの規則で数え直した方で行う(確かめ済みは画面と数が違って当たり前)
+        o = res["summary"]["overall"]
+        extra = len("ええと") + len("ご視聴ありがとう")
+        self.assertEqual((o["sub"], o["del"], o["ins"]), (0, len("足した行"), extra))   # 人の行の無い所の機械の文字 = 余分・機械の無い所の人の行 = 抜け
+        self.assertEqual(o["refChars"], len("こんにちは足した行"))
+        rv = res["summary"]["reviewed"]
+        self.assertEqual(rv, {"docs": 1, "sec": 60.0, "refChars": 9, "missChars": 4, "extraChars": extra, "extraOutsideChars": extra})
+        self.assertEqual(res["summary"]["proofedSec"], 60.0)    # 動画の長さ(すき間まで聞いた)
+        self.assertEqual(res["summary"]["byKind"]["人が消した(余分)"]["ins"], extra)
+        self.assertTrue(self.by_doc(res)["aaaaaaaaaa01"]["reviewed"])
+        self.assertTrue(all(g["whole"] for g in res["groups"]))
+        # 時刻によらない CER も全体の文字で(ええと + こんにちは + ご視聴ありがとう と、こんにちは + 足した行)
+        S = E.load_serve("fake")
+        a, b, c = S.lev_counts(S.norm_cer("こんにちは足した行"), S.norm_cer("ええとこんにちはご視聴ありがとう"))
+        dt = res["summary"]["docText"]
+        self.assertEqual((dt["refChars"], dt["sub"], dt["del"], dt["ins"]), (9, a, b, c))
+        self.assertIn("確かめ済み 1 本", self.printed(res))
+
+    def test_unreviewed_doc_is_scored_as_before(self):
+        res = self.stored("--reviewed", "ignore")              # 印を見ない = 今までどおり。校正した行の範囲(10〜33)の外の機械の文字は数えない
+        self.assertEqual(sorted(res["meta"]["docs"]), ["aaaaaaaaaa01", "bbbbbbbbbb01"])
+        for d in res["summary"]["byDoc"]:
+            self.assertEqual((d["sub"], d["del"], d["ins"]), (0, 4, 0), d["id"])
+        self.assertEqual(res["summary"]["reviewed"]["docs"], 0)
+        self.assertFalse(any(g.get("whole") for g in res["groups"]))
+        self.assertEqual(res["summary"]["proofedSec"], 2 * (4.0 + 3.0))   # 人の行があるまとまりの幅だけ
+        # 確かめ済みでない文書(prefer の中)も同じ
+        res = self.stored("--reviewed", "prefer")
+        d = self.by_doc(res)
+        self.assertEqual((d["bbbbbbbbbb01"]["del"], d["bbbbbbbbbb01"]["ins"]), (4, 0))
+        self.assertEqual(d["aaaaaaaaaa01"]["ins"], len("ええと") + len("ご視聴ありがとう"))
+
+    def test_reviewed_choices(self):
+        ids = lambda res: sorted(res["meta"]["docs"])
+        self.assertEqual(ids(self.stored()), ["aaaaaaaaaa01"])                                           # 既定(評価用)= only
+        self.assertEqual(ids(self.stored("--reviewed", "only")), ["aaaaaaaaaa01"])
+        self.assertEqual(ids(self.stored("--reviewed", "prefer")), ["aaaaaaaaaa01", "bbbbbbbbbb01"])     # 確かめ済みは全体で・ほかも混ぜる
+        self.assertEqual(ids(self.stored("--reviewed", "ignore")), ["aaaaaaaaaa01", "bbbbbbbbbb01"])
+        res = self.stored("--reviewed", "prefer")
+        self.assertEqual(res["summary"]["proofedSec"], 60.0 + 7.0)                                       # 確かめ済みは動画の長さ・ほかは人の行の幅
+        self.assertEqual(self.stored("--source", "daily")["meta"]["selection"]["reviewed"]["mode"], "prefer")      # 評価用以外は prefer
+        self.assertEqual(ids(self.stored("--source", "daily")), ["dddddddddd01"])
+        allres = self.stored("--source", "all")                                                          # 評価用 + 普段: prefer(確かめ済みの印は評価用の文書だけ)
+        self.assertEqual(ids(allres), ["aaaaaaaaaa01", "bbbbbbbbbb01", "dddddddddd01"])
+        self.assertEqual(allres["summary"]["reviewed"]["docs"], 1)
+        res = self.stored("--docs", "bbbbbbbbbb01")                                                      # --docs を渡したら only にしない(指定した文書を落とさない)
+        self.assertEqual((ids(res), res["meta"]["selection"]["reviewed"]["mode"]), (["bbbbbbbbbb01"], "prefer"))
+        self.assertEqual(self.stored()["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "only", "candidates": 2, "reviewedDocs": 1, "fallback": False})
+
+    def test_only_falls_back_when_nothing_is_reviewed(self):
+        os.unlink(os.path.join(self.data, "transcripts", "aaaaaaaaaa01.json"))
+        res = self.stored()
+        self.assertEqual(res["meta"]["docs"], ["bbbbbbbbbb01"])                                           # 今までどおりの選び方
+        self.assertEqual(res["meta"]["selection"]["reviewed"], {"mode": "only", "effective": "ignore", "candidates": 1, "reviewedDocs": 0, "fallback": True})
+        self.assertEqual(res["summary"]["reviewed"]["docs"], 0)
+        self.assertEqual(res["summary"]["overall"]["ins"], 0)
+        self.assertIn("確かめ済みの動画が 0 本", self.printed(res))
+        self.assertNotIn("確かめ済みの動画が 0 本", self.printed(self.stored("--reviewed", "prefer")))   # 戻りの注意は only のときだけ
+
+    def test_silent_reviewed_docs(self):
+        # 行の無い確かめ済みの文書 = 何も話していない。機械が出した文字はすべて余分。機械も出していなければ誤りなし(本数と秒には数える)
+        self.write("aaaaaaaaaa02", evalSet=True, evalReviewed={"at": 5, "rows": 0, "durationSec": 30.0}, segments=[], original=[{"start": 5.0, "end": 8.0, "text": "幻覚の文"}])
+        self.write("aaaaaaaaaa03", evalSet=True, evalReviewed={"at": 5, "rows": 0, "durationSec": 20.0}, segments=[], original=[])
+        res = self.stored("--docs", "aaaaaaaaaa02,aaaaaaaaaa03")
+        d = self.by_doc(res)
+        self.assertEqual((d["aaaaaaaaaa02"]["ins"], d["aaaaaaaaaa02"]["refChars"]), (len("幻覚の文"), 0))
+        self.assertNotIn("aaaaaaaaaa03", d)                                                              # 文字が無いので byDoc には出ない
+        rv = res["summary"]["reviewed"]
+        self.assertEqual((rv["docs"], rv["sec"], rv["extraChars"], rv["missChars"]), (2, 50.0, 4, 0))
+        self.assertEqual(res["summary"]["proofedSec"], 50.0)
+        # 印を見ない(ignore)なら、行の無い文書は測る正解が無いので外れる
+        self.assertEqual(self.stored("--docs", "aaaaaaaaaa02", "--reviewed", "ignore")["meta"]["docs"], [])
+
+    def test_human_row_without_machine_is_miss_even_when_original_is_empty(self):
+        self.write("aaaaaaaaaa04", evalSet=True, evalReviewed={"at": 5, "rows": 1, "durationSec": 20.0}, segments=[seg(1, 2.0, 5.0, "全部抜けた")], original=[])
+        res = self.stored("--docs", "aaaaaaaaaa04")
+        o = res["summary"]["overall"]
+        self.assertEqual((o["refChars"], o["del"], o["ins"]), (5, 5, 0))
+        self.assertEqual(res["summary"]["reviewed"]["missChars"], 5)
+        self.assertEqual(res["meta"]["mismatch"], [])
+
+    def test_accuracy_keys_unchanged(self):
+        """入口の自動の測定(home/accuracy.py の summarize_asr)が読む鍵: summary.overall(cer・refChars)・ci95・byDoc・lowData・proofedSec"""
+        res = self.stored()
+        s = res["summary"]
+        for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec"):
+            self.assertIn(k, s)
+        for k in ("cer", "refChars"):
+            self.assertIn(k, s["overall"])
+        root = os.path.dirname(HERE)
+        for p in (os.path.join(root, "home"), root):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        import accuracy
+        out = accuracy.summarize_asr(res)
+        self.assertEqual((out["chars"], out["proofedSec"]), (s["overall"]["refChars"], 60))
+
+
 if __name__ == "__main__":
     unittest.main()
