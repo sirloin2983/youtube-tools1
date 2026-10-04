@@ -283,6 +283,7 @@ function spAllNeeded(){
 
 function renderSpAll(){
   const box = $('#spAllBox'); if (!box) return;
+  if (typeof renderDrillSpk === 'function') renderDrillSpk();   // ドリルの帯の「話者の無い行 n 行」も合わせる
   const on = spAllNeeded(); box.hidden = !on;
   if (!on) return;
   if (SPALL.id !== S.docId){ SPALL.id = S.docId; SPALL.cands = []; SPALL.suggest = ''; fillSpAll(); loadSpAll(S.docId); }

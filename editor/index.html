@@ -1450,7 +1450,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <p class="hint" id="drNone" role="status" hidden></p>
      <div class="row"><button type="button" class="btn small primary" id="drDone" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にして(残りの行も校正済みに)、次の動画を開きます">済みにして次へ<span id="drDoneKey"></span></button>
        <button type="button" class="btn small" id="drSkip" title="この動画は今回のドリルでは出しません(直した分は保存します)">飛ばして次へ<span id="drSkipKey"></span></button>
-       <button type="button" class="btn small ghost" id="drEnd">ドリルを終える</button></div>
+       <button type="button" class="btn small ghost" id="drEnd">ドリルを終える</button>
+       <!-- v0.49.1: 話者の道具(自動判別・全行をこの人に・名前)は「…」の中のカードで、ドリルの帯から見つけにくかった → 帯から直接開く(app.js が「…」の中の「話者」と同じ動きをさせる) -->
+       <button type="button" class="btn small" id="drSpk" title="話者のカードを開きます(話者を自動で判別・全行をこの人に・名前の変更と割り当て)">話者を付ける…</button>
+       <span class="hint" id="drSpkHint" role="status"></span></div>
    </section>
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.49.0';
+const APP_VERSION = '0.49.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -255,6 +255,7 @@ for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
   d.hidden = !d.open;
   d.addEventListener('toggle', () => { d.hidden = !d.open; });
 }
+$('#drSpk').addEventListener('click', () => { const b = document.querySelector('#jumpMenu [data-jump="spDetails"]'); if (b) b.click(); });   // ドリルの帯の「話者を付ける…」=「…」の中の「話者」と同じ
 $('#diarGo').addEventListener('click', e => {
   const b = e.currentTarget;
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };

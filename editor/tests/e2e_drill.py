@@ -147,7 +147,13 @@ def main():
             check("2 本済み" in pg.inner_text("#drCount"), "再読み込みしても、同じ文書と帯(済ませた本数)が続く: " + pg.inner_text("#drCount"))
 
             # ---- 話者の無い行の確認(やめる → このまま) ----
+            check("全行に付いています" in pg.inner_text("#drSpkHint"), "帯: 話者が全行に付いている: " + pg.inner_text("#drSpkHint"))
             pg.locator("#segs .seg select.spk").first.select_option("")
+            wait_js(pg, "document.querySelector('#drSpkHint').textContent.includes('話者の無い行 1 行')")
+            check(True, "帯: 話者を外すと「話者の無い行 1 行」: " + pg.inner_text("#drSpkHint"))
+            pg.click("#drSpk")
+            wait_js(pg, "document.querySelector('#spDetails').open && !document.querySelector('#spDetails').hidden")
+            check(pg.is_visible("#diarGo"), "帯の「話者を付ける…」で話者のカード(自動判別・全行をこの人に)が開く")
             pg.click("#drDone")
             pg.wait_for_selector("dialog.ui-dialog[open]")
             dlg = pg.inner_text("dialog.ui-dialog[open]")

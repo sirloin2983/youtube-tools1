@@ -279,6 +279,17 @@ function renderDrillBar(){
   $('#drDoneKey').innerHTML = kb('drillDone'); $('#drSkipKey').innerHTML = kb('drillSkip');
   const off = DR.busy || !d || !!lockJob();
   $('#drDone').disabled = off || d.evalSet !== true; $('#drSkip').disabled = DR.busy;
+  renderDrillSpk();
+}
+
+/* ドリルの帯の「話者を付ける…」の隣: 話者の無い行の数(評価用のフォルダへ移すには全行に話者が要る)。話者を付けたら renderSpAll からも呼ばれて数が変わる */
+function renderDrillSpk(){
+  const el = $('#drSpkHint'); if (!el || !DR.on) return;
+  const d = S.doc;
+  if (!d){ el.textContent = ''; return; }
+  const ids = new Set((d.speakers || []).map(s => s.id)), rows = d.segments.filter(s => String(s.text || '').trim());
+  const none = rows.filter(s => !ids.has(s.speaker)).length;
+  el.textContent = !rows.length ? '' : none ? `話者の無い行 ${none} 行` : '話者: 全行に付いています';
 }
 
 /* 評価用の文書の「確かめ済み」(ドリルの外。校正の画面の右の上)。ドリルの間は帯に出すので隠す(同じ操作の入口を2つ並べない) */

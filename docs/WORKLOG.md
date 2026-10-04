@@ -3109,3 +3109,12 @@
   ② 印の当たり率を測る道具(alt.json・original・segments から。`fb["alt"]` も)③ `home/autorun.py` の TX_KEYS に autoAlt は足していない(送らなくても設定どおりに動く)④ G1(定点 15 分)がそろったら E1
 - 注意: AI のシェルから入口・エンジンを動かすと、モデルの取得先がパッケージの写しになる(AGENTS.md の MSIX の注意)。本物のエンジンの確認はユーザーの入口で
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — 評価ドリルの帯から話者のカードを開けるように(編集 0.49.0 → 0.49.1)
+- ユーザーの指摘: 「ドリルに話者認識機能が見当たらない」。機能はあるが、映像の所の「…」(アイコンだけ)→「話者」のカードの中で、ドリルの帯からは見えなかった
+- 変更: `editor/index.html`(帯に `#drSpk`「話者を付ける…」と `#drSpkHint`)・`editor/app.js`(`#drSpk` は「…」の中の「話者」と同じ動き)・`editor/app-learn.js`(`renderDrillSpk` = 話者の無い行の数)・`editor/app-jobs.js`(`renderSpAll` から呼ぶ)・
+  `editor/tests/e2e_drill.py`(帯の数・ボタンでカードが開く)・版の 3 か所・`editor/AGENTS.md`
+- 注意: 帯のボタンに `data-jump` を付けると、ほかのテストの `[data-jump=spDetails]` が隠れた帯のボタンに当たって落ちる(付けずに app.js で中継した)
+- テスト: e2e_drill・e2e_ui_mounted・e2e_eval_set、通った
+- 未完了・次: ユーザーの要望(10-04)「どうせ必要なんだから最初に全部話者認識してほしい」= 評価用は文字起こしのあと自動で話者を判別して名前まで付ける(次の作業)
+- 未コミット: なし
