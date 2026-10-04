@@ -163,10 +163,25 @@ function setUrlDoc(id){
 
 function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
 
-/* 前後の行と時刻が重なっているか(書き出すと字幕が2段で出るので、時刻の欄を赤くして知らせる) */
-function ovl(i){ const g = S.doc.segments, s = g[i], a = g[i - 1], b = g[i + 1]; return !!s && ((a && s.start < a.end - 0.01) || (b && s.end > b.start + 0.01)); }
+/* 前後の行と時刻が重なっているか(書き出すと字幕が2段で出るので、時刻の欄を赤くして知らせる)。
+   時刻の欄は 0.1 秒までしか見せない(UIKit.timebox の丸めと同じ Math.round(x*10))ので、見えている時刻で重なっていなければ赤くしない。
+   必ず真偽値を返す(markOvl の classList.toggle に undefined を渡すと「付け外しの反転」になり、前後に行の無い先頭・最後の行が押すたびに赤白を繰り返した) */
+const t10 = x => Math.round((Number(x) || 0) * 10);
+const overlaps = (a, b) => !!a && !!b && t10(a.end) > t10(b.start);   // a の終わりが、次の行 b の始まりより(見える時刻で)後ろ
+function ovl(i){ const g = S.doc.segments, s = g[i]; return !!s && (overlaps(g[i - 1], s) || overlaps(s, g[i + 1])); }
 
+/* 行 i の前後 1 行ずつの印を付け直す(描き直さずに時刻だけ直した経路 = 微調整・時刻の欄の確定が通る。描き直す経路は segHTML が付ける) */
 function markOvl(i){ for (const j of [i - 1, i, i + 1]){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = '前後の行と時刻が重なっています(字幕が2段に重なって出ます)'; else t.removeAttribute('title'); } } }
+
+/* 行 i の開始(f='start')か終了('end')を直したあと、隣の行の境目(開始なら前の行の終了・終了なら次の行の開始)と、見える時刻(0.1 秒)が同じなら、
+   隣の値にぴったりそろえる(見えない 0.01 秒の隙間・重なりを残さない)。toward=false(隣から離れる向きの微調整)ではそろえない
+   (そろえると、0.05 秒の幅で離れようとしても元へ戻されてしまう)。開始 < 終了のままにできないときもそろえない -> そろえたか */
+function snapEdge(i, f, toward){
+  const g = S.doc.segments, s = g[i], n = g[f === 'start' ? i - 1 : i + 1]; if (!s || !n || toward === false) return false;
+  const nv = f === 'start' ? n.end : n.start;
+  if (nv === s[f] || t10(nv) !== t10(s[f]) || !(f === 'start' ? nv < s.end : nv > s.start)) return false;
+  s[f] = nv; return true;
+}
 
 function segHTML(s, i){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
@@ -279,7 +294,7 @@ function doUndo(only, quiet){   // quiet: 2 カット のタブから(カット�
 function setTimeNow(s, f){
   const v = Math.round(player().currentTime * 100) / 100;
   if (f === 'start' ? !(v < s.end) : !(v > s.start)) return toast(f === 'start' ? '再生位置が、この行の終了より後です(先に終了を合わせてください)' : '再生位置が、この行の開始より前です', 2500);
-  pushUndo(); s[f] = v; const id = s.id; sortSegs(); S.navIdx = S.doc.segments.findIndex(x => x.id === id); renderDoc(); markDirty();
+  pushUndo(); s[f] = v; const id = s.id; sortSegs(); S.navIdx = S.doc.segments.findIndex(x => x.id === id); snapEdge(S.navIdx, f, true); renderDoc(); markDirty();
   toast((f === 'start' ? '開始' : '終了') + 'を ' + fmtT(v, true) + ' にしました', 1500);
 }
 
@@ -289,11 +304,12 @@ function nudge(s, row, f, dir){
   if (f === 'start') v = Math.min(Math.max(0, v), Math.round((s.end - MIN) * 100) / 100); else v = Math.max(v, Math.round((s.start + MIN) * 100) / 100);
   if (v === s[f]) return toast(f === 'start' ? (dir < 0 ? 'これより早くできません(0秒)' : '開始は、終了より0.1秒以上前にしてください') : '終了は、開始より0.1秒以上後にしてください', 1500);
   pushUndo(); s[f] = v; markDirty();
-  const inp = row.querySelector(`.t[data-f="${f}"]`); if (inp) UIKit.timebox.set(inp, v);
-  const segs = S.doc.segments, i = segs.indexOf(s); markOvl(i);
-  if ((segs[i - 1] && segs[i - 1].start > s.start) || (segs[i + 1] && segs[i + 1].start < s.start)){   // 並び順が変わるときだけ、並べ直す
-    sortSegs(); const ni = segs.indexOf(s); renderDoc(); setNav(ni);
-  }
+  const segs = S.doc.segments; let i = segs.indexOf(s);
+  const moved = (segs[i - 1] && segs[i - 1].start > s.start) || (segs[i + 1] && segs[i + 1].start < s.start);   // 並び順が変わるときだけ、並べ直す
+  if (moved){ sortSegs(); i = segs.indexOf(s); }
+  snapEdge(i, f, dir > 0 === (f === 'end'));
+  if (moved){ renderDoc(); setNav(i); }
+  else { const inp = row.querySelector(`.t[data-f="${f}"]`); if (inp) UIKit.timebox.set(inp, s[f]); markOvl(i); }
   if (S.playEnd !== null || player().paused){ const p = player(); p.currentTime = f === 'end' ? Math.max(s.start, s.end - 1.2) : s.start; S.playEnd = s.end; p.play().catch(() => {}); }   // 動かした端を、すぐ聞き直せるように
 }
 
@@ -587,7 +603,7 @@ function insertRow(at, start, end, speaker){
   if (rowsEl()[at] && rowsEl()[at].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); toast('絞り込みを解除しました(足した行が見えるように)'); }
   gotoRow(at, { edit: true, center: true });
   const segs = S.doc.segments, pv = segs[at - 1], nx = segs[at + 1];
-  if ((nx && g.end > nx.start + 0.01) || (pv && g.start < pv.end - 0.01)) toast('前後の行と時刻が重なっています。必要なら開始・終了を直してください', 3500);
+  if (overlaps(g, nx) || overlaps(pv, g)) toast('前後の行と時刻が重なっています。必要なら開始・終了を直してください', 3500);
   else toast('行を足しました。文字を入力してください(Esc で抜けます・Ctrl+Z で取り消し)', 2500);
 }
 

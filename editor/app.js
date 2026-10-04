@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.50.0';
+const APP_VERSION = '0.50.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -559,9 +559,9 @@ $('#segs').addEventListener('ui-time-commit', e => {
   const segs = S.doc.segments;
   if ((segs[i - 1] && segs[i - 1].start > s.start) || (segs[i + 1] && segs[i + 1].start < s.start)){
     /* 時刻で並びが変わると、今の行(S.navIdx)の添字がずれる。直した行を探し直して、今の行にする */
-    sortSegs(); S.navIdx = segs.indexOf(s); renderDoc();
+    sortSegs(); S.navIdx = segs.indexOf(s); snapEdge(S.navIdx, f, true); renderDoc();
     rowsEl()[S.navIdx]?.querySelector('textarea')?.focus({ preventScroll: true });
-  } else markOvl(i);
+  } else { if (snapEdge(i, f, true)) UIKit.timebox.set(e.target, s[f]); markOvl(i); }   // 隣の境目と見える時刻が同じなら隣の値にそろえる(欄の表示も)
 });
 $('#btnAddAt').addEventListener('click', () => { if (S.doc) insertAtTime(player().currentTime || 0); });
 $('#segs').addEventListener('click', e => {
