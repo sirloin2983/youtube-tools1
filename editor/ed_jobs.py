@@ -557,6 +557,8 @@ def validate_job(req):
             "autoRedo": req.get("autoRedo") is True, "redoLarge": req.get("redoLarge") is not False,
             # 終わったら 2つ目のエンジンでも聞く(D1-b)。要求に無ければ(まとめて実行・古い画面)保存した設定 autoAlt
             "autoAlt": (req["autoAlt"] if isinstance(req.get("autoAlt"), bool) else ed_learn.load_settings().get("autoAlt") is True) and not ev,
+            # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
+            "autoDiarize": req["autoDiarize"] if isinstance(req.get("autoDiarize"), bool) else ed_learn.load_settings().get("autoDiarize") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
             "title": title}
@@ -600,6 +602,8 @@ def public_job(j):
     out["into"] = (j.get("spec") or {}).get("intoDoc") or None   # 「編集」: 文字起こしの無い文書に入れる文字起こし(画面の「この動画を文字起こしする」)
     out["named"] = list(j.get("named") or [])       # A-3: 話者判別のあと、覚えている声で名前を付けた話者 [{"speaker", "name", "score"}]
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
+    out["auto"] = bool((j.get("spec") or {}).get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)
+    out["autoSkipped"] = j.get("autoSkipped") or ""   # 自動の判別を動き出すときにやめた理由(has_speakers・reviewed・empty)
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
@@ -1571,6 +1575,8 @@ def run_job(job):
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
         ed_relink.norm_after_transcribe(job, spec, tid)
+        # 話者の自動判別(評価用は常に・それ以外は設定 autoDiarize。v0.50.0)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
+        ed_speakers.autodiar_after_transcribe(job, spec, tid)
         job["tid"], job["progress"], job["state"], job["phase"] = tid, 1.0, "done", "完了"
         if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in segs):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:

@@ -315,6 +315,9 @@ class TestAltJob(_AltStore):
         self.assertEqual(self.queued("alt", tid3), [])
         tid4 = self.transcribe(evalSet=True)
         self.assertEqual(self.queued("alt", tid4), [])
+        d4 = self.queued("diarize", tid4)   # 評価用は代わりに話者の自動判別が足される(v0.50.0)。このテストのジョブとして片付ける
+        self.assertEqual(len(d4), 1)
+        self.mine.update(j["id"] for j in d4)
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
         write_json(ed_state.SETTINGS, {"altEngine": "llama.cpp"})
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])

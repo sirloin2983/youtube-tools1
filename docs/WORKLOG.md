@@ -3118,3 +3118,20 @@
 - テスト: e2e_drill・e2e_ui_mounted・e2e_eval_set、通った
 - 未完了・次: ユーザーの要望(10-04)「どうせ必要なんだから最初に全部話者認識してほしい」= 評価用は文字起こしのあと自動で話者を判別して名前まで付ける(次の作業)
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — 評価用は文字起こしのあと話者を自動で判別して名前まで(編集 0.49.1 → 0.50.0)
+- ユーザーの要望(10-04): 「どうせ必要なんだから最初に全部話者認識してほしい」(評価ドリルは全行に話者が要る)
+- 変更(`editor/`。細かい仕組みは `editor/AGENTS.md` のまとめての文字起こし・ドリル・話者の節):
+  - `ed_speakers.py`: `autodiar_*`(`autodiar_after_transcribe` = `run_job` の完了の前のフック・`autodiar_enqueue`・`autodiar_skip_at_start` = 動き出すときの確かめ直し・`autodiar_name_by_context` = 覚えた声で付かなかった仮の名前の話者のうち、いちばん長く話した人に動画の手がかりの名前)。
+    名前の候補は `ed_drill.drill_candidates` の suggest(覚えた声 → メンバーのフォルダ → 配信の文脈 = ファイル名・題名・チャンネル)を**ジョブを足すとき**に決める。文書の `diarization.auto`・`contextName`、diar.json の `latest.auto` と voices の by = context
+  - **人が付けたものを置き換えない**: 文字のある行に 1 つでも話者があれば判別しない(足すときと動き出すときの両方)。確かめ済みは触らない
+  - `ed_evalbatch.py`: 後追い(文字起こし済みで話者が 1 つも無く、判別したことが無い評価用の文書。1 回の見回りで 1 本・文書ごとに 1 回だけ = `eval-batch.json` の `diar`・直近 10 分に直した文書は後回し)。状態に `diarWaiting`・`diarActive`・`diarTried`・⚙ の 1 行に「話者の判別 待ち n 本」
+  - 評価用以外: 設定 `autoDiarize`(既定オフ)と新規のチェック `#optAutoDiar`(名前付けは覚えた声との照合だけ)。簡易版は送らない。`TRANSCRIBE_AUTO_DIARIZE=off` で止まる・worker-fake では使わない(テストがモデルを取りに行かないように)
+  - 画面: ドリルの帯に `#drAutoSpk`「話者は自動で付けてあります…」(機械が付けた文書のとき)
+  - テスト: `editor/tests/test_autodiar.py`(新 19 件。test_metrics から読む)・e2e_drill の最後に通し。既存の直し: test_evalbatch(環境に `TRANSCRIBE_AUTO_DIARIZE=off`)・test_alt の test_auto_alt(判別のジョブの片付け)・e2e_eval_set(ジョブが無くなるまで待つ)
+- 版: 編集 0.49.1 → 0.50.0(serve.py・app.js・README.txt)。`docs/ROADMAP.md`・`docs/HANDOVER.md` の版
+- 確かめたテスト(まとめ役が流し直した): 編集の単体 387(skip 1)・e2e_drill・e2e_eval_set。実装したエージェントが流した分: e2e_ui_mounted・e2e_edit_voices・e2e_lite・e2e_alt・e2e_folder_marker_range・test_ui_kit_sync・home/tests/test_mount.py 26・home/tests/e2e_autorun.py
+- サブエージェント: Opus(ジョブと文書の書き込みに及ぶ部品)
+- 未完了・次: **本物の sherpa-onnx では未確認**(疑似の判別のテストだけ。初回は判別のモデル 約 30MB × 2 を自動で取る)。ユーザーが入口を起動し直して ⚙ の「仮置きをまとめて文字起こし」を始めると、文字起こしのあと話者が付き、もう文字起こし済みの約 30 本も後追いで判別される
+- 注意: 短い動画(30〜40 秒)の人数の自動は、1 人を 2 人に分けることがある(ドリルで直す。多ければ判別の人数の既定を見直す)
+- 未コミット: なし

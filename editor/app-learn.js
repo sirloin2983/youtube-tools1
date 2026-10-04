@@ -290,6 +290,12 @@ function renderDrillSpk(){
   const ids = new Set((d.speakers || []).map(s => s.id)), rows = d.segments.filter(s => String(s.text || '').trim());
   const none = rows.filter(s => !ids.has(s.speaker)).length;
   el.textContent = !rows.length ? '' : none ? `話者の無い行 ${none} 行` : '話者: 全行に付いています';
+  // 機械が付けた話者(文字起こしのあとの自動の判別。文書の diarization.auto。人が判別し直す・全行をこの人に で消える。v0.50.0)
+  const au = $('#drAutoSpk'), dz = d.diarization && typeof d.diarization === 'object' ? d.diarization : null;
+  if (au){
+    au.hidden = !(dz && dz.auto && rows.length);
+    au.textContent = au.hidden ? '' : '話者は自動で付けてあります' + (dz.contextName ? `(「${dz.contextName}」は動画の入ったフォルダ・配信から推測)` : '') + '。違っていたら直してください';
+  }
 }
 
 /* 評価用の文書の「確かめ済み」(ドリルの外。校正の画面の右の上)。ドリルの間は帯に出すので隠す(同じ操作の入口を2つ並べない) */

@@ -15,7 +15,7 @@ function setTab(t){
 }
 
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, autoAlt: $('#optAutoAlt').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, autoAlt: $('#optAutoAlt').checked, autoDiarize: $('#optAutoDiar').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };
 }
 
 async function startFile(){
@@ -197,7 +197,9 @@ async function pollJobs(){
       toast(diar.kind === 'redo' ? `疑わしい所を認識し直しました: ${diar.phase || ''}` + (diar.segments ? '(前の版は「以前の版に戻す」に残っています)' : '')
         : diar.kind === 'retranscribe' ? `${diar.segments}行を再認識しました。` + (diar.kept || diar.emptyKept ? [diar.kept ? `校正済み ${diar.kept} 行` : '', diar.emptyKept ? `文字が出なかった ${diar.emptyKept} 行` : ''].filter(Boolean).join('と') + 'は元のままです。' : '')
           + (diar.loose ? `声が重なる所などを緩い条件で ${diar.loose} 行拾いました(要確認)。` : '') + (diar.unsure ? `まだ不確かな行が${diar.unsure}行あります。` : '') + (diar.vadNote ? diar.vadNote : '')
-        : `話者を判別しました(${diar.speakers}人)。` + ((diar.named || []).length ? `覚えている声で名前を付けました: ${diar.named.map(x => x.name).join('・')}。` : '')
+        : diar.autoSkipped ? `話者の自動判別: ${diar.phase || '判別しませんでした'}`
+        : `${diar.auto ? '話者を自動で判別しました' : '話者を判別しました'}(${diar.speakers}人)。` + (namedBy(diar, false).length ? `覚えている声で名前を付けました: ${namedBy(diar, false).map(x => x.name).join('・')}。` : '')
+          + (namedBy(diar, true).length ? `動画の場所・配信から名前を付けました: ${namedBy(diar, true).map(x => x.name).join('・')}(違っていたら直してください)。` : '')
           + (diar.unsure ? `不確かな行が${diar.unsure}行あります(「要確認」で絞り込めます)` : ''),
         diar.kind === 'diarize' && diar.tid === S.docId && (diar.named || []).length < diar.speakers ? { ms: 10000, action: { label: '名前を付ける', fn: focusSpeakerNames } } : undefined);
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
@@ -207,6 +209,9 @@ async function pollJobs(){
   }
   if (!S.jobs.some(x => ACTIVE.has(x.state))){ clearInterval(S.pollT); S.pollT = null; }
 }
+
+/* 話者判別のジョブの named を、覚えた声(と消去法)と動画の手がかり(by: context。評価用の自動の判別。v0.50.0)に分ける */
+function namedBy(j, ctx){ return (j.named || []).filter(x => (x.by === 'context') === ctx); }
 
 function renderJobBadge(){
   const act = S.jobs.filter(j => ACTIVE.has(j.state)), b = $('#jobBadge');

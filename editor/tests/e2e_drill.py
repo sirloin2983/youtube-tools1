@@ -7,7 +7,8 @@
 ドリル: 進行度のカードの「評価ドリルを始める →」→ 帯(定点まであと何分・条件)と ?doc=&drill=1 → 1 行直してすぐ「済みにして次へ」(未保存の変更も保存してから)
 → 次の文書が開く(画面の再読み込みなし)・定点の残りが減る → 飛ばす(Shift+N)→ 直してすぐ Shift+D → 再読み込みしても続く → 話者の無い行の確認(やめる / このまま)
 → 次が無い → ドリルを終える。行の結合・追加などは既存の e2e(e2e_row_editing ほか)で確かめ済みなので、ここでは 1 行直すだけ。
-ドリルの外: 評価用の文書を開くと「まだ確かめていない」と「全部聞いて直したので済みにする」→ 確かめ済み → 取り消す。全行をこの人に: 候補 → 確認 → 全行がその人に
+ドリルの外: 評価用の文書を開くと「まだ確かめていない」と「全部聞いて直したので済みにする」→ 確かめ済み → 取り消す。全行をこの人に: 候補 → 確認 → 全行がその人に。
+話者の自動判別(v0.50.0): 評価用として文字起こし → 続けて話者の判別のジョブ(自動)→ 名前の候補(配信の文脈)がいちばん長く話した人に → ドリルで開くと話者付きで、帯に「自動で付けてあります」
 """
 import json
 import os
@@ -227,6 +228,33 @@ def main():
             pg.wait_for_selector("#keys[open]")
             kl = pg.inner_text("#keysList")
             check("評価ドリル" in kl and "済みにして次へ" in kl and "飛ばして次へ" in kl, "キーの一覧に評価ドリルのキー")
+
+            # ---- 評価用の文字起こしのあと、話者を自動で判別して名前まで付ける(v0.50.0) ----
+            v2 = make_video(os.path.join(srv.media, "自動の話者.webm"), sec=12)
+            ta_id = srv.transcribe(v2, title="さくらみこ 雑談 自動", evalSet=True)
+            dj = None
+            for _ in range(300):   # 文字起こしの続きで足された判別のジョブ(自動)が終わるまで
+                js = [x for x in srv.get("/api/jobs")["jobs"] if x["kind"] == "diarize" and x["tid"] == ta_id]
+                if js and js[0]["state"] in ("done", "error", "cancelled"):
+                    dj = js[0]
+                    break
+                time.sleep(0.1)
+            check(dj is not None and dj["state"] == "done" and dj.get("auto") is True, "評価用の文字起こしのあと、話者の判別のジョブが自動で足されて終わる: %s" % (dj and dj["state"]))
+            da = srv.get("/api/transcript?id=" + ta_id)
+            names = {s["id"]: s["name"] for s in da.get("speakers") or []}
+            check(names.get("S1") == "さくらみこ" and all(g["speaker"] in names for g in da["segments"] if g["text"].strip()),
+                  "いちばん長く話した人に名前の候補(配信の文脈)・全行に話者: %s" % names)
+            check((da.get("diarization") or {}).get("auto") is True and (da.get("diarization") or {}).get("contextName") == "さくらみこ", "文書に自動で付けた印")
+            with open(os.path.join(tx, ta_id + ".diar.json"), encoding="utf-8") as f:
+                dv = json.load(f)["latest"]["voices"]
+            check(dv["speakers"]["S1"]["by"] == "context" and dv["context"]["name"] == "さくらみこ", "diar.json に誰が付けたか(by: context)")
+            pg.goto(srv.base + "?doc=%s&drill=1#tx" % ta_id)
+            wait_js(pg, "!document.querySelector('#drillBar').hidden && S.docId === %s && document.querySelectorAll('#segs .seg').length > 0" % json.dumps(ta_id), 15000)
+            wait_js(pg, "!document.querySelector('#drAutoSpk').hidden", 10000)
+            check("自動で付けてあります" in pg.inner_text("#drAutoSpk") and "さくらみこ" in pg.inner_text("#drAutoSpk"),
+                  "ドリルで開くと話者付き・帯に「自動で付けてあります」: " + pg.inner_text("#drAutoSpk"))
+            check("全行に付いています" in pg.inner_text("#drSpkHint"), "帯: 話者が全行に付いている: " + pg.inner_text("#drSpkHint"))
+            check(pg.locator("#segs .seg select.spk").first.input_value() == "S1", "行の話者の欄も付いている")
             b.close()
         bad = [e for e in errors if "favicon" not in e and "ERR_ABORTED" not in e]
         check(not bad, "画面のエラーなし: %s" % bad[:3])

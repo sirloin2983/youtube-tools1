@@ -267,7 +267,7 @@ def start(req):
         title = re.sub(r"^[0-9a-f]{8}_", "", title)
     spec = ed_jobs.validate_job({"sourcePath": req.get("path"), "title": title[:120], "model": lite_model(), "language": "ja", "vadMode": "weak", "autoDict": False,
                                  "autoGloss": False, "autoContext": False, "autoLearned": False, "wordSplit": True, "autoRedo": False,
-                                 "autoAlt": False})
+                                 "autoAlt": False, "autoDiarize": False})
     spec["lite"] = {"streamer": streamer, "sourceUrl": url, "rulesVersion": _ev.RULES_VERSION, "formatVersion": _ev.FORMAT_VERSION}
     job = ed_jobs.add_job(spec)
     _remember_streamer(streamer)

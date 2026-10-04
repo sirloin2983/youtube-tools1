@@ -10,6 +10,9 @@
   - ユーザーのジョブ(自分が入れたもの以外)が動いている・待っている間と、評価用のフォルダの整理の間は、自分の分を増やさない
   - 失敗したら 2 回までやり直し、それでもだめなら飛ばす(同じ動画を延々と入れ直さない)。取り消されたら飛ばす
   - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(ed_evalaudio の `_file_lock`)で重ならない
+  - 話者の自動判別(v0.50.0): 文字起こしが終わると、その続きで判別のジョブが足される(ed_speakers.autodiar_after_transcribe。自分の印つき)。
+    もう文字起こし済みで話者の無い評価用の文書(判別したことが無い = diar.json が無い)にも、見回りのたびに 1 本ずつ判別のジョブを足す(後追い)。
+    文書ごとに 1 回だけ(状態の diar に記録)・直近に人が直した文書(ed_drill.DRILL_RECENT_SEC)は後回し・待ちの数は文字起こしと合わせて EB_MAX_WAIT まで
 
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
 ほかの部品は `ed_xxx.名前` で呼ぶたびに読む。
@@ -21,10 +24,12 @@ import threading
 import time
 
 from ytt_core import fsio as _fsio  # noqa: E402,F401
+import ed_drill  # noqa: E402,F401
 import ed_evalaudio  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
+import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 
@@ -37,6 +42,7 @@ EB_INTERVAL_SEC = 30             # 見回る間隔(1 本の文字起こしは数
 EB_MAX_FAILS = 2                 # 同じ動画で失敗したら、あきらめる回数
 EB_MAX_TRIES = 3                 # 同じ動画を入れる回数の上限(文字が 0 行のまま「文字のある文書」にならない動画を入れ直し続けない)
 EB_MAX_ITEMS = 5000
+EB_DIAR_PER_TICK = 1             # 話者の判別の後追いを 1 回の見回りで入れる本数(文字起こしの待ちを埋めつくさない)
 EB_STATE_MAX_BYTES = 8 * 1024 * 1024
 EB_UNTRANSCRIBED_RE = re.compile(r"_\d{2,4}_未文字起こし$")   # 評価用の整理の名前の規則(ed_relink._eval_name_re と同じ形)
 _eb_state_lock = threading.RLock()   # 状態ファイルの読み書き・ジョブを足す瞬間(start / stop / 見回りが重ならない)
@@ -63,7 +69,8 @@ def eb_key(path):
 
 def _eb_empty():
     return {"schema": EB_SCHEMA, "enabled": False, "startedAt": None, "stoppedAt": None, "finishedAt": None, "enqueued": 0,
-            "remaining": None, "deferred": None, "lastError": None, "lastAddedAt": None, "items": {}, "updatedAt": 0}
+            "remaining": None, "deferred": None, "lastError": None, "lastAddedAt": None, "items": {}, "updatedAt": 0,
+            "diar": {}, "diarRemaining": None}   # diar[文書の id] = {at, via, job?, state?, error?, skipped?}(話者の判別を試した = もう入れない。v0.50.0)
 
 
 def eb_read():
@@ -75,10 +82,12 @@ def eb_read():
         return _eb_empty()
     out = _eb_empty()
     for k in out:
-        if k in d and k not in ("schema", "items"):
+        if k in d and k not in ("schema", "items", "diar"):
             out[k] = d[k]
     if isinstance(d.get("items"), dict):
         out["items"] = {k: v for k, v in d["items"].items() if isinstance(v, dict)}
+    if isinstance(d.get("diar"), dict):
+        out["diar"] = {k: v for k, v in d["diar"].items() if isinstance(v, dict) and ed_state.TID_RE.match(str(k))}
     out["enabled"] = d.get("enabled") is True
     return out
 
@@ -99,6 +108,12 @@ def _eb_mine(j):
     return bool((j.get("spec") or {}).get("evalBatch"))
 
 
+def _eb_auto_diar(j):
+    """評価用の文書の自動の話者判別のジョブ(まとめての文字起こしが入れたものも、手で始めた評価用の文字起こしの続きも)"""
+    sp = j.get("spec") or {}
+    return j.get("kind") == "diarize" and bool(sp.get("auto")) and bool(sp.get("autoEval"))
+
+
 # ---------------------------------------------------------------- 状態(GET /api/eval-batch)
 
 def eval_batch_status():
@@ -107,8 +122,12 @@ def eval_batch_status():
     deferred(増やさなかった理由), lastError}。ファイルは探さない(状態を読むだけ)"""
     st = eb_read()
     items = list(st["items"].values())
-    mine = [j for j in _eb_jobs() if _eb_mine(j) and j.get("state") in ed_jobs.ACTIVE_STATES]
-    return {"enabled": st["enabled"], "running": any(t.is_alive() for t in _eb_threads), "enqueued": int(st.get("enqueued") or 0),
+    jobs = _eb_jobs()
+    mine = [j for j in jobs if _eb_mine(j) and j.get("state") in ed_jobs.ACTIVE_STATES]
+    diar_active = sum(1 for j in jobs if _eb_auto_diar(j) and j.get("state") in ed_jobs.ACTIVE_STATES)
+    diar_left = int(st.get("diarRemaining") or 0) if st["enabled"] else 0
+    return {"diarWaiting": diar_active + diar_left, "diarActive": diar_active, "diarTried": len(st.get("diar") or {}),   # 話者の判別 待ち(v0.50.0)
+            "enabled": st["enabled"], "running": any(t.is_alive() for t in _eb_threads), "enqueued": int(st.get("enqueued") or 0),
             "remaining": st.get("remaining"), "active": len(mine), "done": sum(1 for i in items if i.get("done")),
             "failed": sum(1 for i in items if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS),
             "finished": bool(st.get("finishedAt")) and not st["enabled"], "startedAt": st.get("startedAt"), "stoppedAt": st.get("stoppedAt"),
@@ -200,6 +219,64 @@ def eb_candidates(items, busy_paths=()):
     return out
 
 
+def eb_diar_candidates(tried, busy=(), now=None):
+    """話者の判別の後追いをする評価用の文書 -> ([文書の id](古く直した順), 直近に直したので後回しにした本数)。
+    対象 = 評価用・文字のある行がある・確かめ済みでない・文字のある行に話者が 1 つも無い(人が付けたものを置き換えない)・
+    判別したことが無い(diar.json が無い)・試していない(tried)・ジョブの最中でない(busy)・動画がある(ネットワーク上は調べずに除く)"""
+    now = now or int(time.time() * 1000)
+    ready, recent = [], 0
+    for tid, sm in ed_drill.drill_docs():
+        if not sm.get("eval") or sm.get("reviewed") or not sm.get("rows") or sm.get("spkRows") or tid in tried or tid in busy:
+            continue
+        if os.path.exists(ed_speakers.diar_path(tid)):
+            continue
+        last = max(sm.get("updatedAt") or 0, sm.get("lastAt") or 0)
+        if now - last < ed_drill.DRILL_RECENT_SEC * 1000:   # 編集の画面で開いているかもしれない(判別は編集を止める)
+            recent += 1
+            continue
+        if not ed_drill._media_ok(sm.get("sourcePath")):
+            continue
+        ready.append((last, tid))
+    return [t for _a, t in sorted(ready)], recent
+
+
+def _eb_diar_pass(room, log):
+    """後追いの判別を room 本まで(1 回の見回りで EB_DIAR_PER_TICK 本まで)入れる。-> (入れた本数, 残りの本数 or None = 調べなかった)"""
+    if room <= 0 or not ed_speakers.autodiar_enabled() or not ed_speakers.autodiar_ready():
+        return 0, None
+    with _eb_state_lock:
+        tried = set(eb_read().get("diar") or {})
+    ready, recent = eb_diar_candidates(tried, ed_drill._busy_tids())
+    added = 0
+    for tid in list(ready):
+        if added >= min(room, EB_DIAR_PER_TICK):
+            break
+        with _eb_state_lock:
+            st = eb_read()
+            if not st["enabled"]:
+                return added, None
+            rec = {"at": int(time.time() * 1000), "via": "backlog"}
+            try:
+                r = ed_speakers.autodiar_enqueue(tid, batch=True)
+            except ed_state.ApiError as e:
+                if e.code == "busy":   # 待機列がいっぱい・処理が重なった: 次の見回りで(試したことにしない)
+                    break
+                rec["error"] = e.message[:300]
+                r = {}
+            if r.get("job"):
+                rec["job"] = r["job"]["id"]
+                if r.get("name"):
+                    rec["name"] = r["name"]
+                added += 1
+                log("話者の判別を入れました %s" % tid)
+            elif r.get("skipped"):
+                rec["skipped"] = r["skipped"]
+            st.setdefault("diar", {})[tid] = rec
+            ready.remove(tid)
+            _eb_write(st)
+    return added, len(ready) + recent
+
+
 def eb_request(path, into):
     """validate_job に渡す要求: 編集の設定そのまま + 動画全体 + 評価用の印。ヒントは評価用の規則(validate_job の ev)で外れる"""
     req = dict(ed_learn.load_settings(), sourcePath=path, title="", start=0, end=None, evalSet=True)
@@ -215,6 +292,15 @@ def _eb_absorb(st, mine):
     """自分のジョブの結果を状態に写す(済んだ・失敗・取り消された)。同じジョブは1回だけ数える"""
     now = int(time.time() * 1000)
     for j in mine:
+        if j.get("kind") == "diarize":   # 話者の判別(文字起こしの続き・後追い): 結果を写し、試した文書として覚える(もう入れない)
+            tid = str((j.get("spec") or {}).get("tid") or "")
+            if tid and j.get("state") not in ed_jobs.ACTIVE_STATES:
+                d = st.setdefault("diar", {}).setdefault(tid, {"at": now, "job": j.get("id"), "via": "transcribe"})
+                if d.get("job") == j.get("id") and not d.get("state"):
+                    d["state"] = j.get("state")
+                    if j.get("error"):
+                        d["error"] = str(j["error"])[:300]
+            continue
         sp = (j.get("spec") or {}).get("sourcePath")
         if not sp or j.get("state") in ed_jobs.ACTIVE_STATES:
             continue
@@ -278,8 +364,16 @@ def _eb_tick_locked(why, log):
     if res is not None:
         return res
     room = EB_MAX_WAIT - len(mine_active)
+    diar_added, diar_left = _eb_diar_pass(room, log)   # 文字起こし済みで話者の無い評価用の文書の判別(後追い。v0.50.0)
+    room -= diar_added
+    if diar_left is not None:
+        with _eb_state_lock:
+            st = eb_read()
+            if st["enabled"] and st.get("diarRemaining") != diar_left:
+                st["diarRemaining"] = diar_left
+                _eb_write(st)
     if room <= 0:   # 待ちが上限まで入っている: 動画を探さない(終わったら次の見回りで補う)
-        return {"added": 0, "remaining": eb_read().get("remaining"), "deferred": None}
+        return {"added": 0, "diarAdded": diar_added, "remaining": eb_read().get("remaining"), "deferred": None}
     cands = eb_candidates(items_snapshot, busy_paths)   # フォルダを歩く・文書の要約を読む(時間がかかるので、状態のロックの外で)
     added, rest = 0, list(cands)
     while rest and added < room:
@@ -320,13 +414,13 @@ def _eb_tick_locked(why, log):
         if not st["enabled"]:
             return {"added": added, "remaining": len(rest), "deferred": None}
         st["remaining"] = len(rest)
-        if not rest and len(mine_active) + added == 0:   # 残りがなく、動いているものもない: 終わり
+        if not rest and len(mine_active) + added + diar_added == 0 and not diar_left:   # 残り(文字起こし・話者の判別)がなく、動いているものもない: 終わり
             st["enabled"], st["finishedAt"] = False, int(time.time() * 1000)
             log("終わりました(入れた %d 本・済 %d 本・飛ばした %d 本)" % (
                 st["enqueued"], sum(1 for i in st["items"].values() if i.get("done")),
                 sum(1 for i in st["items"].values() if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS)))
         _eb_write(st)
-    return {"added": added, "remaining": len(rest), "deferred": None}
+    return {"added": added, "diarAdded": diar_added, "remaining": len(rest), "deferred": None}
 
 
 # ---------------------------------------------------------------- 裏のスレッド

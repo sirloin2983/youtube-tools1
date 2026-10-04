@@ -123,6 +123,7 @@ def _doc_summary(doc):
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
     return {"eval": True, "updatedAt": _plain_int(doc.get("updatedAt")) or 0, "lastAt": _plain_int(ef.get("lastAt")) or 0,
             "sourcePath": str(doc.get("sourcePath") or ""), "rows": len(rows),
+            "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む。v0.50.0)
             "reviewed": rv, "sec": round(drill_reviewed_sec(doc), 1) if rv else 0.0, "names": spk,
             "overlapSec": sum(_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
             "bgmSec": sum(_dur(g) for g in good if "bgm" in (g.get("tags") or [])),

@@ -278,7 +278,7 @@ function evbRender(s){
   let t = '';
   if (on){
     t = `動いています: 入れた ${s.enqueued} 本・残り ${s.remaining == null ? '調べています' : s.remaining + ' 本'}・今 ${s.active} 件(待ち・処理中)`
-      + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.deferred ? `。${s.deferred}` : '');
+      + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.diarWaiting ? `・話者の判別 待ち ${s.diarWaiting} 本` : '') + (s.deferred ? `。${s.deferred}` : '');
   } else if (s.finished){
     t = `終わりました: 済 ${s.done} 本` + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.finishedAt ? `(${new Date(s.finishedAt).toLocaleString()})` : '');
   } else if (s.stoppedAt){

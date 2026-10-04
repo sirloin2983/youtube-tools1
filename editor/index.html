@@ -1313,6 +1313,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <label class="lag" style="margin-top:6px" title="「長い区間に文字が少ない(抜けの可能性)」の行だけ、前後を少し広げて、声の検出を標準・短い区切りで認識し直します。文字が増えて疑わしい印が消えたときだけ置き換えます(前の版は「以前の版に戻す」に残ります)"><input type="checkbox" id="optAutoRedo">終わったら、疑わしい所(長い区間に文字が少ない行)を自動で認識し直す</label>
       <label class="lag" style="margin-top:6px" title="kotoba-whisper は聞き取りにくい音声が苦手なので、認識し直すときは重いモデルで試します"><input type="checkbox" id="optRedoLarge" checked>kotoba で文字起こししたときは、認識し直しに large-v3 を使う</label>
       <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、同じ音声を別のエンジン(「文字をまとめて直す」の「別のエンジンの候補」で選んだもの)でも認識し、2つの結果が食い違う所の行に「別」の候補を出します。文字は自動では書き換えません。評価用の文字起こしでは聞きません"><input type="checkbox" id="optAutoAlt">終わったら、別のエンジンでも聞いて、食い違う所に候補を出す(試験中)</label>
+      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、話者の判別(人数は自動・覚えている声で名前を付ける)を続けて行います。判別の部品(sherpa-onnx)が要ります。評価用の文字起こしは、このチェックによらず判別し、動画の入ったフォルダ・配信から名前の候補も付けます"><input type="checkbox" id="optAutoDiar">終わったら、話者を自動で判別する</label>
       <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
         <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
@@ -1447,6 +1448,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-drill-main"><b>評価ドリル</b><span class="pill" id="drPill"></span><span id="drLeft"></span><span class="hint" id="drCount"></span></div>
      <p class="hint" id="drConds"></p>
      <p class="hint" id="drHelp">動画をはじめから終わりまで聞いて、文字・行と行のすき間(抜け)・話していない所の行・結合・分割・時刻・話者まで直したら「済みにして次へ」。聞き取れない所は「聞き取れない」の印を付けます。</p>
+     <p class="hint" id="drAutoSpk" hidden></p>
      <p class="hint" id="drNone" role="status" hidden></p>
      <div class="row"><button type="button" class="btn small primary" id="drDone" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にして(残りの行も校正済みに)、次の動画を開きます">済みにして次へ<span id="drDoneKey"></span></button>
        <button type="button" class="btn small" id="drSkip" title="この動画は今回のドリルでは出しません(直した分は保存します)">飛ばして次へ<span id="drSkipKey"></span></button>
@@ -1878,7 +1880,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
   <div id="evbRow">
     <p class="hint" style="margin:10px 0 6px">「評価用_仮置き」と、名前が「…_未文字起こし」の動画のうち、まだ文字起こしの無いものを、PC が空いているとき少しずつ文字起こしします(評価用・ヒントなし。処理方式・モデルは編集の設定のまま)。
-      待ちは 2 件までしか入れないので、ほかの操作が割り込めます。止めるまで続きます(編集を起動し直しても続きます)。360 本なら CPU で数時間かかります。</p>
+      待ちは 2 件までしか入れないので、ほかの操作が割り込めます。止めるまで続きます(編集を起動し直しても続きます)。360 本なら CPU で数時間かかります。
+      文字起こしのあと、話者も自動で判別します(覚えている声・動画の入ったメンバーのフォルダ・配信から名前も付けます。文字起こし済みで話者の無い動画も少しずつ判別します)。</p>
     <div class="row" style="gap:6px"><button type="button" class="btn small" id="evbStart" title="評価用の動画を、手が空いたとき少しずつ文字起こしします">仮置きをまとめて文字起こし(手が空いたとき少しずつ)</button><button type="button" class="btn small" id="evbStop" hidden title="新しく入れるのをやめ、まだ始まっていない分を取り消します(動いている 1 本は最後まで動きます)">止める</button></div>
     <p class="hint" id="evbNote" style="margin:6px 0 0" role="status"></p>
   </div>

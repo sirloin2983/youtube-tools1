@@ -19,6 +19,15 @@ HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
 
 
+def wait_idle(port, sec=30):
+    """待っている・動いているジョブが無くなるまで(評価用の文字起こしの続きの、話者の自動判別。v0.50.0)"""
+    for _ in range(int(sec * 10)):
+        if not [x for x in call(port, "GET", "/api/jobs")["jobs"] if x["state"] in ("queued", "loading", "extracting", "running")]:
+            return
+        time.sleep(0.1)
+    raise RuntimeError("ジョブが終わりません")
+
+
 def call(port, method, path, body=None):
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), method=method,
                                  data=None if body is None else json.dumps(body).encode(), headers={"Content-Type": "application/json"})
@@ -195,6 +204,10 @@ def main():
                 time.sleep(0.1)
             ft = job["tid"]
             check(call(port, "GET", "/api/transcript?id=" + ft).get("evalSet") is True, "評価用のフォルダの動画は、チェックが無くても評価用として文字起こしされる")
+            wait_idle(port)   # 評価用は文字起こしの続きで話者を自動で判別する(v0.50.0)。処理中の動画は整理で飛ばすので終わるまで待つ
+            fd = call(port, "GET", "/api/transcript?id=" + ft)
+            check([s["name"] for s in fd["speakers"]][:1] == ["ときのそら"] and all(g["speaker"] for g in fd["segments"] if g["text"].strip()),
+                  "評価用の文字起こしのあと、話者を自動で判別して名前(メンバーのフォルダ)まで付く: %s" % [s["name"] for s in fd["speakers"]])
             pg.evaluate("document.querySelector('#evRun').click()")
             pg.wait_for_function("document.querySelector('#evNote').textContent.includes('名前を変えた 1 本')", timeout=15000)
             d = call(port, "GET", "/api/transcript?id=" + ft)
@@ -215,6 +228,7 @@ def main():
                     break
                 time.sleep(0.1)
             st = job["tid"]
+            wait_idle(port)   # 話者の自動判別(v0.50.0)が終わってから、人が話者と校正を付ける
             sd = call(port, "GET", "/api/transcript?id=" + st)
             segs = [dict(g, proofed=True, speaker="A") for g in sd["segments"]]
             call(port, "PUT", "/api/transcript?id=" + st, {"title": sd["title"], "speakers": [{"id": "A", "name": "ときのそら", "color": "#39f"}], "segments": segs})

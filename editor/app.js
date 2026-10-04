@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.49.1';
+const APP_VERSION = '0.50.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1150,7 +1150,7 @@ $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips 
 $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optAutoAlt', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optAutoAlt', 'optAutoDiar', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);

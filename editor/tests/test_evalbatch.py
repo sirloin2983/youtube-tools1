@@ -52,7 +52,8 @@ class TestEvalBatch(unittest.TestCase):
         ed_jobs._order.clear()
         self.drain()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
-                                                "TRANSCRIBE_EVAL_BATCH": "off"})   # 裏のスレッドは動かさない(見回りはテストが呼ぶ)
+                                                "TRANSCRIBE_EVAL_BATCH": "off",   # 裏のスレッドは動かさない(見回りはテストが呼ぶ)
+                                                "TRANSCRIBE_AUTO_DIARIZE": "off"})   # 文字起こしの続きの話者の自動判別・後追いは test_autodiar で(ここは文字起こしの数え方だけ)
         self.env.start()
         self.stg = os.path.join(self.ev, ed_relink.EVAL_STAGING)
         self.mem = os.path.join(self.ev, "1_JP", MEMBER)

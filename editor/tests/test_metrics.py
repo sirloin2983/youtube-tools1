@@ -887,6 +887,7 @@ from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(she
 from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタープラン Q2。proofedAt・再認識の前の機械の出力・辞書の版・カットの draft・校正の手間)
 from test_drill import *  # noqa: E402,F401,F403   評価ドリルと定点の「あと何分」(マスタープラン Q4(c)。ed_drill.py)
 from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。ed_alt.py)
+from test_autodiar import *  # noqa: E402,F401,F403   文字起こしのあとの話者の自動判別(評価用は常に・設定 autoDiarize。v0.50.0)
 
 
 class TestThreadDefaults(unittest.TestCase):

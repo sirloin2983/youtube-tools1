@@ -34,7 +34,9 @@ import wave
 
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
+import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
 import ed_jobs  # noqa: E402,F401
+import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 # ---------- 話者の自動判別(sherpa-onnx) ----------
@@ -341,9 +343,10 @@ def _turn_overlaps(ts):
     return [[round(a, 2), round(b, 2)] for a, b in merged[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
 
 
-def build_diar_run(segs, res, turns, offset, requested, emb, idmap):
+def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None):
     """判別の1回分の記録。時刻は元動画の秒(行と同じ)。rows[行の id] = {"label": 機械が割り当てたラベル, "speaker": 付けた話者の id,
-    "ratio": その行のうち、そのラベルの区間に入っている割合, "mixed": 声が混ざっている印, "weak": 不確かの印}"""
+    "ratio": その行のうち、そのラベルの区間に入っている割合, "mixed": 声が混ざっている印, "weak": 不確かの印}。
+    auto = 文字起こしのあとの自動の判別のとき {"eval": 評価用か, "contextName": 名前の候補 or None}(v0.50.0。人が始めた判別では書かない)"""
     ts = sorted((a + offset, b + offset, s) for a, b, s in turns)
     rows = {}
     for sg, (sp, mixed, weak) in zip(segs, res):
@@ -353,7 +356,7 @@ def build_diar_run(segs, res, turns, offset, requested, emb, idmap):
     return {"at": int(time.time() * 1000), "engine": _diar_engine(emb, requested), "offset": round(float(offset), 3),
             "turns": [{"start": round(a, 2), "end": round(b, 2), "label": s} for a, b, s in ts],
             "overlaps": _turn_overlaps(ts), "labelMap": {str(k): v for k, v in idmap.items()}, "speakers": len(idmap), "rows": rows,
-            "voices": {"checked": False}}
+            "voices": {"checked": False}, **({"auto": auto} if auto else {})}
 
 
 def _record_diar(tid, run):
@@ -363,14 +366,15 @@ def _record_diar(tid, run):
         ed_state.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
-def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT):
+def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=None):
     """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
-    読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。"""
+    読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。
+    auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)"""
     with ed_store._save_lock:
-        return _apply_diarization(tid, turns, offset, requested, emb)
+        return _apply_diarization(tid, turns, offset, requested, emb, auto)
 
 
-def _apply_diarization(tid, turns, offset, requested, emb):
+def _apply_diarization(tid, turns, offset, requested, emb, auto=None):
     doc = ed_store.read_transcript(tid)
     segs = doc.get("segments") or []
     res = assign_speakers(segs, turns, offset)
@@ -398,9 +402,10 @@ def _apply_diarization(tid, turns, offset, requested, emb):
     except OSError:
         pass
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
-                "diarization": {"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)}})
+                "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
+                                    **({"auto": True} if auto else {}))})
     ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
-    _record_diar(tid, build_diar_run(segs, res, turns, offset, requested, emb, idmap))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
+    _record_diar(tid, build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 
 
@@ -455,6 +460,8 @@ def single_speaker(tid, name):
 def run_diarize(job):
     spec = job["spec"]
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
+    if spec.get("auto") and autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない(v0.50.0)
+        return
     if spec.get("numSpeakers") == 1:   # 1人なら判別しない(音声も取り出さない)
         try:
             single_speaker(spec["tid"], (spec.get("names") or [""])[0])
@@ -492,7 +499,8 @@ def run_diarize(job):
                 raise ed_state.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
         if job["cancel"]:
             raise ed_jobs.Cancelled()
-        job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"])
+        auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
+        job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto)
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
                 job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
@@ -505,6 +513,13 @@ def run_diarize(job):
                     update_diar_voices(spec["tid"], {"checked": False, "error": "%s %s" % (e.__class__.__name__, str(e)[:150]), "speakers": {}})
                 except Exception:
                     pass
+        if spec.get("contextName"):   # 評価用の自動の判別: 声で名前が付かなかった人のうち、いちばん長く話した人に動画の手がかりの名前(v0.50.0)
+            try:
+                hit = autodiar_name_by_context(spec["tid"], spec["contextName"])
+                if hit:
+                    job["named"] = list(job.get("named") or []) + [hit]
+            except Exception as e:   # 名前が付けられなくても判別の結果は残す
+                ed_state.log.warning("動画の手がかりで名前を付けられませんでした: %s %s", e.__class__.__name__, str(e)[:200])
         job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
     except ed_jobs.Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -518,6 +533,164 @@ def run_diarize(job):
                 os.unlink(wav)
         except OSError:
             pass
+
+
+# ---------- 文字起こしのあと、話者を自動で判別する(v0.50.0。評価用は常に・それ以外は設定 autoDiarize) ----------
+# 評価ドリルでは全行に話者が要る(評価用のフォルダの「メンバーのフォルダへ移す」条件)ので、評価用の文字起こしのあとは必ず判別のジョブを足し、
+# 覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に「動画の手がかり」の名前
+# (ed_drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
+# 人が付けたものは置き換えない: 文字のある行に1つでも話者があれば何もしない(足すときと、ジョブが動き出すときの両方で確かめる)。
+# 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。名前は serve.py からも見える(autodiar_ / AUTODIAR_ で始める)
+AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
+
+
+def autodiar_enabled():
+    """環境変数 TRANSCRIBE_AUTO_DIARIZE=off で自動の判別をしない(テスト・困ったとき用。評価用の決まりは変えない)"""
+    return os.environ.get("TRANSCRIBE_AUTO_DIARIZE", "").strip().lower() not in ("off", "0", "no", "false")
+
+
+def autodiar_ready():
+    """判別の部品があるか(疑似のときは常に)。サーバー側では sherpa-onnx を読み込まない(has_sherpa はワーカー側で調べる)。
+    テスト用の worker-fake(ワーカーの中だけ偽のモデル)では使わない(判別は本物の経路 = モデルの取得になるため)"""
+    if ed_state.backend_name() == "fake":
+        return True
+    return not ed_state.worker_fake() and has_sherpa()
+
+
+def autodiar_why_not(doc):
+    """自動で判別しない理由(None = 判別してよい): lite(友人用簡易版)・empty(文字のある行が無い)・reviewed(評価用で確かめ済み)・
+    has_speakers(文字のある行に話者がある = 人か前の判別が付けた。置き換えない)"""
+    if doc.get("lite"):
+        return "lite"
+    ids = {s.get("id") for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    rows = [g for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()]
+    if not rows:
+        return "empty"
+    if doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict):
+        return "reviewed"
+    if any(g.get("speaker") in ids for g in rows):
+        return "has_speakers"
+    return None
+
+
+def autodiar_enqueue(tid, batch=False):
+    """自動の判別のジョブを足す(人数 自動・覚えた声との照合あり)。評価用なら名前の候補(suggest)も渡す。
+    -> {"job": ジョブ, "name": 名前の候補 or None} か {"skipped": 理由}。足せない(待機列がいっぱい・処理中など)は ApiError。
+    batch = 評価用のまとめての文字起こし(ed_evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)"""
+    if not autodiar_enabled():
+        return {"skipped": "off"}
+    if not autodiar_ready():
+        ed_state.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
+        return {"skipped": "no_sherpa"}
+    doc = ed_store.read_transcript(tid)
+    why = autodiar_why_not(doc)
+    if why:
+        return {"skipped": why}
+    ev = doc.get("evalSet") is True
+    name = None
+    if ev:
+        try:
+            name = str(ed_drill.drill_candidates(tid).get("suggest") or "").strip()[:30] or None
+        except Exception as e:   # 名簿・ほかのツールのデータが読めなくても判別は始める(名前は付けない)
+            ed_state.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
+        if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):
+            name = None
+    spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": ed_learn.load_settings().get("diarEmb")})
+    spec.update({"auto": True, "autoEval": ev, "contextName": name,
+                 "title": "話者判別(自動): " + (str(doc.get("title") or "") or "無題")[:100]})
+    if batch:
+        spec["evalBatch"] = True
+    return {"job": ed_jobs.add_job(spec, "diarize"), "name": name}
+
+
+def autodiar_after_transcribe(job, spec, tid):
+    """文字起こしのジョブ(ed_jobs.run_job)の終わり。文書を書いたあと・「完了」にする前に呼ぶ(ドリルが判別の前の文書を開かないよう、間を空けない)。
+    評価用は常に・それ以外は設定 autoDiarize。友人用簡易版は除く。始められなくても文字起こしは成功のまま(job["warnings"])"""
+    if spec.get("lite") or not (spec.get("evalSet") or spec.get("autoDiarize")):
+        return
+    try:
+        r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")))
+        if r.get("skipped") == "no_sherpa" and not spec.get("evalSet"):   # 設定でオンにした人には知らせる(評価用は黙って飛ばす = 人が「全行をこの人に」)
+            job["warnings"] = list(job.get("warnings") or []) + ["話者の判別の部品(sherpa-onnx)が入っていないため、話者は自動で判別しませんでした"]
+    except ed_state.ApiError as e:
+        job["warnings"] = list(job.get("warnings") or []) + ["話者の自動判別を始められませんでした: " + e.message]
+    except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
+        ed_state.log.warning("話者の自動判別を始められませんでした: %s %s %s", tid, e.__class__.__name__, str(e)[:150])
+
+
+def autodiar_skip_at_start(job):
+    """自動の判別のジョブが動き出すとき、もう一度確かめる(待っている間に人が話者を付けた・確かめ済みにした・行が消えた)。
+    判別しないなら「完了(判別しませんでした)」にして True"""
+    spec = job["spec"]
+    try:
+        why = autodiar_why_not(ed_store.read_transcript(spec["tid"]))
+    except ed_state.ApiError as e:
+        why = e.code
+    if not why:
+        return False
+    job["autoSkipped"] = why
+    job["tid"], job["progress"], job["state"] = spec["tid"], 1.0, "done"
+    job["phase"] = "判別しませんでした(" + {"has_speakers": "話者が付いていました", "reviewed": "確かめ済みです", "empty": "文字のある行がありません"}.get(why, why) + ")"
+    return True
+
+
+def autodiar_name_by_context(tid, name):
+    """覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に name を付ける(1 人だけならその人)。
+    name がもうほかの話者に使われていれば付けない(覚えた声の名前を優先)。読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)。
+    -> {"speaker", "name", "score": None, "by": "context"} か None。経過は diar.json の voices(_autodiar_record)"""
+    nm = str(name or "").strip()[:30]
+    key = _spk_name_key(nm)
+    hit, reason = None, None
+    with ed_store._save_lock:
+        doc = ed_store.read_transcript(tid)
+        sps = [s for s in doc.get("speakers") or [] if isinstance(s, dict)]
+        spent = {}
+        for g in doc.get("segments") or []:
+            if isinstance(g, dict) and g.get("speaker") and str(g.get("text") or "").strip():
+                a, b = ed_state.num(g.get("start"), 0.0) or 0.0, ed_state.num(g.get("end"), 0.0) or 0.0
+                spent[g["speaker"]] = spent.get(g["speaker"], 0.0) + max(0.0, b - a)
+        left = [s for s in sps if DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and spent.get(s.get("id"), 0.0) > 0]
+        if not nm or not sps:
+            reason = "no_speakers" if nm else "no_name"
+        elif any(_spk_name_key(str(s.get("name") or "")) == key for s in sps):
+            reason = "name_in_use"
+        elif not left:
+            reason = "all_named"
+        else:
+            pick = max(left, key=lambda s: spent.get(s.get("id"), 0.0))   # 同じ秒なら先の人(話者1 = 判別が長い順に付けた番号)
+            pick["name"] = nm
+            hit = {"speaker": pick["id"], "name": nm, "score": None, "by": AUTODIAR_BY}
+            if isinstance(doc.get("diarization"), dict):
+                doc["diarization"]["contextName"] = nm
+            doc["updatedAt"] = int(time.time() * 1000)
+            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    _autodiar_record(tid, nm, hit, reason)
+    return hit
+
+
+def _autodiar_record(tid, name, hit, reason):
+    """diar.json の最新の voices に、動画の手がかりで付けた名前(speakers[id].by = context)と経過 context = {name, speaker, reason} を書く。
+    人の最終(行の speaker・speakers[].name)と、機械が付けた名前を後で比べられるように。書けなくても名前付けは続ける"""
+    try:
+        with _diar_lock:
+            d = read_diar(tid)
+            if not d:
+                return
+            latest = d["latest"]
+            v = latest.get("voices") if isinstance(latest.get("voices"), dict) else {"checked": False}
+            sp = v.get("speakers") if isinstance(v.get("speakers"), dict) else {}
+            if hit:
+                inv = {x: (int(k) if str(k).isdigit() else k) for k, x in (latest.get("labelMap") or {}).items()}
+                one = sp.get(hit["speaker"]) if isinstance(sp.get(hit["speaker"]), dict) else {
+                    "top": None, "score": None, "second": None, "secondScore": None, "label": inv.get(hit["speaker"])}
+                one.update({"decided": hit["name"], "by": AUTODIAR_BY, "reason": None})
+                sp[hit["speaker"]] = one
+            v["speakers"] = sp
+            v["context"] = {"name": name, "speaker": hit["speaker"] if hit else None, "reason": reason}
+            latest["voices"] = v
+            ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except Exception as e:
+        ed_state.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
 # ---------- 話者の声を覚える(A-3。docs/archive/backlog-ui-2026-09-27.md) ----------
@@ -746,7 +919,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
                                                      "reason": "no_voices" if not voices else "no_rows"})
                 hit = next((n for n in named if n["speaker"] == s.get("id")), None)
                 if hit:
-                    d["decided"], d["by"], d["reason"] = hit["name"], ("elimination" if hit["score"] is None else "threshold"), None
+                    d["decided"], d["by"], d["reason"] = hit["name"], hit.get("by") or ("elimination" if hit["score"] is None else "threshold"), None
                 elif d.get("decided"):   # しきい値は通ったが、名前が付かなかった(自分で付けた名前・別の人が使っている名前)
                     d["reason"] = "already_named" if not DEFAULT_SPK_NAME.match(str(s.get("name") or "")) else "name_in_use"
                     d["decided"], d["by"] = None, None
@@ -768,13 +941,13 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
             if hit and DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and hit[0] not in taken:
                 s["name"] = hit[0]
                 taken.add(hit[0])
-                named.append({"speaker": s["id"], "name": hit[0], "score": hit[1]})
+                named.append({"speaker": s["id"], "name": hit[0], "score": hit[1], "by": "threshold"})
         if names:   # 消去法: 名前の無い話者と使っていない名前が1つずつなら、その人
             left = [s for s in doc.get("speakers") or [] if isinstance(s, dict) and DEFAULT_SPK_NAME.match(str(s.get("name") or ""))]
             unused = [n for n in names if n not in taken]
             if len(left) == 1 and len(unused) == 1:
                 left[0]["name"] = unused[0]
-                named.append({"speaker": left[0]["id"], "name": unused[0], "score": None})
+                named.append({"speaker": left[0]["id"], "name": unused[0], "score": None, "by": "elimination"})
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
             ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
