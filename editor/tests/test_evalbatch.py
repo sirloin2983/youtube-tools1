@@ -577,6 +577,114 @@ class TestEvalBatch(unittest.TestCase):
         for t in tids:
             self.assertTrue(all(g["text"].startswith("テスト文") for g in ed_store.read_transcript(t)["segments"]))
 
+    # -- 1 本ずつの作り直し(eval_batch_redo_one。2026-10-05 ユーザー要望)
+    def one(self, tid, force=None, base=None):
+        d = ed_store.read_transcript(tid)
+        req = {"id": tid, "baseUpdatedAt": d["updatedAt"] if base is None else base}
+        if force is not None:
+            req["force"] = force
+        return EB.eval_batch_redo_one(req)
+
+    def one_err(self, tid, **kw):
+        with self.assertRaises(S.ApiError) as cm:
+            self.one(tid, **kw)
+        return cm.exception
+
+    def one_jobs(self, *states):
+        return [j for j in ed_jobs._jobs.values() if ((j.get("spec") or {}).get("evalRedo") or {}).get("one") and (not states or j["state"] in states)]
+
+    def test_redo_one_untouched_runs_now_with_current_settings(self):
+        tid = self.eval_doc("a.mp4")
+        # 開いて操作した直後(直近 10 分)でも押せる・まとめての文字起こしは止まったまま
+        self.edit_doc(tid, lambda d: d.update(effort={"lastAt": int(time.time() * 1000)}), old=False)
+        self.settings({"evalDirs": [self.ev], "model": "base"})
+        r = self.one(tid)
+        self.assertTrue(r["ok"])
+        self.assertFalse(r["forced"])
+        (job,) = self.one_jobs("queued")   # 見回りを待たずに待機列へ
+        self.assertEqual(r["job"]["id"], job["id"])
+        self.assertTrue(r["job"]["redo"] and r["job"]["redoOne"])
+        sp = job["spec"]
+        self.assertEqual((sp["intoDoc"], sp["tid"], sp["model"], sp["evalSet"], sp["glossary"]), (tid, tid, "base", True, []))
+        self.assertNotIn("evalBatch", sp)   # ユーザーのジョブ(まとめての文字起こしの待ちの数に入れない)
+        self.assertFalse(EB.eval_batch_status()["enabled"])
+        self.assertIn(tid, S._busy_tids())
+        self.assertEqual(self.one_err(tid).code, "busy")   # 2 回押しても 1 本だけ
+        self.assertEqual(len(self.one_jobs()), 1)
+        self.finish(job)
+        self.assertEqual((job["tid"], job.get("redoSkipped")), (tid, None))
+        d = ed_store.read_transcript(tid)
+        self.assertEqual(d["model"], "base")
+        self.assertEqual([x.get("kind") for x in d["recognition"]["runs"]].count("evalRedo"), 1)
+        self.assertTrue(ed_store.list_history(tid))   # 前の版は「以前の版に戻す」に
+
+    def test_redo_one_refuses(self):
+        tid = self.eval_doc("a.mp4")
+        e = self.one_err(tid, base=1)
+        self.assertEqual((e.code, e.status), ("conflict", 409))
+        with self.assertRaises(S.ApiError) as cm:
+            EB.eval_batch_redo_one({"id": tid})
+        self.assertEqual(cm.exception.code, "bad_request")
+        self.edit_doc(tid, lambda d: d.update(evalReviewed={"at": 1, "rows": 1, "durationSec": 2}))
+        e = self.one_err(tid, force=True)
+        self.assertEqual((e.code, e.status), ("reviewed", 400))   # 確かめ済みは force でも断る
+        self.assertIn("確かめ済みを取り消して", e.message)
+        self.edit_doc(tid, lambda d: (d.pop("evalReviewed"), d.update(evalSet=False)))
+        self.assertEqual(self.one_err(tid).code, "not_eval")
+        self.assertEqual(self.one_jobs(), [])
+
+    def test_redo_one_touched_needs_force(self):
+        tid = self.eval_doc("a.mp4")
+        def touch(d):
+            d["segments"][0]["proofed"] = True
+            d["segments"][1]["text"] = "人が直した"
+        self.edit_doc(tid, touch)
+        e = self.one_err(tid)
+        self.assertEqual((e.code, e.status), ("touched", 409))
+        self.assertEqual((e.extra["why"], e.extra["rows"], e.extra["total"]), ("proofed", 2, 3), e.extra)
+        self.assertEqual(e.extra["label"], "校正済みの行がある")
+        self.assertEqual(self.one_jobs(), [])
+        r = self.one(tid, force=True)
+        self.assertTrue(r["forced"])
+        (job,) = self.one_jobs("queued")
+        self.assertTrue(job["spec"]["evalRedo"]["force"])
+        self.finish(job)
+        self.assertIsNone(job.get("redoSkipped"))
+        d = ed_store.read_transcript(tid)
+        self.assertTrue(all(g["text"].startswith("テスト文") and not g.get("proofed") for g in d["segments"]))   # 置き換わった
+        old = ed_store.restore_history(tid, ed_store.list_history(tid)[0]["ts"])   # 以前の版に戻すで戻せる
+        self.assertEqual(old["segments"][1]["text"], "人が直した")
+
+    def test_redo_one_not_written_when_changed_after_press(self):
+        tid = self.eval_doc("a.mp4")
+        self.edit_doc(tid, lambda d: d["segments"][0].update(proofed=True))
+        self.one(tid, force=True)
+        (job,) = self.one_jobs("queued")
+        doc = ed_store.read_transcript(tid)   # 押したあと(待っている間)に直した
+        doc["segments"][1]["text"] = "押したあとに直した"
+        ed_store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
+        ed_jobs.run_job(job)
+        self.assertEqual((job["state"], job["redoSkipped"]), ("done", "pressedChanged"))
+        self.assertIn("作り直しませんでした(押したあとに直されたため)", job["phase"])
+        self.assertEqual(ed_store.read_transcript(tid)["segments"][1]["text"], "押したあとに直した")
+        # 認識の間に直した(書く直前の確かめ)
+        self.one(tid, force=True)
+        (job,) = self.one_jobs("queued")
+        real = EB.eb_redo_skip_at_start
+
+        def start_then_edit(j):
+            r = real(j)
+            d = ed_store.read_transcript(tid)
+            d["segments"][2]["text"] = "認識の間に直した"
+            ed_store.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
+            return r
+        with mock.patch.object(EB, "eb_redo_skip_at_start", side_effect=start_then_edit):
+            ed_jobs.run_job(job)
+        self.assertEqual((job["state"], job["redoSkipped"]), ("done", "pressedChanged"))
+        d = ed_store.read_transcript(tid)
+        self.assertEqual((d["segments"][1]["text"], d["segments"][2]["text"]), ("押したあとに直した", "認識の間に直した"))
+        self.assertFalse(any(x.get("kind") == "evalRedo" for x in d["recognition"]["runs"]))
+
     def test_redo_needs_eval_dirs_only_when_running(self):
         self.eval_doc("a.mp4")
         self.settings({})

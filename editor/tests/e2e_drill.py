@@ -214,6 +214,8 @@ def main():
             q = url_q()
             check("drill" not in q and q.get("doc") == t4, "終えると帯が消え、URL の drill も消える: %s" % q)
             check(not pg.is_hidden("#evrBox") and "確かめ済み" in pg.inner_text("#evrPill"), "ドリルの外では校正の画面に「確かめ済み」")
+            check(pg.is_disabled("#evrRedo") and "確かめ済みを取り消して" in (pg.get_attribute("#evrRedo", "title") or ""),
+                  "確かめ済みの文書では「この動画を作り直す」を押せず、理由を出す: " + (pg.get_attribute("#evrRedo", "title") or ""))
             wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('確かめ済み 4 本')", 10000)
             check(True, "進行度のカードも増えた: " + pg.inner_text("#drillLeft"))
 
@@ -221,6 +223,7 @@ def main():
             open_doc(pg, "さくらみこ 雑談")
             wait_js(pg, "S.docId === %s && !document.querySelector('#evrBox').hidden" % json.dumps(tid_of(60)), 10000)
             check("まだ確かめていない" in pg.inner_text("#evrPill") and pg.is_visible("#evrMark"), "評価用の文書を開くと「まだ確かめていない」とボタン")
+            check(pg.is_visible("#evrRedo") and not pg.is_disabled("#evrRedo"), "ドリルの外の欄にも「この動画を作り直す(今の設定で)」")
             pg.click("#evrMark")
             pg.wait_for_selector("dialog.ui-dialog[open]")
             pg.click("dialog.ui-dialog[open] .btn.primary")   # 話者の無い行がある → このまま
@@ -291,11 +294,46 @@ def main():
                   "ドリルで開くと話者付き・帯に「自動で付けてあります」: " + pg.inner_text("#drAutoSpk"))
             check("全行に付いています" in pg.inner_text("#drSpkHint"), "帯: 話者が全行に付いている: " + pg.inner_text("#drSpkHint"))
             check(pg.locator("#segs .seg select.spk").first.input_value() == "S1", "行の話者の欄も付いている")
+
+            # ---- この動画を作り直す(今の設定で。1 本ずつ。2026-10-05): 帯のボタン → 手を入れた行の確認 → 作り直り → 文書を読み直す ----
+            wait_js(pg, "!lockJob() && !S.jobs.some(j => ACTIVE.has(j.state))", 15000)
+            check(pg.is_visible("#drRedo") and not pg.is_disabled("#drRedo"), "帯に「この動画を作り直す(今の設定で)」")
+            pg.evaluate("window.__noReload = 2")
+            ta = pg.locator("#segs .seg textarea").first
+            ta.fill(ta.input_value() + "(作り直し前に直した)")   # 自動保存を待たずに押す = 押したときに保存してから送る
+            pg.click("#drRedo")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            dlg = pg.inner_text("dialog.ui-dialog[open]")
+            check("直した 1 行" in dlg and "置き換わります" in dlg and "以前の版に戻す" in dlg, "手を入れた文書は確認する(直した行の数): " + dlg[:90].replace("\n", " "))
+            check(any("(作り直し前に直した)" in g["text"] for g in srv.get("/api/transcript?id=" + ta_id)["segments"]), "押したときに未保存の変更を保存してから送る")
+            check(not [j for j in srv.get("/api/jobs")["jobs"] if j.get("redoOne")], "確認の前にはジョブを足さない")
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            wait_js(pg, "!lockJob() && S.doc && (S.doc.recognition || {}).runs && S.doc.recognition.runs.some(r => r.kind === 'evalRedo')"
+                    " && !S.doc.segments.some(s => s.text.includes('作り直し前'))", 30000)
+            dr = srv.get("/api/transcript?id=" + ta_id)
+            rj = [j for j in srv.get("/api/jobs")["jobs"] if j.get("redoOne")]
+            check(len(rj) == 1 and rj[0]["state"] == "done" and not rj[0]["redoSkipped"] and rj[0]["tid"] == ta_id, "作り直しのジョブ(1 本ずつ)が終わる: %s" % [(j["state"], j["redoSkipped"]) for j in rj])
+            check(not any("作り直し前" in g["text"] for g in dr["segments"]) and sum(1 for r_ in dr["recognition"]["runs"] if r_.get("kind") == "evalRedo") == 1,
+                  "文書が今の設定の文字起こしに置き換わり、前の機械の出力は記録に残る")
+            check(pg.evaluate("window.__noReload === 2") and pg.evaluate("S.docId") == ta_id, "画面は読み直さず、同じ文書を開き直す")
+            hist = srv.get("/api/history?id=" + ta_id)
+            check(bool(hist.get("items") if isinstance(hist, dict) else hist), "前の版は「以前の版に戻す」に残る")
+            # 作り直しの間は編集を止める(疑似の認識はすぐ終わるので、作り直しのジョブを画面の状態に置いて確かめる)
+            lk = pg.evaluate("""() => { const keep = S.jobs;
+              S.jobs = [{ id: 'x', kind: 'transcribe', state: 'running', phase: '認識中', progress: 0.5, tid: null, into: S.docId, redo: true, redoOne: true }];
+              applyLock(); const out = { lock: !!lockJob(), inert: document.querySelector('#segs').inert, banner: document.querySelector('#diarBanner').textContent,
+                hidden: document.querySelector('#diarBanner').hidden, dis: document.querySelector('#drRedo').disabled, done: document.querySelector('#drDone').disabled };
+              renderDrillBar(); out.done = document.querySelector('#drDone').disabled;
+              S.jobs = keep; applyLock(); renderDrillBar(); return out; }""")
+            check(lk["lock"] and lk["inert"] and not lk["hidden"] and "作り直" in lk["banner"] and lk["dis"] and lk["done"],
+                  "作り直しの間は編集できない(行の一覧を止め、帯で知らせる・作り直す/済みにするは押せない): %s" % lk["banner"][:50])
+            check(not pg.evaluate("document.querySelector('#segs').inert"), "終われば編集できる")
             b.close()
         bad = [e for e in errors if "favicon" not in e and "ERR_ABORTED" not in e]
         check(not bad, "画面のエラーなし: %s" % bad[:3])
         bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x)   # まとめての文字起こしの状態(⚙)は、API が無ければ出さない作り
-                    and not ("409" in x and "/api/archive" in x)]   # 文書を続けて切り替えると、前の文書の自動の保管が「別の保管の最中」で飛ばされる(黙って次の機会に)
+                    and not ("409" in x and "/api/archive" in x)   # 文書を続けて切り替えると、前の文書の自動の保管が「別の保管の最中」で飛ばされる(黙って次の機会に)
+                    and not ("409" in x and "/api/eval-batch/redo-one" in x)]   # 手を入れた文書の作り直し: まず 409 touched を受けて確認する作り
         check(not bad_http, "読み込みの失敗なし: %s" % bad_http[:3])
     finally:
         srv.stop()

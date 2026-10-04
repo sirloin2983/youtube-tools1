@@ -1453,6 +1453,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="row"><button type="button" class="btn small primary" id="drDone" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にして(残りの行も校正済みに)、次の動画を開きます">済みにして次へ<span id="drDoneKey"></span></button>
        <button type="button" class="btn small" id="drSkip" title="この動画は今回のドリルでは出しません(直した分は保存します)">飛ばして次へ<span id="drSkipKey"></span></button>
        <button type="button" class="btn small ghost" id="drEnd">ドリルを終える</button>
+       <!-- 2026-10-05: この動画だけを今の設定で作り直す(後処理の調整の効き目を 1 本ずつ確かめる。api/eval-batch/redo-one。app-learn.js の redoOneHere)。キーは割り当てない(押し間違いで消さない) -->
+       <button type="button" class="btn small" id="drRedo">この動画を作り直す(今の設定で)</button>
        <!-- v0.49.1: 話者の道具(自動判別・全行をこの人に・名前)は「…」の中のカードで、ドリルの帯から見つけにくかった → 帯から直接開く(app.js が「…」の中の「話者」と同じ動きをさせる) -->
        <button type="button" class="btn small" id="drSpk" title="話者のカードを開きます(話者を自動で判別・全行をこの人に・名前の変更と割り当て)">話者を付ける…</button>
        <span class="hint" id="drSpkHint" role="status"></span></div>
@@ -1495,7 +1497,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <!-- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。定点に数えるのはこれだけ)。ドリルの間は上の帯に出すので隠す。app-learn.js の renderEvalReview -->
       <div class="tt-evrev" id="evrBox" hidden><span class="pill" id="evrPill"></span><span class="hint" id="evrText"></span>
         <button type="button" class="btn small" id="evrMark" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にします(残りの行も校正済みに)">全部聞いて直したので済みにする</button>
-        <button type="button" class="btn small ghost" id="evrUndo" hidden>取り消す</button></div>
+        <button type="button" class="btn small ghost" id="evrUndo" hidden>取り消す</button>
+        <button type="button" class="btn small ghost" id="evrRedo">この動画を作り直す(今の設定で)</button></div>
       <div id="conflictBar" class="notice" hidden role="alert"><b>別の場所で先に更新されています。</b>別のタブ・再認識・話者判別などで、保存済みの内容がこの画面の読み込み時と変わっています。自動保存は止めています。
         <div class="row"><button type="button" class="btn small" id="cfReload">保存済みの内容を読み込み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cfForce">この画面の内容で上書きする</button></div></div>
       <!-- 映像と再生の道具。1列の画面(狭い画面)では、ここだけを画面の上に固定する(一覧に早く届くように) -->

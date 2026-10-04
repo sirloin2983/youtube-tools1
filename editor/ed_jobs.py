@@ -605,6 +605,7 @@ def public_job(j):
     out["auto"] = bool((j.get("spec") or {}).get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)
     out["autoSkipped"] = j.get("autoSkipped") or ""   # 自動の判別を動き出すときにやめた理由(has_speakers・reviewed・empty)
     out["redo"] = bool((j.get("spec") or {}).get("evalRedo"))   # 未確認の評価用の作り直し(ed_evalbatch)
+    out["redoOne"] = bool(((j.get("spec") or {}).get("evalRedo") or {}).get("one"))   # 1 本ずつの作り直し(画面が押した。終わるまで編集を止める)
     out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])

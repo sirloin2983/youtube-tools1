@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.53.1';
+const APP_VERSION = '0.54.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -196,6 +196,8 @@ const SPALL = { id: null, cands: [], suggest: '' };
 /* 評価ドリル(URL の ?drill=1。マスタープラン Q4。app-learn.js の drill*): on = 帯を出している・done = このドリルで済みにした本数・skip = 飛ばした文書(次に出さない)・
    none = 次に出せる動画が無い理由・status = api/drill/status(定点の残りと条件)・busy = 済み/飛ばすの途中 */
 const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
+/* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
+const REDO1 = { busy: false };
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 $('#voiceList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=vdel]'); if (!b) return;
@@ -268,6 +270,7 @@ $('#drEnd').addEventListener('click', () => drillEnd());
 $('#drillGo').addEventListener('click', () => { if (!DR.on) drillStart(); });
 $('#evrMark').addEventListener('click', async e => { const b = e.currentTarget; b.disabled = true; try { await evalReviewHere(); } finally { b.disabled = false; renderEvalReview(); } });
 $('#evrUndo').addEventListener('click', () => unmarkReviewed());
+for (const id of ['drRedo', 'evrRedo']) $('#' + id).addEventListener('click', () => redoOneHere());   // この動画を作り直す(今の設定で)
 $('#spAllName').addEventListener('change', () => { syncSpAllNew(); if ($('#spAllName').value === 'other') $('#spAllNew').focus(); });
 $('#spAllGo').addEventListener('click', async e => {
   const b = e.currentTarget; b.disabled = true;

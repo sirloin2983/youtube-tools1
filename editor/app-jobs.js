@@ -181,6 +181,9 @@ async function pollJobs(){
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
+  // 開いている評価用の文書の作り直し(1 本ずつ・まとめての)が終わった: 読み直す(下の「文字起こしが終わりました」には数えない)
+  const redone = S.doc ? txDone.find(x => x.redo && x.tid === S.docId) : null;
+  if (redone) txDone = txDone.filter(x => x !== redone);
   for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した(4-2)。今回終わった文字起こしだけ
   for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった(Q1)
   if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
@@ -189,6 +192,10 @@ async function pollJobs(){
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
   if (doneNew){
     await loadList();
+    if (redone && S.docId === redone.tid){
+      if (redone.redoSkipped) toast(redone.phase || '作り直しませんでした', 8000);
+      else if (await openDoc(redone.tid, true)) toast(`この動画を今の設定で作り直しました(${S.doc.segments.length}行。前の版は「以前の版に戻す」に残っています。話者は、自動の判別が使えるときは続けて付けます)`, 7000, 'ok');
+    }
     if (S.doc && normDone.some(x => x.tid === S.docId && x.normOk)) await openDoc(S.docId, true);   // 開いている文書の動画を 30fps の写しに付け替えた → 読み直す(更新日時は変わらないので保存は競合しない)
     if (diar){
       if (diar.kind === 'diarize'){ try { S.tools = await api('/api/tools'); renderDiarSetup(); } catch {} }
@@ -257,14 +264,16 @@ function renderDiarSetup(){
   $('#diarGo').disabled = !d.ready;
 }
 
-function lockJob(){ return S.doc ? S.jobs.find(j => LOCK_KINDS.includes(j.kind) && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
+/* 編集を止めるジョブ: 話者判別・再認識・疑わしい所の認識し直しと、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */
+function lockJob(){ return S.doc ? S.jobs.find(j => ACTIVE.has(j.state) && ((LOCK_KINDS.includes(j.kind) && j.tid === S.docId) || (j.redoOne && j.into === S.docId))) : null; }
 
 function applyLock(){
   const j = lockJob(), on = !!j;
   $('#segs').inert = on; document.querySelectorAll('#doc .tt-lockable').forEach(el => { el.inert = on; }); $('#docTitle').disabled = on;
   if (S.doc) renderCutPack();
+  renderRedoOne();
   const b = $('#diarBanner'); b.hidden = !on;
-  if (on) b.textContent = `${LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
+  if (on) b.textContent = `${j.redoOne ? 'この動画を今の設定で作り直' : LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
 
 async function startDiarize(){

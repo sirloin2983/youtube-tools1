@@ -116,7 +116,7 @@ import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの�
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.53.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.54.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -599,6 +599,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_evalbatch.eval_batch_stop(obj))
             if path == "/api/eval-batch/redo":   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
                 return self._json(200, ed_evalbatch.eval_batch_redo(obj))
+            if path == "/api/eval-batch/redo-one":   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
+                return self._json(200, ed_evalbatch.eval_batch_redo_one(obj))
             if path == "/api/pick":
                 return self._json(200, ed_relink.pick_path(obj))
             if path == "/api/resplit":

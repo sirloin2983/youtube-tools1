@@ -301,6 +301,7 @@ function renderDrillSpk(){
 /* 評価用の文書の「確かめ済み」(ドリルの外。校正の画面の右の上)。ドリルの間は帯に出すので隠す(同じ操作の入口を2つ並べない) */
 function renderEvalReview(){
   const box = $('#evrBox'); if (!box) return;
+  renderRedoOne();   // 「この動画を作り直す」(ドリルの帯と、この欄の両方)
   const d = S.doc, on = !!(d && d.evalSet === true) && !DR.on;
   box.hidden = !on; if (!on) return;
   const rv = d.evalReviewed && typeof d.evalReviewed === 'object' ? d.evalReviewed : null;
@@ -358,6 +359,51 @@ async function unmarkReviewed(){
 async function evalReviewHere(){
   const id = S.docId;
   if (await markReviewed('editor') && S.docId === id){ await openDoc(id, true); syncListItem(); }
+}
+
+/* この動画だけを今の設定で作り直す(2026-10-05。評価ドリルで校正しながら、後処理の調整の効き目を 1 本ずつ確かめる)。
+   サーバーの ed_evalbatch.eval_batch_redo_one: 見回りを待たずにすぐ待機列へ・確かめ済みは断る・人が手を入れた文書は確認のあと force。
+   作り直しの間は編集を止める(lockJob が public_job の redoOne を見る)・終わると pollJobs が読み直す。キーは割り当てない(押し間違いで消さない) */
+function redoOneState(){   // -> [押せるか, 理由(ボタンの title)]
+  const d = S.doc;
+  if (!d || d.evalSet !== true) return [false, '評価用の文字起こしだけを作り直せます'];
+  if (d.evalReviewed) return [false, '確かめ済みの動画は作り直せません(先に確かめ済みを取り消してください)'];
+  if (!d.model) return [false, 'まだ文字起こししていません'];
+  if (REDO1.busy || lockJob()) return [false, 'この文字起こしは処理中です(終わってから押してください)'];
+  return [true, '今の編集の設定(メニューの「新規」の認識の設定)で、この動画をはじめから文字起こしし直します。前の版は「以前の版に戻す」に残ります。話者は自動でもう一度判別します'];
+}
+function renderRedoOne(){
+  const [ok, why] = redoOneState();
+  for (const id of ['drRedo', 'evrRedo']){ const b = $('#' + id); if (b){ b.disabled = !ok; b.title = why; } }
+}
+async function redoOneHere(){
+  const id = S.docId;
+  const [ok, why] = redoOneState(); if (!ok) return toast(why, 5000);
+  REDO1.busy = true; renderRedoOne();
+  try {
+    if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id){
+      if (S.docId === id) toast('保存が終わっていないため、作り直していません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
+      return;
+    }
+    const send = force => api('/api/eval-batch/redo-one', { body: { id, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) } });
+    try { await send(false); }
+    catch (e){
+      if (S.docId !== id) return;
+      if (e.code !== 'touched') throw e;
+      const x = e.data || {};
+      if (!(await UIKit.dialog.confirm({ title: 'この動画を作り直しますか', ok: '作り直す',
+        body: `この動画で直した${x.rows ? ` ${x.rows} 行` : '所'}${x.label ? `(${x.label})` : ''}は、新しい文字起こしに置き換わります(以前の版に戻すで戻せます)。作り直しますか` }))) return;
+      if (S.docId !== id) return;
+      if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id) return toast('保存が終わっていないため、作り直していません', 6000, 'err');
+      await send(true);
+    }
+    toast('この動画の作り直しを待機列に追加しました(終わると自動で読み込み直します。それまで編集はできません)', 6000, 'ok');
+    startPolling(); await pollJobs();
+  } catch (e){
+    if (S.docId !== id) return;
+    if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 と同じ案内
+    toast('作り直せませんでした: ' + e.message, 7000, 'err');
+  } finally { REDO1.busy = false; renderRedoOne(); }
 }
 
 /* 始める(進行度のカードのボタン。URL の ?drill=1 で文書が無いときも)。続きの数(済ませた本数・飛ばした文書)は新しく数え直す */
