@@ -239,6 +239,47 @@ def main():
             sd = call(port, "GET", "/api/transcript?id=" + st)
             check(sd["sourceName"] == "評価用データ01_ときのそら_02_済.wav" and os.path.isfile(sd["sourcePath"]) and not os.path.exists(os.path.join(stg, "仮置きの動画.wav")),
                   "仮置きの文書は、ほかの文書へ移るとメンバーのフォルダへ「_02_済」で移る: %s" % sd["sourceName"])
+            # 未確認の評価用を作り直す(手を入れていないものだけ。2026-10-04): ⚙ のボタン → 数えた本数の確認 → 作り直し待ち → 同じ文書が新しくなる
+            j = call(port, "POST", "/api/transcribe", {"sourcePath": wav, "model": "small", "language": "ja", "autoGloss": False, "evalSet": True})
+            for _ in range(200):
+                job = next(x for x in call(port, "GET", "/api/jobs")["jobs"] if x["id"] == j["id"])
+                if job["state"] in ("done", "error"):
+                    break
+                time.sleep(0.1)
+            rt = job["tid"]
+            wait_idle(port)
+            tp = os.path.join(tmp, "transcripts", rt + ".json")   # 1 時間前に作ったことにする(直近 10 分の文書は作り直さない)
+            with open(tp, encoding="utf-8") as f:
+                rd = json.load(f)
+            rd["updatedAt"] = int(time.time() * 1000) - 3600 * 1000
+            with open(tp, "w", encoding="utf-8") as f:
+                json.dump(rd, f, ensure_ascii=False)
+            dry = call(port, "POST", "/api/eval-batch/redo", {"dryRun": True})
+            check(dry.get("targets") == 1 and dry.get("touched") == 2, "作り直しの数え(手つかず 1 本・手を入れた 2 本): %s" % dry)
+            pg.click("[data-ui-settings]")
+            pg.wait_for_function("!document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
+            pg.click("#evbRedo")
+            pg.wait_for_function("document.querySelector('#dlgConfirm').open", timeout=5000)
+            cf = pg.inner_text("#cfText")
+            check("1 本を作り直します" in cf and "手を入れた 2 本は残します" in cf and "履歴から戻せます" in cf, "作り直しの確認に本数が出る: " + cf)
+            pg.click("#cfOk")
+            pg.wait_for_function("document.querySelector('#toast').textContent.includes('作り直しを待ちに入れました: 1 本')", timeout=10000)
+            check(True, "確認のあと、作り直しの待ちに入る")
+            redone = None
+            for _ in range(300):
+                rd2 = call(port, "GET", "/api/transcript?id=" + rt)
+                if any(r_.get("kind") == "evalRedo" for r_ in (rd2.get("recognition") or {}).get("runs") or []):
+                    redone = rd2
+                    break
+                time.sleep(0.1)
+            check(redone is not None and redone["id"] == rt and redone.get("evalSet") is True, "見回りが同じ文書を作り直す(id はそのまま・評価用のまま)")
+            hist = call(port, "GET", "/api/history?id=" + rt)
+            check(bool(hist.get("items")), "作り直す前の版が履歴に残る: %s" % hist)
+            for t_, n_ in ((ev, "校正済み"), (st, "校正済み")):
+                check(not any(r_.get("kind") == "evalRedo" for r_ in (call(port, "GET", "/api/transcript?id=" + t_).get("recognition") or {}).get("runs") or []),
+                      "手を入れた文書(%s)は作り直さない" % n_)
+            wait_idle(port)
+            pg.keyboard.press("Escape")
             br.close()
         check(not errors, "画面のエラーなし " + ("" if not errors else str(errors[:3])))
     finally:

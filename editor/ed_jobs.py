@@ -35,6 +35,7 @@ import wave
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
+import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
 import ed_lite  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
@@ -604,6 +605,8 @@ def public_job(j):
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
     out["auto"] = bool((j.get("spec") or {}).get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)
     out["autoSkipped"] = j.get("autoSkipped") or ""   # 自動の判別を動き出すときにやめた理由(has_speakers・reviewed・empty)
+    out["redo"] = bool((j.get("spec") or {}).get("evalRedo"))   # 未確認の評価用の作り直し(ed_evalbatch)
+    out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
     if j.get("voiceError"):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
@@ -1676,6 +1679,9 @@ def run_job(job):
     if job.get("kind") == "alt":   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b。ed_alt)
         return ed_alt.run_alt(job)
     spec = job["spec"]
+    # 未確認の評価用の作り直し(ed_evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
+    if spec.get("evalRedo") and ed_evalbatch.eb_redo_skip_at_start(job):
+        return
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
     try:
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
@@ -1731,7 +1737,14 @@ def run_job(job):
             if note:
                 spec.setdefault("warnings", []).append(note)
                 job["vadNote"] = note
-        tid = ed_store.fill_doc(spec, fields) if spec.get("intoDoc") else None
+        if spec.get("evalRedo"):
+            # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。
+            # 認識の間に手が入っていたら書かない(新しい文書も作らない)
+            tid = ed_evalbatch.eb_redo_fill(job, spec, fields)
+            if tid is None:
+                return
+        else:
+            tid = ed_store.fill_doc(spec, fields) if spec.get("intoDoc") else None
         if tid is None:
             tid = uuid.uuid4().hex[:12]
             doc = dict({"schema": "transcribe/v1", "id": tid, "title": spec["title"], "sourcePath": spec["sourcePath"], "sourceName": spec["sourceName"]},

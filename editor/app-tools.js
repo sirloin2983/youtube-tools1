@@ -278,9 +278,11 @@ function evbRender(s){
   let t = '';
   if (on){
     t = `動いています: 入れた ${s.enqueued} 本・残り ${s.remaining == null ? '調べています' : s.remaining + ' 本'}・今 ${s.active} 件(待ち・処理中)`
-      + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.diarWaiting ? `・話者の判別 待ち ${s.diarWaiting} 本` : '') + (s.deferred ? `。${s.deferred}` : '');
+      + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.diarWaiting ? `・話者の判別 待ち ${s.diarWaiting} 本` : '')
+      + (s.redoWaiting ? `・作り直し 待ち ${s.redoWaiting} 本` : '') + (s.redoDone ? `・作り直し 済 ${s.redoDone} 本` : '') + (s.deferred ? `。${s.deferred}` : '');
   } else if (s.finished){
-    t = `終わりました: 済 ${s.done} 本` + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.finishedAt ? `(${new Date(s.finishedAt).toLocaleString()})` : '');
+    t = `終わりました: 済 ${s.done} 本` + (s.failed ? `・飛ばした ${s.failed} 本` : '') + (s.redoDone ? `・作り直し 済 ${s.redoDone} 本` : '')
+      + (s.finishedAt ? `(${new Date(s.finishedAt).toLocaleString()})` : '');
   } else if (s.stoppedAt){
     t = `止めています(${new Date(s.stoppedAt).toLocaleString()})。もう一度押すと続きから入れます` + (s.active ? `。動いている ${s.active} 件は最後まで動きます` : '');
   }
@@ -301,9 +303,30 @@ async function evbStop(){
   try { evbRender(await api('/api/eval-batch/stop', { body: {} })); toast('まとめての文字起こしを止めました', 4000); }
   catch (e){ toast('止められませんでした: ' + e.message, 6000, 'err'); }
 }
+/* 未確認の評価用を作り直す(手を入れていないものだけ。サーバーの ed_evalbatch.eval_batch_redo)。まず数えて(dryRun)、確かめてから待ちに入れる */
+async function evbRedo(){
+  const btn = $('#evbRedo');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/eval-batch/redo', { body: { dryRun: true } });
+    const touched = new Set(r.touchedKeys || []);
+    const kept = Object.entries(r.reasons || {}).filter(([, n]) => n > 0)
+      .sort((a, b) => (touched.has(b[0]) - touched.has(a[0])) || b[1] - a[1])
+      .map(([k, n]) => `${(r.labels || {})[k] || k} ${n} 本`).join('、');
+    if (!r.targets){ toast('作り直す評価用の文書はありません' + (kept ? `(${kept})` : ''), 6000); return; }
+    const text = `${r.targets} 本を作り直します(手を入れた ${r.touched} 本は残します)。今の文字起こしは新しいものに置き換わります(履歴から戻せます)。`
+      + (kept ? `\n残すもの: ${kept}` : '') + '\n手が空いたとき少しずつ進めます(止めるで待ちも止まります)。';
+    if (!await confirmDlg('未確認の評価用を作り直す', text, '作り直す')) return;
+    const res = await api('/api/eval-batch/redo', { body: { dryRun: false } });
+    if (res.status) evbRender(res.status);
+    toast(`作り直しを待ちに入れました: ${res.added} 本`, 5000, 'ok');
+  } catch (e){ toast('作り直せませんでした: ' + e.message, 6000, 'err'); }
+  finally { btn.disabled = false; }
+}
 function evbInit(){   // $ と api は app.js が先に読まれたあとで使える(この部品は app.js より先に読まれるので、読み込みが終わってから)
   $('#evbStart').addEventListener('click', evbStart);
   $('#evbStop').addEventListener('click', evbStop);
+  $('#evbRedo').addEventListener('click', evbRedo);
   loadEvalBatch();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', evbInit); else evbInit();
