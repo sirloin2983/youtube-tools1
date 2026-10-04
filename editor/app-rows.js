@@ -310,7 +310,7 @@ function nudge(s, row, f, dir){
   snapEdge(i, f, dir > 0 === (f === 'end'));
   if (moved){ renderDoc(); setNav(i); }
   else { const inp = row.querySelector(`.t[data-f="${f}"]`); if (inp) UIKit.timebox.set(inp, s[f]); markOvl(i); }
-  if (S.playEnd !== null || player().paused){ const p = player(); p.currentTime = f === 'end' ? Math.max(s.start, s.end - 1.2) : s.start; S.playEnd = s.end; p.play().catch(() => {}); }   // 動かした端を、すぐ聞き直せるように
+  if (S.playEnd !== null || player().paused){ const p = player(); p.currentTime = f === 'end' ? Math.max(s.start, s.end - 1.2) : s.start; S.playEnd = s.end; p.play().catch(() => {}); armPlayEnd(); }   // 動かした端を、すぐ聞き直せるように
 }
 
 function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start); }   // v0.9.8: 開始が同じ行は、今の並びのまま(安定ソート)。終了で並べ替えると、足した行が意図と違う位置に動くため
@@ -636,6 +636,7 @@ function playSeg(s, one){
   const p = player(); p.currentTime = s.start;
   S.playEnd = one ? s.end : null;
   p.play().catch(() => {});
+  armPlayEnd();   // 行の終わりで正確に止める(timeupdate は粗くて、終わりを平均 0.1 秒過ぎていた)
 }
 
 function curIndex(t){

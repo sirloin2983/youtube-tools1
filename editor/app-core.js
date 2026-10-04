@@ -29,6 +29,38 @@ function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, act
 
 function showErr(msg){ const b = $('#errBar'); b.textContent = '画面エラー: ' + msg; b.hidden = false; }
 
+/* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
+   以前は timeupdate(Chromium で約 250ms ごと)で止めていて、止まるまでに 9〜236ms(平均 約 116ms)行の終わりを過ぎた。機械の行の終わりは次の声の出だしの
+   0.05〜0.1 秒前にあることが多いので、行の終わりに次の行の頭の言葉が聞こえていた(2026-10-04)。
+   ここでは終わりの手前までは setTimeout で眠り(残り時間 ÷ 再生の速さ。長く眠りすぎないよう 0.5 秒まで)、近づいたら requestVideoFrameCallback(コマごと)と
+   requestAnimationFrame の早いほうで currentTime を見て、終わりの STOP_LEAD(pause が効くまでの遅れの分)手前で pause する。止めたあと終わりを過ぎていたら currentTime を終わりへ戻す。
+   getEnd() が null を返す(S.playEnd が解かれた)・一時停止・別の見張りに替わったら、見張りは自然に終わる。timeupdate 側の止め(app.js)は、タブが隠れて
+   タイマーが間引かれたときの保険として残す。cut.js の再生は requestVideoFrameCallback のループ(tick)で見ているので、ここは使わない */
+const STOP_LEAD = 0.02;
+const EndGuard = { gen: 0, timer: 0, raf: 0, vfc: 0, media: null };
+function stopAtEnd(media, getEnd, onStop){
+  const g = EndGuard, my = ++g.gen;
+  clearTimeout(g.timer); if (g.raf) cancelAnimationFrame(g.raf);
+  if (g.vfc && g.media && g.media.cancelVideoFrameCallback) try { g.media.cancelVideoFrameCallback(g.vfc); } catch {}
+  g.timer = g.raf = g.vfc = 0; g.media = media;
+  const alive = () => g.gen === my;
+  function step(){
+    if (!alive()) return;
+    g.timer = g.raf = 0;
+    const end = getEnd();
+    if (end === null || end === undefined || media.paused) return;   // 解かれた・止まった(play() が断られた場合も、ここで見張りをやめる)
+    const rate = media.playbackRate || 1, remain = end - media.currentTime;
+    if (remain <= STOP_LEAD * rate){ g.gen++; media.pause(); if (media.currentTime > end) media.currentTime = end; if (onStop) onStop(end); return; }
+    if (remain / rate > 0.12){ g.timer = setTimeout(step, Math.min(500, Math.max(10, (remain / rate - 0.1) * 1000))); return; }
+    const once = () => { if (!alive()) return; if (g.vfc && media.cancelVideoFrameCallback) try { media.cancelVideoFrameCallback(g.vfc); } catch {} if (g.raf) cancelAnimationFrame(g.raf); g.vfc = g.raf = 0; step(); };
+    g.raf = requestAnimationFrame(once);
+    if (media.requestVideoFrameCallback) g.vfc = media.requestVideoFrameCallback(once);
+  }
+  step();
+}
+/* S.playEnd を立てて play() したあとに呼ぶ(再生の速さが変わったときも呼び直す) */
+function armPlayEnd(){ if (S.playEnd !== null) stopAtEnd(player(), () => S.playEnd, () => { S.playEnd = null; }); }
+
 async function api(path, opt = {}){
   const init = { cache: 'no-store', method: opt.method || 'GET', ...(opt.keepalive ? { keepalive: true } : {}) };
   if (opt.body !== undefined){ init.method = opt.method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opt.body); }

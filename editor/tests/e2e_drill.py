@@ -103,6 +103,42 @@ def main():
             check("Shift" in pg.inner_text("#drDone") and "D" in pg.inner_text("#drDoneKey"), "「済みにして次へ」にキー(Shift+D): " + pg.inner_text("#drDone"))
             left0 = pg.inner_text("#drLeft")
 
+            # ---- 行だけ再生は行の終わりで止まる(timeupdate だと平均 0.1 秒過ぎて、次の行の頭の言葉が聞こえた。EndGuard = app-core.js の stopAtEnd) ----
+            if os.environ.get("YTT_E2E_NOGUARD"):
+                pg.evaluate("window.armPlayEnd = () => {}")   # 測り比べ用(以前の止め方 = timeupdate だけ)
+            pg.evaluate("document.querySelector('#player').muted = true")   # 音は出さない(音が無くても currentTime は進む)
+            wait_js(pg, "document.querySelector('#player').readyState >= 3", 20000)
+            overs = []
+            for rate in (1, 1.5, 0.75):
+                for i in (0, 1, 2):
+                    r = pg.evaluate("""async ([i, rate]) => {
+                      const p = document.querySelector('#player'), s = S.doc.segments[i];
+                      p.playbackRate = rate; playSeg(s, true);
+                      const t0 = performance.now();
+                      while (!p.paused && performance.now() - t0 < 6000) await new Promise(r => setTimeout(r, 5));
+                      await new Promise(r => setTimeout(r, 400));   // pause のあとに timeupdate などで動かないか
+                      return { paused: p.paused, t: p.currentTime, end: s.end, start: s.start, playEnd: S.playEnd };
+                    }""", [i, rate])
+                    overs.append(round(r["t"] - r["end"], 3))
+                    check(r["paused"] and r["playEnd"] is None and r["t"] > r["start"] + 0.5 and abs(r["t"] - r["end"]) <= 0.05,
+                          "行 %d を %s× で再生 → 行の終わり %.2f に対し止まった位置 %.3f(差 %+.3f 秒。±0.05 以内)" % (i, rate, r["end"], r["t"], r["t"] - r["end"]))
+            print("     止まる位置の差(秒): " + " ".join("%+.3f" % d for d in overs) + "  最大 %.3f" % max(abs(d) for d in overs), flush=True)
+            pg.evaluate("document.querySelector('#player').playbackRate = 1")
+            # 再生の途中で別の行の再生に替えても、前の行の終わりでは止まらない
+            r = pg.evaluate("""async () => {
+              const p = document.querySelector('#player'), a = S.doc.segments[0], b = S.doc.segments[2];
+              playSeg(a, true); await new Promise(r => setTimeout(r, 600)); playSeg(b, true);
+              const t0 = performance.now(); while (!p.paused && performance.now() - t0 < 6000) await new Promise(r => setTimeout(r, 5));
+              return { t: p.currentTime, end: b.end };
+            }""")
+            check(abs(r["t"] - r["end"]) <= 0.05, "再生の途中で別の行に替えると、新しい行の終わりで止まる: %.3f / %.2f" % (r["t"], r["end"]))
+            # 行だけ再生のあと、表示部の再生ボタンで再開したら止まらずに続く(S.playEnd が残らない)
+            r = pg.evaluate("""async () => {
+              const p = document.querySelector('#player'); p.currentTime = 6.5; S.playEnd = null; p.play().catch(() => {});
+              await new Promise(r => setTimeout(r, 2500)); const out = { paused: p.paused, t: p.currentTime }; p.pause(); return out;
+            }""")
+            check(not r["paused"] and r["t"] > 8.5, "ふつうの再生は行の終わりで止まらない: %.2f" % r["t"])
+
             # ---- 1 行直して、すぐ「済みにして次へ」(自動保存を待たない = 未保存の変更も保存してから済みにする) ----
             ta = pg.locator("#segs .seg textarea").first
             old_text = ta.input_value()

@@ -1016,6 +1016,7 @@ player().addEventListener('playing', () => { $('#playerMsg').hidden = true; upda
    表示部(動画本体)の再生ボタンで再開したときにも、またそこで止まってしまう。
    一時停止するたびに必ずクリアして、表示部の再生は常に最後まで続けて流れるようにする(字幕も、選んだ行のものへ戻す) */
 player().addEventListener('pause', () => { S.playEnd = null; updateCaption(); });
+player().addEventListener('ratechange', armPlayEnd);   // 再生の速さを変えたら、終わりで止める見張りの待ち時間を計算し直す(0.5× → 2× で過ぎないように)
 
 const fmtCs = t => { t = Math.max(0, Number(t) || 0); const cs = Math.round(t * 100), h = Math.floor(cs / 360000), m = Math.floor(cs % 360000 / 6000), sec = (cs % 6000) / 100;
   return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + sec.toFixed(2).padStart(5, '0'); };   // 0:28.60(1/100 秒まで)
