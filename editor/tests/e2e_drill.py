@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""評価ドリル(editor/drill.html・drill.js・ed_drill.py。マスタープラン Q4 = docs/plan/q3-q4-design.md の (c))と、
-話者のカードの「全行をこの人に」の通し確認。入口に取り込んだ形(CSP・合言葉)で動かす。
+"""評価ドリル(動画 1 本ずつ・編集の画面で。editor/ed_drill.py・app-learn.js の drill*。マスタープラン Q4 = docs/plan/q3-q4-design.md の (c))と、
+評価用の文書の「確かめ済み」(ドリルの外)・話者のカードの「全行をこの人に」の通し確認。入口に取り込んだ形(CSP・合言葉)で動かす。
 
     PYTHONIOENCODING=utf-8 py -3.10 editor/tests/e2e_drill.py
 
-ドリル: 定点の「あと何分」と条件 → 始める → 20 行(同じ文書から 2 行まで)→ 自動で再生して行の終わりで止まる → 直して Enter で済み(保存・次へ)→
-新しい名前の話者 → 飛ばす(D)→ 別の所で変わった文書は 409 の案内で飛ばす → 残りを Enter だけで済ませる → 終わり・あと何分が減る → 編集の進行度のカードにも出る。
-全行をこの人に: 評価用で話者の無い行がある文書 → 候補(配信の文脈 = 題名の名簿の名前)→ 確認 → 全行がその人に(diar.json も)→ 欄が消える
+ドリル: 進行度のカードの「評価ドリルを始める →」→ 帯(定点まであと何分・条件)と ?doc=&drill=1 → 1 行直してすぐ「済みにして次へ」(未保存の変更も保存してから)
+→ 次の文書が開く(画面の再読み込みなし)・定点の残りが減る → 飛ばす(Shift+N)→ 直してすぐ Shift+D → 再読み込みしても続く → 話者の無い行の確認(やめる / このまま)
+→ 次が無い → ドリルを終える。行の結合・追加などは既存の e2e(e2e_row_editing ほか)で確かめ済みなので、ここでは 1 行直すだけ。
+ドリルの外: 評価用の文書を開くと「まだ確かめていない」と「全部聞いて直したので済みにする」→ 確かめ済み → 取り消す。全行をこの人に: 候補 → 確認 → 全行がその人に
 """
 import json
 import os
@@ -21,7 +22,8 @@ from ytt_core import layout as _layout  # noqa: E402  (e2e_edit_common がリポ
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 OLD = int(time.time() * 1000) - 3600 * 1000   # 1 時間前(ドリルは直近 10 分に更新した文書を選ばない)
-N_DOCS = 12
+N_DRILL = 4
+SPK = [{"id": "S1", "name": "テスト花子", "color": "#2f62d6"}]
 
 
 def seg(i, a, b, text, **kw):
@@ -33,21 +35,13 @@ def tid_of(n):
 
 
 def write_doc(tx, n, video, segs, title, ev=True, updated=OLD, **over):
-    d = {"schema": "transcribe/v1", "id": tid_of(n), "title": title, "sourcePath": video, "sourceName": os.path.basename(video),
+    d = {"schema": "transcribe/v1", "id": tid_of(n), "title": title, "sourcePath": video, "sourceName": os.path.basename(video), "model": "small",
          "start": 0, "end": 12.0, "duration": 12.0, "speakers": [], "segments": segs, "createdAt": 1, "updatedAt": updated}
     if ev:
         d["evalSet"] = True
     d.update(over)
     with open(os.path.join(tx, tid_of(n) + ".json"), "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False)
-
-
-def pos(pg):
-    return pg.inner_text("#drPos")
-
-
-def wait_pos(pg, text, timeout=10000):
-    wait_js(pg, "document.querySelector('#drPos').textContent === %s || !document.querySelector('#drEnd').hidden" % json.dumps(text), timeout)
 
 
 def main():
@@ -58,122 +52,148 @@ def main():
         video = make_video(os.path.join(srv.media, "評価テスト.webm"), sec=12)
         tx = os.path.join(srv.tmp, _layout.TOOL_DIRS["transcribe"], "transcripts")
         os.makedirs(tx, exist_ok=True)
-        titles = {}
-        for n in range(1, N_DOCS + 1):   # 評価用 12 本 × 未校正 3 行(+ 校正済み 1 行)
-            titles["評価テスト%02d" % n] = tid_of(n)
-            write_doc(tx, n, video, [seg(1, 0.5, 2.5, "はじめ%d" % n), seg(2, 3.0, 5.0, "つぎ%d" % n), seg(3, 6.0, 8.0, "おわり%d" % n),
-                                     seg(4, 8.5, 10.5, "済み%d" % n, proofed=True)], "評価テスト%02d" % n)
-        write_doc(tx, 50, video, [seg(1, 0.5, 2.5, "学習用")], "学習用の文書", ev=False)
-        # 全行をこの人に: 評価用・話者の無い行・題名に名簿の名前(配信の文脈)。直近に更新した = ドリルには出ない
+        drill_ids = {tid_of(n) for n in range(1, N_DRILL + 1)}
+        for n in range(1, N_DRILL + 1):   # ドリルに出る評価用 4 本(全行に話者・未校正)
+            write_doc(tx, n, video, [seg(1, 0.5, 2.5, "はじめ%d" % n, speaker="S1"), seg(2, 3.0, 5.0, "つぎ%d" % n, speaker="S1"),
+                                     seg(3, 6.0, 8.0, "おわり%d" % n, speaker="S1")], "評価テスト%02d" % n, speakers=SPK)
+        write_doc(tx, 50, video, [seg(1, 0.5, 2.5, "学習用")], "学習用の文書", ev=False)                          # 評価用でない
+        write_doc(tx, 51, video, [seg(1, 0.5, 2.5, "済み", speaker="S1", proofed=True)], "確かめ済みの文書", speakers=SPK,
+                  evalReviewed={"at": OLD, "rows": 1, "durationSec": 12.0})                                       # もう確かめ済み
+        # ドリルの外(確かめ済みのボタン)と全行をこの人に: 評価用・話者の無い行・題名に名簿の名前(配信の文脈)。直近に更新した = ドリルには出ない
         write_doc(tx, 60, video, [seg(1, 0.5, 2.5, "みこだよ"), seg(2, 3.0, 5.0, "にぇ", speaker="S1")], "さくらみこ 雑談",
                   updated=int(time.time() * 1000), speakers=[{"id": "S1", "name": "話者1", "color": "#2f62d6"}])
 
         with sync_playwright() as pw:
-            b = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
-            pg = b.new_context(viewport={"width": 1280, "height": 900}).new_page()
+            b = pw.chromium.launch()
+            pg = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
             pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)
-            bad_http = []   # 読み込みの失敗は URL で見る(409 はドリルの 409 の確かめで、わざと起こす)
-            pg.on("response", lambda r: bad_http.append("%d %s" % (r.status, r.url)) if r.status >= 400 and not (r.status == 409 and "/api/drill/row" in r.url) else None)
+            bad_http = []   # 読み込みの失敗は URL で見る
+            pg.on("response", lambda r: bad_http.append("%d %s" % (r.status, r.url)) if r.status >= 400 else None)
 
-            # ---- 定点の「あと何分」と条件 ----
-            pg.goto(srv.base + "drill.html")
-            wait_js(pg, "document.querySelector('#drConds').children.length >= 5")
-            check("あと 15 分" in pg.inner_text("#drLeft"), "定点の「あと何分」: " + pg.inner_text("#drLeft"))
-            check(pg.locator("#drConds li").count() == 5 and pg.locator("#drConds .pill.wait").count() == 5,
-                  "条件 5 つ(話者・配信・重なり・BGM・呼び名)がまだ: " + pg.inner_text("#drConds").replace("\n", " "))
-            check(pg.evaluate("getComputedStyle(document.querySelector('#drGo')).backgroundColor") not in ("", "rgba(0, 0, 0, 0)"),
-                  "ui-kit の CSS(ui-kit.css = index.html から切り出し)が効いている")
+            def doc_id():
+                return pg.evaluate("S.docId")   # app.js の状態(トップレベルの const は evaluate から見える)
 
-            # ---- 始める: 20 行・同じ文書から 2 行まで ----
-            left0 = pg.inner_text("#drLeft")
-            pg.click("#drGo")
-            wait_js(pg, "!document.querySelector('#drRun').hidden")
-            check(pos(pg) == "1 / 20", "20 行を出す: " + pos(pg))
-            rows = pg.evaluate("D.rows.map(r => r.id)")   # drill.js の状態(トップレベルの const は evaluate から見える)
-            per = {t: rows.count(t) for t in set(rows)}
-            check(len(rows) == 20 and max(per.values()) <= 2 and tid_of(50) not in per and tid_of(60) not in per,
-                  "評価用だけ・同じ文書から 2 行まで・直近に更新した文書は除く: %s" % sorted(per.values()))
+            def url_q():
+                return pg.evaluate("Object.fromEntries(new URLSearchParams(location.search))")
 
-            # ---- 自動で再生して、行の終わりで止まる ----
-            wait_js(pg, "(() => { const v = document.querySelector('#drVideo'); return v.currentTime > 0.3 && !v.paused; })()", 15000)
-            check(True, "行を自動で再生する")
-            wait_js(pg, "document.querySelector('#drVideo').paused", 8000)
-            check(pg.evaluate("document.querySelector('#drVideo').currentTime") < 11, "行の終わりで止まる(動画の終わりまで流さない)")
-            check(pg.evaluate("document.activeElement && document.activeElement.id") == "drText", "文字の欄にフォーカス(すぐ直せる)")
+            def wait_next(prev):
+                wait_js(pg, "S.docId && S.docId !== %s && !document.querySelector('#doc').hidden && !DR.busy && document.querySelectorAll('#segs .seg').length > 0" % json.dumps(prev), 15000)
+                return doc_id()
 
-            def cur_tid():
-                return titles.get(pg.inner_text("#drDoc").strip())
-
-            # ---- 直して Enter で済み ----
-            t1, text1 = cur_tid(), pg.input_value("#drText")
-            pg.fill("#drText", text1 + "(直した)")
-            pg.keyboard.press("Enter")
-            wait_pos(pg, "2 / 20")
-            d1 = srv.get("/api/transcript?id=" + t1)
-            g1 = next(g for g in d1["segments"] if g["text"] == text1 + "(直した)")
-            check(g1.get("proofed") is True and g1.get("proofedAt") and d1["updatedAt"] > OLD, "直して Enter = 行ごとに保存(校正済み・proofedAt・updatedAt が上がる)")
-            check(d1.get("effort", {}).get("proofedRows") == 1, "校正の手間に数える")
-
-            # ---- 新しい名前の話者 ----
-            t2 = cur_tid()
-            pg.select_option("#drSpk", "other")
-            check(pg.is_visible("#drSpkNew"), "「ほかの名前を入れる…」で名前の欄が出る")
-            pg.fill("#drSpkNew", "テスト花子")
-            pg.click("#drDone")
-            wait_pos(pg, "3 / 20")
-            d2 = srv.get("/api/transcript?id=" + t2)
-            sp = {s["id"]: s["name"] for s in d2["speakers"]}
-            check("テスト花子" in sp.values() and any(sp.get(g["speaker"]) == "テスト花子" and g.get("proofed") for g in d2["segments"]),
-                  "新しい名前は話者の一覧に足して、その行に付く")
-
-            # ---- 飛ばす(D) ----
-            t3 = cur_tid()
-            pg.keyboard.press("Escape")   # 文字の欄を抜けると単体キーが効く
-            pg.keyboard.press("d")
-            wait_pos(pg, "4 / 20")
-            d3 = srv.get("/api/transcript?id=" + t3)
-            check(d3["updatedAt"] == OLD or t3 in (t1, t2), "飛ばすと保存しない(D)")
-
-            # ---- 409: 別の所で変わった文書 ----
-            t4 = cur_tid()
-            doc = srv.get("/api/transcript?id=" + t4)
-            proofed4 = {g["id"] for g in doc["segments"] if g.get("proofed")}   # 同じ文書の前の行を、先に済みにしていることがある
-            doc["title"] = doc["title"]   # 中身はそのまま、別の画面からの保存で updatedAt だけ進める
-            r = srv.call("PUT", "/api/transcript?id=" + t4, dict(doc, baseUpdatedAt=doc["updatedAt"]))
-            check("_status" not in r, "(準備)別の画面から保存した")
-            pg.click("#drDone")
-            wait_js(pg, "!document.querySelector('#drNote').hidden", 8000)
-            check("別の所" in pg.inner_text("#drNote") and pos(pg).startswith("5 / "), "409 は「別の所で変わった」と案内して飛ばす: " + pg.inner_text("#drNote")[:60])
-            check({g["id"] for g in srv.get("/api/transcript?id=" + t4)["segments"] if g.get("proofed")} == proofed4, "409 の行は保存しない")
-
-            # ---- 残りは Enter だけで ----
-            for _ in range(25):
-                if not pg.is_hidden("#drEnd"):
-                    break
-                before = pos(pg)
-                pg.focus("#drText")
-                pg.keyboard.press("Enter")
-                wait_js(pg, "document.querySelector('#drPos').textContent !== %s || !document.querySelector('#drEnd').hidden" % json.dumps(before), 10000)
-            wait_js(pg, "!document.querySelector('#drEnd').hidden", 10000)
-            summ = pg.inner_text("#drSum").replace("\n", " ")
-            check("済み" in summ and "飛ばした 1 行" in summ and "別の所で変わっていた" in summ, "終わりのまとめ: " + summ)
-            wait_js(pg, "document.querySelector('#drLeft').textContent !== %s" % json.dumps(left0), 8000)
-            check(True, "定点の校正済みが増えた: " + pg.inner_text("#drLeft"))
-            st = srv.get("/api/drill/status")
-            check(st["proofedSec"] > 20 and st["leftSec"] < 900, "あと何分(API)が減る: %s 秒" % st["leftSec"])
-
-            # ---- 編集の進行度のカード(精度)にも出る・ドリルへのリンク ----
+            # ---- 進行度のカードから始める ----
             pg.goto(srv.base + "#tx")
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-            wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('あと')", 10000)
-            check("あと" in pg.inner_text("#drillLeft") and "話者" in pg.inner_text("#drillConds"),
-                  "進行度のカードに定点のあと何分と条件: " + pg.inner_text("#drillLeft"))
-            check(pg.get_attribute("#drillLink", "href") == "drill.html", "進行度のカードから評価ドリルへ(相対パス)")
+            wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('あと 15 分')", 10000)
+            check("確かめ済み 1 本" in pg.inner_text("#drillLeft") and "まだ 5 本" in pg.inner_text("#drillLeft"),
+                  "進行度のカードに定点(確かめ済みの動画)のあと何分: " + pg.inner_text("#drillLeft"))
+            check("話者" in pg.inner_text("#drillConds") and "呼び名" in pg.inner_text("#drillConds"), "条件(話者・配信・重なり・BGM・呼び名)")
+            check("目安" not in pg.inner_text("#evalStat") and "20分" not in pg.inner_text("#evalStat"), "以前の「目安 20 分」は出さない: " + pg.inner_text("#evalStat")[:80])
+            pg.evaluate("window.__noReload = 1")   # ドリルの間に画面を読み直していないことの印
+            pg.evaluate("setSideTab('quality')")
+            pg.click("#drillGo")
+            wait_js(pg, "!document.querySelector('#drillBar').hidden && S.docId && document.querySelectorAll('#segs .seg').length > 0 && !DR.busy", 15000)
+            t1 = doc_id()
+            pg.evaluate("toggleMenu(false)")   # 重ねて開くメニューの間はキーが文書に届かないので閉じる(下のキーの確かめのため)
+            q = url_q()
+            check(t1 in drill_ids and q.get("drill") == "1" and q.get("doc") == t1, "評価用の動画 1 本を開き、URL は ?doc=&drill=1: %s" % q)
+            check("あと 15 分" in pg.inner_text("#drLeft") and "この動画: まだ" in pg.inner_text("#drPill") and "0 本済み" in pg.inner_text("#drCount"),
+                  "帯: 定点まであと何分・この動画の状態・済ませた本数: %s / %s" % (pg.inner_text("#drLeft"), pg.inner_text("#drCount")))
+            check("Shift" in pg.inner_text("#drDone") and "D" in pg.inner_text("#drDoneKey"), "「済みにして次へ」にキー(Shift+D): " + pg.inner_text("#drDone"))
+            left0 = pg.inner_text("#drLeft")
+
+            # ---- 1 行直して、すぐ「済みにして次へ」(自動保存を待たない = 未保存の変更も保存してから済みにする) ----
+            ta = pg.locator("#segs .seg textarea").first
+            old_text = ta.input_value()
+            ta.fill(old_text + "(直した)")
+            pg.click("#drDone")
+            t2 = wait_next(t1)
+            d1 = srv.get("/api/transcript?id=" + t1)
+            check(any(g["text"] == old_text + "(直した)" for g in d1["segments"]), "直した文字は保存されている(済みにする前に保存)")
+            check(isinstance(d1.get("evalReviewed"), dict) and all(g.get("proofed") and g.get("proofedAt") for g in d1["segments"]),
+                  "確かめ済みの印と、全行が校正済み(proofedAt): %s" % d1.get("evalReviewed"))
+            q = url_q()
+            check(t2 in drill_ids and q.get("doc") == t2 and q.get("drill") == "1" and pg.evaluate("window.__noReload === 1"),
+                  "次の文書が開く(画面の再読み込みなし・URL の doc が変わる・drill は残る)")
+            wait_js(pg, "document.querySelector('#drLeft').textContent !== %s" % json.dumps(left0), 10000)
+            check("24秒" in pg.inner_text("#drLeft") and "1 本済み" in pg.inner_text("#drCount"),
+                  "定点の残りが減る・済ませた本数: %s / %s" % (pg.inner_text("#drLeft"), pg.inner_text("#drCount")))
+            st = srv.get("/api/drill/status")
+            check(st["reviewedSec"] == 24 and st["leftSec"] == 876, "あと何分(API): 確かめ済み %s 秒" % st["reviewedSec"])
+
+            # ---- 飛ばす(Shift+N) ----
+            pg.evaluate("document.activeElement && document.activeElement.blur()")
+            pg.keyboard.press("Shift+N")
+            t3 = wait_next(t2)
+            d2 = srv.get("/api/transcript?id=" + t2)
+            check("evalReviewed" not in d2 and not any(g.get("proofed") for g in d2["segments"]), "飛ばすと済みにしない(Shift+N)")
+            check("飛ばした 1 本" in pg.inner_text("#drCount"), "飛ばした数: " + pg.inner_text("#drCount"))
+
+            # ---- 直してすぐ Shift+D(キー)。未保存の変更を失わない ----
+            ta = pg.locator("#segs .seg textarea").nth(1)
+            old3 = ta.input_value()
+            ta.fill(old3 + "(キーで)")
+            pg.keyboard.press("Escape")   # 文字の欄を抜けるとキーが効く
+            pg.keyboard.press("Shift+D")
+            t4 = wait_next(t3)
+            d3 = srv.get("/api/transcript?id=" + t3)
+            check(any(g["text"] == old3 + "(キーで)" for g in d3["segments"]) and isinstance(d3.get("evalReviewed"), dict),
+                  "Shift+D でも、直した文字を保存してから済みにする")
+            check(t4 != t2, "飛ばした文書は、このドリルでは出さない")
+
+            # ---- 再読み込みしても続く(?doc=&drill=1・済ませた本数) ----
+            pg.reload()
+            wait_js(pg, "!document.querySelector('#drillBar').hidden && S.docId === %s && document.querySelectorAll('#segs .seg').length > 0" % json.dumps(t4), 15000)
+            check("2 本済み" in pg.inner_text("#drCount"), "再読み込みしても、同じ文書と帯(済ませた本数)が続く: " + pg.inner_text("#drCount"))
+
+            # ---- 話者の無い行の確認(やめる → このまま) ----
+            pg.locator("#segs .seg select.spk").first.select_option("")
+            pg.click("#drDone")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            dlg = pg.inner_text("dialog.ui-dialog[open]")
+            check("話者が無い行が 1 行" in dlg and "評価用のフォルダへ移すには全行に話者が要ります" in dlg, "話者の無い行があると確かめる: " + dlg[:60].replace("\n", " "))
+            pg.click("dialog.ui-dialog[open] .btn.ghost")
+            wait_js(pg, "!document.querySelector('dialog.ui-dialog[open]') && !DR.busy")
+            check(doc_id() == t4 and "evalReviewed" not in srv.get("/api/transcript?id=" + t4), "やめると済みにしない(同じ文書のまま)")
+            pg.click("#drDone")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            wait_js(pg, "!DR.busy && !document.querySelector('#drNone').hidden", 15000)   # 4 本のうち 1 本は飛ばしたので、次が無い
+            d4 = srv.get("/api/transcript?id=" + t4)
+            check(isinstance(d4.get("evalReviewed"), dict) and d4["segments"][0]["speaker"] == "", "このまま済みにする(話者の無い行も保存してから)")
+            check("次に出せる評価用の動画がありません" in pg.inner_text("#drNone") and "飛ばした 1 本" in pg.inner_text("#drNone"),
+                  "次が無いときは帯に理由: " + pg.inner_text("#drNone")[:80])
+            check(doc_id() == t4 and "確かめ済み" in pg.inner_text("#drPill"), "次が無ければ今の文書のまま(確かめ済みの表示)")
+
+            # ---- ドリルを終える ----
+            pg.click("#drEnd")
+            wait_js(pg, "document.querySelector('#drillBar').hidden")
+            q = url_q()
+            check("drill" not in q and q.get("doc") == t4, "終えると帯が消え、URL の drill も消える: %s" % q)
+            check(not pg.is_hidden("#evrBox") and "確かめ済み" in pg.inner_text("#evrPill"), "ドリルの外では校正の画面に「確かめ済み」")
+            wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('確かめ済み 4 本')", 10000)
+            check(True, "進行度のカードも増えた: " + pg.inner_text("#drillLeft"))
+
+            # ---- ドリルの外: 評価用の文書の「全部聞いて直したので済みにする」と取り消し ----
+            open_doc(pg, "さくらみこ 雑談")
+            wait_js(pg, "S.docId === %s && !document.querySelector('#evrBox').hidden" % json.dumps(tid_of(60)), 10000)
+            check("まだ確かめていない" in pg.inner_text("#evrPill") and pg.is_visible("#evrMark"), "評価用の文書を開くと「まだ確かめていない」とボタン")
+            pg.click("#evrMark")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog[open] .btn.primary")   # 話者の無い行がある → このまま
+            wait_js(pg, "document.querySelector('#evrPill').textContent === '確かめ済み'", 10000)
+            d60 = srv.get("/api/transcript?id=" + tid_of(60))
+            check(isinstance(d60.get("evalReviewed"), dict) and d60["evalReviewed"].get("via") == "editor" and all(g.get("proofed") for g in d60["segments"]),
+                  "ドリルの外でも同じ印を付けられる(残りの行も校正済み)")
+            check(pg.locator("#segs .seg.proofed").count() == 2, "画面の行も校正済みに(読み直し)")
+            pg.click("#evrUndo")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            wait_js(pg, "document.querySelector('#evrPill').textContent === 'まだ確かめていない'", 10000)
+            d60 = srv.get("/api/transcript?id=" + tid_of(60))
+            check("evalReviewed" not in d60 and not any(g.get("proofed") for g in d60["segments"]), "取り消すと印と、印が校正済みにした行も戻る")
 
             # ---- 全行をこの人に ----
-            open_doc(pg, "さくらみこ 雑談")
-            pg.wait_for_selector("#segs .seg")
             pg.click("#btnSpk")
             pg.click("[data-jump=spDetails]")
             wait_js(pg, "document.querySelector('#spDetails').open === true")
@@ -195,11 +215,18 @@ def main():
             wait_js(pg, "document.querySelector('#spAllBox').hidden", 10000)
             check(True, "全行に話者が付いたら欄は消える")
 
+            # ---- キーの一覧(?)に評価ドリルのキー ----
+            pg.evaluate("document.activeElement && document.activeElement.blur()")
+            pg.keyboard.press("?")
+            pg.wait_for_selector("#keys[open]")
+            kl = pg.inner_text("#keysList")
+            check("評価ドリル" in kl and "済みにして次へ" in kl and "飛ばして次へ" in kl, "キーの一覧に評価ドリルのキー")
             b.close()
         bad = [e for e in errors if "favicon" not in e and "ERR_ABORTED" not in e]
         check(not bad, "画面のエラーなし: %s" % bad[:3])
-        bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x)]   # まとめての文字起こしの状態(⚙)は、API が無ければ出さない作り
-        check(not bad_http, "読み込みの失敗なし(わざと起こした 409 のほか): %s" % bad_http[:3])
+        bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x)   # まとめての文字起こしの状態(⚙)は、API が無ければ出さない作り
+                    and not ("409" in x and "/api/archive" in x)]   # 文書を続けて切り替えると、前の文書の自動の保管が「別の保管の最中」で飛ばされる(黙って次の機会に)
+        check(not bad_http, "読み込みの失敗なし: %s" % bad_http[:3])
     finally:
         srv.stop()
     print("\n結果:", "すべて成功" if check.ok else "失敗あり")

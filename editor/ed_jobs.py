@@ -1251,6 +1251,9 @@ def record_rerun(doc, spec, kind, spans, replaced):
     spans = [[round(float(a), 3), round(float(b), 3)] for a, b in spans]
     if not spans:
         return
+    # 機械が行を書き換えるので、「動画を全部聞いて確かめた」印(評価ドリル。ed_drill)も外す。行の proofed を外すのと同じ時に。
+    # 再認識(each・range・whole)と疑わしい所の認識し直し(redo)は、どれも差し替える前にここを通る
+    doc.pop("evalReviewed", None)
     fake = ed_state.backend_name() == "fake"
     try:
         eng = tx_engines.get(engine_of(spec))

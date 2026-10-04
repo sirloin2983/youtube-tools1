@@ -238,6 +238,7 @@ function syncEval(){
   const on = !!(S.doc && S.doc.evalSet), lock = !!(S.doc && S.doc.evalLocked), cb = $('#evalSet');
   cb.checked = on || lock; cb.disabled = lock; cb.parentElement.title = lock ? EVAL_LOCK_MSG : EVAL_TITLE;
   $('#evalBanner').hidden = !(on || lock); renderVoiceLearn();   // 評価用では「声を覚える」を押せない(監査02)
+  renderDrillBar();   // 評価ドリルの帯と「確かめ済み」(開いた文書・評価用の切り替えに合わせる。renderEvalReview も呼ぶ)
 }
 
 /* 評価用のフォルダ(⚙。サーバーの設定 evalDirs = api/settings/patch。整理 = 動画の名前をそろえて文書を付け替える) */
@@ -461,6 +462,10 @@ function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
   const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
   const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(B-1。同じ動画の文書が複数あっても選んだ文書)
+  if (q.get('drill') === '1'){   // 評価ドリル(Q4)。?drill=1 は URL に残す(再読み込みで続ける)。文書が無ければ次の 1 本を選ぶ
+    DR.on = true; drillLoad(); renderDrillBar(); txKeybarScene();
+    if (!docId && !q.has('media') && !q.has('clip')){ drillStart(false); return true; }
+  } else if (q.has('drill')){ q.delete('drill'); setUrlDrill(false); }
   const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」。段5 5-1・B-5)
   if (!q.has('media') && !q.has('clip') && !q.has('doc') && !list) return false;
   q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。監査 06。開けなければ下で消す)

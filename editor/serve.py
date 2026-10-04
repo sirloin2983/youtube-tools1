@@ -49,11 +49,11 @@
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
-  評価ドリル(マスタープラン Q4。docs/plan/q3-q4-design.md の (c)。本体は ed_drill.py):
-  GET  /drill.html, /drill.js, /ui-kit.css   画面(ui-kit.css は index.html の ui-kit の CSS を切り出したもの)
-  GET  /api/drill/pick?n=&seed=   評価用の未校正の行を乱数で n 行(同じ文書から 2 行まで・直近 10 分に更新した文書は除く)
-  POST /api/drill/row        {id, rowId, baseUpdatedAt, text, speaker | speakerName, tags, proofed, activeSec?, newSession?} 1 行の保存(updatedAt が違えば 409)
-  GET  /api/drill/status     定点(評価用の校正済み 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名)
+  評価ドリル(マスタープラン Q4。docs/plan/q3-q4-design.md の (c)。本体は ed_drill.py。画面は編集の ?doc=<id>&drill=1):
+  GET  /api/drill/next?skip=<id,…>  次の評価用の動画 1 本(まだ確かめていない・直近 10 分に更新していない・処理中でない・動画がある)を乱数で
+  POST /api/drill/reviewed   {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed と残りの行の校正済み(updatedAt が違えば 409)
+  POST /api/drill/unreviewed {id, baseUpdatedAt} 確かめ済みの印を外す
+  GET  /api/drill/status     定点(確かめ済みの評価用の動画 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名)
   GET  /api/drill/candidates?id=  話者の候補(覚えた声 → メンバーのフォルダ → 配信の文脈)
 
 127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
@@ -113,7 +113,7 @@ import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.47.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.48.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -310,16 +310,6 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/lite", "/lite.html"):   # 友人用 文字起こし簡易版の画面(docs/plan/friend-lite-plan.md)
                 with open(ed_state.LITE_HTML, "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
-            if u.path in ("/drill", "/drill.html", "/drill.js") and os.path.isfile(os.path.join(ed_state.ROOT, (u.path if "." in u.path else u.path + ".html").lstrip("/"))):
-                # 評価ドリルの画面(マスタープラン Q4。docs/plan/q3-q4-design.md の (c))。簡易版と同じ配り方(CSP のため JS は別ファイル)
-                n = (u.path if "." in u.path else u.path + ".html").lstrip("/")
-                with open(os.path.join(ed_state.ROOT, n), "rb") as f:
-                    body = f.read()
-                ext = n.rsplit(".", 1)[1]
-                return self._send(200, body, {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8"}[ext],
-                                  PAGE_HEADERS if ext == "html" else None)
-            if u.path == "/ui-kit.css":   # ui-kit の CSS(index.html の印の間を切り出す。drill.html が読む。ed_drill.drill_kit_css)
-                return self._send(200, ed_drill.drill_kit_css(), "text/css; charset=utf-8")
             if u.path == "/app.js":
                 with open(ed_state.APP_JS, "rb") as f:
                     return self._send(200, f.read(), "text/javascript; charset=utf-8")
@@ -397,9 +387,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_misc.progress_stats())
             if u.path == "/api/drill/status":   # 評価ドリル(Q4): 定点の「あと何分」と条件
                 return self._json(200, ed_drill.drill_status())
-            if u.path == "/api/drill/pick":     # 評価用の未校正の行を乱数で(読むだけ)
-                n, seed = (q.get("n") or [""])[0], (q.get("seed") or [""])[0]
-                return self._json(200, ed_drill.drill_pick(int(n) if n.isdigit() else ed_drill.DRILL_ROWS, seed or None))
+            if u.path == "/api/drill/next":     # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
+                return self._json(200, ed_drill.drill_next((q.get("skip") or [""])[0]))
             if u.path == "/api/drill/candidates":   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
                 return self._json(200, ed_drill.drill_candidates((q.get("id") or [""])[0]))
             if u.path == "/api/dataset":
@@ -641,8 +630,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_store.edit_preview(obj))
             if path == "/api/effort":
                 return self._json(200, ed_store.add_effort(obj))
-            if path == "/api/drill/row":   # 評価ドリル(Q4): 1 行の保存(409 = 別の所で変わった)
-                return self._json(200, ed_drill.drill_row(obj))
+            if path == "/api/drill/reviewed":     # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
+                return self._json(200, ed_drill.drill_reviewed(obj))
+            if path == "/api/drill/unreviewed":   # 確かめ済みの印を外す
+                return self._json(200, ed_drill.drill_unreviewed(obj))
             if path == "/api/transcribe/cancel":
                 ed_jobs.cancel_job(obj.get("id"))
                 return self._json(200, {"ok": True})
@@ -672,7 +663,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/transcript":
                 tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
                 doc = ed_store.save_transcript(tid, obj)
-                return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True})
+                return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True,
+                                        "evalReviewed": doc.get("evalReviewed")})   # 確かめ済みの印(評価用を外すと消える。画面の表示を合わせる)
             if u.path == "/api/edit":
                 if len(json.dumps(obj)) > ed_store.MAX_EDIT_BYTES:
                     raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)

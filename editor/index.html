@@ -782,6 +782,14 @@ html.vid-audio video{height:54px;max-height:none}
 #playerMsg .btn{margin-left:6px;vertical-align:baseline}
 #diarBanner{margin:8px 0 0}
 #conflictBar{margin:0 0 8px}#conflictBar .row{margin-top:6px}
+/* 評価ドリルの帯(?drill=1。マスタープラン Q4)と、評価用の文書の「確かめ済み」(app-learn.js の renderDrillBar・renderEvalReview) */
+.tt-drill{margin:0 0 10px;padding:8px 12px;border:1px solid var(--accent-line);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
+.tt-drill-main{display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;font-size:13.5px}
+.tt-drill p{margin:4px 0 0}
+.tt-drill .row{margin-top:6px}
+.tt-drill .btn kbd{margin-left:4px}
+.tt-evrev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
+.tt-evrev .hint{flex:1 1 220px;margin:0}
 /* 道具の段(再生・編集・探す)。段ごとに細い線で区切る */
 .tools{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;margin:0;padding:8px 0;border-top:1px solid var(--line)}
 .tools-play{margin-top:10px}
@@ -1323,12 +1331,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
     <div id="goalMs"></div>
     <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
-    <!-- 定点(評価用の校正済み 15 分)の「あと何分」と条件(マスタープラン Q4。GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口 -->
+    <!-- 定点(確かめ済みの評価用の動画 15 分)の「あと何分」と条件(マスタープラン Q4。GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口 -->
     <div id="drillStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
-      <div style="font-weight:600;font-size:13.5px">定点(評価用の校正済み 15 分)</div>
+      <div style="font-weight:600;font-size:13.5px">定点(全部聞いて確かめた評価用の動画 15 分)</div>
       <p id="drillLeft" style="margin:4px 0 0;font-size:13.5px"></p>
       <p class="hint" id="drillConds" style="margin:2px 0 0"></p>
-      <a class="ui-next" id="drillLink" href="drill.html" title="評価用の文書の未校正の行を、乱数で 20 行選んで 1 行ずつ聞いて直します(1〜2 分)">評価ドリルで 20 行を直す →</a></div>
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="drillGo" title="まだ確かめていない評価用の動画を 1 本ずつ(乱数で)開きます。全部聞いて直したら「済みにして次へ」">評価ドリルを始める →</button></div></div>
     <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
     <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
@@ -1431,6 +1439,17 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      </details>
    </div>
    <div class="tt-tabpanel" id="tabTx" role="tabpanel" aria-labelledby="edtab-tx" data-edpanel="tx">
+   <!-- 評価ドリル(URL の ?drill=1。マスタープラン Q4 = docs/plan/q3-q4-design.md の (c))。評価用の動画を 1 本ずつ、この校正の画面で全部聞いて直す帯。
+        「済みにして次へ」= 保存し終えてから api/drill/reviewed → api/drill/next → その文書を開く。app-learn.js の drill*・状態は app.js の DR -->
+   <section class="tt-drill" id="drillBar" hidden aria-label="評価ドリル">
+     <div class="tt-drill-main"><b>評価ドリル</b><span class="pill" id="drPill"></span><span id="drLeft"></span><span class="hint" id="drCount"></span></div>
+     <p class="hint" id="drConds"></p>
+     <p class="hint" id="drHelp">動画をはじめから終わりまで聞いて、文字・行と行のすき間(抜け)・話していない所の行・結合・分割・時刻・話者まで直したら「済みにして次へ」。聞き取れない所は「聞き取れない」の印を付けます。</p>
+     <p class="hint" id="drNone" role="status" hidden></p>
+     <div class="row"><button type="button" class="btn small primary" id="drDone" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にして(残りの行も校正済みに)、次の動画を開きます">済みにして次へ<span id="drDoneKey"></span></button>
+       <button type="button" class="btn small" id="drSkip" title="この動画は今回のドリルでは出しません(直した分は保存します)">飛ばして次へ<span id="drSkipKey"></span></button>
+       <button type="button" class="btn small ghost" id="drEnd">ドリルを終える</button></div>
+   </section>
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
      <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。docs/spec/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
@@ -1466,6 +1485,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
       <div id="docClip" class="tt-clip" hidden></div>
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
+      <!-- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。定点に数えるのはこれだけ)。ドリルの間は上の帯に出すので隠す。app-learn.js の renderEvalReview -->
+      <div class="tt-evrev" id="evrBox" hidden><span class="pill" id="evrPill"></span><span class="hint" id="evrText"></span>
+        <button type="button" class="btn small" id="evrMark" title="編集中の内容を保存してから、この動画を「全部聞いて確かめた」にします(残りの行も校正済みに)">全部聞いて直したので済みにする</button>
+        <button type="button" class="btn small ghost" id="evrUndo" hidden>取り消す</button></div>
       <div id="conflictBar" class="notice" hidden role="alert"><b>別の場所で先に更新されています。</b>別のタブ・再認識・話者判別などで、保存済みの内容がこの画面の読み込み時と変わっています。自動保存は止めています。
         <div class="row"><button type="button" class="btn small" id="cfReload">保存済みの内容を読み込み直す(この画面の未保存の変更は消えます)</button><button type="button" class="btn small danger" id="cfForce">この画面の内容で上書きする</button></div></div>
       <!-- 映像と再生の道具。1列の画面(狭い画面)では、ここだけを画面の上に固定する(一覧に早く届くように) -->

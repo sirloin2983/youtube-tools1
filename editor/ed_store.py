@@ -102,9 +102,26 @@ def sanitize_transcript(obj, base=None):
             out.pop("evalSet", None)
     if ed_relink.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
         out["evalSet"] = True
+    # 「動画を全部聞いて確かめた」印(評価ドリル。ed_drill.drill_reviewed)は base から引き継ぐだけ(画面から送られた値は使わない = out は base の写し)。
+    # 評価用を外したら一緒に外す(評価用でない間は一括置換・再認識などで機械が書き換えられるため、付け直すときは聞き直す)
+    if out.get("evalSet") is not True:
+        out.pop("evalReviewed", None)
     out.update({"title": str(obj.get("title", out.get("title", "")))[:120], "speakers": speakers, "segments": segs,
                 "updatedAt": now})
     return out
+
+
+def doc_length(d):
+    """文書の長さ(秒): 範囲の終わり − 始まり → 動画の長さ − 始まり → 無ければ(古い文書・長さの記録が無い文書)最後の行の終わりまで"""
+    segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
+    a = ed_state.num(d.get("start"), 0.0) or 0.0
+    b = ed_state.num(d.get("end"))
+    dur = ed_state.num(d.get("duration"))
+    if b is not None and b > a:
+        return b - a
+    if dur is not None and dur > a:
+        return dur - a
+    return max(0.0, max([ed_state.num(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
 _summary_cache = {}   # tid -> ((更新日時ns, 大きさ), 要約)。一覧・文字起こし済みの判定のたびに、全部の文書を JSON として読み直さないため
@@ -127,15 +144,7 @@ def transcript_summary(tid):
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
     text_rows = sum(1 for s in segs if str(s.get("text") or "").strip())
     proofed = sum(1 for s in segs if s.get("proofed") is True and str(s.get("text") or "").strip())
-    a = ed_state.num(d.get("start"), 0.0) or 0.0
-    b = ed_state.num(d.get("end"))
-    dur = ed_state.num(d.get("duration"))
-    if b is not None and b > a:
-        length = b - a
-    elif dur is not None and dur > a:
-        length = dur - a
-    else:   # 古い文書・長さの記録が無い文書は、最後の行の終わりまで
-        length = max([ed_state.num(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a
+    length = doc_length(d)
     clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
     src = clip.get("source") if clip and isinstance(clip.get("source"), dict) else {}
     rng = clip.get("range") if clip and isinstance(clip.get("range"), dict) else {}
@@ -923,6 +932,7 @@ def fill_doc(spec, fields):
             doc["clip"] = spec["clip"]
         if spec.get("evalSet"):
             doc["evalSet"] = True   # 評価用として文字起こしした(外すのは画面の「評価用にする」)
+        doc.pop("evalReviewed", None)   # 機械が行を書いたので「全部聞いて確かめた」印は外す(行の無い文書を確かめ済みにしていたとき)
         apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
         ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         return tid

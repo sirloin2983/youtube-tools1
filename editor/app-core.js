@@ -125,7 +125,8 @@ function txKeybarScene(){
   else {   // 割り当て(⚙ 設定の「キー配置」)のとおりに出す
     const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
     UIKit.keybar.set([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
-      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' }, { k: [k('back3'), k('fwd3')].filter(Boolean).join(' / '), l: '3秒' }, { k: '?', l: 'キー操作' }].filter(x => x.k));
+      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' }, { k: [k('back3'), k('fwd3')].filter(Boolean).join(' / '), l: '3秒' },
+      ...(DR.on ? [{ k: k('drillDone'), l: '済みにして次へ' }] : []), { k: '?', l: 'キー操作' }].filter(x => x.k));   // 評価ドリルの間は「済みにして次へ」も
   }
 }
 
@@ -331,10 +332,11 @@ function renderProgress(){
   try { const o = JSON.parse(localStorage.getItem('tx.goalday') || 'null'); if (o && o.day === todayKey() && Number.isFinite(o.base)) base = o.base; else localStorage.setItem('tx.goalday', JSON.stringify({ day: todayKey(), base: cur })); } catch {}
   const gain = Math.max(0, cur - base);
   $('#goalToday').textContent = gain > 0 ? `今日は ${fmtDur(gain)} 進みました` : '今日はまだ進んでいません';
-  { const n = PG.evalDocs, sec = PG.evalProofedSec, need = 1200, ok = n > 0 && sec >= need && !PG.evalPendingLines;
-    $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済み <b>${fmtDur(sec)}</b> / 目安 ${fmtDur(need)}以上 ・ 全行校正済み ${PG.evalDocsDone}/${n}本</p>`
-      + `<p class="hint" style="margin:2px 0 0">${ok ? '準備できました。「認識精度の測定」で「基準を記録」を押して、出発点を残してください。' : `${[PG.evalPendingLines ? `未校正の行が${PG.evalPendingLines}行あります` : '', sec < need ? `校正済みがあと ${fmtDur(need - sec)} ほど足りません` : ''].filter(Boolean).join(' ・ ')}。評価用は、全行を校正してください。`}</p>`
-      : `<p class="hint" style="margin:4px 0 0">まだありません。文字起こしを開いて「評価用にする」にチェックしてください(2〜3本・合計20分以上が目安)。校正を始める前に決めてください。</p>`); }
+  /* 評価用の本数と校正済みの行(学習用と分けて数える)。精度の目標は下の「定点」(全部聞いて確かめた動画 15 分。renderDrillStat)に一本化した(Q4。以前の「目安 20 分・全行を校正」はやめた) */
+  { const n = PG.evalDocs;
+    $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済みの行 ${PG.evalProofedLines}行(${fmtDur(PG.evalProofedSec)})</p>`
+      + `<p class="hint" style="margin:2px 0 0">精度の測定の正解(定点)に数えるのは、動画を全部聞いて「済み」にしたものだけです(下の評価ドリル)。</p>`
+      : `<p class="hint" style="margin:4px 0 0">まだありません。⚙ の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
   const p = $('#goalPill'); p.hidden = false;
   $('#goalPillT').textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}`;
   $('#goalPillBar').style.width = pct + '%';

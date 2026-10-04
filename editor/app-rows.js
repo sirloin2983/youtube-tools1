@@ -32,6 +32,7 @@ function saveDoc(){
         if (S.docId !== id) return false;
         S.baseUpdatedAt = r.updatedAt; S.forceNext = false;
         if (r.evalSet === true && !S.doc.evalSet){ S.doc.evalSet = true; syncEval(); }   // 評価用のフォルダの動画はサーバーが印を付ける
+        if ('evalReviewed' in r && !!r.evalReviewed !== !!S.doc.evalReviewed){ S.doc.evalReviewed = r.evalReviewed || undefined; renderEvalReview(); renderDrillBar(); }   // 評価用を外すと確かめ済みの印も消える(サーバー)
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
         scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
         syncListItem(); cpAfterSave();
@@ -485,7 +486,7 @@ function txActionOf(combo){ return KM ? KM.actionOf(combo) : null; }
 
 function renderKeyUI(){
   const km = keymap();
-  txKeybarScene();
+  txKeybarScene(); renderDrillBar();   // 評価ドリルの帯のボタンのキーも今の割り当てで
   /* 一覧の上の手がかり */
   const hint = $('#keyHintItems');
   if (hint) hint.innerHTML = [['rowNext', '次の行'], ['replay', '聞く'], ['playPause', '再生・停止'], ['proof', '校正済みにして次へ'], ['edit', '直す']]

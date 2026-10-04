@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.47.0';
+const APP_VERSION = '0.48.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -193,6 +193,9 @@ const VOICE_SKIP = [['unproofed', '未校正'], ['tagged', '音のメモ(重な�
 const voiceSec = s => s >= 60 ? `${Math.round(s / 6) / 10}分` : `${Math.round(s)}秒`;
 /* 全行をこの人に(評価用。マスタープラン Q4。app-jobs.js の renderSpAll)。候補は文書ごとに api/drill/candidates から1回 */
 const SPALL = { id: null, cands: [], suggest: '' };
+/* 評価ドリル(URL の ?drill=1。マスタープラン Q4。app-learn.js の drill*): on = 帯を出している・done = このドリルで済みにした本数・skip = 飛ばした文書(次に出さない)・
+   none = 次に出せる動画が無い理由・status = api/drill/status(定点の残りと条件)・busy = 済み/飛ばすの途中 */
+const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 $('#voiceList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=vdel]'); if (!b) return;
@@ -257,6 +260,13 @@ $('#diarGo').addEventListener('click', e => {
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
   if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run, 'もう一度押すと判別し直します(今の話者は置き換わります)'); else run();
 });
+/* 評価ドリル(帯のボタン・進行度のカードの「始める」)と、評価用の文書の「確かめ済み」(app-learn.js) */
+$('#drDone').addEventListener('click', () => drillDone());
+$('#drSkip').addEventListener('click', () => drillSkip());
+$('#drEnd').addEventListener('click', () => drillEnd());
+$('#drillGo').addEventListener('click', () => { if (!DR.on) drillStart(); });
+$('#evrMark').addEventListener('click', async e => { const b = e.currentTarget; b.disabled = true; try { await evalReviewHere(); } finally { b.disabled = false; renderEvalReview(); } });
+$('#evrUndo').addEventListener('click', () => unmarkReviewed());
 $('#spAllName').addEventListener('change', () => { syncSpAllNew(); if ($('#spAllName').value === 'other') $('#spAllNew').focus(); });
 $('#spAllGo').addEventListener('click', async e => {
   const b = e.currentTarget; b.disabled = true;
@@ -710,9 +720,11 @@ const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), �
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
   ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
-  ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
+  ['menu', 'g', '左のメニューを開く/閉じる', 'screen'],
+  /* 評価ドリル(?drill=1 の帯が出ているときだけ働く)。単体キーにしない(押し間違いで「全部聞いた」にならないように Shift つき) */
+  ['drillDone', 'Shift+d', '評価ドリル: 済みにして次へ', 'drill'], ['drillSkip', 'Shift+n', '評価ドリル: 飛ばして次へ', 'drill']
 ];
-const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面']];
+const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['drill', '評価ドリル(帯が出ているときだけ)']];
 const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
 /* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
@@ -750,7 +762,8 @@ const KEY_FN = {
   tagUnclear: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, tagOverlap: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
   tagBgm: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
-  del: () => deleteCur(), menu: () => toggleMenu()
+  del: () => deleteCur(), menu: () => toggleMenu(),
+  drillDone: () => drillKey('drillDone'), drillSkip: () => drillKey('drillSkip')
 };
 /* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない(GPT-04・段3 3-1 監査 04):
    (a) 本文の上に重ねて開いている間(フォーカスが幕・本文のどこにあっても)または (b) フォーカスがメニューの中にある間(並べて出す 1600px 以上でも)。
