@@ -81,6 +81,7 @@ class WhisperCppTest(unittest.TestCase):
         self.assertEqual((a[a.index("-vt") + 1], a[a.index("-vsd") + 1], a[a.index("-vp") + 1]), ("0.3", "1000", "600"))   # 声の検出「弱め」
         self.assertEqual(a[a.index("-nth") + 1], "0.9")
         self.assertNotIn("-ng", a)
+        self.assertIn("-nfa", a)                                           # フラッシュアテンションは既定で使わない(時刻が 1 秒単位に丸まる。2026-10-04)
         self.assertEqual(len(segs), 3)                                     # 10 秒 ÷ 4 秒
         s = segs[0]
         self.assertEqual((s.start, s.end, s.text), (0.0, 4.0, "テスト文1"))
@@ -241,6 +242,121 @@ class WhisperCppTest(unittest.TestCase):
             self.assertEqual(cm.exception.code, "bad_model")
             self.assertIn("large-v3", cm.exception.message)                 # 使えるモデルを案内する
             self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda"})["engine"], "faster-whisper")
+
+
+    def test_flash_attn_env(self):
+        """TRANSCRIBE_WCPP_FA=1 のときだけフラッシュアテンションを使う(-nfa を付けない)"""
+        e = self.engine()
+        kw = {"language": "ja", "beam_size": 5}
+        self.assertIn("-nfa", e.args(self.wav, os.path.join(self.tmp, "o"), kw))
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_FA": "1"}):
+            self.assertNotIn("-nfa", e.args(self.wav, os.path.join(self.tmp, "o"), kw))
+
+
+def make_level_wav(path, loud, sec):
+    """音の大きさを区間で決めた wav(loud = [(開始秒, 終了秒)] の所だけ 0.3 の大きさの音・ほかは無音)"""
+    import math as _m
+    import array as _a
+    x = _a.array("h", [0] * int(16000 * sec))
+    for a, b in loud:
+        for i in range(int(a * 16000), min(len(x), int(b * 16000))):
+            x[i] = int(0.3 * 32767 * _m.sin(i * 0.1))
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(x.tobytes())
+
+
+def row(a, b, text, words=None):
+    return {"start": a, "end": b, "text": text, "_words": words if words is not None else [(a, b, text)]}
+
+
+class RowTidyTest(unittest.TestCase):
+    """行の後処理(2026-10-04): 音声の長さで切る・同じ文字の行をまとめる・whisper.cpp の行の終わりを声の終わりへ寄せる"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="tidy-test-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_clip_rows_to_duration(self):
+        rows = [row(0.0, 2.0, "はい"), row(39.0, 42.0, "ああ", [(39.0, 40.5, "あ"), (40.5, 42.0, "あ")]), row(41.0, 43.0, "うう")]
+        out = list(S.clip_rows(rows, 40.7))
+        self.assertEqual([(r["start"], r["end"]) for r in out], [(0.0, 2.0), (39.0, 40.7)])   # 後ろの行は捨て、終わりは長さで切る
+        self.assertEqual(out[1]["_words"], [(39.0, 40.5, "あ"), (40.5, 40.7, "あ")])         # 単語は捨てずに時刻を収める
+
+    def test_merge_same_char_rows(self):
+        rows = [row(0.0, 1.0, "痛い"), row(1.0, 1.5, "ああ"), row(1.6, 2.0, "あああああ"), row(2.1, 2.5, "ああ!"), row(2.6, 3.0, "ああ"),
+                row(3.0, 4.0, "早く!早く!"), row(4.0, 5.0, "早く!早く!"), row(5.0, 6.0, "早く!早く!")]
+        out = list(S.merge_repeats(rows))
+        self.assertEqual([r["text"] for r in out], ["痛い", "あ" * 9 + "!ああ", "早く!早く!", "早く!早く!", "早く!早く!"])
+        m = out[1]
+        self.assertEqual((m["start"], m["end"], m["_rep"]), (1.0, 3.0, 4))                # 4 行 → 1 行(始まり = 最初・終わり = 最後)
+        self.assertEqual(len(m["_words"]), 4)                                             # 単語はつなぐ
+        self.assertNotIn("_rep", out[2])                                                  # 意味のある語の繰り返しの行はまとめない
+        self.assertIn("繰り返しの可能性", S.make_flags(m, []))
+
+    def test_merge_needs_three_rows_and_close(self):
+        out = list(S.merge_repeats([row(0.0, 1.0, "ああ"), row(1.1, 2.0, "ああ")]))
+        self.assertEqual(len(out), 2)                                                     # 2 行はそのまま
+        out = list(S.merge_repeats([row(0.0, 1.0, "ああ"), row(1.1, 2.0, "ああ"), row(5.0, 6.0, "ああ")]))
+        self.assertEqual(len(out), 3)                                                     # 間が 1 秒より大きければ続きではない
+        out = list(S.merge_repeats([row(0.0, 1.0, "ああ"), row(1.1, 2.0, "うう"), row(2.1, 3.0, "ああ")]))
+        self.assertEqual(len(out), 3)                                                     # 違う文字
+
+    def test_squash_long_char_run(self):
+        out = list(S.merge_repeats([row(0.0, 3.0, "うわ" + "あ" * 40)]))
+        self.assertEqual(out[0]["text"], "うわ" + "あ" * S.REP_CHAR_KEEP)
+        self.assertEqual(out[0]["_rep"], 1)
+        self.assertNotIn("_rep", list(S.merge_repeats([row(0.0, 1.0, "すごーーい")]))[0])
+
+    def test_pull_end_to_voice_end(self):
+        wav = os.path.join(self.tmp, "a.wav")
+        make_level_wav(wav, [(0.0, 1.70), (2.00, 3.0)], 3.0)   # 声 0〜1.70・無音・次の声 2.00〜
+        lv = S.WavLevels(wav)
+        a, b = row(0.0, 1.98, "前の行"), row(2.0, 3.0, "次の行")
+        p = S.pull_end(a, b, lv)
+        self.assertAlmostEqual(p["end"], 1.70 + S.PULL_PAD, delta=0.03)                  # 無音の始まり + 余白へ
+        self.assertLessEqual(p["_words"][-1][1], p["end"])                                # 単語の時刻も行の中
+        self.assertEqual(p["text"], "前の行")
+        self.assertEqual(S.pull_end(a, row(2.5, 3.0, "次"), lv), a)                       # 次の行が離れていれば寄せない
+        c = S.pull_end(row(0.0, 1.60, "x"), row(1.6, 3.0, "y"), lv)                      # 終わりの前が声ばかり → 谷は窓の中の小さい所(遅くはしない)
+        self.assertLessEqual(c["end"], 1.60)
+        self.assertGreaterEqual(c["end"], 1.60 - S.PULL_BACK)
+        short = row(1.5, 1.98, "短")
+        self.assertGreaterEqual(S.pull_end(short, b, lv)["end"], 1.5 + S.PULL_MIN)         # 行の長さの下限
+        self.assertEqual(S.WavLevels(os.path.join(self.tmp, "none.wav")).db(0, 1), [])   # 読めない wav は寄せない
+
+    def test_levels_only_for_whispercpp(self):
+        wav = os.path.join(self.tmp, "a.wav")
+        make_level_wav(wav, [(0.0, 1.0)], 2.0)
+        self.assertIsNone(S.row_levels({"engine": "faster-whisper"}, wav))               # faster-whisper の行の終わりは早めに来ている(寄せると悪くなった)
+        self.assertIsNone(S.row_levels({}, wav))
+        self.assertIsNotNone(S.row_levels({"engine": "whisper.cpp"}, wav))
+        lv = S.WavLevels(wav, base=0.5)                                                   # 範囲の再認識: 行の 0 秒 = wav の 0.5 秒目
+        fr = lv.db(0.0, 0.2)
+        self.assertAlmostEqual(fr[0][0], 0.005, delta=0.011)
+        self.assertGreater(fr[0][1], -20)                                                 # 声のある所
+        self.assertLess(lv.db(0.7, 0.8)[0][1], -100)                                      # wav の 1.2 秒目 = 無音
+
+    def test_expand_segments_whole_flow(self):
+        wav = os.path.join(self.tmp, "a.wav")
+        make_level_wav(wav, [(0.0, 1.70), (2.0, 4.0)], 5.0)
+        seg = {"start": 0.0, "end": 9.0, "text": "前の行次の行あああ", "words": [(0.0, 1.98, "前の行"), (2.0, 4.0, "次の行"), (6.0, 9.0, "あああ")]}
+        spec = {"wordSplit": True, "splitChars": 16, "stripPunct": True, "engine": "whisper.cpp"}
+        out = list(S.expand_segments([seg], spec, 5.0, S.row_levels(spec, wav)))
+        self.assertEqual([r["text"] for r in out], ["前の行次の行"])                     # 5 秒より後ろの行は捨てる
+        self.assertEqual(out[0]["end"], 4.0)
+        seg2 = {"start": 0.0, "end": 4.0, "text": "前の行次の行", "words": [(0.0, 1.98, "前の行"), (2.0, 4.0, "次の行")]}
+        # 単語の時刻で分けた行(splitChars 3)の境目が、声の終わりへ寄る
+        out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0, S.row_levels(spec, wav)))
+        self.assertEqual([r["text"] for r in out], ["前の行", "次の行"])
+        self.assertAlmostEqual(out[0]["end"], 1.75, delta=0.03)
+        self.assertEqual(out[1]["start"], 2.0)                                             # 次の行の始まりは変えない
+        out = list(S.expand_segments([seg2], dict(spec, splitChars=3, engine="faster-whisper"), 5.0, S.row_levels(dict(spec, engine="faster-whisper"), wav)))
+        self.assertEqual(out[0]["end"], 1.98)                                              # faster-whisper は寄せない
 
 
 if __name__ == "__main__":

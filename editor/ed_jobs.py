@@ -733,7 +733,7 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     if ns is not None and ns > 0.6:
         why.append("音声でない可能性(BGMなど)")
     text = seg["text"]
-    if (cr is not None and cr > 2.4) or repeats_in_line(text):
+    if (cr is not None and cr > 2.4) or repeats_in_line(text) or seg.get("_rep"):   # _rep = 同じ文字の行をまとめた・縮めた(merge_repeats)
         why.append("繰り返しの可能性")
     dur = seg["end"] - seg["start"]
     if stock_phrase(text) and dur < 8:
@@ -1132,15 +1132,193 @@ def split_segment(s, max_chars=SPLIT_CHARS):
     return out or [s]
 
 
-def expand_segments(gen, spec):
+def expand_segments(gen, spec, dur=None, levels=None):
     """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
-    (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。"""
+    (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
+    2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)・
+    levels(row_levels。whisper.cpp のときだけ)があれば、続いている行の終わりを声の終わりへ寄せる(pull_ends)"""
     strip = spec.get("stripPunct", True)
     mc = spec.get("splitChars") or SPLIT_CHARS
-    for s in gen:
-        for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]):
-            yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
+    rows = (p for s in gen for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]))
+    if dur:
+        rows = clip_rows(rows, dur)
+    rows = merge_repeats(rows)
+    if levels is not None:
+        rows = pull_ends(rows, levels)
+    for p in rows:
+        yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
+
+
+# ---------- 行の後処理(2026-10-04。ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
+# 測った結果と理由は README の「次の版の変更」と editor/AGENTS.md の「行の後処理」
+REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
+REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
+REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
+PULL_GAP = 0.3        # 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを寄せる
+PULL_BACK = 0.4       # 終わりを早める上限(秒)。この幅の中の音の谷(いちばん小さい所)の左の端へ寄せる
+PULL_RISE = 6.0       # 谷から何 dB 上までを「谷の続き」とみるか
+PULL_TOL = 3.0        # 谷の候補(いちばん小さい音 + この dB 以内)のうち、いちばん後ろ(次の声の直前)を選ぶ
+PULL_PAD = 0.05       # 寄せた所に足す余白(秒。声の終わりをちょうど切らない)
+PULL_MIN = 0.3        # 寄せたあとの行の長さの下限(秒)
+_SAME_CHAR_RUN = re.compile(r"(.)\1{%d,}" % REP_CHAR_KEEP)
+
+
+def _clip_words(p, lo, hi):
+    """行の単語("_words" か "words")の時刻を [lo, hi] の中に収める(単語は捨てない = 行の文字と単語の並びは合ったまま)"""
+    key = "_words" if p.get("_words") is not None else "words"
+    ws = p.get(key)
+    if not ws:
+        return p
+    out = []
+    for a, b, t in ws:
+        a2 = min(hi, max(lo, a))
+        out.append((a2, min(hi, max(a2, b)), t))
+    return {**p, key: out}
+
+
+def clip_rows(rows, dur):
+    """音声の長さ dur より後ろの行を捨て、終わりを dur で切る。whisper.cpp は最後の 30 秒の窓の残り(無音で埋めた所)に、
+    音声の長さを越える時刻の行を出すことがある(40.7 秒の音声に 56 秒までの「ああああ」18 行。2026-10-04)"""
+    for p in rows:
+        if p["start"] >= dur:
+            continue
+        if p["end"] > dur:
+            p = _clip_words({**p, "end": dur}, p["start"], dur)
+        yield p
+
+
+def _one_char(text):
+    """行の文字(句読点・空白を除く)が同じ1文字の2つ以上の続きなら、その文字。そうでなければ None"""
+    k = _letters(text)
+    return k[0] if len(k) >= 2 and k == k[0] * len(k) else None
+
+
+def merge_repeats(rows):
+    """同じ1文字だけの行(「ああ」「ああああああ」)が REP_ROWS 行以上続いたら(すき間 REP_ROW_GAP 秒以下)、1行にまとめる(始まり = 最初・終わり = 最後・
+    単語はつなぐ・"_rep" = まとめた行の数 → make_flags が「繰り返しの可能性」)。どの行も、同じ文字の続きは REP_CHAR_KEEP 文字までに縮める。
+    「早く!早く!…」のように意味のある語の繰り返しの行は、本当に言っていることが多いのでまとめない(印は従来どおり)"""
+    buf = []
+
+    def flush():
+        if len(buf) >= REP_ROWS:
+            words = [w for p in buf for w in (p.get("_words") if p.get("_words") is not None else p.get("words") or [])]
+            m = {**buf[0], "end": max(p["end"] for p in buf), "text": "".join(p["text"] for p in buf), "_rep": len(buf)}
+            m.pop("words", None)
+            m["_words"] = words
+            out = [m]
+        else:
+            out = list(buf)
+        buf.clear()
+        return [_squash_row(p) for p in out]
+
+    for p in rows:
+        c = _one_char(p.get("text"))
+        if buf and (c is None or c != _one_char(buf[-1].get("text")) or p["start"] - buf[-1]["end"] > REP_ROW_GAP):
+            yield from flush()
+        if c is None:
+            yield _squash_row(p)
+        else:
+            buf.append(p)
+    yield from flush()
+
+
+def _squash_row(p):
+    """行の中の同じ文字の続きを REP_CHAR_KEEP 文字までに縮める(縮めたら "_rep")"""
+    t = p.get("text") or ""
+    s = _SAME_CHAR_RUN.sub(lambda m: m.group(1) * REP_CHAR_KEEP, t)
+    if s == t:
+        return p
+    return {**p, "text": s, "_rep": p.get("_rep") or 1}
+
+
+class WavLevels:
+    """wav(16kHz・モノラル・16bit。extract_audio が作るもの)の音の大きさ(dB)を、要る所だけ読む。numpy を使わない(サーバー側のプロセスで使える)。
+    base = 行の時刻 0 が wav の何秒目か。形式が違う・読めないときは db() が [] を返す(寄せない)"""
+    RATE, HOP = 16000, 160   # 10ms ごとに、前後を合わせた 30ms(10ms の塊 3 つ)の RMS
+
+    def __init__(self, path, base=0.0):
+        self.path, self.base = path, float(base or 0.0)
+        self.ok = False
+        try:
+            with wave.open(path, "rb") as w:
+                self.ok = w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == self.RATE
+                self.n = w.getnframes()
+        except (OSError, wave.Error, EOFError):
+            self.ok = False
+
+    def db(self, t0, t1):
+        """[(秒(行の時刻), dB)](t0〜t1 の 0.01 秒ごと)"""
+        if not self.ok or t1 <= t0:
+            return []
+        nb = self.n // self.HOP   # 10ms の塊の数
+        k0 = max(0, int(round((t0 + self.base) * 100)))
+        k1 = min(nb - 1, int(round((t1 + self.base) * 100)))
+        if k1 < k0:
+            return []
+        j0, j1 = max(0, k0 - 1), min(nb - 1, k1 + 1)   # 読む塊(前後に1つずつ)
+        try:
+            with wave.open(self.path, "rb") as w:
+                w.setpos(j0 * self.HOP)
+                raw = w.readframes((j1 - j0 + 1) * self.HOP)
+        except (OSError, wave.Error, EOFError):
+            return []
+        x = array.array("h")
+        x.frombytes(raw[:len(raw) // 2 * 2])
+        if sys.byteorder == "big":
+            x.byteswap()
+        sq = [sum(v * v for v in x[i:i + self.HOP]) for i in range(0, len(x) - self.HOP + 1, self.HOP)]   # 塊ごとの2乗の和
+        out = []
+        for k in range(k0, k1 + 1):
+            a, b = max(0, k - 1 - j0), min(len(sq), k + 2 - j0)
+            if b <= a:
+                continue
+            ms = sum(sq[a:b]) / float((b - a) * self.HOP)
+            out.append(((k + 0.5) / 100.0 - self.base, 10.0 * math.log10(ms / (32768.0 * 32768.0) + 1e-12)))
+        return out
+
+
+def row_levels(spec, wav, base=0.0):
+    """行の終わりを寄せるための WavLevels。whisper.cpp のときだけ(faster-whisper の行の終わりは人の終わりより先に来ていて、寄せると悪くなった)"""
+    if engine_of(spec) != tx_engines.WhisperCpp.id or not wav:
+        return None
+    lv = WavLevels(wav, base)
+    return lv if lv.ok else None
+
+
+def pull_end(row, nxt, levels):
+    """続いている2行(すき間 PULL_GAP 秒以下)の前の行の終わりを、声の終わりへ早める(遅くはしない)。
+    whisper.cpp の行の終わりは次の行の時刻の印のところ(= 次の声の出だしの直前)まで伸びている(人が直した行より平均 0.10 秒遅い)ので、
+    終わりの前 PULL_BACK 秒の中の音の谷のうち、いちばん後ろの谷の左の端 + PULL_PAD へ寄せる。行の文字・次の行の始まりは変えない"""
+    if nxt is None or nxt["start"] - row["end"] > PULL_GAP:
+        return row
+    x = row["end"]
+    lo = max(x - PULL_BACK, row["start"] + PULL_MIN)
+    if x - lo < 0.03:
+        return row
+    fr = levels.db(lo, x)
+    if not fr:
+        return row
+    m = min(d for _t, d in fr)
+    v = max(k for k, (_t, d) in enumerate(fr) if d <= m + PULL_TOL)
+    left = v
+    while left > 0 and fr[left - 1][1] <= m + PULL_RISE:
+        left -= 1
+    new = round(min(x, max(lo, fr[left][0] + PULL_PAD)), 3)
+    if new >= x - 0.005:
+        return row
+    return _clip_words({**row, "end": new}, row["start"], new)
+
+
+def pull_ends(rows, levels):
+    """pull_end を流れの行にかける(次の行を1つ先に読む)"""
+    prev = None
+    for p in rows:
+        if prev is not None:
+            yield pull_end(prev, p, levels)
+        prev = p
+    if prev is not None:
+        yield prev
 
 
 CONF_KEYS = ("avg_logprob", "no_speech_prob", "compression_ratio")   # 機械の出力 original の各行に残す、認識の自信の度合い(文字起こしの改善の計画 段0-1)
@@ -1517,7 +1695,7 @@ def run_job(job):
         sparse_lp = {}   # 「長い区間に文字が少ない」行の avg_logprob(認識し直したときに、良くなったかを比べる。③-2)
         learn_n = 0
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
-        for s in expand_segments(gen, spec):
+        for s in expand_segments(gen, spec, total, row_levels(spec, wav)):
             if not s["text"]:
                 continue
             seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
@@ -1953,7 +2131,7 @@ def _apply_range(spec, lines, loose=()):
     return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
 
 
-def range_lines_real(job, model, kw, audio, spec, offset):
+def range_lines_real(job, model, kw, audio, spec, offset, wav=None):
     """範囲の音声をひとまとまりで認識し、単語の時刻で整えた行の一覧を返す。"""
     a, b = spec["range"]
     lo, hi = max(0.0, a - offset - 0.3), b - offset + 0.3
@@ -1968,14 +2146,15 @@ def range_lines_real(job, model, kw, audio, spec, offset):
             raise Cancelled()
         raw.append(seg_to_dict(s))
         job["progress"] = min(0.95, 0.1 + float(s.end) / max(1e-6, hi - lo))
-    return finish_range_lines(raw, spec, lo + offset)
+    return finish_range_lines(raw, spec, lo + offset, row_levels(spec, wav, lo))
 
 
-def finish_range_lines(raw, spec, shift):
-    """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。"""
+def finish_range_lines(raw, spec, shift, levels=None):
+    """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。
+    levels = 行の終わりを声の終わりへ寄せるための音の大きさ(row_levels。チャンクの 0 秒 = wav の何秒目か を base に)"""
     a, b = spec["range"]
     out, prev = [], []
-    for s in expand_segments(raw, spec):
+    for s in expand_segments(raw, spec, levels=levels):
         if not s["text"]:
             continue
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
@@ -2165,7 +2344,7 @@ def run_redo(job):
                 lines = finish_range_lines([{"start": 0.0, "end": b - a, "text": txt, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}], sub, a)
                 time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
             else:
-                lines = range_lines_real(job, model, kw, audio, sub, start)
+                lines = range_lines_real(job, model, kw, audio, sub, start, wav)
             tried += 1
             ok, _why = redo_better(g, lines, spec.get("oldLp", {}).get(g["id"]))
             if ok:
@@ -2257,7 +2436,7 @@ class RangeRecognizer:
                 raise ed_state.ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
             else:
                 raise
-        return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset)
+        return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset, row_levels(self.spec, self.wav, lo))
 
     def loose(self, spans):
         out = []
@@ -2282,7 +2461,7 @@ class RangeRecognizer:
                 if self.job["cancel"]:
                     raise Cancelled()
                 raw.append(seg_to_dict(x))
-            lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset)
+            lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset, row_levels(self.spec, self.wav, lo))
             out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and ed_state.LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
             self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
         return out

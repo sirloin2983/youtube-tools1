@@ -28,7 +28,7 @@ def main():
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("-ojf", "-pp", "-ng", "-nf", "--vad"):
+        if a in ("-ojf", "-pp", "-ng", "-nf", "-nfa", "--vad"):
             opt[a] = True
             i += 1
         else:

@@ -323,12 +323,22 @@ class WhisperCpp(Engine):
         (CER 36% → 80%。2026-10-02)。測るときだけ環境変数 TRANSCRIBE_WCPP_VAD=1。使わないときの vad_filter は、下の「声の無い所の行を捨てる」になる"""
         return os.environ.get("TRANSCRIBE_WCPP_VAD") == "1"
 
+    @staticmethod
+    def flash_attn():
+        """フラッシュアテンション(whisper-cli v1.9.4 の既定はオン)を使うか。既定は使わない(-nfa): RX 7800 XT の Vulkan でオンにすると、
+        配信の音声で行の時刻が 1 秒単位に丸まり(5.0–6.0, 6.0–7.0 …。行の境界の 29% が整数秒 → 切ると 12%)、同じ文字の繰り返しの行と
+        音声の長さより後ろの行が出た(40 秒の評価用で 53 行 → 22 行)。ショート 2 本の CER も 9.3% → 4.9%。代わりに 2 割ほど遅い(2026-10-04 に測った)。
+        ドライバが直ったら環境変数 TRANSCRIBE_WCPP_FA=1 で試せる"""
+        return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
+
     def args(self, wav, out_base, kw):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)"""
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
              "-t", str(max(1, min(8, (os.cpu_count() or 4) // 2))), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
             a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)
+        if not self.flash_attn():
+            a += ["-nfa"]
         if self.device == "cpu":
             a += ["-ng"]
         if kw.get("temperature") == 0.0:
