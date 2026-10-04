@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.48.0';
+const APP_VERSION = '0.49.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -366,6 +366,21 @@ $('#btnSugHigh').addEventListener('click', () => {
   if (!done.length){ S.undo.pop(); updateUndo(); return; }
   S.sug = S.sug.filter(y => !done.includes(y)); sugFeedback('accept', done); markDirty(); renderDoc(); renderChips();
   toast(`${done.length}件を採用しました(「元に戻す」で戻せます)`);
+});
+/* 2つ目のエンジンとの食い違いの候補(D1-b): S.alt = 結果の情報(GET /api/suggest の alt)。文書は書き換えないので、聞いている間も編集できる */
+S.alt = null;
+$('#altGo').addEventListener('click', async () => {
+  if (!S.docId || altJob()) return;
+  try {
+    await api('/api/alt', { body: { id: S.docId, engine: $('#altEngine').value } });
+    startPolling(); pollJobs();
+  } catch (e){ toast(e.message, 7000, 'err'); }
+});
+$('#altEngine').addEventListener('change', async e => {   // 設定 altEngine(送ったキーだけ直す api/settings/patch。ほかの窓の設定を消さない)
+  const v = e.target.value, old = S.settings.altEngine;
+  S.settings.altEngine = v;   // 先に入れる(保存を待つ間の描き直し renderAlt で選択が戻らないように)
+  try { await api('/api/settings/patch', { body: { values: { altEngine: v } } }); }
+  catch (err){ S.settings.altEngine = old; renderAlt(); toast('2つ目のエンジンを保存できませんでした: ' + err.message, 6000, 'err'); }
 });
 
 /* ---------- 校正済み(正解として使える行の印) ---------- */
@@ -1134,7 +1149,7 @@ $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips 
 $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optAutoAlt', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);
@@ -1288,7 +1303,7 @@ async function boot(){
   if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、以前はこのブラウザ(tx.pk.speakerColors)。初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
   }
-  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
+  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
   takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない

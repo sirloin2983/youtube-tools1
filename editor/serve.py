@@ -23,7 +23,9 @@
   POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
-  POST /api/suggest/feedback 提案の採用・却下を記録
+  POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
+  POST /api/alt              {"id", "engine"?} 2つ目のエンジンで同じ音声を聞くジョブ(結果は transcripts/<id>.alt.json。文書は書き換えない。
+                             食い違う所が GET /api/suggest に tier "alt" の候補として出る。評価用・最初の認識と同じエンジンとモデルは断る。D1-b。本体は ed_alt.py)
   POST /api/export-corrections  修正データ(音声の範囲+直した文章)をzipで書き出す(scope=proofed で校正済みの行すべて)
   GET  /api/metrics?id=&legacy=1  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
   POST /api/abtest           校正済みの行の音声を複数の設定で認識し直し、正解との差を比べるジョブ(文字起こしは書き換えない)
@@ -110,17 +112,18 @@ import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_lite = 友人用簡易版・ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
+import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.48.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.49.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
 # ---------- 分けた部品(段10。docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio, ed_drill, ed_evalbatch)
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -339,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/tools":
                 return self._json(200, {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
                                         "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
-                                        "envWarnings": list(_env_warnings), **ed_jobs.engines_info()})
+                                        "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), **ed_jobs.engines_info()})
             if u.path == "/api/settings":
                 try:
                     with open(ed_state.SETTINGS, "rb") as f:
@@ -503,6 +506,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_jobs.validate_retranscribe(obj), "retranscribe")))
             if path == "/api/redo":
                 return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_jobs.redo_spec(str(obj.get("tid") or ""), obj), "redo")))
+            if path == "/api/alt":   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
+                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_alt.alt_spec(str(obj.get("id") or obj.get("tid") or ""), obj), "alt")))
             if path == "/api/scan-folder":
                 return self._json(200, ed_misc.scan_folder(obj.get("path"), obj.get("recursive") is True))
             if path == "/api/transcribe-batch":
@@ -687,7 +692,8 @@ class Handler(BaseHTTPRequestHandler):
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
-                              ed_jobs.asr_path(tid), ed_lite.edits_path(tid), ed_lite.export_record_path(tid), ed_speakers.diar_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録も一緒に
+                              ed_jobs.asr_path(tid), ed_lite.edits_path(tid), ed_lite.export_record_path(tid), ed_speakers.diar_path(tid),
+                              ed_alt.alt_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンの結果も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

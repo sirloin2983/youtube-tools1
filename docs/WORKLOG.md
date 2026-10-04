@@ -3091,3 +3091,21 @@
 - サブエージェント: Sonnet(仕様がはっきりした直し)
 - 未完了・次: D1-b(食い違いの候補。編集 0.49.0)を別のエージェント(Opus)が `editor/` で実装中 = **`editor/` の未コミットの変更はその作業途中**。配信からの取得は裏で続いている(23/60)
 - 未コミット: `editor/` の D1-b の作業途中のファイル(終わったらまとめてコミット)
+
+## 2026-10-04 夜 Claude Code — 精度改善 第2版 D1-b: 2つ目のエンジンとの食い違いに候補(編集 0.48.0 → 0.49.0)
+- 変更(`editor/`。細かい仕組みは `editor/AGENTS.md` の「2つ目のエンジンの候補」):
+  - `editor/ed_alt.py`(新): ジョブ kind `alt`(`POST api/alt {id, engine?}`)= 文書の範囲の音声を 2つ目のエンジンで認識して `transcripts/<id>.alt.json`(youtube-tools-alt/v1)に書く。**文書は書き換えない・updatedAt を動かさない**。ヒント・置換・学習は渡さない。
+    断る: 評価用(印・評価用のフォルダ)・文字の無い文書・動画なし・最初の認識と同じエンジンとモデル・同じ文書で実行中。`alt_diffs`(純粋な関数)= 90 秒ごとの窓で文字をそろえ(difflib)、1 行の中に収まる置き換えだけを候補に
+    (表記だけの違い = かな/カナ・記号・伸ばし・ひらがなと漢字まじりの置き換えは出さない・12 文字超と行の半分以上が違う行は出さない・校正済みの行には出さない)
+  - `ed_learn.py`: `GET api/suggest` に alt の候補(tier `alt`)と `alt: {engine, model, label, at, count, skipped}`・`POST api/suggest/feedback` の tier alt は `fb["alt"] = {acc, rej}`(学習の統計 stat に入れない。却下は dismissed)・設定 `altEngine`(llama.cpp = Qwen3-ASR 1.7B が既定 / whisper.cpp / faster-whisper)
+  - `ed_jobs.py`: `run_job` のあと設定 `autoAlt`(既定オフ)なら alt のジョブを足す(評価用は常にオフ・失敗しても文字起こしに影響しない)・alt の優先度は文字起こしより後。`ed_lite.py`: 簡易版は autoAlt を送らない。`serve.py`: 文書の削除で alt.json も消す・`/api/tools` の `alt`
+  - 画面: 行の候補に札「別」(`tt-sg-alt`)・「文字をまとめて直す」のカードに「別のエンジンの候補(試験中)」(`#altEngine`・`#altGo`・`#altMsg`)・新規のチェック `#optAutoAlt`
+  - テスト: `editor/tests/test_alt.py`(新 17 件。test_metrics から読む)・`editor/tests/e2e_alt.py`(新。入口に取り込んだ形)。`dev/run_editor_suite.py` の E2E に e2e_alt を足した
+- 版: 編集 0.48.0 → 0.49.0(serve.py・app.js・README.txt)。`docs/ROADMAP.md`・`docs/HANDOVER.md` の版・`docs/plan/transcription-plan-v2.md`(D1-a・D1-b の状態)
+- 確かめたテスト(まとめ役が流し直した): 編集の単体 368(skip 1)・e2e_alt・e2e_drill・e2e_proofread_accuracy・e2e_lite・home の e2e_autorun。実装したエージェントが流した分: e2e_ui_mounted・e2e_edit_tabs・test_ui_kit_sync・home/tests/test_mount.py 26・node 9
+- 配信からの取得(裏で実行): この記録の時点で 48/60 区間・失敗 0(終わりの数は `py -3.10 dev/eval_fetch.py show`)
+- サブエージェント: D1-b = Opus(編集のジョブ・保存・画面に及ぶ)
+- 未完了・次: ① **本物のエンジンで未確認**(疑似の認識のテストだけ)。ユーザーが入口を起動し直したあと、学習用のショートを 1 本文字起こし → 「文字をまとめて直す」→「別のエンジンの候補」で確かめる(初回は llama.cpp 33MB とモデル 2.5GB を取得する)
+  ② 印の当たり率を測る道具(alt.json・original・segments から。`fb["alt"]` も)③ `home/autorun.py` の TX_KEYS に autoAlt は足していない(送らなくても設定どおりに動く)④ G1(定点 15 分)がそろったら E1
+- 注意: AI のシェルから入口・エンジンを動かすと、モデルの取得先がパッケージの写しになる(AGENTS.md の MSIX の注意)。本物のエンジンの確認はユーザーの入口で
+- 未コミット: なし

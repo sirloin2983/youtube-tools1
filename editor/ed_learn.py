@@ -34,6 +34,7 @@ import wave
 
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
+import ed_alt  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -60,7 +61,9 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
                        "keymap": lambda v: _keymap_ok(v),
                        # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
-                       "evalDirs": lambda v: ed_relink._eval_dirs_ok(v)}
+                       "evalDirs": lambda v: ed_relink._eval_dirs_ok(v),
+                       # 2つ目のエンジン(食い違いの候補。D1-b。ed_alt.ALT_ENGINES の名前)
+                       "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
 
@@ -359,7 +362,11 @@ def load_feedback():
         with open(ed_state.FEEDBACK, "r", encoding="utf-8-sig") as f:
             d = json.load(f)
         if isinstance(d, dict):
-            return {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
+            out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
+            a = d.get("alt")
+            if isinstance(a, dict):   # 2つ目のエンジンの候補の採用・却下の数(学習の統計とは別。D1-b)
+                out["alt"] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
+            return out
     except (OSError, ValueError):
         pass
     return {"stat": {}, "dismissed": {}}
@@ -373,11 +380,12 @@ def record_feedback(obj):
     items = []
     for x in (obj.get("items") or [])[:500]:
         if isinstance(x, dict) and all(isinstance(x.get(k), str) and 0 < len(x[k]) <= 60 for k in ("wrong", "right")):
-            items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"]))
+            items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"], x.get("tier") == "alt"))
     with _fb_lock:
         fb = load_feedback()
-        for seg, w, r in items:
-            st = fb["stat"].setdefault("%s=>%s" % (w, r), {"acc": 0, "rej": 0})
+        for seg, w, r, alt in items:
+            # 2つ目のエンジンの候補(tier "alt")は学習の統計に入れない(学習の規則の確度を汚さない)。数だけ fb["alt"] に(当たり率を測る。D1-b)
+            st = fb.setdefault("alt", {"acc": 0, "rej": 0}) if alt else fb["stat"].setdefault("%s=>%s" % (w, r), {"acc": 0, "rej": 0})
             st["acc" if action == "accept" else "rej"] += 1
             if action == "reject" and seg:
                 lst = fb["dismissed"].setdefault(tid, [])
@@ -484,12 +492,14 @@ def find_suggestions(text, rules, fb, skip=(), only_high=False):
 
 
 def suggest_for_doc(tid):
+    """行ごとの提案(学習の統計)+ 2つ目のエンジンとの食い違いの候補(tier "alt"。同じ行・同じ位置では学習の提案を優先。ed_alt.alt_suggest)。
+    応答の alt = 2つ目のエンジンの結果の情報 {engine, model, label, at, count, skipped}(無い・評価用は null)"""
     doc = ed_store.read_transcript(tid)
     rules, fb = learn_rules(), load_feedback()
     dismissed = set(fb["dismissed"].get(tid, []))
     items = []
     for g in doc.get("segments") or []:
-        if not isinstance(g, dict):
+        if not isinstance(g, dict) or len(items) >= 1000:
             continue
         text = str(g.get("text", ""))
         skip = {d.split("|", 1)[1] for d in dismissed if d.split("|", 1)[0] == g.get("id") and "|" in d}
@@ -497,8 +507,13 @@ def suggest_for_doc(tid):
             sug["seg"] = g.get("id")
             items.append(sug)
             if len(items) >= 1000:
-                return {"items": items, "rules": len(rules)}
-    return {"items": items, "rules": len(rules)}
+                break
+    alt_items, alt = ed_alt.alt_suggest(tid, doc, dismissed, items)
+    alt_items = alt_items[:max(0, 1000 - len(items))]
+    items += alt_items
+    if alt:
+        alt["count"] = len(alt_items)
+    return {"items": items, "rules": len(rules), "alt": alt}
 
 
 def auto_learned_replace(text, rules, fb):

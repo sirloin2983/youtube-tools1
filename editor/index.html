@@ -969,6 +969,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
 .sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
 .sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sg.tt-sg-alt{border-style:dashed;border-color:var(--info);background:var(--info-soft)}.sg.tt-sg-alt .sgl{color:var(--info-ink)}
 .sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
 .sg button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
@@ -1311,6 +1312,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <label class="lag" style="margin-top:6px" title="直した回数が多く、そのまま残した例が1つもない置換だけ。それ以外は行に「候補」として出るだけです"><input type="checkbox" id="optAutoLearned">終わったら、学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)</label>
       <label class="lag" style="margin-top:6px" title="「長い区間に文字が少ない(抜けの可能性)」の行だけ、前後を少し広げて、声の検出を標準・短い区切りで認識し直します。文字が増えて疑わしい印が消えたときだけ置き換えます(前の版は「以前の版に戻す」に残ります)"><input type="checkbox" id="optAutoRedo">終わったら、疑わしい所(長い区間に文字が少ない行)を自動で認識し直す</label>
       <label class="lag" style="margin-top:6px" title="kotoba-whisper は聞き取りにくい音声が苦手なので、認識し直すときは重いモデルで試します"><input type="checkbox" id="optRedoLarge" checked>kotoba で文字起こししたときは、認識し直しに large-v3 を使う</label>
+      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、同じ音声を別のエンジン(「文字をまとめて直す」の「別のエンジンの候補」で選んだもの)でも認識し、2つの結果が食い違う所の行に「別」の候補を出します。文字は自動では書き換えません。評価用の文字起こしでは聞きません"><input type="checkbox" id="optAutoAlt">終わったら、別のエンジンでも聞いて、食い違う所に候補を出す(試験中)</label>
       <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
         <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
@@ -1552,7 +1554,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           声の特徴はこの PC の作業データ(voices フォルダ)にだけ保存します。人に渡すフォルダやパックには入りません。</span></div>
     </details>
 
-    <details class="card tt-tool tt-lockable" id="fixDetails"><summary>文字をまとめて直す <span class="hint">置換・再認識</span></summary>
+    <details class="card tt-tool tt-lockable" id="fixDetails"><summary>文字をまとめて直す <span class="hint">置換・再認識・別のエンジン</span></summary>
       <div class="fld"><span class="l">一括置換</span>
         <div class="row"><input id="repFrom" type="text" placeholder="置換前" style="flex:1;min-width:120px"><span>→</span><input id="repTo" type="text" placeholder="置換後" style="flex:1;min-width:120px"><button type="button" class="btn small" id="repGo">すべて置換</button></div>
         <label for="repDict" class="hint" style="margin-top:6px">置換辞書(1行に「誤=>正」。保存され、どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません)</label>
@@ -1567,6 +1569,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row"><button type="button" class="btn small" id="redoGo">疑わしい所を認識し直す</button><span class="hint" id="redoMsg"></span></div>
         <span class="hint">「長い区間に文字が少ない(抜けの可能性)」の印があり、校正・手直ししていない行だけを、前後を少し広げて(隣の行にはかからない)認識し直します。
           文字が増えて疑わしい印が消えたときだけ置き換え、それ以外はそのままです。前の版は「以前の版に戻す」に残ります。中止すると何も置き換えません。</span></div>
+      <div class="fld"><span class="l">別のエンジンの候補(試験中)</span>
+        <div class="row"><label class="lag keep">エンジン <select id="altEngine" style="width:auto;max-width:300px"></select></label>
+          <button type="button" class="btn small" id="altGo">別のエンジンでも聞く</button></div>
+        <span class="hint" id="altMsg"></span>
+        <span class="hint">同じ音声を別のエンジンでも認識し、今の文字と食い違う所の行に「別」の候補を出します(採用・却下は行の候補で)。文字は自動では書き換えません。
+          聞いている間も編集できます。評価用の文字起こしには出しません。</span></div>
       <div class="fld"><span class="l">長い行を分け直す(字幕の文字数に合わせる)</span>
         <div class="row"><label class="lag">向き <select id="rsOrient" style="width:auto"><option value="vertical">縦</option><option value="horizontal">横</option></select></label>
           <button type="button" class="btn small" id="rsGo">今の文書を分け直す</button><span class="hint" id="rsMsg"></span></div>

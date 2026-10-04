@@ -44,7 +44,11 @@ async function putSettingsNow(){   // すぐ保存する(辞書への登録・�
 function sugList(s){ return S.sug.filter(x => x.seg === s.id && s.text.includes(x.wrong)); }
 
 function sugHTML(s){
-  return sugList(s).map(x => `<span class="sg ${x.tier === 'high' ? 'high' : ''}" title="${esc(`この置換は ${x.pos}回 直されています / そのまま残した例 ${x.neg}件`)}"><span class="sgl">${x.tier === 'high' ? '確度高' : '候補'}</span>「${esc(x.wrong)}」→「${esc(x.right)}」<button type="button" data-act="sgok" data-n="${x.n}">採用</button><button type="button" data-act="sgno" data-n="${x.n}">却下</button></span>`).join('');
+  return sugList(s).map(x => {
+    const alt = x.tier === 'alt';   // 2つ目のエンジンとの食い違い(D1-b)。学習の候補と見分けられるように札「別」と色
+    const tip = alt ? `別のエンジン(${S.alt ? S.alt.label : ''})では、こう聞こえた候補です。聞いて合っていれば採用してください` : `この置換は ${x.pos}回 直されています / そのまま残した例 ${x.neg}件`;
+    return `<span class="sg ${x.tier === 'high' ? 'high' : ''}${alt ? ' tt-sg-alt' : ''}" title="${esc(tip)}"><span class="sgl">${x.tier === 'high' ? '確度高' : alt ? '別' : '候補'}</span>「${esc(x.wrong)}」→「${esc(x.right)}」<button type="button" data-act="sgok" data-n="${x.n}">採用</button><button type="button" data-act="sgno" data-n="${x.n}">却下</button></span>`;
+  }).join('');
 }
 
 function renderChips(){
@@ -60,12 +64,36 @@ async function loadSuggest(){
   const id = S.docId; if (!id) return;
   let r; try { r = await api('/api/suggest?id=' + encodeURIComponent(id)); } catch { return; }
   if (S.docId !== id) return;
-  S.sug = (r.items || []).map(x => ({ ...x, n: ++sugSeq })); renderChips();
+  S.sug = (r.items || []).map(x => ({ ...x, n: ++sugSeq })); S.alt = r.alt || null; renderChips(); renderAlt();
 }
 
 function sugFeedback(action, xs){
   const tid = S.docId; if (!tid || !xs.length) return;
-  api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right })) } }).catch(() => {});
+  api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right, ...(x.tier === 'alt' ? { tier: 'alt' } : {}) })) } }).catch(() => {});
+}
+
+/* ---------- 2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。サーバーは ed_alt.py) ---------- */
+
+function altJob(){ return S.doc ? S.jobs.find(j => j.kind === 'alt' && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
+
+/* 「文字をまとめて直す」の「別のエンジンの候補」: エンジンの選択(設定 altEngine)・始めるボタン・今の結果 */
+function renderAlt(){
+  const sel = $('#altEngine'), info = S.tools && S.tools.alt;
+  if (info && sel.dataset.filled !== '1'){
+    sel.innerHTML = info.engines.map(e => `<option value="${esc(e.key)}"${e.ready ? '' : ` title="${esc(e.why || '')}"`}>${esc(e.label)}${e.ready ? '' : '(まだ使えません)'}</option>`).join('');
+    sel.dataset.filled = '1';
+  }
+  if (info){ const want = S.settings.altEngine || info.default; if ([...sel.options].some(o => o.value === want)) sel.value = want; }
+  const d = S.doc, j = altJob(), b = $('#altGo'), msg = $('#altMsg');
+  const why = !d ? '' : d.evalSet ? '評価用の文字起こしでは使えません(定点の正解が2つのエンジンに寄らないように)' : !d.sourcePath ? 'この文書には動画のパスが無いため使えません'
+    : !(d.segments || []).some(s => (s.text || '').trim()) ? '先に文字起こしをしてください' : '';
+  b.disabled = !d || !!why || !!j;
+  b.title = why;
+  const n = (S.sug || []).filter(x => x.tier === 'alt').length;
+  msg.textContent = j ? `聞いています(${j.phase || ''}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''})。終わると候補が行に出ます`
+    : why ? why
+    : S.alt ? `${S.alt.label} の結果(${UIKit.fmt && UIKit.fmt.ago ? UIKit.fmt.ago(S.alt.at) : ''}): 食い違いの候補 ${n} 件`
+    : 'まだ別のエンジンで聞いていません';
 }
 
 function applySug(s, x){
