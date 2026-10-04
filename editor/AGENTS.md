@@ -7,7 +7,7 @@ v0.21.0 = 2026-09-28、動画全体の再認識と声の検出が捨てすぎる
 現行の仕様は、このファイルとユーザー向けの `README.txt`。v0.9.8 までの経緯・決定の理由は `../docs/archive/project/HANDOVER-transcribe-tool.md`、版ごとの記録は `../docs/archive/project/history/transcribe-tool-v*.md`、
 最初の仕様は `../docs/archive/project/transcribe-tool-spec.md`(v0.7.0 当時。**どれも古い**ので、今の動きの根拠にはしない。理由を調べるときに読む)。
 使い方の説明はユーザー向けの `README.txt`(変更したら README も直す)。
-**精度改善の今の計画は `../docs/plan/transcription-overhaul-plan.md`**(段0〜5。段ごとにユーザーの承認のあとで実装。どこまで済んだかは `../docs/ROADMAP.md` の 線 B で確かめる。2026-10-03 時点で、段0・段1・段2 の 2-1〜2-3 は済み、次の 2-4 比較と決定は評価用の校正待ち)。
+**精度改善のこれからの計画は `../docs/plan/transcription-plan-v2.md`**(第2版。2026-10-04。D0・D1・E1〜E4・FT。段ごとにユーザーの承認のあとで実装)。済んだ段の記録と測った結果は `../docs/plan/transcription-overhaul-plan.md`(第1版。段0〜5。段ごとにユーザーの承認のあとで実装。どこまで済んだかは `../docs/ROADMAP.md` の 線 B で確かめる。2026-10-03 時点で、段0・段1・段2 の 2-1〜2-3 は済み、次の 2-4 比較と決定は評価用の校正待ち)。
 GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy-plan.md`(09-24)はこの計画にまとめた旧計画(原則は引き継いだ・食い違う所は新しい方が正。経緯として読む)。
 全体の状態(進行中・待ち・保留)は `../docs/ROADMAP.md`。
 
