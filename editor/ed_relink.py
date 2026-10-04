@@ -37,7 +37,6 @@ from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _lay
 import roster as _roster  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
-import ed_lite  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 # ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。docs/plan/phase2-data-safety.md の 1) ----------
@@ -246,7 +245,6 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
 # - 選び直し: 付け替えはすぐに済ませ、作り直しは裏のジョブ(kind "normalize")→ できたら付け替える(付け替えの要求を待たせない。
 #   失敗しても付け替えは済んでいる)。まとめて付け替える(以前の文書の動画を移したとき)は作り直さない(normalize: false)
 # - 評価用(evalSet・評価用のフォルダの中)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)
-# - 友人用簡易版の文書(spec / doc の "lite")は、隣ではなく作業データの lite-media/ に写しを作る(ed_lite.norm_dst)
 # - ジョブはすでに SLOTS(ytt_core.jobs)を持っている(ed_jobs.work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
 # - 付け替えは updatedAt を変えない(_relink_write の bump=False。開いている画面の次の保存を 409 にしない)
 NORM_SUFFIX = "_30fps"
@@ -275,7 +273,7 @@ def norm_usable(path, info_src):
     return a is not None and (b is None or abs(a - b) <= max(_vnorm.DURATION_TOL, RELINK_TOL_RATIO * b))
 
 
-def norm_plan(src, lite=False):
+def norm_plan(src):
     """作り直しの予定。-> None(作り直さない)か {"src", "dst", "reuse", "why": [理由], "note"?: 作れない理由(作らずに知らせる)}"""
     if not norm_enabled() or not src:
         return None
@@ -294,8 +292,6 @@ def norm_plan(src, lite=False):
     need, why = _vnorm.needs_normalize(info)
     if not need:
         return None
-    if lite:
-        return {"src": src, "dst": ed_lite.norm_dst(src), "reuse": False, "why": why, "lite": True}
     base = norm_name(src)
     for p in [base] + [base[:-4] + "_%d.mp4" % i for i in range(2, 10)]:
         # 同じ名前があって使えるならそれを使う。使えない(別の動画・30fps でない)なら上書きせずに次の名前へ
@@ -347,32 +343,6 @@ def norm_swap(tid, src, dst):
     return None
 
 
-def _drop_upload(src, tid):
-    """簡易版のドロップで受け取った写し(lite-media/ の中)を、30fps の写しへ付け替えたあとで消す(ほかの文書が使っていなければ)"""
-    if not ed_lite.in_media_dir(src):
-        return
-    key = os.path.normcase(os.path.abspath(src))
-    for other in ed_store._tids():
-        if other == tid:
-            continue
-        sm = ed_store.transcript_summary(other)
-        if sm and sm["_sourcePath"] and os.path.normcase(os.path.abspath(sm["_sourcePath"])) == key:
-            return
-    try:
-        os.unlink(src)
-    except OSError as e:
-        ed_state.log.warning("受け取った動画を消せませんでした: %s %s", src, e)
-
-
-def _norm_rmdir(plan):
-    """簡易版の写しのフォルダ(lite-media/<番号>/)を、作れなかったときに消す(空のときだけ)"""
-    if plan.get("lite") and plan.get("dst"):
-        try:
-            os.rmdir(os.path.dirname(plan["dst"]))
-        except OSError:
-            pass
-
-
 def norm_run(job, tid, plan):
     """作り直して付け替える(ジョブの中で。SLOTS はジョブが持っている)。-> (付け替えたか, 知らせの文)。
     job の state・phase・progress を「30fps にそろえています… n%」にする"""
@@ -382,28 +352,21 @@ def norm_run(job, tid, plan):
     if not plan.get("reuse"):
         room = _norm_room(src, dst)
         if room:
-            _norm_rmdir(plan)
             return False, room
         job["state"], job["phase"], job["progress"], job["device"] = "running", NORM_PHASE, 0.0, ""
         try:
             _vnorm.normalize(src, dst, cancelled=lambda: bool(job.get("cancel")),
                             on_progress=lambda p: job.__setitem__("progress", round(float(p), 3)))
         except _vnorm.Cancelled:
-            _norm_rmdir(plan)
             return False, "30fps にそろえるのを取り消しました。文書は元の動画のままです"
         except (_vnorm.NormalizeError, OSError) as e:
             ed_state.log.warning("30fps の作り直しに失敗: %s %s", tid, e)
-            _norm_rmdir(plan)
             return False, "30fps にそろえられませんでした(%s)。文書は元の動画のままです" % str(e)[:200]
     why = norm_swap(tid, src, dst)
     if why:
         return False, why
-    if plan.get("lite") and not plan.get("reuse"):
-        _drop_upload(src, tid)
     if plan.get("reuse"):
         return True, "30fps の動画 %s があったので、それに付け替えました" % os.path.basename(dst)
-    if plan.get("lite"):
-        return True, "30fps にそろえた写し %s を作って使います" % os.path.basename(dst)
     return True, "30fps にそろえた動画 %s を作って付け替えました(元の動画はそのまま残っています)" % os.path.basename(dst)
 
 
@@ -413,7 +376,7 @@ def norm_after_transcribe(job, spec, tid):
     if spec.get("evalSet") or in_eval_dir(spec.get("sourcePath")):
         return
     try:
-        plan = norm_plan(spec.get("sourcePath"), lite=isinstance(spec.get("lite"), dict))
+        plan = norm_plan(spec.get("sourcePath"))
     except Exception as e:   # 調べる所の想定外でも、文字起こしの結果は残す
         ed_state.log.warning("30fps の確認に失敗: %s %s", tid, e)
         return
@@ -441,7 +404,7 @@ def norm_start(tid, path, doc):
     -> (始めたジョブの id か None, 知らせ(作らない理由。無ければ ""))。評価用・30fps なら (None, "")"""
     if doc.get("evalSet") is True or in_eval_dir(path):
         return None, ""
-    plan = norm_plan(path, lite=isinstance(doc.get("lite"), dict))
+    plan = norm_plan(path)
     if not plan:
         return None, ""
     if plan.get("note"):

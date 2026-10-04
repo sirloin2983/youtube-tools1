@@ -54,10 +54,7 @@ def sanitize_transcript(obj, base=None):
         if not sid or sid in seen:
             continue
         seen.add(sid)
-        one = {"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]}
-        if re.match(r"^#[0-9A-Fa-f]{6}$", str(s.get("outline", ""))):   # 字幕のふちの色(友人用簡易版。無ければ今までどおり)
-            one["outline"] = s["outline"]
-        speakers.append(one)
+        speakers.append({"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]})
     segs, ids = [], set()
     now = int(time.time() * 1000)
     base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
@@ -406,7 +403,7 @@ def restore_history(tid, ts):
 
 # ---------- 校正の手間(マスタープラン Q2。文書ごとの累計 effort = {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"}) ----------
 # 時間(activeSec = 1 文字起こし のタブで操作していた秒・cutSec = 2 カット / 3 パック・sessions = 開いて作業した回数)は画面が POST /api/effort で送る。
-# 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(簡易版を含め、どの画面から保存しても同じ数え方)。
+# 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(どの画面から保存しても同じ数え方)。
 # どれも文書の updatedAt を動かさない(記録のために画面の保存の競合 baseUpdatedAt / 409 を起こさない)
 MAX_EFFORT_SEC = 3600   # 1回に足せる秒の上限(画面は 30 秒刻みで数え、5 分たまったとき・離れたとき・文書を切り替えるときに送る)
 EFFORT_KEYS = ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows")

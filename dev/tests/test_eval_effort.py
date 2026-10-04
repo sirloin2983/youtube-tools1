@@ -47,7 +47,7 @@ class Env:
         self._tmp.cleanup()
 
     def doc(self, tid, segments, original=None, active=600, cut=0, sessions=1, last_at=None, duration=60.0, eval_set=False, reviewed=None,
-            run=None, clip=None, alt=False, diar_rows=None, lite=False, effort="auto", updated=None, title="t", **extra):
+            run=None, clip=None, alt=False, diar_rows=None, effort="auto", updated=None, title="t", **extra):
         d = {"schema": "transcribe/v1", "id": tid, "title": title, "start": 0.0, "end": duration, "duration": duration,
              "segments": segments, "updatedAt": updated or ms("2026-10-01")}
         if original is not None:
@@ -63,8 +63,6 @@ class Env:
         d["recognition"] = {"runs": [run or {"engine": "whisper.cpp", "model": "large-v3", "engineVersion": "1"}]}
         if clip:
             d["clip"] = clip
-        if lite:
-            d["lite"] = {"streamer": "x"}
         d.update(extra)
         self._write(tid + ".json", d)
         if alt:
@@ -149,7 +147,6 @@ class TestRatioAndFinished(unittest.TestCase):
         done_doc(self.env, "aaaaaaaaaaaa", active=60)
         self.env.doc("bbbbbbbbbbbb", [seg(1, 0, 2)], original=[orig(0, 2)], effort=None)                    # effort なし
         self.env.doc("cccccccccccc", [seg(1, 0, 2)], original=[orig(0, 2)], effort="壊れている")             # effort が文字
-        self.env.doc("dddddddddddd", [seg(1, 0, 2)], original=[orig(0, 2)], lite=True, active=999)          # 簡易版
         self.env.doc("eeeeeeeeeeee", [seg(1, 0, 2)], original=[orig(0, 2)], active=0, cut=300)             # 校正の時間 0
         self.env.doc("ffffffffffff", [], original=[], active=60, duration=0.0)                              # 長さが分からない
         self.env.doc("111111111111", [seg(1, 0, 2)], original=[orig(0, 2)], effort={"activeSec": "x", "cutSec": True, "lastAt": None})   # 数でない値は 0
@@ -157,7 +154,7 @@ class TestRatioAndFinished(unittest.TestCase):
             f.write("{壊れた")
         res = self.env.run()
         self.assertEqual(res["meta"]["docs"], 1)
-        self.assertEqual(res["meta"]["skipped"], {"broken": 1, "noEffort": 2, "lite": 1, "noDuration": 1, "noTime": 2, "evalSet": 0, "outOfRange": 0})
+        self.assertEqual(res["meta"]["skipped"], {"broken": 1, "noEffort": 2, "noDuration": 1, "noTime": 2, "evalSet": 0, "outOfRange": 0})
 
     def test_no_data_dir_and_empty(self):
         with tempfile.TemporaryDirectory() as d:

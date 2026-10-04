@@ -3185,3 +3185,24 @@
   - ユーザー: 入口を起動し直す(編集 0.52.1)→ ⚙ の「未確認の評価用を作り直す」→ 評価ドリル。確かめ済みが 10 本ほどになったら `py -3.10 dev/eval_effort.py` と `py -3.10 dev/eval_speakers.py run --threshold 0.5,0.6,0.7`
 - 次の作業(ユーザーの指示 10-04 夜): 友人用 文字起こし簡易版を消す(「いったん使わないから消してよい」)。この記録のあとに別のコミットで
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — 友人用 文字起こし簡易版を消した(編集 0.52.1 → 0.53.0)
+- ユーザーの決定(10-04 夜): 「友人用の簡易版はいったん使わないから消してよい」。コードは git の cf617a8 までの履歴から戻せる
+- 消したファイル(git rm。この 1 コミット): `lite/`(start.bat・lite_start.py・lite_update.py・README.txt・tests/)・`setup/requirements-lite.txt`・`setup/requirements-lite-gpu.txt`・
+  `editor/lite.html`・`editor/lite.js`・`editor/lite-colors.json`・`editor/ed_lite.py`・`editor/tests/e2e_lite.py`・`editor/tests/test_lite.py`
+- 直したファイル: `editor/serve.py`(`/lite.html`・`/api/lite/*`・`_ED_MODULES`)・`ed_state.py`・`ed_jobs.py`・`ed_relink.py`(30fps の置き先は動画の隣だけ・`norm_plan(src)`)・`ed_speakers.py`・`ed_evalbatch.py`・
+  `ed_store.py`(話者の `outline` を保存しない)・`dev/eval_effort.py`・`dev/run_editor_suite.py`・`dev/sync_ui_kit.py`・`.gitignore`・`.gitattributes`・テスト(test_lite の中の簡易版に関係しないもの = 生出力・cuda_compute は `test_records.py` へ移した)。
+  文書: `AGENTS.md`・`editor/AGENTS.md`・`editor/README.txt`・`ui-kit/README.md`・`docs/ROADMAP.md`・`docs/plan/friend-lite-plan.md` と `friend-lite-realcheck.md`(状態を「取り下げ」に。文書は残す)
+- **残したもの**(仮。ユーザーに確認中):
+  - 送る用 zip の形式 `ytt_core/evaldata.py`・取り込み `dev/eval_import.py`・`dev/eval_asr.py --source friend`(形式と取り込みは残す)
+  - cut2resolve の字幕の型 lite・映像トラックの数 `video_tracks`(パックを作る側の汎用の引数。cut2resolve の版は上げていない)
+  - 生出力 `<id>.asr.json`(`capture_raw`・`write_asr`・`read_asr`。**今は読む所が無い**が、マスタープランの記録の土台に入っていて、単語ごとの確信度がここにしか無い)
+  - 入口の起動オプション `--open-path`・`--app-window`(簡易版のために入ったが、どの画面にも使える。入口の版は 0.33.0 のまま)・`TRANSCRIBE_CUDA_COMPUTE`
+  - 以前の簡易版の文書の印 `doc["lite"]` は読まないだけで残る(普通の文書として開ける・保存できる・30fps は動画の隣に作る。テストで確かめた)
+- 作業データには触っていない: `lite.json`・`lite-media\`・`transcripts\<id>.lite-edits.jsonl`・`<id>.lite-export.json`・`ドキュメント\文字起こし簡易版\` が残っていても使わない(要らなければ手で消せる)
+- テスト(担当が流した): 編集の一式 `dev/run_editor_suite.py`(単体 411・e2e 13 本・e2e_pipeline すべて通った)・home の単体 267(skip 2)・e2e_portal・e2e_autorun・cut2resolve 318(skip 22)・ytt_core 104・契約 34・dev の単体 113。
+  まとめ役が流し直した分: `editor/tests/test_metrics.py` 384・`home/tests/test_mount.py`・`test_eval_effort.py`・`test_ui_kit_sync.py`
+- サブエージェント: Opus(ツールをまたぐ削除で、消すものと残すものを 1 か所ずつ判断するため)
+- 未完了・次: 上の「残したもの」をどうするかの確認(asr.json を書き続けるか・入口の起動オプションを消すか・evaldata と eval_import)。`docs/HANDOVER.md` の版は直していない
+- ユーザーがやること: 入口を「すべて終了」→ start.bat で起動し直す(編集 0.53.0)
+- 未コミット: なし

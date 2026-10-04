@@ -8,10 +8,13 @@
   再認識の前の機械の出力を recognition.runs に範囲つきで残す(件数・行数の上限)・辞書の版(settings.dict / params.dict)
 - カット: edit.json の draft(初めての保存のときだけ一度書く・以前の edit.json が読める・パックの記録で消えない)
 - 校正の手間: POST /api/effort(updatedAt を変えない = 保存の競合に巻き込まない・累計)・保存で数える校正済みの行
+- 生出力 <id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)と GPU の精度の型(TRANSCRIBE_CUDA_COMPUTE)
 """
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+import shutil
+import subprocess
 import time
 import unittest
 from unittest.mock import patch
@@ -47,8 +50,8 @@ class TestProofedAt(StoreDir):
         out2 = S.sanitize_transcript({"segments": [_seg(2, 1, 2, "b", proofed=True)]}, {"segments": out})["segments"]
         self.assertGreaterEqual(out2[0]["proofedAt"], before)
 
-    def test_save_round_trip_and_lite(self):
-        """保存(通常の画面・友人用簡易版の PUT /api/transcript は同じ save_transcript)で付き、次の保存で引き継ぐ"""
+    def test_save_round_trip_and_old_lite_mark(self):
+        """保存で付き、次の保存で引き継ぐ。以前の友人用簡易版の印(doc["lite"]。今は読まない)が残る文書も普通に保存できる"""
         for lite in (False, True):
             with self.subTest(lite=lite):
                 d = doc_obj(**({"lite": {"streamer": "x"}} if lite else {}))
@@ -239,6 +242,67 @@ class TestEffort(StoreDir):
         ts = S.hist_stamps(TID)[0]   # 校正済みにする前の版へ戻しても、手間の累計は戻さない
         S.restore_history(TID, ts)
         self.assertEqual(_rd()["effort"]["activeSec"], 120)
+
+
+class TestCudaCompute(unittest.TestCase):
+    def test_cuda_compute_env(self):
+        with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
+            self.assertEqual(S.ed_jobs.cuda_compute(), "int8_float16")
+        with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "rm -rf"}):
+            self.assertEqual(S.ed_jobs.cuda_compute(), "float16")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TRANSCRIBE_CUDA_COMPUTE", None)
+            self.assertEqual(S.ed_jobs.cuda_compute(), "float16")   # 既定は今までどおり
+
+
+class TestAsrRaw(StoreDir):
+    """生出力 transcripts/<id>.asr.json(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)"""
+
+    def test_capture_raw_keeps_words_and_probs(self):
+        segs = [{"start": 0.0, "end": 1.5, "text": "えーこんにちは", "avg_logprob": -0.21234, "words": [(0.0, 0.4, "えー"), (0.5, 1.5, "こんにちは")],
+                 "wordProbs": [0.5, 0.98]},
+                {"start": 2.0, "end": 3.0, "text": "テスト"}]
+        raw = []
+        out = list(S.ed_jobs.capture_raw(iter(segs), raw, shift=10.0))
+        self.assertEqual(out, segs)   # 流れはそのまま
+        self.assertEqual(raw[0]["start"], 10.0)
+        self.assertEqual(raw[0]["words"], [[10.0, 10.4, "えー", 0.5], [10.5, 11.5, "こんにちは", 0.98]])
+        self.assertEqual(raw[0]["avg_logprob"], -0.2123)
+        self.assertEqual(raw[1]["words"], [])
+
+    def test_seg_to_dict_word_probs(self):
+        class W:
+            def __init__(self, a, b, t, p):
+                self.start, self.end, self.word, self.probability = a, b, t, p
+
+        class Sg:
+            start, end, text = 0.0, 1.0, " あ い "
+            words = [W(0.0, 0.5, "あ", 0.9), W(0.5, 1.0, "い", None)]
+        d = S.ed_jobs.seg_to_dict(Sg())
+        self.assertEqual(d["words"], [(0.0, 0.5, "あ"), (0.5, 1.0, "い")])   # 3つ組は変えない
+        self.assertEqual(d["wordProbs"], [0.9, None])
+
+    def test_write_read_asr(self):
+        S.ed_jobs.write_asr("0123456789ab", [{"start": 0, "end": 1, "text": "x", "words": []}], {"model": "small"})
+        d = S.ed_jobs.read_asr("0123456789ab")
+        self.assertEqual(d["run"], {"model": "small"})
+        self.assertEqual(len(d["segments"]), 1)
+        self.assertIsNone(S.ed_jobs.read_asr("ffffffffffff"))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
+    def test_fake_job_writes_asr(self):
+        src = os.path.join(self.tmp, "a.wav")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=9", "-ar", "16000", src], check=True)
+        spec = S.ed_jobs.validate_job({"sourcePath": src, "model": "small"})
+        with patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"}):
+            job = S.ed_jobs.add_job(spec)
+            S.ed_jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
+            S.ed_jobs.run_job(job)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = S.ed_jobs.read_asr(job["tid"])
+        self.assertTrue(d["segments"])
+        self.assertEqual(d["segments"][0]["text"], "テスト文1")
+        self.assertEqual(d["run"]["engine"], "fake")
 
 
 if __name__ == "__main__":

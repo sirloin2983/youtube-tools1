@@ -109,21 +109,21 @@ def _load_core():
 _load_core()
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文脈。隣の部品)
-import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_lite = 友人用簡易版・ed_evalaudio = 評価用の音声)
+import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.52.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.53.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
 # ---------- 分けた部品(段10。docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_lite, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt)
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -170,7 +170,7 @@ if _me is not None and _me.__dict__ is globals():   # 登録されて読み込�
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/api/lite/export", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -226,19 +226,6 @@ class Handler(BaseHTTPRequestHandler):
     def _fail(self, code, error, message):
         """画面の api() が理由を表示できるよう、エラーも JSON で返す(以前は 403/413/415 が素の文字列で「エラー 403」としか出なかった)。"""
         self._json(code, {"error": error, "message": message})
-
-    def _lite_upload(self):
-        """POST /api/lite/upload?name=ファイル名(本文 = 動画)→ {"path", "name"}(ed_lite.receive_upload)"""
-        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = 0
-        try:
-            return self._json(200, ed_lite.receive_upload(self.rfile, length, (q.get("name") or [""])[0]))
-        except ed_state.ApiError as e:
-            self.close_connection = True   # 読み残した本文があるので、この接続は使い回さない
-            return self._err(e)
 
     def _read_json(self):
         if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
@@ -310,9 +297,6 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/", "/index.html"):
                 with open(ed_state.INDEX, "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
-            if u.path in ("/lite", "/lite.html"):   # 友人用 文字起こし簡易版の画面(docs/plan/friend-lite-plan.md)
-                with open(ed_state.LITE_HTML, "rb") as f:
-                    return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
             if u.path == "/app.js":
                 with open(ed_state.APP_JS, "rb") as f:
                     return self._send(200, f.read(), "text/javascript; charset=utf-8")
@@ -333,10 +317,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_misc.clip_info((q.get("path") or [""])[0]))
             if u.path == "/api/transcript-v1":
                 return self._json(200, ed_misc.transcript_v1((q.get("id") or [""])[0]))
-            if u.path == "/api/lite/state":
-                return self._json(200, ed_lite.state())
-            if u.path == "/api/lite/export":
-                return self._json(200, ed_lite.export_status((q.get("id") or [""])[0]))
             if u.path == "/api/roster":
                 return self._json(200, ed_learn.load_roster())
             if u.path == "/api/tools":
@@ -480,18 +460,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard(True):
             return
         path = self.path.split("?", 1)[0]
-        if path == "/api/lite/upload":   # 友人用簡易版のドロップ(本文は動画のバイト列。JSON ではない)
-            return self._lite_upload()
         obj = self._read_json()
         if obj is None:
             return
         try:
-            if path.startswith("/api/lite/"):
-                fn = {"/api/lite/settings": ed_lite.save_settings, "/api/lite/probe": ed_lite.probe, "/api/lite/start": ed_lite.start,
-                      "/api/lite/ops": ed_lite.append_ops, "/api/lite/export": ed_lite.export_start, "/api/lite/open": ed_lite.open_folder}.get(path)
-                if fn is None:
-                    return self._fail(404, "not_found", "その操作はありません")
-                return self._json(200, fn(obj))
             if path == "/api/transcribe":
                 spec = ed_jobs.validate_job(obj)
                 return self._json(200, ed_jobs.public_job(ed_jobs.add_job(spec)))
@@ -694,7 +666,7 @@ class Handler(BaseHTTPRequestHandler):
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
-                              ed_jobs.asr_path(tid), ed_lite.edits_path(tid), ed_lite.export_record_path(tid), ed_speakers.diar_path(tid),
+                              ed_jobs.asr_path(tid), ed_speakers.diar_path(tid),
                               ed_alt.alt_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンの結果も一緒に
                     try:
                         os.unlink(extra)

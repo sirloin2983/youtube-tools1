@@ -21,7 +21,7 @@ from ytt_core.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだ
 KIT = os.path.join(ROOT, "ui-kit")
 HEADER = "/* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */\n"
 FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("js",))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
-EMBED_TARGETS = [(TOOL_DIRS["transcribe"], "index.html", ("css",)), (TOOL_DIRS["transcribe"], "lite.html", ("css",))]   # lite.html = 友人用簡易版
+EMBED_TARGETS = [(TOOL_DIRS["transcribe"], "index.html", ("css",))]
 MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* ui-kit:js:begin */", "/* ui-kit:js:end */")}
 
 

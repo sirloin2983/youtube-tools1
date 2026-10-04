@@ -37,7 +37,6 @@ import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
-import ed_lite  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
@@ -863,7 +862,7 @@ CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")
 
 
 def cuda_compute():
-    """GPU で使う精度の型。環境変数 TRANSCRIBE_CUDA_COMPUTE(友人用簡易版の起動が int8_float16 = 8GB の GPU に収める)。無い・違えば float16(今まで)"""
+    """GPU で使う精度の型。環境変数 TRANSCRIBE_CUDA_COMPUTE(例: int8_float16 = 8GB の GPU に収める)。無い・違えば float16(今まで)"""
     v = os.environ.get("TRANSCRIBE_CUDA_COMPUTE", "").strip()
     return v if v in CUDA_COMPUTE_TYPES else "float16"
 
@@ -1491,7 +1490,7 @@ def row_words(p, shift=0.0):
     return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
 
 
-# ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。友人用簡易版の評価データの asr_raw.json の元) ----------
+# ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。記録の土台 = 機械の最初の結果を書き換えずに残す) ----------
 ASR_SCHEMA = "youtube-tools-asr-raw/v1"
 MAX_ASR_BYTES = 64 * 1024 * 1024
 
@@ -1753,7 +1752,6 @@ def run_job(job):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             if spec.get("evalSet"):
                 doc["evalSet"] = True
-            ed_lite.on_new_doc(spec, doc)   # 友人用簡易版: 印(doc["lite"])と既定の話者(簡易版でなければ何もしない)
             ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         try:
             write_words(tid, all_words, spec["model"])

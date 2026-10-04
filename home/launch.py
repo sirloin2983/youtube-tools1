@@ -1204,7 +1204,7 @@ def parse_args(argv):
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")
     ap.add_argument("--wait-port", action="store_true", help="「起動し直す」用: --port が空くまで(最大 30 秒)待ってから待ち受ける")
-    ap.add_argument("--open-path", default="/", help="最初に開く画面の場所(例: /transcribe/lite.html = 友人用 文字起こし簡易版)")
+    ap.add_argument("--open-path", default="/", help="最初に開く画面の場所(例: /transcribe/ = 編集)")
     ap.add_argument("--app-window", action="store_true", help="設定にかかわらず Edge のアプリの窓で開く(無ければいつものブラウザ)")
     ap.add_argument("--no-mount", action="store_true",
                     help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
@@ -1215,7 +1215,7 @@ def parse_args(argv):
         ap.error("--only に使えるのは %s です(%s は不明)" % (", ".join(TOOL_IDS), ", ".join(bad)))
     a.only = only
     if not re.fullmatch(r"/[A-Za-z0-9._/\-]{0,120}", a.open_path) or ".." in a.open_path or "//" in a.open_path:
-        ap.error("--open-path は / で始まる英数字の場所にしてください(例: /transcribe/lite.html)")
+        ap.error("--open-path は / で始まる英数字の場所にしてください(例: /transcribe/)")
     return a
 
 
@@ -1264,7 +1264,7 @@ def main(argv=None):
         srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)
         srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
-        if opts.app_window:   # 友人用 簡易版の起動(lite/lite.py): 設定にかかわらず窓で開く
+        if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
             threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()

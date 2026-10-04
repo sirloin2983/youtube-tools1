@@ -6,7 +6,7 @@
 ffmpeg が必要(小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、待機列のジョブをテストがその場で動かす(疑似の認識・疑似の話者判別
 diarize_fake = 10 秒ごとに入れ替わる・声の特徴 embed_fake = 同じ入れ替わり)。
 評価用の文書: 文字起こしのあと判別のジョブが足される → 覚えた声 → 名前の候補(suggest)をいちばん長く話した人に → diar.json に by: context。
-人が付けた話者・確かめ済みは触らない・評価用でない文書は設定 autoDiarize のときだけ・簡易版は動かない・部品が無ければ黙って飛ばす・
+人が付けた話者・確かめ済みは触らない・評価用でない文書は設定 autoDiarize のときだけ・部品が無ければ黙って飛ばす・
 まとめての文字起こしの後追いは文書ごとに 1 回・直近に直した文書は後回し・判別の待ちの文書はドリルに出ない。
 """
 import json
@@ -28,7 +28,6 @@ import serve as S  # noqa: E402
 import ed_drill  # noqa: E402
 import ed_evalbatch as EB  # noqa: E402
 import ed_jobs  # noqa: E402
-import ed_lite  # noqa: E402
 import ed_relink  # noqa: E402
 import ed_speakers  # noqa: E402
 import ed_store  # noqa: E402
@@ -235,22 +234,6 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(self.diar_jobs(tid3), [])
         self.assertIs(ed_jobs.validate_job({"sourcePath": other, "model": "small"})["autoDiarize"], True)
         os.unlink(other)
-
-    def test_lite_does_not_run(self):
-        self.settings({"evalDirs": [self.ev], "autoDiarize": True})
-        spec = ed_jobs.validate_job({"sourcePath": self.put(self.mem, "i.mp4"), "model": "small", "autoDiarize": False})
-        spec["lite"] = {"streamer": "ときのそら", "sourceUrl": "", "rulesVersion": 1, "formatVersion": 1}
-        job = self.run_one(ed_jobs.add_job(spec))
-        self.assertEqual(self.diar_jobs(job["tid"]), [])
-        seen = {}
-
-        def fake_validate(req):   # 簡易版の要求は autoDiarize: False を明示する
-            seen.update(req)
-            raise S.ApiError("stop", "ここまで", 400)
-        with mock.patch.object(ed_jobs, "validate_job", side_effect=fake_validate):
-            with self.assertRaises(S.ApiError):
-                ed_lite.start({"path": self.short, "streamer": "ときのそら"})
-        self.assertIs(seen.get("autoDiarize"), False)
 
     def test_no_sherpa_skips_silently_for_eval(self):
         with mock.patch.object(ed_speakers, "autodiar_ready", return_value=False):

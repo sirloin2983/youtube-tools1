@@ -524,7 +524,7 @@ def eb_redo_why(tid, doc, busy=(), now=None, media=True):
     segments と original が同じ(行の数・各行の start/end が EB_REDO_TIME_TOL 以内・文字が同じ)・話者は機械が付けたものだけ(_eb_speaker_why)・
     直近 ed_drill.DRILL_RECENT_SEC に更新・操作していない(updatedAt と effort.lastAt)・ジョブの最中でない(busy)・動画がある(media)。
     迷うものは手を入れた側に倒す(作り直さない)"""
-    if not isinstance(doc, dict) or doc.get("evalSet") is not True or doc.get("lite"):
+    if not isinstance(doc, dict) or doc.get("evalSet") is not True:
         return "notEval"
     if isinstance(doc.get("evalReviewed"), dict):
         return "reviewed"

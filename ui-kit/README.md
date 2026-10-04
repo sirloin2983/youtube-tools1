@@ -33,7 +33,7 @@
 - cut2resolve: 画面を「編集」に統合して消したので、写さない(2026-09-26)
 
 ## テーマ
-- `<html data-theme="light|dark">` を `ui-kit.js` が付ける。初回は OS の設定に合わせ、⚙ 設定の「テーマ」で選ぶと保存する(v14 でヘッダーの切り替えボタンはやめた。`[data-theme-toggle]` を付けたボタンがあれば今までどおり動く = 設定の無い `editor/lite.html` が使う)
+- `<html data-theme="light|dark">` を `ui-kit.js` が付ける。初回は OS の設定に合わせ、⚙ 設定の「テーマ」で選ぶと保存する(v14 でヘッダーの切り替えボタンはやめた。`[data-theme-toggle]` を付けたボタンがあれば今までどおり動く)
 - 保存場所は localStorage の `ytt:theme`(`light` / `dark`。無ければ OS に合わせる)。ツールごとにポートが違うので保存は別々
 - 色は必ず変数(`var(--panel)` など)で書く。固定の色を書くと片方のテーマで読めなくなる
 - 主な変数: `--bg` `--panel` `--panel-2` `--panel-3` `--field` `--line` `--line-2` `--ink` `--ink-2` `--ink-3` `--accent` `--accent-ink` `--accent-soft` `--ok` `--warn` `--danger` `--info`(+ `-soft`)、グラフ用 `--c-audio` `--c-chat` `--c-com`

@@ -1,6 +1,6 @@
 # 友人用 文字起こし簡易版: 実機で確かめてもらうこと(Resolve)
 
-> 状態(2026-10-02): **確認待ち**(ユーザーの PC の DaVinci Resolve で)。計画は `docs/plan/friend-lite-plan.md`。
+> 状態: **取り下げ(2026-10-04。ユーザー決定『いったん使わない』。コードは消した = git の cf617a8 までの履歴から戻せる)**。以前の状態(2026-10-02): 確認待ち(ユーザーの PC の DaVinci Resolve で)。計画は `docs/plan/friend-lite-plan.md`。
 > 結果は WORKLOG に「実機の確認」として書き、ずれがあれば Claude Code に伝えてください(直すのは `cut2resolve/resolve_textplus.py`)。
 
 ## 何を確かめるか

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""素材を 30fps にそろえる(マスタープラン Q1)の「編集」の側のテスト: 単体の文字起こし・動画を選び直す・友人用簡易版。
+"""素材を 30fps にそろえる(マスタープラン Q1)の「編集」の側のテスト: 単体の文字起こし・動画を選び直す。
 
     py -3.10 -m unittest editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest editor/tests/test_normalize30.py    # これだけ
@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 import ed_jobs  # noqa: E402
-import ed_lite  # noqa: E402
 import ed_relink  # noqa: E402
 import ed_store  # noqa: E402
 from ytt_core import normalize as N  # noqa: E402
@@ -53,9 +52,9 @@ class _Base(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.media = os.path.join(self.tmp, "動画")   # 作業データ(TX_DIR = self.tmp)の lite-media/ とは別のフォルダ
+        self.media = os.path.join(self.tmp, "動画")   # 作業データ(TX_DIR = self.tmp)とは別のフォルダ
         os.makedirs(self.media)
-        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "LITE_MODEL": "small",
+        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0",
                                                 "TRANSCRIBE_NORMALIZE": ""})
         self.env.start()
 
@@ -301,6 +300,21 @@ class TestRelinkNormalize(_Base):
         self.assertIsNone(r["normalizing"])
         self.assertEqual(r["normNote"], "")
 
+    def test_old_lite_mark_is_ignored(self):
+        """以前の友人用簡易版の印(doc["lite"])が残る文書も、普通の文書と同じく隣に <名前>_30fps.mp4 を作る"""
+        old = self.copy(self.v30, "元5.mp4")
+        tid, d = self.make_doc(old)
+        doc = self.doc(tid)
+        doc["lite"] = {"streamer": "兎田ぺこら", "sourceUrl": "", "rulesVersion": 1, "formatVersion": 1}
+        S.atomic_write(S.tx_path(tid), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+        moved = self.copy(self.v60, "先5.mp4")
+        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": doc["updatedAt"], "acceptDiff": True})
+        job = ed_jobs._jobs[r["normalizing"]]
+        self.run_job(job)
+        dst = os.path.join(self.media, "先5_30fps.mp4")
+        self.assertEqual(os.path.normcase(self.doc(tid)["sourcePath"]), os.path.normcase(dst))
+        self.assertEqual(self.doc(tid)["lite"]["streamer"], "兎田ぺこら")   # 印は残る(読まないだけ)
+
     def test_eval_doc_relink_does_not_normalize(self):
         old = self.copy(self.v30, "元4.mp4")
         tid, d = self.make_doc(old)
@@ -310,55 +324,6 @@ class TestRelinkNormalize(_Base):
         moved = self.copy(self.v60, "先4.mp4")
         r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": doc["updatedAt"], "acceptDiff": True})
         self.assertIsNone(r["normalizing"])
-
-
-class TestLiteNormalize(_Base):
-    def start(self, path):
-        job = ed_lite.start({"path": path, "streamer": "兎田ぺこら"})
-        return self.run_job(ed_jobs._jobs[job["id"]])
-
-    def test_drop_makes_30fps_copy_in_lite_media(self):
-        """ドロップ(lite-media/ に受け取った写し)が 60fps: lite-media/<番号>/<元の名前>.mp4 に 30fps の写しを作って使い、受け取った写しは消す"""
-        with open(self.v60, "rb") as f:
-            data = f.read()
-        import io
-        up = ed_lite.receive_upload(io.BytesIO(data), len(data), "配信 動画.mp4")
-        job = self.start(up["path"])
-        d = self.doc(job["tid"])
-        p = d["sourcePath"]
-        self.assertEqual(os.path.normcase(os.path.dirname(os.path.dirname(p))), os.path.normcase(ed_lite.media_dir()))
-        self.assertEqual(os.path.basename(p), "配信_動画.mp4")   # 受け取りのときに付けた番号は外す(名前は受け取りのときの安全な形)
-        self.assert_30(p)
-        self.assertFalse(os.path.exists(up["path"]))
-        self.assertEqual(d["title"], "配信_動画")
-        self.assertEqual(d["lite"]["streamer"], "兎田ぺこら")
-
-    def test_pick_makes_30fps_copy_and_keeps_original(self):
-        src = self.copy(self.v60, "友人の動画.mp4")
-        job = self.start(src)
-        p = self.doc(job["tid"])["sourcePath"]
-        self.assertTrue(p.startswith(ed_lite.media_dir()))
-        self.assertEqual(os.path.basename(p), "友人の動画.mp4")
-        self.assert_30(p)
-        self.assertTrue(os.path.isfile(src))
-        self.assertEqual(os.listdir(self.media), ["友人の動画.mp4"])   # 友人の動画のフォルダには書かない
-
-    def test_30fps_pick_is_used_as_is(self):
-        src = self.copy(self.v30, "30.mp4")
-        job = self.start(src)
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
-        self.assertFalse(os.path.isdir(ed_lite.media_dir()) and os.listdir(ed_lite.media_dir()))
-
-    def test_failure_keeps_upload(self):
-        with open(self.v60, "rb") as f:
-            data = f.read()
-        import io
-        up = ed_lite.receive_upload(io.BytesIO(data), len(data), "x.mp4")
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=N.NormalizeError("こわれた")):
-            job = self.start(up["path"])
-        self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(up["path"]))
-        self.assertTrue(os.path.isfile(up["path"]))
-        self.assertEqual(sorted(os.listdir(ed_lite.media_dir())), [os.path.basename(up["path"])])   # 作りかけのフォルダは残さない
 
 
 if __name__ == "__main__":

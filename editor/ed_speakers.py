@@ -583,10 +583,8 @@ def autodiar_ready():
 
 
 def autodiar_why_not(doc):
-    """自動で判別しない理由(None = 判別してよい): lite(友人用簡易版)・empty(文字のある行が無い)・reviewed(評価用で確かめ済み)・
+    """自動で判別しない理由(None = 判別してよい): empty(文字のある行が無い)・reviewed(評価用で確かめ済み)・
     has_speakers(文字のある行に話者がある = 人か前の判別が付けた。置き換えない)"""
-    if doc.get("lite"):
-        return "lite"
     ids = {s.get("id") for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
     rows = [g for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()]
     if not rows:
@@ -630,8 +628,8 @@ def autodiar_enqueue(tid, batch=False):
 
 def autodiar_after_transcribe(job, spec, tid):
     """文字起こしのジョブ(ed_jobs.run_job)の終わり。文書を書いたあと・「完了」にする前に呼ぶ(ドリルが判別の前の文書を開かないよう、間を空けない)。
-    評価用は常に・それ以外は設定 autoDiarize。友人用簡易版は除く。始められなくても文字起こしは成功のまま(job["warnings"])"""
-    if spec.get("lite") or not (spec.get("evalSet") or spec.get("autoDiarize")):
+    評価用は常に・それ以外は設定 autoDiarize。始められなくても文字起こしは成功のまま(job["warnings"])"""
+    if not (spec.get("evalSet") or spec.get("autoDiarize")):
         return
     try:
         r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")))

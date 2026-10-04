@@ -7,7 +7,7 @@
   文字起こしの作業データの evals\\effort\\<日時>.json(schema youtube-tools-effort-eval/v1)に残す(置き場所は eval_asr.py(evals\\asr)・eval_speakers.py と同じ「ツールの作業データの下の evals\\<領域>」)。
 - 読むもの: 文書の effort = {activeSec, cutSec, sessions, proofedRows, unproofedRows, lastAt}(editor/ed_store.py の add_effort・effort_rows。画面は app-learn.js の effortTick)・
   segments(人の最終)・original(機械の出力)・recognition.runs・evalSet・evalReviewed・clip。<id>.diar.json の latest.rows[行 id].speaker(機械が付けた話者)。
-  effort の無い文書・簡易版(doc["lite"]。時間を送らない)・時間が 0 の文書・長さが分からない文書は飛ばす(数は skipped)。
+  effort の無い文書・時間が 0 の文書・長さが分からない文書は飛ばす(数は skipped)。
 - 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(editor/ed_store.py の doc_length と同じ決まり:
   範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わりまで)。校正の時間 = activeSec(1 文字起こし のタブ)、カットとパックの時間 = cutSec(2 カット・3 パック)。
 - 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。editor/ed_drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
@@ -240,12 +240,10 @@ def week_of(ms):
 
 
 def doc_record(doc, diar_rows=None, has_alt=False):
-    """文書 1 件の記録。effort が無い・簡易版・時間が 0・長さが分からないときは (None, 理由) を返す -> (記録 or None, 飛ばした理由 or "")"""
+    """文書 1 件の記録。effort が無い・時間が 0・長さが分からないときは (None, 理由) を返す -> (記録 or None, 飛ばした理由 or "")"""
     ef = doc_effort(doc)
     if ef is None:
         return None, "noEffort"
-    if doc.get("lite"):
-        return None, "lite"
     dur = doc_length(doc)
     if dur <= 0:
         return None, "noDuration"
@@ -355,8 +353,6 @@ def notes_for(res, skipped):
          "1 回の送信は %d 秒まで(通常は 5 分たまったとき・画面を離れたとき・別の文書を開くときに送る)。送り損ねた分は入らない" % MAX_EFFORT_SEC,
          "倍率は終わった文書だけで出しています。途中の文書は、まだ直している途中で時間が短く出る(入れると甘く出る)ので、数だけ別に出しています",
          "評価用の確かめ済みは動画を全部聞く文書なので、普段の文書より倍率が高く出ます(組ごとの比べで見る)"]
-    if skipped.get("lite"):
-        n.append("簡易版(lite)の文書 %d 件は時間を送らないので外しました" % skipped["lite"])
     if skipped.get("noTime"):
         n.append("校正の時間(activeSec)が 0 の文書 %d 件は倍率が出せないので外しました(行の数だけの記録・ほかのタブだけで作業したもの)" % skipped["noTime"])
     if skipped.get("noEffort"):
@@ -376,7 +372,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
     tdir = os.path.join(root, "transcripts")
     since_ms = day_ms(since) if since else None
     until_ms = day_ms(until, end=True) if until else None
-    skipped = {"broken": 0, "noEffort": 0, "lite": 0, "noDuration": 0, "noTime": 0, "evalSet": 0, "outOfRange": 0}
+    skipped = {"broken": 0, "noEffort": 0, "noDuration": 0, "noTime": 0, "evalSet": 0, "outOfRange": 0}
     recs, docs = [], {}
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
         if not DOC_RE.match(name):
