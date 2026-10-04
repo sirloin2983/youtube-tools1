@@ -5,12 +5,16 @@
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
     python dev/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--scope eval] [--label 名前]
         評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)。
+        --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
     python dev/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
     python dev/eval_asr.py list
         今までの結果の一覧
+
+  stored・run の結果と画面には、量の関門(G0 = 定点 5 分・G1 = 15 分・G2 = 30 分・G3 = 60 分。定点 = 確かめ済みの文書の長さの合計。summary.gate。
+  計画 docs/plan/transcription-plan-v2.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
 
   どのモードでも(マスタープラン Q3。docs/plan/master-plan-2026-10.md の 2 の原則 4・8 のリスク):
     --source eval|daily|all|friend   測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
@@ -59,6 +63,9 @@ from ytt_core import evaldata as ev  # noqa: E402  友人の送る用 zip の形
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
+# 量の関門(docs/plan/transcription-plan-v2.md 3-2)。定点の量 = 確かめ済みの評価用の文書の長さの合計(秒)。しきい値はここだけ
+GATES = (("G0", 5 * 60), ("G1", 15 * 60), ("G2", 30 * 60), ("G3", 60 * 60))
+GATE_GUIDE = {None: "決めてよいことはまだ無い", "G0": "10 pt 以上の悪化の検出だけ", "G1": "エンジンの決定", "G2": "5 pt 前後の差", "G3": "2〜3 pt の差"}
 STORED = "stored"        # summarize の compared: 保存してある機械の出力(= 下書きそのもの)を測るとき
 DRAFT_NONE = "不明(記録なし)"
 TAG_NAMES = {"overlap": "声が重なる", "bgm": "BGM・音が大きい", "none": "メモなし"}
@@ -598,12 +605,36 @@ def reviewed_summary(groups, docs):
             "extraOutsideChars": sum(g["ins"] for g in mine if g.get("outside"))}
 
 
+def gate_of(sec):
+    """定点の量(秒)-> いまの関門 {"gate": G0〜G3 か None(5 分に届かない), "sec", "next": 次の関門の名前か None(G3 を越えた), "nextSec": 次の関門までの残りの秒}"""
+    sec = float(sec) if isinstance(sec, (int, float)) and not isinstance(sec, bool) and sec > 0 else 0.0
+    cur, nxt = None, None
+    for name, need in GATES:
+        if sec >= need:
+            cur = name
+        else:
+            nxt = (name, need)
+            break
+    return {"gate": cur, "sec": sec, "next": nxt[0] if nxt else None, "nextSec": nxt[1] - sec if nxt else 0.0}
+
+
+def _min(sec):
+    return "%g" % round(sec / 60, 1)
+
+
+def gate_line(g):
+    """関門の表示 1 行(例: 関門: G1(定点 16.2 分)・次の G2 まであと 13.8 分)"""
+    head = "関門: %s(定点 %s 分)" % (g["gate"] or "まだ", _min(g["sec"]))
+    return head + ("・次の %s まであと %s 分" % (g["next"], _min(g["nextSec"])) if g["next"] and (g["gate"] or g["sec"] > 0) else "")
+
+
 def summarize(groups, docs, S=None, compared=STORED, group=None):
     """結果のまとめ。compared = 比べるエンジン(STORED = 保存してある出力)。下書きのエンジンとの注意(draftBias)に使う。
     group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す"""
     s = {"overall": total(groups), "ci95": boot_ci(groups)}
     s["proofedSec"] = proofed_sec(groups, docs)
     s["reviewed"] = reviewed_summary(groups, docs)
+    s["gate"] = gate_of(s["reviewed"]["sec"])        # 量の関門(定点 = 確かめ済みの文書の長さの合計)
     s["lowData"] = s["proofedSec"] < LOW_DATA_SEC   # 校正済みが少ない間は「まだ少ない(参考)」(結果は出すが、決めるのに使わない)
     if S is not None:
         s["docText"] = doc_text(S, groups)
@@ -729,6 +760,12 @@ def print_summary(res):
     if rv.get("docs"):
         print("確かめ済み %d 本・%.1f 分(動画全体を正解として採点。--reviewed %s)・抜け(人だけ)%d 字・余分(機械だけ)%d 字(うち人の行の範囲の外 %d 字)"
               % (rv["docs"], rv["sec"] / 60, rsel.get("effective") or "?", rv["missChars"], rv["extraChars"], rv["extraOutsideChars"]))
+    if isinstance(s.get("gate"), dict):
+        print(gate_line(s["gate"]))
+    rp = m.get("repeat")
+    if rp:
+        print("%d 回の CER: %s(幅 %.1f pt)・代表は %d 回目%s" % (rp["n"], " / ".join(pct(c).strip() for c in rp["cers"]), (rp["spread"] or 0) * 100, rp["median"] + 1,
+                                                          "" if rp.get("complete", True) else "  ※ 回ごとに数えた文書がそろっていない(そろった文書だけで選んだ)"))
     if s.get("lowData"):
         print("※ まだ少ない(参考): 校正済みが %d 分に届いていません。決めるのには使わない" % (LOW_DATA_SEC // 60))
     ci = s.get("ci95")
@@ -844,9 +881,43 @@ def cmd_run(S, args, data):
         t0 = time.monotonic()
         _m, device = S.load_model(spec["model"], {"phase": "", "cancel": False}, spec["device"], engine=spec["engine"])
         load_sec = time.monotonic() - t0
+    repeat = max(1, int(getattr(args, "repeat", 1) or 1))
+    if repeat >= 2 and args.temp0:
+        print("注意: --temp0 は温度 0 に固定してぶれないので、--repeat %d は意味が薄い(止めずに続けます)" % repeat)
+    runs = []
+    for k in range(repeat):
+        runs.append(run_docs(S, docs, spec, args, data, terms, device, "[%d/%d 回目] " % (k + 1, repeat) if repeat >= 2 else ""))
+        device = runs[-1]["device"]
+    pick, rep = 0, None
+    if repeat >= 2:
+        pick, rep = pick_median(S, runs)
+    groups, audio_sec, wall_sec, per_doc = (runs[pick][k] for k in ("groups", "audioSec", "wallSec", "perDoc"))
+    failed = [p for p in per_doc if p.get("error")]
+    meta = base_meta("run", args, docs, data, sel)
+    run_rec = S.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
+    meta.update({"engine": {"engine": run_rec["engine"], "engineVersion": run_rec["engineVersion"],
+                            "model": spec["model"], "device": device,
+                            "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
+                            "glossary": spec["glossary"][:50], "context": args.context, "hintFree": hint_free},
+                 "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_memory_mb(),
+                 "perDoc": per_doc, "failed": len(failed)})
+    if rep:
+        meta["repeat"] = rep   # 付くのは --repeat 2 以上のときだけ(1 回なら今までと同じ出力)
+        if not rep["complete"]:
+            print("注意: 回ごとに数えた文書がそろっていません(%s)。CER はそろった文書だけで比べて代表を選びました。落ちた回を含む結果は、そのまま比べないこと"
+                  % " / ".join("%d 本" % len(n) for n in rep["docIds"]))
+    if failed:
+        print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
+    done = {p["id"] for p in per_doc if not p.get("error")}   # 認識できなかった文書は、確かめ済みの秒にも入れない
+    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"))
+    return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
+
+
+def run_docs(S, docs, spec, args, data, terms, device, tag=""):
+    """文書すべてを 1 回認識して採点する(--repeat のときは回の数だけ呼ぶ)。認識できなかった文書は per_doc に error で残して数えない"""
     groups, audio_sec, wall_sec, per_doc = [], 0.0, 0.0, []
     for n, d in enumerate(docs, 1):
-        print("(%d/%d) %s %s …" % (n, len(docs), d["id"], str(d.get("title") or "")[:30]), flush=True)
+        print("%s(%d/%d) %s %s …" % (tag, n, len(docs), d["id"], str(d.get("title") or "")[:30]), flush=True)
         ctx = S.stream_context(d, args.context == "auto")   # 配信ごとの文脈(段1-2。文書の題名・チャンネル名・コラボ相手・話者の名前から)
         if ctx["members"]:
             print("   文脈: %s" % "、".join(m["name"] for m in ctx["members"]))
@@ -862,20 +933,40 @@ def cmd_run(S, args, data):
         per_doc.append({"id": d["id"], "audioSec": round(a, 2), "wallSec": round(w, 2), "audio": where, "rows": len(rows),
                         "context": [m["name"] for m in ctx["members"]]})
         groups += score_doc(S, d, rows, terms, flag_from="hyp")
-    failed = [p for p in per_doc if p.get("error")]
-    meta = base_meta("run", args, docs, data, sel)
-    run_rec = S.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
-    meta.update({"engine": {"engine": run_rec["engine"], "engineVersion": run_rec["engineVersion"],
-                            "model": spec["model"], "device": device,
-                            "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
-                            "glossary": spec["glossary"][:50], "context": args.context, "hintFree": hint_free},
-                 "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_memory_mb(),
-                 "perDoc": per_doc, "failed": len(failed)})
-    if failed:
-        print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
-    done = {p["id"] for p in per_doc if not p.get("error")}   # 認識できなかった文書は、確かめ済みの秒にも入れない
-    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"))
-    return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
+    return {"groups": groups, "audioSec": audio_sec, "wallSec": wall_sec, "perDoc": per_doc, "device": device}
+
+
+def pick_median(S, runs):
+    """N 回の認識の中から、全体の CER(今の主な数字)が中央の回を選ぶ -> (代表の回の番号(0 始まり), 結果に入れる repeat の要約)。
+    偶数回は中央の 2 つのうち小さい方(CER が同じなら早い回が先)。回ごとに数えた文書がそろっていないときは、全部の回にある文書だけで CER を出して選ぶ
+    (落ちた文書は数に入らない。そろっていない結果どうしは、そのままでは比べられない = complete: False)"""
+    ids = [sorted(p["id"] for p in r["perDoc"] if not p.get("error")) for r in runs]
+    common = set(ids[0]).intersection(*ids[1:])
+    complete = all(i == ids[0] for i in ids)
+    cers, texts = [], []
+    for r in runs:
+        gs = r["groups"] if complete else [g for g in r["groups"] if g["doc"] in common]
+        cers.append(total(gs)["cer"])
+        texts.append(doc_text(S, gs)["cer"])
+    if all(c is None for c in cers):   # 数えられた文書が 1 本も無い(= 比べられない)。文書が一番多い回を代表にする
+        pick = max(range(len(runs)), key=lambda i: (len(ids[i]), -i))
+    else:
+        order = sorted(range(len(runs)), key=lambda i: ((cers[i] if cers[i] is not None else 1.0), i))
+        pick = order[(len(runs) - 1) // 2]
+    real = [c for c in cers if c is not None]
+    return pick, {"n": len(runs), "cers": cers, "docTextCers": texts, "median": pick, "spread": round(max(real) - min(real), 4) if real else None,
+                  "wallSec": [round(r["wallSec"], 2) for r in runs], "docs": [len(i) for i in ids], "docIds": ids, "complete": complete}
+
+
+def gate_verdict(g, lo, hi):
+    """compare の関門の 1 行: 小さい方の関門と、差の 95% の範囲(lo〜hi。B − A)が 0 をまたぐか。またげば「この量では決められない」"""
+    if hi < 0:
+        what = "差は 95% の範囲で 改善 の側"
+    elif lo > 0:
+        what = "差は 95% の範囲で 悪化 の側"
+    else:
+        what = "この量では決められない(分からない)"
+    return "関門(小さい方): %s(定点 %s 分。決めてよいのは %s)→ %s" % (g["gate"] or "まだ", _min(g["sec"]), GATE_GUIDE[g["gate"]], what)
 
 
 def cmd_compare(a_path, b_path, n=BOOT, seed=1):
@@ -916,10 +1007,16 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     out = {"a": a_path, "b": b_path, "docs": len(keys), "cerA": round(cer("a", keys), 4), "cerB": round(cer("b", keys), 4),
            "diff": round(diff, 4), "ci95": [round(lo, 4), round(hi, 4)], "verdict": verdict, "warnings": warn,
            "byDoc": [{"id": k, "cerA": round(cer("a", [k]), 4), "cerB": round(cer("b", [k]), 4)} for k in keys]}
+    ga, gb = A["summary"].get("gate"), B["summary"].get("gate")
+    if isinstance(ga, dict) and isinstance(gb, dict):   # 関門が無い(古い)結果のときは出さない
+        out["gate"] = gate_of(min(ga.get("sec") or 0, gb.get("sec") or 0))   # 2つのうち定点の少ない方
+        out["gateVerdict"] = gate_verdict(out["gate"], lo, hi)
     for w in warn:
         print("注意: " + w)
     print("A %s: CER %s\nB %s: CER %s" % (os.path.basename(a_path), pct(out["cerA"]), os.path.basename(b_path), pct(out["cerB"])))
     print("差(B − A) %+.2f ポイント(95%%の範囲 %+.2f 〜 %+.2f)→ %s" % (diff * 100, lo * 100, hi * 100, verdict))
+    if "gate" in out:
+        print(out["gateVerdict"])
     for key in ("byTag", "byKind"):
         for k in A["summary"][key]:
             va, vb = A["summary"][key][k], B["summary"][key].get(k) or {}
@@ -970,8 +1067,11 @@ def main(argv=None):
     p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp は setup/build-whisper-vulkan.bat で作ってから。qwen3-asr = Qwen3-ASR 0.6B の CPU(初回にモデル 879MB)・llama.cpp = Qwen3-ASR 1.7B の GPU(初回に実行ファイル 33MB とモデル 2.5GB))")
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
+    p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")
     p.add_argument("--no-save", action="store_true", help="結果を保存しない")
     args = p.parse_args(argv)
+    if args.repeat < 1:
+        raise SystemExit("--repeat は 1 以上で指定してください")
     args.docs = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
     if args.mode == "compare":
         if len(args.files) != 2:

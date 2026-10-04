@@ -1,6 +1,6 @@
 """dev/eval_asr.py(文字起こしの精度を測る道具。計画 段0-2)のテスト。リポジトリ直下で:
 
-    python -m unittest dev/tests/test_eval_asr.py
+    py -3.10 -m unittest dev/tests/test_eval_asr.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない)。run は偽の認識(TRANSCRIBE_BACKEND=fake)で流れだけ確かめる(ffmpeg が必要)。
 """
@@ -581,6 +581,228 @@ class EvalAsrReviewedTest(unittest.TestCase):
         import accuracy
         out = accuracy.summarize_asr(res)
         self.assertEqual((out["chars"], out["proofedSec"]), (s["overall"]["refChars"], 60))
+
+
+class EvalAsrGateRepeatTest(unittest.TestCase):
+    """量の関門(gate_of・表示・compare の判定)と、run --repeat N(N 回の認識の中央)。認識は偽(recognize_doc を差し替える)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_gate_")
+        self.data = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(self.data, "transcripts"))
+        os.environ["TRANSCRIBE_BACKEND"] = "fake"
+        self.orig_recognize = E.recognize_doc
+        self.write("aaaaaaaaaa01", 60.0)
+
+    def tearDown(self):
+        E.recognize_doc = self.orig_recognize
+        os.environ.pop("TRANSCRIBE_BACKEND", None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, tid, dur):
+        doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja", "speakers": [],
+               "updatedAt": 1, "evalSet": True, "evalReviewed": {"at": 5, "rows": 1, "durationSec": dur, "via": "drill"},
+               "segments": [seg(1, 10.0, 14.0, "こんにちは")], "original": [{"start": 10.0, "end": 14.0, "text": "こんにちは"}]}
+        with open(os.path.join(self.data, "transcripts", tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+
+    def script(self, plan):
+        """認識の偽物: 呼ばれた順に plan の要素(文字 = その文字を出す・Exception = 認識できない)を使う。呼ばれた文書の id を calls に残す"""
+        calls = []
+
+        def fake(S, doc, spec, data):
+            item = plan[len(calls)]
+            calls.append(doc["id"])
+            if isinstance(item, Exception):
+                raise item
+            return [{"start": 10.0, "end": 14.0, "text": item}], 60.0, 1.0, "動画", "cpu"
+        E.recognize_doc = fake
+        return calls
+
+    def run_cmd(self, *argv):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            res = E.main(["run", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", *argv])
+        return res, buf.getvalue()
+
+    def stored(self):
+        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save"])
+
+    def printed(self, res):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            E.print_summary(res)
+        return out.getvalue()
+
+    # ---- 量の関門
+
+    def test_gate_of_boundaries(self):
+        g = E.gate_of
+        self.assertEqual(E.GATES, (("G0", 300), ("G1", 900), ("G2", 1800), ("G3", 3600)))
+        self.assertEqual(g(0), {"gate": None, "sec": 0.0, "next": "G0", "nextSec": 300})
+        self.assertEqual((g(299.9)["gate"], g(299.9)["next"]), (None, "G0"))
+        self.assertEqual((g(300)["gate"], g(300)["next"], g(300)["nextSec"]), ("G0", "G1", 600))
+        self.assertEqual((g(899)["gate"], g(899)["nextSec"]), ("G0", 1))
+        self.assertEqual((g(900)["gate"], g(900)["next"]), ("G1", "G2"))
+        self.assertEqual((g(1800)["gate"], g(1800)["next"]), ("G2", "G3"))
+        self.assertEqual((g(3599)["gate"], g(3599)["next"]), ("G2", "G3"))
+        self.assertEqual(g(3600), {"gate": "G3", "sec": 3600, "next": None, "nextSec": 0.0})
+        self.assertEqual((g(7200)["gate"], g(7200)["next"]), ("G3", None))
+        for bad in (None, -5, "x", True):
+            self.assertEqual((g(bad)["gate"], g(bad)["sec"]), (None, 0.0))
+
+    def test_gate_line(self):
+        self.assertEqual(E.gate_line(E.gate_of(972)), "関門: G1(定点 16.2 分)・次の G2 まであと 13.8 分")
+        self.assertEqual(E.gate_line(E.gate_of(0)), "関門: まだ(定点 0 分)")
+        self.assertEqual(E.gate_line(E.gate_of(180)), "関門: まだ(定点 3 分)・次の G0 まであと 2 分")
+        self.assertEqual(E.gate_line(E.gate_of(4000)), "関門: G3(定点 66.7 分)")
+
+    def test_gate_in_stored_and_run_summary(self):
+        res = self.stored()
+        self.assertEqual(res["summary"]["gate"], E.gate_of(60.0))                       # 確かめ済み 60 秒 = まだ(G0 の 5 分に届かない)
+        self.assertIn("関門: まだ(定点 1 分)・次の G0 まであと 4 分", self.printed(res))
+        self.write("aaaaaaaaaa02", 900.0)
+        res = self.stored()
+        self.assertEqual(res["summary"]["gate"]["gate"], "G1")                          # 60 + 900 = 16 分
+        self.assertIn("関門: G1(定点 16 分)・次の G2 まであと 14 分", self.printed(res))
+        self.script(["こんにちは", "こんにちは"])
+        res, _ = self.run_cmd()
+        self.assertEqual(res["summary"]["gate"]["gate"], "G1")
+        # 確かめ済みが 0(従来の選び方に戻ったとき)は「まだ(定点 0 分)」
+        for t in ("aaaaaaaaaa01", "aaaaaaaaaa02"):
+            path = os.path.join(self.data, "transcripts", t + ".json")
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            d.pop("evalReviewed")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False)
+        res = self.stored()
+        self.assertEqual(res["summary"]["gate"], {"gate": None, "sec": 0.0, "next": "G0", "nextSec": 300})
+        out = self.printed(res)
+        self.assertIn("関門: まだ(定点 0 分)\n", out)
+        self.assertNotIn("次の G0", out)
+
+    def make_result(self, path, sec, errs, with_gate=True):
+        """compare が読む最小の結果。errs = 文書ごとの誤り字数(正解は 100 字ずつ)"""
+        summary = {"byTag": {}, "byKind": {}}
+        if with_gate:
+            summary["gate"] = E.gate_of(sec)
+        groups = [{"doc": "d%d" % i, "sub": e, "del": 0, "ins": 0, "refChars": 100} for i, e in enumerate(errs)]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"meta": {"dataFingerprint": "x"}, "summary": summary, "groups": groups}, f)
+        return path
+
+    def test_compare_gate_verdict(self):
+        pa = self.make_result(os.path.join(self.tmp, "a.json"), 3600, [10, 10, 10, 10, 10, 10])
+        # 文書によって良くも悪くもなる = 範囲が 0 をまたぐ → 決められない。関門は小さい方(定点 15 分 = G1)
+        pb = self.make_result(os.path.join(self.tmp, "b.json"), 900, [2, 18, 3, 17, 10, 10])
+        out = quiet(E.cmd_compare, pa, pb)
+        self.assertEqual(out["gate"]["gate"], "G1")
+        self.assertIn("この量では決められない(分からない)", out["gateVerdict"])
+        self.assertIn("G1", out["gateVerdict"])
+        self.assertIn("エンジンの決定", out["gateVerdict"])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            E.cmd_compare(pa, pb)
+        self.assertIn(out["gateVerdict"], buf.getvalue())
+        # どの文書も良くなる = 範囲が 0 より下 → 改善の側(今までの鍵は残る)
+        pc = self.make_result(os.path.join(self.tmp, "c.json"), 1800, [4, 5, 6, 5, 4, 6])
+        better = quiet(E.cmd_compare, pa, pc)
+        self.assertEqual(better["gate"]["gate"], "G2")
+        self.assertIn("改善 の側", better["gateVerdict"])
+        self.assertNotIn("決められない", better["gateVerdict"])
+        for k in ("a", "b", "docs", "cerA", "cerB", "diff", "ci95", "verdict", "warnings", "byDoc"):
+            self.assertIn(k, better)
+        worse = quiet(E.cmd_compare, pc, pa)
+        self.assertIn("悪化 の側", worse["gateVerdict"])
+        # 定点が 5 分に届かない結果が混ざれば「まだ」
+        pd = self.make_result(os.path.join(self.tmp, "d.json"), 60, [4, 5, 6, 5, 4, 6])
+        self.assertIn("まだ", quiet(E.cmd_compare, pa, pd)["gateVerdict"])
+        # 関門の無い(古い)結果なら、関門の行を出さない(判定の鍵も付けない)
+        old = self.make_result(os.path.join(self.tmp, "old.json"), 3600, [10, 10, 10, 10, 10, 10], with_gate=False)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            res = E.cmd_compare(old, pb)
+        self.assertNotIn("gate", res)
+        self.assertNotIn("関門", buf.getvalue())
+        self.assertIn("verdict", res)
+
+    # ---- --repeat
+
+    def test_repeat_picks_median_run(self):
+        # 回ごとの CER: こんにちわ(置換 1 / 5 字 = 20%)・こんにちは(0%)・こんばんは(置換 2 = 40%)→ 中央は 1 回目(20%)
+        self.script(["こんにちわ", "こんにちは", "こんばんは"])
+        res, out = self.run_cmd("--repeat", "3")
+        rp = res["meta"]["repeat"]
+        self.assertEqual(rp["n"], 3)
+        self.assertEqual(rp["cers"], [0.2, 0.0, 0.4])
+        self.assertEqual(rp["median"], 0)
+        self.assertEqual(rp["spread"], 0.4)
+        self.assertTrue(rp["complete"])
+        self.assertEqual(rp["docs"], [1, 1, 1])
+        self.assertEqual(res["summary"]["overall"]["cer"], 0.2)                    # 本体は代表の回の結果(今までと同じ形)
+        self.assertEqual(res["groups"][0]["hyp"], "こんにちわ")
+        self.assertEqual(rp["docTextCers"], [0.2, 0.0, 0.4])
+        self.assertIn("3 回の CER: 20.0% / 0.0% / 40.0%(幅 40.0 pt)・代表は 1 回目", self.printed(res))
+        # 順番が違っても、中央の回を選ぶ
+        self.script(["こんばんは", "こんにちわ", "こんにちは"])
+        res, _ = self.run_cmd("--repeat", "3")
+        self.assertEqual((res["meta"]["repeat"]["median"], res["summary"]["overall"]["cer"]), (1, 0.2))
+
+    def test_repeat_even_takes_smaller_middle_and_ties_go_first(self):
+        # 20% 0% 40% 20% → 並べると 0%(2 回目)・20%(1 回目)・20%(4 回目)・40%。中央の 2 つの小さい方 = 1 回目(同じ CER は早い回が先)
+        self.script(["こんにちわ", "こんにちは", "こんばんは", "こんにちわ"])
+        res, _ = self.run_cmd("--repeat", "4")
+        self.assertEqual(res["meta"]["repeat"]["median"], 0)
+        self.script(["こんにちわ", "こんにちは"])                               # 2 回: 小さい方(CER が低い 2 回目)
+        res, _ = self.run_cmd("--repeat", "2")
+        self.assertEqual((res["meta"]["repeat"]["median"], res["summary"]["overall"]["cer"]), (1, 0.0))
+
+    def test_repeat_one_is_same_as_before(self):
+        self.script(["こんにちわ", "こんにちわ"])
+        base, out1 = self.run_cmd()
+        one, out2 = self.run_cmd("--repeat", "1")
+        self.assertNotIn("repeat", base["meta"])
+        self.assertNotIn("repeat", one["meta"])
+        self.assertEqual(base["summary"], one["summary"])
+        self.assertEqual(base["groups"], one["groups"])
+        self.assertEqual(out1, out2)
+        self.assertNotIn("回の CER", self.printed(one))
+        self.assertNotIn("意味が薄い", out2)
+        with self.assertRaises(SystemExit):
+            self.run_cmd("--repeat", "0")
+
+    def test_repeat_with_temp0_warns_but_runs(self):
+        self.script(["こんにちは", "こんにちは"])
+        res, out = self.run_cmd("--repeat", "2", "--temp0")
+        self.assertIn("--temp0", out)
+        self.assertIn("意味が薄い", out)
+        self.assertEqual(res["meta"]["repeat"]["n"], 2)
+        self.script(["こんにちは"])
+        _res, out = self.run_cmd("--temp0")
+        self.assertNotIn("意味が薄い", out)
+
+    def test_repeat_with_dropped_doc_is_flagged(self):
+        self.write("aaaaaaaaaa02", 60.0)
+        # 1 回目: 2 本とも認識できた / 2 回目: 2 本目が落ちた / 3 回目: 2 本とも
+        boom = RuntimeError("音声が見つかりません")
+        calls = self.script(["こんにちは", "こんにちは", "こんにちは", boom, "こんにちわ", "こんにちわ"])
+        res, out = self.run_cmd("--repeat", "3")
+        rp = res["meta"]["repeat"]
+        self.assertEqual(len(calls), 6)
+        self.assertFalse(rp["complete"])
+        self.assertEqual(rp["docs"], [2, 1, 2])
+        self.assertIn("回ごとに数えた文書がそろっていません", out)
+        self.assertIn("2 本 / 1 本 / 2 本", out)
+        # 選ぶときの CER は全部の回にある文書だけで出す(aaaaaaaaaa01 だけ): 0%・0%・20% → 中央は 2 回目
+        self.assertEqual(rp["cers"], [0.0, 0.0, 0.2])
+        self.assertEqual(rp["median"], 1)
+        self.assertIn("そろっていない", self.printed(res))
+        # 全部そろっていれば注意は出ない
+        self.script(["こんにちは"] * 6)
+        res, out = self.run_cmd("--repeat", "3")
+        self.assertTrue(res["meta"]["repeat"]["complete"])
+        self.assertNotIn("そろっていません", out)
 
 
 if __name__ == "__main__":
