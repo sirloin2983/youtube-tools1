@@ -58,7 +58,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `../docs/archive/project/accuracy
   **この PC(当時の 13900KF。10-04 に 12900KF に替えた)ではネイティブの部品の読み込み・起動がまれに落ちた**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す(10-04 の見直しでも残した: 一時的な失敗への備え・本物の失敗は2回目でそのまま出る。`docs/plan/stability-review-2026-10.md`)。測った結果は計画の「4回目の結果」
 
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
-- 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(aliases = 呼び名・common = 普通の言葉と重なる呼び名・
+- 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(channel = YouTube のチャンネルの ID(2026-10-04。公式サイトから。使うのは `dev/eval_fetch.py` だけで、`roster.py` は読まない)・aliases = 呼び名・common = 普通の言葉と重なる呼び名・
   misrecognitions = 誤りやすい形。**学習用の文書の修正に出るものだけ**入れる。評価用にしか出ない誤りは入れない)。読むのは `roster.py`(`load` は更新日時でキャッシュ)
 - 配信ごとの文脈 `stream_context(doc, enabled)`: チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
   話者の名前(`roster.match_name`。ちょうど同じときだけ)→ 題名・動画のファイル名・**動画の入ったフォルダの名前**(`roster.find_in_text`。正式な名前か、common でない 3 文字以上の呼び名)。

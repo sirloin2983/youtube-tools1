@@ -3065,3 +3065,20 @@
 - 変更: `docs/plan/transcription-plan-v2.md`(D1-c を消して「やめること」へ・5 順番・7・9)・`docs/ROADMAP.md`(I-1 の行)
 - 未完了・次: 前の記録と同じ(分け方の一覧の確認 → apply・D0-b・D1-a・D1-b)
 - 未コミット: なし
+
+## 2026-10-04 夜 Claude Code — 精度改善 第2版 D0: 学習用の 313 本を移した・D0-b 編集前の定点を配信から取得する道具(版は上げていない = dev の道具と名簿のデータ)
+- ユーザーの決定(10-04): 分け方の一覧のとおりに移してよい・配信から取得する道具を作ってよい
+- 実行: `dev/eval_split.py apply` → 学習用 313 本を `E:\Video\切り抜き動画素材\学習用データ\<メンバー>\`(30 フォルダ)へ。飛ばした 0 本・仮置きの残り 47 本(入口のまとめての文字起こしは止まっていて、動いているジョブが無いことを API で確かめてから)
+- 変更:
+  - `dev/eval_fetch.py`(新)・`dev/tests/test_eval_fetch.py`(新。7 件。yt-dlp・ffmpeg・ネットワークは使わない): plan = メンバーのチャンネルの配信の一覧(yt-dlp の flat-playlist + approximate_date)から、終わった配信・20 分以上・--since 以降・歌枠などでないものを選び、
+    全員に 1 区間 → 目標の分まで 2 区間目(コラボの題名を先に)。1 配信 1 区間・区間は配信の 10〜90% の中・順番と位置は seed と ID の SHA-1。fetch = スタジオと同じ 2 段(区間をそのまま取る → ffmpeg で正確に切って 30fps。720p まで)・
+    無音が 8 割を超えたら同じ配信の別の所を 1 回・取れなければ次の候補・1 区間ごとに一覧へ書く(続きから)・`作業用\<名前>.clip.json`(youtube-tools-clip/v1。tool.name = eval-fetch)。書くのは評価用のフォルダの中だけ
+  - `editor/hololive-roster.json`: members の 35 人に `channel`(公式サイトの所属タレントのページから。`roster.py` は読まない項目)
+  - `docs/plan/transcription-plan-v2.md`・`docs/ROADMAP.md`・`AGENTS.md`・`editor/AGENTS.md`
+- 実際の一覧: 60 区間・40 分・34 人・2026-09-22 以降の配信。2 区間で試して確かめ(720p・H.264・30/1・AAC・40.0 秒・clip.json)、残りは裏で取得中(このあとの報告に結果)
+- テスト: `test_eval_fetch.py` 7・`test_eval_split.py` 9・`test_push_helper.py`・`editor/tests/test_metrics.py -k oster` 18・`ytt_core/tests/test_ytt_core.py` 75・`home/tests/test_mount.py` 26(PYTHONIOENCODING なしで)、通った
+- 未完了・次: ユーザー = 入口を起動 → 編集の ⚙「仮置きをまとめて文字起こし」→ 評価ドリル(定点 15 分 = G1 まで)。学習用のショートは普通に文字起こしして校正(メンバーのフォルダごとに「フォルダ一括」が使える)。
+  AI = D1-a(下書きを GPU で)・D1-b(食い違いの印と候補)・測る道具で編集前とショートを分けて出す
+- 注意: 評価用の音声 `eval-audio/` の索引では、移した 313 本が gone になる(flac は残る)。DEV_IS(ReGLOSS・FLOW GLOW の一部ほか)と卒業した人は channel が無く、配信からの取得の対象外。
+  取得した区間が、学習用のショートと同じ場面になるのを避けるため --since は「ショートのいちばん新しい日付の翌日」(これから作るショートを学習用に足すときは、定点に取った配信(fetch-plan.json の done)の場面を学習用に入れない)
+- 未コミット: なし
