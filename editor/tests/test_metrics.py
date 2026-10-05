@@ -51,12 +51,23 @@ def seg(i, a, b, text, proofed=False):
 
 class TestPure(unittest.TestCase):
     def test_norm_cer(self):
-        self.assertEqual(S.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ホロライブtestー")
+        self.assertEqual(S.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ほろらいぶtestー")
         self.assertEqual(S.norm_cer(" 、。 "), "")
         # 〜・～・~ は ー と同じに数える(2026-10-04 ユーザー決定)
         self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
         self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
         self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
+        # 表記の違いを数えない(2026-10-06 ユーザー決定。docs/spec/subtitle-notation.md の B)
+        self.assertEqual(S.norm_cer("イエターーーーー"), S.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
+        self.assertEqual(S.norm_cer("フワモコ"), S.norm_cer("ふわもこ"))
+        self.assertEqual(S.norm_cer("ヴィ"), "ゔい")
+        self.assertEqual(S.norm_cer("まぁ"), S.norm_cer("まあ"))                    # 小さい母音 = 大きい母音
+        self.assertEqual(S.norm_cer("オォォォォ"), "おお")                           # 小さいかなの連続は 1 つ
+        self.assertEqual(S.norm_cer("あっっっ"), "あっ")
+        self.assertNotEqual(S.norm_cer("えっ"), S.norm_cer("え"))                   # っ は残す(音が違う)
+        self.assertNotEqual(S.norm_cer("きゃ"), S.norm_cer("きや"))                 # ゃゅょ は残す
+        self.assertEqual(S.norm_cer("ラミィ"), "らみい")
+        self.assertNotEqual(S.norm_cer("ラミィ"), S.norm_cer("ラミー"))
 
     def test_lev_counts_matches_reference(self):
         self.assertEqual(S.lev_counts("あいうえお", "あいくえおか"), (1, 0, 1))

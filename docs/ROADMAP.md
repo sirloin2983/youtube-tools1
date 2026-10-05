@@ -246,6 +246,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
 | `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
 | `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`) |
+| `docs/spec/subtitle-notation.md` | 字幕の書き方の規則と、採点で同じとみなす違い(10-06 に決めた。編集 0.56.2 で採点に入れた。「えっ」と「え」だけ要検討) |
 | `docs/spec/sound-tags.md` | 行の音の状態のメモ(BGM・重なり・聞き取れない)の付け方(10-06 に BGM の基準を決めた) |
 | `docs/spec/ui-guidelines.md`・`docs/spec/usability-heuristics.md` | 画面の共通のルール(用語集など)・10 の原則 |
 | `.design/ui-overhaul/DESIGN_BRIEF.md`・`.design/ui-overhaul/IMPLEMENTATION.md` | 画面の全面見直しの設計(承認済み)と実装で決めた細部 |

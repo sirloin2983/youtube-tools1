@@ -689,11 +689,16 @@ MAX_LEV_CELLS = 250000   # 1まとまりの文字数が多すぎるときは、�
 # 伸ばしの「〜」(波ダッシュ・全角チルダ・半角の ~)は長音「ー」と同じに数える(ユーザー決定 2026-10-04:「〜 と ー の違いは無視する」)。
 # NFKC で全角チルダ ～ は ~ になる。〜 は記号なので、読み替えないと下の絞り込みで消え、「すご〜い」と「すごーい」が 1 文字違いになっていた
 _LONG_MARKS = str.maketrans({"〜": "ー", "~": "ー", "⁓": "ー", "∼": "ー"})
+# 表記の違いを数えない(ユーザー決定 2026-10-06。docs/spec/subtitle-notation.md の B): CER は「聞き取れたか」を測り、字幕としての書き方は数えない。
+# カタカナ → ひらがな(ァ〜ヶ。ヴ → ゔ)・小さい母音 → 大きい母音(まぁ = まあ。ゃゅょ・っ は音が違うので残す)・伸ばし棒と小さいかなの連続は 1 つ
+_SMALL_VOWELS = str.maketrans("ぁぃぅぇぉ", "あいうえお")
+_RUNS = re.compile(r"([ーぁぃぅぇぉっ])\1+")
 
 
 def norm_cer(text):
     t = unicodedata.normalize("NFKC", str(text or "")).lower().translate(_LONG_MARKS)
-    return "".join(ch for ch in t if unicodedata.category(ch)[0] in "LNM")
+    t = "".join(chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch for ch in t if unicodedata.category(ch)[0] in "LNM")
+    return _RUNS.sub(r"\1", t).translate(_SMALL_VOWELS)
 
 
 def lev_counts(ref, hyp):
@@ -803,6 +808,7 @@ def doc_metrics(doc, legacy=False, terms=()):
     """1件の文字起こしの集計。校正済みの行が無ければ None(legacy=True なら、校正済みの印が無くても、修正のある文書は全行を校正済みとみなして仮計算)。
     数える対象: ①機械と人の両方にある まとまり(全行が校正済み) ②機械だけにある まとまり(人が行を消した=挿入の誤り。校正した範囲の中だけ)
     ③人だけにある まとまり(人が足した行=脱落の誤り。全行が校正済み)"""
+    terms = tuple(dict.fromkeys(n for n in (norm_cer(t) for t in terms) if n))   # 文字と同じ正規化に(カタカナのままの用語が当たらないため。済みの用語は変わらない)
     orig, segs = _prep(doc)
     if not orig or not segs:
         return None
