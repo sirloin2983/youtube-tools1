@@ -135,6 +135,13 @@ def main():
                     "at": 1, "engine": {"name": "fake"}, "offset": 0.0, "labelMap": {"0": "S1", "2": "S2"}, "rows": {},
                     "turns": [{"start": 0, "end": 20, "label": 0}, {"start": 3, "end": 5, "label": 1}, {"start": 12, "end": 14, "label": 2}],
                     "overlaps": [[3, 5], [12, 14]]}}, f)
+        # 読む速さの札・時刻を言葉に合わせる(2026-10-05): 単語の時刻 words.json を直接置く(「こんにちは」は 6.5〜7.5 秒)
+        tid_read = make(); set_segs(tid_read, "読む速さ文書", [
+            {"id": "e0", "start": 0, "end": 3, "text": "読みやすい行です"}, {"id": "e1", "start": 3, "end": 4, "text": "とても早口で一気にしゃべっている"},
+            {"id": "e2", "start": 4.5, "end": 4.9, "text": "えっ嘘"}, {"id": "e3", "start": 6, "end": 8, "text": "こんにちは"},
+            {"id": "e4", "start": 9, "end": 9.2, "text": "うわっ", "noSub": True}])
+        with open(os.path.join(tmp, "transcripts", tid_read + ".words.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-words/v1", "words": [[round(6.5 + k * 0.2, 2), round(6.7 + k * 0.2, 2), ch] for k, ch in enumerate("こんにちは")]}, f, ensure_ascii=False)
         tid_setnow = make(); set_segs(tid_setnow, "再生位置反映文書",[{"id": "n0", "start": 0, "end": 2, "text": "一"}, {"id": "n1", "start": 5, "end": 7, "text": "二"}])
         tid_stage1 = make(); set_segs(tid_stage1, "画面幅テスト1", [{"id": "w0", "start": 0, "end": 2, "text": "一"}, {"id": "w1", "start": 2, "end": 4, "text": "二"}])
         tid_stage2 = make(); set_segs(tid_stage2, "画面幅テスト2", [{"id": "v0", "start": 0, "end": 2, "text": "一"}, {"id": "v1", "start": 2, "end": 4, "text": "二"}])
@@ -705,6 +712,66 @@ def main():
             pg.keyboard.press("Escape")
             pg.check("#ovdKOvl")
             wait_saved()
+            # ==================== 17-3) 読む速さの札・時刻を言葉に合わせる(2026-10-05) ====================
+            open_doc("読む速さ文書")
+            pills = pg.evaluate("[...document.querySelectorAll('#segs .seg')].map(r => [...r.querySelectorAll('.tt-read .pill')].map(p => p.textContent).join('|'))")
+            check(pills == ["", "速い 16字/秒", "短い 0.4秒", "", ""], "札: 速い(数字つき)・短い(0.1 秒で切り捨て)・字幕に出さない行には付けない: %s" % pills)
+            check(wait_js(pg, "document.querySelector('#readCount').textContent === '読みにくい 2行' && !document.querySelector('#readCount').hidden", 3000),
+                  "行の一覧の上に件数: %s" % pg.text_content("#readCount"))
+            pg.select_option("#flagKind", "read")
+            check(pg.evaluate("[...document.querySelectorAll('#segs .seg')].filter(r => !r.hidden).map(r => r.querySelector('textarea').value)") == ["とても早口で一気にしゃべっている", "えっ嘘"],
+                  "絞り込み「読みにくい行だけ」で 2 行")
+            check("2件" in pg.evaluate("document.querySelector('#flagKind option[value=read]').textContent"), "絞り込みの項目に件数")
+            pg.select_option("#flagKind", "")
+            pg.locator("#segs .seg").nth(1).locator("textarea").fill("早口")
+            check(pg.locator("#segs .seg").nth(1).locator(".tt-read .pill").count() == 0, "文字を直すと、その行の札がすぐ消える")
+            check(wait_js(pg, "document.querySelector('#readCount').textContent === '読みにくい 1行'", 3000), "件数も合わせる: %s" % pg.text_content("#readCount"))
+            pg.keyboard.press("Escape")
+            select_row(2)
+            pg.locator("#segs .seg").nth(2).locator("[data-act=adj][data-f=end][data-d='1']").click()   # 終了 4.9 → 5.0(0.5 秒 = 短くない)
+            pg.evaluate("document.querySelector('#player').pause()")
+            check(wait_js(pg, "document.querySelector('#readCount').hidden && !document.querySelectorAll('#segs .seg')[2].querySelector('.tt-read .pill')", 3000),
+                  "時刻を延ばすと札が消える(0 行なら件数を出さない)")
+            check(pg.evaluate("S.doc.segments[2].proofed !== true") and not pg.locator("#segs .seg").nth(2).locator("[data-act=proof]").is_disabled(), "校正済みにする操作は止めない")
+            wait_saved()
+            # 時刻を言葉に合わせる(1 行): 少し止まると候補の有無を調べ、押すと候補を見せ、もう 1 押しで採る。元に戻す 1 回
+            select_row(3)
+            rt = pg.locator("#segs .seg").nth(3).locator(".tt-rt [data-act=retime]")
+            check(rt.is_visible(), "選んだ行の操作の欄に「時刻を言葉に合わせる」")
+            rt.click()
+            pg.wait_for_selector("#segs .seg.nav .tt-rt [data-act=rtok]", timeout=5000)
+            prev = pg.text_content("#segs .seg.nav .tt-rt .tt-rt-prev")
+            check(prev == "開始 0:06.0 → 0:06.5・終了 0:08.0 → 0:07.5", "押すと候補を見せる: %s" % prev)
+            sv = call(port, "GET", "/api/transcript?id=" + tid_read)
+            check([g["start"] for g in sv["segments"]][3] == 6, "候補を出しても文書は書き換えない")
+            pg.click("#segs .seg.nav .tt-rt [data-act=rtok]")
+            check(pg.evaluate("[S.doc.segments[3].start, S.doc.segments[3].end]") == [6.5, 7.5] and rows_times()[3] == ("0:06.5", "0:07.5"),
+                  "「合わせる」で行の時刻が変わる: %s" % (rows_times()[3],))
+            wait_saved()
+            check([(g["start"], g["end"]) for g in call(port, "GET", "/api/transcript?id=" + tid_read)["segments"]][3] == (6.5, 7.5), "保存される")
+            check(wait_js(pg, "!!document.querySelector('#segs .seg.nav .tt-rt [data-act=retime][disabled]')", 4000), "合わせたあとは候補が無い(押せない)")
+            pg.click("#btnUndo")
+            check(wait_js(pg, "S.doc.segments[3].start === 6 && S.doc.segments[3].end === 8", 3000), "元に戻す 1 回で前の時刻")
+            wait_saved()
+            # まとめて: 選んだ行のうち候補のある行だけ・件数を確かめてから・校正済みは外す
+            pg.evaluate("S.sel = new Set(['e0', 'e3']); updateSel(); renderDoc()")
+            check(not pg.locator("#rtSelected").is_disabled(), "行を選ぶと「選んだ行の時刻を言葉に合わせる」が押せる")
+            pg.click("#moreTools summary")
+            pg.click("#rtSelected")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            check("選んだ 2 行のうち 1 行" in pg.inner_text("dialog.ui-dialog[open]"), "件数を確かめる: %s" % pg.inner_text("dialog.ui-dialog[open]")[:80])
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            check(wait_js(pg, "S.doc.segments[3].start === 6.5 && S.doc.segments[3].end === 7.5", 3000), "確かめると候補のある行だけ合わせる")
+            pg.click("#btnUndo")
+            check(wait_js(pg, "S.doc.segments[3].start === 6", 3000), "元に戻す 1 回で戻る")
+            wait_saved()
+            pg.evaluate("S.doc.segments[3].proofed = true; S.sel = new Set(['e3']); updateSel(); markDirty()")
+            wait_saved()
+            pg.click("#moreTools summary")
+            pg.click("#rtSelected")
+            check(wait_js(pg, "document.querySelector('#toast').textContent.includes('どれも校正済み')", 3000) and pg.locator("dialog.ui-dialog[open]").count() == 0,
+                  "校正済みの行はまとめての対象から外す: %s" % pg.inner_text("#toast"))
+            pg.evaluate("S.sel = new Set(); updateSel()")
 
             # ==================== 18) 「再生位置」ボタン(setnow) ====================
             open_doc("再生位置反映文書")

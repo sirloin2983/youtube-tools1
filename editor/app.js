@@ -211,6 +211,9 @@ const OVD = { id: null, items: [], more: 0, reason: '', diarAt: null, err: '', d
 const OVD_KIND = 'overlap';   // 置いた行の印 draft の値(サーバーの ed_state.ROW_DRAFT_KINDS と同じ)
 const DRAFT_KINDS = ['overlap', 'missing'];   // 印 draft の値の全部(missing = 抜けの所に置いた空の行。ed_state.ROW_DRAFT_KINDS と同じ)
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
+/* 行の時刻を言葉に合わせる(app-rows.js の rt*。2026-10-05): cache = 行の中身ごとの候補({c: 候補 | null, why})・el = 選んだ行の操作の欄に置いた部品・
+   open = 見せている候補 {id, key, c}・t = 少し止まったら調べる予約 */
+const RT = { cache: new Map(), el: null, open: null, t: 0 };
 $('#voiceList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=vdel]'); if (!b) return;
   const row = b.closest('[data-name]');
@@ -636,6 +639,26 @@ $('#segs').addEventListener('click', e => {
     case 'del': armDelete(b, () => { const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty(); }); break;
   }
 });
+/* 読む速さの札と、時刻を言葉に合わせる(2026-10-05。関数は app-rows.js の read*・rt*。上の行の処理とは別の待ち受け = 上の処理を変えない) */
+$('#flagKind').add(new Option('読みにくい行だけ(速い・短い)', 'read'));
+$('#segs').addEventListener('input', e => {   // 打っている行の札だけすぐ合わせる(件数は保存の予約のあとの syncRead)。見せていた時刻の候補は古くなるので閉じる
+  if (e.target.dataset.f !== 'text') return;
+  const row = e.target.closest('.seg'), s = row && S.doc ? S.doc.segments[Number(row.dataset.i)] : null; if (!s) return;
+  paintRead(row, s);
+  if (RT.open && RT.open.id === s.id){ RT.open = null; rtPaint(); }
+});
+$('#segs').addEventListener('click', e => {
+  const b = e.target.closest('[data-act=retime], [data-act=rtok], [data-act=rtno]'); if (!b || !S.doc) return;
+  if (b.dataset.act === 'retime') return void rtRow();
+  const o = RT.open, s = S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null;
+  RT.open = null;
+  if (b.dataset.act === 'rtok'){
+    if (!o || !s || s.id !== o.id || rtKey(s) !== o.key){ rtPaint(); return toast('候補を出したあとで行が変わりました。もう一度押してください', 4000); }
+    if (rtApply([o.c])) toast('時刻を言葉に合わせました: ' + rtFmt(o.c) + '(元に戻すで戻せます)', 4000, 'ok');
+    else rtPaint();
+  } else rtPaint();
+});
+$('#rtSelected').addEventListener('click', () => { $('#moreTools').open = false; rtSelected(); });
 /* 行の右クリックのメニュー(段2): 選んだ行の下に出るボタンと同じ操作(data-act はそのまま)。
    キーボードだけの操作は今までどおり(選んだ行の下のボタン)なので、この方が必ず要るわけではない代わりの入口。
    .seg は content-visibility:auto(見えない行を描かない)で、これが position:fixed の子の基準になってしまい

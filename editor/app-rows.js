@@ -11,6 +11,7 @@ function markDirty(){
   if (CUT){ clearTimeout(markDirty.c); markDirty.c = setTimeout(() => CUT.docChanged(), 300); }
   S.dirty = true; setSaveState(S.conflict ? '競合しています' : '未保存…', S.conflict ? 'err' : '');
   clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 700);
+  scheduleRead();   // 読む速さの札と件数(変わった行だけ描き直す。2026-10-05)
 }
 
 /* 保存の状態の表示。kind: ''(未保存)/ 'busy'(保存中)/ 'ok'(保存済み)/ 'err'(競合・失敗)。色の印は CSS の [data-state] */
@@ -280,6 +281,170 @@ function snapEdge(i, f, toward){
   s[f] = nv; return true;
 }
 
+/* ---------- 字幕の読む速さの印(T2。2026-10-05。表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
+   読む速さ = 字幕として数える文字(NFKC にして文字と数字だけ。記号・空白・句読点・〜 は数えない・ー は数える)÷ 行の長さ(秒)。
+   印は「速い」(1 秒あたり READ_FAST_CPS 字を超える)と「短い」(READ_SHORT_SEC 秒未満)。どちらも READ_MIN_CHARS 字以上の行だけ。
+   対象外: 字幕に出さない行・空の下書き・文字の無い行・カット済の行。規則と値はサーバーの ed_retime.subread_mark と同じ(例は tests/subread_cases.json)。
+   値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。根拠の数字は ed_retime.py の先頭 */
+const READ_FAST_CPS = 10, READ_SHORT_SEC = 0.5, READ_MIN_CHARS = 2;
+const READ_CH = /[\p{L}\p{N}]/gu;
+function readChars(text){ return (String(text || '').normalize('NFKC').match(READ_CH) || []).length; }
+function readLimits(){
+  const sub = S.settings && S.settings.subtitle, r = sub && sub.read && typeof sub.read === 'object' ? sub.read : {};
+  const ok = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  return { fastCps: ok(r.fastCps, 4, 40) ? r.fastCps : READ_FAST_CPS, shortSec: ok(r.shortSec, 0.1, 3) ? r.shortSec : READ_SHORT_SEC };
+}
+/* 行の印 -> null か {chars, sec, cps, fast, short}。同じ行の同じ中身なら覚えた結果を返す(4000 行を描き直しても数え直さない) */
+const READ_MEMO = new WeakMap();
+function readMark(g, lim){
+  if (!g || g.noSub === true || isBlankDraft(g) || g.cutState === 'cut') return null;
+  lim = lim || readLimits();
+  const sig = `${g.text}\u0001${g.start}\u0001${g.end}\u0001${lim.fastCps}\u0001${lim.shortSec}`, memo = READ_MEMO.get(g);
+  if (memo && memo.sig === sig) return memo.m;
+  let m = null;
+  const n = readChars(g.text);
+  if (n >= READ_MIN_CHARS){
+    const sec = Math.max(0, (Number(g.end) || 0) - (Number(g.start) || 0)), cps = sec > 0 ? n / sec : Infinity;
+    const fast = cps > lim.fastCps, short = sec < lim.shortSec;
+    if (fast || short) m = { chars: n, sec, cps, fast, short };
+  }
+  READ_MEMO.set(g, { sig, m });
+  return m;
+}
+/* 行の札(.pill warn)。数字つき: 「速い 14字/秒」「短い 0.4秒」(秒は 0.1 秒の単位で切り捨て = 0.46 秒を「0.5秒」と出さない) */
+function readPillsHTML(m, lim){
+  if (!m) return '';
+  lim = lim || readLimits();
+  const sec = (Math.floor(m.sec * 10) / 10).toFixed(1);
+  return (m.fast ? `<span class="pill warn tt-read-fast" title="${esc(`1 秒あたり ${Number.isFinite(m.cps) ? m.cps.toFixed(1) : '−'} 文字(目安は ${lim.fastCps} 文字まで)。字幕として読み切れないかもしれません。行を分ける・終わりを延ばす・文字を減らすと消えます`)}">速い ${Number.isFinite(m.cps) ? Math.round(m.cps) + '字/秒' : ''}</span>` : '')
+    + (m.short ? `<span class="pill warn tt-read-short" title="${esc(`表示が ${m.sec.toFixed(2)} 秒です(目安は ${lim.shortSec} 秒以上)。前後の行とつなげる・時刻を延ばすと消えます`)}">短い ${sec}秒</span>` : '');
+}
+function readHTML(s, lim){ const m = readMark(s, lim), h = readPillsHTML(m, lim); return `<span class="tt-read" data-read="${h ? esc(readKey(m)) : ''}">${h}</span>`; }
+function readKey(m){ return m ? `${m.fast ? 1 : 0}${m.short ? 1 : 0}:${Number.isFinite(m.cps) ? Math.round(m.cps) : 'x'}:${Math.floor(m.sec * 10)}` : ''; }
+/* 1 行の札を合わせる(中身が同じなら DOM を触らない)。READ_PAINTED = 行の要素 → 描いてある札の鍵(4000 行を見回っても、変わらない行は要素の中を探さない) */
+const READ_PAINTED = new WeakMap();
+function paintRead(row, s, lim){
+  const m = readMark(s, lim), key = readKey(m);
+  if (READ_PAINTED.get(row) === key) return;
+  const box = row && row.querySelector ? row.querySelector('.tt-read') : null; if (!box) return;
+  READ_PAINTED.set(row, key);
+  if (box.dataset.read === key) return;
+  box.dataset.read = key; box.innerHTML = readPillsHTML(m, lim);
+}
+/* 全部の行の札と件数を合わせる(行の中身は覚えた結果と比べるだけ・変わった行の札だけ描き直す)。保存の予約(markDirty)のあと少し待って 1 回。
+   fresh = 描き直した直後(segHTML が同じ規則で札を描いた = 要素の中は見ずに鍵だけ覚える) */
+function syncRead(fresh){
+  clearTimeout(syncRead.t); syncRead.t = 0;
+  if (!S.doc) return;
+  const lim = readLimits(), rows = rowsEl(), segs = S.doc.segments;
+  let n = 0;
+  for (let i = 0; i < segs.length; i++){
+    const r = rows[i], m = readMark(segs[i], lim);
+    if (m) n++;
+    if (!r || !r.classList || !r.classList.contains('seg')) continue;
+    if (fresh === true) READ_PAINTED.set(r, readKey(m)); else paintRead(r, segs[i], lim);
+  }
+  const el = $('#readCount');
+  if (el){ el.hidden = !n; el.textContent = n ? `読みにくい ${n}行` : ''; }
+  const op = $('#flagKind').querySelector('option[value=read]');
+  if (op) op.textContent = n ? `読みにくい行だけ(速い・短い・${n}件)` : '読みにくい行だけ(速い・短い)';
+}
+function scheduleRead(){ clearTimeout(syncRead.t); syncRead.t = setTimeout(syncRead, 300); }
+
+/* ---------- 直した行の時刻を、単語の時刻(認識のときの words.json)から配り直す(T1 の簡易版。2026-10-05) ----------
+   **候補を見せて人が 1 押しで採る**(自動では書き換えない・行を分けた/つなげた直後にも動かさない)。サーバーの POST /api/retime(ed_retime。読むだけ)が
+   保存済みの文書で計算するので、押したら先に保存する(saveDoc のあと)。採った行は今の時刻の変更と同じ道(元に戻す 1 回・並べ直し・重なりの赤・保存で cutState を付け直す)。
+   選んだ行(.seg.nav)の操作の欄(.adj)に「時刻を言葉に合わせる」(RT.el)。行を選んで少し止まると候補の有無を先に調べる(保存済みのときだけ。無ければ押せない) */
+const RT_SOON = 600;
+const rtKey = s => `${S.docId}\u0001${S.baseUpdatedAt}\u0001${s.id}\u0001${s.start}\u0001${s.end}\u0001${s.text}`;
+const rtFmt = c => c.edges.map(f => `${f === 'start' ? '開始' : '終了'} ${fmtT(c.from[f], true)} → ${fmtT(c[f], true)}`).join('・');
+
+/* 選んだ行の操作の欄に「時刻を言葉に合わせる」を置く(前に選んでいた行からは外す)。状態: 候補あり / 無し(押せない) / まだ調べていない(押すと調べる) */
+function rtPaint(){
+  const i = S.navIdx, row = S.doc && i >= 0 ? rowsEl()[i] : null, s = row && row.classList && row.classList.contains('seg') ? S.doc.segments[i] : null;
+  if (!s || !String(s.text || '').trim()){ if (RT.el){ RT.el.remove(); RT.el = null; } return; }
+  const adj = row.querySelector('.adj'); if (!adj) return;
+  if (!RT.el){ RT.el = document.createElement('span'); RT.el.className = 'g tt-rt'; RT.el.setAttribute('aria-label', '時刻を言葉に合わせる'); }
+  if (RT.el.parentNode !== adj) adj.appendChild(RT.el);
+  const known = RT.cache.get(rtKey(s)), open = RT.open && RT.open.id === s.id && RT.open.key === rtKey(s) ? RT.open : null;
+  if (open){
+    RT.el.innerHTML = `<span class="tt-rt-prev" role="status">${esc(rtFmt(open.c))}</span><button type="button" data-act="rtok" class="tt-rt-ok">合わせる</button><button type="button" data-act="rtno">やめる</button>`;
+    return;
+  }
+  const none = known && !known.c;
+  RT.el.innerHTML = `<button type="button" data-act="retime"${none ? ' disabled' : ''} title="${esc(none ? (known.why || '言葉(認識のときの単語)の時刻と合っているか、当てられる言葉がありません') : '行の文字を、認識のときの言葉(単語)の時刻に当てて、開始・終了の候補を出します(押すと候補を見せます。採るのはもう 1 押し)')}">時刻を言葉に合わせる</button>`;
+}
+
+/* 行を選んで少し止まったら、その行の候補を先に調べる(保存済みで、処理中でないときだけ。1 行 = 軽い) */
+function rtSoon(){
+  clearTimeout(RT.t);
+  RT.t = setTimeout(() => {
+    const s = S.doc && S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null;
+    if (!s || !String(s.text || '').trim() || S.conflict || lockJob() || RT.cache.has(rtKey(s))) return;
+    if (S.dirty || S.saving) return rtSoon();   // 保存が終わるまで待つ(保存済みの文書で調べるため)
+    rtFetch([s]).then(() => rtPaint(), () => {});
+  }, RT_SOON);
+}
+
+/* 候補を調べて覚える -> {items, r}(保存済みの文書で計算 = 呼ぶ前に保存しておく) */
+async function rtFetch(rows){
+  const id = S.docId, keys = new Map(rows.map(s => [s.id, rtKey(s)]));
+  const r = await api('/api/retime', { body: { id, rows: rows.map(s => s.id) } });
+  if (S.docId !== id) return { items: [], r, stale: true };
+  if ((r.updatedAt || 0) !== (S.baseUpdatedAt || 0)) return { items: [], r, stale: true };   // 調べている間に保存し直された(候補は古い)
+  const got = new Map((r.items || []).map(c => [c.id, c]));
+  for (const [rid, k] of keys) RT.cache.set(k, { c: got.get(rid) || null, why: r.reasonCode ? r.reason : '' });
+  if (RT.cache.size > 3000) RT.cache.clear();   // 覚えすぎない(文書を替えると鍵が変わるので古いものは使われない)
+  return { items: [...got.values()], r };
+}
+
+/* 選んだ行の「時刻を言葉に合わせる」: 保存 → 候補 → 見せる(合わせる / やめる) */
+async function rtRow(){
+  const s = S.doc && S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null; if (!s || lockJob()) return;
+  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  let res; try { res = await rtFetch([s]); } catch (e){ return toast('時刻の候補を出せませんでした: ' + e.message, 6000, 'err'); }
+  if (res.stale) return toast('調べている間に文書が変わりました。もう一度押してください', 4000);
+  const c = res.items[0];
+  if (!c){ rtPaint(); return toast(res.r.reasonCode ? res.r.reason : '言葉の時刻と合っているか、当てられる言葉がありません(候補なし)', 5000); }
+  RT.open = { id: s.id, key: rtKey(s), c };
+  rtPaint();
+  const ok = RT.el && RT.el.querySelector('[data-act=rtok]'); if (ok) ok.focus({ preventScroll: true });
+}
+
+/* 候補を採る(1 行でもまとめてでも、元に戻す 1 回)。候補を出したときから行の時刻・文字が変わっていれば、その行は採らない -> 採った数 */
+function rtApply(cands, texts){
+  if (!S.doc || lockJob()) return 0;
+  const byId = new Map(S.doc.segments.map(g => [g.id, g]));
+  const ok = cands.filter(c => { const g = byId.get(c.id); return g && g.start === c.from.start && g.end === c.from.end && (!texts || texts.get(c.id) === g.text) && c.end > c.start; });
+  if (!ok.length) return 0;
+  const navId = navSnapshot();
+  pushUndo();
+  for (const c of ok){ const g = byId.get(c.id); g.start = c.start; g.end = c.end; }
+  sortSegs(); navRestore(navId, S.navIdx); RT.open = null;
+  renderDoc(); markDirty();   // 描き直しで重なりの赤・札・字幕を付け直す。保存でサーバーが cutState を編集の内容から付け直す(apply_edit_cuts)
+  return ok.length;
+}
+
+/* 「まとめて ▾」の「選んだ行の時刻を言葉に合わせる」: 校正済みの行は外す(人が時刻を決めた行)。候補のある行だけ・件数を確かめてから */
+async function rtSelected(){
+  if (!S.doc || lockJob()) return;
+  const sel = S.doc.segments.filter(g => S.sel.has(g.id) && String(g.text || '').trim());
+  if (!sel.length) return toast('行の左端のチェックで、合わせる行を選んでください', 4000);
+  const rows = sel.filter(g => !g.proofed), skipped = sel.length - rows.length;
+  if (!rows.length) return toast(`選んだ ${sel.length} 行はどれも校正済みです(校正済みの行は、行ごとの「時刻を言葉に合わせる」で 1 行ずつ合わせられます)`, 6000);
+  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  const texts = new Map(rows.map(g => [g.id, g.text]));
+  let res; try { res = await rtFetch(rows); } catch (e){ return toast('時刻の候補を出せませんでした: ' + e.message, 6000, 'err'); }
+  if (res.stale) return toast('調べている間に文書が変わりました。もう一度押してください', 4000);
+  if (res.r.reasonCode) return toast(res.r.reason, 7000);
+  const n = res.items.length;
+  if (!n) return toast(`選んだ ${rows.length} 行に、合わせる候補はありませんでした(言葉の時刻と合っているか、当てられる言葉がありません)`, 6000);
+  if (!(await UIKit.dialog.confirm({ title: '時刻を言葉に合わせますか', ok: `${n} 行を合わせる`,
+    body: `選んだ ${rows.length} 行のうち ${n} 行の開始・終了を、言葉(認識のときの単語)の時刻に合わせます。${skipped ? `校正済みの ${skipped} 行は外しました。` : ''}元に戻す 1 回で戻せます` }))) return;
+  const done = rtApply(res.items, texts);
+  toast(done ? `${done} 行の時刻を言葉に合わせました(元に戻すで戻せます)` : '合わせている間に行が変わったため、合わせませんでした', 5000, done ? 'ok' : '');
+}
+
 function segHTML(s, i){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
@@ -291,6 +456,7 @@ function segHTML(s, i){
     <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
     ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(draftTitle(s))}">下書き(${draftName(s)})</span>` : ''}
+    ${readHTML(s)}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
     <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
@@ -308,6 +474,7 @@ function renderDoc(){
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
   renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount(); renderOvd();
+  syncRead(true); rtPaint(); rtSoon();   // 読む速さの件数・選んだ行の「時刻を言葉に合わせる」(2026-10-05)
 }
 
 function autoSize(ta){ if (NATIVE_FS) return; ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
@@ -424,6 +591,7 @@ function updateSel(){
   const n = S.sel.size; $('#selCount').textContent = n ? `${n}行を選択中` : '';
   $('#selAll').checked = n > 0 && n === S.doc.segments.length;
   updateRt(); $('#btnProofSel').disabled = !n; renderCutPack();
+  { const b = $('#rtSelected'); if (b) b.disabled = !n; }   // 選んだ行の時刻を言葉に合わせる(2026-10-05)
 }
 
 function closeCtxMenu(){ if (!ctxMenuEl) return; const m = ctxMenuEl; ctxMenuEl = null; m.remove(); document.removeEventListener('click', onCtxOutside, true); document.removeEventListener('contextmenu', onCtxOutside, true); }
@@ -466,6 +634,7 @@ function setNav(i){
   if (was >= 0 && was !== i && rows[was] && rows[was].classList){ const w = rows[was]; w.classList.remove('was'); void w.offsetWidth; w.classList.add('was'); setTimeout(() => w.classList.remove('was'), 1500); }
   capFollow = false;
   updateCaption();
+  rtPaint(); rtSoon();   // 選んだ行の「時刻を言葉に合わせる」(少し止まったら候補の有無を調べる。2026-10-05)
 }
 
 /* 映像の上に重ねる今の行の字幕(段2): capFollow なら再生位置の行(S.curIdx)と、それと重なる行(capStack)、そうでなければ選んだ行(S.navIdx)だけ。

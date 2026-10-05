@@ -196,3 +196,22 @@ test('app.js and ui-kit.js parse successfully (CSP: index.html has no inline <sc
   for (const f of appFiles) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
   new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8'));
 });
+
+// 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの ed_retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
+test('readMark matches the server rule (subread_cases.json)', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'subread_cases.json'), 'utf8'));
+  const src = lineSource("const OVD_KIND =") + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
+    + fnSource('isBlankDraft') + fnSource('readChars') + fnSource('readLimits') + fnSource('readMark');
+  const context = { S: { settings: {} } };
+  vm.createContext(context);
+  vm.runInContext(src + '\nthis.readChars = readChars; this.readMark = readMark;', context);
+  for (const [text, n] of cases.chars) assert.equal(context.readChars(text), n, text);
+  for (const [row, want] of cases.marks) {
+    const m = context.readMark(row);
+    assert.deepEqual(m === null ? null : [m.fast, m.short], want, JSON.stringify(row));
+  }
+  context.S.settings = { subtitle: { read: { fastCps: 14, shortSec: 0.3 } } };   // 設定 subtitle.read(範囲の中だけ使う)
+  assert.equal(context.readMark({ start: 0, end: 1.0, text: 'あいうえおかきくけこさ' }), null);
+  context.S.settings = { subtitle: { read: { fastCps: 1 } } };
+  assert.deepEqual(context.readMark({ start: 0, end: 1.0, text: 'あいうえおかきくけこさ' }).fast, true);
+});

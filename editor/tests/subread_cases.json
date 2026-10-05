@@ -1,0 +1,29 @@
+{
+  "_comment": "読む速さの印の例(ed_retime.subread_mark と app-rows.js の readMark が同じ結果になること)。test_retime.py と test_document_save.cjs が読む。mark: null = 印なし / [fast, short]",
+  "chars": [
+    ["こんにちは、世界！", 7],
+    ["えー〜", 2],
+    ["ABC 123", 6],
+    ["♪♪", 0],
+    ["ｱｲｳ", 3],
+    ["すごーい!?", 4],
+    ["（笑）", 1],
+    ["", 0]
+  ],
+  "marks": [
+    [{"start": 0, "end": 1.0, "text": "あいうえおかきくけこさ"}, [true, false]],
+    [{"start": 0, "end": 1.0, "text": "あいうえおかきくけこ"}, null],
+    [{"start": 0, "end": 0.44, "text": "まぁそう"}, [false, true]],
+    [{"start": 0, "end": 0.5, "text": "まぁ"}, null],
+    [{"start": 0, "end": 0.3, "text": "あいうえおかき"}, [true, true]],
+    [{"start": 0, "end": 0.1, "text": "え"}, null],
+    [{"start": 0, "end": 0.1, "text": "えっ、"}, [true, true]],
+    [{"start": 0, "end": 0.2, "text": "うわっ"}, [true, true]],
+    [{"start": 0, "end": 0.2, "text": "うわっ", "noSub": true}, null],
+    [{"start": 0, "end": 0.2, "text": "うわっ", "cutState": "cut"}, null],
+    [{"start": 0, "end": 0.2, "text": "", "draft": "overlap"}, null],
+    [{"start": 0, "end": 0.2, "text": "うわっ", "draft": "overlap"}, [true, true]],
+    [{"start": 2.0, "end": 2.0, "text": "ああ"}, [true, true]],
+    [{"start": 10.0, "end": 12.4, "text": "絵本の中でしか知らないんじゃないのルーナ姫"}, null]
+  ]
+}
