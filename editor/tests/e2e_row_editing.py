@@ -120,7 +120,14 @@ def main():
         tid_ovd_ev = make()
         call(port, "PUT", "/api/transcript?id=" + tid_ovd_ev, {"title": "重なり下書き評価用", "evalSet": True, "speakers": two_sp, "segments": ovd_rows + [
             {"id": "d2", "start": 3, "end": 5, "text": "", "speaker": "", "tags": ["overlap"], "draft": "overlap"}]})
+        # 抜けの所の空の行(why missing): 主(ぺこら)の声 0-20 のうち 8-11 にどの行も無い・みこの声 14-16 は重なり → 重なり 1 か所・抜け 1 か所
+        tid_miss = make(); set_segs(tid_miss, "抜け下書き文書", [{"id": "m0", "start": 0, "end": 8, "text": "前半", "speaker": "S1"},
+                                                             {"id": "m1", "start": 11, "end": 20, "text": "後半", "speaker": "S1"}], two_sp)
         txdir = os.path.join(tmp, "transcripts")
+        with open(os.path.join(txdir, tid_miss + ".diar.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-diar/v1", "history": [], "latest": {
+                "at": 1, "engine": {"name": "fake"}, "offset": 0.0, "labelMap": {"0": "S1", "2": "S2"}, "rows": {},
+                "turns": [{"start": 0, "end": 20, "label": 0}, {"start": 14, "end": 16, "label": 2}], "overlaps": [[14, 16]]}}, f)
         check(os.path.isfile(os.path.join(txdir, tid_ovd + ".json")), "前提: 文書の置き場所 %s" % txdir)
         for t in (tid_ovd, tid_ovd_ev):
             with open(os.path.join(txdir, t + ".diar.json"), "w", encoding="utf-8") as f:
@@ -662,6 +669,42 @@ def main():
             pg.evaluate("document.querySelector('#spDetails').open = true")
             check(wait_js(pg, "document.querySelector('#ovdGo').disabled && document.querySelector('#ovdCount').textContent.includes('確かめ済み')", 5000),
                   "確かめ済みの文書には置けない(理由を出す): %s" % pg.text_content("#ovdCount"))
+
+            # 17-2b) 抜けの所(主の話者も含めて、声があるのにどの行も無い所。印 draft "missing"・音のメモは付けない)と、置く所を選ぶ
+            open_doc("抜け下書き文書")
+            pg.evaluate("document.querySelector('#spDetails').open = true")
+            check(wait_js(pg, "document.querySelector('#ovdCount').textContent.includes('重なり 1 か所・抜け 1 か所')", 5000),
+                  "数を重なりと抜けに分けて出す: %s" % pg.text_content("#ovdCount"))
+            pg.uncheck("#ovdKOvl")
+            check(wait_js(pg, "OVD.items.length === 1 && OVD.items[0].why === 'missing' && !document.querySelector('#ovdGo').disabled", 5000), "「重なり」を外すと抜けだけ")
+            pg.uncheck("#ovdKMiss")
+            check(wait_js(pg, "document.querySelector('#ovdGo').disabled && document.querySelector('#ovdCount').textContent.includes('1 つ以上選んで')", 5000),
+                  "どちらも外すと押せない(理由を出す): %s" % pg.text_content("#ovdCount"))
+            pg.check("#ovdKMiss")
+            check(wait_js(pg, "!document.querySelector('#ovdGo').disabled", 5000), "抜けを選び直すと押せる")
+            pg.click("#ovdGo")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            check("1 か所に空の行を置きます(重なり 0 か所・抜け 1 か所)" in pg.inner_text("dialog.ui-dialog[open]"), "確認でも分けて出す: %s" % pg.inner_text("dialog.ui-dialog[open]")[:80])
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            check(wait_js(pg, "S.doc.segments.length === 3", 5000), "抜けの 1 行だけ足される")
+            dm = pg.evaluate("S.doc.segments.map((g, i) => [i, g.start, g.end, g.speaker, g.text, (g.tags || []).join(), g.draft || '']).filter(x => x[6])")
+            check([d[1:] for d in dm] == [[8, 11, "S1", "", "", "missing"]], "抜けの行 = 時刻・主の話者・文字なし・音のメモなし・印 missing: %s" % dm)
+            rm = pg.locator("#segs .seg").nth(dm[0][0])
+            check(rm.locator(".tt-draft-pill").text_content().strip() == "下書き(抜け)" and "抜けの下書き" in (rm.locator("textarea").get_attribute("placeholder") or ""),
+                  "札「下書き(抜け)」と案内: %s / %s" % (rm.locator(".tt-draft-pill").inner_text(), rm.locator("textarea").get_attribute("placeholder")))
+            pg.select_option("#flagKind", "draft")
+            check(pg.evaluate("[...document.querySelectorAll('#segs .seg')].filter(r => !r.hidden).length") == 1, "絞り込み「下書きだけ」に抜けの行も入る")
+            pg.select_option("#flagKind", "")
+            wait_saved()
+            check([g.get("draft") for g in call(port, "GET", "/api/transcript?id=" + tid_miss)["segments"]] == [None, "missing", None], "保存される(印 missing)")
+            check(wait_js(pg, "document.querySelector('#ovdCount').textContent.includes('重なり 1 か所・抜け 0 か所')", 5000),
+                  "置いたあとは抜けが 0(重なりは残る): %s" % pg.text_content("#ovdCount"))
+            rm.locator("textarea").click()
+            pg.keyboard.type("抜けてた")
+            check(pg.evaluate("!S.doc.segments[%d].draft" % dm[0][0]) and rm.locator(".tt-draft-pill").count() == 0, "文字を打つと抜けの印も外れる")
+            pg.keyboard.press("Escape")
+            pg.check("#ovdKOvl")
+            wait_saved()
 
             # ==================== 18) 「再生位置」ボタン(setnow) ====================
             open_doc("再生位置反映文書")

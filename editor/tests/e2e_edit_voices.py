@@ -27,6 +27,15 @@ def wait_job(srv, jid, timeout=60):
     raise RuntimeError("ジョブが終わりません: %s" % jid)
 
 
+def wait_until(fn, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if fn():
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def main():
     check = Checks()
     srv = Server(mounted=True)
@@ -36,6 +45,10 @@ def main():
         tid = srv.transcribe(v, "声の確認")
         j = wait_job(srv, srv.call("POST", "/api/diarize", {"tid": tid, "numSpeakers": 2})["id"])
         check(j["state"] == "done" and j["speakers"] == 2 and not j["named"], "(準備)話者を判別した(まだ声を覚えていないので名前は付かない)")
+        check("smoothed" not in srv.get("/api/transcript?id=" + tid)["diarization"], "細切れをならすは既定でオフ(文書の diarization に smoothed が無い)")
+        js = wait_job(srv, srv.call("POST", "/api/diarize", {"tid": tid, "numSpeakers": 2, "smooth": True})["id"])
+        check(js["state"] == "done" and srv.get("/api/transcript?id=" + tid)["diarization"].get("smoothed") == 0,
+              "API: smooth: true で判別すると文書の diarization に smoothed(ならした行の数)が付く(疑似の判別には、ならす行は無い)")
 
         with sync_playwright() as pw:
             b = pw.chromium.launch()
@@ -53,6 +66,12 @@ def main():
             check(pg.is_disabled("#voiceLearn") and "名前を付けて" in pg.inner_text("#voiceLearnHint"),
                   "仮の名前(話者1・話者2)のままでは「声を覚える」を押せない: " + pg.inner_text("#voiceLearnHint"))
             check(pg.is_checked("#diarRecog"), "「判別したら、覚えている声と比べて名前を付ける」は既定でオン")
+            # 話者の細切れをならす(S2。試験中・既定オフ・設定 diarSmooth = api/settings/patch)
+            check(not pg.is_checked("#diarSmooth") and srv.get("/api/settings").get("diarSmooth") is None, "「短い 1 行だけ別の人になるのをならす」は既定でオフ")
+            pg.click("#diarSmooth")
+            check(wait_until(lambda: srv.get("/api/settings").get("diarSmooth") is True, 5), "押すと設定 diarSmooth が保存される")
+            pg.click("#diarSmooth")
+            check(wait_until(lambda: srv.get("/api/settings").get("diarSmooth") is False, 5), "もう一度押すとオフ")
             wait_js(pg, "document.querySelector('#voiceCount').textContent.length > 0", 5000)
             check("まだ" in pg.inner_text("#voiceCount"), "覚えている声はまだ無い")
             # 話者1 に名前を付ける・話者2 は一般的な名前(本人)にする

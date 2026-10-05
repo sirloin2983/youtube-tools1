@@ -63,7 +63,9 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
                        "evalDirs": lambda v: ed_relink._eval_dirs_ok(v),
                        # 2つ目のエンジン(食い違いの候補。D1-b。ed_alt.ALT_ENGINES の名前)
-                       "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES}
+                       "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES,
+                       # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。ed_speakers の smooth_)
+                       "diarSmooth": lambda v: isinstance(v, bool)}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
 

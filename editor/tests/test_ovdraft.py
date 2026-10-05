@@ -49,13 +49,18 @@ _TURNS_5EF = [(0.03, 20.97, 0), (8.6, 10.04, 1), (11.19, 12.03, 1), (22.27, 27.8
 _ROWS_5EF = [_row(1, 0.0, 20.9, "a", "S1"), _row(2, 22.3, 27.8, "b", "S1"), _row(3, 28.8, 45.3, "c", "S1"), _row(4, 48.1, 56.7, "d", "S1")]
 
 
+def OV(doc, latest):
+    """重なり(why overlap・unassigned)だけ。抜け(why missing)は TestOvdraftMissing で見る"""
+    return S.ovdraft_candidates(doc, latest, ["overlap"])
+
+
 def _spans(res):
     return [(x["start"], x["end"], x["speaker"], x["why"]) for x in res["items"]]
 
 
 class TestOvdraftCandidates(unittest.TestCase):
     def test_5ef_shape(self):
-        res = S.ovdraft_candidates(_doc(_ROWS_5EF, end=56.77, duration=56.77), _latest(_TURNS_5EF, {0: "S1", 2: "S2"}))
+        res = OV(_doc(_ROWS_5EF, end=56.77, duration=56.77), _latest(_TURNS_5EF, {0: "S1", 2: "S2"}))
         self.assertIsNone(res["reason"])
         self.assertEqual(_spans(res), [(8.6, 10.04, "", "unassigned"), (11.19, 12.03, "", "unassigned"), (27.54, 28.68, "S2", "overlap"),
                                       (33.26, 34.54, "S2", "overlap"), (44.4, 45.22, "S2", "overlap"), (55.38, 56.24, "", "unassigned")])
@@ -64,27 +69,27 @@ class TestOvdraftCandidates(unittest.TestCase):
 
     def test_main_speaker_is_never_a_candidate(self):
         """主の話者(区間の合計がいちばん長いラベル)の区間は、行が無くても出さない(ほかの声が乗っているだけの側)"""
-        res = S.ovdraft_candidates(_doc([]), _latest([(0, 30, 0), (5, 7, 1)], {0: "S1"}))
+        res = OV(_doc([]), _latest([(0, 30, 0), (5, 7, 1)], {0: "S1"}))
         self.assertEqual(_spans(res), [(5, 7, "", "unassigned")])
 
     def test_join_and_min(self):
         # 同じラベルの 0.3 秒以下のすき間はつなぐ(0.3 秒と 0.2 秒の区間 → 0.9 秒)・0.5 秒未満は出さない
-        res = S.ovdraft_candidates(_doc([]), _latest([(0, 30, 0), (8.6, 8.9, 1), (9.1, 9.5, 1), (20, 20.4, 1), (25, 25.3, 1), (25.7, 26.1, 1)], {0: "S1"}))
+        res = OV(_doc([]), _latest([(0, 30, 0), (8.6, 8.9, 1), (9.1, 9.5, 1), (20, 20.4, 1), (25, 25.3, 1), (25.7, 26.1, 1)], {0: "S1"}))
         self.assertEqual(_spans(res), [(8.6, 9.5, "", "unassigned")])
 
     def test_assigned_label_needs_overlap(self):
         """(b) は、ほかの話者の区間と重なる声だけ(重ならない所の抜けは出さない)"""
-        res = S.ovdraft_candidates(_doc([_row(1, 0, 30, "a", "S1")]), _latest([(0, 30, 0), (40, 45, 2), (29, 32, 2)], {0: "S1", 2: "S2"}))
+        res = OV(_doc([_row(1, 0, 30, "a", "S1")]), _latest([(0, 30, 0), (40, 45, 2), (29, 32, 2)], {0: "S1", 2: "S2"}))
         self.assertEqual(_spans(res), [(29, 32, "S2", "overlap")])
 
     def test_covered_by_same_speaker(self):
         """その話者の行が半分以上を覆っていれば出さない。ほかの話者の行は覆いに数えない。端の覆いは削る(同じ話者の行と重ねない)"""
         t, m = [(0, 30, 0), (10, 14, 2)], {0: "S1", 2: "S2"}
         main = _row(1, 0, 30, "a", "S1")
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([main, _row(2, 9, 12.5, "b", "S2")]), _latest(t, m))), [])                 # 2.5/4 秒
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([main, _row(2, 9, 11.5, "b", "S2")]), _latest(t, m))), [(11.5, 14, "S2", "overlap")])   # 1.5/4 秒 → 頭を削る
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([main, _row(2, 13, 15, "b", "S2")]), _latest(t, m))), [(10, 13, "S2", "overlap")])     # 尻を削る
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([main, _row(2, 9, 15, "b", "S1")]), _latest(t, m))), [(10, 14, "S2", "overlap")])     # 主の行は覆いにならない
+        self.assertEqual(_spans(OV(_doc([main, _row(2, 9, 12.5, "b", "S2")]), _latest(t, m))), [])                 # 2.5/4 秒
+        self.assertEqual(_spans(OV(_doc([main, _row(2, 9, 11.5, "b", "S2")]), _latest(t, m))), [(11.5, 14, "S2", "overlap")])   # 1.5/4 秒 → 頭を削る
+        self.assertEqual(_spans(OV(_doc([main, _row(2, 13, 15, "b", "S2")]), _latest(t, m))), [(10, 13, "S2", "overlap")])     # 尻を削る
+        self.assertEqual(_spans(OV(_doc([main, _row(2, 9, 15, "b", "S1")]), _latest(t, m))), [(10, 14, "S2", "overlap")])     # 主の行は覆いにならない
 
     def test_unassigned_covered_by_unknown_or_kept_rows(self):
         """(a) の覆い = 話者の無い行・守る行(声が重なるのメモつきの話者のある行)・字幕に出さない行・ゲーム音声などの行"""
@@ -92,44 +97,44 @@ class TestOvdraftCandidates(unittest.TestCase):
         main = _row(1, 0, 30, "a", "S1")
         for g in (_row(2, 10, 14, "b", ""), _row(2, 10, 14, "b", "S2", tags=["overlap"]), _row(2, 10, 14, "b", "S1", noSub=True),
                   _row(2, 10, 14, "b", "other"), _row(2, 10, 14, "b", "S9")):   # S9 = 文書に無い話者(話者の無い行と同じ)
-            self.assertEqual(_spans(S.ovdraft_candidates(_doc([main, g]), _latest(t, m))), [], g)
-        self.assertEqual(len(S.ovdraft_candidates(_doc([main, _row(2, 10, 14, "b", "S2")]), _latest(t, m))["items"]), 1)   # 普通の話者の行は覆わない
-        self.assertEqual(len(S.ovdraft_candidates(_doc([main, _row(2, 10, 14, "", "")]), _latest(t, m))["items"]), 1)      # 文字の無い(下書きでない)行も覆わない
+            self.assertEqual(_spans(OV(_doc([main, g]), _latest(t, m))), [], g)
+        self.assertEqual(len(OV(_doc([main, _row(2, 10, 14, "b", "S2")]), _latest(t, m))["items"]), 1)   # 普通の話者の行は覆わない
+        self.assertEqual(len(OV(_doc([main, _row(2, 10, 14, "", "")]), _latest(t, m))["items"]), 1)      # 文字の無い(下書きでない)行も覆わない
 
     def test_placing_drafts_twice_adds_nothing(self):
         """置いた空の下書き(話者によらず)が覆う → 2 回押しても増えない。打って印が外れた行も、同じ話者なら覆う"""
         d0, lt = _doc(list(_ROWS_5EF), end=56.77, duration=56.77), _latest(_TURNS_5EF, {0: "S1", 2: "S2"})
-        first = S.ovdraft_candidates(d0, lt)["items"]
+        first = OV(d0, lt)["items"]
         d1 = dict(d0, segments=d0["segments"] + [_draft(100 + k, x["start"], x["end"], x["speaker"]) for k, x in enumerate(first)])
-        self.assertEqual(S.ovdraft_candidates(d1, lt)["items"], [])
+        self.assertEqual(OV(d1, lt)["items"], [])
         typed = [{k: v for k, v in dict(g, text="打った").items() if k != "draft"} if g.get("draft") else g for g in d1["segments"]]
-        self.assertEqual(S.ovdraft_candidates(dict(d0, segments=typed), lt)["items"], [])
+        self.assertEqual(OV(dict(d0, segments=typed), lt)["items"], [])
 
     def test_doc_range_and_duration(self):
         lt = _latest([(0, 100, 0), (5, 8, 1), (48, 52, 1), (70, 75, 1)], {0: "S1"})
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([], start=6.0, end=50.0, duration=100.0), lt)), [(6.0, 8, "", "unassigned"), (48, 50.0, "", "unassigned")])
-        self.assertEqual(_spans(S.ovdraft_candidates(_doc([], start=0, end=None, duration=49.8), lt)), [(5, 8, "", "unassigned"), (48, 49.8, "", "unassigned")])   # 長さで切る
-        self.assertEqual(len(S.ovdraft_candidates(_doc([], start=0, end=None, duration=48.3), lt)["items"]), 1)                     # 48〜48.3 は短い・70〜75 は長さの外
+        self.assertEqual(_spans(OV(_doc([], start=6.0, end=50.0, duration=100.0), lt)), [(6.0, 8, "", "unassigned"), (48, 50.0, "", "unassigned")])
+        self.assertEqual(_spans(OV(_doc([], start=0, end=None, duration=49.8), lt)), [(5, 8, "", "unassigned"), (48, 49.8, "", "unassigned")])   # 長さで切る
+        self.assertEqual(len(OV(_doc([], start=0, end=None, duration=48.3), lt)["items"]), 1)                     # 48〜48.3 は短い・70〜75 は長さの外
 
     def test_max_and_order(self):
         turns = [(0, 400, 0)] + [(5 + 8 * k, 6 + 8 * k, 1) for k in reversed(range(45))]
-        res = S.ovdraft_candidates(_doc([], end=400, duration=400), _latest(turns, {0: "S1"}))
+        res = OV(_doc([], end=400, duration=400), _latest(turns, {0: "S1"}))
         self.assertEqual((len(res["items"]), res["more"]), (S.OVDRAFT_MAX, 5))
         self.assertEqual([x["start"] for x in res["items"]], sorted(x["start"] for x in res["items"]))
         self.assertEqual(res["items"][0]["start"], 5)
 
     def test_speaker_missing_from_doc(self):
         """判別のあとで話者を消した: 時刻は出すが話者は空(人が選ぶ)"""
-        res = S.ovdraft_candidates(_doc([_row(1, 0, 30, "a", "S1")], speakers=(("S1", "こより"),)), _latest([(0, 30, 0), (10, 14, 2)], {0: "S1", 2: "S2"}))
+        res = OV(_doc([_row(1, 0, 30, "a", "S1")], speakers=(("S1", "こより"),)), _latest([(0, 30, 0), (10, 14, 2)], {0: "S1", 2: "S2"}))
         self.assertEqual(_spans(res), [(10, 14, "", "overlap")])
 
     def test_reasons(self):
-        self.assertEqual(S.ovdraft_candidates(_doc([]), None)["reasonCode"], "no_diar")
-        self.assertEqual(S.ovdraft_candidates(_doc([]), _latest([], {0: "S1"}, engine="single"))["reasonCode"], "single")
-        res = S.ovdraft_candidates(_doc([]), _latest([], {}))
+        self.assertEqual(OV(_doc([]), None)["reasonCode"], "no_diar")
+        self.assertEqual(OV(_doc([]), _latest([], {0: "S1"}, engine="single"))["reasonCode"], "single")
+        res = OV(_doc([]), _latest([], {}))
         self.assertEqual((res["reasonCode"], res["items"], res["more"]), ("no_turns", [], 0))
         self.assertTrue(res["reason"])
-        self.assertIsNone(S.ovdraft_candidates(_doc([]), _latest([(0, 5, 0)], {0: "S1"}))["reason"])   # 記録はある・候補 0 は理由なし
+        self.assertIsNone(OV(_doc([]), _latest([(0, 5, 0)], {0: "S1"}))["reason"])   # 記録はある・候補 0 は理由なし
 
 
 class TestOvdraftRows(StoreDir):
@@ -235,8 +240,110 @@ class TestOvdraftHttp(unittest.TestCase):
         write_json(os.path.join(txdir, TID + ".diar.json"), {"schema": "youtube-tools-diar/v1", "latest": _latest(_TURNS_5EF, {0: "S1", 2: "S2"}), "history": []})
         st, body = self.get("/api/overlap-drafts?id=" + TID)
         self.assertEqual((st, len(body["items"]), body["more"], body["reason"], body["diarAt"]), (200, 6, 0, None, 123))
+        self.assertEqual(body["counts"], {"overlap": 6, "missing": 0})
+        st, body = self.get("/api/overlap-drafts?id=" + TID + "&kinds=missing")   # 選んだまとまりだけ(数は全部)
+        self.assertEqual((st, body["items"], body["counts"]["overlap"]), (200, [], 6))
         self.assertEqual(self.get("/api/overlap-drafts?id=fedcba987654")[0], 404)
         self.assertEqual(self.get("/api/overlap-drafts?id=" + TID, {"Sec-Fetch-Site": "cross-site"})[0], 403)   # 別のサイトからの読み取りは断る
+
+
+def _miss(i, a, b, speaker=""):
+    return _row(i, a, b, "", speaker, draft="missing")
+
+
+def _mspans(res):
+    return [(x["start"], x["end"], x["speaker"]) for x in res["items"] if x["why"] == "missing"]
+
+
+class TestOvdraftMissing(unittest.TestCase):
+    """抜け(why missing): 主の話者も含めて、声の区間から書いてある所を引いた残りの切れ端(OVDRAFT_MISS_MIN 以上)"""
+
+    def test_gap_between_rows_of_main_speaker(self):
+        """1 人の話の途中で認識が落とした所(区間の中のすき間)も拾う。両端の書いてある所は削る"""
+        res = S.ovdraft_candidates(_doc([_row(1, 0, 10, "a", "S1"), _row(2, 12, 30, "b", "S1")]), _latest([(0, 30, 0)], {0: "S1"}))
+        self.assertEqual(_mspans(res), [(10.0, 12.0, "S1")])
+        x = res["items"][0]
+        self.assertEqual((x["why"], x["draft"], x["label"]), ("missing", S.OVDRAFT_MISS_KIND, 0))
+        self.assertEqual(res["counts"], {"overlap": 0, "missing": 1})
+
+    def test_cover_is_any_written_row(self):
+        """覆い = 文字のある行(話者によらない)・空の下書き(どちらの種類も)・字幕に出さない行・ゲーム音声などの行。文字の無い普通の行は覆わない"""
+        t, m = [(0, 30, 0)], {0: "S1"}
+        base = [_row(1, 0, 10, "a", "S1"), _row(2, 12, 30, "b", "S1")]
+        for g in (_row(3, 10, 12, "c", "S2"), _row(3, 10, 12, "c", ""), _draft(3, 10, 12), _miss(3, 10, 12, "S1"), _row(3, 10, 12, "", "", noSub=True),
+                  _row(3, 10, 12, "", "other")):
+            self.assertEqual(_mspans(S.ovdraft_candidates(_doc(base + [g]), _latest(t, m))), [], g)
+        self.assertEqual(len(_mspans(S.ovdraft_candidates(_doc(base + [_row(3, 10, 12, "", "S1")]), _latest(t, m)))), 1)
+
+    def test_min_length(self):
+        t, m = [(0, 30, 0)], {0: "S1"}
+        short = _doc([_row(1, 0, 10, "a", "S1"), _row(2, 10.7, 30, "b", "S1")])
+        self.assertEqual(_mspans(S.ovdraft_candidates(short, _latest(t, m))), [])            # 0.7 秒 < 0.8
+        ok = _doc([_row(1, 0, 10, "a", "S1"), _row(2, 10.9, 30, "b", "S1")])
+        self.assertEqual(_mspans(S.ovdraft_candidates(ok, _latest(t, m))), [(10.0, 10.9, "S1")])
+        self.assertEqual(S.OVDRAFT_MISS_MIN, 0.8)
+
+    def test_not_twice_with_overlap_candidates(self):
+        """重なりの候補(overlap・unassigned)と同じ所は抜けに出さない。重なりの候補の外にはみ出した主の声の切れ端だけが抜け"""
+        res = S.ovdraft_candidates(_doc([_row(1, 0, 10, "a", "S1"), _row(2, 14, 30, "b", "S1")]), _latest([(0, 30, 0), (9.5, 12.5, 1)], {0: "S1"}))
+        self.assertEqual([(x["start"], x["end"], x["why"]) for x in res["items"]], [(9.5, 12.5, "unassigned"), (12.5, 14.0, "missing")])
+        res = S.ovdraft_candidates(_doc([_row(1, 0, 30, "a", "S1")]), _latest([(0, 30, 0), (29, 32, 2)], {0: "S1", 2: "S2"}))
+        self.assertEqual([x["why"] for x in res["items"]], ["overlap"])   # (b) が 30〜32 も出す → 抜けにしない
+
+    def test_labels_merge_and_speaker(self):
+        """違うラベルの切れ端が重なればつなぐ(話者は長い方)。labelMap に無いラベルだけの所は話者が空"""
+        rows = [_row(1, 0, 10, "a", "S1"), _row(2, 20, 30, "b", "S1"), _row(3, 30, 60, "c", "S2")]
+        turns = [(0, 13, 0), (20, 30, 0), (11.5, 16, 2), (30, 60, 2), (40, 41, 1)]
+        res = S.ovdraft_candidates(_doc(rows), _latest(turns, {0: "S1", 2: "S2"}))
+        self.assertEqual(_mspans(res), [(10.0, 16.0, "S2")])   # 10〜13(S1 3 秒)と 11.5〜16(S2 4.5 秒)→ 1 つ・S2
+        res = S.ovdraft_candidates(_doc([_row(1, 0, 10, "a", "S1")], end=30, duration=30), _latest([(0, 20, 0), (12, 14, 3)], {0: "S1"}))
+        self.assertEqual([(x["start"], x["end"], x["speaker"], x["why"]) for x in res["items"]], [(10.0, 12.0, "S1", "missing"), (12.0, 14.0, "", "unassigned"), (14.0, 20.0, "S1", "missing")])
+
+    def test_kinds_counts_and_max(self):
+        rows = [_row(k, 10 * k, 10 * k + 7, "x", "S1") for k in range(50)]   # 7 秒の行・3 秒のすき間 × 50
+        turns = [(0, 500, 0), (100, 101, 1), (200, 201.5, 1)]
+        lt = _latest(turns, {0: "S1"})
+        both = S.ovdraft_candidates(_doc(rows, end=500, duration=500), lt)
+        self.assertEqual(both["counts"], {"overlap": 2, "missing": 50})   # (a) は主の話者の行と重なっていても出る(今までどおり)・上限の前の数
+        self.assertEqual((len(both["items"]), both["more"]), (S.OVDRAFT_MAX, 52 - S.OVDRAFT_MAX))   # 上限は重なりと抜けを合わせて数える
+        self.assertEqual([x["why"] for x in S.ovdraft_candidates(_doc(rows, end=500, duration=500), lt, ["overlap"])["items"]], ["unassigned"] * 2)
+        self.assertEqual(len(S.ovdraft_candidates(_doc(rows, end=500, duration=500), lt, ["missing"])["items"]), S.OVDRAFT_MAX)
+        self.assertEqual(S.ovdraft_candidates(_doc(rows, end=500, duration=500), lt, ["bogus"])["items"], [])
+        self.assertEqual(S.ovdraft_candidates(_doc([]), None)["counts"], {"overlap": 0, "missing": 0})
+
+    def test_placing_twice_adds_nothing(self):
+        rows = [_row(1, 0, 10, "a", "S1"), _row(2, 12, 20, "b", "S1"), _row(3, 20, 30, "c", "S1")]
+        lt = _latest([(0, 30, 0), (21, 24, 2)], {0: "S1", 2: "S2"})
+        d0 = _doc(rows, end=30, duration=30)
+        first = S.ovdraft_candidates(d0, lt)["items"]
+        self.assertEqual([x["why"] for x in first], ["missing", "overlap"])
+        placed = [(_miss if x["why"] == "missing" else _draft)(100 + k, x["start"], x["end"], x["speaker"]) for k, x in enumerate(first)]
+        self.assertEqual(S.ovdraft_candidates(dict(d0, segments=rows + placed), lt)["items"], [])
+
+    def test_kinds_query(self):
+        d = _doc([_row(1, 0, 10, "a", "S1"), _row(2, 12, 30, "b", "S1")])
+        lt = _latest([(0, 30, 0), (20, 23, 2)], {0: "S1", 2: "S2"})
+        with mock.patch.object(S.ed_speakers.ed_store, "read_transcript", return_value=d), mock.patch.object(S.ed_speakers, "read_diar", return_value={"latest": lt}):
+            whys = lambda k: [x["why"] for x in S.ovdraft_for_doc(TID, k)["items"]]   # noqa: E731
+            self.assertEqual(whys(None), ["missing", "overlap"])
+            self.assertEqual(whys(""), ["missing", "overlap"])
+            self.assertEqual(whys("missing"), ["missing"])
+            self.assertEqual(whys("overlap,missing"), ["missing", "overlap"])
+            self.assertEqual(whys("x,overlap"), ["overlap"])
+
+    def test_missing_draft_row_rules(self):
+        """印 missing も overlap と同じ決まり: 保存で残る・空のままは字幕に出ない・判別のやり直しで守る・精度に出ない"""
+        self.assertIn("missing", S.ROW_DRAFT_KINDS)
+        out = S.sanitize_transcript({"speakers": [{"id": "S1", "name": "a"}], "segments": [_miss(1, 0, 1, "S1")]}, {"segments": []})
+        self.assertEqual(out["segments"][0].get("draft"), "missing")
+        self.assertNotIn("overlap", out["segments"][0].get("tags") or [])
+        self.assertTrue(S.blank_draft_row(out["segments"][0]))
+        self.assertTrue(S.diar_keep_row(_miss(1, 0, 1, ""), {"S1"}))
+        d = _doc([_row(1, 0, 5, "a", "S1"), _miss(2, 5, 7, "S1")])
+        d.update({"sourcePath": "C:\\x\\clip.mp4", "title": "t"})
+        self.assertEqual([g["id"] for g in P.build_transcript_v1(d, "x")["segments"]], ["s1"])
+        base = {"original": [_row(1, 0.0, 4.0, "こんにちは")], "segments": [_row(1, 0.0, 4.0, "こんにちわ", "S1", proofed=True)]}
+        self.assertEqual(S.doc_metrics(dict(base, segments=base["segments"] + [_miss(2, 4.0, 5.0, "S1")])), S.doc_metrics(base))
 
 
 class MetricsIgnoreBlankDraft(unittest.TestCase):

@@ -517,8 +517,8 @@ class TestRun(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             res = E.run_evaluate(self.env.root, only=["dddddddddddd"])
         self.assertEqual((res["meta"]["rows"], res["meta"]["draftRows"], res["meta"]["unverifiedRows"]), (1, 1, 1))
-        self.assertEqual(res["bySetting"][0]["settings"], {"threshold": 0.5, "num": 0, "emb": "voxceleb", "minOn": 0.1, "minOff": 0.3})   # 既定 = 本番の値
-        for bad in (["--threshold", "x"], ["--num", "11"], ["--emb", "nope"], ["--min-on", "-1"]):
+        self.assertEqual(res["bySetting"][0]["settings"], {"threshold": 0.5, "num": 0, "emb": "voxceleb", "minOn": 0.1, "minOff": 0.3, "smooth": False})   # 既定 = 本番の値
+        for bad in (["--threshold", "x"], ["--num", "11"], ["--emb", "nope"], ["--min-on", "-1"], ["--smooth", "maybe"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()):
                 E.main(["run", "--data-dir", self.env.root] + bad)
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
@@ -551,6 +551,72 @@ class TestDiarizeTune(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(S.diar_tune(), {})
         self.assertEqual(S.diar_tune("0.6", None, 0), {"threshold": 0.6, "min_off": 0.0})
+
+
+class TestSmooth(unittest.TestCase):
+    """--smooth off,on(話者の細切れをならす S2。editor/ed_speakers.py の smooth_labels を読んで計算する)"""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+
+    def put(self, tid, human_mid, smoothed_rec=False):
+        """3 行: 前後はラベル 0(S1)・真ん中の短い行だけラベル 1(S2)で根拠が弱い(ratio 0.3)。人の最終は前後が A・真ん中が human_mid"""
+        segs = [{"id": "r0", "start": 0.0, "end": 3.0, "text": "あ", "speaker": "S1", "flag": "", "proofed": True},
+                {"id": "r1", "start": 3.2, "end": 4.0, "text": "い", "speaker": "S1" if human_mid == "A" else "S2", "flag": "", "proofed": True},
+                {"id": "r2", "start": 4.2, "end": 7.0, "text": "う", "speaker": "S1", "flag": "", "proofed": True}]
+        self.env._write(tid + ".json", {"id": tid, "title": "t", "updatedAt": ms("2026-10-01"), "segments": segs,
+                                        "speakers": [{"id": "S1", "name": "A"}, {"id": "S2", "name": "B"}]})
+        mid = {"label": 1, "speaker": "S1", "ratio": 0.3, "mixed": False, "weak": True, "smoothed": True} if smoothed_rec else \
+            {"label": 1, "speaker": "S2", "ratio": 0.3, "mixed": False, "weak": True}
+        rows = {"r0": {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False}, "r1": mid,
+                "r2": {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False}}
+        self.env._write(tid + ".diar.json", {"schema": "youtube-tools-diar/v1", "history": [], "latest": {
+            "at": 1, "engine": {"name": "sherpa-onnx", "embedding": "voxceleb", "clusterThreshold": 0.5, "requested": "auto"},
+            "labelMap": {"0": "S1", "1": "S2"}, "rows": rows, "speakers": 2, "voices": {"checked": False}, "overlaps": [],
+            "turns": [{"start": 0, "end": 3.1, "label": 0}, {"start": 3.5, "end": 3.74, "label": 1}, {"start": 4.1, "end": 7, "label": 0}]}})
+
+    def test_stored_off_on(self):
+        self.put("aaaaaaaaaaaa", "A")    # ならすと直る
+        self.put("bbbbbbbbbbbb", "B")    # 本物の短い別の人(根拠は弱い)→ ならすと壊れる
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            res = E.main(["--data-dir", self.env.root, "--smooth", "off,on"])
+        off, on = res["smooth"]
+        self.assertEqual((off["key"], off["correct"], off["rows"], off["smoothedRows"]), ("ならさない", 5, 6, 0))   # a: S2 が対応できず 2/3・b: 3/3
+        self.assertEqual((on["correct"], on["rows"], on["smoothedRows"], on["smoothedChecked"], on["smoothedCorrect"], on["smoothedWrong"], on["fixed"], on["broke"]),
+                         (5, 6, 2, 2, 1, 1, 1, 1))
+        self.assertIn("話者の細切れをならす", buf.getvalue())
+        self.assertIn("直った 1・壊れた 1", buf.getvalue())
+        self.assertNotIn("smooth", E.evaluate(self.env.root))   # 指定しなければ今までどおり(editor を読まない)
+
+    def test_stored_record_already_smoothed(self):
+        """ならした回の記録: ならさない側は元のラベル(label)から話者に戻す"""
+        self.put("aaaaaaaaaaaa", "A", smoothed_rec=True)
+        S = E.load_serve()
+        with open(os.path.join(self.env.tdir, "aaaaaaaaaaaa.json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        run = E.read_diar(self.env.tdir, "aaaaaaaaaaaa")["latest"]
+        off, on, ids = E.stored_smooth_recs(S, doc, run)
+        self.assertEqual((off["r1"]["speaker"], on["r1"]["speaker"], ids), ("S2", "S1", {"r1"}))
+
+    def test_run_off_on_diarizes_once(self):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"}):
+            media = os.path.join(self.env.root, "media")
+            os.makedirs(media)
+            write_silence(os.path.join(media, "a.wav"), 25)
+            self.env.doc("cccccccccccc", {"S1": "A"}, [("c%d" % i, "S1", "S1", {}) for i in range(12)], diar={}, reviewed=True, source=os.path.join(media, "a.wav"))
+            calls = []
+            real = E.diarize_once
+            with mock.patch.object(E, "diarize_once", lambda *a: calls.append(1) or real(*a)), contextlib.redirect_stdout(io.StringIO()) as buf:
+                res = E.main(["run", "--data-dir", self.env.root, "--smooth", "off,on"])
+        self.assertEqual(len(calls), 1)   # 判別は 1 回・採点だけ両方
+        keys = [s["key"] for s in res["bySetting"]]
+        self.assertEqual(len(keys), 2)
+        self.assertTrue(keys[1].endswith("/ ならす") and not keys[0].endswith("ならす"))
+        self.assertEqual([s["smooth"]["on"] for s in res["bySetting"]], [False, True])
+        self.assertEqual(res["bySetting"][0]["correct"], res["bySetting"][1]["correct"])   # 10 秒ごとの入れ替わりには、ならす行が無い
+        self.assertIn("ならした行 0", buf.getvalue())
 
 
 class TestNoSub(unittest.TestCase):

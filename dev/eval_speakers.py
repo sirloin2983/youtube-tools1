@@ -9,6 +9,9 @@
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models\\diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals\\speakers\\<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
+    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。editor/ed_speakers.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
+        ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
+        run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と <id>.diar.json)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals\\speakers\\<日時>.json に残す(evals の置き場所は eval_asr.py(evals\\asr)・eval_marks.py と同じ「ツールの作業データの下の evals\\<領域>」)。
@@ -83,6 +86,7 @@ CONFIRM_RULE = ("人が確かめた行 = 確かめ済みの文書の行・校正
                 "かつその話者に確かめた行が無い。確かめられない = それ以外")
 OVL_MIN_SEC = 0.1                         # 行と話者の区間の重なり(overlaps)がこれ以上なら「重なりあり」とみなす
 OVL_PREDICTORS = (("mixed", "声が混ざる(mixed)"), ("region", "区間の重なり(overlaps)"), ("either", "どちらか"))
+SMOOTH_MODES = {"off": False, "on": True}  # --smooth の値(話者の細切れをならす。S2)
 SHORT_SEC = 60.0                          # run の動画の長さ別(これ未満 = 短い)
 LENGTHS = (("short", "60秒未満"), ("long", "60秒以上"))
 
@@ -556,8 +560,87 @@ def speaker_count(diffs):
             "meanDiff": round(sum(diffs) / len(diffs), 2) if diffs else None, "over": sum(1 for d in diffs if d > 0), "under": sum(1 for d in diffs if d < 0)}
 
 
-def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None):
+def parse_smooth(text):
+    """--smooth の値 -> [False, True] など(off・on の「,」区切り)"""
+    if text is None:
+        return None
+    return parse_list(text, _conv_smooth, "--smooth")
+
+
+def _conv_smooth(x):
+    if x.lower() not in SMOOTH_MODES:
+        raise ValueError(x)
+    return SMOOTH_MODES[x.lower()]
+
+
+def smooth_key(on):
+    return "ならす" if on else "ならさない"
+
+
+class Smooth:
+    """ならす/ならさないの比べ(1 つの設定ぶん)。行の正しさと、ならした行(人が確かめた行のうち)の合った/外れた・直った/壊れた"""
+
+    def __init__(self, on):
+        self.on = on
+        self.counts = new_counts()
+        self.smoothed = self.checked = self.correct = self.fixed = self.broke = 0
+
+    def add(self, rows, mapping, smoothed_ids, before=None):
+        """rows = 採点する行(human_rows)・smoothed_ids = ならした行の id(人が確かめたかによらず全部)・before = ならさないときの {行 id: 合ったか}"""
+        add_counts(self.counts, rows, mapping)
+        self.smoothed += len(smoothed_ids)
+        for r in rows:
+            if str(r["id"]) not in smoothed_ids:
+                continue
+            ok = bool(r["label"]) and mapping.get(r["label"]) == r["human"]
+            self.checked += 1
+            self.correct += ok
+            if before is not None:
+                b = before.get(str(r["id"]))
+                self.fixed += ok and b is False
+                self.broke += (not ok) and b is True
+
+    def result(self):
+        return dict(finish_counts(self.counts), key=smooth_key(self.on), on=self.on, smoothedRows=self.smoothed, smoothedChecked=self.checked,
+                    smoothedCorrect=self.correct, smoothedWrong=self.checked - self.correct, fixed=self.fixed, broke=self.broke)
+
+
+def row_ok(rows, mapping):
+    return {str(r["id"]): bool(r["label"]) and mapping.get(r["label"]) == r["human"] for r in rows}
+
+
+def stored_smooth_recs(S, doc, run):
+    """保存してある判別の記録で「ならしたら」を計算する(判別し直さない)-> (ならさない recs, ならした recs, ならした行 id の集まり)。
+    行の時刻は文書の今の行(人が直したあと)・ラベルと割合は記録の rows(記録の無い行はラベル無し = 前後に数えるが、ならせない)。
+    記録が「ならした回」なら、ならさない側は label(元のラベル)から labelMap で話者に戻す"""
+    E = S.ed_speakers
+    recs = run.get("rows") if isinstance(run.get("rows"), dict) else {}
+    lmap = {str(k): v for k, v in (run.get("labelMap") or {}).items()} if isinstance(run.get("labelMap"), dict) else {}
+    ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    off, rows, rids = {}, [], []
+    for sg in doc.get("segments") or []:
+        if not isinstance(sg, dict) or num(sg.get("start")) is None or num(sg.get("end")) is None:
+            continue
+        rid = str(sg.get("id"))
+        rec = recs.get(rid)
+        if isinstance(rec, dict):
+            off[rid] = dict(rec, speaker=lmap.get(str(rec.get("label")), "") if rec.get("smoothed") else rec.get("speaker"))
+        lb = rec.get("label") if isinstance(rec, dict) else None
+        rows.append({"start": num(sg["start"]), "end": num(sg["end"]), "label": lb, "ratio": num((rec or {}).get("ratio")) or 0.0,
+                     "skip": E.diar_keep_row(sg, ids) or not str(sg.get("text") or "").strip()})
+        rids.append(rid)
+    ovl = [(num(x[0]), num(x[1])) for x in run.get("overlaps") or [] if isinstance(x, (list, tuple)) and len(x) >= 2 and num(x[0]) is not None and num(x[1]) is not None]
+    sm = E.smooth_labels(rows, ovl)
+    on = dict(off)
+    for i, lb in sm.items():
+        if rids[i] in on:
+            on[rids[i]] = dict(on[rids[i]], speaker=lmap.get(str(lb), ""))
+    return off, on, {rids[i] for i in sm}
+
+
+def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None, smooth=None):
     tdir_root = locate(data_dir)
+    S_ = load_serve() if smooth else None   # ならしの計算は本番の関数(editor の ed_speakers)を使う。--smooth のときだけ読む
     tdir = os.path.join(tdir_root, "transcripts")
     since_ms = day_ms(since) if since else None
     until_ms = day_ms(until, end=True) if until else None
@@ -570,6 +653,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
     picked, rinfo = pick_reviewed(loaded, mode)
     skipped = {"noDiar": 0, "single": 0, "noRows": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
     totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0, "noSub": 0}
+    sm_agg = [Smooth(on) for on in smooth] if smooth else []
     for tid, doc, whole in picked:
         diar = read_diar(tdir, tid)
         if not diar:
@@ -581,6 +665,13 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
             continue
         runrows = run.get("rows") if isinstance(run.get("rows"), dict) else {}
         conf = confirm_map(doc, run, whole)
+        if sm_agg:   # ならす/ならさないの比べ(記録からの計算。下の本体の数には入れない)
+            recs_off, recs_on, sm_ids = stored_smooth_recs(S_, doc, run)
+            r_off, _ = human_rows(doc, recs_off, since_ms, until_ms, include_draft, conf)
+            before = row_ok(r_off, best_mapping(r_off))
+            for a in sm_agg:
+                rr, _ = human_rows(doc, recs_on if a.on else recs_off, since_ms, until_ms, include_draft, conf)
+                a.add(rr, best_mapping(rr), sm_ids if a.on else set(), before)
         ovl.add(overlap_rows(doc, runrows, run.get("overlaps"), since_ms, until_ms, whole))
         rows, cnt = human_rows(doc, runrows, since_ms, until_ms, include_draft, conf)
         for k in ("drafts", "noRecord", "machineDraft", "unverified"):
@@ -649,7 +740,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
             "overlap": ovl.result(),
             "byEngine": {k: {"runs": v["runs"], "docs": len(v["docs"]), "rows": v["counts"]["rows"], "correct": v["counts"]["correct"],
                              "rate": rate(v["counts"]["correct"], v["counts"]["rows"]), "unassigned": v["counts"]["unassigned"]} for k, v in sorted(engines.items())},
-            "byDoc": by_doc}
+            "byDoc": by_doc, **({"smooth": [a.result() for a in sm_agg]} if sm_agg else {})}
 
 
 # ---------------------------------------------------------------- 判別し直して測る(run)
@@ -716,8 +807,9 @@ def _conv_sec(x):
     return v
 
 
-def run_grid(S, threshold=None, num=None, emb=None, min_on=None, min_off=None):
-    """設定の組(どれも「,」区切り。指定しない項目は本番の既定の値)-> [{"threshold", "num", "emb", "minOn", "minOff"}]"""
+def run_grid(S, threshold=None, num=None, emb=None, min_on=None, min_off=None, smooth=None):
+    """設定の組(どれも「,」区切り。指定しない項目は本番の既定の値)-> [{"threshold", "num", "emb", "minOn", "minOff", "smooth"}]。
+    smooth = [False, True] など(ならす/ならさない。判別は 1 回で、採点だけ両方。指定しなければ ならさない だけ)"""
     ths = parse_list(threshold, _conv_sec, "--threshold") if threshold else [S.DIAR_CLUSTER_THRESHOLD]
     nums = parse_list(num, _conv_num, "--num") if num else [0]
     embs = parse_list(emb, str, "--emb") if emb else [S.DIAR_EMB_DEFAULT]
@@ -726,11 +818,13 @@ def run_grid(S, threshold=None, num=None, emb=None, min_on=None, min_off=None):
         raise SystemExit("--emb は %s のどれかです: %s" % ("・".join(S.DIAR_EMBS), ", ".join(bad)))
     ons = parse_list(min_on, _conv_sec, "--min-on") if min_on else [S.DIAR_MIN_ON]
     offs = parse_list(min_off, _conv_sec, "--min-off") if min_off else [S.DIAR_MIN_OFF]
-    return [{"threshold": t, "num": n, "emb": e, "minOn": a, "minOff": b} for e in embs for n in nums for t in ths for a in ons for b in offs]
+    sms = smooth or [False]
+    return [{"threshold": t, "num": n, "emb": e, "minOn": a, "minOff": b, "smooth": sm} for e in embs for n in nums for t in ths for a in ons for b in offs for sm in sms]
 
 
 def setting_key(st):
-    return "しきい値 %.2f / 人数 %s / %s / on %.2f / off %.2f" % (st["threshold"], st["num"] or "自動", st["emb"], st["minOn"], st["minOff"])
+    return "しきい値 %.2f / 人数 %s / %s / on %.2f / off %.2f%s" % (st["threshold"], st["num"] or "自動", st["emb"], st["minOn"], st["minOff"],
+                                                              " / ならす" if st.get("smooth") else "")
 
 
 def check_models(S, root, grid):
@@ -770,26 +864,40 @@ def diarize_once(S, job, wav, total, st):
     return S.diarize_real(job, wav, st["num"], st["emb"], threshold=st["threshold"], min_on=st["minOn"], min_off=st["minOff"])
 
 
-def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole):
-    """判別の結果を本番と同じ assign_speakers で行に割り当てて採点する -> (行, 数, 機械の話者の数, 重なりの行)"""
+def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, smooth=False):
+    """判別の結果を本番と同じ assign_speakers で行に割り当てて採点する -> (行, 数, 機械の話者の数, 重なりの行, ならした行 id, ならさないときの {行 id: 合ったか} or None)。
+    smooth なら本番と同じ smooth_speakers で細切れをならしてから採点する(守る行は diar_keep_row・文字の無い行は前後に数えない)"""
     segs = [sg for sg in doc.get("segments") or [] if isinstance(sg, dict) and num(sg.get("start")) is not None and num(sg.get("end")) is not None]
-    res = S.assign_speakers([{"start": num(sg.get("start")), "end": num(sg.get("end"))} for sg in segs], turns, offset)
+    plain = [{"start": num(sg.get("start")), "end": num(sg.get("end")), "text": sg.get("text")} for sg in segs]
+    res = S.assign_speakers(plain, turns, offset)
     recs = {str(sg.get("id")): {"speaker": "L%d" % sp if sp is not None else "", "mixed": bool(mixed), "weak": bool(weak)}
             for sg, (sp, mixed, weak) in zip(segs, res)}
+    sm_ids, before = set(), None
+    if smooth:
+        r_off, _ = human_rows(doc, recs, since_ms, until_ms, include_draft, conf)
+        before = row_ok(r_off, best_mapping(r_off))
+        ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+        ts = sorted((a + offset, b + offset, s) for a, b, s in turns)
+        sm = S.ed_speakers.smooth_speakers(plain, res, ts, [S.ed_speakers.diar_keep_row(sg, ids) for sg in segs])
+        recs = dict(recs)
+        for i, lb in sm.items():
+            rid = str(segs[i].get("id"))
+            recs[rid] = dict(recs[rid], speaker="L%d" % lb, weak=True)
+            sm_ids.add(rid)
     rows, cnt = human_rows(doc, recs, since_ms, until_ms, include_draft, conf)
     overlaps = S._turn_overlaps(sorted((a + offset, b + offset, s) for a, b, s in turns))
-    return rows, cnt, len({sp for sp, _, _ in res if sp is not None}), overlap_rows(doc, recs, overlaps, since_ms, until_ms, whole)
+    return rows, cnt, len({sp for sp, _, _ in res if sp is not None}), overlap_rows(doc, recs, overlaps, since_ms, until_ms, whole), sm_ids, before
 
 
 def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None,
-                 threshold=None, num_=None, emb=None, min_on=None, min_off=None, log=print):
-    """文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。文書・diar.json は書かない"""
+                 threshold=None, num_=None, emb=None, min_on=None, min_off=None, log=print, smooth=None):
+    """文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。文書・diar.json は書かない。smooth = [False, True] など(--smooth)"""
     root = locate(data_dir)   # load_serve より先に(load_serve が TRANSCRIBE_DATA_DIR を一時フォルダにするため)
     S = load_serve()
     tdir = os.path.join(root, "transcripts")
     since_ms = day_ms(since) if since else None
     until_ms = day_ms(until, end=True) if until else None
-    grid = run_grid(S, threshold, num_, emb, min_on, min_off)
+    grid = run_grid(S, threshold, num_, emb, min_on, min_off, smooth)
     real = S.backend_name() != "fake"
     if real:
         check_models(S, root, grid)
@@ -801,7 +909,8 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
         if missing:
             log("注意: 見つからない(か --no-eval で外した)文書: " + ", ".join(missing))
     agg = [{"key": setting_key(st), "settings": st, "counts": new_counts(), "len": {k: new_counts() for k, _ in LENGTHS},
-            "diffs": [], "diffLen": {k: [] for k, _ in LENGTHS}, "docsLen": {k: 0 for k, _ in LENGTHS}, "sec": 0.0, "docs": 0, "overlap": Overlap(), "errors": []}
+            "diffs": [], "diffLen": {k: [] for k, _ in LENGTHS}, "docsLen": {k: 0 for k, _ in LENGTHS}, "sec": 0.0, "docs": 0, "overlap": Overlap(), "errors": [],
+            "smooth": Smooth(st["smooth"])}
            for st in grid]
     skipped = {"noRows": 0, "noAudio": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
     totals = {"docs": 0, "evalDocs": 0, "reviewedDocs": 0, "audioSec": 0.0, "rows": 0, "drafts": 0, "machineDraft": 0, "unverified": 0, "noSub": 0}
@@ -838,11 +947,15 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
             lk = "short" if total < SHORT_SEC else "long"
             one = {"id": tid, "title": str(doc.get("title") or "")[:40], "sec": round(total, 1), "audio": where, "reviewed": bool(whole),
                    "humanSpeakers": len({r["human"] for r in pre}), "rows": len(pre), "bySetting": []}
+            cache = {}   # ならす/ならさないだけ違う設定は、同じ判別の結果を使う(判別は 1 回)
             for a in agg:
                 st = a["settings"]
+                base = setting_key(dict(st, smooth=False))
                 t0 = time.monotonic()
                 try:
-                    turns = diarize_once(S, job, wav, total, st)
+                    if base not in cache:
+                        cache[base] = diarize_once(S, job, wav, total, st)
+                    turns = cache[base]
                 except Exception as e:   # 1 つの設定で落ちても、ほかの設定・文書は続ける
                     msg = str(getattr(e, "message", "") or e)[:200]
                     log("   %s: 判別できませんでした: %s" % (a["key"], msg))
@@ -850,8 +963,9 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                     one["bySetting"].append({"key": a["key"], "error": msg})
                     continue
                 sec = time.monotonic() - t0
-                rows, _c, found, orows = score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole)
+                rows, _c, found, orows, sm_ids, before = score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, st["smooth"])
                 mapping = best_mapping(rows)
+                a["smooth"].add(rows, mapping, sm_ids, before)
                 c = new_counts()
                 add_counts(c, rows, mapping)
                 add_counts(a["counts"], rows, mapping)
@@ -895,7 +1009,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
     out = []
     for a in agg:
         r = dict(finish_counts(a["counts"]), key=a["key"], settings=a["settings"], docs=a["docs"], sec=round(a["sec"], 2), speakerCount=speaker_count(a["diffs"]),
-                 overlap=a["overlap"].result(), errors=a["errors"])
+                 overlap=a["overlap"].result(), errors=a["errors"], smooth=a["smooth"].result())
         r["byLength"] = {k: dict(finish_counts(a["len"][k]), docs=a["docsLen"][k], speakerCount=speaker_count(a["diffLen"][k])) for k, _ in LENGTHS}
         out.append(r)
     return {"meta": meta, "bySetting": out, "byDoc": by_doc}
@@ -926,6 +1040,10 @@ def print_run(res):
             p = o["byPredictor"]["mixed"]
             print("      重なり(mixed): 機械 %d 行・人 %d 行・当たり %d  適合率 %s  再現率 %s(行 %d)"
                   % (p["pred"], o["human"], p["tp"], pct(p["precision"]).strip(), pct(p["recall"]).strip(), o["rows"]))
+        sm = s.get("smooth") or {}
+        if sm.get("on"):
+            print("      ならした行 %d(うち人が確かめた行 %d: 合った %d・外れた %d・ならさないより 直った %d・壊れた %d)"
+                  % (sm["smoothedRows"], sm["smoothedChecked"], sm["smoothedCorrect"], sm["smoothedWrong"], sm["fixed"], sm["broke"]))
     docs = [d for d in res["byDoc"]]
     if docs and len(docs) <= 20:
         print("  [文書ごと]")
@@ -992,6 +1110,16 @@ def print_overlap(o, indent="  "):
               % (indent, label, p["pred"], p["tp"], p["fp"], p["fn"], pct(p["precision"]).strip(), pct(p["recall"]).strip()))
 
 
+def print_smooth(items, indent="  ", title="[話者の細切れをならす(--smooth)。人が確かめた行で比べる]"):
+    if not items:
+        return
+    print(indent + title)
+    for s in items:
+        print("%s  %-6s 行の正しさ %s(%d/%d)  ならした行 %d(うち人が確かめた行 %d: 合った %d・外れた %d%s)"
+              % (indent, s["key"], pct(s["rate"]).strip(), s["correct"], s["rows"], s["smoothedRows"], s["smoothedChecked"], s["smoothedCorrect"], s["smoothedWrong"],
+                 "・ならさないより 直った %d・壊れた %d" % (s["fixed"], s["broke"]) if s["on"] else ""))
+
+
 def print_report(res):
     m = res["meta"]
     rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
@@ -1012,6 +1140,7 @@ def print_report(res):
         print("  [話者の数(機械 − 人)]  文書 %d 件  ちょうど当たり %d(%s)  多すぎ %d・少なすぎ %d  平均 %s  分布 %s"
               % (c["docs"], c["exact"], pct(c["exactRate"]).strip(), c["over"], c["under"], c["meanDiff"], c["diff"]))
         print_overlap(res.get("overlap"))
+        print_smooth(res.get("smooth"), title="[話者の細切れをならす(--smooth。保存してある判別の記録から計算・判別し直さない)。人が確かめた行で比べる]")
         if res["byEngine"]:
             print("  [判別の回ごとの行の正しさ(最新と履歴の全部。設定の比較)]")
             for k, e in res["byEngine"].items():
@@ -1056,16 +1185,18 @@ def main(argv=None):
     g.add_argument("--emb", help="声の特徴のモデル(voxceleb・campplus・standard。作業データに無いモデルは使えない)")
     g.add_argument("--min-on", dest="min_on", help="声の区間の最短(秒。DIAR_MIN_ON)")
     g.add_argument("--min-off", dest="min_off", help="すき間の最短(秒。DIAR_MIN_OFF)")
+    p.add_argument("--smooth", help="話者の細切れをならす(S2)を比べる: off・on の「,」区切り(例 off,on)。stored は記録から計算・run は同じ判別の結果を両方で採点")
     args = p.parse_args(argv)
     only = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
     tune = {"threshold": args.threshold, "num_": args.num, "emb": args.emb, "min_on": args.min_on, "min_off": args.min_off}
+    smooth = parse_smooth(args.smooth)
     if args.mode == "stored":
         if any(v is not None for v in tune.values()):
             p.error("--threshold・--num・--emb・--min-on・--min-off は run のときだけ使えます")
-        res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only)
+        res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth)
         print_report(res)
     else:
-        res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, **tune)
+        res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)
         print_run(res)
     if args.json:
         print("\n保存: " + save(res, res["meta"]["dataDir"], "-run" if args.mode == "run" else ""))

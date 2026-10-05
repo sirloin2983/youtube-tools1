@@ -1487,7 +1487,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
-        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option><option value="draft">重なりの下書きだけ(空の行)</option></select>
+        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option><option value="draft">下書きだけ(重なり・抜けの空の行)</option></select>
         <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない。段5 5-6) -->
         <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
@@ -1568,12 +1568,14 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="1">1人(判別せず全部の行を1人に)</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
           <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
           <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
+        <label class="lag"><input type="checkbox" class="ui-switch" id="diarSmooth">短い 1 行だけ別の人になるのをならす(試験中)</label>
         <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります(「ゲーム音声など」の行・字幕に出さない行・「声が重なる」のメモを付けた話者のある行は変えません)。判別中は編集できません。</span></div>
-      <!-- 重なりの所に空の行を置く(2026-10-05。app-jobs.js の ovd*。候補は GET api/overlap-drafts = 判別の記録から。押したときだけ置く) -->
-      <div class="fld tt-ovd" id="ovdBox"><span class="l">重なりの所に空の行を置く</span>
+      <!-- 重なり・抜けの所に空の行を置く(2026-10-05。app-jobs.js の ovd*。候補は GET api/overlap-drafts = 判別の記録から。押したときだけ置く) -->
+      <div class="fld tt-ovd" id="ovdBox"><span class="l">重なり・抜けの所に空の行を置く</span>
         <p class="hint tt-ovd-count" id="ovdCount" aria-live="polite"></p>
-        <div class="row"><button type="button" class="btn small" id="ovdGo">空の行を置く</button><button type="button" class="btn small" id="ovdClear" hidden>空のままの下書きを消す</button></div>
-        <span class="hint">同時にしゃべっている所は、文字起こしが片方の声しか書きません。話者の判別で声が見つかったのに行の無い所に、時刻(分かれば話者も)を入れた空の行を置きます。聞いて文字を打ってください(打つと札「下書き(重なり)」が外れます)。空のままの行は字幕・カット・パックに出ません。</span></div>
+        <div class="row"><span class="lag keep">置く所</span><label class="lag"><input type="checkbox" id="ovdKOvl" checked>重なり</label><label class="lag"><input type="checkbox" id="ovdKMiss" checked>抜け</label>
+          <button type="button" class="btn small" id="ovdGo">空の行を置く</button><button type="button" class="btn small" id="ovdClear" hidden>空のままの下書きを消す</button></div>
+        <span class="hint">話者の判別で声が見つかったのに行の無い所に、時刻(分かれば話者も)を入れた空の行を置きます。「重なり」= 同時にしゃべっている所(文字起こしは片方の声しか書きません)・「抜け」= 声があるのに、どの話者の行も無い所(認識が落としたかもしれない所。重なりの所は除きます)。聞いて文字を打ってください(打つと札「下書き(重なり)」「下書き(抜け)」が外れます)。空のままの行は字幕・カット・パックに出ません。</span></div>
       <div class="fld"><span class="l">名前の変更・手動での割り当て</span>
         <div id="spList"></div>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>

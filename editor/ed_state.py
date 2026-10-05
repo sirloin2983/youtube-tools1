@@ -83,7 +83,8 @@ def no_sub_row(g):
 
 # 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。ed_speakers の ovdraft_)。決まった文字列のときだけ持つ。
 # "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
-ROW_DRAFT_KINDS = ("overlap",)
+# "missing" = 主の話者も含めて、声があるのにどの行も無い所(抜けの下書き。音のメモ overlap は付けない。決まりは overlap と同じ)
+ROW_DRAFT_KINDS = ("overlap", "missing")
 
 
 def blank_draft_row(g):

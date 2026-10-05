@@ -209,6 +209,7 @@ const REDO1 = { busy: false };
    drafts = 数えたときの空のままの下書きの数(保存のあとで変わったら数え直す)・busy = 保存・確認・置くの途中・seq = 古い応答を捨てる番号 */
 const OVD = { id: null, items: [], more: 0, reason: '', diarAt: null, err: '', drafts: 0, busy: false, seq: 0 };
 const OVD_KIND = 'overlap';   // 置いた行の印 draft の値(サーバーの ed_state.ROW_DRAFT_KINDS と同じ)
+const DRAFT_KINDS = ['overlap', 'missing'];   // 印 draft の値の全部(missing = 抜けの所に置いた空の行。ed_state.ROW_DRAFT_KINDS と同じ)
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 $('#voiceList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=vdel]'); if (!b) return;
@@ -249,6 +250,8 @@ $('#voiceLearn').addEventListener('click', async () => {
 $('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); loadOvd(); } });
 $('#ovdGo').addEventListener('click', () => ovdPlace());
 $('#ovdClear').addEventListener('click', () => ovdClear());
+['#ovdKOvl', '#ovdKMiss'].forEach(k => $(k).addEventListener('change', () => { renderOvd(); loadOvd(); }));   // 置く所(重なり・抜け)を選び直したら数え直す
+$('#diarSmooth').addEventListener('change', e => diarSmoothSave(e.target.checked));
 $('#diarEmb').addEventListener('change', () => { if ($('#spDetails').open) loadVoices(); });
 try { $('#diarRecog').checked = localStorage.getItem('tx.voiceRecog') !== '0'; } catch {}
 $('#diarRecog').addEventListener('change', () => { try { localStorage.setItem('tx.voiceRecog', $('#diarRecog').checked ? '1' : '0'); } catch {} });

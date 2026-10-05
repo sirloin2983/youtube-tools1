@@ -319,10 +319,10 @@ async function markReviewed(via){
   if (S.doc.evalSet !== true){ toast('評価用の文字起こしではありません(確かめ済みの印は、評価用の文字起こしだけに付けます)', 5000, 'err'); return false; }
   if (lockJob()){ toast('この文字起こしは処理中です。終わってから、もう一度押してください', 5000); return false; }
   const id = S.docId, ids = new Set((S.doc.speakers || []).map(s => s.id));
-  const drafts = blankDrafts().length;   // 重なりの所に置いた空の行が打たれずに残っている = その所はまだ聞いていない(残したまま「全部聞いた」にしない)
+  const drafts = blankDrafts().length;   // 重なり・抜けの所に置いた空の行が打たれずに残っている = その所はまだ聞いていない(残したまま「全部聞いた」にしない)
   if (drafts){
     if (!(await UIKit.dialog.confirm({ title: '空のままの下書きがあります', ok: '消して済みにする',
-      body: `空のままの下書き(重なりの所に置いた空の行)が ${drafts} 行あります。消して済みにしますか(聞いて打つなら「キャンセル」。消した行は元に戻すで戻せます)` }))) return false;
+      body: `空のままの下書き(重なり・抜けの所に置いた空の行)が ${drafts} 行あります。消して済みにしますか(聞いて打つなら「キャンセル」。消した行は元に戻すで戻せます)` }))) return false;
     if (S.docId !== id) return false;
     removeBlankDrafts();
   }

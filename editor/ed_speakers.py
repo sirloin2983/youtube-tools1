@@ -292,6 +292,61 @@ def assign_speakers(segs, turns, offset):
     return out
 
 
+# ---------- 話者の細切れをならす(S2。2026-10-05。試験中・既定オフ = 設定 diarSmooth・判別の要求の smooth) ----------
+# 1 人の話の途中の短い 1 行だけが別の人になり、字幕の色が 1 行だけ変わる(判別の短い区間の揺れ)。行の話者を決めるときだけ、前後と同じ人にする。
+# 判別の生の結果(turns・overlaps)は変えない(空の行の下書きが読むため)。記録は diar.json の rows[行 id] に smoothed: true(label は機械の元のラベルのまま)。
+# ならす条件(全部): その行が短い(DIAR_SMOOTH_SHORT 未満)・前後の行が同じラベルで、その行だけ違う・前後とのすき間が DIAR_SMOOTH_GAP 以下・
+#   根拠が弱い(自分のラベルの区間に入っている割合 ratio が DIAR_SMOOTH_RATIO 未満。最寄りの区間で代用した行は 0)・その行に別の話者の区間の重なり(overlaps)が無い。
+# 根拠の弱さに「不確か」(weak)の印そのものは使わない: weak は 0.8 秒未満の行を全部含むので、短い本物の相づち(その人の区間にしっかり入っている)までならしてしまう。
+# 前後に数えない行 = 守る行(diar_keep_row = 字幕に出さない・ゲーム音声など・重なりのメモつき・空の下書き)と文字の無い行(どちらも、ならさない)。
+# 連続する短い行が 2 行(以上)別の人のときはならさない(まず 1 行だけ。2 行続けば本物の受け答えのことが多い)。ならした行も「話者が不確か」の印を残す(人が見られるように)
+DIAR_SMOOTH_SHORT = 1.2   # これより短い行だけ(秒)
+DIAR_SMOOTH_GAP = 0.6     # 前後の行とのすき間がこれ以下(秒)
+DIAR_SMOOTH_RATIO = 0.6   # 自分のラベルの区間に入っている割合がこれ未満なら根拠が弱い
+DIAR_SMOOTH_OVL = 0.1     # 行と overlaps の重なりがこれ以上(秒)なら、同時にしゃべっているのでならさない
+
+
+def label_ratio(a, b, label, ts):
+    """行 [a, b] のうち、ラベル label の区間(ts = [(開始, 終了, ラベル)])に入っている割合(0〜1)。label が None なら 0"""
+    if label is None:
+        return 0.0
+    cover = sum(max(0.0, min(b, y) - max(a, x)) for x, y, s in ts if s == label and x < b and y > a)
+    return min(1.0, cover / max(1e-6, b - a))
+
+
+def smooth_labels(rows, overlaps):
+    """ならす行を決める(純粋な関数)。rows = [{"start", "end", "label": 機械のラベル or None, "ratio", "skip": 前後に数えない・ならさない}](文書の行の順)・
+    overlaps = [(開始, 終了)](別の話者の区間が重なる所)。-> {行の番号: 前後のラベル}"""
+    order = sorted((i for i, r in enumerate(rows) if not r.get("skip")), key=lambda i: (rows[i]["start"], rows[i]["end"]))
+    out = {}
+    for k in range(1, len(order) - 1):
+        p, i, n = rows[order[k - 1]], rows[order[k]], rows[order[k + 1]]
+        lb, nb = i.get("label"), p.get("label")
+        if lb is None or nb is None or nb != n.get("label") or lb == nb:
+            continue
+        a, b = i["start"], i["end"]
+        if b - a >= DIAR_SMOOTH_SHORT or a - p["end"] > DIAR_SMOOTH_GAP or n["start"] - b > DIAR_SMOOTH_GAP:
+            continue
+        if (i.get("ratio") or 0.0) >= DIAR_SMOOTH_RATIO:
+            continue
+        if sum(max(0.0, min(b, y) - max(a, x)) for x, y in overlaps if x < b and y > a) >= DIAR_SMOOTH_OVL:
+            continue
+        out[order[k]] = nb
+    return out
+
+
+def smooth_speakers(segs, res, ts, keep):
+    """判別のあとの行(segs)と assign_speakers の結果(res)から、ならす行 -> {行の番号: ラベル}。ts = [(開始, 終了, ラベル)](元の動画の秒)・keep = 守る行の印"""
+    rows = [{"start": sg["start"], "end": sg["end"], "label": sp, "ratio": label_ratio(sg["start"], sg["end"], sp, ts),
+             "skip": bool(k) or not str(sg.get("text") or "").strip()} for sg, (sp, _, _), k in zip(segs, res, keep)]
+    return smooth_labels(rows, [tuple(x) for x in _turn_overlaps(ts)])
+
+
+def diar_smooth_setting():
+    """設定 diarSmooth(既定オフ)"""
+    return ed_learn.load_settings().get("diarSmooth") is True
+
+
 # ---------- 判別の記録(transcripts/<id>.diar.json。Q2。docs/plan/master-plan-2026-10.md) ----------
 # 機械の最初の結果を残す(行の speaker・名前は人が直すので、あとから「機械はこう割り当てた」を比べられるように)。判別・声の照合のたびに書き、
 # し直したら前の回は同じファイルの history に残す(最新を含めて DIAR_KEEP 回まで。付き物を1つのファイルにして、削除・付け替えの扱いを1か所で済ませるため)。
@@ -368,20 +423,24 @@ def _turn_overlaps(ts):
     return [[round(a, 2), round(b, 2)] for a, b in merged[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
 
 
-def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None):
+def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, smoothed=None):
     """判別の1回分の記録。時刻は元動画の秒(行と同じ)。rows[行の id] = {"label": 機械が割り当てたラベル, "speaker": 付けた話者の id,
     "ratio": その行のうち、そのラベルの区間に入っている割合, "mixed": 声が混ざっている印, "weak": 不確かの印}。
-    auto = 文字起こしのあとの自動の判別のとき {"eval": 評価用か, "contextName": 名前の候補 or None}(v0.50.0。人が始めた判別では書かない)"""
+    auto = 文字起こしのあとの自動の判別のとき {"eval": 評価用か, "contextName": 名前の候補 or None}(v0.50.0。人が始めた判別では書かない)。
+    smoothed = 細切れをならしたとき {行の番号: ならしたあとのラベル}(S2。None = ならしていない)。ならした行は "smoothed": true・"weak": true・
+    label は元のラベルのまま・speaker はならしたあと。ならした回は latest.smooth = {"on", "rows", "short", "gap", "ratio"}(ならしていない回は持たない)"""
     ts = sorted((a + offset, b + offset, s) for a, b, s in turns)
     rows = {}
-    for sg, (sp, mixed, weak) in zip(segs, res):
-        a, b = sg["start"], sg["end"]
-        cover = sum(max(0.0, min(b, y) - max(a, x)) for x, y, s in ts if s == sp and x < b and y > a) if sp is not None else 0.0
-        rows[str(sg.get("id"))] = {"label": sp, "speaker": idmap.get(sp, ""), "ratio": round(min(1.0, cover / max(1e-6, b - a)), 3), "mixed": bool(mixed), "weak": bool(weak)}
+    for i, (sg, (sp, mixed, weak)) in enumerate(zip(segs, res)):
+        one = {"label": sp, "speaker": idmap.get(sp, ""), "ratio": round(label_ratio(sg["start"], sg["end"], sp, ts), 3), "mixed": bool(mixed), "weak": bool(weak)}
+        if smoothed and i in smoothed:
+            one.update({"speaker": idmap.get(smoothed[i], ""), "smoothed": True, "weak": True})
+        rows[str(sg.get("id"))] = one
     return {"at": int(time.time() * 1000), "engine": _diar_engine(emb, requested), "offset": round(float(offset), 3),
             "turns": [{"start": round(a, 2), "end": round(b, 2), "label": s} for a, b, s in ts],
             "overlaps": _turn_overlaps(ts), "labelMap": {str(k): v for k, v in idmap.items()}, "speakers": len(idmap), "rows": rows,
-            "voices": {"checked": False}, **({"auto": auto} if auto else {})}
+            "voices": {"checked": False}, **({"auto": auto} if auto else {}),
+            **({"smooth": {"on": True, "rows": len(smoothed), "short": DIAR_SMOOTH_SHORT, "gap": DIAR_SMOOTH_GAP, "ratio": DIAR_SMOOTH_RATIO}} if smoothed is not None else {})}
 
 
 def _record_diar(tid, run):
@@ -391,12 +450,13 @@ def _record_diar(tid, run):
         ed_state.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
-def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=None):
+def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=None, smooth=False):
     """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
     読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。
-    auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)"""
+    auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)。
+    smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)"""
     with ed_store._save_lock:
-        return _apply_diarization(tid, turns, offset, requested, emb, auto)
+        return _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
 
 
 def diar_keep_row(g, ids):
@@ -434,12 +494,14 @@ def _diar_kept_speakers(doc, segs, keep, taken):
     return out, remap
 
 
-def _apply_diarization(tid, turns, offset, requested, emb, auto=None):
+def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = ed_store.read_transcript(tid)
     segs = doc.get("segments") or []
     ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
     keep = [diar_keep_row(g, ids) for g in segs]   # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
-    res = assign_speakers(segs, turns, offset)
+    raw = assign_speakers(segs, turns, offset)
+    smoothed = smooth_speakers(segs, raw, sorted((a + offset, b + offset, s) for a, b, s in turns), keep) if smooth else None
+    res = [(smoothed[i], r[1], True) if smoothed and i in smoothed else r for i, r in enumerate(raw)]   # ならした行は「不確か」の印を残す
     spent = {}
     for sg, (sp, _, _), k in zip(segs, res, keep):
         if sp is not None and not k:
@@ -471,9 +533,9 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None):
         pass
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
-                                    **({"auto": True} if auto else {}))})
+                                    **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}))})
     ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
-    _record_diar(tid, build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
+    _record_diar(tid, build_diar_run(segs, raw, turns, offset, requested, emb, idmap, auto, smoothed))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 
 
@@ -497,7 +559,8 @@ def validate_diarize(req):
         if s and not any(ord(ch) < 32 for ch in s) and s not in names and not DEFAULT_SPK_NAME.match(s):
             names.append(s)
     return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": "話者判別: " + (str(doc.get("title") or "") or "無題")[:100],
-            "recognize": req.get("recognize") is not False}   # A-3: 覚えている声と照らし合わせる(既定オン)
+            "recognize": req.get("recognize") is not False,   # A-3: 覚えている声と照らし合わせる(既定オン)
+            "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else diar_smooth_setting()}   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
 
 
 def single_speaker(tid, name):
@@ -580,7 +643,7 @@ def run_diarize(job):
         if job["cancel"]:
             raise ed_jobs.Cancelled()
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
-        job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto)
+        job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
                 job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
@@ -628,6 +691,12 @@ OVDRAFT_MIN = 0.5     # これより短い区間は出さない(短い相づち�
 OVDRAFT_MAX = 40      # 1 回に出す数(開始の順。超えた数は more)
 OVDRAFT_COVER = 0.5   # 区間のこの割合以上が書いてあれば出さない
 OVDRAFT_KIND = "overlap"   # 置いた行の印 draft の値(ed_state.ROW_DRAFT_KINDS の 1 つ)
+# 抜け(why "missing"。計画 第2版 E2 の前倒し): 主の話者も含めて、どのラベルの声の区間でも、書いてある所(文字のある行は話者によらず・空の下書き・字幕に出さない行・
+# ゲーム音声などの行)と、先に出した重なりの候補を除いた残り。区間の中のすき間(1 人の話の途中で認識が落とした所)も拾うため、区間ごとの「半分以上」ではなく、
+# 書いてある所を引いた残りの切れ端ごとに見る。違うラベルの切れ端が重なればつなぐ(話者は長い方)。置いた行の印は OVDRAFT_MISS_KIND(音のメモ overlap は付けない)
+OVDRAFT_MISS_MIN = 0.8     # 抜けの切れ端の最短(秒)。息・相づち・行の端の余りを出さない(本物のデータで 0.5・0.8・1.2 を数えて決めた。docs は WORKLOG)
+OVDRAFT_MISS_KIND = "missing"
+OVDRAFT_GROUPS = ("overlap", "missing")   # 画面で選べるまとまり: overlap = 重なり(why overlap・unassigned)・missing = 抜け
 OVDRAFT_REASONS = {
     "no_diar": "話者の判別の記録がありません(「話者を自動で判別」のあとで使えます)",
     "single": "1 人として付けた判別なので、声の区間の記録がありません(人数を「自動」か 2 人以上で判別すると使えます)",
@@ -689,12 +758,14 @@ def _ovdraft_cover_rows(segs, ids, speaker):
     return _ovdraft_union(spans)
 
 
-def ovdraft_candidates(doc, latest):
-    """文書(今の行・話者)と diar.json の latest から、空の行の候補。読むだけ。
-    -> {"items": [{start, end, speaker: 話者の id か "", label, why: "unassigned" | "overlap"}](開始の順・OVDRAFT_MAX まで),
-        "more": 超えた数, "reason": 出せない理由(文) か None, "reasonCode": no_diar | single | no_turns | None}"""
+def ovdraft_candidates(doc, latest, kinds=None):
+    """文書(今の行・話者)と diar.json の latest から、空の行の候補。読むだけ。kinds = 出すまとまり(OVDRAFT_GROUPS の部分。None は全部)。
+    -> {"items": [{start, end, speaker: 話者の id か "", label, why: "unassigned" | "overlap" | "missing", draft: 置く行の印}](開始の順・選んだまとまりで OVDRAFT_MAX まで),
+        "more": 超えた数, "counts": {"overlap": 重なり(why overlap・unassigned)の数, "missing": 抜けの数}(kinds によらず全部・上限の前),
+        "reason": 出せない理由(文) か None, "reasonCode": no_diar | single | no_turns | None}。
+    同じ所は二重に出さない(重なり overlap → unassigned → 抜け missing の順に決める)"""
     def empty(code):
-        return {"items": [], "more": 0, "reason": OVDRAFT_REASONS[code], "reasonCode": code}
+        return {"items": [], "more": 0, "counts": {g: 0 for g in OVDRAFT_GROUPS}, "reason": OVDRAFT_REASONS[code], "reasonCode": code}
     if not isinstance(latest, dict):
         return empty("no_diar")
     eng = latest.get("engine") if isinstance(latest.get("engine"), dict) else {}
@@ -754,18 +825,95 @@ def ovdraft_candidates(doc, latest):
         if b2 - a2 < OVDRAFT_MIN:
             continue
         items.append({"start": round(a2, 2), "end": round(b2, 2), "speaker": sp if sp in ids else "", "label": lb,
-                      "why": "unassigned" if sp is None else "overlap"})
-    items.sort(key=lambda x: (x["start"], x["end"]))
-    return {"items": items[:OVDRAFT_MAX], "more": max(0, len(items) - OVDRAFT_MAX), "reason": None, "reasonCode": None}
+                      "why": "unassigned" if sp is None else "overlap", "draft": OVDRAFT_KIND})
+    items += _ovdraft_missing(turns, lmap, ids, segs, items, lo, hi)
+    counts = {g: sum(1 for x in items if _ovdraft_group(x) == g) for g in OVDRAFT_GROUPS}
+    want = set(OVDRAFT_GROUPS if kinds is None else [k for k in kinds if k in OVDRAFT_GROUPS])
+    items = sorted((x for x in items if _ovdraft_group(x) in want), key=lambda x: (x["start"], x["end"]))
+    return {"items": items[:OVDRAFT_MAX], "more": max(0, len(items) - OVDRAFT_MAX), "counts": counts, "reason": None, "reasonCode": None}
 
 
-def ovdraft_for_doc(tid):
-    """GET /api/overlap-drafts?id= : 保存済みの文書と判別の記録で候補を数える(読むだけ)。文書が無ければ 404。
+def _ovdraft_group(x):
+    return "missing" if x.get("why") == "missing" else "overlap"
+
+
+def _ovdraft_cover_any(segs):
+    """抜けの覆い: 文字のある行(話者によらない)・機械の下書きのままの空の行・字幕に出さない行・ゲーム音声などの行"""
+    spans = []
+    for g in segs:
+        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        if a is None or b is None or b <= a:
+            continue
+        if (str(g.get("text") or "").strip() or ed_state.blank_draft_row(g) or ed_state.no_sub_row(g)
+                or str(g.get("speaker") or "") == ed_state.OTHER_SPK_ID):
+            spans.append((a, b))
+    return _ovdraft_union(spans)
+
+
+def _ovdraft_cut(a, b, union, ends=None):
+    """[a, b] から union(開始の順・重ならない)を引いた残り [(開始, 終了)]。ends = union の終わりの並び(渡せば二分探索で始める。長い文書でも重くしない)"""
+    out, cur = [], a
+    for k in range(bisect.bisect_right(ends, a) if ends is not None else 0, len(union)):
+        x, y = union[k]
+        if x >= b:
+            break
+        if y <= cur:
+            continue
+        if x > cur:
+            out.append((cur, x))
+        cur = max(cur, y)
+        if cur >= b:
+            break
+    if cur < b:
+        out.append((cur, b))
+    return out
+
+
+def _ovdraft_missing(turns, lmap, ids, segs, prior, lo, hi):
+    """抜けの候補(why missing)。turns = [(開始, 終了, ラベル)]・prior = 先に決めた重なりの候補(同じ所は二重に出さない)。
+    ラベルごとに区間をつなぎ(OVDRAFT_JOIN)、書いてある所と prior を引いた切れ端を、違うラベルどうしで重なればつないで、OVDRAFT_MISS_MIN 以上を出す"""
+    cover = _ovdraft_union(_ovdraft_cover_any(segs) + [(x["start"], x["end"]) for x in prior])
+    ends = [y for _, y in cover]
+    by_label = {}
+    for t in sorted(turns):
+        by_label.setdefault(str(t[2]), []).append(t)
+    pieces = []   # [(開始, 終了, ラベル)]
+    for ts in by_label.values():
+        joined = []   # 同じラベルの区間をすき間 OVDRAFT_JOIN 以下でつなぐ
+        for a, b, x in ts:
+            if joined and a - joined[-1][1] <= OVDRAFT_JOIN:
+                joined[-1][1] = max(joined[-1][1], b)
+            else:
+                joined.append([a, b, x])
+        for a, b, x in joined:
+            pieces += [(p, q, x) for p, q in _ovdraft_cut(max(a, lo), min(b, hi), cover, ends)]
+    groups = []   # [[開始, 終了, {ラベル: 秒}]]
+    for a, b, lb in sorted((p for p in pieces if p[1] > p[0]), key=lambda p: (p[0], p[1], str(p[2]))):
+        if groups and a < groups[-1][1]:
+            g = groups[-1]
+            g[1] = max(g[1], b)
+            g[2][lb] = g[2].get(lb, 0.0) + (b - a)
+        else:
+            groups.append([a, b, {lb: b - a}])
+    out = []
+    for a, b, secs in groups:
+        if b - a < OVDRAFT_MISS_MIN:
+            continue
+        best = max(secs, key=lambda k: (secs[k], str(k)))
+        sp = lmap.get(str(best))
+        out.append({"start": round(a, 2), "end": round(b, 2), "speaker": sp if sp in ids else "", "label": best, "why": "missing", "draft": OVDRAFT_MISS_KIND})
+    return out
+
+
+def ovdraft_for_doc(tid, kinds=None):
+    """GET /api/overlap-drafts?id=&kinds= : 保存済みの文書と判別の記録で候補を数える(読むだけ)。文書が無ければ 404。
+    kinds = 「,」区切りのまとまり(overlap・missing。無い・空なら全部。知らない名前は捨てる)。
     -> ovdraft_candidates の結果 + "diarAt"(判別の時刻。記録が無ければ None)"""
     doc = ed_store.read_transcript(tid)
     d = read_diar(tid)
     latest = d["latest"] if d else None
-    out = ovdraft_candidates(doc, latest)
+    ks = None if kinds is None or not str(kinds).strip() else [k.strip() for k in str(kinds)[:100].split(",")]
+    out = ovdraft_candidates(doc, latest, ks)
     out["diarAt"] = latest.get("at") if latest else None
     return out
 

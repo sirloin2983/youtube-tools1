@@ -204,12 +204,15 @@ function paintNoSub(row, s){
   const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
 }
 
-/* ---------- 重なりの所に置いた空の行(行の印 draft。2026-10-05。置く・消すは app-jobs.js の ovd*) ----------
-   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ed_state.ROW_DRAFT_KINDS)。文字を打ったら外す(clearDraftMark・保存の前にも)。
-   空のままの行は字幕・カット・パックに出ない(文字の無い行は今も数えない)・重なりの赤にしない */
-const DRAFT_PH = '聞いて打ってください(重なりの下書き。打つと札が外れます。要らなければ「削除」)';
-const DRAFT_TITLE = '話者の判別で声が見つかったのに行が無かった所に置いた空の行です。聞いて文字を打ってください。空のままなら字幕・カット・パックに出ません';
-function isBlankDraft(g){ return !!g && g.draft === OVD_KIND && !String(g.text || '').trim(); }
+/* ---------- 重なり・抜けの所に置いた空の行(行の印 draft。2026-10-05。置く・消すは app-jobs.js の ovd*) ----------
+   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ed_state.ROW_DRAFT_KINDS = DRAFT_KINDS。overlap = 重なり・missing = 抜け)。文字を打ったら外す(clearDraftMark・保存の前にも)。
+   空のままの行は字幕・カット・パックに出ない(文字の無い行は今も数えない)・重なりの赤にしない。決まりは種類によらず同じで、札と案内の文だけ変える */
+const DRAFT_NAME = { overlap: '重なり', missing: '抜け' };
+const draftName = g => DRAFT_NAME[g && g.draft] || DRAFT_NAME.overlap;
+const draftPh = g => `聞いて打ってください(${draftName(g)}の下書き。打つと札が外れます。要らなければ「削除」)`;
+const draftTitle = g => (g && g.draft === 'missing' ? '話者の判別で声が見つかったのに、どの行も無かった所に置いた空の行です(認識が落としたかもしれない所)。'
+  : '話者の判別で声が見つかったのに行が無かった所(声が重なっている所)に置いた空の行です。') + '聞いて文字を打ってください。空のままなら字幕・カット・パックに出ません';
+function isBlankDraft(g){ return !!g && DRAFT_KINDS.includes(g.draft) && !String(g.text || '').trim(); }
 function blankDrafts(){ return S.doc ? S.doc.segments.filter(isBlankDraft) : []; }
 
 /* 文字が入った下書きの印を外す(行の文字の入力から)。札・placeholder・重なりの赤・「空のままを消す」の数を合わせる */
@@ -284,10 +287,10 @@ function segHTML(s, i){
     <button type="button" class="play" data-act="play" title="${esc(titlePlay())}" aria-label="この行だけ再生">▶</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
-    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? DRAFT_PH : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
+    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? draftPh(s) : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
     <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
-    ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(DRAFT_TITLE)}">下書き(重なり)</span>` : ''}
+    ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(draftTitle(s))}">下書き(${draftName(s)})</span>` : ''}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
     <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>

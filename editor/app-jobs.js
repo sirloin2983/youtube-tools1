@@ -262,6 +262,15 @@ function renderDiarSetup(){
   box.innerHTML = !d.ready ? '<div class="notice">話者の自動判別には、追加の部品(sherpa-onnx)が必要です。フォルダ内の <code>install-diarize.bat</code>(Mac は <code>install-diarize.command</code>)を実行して、ツールを起動し直してください。</div>'
     : (!(d.segReady && e && e.ready) ? `<p class="hint" style="margin:0">初回だけ、判別用のモデルを自動でダウンロードします(合計 約${(d.segReady ? 0 : 6) + (e ? e.mb : 0)}MB)。</p>` : '');
   $('#diarGo').disabled = !d.ready;
+  $('#diarSmooth').checked = S.settings.diarSmooth === true;
+}
+
+/* 短い 1 行だけ別の人になるのをならす(設定 diarSmooth。試験中・既定オフ。送ったキーだけ直す api/settings/patch。判別の要求でも smooth として送る) */
+async function diarSmoothSave(on){
+  const old = S.settings.diarSmooth;
+  S.settings.diarSmooth = on;
+  try { await api('/api/settings/patch', { body: { values: { diarSmooth: on } } }); }
+  catch (e){ S.settings.diarSmooth = old; $('#diarSmooth').checked = old === true; toast('設定を保存できませんでした: ' + e.message, 6000, 'err'); }
 }
 
 /* 編集を止めるジョブ: 話者判別・再認識・疑わしい所の認識し直しと、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */
@@ -280,35 +289,43 @@ async function startDiarize(){
   if (!S.doc) return;
   await saveDoc();
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
-  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value, recognize: $('#diarRecog').checked } });
+  await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value, recognize: $('#diarRecog').checked, smooth: $('#diarSmooth').checked } });
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
 }
 
-/* ---------- 重なりの所に空の行を置く(2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 5-3 の C・6-2 の 1・2) ----------
+/* ---------- 重なり・抜けの所に空の行を置く(2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 5-3 の C・6-2 の 1・2。抜けは第2版 E2 の前倒し) ----------
    同時にしゃべっている所は、認識が片方しか書かない。話者判別の記録(diar.json)で声があったのに行の無い所を GET api/overlap-drafts で数え、
-   押したら時刻(と分かれば話者)を入れた空の行(印 draft・音のメモ「声が重なる」)を画面で足す。サーバーに行を作る API は無い
+   押したら時刻(と分かれば話者)を入れた空の行(印 draft・重なりは音のメモ「声が重なる」も)を画面で足す。サーバーに行を作る API は無い。
+   置く所は「重なり」(why overlap・unassigned)と「抜け」(why missing = 主の話者も含めて、どの行も無い所)をチェックで選ぶ(kinds。上限 40 は選んだ所で数える)
    (元に戻す 1 回で全部消える・保存はいつもの道)。自動では置かない。確かめ済みの評価用の文書には置かない(空の行が残ると「全部聞いた」と合わない)。
    状態は app.js の OVD。行の見た目・印の外し方は app-rows.js の isBlankDraft・clearDraftMark */
 
 /* 置けるか -> [押せるか, 理由(数の下に出す文・ボタンの title)] */
+function ovdKinds(){ return [['overlap', '#ovdKOvl'], ['missing', '#ovdKMiss']].filter(([, k]) => $(k).checked).map(([v]) => v); }
+const ovdSplit = items => { const m = items.filter(x => x.why === 'missing').length; return [items.length - m, m]; };   // -> [重なり, 抜け]
+
 function ovdState(){
   const d = S.doc;
   if (!d || !S.docId) return [false, ''];
+  if (!ovdKinds().length) return [false, '置く所(重なり・抜け)を 1 つ以上選んでください'];
   if (d.evalReviewed) return [false, '確かめ済みの動画には置けません(空の行が残ると「全部聞いて確かめた」と合わなくなるため)。置くときは、先に確かめ済みを取り消してください'];
   if (lockJob()) return [false, '処理中です(終わってから押してください)'];
   if (OVD.busy) return [false, '置いています…'];
   if (OVD.id !== S.docId) return [false, OVD.err || '数えています…'];
   if (OVD.reason) return [false, OVD.reason];
-  if (!OVD.items.length) return [false, '声があるのに行の無い所はありません(書いてある所・置いた空の行は数えません)'];
+  if (!OVD.items.length){
+    const c = OVD.counts || {}, other = (c.overlap || 0) + (c.missing || 0);
+    return [false, other ? `選んだ所には、声があるのに行の無い所はありません(重なり ${c.overlap || 0} か所・抜け ${c.missing || 0} か所)` : '声があるのに行の無い所はありません(書いてある所・置いた空の行は数えません)'];
+  }
   return [true, ''];
 }
 
 function renderOvd(){
   const box = $('#ovdBox'); if (!box) return;
   const [ok, why] = ovdState(), n = OVD.id === S.docId ? OVD.items.length : 0;
-  const un = OVD.items.filter(x => x.why === 'unassigned').length;
+  const un = OVD.items.filter(x => x.why === 'unassigned').length, c = OVD.counts || {};
   $('#ovdCount').textContent = ok
-    ? `声があるのに行の無い所: ${n} か所(話者の分かる所 ${n - un}・誰の声か分からない所 ${un})${OVD.more ? `。ほかに ${OVD.more} か所あります(置いたあとで、もう一度押すと続きを置けます)` : ''}`
+    ? `声があるのに行の無い所: 重なり ${c.overlap || 0} か所・抜け ${c.missing || 0} か所(選んだ所 ${n} か所のうち、誰の声か分からない所 ${un})${OVD.more ? `。ほかに ${OVD.more} か所あります(置いたあとで、もう一度押すと続きを置けます)` : ''}`
     : why;
   $('#ovdCount').classList.toggle('tt-ovd-none', !ok);
   const go = $('#ovdGo'); go.disabled = !ok; go.title = ok ? `${n} か所に、時刻(分かれば話者も)を入れた空の行を置きます。聞いて文字を打ってください` : why;
@@ -322,10 +339,10 @@ async function loadOvd(id = S.docId){
   const seq = ++OVD.seq;
   if (OVD.id !== id) OVD.err = '';   // 前の文書で数えられなかった知らせを、この文書に出さない
   let r;
-  try { r = await api('/api/overlap-drafts?id=' + encodeURIComponent(id)); }
+  try { r = await api('/api/overlap-drafts?id=' + encodeURIComponent(id) + '&kinds=' + encodeURIComponent(ovdKinds().join(',') || 'none')); }
   catch (e){ if (seq === OVD.seq && S.docId === id){ OVD.err = '数えられませんでした: ' + e.message; renderOvd(); } return null; }
   if (seq !== OVD.seq || S.docId !== id) return null;
-  Object.assign(OVD, { id, items: Array.isArray(r.items) ? r.items : [], more: Number(r.more) || 0, reason: r.reason || '', diarAt: r.diarAt || null, err: '', drafts: blankDrafts().length });
+  Object.assign(OVD, { id, items: Array.isArray(r.items) ? r.items : [], more: Number(r.more) || 0, counts: r.counts || {}, reason: r.reason || '', diarAt: r.diarAt || null, err: '', drafts: blankDrafts().length });
   renderOvd();
   return r;
 }
@@ -342,14 +359,15 @@ async function ovdPlace(){
     }
     const r = await loadOvd(id);   // 保存済みの文書で数え直す(今の行で数える = 2 回押しても増えない)
     if (!r || S.docId !== id) return;
-    const items = OVD.items.slice(), n = items.length;
-    if (!n) return toast(OVD.reason || '声があるのに行の無い所はありません', 5000);
+    const items = OVD.items.slice(), n = items.length, [no, nm] = ovdSplit(items);
+    if (!n) return toast(OVD.reason || ovdState()[1] || '声があるのに行の無い所はありません', 5000);
     if (!(await UIKit.dialog.confirm({ title: '空の行を置きますか', ok: '空の行を置く',
-      body: `${n} か所に空の行を置きます。文字はありません。聞いて打ってください(打つと札「下書き(重なり)」が外れます。置いた行は、元に戻す 1 回でまとめて消せます)` }))) return;
+      body: `${n} か所に空の行を置きます(重なり ${no} か所・抜け ${nm} か所)。文字はありません。聞いて打ってください(打つと札「下書き(重なり)」「下書き(抜け)」が外れます。置いた行は、元に戻す 1 回でまとめて消せます)` }))) return;
     if (S.docId !== id || lockJob() || S.doc.evalReviewed) return;
     const navId = navSnapshot();
     pushUndo();
-    const added = items.map(x => ({ id: uid(), start: r2(x.start), end: r2(x.end), text: '', speaker: x.speaker && spById(x.speaker) ? x.speaker : '', flag: '', tags: ['overlap'], draft: OVD_KIND }));
+    const added = items.map(x => { const miss = x.draft === 'missing';   // 抜けの行に音のメモ「声が重なる」は付けない
+      return { id: uid(), start: r2(x.start), end: r2(x.end), text: '', speaker: x.speaker && spById(x.speaker) ? x.speaker : '', flag: '', tags: miss ? [] : ['overlap'], draft: miss ? 'missing' : OVD_KIND }; });
     S.doc.segments.push(...added);
     sortSegs(); navRestore(navId, S.navIdx); renderDoc(); markDirty();
     const goFirst = () => {   // 知らせの「最初の行へ」: 絞り込みで隠れていれば解いてから
@@ -357,7 +375,7 @@ async function ovdPlace(){
       if (rowsEl()[i] && rowsEl()[i].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); }
       gotoRow(i, { center: true });
     };
-    toast(`${n} か所に空の行を置きました(札「下書き(重なり)」。絞り込みの「重なりの下書きだけ」で、その行だけを出せます)`, { ms: 8000, kind: 'ok', action: { label: '最初の行へ', fn: goFirst } });
+    toast(`${n} か所に空の行を置きました(重なり ${no}・抜け ${nm}。札「下書き(…)」。絞り込みの「下書きだけ」で、その行だけを出せます)`, { ms: 8000, kind: 'ok', action: { label: '最初の行へ', fn: goFirst } });
     if (await saveDoc() && S.docId === id) await loadOvd(id);
   } finally { OVD.busy = false; renderOvd(); }
 }
