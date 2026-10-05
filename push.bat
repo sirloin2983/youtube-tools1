@@ -50,8 +50,13 @@ echo.
 echo Connecting to GitHub...
 git fetch origin
 if errorlevel 1 goto nonet
-git rebase -q origin/main
+rem If GitHub has nothing new (origin/main is already inside HEAD) a plain push is a fast-forward: skip the rebase.
+rem A plain rebase flattens merge commits and replays already-resolved conflicts (seen 2026-10-05), so keep merges.
+git merge-base --is-ancestor origin/main HEAD
+if not errorlevel 1 goto dopush
+git rebase -q --rebase-merges origin/main
 if errorlevel 1 goto conflict
+:dopush
 git push
 if errorlevel 1 goto pushfail
 echo.

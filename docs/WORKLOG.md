@@ -3312,3 +3312,9 @@
 - 未完了・次: 6 以降は条件待ち(計画の 2)。YouTube の字幕・話者のならしの既定は、校正がたまってから `eval_alt --source yt`・`eval_speakers --smooth off,on` で決める
 - ユーザーがやること: 入口を「すべて終了」→ start.bat で起動し直す(編集 0.56.0)
 - 未コミット: なし
+
+## 2026-10-05 Claude Code — push.bat: 送る前の rebase で競合する不具合を直した
+- 症状: GitHub に新しいコミットが無いのに、push.bat の `git rebase origin/main` が、今日の作業ツリーのマージ(`Merge branch 'worktree-agent-…'`)で解決済みの場所を再適用して競合(app-rows.js・serve.py・test_metrics.py)。rebase は自動で取り消され、コミットは無事だった
+- 直し(`push.bat` だけ。ASCII のまま): `git merge-base --is-ancestor origin/main HEAD` が真なら rebase を飛ばして push(fast-forward)。GitHub が先に進んでいるときは `git rebase --rebase-merges` でマージを残す
+- 未確認: GitHub が先行している場合の `--rebase-merges` は実際には流していない
+- 未コミット: なし
