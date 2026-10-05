@@ -11,7 +11,8 @@
               / "rows"(文字起こしの残す行 + 前後の余白。行と行の間のすき間は残さない = 文字起こしツールの kept_spans と同じ)
   drops(削る): 時刻リストの削る区間・字幕の行(--drop-lines)・文字起こしの「カット済」の行(残す行と重なる部分は残す)・無音
   残す区間 = base − drops → 近い区間をつなぐ(join_gap)→ 短い区間を捨てる(min_len)
-字幕: SRT があればそれ、無ければ文字起こしの残す行(カット済でない・文字のある行)。時刻はカット後に直す。
+字幕: SRT があればそれ、無ければ文字起こしの残す行(カット済でない・文字のある行。「字幕に出さない」noSub の行は除く)。時刻はカット後に直す。
+      Text+ のパックでは、時刻の重なる字幕を段(上のトラック + 縦の位置)に分ける(resolve_textplus.stack_captions)。
 """
 import copy
 import dataclasses
@@ -124,6 +125,9 @@ class Plan:
     transcript: Optional[dict] = None
     cutplan: Optional[dict] = None
     speaker_spans: Optional[list] = None   # [(開始秒, 終了秒, 話者の名前)](元の動画の時刻。字幕が文字起こしのときだけ。A-2: 話者ごとの字幕の色)
+    cue_names: Optional[list] = None       # 字幕(cues)ごとの話者の名前("" = 話者なし)。字幕が文字起こしのときだけ
+    cue_src: Optional[list] = None         # カット後の字幕(cues_out)ごとの元の字幕(cues)の番号(remap_cues の with_src)
+    no_sub_rows: int = 0                   # 字幕に出さなかった行(残す行のうち noSub の行)の数。字幕が文字起こしのときだけ数える
 
 
 class Cache:
@@ -323,7 +327,7 @@ def plan_cut(req, task=None, cache=None, log=None):
         warns.append(f"文字起こしの {tr['bad']} 行は時刻が正しくないため使いませんでした。")
     cp = AC.read_cut_plan(req.plan) if req.plan else None
 
-    cues, sub_source = None, None
+    cues, sub_source, cue_names, no_sub = None, None, None, 0
     if req.sub:
         cues = S.parse_subs(S.read_sub_file(Path(req.sub)))
         if not cues:
@@ -332,9 +336,14 @@ def plan_cut(req, task=None, cache=None, log=None):
         if tr:
             warns.append("字幕は SRT のほうを使いました(文字起こしはカットの判断にだけ使います)。")
     elif tr:
+        # 字幕 = 残す行のうち「字幕に出さない」(noSub)でない行。noSub の行の時間は、下の残す区間ではそのまま数える
         cues = C.transcript_cues(tr["rows"]) or None
+        cue_names = [r["speaker"] for r in tr["rows"] if C.row_has_caption(r)] if cues else None
+        no_sub = sum(1 for r in tr["rows"] if C.row_is_kept(r) and r["noSub"])
         sub_source = "transcript" if cues else None
-        if not cues:
+        if not cues and no_sub:
+            warns.append(f"文字起こしの残す行がすべて「字幕に出さない」行({no_sub} 行)のため、字幕は付けません。")
+        elif not cues:
             warns.append("文字起こしに残す行が無いため、字幕は付けません。")
 
     # ---- 土台(残す区間の候補)
@@ -435,24 +444,31 @@ def plan_cut(req, task=None, cache=None, log=None):
         warns.append(f"残す区間が {len(keeps)} か所あり、EDL の番号が 3 桁(999)を超えます。Resolve で読めない可能性があります"
                      "(無音の長さを長くする・近い区間をつなぐ、で減らせます)。")
 
-    cues_out, vanished = (None, 0)
+    cues_out, vanished, cue_src = (None, 0, None)
     if cues:
-        cues_out, vanished = C.remap_cues(cues, keeps, fps)
+        cues_out, vanished, cue_src = C.remap_cues(cues, keeps, fps, with_src=True)
     doc = AC.plan_from_keeps(keeps, meta, selected_records, C.sec_to_frames(handles, fps))
+    from_tr = bool(tr and sub_source == "transcript")
     return Plan(req=req, video=video, meta=meta, keeps=keeps, base=base, selected=selected, drops=drops,
                 cues=cues, cues_out=cues_out, vanished=vanished, sub_source=sub_source,
                 src_start=src_start, src_desc=src_desc, handles=handles, warnings=warns, doc=doc,
                 transcript=tr, cutplan=cp,
-                speaker_spans=[(r["start"], r["end"], r["speaker"]) for r in tr["rows"] if C.row_is_kept(r) and r.get("speaker")]
-                if tr and sub_source == "transcript" else None)
+                speaker_spans=[(r["start"], r["end"], r["speaker"]) for r in tr["rows"] if C.row_has_caption(r) and r.get("speaker")]
+                if from_tr else None,
+                cue_names=cue_names if from_tr else None, cue_src=cue_src, no_sub_rows=no_sub)
 
 
 def cue_speakers(plan):
-    """カット後の字幕(plan.cues_out)ごとの話者の名前。字幕の真ん中を元の動画の時刻に戻し、その時刻の文字起こしの行の話者。
+    """カット後の字幕(plan.cues_out)ごとの話者の名前。字幕を作った文字起こしの行の話者(cue_names・cue_src)。
+    それが無い計画(以前の作り方)は、字幕の真ん中を元の動画の時刻に戻し、その時刻の文字起こしの行の話者
+    (時刻が重なる行では別の人の行に当たることがあるので、行から直接たどる方が正しい)。
     話者の区間が無ければ None(字幕の並びと同じ長さの list。話者の無い字幕は None)"""
     spans = plan.speaker_spans or []
     if not plan.cues_out or not spans:
         return None
+    names, src = getattr(plan, "cue_names", None), getattr(plan, "cue_src", None)
+    if names is not None and src is not None and len(src) == len(plan.cues_out):
+        return [(names[i] or None) if 0 <= i < len(names) else None for i in src]
     fps = plan.meta["fps"]
     rec, r = [], 0
     for ks, ke in plan.keeps:
@@ -468,6 +484,27 @@ def cue_speakers(plan):
         sec = (ks + (min((start + end) / 2.0, b) - a)) * fps[1] / fps[0]
         out.append(next((n for s, e, n in spans if s <= sec < e), None))
     return out
+
+
+def cue_order(plan, names=None):
+    """同時に始まる字幕を段に入れる順(resolve_textplus.stack_captions の order): 話者の並び順(文字起こしの speakers の順)。
+    話者の無い字幕・並びに無い話者は後ろ。話者が分からなければ None(入力の順)。names: cue_speakers(plan)(渡せば作り直さない)"""
+    names = cue_speakers(plan) if names is None else names
+    tr = getattr(plan, "transcript", None)
+    order = (tr.get("speakerOrder") or []) if isinstance(tr, dict) else []
+    if not names or not order:
+        return None
+    rank = {n: i for i, n in enumerate(order)}
+    return [rank.get(n, len(order)) for n in names]
+
+
+def caption_layout(plan):
+    """カット後の字幕の段(Text+ のパックと同じ規則 = resolve_textplus.stack_captions)。字幕が無ければ None。
+    -> {"count": 段の数, "stacked": 2 段目より上の字幕の数, "trimmed": 切った字幕の数}(見積もり・CLI の表示用)"""
+    if not plan.cues_out:
+        return None
+    st = TP.stack_captions(plan.cues_out, plan.meta["fps"], cue_order(plan))
+    return {"count": st["count"], "stacked": st["stacked"], "trimmed": st["trimmed"]}
 
 
 def describe(plan):
@@ -488,6 +525,11 @@ def describe(plan):
     if plan.cues is not None:
         src = "" if plan.sub_source == "srt" else "(文字起こしから)"
         out.append(f"字幕{src}: {len(plan.cues)}件 -> カット後 {len(plan.cues_out)}件(カットで消えた字幕 {plan.vanished}件)")
+        lay = caption_layout(plan)
+        if lay and (lay["count"] > 1 or lay["trimmed"]):   # 重なる字幕があるときだけ(Text+ のパックでの置き方)
+            out.append(f"重なる字幕(Text+): {lay['count']} 段・上の段へ分けた字幕 {lay['stacked']}件・終わりを切った字幕 {lay['trimmed']}件")
+    if plan.no_sub_rows:
+        out.append(f"字幕に出さない行: {plan.no_sub_rows}行(時間は残します)")
     out += ["注意: " + w for w in plan.warnings]
     return out
 
@@ -720,14 +762,16 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             staged.pop(0)
         if textplus:
             # 字幕ごとの色は、余白つき素材に置き換える前の計画(元の動画の時刻 = 文字起こしの時刻)で決める。字幕の並びは置き換えても同じ
-            names = cue_speakers(plan) if (speaker_colors or speaker_outlines) else None
+            # 重なる字幕の段(TP.stack_captions)は字幕の並びを変えないので、色・ふちは字幕の並びのまま合う。同時に始まる字幕は話者の並び順(cue_order)
+            names = cue_speakers(plan)
             fills = [TP.hex_rgba(speaker_colors.get(n)) if n and speaker_colors.get(n) else None for n in names] if names and speaker_colors else None
             outlines = [TP.hex_rgba(speaker_outlines.get(n)) if n and speaker_outlines.get(n) else None for n in names] if names and speaker_outlines else None
+            order = cue_order(plan, names)
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
             files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap,
                                         color=textplus_color, fills=fills, outlines=outlines, style=textplus_style,
-                                        video_tracks=video_tracks))
+                                        video_tracks=video_tracks, order=order))
     finally:
         for tmp, _, _ in staged:
             try:
@@ -738,7 +782,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
         files["video"] = paths["video"]
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
     # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
-    readme = TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style, video_tracks) if textplus else files["readme_text"]
+    readme = (TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style, video_tracks, order) if textplus
+              else files["readme_text"])
     return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings, "editMedia": m["edit"],
             "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud}
 
@@ -763,6 +808,7 @@ def summary(plan, limit=5000):
     if plan.transcript:
         rows = [[C.sec_to_frames(r["start"], fps), C.sec_to_frames(r["end"], fps), bool(r["cut"]), bool(C.row_is_kept(r))]
                 for r in plan.transcript["rows"][:limit]]
+    lay = caption_layout(plan) or {"count": 0, "stacked": 0, "trimmed": 0}
     return {
         "fps": list(fps), "fpsValue": fps[0] / fps[1], "total": total, "durationSec": _sec(total, fps),
         "keeps": [list(x) for x in plan.keeps], "removed": [list(x) for x in removed],
@@ -775,4 +821,7 @@ def summary(plan, limit=5000):
         "srcStart": plan.src_start, "srcStartDesc": plan.src_desc, "recStart": plan.req.rec_start,
         "subtitles": subs, "transcriptRows": rows, "warnings": plan.warnings,
         "text": "\n".join(describe(plan)),
+        # Text+ のパックでの字幕の段(重なる字幕。resolve_textplus.stack_captions): 段の数(字幕が無ければ 0)・上の段へ分けた字幕の数・終わりを切った字幕の数
+        "captionLanes": lay["count"], "captionsStacked": lay["stacked"], "captionsTrimmed": lay["trimmed"],
+        "noSubRows": plan.no_sub_rows,   # 字幕に出さなかった行(noSub)の数。時間は残す区間に数えてある
     }

@@ -346,7 +346,7 @@ function focusSpeakerNames(){
   const d = $('#spDetails'); if (!d || !S.doc) return;
   d.hidden = false; d.open = true;
   const i = S.doc.speakers.findIndex(s => !String(s.name || '').trim() || /^話者\d+$/.test(String(s.name)) || s.name === s.id);
-  const inp = $('#spList').querySelectorAll('.sp-row input[type=text]')[Math.max(0, i)];
+  const inp = $('#spList').querySelectorAll('.sp-row input.tt-sp-name')[Math.max(0, i)];   // 名前の欄(字幕の色の欄も type=text なので名前で選ぶ)
   if (inp){ inp.scrollIntoView({ block: 'center' }); inp.focus(); inp.select(); }
 }
 
@@ -402,22 +402,23 @@ function wrapText(text, n){
   return lines.join('\n');
 }
 
-function exportRows(){
+/* sub = 字幕の形(SRT・VTT)。字幕に出さない行(noSub)は入れない(テキスト・JSON には入れる = 読み物・データとしては残す) */
+function exportRows(sub){
   const d = S.doc, only = $('#exSel').checked;
   const base = $('#exBase').value === 'rel' && !d.whole ? d.start : 0;
   const wrap = Number($('#exWrap').value) || 0, spk = $('#exSpk').checked;
   const rows = [];
   for (const s of d.segments){
     if (only && !S.sel.has(s.id)) continue;
-    if (!s.text.trim() || s.end - base <= 0) continue;
+    if (!s.text.trim() || s.end - base <= 0 || (sub && s.noSub)) continue;
     const sp = spById(s.speaker);
-    rows.push({ start: Math.max(0, s.start - base), end: s.end - base, text: wrapText(s.text.trim(), wrap), name: spk && sp ? sp.name : '' });
+    rows.push({ start: Math.max(0, s.start - base), end: s.end - base, text: wrapText(s.text.trim(), wrap), name: spk && sp ? sp.name : '', noSub: !!s.noSub });
   }
   return rows;
 }
 
 function buildExport(kind){
-  const rows = exportRows(), d = S.doc;
+  const rows = exportRows(kind === 'srt' || kind === 'vtt'), d = S.doc;
   if (!rows.length) return null;
   if (kind === 'srt') return rows.map((r, i) => `${i + 1}\n${tcode(r.start, ',')} --> ${tcode(r.end, ',')}\n${r.name ? '[' + r.name + '] ' : ''}${r.text}\n`).join('\n');
   if (kind === 'vtt'){
@@ -428,7 +429,7 @@ function buildExport(kind){
     const ts = $('#exTs').checked;
     return rows.map(r => `${ts ? '[' + fmtT(r.start) + '] ' : ''}${r.name ? r.name + ': ' : ''}${r.text.replace(/\n/g, '')}`).join('\n') + '\n';
   }
-  return JSON.stringify({ title: d.title, source: d.sourceName, start: d.start, end: d.end, speakers: d.speakers, segments: rows.map(r => ({ start: r.start, end: r.end, speaker: r.name, text: r.text.replace(/\n/g, '') })) }, null, 1);
+  return JSON.stringify({ title: d.title, source: d.sourceName, start: d.start, end: d.end, speakers: d.speakers, segments: rows.map(r => ({ start: r.start, end: r.end, speaker: r.name, text: r.text.replace(/\n/g, ''), ...(r.noSub ? { noSub: true } : {}) })) }, null, 1);
 }
 
 /* ---------- 左パネルのイベント ---------- */

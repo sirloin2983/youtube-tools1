@@ -44,17 +44,55 @@ def tx_path(tid):
     return os.path.join(ed_state.TX_DIR, tid + ".json")
 
 
+# ---------- 話者ごとの字幕の見た目 sub(2026-10-05。docs/plan/sender-streamer-color-plan.md の 6) ----------
+# 色を単独の値で持たず「字幕の見た目」のまとまりの 1 項目にする(あとでフォント・大きさなどを足しても形を変えない)。
+# 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
+_SUB_HEX_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
+
+
+def _sub_color(v):
+    """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None"""
+    m = _SUB_HEX_RE.fullmatch(v.strip()) if isinstance(v, str) else None
+    return "#" + m.group(1).upper() if m else None
+
+
+SUB_STYLE_KEYS = {"color": _sub_color}   # 鍵 → 検査(値を返す・だめなら None)。足すときはここに 1 行
+
+
+def sanitize_sub_style(v):
+    """話者の sub(字幕の見た目)を検査する -> 正しい鍵だけの dict。1 つも無ければ None(sub ごと持たない)"""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    for k, check in SUB_STYLE_KEYS.items():
+        if k in v:
+            x = check(v[k])
+            if x is not None:
+                out[k] = x
+    return out or None
+
+
 def sanitize_transcript(obj, base=None):
     """クライアントから来た編集内容を検査して、保存できる形にする。"""
     speakers, seen = [], set()
-    for s in (obj.get("speakers") or [])[:20]:
+    for s in (obj.get("speakers") or [])[:21]:   # 20 人 + 組み込みの「ゲーム音声など」
         if not isinstance(s, dict):
             continue
         sid = re.sub(r"[^\w-]", "", str(s.get("id", "")))[:12]
         if not sid or sid in seen:
             continue
+        if sid == ed_state.OTHER_SPK_ID:   # 組み込みの話者: 名前・色・印は決まった値(画面から名前を変えさせない)。字幕の見た目は持たない(字幕に出さない話者)
+            seen.add(sid)
+            speakers.append({"id": sid, "name": ed_state.OTHER_SPK_NAME, "color": ed_state.OTHER_SPK_COLOR, "builtin": ed_state.OTHER_SPK_BUILTIN})
+            continue
+        if sum(1 for x in speakers if x.get("id") != ed_state.OTHER_SPK_ID) >= 20:
+            continue
         seen.add(sid)
-        speakers.append({"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]})
+        one = {"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]}
+        st = sanitize_sub_style(s.get("sub"))   # 字幕の見た目(今は文字の色だけ。画面の行の色 color とは別)
+        if st:
+            one["sub"] = st
+        speakers.append(one)
     segs, ids = [], set()
     now = int(time.time() * 1000)
     base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
@@ -90,6 +128,8 @@ def sanitize_transcript(obj, base=None):
                 one["proofedAt"] = at
         if sg.get("cutState") == "cut":
             one["cutState"] = "cut"
+        if sg.get("noSub") is True:   # 字幕に出さない(ゲームの声など。真のときだけ持つ)。機械の出力 original は変えない
+            one["noSub"] = True
         segs.append(one)
     out = dict(base or {})
     if "evalSet" in obj:   # 評価用の印(キーが来たときだけ変える。古い画面から保存しても外れないように)
@@ -851,6 +891,19 @@ def sanitize_pack_output(o):
                     return None
                 a[k] = t
         out["advanced"] = a
+    if "speakerStyles" in o:   # 話者ごとの字幕の見た目 {話者の名前: {"color": "#RRGGBB"}}(文書の話者の sub。2026-10-05)
+        ss = o["speakerStyles"]
+        if not isinstance(ss, dict) or len(ss) > 21:
+            return None
+        styles = {}
+        for name, st in ss.items():
+            nm = _pack_text(name, 60)
+            one = sanitize_sub_style(st)
+            if not nm or one is None:
+                return None
+            styles[nm] = one
+        if styles:
+            out["speakerStyles"] = styles
     return out
 
 

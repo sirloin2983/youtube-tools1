@@ -62,6 +62,25 @@ MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = 20000
 TAGS = ("unclear", "overlap", "bgm")   # 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
 MAX_TEXT = 2000
+# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 6)。
+# 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
+# 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
+OTHER_SPK_ID = "other"
+OTHER_SPK_NAME = "ゲーム音声など"
+OTHER_SPK_BUILTIN = "other"
+OTHER_SPK_COLOR = "#8a8f98"
+
+
+def other_speaker(sp):
+    """文書の話者が組み込みの「ゲーム音声など」か(id で決める。sanitize_transcript が id と印をそろえる)"""
+    return isinstance(sp, dict) and sp.get("id") == OTHER_SPK_ID
+
+
+def no_sub_row(g):
+    """行の印 noSub(字幕に出さない)。真のときだけ持つ。カットの「残す」には今までどおり数える"""
+    return isinstance(g, dict) and g.get("noSub") is True
+
+
 MAX_SPAN_SEC = 6 * 3600
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = re.compile(r"^[0-9a-f]{12}$")

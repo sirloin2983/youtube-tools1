@@ -1,8 +1,10 @@
 // 配色に合わせて自分で描く部品(2.0.0)。Windows 標準の灰色の部品をそのまま混ぜないために、ボタン・チェック・ラジオ・数の − / +・
 // 入力の枠・進み具合の棒・動画の一覧をここで作る。色は Theme.P、大きさは Ui.S。
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace RequestSender
@@ -416,6 +418,7 @@ namespace RequestSender
             int px = Ui.S(6);
             var tb = Inner as TextBox;
             if ((tb != null && tb.Multiline) || Inner is ListBox) Inner.SetBounds(px, Ui.S(4), Width - px * 2, Height - Ui.S(8));
+            else if (Inner is ThemedCombo) Inner.SetBounds(1, Math.Max(1, (Height - Inner.Height) / 2), Width - 2, Inner.Height);   // プルダウンは自分で枠の内側いっぱいに描く
             else Inner.SetBounds(px, Math.Max(1, (Height - Inner.Height) / 2), Width - px * 2, Inner.Height);
         }
 
@@ -423,6 +426,227 @@ namespace RequestSender
         {
             BorderColor = error ? Theme.P.Error : Inner != null && Inner.ContainsFocus ? Theme.P.Accent : (Color?)null;
             base.OnPaint(e);
+        }
+    }
+
+    // ---- 名前のプルダウン(ComboBox の DropDown = 一覧から選べる・一覧に無い名前も打てる。打つと候補が絞られる) ----
+    //   標準の灰色のボタンが暗い配色で浮かないよう、ボタンと枠は標準の描画のあとに配色の色で塗り直す(欄の中の文字は標準の入力欄のまま)。
+    //   一覧は自分で描く(選んだ行はアクセントを混ぜた地)。Field の中に置く
+    public class ThemedCombo : ComboBox, IThemed
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct COMBOBOXINFO
+        {
+            public int cbSize;
+            public RECT rcItem, rcButton;
+            public int stateButton;
+            public IntPtr hwndCombo, hwndItem, hwndList;
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool GetComboBoxInfo(IntPtr hwnd, ref COMBOBOXINFO info);
+
+        [DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
+
+        [DllImport("gdi32.dll")]
+        static extern IntPtr CreateSolidBrush(int colorref);
+
+        [DllImport("gdi32.dll")]
+        static extern bool DeleteObject(IntPtr obj);
+
+        [DllImport("gdi32.dll")]
+        static extern int SetTextColor(IntPtr hdc, int colorref);
+
+        [DllImport("gdi32.dll")]
+        static extern int SetBkColor(IntPtr hdc, int colorref);
+
+        const int WM_PAINT = 0x000F, WM_MOUSEWHEEL = 0x020A, WM_CTLCOLORSTATIC = 0x0138;
+        bool hover;
+        IntPtr disabledBrush;    // 使えないとき(送っている間)の入力の部分の地。標準の灰色にしない
+        Color disabledBrushColor;
+
+        public ThemedCombo()
+        {
+            DropDownStyle = ComboBoxStyle.DropDown;
+            FlatStyle = FlatStyle.Flat;
+            DrawMode = DrawMode.OwnerDrawFixed;
+            ItemHeight = Ui.S(22);
+            IntegralHeight = false;
+            MaxDropDownItems = 10;
+            Font = Theme.Body;
+            Margin = Padding.Empty;
+            AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            AutoCompleteSource = AutoCompleteSource.ListItems;
+            ApplyTheme();
+        }
+
+        // 一覧を入れる(一覧の幅は、いちばん長い名前に合わせる)
+        public void SetNames(IEnumerable<string> names)
+        {
+            Items.Clear();
+            int w = Ui.S(200);
+            foreach (string n in names)
+            {
+                Items.Add(n);
+                w = Math.Max(w, TextRenderer.MeasureText(n, Font, Size.Empty, TextFormatFlags.NoPrefix).Width + Ui.S(28));
+            }
+            DropDownWidth = w;
+        }
+
+        public void ApplyTheme()
+        {
+            BackColor = Theme.P.Bg;
+            ForeColor = Theme.P.Text;
+            Invalidate();
+        }
+
+        bool Info(out COMBOBOXINFO info)
+        {
+            info = new COMBOBOXINFO();
+            info.cbSize = Marshal.SizeOf(info);
+            try { return IsHandleCreated && GetComboBoxInfo(Handle, ref info); }
+            catch (Exception) { return false; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            // ホイールは、一覧を開いているとき以外は名前を変えず、まわり(右の欄のスクロール)へ渡す
+            if (m.Msg == WM_MOUSEWHEEL && !DroppedDown && Parent != null && Parent.IsHandleCreated)
+            {
+                SendMessage(Parent.Handle, m.Msg, m.WParam, m.LParam);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_CTLCOLORSTATIC)
+            {
+                var p = Theme.P;
+                if (disabledBrush == IntPtr.Zero || disabledBrushColor != p.Bg)
+                {
+                    if (disabledBrush != IntPtr.Zero) DeleteObject(disabledBrush);
+                    disabledBrush = CreateSolidBrush(ColorTranslator.ToWin32(p.Bg));
+                    disabledBrushColor = p.Bg;
+                }
+                SetTextColor(m.WParam, ColorTranslator.ToWin32(Theme.Mix(p.Muted, p.Bg, 0.45)));
+                SetBkColor(m.WParam, ColorTranslator.ToWin32(p.Bg));
+                m.Result = disabledBrush;
+                return;
+            }
+            base.WndProc(ref m);
+            if (m.Msg == WM_PAINT) Overpaint();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disabledBrush != IntPtr.Zero) { DeleteObject(disabledBrush); disabledBrush = IntPtr.Zero; }
+            base.Dispose(disposing);
+        }
+
+        // 欄の中(入力の部分)以外 = 枠・ボタンを、配色の色で塗り直す
+        void Overpaint()
+        {
+            COMBOBOXINFO info;
+            if (!Info(out info)) return;
+            try
+            {
+                var p = Theme.P;
+                var item = Rectangle.FromLTRB(info.rcItem.Left, info.rcItem.Top, info.rcItem.Right, info.rcItem.Bottom);
+                var btn = Rectangle.FromLTRB(info.rcButton.Left, info.rcButton.Top, info.rcButton.Right, info.rcButton.Bottom);
+                if (btn.Width <= 0) btn = new Rectangle(Width - SystemInformation.VerticalScrollBarWidth, 0, SystemInformation.VerticalScrollBarWidth, Height);
+                using (var g = Graphics.FromHwnd(Handle))
+                {
+                    g.SetClip(item, System.Drawing.Drawing2D.CombineMode.Exclude);
+                    using (var b = new SolidBrush(p.Bg)) g.FillRectangle(b, ClientRectangle);
+                    g.ResetClip();
+                    bool active = Enabled && (hover || DroppedDown || ContainsFocus);
+                    using (var pen = new Pen(Theme.Mix(p.Line, p.Bg, 0.4))) g.DrawLine(pen, btn.Left, 3, btn.Left, Height - 4);
+                    Color arrow = !Enabled ? Theme.Mix(p.Muted, p.Bg, 0.5) : active ? p.Accent : p.Muted;
+                    int cx = btn.Left + btn.Width / 2, cy = btn.Top + btn.Height / 2, hw = Ui.S(4);
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    using (var b = new SolidBrush(arrow))
+                        g.FillPolygon(b, new[] { new Point(cx - hw, cy - hw / 2), new Point(cx + hw, cy - hw / 2), new Point(cx, cy + hw - hw / 2) });
+                }
+            }
+            catch (Exception) { }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+        // 開いた一覧のスクロールバーも配色に合わせる(名前が多いので出る)
+        protected override void OnDropDown(EventArgs e)
+        {
+            base.OnDropDown(e);
+            COMBOBOXINFO info;
+            if (Info(out info)) Theme.DarkScroll(info.hwndList);
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            var p = Theme.P;
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            using (var b = new SolidBrush(sel ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+            if (e.Index < 0 || e.Index >= Items.Count) return;
+            TextRenderer.DrawText(e.Graphics, Convert.ToString(Items[e.Index]), Font, new Rectangle(e.Bounds.X + Ui.S(6), e.Bounds.Y, e.Bounds.Width - Ui.S(8), e.Bounds.Height), p.Text,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    // ---- 色の見本(小さな四角)と、その横の小さな注。色が 6 桁そろったときだけ塗る(空・途中は枠だけ) ----
+    public class ColorChip : Control, IThemed
+    {
+        Color? swatch;
+        string note = "";
+        bool noteAccent;
+
+        public ColorChip()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+            Font = Theme.Small;
+            Margin = Padding.Empty;
+        }
+
+        public Color? Swatch
+        {
+            get { return swatch; }
+            set { if (swatch != value) { swatch = value; Invalidate(); } }
+        }
+
+        // 注(例: メンバーカラー / 色なし)。accent = アクセントの色(メンバーカラーのとき)
+        public void SetNote(string text, bool accent)
+        {
+            text = text ?? "";
+            if (note == text && noteAccent == accent) return;
+            note = text;
+            noteAccent = accent;
+            Invalidate();
+        }
+
+        public string Note { get { return note; } }
+
+        public void ApplyTheme() { Invalidate(); }
+
+        public static int BoxSize { get { return Ui.S(18); } }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = Theme.P;
+            var g = e.Graphics;
+            using (var b = new SolidBrush(Parent != null ? Parent.BackColor : p.Bg)) g.FillRectangle(b, ClientRectangle);
+            int box = BoxSize, y = (Height - box) / 2;
+            var r = new Rectangle(0, y, box, box);
+            if (swatch.HasValue) using (var b = new SolidBrush(swatch.Value)) g.FillRectangle(b, r);
+            using (var pen = new Pen(swatch.HasValue ? p.Muted : p.Line)) g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
+            if (note.Length == 0) return;
+            int x = box + Ui.S(6);
+            TextRenderer.DrawText(g, note, Font, new Rectangle(x, 0, Math.Max(0, Width - x), Height), noteAccent ? p.Accent : p.Muted,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         }
     }
 
@@ -631,7 +855,13 @@ namespace RequestSender
                     int w = Math.Max(Ui.S(120), ClientSize.Width - Pad * 2), total = Pad;
                     foreach (var it in items)
                     {
-                        if (!it.Shown) continue;
+                        if (!it.Shown)
+                        {
+                            // 隠した文も、幅は欄に合わせておく(長いまま残ると、隠れていても横のスクロールバーが出る)
+                            var hl = it.C as Lbl;
+                            if (hl != null && it.Stretch) hl.Wrap(w);
+                            continue;
+                        }
                         var l = it.C as Lbl;
                         if (it.Stretch && l != null) l.Wrap(w);
                         else if (it.Stretch) it.C.Width = w;

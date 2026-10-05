@@ -986,19 +986,35 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .adj .rowops{gap:4px;flex-wrap:wrap}.adj .rowops button{padding:0 9px}
 .adj .rowops button.del{color:var(--danger)}
 .adj .rowops button.del:hover{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+/* 字幕に出さない行(noSub。ゲームの声など。2026-10-05): 薄く出して札を付ける(行は消さない・時刻も文字も直せる) */
+.seg.nosub textarea,.seg.nosub .times .t,.seg.nosub .spk{opacity:.5}
+.seg.nosub textarea:focus{opacity:.85}
+.seg .tt-nosub-pill{grid-column:5;justify-self:start}
+.seg:not(.nosub) .tt-nosub-pill{display:none}
+.adj button.tt-nosub-btn[aria-pressed=true]{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 45%,transparent);color:var(--info-ink);font-weight:600}
+/* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
+.tt-cap-line{display:block;color:var(--tt-cap-color,#000)}
+.tt-cap-line+.tt-cap-line{margin-top:.15em}
+/* 話者の欄の「字幕の色」(16 進 6 桁・# なし) */
+.tt-sp-sub{gap:3px}
+.tt-sp-sub input{width:5.6em;font-family:var(--mono);text-transform:uppercase;padding:3px 5px;min-height:28px}
+.tt-sp-sub input[aria-invalid=true]{border-color:var(--danger)}
+.tt-sp-subsw{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-strong);vertical-align:middle}
+.tt-sp-subsw[hidden]{display:none}
+.sp-row.tt-sp-other input[type=text]{color:var(--ink-3)}
 /* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
    (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
 @container (max-width:700px){
   #segs .seg{grid-template-columns:18px 30px auto minmax(0,1fr) auto}
   #segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0;max-width:170px}#segs .seg .ops{grid-column:5;grid-row:1}
-  #segs .seg textarea,#segs .seg .fl,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
+  #segs .seg textarea,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
   #segs .seg textarea{margin-top:-2px}
 }
 @container (max-width:520px){
   /* v0.15.0: とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
   #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
   #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
-  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl{order:2}
+  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill{order:2}
   #segs .seg .ops button{padding:0 10px;min-height:28px}
   #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
   #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
@@ -1546,7 +1562,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row"><label class="lag">人数 <select id="diarNum" style="width:auto"><option value="0">自動</option><option value="1">1人(判別せず全部の行を1人に)</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option><option value="5">5人</option><option value="6">6人</option><option value="7">7人</option><option value="8">8人</option></select></label>
           <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
           <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
-        <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります。判別中は編集できません。</span></div>
+        <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります(「ゲーム音声など」の行・字幕に出さない行・「声が重なる」のメモを付けた話者のある行は変えません)。判別中は編集できません。</span></div>
       <div class="fld"><span class="l">名前の変更・手動での割り当て</span>
         <div id="spList"></div>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
@@ -1598,6 +1614,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
           <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
         <div class="row tt-exbtns" style="margin-top:8px"><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
+        <p class="hint tt-nosub-count" id="exNoSub" hidden></p>
         <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
       <div class="fld" id="handoffBox"><span class="l">作業用フォルダに保存(次のツールへ渡す)</span>
         <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画のフォルダの「作業用」に「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button></div>
@@ -1709,6 +1726,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            </div>
            <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
            <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
+           <p class="hint tt-pk-p" id="pkNoSub" hidden></p>
            <p class="notice info tt-pk-pvstate" id="pkPvState" hidden role="status" aria-live="polite"><span></span><button type="button" class="btn small" id="pkPvRetry" hidden>もう一度</button></p>
            <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
            <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>

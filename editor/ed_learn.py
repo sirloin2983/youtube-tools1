@@ -206,13 +206,120 @@ def _prep(doc):
     return orig, segs
 
 
+# ---------- 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり) ----------
+# 行の印 noSub: true = 字幕に出さない(ゲームのキャラ・NPC の声など)。行は消えず、機械の出力 original も変わらない。
+# 学習・辞書・提案・保管の材料にはしない。精度の数え方では、人の行のうち noSub の行を正解に入れず、その時間に機械が書いた文字も本体から外して別に数える
+# (確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように)。計画: docs/plan/other-voice-and-overlap-plan.md の 2-1・6-2 の 5
+NOSUB_IN = 0.5        # 機械の行のうち、noSub の行の時間に入る長さの割合がこれ以上なら、noSub の時間の文字として本体から外す
+OVERLAP_SEC = 0.3     # 人の行どうしが違う話者でこれ(秒)以上時刻が重なる所を「重なりのまとまり」にする(認識の時刻のぶれ 0.1〜0.2 秒を数えないため。計画 2-2 と同じ値)
+OVERLAP_PERM = 3      # 重なりのまとまりの話者が、これ以下の人数なら並べ方を全部試す(それより多ければ開始時刻の順と話者ごとの 1 通り)
+
+
+def is_nosub(g):
+    return isinstance(g, dict) and g.get("noSub") is True
+
+
+def _nosub_span(segs):
+    """noSub の行の時間を、つなげた区間(開始の順)で返す"""
+    iv = sorted((g["start"], g["end"]) for g in segs if is_nosub(g) and ed_state.num(g.get("start")) is not None and ed_state.num(g.get("end")) is not None)
+    out = []
+    for a, b in iv:
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def split_nosub(orig, segs):
+    """(機械の行, 人の行) -> (本体の機械の行, 本体の人の行, noSub の時間の機械の行, noSub の人の行)。
+    noSub の人の行は本体から外す。機械の行は、半分以上(NOSUB_IN)が noSub の行の時間に入るものを外す。noSub の行が無ければ、渡した 2 つのリストをそのまま返す"""
+    ns = [g for g in segs if is_nosub(g)]
+    if not ns:
+        return orig, segs, [], []
+    span = _nosub_span(ns)
+    m_main, m_ns = [], []
+    for o in orig:
+        dur = o["end"] - o["start"]
+        inside = sum(max(0.0, min(o["end"], b) - max(o["start"], a)) for a, b in span)
+        if dur > 0 and inside / dur >= NOSUB_IN - 1e-9 or dur <= 0 and any(a <= o["start"] <= b for a, b in span):
+            m_ns.append(o)
+        else:
+            m_main.append(o)
+    return m_main, [g for g in segs if not is_nosub(g)], m_ns, ns
+
+
+def _prep_main(doc):
+    """_prep から noSub の行(とその時間の機械の行)を外したもの。学習・提案・保管・精度の測定の本体が読む"""
+    orig, segs = _prep(doc)
+    o, s, _no, _ns = split_nosub(orig, segs)
+    return o, s
+
+
+def nosub_stats(ns_orig, ns_segs):
+    """noSub の別集計 {rows, sec, machineChars}(行の数・その長さの合計(秒)・その時間に機械が書いた文字数(norm_cer 後))"""
+    return {"rows": len(ns_segs), "sec": round(sum(max(0.0, g["end"] - g["start"]) for g in ns_segs), 2),
+            "machineChars": sum(len(norm_cer(o.get("text", ""))) for o in ns_orig)}
+
+
+def _ov_sec(a, b):
+    return min(a["end"], b["end"]) - max(a["start"], b["start"])
+
+
+def is_overlap_group(segs, ge):
+    """人の行 segs の中の ge(1 まとまりの行の番号)に、違う話者(どちらも話者あり)で OVERLAP_SEC 秒以上時刻が重なる組があるか(noSub は先に外した行を渡す。
+    音のメモ overlap は見ない = 付け忘れに左右されない)。重なりのまとまりの判定はここだけ"""
+    rows = sorted((segs[i] for i in ge), key=lambda g: g["start"])
+    for i, a in enumerate(rows):
+        sa = a.get("speaker")
+        if not sa:
+            continue
+        for b in rows[i + 1:]:
+            if b["start"] >= a["end"]:
+                break
+            sb = b.get("speaker")
+            if sb and sb != sa and _ov_sec(a, b) >= OVERLAP_SEC - 1e-6:
+                return True
+    return False
+
+
+def overlap_orders(segs, ge):
+    """重なりのまとまりの人の行を、文字を並べる順番(行の文字列の組)で返す: 開始時刻の順(今までの数え方)と、話者ごとにまとめた順(話者の並びの入れ替え)。
+    機械の出力には話者が無く、同時発話は書く順番が決まらないため、いちばん小さい CER の並べ方を採る(計画 6-2 の 5)"""
+    rows = sorted((segs[i] for i in ge), key=lambda g: g["start"])
+    texts = [norm_cer(str(g.get("text", ""))) for g in rows]
+    spks = []
+    for g in rows:
+        k = g.get("speaker") or ""
+        if k not in spks:
+            spks.append(k)
+    orders = ["".join(texts)]
+    seqs = list(itertools.permutations(spks)) if len(spks) <= OVERLAP_PERM else [tuple(spks)]
+    for q in seqs:
+        t = "".join(texts[i] for k in q for i, g in enumerate(rows) if (g.get("speaker") or "") == k)
+        if t not in orders:
+            orders.append(t)
+    return orders
+
+
+def overlap_best_counts(segs, ge, hyp):
+    """重なりのまとまりの (置換, 脱落, 挿入)。hyp = 機械の文字(norm_cer 済み)。並べ方ごとの編集距離のうち小さい方(同じなら開始時刻の順)"""
+    best = None
+    for ref in overlap_orders(segs, ge):
+        c = lev_counts(ref, hyp)
+        if best is None or sum(c) < sum(best):
+            best = c
+    return best
+
+
 def _norm(items, idx):
     return re.sub(r"\s+", "", "".join(str(items[i].get("text", "")) for i in idx))
 
 
 def learn_events(doc):
-    """1件の文字起こしから、「機械の出力 → 人が直した文章」を (誤, 正, 前後1文字を足したか, 誤の直前2文字, 誤の直後2文字) で取り出す。"""
-    orig, segs = _prep(doc)
+    """1件の文字起こしから、「機械の出力 → 人が直した文章」を (誤, 正, 前後1文字を足したか, 誤の直前2文字, 誤の直後2文字) で取り出す。
+    noSub(字幕に出さない)の行とその時間の機械の行は材料にしない。"""
+    orig, segs = _prep_main(doc)
     if not orig or not segs:
         return []
     out = []
@@ -255,8 +362,9 @@ def learn_pairs(doc):
 
 def learn_groups(doc, scope="changed"):
     """人が直した行(まとまり)を [{start,end,original,text}] で返す(修正データの書き出し用)。
-    scope="proofed" のときは、直した行に限らず、校正済みの行すべてを返す(直していない行は changed=False。original が無い文字起こしは original="")。"""
-    orig, segs = _prep(doc)
+    scope="proofed" のときは、直した行に限らず、校正済みの行すべてを返す(直していない行は changed=False。original が無い文字起こしは original="")。
+    noSub(字幕に出さない)の行とその時間の機械の行は返さない(修正データの書き出しにも入らない)。"""
+    orig, segs = _prep_main(doc)
     out = []
     if scope == "proofed":
         if not segs:
@@ -304,7 +412,7 @@ def _doc_info(tid):
     elif d.get("original"):
         ev = learn_events(d)
         info = {"events": ev, "lines": len(learn_groups(d)),
-                "texts": [re.sub(r"\s+", "", str(g.get("text", ""))) for g in (d.get("segments") or []) if isinstance(g, dict)]}
+                "texts": [re.sub(r"\s+", "", str(g.get("text", ""))) for g in (d.get("segments") or []) if isinstance(g, dict) and not is_nosub(g)]}
     else:
         info = None   # v0.5 より前の文字起こしは、機械の出力が残っていないので学習できない
     _info_cache[tid] = (mt, info)
@@ -658,6 +766,11 @@ def acc_merge(a, b):
     for k in ("groups", "changed", "refChars", "sub", "del", "ins", "termRef", "termHit", "termExtra", "machineOnly", "machineOnlyChars"):
         a[k] += b[k]
     a["worst"] = sorted(a["worst"] + b["worst"], key=lambda x: -x["errs"])[:10]
+    if b.get("noSub"):
+        n = a.setdefault("noSub", {"rows": 0, "sec": 0.0, "machineChars": 0})
+        n["rows"] += b["noSub"]["rows"]
+        n["sec"] = round(n["sec"] + b["noSub"]["sec"], 2)
+        n["machineChars"] += b["noSub"]["machineChars"]
 
 
 def acc_finish(acc):
@@ -675,6 +788,9 @@ def doc_metrics(doc, legacy=False, terms=()):
     ③人だけにある まとまり(人が足した行=脱落の誤り。全行が校正済み)"""
     orig, segs = _prep(doc)
     if not orig or not segs:
+        return None
+    orig, segs, ns_orig, ns_segs = split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の文字は、本体の数え方から外して別に出す
+    if not segs:
         return None
     proofed = [g for g in segs if g.get("proofed")]
     basis = "proofed"
@@ -715,6 +831,8 @@ def doc_metrics(doc, legacy=False, terms=()):
     if not acc["groups"]:
         return None
     acc["basis"] = basis
+    if ns_segs:   # noSub の行がある文書だけ(無い文書は今までと同じ形)
+        acc["noSub"] = nosub_stats(ns_orig, ns_segs)
     return acc
 
 
@@ -910,8 +1028,10 @@ settings-snapshot.json … 保管した時点の用語集・置換辞書
   kind      line=機械の出力と対応する行 / deleted=機械が出したが人が消した行(負例) / added=人が足した行
   role      positive=正解として使える(校正済み・聞き取れないの印なし) / negative=消した行(校正した範囲の中。正解は空)
             / unclear=校正済みだが「聞き取れない」の印つき / unproofed=未校正(学習には使わない)
+            / nosub=字幕に出さない行(noSub。学習には使わない)
   text      人が確認した文章 / original=機械の出力(古い文字起こしは null) / start,end=元の動画の中の秒
   speaker,speakerName=話者(声が混ざる行は mixed) / tags=unclear(聞き取れない)・overlap(声が重なる)・bgm(BGMやゲーム音が大きい)
+  noSub     true=字幕に出さない行(ゲームのキャラ・NPC の声など。role は nosub。学習・評価の正解には使わない。音声も切り出さない。index.jsonl には入れない)
   split     train=学習に使える / eval=評価用(追加学習には使わない。精度を測るためだけに取ってある)
   changed=機械の出力から直したか / flag=自動の「要確認」の理由 / audio=このフォルダからの音声のパス(無ければ null)
   orig_start,orig_end=機械の出力の時刻(人が時刻を直した場合、start,end とずれます)
@@ -931,54 +1051,67 @@ def _join_text(items):
 
 
 def archive_entries(doc):
-    """文字起こし1件を、あとで使い回せる行の一覧にする(機械の出力と修正後を、時刻の重なりで対応づける)。"""
-    orig, segs = _prep(doc)
+    """文字起こし1件を、あとで使い回せる行の一覧にする(機械の出力と修正後を、時刻の重なりで対応づける)。
+    noSub(字幕に出さない)の行は、行ごと残し(落とすと「行が消えた」ように見え、あとで印を外したときに探せない)、role を "nosub"・印 noSub: true にして学習の材料から外す
+    (role が positive の行だけが学習・評価の正解になるので、既存の読み方は変わらない。音声も切り出さない。noSub の行が無い文書の出力は今までと同じ)。
+    noSub の時間に入る機械の行は、その noSub の行の original に入れる(人が消した行 = 負例にはしない)"""
+    orig_all, segs_all = _prep(doc)
+    orig, segs, ns_orig, ns_segs = split_nosub(orig_all, segs_all)
     proofed = [g for g in segs if g.get("proofed")]
     lo = min((g["start"] for g in proofed), default=None)
     hi = max((g["end"] for g in proofed), default=None)
-    have_orig = bool(orig)
-    groups = _groups(orig, segs) if have_orig else [([], [i]) for i in range(len(segs))]
+    have_orig = bool(orig_all)
     names = {s.get("id"): str(s.get("name") or s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    batches = [((_groups(orig, segs) if have_orig else [([], [i]) for i in range(len(segs))]), orig, segs, False)]
+    if ns_segs:
+        batches.append(((_groups(ns_orig, ns_segs) if have_orig else [([], [i]) for i in range(len(ns_segs))]), ns_orig, ns_segs, True))
     out, used = [], set()
-    for go, ge in groups:
-        e = {"doc": doc.get("id", ""), "source": doc.get("sourceName", ""), "model": doc.get("model", ""), "language": doc.get("language", "")}
-        if ge:
-            gs = [segs[i] for i in ge]
-            e["kind"] = "line" if go or not have_orig else "added"
-            a, b = min(g["start"] for g in gs), max(g["end"] for g in gs)
-            e.update({"start": round(a, 2), "end": round(b, 2), "text": _join_text(gs)})
-            spk = sorted({g.get("speaker") for g in gs if g.get("speaker")})
-            e["speaker"] = spk[0] if len(spk) == 1 else ("mixed" if spk else "")
-            e["speakerName"] = names.get(spk[0], "") if len(spk) == 1 else ("" if not spk else "mixed")
-            e["tags"] = [t for t in ed_state.TAGS if any(t in (g.get("tags") or []) for g in gs)]
-            e["flag"] = "、".join(dict.fromkeys(g["flag"] for g in gs if g.get("flag")))[:200]
-            e["proofed"] = all(g.get("proofed") for g in gs)
-            if go:
-                e["original"] = _join_text([orig[i] for i in go])
-                e["orig_start"], e["orig_end"] = round(min(orig[i]["start"] for i in go), 2), round(max(orig[i]["end"] for i in go), 2)
-                e["changed"] = norm_cer(e["text"]) != norm_cer(e["original"])
+    for groups, orig, segs, nosub in batches:
+        for go, ge in groups:
+            e = {"doc": doc.get("id", ""), "source": doc.get("sourceName", ""), "model": doc.get("model", ""), "language": doc.get("language", "")}
+            if ge:
+                gs = [segs[i] for i in ge]
+                e["kind"] = "line" if go or not have_orig else "added"
+                a, b = min(g["start"] for g in gs), max(g["end"] for g in gs)
+                e.update({"start": round(a, 2), "end": round(b, 2), "text": _join_text(gs)})
+                spk = sorted({g.get("speaker") for g in gs if g.get("speaker")})
+                e["speaker"] = spk[0] if len(spk) == 1 else ("mixed" if spk else "")
+                e["speakerName"] = names.get(spk[0], "") if len(spk) == 1 else ("" if not spk else "mixed")
+                e["tags"] = [t for t in ed_state.TAGS if any(t in (g.get("tags") or []) for g in gs)]
+                e["flag"] = "、".join(dict.fromkeys(g["flag"] for g in gs if g.get("flag")))[:200]
+                e["proofed"] = all(g.get("proofed") for g in gs)
+                if go:
+                    e["original"] = _join_text([orig[i] for i in go])
+                    e["orig_start"], e["orig_end"] = round(min(orig[i]["start"] for i in go), 2), round(max(orig[i]["end"] for i in go), 2)
+                    e["changed"] = norm_cer(e["text"]) != norm_cer(e["original"])
+                else:
+                    e["original"] = "" if have_orig else None
+                    e["changed"] = True if have_orig else None
+                if nosub:
+                    e["role"], e["noSub"] = "nosub", True
+                elif not e["proofed"] or not e["text"].strip():
+                    e["role"] = "unproofed"
+                else:
+                    e["role"] = "unclear" if "unclear" in e["tags"] else "positive"
+            elif nosub:
+                continue   # noSub の時間の機械の行だけ(人の行と対応しなかったもの)は、保管しない(負例にもしない)
             else:
-                e["original"] = "" if have_orig else None
-                e["changed"] = True if have_orig else None
-            if not e["proofed"] or not e["text"].strip():
-                e["role"] = "unproofed"
-            else:
-                e["role"] = "unclear" if "unclear" in e["tags"] else "positive"
-        else:
-            a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
-            inside = lo is not None and a >= lo - 0.05 and b <= hi + 0.05
-            e.update({"kind": "deleted", "start": round(a, 2), "end": round(b, 2), "text": "", "original": _join_text([orig[i] for i in go]),
-                      "orig_start": round(a, 2), "orig_end": round(b, 2), "speaker": "", "speakerName": "", "tags": [], "flag": "", "proofed": False,
-                      "changed": True, "role": "negative" if inside else "unproofed"})
-        base = "%07d%s" % (int(e["start"] * 100), e["kind"][0])
-        key, n = base, 1
-        while key in used:
-            n += 1
-            key = "%s%d" % (base, n)
-        used.add(key)
-        e["key"] = key
-        e["audioSig"] = "%.2f-%.2f" % (e["start"], e["end"])
-        out.append(e)
+                a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
+                inside = lo is not None and a >= lo - 0.05 and b <= hi + 0.05
+                e.update({"kind": "deleted", "start": round(a, 2), "end": round(b, 2), "text": "", "original": _join_text([orig[i] for i in go]),
+                          "orig_start": round(a, 2), "orig_end": round(b, 2), "speaker": "", "speakerName": "", "tags": [], "flag": "", "proofed": False,
+                          "changed": True, "role": "negative" if inside else "unproofed"})
+            base = "%07d%s" % (int(e["start"] * 100), e["kind"][0])
+            key, n = base, 1
+            while key in used:
+                n += 1
+                key = "%s%d" % (base, n)
+            used.add(key)
+            e["key"] = key
+            e["audioSig"] = "%.2f-%.2f" % (e["start"], e["end"])
+            out.append(e)
+    if ns_segs:
+        out.sort(key=lambda e: e["start"])   # noSub の行を本来の時刻の位置へ(安定。noSub が無い文書は並べ替えない)
     return out
 
 
@@ -1076,7 +1209,7 @@ def archive_doc(tid, full=True):
             sig[e["key"]] = e["audioSig"]
         e["audio"] = "docs/%s/audio/%s.flac" % (tid, e["key"]) if has else None
         e.pop("audioSig", None)
-        counts[e["role"]] += 1
+        counts[e["role"]] = counts.get(e["role"], 0) + 1   # nosub は noSub の行がある文書だけ増える
         if e["kind"] == "added":
             counts["added"] += 1
         d = e["end"] - e["start"]
@@ -1116,7 +1249,7 @@ def archive_rebuild_index():
         try:
             with open(os.path.join(dd, t, "lines.jsonl"), "r", encoding="utf-8") as f:
                 for ln in f:
-                    if ln.strip() and json.loads(ln).get("role") != "unproofed":
+                    if ln.strip() and json.loads(ln).get("role") not in ("unproofed", "nosub"):
                         rows.append(ln.strip())
         except (OSError, ValueError):
             continue

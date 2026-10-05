@@ -7,6 +7,13 @@ const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, job
   navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
   eff: { id: null, tx: 0, cut: 0, fresh: true } };   // eff = 文書ごとの校正の手間のまだ送っていない分(effortFlush。マスタープラン Q2)
 const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
+/* 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05)。サーバーの ed_state.OTHER_SPK_* と同じ値(変えるときは両方)。
+   話者の選択の候補に常に出し(話者なしの次・文書の話者より前)、選ぶと文書の speakers に 1 つだけ足す。名前は変えられない・声を覚えない・Alt+数字の番号に入らない。
+   この話者を付けた行は「字幕に出さない」(行の印 noSub)が自動でオン、別の話者へ変えるとオフ */
+const OTHER_SP = Object.freeze({ id: 'other', name: 'ゲーム音声など', builtin: 'other', color: '#8a8f98' });
+const isOtherSp = sp => !!sp && sp.id === OTHER_SP.id;
+/* 重なる行を映像の上の字幕に両方出す重なりの長さ(秒)。これより短い重なり(認識の時刻のぶれ)は今までどおり後の行に切り替わる */
+const CAP_OVERLAP_MIN = 0.3, CAP_MAX_STACK = 3;
 
 /* ---------- 共通 ---------- */
 window.addEventListener('error', e => showErr(e.message));
@@ -548,7 +555,7 @@ $('#segs').addEventListener('change', e => {
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   const f = e.target.dataset.f;
   if (e.target.classList.contains('sel')){ e.target.checked ? S.sel.add(s.id) : S.sel.delete(s.id); updateSel(); return; }
-  if (f === 'speaker'){ pushUndo(); s.speaker = e.target.value; setRowSp(row, spById(s.speaker)); markDirty(); }
+  if (f === 'speaker'){ pushUndo(); setSegSpeaker(s, e.target.value, row); markDirty(); renderSpeakers(); }
 });
 /* 行の時刻の欄(UIKit.timebox。分:秒.0.1秒)を直した: Enter か欄を離れたときに確定(ui-time-commit = 入力欄の change に当たる)。
    並びが変わらなければ、その行だけ直す(描き直さない = 開始を打って Tab で終了へ、と続けて打てる)。並びが変わるときだけ並べ直して描き直す */
@@ -586,6 +593,7 @@ $('#segs').addEventListener('click', e => {
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
     case 'setnow': setTimeNow(s, b.dataset.f); break;
     case 'proof': setProof(s, !s.proofed, row); markDirty(); updatePfStat(); break;
+    case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
     case 'tag': toggleTag(s, b.dataset.t, row); break;
     case 'unflag': s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon(); break;
     case 'sgok': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) acceptSug(s, x); break; }
@@ -600,6 +608,7 @@ $('#segs').addEventListener('click', e => {
         s.text = (s.text + sep + n.text).slice(0, 2000); s.end = Math.max(s.end, n.end); s.flag = [...new Set([s.flag, n.flag].join('、').split('、').filter(Boolean))].join('、');
         if (!(s.proofed && n.proofed)) delete s.proofed;
         if (!(s.cutState === 'cut' && n.cutState === 'cut')) delete s.cutState;
+        if (!(s.noSub && n.noSub)) delete s.noSub;   // 字幕に出さないのは、両方とも出さないときだけ(片方のセリフが字幕から消えないように)
         { const tg = Object.keys(TAG_LABEL).filter(k => (s.tags || []).includes(k) || (n.tags || []).includes(k)); if (tg.length) s.tags = tg; else delete s.tags; }
         S.sel.delete(n.id); segs.splice(i + 1, 1);
         navRestore(navId, i); }
@@ -621,6 +630,7 @@ const CTX_ITEMS = [
   ['addb', () => '＋前に行を足す'],
   ['adda', () => '＋後ろに行を足す'],
   ['merge', () => '次の行と結合'],
+  ['nosub', s => s.noSub ? '字幕に出す(印を外す)' : '字幕に出さない'],   // 2026-10-05。前からの項目の並び(↓ の回数)は変えない
   ['del', () => 'この行を削除']
 ];
 /* B-9(段1): 文字を打つ欄・時刻の欄の上は、普通の右クリックはブラウザ既定のメニュー(コピー・貼り付け)、Shift+右クリックで行のメニュー。
@@ -675,10 +685,9 @@ window.addEventListener('keydown', e => {
 $('#segs').addEventListener('keydown', e => {
   const dm = e.altKey && !e.ctrlKey && !e.metaKey && /^Digit([0-9])$/.exec(e.code);
   if (dm){   // Alt+1〜9: その行の話者を、話者の一覧の n 番目にする(Alt+0: 話者なし)。文字を打っている途中でも使える
-    const row = e.target.closest('.seg'), s = row && S.doc.segments[Number(row.dataset.i)], n = Number(dm[1]);
-    if (s && (n === 0 || S.doc.speakers[n - 1])){
-      e.preventDefault(); pushUndo(); s.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
-      row.querySelector('.spk').value = s.speaker; setRowSp(row, spById(s.speaker));
+    const row = e.target.closest('.seg'), s = row && S.doc.segments[Number(row.dataset.i)], n = Number(dm[1]), sps = numberedSpeakers();
+    if (s && (n === 0 || sps[n - 1])){   // 番号は組み込みの「ゲーム音声など」を除いた並び(今までの番号のまま)
+      e.preventDefault(); pushUndo(); setSegSpeaker(s, n === 0 ? '' : sps[n - 1].id, row);
       markDirty(); renderSpeakers(); return;
     }
   }
@@ -920,7 +929,7 @@ player().addEventListener('timeupdate', () => {
   /* 再生中はもちろん、止めたままシークしたときも timeupdate は来る。どちらでも字幕は再生位置(S.curIdx)へ切り替える
      (シークで curIndex が前と同じ行になったときは i === S.curIdx で下を素通りするので、ここで先に切り替えておく) */
   if (!capFollow){ capFollow = true; updateCaption(); }
-  const i = curIndex(t); if (i === S.curIdx) return;
+  const i = curIndex(t); if (i === S.curIdx){ updateCaption(); return; }   // 重なる行の字幕は、今の行が同じでも前の行が終われば消える(中身が同じなら描き直さない)
   const rows = rowsEl();
   rows[S.curIdx]?.classList.remove('cur'); S.curIdx = i;
   updateCaption();
@@ -1072,14 +1081,36 @@ $('#selAll').addEventListener('change', e => {
   document.querySelectorAll('#segs .sel').forEach(c => { c.checked = e.target.checked; }); updateSel();
 });
 $('#spAdd').addEventListener('click', () => {
-  if (S.doc.speakers.length >= 20) return toast('話者は20人までです');
-  let n = S.doc.speakers.length + 1; while (S.doc.speakers.some(s => s.id === 'S' + n)) n++;
-  pushUndo(); S.doc.speakers.push({ id: 'S' + n, name: '話者' + n, color: PALETTE[(n - 1) % PALETTE.length] });
+  const sps = numberedSpeakers();   // 組み込みの「ゲーム音声など」は 20 人にも番号にも数えない
+  if (sps.length >= 20) return toast('話者は20人までです');
+  let n = sps.length + 1; while (S.doc.speakers.some(s => s.id === 'S' + n)) n++;
+  pushUndo(); addSpeaker({ id: 'S' + n, name: '話者' + n, color: PALETTE[(n - 1) % PALETTE.length] });
   renderDoc(); markDirty();
 });
+/* 字幕の色の欄(16 進 6 桁・# なし): 打つ間は 16 進だけに寄せて見本を合わせ、確定(change)で保存する。空 = 指定なし(メンバーカラーなど今までどおり) */
+$('#spList').addEventListener('input', e => {
+  if (e.target.dataset.f !== 'sub') return;
+  const v = subHexInput(e.target.value); if (v !== e.target.value) e.target.value = v;
+  const sw = e.target.parentElement.querySelector('.tt-sp-subsw'); if (sw){ sw.hidden = v.length !== 6; if (v.length === 6) sw.style.background = '#' + v; }
+  e.target.removeAttribute('aria-invalid');
+});
+/* 字幕の色の確定: 欄を離れた・Enter(打つ間に値を寄せ直すので、ブラウザの change が来ないことがある = focusout でも確定する。同じ値なら何もしない) */
+function commitSubInput(inp){
+  const row = inp.closest('[data-i]');   // 字幕の色の段(.tt-sp-subrow)にも話者の番号 data-i がある
+  const sp = row && S.doc ? S.doc.speakers[Number(row.dataset.i)] : null; if (!sp || isOtherSp(sp)) return;
+  const v = subHexInput(inp.value);
+  if (v && v.length !== 6){ inp.setAttribute('aria-invalid', 'true'); return toast('字幕の色は 16 進 6 桁で入れてください(例: FF8FDF。空にすると指定なし)', 4000, 'err'); }
+  const cur = subColorOf(sp), next = v ? '#' + v : '';
+  if (cur === next) return;
+  pushUndo(); setSubColor(sp, next);
+  markDirty(); setTimeout(onSpeakerColors, 0);   // 行の線・映像の上の字幕・パックの見本・話者の欄を塗り直す(フォーカスが移ってから = 話者の欄を描き直せるように)
+}
+$('#spList').addEventListener('focusout', e => { if (e.target.dataset && e.target.dataset.f === 'sub') commitSubInput(e.target); });
+$('#spList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.f === 'sub'){ e.preventDefault(); e.target.blur(); } });
 $('#spList').addEventListener('change', e => {
+  if (e.target.dataset.f === 'sub') return commitSubInput(e.target);
   const row = e.target.closest('.sp-row'); if (!row) return;
-  const sp = S.doc.speakers[Number(row.dataset.i)]; if (!sp) return;
+  const sp = S.doc.speakers[Number(row.dataset.i)]; if (!sp || isOtherSp(sp)) return;
   if (e.target.type === 'color') sp.color = e.target.value; else sp.name = e.target.value.trim().slice(0, 30) || sp.id;
   if (e.target.type === 'text') e.target.blur();   // 確定したら描き直せるように(打っている間は renderSpeakers が描き直さない)
   renderDoc(); markDirty(); lookupSpeakerNames([sp.name]);
@@ -1092,14 +1123,14 @@ $('#spList').addEventListener('click', e => {
   const b = e.target.closest('[data-act="spdel"]'); if (!b) return;
   armDelete(b, () => {
     pushUndo(); const sp = S.doc.speakers.splice(Number(b.closest('.sp-row').dataset.i), 1)[0];
-    for (const s of S.doc.segments) if (s.speaker === sp.id) s.speaker = '';
+    for (const s of S.doc.segments) if (s.speaker === sp.id) setSegSpeaker(s, '');   // ゲーム音声などを消したら、その行の「字幕に出さない」も外れる
     renderDoc(); markDirty();
   });
 });
 $('#spApply').addEventListener('click', () => {
   if (!S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
   const id = $('#spBulk').value; pushUndo();
-  for (const s of S.doc.segments) if (S.sel.has(s.id)) s.speaker = id;
+  for (const s of S.doc.segments) if (S.sel.has(s.id)) setSegSpeaker(s, id);
   renderDoc(); markDirty(); toast(`${S.sel.size}行の話者を変更しました`);
 });
 /* 単語の途中には当てない置換(serve.py の _cc / _bounded / wb_split と同じ規則。「誤」を |語| と書くと有効) */
@@ -1257,7 +1288,7 @@ $('#btnTxInto').addEventListener('click', async () => {
    (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
 const c2rUrl = path => c2rBase() + String(path).replace(/^\/+/, '');
 /* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは変わらない。文字が空になった行は残らないので含める) */
-const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}`).join(';') : '';
+const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}${g.noSub ? ',n' : ''}`).join(';') : '';   // 字幕に出さない印が変わっても見積もりを出し直す
 /* 行やカットが変わったとき: 「まとめて ▾」の選んだ行のボタンと、3 パック のタブを描き直す(フレームごとに1回) */
 let cpQ = 0;
 $('#cutSelected').addEventListener('click', () => bulkCut(true));
@@ -1276,11 +1307,11 @@ if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.s
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

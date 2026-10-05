@@ -16,7 +16,8 @@
     文字を直した行 = 機械の行と人の行が両方あるまとまりで、空白を除いた文字が違う(まとまりの人の行の数。分けた・つないだだけで文字が同じなら入れない)
     人が足した行 = 人の行だけのまとまり / 人が消した行 = 機械の行だけのまとまり(機械の行の数)
     時刻を直した行 = original のどの行とも始まり・終わりが 0.05 秒以内で合わない行(eval_speakers.py の time_edited_flags と同じ考え方。足した行は「足した行」に数えるのでここには入れない)
-    話者を直した行 = <id>.diar.json の latest.rows[行 id].speaker と今の行の speaker が違う行(diar.json が無ければ分からない)
+    話者を直した行 = <id>.diar.json の latest.rows[行 id].speaker と今の行の speaker が違う行(diar.json が無ければ分からない。noSub の行(字幕に出さない。組み込みの「ゲーム音声など」)は
+                     人の判断で機械の話者判別の外れではないので数えない)。noSub の行は、人が印を付けた行として「直した行」に入れ、数を edits.noSub に別に出す
     直した行の割合 = (人が足した ∪ 文字を直した ∪ 時刻を直した ∪ 話者を直した 行の数 + 消した行) ÷ (文字のある行 + 消した行)。動画 1 分あたりの数も出す
   機械の CER = 終わった文書を、eval_asr.py と同じ採点(score_doc・total。機械の出力 original と人の最終 segments の文字の違い)で数えた値。--no-cer なら数えない
   (eval_asr の load_serve で editor の採点の関数だけを読む。0.2 秒ほど)
@@ -212,16 +213,22 @@ def edit_counts(doc, diar_rows):
             k += 1
         if not same:
             time_set.add(i)
+    ns_set = {i for i, g in enumerate(segs) if g.get("noSub") is True}   # 字幕に出さない行(人が印を付けた = 直した行に数える。話者の判別の誤りには数えない)
     spk_set = None
     if isinstance(diar_rows, dict):
         spk_set = set()
         for i, g in enumerate(segs):
+            if i in ns_set:
+                continue   # ゲーム音声などの話者・noSub は人の判断で、機械の話者判別の当たり外れではない
             rec = diar_rows.get(str(g.get("id")))
             if isinstance(rec, dict) and str(rec.get("speaker") or "") != str(g.get("speaker") or ""):
                 spk_set.add(i)
-    edited = added_set | text_set | time_set | (spk_set or set())
-    return {"textRows": len(segs), "text": len(text_set), "added": len(added_set), "deleted": deleted, "time": len(time_set),
-            "speaker": None if spk_set is None else len(spk_set), "edited": len(edited), "frac": rate(len(edited) + deleted, len(segs) + deleted)}
+    edited = added_set | text_set | time_set | (spk_set or set()) | ns_set
+    out = {"textRows": len(segs), "text": len(text_set), "added": len(added_set), "deleted": deleted, "time": len(time_set),
+           "speaker": None if spk_set is None else len(spk_set), "edited": len(edited), "frac": rate(len(edited) + deleted, len(segs) + deleted)}
+    if ns_set:   # noSub の行がある文書だけ(無い文書は今までと同じ形)
+        out["noSub"] = len(ns_set)
+    return out
 
 
 def first_run_label(doc):
@@ -305,6 +312,8 @@ def edit_summary(recs):
     sp = [r for r in known if r["edits"]["speaker"] is not None]
     tot["speaker"] = sum(r["edits"]["speaker"] for r in sp)
     tot["edited"] = sum(r["edits"]["edited"] for r in known)
+    if any(r["edits"].get("noSub") for r in known):   # noSub の行がある文書があるときだけ(無ければ今までと同じ形)
+        tot["noSub"] = sum(r["edits"].get("noSub", 0) for r in known)
     tot["textRows"] = sum(r["edits"]["textRows"] for r in known)
     minutes = sum(r["durationSec"] for r in known) / 60.0
     sp_min = sum(r["durationSec"] for r in sp) / 60.0
@@ -474,6 +483,8 @@ def print_report(res):
         if e["docs"]:
             t, p = e["totals"], e["perMin"]
             print("    " + "  ".join("%s %d(%s/分)" % (lb, t[k], "-" if p[k] is None else p[k]) for k, lb in EDIT_KEYS))
+            if t.get("noSub"):
+                print("    うち字幕に出さない(noSub)の行 %d(人が印を付けた行として直した行に入れた。話者を直した行には数えない)" % t["noSub"])
             print("    直した行 %d / 文字のある行 %d  動画 1 分あたり %s 行  直した行の割合(文書ごと) 中央値 %s  四分位 %s 〜 %s" % (
                 t["edited"], t["textRows"], e["perMinRows"], pct(e["frac"].get("median")), pct(e["frac"].get("p25")), pct(e["frac"].get("p75"))))
         c = res["cer"]

@@ -104,6 +104,15 @@ def main():
         tid_ovl3 = make(); set_segs(tid_ovl3, "丸め文書1", [{"id": "q0", "start": 45.6, "end": 47.35, "text": "前の前"}, {"id": "q1", "start": 47.35, "end": 48.94, "text": "時間ぐらい"}, {"id": "q2", "start": 49.04, "end": 50.0, "text": "あのー"}])   # 2026-10-04 の報告の形(最後の行が赤くなった)
         tid_ovl4 = make(); set_segs(tid_ovl4, "丸め文書2", [{"id": "u0", "start": 47.35, "end": 49.04, "text": "前"}, {"id": "u1", "start": 49.0, "end": 50.0, "text": "後"}])   # 0.1 秒に丸めると同じ時刻(0.01 秒だけ重なる)
         tid_ovl5 = make(); set_segs(tid_ovl5, "丸め文書3", [{"id": "k0", "start": 45.6, "end": 48.94, "text": "前"}, {"id": "k1", "start": 49.04, "end": 50.0, "text": "後"}])
+        two_sp = [{"id": "S1", "name": "ぺこら", "color": "#2f62d6"}, {"id": "S2", "name": "みこ", "color": "#d9534f"}]
+        tid_spk = make(); set_segs(tid_spk, "話者の重なり文書", [   # 2026-10-05: 重なりの赤は同じ話者どうし(か話者の無い行)だけ・重なる字幕は 2 段
+            {"id": "x0", "start": 0, "end": 3, "text": "A", "speaker": "S1"}, {"id": "x1", "start": 2, "end": 5, "text": "B", "speaker": "S2"},
+            {"id": "x2", "start": 6, "end": 9, "text": "C", "speaker": "S1"}, {"id": "x3", "start": 8.5, "end": 10, "text": "D", "speaker": "S1"},
+            {"id": "x4", "start": 11, "end": 13, "text": "E", "speaker": ""}, {"id": "x5", "start": 12, "end": 14, "text": "F", "speaker": "S2"},
+            {"id": "x6", "start": 15, "end": 18, "text": "G", "speaker": "S1"}, {"id": "x7", "start": 17.9, "end": 19, "text": "H", "speaker": "S2"}], two_sp)
+        tid_other = make(); set_segs(tid_other, "ゲーム音声文書", [   # 組み込みの話者「ゲーム音声など」と「字幕に出さない」
+            {"id": "y0", "start": 0, "end": 3, "text": "配信者", "speaker": "S1"}, {"id": "y1", "start": 2, "end": 5, "text": "NPC", "speaker": "S1"},
+            {"id": "y2", "start": 6, "end": 8, "text": "次", "speaker": "S1"}], two_sp)
         tid_setnow = make(); set_segs(tid_setnow, "再生位置反映文書", [{"id": "n0", "start": 0, "end": 2, "text": "一"}, {"id": "n1", "start": 5, "end": 7, "text": "二"}])
         tid_stage1 = make(); set_segs(tid_stage1, "画面幅テスト1", [{"id": "w0", "start": 0, "end": 2, "text": "一"}, {"id": "w1", "start": 2, "end": 4, "text": "二"}])
         tid_stage2 = make(); set_segs(tid_stage2, "画面幅テスト2", [{"id": "v0", "start": 0, "end": 2, "text": "一"}, {"id": "v1", "start": 2, "end": 4, "text": "二"}])
@@ -147,6 +156,15 @@ def main():
             def select_row(i):
                 pg.locator("#segs textarea").nth(i).click()
                 pg.keyboard.press("Escape")
+
+            def wait_js(pg, expr, timeout=5000):
+                """式が真になるまで待つ -> 真になったか(時間切れは False。check で FAIL と出す)"""
+                end = time.time() + timeout / 1000
+                while time.time() < end:
+                    if pg.evaluate(expr):
+                        return True
+                    time.sleep(0.05)
+                return False
 
             def wait_saved():
                 pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存しました')", timeout=8000)
@@ -497,6 +515,70 @@ def main():
             adj(0, "end", 1)
             check(segv()[0][1] == 49.04, "隣へ近づける向き(0.05 秒)で見える時刻が同じになったら、隣の 49.04 にそろう: %s" % (segv()[0],))
             pg.evaluate("V.adjStep = '0.1'")
+
+            # ==================== 17c) 重なりの赤は同じ話者どうしだけ・重なる字幕は 2 段・ゲーム音声など と 字幕に出さない(2026-10-05) ====================
+            open_doc("話者の重なり文書")
+            check(not has_ovl(0) and not has_ovl(1), "別の話者どうしの重なり(ぺこら 0-3・みこ 2-5)は赤くしない(同時にしゃべっている = 正しい入力)")
+            check(has_ovl(2) and has_ovl(3), "同じ話者どうしの重なりは今までどおり赤")
+            check(has_ovl(4) and has_ovl(5), "どちらかに話者が無い重なりも赤")
+            check("同じ話者" in (pg.locator("#segs .seg").nth(2).locator(".times").get_attribute("title") or ""), "赤い欄の説明は「同じ話者の行と…」")
+            cap_lines = "[...document.querySelectorAll('#playerCaption .tt-cap-line')].map(e => e.textContent)"
+            seek = lambda t: pg.evaluate("t => { const p = document.querySelector('#player'); p.pause(); p.currentTime = t; }", t)
+            seek(2.5)
+            check(wait_js(pg, "JSON.stringify(%s) === '[\"B\",\"A\"]'" % cap_lines, 5000),
+                  "0.3 秒以上重なる 2 行は映像の上の字幕に両方(上下に積む・開始が早い A が下): %s" % pg.evaluate(cap_lines))
+            seek(17.95)
+            check(wait_js(pg, "document.querySelector('#playerCaption').textContent === 'H' && !document.querySelector('#playerCaption .tt-cap-line')", 5000),
+                  "重なりが 0.3 秒未満(G 15-18・H 17.9-19)なら今までどおり後の行だけ: %s" % pg.evaluate("document.querySelector('#playerCaption').innerHTML"))
+            # 話者ごとの字幕の色(# なしの 6 桁。貼り付けた # は外す)。映像の上の字幕の色に最優先で効く
+            pg.evaluate("document.querySelector('#spDetails').open = true")
+            sub_in = pg.locator("#spList input[data-f=sub]").nth(1)
+            sub_in.fill("#ff8fdf")
+            check(sub_in.input_value() == "FF8FDF", "字幕の色の欄は 16 進だけ・大文字に寄せる(# は外す): %s" % sub_in.input_value())
+            sub_in.evaluate("e => e.blur()")
+            check(wait_js(pg, "S.doc.speakers[1].sub && S.doc.speakers[1].sub.color === '#FF8FDF'", 3000), "確定すると文書の話者の sub.color に入る")
+            seek(2.5)
+            check(wait_js(pg, "(() => { const s = document.querySelector('#playerCaption .tt-cap-line'); return !!s && s.textContent === 'B' && s.style.getPropertyValue('--tt-cap-color').toUpperCase() === '#FF8FDF'; })()", 5000),
+                  "みこの字幕(上の段)は指定の色")
+            wait_saved()
+            sv = call(port, "GET", "/api/transcript?id=" + tid_spk)
+            check(sv["speakers"][1].get("sub") == {"color": "#FF8FDF"}, "保存される: %s" % sv["speakers"][1])
+            sub_in = pg.locator("#spList input[data-f=sub]").nth(1)
+            sub_in.fill("")
+            sub_in.evaluate("e => e.blur()")
+            check(wait_js(pg, "!S.doc.speakers[1].sub", 3000), "空にすると指定なし(sub ごと持たない)")
+
+            open_doc("ゲーム音声文書")
+            check(has_ovl(0) and has_ovl(1), "前提: 同じ話者(ぺこら)の行どうしが重なっていて赤い")
+            sel1 = pg.locator("#segs .seg").nth(1).locator("select.spk")
+            check(pg.evaluate("[...document.querySelectorAll('#segs .seg')[1].querySelector('select.spk').options].map(o => o.textContent)") == ["話者なし", "ゲーム音声など", "ぺこら", "みこ"],
+                  "話者の候補に「ゲーム音声など」が常に出る(話者なしの次・文書の話者より前)")
+            sel1.select_option("other")
+            row1 = pg.locator("#segs .seg").nth(1)
+            check("nosub" in (row1.get_attribute("class") or "") and row1.locator(".tt-nosub-pill").is_visible(), "「ゲーム音声など」を選ぶと行が薄くなり、札「字幕に出さない」が出る")
+            check(row1.locator("[data-act=nosub]").get_attribute("aria-pressed") == "true", "行の「字幕に出さない」のボタンもオン")
+            check(pg.evaluate("S.doc.speakers.map(s => s.id)") == ["S1", "S2", "other"], "文書の話者に組み込みの話者が 1 つだけ入る(最後): %s" % pg.evaluate("S.doc.speakers.map(s => s.id)"))
+            check(not has_ovl(0) and not has_ovl(1), "字幕に出さない行との重なりは赤くしない")
+            seek(2.5)
+            check(wait_js(pg, "document.querySelector('#playerCaption').textContent === '配信者' && !document.querySelector('#playerCaption .tt-cap-line')", 5000),
+                  "字幕に出さない行は映像の上の字幕に出ない(重なっていても 1 段)")
+            check("1 行" in pg.text_content("#exNoSub") and not pg.locator("#exNoSub").get_attribute("hidden"), "書き出しのカードに「字幕に出さない行: 1 行」: %s" % pg.text_content("#exNoSub"))
+            wait_saved()
+            sv = call(port, "GET", "/api/transcript?id=" + tid_other)
+            check(sv["segments"][1].get("noSub") is True and sv["segments"][1]["speaker"] == "other" and sv["speakers"][-1] == {"id": "other", "name": "ゲーム音声など", "color": "#8a8f98", "builtin": "other"},
+                  "保存: 行の noSub と組み込みの話者(builtin)")
+            select_row(1)
+            pg.keyboard.press("2")   # 番号は組み込みを除いた並び(1 = ぺこら・2 = みこ)
+            check(pg.evaluate("[S.doc.segments[1].speaker, !!S.doc.segments[1].noSub]") == ["S2", False], "別の話者へ変えると「字幕に出さない」が外れる(数字キーの番号は今までどおり)")
+            check("nosub" not in (row1.get_attribute("class") or "") and not has_ovl(1), "薄い表示も外れ、別の話者どうしなので赤くない")
+            select_row(2)
+            btn = pg.locator("#segs .seg").nth(2).locator("[data-act=nosub]")
+            btn.click()
+            check(pg.evaluate("S.doc.segments[2].noSub === true && S.doc.segments[2].speaker === 'S1'") and "nosub" in (pg.locator("#segs .seg").nth(2).get_attribute("class") or ""),
+                  "ほかの話者の行でも 1 クリックで「字幕に出さない」(話者はそのまま)")
+            btn.click()
+            check(pg.evaluate("!S.doc.segments[2].noSub"), "もう一度押すと字幕に出す")
+            wait_saved()
 
             # ==================== 18) 「再生位置」ボタン(setnow) ====================
             open_doc("再生位置反映文書")

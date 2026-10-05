@@ -25,6 +25,8 @@ static class CoreTests
         Run("JSON: 動画の依頼(エスケープ・実際の名前・日本語はそのまま)", VideoJson);
         Run("JSON: URL の依頼", UrlJson);
         Run("JSON: 話す人(speakers)", SpeakersJson);
+        Run("配信者の色: 打った・貼ったものを 6 桁の大文字に整える・誤りの検査", SpeakerColorRules);
+        Run("JSON: 配信者(speakers.people の name と style.color・streamer は 1 人目・URL にも)", SpeakerPeopleJson);
         Run("JSON: 映像トラックの数(① 全自動のときだけ・1〜5・範囲の外は 1)", VideoTracksJson);
         Run("JSON: 送った時刻は時差つきの ISO 8601", SentAt);
         Run("時刻: 書式・長さの言い方・貼り付けの読み取り(t= / 1:23:45 / 83:45)", TimeTexts);
@@ -45,6 +47,7 @@ static class CoreTests
         Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
         Run("画面: 配信のカード(t= つきの URL・+1分・③ では区間を送らない・誤りの欄・何行も貼る)", StreamCards);
         Run("画面: 見本を入れると、下の帯の要約に 指定 + 自動 が出る", FormSummary);
+        Run("画面: 配信者の行(色の整え方・見本と注・色だけで名前が空は送る前に止める)", FormSpeakers);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -219,6 +222,100 @@ static class CoreTests
         }
         True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T).Contains("speakers"), "指定しないときは書かない(動画)");
         True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, names).Contains("speakers"), "指定しないときは書かない(URL)");
+    }
+
+    static void SpeakerColorRules()
+    {
+        Eq("FF00AA", Speakers.CleanColor("ff00aa"), "小文字は大文字に");
+        Eq("FF00AA", Speakers.CleanColor("#ff00aa"), "貼り付けた # は外す");
+        Eq("FF00AA", Speakers.CleanColor("  #Ff00aA \r\n"), "前後の空白も外す");
+        Eq("FF00AA", Speakers.CleanColor("ff00aa12"), "6 文字まで");
+        Eq("12AB", Speakers.CleanColor("12xyAB"), "16 進でない文字は捨てる(途中の長さのまま返す)");
+        Eq("", Speakers.CleanColor(null), "null");
+        Eq("", Speakers.CleanColor("#"), "# だけ");
+        Eq("0A0E14", Speakers.ParseColor("0a0e14"), "6 桁なら大文字で返す");
+        Eq("FF00AA", Speakers.ParseColor(" #FF00AA "), "# と空白は許す");
+        foreach (string ng in new[] { null, "", "FF00A", "FF00AAB", "GG00AA", "FF 00AA", "##FF00AA", "#FF00A" }) Eq(null, Speakers.ParseColor(ng), "色ではない: " + ng);
+        True(!Speakers.HasColorText("") && !Speakers.HasColorText("  ") && !Speakers.HasColorText("#") && Speakers.HasColorText("1") && Speakers.HasColorText("#x"), "色の欄に入っているか");
+
+        Func<int, SpeakerRow[], SpeakerSet> set = (n, rows) => new SpeakerSet { Count = n, Rows = rows.ToList() };
+        Eq(0, Speakers.Problems(set(3, new[] { new SpeakerRow("A", ""), new SpeakerRow("B", "FF00AA"), new SpeakerRow("", "") })).Count, "色なし・6 桁・名前も色も空は誤りではない");
+        var p = Speakers.Problems(set(3, new[] { new SpeakerRow("A", "FF00AA"), new SpeakerRow("", "FF00AA"), new SpeakerRow("  ", "#") }));
+        Eq(1, p.Count, "色だけで名前が空は誤り(# だけは色が空)");
+        True(p[0].Index == 1 && !p[0].OnColor && p[0].Message.Contains("名前"), "名前の欄へ・理由: " + p[0].Message);
+        p = Speakers.Problems(set(3, new[] { new SpeakerRow("A", "FF00A"), new SpeakerRow("B", "GG00AA"), new SpeakerRow("C", "ff00aa") }));
+        Eq(2, p.Count, "6 桁でない・16 進でないは誤り(小文字の 6 桁は直せるので誤りではない)");
+        True(p[0].Index == 0 && p[0].OnColor && p[0].Message.Contains("6 桁") && p[1].Index == 1 && p[1].OnColor, "色の欄へ");
+        Eq(0, Speakers.Problems(set(1, new[] { new SpeakerRow("A", ""), new SpeakerRow("", "zz") })).Count, "人数の外の行は見ない");
+        Eq(0, Speakers.Problems(set(0, new[] { new SpeakerRow("", "zz") })).Count, "人数 0 は何も見ない");
+        Eq(0, Speakers.Problems(null).Count, "null");
+
+        // 送る前の検査(Sending.Check)にも入る
+        var input = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm } }, People = set(2, new[] { new SpeakerRow("A", ""), new SpeakerRow("", "FF00AA") }) };
+        True(Sending.Check(input).Any(x => x.StartsWith("配信者 2:") && x.Contains("名前")), "色だけで名前が空は送らない");
+        input.People.Rows[1].Name = "B";
+        Eq(0, Sending.Check(input).Count, "名前を入れれば送れる");
+    }
+
+    static void SpeakerPeopleJson()
+    {
+        string id = "20261001-120000-abcdef";
+        Func<int, SpeakerRow[], SpeakerSet> set = (n, rows) => new SpeakerSet { Count = n, Rows = rows.ToList() };
+        var three = set(3, new[] { new SpeakerRow(" A ", "ff00aa"), new SpeakerRow("B", ""), new SpeakerRow("", "") });
+
+        // 動画: streamer は 1 人目・speakers に names(今までどおり)と people
+        string v = RequestJson.Video(id, new[] { "a.mp4" }, "m", Flow.Auto, T, three, 1, Cut.None);
+        Eq("{\"v\":1,\"kind\":\"video\",\"id\":\"20261001-120000-abcdef\",\"flow\":\"auto\",\"files\":[\"a.mp4\"],\"streamer\":\"A\",\"memo\":\"m\"," +
+           "\"speakers\":{\"count\":3,\"names\":[\"A\",\"B\"],\"people\":[{\"name\":\"A\",\"style\":{\"color\":\"FF00AA\"}},{\"name\":\"B\"}]}," +
+           "\"videoTracks\":1,\"cut\":\"none\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", v, "動画の形(順番も)");
+        var sp = Json.Dict(Json.Parse(v), "speakers");
+        var people = Json.List(sp, "people").ToList();
+        Eq(2, people.Count, "people は名前のある行だけ");
+        Eq("A", Json.Str(people[0], "name"), "入力の順");
+        Eq("FF00AA", Json.Str(Json.Dict(people[0], "style"), "color"), "色は # なしの大文字 6 桁");
+        True(!people[1].ContainsKey("style"), "色を入れていない行は style ごと書かない");
+
+        // URL: 1 人目の名前があれば streamer(items の後・memo の前)
+        var items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 3 } };
+        string u = RequestJson.Url(id, items, "m", Flow.Auto, T, three, 1, Cut.None, null);
+        True(u.Contains("\"top\":3}],\"streamer\":\"A\",\"memo\":\"m\",\"speakers\":{\"count\":3,"), "URL にも streamer: " + u);
+        Eq("A", Json.Str(Json.Parse(u), "streamer"), "URL の streamer を読み直す");
+        Eq(2, Json.List(Json.Dict(Json.Parse(u), "speakers"), "people").Count(), "URL の people");
+
+        // 1 人目が空: streamer は URL では書かない・動画では今までどおり空文字(2 人目以降の名前は繰り上げない)
+        var second = set(2, new[] { new SpeakerRow("", ""), new SpeakerRow("B", "19D3F3") });
+        string u2 = RequestJson.Url(id, items, "", Flow.Auto, T, second, 1, Cut.None, null);
+        True(!u2.Contains("streamer"), "1 人目が空なら URL に streamer は無い: " + u2);
+        Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, second, 1, Cut.None)), "streamer"), "動画は空文字");
+        Eq("B", Json.Str(Json.List(Json.Dict(Json.Parse(u2), "speakers"), "people").Single(), "name"), "people は名前のある行だけ");
+
+        // 人数 0: speakers のキーごと書かない(名前や色が残っていても)。streamer も URL には無い
+        var zero = set(0, new[] { new SpeakerRow("A", "FF00AA") });
+        True(!RequestJson.Url(id, items, "", Flow.Auto, T, zero, 1, Cut.None, null).Contains("speakers"), "人数 0(URL)");
+        string vz = RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, zero, 1, Cut.None);
+        True(!vz.Contains("speakers") && vz.Contains("\"streamer\":\"\""), "人数 0(動画): " + vz);
+        True(!RequestJson.Url(id, items, "", Flow.Auto, T, null, 1, Cut.None, null).Contains("speakers"), "null");
+
+        // 名前のある行が無い: people は書かない(count と names だけ)
+        string none = RequestJson.Url(id, items, "", Flow.Auto, T, set(2, new[] { new SpeakerRow("", ""), new SpeakerRow(" ", "") }), 1, Cut.None, null);
+        True(none.Contains("\"speakers\":{\"count\":2,\"names\":[]}") && !none.Contains("people"), "名前なしで人数だけ: " + none);
+
+        // 6 桁でない色は書かない(画面が止めるが、JSON は不正な色を出さない)・同じ名前は先の行にまとめる(先の行に色が無ければ後の行の色)
+        var odd = set(3, new[] { new SpeakerRow("A", "xyz"), new SpeakerRow("A", "FF00AA"), new SpeakerRow("B", "FF00A") });
+        var oddPeople = Json.List(Json.Dict(Json.Parse(RequestJson.Url(id, items, "", Flow.Auto, T, odd, 1, Cut.None, null)), "speakers"), "people").ToList();
+        True(oddPeople.Count == 2 && Json.Str(Json.Dict(oddPeople[0], "style"), "color") == "FF00AA" && !oddPeople[1].ContainsKey("style"), "不正な色は捨てる・同じ名前はまとめる");
+        string longName = new string('あ', 70);
+        var longSet = set(1, new[] { new SpeakerRow(longName, "") });
+        Eq(new string('あ', 60), Json.Str(Json.List(Json.Dict(Json.Parse(RequestJson.Url(id, items, "", Flow.Auto, T, longSet, 1, Cut.None, null)), "speakers"), "people").Single(), "name"), "名前は 60 文字まで");
+        Eq(new string('あ', 60), Json.Str(Json.Parse(RequestJson.Url(id, items, "", Flow.Auto, T, longSet, 1, Cut.None, null)), "streamer"), "streamer も 60 文字まで");
+
+        // 今までの形のキーはそのまま(古い PC が読むもの)。色を入れても streamer・names・count は変わらない
+        var d = Json.Parse(v);
+        foreach (string k in new[] { "v", "kind", "id", "files", "streamer", "memo", "sentAt", "flow", "speakers", "videoTracks", "cut" }) True(d.ContainsKey(k), "動画のキー: " + k);
+        True(Json.Long(sp, "count", -1) == 3 && sp.ContainsKey("names"), "count と names");
+        // 古い呼び方(色なし)は今までと同じ JSON
+        string old = RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 2, new[] { "A", "B" });
+        True(old.Contains("\"speakers\":{\"count\":2,\"names\":[\"A\",\"B\"]}") && !old.Contains("people") && !old.Contains("streamer"), "古い呼び方: " + old);
     }
 
     static void VideoTracksJson()
@@ -624,6 +721,69 @@ static class CoreTests
         }
     }
 
+    static void FormSpeakers()
+    {
+        string dir = TempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "members.json"), "{\"groups\":[{\"members\":[{\"name\":\"さくらみこ\"},{\"name\":\"兎田ぺこら\"}]}]}", Encoding.UTF8);
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                var combos = FindAll(f).OfType<ThemedCombo>().ToList();
+                var colors = FindAll(f).OfType<System.Windows.Forms.TextBox>().Where(t => t.AccessibleName != null && t.AccessibleName.Contains("字幕の色")).ToList();
+                var chips = FindAll(f).OfType<ColorChip>().ToList();
+                Eq(Speakers.MaxCount, combos.Count, "名前のプルダウンは 10 人ぶん");
+                Eq(Speakers.MaxCount, colors.Count, "色の欄も 10 人ぶん");
+                True(combos.All(c => c.DropDownStyle == System.Windows.Forms.ComboBoxStyle.DropDown && c.Items.Count == 2 && c.MaxLength == Speakers.MaxNameLength), "一覧から選べて・打てる(一覧は members.json・名前は 60 文字まで)");
+                True(colors.All(t => t.CharacterCasing == System.Windows.Forms.CharacterCasing.Upper), "色は大文字で入る");
+                var count = FindAll(f).OfType<Stepper>().Single(s => s.Minimum == 0 && s.Maximum == Speakers.MaxCount);
+                True(FindAll(f).OfType<SectionHead>().Any(h => h.AccessibleName == "配信者・メモ"), "見出しは「配信者・メモ」");
+                True(!FindAll(f).OfType<Lbl>().Any(l => l.Text.Contains("配信者(任意)")), "動画の側の 1 つだけの「配信者」の欄は無い");
+
+                // 色の欄: 貼った #ff00aa や空白は直る・見本は 6 桁そろったときだけ
+                count.Value = 3;
+                colors[0].Text = "#ff00aa ";
+                Eq("FF00AA", colors[0].Text, "貼った # と空白は外して大文字に");
+                True(chips[0].Swatch.HasValue && chips[0].Swatch.Value.ToArgb() == System.Drawing.Color.FromArgb(0xFF, 0x00, 0xAA).ToArgb(), "6 桁そろったら見本に色が出る");
+                colors[0].Text = "FF0";
+                True(!chips[0].Swatch.HasValue, "途中は枠だけ");
+                colors[0].Text = "";
+                Eq("", chips[0].Note, "名前も空なら注は出ない");
+
+                // 注: 色が空で名前がメンバー → メンバーカラー / 一覧に無い名前 → 色なし / 色を入れたら注は消える
+                combos[0].Text = "さくらみこ";
+                Eq("メンバーカラー", chips[0].Note, "メンバーの名前");
+                combos[0].Text = "どこかのゲスト";
+                Eq("色なし", chips[0].Note, "一覧に無い名前");
+                colors[0].Text = "19d3f3";
+                Eq("", chips[0].Note, "色を入れたら注は出ない");
+                True(chips[0].Swatch.HasValue, "見本は出る");
+
+                // 送る前に止める: 色だけで名前が空・6 桁でない
+                combos[0].Text = "";
+                colors[0].Text = "";
+                combos[1].Text = "ゲストの人";
+                colors[1].Text = "1234";
+                colors[2].Text = "ff00aa";   // 名前が空
+                f.ApplyState("");
+                var texts0 = FindAll(f).OfType<Lbl>().Where(l => l.Visible).Select(l => l.Text).ToList();
+                True(!texts0.Any(t => t.Contains("直す所") || t.Contains("名前も入れて")), "送る前は急かさない");
+                f.ApplyState("speakers");   // 見本の状態(4 人・色だけで名前が空・色が 2 桁)で「送る」を押す = 止まる
+                var texts = FindAll(f).OfType<Lbl>().Select(l => l.Text).ToList();
+                True(texts.Any(t => t.Contains("配信者 3: 名前も入れて") && t.Contains("配信者 4: 色は 16 進の 6 桁")), "理由が出る: " + string.Join(" | ", texts.Where(t => t.Contains("配信者"))));
+                True(texts.Any(t => t.Contains("直す所があります")), "下の帯にも出る");
+                var errors = FindAll(f).OfType<Field>().Where(x => x.Error).ToList();
+                Eq(2, errors.Count, "枠の色が変わるのは、名前が空の欄と、色の欄の 2 つ");
+                // 直せば、その場で消える
+                combos[2].Text = "三人目";
+                colors[3].Text = "123456";
+                Eq(0, FindAll(f).OfType<Field>().Count(x => x.Error), "直したら枠は戻る");
+                True(!FindAll(f).OfType<Lbl>().Any(l => l.Visible && l.Text.Contains("配信者 3: 名前も入れて")), "理由も消える");
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     static void FormSummary()
     {
         string dir = TempDir();
@@ -633,7 +793,7 @@ static class CoreTests
             {
                 f.ApplySample();
                 var texts = FindAll(f).OfType<Lbl>().Select(l => l.Text).ToList();
-                True(texts.Any(t => t.StartsWith("配信 2 本(指定 2 + 自動 3)") && t.Contains("① 全自動") && t.Contains("カットしない") && t.Contains("トラック 1") && t.Contains("話す人 2 人")),
+                True(texts.Any(t => t.StartsWith("配信 2 本(指定 2 + 自動 3)") && t.Contains("① 全自動") && t.Contains("カットしない") && t.Contains("トラック 1") && t.Contains("配信者 2 人")),
                      "下の帯の要約: " + string.Join(" | ", texts.Where(t => t.StartsWith("配信"))));
                 True(texts.Any(t => t.Contains("終了が開始より前")), "誤りの区間の理由が出る");
                 Eq(2, FindAll(f).OfType<StreamCard>().Count(), "配信のカード");

@@ -289,6 +289,18 @@ def main():
             check(wait_js(pg, "document.querySelector('#pkLastPill').textContent === '前回のパック' && document.querySelector('#pkLastDiff').hidden", 10000), "設定を戻すと違いが消える")
             pg.click("#pkSettingsClose")
             wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            # ---- 2026-10-05: 話者ごとの字幕の色(文書の話者の sub)と、字幕に出さない行(noSub)
+            pg.evaluate("setSubColor(S.doc.speakers[0], '#123456'); markDirty(); onSpeakerColors();")
+            check(wait_js(pg, "document.querySelector('#pkSpkList').textContent.indexOf('指定の色(#123456)') >= 0", 5000), "話者の欄: みこ → 指定の色: " + pg.inner_text("#pkSpkList"))
+            check(wait_js(pg, "getComputedStyle(document.querySelector('#pkPhoneCap')).color === 'rgb(18, 52, 86)'", 10000), "字幕の見本も指定の色(メンバーの色より優先): %s" % pg.evaluate(phone))
+            check(wait_js(pg, "document.querySelector('#pkLastDiff').textContent.indexOf('話者ごとの字幕の色: なし → みこ #123456') >= 0", 10000),
+                  "前回のパックとの違いに話者ごとの字幕の色: " + pg.inner_text("#pkLastDiff"))
+            pg.evaluate("S.doc.segments[2].noSub = true; renderDoc(); markDirty();")
+            check(wait_js(pg, "!document.querySelector('#pkNoSub').hidden && document.querySelector('#pkNoSub').textContent.indexOf('字幕に出さない行: 1 行') >= 0 && document.querySelector('#pkCaps').textContent === '2'", 20000),
+                  "これから作るパック: 字幕に出さない行 1 行・字幕は 1 つ減る(区間はそのまま): %s / 字幕 %s / 区間 %s" % (pg.text_content("#pkNoSub"), pg.inner_text("#pkCaps"), pg.inner_text("#pkCount")))
+            check(pg.inner_text("#pkCount") == "3", "字幕に出さない行があっても残す区間は同じ")
+            pg.evaluate("delete S.doc.segments[2].noSub; renderDoc(); markDirty();")
+            check(wait_js(pg, "document.querySelector('#pkNoSub').hidden && document.querySelector('#pkCaps').textContent === '3'", 20000), "印を外すと字幕に戻る")
             # 「予備も入れる」→ EDL・予備の手順書・SRT も(上書きの確認のあと)
             pg.click("#pkSettingsBtn")
             pg.wait_for_selector("#pkBackup", state="visible")
@@ -303,6 +315,10 @@ def main():
             stem = os.path.splitext(os.path.basename(v1))[0]
             check({stem + ".edl", stem + "_cut.srt", "予備_EDLで開く手順.txt"} <= names2 and "cut-plan.json" not in names2,
                   "「予備も入れる」で EDL・予備_EDLで開く手順.txt・SRT も入る: %s" % sorted(names2))
+            out2 = (srv.get("/api/edit?id=" + tid)["edit"]["pack"].get("output") or {})
+            check(out2.get("speakerStyles") == {"みこ": {"color": "#123456"}}, "作った記録に話者ごとの字幕の色(speakerStyles): %s" % out2.get("speakerStyles"))
+            fills2 = [c.get("fill") for c in read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua")).get("captions", [])]
+            check(fills2 and fills2[0] == [0.0706, 0.2039, 0.3373, 1.0], "パックの字幕も指定の色(output.speakerStyles。cut2resolve が最優先にする): %s" % fills2[:1])
             pg.click("#pkSettingsBtn")
             pg.wait_for_selector("#pkBackup", state="visible")
             pg.uncheck("#pkBackup")

@@ -55,12 +55,12 @@ EB_REDO_TIME_TOL = 0.005         # 作り直しの「手つかず」の判定: �
 EB_REDO_MAX_ITEMS = 5000
 # 作り直さない理由(eb_redo_why)。EB_REDO_TOUCHED = 人が手を入れた(画面の「手を入れた n 本は残します」に数える)
 EB_REDO_LABELS = {"proofed": "校正済みの行がある", "tags": "音のメモを付けた", "noOriginal": "比べる機械の出力が無い", "rows": "行を足した・消した・分けた",
-                  "text": "文字を直した", "time": "時刻を直した", "speaker": "人が話者を選んだ・名前を変えた",
+                  "text": "文字を直した", "time": "時刻を直した", "speaker": "人が話者を選んだ・名前を変えた", "noSub": "字幕に出さない行がある",
                   "reviewed": "確かめ済み", "notTranscribed": "文字起こし前", "recent": "直近 10 分に開いた・直した", "busy": "処理中",
                   "noMedia": "動画が見つからない", "queued": "もう作り直し待ち", "changed": "作り直しの間に直された", "moved": "動画が変わった",
                   "not_found": "文書が無い", "broken": "文書を読めない", "stopped": "止めた",
                   "pressedChanged": "押したあとに直されたため"}   # 1 本ずつの作り直し(eval_batch_redo_one)で、押したあとに文書が変わった
-EB_REDO_TOUCHED = ("proofed", "tags", "noOriginal", "rows", "text", "time", "speaker")
+EB_REDO_TOUCHED = ("proofed", "tags", "noSub", "noOriginal", "rows", "text", "time", "speaker")
 EB_REDO_MACHINE_BY = ("threshold", "elimination", "context")   # diar.json の voices の by のうち、機械が名前を付けたもの(request = 依頼の名前は人の入力)
 EB_UNTRANSCRIBED_RE = re.compile(r"_\d{2,4}_未文字起こし$")   # 評価用の整理の名前の規則(ed_relink._eval_name_re と同じ形)
 _eb_state_lock = threading.RLock()   # 状態ファイルの読み書き・ジョブを足す瞬間(start / stop / 見回りが重ならない)
@@ -539,6 +539,8 @@ def eb_redo_why(tid, doc, busy=(), now=None, media=True, recent=True):
         return "proofed"
     if any(g.get("tags") for g in segs):
         return "tags"
+    if any(g.get("noSub") is True for g in segs):   # 字幕に出さない印は人が付けたもの(機械は付けない。2026-10-05)
+        return "noSub"
     orig = doc.get("original")
     if not isinstance(orig, list) or not all(isinstance(o, dict) for o in orig):
         return "noOriginal"
@@ -713,7 +715,7 @@ def _eb_touched_rows(doc, why):
             k = (str(g.get("text") or ""), round(float(g["start"]), 2), round(float(g["end"]), 2))
         except (KeyError, TypeError, ValueError):
             k = None
-        if g.get("proofed") is True or g.get("tags") or k not in keys or (why == "speaker" and g.get("speaker")):
+        if g.get("proofed") is True or g.get("tags") or g.get("noSub") is True or k not in keys or (why == "speaker" and g.get("speaker")):
             n += 1
     return n
 

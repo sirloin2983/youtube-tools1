@@ -297,5 +297,46 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual(saved["total"]["judged"], 3)
 
 
+class TestNoSub(unittest.TestCase):
+    """字幕に出さない行(noSub)とその時間の機械の行は、候補の当たり率にも拾えた率にも入れない(件数だけ別に出す)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.S = E.get_serve()
+
+    def judge(self, segments):
+        return E.judge_doc(self.S, {"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT})
+
+    def test_nosub_row_candidates_are_not_judged(self):
+        segs = human_a()
+        segs[0] = dict(segs[0], noSub=True)            # 1 行目(猫 → 犬の候補。当たりのはずの行)を字幕に出さない行にする
+        r = self.judge(segs)
+        self.assertEqual({(c["wrong"], c["right"]) for c in r["cands"]}, {("晴れ", "雨"), ("蕎麦", "饂飩"), ("星", "月"), ("花", "鳥")})
+        self.assertEqual(r["noSub"], {"rows": 1, "candidates": 1})
+        # 人の直しの数(拾えた率の分母)にも入らない: 猫 → 犬 の直しが減る
+        self.assertEqual(len(r["fixes"]), len(self.judge(human_a())["fixes"]) - 1)
+
+    def test_doc_without_nosub_is_unchanged(self):
+        r = self.judge(human_a())
+        self.assertEqual(r["noSub"], {"rows": 0, "candidates": 0})
+        self.assertEqual(len(r["cands"]), 5)
+
+    def test_evaluate_reports_nosub_separately(self):
+        env = Env()
+        self.addCleanup(env.close)
+        segs = human_a()
+        segs[0] = dict(segs[0], noSub=True)
+        env.doc("aaaaaaaaaaa1", segs)
+        env.doc("bbbbbbbbbbb2", human_a())
+        res = quiet(env.run)
+        t = res["total"]
+        self.assertEqual(t["noSub"], {"docs": 1, "rows": 1, "candidates": 1})
+        self.assertEqual(t["candidates"], 9)           # 4 + 5(noSub の行の候補 1 件は数えない)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            E.print_report(res)
+        self.assertIn("noSub", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

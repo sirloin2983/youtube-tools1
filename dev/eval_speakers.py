@@ -23,6 +23,9 @@
       かつその話者に人が確かめた行が 1 つも無い
     確かめられない(数えない・別に数える)= それ以外(人が名前を付けた・ほかの行を確かめた話者の、確かめていない行。話者を見たかは記録から言えない)
   仮の名前(話者1・話者2…)のままの行は今までどおり既定で測らない(人が確かめた行でも)。「校正済みの行だけ」の数も並べて見る
+- **字幕に出さない行は測らない**(行の印 noSub: true、または組み込みの話者「ゲーム音声など」の行。ゲームのキャラ・NPC の声など = その場かぎりの声で、
+  話者判別の当たり外れではなく人の判断。editor の担当が名前の定数を決めるまで、ここでは OTHER_VOICE_NAME と行の noSub で判定する)。行の話者の正しさ・声の照合・重なりの見つけ方のどれにも入れず、
+  行の数だけ meta.noSubRows に別に出す(人が時刻を直した行・話者の数の数え方にも入らない = 測る行の集まりから外す)
 - 重なりの見つけ方: 機械の「声が混ざっている」(diar.json の rows[].mixed)と、話者の区間が重なる所(overlaps と行が OVL_MIN_SEC 以上重なる)を、
   人の音のメモ overlap(行の tags)と比べる(適合率・再現率)。行 = 確かめ済みの文書の行か校正済みの行(文字のある・機械の記録がある行)
 - 指標(行の集まり = 話者つきの行 / 校正済みの行だけ / 人が時刻を直した行だけ。どれも同じ書き方で数える):
@@ -65,6 +68,7 @@ DIAR_SCHEMA = "youtube-tools-diar/v1"     # editor/ed_speakers.py の DIAR_SCHEM
 FEW_ROWS = 200                            # 話者つきの行がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                           # original と行の端が一致したとみなす秒
 MAX_DIAR_BYTES = 32 * 1024 * 1024
+OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(editor 側の定数と同じ。まだ editor に無い間は、ここの値と行の noSub で判定する)
 DRAFT_NAME = re.compile(r"^話者\d+$")     # editor/ed_speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 SUBSETS = (("all", "話者つきの行"), ("proofed", "校正済みの行だけ"), ("timeEdited", "人が時刻を直した行だけ"))
@@ -237,6 +241,11 @@ def time_edited_flags(doc, rows):
     return out
 
 
+def is_other_row(sg, names):
+    """字幕に出さない行か(noSub: true、または話者の名前が組み込みの「ゲーム音声など」)。names = 話者 id → 名前"""
+    return sg.get("noSub") is True or (bool(sg.get("speaker")) and str(names.get(sg.get("speaker")) or "") == OTHER_VOICE_NAME)
+
+
 def is_reviewed(doc):
     """動画を全部聞いて確かめた評価用の文書か(editor/ed_drill.py の drill_is_reviewed と同じ条件。道具は editor を読み込まないのでここにも書く)"""
     return doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
@@ -280,7 +289,8 @@ def confirm_map(doc, run, whole):
 
 def human_rows(doc, runrows, since_ms, until_ms, include_draft, conf=None):
     """人の最終の話者がある行 -> ([{id, start, end, human, label, mixed, weak, proofed, edited}], 数)。
-    数 = {"drafts": 仮の名前のままで除いた行, "noRecord": 機械の記録が無い行, "machineDraft": 機械の下書きのままで除いた行, "unverified": 確かめられないで除いた行}。
+    数 = {"drafts": 仮の名前のままで除いた行, "noRecord": 機械の記録が無い行, "machineDraft": 機械の下書きのままで除いた行, "unverified": 確かめられないで除いた行,
+          "noSub": 字幕に出さない行(あるときだけ入る。is_other_row)で除いた行}。
     runrows = 判別の記録の rows(行 id → {label, speaker, mixed, weak})。label は「機械がその回に付けた S1/S2…」(付けなかった行は空)。
     conf = confirm_map の結果(None なら確かめたかで分けない)。include_draft なら仮の名前・下書き・確かめられない行も入れる(今までの数え方)"""
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
@@ -295,6 +305,9 @@ def human_rows(doc, runrows, since_ms, until_ms, include_draft, conf=None):
         if not name or a is None or b is None:
             continue
         if not in_period(sg, doc_t, since_ms, until_ms):
+            continue
+        if is_other_row(sg, names):   # 字幕に出さない行(ゲーム音声など)は、判別の当たり外れの数に入れない(include_draft でも)
+            cnt["noSub"] = cnt.get("noSub", 0) + 1
             continue
         if DRAFT_NAME.match(name) and not include_draft:
             cnt["drafts"] += 1
@@ -321,10 +334,13 @@ def overlap_rows(doc, recs, overlaps, since_ms, until_ms, whole):
     ov = sorted((num(x[0]), num(x[1])) for x in overlaps or [] if isinstance(x, (list, tuple)) and len(x) >= 2
                 and num(x[0]) is not None and num(x[1]) is not None)
     doc_t = num(doc.get("updatedAt")) or 0
+    names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     out = []
     for sg in doc.get("segments") or []:
         if not isinstance(sg, dict) or not str(sg.get("text") or "").strip():
             continue
+        if is_other_row(sg, names):
+            continue   # 字幕に出さない行は、重なりの見つけ方の測定にも入れない
         if not (whole or sg.get("proofed") is True) or not in_period(sg, doc_t, since_ms, until_ms):
             continue
         rec = recs.get(str(sg.get("id")))
@@ -552,7 +568,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
     loaded, sk = load_docs(tdir, include_eval, set(only) if only else None)
     picked, rinfo = pick_reviewed(loaded, mode)
     skipped = {"noDiar": 0, "single": 0, "noRows": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
-    totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0}
+    totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0, "noSub": 0}
     for tid, doc, whole in picked:
         diar = read_diar(tdir, tid)
         if not diar:
@@ -568,6 +584,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         rows, cnt = human_rows(doc, runrows, since_ms, until_ms, include_draft, conf)
         for k in ("drafts", "noRecord", "machineDraft", "unverified"):
             totals[k] += cnt[k]
+        totals["noSub"] += cnt.get("noSub", 0)
         if not rows:
             skipped["noRows"] += 1
             continue
@@ -613,6 +630,8 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         notes.append("確かめられない行(人が名前を付けた・ほかの行を確かめた話者の、校正していない行)%d 行は測っていません" % totals["unverified"])
     if totals["noRecord"]:
         notes.append("機械の記録が無い行(判別のあとに分けた・つないだ行)%d 行は測っていません" % totals["noRecord"])
+    if totals["noSub"]:
+        notes.append("字幕に出さない行(noSub・ゲーム音声など)%d 行は測っていません(その場かぎりの声で、判別の当たり外れではない)" % totals["noSub"])
     if skipped["noDiar"]:
         notes.append("判別の記録(.diar.json)が無い文書が %d 件あります(記録を入れる前に判別したもの)" % skipped["noDiar"])
     if skipped["single"]:
@@ -621,8 +640,8 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
             "git": git_rev(), "dataDir": tdir_root, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"], "rows": nrows, "few": few,
             "fewNote": "まだ少ない(参考): 話者つきの行が %d 行(%d 行未満)。これで既定値(しきい値 0.60・差 0.08 など)を決めない" % (nrows, FEW_ROWS) if few else "",
             "skipped": skipped, "draftRows": totals["drafts"], "noRecordRows": totals["noRecord"],
-            "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "confirmRule": CONFIRM_RULE, "reviewed": rinfo, "only": sorted(only) if only else None,
-            "notes": notes}
+            "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE, "reviewed": rinfo,
+            "only": sorted(only) if only else None, "notes": notes}
     return {"meta": meta,
             "subsets": {k: dict(finish_counts(v["counts"]), voices=v["voices"].result()) for k, v in subs.items()},
             "speakerCount": speaker_count(diffs),
@@ -784,7 +803,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
             "diffs": [], "diffLen": {k: [] for k, _ in LENGTHS}, "docsLen": {k: 0 for k, _ in LENGTHS}, "sec": 0.0, "docs": 0, "overlap": Overlap(), "errors": []}
            for st in grid]
     skipped = {"noRows": 0, "noAudio": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
-    totals = {"docs": 0, "evalDocs": 0, "reviewedDocs": 0, "audioSec": 0.0, "rows": 0, "drafts": 0, "machineDraft": 0, "unverified": 0}
+    totals = {"docs": 0, "evalDocs": 0, "reviewedDocs": 0, "audioSec": 0.0, "rows": 0, "drafts": 0, "machineDraft": 0, "unverified": 0, "noSub": 0}
     by_doc = []
     tmp = tempfile.mkdtemp(prefix="eval_speakers_wav_")
     try:
@@ -814,6 +833,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
             totals["rows"] += len(pre)
             for k in ("drafts", "machineDraft", "unverified"):
                 totals[k] += cnt[k]
+            totals["noSub"] += cnt.get("noSub", 0)
             lk = "short" if total < SHORT_SEC else "long"
             one = {"id": tid, "title": str(doc.get("title") or "")[:40], "sec": round(total, 1), "audio": where, "reviewed": bool(whole),
                    "humanSpeakers": len({r["human"] for r in pre}), "rows": len(pre), "bySetting": []}
@@ -859,6 +879,8 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
         notes.append("仮の名前(話者1…)のままの行 %d 行は測っていません(--include-draft で入れる)" % totals["drafts"])
     if totals["machineDraft"] or totals["unverified"]:
         notes.append("人が確かめていない行(機械の下書きのまま %d 行・確かめられない %d 行)は測っていません" % (totals["machineDraft"], totals["unverified"]))
+    if totals["noSub"]:
+        notes.append("字幕に出さない行(noSub・ゲーム音声など)%d 行は測っていません" % totals["noSub"])
     if skipped["noAudio"]:
         notes.append("音声が無い・取り出せない文書 %d 件は測っていません" % skipped["noAudio"])
     meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": git_rev(), "dataDir": root, "backend": "sherpa-onnx" if real else "fake",
@@ -867,7 +889,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
             "audioSec": round(totals["audioSec"], 1), "rows": nrows, "few": few,
             "fewNote": "まだ少ない(参考): 人が確かめた話者つきの行が %d 行(%d 行未満)。これで判別の既定の値(しきい値 %.2f など)を決めない"
                        % (nrows, FEW_ROWS, S.DIAR_CLUSTER_THRESHOLD) if few else "",
-            "draftRows": totals["drafts"], "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "confirmRule": CONFIRM_RULE,
+            "draftRows": totals["drafts"], "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE,
             "skipped": skipped, "settings": grid, "notes": notes}
     out = []
     for a in agg:

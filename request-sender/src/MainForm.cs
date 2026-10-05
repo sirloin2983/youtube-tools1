@@ -1,6 +1,6 @@
-// 画面(2.0.0。設計: .design/request-sender-overhaul/DESIGN_BRIEF.md)
+// 画面(2.1.0。設計: .design/request-sender-overhaul/DESIGN_BRIEF.md・docs/plan/sender-streamer-color-plan.md)
 //   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
-//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル)、右 = 02 仕上げ方・03 話す人とメモ、下 = 要約・進み具合・「送る」
+//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル)、右 = 02 仕上げ方・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
 //   受け取る: MainForm.Receive.cs
 using System;
 using System.Collections.Generic;
@@ -47,12 +47,10 @@ namespace RequestSender
         readonly Lbl lTheme = new Lbl("配色", Tone.Muted);
         readonly Pane videoPanel = new Pane { OnPanel = true };
         readonly FileList files = new FileList();
-        Field fileField, streamerField;
+        Field fileField;
         readonly Lbl dropHint = new Lbl("動画のファイルをここへドラッグ(.mp4 .mov .mkv .webm .m4v)\nクリックして選ぶこともできます", Tone.Muted);
         readonly Btn addBtn = new Btn("ファイルを選ぶ…", BtnKind.Normal), removeBtn = new Btn("選んだものを外す", BtnKind.Normal);
-        readonly Lbl fileNote = new Lbl("", Tone.Error), lStreamer = new Lbl("配信者(任意)", Tone.Muted), streamerNote = new Lbl("", Tone.Muted);
-        readonly Lbl streamerHint = new Lbl("配信者を入れると、字幕がその人の色になります(名前を打つと候補が出ます)。", Tone.Muted);
-        readonly TextBox streamer = new TextBox();
+        readonly Lbl fileNote = new Lbl("", Tone.Error);
         List<string> memberNames = new List<string>();
 
         // 右: 仕上げ方・話す人・メモ
@@ -67,11 +65,17 @@ namespace RequestSender
         readonly Pane weightsPane = new Pane { Inherit = true };
         readonly Stepper[] weightSteps = new Stepper[3];
         readonly Lbl weightsHint = new Lbl("自動で選ぶ分の、見どころの選び方です。数字が大きいほど重く見ます(1.0 が ふつう・0 は使わない)。", Tone.Muted);
+        // 配信者の行(1 行 = 番号 + 名前のプルダウン + 色のカラーコード + 見本と注)
         readonly Pane namesPane = new Pane { Inherit = true };
-        readonly TextBox[] speakerNames = new TextBox[Speakers.MaxCount];
+        readonly ThemedCombo[] speakerNames = new ThemedCombo[Speakers.MaxCount];
         readonly Field[] speakerFields = new Field[Speakers.MaxCount];
+        readonly TextBox[] speakerColors = new TextBox[Speakers.MaxCount];
+        readonly Field[] colorFields = new Field[Speakers.MaxCount];
+        readonly ColorChip[] chips = new ColorChip[Speakers.MaxCount];
         readonly Lbl[] speakerNos = new Lbl[Speakers.MaxCount];
-        readonly Lbl speakerHint = new Lbl("人数を入れると、PC が話者を分けて名前を付けます。", Tone.Muted);
+        readonly Lbl speakerHint = new Lbl("配信者を入れると、PC が話者を分けて名前を付けます。色は 6 桁のカラーコード(# なし。例: FF00AA)。空ならメンバーカラー(一覧に無い名前は色なし)です。", Tone.Muted);
+        readonly Lbl speakerProblem = new Lbl("", Tone.Error);
+        bool speakerStrict;   // 「送る」を押したあとは、誤りを入力のたびに見直す(打っている途中は急かさない)
         readonly Lbl lMemo = new Lbl("メモ(任意。送り先の人が読みます)", Tone.Muted);
         readonly TextBox memo = new TextBox();
         Field memoField;
@@ -201,15 +205,10 @@ namespace RequestSender
             dropHint.BringToFront();
             addBtn.Click += (s, e) => PickFiles();
             removeBtn.Click += (s, e) => RemoveSelected();
-            fileNote.Font = streamerHint.Font = streamerNote.Font = Theme.Small;
+            fileNote.Font = Theme.Small;
             fileNote.AutoSize = false;
             fileNote.AutoEllipsis = true;
-            streamerHint.AutoSize = false;
-            streamer.MaxLength = Speakers.MaxNameLength;
-            streamer.AccessibleName = "配信者";
-            streamer.TextChanged += (s, e) => UpdateStreamerNote();
-            streamerField = new Field(streamer) { Width = Ui.S(200) };
-            videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote, lStreamer, streamerField, streamerNote, streamerHint });
+            videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote });
             leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime, helpMore });
 
             // ---- 右 ----
@@ -262,24 +261,40 @@ namespace RequestSender
             weightsHint.Font = Theme.Small;
             right.Add(weightsHint, 4, true);
 
-            right.Add(new SectionHead("03", "話す人・メモ"), 14, true);
-            speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "話す人の数");
+            right.Add(new SectionHead("03", "配信者・メモ"), 14, true);
+            speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "配信者の数");
             speakerCount.Format = v => v == 0 ? "指定しない" : v + " 人";
             speakerCount.Show_();
-            speakerCount.ValueChanged += () => { UpdateSpeakerView(); right.Arrange(); UpdateAll(); };
-            var lSp = new Lbl("話す人の数", Tone.Text) { AutoSize = false, Size = new Size(Ui.S(112), Ui.S(20)), TextAlign = ContentAlignment.MiddleLeft };
+            speakerCount.ValueChanged += () => { UpdateSpeakerView(); RecheckSpeakers(); right.Arrange(); UpdateAll(); };
+            var lSp = new Lbl("配信者の数", Tone.Text) { AutoSize = false, Size = new Size(Ui.S(112), Ui.S(20)), TextAlign = ContentAlignment.MiddleLeft };
             speakerRow.Add(lSp, 0).Add(speakerCount, 0);
             right.Add(speakerRow, 8, false);
             for (int i = 0; i < speakerNames.Length; i++)
             {
-                var t = new TextBox { MaxLength = Speakers.MaxNameLength, AccessibleName = "話す人 " + (i + 1) + " の名前" };
-                speakerNames[i] = t;
-                speakerFields[i] = new Field(t);
+                int row = i;
+                var name = new ThemedCombo { MaxLength = Speakers.MaxNameLength, AccessibleName = "配信者 " + (i + 1) + " の名前" };
+                name.TextChanged += (s, e) => SpeakerEdited(row);
+                var color = new TextBox { MaxLength = 40, CharacterCasing = CharacterCasing.Upper, AccessibleName = "配信者 " + (i + 1) + " の字幕の色(カラーコード 6 桁・# なし)" };
+                color.KeyPress += (s, e) => { if (!char.IsControl(e.KeyChar) && !Uri.IsHexDigit(e.KeyChar)) e.Handled = true; };   // 打てるのは 16 進の文字だけ
+                color.TextChanged += (s, e) => ColorEdited(row);
+                color.HandleCreated += (s, e) => Ui.Cue(color, "RRGGBB");
+                speakerNames[i] = name;
+                speakerColors[i] = color;
+                speakerFields[i] = new Field(name);
+                colorFields[i] = new Field(color);
+                color.Font = Theme.Mono;
+                chips[i] = new ColorChip();
                 speakerNos[i] = new Lbl((i + 1) + ".", Tone.Muted) { Font = Theme.MonoSmall };
                 namesPane.Controls.Add(speakerNos[i]);
                 namesPane.Controls.Add(speakerFields[i]);
+                namesPane.Controls.Add(colorFields[i]);
+                namesPane.Controls.Add(chips[i]);
             }
             right.Add(namesPane, 6, true);
+            namesPane.Resize += (s, e) => { if (built) UpdateSpeakerView(); };
+            speakerProblem.Font = Theme.Small;
+            right.Add(speakerProblem, 4, true);
+            right.SetShown(speakerProblem, false);
             speakerHint.Font = Theme.Small;
             right.Add(speakerHint, 4, true);
             lMemo.Font = Theme.Small;
@@ -383,7 +398,7 @@ namespace RequestSender
         void LayoutVideo()
         {
             int m = Ui.S(12), w = videoPanel.Width - m * 2, h = videoPanel.Height;
-            int below = Ui.S(132);
+            int below = Ui.S(70);
             fileField.SetBounds(m, 0, w, Math.Max(Ui.S(80), h - below - m));
             dropHint.SetBounds(1, 1, fileField.Width - 2, fileField.Height - 2);
             int y = fileField.Bottom + Ui.S(8);
@@ -391,29 +406,113 @@ namespace RequestSender
             removeBtn.Location = new Point(addBtn.Right + Ui.S(6), y);
             y += Ui.S(32);
             fileNote.SetBounds(m, y, w, Ui.S(18));
-            y += Ui.S(22);
-            lStreamer.Location = new Point(m, y + Ui.S(5));
-            streamerField.Location = new Point(lStreamer.Right + Ui.S(8), y);
-            streamerNote.Location = new Point(streamerField.Right + Ui.S(8), y + Ui.S(6));
-            y += Ui.S(32);
-            streamerHint.SetBounds(m, y, w, Ui.S(18));
         }
 
-        // 話す人の名前の欄: 選んだ人数の分だけ、2列に並べる
+        // 配信者の行: 選んだ人数の分だけ、1 行ずつ縦に並べる(番号 | 名前 | 色 | 見本と注)。名前は残りの幅いっぱい
+        const string NoteMember = "メンバーカラー", NoteNone = "色なし";
+
         void UpdateSpeakerView()
         {
-            int n = speakerCount.Value, colW = Math.Max(Ui.S(120), (right.ClientSize.Width - right.Pad * 2 + Ui.S(6)) / 2), rowH = Ui.S(30);
+            int n = speakerCount.Value, rowH = Ui.S(30), fieldH = Ui.S(26), gap = Ui.S(4);
+            // 幅は行の入れ物の幅(縦のスクロールバーが出て幅が変わったら、入れ物の Resize で並べ直す)
+            int cw = Math.Max(Ui.S(240), (namesPane.Width > 0 ? namesPane.Width : right.ClientSize.Width - right.Pad * 2));
+            int noW = Ui.S(22);
+            int colorW = TextRenderer.MeasureText("FFFFFF", Theme.Mono, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + Ui.S(18);
+            int noteW = Math.Max(TextRenderer.MeasureText(NoteMember, Theme.Small, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width,
+                                 TextRenderer.MeasureText(NoteNone, Theme.Small, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width);
+            int chipW = ColorChip.BoxSize + Ui.S(6) + noteW + Ui.S(2);
+            int nameW = Math.Max(Ui.S(90), cw - noW - colorW - chipW - gap * 2);
             for (int i = 0; i < speakerNames.Length; i++)
             {
                 bool on = i < n;
-                speakerNos[i].Visible = speakerFields[i].Visible = on;
+                speakerNos[i].Visible = speakerFields[i].Visible = colorFields[i].Visible = chips[i].Visible = on;
                 if (!on) continue;
-                int x = (i % 2) * colW, y = (i / 2) * rowH;
-                speakerNos[i].Location = new Point(x, y + Ui.S(6));
-                speakerFields[i].SetBounds(x + Ui.S(24), y, colW - Ui.S(30), Ui.S(26));
+                int y = i * rowH;
+                speakerNos[i].Location = new Point(0, y + Ui.S(6));
+                speakerFields[i].SetBounds(noW, y, nameW, fieldH);
+                colorFields[i].SetBounds(noW + nameW + gap, y, colorW, fieldH);
+                chips[i].SetBounds(noW + nameW + gap + colorW + gap, y, chipW, fieldH);
             }
-            namesPane.Height = (n + 1) / 2 * rowH;
+            namesPane.Height = Math.Max(0, n * rowH - (n > 0 ? rowH - fieldH : 0));
             right.SetShown(namesPane, n > 0);
+        }
+
+        // 1 行の見本と注を直す(名前か色が変わったとき)。6 桁そろったときだけ色を出す。
+        // 色が空 → 名前がメンバーの一覧にあれば「メンバーカラー」・無ければ「色なし」(名前も空なら何も出さない)
+        void UpdateSpeakerRow(int i)
+        {
+            string name = speakerNames[i].Text.Trim(), colorText = speakerColors[i].Text;
+            string hex = Speakers.ParseColor(colorText);
+            chips[i].Swatch = hex != null ? (Color?)ColorTranslator.FromHtml("#" + hex) : null;
+            string note = "", tip = null;
+            if (!Speakers.HasColorText(colorText) && name.Length > 0)
+            {
+                bool member = memberNames.Contains(name);
+                note = member ? NoteMember : NoteNone;
+                tip = member ? "色が空なので、字幕はこの人のメンバーカラーになります" : "一覧に無い名前で色が空なので、字幕は色なしになります(色を入れるとその色になります)";
+            }
+            chips[i].SetNote(note, note == NoteMember);
+            Ui.Tip(chips[i], tip ?? "");
+        }
+
+        void SpeakerEdited(int i)
+        {
+            UpdateSpeakerRow(i);
+            RecheckSpeakers();
+        }
+
+        bool fixingColor;
+
+        // 色の欄: 貼った「#ff00aa」や前後の空白は「FF00AA」に直す(打てるのは 16 進の文字だけ・6 文字まで)
+        void ColorEdited(int i)
+        {
+            if (fixingColor) return;
+            var t = speakerColors[i];
+            string clean = Speakers.CleanColor(t.Text);
+            if (clean != t.Text)
+            {
+                fixingColor = true;
+                try { t.Text = clean; t.SelectionStart = clean.Length; }
+                finally { fixingColor = false; }
+            }
+            SpeakerEdited(i);
+        }
+
+        // 画面の行 → 依頼に入れるもの(人数の範囲の行だけ)
+        SpeakerSet CurrentSpeakers()
+        {
+            int n = speakerCount.Value;
+            var set = new SpeakerSet { Count = n };
+            for (int i = 0; i < n; i++) set.Rows.Add(new SpeakerRow(speakerNames[i].Text, speakerColors[i].Text));
+            return set;
+        }
+
+        // 送る前の検査: 誤りのある欄に枠の色を付けて理由を出す。-> 最初の誤りの欄(無ければ null)
+        Control ValidateSpeakers()
+        {
+            speakerStrict = true;
+            return ShowSpeakerProblems();
+        }
+
+        void RecheckSpeakers()
+        {
+            if (speakerStrict) ShowSpeakerProblems();
+        }
+
+        Control ShowSpeakerProblems()
+        {
+            var problems = Speakers.Problems(CurrentSpeakers());
+            for (int i = 0; i < speakerNames.Length; i++)
+            {
+                speakerFields[i].Error = problems.Any(p => p.Index == i && !p.OnColor);
+                colorFields[i].Error = problems.Any(p => p.Index == i && p.OnColor);
+            }
+            speakerProblem.Text = string.Join(" / ", problems.Take(3).Select(p => "配信者 " + (p.Index + 1) + ": " + p.Message)) + (problems.Count > 3 ? " ほか " + (problems.Count - 3) + " 件" : "");
+            right.SetShown(speakerProblem, problems.Count > 0);
+            right.Arrange();
+            if (problems.Count == 0) return null;
+            var first = problems[0];
+            return first.OnColor ? (Control)speakerColors[first.Index] : speakerNames[first.Index];
         }
 
         // ---------------------------------------------------------------- 配色
@@ -565,7 +664,7 @@ namespace RequestSender
             summary.Font = Theme.Body;
             parts.Add(Flow.Label(f).Split('(')[0]);
             if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); }
-            if (speakerCount.Value > 0) parts.Add("話す人 " + speakerCount.Value + " 人");
+            if (speakerCount.Value > 0) parts.Add("配信者 " + speakerCount.Value + " 人");
             summary.Tone = Tone.Text;
             summary.Text = string.Join(" ・ ", parts);
         }
@@ -574,23 +673,11 @@ namespace RequestSender
         void LoadMembers()
         {
             memberNames = Members.LoadNames(Path.Combine(exeDir, "members.json"));
-            var src = new AutoCompleteStringCollection();
-            src.AddRange(memberNames.ToArray());
-            foreach (var t in speakerNames.Concat(new[] { streamer }))
+            for (int i = 0; i < speakerNames.Length; i++)
             {
-                t.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                t.AutoCompleteSource = AutoCompleteSource.CustomSource;
-                t.AutoCompleteCustomSource = src;
+                speakerNames[i].SetNames(memberNames);   // 一覧から選べる・打つと絞られる・一覧に無い名前も打てる
+                UpdateSpeakerRow(i);
             }
-            UpdateStreamerNote();
-        }
-
-        void UpdateStreamerNote()
-        {
-            string s = streamer.Text.Trim();
-            if (s.Length == 0) { streamerNote.Tone = Tone.Muted; streamerNote.Text = ""; }
-            else if (memberNames.Contains(s)) { streamerNote.Tone = Tone.Accent; streamerNote.Text = "✓ この人の色を字幕に使います"; }
-            else { streamerNote.Tone = Tone.Muted; streamerNote.Text = "一覧に無い名前です(合わなければ色なしで進みます)"; }
         }
 
         void SaveSettings()
@@ -723,24 +810,30 @@ namespace RequestSender
                 else if (bad == null) bad = b;
             }
             ArrangeCards();
-            if (bad != null)
+            Control badSpeaker = ValidateSpeakers();   // 色だけで名前が空・色が 6 桁でない行
+            if (bad != null || badSpeaker != null)
             {
-                // 誤りのある欄へ移す(理由はその欄の下に出ている)
-                ShowLeft(false);
-                cardList.ScrollControlIntoView(bad);
-                bad.Select();
+                // 誤りのある欄へ移す(理由はその欄の下に出ている)。配信の URL の誤りを先に
+                if (bad != null)
+                {
+                    ShowLeft(false);
+                    cardList.ScrollControlIntoView(bad);
+                    bad.Select();
+                }
+                else
+                {
+                    right.ScrollControlIntoView(badSpeaker);
+                    badSpeaker.Select();
+                }
                 SetStatus("⚠ 直す所があります(枠の色が変わった欄の下に理由があります)。直してから、もう一度「送る」を押してください。", Tone.Error);
                 return;
             }
-            int n = speakerCount.Value;
             var input = new SendInput
             {
                 Videos = files.Items.Cast<string>().ToList(),
                 Items = items,
-                Streamer = streamer.Text.Trim(),
                 Memo = memo.Text.Trim(),
-                SpeakerCount = n,
-                SpeakerNames = Speakers.CleanNames(speakerNames.Take(n).Select(c => c.Text), n),
+                People = CurrentSpeakers(),
                 Flow = flow,
                 VideoTracks = tracks.Value,
                 Cut = cut,
@@ -846,9 +939,11 @@ namespace RequestSender
                 files.Items.Clear();
                 fileNote.Text = "";
                 memo.Clear();
-                streamer.Clear();
                 speakerCount.Value = 0;
                 foreach (var c in speakerNames) c.Text = "";
+                foreach (var c in speakerColors) c.Text = "";
+                speakerStrict = false;
+                ShowSpeakerProblems();
                 UpdateFileView();
             }
             ArrangeCards();
@@ -866,8 +961,9 @@ namespace RequestSender
             removeBtn.Enabled = !busy && files.SelectedItems.Count > 0;
             addCard.Enabled = !busy && cards.Count < MaxCards;
             foreach (var c in cards) c.SetBusy(busy);
-            memo.ReadOnly = streamer.ReadOnly = busy;
-            foreach (var c in speakerNames) c.ReadOnly = busy;
+            memo.ReadOnly = busy;
+            foreach (var c in speakerNames) c.Enabled = !busy;   // プルダウンには ReadOnly が無い
+            foreach (var c in speakerColors) c.ReadOnly = busy;
             speakerCount.Enabled = tracks.Enabled = !busy;
             cutNone.Enabled = cutSilence.Enabled = weightsOn.Enabled = !busy;
             foreach (var r in flowRadios) r.Enabled = !busy;
@@ -973,14 +1069,16 @@ namespace RequestSender
         }
 
         // ---------------------------------------------------------------- 画面の確認(--screenshot)
-        // 見本の中身を入れる(配信2本: 題名つき・区間2つ / 終了が開始より前の誤り、話す人 2 人)
+        // 見本の中身を入れる(配信2本: 題名つき・区間2つ / 終了が開始より前の誤り、配信者 2 人)
         public void ApplySample()
         {
             cards[0].Sample("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "【雑談】見本の配信の題名(ここに YouTube の題名が出ます)", 3, 5025, 5110, 7260, 7335);
             var c = AddCard(null);
             c.Sample("https://youtu.be/AAAAAAAAAAA", "【ゲーム】もう1本の見本", 2, 600, 540);
             speakerCount.Value = 2;
-            speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "話す人 A";
+            speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "配信者 A";
+            speakerNames[1].Text = "ゲストの人";
+            speakerColors[1].Text = "19D3F3";
             memo.Text = "2本目は後半の所をお願いします";
             SetArrived(1, false);
             ArrangeCards();
@@ -988,11 +1086,28 @@ namespace RequestSender
         }
 
         // 窓の中身を画像に保存する
-        // 見本の状態(--state): ③ を選んだ・重みを指定して話す人 10 人・送ろうとして誤りが出た・送っている途中・送り終えた
+        // 見本の状態(--state): ③ を選んだ・重みを指定して配信者 10 人・配信者の欄の誤り・送ろうとして誤りが出た・送っている途中・送り終えた
         public void ApplyState(string name)
         {
             if (name == "manual") flowRadios[2].Checked = true;
-            else if (name == "weights") { weightsOn.Checked = true; speakerCount.Value = Speakers.MaxCount; }
+            else if (name == "weights")
+            {
+                weightsOn.Checked = true;
+                speakerCount.Value = Speakers.MaxCount;
+                for (int i = 0; i < 4; i++) speakerNames[i].Text = i < memberNames.Count ? memberNames[i] : "配信者 " + (i + 1);
+                speakerColors[3].Text = "FF3DA5";
+            }
+            else if (name == "speakers")
+            {
+                speakerCount.Value = 4;
+                speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "配信者 A";
+                speakerNames[1].Text = "ゲストの人";
+                speakerColors[1].Text = "19D3F3";
+                speakerColors[2].Text = "ff00aa";   // 名前が空で色だけ = 誤り
+                speakerNames[3].Text = "もう1人";
+                speakerColors[3].Text = "12";       // 6 桁でない = 誤り
+                StartSend();
+            }
             else if (name == "strict") StartSend();
             else if (name == "focus") { var t = cards[0].Rows.First().End; t.ShowAsFocused = true; t.SelectSegment(TimeEdit.Minute); }
             else if (name == "busy")
@@ -1014,7 +1129,8 @@ namespace RequestSender
         public void ShowVideoSample()
         {
             foreach (string n in new[] { @"C:\動画\切り抜き\にぇの叫び.mp4", @"C:\動画\切り抜き\雑談のいいところ_02.mp4" }) files.Items.Add(n);
-            streamer.Text = memberNames.Count > 1 ? memberNames[1] : "";
+            speakerCount.Value = 1;
+            speakerNames[0].Text = memberNames.Count > 1 ? memberNames[1] : "";
             fileNote.Text = "動画ではないので入れませんでした(.mp4 / .mov / .mkv / .webm / .m4v だけ): メモ.txt";
             UpdateFileView();
             ShowLeft(true);

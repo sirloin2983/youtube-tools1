@@ -236,9 +236,30 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
         sample_speakers = [(names[i] if i < len(names) and isinstance(names[i], str) and names[i] else None) for i in range(len(samples))]
         return {"count": sm["count"], "keptSec": sm["keptSec"], "durationSec": sm["durationSec"], "fps": sm["fps"],
                 "captions": subs.get("out", 0), "vanished": subs.get("vanished", 0), "warnings": plan.warnings, "samples": samples,
-                "sampleSpeakers": sample_speakers}
+                "sampleSpeakers": sample_speakers,
+                # 重なる字幕の段分けと字幕に出さない行(2026-10-05。cut2resolve の pack.summary のまま渡す。古い cut2resolve なら 0)
+                **{k: int(sm.get(k) or 0) for k in ("captionLanes", "captionsStacked", "captionsTrimmed", "noSubRows")}}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+_SUB_COLOR_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
+
+
+def speaker_sub_colors(doc: dict) -> dict:
+    """文書の話者の字幕の見た目(sub。2026-10-05)のうち色がある人 -> {話者の名前: "#RRGGBB"}。
+    組み込みの話者「ゲーム音声など」(builtin)は字幕に出さないので除く。保存のときに ed_store.sanitize_transcript が検査済みだが、
+    Lua に入る値なのでここでも 16 進 6 桁だけを通す"""
+    out = {}
+    for s in (doc or {}).get("speakers") or []:
+        if not isinstance(s, dict) or s.get("builtin"):
+            continue
+        sub = s.get("sub") if isinstance(s.get("sub"), dict) else {}
+        m = _SUB_COLOR_RE.fullmatch(sub["color"].strip()) if isinstance(sub.get("color"), str) else None
+        name = str(s.get("name") or "").strip()
+        if m and name:
+            out[name] = "#" + m.group(1).upper()
+    return out
 
 
 def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
@@ -248,8 +269,10 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
     keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から
     (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)。
-    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt_core/colors.speaker_colors で決める)"""
+    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt_core/colors.speaker_colors で決める)。
+    文書の話者の字幕の色(sub.color。speaker_sub_colors)はこれより優先して足す(メンバーの色のスイッチを切っていても効く = 3 パック の speakerStyles と同じ)"""
     import pipeline_io   # pipeline_io も resolve_export を読み込むので、ここで読む(循環を避ける)
+    speaker_colors = dict(speaker_colors or {}, **speaker_sub_colors(doc))
 
     source = str(doc.get("sourcePath") or "")
     if not source or not os.path.isfile(source):

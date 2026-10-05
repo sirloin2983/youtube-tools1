@@ -455,15 +455,16 @@ def build_edl(title, clip_name, keeps, fps, has_audio, reel="AX",
 
 # ---------------------------------------------------------------- 字幕の時刻をカット後に直す
 
-def remap_cues(cues_ms, keeps, fps, min_piece_frames=6):
+def remap_cues(cues_ms, keeps, fps, min_piece_frames=6, with_src=False):
     """[(開始ms, 終了ms, 文)] -> ([(開始f, 終了f, 文)](カット後の時刻), 消えた件数)。
-    カットにまたがる字幕は区間ごとに分け、切れて短すぎる断片(min_piece_frames 未満)は捨てる"""
+    カットにまたがる字幕は区間ごとに分け、切れて短すぎる断片(min_piece_frames 未満)は捨てる。
+    with_src: 3 つ目に、カット後の字幕ごとの元の字幕の番号(cues_ms の何番目か)も返す(字幕ごとの話者を時刻で探さずに決めるため)"""
     spans, rec = [], 0
     for ks, ke in keeps:
         spans.append((ks, ke, rec))
         rec += ke - ks
     out, vanished = [], 0
-    for a, b, text in cues_ms:
+    for i, (a, b, text) in enumerate(cues_ms):
         cs = S.ms_to_frames(a, fps)
         ce = max(S.ms_to_frames(b, fps), cs + 1)
         made = 0
@@ -471,12 +472,14 @@ def remap_cues(cues_ms, keeps, fps, min_piece_frames=6):
             os_, oe = max(cs, ks), min(ce, ke)
             n = oe - os_
             if n > 0 and (n == ce - cs or n >= min_piece_frames):  # 切られていない字幕は短くても残す
-                out.append((rs + os_ - ks, rs + oe - ks, text))
+                out.append((rs + os_ - ks, rs + oe - ks, text, i))
                 made += 1
         if not made:
             vanished += 1
-    out.sort(key=lambda c: (c[0], c[1]))
-    return out, vanished
+    out.sort(key=lambda c: (c[0], c[1]))   # 安定(同じ時刻なら元の順)。番号は並べ替えに使わない
+    if with_src:
+        return [c[:3] for c in out], vanished, [c[3] for c in out]
+    return [c[:3] for c in out], vanished
 
 
 # ---------------------------------------------------------------- 粗編集の動画(EDL が通らないときの代替)
@@ -902,8 +905,10 @@ def resolve_media_path(media, json_path):
 
 
 def read_transcript(path):
-    """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut","speaker"}](時刻順), "bad": 読めなかった行の数,
-    "media": {...}, "title"}。時刻は秒(動画の先頭 = 0)。speaker は話者の名前(speakers の name。話者なしは "")"""
+    """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut","speaker","noSub"}](時刻順), "bad": 読めなかった行の数,
+    "media": {...}, "title", "speakerOrder": [話者の名前](speakers の並び順・重なりなし)}。時刻は秒(動画の先頭 = 0)。
+    speaker は話者の名前(speakers の name。話者なしは "")。noSub は行の任意の項目 noSub が true(字幕に出さない行。
+    時間はカットの「残す」に数えるが、字幕は作らない。docs/plan/other-voice-and-overlap-plan.md の 6-2 の 3)"""
     d = read_json_file(path, "文字起こし(.transcript.json)")
     check_schema(d, TRANSCRIPT_SCHEMA, "文字起こし(youtube-tools-transcript/v1)")
     segs = d.get("segments")
@@ -926,15 +931,26 @@ def read_transcript(path):
         rows.append({"id": str(g.get("id") or ""), "start": a, "end": b,
                      "text": text.strip() if isinstance(text, str) else "",
                      "cut": g.get("cut") in (True, "true"),
-                     "speaker": names.get(g.get("speaker"), "") if not isinstance(g.get("speaker"), (dict, list)) else ""})
+                     "speaker": names.get(g.get("speaker"), "") if not isinstance(g.get("speaker"), (dict, list)) else "",
+                     "noSub": g.get("noSub") is True})
     rows.sort(key=lambda r: (r["start"], r["end"]))
     media = d.get("media") if isinstance(d.get("media"), dict) else {}
-    return {"rows": rows, "bad": bad, "media": media, "title": str(d.get("title") or "")}
+    order = []
+    for n in names.values():
+        if n and n not in order:
+            order.append(n)
+    return {"rows": rows, "bad": bad, "media": media, "title": str(d.get("title") or ""), "speakerOrder": order}
 
 
 def row_is_kept(row):
-    """残す行 = 「カット済」でなく、文字がある行(文字起こしツールの resolve_export.is_kept と同じ規則)"""
+    """残す行 = 「カット済」でなく、文字がある行(文字起こしツールの resolve_export.is_kept と同じ規則)。
+    字幕に出さない行(noSub)も残す行に数える(その声の所の映像を削らないため)"""
     return not row["cut"] and bool(row["text"])
+
+
+def row_has_caption(row):
+    """字幕を作る行 = 残す行のうち、字幕に出さない印(noSub)の無い行"""
+    return row_is_kept(row) and not row.get("noSub")
 
 
 def merge_sec_spans(spans):
@@ -958,5 +974,5 @@ def transcript_cut_spans(rows):
 
 
 def transcript_cues(rows):
-    """字幕 = 残す行(カット済でない・文字がある行)。[(開始ms, 終了ms, 文)]"""
-    return [(_sec_to_ms(r["start"]), _sec_to_ms(r["end"]), r["text"]) for r in rows if row_is_kept(r)]
+    """字幕 = 残す行(カット済でない・文字がある行)のうち、字幕に出さない行(noSub)を除いたもの。[(開始ms, 終了ms, 文)]"""
+    return [(_sec_to_ms(r["start"]), _sec_to_ms(r["end"]), r["text"]) for r in rows if row_has_caption(r)]

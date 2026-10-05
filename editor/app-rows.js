@@ -161,17 +161,88 @@ function setUrlDoc(id){
   } catch {}
 }
 
-function opts(sel){ return '<option value="">話者なし</option>' + S.doc.speakers.map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
+/* 話者の選択肢: 話者なし → 組み込みの「ゲーム音声など」(文書に無くても常に出す・固定の位置)→ 文書の話者(番号の順) */
+function opts(sel){
+  return '<option value="">話者なし</option>' + `<option value="${esc(OTHER_SP.id)}"${sel === OTHER_SP.id ? ' selected' : ''}>${esc(OTHER_SP.name)}</option>`
+    + numberedSpeakers().map(s => `<option value="${esc(s.id)}"${s.id === sel ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+}
 
-/* 前後の行と時刻が重なっているか(書き出すと字幕が2段で出るので、時刻の欄を赤くして知らせる)。
+/* ---------- 組み込みの話者「ゲーム音声など」と、行の印「字幕に出さない」(noSub。2026-10-05) ---------- */
+
+/* 番号の付く話者(Alt+数字・数字キー・話者の欄の「・ n」)= 組み込みの話者を除いた並び。今までの番号は変えない */
+function numberedSpeakers(){ return S.doc ? S.doc.speakers.filter(s => !isOtherSp(s)) : []; }
+
+/* 話者を足す(組み込みの話者はいつも最後に置く = 足した人の番号がずれない) */
+function addSpeaker(sp){ const g = S.doc.speakers, k = g.findIndex(isOtherSp); if (k >= 0) g.splice(k, 0, sp); else g.push(sp); }
+
+/* 行の話者を変える(1 か所: 行の欄・Alt+数字・数字キー・まとめて・話者の削除)。「ゲーム音声など」を選ぶと文書の speakers に 1 つだけ足し、
+   その行の「字幕に出さない」をオン。「ゲーム音声など」から別の話者(話者なしを含む)へ変えたらオフ。row があればその行の見た目も合わせる */
+function setSegSpeaker(s, id, row){
+  id = id || '';
+  const was = s.speaker === OTHER_SP.id;
+  if (id === OTHER_SP.id && !S.doc.speakers.some(isOtherSp)) S.doc.speakers.push({ id: OTHER_SP.id, name: OTHER_SP.name, color: OTHER_SP.color, builtin: OTHER_SP.builtin });
+  s.speaker = id;
+  if (id === OTHER_SP.id) s.noSub = true; else if (was) delete s.noSub;
+  if (row){ const sel = row.querySelector('.spk'); if (sel) sel.value = id; setRowSp(row, spById(id)); paintNoSub(row, s); }
+  const i = S.doc.segments.indexOf(s); if (row && i >= 0) markOvl(i);   // 重なりの赤は話者で変わる(別の話者どうし・字幕に出さない行は赤くしない)
+  if (row){ renderNoSubCount(); updateCaption(); }
+}
+
+/* 行の「字幕に出さない」を切り替える(行のボタン・右クリックのメニュー)。どの話者の行でも使える(NPC のセリフを出したい・独り言を出したくない) */
+function setNoSub(s, on, row){
+  if (on) s.noSub = true; else delete s.noSub;
+  if (row) paintNoSub(row, s);
+  const i = S.doc.segments.indexOf(s); if (i >= 0) markOvl(i);   // 字幕に出さない行との重なりは赤くしない
+  updateCaption(); renderNoSubCount();
+  if (CUT && CUT.refreshCaption) CUT.refreshCaption();
+}
+
+function paintNoSub(row, s){
+  row.classList.toggle('nosub', !!s.noSub);
+  const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
+}
+
+/* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
+function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && String(g.text || '').trim()).length : 0; }
+function renderNoSubCount(){
+  const n = noSubCount(), el = $('#exNoSub');
+  if (el){ el.hidden = !n; el.textContent = n ? `字幕に出さない行: ${n} 行(SRT・VTT・パックの字幕に入りません。テキスト・JSON には入ります)` : ''; }
+  if (PACK) PACK.refresh();
+}
+
+/* 話者の字幕の色(sub.color。"#RRGGBB" か '')。文書の JSON は手で直せるので形を確かめる(style 属性に入れるため) */
+function subColorOf(sp){ const c = sp && sp.sub && typeof sp.sub === 'object' ? String(sp.sub.color || '') : ''; return /^#[0-9a-fA-F]{6}$/.test(c) ? c.toUpperCase() : ''; }
+function setSubColor(sp, hex){
+  const sub = { ...(sp.sub && typeof sp.sub === 'object' ? sp.sub : {}) };
+  if (hex) sub.color = hex.toUpperCase(); else delete sub.color;
+  if (Object.keys(sub).length) sp.sub = sub; else delete sp.sub;
+}
+/* 字幕の色の欄に打った文字 → 16 進だけ(貼り付けた # や空白は外す)・大文字・6 文字まで */
+function subHexInput(v){ return String(v || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 6); }
+
+/* 行どうしの時刻の重なりを赤くして知らせる(2026-10-05: 同じ話者どうしのときだけ)。
+   両方に話者があって別の人なら赤くしない(同時にしゃべっている = 正しい入力。字幕は上下に積んで両方出る)。同じ話者・どちらかに話者が無いときは今までどおり赤。
+   字幕に出さない行(noSub)との重なりも赤くしない。
    時刻の欄は 0.1 秒までしか見せない(UIKit.timebox の丸めと同じ Math.round(x*10))ので、見えている時刻で重なっていなければ赤くしない。
    必ず真偽値を返す(markOvl の classList.toggle に undefined を渡すと「付け外しの反転」になり、前後に行の無い先頭・最後の行が押すたびに赤白を繰り返した) */
 const t10 = x => Math.round((Number(x) || 0) * 10);
 const overlaps = (a, b) => !!a && !!b && t10(a.end) > t10(b.start);   // a の終わりが、次の行 b の始まりより(見える時刻で)後ろ
-function ovl(i){ const g = S.doc.segments, s = g[i]; return !!s && (overlaps(g[i - 1], s) || overlaps(s, g[i + 1])); }
+const badOverlap = (a, b) => overlaps(a, b) && !a.noSub && !b.noSub && !(a.speaker && b.speaker && a.speaker !== b.speaker);
+const OVL_BACK = 8;   // 前の行は 8 行前まで見る(別の話者の行をはさんで、同じ話者の長い行と重なることがあるため。全部は見ない = 4000 行でも重くしない)
+const OVL_TITLE = '同じ話者の行(か、話者の無い行)と時刻が重なっています。別の人が同時に話しているなら、それぞれの行に話者を付けると赤くなくなります';
+function ovl(i){
+  const g = S.doc.segments, s = g[i]; if (!s) return false;
+  for (let j = i - 1; j >= 0 && j >= i - OVL_BACK; j--) if (badOverlap(g[j], s)) return true;
+  for (let k = i + 1; k < g.length && t10(g[k].start) < t10(s.end); k++) if (badOverlap(s, g[k])) return true;
+  return false;
+}
 
-/* 行 i の前後 1 行ずつの印を付け直す(描き直さずに時刻だけ直した経路 = 微調整・時刻の欄の確定が通る。描き直す経路は segHTML が付ける) */
-function markOvl(i){ for (const j of [i - 1, i, i + 1]){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = '前後の行と時刻が重なっています(字幕が2段に重なって出ます)'; else t.removeAttribute('title'); } } }
+/* 行 i と、重なりうる前後の行の印を付け直す(描き直さずに時刻だけ直した経路 = 微調整・時刻の欄の確定が通る。描き直す経路は segHTML が付ける) */
+function markOvl(i){
+  const g = S.doc.segments, s = g[i]; let hi = Math.min(g.length - 1, i + OVL_BACK);   // 終わりを早めたときに、前は重なっていた後ろの行も外す
+  if (s) while (hi + 1 < g.length && t10(g[hi + 1].start) < t10(s.end)) hi++;
+  for (let j = Math.max(0, i - OVL_BACK); j <= hi; j++){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = OVL_TITLE; else t.removeAttribute('title'); } }
+}
 
 /* 行 i の開始(f='start')か終了('end')を直したあと、隣の行の境目(開始なら前の行の終了・終了なら次の行の開始)と、見える時刻(0.1 秒)が同じなら、
    隣の値にぴったりそろえる(見えない 0.01 秒の隙間・重なりを残さない)。toward=false(隣から離れる向きの微調整)ではそろえない
@@ -185,16 +256,17 @@ function snapEdge(i, f, toward){
 
 function segHTML(s, i){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
-  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
+  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
     <button type="button" class="play" data-act="play" title="${esc(titlePlay())}" aria-label="この行だけ再生">▶</button>
-    <div class="times${ov ? ' ovl' : ''}"${ov ? ' title="前後の行と時刻が重なっています(字幕が2段に重なって出ます)"' : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
+    <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
     <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
+    <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
-    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
+    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
     ${s.flag ? `<button type="button" class="fl" data-act="unflag" title="${esc(s.flag)}(押すと確認済みにします)">要確認: ${esc(s.flag)}</button>` : ''}
   </div>`;
 }
@@ -208,7 +280,7 @@ function renderDoc(){
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
-  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption();
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount();
 }
 
 function autoSize(ta){ if (NATIVE_FS) return; ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
@@ -246,8 +318,14 @@ function renderSpeakers(){
   const box = $('#spList');
   const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement : null;
   if (focused && focused.type === 'text') return;   // 名前を打っている間は描き直さない(打った文字・候補を消さない。確定(change)のあとで描き直す)
-  box.innerHTML = S.doc.speakers.map((s, i) => { const c = speakerColor(s.id);
-    return `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色(メンバーと合わないときの色)"${c.hex ? ' hidden' : ''}>${c.hex ? `<i class="tt-sp-member" style="background:${esc(c.hex)}" title="${esc(c.member)}の色"></i>` : ''}<input type="text" value="${esc(s.name)}" maxlength="30" aria-label="話者名" list="spNames" style="flex:1"><span class="n">${S.doc.segments.filter(x => x.speaker === s.id).length}行 ・ ${i + 1}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`
+  let num = 0;   // 番号(Alt+数字)は組み込みの「ゲーム音声など」を除いて数える
+  box.innerHTML = S.doc.speakers.map((s, i) => {
+    const rows = S.doc.segments.filter(x => x.speaker === s.id).length;
+    if (isOtherSp(s)) return `<div class="sp-row tt-sp-other" data-i="${i}"><i class="tt-sp-member" style="background:${esc(OTHER_SP.color)}" aria-hidden="true"></i><input type="text" class="tt-sp-name" value="${esc(OTHER_SP.name)}" readonly aria-label="話者名(組み込み。変えられません)" title="組み込みの話者(名前は変えられません・声は覚えません)" style="flex:1"><span class="n">${rows}行</span><button type="button" class="btn small" data-act="spplay" title="この話者の行を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel" title="一覧から外します(付いていた行は話者なし・字幕に出す に戻ります)">削除</button></div>`
+      + '<div class="hint tt-sp-why">ゲームのキャラ・NPC・動画の音声など。この話者の行は字幕に出しません(行ごとに「字幕に出さない」を外せます)</div>';
+    const c = speakerColor(s.id), sub = subColorOf(s); num++;
+    return `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色(メンバーと合わないときの色)"${c.hex ? ' hidden' : ''}>${c.hex ? `<i class="tt-sp-member" style="background:${esc(c.hex)}" title="${esc(c.sub ? '字幕の色' : c.member + 'の色')}"></i>` : ''}<input type="text" class="tt-sp-name" value="${esc(s.name)}" maxlength="30" aria-label="話者名" list="spNames" style="flex:1"><span class="n">${rows}行 ・ ${num}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`
+      + `<div class="row tt-sp-subrow" data-i="${i}"><label class="lag tt-sp-sub" title="この人の字幕の文字の色(16 進 6 桁・# は要りません)。空にすると指定なし(名前がメンバーと合えばメンバーカラー・合わなければ配信者の色)">字幕の色 #<input type="text" data-f="sub" value="${esc(sub.slice(1))}" maxlength="7" placeholder="指定なし" spellcheck="false" autocomplete="off" aria-label="${esc(s.name)}の字幕の色(16 進 6 桁)"><i class="tt-sp-subsw"${sub ? ` style="background:${esc(sub)}"` : ' hidden'} aria-hidden="true"></i></label></div>`
       + (c.reason ? `<div class="hint tt-sp-why">${esc(c.reason)}</div>` : ''); }).join('');
   renderSpNames();
   const cur = $('#spBulk').value;
@@ -363,14 +441,59 @@ function setNav(i){
   updateCaption();
 }
 
-/* 映像の上に重ねる今の行の字幕(段2): capFollow なら再生位置の行(S.curIdx)、そうでなければ選んだ行(S.navIdx) */
+/* 映像の上に重ねる今の行の字幕(段2): capFollow なら再生位置の行(S.curIdx)と、それと重なる行(capStack)、そうでなければ選んだ行(S.navIdx)だけ。
+   字幕に出さない行(noSub)は出さない */
 function updateCaption(){
   const el = $('#playerCaption'); if (!el) return;
-  const idx = S.doc ? (capFollow ? S.curIdx : S.navIdx) : -1;
-  const g = idx >= 0 && S.doc ? S.doc.segments[idx] : null, text = g && String(g.text || '').trim();
-  el.textContent = text || ''; el.hidden = !text;
-  const hex = text && g.speaker ? speakerColor(g.speaker).hex : '';
-  if (hex) el.style.setProperty('--tt-cap-color', hex); else el.style.removeProperty('--tt-cap-color');   // 無ければ配信者の色(pack-tab.js が body に入れる)のまま
+  const segs = S.doc ? S.doc.segments : [];
+  let idxs = [];
+  if (S.doc && capFollow) idxs = capStack(segs, player().currentTime || 0, { primary: S.curIdx });
+  else if (S.doc && S.navIdx >= 0 && capOk(segs[S.navIdx])) idxs = [S.navIdx];
+  paintCaps(el, idxs, segs);
+}
+
+/* ---------- 重なる行の字幕(2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 2-2・6)----------
+   1 文字起こし の映像の上(#playerCaption)と 2 カット のプレビュー(#cutCaption)が同じ関数を使う(cut.js には app.js が渡す) */
+const CAP_SCAN = 40;   // 再生位置より前に始まった行を何行さかのぼって見るか(長い行が続く所でも足りる数。全部は見ない)
+const capOk = g => !!g && !!String(g.text || '').trim() && !g.noSub;
+const capOverlap = (a, b) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
+
+/* 時刻 t に出す字幕の行(添字。下の段 → 上の段の順)。重なりが CAP_OVERLAP_MIN 秒以上の行どうしは両方(開始が早い方を下・同時開始は話者の並び順・
+   CAP_MAX_STACK 段まで。それより多ければ 3 段目は開始がいちばん遅い行)。それより短い重なりは今までどおり後の行だけ。
+   opt.primary: 今の行(1 文字起こし の S.curIdx。行の終わりの少し後まで残る)。opt.skip(i): 出さない行(2 カット のカット後の見え方で削った行) */
+function capStack(segs, t, opt = {}){
+  const ok = i => capOk(segs[i]) && !(opt.skip && opt.skip(i));
+  let lo = 0, hi = segs.length - 1, last = -1;
+  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ last = m; lo = m + 1; } else hi = m - 1; }
+  const on = [];
+  for (let i = last; i >= 0 && i > last - CAP_SCAN; i--) if (t < segs[i].end && ok(i)) on.push(i);
+  const p = opt.primary;
+  let top = on.length ? on[0] : -1;   // 開始がいちばん遅い行(後の行に切り替わる)
+  if (p != null && p >= 0 && ok(p) && (top < 0 || segs[p].start >= segs[top].start)) top = p;
+  if (top < 0) return [];
+  const spIdx = id => { const k = S.doc ? S.doc.speakers.findIndex(s => s.id === id) : -1; return k < 0 ? 99 : k; };
+  const out = on.filter(i => i !== top && capOverlap(segs[i], segs[top]) >= CAP_OVERLAP_MIN).concat([top])
+    .sort((a, b) => segs[a].start - segs[b].start || spIdx(segs[a].speaker) - spIdx(segs[b].speaker) || a - b);
+  return out.length > CAP_MAX_STACK ? out.slice(0, CAP_MAX_STACK - 1).concat(out.slice(-1)) : out;
+}
+
+/* 字幕の箱に行を描く。1 行なら今までどおり(箱の文字と色)。2 行以上は 1 行ずつの span(上の段が先 = 開始が遅い行)に話者の色。
+   同じ中身なら描き直さない(再生中は timeupdate のたびに呼ばれる) */
+function paintCaps(el, idxs, segs){
+  const hexOf = g => g.speaker ? speakerColor(g.speaker).hex : '';
+  const items = idxs.map(i => ({ text: String(segs[i].text || '').trim(), hex: hexOf(segs[i]) })).filter(x => x.text);
+  const key = JSON.stringify(items);
+  if (el.dataset.capKey === key) return;
+  el.dataset.capKey = key;
+  el.hidden = !items.length;
+  if (items.length <= 1){
+    const x = items[0];
+    el.textContent = x ? x.text : '';
+    if (x && x.hex) el.style.setProperty('--tt-cap-color', x.hex); else el.style.removeProperty('--tt-cap-color');   // 無ければ配信者の色(pack-tab.js が body に入れる)のまま
+    return;
+  }
+  el.style.removeProperty('--tt-cap-color');
+  el.innerHTML = items.slice().reverse().map(x => `<span class="tt-cap-line"${/^#[0-9a-fA-F]{6}$/.test(x.hex) ? ` style="--tt-cap-color:${x.hex}"` : ''}>${esc(x.text)}</span>`).join('');
 }
 
 /* ---------- 話者の色(気が利く画面へ 段2)----------
@@ -394,6 +517,8 @@ function lookupSpeakerNames(names){
    -> {hex: '' = 合わない・照らし合わせ中・使わない, member: 合った人の名前, pending: 照らし合わせ中} */
 function speakerColorByName(name){
   name = String(name || '').trim();
+  const own = name && S.doc ? S.doc.speakers.find(s => !isOtherSp(s) && String(s.name || '').trim() === name && subColorOf(s)) : null;
+  if (own) return { hex: subColorOf(own), member: '', pending: false, sub: true };   // 文書の話者の字幕の色(sub)が最優先(メンバーの色のスイッチを切っていても効く)
   if (!name || !TOKEN || !speakerColorsOn()) return { hex: '', member: '', pending: false };
   if (!SPKC.has(name)) lookupSpeakerNames([name]);
   const m = SPKC.get(name);
@@ -404,6 +529,8 @@ function speakerColorByName(name){
 function speakerColor(spId){
   const sp = spById(spId), auto = spColor(sp), name = sp ? String(sp.name || '').trim() : '';
   if (!sp) return { hex: '', auto: '', member: '', reason: '' };
+  const sub = subColorOf(sp);
+  if (sub) return { hex: sub, auto, member: '', sub: true, reason: `字幕の色を指定しています(#${sub.slice(1)}。メンバーの色より優先)` };   // 文書の話者の字幕の色(sub。2026-10-05)が最優先
   if (!TOKEN) return { hex: '', auto, member: '', reason: 'ホームから開くと、名前をメンバーと照らし合わせて色を付けます' };
   if (!speakerColorsOn()) return { hex: '', auto, member: '', reason: 'パックの「話者の名前がメンバーと合えば…」を切っているので、メンバーの色は使いません' };
   const c = speakerColorByName(name);
@@ -477,9 +604,8 @@ function deleteCur(){
 }
 
 function assignSpeaker(n){
-  const c = rowAndSeg(); if (!c || (n && !S.doc.speakers[n - 1])) return;
-  pushUndo(); c.g.speaker = n === 0 ? '' : S.doc.speakers[n - 1].id;
-  c.row.querySelector('.spk').value = c.g.speaker; setRowSp(c.row, spById(c.g.speaker));
+  const sps = numberedSpeakers(), c = rowAndSeg(); if (!c || (n && !sps[n - 1])) return;   // 番号は組み込みの「ゲーム音声など」を除いた並び
+  pushUndo(); setSegSpeaker(c.g, n === 0 ? '' : sps[n - 1].id, c.row);
   markDirty(); renderSpeakers();
 }
 
@@ -602,8 +728,7 @@ function insertRow(at, start, end, speaker){
   S.navIdx = at; renderDoc(); markDirty();
   if (rowsEl()[at] && rowsEl()[at].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); toast('絞り込みを解除しました(足した行が見えるように)'); }
   gotoRow(at, { edit: true, center: true });
-  const segs = S.doc.segments, pv = segs[at - 1], nx = segs[at + 1];
-  if (overlaps(g, nx) || overlaps(pv, g)) toast('前後の行と時刻が重なっています。必要なら開始・終了を直してください', 3500);
+  if (ovl(at)) toast('同じ話者の行と時刻が重なっています。必要なら開始・終了を直すか、別の人の声なら話者を付けてください', 3500);
   else toast('行を足しました。文字を入力してください(Esc で抜けます・Ctrl+Z で取り消し)', 2500);
 }
 

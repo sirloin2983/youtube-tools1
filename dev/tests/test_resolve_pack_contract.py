@@ -14,6 +14,9 @@
      (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④)。予備ありも同じ)。
      2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
+  B'. 重なる行のある文書(2026-10-05)… zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
+     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは cut2resolve/tests/test_pack.py の TestCaptionLanes)
+
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
      渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
 
@@ -328,6 +331,29 @@ class ResolvePackContract(unittest.TestCase):
             with self.subTest(fps=fps_text, target=target, size=size):
                 self.assertSamePack(self.doc(rows, fps_text), target, size)
         self.assertSamePack(self.doc(rows, "30"), "30", None, backup=True)   # 予備(EDL・予備の手順書・SRT)も入れたとき
+
+    def test_same_pack_with_overlapping_rows(self):
+        """重なる行(同時にしゃべっている所)のある文書(docs/plan/other-voice-and-overlap-plan.md の 6-2 の 4): 文字起こしの zip と
+        cut2resolve のパックが同じ(重なる字幕の段・切った字幕の終わりも同じ)。区間・字幕・SRT は段分けの前と同じ(A。SRT は重なったまま)。
+        重なりの無い文書は、計画に段の項目が無い(Lua・手順書は今までと同じ。resolve_textplus の印を消しただけ)"""
+        rows = [seg(1, 0.5, 2.5, "一"), seg(2, 1.0, 3.0, "二"), seg(3, 2.9, 4.0, "三"), seg(4, 3.9, 4.6, "四"), seg(5, 5, 6, "五")]
+        d = self.doc(rows)
+        self.assertUnchanged(d)                     # 残す区間・字幕・SRT(Text+ 以外)は変わらない
+        for fps_text, size, backup in (("30", None, False), ("30", None, True), ("60", "1920x1080", False)):
+            with self.subTest(fps=fps_text, size=size, backup=backup):
+                ip = self.assertSamePack(self.doc(rows, fps_text), "30" if fps_text == "60" else fps_text, size, backup)
+                caps = ip["captions"]
+                self.assertEqual(ip["captionLanes"], 2)
+                self.assertEqual([c["text"] for c in caps], ["一", "二", "三", "四", "五"])
+                self.assertEqual([c.get("trackUp") for c in caps], [None, 1, None, None, None])   # 二 は 一 に 1.5 秒重なる → 2 段目
+                self.assertEqual(caps[1]["dy"], TP.LANE_STEP_Y)
+                self.assertEqual(caps[2]["endFrame"], caps[3]["startFrame"])                       # 三 は 四 に 0.1 秒はみ出す → 切る
+                plain = self.assertSamePack(self.doc([seg(1, 0.5, 2.5, "一"), seg(2, 2.5, 3.0, "二")], fps_text),
+                                            "30" if fps_text == "60" else fps_text, size, backup)   # 接するだけ(重ならない)
+                self.assertNotIn("captionLanes", plain)
+                self.assertFalse(any("trackUp" in c or "dy" in c for c in plain["captions"]))
+        a, _ = self.pack_files(d, backup=True)
+        self.assertEqual(a["v30_cut.srt"].decode("utf-8"), self.current(d, pack.ROW_EDGE)[2])   # SRT は段分けしない(重なったまま)
 
     def test_same_pack_with_studio_edit_media(self):
         d = Path(self.tmp) / "studio"

@@ -49,6 +49,95 @@ class RulesTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(resolve_export.cut2resolve_dir(), "pack.py")))
 
 
+class NoSubTests(unittest.TestCase):
+    """字幕に出さない行(noSub。ゲームの声など。2026-10-05): 残す区間には今までどおり数え、字幕(SRT)からは外し、受け渡しの transcript/v1 には印を載せる"""
+
+    SEGS = [{"id": "a", "start": 0, "end": 2, "text": "配信者", "speaker": "S1"},
+            {"id": "b", "start": 1.5, "end": 4, "text": "NPC のセリフ", "speaker": "other", "noSub": True},
+            {"id": "c", "start": 6, "end": 7, "text": "独り言", "speaker": "S1", "noSub": True},
+            {"id": "d", "start": 8, "end": 9, "text": "切る", "cutState": "cut", "noSub": True}]
+
+    def doc(self):
+        return {"sourcePath": "C:\\x\\clip.mp4", "title": "t", "duration": 10.0,
+                "speakers": [{"id": "S1", "name": "ぺこら", "color": "#888", "sub": {"color": "#ff00aa"}},
+                             {"id": "other", "name": "ゲーム音声など", "color": "#8a8f98", "builtin": "other", "sub": {"color": "#00FF00"}}],
+                "segments": [dict(g) for g in self.SEGS]}
+
+    def test_kept_spans_unchanged_by_nosub(self):
+        plain = [{k: v for k, v in g.items() if k != "noSub"} for g in self.SEGS]
+        self.assertEqual([(s["start"], s["end"]) for s in resolve_export.kept_spans(self.SEGS)],
+                         [(s["start"], s["end"]) for s in resolve_export.kept_spans(plain)])
+        self.assertEqual([(s["start"], s["end"], [g["id"] for g in s["segments"]]) for s in resolve_export.kept_spans(self.SEGS)],
+                         [(0.0, 4.0, ["a", "b"]), (6.0, 7.0, ["c"])])   # 字幕に出さない行も残す区間に入る(映像は削られない)
+        self.assertTrue(resolve_export.is_kept(self.SEGS[1]))
+
+    def test_transcript_v1_carries_nosub_and_srt_skips(self):
+        import pipeline_io
+        v1 = pipeline_io.build_transcript_v1(self.doc(), "test")
+        self.assertEqual([(g["id"], g.get("noSub")) for g in v1["segments"]], [("a", None), ("b", True), ("c", True), ("d", True)])
+        self.assertEqual([s["name"] for s in v1["speakers"]], ["ぺこら", "ゲーム音声など"])
+        text, n = pipeline_io.build_srt(self.doc())
+        self.assertEqual(n, 1)
+        self.assertIn("配信者", text)
+        self.assertNotIn("NPC", text)
+        plan = pipeline_io.build_cut_plan_v1(self.doc(), "test")   # 残す区間(cut-plan/v1)は今までどおり
+        self.assertEqual([(s["start"], s["end"]) for s in plan["segments"]], [(0.0, 4.0), (6.0, 7.0)])
+
+    def test_speaker_sub_colors_for_zip(self):
+        d = self.doc()
+        self.assertEqual(resolve_export.speaker_sub_colors(d), {"ぺこら": "#FF00AA"})   # 組み込みの話者は字幕に出さないので入れない
+        d["speakers"][0]["sub"] = {"color": "red;background:url(x)"}
+        self.assertEqual(resolve_export.speaker_sub_colors(d), {})   # 形の違う値は Lua に入れない
+
+    def test_create_package_merges_sub_colors(self):
+        """zip(/api/resolve-package)にも同じ色: speaker_colors(メンバーの色)に文書の字幕の色を足して優先して pack.build_pack へ"""
+        from unittest import mock
+        got = {}
+
+        class Plan:
+            keeps, cues_out, warnings = [], [], []
+
+        class FakePack:
+            TRANSCRIPT_ROWS = {}
+            EDIT_KEEPS = {}
+            ToolError = ValueError
+
+            @staticmethod
+            def Request(**kw):
+                return kw
+
+            @staticmethod
+            def row_edge_from(v):
+                return None
+
+            @staticmethod
+            def plan_cut(req, cache=None):
+                return Plan()
+
+            @staticmethod
+            def build_pack(plan, out_dir, **kw):
+                got.update(kw)
+                raise ValueError("ここで止める")
+
+        class FakeTp:
+            @staticmethod
+            def parse_target(f, s):
+                return None
+
+        tmp = tempfile.mkdtemp()
+        try:
+            src = os.path.join(tmp, "clip.mp4")
+            open(src, "wb").close()
+            d = self.doc()
+            d["sourcePath"] = src
+            with mock.patch.object(resolve_export, "_load_pack", lambda: (FakePack, FakeTp)):
+                with self.assertRaises(resolve_export.ResolveExportError):
+                    resolve_export.create_package(d, speaker_colors={"ぺこら": "#7EC2FE", "みこ": "#FF8FDF"})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(got["speaker_colors"], {"ぺこら": "#FF00AA", "みこ": "#FF8FDF"})
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class PackageTests(unittest.TestCase):
     @classmethod

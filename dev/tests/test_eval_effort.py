@@ -385,5 +385,32 @@ class TestCli(unittest.TestCase):
         self.assertEqual(saved["finished"]["n"], res["finished"]["n"])
 
 
+class TestNoSubEdits(unittest.TestCase):
+    """字幕に出さない行(noSub)は、機械の話者判別の外れには数えない。人が印を付けた行として「直した行」には入れる"""
+
+    def test_nosub_row_is_not_a_speaker_error_but_is_an_edit(self):
+        orig_ = [orig(0, 2, "おはよう"), orig(3, 5, "ゲームの声")]
+        diar = {"s1": {"speaker": "S1"}, "s2": {"speaker": "S2"}}
+        plain = E.edit_counts({"segments": [seg(1, 0, 2, "おはよう"), seg(2, 3, 5, "ゲームの声", speaker="S3")], "original": orig_}, diar)
+        self.assertEqual((plain["speaker"], plain["edited"]), (1, 1))                      # noSub でなければ、話者を変えた = 直した
+        self.assertNotIn("noSub", plain)
+        ns = E.edit_counts({"segments": [seg(1, 0, 2, "おはよう"), dict(seg(2, 3, 5, "ゲームの声", speaker="S3"), noSub=True)], "original": orig_}, diar)
+        self.assertEqual((ns["speaker"], ns["noSub"]), (0, 1))
+        self.assertEqual(ns["edited"], 1)                                                  # 印を付けたことは直した行に数える
+        self.assertEqual((ns["text"], ns["added"], ns["deleted"], ns["time"]), (0, 0, 0, 0))
+
+    def test_summary_has_nosub_total_only_when_present(self):
+        env = Env()
+        self.addCleanup(env.close)
+        done_doc(env, "aaaaaaaaaaa1", 600)
+        res = env.run()
+        self.assertNotIn("noSub", res["edits"]["totals"])
+        env.doc("bbbbbbbbbbb2", [seg(1, 0, 2), dict(seg(2, 3, 5, speaker="S3"), noSub=True)], original=[orig(0, 2), orig(3, 5)], active=600,
+                diar_rows={"s1": {"speaker": "S1"}, "s2": {"speaker": "S2"}})
+        res = env.run()
+        self.assertEqual(res["edits"]["totals"]["noSub"], 1)
+        self.assertEqual(res["edits"]["totals"]["speaker"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

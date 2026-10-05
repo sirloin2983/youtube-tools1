@@ -43,10 +43,22 @@ function create(h){
     const o = { fps: fpsOf(), size: sizeOf(), wrap: wrapOf(), textplus: hasRows, backup: hasRows && $('#pkBackup').checked, render: $('#pkRender').checked,
       speakerColors: hasRows && $('#pkSpk').checked, loudness: loudOf(), volume: volOf(), advanced: adv };
     if (hasRows && whoOf()) o.streamer = whoOf().slice(0, 200);
+    const st = hasRows ? stylesNow() : null; if (st) o.speakerStyles = st;   // 1 人もいなければ鍵ごと送らない(今までと同じ要求)
     return o;
   }
+  /* 話者ごとの字幕の見た目(文書の話者の sub。今は色だけ。2026-10-05)-> {話者の名前: {color: "#RRGGBB"}} か null。
+     cut2resolve は speakerStyles の色を最優先にする(「話者の名前がメンバーと合えば…」を切っていても効く) */
+  function stylesNow(){
+    const out = {}; let n = 0;
+    for (const sp of (h.S.doc && h.S.doc.speakers) || []){
+      const name = String(sp.name || '').trim(), hex = h.isOtherSp(sp) ? '' : h.subColorOf(sp);
+      if (name && hex && !(name in out)){ out[name.slice(0, 60)] = { color: hex }; n++; }
+    }
+    return n ? out : null;
+  }
+  const stylesText = st => st && typeof st === 'object' ? Object.keys(st).sort().map(k => `${k} ${(st[k] && st[k].color) || ''}`).join('、') : '';
   /* 作ったときの出力の設定(記録)と今の設定の違い(4-3。監査 08)。記録が無ければ null(この版より前・まとめて実行で作ったパック) */
-  const OUT_LABEL = { fps: 'フレームレート', size: '大きさ', wrap: '字幕の1段の文字数', textplus: 'Text+ 字幕', backup: '予備', render: '粗編集の動画', speakerColors: '話者の色', streamer: '配信者',
+  const OUT_LABEL = { fps: 'フレームレート', size: '大きさ', wrap: '字幕の1段の文字数', textplus: 'Text+ 字幕', backup: '予備', render: '粗編集の動画', speakerColors: '話者の色', streamer: '配信者', speakerStyles: '話者ごとの字幕の色',
     srcStartTc: '開始タイムコード', recStart: 'タイムラインの開始', reel: 'リール名' };
   function outputDiff(rec, now){
     if (!rec || typeof rec !== 'object') return null;
@@ -56,6 +68,8 @@ function create(h){
       const a = rec[k] === undefined ? '' : rec[k], b = now[k] === undefined ? '' : now[k];
       if (String(a) !== String(b)) diffs.push(`${OUT_LABEL[k]}: ${fmt(k, rec[k])} → ${fmt(k, now[k])}`);
     }
+    { const a = stylesText(rec.speakerStyles), b = stylesText(now.speakerStyles);   // 話者ごとの字幕の色(記録に無い = 指定なしで作った)
+      if (a !== b) diffs.push(`${OUT_LABEL.speakerStyles}: ${a || 'なし'} → ${b || 'なし'}`); }
     const vol = x => x.loudness ? `${x.loudness} LUFS` : x.volume !== undefined ? `${x.volume}%` : '';
     if (vol(rec) && vol(rec) !== vol(now)) diffs.push(`音量: ${vol(rec)} → ${vol(now)}`);
     const ra = rec.advanced && typeof rec.advanced === 'object' ? rec.advanced : {}, na = now.advanced || {};
@@ -117,19 +131,23 @@ function create(h){
   function renderSpk(){
     const box = $('#pkSpkList'), d = h.S.doc, on = spkOn();
     $('#pkSpk').checked = on;
-    const sps = d ? (d.speakers || []).filter(s => String(s.name || '').trim()) : [];
+    const sps = d ? (d.speakers || []).filter(s => String(s.name || '').trim() && !h.isOtherSp(s)) : [];   // 組み込みの「ゲーム音声など」は字幕に出さないので並べない
+    const own = sps.filter(s => h.subColorOf(s));   // 字幕の色を指定した話者(スイッチによらず効く)
     $('#pkSpk').disabled = !h.TOKEN;
-    if (!h.TOKEN){ box.textContent = 'ホームから開くと使えます'; return; }
-    if (!on || !sps.length){ box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
+    const ownHTML = own.slice(0, 12).map(sp => { const hex = h.subColorOf(sp); return `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(hex)}"></i>${h.esc(String(sp.name).trim())} → 指定の色(${h.esc(hex)})</span>`; }).join(' ・ ');
+    if (!h.TOKEN){ if (own.length) box.innerHTML = ownHTML; else box.textContent = 'ホームから開くと使えます'; return; }
+    if (!on || !sps.length){ if (own.length) box.innerHTML = ownHTML; else box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
     box.innerHTML = sps.slice(0, 12).map(sp => {
       const c = h.speakerColor(sp.id), n = String(sp.name).trim();
-      return c.hex ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → ${h.esc(c.member)}の色</span>`
+      return c.sub ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → 指定の色(${h.esc(c.hex)})</span>`
+        : c.hex ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → ${h.esc(c.member)}の色</span>`
         : c.reason ? `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>` : `<span>${h.esc(n)}: …</span>`;
     }).join(' ・ ');
   }
-  /* 字幕の見本の色: 話者がメンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま)。行の話者(id)からと、見積もりの話者(名前)から */
-  const segHex = seg => seg && seg.speaker && spkOn() ? h.speakerColor(seg.speaker).hex : '';
-  const nameHex = name => name && spkOn() && h.speakerColorByName ? h.speakerColorByName(name).hex : '';
+  /* 字幕の見本の色: 話者の字幕の色(sub)→ メンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま)。行の話者(id)からと、見積もりの話者(名前)から。
+     メンバーの色のスイッチ(speakerColors)は app.js の speakerColor / speakerColorByName が見る(指定の色はスイッチによらず効く) */
+  const segHex = seg => seg && seg.speaker ? h.speakerColor(seg.speaker).hex : '';
+  const nameHex = name => name && h.speakerColorByName ? h.speakerColorByName(name).hex : '';
   const capStyle = hex => hex ? ` style="--tt-cap-color:${h.esc(hex)}"` : '';
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
@@ -207,7 +225,13 @@ function create(h){
     $('#pkCapsL').textContent = hasRows ? 'Text+ 字幕' : 'Text+ 字幕(文字起こしが無い)';
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
-    const keptSegs = d.segments.filter(kept).slice(0, 2);
+    const keptSegs = d.segments.filter(g => kept(g) && !g.noSub).slice(0, 2);   // 字幕に出さない行は見本にも出さない
+    { /* 字幕に出さない行の数(残す区間には数える。0 なら出さない)・重なる字幕の段(2 段以上のとき)。見積もりができたらパックと同じ数(pack.summary の noSubRows・captionLanes)、
+         古い間は行から数えた目安 */
+      const n = fresh && Number.isFinite(pv.noSubRows) ? pv.noSubRows : d.segments.filter(g => kept(g) && g.noSub).length;
+      const lanes = fresh ? Number(pv.captionLanes) || 0 : 0, stacked = fresh ? Number(pv.captionsStacked) || 0 : 0, el = $('#pkNoSub');
+      const bits = [n ? `字幕に出さない行: ${n} 行(ゲームの声など。字幕は作らず、区間は残します)` : '', lanes >= 2 ? `重なる字幕を ${lanes} 段に分けます(${stacked} 個)` : ''].filter(Boolean);
+      el.hidden = !bits.length; el.textContent = bits.join(' ・ '); }
     const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
     // 見本の色(4-5。監査 12): 見積もりができたら、パックと同じ規則の話者(pack.py の cue_speakers → sampleSpeakers。名前)。古い間は行の話者から。規則は同じなので通常は同じ色
     const spkNames = fresh && Array.isArray(pv.sampleSpeakers) && pv.samples && pv.samples.length ? pv.sampleSpeakers : null;
@@ -331,7 +355,7 @@ function create(h){
       const spec = { video: d.sourcePath, keeps: h.CUT.keepsSec(), advanced: o.advanced, ...(path ? { transcript: path } : {}) };
       const out = { textplus: o.textplus, copyVideo: true, render: o.render, backup: o.backup, textplusFps: o.fps, textplusSize: o.size, textplusWrap: o.wrap,
         ...($('#pkDir').value.trim() ? { dir: $('#pkDir').value.trim() } : {}), ...(o.streamer ? { streamer: o.streamer } : {}),
-        speakerColors: o.speakerColors, ...(o.loudness ? { loudness: o.loudness } : o.volume !== 100 ? { volume: o.volume } : {}) };
+        speakerColors: o.speakerColors, ...(o.speakerStyles ? { speakerStyles: o.speakerStyles } : {}), ...(o.loudness ? { loudness: o.loudness } : o.volume !== 100 ? { volume: o.volume } : {}) };
       let force = false, res;
       for (;;){
         try {

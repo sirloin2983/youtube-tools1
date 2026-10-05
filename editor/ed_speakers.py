@@ -399,19 +399,61 @@ def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=
         return _apply_diarization(tid, turns, offset, requested, emb, auto)
 
 
+def diar_keep_row(g, ids):
+    """話者判別のやり直し・1人指定・「全行をこの人に」で話者を変えない行(2026-10-05): 字幕に出さない行(noSub)・
+    組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)。
+    ids = 文書の話者の id の集まり(無い id の話者は守らない)"""
+    if not isinstance(g, dict):
+        return False
+    sp = str(g.get("speaker") or "")
+    if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID:
+        return True
+    return bool(sp) and sp in ids and "overlap" in (g.get("tags") if isinstance(g.get("tags"), list) else [])
+
+
+def _diar_kept_speakers(doc, segs, keep, taken):
+    """守った行の話者を、判別のあとの話者の一覧に残す。taken = 新しい話者の id(重なれば守った方の id を付け替える)。
+    -> ([残す話者], {古い id: 新しい id})。組み込みの話者は id を変えない(決まった id)"""
+    old = [s for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")]
+    used = {str(g.get("speaker") or "") for g, k in zip(segs, keep) if k and g.get("speaker")}
+    out, remap, have = [], {}, set(taken)
+    for s in old:
+        sid = str(s["id"])
+        if sid not in used:
+            continue
+        nid, n = sid, 0
+        if sid != ed_state.OTHER_SPK_ID:
+            while nid in have or nid == ed_state.OTHER_SPK_ID:   # 例: 守った行の「S2」→「S2p」(新しい判別の S2 とは別の人)
+                n += 1
+                nid = sid[:8] + "p" + (str(n) if n > 1 else "")
+        have.add(nid)
+        remap[sid] = nid
+        out.append(dict(s, id=nid))
+    out.sort(key=lambda s: s.get("id") == ed_state.OTHER_SPK_ID)   # 組み込みの話者は最後(Alt+数字の番号に入らない)
+    return out, remap
+
+
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None):
     doc = ed_store.read_transcript(tid)
     segs = doc.get("segments") or []
+    ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    keep = [diar_keep_row(g, ids) for g in segs]   # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     res = assign_speakers(segs, turns, offset)
     spent = {}
-    for sg, (sp, _, _) in zip(segs, res):
-        if sp is not None:
+    for sg, (sp, _, _), k in zip(segs, res, keep):
+        if sp is not None and not k:
             spent[sp] = spent.get(sp, 0.0) + max(0.0, sg["end"] - sg["start"])
     order = sorted(spent, key=lambda k: -spent[k])[:MAX_SPEAKERS]   # 話した時間が長い人から「話者1」「話者2」…
     idmap = {raw: "S%d" % (i + 1) for i, raw in enumerate(order)}
     speakers = [{"id": "S%d" % (i + 1), "name": "話者%d" % (i + 1), "color": SPK_COLORS[i % len(SPK_COLORS)]} for i in range(len(order))]
+    kept_sps, remap = _diar_kept_speakers(doc, segs, keep, set(idmap.values()))
+    speakers += kept_sps
     unsure = 0
-    for sg, (sp, mixed, weak) in zip(segs, res):
+    for sg, (sp, mixed, weak), k in zip(segs, res, keep):
+        if k:   # 守った行: 話者(付け替えた id)も印もそのまま
+            if sg.get("speaker"):
+                sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
+            continue
         sg["speaker"] = idmap.get(sp, "")
         parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in (ed_state.MIXED_FLAG, ed_state.WEAK_FLAG, ed_state.NONE_FLAG)]
         mark = ed_state.NONE_FLAG if not sg["speaker"] else ed_state.MIXED_FLAG if mixed else ed_state.WEAK_FLAG if weak else ""
@@ -458,11 +500,23 @@ def validate_diarize(req):
 
 
 def single_speaker(tid, name):
-    """話す人が1人: 判別せずに全部の行をその人に(名前が無ければ「話者1」)。-> 行の数"""
+    """話す人が1人: 判別せずに全部の行をその人に(名前が無ければ「話者1」)。-> 行の数。
+    手で決めた行(diar_keep_row = 字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない(2026-10-05)"""
     with ed_store._save_lock:
         doc = ed_store.read_transcript(tid)
         segs = doc.get("segments") or []
-        for sg in segs:
+        ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+        keep = [diar_keep_row(g, ids) for g in segs]
+        kept_sps, remap = _diar_kept_speakers(doc, segs, keep, {"S1"})
+        same = _spk_name_key(name or "話者1")
+        for s in [s for s in kept_sps if s.get("id") != ed_state.OTHER_SPK_ID and _spk_name_key(s.get("name")) == same]:   # 同じ名前の人は 1 人にまとめる
+            remap.update({k: "S1" for k, v in remap.items() if v == s["id"]})
+            kept_sps.remove(s)
+        for sg, k in zip(segs, keep):
+            if k:
+                if sg.get("speaker"):
+                    sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
+                continue
             sg["speaker"] = "S1"
             sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in (ed_state.MIXED_FLAG, ed_state.WEAK_FLAG, ed_state.NONE_FLAG))[:100]
         bak = os.path.join(ed_state.TX_DIR, ".bak")
@@ -472,7 +526,7 @@ def single_speaker(tid, name):
             ed_store.hist_snapshot(tid, force=True)
         except OSError:
             pass
-        doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}], "segments": segs, "updatedAt": int(time.time() * 1000),
+        doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}] + kept_sps, "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
         ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
         _record_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "single", "requested": 1}, "offset": 0.0, "turns": [], "overlaps": [],
@@ -591,7 +645,7 @@ def autodiar_why_not(doc):
         return "empty"
     if doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict):
         return "reviewed"
-    if any(g.get("speaker") in ids for g in rows):
+    if any(g.get("speaker") in ids and not diar_keep_row(g, ids) for g in rows):   # 守る行(ゲーム音声など・字幕に出さない・重なりのメモ)は判別で変わらないので数えない
         return "has_speakers"
     return None
 
@@ -669,7 +723,7 @@ def autodiar_name_by_context(tid, name):
         sps = [s for s in doc.get("speakers") or [] if isinstance(s, dict)]
         spent = {}
         for g in doc.get("segments") or []:
-            if isinstance(g, dict) and g.get("speaker") and str(g.get("text") or "").strip():
+            if isinstance(g, dict) and g.get("speaker") and str(g.get("text") or "").strip() and not ed_state.no_sub_row(g):   # 字幕に出さない行(ゲームの声など)は話した秒に数えない
                 a, b = ed_state.num(g.get("start"), 0.0) or 0.0, ed_state.num(g.get("end"), 0.0) or 0.0
                 spent[g["speaker"]] = spent.get(g["speaker"], 0.0) + max(0.0, b - a)
         left = [s for s in sps if DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and spent.get(s.get("id"), 0.0) > 0]
@@ -733,7 +787,7 @@ _voices_lock = threading.Lock()
 # 一般的な名前(監査18。段1・2026-09-29 ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
 # 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に NFKC・小文字・空白を寄せる(全角の「ＭＣ」・「Speaker 1」も同じに)
 GENERIC_SPK_NAMES = frozenset(("本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
-                               "話者", "speaker", "スピーカー"))
+                               "話者", "speaker", "スピーカー", ed_state.OTHER_SPK_NAME))   # 組み込みの「ゲーム音声など」も人の名前ではない(覚えない・照らし合わせない)
 GENERIC_SPK_FORM = re.compile(r"^(?:話者|speaker|spk|スピーカー)?(?:\d+|[a-z])$")   # 話者A・話者1・Speaker 1・英字1文字・数字だけ
 
 
@@ -924,7 +978,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
     got, detail = {}, {}
     if voices:
         doc = ed_store.read_transcript(tid)
-        grp = voice_groups(doc.get("segments") or [], lambda g: g.get("speaker") or "")
+        grp = voice_groups(doc.get("segments") or [], lambda g: "" if ed_state.no_sub_row(g) or g.get("speaker") == ed_state.OTHER_SPK_ID else (g.get("speaker") or ""))   # ゲーム音声など・字幕に出さない行は照らし合わせない
         ids = list(grp)
         if ids:
             job["phase"] = "覚えている声と照らし合わせ中"
@@ -987,7 +1041,7 @@ def voice_learn_plan(doc):
     話者判別のときの照らし合わせ(recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
     -> {"groups": {名前: ([(開始, 終了)...], 秒)}, "speakers": {名前: [話者の id]}, "refused": [{"name", "speakers", "reason": "generic"|"no_rows"}],
         "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ)}"""
-    names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict) and not ed_state.other_speaker(s)}   # 組み込みの「ゲーム音声など」は覚えない(断った扱いにもしない)
     by_name, refused = {}, {}
     for sid, n in names.items():
         if not n or DEFAULT_SPK_NAME.match(n):
@@ -1158,3 +1212,55 @@ def delete_voice(emb, name):
             raise ed_state.ApiError("not_found", "その声は覚えていません", 404)
         del voices[name]
         save_voices(emb, voices)
+
+
+# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。docs/plan/sender-streamer-color-plan.md の 3・6) ----------
+# POST /api/speakers/sub {"id": 文書の id, "styles": {"名前": {"color": "#RRGGBB" か "RRGGBB"}}} -> {"ok": true, "applied": [名前…]}
+# 友人の依頼で指定した色を、話者分離のあとに文書の話者へ覚える(PC の「自分の色」には入れない)。名前がちょうど合った人(NFKC・空白を寄せて比べる)だけ。
+# 合う人がいなくても 200(applied が空)。履歴の控えは recognize_voices が名前を付けるときと同じく残さない(話者の見た目だけの書き込み)
+SPKSUB_SKIP_KINDS = ("alt", "normalize")   # この文書を書き換えないジョブ(2つ目のエンジン・30fps の作り直し)は「最中」に数えない
+
+
+def _spksub_key(name):
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(name or ""))).strip()
+
+
+def _spksub_busy(tid):
+    with ed_jobs._jobs_lock:
+        return any(j.get("state") in ed_jobs.ACTIVE_STATES and j.get("kind") not in SPKSUB_SKIP_KINDS
+                   and tid in (j.get("tid"), (j.get("spec") or {}).get("tid"), (j.get("spec") or {}).get("intoDoc")) for j in ed_jobs._jobs.values())
+
+
+def speakers_sub_apply(obj):
+    tid = str(obj.get("id") or "") if isinstance(obj, dict) else ""
+    if not ed_state.TID_RE.match(tid):
+        raise ed_state.ApiError("bad_request", "文書の指定が正しくありません", 400)
+    styles = obj.get("styles")
+    if not isinstance(styles, dict) or len(styles) > 50:
+        raise ed_state.ApiError("bad_request", "styles は {名前: {color}} の形で送ってください(50 人まで)", 400)
+    want = {}
+    for name, st in styles.items():
+        if not isinstance(name, str) or not isinstance(st, dict) or len(name) > 200 or any(ord(ch) < 32 for ch in name):
+            raise ed_state.ApiError("bad_request", "styles の名前・中身の形が正しくありません", 400)
+        if "color" in st and ed_store._sub_color(st["color"]) is None:
+            raise ed_state.ApiError("bad_request", "字幕の色は 16 進 6 桁(#RRGGBB)で送ってください: %s" % str(st["color"])[:20], 400)
+        one = ed_store.sanitize_sub_style(st)   # 知らない鍵は黙って捨てる(新しい入口が古い編集へ送っても、色までは効く)
+        key = _spksub_key(name)
+        if one and key:
+            want[key] = one
+    with ed_store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)
+        doc = ed_store.read_transcript(tid)
+        if _spksub_busy(tid):
+            raise ed_state.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度送ってください)", 409)
+        applied = []
+        for s in doc.get("speakers") or []:
+            if not isinstance(s, dict) or ed_state.other_speaker(s):
+                continue
+            one = want.get(_spksub_key(s.get("name")))
+            if one:
+                s["sub"] = dict(ed_store.sanitize_sub_style(s.get("sub")) or {}, **one)
+                applied.append(str(s.get("name") or ""))
+        if applied:
+            doc["updatedAt"] = max(int(time.time() * 1000), int(ed_state.num(doc.get("updatedAt"), 0) or 0) + 1)
+            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    return {"ok": True, "applied": applied}

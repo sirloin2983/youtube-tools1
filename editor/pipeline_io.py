@@ -148,8 +148,11 @@ def build_transcript_v1(doc, version):
         text = str(g.get("text") or "").strip()
         if not text:
             continue
-        segs.append({"id": str(g.get("id") or ""), "start": round(float(g["start"]), 3), "end": round(float(g["end"]), 3), "text": text,
-                     "speaker": index.get(g.get("speaker")), "proofed": g.get("proofed") is True, "cut": g.get("cutState") == "cut"})
+        one = {"id": str(g.get("id") or ""), "start": round(float(g["start"]), 3), "end": round(float(g["end"]), 3), "text": text,
+               "speaker": index.get(g.get("speaker")), "proofed": g.get("proofed") is True, "cut": g.get("cutState") == "cut"}
+        if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など。2026-10-05)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
+            one["noSub"] = True
+        segs.append(one)
     out = {"schema": TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(),
            "media": {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
                      "durationSec": _num(doc.get("duration"))}}
@@ -189,13 +192,14 @@ def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
     """画面の SRT 書き出し(index.html の exportRows / buildExport)と同じ規則:
     文字が空の行は出さない・終わりが基準より前の行は出さない・開始は 0 未満にしない・話者名は「[名前] 」を頭に付ける。
     動画の隣に保存する SRT は、その動画の先頭を 0 秒にする(base=0。範囲指定の文書でも動画の時刻のまま)。
-    カット済の行も出す(字幕は動画全体に対するもの。カットは cut-plan と一緒に cut2resolve が適用する)。"""
+    カット済の行も出す(字幕は動画全体に対するもの。カットは cut-plan と一緒に cut2resolve が適用する)。
+    字幕に出さない行(noSub。ゲームの声など)は出さない。"""
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     cues = []
     for g in sorted_segments(doc):
         text = str(g.get("text") or "").strip()
         a, b = float(g["start"]) - base, float(g["end"]) - base
-        if not text or b <= 0:
+        if not text or b <= 0 or g.get("noSub") is True:
             continue
         name = names.get(g.get("speaker"), "") if speaker_names and g.get("speaker") else ""
         cues.append((max(0.0, a), b, ("[%s] " % name if name else "") + wrap_text(text, wrap)))

@@ -614,6 +614,35 @@ class TestJobs(ServerBase):
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_t6"), "textplus": True, "videoTracks": 6}})
         self.assertEqual((st, e["error"]), (400, "bad_tracks"))
 
+    def test_overlap_nosub_and_speaker_styles(self):
+        """重なる字幕の段・字幕に出さない行(noSub)・話者ごとの色の指定(speakerStyles)を API で。見積もり(api/plan)に段の数など"""
+        doc = {"schema": "youtube-tools-transcript/v1", "tool": {"name": "transcribe-tool", "version": "0"}, "media": {},
+               "speakers": [{"id": 0, "name": "兎田ぺこら"}, {"id": 1, "name": "話者2"}],
+               "segments": [{"id": "a", "start": 0.5, "end": 2.0, "text": "一", "speaker": 0},
+                            {"id": "b", "start": 1.0, "end": 2.5, "text": "二", "speaker": 1},
+                            {"id": "c", "start": 3.0, "end": 4.0, "text": "ゲーム", "speaker": 1, "noSub": True},
+                            {"id": "d", "start": 4.5, "end": 5.5, "text": "三", "speaker": 0}]}
+        tr = self.dir / "styles.transcript.json"
+        tr.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        spec = {"video": str(self.video), "transcript": str(tr), "keeps": [[0.5, 6.0]]}
+        out = self.dir / "tp_styles"
+        output = {"dir": str(out), "textplus": True, "speakerColors": False,
+                  "speakerStyles": {"兎田ぺこら": {"color": "ff0000", "font": "x"}, "だれか": {"color": "#00FF00"}, "話者2": "bad"}}
+        p = self.run_job("/api/plan", {"spec": spec, "output": output})
+        self.assertEqual(p["state"], "done", p)
+        r = p["result"]
+        self.assertEqual((r["captionLanes"], r["captionsStacked"], r["captionsTrimmed"], r["noSubRows"]), (2, 1, 0, 1))
+        self.assertEqual(r["subtitles"]["out"], 3)
+        j = self.run_job("/api/build", {"spec": spec, "output": output})
+        self.assertEqual(j["state"], "done", j)
+        ip = serve.TP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二", "三"])
+        self.assertEqual([c.get("fill") for c in ip["captions"]], [[1.0, 0.0, 0.0, 1.0], None, [1.0, 0.0, 0.0, 1.0]])   # speakerColors が false でも効く
+        self.assertEqual([c.get("trackUp") for c in ip["captions"]], [None, 1, None])
+        self.assertEqual(j["result"]["speakerColors"], [{"speaker": "兎田ぺこら", "name": "兎田ぺこら", "hex": "#FF0000", "from": "speakerStyles"}])
+        self.assertEqual((j["result"]["summary"]["captionLanes"], j["result"]["summary"]["noSubRows"]), (2, 1))
+        self.assertIn("V2〜V3 Text+ 字幕", j["result"]["readme"])
+
     def test_output_dir_must_not_be_input(self):
         st, j = self.c.json("POST", "/api/build", {"spec": self.spec(), "output": {"dir": str(self.srt)}})
         self.assertEqual((st, j["error"]), (400, "bad_out"))
@@ -760,6 +789,44 @@ class SpeakerColorMapTest(unittest.TestCase):
             self.assertEqual(serve.speaker_color_map(mock.Mock(speaker_spans=None)), ({}, []))
         self.assertTrue(serve.output_from_spec({"textplus": True}, Path("x.mp4"))["speakerColors"])          # 既定はオン
         self.assertFalse(serve.output_from_spec({"textplus": True, "speakerColors": False}, Path("x.mp4"))["speakerColors"])
+
+
+class SpeakerStylesTest(unittest.TestCase):
+    """話者ごとの字幕の見た目の指定 output.speakerStyles(docs/plan/sender-streamer-color-plan.md の 6)。
+    検査は鍵ごとの許可の一覧(今は color だけ)。知らない鍵・形の違う値はその項目だけ捨てる。全体の形が違えば無かったことにする"""
+
+    def test_sanitize(self):
+        f = serve.speaker_styles_from
+        self.assertEqual(f(None), {})
+        for bad in ([], "x", 1, True, [{"color": "#FF0000"}]):
+            self.assertEqual(f(bad), {}, bad)
+        self.assertEqual(f({"みこ": {"color": "ff8fdf"}, " すいせい ": {"color": "#0047ab"}}),
+                         {"みこ": {"color": "#FF8FDF"}, "すいせい": {"color": "#0047AB"}})
+        got = f({"a": {"color": "#FF0000", "font": "Comic", "size": 3},   # 知らない鍵は捨てる(色は効く)
+                 "b": {"color": "red"}, "c": {"color": "#FFF"}, "d": {"color": 0xFF0000}, "e": {"color": "#GG0000"},   # 形の違う色 → その人ごと(鍵が残らない)
+                 "f": "#FF0000", "": {"color": "#FF0000"}, "x" * 61: {"color": "#FF0000"}, "x" * 60: {"color": "#00ff00"}})
+        self.assertEqual(got, {"a": {"color": "#FF0000"}, "x" * 60: {"color": "#00FF00"}})
+        many = {"人%d" % i: {"color": "#000000"} for i in range(70)}
+        self.assertEqual(len(f(many)), 50)
+        self.assertEqual(list(f(many))[:2], ["人0", "人1"])
+        self.assertEqual(f({"a": {"color": "#ff0000"}, "a ": {"color": "#00ff00"}}), {"a": {"color": "#FF0000"}})   # 同じ名前は先のもの
+        self.assertEqual(set(serve.SPEAKER_STYLE_KEYS), {"color"})
+        o = serve.output_from_spec({"textplus": True, "speakerStyles": {"みこ": {"color": "#ff0000", "x": 1}}}, Path("x.mp4"))
+        self.assertEqual(o["speakerStyles"], {"みこ": {"color": "#FF0000"}})
+        self.assertEqual(serve.output_from_spec({"speakerStyles": "bad"}, Path("x.mp4"))["speakerStyles"], {})
+
+    def test_priority_over_member_colors(self):
+        """指定の色がメンバーカラーより先。名前は ytt_core.colors.normalize でそろえて同じなら合う(部分一致はしない)"""
+        plan = mock.Mock(speaker_spans=[(0, 1, "さくら みこ"), (1, 2, "話者2"), (2, 3, "ぺこら"), (3, 4, "サクラミコ")])
+        base = ({"さくら みこ": "#FF8FDF", "ぺこら": "#7EC2FE"}, [{"speaker": "さくら みこ", "name": "さくらみこ", "hex": "#FF8FDF"},
+                                                              {"speaker": "ぺこら", "name": "兎田ぺこら", "hex": "#7EC2FE"}])
+        styles = serve.speaker_styles_from({"さくらみこ": {"color": "#111111"}, "話者２": {"color": "#222222"}, "ぺこ": {"color": "#333333"}})
+        m, shown = serve.apply_speaker_styles(plan, styles, *base)
+        self.assertEqual(m, {"さくら みこ": "#111111", "サクラミコ": "#111111", "話者2": "#222222", "ぺこら": "#7EC2FE"})
+        self.assertEqual([x["speaker"] for x in shown], ["ぺこら", "さくら みこ", "サクラミコ", "話者2"])
+        self.assertEqual(shown[1], {"speaker": "さくら みこ", "name": "さくら みこ", "hex": "#111111", "from": "speakerStyles"})
+        self.assertEqual(base[0]["さくら みこ"], "#FF8FDF")                                # 渡した対応は書き換えない
+        self.assertEqual(serve.apply_speaker_styles(plan, {}, *base), base)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

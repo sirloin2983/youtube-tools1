@@ -31,11 +31,11 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights}
+        self.last = {"flow": flow, "deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
@@ -364,15 +364,70 @@ class TestVideo(Base):
     def test_speakers_passed(self):
         """話す人(1.3.0 のアプリ): 人数と名前をまとめて実行へ。形が違えば話者分離しない"""
         self.assertEqual(intake.parse_speakers({"count": 2, "names": [" 兎田ぺこら ", "", "兎田ぺこら", "宝鐘マリン", "x"]}),
-                         {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"]})
+                         {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}})   # 古い形(people なし)= styles は空
         for bad in (None, {"count": 0}, {"count": 11}, {"count": "2"}, {"count": True}):
             self.assertIsNone(intake.parse_speakers(bad))
         rid = "20261001-120000-abc130"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "speakers": {"count": 1, "names": ["さくらみこ"]},
                                                      "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}, ensure_ascii=False))
         self.scan2()
-        self.assertEqual(self.runner.last["speakers"], {"count": 1, "names": ["さくらみこ"]})
-        self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "話す人: 1人(さくらみこ)")
+        self.assertEqual(self.runner.last["speakers"], {"count": 1, "names": ["さくらみこ"], "styles": {}})
+        self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "配信者: 1人(さくらみこ)")
+
+    def test_parse_speakers_people_style(self):
+        """2.1.0 のアプリ: people[].style.color(16 進 6 桁)を styles に。# つき・小文字も受け、# つきの形にそろえる。
+        形の違う値・names に無い名前・知らない鍵はその項目だけ黙って捨てる(外から来る文字なので、画面・Lua に入る前に 6 桁だけにする)"""
+        ps = intake.parse_speakers
+        got = ps({"count": 3, "names": ["A", "B", "C"],
+                  "people": [{"name": "A", "style": {"color": "FF00AA"}}, {"name": " B ", "style": {"color": "#00ff7f"}}, {"name": "C"}]})
+        self.assertEqual(got, {"count": 3, "names": ["A", "B", "C"], "styles": {"A": {"color": "#FF00AA"}, "B": {"color": "#00FF7F"}}})
+        for bad in ("FF00A", "FF00AAA", "GG00AA", "#", "", " ", "FF00AA\nx", "0xFF00AA", "FF 00AA", 123456, 0xFF00AA, None, True, ["FF00AA"], {"c": 1}, "ＦＦ００ＡＡ"):
+            self.assertEqual(ps({"count": 1, "names": ["A"], "people": [{"name": "A", "style": {"color": bad}}]})["styles"], {}, repr(bad))
+        # 知らない鍵は捨てて、色は残す
+        got = ps({"count": 1, "names": ["A"], "people": [{"name": "A", "style": {"color": "112233", "font": "Arial", "size": 40, "outline": {"x": 1}}}]})
+        self.assertEqual(got["styles"], {"A": {"color": "#112233"}})
+        # names に無い名前・count で切った後の名前・同じ名前は先のもの・形の違う people
+        got = ps({"count": 1, "names": ["A", "B"], "people": [{"name": "B", "style": {"color": "111111"}}, {"name": "Z", "style": {"color": "222222"}},
+                                                                {"name": "A", "style": {"color": "333333"}}, {"name": "A", "style": {"color": "444444"}}]})
+        self.assertEqual((got["names"], got["styles"]), (["A"], {"A": {"color": "#333333"}}))
+        for people in (None, "x", 3, {"name": "A"}, ["A"], [None, 5, {"name": 3, "style": {"color": "111111"}}, {"name": "A", "style": "red"}, {"name": "A", "style": []},
+                                                              {"name": "A\x00", "style": {"color": "111111"}}, {"style": {"color": "111111"}}]):
+            self.assertEqual(ps({"count": 1, "names": ["A"], "people": people})["styles"], {}, repr(people))
+        self.assertEqual(ps({"count": 1, "names": ["A"]})["styles"], {})   # 古いアプリ: people なし
+
+    def test_speakers_label_with_styles(self):
+        """依頼の記録の「配信者: n人(…)」: 色を指定した人がいれば人数を足す(受付の画面 portal.js は speakersLabel をそのまま出す)"""
+        rid = "20261001-120000-abc140"
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "streamer": "さくらみこ",
+                                                     "speakers": {"count": 2, "names": ["A", "B"], "people": [{"name": "A", "style": {"color": "FF00AA"}}, {"name": "B"}]},
+                                                     "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}, ensure_ascii=False))
+        self.scan2()
+        self.assertEqual(self.runner.last["speakers"], {"count": 2, "names": ["A", "B"], "styles": {"A": {"color": "#FF00AA"}}})
+        self.assertEqual(self.it.snapshot()["requests"][0]["speakersLabel"], "配信者: 2人(A・B)・色の指定 1人")
+
+    def test_url_request_streamer(self):
+        """URL の依頼の streamer(2.1.0 のアプリ): メンバーと合えばまとめて実行へ。合わなければ自動(None)+ 知らせ。無ければ今までどおり(None)"""
+        def send(rid, extra):
+            d = {"v": 1, "kind": "url", "id": rid, "items": [{"url": "https://youtu.be/abcdefghijk", "top": 2}]}
+            d.update(extra)
+            self.put(rid + ".request.json", json.dumps(d, ensure_ascii=False))
+            self.scan2()
+            return self.it.snapshot()["requests"][0]
+        rec = send("20261001-120000-abc141", {"streamer": "さくらみこ"})
+        self.assertEqual((self.runner.last["streamer"], rec["streamer"], rec["state"]), ("さくらみこ", "さくらみこ", "accepted"))
+        self.assertFalse([i for i in rec["items"] if i["label"] == "配信者"])
+        rec = send("20261001-120000-abc142", {"streamer": "だれでもない人"})
+        self.assertEqual((self.runner.last["streamer"], rec["streamer"], rec["state"]), (None, "", "accepted"))
+        self.assertTrue(any(i["label"] == "配信者" and "色なし" in i["reason"] and i["state"] == "accepted" for i in rec["items"]))
+        self.assertEqual(rec["title"], "題名 abcdefghijk")   # 知らせの行が題名を奪わない
+        rec = send("20261001-120000-abc143", {"streamer": ""})
+        self.assertEqual((self.runner.last["streamer"], rec["streamer"]), (None, ""))
+        self.assertFalse([i for i in rec["items"] if i["label"] == "配信者"])
+        rec = send("20261001-120000-abc144", {})   # 古いアプリ: streamer なし
+        self.assertEqual((self.runner.last["streamer"], rec["streamer"]), (None, ""))
+        self.assertFalse([i for i in rec["items"] if i["label"] == "配信者"])
+        rec = send("20261001-120000-abc145", {"streamer": 5})   # 文字列でない = 合わない名前として扱う(自動)
+        self.assertIsNone(self.runner.last["streamer"])
 
     def test_video_tracks_passed_only_for_auto(self):
         """映像トラックの数(1.4.0 のアプリ。① 全自動のときだけ): 1〜5 をまとめて実行へ。無い・形が違えば 1。②③ は渡さない"""

@@ -152,6 +152,8 @@ class TestEditStore(StoreDir):
         e3 = S.sanitize_edit(edit_obj(clips=((0, 5.6166),)))                            # 0.0166 秒 = 30fps の半フレーム → カット済
         self.assertEqual(S.edit_cut_flags([{"start": 5.6, "end": 8.0}], e3), [True])
         self.assertEqual(S.edit_cut_flags([{"start": 0, "end": 1}], S.sanitize_edit(edit_obj(clips=()))), [True])   # 全部削った
+        # 字幕に出さない行(noSub。2026-10-05)も「残す」の判定は同じ(映像は削られない。cut.js の rowCutFlags も印を見ない)
+        self.assertEqual(S.edit_cut_flags([dict(g, noSub=True, speaker="other") for g in segs], e), [True, False, False, True, False, False])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_record_pack_and_stale(self):

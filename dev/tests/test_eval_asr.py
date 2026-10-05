@@ -1037,5 +1037,142 @@ class EvalAsrOriginTest(unittest.TestCase):
         self.assertEqual(list(res["origins"]), ["raw"])
 
 
+def sg(i, a, b, text, **kw):
+    """seg に話者・noSub などの項目を足した行"""
+    g = seg(i, a, b, text)
+    g.update(kw)
+    return g
+
+
+class EvalAsrNoSubOverlapTest(unittest.TestCase):
+    """字幕に出さない行(noSub)の別集計と、重なりのまとまりの別集計(overlap・nonOverlap)。noSub も重なりも無い文書は今までと同じ数"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="test_eval_asr_nosub_")
+        self.data = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(self.data, "transcripts"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, tid, **kw):
+        doc = {"schema": "transcribe/v1", "id": tid, "title": tid, "sourcePath": "", "start": 0, "end": None, "language": "ja",
+               "speakers": [], "updatedAt": 1, "evalSet": True, **kw}
+        with open(os.path.join(self.data, "transcripts", tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False)
+
+    def stored(self, *argv):
+        return quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save", "--reviewed", "ignore", *argv])
+
+    def test_no_nosub_no_overlap_is_zero_and_numbers_unchanged(self):
+        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 4.0, "まつりが来た")], original=[{"start": 0.0, "end": 4.0, "text": "祭りが来た"}])
+        res = self.stored()
+        s = res["summary"]
+        self.assertEqual(res["meta"]["mismatch"], [])
+        self.assertEqual((s["overall"]["refChars"], s["overall"]["sub"], s["overall"]["del"], s["overall"]["ins"]), (6, 1, 1, 0))
+        self.assertEqual(s["overlap"], {"groups": 0, "sec": 0, "refChars": 0, "cer": None, "miss": 0})
+        self.assertEqual(s["nonOverlap"], {"refChars": 6, "cer": s["overall"]["cer"]})
+        self.assertEqual((s["noSub"]["docs"], s["noSub"]["rows"], s["noSub"]["sec"], s["noSub"]["machineChars"]), (0, 0, 0, 0))
+        self.assertTrue(all("ovl" not in g for g in res["groups"]))
+
+    def test_nosub_rows_and_machine_chars_are_separate(self):
+        machine = [{"start": 0.0, "end": 4.0, "text": "こんにちは"}, {"start": 10.0, "end": 14.0, "text": "ゲームのセリフです"}, {"start": 50.0, "end": 54.0, "text": "ご視聴"}]
+        base = [sg(1, 0.0, 4.0, "こんにちは")]
+        self.write("aaaaaaaaaa01", evalReviewed={"at": 5, "rows": 1, "durationSec": 60.0, "via": "drill"}, segments=base, original=machine)       # noSub の行なし
+        self.write("bbbbbbbbbb01", evalReviewed={"at": 5, "rows": 2, "durationSec": 60.0, "via": "drill"},
+                   segments=base + [sg(2, 10.0, 14.0, "ゲームのセリフ", speaker="S2", noSub=True)], original=machine)
+        res = quiet(E.main, ["stored", "--data", self.data, "--intake", os.path.join(self.tmp, "intake"), "--no-save"])
+        by = {d["id"]: d for d in res["summary"]["byDoc"]}
+        self.assertEqual(res["meta"]["mismatch"], [])
+        # 余分: noSub の行が無い文書は「ゲームのセリフです」+「ご視聴」、ある文書は「ご視聴」だけ
+        self.assertEqual(by["aaaaaaaaaa01"]["ins"], len("ゲームのセリフです") + len("ご視聴"))
+        self.assertEqual(by["bbbbbbbbbb01"]["ins"], len("ご視聴"))
+        self.assertEqual(by["bbbbbbbbbb01"]["refChars"], by["aaaaaaaaaa01"]["refChars"])           # 人の noSub の行は正解に入れない
+        ns = res["summary"]["noSub"]
+        self.assertEqual((ns["docs"], ns["rows"], ns["sec"], ns["machineChars"]), (1, 1, 4.0, len("ゲームのセリフです")))
+        self.assertEqual(list(ns["byDoc"]), ["bbbbbbbbbb01"])
+        self.assertEqual(res["summary"]["reviewed"]["extraChars"], len("ゲームのセリフです") + 2 * len("ご視聴"))   # 確かめ済みの余分にも入れない(2 本目は ご視聴 だけ)
+
+    def test_overlap_group_is_counted_separately_with_best_order(self):
+        # 2 人が同時にしゃべる(0〜3 の A「あいうえお」・1〜4 の B「かきくけこ」)。機械は話者ごとに B → A の順で書いた
+        segs = [sg(1, 0.0, 3.0, "あいうえお", speaker="A"), sg(2, 1.0, 4.0, "かきくけこ", speaker="B"), sg(3, 10.0, 12.0, "ふつうの行", speaker="A")]
+        machine = [{"start": 0.0, "end": 4.0, "text": "かきくけこあいうえお"}, {"start": 10.0, "end": 12.0, "text": "ふつうの行"}]
+        self.write("aaaaaaaaaa01", segments=segs, original=machine)
+        res = self.stored()
+        s = res["summary"]
+        self.assertEqual(res["meta"]["mismatch"], [])
+        self.assertEqual(s["overlap"], {"groups": 1, "sec": 4.0, "refChars": 10, "cer": 0.0, "miss": 0})   # 並べ方を入れ替えた小さい方 = 誤りなし
+        self.assertEqual(s["nonOverlap"], {"refChars": 5, "cer": 0.0})
+        o = s["overall"]                                                                                 # 主な数字は今までの数え方(開始時刻の順)のまま = 誤りが出る
+        self.assertEqual(o["refChars"], 15)
+        self.assertGreater(o["errs"], 0)
+        g = next(g for g in res["groups"] if "ovl" in g)
+        self.assertEqual(g["ovl"]["sub"] + g["ovl"]["del"] + g["ovl"]["ins"], 0)
+        self.assertGreater(g["sub"] + g["del"] + g["ins"], 0)
+
+    def test_overlap_miss_counts_deleted_chars(self):
+        segs = [sg(1, 0.0, 3.0, "あいうえお", speaker="A"), sg(2, 1.0, 4.0, "かきくけこ", speaker="B")]
+        self.write("aaaaaaaaaa01", segments=segs, original=[{"start": 0.0, "end": 4.0, "text": "あいうえお"}])   # 片方しか書かなかった
+        s = self.stored()["summary"]
+        self.assertEqual((s["overlap"]["groups"], s["overlap"]["miss"], s["overlap"]["cer"]), (1, 5, 0.5))
+
+    def test_overlap_needs_different_speakers_and_0_3_sec(self):
+        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 3.0, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="A")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
+        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 0)                              # 同じ話者
+        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 1.29, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="B")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
+        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 0)                              # 0.29 秒
+        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 1.3, "あいう", speaker="A"), sg(2, 1.0, 4.0, "えおか", speaker="B")], original=[{"start": 0.0, "end": 4.0, "text": "あいうえおか"}])
+        self.assertEqual(self.stored()["summary"]["overlap"]["groups"], 1)                              # 0.3 秒ちょうど
+
+    def test_nosub_is_removed_before_counting_overlap(self):
+        """字幕に出さない行は先に外す: ゲーム音声と重なっても重なりのまとまりにならない"""
+        segs = [sg(1, 0.0, 3.0, "あいう", speaker="A"), sg(2, 1.0, 4.0, "ゲーム", speaker="G", noSub=True)]
+        self.write("aaaaaaaaaa01", segments=segs, original=[{"start": 0.0, "end": 3.0, "text": "あいう"}, {"start": 1.0, "end": 4.0, "text": "ゲーム"}])
+        s = self.stored()["summary"]
+        self.assertEqual(s["overlap"]["groups"], 0)
+        self.assertEqual(s["noSub"]["rows"], 1)
+
+    def test_print_and_compare_show_overlap(self):
+        segs = [sg(1, 0.0, 3.0, "あいうえお", speaker="A"), sg(2, 1.0, 4.0, "かきくけこ", speaker="B"), sg(3, 10.0, 12.0, "ふつうの行", speaker="A")]
+        self.write("aaaaaaaaaa01", segments=segs, original=[{"start": 0.0, "end": 4.0, "text": "かきくけこあいうえお"}, {"start": 10.0, "end": 12.0, "text": "ふつう行"}])
+        res = self.stored()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            E.print_summary(res)
+        self.assertIn("重なりのまとまり 1", out.getvalue())
+        pa = os.path.join(self.tmp, "a.json")
+        pb = os.path.join(self.tmp, "b.json")
+        b = json.loads(json.dumps(res))
+        for g in b["groups"]:
+            if "ovl" in g:
+                g["ovl"] = {"sub": 2, "del": 0, "ins": 0}
+            else:
+                g["del"] = 0
+        for path, r in ((pa, res), (pb, b)):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(r, f, ensure_ascii=False)
+        cmp_ = quiet(E.cmd_compare, pa, pb)
+        self.assertEqual(cmp_["overlap"]["groups"], 1)
+        self.assertEqual((cmp_["overlap"]["cerA"], cmp_["overlap"]["cerB"]), (0.0, 0.2))
+        self.assertEqual((cmp_["nonOverlap"]["cerA"], cmp_["nonOverlap"]["cerB"]), (0.2, 0.0))
+        self.assertEqual(cmp_["nonOverlap"]["diff"], -0.2)
+        # 重なりの無い結果どうしの compare には、重なりの欄を足さない(今までと同じ出力)
+        self.write("aaaaaaaaaa01", segments=[sg(1, 0.0, 4.0, "あいう", speaker="A")], original=[{"start": 0.0, "end": 4.0, "text": "あいう"}])
+        plain = self.stored()
+        pp = os.path.join(self.tmp, "p.json")
+        with open(pp, "w", encoding="utf-8") as f:
+            json.dump(plain, f, ensure_ascii=False)
+        c2 = quiet(E.cmd_compare, pp, pp)
+        self.assertNotIn("overlap", c2)
+        self.assertNotIn("nonOverlap", c2)
+
+    def test_group_by_still_works_with_overlap(self):
+        segs = [sg(1, 0.0, 3.0, "あいうえお", speaker="A"), sg(2, 1.0, 4.0, "かきくけこ", speaker="B")]
+        self.write("aaaaaaaaaa01", segments=segs, original=[{"start": 0.0, "end": 4.0, "text": "あいうえお"}])
+        res = self.stored("--group-by", "origin")
+        self.assertEqual(list(res["summary"]["byGroup"]), ["ショート"])
+        self.assertEqual(res["summary"]["overlap"]["groups"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

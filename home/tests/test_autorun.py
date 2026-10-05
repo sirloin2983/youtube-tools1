@@ -1033,6 +1033,129 @@ class TestRequests(Base):
         body = self.tools.tx_jobs["d1"]["body"]
         self.assertEqual((body["tid"], body["numSpeakers"], body["names"]), ("000000000001", 2, ["兎田ぺこら"]))
 
+    def _diarize_fake(self, sub=None):
+        """話者分離(done 済みのジョブを返す)と、字幕の色を覚える API(POST /api/speakers/sub)の偽物。sub = (status, 応答) を返す関数(None = 404 = 古い編集)"""
+        self.tools.h_transcribe_POST_api_diarize = lambda path, body: (self.tools.tx_jobs.setdefault("d1", {"id": "d1", "state": "done", "src": "", "body": body}) and (200, {"id": "d1"}))
+        if sub is not None:
+            self.tools.h_transcribe_POST_api_speakers_sub = sub
+
+    STYLES = {"兎田ぺこら": {"color": "#7EC2FE"}}
+    SPEAKERS = {"count": 2, "names": ["兎田ぺこら", "B"], "styles": STYLES}
+
+    def test_file_with_styles_remembers_color_in_doc(self):
+        """話者分離のあと、指定された字幕の色を文書に覚える(POST /api/speakers/sub {id, styles})。styles が空なら呼ばない"""
+        self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": list(body["styles"])}))
+        media = os.path.join(self.tmp, "コラボ.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS)))
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize"]), run)
+        subs = [c for c in self.tools.calls if c[2] == "/api/speakers/sub"]
+        self.assertEqual([(c[0], c[1], c[3]) for c in subs], [("transcribe", "POST", {"id": "000000000001", "styles": self.STYLES})])
+        detail = next(s for s in run["steps"] if s["key"] == "diarize")["detail"]
+        self.assertIn("字幕の色を覚えました", detail)
+        self.assertNotIn("覚えられませんでした", detail)
+        # 色の指定が無い(古い形・styles が空)なら呼ばない
+        media2 = os.path.join(self.tmp, "ふたり.mp4")
+        open(media2, "wb").close()
+        self.tools.calls.clear()
+        run = self.wait(self.r.start_file(media2, speakers={"count": 2, "names": ["A", "B"], "styles": {}}))
+        self.assertEqual(run["state"], "done", run)
+        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        media3 = os.path.join(self.tmp, "古い.mp4")
+        open(media3, "wb").close()
+        run = self.wait(self.r.start_file(media3, speakers={"count": 2, "names": ["A", "B"]}))   # styles の鍵そのものが無い
+        self.assertEqual(run["state"], "done", run)
+        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+
+    def test_file_styles_not_sent_when_color_invalid(self):
+        """実行の作り手が検査をすり抜けた色を渡しても、16 進 6 桁でなければ送らない(画面・Lua に入る前の 2 重の守り)"""
+        self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
+        media = os.path.join(self.tmp, "x.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers={"count": 2, "names": ["A", "B"], "styles": {"A": {"color": "red\"); os.exit()"}, "B": {"color": "ff00aa"}}}))
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual([c[3]["styles"] for c in self.tools.calls if c[2] == "/api/speakers/sub"], [{"B": {"color": "#FF00AA"}}])
+
+    def test_file_styles_old_editor_does_not_stop_request(self):
+        """古い「編集」(sub の API が無く 404)・その他の失敗でも、依頼は止めない(一部失敗にもしない)。段の知らせに足すだけ"""
+        self._diarize_fake()   # sub の API なし = 404
+        media = os.path.join(self.tmp, "古い編集.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS), flow="auto", deliver_dir=os.path.join(self.tmp, "出力")))
+        self.assertEqual((run["state"], list(self.states(run))), ("done", ["transcribe", "diarize", "pack", "deliver"]), run)
+        self.assertEqual(self.states(run)["diarize"], "done")
+        self.assertIn("字幕の色を覚えられませんでした", next(s for s in run["steps"] if s["key"] == "diarize")["detail"])
+        self.assertEqual(self.tools.c2r["body"]["output"]["speakerStyles"], self.STYLES, "パックには色を渡す")
+        for i, res in enumerate(((500, {"error": "x"}), (200, {"ok": False}), (200, "x"))):
+            self.tools.h_transcribe_POST_api_speakers_sub = lambda path, body, res=res: res
+            m = os.path.join(self.tmp, "n%d.mp4" % i)
+            open(m, "wb").close()
+            run = self.wait(self.r.start_file(m, speakers=dict(self.SPEAKERS)))
+            self.assertEqual((run["state"], self.states(run)["diarize"]), ("done", "done"), run)
+        def boom(path, body):
+            raise OSError("つながらない")
+        self.tools.h_transcribe_POST_api_speakers_sub = boom
+        m = os.path.join(self.tmp, "boom.mp4")
+        open(m, "wb").close()
+        run = self.wait(self.r.start_file(m, speakers=dict(self.SPEAKERS)))
+        self.assertEqual((run["state"], self.states(run)["diarize"]), ("done", "done"), run)
+
+    def test_file_styles_not_remembered_when_diarize_fails(self):
+        """話者分離が失敗した文書には、色を覚えさせない"""
+        self.tools.h_transcribe_POST_api_diarize = lambda path, body: (500, {"message": "話者分離が使えません"})
+        self.tools.h_transcribe_POST_api_speakers_sub = lambda path, body: (200, {"ok": True, "applied": []})
+        media = os.path.join(self.tmp, "失敗.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS)))
+        self.assertEqual(self.states(run)["diarize"], "warn", run)
+        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        self.tools.h_transcribe_POST_api_diarize = lambda path, body: (self.tools.tx_jobs.setdefault("d2", {"id": "d2", "state": "error", "error": "だめ", "src": "", "body": body}) and (200, {"id": "d2"}))
+        media = os.path.join(self.tmp, "失敗2.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, speakers=dict(self.SPEAKERS)))
+        self.assertEqual(self.states(run)["diarize"], "warn", run)
+        self.assertFalse([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+
+    def test_pack_request_has_speaker_styles_only_when_given(self):
+        """パックの要求(output.speakerStyles)は、色の指定があるときだけ。無ければ鍵ごと付けない(今までと同じ要求)"""
+        self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
+        out = os.path.join(self.tmp, "出力")
+        media = os.path.join(self.tmp, "あり.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, request_id="r1", flow="auto", deliver_dir=out, speakers=dict(self.SPEAKERS)))
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.tools.c2r["body"]["output"]["speakerStyles"], self.STYLES)
+        media = os.path.join(self.tmp, "なし.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, request_id="r2", flow="auto", deliver_dir=out, speakers={"count": 2, "names": ["A"], "styles": {}}))
+        self.assertEqual(run["state"], "done", run)
+        self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
+        media = os.path.join(self.tmp, "話者なし.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, request_id="r3", flow="auto", deliver_dir=out))
+        self.assertEqual(run["state"], "done", run)
+        self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
+
+    def test_request_url_with_styles_and_streamer(self):
+        """URL の依頼(① 全自動): 配信者(streamer)はチャンネル名からの自動より優先・色の指定は文書に覚え、パックにも渡す。streamer が無ければ今までどおり自動"""
+        self.tools.known = False
+        self._diarize_fake(lambda path, body: (200, {"ok": True, "applied": []}))
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(self.r.start_request([{"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(50, 60)]}], request_id="rid1", flow="auto",
+                                             deliver_dir=out, speakers=dict(self.SPEAKERS), streamer="さくらみこ")["runs"][0])
+        self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "さくらみこ", None), run)
+        self.assertEqual(list(self.states(run)), ["adopt", "export", "transcribe", "diarize", "pack", "deliver"])
+        out_body = self.tools.c2r["body"]["output"]
+        self.assertEqual((out_body["streamer"], out_body["speakerStyles"]), ("さくらみこ", self.STYLES))
+        self.assertTrue([c for c in self.tools.calls if c[2] == "/api/speakers/sub"])
+        # streamer なし / 空 = 今までどおりチャンネル名から自動
+        for who in (None, ""):
+            run = self.wait(self.r.start_request([{"id": VID, "top": 1, "title": "配信", "channel": "Pekora Ch. 兎田ぺこら", "ranges": [(70, 80)]}], request_id="rid2", flow="auto",
+                                                 deliver_dir=out, streamer=who)["runs"][0])
+            self.assertEqual((run["state"], run["streamer"], run["streamerFrom"]), ("done", "兎田ぺこら", "auto"), run)
+            self.assertEqual(self.tools.c2r["body"]["output"]["streamer"], "兎田ぺこら")
+            self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
+
     def test_file_manual_analyzes_in_studio(self):
         """③ 全部人が行う(動画): スタジオの解析のキューに入れて解析まで"""
         media = os.path.join(self.tmp, "長い.mp4")

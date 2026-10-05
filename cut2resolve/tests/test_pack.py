@@ -244,6 +244,143 @@ class TestTextStyle(unittest.TestCase):
         self.assertNotIn('keifont.ttf', [p.name for p in Path(RTP.__file__).parent.iterdir()])   # フォントをリポジトリ・パックに置かない
 
 
+class TestCaptionLanes(unittest.TestCase):
+    """重なる字幕の段(docs/plan/other-voice-and-overlap-plan.md の 6-2 の 4)。規則は resolve_textplus.stack_captions の 1 か所。
+    この PC には Lua が無いので、Lua に埋めた計画(read_script_plan)と Lua の文字列で確かめる(Lua を動かすテストは TestResolveTextPlusLuaRun)"""
+
+    def lanes(self, cues, fps=(30, 1), order=None):
+        st = RTP.stack_captions(cues, fps, order)
+        self.assertEqual(len(st['cues']), len(cues))                      # 字幕の数・並びは変えない(色・話者の並びがずれない)
+        self.assertEqual([c[2] for c in st['cues']], [c[2] for c in cues])
+        return st
+
+    def test_no_overlap_is_unchanged(self):
+        cues = [(0, 30, 'a'), (30, 60, 'b'), (90, 120, 'c')]
+        st = self.lanes(cues)
+        self.assertEqual((st['cues'], st['lanes'], st['count'], st['stacked'], st['trimmed']), (cues, [1, 1, 1], 1, 0, 0))
+        self.assertEqual(RTP.stack_captions([], (30, 1))['count'], 0)
+        self.assertEqual(RTP.stack_captions(None, (30, 1))['cues'], [])
+
+    def test_short_overlap_is_trimmed(self):
+        """前の字幕のはみ出しが 0.3 秒(30fps で 9 コマ)未満なら、同じ段で前の字幕の終わりを次の始まりで切る。9 コマ以上は上の段"""
+        st = self.lanes([(0, 38, 'a'), (30, 60, 'b')])                    # 8 コマ
+        self.assertEqual((st['cues'], st['lanes'], st['trimmed']), ([(0, 30, 'a'), (30, 60, 'b')], [1, 1], 1))
+        st = self.lanes([(0, 39, 'a'), (30, 60, 'b')])                    # 9 コマ = 0.3 秒
+        self.assertEqual((st['cues'], st['lanes'], st['count'], st['stacked'], st['trimmed']), ([(0, 39, 'a'), (30, 60, 'b')], [1, 2], 2, 1, 0))
+        st = self.lanes([(0, 77, 'a'), (60, 120, 'b')], (60, 1))           # 60fps は 18 コマ
+        self.assertEqual(st['lanes'], [1, 1])
+        st = self.lanes([(0, 78, 'a'), (60, 120, 'b')], (60, 1))
+        self.assertEqual(st['lanes'], [1, 2])
+        st = self.lanes([(0, 38, 'a'), (30, 60, 'b')], (30000, 1001))     # 29.97fps も 9 コマ
+        self.assertEqual(st['lanes'], [1, 1])
+
+    def test_short_reply_inside_long_caption_is_stacked_not_trimmed(self):
+        """長い字幕の途中の短い相づち: 重なりの長さ(6 コマ)ではなく、前の字幕のはみ出し(90 コマ)で数える = 長い字幕を切らない"""
+        st = self.lanes([(0, 150, '長い'), (60, 66, 'うん')])
+        self.assertEqual((st['cues'], st['lanes']), ([(0, 150, '長い'), (60, 66, 'うん')], [1, 2]))
+
+    def test_placed_caption_never_moves(self):
+        """一度置いた字幕は動かさない・空いているいちばん下の段へ"""
+        st = self.lanes([(0, 100, 'a'), (10, 50, 'b'), (60, 120, 'c'), (101, 130, 'd')])
+        self.assertEqual(st['lanes'], [1, 2, 2, 1])                       # c は 1 段目が空くまで待たず、空いている 2 段目。d は 1 段目が空いた
+        self.assertEqual(st['trimmed'], 0)
+
+    def test_three_lanes_at_most(self):
+        """4 つ目以降は 3 段目に入れ、3 段目の中の重なりは切る"""
+        st = self.lanes([(0, 90, 'a'), (10, 90, 'b'), (20, 90, 'c'), (30, 90, 'd')])
+        self.assertEqual((st['lanes'], st['count'], st['stacked'], st['trimmed']), ([1, 2, 3, 3], 3, 3, 1))
+        self.assertEqual(st['cues'][2], (20, 30, 'c'))
+        self.assertEqual(RTP.stack_captions([(0, 90, 'a'), (10, 90, 'b')], (30, 1), max_lanes=1)['cues'][0], (0, 10, 'a'))
+
+    def test_same_start_never_loses_a_caption(self):
+        """同じコマに始まる: 前の字幕が 1 コマ未満になるなら切らずに上の段。4 つ以上(3 段目に入れるしかない)なら、前の字幕を 1 コマ残し、
+        この字幕を 1 コマ後ろへ(消さない)"""
+        st = self.lanes([(0, 5, 'a'), (0, 60, 'b')])                      # はみ出しは 5 コマだが、切ると a が 0 コマ → 上の段
+        self.assertEqual((st['cues'], st['lanes']), ([(0, 5, 'a'), (0, 60, 'b')], [1, 2]))
+        st = self.lanes([(0, 90, 'a'), (0, 90, 'b'), (0, 90, 'c'), (0, 90, 'd'), (0, 1, 'e')])
+        self.assertEqual(st['lanes'], [1, 2, 3, 3, 3])
+        self.assertEqual(st['cues'][2:], [(0, 1, 'c'), (1, 2, 'd'), (2, 3, 'e')])
+        self.assertTrue(all(b > a for a, b, _ in st['cues']))
+        self.assertEqual(st['trimmed'], 3)
+
+    def test_same_start_uses_speaker_order(self):
+        """同時に始まる字幕は order(話者の並び順)の小さい方を下へ。order が無ければ入力の順"""
+        cues = [(0, 60, 'すいせい'), (0, 60, 'みこ')]
+        self.assertEqual(self.lanes(cues)['lanes'], [1, 2])
+        self.assertEqual(self.lanes(cues, order=[1, 0])['lanes'], [2, 1])
+        self.assertEqual(self.lanes(cues, order=[0])['lanes'], [1, 2])    # 長さが合わない order は使わない
+
+    def plan(self, cues, keeps=((0, 900),), fps=(30, 1)):
+        p = mock.Mock()
+        p.video, p.req.name = Path('v.mp4'), 'v'
+        p.meta = {'fps': fps, 'w': 1920, 'h': 1080, 'total': 900}
+        p.keeps, p.cues_out = list(keeps), list(cues)
+        return p
+
+    OVER = [(30, 120, '一'), (60, 150, '二'), (150, 210, '三'), (205, 260, '四')]   # 二 は 一 と 60 コマ重なる → 2 段目。四 は 三 に 5 コマ → 切る
+
+    def test_import_plan_and_script(self):
+        A, B, D = [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0]
+        ip = RTP.build_import_plan(self.plan(self.OVER), 'v.mp4', None, None, None, [A, B, None, D], [None, B, None, None], 'lite')
+        caps = ip['captions']
+        self.assertEqual(ip['captionLanes'], 2)
+        self.assertEqual([c.get('trackUp') for c in caps], [None, 1, None, None])
+        self.assertEqual(caps[1]['dy'], RTP.LANE_STEP_Y)
+        self.assertNotIn('dy', caps[0])
+        self.assertEqual([c.get('fill') for c in caps], [A, B, None, D])     # 段分け・切るのあとも、色は同じ字幕に付く
+        self.assertEqual([c.get('outline') for c in caps], [None, B, None, None])
+        self.assertEqual([(c['startFrame'], c['endFrame'], c['offsetEnd']) for c in caps], [(30, 120, 120), (60, 150, 150), (150, 205, 205), (205, 260, 260)])
+        script = RTP.importer_script(ip)
+        self.assertNotIn('__C2R_LANES', script)
+        self.assertIn('trackIndex=captionTrack + (cap.trackUp or 0), recordFrame=recordFrame', script)
+        self.assertIn('for _ = 2, captionLanes do', script)
+        self.assertIn('trySet(tool, "Center", {cx, cy + cap.dy})', script)
+        self.assertIn('fpsWarn == nil and laneMiss == 0)', script)
+        self.assertIn('"・重なる字幕 V" .. captionTrack', script)
+        data = RTP.read_script_plan(script)                                 # Lua に埋めた計画を読み直す
+        self.assertEqual(data['captionLanes'], 2)
+        self.assertEqual([(c.get('trackUp'), c.get('dy')) for c in data['captions']], [(None, None), (1, 0.2), (None, None), (None, None)])
+        self.assertEqual(data['captions'][2]['endFrame'], 205)
+        readme = RTP.readme_from_script(script)
+        self.assertIn('V1 映像・A1 音声・V2〜V3 Text+ 字幕。同時にしゃべっている所の字幕は、重ならないように上のトラック(V3)に置き', readme)
+        self.assertIn('V2〜V3 の Text+ を選び', readme)
+        self.assertIn('重なる字幕(V3)の高さを直す', readme)
+        self.assertEqual(RTP.readme_text(self.plan(self.OVER)), RTP.instructions('v.mp4', None, self.plan(self.OVER).meta, 4, 1, True,
+                                                                                   RTP.TEXT_STYLE['name'], 1, 2))
+
+    def test_video_tracks_and_three_lanes(self):
+        """映像トラック 3 + 段 3: 字幕は V4〜V6(Lua は captionTrack = 映像の数 + 1 から cap.trackUp だけ上)"""
+        cues = [(0, 90, 'a'), (10, 90, 'b'), (20, 90, 'c')]
+        ip = RTP.build_import_plan(self.plan(cues), 'v.mp4', video_tracks=3)
+        self.assertEqual((ip['videoTracks'], ip['captionLanes']), (3, 3))
+        self.assertEqual([c.get('trackUp', 0) for c in ip['captions']], [0, 1, 2])
+        self.assertEqual([c.get('dy') for c in ip['captions']], [None, 0.2, 0.4])
+        readme = RTP.readme_from_script(RTP.importer_script(ip))
+        self.assertIn('V1〜V3 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V4〜V6 Text+ 字幕(一番上)・A1 音声。', readme)
+        self.assertIn('上のトラック(V5〜V6)', readme)
+
+    def test_no_overlap_script_is_byte_identical(self):
+        """重なりが無いパックは今までと 1 バイトも変わらない: 計画に段の項目が無く、Lua は段のコードの印を消しただけ
+        (印を消した LUA_TEMPLATE が、段分けを入れる前の版(2026-10-05)と同じ。Lua の本体を直したら、下の値も直す)"""
+        import hashlib
+        import re
+        ip = RTP.build_import_plan(self.plan([(30, 120, '一'), (120, 150, '二')]), 'v.mp4', video_tracks=2)   # 接するだけ(重ならない)
+        self.assertNotIn('captionLanes', ip)
+        self.assertFalse(any('trackUp' in c or 'dy' in c for c in ip['captions']))
+        script = RTP.importer_script(ip)
+        for word in ('__C2R_LANES', 'captionLanes', 'trackUp', 'laneMiss', '"Center"'):
+            self.assertNotIn(word, script)
+        self.assertIn('trackIndex=captionTrack, recordFrame=recordFrame', script)
+        bare = RTP.LUA_TEMPLATE
+        for mark in RTP.LUA_LANES:
+            self.assertEqual(bare.count(mark), 1, mark)
+            bare = bare.replace(mark, '')
+        self.assertEqual(re.findall(r'__C2R_[A-Z_]+__', bare), ['__C2R_DATA__'])
+        self.assertEqual(hashlib.sha256(bare.encode('utf-8')).hexdigest(), 'f0569df532d5e038eb863e37cbbff8dafd7e1d6d2b93853d3e55cc5e5b5a1ff6')
+        head, tail = bare.split('__C2R_DATA__')
+        self.assertTrue(script.startswith(head) and script.endswith(tail))
+
+
 @unittest.skipUnless(_lua_runtime(), 'Lua の実行環境がない')
 class TestResolveTextPlusLuaRun(unittest.TestCase):
     """生成した Lua を、Resolve の API をまねた偽物(resolve_lua_mock.lua)の上で実際に動かす"""
@@ -425,6 +562,29 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=1 start=108000 dur=2064', out)
         self.assertIn('item track=2 start=108060 dur=240 text=a', out)
         self.assertIn('marker=Green', out)
+
+    def test_overlapping_captions_go_to_upper_lanes(self):
+        """重なる字幕の段: 2 段目は字幕のトラックの 1 つ上・縦の位置を LANE_STEP_Y だけ上(偽物の Center は空 → 0.5 + 0.2)。
+        切った字幕は短くなる。映像トラック 2 のときは字幕 V3・段 V4"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        cues = [(30, 120, '一'), (60, 150, '二'), (150, 210, '三'), (205, 260, '四')]
+        out = self.run_lua(_textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900), s, media_fps=30, fonts=self.KEI)
+        cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
+        self.assertIn('tracks=3\n', cut)
+        self.assertIn('item track=2 start=108030 dur=90 text=一', cut)
+        self.assertIn('item track=3 start=108060 dur=90 text=二', cut)
+        self.assertIn('item track=2 start=108150 dur=55 text=三', cut)   # 四 に 5 コマはみ出す → 切る
+        self.assertIn('item track=2 start=108205 dur=55 text=四', cut)
+        self.assertEqual(cut.count('  center=0.5,0.7'), 1)                # 2 段目の 二 だけ
+        self.assertIn('marker=Green|cut2resolve 完了|字幕 4/4・重なる字幕 V2〜V3(2 段)・カット 1/1・', cut)
+        out = self.run_lua(_textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900, video_tracks=2), s, media_fps=30, fonts=self.KEI)
+        cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
+        self.assertIn('tracks=4\n', cut)
+        self.assertIn('item track=3 start=108030 dur=90 text=一', cut)
+        self.assertIn('item track=4 start=108060 dur=90 text=二', cut)
+        self.assertIn('|字幕 4/4(V3)・重なる字幕 V3〜V4(2 段)・カット 1/1・同じ映像 V1〜V2', cut)
+        out = self.run_lua(_textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900), s, media_fps=30, fonts=self.KEI, ignore=('Center',))
+        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 4/4・重なる字幕 V2〜V3(2 段。位置を変えられなかった 1)', out)
 
 
 class TestParsingFixes(unittest.TestCase):
@@ -1194,6 +1354,80 @@ class TestMinimalPack(unittest.TestCase):
         for bad in (0, 6, "x", True):
             with self.assertRaises(C.ToolError):
                 pack.build_pack(plan, d / "bad_tracks", textplus=True, video_tracks=bad, **self.SCREEN)
+
+    def spk_doc(self, name, rows, extra=None):
+        """rows: [(開始, 終了, 文, 話者の番号 | None)]。extra: {行の番号(0 から): {足す項目}}"""
+        doc = transcript_doc([(a, b, t, False) for a, b, t, _ in rows])
+        doc["speakers"] = [{"id": 0, "name": "兎田ぺこら"}, {"id": 1, "name": "話者2"}]
+        for g, (_, _, _, sp) in zip(doc["segments"], rows):
+            if sp is not None:
+                g["speaker"] = sp
+        for i, kv in (extra or {}).items():
+            doc["segments"][i].update(kv)
+        return write(Path(self.tmp.name) / (name + ".transcript.json"), json.dumps(doc, ensure_ascii=False))
+
+    def test_overlapping_captions_lanes_keep_colors(self):
+        """重なる字幕の段(6-2 の 4): 段に分けても、字幕ごとの色(話者)は同じ字幕に付く。話者は行から直接たどる
+        (字幕の真ん中の時刻で探すと、重なる行では別の人の行に当たる)。見積もり(summary)に段の数など"""
+        tr = self.spk_doc("over", [(0.5, 2, "一", 0), (1.0, 2.5, "二", 1), (2.45, 3.5, "三", 0), (4, 5, "四", None)])
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        self.assertEqual(pack.cue_speakers(plan), ["兎田ぺこら", "話者2", "兎田ぺこら", None])
+        self.assertEqual(pack.cue_order(plan), [0, 1, 0, 2])
+        sm = pack.summary(plan)
+        # 二 は 一 に 1 秒重なる → 2 段目。三 は 二 と 2 コマ重なるが、1 段目(一 は 2.0 秒で終わる)が空いているので 1 段目(何も切らない)
+        self.assertEqual((sm["captionLanes"], sm["captionsStacked"], sm["captionsTrimmed"], sm["noSubRows"]), (2, 1, 0, 0))
+        self.assertIn("重なる字幕(Text+): 2 段・上の段へ分けた字幕 1件・終わりを切った字幕 0件", sm["text"])
+        self.assertEqual(sm["subtitles"]["out"], 4)                                  # 見積もりの今までのキーは同じ
+        out = Path(self.tmp.name) / "over"
+        res = pack.build_pack(plan, out, textplus=True, speaker_colors={"兎田ぺこら": "#FF0000", "話者2": "#0000FF"}, **self.SCREEN)
+        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual(ip["captionLanes"], 2)
+        self.assertEqual([c["text"] for c in ip["captions"]], ["一", "二", "三", "四"])
+        self.assertEqual([c.get("trackUp") for c in ip["captions"]], [None, 1, None, None])
+        self.assertEqual([c.get("fill") for c in ip["captions"]], [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [1.0, 0.0, 0.0, 1.0], None])
+        self.assertIn("V2〜V3 Text+ 字幕", res["readme"])
+        self.assertEqual(RTP.readme_from_script((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"), backup=False),
+                         res["readme"])
+        # SRT・EDL(予備)は変えない(SRT は重なったまま)
+        out2 = Path(self.tmp.name) / "over_bk"
+        pack.build_pack(plan, out2, textplus=True, **dict(self.SCREEN, backup=True))
+        srt = (out2 / "clip_cut.srt").read_text(encoding="utf-8-sig")
+        self.assertEqual(S.parse_subs(srt)[1][2], "二")
+        self.assertGreater(S.parse_subs(srt)[0][1], S.parse_subs(srt)[1][0])          # 一 の終わり > 二 の始まり(重なったまま)
+
+    def test_no_sub_rows(self):
+        """字幕に出さない行(noSub): 時間は残す区間に数えるが、字幕は作らない。話者・色は残りの字幕に合う。段は noSub を外してから数える"""
+        rows = [(0.5, 2, "一", 0), (1.0, 2.5, "ゲームの声", 1), (2.5, 3, "まだ", 1), (3, 5, "二", 1)]
+        tr = self.spk_doc("nosub", rows, {1: {"noSub": True}})
+        self.assertEqual([r["noSub"] for r in C.read_transcript(tr)["rows"]], [False, True, False, False])
+        plan = pack.plan_cut(pack.Request(video=self.video, transcript=tr, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        self.assertEqual(plan.keeps, [(15, 150)])                                     # 1.0〜2.5 も残す(つながって 1 区間)
+        self.assertEqual([c[2] for c in plan.cues_out], ["一", "まだ", "二"])
+        self.assertEqual(pack.cue_speakers(plan), ["兎田ぺこら", "話者2", "話者2"])
+        self.assertEqual(plan.speaker_spans, [(0.5, 2, "兎田ぺこら"), (2.5, 3, "話者2"), (3, 5, "話者2")])
+        sm = pack.summary(plan)
+        self.assertEqual((sm["noSubRows"], sm["captionLanes"], sm["captionsStacked"]), (1, 1, 0))   # 重なっていた行は字幕に出さない → 段は 1
+        self.assertIn("字幕に出さない行: 1行", sm["text"])
+        out = Path(self.tmp.name) / "nosub"
+        pack.build_pack(plan, out, textplus=True, speaker_colors={"話者2": "#0000FF"}, **self.SCREEN)
+        ip = RTP.read_script_plan((out / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
+        self.assertEqual([c["text"] for c in ip["captions"]], ["一", "まだ", "二"])
+        self.assertEqual([c.get("fill") for c in ip["captions"]], [None, [0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0]])
+        self.assertNotIn("captionLanes", ip)
+        # 編集のカット(EDIT_KEEPS)の道でも同じ字幕
+        p2 = pack.plan_cut(pack.Request(video=self.video, transcript=tr, keep_pairs=[(0.5, 5.0)], **pack.EDIT_KEEPS))
+        self.assertEqual(([c[2] for c in p2.cues_out], p2.no_sub_rows), (["一", "まだ", "二"], 1))
+        # 項目が無い・false なら今までどおり
+        tr0 = self.spk_doc("nosub0", rows, {1: {"noSub": False}})
+        p0 = pack.plan_cut(pack.Request(video=self.video, transcript=tr0, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        self.assertEqual(([c[2] for c in p0.cues_out], pack.summary(p0)["noSubRows"]), (["一", "ゲームの声", "まだ", "二"], 0))
+        # 残す行がすべて noSub: 字幕なし(注意を出す)。区間は残す
+        tr1 = self.spk_doc("nosub_all", rows[:2], {0: {"noSub": True}, 1: {"noSub": True}})
+        p1 = pack.plan_cut(pack.Request(video=self.video, transcript=tr1, **dict(pack.TRANSCRIPT_ROWS, row_edge=None)))
+        self.assertEqual((p1.cues_out, p1.keeps, pack.summary(p1)["noSubRows"]), (None, [(15, 75)], 2))
+        self.assertTrue(any("字幕に出さない" in w for w in p1.warnings))
+        with self.assertRaises(C.ToolError):
+            pack.build_pack(p1, Path(self.tmp.name) / "nosub_all", textplus=True, **self.SCREEN)
 
     def test_edl_only_pack_without_readme_file(self):
         """Text+ でないパック(文字起こしの無い動画)も、画面・API では 友人へ.txt を書かない(中身は返す)"""

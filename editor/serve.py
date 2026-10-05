@@ -471,6 +471,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_speakers.validate_diarize(obj), "diarize")))
             if path == "/api/voices/learn":   # A-3: 名前を付けた話者の声を覚える(ジョブ)
                 return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_speakers.validate_voice_learn(obj), "voice-learn")))
+            if path == "/api/speakers/sub":   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
+                return self._json(200, ed_speakers.speakers_sub_apply(obj))
             if path == "/api/voices/delete":
                 ed_speakers.delete_voice(str(obj.get("embedding") or ed_speakers.DIAR_EMB_DEFAULT), str(obj.get("name") or "")[:60])
                 return self._json(200, {"ok": True, "voices": ed_speakers.voices_summary()})

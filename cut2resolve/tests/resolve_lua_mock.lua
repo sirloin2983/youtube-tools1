@@ -128,6 +128,7 @@ function MOCK.dump()
             tostring(i.Thickness5), tostring(i.ElementShape1), tostring(i.ElementShape2), tostring(i.ElementShape5),
             tostring(i.Priority1), tostring(i.Priority2), tostring(i.Priority5), tostring(off and off[1]), tostring(off and off[2]),
             tostring(i.Enabled5), tostring(i.Red5), tostring(i.Green5), tostring(i.Blue5)))
+          if i.Center then p(string.format("  center=%s,%s", tostring(i.Center[1]), tostring(i.Center[2]))) end   -- 重なる字幕の段(入れたときだけ)
         end
       end
     end

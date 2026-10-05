@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.0.0";
+        public const string Version = "2.1.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -245,6 +245,128 @@ namespace RequestSender
             return ",\"speakers\":{\"count\":" + count.ToString(CultureInfo.InvariantCulture) +
                    ",\"names\":[" + string.Join(",", names.Select(n => JsonText.Quote(n, false))) + "]}";
         }
+
+        // ---- 2.1.0: 配信者 = 名前 + 字幕の色(# なしの 16 進 6 桁) ----
+        public const int ColorLength = 6;
+
+        // 色の欄に打つ・貼ったものを整える: 前後の空白と先頭の # を除く・16 進以外の文字は捨てる・大文字・6 文字まで
+        // (貼り付けた「#ff00aa」→「FF00AA」。打っている途中でも使う = 途中の長さのまま返す)
+        public static string CleanColor(string raw)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in (raw ?? "").Trim().TrimStart('#'))
+            {
+                if (sb.Length >= ColorLength) break;
+                if (c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') sb.Append(char.ToUpperInvariant(c));
+            }
+            return sb.ToString();
+        }
+
+        // 厳しく読む: 前後の空白と先頭の # 1つだけ許し、あとは 16 進のちょうど 6 桁。-> 大文字の "RRGGBB"。違えば null
+        public static string ParseColor(string raw)
+        {
+            string s = (raw ?? "").Trim();
+            if (s.StartsWith("#")) s = s.Substring(1);
+            if (s.Length != ColorLength) return null;
+            foreach (char c in s) if (!(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F')) return null;
+            return s.ToUpperInvariant();
+        }
+
+        // 色の欄に何か入っているか(# と空白だけなら空とみなす)
+        public static bool HasColorText(string raw)
+        {
+            return (raw ?? "").Trim().TrimStart('#').Length > 0;
+        }
+
+        // 送る前の検査: 色だけ入れて名前が空・色が 6 桁そろっていない行を、行の順に返す(人数の外の行は見ない)。1行につき1つ
+        public static List<SpeakerProblem> Problems(SpeakerSet set)
+        {
+            var list = new List<SpeakerProblem>();
+            if (set == null || set.Count < 1) return list;
+            for (int i = 0; i < set.Count && i < set.Rows.Count; i++)
+            {
+                var r = set.Rows[i];
+                if (r == null || !HasColorText(r.Color)) continue;
+                if (((r.Name ?? "").Trim()).Length == 0)
+                    list.Add(new SpeakerProblem { Index = i, OnColor = false, Message = "名前も入れてください(色だけでは、だれの色か決まりません)" });
+                else if (ParseColor(r.Color) == null)
+                    list.Add(new SpeakerProblem { Index = i, OnColor = true, Message = "色は 16 進の 6 桁で入れてください(0〜9 と A〜F。例: FF00AA)" });
+            }
+            return list;
+        }
+
+        // 人数の範囲の中で、名前のある行だけ(入力の順)。名前は整える・同じ名前は先の行にまとめる(先の行に色が無ければ後の行の色を使う)。色は 6 桁そろったものだけ
+        public static List<SpeakerRow> CleanRows(SpeakerSet set)
+        {
+            var rows = new List<SpeakerRow>();
+            if (set == null || set.Count < 1) return rows;
+            for (int i = 0; i < set.Count && i < set.Rows.Count; i++)
+            {
+                var r = set.Rows[i];
+                if (r == null) continue;
+                string name = (r.Name ?? "").Trim();
+                if (name.Length == 0) continue;
+                if (name.Length > MaxNameLength) name = name.Substring(0, MaxNameLength);
+                string color = ParseColor(r.Color) ?? "";
+                var same = rows.FirstOrDefault(x => x.Name == name);
+                if (same == null) rows.Add(new SpeakerRow(name, color));
+                else if (same.Color.Length == 0) same.Color = color;
+            }
+            return rows;
+        }
+
+        // 1 人目の名前(1 人目の行が空なら "")。依頼の "streamer" に入れる
+        public static string StreamerName(SpeakerSet set)
+        {
+            if (set == null || set.Count < 1 || set.Rows.Count < 1 || set.Rows[0] == null) return "";
+            string n = (set.Rows[0].Name ?? "").Trim();
+            return n.Length > MaxNameLength ? n.Substring(0, MaxNameLength) : n;
+        }
+
+        // ,"speakers":{"count":3,"names":["A","B"],"people":[{"name":"A","style":{"color":"FF00AA"}},{"name":"B"}]}
+        // 人数が 0(1〜10 の外)ならキーごと書かない。names は古い PC のために今までどおり。people は名前のある行だけ・style は色を入れた行だけ。
+        // 名前のある行が無ければ people は書かない。あとで字幕の見た目(フォントなど)を足すときは style に鍵を足す
+        public static string JsonPart(SpeakerSet set)
+        {
+            if (set == null || set.Count < 1 || set.Count > MaxCount) return "";
+            var rows = CleanRows(set);
+            var sb = new StringBuilder(",\"speakers\":{\"count\":");
+            sb.Append(set.Count.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"names\":[").Append(string.Join(",", rows.Select(r => JsonText.Quote(r.Name, false)))).Append(']');
+            if (rows.Count > 0)
+                sb.Append(",\"people\":[").Append(string.Join(",", rows.Select(r =>
+                    "{\"name\":" + JsonText.Quote(r.Name, false) + (r.Color.Length > 0 ? ",\"style\":{\"color\":" + JsonText.Quote(r.Color, false) + "}" : "") + "}"))).Append(']');
+            return sb.Append('}').ToString();
+        }
+    }
+
+    // 画面の 1 行(配信者 1 人分): 名前と字幕の色(# なしの 16 進 6 桁・空 = 指定しない)
+    public class SpeakerRow
+    {
+        public string Name = "", Color = "";
+
+        public SpeakerRow() { }
+
+        public SpeakerRow(string name, string color)
+        {
+            Name = name ?? "";
+            Color = color ?? "";
+        }
+    }
+
+    // 「配信者の数」と、その人数分の行(0 = 指定しない)
+    public class SpeakerSet
+    {
+        public int Count;
+        public List<SpeakerRow> Rows = new List<SpeakerRow>();
+    }
+
+    // 送る前の検査で見つけた誤り(Index = 何行目か・0 始まり。OnColor = 色の欄の誤り / false = 名前の欄の誤り)
+    public class SpeakerProblem
+    {
+        public int Index;
+        public bool OnColor;
+        public string Message = "";
     }
 
     // Resolve の映像トラックの数(1〜5。V1〜V数 に同じ動画・字幕はその上)。PC がパックを作る ① 全自動のときだけ JSON に書く
@@ -300,7 +422,19 @@ namespace RequestSender
             return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, Cut.JsonPart(FlowOrDefault(flow), cut));
         }
 
+        // 2.1.0: 配信者(名前 + 字幕の色)。"streamer" は 1 人目の名前(動画の依頼は今までどおり、無ければ空文字)。
+        // speakers には people(名前と style.color)も入る
+        public static string Video(string id, IList<string> uploadedNames, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut)
+        {
+            return VideoCore(id, uploadedNames, Speakers.StreamerName(speakers), memo, flow, sentAt, Speakers.JsonPart(speakers), videoTracks, Cut.JsonPart(FlowOrDefault(flow), cut));
+        }
+
         static string VideoCore(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cutPart)
+        {
+            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, Speakers.JsonPart(speakerCount, speakerNames), videoTracks, cutPart);
+        }
+
+        static string VideoCore(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, string speakersPart, int videoTracks, string cutPart)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
@@ -308,7 +442,7 @@ namespace RequestSender
             sb.Append(",\"files\":[").Append(string.Join(",", uploadedNames.Select(n => JsonText.Quote(n, false)))).Append(']');
             sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer ?? "", false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
-            sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
+            sb.Append(speakersPart);
             sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
             sb.Append(cutPart);
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
@@ -317,17 +451,26 @@ namespace RequestSender
 
         public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
         {
-            return UrlCore(id, urls.Select(u => new UrlItem { Url = u, Top = top }).ToList(), u => top, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, "", "");
+            return UrlCore(id, urls.Select(u => new UrlItem { Url = u, Top = top }).ToList(), u => top, memo, flow, sentAt, "", Speakers.JsonPart(speakerCount, speakerNames), videoTracks, "", "");
         }
 
         // 2.0.0: 配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)
         public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cut, Weights weights)
         {
             string f = FlowOrDefault(flow);
-            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, speakerCount, speakerNames, videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
+            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, "", Speakers.JsonPart(speakerCount, speakerNames), videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
         }
 
-        static string UrlCore(string id, IList<UrlItem> items, Func<UrlItem, int> top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cutPart, string weightsPart)
+        // 2.1.0: 配信者(名前 + 字幕の色)。URL の依頼にも、1 人目の名前があれば "streamer" を書く(items の後・memo の前。無ければ書かない)
+        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights)
+        {
+            string f = FlowOrDefault(flow);
+            string streamer = Speakers.StreamerName(speakers);
+            string streamerPart = streamer.Length > 0 ? ",\"streamer\":" + JsonText.Quote(streamer, false) : "";
+            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, streamerPart, Speakers.JsonPart(speakers), videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
+        }
+
+        static string UrlCore(string id, IList<UrlItem> items, Func<UrlItem, int> top, string memo, string flow, DateTimeOffset sentAt, string streamerPart, string speakersPart, int videoTracks, string cutPart, string weightsPart)
         {
             string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
@@ -335,8 +478,9 @@ namespace RequestSender
             sb.Append(",\"flow\":").Append(JsonText.Quote(f, false));
             sb.Append(",\"items\":[").Append(string.Join(",", items.Select(u =>
                 "{\"url\":" + JsonText.Quote(u.Url, false) + ",\"top\":" + top(u).ToString(CultureInfo.InvariantCulture) + Ranges.JsonPart(f, u.Ranges) + "}"))).Append(']');
+            sb.Append(streamerPart);
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
-            sb.Append(Speakers.JsonPart(speakerCount, speakerNames));
+            sb.Append(speakersPart);
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
             sb.Append(cutPart);
             sb.Append(weightsPart);

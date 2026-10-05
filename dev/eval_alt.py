@@ -22,6 +22,8 @@
     2つ目のエンジン(alt.json の engine・model)ごとの表と、文書ごと(当たり率が低い順に 10 件)の表
 - --since / --until(原則 4: 時期で分ける)は まとまりの時刻で絞る(until はその日を含む)。まとまりの時刻 = 人の行の校正した時刻 proofedAt の最大(あれば)、無ければ文書の更新時刻 updatedAt
   (eval_speakers.py と同じ考え方。proofedAt を作る前に校正済みになった行は更新時刻になる)
+- 字幕に出さない行 noSub(editor/ed_learn.py の split_nosub。行の半分以上が noSub の行の時間に入る機械の行も)は、候補の当たり率にも拾えた率にも入れない(その行は字幕に出ないので、候補で直す意味がない)。
+  その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
 """
@@ -230,11 +232,16 @@ def judge_candidate(S, g, cand_k, cand):
 def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
     """1つの文書(評価用でない・original と segments がある)と alt.json から、候補の判定と人の直しの拾えた数を出す。ファイルには触らない
     -> {"cands": [{"status", "why", "wrong", "right"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
-        "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか}"""
-    orig = clean_rows(doc.get("original"))
+        "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}"""
+    orig_all = clean_rows(doc.get("original"))
     segs = clean_rows(doc.get("segments"), with_text=False)
-    rows = [{"id": "o%d" % k, "start": o["start"], "end": o["end"], "text": o["text"], "proofed": False} for k, o in enumerate(orig)]
+    # 候補は機械の行すべてで出す(alt_diffs は窓の境目の行を特別に扱うので、行を先に外すと別の行の候補が消える)。そのあとで、字幕に出さない行(noSub)の時間の機械の行の候補は
+    # 当たり率にも拾えた率にも入れない(その行は字幕に出ない = 直す必要がない。editor の split_nosub)。数だけ別に数える
+    orig, segs, ns_orig, ns_segs = S.split_nosub(orig_all, segs)
+    rows = [{"id": "o%d" % k, "start": o["start"], "end": o["end"], "text": o["text"], "proofed": False} for k, o in enumerate(orig_all)]
     cands, stats = S.alt_diffs(rows, alt.get("rows") or [])
+    main_idx = {id(o): j for j, o in enumerate(orig)}      # 全部の行の番号 → 本体の行の番号(noSub の時間の行は無い)
+    ns_cands = 0
     doc_t = num(doc.get("updatedAt")) or 0
     groups = [Group(S, orig, segs, go, ge) for go, ge in S._groups(orig, segs)]
     grp_of = {k: gi for gi, g in enumerate(groups) for k in g.go}
@@ -242,10 +249,13 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
     def group_time(g):
         ts = [num(segs[i].get("proofedAt")) or doc_t for i in g.ge]
         return max(ts) if g.proofed and ts else doc_t
-    out = {"cands": [], "fixes": [], "stats": dict(stats), "outOfRange": 0, "inRange": False}
+    out = {"cands": [], "fixes": [], "stats": dict(stats), "outOfRange": 0, "inRange": False, "noSub": {"rows": len(ns_segs), "candidates": 0}}
     by_group = {}   # まとまり -> [(a, b, 判定)]
     for cand in cands:
-        k = int(cand["seg"][1:])
+        k = main_idx.get(id(orig_all[int(cand["seg"][1:])]))
+        if k is None:
+            ns_cands += 1
+            continue
         gi = grp_of.get(k)
         if gi is None:
             continue
@@ -258,6 +268,7 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
         out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"]})
         if span:
             by_group.setdefault(gi, []).append((span[0], span[1], status))
+    out["noSub"]["candidates"] = ns_cands
     # 人の直しのうち、候補が同じ所に出ていたもの(機械の行も人の行もある・校正済み・長すぎないまとまりだけ)
     for gi, g in enumerate(groups):
         if not (g.go and g.ge and g.proofed) or g.too_long() or not in_range(group_time(g), since_ms, until_ms):
@@ -284,6 +295,7 @@ class Agg:
         self.why = {}
         self.stats = {k: 0 for k in STAT_KEYS}
         self.fix = {"total": 0, "covered": 0, "coveredHit": 0, "short": 0, "shortCovered": 0, "shortHit": 0}
+        self.nosub = {"docs": 0, "rows": 0, "candidates": 0}   # 字幕に出さない行(数に入れない。件数だけ)
 
     def add(self, r):
         self.docs += 1
@@ -294,6 +306,11 @@ class Agg:
                 self.why[c["why"]] = self.why.get(c["why"], 0) + 1
         for k in STAT_KEYS:
             self.stats[k] += r["stats"].get(k, 0)
+        ns = r.get("noSub") or {}
+        if ns.get("rows"):
+            self.nosub["docs"] += 1
+            self.nosub["rows"] += ns["rows"]
+            self.nosub["candidates"] += ns.get("candidates", 0)
         f = self.fix
         for x in r["fixes"]:
             f["total"] += 1
@@ -314,7 +331,7 @@ class Agg:
                            "coveredHit": f["coveredHit"], "hitRateOfCovered": rate(f["coveredHit"], f["covered"]),
                            "shortFixes": f["short"], "shortCovered": f["shortCovered"], "shortCoveredRate": rate(f["shortCovered"], f["short"]),
                            "shortHit": f["shortHit"], "shortHitRateOfCovered": rate(f["shortHit"], f["shortCovered"])},
-                "skipped": dict(self.stats)}
+                "skipped": dict(self.stats), "noSub": dict(self.nosub)}
 
 
 def engine_key(alt):
@@ -409,6 +426,9 @@ def print_agg(title, r, indent="  "):
         print("%s  拾えた率: 人の直し %d か所のうち、候補が同じ所に出ていた %d(%s)・そのうち当たり %d(%s)   短い直し(12 字以下)だけ: %d か所 → 候補あり %d(%s)・当たり %d(%s)"
               % (indent, p["fixes"], p["covered"], pct(p["coveredRate"]).strip(), p["coveredHit"], pct(p["hitRateOfCovered"]).strip(),
                  p["shortFixes"], p["shortCovered"], pct(p["shortCoveredRate"]).strip(), p["shortHit"], pct(p["shortHitRateOfCovered"]).strip()))
+    ns = r.get("noSub") or {}
+    if ns.get("rows"):
+        print("%s  字幕に出さない(noSub)の行 %d(文書 %d 件)・その時間に出ていた候補 %d 件は数に入れていません" % (indent, ns["rows"], ns["docs"], ns["candidates"]))
     sk = r["skipped"]
     print("%s  alt_diffs が出さなかった数: %s" % (indent, "・".join("%s %d" % (STAT_LABELS[k], sk[k]) for k in STAT_KEYS)))
 

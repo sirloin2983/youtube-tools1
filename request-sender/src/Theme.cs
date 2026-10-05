@@ -99,7 +99,14 @@ namespace RequestSender
         public static void DarkScroll(Control c)
         {
             if (!(c is ListBox || c is ScrollableControl || (c is TextBox && ((TextBox)c).Multiline))) return;
-            try { SetWindowTheme(c.Handle, P.Dark ? "DarkMode_Explorer" : "Explorer", null); }
+            DarkScroll(c.Handle);
+        }
+
+        // ハンドルだけ分かる窓(プルダウンの一覧)用
+        public static void DarkScroll(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            try { SetWindowTheme(hwnd, P.Dark ? "DarkMode_Explorer" : "Explorer", null); }
             catch (Exception) { }
         }
     }

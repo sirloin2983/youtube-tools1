@@ -626,16 +626,18 @@ function create(h){
   }
   let capIdx = -2;
   function showCaption(t){   // プレビューの字幕(Resolve の Text+ のおおよその見え方。カット後では削った行を出さない)
-    const segs = h.S.doc ? h.S.doc.segments : []; let idx = -1;
-    for (let i = 0; i < segs.length; i++){ const g = segs[i]; if (g.start <= t && t < g.end && String(g.text || '').trim() && !(M.mode === 'cut' && M.rowFlags[i])){ idx = i; break; } if (g.start > t) break; }
-    if (idx === capIdx) return;
-    capIdx = idx;
-    const el = $('#cutCaption'); el.textContent = idx >= 0 ? segs[idx].text : ''; el.hidden = idx < 0;
-    const hex = idx >= 0 && segs[idx].speaker && h.speakerColor ? h.speakerColor(segs[idx].speaker).hex : '';   // 話者の色(app.js の speakerColor の1か所。段2)
-    if (hex) el.style.setProperty('--tt-cap-color', hex); else el.style.removeProperty('--tt-cap-color');   // 合わなければ配信者の色(body の --tt-cap-color)
+    const segs = h.S.doc ? h.S.doc.segments : [];
+    /* 出す行は 1 文字起こし の映像の上の字幕と同じ関数(app-rows.js の capStack。字幕に出さない行を外し、0.3 秒以上重なる行は上下に積む。2026-10-05) */
+    const idxs = h.capStack ? h.capStack(segs, t, { skip: i => M.mode === 'cut' && !!M.rowFlags[i] }) : [];
+    const key = idxs.join(',');
+    if (key === capIdx) return;
+    capIdx = key;
+    if (h.paintCaps) h.paintCaps($('#cutCaption'), idxs, segs);   // 話者の色も app.js の speakerColor の1か所(段2)。合わなければ配信者の色(body の --tt-cap-color)
     document.querySelectorAll('#cutSubs .tt-csub.now').forEach(r => r.classList.remove('now'));
+    const idx = idxs.length ? idxs[idxs.length - 1] : -1;   // 一覧で「今」の印を付けて追うのは、いちばん上の段(開始が遅い行)
+    for (const i of idxs){ const r = document.querySelector(`#cutSubs .tt-csub[data-i="${i}"]`); if (r) r.classList.add('now'); }
     const row = idx >= 0 ? document.querySelector(`#cutSubs .tt-csub[data-i="${idx}"]`) : null;
-    if (row){ row.classList.add('now'); if (!V().paused){ const box = $('#cutSubs'), rt = row.offsetTop - box.offsetTop; if (rt < box.scrollTop || rt > box.scrollTop + box.clientHeight - 40) box.scrollTop = rt - 40; } }
+    if (row && !V().paused){ const box = $('#cutSubs'), rt = row.offsetTop - box.offsetTop; if (rt < box.scrollTop || rt > box.scrollTop + box.clientHeight - 40) box.scrollTop = rt - 40; }
   }
   function renderStatus(){
     const st = $('#cutStatus');

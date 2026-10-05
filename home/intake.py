@@ -182,8 +182,34 @@ def is_os_file(name, path=None):
     return False
 
 
+def _speaker_name(x):
+    """依頼に書かれた人の名前 -> 整えた名前(空・制御文字を含む・文字列でない = "")。names と people で同じ整え方にする"""
+    s = x.strip()[:60] if isinstance(x, str) else ""
+    return s if s and not any(ord(c) < 32 for c in s) else ""
+
+
+# 字幕の見た目(people[].style)の許可の一覧: 鍵 -> 値を検査して整える関数(通らなければ None = その項目だけ捨てる)。
+# 鍵を増やすとき(font・size など)はここに足す。知らない鍵は黙って捨てる(新しいアプリ + 古い PC でも色までは効く)。
+# 色は外から来る文字で画面・Lua に入るので、必ず 16 進 6 桁だけにそろえる(ytt_core/colors.py の HEX_RE と同じ形。# は付けても付けなくてもよい)
+STYLE_KEYS = {"color": lambda v: colors.norm_hex(v) if isinstance(v, str) else None}
+
+
+def parse_style(v):
+    """人ごとの字幕の見た目 {"color": "FF00AA"} -> 許可した鍵だけを整えた dict({"color": "#FF00AA"})。形が違う・何も残らない = {}"""
+    out = {}
+    if isinstance(v, dict):
+        for k, check in STYLE_KEYS.items():
+            if k in v:
+                x = check(v[k])
+                if x is not None:
+                    out[k] = x
+    return out
+
+
 def parse_speakers(v):
-    """依頼の「話す人」{"count": 1〜10, "names": [...]} -> 整えたもの か None(無い・形が違う = 話者分離しない)"""
+    """依頼の「配信者」{"count": 1〜10, "names": [...], "people": [{"name", "style"}]?} ->
+    {"count", "names", "styles": {名前: {"color": "#RRGGBB"}}}(styles は見た目を指定した人だけ。無ければ {})か None(無い・形が違う = 話者分離しない)。
+    people は 2.1.0 のアプリから(任意)。styles の名前は count で切ったあとの names に入っている人だけ。同じ名前が2回あれば先のもの"""
     if not isinstance(v, dict):
         return None
     n = v.get("count")
@@ -191,10 +217,19 @@ def parse_speakers(v):
         return None
     names = []
     for x in v.get("names") if isinstance(v.get("names"), list) else []:
-        s = x.strip()[:60] if isinstance(x, str) else ""
-        if s and not any(ord(c) < 32 for c in s) and s not in names:
+        s = _speaker_name(x)
+        if s and s not in names:
             names.append(s)
-    return {"count": n, "names": names[:n]}
+    names = names[:n]
+    styles = {}
+    for p in v.get("people") if isinstance(v.get("people"), list) else []:
+        if not isinstance(p, dict):
+            continue
+        s = _speaker_name(p.get("name"))
+        st = parse_style(p.get("style"))
+        if s in names and st and s not in styles:
+            styles[s] = st
+    return {"count": n, "names": names, "styles": styles}
 
 
 VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
@@ -473,8 +508,9 @@ class Intake:
             if self._room(cfg) <= 0:
                 self.held += 1
                 return {n}
+            who, note = _streamer(d.get("streamer"))   # 2.1.0 のアプリは URL の依頼にも 1 人目の名前を付ける。無い・合わない = 今までどおりチャンネル名から
             self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks, ranges=ranges, cut=cut,
-                               weights=parse_weights(d.get("weights")))
+                               weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note)
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
@@ -527,8 +563,10 @@ class Intake:
             return
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
-    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None):
-        """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)"""
+    def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None,
+                      streamer=None, streamer_note=""):
+        """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)。
+        streamer = 照らし合わせ済みの配信者の名前か None(None = まとめて実行がチャンネル名などから決める)・streamer_note = 合わなかったときの知らせ"""
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
         todo, seen, known = [], set(), []
@@ -572,7 +610,7 @@ class Intake:
             try:
                 out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
                                                   flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
-                                                  video_tracks=tracks, cut=cut, weights=weights)
+                                                  video_tracks=tracks, cut=cut, weights=weights, streamer=streamer)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
             by_vid = {r["videoId"]: r for r in out.get("runs") or []}
@@ -591,7 +629,9 @@ class Intake:
             results.append({"label": title, "state": "rejected", "reason": "URL が書かれていません"})
         first = next((r["label"] for r in results if r["state"] == "accepted"), known[0] if known else title)   # 受け付けた配信 → 題名の分かった配信 → ファイル名
         n_ranges = sum(len(it["ranges"]) for it in todo)
-        self._record(folder, "url", source, first, moved, "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
+        if streamer_note:   # 動画の依頼と同じ形の知らせ(受け付けた・断ったの数には入れない)
+            results.append({"label": "配信者", "state": "accepted", "reason": streamer_note})
+        self._record(folder, "url", source, first, moved, streamer or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
                      (" ほか %d" % (n_ranges - 3) if n_ranges > 3 else "") if n_ranges else "")
 
@@ -693,7 +733,8 @@ class Intake:
         rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "source": source, "title": str(title)[:200], "streamer": streamer or "",
                "memo": memo or "", "received": int(self.clock() * 1000), "state": state, "stateLabel": REQ_LABELS[state], "reason": reason,
                "flow": flow, "flowLabel": FLOW_LABELS.get(flow, ""),
-               "speakersLabel": ("話す人: %d人" % speakers["count"] + ("(%s)" % "・".join(speakers["names"]) if speakers["names"] else "")) if speakers else "",
+               "speakersLabel": ("配信者: %d人" % speakers["count"] + ("(%s)" % "・".join(speakers["names"]) if speakers["names"] else "") +
+                                 ("・色の指定 %d人" % len(speakers["styles"]) if speakers.get("styles") else "")) if speakers else "",
                "tracksLabel": "映像トラック: %d本" % tracks if tracks else "",
                "rangesLabel": ranges_label, "cutLabel": "カット: %s" % CUT_LABELS[cut] if cut in CUT_LABELS else "",
                "weightsLabel": "重み: 音声 %s・チャット %s・コメント %s" % (weights["wAudio"], weights["wChat"], weights["wComments"]) if weights else "",

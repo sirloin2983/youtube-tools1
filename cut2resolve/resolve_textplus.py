@@ -166,6 +166,65 @@ def caption_segments(keeps, cues_out):
     return out
 
 
+# 重なる字幕の段(docs/plan/other-voice-and-overlap-plan.md の 2-2・6-2 の 4。6 が正)。Resolve は同じトラックにクリップを重ねて置けないので、
+# 時刻が重なる字幕は上のトラック(段)へ分け、縦の位置も上へずらす。数えるのはカットで詰めたあとのコマ(パックが正。画面は同じ関数を使う)
+LANE_MAX = 3              # 段の数の上限。4 つ目以降の重なりは 3 段目に入れ、3 段目の中の重なりは「切る」で解く
+LANE_OVERLAP_SEC = 0.3    # 前の字幕がこれ未満だけはみ出すなら、段を分けずに前の字幕の終わりを次の字幕の始まりで切る(認識の時刻のぶれ 0.1〜0.2 秒で跳ねないため)
+# 段 1 つ分の縦のずれ(Text+ の Center の Y。画面の高さ = 1・上が +)。縦の Shorts・大きさ 0.14(1 文字 ≒ 横幅の 1/7.5)で、
+# 2 行(WRAP_DEFAULT で 2 行まで折り返す)の字幕どうしが重ならない見込みの値。仮。実機の Resolve で見て決める
+LANE_STEP_Y = 0.2
+
+
+def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_OVERLAP_SEC):
+    """重なる字幕を段に分ける(純粋な関数。規則はここ 1 か所)。
+    cues: [(開始コマ, 終了コマ, 文), ...](カット後。remap_cues の出力)。fps: (分子, 分母)。
+    order: 同時に始まる字幕を入れる順(字幕ごとの数。小さいほど先 = 下の段。話者の並び順)。None = 入力の順
+    -> {"cues": [(開始, 終了, 文)](入力と同じ並び・同じ数), "lanes": [1〜max_lanes](字幕ごとの段), "count": 使った段の数(字幕が無ければ 0),
+        "stacked": 2 段目より上に置いた字幕の数, "trimmed": 終わり(まれに始まり)を変えた字幕の数}
+    決まり:
+      - 始まりの順(同じなら order・入力の順)に、空いているいちばん下の段へ入れる。一度置いた字幕の段は変えない
+      - 段のいちばん後ろの字幕が、次の字幕の始まりより後ろへはみ出す長さが overlap_sec 未満なら、その段に入れて前の字幕の終わりを切る。
+        はみ出す長さで数える(重なりの長さ = 短い方ではない): 長い字幕の途中にある短い相づちで、長い字幕を切ってしまわないため
+      - 切ると前の字幕が 1 コマ未満になる(同じコマに始まる)ときは切らずに上の段を探す(両方とも全部見せる)
+      - どの段にも入らなければ max_lanes 段目に入れて前の字幕を切る。同じコマに始まるときだけは、前の字幕を 1 コマ残し(消さない。
+        字幕の数と色・話者の並びがずれないため)、この字幕の始まりを 1 コマ後ろへずらす(4 つ以上が同じコマに始まるときだけ。1 コマは見て分からない)
+    重なりが無ければ cues はそのまま(全部 1 段)"""
+    cues = [(int(a), int(b), t) for a, b, t in cues or []]
+    n = len(cues)
+    start, end = [a for a, _, _ in cues], [b for _, b, _ in cues]
+    lane, trimmed = [1] * n, set()
+    thr = max(1, S.ms_to_frames(int(round(overlap_sec * 1000)), fps))
+    rank = list(order) if order is not None and len(order) == n else [0] * n
+    last = [None] * max_lanes   # 段ごとのいちばん後ろの字幕の番号
+    for i in sorted(range(n), key=lambda k: (start[k], rank[k], k)):
+        s, placed = start[i], None
+        for k in range(max_lanes):
+            j = last[k]
+            if j is None or end[j] <= s:
+                placed = k
+                break
+            if end[j] - s < thr and start[j] < s:
+                end[j] = s
+                trimmed.add(j)
+                placed = k
+                break
+        if placed is None:
+            placed = max_lanes - 1
+            j = last[placed]
+            if start[j] < s:
+                end[j] = s
+            else:
+                end[j] = start[j] + 1
+                start[i] = end[j]
+                end[i] = max(end[i], start[i] + 1)
+                trimmed.add(i)
+            trimmed.add(j)
+        last[placed] = i
+        lane[i] = placed + 1
+    return {"cues": [(start[i], end[i], cues[i][2]) for i in range(n)], "lanes": lane, "count": max(lane) if n else 0,
+            "stacked": sum(1 for x in lane if x > 1), "trimmed": len(trimmed)}
+
+
 # 字幕の改行(2段。docs/design/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
 # Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
 WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
@@ -231,17 +290,22 @@ def wrap_caption(text, per_line):
     return "\n".join(x for x in lines if x)
 
 
-def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default", video_tracks=1):
+def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default", video_tracks=1,
+                      order=None):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
     fills: 字幕ごとの文字の色 [[r,g,b,a] | None, ...](字幕の並びと同じ。A-2: 話者ごとの色)。None の字幕は style のまま
     outlines: 字幕ごとのふちの色(fills と同じ形。簡易版: 話者ごとのふちの色)。style: 見た目の種類(TEXT_STYLES のキー)
     時刻の単位: cuts・captions の startFrame/endFrame/offset は「動画の」コマ。タイムラインのコマへは Lua 側で換算する。
     wrap: 字幕の1段の文字数(None = 置き先の向きの既定 WRAP_DEFAULT、0 = 改行しない)
-    video_tracks: 映像トラックの数(V1〜VN に同じカットの動画。V2 から上は映像だけ)。字幕はその上。1 のときは計画に書かない(今までと同じ中身)"""
+    video_tracks: 映像トラックの数(V1〜VN に同じカットの動画。V2 から上は映像だけ)。字幕はその上。1 のときは計画に書かない(今までと同じ中身)
+    order: 同時に始まる字幕の段の順(stack_captions)。重なる字幕は段に分け(stack_captions。切った字幕は終わりのコマが変わる)、
+    2 段目より上の字幕にだけ trackUp(字幕のトラックから上へいくつ)・dy(縦の位置を上へずらす量)を、段が 2 以上のときだけ captionLanes を書く
+    (重なりが無ければ今までと同じ中身。Lua は読むだけ)。字幕の並び・数は変えないので fills・outlines の順はそのまま合う"""
     video_tracks = video_tracks_value(video_tracks)
     fps = plan.meta["fps"]
     per_line = default_wrap(target) if wrap is None else int(wrap)
-    caps = caption_segments(plan.keeps, plan.cues_out)
+    stack = stack_captions(plan.cues_out, fps, order)
+    caps = caption_segments(plan.keeps, stack["cues"])
     for c in caps:
         c["text"] = wrap_caption(c["text"], per_line)
     for c, f in zip(caps, fills or []):
@@ -250,6 +314,10 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     for c, f in zip(caps, outlines or []):
         if f:
             c["outline"] = [float(x) for x in f][:4]
+    for c, ln in zip(caps, stack["lanes"]):
+        if ln > 1:
+            c["trackUp"] = ln - 1
+            c["dy"] = round((ln - 1) * LANE_STEP_Y, 4)
     d = {
         "schema": SCHEMA,
         "title": plan.req.name or plan.video.stem,
@@ -268,6 +336,8 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     }
     if video_tracks > 1:
         d["videoTracks"] = video_tracks
+    if stack["count"] > 1:
+        d["captionLanes"] = stack["count"]
     return d
 
 
@@ -318,7 +388,44 @@ def importer_script(plan):
             return repr(v)
         return str(v)
     data = lua(p)
-    return LUA_TEMPLATE.replace("__C2R_DATA__", data)
+    # 重なる字幕の段のコードは、段が 2 以上の計画のときだけ入れる(印を空にすると今までの Lua と 1 バイトも変わらない)
+    lanes = int(p.get("captionLanes") or 1) > 1
+    script = LUA_TEMPLATE
+    for mark, code in LUA_LANES.items():
+        script = script.replace(mark, code if lanes else "")
+    return script.replace("__C2R_DATA__", data)
+
+
+# 重なる字幕の段(stack_captions)を Resolve に置くコード。LUA_TEMPLATE の印の所に入れる(段が 1 なら印を消すだけ)。
+# 段・縦のずれは Python 側で決めて計画(cap.trackUp・cap.dy・DATA.captionLanes)に入れてあり、Lua は読んで置くだけ
+LUA_LANES = {
+    # 字幕のトラック(captionTrack)の上に、段の数 - 1 本のトラックを足す
+    "__C2R_LANES_TRACKS__": r'''
+    -- 重なる字幕の段(DATA.captionLanes = 2〜3): 2 段目から上の字幕は captionTrack + cap.trackUp に置き、縦の位置を cap.dy だけ上へずらす
+    local captionLanes = math.max(1, math.min(3, math.floor(tonumber(DATA.captionLanes) or 1)))
+    for _ = 2, captionLanes do
+        if not cutTimeline:AddTrack("video") then error("PLACE|字幕の段のトラックを追加できません") end
+    end
+    local laneMiss = 0   -- 縦の位置(Center)を入れられなかった字幕の数''',
+    # 字幕を置くトラック
+    "__C2R_LANES_TRACK__": " + (cap.trackUp or 0)",
+    # 縦の位置: 雛形の位置(読めなければ真ん中)+ cap.dy。読み直して違えば数える(マーカーを黄色に)
+    "__C2R_LANES_CENTER__": r'''
+                if cap.dy then
+                    local okC, c = pcall(function() return tool:GetInput("Center") end)
+                    local cx, cy = 0.5, 0.5
+                    if okC and type(c) == "table" then
+                        cx = tonumber(c[1] or c.X) or cx
+                        cy = tonumber(c[2] or c.Y) or cy
+                    end
+                    if not trySet(tool, "Center", {cx, cy + cap.dy}) then laneMiss = laneMiss + 1 end
+                end''',
+    # マーカーのメモ
+    "__C2R_LANES_NOTE__": r''' .. "・重なる字幕 V" .. captionTrack .. "〜V" .. (captionTrack + captionLanes - 1) .. "(" .. captionLanes .. " 段" ..
+        (laneMiss > 0 and "。位置を変えられなかった " .. laneMiss or "") .. ")"''',
+    # 位置を変えられなかった字幕があれば黄色
+    "__C2R_LANES_GOOD__": " and laneMiss == 0",
+}
 
 
 LUA_TEMPLATE = r'''-- cut2resolve Text+ Import (v0.4.0; Resolve Free 21.1 Windows)
@@ -481,7 +588,7 @@ local ok, err = pcall(function()
     for _ = 1, videoTracks do
         if not cutTimeline:AddTrack("video") then error("PLACE|映像トラックを追加できません") end
     end
-    local captionTrack = videoTracks + 1
+    local captionTrack = videoTracks + 1__C2R_LANES_TRACKS__
     -- V2〜VN: V1 の各区間と同じ位置・同じ長さに、映像だけ(mediaType=1)。音声も重ねると音が二重になるので A1 だけにする
     local dupFailed = 0
     for k = 2, videoTracks do
@@ -596,7 +703,7 @@ local ok, err = pcall(function()
         local title = nil
         if recordFrame and duration >= 1 then
             local titles = pool:AppendToTimeline({{mediaPoolItem=titleTemplate, startFrame=0,
-                endFrame=duration, trackIndex=captionTrack, recordFrame=recordFrame}})
+                endFrame=duration, trackIndex=captionTrack__C2R_LANES_TRACK__, recordFrame=recordFrame}})
             title = titles and titles[1]
         end
         if title then
@@ -623,7 +730,7 @@ local ok, err = pcall(function()
                         local name = styleUse[k .. n] or (k .. n)
                         pcall(function() tool:SetInput(name, cap.outline[i]) end)
                     end
-                end
+                end__C2R_LANES_CENTER__
                 added = added + 1
             else
                 failed = failed + 1
@@ -648,9 +755,9 @@ local ok, err = pcall(function()
     -- GetSetting は scaleToFit を返したので(2026-09-25)、この値で警告すると正しい設定でも黄色になってしまう
     local scaling = tostring(project:GetSetting("timelineInputResMismatchBehavior"))
     local styleOk = (styleMiss == nil or #styleMiss == 0)
-    local good = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil and fontOk and styleOk and fpsWarn == nil)
+    local good = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil and fontOk and styleOk and fpsWarn == nil__C2R_LANES_GOOD__)
     local title = (failed == 0 and lengthOff == 0 and dupFailed == 0 and source ~= nil) and (good and "cut2resolve 完了" or "cut2resolve 完了(要確認)") or "cut2resolve 一部失敗"
-    local note = "字幕 " .. added .. "/" .. #DATA.captions .. (captionTrack > 2 and "(V" .. captionTrack .. ")" or "") .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
+    local note = "字幕 " .. added .. "/" .. #DATA.captions .. (captionTrack > 2 and "(V" .. captionTrack .. ")" or "")__C2R_LANES_NOTE__ .. "・カット " .. #edits .. "/" .. #DATA.cuts ..
         (videoTracks > 1 and "・同じ映像 V1〜V" .. videoTracks .. (dupFailed > 0 and "(置けなかった " .. dupFailed .. ")" or "") or "") ..
         "・長さのずれ " .. lengthOff .. "・字体 " .. fontName .. " " .. fontStyle .. "(" .. fontHow .. ")" ..
         "・見た目 " .. DATA.style.name .. (styleOk and "" or "(反映できなかった: " .. table.concat(styleMiss, ", ") ..
@@ -714,14 +821,23 @@ README_NAME = "友人へ.txt"                    # Text+ パックの手順書(�
 EDL_README_NAME = "予備_EDLで開く手順.txt"     # スクリプトが使えないときの予備(字幕は字幕トラックになる)
 
 
-def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None, video_tracks=1):
-    """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない"""
+def instructions(video_name, target=None, meta=None, n_captions=None, n_cuts=None, backup=True, look=None, video_tracks=1, caption_lanes=1):
+    """Text+ パックの手順書(コマンドのパックの 友人へ.txt・画面の「手順を見る」)。簡潔に、ただし手順と注意は省かない。
+    caption_lanes: 重なる字幕の段の数(stack_captions)。2 以上のときだけ、字幕のトラックの範囲と段の説明を足す(1 なら今までと同じ文)"""
     t = dict(target or DEFAULT_TARGET)
     vertical = t["height"] > t["width"]
     n = int(video_tracks)
-    cap_track = f"V{n + 1}"
+    lanes = max(1, int(caption_lanes or 1))
+    cap_track = f"V{n + 1}" if lanes <= 1 else f"V{n + 1}〜V{n + lanes}"
     tracks_desc = (f"V1 映像・A1 音声・{cap_track} Text+ 字幕" if n <= 1 else
                    f"V1〜V{n} 同じ映像(重ねて加工する用。V2 から上は映像だけ)・{cap_track} Text+ 字幕(一番上)・A1 音声")
+    lane_tip = ""
+    if lanes > 1:
+        upper = f"V{n + 2}" if lanes == 2 else f"V{n + 2}〜V{n + lanes}"
+        tracks_desc += (f"。同時にしゃべっている所の字幕は、重ならないように上のトラック({upper})に置き、"
+                        f"画面の上の方へずらしてあります(V{n + 1} が基本の位置)")
+        lane_tip = (f"・重なる字幕({upper})の高さを直す: Text+ を選び、インスペクタ →「レイアウト」→「中心」の Y。"
+                    "1つ直したら「属性をペースト」でほかの字幕にも反映できます\n")
     info = []
     if meta:
         f = meta["fps"][0] / meta["fps"][1]
@@ -793,7 +909,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 ■ 4. 編集のしかた
 {pos_tip}・字幕の文字を直す: {cap_track} の Text+ を選び、インスペクタ →「タイトル」で直す。長さ・位置はタイムライン上で調整
-・字幕の見た目をそろえる: 1つを整えたら、右クリック →「コピー」、ほかの Text+ を選んで右クリック →「属性をペースト」
+{lane_tip}・字幕の見た目をそろえる: 1つを整えたら、右クリック →「コピー」、ほかの Text+ を選んで右クリック →「属性をペースト」
 ・削った部分を戻す: SOURCE_WITH_HANDLES で範囲を選び、映像と音声をまとめてコピー → CUT_TextPlus の戻す位置に貼り付け。
   貼り付けた後は、つなぎ目と音のずれを確認
 ・書き出し: デリバーページで、プロジェクトと同じ {size}・{t["fps"]}fps のまま書き出す
@@ -824,19 +940,21 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 
 def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default",
-                video_tracks=1):
+                video_tracks=1, order=None):
     """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
-    backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)"""
+    backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)。order: 同時に始まる字幕の段の順(stack_captions)"""
     target = dict(target or DEFAULT_TARGET)
-    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks)
+    import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks,
+                                    order)
     script = importer_script(import_plan)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
-        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style, video_tracks), encoding="utf-8-sig", newline="\n")
+        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style, video_tracks, order),
+                            encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
@@ -844,10 +962,11 @@ def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color
             if key in paths}
 
 
-def readme_text(plan, target=None, backup=True, color=None, style="default", video_tracks=1):
-    """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)"""
+def readme_text(plan, target=None, backup=True, color=None, style="default", video_tracks=1, order=None):
+    """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)。段の数は Lua の計画と同じ規則(stack_captions)で数える"""
+    lanes = stack_captions(plan.cues_out, plan.meta["fps"], order)["count"]
     return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color, style)["name"],
-                        video_tracks)
+                        video_tracks, lanes)
 
 
 def readme_from_script(text, backup=True):
@@ -856,7 +975,7 @@ def readme_from_script(text, backup=True):
     num, den = (int(x) for x in str(d["fps"]).split("/"))
     meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
     return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup,
-                        (d.get("style") or {}).get("name"), d.get("videoTracks") or 1)
+                        (d.get("style") or {}).get("name"), d.get("videoTracks") or 1, d.get("captionLanes") or 1)
 
 
 def read_script_plan(text):

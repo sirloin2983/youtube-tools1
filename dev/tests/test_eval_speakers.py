@@ -52,7 +52,7 @@ class Env:
             drows[rid] = {"label": 0 if label else None, "speaker": label or "", "ratio": 1.0, "mixed": bool(kw.pop("mixed", False)), "weak": bool(kw.pop("weak", False))}
             if proofed:
                 seg["proofed"] = True
-            for k in ("proofed", "proofedAt", "tags"):
+            for k in ("proofed", "proofedAt", "tags", "noSub"):
                 if k in kw:
                     seg[k] = kw.pop(k)
             segs.append(seg)
@@ -551,6 +551,34 @@ class TestDiarizeTune(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(S.diar_tune(), {})
         self.assertEqual(S.diar_tune("0.6", None, 0), {"threshold": 0.6, "min_off": 0.0})
+
+
+class TestNoSub(unittest.TestCase):
+    """字幕に出さない行(noSub・組み込みの話者「ゲーム音声など」)は、話者の正しさ・重なりの見つけ方の数に入れない(件数だけ別に出す)"""
+
+    def setUp(self):
+        self.env = Env()
+        self.addCleanup(self.env.close)
+
+    def test_nosub_and_game_voice_rows_are_excluded(self):
+        rows = [("r%d" % i, "S1", "S1", {}) for i in range(5)] + [("b%d" % i, "S2", "S2", {}) for i in range(5)]
+        rows += [("g1", "S3", "S2", {"noSub": True, "tags": ["overlap"]}), ("g2", "S3", "S2", {}), ("g3", "S1", "S2", {"noSub": True})]   # S3 = ゲーム音声など
+        self.env.doc("aaaaaaaaaaaa", {"S1": "A", "S2": "B", "S3": E.OTHER_VOICE_NAME}, rows, diar={}, proofed=True)
+        res = self.env.run()
+        self.assertEqual(res["subsets"]["all"]["rows"], 10)
+        self.assertEqual(res["subsets"]["all"]["correct"], 10)       # ゲーム音声の行が S2 に紛れても、B の行の正しさは下がらない
+        self.assertEqual(res["meta"]["noSubRows"], 3)
+        self.assertTrue(any("noSub" in n for n in res["meta"]["notes"]))
+        self.assertEqual(res["overlap"]["rows"], 10)                 # 重なりの見つけ方にも入れない(g1 は音のメモ overlap つき)
+        self.assertEqual(res["overlap"]["human"], 0)
+        # include_draft でも入れない
+        self.assertEqual(self.env.run(include_draft=True)["subsets"]["all"]["rows"], 10)
+
+    def test_doc_without_nosub_counts_zero(self):
+        self.env.doc("bbbbbbbbbbbb", {"S1": "A"}, [("r1", "S1", "S1", {}), ("r2", "S1", "S1", {})], diar={}, proofed=True)
+        res = self.env.run()
+        self.assertEqual((res["subsets"]["all"]["rows"], res["meta"]["noSubRows"]), (2, 0))
+        self.assertFalse(any("noSub" in n for n in res["meta"]["notes"]))
 
 
 if __name__ == "__main__":

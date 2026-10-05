@@ -198,7 +198,7 @@ class Run:
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
         self.duration = duration           # 受付のときに調べた配信の長さ(秒。スタジオにまだ無い配信の区間を端で切るのに使う)
         self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
-        self.speakers = speakers         # 友人が入れた「話す人」{"count", "names"}。あれば文字起こしのあとに話者分離(2026-10-01)
+        self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
@@ -463,10 +463,11 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
         """友人からの依頼(配信の URL。home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
         配信ごとに1つの実行(mode request)。ranges = 時刻で指定した区間 [(開始, 終了)](③ では使わない)。top に足りない分は自動で埋める。
-        cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)"""
+        cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)。
+        streamer = 照らし合わせ済みの配信者の名前か None(友人の 1 人目の名前。あれば字幕の色に使い、None・空ならチャンネル名などから自動 = _auto_streamer)"""
         if not isinstance(items, list) or not items or len(items) > MAX_NEW:
             raise ValueError("配信は 1〜%d 本で指定してください" % MAX_NEW)
         mode = FLOW_MODES["url"].get(flow, "request")
@@ -493,7 +494,7 @@ class AutoRunner:
                     # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(overwrite)
                     run = Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
                               on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                              video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto",
+                              video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto", streamer=streamer or None,
                               duration=it.get("duration") if _num(it.get("duration")) else None)
                     self.runs.append(run)
                     active.append(run)
@@ -1021,6 +1022,18 @@ class AutoRunner:
             m = None
         return m if m in ("rows", "none", "silence") else "none"   # 既定はカットしない(2026-10-01)
 
+    @staticmethod
+    def _speaker_styles(run):
+        """友人が指定した人ごとの字幕の見た目 -> {名前: {"color": "#RRGGBB"}}(無ければ {})。
+        色は画面・Lua に入るので、ここでも 16 進 6 桁だけにそろえ直す(intake の検査を通ってきたはずだが、実行の作り手がほかにも増えたときのため)"""
+        out = {}
+        raw = (run.speakers or {}).get("styles")
+        for name, sty in (raw.items() if isinstance(raw, dict) else []):
+            hx = colors.norm_hex(sty.get("color")) if isinstance(name, str) and name and isinstance(sty, dict) and isinstance(sty.get("color"), str) else None
+            if hx:
+                out[name] = {"color": hx}
+        return out
+
     def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
         """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
         無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
@@ -1052,6 +1065,9 @@ class AutoRunner:
         self._auto_streamer(run, doc)
         if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
             body["output"]["streamer"] = run.streamer
+        styles = self._speaker_styles(run)
+        if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
+            body["output"]["speakerStyles"] = styles
         while True:
             status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
             if not (status == 409 and res.get("error") == "busy"):
@@ -1216,7 +1232,8 @@ class AutoRunner:
             return None
         sp = run.speakers or {}
         body = {"numSpeakers": sp.get("count"), "names": list(sp.get("names") or []), "recognize": True}
-        named, bad = [], []
+        styles = self._speaker_styles(run)   # 友人が指定した字幕の色(あれば話者分離のあと、文書に覚える)
+        named, bad, no_color = [], [], []
         for i, tid in enumerate(tids, 1):
             self._check(run)
             st["detail"] = "%d / %d 本" % (i - 1, len(tids))
@@ -1237,13 +1254,30 @@ class AutoRunner:
                 raise
             if j.get("state") != "done":
                 bad.append(j.get("error") or j.get("state"))
+            elif styles and not self._remember_styles(tid, styles):
+                no_color.append(tid)
         n = sp.get("count")
         st["detail"] = "%d 本を %d 人に分けました" % (len(tids) - len(bad), n) + ("(名前: %s)" % "・".join(sp["names"]) if sp.get("names") else "") + \
             "。名前の分からない人は「話者1」などのまま"
+        if styles and len(no_color) < len(tids) - len(bad):
+            st["detail"] += "。字幕の色を覚えました(%s)" % "・".join(styles)
+        if no_color:   # 古い「編集」など。依頼は止めない(一部失敗にもしない。パックには色を渡すので、その分の字幕には効く)
+            st["detail"] += "。字幕の色を覚えられませんでした(%d 本)" % len(no_color)
         if bad:
             st["state"] = "warn"
             st["detail"] += "。失敗した %d 本: %s" % (len(bad), str(bad[0])[:120])
         return None
+
+    def _remember_styles(self, tid, styles):
+        """指定された字幕の色を、文書の話者(名前が合う人)に「字幕の見た目」として覚える(編集の POST /api/speakers/sub)。-> 成功したか。
+        失敗(古い編集の 404・その他)しても依頼は止めない。名前の合う人がいなくても 200(その場合も成功)"""
+        try:
+            status, res = self.client.call("transcribe", "POST", "/api/speakers/sub", {"id": tid, "styles": styles})
+        except Cancelled:
+            raise
+        except Exception:
+            return False
+        return status == 200 and isinstance(res, dict) and res.get("ok") is True
 
     def _file_diarize(self, run, st):
         return self._step_diarize(run, st)

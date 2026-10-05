@@ -547,6 +547,63 @@ def speaker_color_map(plan):
     return _colors.speaker_colors(n for _s, _e, n in (plan.speaker_spans or []))
 
 
+# 話者ごとの字幕の見た目の指定(output.speakerStyles = {話者の名前: {鍵: 値}}。docs/plan/sender-streamer-color-plan.md の 6)。
+# 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形の違う値・知らない鍵はその項目だけ黙って捨てる(新しい送るアプリが古い PC に
+# 知らない鍵を送っても、色までは効く)。フォント・大きさなどを足すときは、ここに 鍵: 検査の関数(正しければ整えた値・違えば None)を足す
+def _style_color(v):
+    """"#RRGGBB" / "RRGGBB"(16 進 6 桁だけ)-> "#RRGGBB"(大文字)。違えば None"""
+    return _colors.norm_hex(v) if isinstance(v, str) and len(v) <= 16 else None
+
+
+SPEAKER_STYLE_KEYS = {"color": _style_color}
+SPEAKER_STYLES_MAX = 50   # 人数の上限(超えた分は使わない)
+SPEAKER_NAME_MAX = 60     # 名前の長さの上限(ytt_core.colors.NAME_MAX・cut2resolve_core.read_transcript と同じ)
+
+
+def speaker_styles_from(v):
+    """output.speakerStyles の検査 -> {名前: {鍵: 整えた値}}。全体の形が違えば {}(無かったことにする)。
+    名前は前後の空白を除いて 1〜60 文字、50 人まで。鍵が 1 つも残らない人は除く"""
+    if not isinstance(v, dict):
+        return {}
+    out = {}
+    for name, style in v.items():
+        if len(out) >= SPEAKER_STYLES_MAX:
+            break
+        n = name.strip() if isinstance(name, str) else ""
+        if not n or len(n) > SPEAKER_NAME_MAX or not isinstance(style, dict) or n in out:
+            continue
+        st = {}
+        for key, check in SPEAKER_STYLE_KEYS.items():
+            if key in style:
+                val = check(style[key])
+                if val is not None:
+                    st[key] = val
+        if st:
+            out[n] = st
+    return out
+
+
+def apply_speaker_styles(plan, styles, color_map, shown):
+    """話者ごとの指定の色(speakerStyles)を、メンバーカラーの対応(speaker_color_map)より優先して重ねる。
+    名前の照らし合わせ: 文字起こしの話者の名前と指定の名前を ytt_core.colors.normalize(全角・半角・かな・空白など)でそろえて同じなら合う
+    (部分一致はしない。指定は人が選んだ名前なので、別の人に色が付かないように)。
+    -> (pack.build_pack の speaker_colors {文字起こしの話者の名前: "#RRGGBB"}, 画面に見せる一覧 [{"speaker", "name", "hex", "from"?}])"""
+    want = {}
+    for name, st in styles.items():
+        key = _colors.normalize(name)
+        if key and st.get("color") and key not in want:   # 同じ名前になる指定が 2 つあれば先のもの
+            want[key] = st["color"]
+    if not want:
+        return color_map, shown
+    color_map, shown = dict(color_map), list(shown)
+    for n in sorted({n for _s, _e, n in (plan.speaker_spans or []) if n}):
+        hex_ = want.get(_colors.normalize(n))
+        if hex_:
+            color_map[n] = hex_
+            shown = [x for x in shown if x.get("speaker") != n] + [{"speaker": n, "name": n, "hex": hex_, "from": "speakerStyles"}]
+    return color_map, shown
+
+
 def output_from_spec(o, video):
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
@@ -574,6 +631,8 @@ def output_from_spec(o, video):
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
             "speakerColors": o.get("speakerColors") is not False,
+            # 話者ごとの字幕の見た目の指定(今は色だけ)。speakerColors より優先(speakerColors が false でも効く)。形が違えば無かったことにする
+            "speakerStyles": speaker_styles_from(o.get("speakerStyles")),
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
@@ -982,7 +1041,10 @@ class Handler(BaseHTTPRequestHandler):
 
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
+            # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
             spk_map, spk_shown = speaker_color_map(plan) if out["textplus"] and out["speakerColors"] else ({}, [])
+            if out["textplus"] and out["speakerStyles"]:
+                spk_map, spk_shown = apply_speaker_styles(plan, out["speakerStyles"], spk_map, spk_shown)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,

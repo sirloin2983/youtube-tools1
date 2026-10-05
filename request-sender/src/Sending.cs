@@ -11,9 +11,8 @@ namespace RequestSender
     {
         public List<string> Videos = new List<string>();
         public List<UrlItem> Items = new List<UrlItem>();   // 配信ごとの URL(正規化済み)・切り抜く数・区間
-        public string Streamer = "", Memo = "";
-        public int SpeakerCount = 0;                     // 話す人の数(0 = 指定しない)
-        public List<string> SpeakerNames = new List<string>();
+        public string Memo = "";
+        public SpeakerSet People = new SpeakerSet();     // 配信者(2.1.0: 話す人と同じもの)。数(0 = 指定しない)と、その人数分の名前・字幕の色。1 人目の名前が "streamer" にも入る
         public string Flow = RequestSender.Flow.Auto;   // PC でどこまでやるか(動画と URL の両方にかかる)
         public int VideoTracks = RequestSender.VideoTracks.Default;   // Resolve の映像トラックの数(① 全自動のときだけ送る)
         public string Cut = RequestSender.Cut.None;                   // カット(① 全自動のときだけ送る)
@@ -59,6 +58,7 @@ namespace RequestSender
                 else if (!File.Exists(v)) errs.Add("ファイルが見つかりません: " + v);
                 else if (new FileInfo(v).Length == 0) errs.Add("空のファイルです: " + Path.GetFileName(v));
             }
+            foreach (var p in Speakers.Problems(input.People)) errs.Add("配信者 " + (p.Index + 1) + ": " + p.Message);
             if ((input.Memo ?? "").Length > 2000) errs.Add("メモは 2000 文字までにしてください。");
             if (!RequestSender.Flow.IsValid(input.Flow)) errs.Add("PC でどこまでやるかを選んでください。");
             return errs;
@@ -76,7 +76,7 @@ namespace RequestSender
                 string id = urlId = RequestId.New(now.LocalDateTime);
                 prog.Step = "配信の URL を送っています";
                 Progress(prog);
-                string json = RequestJson.Url(id, input.Items, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks, input.Cut, input.Weights);
+                string json = RequestJson.Url(id, input.Items, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Weights);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("配信の URL(" + input.Items.Count + " 本)");
             }
@@ -101,7 +101,7 @@ namespace RequestSender
                 }
                 prog.Step = "依頼を送っています";
                 Progress(new SendProgress { Done = total, Total = prog.Total, Step = prog.Step });
-                string json = RequestJson.Video(id, names, input.Streamer, input.Memo, input.Flow, DateTimeOffset.Now, input.SpeakerCount, input.SpeakerNames, input.VideoTracks, input.Cut);
+                string json = RequestJson.Video(id, names, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("動画(" + input.Videos.Count + " 本)");
             }

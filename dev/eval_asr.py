@@ -38,6 +38,13 @@
 
 - 比べ方は文字起こしの画面の「認識精度の測定」と同じ(serve.py の _groups・norm_cer・lev_counts。句読点・空白・記号・全角半角は数えない)。
   機械の出力と人の行を時刻の重なりでまとめ、全部の行が校正済みのまとまりだけを数える。人が消した行 = 余分、人が足した行 = 抜け
+- 「字幕に出さない」行 noSub(ゲームのキャラ・NPC の声など。行の印 noSub: true)は正解に入れない。その時間(行の半分以上が noSub の行の時間に入る)に機械が書いた文字も本体の数え方から外し、
+  結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は editor/ed_learn.py の split_nosub)。
+  noSub の行も重なる行も無い文書の数は今までと同じ。
+- 同時にしゃべっている所(人の行どうしが、違う話者で 0.3 秒以上時刻が重なるまとまり = 重なりのまとまり。noSub は先に外す。音のメモ overlap は見ない。判定は ed_learn.is_overlap_group の 1 か所)は、
+  主な数字(CER・抜け・余分)にはこれまでどおり入れたうえで、別にも出す: summary.overlap = {groups, sec, refChars, cer, miss} と summary.nonOverlap = {refChars, cer}(重なりを除いた本体と同じ数え方)。
+  重なりの CER は、機械の出力に話者が無く同時発話は書く順番が決まらないので、人の行の並べ方(開始時刻の順と、話者ごとにまとめた順。話者の並びの入れ替えは 3 人まで全部)のうち小さい方を採る(まとまりの ovl)。
+  compare も nonOverlap と overlap の差を並べる。
 - 作業データ(%LOCALAPPDATA%\\youtube-tools\\transcribe)は**読むだけ**。文字起こしの文書は書き換えない。
   結果は作業データの evals\\asr\\ に JSON で残す(文章を含むのでリポジトリには入れない。数字のまとめだけを docs/accuracy に書く)
 - run はこのプロセスの中で faster-whisper を動かす(サーバーの外の道具なので、ネイティブの部品を読んでよい)。起動中のツールとは別に動く
@@ -503,6 +510,7 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
     flag_from: 要確認の印を、機械の行(hyp。認識し直したとき)と人の行(ref。保存してある出力。original には印が無い)のどちらから読むか"""
     vdoc = dict(doc, original=hyp)
     orig, segs = S._prep(vdoc)
+    orig, segs, _ns_o, _ns_s = S.split_nosub(orig, segs)   # noSub(字幕に出さない)の行とその時間の機械の行は本体から外す(別集計は doc_nosub)
     proofed = [g for g in segs if g.get("proofed")]
     whole = whole_video(doc)   # 確かめ済み = 動画全体が正解。人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け(範囲の外でも捨てない)
     if not whole and (not orig or not proofed):
@@ -545,8 +553,36 @@ def score_doc(S, doc, hyp, terms, flag_from="hyp"):
             out[-1]["whole"] = True
             if kind == "machineOnly" and outside:
                 out[-1]["outside"] = True   # 今までなら捨てていた(校正した行の範囲の外)余分
+        if ge and S.is_overlap_group(segs, ge):   # 重なりのまとまり(別にも出す。主な数字には今までの数え方のまま入る)
+            bs, bd, bi = S.overlap_best_counts(segs, ge, hyp_n)
+            out[-1]["ovl"] = {"sub": bs, "del": bd, "ins": bi}
     return out
 
+
+def doc_nosub(S, doc, hyp):
+    """文書 1 件の noSub の別集計 {rows, sec, machineChars}(noSub の行が無ければ None)。hyp = 機械の行(score_doc と同じ)"""
+    orig, segs = S._prep(dict(doc, original=hyp))
+    _o, _s, ns_o, ns_s = S.split_nosub(orig, segs)
+    return S.nosub_stats(ns_o, ns_s) if ns_s else None
+
+
+def nosub_summary(per_doc):
+    """per_doc = {文書 id: doc_nosub の結果} -> summary.noSub {docs, rows, sec, machineChars, byDoc}(無くてもキーは出す)"""
+    mine = {k: v for k, v in (per_doc or {}).items() if v}
+    return {"docs": len(mine), "rows": sum(v["rows"] for v in mine.values()), "sec": round(sum(v["sec"] for v in mine.values()), 2),
+            "machineChars": sum(v["machineChars"] for v in mine.values()), "byDoc": {k: mine[k] for k in sorted(mine)}}
+
+
+def overlap_totals(groups):
+    """重なりのまとまり(ovl のあるもの)の {groups, sec, refChars, cer, miss}(並べ方を入れ替えた小さい方の数え方)と、それを除いた本体の {refChars, cer}"""
+    ov = [g for g in groups if "ovl" in g]
+    errs = sum(g["ovl"]["sub"] + g["ovl"]["del"] + g["ovl"]["ins"] for g in ov)
+    ref = sum(g["refChars"] for g in ov)
+    rest = [g for g in groups if "ovl" not in g]
+    r_ref, r_err = sum(g["refChars"] for g in rest), sum(g["sub"] + g["del"] + g["ins"] for g in rest)   # total() と同じ数え方(用語の欄を持たない結果も読めるよう直接数える)
+    return ({"groups": len(ov), "sec": round(sum(max(0.0, g["end"] - g["start"]) for g in ov), 2), "refChars": ref,
+             "cer": round(errs / ref, 4) if ref else None, "miss": sum(g["ovl"]["del"] for g in ov)},
+            {"refChars": r_ref, "cer": round(r_err / r_ref, 4) if r_ref else None})
 
 def total(groups):
     t = {"groups": len(groups), "refChars": 0, "sub": 0, "del": 0, "ins": 0, "termRef": 0, "termHit": 0, "termExtra": 0}
@@ -659,10 +695,12 @@ def origin_summary(groups, docs, S=None):
     return out
 
 
-def summarize(groups, docs, S=None, compared=STORED, group=None):
+def summarize(groups, docs, S=None, compared=STORED, group=None, nosub=None):
     """結果のまとめ。compared = 比べるエンジン(STORED = 保存してある出力)。下書きのエンジンとの注意(draftBias)に使う。
-    group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す"""
+    group = (見出し, 文書 -> 組の名前)。--group-by のとき、組ごとの集計 byGroup を足す。nosub = {文書 id: doc_nosub の結果}"""
     s = {"overall": total(groups), "ci95": boot_ci(groups)}
+    s["overlap"], s["nonOverlap"] = overlap_totals(groups)   # 重なりのまとまりと、それを除いた本体(主な数字 overall はどちらも含む)
+    s["noSub"] = nosub_summary(nosub)                        # 字幕に出さない行(正解に入れない。その時間の機械の文字も overall に入れない)
     s["proofedSec"] = proofed_sec(groups, docs)
     s["reviewed"] = reviewed_summary(groups, docs)
     s["gate"] = gate_of(s["reviewed"]["sec"])        # 量の関門(定点 = 確かめ済みの文書の長さの合計)
@@ -807,6 +845,13 @@ def print_summary(res):
         print("※ まだ少ない(参考): 校正済みが %d 分に届いていません。決めるのには使わない" % (LOW_DATA_SEC // 60))
     ci = s.get("ci95")
     print("CER %s(95%%の範囲 %s)  置換 %d / 抜け %d / 余分 %d" % (pct(o["cer"]), "%s〜%s" % (pct(ci[0]).strip(), pct(ci[1]).strip()) if ci else "—", o["sub"], o["del"], o["ins"]))
+    ov, nov = s.get("overlap"), s.get("nonOverlap")
+    if ov and ov.get("groups"):   # 重なりが無い文書だけのときは出さない(今までと同じ表示)
+        print("  重なりを除く: CER %s(正解 %d 字)/ 重なりのまとまり %d(%.1f 秒・正解 %d 字): CER %s・抜け %d 字(人の行の並べ方を入れ替えた小さい方)"
+              % (pct(nov["cer"]), nov["refChars"], ov["groups"], ov["sec"], ov["refChars"], pct(ov["cer"]), ov["miss"]))
+    ns = s.get("noSub")
+    if ns and ns.get("rows"):
+        print("  字幕に出さない(noSub): %d 本・%d 行・%.1f 秒・その時間の機械の文字 %d 字(正解にも余分にも入れていない)" % (ns["docs"], ns["rows"], ns["sec"], ns["machineChars"]))
     dt = s.get("docText")
     if dt and dt["refChars"]:
         print("時刻によらない CER %s  置換 %d / 抜け %d / 余分 %d(文書の文字を通しで比べる。行の時刻のずれを数えない)" % (pct(dt["cer"]), dt["sub"], dt["del"], dt["ins"]))
@@ -888,10 +933,11 @@ def cmd_stored(S, args, data):
     settings = read_json(os.path.join(data, "settings.json"), {}) or {}
     docs, sel = select_docs(data, args)
     terms = name_terms(S, settings)
-    groups, mismatch = [], []
+    groups, mismatch, nosub = [], [], {}
     for d in docs:
         mine = score_doc(S, d, d.get("original") or [], terms, flag_from="ref")
         groups += mine
+        nosub[d["id"]] = doc_nosub(S, d, d.get("original") or [])
         ref = S.doc_metrics(d, False, terms)   # 画面の「認識精度の測定」と同じ数になるか(規則を二重に持っているので、ずれたら知らせる)
         # 確かめ済みの文書(動画全体で採点)は画面の測定(校正した行の範囲だけ)と数が違って当たり前なので、今までの規則で数え直した方と比べる
         t = total(score_doc(S, dict(d, _reviewed=False), d.get("original") or [], terms, flag_from="ref") if whole_video(d) else mine)
@@ -900,7 +946,7 @@ def cmd_stored(S, args, data):
             mismatch.append(d["id"])
     if mismatch:
         print("注意: 画面の測定と数が合わない文書があります(この道具の採点の規則を直す必要があります): " + ", ".join(mismatch))
-    res = {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, S, STORED, group_spec(args, "stored")), "groups": groups, "terms": terms}
+    res = {"meta": base_meta("stored", args, docs, data, sel), "summary": summarize(groups, docs, S, STORED, group_spec(args, "stored"), nosub), "groups": groups, "terms": terms}
     res["meta"]["mismatch"] = mismatch
     return res
 
@@ -937,6 +983,7 @@ def cmd_run(S, args, data):
     if repeat >= 2:
         pick, rep = pick_median(S, runs)
     groups, audio_sec, wall_sec, per_doc = (runs[pick][k] for k in ("groups", "audioSec", "wallSec", "perDoc"))
+    nosub = runs[pick]["noSub"]
     failed = [p for p in per_doc if p.get("error")]
     meta = base_meta("run", args, docs, data, sel)
     run_rec = S.recognition_run(spec, {"device": device}, 0, 0)   # エンジンの名前と版(文字起こしの記録と同じ決め方)
@@ -954,13 +1001,13 @@ def cmd_run(S, args, data):
     if failed:
         print("注意: %d 本は認識できず、数に入っていません(比べるときは同じ文書で比べること)" % len(failed))
     done = {p["id"] for p in per_doc if not p.get("error")}   # 認識できなかった文書は、確かめ済みの秒にも入れない
-    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"))
+    summary = summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": run_rec["engine"], "model": spec["model"]}, group_spec(args, "run"), nosub)
     return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
 
 
 def run_docs(S, docs, spec, args, data, terms, device, tag=""):
     """文書すべてを 1 回認識して採点する(--repeat のときは回の数だけ呼ぶ)。認識できなかった文書は per_doc に error で残して数えない"""
-    groups, audio_sec, wall_sec, per_doc = [], 0.0, 0.0, []
+    groups, audio_sec, wall_sec, per_doc, nosub = [], 0.0, 0.0, [], {}
     for n, d in enumerate(docs, 1):
         print("%s(%d/%d) %s %s …" % (tag, n, len(docs), d["id"], str(d.get("title") or "")[:30]), flush=True)
         ctx = S.stream_context(d, args.context == "auto")   # 配信ごとの文脈(段1-2。文書の題名・チャンネル名・コラボ相手・話者の名前から)
@@ -978,7 +1025,8 @@ def run_docs(S, docs, spec, args, data, terms, device, tag=""):
         per_doc.append({"id": d["id"], "audioSec": round(a, 2), "wallSec": round(w, 2), "audio": where, "rows": len(rows),
                         "context": [m["name"] for m in ctx["members"]]})
         groups += score_doc(S, d, rows, terms, flag_from="hyp")
-    return {"groups": groups, "audioSec": audio_sec, "wallSec": wall_sec, "perDoc": per_doc, "device": device}
+        nosub[d["id"]] = doc_nosub(S, d, rows)
+    return {"groups": groups, "audioSec": audio_sec, "wallSec": wall_sec, "perDoc": per_doc, "device": device, "noSub": nosub}
 
 
 def pick_median(S, runs):
@@ -1036,6 +1084,25 @@ def compare_origins(A, B, keys, cer, paired_ci, diff):
     return out
 
 
+def pt(x):
+    return "—" if x is None else "%+.2f pt" % (x * 100)
+
+
+def compare_overlap(A, B, keys):
+    """compare の、重なりを除いた本体と重なりのまとまりの差(共通の文書 keys だけで数える)。重なりのまとまりが 1 つも無ければ None。
+    -> {"nonOverlap": {refChars, cerA, cerB, diff}, "overlap": {groups, refChars, cerA, cerB, diff, missA, missB}}。groups の ovl が無い(古い)結果は重なりなしとして数える"""
+    ks = set(keys)
+    ta, tb = (overlap_totals([g for g in R["groups"] if g["doc"] in ks]) for R in (A, B))
+    if not ta[0]["groups"] and not tb[0]["groups"]:
+        return None
+
+    def diff(x, y):
+        return round(y - x, 4) if x is not None and y is not None else None
+    return {"nonOverlap": {"refChars": ta[1]["refChars"], "cerA": ta[1]["cer"], "cerB": tb[1]["cer"], "diff": diff(ta[1]["cer"], tb[1]["cer"])},
+            "overlap": {"groups": max(ta[0]["groups"], tb[0]["groups"]), "refChars": max(ta[0]["refChars"], tb[0]["refChars"]), "cerA": ta[0]["cer"], "cerB": tb[0]["cer"],
+                        "diff": diff(ta[0]["cer"], tb[0]["cer"]), "missA": ta[0]["miss"], "missB": tb[0]["miss"]}}
+
+
 def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     """同じ文書どうしで CER の差(B − A)と、文書を選び直した 95% の範囲。-> 結果の dict(表示もする)"""
     A, B = read_json(a_path), read_json(b_path)
@@ -1083,6 +1150,9 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
            "byDoc": [{"id": k, "cerA": round(cer("a", [k]), 4), "cerB": round(cer("b", [k]), 4)} for k in keys]}
     if post_note:
         out["postNote"] = post_note
+    ovr = compare_overlap(A, B, keys)
+    if ovr:   # どちらかの結果に重なりのまとまり(groups の ovl)があるときだけ(重なりが無ければ今までと同じ出力)
+        out["nonOverlap"], out["overlap"] = ovr["nonOverlap"], ovr["overlap"]
     ga, gb = A["summary"].get("gate"), B["summary"].get("gate")
     if isinstance(ga, dict) and isinstance(gb, dict):   # 関門が無い(古い)結果のときは出さない
         out["gate"] = gate_of(min(ga.get("sec") or 0, gb.get("sec") or 0))   # 2つのうち定点の少ない方
@@ -1104,6 +1174,11 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
               "・95%%の範囲 %+.2f 〜 %+.2f" % (v["ci95"][0] * 100, v["ci95"][1] * 100) if v["ci95"] else "・文書が 1 本で範囲は出せない"))
     if out.get("originNote"):
         print("注意: " + out["originNote"])
+    if ovr:
+        no, o2 = out["nonOverlap"], out["overlap"]
+        print("  重なりを除く(正解 %d 字): A %s → B %s(差 %s)" % (no["refChars"], pct(no["cerA"]).strip(), pct(no["cerB"]).strip(), pt(no["diff"])))
+        print("  重なりのまとまり %d・正解 %d 字(小さい方の並べ方): A %s → B %s(差 %s)・抜け A %d → B %d 字"
+              % (o2["groups"], o2["refChars"], pct(o2["cerA"]).strip(), pct(o2["cerB"]).strip(), pt(o2["diff"]), o2["missA"], o2["missB"]))
     for key in ("byTag", "byKind"):
         for k in A["summary"][key]:
             va, vb = A["summary"][key][k], B["summary"][key].get(k) or {}
