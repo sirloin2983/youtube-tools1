@@ -3329,3 +3329,10 @@
 - 注意: 作業の途中で push.bat の「update 2026/10/05 18:00」が members.json・colors.py・テストを先にコミットした(中身は同じ)
 - ユーザーがやること: 入口を「すべて終了」→ start.bat で起動し直す(colors.py はファイルの更新日時で members.json を読み直すが、colors.py 自体は起動し直しが要る)。作り済みのパックの色は変わらない(作り直すと新しい色)
 - 未コミット: なし
+
+## 2026-10-05 Claude Code — 字幕の色の4人分をホロカラーの色の一覧にも足す
+- ユーザーの指示(10-05):「ホロカラーにも追加」(ほかの出典に無かった4人の字幕の色)
+- `holo-colors/members.json`: 星街すいせい #5683C8・水宮枢 #64CCB4・綺々羅々ヴィヴィ #E6499B・こぼ・かなえる #77ACD6 を `colors` の2番目に足した(ラベル「字幕(指定)」・確かさ medium・出典 u1 = ユーザーの指定。札の小さな四角に見えるように2番目)。主な色(hex)は変えていない
+- テスト: holo-colorsuild.bat 31・ytt_core 75(skip 1)、通った。`dist\HoloColors.zip` も作り直した(exe は変わらず、中の members.json が新しい)
+- ユーザーがやること: 自分のホロカラーは members.json を入れ替えて起動し直す。友人へは新しい `holo-colors\dist\HoloColors.zip`(members.json だけの差し替えでもよい)
+- 未コミット: なし
