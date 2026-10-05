@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.54.0';
+const APP_VERSION = '0.55.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -205,6 +205,10 @@ const SPALL = { id: null, cands: [], suggest: '' };
 const DR = { on: false, done: 0, skip: [], none: '', status: null, busy: false };
 /* この動画だけを今の設定で作り直す(app-learn.js の redoOneHere。2026-10-05): busy = 保存・確認・送るの途中 */
 const REDO1 = { busy: false };
+/* 重なりの所に空の行を置く(app-jobs.js の ovd*。2026-10-05): id = 数えた文書・items = 候補(api/overlap-drafts)・more = 出し切れなかった数・reason = 出せない理由・
+   drafts = 数えたときの空のままの下書きの数(保存のあとで変わったら数え直す)・busy = 保存・確認・置くの途中・seq = 古い応答を捨てる番号 */
+const OVD = { id: null, items: [], more: 0, reason: '', diarAt: null, err: '', drafts: 0, busy: false, seq: 0 };
+const OVD_KIND = 'overlap';   // 置いた行の印 draft の値(サーバーの ed_state.ROW_DRAFT_KINDS と同じ)
 const SPALL_FROM = { voice: '覚えた声', folder: 'メンバーのフォルダ', stream: '配信の文脈' };
 $('#voiceList').addEventListener('click', e => {
   const b = e.target.closest('[data-act=vdel]'); if (!b) return;
@@ -242,7 +246,9 @@ $('#voiceLearn').addEventListener('click', async () => {
     startPolling(); await pollJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
   } catch (er){ toast(er.message, 6000, 'err'); }
 });
-$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); } });
+$('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); loadOvd(); } });
+$('#ovdGo').addEventListener('click', () => ovdPlace());
+$('#ovdClear').addEventListener('click', () => ovdClear());
 $('#diarEmb').addEventListener('change', () => { if ($('#spDetails').open) loadVoices(); });
 try { $('#diarRecog').checked = localStorage.getItem('tx.voiceRecog') !== '0'; } catch {}
 $('#diarRecog').addEventListener('change', () => { try { localStorage.setItem('tx.voiceRecog', $('#diarRecog').checked ? '1' : '0'); } catch {} });
@@ -546,6 +552,7 @@ $('#segs').addEventListener('input', e => {
   const i = Number(row.dataset.i), s = S.doc.segments[i]; if (!s) return;
   if (e.target.dataset.f === 'text'){
     s.text = e.target.value.slice(0, 2000); autoSize(e.target); markDirty();
+    if (s.draft) clearDraftMark(s, row);   // 重なりの下書きに文字を打った = 人の行(札を外す)
     const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s);
     if (i === (capFollow ? S.curIdx : S.navIdx)) updateCaption();   // 映像に重ねた字幕が、いま直している行なら打った文字にすぐ追従させる
   }

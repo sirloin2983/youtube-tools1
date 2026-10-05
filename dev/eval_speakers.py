@@ -24,7 +24,7 @@
     確かめられない(数えない・別に数える)= それ以外(人が名前を付けた・ほかの行を確かめた話者の、確かめていない行。話者を見たかは記録から言えない)
   仮の名前(話者1・話者2…)のままの行は今までどおり既定で測らない(人が確かめた行でも)。「校正済みの行だけ」の数も並べて見る
 - **字幕に出さない行は測らない**(行の印 noSub: true、または組み込みの話者「ゲーム音声など」の行。ゲームのキャラ・NPC の声など = その場かぎりの声で、
-  話者判別の当たり外れではなく人の判断。editor の担当が名前の定数を決めるまで、ここでは OTHER_VOICE_NAME と行の noSub で判定する)。行の話者の正しさ・声の照合・重なりの見つけ方のどれにも入れず、
+  話者判別の当たり外れではなく人の判断。組み込みの話者の id・名前(ed_state.OTHER_SPK_ID・OTHER_SPK_NAME と同じ値)と行の noSub で判定する)。行の話者の正しさ・声の照合・重なりの見つけ方のどれにも入れず、
   行の数だけ meta.noSubRows に別に出す(人が時刻を直した行・話者の数の数え方にも入らない = 測る行の集まりから外す)
 - 重なりの見つけ方: 機械の「声が混ざっている」(diar.json の rows[].mixed)と、話者の区間が重なる所(overlaps と行が OVL_MIN_SEC 以上重なる)を、
   人の音のメモ overlap(行の tags)と比べる(適合率・再現率)。行 = 確かめ済みの文書の行か校正済みの行(文字のある・機械の記録がある行)
@@ -68,7 +68,8 @@ DIAR_SCHEMA = "youtube-tools-diar/v1"     # editor/ed_speakers.py の DIAR_SCHEM
 FEW_ROWS = 200                            # 話者つきの行がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                           # original と行の端が一致したとみなす秒
 MAX_DIAR_BYTES = 32 * 1024 * 1024
-OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(editor 側の定数と同じ。まだ editor に無い間は、ここの値と行の noSub で判定する)
+OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(editor/ed_state.py の OTHER_SPK_NAME と同じ)
+OTHER_VOICE_ID = "other"                   # 組み込みの話者の id(ed_state.OTHER_SPK_ID と同じ。名前より id で見分けるのが確実)
 DRAFT_NAME = re.compile(r"^話者\d+$")     # editor/ed_speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 SUBSETS = (("all", "話者つきの行"), ("proofed", "校正済みの行だけ"), ("timeEdited", "人が時刻を直した行だけ"))
@@ -243,7 +244,7 @@ def time_edited_flags(doc, rows):
 
 def is_other_row(sg, names):
     """字幕に出さない行か(noSub: true、または話者の名前が組み込みの「ゲーム音声など」)。names = 話者 id → 名前"""
-    return sg.get("noSub") is True or (bool(sg.get("speaker")) and str(names.get(sg.get("speaker")) or "") == OTHER_VOICE_NAME)
+    return sg.get("noSub") is True or sg.get("speaker") == OTHER_VOICE_ID or (bool(sg.get("speaker")) and str(names.get(sg.get("speaker")) or "") == OTHER_VOICE_NAME)
 
 
 def is_reviewed(doc):

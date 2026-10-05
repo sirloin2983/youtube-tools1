@@ -401,12 +401,13 @@ def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=
 
 def diar_keep_row(g, ids):
     """話者判別のやり直し・1人指定・「全行をこの人に」で話者を変えない行(2026-10-05): 字幕に出さない行(noSub)・
-    組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)。
+    組み込みの話者「ゲーム音声など」の行・音のメモ「声が重なる」(overlap)が付いていて話者のある行(手で作った重なる行を守る)・
+    機械の下書きのままの空の行(重なりの所に置いた行。判別は行を作り直さないので、そのまま残して話者も変えない。話者なしの下書きを主の話者で埋めない)。
     ids = 文書の話者の id の集まり(無い id の話者は守らない)"""
     if not isinstance(g, dict):
         return False
     sp = str(g.get("speaker") or "")
-    if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID:
+    if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID or ed_state.blank_draft_row(g):
         return True
     return bool(sp) and sp in ids and "overlap" in (g.get("tags") if isinstance(g.get("tags"), list) else [])
 
@@ -612,6 +613,161 @@ def run_diarize(job):
                 os.unlink(wav)
         except OSError:
             pass
+
+
+# ---------- 重なりの所の空の行の下書き(2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 5-3 の C・6-2 の 1・2) ----------
+# 同時にしゃべっている所は、認識が片方しか書かない。判別の記録(diar.json の latest)には、声があったのに行が付かなかった区間が残るので、
+# そこを「時刻(と分かれば話者)を入れた空の行」の候補にする。ここは候補を数えるだけ(文書も diar.json も書かない)。行を足すのは画面(元に戻すが効く・保存はいつもの道)。
+# 候補 = 判別の声の区間(同じラベルの区間はすき間 OVDRAFT_JOIN 以下でつなぐ)のうち、主の話者(区間の合計がいちばん長いラベル)でないもの:
+#   (a) labelMap に無いラベル(行が 1 つも付かなかった声)→ speaker ""(誰か分からない)・why "unassigned"
+#   (b) labelMap にあるラベルで、ほかの話者の区間と重なる(overlaps に入る部分がある)→ speaker = その話者の id・why "overlap"
+# 区間の半分以上が「書いてある」(下の _ovdraft_cover_rows)なら出さない = 2 回押しても増えない。出す区間は、両端の書いてある所を削る(同じ話者の行と重ねて赤くしない)。
+# 時刻は元の動画の秒(build_diar_run が offset を足して書く)= 行を直したあとの文書にもそのまま使える
+OVDRAFT_JOIN = 0.3    # 同じラベルの区間をつなぐすき間(秒)
+OVDRAFT_MIN = 0.5     # これより短い区間は出さない(短い相づちは数が多く当たりも悪いので、最初は出さない)
+OVDRAFT_MAX = 40      # 1 回に出す数(開始の順。超えた数は more)
+OVDRAFT_COVER = 0.5   # 区間のこの割合以上が書いてあれば出さない
+OVDRAFT_KIND = "overlap"   # 置いた行の印 draft の値(ed_state.ROW_DRAFT_KINDS の 1 つ)
+OVDRAFT_REASONS = {
+    "no_diar": "話者の判別の記録がありません(「話者を自動で判別」のあとで使えます)",
+    "single": "1 人として付けた判別なので、声の区間の記録がありません(人数を「自動」か 2 人以上で判別すると使えます)",
+    "no_turns": "判別の記録に声の区間がありません",
+}
+
+
+def _ovdraft_union(spans):
+    """[(開始, 終了)] をつなげて開始の順に(重なる・接するものは 1 つに)"""
+    out = []
+    for a, b in sorted((a, b) for a, b in spans if b > a):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def _ovdraft_covered(a, b, union):
+    return sum(max(0.0, min(b, y) - max(a, x)) for x, y in union if x < b and y > a)
+
+
+def _ovdraft_trim(a, b, union):
+    """両端が書いてある所に入っていれば、その外まで縮める(真ん中の書いてある所はそのまま)"""
+    for x, y in union:
+        if x <= a < y:
+            a = y
+    for x, y in reversed(union):
+        if x < b <= y:
+            b = x
+    return a, b
+
+
+def _ovdraft_cover_rows(segs, ids, speaker):
+    """候補の区間を「書いてある」とみなす行の時間(つなげたもの)。speaker = None なら行の付かなかった声(a)、id ならその話者(b)。
+    どちらも: 機械の下書きのままの空の行(話者によらず。置いた所)・字幕に出さない行・「ゲーム音声など」の行(別の声として書いてある)。
+    (a): 文字のある行のうち、話者の無い行(文書に無い id を含む)と、判別のやり直しで守る行(diar_keep_row = 声が重なるのメモつきの話者のある行)。
+    (b): 文字のある行のうち、その話者の行"""
+    spans = []
+    for g in segs:
+        if not isinstance(g, dict):
+            continue
+        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        if a is None or b is None or b <= a:
+            continue
+        if ed_state.blank_draft_row(g):
+            spans.append((a, b))
+            continue
+        if not str(g.get("text") or "").strip():
+            continue
+        sp = str(g.get("speaker") or "")
+        if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID:
+            spans.append((a, b))
+        elif speaker is None:
+            if sp not in ids or diar_keep_row(g, ids):
+                spans.append((a, b))
+        elif sp == speaker:
+            spans.append((a, b))
+    return _ovdraft_union(spans)
+
+
+def ovdraft_candidates(doc, latest):
+    """文書(今の行・話者)と diar.json の latest から、空の行の候補。読むだけ。
+    -> {"items": [{start, end, speaker: 話者の id か "", label, why: "unassigned" | "overlap"}](開始の順・OVDRAFT_MAX まで),
+        "more": 超えた数, "reason": 出せない理由(文) か None, "reasonCode": no_diar | single | no_turns | None}"""
+    def empty(code):
+        return {"items": [], "more": 0, "reason": OVDRAFT_REASONS[code], "reasonCode": code}
+    if not isinstance(latest, dict):
+        return empty("no_diar")
+    eng = latest.get("engine") if isinstance(latest.get("engine"), dict) else {}
+    if eng.get("name") == "single":
+        return empty("single")
+    turns = []
+    for t in latest.get("turns") or []:
+        if not isinstance(t, dict) or t.get("label") is None:
+            continue
+        a, b = ed_state.num(t.get("start")), ed_state.num(t.get("end"))
+        if a is not None and b is not None and b > a:
+            turns.append((a, b, t["label"]))
+    if not turns:
+        return empty("no_turns")
+    lmap = {str(k): str(v) for k, v in (latest.get("labelMap") or {}).items() if v} if isinstance(latest.get("labelMap"), dict) else {}
+    ovl = _ovdraft_union((ed_state.num(x[0]), ed_state.num(x[1])) for x in latest.get("overlaps") or []
+                         if isinstance(x, (list, tuple)) and len(x) >= 2 and ed_state.num(x[0]) is not None and ed_state.num(x[1]) is not None)
+    total = {}
+    for a, b, lb in turns:
+        total[str(lb)] = total.get(str(lb), 0.0) + (b - a)
+    main = max(total, key=lambda k: total[k])   # 主の話者(ほかの声が乗っているだけの側。書かれている側なので出さない)
+    joined = []   # [(開始, 終了, ラベル)] 同じラベルの区間をつないだもの
+    for lb in total:
+        if lb == main:
+            continue
+        cur = None
+        for a, b, x in sorted(t for t in turns if str(t[2]) == lb):
+            if cur and a - cur[1] <= OVDRAFT_JOIN:
+                cur[1] = max(cur[1], b)
+            else:
+                if cur:
+                    joined.append(tuple(cur))
+                cur = [a, b, x]
+        if cur:
+            joined.append(tuple(cur))
+    lo = ed_state.num(doc.get("start"), 0.0) or 0.0
+    hi = ed_state.num(doc.get("end"))
+    dur = ed_state.num(doc.get("duration"))
+    hi = min(x for x in (hi, dur, float("inf")) if x is not None and x > 0)
+    segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
+    ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    covers = {}
+    items = []
+    for a, b, lb in sorted(joined):
+        a, b = max(a, lo), min(b, hi)
+        if b - a < OVDRAFT_MIN:
+            continue
+        sp = lmap.get(str(lb))
+        if sp is not None and _ovdraft_covered(a, b, ovl) <= 0.01:   # (b) は、ほかの話者の区間と重なっている声だけ
+            continue
+        if sp not in covers:   # (a) は None
+            covers[sp] = _ovdraft_cover_rows(segs, ids, sp)
+        union = covers[sp]
+        if _ovdraft_covered(a, b, union) >= OVDRAFT_COVER * (b - a):
+            continue
+        a2, b2 = _ovdraft_trim(a, b, union)
+        if b2 - a2 < OVDRAFT_MIN:
+            continue
+        items.append({"start": round(a2, 2), "end": round(b2, 2), "speaker": sp if sp in ids else "", "label": lb,
+                      "why": "unassigned" if sp is None else "overlap"})
+    items.sort(key=lambda x: (x["start"], x["end"]))
+    return {"items": items[:OVDRAFT_MAX], "more": max(0, len(items) - OVDRAFT_MAX), "reason": None, "reasonCode": None}
+
+
+def ovdraft_for_doc(tid):
+    """GET /api/overlap-drafts?id= : 保存済みの文書と判別の記録で候補を数える(読むだけ)。文書が無ければ 404。
+    -> ovdraft_candidates の結果 + "diarAt"(判別の時刻。記録が無ければ None)"""
+    doc = ed_store.read_transcript(tid)
+    d = read_diar(tid)
+    latest = d["latest"] if d else None
+    out = ovdraft_candidates(doc, latest)
+    out["diarAt"] = latest.get("at") if latest else None
+    return out
 
 
 # ---------- 文字起こしのあと、話者を自動で判別する(v0.50.0。評価用は常に・それ以外は設定 autoDiarize) ----------

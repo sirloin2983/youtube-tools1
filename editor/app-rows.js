@@ -25,6 +25,7 @@ function saveDoc(){
   const run = async () => {
     while (S.doc && S.dirty){   // 保存を待っている間に編集された分も、順番に保存する
       S.dirty = false; setSaveState('保存中…', 'busy');
+      for (const g of S.doc.segments) if (g.draft && String(g.text || '').trim()) delete g.draft;   // 文字の入った下書きの印は保存しない(入力のほかの道 = 提案の採用・置換などで文字が入ったとき)
       const id = S.docId, force = S.forceNext;
       const body = { title: S.doc.title, evalSet: S.doc.evalSet === true, speakers: S.doc.speakers, segments: S.doc.segments, baseUpdatedAt: S.baseUpdatedAt, ...(force ? { force: true } : {}) };
       try {
@@ -35,7 +36,7 @@ function saveDoc(){
         if ('evalReviewed' in r && !!r.evalReviewed !== !!S.doc.evalReviewed){ S.doc.evalReviewed = r.evalReviewed || undefined; renderEvalReview(); renderDrillBar(); }   // 評価用を外すと確かめ済みの印も消える(サーバー)
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
         scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
-        syncListItem(); cpAfterSave();
+        syncListItem(); cpAfterSave(); ovdAfterSave();
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
@@ -147,6 +148,7 @@ async function openDoc(id, keep){
   else window.scrollTo(0, 0);
   if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
   setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る(監査 06)
+  loadOvd(id);     // 重なりの所の空の行の候補の数(話者のカードに出す。話者判別のあとの読み直しでも数え直す)
   return true;
 }
 
@@ -202,6 +204,27 @@ function paintNoSub(row, s){
   const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
 }
 
+/* ---------- 重なりの所に置いた空の行(行の印 draft。2026-10-05。置く・消すは app-jobs.js の ovd*) ----------
+   draft = 機械が置いた下書きで、まだ人が打っていない印(サーバーの ed_state.ROW_DRAFT_KINDS)。文字を打ったら外す(clearDraftMark・保存の前にも)。
+   空のままの行は字幕・カット・パックに出ない(文字の無い行は今も数えない)・重なりの赤にしない */
+const DRAFT_PH = '聞いて打ってください(重なりの下書き。打つと札が外れます。要らなければ「削除」)';
+const DRAFT_TITLE = '話者の判別で声が見つかったのに行が無かった所に置いた空の行です。聞いて文字を打ってください。空のままなら字幕・カット・パックに出ません';
+function isBlankDraft(g){ return !!g && g.draft === OVD_KIND && !String(g.text || '').trim(); }
+function blankDrafts(){ return S.doc ? S.doc.segments.filter(isBlankDraft) : []; }
+
+/* 文字が入った下書きの印を外す(行の文字の入力から)。札・placeholder・重なりの赤・「空のままを消す」の数を合わせる */
+function clearDraftMark(s, row){
+  if (!s.draft || !String(s.text || '').trim()) return;
+  delete s.draft;
+  if (row){
+    row.classList.remove('tt-draft');
+    const p = row.querySelector('.tt-draft-pill'); if (p) p.remove();
+    const ta = row.querySelector('textarea'); if (ta) ta.placeholder = '(空の行)文字を入力。不要なら「削除」';
+  }
+  const i = S.doc.segments.indexOf(s); if (i >= 0) markOvl(i);
+  renderOvd();
+}
+
 /* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
 function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && String(g.text || '').trim()).length : 0; }
 function renderNoSubCount(){
@@ -227,7 +250,7 @@ function subHexInput(v){ return String(v || '').replace(/[^0-9a-fA-F]/g, '').toU
    必ず真偽値を返す(markOvl の classList.toggle に undefined を渡すと「付け外しの反転」になり、前後に行の無い先頭・最後の行が押すたびに赤白を繰り返した) */
 const t10 = x => Math.round((Number(x) || 0) * 10);
 const overlaps = (a, b) => !!a && !!b && t10(a.end) > t10(b.start);   // a の終わりが、次の行 b の始まりより(見える時刻で)後ろ
-const badOverlap = (a, b) => overlaps(a, b) && !a.noSub && !b.noSub && !(a.speaker && b.speaker && a.speaker !== b.speaker);
+const badOverlap = (a, b) => overlaps(a, b) && !a.noSub && !b.noSub && !isBlankDraft(a) && !isBlankDraft(b) && !(a.speaker && b.speaker && a.speaker !== b.speaker);   // 重なりの下書き(空の行)は、重なる所に置いたものなので赤くしない(打ったら今までどおり)
 const OVL_BACK = 8;   // 前の行は 8 行前まで見る(別の話者の行をはさんで、同じ話者の長い行と重なることがあるため。全部は見ない = 4000 行でも重くしない)
 const OVL_TITLE = '同じ話者の行(か、話者の無い行)と時刻が重なっています。別の人が同時に話しているなら、それぞれの行に話者を付けると赤くなくなります';
 function ovl(i){
@@ -255,15 +278,16 @@ function snapEdge(i, f, toward){
 }
 
 function segHTML(s, i){
-  const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i);
-  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
+  const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
+  return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
     <button type="button" class="play" data-act="play" title="${esc(titlePlay())}" aria-label="この行だけ再生">▶</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
-    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
+    <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? DRAFT_PH : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
     <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
+    ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(DRAFT_TITLE)}">下書き(重なり)</span>` : ''}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s)}</div>
     <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
@@ -280,7 +304,7 @@ function renderDoc(){
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
-  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount();
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount(); renderOvd();
 }
 
 function autoSize(ta){ if (NATIVE_FS) return; ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }

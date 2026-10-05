@@ -1002,19 +1002,25 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .tt-sp-subsw{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-strong);vertical-align:middle}
 .tt-sp-subsw[hidden]{display:none}
 .sp-row.tt-sp-other input[type=text]{color:var(--ink-3)}
+/* 重なりの所に置いた空の行(印 draft。2026-10-05): 札と、打つ欄の点線の枠(空のままでも欄が見える)。重なりの赤にはしない(app-rows.js の badOverlap) */
+.seg .tt-draft-pill{grid-column:5;justify-self:start}
+.seg.tt-draft textarea{border:1px dashed color-mix(in srgb,var(--info) 55%,transparent);background:color-mix(in srgb,var(--info-soft) 50%,transparent)}
+.seg.tt-draft textarea:focus{border-style:solid;border-color:var(--accent);background:var(--field)}
+.tt-ovd-count{margin:0 0 6px}
+.tt-ovd-count.tt-ovd-none{color:var(--ink-4)}
 /* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
    (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
 @container (max-width:700px){
   #segs .seg{grid-template-columns:18px 30px auto minmax(0,1fr) auto}
   #segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0;max-width:170px}#segs .seg .ops{grid-column:5;grid-row:1}
-  #segs .seg textarea,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
+  #segs .seg textarea,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .tt-draft-pill,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
   #segs .seg textarea{margin-top:-2px}
 }
 @container (max-width:520px){
   /* v0.15.0: とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
   #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
   #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
-  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill{order:2}
+  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .tt-draft-pill{order:2}
   #segs .seg .ops button{padding:0 10px;min-height:28px}
   #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
   #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
@@ -1481,7 +1487,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
-        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option></select>
+        <select id="flagKind" aria-label="表示する行の絞り込み" title="表示する行の絞り込み"><option value="">すべての行</option><option value="unproofed">未校正の行だけ</option><option value="proofed">校正済みの行だけ</option><option value="any">要確認すべて</option><option value="text">文字の要確認だけ</option><option value="spk">話者の要確認だけ</option><option value="sug">修正の提案がある行だけ</option><option value="cut">カット済の行だけ</option><option value="draft">重なりの下書きだけ(空の行)</option></select>
         <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない。段5 5-6) -->
         <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
@@ -1563,6 +1569,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <label class="lag">判別モデル <select id="diarEmb" style="width:auto;max-width:280px"></select></label>
           <button type="button" class="btn small primary" id="diarGo">話者を自動で判別</button></div>
         <span class="hint">2人の対談なら「2人」を指定してください(「自動」だと、1人を複数に分けたり、逆にまとめたりしやすくなります)。「判別モデル」は声の特徴を見分ける部分です。日本語の音声でどれが合うかは、同じ範囲で切り替えて比べてください。すでに割り当てた話者は置き換わります(「ゲーム音声など」の行・字幕に出さない行・「声が重なる」のメモを付けた話者のある行は変えません)。判別中は編集できません。</span></div>
+      <!-- 重なりの所に空の行を置く(2026-10-05。app-jobs.js の ovd*。候補は GET api/overlap-drafts = 判別の記録から。押したときだけ置く) -->
+      <div class="fld tt-ovd" id="ovdBox"><span class="l">重なりの所に空の行を置く</span>
+        <p class="hint tt-ovd-count" id="ovdCount" aria-live="polite"></p>
+        <div class="row"><button type="button" class="btn small" id="ovdGo">空の行を置く</button><button type="button" class="btn small" id="ovdClear" hidden>空のままの下書きを消す</button></div>
+        <span class="hint">同時にしゃべっている所は、文字起こしが片方の声しか書きません。話者の判別で声が見つかったのに行の無い所に、時刻(分かれば話者も)を入れた空の行を置きます。聞いて文字を打ってください(打つと札「下書き(重なり)」が外れます)。空のままの行は字幕・カット・パックに出ません。</span></div>
       <div class="fld"><span class="l">名前の変更・手動での割り当て</span>
         <div id="spList"></div>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>

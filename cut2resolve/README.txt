@@ -1,4 +1,4 @@
-cut2resolve v0.20.0(「編集」の部品・コマンド)
+cut2resolve v0.21.0(「編集」の部品・コマンド)
 ==================================================
 
 切り抜いた動画に「カット」と「字幕」を入れて、DaVinci Resolve(以下 Resolve)で続きを編集できる形(パック)にして渡すツールです。
@@ -36,6 +36,13 @@ cut2resolve v0.20.0(「編集」の部品・コマンド)
     (-35dB・0.15 秒以上)まで。無音が無ければ 前 0.1 秒・後 0.2 秒。カット済の行は越えない)。spec.rowEdge = false で広げない・
     {"after": 秒, "before": 秒} で上限を変える(0〜2 秒)・{"padAfter": 秒}(v0.16.0)で無音が無いときの「後の余白」を変える(0〜2 秒。前の余白 0.1 秒は変えない。
     padAfter が after より大きいときは after も padAfter まで上げる)。{"on": false} でも広げない(padAfter は無視)。コマンドは --no-row-edge で広げない。keeps・時刻リスト・スタジオの区間には使わない
+  - 重なる字幕(v0.21.0): Text+ のパックは、カットで詰めたあとの時刻で 0.3 秒以上重なる字幕を別の段に分ける(最大 3 段。計算は resolve_textplus.stack_captions の 1 か所)。
+    段 1 = 今までの字幕のトラック、段 2・3 = その上のトラック(映像トラックが N 本なら V(N+1)〜V(N+3))で、縦の位置を上へ 0.2 ずつずらす(LANE_STEP_Y。仮の値 = 実機で見て決める)。
+    0.3 秒未満の重なりは、前の字幕の終わりを次の始まりで切る。一度置いた字幕は動かさず、空いているいちばん下の段へ入れる。重なりの無いパックは今までと同じ中身。
+    見積もり(summary)に captionLanes・captionsStacked・captionsTrimmed。SRT・EDL は重なったまま。字幕ごとの話者は、字幕を作った行から直接たどる(重なる行でも正しい人の色)
+  - 字幕に出さない行(v0.21.0): 文字起こしの行の noSub: true は、時間は残す区間に数え、字幕は作らない(pack.row_has_caption)。段分けは noSub を外したあとで数える。見積もりに noSubRows
+  - output.speakerStyles(v0.21.0): {"話者の名前": {"color": "#RRGGBB" か "RRGGBB"}} = 話者ごとの字幕の見た目(今は色だけ。検査は serve.SPEAKER_STYLE_KEYS の許可の一覧。知らない鍵は捨てる)。
+    色の決まり方: 指定の色 → メンバーカラー(speakerColors が真のとき)→ 配信者の色 → 黒。指定は speakerColors が false でも効く。名前は ytt_core.colors.normalize でそろえて同じときだけ
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
   - パックは最小限(v0.12.0・v0.13.0): Text+ パックは動画(フォルダの直下)・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat だけ。
     手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。コマンドは今までどおり 友人へ.txt も書く。

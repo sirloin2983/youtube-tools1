@@ -271,7 +271,7 @@ function applyLock(){
   const j = lockJob(), on = !!j;
   $('#segs').inert = on; document.querySelectorAll('#doc .tt-lockable').forEach(el => { el.inert = on; }); $('#docTitle').disabled = on;
   if (S.doc) renderCutPack();
-  renderRedoOne();
+  renderRedoOne(); renderOvd();
   const b = $('#diarBanner'); b.hidden = !on;
   if (on) b.textContent = `${j.redoOne ? 'この動画を今の設定で作り直' : LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
 }
@@ -282,6 +282,111 @@ async function startDiarize(){
   if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
   await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value, recognize: $('#diarRecog').checked } });
   startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
+}
+
+/* ---------- 重なりの所に空の行を置く(2026-10-05。docs/plan/other-voice-and-overlap-plan.md の 5-3 の C・6-2 の 1・2) ----------
+   同時にしゃべっている所は、認識が片方しか書かない。話者判別の記録(diar.json)で声があったのに行の無い所を GET api/overlap-drafts で数え、
+   押したら時刻(と分かれば話者)を入れた空の行(印 draft・音のメモ「声が重なる」)を画面で足す。サーバーに行を作る API は無い
+   (元に戻す 1 回で全部消える・保存はいつもの道)。自動では置かない。確かめ済みの評価用の文書には置かない(空の行が残ると「全部聞いた」と合わない)。
+   状態は app.js の OVD。行の見た目・印の外し方は app-rows.js の isBlankDraft・clearDraftMark */
+
+/* 置けるか -> [押せるか, 理由(数の下に出す文・ボタンの title)] */
+function ovdState(){
+  const d = S.doc;
+  if (!d || !S.docId) return [false, ''];
+  if (d.evalReviewed) return [false, '確かめ済みの動画には置けません(空の行が残ると「全部聞いて確かめた」と合わなくなるため)。置くときは、先に確かめ済みを取り消してください'];
+  if (lockJob()) return [false, '処理中です(終わってから押してください)'];
+  if (OVD.busy) return [false, '置いています…'];
+  if (OVD.id !== S.docId) return [false, OVD.err || '数えています…'];
+  if (OVD.reason) return [false, OVD.reason];
+  if (!OVD.items.length) return [false, '声があるのに行の無い所はありません(書いてある所・置いた空の行は数えません)'];
+  return [true, ''];
+}
+
+function renderOvd(){
+  const box = $('#ovdBox'); if (!box) return;
+  const [ok, why] = ovdState(), n = OVD.id === S.docId ? OVD.items.length : 0;
+  const un = OVD.items.filter(x => x.why === 'unassigned').length;
+  $('#ovdCount').textContent = ok
+    ? `声があるのに行の無い所: ${n} か所(話者の分かる所 ${n - un}・誰の声か分からない所 ${un})${OVD.more ? `。ほかに ${OVD.more} か所あります(置いたあとで、もう一度押すと続きを置けます)` : ''}`
+    : why;
+  $('#ovdCount').classList.toggle('tt-ovd-none', !ok);
+  const go = $('#ovdGo'); go.disabled = !ok; go.title = ok ? `${n} か所に、時刻(分かれば話者も)を入れた空の行を置きます。聞いて文字を打ってください` : why;
+  const k = blankDrafts().length, cl = $('#ovdClear');
+  cl.hidden = !k; cl.textContent = `空のままの下書きを消す(${k} 行)`; cl.disabled = !!lockJob() || OVD.busy;
+}
+
+/* 候補を数える(読むだけ)。id = 開いている文書。待っている間に別の文書を開いたら捨てる */
+async function loadOvd(id = S.docId){
+  if (!id) return;
+  const seq = ++OVD.seq;
+  if (OVD.id !== id) OVD.err = '';   // 前の文書で数えられなかった知らせを、この文書に出さない
+  let r;
+  try { r = await api('/api/overlap-drafts?id=' + encodeURIComponent(id)); }
+  catch (e){ if (seq === OVD.seq && S.docId === id){ OVD.err = '数えられませんでした: ' + e.message; renderOvd(); } return null; }
+  if (seq !== OVD.seq || S.docId !== id) return null;
+  Object.assign(OVD, { id, items: Array.isArray(r.items) ? r.items : [], more: Number(r.more) || 0, reason: r.reason || '', diarAt: r.diarAt || null, err: '', drafts: blankDrafts().length });
+  renderOvd();
+  return r;
+}
+
+/* 押した: 保存し終えてから数え直す → 確かめる → 行を足す(1 回の元に戻す) */
+async function ovdPlace(){
+  const id = S.docId;
+  if (!ovdState()[0]) return;
+  OVD.busy = true; renderOvd();
+  try {
+    if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id){
+      if (S.docId === id) toast('保存が終わっていないため、置いていません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
+      return;
+    }
+    const r = await loadOvd(id);   // 保存済みの文書で数え直す(今の行で数える = 2 回押しても増えない)
+    if (!r || S.docId !== id) return;
+    const items = OVD.items.slice(), n = items.length;
+    if (!n) return toast(OVD.reason || '声があるのに行の無い所はありません', 5000);
+    if (!(await UIKit.dialog.confirm({ title: '空の行を置きますか', ok: '空の行を置く',
+      body: `${n} か所に空の行を置きます。文字はありません。聞いて打ってください(打つと札「下書き(重なり)」が外れます。置いた行は、元に戻す 1 回でまとめて消せます)` }))) return;
+    if (S.docId !== id || lockJob() || S.doc.evalReviewed) return;
+    const navId = navSnapshot();
+    pushUndo();
+    const added = items.map(x => ({ id: uid(), start: r2(x.start), end: r2(x.end), text: '', speaker: x.speaker && spById(x.speaker) ? x.speaker : '', flag: '', tags: ['overlap'], draft: OVD_KIND }));
+    S.doc.segments.push(...added);
+    sortSegs(); navRestore(navId, S.navIdx); renderDoc(); markDirty();
+    const goFirst = () => {   // 知らせの「最初の行へ」: 絞り込みで隠れていれば解いてから
+      const i = S.doc && S.docId === id ? S.doc.segments.findIndex(g => g.id === added[0].id) : -1; if (i < 0) return;
+      if (rowsEl()[i] && rowsEl()[i].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); }
+      gotoRow(i, { center: true });
+    };
+    toast(`${n} か所に空の行を置きました(札「下書き(重なり)」。絞り込みの「重なりの下書きだけ」で、その行だけを出せます)`, { ms: 8000, kind: 'ok', action: { label: '最初の行へ', fn: goFirst } });
+    if (await saveDoc() && S.docId === id) await loadOvd(id);
+  } finally { OVD.busy = false; renderOvd(); }
+}
+
+/* 保存のあと: 空のままの下書きの数が変わった(置いた・消した・元に戻した・行を消した)なら数え直す(候補は保存済みの文書で数えるため) */
+function ovdAfterSave(){
+  if (!S.doc || OVD.id !== S.docId) return;
+  const k = blankDrafts().length;
+  if (k !== OVD.drafts) loadOvd(S.docId);
+}
+
+/* 空のままの下書きを消す(1 回の元に戻す。文字を打った行・印の無い空の行は消さない) */
+async function ovdClear(){
+  const id = S.docId, k = blankDrafts().length;
+  if (!k || lockJob()) return;
+  removeBlankDrafts();
+  toast(`空のままの下書きを ${k} 行消しました(元に戻すで戻せます)`, 4000, 'ok');
+  if (await saveDoc() && S.docId === id) loadOvd(id);
+}
+
+/* 空のままの下書きを消す本体(「済みにして次へ」の前にも使う)。-> 消した行の数 */
+function removeBlankDrafts(){
+  const k = blankDrafts().length; if (!k) return 0;
+  const navId = navSnapshot();
+  pushUndo();
+  for (const g of S.doc.segments) if (isBlankDraft(g)) S.sel.delete(g.id);
+  S.doc.segments = S.doc.segments.filter(g => !isBlankDraft(g));
+  navRestore(navId, S.navIdx); renderDoc(); markDirty();
+  return k;
 }
 
 /* ---------- 全行をこの人に(評価用。マスタープラン Q4。docs/plan/q3-q4-design.md の (c)) ----------
@@ -379,7 +484,7 @@ async function loadVoices(){
 
 function flagParts(s){ const p = String(s.flag || '').split('、').filter(Boolean); return { spk: p.filter(x => SPK_FLAGS.includes(x)), text: p.filter(x => !SPK_FLAGS.includes(x)) }; }
 
-function flagMatch(s, kind){ if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'cut') return s.cutState === 'cut'; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
+function flagMatch(s, kind){ if (kind === 'draft') return isBlankDraft(s); if (kind === 'proofed') return !!s.proofed; if (kind === 'unproofed') return !s.proofed; if (kind === 'cut') return s.cutState === 'cut'; if (kind === 'sug') return sugList(s).length > 0; const f = flagParts(s); return kind === 'any' ? !!s.flag : kind === 'text' ? f.text.length > 0 : f.spk.length > 0; }
 
 function renderRtSetup(){
   const t = S.tools, sel = $('#rtModel'); if (!t) return;

@@ -130,6 +130,8 @@ def sanitize_transcript(obj, base=None):
             one["cutState"] = "cut"
         if sg.get("noSub") is True:   # 字幕に出さない(ゲームの声など。真のときだけ持つ)。機械の出力 original は変えない
             one["noSub"] = True
+        if sg.get("draft") in ed_state.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す。2026-10-05)
+            one["draft"] = sg["draft"]
         segs.append(one)
     out = dict(base or {})
     if "evalSet" in obj:   # 評価用の印(キーが来たときだけ変える。古い画面から保存しても外れないように)

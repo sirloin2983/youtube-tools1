@@ -81,6 +81,16 @@ def no_sub_row(g):
     return isinstance(g, dict) and g.get("noSub") is True
 
 
+# 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。ed_speakers の ovdraft_)。決まった文字列のときだけ持つ。
+# "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
+ROW_DRAFT_KINDS = ("overlap",)
+
+
+def blank_draft_row(g):
+    """機械の下書きのまま(印 draft があって文字が空)の行か"""
+    return isinstance(g, dict) and g.get("draft") in ROW_DRAFT_KINDS and not str(g.get("text") or "").strip()
+
+
 MAX_SPAN_SEC = 6 * 3600
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = re.compile(r"^[0-9a-f]{12}$")

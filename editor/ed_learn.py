@@ -202,7 +202,8 @@ def _groups(orig, segs):
 def _prep(doc):
     orig = sorted([o for o in (doc.get("original") or []) if isinstance(o, dict) and ed_state.num(o.get("start")) is not None and ed_state.num(o.get("end")) is not None],
                   key=lambda o: o["start"])
-    segs = sorted([g for g in (doc.get("segments") or []) if isinstance(g, dict)], key=lambda g: g["start"])
+    # 空のままの下書き(印 draft・文字なし。重なりの所に置いた空の行)は数えない: 残っている間、重なる校正済みのまとまりを丸ごと数から外してしまうため
+    segs = sorted([g for g in (doc.get("segments") or []) if isinstance(g, dict) and not ed_state.blank_draft_row(g)], key=lambda g: g["start"])
     return orig, segs
 
 

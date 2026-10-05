@@ -14,6 +14,8 @@
   POST /api/diarize          話者の自動判別ジョブを追加(sherpa-onnx。文字起こしと同じ待機列。recognize: 覚えている声で名前を付ける。既定オン)。
                              numSpeakers 1 = 判別せず全部の行をその1人に / names = 出てくる人の名前(照らし合わせをこの名前だけに・1人だけ残れば消去法で付ける。友人からの依頼)
   GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない。generic = 一般的な名前)
+  GET  /api/overlap-drafts?id=  声があるのに行の無い所(重なりの所)の空の行の候補 {items, more, reason, reasonCode, diarAt}(読むだけ。
+                             判別の記録 <id>.diar.json の latest から。行を足すのは画面。ed_speakers の ovdraft_)
   GET  /api/voices/preview   ?tid=&embedding= 覚える前の確認(読むだけ。覚える人・行・秒・既にある名前・断った名前・使わなかった行の数。段1)
   POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
                              校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
@@ -116,7 +118,7 @@ import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの�
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.54.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.55.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -334,6 +336,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_misc.read_marker())
             if u.path == "/api/voices":   # A-3: 覚えている声の一覧(特徴そのものは返さない)
                 return self._json(200, {"voices": ed_speakers.voices_summary(), "match": ed_speakers.VOICE_MATCH})
+            if u.path == "/api/overlap-drafts":   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から。2026-10-05)
+                return self._json(200, ed_speakers.ovdraft_for_doc((q.get("id") or [""])[0]))
             if u.path == "/api/voices/preview":   # 段1(監査17・18): 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
                 return self._json(200, ed_speakers.voice_preview((q.get("tid") or [""])[0], (q.get("embedding") or [""])[0]))
             if u.path == "/api/transcribed-ranges":

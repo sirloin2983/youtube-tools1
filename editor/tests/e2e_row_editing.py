@@ -113,7 +113,22 @@ def main():
         tid_other = make(); set_segs(tid_other, "ゲーム音声文書", [   # 組み込みの話者「ゲーム音声など」と「字幕に出さない」
             {"id": "y0", "start": 0, "end": 3, "text": "配信者", "speaker": "S1"}, {"id": "y1", "start": 2, "end": 5, "text": "NPC", "speaker": "S1"},
             {"id": "y2", "start": 6, "end": 8, "text": "次", "speaker": "S1"}], two_sp)
-        tid_setnow = make(); set_segs(tid_setnow, "再生位置反映文書", [{"id": "n0", "start": 0, "end": 2, "text": "一"}, {"id": "n1", "start": 5, "end": 7, "text": "二"}])
+        # 重なりの所の空の行の下書き(2026-10-05): 判別の記録 diar.json を直接置く(疑似の判別は 10 秒ごとの入れ替わりで重なりを作らないため)。
+        # 声の区間 = ラベル 0(ぺこら・主)0-20・ラベル 1(行の付かなかった声)3-5・ラベル 2(みこ)12-14 → 候補は 3-5(話者なし)と 12-14(みこ)
+        ovd_rows = [{"id": "d0", "start": 0, "end": 10, "text": "主の話", "speaker": "S1"}, {"id": "d1", "start": 10, "end": 20, "text": "続き", "speaker": "S1"}]
+        tid_ovd = make(); set_segs(tid_ovd, "重なり下書き文書", ovd_rows, two_sp)
+        tid_ovd_ev = make()
+        call(port, "PUT", "/api/transcript?id=" + tid_ovd_ev, {"title": "重なり下書き評価用", "evalSet": True, "speakers": two_sp, "segments": ovd_rows + [
+            {"id": "d2", "start": 3, "end": 5, "text": "", "speaker": "", "tags": ["overlap"], "draft": "overlap"}]})
+        txdir = os.path.join(tmp, "transcripts")
+        check(os.path.isfile(os.path.join(txdir, tid_ovd + ".json")), "前提: 文書の置き場所 %s" % txdir)
+        for t in (tid_ovd, tid_ovd_ev):
+            with open(os.path.join(txdir, t + ".diar.json"), "w", encoding="utf-8") as f:
+                json.dump({"schema": "youtube-tools-diar/v1", "history": [], "latest": {
+                    "at": 1, "engine": {"name": "fake"}, "offset": 0.0, "labelMap": {"0": "S1", "2": "S2"}, "rows": {},
+                    "turns": [{"start": 0, "end": 20, "label": 0}, {"start": 3, "end": 5, "label": 1}, {"start": 12, "end": 14, "label": 2}],
+                    "overlaps": [[3, 5], [12, 14]]}}, f)
+        tid_setnow = make(); set_segs(tid_setnow, "再生位置反映文書",[{"id": "n0", "start": 0, "end": 2, "text": "一"}, {"id": "n1", "start": 5, "end": 7, "text": "二"}])
         tid_stage1 = make(); set_segs(tid_stage1, "画面幅テスト1", [{"id": "w0", "start": 0, "end": 2, "text": "一"}, {"id": "w1", "start": 2, "end": 4, "text": "二"}])
         tid_stage2 = make(); set_segs(tid_stage2, "画面幅テスト2", [{"id": "v0", "start": 0, "end": 2, "text": "一"}, {"id": "v1", "start": 2, "end": 4, "text": "二"}])
 
@@ -579,6 +594,74 @@ def main():
             btn.click()
             check(pg.evaluate("!S.doc.segments[2].noSub"), "もう一度押すと字幕に出す")
             wait_saved()
+
+            # ==================== 17-2) 重なりの所に空の行を置く(2026-10-05) ====================
+            open_doc("重なり下書き文書")
+            pg.evaluate("document.querySelector('#spDetails').open = true")
+            check(wait_js(pg, "document.querySelector('#ovdCount').textContent.includes('2 か所')", 5000) and not pg.locator("#ovdGo").is_disabled(),
+                  "話者のカードに「声があるのに行の無い所: 2 か所」・ボタンが押せる: %s" % pg.text_content("#ovdCount"))
+            check(pg.locator("#ovdClear").is_hidden(), "空のままの下書きが無いうちは「消す」を出さない")
+            pg.click("#ovdGo")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            check("2 か所に空の行を置きます" in pg.inner_text("dialog.ui-dialog[open]"), "置く前に確認する: %s" % pg.inner_text("dialog.ui-dialog[open]")[:80])
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            check(wait_js(pg, "S.doc.segments.length === 4", 5000), "確かめると 2 行が足される")
+            drafts = pg.evaluate("S.doc.segments.map((g, i) => [i, g.start, g.end, g.speaker, g.text, (g.tags || []).join(), g.draft || '']).filter(x => x[6])")
+            check([d[1:] for d in drafts] == [[3, 5, "", "", "overlap", "overlap"], [12, 14, "S2", "", "overlap", "overlap"]],
+                  "足した行 = 時刻・候補の話者(分からなければ空)・文字なし・声が重なるのメモ・下書きの印: %s" % drafts)
+            i1, i2 = drafts[0][0], drafts[1][0]
+            r1 = pg.locator("#segs .seg").nth(i1)
+            check("tt-draft" in (r1.get_attribute("class") or "") and r1.locator(".tt-draft-pill").is_visible() and "聞いて打って" in (r1.locator("textarea").get_attribute("placeholder") or ""),
+                  "行に札「下書き(重なり)」と「聞いて打ってください」")
+            check(not has_ovl(i1) and not has_ovl(i2) and not has_ovl(0), "空の下書きは重なりの赤にしない(話者なしでも)")
+            seek(4.0)
+            check(wait_js(pg, "document.querySelector('#playerCaption').textContent === '主の話' && !document.querySelector('#playerCaption .tt-cap-line')", 5000),
+                  "空の下書きは映像の上の字幕に出ない")
+            wait_saved()
+            sv = call(port, "GET", "/api/transcript?id=" + tid_ovd)
+            check([g.get("draft") for g in sv["segments"]].count("overlap") == 2, "保存される(印 draft)")
+            v1 = call(port, "GET", "/api/transcript-v1?id=" + tid_ovd)
+            check([g["id"] for g in v1["segments"]] == ["d0", "d1"], "パック・字幕へ渡す transcript/v1 に空の下書きは入らない: %s" % [g["id"] for g in v1["segments"]])
+            check(wait_js(pg, "document.querySelector('#ovdCount').textContent.includes('ありません') && document.querySelector('#ovdGo').disabled", 5000),
+                  "置いたあとは数え直して 0(2 回押しても増えない): %s" % pg.text_content("#ovdCount"))
+            check(pg.text_content("#ovdClear") == "空のままの下書きを消す(2 行)", "「空のままの下書きを消す(2 行)」が出る: %s" % pg.text_content("#ovdClear"))
+            pg.select_option("#flagKind", "draft")
+            check(pg.evaluate("[...document.querySelectorAll('#segs .seg')].filter(r => !r.hidden).length") == 2, "絞り込み「重なりの下書きだけ」で 2 行")
+            pg.select_option("#flagKind", "")
+            r1.locator("textarea").click()
+            pg.keyboard.type("うんうん")
+            check(pg.evaluate("!S.doc.segments[%d].draft && S.doc.segments[%d].text === 'うんうん'" % (i1, i1)) and "tt-draft" not in (r1.get_attribute("class") or "") and r1.locator(".tt-draft-pill").count() == 0,
+                  "文字を打つと下書きの印・札が外れる")
+            check(has_ovl(i1), "打った行は普通の行(話者が無いので、主の行との重なりは赤 = 話者を付けるよう知らせる)")
+            check(pg.text_content("#ovdClear") == "空のままの下書きを消す(1 行)", "空のままは 1 行: %s" % pg.text_content("#ovdClear"))
+            pg.keyboard.press("Escape")
+            wait_saved()
+            check("draft" not in call(port, "GET", "/api/transcript?id=" + tid_ovd)["segments"][i1], "保存しても印は無い")
+            pg.click("#btnUndo")
+            check(wait_js(pg, "S.doc.segments.length === 2 && !S.doc.segments.some(g => g.draft || g.text === 'うんうん')", 5000), "元に戻す 1 回で、置いた行が全部消える(打った文字も)")
+            check(wait_js(pg, "document.querySelector('#ovdCount').textContent.includes('2 か所')", 8000), "戻して保存すると、また 2 か所: %s" % pg.text_content("#ovdCount"))
+            pg.click("#ovdGo")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            check(wait_js(pg, "S.doc.segments.length === 4", 5000), "もう一度置く")
+            pg.click("#ovdClear")
+            check(wait_js(pg, "S.doc.segments.length === 2 && document.querySelector('#ovdClear').hidden", 5000), "「空のままの下書きを消す」で空のままの行だけ消える")
+            wait_saved()
+            check(len(call(port, "GET", "/api/transcript?id=" + tid_ovd)["segments"]) == 2, "消したことも保存される")
+
+            # 評価用: 空のままの下書きが残っていたら「済みにする」の前に消すか確かめる・確かめ済みの文書には置けない
+            open_doc("重なり下書き評価用")
+            check(pg.evaluate("S.doc.segments.filter(g => g.draft === 'overlap').length") == 1, "前提: サーバーに保存した空の下書きが 1 行")
+            pg.click("#evrMark")
+            pg.wait_for_selector("dialog.ui-dialog[open]")
+            check("が 1 行あります。消して済みにしますか" in pg.inner_text("dialog.ui-dialog[open]"), "済みにする前に「空のままの下書きが 1 行あります。消して済みにしますか」: %s" % pg.inner_text("dialog.ui-dialog[open]")[:80])
+            pg.click("dialog.ui-dialog[open] .btn.primary")
+            check(wait_js(pg, "!!S.doc.evalReviewed", 8000), "消して済みにした")
+            sv = call(port, "GET", "/api/transcript?id=" + tid_ovd_ev)
+            check(sv.get("evalReviewed") and not any(g.get("draft") for g in sv["segments"]) and len(sv["segments"]) == 2, "保存: 下書きは消えて確かめ済み")
+            pg.evaluate("document.querySelector('#spDetails').open = true")
+            check(wait_js(pg, "document.querySelector('#ovdGo').disabled && document.querySelector('#ovdCount').textContent.includes('確かめ済み')", 5000),
+                  "確かめ済みの文書には置けない(理由を出す): %s" % pg.text_content("#ovdCount"))
 
             # ==================== 18) 「再生位置」ボタン(setnow) ====================
             open_doc("再生位置反映文書")
