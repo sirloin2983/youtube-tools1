@@ -108,7 +108,7 @@ async function openDoc(id, keep){
     const prev = S.docId; setTimeout(() => evalSettle(prev), 1500);   // 評価用の仮置きの動画なら、条件を満たせばメンバーのフォルダへ(再生が切り替わってから)
   }
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
-  const scrollY = window.scrollY;
+  const scrollY = window.scrollY, listY = $('.tx-list') ? $('.tx-list').scrollTop : 0;   // 2列では行の一覧が自分でスクロールする(v0.56.1)
   let d; try { d = await api('/api/transcript?id=' + encodeURIComponent(id)); } catch (e){ toast(e.message); return false; }
   if (request !== docOpenSeq) return false;
   if (S.doc !== previousDoc || S.dirty || S.saving || S.conflict || S.baseUpdatedAt !== previousVersion){
@@ -144,9 +144,9 @@ async function openDoc(id, keep){
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
   if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
-  if (keep) window.scrollTo(0, scrollY);
-  else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) row.scrollIntoView({ block: 'center' }); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
-  else window.scrollTo(0, 0);
+  if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }
+  else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) ensureVisible(row, 0.5); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
+  else { window.scrollTo(0, 0); if ($('.tx-list')) $('.tx-list').scrollTop = 0; }
   if (autoClosed && resumeIdx < 0 && !isDrawer() && !S.menuToldOnce){ S.menuToldOnce = true; toast('編集欄を広くするため、メニューを閉じました(左上の「メニューを開く」か G で開けます)', 4000); }   // 知らせるのはこの画面を開いている間に1回だけ(毎回だとうるさい。段3-3)
   setUrlDoc(id);   // 再読み込み・窓の開き直しで同じ文書に戻る(監査 06)
   loadOvd(id);     // 重なりの所の空の行の候補の数(話者のカードに出す。話者判別のあとの読み直しでも数え直す)
@@ -618,14 +618,22 @@ function savePos(){ if (!S.doc || S.navIdx < 0) return; const g = S.doc.segments
 
 function loadPos(id){ try { const o = JSON.parse(localStorage.getItem(posKey(id)) || 'null'); return o && typeof o.id === 'string' ? o : null; } catch { return null; } }
 
-/* 行が見える範囲(固定の再生欄の下〜画面の下)に収まっていれば動かさない。外れるときだけ、一定の位置(上から35%)に、なめらかに寄せる */
+/* 行が見える範囲(固定の再生欄・一覧の上の道具の下〜画面の下)に収まっていれば動かさない。外れるときだけ、一定の位置(上から35%)に、なめらかに寄せる。
+   2列のときは行の一覧(.tx-list)が自分でスクロールする箱なので、その箱だけを動かす(窓 = 映像の列・メニュー・題名の行は動かさない。v0.56.1)。
+   1列のときは今までどおり窓を動かす */
+function listScroller(row){
+  const box = row.closest('.tx-list');
+  return box && /(auto|scroll)/.test(getComputedStyle(box).overflowY) ? box : null;
+}
 function ensureVisible(row, at){
   if (!row || row.hidden) return;
-  const top = parseFloat(getComputedStyle(row).scrollMarginTop) || 0, bot = window.innerHeight - 24, r = row.getBoundingClientRect();
+  const box = listScroller(row), r = row.getBoundingClientRect(), b = box ? box.getBoundingClientRect() : null;
+  const margin = parseFloat(getComputedStyle(row).scrollMarginTop) || 0;
+  const top = box ? b.top + margin : margin, bot = (box ? Math.min(b.bottom, window.innerHeight) : window.innerHeight) - 24;
   if (r.top >= top && r.bottom <= bot) return;
   const goal = top + Math.max(0, (bot - top - Math.min(r.height, bot - top)) * (at === undefined ? 0.35 : at));
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  window.scrollBy({ top: r.top - goal, behavior: reduce ? 'auto' : 'smooth' });
+  (box || window).scrollBy({ top: r.top - goal, behavior: reduce ? 'auto' : 'smooth' });
 }
 
 function setNav(i){

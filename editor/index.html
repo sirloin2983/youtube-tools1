@@ -925,8 +925,12 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .tt-kh-end{margin-left:auto;display:inline-flex;gap:2px;align-items:center}
 .tt-kh-end .btn{min-height:24px}
 /* 2列のときは、一覧の上に固定する(長い一覧のどこにいても、検索・絞り込み・キーの手がかりが見える) */
-@container editor (min-width:781px){.tt-listhead{position:sticky;top:var(--toph,52px);z-index:4;background:var(--bg);margin:-8px 0 8px;padding:8px 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}
-  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--khh,0px) + 8px)}}
+/* v0.56.1(2026-10-06 ユーザーの指摘「再生で行が切り替わるとき、画面全体が動くのはよくない」): 2列のときは、行の一覧(.tx-list)も映像の列と同じく
+   画面に固定し、列の中だけでスクロールする。再生に合わせた行の追いかけ(ensureVisible)は、この列の中だけを動かす(窓は動かさない)。
+   一覧の端まで来たら窓へ続けてスクロールする(contain にしない。上の題名の行の分だけ窓を動かして、一覧の下の端を見られるように) */
+@container editor (min-width:781px){.tx-list{position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;scrollbar-width:thin}
+  .tt-listhead{position:sticky;top:0;z-index:4;background:var(--bg);margin:0 0 8px;padding:0 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}
+  #segs .seg{scroll-margin-top:calc(var(--khh,0px) + 8px)}}
 @media (max-width:559.98px){.tt-keyhint{display:none!important}}   /* 指で使う狭い画面では、キーの手がかりは出さない */
 .tt-exbtns{display:flex;flex-wrap:wrap;gap:6px}
 .tt-handoff{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
