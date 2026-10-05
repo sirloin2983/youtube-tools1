@@ -2219,7 +2219,7 @@
   function liveStudioHref(r) { return appnavHref('studio') + '?video=' + encodeURIComponent(r.id); }
   function liveStop(row, btn) {
     btn.disabled = true;
-    yttPost('live', { op: 'stop', recorder: row.rec.recorder, recording: row.rec.id }).then(function () { return liveRefresh(); }, function (e) {
+    yttPost('live', { op: 'stop', recorder: row.rec.recorder, recording: row.rec.id }).then(function () { liveClose(true); return liveRefresh(); }, function (e) {   // 止めたら一覧を閉じる(終わりの知らせは札と toast で)
       toastFn('録画を止められませんでした: ' + (e && e.message ? e.message : ''), { kind: 'err' });
     }).then(function () { btn.disabled = false; });
   }

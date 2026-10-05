@@ -756,7 +756,11 @@ class LivePlayer {
   constructor(host, url, ev, opts){
     this.ev = ev; this.frags = []; this.base = null; this.ready = false; this.recording = !!(opts && opts.autoplay); this.mediaErrs = 0; this.title = (opts && opts.title) || '';
     const el = this.el = document.createElement('video');
-    el.playsInline = true; el.preload = 'auto'; el.controls = true;
+    el.playsInline = true; el.preload = 'auto';
+    /* 標準のコントロールは出さない: その時間は「つないだ映像の秒」で、つなぎ直しの欠けがあるとスタジオの時間(受信時刻の幅)と食い違う。
+       再生・シーク・音量は下のスタジオの操作で。映像のクリックで再生 / 停止 */
+    el.controls = false;
+    el.addEventListener('click', () => { if (el.paused) this.playVideo(); else this.pauseVideo(); });
     host.appendChild(el);
     const st = () => ev.onStateChange && ev.onStateChange({ data: this.getPlayerState() });
     for (const n of ['play', 'pause', 'ended', 'waiting', 'playing']) el.addEventListener(n, st);
@@ -1123,6 +1127,8 @@ function renderKeyUI(){
 
 /* ---------- ライブ配信 ---------- */
 // IFrame APIの仕様上、ライブ中の getDuration() は「配信開始からの経過時間」を返す。
+/* マークの「ライブ」の印 = YouTube の配信中に付けた(あとでアーカイブの時刻へずらす対象)。ライブの録画の時刻は録画の秒で、ずらす物ではないので付けない・出さない */
+const markLive = () => !!S.live && !(S.cur && S.cur.kind === 'live');
 function renderLiveCount(){
   const n = marks().filter(c => c.live).length;
   $('#rvLiveMarks').textContent = n + '件'; $('#rvShiftCount').textContent = n ? `対象 ${n}件` : '対象なし';
@@ -1139,6 +1145,7 @@ function updateLive(){
   }
   if (live !== S.live){ S.live = live; if (rec) renderExportUI(); }
   $('#rvLiveBar').hidden = !(live || rec);
+  { const lm = $('#rvLiveMarks'); lm.hidden = rec; if (lm.previousElementSibling) lm.previousElementSibling.hidden = rec; }   // ライブ印の件数は、録画では出さない
   if (rec) renderLiveRec();
   if (!S.live || !yt) return;
   let e = 0; try { e = yt.getDuration(); } catch {}
@@ -1275,7 +1282,7 @@ function renderLiveRec(){
   if (err){ cls = 'err'; label = err.status === 404 ? '録画が見つかりません' : '録画元につながりません'; msg = err.message || ''; }
   else if (st){
     const m = LIVE_REC_STATE[st.state] || ['wait', String(st.state || '不明')]; cls = m[0]; label = m[1];
-    msg = [Number(st.sessions) > 1 ? `つなぎ直し ${Number(st.sessions) - 1} 回` : '', String(st.message || '')].filter(Boolean).join('・');
+    msg = [Number(st.sessions) > 1 ? `つなぎ直し ${Number(st.sessions) - 1} 回` : '', st.state === 'stopped' ? '' : String(st.message || '')].filter(Boolean).join('・');   // 「停止」の札に「停止しました」は重ねない
   }
   const pill = $('#rvRecState'), pc = 'pill ' + cls;
   if (pill.className !== pc) pill.className = pc;
@@ -1437,7 +1444,7 @@ function quickMark(slot = 0){
   const r = checkRange(center - span, center + span);
   if (typeof r === 'string') return toast(r);
   const [start, end] = r;
-  pushMark(newMark(start, end, S.live));
+  pushMark(newMark(start, end, markLive()));
   toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
 }
 /* ---------- 一瞬を切り取る(2026-09-28 ユーザー要望): 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
@@ -1451,7 +1458,7 @@ function momentMark(){
   const b = S.settings.momentBefore, a = S.settings.momentAfter;
   const r = checkRange(c - b, c + a);
   if (typeof r === 'string') return toast(r);
-  const mk = newMark(r[0], r[1], S.live);   // ライブ中のマークには、今をマークと同じくライブの印
+  const mk = newMark(r[0], r[1], markLive());   // ライブ中のマークには、今をマークと同じくライブの印
   mk.label = MOMENT_LABEL; mk.status = 'adopted';
   pushMark(mk);
   toast(`マーク「${MOMENT_LABEL}」${fmt(r[0])} – ${fmt(r[1])}(前${b.toFixed(1)}秒・後${a.toFixed(1)}秒)`, 3000, 'ok');
@@ -1487,7 +1494,7 @@ function addClip(){
   if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
   const r = checkRange(start, end);
   if (typeof r === 'string') return toast(r);
-  const m = newMark(r[0], r[1], S.live);
+  const m = newMark(r[0], r[1], markLive());
   S.draft = { start: null, end: null }; renderDraft();
   pushMark(m);
   const el = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(m.id)}"] [data-f="label"]`); if (el) el.focus();
@@ -2086,7 +2093,7 @@ function markHTML(c){
       <button type="button" class="btn small rv-play" data-act="play" aria-label="この範囲を再生(開始から終了まで)" title="この範囲を再生">${SVG.play}</button>
       <span class="rv-tc mono">${fmt(c.start)} – ${fmt(c.end)}</span><span class="rv-dur mono">${(c.end - c.start).toFixed(1)}s</span>
       ${c.src === 'auto' ? '<span class="rv-chip auto">自動</span>' : ''}${c.score != null ? `<span class="rv-chip score mono" title="自動判定の点数">${Number(c.score).toFixed(1)}点</span>` : ''}
-      ${c.live ? '<span class="rv-chip live">ライブ</span>' : ''}
+      ${c.live && !(S.cur && S.cur.kind === 'live') ? '<span class="rv-chip live">ライブ</span>' : ''}
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>

@@ -518,6 +518,12 @@ def run(tmp, shots, force_chromium):
                       and pg.is_hidden("#rvRecStop") and pg.is_hidden("#rvEdge"), "9 帯は終わった見た目(LIVE → 録画・停止とライブ端へは消える)")
                 check(wait_js(pg, "() => /録画終了/.test(document.querySelector('[data-ui-live]').textContent)", 15000),
                       "9 札が「録画終了」になる: %s" % pg.text_content("[data-ui-live] .ui-live-btn"))
+                # 2026-10-05 の直し 4 点: 止めたら札の一覧は閉じる・「停止」の札に「停止しました」を重ねない・録画ではマークの「ライブ」の印と件数を出さない・標準のコントロールを出さない
+                check(pg.evaluate("() => document.querySelector('.ui-live-panel').hidden"), "9 止めたら札の一覧は閉じる")
+                check("停止しました" not in (pg.text_content("#rvRecMsg") or ""), "9 「停止」の札の横に「停止しました」を重ねない: %s" % pg.text_content("#rvRecMsg"))
+                check(pg.evaluate("() => !document.querySelector('#rvMarkList .rv-chip.live, .rv-mark-row .rv-chip.live') && document.querySelector('#rvLiveMarks').hidden"),
+                      "9 録画ではマークの「ライブ」の印と件数を出さない")
+                check(pg.evaluate("() => { const v = document.querySelector('#rvHost video'); return !!v && v.controls === false; }"), "9 録画のプレイヤーは標準のコントロールを出さない")
                 code, pl = 0, b""
                 try:
                     with urllib.request.urlopen(base + "/live/r/local/%s/index.m3u8" % rid, timeout=10) as r:
