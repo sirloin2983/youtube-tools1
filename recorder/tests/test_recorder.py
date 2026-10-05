@@ -266,6 +266,82 @@ class TestRecording(unittest.TestCase):
         self.assertNotIn("session_002/", pl)
         self.assertIn("#EXT-X-DISCONTINUITY", pl)
 
+    def test_delete(self):
+        """P4 の「録画を自動で消す」: 録画中は 409・形の違う id は 400・置き場所の直下で recording.json があるものだけ・
+        リンク(ジャンクション)の先は消さない・使用中のファイルが残ったら 409 で recording.json を残し、あとでまた消せる"""
+        s = self.rec.start(self.srv.url)
+        rid = s["id"]
+        r = self.rec.get(rid)
+        self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 2, 30), self.logs)
+        with self.assertRaises(R.RecError) as cm:
+            self.rec.delete(rid)
+        self.assertEqual(cm.exception.code, 409)   # 録画中
+        for bad in (None, 3, "", "x", "../" + rid, rid + "/..", "20261004-000000/../../x", "..\\" + rid, rid + "\\session_001"):
+            with self.assertRaises(R.RecError, msg=repr(bad)) as cm:
+                self.rec.delete(bad)
+            self.assertEqual(cm.exception.code, 400, bad)
+        self.rec.stop(rid)
+        # 使用中(再生中の画面がセグメントを読んでいる など)→ 409。recording.json は残り、一覧にも残る
+        seg = os.path.join(r.dir, "session_001", "seg_000000.ts")
+        held = open(seg, "rb")
+        try:
+            with self.assertRaises(R.RecError) as cm:
+                self.rec.delete(rid)
+            self.assertEqual(cm.exception.code, 409)
+            self.assertIn("使用中", str(cm.exception))
+            self.assertTrue(os.path.isfile(os.path.join(r.dir, "recording.json")))
+            self.assertIs(self.rec.get(rid), r)
+        finally:
+            held.close()
+        self.assertEqual(self.rec.delete(rid), rid)   # 閉じたら消せる
+        self.assertFalse(os.path.exists(os.path.join(self.folder, rid)))
+        with self.assertRaises(R.RecError) as cm:
+            self.rec.get(rid)
+        self.assertEqual(cm.exception.code, 404)
+        with self.assertRaises(R.RecError) as cm:
+            self.rec.delete(rid)
+        self.assertEqual(cm.exception.code, 404)
+        # recording.json の無いフォルダ(録画ではない)は消さない
+        plain = os.path.join(self.folder, "20261004-000000-plain")
+        os.makedirs(plain)
+        open(os.path.join(plain, "keep.txt"), "wb").close()
+        with self.assertRaises(R.RecError) as cm:
+            self.rec.delete("20261004-000000-plain")
+        self.assertEqual(cm.exception.code, 404)
+        self.assertTrue(os.path.isfile(os.path.join(plain, "keep.txt")))
+        # 置き場所の中のジャンクションの先(置き場所の外)は消さない
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "recording.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        link = os.path.join(self.folder, "20261004-000000-link")
+        made = subprocess.run(["cmd", "/c", "mklink", "/J", link, outside], capture_output=True).returncode == 0 if os.name == "nt" else False
+        if not made:
+            try:
+                os.symlink(outside, link, target_is_directory=True)
+                made = True
+            except (OSError, NotImplementedError):
+                pass
+        if made:
+            with self.assertRaises(R.RecError):
+                self.rec.delete("20261004-000000-link")
+            self.assertTrue(os.path.isfile(os.path.join(outside, "recording.json")))
+            os.rmdir(link) if os.name == "nt" else os.unlink(link)
+        # 録画のフォルダの中のジャンクションは、それ自体だけ外して先(置き場所の外)は消さない
+        rid2 = "20261004-000000-inner"
+        d2 = os.path.join(self.folder, rid2)
+        os.makedirs(os.path.join(d2, "session_001"))
+        inner = os.path.join(outside, "inner")
+        os.makedirs(inner)
+        open(os.path.join(inner, "keep.ts"), "wb").close()
+        with open(os.path.join(d2, "recording.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        j2 = os.path.join(d2, "session_002")
+        if os.name == "nt" and subprocess.run(["cmd", "/c", "mklink", "/J", j2, inner], capture_output=True).returncode == 0:
+            self.assertEqual(self.rec.delete(rid2), rid2)   # 中のジャンクションはそれ自体だけ外す
+            self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))
+            self.assertFalse(os.path.exists(d2))
+
     def test_halt_keeps_state_for_next_start(self):
         s = self.rec.start(self.srv.url)
         r = self.rec.get(s["id"])
@@ -625,10 +701,22 @@ class TestHttp(unittest.TestCase):
                     "start=%s&end=%s" % (R.epoch_iso(first), R.epoch_iso(first + 4 * 3600)), ""):
             self.assertEqual(self.call("GET", "/live/%s/segments?%s" % (rid, bad))[0], 400, bad)
         self.assertEqual(self._raw("GET", q)[0], 403)   # 合言葉なし
+        self.assertEqual(self.call("POST", "/live/%s/delete" % rid, {})[0], 409)   # 録画中は消さない(P4)
         code, d = self.call("POST", "/live/%s/stop" % rid, {})
         self.assertEqual(code, 200)
         self.assertEqual(d["recording"]["state"], "stopped")
         self.assertIn(b"#EXT-X-ENDLIST", self._raw("GET", "/live/%s/index.m3u8" % rid, token=self.token)[2])
+        # 消す(P4 の「録画を自動で消す」): 合言葉なし・ブラウザから直接は 403・形の違う id は 400・消したら一覧と状態から消える
+        self.assertEqual(self._raw("POST", "/live/%s/delete" % rid, {})[0], 403)
+        self.assertEqual(self._raw("POST", "/live/%s/delete" % rid, {}, token=self.token, headers={"Origin": "http://127.0.0.1:%d" % self.port})[0], 403)
+        self.assertEqual(self.call("POST", "/live/..%5c..%5cx/delete", {})[0], 400)
+        self.assertTrue(os.path.isdir(os.path.join(self.folder, rid)))
+        code, d = self.call("POST", "/live/%s/delete" % rid, {})
+        self.assertEqual((code, d), (200, {"ok": True, "deleted": rid}))
+        self.assertFalse(os.path.exists(os.path.join(self.folder, rid)))
+        self.assertEqual(self.call("GET", "/live/%s/status" % rid)[0], 404)
+        self.assertNotIn(rid, [r["id"] for r in self.call("GET", "/live/list")[1]["recordings"]])
+        self.assertEqual(self.call("POST", "/live/%s/delete" % rid, {})[0], 404)
 
     def test_3_config(self):
         other = os.path.join(self.tmp, "other")
@@ -637,9 +725,14 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(os.path.normcase(self.call("GET", "/live/list")[1]["folder"]), os.path.normcase(other))
         with open(os.path.join(self.ddir, "settings.json"), encoding="utf-8") as f:   # 次の起動でも同じ置き場所
             self.assertEqual(os.path.normcase(json.load(f)["folder"]), os.path.normcase(other))
+        rid = "20261004-120000-kept"   # 元の置き場所に終わった録画を置いておく(test_2 の録画は消したので)
+        os.makedirs(os.path.join(self.folder, rid), exist_ok=True)
+        with open(os.path.join(self.folder, rid, "recording.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": R.SCHEMA, "id": rid, "url": self.srv.url, "quality": "best", "title": "", "state": "stopped", "message": "",
+                       "created": "2026-10-04T03:00:00.000Z", "endedAt": "2026-10-04T03:10:00.000Z", "sessions": []}, f)
         code, d = self.call("POST", "/live/config", {"folder": self.folder})
         self.assertEqual(code, 200)
-        self.assertTrue(self.call("GET", "/live/list")[1]["recordings"])   # 元の置き場所の録画がまた見える
+        self.assertIn(rid, [r["id"] for r in self.call("GET", "/live/list")[1]["recordings"]])   # 元の置き場所の録画がまた見える
 
 
 if __name__ == "__main__":

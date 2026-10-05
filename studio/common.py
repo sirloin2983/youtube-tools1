@@ -511,6 +511,16 @@ def get_out_dir():
     return _out_dir or default_out_dir()
 
 
+def is_inside_out_dir(raw):
+    """raw(絶対パス)が書き出し先(get_out_dir)の中のもの(書き出し先そのものは含まない)か。realpath で比べる(.. やリンクで外へ出られない)。
+    ファイルがまだ無くてもよい(親のリンクは解決される)"""
+    real, root = os.path.realpath(raw), os.path.realpath(get_out_dir())
+    try:
+        return os.path.commonpath([os.path.normcase(real), os.path.normcase(root)]) == os.path.normcase(root) and os.path.normcase(real) != os.path.normcase(root)
+    except ValueError:   # 別のドライブ
+        return False
+
+
 def check_out_dir(raw):
     """入力された保存先を検査して、絶対パスにして返す(空なら標準に戻す)。作れない・書き込めないときは ApiError。"""
     s = str(raw or "").strip().strip('"')

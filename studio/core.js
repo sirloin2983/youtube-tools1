@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.20.2';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.21.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
@@ -89,10 +89,16 @@ Studio.live = {
   },
   /* 置き場所・空きを読み直す(設定の引き出しを開いたとき) */
   refreshInfo: () => { LIVE.infoP = null; LIVE.offAt = 0; return Studio.live.available(); },
+  /* 録画をスタジオの配信1本(kind "live")として登録する(既にあればそれ)。録画を始める・開くのはどの道(② の URL 欄・③ の「開く」・① 探す・ヘッダーの札)もここを通る。
+     rec = {id, url?, title?, channel?}(入口の begin の recording か、札・① 探す の録画)。fb = 録画に無いときに使う {url?, title?, channel?}(① 探す の行のチャンネル名など)。
+     channel は配信者の名前(字幕の色)をチャンネル名から決めるのに使う(サーバーは空なら入れない・既にあれば上書きしない) → {video} */
+  register: (recorder, rec, fb = {}) => Studio.api('/api/videos/open', { body: { kind: 'live', recorder, recording: rec.id,
+    url: rec.url || fb.url || '', title: rec.title || fb.title || '', channel: String(rec.channel || fb.channel || '').slice(0, 100) } }),
   /* URL の配信が配信中・配信前なら録画を始め(入口の api/begin)、スタジオに配信1本(kind "live")として登録する。
      → { video, existing, recording, recorder }。配信中でない・機能がない・調べられない → null(今までどおり解析・開くへ)。
-     録画は始まったのにスタジオに登録できなかったときだけ例外(解析へ回すと、同じ配信を二重に扱うため) */
-  begin: async url => {
+     録画は始まったのにスタジオに登録できなかったときだけ例外(解析へ回すと、同じ配信を二重に扱うため)。
+     opts.channel: 入口の begin がチャンネル名を返さなかったときに使う名前(① 探す の行は取得元からチャンネル名を持っている) */
+  begin: async (url, opts = {}) => {
     if (!(await Studio.live.available())) return null;
     let b;
     try { b = await Studio.live.api('api/begin', { body: { url } }); }
@@ -100,7 +106,7 @@ Studio.live = {
     const rec = b && b.live && b.recording;
     if (!rec || !rec.id || !b.recorder) return null;
     let r;
-    try { r = await Studio.api('/api/videos/open', { body: { kind: 'live', recorder: b.recorder, recording: rec.id, url: rec.url || url, title: rec.title || '' } }); }
+    try { r = await Studio.live.register(b.recorder, rec, { url, channel: opts && opts.channel }); }
     catch (e){ throw new Error('録画は始めましたが、スタジオに登録できませんでした: ' + e.message); }
     try { if (window.UIKit && UIKit.liveBadge) UIKit.liveBadge.refresh(); } catch {}   // ヘッダーの「録画中」の札をすぐ出す(札の見回りは 10 秒ごと)
     return { video: r.video, existing: !!b.existing, recording: rec, recorder: b.recorder };

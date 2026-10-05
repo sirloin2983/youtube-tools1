@@ -20,8 +20,12 @@
                  ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt_core.loudness)
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
   5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先\<配信の名前>\)・名前の規則・作業用\<名前>.clip.json。
-                 文字起こしへ(任意)は入口の「まとめて実行」の文字起こしだけの形(autorun.start_file。mode file)に入れる
+                 書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は入口の「まとめて実行」の動画ファイルの形(autorun.start_file。
+                 check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
+                 照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
   ジョブは live/exports.json に残す。入口を起動し直したら、途中だったジョブは「録画待ち」からやり直す(冪等: 書きかけは消し、名前は仕上げるときに決める)。
+  P4(アーカイブで本番版に作り直す。home/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
+  作り直しの途中のマークを書き出し直させない busy・欠けのマークの名前を決める target・recBase(録画の頭の時刻)を受け持つ)。
 
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
@@ -41,7 +45,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import fsio, jobs, loudness, normalize, schemas, tools
+from ytt_core import colors, fsio, jobs, loudness, normalize, schemas, tools
 
 VERSION = "0.1.0"
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -57,6 +61,7 @@ STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジ�
 MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = 3600        # 1つのマークの長さ(スタジオの MAX_MARK_SEC と同じ)
 LABEL_MAX = 80
+AFTERS = ("none", "check", "auto")   # 書き出したあと: 何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動)
 TITLE_MAX = 200
 KEEP_JOBS = 200            # 終わったジョブを残す数
 LEN_TOL = 0.2              # 書き出した長さと区間の差の上限(30fps の1コマ + 音声の端)。normalize の DURATION_TOL(0.5)より厳しく
@@ -67,6 +72,8 @@ FETCH_TIMEOUT = 30.0
 STATES = ("wait", "fetch", "encode", "done", "error", "cancelled")
 ACTIVE = ("wait", "fetch", "encode")
 STATE_LABELS = {"wait": "録画待ち", "fetch": "取得中", "encode": "作り直し中", "done": "済み", "error": "失敗", "cancelled": "取り消し"}
+ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(home/live_archive.py の RUN と同じ)の動いている段
+ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
 # スタジオの書き出しと同じ名前の規則(studio/exporter.py。ツールをまたいで import しないので同じ値を持つ)
 MAX_PATH_UNITS = 240
 SUFFIX_ROOM = 36
@@ -208,6 +215,34 @@ def video_id_of(url, rec_id=""):
 # ---------- マーク(正本) ----------
 def _text(v, n):
     return re.sub(r"[\x00-\x1f\x7f]", " ", v if isinstance(v, str) else "").strip()[:n]
+
+
+def check_after(body):
+    """POST /live/api/export の after("none"|"check"|"auto")。無ければ以前の transcribe(真偽。既定 true)から: true → check・false → none"""
+    a = body.get("after") if isinstance(body, dict) else None
+    if a is None:
+        return "none" if isinstance(body, dict) and body.get("transcribe") is False else "check"
+    if a not in AFTERS:
+        raise LiveError("書き出したあと(after)は none・check・auto のどれかにしてください")
+    return a
+
+
+def check_streamer(v):
+    """POST /live/api/export の streamer(配信者の名前。字幕の色)。無い・空 = ""。長すぎる・制御文字・文字列でない → LiveError"""
+    if v is None:
+        return ""
+    if not isinstance(v, str) or any(ord(c) < 32 or ord(c) == 127 for c in v):
+        raise LiveError("配信者の名前が正しくありません")
+    v = v.strip()
+    if len(v) > colors.NAME_MAX:
+        raise LiveError("配信者の名前が長すぎます(%d 文字まで)" % colors.NAME_MAX)
+    return v
+
+
+def job_after(job):
+    """ジョブの書き出したあと(この版より前のジョブは transcribe から)"""
+    a = job.get("after")
+    return a if a in AFTERS else ("check" if job.get("transcribe") else "none")
 
 
 def studio_mark_id(mark):
@@ -396,6 +431,9 @@ class Exporter:
                 continue
             if j.get("state") in ("fetch", "encode"):   # 入口が途中で終わった: 録画待ちからやり直す
                 j.update(state="wait", progress=0, message="入口を起動し直したので、やり直します")
+            arc = j.get("archive")
+            if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。home/live_archive.py)の途中: 順番待ちに戻す
+                j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="入口を起動し直したので、続きから作り直します")
             j.pop("cancel", None)
             self.jobs.append(j)
         shutil.rmtree(self.work, ignore_errors=True)   # 前回の取りかけ
@@ -439,29 +477,42 @@ class Exporter:
             runs = r.snapshot().get("runs") if r is not None else []
         except Exception:
             return {}
-        return {x.get("id"): {"state": x.get("state"), "label": x.get("stateLabel"), "message": x.get("error") or x.get("message") or ""}
+        return {x.get("id"): {"state": x.get("state"), "label": x.get("stateLabel"), "message": x.get("error") or x.get("message") or "",
+                              "steps": [{"key": s.get("key"), "label": s.get("label"), "state": s.get("state"), "stateLabel": s.get("stateLabel")}
+                                        for s in x.get("steps") or [] if isinstance(s, dict)]}
                 for x in runs or [] if isinstance(x, dict)}
 
     def busy(self, rec, mid):
+        """書き出しの途中か、本番版への作り直し(P4)の順番待ち・途中(入れ替える相手のファイルを、書き出し直しで変えない)"""
         with self.lock:
-            return any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and j["state"] in ACTIVE)
+            return any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and
+                       (j["state"] in ACTIVE or (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE))
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None):
+    def _busy_error(self, rec, mid):
+        """busy のときに断る文(本番版への作り直しの途中なら、そう言う)"""
+        with self.lock:
+            arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
+        return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
+
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer=""):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
-        first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁"""
+        first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
+        after・streamer: add と同じ"""
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
         with self.lock:   # 書き出しの途中のマークは、正本を書き換える前に断る(途中のジョブの区間と正本が食い違わないように)
             if self.busy(rec, mid):
-                raise LiveError("このマークは書き出しの途中です", 409)
+                raise self._busy_error(rec, mid)
             self.marks.upsert(rc, rec, mid, studio["n"], epoch_iso(first + studio["start"]), epoch_iso(first + studio["end"]),
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
-                            studio={k: studio[k] for k in ("video", "mark", "start", "end")})
+                            studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None):
-        """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)"""
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer=""):
+        """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
+        after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う"""
+        after = after if after in AFTERS else ("check" if transcribe else "none")
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         m = self.marks.get(rc, rec, mid)
@@ -469,11 +520,12 @@ class Exporter:
             raise LiveError("終了をマークしてから書き出してください")
         with self.lock:
             if self.busy(rec, mid):
-                raise LiveError("このマークは書き出しの途中です", 409)
+                raise self._busy_error(rec, mid)
             if sum(1 for j in self.jobs if j["state"] in ACTIVE) >= 50:
                 raise LiveError("書き出しの順番待ちが多すぎます(50 本まで)", 409)
             job = {"id": "lx-" + secrets.token_hex(5), "recorder": rc, "recording": rec, "markId": mid, "n": m.get("n") or 0,
-                   "label": m.get("label") or "", "start": m["start"], "end": m["end"], "transcribe": bool(transcribe),
+                   "label": m.get("label") or "", "start": m["start"], "end": m["end"], "transcribe": after != "none",
+                   "after": after, "streamer": streamer or "",
                    "state": "wait", "message": "録画が届くのを待っています", "error": "", "needsArchive": False, "progress": 0,
                    "source": "", "path": "", "manifest": "", "runId": "", "warning": "", "attempts": 0,
                    "created": now_iso(), "updated": now_iso()}
@@ -637,6 +689,8 @@ class Exporter:
             got, why = None, []
             for rc, rec, d in self._sources(job, a, b):
                 self._cancelled(job)
+                if not job.get("recBase") and iso_epoch(d.get("firstPdt")) is not None:   # 録画の頭の時刻(P4 で欠けのマークをアーカイブから作るときの名前・range に使う)
+                    job["recBase"] = epoch_iso(iso_epoch(d["firstPdt"]))
                 name = (rc or {}).get("name") or "?"
                 if d.get("gaps"):
                     g = d["gaps"][0]
@@ -656,7 +710,7 @@ class Exporter:
             if got is None:
                 gap = any("欠けて" in w for w in why)
                 self._set(job, state="error", needsArchive=gap, message="",
-                          error=("区間に録画の欠けがあるので書き出せません(要差し替え。アーカイブで作り直す P4 で救えます)。" if gap else
+                          error=("区間に録画の欠けがあるので書き出せません(要差し替え。録画が終わってから、アーカイブで作り直すと書き出せます)。" if gap else
                                  "録画を取れませんでした。") + " / ".join(why or ["録画元につながりません"]))
                 return
             rc, rec, d, segs, files = got
@@ -735,17 +789,7 @@ class Exporter:
                 for p, _ in files:
                     f.write("file '%s'\n" % p.replace("\\", "/").replace("'", "'\\''"))
             src = ["-f", "concat", "-safe", "0", "-i", lst]
-        title = self._title(job, d)
-        root = self.out_dir()
-        if not root or not os.path.isabs(root):
-            raise LiveError("書き出し先が決まっていません(スタジオの ③ 書き出しの「保存先」を確かめてください)")
-        os.makedirs(root, exist_ok=True)
-        owner = video_id_of(d.get("url"), rec) or "live-" + rec
-        folder = pick_folder(root, title, owner)
-        head = "%02d_%s-%s" % (job.get("n") or 0, compact_ts(a - self._base(d, a)), compact_ts(b - self._base(d, a)))
-        room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(folder, head))
-        label = trim_units(safe_name(job.get("label"), 30), max(0, room))
-        base = unique_base(head + ("_" + label if label else ""), folder)
+        folder, base, title = self.target(job, d, rec, a, b)
         tmp = os.path.join(folder, base + PARTIAL + ".mp4")
         flags = 0
         if os.name == "nt":
@@ -782,6 +826,21 @@ class Exporter:
         final = os.path.join(folder, base + ".mp4")
         fsio.replace_retry(tmp, final)
         return dict(info, path=final, title=title, audio=audio), None
+
+    def target(self, job, d, rec, a, b):
+        """書き出す場所と名前(スタジオの書き出しと同じ規則)。-> (配信のフォルダ, 名前(拡張子なし), 題)。
+        アーカイブで新しく作る(P4。home/live_archive.py の欠けのマーク)も同じ規則で決める"""
+        title = self._title(job, d)
+        root = self.out_dir()
+        if not root or not os.path.isabs(root):
+            raise LiveError("書き出し先が決まっていません(スタジオの ③ 書き出しの「保存先」を確かめてください)")
+        os.makedirs(root, exist_ok=True)
+        owner = video_id_of(d.get("url"), rec) or "live-" + rec
+        folder = pick_folder(root, title, owner)
+        head = "%02d_%s-%s" % (job.get("n") or 0, compact_ts(a - self._base(d, a)), compact_ts(b - self._base(d, a)))
+        room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(folder, head))
+        label = trim_units(safe_name(job.get("label"), 30), max(0, room))
+        return folder, unique_base(head + ("_" + label if label else ""), folder), title
 
     def _audio_cfg(self):
         """-> (音量(%。100 = 変えない), ラウドネスの目標 LUFS か None)。形が正しくなければ「変えない」"""
@@ -892,18 +951,22 @@ class Exporter:
             mk = {}
         return (d.get("title") or mk.get("title") or "").strip() or video_id_of(d.get("url"), job["recording"]) or job["recording"]
 
-    def _finish(self, job, rc, rec, d, out, a, b):
+    def _finish(self, job, rc, rec, d, out, a, b, archive=None, message="書き出しました"):
+        """archive: アーカイブから新しく作った(P4。home/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}"""
         base = self._base(d, a)
         media = out["path"]
         vid = video_id_of(d.get("url"), rec)
         clip = schemas.build_clip(media, out.get("duration"), {"kind": "youtube", "videoId": vid, "title": out["title"]},
                                   (a - base, b - base), {"id": job["markId"], "label": job.get("label") or "", "status": "exported", "src": "manual"},
-                                  dict({"mode": "precise", "fps": "30/1", "from": "live-recording"}, **(out.get("audio") or {"volume": 100})), TOOL)   # 音量は実際にかけた値(スタジオの _clip_export_info と同じ形)
+                                  dict({"mode": "precise", "fps": "30/1", "from": "youtube-archive" if archive else "live-recording"},
+                                       **(out.get("audio") or {"volume": 100})), TOOL)   # 音量は実際にかけた値(スタジオの _clip_export_info と同じ形)
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"]}}
         if isinstance(job.get("studio"), dict):   # スタジオのマークから(P3): スタジオの配信(= 録画の id)とマークの id も残す
             clip["source"]["live"]["studio"] = {"video": job["studio"].get("video"), "mark": job["studio"].get("mark")}
+        if archive:
+            clip["source"]["live"]["archive"] = dict(archive)
         warn = [job["warning"]] if job.get("warning") else []
         manifest = ""
         try:
@@ -914,16 +977,24 @@ class Exporter:
             manifest = ""
             warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % (e.strerror or e.__class__.__name__))
         run_id = ""
-        if job.get("transcribe"):
+        after = job_after(job)
+        if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
+            who = None
+            if job.get("streamer"):   # 配信者の名前(字幕の色)。照らし合わせられなければ色なしで進める(書き出しは止めない)
+                try:
+                    who = colors.resolve(job["streamer"])[0]
+                except ValueError as e:
+                    warn.append("配信者「%s」が色の一覧と合わないので、字幕の色なしで進めます(%s)" % (job["streamer"][:60], str(e)[:120]))
             try:
                 r = self.runner() if self.runner else None
                 if r is None:
                     raise ValueError("まとめて実行が使えません")
-                run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], flow="check") or {}).get("id") or ""
+                run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after) or {}).get("id") or ""
             except Exception as e:
-                warn.append("文字起こしへ渡せませんでした: %s" % str(e)[:160])
-        self._set(job, state="done", progress=1.0, path=media, manifest=manifest, runId=run_id, warning=" / ".join(warn),
-                  message="書き出しました" + ("。文字起こしの順番に入れました(ホームの「まとめて実行」)" if run_id else ""))
+                warn.append(("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160])
+        self._set(job, state="done", progress=1.0, path=media, manifest=manifest, runId=run_id, warning=" / ".join(warn), recBase=epoch_iso(base),
+                  message=message + (("。文字起こし → パックの順番に入れました(ホームの「まとめて実行」)" if after == "auto"
+                                      else "。文字起こしの順番に入れました(ホームの「まとめて実行」)") if run_id else ""))
         self.log("リアルタイム切り抜き: 書き出しました %s" % media)
 
 

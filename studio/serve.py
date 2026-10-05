@@ -35,7 +35,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.20.2"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.21.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -201,6 +201,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/settings": lambda: {"settings": STORE.get_ui()},
             "/api/rank/registry": rank.get_registry,
             "/api/rank/search": lambda: rank.get_search(arg("id")),
+            "/api/rank/live": lambda: rank.live_list(arg("agencies") if "agencies" in q else None),   # 配信中・これからの予定(① の「配信中」のタブ)
             "/api/queue": BATCH.snapshot,
             "/api/videos": lambda: {"videos": STORE.list()},
             "/api/video": lambda: self._video(arg("id")),
@@ -316,10 +317,13 @@ def _open_video(o):
         return {"video": STORE.ensure(src, probe=True)}
     if o.get("kind") == "live":   # ライブの録画(録画の部品で録っている配信)。値は全部 common.check_live で検査する
         src = analyze.validate_live(o)
-        title = o.get("title")
+        title, channel = o.get("title"), o.get("channel")
         if title is not None and not isinstance(title, str):
             raise ApiError("bad_source", "title が正しくありません", 400)
-        return {"video": STORE.ensure(src, title or "")}
+        if channel is not None and not isinstance(channel, str):
+            raise ApiError("bad_source", "channel が正しくありません", 400)
+        channel = re.sub(r"[\x00-\x1f\x7f]", "", channel or "")   # チャンネル名(入口の begin が yt-dlp から取った名前。配信者の名前 = 字幕の色を決める)。長さは store が切る
+        return {"video": STORE.ensure(src, title or "", channel)}
     src = analyze.validate_source({"kind": "youtube", "url": o.get("url")})
     return {"video": STORE.ensure(src)}
 
@@ -334,22 +338,28 @@ def _live_exported(o):
         raise ApiError("bad_request", "path は絶対パスで指定してください", 400)
     if os.path.splitext(raw)[1].lower() != ".mp4" or not os.path.isfile(raw):
         raise ApiError("bad_request", "path が見つかりません(書き出した .mp4 のパスを指定してください)", 400)
-    real, root = os.path.realpath(raw), os.path.realpath(common.get_out_dir())
-    try:
-        inside = os.path.commonpath([os.path.normcase(real), os.path.normcase(root)]) == os.path.normcase(root) and os.path.normcase(real) != os.path.normcase(root)
-    except ValueError:   # 別のドライブ
-        inside = False
-    if not inside:
+    if not common.is_inside_out_dir(raw):
         raise ApiError("bad_request", "path は書き出し先のフォルダの中だけ指定できます", 400)
+    archived = o.get("archived")
+    if archived is not None and not isinstance(archived, bool):
+        raise ApiError("bad_request", "archived が正しくありません", 400)
     v, _s = STORE.get(vid)   # 無ければ 404
     if v["kind"] != "live":
         raise ApiError("bad_request", "ライブの録画の配信だけです", 400)
     m = next((x for x in v["marks"] if x["id"] == mid), None)
     if m is None:   # 書き出し中にマークが消された: mark_exported と同じく記録しない(動画はできている)
         return {"ok": False, "video": v}
+    real, root = os.path.realpath(raw), os.path.realpath(common.get_out_dir())
     rel = os.path.relpath(real, root).replace("\\", "/")
-    recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw))
+    recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw), archived)
     return {"ok": bool(recorded), "video": STORE.get(vid)[0]}
+
+
+def _live_section(o):
+    """入口の「アーカイブで本番版に作り直す」(線 D の P4)から: YouTube の videoId の区間を、ちょうど path へ書き出す。
+    マーク・配信のデータは触らない(入口が /api/live/exported で自分で記録する)。進み具合は GET /api/export?id=・取り消しは POST /api/export/cancel"""
+    spec = exporter.build_section_spec(o)
+    return exporter.job_public(exporter.start_job(spec))
 
 
 def _video_delete(o):
@@ -360,7 +370,7 @@ def _video_delete(o):
         raise ApiError("busy", "書き出し中は削除できません。終わってから削除してください", 409)
     if not BATCH.cancel_video(vid):   # 待ち item は取り除き、実行中の解析は中止してから削除
         raise ApiError("busy", "解析を中止しています。少し待ってからもう一度削除してください", 409)
-    if not STORE.delete(vid):
+    if not STORE.delete(vid, if_no_marks=o.get("ifNoMarks") is True):   # ifNoMarks: 入口の「マークの無い録画を消す」(線 D の P4)。マークがあれば 409
         raise ApiError("not_found", "動画が見つかりません", 404)
     return {"ok": True}
 
@@ -450,6 +460,7 @@ POST_ROUTES = {
     "/api/queue/clear": lambda o: {"ok": True, "removed": BATCH.clear()},
     "/api/videos/open": _open_video,
     "/api/live/exported": _live_exported,   # 入口のライブの書き出しが済んだマークを書き出し済みに(path は書き出し先の中の mp4 だけ)
+    "/api/live/section": _live_section,   # YouTube の区間を、書き出し先の中の指定のパスへ(線 D の P4。マークは触らない)
     "/api/video/delete": _video_delete,
     "/api/video/adopt-top": _adopt_top,   # まとめて実行(入口の案件の画面)から: 自動マークの上位を採用に(学習の記録は書かない)
     "/api/video/request-marks": _request_marks,   # 友人からの依頼: 区間を採用済みのマークに + 自動の上位で埋める(学習の記録は書かない)

@@ -139,7 +139,9 @@ class PrefsLiveTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_default_off_and_validation(self):
-        self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p"})
+        self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
+                                                        "autoDelete": P.DEFAULTS["live"]["autoDelete"]})
+        self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         v = self.p.patch("live", {"enabled": True, "folder": "E:\\Video\\live-rec"})
         self.assertEqual((v["enabled"], v["folder"]), (True, "E:\\Video\\live-rec"))
         for bad in ({"folder": "\\\\nas\\rec"}, {"folder": "rec"}, {"recorders": "x"}, {"recorders": [{"id": "Bad", "url": "http://a:8730"}]},
@@ -153,6 +155,28 @@ class PrefsLiveTest(unittest.TestCase):
         for q in ("720p", "best", "1080p"):   # 録画の画質(スタジオの URL の欄から始める録画)
             self.assertEqual(self.p.patch("live", {"quality": q})["quality"], q)
         self.assertEqual(self.p.patch("live", {"enabled": False})["quality"], "1080p")   # ほかのキーを直しても残る
+        for bad in ({"autoArchive": "no"}, {"autoArchive": 0}, {"autoArchive": None}):   # 自動で本番版に作り直す(P4)
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", bad)
+        self.assertIs(self.p.patch("live", {"autoArchive": False})["autoArchive"], False)
+        self.assertIs(self.p.patch("live", {"quality": "720p"})["autoArchive"], False)   # ほかのキーを直しても残る
+        self.assertIs(self.p.patch("live", {"autoArchive": True})["autoArchive"], True)
+        for bad in ({"autoDelete": "no"}, {"autoDelete": 1}, {"autoDelete": None}):   # 本番版に入れ替えたら録画を消す(P4)
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", bad)
+        self.assertIs(self.p.patch("live", {"autoDelete": False})["autoDelete"], False)
+        self.assertIs(self.p.patch("live", {"autoArchive": False})["autoDelete"], False)   # ほかのキーを直しても残る
+        self.assertIs(self.p.patch("live", {"autoDelete": True})["autoDelete"], True)
+        # 録画を消すのは、オンで live.autoDelete が明示的に true のときだけ(戻せないので)
+        class FP:
+            def __init__(self, v):
+                self.v = v
+
+            def get(self, keys):
+                return {"live": self.v}
+        for v, want in (({"enabled": True}, False), ({"enabled": True, "autoDelete": "yes"}, False), ({"enabled": False, "autoDelete": True}, False),
+                        ({"enabled": True, "autoDelete": True}, True)):
+            self.assertIs(LV.Live(FP(v), self.tmp, os.path.join(self.tmp, "logs")).auto_delete(), want, v)
 
     def test_token_is_kept_when_blank(self):
         self.p.patch("live", {"recorders": [{"id": "laptop", "name": "ノート PC", "url": "http://192.168.1.20:8730", "token": TOKEN}]})
@@ -263,12 +287,16 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual((code, h["content-type"], len(raw)), (200, "video/mp2t", 1880))
         code, d = self.jreq("GET", "/live/r/fake/20261004-000000-a/status?since=5")
         self.assertEqual(d["path"], "/live/20261004-000000-a/status?since=5")
-        code, d = self.jreq("POST", "/live/r/fake/start", {"url": "https://www.youtube.com/watch?v=x"})
-        self.assertEqual(code, 404)   # 偽物は start を知らない(中継はそのまま返す)
-        self.assertEqual(self.fake.seen[-1]["body"], {"url": "https://www.youtube.com/watch?v=x"})
+        code, d = self.jreq("POST", "/live/r/fake/20261004-000000-a/stop", {"x": 1})
+        self.assertEqual(code, 404)   # 偽物は stop を知らない(中継はそのまま返す)
+        self.assertEqual((self.fake.seen[-1]["path"], self.fake.seen[-1]["body"]), ("/live/20261004-000000-a/stop", {"x": 1}))
         self.assertIsNone(self.fake.seen[-1]["origin"])
         # 検査
         n = len(self.fake.seen)
+        # POST で中継するのは <録画>/stop だけ(録画を消す delete・start・quit・config は画面から録画元へ届かない。P4)
+        for path in ("/live/r/fake/20261004-000000-a/delete", "/live/r/fake/start", "/live/r/fake/quit", "/live/r/fake/config",
+                     "/live/r/fake/20261004-000000-a/stop/x", "/live/r/fake/x/stop", "/live/r/fake/20261004-000000-a/delete?x=stop"):
+            self.assertEqual(self.jreq("POST", path, {})[0], 404, path)
         self.assertEqual(self.req("GET", "/live/r/fake/list", headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
         self.assertEqual(self.req("GET", "/live/r/fake/list", headers={"Host": "evil.example:%d" % self.port})[0], 403)
         self.assertEqual(self.req("POST", "/live/r/fake/start", {}, token=False)[0], 403)
@@ -335,12 +363,12 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(d["defaultFolder"], "E:\\Video\\live-rec")
 
     # ---------- P3: スタジオから ----------
-    def probe_as(self, status, title="配信の題", message=""):
+    def probe_as(self, status, title="配信の題", message="", channel="Pekora Ch. 兎田ぺこら"):
         calls = []
 
         def probe(url):
             calls.append(url)
-            return {"status": status, "title": title, "message": message}
+            return {"status": status, "title": title, "channel": channel, "message": message}
         self.srv.live.probe = probe
         return calls
 
@@ -365,14 +393,22 @@ class PortalLiveTest(unittest.TestCase):
         code, d = self.jreq("POST", "/live/api/begin", {"url": "https://youtu.be/abcdefghijk?t=5"})
         self.assertEqual(code, 200, d)
         self.assertEqual(d, {"live": True, "recorder": "fake", "existing": False,
-                             "recording": {"id": rec["id"], "url": rec["url"], "title": "配信の題", "state": "waiting"}})
+                             "recording": {"id": rec["id"], "url": rec["url"], "title": "配信の題", "state": "waiting", "channel": "Pekora Ch. 兎田ぺこら"}})
         self.assertEqual(calls, ["https://www.youtube.com/watch?v=abcdefghijk"])
         self.assertEqual(started, [{"url": "https://www.youtube.com/watch?v=abcdefghijk", "quality": "1080p", "title": "配信の題"}])
         # 同じ配信を録画中 → それを返す(始めない)
         listed["recordings"] = [dict(rec, state="recording")]
         code, d = self.jreq("POST", "/live/api/begin", {"url": "https://www.youtube.com/live/abcdefghijk"})
         self.assertEqual((code, d["existing"], d["recording"]["id"], d["recording"]["state"]), (200, True, rec["id"], "recording"))
+        self.assertEqual(d["recording"]["channel"], "Pekora Ch. 兎田ぺこら")   # 録画中だったときも分かれば付ける
         self.assertEqual(len(started), 1)
+        # チャンネル名の掃除(制御文字を落とす・長さを切る)・分からなければ空
+        self.probe_as("is_live", channel="ch\x07\n名" + "x" * 300)
+        d = self.jreq("POST", "/live/api/begin", {"url": rec["url"]})[1]
+        self.assertEqual(d["recording"]["channel"], ("ch名" + "x" * 300)[:LV.CHANNEL_MAX])
+        self.probe_as("is_live", channel=None)
+        self.assertEqual(self.jreq("POST", "/live/api/begin", {"url": rec["url"]})[1]["recording"]["channel"], "")
+        self.probe_as("is_live")
         # 録画元が「もう録画しています」(409)→ 一覧から探して返す(一覧を先に読んだときには無かった)
         seq = [{"recordings": []}, {"recordings": [dict(rec, state="recording")]}]
         self.fake.routes[("GET", "/live/list")] = lambda b: (200, seq.pop(0) if seq else {"recordings": []})
@@ -438,6 +474,7 @@ class PortalLiveTest(unittest.TestCase):
         j = d["job"]
         mid = "lm-" + __import__("hashlib").sha1(b"m1a2b3").hexdigest()[:12]
         self.assertEqual((j["markId"], j["state"], j["n"], j["label"], j["transcribe"]), (mid, "wait", 4, "見どころ", False))
+        self.assertEqual((j["after"], j["streamer"]), ("none", ""))   # 以前の transcribe: false = 何もしない
         self.assertEqual(j["studio"], {"video": rec, "mark": "m1a2b3", "start": 10.0, "end": 22.5})
         self.assertEqual((j["start"], j["end"]), ("2026-10-05T09:53:10.000Z", "2026-10-05T09:53:22.500Z"))   # firstPdt + 秒
         self.assertIn("/live/%s/status?since=999999999" % rec, [x["path"] for x in self.fake.seen])   # セグメントの一覧は要らない
@@ -468,6 +505,20 @@ class PortalLiveTest(unittest.TestCase):
             code, d = self.jreq("POST", "/live/api/export", dict(body, studio=dict(st, **bad)))
             self.assertEqual((code, d.get("error")), (400, "bad_request"), bad)
         self.assertEqual(self.jreq("POST", "/live/api/export", dict(body, studio="x"))[0], 400)
+        # 書き出したあと(after)と配信者の名前(streamer)
+        nb = {k: v for k, v in body.items() if k != "transcribe"}
+        for extra, want in (({}, ("check", True, "")), ({"transcribe": True}, ("check", True, "")), ({"after": "none"}, ("none", False, "")),
+                            ({"after": "auto", "transcribe": False, "streamer": " 兎田ぺこら "}, ("auto", True, "兎田ぺこら")),
+                            ({"after": "check", "streamer": ""}, ("check", True, "")), ({"after": "check", "streamer": None}, ("check", True, ""))):
+            code, d = self.jreq("POST", "/live/api/export", dict(nb, studio=dict(st, mark="after1"), **extra))
+            self.assertEqual(code, 200, (extra, d))
+            self.assertEqual((d["job"]["after"], d["job"]["transcribe"], d["job"]["streamer"]), want, extra)
+            self.jreq("POST", "/live/api/export/cancel", {"id": d["job"]["id"]})
+        for extra in ({"after": "full"}, {"after": ""}, {"after": True}, {"after": ["auto"]}, {"streamer": 5}, {"streamer": "a\nb"},
+                      {"streamer": "x" * 61}, {"streamer": ["兎田ぺこら"]}):
+            code, d = self.jreq("POST", "/live/api/export", dict(nb, studio=dict(st, mark="after2"), **extra))
+            self.assertEqual((code, d.get("error")), (400, "bad_request"), extra)
+        self.assertFalse([x for x in self.jreq("GET", "/live/api/exports")[1]["jobs"] if x["studio"]["mark"] == "after2"])   # 断ったものはジョブを作らない
         self.assertEqual(self.jreq("POST", "/live/api/export", dict(body, studio=dict(st, start=0.2, end=0.5)))[0], 400)   # 0.5 秒より短い(正本の決まり)
         for b2, want in (({"recorder": "../x"}, 400), ({"recording": "../x"}, 400), ({"recording": None}, 400), ({"recorder": "nope"}, 404),
                          ({"recording": "20261005-000000-unknown"}, 404)):
@@ -559,28 +610,28 @@ class ProbeTest(unittest.TestCase):
         return stack
 
     def test_live_status_and_title(self):
-        with self.fake(out="is_live\t【雑談】配信の題\x07\n"):
+        with self.fake(out="is_live\tPekora Ch. 兎田ぺこら\x07\t【雑談】配信の題\tつづき\x07\n"):
             r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
-        self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題", "message": ""})
+        self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題つづき", "channel": "Pekora Ch. 兎田ぺこら", "message": ""})   # 題のタブは崩さない
         with open(self.args, encoding="utf-8") as f:
             args = json.load(f)
         self.assertEqual(args[-2:], ["--", "https://www.youtube.com/watch?v=abcdefghijk"])   # URL は1つの引数・オプションとして読ませない
         for flag in ("--skip-download", "--no-playlist", "--ignore-no-formats-error"):
             self.assertIn(flag, args)
-        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(title)s")
+        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(channel,uploader)s\t%(title)s")
 
     def test_other_states(self):
-        with self.fake(out="was_live\tNA\n"):
-            self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk"), {"status": "was_live", "title": "", "message": ""})
+        with self.fake(out="was_live\tNA\tNA\n"):
+            self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk"), {"status": "was_live", "title": "", "channel": "", "message": ""})
         with self.fake(out="", err="ERROR: [youtube] x: This live event will begin in 3 hours.\n", code=1):
             self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "is_upcoming")
         with self.fake(out="", err="ERROR: Video unavailable\n", code=1):
             r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
         self.assertEqual(r["status"], "unknown")
         self.assertIn("Video unavailable", r["message"])
-        with self.fake(out="NA\tNA\n"):
+        with self.fake(out="NA\tNA\tNA\n"):
             self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "unknown")
-        with self.fake(out="is_live\tx\n", sleep=3):
+        with self.fake(out="is_live\tc\tx\n", sleep=3):
             r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk", timeout=0.5)
         self.assertEqual(r["status"], "unknown")
         self.assertIn("秒で調べられませんでした", r["message"])
@@ -657,13 +708,17 @@ class FakeRunner:
 
     def __init__(self):
         self.files = []
+        self.streamers = []   # start_file に渡った配信者の名前(files と同じ順)
 
-    def start_file(self, path, title="", flow="check", **kw):
+    def start_file(self, path, title="", flow="check", streamer=None, **kw):
         self.files.append((path, title, flow))
+        self.streamers.append(streamer)
         return {"id": "run-%d" % len(self.files)}
 
     def snapshot(self):
-        return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち"} for i in range(len(self.files))]}
+        return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち",
+                          "steps": [{"key": "transcribe", "label": "文字起こし", "state": "wait", "stateLabel": "待ち", "detail": ""}]}
+                         for i in range(len(self.files))]}
 
 
 _SRC = {}
@@ -780,8 +835,10 @@ class ExportTest(unittest.TestCase):
         self.assertAlmostEqual(clip["range"]["end"] - clip["range"]["start"], b - a, delta=0.01)
         self.assertEqual((clip["mark"]["id"], clip["mark"]["label"], clip["export"]["mode"]), (m["id"], "見どころ: 1", "precise"))
         self.assertEqual(self.runner.files, [(path, os.path.splitext(os.path.basename(path))[0], "check")])   # 文字起こしへ(まとめて実行の文字起こしだけ)
-        self.assertEqual(done["runId"], "run-1")
+        self.assertEqual(self.runner.streamers, [None])   # 配信者の名前が無い = まとめて実行が自動で決める
+        self.assertEqual((done["runId"], done["after"], done["streamer"]), ("run-1", "check", ""))
         self.assertEqual(self.job(j["id"])["tx"]["state"], "queued")
+        self.assertEqual([x["key"] for x in self.job(j["id"])["tx"]["steps"]], ["transcribe"])   # 段ごとの進み具合も(画面が全自動の進み具合を出す)
         self.assertFalse(os.listdir(os.path.join(self.tmp, "live", "work")))   # 取ったセグメントは片付ける
         # 文字起こしなし・同じマークをもう一度 → 別の名前
         j2 = self.ex.add("local", rid, m["id"], transcribe=False)
@@ -789,6 +846,19 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(d2["state"], "done", d2)
         self.assertNotEqual(d2["path"], path)
         self.assertEqual(len(self.runner.files), 1)
+        self.assertEqual(d2["after"], "none")   # transcribe=False は「何もしない」
+        # 全自動(文字起こし → パック)+ 配信者の名前(照らし合わせて渡す)
+        j4 = self.ex.add("local", rid, m["id"], after="auto", streamer="ぺこら")
+        d4 = self.wait_state(j4["id"], ("done", "error"), 90)
+        self.assertEqual((d4["state"], d4["after"], d4["transcribe"], d4["streamer"]), ("done", "auto", True, "ぺこら"), d4)
+        self.assertEqual(self.runner.files[-1][2], "auto")
+        self.assertEqual(self.runner.streamers[-1], "兎田ぺこら")   # 色の一覧の名前にそろえて渡す
+        self.assertIn("パック", d4["message"])
+        # 色の一覧に合わない名前: 書き出しは止めず、色なし(None)で渡して知らせる
+        j5 = self.ex.add("local", rid, m["id"], after="check", streamer="だれでもない人")
+        d5 = self.wait_state(j5["id"], ("done", "error"), 90)
+        self.assertEqual((d5["state"], self.runner.files[-1][2], self.runner.streamers[-1]), ("done", "check", None), d5)
+        self.assertIn("字幕の色なし", d5["warning"])
         # 取り消し(録画待ちの間)
         far = self.mark(rid, last + 100, last + 110)
         j3 = self.ex.add("local", rid, far["id"])
@@ -797,7 +867,7 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(self.ex.cancel(j3["id"])["state"], "cancelled")
         # 記録は exports.json に残る(起動し直しても見える)
         again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
-        self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled"})
+        self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled", j4["id"]: "done", j5["id"]: "done"})
 
     def loud_of(self, path):
         """書き出した動画の聞こえ方の音量(LUFS)とピーク(dBTP)。ffmpeg の loudnorm で測るだけ"""

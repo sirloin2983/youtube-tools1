@@ -119,6 +119,7 @@
 .rv-chip.live{color:var(--danger-ink);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-soft)}
 .rv-chip.score{color:var(--ink);font-family:var(--mono)}
 .rv-chip.st.exported{color:var(--ink-2);background:var(--panel-3)}
+.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直して入れ替えた。ライブの録画の P4) */
 
 /* ---- プレーヤー(映像の背景は常に黒) ---- */
 .rv-player{aspect-ratio:16/9;max-width:100%;background:#000;border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}
@@ -238,6 +239,9 @@
 .rv-liveguide{flex:1 1 100%;margin:0;font-size:12.5px;color:var(--ink-2)}
 .rv-livebar.is-ended{border-color:var(--line);background:var(--panel-2)}
 .rv-livebar.is-ended .rv-live-badge{background:var(--ink-3)}
+.rv-arch{padding-top:2px}
+.rv-archmsg{font-size:12.5px;overflow-wrap:anywhere;min-width:0;flex:1 1 220px}
+.rv-archmsg.rv-warnline{color:var(--warn-ink)}
 .rv-openmsg{margin:6px 0 0}
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
@@ -422,3 +426,10 @@
 .rv-duck{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
 .rv-duck select{font-size:12.5px}
 .rv-ducknote{color:var(--ink-2);font-weight:600}
+/* ライブの録画: 帯の「配信者」(字幕の色)。押すと名前の欄(UIKit.streamer の候補と色の見本)が開く */
+.rv-livewho>summary{font-size:12.5px;max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.rv-livewho>summary>span{text-decoration:underline dotted;text-underline-offset:3px}
+.rv-livewhobody{width:min(320px,calc(100vw - 32px));padding:10px}
+.rv-livewhobody>label{display:block;margin-bottom:4px}
+.rv-livewhobody input[type=text]{width:calc(100% - 28px)}
+.rv-livewhobody .hint{margin:6px 0 0}

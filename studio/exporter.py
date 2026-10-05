@@ -250,19 +250,8 @@ def clean_partials(root=None):
 
 
 # ---------- 依頼の検査 → spec ----------
-def build_spec(store, req):
-    """クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻はサーバーが store から組み立てる。"""
-    bad = lambda m: ApiError("bad_request", m, 400)
-    v = store.internal(req.get("id"))
-    if not v:
-        raise ApiError("not_found", "動画が見つかりません", 404)
-    if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
-        raise bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
-    ids = req.get("markIds")
-    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
-        raise bad("書き出すマークを選んでください")
-    if len(ids) > MAX_EXPORT_CLIPS:
-        raise bad("書き出すマークは1度に%d件までです" % MAX_EXPORT_CLIPS)
+def _parse_opts(req, bad):
+    """precision・volume・loudness の検査(build_spec と build_section_spec で共通)。-> (precision, 音量%, ラウドネス or None)"""
     prec = req.get("precision")
     if prec not in (None, "accurate", "fast"):
         raise bad("precision が正しくありません")
@@ -285,6 +274,92 @@ def build_spec(store, req):
             raise bad("loudness が正しくありません")
         if loud not in LOUDNESS_CHOICES:
             raise bad("loudness は %s のどれかです" % " / ".join("%g" % x for x in LOUDNESS_CHOICES))
+    return prec, vol, loud
+
+
+def check_section_path(raw):
+    """POST /api/live/section の path(入口から来る値)を検査して、絶対パスを返す。
+    絶対パス・.mp4・書き出し先の中(realpath で比べる)・親フォルダが実在・まだ無いファイル(上書きしない)だけ。"""
+    bad = lambda m: ApiError("bad_request", m, 400)
+    if not isinstance(raw, str) or not raw or len(raw) > 1000 or "\x00" in raw or not os.path.isabs(raw):
+        raise bad("path は絶対パスで指定してください")
+    path = os.path.abspath(raw)
+    name = os.path.basename(path)
+    # % は yt-dlp の出力テンプレートで意味を持つ。.partial で終わる名前は書きかけと区別できなくなる。予約名・制御文字は Windows で作れない
+    if os.path.splitext(name)[1].lower() != ".mp4" or re.search(r"[\x00-\x1f%]", name) or is_reserved(name) or is_partial(path) or name != name.strip():
+        raise bad("path は .mp4 の正しい名前で指定してください")
+    if path_units(path) + SUFFIX_ROOM > MAX_PATH_UNITS:
+        raise bad("path が長すぎます(途中のファイルの名前の分を残して %d 文字まで)" % (MAX_PATH_UNITS - SUFFIX_ROOM))
+    if not common.is_inside_out_dir(path):
+        raise bad("path は書き出し先のフォルダの中だけ指定できます")
+    if not os.path.isdir(os.path.dirname(path)):
+        raise bad("path の親フォルダがありません")
+    if os.path.lexists(path):
+        raise bad("同じ名前のファイルがすでにあります(上書きしません)")
+    return path
+
+
+def _num_sec(v):
+    """秒の数(有限の int / float。bool は不可)。だめなら None"""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
+        return None
+    return float(v)
+
+
+def build_section_spec(req):
+    """POST /api/live/section の依頼 {videoId, start, end, path, volume?, loudness?, maxHeight?, precision?} → spec(start_job に渡す)。
+    スタジオの配信・マークは見ない(登録の無い videoId でもよい)。作るのは YouTube の videoId の start〜end(アーカイブの秒)を、
+    今の YouTube の書き出し(run_ytdlp: 区間取得 → 正確に切る → 30fps → 音量/ラウドネス)と同じ中身で、ちょうど path へ。"""
+    bad = lambda m: ApiError("bad_request", m, 400)
+    vid = req.get("videoId")
+    if not isinstance(vid, str) or not VID_RE.match(vid):
+        raise bad("videoId が正しくありません(YouTube の動画 ID 11 文字)")
+    s, e = _num_sec(req.get("start")), _num_sec(req.get("end"))
+    if s is None or e is None:
+        raise bad("start・end が数値ではありません")
+    if s < 0 or e <= s:
+        raise bad("start・end が正しくありません(0 ≤ start < end)")
+    if e - s > MAX_CLIP_SEC:
+        raise bad("区間が長すぎます(%d 秒まで)" % MAX_CLIP_SEC)
+    path = check_section_path(req.get("path"))
+    prec, vol, loud = _parse_opts(req, bad)
+    try:
+        mh = int(req.get("maxHeight") or 0)
+    except (TypeError, ValueError):
+        mh = 0
+    if not find_tool("ffmpeg"):
+        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
+    stem, folder_path = os.path.splitext(os.path.basename(path))[0], os.path.dirname(path)
+    item = {"id": "section", "start": round(s, 3), "end": round(e, 3), "title": stem, "label": "", "src": "manual", "markStatus": ""}
+    spec = {"videoId": vid, "title": stem, "clips": [item], "fast": prec == "fast", "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0,
+            "volume": vol, "loudness": loud, "kind": "youtube", "sourceTitle": "", "sourceFile": None, "sourceDuration": 0, "combine": False,
+            "section": True, "finalPath": path, "outDir": folder_path, "folder": os.path.basename(folder_path)}
+    if common.fake():
+        fm = os.environ.get("STUDIO_FAKE_MEDIA", "")
+        if not os.path.isfile(fm):
+            raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
+        spec.update(mode="file", sourcePath=fm)
+    else:
+        if not find_tool("yt-dlp"):
+            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
+        spec["mode"] = "url"
+    return spec
+
+
+def build_spec(store, req):
+    """クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻はサーバーが store から組み立てる。"""
+    bad = lambda m: ApiError("bad_request", m, 400)
+    v = store.internal(req.get("id"))
+    if not v:
+        raise ApiError("not_found", "動画が見つかりません", 404)
+    if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
+        raise bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
+    ids = req.get("markIds")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        raise bad("書き出すマークを選んでください")
+    if len(ids) > MAX_EXPORT_CLIPS:
+        raise bad("書き出すマークは1度に%d件までです" % MAX_EXPORT_CLIPS)
+    prec, vol, loud = _parse_opts(req, bad)
     by_id = {m["id"]: m for m in v["marks"]}
     clips, seen = [], set()
     for i in ids:
@@ -912,7 +987,7 @@ def run_job(job, spec, on_done=None):
                         it["status"] = "cancelled"
                 job["state"] = "cancelled"
                 return
-            _run_job(job, spec, on_done)
+            (_run_section if spec.get("section") else _run_job)(job, spec, on_done)
     except BaseException as e:
         common.log_failure("書き出し(ジョブ全体)", e)
         raise
@@ -932,6 +1007,42 @@ def _settle(job):
                 it["error"] = "内部エラーで止まりました(詳細は studio-errors.log)"
     job["waiting"] = False
     job["state"] = "cancelled" if stop else "error"
+
+
+def _run_section(job, spec, on_done=None):
+    """POST /api/live/section: 1本(YouTube の videoId の区間)を、ちょうど spec["finalPath"] へ作る。
+    マーク・配信のデータ・.clip.json・学習の記録・編集用素材は作らない・書かない(呼ぶ側の入口が自分で扱う)。
+    中身は _run_job の1本ぶんと同じ(run_ytdlp → 音量 → ラウドネス → 書きかけを本当の名前へ)"""
+    it = job["items"][0]
+    final = spec["finalPath"]
+    base = os.path.splitext(os.path.basename(final))[0]
+    job["folder"] = spec["folder"]
+    it["status"] = "running"
+    try:
+        it["file"] = (run_ytdlp if spec["mode"] == "url" else run_ffmpeg)(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
+        it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
+        apply_volume(job, spec, it, it["file"])
+        apply_loudness(job, spec, it)
+        if os.path.lexists(final):   # 作っている間に同じ名前ができた: 置き換えると上書きになるので断る
+            raise ExportError("書き出し先に同じ名前のファイルができたので、置きませんでした")
+        it["path"] = promote(it["path"])
+        it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
+        it["status"], it["progress"] = "done", 1.0
+    except ExportError as e:
+        it["status"] = "cancelled" if job["cancel"] else "error"
+        it["error"] = None if job["cancel"] else str(e)[:400]
+    except PermissionError as e:
+        common.log_failure("区間の書き出し", e)
+        it["status"], it["error"] = "error", common.permission_message(e)
+    except Exception as e:
+        common.log_failure("区間の書き出し", e)
+        it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+    finally:
+        if it["status"] != "done":   # 失敗・中止: 書きかけを残さない
+            drop_partial(it.get("path"))
+            drop_partial(partial_path(spec["outDir"], base))
+            it["path"] = None
+    job["state"] = "done" if it["status"] == "done" else ("cancelled" if job["cancel"] else "error")
 
 
 def _run_job(job, spec, on_done=None):

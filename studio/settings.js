@@ -73,6 +73,10 @@ function buildLive(){
     <div class="fld"><label class="l" for="liveQuality">画質</label>
       <select id="liveQuality">${LIVE_QUALITY.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
       <span class="hint">次に始める録画から使います</span></div>
+    <label class="rv-check" for="liveAutoArch"><input type="checkbox" class="ui-switch" id="liveAutoArch" checked>配信が終わったら、自動で本番版に作り直す</label>
+    <p class="hint">アーカイブが用意できてから作り直します(翌日になることもあります)。書き出した切り抜きを、同じ名前のまま本番の画質に入れ替えます。③ の帯の「アーカイブで作り直す」でも始められます。</p>
+    <label class="rv-check" for="liveAutoDel"><input type="checkbox" class="ui-switch" id="liveAutoDel">本番版に入れ替えたら録画を消す(マークが無い録画は 1 日で消す)</label>
+    <p class="hint">録画は 1 時間で 3〜4GB 使います。マークと本番版の切り抜きはそのまま使えます。入れ替えで作業用のフォルダへ移した速報版は、7 日たったら消します。</p>
     <p class="msg hint" id="liveMsg" role="status"></p></div>`;
   $('#setCollab').insertAdjacentElement('beforebegin', sec);
   $('#liveFolderIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#liveFolderSave').click(); } });
@@ -90,6 +94,22 @@ function buildLive(){
   $('#liveQuality').addEventListener('change', e => {
     const q = LIVE_QUALITY.some(([v]) => v === e.target.value) ? e.target.value : '1080p';
     UIKit.prefs.patch('live', { quality: q }).then(() => { $('#liveMsg').textContent = '画質を ' + q + ' にしました(次に始める録画から)'; }, () => {});   // 失敗の知らせは UIKit.prefs が出す
+  });
+  /* 本番版への自動の作り直し(線 D の P4。入口が live.autoArchive を読む。既定オン)。③ の帯の案内(自動: オン/オフ)にも伝える */
+  $('#liveAutoArch').addEventListener('change', e => {
+    const on = e.target.checked;
+    UIKit.prefs.patch('live', { autoArchive: on }).then(() => {
+      $('#liveMsg').textContent = on ? '配信が終わったら、自動で本番版に作り直します' : '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)';
+      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { autoArchive: on } }));
+    }, () => {});   // 失敗の知らせは UIKit.prefs が出す
+  });
+  /* 録画を自動で消す(線 D の P4。入口が live.autoDelete を読む。既定オン)。③ の帯の案内(入れ替えたら録画は消します)にも伝える */
+  $('#liveAutoDel').addEventListener('change', e => {
+    const on = e.target.checked;
+    UIKit.prefs.patch('live', { autoDelete: on }).then(() => {
+      $('#liveMsg').textContent = on ? '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)' : '録画を自動では消しません(録画の置き場所の空きに気をつけてください)';
+      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { autoDelete: on } }));
+    }, () => {});   // 失敗の知らせは UIKit.prefs が出す
   });
 }
 /* 今の置き場所・空き・画質を読み直す(引き出しを開いたとき)。読めないところは空欄のまま(録画は続けられる) */
@@ -115,8 +135,13 @@ async function refreshLive(){
   $('#liveFolderIn').disabled = $('#liveFolderSave').disabled = !!liveActive;
   $('#liveFolderNote').textContent = liveActive ? `録画中(${liveActive}本)は置き場所を変えられません。録画を止めてから変えます。` : '録画中は変えられません(録画を止めてから変えます)。変えると、次に始める録画から使います。';
   if (window.UIKit && UIKit.prefs && UIKit.prefs.available()){
-    try { const p = await UIKit.prefs.get(['live']); const q = p && p.live && p.live.quality; $('#liveQuality').value = LIVE_QUALITY.some(([v]) => v === q) ? q : '1080p'; } catch {}
-  }
+    try {
+      const p = await UIKit.prefs.get(['live']), l = (p && p.live) || {}, q = l.quality;
+      $('#liveQuality').value = LIVE_QUALITY.some(([v]) => v === q) ? q : '1080p';
+      $('#liveAutoArch').checked = l.autoArchive !== false;   // 既定オン
+      $('#liveAutoDel').checked = l.autoDelete === true;     // 入口と同じく true のときだけ(既定は home/prefs.py)
+    } catch {}
+  } else $('#liveAutoArch').disabled = $('#liveAutoDel').disabled = true;
 }
 function setupLive(){
   if (!S.live || !S.token) return;

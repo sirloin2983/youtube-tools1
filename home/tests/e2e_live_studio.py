@@ -25,6 +25,9 @@
   9 札 → 一覧 →「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
   10 終わった録画でマーク → 採用 →「書き出す」  11 設定の引き出しの「ライブの録画」(置き場所・空き・画質 → live.quality → 次の begin)
   12 ?video=<id> で開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし・375px で横にはみ出さない
+  15 書き出したあと(帯の select。設定 liveAfter)と配信者(字幕の色): begin のチャンネル名がスタジオの配信に入る・帯の「配信者」がチャンネル名から自動で入る・
+     「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
+     見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
 """
 import json
 import os
@@ -53,6 +56,7 @@ os.environ["STUDIO_FAKE"] = "1"
 YT1 = "https://www.youtube.com/watch?v=TESTlive001"   # 画面に入れる配信の URL(録画元へは手元の HLS に読み替える)
 YT2 = "https://www.youtube.com/watch?v=TESTlive002"   # 画質の確認用の2本目
 TITLE = "テストの配信<b>太字</b>"
+CHANNEL = "Pekora Ch. 兎田ぺこら"   # 偽の yt-dlp が返すチャンネル名(配信者の名前 = 字幕の色をここから決める)
 
 # hls.js(../live/hls.min.js を画面が読む)を包んで、作られた Hls を window.__hls に覚える。CSP の違反も数える。画面のコードには手を入れない
 INIT_JS = r"""
@@ -190,19 +194,27 @@ def run(tmp, shots, force_chromium):
     live.store_dir = os.path.join(tmp, "live")
     live.out_dir = lambda: out_dir            # スタジオの書き出し先と同じ(/api/live/exported は書き出し先の中の mp4 だけ受ける)
     live.audio = lambda: {"volume": 100, "loudness": None}
-    handed = []
+    handed, handed_who = [], []
 
-    class FakeRunner:   # 文字起こしへは偽のまとめて実行
-        def start_file(self, path, title="", flow="check", **kw):
+    class FakeRunner:   # 文字起こしへは偽のまとめて実行(渡った flow と配信者の名前を覚える。全自動の分は「パックの段を実行中」と答える)
+        def start_file(self, path, title="", flow="check", streamer=None, **kw):
             handed.append((path, flow))
+            handed_who.append(streamer)
             return {"id": "run-%d" % len(handed)}
 
         def snapshot(self):
-            return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち"} for i in range(len(handed))]}
+            def steps(flow):
+                if flow != "auto":
+                    return [{"key": "transcribe", "label": "文字起こし", "state": "wait", "stateLabel": "待ち"}]
+                return [{"key": "transcribe", "label": "文字起こし", "state": "done", "stateLabel": "済み"},
+                        {"key": "pack", "label": "Resolve パック", "state": "run", "stateLabel": "実行中"},
+                        {"key": "deliver", "label": "Dropbox へ届ける", "state": "wait", "stateLabel": "待ち"}]
+            return {"runs": [{"id": "run-%d" % (i + 1), "state": "running" if h[1] == "auto" else "queued", "stateLabel": "実行中" if h[1] == "auto" else "待ち",
+                              "steps": steps(h[1])} for i, h in enumerate(handed)]}
     fake_runner = FakeRunner()
     live.runner = lambda: fake_runner
     probes = []
-    live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "message": ""}
+    live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": CHANNEL, "message": ""}
     # 入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS に読み替える(返ってきた値は YouTube の形に戻す)
     url_map = {YT1: live_src.url, YT2: live_src2.url}
     back = {v: k for k, v in url_map.items()}
@@ -305,6 +317,7 @@ def run(tmp, shots, force_chromium):
                 check(pg.evaluate("() => document.querySelector('#rvTitle').value") == TITLE and pg.evaluate("() => !document.querySelector('#rvTitle b')"),
                       "2 ③ の題の欄に配信の題")
                 check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
+                check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
 
                 # ---------------- 3. 自動で再生・録画中・札 ----------------
                 check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 20000),
@@ -324,10 +337,20 @@ def run(tmp, shots, force_chromium):
                       "3 ヘッダーに「録画中 1」の札")
                 guide = pg.text_content("#rvLiveGuide") or ""
                 check("マーク" in guide and pg.is_visible("#rvLiveGuide"), "3 次にすることの案内: %s" % guide)
+                # 15. 書き出したあと・配信者(帯)
+                check(pg.input_value("#rvAfter") == "check" and pg.is_visible("#rvAfter"), "15 帯の「書き出したあと」は既定で「文字起こしまで」(今までの自動の文字起こしがオン)")
+                check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 兎田ぺこら'", 8000),
+                      "15 帯の「配信者」はチャンネル名から自動で決まる: %s" % pg.text_content("#rvLiveWhoText"))
+                pg.select_option("#rvAfter", "auto")
+                check(wait_for(lambda: ((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review", {}).get("liveAfter") == "auto", 8),
+                      "15 「全自動」を選ぶとスタジオの設定 review.liveAfter に残る")
+                if shots:
+                    pg.evaluate("window.scrollTo(0, 0)")
+                    pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_00_band.png"))
 
                 # 8. 見回りで作り直されないか(ここで要素を掴んでおく)
                 pg.evaluate("""() => { window.__keep = ['#rvLiveBar', '#rvRecState', '#rvAutoExp', '#rvRecStop', '#rvLiveGuide', '#rvEdge', '#rvTitle',
-                  '[data-ui-live] .ui-live-btn'].map(s => [s, document.querySelector(s)]); }""")
+                  '[data-ui-live] .ui-live-btn', '#rvAfter', '#rvLiveWho', '#rvLiveWhoIn', '#rvLiveWhoText'].map(s => [s, document.querySelector(s)]); }""")
                 keep_at = time.time()
 
                 # ---------------- 4・5. I → O → 追加 → すぐ書き出す ----------------
@@ -367,7 +390,11 @@ def run(tmp, shots, force_chromium):
                     check(clip and clip["source"]["kind"] == "live" and clip["source"]["live"]["studio"]["video"] == rid and clip["source"]["live"]["url"] == YT1,
                           "4 .clip.json の source.kind は live(スタジオの配信・配信の URL): %s" % ((clip or {}).get("source"), ))
                     check(clip and clip["source"].get("title") == TITLE, "4 .clip.json の題は配信の題: %s(%s)" % ((clip or {}).get("source", {}).get("title"), job["path"]))
-                    check(handed and handed[0] == (job["path"], "check"), "4 文字起こしへ渡した(偽のまとめて実行)")
+                    check(handed and handed[0] == (job["path"], "auto"), "15 帯で「全自動」→ 入口がまとめて実行へ flow auto で渡す: %s" % handed[:1])
+                    check(handed_who[:1] == ["兎田ぺこら"], "15 配信者の名前(チャンネル名から)もまとめて実行へ渡る: %s" % handed_who[:1])
+                    check(job.get("after") == "auto" and job.get("streamer") == "兎田ぺこら", "15 ジョブに after と streamer が残る: %s %s" % (job.get("after"), job.get("streamer")))
+                    check(wait_js(pg, "() => { const t = document.querySelector('#rvExpList').textContent; return t.includes('文字起こし → パック: 実行中') && t.includes('Resolve パック'); }", 10000),
+                          "15 書き出しの行に、まとめて実行の進み具合(全自動: 文字起こし → パック)")
                     ok_exp = wait_for(lambda: (lambda m: m and m[0]["status"] == "exported" and os.path.normcase(m[0].get("path") or "") == os.path.normcase(job["path"]))(
                         ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks")), 15)
                     check(ok_exp, "4 スタジオのマークが「書き出し済み」(path は書き出した mp4)")
@@ -423,6 +450,8 @@ def run(tmp, shots, force_chromium):
                 pg.wait_for_timeout(4000)
                 gone = pg.evaluate("() => window.__keep.filter(([s, el]) => !el || !el.isConnected).map(([s]) => s).concat(window.__keepRow && window.__keepRow.isConnected ? [] : ['#rvExpList .rv-ejob'])")
                 check(not gone, "8 見回り(10 秒余り)で帯・札・書き出しの行が作り直されない: %s" % gone)
+                check(pg.input_value("#rvAfter") == "auto" and pg.text_content("#rvLiveWhoText") == "配信者: 兎田ぺこら",
+                      "15 見回りのあとも「書き出したあと」と配信者の値が戻らない: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
 
                 # ---------------- 欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置 ----------------
                 live_src.down = True
@@ -569,6 +598,20 @@ def run(tmp, shots, force_chromium):
                 # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
                 pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
                 check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
+                # 15. 帯で配信者を直し、書き出したあとを「文字起こしまで」に → 次の(手動の)書き出しに渡る
+                pg.select_option("#rvAfter", "check")
+                pg.click("#rvLiveWho > summary")
+                check(wait_js(pg, "() => document.querySelector('#rvLiveWho').open && !!document.querySelector('#rvLiveWhoIn').offsetParent", 3000), "15 「配信者」を押すと名前の欄が開く")
+                if shots:
+                    pg.evaluate("window.scrollTo(0, 0)")
+                    pg.screenshot(path=os.path.join(shots, "live_00b_band_streamer.png"))
+                pg.fill("#rvLiveWhoIn", "宝鐘マリン")
+                pg.press("#rvLiveWhoIn", "Enter")
+                check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン' && !document.querySelector('#rvLiveWho').open", 5000),
+                      "15 名前を直して Enter → 帯が「配信者: 宝鐘マリン」・欄は閉じる: %s" % pg.text_content("#rvLiveWhoText"))
+                st_mem = wait_for(lambda: (lambda m: m if m["videos"].get(rid) == "宝鐘マリン" and m["channels"].get(CHANNEL) == "宝鐘マリン" else None)(srv.prefs.get(["streamer"])["streamer"]), 8)
+                check(st_mem, "15 直した名前は、この録画とこのチャンネルに覚える(次からそれを使う): %s" % srv.prefs.get(["streamer"])["streamer"])
+                n_handed = len(handed)
                 if edge:
                     pg.evaluate("() => { const v = %s; v.pause(); v.currentTime = 5; }" % VIDEO)
                 else:
@@ -592,6 +635,8 @@ def run(tmp, shots, force_chromium):
                 done2 = wait_for(lambda: (lambda js: len(js) == n_jobs + 1 and all(j["state"] == "done" for j in js) and js)(
                     (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
                 check(done2, "10 終わった録画でも「書き出す」で書き出せる")
+                check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_who[-1] == "宝鐘マリン",
+                      "15 直した配信者・「文字起こしまで」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
                 check(wait_for(lambda: [m["status"] for m in ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks") or []] == ["exported"] * (n_jobs + 1), 15),
                       "10 2つ目のマークも「書き出し済み」")
                 if done2:
@@ -607,12 +652,18 @@ def run(tmp, shots, force_chromium):
                       "12 ?video=<id> で開き直すと、その録画が開いてマークが残っている")
                 check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
                 check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
+                check(pg.input_value("#rvAfter") == "check" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
+                      "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
 
                 # ---------------- 11 の続き: 次の begin はその画質で ----------------
-                code, d = api("POST", "/live/api/begin", {"url": YT2})
-                rid2 = ((d or {}).get("recording") or {}).get("id")
-                check(code == 200 and d.get("live") is True and starts[-1]["quality"] == "720p" and starts[-1]["url"] == YT2,
+                # 画面の Studio.live.begin(① 探す の「録画する」と同じ呼び方)。yt-dlp がチャンネル名を返さないときは、呼んだ側の名前(① 探す の行)を入れる
+                live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": "", "message": ""}
+                b2 = pg.evaluate("async (u) => { const b = await Studio.live.begin(u, { channel: 'Marine Ch. 宝鐘マリン' }); return b && { id: b.video.id, channel: b.video.channel, rch: b.recording.channel }; }", YT2)
+                rid2 = (b2 or {}).get("id")
+                check(b2 and starts[-1]["quality"] == "720p" and starts[-1]["url"] == YT2,
                       "11 次の begin は設定の画質 720p で録画元へ頼む: %s" % (starts[-1] if starts else None))
+                check(b2 and b2["rch"] == "" and b2["channel"] == "Marine Ch. 宝鐘マリン",
+                      "15 begin がチャンネル名を返さないときは、呼んだ側(① 探す の行)の名前がスタジオの配信に入る: %s" % b2)
                 if rid2:
                     code, d = api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid2})
                     check(code == 200 and d.get("ok"), "11 2本目を止める")

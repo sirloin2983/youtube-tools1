@@ -9,7 +9,9 @@
   accuracy … 精度の自動測定(home/accuracy.py。docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:\Video\live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
-             録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)
+             録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
+             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。home/live_archive.py。P4)・
+             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。home/live_cleanup.py。P4)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -45,7 +47,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
-            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p"},
+            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -138,7 +140,8 @@ def _clean_live(v, cur):
     """リアルタイム切り抜きの設定(home/live.py)。置き場所のドライブがあるかは録画の部品が確かめて画面に出す(ここでは形だけ)。
     録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
-           "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"]}
+           "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
+           "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True}   # 消すのは明示的に true のときだけ
     if "enabled" in v:
         out["enabled"] = v["enabled"] is True
     if "folder" in v:
@@ -147,6 +150,14 @@ def _clean_live(v, cur):
         if v["quality"] not in LIVE_QUALITIES:
             raise PrefsError("録画の画質は %s のどれかにしてください" % "・".join(LIVE_QUALITIES))
         out["quality"] = v["quality"]
+    if "autoArchive" in v:   # 配信が終わったら自動で本番版に作り直す(P4)
+        if not isinstance(v["autoArchive"], bool):
+            raise PrefsError("「自動で本番版に作り直す」は true か false で指定してください")
+        out["autoArchive"] = v["autoArchive"]
+    if "autoDelete" in v:   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。home/live_cleanup.py)
+        if not isinstance(v["autoDelete"], bool):
+            raise PrefsError("「録画を消す」は true か false で指定してください")
+        out["autoDelete"] = v["autoDelete"]
     if "recorders" in v:
         rs = v["recorders"]
         if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:

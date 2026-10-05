@@ -62,6 +62,8 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
+/* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動) */
+const LIVE_AFTERS = ['none', 'check', 'auto'];
 const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
@@ -80,7 +82,9 @@ function sanitizeSettings(x){
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
     momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
     liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
-    liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low'   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
+    liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low',   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
+    /* ライブの録画: 書き出したあと。まだ選んでいなければ、今までの「書き出しのあと自動で文字起こし」(autoTx)がオンなら文字起こしまで・オフなら何もしない */
+    liveAfter: LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTxEnabled() ? 'check' : 'none')
   };
 }
 
@@ -222,11 +226,20 @@ function buildDOM(){
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
+          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。文字起こしまで = 字幕は「編集」で直す / 全自動 = 文字起こしのあと Resolve のパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">全自動(パックまで)</option></select></label>
+          <details class="ui-pop rv-livewho" id="rvLiveWho" hidden><summary class="btn small ghost" title="字幕の色を決める配信者です(覚えた名前か、チャンネル名から自動)。押すと直せます(直した名前は、この録画とこのチャンネルで次からも使います)"><span id="rvLiveWhoText">配信者: 未設定(字幕は既定の色)</span></summary>
+            <div class="ui-pop-body rv-livewhobody" data-align="left"><label class="rv-fl" for="rvLiveWhoIn">配信者(字幕の色)</label><input type="text" id="rvLiveWhoIn" placeholder="例: 兎田ぺこら" aria-describedby="rvLiveWhoNote">
+              <p class="hint" id="rvLiveWhoNote">次の書き出しから、この名前のメンバーカラーで字幕を作ります(空 = 既定の色)</p></div></details>
           <label class="rv-duck" for="rvDuck" title="「編集」を別の窓で開いて再生している間、配信の音をどうするか(止めると元に戻ります)">編集で再生中は <select id="rvDuck"><option value="low">音を下げる</option><option value="mute">音を消す</option><option value="off">そのまま</option></select></label>
           <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
         </div>
         <p class="rv-liveguide rv-ducknote" id="rvDuckNote" role="status" hidden></p>
         <p class="rv-liveguide" id="rvLiveGuide" hidden></p>
+        <div class="rv-liverec rv-arch" id="rvArch" hidden>
+          <button class="btn small" id="rvArchRun" type="button">アーカイブで作り直す</button>
+          <button class="btn small ghost" id="rvArchCancel" type="button" hidden title="本番版への作り直しを止めます(済んでいない分は速報版のままです)">取り消す</button>
+          <span class="hint rv-archmsg" id="rvArchMsg" role="status"></span>
+        </div>
       </div>
 
       <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div>
@@ -405,8 +418,8 @@ function applyServer(v, sv, series){
     const stEdited = (base.get(l.id) || {}).status !== undefined && base.get(l.id).status !== (l.status || '');   // 手元で 候補/採用/不採用 を変えた
     if (edited(l) || stEdited){
       const mm = { ...s, start: l.start, end: l.end, label: l.label, live: !!l.live };
-      if (stEdited){ mm.status = l.status || ''; mm.file = ''; mm.path = ''; }
-      else if (s.status === 'exported' && (s.start !== l.start || s.end !== l.end)){ mm.status = 'adopted'; mm.file = ''; mm.path = ''; }
+      if (stEdited){ mm.status = l.status || ''; mm.file = ''; mm.path = ''; mm.archived = false; }
+      else if (s.status === 'exported' && (s.start !== l.start || s.end !== l.end)){ mm.status = 'adopted'; mm.file = ''; mm.path = ''; mm.archived = false; }
       out.push(mm); had = true;
     } else out.push(s);
   }
@@ -443,8 +456,8 @@ function mergeServerFields(v, sv){
   for (const m of v.marks){
     const s = by.get(m.id); if (!s) continue;
     const b = (S.base || new Map()).get(m.id), localSt = !!b && b.status !== (m.status || '');   // 送ったあとに手元で 候補/採用/不採用 を変えたなら手元を残す
-    if ((!localSt && m.status !== s.status) || m.file !== s.file || (m.path || '') !== (s.path || '')) changed = true;
-    m.src = s.src; m.score = s.score; m.reasons = s.reasons; m.parts = s.parts; m.file = s.file; m.path = s.path || '';
+    if ((!localSt && m.status !== s.status) || m.file !== s.file || (m.path || '') !== (s.path || '') || !!m.archived !== !!s.archived) changed = true;
+    m.src = s.src; m.score = s.score; m.reasons = s.reasons; m.parts = s.parts; m.file = s.file; m.path = s.path || ''; m.archived = !!s.archived;   // archived = 本番版に入れ替えた(ライブの録画。サーバーが持つ印)
     if (!localSt) m.status = s.status;
   }
   if (changed){
@@ -898,6 +911,7 @@ const LIVE_PLAY_ERR = {
 async function mountLivePlayer(host, token, v, onReady, onState){
   const keep = 'マークの時刻の手入力・書き出しは続けられます。';
   if (!Studio.token || !v.live || !v.live.recorder || !v.live.recording){ showNotice('ライブの録画は、ホーム(start.bat)から開いたときだけ再生できます。' + keep); return; }
+  if (LV.vid === v.id && LV.deletedShown){ LV.deletedShown = false; liveDeletedShown(v); return; }   // 自動で消した録画(P4): 案内をもう一度出す
   const st = LV.vid === v.id ? LV.status : null;
   if (!st || !(Number(st.segments) > 0)){
     LV.waitPlay = true;
@@ -1008,6 +1022,7 @@ function syncSettingsUI(){
   expSetSummary();
   { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
   { const dk = $('#rvDuck'); if (dk) dk.value = s.liveDuck; }
+  { const af = $('#rvAfter'); if (af) af.value = s.liveAfter; }
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
@@ -1178,12 +1193,20 @@ const LIVE_ACTIVE = ['wait', 'fetch', 'encode'];
 const LIVE_JOB_ST = { wait: 'queued', fetch: 'running', encode: 'running', done: 'done', error: 'error', cancelled: 'cancelled' };
 const LIVE_JOB_LABEL = { wait: '録画待ち', fetch: '取得中', encode: '作り直し中', done: '済み', error: '失敗', cancelled: '取り消し' };
 const LIVE_REC_STATE = { waiting: ['wait', '配信を待っています'], recording: ['run', '録画中'], reconnecting: ['warn', 'つなぎ直し中'], stopped: ['ok', '停止'], ended: ['ok', '終了'], error: ['err', 'エラー'] };
+/* アーカイブで本番版に作り直す(P4。計画の 0-9)。ジョブの archive.state。wait = 順番・アーカイブの用意を待っている(見回りはゆっくり)、ほかは動いている */
+const ARCH_RUN = ['probe', 'align', 'fetch', 'verify'];
+const ARCH_ACTIVE = ['wait', ...ARCH_RUN];
+const ARCH_LABEL = { wait: '待ち', probe: 'アーカイブを確かめ中', align: '照合中', fetch: '取得中', verify: '検証中', done: '本番版', error: '失敗', cancelled: '取り消し' };
+const ARCH_TITLE = 'アーカイブから作り直して、速報版と入れ替えました';
 const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
-  jobs: [], jobsKnown: false, jobsSeq: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false };
+  jobs: [], jobsKnown: false, jobsSeq: 0, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false,
+  archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', autoArchive: null, autoDelete: null, deletedShown: false,
+  who: null };   // who: 帯の「配信者」(liveWhoOpened)
 const liveRest = (v, tail) => 'r/' + enc(v.live.recorder) + '/' + enc(v.live.recording) + '/' + tail;
 const liveRecId = v => (v && v.live && v.live.recording) || (v && v.id) || '';
 /* YouTube の配信へのリンク(動画の id が分かるときだけ。録画の秒は配信の秒ではないので時刻は付けない) */
-function liveYtHref(v){ const id = v && v.kind === 'live' && v.live && v.live.videoId; return id && /^[\w-]{11}$/.test(id) ? 'https://www.youtube.com/watch?v=' + id : ''; }
+function liveVideoId(v){ const id = v && v.kind === 'live' && v.live && v.live.videoId; return id && /^[\w-]{11}$/.test(id) ? id : ''; }
+function liveYtHref(v){ const id = liveVideoId(v); return id ? 'https://www.youtube.com/watch?v=' + id : ''; }
 /* 録画中か。開いている1本は録画の状態(3 秒ごと)、ほかはヘッダーの札(UIKit.liveBadge。10 秒ごと)から */
 function liveRecActive(v){
   if (!v || v.kind !== 'live') return false;
@@ -1209,31 +1232,97 @@ function liveJobView(vid, jobs){
     return { id: j.studio.mark, jobId: j.id, start: Number(j.studio.start) || 0, end: Number(j.studio.end) || 0, title: j.label || '',
       status: LIVE_JOB_ST[j.state] || 'queued', stateLabel: j.stateLabel || LIVE_JOB_LABEL[j.state] || String(j.state || ''),
       progress: Number(j.progress) || 0, path, file: path ? path.split(/[\\/]/).pop() : '', manifest: j.manifest || '',
-      message: active ? String(j.message || '') : '', error: j.state === 'error' ? String(j.error || j.message || '') : '', warning: String(j.warning || ''), tx: j.tx || null };
+      message: active ? String(j.message || '') : '', error: j.state === 'error' ? String(j.error || j.message || '') : '', warning: String(j.warning || ''), tx: j.tx || null,
+      needsArchive: j.state === 'error' && !!j.needsArchive, archive: liveArchView(j.archive) };
   });
   return { id: 'live:' + vid, live: true, state: own.some(j => LIVE_ACTIVE.includes(j.state)) ? 'running' : 'done', items };
 }
-/* 済んだジョブのうち、スタジオのマークをまだ「書き出し済み」にしていないもの。時刻(studio.start/end)が今のマークと同じものだけ
-   (位置を直したマークは採用に戻っているので、もう一度書き出すまで書き出し済みにしない)。マークごとに新しいジョブ1つ → [{markId, path, jobId}] */
+/* ジョブの archive(入口の本番版への作り直し)→ 行に出す形 {state, label, progress, message}。無い・形が違えば null */
+function liveArchView(a){
+  if (!a || typeof a !== 'object' || !a.state) return null;
+  const state = String(a.state);
+  return { state, label: String(a.label || ARCH_LABEL[state] || state), progress: Math.max(0, Math.min(1, Number(a.progress) || 0)),
+    message: String(a.message || ''), active: ARCH_ACTIVE.includes(state), packOld: state === 'done' && !!a.packOld };
+}
+/* 入口が録画を自動で消したか(P4 の「録画を自動で消す」)。録画の状態が 404 で、入口のジョブに recordingDeleted がある
+   (ジョブの記録が古くて消えていても、書き出し済みのマークが全部「本番版」なら同じ)。マークが本番版でないのに 404 は「録画が見つかりません」のまま */
+function liveRecDeleted(err, jobs, marks){
+  if (!err || err.status !== 404) return false;
+  if ((jobs || []).some(j => j && j.recordingDeleted)) return true;
+  const exp = (marks || []).filter(m => m && m.status === 'exported');
+  return exp.length > 0 && exp.every(m => m.archived);
+}
+const LIVE_DELETED = '録画は消しました(本番版に入れ替え済み)。マークと本番版はそのまま使えます';
+const liveArchBusy = j => !!(j && j.archive && ARCH_ACTIVE.includes(j.archive.state));
+const liveArchRunning = j => !!(j && j.archive && ARCH_RUN.includes(j.archive.state));
+/* 本番版に作り直す対象(入口と同じ決め方): マークごとの最新のジョブで、済み(入れ替え)か、欠けで書き出せなかった(error + needsArchive。新しく作る)もの */
+function liveArchTargets(jobs){
+  const last = new Map();
+  for (const j of jobs || []){
+    if (!j || !j.studio || !j.studio.mark) continue;
+    const p = last.get(j.studio.mark);
+    if (!p || String(j.created || '') >= String(p.created || '')) last.set(j.studio.mark, j);
+  }
+  return [...last.values()].filter(j => j.state === 'done' || (j.state === 'error' && j.needsArchive));
+}
+/* 終わった録画の帯の「アーカイブで作り直す」の1行とボタンの状態。o: {videoId, known(ジョブを読めた), starting, msg(断られたときの入口の文), autoOn}
+   → {text, warn, can, why, running, total, done, pending} */
+function liveArchSummary(jobs, info, o){
+  o = o || {};
+  const t = liveArchTargets(jobs), total = t.length, done = t.filter(j => j.archive && j.archive.state === 'done').length, pending = total - done;
+  const busy = (jobs || []).filter(liveArchBusy), running = busy.length > 0;
+  const errs = t.filter(j => j.archive && j.archive.state === 'error').map(j => String(j.archive.message || j.archive.label || '理由は分かりません'));
+  const r = { text: '', warn: false, can: false, why: '', running, total, done, pending };
+  if (!o.videoId){ r.text = 'YouTube の動画が分からない録画なので、アーカイブで作り直せません'; r.why = r.text; return r; }
+  if (running){
+    const cur = busy.find(liveArchRunning) || busy[0], a = liveArchView(cur.archive);
+    r.text = `本番版に作り直しています ${done}/${total} 本` + (a && a.label ? `(${a.label})` : '');
+    r.why = '作り直しています(「取り消す」で止められます)';
+    return r;
+  }
+  const parts = [];
+  if (o.msg){ parts.push(o.msg); r.warn = true; }
+  else if (pending && info && info.ready === false) parts.push('アーカイブがまだ用意できていません' + (o.autoOn ? '(自動で確かめ直します)' : '(用意できたら、もう一度押してください)'));
+  if (done){
+    const packs = t.filter(j => j.archive && j.archive.state === 'done' && j.archive.packOld).length;   // 前に作った Resolve のパックは速報版のまま(入口の archive.packOld)
+    parts.push(`本番版に入れ替えました ${done}/${total} 本` + (packs ? `(${packs} 本は前に作った Resolve のパックが速報版のままです。「編集」の ③ で作り直してください)` : ''));
+  }
+  if (errs.length){ parts.push(`${errs.length} 本は作り直せませんでした: ${errs[0]}`); r.warn = true; }
+  r.text = parts.join('。');
+  r.can = !!o.known && pending > 0 && !o.starting;
+  r.why = !o.known ? '書き出しの一覧を確かめています…' : !total ? '書き出したマークがありません(書き出したマークを、アーカイブから作り直します)'
+    : !pending ? 'すべて本番版に入れ替えました' : o.starting ? '頼んでいます…' : '';
+  return r;
+}
+/* 済んだジョブのうち、スタジオのマークにまだ付けていないもの。時刻(studio.start/end)が今のマークと同じものだけ
+   (位置を直したマークは採用に戻っているので、もう一度書き出すまで書き出し済みにしない)。マークごとに新しいジョブ1つ
+   → [{markId, path, jobId, archived, key}]。採用(か候補)のマーク = 「書き出し済み」に。本番版に入れ替えたジョブ(archive.state done)なら archived も付ける。
+   もう書き出し済みのマークは、本番版に入れ替わってまだ archived でないときだけ(札「本番版」を付ける)。key = applied に入れる印(本番版は別の印 = 速報版で付けたあとでも送る) */
 function liveReconcile(marks, jobs, applied){
   const by = new Map((marks || []).map(m => [m.id, m])), best = new Map();
   const same = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.05;
   for (const j of jobs || []){
-    if (!j || j.state !== 'done' || !j.path || !j.studio || (applied && applied.has(j.id))) continue;
+    if (!j || j.state !== 'done' || !j.path || !j.studio) continue;
+    const archived = !!(j.archive && j.archive.state === 'done'), key = archived ? j.id + '#archive' : j.id;
+    if (applied && applied.has(key)) continue;
     const m = by.get(j.studio.mark);
-    if (!m || (m.status && m.status !== 'adopted') || !same(m.start, j.studio.start) || !same(m.end, j.studio.end)) continue;
+    if (!m || !same(m.start, j.studio.start) || !same(m.end, j.studio.end)) continue;
+    const st = m.status || '';
+    if (!(st === '' || st === 'adopted' || (st === 'exported' && archived && !m.archived))) continue;
     const prev = best.get(m.id), at = String(j.updated || j.created || '');
-    if (!prev || at > prev.at) best.set(m.id, { markId: m.id, path: j.path, jobId: j.id, at });
+    if (!prev || at > prev.at) best.set(m.id, { markId: m.id, path: j.path, jobId: j.id, archived, key, at });
   }
-  return [...best.values()].map(({ markId, path, jobId }) => ({ markId, path, jobId }));
+  return [...best.values()].map(({ markId, path, jobId, archived, key }) => ({ markId, path, jobId, archived, key }));
 }
 
 /* 配信を開いたとき(loadVideo)。ライブの録画なら状態の見回りを始める。ほかの配信なら、ライブの帯・書き出しの行を片付ける */
 function liveOpened(v){
   clearTimeout(LV.timer); LV.timer = 0; LV.seq++; LV.jobsSeq++;
   Object.assign(LV, { vid: v && v.kind === 'live' ? v.id : null, status: null, err: null, waitPlay: false, wasActive: null, endedShown: false,
-    jobs: [], jobsKnown: false, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set() });
+    jobs: [], jobsKnown: false, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(),
+    archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', deletedShown: false });
   const rec = !!LV.vid;
+  $('#rvArch').hidden = true;
   $('#rvLiveRec').hidden = !rec; $('#rvLiveGuide').hidden = true;
   $('#rvLiveBar').classList.toggle('is-rec', rec); $('#rvLiveBar').classList.remove('is-ended');
   liveSet('#rvLiveBadge', 'LIVE'); liveSet('#rvLiveElapsedK', rec ? '録画の長さ' : '配信経過');
@@ -1246,9 +1335,22 @@ function liveOpened(v){
   } else if (rec && ol && ol.dataset.job !== want){ ol.innerHTML = ''; ol.dataset.job = want; S.jobRows = []; }
   if (!rec) return;
   $('#rvAutoExp').checked = !!S.settings.liveAutoExport;
+  $('#rvAfter').value = S.settings.liveAfter;
   $('#rvLiveBar').hidden = false;
+  liveWhoOpened(v);
+  loadLiveAutoArchive(v);
   renderLiveRec();
   pollLiveStatus();
+}
+/* ホームの設定の live.autoArchive(帯の案内の「自動: オン/オフ」用。既定オン)。設定の引き出しで変えたら studio:liveprefs で届く */
+function loadLiveAutoArchive(v){
+  if (!(window.UIKit && UIKit.prefs && UIKit.prefs.available())) return;
+  UIKit.prefs.get(['live']).then(p => {
+    if (LV.vid !== v.id) return;
+    LV.autoArchive = !(p && p.live && p.live.autoArchive === false);
+    LV.autoDelete = !!(p && p.live && p.live.autoDelete === true);   // 録画を自動で消す(入口と同じく true のときだけ)
+    renderLiveRec();
+  }, () => {});
 }
 function liveStopPoll(){ clearTimeout(LV.timer); LV.timer = 0; LV.seq++; }
 function liveResume(){ if (S.cur && S.cur.kind === 'live' && LV.vid === S.cur.id && !LV.timer && visible()) pollLiveStatus(); }
@@ -1259,14 +1361,30 @@ async function pollLiveStatus(){
   let st = null, err = null;
   try { st = await Studio.live.api(liveRest(v, 'status')); } catch (e){ err = e; }
   if (seq !== LV.seq || S.cur !== v) return;
+  if (err && err.status === 404 && !LV.deletedShown){   // 録画が無い: 自動で消した録画か(ジョブの recordingDeleted)を先に読み直す(「見つかりません」を一瞬出さない)
+    await pollLiveJobs();
+    if (seq !== LV.seq || S.cur !== v) return;
+  }
   applyLiveStatus(v, st, err);
+  if (LV.deletedShown){   // 消した録画: 状態はもう変わらない(1 分ごとに確かめるだけ)
+    if (visible()) LV.timer = setTimeout(pollLiveStatus, 60000);
+    return;
+  }
   const busy = () => LV.queued.size > 0 || LV.jobs.some(x => LIVE_ACTIVE.includes(x.state));
-  if (!LV.jobsKnown || busy()) await pollLiveJobs();
+  const arch = () => LV.jobs.some(liveArchRunning);
+  /* 終わった録画は、書き出しが無くても 1 分ごとに一覧を読み直す(入口が自動で本番版への作り直しを始めた・待ちから進んだのに気づくため) */
+  const stale = () => !!st && !st.active && Date.now() - LV.jobsAt > 60000;
+  if (!LV.jobsKnown || busy() || arch() || (LV.jobs.some(liveArchBusy) && Date.now() - LV.jobsAt > 15000) || stale()) await pollLiveJobs();
   if (seq !== LV.seq || S.cur !== v || !visible()) return;
-  LV.timer = setTimeout(pollLiveStatus, !err && st && !st.active && !busy() ? 10000 : 3000);   // 終わった録画で書き出しも無ければゆっくり
+  LV.timer = setTimeout(pollLiveStatus, !err && st && !st.active && !busy() ? (arch() ? 5000 : 10000) : 3000);   // 終わった録画で書き出しも無ければゆっくり(本番版の作り直しの間は 5 秒)
 }
 function applyLiveStatus(v, st, err){
-  if (err){ LV.err = err; renderLiveRec(); return; }
+  if (err){
+    LV.err = err;
+    if (liveRecDeleted(err, LV.jobs, v.marks)) liveDeletedShown(v);
+    renderLiveRec(); return;
+  }
+  LV.deletedShown = false;
   LV.err = null; LV.status = st && typeof st === 'object' ? st : {};
   const active = !!LV.status.active;
   if (LV.status.title && !v.title) setAutoTitle(v, LV.status.title);   // 題は録画の題を取り込む(配信名が分かったとき。自分で付けた名前は上書きしない)
@@ -1280,6 +1398,16 @@ function applyLiveStatus(v, st, err){
   if (!S.playerAlive){ const t = liveTotal(LV.status); if (t > 0 && Math.abs(t - S.duration) >= 1) setDuration(t); }   // 再生できない画面でも、タイムラインと時刻の入力は録画の長さで
   updateLive();
 }
+/* 自動で消した録画を開いた(か、開いている間に消えた): プレーヤーの所に案内を出す(エラーではない・「もう一度試す」は出さない)。1回だけ */
+function liveDeletedShown(v){
+  if (LV.deletedShown) return;
+  LV.deletedShown = true; LV.waitPlay = false;
+  if (yt) unmountPlayer();   // 開いている間に消えた: 読めなくなった再生リストを読み続けない
+  S.playerErr = true;
+  const n = $('#rvNotice'), href = liveYtHref(v);
+  n.innerHTML = `<b>${esc(LIVE_DELETED)}</b><br><span class="hint">録画が無いので、この画面では再生できません。本番版の切り抜きは書き出し先にあります(文字起こし・カット・パックもそのまま使えます)。</span>${href ? ` <a href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
+  n.hidden = false; phMsg('');
+}
 /* 録画が終わった(録画中 → 終わり)ときの知らせ(1回)。ヘッダーの札(UIKit.liveBadge)が動いているなら、札が同じ知らせを出すので重ねない */
 function liveEndedNotice(){
   if (LV.endedShown) return;
@@ -1292,8 +1420,10 @@ function liveEndedNotice(){
 function renderLiveRec(){
   const v = S.cur; if (!v || v.kind !== 'live') return;
   const st = LV.status, err = LV.err, active = !!(st && st.active), waiting = active && !(Number(st.segments) > 0);
+  const gone = !!err && LV.deletedShown;   // 自動で消した録画(P4)。エラーにしない
   let cls = 'wait', label = '確かめています…', msg = '';
-  if (err){ cls = 'err'; label = err.status === 404 ? '録画が見つかりません' : '録画元につながりません'; msg = err.message || ''; }
+  if (gone){ cls = 'ok'; label = '録画を消しました'; }
+  else if (err){ cls = 'err'; label = err.status === 404 ? '録画が見つかりません' : '録画元につながりません'; msg = err.message || ''; }
   else if (st){
     const m = LIVE_REC_STATE[st.state] || ['wait', String(st.state || '不明')]; cls = m[0]; label = m[1];
     msg = [Number(st.sessions) > 1 ? `つなぎ直し ${Number(st.sessions) - 1} 回` : '', st.state === 'stopped' ? '' : String(st.message || '')].filter(Boolean).join('・');   // 「停止」の札に「停止しました」は重ねない
@@ -1302,7 +1432,9 @@ function renderLiveRec(){
   if (pill.className !== pc) pill.className = pc;
   liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
   $('#rvRecStop').hidden = !active;
-  const ended = !!st && !err && !active;
+  for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = document.querySelector(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
+  { const w = $('#rvLiveWho'), can = !gone && !!(Studio.token && window.UIKit && UIKit.streamer && UIKit.streamer.autoFill); if (w && w.hidden !== !can) w.hidden = !can; }
+  const ended = (!!st && !err && !active) || gone;
   $('#rvLiveBar').classList.toggle('is-ended', ended);
   liveSet('#rvLiveBadge', ended ? '録画' : 'LIVE');
   for (const el of document.querySelectorAll('#rvLiveBar .rv-live-edgeinfo')) el.hidden = !active;
@@ -1310,11 +1442,61 @@ function renderLiveRec(){
   if (!active && st) liveSet('#rvLiveElapsed', tickLabel(Math.max(liveTotal(st), S.duration)));
   else if (active && !S.playerAlive) liveSet('#rvLiveElapsed', fmt(S.duration));   // 再生できない間は録画の状態の長さ(再生中は updateLive が直す)
   let guide = '';
-  if (err || !st) guide = '';
+  if (gone) guide = LIVE_DELETED;
+  else if (err || !st) guide = '';
   else if (waiting) guide = '配信が始まるのを待っています。始まると自動で再生します(録画の部品は、配信が始まるまで待ち続けます)';
   else if (active) guide = '見ながら ①〜⑤ か I・O でマークします。' + (liveAutoExportOn(v) ? 'マークは自動で書き出されます(録画が届くのを待ってから作ります)' : '採用にしたマークを「書き出す」で書き出します(録画中でも書き出せます)');
-  else guide = `録画は終わりました(合計 ${tickLabel(Math.max(liveTotal(st), S.duration))})。最後まで再生・マーク・書き出しができます`;
+  else {
+    guide = `録画は終わりました(合計 ${tickLabel(Math.max(liveTotal(st), S.duration))})。最後まで再生・マーク・書き出しができます`;
+    if (liveVideoId(v) && liveArchTargets(LV.jobs).some(j => !(j.archive && j.archive.state === 'done'))){   // まだ本番版でないマークがあるときだけ
+      guide += `。アーカイブが用意できたら、本番の画質に作り直せます(自動: ${LV.autoArchive === false ? 'オフ' : 'オン'})`;
+      if (LV.autoDelete === true) guide += '。本番版に入れ替えたら、録画は消します';   // 録画を自動で消す(P4。設定 live.autoDelete)。驚かないように先に知らせる
+    } else if (LV.autoDelete === true && LV.jobsKnown && !LV.jobs.length && !(v.marks || []).length) guide += '。マークが無いまま 1 日たつと、録画は消します';
+  }
   liveSet('#rvLiveGuide', guide); $('#rvLiveGuide').hidden = !guide;
+  renderLiveArch();
+}
+/* 終わった録画の帯の「アーカイブで作り直す」(P4)。録画中・状態が分からない間は出さない。文字と属性だけを直す */
+function renderLiveArch(){
+  const v = S.cur, box = $('#rvArch'); if (!box) return;
+  const st = LV.status, ended = !!(v && v.kind === 'live' && LV.vid === v.id && st && !LV.err && !st.active);
+  if (box.hidden !== !ended) box.hidden = !ended;
+  if (!ended) return;
+  const vid = liveVideoId(v);
+  const sm = liveArchSummary(LV.jobs, LV.archiveInfo, { videoId: vid, known: LV.jobsKnown, starting: LV.archStarting, msg: LV.archMsg, autoOn: LV.autoArchive !== false });
+  const run = $('#rvArchRun'), cancel = $('#rvArchCancel'), msg = $('#rvArchMsg');
+  run.hidden = !vid;
+  run.disabled = !sm.can;
+  const title = sm.can ? '書き出した切り抜きを、アーカイブ(本番の画質)から作り直して、同じ名前のまま入れ替えます(速報版は作業用のフォルダへ移します)' : sm.why;
+  if (run.title !== title) run.title = title;
+  cancel.hidden = !sm.running || !vid; cancel.disabled = LV.archCancelling;
+  liveSet('#rvArchMsg', sm.text);
+  msg.classList.toggle('rv-warnline', sm.warn);
+  const info = LV.archiveInfo, it = info && info.message ? String(info.message) : '';
+  if (msg.title !== it) msg.title = it;
+}
+async function startLiveArchive(){
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live || LV.archStarting) return;
+  LV.archStarting = true; LV.archMsg = ''; renderLiveArch();
+  try {
+    const r = await Studio.live.api('api/archive', { body: { recorder: v.live.recorder, recording: v.live.recording } });
+    if (S.cur !== v) return;
+    if (r && r.ok === false){ LV.archMsg = String(r.message || 'アーカイブで作り直せませんでした'); toast(LV.archMsg, 6000); }
+    else toast(r && r.message ? String(r.message) : `${Number(r && r.queued) || 0} 本を本番版に作り直します(アーカイブから取り直して、速報版と入れ替えます)`, 4000, 'ok');
+  } catch (e){
+    if (S.cur !== v) return;
+    LV.archMsg = e.status === 409 ? e.message : 'アーカイブで作り直せませんでした: ' + e.message;   // 409 = 対象が無い・アーカイブがまだ用意できていない(入口の文をそのまま)
+    toast(LV.archMsg, e.status === 409 ? 6000 : 0, e.status === 409 ? '' : 'err');
+  } finally {
+    if (S.cur === v){ LV.archStarting = false; await pollLiveJobs(); renderLiveArch(); liveResume(); }
+  }
+}
+async function cancelLiveArchive(){
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live || LV.archCancelling) return;
+  LV.archCancelling = true; renderLiveArch();
+  try { await Studio.live.api('api/archive/cancel', { body: { recorder: v.live.recorder, recording: v.live.recording } }); toast('本番版への作り直しを取り消しました(済んでいない分は速報版のままです)', 4000); }
+  catch (e){ toast('取り消せませんでした: ' + e.message, 0, 'err'); }
+  finally { LV.archCancelling = false; if (S.cur === v){ await pollLiveJobs(); renderLiveArch(); } }
 }
 async function stopLiveRec(btn){
   const v = S.cur; if (!v || v.kind !== 'live' || !v.live) return;
@@ -1332,13 +1514,21 @@ async function stopLiveRec(btn){
 async function pollLiveJobs(){
   const v = S.cur; if (!v || v.kind !== 'live' || !v.live || !Studio.token) return;
   const seq = ++LV.jobsSeq;
+  LV.jobsAt = Date.now();
   let j; try { j = await Studio.live.api('api/exports?recorder=' + enc(v.live.recorder) + '&recording=' + enc(v.live.recording)); } catch { return; }
   if (seq !== LV.jobsSeq || S.cur !== v) return;
   const all = Array.isArray(j && j.exports) ? j.exports : Array.isArray(j && j.jobs) ? j.jobs : [];
   const own = all.filter(x => x && x.studio && x.studio.video === v.id);
   if (LV.jobsKnown) liveJobNotices(own);
+  const archWas = LV.jobsKnown && LV.jobs.some(liveArchBusy);
   LV.prevJobs = new Map(own.map(x => [x.id, x.state]));
   LV.jobs = own; LV.jobsKnown = true;
+  LV.archiveInfo = j && j.archiveInfo && typeof j.archiveInfo === 'object' ? j.archiveInfo : null;
+  if (own.some(liveArchBusy)) LV.archMsg = '';   // 始まった: 前に断られた文は消す
+  else if (archWas){   // 本番版への作り直しが終わった(この画面を開いている間に): 帯と同じ文を1回知らせる
+    const sm = liveArchSummary(own, LV.archiveInfo, { videoId: liveVideoId(v), known: true, autoOn: LV.autoArchive !== false });
+    if (sm.text) toast(sm.text, sm.warn ? 0 : 5000, sm.warn ? 'err' : 'ok');
+  }
   LV.busy = new Set([...own.filter(x => LIVE_ACTIVE.includes(x.state)).map(x => x.studio.mark), ...LV.queued]);
   renderLiveJobs();
   await liveApplyDone(v);
@@ -1355,23 +1545,59 @@ function renderLiveJobs(){
   const v = S.cur; if (!v || v.kind !== 'live') return;
   renderJobRows(liveJobView(v.id, LV.jobs));
   renderExportUI();
+  renderLiveRec();   // 帯の案内と「アーカイブで作り直す」(ジョブから決まる)
 }
+/* 入口の書き出しが済んだマークを「書き出し済み」に(本番版に入れ替わったものは archived: true も = 札「本番版」)。閉じていた間に済んだ分も、開いたときにここで付く */
 async function liveApplyDone(v){
   const todo = liveReconcile(v.marks, LV.jobs, LV.applied);
   if (!todo.length) return;
   let n = 0;
   for (const t of todo){
-    LV.applied.add(t.jobId);   // 失敗しても見回りのたびには送らない(知らせて、次にこの録画を開いたときにやり直す)
-    try { await Studio.api('/api/live/exported', { body: { id: v.id, markId: t.markId, path: t.path } }); n++; }
-    catch (e){ toast('書き出したマークを「書き出し済み」にできませんでした: ' + e.message, 7000, 'err'); }
+    LV.applied.add(t.key);   // 失敗しても見回りのたびには送らない(知らせて、次にこの録画を開いたときにやり直す)
+    const body = { id: v.id, markId: t.markId, path: t.path };
+    if (t.archived) body.archived = true;
+    try { await Studio.api('/api/live/exported', { body }); n++; }
+    catch (e){ toast((t.archived ? '本番版に入れ替えたマークに札を付けられませんでした: ' : '書き出したマークを「書き出し済み」にできませんでした: ') + e.message, 7000, 'err'); }
     if (S.cur !== v) return;
   }
   if (n && S.cur === v) await syncFromServer();
 }
+/* 帯の「配信者」(字幕の色。docs/plan/sender-streamer-color-plan.md の「配信者の名前 → 見た目」の流れに乗せる = 名前だけを入口へ渡す)。
+   名前は今のアーカイブの配信と同じ仕組み(UIKit.streamer.autoFill = 覚えた名前(この録画 → チャンネル)→ チャンネル名から)。直したら UIKit が覚える。
+   LV.who = {vid, name, match(色の一覧で1人に決まったか)}。開いている録画の分だけ使う */
+function liveWhoName(v){ return LV.who && v && LV.who.vid === v.id ? String(LV.who.name || '').trim().slice(0, 60) : ''; }
+function liveWhoLabel(who){
+  const name = who && String(who.name || '').trim();
+  if (!name) return '配信者: 未設定(字幕は既定の色)';
+  return '配信者: ' + name + (who.match === false ? '(色の一覧に無いので既定の色)' : '');
+}
+function renderLiveWho(){ liveSet('#rvLiveWhoText', liveWhoLabel(LV.who)); }
+/* 録画を開いたとき: 欄を自動で埋める(手で直したあとは同じ録画では入れ直さない = UIKit.streamer の約束) */
+function liveWhoOpened(v){
+  const box = $('#rvLiveWho'), inp = $('#rvLiveWhoIn'); if (!box || !inp) return;
+  const can = !!(Studio.token && window.UIKit && UIKit.streamer && UIKit.streamer.autoFill);
+  box.hidden = !can; if (box.open) box.open = false;
+  LV.who = { vid: v.id, name: '', match: null };
+  renderLiveWho();
+  if (!can) return;
+  if (!inp.__liveWhoBound){
+    inp.__liveWhoBound = true;
+    const sync = match => { const cur = S.cur; if (!cur || cur.kind !== 'live' || !LV.who || LV.who.vid !== cur.id) return;
+      LV.who.name = inp.value.trim(); if (match !== undefined) LV.who.match = match; renderLiveWho(); };
+    inp.addEventListener('ui-streamer', e => sync(e.detail ? true : (inp.value.trim() ? false : null)));   // 色の一覧で照らし合わせた結果(UIKit.streamer)
+    inp.addEventListener('input', () => sync(undefined));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); inp.blur(); box.open = false; } });   // Enter で決めて閉じる(change で覚える)
+  }
+  UIKit.streamer.autoFill(inp, { videoId: v.id, channel: v.channel || '' }).then(() => {
+    if (S.cur === v && LV.who && LV.who.vid === v.id){ LV.who.name = inp.value.trim(); renderLiveWho(); }
+  }, () => {});
+}
 function liveExportBody(v, m){
   const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
+  const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check';
   return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
-    transcribe: autoTxEnabled(),   // スタジオの「書き出しのあと自動で文字起こし」に合わせる(入口の書き出しが文字起こしへ渡す。スタジオからは頼まない = 二重にしない)
+    after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は以前の入口の形
+    streamer: liveWhoName(v),   // 配信者の名前(字幕の色)。帯の「配信者」= 覚えた名前かチャンネル名から。空 = まとめて実行が決める(たいてい既定の色)
     studio: { video: v.id, mark: m.id, n, label: m.label || '', start: m.start, end: m.end } };
 }
 /* ライブの録画の書き出し(入口の api/export)。onlyIds が無ければ書き出しの対象(exportTargets)。1件ずつ頼む(順番に並べて、続けて押しても落とさない)。
@@ -1419,7 +1645,7 @@ async function openLiveRecording(rec){
   if (!v){ await refreshList(); v = hit(); }
   let id = v && v.id;
   if (!id){
-    try { id = (await Studio.api('/api/videos/open', { body: { kind: 'live', recorder: rec.recorder, recording: rec.id, url: rec.url || '', title: rec.title || '' } })).video.id; }
+    try { id = (await Studio.live.register(rec.recorder, rec)).video.id; }   // 登録は1か所(core.js)
     catch (e){ toast('録画を開けませんでした: ' + e.message, 0, 'err'); return; }
   }
   if (S.cur && S.cur.id === id){ Studio.go('review'); return; }
@@ -1523,7 +1749,7 @@ function setBound(c, w, val){
   const s0 = w === 'start' ? val : c.start, e0 = w === 'end' ? val : c.end;
   if (e0 - s0 > MAX_MARK_SEC){ toast('1本の長さは60分までです'); return false; }
   if (c[w] === val) return true;
-  c[w] = val; if (c.status === 'exported'){ c.status = 'adopted'; c.file = ''; c.path = ''; } // 範囲を変えたら再書き出しできる状態(採用)に戻る(サーバーも同じ)
+  c[w] = val; if (c.status === 'exported'){ c.status = 'adopted'; c.file = ''; c.path = ''; c.archived = false; } // 範囲を変えたら再書き出しできる状態(採用)に戻る(サーバーも同じ)
   markDirty(); return true;
 }
 function refresh(keyToFocus){
@@ -1545,7 +1771,7 @@ function listMarks(){
 }
 function setStatus(c, st, advance){
   if (statusOf(c) === st) return false;
-  c.status = st; if (st !== 'exported') c.file = ''; c.path = '';
+  c.status = st; if (st !== 'exported') c.file = ''; c.path = ''; c.archived = false;
   markDirty(); refresh(); renderMeta();
   if (advance && S.settings.autoNext && st !== '') goMark(1, true, c);
   return true;
@@ -1755,17 +1981,39 @@ function jobItemHTML(j, it, i){
   /* ライブの録画(入口の書き出し。j.live): 状態は入口の言葉(録画待ち・取得中・作り直し中 n%)。行ごとに取り消す・やり直すは「書き出す」から */
   const lv = !!j.live, act = lv && (it.status === 'queued' || it.status === 'running');
   const label = (lv && it.stateLabel) || EXP_LABEL[it.status] || it.status;
+  const ar = lv ? it.archive : null;   // 本番版への作り直し(P4。入口のジョブの archive)
   return `<li class="rv-ejob st-${cls}"${lv ? ` data-ljob="${esc(it.jobId || '')}"` : ''}><div class="rv-ejob-h">
       <span class="mono rv-ejob-t">${i + 1}. ${fmt(it.start)} – ${fmt(it.end)}</span><span class="rv-ejob-n">${esc(it.title || '無題')}</span>
-      <span class="pill ${cls}">${esc(label)}${it.status === 'running' && (!lv || pct > 0) ? ' ' + pct + '%' : ''}</span>${act ? `<button type="button" class="btn small ghost" data-act="lxcancel" data-job="${esc(it.jobId || '')}">取り消す</button>` : ''}</div>
+      <span class="pill ${cls}">${esc(label)}${it.status === 'running' && (!lv || pct > 0) ? ' ' + pct + '%' : ''}</span>${ar && ar.state === 'done' ? `<span class="rv-chip arch" title="${ARCH_TITLE}">本番版</span>` : ''}${act ? `<button type="button" class="btn small ghost" data-act="lxcancel" data-job="${esc(it.jobId || '')}">取り消す</button>` : ''}</div>
+      ${archLineHTML(ar)}
       ${it.status === 'running' && (!lv || pct > 0) ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${act && it.message ? `<div class="rv-ejob-s hint">${esc(it.message)}</div>` : ''}
       ${it.file ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
       ${handoffHTML(j, it)}
       ${loudHTML(it.loudness)}
-      ${lv && it.status === 'done' && it.tx ? `<div class="rv-ejob-s hint">文字起こし: ${esc(it.tx.label || it.tx.state || '')}${it.tx.state === 'error' && it.tx.message ? '(' + esc(it.tx.message) + ')' : ''}</div>` : ''}
+      ${lv && it.status === 'done' && it.tx ? `<div class="rv-ejob-s hint">${esc(liveTxText(it.tx))}</div>` : ''}
       ${it.warning ? `<div class="rv-ejob-s rv-warnline">${esc(it.warning)}</div>` : ''}
-      ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}${lv ? '(マークを採用のままにしてあります。「書き出す」でやり直せます)' : ''}</div>` : ''}</li>`;
+      ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}${lv ? (it.needsArchive ? '(録画に欠けがあります。帯の「アーカイブで作り直す」で作れます)' : '(マークを採用のままにしてあります。「書き出す」でやり直せます)') : ''}</div>` : ''}</li>`;
+}
+/* 入口の書き出しが渡したまとめて実行の進み具合(ジョブの tx = {state, label, message, steps})→ 行の1文。
+   全自動(段にパックがある)は「文字起こし → パック: 実行中(Resolve パック)」「… : パック済み」。届け先の無い「届ける」の段(飛ばした)は出さない */
+function liveTxText(tx){
+  if (!tx) return '';
+  const steps = (Array.isArray(tx.steps) ? tx.steps : []).filter(x => x && !(x.key === 'deliver' && x.state === 'skip'));
+  const pack = steps.find(x => x.key === 'pack');
+  let label = String(tx.label || tx.state || '');
+  if (tx.state === 'running'){ const cur = steps.find(x => x.state === 'run'); if (cur && cur.label) label += '(' + cur.label + ')'; }
+  else if (tx.state === 'done' && pack) label = pack.state === 'done' ? 'パック済み' : pack.state === 'skip' ? '文字起こし済み(パックは作れませんでした)' : label;
+  return (pack ? '文字起こし → パック: ' : '文字起こし: ') + label + (tx.state === 'error' && tx.message ? '(' + tx.message + ')' : '');
+}
+/* 書き出しの行の、本番版への作り直しの1行(済み = 札だけなので無し)。外から来る文字は esc */
+function archLineHTML(a){
+  if (a && a.packOld) return '<div class="rv-ejob-s rv-warnline">前に作った Resolve のパックは速報版のままです。「編集」の ③ パックで作り直してください</div>';   // 入口の archive.packOld(動画の写しを入れるパック)
+  if (!a || a.state === 'done') return '';
+  if (a.active) return `<div class="rv-ejob-s hint">本番版: ${esc(a.label)}${a.progress > 0 ? ' ' + Math.round(a.progress * 100) + '%' : ''}${a.message ? '(' + esc(a.message) + ')' : ''}</div>`;
+  if (a.state === 'error') return `<div class="rv-ejob-s rv-warnline">本番版に作り直せませんでした${a.message ? ': ' + esc(a.message) : ''}(速報版のままです)</div>`;
+  if (a.state === 'cancelled') return '<div class="rv-ejob-s hint">本番版への作り直しを取り消しました(速報版のままです)</div>';
+  return '';
 }
 function renderJob(j){
   S.lastJob = j;
@@ -2108,7 +2356,7 @@ function markHTML(c){
       <span class="rv-tc mono">${fmt(c.start)} – ${fmt(c.end)}</span><span class="rv-dur mono">${(c.end - c.start).toFixed(1)}s</span>
       ${c.src === 'auto' ? '<span class="rv-chip auto">自動</span>' : ''}${c.score != null ? `<span class="rv-chip score mono" title="自動判定の点数">${Number(c.score).toFixed(1)}点</span>` : ''}
       ${c.live && !(S.cur && S.cur.kind === 'live') ? '<span class="rv-chip live">ライブ</span>' : ''}
-      ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
+      ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}${exp && c.archived ? `<span class="rv-chip arch" title="${ARCH_TITLE}">本番版</span>` : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
       ${Studio.token && (st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
@@ -2498,7 +2746,14 @@ function wire(){
   });
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
+  $('#rvArchRun').addEventListener('click', startLiveArchive);
+  $('#rvArchCancel').addEventListener('click', cancelLiveArchive);
+  Studio.on('liveprefs', d => {   // 設定の引き出しで「自動で本番版に」「録画を消す」を変えた
+    if (d && typeof d.autoArchive === 'boolean'){ LV.autoArchive = d.autoArchive; renderLiveRec(); }
+    if (d && typeof d.autoDelete === 'boolean'){ LV.autoDelete = d.autoDelete; renderLiveRec(); }
+  });
   $('#rvAutoExp').addEventListener('change', e => { S.settings.liveAutoExport = e.target.checked; touchSettings(); renderLiveRec(); });
+  $('#rvAfter').addEventListener('change', e => { S.settings.liveAfter = LIVE_AFTERS.includes(e.target.value) ? e.target.value : 'check'; touchSettings(); });
   $('#rvDuck').addEventListener('change', e => { S.settings.liveDuck = ['low', 'mute', 'off'].includes(e.target.value) ? e.target.value : 'low'; applyToPlayer(); touchSettings(); });
   if (window.UIKit && UIKit.sound) UIKit.sound.onChange(() => applyToPlayer());   // ほかの窓の再生が始まった・止まった
   $('#rvShift').addEventListener('click', () => {
@@ -2512,7 +2767,7 @@ function wire(){
       const len = c.end - c.start, ns = Math.max(0, round1(c.start + d)), r = checkRange(ns, ns + len);
       if (typeof r === 'string' || Math.abs((r[1] - r[0]) - len) > 0.15) continue; // 範囲外になるものはずらさない
       c.start = r[0]; c.end = r[1]; n++;
-      if (c.status === 'exported'){ c.status = 'adopted'; c.file = ''; c.path = ''; }
+      if (c.status === 'exported'){ c.status = 'adopted'; c.file = ''; c.path = ''; c.archived = false; }
     }
     if (!n) return toast('配信の範囲外になるため、ずらせませんでした');
     markDirty(); refresh(); toast(`${n}件を ${d > 0 ? '+' : ''}${d}秒ずらしました` + (n < targets.length ? `(範囲外の${targets.length - n}件は除く)` : ''));

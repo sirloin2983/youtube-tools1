@@ -27,6 +27,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -274,6 +275,17 @@ def read_text(path, limit=PLAYLIST_MAX, attempts=3):
                 raise
             time.sleep(0.05 * (i + 1))
     return None
+
+
+def _is_link(p):
+    """シンボリックリンクか、Windows のジャンクション(リパースポイント)か。消すときに先をたどらないため"""
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    return bool(getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
 def clean_tmp(session_dir):
@@ -891,6 +903,74 @@ class Recorder:
         if rec.thread:
             rec.thread.join(30)
         return rec.summary()
+
+    def delete(self, rid):
+        """録画を消す(線 D の P4「録画を自動で消す」。入口の home/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
+        消すのは置き場所の直下の <録画の id>\\ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
+        リンク / ジャンクションの先はたどらない)。録画中・配信待ち・つなぎ直し中は 409。
+        使用中で消せないファイルが残ったら 409(recording.json は最後に消すので、同じ要求をあとでまた呼べる)。-> 消した録画の id"""
+        if not isinstance(rid, str) or not REC_ID_RE.match(rid):
+            raise RecError("録画の id が正しくありません")
+        with self.lock:
+            r = self.recs.get(rid)
+            if r is not None and r.active:
+                raise RecError("録画中・配信待ち・つなぎ直し中の録画は消せません(止めてから消します)", 409)
+            root = self.folder
+        path = os.path.join(root, rid)
+        meta = os.path.join(path, "recording.json")
+        if _is_link(path) or _is_link(meta):
+            raise RecError("リンクになっている録画のフォルダは消しません(手で確かめてください)", 409)
+        if not os.path.isdir(path) or not os.path.isfile(meta):
+            raise RecError("その録画はありません", 404)
+        try:
+            inside = os.path.normcase(os.path.dirname(os.path.realpath(path))) == os.path.normcase(os.path.realpath(root))
+        except (OSError, ValueError):
+            inside = False
+        if not inside:
+            raise RecError("録画の置き場所の外は消せません", 400)
+        left = []
+        try:
+            entries = list(os.scandir(path))
+        except OSError as e:
+            raise RecError("録画のフォルダを読めません: %s" % (e.strerror or e.__class__.__name__), 409)
+        for ent in entries:
+            if ent.name == "recording.json":
+                continue
+            try:
+                if _is_link(ent.path):   # リンク・ジャンクションはそれ自体だけ外す(先は消さない)
+                    try:
+                        os.unlink(ent.path)
+                    except OSError:
+                        os.rmdir(ent.path)
+                elif ent.is_dir(follow_symlinks=False):
+                    shutil.rmtree(ent.path, onerror=lambda fn, p, exc: left.append(p))
+                else:
+                    os.unlink(ent.path)
+            except OSError:
+                left.append(ent.path)
+        try:
+            rest = [n for n in os.listdir(path) if n != "recording.json"]
+        except OSError:
+            rest = ["?"]
+        if left or rest:   # 残りがある間は recording.json を残す(次にまた呼べる)
+            n = len(left) or len(rest)
+            self.log("録画 %s: 消しきれませんでした(使用中のファイルが %d 個)" % (rid, n))
+            raise RecError("使用中のファイルがあるので、録画を消しきれませんでした(残り %d 個。再生中の画面やほかのソフトを閉じてから、もう一度消します)" % n, 409)
+        try:
+            os.unlink(meta)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise RecError("録画の記録(recording.json)を消せませんでした: %s。あとでもう一度消します" % (e.strerror or e.__class__.__name__), 409)
+        try:
+            os.rmdir(path)
+        except OSError as e:   # 記録はもう無い(録画ではない)ので、空のフォルダが残っても消したことにする
+            self.log("録画 %s: 空のフォルダを消せませんでした: %s" % (rid, e))
+        with self.lock:
+            if self.recs.get(rid) is r:
+                self.recs.pop(rid, None)
+        self.log("録画 %s: 消しました" % rid)
+        return rid
 
     def set_folder(self, folder):
         with self.lock:

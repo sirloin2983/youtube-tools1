@@ -125,6 +125,8 @@ def _clean_server(d):
     src = d.get("src") if d.get("src") in ("auto", "collab") else "manual"
     return {"src": src, "score": None if score is None else round(score, 2), "reasons": reasons, "parts": parts,
             "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
+            # 本番版(アーカイブで作り直した版)に入れ替え済みの印(線 D の P4。サーバーだけが決める。live の配信のマークだけ = _load_video で他は外す)
+            "archived": d.get("archived") is True and st == "exported" and bool(f),
             "createdAt": ca if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0 else now_ms(),
             "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "auto0Orig": _auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
@@ -165,6 +167,8 @@ def _build_mark(m, old, trusted=False):
          "createdAt": srv["createdAt"]}
     if srv["file"] and srv.get("path"):   # file を外したとき(範囲の変更・状態の変更)は path も外れる
         d["path"] = srv["path"]
+    if srv["file"] and srv.get("archived"):   # path と同じ扱い: 書き出し済みでなくなる(時刻を変えた・状態を変えた)と一緒に消える
+        d["archived"] = True
     if srv["auto0"]:
         d["auto0"] = srv["auto0"]
     if srv.get("auto0Orig"):
@@ -192,6 +196,14 @@ def load_marks(raw):
         if len(out) >= MAX_MARKS:
             break
     return out
+
+
+def _drop_archived(marks, kind):
+    """archived(本番版の印)は live の配信のマークだけ。data.json を手で直されても、他の種類には付けない"""
+    if kind != "live":
+        for m in marks:
+            m.pop("archived", None)
+    return marks
 
 
 def validate_marks(raw, old_marks):
@@ -476,7 +488,7 @@ class Store:
         ci = lambda x: x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else now_ms()
         out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
                "duration": common.num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
-               "path": v["path"] if v["kind"] == "file" else "", "marks": load_marks(v.get("marks")),
+               "path": v["path"] if v["kind"] == "file" else "", "marks": _drop_archived(load_marks(v.get("marks")), v["kind"]),
                "analysis": an if isinstance(an, dict) else None, "rev": rev if isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1 else 1,
                "createdAt": ci(v.get("createdAt")), "updatedAt": ci(v.get("updatedAt"))}
         if live:
@@ -557,6 +569,7 @@ class Store:
         d = self._summary_base(v, g)
         if v["kind"] == "live":
             d["live"] = dict(v["live"])
+            d["archived"] = sum(1 for m in v["marks"] if m.get("archived"))   # 本番版に入れ替え済みのマークの数(線 D の P4)
         return d
 
     def _summary_base(self, v, g):
@@ -622,10 +635,11 @@ class Store:
             else:
                 nv = copy.deepcopy(v)
             t, ch = str(title or "").strip()[:120], str(channel or "").strip()[:100]
-            if v is not None and v["kind"] == "live":   # 録画の登録は何度来てもよい: 既にあれば、題が空のときだけ新しい題を入れる(録画の情報は変えない)
-                if not (t and not nv["title"]):
+            if v is not None and v["kind"] == "live":   # 録画の登録は何度来てもよい: 既にあれば、題・チャンネル名は空のときだけ新しい値を入れる(録画の情報は変えない)
+                t = t if not nv["title"] else ""
+                ch = ch if not nv.get("channel") else ""
+                if not (t or ch):
                     return self._pub(v)
-                ch = ""
                 nv["rev"] += 1
             elif v is not None and ((t and t != nv["title"]) or (ch and ch != nv["channel"])):
                 nv["rev"] += 1
@@ -634,11 +648,14 @@ class Store:
             self._commit(vid, nv)
             return self._pub(nv)
 
-    def delete(self, vid):
+    def delete(self, vid, if_no_marks=False):
+        """if_no_marks: マークが1つでもあれば消さない(409。入口の「マークの無い録画を消す」= 線 D の P4。確かめてから消すまでの間に付いたマークを消さない)"""
         with self.lock:
             vid = str(vid or "")
             if vid not in self.videos:
                 return False
+            if if_no_marks and self.videos[vid].get("marks"):
+                raise ApiError("has_marks", "マークがあるので消しません", 409)
             self._commit(vid, None)
             self.series.pop(vid, None)
             g = self._video_group(vid)
@@ -851,8 +868,10 @@ class Store:
             self.series[vid] = series
             return len(autos)
 
-    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None):
-        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)"""
+    def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None):
+        """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)。
+        archived(live の配信だけ。線 D の P4): True = 本番版に入れ替え済みの印を立てる(既に書き出し済みで path が同じでも立てられる)/
+        False = 外す / None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す"""
         fb = None
         with self.lock:
             v = self.videos.get(vid)
@@ -864,11 +883,17 @@ class Store:
             first = m["status"] != "exported"
             nv = copy.deepcopy(v)
             nm = next(x for x in nv["marks"] if x["id"] == mark_id)
+            old_file, old_path = m.get("file") if m["status"] == "exported" else None, m.get("path")
             nm["status"], nm["file"] = "exported", str(relfile)[:300]
             if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
                 nm["path"] = abspath
             else:
                 nm.pop("path", None)
+            same_file = old_file == nm["file"] and old_path == nm.get("path")
+            if v["kind"] == "live" and (archived is True or (archived is None and same_file and m.get("archived"))):
+                nm["archived"] = True
+            else:
+                nm.pop("archived", None)
             nv["rev"] += 1
             nv["updatedAt"] = now_ms()
             self._commit(vid, nv)

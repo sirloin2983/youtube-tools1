@@ -697,7 +697,11 @@ class TestLive(Base):
         self.assertEqual(self.st.ensure(LIVE_SRC, "")["rev"], rev)
         self.assertEqual(self.st.ensure(LIVE_SRC, "題", "ch")["title"], "題")
         v = self.st.ensure(LIVE_SRC, "別の題", "ch2")
-        self.assertEqual((v["title"], v["channel"]), ("題", ""))
+        self.assertEqual((v["title"], v["channel"]), ("題", "ch"))   # 題・チャンネル名は空のときだけ入れる(既にあれば上書きしない。チャンネル名は配信者の名前 = 字幕の色を決める)
+        rev = v["rev"]
+        self.assertEqual(self.st.ensure(LIVE_SRC, "別の題", "ch2")["rev"], rev)   # 何も変わらなければ版も上げない
+        self.st.ensure(dict(LIVE_SRC, videoId="20261005-185311", name="20261005-185311", live=dict(LIVE, recording="20261005-185311")), "", "ch3")
+        self.assertEqual(self.st.get("20261005-185311")[0]["channel"], "ch3")   # 題が無くてもチャンネル名だけ入る
 
     def test_reload_roundtrip_and_bad_live_skipped(self):
         self.st.ensure(LIVE_SRC, "配信")
@@ -742,6 +746,80 @@ class TestLive(Base):
         self.assertFalse(os.path.exists(fb) and LIVE["recording"] in open(fb, encoding="utf-8").read())
         self.assertTrue(self.st.delete(LIVE["recording"]))
         self.assertFalse(self.st.has(LIVE["recording"]))
+
+    def _live_exported(self, **kw):
+        rid = LIVE["recording"]
+        self.st.ensure(LIVE_SRC, "配信")
+        self.st.put_video(rid, "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
+        self.assertTrue(self.st.mark_exported(rid, "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4"), **kw))
+        return rid
+
+    def mark(self, rid=None):
+        return self.st.get(rid or LIVE["recording"])[0]["marks"][0]
+
+    def test_archived_is_set_only_by_the_server_and_follows_path(self):
+        """archived(本番版に入れ替え済みの印。線 D の P4): mark_exported(archived=True) だけが立てる。path・file と同じ扱い"""
+        rid = self._live_exported()
+        self.assertNotIn("archived", self.mark())
+        self.assertEqual(next(x for x in self.st.list() if x["id"] == rid)["archived"], 0)
+        # 既に書き出し済みで path が同じでも、印だけ立てられる
+        self.assertTrue(self.st.mark_exported(rid, "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4"), True))
+        m = self.mark()
+        self.assertEqual((m["status"], m["file"], m["archived"]), ("exported", "f/a.mp4", True))
+        self.assertEqual(next(x for x in self.st.list() if x["id"] == rid)["archived"], 1)
+        # 画面からの保存(PUT)では立てられない・保たれる
+        self.st.put_video(rid, "配信", [dict(m, archived=False, label="x")])
+        self.assertTrue(self.mark()["archived"])
+        self.st.put_video(rid, "配信", [dict(self.mark(), archived=True), {"id": "m2", "start": 30, "end": 40, "status": "adopted", "archived": True, "file": "z.mp4"}])
+        ms = self.st.get(rid)[0]["marks"]
+        self.assertTrue(ms[0]["archived"])
+        self.assertNotIn("archived", ms[1])
+        # 再読み込みしても残る(load_marks を通る)
+        st2 = store.Store(self.path)
+        self.assertTrue(st2.get(rid)[0]["marks"][0]["archived"])
+        # 省略(None)は、同じファイルなら今のまま・違うファイルになったら外れる。False で外す。True に戻せる
+        self.assertTrue(self.st.mark_exported(rid, "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4")))
+        self.assertTrue(self.mark()["archived"])
+        self.assertTrue(self.st.mark_exported(rid, "m1", "f/b.mp4", 5.0, 20.0, os.path.join(self.tmp, "b.mp4")))
+        self.assertNotIn("archived", self.mark())
+        self.st.mark_exported(rid, "m1", "f/b.mp4", 5.0, 20.0, os.path.join(self.tmp, "b.mp4"), True)
+        self.st.mark_exported(rid, "m1", "f/b.mp4", 5.0, 20.0, os.path.join(self.tmp, "b.mp4"), False)
+        self.assertNotIn("archived", self.mark())
+
+    def test_archived_goes_away_when_the_mark_is_moved_or_status_changes(self):
+        rid = self._live_exported(archived=True)
+        m = self.mark()
+        self.assertTrue(m["archived"])
+        self.st.put_video(rid, "配信", [dict(m, start=6.0)])   # 時刻を変えたら書き出し済みが採用に戻る = 印も消える
+        m2 = self.mark()
+        self.assertEqual((m2["status"], m2["file"]), ("adopted", ""))
+        self.assertNotIn("archived", m2)
+        self.assertNotIn("path", m2)
+        self.assertEqual(next(x for x in self.st.list() if x["id"] == rid)["archived"], 0)
+        # 採用 → 書き出し済み(印なし)→ 状態を変える
+        self.st.mark_exported(rid, "m1", "f/a.mp4", 6.0, 20.0, os.path.join(self.tmp, "a.mp4"), True)
+        self.st.put_video(rid, "配信", [dict(self.mark(), status="rejected")])
+        self.assertNotIn("archived", self.mark())
+        # 古い記録(書き出し済みでない)に archived が付いていても読み込みで落ちる
+        with open(self.path, encoding="utf-8") as f:
+            d = json.load(f)
+        d["videos"][rid]["marks"][0]["archived"] = True   # status は rejected
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        self.assertNotIn("archived", store.Store(self.path).get(rid)[0]["marks"][0])
+
+    def test_archived_never_on_non_live(self):
+        yid = YT["videoId"]
+        self.st.put_video(yid, "t", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
+        self.assertTrue(self.st.mark_exported(yid, "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4"), True))   # youtube には付かない
+        self.assertNotIn("archived", self.st.get(yid)[0]["marks"][0])
+        self.assertNotIn("archived", next(x for x in self.st.list() if x["id"] == yid))
+        with open(self.path, encoding="utf-8") as f:   # data.json を手で直されても、読み込みで外す
+            d = json.load(f)
+        d["videos"][yid]["marks"][0]["archived"] = True
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        self.assertNotIn("archived", store.Store(self.path).get(yid)[0]["marks"][0])
 
     def test_conflict_with_other_kind(self):
         self.st.ensure(LIVE_SRC, "配信")

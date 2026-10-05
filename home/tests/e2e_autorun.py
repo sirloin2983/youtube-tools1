@@ -130,7 +130,7 @@ def main():
                 pg.select_option(card + " .pt-auto-mode", "adopted")
                 check(pg.is_hidden(card + " .pt-auto-topbox"), "「採用後を全部」では採用する数の欄を出さない")
                 pg.fill(card + " .pt-auto-streamer", "みこ")   # 配信者の名前(字幕の色。docs/archive/followup-2026-09-27.md の 4)
-                check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FF8FDF'" % card.replace("'", "\\'"), 10000),
+                check(wait_js(pg, "(document.querySelector('%s .pt-auto-streamer').dataset.color || '') === '#FE4B74'" % card.replace("'", "\\'"), 10000),
                       "案件の画面の配信者の欄: 名前 → メンバーカラー")
                 pg.click(card + " .pt-auto-run")
                 check(wait_js(pg, "!document.querySelector('%s .pt-auto-cancel').hidden" % card.replace("'", "\\'"), 15000),
@@ -177,7 +177,7 @@ def main():
                   "出力先の直下は元動画・パック・作業用 だけ: %s" % top)
             lua = os.path.join(pack_dir, "create_resolve_textplus_project.lua")
             with open(lua, encoding="utf-8") as f:
-                check("さくらみこの色の文字(#FF8FDF)" in f.read(), "案件の画面で入れた配信者の色がパックの字幕に入る")
+                check("さくらみこの色の文字(#FE4B74)" in f.read(), "案件の画面で入れた配信者の色がパックの字幕に入る")
 
             # ② API で「解析から全部」(未解析の動画)
             st, j = call("POST", "/studio/api/videos/open", {"kind": "file", "path": media_b})

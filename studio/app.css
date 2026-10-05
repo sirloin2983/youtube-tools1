@@ -154,6 +154,28 @@ main{display:block}
 .tt-act{margin-top:6px;gap:4px 8px}
 .chip:empty{display:none}
 .rk-skrow{display:flex;gap:12px;align-items:center;margin-top:14px}
+/* 終わった配信 / 配信中 の切り替え(2026-10-05)と、配信中・これからの予定の一覧(行は rank.js が差分で直す) */
+.rk-mode{margin-bottom:12px}
+.rk-mode>button{min-height:32px;padding:0 14px;font-size:13.5px}
+.lv-head .chips{margin-top:2px}
+.lv-off{margin:10px 0 0;color:var(--ink-2)}
+#lvNotice>*{margin-bottom:12px}
+.lv-err .lv-erract{margin-top:10px}
+.lv-sec{margin-top:16px}
+.lv-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 2px 8px;font:650 15px/1.35 var(--font-display)}
+.lv-hsub{font:400 12px/1 var(--font)}
+.lv-row,.lv-skel{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:6px 14px;align-items:center;padding:10px 16px}
+.lv-skel{display:flex;gap:12px}
+.lv-th img,.lv-th.lv-noimg{width:96px;height:54px;object-fit:cover;border-radius:6px;background:var(--panel-3);display:block;border:1px solid var(--line)}
+.lv-th.lv-noimg img{display:none}
+.lv-main{min-width:0;overflow-wrap:anywhere}
+.lv-title{color:var(--ink);text-decoration:none;font-weight:550}
+.lv-title:hover{text-decoration:underline;color:var(--accent)}
+.lv-meta{margin-top:2px}
+.lv-act{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px 8px}
+.lv-act>[hidden]{display:none}
+.lv-row[data-state=live] .lv-th{position:relative}
+.lv-row[data-state=live] .lv-th::after{content:"配信中";position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;background:#C42660;color:#fff;font:700 10.5px/16px var(--font)}
 
 /* ==================== ② 解析 ==================== */
 /* 左 = 入れる・解析の設定(閉じておく)、右 = キュー。狭い画面では 入れる → キュー → 設定 の順(主な作業に早く届く順) */
@@ -275,6 +297,9 @@ main{display:block}
   #paneReview.pane{padding:6px 8px 12px}
   .hide-s{display:none}
   .rk-table td img,.rk-noimg{width:64px;height:36px}
+  .lv-row{grid-template-columns:64px minmax(0,1fr);padding:10px 12px}
+  .lv-th img,.lv-th.lv-noimg{width:64px;height:36px}
+  .lv-act{grid-column:2/-1;justify-content:flex-start}
   .cs-search-grid{grid-template-columns:minmax(0,1fr)}
   .q-item{grid-template-columns:auto minmax(0,1fr)}
   .q-act{grid-column:2/-1;justify-content:flex-start}

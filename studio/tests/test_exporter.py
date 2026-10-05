@@ -702,5 +702,153 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertEqual(left, [])
 
 
+@unittest.skipUnless(common.find_tool("ffmpeg") and common.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
+class TestLiveSection(unittest.TestCase):
+    """POST /api/live/section の中身(線 D の P4): YouTube の videoId の区間を、今の YouTube の書き出しと同じ中身で、ちょうど指定の path へ。
+    マーク・.clip.json・編集用素材は作らない"""
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        cls.src = os.path.join(cls.dir, "yt.mp4")
+        video = "color=c=gray:size=64x64:rate=60:duration=30,format=yuv420p,geq=lum='min(250,T*8)':cb=128:cr=128"
+        if not _make_source(cls.src, video=video):
+            raise unittest.SkipTest("テスト用動画を作れなかった")
+        cls.fake = os.path.join(cls.dir, "fake_ytdlp.py")
+        with open(cls.fake, "w", encoding="utf-8") as f:
+            f.write(FAKE_YTDLP)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        common.set_home(self.tmp)
+        self.folder = os.path.join(common.get_out_dir(), "配信フォルダ")
+        os.makedirs(self.folder)
+        self.final = os.path.join(self.folder, "01_速報版を作り直す.mp4")
+        self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
+        real = common.find_tool
+        self.patches = [patch.dict(os.environ, {"STUDIO_FAKE": "0", "FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": ""}),
+                        patch.object(exporter, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else real(n)),   # 本物の yt-dlp が無くても組み立てられる
+                        patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake])]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def req(self, **kw):
+        return dict({"videoId": "abcdefghijk", "start": 7, "end": 12, "path": self.final}, **kw)
+
+    def run_section(self, **kw):
+        job = exporter.start_job(exporter.build_section_spec(self.req(**kw)))
+        for _ in range(600):
+            if job["state"] != "running":
+                break
+            time.sleep(0.1)
+        return job
+
+    def tree(self):
+        return sorted(os.path.relpath(os.path.join(d, n), self.folder) for d, _ds, ns in os.walk(self.folder) for n in ns)
+
+    def test_exact_path_30fps_and_nothing_else(self):
+        job = self.run_section()
+        it = job["items"][0]
+        self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
+        pub = exporter.job_public(job)["items"][0]
+        self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["status"]), (self.final, None, None, "done"))
+        self.assertEqual(pub["file"], "配信フォルダ/" + os.path.basename(self.final))
+        self.assertAlmostEqual(common.media_info(self.final)[0], 5.0, delta=0.2)
+        self.assertEqual(_fps(self.final), "30/1")
+        self.assertAlmostEqual(_y_avg(self.final), 56, delta=3)   # 最初のコマ = 元の 7 秒
+        with open(self.log, encoding="utf-8") as f:
+            calls = [json.loads(l) for l in f]
+        self.assertEqual([c[c.index("--download-sections") + 1] for c in calls], ["*00:00:05.000-00:00:14.000"])   # 今の書き出しと同じ区間取得(前後 2 秒)
+        # 仕上がりの mp4 だけ(.clip.json・編集用素材・書きかけ・取った区間・.studio-id は作らない)
+        self.assertEqual(self.tree(), [os.path.basename(self.final)])
+        self.assertEqual(os.listdir(os.path.join(self.folder, schemas.WORK_DIR)), [])
+
+    def test_volume_and_loudness_options_are_used(self):
+        self.assertEqual(exporter.build_section_spec(self.req())["volume"], exporter.DEFAULT_EXPORT_VOLUME)
+        spec = exporter.build_section_spec(self.req(volume=100, loudness=-14, maxHeight=720, precision="fast"))
+        self.assertEqual((spec["volume"], spec["loudness"], spec["maxHeight"], spec["fast"], spec["mode"]), (100, -14.0, 720, True, "url"))
+        job = self.run_section(loudness=-14)
+        self.assertEqual(job["items"][0]["status"], "done", job["items"][0].get("error"))
+        self.assertAlmostEqual(job["items"][0]["loudness"]["target"], -14.0)
+
+    def test_failure_leaves_nothing(self):
+        with patch.dict(os.environ, {"FAKE_YTDLP_PREROLL": "1"}):   # 取った区間の開始の位置が分からない → 方法2(失敗)
+            job = self.run_section(start=9.5, end=12)
+        self.assertEqual((job["state"], job["items"][0]["status"]), ("error", "error"))
+        self.assertFalse(os.path.exists(self.final))
+        self.assertEqual(self.tree(), [])
+
+    def test_does_not_overwrite_a_file_that_appeared(self):
+        def appear(*a, **kw):
+            with open(self.final, "wb") as f:
+                f.write(b"mine")
+        with patch.object(exporter, "apply_loudness", side_effect=appear):
+            job = self.run_section()
+        self.assertEqual(job["items"][0]["status"], "error")
+        with open(self.final, "rb") as f:
+            self.assertEqual(f.read(), b"mine")
+        self.assertEqual(self.tree(), [os.path.basename(self.final)])   # 書きかけは消える
+
+    def test_cancel(self):
+        def slow(job, *a, **kw):
+            for _ in range(200):
+                if job["cancel"]:
+                    raise exporter.ExportError("中止しました")
+                time.sleep(0.05)
+        with patch.object(exporter, "run_ytdlp", side_effect=slow):
+            job = exporter.start_job(exporter.build_section_spec(self.req()))
+            with self.assertRaises(common.ApiError) as c:   # 今の書き出しと同じ: 実行中は別のジョブを始められない(409)
+                exporter.start_job(exporter.build_section_spec(self.req(path=os.path.join(self.folder, "b.mp4"))))
+            self.assertEqual((c.exception.status, c.exception.code), (409, "busy"))
+            exporter.cancel(job["id"])
+            for _ in range(100):
+                if job["state"] != "running":
+                    break
+                time.sleep(0.05)
+        self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
+        self.assertFalse(os.path.exists(self.final))
+
+    def test_fake_mode_uses_fake_media(self):
+        with patch.dict(os.environ, {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": self.src}):
+            spec = exporter.build_section_spec(self.req())
+            self.assertEqual((spec["mode"], spec["sourcePath"]), ("file", self.src))
+            job = self.run_section()
+        self.assertEqual(job["items"][0]["status"], "done", job["items"][0].get("error"))
+        self.assertEqual(_fps(self.final), "30/1")
+        with patch.dict(os.environ, {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": ""}), self.assertRaises(common.ApiError) as c:
+            exporter.build_section_spec(self.req(path=os.path.join(self.folder, "c.mp4")))
+        self.assertEqual(c.exception.status, 500)
+
+    def test_bad_requests(self):
+        out = common.get_out_dir()
+        os.makedirs(os.path.join(out, "x"), exist_ok=True)
+        with open(os.path.join(self.folder, "exists.mp4"), "wb") as f:
+            f.write(b"x")
+        bads = [dict(videoId="short"), dict(videoId="abcdefghijk\n"), dict(videoId="あいうえおかきくけこさ"), dict(videoId=None), dict(videoId=12345678901), dict(videoId="abcdefghij/"),
+                dict(start=-1), dict(start=12), dict(start=13), dict(end=7), dict(start="7"), dict(start=None), dict(start=True), dict(end=float("nan")), dict(end=float("inf")),
+                dict(start=0, end=3601), dict(end=None),
+                dict(path=None), dict(path=""), dict(path="rel.mp4"), dict(path=os.path.join(self.folder, "a.mkv")), dict(path=os.path.join(self.folder, "a")),
+                dict(path=os.path.join(self.folder, "a%b.mp4")), dict(path=os.path.join(self.folder, "a.partial.mp4")), dict(path=os.path.join(self.folder, "CON.mp4")),
+                dict(path=os.path.join(self.dir, "outside.mp4")), dict(path=os.path.join(out, "..", "outside.mp4")), dict(path=os.path.join(self.folder, "..", "..", "o.mp4")),
+                dict(path=os.path.join(out, "nodir", "a.mp4")), dict(path=os.path.join(self.folder, "exists.mp4")), dict(path=os.path.join(self.folder, "a" * 300 + ".mp4")),
+                dict(path=os.path.join(out, "x")), dict(path="a\x00.mp4"),
+                dict(volume=0), dict(volume=201), dict(volume="abc"), dict(loudness=-13), dict(loudness="x"), dict(precision="turbo")]
+        for kw in bads:
+            with self.subTest(kw=kw), self.assertRaises(common.ApiError) as c:
+                exporter.build_section_spec(self.req(**kw))
+            self.assertEqual((c.exception.status, c.exception.code), (400, "bad_request"), kw)
+        # 正しい形は通る(マークも配信の登録も要らない)・path の親が書き出し先そのもの(直下)でもよい
+        self.assertEqual(exporter.build_section_spec(self.req(path=os.path.join(out, "direct.mp4")))["outDir"], out)
+        self.assertEqual(exporter.build_section_spec(self.req(start=0, end=3600, loudness=0, maxHeight=None, volume=None))["clips"][0]["end"], 3600.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

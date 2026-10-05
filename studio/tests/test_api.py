@@ -686,6 +686,27 @@ class TestLiveApi(Base):
         st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title="別の題", url="https://youtu.be/aaaaaaaaaaa"))
         self.assertEqual((st, j["video"]["title"], j["video"]["live"]["videoId"]), (200, "題", "U972n0ncl4k"))   # 既にある題・録画の情報は変えない
 
+    def test_open_sets_channel_once(self):
+        """channel(入口の begin が yt-dlp から取ったチャンネル名。配信者の名前 = 字幕の色を決める): 空なら入れない・既にあれば上書きしない・制御文字を落とす・100 文字まで"""
+        rid = "20261005-185303"
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid))
+        self.assertEqual((st, j["video"]["channel"]), (200, ""))
+        rev = j["video"]["rev"]
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel=""))
+        self.assertEqual((j["video"]["channel"], j["video"]["rev"]), ("", rev))   # 空は入れない(何も変えない)
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel="Pekora\x07 Ch.\n 兎田ぺこら"))
+        self.assertEqual((st, j["video"]["channel"], j["video"]["title"]), (200, "Pekora Ch. 兎田ぺこら", "配信中"))
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, channel="別のチャンネル"))
+        self.assertEqual(j["video"]["channel"], "Pekora Ch. 兎田ぺこら")   # 既にあれば上書きしない
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["channel"], "Pekora Ch. 兎田ぺこら")
+        row = next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == rid)
+        self.assertEqual(row["channel"], "Pekora Ch. 兎田ぺこら")
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185304", channel="c" * 300))   # 新しく登録するときも入れる
+        self.assertEqual((st, j["video"]["channel"]), (200, "c" * 100))
+        for bad in (5, ["x"], {"a": 1}):
+            st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185305", channel=bad))
+            self.assertEqual((st, j["error"]), (400, "bad_source"), bad)
+
     def test_channel_live_url_has_empty_video_id(self):
         st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185302", url="https://www.youtube.com/@someone/live"))
         self.assertEqual((st, j["video"]["live"]["videoId"]), (200, ""))
@@ -756,6 +777,45 @@ class TestLiveApi(Base):
         self.assertEqual(st, 400)
         self.assertEqual(self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0]["status"], "adopted")
 
+    def test_exported_archived_flag(self):
+        """archived(本番版に入れ替え済みの印。線 D の P4): exported の archived: true だけが立てる(画面の PUT では立てられず・保たれ・時刻を変えると消える)"""
+        rid = "20261005-190600"
+        p = self._exported_setup(rid)
+        body = {"id": rid, "markId": "m1", "path": p}
+        st, j, *_ = self.req("POST", "/api/live/exported", body)   # 省略 = 今までどおり(印なし)
+        self.assertEqual((st, j["ok"], "archived" in j["video"]["marks"][0]), (200, True, False))
+        st, j, *_ = self.req("POST", "/api/live/exported", dict(body, archived=True))   # 既に書き出し済み・path も同じでも印だけ立つ
+        m = j["video"]["marks"][0]
+        self.assertEqual((st, j["ok"], m["archived"], m["status"], m["path"]), (200, True, True, "exported", os.path.abspath(p)))
+        self.assertEqual(next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == rid)["archived"], 1)
+        self.assertTrue(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["archived"])
+        # 画面の PUT: 立てられない(新しいマーク)・外せない(今のマーク)
+        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [dict(m, archived=False), {"start": 100, "end": 120, "status": "adopted", "archived": True}]})
+        self.assertEqual(st, 200, j)
+        self.assertEqual([x.get("archived") for x in j["video"]["marks"]], [True, None])
+        # 省略の exported は今の印を保つ
+        st, j, *_ = self.req("POST", "/api/live/exported", body)
+        self.assertTrue(j["video"]["marks"][0]["archived"])
+        # 時刻を変えたら書き出し済み(path も)と一緒に消える
+        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [dict(j["video"]["marks"][0], start=11)]})
+        m = j["video"]["marks"][0]
+        self.assertEqual((m["status"], m["file"], "archived" in m, "path" in m), ("adopted", "", False, False))
+        # false で外せる・形が違えば 400
+        self.req("POST", "/api/live/exported", dict(body, archived=True))
+        self.assertEqual(self.req("POST", "/api/live/exported", dict(body, archived="yes"))[0], 400)
+        self.assertEqual(self.req("POST", "/api/live/exported", dict(body, archived=1))[0], 400)
+        self.assertTrue(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["archived"])   # 断ったものは変えない
+        st, j, *_ = self.req("POST", "/api/live/exported", dict(body, archived=False))
+        self.assertNotIn("archived", j["video"]["marks"][0])
+
+    def test_archived_not_on_non_live(self):
+        fid = self.fsrc["videoId"]
+        self.req("PUT", "/api/video", {"id": fid, "marks": [{"id": "fm9", "start": 1, "end": 3, "status": "adopted", "archived": True}]})
+        self.assertNotIn("archived", self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0])
+        p = self._exported_setup("20261005-190650")
+        self.assertEqual(self.req("POST", "/api/live/exported", {"id": fid, "markId": "fm9", "path": p, "archived": True})[0], 400)   # live でない配信は断る
+        self.assertNotIn("archived", self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0])
+
     def test_exported_follows_guards(self):
         for kw in ({"host": "evil.example:%d" % self.port}, {"headers": {"Sec-Fetch-Site": "cross-site"}}, {"headers": {"Origin": "http://evil.example"}}):
             self.assertEqual(self.req("POST", "/api/live/exported", {"id": "x", "markId": "m", "path": "/x.mp4"}, **kw)[0], 403, kw)
@@ -793,9 +853,16 @@ class TestLiveApi(Base):
         self.req("POST", "/api/videos/open", live_body(rid))
         st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "title": "t", "marks": [{"start": 5, "end": 30}]})
         self.assertEqual((st, len(j["video"]["marks"]), j["video"]["live"]["recording"]), (200, 1, rid))
+        st, j, *_ = self.req("POST", "/api/video/delete", {"id": rid, "ifNoMarks": True})   # 入口の「マークの無い録画を消す」(P4): マークがあれば消さない
+        self.assertEqual((st, j["error"]), (409, "has_marks"))
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[0], 200)
         self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)
         self.assertEqual(self.req("GET", "/api/video?id=" + rid)[0], 404)
         self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 404)
+        rid2 = "20261005-190401"
+        self.req("POST", "/api/videos/open", live_body(rid2))
+        self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid2, "ifNoMarks": True})[0], 200)   # マークが無ければ消す
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid2)[0], 404)
 
     def test_live_in_collab_group_and_transcripts(self):
         rid = "20261005-190500"
@@ -807,6 +874,122 @@ class TestLiveApi(Base):
         self.assertEqual(self.req("GET", "/api/transcripts?id=" + rid)[0], 200)
         self.assertEqual(self.req("GET", "/api/collab/groups")[0], 200)
         self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)   # グループからも外れる
+
+
+@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+class TestLiveSectionApi(Base):
+    """POST /api/live/section(線 D の P4): YouTube の区間を、書き出し先の中の指定の path へ(疑似モード。STUDIO_FAKE_MEDIA を切り出す)。マーク・配信のデータは変えない"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.fake_media = os.path.join(cls.tmp, "fake_src.mp4")
+        import subprocess
+        subprocess.run([common.find_tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=12",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-shortest", cls.fake_media], check=True, stdin=subprocess.DEVNULL)
+
+    def setUp(self):
+        p = patch.dict(os.environ, {"STUDIO_FAKE_MEDIA": self.fake_media})
+        p.start()
+        self.addCleanup(p.stop)
+        self.folder = os.path.join(common.get_out_dir(), "配信フォルダ_" + self._testMethodName)   # テストごとに別のフォルダ
+        os.makedirs(self.folder, exist_ok=True)
+
+    def body(self, name="01_本番版.mp4", **kw):
+        return dict({"videoId": "zzzzzzzzzzz", "start": 2, "end": 6, "path": os.path.join(self.folder, name)}, **kw)
+
+    def wait(self, jid):
+        for _ in range(300):
+            st, job, *_ = self.req("GET", "/api/export?id=" + jid)
+            if job["state"] != "running":
+                return job
+            time.sleep(0.1)
+        self.fail("ジョブが終わらない")
+
+    def snapshot(self):
+        with open(serve.STORE.path, "rb") as f:
+            data = f.read()
+        fb = common.p("feedback.jsonl")
+        return (data, self.req("GET", "/api/videos")[2], os.path.getsize(fb) if os.path.exists(fb) else None)
+
+    def test_makes_exactly_the_path_and_changes_no_data(self):
+        rid = "20261005-191000"
+        self.req("POST", "/api/videos/open", live_body(rid))
+        self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "status": "adopted"}]})
+        before = self.snapshot()
+        b = self.body()
+        st, j, *_ = self.req("POST", "/api/live/section", b)
+        self.assertEqual(st, 200, j)
+        self.assertTrue(j["id"])
+        job = self.wait(j["id"])
+        self.assertEqual(job["state"], "done", job)
+        it = job["items"][0]
+        self.assertEqual((it["status"], it["path"], it["manifest"]), ("done", b["path"], None))
+        self.assertTrue(os.path.isfile(b["path"]))
+        self.assertAlmostEqual(common.media_info(b["path"])[0], 4.0, delta=0.3)
+        from ytt_core import normalize
+        probe = normalize.probe(b["path"])
+        if probe:
+            self.assertEqual(probe["r_frame_rate"], "30/1")
+        names = [n for d, _ds, ns in os.walk(self.folder) for n in ns]
+        self.assertEqual(names, ["01_本番版.mp4"])   # .clip.json・編集用素材・書きかけは無い
+        self.assertEqual(self.snapshot(), before)   # マーク・配信のデータ・学習の記録は一切変えない
+        self.assertEqual(self.req("GET", "/api/video?id=zzzzzzzzzzz")[0], 404)   # スタジオに登録の無い videoId でも動き、登録もしない
+        # もう同じ path は作れない(上書きしない)
+        self.assertEqual(self.req("POST", "/api/live/section", b)[0], 400)
+
+    def test_options_pass_the_same_checks_as_export(self):
+        for kw in ({"volume": 0}, {"volume": 201}, {"volume": "abc"}, {"loudness": -13}, {"precision": "x"}):
+            st, j, *_ = self.req("POST", "/api/live/section", self.body("o.mp4", **kw))
+            self.assertEqual((st, j["error"]), (400, "bad_request"), kw)
+        st, j, *_ = self.req("POST", "/api/live/section", self.body("opt.mp4", volume=100, precision="fast", maxHeight=720))
+        self.assertEqual(st, 200, j)
+        self.assertEqual(self.wait(j["id"])["state"], "done")
+
+    def test_bad_requests_are_400_and_start_nothing(self):
+        outside = os.path.join(self.tmp, "outside.mp4")
+        existing = os.path.join(self.folder, "already.mp4")
+        with open(existing, "wb") as f:
+            f.write(b"keep")
+        bads = [dict(videoId="bad"), dict(videoId="zzzzzzzzzz\n"), dict(videoId=None), dict(start=-1), dict(start=6), dict(start="2"), dict(end=0), dict(end=None),
+                dict(start=0, end=3601), dict(path=outside), dict(path=os.path.join(common.get_out_dir(), "..", "outside.mp4")), dict(path=existing),
+                dict(path=os.path.join(common.get_out_dir(), "nodir", "a.mp4")), dict(path=os.path.join(self.folder, "a.txt")), dict(path="rel.mp4"), dict(path=None)]
+        with patch.object(serve.exporter, "start_job") as sj:
+            for kw in bads:
+                st, j, *_ = self.req("POST", "/api/live/section", self.body("bad.mp4", **kw))
+                self.assertEqual((st, j["error"]), (400, "bad_request"), kw)
+            raw = json.dumps(dict(self.body("nan.mp4"), end=float("nan"))).encode()   # NaN・Infinity の JSON
+            self.assertEqual(self.req("POST", "/api/live/section", headers={"Content-Type": "application/json"}, raw=raw)[0], 400)
+            self.assertEqual(self.req("POST", "/api/live/section", dict(self.body("inf.mp4"), end=1e999))[0], 400)
+        sj.assert_not_called()
+        self.assertFalse(os.path.exists(outside))
+        with open(existing, "rb") as f:
+            self.assertEqual(f.read(), b"keep")   # 既にあるファイルは上書きしない
+
+    def test_follows_guards(self):
+        for kw in ({"host": "evil.example:%d" % self.port}, {"headers": {"Sec-Fetch-Site": "cross-site"}}, {"headers": {"Origin": "http://evil.example"}}):
+            self.assertEqual(self.req("POST", "/api/live/section", self.body("g.mp4"), **kw)[0], 403, kw)
+        self.assertEqual(self.req("GET", "/api/live/section")[0], 404)
+        self.assertFalse(os.path.exists(os.path.join(self.folder, "g.mp4")))
+
+    def test_busy_and_cancel(self):
+        def slow(job, *a, **kw):
+            for _ in range(300):
+                if job["cancel"]:
+                    raise serve.exporter.ExportError("中止しました")
+                time.sleep(0.05)
+        with patch.object(serve.exporter, "run_ffmpeg", side_effect=slow):
+            st, j, *_ = self.req("POST", "/api/live/section", self.body("c1.mp4"))
+            self.assertEqual(st, 200, j)
+            st, j2, *_ = self.req("POST", "/api/live/section", self.body("c2.mp4"))   # 今の書き出しと同じ: 実行中は 409
+            self.assertEqual((st, j2["error"]), (409, "busy"))
+            st, k, *_ = self.req("POST", "/api/export/cancel", {"id": j["id"]})
+            self.assertEqual((st, k["ok"]), (200, True))
+            job = self.wait(j["id"])
+        self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
+        self.assertFalse(os.path.exists(os.path.join(self.folder, "c1.mp4")))
+        self.assertEqual([n for n in os.listdir(self.folder) if n.startswith("c1")], [])
 
 
 class TestRankSearch(Base):

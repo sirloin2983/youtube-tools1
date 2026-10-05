@@ -13,6 +13,8 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   GET  /live/list                         置き場所・空き容量・streamlink の有無・録画の一覧
   POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p(省略は 1080p)
   POST /live/<id>/stop  {}                 手で止める
+  POST /live/<id>/delete  {}               録画のフォルダを消して一覧から外す(P4 の「録画を自動で消す」。入口の home/live_cleanup.py だけが呼ぶ。
+                                           録画中・配信待ち・つなぎ直し中は 409・使用中のファイルが残ったら 409 = あとでまた呼べる)
   GET  /live/<id>/status?since=N           録画の状態・セッション・セグメント(N 個目から)
   GET  /live/<id>/segments?start=&end=    区間(UTC の時刻)にかかるセグメント(uri・pdt・dur)と欠け・録画済みの最後の時刻(P2 の書き出し)
   GET  /live/<id>/index.m3u8              全セッションをつないだ再生リスト(Cache-Control: no-cache)
@@ -48,7 +50,7 @@ from ytt_core import datadir, fsio, httpsec  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.2.2"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = "0.3.0"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -306,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
             m = LIVE_RE.match(u.path)
             if m and m.group(2) == "stop":
                 return self._json(200, {"recording": rec.stop(m.group(1))})
+            if m and m.group(2) == "delete":   # P4 の「録画を自動で消す」(入口の中の処理だけが呼ぶ。入口の中継は通さない)
+                return self._json(200, {"ok": True, "deleted": rec.delete(m.group(1))})
         except rec_core.RecError as e:
             return self._fail(e.code, "bad_request" if e.code == 400 else "conflict" if e.code == 409 else "not_found", str(e))
         except OSError as e:

@@ -191,6 +191,7 @@ function renderAgChecks(){
   const sn = $('#rkSetupNotice'); if (sn) sn.hidden = R.reg.agencies.some(a => okCount(a) > 0);
   box.innerHTML = R.reg.agencies.map(a => { const n = okCount(a);
     return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="agc" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
+  renderLvAg();   // 「配信中」のタブの事務所の選び方も同じ(登録を変えたとき)
 }
 const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
@@ -367,10 +368,261 @@ async function startAuto(){
   await refreshMarks(); paintPick();
 }
 
+/* ================= 配信中・これからの予定(「配信中」のタブ。2026-10-05 ユーザー決定) =================
+   サーバーの GET /api/rank/live(登録した事務所のチャンネル。結果は 60 秒覚える)を、開いている間 2 分ごとに読み直す(隠れている間は止める = UIKit.life)。
+   各行の「録画する」「始まったら録画」は、② の URL 欄と同じ Studio.live.begin(入口の ../live/api/begin)。配信中なら ③ で開き、予定なら行に「予約済み」。
+   行は差分で直す(読み直しで作り直すと、押そうとしたボタンが入れ替わる。ヘッダーの札の一覧と同じ考え) */
+const LV_POLL_MS = 120000, LV_TIME_MS = 30000;
+const L = { tab: 'past', data: null, err: null, loading: false, seq: 0, at: 0, timer: 0, tick: 0, avail: false, rows: new Map(), pending: new Set(), recs: new Map() };
+const mk = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+/* 録画の URL → YouTube の動画 ID(ヘッダーの札の録画と一覧の行を照らすため。読めなければ '') */
+function ytId(u){
+  try { const x = new URL(String(u || '')); const v = x.searchParams.get('v') || (/^\/(?:live|shorts|embed)\/([\w-]{11})/.exec(x.pathname) || [])[1] || (x.hostname === 'youtu.be' ? x.pathname.slice(1, 12) : '');
+    return okId(v) ? v : ''; } catch { return ''; }
+}
+function liveHtml(){
+  return `<div id="rkLive" hidden>
+  <section class="card cs-search lv-head">
+    <div class="card-head"><h2 class="card-title">配信中・これからの配信</h2><span class="card-sub">登録した事務所の、いま配信中の配信と、24 時間以内に始まる予定を並べます</span></div>
+    <div class="fld"><span class="l">対象の事務所 <span class="muted">(「終わった配信」と同じ選び方です)</span></span><div class="chips" id="lvAgChecks" role="group" aria-label="対象の事務所(配信中)"></div></div>
+    <div class="row cs-go"><button type="button" class="btn" id="lvRefresh">更新</button><span class="hint" id="lvStatus" role="status"></span></div>
+    <p class="hint lv-off" id="lvOff" hidden>録画するには、ホームの「試験中の機能」でリアルタイム切り抜きをオンにします</p>
+  </section>
+  <div id="lvNotice"></div>
+  <div id="lvBody">
+    <section class="lv-sec" id="lvSecLive" aria-labelledby="lvHLive"><h3 class="lv-h" id="lvHLive">配信中 <span class="ui-count" id="lvNLive"></span></h3>
+      <div class="ui-sheet lv-list" id="lvListLive"></div><div class="empty lv-empty" id="lvEmptyLive" hidden><b>いま配信中の配信はありません</b>配信が始まると、ここに出ます(2 分ごとに読み直します)</div></section>
+    <section class="lv-sec" id="lvSecUp" aria-labelledby="lvHUp"><h3 class="lv-h" id="lvHUp">これからの予定 <span class="muted lv-hsub">24 時間以内</span> <span class="ui-count" id="lvNUp"></span></h3>
+      <div class="ui-sheet lv-list" id="lvListUp"></div><div class="empty lv-empty" id="lvEmptyUp" hidden><b>24 時間以内に始まる予定はありません</b>配信の枠が立つと、ここに出ます</div></section>
+  </div></div>`;
+}
+function renderLvAg(){
+  const box = $('#lvAgChecks'); if (!box) return;
+  box.innerHTML = R.reg.agencies.map(a => { const n = okCount(a);
+    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="lvagc" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
+}
+const lvAgencies = () => R.reg.agencies.filter(agChecked).map(a => a.id);
+const lvShowing = () => L.tab === 'live' && S.step === 'rank' && !document.hidden;
+
+function setTab(t, user){
+  L.tab = t === 'live' ? 'live' : 'past';
+  if (user) lsSet('tab', L.tab);
+  document.querySelectorAll('#rkMode [data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === L.tab)));
+  $('#rkPast').hidden = L.tab !== 'past'; $('#rkLive').hidden = L.tab !== 'live';
+  if (L.tab === 'live'){ renderLvAg(); lvResume(); } else lvPause();
+}
+/* 読み直しの見回り: 「配信中」のタブを見ている間だけ動かす */
+function lvPause(){ clearTimeout(L.timer); L.timer = 0; clearInterval(L.tick); L.tick = 0; }
+function lvResume(){
+  if (!lvShowing()) return lvPause();
+  if (!L.tick) L.tick = setInterval(lvTimes, LV_TIME_MS);
+  if (!L.at || Date.now() - L.at >= LV_POLL_MS - 1000) lvLoad(); else lvArm(LV_POLL_MS - (Date.now() - L.at));
+}
+function lvArm(ms){ clearTimeout(L.timer); L.timer = setTimeout(() => { L.timer = 0; if (lvShowing()) lvLoad(); }, Math.max(1000, ms)); }
+
+async function lvLoad(){
+  const ags = lvAgencies(), my = ++L.seq;
+  clearTimeout(L.timer); L.timer = 0;
+  if (!ags.length){ L.data = null; L.err = { message: '対象の事務所を1つ以上選んでください', code: 'no_agency' }; L.loading = false; lvPaint(); return; }
+  L.loading = true; lvPaint();
+  let d = null, err = null;
+  try { d = await S.api('/api/rank/live?agencies=' + encodeURIComponent(ags.join(','))); } catch (e){ err = { message: e.message, code: e.code || '' }; }
+  try { L.avail = !!(S.live && await S.live.available()); } catch { L.avail = false; }
+  if (my !== L.seq) return;   // 読み込み中に事務所を変えた: 新しい方の結果だけを出す
+  L.loading = false; L.at = Date.now();
+  if (d){ L.data = d; L.err = null; } else L.err = err;
+  lvPaint();
+  if (lvShowing()) lvArm(LV_POLL_MS);
+}
+
+/* 録画との照らし合わせ: ヘッダーの札(UIKit.liveBadge。入口の録画の一覧)を正にする。札がまだ知らない(始めた直後)ものは、ここで始めた録画を使う */
+function lvRec(vid){
+  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null;
+  const own = L.recs.get(vid);
+  if (lb && lb.enabled){
+    for (const r of lb.recordings || []) if (r.active && ytId(r.url) === vid) return { recorder: r.recorder, id: r.id, url: r.url, title: r.title, state: r.state, video: own && own.id === r.id ? own.video : '' };
+    if (own && (lb.recordings || []).some(r => r.id === own.id && !r.active)){ L.recs.delete(vid); return null; }   // 止めた・終わった録画
+  }
+  return own || null;
+}
+const BLOCK = { members: ['メン限', 'メンバー限定の配信は録画できません(録画の部品は YouTube にログインしません。題に「メン限」などとあります)'],
+  age: ['年齢制限', '年齢制限のある配信は録画できません(録画の部品は YouTube にログインしません)'] };
+const fmtMin = m => (m < 60 ? `${m} 分` : `${Math.floor(m / 60)} 時間${m % 60 ? ' ' + (m % 60) + ' 分' : ''}`);
+function fmtClock(ms){
+  const d = new Date(ms), n = new Date(), day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(n.getFullYear(), n.getMonth(), n.getDate())) / 86400000);
+  return (day === 1 ? '明日 ' : day === -1 ? '昨日 ' : '') + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function whenText(v){
+  const t = Number(v.start) || 0, now = Date.now();
+  if (!t) return v.state === 'live' ? '配信中' : '';
+  if (v.state === 'live'){ const m = Math.max(0, Math.floor((now - t) / 60000)); return m < 1 ? 'いま始まりました' : `${fmtMin(m)}前に開始`; }
+  const m = Math.ceil((t - now) / 60000);
+  if (m > 0) return `あと ${fmtMin(m)}・${fmtClock(t)} から`;
+  return m > -2 ? `まもなく(${fmtClock(t)} の予定)` : `${fmtClock(t)} の予定(まだ始まっていません)`;
+}
+function lvMakeRow(vid){
+  const row = { el: mk('div', 'lv-row') };
+  row.el.dataset.vid = vid;
+  row.th = mk('a', 'lv-th'); row.th.target = '_blank'; row.th.rel = 'noopener noreferrer'; row.th.tabIndex = -1;
+  row.img = mk('img'); row.img.alt = ''; row.img.loading = 'lazy'; row.th.appendChild(row.img);
+  const main = mk('div', 'lv-main');
+  row.title = mk('a', 'lv-title'); row.title.target = '_blank'; row.title.rel = 'noopener noreferrer';
+  row.meta = mk('div', 'hint lv-meta');
+  main.append(row.title, row.meta);
+  const act = mk('div', 'lv-act');
+  row.pill = mk('span', 'pill'); row.block = mk('span', 'pill warn');
+  row.rec = mk('button', 'btn small lv-rec'); row.rec.type = 'button';
+  row.open = mk('button', 'btn small lv-open'); row.open.type = 'button'; row.open.textContent = '開く';
+  act.append(row.block, row.pill, row.rec, row.open);
+  row.el.append(row.th, main, act);
+  return row;
+}
+function lvMeta(v){
+  const parts = [v.channel, v.agencyName, whenText(v)];
+  if (v.state === 'live') parts.push(v.viewers == null ? '視聴者数は非公開' : `視聴 ${fmtN(v.viewers)} 人`);
+  return parts.filter(Boolean).join(' ・ ');
+}
+function lvFill(row, v){
+  row.v = v;
+  const id = okId(v.id), link = id ? 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id) : '';
+  if (row.title.getAttribute('href') !== link){ if (link){ row.title.href = link; row.th.href = link; } else { row.title.removeAttribute('href'); row.th.removeAttribute('href'); } }
+  setText(row.title, v.title || v.id); row.title.title = v.title || '';
+  setText(row.meta, lvMeta(v));
+  const thumb = okThumb(v.thumb) ? v.thumb : '';
+  if (row.img.getAttribute('src') !== thumb){ if (thumb) row.img.src = thumb; else row.img.removeAttribute('src'); }
+  row.th.classList.toggle('lv-noimg', !thumb);
+  row.el.dataset.state = v.state;
+  lvAct(row);
+}
+/* 行の右: 札とボタン(録画中・予約済み → 札と「開く」/ 録画できない → 札と無効のボタン / オフ → 何も出さない(上の1行で案内)) */
+function lvAct(row){
+  const v = row.v, vid = v.id, rec = okId(vid) ? lvRec(vid) : null, busy = L.pending.has(vid), bl = BLOCK[v.blocked];
+  const label = v.state === 'live' ? '録画する' : '始まったら録画';
+  setText(row.block, bl ? bl[0] : ''); row.block.hidden = !bl; row.block.title = bl ? bl[1] : '';
+  if (rec){
+    const waiting = rec.state === 'waiting' && v.state !== 'live';   // 配信中の配信は、録画が始まる前の数秒(waiting)も「録画中」と出す
+    row.pill.className = 'pill ' + (waiting ? 'wait' : 'run'); setText(row.pill, waiting ? '予約済み' : '録画中'); row.pill.hidden = false;
+    row.pill.title = waiting ? '配信が始まったら録画します(ヘッダーの札に「配信待ち」と出ます)' : '';
+    row.rec.hidden = true; row.open.hidden = false; row.open.disabled = busy;
+    row.open.setAttribute('aria-label', `「${v.title}」の録画を ③ で開く`);
+  } else {
+    row.pill.hidden = true; row.open.hidden = true;
+    row.rec.hidden = !L.avail || !okId(vid);
+    setText(row.rec, busy ? '始めています…' : label);
+    row.rec.disabled = busy || !!bl;
+    row.rec.title = bl ? bl[1] : v.state === 'live' ? '録画を始めて、③ で見ながらマークします' : '配信の前から待って、始まったら録画します(③ へは移りません)';
+    row.rec.setAttribute('aria-label', `${label}: ${v.title}`);
+  }
+}
+function lvList(box, items, seen){
+  let prev = null;
+  for (const v of items){
+    if (!v || typeof v !== 'object' || !okId(v.id) || seen.has(v.id)) continue;
+    let row = L.rows.get(v.id);
+    if (!row){ row = lvMakeRow(v.id); L.rows.set(v.id, row); }
+    seen.add(v.id); lvFill(row, v);
+    const want = prev ? prev.nextSibling : box.firstChild;
+    if (want !== row.el) box.insertBefore(row.el, want);   // 順番が変わったとき・欄を移ったときだけ動かす
+    prev = row.el;
+  }
+}
+function lvPaint(){
+  if (!$('#rkLive')) return;
+  const d = L.data, e = L.err, st = $('#lvStatus');
+  $('#lvRefresh').disabled = L.loading;
+  setText(st, L.loading ? '読み込み中…' : d ? `${fmtClock(Number(d.checkedAt) || L.at)} に確認 ・ 2 分ごとに読み直します ・ 使用ユニット ${fmtN(d.quota)}` : '');
+  $('#lvOff').hidden = !d || L.avail;
+  let note = '';
+  if (e && d) note += `<div class="notice">読み直せませんでした: ${esc(e.message)}(前の結果を出しています)</div>`;
+  if (d && d.unresolved) note += `<div class="notice">未解決のチャンネルが${Number(d.unresolved) || 0}件あり、対象から外しています(設定の「事務所の登録」で確認できます)。</div>`;
+  if (d && Array.isArray(d.warnings) && d.warnings.length) note += `<div class="notice">${d.warnings.map(esc).join('<br>')}</div>`;
+  if (e && !d){
+    const act = e.code === 'no_key' || e.code === 'key_invalid' ? '<button type="button" class="btn small" data-lvopen="setKey">設定を開く</button>'
+      : e.code === 'no_channels' ? '<button type="button" class="btn small" data-lvopen="setReg">事務所の登録を開く</button>' : '';
+    note += `<div class="empty lv-err"><b>${e.code === 'no_agency' ? '事務所が選ばれていません' : '配信の一覧を読めませんでした'}</b>${esc(e.message)}${act ? '<div class="lv-erract">' + act + '</div>' : ''}</div>`;
+  }
+  const nb = $('#lvNotice'); if (nb.dataset.html !== note){ nb.innerHTML = note; nb.dataset.html = note; }   // 同じ中身なら作り直さない(ボタンを押そうとしているときに消さない)
+  const body = $('#lvBody');
+  if (!d){
+    body.hidden = !L.loading;
+    if (L.loading && !body.querySelector('.lv-skel')){ for (const id of ['#lvListLive', '#lvListUp']){ const b = $(id); b.textContent = ''; b.insertAdjacentHTML('beforeend', '<div class="lv-skel" aria-busy="true"><div class="ui-skel" style="width:96px;height:54px"></div><div style="flex:1"><div class="ui-skel" style="height:13px;width:60%"></div><div class="ui-skel" style="height:11px;width:30%;margin-top:8px"></div></div></div>'.repeat(2)); } }
+    $('#lvEmptyLive').hidden = true; $('#lvEmptyUp').hidden = true; setText($('#lvNLive'), ''); setText($('#lvNUp'), '');
+    return;
+  }
+  body.hidden = false;
+  body.querySelectorAll('.lv-skel').forEach(x => x.remove());
+  const live = Array.isArray(d.live) ? d.live : [], up = Array.isArray(d.upcoming) ? d.upcoming : [], seen = new Set();
+  lvList($('#lvListLive'), live, seen); lvList($('#lvListUp'), up, seen);
+  for (const [k, row] of L.rows) if (!seen.has(k)){ row.el.remove(); L.rows.delete(k); }
+  $('#lvListLive').hidden = !$('#lvListLive').children.length; $('#lvListUp').hidden = !$('#lvListUp').children.length;
+  $('#lvEmptyLive').hidden = !!$('#lvListLive').children.length; $('#lvEmptyUp').hidden = !!$('#lvListUp').children.length;
+  setText($('#lvNLive'), `${$('#lvListLive').children.length} 本`); setText($('#lvNUp'), `${$('#lvListUp').children.length} 本`);
+}
+function lvActs(){ for (const row of L.rows.values()) lvAct(row); }
+function lvTimes(){ if (!lvShowing()) return; for (const row of L.rows.values()) setText(row.meta, lvMeta(row.v)); }
+
+/* 「録画する」「始まったら録画」: ② の URL 欄と同じ流れ(Studio.live.begin → 配信中なら ③ で開く)。二度押しは L.pending で止める */
+async function lvBegin(vid){
+  const row = L.rows.get(vid); if (!row || L.pending.has(vid) || !okId(vid)) return;
+  const v = row.v, url = 'https://www.youtube.com/watch?v=' + vid;
+  if (BLOCK[v.blocked]) return;
+  L.pending.add(vid); lvAct(row);
+  try {
+    const b = S.live ? await S.live.begin(url, { channel: v.channel || '' }) : null;   // チャンネル名は begin の返事に無ければ行の名前(配信者の名前 = 字幕の色を決める)
+    if (!b) S.toast('この配信の録画を始められませんでした(配信中・配信前ではないか、状態を調べられませんでした)。YouTube で配信の様子を確かめてください', 8000, 'err');
+    else {
+      const rec = b.recording || {}, now = v.state === 'live' || rec.state === 'recording' || rec.state === 'reconnecting';
+      L.recs.set(vid, { recorder: b.recorder, id: rec.id, url: rec.url || url, title: rec.title || v.title, channel: rec.channel || v.channel || '', state: rec.state || (v.state === 'live' ? 'recording' : 'waiting'), video: b.video && b.video.id });
+      if (now){
+        S.toast(b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます', 6000, 'ok');
+        if (S.review && S.review.open) await S.review.open(b.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+      } else S.toast(b.existing ? 'この配信は、もう録画を予約しています' : `配信が始まったら録画します(「${v.title}」)。ヘッダーの札に「配信待ち」と出ます`, 7000, 'ok');
+    }
+  } catch (e){ S.toast(e.message, 0, 'err'); }
+  L.pending.delete(vid);
+  const r2 = L.rows.get(vid); if (r2) lvAct(r2);
+}
+/* 「開く」: その録画を ③ で開く(スタジオにまだ無ければ登録する。ヘッダーの札の「開く」と同じ) */
+async function lvOpen(vid){
+  const rec = lvRec(vid); if (!rec || L.pending.has(vid)) return;
+  L.pending.add(vid); const row = L.rows.get(vid); if (row) lvAct(row);
+  try {
+    let id = rec.video;
+    if (!id) id = (await S.live.register(rec.recorder, rec, { channel: (L.rows.get(vid) || { v: {} }).v.channel || '' })).video.id;   // 登録は1か所(core.js の Studio.live.register。チャンネル名も)
+    if (S.review && S.review.open) await S.review.open(id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+  } catch (e){ S.toast('録画を開けませんでした: ' + e.message, 0, 'err'); }
+  L.pending.delete(vid); const r2 = L.rows.get(vid); if (r2) lvAct(r2);
+}
+function wireLive(){
+  const box = $('#rkLive');
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    if (b.id === 'lvRefresh') return lvLoad();
+    if (b.dataset.lvopen) return S.openSettings(b.dataset.lvopen);
+    const r = b.closest('.lv-row'); if (!r) return;
+    if (b.classList.contains('lv-rec')) lvBegin(r.dataset.vid);
+    else if (b.classList.contains('lv-open')) lvOpen(r.dataset.vid);
+  });
+  box.addEventListener('change', e => {
+    const cb = e.target.closest('.lvagc'); if (!cb) return;
+    R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); renderAgChecks(); lvLoad();
+  });
+  $('#rkMode').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setTab(b.dataset.mode, true); });
+  S.on('step', st => { if (st === 'rank' && L.tab === 'live') lvResume(); else lvPause(); });
+  if (window.UIKit && UIKit.life){
+    UIKit.life.onLeave(reason => { if (reason !== 'blur') lvPause(); });   // 隣の窓へ移っただけ(blur)なら見えているので続ける
+    UIKit.life.onReturn(() => { if (L.tab === 'live' && S.step === 'rank') lvResume(); });
+  }
+  if (window.UIKit && UIKit.liveBadge && UIKit.liveBadge.onChange) UIKit.liveBadge.onChange(() => { if (L.rows.size) lvActs(); });
+}
+
 /* ================= 起動 ================= */
 S.rank = { mountRegistry, refresh: refreshMarks };
 S.onReady(async () => {
-  const pane = $('#paneRank'); pane.innerHTML = paneHtml();
+  const pane = $('#paneRank');
+  pane.innerHTML = `<div class="ui-seg rk-mode" id="rkMode" role="group" aria-label="探す配信"><button type="button" data-mode="past" aria-pressed="true">終わった配信</button><button type="button" data-mode="live" aria-pressed="false">配信中</button></div>` +
+    `<div id="rkPast">${paneHtml()}</div>` + liveHtml();
   loadAgPick();
   { const v = lsGet('view'), l = lsGet('limit'); if (v === 'ag' || v === 'all') R.view = v; if (LIMITS.includes(l)) R.limit = l; }
   const c = lsGet('cond');
@@ -422,6 +674,7 @@ S.onReady(async () => {
   S.on('step', st => { if (st === 'rank') refreshMarks(); });
   try { R.reg = await S.api('/api/rank/registry'); } catch (er){ S.showErr(er.message); }
   renderReg(); renderAgChecks();
+  wireLive(); setTab(lsGet('tab') === 'live' ? 'live' : 'past');   // 事務所の登録を読んでから(選んだ事務所で「配信中」を聞くため)
   await loadMarks(); paintRows();
 });
 })();

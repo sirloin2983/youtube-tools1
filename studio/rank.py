@@ -3,6 +3,7 @@
 HTTP は serve.py が受け持つ。ここは素の関数だけを公開する:
   get_registry() / put_registry(obj) / resolve(agency) / import_official_channels(agency)
   start_search(obj) / get_search(id) / cancel_search(id) / quota()
+  live_list(agencies)(配信中・これからの予定。① の「配信中」のタブ。2026-10-05)
 STUDIO_FAKE=1 のときは疑似API(ネットワークなし)で動く。
 """
 import hashlib
@@ -140,6 +141,10 @@ def fake_get(path, params):
         _fake_register(cid)
         start = int(params.get("pageToken") or 0)
         items = []
+        if params.get("maxResults") == LIVE_PAGE and not start:   # 「配信中」のタブの見回り(先頭の数本だけ): 疑似の配信中・予定を先頭に足す
+            items = [{"contentDetails": {"videoId": v["id"]}} for v in fake_live(cid)]
+            items += [{"contentDetails": {"videoId": fake_video(cid, n)["id"]}} for n in range(LIVE_PAGE - len(items))]
+            return {"items": items}
         for n in range(start, min(start + 50, 150)):
             v = fake_video(cid, n)
             items.append({"contentDetails": {"videoId": v["id"], "videoPublishedAt": v["publishedAt"]}})
@@ -160,7 +165,10 @@ def fake_get(path, params):
             item = {"id": vid, "snippet": {"title": v["title"], "description": "説明文 " + v["title"], "channelId": v["channelId"], "channelTitle": "ch-" + v["channelId"][2:8],
                                            "publishedAt": v["publishedAt"], "thumbnails": {"medium": {"url": "https://i.ytimg.com/vi/%s/mqdefault.jpg" % vid}}},
                     "statistics": {"viewCount": str(v["views"]), "likeCount": str(v["views"] // 30), "commentCount": str(v["views"] // 200)}, "contentDetails": det}
-            if v["live"]:
+            item["snippet"]["liveBroadcastContent"] = v.get("lbc", "none")
+            if v.get("lsd"):   # 疑似の配信中・予定(fake_live)
+                item["liveStreamingDetails"] = v["lsd"]
+            elif v["live"]:
                 st = datetime.strptime(v["publishedAt"], "%Y-%m-%dT%H:%M:%SZ")
                 item["liveStreamingDetails"] = {"actualStartTime": v["publishedAt"], "actualEndTime": (st + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")}
             items.append(item)
@@ -182,6 +190,31 @@ def _fake_register(cid):
     for n in range(150):
         v = fake_video(cid, n)
         _FAKE_INDEX[v["id"]] = v
+
+
+def fake_live(cid):
+    """チャンネル cid の疑似の配信中・予定(チャンネルごとに決まった形: 配信中 / 数時間後の予定 / 30時間後の予定(出さない) / メン限の配信中 / なし)。
+    時刻は今の「時」の頭から決める(同じ時間の中なら何度呼んでも同じ)"""
+    k = _h(cid + "/live", 6)
+    if k > 3:
+        return []
+    base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    vid = "L" + hashlib.sha1((cid + "/live").encode()).hexdigest()[:10]
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    words = ["雑談", "ゲーム", "歌枠", "マイクラ", "コラボ", "ホラー"]
+    title = "【%s】%s配信" % (words[_h(vid, 6)], words[_h(vid + "x", 6)])
+    if k in (0, 3):
+        st = base - timedelta(minutes=20 + _h(vid, 90))
+        lsd = {"actualStartTime": st.strftime(fmt), "concurrentViewers": str(500 + _h(vid + "c", 40000))}
+        lbc = "live"
+        if k == 3:
+            title = "【メン限】" + title
+    else:
+        st = base + timedelta(hours=1 + _h(vid, 5) if k == 1 else 30)
+        lsd, lbc = {"scheduledStartTime": st.strftime(fmt)}, "upcoming"
+    v = {"id": vid, "publishedAt": st.strftime(fmt), "title": title, "views": 0, "live": False, "channelId": cid, "dur": "P0D", "lbc": lbc, "lsd": lsd}
+    _FAKE_INDEX[vid] = v
+    return [v]
 
 
 # ---------- 登録(事務所・所属チャンネル) ----------
@@ -415,11 +448,11 @@ def validate_search(req):
             "minDur": min_dur, "agencies": ags}
 
 
-def _cached(key, fn):
+def _cached(key, fn, ttl=CACHE_TTL):
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
-        if hit and now - hit[0] < CACHE_TTL:
+        if hit and now - hit[0] < ttl:
             return hit[1]
     val = fn()
     with _cache_lock:
@@ -592,6 +625,178 @@ def _start_search(spec):
 
 def job_public(j):
     return {k: j[k] for k in ("id", "state", "phase", "progress", "error", "result")}
+
+
+# ---------- 配信中・これからの予定(① の「配信中」のタブ。2026-10-05) ----------
+# 取得元は検索と同じ YouTube Data API と、登録した事務所のチャンネル(新しい鍵・外部サービスは足さない)。
+# search(eventType=live)は 1 回 100 ユニットと高いので使わない。代わりに:
+#   見回り: 各チャンネルのアップロード一覧の先頭 LIVE_PAGE 本(playlistItems。1 チャンネル 1 ユニット)。配信中・予定の枠もアップロード一覧に入る。
+#           LIVE_SCAN_TTL(20 分)覚える = 新しく立った枠(ゲリラ配信など)が一覧に出るまで最大 20 分かかる
+#   状態:   見回りで見つけた動画を videos.list(50 本で 1 ユニット)で聞く。一度「配信でない(none)」と分かった動画は聞き直さない
+#           (アーカイブ・投稿動画が配信中に戻ることはない)ので、2 回目からは配信中・予定の分だけ = ふつう 1 ユニット
+#   結果は LIVE_TTL(60 秒)覚える(画面の「更新」・2 分ごとの読み直しで外へ聞きすぎない)
+LIVE_TTL = 60
+LIVE_SCAN_TTL = 1200
+LIVE_PAGE = 15            # アップロード一覧の先頭から見る本数(枠を立ててから投稿が続いても拾えるように少し多め。何本でも 1 ユニット)
+LIVE_AHEAD = 24 * 3600    # これからの予定は、24 時間以内に始まるものだけ
+LIVE_LATE = 6 * 3600      # 予定の時刻を過ぎても始まらない枠は、6 時間で出さなくする(立てたまま使わなかった枠)
+LIVE_TITLE_MAX, LIVE_NAME_MAX = 200, 100
+# 録画できない印: メンバー限定は API に項目が無いので題から(録画の部品はログインしないので取れない)。年齢制限は contentRating から
+MEMBERS_RE = re.compile(r"メン限|メンシ限|メンバー(?:シップ)?限定|members?[\s_-]*only|members?[\s_-]*limited", re.I)
+_live_none = {}           # 配信でないと分かった動画 ID(聞き直さない)
+_live_lock = threading.Lock()
+
+
+def parse_live_agencies(arg):
+    """?agencies=a,b(事務所 ID のカンマ区切り)→ ID のリスト。None(引数なし)= 全部"""
+    if arg is None:
+        return None
+    s = str(arg)[:1000]
+    out = []
+    for x in s.split(","):
+        x = SLUG_RE.sub("", x.strip().lower())[:30]
+        if x and x not in out:
+            out.append(x)
+    return out[:MAX_AGENCIES]
+
+
+def _live_scan(ch):
+    """チャンネルのアップロード一覧の先頭 LIVE_PAGE 本の動画 ID(LIVE_SCAN_TTL 覚える)"""
+    def run():
+        r = yt_get("playlistItems", {"part": "contentDetails", "playlistId": ch["uploads"], "maxResults": LIVE_PAGE})
+        return [str(it.get("contentDetails", {}).get("videoId") or "") for it in r.get("items", [])][:LIVE_PAGE]
+    return _cached(("lv-pl", ch["uploads"]), run, LIVE_SCAN_TTL)
+
+
+def _ms(dt):
+    return int(dt.timestamp() * 1000) if dt else 0
+
+
+def live_row(it, now):
+    """videos.list の1件 → 一覧の1行(配信中・24 時間以内の予定でなければ None)。外から来る文字は長さを切る"""
+    vid = str(it.get("id") or "")
+    if not re.match(r"^[\w-]{11}\Z", vid, re.ASCII):
+        return None
+    sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
+    kind = sn.get("liveBroadcastContent")
+    if kind == "live" and not ld.get("actualEndTime"):
+        start = parse_dt(ld.get("actualStartTime")) or parse_dt(ld.get("scheduledStartTime"))
+        try:
+            viewers = max(0, int(ld.get("concurrentViewers")))
+        except (TypeError, ValueError):
+            viewers = None   # 視聴者数を隠している配信
+    elif kind == "upcoming":
+        start = parse_dt(ld.get("scheduledStartTime"))
+        if start is None or not (now - LIVE_LATE <= start.timestamp() <= now + LIVE_AHEAD):
+            return None
+        viewers = None
+    else:
+        return None
+    title = str(sn.get("title") or "")[:LIVE_TITLE_MAX]
+    thumbs = sn.get("thumbnails") or {}
+    thumb = str((thumbs.get("medium") or thumbs.get("default") or {}).get("url") or "")
+    if not re.match(r"^https://([\w-]+\.)?ytimg\.com/[\w./%-]{1,300}\Z", thumb):   # 画面の CSP(img-src)に合うものだけ
+        thumb = ""
+    cid = str(sn.get("channelId") or "")
+    blocked = ""
+    if MEMBERS_RE.search(title):
+        blocked = "members"
+    elif ((it.get("contentDetails") or {}).get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
+        blocked = "age"
+    return {"id": vid, "title": title, "channel": str(sn.get("channelTitle") or "")[:LIVE_NAME_MAX], "channelId": cid if CHID_RE.match(cid) else "",
+            "state": "live" if kind == "live" else "upcoming", "start": _ms(start), "viewers": viewers, "thumb": thumb,
+            "url": "https://www.youtube.com/watch?v=" + vid, "blocked": blocked}
+
+
+def _live_fetch(ids):
+    """videos.list で状態を聞く(50 本ずつ)。配信でないと分かったものは _live_none に覚える"""
+    out = {}
+    for k in range(0, len(ids), 50):
+        part = ids[k:k + 50]
+        r = yt_get("videos", {"part": "snippet,contentDetails,liveStreamingDetails", "id": ",".join(part), "maxResults": 50})
+        got = set()
+        for it in r.get("items", []):
+            vid = str(it.get("id") or "")
+            got.add(vid)
+            ended = bool((it.get("liveStreamingDetails") or {}).get("actualEndTime"))
+            if (it.get("snippet") or {}).get("liveBroadcastContent") in ("live", "upcoming") and not ended:
+                out[vid] = it
+            else:
+                _live_none[vid] = True
+        for vid in part:
+            if vid not in got:   # 消えた・非公開になった動画も聞き直さない
+                _live_none[vid] = True
+    if len(_live_none) > 20000:
+        _live_none.clear()
+    return out
+
+
+def _live_build(ags, now):
+    q0 = _quota
+    chans, unresolved = [], 0
+    for a in ags:
+        for c in a["channels"]:
+            if c["status"] == "ok" and c["uploads"]:
+                chans.append((a, c))
+            else:
+                unresolved += 1
+    if not chans:
+        raise ApiError("no_channels", "対象の事務所に、解決済みの所属チャンネルがありません(「所属の登録」でチャンネルを登録し、「解決」してください)", 400)
+    warns, fails = [], []
+
+    def one(item):
+        a, c = item
+        try:
+            return a, _live_scan(c)
+        except ApiError as ex:
+            if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
+                raise
+            warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
+            fails.append(ex)
+            return a, []
+    with ThreadPoolExecutor(WORKERS * 2) as ex:   # 1 チャンネル 1 回の軽い問い合わせなので、検索より多く並べる(最初の1回の待ち時間を短く)
+        results = list(ex.map(one, chans))
+    if fails and len(fails) == len(chans):   # 1つも読めない(つながらないなど)は、空の一覧ではなく失敗として返す
+        raise fails[0]
+    owner = {}
+    for a, ids in results:
+        for vid in ids:
+            if vid and vid not in _live_none:
+                owner.setdefault(vid, a)
+    got = _live_fetch(list(owner))
+    live, upcoming = [], []
+    for vid, it in got.items():
+        row = live_row(it, now)
+        if not row:
+            continue
+        a = owner[vid]
+        row["agency"], row["agencyName"] = a["id"], a["name"]
+        (live if row["state"] == "live" else upcoming).append(row)
+    live.sort(key=lambda r: (-(r["viewers"] or 0), -r["start"], r["id"]))   # 視聴者数の多い順(隠している配信は後ろ)
+    upcoming.sort(key=lambda r: (r["start"], r["id"]))                     # 始まる時刻の早い順
+    return {"live": live, "upcoming": upcoming, "agencies": [{"id": a["id"], "name": a["name"]} for a in ags],
+            "warnings": warns[:30], "unresolved": unresolved, "channels": len(chans), "quota": _quota - q0, "checkedAt": int(now * 1000)}
+
+
+def live_list(agencies=None, now=None):
+    """配信中(視聴者数の多い順)と、24 時間以内に始まる予定(早い順)。agencies: 事務所 ID のリスト(None = 全部)。
+    LIVE_TTL 秒は同じ事務所の組み合わせの結果を返す(外へ聞かない)。同時に来たら1つずつ(2つの窓から開いても二重に聞かない)"""
+    want = parse_live_agencies(agencies) if not isinstance(agencies, list) else parse_live_agencies(",".join(str(x) for x in agencies))
+    reg = load_registry()
+    ags = [a for a in reg["agencies"] if want is None or a["id"] in want]
+    if not ags:
+        raise ApiError("no_agency", "対象の事務所を選んでください", 400)
+    key = ("lv", tuple(sorted(a["id"] for a in ags)))
+    with _live_lock:
+        t = time.time() if now is None else now
+        with _cache_lock:
+            hit = _cache.get(key)
+        if hit and t - hit[0] < LIVE_TTL:
+            return dict(hit[1], cached=True)
+        out = _live_build(ags, t)
+        with _cache_lock:
+            _cache[key] = (t, out)
+        return dict(out, cached=False)
 
 
 # ---------- serve.py から呼ぶ公開関数 ----------
