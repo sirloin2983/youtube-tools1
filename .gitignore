@@ -19,6 +19,7 @@ cut2resolve/packs/
 **/dataset/
 **/voices/
 **/transcripts/
+**/ytcaps/
 **/models/
 .whisper_models/
 **/config.json

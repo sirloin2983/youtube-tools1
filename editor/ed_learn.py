@@ -35,6 +35,7 @@ import wave
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
+import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(suggest_for_doc の yt。案 A1)
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -475,6 +476,9 @@ def load_feedback():
             a = d.get("alt")
             if isinstance(a, dict):   # 2つ目のエンジンの候補の採用・却下の数(学習の統計とは別。D1-b)
                 out["alt"] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
+            y = d.get("yt")
+            if isinstance(y, dict):   # YouTube の字幕の候補の採用・却下の数(同じく学習の統計とは別。案 A1)
+                out["yt"] = {k: int(y[k]) if isinstance(y.get(k), int) and not isinstance(y.get(k), bool) and y[k] >= 0 else 0 for k in ("acc", "rej")}
             return out
     except (OSError, ValueError):
         pass
@@ -489,13 +493,16 @@ def record_feedback(obj):
     items = []
     for x in (obj.get("items") or [])[:500]:
         if isinstance(x, dict) and all(isinstance(x.get(k), str) and 0 < len(x[k]) <= 60 for k in ("wrong", "right")):
-            items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"], x.get("tier") == "alt"))
+            # 候補の出どころ: tier "alt"(2つ目のエンジン)・"yt"(YouTube の字幕)と、2 つが一致してまとめた候補の also(例: alt の項目に ["yt"])
+            raw = [x.get("tier")] + (list(x["also"])[:4] if isinstance(x.get("also"), list) else [])
+            srcs = [t for t in dict.fromkeys(t for t in raw if isinstance(t, str)) if t in ("alt", "yt")]
+            items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"], srcs))
     with _fb_lock:
         fb = load_feedback()
-        for seg, w, r, alt in items:
-            # 2つ目のエンジンの候補(tier "alt")は学習の統計に入れない(学習の規則の確度を汚さない)。数だけ fb["alt"] に(当たり率を測る。D1-b)
-            st = fb.setdefault("alt", {"acc": 0, "rej": 0}) if alt else fb["stat"].setdefault("%s=>%s" % (w, r), {"acc": 0, "rej": 0})
-            st["acc" if action == "accept" else "rej"] += 1
+        for seg, w, r, srcs in items:
+            # 2つ目のエンジン(tier "alt")・YouTube の字幕(tier "yt")の候補は学習の統計に入れない(学習の規則の確度を汚さない)。数だけ fb["alt"]・fb["yt"] に(当たり率を測る。D1-b・A1)
+            for st in [fb.setdefault(t, {"acc": 0, "rej": 0}) for t in srcs] or [fb["stat"].setdefault("%s=>%s" % (w, r), {"acc": 0, "rej": 0})]:
+                st["acc" if action == "accept" else "rej"] += 1
             if action == "reject" and seg:
                 lst = fb["dismissed"].setdefault(tid, [])
                 key = "%s|%s=>%s" % (seg, w, r)
@@ -619,10 +626,17 @@ def suggest_for_doc(tid):
                 break
     alt_items, alt = ed_alt.alt_suggest(tid, doc, dismissed, items)
     alt_items = alt_items[:max(0, 1000 - len(items))]
+    learned = list(items)
     items += alt_items
     if alt:
         alt["count"] = len(alt_items)
-    return {"items": items, "rules": len(rules), "alt": alt}
+    # YouTube の字幕の候補(tier "yt"。案 A1): 学習 → alt → yt の順に優先。alt と同じ直しは alt の項目に also: ["yt"] を付けてまとめる(ed_ytcap.ytcap_suggest)
+    yt_items, yt = ed_ytcap.ytcap_suggest(tid, doc, dismissed, learned, alt_items)
+    yt_items = yt_items[:max(0, 1000 - len(items))]
+    items += yt_items
+    if yt:
+        yt["count"] = len(yt_items) + yt["agree"]
+    return {"items": items, "rules": len(rules), "alt": alt, "yt": yt}
 
 
 def auto_learned_replace(text, rules, fb):

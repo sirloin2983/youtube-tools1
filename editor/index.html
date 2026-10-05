@@ -970,6 +970,8 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
 .sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .sg.tt-sg-alt{border-style:dashed;border-color:var(--info);background:var(--info-soft)}.sg.tt-sg-alt .sgl{color:var(--info-ink)}
+.sg.tt-sg-yt{border-style:dotted;border-color:var(--line-strong);background:var(--panel)}.sg.tt-sg-yt .sgl{color:var(--ink-2)}
+.sg.tt-sg-both{border-style:solid;box-shadow:inset 0 0 0 1px var(--info)}
 .sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
 .sg button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
@@ -1335,6 +1337,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <label class="lag" style="margin-top:6px" title="「長い区間に文字が少ない(抜けの可能性)」の行だけ、前後を少し広げて、声の検出を標準・短い区切りで認識し直します。文字が増えて疑わしい印が消えたときだけ置き換えます(前の版は「以前の版に戻す」に残ります)"><input type="checkbox" id="optAutoRedo">終わったら、疑わしい所(長い区間に文字が少ない行)を自動で認識し直す</label>
       <label class="lag" style="margin-top:6px" title="kotoba-whisper は聞き取りにくい音声が苦手なので、認識し直すときは重いモデルで試します"><input type="checkbox" id="optRedoLarge" checked>kotoba で文字起こししたときは、認識し直しに large-v3 を使う</label>
       <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、同じ音声を別のエンジン(「文字をまとめて直す」の「別のエンジンの候補」で選んだもの)でも認識し、2つの結果が食い違う所の行に「別」の候補を出します。文字は自動では書き換えません。評価用の文字起こしでは聞きません"><input type="checkbox" id="optAutoAlt">終わったら、別のエンジンでも聞いて、食い違う所に候補を出す(試験中)</label>
+      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、元の配信(スタジオで書き出した切り抜き)の YouTube の字幕を取り、食い違う所の行に「YT」の候補を出します。取るのは字幕だけです。元の配信が分からない動画・評価用の文字起こしでは何もしません"><input type="checkbox" id="optAutoYtcap">終わったら、元の配信の YouTube の字幕と比べて、食い違う所に候補を出す(試験中)</label>
       <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、話者の判別(人数は自動・覚えている声で名前を付ける)を続けて行います。判別の部品(sherpa-onnx)が要ります。評価用の文字起こしは、このチェックによらず判別し、動画の入ったフォルダ・配信から名前の候補も付けます"><input type="checkbox" id="optAutoDiar">終わったら、話者を自動で判別する</label>
       <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
@@ -1610,6 +1613,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <span class="hint" id="altMsg"></span>
         <span class="hint">同じ音声を別のエンジンでも認識し、今の文字と食い違う所の行に「別」の候補を出します(採用・却下は行の候補で)。文字は自動では書き換えません。
           聞いている間も編集できます。評価用の文字起こしには出しません。</span></div>
+      <div class="fld"><span class="l">YouTube の字幕の候補(試験中)</span>
+        <div class="row"><button type="button" class="btn small" id="ytcapGo">字幕を取って比べる</button></div>
+        <span class="hint" id="ytcapMsg"></span>
+        <span class="hint">元の配信(スタジオで書き出した切り抜き)の YouTube の字幕(配信者が付けた字幕。無ければ自動字幕)を取り、今の文字と食い違う所の行に「YT」の候補を出します。
+          取るのは字幕だけで、動画・音声は送りません(公開の配信だけ)。文字は自動では書き換えません。別のエンジンの候補と同じ直しは「別・YT」にまとめます。評価用の文字起こしには出しません。</span></div>
       <div class="fld"><span class="l">長い行を分け直す(字幕の文字数に合わせる)</span>
         <div class="row"><label class="lag">向き <select id="rsOrient" style="width:auto"><option value="vertical">縦</option><option value="horizontal">横</option></select></label>
           <button type="button" class="btn small" id="rsGo">今の文書を分け直す</button><span class="hint" id="rsMsg"></span></div>

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(精度改善の計画 第2版 D1-b の「印の当たり率」)。
 
-    python dev/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
+    python dev/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt|yt|both] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json と、学習の記録 learn-feedback.json)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals\\alt\\<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
@@ -26,6 +26,14 @@
   その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
+- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。editor/ed_ytcap.py)。
+  保存してある配信ごとの字幕(作業データの ytcaps/<配信の ID>.json)を、文書の clip(スタジオの切り抜き)の範囲で切り出し(ytcap_doc_rows)、
+  editor の ytcap_diffs(alt_diffs + 切り抜きの境目を出さない)で候補を出し直す。**道具は通信しない**(字幕が保存されていない文書は数えない = noYt)。
+  エンジンごとの表は「youtube / auto(自動字幕)・manual(配信者の字幕)」。採否の記録は学習の記録の yt。
+  both = alt と yt を別々に出し、両方がある文書で 2 つが同じ候補(同じ行・同じ位置・同じ直し)を出した所の当たり率(一致)も出す(一致は当たりやすいかを見るため)
+- 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(editor/roster.py の find_in_text)がある所の、
+  候補の当たり / 外れ / 別の直しと、人の直しの拾えた率を、全体とは別に出す(names)
+- --include-eval: 評価用の文書も測る(読むだけ。候補は画面に出さない決まりのまま・測るだけなら定点の正解は寄らない。評価用でしか確かめ済みの文書が無いときに)
 """
 import argparse
 import bisect
@@ -54,7 +62,9 @@ DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 ENV0 = dict(os.environ)            # 作業データの場所を決めるための環境変数(serve.py を読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになるので、その前の値)
 UNKNOWN_LABELS = {"removed": "人の行が消された", "notProofed": "校正済みでない", "tooLong": "まとまりが長すぎる", "misaligned": "位置が合わない"}
 STAT_KEYS = ("long", "cross", "mostly", "notation", "edge")
-STAT_LABELS = {"long": "長すぎる", "cross": "行をまたぐ", "mostly": "行の半分以上が違う", "notation": "表記だけの違い", "edge": "窓の境目"}
+STAT_LABELS = {"long": "長すぎる", "cross": "行をまたぐ", "mostly": "行の半分以上が違う", "notation": "表記だけの違い", "edge": "窓の境目", "clipEdge": "切り抜きの境目"}
+SOURCES = ("alt", "yt", "both")
+SOURCE_LABELS = {"alt": "2つ目のエンジンの候補(札「別」)", "yt": "YouTube の字幕の候補(札「YT」)"}
 
 _SERVE = None
 
@@ -86,6 +96,21 @@ def locate(data_dir=None):
     return datadir.locate("transcribe", REPO, env)
 
 
+def read_ytcache(S, root, vid):
+    """作業データの ytcaps/<配信の ID>.json(配信ごとの YouTube の字幕。形が違えば None)。editor の ytcap_load は DATA_DIR(一時フォルダ)を見るので、ここで読む"""
+    if not S.YTCAP_VID_RE.match(str(vid or "")):
+        return None
+    d = read_json(os.path.join(root, "ytcaps", vid + ".json"), None, S.YTCAP_MAX_CACHE_BYTES)
+    return d if S.ytcap_valid_cache(d, vid) else None
+
+
+def name_checker(S):
+    """名簿の呼び名が文字にあるか(editor/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
+    import roster
+    r = roster.load(S.ROSTER)
+    return lambda text: bool(roster.find_in_text(text, r))
+
+
 def read_alt(S, tdir, tid):
     """<id>.alt.json(形が違えば None)。editor の read_alt は DATA_DIR(一時フォルダ)を見るので、ここで読む"""
     d = read_json(os.path.join(tdir, tid + ".alt.json"), None, S.MAX_ALT_BYTES)
@@ -94,13 +119,13 @@ def read_alt(S, tdir, tid):
     return d
 
 
-def read_feedback(S, root):
-    """学習の記録(learn-feedback.json)の alt = {acc, rej} か None。読み方は editor の load_feedback(置き場所を一時的に差し替えて呼ぶ)"""
+def read_feedback(S, root, key="alt"):
+    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所を一時的に差し替えて呼ぶ)"""
     import ed_state
     old = ed_state.FEEDBACK
     ed_state.FEEDBACK = os.path.join(root, "learn-feedback.json")
     try:
-        return S.load_feedback().get("alt")
+        return S.load_feedback().get(key)
     finally:
         ed_state.FEEDBACK = old
 
@@ -229,17 +254,18 @@ def judge_candidate(S, g, cand_k, cand):
     return "other", "", (a, b)
 
 
-def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
+def judge_doc(S, doc, alt, since_ms=None, until_ms=None, diff_fn=None, has_name=None):
     """1つの文書(評価用でない・original と segments がある)と alt.json から、候補の判定と人の直しの拾えた数を出す。ファイルには触らない
     -> {"cands": [{"status", "why", "wrong", "right"}](時期の範囲の中のまとまりだけ), "fixes": [{"short", "covered", "hit"}], "stats": alt_diffs の数えた理由,
-        "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}"""
+        "outOfRange": 時期の外で数えなかった候補の数, "inRange": 範囲の中のまとまりが 1 つでもあったか, "noSub": {"rows": noSub の行の数, "candidates": その時間に出ていた候補の数(数えない)}}
+    diff_fn = 候補の出し方(既定 alt_diffs。yt は ytcap_diffs)。has_name = 文字に名簿の呼び名があるか(候補・直しの "name")。候補には機械の行の番号 row と位置 i も付ける(alt と yt の一致を見る)"""
     orig_all = clean_rows(doc.get("original"))
     segs = clean_rows(doc.get("segments"), with_text=False)
     # 候補は機械の行すべてで出す(alt_diffs は窓の境目の行を特別に扱うので、行を先に外すと別の行の候補が消える)。そのあとで、字幕に出さない行(noSub)の時間の機械の行の候補は
     # 当たり率にも拾えた率にも入れない(その行は字幕に出ない = 直す必要がない。editor の split_nosub)。数だけ別に数える
     orig, segs, ns_orig, ns_segs = S.split_nosub(orig_all, segs)
     rows = [{"id": "o%d" % k, "start": o["start"], "end": o["end"], "text": o["text"], "proofed": False} for k, o in enumerate(orig_all)]
-    cands, stats = S.alt_diffs(rows, alt.get("rows") or [])
+    cands, stats = (diff_fn or S.alt_diffs)(rows, alt.get("rows") or [])
     main_idx = {id(o): j for j, o in enumerate(orig)}      # 全部の行の番号 → 本体の行の番号(noSub の時間の行は無い)
     ns_cands = 0
     doc_t = num(doc.get("updatedAt")) or 0
@@ -251,6 +277,15 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
         return max(ts) if g.proofed and ts else doc_t
     out = {"cands": [], "fixes": [], "stats": dict(stats), "outOfRange": 0, "inRange": False, "noSub": {"rows": len(ns_segs), "candidates": 0}}
     by_group = {}   # まとまり -> [(a, b, 判定)]
+    named = {}      # まとまり -> 名簿の呼び名があるか(人の最終。無ければ機械の文字)
+
+    def group_named(gi):
+        if has_name is None:
+            return False
+        if gi not in named:
+            g = groups[gi]
+            named[gi] = has_name(g.final_text or g.orig_text)
+        return named[gi]
     for cand in cands:
         k = main_idx.get(id(orig_all[int(cand["seg"][1:])]))
         if k is None:
@@ -265,7 +300,7 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
             continue
         out["inRange"] = True
         status, why, span = judge_candidate(S, g, k, cand)
-        out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"]})
+        out["cands"].append({"status": status, "why": why, "wrong": cand["wrong"], "right": cand["right"], "row": k, "i": cand["i"], "name": group_named(gi)})
         if span:
             by_group.setdefault(gi, []).append((span[0], span[1], status))
     out["noSub"]["candidates"] = ns_cands
@@ -280,7 +315,7 @@ def judge_doc(S, doc, alt, since_ms=None, until_ms=None):
                 continue
             hits = [st for a, b, st in by_group.get(gi, []) if (a < i2 and i1 < b) or (i1 == i2 and a <= i1 <= b)]
             out["fixes"].append({"short": (i2 - i1) <= S.ALT_MAX_CHARS and (j2 - j1) <= S.ALT_MAX_CHARS,
-                                 "covered": bool(hits), "hit": "hit" in hits})
+                                 "covered": bool(hits), "hit": "hit" in hits, "name": group_named(gi)})
     return out
 
 
@@ -296,6 +331,7 @@ class Agg:
         self.stats = {k: 0 for k in STAT_KEYS}
         self.fix = {"total": 0, "covered": 0, "coveredHit": 0, "short": 0, "shortCovered": 0, "shortHit": 0}
         self.nosub = {"docs": 0, "rows": 0, "candidates": 0}   # 字幕に出さない行(数に入れない。件数だけ)
+        self.names = {"hit": 0, "miss": 0, "other": 0, "unknown": 0, "fixes": 0, "covered": 0, "coveredHit": 0}   # 名簿の呼び名がある所だけ
 
     def add(self, r):
         self.docs += 1
@@ -304,8 +340,10 @@ class Agg:
             self.status[c["status"]] += 1
             if c["status"] == "unknown":
                 self.why[c["why"]] = self.why.get(c["why"], 0) + 1
-        for k in STAT_KEYS:
-            self.stats[k] += r["stats"].get(k, 0)
+            if c.get("name"):
+                self.names[c["status"]] += 1
+        for k, v in r["stats"].items():   # yt は切り抜きの境目 clipEdge も
+            self.stats[k] = self.stats.get(k, 0) + v
         ns = r.get("noSub") or {}
         if ns.get("rows"):
             self.nosub["docs"] += 1
@@ -316,6 +354,10 @@ class Agg:
             f["total"] += 1
             f["covered"] += x["covered"]
             f["coveredHit"] += x["hit"]
+            if x.get("name"):
+                self.names["fixes"] += 1
+                self.names["covered"] += x["covered"]
+                self.names["coveredHit"] += x["hit"]
             if x["short"]:
                 f["short"] += 1
                 f["shortCovered"] += x["covered"]
@@ -331,7 +373,13 @@ class Agg:
                            "coveredHit": f["coveredHit"], "hitRateOfCovered": rate(f["coveredHit"], f["covered"]),
                            "shortFixes": f["short"], "shortCovered": f["shortCovered"], "shortCoveredRate": rate(f["shortCovered"], f["short"]),
                            "shortHit": f["shortHit"], "shortHitRateOfCovered": rate(f["shortHit"], f["shortCovered"])},
-                "skipped": dict(self.stats), "noSub": dict(self.nosub)}
+                "skipped": dict(self.stats), "noSub": dict(self.nosub), "names": self.names_result()}
+
+    def names_result(self):
+        n = self.names
+        judged = n["hit"] + n["miss"] + n["other"]
+        return dict(n, candidates=judged + n["unknown"], judged=judged, hitRate=rate(n["hit"], judged),
+                    coveredRate=rate(n["covered"], n["fixes"]), hitRateOfCovered=rate(n["coveredHit"], n["covered"]))
 
 
 def engine_key(alt):
@@ -340,39 +388,84 @@ def engine_key(alt):
 
 # ---------------------------------------------------------------- 全体
 
-def evaluate(data_dir=None, since=None, until=None):
+def evaluate(data_dir=None, since=None, until=None, source="alt", include_eval=False):
+    """source = alt(既定。今までと同じ結果)・yt・both(alt と yt を別々に + 2 つが同じ候補を出した所 agree)"""
+    if source not in SOURCES:
+        raise SystemExit("--source は %s のどれかです: %r" % ("・".join(SOURCES), source))
     root = locate(data_dir)       # serve.py を読み込む前に決める(読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになる)
     S = get_serve()
+    if source != "both":
+        res = evaluate_one(S, root, source, since, until, include_eval)
+        res.pop("_per")
+        return res
+    a = evaluate_one(S, root, "alt", since, until, include_eval)
+    y = evaluate_one(S, root, "yt", since, until, include_eval)
+    agree = Agg()
+    for tid in sorted(set(a["_per"]) & set(y["_per"])):
+        keys = {(c["row"], c["i"], c["wrong"], c["right"]) for c in y["_per"][tid]["cands"]}
+        agree.add({"cands": [c for c in a["_per"][tid]["cands"] if (c["row"], c["i"], c["wrong"], c["right"]) in keys], "fixes": [], "stats": {}})
+    a.pop("_per")
+    y.pop("_per")
+    meta = {"schema": SCHEMA, "source": "both", "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": git_rev(), "dataDir": root}
+    return {"meta": meta, "alt": a, "yt": y, "agree": agree.result()}
+
+
+def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
+    """1 つの出どころ(alt / yt)の測定。結果の _per = 文書ごとの judge_doc の結果(both の一致に使う。evaluate が外す)"""
     tdir = os.path.join(root, "transcripts")
     since_ms = day_ms(since) if since else None
     until_ms = day_ms(until, end=True) if until else None
-    total, by_engine, by_doc = Agg(), {}, []
+    total, by_engine, by_doc, per = Agg(), {}, [], {}
     skipped = {"evalSet": 0, "noOriginal": 0, "broken": 0, "outOfRange": 0}
+    if source == "yt":
+        skipped.update(noClip=0, noCaptions=0)
+    has_name = name_checker(S)
     no_alt = out_cands = 0
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
         if not DOC_RE.match(name):
             continue
         tid = name[:-5]
-        if not os.path.isfile(os.path.join(tdir, tid + ".alt.json")):
-            no_alt += 1
-            continue
-        doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
-        alt = read_alt(S, tdir, tid)
-        if not isinstance(doc, dict) or alt is None:
-            skipped["broken"] += 1
-            continue
-        if doc.get("evalSet") is True:
+        if source == "alt":
+            if not os.path.isfile(os.path.join(tdir, tid + ".alt.json")):
+                no_alt += 1
+                continue
+            doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
+            alt = read_alt(S, tdir, tid)
+            if not isinstance(doc, dict) or alt is None:
+                skipped["broken"] += 1
+                continue
+            key, diff_fn = engine_key(alt), None
+        else:   # yt: 文書の clip の配信の、保存してある字幕(通信しない)
+            doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
+            if not isinstance(doc, dict):
+                skipped["broken"] += 1
+                continue
+            try:
+                vid = S.ytcap_doc_range(doc)["videoId"]
+            except S.ApiError:
+                skipped["noClip"] += 1
+                continue
+            cache = read_ytcache(S, root, vid)
+            if cache is None:
+                no_alt += 1
+                continue
+            if cache["kind"] == "none":
+                skipped["noCaptions"] += 1
+                continue
+            alt = {"rows": S.ytcap_doc_rows(doc, cache)[0]}
+            key, diff_fn = "youtube / %s" % cache["kind"], S.ytcap_diffs
+        if doc.get("evalSet") is True and not include_eval:
             skipped["evalSet"] += 1
             continue
         if not isinstance(doc.get("original"), list) or not doc["original"] or not isinstance(doc.get("segments"), list):
             skipped["noOriginal"] += 1
             continue
-        r = judge_doc(S, doc, alt, since_ms, until_ms)
+        r = judge_doc(S, doc, alt, since_ms, until_ms, diff_fn, has_name)
         out_cands += r["outOfRange"]
         if not r["inRange"]:
             skipped["outOfRange"] += 1
             continue
-        key = engine_key(alt)
+        per[tid] = r
         total.add(r)
         by_engine.setdefault(key, Agg()).add(r)
         one = Agg()
@@ -382,27 +475,31 @@ def evaluate(data_dir=None, since=None, until=None):
                        "miss": o["miss"], "other": o["other"], "unknown": o["unknown"], "hitRate": o["hitRate"]})
     res = total.result()
     few = res["judged"] < FEW_CANDS
-    fb = read_feedback(S, root)
+    fb = read_feedback(S, root, source)
     notes = []
     if skipped["noOriginal"]:
         notes.append("機械の最初の出力(original)が無い文書が %d 件あります(測っていません)" % skipped["noOriginal"])
     if skipped["evalSet"]:
-        notes.append("評価用なのに alt.json がある文書が %d 件あります(測っていません)" % skipped["evalSet"])
+        notes.append(("評価用なのに alt.json がある文書が %d 件あります(測っていません)" if source == "alt" else
+                      "評価用の文書 %d 件は測っていません(--include-eval で測れます。読むだけ)") % skipped["evalSet"])
+    if source == "yt":
+        notes.append("YouTube の字幕は、道具からは取りません(画面の「字幕を取って比べる」で保存した ytcaps/ だけ)。保存が無い文書 %d 件・元の配信が分からない文書 %d 件・字幕が無い配信の文書 %d 件"
+                     % (no_alt, skipped["noClip"], skipped["noCaptions"]))
     if skipped["broken"]:
         notes.append("読めない文書・alt.json が %d 件あります" % skipped["broken"])
     if since or until:
         notes.append("採否の記録(採用・却下の数)は時期で絞れません(記録に時刻が無い)")
     notes.append("人は候補につられる(迷うと直さずに通す)ので、外れ・別の直しは少なめ(当たりは甘め)に出ます。校正済みでないまとまりは「分からない」にして率に入れていません")
     notes.append("機械の最初の出力(original)は、再認識のあとは再認識後のものです")
-    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": git_rev(), "dataDir": root,
-            "docs": total.docs, "noAlt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
+    meta = {"schema": SCHEMA, "source": source, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": include_eval, "git": git_rev(), "dataDir": root,
+            "docs": total.docs, "noAlt" if source == "alt" else "noYt": no_alt, "candidates": res["candidates"], "judged": res["judged"], "few": few,
             "fewNote": "まだ少ない(参考): 判定できた候補が %d 件(%d 件未満)。これでエンジンや既定を決めない" % (res["judged"], FEW_CANDS) if few and total.docs else "",
             "skipped": skipped, "outOfRangeCandidates": out_cands, "notes": notes}
     feedback = None
     if fb:
         feedback = {"accepted": fb["acc"], "rejected": fb["rej"], "acceptRate": rate(fb["acc"], fb["acc"] + fb["rej"])}
     return {"meta": meta, "feedback": feedback, "total": res,
-            "byEngine": {k: v.result() for k, v in sorted(by_engine.items())}, "byDoc": by_doc}
+            "byEngine": {k: v.result() for k, v in sorted(by_engine.items())}, "byDoc": by_doc, "_per": per}
 
 
 def git_rev():
@@ -429,27 +526,45 @@ def print_agg(title, r, indent="  "):
     ns = r.get("noSub") or {}
     if ns.get("rows"):
         print("%s  字幕に出さない(noSub)の行 %d(文書 %d 件)・その時間に出ていた候補 %d 件は数に入れていません" % (indent, ns["rows"], ns["docs"], ns["candidates"]))
+    nm = r.get("names") or {}
+    if nm.get("candidates") or nm.get("fixes"):
+        print("%s  名簿の呼び名がある所: 候補 %d(判定 %d)当たり %d(%s)・外れ %d・別の直し %d   人の直し %d か所 → 候補あり %d(%s)・当たり %d"
+              % (indent, nm["candidates"], nm["judged"], nm["hit"], pct(nm["hitRate"]).strip(), nm["miss"], nm["other"],
+                 nm["fixes"], nm["covered"], pct(nm["coveredRate"]).strip(), nm["coveredHit"]))
     sk = r["skipped"]
-    print("%s  alt_diffs が出さなかった数: %s" % (indent, "・".join("%s %d" % (STAT_LABELS[k], sk[k]) for k in STAT_KEYS)))
+    print("%s  出さなかった数: %s" % (indent, "・".join("%s %d" % (STAT_LABELS.get(k, k), n) for k, n in sk.items())))
 
 
 def print_report(res):
     m = res["meta"]
+    if m.get("source") == "both":
+        for k in ("alt", "yt"):
+            print_report(res[k])
+            print()
+        a = res["agree"]
+        print("[2 つが同じ候補を出した所(alt と yt の一致。両方がある文書 %d 件)]" % a["docs"])
+        print_agg("一致", a)
+        return
+    src = m.get("source") or "alt"
+    tag = "「別」" if src == "alt" else "「YT」"
     rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
-    print("2つ目のエンジンの候補の当たり率の測定(%s)  文書 %d 件・候補 %d 件(判定できた %d 件)  作業データ: %s" % (rng, m["docs"], m["candidates"], m["judged"], m["dataDir"]))
+    print("%sの当たり率の測定(%s)  文書 %d 件・候補 %d 件(判定できた %d 件)  作業データ: %s" % (SOURCE_LABELS[src], rng, m["docs"], m["candidates"], m["judged"], m["dataDir"]))
     fb = res["feedback"]
     if fb:
-        print("採否の記録(画面で「別」の候補を採用・却下した数): 採用 %d・却下 %d  採用率 %s" % (fb["accepted"], fb["rejected"], pct(fb["acceptRate"]).strip()))
+        print("採否の記録(画面で%sの候補を採用・却下した数): 採用 %d・却下 %d  採用率 %s" % (tag, fb["accepted"], fb["rejected"], pct(fb["acceptRate"]).strip()))
     else:
-        print("採否の記録(画面で「別」の候補を採用・却下した数): まだありません")
+        print("採否の記録(画面で%sの候補を採用・却下した数): まだありません" % tag)
     if m["fewNote"]:
         print("★ " + m["fewNote"])
     if not m["docs"]:
-        print("(対象なし: 評価用でない文書で、2つ目のエンジンで聞いた結果(alt.json)がある文書がありません。alt.json なしの文書 %d 件)" % m["noAlt"])
+        if src == "alt":
+            print("(対象なし: 評価用でない文書で、2つ目のエンジンで聞いた結果(alt.json)がある文書がありません。alt.json なしの文書 %d 件)" % m["noAlt"])
+        else:
+            print("(対象なし: 元の配信の YouTube の字幕を保存してある文書がありません。保存なしの文書 %d 件)" % m["noYt"])
     else:
         print_agg("全部", res["total"])
         if len(res["byEngine"]) > 0:
-            print("\n  [2つ目のエンジンごと]")
+            print("\n  [2つ目のエンジンごと]" if src == "alt" else "\n  [字幕の種類ごと(auto = 自動字幕・manual = 配信者の字幕)]")
             for k, r in res["byEngine"].items():
                 print_agg(k, r, "   ")
         print("\n  [文書ごと(当たり率が低い順に10件)]")
@@ -477,8 +592,10 @@ def main(argv=None):
     p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までだけ")
     p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/alt/<日時>.json に残す")
     p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    p.add_argument("--source", choices=SOURCES, default="alt", help="候補の出どころ: alt(既定。2つ目のエンジン)・yt(元の配信の YouTube の字幕。保存してある ytcaps/ だけ・通信しない)・both")
+    p.add_argument("--include-eval", action="store_true", help="評価用の文書も測る(読むだけ)")
     args = p.parse_args(argv)
-    res = evaluate(args.data_dir, args.since, args.until)
+    res = evaluate(args.data_dir, args.since, args.until, args.source, args.include_eval)
     print_report(res)
     if args.json:
         print("\n保存: " + save(res, res["meta"]["dataDir"]))
