@@ -21,6 +21,7 @@ UNIT = [
     ("home test_mount", [PY, "-m", "unittest", "home/tests/test_mount.py"], False),
     ("契約テスト", [PY, "-m", "unittest", "dev/tests/test_resolve_pack_contract.py"], False),
     ("eval_asr", [PY, "-m", "unittest", "dev/tests/test_eval_asr.py"], False),
+    ("eval_alt", [PY, "-m", "unittest", "dev/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt・YouTube の字幕 yt)
     ("ui-kit の写し", [PY, "-m", "unittest", "dev/tests/test_ui_kit_sync.py"], False),
 ]
 def find_node():

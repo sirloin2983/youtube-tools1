@@ -35,6 +35,7 @@ import wave
 from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
+import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
@@ -49,7 +50,7 @@ _order = []
 _jobs_lock = threading.Lock()
 _queue = queue.PriorityQueue()   # (優先度, 通し番号, jid)。話者判別は文字起こしの待機列を追い越せるよう優先度を分ける(実行中のジョブを中断はしない。次の空きで割り込む)
 _seq_counter = itertools.count()
-JOB_PRIORITY = {"diarize": 0, "alt": 2}   # 未指定(transcribe/retranscribe/abtest 等)は既定の1。数値が小さいほど先に実行(alt = 2つ目のエンジンで聞く = 普通の文字起こしより後。D1-b)
+JOB_PRIORITY = {"diarize": 0, "alt": 2, "ytcap": 2}   # 未指定(transcribe/retranscribe/abtest 等)は既定の1。数値が小さいほど先に実行(alt = 2つ目のエンジンで聞く = 普通の文字起こしより後。D1-b)
 _models = {}
 _model_lock = threading.Lock()
 _model_used = [0.0]   # 最後にモデルを使った時刻(ジョブの終わりにも更新する)
@@ -557,6 +558,8 @@ def validate_job(req):
             "autoRedo": req.get("autoRedo") is True, "redoLarge": req.get("redoLarge") is not False,
             # 終わったら 2つ目のエンジンでも聞く(D1-b)。要求に無ければ(まとめて実行・古い画面)保存した設定 autoAlt
             "autoAlt": (req["autoAlt"] if isinstance(req.get("autoAlt"), bool) else ed_learn.load_settings().get("autoAlt") is True) and not ev,
+            # 終わったら元の配信の YouTube の字幕と比べる(案 A1)。要求に無ければ保存した設定 autoYtcap。元の配信が分からない文書は ytcap_after_transcribe が黙って飛ばす
+            "autoYtcap": (req["autoYtcap"] if isinstance(req.get("autoYtcap"), bool) else ed_learn.load_settings().get("autoYtcap") is True) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
             "autoDiarize": req["autoDiarize"] if isinstance(req.get("autoDiarize"), bool) else ed_learn.load_settings().get("autoDiarize") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
@@ -567,7 +570,7 @@ def validate_job(req):
 ACTIVE_STATES = ("queued", "loading", "extracting", "running")
 EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo", "voice-learn"), "voice-learn": ("diarize", "voice-learn"),
              "retranscribe": ("diarize", "retranscribe", "redo"),
-             "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",), "alt": ("alt",)}   # 同じ文字起こしに同時に入れない組み合わせ
+             "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",), "alt": ("alt",), "ytcap": ("ytcap",)}   # 同じ文字起こしに同時に入れない組み合わせ
 
 
 def add_job(spec, kind="transcribe"):
@@ -580,7 +583,7 @@ def add_job(spec, kind="transcribe"):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
             raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize", "alt") else None, "error": None,
+        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize", "alt", "ytcap") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
         _jobs[jid] = job
         _order.append(jid)
@@ -1426,7 +1429,7 @@ def dict_version(spec):
             out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))))
         if spec.get("autoLearned"):
             rules = ed_learn.learn_rules()
-            out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k != "alt"}},
+            out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
                                                    ensure_ascii=False, sort_keys=True))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 記録のための値なので、作れなくても認識は止めない
         ed_state.log.warning("辞書の版を作れませんでした: %s", e)
@@ -1704,6 +1707,8 @@ def run_job(job):
         return ed_relink.run_normalize(job)
     if job.get("kind") == "alt":   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b。ed_alt)
         return ed_alt.run_alt(job)
+    if job.get("kind") == "ytcap":   # 元の配信の YouTube の字幕を取って <id>.ytcap.json に(文書は書き換えない。案 A1。ed_ytcap)
+        return ed_ytcap.run_ytcap(job)
     spec = job["spec"]
     # 未確認の評価用の作り直し(ed_evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
     if spec.get("evalRedo") and ed_evalbatch.eb_redo_skip_at_start(job):
@@ -1800,6 +1805,7 @@ def run_job(job):
             except ed_state.ApiError as e:
                 job["warnings"] = list(job.get("warnings") or []) + ["疑わしい所の認識し直しを始められませんでした: " + e.message]
         ed_alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
+        ed_ytcap.ytcap_after_transcribe(job, spec, tid)   # 設定 autoYtcap: 元の配信の YouTube の字幕と比べて候補を出す(既定オフ・評価用と元の配信が分からない文書は黙って飛ばす。A1)
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
     except ed_state.ApiError as e:

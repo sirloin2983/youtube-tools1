@@ -46,8 +46,12 @@ function sugList(s){ return S.sug.filter(x => x.seg === s.id && s.text.includes(
 function sugHTML(s){
   return sugList(s).map(x => {
     const alt = x.tier === 'alt';   // 2つ目のエンジンとの食い違い(D1-b)。学習の候補と見分けられるように札「別」と色
-    const tip = alt ? `別のエンジン(${S.alt ? S.alt.label : ''})では、こう聞こえた候補です。聞いて合っていれば採用してください` : `この置換は ${x.pos}回 直されています / そのまま残した例 ${x.neg}件`;
-    return `<span class="sg ${x.tier === 'high' ? 'high' : ''}${alt ? ' tt-sg-alt' : ''}" title="${esc(tip)}"><span class="sgl">${x.tier === 'high' ? '確度高' : alt ? '別' : '候補'}</span>「${esc(x.wrong)}」→「${esc(x.right)}」<button type="button" data-act="sgok" data-n="${x.n}">採用</button><button type="button" data-act="sgno" data-n="${x.n}">却下</button></span>`;
+    const yt = x.tier === 'yt' || (alt && (x.also || []).includes('yt')), both = alt && yt;   // YouTube の字幕(A1)。alt と同じ直しは 1 つにまとめて札「別・YT」
+    const ytName = ytLabel();
+    const tip = both ? `別のエンジン(${S.alt ? S.alt.label : ''})と${ytName}の両方が、こう聞こえた候補です(2つが一致)。聞いて合っていれば採用してください`
+      : alt ? `別のエンジン(${S.alt ? S.alt.label : ''})では、こう聞こえた候補です。聞いて合っていれば採用してください`
+      : yt ? `${ytName}では、こう書かれている候補です。聞いて合っていれば採用してください` : `この置換は ${x.pos}回 直されています / そのまま残した例 ${x.neg}件`;
+    return `<span class="sg ${x.tier === 'high' ? 'high' : ''}${alt ? ' tt-sg-alt' : ''}${x.tier === 'yt' ? ' tt-sg-yt' : ''}${both ? ' tt-sg-both' : ''}" title="${esc(tip)}"><span class="sgl">${x.tier === 'high' ? '確度高' : both ? '別・YT' : alt ? '別' : yt ? 'YT' : '候補'}</span>「${esc(x.wrong)}」→「${esc(x.right)}」<button type="button" data-act="sgok" data-n="${x.n}">採用</button><button type="button" data-act="sgno" data-n="${x.n}">却下</button></span>`;
   }).join('');
 }
 
@@ -64,12 +68,12 @@ async function loadSuggest(){
   const id = S.docId; if (!id) return;
   let r; try { r = await api('/api/suggest?id=' + encodeURIComponent(id)); } catch { return; }
   if (S.docId !== id) return;
-  S.sug = (r.items || []).map(x => ({ ...x, n: ++sugSeq })); S.alt = r.alt || null; renderChips(); renderAlt();
+  S.sug = (r.items || []).map(x => ({ ...x, n: ++sugSeq })); S.alt = r.alt || null; S.yt = r.yt ? { ...r.yt, tid: id } : null; renderChips(); renderAlt();
 }
 
 function sugFeedback(action, xs){
   const tid = S.docId; if (!tid || !xs.length) return;
-  api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right, ...(x.tier === 'alt' ? { tier: 'alt' } : {}) })) } }).catch(() => {});
+  api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right, ...(x.tier === 'alt' || x.tier === 'yt' ? { tier: x.tier } : {}), ...(Array.isArray(x.also) && x.also.length ? { also: x.also } : {}) })) } }).catch(() => {});
 }
 
 /* ---------- 2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。サーバーは ed_alt.py) ---------- */
@@ -94,6 +98,39 @@ function renderAlt(){
     : why ? why
     : S.alt ? `${S.alt.label} の結果(${UIKit.fmt && UIKit.fmt.ago ? UIKit.fmt.ago(S.alt.at) : ''}): 食い違いの候補 ${n} 件`
     : 'まだ別のエンジンで聞いていません';
+  renderYtcap();   // 下の「YouTube の字幕の候補」も同じ時に描き直す(ジョブの進み・候補の読み直し・設定の読み直し)
+}
+
+/* ---------- 元の配信の YouTube の字幕の候補(案 A1。サーバーは ed_ytcap.py) ---------- */
+
+function ytcapJob(){ return S.doc ? S.jobs.find(j => j.kind === 'ytcap' && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
+
+function ytLabel(){ const y = S.yt && S.yt.tid === S.docId ? S.yt : null; return y && y.kind === 'manual' ? 'YouTube の字幕(配信者が付けたもの)' : 'YouTube の自動字幕'; }
+
+/* 押せない理由(サーバーの ytcap_spec と同じ順。元の配信 = スタジオで書き出した切り抜きの clip の YouTube の配信) */
+function ytcapWhy(d){
+  if (!d) return '';
+  if (d.evalSet) return '評価用の文字起こしには出しません(定点の正解が字幕に寄らないように)';
+  const src = d.clip && d.clip.source;
+  if (!src || src.kind !== 'youtube' || !/^[\w-]{11}$/.test(src.videoId || '')) return '元の配信が分からない文書です(スタジオで書き出した切り抜きだけ使えます)';
+  if (!(d.segments || []).some(s => (s.text || '').trim())) return '先に文字起こしをしてください';
+  const t = S.tools && S.tools.ytcap;
+  return t && !t.ready ? (t.why || 'yt-dlp が見つかりません') : '';
+}
+
+/* 「文字をまとめて直す」の「YouTube の字幕の候補」: 始めるボタン・今の結果(取れなかった理由も) */
+function renderYtcap(){
+  const b = $('#ytcapGo'), msg = $('#ytcapMsg'); if (!b) return;
+  const d = S.doc, j = ytcapJob(), why = ytcapWhy(d), y = S.yt && S.yt.tid === S.docId ? S.yt : null;
+  b.disabled = !d || !!why || !!j;
+  b.title = why;
+  const n = (S.sug || []).filter(x => x.tier === 'yt' || (x.also || []).includes('yt')).length, agree = (S.sug || []).filter(x => x.tier === 'alt' && (x.also || []).includes('yt')).length;
+  const err = !j && !y && d ? S.jobs.find(x => x.kind === 'ytcap' && x.tid === S.docId && x.state === 'error') : null;
+  msg.textContent = j ? `字幕を取っています(${j.phase || ''})。終わると候補が行に出ます`
+    : why ? why
+    : y ? `${ytLabel()}(取得: ${UIKit.fmt && UIKit.fmt.ago ? UIKit.fmt.ago(y.fetchedAt) : ''}): 食い違いの候補 ${n} 件${agree ? `(うち別のエンジンと一致 ${agree} 件)` : ''}`
+    : err ? `取れませんでした: ${err.error || ''}`
+    : 'まだ字幕を取っていません';
 }
 
 function applySug(s, x){

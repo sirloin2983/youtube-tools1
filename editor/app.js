@@ -402,6 +402,16 @@ $('#altEngine').addEventListener('change', async e => {   // 設定 altEngine(�
   try { await api('/api/settings/patch', { body: { values: { altEngine: v } } }); }
   catch (err){ S.settings.altEngine = old; renderAlt(); toast('2つ目のエンジンを保存できませんでした: ' + err.message, 6000, 'err'); }
 });
+/* 元の配信の YouTube の字幕の候補(案 A1): S.yt = 結果の情報(GET /api/suggest の yt に、どの文書のものかの tid を足す)。文書は書き換えないので、取っている間も編集できる */
+S.yt = null;
+$('#ytcapGo').addEventListener('click', async () => {
+  if (!S.docId || ytcapJob()) return;
+  try {
+    await api('/api/ytcap', { body: { id: S.docId } });
+    startPolling(); pollJobs();
+  } catch (e){ toast(e.message, 7000, 'err'); }
+});
+$('#optAutoYtcap').addEventListener('change', readOpts);
 
 /* ---------- 校正済み(正解として使える行の印) ---------- */
 setInterval(() => {   // 操作している時間だけ数える(放置している間は進めない)。休憩のお知らせも、この時間で出す
