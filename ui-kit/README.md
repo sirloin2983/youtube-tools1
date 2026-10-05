@@ -138,6 +138,11 @@
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
 
+## v17(2026-10-05・ほかの窓で音が鳴っているかを知らせ合う `UIKit.sound`)
+- 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(ユーザー)。この画面の `<video>`・`<audio>` が鳴っている間(再生中・消音でない・音量 0 でない)、同じオリジンの窓へ BroadcastChannel `ytt-sound` で知らせる(`{id, tool, playing}`。外へは送らない)
+- 鳴っている間は 2 秒ごとに送り直し、受ける側は 6 秒来なければ止まったとみなす(窓を閉じた・落ちたとき)
+- `UIKit.sound.other(tool?)` = ほかの窓(tool を渡せばそのツール以外)で鳴っているか・`UIKit.sound.onChange(fn)`。各画面で足すものは無い(ui-kit が自動で見る)。使うのはスタジオのライブの録画(`studio/review.js` の `duckMode`)
+
 ## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`docs/plan/live-clipping-plan.md` の 0-8)
 全ツールのヘッダーの「録画中」の札。**録画があるときだけ**、appnav のあるヘッダー(`.ui-header` の中の `.ui-header-actions` の先頭)に出る。**ヘッダーの HTML に足すものは無い**(JS が作る)。
 録画が無い・機能がオフ・合言葉(`ytt-token`)が無いページ(入口を通さない単独起動)では、要素も作らない(場所も取らない)。

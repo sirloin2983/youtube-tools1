@@ -62,7 +62,7 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -79,7 +79,8 @@ function sanitizeSettings(x){
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
     momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
-    liveAutoExport: x.liveAutoExport !== false   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
+    liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
+    liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low'   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
   };
 }
 
@@ -221,8 +222,10 @@ function buildDOM(){
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
+          <label class="rv-duck" for="rvDuck" title="「編集」を別の窓で開いて再生している間、配信の音をどうするか(止めると元に戻ります)">編集で再生中は <select id="rvDuck"><option value="low">音を下げる</option><option value="mute">音を消す</option><option value="off">そのまま</option></select></label>
           <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
         </div>
+        <p class="rv-liveguide rv-ducknote" id="rvDuckNote" role="status" hidden></p>
         <p class="rv-liveguide" id="rvLiveGuide" hidden></p>
       </div>
 
@@ -1004,6 +1007,7 @@ function syncSettingsUI(){
   $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness; $('#rvExpVolBox').classList.toggle('rv-off', !!s.exportLoudness);
   expSetSummary();
   { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
+  { const dk = $('#rvDuck'); if (dk) dk.value = s.liveDuck; }
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
@@ -1015,12 +1019,22 @@ function expSetSummary(){
   parts.push(s.exportLoudness ? s.exportLoudness + ' LUFS' : '音量 ' + s.exportVolume + '%');
   el.textContent = parts.filter(Boolean).join(' ・ ');
 }
+/* ライブの録画: ほかの窓(別の窓で開いた「編集」)で音が鳴っている間は、配信の音を下げる(2 割)か消す(UIKit.sound。設定 liveDuck)。
+   音が二重になって文字起こしを聞き取れない(2026-10-05 ユーザー)。設定の音量・消音そのものは変えない(止まれば元の音に戻る) */
+const DUCK_RATIO = 0.2;
+function duckMode(){
+  if (!(S.cur && S.cur.kind === 'live') || S.settings.liveDuck === 'off') return 'off';
+  return window.UIKit && UIKit.sound && UIKit.sound.other('studio') ? S.settings.liveDuck : 'off';
+}
 function applyToPlayer(){
+  const mode = duckMode();
+  { const el = $('#rvDuckNote'); if (el){ el.hidden = mode === 'off'; if (mode !== 'off') liveSet('#rvDuckNote', mode === 'mute' ? '編集で再生中: 配信の音を消しています' : '編集で再生中: 配信の音を下げています'); } }
   if (!yt) return;
   lastApplyAt = Date.now();
-  try { yt.setVolume(S.settings.volume); if (S.settings.muted) yt.mute(); else yt.unMute(); } catch {}
+  try { yt.setVolume(mode === 'low' ? Math.round(S.settings.volume * DUCK_RATIO) : S.settings.volume); if (S.settings.muted || mode === 'mute') yt.mute(); else yt.unMute(); } catch {}
 }
 function syncVolumeFromPlayer(){ // プレーヤー側(標準UI)での変更を設定へ反映
+  if (S.cur && S.cur.kind === 'live') return;   // ライブの録画は標準のコントロールを出さない(下げている間の音量を設定に書き戻さない)
   if (Date.now() - lastApplyAt < 1500) return;
   try {
     const vol = Math.round(yt.getVolume()), mu = !!yt.isMuted();
@@ -1032,7 +1046,7 @@ function toggleMute(){ S.settings.muted = !S.settings.muted; syncSettingsUI(); a
 function wireSettings(){
   $('#rvVol').addEventListener('input', e => {
     S.settings.volume = Number(e.target.value); $('#rvVolOut').textContent = S.settings.volume;
-    if (yt){ yt.setVolume(S.settings.volume); lastApplyAt = Date.now(); }
+    applyToPlayer();
     touchSettings();
   });
   $('#rvMute').addEventListener('change', e => { S.settings.muted = e.target.checked; applyToPlayer(); touchSettings(); });
@@ -2485,6 +2499,8 @@ function wire(){
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
   $('#rvAutoExp').addEventListener('change', e => { S.settings.liveAutoExport = e.target.checked; touchSettings(); renderLiveRec(); });
+  $('#rvDuck').addEventListener('change', e => { S.settings.liveDuck = ['low', 'mute', 'off'].includes(e.target.value) ? e.target.value : 'low'; applyToPlayer(); touchSettings(); });
+  if (window.UIKit && UIKit.sound) UIKit.sound.onChange(() => applyToPlayer());   // ほかの窓の再生が始まった・止まった
   $('#rvShift').addEventListener('click', () => {
     if (!S.cur) return;
     const d = Number($('#rvShiftSec').value);

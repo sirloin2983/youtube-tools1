@@ -35,6 +35,7 @@
    v15(2026-10-04): 引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める)。ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開くと、表示はされるが inert で操作できず固まっていた
    v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
+   v17(2026-10-05): UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
    v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
        録画が終わった・切れたときの知らせ付き。線 D・docs/plan/live-clipping-plan.md の 0-8。README.md の「v16」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
@@ -2291,7 +2292,45 @@
   function liveStart() { if (token() && document.querySelector('[data-ui-appnav]')) liveRefresh(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', liveStart); else liveStart();
 
-  window.UIKit = { version: 16, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  /* ---- sound(v17: ほかの窓で音が鳴っているかを知らせ合う)---- 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(2026-10-05 ユーザー)。
+     この画面の <video>・<audio> が鳴っている(再生中・消音でない・音量 0 でない)間、同じオリジンの窓へ BroadcastChannel で知らせる(外へは何も送らない)。
+     鳴っている間は 2 秒ごとに送り直し、受ける側は 6 秒来なければ「止まった」とみなす(窓を閉じた・落ちたとき、下げたままにしない)。
+     UIKit.sound.other(tool?) = ほかの窓(tool を渡せばそのツール以外)で鳴っているか / onChange(fn) = 変わったとき */
+  var snd = { ch: null, id: Math.random().toString(36).slice(2), tool: (location.pathname.split('/')[1] || 'home'), on: false, beat: null, others: {}, subs: [], sweep: null };
+  try { if (window.BroadcastChannel) snd.ch = new BroadcastChannel('ytt-sound'); } catch (e) { snd.ch = null; }
+  function sndSend(on) { if (snd.ch) { try { snd.ch.postMessage({ id: snd.id, tool: snd.tool, playing: !!on }); } catch (e) { /* 知らせられなくても画面は動く */ } } }
+  function sndMine() {
+    var ms = document.querySelectorAll('video,audio');
+    for (var i = 0; i < ms.length; i++) { var m = ms[i]; if (!m.paused && !m.ended && !m.muted && m.volume > 0 && m.readyState > 1) return true; }
+    return false;
+  }
+  function sndCheck() {
+    var on = sndMine();
+    if (on === snd.on) return;
+    snd.on = on; sndSend(on);
+    clearInterval(snd.beat); snd.beat = on ? setInterval(function () { if (sndMine()) sndSend(true); else sndCheck(); }, 2000) : null;
+  }
+  function sndNotify() { snd.subs.forEach(function (fn) { try { fn(); } catch (x) { report(x && x.message ? x.message : String(x), { stack: x && x.stack }, 'error'); } }); }
+  function sndOther(tool) { for (var k in snd.others) { if (Object.prototype.hasOwnProperty.call(snd.others, k) && snd.others[k].tool !== tool) return true; } return false; }
+  if (snd.ch) {
+    ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange'].forEach(function (n) { document.addEventListener(n, sndCheck, true); });   // メディアのイベントは上へ伝わらないので capture で受ける
+    window.addEventListener('pagehide', function () { if (snd.on) { snd.on = false; sndSend(false); } });
+    snd.ch.onmessage = function (e) {
+      var d = e.data; if (!d || typeof d.id !== 'string' || d.id === snd.id) return;
+      var had = !!snd.others[d.id];
+      if (d.playing) snd.others[d.id] = { tool: String(d.tool || ''), at: Date.now() }; else delete snd.others[d.id];
+      if (had !== !!snd.others[d.id]) sndNotify();
+      if (!snd.sweep) snd.sweep = setInterval(function () {
+        var now = Date.now(), gone = false, n = 0;
+        for (var k in snd.others) { if (Object.prototype.hasOwnProperty.call(snd.others, k)) { if (now - snd.others[k].at > 6000) { delete snd.others[k]; gone = true; } else n++; } }
+        if (!n) { clearInterval(snd.sweep); snd.sweep = null; }
+        if (gone) sndNotify();
+      }, 2000);
+    };
+  }
+  var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
+
+  window.UIKit = { version: 17, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
 })();

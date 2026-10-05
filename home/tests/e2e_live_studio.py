@@ -499,6 +499,30 @@ def run(tmp, shots, force_chromium):
                 pg.keyboard.press("Escape")
                 pg.wait_for_timeout(300)
 
+                # ---------------- 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す(UIKit.sound。2026-10-05) ----------------
+                other = ctx.new_page()
+                other.goto(base + "/")
+                other.evaluate("() => { window.__got = []; window.__ch = new BroadcastChannel('ytt-sound'); window.__ch.onmessage = e => window.__got.push(e.data); }")
+                say = "(on) => window.__ch.postMessage({ id: 'e2e-editor', tool: 'transcribe', playing: on })"
+                check(pg.evaluate("() => document.querySelector('#rvDuck').value") == "low" and pg.is_hidden("#rvDuckNote"), "8b 既定は「音を下げる」・鳴っていなければ案内なし")
+                if edge:
+                    pg.evaluate("() => { const v = %s; v.muted = false; v.play().catch(() => {}); }" % VIDEO)
+                    vol0 = pg.evaluate("() => %s.volume" % VIDEO)
+                    check(wait_js(other, "() => window.__got.some(d => d.tool === 'studio' && d.playing === true)", 8000), "8b スタジオの配信が鳴っている間、ほかの窓へ知らせる")
+                    other.evaluate(say, True)
+                    check(wait_js(pg, "() => Math.abs(%s.volume - %s * 0.2) < 0.02 && !%s.muted && !document.querySelector('#rvDuckNote').hidden" % (VIDEO, vol0, VIDEO), 5000),
+                          "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
+                    pg.select_option("#rvDuck", "mute")
+                    check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
+                    check(pg.evaluate("() => document.querySelector('#rvMute').checked") is False, "8b 設定の消音そのものは変えない")
+                    other.evaluate(say, False)
+                    check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
+                    other.evaluate(say, True)
+                    check(wait_js(pg, "() => %s.muted" % VIDEO, 3000), "8b もう一度鳴ると消音")
+                    check(wait_js(pg, "() => !%s.muted" % VIDEO, 12000), "8b 知らせが 6 秒来なければ(窓を閉じた)元に戻る")
+                    pg.select_option("#rvDuck", "low")
+                other.close()
+
                 # ---------------- 9. 札 → 一覧 → 停止(二度押し) ----------------
                 pg.click("[data-ui-live] .ui-live-btn")
                 check(wait_js(pg, "() => !document.querySelector('.ui-live-panel').hidden", 3000), "9 札を押すと録画の一覧")
