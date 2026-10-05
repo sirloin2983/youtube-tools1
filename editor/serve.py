@@ -23,6 +23,7 @@
   POST /api/retranscribe     選んだ行だけを、別のモデルで再認識するジョブを追加
   POST /api/redo             {"tid", "redoLarge"?} 疑わしい所(「長い区間に文字が少ない」の行)だけ認識し直すジョブ(12 ③-2。良くなったときだけ置き換える)
   POST /api/resplit          {"id", "orientation"?, "splitChars"?, "baseUpdatedAt"?} 今の文書の長い行を、保存してある単語の時刻(transcripts/<id>.words.json)で分け直す(12 ②)
+  POST /api/retime           {"id", "rows": [行の id…]} 行の時刻を単語の時刻(words.json)に合わせる候補(読むだけ。文書は書き換えない。本体は ed_retime.py)
   GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
   POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
@@ -115,6 +116,7 @@ import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, 
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
+import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
 
 
 APP_ID = "transcribe-tool"
@@ -126,6 +128,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
 _ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt)
+_ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -611,6 +614,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, ed_relink.pick_path(obj))
             if path == "/api/resplit":
                 return self._json(200, ed_jobs.resplit_doc(obj))
+            if path == "/api/retime":   # 行の時刻を単語の時刻に合わせる候補(読むだけ。ed_retime)
+                return self._json(200, ed_retime.retime_doc(obj))
             if path == "/api/edit/pack":
                 return self._json(200, ed_store.record_pack(obj))
             if path == "/api/edit/preview":

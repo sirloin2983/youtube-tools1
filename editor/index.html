@@ -992,6 +992,15 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg .tt-nosub-pill{grid-column:5;justify-self:start}
 .seg:not(.nosub) .tt-nosub-pill{display:none}
 .adj button.tt-nosub-btn[aria-pressed=true]{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 45%,transparent);color:var(--info-ink);font-weight:600}
+/* 字幕の読む速さの札(2026-10-05。app-rows.js の readHTML。速い n字/秒・短い n秒)と、選んだ行の「時刻を言葉に合わせる」(.adj の中の .tt-rt) */
+.seg .tt-read{grid-column:5;justify-self:start;display:flex;gap:6px;flex-wrap:wrap}.seg .tt-read:empty{display:none}
+.tt-read-count{white-space:nowrap}
+.adj .tt-rt{gap:4px;flex-wrap:wrap}
+.adj .tt-rt .tt-rt-prev{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-2);padding:0 4px}
+.adj .tt-rt button.tt-rt-ok{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.adj .tt-rt button:disabled{opacity:.5;cursor:default}
+@container (max-width:700px){ #segs .seg .tt-read{grid-column:1/-1} }
+@container (max-width:520px){ #segs .seg .tt-read{order:2} }
 /* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
 .tt-cap-line{display:block;color:var(--tt-cap-color,#000)}
 .tt-cap-line+.tt-cap-line{margin-top:.15em}
@@ -1497,6 +1506,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <button type="button" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
           <button type="button" data-jump="exDetails">書き出し(字幕・テキスト)</button>
           <button type="button" data-jump="hiDetails">以前の版に戻す</button></div></details>
+        <span class="pill warn tt-read-count" id="readCount" hidden title="字幕として読みにくい行(1 秒あたりの文字が多い・表示が短い)の数。絞り込みの「読みにくい行だけ」で、その行だけを出せます(知らせるだけ。校正済みにはできます)"></span>
         <span class="ui-count" id="qCount" aria-live="polite"></span>
         </span>
       </div>
@@ -1545,6 +1555,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div>
             <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled>選んだ行をカット</button><button type="button" class="btn small" id="keepSelected" disabled>選んだ行を残す</button></div>
+            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="rtSelected" disabled title="選んだ行(校正済みは外す)の開始・終了を、認識のときの言葉(単語)の時刻に合わせます。候補のある行だけ・件数を確かめてから。元に戻す 1 回で戻せます">選んだ行の時刻を言葉に合わせる</button></div>
             <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span></div></details>
         </div>
         <div class="tools tools2">
@@ -1738,6 +1749,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
            <p class="hint tt-pk-p">区間は <b>2 カット</b> のタブのとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
            <p class="hint tt-pk-p" id="pkNoSub" hidden></p>
+           <p class="hint tt-pk-p" id="pkRead" hidden></p>
            <p class="notice info tt-pk-pvstate" id="pkPvState" hidden role="status" aria-live="polite"><span></span><button type="button" class="btn small" id="pkPvRetry" hidden>もう一度</button></p>
            <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
            <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>

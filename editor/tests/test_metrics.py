@@ -893,6 +893,7 @@ from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食
 from test_autodiar import *  # noqa: E402,F401,F403   文字起こしのあとの話者の自動判別(評価用は常に・設定 autoDiarize。v0.50.0)
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習・保管(ed_learn.py)
 from test_ovdraft import *  # noqa: E402,F401,F403   重なりの所の空の行の下書き(ed_speakers の ovdraft_・GET /api/overlap-drafts・行の印 draft)
+from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
 
 
 class TestThreadDefaults(unittest.TestCase):

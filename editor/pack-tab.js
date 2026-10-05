@@ -232,6 +232,10 @@ function create(h){
       const lanes = fresh ? Number(pv.captionLanes) || 0 : 0, stacked = fresh ? Number(pv.captionsStacked) || 0 : 0, el = $('#pkNoSub');
       const bits = [n ? `字幕に出さない行: ${n} 行(ゲームの声など。字幕は作らず、区間は残します)` : '', lanes >= 2 ? `重なる字幕を ${lanes} 段に分けます(${stacked} 個)` : ''].filter(Boolean);
       el.hidden = !bits.length; el.textContent = bits.join(' ・ '); }
+    { /* 読みにくい字幕(速い・短い。2026-10-05): 残す行のうち読む速さの印が付く行の数(画面の側で数える。パックは変えない。0 なら出さない)。
+         readMark は app-rows.js(この画面の後に読む。描くときには読み終わっている) */
+      const el = $('#pkRead'), n = typeof readMark === 'function' ? d.segments.filter(g => kept(g) && readMark(g)).length : 0;
+      if (el){ el.hidden = !n; el.textContent = n ? `読みにくい字幕: ${n} 行(1 秒あたりの文字が多い・表示が短い。1 文字起こし の絞り込み「読みにくい行だけ」で確かめられます)` : ''; } }
     const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
     // 見本の色(4-5。監査 12): 見積もりができたら、パックと同じ規則の話者(pack.py の cue_speakers → sampleSpeakers。名前)。古い間は行の話者から。規則は同じなので通常は同じ色
     const spkNames = fresh && Array.isArray(pv.sampleSpeakers) && pv.samples && pv.samples.length ? pv.sampleSpeakers : null;

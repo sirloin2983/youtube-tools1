@@ -301,6 +301,17 @@ def main():
             check(pg.inner_text("#pkCount") == "3", "字幕に出さない行があっても残す区間は同じ")
             pg.evaluate("delete S.doc.segments[2].noSub; renderDoc(); markDirty();")
             check(wait_js(pg, "document.querySelector('#pkNoSub').hidden && document.querySelector('#pkCaps').textContent === '3'", 20000), "印を外すと字幕に戻る")
+            # 読みにくい字幕(2026-10-05。画面の側で数える・0 なら出さない・パックは変えない)
+            check(wait_js(pg, "!document.querySelector('#pkRead').hidden && document.querySelector('#pkRead').textContent.indexOf('読みにくい字幕: 1 行') >= 0", 20000),
+                  "これから作るパック: 読みにくい字幕 1 行(0.3 秒の「短い」): %s" % pg.text_content("#pkRead"))
+            txts = pg.evaluate("S.doc.segments.map(g => g.text)")
+            pg.evaluate("S.doc.segments[1].text = '短'; renderDoc(); markDirty();")   # 1 文字の行は数えない
+            check(wait_js(pg, "document.querySelector('#pkRead').hidden", 20000), "読みにくい字幕が無ければ出さない: %s" % pg.text_content("#pkRead"))
+            pg.evaluate("S.doc.segments[0].text = 'あ'.repeat(40); renderDoc(); markDirty();")   # 1.5 秒に 40 文字 = 速い
+            check(wait_js(pg, "!document.querySelector('#pkRead').hidden && document.querySelector('#pkRead').textContent.indexOf('読みにくい字幕: 1 行') >= 0", 20000),
+                  "速い行も数える: %s" % pg.text_content("#pkRead"))
+            pg.evaluate("S.doc.segments.forEach((g, i) => { g.text = %s[i]; }); renderDoc(); markDirty();" % json.dumps(txts))
+            check(wait_js(pg, "document.querySelector('#pkRead').textContent.indexOf('読みにくい字幕: 1 行') >= 0", 20000), "戻すと 1 行")
             # 「予備も入れる」→ EDL・予備の手順書・SRT も(上書きの確認のあと)
             pg.click("#pkSettingsBtn")
             pg.wait_for_selector("#pkBackup", state="visible")

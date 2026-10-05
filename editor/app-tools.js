@@ -710,6 +710,7 @@ function onCutMarks(changed){
     if (b){ b.setAttribute('aria-pressed', cut ? 'true' : 'false'); b.textContent = cut ? 'カット済' : '残す'; }
   }
   if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
+  if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる。2026-10-05)
   renderDocBar();
 }
 
