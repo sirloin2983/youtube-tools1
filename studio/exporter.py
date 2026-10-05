@@ -256,6 +256,8 @@ def build_spec(store, req):
     v = store.internal(req.get("id"))
     if not v:
         raise ApiError("not_found", "動画が見つかりません", 404)
+    if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
+        raise bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
     ids = req.get("markIds")
     if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
         raise bad("書き出すマークを選んでください")

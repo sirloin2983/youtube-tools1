@@ -51,6 +51,78 @@ function build(){
   $('#setReg').addEventListener('toggle', mountReg);
 }
 
+/* ---------- ライブの録画(線 D の P3。ライブの機能が使えるときだけ出す)----------
+   置き場所・画質はホームの設定の節 live(UIKit.prefs。入口の録画の部品が読む)。置き場所の今の値と空きは入口の ../live/api/info(と録画元の list) */
+const GB = 1024 * 1024 * 1024;
+const fmtBytes = b => (b == null || !Number.isFinite(Number(b)) ? '' : b >= GB ? (b / GB).toFixed(1) + ' GB' : Math.round(b / 1048576) + ' MB');
+const LIVE_QUALITY = [['best', 'いちばん良い画質'], ['1080p', '1080p(おすすめ)'], ['720p', '720p(容量を抑える)']];
+let liveBuilt = false, liveActive = 0;
+function buildLive(){
+  if (liveBuilt || !$('#setCollab')) return;
+  liveBuilt = true;
+  const sec = document.createElement('details');
+  sec.className = 'card set-sec'; sec.id = 'setLive'; sec.open = true;
+  sec.innerHTML = `<summary><span class="set-title">ライブの録画</span><span class="set-sub">配信を録画しながら切り抜くとき</span></summary><div class="body">
+    <p class="hint">② の URL 欄か ③ の「開く」に配信中・配信前の URL を入れると、録画を始めて ③ で開きます。</p>
+    <div class="set-path"><span class="l">録画の置き場所</span><span class="path" id="liveFolderNow"></span></div>
+    <p class="hint" id="liveFree"></p>
+    <div class="fld"><label class="l" for="liveFolderIn">新しい置き場所(フルパス。空にすると標準)</label>
+      <input type="text" id="liveFolderIn" spellcheck="false" autocomplete="off"></div>
+    <div class="row set-actions"><button type="button" class="btn small primary" id="liveFolderSave">置き場所を保存</button></div>
+    <p class="hint" id="liveFolderNote">録画中は変えられません(録画を止めてから変えます)。変えると、次に始める録画から使います。</p>
+    <div class="fld"><label class="l" for="liveQuality">画質</label>
+      <select id="liveQuality">${LIVE_QUALITY.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <span class="hint">次に始める録画から使います</span></div>
+    <p class="msg hint" id="liveMsg" role="status"></p></div>`;
+  $('#setCollab').insertAdjacentElement('beforebegin', sec);
+  $('#liveFolderIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#liveFolderSave').click(); } });
+  $('#liveFolderSave').addEventListener('click', () => busy($('#liveFolderSave'), async () => {
+    const m = $('#liveMsg'), f = $('#liveFolderIn').value.trim();
+    if (liveActive){ m.textContent = '録画中は置き場所を変えられません。録画を止めてから変えてください'; return; }
+    m.textContent = '保存しています…';
+    try {
+      await UIKit.prefs.patch('live', { folder: f });
+      m.textContent = f ? '置き場所を保存しました。次に始める録画から使います' : '標準の置き場所に戻しました';
+      $('#liveFolderIn').value = '';
+      setTimeout(refreshLive, 1500);   // 録画の部品に伝わってから読み直す
+    } catch (e){ m.textContent = '保存できませんでした: ' + e.message; }
+  }));
+  $('#liveQuality').addEventListener('change', e => {
+    const q = LIVE_QUALITY.some(([v]) => v === e.target.value) ? e.target.value : '1080p';
+    UIKit.prefs.patch('live', { quality: q }).then(() => { $('#liveMsg').textContent = '画質を ' + q + ' にしました(次に始める録画から)'; }, () => {});   // 失敗の知らせは UIKit.prefs が出す
+  });
+}
+/* 今の置き場所・空き・画質を読み直す(引き出しを開いたとき)。読めないところは空欄のまま(録画は続けられる) */
+let liveSeq = 0;
+async function refreshLive(){
+  if (!liveBuilt) return;
+  const seq = ++liveSeq;   // 開くたびに読み直す: 前の読み直しの遅い答えで、新しい表示を上書きしない
+  const info = await S.live.refreshInfo();
+  if (seq !== liveSeq) return;
+  if (!info){ $('#setLive').hidden = true; return; }
+  $('#setLive').hidden = false;
+  $('#liveFolderIn').placeholder = info.defaultFolder ? '標準: ' + info.defaultFolder : '例: D:\\recordings';
+  let free = info.freeBytes, total = info.totalBytes, active = info.active, folder = info.folder || '';
+  const rc = (info.recorders || [])[0];
+  if ((free == null || active == null) && rc){   // 空き・録画中の数・実際の置き場所は録画元の一覧から(入口の info に無いとき)
+    try { const l = await S.live.api('r/' + encodeURIComponent(rc.id) + '/list'); if (free == null){ free = l.freeBytes; total = l.totalBytes; } if (active == null) active = l.active; if (l.folder) folder = l.folder; } catch {}
+    if (seq !== liveSeq) return;
+  }
+  /* 置き場所は全部そろってから1回で出す(以前は先に標準の置き場所を出してから録画元の答えで差し替えていて、読み直しの間だけ違う場所に見えた) */
+  $('#liveFolderNow').textContent = folder || info.defaultFolder || '(標準)';
+  liveActive = Number(active) || 0;
+  $('#liveFree').textContent = free != null ? `空き ${fmtBytes(free)}${total ? ' / ' + fmtBytes(total) : ''}` : '';
+  $('#liveFolderIn').disabled = $('#liveFolderSave').disabled = !!liveActive;
+  $('#liveFolderNote').textContent = liveActive ? `録画中(${liveActive}本)は置き場所を変えられません。録画を止めてから変えます。` : '録画中は変えられません(録画を止めてから変えます)。変えると、次に始める録画から使います。';
+  if (window.UIKit && UIKit.prefs && UIKit.prefs.available()){
+    try { const p = await UIKit.prefs.get(['live']); const q = p && p.live && p.live.quality; $('#liveQuality').value = LIVE_QUALITY.some(([v]) => v === q) ? q : '1080p'; } catch {}
+  }
+}
+function setupLive(){
+  if (!S.live || !S.token) return;
+  S.live.available().then(info => { if (!info) return; buildLive(); refreshLive(); }, () => {});
+}
+
 function mountReg(){
   if (regMounted || !$('#setReg').open) return;
   const host = $('#regHost');
@@ -127,7 +199,10 @@ else document.body.appendChild(toolEl);   // 保険(通常は起きない): UIKi
 /* #btnSettings の aria-expanded を、引き出しの開閉(ui-kit の 'ui-drawer' イベント)に合わせる */
 document.addEventListener('ui-drawer', e => {
   const d = e.detail || {};
-  if (d.el && d.el.id === 'uiSettingsDrawer'){ const b = $('#btnSettings'); if (b) b.setAttribute('aria-expanded', String(!!d.open)); }
+  if (d.el && d.el.id === 'uiSettingsDrawer'){
+    const b = $('#btnSettings'); if (b) b.setAttribute('aria-expanded', String(!!d.open));
+    if (d.open && S.ready){ if (liveBuilt) refreshLive(); else setupLive(); }   // ライブの録画: 開くたびに置き場所・空きを読み直す(オンにされたばかりなら節を作る)
+  }
 });
 
 S.onReady(() => {
@@ -135,6 +210,7 @@ S.onReady(() => {
   $('#main').insertAdjacentElement('beforebegin', tn);
   // toolEl はすでに文書につながっている(上の mount)。build() は document.querySelector で中の部品を探すので、ここで中身を作る
   build(); update();
+  setupLive();
   S.on('state', update);
   /* which: 開く節の id(setKey / setOut / setExport / setCollab / setReg)。引き出しの中でその節までスクロールする */
   S.openSettings = which => {

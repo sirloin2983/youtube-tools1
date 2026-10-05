@@ -1,4 +1,4 @@
-/* ui-kit v15 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v16 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(.design/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本はリポジトリ直下の ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -35,6 +35,8 @@
    v15(2026-10-04): 引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める)。ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開くと、表示はされるが inert で操作できず固まっていた
    v13(2026-10-04): UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
+   v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
+       録画が終わった・切れたときの知らせ付き。線 D・docs/plan/live-clipping-plan.md の 0-8。README.md の「v16」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
 (function () {
   'use strict';
@@ -163,6 +165,7 @@
       if (typeof loudRefresh === 'function') loudRefresh();   /* v7: パックの音量の欄(編集の場所が分かってから出す) */
       /* v6: ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
       if (document.readyState !== 'loading') renderAppNav();
+      if (typeof live !== 'undefined' && live && live.last) liveRender();   /* v16: 録画の札の「開く」のリンクも(スタジオの場所を使う) */
     },
     base: function (id) { return tools.paths[id] || '/'; },
     /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定)。path は画面の中の場所('/?media=...' など) */
@@ -240,7 +243,10 @@
     if (!tk || !window.fetch) return Promise.reject(new Error('入口の外では使えません'));
     return fetch('api/ytt/' + name, { method: 'POST', cache: 'no-store', credentials: 'same-origin', keepalive: !!keepalive,
       headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify(obj) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); return j; }); });
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var err = new Error(j.message || ('HTTP ' + r.status)); err.status = r.status; throw err; }   /* v16: status(liveBadge が 404 と一時的な失敗を分ける) */
+        return j;
+      }); });
   }
 
   /* ---- 画面のエラーを入口のログへ(段階7-0)---- 同じエラーは1回、1回の表示で20件まで(画面の不具合でログを埋めない。サーバー側にも上限) */
@@ -2088,7 +2094,204 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  window.UIKit = { version: 15, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  /* ---- liveBadge(v16: ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(docs/plan/live-clipping-plan.md の 0-8)。
+     入口の POST api/ytt/live {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(合言葉つき。入口が受け持つ)を
+     オンのときは 10 秒ごと・オフ(enabled:false・404 などの 4xx)のときは 60 秒ごとに問い合わせ、appnav のあるヘッダー(.ui-header-actions の先頭)に札を出す。
+     録画が無い・機能がオフ・合言葉が無いページ(入口を通さない単独起動)では何も作らない(場所も取らない)。隠れているタブは問い合わせない(戻ったらすぐ)。
+     札を押すと一覧(録画ごとに 題・状態・録画済みの時間・「開く」・「停止」(二度押し))。一覧は差分で直す(10 秒ごとに作り直すと、押そうとしたボタンや二度押しの途中が消える)。
+     知らせ(UIKit.toast): active だった録画が active でなくなった・recording → reconnecting になったとき。ページを開いた最初の1回では出さない */
+  var LIVE_ON_MS = 10000, LIVE_OFF_MS = 60000, LIVE_ACTIVE = { waiting: 1, recording: 1, reconnecting: 1 };
+  var LIVE_STATE_LABEL = { waiting: '配信待ち', recording: '録画中', reconnecting: 'つなぎ直し中', stopped: '停止', ended: '録画終了', error: 'エラー' };
+  var live = { last: null, at: 0, prev: null, timer: 0, inflight: null, nextMs: LIVE_ON_MS, fails: 0, started: false, subs: [], openFn: null, els: null, rows: {}, open: false, tick: 0 };
+
+  function liveStr(v) { return v == null ? '' : String(v); }
+  function liveKey(r) { return r.recorder + '/' + r.id; }
+  function liveTitle(r) { return r.title || r.url || r.id; }
+  function liveNorm(j) {   // 外から来る値は形をそろえて持つ(文字は textContent でしか使わない)
+    var out = { enabled: !!(j && j.enabled), recordings: [] };
+    if (!out.enabled || !j.recordings || !j.recordings.length) return out;
+    for (var i = 0; i < j.recordings.length; i++) {
+      var r = j.recordings[i];
+      if (!r || typeof r !== 'object' || r.id == null) continue;
+      out.recordings.push({ recorder: liveStr(r.recorder), id: liveStr(r.id), title: liveStr(r.title), url: liveStr(r.url), state: liveStr(r.state),
+        active: typeof r.active === 'boolean' ? r.active : !!LIVE_ACTIVE[r.state], seconds: +r.seconds > 0 ? +r.seconds : 0, endedAt: r.endedAt == null ? null : r.endedAt });
+    }
+    return out;
+  }
+  function liveNotify(cur) {
+    if (!live.prev) return;   // ページを開いた最初の1回(と、オフから戻った最初の1回)では出さない
+    var now = {}, i, k;
+    for (i = 0; i < cur.recordings.length; i++) now[liveKey(cur.recordings[i])] = cur.recordings[i];
+    for (k in live.prev) {
+      if (!Object.prototype.hasOwnProperty.call(live.prev, k)) continue;
+      var p = live.prev[k], c = now[k], name = '「' + liveTitle(c || p) + '」';
+      if (p.active && c && c.state === 'error') toastFn(name + 'の録画でエラーが起きました', { kind: 'err' });
+      else if (p.active && (!c || !c.active)) { if (p.state !== 'waiting' || (c || p).seconds) toastFn(name + 'の録画が終わりました(合計 ' + fmt.dur((c || p).seconds) + ')', { kind: 'ok', ms: 6000 }); }   // 録画を始める前の配信待ちが消えただけなら出さない
+      else if (p.state === 'recording' && c && c.state === 'reconnecting') toastFn(name + 'の録画が切れました。つなぎ直しています', { kind: 'err' });
+    }
+  }
+  function liveGot(j) {
+    var cur = liveNorm(j);
+    live.fails = 0; live.at = Date.now();
+    if (!cur.enabled) { live.prev = null; live.nextMs = LIVE_OFF_MS; }
+    else {
+      liveNotify(cur);
+      live.prev = {};
+      for (var i = 0; i < cur.recordings.length; i++) { var r = cur.recordings[i]; live.prev[liveKey(r)] = { active: r.active, state: r.state, title: r.title, url: r.url, id: r.id, seconds: r.seconds }; }
+      live.nextMs = LIVE_ON_MS;
+    }
+    live.last = cur;
+  }
+  function liveFail(e) {
+    /* 4xx(まだ API が無い・機能がオフ)は、すぐ札を消して 60 秒後。ネットワークや 5xx の一時的な失敗は、2回までは今の表示のまま 10 秒後に */
+    var st = e && e.status, hard = st >= 400 && st < 500;
+    live.fails++;
+    if (!hard && live.last && live.last.enabled && live.fails < 3) { live.nextMs = LIVE_ON_MS; return; }
+    live.last = { enabled: false, recordings: [] };
+    live.nextMs = LIVE_OFF_MS;
+  }
+  function liveRefresh() {
+    if (!token() || !window.fetch) return Promise.resolve(live.last);
+    if (live.inflight) return live.inflight;
+    clearTimeout(live.timer);
+    live.started = true;
+    live.inflight = yttPost('live', { op: 'status' }).then(liveGot, liveFail).then(function () {
+      try { liveRender(); liveFire(); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); }
+    }).then(function () {
+      live.inflight = null;
+      clearTimeout(live.timer);
+      live.timer = setTimeout(liveTick, live.nextMs);
+      return live.last;
+    });
+    return live.inflight;
+  }
+  function liveTick() { if (document.hidden) { clearTimeout(live.timer); live.timer = setTimeout(liveTick, LIVE_ON_MS); return; } liveRefresh(); }   // 隠れているタブは問い合わせない
+  function liveFire() { for (var i = 0; i < live.subs.length; i++) { try { live.subs[i](live.last); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); } } }
+  function liveSet(el, text) { if (el.textContent !== text) el.textContent = text; }
+
+  function liveEl(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
+  function liveEnsure() {
+    if (live.els && live.els.box.isConnected) return live.els;
+    var nav = document.querySelector('[data-ui-appnav]'), header = nav && nav.closest ? nav.closest('.ui-header') : null;
+    if (!header) return null;
+    var box = liveEl('span', 'ui-live'), btn = liveEl('button', 'btn ghost small ui-live-btn'), dot = liveEl('span', 'ui-live-dot'), text = liveEl('span', 'ui-live-text');
+    var panel = liveEl('div', 'ui-live-panel'), list = liveEl('ul', 'ui-live-list');
+    box.setAttribute('data-ui-live', ''); box.hidden = true;
+    btn.type = 'button'; btn.setAttribute('aria-haspopup', 'dialog'); btn.setAttribute('aria-expanded', 'false');
+    dot.setAttribute('aria-hidden', 'true');
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', '録画の一覧'); panel.tabIndex = -1; panel.hidden = true;
+    btn.appendChild(dot); btn.appendChild(text); panel.appendChild(list); box.appendChild(btn); box.appendChild(panel);
+    var acts = header.querySelector('.ui-header-actions');
+    if (acts) acts.insertBefore(box, acts.firstChild); else header.appendChild(box);
+    live.els = { box: box, btn: btn, text: text, panel: panel, list: list };
+    live.rows = {};
+    btn.addEventListener('click', function () { if (live.open) liveClose(false); else liveOpen(); });
+    box.addEventListener('focusout', function (e) { if (live.open && e.relatedTarget && !box.contains(e.relatedTarget)) liveClose(false); });   // Tab で外へ出たら閉じる
+    return live.els;
+  }
+  document.addEventListener('click', function (e) { if (live.open && live.els && !live.els.box.contains(e.target)) liveClose(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && live.open) liveClose(true); });
+
+  function liveOpen() {
+    var els = live.els; if (!els) return;
+    live.open = true; els.panel.hidden = false; els.btn.setAttribute('aria-expanded', 'true');
+    els.panel.style.left = els.panel.style.right = '';
+    var r = els.panel.getBoundingClientRect(), m = 8;
+    if (r.left < m) { els.panel.style.right = 'auto'; els.panel.style.left = Math.round(m - els.box.getBoundingClientRect().left) + 'px'; }   // 狭い画面で左へはみ出すときは画面の左端から
+    clearInterval(live.tick); live.tick = setInterval(liveTimes, 1000);   // 開いている間だけ、録画済みの時間を1秒ごとに進める
+    liveTimes();
+    els.panel.focus({ preventScroll: true });
+  }
+  function liveClose(focusBtn) {
+    var els = live.els; live.open = false; clearInterval(live.tick);
+    if (!els) return;
+    els.panel.hidden = true; els.btn.setAttribute('aria-expanded', 'false');
+    if (focusBtn) els.btn.focus({ preventScroll: true });
+  }
+  function liveTimeText(r) {
+    if (r.state === 'waiting') return '';
+    var s = r.seconds + (r.state === 'recording' ? Math.max(0, (Date.now() - live.at) / 1000) : 0);   // 録画中は、問い合わせてからの分も足して滑らかに
+    return fmt.dur(s);
+  }
+  function liveTimes() { for (var k in live.rows) { if (Object.prototype.hasOwnProperty.call(live.rows, k)) liveSet(live.rows[k].time, liveTimeText(live.rows[k].rec)); } }
+
+  function liveStudioHref(r) { return appnavHref('studio') + '?video=' + encodeURIComponent(r.id); }
+  function liveStop(row, btn) {
+    btn.disabled = true;
+    yttPost('live', { op: 'stop', recorder: row.rec.recorder, recording: row.rec.id }).then(function () { return liveRefresh(); }, function (e) {
+      toastFn('録画を止められませんでした: ' + (e && e.message ? e.message : ''), { kind: 'err' });
+    }).then(function () { btn.disabled = false; });
+  }
+  function liveMakeRow() {
+    var row = { rec: null }, li = liveEl('li', 'ui-live-row'), main = liveEl('span', 'ui-live-title'), meta = liveEl('span', 'ui-live-meta');
+    var state = liveEl('span', 'ui-live-state'), time = liveEl('span', 'ui-live-time num'), acts = liveEl('span', 'ui-live-acts');
+    var open = liveEl('a', 'btn small'), stop = liveEl('button', 'btn small danger');
+    open.textContent = '開く'; stop.type = 'button'; stop.textContent = '停止';
+    open.addEventListener('click', function (e) {
+      open.setAttribute('href', liveStudioHref(row.rec));   // スタジオの場所が分かったのが描いたあとでも、押した時点の場所で移る
+      if (!live.openFn || e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey || e.altKey) return;   // スタジオの画面なら、移らずにその録画へ
+      e.preventDefault(); liveClose(false);
+      try { live.openFn(row.rec); } catch (x) { report(x && x.message ? x.message : String(x), { stack: x && x.stack }, 'error'); }
+    });
+    stop.addEventListener('click', function () { confirmTwice(stop, function () { liveStop(row, stop); }, 'もう一度押すと停止'); });
+    meta.appendChild(state); meta.appendChild(time); acts.appendChild(open); acts.appendChild(stop);
+    li.appendChild(main); li.appendChild(meta); li.appendChild(acts);
+    row.el = li; row.title = main; row.state = state; row.time = time; row.open = open; row.stop = stop;
+    return row;
+  }
+  function liveRows(list) {
+    var els = live.els, seen = {}, prevEl = null, i, k;
+    for (i = 0; i < list.length; i++) {
+      var r = list[i], key = liveKey(r), row = live.rows[key];
+      if (!row) row = live.rows[key] = liveMakeRow();
+      seen[key] = 1; row.rec = r;
+      var t = liveTitle(r);
+      liveSet(row.title, t); row.title.title = t;
+      liveSet(row.state, LIVE_STATE_LABEL[r.state] || r.state);
+      row.el.setAttribute('data-state', r.state);
+      liveSet(row.time, liveTimeText(r)); row.time.hidden = !row.time.textContent;
+      var href = liveStudioHref(r); if (row.open.getAttribute('href') !== href) row.open.setAttribute('href', href);
+      row.open.setAttribute('aria-label', '「' + t + '」をスタジオで開く');
+      row.stop.setAttribute('aria-label', '「' + t + '」の録画を停止'); row.stop.hidden = !r.active;
+      var want = prevEl ? prevEl.nextSibling : els.list.firstChild;
+      if (want !== row.el) els.list.insertBefore(row.el, want);   // 順番が変わったときだけ動かす(押そうとしているボタンを巻き込まない)
+      prevEl = row.el;
+    }
+    for (k in live.rows) {
+      if (Object.prototype.hasOwnProperty.call(live.rows, k) && !seen[k]) { var gone = live.rows[k].el; if (gone.parentNode) gone.parentNode.removeChild(gone); delete live.rows[k]; }
+    }
+  }
+  function liveRender() {
+    var cur = live.last, list = cur && cur.enabled ? cur.recordings : [];
+    if (!list.length) { if (live.els) { liveClose(false); live.els.box.hidden = true; } return; }
+    var els = liveEnsure(); if (!els) return;
+    var n = { reconnecting: 0, recording: 0, waiting: 0, error: 0 }, i, parts = [], state = '';
+    for (i = 0; i < list.length; i++) if (n[list[i].state] !== undefined) n[list[i].state]++;
+    if (n.reconnecting) { parts.push('つなぎ直し中' + (n.reconnecting > 1 ? ' ' + n.reconnecting : '')); state = 'reconnecting'; }
+    if (n.recording) { parts.push('録画中 ' + n.recording); state = state || 'recording'; }
+    if (n.waiting) { parts.push('配信待ち ' + n.waiting); state = state || 'waiting'; }
+    if (!parts.length) {   // 動いているものが無い: 終わって間もない録画(開く先を残す)。エラーがあればそれを
+      if (n.error) { parts.push('録画エラー'); state = 'error'; } else { parts.push('録画終了 ' + list.length); state = 'ended'; }
+    }
+    var label = parts.join('・');
+    liveSet(els.text, label);
+    els.btn.setAttribute('data-state', state);
+    els.btn.setAttribute('aria-label', label + '。録画の一覧を開く');
+    els.box.hidden = false;
+    liveRows(list);
+    if (live.open) liveTimes();
+  }
+  var liveBadge = {
+    get: function () { return live.last; },                         /* 最後の応答 {enabled, recordings}(まだ無ければ null) */
+    refresh: liveRefresh,                                           /* すぐ問い合わせ直す → Promise(最後の応答) */
+    onChange: function (fn) { if (typeof fn === 'function') live.subs.push(fn); },   /* 応答のたびに fn(最後の応答) */
+    onOpen: function (fn) { live.openFn = typeof fn === 'function' ? fn : null; }     /* スタジオの画面が登録: 「開く」で移らずに fn(録画)を呼ぶ */
+  };
+  life.onReturn(function () { if (live.started && token() && Date.now() - live.at > 3000) liveRefresh(); });
+  function liveStart() { if (token() && document.querySelector('[data-ui-appnav]')) liveRefresh(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', liveStart); else liveStart();
+
+  window.UIKit = { version: 16, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
 })();

@@ -7,6 +7,8 @@
   押すたびに、一時ファイルに書いて fsync してから置き換える(ytt_core.fsio.atomic_write(fsync_required=True))。
   時刻は絶対時刻(UTC。hls.js の playingDate = 録画元の受信時刻 PDT)で持つ。
   計画の 5 は「追記専用の JSONL」だが、ラベルの変更・終了の後付け・削除があるので、全体を原子的に置き換える形にした(壊れるのは「前の版のまま」だけ)。
+  P3(スタジオに統合。計画の 0-8)からは、スタジオのマーク(録画の頭からの秒)を書き出すときに入口が絶対時刻へ直して入れる(upsert。id は
+  lm- + sha1(スタジオのマークの id) の頭 12 桁)。ジョブには studio {video, mark, start, end} を残す(スタジオの画面がどのマークの書き出しか分かる)。
   バックアップは作業データのバックアップ(home/backup.py。変わってから QUIET 秒で写す)に乗る。
 
 書き出しのジョブ(Exporter。計画の 6。1本ずつ順に):
@@ -27,7 +29,9 @@ url は入れない(range がアーカイブの秒ではないので、YouTube �
 """
 import datetime
 import glob
+import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -49,6 +53,7 @@ MARK_RE = re.compile(r"^lm-[0-9a-f]{8,16}\Z")
 JOB_RE = re.compile(r"^lx-[0-9a-f]{8,16}\Z")
 SEG_URI_RE = re.compile(r"^session_\d{3,6}/seg_\d{6,9}\.ts\Z")
 YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
+STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジオの配信・マークの id(P3。POST /live/api/export の studio)
 MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = 3600        # 1つのマークの長さ(スタジオの MAX_MARK_SEC と同じ)
 LABEL_MAX = 80
@@ -205,6 +210,34 @@ def _text(v, n):
     return re.sub(r"[\x00-\x1f\x7f]", " ", v if isinstance(v, str) else "").strip()[:n]
 
 
+def studio_mark_id(mark):
+    """スタジオのマークの id → マークの正本の id(同じスタジオのマークは何度書き出しても同じ正本の1件)"""
+    return "lm-" + hashlib.sha1(mark.encode("utf-8")).hexdigest()[:12]
+
+
+def check_studio(s):
+    """POST /live/api/export の studio {video, mark, n, label, start, end} を検査する(start・end は録画の頭からの秒)。-> 整えた辞書"""
+    if not isinstance(s, dict):
+        raise LiveError("studio の形が正しくありません")
+    for k in ("video", "mark"):
+        if not isinstance(s.get(k), str) or not STUDIO_ID_RE.match(s[k]):
+            raise LiveError("studio.%s の形が正しくありません" % k)
+    sec = {}
+    for k in ("start", "end"):
+        v = s.get(k)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise LiveError("studio.%s は秒(数)で指定してください" % k)
+        sec[k] = round(float(v), 3)
+    if not 0 <= sec["start"] < sec["end"]:
+        raise LiveError("区間は 0 ≤ 開始 < 終了 にしてください")
+    if sec["end"] - sec["start"] > MAX_MARK_SEC:
+        raise LiveError("1つのマークは %d 分までです" % (MAX_MARK_SEC // 60))
+    n = s.get("n", 0)
+    if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= 99999:
+        raise LiveError("studio.n の形が正しくありません")
+    return {"video": s["video"], "mark": s["mark"], "n": n, "label": _text(s.get("label"), LABEL_MAX), "start": sec["start"], "end": sec["end"]}
+
+
 class MarkStore:
     """録画1本ごとのマーク。値の変更はロックの中で読み → 変える → fsync して置き換える"""
 
@@ -276,6 +309,34 @@ class MarkStore:
             except OSError as e:
                 raise LiveError("マークを保存できませんでした: %s" % (e.strerror or e.__class__.__name__), 500)
             return m, marks
+
+    def upsert(self, rc, rec, mid, n, start, end, label="", url=None, title=None):
+        """スタジオのマーク(P3)を正本に入れる: id(lm-…)が無ければ足す・あれば開始・終了・ラベル・番号を変える。
+        start・end は絶対時刻の文字列(UTC)。-> 入れたマーク"""
+        if not MARK_RE.match(mid or ""):
+            raise LiveError("マークの指定が正しくありません")
+        with self.lock:
+            d = self.load(rc, rec)
+            if isinstance(url, str) and not d.get("url"):
+                d["url"] = _text(url, 500)
+            if isinstance(title, str) and title.strip():
+                d["title"] = _text(title, TITLE_MAX)
+            m = next((x for x in d["marks"] if x["id"] == mid), None)
+            if m is None:
+                if len(d["marks"]) >= MAX_MARKS:
+                    raise LiveError("1本の録画に付けられるマークは %d 個までです" % MAX_MARKS, 409)
+                m = {"id": mid, "n": n, "start": None, "end": None, "label": "", "created": now_iso(), "src": "studio"}
+                self._set(m, {"start": start, "end": end, "label": label}, new=True)
+                d["marks"].append(m)
+            else:
+                self._set(m, {"start": start, "end": end, "label": label})
+                m["n"] = n
+            m["updated"] = now_iso()
+            try:
+                self._save(d)
+            except OSError as e:
+                raise LiveError("マークを保存できませんでした: %s" % (e.strerror or e.__class__.__name__), 500)
+            return dict(m)
 
     @staticmethod
     def _set(m, body, new=False):
@@ -381,14 +442,33 @@ class Exporter:
         return {x.get("id"): {"state": x.get("state"), "label": x.get("stateLabel"), "message": x.get("error") or x.get("message") or ""}
                 for x in runs or [] if isinstance(x, dict)}
 
-    def add(self, rc, rec, mid, transcribe=True):
+    def busy(self, rec, mid):
+        with self.lock:
+            return any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and j["state"] in ACTIVE)
+
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None):
+        """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
+        first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁"""
+        if self.live.find(rc) is None:
+            raise LiveError("その録画元はありません", 404)
+        mid = studio_mark_id(studio["mark"])
+        with self.lock:   # 書き出しの途中のマークは、正本を書き換える前に断る(途中のジョブの区間と正本が食い違わないように)
+            if self.busy(rec, mid):
+                raise LiveError("このマークは書き出しの途中です", 409)
+            self.marks.upsert(rc, rec, mid, studio["n"], epoch_iso(first + studio["start"]), epoch_iso(first + studio["end"]),
+                              studio["label"], url=url, title=title)
+            return self.add(rc, rec, mid, transcribe,
+                            studio={k: studio[k] for k in ("video", "mark", "start", "end")})
+
+    def add(self, rc, rec, mid, transcribe=True, studio=None):
+        """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)"""
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         m = self.marks.get(rc, rec, mid)
         if not m.get("end"):
             raise LiveError("終了をマークしてから書き出してください")
         with self.lock:
-            if any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and j["state"] in ACTIVE):
+            if self.busy(rec, mid):
                 raise LiveError("このマークは書き出しの途中です", 409)
             if sum(1 for j in self.jobs if j["state"] in ACTIVE) >= 50:
                 raise LiveError("書き出しの順番待ちが多すぎます(50 本まで)", 409)
@@ -397,6 +477,8 @@ class Exporter:
                    "state": "wait", "message": "録画が届くのを待っています", "error": "", "needsArchive": False, "progress": 0,
                    "source": "", "path": "", "manifest": "", "runId": "", "warning": "", "attempts": 0,
                    "created": now_iso(), "updated": now_iso()}
+            if studio is not None:
+                job["studio"] = dict(studio)
             self.jobs.append(job)
             self._trim()
         self._save()
@@ -820,6 +902,8 @@ class Exporter:
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"]}}
+        if isinstance(job.get("studio"), dict):   # スタジオのマークから(P3): スタジオの配信(= 録画の id)とマークの id も残す
+            clip["source"]["live"]["studio"] = {"video": job["studio"].get("video"), "mark": job["studio"].get("mark")}
         warn = [job["warning"]] if job.get("warning") else []
         manifest = ""
         try:

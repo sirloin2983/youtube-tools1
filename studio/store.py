@@ -459,18 +459,29 @@ class Store:
 
     @staticmethod
     def _load_video(vid, v):
-        if not isinstance(v, dict) or v.get("id") != vid or v.get("kind") not in ("youtube", "file"):
+        if not isinstance(v, dict) or v.get("id") != vid or v.get("kind") not in ("youtube", "file", "live"):
             raise ValueError("id/kind が正しくありません")
         if v["kind"] == "file" and not isinstance(v.get("path"), str):
             raise ValueError("path がありません")
+        live = None
+        if v["kind"] == "live":   # ライブの録画: id は録画の id と同じ。形が合わなければこの1件だけ読み飛ばす
+            try:
+                live = common.check_live(v.get("live"))
+            except ApiError as e:
+                raise ValueError("live が正しくありません: %s" % e.message)
+            if live["recording"] != vid:
+                raise ValueError("live の録画 ID が id と違います")
         an = v.get("analysis")
         rev = v.get("rev")
         ci = lambda x: x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else now_ms()
-        return {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
-                "duration": common.num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
-                "path": v["path"] if v["kind"] == "file" else "", "marks": load_marks(v.get("marks")),
-                "analysis": an if isinstance(an, dict) else None, "rev": rev if isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1 else 1,
-                "createdAt": ci(v.get("createdAt")), "updatedAt": ci(v.get("updatedAt"))}
+        out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
+               "duration": common.num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
+               "path": v["path"] if v["kind"] == "file" else "", "marks": load_marks(v.get("marks")),
+               "analysis": an if isinstance(an, dict) else None, "rev": rev if isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1 else 1,
+               "createdAt": ci(v.get("createdAt")), "updatedAt": ci(v.get("updatedAt"))}
+        if live:
+            out["live"] = live   # live のときだけ持つキー(youtube・file の記録の形は変えない)
+        return out
 
     @staticmethod
     def _load_group(gid, g):
@@ -537,10 +548,18 @@ class Store:
     def _pub(v):
         d = {k: v[k] for k in ("id", "kind", "title", "channel", "duration", "fileName", "analysis", "rev", "createdAt", "updatedAt")}
         d["marks"] = v["marks"]
+        if v["kind"] == "live":
+            d["live"] = v["live"]
         return json.loads(json.dumps(d))   # 深いコピー(呼び出し側が書き換えても内部に影響しない)
 
     def _summary(self, v):
         g = self._video_group(v["id"])
+        d = self._summary_base(v, g)
+        if v["kind"] == "live":
+            d["live"] = dict(v["live"])
+        return d
+
+    def _summary_base(self, v, g):
         return {"id": v["id"], "kind": v["kind"], "title": v["title"], "channel": v["channel"], "duration": v["duration"], "fileName": v["fileName"],
                 "marks": len(v["marks"]), "autoMarks": sum(1 for m in v["marks"] if m["src"] == "auto"), "exported": sum(1 for m in v["marks"] if m["status"] == "exported"),
                 "adopted": sum(1 for m in v["marks"] if m["status"] == "adopted"), "candidates": sum(1 for m in v["marks"] if m["status"] == ""),
@@ -598,10 +617,17 @@ class Store:
                     nv["fileName"] = os.path.basename(src["path"])[:200]
                     nv["path"] = src["path"]
                     nv["title"] = os.path.splitext(nv["fileName"])[0][:120]
+                elif src["kind"] == "live":
+                    nv["live"] = dict(src["live"])
             else:
                 nv = copy.deepcopy(v)
             t, ch = str(title or "").strip()[:120], str(channel or "").strip()[:100]
-            if v is not None and ((t and t != nv["title"]) or (ch and ch != nv["channel"])):
+            if v is not None and v["kind"] == "live":   # 録画の登録は何度来てもよい: 既にあれば、題が空のときだけ新しい題を入れる(録画の情報は変えない)
+                if not (t and not nv["title"]):
+                    return self._pub(v)
+                ch = ""
+                nv["rev"] += 1
+            elif v is not None and ((t and t != nv["title"]) or (ch and ch != nv["channel"])):
                 nv["rev"] += 1
             nv["title"] = t or nv["title"]      # 空のタイトル・チャンネルで既存の値を消さない
             nv["channel"] = ch or nv["channel"]
@@ -693,6 +719,8 @@ class Store:
             v = self.videos.get(str(vid or ""))
             if not v:
                 raise ApiError("not_found", "動画が見つかりません", 404)
+            if v["kind"] == "live":
+                raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
             if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
                 return [], self._pub(v)
             cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=lambda m: -(m["score"] or 0))[:top]
@@ -731,6 +759,8 @@ class Store:
             v = self.videos.get(str(vid or ""))
             if not v:
                 raise ApiError("not_found", "動画が見つかりません", 404)
+            if v["kind"] == "live":   # 依頼(時刻指定)は YouTube の配信が対象。録画の時刻は別の基準(録画の頭からの秒)
+                raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)
             nv = copy.deepcopy(v)
             dur = round(float(nv["duration"]), 1) if nv["duration"] and nv["duration"] > 0 else 0
             range_ids, changed = [], False
@@ -781,7 +811,7 @@ class Store:
         新しい自動マークは、残したマークと同じ区間(±0.5秒)なら作らない。戻り値は新しい自動マークの数(動画が消えていれば None)。"""
         with self.lock:
             v = self.videos.get(vid)
-            if not v:
+            if not v or v["kind"] == "live":   # live は解析しない(入口で断っているが、念のためここでも反映しない)
                 return None
             kept = []
             for m in v["marks"]:

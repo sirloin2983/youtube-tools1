@@ -59,6 +59,15 @@ def feedback_path():
 
 
 # ---------- 入力の検査 ----------
+LIVE_NO_ANALYZE = "ライブの録画は解析できません(配信が終わってから、アーカイブのURLを入れてください)"
+
+
+def validate_live(o):
+    """POST /api/videos/open {kind:"live", recorder, recording, url, title} → store.ensure に渡す source 辞書(id = 録画の id)。不正は ApiError。"""
+    lv = common.check_live(o)
+    return {"kind": "live", "videoId": lv["recording"], "name": lv["recording"], "live": lv}
+
+
 def validate_source(item):
     """キューに入れる1件({kind:"youtube", url|videoId} / {kind:"file", path}) → source 辞書。不正は ApiError。"""
     if not isinstance(item, dict):
@@ -66,6 +75,8 @@ def validate_source(item):
     if item.get("kind") == "file":
         p = common.check_media_path(item.get("path"))
         return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": common.file_video_id(p)}
+    if item.get("kind") == "live" or common.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
+        raise ApiError("bad_source", LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
     vid = common.parse_video_id(item.get("url") or item.get("videoId"))
     if not vid:
         raise ApiError("bad_source", "YouTube の動画URLではありません(watch?v=… / youtu.be/… / live/…)", 400)
@@ -153,6 +164,10 @@ def _feedback_row(video, mark, verdict, event):
 
 
 def _feedback_write(row):
+    if row.get("kind") == "live":
+        # ライブの録画(線 D の P3)は解析していない(自動マークが無い): 手で付けたマークが「自動の見逃し」(manual_add)や
+        # 手動の「よかった」として盛り上がりの学習・集計(dev/eval_marks.py など)に混ざって数字を変えないように、記録しない
+        return False
     path = feedback_path()
     with _fb_lock:
         try:

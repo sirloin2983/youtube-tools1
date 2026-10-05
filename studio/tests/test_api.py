@@ -648,6 +648,167 @@ class TestRequestMarks(Base):
                     {"ranges": [[i, i + 1] for i in range(11)]}, {"auto": -1}, {"auto": 31}, {"auto": "1"}, {"auto": True}, {"id": "../etc"}, {"id": "x" * 30}):
             self.assertEqual(self.req("POST", "/api/video/request-marks", dict(ok, **bad))[0], 400, bad)
 
+
+LIVE_ID = "20261005-185300-U972n0ncl4k"
+
+
+def live_body(rid=LIVE_ID, **kw):
+    b = {"kind": "live", "recorder": "rec", "recording": rid, "url": "https://www.youtube.com/watch?v=U972n0ncl4k", "title": "配信中"}
+    b.update(kw)
+    return b
+
+
+class TestLiveApi(Base):
+    """kind "live"(録画の部品で録っている配信): 登録・一覧と1本の形・書き出し済みの記録・解析とスタジオの書き出しを断る(線 D の P3)"""
+
+    def test_open_and_shape(self):
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body())
+        self.assertEqual(st, 200, j)
+        v = j["video"]
+        self.assertEqual((v["id"], v["kind"], v["title"], v["marks"]), (LIVE_ID, "live", "配信中", []))
+        self.assertEqual(v["live"], {"recorder": "rec", "recording": LIVE_ID, "url": "https://www.youtube.com/watch?v=U972n0ncl4k", "videoId": "U972n0ncl4k"})
+        st, j, data, _ = self.req("GET", "/api/video?id=" + LIVE_ID)
+        self.assertEqual((st, j["video"]["live"], j["video"]["kind"]), (200, v["live"], "live"))
+        row = next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == LIVE_ID)
+        self.assertEqual((row["kind"], row["live"]), ("live", v["live"]))
+        self.assertNotIn("live", next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == self.fsrc["videoId"]))   # 既存の種類には live を足さない
+        self.assertEqual(self.req("GET", "/media?id=" + LIVE_ID)[0], 404)
+
+    def test_open_twice_keeps_and_fills_empty_title(self):
+        rid = "20261005-185301"
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title=""))
+        self.assertEqual((st, j["video"]["title"], j["video"]["live"]["videoId"]), (200, "", "U972n0ncl4k"))
+        rev = j["video"]["rev"]
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title=""))
+        self.assertEqual((st, j["video"]["rev"]), (200, rev))   # 何も変えない
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title="題"))
+        self.assertEqual((st, j["video"]["title"]), (200, "題"))
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title="別の題", url="https://youtu.be/aaaaaaaaaaa"))
+        self.assertEqual((st, j["video"]["title"], j["video"]["live"]["videoId"]), (200, "題", "U972n0ncl4k"))   # 既にある題・録画の情報は変えない
+
+    def test_channel_live_url_has_empty_video_id(self):
+        st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185302", url="https://www.youtube.com/@someone/live"))
+        self.assertEqual((st, j["video"]["live"]["videoId"]), (200, ""))
+
+    def test_open_rejects_bad_values(self):
+        bads = [dict(recording="abc"), dict(recording="20261005-185300-"), dict(recording="20261005-185300-" + "a" * 25), dict(recording="../x"), dict(recording=None),
+                dict(recording=LIVE_ID + "\n"), dict(recorder="Rec"), dict(recorder="1rec"), dict(recorder="a" * 17), dict(recorder=""), dict(recorder=5),
+                dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"), dict(url="https://evil.example/watch?v=U972n0ncl4k"), dict(url="youtube.com/watch?v=U972n0ncl4k"),
+                dict(url=""), dict(url=None), dict(url="https://www.youtube.com/watch?v=U972n0ncl4k\n"), dict(url="https://www.youtube.com.evil.example/x"),
+                dict(title=5), dict(title=["x"])]
+        for kw in bads:
+            st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185399", **kw) if "recording" not in kw else live_body(**kw))
+            self.assertEqual((st, j["error"]), (400, "bad_source"), kw)
+        self.assertEqual(self.req("GET", "/api/video?id=20261005-185399")[0], 404)   # 断ったものは登録されない
+
+    def test_id_conflict_with_other_kind(self):
+        # YouTube の 11 文字・file の "f…" とは形が違うので重ならない。同じ id が別の種類で既にあれば 409(ensure の既存の規則)
+        serve.STORE.ensure({"kind": "youtube", "videoId": "abcdefghijk"}, "t")
+        with self.assertRaises(common.ApiError) as c:
+            serve.STORE.ensure({"kind": "live", "videoId": "abcdefghijk", "live": {}}, "t")
+        self.assertEqual(c.exception.status, 409)
+
+    def _exported_setup(self, rid):
+        self.req("POST", "/api/videos/open", live_body(rid))
+        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "label": "L", "status": "adopted"}]})
+        self.assertEqual(st, 200, j)
+        d = os.path.join(common.get_out_dir(), "配信中_" + rid)
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, "clip.mp4")
+        with open(p, "wb") as f:
+            f.write(b"x" * 10)
+        return p
+
+    def test_exported_marks_mark_as_exported(self):
+        rid = "20261005-190000"
+        p = self._exported_setup(rid)
+        st, j, *_ = self.req("POST", "/api/live/exported", {"id": rid, "markId": "m1", "path": p})
+        self.assertEqual((st, j["ok"]), (200, True), j)
+        m = j["video"]["marks"][0]
+        self.assertEqual((m["status"], m["file"], m["path"]), ("exported", "配信中_%s/clip.mp4" % rid, os.path.abspath(p)))
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["status"], "exported")
+        st, j, *_ = self.req("POST", "/api/live/exported", {"id": rid, "markId": "m1", "path": p})   # 重ねて呼んでも落ちない
+        self.assertEqual((st, j["ok"]), (200, True))
+        st, j, *_ = self.req("POST", "/api/live/exported", {"id": rid, "markId": "nomark", "path": p})   # マークが無い: 記録しない(mark_exported と同じ)
+        self.assertEqual((st, j["ok"]), (200, False))
+
+    def test_exported_rejects_bad_requests(self):
+        rid = "20261005-190100"
+        p = self._exported_setup(rid)
+        ok = {"id": rid, "markId": "m1", "path": p}
+        outside = os.path.join(self.tmp, "outside.mp4")
+        with open(outside, "wb") as f:
+            f.write(b"x")
+        sneaky = os.path.join(common.get_out_dir(), "..", "outside.mp4")   # 書き出し先の外へ ..
+        txt = os.path.join(os.path.dirname(p), "a.txt")
+        with open(txt, "wb") as f:
+            f.write(b"x")
+        for bad in ({"path": outside}, {"path": sneaky}, {"path": os.path.join(os.path.dirname(p), "none.mp4")}, {"path": txt}, {"path": "clip.mp4"}, {"path": ""},
+                    {"path": None}, {"path": os.path.dirname(p)}, {"path": common.get_out_dir()}, {"markId": 3}, {"markId": ""}, {"id": 3}):
+            st, j, *_ = self.req("POST", "/api/live/exported", dict(ok, **bad))
+            self.assertEqual(st, 400, bad)
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["status"], "adopted")   # 断ったものは記録されない
+        self.assertEqual(self.req("POST", "/api/live/exported", dict(ok, id="20261005-199999"))[0], 404)
+        # live でない配信は断る
+        fid = self.fsrc["videoId"]
+        self.req("PUT", "/api/video", {"id": fid, "marks": [{"id": "fm1", "start": 1, "end": 3, "status": "adopted"}]})
+        st, j, *_ = self.req("POST", "/api/live/exported", {"id": fid, "markId": "fm1", "path": p})
+        self.assertEqual(st, 400)
+        self.assertEqual(self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0]["status"], "adopted")
+
+    def test_exported_follows_guards(self):
+        for kw in ({"host": "evil.example:%d" % self.port}, {"headers": {"Sec-Fetch-Site": "cross-site"}}, {"headers": {"Origin": "http://evil.example"}}):
+            self.assertEqual(self.req("POST", "/api/live/exported", {"id": "x", "markId": "m", "path": "/x.mp4"}, **kw)[0], 403, kw)
+        self.assertEqual(self.req("GET", "/api/live/exported")[0], 404)
+
+    def test_analysis_refused(self):
+        rid = "20261005-190200"
+        self.req("POST", "/api/videos/open", live_body(rid))
+        for item in ({"kind": "live", "recording": rid}, {"kind": "live", "url": "https://www.youtube.com/watch?v=U972n0ncl4k"}, {"videoId": rid}, {"url": rid}, {"kind": "youtube", "videoId": rid}):
+            st, j, *_ = self.req("POST", "/api/queue/add", {"items": [item], "settings": {}})
+            self.assertEqual(st, 200, item)
+            self.assertEqual((j["added"], len(j["rejected"])), ([], 1), item)
+        self.assertEqual(self.req("GET", "/api/queue")[1]["items"], [])
+        st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": rid, "top": 2})
+        self.assertEqual(st, 400, j)
+        st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": rid, "ranges": [[1, 5]], "auto": 0})
+        self.assertEqual(st, 400, j)
+        st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": "20261005-190299", "ranges": [[1, 5]], "auto": 0})   # 未登録の録画の id でも YouTube として登録しない
+        self.assertEqual(st, 400, j)
+        self.assertEqual(self.req("GET", "/api/video?id=20261005-190299")[0], 404)
+        self.assertIsNone(serve.STORE.replace_auto(rid, [], {}, 0, {}))
+
+    def test_studio_export_refused(self):
+        rid = "20261005-190300"
+        self.req("POST", "/api/videos/open", live_body(rid))
+        self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "status": "adopted"}]})
+        with patch.object(serve.exporter, "start_job") as sj:
+            st, j, *_ = self.req("POST", "/api/export", {"id": rid, "markIds": ["m1"]})
+        self.assertEqual((st, j["error"]), (400, "bad_request"))
+        self.assertIn("ライブ", j["message"])
+        sj.assert_not_called()
+
+    def test_marks_and_delete_work_like_other_videos(self):
+        rid = "20261005-190400"
+        self.req("POST", "/api/videos/open", live_body(rid))
+        st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "title": "t", "marks": [{"start": 5, "end": 30}]})
+        self.assertEqual((st, len(j["video"]["marks"]), j["video"]["live"]["recording"]), (200, 1, rid))
+        self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)
+        self.assertEqual(self.req("GET", "/api/video?id=" + rid)[0], 404)
+        self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 404)
+
+    def test_live_in_collab_group_and_transcripts(self):
+        rid = "20261005-190500"
+        self.req("POST", "/api/videos/open", live_body(rid))
+        self.req("POST", "/api/videos/open", {"kind": "youtube", "url": "https://youtu.be/livecollab1"})
+        st, j, *_ = self.req("POST", "/api/collab/group", {"videoIds": [rid, "livecollab1"]})
+        self.assertEqual(st, 200, j)
+        self.assertEqual(sorted(m["kind"] for m in j["group"]["members"]), ["live", "youtube"])
+        self.assertEqual(self.req("GET", "/api/transcripts?id=" + rid)[0], 200)
+        self.assertEqual(self.req("GET", "/api/collab/groups")[0], 200)
+        self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)   # グループからも外れる
+
+
 class TestRankSearch(Base):
     """① 探す: 「10分以上の動画だけ」(minDur。2026-10-04)の検査と絞り込み(疑似の YouTube API)"""
 

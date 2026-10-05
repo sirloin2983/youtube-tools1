@@ -62,7 +62,7 @@ function sanitizeKeymap(x){
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -78,7 +78,8 @@ function sanitizeSettings(x){
     autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldDefault: x.foldDefault === true,
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
-    momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3)   // 一瞬をマーク(C)の前・後の秒数
+    momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
+    liveAutoExport: x.liveAutoExport !== false   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
   };
 }
 
@@ -127,9 +128,10 @@ function buildDOM(){
         </div>
         <div class="rv-picklist" id="rvPickList"></div>
         <form class="rv-open" id="rvOpenForm" autocomplete="off">
-          <label class="rv-fl" for="rvOpenIn">一覧に無い配信・動画ファイルを開く(解析せずに手でマークを付けるとき)</label>
+          <label class="rv-fl" for="rvOpenIn">一覧に無い配信・動画ファイルを開く(解析せずに手でマークを付けるとき)<span class="rv-openlive" hidden>。配信中・配信前の URL なら録画を始めて開きます</span></label>
           <div class="rv-openrow"><input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTube の URL・動画 ID、または動画ファイルのフルパス">
           <button class="btn" type="submit" id="rvOpenBtn">開く</button></div>
+          <p class="hint rv-openmsg" id="rvOpenMsg" role="status" hidden></p>
         </form>
       </div>
     </details>
@@ -208,19 +210,27 @@ function buildDOM(){
         </div>
       </div>
 
+      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
+      <div class="rv-livebar" id="rvLiveBar" hidden>
+        <div class="rv-live-l"><span class="rv-live-badge" id="rvLiveBadge">LIVE</span>
+          <span class="rv-live-k" id="rvLiveElapsedK">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
+          <span class="rv-live-k rv-live-edgeinfo">ライブ端との差</span><span class="mono rv-live-edgeinfo" id="rvLiveGap">--</span>
+          <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
+        <div><button class="btn small" id="rvEdge" type="button">ライブ端へ</button></div>
+        <div class="rv-liverec" id="rvLiveRec" hidden>
+          <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
+          <span class="rv-topsp"></span>
+          <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
+          <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
+        </div>
+        <p class="rv-liveguide" id="rvLiveGuide" hidden></p>
+      </div>
+
       <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div>
         <div class="rv-qrow rv-momrow"><button class="btn soft" type="button" id="rvMomBtn" title="今の位置の前後(下の秒数)を、マーク「一瞬」(採用)にします">一瞬をマーク<kbd class="ui-kbd" data-kbd="moment">C</kbd></button>
           <label class="rv-momset">前 <input type="number" id="rvMomBefore" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の前の秒数"> 秒</label>
           <label class="rv-momset">後 <input type="number" id="rvMomAfter" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の後の秒数"> 秒</label>
           <span class="hint">0.1 秒単位。押すとすぐマークになります(ライブ中も)</span></div></div>
-
-      <div class="rv-livebar" id="rvLiveBar" hidden>
-        <div class="rv-live-l"><span class="rv-live-badge">LIVE</span>
-          <span class="rv-live-k">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
-          <span class="rv-live-k">ライブ端との差</span><span class="mono" id="rvLiveGap">--</span>
-          <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
-        <div><button class="btn small" id="rvEdge" type="button">ライブ端へ</button></div>
-      </div>
 
       <details class="rv-markdetails ui-disclosure" id="rvMarkDetails">
         <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
@@ -455,7 +465,7 @@ function updateBadge(){
 }
 function vLabel(v){ return v.title || v.fileName || v.id; }
 const nz = x => Number(x) || 0;
-const vWho = v => (v.kind === 'file' ? '動画ファイル' : (v.channel || '配信者不明'));
+const vWho = v => (v.kind === 'file' ? '動画ファイル' : (v.channel || (v.kind === 'live' ? 'ライブの録画' : '配信者不明')));
 /* ---------- 配信の選択(ヘッダーの下の「配信」。50本以上でも探せるように、検索・絞り込み・配信者ごと) ----------
    関数名は以前の <select> のまま(renderVideoSelect)。選ぶ部分(ボタン)はいつも、一覧は開いているときだけ描く */
 const PK = { q: '', f: 'all', sort: 'recent', limit: 80 };
@@ -475,7 +485,7 @@ const pickHidden = v => !!(HIDE && HIDE.available() && HIDE.has('videos', v.id) 
 function pickRowHTML(v){
   const cur = S.cur && S.cur.id === v.id, t = v.createdAt || v.updatedAt;
   const hid = HIDE && HIDE.available() && HIDE.has('videos', v.id);
-  const pills = [nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
+  const pills = [v.kind === 'live' ? (liveRecActive(v) ? '<span class="pill run">録画中</span>' : '<span class="pill">録画</span>') : '', nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
     nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : '', hid ? '<span class="ui-hidden-tag">非表示</span>' : ''].join('');
   const row = `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
     <span class="rv-prow-t">${esc(vLabel(v))}</span>
@@ -534,6 +544,7 @@ async function loadVideo(id){
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
   $('#rvLiveBar').hidden = true;
+  if (typeof liveOpened === 'function') liveOpened(S.cur);   // ライブの録画(kind live)なら録画の状態の見回りを始める。プレーヤーを作る前に(録画の状態で作り方が変わる)
   setNow(0);
   mountPlayer();
   renderAll();
@@ -560,14 +571,28 @@ async function openFromInput(){
   const inp = $('#rvOpenIn'), text = inp.value.trim();
   if (!text) return toast('YouTube の URL・動画 ID、または動画ファイルのパスを入力してください');
   const body = looksLikeYouTube(text) ? { kind: 'youtube', url: text } : { kind: 'file', path: text.replace(/^["']|["']$/g, '') };
-  const btn = $('#rvOpenBtn'); btn.disabled = true;
+  const btn = $('#rvOpenBtn'); if (btn.disabled) return;   // begin は数秒かかる: 二度押しを防ぐ
+  btn.disabled = true;
+  const msg = t => { const m = $('#rvOpenMsg'); if (m){ m.textContent = t || ''; m.hidden = !t; } };
   try {
+    /* 配信中・配信前の URL なら録画を始めて、その録画を開く(線 D の P3。ライブの機能が使えるときだけ。違えば今までどおり) */
+    if (body.kind === 'youtube' && Studio.live && await Studio.live.available()){
+      msg('配信の状態を確かめています…(配信中・配信前なら録画を始めます)');
+      const b = await Studio.live.begin(text);
+      if (b){
+        inp.value = '';
+        const pk = $('#rvPick'); if (pk) pk.open = false;
+        toast(b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます', 5000, 'ok');
+        await loadVideo(b.video.id);
+        return;
+      }
+    }
     const r = await Studio.api('/api/videos/open', { method: 'POST', body });
     inp.value = '';
     const pk = $('#rvPick'); if (pk) pk.open = false;
     await loadVideo(r.video.id);
   } catch (e){ toast(e.message); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; msg(''); }
 }
 async function deleteCurrentVideo(){
   const v = S.cur; if (!v || S.deleting) return;   // 削除の通信中にもう一度押しても、2回目の削除(404)を送らない
@@ -616,7 +641,7 @@ function clearYtReadyTimer(){ if (ytReadyTimer){ clearTimeout(ytReadyTimer); ytR
 function showNotice(t, opts){
   S.playerErr = true;
   const n = $('#rvNotice'), v = S.cur;
-  const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : '';
+  const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : liveYtHref(v);
   const retry = opts && opts.retry ? '<button type="button" class="btn small" data-act="ytretry">もう一度試す</button> ' : '';   // 押したときの動きは #rvNotice のクリックで受ける(CSP: インラインの onclick は動かない)
   n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
   n.hidden = false; phMsg('');
@@ -666,6 +691,139 @@ class LocalPlayer {
   isMuted(){ return this.el.muted; }
   destroy(){ try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {} this.el.remove(); }
 }
+
+/* ---------- ライブの録画(kind live。線 D の P3)の時刻: 「録画の最初のセグメントの受信時刻(PDT)」からの秒 ----------
+   スタジオのマーク・書き出し(入口の live_export の基準 = 録画元の firstPdt)はこの秒で持つ。繋ぎ直しで欠けた間も時間は進む。
+   hls.js の再生位置(video.currentTime。欠けを詰めた「メディアの秒」)とは、フラグメントごとの programDateTime で行き来する。
+   DOM も hls.js も使わない純粋な関数(test_review.cjs が切り出して試す)。frags は [{ pdt: 受信時刻(ms), start: メディアの秒, dur: 秒 }](時刻の順) */
+const LT = {
+  /* hls.js の level.details.fragments → frags。programDateTime が無い再生リストでは、メディアの秒をそのまま時刻にする(欠けは分からない) */
+  frags(fragments){
+    const out = [];
+    for (const f of fragments || []){
+      const start = Number(f && f.start), dur = Number(f && f.duration);
+      if (!Number.isFinite(start) || !(dur > 0)) continue;
+      const p = Number(f.programDateTime);
+      out.push({ pdt: Number.isFinite(p) && p > 0 ? p : start * 1000, start, dur });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  },
+  base: frags => (frags && frags.length ? frags[0].pdt : null),
+  /* メディアの秒 → 録画の秒。区間の外(最初より前・最後より後)は近い端のフラグメントから伸ばす */
+  timeOf(frags, base, media){
+    if (!frags || !frags.length || base == null) return Math.max(0, Number(media) || 0);
+    media = Number(media) || 0;
+    let f = frags[0];
+    for (const x of frags){ if (x.start <= media + 1e-6) f = x; else break; }
+    return Math.max(0, (f.pdt + (media - f.start) * 1000 - base) / 1000);
+  },
+  /* 録画の秒 → メディアの秒。欠け(繋ぎ直しの間に落ちた時刻)なら次のフラグメントの頭。最初より前は頭・最後より後は終わり。frags が無ければ null */
+  mediaOf(frags, base, sec){
+    if (!frags || !frags.length || base == null) return null;
+    const at = base + Math.max(0, Number(sec) || 0) * 1000;
+    for (const f of frags){
+      if (at < f.pdt) return f.start;                                  // 欠けの中(か最初より前): 次のフラグメントの頭
+      if (at < f.pdt + f.dur * 1000) return f.start + (at - f.pdt) / 1000;
+    }
+    const l = frags[frags.length - 1];
+    return l.start + l.dur;
+  },
+  /* 録画の長さ = 最後のフラグメントの終わりの受信時刻 − 基準(録画中は伸びる) */
+  durationOf(frags, base){
+    if (!frags || !frags.length || base == null) return 0;
+    const l = frags[frags.length - 1];
+    return Math.max(0, (l.pdt + l.dur * 1000 - base) / 1000);
+  }
+};
+/* hls.js(入口の ../live/hls.min.js。ライブの録画を開いたときだけ読む。CSP script-src 'self' のまま) */
+let hlsP = null;
+function loadHls(){
+  if (window.Hls) return Promise.resolve();
+  if (hlsP) return hlsP;
+  hlsP = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = Studio.live.url('hls.min.js'); s.dataset.hls = '1';
+    const timer = setTimeout(() => reject(new Error('timeout')), 15000);
+    s.onload = () => { clearTimeout(timer); window.Hls ? resolve() : reject(new Error('no Hls')); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('load')); };
+    document.head.appendChild(s);
+  }).catch(e => { hlsP = null; document.querySelectorAll('script[data-hls]').forEach(x => x.remove()); throw e; });
+  return hlsP;
+}
+/* ライブの録画: YT.Player と同じ最小インターフェースを持つ <video> + hls.js のアダプタ(LocalPlayer と同じ形)。時刻は LT の「録画の秒」。
+   Web Worker は使わない(enableWorker: false。CSP に worker-src を足さないため)。opts.autoplay: 準備ができたら再生を始める(録画中のとき。ライブ端の少し手前から) */
+class LivePlayer {
+  constructor(host, url, ev, opts){
+    this.ev = ev; this.frags = []; this.base = null; this.ready = false; this.recording = !!(opts && opts.autoplay); this.mediaErrs = 0; this.title = (opts && opts.title) || '';
+    const el = this.el = document.createElement('video');
+    el.playsInline = true; el.preload = 'auto'; el.controls = true;
+    host.appendChild(el);
+    const st = () => ev.onStateChange && ev.onStateChange({ data: this.getPlayerState() });
+    for (const n of ['play', 'pause', 'ended', 'waiting', 'playing']) el.addEventListener(n, st);
+    const H = window.Hls;
+    const hls = this.hls = new H({ enableWorker: false, lowLatencyMode: false, liveDurationInfinity: true, backBufferLength: 90 });
+    const onLevel = (_e, d) => {
+      const fr = LT.frags(d && d.details && d.details.fragments);
+      if (!fr.length) return;
+      this.frags = fr;
+      const b = LT.base(fr); if (this.base == null || b < this.base) this.base = b;   // 基準は一度決めたら動かさない(先頭が消える再生リストでも)
+      if (!this.ready){
+        this.ready = true;
+        ev.onReady && ev.onReady({ target: this });
+        if (opts && opts.autoplay) this.playVideo(true);
+      } else st();   // 長さが伸びたことを知らせる(onState が getDuration を読み直す)
+    };
+    hls.on(H.Events.LEVEL_LOADED, onLevel);
+    if (H.Events.LEVEL_UPDATED) hls.on(H.Events.LEVEL_UPDATED, onLevel);
+    /* フラグメントを読んだあと、hls.js は映像の実際の時刻(PTS)で fragment.start を直す(繋ぎ直しの欠けのあとで 0.1 秒ほど動く)。
+       表を取り直して、getCurrentTime・seekTo を hls.playingDate と同じ値に保つ(2026-10-05 の通しの確認: 欠けのあとのマークが 0.115 秒早かった) */
+    if (H.Events.LEVEL_PTS_UPDATED) hls.on(H.Events.LEVEL_PTS_UPDATED, (_e, d) => { const fr = LT.frags(d && d.details && d.details.fragments); if (fr.length && this.ready) this.frags = fr; });
+    hls.on(H.Events.ERROR, (_e, d) => {
+      if (!d || !d.fatal) return;
+      if (d.type === H.ErrorTypes.MEDIA_ERROR && this.mediaErrs++ < 2){   // 映像の読み違い: 2回までは hls.js の直し方で続ける
+        try { if (this.mediaErrs === 2 && hls.swapAudioCodec) hls.swapAudioCodec(); hls.recoverMediaError(); return; } catch {}
+      }
+      const code = d.details === 'manifestIncompatibleCodecsError' || d.details === 'bufferIncompatibleCodecsError' ? 'codec'
+        : d.type === H.ErrorTypes.NETWORK_ERROR ? 'network' : (d.details || d.type || 'error');
+      ev.onError && ev.onError({ data: code });
+    });
+    try { hls.loadSource(url); hls.attachMedia(el); }
+    catch { setTimeout(() => ev.onError && ev.onError({ data: 'error' }), 0); }
+  }
+  getDuration(){ return LT.durationOf(this.frags, this.base); }
+  /* hls.playingDate(再生位置の受信時刻)− 基準 と同じ値を、フラグメントの表から計算する(seekTo と同じ表を使うので、行き来しても揺れない) */
+  getCurrentTime(){
+    if (this.frags.length) return LT.timeOf(this.frags, this.base, this.el.currentTime || 0);
+    const d = this.hls && this.hls.playingDate;
+    return d && this.base != null ? Math.max(0, (d.getTime() - this.base) / 1000) : 0;
+  }
+  getPlayerState(){ const e = this.el; return e.ended ? 0 : e.paused ? 2 : (e.readyState < 3 ? 3 : 1); }
+  getVideoData(){ return { isLive: this.recording, title: this.title }; }
+  seekTo(t){ const m = LT.mediaOf(this.frags, this.base, t); if (m != null) try { this.el.currentTime = m; } catch {} }
+  /* ライブ端の少し手前へ(hls.js の liveSyncPosition。無ければ録画の終わりの 8 秒前) */
+  goLive(){
+    const p = this.hls && this.hls.liveSyncPosition;
+    if (Number.isFinite(p)) try { this.el.currentTime = p; } catch {}
+    else this.seekTo(Math.max(0, this.getDuration() - 8));
+    this.playVideo();
+  }
+  playVideo(auto){
+    const r = this.el.play();
+    if (r && r.catch) r.catch(e => { if (auto && e && e.name === 'NotAllowedError' && this.ev.onAutoplayBlocked) this.ev.onAutoplayBlocked(); });
+  }
+  pauseVideo(){ this.el.pause(); }
+  setPlaybackRate(r){ this.el.playbackRate = r; }
+  setVolume(v){ this.el.volume = Math.min(1, Math.max(0, v / 100)); }
+  getVolume(){ return Math.round(this.el.volume * 100); }
+  mute(){ this.el.muted = true; }
+  unMute(){ this.el.muted = false; }
+  isMuted(){ return this.el.muted; }
+  destroy(){
+    if (this.hls){ try { this.hls.destroy(); } catch {} this.hls = null; }
+    try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {}
+    this.el.remove();
+  }
+}
 function unmountPlayer(){
   playerToken++; stopPoll(); clearYtReadyTimer();
   if (yt){ try { yt.destroy(); } catch {} yt = null; }
@@ -693,6 +851,7 @@ async function mountPlayer(){
     if (e.data === 1){ autoTitleFromPlayer(); updateLive(); }
     const d = yt && yt.getDuration ? yt.getDuration() : 0; if (d > 0 && d !== S.duration) setDuration(d);
   };
+  if (v.kind === 'live'){ mountLivePlayer(host, token, v, onReady, onState); return; }
   phMsg('プレーヤーを準備しています…');
   if (v.kind === 'file'){
     yt = new LocalPlayer(host, Studio.url('/media?id=' + enc(v.id)), { onReady, onStateChange: onState, onError: e => { if (token === playerToken) showNotice(ytErrorMessage(e.data)); } });
@@ -723,6 +882,38 @@ async function mountPlayer(){
     showNotice('YouTube のプレーヤーの準備が終わりません(回線・埋め込みの制限のおそれ)。' + notReady, { retry: true });
   }, S.ytReadyMs);
 }
+/* ライブの録画のプレーヤー。まだ録れたセグメントが無い(配信待ち)間は作らず、録画の状態の見回り(applyLiveStatus)が録れ始めたのを見て作り直す */
+const LIVE_PLAY_ERR = {
+  codec: 'このブラウザでは録画の映像(H.264)を再生できません(Edge か Chrome で開いてください)。',
+  network: '録画を読み込めませんでした(録画元につながらないかもしれません)。少し待ってから「もう一度試す」を押してください。',
+  unsupported: 'このブラウザでは録画を再生できません(Edge か Chrome で開いてください)。'
+};
+async function mountLivePlayer(host, token, v, onReady, onState){
+  const keep = 'マークの時刻の手入力・書き出しは続けられます。';
+  if (!Studio.token || !v.live || !v.live.recorder || !v.live.recording){ showNotice('ライブの録画は、ホーム(start.bat)から開いたときだけ再生できます。' + keep); return; }
+  const st = LV.vid === v.id ? LV.status : null;
+  if (!st || !(Number(st.segments) > 0)){
+    LV.waitPlay = true;
+    phMsg(st ? '配信が始まるのを待っています。始まると自動で再生します' : '録画の状態を確かめています…');
+    return;
+  }
+  LV.waitPlay = false;
+  phMsg('録画を読み込んでいます…');
+  try { await loadHls(); }
+  catch { if (token === playerToken) showNotice('再生の部品(hls.js)を読み込めませんでした(ホームが古いままかもしれません)。' + keep, { retry: true }); return; }
+  if (token !== playerToken) return;
+  let ok = false; try { ok = !!(window.Hls && Hls.isSupported()); } catch {}
+  if (!ok){ showNotice(LIVE_PLAY_ERR.unsupported + keep); return; }
+  const autoplay = !!st.active && visible();   // 録画中なら、ライブ端の少し手前から自動で再生する(終わった録画は頭から・自動では再生しない)
+  try {
+    yt = new LivePlayer(host, Studio.live.url(liveRest(v, 'index.m3u8')), {
+      onReady, onStateChange: onState,
+      onError: e => { if (token !== playerToken) return; showNotice((LIVE_PLAY_ERR[e.data] || '録画を再生できませんでした(' + e.data + ')。') + keep, { retry: e.data !== 'codec' }); },
+      onAutoplayBlocked: () => { if (token === playerToken) toast('自動では再生できませんでした。「再生 / 停止」を押すと再生します', 6000); }
+    }, { autoplay, title: v.title || '' });
+    yt.recording = !!st.active;
+  } catch { if (token === playerToken) showNotice('録画のプレーヤーを作れませんでした。' + keep, { retry: true }); }
+}
 function startPoll(){
   stopPoll();
   if (!yt || !visible()) return;
@@ -739,7 +930,8 @@ function startPoll(){
 function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
 function pausePlayback(){
   S.previewEnd = null;
-  try { if (yt && yt.pauseVideo && S.playerState === 1) yt.pauseVideo(); } catch {}
+  // 読み込み中(3)も止める: ライブの録画・動画ファイルは、読み込みを待っている間に離れると、読めたあとで再生が始まっていた
+  try { if (yt && yt.pauseVideo && (S.playerState === 1 || S.playerState === 3)) yt.pauseVideo(); } catch {}
 }
 function setNow(t){
   S.now = t;
@@ -807,6 +999,7 @@ function syncSettingsUI(){
   $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
   $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness; $('#rvExpVolBox').classList.toggle('rv-off', !!s.exportLoudness);
   expSetSummary();
+  { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
@@ -814,7 +1007,7 @@ function expSetSummary(){
   const el = $('#rvExpSetSum'); if (!el) return;
   const s = S.settings, v = S.cur;
   const parts = [{ adopted: '採用のみ', pending: '採用 + 候補', all: '不採用以外' }[s.exportTarget] || '', s.precision === 'fast' ? '高速' : '精密'];
-  if (!(v && v.kind === 'file')) parts.push(s.maxHeight ? s.maxHeight + 'p まで' : '画質の制限なし');
+  if (!(v && (v.kind === 'file' || v.kind === 'live'))) parts.push(s.maxHeight ? s.maxHeight + 'p まで' : '画質の制限なし');
   parts.push(s.exportLoudness ? s.exportLoudness + ' LUFS' : '音量 ' + s.exportVolume + '%');
   el.textContent = parts.filter(Boolean).join(' ・ ');
 }
@@ -935,19 +1128,281 @@ function renderLiveCount(){
   $('#rvLiveMarks').textContent = n + '件'; $('#rvShiftCount').textContent = n ? `対象 ${n}件` : '対象なし';
 }
 function updateLive(){
-  if (!yt || !S.cur) return;
+  if (!S.cur) return;
+  const rec = S.cur.kind === 'live';   // ライブの録画: 録画中か = 録画の状態(LV.status.active)。帯は録画が終わっても出す(状態・終わりの案内を出す所)
+  if (!yt && !rec) return;
   const isFile = S.cur.kind === 'file';
   let live = S.settings.liveMode === 'on' && !isFile;
-  if (S.settings.liveMode === 'auto'){
+  if (rec) live = liveRecActive(S.cur);
+  else if (S.settings.liveMode === 'auto'){
     try { live = !isFile && !!(yt.getVideoData && yt.getVideoData().isLive); } catch { live = false; }
   }
-  if (live !== S.live){ S.live = live; $('#rvLiveBar').hidden = !live; }
-  if (!S.live) return;
+  if (live !== S.live){ S.live = live; if (rec) renderExportUI(); }
+  $('#rvLiveBar').hidden = !(live || rec);
+  if (rec) renderLiveRec();
+  if (!S.live || !yt) return;
   let e = 0; try { e = yt.getDuration(); } catch {}
   if (e > 0 && Math.abs(e - S.duration) >= 1) setDuration(e);
   $('#rvLiveElapsed').textContent = fmt(S.duration);
   const gap = S.duration - S.now;
   $('#rvLiveGap').textContent = (gap >= 0 ? '−' : '+') + Math.round(Math.abs(gap)) + '秒';
+}
+
+/* ---------- ライブの録画(kind live。線 D の P3。docs/plan/live-clipping-plan.md の 0-8) ----------
+   録画 = スタジオの配信1本。マークはいつものマーク(保存も PUT /api/video)で、時刻は「録画の最初のセグメントの受信時刻」からの秒(LT)。
+   画面が入口の ../live/… を呼ぶ(Studio.live): 録画の状態(r/<録画元>/<録画>/status。3 秒ごと・見えている間だけ)・停止・書き出し(api/export)・書き出しの一覧(api/exports)。
+   入口の書き出しが済んだマークは POST /api/live/exported でスタジオの「書き出し済み」にする(閉じていた間に済んだ分は、次に開いたときに突き合わせる)。
+   定期的な見回りでは一覧やボタンを作り直さない(文字と属性だけを差分で直す。0-7 の 2) */
+const LIVE_ACTIVE = ['wait', 'fetch', 'encode'];
+const LIVE_JOB_ST = { wait: 'queued', fetch: 'running', encode: 'running', done: 'done', error: 'error', cancelled: 'cancelled' };
+const LIVE_JOB_LABEL = { wait: '録画待ち', fetch: '取得中', encode: '作り直し中', done: '済み', error: '失敗', cancelled: '取り消し' };
+const LIVE_REC_STATE = { waiting: ['wait', '配信を待っています'], recording: ['run', '録画中'], reconnecting: ['warn', 'つなぎ直し中'], stopped: ['ok', '停止'], ended: ['ok', '終了'], error: ['err', 'エラー'] };
+const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
+  jobs: [], jobsKnown: false, jobsSeq: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false };
+const liveRest = (v, tail) => 'r/' + enc(v.live.recorder) + '/' + enc(v.live.recording) + '/' + tail;
+const liveRecId = v => (v && v.live && v.live.recording) || (v && v.id) || '';
+/* YouTube の配信へのリンク(動画の id が分かるときだけ。録画の秒は配信の秒ではないので時刻は付けない) */
+function liveYtHref(v){ const id = v && v.kind === 'live' && v.live && v.live.videoId; return id && /^[\w-]{11}$/.test(id) ? 'https://www.youtube.com/watch?v=' + id : ''; }
+/* 録画中か。開いている1本は録画の状態(3 秒ごと)、ほかはヘッダーの札(UIKit.liveBadge。10 秒ごと)から */
+function liveRecActive(v){
+  if (!v || v.kind !== 'live') return false;
+  if (LV.vid === v.id && LV.status) return !!LV.status.active;
+  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null, rid = liveRecId(v);
+  return !!(lb && lb.enabled && (lb.recordings || []).some(r => r.id === rid && r.active && (!r.recorder || !v.live || r.recorder === v.live.recorder)));
+}
+const liveAutoExportOn = v => !!(v && v.kind === 'live' && Studio.token && S.settings.liveAutoExport);
+const liveSet = (sel, t) => { const el = $(sel); if (el && el.textContent !== t) el.textContent = t; };
+/* 録画の合計の長さ(秒)。受信時刻の幅とセグメントの長さの合計の大きい方(欠けの間も時間は進む) */
+function liveTotal(st){
+  if (!st) return 0;
+  const a = Date.parse(st.firstPdt), b = Date.parse(st.lastPdt);
+  return Math.max(Number(st.seconds) || 0, Number.isFinite(a) && Number.isFinite(b) ? (b - a) / 1000 : 0);
+}
+
+/* 入口の書き出しのジョブ → renderJob が読む形({id, live, state, items: [{id, start, end, title, status, progress, path, file, …}]})。この配信の分だけ・古い順(番号が動かない)・新しい 40 件 */
+function liveJobView(vid, jobs){
+  const own = (jobs || []).filter(j => j && j.studio && j.studio.video === vid)
+    .sort((a, b) => String(a.created || '').localeCompare(String(b.created || ''))).slice(-40);
+  const items = own.map(j => {
+    const path = typeof j.path === 'string' ? j.path : '', active = LIVE_ACTIVE.includes(j.state);
+    return { id: j.studio.mark, jobId: j.id, start: Number(j.studio.start) || 0, end: Number(j.studio.end) || 0, title: j.label || '',
+      status: LIVE_JOB_ST[j.state] || 'queued', stateLabel: j.stateLabel || LIVE_JOB_LABEL[j.state] || String(j.state || ''),
+      progress: Number(j.progress) || 0, path, file: path ? path.split(/[\\/]/).pop() : '', manifest: j.manifest || '',
+      message: active ? String(j.message || '') : '', error: j.state === 'error' ? String(j.error || j.message || '') : '', warning: String(j.warning || ''), tx: j.tx || null };
+  });
+  return { id: 'live:' + vid, live: true, state: own.some(j => LIVE_ACTIVE.includes(j.state)) ? 'running' : 'done', items };
+}
+/* 済んだジョブのうち、スタジオのマークをまだ「書き出し済み」にしていないもの。時刻(studio.start/end)が今のマークと同じものだけ
+   (位置を直したマークは採用に戻っているので、もう一度書き出すまで書き出し済みにしない)。マークごとに新しいジョブ1つ → [{markId, path, jobId}] */
+function liveReconcile(marks, jobs, applied){
+  const by = new Map((marks || []).map(m => [m.id, m])), best = new Map();
+  const same = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.05;
+  for (const j of jobs || []){
+    if (!j || j.state !== 'done' || !j.path || !j.studio || (applied && applied.has(j.id))) continue;
+    const m = by.get(j.studio.mark);
+    if (!m || (m.status && m.status !== 'adopted') || !same(m.start, j.studio.start) || !same(m.end, j.studio.end)) continue;
+    const prev = best.get(m.id), at = String(j.updated || j.created || '');
+    if (!prev || at > prev.at) best.set(m.id, { markId: m.id, path: j.path, jobId: j.id, at });
+  }
+  return [...best.values()].map(({ markId, path, jobId }) => ({ markId, path, jobId }));
+}
+
+/* 配信を開いたとき(loadVideo)。ライブの録画なら状態の見回りを始める。ほかの配信なら、ライブの帯・書き出しの行を片付ける */
+function liveOpened(v){
+  clearTimeout(LV.timer); LV.timer = 0; LV.seq++; LV.jobsSeq++;
+  Object.assign(LV, { vid: v && v.kind === 'live' ? v.id : null, status: null, err: null, waitPlay: false, wasActive: null, endedShown: false,
+    jobs: [], jobsKnown: false, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set() });
+  const rec = !!LV.vid;
+  $('#rvLiveRec').hidden = !rec; $('#rvLiveGuide').hidden = true;
+  $('#rvLiveBar').classList.toggle('is-rec', rec); $('#rvLiveBar').classList.remove('is-ended');
+  liveSet('#rvLiveBadge', 'LIVE'); liveSet('#rvLiveElapsedK', rec ? '録画の長さ' : '配信経過');
+  for (const el of document.querySelectorAll('#rvLiveBar .rv-live-edgeinfo')) el.hidden = false;
+  $('#rvEdge').hidden = false;
+  const ol = $('#rvExpList'), want = rec ? 'live:' + v.id : '';
+  if (ol && String(ol.dataset.job || '').startsWith('live:') && ol.dataset.job !== want){   // 前に開いていた録画の書き出しの行を残さない
+    ol.innerHTML = ''; ol.dataset.job = ''; S.jobRows = [];
+    if (!rec && S.lastJob) renderJobRows(S.lastJob);
+  } else if (rec && ol && ol.dataset.job !== want){ ol.innerHTML = ''; ol.dataset.job = want; S.jobRows = []; }
+  if (!rec) return;
+  $('#rvAutoExp').checked = !!S.settings.liveAutoExport;
+  $('#rvLiveBar').hidden = false;
+  renderLiveRec();
+  pollLiveStatus();
+}
+function liveStopPoll(){ clearTimeout(LV.timer); LV.timer = 0; LV.seq++; }
+function liveResume(){ if (S.cur && S.cur.kind === 'live' && LV.vid === S.cur.id && !LV.timer && visible()) pollLiveStatus(); }
+async function pollLiveStatus(){
+  clearTimeout(LV.timer); LV.timer = 0;
+  const v = S.cur; if (!v || v.kind !== 'live' || LV.vid !== v.id || !v.live || !Studio.token) return;
+  const seq = ++LV.seq;
+  let st = null, err = null;
+  try { st = await Studio.live.api(liveRest(v, 'status')); } catch (e){ err = e; }
+  if (seq !== LV.seq || S.cur !== v) return;
+  applyLiveStatus(v, st, err);
+  const busy = () => LV.queued.size > 0 || LV.jobs.some(x => LIVE_ACTIVE.includes(x.state));
+  if (!LV.jobsKnown || busy()) await pollLiveJobs();
+  if (seq !== LV.seq || S.cur !== v || !visible()) return;
+  LV.timer = setTimeout(pollLiveStatus, !err && st && !st.active && !busy() ? 10000 : 3000);   // 終わった録画で書き出しも無ければゆっくり
+}
+function applyLiveStatus(v, st, err){
+  if (err){ LV.err = err; renderLiveRec(); return; }
+  LV.err = null; LV.status = st && typeof st === 'object' ? st : {};
+  const active = !!LV.status.active;
+  if (LV.status.title && !v.title) setAutoTitle(v, LV.status.title);   // 題は録画の題を取り込む(配信名が分かったとき。自分で付けた名前は上書きしない)
+  if (LV.wasActive === true && !active) liveEndedNotice();
+  LV.wasActive = active;
+  if (yt && yt instanceof LivePlayer) yt.recording = active;
+  if (!yt && LV.waitPlay){
+    if (Number(LV.status.segments) > 0) mountPlayer();   // 配信が始まった(録れ始めた): プレーヤーを作って自動で再生
+    else phMsg('配信が始まるのを待っています。始まると自動で再生します');
+  }
+  if (!S.playerAlive){ const t = liveTotal(LV.status); if (t > 0 && Math.abs(t - S.duration) >= 1) setDuration(t); }   // 再生できない画面でも、タイムラインと時刻の入力は録画の長さで
+  updateLive();
+}
+/* 録画が終わった(録画中 → 終わり)ときの知らせ(1回)。ヘッダーの札(UIKit.liveBadge)が動いているなら、札が同じ知らせを出すので重ねない */
+function liveEndedNotice(){
+  if (LV.endedShown) return;
+  LV.endedShown = true;
+  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null;
+  if (!(lb && lb.enabled)) toast(`録画が終わりました(合計 ${tickLabel(liveTotal(LV.status))})。最後まで再生・マーク・書き出しができます`, 8000, 'ok');
+  renderExportUI();
+}
+/* LIVE の帯の録画の部分(状態の札・案内・停止)。文字と属性だけを直す */
+function renderLiveRec(){
+  const v = S.cur; if (!v || v.kind !== 'live') return;
+  const st = LV.status, err = LV.err, active = !!(st && st.active), waiting = active && !(Number(st.segments) > 0);
+  let cls = 'wait', label = '確かめています…', msg = '';
+  if (err){ cls = 'err'; label = err.status === 404 ? '録画が見つかりません' : '録画元につながりません'; msg = err.message || ''; }
+  else if (st){
+    const m = LIVE_REC_STATE[st.state] || ['wait', String(st.state || '不明')]; cls = m[0]; label = m[1];
+    msg = [Number(st.sessions) > 1 ? `つなぎ直し ${Number(st.sessions) - 1} 回` : '', String(st.message || '')].filter(Boolean).join('・');
+  }
+  const pill = $('#rvRecState'), pc = 'pill ' + cls;
+  if (pill.className !== pc) pill.className = pc;
+  liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
+  $('#rvRecStop').hidden = !active;
+  const ended = !!st && !err && !active;
+  $('#rvLiveBar').classList.toggle('is-ended', ended);
+  liveSet('#rvLiveBadge', ended ? '録画' : 'LIVE');
+  for (const el of document.querySelectorAll('#rvLiveBar .rv-live-edgeinfo')) el.hidden = !active;
+  $('#rvEdge').hidden = !active;
+  if (!active && st) liveSet('#rvLiveElapsed', tickLabel(Math.max(liveTotal(st), S.duration)));
+  else if (active && !S.playerAlive) liveSet('#rvLiveElapsed', fmt(S.duration));   // 再生できない間は録画の状態の長さ(再生中は updateLive が直す)
+  let guide = '';
+  if (err || !st) guide = '';
+  else if (waiting) guide = '配信が始まるのを待っています。始まると自動で再生します(録画の部品は、配信が始まるまで待ち続けます)';
+  else if (active) guide = '見ながら ①〜⑤ か I・O でマークします。' + (liveAutoExportOn(v) ? 'マークは自動で書き出されます(録画が届くのを待ってから作ります)' : '採用にしたマークを「書き出す」で書き出します(録画中でも書き出せます)');
+  else guide = `録画は終わりました(合計 ${tickLabel(Math.max(liveTotal(st), S.duration))})。最後まで再生・マーク・書き出しができます`;
+  liveSet('#rvLiveGuide', guide); $('#rvLiveGuide').hidden = !guide;
+}
+async function stopLiveRec(btn){
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live) return;
+  UIKit.confirmTwice(btn, async () => {
+    btn.disabled = true;
+    try {
+      await Studio.live.api(liveRest(v, 'stop'), { body: {} });
+      if (window.UIKit && UIKit.liveBadge && UIKit.liveBadge.refresh) UIKit.liveBadge.refresh();   // ヘッダーの札もすぐ合わせる
+    } catch (e){ toast('録画を止められませんでした: ' + e.message, 0, 'err'); }
+    finally { btn.disabled = false; if (S.cur === v) pollLiveStatus(); }
+  }, 'もう一度押すと録画を止めます');
+}
+
+/* 入口の書き出しの一覧(この録画の分)を読み、欄を差分で直し、済んだ分をスタジオの「書き出し済み」にする */
+async function pollLiveJobs(){
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live || !Studio.token) return;
+  const seq = ++LV.jobsSeq;
+  let j; try { j = await Studio.live.api('api/exports?recorder=' + enc(v.live.recorder) + '&recording=' + enc(v.live.recording)); } catch { return; }
+  if (seq !== LV.jobsSeq || S.cur !== v) return;
+  const all = Array.isArray(j && j.exports) ? j.exports : Array.isArray(j && j.jobs) ? j.jobs : [];
+  const own = all.filter(x => x && x.studio && x.studio.video === v.id);
+  if (LV.jobsKnown) liveJobNotices(own);
+  LV.prevJobs = new Map(own.map(x => [x.id, x.state]));
+  LV.jobs = own; LV.jobsKnown = true;
+  LV.busy = new Set([...own.filter(x => LIVE_ACTIVE.includes(x.state)).map(x => x.studio.mark), ...LV.queued]);
+  renderLiveJobs();
+  await liveApplyDone(v);
+}
+function liveJobNotices(own){
+  for (const x of own){
+    const p = LV.prevJobs.get(x.id); if (!p || !LIVE_ACTIVE.includes(p) || p === x.state) continue;
+    const name = x.label ? `「${x.label}」` : `${fmt(Number(x.studio.start) || 0)} – ${fmt(Number(x.studio.end) || 0)}`;
+    if (x.state === 'done') toast(`切り抜きを書き出しました(${name})`, 3500, 'ok');
+    else if (x.state === 'error') toast(`書き出せませんでした(${name}): ${x.error || x.message || ''}`, 0, 'err');
+  }
+}
+function renderLiveJobs(){
+  const v = S.cur; if (!v || v.kind !== 'live') return;
+  renderJobRows(liveJobView(v.id, LV.jobs));
+  renderExportUI();
+}
+async function liveApplyDone(v){
+  const todo = liveReconcile(v.marks, LV.jobs, LV.applied);
+  if (!todo.length) return;
+  let n = 0;
+  for (const t of todo){
+    LV.applied.add(t.jobId);   // 失敗しても見回りのたびには送らない(知らせて、次にこの録画を開いたときにやり直す)
+    try { await Studio.api('/api/live/exported', { body: { id: v.id, markId: t.markId, path: t.path } }); n++; }
+    catch (e){ toast('書き出したマークを「書き出し済み」にできませんでした: ' + e.message, 7000, 'err'); }
+    if (S.cur !== v) return;
+  }
+  if (n && S.cur === v) await syncFromServer();
+}
+function liveExportBody(v, m){
+  const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
+  return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
+    transcribe: autoTxEnabled(),   // スタジオの「書き出しのあと自動で文字起こし」に合わせる(入口の書き出しが文字起こしへ渡す。スタジオからは頼まない = 二重にしない)
+    studio: { video: v.id, mark: m.id, n, label: m.label || '', start: m.start, end: m.end } };
+}
+/* ライブの録画の書き出し(入口の api/export)。onlyIds が無ければ書き出しの対象(exportTargets)。1件ずつ頼む(順番に並べて、続けて押しても落とさない)。
+   opts.auto: 「マークしたらすぐ書き出す」から(うまくいったときは知らせない。マークの知らせが出ているため) */
+function startLiveExport(onlyIds, opts){
+  opts = opts || {};
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live) return Promise.resolve();
+  if (!Studio.token){ toast('ライブの録画の書き出しは、ホーム(start.bat)から開いたときだけ使えます', 0, 'err'); return Promise.resolve(); }
+  const targets = (onlyIds ? sortedMarks().filter(c => onlyIds.has(c.id)) : exportTargets()).filter(m => !LV.busy.has(m.id));
+  if (!targets.length){ if (!opts.auto) toast('書き出すマークがありません(「採用」にしたマークが書き出されます。書き出しの途中のマークは除きます)'); return Promise.resolve(); }
+  for (const m of targets){ LV.queued.add(m.id); LV.busy.add(m.id); }
+  if (!opts.auto) LV.starting = true;
+  renderExportUI();
+  const run = async () => {
+    let ok = 0; const errs = [], failed = [];
+    try {
+      await flushSave();   // スタジオのマークを先に保存する(済んだら /api/live/exported でこのマークを書き出し済みにするため)
+      for (const m of targets){
+        if (S.cur !== v) break;
+        const cur = v.marks.find(x => x.id === m.id); if (!cur) continue;   // 頼む前に消された
+        try { await Studio.live.api('api/export', { body: liveExportBody(v, cur) }); ok++; }
+        catch (e){ errs.push(e.message); failed.push(m.id); }
+      }
+    } catch (e){ errs.push(e.message); for (const m of targets) failed.push(m.id); }   // 保存できなかった: どれも頼んでいない
+    finally {
+      for (const m of targets){ LV.queued.delete(m.id); }
+      if (!opts.auto) LV.starting = false;
+    }
+    if (S.cur !== v) return;
+    for (const id of failed) LV.busy.delete(id);   // 頼めなかったマークは、すぐ「書き出す」でやり直せるように
+    if (errs.length) toast('書き出しを頼めませんでした: ' + errs[0], 0, 'err');
+    else if (ok && !opts.auto) toast(`${ok}件の書き出しを頼みました(録画が届くのを待ってから作ります)`, 4000, 'ok');
+    await pollLiveJobs();
+    renderExportUI();
+    liveResume();
+  };
+  LV.chain = LV.chain.then(run, run);
+  return LV.chain;
+}
+/* ヘッダーの札の「開く」(UIKit.liveBadge.onOpen): ページを移らずに、その録画をスタジオの ③ で開く(まだ登録していなければ登録する) */
+async function openLiveRecording(rec){
+  if (!rec || !rec.id) return;
+  const hit = () => S.videos.find(x => x.kind === 'live' && liveRecId(x) === rec.id && (!rec.recorder || !x.live || x.live.recorder === rec.recorder));
+  let v = hit();
+  if (!v){ await refreshList(); v = hit(); }
+  let id = v && v.id;
+  if (!id){
+    try { id = (await Studio.api('/api/videos/open', { body: { kind: 'live', recorder: rec.recorder, recording: rec.id, url: rec.url || '', title: rec.title || '' } })).video.id; }
+    catch (e){ toast('録画を開けませんでした: ' + e.message, 0, 'err'); return; }
+  }
+  if (S.cur && S.cur.id === id){ Studio.go('review'); return; }
+  Studio.review.open(id);
 }
 
 /* ---------- マーク操作 ---------- */
@@ -956,10 +1411,13 @@ function newMark(start, end, live){
 }
 function pushMark(m){
   const v = S.cur;
+  const autoExp = liveAutoExportOn(v);   // ライブの録画で「マークしたらすぐ書き出す」: 採用にして保存し、すぐ入口の書き出しへ(線 D の P3)
+  if (autoExp) m.status = 'adopted';
   v.marks.push(m); S.seen.add(m.id); S.sel = m.id; S.fold.set(m.id, false);
   markDirty(); renderTimeline(); renderStats(); renderLiveCount();
   if (!inList()) renderList();
   const li = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(m.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
+  if (autoExp) startLiveExport(new Set([m.id]), { auto: true });
 }
 /* サーバーと同じ規則: 0 ≤ start < end、長さ ≤ 60分、有限の数。通常動画では終了を動画の長さに収める。返り値は [start, end] か、エラー文の文字列 */
 function checkRange(start, end){
@@ -1143,7 +1601,8 @@ function failedIds(){
 }
 function exportTargets(){
   const t = S.settings.exportTarget;
-  return sortedMarks().filter(m => t === 'adopted' ? m.status === 'adopted' : t === 'pending' ? (m.status === 'adopted' || !m.status) : m.status !== 'rejected');
+  const busy = S.cur && S.cur.kind === 'live' ? LV.busy : null;   // ライブの録画: 入口で書き出しの途中のマークは外す(二重に頼まない)
+  return sortedMarks().filter(m => (t === 'adopted' ? m.status === 'adopted' : t === 'pending' ? (m.status === 'adopted' || !m.status) : m.status !== 'rejected') && !(busy && busy.has(m.id)));
 }
 /* ---------- 書き出したファイルのパス・他のツールへの受け渡し ---------- */
 const isAbsPath = p => /^(?:[a-zA-Z]:[\\/]|\\\\|\/)/.test(p);
@@ -1183,41 +1642,52 @@ function jobDirText(j, st){
 function renderExportUI(){
   if (!S.built) return;
   const v = S.cur, st = Studio.state || {};
+  const live = !!(v && v.kind === 'live');   // ライブの録画: 書き出しは入口(../live/api/export)。録画中でも書き出せる・つなぐ・全部の配信の書き出しは使わない
   let msg = '';
   if (st.ffmpeg === false) msg += 'ffmpeg が見つかりません(Windows: winget install Gyan.FFmpeg / Mac: brew install ffmpeg)。入れてから起動し直してください';
   if (v && v.kind === 'youtube' && st.ytdlp === false) msg += (msg ? '\n' : '') + 'yt-dlp が見つかりません(Windows: winget install yt-dlp.yt-dlp)';
   const ts = $('#rvToolStatus'); ts.textContent = msg; ts.hidden = !msg;
-  $('#rvHeightBox').hidden = !!(v && v.kind === 'file');
-  { const j = S.lastJob; $('#rvOutDir').textContent = j && j.folder && S.job && v && S.job.videoId === v.id ? jobDirText(j, st) : (st.outDir || ''); }
+  $('#rvHeightBox').hidden = !!(v && (v.kind === 'file' || live));   // 画質は YouTube から取るときだけ(録画は録ったときの画質)
+  { const j = S.lastJob; $('#rvOutDir').textContent = !live && j && j.folder && S.job && v && S.job.videoId === v.id ? jobDirText(j, st) : (st.outDir || ''); }
   const t = exportTargets(), sum = t.reduce((s, c) => s + (c.end - c.start), 0);
   $('#rvExpTarget').value = S.settings.exportTarget;
   const running = !!(S.job && S.job.running) || S.starting || !!S.exportAll;
-  const j = S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
+  const j = live ? null : S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
   const done = jrun ? j.items.filter(i => i.status === 'done').length : 0;
+  const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
   let count;
   const tgtName = { adopted: '採用', pending: '採用と候補', all: '不採用以外' }[S.settings.exportTarget] || '採用';
-  if (S.exportAll) count = `全部の配信の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
+  if (S.exportAll && !live) count = `全部の配信の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
   else if (jrun) count = `書き出し中 ${done}/${j.items.length}件`;
   else if (!v) count = '';
-  else if (t.length) count = `${tgtName}のマーク ${t.length}件(合計 ${fmt(sum)})を mp4 にします`;
+  else if (t.length) count = `${tgtName}のマーク ${t.length}件(合計 ${fmt(sum)})を mp4 にします` + (live && S.live ? '(録画が届くのを待ってから作ります)' : '');
+  else if (lact.length) count = `書き出し中 ${lact.length}件` + (lact.some(x => x.state === 'wait') ? `(録画待ち ${lact.filter(x => x.state === 'wait').length}件)` : '');
   else if (v.marks.some(m => !m.status)) count = '候補を「採用」にすると、書き出せるようになります';
-  else count = v.marks.length ? '書き出すマークはありません(「採用」にしたマークを書き出します)' : 'マークを付けて「採用」にすると、書き出せるようになります';
+  else count = v.marks.length ? '書き出すマークはありません(「採用」にしたマークを書き出します)' : (live ? 'マークを付けると、ここに書き出しの進み具合が出ます' : 'マークを付けて「採用」にすると、書き出せるようになります');
   $('#rvExpCount').textContent = count;
-  $('#rvExpSum').textContent = S.exportAll || jrun ? count : t.length ? `対象 ${t.length}件` : '';
-  { const je = $('#rvJumpExp'); if (je) je.textContent = S.exportAll || jrun ? '実行中' : t.length ? t.length + '件' : ''; }
-  { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !S.exportAll ? `${t.length}件を書き出す` : '書き出す'; }
+  $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || (lact.length && !t.length) ? count : t.length ? `対象 ${t.length}件` : '';
+  { const je = $('#rvJumpExp'); if (je) je.textContent = (S.exportAll && !live) || jrun || lact.length ? '実行中' : t.length ? t.length + '件' : ''; }
+  { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !(S.exportAll && !live) ? `${t.length}件を書き出す` : '書き出す'; }
   { const bar = $('#rvExpBar'); bar.hidden = !jrun;
     if (jrun){ const cur = j.items.find(i => i.status === 'running'); bar.firstElementChild.style.width = Math.round((done + (cur ? cur.progress || 0 : 0)) / j.items.length * 100) + '%'; } }
   const noTool = st.ffmpeg === false;
-  const r = $('#rvExpRun'); r.disabled = running || !t.length || noTool || !!S.live;
-  r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
-  { const n = S.videos.reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => x.adopted > 0).length, b = $('#rvExpAll'); b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool; }
-  { const n = failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running; }
-  $('#rvExpCancel').hidden = !running;
+  const r = $('#rvExpRun');
+  if (live){
+    r.disabled = LV.starting || !t.length || noTool;
+    r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '録画中でも書き出せます(録画が届くのを待ってから作ります)';
+  } else {
+    r.disabled = running || !t.length || noTool || !!S.live;
+    r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
+  }
+  { const ok = x => x.kind !== 'live', n = S.videos.filter(ok).reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => ok(x) && x.adopted > 0).length, b = $('#rvExpAll');
+    b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool || live;
+    b.title = live ? 'ライブの録画を開いている間は使えません(録画の配信は、開いて「書き出す」で書き出します)' : '採用にしたマークがある全部の配信を、順番に書き出します(ライブの録画は除きます)'; }
+  { const n = live ? 0 : failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running; }
+  $('#rvExpCancel').hidden = live || !running;   // ライブの録画は行ごとに取り消す
   { const n = joinIds().length, b = $('#rvJoinRun');   // チェックしたマークをつなげて1本に(2 件から)
     b.hidden = !n; b.textContent = `チェックした ${n} 件をつなげて1本に`;
-    b.disabled = running || n < 2 || noTool || !!S.live;
-    b.title = n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
+    b.disabled = running || n < 2 || noTool || !!S.live || live;
+    b.title = live ? 'ライブの録画は、つなげて1本にできません(1件ずつ書き出してから「編集」でつないでください)' : n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
 }
 function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id); }
 /* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。
@@ -1261,22 +1731,33 @@ function loudHTML(lo){   // ラウドネスをそろえた結果(書き出しの
 }
 function jobItemHTML(j, it, i){
   const pct = Math.round((it.progress || 0) * 100), cls = it.status === 'done' ? 'ok' : it.status === 'error' ? 'err' : it.status === 'running' ? 'run' : it.status === 'cancelled' ? 'warn' : 'wait';
-  return `<li class="rv-ejob st-${cls}"><div class="rv-ejob-h">
+  /* ライブの録画(入口の書き出し。j.live): 状態は入口の言葉(録画待ち・取得中・作り直し中 n%)。行ごとに取り消す・やり直すは「書き出す」から */
+  const lv = !!j.live, act = lv && (it.status === 'queued' || it.status === 'running');
+  const label = (lv && it.stateLabel) || EXP_LABEL[it.status] || it.status;
+  return `<li class="rv-ejob st-${cls}"${lv ? ` data-ljob="${esc(it.jobId || '')}"` : ''}><div class="rv-ejob-h">
       <span class="mono rv-ejob-t">${i + 1}. ${fmt(it.start)} – ${fmt(it.end)}</span><span class="rv-ejob-n">${esc(it.title || '無題')}</span>
-      <span class="pill ${cls}">${esc(EXP_LABEL[it.status] || it.status)}${it.status === 'running' ? ' ' + pct + '%' : ''}</span></div>
-      ${it.status === 'running' ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
+      <span class="pill ${cls}">${esc(label)}${it.status === 'running' && (!lv || pct > 0) ? ' ' + pct + '%' : ''}</span>${act ? `<button type="button" class="btn small ghost" data-act="lxcancel" data-job="${esc(it.jobId || '')}">取り消す</button>` : ''}</div>
+      ${it.status === 'running' && (!lv || pct > 0) ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${act && it.message ? `<div class="rv-ejob-s hint">${esc(it.message)}</div>` : ''}
       ${it.file ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
       ${handoffHTML(j, it)}
       ${loudHTML(it.loudness)}
+      ${lv && it.status === 'done' && it.tx ? `<div class="rv-ejob-s hint">文字起こし: ${esc(it.tx.label || it.tx.state || '')}${it.tx.state === 'error' && it.tx.message ? '(' + esc(it.tx.message) + ')' : ''}</div>` : ''}
       ${it.warning ? `<div class="rv-ejob-s rv-warnline">${esc(it.warning)}</div>` : ''}
-      ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}</div>` : ''}</li>`;
+      ${it.error ? `<div class="rv-ejob-s rv-err">${esc(it.error)}${lv ? '(マークを採用のままにしてあります。「書き出す」でやり直せます)' : ''}</div>` : ''}</li>`;
 }
 function renderJob(j){
   S.lastJob = j;
+  if (S.job) S.job.running = j.state === 'running';
+  if (!(S.cur && S.cur.kind === 'live')) renderJobRows(j);   // ライブの録画を開いている間、欄は入口の書き出し(renderLiveJobs)が使う
+  renderExportUI();
+}
+/* 書き出しの一覧(#rvExpList)を描く。スタジオの書き出し(renderJob)と、ライブの録画の入口の書き出し(renderLiveJobs)で共通 */
+function renderJobRows(j){
   const ol = $('#rvExpList');
   const rows = j.items.map((it, i) => jobItemHTML(j, it, i));
   if (j.combined) rows.unshift(combinedHTML(j));
-  const h = j.items.map(i => errHint(i.error)).find(Boolean);
+  const h = j.live ? '' : j.items.map(i => errHint(i.error)).find(Boolean);
   if (h) rows.push(`<li class="hint rv-ejob-hint">${esc(h)}</li>`);
   if (j.waiting) rows.unshift('<li class="hint rv-ejob-hint">他のツールの重い処理が終わるのを待っています(順番が来たら書き出しを始めます。中止もできます)</li>');
   const prev = S.jobRows || [];
@@ -1286,8 +1767,6 @@ function renderJob(j){
     rows.forEach((r, i) => { if (r !== prev[i]){ const t = document.createElement('template'); t.innerHTML = r; ol.children[i].replaceWith(t.content.firstElementChild); } });
   }
   S.jobRows = rows;
-  if (S.job) S.job.running = j.state === 'running';
-  renderExportUI();
 }
 function stopExpPoll(){ if (expTimer){ clearInterval(expTimer); expTimer = null; } }
 function pollJob(){
@@ -1318,6 +1797,7 @@ function pollJob(){
   expTimer = setInterval(tick, 1000); tick();
 }
 async function startExport(onlyIds){
+  if (S.cur && S.cur.kind === 'live') return startLiveExport(onlyIds);   // ライブの録画は入口の書き出しへ(スタジオの /api/export は録画を読めない。録画中でも書き出せる)
   if (S.starting || S.exportAll || (S.job && S.job.running)) return;
   const v = S.cur;
   if (!v) return toast('先に配信を開いてください');
@@ -1343,7 +1823,7 @@ async function startExportAll(){
   let list;
   try {
     await flushSave();
-    list = (await Studio.api('/api/videos')).videos.filter(x => x.adopted > 0);
+    list = (await Studio.api('/api/videos')).videos.filter(x => x.adopted > 0 && x.kind !== 'live');   // ライブの録画は入口で書き出す(スタジオの書き出しは断る)
   } catch (e){ toast(e.message || '配信の一覧を取得できませんでした'); return; }
   finally { S.starting = false; renderExportUI(); }
   if (!list.length) return toast('採用にしたマークがありません');
@@ -1438,10 +1918,14 @@ function renderMeta(){
   const row = S.videos.find(x => x.id === v.id), t0 = row ? (row.createdAt || row.updatedAt) : v.createdAt;
   const ch = $('#rvChips');
   ch.innerHTML = `<span class="rv-chip-who">${esc(vWho(v))}</span>${t0 ? `<span class="q-dot">・</span><span>${esc(Studio.ago(t0))}</span>` : ''}${auto ? `<span class="rv-chip auto">自動 ${auto}</span>` : ''}${exp ? `<span class="rv-chip done">書き出し済み ${exp}</span>` : ''}`;
-  ch.title = v.kind === 'file' ? '動画ファイル: ' + (v.fileName || v.id) : 'YouTube: ' + v.id;
+  ch.title = v.kind === 'file' ? '動画ファイル: ' + (v.fileName || v.id) : v.kind === 'live' ? 'ライブの録画: ' + ((v.live && v.live.url) || v.id) : 'YouTube: ' + v.id;
   const t = $('#rvTitle'); if (document.activeElement !== t) t.value = v.title || '';
-  $('#rvAnalyze').hidden = v.kind !== 'youtube';
-  const yl = $('#rvYtLink'); yl.hidden = v.kind !== 'youtube'; if (v.kind === 'youtube') yl.href = 'https://www.youtube.com/watch?v=' + enc(v.id);
+  $('#rvAnalyze').hidden = v.kind !== 'youtube';   // ライブの録画は解析しない(サーバーも断る)
+  /* YouTube で開く: ライブの録画は動画の id が分かるときだけ。時刻は付けない(録画の秒は配信の秒ではない) */
+  const ytHref = v.kind === 'youtube' ? 'https://www.youtube.com/watch?v=' + enc(v.id) : liveYtHref(v);
+  const yl = $('#rvYtLink'); yl.hidden = !ytHref; if (ytHref) yl.href = ytHref;
+  yl.title = v.kind === 'live' ? 'YouTube で配信を開きます(録画の時刻とは合わないので、頭から開きます)' : 'YouTube で、いまの位置から開きます';
+  $('#rvAuto').hidden = !Studio.token || v.kind === 'live';   // まとめて実行はスタジオの書き出しを使うので、ライブの録画では出さない
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -1606,7 +2090,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
+      ${Studio.token && (st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -1675,9 +2159,14 @@ function renderAll(){
 }
 const WIDE = '(min-width:961px)';
 function placeQuickBar(){
-  const qb = $('#rvQuickbar'), cb = $('#rvClipbox'), home = $('#rvLiveBar'); if (!qb || !cb || !home) return;
-  const side = !!S.settings.theater && window.matchMedia(WIDE).matches;
-  if (side) cb.prepend(qb); else if (qb.parentElement !== home.parentElement) home.before(qb);
+  const qb = $('#rvQuickbar'), cb = $('#rvClipbox'), lb = $('#rvLiveBar'), anchor = $('#rvMarkDetails'); if (!qb || !cb || !lb || !anchor) return;
+  const wide = window.matchMedia(WIDE).matches, side = !!S.settings.theater && wide;
+  if (side) cb.prepend(qb); else if (anchor.previousElementSibling !== qb) anchor.before(qb);
+  /* LIVE の帯(ライブの録画の状態・停止・「マークしたらすぐ書き出す」・次にすることの案内。YouTube のライブ配信の帯も同じ):
+     広い画面(シアター以外)は右の列のマークの一覧の上(プレーヤーの横・右の列は貼り付くのでスクロールしても見える)、それ以外は「今をマーク」の上。
+     (2026-10-05 線 D の P3 の通しの確認: 「今をマーク」の下にあると、1440×900 でもスクロールしないと録画の状態・停止が見えなかった) */
+  if (wide && !side){ if (cb.previousElementSibling !== lb) cb.before(lb); }
+  else { const at = side ? anchor : qb; if (at.previousElementSibling !== lb) at.before(lb); }
 }
 /* 画面の中の移動(プレーヤー・マーク・書き出し)。広い画面では上の行の右端(書き出しへの入口だけ)、
    狭い画面では上の行の下に置いて、スクロールしても上に残す(ヘッダーの下に貼り付く) */
@@ -1986,7 +2475,9 @@ function wire(){
     if (KM) KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
     else { S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); }
   });
-  $('#rvEdge').addEventListener('click', () => { if (yt && S.duration) seek(S.duration); });
+  $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
+  $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
+  $('#rvAutoExp').addEventListener('change', e => { S.settings.liveAutoExport = e.target.checked; touchSettings(); renderLiveRec(); });
   $('#rvShift').addEventListener('click', () => {
     if (!S.cur) return;
     const d = Number($('#rvShiftSec').value);
@@ -2018,6 +2509,13 @@ function wire(){
     Studio.toast(ok ? 'パスをコピーしました: ' + b.dataset.path : 'コピーできませんでした。パス: ' + b.dataset.path, 0, ok ? 'ok' : 'err');
   };
   $('#rvExpList').addEventListener('click', onCopy);
+  $('#rvExpList').addEventListener('click', async e => {   // ライブの録画の書き出し(入口のジョブ)を取り消す
+    const b = e.target.closest('[data-act="lxcancel"]'); if (!b || b.disabled || !b.dataset.job) return;
+    b.disabled = true;
+    try { await Studio.live.api('api/export/cancel', { body: { id: b.dataset.job } }); toast('書き出しを取り消しました(マークは採用のままです)', 3000); }
+    catch (er){ toast('取り消せませんでした: ' + er.message, 0, 'err'); b.disabled = false; }
+    pollLiveJobs();
+  });
   $('#rvList').addEventListener('click', onCopy);
   Studio.on('ports', () => { if (S.lastJob) renderJob(S.lastJob); if (S.cur) renderList(); });   // 他のツールの実際のポートが分かったら、リンクを作り直す
   window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
@@ -2066,6 +2564,7 @@ function wire(){
 async function activate(){
   startPoll();
   keybarScene();
+  liveResume();   // ライブの録画の状態の見回り(③ を離れている間は止めている)
   await refreshList();
   if (Studio.step !== 'review') return;
   if (!S.cur && !S.loadSeq){
@@ -2073,7 +2572,7 @@ async function activate(){
   } else if (S.cur) syncFromServer();
 }
 function deactivate(){
-  pausePlayback(); stopPoll();
+  pausePlayback(); stopPoll(); liveStopPoll();   // ③ を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
   if (window.UIKit && UIKit.keybar) UIKit.keybar.clear();
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
@@ -2197,6 +2696,12 @@ Studio.onReady(() => {
     pollAuto();
   });
   showDataWarning();
+  /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ③ で開く・録画中の札が変わったら配信の一覧の「録画中」も合わせる */
+  if (window.UIKit && UIKit.liveBadge){
+    if (UIKit.liveBadge.onOpen) UIKit.liveBadge.onOpen(rec => { openLiveRecording(rec); });
+    if (UIKit.liveBadge.onChange) UIKit.liveBadge.onChange(() => renderPickList());
+  }
+  if (Studio.live) Studio.live.available().then(i => { const el = $('#rvOpenForm .rv-openlive'); if (el) el.hidden = !i; }, () => {});   // ライブの機能が使えるときだけ「録画を始めて開きます」と添える
   wireSettings(); wire(); renderKeyUI();
   renderAll();
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); });
@@ -2207,11 +2712,11 @@ Studio.onReady(() => {
   const onLeft = reason => {
     if (setTimer) saveSettings();
     if (S.dirty) save();
-    if (reason !== 'blur'){ pausePlayback(); stopPoll(); }
+    if (reason !== 'blur'){ pausePlayback(); stopPoll(); liveStopPoll(); }
   };
   const onBack = () => {
     if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す(監査 11)
-    if (Studio.step === 'review'){ startPoll(); loadTranscripts(); }   // 文字起こしのタブ・窓で直してから戻ったとき
+    if (Studio.step === 'review'){ startPoll(); loadTranscripts(); liveResume(); }   // 文字起こしのタブ・窓で直してから戻ったとき
   };
   if (life){ life.onLeave(onLeft); life.onReturn(onBack); }
   else document.addEventListener('visibilitychange', () => { if (document.hidden) onLeft('hidden'); else onBack(); });

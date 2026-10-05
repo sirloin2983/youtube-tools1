@@ -147,6 +147,23 @@ class EvalMarks(unittest.TestCase):
         order = [(i["score"], i["verdict"]) for i in M.ranked(vids[V1]["auto"])]
         self.assertEqual(order, [(6.0, "bad"), (5.0, "good"), (4.0, "bad"), (3.0, "none"), (2.0, "machine")])
 
+    def test_live_recording_not_counted(self):
+        """ライブの録画(kind live。解析していない・手のマークだけ)は、data.json にも feedback の行にもあっても数字を変えない"""
+        env = build(self)
+        before = env.evaluate()["overall"]
+        rid = "20261005-185300-U972n0ncl4k"
+        with open(os.path.join(env.studio, "data.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        d["videos"][rid] = {"id": rid, "kind": "live", "title": "録画", "analysis": None, "rev": 1,
+                            "marks": [mark("lm1", 10.0, 20.0, None, "exported", src="manual"), mark("lm2", 30.0, 40.0, None, "", src="manual")]}
+        env.data(d["videos"])
+        with open(os.path.join(env.studio, "feedback.jsonl"), "a", encoding="utf-8") as f:
+            for r in (fb("2026-09-05", "manual_add", "miss", 10.0, 20.0, src="manual", videoId=rid, kind="live", autoCount=0, nearAuto=None),
+                      fb("2026-09-05", "export", "good", 10.0, 20.0, src="manual", videoId=rid, kind="live")):
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        after = env.evaluate()["overall"]
+        self.assertEqual((after["videos"], after["misses"], after["top"]), (before["videos"], before["misses"], before["top"]))
+
     def test_misses_edits_retracts(self):
         o = build(self).evaluate()["overall"]
         m = o["misses"]

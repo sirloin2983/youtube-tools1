@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.19.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.20.0';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
@@ -45,6 +45,68 @@ Studio.portalApi = async (path, body) => {
   return j;
 };
 
+/* ---------- 入口のリアルタイム切り抜き(線 D の P3。docs/plan/live-clipping-plan.md の 0-8)の API(../live/…) ----------
+   スタジオのサーバーは録画の部品と話さない(単独でも動く作りを保つ)ので、画面が入口の ../live/… を呼ぶ(同じオリジン・入口の合言葉)。
+   URL はここでだけ組み立てる(Studio.live.url)。入口から開いたとき(Studio.token)だけ使う。機能がオフなら入口は 404 を返す */
+const LIVE = { infoP: null, offAt: 0 };
+const LIVE_RECHECK_MS = 60000;   // オフ(404)と分かったあと、入口の設定でオンにされたかを確かめ直すまでの間(begin は呼ばない)
+Studio.live = {
+  info: null,
+  url: rest => new URL('../live/' + rest, location.href).href,
+  /* JSON の API。失敗は Error(message)(e.code・e.status)。GET は 10 秒・POST は 45 秒で打ち切る(begin は yt-dlp で配信の状態を調べるので数秒かかる) */
+  api: async (rest, opts = {}) => {
+    const method = opts.method || (opts.body !== undefined ? 'POST' : 'GET');
+    const init = { method, cache: 'no-store', headers: {} };
+    if (method !== 'GET'){ init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = Studio.token; init.body = JSON.stringify(opts.body || {}); }
+    const ctl = window.AbortController ? new AbortController() : null;
+    let t = null;
+    if (ctl){ init.signal = ctl.signal; t = setTimeout(() => ctl.abort(), opts.timeout || (method === 'GET' ? 10000 : 45000)); }
+    let r;
+    try { r = await fetch(Studio.live.url(rest), init); }
+    catch (e){
+      clearTimeout(t);
+      const er = new Error(e && e.name === 'AbortError' ? 'ホームから時間内に応答がありません' : 'ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)');
+      er.code = 'network'; throw er;
+    }
+    clearTimeout(t);
+    let j = {};
+    try { j = await r.json(); } catch {}
+    if (!r.ok){ const er = new Error((j && j.message) || ('エラー(HTTP ' + r.status + ')')); er.code = j && j.error; er.status = r.status; er.body = j; throw er; }
+    return j;
+  },
+  /* ライブの機能が使えるか(入口の ../live/api/info)。使えるなら info、使えない(単独起動・オフ・失敗)なら null。
+     成功は覚える。404(オフ)も覚えて、しばらく聞き直さない。通信の失敗は覚えない(次に聞き直す) */
+  available: () => {
+    if (!Studio.token) return Promise.resolve(null);
+    if (LIVE.offAt && Date.now() - LIVE.offAt < LIVE_RECHECK_MS) return Promise.resolve(null);
+    if (!LIVE.infoP){
+      LIVE.infoP = Studio.live.api('api/info').then(j => {
+        if (!j || j.enabled === false){ LIVE.offAt = Date.now(); LIVE.infoP = null; return null; }
+        LIVE.offAt = 0; Studio.live.info = j; return j;
+      }, e => { LIVE.infoP = null; if (e.status === 404) LIVE.offAt = Date.now(); return null; });
+    }
+    return LIVE.infoP;
+  },
+  /* 置き場所・空きを読み直す(設定の引き出しを開いたとき) */
+  refreshInfo: () => { LIVE.infoP = null; LIVE.offAt = 0; return Studio.live.available(); },
+  /* URL の配信が配信中・配信前なら録画を始め(入口の api/begin)、スタジオに配信1本(kind "live")として登録する。
+     → { video, existing, recording, recorder }。配信中でない・機能がない・調べられない → null(今までどおり解析・開くへ)。
+     録画は始まったのにスタジオに登録できなかったときだけ例外(解析へ回すと、同じ配信を二重に扱うため) */
+  begin: async url => {
+    if (!(await Studio.live.available())) return null;
+    let b;
+    try { b = await Studio.live.api('api/begin', { body: { url } }); }
+    catch (e){ if (e.status === 404){ LIVE.offAt = Date.now(); LIVE.infoP = null; } return null; }
+    const rec = b && b.live && b.recording;
+    if (!rec || !rec.id || !b.recorder) return null;
+    let r;
+    try { r = await Studio.api('/api/videos/open', { body: { kind: 'live', recorder: b.recorder, recording: rec.id, url: rec.url || url, title: rec.title || '' } }); }
+    catch (e){ throw new Error('録画は始めましたが、スタジオに登録できませんでした: ' + e.message); }
+    try { if (window.UIKit && UIKit.liveBadge) UIKit.liveBadge.refresh(); } catch {}   // ヘッダーの「録画中」の札をすぐ出す(札の見回りは 10 秒ごと)
+    return { video: r.video, existing: !!b.existing, recording: rec, recorder: b.recorder };
+  }
+};
+
 /* 通知。kind: 'ok' | 'err' | 'info'(省略時は色なし)。ui-kit の重ねて最大3つのトースト(入れ物は id="toast")を呼ぶだけ。
    ms が 0・省略なら ui-kit の既定の秒数(成功 2.5 秒・失敗 8 秒)。呼び出しの多くは昔の「0 = 既定」の形(toast(msg, 0, 'ok'))なので、
    ui-kit v7 の ms: 0 =「消えない」をそのまま渡さない(段1。渡していたので、成功の知らせまで × を押すまで残っていた)。
@@ -76,7 +138,8 @@ Studio.setBadge = (step, text, title) => {
 /* 一覧の「いつの」(ui-kit の UIKit.fmt。無いときは空) */
 Studio.ago = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.ago(ms) : '');
 Studio.date = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.date(ms) : '');
-/* 配信か手元の動画ファイルか(用語集: 配信 = YouTube の配信、動画ファイル = 手元のファイル) */
+/* 配信か手元の動画ファイルか(用語集: 配信 = YouTube の配信、動画ファイル = 手元のファイル)。
+   ライブの録画(kind "live")も配信1本として扱う(録画中の札は ③ の一覧と LIVE の帯で出す) */
 Studio.noun = v => (v && v.kind === 'file' ? '動画ファイル' : '配信');
 
 Studio.step = 'rank';

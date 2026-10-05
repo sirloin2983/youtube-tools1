@@ -1517,11 +1517,9 @@
   }
 
   /* ================================================================ 試験中の機能: リアルタイム切り抜き(線 D。home/live.py)================================================================
-     ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。オンのときだけ録画の画面へのリンクを出す */
+     ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。録画と再生・マークはスタジオの中(P3。別の録画の画面は 2026-10-05 にやめた) */
   function renderLive(v) {
-    var on = !!(v && v.enabled);
-    $('#liveEnabled').checked = on;
-    $('#liveLink').hidden = !on;
+    $('#liveEnabled').checked = !!(v && v.enabled);
   }
   function loadLive() {
     return api('api/ytt/prefs', 'POST', { op: 'get', sections: ['live'] }).then(function (j) { renderLive((j.prefs || {}).live); },
@@ -1534,7 +1532,7 @@
       api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: { enabled: on } }).then(function (j) {
         renderLive(j.value);
         msg.hidden = false;
-        msg.textContent = on ? 'オンにしました。録画の部品を裏で起動します(数秒かかります)。録画の画面から使えます' : 'オフにしました(録画中の物があれば、録画の部品はそのまま続けます)';
+        msg.textContent = on ? 'オンにしました。録画の部品を裏で起動します(数秒かかります)。スタジオの URL の欄に配信中の URL を入れると録画します' : 'オフにしました(録画中の物があれば、録画の部品はそのまま続けます)';
       }, function (e) {
         $('#liveEnabled').checked = !on;
         toast('切り替えられませんでした: ' + e.message, 'err');

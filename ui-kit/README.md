@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v15
+# ui-kit(共通の見た目)v16
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,23 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`docs/plan/live-clipping-plan.md` の 0-8)
+全ツールのヘッダーの「録画中」の札。**録画があるときだけ**、appnav のあるヘッダー(`.ui-header` の中の `.ui-header-actions` の先頭)に出る。**ヘッダーの HTML に足すものは無い**(JS が作る)。
+録画が無い・機能がオフ・合言葉(`ytt-token`)が無いページ(入口を通さない単独起動)では、要素も作らない(場所も取らない)。
+- データ: 入口の `POST api/ytt/live {op: "status"}`(相対パス。合言葉 `X-YTT-Token` は他の `api/ytt/…` と同じ)→ `{enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}`。
+  `state` = waiting | recording | reconnecting | stopped | ended | error。オンのときは 10 秒ごと・オフ(`enabled: false`・404 などの 4xx)のときは 60 秒ごとに問い合わせる。
+  ネットワーク・5xx の一時的な失敗は、2回までは今の表示のまま 10 秒後に取り直し、3回続いたら札を消す。**隠れているタブは問い合わせない**(戻ったらすぐ取り直す。`UIKit.life.onReturn`)
+- 札(押せるボタン): 「● 録画中 1」(本数。赤い点は飾りで、文字も出す)・「つなぎ直し中」・「配信待ち 1」。複数あれば「録画中 1・配信待ち 1」。
+  動いているものが無く、終わって間もない録画だけが残っているときは「録画終了 n」(「開く」で行ける)、エラーがあれば「録画エラー」。状態は `data-state` と `aria-label` にも出る
+- 一覧(札を押すと開く。`role="dialog"`・Esc / 外側のクリック / Tab で外へ出ると閉じる。開いたらフォーカスは一覧へ・Esc で札へ戻る): 録画ごとに 題(無ければ URL)・状態・録画済みの時間(m:ss / h:mm:ss。録画中は1秒ごとに進む)・
+  「開く」(= `<a href="<スタジオ>?video=<録画の id>">`。スタジオの場所は appnav が使う `UIKit.tools` のもの)・動いている録画に「停止」(`UIKit.confirmTwice` の二度押し → `POST api/ytt/live {op: "stop", recorder, recording}`)。
+  **差分で直す**: 行・ボタンは作り直さない(10 秒ごとの更新で、押そうとしたボタンや二度押しの途中が消えない)。題などは `textContent`(外から来る文字)
+- 知らせ(`UIKit.toast`。**ページを開いた最初の1回では出さない**): 動いていた録画が動かなくなった →「「題」の録画が終わりました(合計 h:mm:ss)」/ recording → reconnecting →「「題」の録画が切れました。つなぎ直しています」(失敗の色)/
+  動いていた録画が error になった →「「題」の録画でエラーが起きました」
+- `UIKit.liveBadge`: `get()`(最後の応答 `{enabled, recordings}`。まだ無ければ `null`。失敗で札を消したときは `{enabled: false, recordings: []}`)・`refresh()`(すぐ問い合わせ直す → Promise(最後の応答))・
+  `onChange(fn(応答))`(答えのたびに。差があったかは fn が比べる)・`onOpen(fn(録画))`(スタジオの画面が登録する。あれば「開く」はページを移らず、一覧を閉じて `fn` を呼ぶ。無ければスタジオへ移る)
+- 見本とテスト: `styleguide.html` の「v16: 録画中の札」(見た目だけの静的な見本)・`python ui-kit/tests/e2e_styleguide.py`(`api/ytt/live` を `page.route` で偽装。札・一覧・差分・二度押し・知らせ・間隔・隠れたタブ)。`UIKit.version` は 16
 
 ## v15(2026-10-04・引き出しの中から開くダイアログが固まる不具合)
 - 引き出し(`UIKit.drawer.open(el, {modal: true})`。⚙ 設定など)は裏の要素を `inert` にする。そのとき、ページに最初からある `<dialog>`(編集の `#dlgConfirm` など)まで `inert` にしていたので、

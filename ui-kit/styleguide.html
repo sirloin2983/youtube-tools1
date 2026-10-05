@@ -155,6 +155,25 @@
         (「YouTube の URL も」の欄だけ、…?t=5025 の URL も読む)。</p>
     </section>
 
+    <section class="card" id="liveBadgeDemo">
+      <div class="card-head"><h2 class="card-title">v16: 録画中の札(UIKit.liveBadge)</h2><span class="card-sub">録画があるときだけヘッダーに出る</span></div>
+      <div class="row">
+        <span class="ui-live"><button type="button" class="btn ghost small ui-live-btn" data-state="recording"><span class="ui-live-dot" aria-hidden="true"></span><span class="ui-live-text">録画中 1</span></button></span>
+        <span class="ui-live"><button type="button" class="btn ghost small ui-live-btn" data-state="reconnecting"><span class="ui-live-dot" aria-hidden="true"></span><span class="ui-live-text">つなぎ直し中</span></button></span>
+        <span class="ui-live"><button type="button" class="btn ghost small ui-live-btn" data-state="waiting"><span class="ui-live-dot" aria-hidden="true"></span><span class="ui-live-text">配信待ち 1</span></button></span>
+        <span class="ui-live"><button type="button" class="btn ghost small ui-live-btn" data-state="ended"><span class="ui-live-dot" aria-hidden="true"></span><span class="ui-live-text">録画終了 1</span></button></span>
+      </div>
+      <div class="ui-live-panel" style="position:static;margin-top:10px;width:auto;animation:none">
+        <ul class="ui-live-list">
+          <li class="ui-live-row" data-state="recording"><span class="ui-live-title">【雑談】見本の配信</span><span class="ui-live-meta"><span class="ui-live-state">録画中</span><span class="ui-live-time num">1:23:45</span></span>
+            <span class="ui-live-acts"><a class="btn small" href="#liveBadgeDemo">開く</a><button type="button" class="btn small danger">停止</button></span></li>
+          <li class="ui-live-row" data-state="ended"><span class="ui-live-title">https://www.youtube.com/watch?v=sample</span><span class="ui-live-meta"><span class="ui-live-state">録画終了</span><span class="ui-live-time num">2:05:10</span></span>
+            <span class="ui-live-acts"><a class="btn small" href="#liveBadgeDemo">開く</a></span></li>
+        </ul>
+      </div>
+      <p class="hint">札は入口の <code>api/ytt/live</code> を 10 秒ごと(オフなら 60 秒ごと)に問い合わせて出す。単体で開いたこの見本(合言葉なし)では出ない。上は見た目だけの見本。</p>
+    </section>
+
     <section class="card">
       <div class="card-head"><h2 class="card-title">v6: 下の帯(UIKit.keybar)</h2></div>
       <div class="row">

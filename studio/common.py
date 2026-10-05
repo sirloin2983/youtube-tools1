@@ -226,6 +226,35 @@ def parse_video_id(text):
     return cand if VID_RE.match(cand) else None
 
 
+# ---------- ライブの録画(kind "live")。録画の部品(recorder/)の録画 id の形。YouTube の 11 文字・file の "f…" とは重ならない ----------
+LIVE_ID_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z", re.ASCII)
+LIVE_RECORDER_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z", re.ASCII)
+YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
+
+
+def check_live(o):
+    """録画1本の記述({recorder, recording, url}) → {recorder, recording, url, videoId}。不正は ApiError 400。
+    url は YouTube の https だけ(チャンネルの /live など動画の ID が取れない URL も可。そのとき videoId は "")。"""
+    bad = lambda m: ApiError("bad_source", m, 400)
+    if not isinstance(o, dict):
+        raise bad("入力が正しくありません")
+    rec, rid, url = o.get("recorder"), o.get("recording"), o.get("url")
+    if not isinstance(rec, str) or not LIVE_RECORDER_RE.match(rec):
+        raise bad("録画元(recorder)の形が正しくありません")
+    if not isinstance(rid, str) or not LIVE_ID_RE.match(rid):
+        raise bad("録画の ID(recording)の形が正しくありません")
+    if not isinstance(url, str) or not url or len(url) > 300 or any(ord(c) < 32 or ord(c) == 127 for c in url):
+        raise bad("配信の URL が正しくありません")
+    try:
+        u = urllib.parse.urlsplit(url.strip())
+        host = (u.hostname or "").lower()
+    except ValueError:
+        raise bad("配信の URL が正しくありません")
+    if u.scheme != "https" or host not in YT_HOSTS:
+        raise bad("配信の URL は YouTube の https の URL だけです")
+    return {"recorder": rec, "recording": rid, "url": url.strip(), "videoId": parse_video_id(url.strip()) or ""}
+
+
 def check_media_path(raw):
     """手元の動画・音声ファイルのパスを検査して絶対パスを返す。"""
     s = str(raw or "").strip().strip('"')

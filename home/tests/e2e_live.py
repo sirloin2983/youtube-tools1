@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き(試験中。線 D の P1)の画面の確認(Playwright)。本物の YouTube には繋がない。
+"""リアルタイム切り抜き(試験中。線 D)の入口の側の通しの確認。本物の YouTube には繋がない。
 
-    py -3.10 home/tests/e2e_live.py [--shots <フォルダ>]
+    py -3.10 home/tests/e2e_live.py
 
 入口(launch.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(recorder/recorder.py)を
 --source direct で別のプロセスとして動かし、ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出して録る。
 
+P3(2026-10-05)で別ページ /live/(録画の画面)をやめてスタジオの中に入れたので、この確認は**入口の API で**行う
+(ホームの画面はオン/オフのスイッチと案内の1行だけを Playwright で見る)。
+**スタジオの画面を通した確認(URL の欄に入れる → ③ で再生・マーク → すぐ書き出す・ヘッダーの札)は、まとめ役があとで足す**。
+
 確かめること:
-  1. オフ: ホームの「詳しく」に「試験中の機能」のスイッチ(オフ)があり、録画の画面へのリンクは出ない・/live/ は 404
-  2. オンにする → リンクが出る → 録画の画面: 録画元につながる・置き場所と空き容量
-  3. 録画を始める → 一覧に「録画中」→ 再生(hls.js): 再生リストを読めた・セグメントを読めた・致命的なエラーなし。
-     Edge(H.264 を再生できる)があれば、実際に再生が進む・シークできることまで(Playwright 同梱の chromium は H.264 を再生できない)
-  3b. P2 マークと書き出し: 再生しながら I → O(Edge。chromium では API でマーク)→「終了をマークしたら書き出す」で
-     録画待ち → 取得 → 30fps → 済み(30/1・長さ・.clip.json の source.kind live)→ 文字起こしへ(偽のまとめて実行)・N(直前の秒数)・
-     ラベルの変更・録画待ちの取り消し・マークの削除
-  4. 停止(確認の窓)→「停止」・終わった録画も再生できる
-  5. 置き場所を無いドライブにする → 案内が出て「録画を始める」は押せない
-  6. 狭い画面で横にはみ出さない・コンソールのエラーなし
+  1. オフ: ホームの「詳しく」の「試験中の機能」のスイッチ(オフ)・案内の1行・録画の画面へのリンクは無い・/live/ は 404・
+     api/ytt/live の status は {enabled: false}
+  2. スイッチでオンにする → 設定に残る・/live/ はスタジオへ 302・hls.js(スタジオが ../live/hls.min.js で読む)・録画元につながる(置き場所・空き容量)
+  3. begin(偽の yt-dlp = is_live。テストの録画元は --source direct で手元の URL しか受けないので、入口の allow_local_urls をテストだけ立てる)
+     → 録画が始まる・もう一度 begin → 録画中のものを返す(existing)・配信中でない(was_live)→ live: false
+  4. api/ytt/live の status に録画中の録画(題は文字のまま)
+  5. スタジオの形の書き出し(録画の頭からの秒)→ 録画待ち → 取得 → 30fps → 済み(30/1・長さ・.clip.json の source.kind live・
+     source.live.studio)→ 文字起こしへ(偽のまとめて実行)・一覧の studio
+  6. api/ytt/live の stop → 停止・札は「終わって 10 分以内」で残る・再生リストに終わりの印
+  7. オフに戻す → status は {enabled: false}・ホームの画面にコンソールのエラーなし
 """
-import argparse
 import json
 import os
 import shutil
-import string
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -43,6 +46,7 @@ sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
 import launch as L  # noqa: E402
 import hls_fixture as F  # noqa: E402
+import live_export as LX  # noqa: E402
 from ytt_core import normalize, schemas  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
@@ -57,20 +61,44 @@ def wait_js(pg, expr, timeout=20000):
     return False
 
 
-def datetime_of(iso):
-    from datetime import datetime
-    return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%S.%fZ").timestamp()
+def wait_for(fn, timeout=30.0, step=0.3):
+    end = time.time() + timeout
+    while time.time() < end:
+        v = fn()
+        if v:
+            return v
+        time.sleep(step)
+    return fn()
 
 
-def missing_drive():
-    used = {d for d in string.ascii_uppercase if os.path.exists(d + ":\\")}
-    return next((d for d in "QRSTUVWXYZ" if d not in used), None)
+class Client:
+    """入口の API を画面と同じ形で呼ぶ(Host・Origin・合言葉 X-YTT-Token)"""
+
+    def __init__(self, port, token):
+        self.base, self.token = "http://127.0.0.1:%d" % port, token
+
+    def call(self, method, path, body=None, redirect=True):
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        h = {"Origin": self.base, "X-YTT-Token": self.token}
+        if data is not None:
+            h["Content-Type"] = "application/json"
+        req = urllib.request.Request(self.base + path, data=data, method=method, headers=h)
+        opener = urllib.request.build_opener(*([] if redirect else [NoRedirect()]))
+        try:
+            r = opener.open(req, timeout=60)
+            code, ctype, raw, loc = r.status, r.headers.get("Content-Type") or "", r.read(), r.headers.get("Location")
+        except urllib.error.HTTPError as e:
+            code, ctype, raw, loc = e.code, e.headers.get("Content-Type") or "", e.read(), e.headers.get("Location")
+        obj = json.loads(raw.decode("utf-8")) if ctype.startswith("application/json") else raw
+        return code, obj, ctype, loc
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--shots", default="")
-    a = ap.parse_args()
     ok = True
 
     def check(cond, msg):
@@ -78,7 +106,7 @@ def main():
         print(("OK   " if cond else "FAIL ") + msg, flush=True)
         ok = ok and bool(cond)
 
-    tmp = tempfile.mkdtemp(prefix="ytt-live-ui-")
+    tmp = tempfile.mkdtemp(prefix="ytt-live-e2e-")
     patch = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime")})
     patch.start()
     sup = L.Supervisor(tmp, ready_timeout=5, stop_timeout=5, poll=0.5, log=lambda m: None, ports=dict(zip(L.TOOL_IDS, free_ports(3))), mounts=())
@@ -86,6 +114,7 @@ def main():
     sup.attach(srv)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = "http://127.0.0.1:%d/" % port
+    api = Client(port, srv.token)
 
     # 録画の部品(本物。direct)と、配信中のふりをする HLS
     src_dir = os.path.join(tmp, "src")
@@ -102,14 +131,16 @@ def main():
     end = time.time() + 20
     while time.time() < end and not os.path.isfile(tok):
         time.sleep(0.2)
+    time.sleep(0.2)
     with open(tok, encoding="ascii") as f:
         rtoken = f.read().strip()
     # 録画元の一覧(この部品だけ。オンにするのは画面のスイッチで)
     srv.prefs.patch("live", {"recorders": [{"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % rport, "token": rtoken}]})
-    # 書き出し(P2): 記録・書き出し先は一時フォルダ・文字起こしへは偽のまとめて実行
+    # 書き出し: 記録・書き出し先は一時フォルダ・文字起こしへは偽のまとめて実行
     out_dir = os.path.join(tmp, "out")
     srv.live.store_dir = os.path.join(tmp, "live")
     srv.live.out_dir = lambda: out_dir
+    srv.live.audio = lambda: {"volume": 100, "loudness": None}
     handed = []
 
     class FakeRunner:
@@ -121,183 +152,117 @@ def main():
             return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち"} for i in range(len(handed))]}
     fake_runner = FakeRunner()
     srv.live.runner = lambda: fake_runner
+    # 配信の状態は偽の yt-dlp(本物の YouTube へは繋がない)。テストの録画元は手元の URL だけを受けるので、begin でも手元の URL を通す
+    probe = {"status": "is_live", "title": "テストの配信<b>", "message": ""}
+    srv.live.probe = lambda url: dict(probe)
+    srv.live.allow_local_urls = True
 
-    errors, notfound = [], []
+    errors = []
+    rid = None
     try:
         with sync_playwright() as p:
+            browser = p.chromium.launch()
             try:
-                browser, edge = p.chromium.launch(channel="msedge"), True
-            except Exception:
-                browser, edge = p.chromium.launch(), False
-            print("ブラウザ: %s" % ("Edge(H.264 の再生まで確かめる)" if edge else "Playwright の chromium(再生は読み込みまで)"), flush=True)
-            try:
-                ctx = browser.new_context(viewport={"width": 1280, "height": 1000})
-                pg = ctx.new_page()
-                pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+                pg = browser.new_context(viewport={"width": 1280, "height": 1000}).new_page()
+                pg.on("console", lambda m: errors.append(m.text) if m.type == "error" and "404" not in m.text else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
-                pg.on("response", lambda r: notfound.append(r.url) if r.status == 404 else None)
-                pg.on("dialog", lambda d: d.accept())
 
                 # 1. オフ
                 pg.goto(base)
                 pg.evaluate("document.getElementById('advancedBox').open = true")
                 check(wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden"), "「試験中の機能」が出る")
                 check(pg.evaluate("document.getElementById('liveEnabled').checked") is False, "既定はオフ")
-                check(pg.evaluate("document.getElementById('liveLink').hidden") is True, "オフの間は録画の画面へのリンクを出さない")
-                try:
-                    urllib.request.urlopen(base + "live/", timeout=5)
-                    check(False, "オフの間は /live/ が 404")
-                except urllib.error.HTTPError as e:
-                    check(e.code == 404, "オフの間は /live/ が 404: %s" % e.code)
-                check(not [u for u in notfound if "/live" in u], "ホームの画面は /live/ を読みに行かない: %s" % notfound)
-                notfound.clear()
+                check(pg.evaluate("document.getElementById('liveLink')") is None, "録画の画面へのリンクは無い(スタジオに統合した)")
+                check("スタジオの URL の欄に配信中の URL を入れるだけで録画します" in (pg.text_content("#liveNote") or ""),
+                      "案内の1行: %s" % pg.text_content("#liveNote"))
+                check(api.call("GET", "/live/")[0] == 404, "オフの間は /live/ が 404")
+                check(api.call("POST", "/api/ytt/live", {"op": "status"})[1] == {"enabled": False}, "オフの間は札の status が {enabled: false}")
 
-                # 2. オンにする
+                # 2. スイッチでオンにする
                 pg.click("#liveEnabled")
-                check(wait_js(pg, "document.getElementById('liveLink').hidden === false"), "オンにするとリンクが出る")
+                check(wait_js(pg, "document.getElementById('liveMsg').hidden === false"), "オンにした知らせ: %s" % pg.text_content("#liveMsg"))
                 check(srv.prefs.get(["live"])["live"]["enabled"] is True, "設定に残る")
-                pg.click("#liveLink")
-                check(wait_js(pg, "location.pathname === '/live/'"), "録画の画面へ移る")
-                check(wait_js(pg, "document.getElementById('recState').textContent.indexOf('つながっています') === 0", 15000),
-                      "録画元につながる: %s" % pg.text_content("#recState"))
-                check(os.path.normcase(pg.text_content("#recFolder")) == os.path.normcase(rfolder), "置き場所: %s" % pg.text_content("#recFolder"))
-                check("GB" in pg.text_content("#recFree") or "MB" in pg.text_content("#recFree"), "空き容量: %s" % pg.text_content("#recFree"))
-                check(pg.evaluate("document.getElementById('startBtn').disabled") is False, "録画を始められる")
-                check(pg.evaluate("document.getElementById('startQuality').value") == "1080p", "画質の既定は 1080p")
-                check(pg.evaluate("[...document.querySelectorAll('#markLag option')].map(o => o.value).join(',')") == "0,2,3,5"
-                      and pg.evaluate("document.getElementById('markLag').value") == "0", "開始の補正: なし/−2/−3/−5秒・既定はなし(スタジオと同じ)")
-                check("スタジオの「書き出しの設定」に合わせています" in pg.text_content("#audioNote") and ("LUFS" in pg.text_content("#audioNote") or "%" in pg.text_content("#audioNote")),
-                      "書き出しの音量の案内: %s" % pg.text_content("#audioNote"))
-                # 変えたら覚える(この画面の localStorage。再生の欄は録画を再生するまで隠れているので、値を直接変えて change を送る)
-                lag_set = "(v) => { const s = document.getElementById('markLag'); s.value = v; s.dispatchEvent(new Event('change')); return localStorage.getItem('ytt-live-lag'); }"
-                check(pg.evaluate(lag_set, "3") == "3", "開始の補正を覚える")
-                check(pg.evaluate(lag_set, "0") == "0", "開始の補正を戻す")
+                code, _, _, loc = api.call("GET", "/live/", redirect=False)
+                check((code, loc) == (302, "/studio/"), "/live/ はスタジオへ 302: %s %s" % (code, loc))
+                code, raw, ctype, _ = api.call("GET", "/live/hls.min.js")
+                check(code == 200 and ctype.startswith("application/javascript") and len(raw) > 100000, "hls.js(../live/hls.min.js)")
+                code, info, _, _ = api.call("GET", "/live/api/info")
+                check(code == 200 and [r["id"] for r in info["recorders"]] == ["local"] and rtoken not in json.dumps(info), "録画元の一覧(合言葉は出さない)")
+                code, lst, _, _ = api.call("GET", "/live/r/local/list")
+                check(code == 200 and lst.get("folderOk") is True and os.path.normcase(lst["folder"]) == os.path.normcase(rfolder),
+                      "録画元につながる・置き場所: %s" % (lst if code != 200 else lst["folder"]))
+                check(code == 200 and (lst.get("freeBytes") or 0) > 0, "空き容量")
 
-                # 3. 録画 → 再生
-                pg.fill("#startUrl", live_src.url)
-                pg.fill("#startTitle", "テストの配信<b>")
-                pg.click("#startBtn")
-                check(wait_js(pg, "document.querySelector('.lv-item[data-state=\"recording\"]') !== null", 30000),
-                      "一覧に「録画中」: %s" % pg.evaluate("document.getElementById('list').textContent"))
-                check(pg.evaluate("document.querySelector('.lv-item b').textContent") == "テストの配信<b>", "名前は文字のまま(HTML にしない)")
-                time.sleep(4)   # 数セグメント録る
-                pg.click(".lv-item[data-state=\"recording\"] button:has-text('再生')")
-                check(wait_js(pg, "document.getElementById('player').getAttribute('data-manifest') === '1'", 20000), "hls.js が再生リストを読めた")
-                check(wait_js(pg, "Number(document.getElementById('player').getAttribute('data-frags') || 0) >= 1", 20000), "セグメントを読めた")
-                if edge:
-                    check(wait_js(pg, "document.getElementById('player').currentTime > 0.5", 20000), "再生が進む(Edge)")
-                    pg.evaluate("(() => { const v = document.getElementById('player'); v.currentTime = Math.max(0, v.seekable.start(0) + 0.5); })()")
-                    check(wait_js(pg, "(() => { const v = document.getElementById('player'); return !v.seeking && v.currentTime < 3; })()", 15000),
-                          "頭へシークできる(Edge): %s" % pg.evaluate("document.getElementById('player').currentTime"))
-                    check(wait_js(pg, "/再生位置の時刻 /.test(document.getElementById('playerClock').textContent)", 10000),
-                          "再生位置の時刻(受信時刻)を出す: %s" % pg.text_content("#playerClock"))
-                    pg.click("#playerLive")
-                    check(wait_js(pg, "document.getElementById('player').currentTime > 3", 10000), "ライブに戻る(Edge)")
-                    check(not pg.evaluate("document.getElementById('player').getAttribute('data-error')"),
-                          "致命的なエラーなし: %s" % pg.evaluate("document.getElementById('player').getAttribute('data-error')"))
-                else:
-                    err = pg.evaluate("document.getElementById('player').getAttribute('data-error')") or ""
-                    check(not err or "codec" in err.lower() or "buffer" in err.lower(), "致命的なエラーは H.264 を再生できないことだけ: %s" % err)
-                # 3b. マークと書き出し(P2)
-                check(pg.evaluate("document.getElementById('marksBox').hidden") is False, "再生するとマークの欄が出る")
-                check(pg.evaluate("document.getElementById('autoExport').checked && document.getElementById('autoTx').checked"),
-                      "既定: 終了をマークしたら書き出す・文字起こしへ")
-                if edge:
-                    pg.evaluate("document.activeElement && document.activeElement.blur(); document.getElementById('player').play().catch(() => {})")   # 入力欄の外で・再生しながら
-                    pg.keyboard.press("i")
-                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "I で開始のマーク: %s" % pg.text_content("#markMsg"))
-                    check("終了待ち" in pg.text_content("#marks"), "開始だけのマークは「終了待ち」")
-                    time.sleep(3)
-                    pg.keyboard.press("o")
-                else:   # chromium は H.264 を再生できない(再生位置の時刻が取れない)ので、録画の時刻で API から付けて「書き出す」を押す
-                    rec_id = pg.evaluate("document.querySelector('.lv-item[data-state=\"recording\"]').getAttribute('data-rec')")
-                    st = json.loads(urllib.request.urlopen(urllib.request.Request(
-                        "http://127.0.0.1:%d/live/%s/status" % (rport, rec_id), headers={"Authorization": "Bearer " + rtoken}), timeout=5).read())
-                    from datetime import datetime, timedelta
-                    t0 = datetime.strptime(st["firstPdt"], "%Y-%m-%dT%H:%M:%S.%fZ")
-                    iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (d.microsecond // 1000)
-                    pg.evaluate("""([rec, a, b]) => fetch('api/marks', {method: 'POST', headers: {'Content-Type': 'application/json',
-                        'X-YTT-Token': document.querySelector('meta[name="ytt-token"]').content},
-                        body: JSON.stringify({op: 'add', recorder: 'local', recording: rec, start: a, end: b})}).then(r => r.status)""",
-                                [rec_id, iso(t0 + timedelta(seconds=0.5)), iso(t0 + timedelta(seconds=3.5))])
-                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "マークが一覧に出る")
-                    pg.click("#marks .lv-mark button:has-text('書き出す')")
-                check(wait_js(pg, "(() => { const li = document.querySelector('#marks .lv-mark'); return li && li.getAttribute('data-export') === 'done'; })()", 90000),
-                      "録画待ち → 取得 → 30fps → 済み: %s / %s" % (pg.evaluate("(document.querySelector('#marks .lv-mark') || {}).textContent"),
-                                                              pg.text_content("#markMsg")))
-                if not srv.live.exporter.jobs:
-                    raise SystemExit("書き出しのジョブができませんでした")
-                jobs = srv.live.exporter.snapshot()
-                done = [j for j in jobs if j["state"] == "done"]
-                if done:
-                    info = normalize.probe(done[0]["path"])
+                # 3. begin → 録画が始まる
+                code, d, _, _ = api.call("POST", "/live/api/begin", {"url": live_src.url})
+                check(code == 200 and d.get("live") is True and d.get("existing") is False and d.get("recorder") == "local",
+                      "begin(配信中)→ 録画が始まる: %s" % d)
+                rid = (d.get("recording") or {}).get("id")
+                check(bool(rid) and LX.REC_RE.match(rid) and d["recording"]["title"] == "テストの配信<b>", "録画の id と題(yt-dlp の題): %s" % d.get("recording"))
+                code, d2, _, _ = api.call("POST", "/live/api/begin", {"url": live_src.url})
+                check(code == 200 and d2.get("existing") is True and (d2.get("recording") or {}).get("id") == rid, "もう一度 begin → 録画中のものを返す: %s" % d2)
+                probe["status"] = "was_live"
+                check(api.call("POST", "/live/api/begin", {"url": live_src.url})[1] == {"live": False, "status": "was_live"}, "配信中でない → live: false")
+                probe["status"] = "is_live"
+                status = lambda: api.call("GET", "/live/r/local/%s/status?since=999999999" % rid)[1]   # noqa: E731
+                check(wait_for(lambda: (status() or {}).get("segments", 0) >= 5, 40), "録画が進む: %s" % status())
+                code, pl, ctype, _ = api.call("GET", "/live/r/local/%s/index.m3u8" % rid)
+                check(code == 200 and ctype == "application/vnd.apple.mpegurl" and b"#EXT-X-ENDLIST" not in pl, "再生リスト(中継)")
+
+                # 4. ヘッダーの札
+                code, st, _, _ = api.call("POST", "/api/ytt/live", {"op": "status"})
+                row = next((r for r in (st or {}).get("recordings") or [] if r["id"] == rid), None)
+                check(code == 200 and st.get("enabled") is True and row and row["active"] is True and row["recorder"] == "local"
+                      and row["title"] == "テストの配信<b>" and row["url"] == live_src.url, "札の status に録画中の録画: %s" % st)
+
+                # 5. スタジオの形の書き出し(録画の頭からの秒)
+                first = LX.iso_epoch(status()["firstPdt"])
+                studio = {"video": rid, "mark": "m0123abcd", "n": 1, "label": "見どころ", "start": 0.5, "end": 3.5}
+                code, d, _, _ = api.call("POST", "/live/api/export", {"recorder": "local", "recording": rid, "title": "テストの配信<b>", "url": live_src.url,
+                                                                       "transcribe": True, "studio": studio})
+                check(code == 200 and d["job"]["studio"] == {"video": rid, "mark": "m0123abcd", "start": 0.5, "end": 3.5}, "書き出しを頼む: %s" % d)
+                jid = d["job"]["id"]
+                check(d["job"]["start"] == LX.epoch_iso(first + 0.5) and d["job"]["markId"] == LX.studio_mark_id("m0123abcd"), "絶対時刻 = firstPdt + 秒・正本の id")
+                code, d, _, _ = api.call("POST", "/live/api/export", {"recorder": "local", "recording": rid, "studio": studio})
+                check(code == 409 or d.get("job", {}).get("id") != jid, "同じマークが途中なら 409: %s" % code)
+                job = lambda: next((j for j in api.call("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1]["jobs"] if j["id"] == jid), {})   # noqa: E731
+                got = wait_for(lambda: job().get("state") in ("done", "error") and job(), 90)
+                check(got and got["state"] == "done", "録画待ち → 取得 → 30fps → 済み: %s" % got)
+                if got and got["state"] == "done":
+                    info = normalize.probe(got["path"])
                     check(normalize.is_30fps(info), "書き出した動画は 30/1: %s" % (info or {}).get("r_frame_rate"))
-                    want = (datetime_of(done[0]["end"]) - datetime_of(done[0]["start"]))
-                    check(abs((info or {}).get("duration", 0) - want) <= 0.1, "長さが区間と同じ: %s / %s" % ((info or {}).get("duration"), want))
-                    clip, warn = schemas.load_clip_file(schemas.find_clip_path(done[0]["path"]))
+                    check(abs((info or {}).get("duration", 0) - 3.0) <= 0.15, "長さが区間と同じ: %s" % (info or {}).get("duration"))
+                    clip, warn = schemas.load_clip_file(schemas.find_clip_path(got["path"]))
                     check(clip and clip["source"]["kind"] == "live", ".clip.json の source.kind は live: %s" % warn)
-                    check(os.path.dirname(os.path.dirname(done[0]["path"])) == out_dir, "スタジオの書き出し先の配信の名前のフォルダ: %s" % done[0]["path"])
-                    check(handed == [(done[0]["path"], "check")], "文字起こしへ渡した(まとめて実行の文字起こしだけ): %s" % handed)
-                    check(wait_js(pg, "/文字起こし: 待ち/.test(document.getElementById('marks').textContent)", 10000), "画面に文字起こしの状態")
-                pg.fill("#marks .lv-mark .lv-label", "見どころ")
-                pg.press("#marks .lv-mark .lv-label", "Enter")
-                time.sleep(0.8)
-                labels = [m.get("label") for m in srv.live.exporter.marks.load("local", srv.live.exporter.jobs[0]["recording"])["marks"]]
-                check(labels == ["見どころ"], "ラベルを保存: %s" % labels)
-                if edge:   # N = 直前の秒数(自動で書き出さないようにして)
-                    pg.click("#autoExport")
-                    pg.evaluate("document.activeElement && document.activeElement.blur(); document.getElementById('player').play().catch(() => {})")
-                    pg.keyboard.press("n")
-                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 2", 10000), "N で直前の秒数のマーク: %s" % pg.text_content("#markMsg"))
-                    pg.click("#autoExport")
-                    pg.click("#marks .lv-mark[data-export=''] button:has-text('削除')")
-                    check(wait_js(pg, "document.querySelectorAll('#marks .lv-mark').length === 1", 10000), "マークを消せる")
-                # 録画待ちの取り消し(まだ録れていない先の時刻のマークを API で付けて、画面で取り消す)
-                rec_id = srv.live.exporter.jobs[0]["recording"]
-                far, _ = srv.live.exporter.marks.apply("local", rec_id, {"op": "add", "start": "2099-01-01T00:00:00Z", "end": "2099-01-01T00:00:10Z"})
-                srv.live.exporter.add("local", rec_id, far["id"], transcribe=False)
-                check(wait_js(pg, "!!document.querySelector('#marks .lv-mark[data-export=\"wait\"]')", 10000), "録画待ちの札")
-                pg.click("#marks .lv-mark[data-export=\"wait\"] button:has-text('取り消し')")
-                check(wait_js(pg, "!!document.querySelector('#marks .lv-mark[data-export=\"cancelled\"]')", 10000), "取り消せる")
-                if a.shots:
-                    os.makedirs(a.shots, exist_ok=True)
-                    pg.screenshot(path=os.path.join(a.shots, "live-recording.png"), full_page=True)
+                    check(clip and clip["source"]["live"].get("studio") == {"video": rid, "mark": "m0123abcd"}, ".clip.json にスタジオの配信とマーク")
+                    check(clip and abs(clip["range"]["start"] - 0.5) < 0.01, ".clip.json の range は録画の頭からの秒: %s" % (clip or {}).get("range"))
+                    check(os.path.dirname(os.path.dirname(got["path"])) == out_dir, "スタジオの書き出し先の配信の名前のフォルダ: %s" % got["path"])
+                    check(handed == [(got["path"], "check")], "文字起こしへ渡した(まとめて実行の文字起こしだけ): %s" % handed)
+                    check(got["studio"]["mark"] == "m0123abcd", "一覧のジョブに studio")
 
-                # 4. 停止
-                pg.click(".lv-item[data-state=\"recording\"] button:has-text('停止')")
-                check(wait_js(pg, "document.querySelector('.lv-item[data-state=\"stopped\"]') !== null", 30000), "停止できる")
-                pg.click(".lv-item[data-state=\"stopped\"] button:has-text('再生')")
-                check(wait_js(pg, "document.getElementById('player').getAttribute('data-manifest') === '1'", 20000), "終わった録画も読める")
-                if edge:
-                    check(wait_js(pg, "isFinite(document.getElementById('player').duration) && document.getElementById('player').duration > 3", 20000),
-                          "終わった録画は長さが決まる: %s" % pg.evaluate("document.getElementById('player').duration"))
-                pg.click("#playerClose")
+                # 6. 札の「停止」
+                code, d, _, _ = api.call("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid})
+                check(code == 200 and d.get("ok") is True and d["recording"]["state"] == "stopped", "札の stop で止まる: %s" % d)
+                code, st, _, _ = api.call("POST", "/api/ytt/live", {"op": "status"})
+                row = next((r for r in (st or {}).get("recordings") or [] if r["id"] == rid), None)
+                check(row and row["active"] is False and row["state"] == "stopped" and row["endedAt"], "止めた録画は終わって 10 分は札に残る: %s" % row)
+                check(b"#EXT-X-ENDLIST" in api.call("GET", "/live/r/local/%s/index.m3u8" % rid)[1], "再生リストに終わりの印")
 
-                # 5. 無いドライブ
-                d = missing_drive()
-                if d:
-                    pg.click(".lv-folder summary")
-                    pg.fill("#folderInput", d + ":\\Video\\live-rec")
-                    pg.click("#folderSave")
-                    check(wait_js(pg, "/保存しました/.test(document.getElementById('folderMsg').textContent)"), "置き場所を保存: %s" % pg.text_content("#folderMsg"))
-                    check(srv.live.tick() == "running", "見回りが録画の部品に置き場所を伝える")
-                    check(wait_js(pg, "document.getElementById('recGuide').hidden === false && document.getElementById('recGuide').textContent.indexOf('%s:') >= 0" % d, 15000),
-                          "無いドライブの案内: %s" % pg.text_content("#recGuide"))
-                    check(pg.evaluate("document.getElementById('startBtn').disabled") is True, "無いドライブでは始められない")
-
-                # 6. 狭い画面
-                pg.set_viewport_size({"width": 375, "height": 800})
-                time.sleep(0.5)
-                check(pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"),
-                      "狭い画面で横にはみ出さない: %s" % pg.evaluate("[document.documentElement.scrollWidth, window.innerWidth]"))
-                if a.shots:
-                    pg.screenshot(path=os.path.join(a.shots, "live-narrow.png"), full_page=True)
-                bad = [e for e in errors if "404" not in e]   # 404 は下で URL ごとに見る(ホームはツールを取り込んでいないテストなので、ツールの API の 404 は想定内)
-                check(not bad, "コンソールのエラーなし: %s" % bad[:5])
-                check(not [u for u in notfound if "favicon" not in u], "録画の画面に 404 なし: %s" % notfound[:5])
+                # 7. オフに戻す
+                pg.click("#liveEnabled")
+                check(wait_js(pg, "/オフにしました/.test(document.getElementById('liveMsg').textContent)"), "オフに戻す")
+                check(api.call("POST", "/api/ytt/live", {"op": "status"})[1] == {"enabled": False}, "オフなら札の status は {enabled: false}")
+                check(not errors, "ホームの画面にコンソールのエラーなし: %s" % errors[:5])
             finally:
                 browser.close()
     finally:
+        try:
+            if rid:
+                req = urllib.request.Request("http://127.0.0.1:%d/live/%s/stop" % (rport, rid), data=b"{}", method="POST",
+                                             headers={"Content-Type": "application/json", "Authorization": "Bearer " + rtoken})
+                urllib.request.urlopen(req, timeout=40)
+        except Exception:
+            pass
         try:
             req = urllib.request.Request("http://127.0.0.1:%d/live/quit" % rport, data=b"{}", method="POST",
                                          headers={"Content-Type": "application/json", "Authorization": "Bearer " + rtoken})

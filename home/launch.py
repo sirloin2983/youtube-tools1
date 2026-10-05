@@ -33,8 +33,10 @@
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
-  GET  /live/…・POST /live/r/…            リアルタイム切り抜き(線 D の P1。home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
-                                          録画と再生の画面 /live/・録画元(recorder/recorder.py)への中継 /live/r/<録画元>/<残り>
+  GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
+                                          録画を始める /live/api/begin・録画元(recorder/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し。
+                                          画面はスタジオの中(P3。/live/ はスタジオへ 302)
+  POST api/ytt/live                       {op: "status"} → 録画中の録画(全ツールのヘッダーの札。オフなら {enabled: false})/ {op: "stop", recorder, recording}
   POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
                                           (Dropbox の見張るフォルダの 出力 に zip で置く。home/deliver.py。2026-10-04)
 
@@ -84,7 +86,7 @@ import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。�
 import live as live_mod  # noqa: E402  (home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.35.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.36.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -970,6 +972,8 @@ class PortalServer(ThreadingHTTPServer):
                     j = self.deliveries.status(body.get("job"))
                     return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(入口を起動し直しましたか)"})
                 return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
+            if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(home/live.py)
+                return self.live.ytt(body)
             if sub == "prefs":   # ホームの設定(home/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は ytt_core/colors.py)

@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -62,6 +63,8 @@ ARCHIVE = "archive"
 ARCHIVE_MIN_SEC = 90           # 取れた長さがこれを超えて、
 ARCHIVE_SPEED = 3.0            # 実際の時間のこれ倍より速く取れたら、配信ではなくアーカイブを頭から取っている(止める)
 TITLE_MAX = 200
+OEMBED = "https://www.youtube.com/oembed"   # 題の取得(fetch_title)
+TITLE_TRIES = (0, 20, 60)      # 題を取りに行くまでの秒(取れなければ次。全部だめなら題なしのまま)
 URL_MAX = 500
 PLAYLIST_MAX = 16 * 1024 * 1024
 GAP_TOL = 1.0                  # 区間のセグメントの間がこれより空いていたら「欠け」(P2 の書き出し。PDT の揺れは 0.1 秒ほど)
@@ -159,6 +162,25 @@ def validate_url(url, allow_local=False):
     if u.scheme != "https" or host not in YT_HOSTS or u.username or u.password or port not in (None, 443):
         raise RecError("YouTube の配信の URL(https://www.youtube.com/watch?v=… など)を入れてください")
     return url
+
+
+def fetch_title(url, endpoint=OEMBED, timeout=8):
+    """配信の題(名前を入れずに始めた録画に付ける)。YouTube の oEmbed(鍵なし・題と配信者名だけの小さな JSON)に聞く。
+    配信の前(予約)でも返る。取れなければ ""(録画は題なしで続ける)。yt-dlp を使わないのは、録画の部品を軽いままにするため"""
+    try:
+        req = urllib.request.Request(endpoint + "?" + urllib.parse.urlencode({"url": url, "format": "json"}),
+                                     headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.loads(r.read(256 * 1024).decode("utf-8", "replace"))
+    except Exception:
+        return ""
+    t = d.get("title") if isinstance(d, dict) else None
+    if not isinstance(t, str):
+        return ""
+    # 制御文字と、文字の向きを変える印(題で表示を入れ替えられないように)は落とす
+    # (絵文字をつなぐ印 U+200D は残す)
+    bidi = "‎‏؜‪‫‬‭‮⁦⁧⁨⁩"
+    return "".join(c for c in t if unicodedata.category(c) != "Cc" and c not in bidi).strip()[:TITLE_MAX]
 
 
 def folder_state(folder):
@@ -723,6 +745,7 @@ class Recorder:
                  idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None):
         self.folder = folder
         self.source = source if source in ("streamlink", "direct") else "streamlink"
+        self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
         self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg", "YTT_FFMPEG") or "ffmpeg"
         self.python = python or sys.executable
         self.hls_time = hls_time
@@ -840,7 +863,25 @@ class Recorder:
             self.recs[rid] = rec
         rec.start_thread()
         self.log("録画 %s: 開始 %s(%s)" % (rid, url, quality))
+        if not title and self.title_lookup and urllib.parse.urlsplit(url).scheme == "https":   # 手元の URL(テスト)では聞かない
+            threading.Thread(target=self._fill_title, args=(rec,), daemon=True, name="title-" + rid).start()
         return rec.summary()
+
+    def _fill_title(self, rec):
+        """名前なしで始めた録画に、配信の題を付ける(録画とは別のスレッド。取れなくても録画は続く)"""
+        for wait in TITLE_TRIES:
+            end = time.time() + wait
+            while time.time() < end and rec.active and not self.closing:
+                time.sleep(0.5)
+            if not rec.active or self.closing or rec.meta.get("title"):
+                return
+            t = self.title_lookup(rec.meta["url"])
+            if t:
+                with rec.lock:
+                    if not rec.meta.get("title"):
+                        rec.set(title=t)
+                self.log("録画 %s: 題 %s" % (rec.id, t))
+                return
 
     def stop(self, rid):
         rec = self.get(rid)

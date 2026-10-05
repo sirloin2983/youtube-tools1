@@ -8,7 +8,8 @@
 録画 → 切断 → 繋ぎ直し(新しいセッション・#EXT-X-DISCONTINUITY)→ 停止(#EXT-X-ENDLIST)/ 配信の終わり /
 起動時の復旧(書きかけを消す・読めないセッション・中断 → 新しいセッションで続ける)/
 HTTP: 合言葉なしは 403・Host の検査・ブラウザからの直接は 403・セグメントと再生リスト・パスの検査・置き場所の変更・終わる /
-P2: 区間にかかるセグメントと欠け(pick_segments・GET /live/<id>/segments)
+P2: 区間にかかるセグメントと欠け(pick_segments・GET /live/<id>/segments) /
+名前なしの録画に題を付ける(fetch_title を手元の HTTP サーバーの endpoint で・title_lookup を偽物にして・付けた名前は上書きしない・direct では聞かない)
 """
 import http.client
 import json
@@ -21,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 
@@ -361,6 +363,146 @@ class TestArchiveGuard(unittest.TestCase):
             rec.close()
             srv.close()
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestTitle(unittest.TestCase):
+    """名前なしで始めた録画に配信の題を付ける(fetch_title = YouTube の oEmbed。テストは手元の HTTP サーバーを endpoint にする)"""
+
+    @classmethod
+    def setUpClass(cls):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        cls.seen = []
+        owner = cls
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                owner.seen.append(self.path)
+                route = self.path.split("?")[0]
+                code, body = 200, b""
+                if route == "/ok":
+                    body = json.dumps({"title": "【雑談】配信の\x07題 <b> ", "author_name": "x"}).encode("utf-8")
+                elif route == "/long":
+                    body = json.dumps({"title": "あ" * 500}).encode("utf-8")
+                elif route == "/notitle":
+                    body = b'{"author_name": "x"}'
+                elif route == "/numtitle":
+                    body = b'{"title": 5}'
+                elif route == "/list":
+                    body = b'["title"]'
+                elif route == "/html":
+                    body = b"<html>not json</html>"
+                elif route == "/slow":
+                    time.sleep(3)
+                    body = b'{"title": "slow"}'
+                else:
+                    code, body = 404, b'{"error": "not found"}'
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except OSError:
+                    pass
+
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        cls.httpd.daemon_threads = True
+        cls.base = "http://127.0.0.1:%d" % cls.httpd.server_address[1]
+        import threading
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-rec-title-")
+        self.folder = os.path.join(self.tmp, "live-rec")
+        os.makedirs(self.folder)
+        self.rec = R.Recorder(self.folder, **FAST)
+
+    def tearDown(self):
+        for r in list(self.rec.recs.values()):
+            if r.active:
+                self.rec.stop(r.id)
+        self.rec.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_fetch_title(self):
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1"
+        self.assertEqual(R.fetch_title(url, endpoint=self.base + "/ok"), "【雑談】配信の題 <b>")   # 制御文字は除く・HTML にはしない(文字のまま)
+        import urllib.parse
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.seen[-1]).query)
+        self.assertEqual((q["url"], q["format"]), ([url], ["json"]))                              # URL は1つの値として渡す
+        self.assertEqual(R.fetch_title(url, endpoint=self.base + "/long"), "あ" * R.TITLE_MAX)
+        for bad in ("/notitle", "/numtitle", "/list", "/html", "/missing"):
+            self.assertEqual(R.fetch_title(url, endpoint=self.base + bad), "", bad)
+        t = time.time()
+        self.assertEqual(R.fetch_title(url, endpoint=self.base + "/slow", timeout=0.5), "")      # 時間切れ
+        self.assertLess(time.time() - t, 2.5)
+        self.assertEqual(R.fetch_title(url, endpoint="http://127.0.0.1:%d/x" % free_port()), "")   # つながらない
+
+    def test_lookup_only_for_streamlink(self):
+        self.assertIsNone(self.rec.title_lookup)                                       # direct(テスト)では聞かない
+        self.assertIs(R.Recorder(self.folder, source="streamlink").title_lookup, R.fetch_title)
+
+    def test_untitled_recording_gets_title(self):
+        calls = []
+        self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
+        url = "https://127.0.0.1:%d/live.m3u8" % free_port()   # https の手元の URL(つながらないので録画は「待ち」のまま)
+        s = self.rec.start(url)
+        r = self.rec.get(s["id"])
+        self.assertTrue(wait_for(lambda: r.meta.get("title") == "配信の題", 10), (r.meta, calls))
+        self.assertEqual(calls, [url])
+        with open(os.path.join(r.dir, "recording.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["title"], "配信の題")   # 記録にも残る
+        self.assertEqual(self.rec.get(s["id"]).summary()["title"], "配信の題")
+
+    def test_named_or_http_is_not_looked_up(self):
+        calls = []
+        self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
+        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % free_port(), title="付けた名前")
+        s2 = self.rec.start("http://127.0.0.1:%d/live.m3u8" % free_port())   # 手元の http(テストの配信)では聞かない
+        time.sleep(1.0)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.rec.get(s["id"]).meta["title"], "付けた名前")
+        self.assertEqual(self.rec.get(s2["id"]).meta["title"], "")
+
+    def test_fill_title_does_not_overwrite_and_retries(self):
+        s = self.rec.start("https://127.0.0.1:%d/live.m3u8" % free_port())   # title_lookup が None なので、ここでは聞かない
+        r = self.rec.get(s["id"])
+        # 聞いている間に名前が付いた → 上書きしない
+        self.rec.title_lookup = lambda url: (r.set(title="手で付けた"), "配信の題")[1]
+        r.set(title="")
+        self.rec._fill_title(r)
+        self.assertEqual(r.meta["title"], "手で付けた")
+        # 既に名前がある → 聞かない
+        calls = []
+        self.rec.title_lookup = lambda url: (calls.append(url), "配信の題")[1]
+        self.rec._fill_title(r)
+        self.assertEqual((calls, r.meta["title"]), ([], "手で付けた"))
+        # 取れなければ間を置いてもう一度(全部だめなら題なしのまま)
+        r.set(title="")
+        answers = ["", "二度目の題"]
+        self.rec.title_lookup = lambda url: (calls.append(url), answers.pop(0) if answers else "")[1]
+        with mock.patch.object(R, "TITLE_TRIES", (0, 0.2, 0.2)):
+            self.rec._fill_title(r)
+        self.assertEqual((len(calls), r.meta["title"]), (2, "二度目の題"))
+        r.set(title="")
+        calls.clear()
+        self.rec.title_lookup = lambda url: (calls.append(url), "")[1]
+        with mock.patch.object(R, "TITLE_TRIES", (0, 0.1)):
+            self.rec._fill_title(r)
+        self.assertEqual((len(calls), r.meta["title"]), (2, ""))
+        # 録画が終わったら聞かない
+        self.rec.stop(r.id)
+        calls.clear()
+        self.rec._fill_title(r)
+        self.assertEqual(calls, [])
 
 
 class TestHttp(unittest.TestCase):

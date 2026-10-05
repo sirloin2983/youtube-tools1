@@ -525,7 +525,7 @@ class TestPortalApi(unittest.TestCase):
 
     def test_streamer_guess_api(self):
         st, j = self.req("POST", "/api/ytt/streamer-guess", {"channel": "Pekora Ch. 兎田ぺこら"})
-        self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#7EC2FE"))
+        self.assertEqual((st, j["name"], j["source"], j["hex"]), (200, "兎田ぺこら", "auto", "#65BAEA"))   # 字幕の既定の色(members.json の subtitle。2026-10-05)
         self.req("POST", "/api/ytt/prefs", {"op": "remember", "kind": "videos", "key": "abcdefghijk", "name": "さくらみこ"})
         st, j = self.req("POST", "/api/ytt/streamer-guess", {"videoId": "abcdefghijk", "channel": "Pekora Ch. 兎田ぺこら"})
         self.assertEqual((j["name"], j["source"]), ("さくらみこ", "video"))
@@ -537,7 +537,7 @@ class TestPortalApi(unittest.TestCase):
         """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は ytt_core/colors.py)"""
         st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "ぺこら", "all": True})
         self.assertEqual(st, 200, j)
-        self.assertEqual((j["match"]["name"], j["match"]["hex"]), ("兎田ぺこら", "#7EC2FE"))   # リポジトリの holo-colors/members.json
+        self.assertEqual((j["match"]["name"], j["match"]["hex"]), ("兎田ぺこら", "#65BAEA"))   # リポジトリの holo-colors/members.json の subtitle(字幕の既定の色)
         self.assertGreater(len(j["items"]), 50)
         self.assertEqual(set(j["items"][0]), {"name", "en", "hex", "group", "mine"})
         st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "存在しない人"})

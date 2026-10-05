@@ -35,7 +35,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.19.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.20.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -314,8 +314,42 @@ def _open_video(o):
     if o.get("kind") == "file":
         src = analyze.validate_source({"kind": "file", "path": o.get("path")})
         return {"video": STORE.ensure(src, probe=True)}
+    if o.get("kind") == "live":   # ライブの録画(録画の部品で録っている配信)。値は全部 common.check_live で検査する
+        src = analyze.validate_live(o)
+        title = o.get("title")
+        if title is not None and not isinstance(title, str):
+            raise ApiError("bad_source", "title が正しくありません", 400)
+        return {"video": STORE.ensure(src, title or "")}
     src = analyze.validate_source({"kind": "youtube", "url": o.get("url")})
     return {"video": STORE.ensure(src)}
+
+
+def _live_exported(o):
+    """入口のライブの書き出し(home/live_export.py)が済んだマークを「書き出し済み」にする。
+    path は書き出し先(今の設定の out dir)の中にある実在の .mp4 だけ(画面・入口から来る値なので realpath で比べる)。"""
+    vid, mid, raw = o.get("id"), o.get("markId"), o.get("path")
+    if not isinstance(vid, str) or not isinstance(mid, str) or not mid or len(mid) > 64:
+        raise ApiError("bad_request", "id・markId が正しくありません", 400)
+    if not isinstance(raw, str) or not raw or len(raw) > 1000 or "\x00" in raw or not os.path.isabs(raw):
+        raise ApiError("bad_request", "path は絶対パスで指定してください", 400)
+    if os.path.splitext(raw)[1].lower() != ".mp4" or not os.path.isfile(raw):
+        raise ApiError("bad_request", "path が見つかりません(書き出した .mp4 のパスを指定してください)", 400)
+    real, root = os.path.realpath(raw), os.path.realpath(common.get_out_dir())
+    try:
+        inside = os.path.commonpath([os.path.normcase(real), os.path.normcase(root)]) == os.path.normcase(root) and os.path.normcase(real) != os.path.normcase(root)
+    except ValueError:   # 別のドライブ
+        inside = False
+    if not inside:
+        raise ApiError("bad_request", "path は書き出し先のフォルダの中だけ指定できます", 400)
+    v, _s = STORE.get(vid)   # 無ければ 404
+    if v["kind"] != "live":
+        raise ApiError("bad_request", "ライブの録画の配信だけです", 400)
+    m = next((x for x in v["marks"] if x["id"] == mid), None)
+    if m is None:   # 書き出し中にマークが消された: mark_exported と同じく記録しない(動画はできている)
+        return {"ok": False, "video": v}
+    rel = os.path.relpath(real, root).replace("\\", "/")
+    recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw))
+    return {"ok": bool(recorded), "video": STORE.get(vid)[0]}
 
 
 def _video_delete(o):
@@ -415,6 +449,7 @@ POST_ROUTES = {
     "/api/queue/retry": lambda o: {"ok": True, "qid": BATCH.retry(o.get("qid"))},
     "/api/queue/clear": lambda o: {"ok": True, "removed": BATCH.clear()},
     "/api/videos/open": _open_video,
+    "/api/live/exported": _live_exported,   # 入口のライブの書き出しが済んだマークを書き出し済みに(path は書き出し先の中の mp4 だけ)
     "/api/video/delete": _video_delete,
     "/api/video/adopt-top": _adopt_top,   # まとめて実行(入口の案件の画面)から: 自動マークの上位を採用に(学習の記録は書かない)
     "/api/video/request-marks": _request_marks,   # 友人からの依頼: 区間を採用済みのマークに + 自動の上位で埋める(学習の記録は書かない)

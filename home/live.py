@@ -1,17 +1,30 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D の P1。docs/plan/live-clipping-plan.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+"""リアルタイム切り抜き(線 D。docs/plan/live-clipping-plan.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
 オフの間は何もしない: /live/… は今までどおり 404(handle が False を返し、入口の 404 になる)・録画の部品も起動しない・「調子」にも出さない。
+api/ytt/live の status だけはオフでも {enabled: false} を返す(録画元に問い合わせない)。
+
+P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの中**(③ 確認・書き出し)。別ページ /live/(live.html・live.js・live.css)はやめた。
+スタジオのサーバーは録画の部品と話さず、スタジオの**画面が**ここの API を呼ぶ(同じオリジン・入口の合言葉)。
 
 オンのとき:
-  GET  /live/                         録画と再生の画面(live.html。hls.js は home/vendor/ に同梱 = CSP script-src 'self' のまま)
-  GET  /live/api/info                 録画元の一覧(名前・URL。合言葉は出さない)・録画の置き場所の設定
-  GET|POST /live/r/<録画元>/<残り>    録画元(recorder/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
-                                       例: /live/r/local/list・/live/r/local/start・/live/r/local/<録画>/index.m3u8・…/session_001/seg_000000.ts
-  GET  /live/api/marks?recorder=&recording=   録画1本のマークと書き出し(P2。中身は home/live_export.py)
-  POST /live/api/marks   {op: add|update|delete, recorder, recording, id?, start?, end?, label?, url?, title?}  マーク(押すたびに fsync)
-  GET  /live/api/exports                 書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し)
-  POST /live/api/export  {recorder, recording, markId, transcribe}   書き出しを頼む(録画待ち → 取得 → 30fps → 検証 → 文字起こしへ)
+  GET  /live/・/live/index.html・/live    スタジオ /studio/ へ 302(以前の録画の画面のブックマーク)
+  GET  /live/hls.min.js                   hls.js(home/vendor/ に同梱 = CSP script-src 'self' のまま。スタジオの画面が ../live/hls.min.js で読む)
+  GET  /live/api/info                     録画元の一覧(名前・URL。合言葉は出さない)・録画の置き場所の設定・書き出しの音量(スタジオの設定の引き出しが読む)
+  POST /live/api/begin  {url}             配信の状態を yt-dlp で調べ(live_status)、配信中・配信前なら既定の録画元(一覧の先頭)で録画を始める
+                                          → {live: true, recorder, recording: {id, url, title, state}, existing}(同じ配信を録画中ならそれ = existing: true)
+                                          / 配信中でない・調べられない → {live: false, status: was_live|not_live|post_live|unknown, message?}(画面は今までどおりの解析へ)
+  GET|POST /live/r/<録画元>/<残り>        録画元(recorder/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
+                                          例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
+  GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は home/live_export.py)
+  POST /live/api/marks   {op: add|update|delete, recorder, recording, id?, start?, end?, label?, url?, title?}  マーク(押すたびに fsync。P2 の形)
+  GET  /live/api/exports?recorder=&recording=  書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し。studio を含む)
+  POST /live/api/export  {recorder, recording, title, url, transcribe, studio: {video, mark, n, label, start, end}}
+                                          スタジオのマークから書き出す(start・end は録画の最初のセグメントの受信時刻からの秒。入口が録画元の status の
+                                          firstPdt で絶対時刻にしてマークの正本へ入れる)。P2 の形 {recorder, recording, markId, transcribe} も残す
   POST /live/api/export/cancel  {id}     取り消し
+  POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
+                     全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
+                     {op: "stop", recorder, recording} → {ok: true, recording}(launch.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
   検査は入口の API と同じ(Host・Sec-Fetch-Site。POST は Origin と入口の合言葉 X-YTT-Token も。launch.py の do_GET / do_POST が先に通す)
 
 録画元の一覧(設定 live.recorders。空 = 手元の1つ「この PC」http://127.0.0.1:8730)を通して読む: 2台(P5)のときは一覧に1行足すだけ。
@@ -32,27 +45,101 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir
+from ytt_core import datadir, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
-import mount as mount_mod  # noqa: E402  (入口と同じ合言葉を画面に渡す)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
 DEFAULT_FOLDER = r"E:\Video\live-rec"     # recorder/rec_core.py の DEFAULT_FOLDER と同じ(2026-10-04 ユーザー決定)
 RECORDER_PORT = 8730                      # recorder/recorder.py の DEFAULT_PORT と同じ
 LOCAL = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % RECORDER_PORT, "token": ""}
-PAGES = {"/live/": ("live.html", CODE_DIR), "/live/index.html": ("live.html", CODE_DIR), "/live/live.js": ("live.js", CODE_DIR),
-         "/live/live.css": ("live.css", CODE_DIR), "/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}
-TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
-# 入口の画面の CSP に、hls.js の再生(MediaSource の blob: URL)だけを足す
-PAGE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; "
-            "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+PAGES = {"/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}   # 部品だけ(画面はスタジオ。P3)
+TYPES = {".js": "application/javascript; charset=utf-8"}
+TO_STUDIO = ("/live", "/live/", "/live/index.html")       # 以前の録画の画面 → スタジオ
+STUDIO_PATH = "/studio/"
 RELAY_RE = re.compile(r"^/live/r/([a-z][a-z0-9-]{0,15})/([A-Za-z0-9._/-]{1,200})\Z")
 PASS_TYPES = ("application/json", "application/vnd.apple.mpegurl", "video/mp2t")   # 中継で返してよい種類
 RELAY_TIMEOUT = 15.0
 WATCH_SEC = 30.0
 SPAWN_GAP = 30.0
 VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
+QUALITIES = ("best", "1080p", "720p")     # recorder/rec_core.py の QUALITIES と同じ名前(home/prefs.py の LIVE_QUALITIES)
+DEFAULT_QUALITY = "1080p"
+YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # recorder/rec_core.py の YT_HOSTS と同じ
+URL_MAX = 500
+LIVE_STATUSES = ("is_live", "is_upcoming", "was_live", "not_live", "post_live")   # yt-dlp の live_status
+PROBE_TIMEOUT = 25.0     # yt-dlp で配信の状態を調べる時間切れ(秒)
+STATUS_TIMEOUT = 1.5     # api/ytt/live の status: 録画元への問い合わせの時間切れ(全ツールのヘッダーが 10 秒ごとに呼ぶので短く)
+STATUS_CACHE = 3.0       # 同じ結果を返す秒数
+RECENT_SEC = 600         # 終わった録画を札に出す秒数(10 分)
+STOP_TIMEOUT = 45.0      # 録画元の stop は録画のスレッドの終わりを 30 秒まで待つ
+
+
+def validate_url(url, allow_local=False):
+    """スタジオの URL の欄から録画を始める URL(recorder/rec_core.py の validate_url と同じ規則)。YouTube の https だけ。
+    allow_local=True(テストの録画元 --source direct)は http(s)://127.0.0.1|localhost も。-> 整えた URL。だめなら LiveError"""
+    if not isinstance(url, str):
+        raise live_export.LiveError("配信の URL を入れてください")
+    url = url.strip()
+    if not url or len(url) > URL_MAX or any(ord(c) < 33 for c in url):
+        raise live_export.LiveError("配信の URL が正しくありません")
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        raise live_export.LiveError("配信の URL が正しくありません")
+    host = (u.hostname or "").lower()
+    if allow_local and u.scheme in ("http", "https") and host in ("127.0.0.1", "localhost") and not u.username:
+        return url
+    if u.scheme != "https" or host not in YT_HOSTS or u.username or u.password or port not in (None, 443):
+        raise live_export.LiveError("YouTube の配信の URL(https://www.youtube.com/watch?v=… など)を入れてください")
+    vid = live_export.video_id_of(url)
+    return "https://www.youtube.com/watch?v=" + vid if vid else url   # 動画の id が分かる形はそろえる(同じ配信を別の書き方で二重に録らない)
+
+
+def _no_window():
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+def probe_live(url, timeout=PROBE_TIMEOUT):
+    """yt-dlp で配信の状態と題を調べる(ダウンロードしない・シェルを通さない・窓を出さない)。
+    -> {"status": LIVE_STATUSES のどれか か "unknown", "title": 題(分からなければ ""), "message": 調べられなかった理由}"""
+    yd = tools.find_tool("yt-dlp")
+    if not yd:
+        return {"status": "unknown", "title": "", "message": "yt-dlp が見つからないので、配信中か調べられませんでした"}
+    try:   # --ignore-no-formats-error: 配信の前(予約)は形式が無いのでエラーになるが、live_status は出してほしい
+        r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error",
+                            "--print", "%(live_status)s\t%(title)s", "--", url],
+                           stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, **_no_window())
+    except subprocess.TimeoutExpired:
+        return {"status": "unknown", "title": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
+    except OSError as e:
+        return {"status": "unknown", "title": "", "message": "yt-dlp を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    parts = (lines[-1] if lines else "").split("\t", 1)
+    st = parts[0].strip()
+    title = parts[1].strip() if len(parts) > 1 and parts[1].strip() != "NA" else ""
+    title = "".join(c for c in title if ord(c) >= 32)[:live_export.TITLE_MAX]
+    if st in LIVE_STATUSES:
+        return {"status": st, "title": title, "message": ""}
+    err = r.stderr.decode("utf-8", "replace")
+    if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す
+        return {"status": "is_upcoming", "title": title, "message": ""}
+    last = (err.strip().splitlines() or [""])[-1][:160]
+    return {"status": "unknown", "title": "", "message": "配信の状態を調べられませんでした" + ("(%s)" % last if last else "")}
+
+
+def _rec_view(r):
+    """録画元の録画の要約 → 画面へ返す形"""
+    return {"id": r.get("id"), "url": r.get("url") or "", "title": r.get("title") or "", "state": r.get("state") or ""}
+
+
+def _same_stream(a_url, b_url, b_id=""):
+    """同じ配信か(URL が同じ・YouTube の動画の id が同じ)"""
+    if a_url and a_url == b_url:
+        return True
+    v = live_export.video_id_of(a_url)
+    return bool(v) and v == live_export.video_id_of(b_url or "", b_id or "")
 
 
 def recorder_data_dir(root):
@@ -148,13 +235,17 @@ class Live:
         self._thread = None
         self._last_spawn = 0.0
         self.proc = None
+        self.probe = probe_live           # 配信の状態を調べる(begin。テストは偽物に差し替える = 本物の YouTube へ繋がない)
+        self.allow_local_urls = False     # begin で手元の URL も通す(テストの録画元 --source direct だけ。画面からは変えられない)
+        self._recent = None               # api/ytt/live の status の結果 (時刻, 一覧)
+        self._recent_lock = threading.Lock()
 
     # --- 設定 ---
     def cfg(self):
         try:
             return self.prefs.get(["live"])["live"]
         except Exception:
-            return {"enabled": False, "folder": "", "recorders": []}
+            return {"enabled": False, "folder": "", "recorders": [], "quality": DEFAULT_QUALITY}
 
     def enabled(self):
         return self.cfg().get("enabled") is True
@@ -241,8 +332,8 @@ class Live:
         """GET /live…。オフなら False(入口の今までどおりの 404 になる)"""
         if not self.enabled():
             return False
-        if u.path == "/live":
-            h._send(301, b"", "text/plain; charset=utf-8", {"Location": "/live/"})
+        if u.path in TO_STUDIO:   # 以前の録画の画面(P3 でスタジオへ統合した)
+            h._send(302, b"", "text/plain; charset=utf-8", {"Location": STUDIO_PATH})
             return True
         if u.path in PAGES:
             name, base = PAGES[u.path]
@@ -252,18 +343,15 @@ class Live:
             except OSError:
                 h._fail(404, "not_found", "その場所はありません")
                 return True
-            page = name.endswith(".html")
-            if page:
-                body = mount_mod.inject_token(body, h.server.token)
-            h._send(200, body, TYPES[os.path.splitext(name)[1]],
-                    {"Content-Security-Policy": PAGE_CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
+            h._send(200, body, TYPES[os.path.splitext(name)[1]])
             return True
         if u.path in ("/live/api/marks", "/live/api/exports"):
             self._server = h.server
             q = urllib.parse.parse_qs(u.query)
             try:
-                if u.path == "/live/api/exports":
-                    return h._json(200, {"jobs": self.exporter.snapshot()}) or True
+                if u.path == "/live/api/exports":   # ?recorder=&recording= で録画1本に絞る(空 = 全部)
+                    rc, rec = (q.get("recorder") or [""])[0][:40], (q.get("recording") or [""])[0][:60]
+                    return h._json(200, {"jobs": self.exporter.snapshot(rc or None, rec or None)}) or True
                 rc, rec = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0]
                 d = self.exporter.marks.load(rc, rec)
                 h._json(200, {"marks": d["marks"], "title": d.get("title") or "", "url": d.get("url") or "",
@@ -300,9 +388,11 @@ class Live:
         return True
 
     def _api_post(self, h, path, body):
-        """マークと書き出し(P2)"""
-        ex = self.exporter
+        """録画を始める(P3)・マークと書き出し(P2・P3)"""
         try:
+            if path == "/live/api/begin":
+                return h._json(200, self.begin(body.get("url")))
+            ex = self.exporter
             if path == "/live/api/marks":
                 rc, rec = body.get("recorder"), body.get("recording")
                 if self.find(rc) is None:
@@ -310,12 +400,147 @@ class Live:
                 m, marks = ex.marks.apply(rc, rec, body)
                 return h._json(200, {"mark": m, "marks": marks})
             if path == "/live/api/export":
+                if "studio" in body:   # スタジオのマークから(P3)
+                    return h._json(200, {"job": self.export_studio(body)})
                 return h._json(200, {"job": ex.add(body.get("recorder"), body.get("recording"), body.get("markId"), body.get("transcribe") is not False)})
             if path == "/live/api/export/cancel":
                 return h._json(200, {"job": ex.cancel(body.get("id"))})
         except live_export.LiveError as e:
-            return h._fail(e.code, "bad_request" if e.code == 400 else "not_found" if e.code == 404 else "conflict" if e.code == 409 else "error", str(e))
+            return h._fail(e.code, {400: "bad_request", 404: "not_found", 409: "conflict", 502: "recorder_down"}.get(e.code, "error"), str(e))
         h._fail(404, "not_found", "その操作はありません")
+
+    # --- P3: スタジオから ---
+    def _ids(self, rc_id, rec):
+        """録画元と録画の id を確かめる -> 録画元(合言葉つき)。だめなら LiveError"""
+        if not isinstance(rc_id, str) or not live_export.ID_RE.match(rc_id) or not isinstance(rec, str) or not live_export.REC_RE.match(rec):
+            raise live_export.LiveError("録画元か録画の指定が正しくありません")
+        rc = self.find(rc_id)
+        if rc is None:
+            raise live_export.LiveError("その録画元はありません", 404)
+        return rc
+
+    def _down(self, rc):
+        return live_export.LiveError("録画元「%s」につながりません。録画の部品が起動するまで少し待ってください(%s)" % (rc.get("name"), rc.get("url")), 502)
+
+    def _find_active(self, rc, url):
+        """録画元で同じ配信を録画中の録画(要約)か None"""
+        code, d = self.call(rc, "GET", "/live/list", timeout=5.0)
+        if code != 200 or not isinstance(d, dict):
+            return None
+        for r in d.get("recordings") or []:
+            if isinstance(r, dict) and r.get("active") and live_export.REC_RE.match(str(r.get("id") or "")) and _same_stream(url, r.get("url"), r.get("id")):
+                return r
+        return None
+
+    def begin(self, url):
+        """スタジオの URL の欄(POST /live/api/begin)。配信中・配信前なら録画を始める(同じ配信を録画中ならそれを返す)。-> 返す JSON"""
+        url = validate_url(url, self.allow_local_urls)
+        try:
+            info = self.probe(url) or {}
+        except Exception as e:   # 調べる部品の不具合でも、画面は今までどおりの解析へ進める
+            self.log("リアルタイム切り抜き: 配信の状態を調べられませんでした %r" % (e,))
+            info = {}
+        status = info.get("status") if info.get("status") in LIVE_STATUSES else "unknown"
+        if status not in ("is_live", "is_upcoming"):
+            out = {"live": False, "status": status}
+            if info.get("message"):
+                out["message"] = str(info["message"])[:300]
+            return out
+        rcs = self.recorders()
+        if not rcs:
+            raise live_export.LiveError("録画元がありません", 409)
+        rc = rcs[0]   # 既定の録画元 = 一覧の先頭(2台(P5)で二重録画するときは、ここで全部に頼む)
+        found = self._find_active(rc, url)
+        if found:
+            return {"live": True, "recorder": rc["id"], "recording": _rec_view(found), "existing": True}
+        q = self.cfg().get("quality")
+        title = info.get("title") if isinstance(info.get("title"), str) else ""
+        code, d = self.call(rc, "POST", "/live/start", {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:live_export.TITLE_MAX]},
+                            timeout=15.0)
+        if code == 200 and isinstance(d, dict) and isinstance(d.get("recording"), dict):
+            self._recent = None   # ヘッダーの札にすぐ出す
+            self.log("リアルタイム切り抜き: 録画を始めました %s(%s)" % (d["recording"].get("id"), url))
+            return {"live": True, "recorder": rc["id"], "recording": _rec_view(d["recording"]), "existing": False}
+        if code == 409:   # 「その配信はもう録画しています」(ほかは streamlink が無い・置き場所が無いなど)
+            found = self._find_active(rc, url)
+            if found:
+                return {"live": True, "recorder": rc["id"], "recording": _rec_view(found), "existing": True}
+        if code is None:
+            raise self._down(rc)
+        msg = (d or {}).get("message") if isinstance(d, dict) else ""
+        raise live_export.LiveError("録画を始められませんでした: %s" % (msg or "HTTP %s" % code), code if code in (400, 409) else 502)
+
+    def export_studio(self, body):
+        """POST /live/api/export の studio の形(P3)。-> ジョブ"""
+        studio = live_export.check_studio(body.get("studio"))
+        rc_id, rec = body.get("recorder"), body.get("recording")
+        rc = self._ids(rc_id, rec)
+        code, d = self.call(rc, "GET", "/live/%s/status?since=999999999" % rec, timeout=5.0)   # since: セグメントの一覧は要らない
+        if code is None:
+            raise self._down(rc)
+        if code == 404:
+            raise live_export.LiveError("その録画はありません(録画元で消されたか、置き場所を変えたかもしれません)", 404)
+        if code != 200 or not isinstance(d, dict):
+            raise live_export.LiveError("録画元から思わぬ応答がありました(HTTP %s)" % code, 502)
+        first = live_export.iso_epoch(d.get("firstPdt"))   # 秒の 0 = 最初のセグメントの受信時刻(live_export.Exporter._base と同じ基準)
+        if first is None:
+            raise live_export.LiveError("録画がまだ始まっていません(最初のセグメントが届いてから書き出せます)", 409)
+        return self.exporter.add_studio(rc_id, rec, studio, first, body.get("transcribe") is not False,
+                                        url=body.get("url") if isinstance(body.get("url"), str) else None,
+                                        title=body.get("title") if isinstance(body.get("title"), str) else None)
+
+    # --- 画面の共通の API api/ytt/live(launch.py の PortalServer.ytt_api から。全ツールのヘッダーの札) ---
+    def ytt(self, body):
+        """-> (HTTP の番号, JSON)"""
+        op = body.get("op")
+        if op == "status":
+            if not self.enabled():   # オフ: 録画元に問い合わせない
+                return 200, {"enabled": False}
+            return 200, {"enabled": True, "recordings": self.recent()}
+        if op == "stop":
+            if not self.enabled():
+                return 409, {"error": "off", "message": "リアルタイム切り抜きはオフです(ホームの「詳しく」の「試験中の機能」)"}
+            try:
+                rc = self._ids(body.get("recorder"), body.get("recording"))
+            except live_export.LiveError as e:
+                return e.code, {"error": "bad_request" if e.code == 400 else "not_found", "message": str(e)}
+            code, d = self.call(rc, "POST", "/live/%s/stop" % body["recording"], {}, timeout=STOP_TIMEOUT)
+            self._recent = None
+            if code == 200 and isinstance(d, dict):
+                self.log("リアルタイム切り抜き: 録画を止めました %s" % body["recording"])
+                return 200, {"ok": True, "recording": _rec_view(d.get("recording") or {})}
+            if code is None:
+                return 502, {"error": "recorder_down", "message": str(self._down(rc))}
+            msg = (d or {}).get("message") if isinstance(d, dict) else ""
+            return (404 if code == 404 else 502), {"error": "not_found" if code == 404 else "recorder_bad", "message": msg or "止められませんでした(HTTP %s)" % code}
+        return 400, {"error": "bad_request", "message": "op は status か stop です"}
+
+    def recent(self):
+        """録画中 + 終わって RECENT_SEC 秒以内の録画(録画元ごと)。STATUS_CACHE 秒は前の結果を返す(ロックの中で問い合わせる = 同時に来ても1回)"""
+        with self._recent_lock:
+            if self._recent is not None and time.time() - self._recent[0] < STATUS_CACHE:
+                return self._recent[1]
+            out, now = [], time.time()
+            for rc in self.recorders():
+                code, d = self.call(rc, "GET", "/live/list", timeout=STATUS_TIMEOUT)
+                if code != 200 or not isinstance(d, dict):
+                    continue
+                for r in d.get("recordings") or []:
+                    if not isinstance(r, dict) or not live_export.REC_RE.match(str(r.get("id") or "")):
+                        continue
+                    ended = live_export.iso_epoch(r.get("endedAt"))
+                    if not r.get("active") and (ended is None or now - ended > RECENT_SEC):
+                        continue
+                    secs = r.get("seconds")
+                    a, b = live_export.iso_epoch(r.get("firstPdt")), live_export.iso_epoch(r.get("lastPdt"))
+                    if a is not None and b is not None and isinstance(secs, (int, float)) and not isinstance(secs, bool):
+                        secs = round(max(secs, b - a), 3)   # スタジオの録画の長さと同じ(受信時刻の幅。繋ぎ直しの欠けの間も時間は進む)
+                    out.append({"recorder": rc["id"], "id": r["id"], "title": str(r.get("title") or "")[:live_export.TITLE_MAX],
+                                "state": str(r.get("state") or ""), "active": r.get("active") is True,
+                                "seconds": secs if isinstance(secs, (int, float)) and not isinstance(secs, bool) else 0,
+                                "endedAt": r.get("endedAt") if ended is not None else None, "url": str(r.get("url") or "")[:URL_MAX]})
+            self._recent = (time.time(), out)
+            return out
 
     def _relay(self, h, method, rid, rest, query="", body=None):
         rc = self.find(rid)

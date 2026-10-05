@@ -8,7 +8,8 @@
   backup   … 作業データのバックアップ(home/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(home/accuracy.py。docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:\Video\live-rec)・
-             録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)
+             録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
+             録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -44,7 +45,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
-            "live": {"enabled": False, "folder": "", "recorders": []},
+            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p"},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -53,6 +54,7 @@ RECORDERS_MAX = 8
 RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
+LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(recorder/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
 
 
 class PrefsError(ValueError):
@@ -135,11 +137,16 @@ def _clean_accuracy(v, cur):
 def _clean_live(v, cur):
     """リアルタイム切り抜きの設定(home/live.py)。置き場所のドライブがあるかは録画の部品が確かめて画面に出す(ここでは形だけ)。
     録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
-    out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []]}
+    out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
+           "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"]}
     if "enabled" in v:
         out["enabled"] = v["enabled"] is True
     if "folder" in v:
         out["folder"] = _clean_folder(v["folder"])
+    if "quality" in v:   # 録画の画質(スタジオの URL の欄から始めた録画。POST /live/api/begin)
+        if v["quality"] not in LIVE_QUALITIES:
+            raise PrefsError("録画の画質は %s のどれかにしてください" % "・".join(LIVE_QUALITIES))
+        out["quality"] = v["quality"]
     if "recorders" in v:
         rs = v["recorders"]
         if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:
@@ -289,7 +296,7 @@ class Prefs:
             try:
                 return _clean_live(v if isinstance(v, dict) else {}, DEFAULTS["live"])
             except PrefsError:
-                return {"enabled": False, "folder": "", "recorders": []}
+                return dict(DEFAULTS["live"], recorders=[])
         return _read_streamer(v)
 
     def get(self, sections=None):

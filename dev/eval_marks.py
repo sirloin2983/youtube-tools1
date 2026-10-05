@@ -223,8 +223,11 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
     machine, delivered, _unknown = runs
     data = read_json(os.path.join(studio, "data.json"), {})
     dvideos = data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
+    dvideos = {k: v for k, v in dvideos.items() if not (isinstance(v, dict) and v.get("kind") == "live")}   # ライブの録画は解析していない(手のマークだけ)
     by_row = {}
     for r in rows:
+        if r.get("kind") == "live":   # ライブの録画(線 D の P3。解析していない)は盛り上がりの検出の評価に入れない(スタジオは 2026-10-05 から書かない)
+            continue
         by_row.setdefault(r["videoId"], []).append(r)
     videos = {}
     notes = []

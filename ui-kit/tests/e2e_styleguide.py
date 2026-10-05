@@ -10,12 +10,14 @@ ui-kit/ をそのまま python の http.server で1つのポートに乗せ、st
 共通の再生キー(UIKit.keys.playback: Space/J/K/L/矢印/,/./I/O・入力欄では無視) / アイコン(UIKit.icon: 一覧すべて) /
 設定の引き出し(UIKit.settings: 文字の大きさが html[data-fs] に効いて保存される) /
 版の帯(UIKit.restart。v10: 単体では案内だけ・合言葉があれば「起動し直す」→ 断られた理由・ping を待って読み込み直す・戻らなければ案内)/
-時刻の欄(UIKit.timebox。v11: 数字だけで 時 → 分 → 秒・← →・↑ ↓・BackSpace・Delete・貼り付け・0.1 秒・YouTube の URL は指定した欄だけ・上限・使えない欄)。
+時刻の欄(UIKit.timebox。v11: 数字だけで 時 → 分 → 秒・← →・↑ ↓・BackSpace・Delete・貼り付け・0.1 秒・YouTube の URL は指定した欄だけ・上限・使えない欄)/
+録画中の札(UIKit.liveBadge。v16: api/ytt/live を偽装。札・一覧・差分・二度押しの停止・知らせ・間隔・隠れたタブ)。
 """
 import functools
 import json
 import http.server
 import os
+import re
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import sys
 import threading
@@ -270,6 +272,244 @@ def check_timebox(pg, check):
     check(made == ["0:01:01", "作った欄", "spinbutton", 61], "create(あとから作る): %s" % made)
 
 
+def live_rec(rid="20261005-185300-U972n0ncl4k", **kw):
+    r = {"recorder": "r1", "id": rid, "title": "<b>テスト</b> 配信", "state": "recording", "active": True, "seconds": 100, "endedAt": None, "url": "https://www.youtube.com/watch?v=U972n0ncl4k"}
+    r.update(kw)
+    return r
+
+
+def check_live(browser, base, check):
+    """ヘッダーの「録画中」の札(UIKit.liveBadge。v16・線 D の P3)。入口の API(api/ytt/live)は偽物(page.route)。
+    合言葉(meta ytt-token)は見本の HTML に差し込む(単体で開いた見本には無い = 札が出ないことも確かめる)"""
+    import datetime
+    st = {"mode": "off", "recs": [], "calls": [], "stops": []}
+
+    def on_html(route):
+        resp = route.fetch()
+        body = resp.text().replace("</head>", '<meta name="ytt-token" content="tok-live"></head>', 1)
+        body = re.sub(r'<section class="card" id="liveBadgeDemo">.*?</section>', "", body, flags=re.S)   # 見本の静的な札は、本物の札と同じ class なので外す
+        route.fulfill(response=resp, body=body)
+
+    def on_api(route):
+        req = route.request
+        if not req.url.endswith("/api/ytt/live"):
+            route.fulfill(status=404, content_type="application/json", body="{}")
+            return
+        body = json.loads(req.post_data or "{}")
+        if body.get("op") == "stop":
+            st["stops"].append((req.headers.get("x-ytt-token"), body))
+            route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+            return
+        st["calls"].append((req.headers.get("x-ytt-token"), body, req.method))
+        if st["mode"] == "abort":
+            route.abort()
+        elif st["mode"] == "404":
+            route.fulfill(status=404, content_type="application/json", body='{"error": "not found"}')
+        elif st["mode"] == "off":
+            route.fulfill(status=200, content_type="application/json", body='{"enabled": false}')
+        else:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps({"enabled": True, "recordings": st["recs"]}, ensure_ascii=False))
+
+    def refresh(pg):
+        return pg.evaluate("UIKit.liveBadge.refresh().then(() => 1)")
+
+    def badge(pg):
+        return pg.evaluate("(() => { const b = document.querySelector('.ui-live'); return b && !b.hidden ? b.querySelector('.ui-live-btn').textContent : null; })()")
+
+    def toasts(pg):
+        return pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].map(t => t.textContent)")
+
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    try:
+        pg = ctx.new_page()
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.route("**/styleguide.html", on_html)
+        pg.route("**/api/ytt/**", on_api)
+
+        # 単体で開いた見本(合言葉なし)では、問い合わせも札もない
+        pg2 = ctx.new_page()
+        calls0 = []
+        pg2.route("**/api/ytt/**", lambda r: (calls0.append(r.request.url), r.fulfill(status=404, body="{}")))
+        pg2.goto(base + "styleguide.html")
+        pg2.wait_for_selector("#iconGrid .ui-icon svg")
+        pg2.wait_for_timeout(300)
+        check(not calls0 and pg2.query_selector(".ui-header-actions .ui-live") is None and pg2.evaluate("UIKit.liveBadge.get()") is None,
+              "合言葉の無いページでは問い合わせも札もない: %s" % calls0)
+        pg2.close()
+
+        # ---- オフ: 札を作らない ----
+        pg.goto(base + "styleguide.html")
+        pg.wait_for_selector("#iconGrid .ui-icon svg")
+        check(wait_js(pg, "UIKit.liveBadge.get() !== null"), "最初の問い合わせの答えを get() で読める")
+        check(pg.evaluate("UIKit.liveBadge.get()") == {"enabled": False, "recordings": []}, "get(): オフは {enabled:false, recordings:[]}")
+        check(pg.query_selector(".ui-live") is None, "オフのときは札(要素)を作らない = 場所も取らない")
+        check(st["calls"][0] == ("tok-live", {"op": "status"}, "POST"), "POST api/ytt/live {op: status} に合言葉(X-YTT-Token)を付ける: %s" % (st["calls"][0],))
+
+        # ---- オンにする(オフから戻った最初の1回は知らせを出さない) ----
+        pg.evaluate("UIKit.tools.setPaths({studio: '/studio/'})")
+        st["mode"], st["recs"] = "on", [live_rec()]
+        refresh(pg)
+        check(badge(pg) == "録画中 1", "録画中は「録画中 1」: %s" % badge(pg))
+        check(pg.query_selector(".ui-header-actions > .ui-live:first-child") is not None, "札は .ui-header-actions の先頭に入る")
+        check(pg.get_attribute(".ui-live-btn", "data-state") == "recording" and "録画中 1" in pg.get_attribute(".ui-live-btn", "aria-label"),
+              "状態は data-state と aria-label にも(色だけに頼らない)")
+        check(pg.get_attribute(".ui-live-btn", "aria-expanded") == "false" and pg.evaluate("document.querySelector('.ui-live-panel').hidden"), "一覧は閉じている")
+        check(toasts(pg) == [], "オフから戻った最初の1回では知らせを出さない: %s" % toasts(pg))
+
+        # ---- 一覧 ----
+        pg.click(".ui-live-btn")
+        check(pg.get_attribute(".ui-live-btn", "aria-expanded") == "true" and pg.evaluate("!document.querySelector('.ui-live-panel').hidden"), "札を押すと一覧が開く(aria-expanded)")
+        check(pg.get_attribute(".ui-live-panel", "role") == "dialog", "一覧は role=dialog")
+        title_el = pg.query_selector(".ui-live-title")
+        check(title_el.text_content() == "<b>テスト</b> 配信" and pg.query_selector(".ui-live-title b") is None, "題は textContent で入れる(HTML にならない)")
+        check(pg.query_selector(".ui-live-state").text_content() == "録画中", "状態の文字")
+        t = pg.query_selector(".ui-live-time").text_content()
+        check(t.startswith("1:4") and len(t.split(":")) == 2, "録画済みの時間 m:ss(100 秒 + 経過): %s" % t)
+        check(pg.get_attribute(".ui-live-row a", "href") == "/studio/?video=20261005-185300-U972n0ncl4k", "「開く」はスタジオの ?video=<録画の id>: %s" % pg.get_attribute(".ui-live-row a", "href"))
+        check(pg.evaluate("document.activeElement === document.querySelector('.ui-live-panel')"), "開いたらフォーカスは一覧へ")
+        pg.keyboard.press("Escape")
+        check(pg.evaluate("document.querySelector('.ui-live-panel').hidden && document.activeElement === document.querySelector('.ui-live-btn')"), "Esc で閉じて、フォーカスは札に戻る")
+        pg.click(".ui-live-btn")
+        pg.click("h1")
+        check(pg.evaluate("document.querySelector('.ui-live-panel').hidden"), "外側のクリックで閉じる")
+        pg.click(".ui-live-btn")
+        for _ in range(4):
+            pg.keyboard.press("Tab")
+        check(pg.evaluate("document.querySelector('.ui-live-panel').hidden"), "Tab で一覧の外へ出たら閉じる")
+
+        # ---- 差分で直す(押そうとしたボタン・二度押しの途中が消えない) ----
+        pg.click(".ui-live-btn")
+        pg.evaluate("window.__row = document.querySelector('.ui-live-row'); window.__stop = window.__row.querySelector('button')")
+        check(pg.evaluate("window.__stop.getAttribute('aria-label')") == "「<b>テスト</b> 配信」の録画を停止", "停止ボタンに aria-label")
+        pg.click(".ui-live-row button")
+        check(pg.inner_text(".ui-live-row button") == "もう一度押すと停止" and not st["stops"], "停止は二度押し: 1回目は文字が変わるだけ(UIKit.confirmTwice)")
+        st["recs"] = [live_rec(seconds=130)]
+        refresh(pg)
+        check(pg.evaluate("window.__row === document.querySelector('.ui-live-row') && window.__stop === document.querySelector('.ui-live-row button')"),
+              "問い合わせ直しても行・ボタンの要素は作り直さない")
+        check(pg.inner_text(".ui-live-row button") == "もう一度押すと停止", "二度押しの途中の状態が消えない")
+        check(pg.query_selector(".ui-live-time").text_content().startswith("2:1"), "時間は書き換わる: %s" % pg.query_selector(".ui-live-time").text_content())
+
+        # 知らせ: recording → reconnecting
+        st["recs"] = [live_rec(state="reconnecting", seconds=140)]
+        refresh(pg)
+        check(badge(pg) == "つなぎ直し中" and pg.get_attribute(".ui-live-btn", "data-state") == "reconnecting", "つなぎ直し中は「つなぎ直し中」: %s" % badge(pg))
+        check(any("「<b>テスト</b> 配信」の録画が切れました。つなぎ直しています" in x for x in toasts(pg)), "recording → reconnecting の知らせ: %s" % toasts(pg))
+        n_toasts = len(toasts(pg))
+        refresh(pg)
+        check(len(toasts(pg)) == n_toasts, "同じ状態のままなら、知らせを繰り返さない")
+        # 配信待ちが増える・つなぎ直し → 録画中(知らせなし)
+        st["recs"] = [live_rec(seconds=150), live_rec("20261005-190000-AAAAAAAAAAA", title="", url="https://www.youtube.com/watch?v=AAAAAAAAAAA", state="waiting", seconds=0)]
+        refresh(pg)
+        check(badge(pg) == "録画中 1・配信待ち 1", "録画中 + 配信待ち: %s" % badge(pg))
+        check(pg.evaluate("document.querySelectorAll('.ui-live-row').length") == 2 and pg.inner_text(".ui-live-row:nth-child(2) .ui-live-title") == "https://www.youtube.com/watch?v=AAAAAAAAAAA",
+              "題が無ければ URL")
+        check(pg.evaluate("document.querySelector('.ui-live-row:nth-child(2) button').hidden") is False, "配信待ち(active)にも停止がある")
+        check(len(toasts(pg)) == n_toasts, "つなぎ直し → 録画中・配信待ちの追加では知らせない")
+
+        # 「開く」: onOpen があれば移らずにそれを呼ぶ
+        pg.evaluate("window.__opened = null; UIKit.liveBadge.onOpen(r => { window.__opened = r.id; })")
+        url0 = pg.url
+        pg.click(".ui-live-row:first-child a")
+        check(pg.evaluate("window.__opened") == "20261005-185300-U972n0ncl4k" and pg.url == url0, "onOpen の関数があれば、ページを移らずにその録画で呼ぶ")
+        check(pg.evaluate("document.querySelector('.ui-live-panel').hidden"), "「開く」を押すと一覧は閉じる")
+
+        # 停止(二度押し → api/ytt/live {op: stop})→ 終わった知らせ
+        pg.click(".ui-live-btn")
+        check(wait_js(pg, "document.querySelector('.ui-live-row button').textContent === '停止'", 6000), "二度押しは3秒で元の「停止」に戻る(押さないと実行しない)")
+        check(not st["stops"], "押さなかった停止は実行されていない")
+        pg.click(".ui-live-row:first-child button")
+        st["recs"] = [live_rec(state="stopped", active=False, seconds=3725, endedAt=1)]
+        pg.click(".ui-live-row:first-child button")
+        check(wait_js(pg, "[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('の録画が終わりました(合計 1:02:05)'))"),
+              "active でなくなったら「「題」の録画が終わりました(合計 h:mm:ss)」: %s" % toasts(pg))
+        check(st["stops"] == [("tok-live", {"op": "stop", "recorder": "r1", "recording": "20261005-185300-U972n0ncl4k"})], "停止は POST api/ytt/live {op: stop, recorder, recording}: %s" % st["stops"])
+        check(badge(pg) == "録画終了 1", "停止のあとの札(応答を取り直して反映): %s" % badge(pg))
+
+        # 終わった録画だけが残る → 「録画終了 n」(開く先は残す)
+        check(pg.evaluate("document.querySelector('.ui-live-row button').hidden"), "動いていない録画に停止は出ない")
+
+        # onChange
+        pg.evaluate("window.__chg = 0; UIKit.liveBadge.onChange(j => { window.__chg++; })")
+        refresh(pg)
+        check(pg.evaluate("window.__chg") == 1, "onChange は答えのたびに呼ばれる")
+
+        # 一時的な失敗は2回まで今の表示のまま、3回目で消える。4xx はすぐ消える
+        st["mode"] = "abort"
+        refresh(pg)
+        refresh(pg)
+        check(badge(pg) == "録画終了 1", "ネットワークの一時的な失敗は2回までは表示を保つ")
+        refresh(pg)
+        check(badge(pg) is None, "3回続けて失敗したら札を消す")
+        st["mode"] = "on"
+        st["recs"] = [live_rec()]
+        refresh(pg)
+        check(badge(pg) == "録画中 1", "戻ったらまた出る")
+        st["mode"] = "404"
+        refresh(pg)
+        check(badge(pg) is None and pg.evaluate("UIKit.liveBadge.get().enabled") is False, "404(API がまだ無い)ならすぐ札を消す")
+        st["mode"] = "off"
+        st["recs"] = []
+        refresh(pg)
+        check(pg.evaluate("document.querySelector('.ui-live').hidden"), "オフ・録画が無いときは札を隠す")
+        check(not errs, "画面のエラーなし(録画中の札): %s" % errs[:5])
+
+        # ---- 最初の問い合わせで録画が既にあっても、知らせは出さない。「開く」は(onOpen が無ければ)スタジオへ移る ----
+        pg3 = ctx.new_page()
+        pg3.route("**/styleguide.html", on_html)
+        pg3.route("**/api/ytt/**", on_api)
+        st["mode"], st["recs"] = "on", [live_rec()]
+        pg3.goto(base + "styleguide.html")
+        pg3.wait_for_selector(".ui-live:not([hidden])")
+        pg3.wait_for_timeout(300)
+        check(toasts(pg3) == [], "ページを開いた最初の1回では知らせない: %s" % toasts(pg3))
+        pg3.evaluate("UIKit.tools.setPaths({studio: '/studio/'})")
+        pg3.click(".ui-live-btn")
+        with pg3.expect_navigation(timeout=8000):
+            pg3.click(".ui-live-row a")
+        check(pg3.url.endswith("/studio/?video=20261005-185300-U972n0ncl4k"), "onOpen が無ければ「開く」はスタジオのその録画へ移る: %s" % pg3.url)
+        pg3.close()
+
+        # ---- 問い合わせの間隔(10 秒 / オフは 60 秒)と、隠れているタブでは問い合わせない(偽の時計で進める) ----
+        pg4 = ctx.new_page()
+        pg4.route("**/styleguide.html", on_html)
+        pg4.route("**/api/ytt/**", on_api)
+        st["mode"], st["recs"], st["calls"] = "off", [], []
+        pg4.clock.install()
+        pg4.goto(base + "styleguide.html")
+        pg4.wait_for_selector("#iconGrid .ui-icon svg")
+        check(wait_js(pg4, "UIKit.liveBadge.get() !== null"), "(時計) 最初の答え")
+        pg4.clock.pause_at(datetime.datetime.now() + datetime.timedelta(seconds=1))
+        n0 = len(st["calls"])
+        pg4.clock.run_for(56000)
+        pg4.wait_for_timeout(150)
+        check(len(st["calls"]) == n0, "オフのときは 60 秒たつまで問い合わせない(約 57 秒: %d → %d)" % (n0, len(st["calls"])))
+        pg4.clock.run_for(4000)
+        pg4.wait_for_timeout(250)
+        check(len(st["calls"]) == n0 + 1, "オフは 60 秒後に問い合わせる: %d → %d" % (n0, len(st["calls"])))
+        st["mode"], st["recs"] = "on", [live_rec()]
+        pg4.clock.run_for(61000)
+        pg4.wait_for_timeout(250)
+        check(pg4.query_selector(".ui-live:not([hidden])") is not None, "(時計) 60 秒後の問い合わせでオンになり、札が出る")
+        n1 = len(st["calls"])
+        pg4.clock.run_for(10500)
+        pg4.wait_for_timeout(250)
+        check(len(st["calls"]) == n1 + 1, "オンのときは 10 秒ごと: %d → %d" % (n1, len(st["calls"])))
+        pg4.evaluate("Object.defineProperty(document, 'hidden', {get: () => true, configurable: true})")
+        n2 = len(st["calls"])
+        pg4.clock.run_for(35000)
+        pg4.wait_for_timeout(150)
+        check(len(st["calls"]) == n2, "隠れているタブは問い合わせない: %d → %d" % (n2, len(st["calls"])))
+        pg4.evaluate("delete document.hidden")
+        pg4.clock.run_for(10500)
+        pg4.wait_for_timeout(250)
+        check(len(st["calls"]) > n2, "見えるようになったら問い合わせを再開する: %d → %d" % (n2, len(st["calls"])))
+        pg4.close()
+    finally:
+        ctx.close()
+
+
 def main():
     ok = True
 
@@ -459,6 +699,9 @@ def main():
 
                 # ---- v10: 版の帯(UIKit.restart)。入口の API は偽物(page.route)。409 などはコンソールに出るので、別の窓(context)で確かめる ----
                 check_restart(browser, base, check)
+
+                # ---- v16: ヘッダーの録画中の札(UIKit.liveBadge)。入口の API は偽物(page.route) ----
+                check_live(browser, base, check)
             finally:
                 browser.close()
     finally:

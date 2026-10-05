@@ -673,5 +673,98 @@ class TestEnsure(Base):
         self.assertEqual(self.video()["rev"], r + 1)
 
 
+LIVE = {"recorder": "rec", "recording": "20261005-185300-U972n0ncl4k", "url": "https://www.youtube.com/watch?v=U972n0ncl4k", "videoId": "U972n0ncl4k"}
+LIVE_SRC = {"kind": "live", "videoId": LIVE["recording"], "name": LIVE["recording"], "live": LIVE}
+
+
+class TestLive(Base):
+    """kind "live"(録画の部品で録っている配信)。既存の youtube・file の記録の形は変えない"""
+    def test_ensure_list_get_shape(self):
+        v = self.st.ensure(LIVE_SRC, "配信")
+        self.assertEqual((v["id"], v["kind"], v["live"], v["title"]), (LIVE["recording"], "live", LIVE, "配信"))
+        row = next(x for x in self.st.list() if x["id"] == LIVE["recording"])
+        self.assertEqual((row["kind"], row["live"], row["marks"]), ("live", LIVE, 0))
+        self.assertNotIn("live", next(x for x in self.st.list() if x["id"] == YT["videoId"]))   # youtube・file には足さない
+        self.assertNotIn("live", self.video())
+        self.assertEqual(self.st.get(LIVE["recording"])[0]["live"], LIVE)
+        self.assertIsNone(self.st.media_path(LIVE["recording"]))
+        row["live"]["url"] = "x"   # 呼び出し側が書き換えても内部に影響しない
+        self.assertEqual(self.st.get(LIVE["recording"])[0]["live"]["url"], LIVE["url"])
+
+    def test_ensure_twice_keeps_and_fills_empty_title(self):
+        self.st.ensure(LIVE_SRC, "")
+        rev = self.st.get(LIVE["recording"])[0]["rev"]
+        self.assertEqual(self.st.ensure(LIVE_SRC, "")["rev"], rev)
+        self.assertEqual(self.st.ensure(LIVE_SRC, "題", "ch")["title"], "題")
+        v = self.st.ensure(LIVE_SRC, "別の題", "ch2")
+        self.assertEqual((v["title"], v["channel"]), ("題", ""))
+
+    def test_reload_roundtrip_and_bad_live_skipped(self):
+        self.st.ensure(LIVE_SRC, "配信")
+        self.st.put_video(LIVE["recording"], "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
+        st2 = store.Store(self.path)
+        self.assertEqual(st2.get(LIVE["recording"])[0], self.st.get(LIVE["recording"])[0])
+        with open(self.path, encoding="utf-8") as f:
+            d = json.load(f)
+        bad1 = json.loads(json.dumps(d["videos"][LIVE["recording"]]))
+        bad1["id"] = "20261005-185301"      # live の録画 ID と違う
+        bad2 = json.loads(json.dumps(d["videos"][LIVE["recording"]]))
+        bad2["id"], bad2["live"] = "20261005-185302", {"recorder": "rec", "recording": "20261005-185302", "url": "http://evil.example/"}
+        bad3 = {"id": "20261005-185303", "kind": "live"}     # live が無い
+        d["videos"].update({"20261005-185301": bad1, "20261005-185302": bad2, "20261005-185303": bad3})
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        st3 = store.Store(self.path)
+        self.assertEqual(sorted(st3.videos), sorted([YT["videoId"], LIVE["recording"]]))
+        self.assertTrue(st3.take_warning()[0])
+
+    def test_analysis_entrypoints_refuse(self):
+        self.st.ensure(LIVE_SRC, "配信")
+        with self.assertRaises(ApiError) as c:
+            self.st.adopt_top(LIVE["recording"], 3)
+        self.assertEqual(c.exception.status, 400)
+        with self.assertRaises(ApiError) as c:
+            self.st.request_marks(LIVE["recording"], [[1, 5]], 0)
+        self.assertEqual(c.exception.status, 400)
+        self.assertIsNone(self.st.replace_auto(LIVE["recording"], [cand(1, 9)], {"spec": {}}, 100, {}))
+        self.assertEqual(self.st.get(LIVE["recording"])[0]["marks"], [])
+
+    def test_mark_exported_and_delete(self):
+        self.st.ensure(LIVE_SRC, "配信")
+        self.st.put_video(LIVE["recording"], "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
+        self.assertTrue(self.st.mark_exported(LIVE["recording"], "m1", "f/a.mp4", 5.0, 20.0, os.path.join(self.tmp, "a.mp4")))
+        m = self.st.get(LIVE["recording"])[0]["marks"][0]
+        self.assertEqual((m["status"], m["file"]), ("exported", "f/a.mp4"))
+        # 解析していない録画の手のマーク(手で足した・採用・書き出し・削除)は、盛り上がりの学習の記録(feedback.jsonl)に書かない
+        self.st.put_video(LIVE["recording"], "配信", [dict(m, status="adopted"), {"id": "m2", "start": 30, "end": 40, "status": ""}])
+        self.st.put_video(LIVE["recording"], "配信", [])
+        fb = os.path.join(self.tmp, "feedback.jsonl")
+        self.assertFalse(os.path.exists(fb) and LIVE["recording"] in open(fb, encoding="utf-8").read())
+        self.assertTrue(self.st.delete(LIVE["recording"]))
+        self.assertFalse(self.st.has(LIVE["recording"]))
+
+    def test_conflict_with_other_kind(self):
+        self.st.ensure(LIVE_SRC, "配信")
+        with self.assertRaises(ApiError) as c:
+            self.st.ensure(dict(YT, videoId=LIVE["recording"]), "")
+        self.assertEqual(c.exception.status, 409)
+
+
+class TestCheckLive(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(common.check_live(LIVE), LIVE)
+        self.assertEqual(common.check_live(dict(LIVE, url="https://youtu.be/U972n0ncl4k"))["videoId"], "U972n0ncl4k")
+        self.assertEqual(common.check_live(dict(LIVE, recording="20261005-185300", url="https://www.youtube.com/@x/live"))["videoId"], "")
+
+    def test_rejects(self):
+        for kw in (dict(recorder="A"), dict(recorder="x" * 17), dict(recording="2026"), dict(recording="20261005-185300-"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"),
+                   dict(url="https://example.com/watch?v=U972n0ncl4k"), dict(url="https://www.youtube.com/" + "a" * 300), dict(url=1)):
+            with self.assertRaises(ApiError, msg=kw):
+                common.check_live(dict(LIVE, **kw))
+        for x in (None, "x", [], {}):
+            with self.assertRaises(ApiError):
+                common.check_live(x)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

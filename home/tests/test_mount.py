@@ -205,6 +205,10 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(r.status, 405)
         r, body = self.req("POST", "/studio/api/ytt/open-window", json.dumps({"url": "http://localhost:1/"}).encode(), h)
         self.assertEqual(r.status, 400)   # 開ける先の検査は入口と同じ
+        r, body = self.req("POST", "/studio/api/ytt/live", json.dumps({"op": "status"}).encode(), h)   # ヘッダーの録画の札(線 D の P3)。既定はオフ
+        self.assertEqual((r.status, json.loads(body)), (200, {"enabled": False}))
+        r, _ = self.req("POST", "/studio/api/ytt/live", json.dumps({"op": "status"}).encode(), dict(h, **{"X-YTT-Token": "wrong"}))
+        self.assertEqual(r.status, 403)
 
     def test_runtime_and_siblings(self):
         info = L.read_runtime(self.rdir, "studio")

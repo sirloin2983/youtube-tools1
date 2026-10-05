@@ -179,6 +179,27 @@ async function makeCollabGroup(videoIds){
     if (S.collab && S.collab.refresh) S.collab.refresh();
   } catch (er){ S.toast('コラボのグループ化に失敗しました: ' + er.message, 8000, 'err'); }
 }
+/* 配信中・配信前の URL は、解析の前に録画を始める(線 D の P3。入口の ../live/api/begin。ライブの機能が使えるときだけ)。
+   items のうち YouTube の分を並べて調べ(begin は yt-dlp で数秒かかるので、まとめて同時に)、{ begun: 録画を始めた分, rest: 今までどおりの分 } を返す。
+   録画は始めたのにスタジオに登録できなかった分は、知らせて rest にも入れない(同じ配信を解析へ回して二重にしない) */
+async function beginLive(items){
+  if (!S.live || !items.some(x => x.kind === 'youtube') || !(await S.live.available())) return { begun: [], rest: items };
+  setMsg('配信の状態を確かめています…(配信中・配信前なら録画を始めます)');
+  const res = await Promise.all(items.map(it => it.kind !== 'youtube' ? Promise.resolve(undefined)
+    : S.live.begin(it.url).catch(er => { S.toast(er.message, 0, 'err'); return false; })));
+  const begun = [], rest = [];
+  items.forEach((it, i) => { const r = res[i]; if (r) begun.push(r); else if (r !== false) rest.push(it); });
+  setMsg('');
+  return { begun, rest };
+}
+/* 録画を始めた配信を ③ 確認・書き出しで開く(自動で移って再生する)。2本以上なら最初の1本 */
+async function openBegun(begun){
+  if (!begun.length) return;
+  const b = begun[0];
+  const more = begun.length > 1 ? `(ほか ${begun.length - 1}本も録画しています。③ の「配信」から開けます)` : '';
+  S.toast((b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます') + more, 6000, 'ok');
+  if (S.review && S.review.open) await S.review.open(b.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+}
 async function addFromForm(){
   if ($('#qAdd').disabled) return;
   const e = entries();
@@ -188,13 +209,15 @@ async function addFromForm(){
   const wantGroup = $('#qCollab').checked;
   $('#qAdd').disabled = true; $('#qOpen').disabled = true;
   try {
-    const r = await S.enqueue(e);
-    if (r.added.length){ $('#qUrls').value = ''; $('#qPath').value = ''; paintKinds(); $('#qParam').hidden = true; }
+    const { begun, rest } = await beginLive(e);
+    const r = rest.length ? await S.enqueue(rest) : { added: [], rejected: [] };
+    if (r.added.length || (begun.length && !rest.length)){ $('#qUrls').value = ''; $('#qPath').value = ''; paintKinds(); $('#qParam').hidden = true; }
     if (note) setMsg(note + $('#qMsg').textContent);
     if (wantGroup){
       if (r.added.length >= 2){ await makeCollabGroup(r.added.map(x => x.videoId)); $('#qCollab').checked = false; }
       else if (r.added.length) S.toast('コラボにまとめるには2本以上、解析に追加する必要があります');
     }
+    if (begun.length){ if (!rest.length) setMsg(`配信中の ${begun.length}本の録画を始めました`); await openBegun(begun); }
   } catch (er){ S.toast(er.message, 0, 'err'); setMsg(er.message); }
   $('#qAdd').disabled = false; $('#qOpen').disabled = false;
 }
@@ -204,9 +227,13 @@ async function openWithout(){
   if (!e.length){ $('#qUrls').focus(); return S.toast('YouTubeのURLか、ファイルのパスを入れてください'); }
   $('#qOpen').disabled = true; $('#qAdd').disabled = true;
   try {
-    const r = await S.api('/api/videos/open', { body: e[0] });
-    setMsg(e.length > 1 ? `複数入っているので、最初の1つだけ開きました(${r.video.title || r.video.id})` : `確認画面を開きました(${r.video.title || r.video.id})`);
-    if (S.review && S.review.open) await S.review.open(r.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+    const { begun } = await beginLive(e.slice(0, 1));   // 配信中・配信前なら、確認画面で録画を開く
+    if (begun.length){ if (e.length === 1){ $('#qUrls').value = ''; $('#qPath').value = ''; paintKinds(); } await openBegun(begun); }
+    else {
+      const r = await S.api('/api/videos/open', { body: e[0] });
+      setMsg(e.length > 1 ? `複数入っているので、最初の1つだけ開きました(${r.video.title || r.video.id})` : `確認画面を開きました(${r.video.title || r.video.id})`);
+      if (S.review && S.review.open) await S.review.open(r.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+    }
   } catch (er){ S.toast(er.message, 0, 'err'); setMsg(er.message); }
   $('#qOpen').disabled = false; $('#qAdd').disabled = false;
 }

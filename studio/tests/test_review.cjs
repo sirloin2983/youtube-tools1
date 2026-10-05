@@ -368,3 +368,153 @@ test('analysis errors are explained as what happened + what to do (queue.js)', (
   const d = h('');
   assert.ok(d.what && d.how);
 });
+
+/* ---- 2026-10-05 線 D の P3: ライブの録画(kind live)をスタジオの中で ---- */
+const plain = x => JSON.parse(JSON.stringify(x));   // vm の中で作った配列・オブジェクトを、この realm の形に(deepStrictEqual は realm の違いも見る)
+function liveTime() {
+  const ctx = load([['const LT = {', '/* hls.js(入口の']], {});
+  vm.runInContext('this.LT = LT;', ctx);
+  return ctx.LT;
+}
+// 4 秒のセグメント。1つ目のセッションが 3 本(0〜12 秒)、繋ぎ直しで 20 秒欠けて、2つ目のセッションが 2 本(受信時刻 32〜40 秒)。
+// hls.js のメディアの秒は欠けを詰める(12〜20 秒)
+const T0 = Date.UTC(2026, 9, 5, 9, 53, 0);
+const FRAGS = [0, 4, 8].map(s => ({ start: s, duration: 4, programDateTime: T0 + s * 1000 }))
+  .concat([12, 16].map((s, i) => ({ start: s, duration: 4, programDateTime: T0 + (32 + i * 4) * 1000 })));
+
+test('live player time: seconds from the first segment PDT, across a reconnect gap', () => {
+  const LT = liveTime();
+  const fr = LT.frags(FRAGS.slice().reverse()), base = LT.base(fr);
+  assert.equal(base, T0, 'the base is the first fragment programDateTime');
+  assert.equal(LT.timeOf(fr, base, 0), 0);
+  assert.equal(LT.timeOf(fr, base, 10.5), 10.5);
+  assert.equal(LT.timeOf(fr, base, 12), 32, 'the first media second after the gap is 32 s into the recording');
+  assert.equal(LT.timeOf(fr, base, 17), 37);
+  assert.equal(LT.mediaOf(fr, base, 37), 17);
+  assert.equal(LT.mediaOf(fr, base, 5), 5);
+  assert.equal(LT.mediaOf(fr, base, 20), 12, 'a time inside the gap seeks to the head of the next fragment');
+  assert.equal(LT.mediaOf(fr, base, -3), 0);
+  assert.equal(LT.mediaOf(fr, base, 99), 20, 'after the end: the end of the last fragment');
+  assert.equal(LT.durationOf(fr, base), 40, 'duration = end of the last fragment PDT - base (the gap counts)');
+  for (const t of [0, 3.3, 11.9, 32, 39.5]) assert.ok(Math.abs(LT.timeOf(fr, base, LT.mediaOf(fr, base, t)) - t) < 1e-9, 'seek and read back give the same time: ' + t);
+});
+
+test('live player time: no fragments yet and playlists without PDT do not throw', () => {
+  const LT = liveTime();
+  assert.equal(LT.base([]), null);
+  assert.equal(LT.mediaOf([], null, 10), null);
+  assert.equal(LT.durationOf([], null), 0);
+  assert.equal(LT.timeOf([], null, 7), 7);
+  const fr = LT.frags([{ start: 0, duration: 4 }, { start: 4, duration: 4 }, { start: 8, duration: NaN }, null]);
+  assert.equal(fr.length, 2, 'broken fragments are skipped');
+  assert.equal(LT.timeOf(fr, LT.base(fr), 5), 5, 'without PDT the media second is the recording second');
+});
+
+function liveJobs() {
+  return load([['const LIVE_ACTIVE', 'const LV = {'], ['function liveJobView(', '/* 配信を開いたとき(loadVideo)']], {});
+}
+const job = (id, state, studio, extra) => ({ id, state, recorder: 'local', recording: 'R1', markId: 'lm-1', label: '', start: '', end: '',
+  progress: 0, path: '', error: '', message: '', warning: '', created: '2026-10-05T10:00:0' + id.slice(-1) + 'Z', studio, ...extra });
+
+test('portal export jobs are shown in the studio export list shape (wait / fetch / encode n% / done / error)', () => {
+  const ctx = liveJobs();
+  const jobs = [
+    job('lx-3', 'encode', { video: 'V', mark: 'c', start: 30, end: 42 }, { stateLabel: '作り直し中', progress: 0.4, message: '30fps に作り直しています', label: '<b>絶叫</b>' }),
+    job('lx-1', 'done', { video: 'V', mark: 'a', start: 1, end: 5 }, { path: 'C:\\clips\\配信\\01_a.mp4', tx: { state: 'done', label: '済み' } }),
+    job('lx-2', 'wait', { video: 'V', mark: 'b', start: 10, end: 20 }, { message: '録画が届くのを待っています' }),
+    job('lx-4', 'error', { video: 'V', mark: 'd', start: 50, end: 60 }, { error: '区間に欠けがあります' }),
+    job('lx-5', 'done', { video: 'OTHER', mark: 'z', start: 0, end: 1 }),
+    job('lx-6', 'done', null),
+  ];
+  const v = ctx.liveJobView('V', jobs);
+  assert.equal(v.id, 'live:V');
+  assert.equal(v.live, true);
+  assert.equal(v.state, 'running', 'running while any job is waiting / fetching / encoding');
+  assert.deepEqual(plain(v.items.map(i => i.jobId)), ['lx-1', 'lx-2', 'lx-3', 'lx-4'], 'only this video, oldest first (numbers do not move)');
+  assert.deepEqual(plain(v.items.map(i => i.status)), ['done', 'queued', 'running', 'error']);
+  assert.deepEqual(plain(v.items.map(i => i.stateLabel)), ['済み', '録画待ち', '作り直し中', '失敗']);
+  const [a, b, c, d] = v.items;
+  assert.equal(a.id, 'a'); assert.equal(a.start, 1); assert.equal(a.end, 5);
+  assert.equal(a.path, 'C:\\clips\\配信\\01_a.mp4'); assert.equal(a.file, '01_a.mp4'); assert.equal(a.message, '', 'no progress message once done');
+  assert.equal(a.tx.label, '済み');
+  assert.equal(b.message, '録画が届くのを待っています');
+  assert.equal(c.progress, 0.4); assert.equal(c.title, '<b>絶叫</b>', 'text is passed through as data (jobItemHTML escapes it)');
+  assert.equal(d.error, '区間に欠けがあります');
+  assert.equal(ctx.liveJobView('V', [jobs[1]]).state, 'done');
+  assert.deepEqual(plain(ctx.liveJobView('V', null).items), []);
+});
+
+test('portal export rows: escaped text, cancel button only while active, "編集で開く" when done', () => {
+  const ctx = load([['const EXP_LABEL', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
+    fmt: t => 't' + t, esc: s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'),
+    handoffHTML: (j, it) => (it.status === 'done' && it.path ? '<a>編集で開く</a>' : ''), loudHTML: () => '' });
+  const j = { live: true };
+  const run = ctx.jobItemHTML(j, { jobId: 'lx-3', start: 30, end: 42, title: '<b>x</b>', status: 'running', stateLabel: '作り直し中', progress: 0.4, message: '<i>m</i>' }, 0);
+  assert.ok(run.includes('作り直し中 40%') && run.includes('data-act="lxcancel"') && run.includes('data-job="lx-3"'));
+  assert.ok(!run.includes('<b>x</b>') && !run.includes('<i>m</i>'), 'title and message are escaped');
+  const wait = ctx.jobItemHTML(j, { jobId: 'lx-2', start: 1, end: 2, status: 'queued', stateLabel: '録画待ち', message: '録画が届くのを待っています' }, 1);
+  assert.ok(wait.includes('録画待ち') && wait.includes('録画が届くのを待っています') && wait.includes('lxcancel'));
+  const done = ctx.jobItemHTML(j, { jobId: 'lx-1', start: 1, end: 2, status: 'done', stateLabel: '済み', path: 'C:\\a.mp4', file: 'a.mp4', tx: { state: 'done', label: '済み' } }, 2);
+  assert.ok(done.includes('編集で開く') && done.includes('文字起こし: 済み') && !done.includes('lxcancel'));
+  const studio = ctx.jobItemHTML({}, { start: 1, end: 2, status: 'running', progress: 0.5 }, 0);
+  assert.ok(studio.includes('処理中 50%') && !studio.includes('lxcancel'), 'studio export rows are unchanged');
+});
+
+test('finished portal jobs mark the studio mark as exported only when the times still match', () => {
+  const ctx = liveJobs();
+  const marks = [
+    { id: 'a', start: 1, end: 5, status: 'adopted' },      // 済み・時刻が同じ → 書き出し済みにする
+    { id: 'b', start: 12, end: 20, status: 'adopted' },    // 位置を直した(ジョブは 10〜20)→ しない(もう一度書き出すまで)
+    { id: 'c', start: 30, end: 42, status: 'exported' },   // もう書き出し済み → しない
+    { id: 'd', start: 50, end: 60, status: '' },            // 候補(閉じていた間に済んだ)→ する
+    { id: 'e', start: 70, end: 80, status: 'rejected' },   // 不採用にした → しない
+  ];
+  const jobs = [
+    job('lx-1', 'done', { video: 'V', mark: 'a', start: 1, end: 5 }, { path: 'C:\\c\\a_old.mp4', updated: '2026-10-05T10:00:00Z' }),
+    job('lx-7', 'done', { video: 'V', mark: 'a', start: 1.02, end: 5 }, { path: 'C:\\c\\a_new.mp4', updated: '2026-10-05T10:05:00Z' }),
+    job('lx-2', 'done', { video: 'V', mark: 'b', start: 10, end: 20 }, { path: 'C:\\c\\b.mp4' }),
+    job('lx-3', 'done', { video: 'V', mark: 'c', start: 30, end: 42 }, { path: 'C:\\c\\c.mp4' }),
+    job('lx-4', 'done', { video: 'V', mark: 'd', start: 50, end: 60 }, { path: 'C:\\c\\d.mp4' }),
+    job('lx-5', 'done', { video: 'V', mark: 'e', start: 70, end: 80 }, { path: 'C:\\c\\e.mp4' }),
+    job('lx-6', 'encode', { video: 'V', mark: 'd', start: 50, end: 60 }),
+    job('lx-8', 'done', { video: 'V', mark: 'gone', start: 0, end: 1 }, { path: 'C:\\c\\x.mp4' }),
+    job('lx-9', 'done', { video: 'V', mark: 'a', start: 1, end: 5 }),   // path が無い済みは使わない
+  ];
+  const todo = ctx.liveReconcile(marks, jobs, new Set());
+  assert.deepEqual(plain(todo.map(t => [t.markId, t.path, t.jobId]).sort()), [['a', 'C:\\c\\a_new.mp4', 'lx-7'], ['d', 'C:\\c\\d.mp4', 'lx-4']]);
+  assert.deepEqual(plain(ctx.liveReconcile(marks, jobs, new Set(['lx-7', 'lx-4'])).map(t => t.jobId)), ['lx-1'], 'already applied jobs are not sent again');
+  assert.deepEqual(plain(ctx.liveReconcile([], jobs, null)), []);
+});
+
+test('live export: one portal request per mark, saved first, busy marks skipped, failures released', async () => {
+  const calls = [], notes = [];
+  const v = { id: 'V', kind: 'live', title: '配信', live: { recorder: 'local', recording: 'R1', url: 'https://youtu.be/x' },
+    marks: [{ id: 'a', start: 1, end: 5, status: 'adopted', label: 'A' }, { id: 'b', start: 10, end: 20, status: 'adopted', label: '' }, { id: 'c', start: 30, end: 40, status: 'adopted' }] };
+  const S = { cur: v, settings: { exportTarget: 'adopted' } };
+  const LV = { busy: new Set(['c']), queued: new Set(), chain: Promise.resolve(), starting: false };
+  let saved = 0, polled = 0;
+  const ctx = load([['function liveExportBody(', '/* ヘッダーの札の「開く」']], {
+    S, LV, Studio: { token: 't', live: { api: async (rest, o) => { calls.push({ rest, body: o.body }); if (o.body.studio.mark === 'b') { const e = new Error('このマークは書き出しの途中です'); e.status = 409; throw e; } return { job: {} }; } } },
+    toast: m => notes.push(m), flushSave: async () => { saved++; }, renderExportUI() {}, liveResume() {}, pollLiveJobs: async () => { polled++; },
+    sortedMarks: () => v.marks.slice().sort((x, y) => x.start - y.start), exportTargets: () => v.marks.filter(m => m.status === 'adopted'), autoTxEnabled: () => true });
+  await ctx.startLiveExport();
+  assert.equal(saved, 1, 'the studio marks are saved before asking the portal');
+  assert.deepEqual(calls.map(c => c.rest), ['api/export', 'api/export'], 'the mark already being exported (c) is not sent again');
+  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', transcribe: true,
+    studio: { video: 'V', mark: 'a', n: 1, label: 'A', start: 1, end: 5 } });
+  assert.equal(calls[1].body.studio.n, 2);
+  assert.ok(notes.at(-1).includes('書き出しの途中です'));
+  assert.equal(LV.queued.size, 0); assert.equal(LV.starting, false);
+  assert.ok(LV.busy.has('a') && !LV.busy.has('b'), 'only the mark that could not be sent is released (it can be exported again right away)');
+  assert.equal(polled, 1);
+});
+
+test('live videos: studio export goes to the portal, autorun / join / all-video export leave live out', () => {
+  const exp = between('async function startExport(', 'async function startExportAll(');
+  assert.ok(exp.indexOf("S.cur.kind === 'live'") < exp.indexOf('S.starting'), 'the live branch comes before the "already exporting" guard');
+  assert.ok(exp.includes('startLiveExport(onlyIds)'));
+  assert.ok(between('async function startExportAll(', 'async function resumeJob(').includes("x.kind !== 'live'"));
+  assert.ok(!between('function startLiveExport(', '/* ヘッダーの札の「開く」').includes('maybeAutoTranscribe'), 'the portal export hands off to transcription itself');
+  assert.ok(between('function pushMark(', '/* サーバーと同じ規則').includes('startLiveExport(new Set([m.id]), { auto: true })'));
+  assert.ok(source.includes('enableWorker: false'), 'hls.js runs without a Web Worker (no worker-src in the CSP)');
+});

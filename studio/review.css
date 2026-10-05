@@ -231,6 +231,14 @@
 .rv-live-l{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline}
 .rv-live-badge{background:var(--danger);color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:4px}
 .rv-live-k{font-size:11.5px;color:var(--ink-3)}
+/* ライブの録画(kind live。線 D の P3): 録画の状態・「マークしたらすぐ書き出す」・停止の行と、次にすることの案内。録画が終わったら赤をやめる */
+.rv-liverec{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;flex:1 1 100%}
+.rv-liverec .rv-topsp{flex:1 1 0;display:block}
+.rv-recmsg{font-size:12px}
+.rv-liveguide{flex:1 1 100%;margin:0;font-size:12.5px;color:var(--ink-2)}
+.rv-livebar.is-ended{border-color:var(--line);background:var(--panel-2)}
+.rv-livebar.is-ended .rv-live-badge{background:var(--ink-3)}
+.rv-openmsg{margin:6px 0 0}
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
 .rv-markdetails{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:6px 10px}
