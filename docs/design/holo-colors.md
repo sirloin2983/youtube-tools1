@@ -84,7 +84,9 @@
             {"hex": "#DBDA89", "label": "公式サイトの画像", "src": ["s4"], "confidence": "medium"}],
  "src": ["s1", "s2", "s3", "s4"], "alt": ["#FFF29E 公式サイト画像・縁の色 (s4)"], "checked": "2026-09-30", "note": "..."}
 ```
-- `hex` = **主な色**。字幕の色(`ytt_core/colors.py`)と 1.2.1 までの exe はこれだけを読む。**`colors[0].hex` と同じ値にする**(C# の BundledMembers と `ytt_core/tests/test_ytt_core.py` が検査)
+- `subtitle` = **字幕の既定の色**(2026-10-05 ユーザーの指定。76 人。無い人は `hex`)。`ytt_core/colors.py` だけが読む(ホロカラーの exe は読まない = ホロカラーの主な色は変わらない)。
+  字幕の色の優先: 編集で話者に付けた色 → ホロカラーで直した色(`member-colors.json`)・マイカラー → `subtitle` → `hex`。`colors` に無い色なら colors.py が一覧の先頭に足す(ラベル「字幕」)
+- `hex` = **主な色**。1.2.1 までの exe はこれだけを読む。**`colors[0].hex` と同じ値にする**(C# の BundledMembers と `ytt_core/tests/test_ytt_core.py` が検査)
 - `colors` = その人の色の一覧(1色以上。先頭が主な色)。`label` は画面に出す短い名前(12 文字まで)、`src` はその色の出典、`confidence` は high / medium / low(基準は `docs/design/holo-colors-research.md`)
 - 人の `src` = 調べた出典すべて(卒業のお知らせなど色以外も)。`alt` = 照らし合わせたが採らなかった候補(色を直すときの材料)。`checked` = 調べ直した日。`note` = 札のツールチップに出すメモ
 - 最上位: `version` 2・`updated`(調べ終えた日)・`sources`(各項目に `retrieved` = 取得日、あれば `archive` = Wayback の URL)

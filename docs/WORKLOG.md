@@ -3318,3 +3318,14 @@
 - 直し(`push.bat` だけ。ASCII のまま): `git merge-base --is-ancestor origin/main HEAD` が真なら rebase を飛ばして push(fast-forward)。GitHub が先に進んでいるときは `git rebase --rebase-merges` でマージを残す
 - 未確認: GitHub が先行している場合の `--rebase-merges` は実際には流していない
 - 未コミット: なし
+
+## 2026-10-05 Claude Code — 字幕の既定の色をユーザーの色の一覧にする(版は上げていない)
+- ユーザーの指示(10-05):「字幕の色を指定がない場合はこれに変更したい」(ユーザーのカラーコードの一覧。ホロライブ 76 人)
+- `holo-colors/members.json` に `subtitle`(字幕の既定の色)を 76 人分足した。`hex`(ホロカラーの主な色)と `colors` は変えていない = ホロカラーの exe と友人の画面はそのまま
+- `ytt_core/colors.py`: 字幕の色 = ホロカラーで直した色 > `subtitle` > `hex`。`colors` に無い色(すいせい・枢・ヴィヴィ・こぼの 4 人)はラベル「字幕」で先頭に足す。編集で話者に付けた色(`sub.color`・`speakerColor`)は今までどおり先
+- 名前の対応: 一覧の短い名前を lookup で照らした。「アキロゼ」「イナニス」は lookup で決まらないので id で付けた(アキ・ローゼンタール #DC0485・一伊那尓栖 #3F3E69)
+- 決めたこと: members.json の `hex` を書き換える案は採らなかった(ホロカラーの主な色・コピーされる色まで変わるため)。字幕だけの別の鍵にした
+- テスト: ytt_core 75(skip 1)・cut2resolve の pack/serve・home の autorun/intake・編集のサーバー側(metrics・resolve_export・roster)・契約・holo-colorsuild.bat 31、全部通った
+- 注意: 作業の途中で push.bat の「update 2026/10/05 18:00」が members.json・colors.py・テストを先にコミットした(中身は同じ)
+- ユーザーがやること: 入口を「すべて終了」→ start.bat で起動し直す(colors.py はファイルの更新日時で members.json を読み直すが、colors.py 自体は起動し直しが要る)。作り済みのパックの色は変わらない(作り直すと新しい色)
+- 未コミット: なし
