@@ -127,12 +127,14 @@ def can_restart(status, runs=None, busy_tools=()):
     """起動し直してよいか。よければ None、だめなら画面に出す理由の文。
     status: Supervisor.status()(heavy = ytt_core.jobs.SLOTS.snapshot(): {"limit", "active": [{tool, label, seconds}], "waiting": [...]})
     runs: まとめて実行の実行の一覧(AutoRunner.snapshot()["runs"]。state が queued / running のものがあれば断る)。
-          まとめて実行は段と段の間は重い処理の枠を持たないので、heavy だけでは見落とす
+          まとめて実行は段と段の間は重い処理の枠を持たないので、heavy だけでは見落とす。
+          あとから解析(mode post_analyze。測るためだけ)は数えない: 入口の終了で止まり、一覧に残って次の起動で続く(試した回数は増やさない)。
+          その解析がスタジオで持っている重い処理の枠は、呼ぶ側(launch.py の restart_self)が先に止めてから status を取る
     busy_tools: 取り込んだツールのうち busy() が真のものの名前(「すべて終了」の確認と同じ判定。任意)"""
     heavy = (status or {}).get("heavy") or {}
     items = list(heavy.get("active") or []) + list(heavy.get("waiting") or [])
     labels = [str(i.get("label") or i.get("tool") or "") for i in items if isinstance(i, dict)]
-    active_runs = [r for r in (runs or []) if isinstance(r, dict) and r.get("state") in ("queued", "running")]
+    active_runs = [r for r in (runs or []) if isinstance(r, dict) and r.get("state") in ("queued", "running") and r.get("mode") != "post_analyze"]
     if active_runs:
         labels.append("まとめて実行 %d 件" % len(active_runs))
     busy = [str(n) for n in (busy_tools or ()) if n]

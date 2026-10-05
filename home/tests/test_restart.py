@@ -208,6 +208,9 @@ class CanRestartTest(unittest.TestCase):
         self.assertIn("まとめて実行 2 件", R.can_restart(self.status(), runs=[{"state": "running"}, {"state": "queued"}, {"state": "done"}]))
         self.assertIn("編集", R.can_restart(self.status(), busy_tools=["編集"]))
         self.assertIsNone(R.can_restart(self.status(), busy_tools=["", None]))
+        # あとから解析(測るため)だけなら起動し直せる(終了で止まり、一覧に残って次の起動で続く。2026-10-05)
+        self.assertIsNone(R.can_restart(self.status(), runs=[{"state": "running", "mode": "post_analyze"}, {"state": "done"}]))
+        self.assertIn("まとめて実行 1 件", R.can_restart(self.status(), runs=[{"state": "running", "mode": "post_analyze"}, {"state": "queued", "mode": "request"}]))
 
     def test_message_lists_at_most_three(self):
         act = [{"tool": "t", "label": "処理%d" % i} for i in range(5)]

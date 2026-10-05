@@ -37,7 +37,7 @@ HIDE_MAX = 2000            # 一覧ごとにこの件数まで(古い順に捨�
 HIDE_IDS_MAX = 200         # 1回で送れる数
 COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(Shift+ と、1文字かキーの名前)
 ACTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,40}$")
-DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none",   # 既定はカットしない(2026-10-01 ユーザー決定)
+DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": True,   # 既定はカットしない(2026-10-01 ユーザー決定)
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
@@ -79,6 +79,8 @@ def _clean_autorun(v, cur):
         if v["onFail"] not in ON_FAIL:
             raise PrefsError("失敗したときの動きが正しくありません")
         out["onFail"] = v["onFail"]
+    if "friendLength" in v:   # 友人の依頼の自動の候補に、友人の区間の長さの実績を使う(autorun._friend_length。false で止める)
+        out["friendLength"] = v["friendLength"] is not False
     return out
 
 

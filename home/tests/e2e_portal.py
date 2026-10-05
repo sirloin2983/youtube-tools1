@@ -402,6 +402,25 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(not any(p in ('パック待ち', '作り直し') for p, h in todo),
               "[A] 校正がまだ済んでいない文書は「パック待ち」を二重に出さない: %s" % todo)
 
+        # 2e-2. あとから解析(測るため。mode post_analyze。2026-10-05)の最中: 案件の行は自動で開かない・「まとめて実行」は押せる・小さな札だけ・
+        #       進行中の一覧には名前で見分けが付く形で出る。api/autorun は偽物に差し替える
+        if pg.evaluate("document.querySelector('.pt-case').open"):
+            pg.click(".pt-case .pt-case-row")
+        post_run = {"id": "post000001", "kind": "video", "videoId": "e2eCase0001", "docId": None, "mode": "post_analyze", "modeLabel": "あとから解析(測るため)",
+                    "title": CASE_TITLE, "state": "running", "stateLabel": "実行中", "created": int(time.time() * 1000), "finished": None, "requestId": None,
+                    "steps": [{"key": "analyze", "label": "解析", "state": "run", "stateLabel": "実行中", "detail": "解析中"}], "message": "", "error": ""}
+        fake_auto = lambda route: route.fulfill(status=200, content_type="application/json",
+                                                body=json.dumps({"runs": [post_run], "past": [], "modes": {}}, ensure_ascii=False))
+        pg.route("**/api/autorun", fake_auto)
+        check(wait_js(pg, "!!document.querySelector('.pt-case .pt-case-post')", 25000), "[A] あとから解析の最中: 案件の行に小さな札が出る")
+        check(pg.text_content(".pt-case .pt-case-post") == "あとから解析(測るため) 実行中", "[A] 札の言葉: %s" % pg.text_content(".pt-case .pt-case-post"))
+        check(pg.evaluate("document.querySelector('.pt-case').open") is False, "[A] あとから解析の最中でも行を自動で開かない")
+        check(pg.is_enabled(".pt-case .pt-auto-run") and pg.is_hidden(".pt-case .pt-auto-cancel"), "[A] 「まとめて実行」は押せる(押すとあとから解析は止まって先に動く)")
+        check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-item')].some(e => e.textContent.indexOf('あとから解析(測るため)') >= 0)", 10000),
+              "[A] 進行中の一覧に「あとから解析(測るため)」の名前で出る")
+        pg.unroute("**/api/autorun", fake_auto)
+        check(wait_js(pg, "!document.querySelector('.pt-case .pt-case-post')", 25000), "[A] 終わったら札は消える")
+
         # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
         check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden && !document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行とまとまりが出た")
         check(pg.text_content("#unlinkedCount").strip() == "1件", "[A] 単体の文字起こしの件数(ホームの数): %s" % pg.text_content("#unlinkedCount"))

@@ -190,8 +190,10 @@ def count_client_errors(path, now=None):
 
 
 def count_autorun_failed(path, now=None):
+    """まとめて実行の失敗の数。あとから解析(mode post_analyze。測るためだけ・失敗しても試し直す)は数えない(依頼の失敗に見せない。2026-10-05)"""
     now = time.time() if now is None else now
-    return count_jsonl(path, AUTORUN_FAIL_WINDOW, now, pred=lambda r: r.get("state") == "error", stamp_keys=("created",))
+    return count_jsonl(path, AUTORUN_FAIL_WINDOW, now, pred=lambda r: r.get("state") == "error" and r.get("mode") != "post_analyze",
+                       stamp_keys=("created",))
 
 
 # ---------- 異常終了の件数(見張り役) ----------

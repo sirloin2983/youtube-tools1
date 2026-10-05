@@ -11,7 +11,8 @@
   点数の順(高い順)に並べ、人の判定を当てる。
 - 人の判定 = feedback.jsonl の行を時刻の順に見た最後の結果: adopt・export = 良い / reject・delete = 悪い / unadopt・delete_judged(採用・書き出し済みの削除)= 取り消し(判定なしに戻る)。
   data.json のマークがあれば、いまの status を優先する(候補に戻した・不採用にした、が行に残らない場合がある)
-- **まとめて実行(自動採用)・依頼の区間は人の判断ではないので「良い」に数えない**。マークの adoptedBy(auto / request)と、feedback の行の adoptedBy(書き出しの行を含む)で見分ける。
+- **まとめて実行(自動採用)・依頼が自動で埋めた分は人の判断ではないので「良い」に数えない**(友人が時刻で指定した区間も、この数え方では外れる。区間は下の friendRanges で別に測る)。
+  マークの adoptedBy(auto / request)と、feedback の行の adoptedBy(書き出しの行を含む)で見分ける。
   印の無い以前の記録だけ、近似として入口の実行記録(autorun-runs.jsonl)で、その配信に「採用」の段が実行されていて、人の adopt の行が無いものを「自動採用」とみなす(近似)。
   採用・書き出しの status があるのに行も実行記録も無いものは「記録なし」として別に数える(--status-fallback を付けると人の判定として数える)
 - 指標(全体・配信の種類ごと・配信ごと):
@@ -19,8 +20,19 @@
     書き出し率 = 書き出した ÷ 良い / パックになった率 = パックがある ÷ 書き出した(ytt_core.txindex.pack_info)/ 友人に届けた率 = 届けた ÷ 書き出した(入口の実行記録の deliver の段)
     手で足したマーク(manual_add = 見逃し)= 数・割合(手で足した ÷ (手で足した + 良い自動マーク))・近くの自動マークの点数と距離の分布
     区間の端のずれ = 良い自動マークの dStart・dEnd(人が直した量。秒)の分布と、0.5 秒以上直した率 / 採用の取り消しの数
+- 友人が時刻で指定した区間(結果の `friendRanges`・表示の最後の節): 友人が依頼で入れた区間は「自動の候補を見ずに人が選んだ見どころ」で、
+  候補に出なかった場面も含む。出どころ 1 = 入口の実行記録の videoId・ranges(指定したまま)/ 2 = それが無い以前の分は、スタジオのマークの adoptedBy が request の手動マーク
+  (前後の余白 FRIEND_PAD を引いて戻す。人が状態を変えると印が外れるので取りこぼす)。同じ配信・同じ区間(±0.6 秒)は 1 つにまとめる。
+  自動の候補(上の「自動マークの集まり」。点数の高い順)と比べ、当たり(区間と時間が重なる候補。定数 HIT_OVERLAP)・上位 N で拾えた率・見逃し・長さごとの拾えた率などを出す。
+  解析していない配信(自動の候補も解析の記録も無い)の区間は「未解析」として別に数え、見逃しに入れない
+- 人が選んだ区間の長さ(結果の `clipLength`・表示の最後の節): 自動マークの長さは解析の設定 length・preRatio の固定なので、人が実際に選んだ長さから目安を出す。
+  見本 = friend(友人の区間。未解析の配信も長さは使う)/ manual(手で足したマーク。依頼のマーク・友人の区間と同じものは数えない)/
+  adjusted(人が良いにして端を 0.5 秒以上直した自動マークの、直したあとの長さ)/ kept(良いにして直さなかった自動マーク = 今の設定の長さのまま)。
+  5 秒未満・600 秒超は外れ値(数だけ別に)。suggest = friend・manual・adjusted の長さの中央値(10〜120 に収める。kept は中央値に入れず数だけ添える)と、
+  見本の区間の中にある候補の山の位置の割合(山 − 開始)÷ 長さ の中央値(0.3〜0.9)。見本 20 個・配信 5 本以上で enough。設定は書き換えない(読むだけ。入口が --json の結果の clipLength.suggest を読む)
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
-  手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)
+  手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
+  friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
 """
 import argparse
 import datetime
@@ -47,6 +59,18 @@ NEAR_SEC = 15.0          # 手で足したマークの近くに自動マーク�
 MAX_JSONL_BYTES = 256 * 1024 * 1024
 HUMAN_EVENTS = ("adopt", "export", "reject", "delete")
 RETRACT_EVENTS = ("unadopt", "delete_judged")
+FRIEND_FEW_RANGES = 20   # friendRanges: 解析済みの区間がこれより少ない・
+FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少ない(参考)」
+HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
+FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(home/autorun.py の RANGE_PAD と同じ値。出どころ 2 で引く)
+FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
+PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8}   # 点数の内訳が「効いた」とみなす値(studio/analyze.py の理由の付け方と同じ)
+DEFAULT_PRE = 0.65       # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき。studio/analyze.py の既定)
+CL_OUTLIER_MIN, CL_OUTLIER_MAX = 5.0, 600.0   # 人が選んだ区間の長さの外れ値(この外は数だけ別に出して、目安に入れない)
+CL_LENGTH_MIN, CL_LENGTH_MAX = 10, 120        # 目安の長さの範囲(スタジオの解析の設定 length の範囲)
+CL_PRE_MIN, CL_PRE_MAX = 0.3, 0.9             # 目安の preRatio の範囲(同 preRatio の範囲)
+CL_PRE_MIN_SAMPLES = 10   # 山の位置の見本がこれ未満なら preRatio の目安は出さない(None)
+CL_ENOUGH_SAMPLES, CL_ENOUGH_VIDEOS = 20, 5   # 目安の enough: 見本 20 以上かつ配信 5 本以上
 ARCHIVE_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 
 
@@ -112,7 +136,7 @@ def load_archive(studio, vid):
     run = next((r for r in reversed(runs) if isinstance(r, dict)), None) if isinstance(runs, list) else None
     if not run:
         return None
-    return {"at": run.get("at"), "type": run.get("type") or d.get("type"), "candidates": [c for c in run.get("candidates") or [] if isinstance(c, dict)]}
+    return {"at": run.get("at"), "type": run.get("type") or d.get("type"), "spec": run.get("spec") if isinstance(run.get("spec"), dict) else {}, "candidates": [c for c in run.get("candidates") or [] if isinstance(c, dict)]}
 
 
 def load_runs(app):
@@ -216,7 +240,8 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
         arch = load_archive(studio, vid)
         rv = by_row.get(vid, [])
         typ = an.get("type") or next((r.get("type") for r in rv if r.get("type")), None) or (arch or {}).get("type") or "不明"
-        V = {"id": vid, "title": str(dv.get("title") or "")[:80], "type": typ, "auto": [], "manual": [], "adds": [], "retracts": 0, "unadopts": 0, "deleteJudged": 0}
+        V = {"id": vid, "title": str(dv.get("title") or "")[:80], "type": typ, "auto": [], "manual": [], "adds": [], "retracts": 0, "unadopts": 0, "deleteJudged": 0,
+             "pre": num((an.get("spec") if isinstance(an.get("spec"), dict) else (arch or {}).get("spec") or {}).get("preRatio"))}   # その解析の preRatio(山の位置を戻すのに使う)
         autos = V["auto"]
 
         def find(a0, rid=""):
@@ -236,7 +261,8 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             a0 = pair(m.get("auto0")) or pair(m.get("auto0Orig"))
             item = {"a0": a0 or (s, e), "start": s, "end": e, "score": num(m.get("score")), "t": m.get("createdAt") if isinstance(m.get("createdAt"), int) else None,
                     "src": "data", "status": m.get("status") or "", "path": m.get("path") or "", "markId": str(m.get("id") or ""), "events": [], "a0known": a0 is not None,
-                    "adoptedBy": m.get("adoptedBy") if m.get("adoptedBy") in ("auto", "request") else None}
+                    "adoptedBy": m.get("adoptedBy") if m.get("adoptedBy") in ("auto", "request") else None,
+                    "parts": m.get("parts") if isinstance(m.get("parts"), dict) else None, "reasons": m.get("reasons") if isinstance(m.get("reasons"), list) else None, "peak": num(m.get("peak"))}
             if m.get("src") == "auto" or (m.get("src") == "manual" and a0):
                 autos.append(item)
             elif m.get("src") == "manual":
@@ -247,7 +273,8 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
             if s is None or e is None or find((s, e)):
                 continue
             autos.append({"a0": (s, e), "start": s, "end": e, "score": num(c.get("score")), "t": arch.get("at") if isinstance(arch.get("at"), int) else None, "src": "archive",
-                          "status": "", "path": "", "markId": "", "events": [], "a0known": True, "adoptedBy": None})
+                          "status": "", "path": "", "markId": "", "events": [], "a0known": True, "adoptedBy": None,
+                          "parts": c.get("parts") if isinstance(c.get("parts"), dict) else None, "reasons": None, "peak": num(c.get("peak"))})
         # 3. feedback の行
         for r in rv:
             ev = r.get("event") or ""
@@ -423,6 +450,350 @@ def group_metrics(vlist):
     return out
 
 
+# ---------------------------------------------------------------- 友人が時刻で指定した区間(friendRanges)
+
+def load_friend_runs(app):
+    """入口の実行記録(autorun-runs.jsonl.1 → 今のファイル)の、友人が指定した区間 -> [{"videoId", "start", "end", "t"(実行の作られた時刻 ms か None), "source": "runs"}](記録の順)。
+    ranges は指定したままの区間 [[開始秒, 終了秒], …](余白を足す前)。形の違うものは飛ばす"""
+    out = []
+    for name in ("autorun-runs.jsonl.1", "autorun-runs.jsonl"):
+        for _, r in read_jsonl(os.path.join(app, "logs", name)):
+            vid = r.get("videoId")
+            if not isinstance(vid, str) or not isinstance(r.get("ranges"), list):
+                continue
+            t = r.get("created") if isinstance(r.get("created"), int) and not isinstance(r.get("created"), bool) else None
+            if t is None and isinstance(r.get("finished"), int) and not isinstance(r.get("finished"), bool):
+                t = r["finished"]
+            for rg in r["ranges"]:
+                p = pair(rg)
+                if p and p[1] > p[0] >= 0:
+                    out.append({"videoId": vid, "start": p[0], "end": p[1], "t": t, "source": "runs"})
+    return out
+
+
+def unpad_mark(m, duration):
+    """出どころ 2: 依頼が足した前後の余白(FRIEND_PAD)を引いて、友人が指定した区間へ戻す。
+    0 と配信の長さで切られていた端は、戻しすぎない(開始 0 のまま・終了は長さのまま)。-> (開始, 終了, 開始が切られていた, 終了が切られていた)"""
+    s, e = m["start"], m["end"]
+    cs = s <= 0.05
+    ce = bool(duration and duration > 0 and e >= duration - 0.05)
+    a = 0.0 if cs else s + FRIEND_PAD
+    b = e if ce else e - FRIEND_PAD
+    if b - a < 0.1:   # 余白を引くと残らない短い区間は、そのまま
+        a, b, cs, ce = s, e, False, False
+    return a, b, cs, ce
+
+
+def same_friend_range(a, b):
+    """同じ区間か(±TOL)。b が余白の切られた端(b["cs"]・b["ce"])を持つときは、その端は余白の分まで動いてよい"""
+    if b.get("cs"):
+        ok_s = -TOL <= a["start"] <= FRIEND_PAD + TOL
+    else:
+        ok_s = abs(a["start"] - b["start"]) <= TOL
+    if b.get("ce"):
+        ok_e = abs(a["end"] - b["end"]) <= FRIEND_PAD + TOL
+    else:
+        ok_e = abs(a["end"] - b["end"]) <= TOL
+    return ok_s and ok_e
+
+
+def collect_friend_ranges(run_ranges, dvideos, since=None, until=None):
+    """出どころ 1(実行の記録)+ 出どころ 2(スタジオの adoptedBy が request の手動マーク。1 に無いものだけ)-> {配信 ID: [区間]}。
+    同じ配信・同じ区間(±TOL)は 1 つにまとめる(いちばん早い時刻を残す)。--since / --until は、まとめたあとの区間の時刻で絞る(時刻が無いものは落とさない)"""
+    per = {}
+
+    def add(rg):
+        lst = per.setdefault(rg["videoId"], [])
+        if not any(same_friend_range(x, rg) or same_friend_range(rg, x) for x in lst):
+            lst.append(rg)
+
+    for rg in run_ranges:
+        add(dict(rg))
+    for vid in sorted(dvideos):
+        dv = dvideos[vid]
+        if not isinstance(dv, dict):
+            continue
+        dur = num(dv.get("duration"))
+        for m in dv.get("marks") or []:
+            if not isinstance(m, dict) or m.get("src") != "manual" or m.get("adoptedBy") != "request" or not str(m.get("id") or "").startswith("r"):
+                continue
+            s, e = num(m.get("start")), num(m.get("end"))
+            if s is None or e is None or e <= s:
+                continue
+            a, b, cs, ce = unpad_mark({"start": s, "end": e}, dur)
+            t = m.get("createdAt") if isinstance(m.get("createdAt"), int) and not isinstance(m.get("createdAt"), bool) else None
+            add({"videoId": vid, "start": round(a, 2), "end": round(b, 2), "t": t, "source": "marks", "cs": cs, "ce": ce})
+
+    def in_range(t):
+        if t is None:
+            return True
+        return (since is None or t >= since) and (until is None or t < until)
+
+    return {vid: [r for r in lst if in_range(r["t"])] for vid, lst in sorted(per.items()) if any(in_range(r["t"]) for r in lst)}
+
+
+def friend_hit(cand, rng):
+    """区間 rng=(開始, 終了) に自動の候補 cand=(開始, 終了) が当たるか: 候補の真ん中が区間の中、または重なりが候補の長さの HIT_OVERLAP 以上"""
+    cs, ce = cand
+    mid = (cs + ce) / 2
+    if rng[0] <= mid <= rng[1]:
+        return True
+    ov = min(ce, rng[1]) - max(cs, rng[0])
+    return ce > cs and ov > 0 and ov >= HIT_OVERLAP * (ce - cs)
+
+
+def friend_gap(cand, rng):
+    """区間と候補のあいだの秒(重なっていれば 0)"""
+    return max(0.0, max(cand[0], rng[0]) - min(cand[1], rng[1]))
+
+
+def judge_friend_range(rg, cands, analyzed):
+    """1 つの区間を、その配信の自動の候補(ranked の順)と比べる -> 結果の辞書。解析していない配信は analyzed=False(rank などは None)"""
+    res = {"videoId": rg["videoId"], "source": rg["source"], "start": rg["start"], "end": rg["end"], "length": round(rg["end"] - rg["start"], 2), "t": rg["t"],
+           "analyzed": analyzed, "hit": False, "rank": None, "score": None, "hits": 0, "dStart": None, "dEnd": None,
+           "nearDistance": None, "nearScore": None, "nearRank": None, "parts": None, "reasons": None}
+    if not analyzed:
+        return res
+    rng = (rg["start"], rg["end"])
+    hits = [(i + 1, c) for i, c in enumerate(cands) if friend_hit(c["a0"], rng)]
+    res["hits"] = len(hits)
+    if hits:
+        rank, best = hits[0]
+        res.update(hit=True, rank=rank, score=best["score"], parts=best.get("parts"), reasons=best.get("reasons"),
+                   dStart=round(best["a0"][0] - rng[0], 2), dEnd=round(best["a0"][1] - rng[1], 2))
+    elif cands:
+        d, rank, c = min(((friend_gap(c["a0"], rng), i + 1, c) for i, c in enumerate(cands)), key=lambda x: (x[0], x[1]))
+        res.update(nearDistance=round(d, 2), nearScore=c["score"], nearRank=rank)
+    return res
+
+
+def friend_group(results):
+    """区間の結果(judge_friend_range)の集まり -> 指標"""
+    vids = {r["videoId"] for r in results}
+    an = [r for r in results if r["analyzed"]]
+    an_vids = {r["videoId"] for r in an}
+    hit = [r for r in an if r["hit"]]
+    miss = [r for r in an if not r["hit"]]
+    out = {"videos": len(vids), "analyzedVideos": len(an_vids), "unanalyzedVideos": len(vids - an_vids),
+           "ranges": len(results), "analyzedRanges": len(an), "unanalyzedRanges": len(results) - len(an),
+           "sources": {"runs": sum(1 for r in results if r["source"] == "runs"), "marks": sum(1 for r in results if r["source"] == "marks")},
+           "hit": len(hit), "hitRate": rate(len(hit), len(an)), "miss": len(miss), "missRate": rate(len(miss), len(an))}
+    top = {}
+    for n in TOPS:
+        k = sum(1 for r in hit if r["rank"] <= n)
+        top["top%d" % n] = {"hit": k, "rate": rate(k, len(an))}
+    top["all"] = {"hit": len(hit), "rate": rate(len(hit), len(an))}
+    out["top"] = top
+    out["bestRank"] = dist([r["rank"] for r in hit])
+    out["bestScore"] = dist([r["score"] for r in hit])
+    nd = [r["nearDistance"] for r in miss if r["nearDistance"] is not None]
+    out["misses"] = {"missed": len(miss), "nearDistance": dist(nd), "nearScore": dist([r["nearScore"] for r in miss]), "withNearAuto": len(nd),
+                     "noAuto": len(miss) - len(nd), "near15s": sum(1 for d in nd if d <= NEAR_SEC), "farOrNone": len(miss) - sum(1 for d in nd if d <= NEAR_SEC)}
+    # 点数の内訳(当たったいちばん上の候補に parts があるものだけ。無ければ None)
+    withp = [r for r in hit if r["parts"]]
+    if withp:
+        on = {k: sum(1 for r in withp if (num(r["parts"].get(k)) or 0) >= th) for k, th in PART_ON.items()}
+        dom = {k: 0 for k in PART_ON}
+        for r in withp:
+            vals = {k: num(r["parts"].get(k)) or 0 for k in PART_ON}
+            k = max(vals, key=lambda x: vals[x])
+            if vals[k] > 0:
+                dom[k] += 1
+        reasons = {}
+        for r in withp:
+            for t in r["reasons"] or []:
+                if isinstance(t, str):
+                    reasons[t] = reasons.get(t, 0) + 1
+        out["contribution"] = {"hits": len(withp), "on": on, "dominant": dom, "reasons": reasons, "thresholds": dict(PART_ON)}
+    else:
+        out["contribution"] = None
+    out["lengths"] = dist([r["length"] for r in results])
+    buckets = (("short", "%d秒未満" % FRIEND_SHORT, lambda x: x < FRIEND_SHORT), ("mid", "%d〜%d秒" % (FRIEND_SHORT, FRIEND_LONG), lambda x: FRIEND_SHORT <= x < FRIEND_LONG),
+               ("long", "%d秒以上" % FRIEND_LONG, lambda x: x >= FRIEND_LONG))
+    by_len = {}
+    for key, label, f in buckets:
+        a = [r for r in an if f(r["length"])]
+        h = sum(1 for r in a if r["hit"])
+        by_len[key] = {"label": label, "ranges": sum(1 for r in results if f(r["length"])), "analyzedRanges": len(a), "hit": h, "hitRate": rate(h, len(a))}
+    out["byLength"] = by_len
+    short = [r for r in hit if r["length"] < FRIEND_LONG]
+    out["edges"] = {"ranges": len(short), "dStart": dist([abs(r["dStart"]) for r in short]), "dEnd": dist([abs(r["dEnd"]) for r in short]),
+                    "dStartSigned": dist([r["dStart"] for r in short]), "dEndSigned": dist([r["dEnd"] for r in short])}
+    return out
+
+
+def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None):
+    """-> friendRanges(結果の新しいまとまり)。vmap = build_videos(日付で絞らない)の結果(自動の候補を引く)"""
+    data = read_json(os.path.join(studio, "data.json"), {})
+    dvideos = data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
+    per = collect_friend_ranges(load_friend_runs(app), dvideos, since_ms, until_ms)
+    results, by_video = [], []
+    for vid, rgs in per.items():
+        dv = dvideos.get(vid) if isinstance(dvideos.get(vid), dict) else {}
+        V = vmap.get(vid)
+        cands = ranked(V["auto"]) if V else []
+        arch = load_archive(studio, vid)
+        an = dv.get("analysis") if isinstance(dv.get("analysis"), dict) else {}
+        analyzed = bool(an) or arch is not None or bool(cands)
+        typ = an.get("type") or (arch or {}).get("type") or (V or {}).get("type") or "不明"
+        rs = [judge_friend_range(r, cands, analyzed) for r in sorted(rgs, key=lambda x: (x["start"], x["end"]))]
+        results += rs
+        g = friend_group(rs)
+        g.update(videoId=vid, title=str(dv.get("title") or "")[:80], type=typ, analyzed=analyzed, candidates=len(cands),
+                 items=[{k: r[k] for k in ("source", "start", "end", "length", "hit", "rank", "score", "hits", "dStart", "dEnd", "nearDistance", "nearScore", "nearRank")} for r in rs])
+        by_video.append(g)
+    overall = friend_group(results)
+    few = overall["analyzedRanges"] < FRIEND_FEW_RANGES or overall["analyzedVideos"] < FRIEND_FEW_VIDEOS
+    notes = []
+    if overall["unanalyzedRanges"]:
+        notes.append("解析していない配信の区間 %d 個(配信 %d 本)は「未解析」として別に数えました(自動の候補が無いので、見逃しには入れていません)。"
+                     "依頼のあとの解析が済むと比べられます" % (overall["unanalyzedRanges"], overall["unanalyzedVideos"]))
+    if overall["sources"]["marks"]:
+        notes.append("区間のうち %d 個は実行の記録に区間が無い以前の依頼で、スタジオのマーク(adoptedBy が request の手動マーク)から前後 %g 秒の余白を引いて戻しました。"
+                     "人がそのマークの状態を変えると印が外れるので、取りこぼしがあります" % (overall["sources"]["marks"], FRIEND_PAD))
+    return {"schema": "youtube-tools-friend-ranges/v1", "hitRule": {"midInside": True, "overlapOfCandidate": HIT_OVERLAP}, "few": few,
+            "fewNote": "まだ少ない(参考): 解析済みの区間が %d 個・配信が %d 本(解析済みの区間 %d 個・配信 %d 本のどちらかがこれ未満)。これで既定値を決めない"
+                       % (overall["analyzedRanges"], overall["analyzedVideos"], FRIEND_FEW_RANGES, FRIEND_FEW_VIDEOS) if few else "",
+            "notes": notes, "overall": overall, "byVideo": by_video}
+
+
+# ---------------------------------------------------------------- 人が選んだ区間の長さ(clipLength)と自動の長さの目安
+
+def len_dist(values):
+    """長さのそろい -> dist + p50(= median)"""
+    d = dist(values)
+    if d["n"]:
+        d["p50"] = d["median"]
+    return d
+
+
+def clip_samples(videos, allv, friend):
+    """人が選んだ区間の見本 -> [{"src": friend / manual / adjusted / kept, "videoId", "type", "start", "end", "length", "ratio"(山の位置の割合か None)}]
+    videos = 日付で絞った build_videos / allv = 絞らない build_videos(自動の候補の山を引く)/ friend = friend_ranges の結果"""
+    out = []
+
+    def cands_of(vid):
+        V = allv.get(vid)
+        return (ranked(V["auto"]) if V else []), ((V or {}).get("pre") or DEFAULT_PRE)
+
+    def add(src, vid, typ, s, e, own=None):
+        cands, pre = cands_of(vid)
+        out.append({"src": src, "videoId": vid, "type": typ, "start": s, "end": e, "length": round(e - s, 2), "ratio": peak_ratio(s, e, cands, pre, own)})
+
+    for v in friend["byVideo"]:
+        for it in v["items"]:
+            add("friend", v["videoId"], v["type"], it["start"], it["end"])
+    friend_by_vid = {v["videoId"]: v["items"] for v in friend["byVideo"]}
+    for vid in sorted(videos):
+        V = videos[vid]
+        # 手で足したマーク(manual_add)。依頼のマーク(adoptedBy が request)・友人の区間と同じ区間は friend で数えているので、ここでは数えない
+        req_ids = {m["markId"] for m in V["manual"] if m.get("adoptedBy") == "request" and m["markId"]}
+        finals = {m["markId"]: m for m in V["manual"] if m["markId"]}
+        frs = friend_by_vid.get(vid, [])
+        for ad in V["adds"]:
+            if ad["cancelled"] or ad["start"] is None or ad["end"] is None or (ad["markId"] and ad["markId"] in req_ids):
+                continue
+            s, e = ad["start"], ad["end"]
+            fin = finals.get(ad["markId"]) if ad["markId"] else None
+            if fin is not None:
+                s, e = fin["start"], fin["end"]   # 残っているマークは、人が直したあとの区間
+            if any(same((s, e), (f["start"], f["end"])) or same((s, e), (max(0.0, f["start"] - FRIEND_PAD), f["end"] + FRIEND_PAD)) for f in frs):
+                continue
+            if e > s:
+                add("manual", vid, V["type"], s, e)
+        # 自動マークを人が「良い」にしたもの: 端を 0.5 秒以上直した = adjusted(直したあとの長さ)/ 直さなかった = kept
+        for it in V["auto"]:
+            if it["verdict"] != "good" or it["dStart"] is None or it["dEnd"] is None or it["start"] is None or it["end"] is None or it["end"] <= it["start"]:
+                continue
+            edited = abs(it["dStart"]) >= EDIT_SEC or abs(it["dEnd"]) >= EDIT_SEC
+            add("adjusted" if edited else "kept", vid, V["type"], it["start"], it["end"], it)
+    return out
+
+
+def peak_of(it, pre):
+    """候補の山の時刻(秒)。項目 peak があればそれ。無ければ最初の自動区間 auto0 に preRatio を当てて戻す(開始 = 山 − 長さ × preRatio)"""
+    p = num(it.get("peak"))
+    if p is not None:
+        return p
+    a = it["a0"]
+    return a[0] + (a[1] - a[0]) * pre
+
+
+def peak_ratio(s, e, cands, pre, own=None):
+    """区間 (s, e) の中にある自動の候補の山(点数の高いものを優先。own があればそれを先に)の位置 = (山 − 開始) ÷ 長さ。無ければ None"""
+    if e <= s:
+        return None
+    for it in ([own] if own is not None else []) + cands:
+        p = peak_of(it, pre)
+        if s <= p <= e:
+            return round((p - s) / (e - s), 4)
+    return None
+
+
+def read_analyze_settings(studio):
+    """スタジオの保存した解析の設定(settings-ui.json の analyze)-> {"length", "preRatio"} か None(読めない・数でない)。読むだけ"""
+    d = read_json(os.path.join(studio, "settings-ui.json"), {})
+    a = d.get("analyze") if isinstance(d, dict) else None
+    if not isinstance(a, dict):
+        return None
+    length, pre = num(a.get("length")), num(a.get("preRatio"))
+    if length is None or pre is None:
+        return None
+    return {"length": length, "preRatio": pre}
+
+
+def clip_suggest(samples, kept_n, current):
+    """見本(friend・manual・adjusted。外れ値を除いたもの)-> 目安 suggest。kept は「今の設定のまま」の票なので中央値に入れず、数だけ添える"""
+    lens = [s["length"] for s in samples]
+    ratios = [s["ratio"] for s in samples if s["ratio"] is not None]
+    vids = {s["videoId"] for s in samples}
+    ld = dist(lens)
+    length = int(round(min(CL_LENGTH_MAX, max(CL_LENGTH_MIN, ld["median"])))) if lens else None
+    pre = round(min(CL_PRE_MAX, max(CL_PRE_MIN, dist(ratios)["median"])), 2) if len(ratios) >= CL_PRE_MIN_SAMPLES else None
+    enough = len(samples) >= CL_ENOUGH_SAMPLES and len(vids) >= CL_ENOUGH_VIDEOS
+    out = {"length": length, "preRatio": pre, "samples": len(samples), "videos": len(vids), "enough": enough,
+           "p25": ld.get("p25"), "p75": ld.get("p75"), "kept": kept_n, "preSamples": len(ratios), "current": current, "note": ""}
+    if not lens:
+        out["note"] = "人が選んだ長さの見本がまだありません(友人の区間・手で足したマーク・端を直した自動マーク)"
+        return out
+    out["note"] = "%s見本 %d 個(配信 %d 本): 長さの中央値 %d 秒(四分位 %s〜%s)・山の位置: %s%s%s" % (
+        "" if enough else "まだ少ない(参考): ", len(samples), len(vids), length, ld["p25"], ld["p75"],
+        "山の前 %.2f" % pre if pre is not None else "見本が %d 個未満で出せない" % CL_PRE_MIN_SAMPLES,
+        "。いまの設定: %g 秒・%g" % (current["length"], current["preRatio"]) if current else "。いまの設定は読めない",
+        "。直さずに良いにした自動マーク %d 個は含めていない" % kept_n if kept_n else "")
+    return out
+
+
+def clip_length(studio, videos, allv, friend):
+    """-> clipLength(結果の新しいまとまり)。作業データ・設定は読むだけ"""
+    samples = clip_samples(videos, allv, friend)
+    current = read_analyze_settings(studio)
+
+    def ok(s):
+        return CL_OUTLIER_MIN <= s["length"] <= CL_OUTLIER_MAX
+
+    def block(lst):
+        good = [s for s in lst if ok(s)]
+        return {"n": len(good), "videos": len({s["videoId"] for s in good}), "outliers": len(lst) - len(good), "length": len_dist([s["length"] for s in good])}
+
+    srcs = ("friend", "manual", "adjusted", "kept")
+    used = [s for s in samples if s["src"] != "kept"]
+    out = {"schema": "youtube-tools-clip-length/v1", "outlier": {"min": CL_OUTLIER_MIN, "max": CL_OUTLIER_MAX}, "editSec": EDIT_SEC,
+           "samples": dict({k: block([s for s in samples if s["src"] == k]) for k in srcs}, all=block(samples), used=block(used)),
+           "peakRatio": dict({k: dist([s["ratio"] for s in samples if s["src"] == k and ok(s)]) for k in srcs}, used=dist([s["ratio"] for s in used if ok(s)]))}
+    kept_n = sum(1 for s in samples if s["src"] == "kept" and ok(s))
+    out["suggest"] = clip_suggest([s for s in used if ok(s)], kept_n, current)
+    by_type = {}
+    for s in samples:
+        by_type.setdefault(s["type"], []).append(s)
+    out["byType"] = {}
+    for typ, lst in sorted(by_type.items()):
+        u = [s for s in lst if s["src"] != "kept" and ok(s)]
+        out["byType"][typ] = {"samples": {k: block([s for s in lst if s["src"] == k])["n"] for k in srcs},
+                              "suggest": clip_suggest(u, sum(1 for s in lst if s["src"] == "kept" and ok(s)), current)}
+    return out
+
+
 def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     """-> 結果の辞書(JSON にする形)。作業データは読むだけ"""
     env, studio, app = locate(data_dir)
@@ -450,7 +821,11 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     for V in vlist:
         g = group_metrics([V])
         by_video.append(dict(g, videoId=V["id"], title=V["title"], type=V["type"]))
-    return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video}
+    # 友人が時刻で指定した区間: 自動の候補は日付で絞らない(絞るのは区間の時刻)
+    allv = build_videos(studio, load_feedback(studio), runs, env, None, None, status_fallback)[0]
+    friend = friend_ranges(studio, app, allv, since_ms, until_ms)
+    clip = clip_length(studio, videos, allv, friend)
+    return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
 
 
 def git_rev():
@@ -481,6 +856,73 @@ def print_group(title, g):
     print("    採用の取り消し %d(候補に戻した %d・採用したものを削除 %d)" % (r["total"], r["unadopt"], r["deleteJudged"]))
 
 
+def print_friend(fr):
+    """友人が時刻で指定した区間の節"""
+    o = fr["overall"]
+    print("")
+    print("友人が時刻で指定した区間(自動の候補を見ずに人が選んだ見どころ。当たり = 区間に重なる自動の候補がある)")
+    if not o["ranges"]:
+        print("  (まだありません。依頼に区間を付けた配信が貯まると測れます)")
+        return
+    if fr["fewNote"]:
+        print("★ " + fr["fewNote"])
+    print("  区間 %d 個(配信 %d 本)= 解析済み %d 個(配信 %d 本)・未解析 %d 個(配信 %d 本)。出どころ: 実行の記録 %d・マーク %d"
+          % (o["ranges"], o["videos"], o["analyzedRanges"], o["analyzedVideos"], o["unanalyzedRanges"], o["unanalyzedVideos"], o["sources"]["runs"], o["sources"]["marks"]))
+    if o["analyzedRanges"]:
+        t = o["top"]
+        print("  拾えた率(解析済みの区間に対して): 上位5 %s・上位10 %s・上位20 %s・全部 %s(%d / %d)"
+              % (pct(t["top5"]["rate"]).strip(), pct(t["top10"]["rate"]).strip(), pct(t["top20"]["rate"]).strip(), pct(t["all"]["rate"]).strip(), o["hit"], o["analyzedRanges"]))
+        br, bs = o["bestRank"], o["bestScore"]
+        if br.get("n"):
+            print("  当たった候補のいちばん上の順位: 中央値 %s・90%% %s・最悪 %s / 点数: 中央値 %s" % (br["median"], br["p90"], br["max"], bs.get("median", "-")))
+        m = o["misses"]
+        print("  見逃し %d 個(%s)。近くの候補: 区間の端からの距離の中央値 %s 秒・点数の中央値 %s・%d 秒以内 %d 個・遠いか候補なし %d 個"
+              % (m["missed"], pct(o["missRate"]).strip(), m["nearDistance"].get("median", "-"), m["nearScore"].get("median", "-"), NEAR_SEC, m["near15s"], m["farOrNone"]))
+        c = o["contribution"]
+        if c:
+            print("  点数の内訳(当たった候補 %d 個。効いた = 音声・チャット %.1f 以上 / コメント %.1f 以上): 音声 %d・チャット %d・コメント %d / いちばん大きい成分: 音声 %d・チャット %d・コメント %d"
+                  % (c["hits"], PART_ON["audio"], PART_ON["comments"], c["on"]["audio"], c["on"]["chat"], c["on"]["comments"], c["dominant"]["audio"], c["dominant"]["chat"], c["dominant"]["comments"]))
+        ln = o["lengths"]
+        print("  区間の長さ: 中央値 %s 秒・90%% %s 秒 / 長さごとの拾えた率: %s" % (ln.get("median", "-"), ln.get("p90", "-"),
+              "・".join("%s %s(%d / %d)" % (b["label"], pct(b["hitRate"]).strip(), b["hit"], b["analyzedRanges"]) for b in o["byLength"].values())))
+        e = o["edges"]
+        if e["ranges"]:
+            print("  端のずれ(%d 秒未満で当たった %d 個。候補 − 区間): 開始 中央値 %s 秒・90%% %s 秒 / 終了 中央値 %s 秒・90%% %s 秒(絶対値)"
+                  % (FRIEND_LONG, e["ranges"], e["dStart"].get("median"), e["dStart"].get("p90"), e["dEnd"].get("median"), e["dEnd"].get("p90")))
+    print("  [配信ごと]")
+    for v in fr["byVideo"]:
+        if v["analyzed"]:
+            print("    %s %-6s 区間 %d 個: 拾えた %d・見逃し %d(候補 %d 個)  %s" % (v["videoId"], v["type"], v["ranges"], v["hit"], v["miss"], v["candidates"], v["title"][:30]))
+        else:
+            print("    %s %-6s 区間 %d 個: 未解析  %s" % (v["videoId"], v["type"], v["ranges"], v["title"][:30]))
+    for n in fr["notes"]:
+        print("注意: " + n)
+
+
+def print_clip_length(cl):
+    """人が選んだ区間の長さと、自動の長さの目安の節"""
+    print("")
+    print("人が選んだ区間の長さ(自動の長さの目安。%g 秒未満・%g 秒超は外れ値で数に入れない)" % (CL_OUTLIER_MIN, CL_OUTLIER_MAX))
+    names = (("friend", "友人の区間"), ("manual", "手で足した"), ("adjusted", "端を直した自動"), ("kept", "直さなかった自動(今の設定のまま)"), ("used", "目安に使う分(上の3つ)"))
+    if not cl["samples"]["all"]["n"] and not cl["samples"]["all"]["outliers"]:
+        print("  (見本がまだありません)")
+    else:
+        print("    %-26s %5s %5s %5s %7s %7s %7s %6s" % ("出どころ", "個", "配信", "外れ", "25%", "中央値", "75%", "山の位置"))
+        for k, label in names:
+            b = cl["samples"][k]
+            d = b["length"]
+            pr = cl["peakRatio"][k]
+            print("    %-24s %5d %5d %5d %7s %7s %7s %6s" % (label, b["n"], b["videos"], b["outliers"], d.get("p25", "-"), d.get("p50", "-"), d.get("p75", "-"), pr.get("median", "-")))
+    s = cl["suggest"]
+    if s["enough"] is False and s["samples"]:
+        print("★ まだ少ない(参考): 見本 %d 個・配信 %d 本(%d 個・%d 本以上で目安にする)" % (s["samples"], s["videos"], CL_ENOUGH_SAMPLES, CL_ENOUGH_VIDEOS))
+    print("  目安: " + s["note"])
+    for typ, t in cl["byType"].items():
+        ts = t["suggest"]
+        if ts["samples"]:
+            print("    [%s] 長さ %s 秒・山の前 %s(見本 %d 個・配信 %d 本%s)" % (typ, ts["length"], ts["preRatio"] if ts["preRatio"] is not None else "-", ts["samples"], ts["videos"], "" if ts["enough"] else "・まだ少ない"))
+
+
 def print_report(res):
     m = res["meta"]
     rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
@@ -489,6 +931,8 @@ def print_report(res):
         print("★ " + m["fewNote"])
     if not m["videos"]:
         print("(データがありません。スタジオでマークを判定すると貯まります)")
+        print_friend(res["friendRanges"])
+        print_clip_length(res["clipLength"])
         return
     print_group("全体", res["overall"])
     for k, g in res["byType"].items():
@@ -499,6 +943,8 @@ def print_report(res):
         print("    %s %-6s 採用率 %s(判定 %d / 件 %d)見逃し %d  %s" % (v["videoId"], v["type"], pct(f["adoptRate"]), f["judged"], f["items"], v["misses"]["added"], v["title"][:30]))
     for n in m["notes"]:
         print("注意: " + n)
+    print_friend(res["friendRanges"])
+    print_clip_length(res["clipLength"])
 
 
 def save(res, studio):

@@ -96,7 +96,10 @@ class ErrorsTest(unittest.TestCase):
             f.write(json.dumps({"state": "error", "created": int((now - 3600) * 1000)}) + "\n")
             f.write(json.dumps({"state": "done", "created": int((now - 3600) * 1000)}) + "\n")
             f.write(json.dumps({"state": "error", "created": int((now - 10 * 86400) * 1000)}) + "\n")
-        self.assertEqual(H.count_autorun_failed(p, now), 1)
+            # あとから解析(測るため)の失敗は数えない(依頼の失敗に見せない。2026-10-05)
+            f.write(json.dumps({"state": "error", "mode": "post_analyze", "created": int((now - 3600) * 1000)}) + "\n")
+            f.write(json.dumps({"state": "error", "mode": "request", "created": int((now - 3600) * 1000)}) + "\n")
+        self.assertEqual(H.count_autorun_failed(p, now), 2)
 
 
 NS = "http://schemas.microsoft.com/win/2004/08/events/event"

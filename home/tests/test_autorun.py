@@ -40,6 +40,7 @@ class FakeTools:
         self.packed = []          # POST /api/edit/pack
         self.fail_tx = False
         self.hold = False         # True のあいだジョブを進めない(中止のテスト)
+        self.hold_q = False       # True のあいだ解析だけ進めない(あとから解析を止めるテスト)
         self.review = {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16}
         self.analyze = None       # スタジオの画面で保存した解析の設定(settings.analyze。段階7-1)
         self.row_edge = None      # 「編集」の「行から」の設定(文字起こしの settings.rowEdge。⑥)
@@ -79,12 +80,19 @@ class FakeTools:
 
     def h_studio_POST_api_queue_add(self, path, body):
         self.known = True
-        self.queue.append({"qid": "q1", "videoId": VID, "status": "running", "progress": 0.0, "phase": "解析"})
-        return 200, {"added": [{"qid": "q1", "videoId": VID}], "rejected": []}
+        qid = "q%d" % (len(self.queue) + 1)
+        self.queue.append({"qid": qid, "videoId": VID, "status": "running", "progress": 0.0, "phase": "解析"})
+        return 200, {"added": [{"qid": qid, "videoId": VID}], "rejected": []}
+
+    def h_studio_POST_api_queue_cancel(self, path, body):
+        for q in self.queue:
+            if q["qid"] == body.get("qid") and q["status"] == "running":
+                q["status"] = "cancelled"
+        return 200, {"ok": True}
 
     def h_studio_GET_api_queue(self, path, body):
         for q in self.queue:
-            if q["status"] == "running" and not self.hold:
+            if q["status"] == "running" and not self.hold and not self.hold_q:
                 q["status"], q["marks"] = "done", 3
                 self.video["analysis"] = {"at": 2}
                 self.video["marks"] += [{"id": "a%d" % i, "src": "auto", "status": "", "score": s, "start": i * 10, "end": i * 10 + 5}
@@ -1252,6 +1260,471 @@ class TestRequests(Base):
                 A.clean_ranges(bad)
         res = self.r.start_request([{"id": VID, "top": 1, "ranges": [[5, 1]]}])
         self.assertEqual((res["runs"], res["skipped"][0]["reason"]), ([], "区間の指定が正しくありません"))
+
+
+class TestDeferred(Base):
+    """あとから解析(測るため。2026-10-05): 区間だけで終わった依頼(URL)の配信を一覧に足し、待ちが無くなったらスタジオの設定で解析する。
+    新しい実行が入ったら止めて一覧に戻す。一覧は logs/autorun-deferred.json(起動し直しても続く)"""
+    marks = []
+    analysis = False
+
+    def setUp(self):
+        super().setUp()
+        self.r.close()
+        from unittest import mock
+        self.env_patch = mock.patch.dict(os.environ)
+        self.env_patch.start()
+        os.environ.pop(A.DEFER_ENV, None)   # 開発者のシェルで off にしていても、このテストは on で流す
+        self.logs = os.path.join(self.tmp, "logs")
+        self.tools.analyze = {"count": 12}   # スタジオで保存した解析の設定
+        self.r = self.runner()
+
+    def tearDown(self):
+        self.r.close()
+        self.env_patch.stop()
+        super().tearDown()
+
+    def runner(self, **kw):
+        import cases
+        kw.setdefault("defer_idle", 0)
+        kw.setdefault("defer_retry", 0)
+        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack,
+                            log_dir=self.logs, **kw)
+
+    @property
+    def defer_path(self):
+        return os.path.join(self.logs, A.DEFER_FILE)
+
+    def until(self, fn, msg="", timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            got = fn()
+            if got:
+                return got
+            time.sleep(0.01)
+        self.fail("待ちきれません: %s" % msg)
+
+    def lines(self):
+        return A.read_runs_log(os.path.join(self.logs, A.RUNS_LOG))
+
+    def logged(self, run_id):
+        """実行の記録に書かれるまで待つ(一覧への足し・外しは記録より先に済んでいる)"""
+        return self.until(lambda: next((x for x in self.lines() if x["id"] == run_id), None), "記録 %s" % run_id)
+
+    def posts(self):
+        return [r for r in self.r.snapshot()["runs"] if r["mode"] == A.POST_MODE]
+
+    def ranges_request(self, ranges=((50, 60),), **kw):
+        self.tools.known = False
+        item = {"id": VID, "top": 1, "title": "配信", "channel": "ch", "ranges": list(ranges)}
+        return self.r.start_request([item], request_id=kw.pop("request_id", "rid1"), **kw)["runs"][0]
+
+    def write_defer(self, items, **extra):
+        os.makedirs(self.logs, exist_ok=True)
+        with open(self.defer_path, "w", encoding="utf-8") as f:
+            json.dump(dict({"v": 1, "items": items, "dropped": []}, **extra), f, ensure_ascii=False)
+
+    def item(self, **kw):
+        return dict({"videoId": VID, "title": "配信", "added": int(time.time() * 1000), "tries": 0, "reason": "", "lastTry": None, "requestId": "rid0"}, **kw)
+
+    def test_ranges_only_request_is_analyzed_later(self):
+        """区間だけの依頼が終わる → 一覧に入る → 待ちが無いので解析(スタジオの保存した設定。友人の重みは使わない)→ 一覧から外す。
+        友人へは何も届けない・依頼の id を持たない・実行の記録に mode で残る・依頼の行には videoId と ranges(余白の前)"""
+        self.tools.hold_q = True
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        req = self.ranges_request(flow="auto", deliver_dir=out, weights={"wAudio": 2.0, "wChat": 0.5, "wComments": 0.5})
+        rec = self.logged(req["id"])
+        self.assertEqual((rec["state"], rec["mode"], rec["videoId"], rec["ranges"]), ("done", "request_auto", VID, [[50.0, 60.0]]), rec)
+        self.assertNotIn("analyze", [s["key"] for s in rec["steps"]])
+        post = self.until(lambda: next((p for p in self.posts() if p["state"] == "running"), None), "あとから解析が始まる")
+        d = self.r.deferred()
+        self.assertEqual(([(i["videoId"], i["tries"], i["requestId"]) for i in d["items"]], d["running"]), ([(VID, 0, "rid1")], VID))
+        with open(self.defer_path, encoding="utf-8") as f:
+            self.assertEqual([i["videoId"] for i in json.load(f)["items"]], [VID], "一覧はファイルにある(解析の最中も残す)")
+        self.assertEqual((post["modeLabel"], post["requestId"], post["ranges"], [s["key"] for s in post["steps"]]),
+                         ("あとから解析(測るため)", None, None, ["analyze"]))
+        self.until(lambda: any(c[2] == "/api/queue/add" for c in self.tools.calls), "解析のキューに入れる")
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[-1][3]["settings"], {"count": 12}, "スタジオで保存した設定のまま(友人の重みは使わない)")
+        self.tools.hold_q = False
+        rec = self.logged(post["id"])
+        self.assertEqual((rec["state"], rec["mode"], rec["modeLabel"], rec["requestId"], rec["videoId"]),
+                         ("done", A.POST_MODE, "あとから解析(測るため)", None, VID), rec)
+        self.assertIn("友人には何も届けません", rec["message"])
+        self.assertEqual(self.r.deferred()["items"], [])
+        self.assertEqual(sorted(os.listdir(out)), ["rid1__r1.zip"], "あとから解析は届けない(依頼のパックだけ)")
+        rng = next(m for m in self.tools.video["marks"] if m["id"] == "r1")
+        self.assertEqual((rng["src"], rng["status"]), ("manual", "exported"))
+        # 案件の行の「前回」は依頼の結果のまま(あとから解析は past に入れない。history には残る)
+        self.r.close()
+        self.r = self.runner()
+        self.assertEqual([(p["mode"], p["state"]) for p in self.r.snapshot()["past"]], [("request_auto", "done")])
+        self.assertEqual([x["mode"] for x in self.r.history()["runs"]], [A.POST_MODE, "request_auto"])
+        time.sleep(0.1)
+        self.assertEqual(self.posts(), [], "一覧が空なら何もしない")
+
+    def test_not_deferred(self):
+        """解析した依頼・③・取り消した依頼・区間のマークを作る前に止まった依頼・まとめて実行は一覧に入れない"""
+        self.tools.known = False
+        r1 = self.r.start_request([{"id": VID, "top": 2, "ranges": [(50, 60)]}], request_id="a")["runs"][0]   # 区間が足りない = 解析あり
+        self.assertEqual(self.logged(r1["id"])["steps"][0]["key"], "analyze")
+        r2 = self.r.start_request([{"id": VID, "top": 1, "ranges": [(50, 60)]}], flow="manual")["runs"][0]
+        self.logged(r2["id"])
+        self.tools.hold = True
+        r3 = self.ranges_request(ranges=[(70, 80)])   # 新しい区間(書き出しで止まる。前の区間だと書き出し済みですぐ終わる)
+        self.until(lambda: next(x for x in self.r.snapshot()["runs"] if x["id"] == r3["id"])["steps"][1]["state"] == "run", "書き出しの途中")
+        self.r.cancel(r3["id"])
+        self.assertEqual(self.logged(r3["id"])["state"], "cancelled")
+        self.tools.hold = False
+        self.tools.h_studio_POST_api_video_request_marks = lambda path, body: (400, {"message": "区間がおかしい"})
+        r4 = self.ranges_request()
+        self.assertEqual(self.logged(r4["id"])["state"], "error")
+        self.logged(self.r.start(VID, "adopted")["id"])
+        self.assertEqual(self.r.deferred()["items"], [])
+        self.assertEqual(self.posts(), [])
+
+    def test_error_after_ranges_is_deferred(self):
+        """区間のマークを作ったあとで止まった(一部失敗)依頼は入れる"""
+        self.tools.fail_tx = True
+        self.tools.hold_q = True
+        r = self.ranges_request()
+        self.assertEqual(self.logged(r["id"])["state"], "error")
+        self.assertEqual([i["videoId"] for i in self.r.deferred()["items"]], [VID])
+
+    def test_off_env(self):
+        """YTT_DEFER_ANALYZE=off: 一覧に足さない・残っている一覧も始めない"""
+        os.environ[A.DEFER_ENV] = "off"
+        self.r.close()
+        self.write_defer([self.item(videoId="zzzzzzzzzzz")])
+        self.r = self.runner()
+        r = self.ranges_request()
+        self.logged(r["id"])
+        time.sleep(0.1)
+        self.assertEqual(([i["videoId"] for i in self.r.deferred()["items"]], self.posts()), (["zzzzzzzzzzz"], []))
+        self.assertFalse(self.r.deferred()["on"])
+
+    def test_analyzed_or_missing_is_just_removed(self):
+        """スタジオで解析済みなら何もせず外す・スタジオに無ければ外す(どちらも理由を dropped に)"""
+        self.r.close()
+        self.tools.video["analysis"] = {"at": 9}
+        self.write_defer([self.item()])
+        self.r = self.runner()
+        d = self.until(lambda: (lambda d: d if d["dropped"] else None)(self.r.deferred()), "外れる")
+        self.assertEqual((d["items"], d["dropped"][0]["videoId"]), ([], VID))
+        self.assertIn("解析済み", d["dropped"][0]["reason"])
+        self.r.close()
+        self.tools.known = False
+        self.write_defer([self.item()])
+        self.r = self.runner()
+        d = self.until(lambda: (lambda d: d if d["dropped"] else None)(self.r.deferred()), "外れる")
+        self.assertIn("スタジオに配信がありません", d["dropped"][0]["reason"])
+        self.assertFalse(any(c[2] == "/api/queue/add" for c in self.tools.calls))
+        self.assertEqual(self.posts(), [])
+
+    def test_new_run_preempts_and_resumes(self):
+        """あとから解析の最中に新しい実行(同じ配信でもよい)が入る → すぐ止めて(スタジオの解析も取り消す)一覧に戻す(回数は増やさない)
+        → 新しい実行が先に終わる → また始まる"""
+        self.r.close()
+        self.write_defer([self.item()])
+        self.tools.hold_q = True
+        self.r = self.runner()   # 起動し直した入口: 残った一覧を続ける
+        first = self.until(lambda: next((p for p in self.posts() if p["state"] == "running"), None), "始まる")
+        self.until(lambda: any(q["status"] == "running" for q in self.tools.queue), "解析のキュー")
+        new = self.r.start(VID, "adopted")   # あとから解析は「すでに実行中」の理由にしない
+        rec = self.logged(first["id"])
+        self.assertEqual(rec["state"], "cancelled")
+        self.assertIn("新しい実行を先に", rec["message"])
+        cancels = [c for c in self.tools.calls if c[2] == "/api/queue/cancel"]
+        self.assertEqual([c[3] for c in cancels], [{"qid": "q1"}], "スタジオの解析も取り消す")
+        self.assertEqual(self.tools.queue[0]["status"], "cancelled")
+        self.assertEqual(self.r.deferred()["items"][0]["tries"], 0, "止めただけでは回数を増やさない")
+        new_rec = self.logged(new["id"])
+        second = self.until(lambda: next((p for p in self.posts() if p["id"] != first["id"]), None), "また始まる")
+        self.assertGreaterEqual(second["created"], new_rec["finished"], "新しい実行が終わってから")
+        self.tools.hold_q = False
+        self.assertEqual(self.logged(second["id"])["state"], "done")
+        self.assertEqual(self.r.deferred()["items"], [])
+
+    def test_close_keeps_list_and_restart_continues(self):
+        """入口を終える(解析の最中)→ 一覧に残る(回数はそのまま)→ 起動し直すと続けて解析する"""
+        self.tools.hold_q = True
+        r = self.ranges_request()
+        self.logged(r["id"])
+        post = self.until(lambda: next((p for p in self.posts() if p["state"] == "running"), None), "始まる")
+        self.until(lambda: any(q["status"] == "running" for q in self.tools.queue), "解析のキュー")
+        self.r.close()
+        self.assertIn("次に起動したときに続けます", self.logged(post["id"])["message"])
+        with open(self.defer_path, encoding="utf-8") as f:
+            self.assertEqual([(i["videoId"], i["tries"]) for i in json.load(f)["items"]], [(VID, 0)])
+        self.tools.hold_q = False
+        self.r = self.runner()
+        p2 = self.until(lambda: next((p for p in self.posts() if p["state"] == "done"), None), "続きの解析が終わる")
+        self.assertEqual(p2["mode"], A.POST_MODE)
+        self.until(lambda: self.r.deferred()["items"] == [] or None, "一覧から外れる")
+
+    def test_three_failures_and_expiry(self):
+        """3 回失敗したら捨てる(理由を残す)・失敗は記録に mode post_analyze の失敗として1行ずつ。14 日たったものも捨てる"""
+        self.tools.h_studio_POST_api_queue_add = lambda path, body: (200, {"added": [], "rejected": [{"reason": "yt-dlp が見つかりません"}]})
+        r = self.ranges_request()
+        self.logged(r["id"])
+        d = self.until(lambda: (lambda d: d if d["dropped"] else None)(self.r.deferred()), "捨てる")
+        self.assertEqual(d["items"], [])
+        self.assertIn("3 回失敗したので捨てました", d["dropped"][0]["reason"])
+        self.assertIn("yt-dlp が見つかりません", d["dropped"][0]["reason"])
+        posts = self.until(lambda: (lambda xs: xs if len(xs) == 3 else None)([x for x in self.lines() if x["mode"] == A.POST_MODE]), "3行")
+        self.assertEqual([x["state"] for x in posts], ["error"] * 3)
+        self.assertIn("もう解析しません", posts[-1]["message"])
+        self.r.close()
+        old = int((time.time() - 15 * 86400) * 1000)
+        self.write_defer([self.item(added=old)])
+        self.r = self.runner()
+        d = self.until(lambda: (lambda d: d if d["dropped"] else None)(self.r.deferred()), "捨てる")
+        self.assertIn("14 日たったので", d["dropped"][0]["reason"])
+        time.sleep(0.1)
+        self.assertEqual((len([x for x in self.lines() if x["mode"] == A.POST_MODE]), self.posts()), (3, []), "捨てたものは解析しない")
+
+    def test_stop_for_restart(self):
+        """「起動し直す」の前(stop_deferred): 止めて(スタジオの解析も取り消す)止まるまで待つ・回数は増やさない・しばらく次を始めない"""
+        self.assertTrue(self.r.stop_deferred(hold=0))   # 動いていなければすぐ
+        self.r.close()
+        self.write_defer([self.item()])
+        self.tools.hold_q = True
+        self.r = self.runner()
+        post = self.until(lambda: next((p for p in self.posts() if p["state"] == "running"), None), "始まる")
+        self.until(lambda: any(q["status"] == "running" for q in self.tools.queue), "解析のキュー")
+        self.assertTrue(self.r.stop_deferred(hold=3600))
+        cur = next(p for p in self.posts() if p["id"] == post["id"])
+        self.assertEqual(cur["state"], "cancelled")
+        self.assertIn("起動し直すため止めました", self.logged(post["id"])["message"])
+        self.assertEqual(self.tools.queue[0]["status"], "cancelled")
+        self.assertEqual(self.r.deferred()["items"][0]["tries"], 0)
+        time.sleep(0.1)
+        self.assertEqual(len(self.posts()), 1, "しばらく次を始めない")
+
+    def test_user_cancel_counts_as_try(self):
+        """人が中止した: 失敗と同じに数えて、少し待ってから試し直す"""
+        self.r.close()
+        self.write_defer([self.item()])
+        self.tools.hold_q = True
+        self.r = self.runner(defer_retry=3600)
+        post = self.until(lambda: next((p for p in self.posts() if p["state"] == "running"), None), "始まる")
+        self.r.cancel(post["id"])
+        self.logged(post["id"])
+        it, = self.r.deferred()["items"]
+        self.assertEqual((it["tries"], it["reason"]), (1, "中止しました"))
+        time.sleep(0.1)
+        self.assertEqual(len(self.posts()), 1, "すぐには始めない")
+
+    def test_import_old_requests_once(self):
+        """この機能の前の依頼: 起動のあと1回、実行の記録(今のファイルと .1)から区間だけで終わった依頼を足す(新しい順に 20 本・30 日以内)"""
+        self.r.close()
+        now = int(time.time() * 1000)
+        step = lambda k, s="done": {"key": k, "state": s}
+        base = {"v": 1, "kind": "video", "docId": None, "mode": "request", "state": "done", "ranges": [[1.0, 2.0]], "requestId": "old",
+                "steps": [step("adopt"), step("export"), step("transcribe")]}
+        recs = [dict(base, id="ok%02d" % i, videoId="v%010d" % i, title="t%d" % i, finished=now - (30 - i) * 3600000) for i in range(25)]
+        recs += [dict(base, id="an", videoId="analyzed000", finished=now, steps=[step("analyze")] + base["steps"]),
+                 dict(base, id="ca", videoId="cancelled00", finished=now, state="cancelled"),
+                 dict(base, id="ol", videoId="tooold00000", finished=now - 31 * 86400000),
+                 dict(base, id="ma", videoId="manual00000", finished=now, mode="request_manual", ranges=None, steps=[step("analyze")]),
+                 dict(base, id="er", videoId="adopterr000", finished=now, state="error", steps=[step("adopt", "error")]),
+                 dict(base, id="nr", videoId="noranges000", finished=now, ranges=None),
+                 dict(base, id="fu", videoId="fullrun0000", finished=now, mode="full"),
+                 dict(base, id="pe", videoId="parterr0000", finished=now, state="error", steps=[step("adopt"), step("export", "error")])]
+        os.makedirs(self.logs)
+        log = os.path.join(self.logs, A.RUNS_LOG)
+        with open(log + ".1", "w", encoding="utf-8") as f:   # 古い方(.1)にもある
+            f.write("".join(json.dumps(x) + "\n" for x in recs[:10]))
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(x) + "\n" for x in recs[10:]))
+        self.r = self.runner(defer_idle=3600)   # 始めない(取り込みだけ見る)
+        d = self.r.deferred()
+        got = [i["videoId"] for i in d["items"]]
+        self.assertEqual(len(got), A.DEFER_IMPORT_MAX)
+        self.assertEqual(got[0], "parterr0000", "一部失敗も入る・新しい順")
+        self.assertEqual(got[1:], ["v%010d" % i for i in range(24, 5, -1)])
+        self.assertFalse({"analyzed000", "cancelled00", "tooold00000", "manual00000", "adopterr000", "noranges000", "fullrun0000"} & set(got))
+        self.assertEqual((d["items"][1]["title"], d["items"][1]["tries"], d["items"][1]["requestId"]), ("t24", 0, "old"))
+        with open(self.defer_path, encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertTrue(saved["imported"])
+        # 2回目の起動では取り込まない(一覧を空にしておいても戻らない)
+        self.r.close()
+        self.write_defer([], imported=saved["imported"])
+        self.r = self.runner(defer_idle=3600)
+        self.assertEqual(self.r.deferred()["items"], [])
+
+    def test_studio_replace_auto_keeps_request_marks(self):
+        """スタジオの解析の結果の反映(store.replace_auto)は、依頼の区間のマーク(手動・採用済み・書き出し済み)を残す。
+        スタジオの部品は名前が重なるので、別のプロセスで本物の store を動かして確かめる"""
+        import subprocess
+        studio = os.path.join(os.path.dirname(HERE), "studio")
+        code = r'''
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import common, store
+d = tempfile.mkdtemp(); common.set_home(d)
+st = store.Store(os.path.join(d, "data.json"))
+vid = "reqdefer001"
+st.ensure({"kind": "youtube", "videoId": vid, "name": vid}, "t", "c")
+rids, _aids, _v = st.request_marks(vid, [[98.0, 192.0], [10.0, 20.0], [300.0, 330.0]], 0)
+v = st.get(vid)[0]
+os.makedirs(os.path.join(d, "out"), exist_ok=True)
+clip = os.path.join(d, "out", "c.mp4"); open(clip, "wb").close()
+m = next(x for x in v["marks"] if x["id"] == rids[1])
+st.mark_exported(vid, rids[1], "c.mp4", m["start"], m["end"], clip)
+before = {x["id"]: (x["src"], x["status"], x["start"], x["end"]) for x in st.get(vid)[0]["marks"]}
+cand = lambda s, e, sc: {"start": s, "end": e, "score": sc, "reasons": ["x"], "peak": s + 1, "parts": {}}
+n = st.replace_auto(vid, [cand(98.2, 191.8, 9.0), cand(12, 18, 5.0), cand(500, 520, 3.0)], {"spec": {}}, 3600.0, {})
+after = {x["id"]: (x["src"], x["status"], x["start"], x["end"]) for x in st.get(vid)[0]["marks"]}
+print(json.dumps({"rids": rids, "before": before, "after": after, "n": n, "analysis": bool(st.get(vid)[0].get("analysis"))}))
+'''
+        env = dict(os.environ, YTT_DATA_DIR="inplace", PYTHONIOENCODING="utf-8")
+        p = subprocess.run([sys.executable, "-c", code, studio], capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        got = json.loads(p.stdout.strip().splitlines()[-1])
+        for rid in got["rids"]:
+            self.assertEqual(got["after"][rid], got["before"][rid], "区間のマークはそのまま: %s" % rid)
+        self.assertEqual([got["after"][r][:2] for r in got["rids"]], [["manual", "adopted"], ["manual", "exported"], ["manual", "adopted"]])
+        self.assertTrue(got["analysis"])
+        # 区間と ±0.5 秒で同じ候補(98.2〜191.8)は作られない(測る道具が知っておくこと)・重なるだけの候補(12〜18)と別の所(500〜)は入る
+        autos = sorted(v[2:] for k, v in got["after"].items() if v[0] == "auto")
+        self.assertEqual((got["n"], autos), (2, [[12.0, 18.0], [500.0, 520.0]]))
+
+
+class TestFriendLength(Base):
+    """友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05): dev/eval_marks.py --json の結果の clipLength(友人の区間)を読み、
+    依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length・preRatio に重ねる"""
+    marks = []
+    analysis = False
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        self.env_patch = mock.patch.dict(os.environ)
+        self.env_patch.start()
+        os.environ.pop(A.FRIEND_LENGTH_ENV, None)
+        self.logs = []
+        self.r.log = self.logs.append
+        self.tools.analyze = {"count": 12, "length": 45, "preRatio": 0.65}
+        self.tools.known = False
+        import cases
+        self.folder = os.path.join(os.path.dirname(cases.locations(self.r.root, self.env)["studio"]), "evals", "marks")
+
+    def tearDown(self):
+        self.env_patch.stop()
+        super().tearDown()
+
+    def write_eval(self, n=20, videos=5, p50=38.4, pre_n=10, pre_med=0.6123, age_days=0, raw=None):
+        os.makedirs(self.folder, exist_ok=True)
+        name = time.strftime("%Y%m%d-%H%M%S", time.localtime(time.time() - age_days * 86400)) + ".json"
+        res = {"clipLength": {"samples": {"friend": {"n": n, "videos": videos, "outliers": 0, "length": {"n": n, "p50": p50, "median": p50}}},
+                              "peakRatio": {"friend": {"n": pre_n, "median": pre_med}}}}
+        with open(os.path.join(self.folder, name), "w", encoding="utf-8") as f:
+            f.write(raw if raw is not None else json.dumps(res))
+        return name
+
+    def run_request(self, **kw):
+        res = self.r.start_request([{"id": VID, "top": 3, "ranges": [(50, 60)]}], request_id="rid", **kw)   # 区間が足りない = 解析あり
+        end = time.time() + 10
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == res["runs"][0]["id"])
+            if cur["state"] not in ("queued", "running"):
+                return cur
+            time.sleep(0.01)
+        self.fail("終わらない")
+
+    def settings(self):
+        adds = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        return adds[-1][3]["settings"] if adds else None
+
+    def test_used_when_enough(self):
+        name = self.write_eval()
+        run = self.run_request(weights={"wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
+        self.assertEqual(run["state"], "done", run)
+        self.assertEqual(self.settings(), {"count": 12, "length": 38, "preRatio": 0.61, "wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
+        self.assertEqual(run["friendLength"], {"length": 38, "preRatio": 0.61, "file": name, "samples": 20, "videos": 5})
+        self.assertIn("長さ 38 秒・山の前 0.61(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
+
+    def test_not_enough(self):
+        for n, videos in ((19, 5), (20, 4)):
+            self.tools.calls.clear()
+            self.tools.queue.clear()
+            self.tools.video["analysis"] = None
+            for f in os.listdir(self.folder) if os.path.isdir(self.folder) else []:
+                os.remove(os.path.join(self.folder, f))
+            self.write_eval(n=n, videos=videos)
+            run = self.run_request()
+            self.assertEqual((self.settings(), run["friendLength"]), ({"count": 12, "length": 45, "preRatio": 0.65}, None), (n, videos))
+        self.assertTrue(any("見本がまだ少ない" in x for x in self.logs), self.logs)
+
+    def test_clamp_and_no_pre(self):
+        self.write_eval(p50=150, pre_n=9)
+        self.assertEqual(self.r._friend_length()["length"], 120)
+        self.assertNotIn("preRatio", self.r._friend_length())
+        self.write_eval(p50=4.2, pre_n=30, pre_med=0.95)   # 新しいファイルを読む
+        fl = self.r._friend_length()
+        self.assertEqual((fl["length"], fl["preRatio"]), (10, 0.9))
+        self.write_eval(p50=37.5, pre_n=10, pre_med=0.1)
+        fl = self.r._friend_length()
+        self.assertEqual((fl["length"], fl["preRatio"]), (38, 0.3))   # 四捨五入・0.3〜0.9 に収める
+
+    def test_old_broken_missing(self):
+        self.assertIsNone(self.r._friend_length())   # まだ無い
+        self.write_eval(age_days=31)
+        self.assertIsNone(self.r._friend_length())
+        self.assertIn("古い", self.logs[-1])
+        for raw in ("{壊れた", json.dumps({"clipLength": {"samples": {"friend": {"n": "20", "videos": 5, "length": {"p50": 30}}}}}),
+                    json.dumps({"clipLength": {"samples": {"friend": {"n": 20, "videos": 5, "length": {"p50": "30"}}}}}), json.dumps([1])):
+            time.sleep(1.05)   # ファイル名は秒まで(いちばん新しいものを読む)
+            self.write_eval(raw=raw)
+            self.assertIsNone(self.r._friend_length(), raw)
+            self.assertIn("読めない", self.logs[-1])
+        run = self.run_request()
+        self.assertEqual((run["state"], self.settings()["length"]), ("done", 45))
+
+    def test_only_for_requests(self):
+        """ユーザー自身のまとめて実行・あとから解析(測るため)・依頼 ③ には効かない。解析済みなら使い回す(長さが違っても解析し直さない)"""
+        self.write_eval()
+        self.tools.known = True
+        run = self.run_one("full")
+        self.assertEqual((run["state"], self.settings()), ("done", {"count": 12, "length": 45, "preRatio": 0.65}))
+        self.assertIsNone(run["friendLength"])
+        self.tools.video["analysis"] = None
+        self.tools.calls.clear()
+        post = A.Run(VID, "配信", A.POST_MODE, None)
+        self.r._execute(post)
+        self.assertEqual((self.settings(), post.friend_length), ({"count": 12, "length": 45, "preRatio": 0.65}, None))
+        self.tools.video["analysis"] = None
+        self.tools.calls.clear()
+        res = self.r.start_request([{"id": VID, "top": 3}], flow="manual")["runs"][0]
+        end = time.time() + 10
+        while time.time() < end and next(x for x in self.r.snapshot()["runs"] if x["id"] == res["id"])["state"] in ("queued", "running"):
+            time.sleep(0.01)
+        self.assertEqual(self.settings()["length"], 45)
+        # 解析済み(スタジオの設定の長さで)の配信: 依頼でも解析し直さない
+        self.tools.video["analysis"] = {"at": 5, "spec": {"length": 45}}
+        self.tools.calls.clear()
+        run = self.run_request()
+        self.assertEqual((self.states(run)["analyze"], self.settings(), run["friendLength"]), ("skip", None, None))
+
+    def test_off(self):
+        self.write_eval()
+        os.environ[A.FRIEND_LENGTH_ENV] = "off"
+        self.assertIsNone(self.r._friend_length())
+        del os.environ[A.FRIEND_LENGTH_ENV]
+        self.assertEqual(self.r._friend_length()["length"], 38)
+
+        class P:
+            def __init__(self, v):
+                self.v = v
+
+            def get(self, names):
+                return {"autorun": {"friendLength": self.v}}
+        self.r.prefs = P(False)
+        self.assertIsNone(self.r._friend_length())
+        self.r.prefs = P(True)
+        self.assertEqual(self.r._friend_length()["length"], 38)
 
 
 class TestMedia30fps(unittest.TestCase):

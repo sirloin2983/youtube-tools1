@@ -30,6 +30,10 @@
   var pastByVideo = {}, pastByDoc = {}; // /api/autorun の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
   var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/autorun/history。開いたときだけ読む)
   var runsByFile = {};                  // /api/autorun の kind "file"(依頼の文字起こしだけ。videoId・docId が無いので実行の id で持つ)
+  // あとから解析(mode post_analyze。依頼の区間と比べるためだけ。2026-10-05)。案件の行の「まとめて実行」とは別に持つ
+  // (最中でも行を自動で開かない・実行を押せる = 押すとあとから解析は止まって、押した実行が先に動く)
+  var postByVideo = {}, wasActivePost = {};
+  var POST_MODE = 'post_analyze';
   var wasActiveVideo = {}, wasActiveDoc = {}, wasActiveFile = {};
   var autoTimer = null;
   var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
@@ -446,7 +450,19 @@
     var why = runReason(p);
     return '前回 ' + (p.modeLabel || '') + ': ' + runLabel(p) + (why ? ' ・ ' + why : '') + (p.finished ? '(' + ago(p.finished) + ')' : '');
   }
+  /* あとから解析(測るため)の最中: 行の右に小さな札だけ出す(行は開かない・実行は押せる) */
+  function renderPost(node, id) {
+    var p = postByVideo[id], pill = $('.pt-case-post', node), on = active(p);
+    if (!on) { if (pill) pill.remove(); return; }
+    if (!pill) {
+      pill = el('span', 'pill run pt-case-post', 'あとから解析(測るため) 実行中');
+      pill.title = '依頼の区間と自動の候補を比べるためだけの解析です(友人には何も届きません)。「まとめて実行」を押すと止まり、終わったあとで続きます';
+      var row = $('.pt-case-row', node), nx = $('.pt-case-next', node);
+      if (row) row.insertBefore(pill, nx && nx.parentNode === row ? nx : null);
+    }
+  }
   function renderAuto(node, id) {
+    renderPost(node, id);
     var box = $('.pt-auto', node); if (!box) return;
     var r = runsByVideo[id], past = r ? null : pastByVideo[id], ol = $('.pt-auto-steps', box), msg = $('.pt-auto-msg', box);
     $('.pt-auto-run', box).disabled = active(r);
@@ -1117,6 +1133,7 @@
     ((casesData && casesData.cases) || []).forEach(function (c) { known[c.id] = true; });
     Object.keys(runsByVideo).forEach(function (id) { push(runsByVideo[id], known[id] ? '#case-' + id : '#intake'); });   // 依頼の解析は、案件の行がまだ無いことがある
     Object.keys(runsByFile).forEach(function (id) { push(runsByFile[id], '#intake'); });
+    Object.keys(postByVideo).forEach(function (id) { push(postByVideo[id], known[id] ? '#case-' + id : '#intake'); });   // あとから解析(名前で依頼の実行と見分ける)
     Object.keys(runsByDoc).forEach(function (id) { push(runsByDoc[id], '#doc-' + id); });
     return items;
   }
@@ -1176,9 +1193,10 @@
   function pollAuto() {
     clearTimeout(autoTimer);
     api('/api/autorun').then(function (j) {
-      var latestV = {}, latestD = {}, latestF = {}, anyActive = false, finished = false;
+      var latestV = {}, latestD = {}, latestF = {}, latestP = {}, anyActive = false, finished = false;
       (j.runs || []).forEach(function (r) {
-        if (r.kind === 'doc') { if (r.docId && !latestD[r.docId]) latestD[r.docId] = r; }
+        if (r.mode === POST_MODE) { if (r.videoId && !latestP[r.videoId]) latestP[r.videoId] = r; }
+        else if (r.kind === 'doc') { if (r.docId && !latestD[r.docId]) latestD[r.docId] = r; }
         else if (r.kind === 'file' || !r.videoId) latestF[r.id || ('f' + Object.keys(latestF).length)] = r;   // 依頼の文字起こしだけ(配信にも文書にも紐づかない)
         else if (!latestV[r.videoId]) latestV[r.videoId] = r;
       });
@@ -1189,6 +1207,13 @@
         wasActiveFile[id] = active(r);
       });
       runsByFile = latestF;
+      Object.keys(latestP).forEach(function (id) {
+        var r = latestP[id];
+        if (active(r)) anyActive = true;
+        if (wasActivePost[id] && !active(r)) finished = true;   // 自動マークが増える(案件の表示を新しくする)
+        wasActivePost[id] = active(r);
+      });
+      postByVideo = latestP;
       Object.keys(latestV).forEach(function (id) {
         var r = latestV[id];
         if (active(r)) anyActive = true;

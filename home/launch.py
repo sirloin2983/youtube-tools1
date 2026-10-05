@@ -84,7 +84,7 @@ import prefs as prefs_mod  # noqa: E402  (home/prefs.py: ホームの設定。�
 import live as live_mod  # noqa: E402  (home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.34.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.35.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -879,6 +879,12 @@ class PortalServer(ThreadingHTTPServer):
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
         runs = self._autorun.snapshot().get("runs") if self._autorun is not None else None
+        if runs and any(r.get("mode") == autorun_mod.POST_MODE and r.get("state") == "running" for r in runs) \
+                and not restart_mod.can_restart(None, runs):
+            # あとから解析(測るため)だけが動いている: 止めて(スタジオの解析と重い処理の枠も空く。一覧に残り、次の起動で続く)から確かめる
+            if not self._autorun.stop_deferred():
+                return 409, {"ok": False, "error": "busy", "message": "あとから解析(測るため)を止めています。少し待ってからもう一度押してください"}
+            runs = self._autorun.snapshot().get("runs")
         busy = [t.spec["name"] for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
         why = restart_mod.can_restart(self.sup.status(), runs, busy)
         if why:
@@ -1066,7 +1072,8 @@ class PortalServer(ThreadingHTTPServer):
         with self._autorun_lock:
             if self._autorun is None:
                 self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs,
-                                                       log_dir=self.sup.logs_dir)   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
+                                                       log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
+                                                       log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
             return self._autorun
 
     def handler_for(self, path):
@@ -1259,6 +1266,10 @@ def main(argv=None):
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
+        try:   # まとめて実行を起動のときに作る: 前の起動で残った「あとから解析」の一覧を、ホームを開かなくても続ける(待ちが無くなってから 60 秒後)
+            srv.autorun
+        except Exception as e:   # 作れなくても入口は動かす(画面から使うときにもう一度作る)
+            log("まとめて実行を準備できませんでした: %r" % (e,))
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
         srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)

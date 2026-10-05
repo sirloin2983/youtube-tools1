@@ -20,6 +20,11 @@
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
   文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
+- あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
+  (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
+  スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
+  友人には何も届けない・依頼の受付の記録も変えない。新しい実行が入ったら、すぐ止めて(スタジオの解析も取り消す)一覧に戻し、新しい実行を先にする。
+  14 日たったもの・3 回失敗したものは捨てる(理由は一覧のファイルの dropped に残す)。環境変数 YTT_DEFER_ANALYZE=off で止める(足さない・始めない)
 """
 import collections
 import http.client
@@ -31,16 +36,16 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, txindex
+from ytt_core import colors, fsio, txindex
 
-MODES = {"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
+MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック",
                "deliver": "Dropbox へ届ける", "diarize": "話者分離"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"), "request_manual": ("analyze",),
-              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",)}
+              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",), "post_analyze": ("analyze",)}
 # 友人からの依頼(home/intake.py。docs/design/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
 # ③ 全部人が行う manual = 解析まで。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
@@ -82,6 +87,31 @@ MAX_WAITING = 20       # 順番待ちの上限
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
            "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
+# あとから解析(測るため。2026-10-05)。画面の選択肢・依頼の形とは別(MODES・REQUEST_MODES に入れない = API からは始められない)
+POST_MODE = "post_analyze"
+OTHER_MODES = {POST_MODE: "あとから解析(測るため)"}
+DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 RUNS_LOG の隣)
+DEFER_VERSION = 1
+DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
+DEFER_KEEP_SEC = 14 * 24 * 3600        # 足してからこれだけたったら捨てる
+DEFER_MAX_TRIES = 3                    # これだけ失敗したら捨てる
+DEFER_RETRY_SEC = 30 * 60              # 失敗したあと、次に試すまで(すぐ3回失敗して捨てないため)
+DEFER_IDLE_SEC = 60.0                  # 待ち・実行中が無くなってから始めるまで(画面で続けて押している途中に始めて、すぐ止めることを減らす)
+DEFER_DROPPED_KEEP = 50                # 捨てたものの記録(理由)を残す数
+DEFER_READ_MAX = 1024 * 1024
+DEFER_IMPORT_DAYS = 30                # 以前の依頼の取り込み(起動のあと1回): 終わってからこの日数以内
+DEFER_IMPORT_MAX = 20                  # 同じく、新しい順にこの本数まで
+# 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
+# 測る道具 dev/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
+FRIEND_LENGTH_ENV = "YTT_FRIEND_LENGTH"   # off = 使わない(ホームの設定 autorun.friendLength が false でも使わない)
+FRIEND_LENGTH_MIN_SAMPLES = 20         # 友人の区間の見本の数(外れ値を除く)
+FRIEND_LENGTH_MIN_VIDEOS = 5           # その配信の数
+FRIEND_PRE_MIN_SAMPLES = 10            # 山の位置(preRatio)を使う見本の数
+FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファイル名の日時)
+FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(studio/analyze.py の validate_settings)
+EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # home/accuracy.py の RESULT_NAME_RE と同じ形
+EVAL_READ_MAX = 16 * 1024 * 1024
+CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
 
 
 
@@ -159,6 +189,11 @@ def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
 
 
+def _ms_ok(v):
+    """エポックのミリ秒の時刻(_num は 1e7 までなので使えない)"""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 < v < 1e14
+
+
 def clean_ranges(v):
     """区間の一覧 [(開始, 終了), …](秒)を確かめる。-> 整えた一覧(None・空 = 区間なし)。形が違えば ValueError"""
     if v in (None, [], ()):
@@ -196,6 +231,7 @@ class Run:
         self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
+        self.friend_length = None          # 解析に使った「友人の区間の実績からの長さ」{"length", "preRatio"?, "file", "samples", "videos"}(使ったときだけ)
         self.duration = duration           # 受付のときに調べた配信の長さ(秒。スタジオにまだ無い配信の区間を端で切るのに使う)
         self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
         self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
@@ -220,6 +256,7 @@ class Run:
         self.created = time.time()
         self.finished = None
         self.cancel = False
+        self.preempted = False     # あとから解析を、新しい実行を先にするために止めた(人の中止・失敗と分ける = 試した回数を増やさない)
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
@@ -240,8 +277,9 @@ class Run:
     def public(self):
         return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "sourcePath": self.source_path, "requestId": self.request_id, "ranges": [list(r) for r in self.ranges] or None, "cut": self.cut,
+                "friendLength": dict(self.friend_length) if self.friend_length else None,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
-                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode, DOC_LABEL)) + ("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
+                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or OTHER_MODES.get(self.mode, DOC_LABEL)) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
@@ -307,10 +345,22 @@ def read_runs_log(path, max_bytes=None):
 
 
 class AutoRunner:
-    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES):
-        """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)"""
+    def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
+                 defer_idle=DEFER_IDLE_SEC, defer_retry=DEFER_RETRY_SEC, clock=None, log=None):
+        """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)。
+        あとから解析の一覧も log_dir に置く(None = 一覧を残せないので、あとから解析はしない)。defer_idle・defer_retry・clock はテスト用"""
         self.client, self.root, self.env, self.poll = client, repo_root, env, poll
         self.log_path = os.path.join(log_dir, RUNS_LOG) if log_dir else None
+        self.defer_path = os.path.join(log_dir, DEFER_FILE) if log_dir else None
+        self.defer_idle, self.defer_retry = defer_idle, defer_retry
+        self.clock = clock or time.time
+        self.log = log or (lambda msg: None)   # 入口のログ(launcher.log)に1行
+        self.defer_error = ""      # 最後に一覧を書けなかった理由(書けたら空に戻す)
+        self._defer_lock = threading.Lock()   # 一覧(self.cv の中から取ってよい。逆に、これを持ったまま self.cv を取らない)
+        self._defer = self._defer_read()      # {"items": [...], "dropped": [...]}
+        self._defer_running = None            # いま解析している配信の ID(一覧には残したまま。入口が強制終了されても失わない)
+        self._idle_since = self.clock()       # 待ち・実行中が無くなった時刻(起動したときも、少し待ってから始める)
+        self._defer_hold_until = 0            # この時刻までは始めない(stop_deferred = 起動し直す前)
         self.log_max = log_max
         self.log_error = ""        # 最後に記録を書けなかった理由(書けたら空に戻す)
         self._log_lock = threading.Lock()   # 記録のファイルと past(self.cv とは別。self.cv を持ったまま _log を呼ばない)
@@ -329,6 +379,10 @@ class AutoRunner:
         self.runs = []
         self.thread = None
         self.closed = False
+        self._defer_import()   # この機能が入る前の依頼(1回だけ)
+        if self._defer["items"] and self._defer_on():   # 前の起動で残った一覧: 手が空いたら続ける
+            with self.cv:
+                self._wake()
 
     # ------------------------------------------------------------ 受付
     def _streamer(self, name):
@@ -389,7 +443,7 @@ class AutoRunner:
         if mk and mode == "full":
             raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです")
         with self.cv:
-            active = [r for r in self.runs if r.state in ("queued", "running")]
+            active = self._active_runs()
             if any(r.video_id == video_id for r in active):
                 raise ValueError("この配信はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
@@ -413,7 +467,7 @@ class AutoRunner:
         who = self._streamer(streamer)
         made, skipped, seen = [], [], set()
         with self.cv:
-            active = [r for r in self.runs if r.state in ("queued", "running")]
+            active = self._active_runs()
             for it in items:
                 it = it if isinstance(it, dict) else {}
                 vid, title = it.get("id"), str(it.get("title") or "").strip()[:120]
@@ -444,7 +498,7 @@ class AutoRunner:
         docs = {d["id"]: d for d in txindex.load(txindex.folder(self.root, self.env))}
         made, skipped = [], []
         with self.cv:
-            active = [r for r in self.runs if r.state in ("queued", "running")]
+            active = self._active_runs()
             for tid in dict.fromkeys(i for i in ids if isinstance(i, str)):
                 d = docs.get(tid) if _doc_id_ok(tid) else None
                 if not d:
@@ -474,7 +528,7 @@ class AutoRunner:
         weights = clean_weights(weights)
         made, skipped = [], []
         with self.cv:
-            active = [r for r in self.runs if r.state in ("queued", "running")]
+            active = self._active_runs()
             for it in items:
                 it = it if isinstance(it, dict) else {}
                 vid, top = it.get("id"), it.get("top")
@@ -510,7 +564,7 @@ class AutoRunner:
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             raise ValueError("動画が見つかりません")
         with self.cv:
-            active = [r for r in self.runs if r.state in ("queued", "running")]
+            active = self._active_runs()
             if any(r.source_path == path for r in active):
                 raise ValueError("この動画はすでに実行中・順番待ちです")
             if len(active) >= MAX_WAITING:
@@ -594,12 +648,33 @@ class AutoRunner:
         reason = "・".join([s["note"] for s in steps if s["note"]] + notes) if nothing else ""
         return {"steps": steps, "total": sum(known), "nothing": nothing, "reason": reason, "notes": notes}
 
+    def _active_runs(self):
+        """順番待ち・実行中の実行(あとから解析は数えない = 新しい実行を断る理由にしない。入ると止める。呼ぶのは self.cv を持っている間)"""
+        return [r for r in self.runs if r.state in ("queued", "running") and r.mode != POST_MODE]
+
     def _wake(self):
-        """順番待ちを動かす(呼ぶのは self.cv を持っている間)"""
+        """順番待ちを動かす(呼ぶのは self.cv を持っている間)。あとから解析の最中に新しい実行が入ったら、それを止めて新しい実行を先にする
+        (止めた配信は一覧に残っているので、待ちが無くなったらまた始める。試した回数は増やさない)"""
+        if any(r.state == "queued" for r in self.runs):
+            for r in self.runs:
+                if r.mode == POST_MODE and r.state == "running" and not r.cancel:
+                    r.cancel, r.preempted = True, "新しい実行を先にするため"
+                    r.message = "新しい実行を先にするため止めています(あとで続けます)"
         self.cv.notify_all()
         if self.thread is None or not self.thread.is_alive():
             self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
             self.thread.start()
+
+    def stop_deferred(self, reason="起動し直すため", wait=CANCEL_WAIT + 5, hold=DEFER_IDLE_SEC * 2):
+        """動いているあとから解析を止めて(スタジオの解析も取り消す)、止まるまで待つ(「起動し直す」の前。launch.py の restart_self)。
+        一覧には残り、試した回数は増やさない。hold 秒は次のあとから解析を始めない。-> 止まったか(動いていなければ True)"""
+        with self.cv:
+            self._defer_hold_until = self.clock() + hold
+            for r in self.runs:
+                if r.mode == POST_MODE and r.state == "running" and not r.cancel:
+                    r.cancel, r.preempted = True, reason
+                    r.message = "%s止めています(あとで続けます)" % reason
+            return self.cv.wait_for(lambda: not any(r.mode == POST_MODE and r.state == "running" for r in self.runs), wait)
 
     def cancel(self, run_id):
         ended = False
@@ -625,7 +700,7 @@ class AutoRunner:
         """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""
         with self.cv:
             runs = [r.public() for r in reversed(self.runs)]
-            keys = {r.key() for r in self.runs}
+            keys = {r.key() for r in self.runs if r.mode != POST_MODE}   # あとから解析がメモリにあっても、案件の行の「前回」は消さない
         with self._log_lock:
             past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
         return {"runs": runs, "past": past, "modes": MODES}
@@ -642,7 +717,10 @@ class AutoRunner:
         return {"runs": recs[offset:offset + limit], "total": len(recs), "more": offset + limit < len(recs), "offset": offset}
 
     def _remember(self, rec):
-        """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)"""
+        """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。
+        あとから解析は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。記録のファイル・history には残る)"""
+        if rec.get("mode") == POST_MODE:
+            return
         k = _rec_key(rec)
         self._past.pop(k, None)
         self._past[k] = rec
@@ -695,15 +773,243 @@ class AutoRunner:
         for r in done[:-MAX_KEEP] if len(done) > MAX_KEEP else []:
             self.runs.remove(r)
 
+    # ------------------------------------------------------------ あとから解析(測るため。2026-10-05)
+    # 一覧のファイル(logs/autorun-deferred.json): {"v": 1, "items": [{"videoId", "title", "added", "tries", "reason", "lastTry", "requestId"}],
+    #   "dropped": [{…items と同じ…, "dropped": 捨てた時刻, "reason": 捨てた理由}]}。時刻はエポックのミリ秒(実行の記録の created と同じ)
+    def _defer_on(self):
+        """あとから解析をするか(一覧を置く場所があり、環境変数 YTT_DEFER_ANALYZE が off でない)"""
+        if not self.defer_path:
+            return False
+        for e in (self.env or {}, os.environ):
+            if str(e.get(DEFER_ENV) or "").strip().lower() in ("off", "0", "false", "no"):
+                return False
+        return True
+
+    def _now_ms(self):
+        return int(self.clock() * 1000)
+
+    def _defer_clean(self, it):
+        """一覧の1件を整える(手で直した・壊れたファイルでも、決まった形だけを持つ)"""
+        ms = lambda x: int(x) if _ms_ok(x) else None
+        tries = it.get("tries")
+        return {"videoId": it["videoId"], "title": str(it.get("title") or "")[:120], "added": ms(it.get("added")) or self._now_ms(),
+                "tries": tries if isinstance(tries, int) and not isinstance(tries, bool) and tries >= 0 else 0,
+                "reason": str(it.get("reason") or "")[:300], "lastTry": ms(it.get("lastTry")),
+                "requestId": str(it["requestId"])[:80] if isinstance(it.get("requestId"), str) and it["requestId"] else None}
+
+    def _defer_read(self):
+        out = {"items": [], "dropped": [], "imported": None}
+        if not self.defer_path:
+            return out
+        try:
+            obj = fsio.read_json_file(self.defer_path, DEFER_READ_MAX)
+        except FileNotFoundError:
+            return out
+        except (OSError, ValueError) as e:   # 壊れた・読めない: 空から始める(次に書くときに置き換わる)
+            self.defer_error = "一覧を読めませんでした: %s" % e.__class__.__name__
+            return out
+        if not isinstance(obj, dict) or obj.get("v") != DEFER_VERSION:
+            return out
+        seen = set()
+        for it in obj.get("items") if isinstance(obj.get("items"), list) else []:
+            if isinstance(it, dict) and _yt_id_ok(it.get("videoId")) and it["videoId"] not in seen:
+                seen.add(it["videoId"])
+                out["items"].append(self._defer_clean(it))
+        out["dropped"] = [d for d in (obj.get("dropped") if isinstance(obj.get("dropped"), list) else []) if isinstance(d, dict)][-DEFER_DROPPED_KEEP:]
+        out["imported"] = int(obj["imported"]) if _ms_ok(obj.get("imported")) else None
+        return out
+
+    def _defer_import(self):
+        """この機能が入る前に区間だけで終わった依頼を、実行の記録(今のファイルと .1)から一覧に足す(1回だけ。済んだら一覧のファイルの imported に時刻)。
+        対象 = 依頼(URL)・区間あり・解析の段なし・区間のマークを作ったあとに終わった(成功・一部失敗)・終わってから 30 日以内。新しい順に 20 本まで。
+        スタジオで解析済み・スタジオから消えた配信は、始めるときの確かめで外れる"""
+        if not self.log_path or not self._defer_on() or self._defer["imported"]:
+            return
+        if not os.path.exists(self.log_path) and not os.path.exists(self.log_path + ".1"):
+            # 記録がまだ無い = 取り込むものも無い。印はメモリだけ(ファイルは次に一覧を書くときに一緒に書く。ここで空のファイルを作らない)
+            self._defer["imported"] = self._now_ms()
+            return
+        now = self._now_ms()
+        try:
+            recs = read_runs_log(self.log_path)
+        except Exception:   # 読めなくても入口は動かす(次の起動でまた試す)
+            return
+        picked = []
+        for rec in reversed(recs):   # 新しい順
+            vid, keys = rec.get("videoId"), {s.get("key"): s.get("state") for s in rec.get("steps") if isinstance(s, dict)}
+            fin = rec.get("finished")
+            if (rec.get("mode") not in REQUEST_URL_MODES or not rec.get("ranges") or not _yt_id_ok(vid) or "analyze" in keys
+                    or rec.get("state") not in ("done", "error") or keys.get("adopt") not in ("done", "warn")
+                    or not _ms_ok(fin) or now - fin > DEFER_IMPORT_DAYS * 86400 * 1000 or vid in [p["videoId"] for p in picked]):
+                continue
+            picked.append({"videoId": vid, "title": str(rec.get("title") or "")[:120], "added": now, "tries": 0, "reason": "",
+                           "lastTry": None, "requestId": rec.get("requestId") if isinstance(rec.get("requestId"), str) else None})
+            if len(picked) >= DEFER_IMPORT_MAX:
+                break
+        with self._defer_lock:
+            for it in picked:
+                if not self._defer_find(it["videoId"]):
+                    self._defer["items"].append(self._defer_clean(it))
+            self._defer["imported"] = now
+            self._defer_write()
+
+    def _defer_write(self):
+        """一覧をファイルへ(原子的に。呼ぶのは self._defer_lock を持っている間)。書けなくても実行は止めない"""
+        if not self.defer_path:
+            return
+        try:
+            data = {"v": DEFER_VERSION, "items": self._defer["items"], "dropped": self._defer["dropped"][-DEFER_DROPPED_KEEP:],
+                    "imported": self._defer.get("imported")}
+            fsio.atomic_write(self.defer_path, (json.dumps(data, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
+            self.defer_error = ""
+        except (OSError, TypeError, ValueError) as e:
+            self.defer_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")
+
+    def _defer_find(self, vid):
+        return next((it for it in self._defer["items"] if it["videoId"] == vid), None)
+
+    def _defer_drop(self, it, reason):
+        """一覧から外し、理由を dropped に残す(呼ぶのは self._defer_lock を持っている間)"""
+        if it in self._defer["items"]:
+            self._defer["items"].remove(it)
+        self._defer["dropped"] = (self._defer["dropped"] + [dict(it, dropped=self._now_ms(), reason=str(reason)[:300])])[-DEFER_DROPPED_KEEP:]
+
+    def _defer_prune(self):
+        """14 日たったもの・3 回失敗したものを捨てる(呼ぶのは self._defer_lock を持っている間)。-> 変えたか"""
+        now, changed = self._now_ms(), False
+        for it in list(self._defer["items"]):
+            if it["videoId"] == self._defer_running:
+                continue
+            if now - it["added"] > DEFER_KEEP_SEC * 1000:
+                self._defer_drop(it, "足してから %d 日たったので捨てました" % (DEFER_KEEP_SEC // 86400) + ("(最後: %s)" % it["reason"] if it["reason"] else ""))
+                changed = True
+            elif it["tries"] >= DEFER_MAX_TRIES:
+                self._defer_drop(it, "%d 回失敗したので捨てました(最後: %s)" % (it["tries"], it["reason"] or "理由不明"))
+                changed = True
+        return changed
+
+    def deferred(self):
+        """あとから解析する配信の一覧(写し。{"on", "items", "dropped", "error"})。テストと、あとで画面に出すとき用"""
+        with self._defer_lock:
+            return {"on": self._defer_on(), "items": [dict(x) for x in self._defer["items"]], "dropped": [dict(x) for x in self._defer["dropped"]],
+                    "running": self._defer_running, "error": self.defer_error}
+
+    def _defer_candidate(self):
+        """待ちが無いときに始める、あとから解析の1件(古い順)。-> (一覧の1件の写し か None, 次に見るまでの秒)。呼ぶのは self.cv を持っている間"""
+        if not self._defer_on():
+            return None, 5
+        now = self.clock()
+        if self.defer_idle and now - self._idle_since < self.defer_idle:   # 待ちが無くなってすぐは始めない
+            return None, max(0.05, min(5.0, self.defer_idle - (now - self._idle_since)))
+        if now < self._defer_hold_until:
+            return None, max(0.05, min(5.0, self._defer_hold_until - now))
+        with self._defer_lock:
+            if self._defer_prune():
+                self._defer_write()
+            ready = [it for it in self._defer["items"] if not it["lastTry"] or now * 1000 - it["lastTry"] >= self.defer_retry * 1000]
+            best = min(ready, key=lambda it: it["added"]) if ready else None
+            return (dict(best) if best else None), 5
+
+    def _start_deferred(self, cand):
+        """あとから解析を始める(実行を作って実行中にする)。スタジオでもう解析済み・スタジオに無い配信は、始めずに一覧から外す。
+        始める直前に新しい実行が入っていたら始めない(新しい実行が先)。-> Run か None"""
+        vid = cand["videoId"]
+        try:
+            st, obj = self.client.call("studio", "GET", "/api/video?id=" + urllib.parse.quote(vid))
+            err = ""
+        except StepError as e:
+            st, obj, err = None, {}, str(e)
+        v = (obj.get("video") or {}) if st == 200 else {}
+        with self._defer_lock:
+            it = self._defer_find(vid)
+            if it is None:
+                return None
+            if st is None or (st != 200 and st != 404):   # スタジオが動いていない・つながらない: 回数は増やさずに、少し待ってから
+                it.update(lastTry=self._now_ms(), reason=(err or obj.get("message") or "HTTP %s" % st)[:300])
+                self._defer_write()
+                return None
+            if st == 404:
+                self._defer_drop(it, "スタジオに配信がありません(消した可能性があります)")
+                self._defer_write()
+                return None
+            if v.get("analysis"):   # 人・ほかの実行が解析した: 何もせず外す
+                self._defer_drop(it, "スタジオで解析済みだったので、解析せずに外しました")
+                self._defer_write()
+                return None
+        with self.cv:
+            if self.closed or any(r.state == "queued" for r in self.runs) or not self._defer_on():
+                return None
+            run = Run(vid, str(v.get("title") or cand.get("title") or vid)[:120], POST_MODE, None)
+            run.state = "running"
+            self.runs.append(run)
+            self._trim()
+            self._defer_running = vid
+        return run
+
+    def _defer_after(self, run):
+        """実行が終わったとき(self.cv の外): 区間だけで終わった依頼(URL)は一覧に足す。あとから解析が終わったら外す・失敗を数える"""
+        if run.mode == POST_MODE:
+            return self._defer_post_done(run)
+        if run.mode not in REQUEST_URL_MODES or not run.ranges or not _yt_id_ok(run.video_id) or run.state == "cancelled":
+            return None
+        keys = {s["key"]: s["state"] for s in run.steps}
+        if "analyze" in keys or keys.get("adopt") not in ("done", "warn"):   # 解析した依頼・区間のマークを作る前に止まった依頼は足さない
+            return None
+        if not self._defer_on():
+            return None
+        with self._defer_lock:
+            it = self._defer_find(run.video_id)
+            if it:   # 同じ配信の依頼がまた来た: 1つのまま(足した時刻・回数はそのまま)
+                it.update(title=(run.title or it["title"])[:120], requestId=run.request_id or it["requestId"])
+            else:
+                self._defer["items"].append({"videoId": run.video_id, "title": str(run.title or "")[:120], "added": self._now_ms(), "tries": 0,
+                                             "reason": "", "lastTry": None, "requestId": run.request_id})
+            self._defer_write()
+        return None
+
+    def _defer_post_done(self, run):
+        vid = run.video_id
+        with self._defer_lock:
+            self._defer_running = None
+            it = self._defer_find(vid)
+            if run.state == "cancelled" and (run.preempted or self.closed):   # 新しい実行を先に・起動し直す・入口の終了: 一覧に残したまま(回数は増やさない)
+                run.message = "%s止めました(あとで続けます)" % run.preempted if run.preempted else "入口を終了しました(次に起動したときに続けます)"
+                return None
+            if it is None:
+                return None
+            if run.state == "done":
+                self._defer["items"].remove(it)
+                if not run.nothing:
+                    run.message = "解析しました(依頼の区間と比べるためだけ。友人には何も届けません)"
+            else:   # 失敗・人が中止した: 回数を数えて、少し待ってから試し直す
+                why = run.error or run.message or "中止しました"
+                it.update(tries=it["tries"] + 1, lastTry=self._now_ms(), reason=why[:300])
+                if it["tries"] >= DEFER_MAX_TRIES:
+                    self._defer_drop(it, "%d 回失敗したので捨てました(最後: %s)" % (it["tries"], why))
+                    run.message += "(%d 回目なので、この配信はもう解析しません)" % it["tries"]
+                else:
+                    run.message += "(あとでもう一度試します。%d / %d 回目)" % (it["tries"], DEFER_MAX_TRIES)
+            self._defer_write()
+        return None
+
     def _loop(self):
         while True:
+            run = cand = None
             with self.cv:
                 while not self.closed and not any(r.state == "queued" for r in self.runs):
-                    self.cv.wait(5)
+                    cand, wait = self._defer_candidate()   # 待ちが無い: あとから解析する配信があれば始める
+                    if cand:
+                        break
+                    self.cv.wait(wait)
                 if self.closed:
                     return
-                run = next(r for r in self.runs if r.state == "queued")
-                run.state, run.message = "running", ""
+                if not cand:
+                    run = next(r for r in self.runs if r.state == "queued")
+                    run.state, run.message = "running", ""
+            if run is None:
+                run = self._start_deferred(cand)
+                if run is None:
+                    continue
             try:
                 self._execute(run)
                 run.state = "cancelled" if run.cancel else "done"
@@ -721,9 +1027,13 @@ class AutoRunner:
                         s["state"] = "error" if run.state == "error" else "skip"
                 if run.deliver_dir and run.state == "error":   # ① 全自動: 友人の「受け取る」に失敗の理由を出す
                     self._deliver_failure(run)
+                self._defer_after(run)   # あとから解析の一覧(依頼が区間だけで終わった = 足す・あとから解析が終わった = 外す・回数を数える)
                 self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
                 with self.cv:
                     self._trim()
+                    if not any(r.state in ("queued", "running") for r in self.runs):
+                        self._idle_since = self.clock()
+                    self.cv.notify_all()   # stop_deferred が止まるのを待っている
 
     # ------------------------------------------------------------ 実行
     def _check(self, run):
@@ -797,7 +1107,56 @@ class AutoRunner:
             if not path:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
-        return self._analyze_item(run, st, item, run.video_id)
+        self._analyze_item(run, st, item, run.video_id)
+        if run.mode == POST_MODE:
+            st["detail"] += "。依頼の区間と比べるためだけの解析です(友人には何も届けません)"
+        return None
+
+    def _friend_length(self):
+        """友人の区間の長さの実績(dev/eval_marks.py --json の結果のうち、いちばん新しいもの)-> 解析の設定に重ねる {"length", "preRatio"?} と出どころ。
+        使わない(止めてある・ファイルが無い・古い・壊れている・見本が足りない)ときは None(ログに1行。依頼は今までどおりスタジオの設定で進む)"""
+        if any(str(e.get(FRIEND_LENGTH_ENV) or "").strip().lower() in ("off", "0", "false", "no") for e in (self.env or {}, os.environ)):
+            return None
+        if self._pref("friendLength", True) is False:
+            return None
+        import cases
+        folder = os.path.join(os.path.dirname(cases.locations(self.root, self.env)["studio"]), "evals", "marks")
+        try:
+            names = sorted(n for n in os.listdir(folder) if EVAL_MARKS_NAME_RE.match(n))
+        except OSError:
+            names = []
+        if not names:
+            self.log("友人の区間の長さ: 測る道具の結果がまだ無いので、スタジオの設定の長さで解析します")
+            return None
+        name = names[-1]
+        try:
+            stamp = time.mktime(time.strptime(EVAL_MARKS_NAME_RE.match(name).group(1), "%Y%m%d-%H%M%S"))
+        except (ValueError, OverflowError):
+            stamp = 0
+        if self.clock() - stamp > FRIEND_LENGTH_MAX_AGE:
+            self.log("友人の区間の長さ: 測る道具の結果(%s)が %d 日より古いので使いません" % (name, FRIEND_LENGTH_MAX_AGE // 86400))
+            return None
+        try:
+            res = fsio.read_json_file(os.path.join(folder, name), EVAL_READ_MAX)
+            cl = res["clipLength"]
+            fr, pr = cl["samples"]["friend"], (cl.get("peakRatio") or {}).get("friend") or {}
+            n, videos, p50 = fr["n"], fr["videos"], fr["length"]["p50"]
+            if not all(isinstance(x, int) and not isinstance(x, bool) for x in (n, videos)) or not _num(p50) or p50 <= 0:
+                raise ValueError("数でない")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            self.log("友人の区間の長さ: 測る道具の結果(%s)を読めないので使いません(%s)" % (name, e.__class__.__name__))
+            return None
+        if n < FRIEND_LENGTH_MIN_SAMPLES or videos < FRIEND_LENGTH_MIN_VIDEOS:
+            self.log("友人の区間の長さ: 見本がまだ少ないので使いません(%d 個・配信 %d 本。%d 個・%d 本から)"
+                     % (n, videos, FRIEND_LENGTH_MIN_SAMPLES, FRIEND_LENGTH_MIN_VIDEOS))
+            return None
+        lo, hi = FRIEND_LENGTH_RANGE
+        out = {"length": int(min(hi, max(lo, int(float(p50) + 0.5)))), "file": name, "samples": n, "videos": videos}
+        pn, pm = pr.get("n") if isinstance(pr, dict) else None, pr.get("median") if isinstance(pr, dict) else None
+        if isinstance(pn, int) and not isinstance(pn, bool) and pn >= FRIEND_PRE_MIN_SAMPLES and _num(pm):
+            lo, hi = FRIEND_PRE_RANGE
+            out["preRatio"] = round(min(hi, max(lo, float(pm))), 2)
+        return out
 
     def _analyze_item(self, run, st, item, video_id):
         """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
@@ -806,6 +1165,10 @@ class AutoRunner:
         saved = saved if isinstance(saved, dict) else {}
         if run.weights:   # 友人が指定した重み(ほかの解析の設定はスタジオのまま)
             saved = dict(saved, **run.weights)
+        fl = self._friend_length() if run.mode in REQUEST_URL_MODES else None
+        if fl:   # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)
+            saved = dict(saved, **{k: fl[k] for k in ("length", "preRatio") if k in fl})
+            run.friend_length = fl
         res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": saved})
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
@@ -815,18 +1178,39 @@ class AutoRunner:
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
         st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % tuple(run.weights[k] for k in WEIGHT_KEYS) if run.weights
                                     else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
-        while True:
-            self._wait(run)
-            items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
-            it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
-            if it is None:
-                raise StepError("解析のキューから消えました")
-            st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
-            if it.get("status") == "done":
-                st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?")
-                return None
-            if it.get("status") in ("error", "cancelled", "skipped"):
-                raise StepError("解析が終わりませんでした: %s" % (it.get("error") or it.get("status")))
+        fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
+        st["detail"] += fl_note
+        try:
+            while True:
+                self._wait(run)
+                items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
+                it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
+                if it is None:
+                    raise StepError("解析のキューから消えました")
+                st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
+                if it.get("status") == "done":
+                    st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?") + fl_note
+                    return None
+                if it.get("status") in ("error", "cancelled", "skipped"):
+                    raise StepError("解析が終わりませんでした: %s" % (it.get("error") or it.get("status")))
+        except Cancelled:
+            if qid:   # この実行が入れた解析だけ取り消す(人がスタジオで入れた解析 = qid なし は止めない)
+                self._cancel_analysis(qid)
+            raise
+
+    def _cancel_analysis(self, qid):
+        """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
+        次の実行が同じ配信の解析をキューに入れられるように・重い処理の枠を空けてから進むため。失敗しても上げない(中止の途中)"""
+        try:
+            self.client.call("studio", "POST", "/api/queue/cancel", {"qid": qid})
+            for _ in range(int(CANCEL_WAIT / self.poll) if self.poll > 0 else 30):
+                st, obj = self.client.call("studio", "GET", "/api/queue")
+                it = next((i for i in (obj.get("items") or []) if i.get("qid") == qid), None) if st == 200 else None
+                if it is None or it.get("status") not in ("waiting", "running"):
+                    return
+                self.sleep(self.poll)
+        except Exception:
+            return
 
     # 採用 -------------------------------------------------------
     def _step_adopt_request(self, run, st, v):
