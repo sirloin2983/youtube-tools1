@@ -200,7 +200,7 @@ test('app.js and ui-kit.js parse successfully (CSP: index.html has no inline <sc
 // 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの ed_retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
 test('readMark matches the server rule (subread_cases.json)', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'subread_cases.json'), 'utf8'));
-  const src = lineSource("const OVD_KIND =") + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
+  const src = lineSource("const OVD_KIND =") + lineSource('const DRAFT_KINDS =') + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
     + fnSource('isBlankDraft') + fnSource('readChars') + fnSource('readLimits') + fnSource('readMark');
   const context = { S: { settings: {} } };
   vm.createContext(context);
