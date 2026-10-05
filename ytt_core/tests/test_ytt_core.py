@@ -941,9 +941,24 @@ class TestColors(unittest.TestCase):
         self.assertEqual(colors.resolve("みこ", entries=es), ("さくらみこ", "#FE4B74"))
         self.assertEqual(colors.speaker_colors(["さくらみこ"], entries=es)[0], {"さくらみこ": "#FE4B74"})
         self.assertNotIn("gone", by)                                                                     # members.json に無い id は使わない
+
+        miko["subtitle"] = "#fe4b74"                                                                     # 字幕の既定の色(subtitle。2026-10-05)
+        d["groups"][0]["members"][1]["subtitle"] = "#5683c8"
+        d["groups"][1]["members"][0]["subtitle"] = "bad"
+        with open(self.members, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+        es = {e["id"]: e for e in self.entries(mine=False)}
+        self.assertEqual([c["hex"] for c in es["sakura-miko"]["colors"]], ["#FE4B74", "#FF8FDF", "#123456"])   # subtitle が字幕の色(先頭)
+        self.assertEqual(es["hoshimachi-suisei"]["colors"][0], {"hex": "#5683C8", "label": "字幕"})             # 一覧に無い色は先頭に足す
+        self.assertEqual(es["usada-pekora"]["hex"], "#7EC2FE")                                                    # 形の違う subtitle は hex
+        by = {e["id"]: e for e in self.entries(mine=False, fixed=fixed)}
+        self.assertEqual(by["sakura-miko"]["hex"], "#FE4B74")                                                     # 直した色は subtitle より先
+        with open(fixed, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "members": {"hoshimachi-suisei": {"colors": [{"hex": "#49E0F4"}]}}}, f)
+        self.assertEqual({e["id"]: e["hex"] for e in self.entries(mine=False, fixed=fixed)}["hoshimachi-suisei"], "#49E0F4")
         with open(fixed, "w", encoding="utf-8") as f:
             f.write('{"members": {"sakura-miko": ')                                                       # 壊れていても落ちない
-        self.assertEqual({e["id"]: e["hex"] for e in self.entries(mine=False, fixed=fixed)}["sakura-miko"], "#FF8FDF")
+        self.assertEqual({e["id"]: e["hex"] for e in self.entries(mine=False, fixed=fixed)}["sakura-miko"], "#FE4B74")   # = subtitle
         self.assertIsNone(colors.member_colors_path({"YTT_DATA_DIR": "inplace"}))                        # テスト(inplace)では本物の直した色を読まない
         self.assertEqual(colors.member_colors_path({"YTT_DATA_DIR": self.tmp}), os.path.join(os.path.abspath(self.tmp), "holo-colors", "member-colors.json"))
 
@@ -975,6 +990,8 @@ class TestColors(unittest.TestCase):
                     self.assertIn(c.get("confidence"), ("high", "medium", "low"), m["name"])
                     self.assertTrue(set(c.get("src", [])) <= known, "知らない出典: %s %s" % (m["name"], c.get("src")))
                 self.assertTrue(set(m.get("src", [])) <= known, "知らない出典: %s" % m["name"])
+                if "subtitle" in m:
+                    self.assertTrue(colors.norm_hex(m["subtitle"]), "subtitle の形: " + m["name"])
 
 
 class TestPick(unittest.TestCase):

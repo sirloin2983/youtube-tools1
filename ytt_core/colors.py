@@ -5,7 +5,8 @@
   - holo-colors/members.json(リポジトリの中。ホロカラーと同じ一覧)。YTT_HOLO_MEMBERS で場所を変えられる(テスト用)
   - ホロカラーのマイカラー(作業データの holo-colors/my-colors.json。ユーザーが足した色。同じ名前ならこちらが先)
   - ホロカラーで直したメンバーの色(作業データの holo-colors/member-colors.json。キーはメンバーの id。先頭が主な色)
-字幕の色は**主な色**(直した色があればその先頭、無ければ members.json の hex)。members.json の colors(1人の色の一覧。
+字幕の色は、ホロカラーで直した色があればその先頭、無ければ members.json の subtitle(字幕の既定の色。2026-10-05 ユーザーの指定。
+無い人は hex = ホロカラーの主な色)。members.json の colors(1人の色の一覧。
 version 2。先頭 = hex)は項目の "colors" に入れて返すが、使う側(speaker_colors・resolve・入口)は "hex" だけを使う。
 名前の照らし合わせの規則はここ1か所(入口のまとめて実行・cut2resolve のパック・画面の候補が共通で使う)。
 ひらがな/カタカナ・全角/半角・大文字/小文字・空白や「・」を区別しない。名前・ローマ字・id のどれでもよい。
@@ -110,7 +111,7 @@ def _read_json(path):
 
 def load(env=None, members=None, mine=None, member_colors=None):
     """-> [{"name", "en", "id", "hex", "group", "mine", "colors", "custom"}](マイカラーが先。読めない一覧は飛ばす)。
-    hex = 主な色(直した色があればその先頭)・colors = その人の色の一覧(先頭 = hex)・custom = ホロカラーで直した色か"""
+    hex = 字幕の色(直した色の先頭 > subtitle > members.json の hex)・colors = その人の色の一覧(先頭 = hex)・custom = ホロカラーで直した色か"""
     out = []
     mp = mine if mine is not None else mine_path(env)
     d = _read_json(mp) if mp else None
@@ -131,7 +132,9 @@ def load(env=None, members=None, mine=None, member_colors=None):
                 if h and name:
                     mid = str(m.get("id") or "")
                     cs = _color_list(m.get("colors"))
-                    main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": ""})   # 主な色は hex(先頭へ)
+                    sub = norm_hex(m.get("subtitle"))   # 字幕の既定の色(ユーザーの指定 2026-10-05)。無ければ hex
+                    h = sub or h
+                    main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": "字幕" if sub else ""})   # 字幕の色を先頭へ
                     cs = [main] + [c for c in cs if c["hex"] != h]
                     custom = mid in fixed
                     if custom:
