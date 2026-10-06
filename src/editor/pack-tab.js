@@ -110,7 +110,7 @@ function create(h){
   /* ---------- 配信者の名前(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)----------
      手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
      名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt_core/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
-  const WHO_KEY = 'tx.streamer.v1', WHO_MAX = 300;
+  const WHO_KEY = 'tx.streamer.v1';
   const whoMap = () => { try { const m = JSON.parse(localStorage.getItem(WHO_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } };
   const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
   const whoOf = () => $('#pkWho').value.trim();
@@ -134,14 +134,14 @@ function create(h){
     const sps = d ? (d.speakers || []).filter(s => String(s.name || '').trim() && !h.isOtherSp(s)) : [];   // 組み込みの「ゲーム音声など」は字幕に出さないので並べない
     const own = sps.filter(s => h.subColorOf(s));   // 字幕の色を指定した話者(スイッチによらず効く)
     $('#pkSpk').disabled = !h.TOKEN;
-    const ownHTML = own.slice(0, 12).map(sp => { const hex = h.subColorOf(sp); return `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(hex)}"></i>${h.esc(String(sp.name).trim())} → 指定の色(${h.esc(hex)})</span>`; }).join(' ・ ');
+    const item = (hex, text) => `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${esc(hex)}"></i>${esc(text)}</span>`;   // 色の丸つきの 1 人
+    const ownHTML = own.slice(0, 12).map(sp => { const hex = h.subColorOf(sp); return item(hex, `${String(sp.name).trim()} → 指定の色(${hex})`); }).join(' ・ ');
     if (!h.TOKEN){ if (own.length) box.innerHTML = ownHTML; else box.textContent = 'ホームから開くと使えます'; return; }
     if (!on || !sps.length){ if (own.length) box.innerHTML = ownHTML; else box.textContent = on ? '話者がいない文書です(話者判別か「話者」の欄で名前を付けると使えます)' : ''; return; }
     box.innerHTML = sps.slice(0, 12).map(sp => {
       const c = h.speakerColor(sp.id), n = String(sp.name).trim();
-      return c.sub ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → 指定の色(${h.esc(c.hex)})</span>`
-        : c.hex ? `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${h.esc(c.hex)}"></i>${h.esc(n)} → ${h.esc(c.member)}の色</span>`
-        : c.reason ? `<span class="tt-pk-spk-i">${h.esc(n)} → 配信者の色のまま</span>` : `<span>${h.esc(n)}: …</span>`;
+      return c.sub ? item(c.hex, `${n} → 指定の色(${c.hex})`) : c.hex ? item(c.hex, `${n} → ${c.member}の色`)
+        : c.reason ? `<span class="tt-pk-spk-i">${esc(n)} → 配信者の色のまま</span>` : `<span>${esc(n)}: …</span>`;
     }).join(' ・ ');
   }
   /* 字幕の見本の色: 話者の字幕の色(sub)→ メンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま)。行の話者(id)からと、見積もりの話者(名前)から。
@@ -465,7 +465,7 @@ function create(h){
   });
   $('#pkCopy').addEventListener('click', async () => {
     if (!P.pack) return;
-    try { await navigator.clipboard.writeText(P.pack.dir || ''); h.toast('パスをコピーしました', 2000, 'ok'); } catch { h.toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+    h.copyPath(P.pack.dir || '');
   });
   $('#pkReadme').addEventListener('click', async () => {
     const pre = $('#pkReadmeText');
@@ -477,7 +477,7 @@ function create(h){
   /* zip でダウンロード(人に送るとき。/api/resolve-package。中身は pack.py で作る Text+ パックと同じ。カットがあればそのとおり) */
   $('#pkZip').addEventListener('click', async () => {
     if (!h.S.docId) return;
-    if (!(await h.saveDoc()) || (h.CUT && !(await h.CUT.flush()))) return h.toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    if (!(await h.savedAll())) return;
     const b = $('#pkZip'), label = b.textContent; b.disabled = true; b.textContent = '作成中…';
     try {
       const r = await h.apiBlob('/api/resolve-package', { tid: h.S.docId, fps: fpsOf(), size: sizeOf(), backup: $('#pkBackup').checked, wrap: wrapOf(),

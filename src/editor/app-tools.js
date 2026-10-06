@@ -533,9 +533,7 @@ function takeUrlParams(){
 }
 
 function renderDocExtras(d){
-  const box = $('#docClip');
-  if (d && d.clip && typeof d.clip === 'object'){ box.className = 'tt-clip'; box.innerHTML = clipHTML(d.clip); box.hidden = false; }
-  else { box.hidden = true; box.innerHTML = ''; }
+  renderClipBox($('#docClip'), d && d.clip);
   if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
   renderHandoff();
   /* ヘッダーの ui-appnav の「スタジオ」に、元の配信を引き継ぐ(スタジオの ?url= は解析の欄に入るだけ)。
@@ -640,17 +638,20 @@ async function cpExport(id){
   return r.path;
 }
 
+/* はい/やめる のダイアログを開いて答えを待つ(Esc = やめる。最初のフォーカスは「やめる」)-> はいなら true */
+function askDialog(dlg, ok, cancel){
+  return new Promise(resolve => {
+    const done = v => { ok.onclick = null; cancel.onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
+    ok.onclick = () => done(true); cancel.onclick = () => done(false);
+    dlg.oncancel = e => { e.preventDefault(); done(false); };
+    dlg.showModal(); cancel.focus();
+  });
+}
+
 function confirmOverwrite(files, dir){
-  const dlg = $('#dlgOverwrite');
   $('#owDir').textContent = dir || ''; $('#owDir').hidden = !dir;
   $('#owFiles').innerHTML = (files || []).slice(0, 20).map(f => `<li>${esc(f)}</li>`).join('') + ((files || []).length > 20 ? `<li>ほか ${files.length - 20}件</li>` : '');
-  return new Promise(resolve => {
-    const done = v => { $('#owOk').onclick = null; $('#owCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
-    $('#owOk').onclick = () => done(true);
-    $('#owCancel').onclick = () => done(false);
-    dlg.oncancel = e => { e.preventDefault(); done(false); };
-    dlg.showModal(); $('#owCancel').focus();
-  });
+  return askDialog($('#dlgOverwrite'), $('#owOk'), $('#owCancel'));
 }
 
 function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
@@ -688,26 +689,26 @@ function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyH
 /* ---------- 確認のダイアログ(はい/やめる) ---------- */
 
 function confirmDlg(title, text, okLabel){
-  const dlg = $('#dlgConfirm');
   $('#cfT').textContent = title; $('#cfText').textContent = text || ''; $('#cfOk').textContent = okLabel || 'はい';
-  return new Promise(resolve => {
-    const done = v => { $('#cfOk').onclick = null; $('#cfCancel').onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
-    $('#cfOk').onclick = () => done(true); $('#cfCancel').onclick = () => done(false);
-    dlg.oncancel = e => { e.preventDefault(); done(false); };
-    dlg.showModal(); $('#cfCancel').focus();
-  });
+  return askDialog($('#dlgConfirm'), $('#cfOk'), $('#cfCancel'));
 }
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 
+/* 行の「残す/カット済」の見た目(行の印と右のボタン) */
+function paintCut(row, cut){
+  row.classList.toggle('cut', cut);
+  const b = row.querySelector('[data-act=cut]');
+  if (b){ b.setAttribute('aria-pressed', cut ? 'true' : 'false'); b.textContent = cut ? 'カット済' : '残す'; }
+}
+
 /* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */
 function onCutMarks(changed){
   updateUndo();   // カットが変わった(変更・元に戻す・やり直す)→ 「元に戻す(n)」の数も(3-5)
+  const rows = rowsEl();   // 行の要素は i 番目 = data-i が i(描き直しは行の並びのとおり。数千行で 1 行ずつ探さない)
   for (const i of changed){
-    const row = document.querySelector(`#segs .seg[data-i="${i}"]`), g = S.doc && S.doc.segments[i]; if (!row || !g) continue;
-    const cut = g.cutState === 'cut', b = row.querySelector('[data-act=cut]');
-    row.classList.toggle('cut', cut);
-    if (b){ b.setAttribute('aria-pressed', cut ? 'true' : 'false'); b.textContent = cut ? 'カット済' : '残す'; }
+    const row = rows[i], g = S.doc && S.doc.segments[i];
+    if (row && g && row.classList.contains('seg')) paintCut(row, g.cutState === 'cut');
   }
   if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
   if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる。2026-10-05)

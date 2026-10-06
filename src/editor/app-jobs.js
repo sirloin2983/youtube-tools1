@@ -15,7 +15,8 @@ function setTab(t){
 }
 
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value, boost: $('#optBoost').checked, autoDict: $('#optAutoDict').checked, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked, autoLearned: $('#optAutoLearned').checked, autoRedo: $('#optAutoRedo').checked, autoAlt: $('#optAutoAlt').checked, autoYtcap: $('#optAutoYtcap').checked, autoDiarize: $('#optAutoDiar').checked, redoLarge: $('#optRedoLarge').checked, glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value,
+    ...checksOf(OPT_CHECKS), ...subtitleReq(), glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };   // チェックの表は app-core.js の OPT_CHECKS
 }
 
 async function startFile(){
@@ -74,7 +75,7 @@ async function openVideoNoTx(){
 async function onStart(){
   readOpts();
   const btn = $('#btnStart'); btn.disabled = true;
-  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); startPolling(); await pollJobs(); }
+  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); await kickJobs(); }
   catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
 }
@@ -288,10 +289,9 @@ function applyLock(){
 
 async function startDiarize(){
   if (!S.doc) return;
-  await saveDoc();
-  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  if (!(await saveFirst())) return;
   await api('/api/diarize', { body: { tid: S.docId, numSpeakers: Number($('#diarNum').value) || 0, embedding: $('#diarEmb').value, recognize: $('#diarRecog').checked, smooth: $('#diarSmooth').checked } });
-  startPolling(); await pollJobs(); toast('話者の判別を待機列に追加しました');
+  await kickJobs(); toast('話者の判別を待機列に追加しました');
 }
 
 /* ---------- 重なり・抜けの所に空の行を置く(2026-10-05。plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2。抜けは第2版 E2 の前倒し) ----------
@@ -354,7 +354,7 @@ async function ovdPlace(){
   if (!ovdState()[0]) return;
   OVD.busy = true; renderOvd();
   try {
-    if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id){
+    if (!(await savedFor(id))){
       if (S.docId === id) toast('保存が終わっていないため、置いていません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
       return;
     }
@@ -421,7 +421,7 @@ function spAllNeeded(){
 
 function renderSpAll(){
   const box = $('#spAllBox'); if (!box) return;
-  if (typeof renderDrillSpk === 'function') renderDrillSpk();   // ドリルの帯の「話者の無い行 n 行」も合わせる
+  renderDrillSpk();   // ドリルの帯の「話者の無い行 n 行」も合わせる
   const on = spAllNeeded(); box.hidden = !on;
   if (!on) return;
   if (SPALL.id !== S.docId){ SPALL.id = S.docId; SPALL.cands = []; SPALL.suggest = ''; fillSpAll(); loadSpAll(S.docId); }
@@ -458,10 +458,9 @@ async function spAllGo(){
   const ok = await UIKit.dialog.confirm({ title: `全行の話者を「${name}」にしますか`, ok: '全行をこの人に',
     body: `この文字起こしの ${n} 行すべての話者を「${name}」1人にします。${had ? `今 話者が付いている ${had} 行も置き換わります。` : ''}1人で話している動画のときだけ使ってください(元に戻すときは「以前の版に戻す」から)。` });
   if (!ok) return;
-  await saveDoc();
-  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  if (!(await saveFirst())) return;
   await api('/api/diarize', { body: { tid: S.docId, numSpeakers: 1, names: [name], recognize: false } });
-  startPolling(); await pollJobs(); toast(`全行の話者を「${name}」にしています`);
+  await kickJobs(); toast(`全行の話者を「${name}」にしています`);
 }
 
 /* ---------- 声を覚える(A-3)。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
@@ -530,7 +529,7 @@ function rtIds(){
 function updateRt(){
   if (!S.doc){ $('#rtHint').textContent = ''; return; }
   const ids = new Set(rtIds()), sec = S.doc.segments.filter(s => ids.has(s.id)).reduce((a, s) => a + (s.end - s.start), 0);
-  $('#rtHint').textContent = `対象: ${ids.size}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'})`;
+  $('#rtHint').textContent = `対象: ${ids.size}行(音声 約${approxLen(sec)})`;
   $('#rtGo').disabled = !ids.size;
   if ($('#rtTarget').value === 'whole'){ rtWholeHint(); return; }
   if ($('#rtTarget').value === 'range'){
@@ -559,9 +558,8 @@ async function startRetranscribe(){
   if (!S.doc) return;
   const whole = $('#rtTarget').value === 'whole';
   const ids = whole ? [] : rtIds(); if (!ids.length && !whole) return toast('再認識する行がありません');
-  await saveDoc();
-  if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+  if (!(await saveFirst())) return;
   await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
     boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked } });
-  startPolling(); await pollJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
+  await kickJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
 }

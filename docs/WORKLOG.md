@@ -1649,3 +1649,47 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `test_live_archive.py` は単独では `ytt_core` を import できない(前からそう。ほかのテストと一緒に流すか PYTHONPATH=src)
   - Git Bash の heredoc は `\\` を `\` にする(バックスラッシュを含む編集は Write で作ったファイルから当てた)。src/home の .py は CRLF と LF が混ざっている(行末を保って直した)
 - 未コミット: なし(このコミット。src/home/・src/ytt_core/jobs.py・docs/WORKLOG.md だけ。ほかの担当の src/editor/ などの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ editor(画面側)の見直し(編集 0.58.0 → 0.58.1。内部の整理で動きは同じ)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。見た目・文言・キー配置・操作の流れ・URL の #・localStorage の鍵・API のパスと本文は変えない。
+  `src/editor/*.py` は版の 1 行だけ(サーバー側は 0.57.2 で別の担当が整理済み)。`ui-kit.js` と index.html の ui-kit の CSS(begin〜end)は触っていない
+- 変更(`src/editor/` の画面側):
+  - `app-core.js` に決まった形の小道具: `kickJobs`(ジョブを入れたあとの見回り。11 か所)・`saveFirst`(6)・`saveDone`(4)・`savedFor(id)`(5)・`savedAll`(4。pack-tab にも h で渡す)・`showConflict`(3)・`copyPath`(2)・
+    `setUrlParam`(setUrlDoc・setUrlDrill)・`modalOpen`(キーの処理 7 か所。cut.js には h で)・`segIndexAt`(二分探索 4 か所。行の追加の位置の線形探索も)・`approxLen`(3)・`httpError`(api・apiBlob・portalApi のエラーの形)
+  - 設定のチェック 16 個を表 `OPT_CHECKS`・`SET_CHECKS` に(readOpts・applySettings・jobOpts に同じ並びを 3 回書いていた。無いときの扱い(!== false / === true / !!)は前と同じ)
+  - `app-rows.js`: 行の一覧の描き直しで、行のボタンの title・音のメモの title・読む速さの基準を `rowTitles()` で 1 回だけ作る(以前は 1 行ごとに 7 回キー配置から作っていた = 4000 行で 2.8 万回)・
+    `renderKeyUI` の 5 回の querySelectorAll を 1 回に・`markOvl` の rowsEl() をループの外へ・話者ごとの行の数を 1 回で数える・文書の「認識の設定」の 1 行(1 行 1000 字の式)を `docInfoText` に・時刻の候補の「合わせる/やめる」を `rtAnswer` に・音のメモのキーを `tagCur` に
+  - `app.js`: `#segs` の input・click の待ち受けを 2 つずつ → 1 つずつ(読む速さの札・時刻の候補を同じ処理の中へ)・app-*.js と同じ長い説明の写し(段10 で分けたときの名残)を 1 行の見出しに・もう無い要素を除く `:not(#cutPack)` を外した
+  - `app-tools.js`: 確認のダイアログ 2 つの待ち方を `askDialog` に・行の「残す/カット済」の見た目を `paintCut` に(`onCutMarks` は 1 行ずつ querySelector で探さず行の要素の並びで)・元の配信の欄を `renderClipBox` で。
+    `app-list.js`: 実行の札と手順の文を `runCls`・`runStepsText` に。`app-learn.js`: 提案の数を 1 回で数える・用語集の 1 行を `glossFitText` に・`ago()` を使う
+  - `cut.js`: `clipAt` を `nextClip` から・元に戻すの積み方を `pushCutUndo`(3 か所)・波形の canvas の準備 `canvas2d` と区間の最大値 `peakIn`(波形とミニマップ)・窓のドラッグの待ち受け `dragOnWindow`(3 か所)・ドラッグ中の札 `showTip`/`hideTip`・
+    波形を描くたびの getComputedStyle を波形が無いときだけに・動画の長さが変わったときの区間の切り方と壊れたファイルの知らせの重複
+  - `pack-tab.js`: 使っていない `WHO_MAX` を削除・話者の色の一覧の 1 人を `item()` に・パスのコピーと保存の確かめを h の `copyPath`・`savedAll` に
+  - `index.html`: どこからも使われていない CSS の規則を削除(`.tt-cp-*` の 9 個・`.tt-cutpack`・`.tt-grp`・`.tt-jump`・`.tt-titlebar`・`.tt-soon`・`.keyt`・`.tt-empty-note`・`.tt-brand-name`・`.tt-cutview-pill`。v0.15〜v0.18 の画面の名残)
+  - `tests/test_document_save.cjs`: openDoc が呼ぶ `docInfoText`・`setUrlParam` も本物を読む・もう無い関数の空の差し替え(cpReset・cpDefaultFold・schedulePlan)と context と重なる名前を外した(件数は 10 のまま)
+  - 版: serve.py・app.js・README(■ v0.58.1)。`src/editor/AGENTS.md` の「現在」と「画面の共通の小道具」
+- 行数・大きさ(画面の 9 つの .js と index.html): 8,552 → 8,544 行・759,365 → 749,821 バイト(−1.3%)。app.js −52 行・index.html −27 行・ほかは小道具の分だけ増えた。
+  もともと関数の重なりは少なく(使われていない関数・変数は WHO_MAX だけ)、長さの多くは機能と理由のコメント(バイトの約 23%)。理由のコメントは残した
+- 確かめ方:
+  - 変える前(HEAD を scratchpad に git archive で書き出したもの)と今で、同じ文書(話者 3・下書き 2・重なり・字幕に出さない・カット済・読む速さ・エスケープの要る文字)を開いた画面の DOM を突き合わせて一致
+    (行の一覧 #segs の 4 万字・話者の欄・認識の設定の 1 行・絞り込み・設定のチェック 46 個と select・jobOpts・2 カット の字幕の段と区間と状態・3 パック の話者の色と要約。スクリプトは scratchpad のみ)
+  - 画面に出す日本語の文字列の集合を前後で比べ、違いは組み立て方を変えた所だけ(文言は同じ)
+  - 消した名前・CSS のクラスは src・dev・tests を grep(index.html・e2e・cjs を含む)。トップレベルの名前の重なりは app-*.js と app.js をつないで node --check
+- テスト: `dev/run_editor_suite.py` で全部 OK(編集の単体 552(skip 1)・test_mount 26・契約 35・eval_asr 51・eval_alt 21・ui-kit の写し 5・node 10・e2e 14 本 = 38・125・54・36・237・67・136・110・34・113・47・70・43・7・e2e_pipeline 24)。
+  home の e2e_keymap・e2e_portal・e2e_window も OK
+  - 変える前の HEAD でも同じスイートを流した: e2e_eval_set が 1 回 KeyError 'id'(/api/jobs の読み取り)・e2e_ui_handoff が 1 回 wait_for_selector のタイムアウト。どちらも流し直すと通る = 変更の前からの揺れ
+- 動きが変わった所(ふつうの操作では見えない): 2 カット のタイムラインの空いた所をつまんで動かす途中で pointercancel(タッチのスクロールなど)が来たら、そこで追いかけをやめる(以前は次の pointerup まで待ち受けが残った)。
+  行の追加(N・＋行を追加)の位置の探し方を二分探索に(行は開始の順 = capStack・curIndex と同じ前提)
+- 直さなかった候補と理由:
+  - e2e の古い 7 本(proofread_*・row_editing・eval_set・folder_marker_range・ui_handoff・ui_mounted)のサーバーの起動・写すファイルの一覧・call() の重なり(1 本 20〜30 行): e2e_edit_common の Server へ寄せると、
+    import のときに YTT_CUT2RESOLVE_DIR などの環境変数が付き、テストの条件(パックの部品が見つかるか)が変わる。寄せるならテストごとに条件を確かめてから
+  - `window.UIKit && UIKit.xxx` の確かめ(約 45 か所): ui-kit.js は必ず先に読むので実際には常に真だが、test_document_save.cjs が openDoc・saveDoc を UIKit の無い場所で動かす・消すと ui-kit を読めなかったときの壊れ方が変わる
+  - 「参照…」の 2 つ(動画を選び直す・まとめて付け替える)・`exportBeside` と `cpExport` の保存の確かめ: 文言・知らせの長さが少しずつ違う
+  - `updatePfStat` が校正済みの印を 1 つ変えるたびに全行を数え直す(4000 行の e2e の 0.5 秒の確認は通っている)。差分で数えるには印を変える所すべてに足す必要がある
+  - 見つけた既存の不具合(動きを変えないため直していない): 新規の「認識の設定」の「配信に出る人の名前と呼び名を、認識のヒントに自動で足す」(`#optAutoContext`)だけ change の待ち受けが無く、
+    変えてもほかの設定を変えるまで保存されない(app.js の readOpts を呼ぶ欄の一覧に無い。文字起こしの要求には今の値が入る)
+- 注意:
+  - 画面の決まった形(保存してから・ジョブを入れたあと・409 の案内・?doc= など)は app-core.js の小道具を使う(AGENTS.md の「画面の共通の小道具」)
+  - `segHTML(s, i, T)` の T は `rowTitles()`(`segs.map(segHTML)` と書かない = 3 つ目の引数に配列が入る)
+  - 起動中の入口は古い画面のまま。ユーザーに「すべて終了」→ start.bat で起動し直してもらう(版の帯が 0.58.1 になる)
+- 未コミット: なし(このコミット。src/editor/ と docs/WORKLOG.md だけ。ほかの担当の src/home/ などの変更は入れていない)

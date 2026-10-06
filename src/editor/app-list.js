@@ -101,7 +101,7 @@ async function portalApi(path, body){
   let r;
   try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)'); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  if (!r.ok) throw httpError(r, j);
   return j;
 }
 
@@ -121,16 +121,15 @@ function pickTx(onlyNoPack){
   else if (!items.length) toast(onlyNoPack ? 'パックが無い文書はありません' : '選べる文書がありません', 4000);
 }
 
+/* 実行の札の色と、手順ごとの状態の 1 行(一覧と題名の行の札で同じ) */
+const runCls = r => r.nothing ? 'info' : RUN_CLS[r.state] || 'info';
+const runStepsText = r => (r.steps || []).map(s => `${s.label}: ${stepLabelOf(s)}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
+
 function renderRuns(runs){
-  const box = $('#txRuns');
-  box.innerHTML = runs.slice(0, 10).map(r => {
-    const cls = r.nothing ? 'info' : RUN_CLS[r.state] || 'info', label = runLabelOf(r);
-    const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabelOf(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
-    return `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${cls}">${esc(label)}</span>` +
-      (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
-      (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
-      `<span class="tt-run-steps">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span></div>`;
-  }).join('');
+  $('#txRuns').innerHTML = runs.slice(0, 10).map(r => `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${runCls(r)}">${esc(runLabelOf(r))}</span>` +
+    (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
+    (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
+    `<span class="tt-run-steps">${esc(runStepsText(r))}</span></div>`).join('');
 }
 
 async function pollRuns(){
@@ -155,7 +154,7 @@ async function startDocAuto(){
   const id = S.docId; if (!id || !TOKEN) return;
   const b = $('#docAutoGo'); b.disabled = true;
   try {
-    if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    if (!(await savedAll())) return;
     const who = window.UIKit && UIKit.streamer && UIKit.streamer.check ? await UIKit.streamer.check($('#docAutoWho')) : $('#docAutoWho').value.trim();
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
     const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, streamer: who };   // 空 = 色なし(欄は自動で入る)
@@ -174,11 +173,10 @@ function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちば�
   const r = S.docId ? runs.find(x => x.docId === S.docId) : null;
   const active = !!r && (r.state === 'queued' || r.state === 'running');
   if (!r || (!active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ pill.hidden = true; return; }
-  const cls = r.nothing ? 'info' : RUN_CLS[r.state] || 'info', label = runLabelOf(r);
   const step = (r.steps || []).find(s => s.state === 'run');
-  pill.className = 'pill ' + cls; pill.hidden = false;
-  pill.textContent = 'まとめて実行: ' + label + (step ? '(' + step.label + ')' : '');
-  pill.title = (r.steps || []).map(s => `${s.label}: ${stepLabelOf(s)}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
+  pill.className = 'pill ' + runCls(r); pill.hidden = false;
+  pill.textContent = 'まとめて実行: ' + runLabelOf(r) + (step ? '(' + step.label + ')' : '');
+  pill.title = runStepsText(r);
 }
 
 async function startBatch(){

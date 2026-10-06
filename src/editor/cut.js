@@ -58,8 +58,8 @@ function create(h){
     if (cur < M.total) out.push([cur, M.total]);
     return out;
   }
-  function clipAt(f){ let lo = 0, hi = M.clips.length; while (lo < hi){ const m = (lo + hi) >> 1; if (M.clips[m][1] <= f) lo = m + 1; else hi = m; } return lo < M.clips.length && M.clips[lo][0] <= f ? lo : -1; }
-  function nextClip(f){ let lo = 0, hi = M.clips.length; while (lo < hi){ const m = (lo + hi) >> 1; if (M.clips[m][1] <= f) lo = m + 1; else hi = m; } return lo; }
+  function nextClip(f){ let lo = 0, hi = M.clips.length; while (lo < hi){ const m = (lo + hi) >> 1; if (M.clips[m][1] <= f) lo = m + 1; else hi = m; } return lo; }   // 終わりが f より後の最初の区間
+  function clipAt(f){ const i = nextClip(f); return i < M.clips.length && M.clips[i][0] <= f ? i : -1; }   // f を含む区間(無ければ -1)
   /* 元の動画の時刻(フレーム)→ カット後の時刻(フレーム)。削る区間の中なら、次の残す区間の頭 */
   function outFrame(f){
     let acc = 0;
@@ -96,8 +96,7 @@ function create(h){
     const before = M.clips.map(c => c.slice());
     const next = fn(M.clips.map(c => c.slice()));
     if (!next || JSON.stringify(next) === JSON.stringify(before)) return false;
-    M.undo.push({ clips: before, origin: M.origin, seq: opSeq() }); if (M.undo.length > UNDO_MAX) M.undo.shift();
-    M.redo = [];
+    pushCutUndo(before, M.origin, opSeq());
     M.clips = next; M.origin = opt.origin || 'manual';
     afterChange();
     return true;
@@ -110,6 +109,7 @@ function create(h){
   }
   /* 積むときに操作の通し番号(app.js の nextOp。文字起こしの履歴と同じ番号)を付ける = 1 文字起こし の「元に戻す」が新しい方を選ぶ(段3 3-5)。やり直しも新しい番号 */
   const opSeq = () => (h.nextOp ? h.nextOp() : 0);
+  function pushCutUndo(clips, origin, seq){ M.undo.push({ clips, origin, seq }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; }   // 新しい操作(やり直しは消える)
   /* 2 カット の Ctrl+Z・元に戻すボタン: 文書(行の時刻・分割)とカットのうち新しい方を戻す(app.js の doUndo と同じ順。段6 6-4。字幕の段からは文書も変えるため) */
   function undoNewest(){ if (h.doUndo) h.doUndo(); else undo(); }
   function undo(){
@@ -157,18 +157,17 @@ function create(h){
       M.clips = norm(e.clips.map(c => [s2f(c.in), s2f(c.out)]));
       if (dr){   // 動画の長さが変わった(同じパスの動画を書き出し直した): 後ろの区間を切って知らせる
         const over = M.clips.some(([, b]) => b > M.total + 1);
+        M.clips = norm(M.clips.map(([a, b]) => [a, Math.min(b, M.total)]));
         if (over){
-          M.clips = norm(M.clips.map(([a, b]) => [a, Math.min(b, M.total)]));
           h.toast('動画の長さが、カットを決めたときと変わっています(書き出し直した?)。動画の終わりより後ろの区間は切りました', 8000, 'err');
           M.pristine = false; scheduleSave();
-        } else M.clips = norm(M.clips.map(([a, b]) => [a, Math.min(b, M.total)]));
+        }
       }
-      if (ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     } else if (dr){
       M.clips = norm(dr.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = dr.base === 'rows' ? 'rows' : 'all'; M.pristine = true; M.rev = ed ? ed.rev : 0;
       noteDraft(M.origin, dr.keepsSec, M.origin === 'rows' ? edgeSetting() : {});
-      if (ed && ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     }
+    if ((e || dr) && ed && ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     M.lastDraftSig = rowSig();
     syncRowCuts(); render(); h.onCutState();
     if (M.shown) onShown(true);
@@ -476,26 +475,39 @@ function create(h){
     }
     $('#tlRuler').innerHTML = html;
   }
+  /* canvas の大きさ(画面の点 × dpr)を合わせ、消して、2D の描き先を返す(波形・ミニマップ) */
+  function canvas2d(cv, w, hgt){
+    const dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
+    const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
+    return cx;
+  }
+  /* t0〜t1 秒の波形のいちばん大きい値(0〜255)。波形の終わりより後ろなら -1 */
+  function peakIn(t0, t1){
+    const p = M.peaks, rate = M.peaksRate, i0 = Math.floor(t0 * rate);
+    if (i0 >= p.length) return -1;
+    let v = 0;
+    for (let i = i0, i1 = Math.min(p.length, Math.max(i0 + 1, Math.ceil(t1 * rate))); i < i1; i++) if (p[i] > v) v = p[i];
+    return v;
+  }
   /* 波形(canvas は見えている幅だけ。横にずらしたら描き直す) */
   function drawWave(){
     const cv = $('#tlWave'), box = $('#tlAudio'), sc = scroller();
-    const w = viewW(), hgt = box.clientHeight || 64, dpr = window.devicePixelRatio || 1;
+    const w = viewW(), hgt = box.clientHeight || 64;
     cv.style.left = sc.scrollLeft + 'px'; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
-    const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
+    const cx = canvas2d(cv, w, hgt);
     /* 段3: 波形は区間(#tlVideo。色で残す/削るを示す)の上に重ねて描く(4段 → 3段「区間(中に波形)」)。
        区間の色と見分けやすいよう、波形そのものは明暗どちらのテーマでも白系(削る区間は薄く) */
-    const cs = getComputedStyle(document.documentElement);
-    const col = 'rgba(255,255,255,.65)', dim = 'rgba(255,255,255,.32)', msgDim = (cs.getPropertyValue('--ink-4') || '#999').trim();
-    if (!M.peaks){ cx.fillStyle = msgDim; cx.font = '12px sans-serif'; cx.fillText(M.peaksMsg || (M.peaksAudio ? '音の波形を読み込んでいます…' : '音声がありません'), 8, hgt / 2 + 4); renderMini(); return; }
-    const p = M.peaks, rate = M.peaksRate, mid = hgt / 2, l = sc.scrollLeft;
+    if (!M.peaks){
+      cx.fillStyle = (getComputedStyle(document.documentElement).getPropertyValue('--ink-4') || '#999').trim(); cx.font = '12px sans-serif';
+      cx.fillText(M.peaksMsg || (M.peaksAudio ? '音の波形を読み込んでいます…' : '音声がありません'), 8, hgt / 2 + 4); renderMini(); return;
+    }
+    const col = 'rgba(255,255,255,.65)', dim = 'rgba(255,255,255,.32)', mid = hgt / 2, l = sc.scrollLeft;
     const cutFr = []; for (const [a, b] of gaps()) cutFr.push([f2s(a), f2s(b)]);
     let gi = 0;
     for (let x = 0; x < w; x++){
-      const t0 = (l + x) / M.pps, t1 = (l + x + 1) / M.pps;
-      let i0 = Math.floor(t0 * rate), i1 = Math.max(i0 + 1, Math.ceil(t1 * rate)), v = 0;
-      if (i0 >= p.length) break;
-      for (let i = i0; i < i1 && i < p.length; i++) if (p[i] > v) v = p[i];
+      const t0 = (l + x) / M.pps, v = peakIn(t0, (l + x + 1) / M.pps);
+      if (v < 0) break;
       while (gi < cutFr.length && cutFr[gi][1] <= t0) gi++;
       const inCut = gi < cutFr.length && cutFr[gi][0] <= t0;
       const hh = Math.max(1, v / 255 * (mid - 2));
@@ -519,27 +531,23 @@ function create(h){
   }
   let miniSig = null;
   function drawMiniWave(w){
-    const hgt0 = miniEl().clientHeight || 34;
+    const hgt = miniEl().clientHeight || 34;
     /* ミニマップの波形は全体を縮めたものなので、横にスクロールしても絵は変わらない(枠の位置は renderMini が別に動かす)。
        波形・区間・大きさが変わっていなければ描き直さない(スクロールのたびに全サンプルを走査すると重いため) */
-    const sig = w + ':' + hgt0 + ':' + (M.peaks ? M.peaks.length : -1) + ':' + JSON.stringify(M.clips);
+    const sig = w + ':' + hgt + ':' + (M.peaks ? M.peaks.length : -1) + ':' + JSON.stringify(M.clips);
     if (sig === miniSig) return;
     miniSig = sig;
-    const cv = $('#tlMiniWave'), hgt = hgt0, dpr = window.devicePixelRatio || 1;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
-    const cx = cv.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, w, hgt);
+    const cx = canvas2d($('#tlMiniWave'), w, hgt);
     const cs = getComputedStyle(document.documentElement), accent = (cs.getPropertyValue('--accent') || '#5a46e0').trim(), dim = (cs.getPropertyValue('--ink-4') || '#999').trim();
     cx.fillStyle = accent; cx.globalAlpha = 0.4;
     for (const [a, b] of M.clips){ const x0 = f2s(a) / M.dur * w, x1 = f2s(b) / M.dur * w; cx.fillRect(x0, 0, Math.max(1, x1 - x0), hgt); }
     cx.globalAlpha = 1;
     if (M.peaks){
-      const p = M.peaks, rate = M.peaksRate, mid = hgt / 2;
+      const mid = hgt / 2;
       cx.fillStyle = dim;
       for (let x = 0; x < w; x++){
-        const t0 = x / w * M.dur, t1 = (x + 1) / w * M.dur;
-        let i0 = Math.floor(t0 * rate), i1 = Math.max(i0 + 1, Math.ceil(t1 * rate)), v = 0;
-        if (i0 >= p.length) break;
-        for (let i = i0; i < i1 && i < p.length; i++) if (p[i] > v) v = p[i];
+        const v = peakIn(x / w * M.dur, (x + 1) / w * M.dur);
+        if (v < 0) break;
         const hh = Math.max(1, v / 255 * (mid - 2));
         cx.fillRect(x, mid - hh, 1, hh * 2);
       }
@@ -554,6 +562,11 @@ function create(h){
     if (M.pps <= fitPps() + 1e-9) M.fit = true;
     renderNow(); scroller().scrollLeft = Math.max(0, tLeft * M.pps); renderRange();
   }
+  /* 押したままの間、窓の pointermove を move へ(離す・取り消しで終わる) */
+  function dragOnWindow(move){
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  }
   function bindMini(){
     miniEl().addEventListener('pointerdown', e => {
       if (!ready() || e.button !== 0) return;
@@ -562,17 +575,13 @@ function create(h){
       if (handle){
         const side = handle.dataset.h, minW = viewW() / maxPps();   // 見る範囲がこれより狭くはならない(最大倍率と同じ)
         const fixed = side === 'l' ? (scroller().scrollLeft + viewW()) / M.pps : scroller().scrollLeft / M.pps;
-        const move = ev => {
+        dragOnWindow(ev => {
           const raw = miniTimeAt(ev.clientX);
           if (side === 'l') setViewByTimes(Math.min(raw, fixed - minW), fixed); else setViewByTimes(fixed, Math.max(raw, fixed + minW));
-        };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+        });
       } else if (onView){
         const startX = e.clientX, startScroll = scroller().scrollLeft, w = miniW();
-        const move = ev => { const dx = (ev.clientX - startX) / w * M.dur * M.pps; scroller().scrollLeft = Math.max(0, startScroll + dx); renderMini(); };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+        dragOnWindow(ev => { const dx = (ev.clientX - startX) / w * M.dur * M.pps; scroller().scrollLeft = Math.max(0, startScroll + dx); renderMini(); });
       } else {
         const t = miniTimeAt(e.clientX);
         M.fit = false; scroller().scrollLeft = Math.max(0, t * M.pps - viewW() / 2); renderRange();
@@ -814,14 +823,12 @@ function create(h){
     const g = segAt(d.i), a = d.edge === 'in' ? f : s2f(g.start), b = d.edge === 'out' ? f : s2f(g.end);
     const el = document.querySelector(`#tlSubs .tt-s[data-i="${d.i}"]`);
     if (el){ el.style.left = X(a) + 'px'; el.style.width = Math.max(2, X(b) - X(a) - 2) + 'px'; }
-    const tip = $('#tlTip'); tip.hidden = false; tip.style.left = X(f) + 'px';
     const dlt = f2s(f - d.start);
-    tip.textContent = `行の${d.edge === 'in' ? '始まり' : '終わり'} ${fmtF(f)}(${dlt >= 0 ? '+' : ''}${dlt.toFixed(2)}秒)`;
-    const sn = $('#tlSnap'); sn.hidden = s.snapped === null || f !== s.snapped; if (!sn.hidden) sn.style.left = X(f) + 'px';
+    showTip(f, `行の${d.edge === 'in' ? '始まり' : '終わり'} ${fmtF(f)}(${dlt >= 0 ? '+' : ''}${dlt.toFixed(2)}秒)`, s.snapped);
   }
   function endRowDrag(cancel){
     const d = M.rdrag; if (!d) return;
-    M.rdrag = null; $('#tlTip').hidden = true; $('#tlSnap').hidden = true;
+    M.rdrag = null; hideTip();
     if (cancel === true || d.cur === null || d.cur === d.start){ render(); return; }
     applyRowEdge(d.i, d.edge, d.cur);
   }
@@ -844,7 +851,7 @@ function create(h){
       if (q > p && gaps().some(([a, b]) => a < q && b > p)){
         const before = M.clips.map(c => c.slice()), next = addRange(M.clips.map(c => c.slice()), p, q);
         if (JSON.stringify(next) !== JSON.stringify(before)){
-          M.undo.push({ clips: before, origin: M.origin, seq }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = [];
+          pushCutUndo(before, M.origin, seq);
           M.clips = next; M.origin = 'manual'; widened = true;
           M.dirty = true; save();   // 編集の内容を先に保存(文書は h.rowChanged → 0.7 秒後。文書の保存で行の印を新しい区間から付け直す)
         }
@@ -908,6 +915,13 @@ function create(h){
   }
   function frameFromEvent(e){ const r = $('#tlContent').getBoundingClientRect(); return Math.max(0, Math.min(M.total, Math.round((e.clientX - r.left) / M.pps / frameSec()))); }
 
+  /* ドラッグ中の端の位置の札(f フレーム)と、吸い付いた印(吸い付いた所 = f のときだけ) */
+  function showTip(f, text, snapped){
+    const tip = $('#tlTip'); tip.hidden = false; tip.style.left = X(f) + 'px'; tip.textContent = text;
+    const sn = $('#tlSnap'); sn.hidden = snapped === null || f !== snapped; if (!sn.hidden) sn.style.left = X(f) + 'px';
+  }
+  function hideTip(){ $('#tlTip').hidden = true; $('#tlSnap').hidden = true; }
+
   /* ---------- ドラッグ(区間の端) ---------- */
   function startDrag(e, i, edge){
     e.preventDefault(); e.stopPropagation();
@@ -923,9 +937,7 @@ function create(h){
     const cs = M.clips.map(c => c.slice());
     if (setEdge(cs, d.i, d.edge, s.f) || cs[d.i][d.edge === 'in' ? 0 : 1] !== M.clips[d.i][d.edge === 'in' ? 0 : 1]) M.clips = cs;
     const cur = M.clips[d.i][d.edge === 'in' ? 0 : 1], dlt = cur - d.start;
-    const tip = $('#tlTip'); tip.hidden = false; tip.style.left = X(cur) + 'px';
-    tip.textContent = `${d.edge === 'in' ? '始まり' : '終わり'} ${fmtF(cur)}(${dlt >= 0 ? '+' : ''}${dlt}フレーム)`;
-    const sn = $('#tlSnap'); sn.hidden = s.snapped === null || cur !== s.snapped; if (!sn.hidden) sn.style.left = X(cur) + 'px';
+    showTip(cur, `${d.edge === 'in' ? '始まり' : '終わり'} ${fmtF(cur)}(${dlt >= 0 ? '+' : ''}${dlt}フレーム)`, s.snapped);
     const el = document.querySelector(`#tlVideo .tt-k[data-i="${d.i}"]`), [a, b] = M.clips[d.i];
     if (el){ el.style.left = X(a) + 'px'; el.style.width = Math.max(1, X(b) - X(a)) + 'px'; }
     document.querySelectorAll('#tlVideo .tt-x').forEach(x => x.remove());
@@ -934,10 +946,10 @@ function create(h){
   }
   function endDrag(cancel){
     const d = M.drag; if (!d) return;
-    M.drag = null; $('#tlTip').hidden = true; $('#tlSnap').hidden = true;
+    M.drag = null; hideTip();
     if (cancel === true){ M.clips = d.before; render(); return; }
     if (JSON.stringify(d.before) !== JSON.stringify(M.clips)){
-      M.undo.push({ clips: d.before, origin: d.origin, seq: opSeq() }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; M.origin = 'manual';
+      pushCutUndo(d.before, d.origin, opSeq()); M.origin = 'manual';
       afterChange();
     } else render();
   }
@@ -971,8 +983,7 @@ function create(h){
       if (s){ const i = Number(s.dataset.i), g = h.S.doc.segments[i]; if (g){ M.sel = { kind: 'row', i }; M.edge = null; seekTo(g.start + 0.0005); renderSel(); sc.focus({ preventScroll: true }); } return; }   // 行を選ぶ(段6 6-3)+ 頭へ
       // 目盛り・空いた所: 再生位置を動かす(ドラッグで動かし続ける)
       M.sel = null; seekTo(f2s(frameFromEvent(e)) + 0.0005); renderSel();
-      const mv = ev => seekTo(f2s(frameFromEvent(ev)) + 0.0005), up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
-      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+      dragOnWindow(ev => seekTo(f2s(frameFromEvent(ev)) + 0.0005));
       sc.focus({ preventScroll: true });
     });
     window.addEventListener('pointermove', e => { if (M.drag) moveDrag(e); else if (M.rdrag) moveRowDrag(e); });
@@ -1000,8 +1011,7 @@ function create(h){
     $('#cutZoomOut').addEventListener('click', () => zoom(1 / 1.5));
     $('#cutZoomFit').addEventListener('click', () => { M.fit = true; render(); });
     $('#cutSnap').addEventListener('change', e => { M.snap = e.target.checked; renderStatus(); });
-    $('#cutModeSrc').addEventListener('click', () => { M.mode = 'src'; capIdx = -2; renderTools(); moveHead(); });
-    $('#cutModeCut').addEventListener('click', () => { M.mode = 'cut'; capIdx = -2; renderTools(); moveHead(); });
+    for (const [id, mode] of [['#cutModeSrc', 'src'], ['#cutModeCut', 'cut']]) $(id).addEventListener('click', () => { M.mode = mode; capIdx = -2; renderTools(); moveHead(); });
     $('#cutDraftRows').addEventListener('click', draftRows);
     $('#cutNone').addEventListener('click', draftWhole);
     $('#cutRowEdge').addEventListener('toggle', () => { if ($('#cutRowEdge').open) fillEdge(); });
@@ -1045,7 +1055,7 @@ function create(h){
   };
   const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
     media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30), keymap: () => (h.keymap ? h.keymap() : null),   // 再生のキーの割り当て(編集の ⚙ 設定の「キー配置」)
-    enabled: () => h.tab() === 'cut' && ready() && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])') && !(h.menuHasKeys && h.menuHasKeys(document.activeElement)),
+    enabled: () => h.tab() === 'cut' && ready() && !h.modalOpen() && !(h.menuHasKeys && h.menuHasKeys(document.activeElement)),
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
     /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
@@ -1053,7 +1063,7 @@ function create(h){
     onKey: () => { moveHead(); keepHeadVisible(); }   // 共通キーは v.currentTime を直に書くので、タイムラインの追従はここで
   }) : null;
   function onKey(e){
-    if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || h.isTextEntry(e.target)) return;
+    if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || h.modalOpen() || h.isTextEntry(e.target)) return;
     if (h.menuHasKeys && h.menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作を優先する(GPT-04)
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;

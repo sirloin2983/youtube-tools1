@@ -61,14 +61,18 @@ function stopAtEnd(media, getEnd, onStop){
 /* S.playEnd を立てて play() したあとに呼ぶ(再生の速さが変わったときも呼び直す) */
 function armPlayEnd(){ if (S.playEnd !== null) stopAtEnd(player(), () => S.playEnd, () => { S.playEnd = null; }); }
 
+/* 応答が ok でないときのエラー(api()・apiBlob()・portalApi() で同じ形: message・code = サーバーの error・status・data = 本文) */
+function httpError(r, j){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; er.data = j; return er; }
+const NO_SERVER = 'サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください';
+
 async function api(path, opt = {}){
   const init = { cache: 'no-store', method: opt.method || 'GET', ...(opt.keepalive ? { keepalive: true } : {}) };
   if (opt.body !== undefined){ init.method = opt.method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opt.body); }
   if (TOKEN && init.method !== 'GET' && init.method !== 'HEAD') init.headers = { ...(init.headers || {}), 'X-YTT-Token': TOKEN };
   let r;
-  try { r = await fetch(apiUrl(path), init); } catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
+  try { r = await fetch(apiUrl(path), init); } catch { throw new Error(NO_SERVER); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; er.data = j; throw er; }
+  if (!r.ok) throw httpError(r, j);
   return j;
 }
 
@@ -76,10 +80,46 @@ async function api(path, opt = {}){
 async function apiBlob(path, body){
   let r;
   try { r = await fetch(apiUrl(path), { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', ...(TOKEN ? { 'X-YTT-Token': TOKEN } : {}) }, body: JSON.stringify(body) }); }
-  catch { throw new Error('サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください'); }
-  if (!r.ok){ const j = await r.json().catch(() => ({})); const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; throw er; }
+  catch { throw new Error(NO_SERVER); }
+  if (!r.ok) throw httpError(r, await r.json().catch(() => ({})));
   return r;
 }
+
+/* ---------- ボタンの処理の決まった形(同じ書き方を 1 か所に。保存できていなければ知らせて false) ---------- */
+function kickJobs(){ startPolling(); return pollJobs(); }   // ジョブを待機列に入れたあと: 見回りを始めて、すぐ 1 回読む
+async function saveFirst(){   // ジョブを始める前(話者判別・再認識など)
+  await saveDoc();
+  if (S.dirty || S.saving){ toast('保存中です。少し待ってから、もう一度押してください'); return false; }
+  return true;
+}
+async function saveDone(){   // サーバーが保存済みの文書で計算する操作の前(行の分け直し・疑わしい所の認識し直し・時刻の候補)
+  if (await saveDoc()) return true;
+  toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err'); return false;
+}
+async function savedAll(){   // 文書とカットの両方(まとめて実行・付け替え・zip)
+  if ((await saveDoc()) && !(CUT && !(await CUT.flush()))) return true;
+  toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err'); return false;
+}
+/* 文書 id を保存し終えたか(知らせない。保存の途中・競合・別の文書へ移ったなら false) */
+async function savedFor(id){ return !!(await saveDoc()) && !S.dirty && !S.saving && !S.conflict && S.docId === id; }
+function showConflict(){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 の案内(saveDoc と同じ形)
+async function copyPath(text){   // 動画の隣に保存した結果・前回のパックのパス
+  try { await navigator.clipboard.writeText(text); toast('パスをコピーしました', 2000, 'ok'); }
+  catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+}
+/* URL の引数を 1 つ直す(replaceState。v が空・null なら消す)。タブの # とほかの引数はそのまま */
+function setUrlParam(key, v){
+  try {
+    const q = new URLSearchParams(location.search);
+    if (v) q.set(key, v); else q.delete(key);
+    const rest = q.toString(), url = location.pathname + (rest ? '?' + rest : '') + location.hash;
+    if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
+  } catch {}
+}
+function modalOpen(){ return !!document.querySelector('dialog[open], .ui-drawer:not([hidden])'); }   // ダイアログ・引き出しが開いている = 文書を操作するキーを効かせない
+/* 行の並び(開始時刻の順)で、開始が t 以前の最後の行の添字(無ければ -1。二分探索) */
+function segIndexAt(segs, t){ let lo = 0, hi = segs.length - 1, ans = -1; while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ ans = m; lo = m + 1; } else hi = m - 1; } return ans; }
+const approxLen = sec => sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分';   // 音声の長さのおおよそ
 
 function download(blob, name){
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
@@ -284,13 +324,22 @@ async function reloadSettings(){
   toast('設定を読み直しました', 3000, 'ok');
 }
 
+/* 設定のチェック [設定の鍵, 欄の id, 無いときの扱い](readOpts・applySettings・jobOpts が同じ表を使う)。
+   扱い: true = 明示の false のときだけ外す / false = true のときだけ付ける / null = 真らしい値なら付ける。
+   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1) */
+const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
+  ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
+  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false], ['redoLarge', 'optRedoLarge', true]];
+const SET_CHECKS = OPT_CHECKS.concat([['archiveAuto', 'arcAuto', true], ['archiveFull', 'arcFull', true], ['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
+const checksOf = list => Object.fromEntries(list.map(([k, id]) => [k, $('#' + id).checked]));
+
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.boost = $('#optBoost').checked; s.autoDict = $('#optAutoDict').checked; s.wordSplit = $('#optWordSplit').checked; s.subtitle = readSubtitle(); s.stripPunct = $('#optStripPunct').checked; s.autoGloss = $('#optAutoGloss').checked; s.autoContext = $('#optAutoContext').checked; s.autoLearned = $('#optAutoLearned').checked; s.autoRedo = $('#optAutoRedo').checked; s.autoAlt = $('#optAutoAlt').checked; s.autoDiarize = $('#optAutoDiar').checked; s.redoLarge = $('#optRedoLarge').checked; s.archiveAuto = $('#arcAuto').checked; s.archiveFull = $('#arcFull').checked;
-  s.autoYtcap = $('#optAutoYtcap').checked;   // 終わったら元の配信の YouTube の字幕と比べる(案 A1)
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.subtitle = readSubtitle();
+  Object.assign(s, checksOf(SET_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
-  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.exSpk = $('#exSpk').checked; s.exTs = $('#exTs').checked; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
+  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
   saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
   if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵(段4 4-1。監査 07)
 }
@@ -313,11 +362,11 @@ function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; $('#optBoost').checked = !!s.boost; $('#optAutoDict').checked = s.autoDict !== false; $('#optWordSplit').checked = s.wordSplit !== false; fillSubtitle(s.subtitle); $('#optStripPunct').checked = s.stripPunct !== false; $('#optAutoGloss').checked = s.autoGloss !== false; $('#optAutoContext').checked = s.autoContext === true; $('#optAutoLearned').checked = s.autoLearned === true; $('#optAutoRedo').checked = s.autoRedo === true; $('#optAutoAlt').checked = s.autoAlt === true; $('#optAutoDiar').checked = s.autoDiarize === true; $('#optRedoLarge').checked = s.redoLarge !== false; $('#arcAuto').checked = s.archiveAuto !== false; $('#arcFull').checked = s.archiveFull !== false;
-  $('#optAutoYtcap').checked = s.autoYtcap === true;
-  $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; if (typeof renderGlossFit === 'function') renderGlossFit();
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; fillSubtitle(s.subtitle);
+  for (const [k, id, dv] of SET_CHECKS) $('#' + id).checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k];
+  $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
-  $('#exSpk').checked = !!s.exSpk; $('#exTs').checked = !!s.exTs; if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
+  if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
   if (s.diarNum && [...$('#diarNum').options].some(o => o.value === s.diarNum)) $('#diarNum').value = s.diarNum;
 }
 
@@ -331,17 +380,19 @@ function renderSetup(){
   const miss = [];
   if (!t.ffmpeg) miss.push('<b>ffmpeg</b> が見つかりません。Windows: <code>winget install Gyan.FFmpeg</code> / Mac: <code>brew install ffmpeg</code>(入れたらこのツールを起動し直す)');
   if (!t.fasterWhisper && t.backend !== 'fake') miss.push('<b>faster-whisper</b> が入っていません。フォルダ内の <code>install.bat</code>(Mac は <code>install.command</code>)を実行してください');
-  const extra = t.backend === 'fake' ? '<details class="setup-banner"><summary>テスト用モード</summary><div class="setup-body">実際の文字起こしはしません。</div></details>' : '';
+  const banner = (title, body, open) => `<details class="setup-banner"${open ? ' open' : ''}><summary>${title}</summary><div class="setup-body">${body}</div></details>`;
+  const hint = html => `<p class="hint" style="margin:0 0 10px">${html}</p>`;
   let gpu = '';
   if (t.backend !== 'fake' && !miss.length){
-    if (t.cuda) gpu = `<p class="hint" style="margin:0 0 10px">GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。</p>`;
+    if (t.cuda) gpu = hint(`GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。`);
     else if (t.nvidia) gpu = `<div class="notice"><b>${esc(t.nvidia)}</b> が見つかりましたが、GPU 用のライブラリが入っていないため CPU で処理します。<br>フォルダ内の <code>install-gpu.bat</code> を実行すると GPU が使えます(実行後に起動し直す)。</div>`;
-    else if (t.wcpp && t.wcpp.ready) gpu = '<p class="hint" style="margin:0 0 10px">AMD などの GPU は、「認識の設定」の処理方式で「GPU(AMD など・whisper.cpp)」を選ぶと使えます(モデルは large-v3 か large-v3-turbo)。</p>';
-    else gpu = '<p class="hint" style="margin:0 0 10px">NVIDIA の GPU が見つからないため、CPU で処理します(AMD の GPU は setup フォルダの build-whisper-vulkan.bat で使えるようになります)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。</p>';
+    else if (t.wcpp && t.wcpp.ready) gpu = hint('AMD などの GPU は、「認識の設定」の処理方式で「GPU(AMD など・whisper.cpp)」を選ぶと使えます(モデルは large-v3 か large-v3-turbo)。');
+    else gpu = hint('NVIDIA の GPU が見つからないため、CPU で処理します(AMD の GPU は setup フォルダの build-whisper-vulkan.bat で使えるようになります)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。');
   }
   const env = (Array.isArray(t.envWarnings) ? t.envWarnings : []).slice(0, 8);   // サーバーの起動時の確認(ディスクの空き・OneDrive・部品の欠けなど)
-  const envHtml = env.length ? `<details class="setup-banner"${miss.length ? '' : ' open'}><summary>起動時の確認(${env.length}件)</summary><div class="setup-body">${env.map(x => esc(x)).join('<br>')}</div></details>` : '';
-  box.innerHTML = extra + envHtml + (miss.length ? `<details class="setup-banner" open><summary>準備が必要です(${miss.length}件)</summary><div class="setup-body">${miss.join('<br>')}</div></details>` : '') + gpu;
+  box.innerHTML = (t.backend === 'fake' ? banner('テスト用モード', '実際の文字起こしはしません。') : '')
+    + (env.length ? banner(`起動時の確認(${env.length}件)`, env.map(x => esc(x)).join('<br>'), !miss.length) : '')
+    + (miss.length ? banner(`準備が必要です(${miss.length}件)`, miss.join('<br>'), true) : '') + gpu;
 }
 
 /* ---------- 進行度 ---------- */

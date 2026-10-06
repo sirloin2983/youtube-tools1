@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.58.0';
+const APP_VERSION = '0.58.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -78,23 +78,16 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
 
 /* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
 if (window.UIKit && UIKit.settings){ $('#edSettings').hidden = false; UIKit.settings.mount({ tool: $('#edSettings'), title: '設定', version: 'v' + APP_VERSION }); }
-/* キー操作の一覧(#keys)の先頭に、共通の再生キーの表を差し込む(段2) */
-/* 共通の再生キーの表(#keysCommon)は、割り当てのとおりに renderKeyUI() が描く */
 /* 左メニューの「すべての文字起こし → ホーム」(段2。履歴の一覧そのものはホーム(段5)ができるまでここに残す)。入口に取り込まれているときだけ */
 $('#txHomeLink').hidden = !(window.UIKit && UIKit.tools.mounted());
 document.addEventListener('DOMContentLoaded', setAppnavVersion);
 setAppnavVersion();
 
-/* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ----------
-   v6: ヘッダーの「他のツール」メニューは ui-appnav(ホーム/スタジオ/編集)に置き換えたので、ここでは S.ports と
-   UIKit.tools.setPaths(cut2resolve の URL・c2rBase() が使う)だけを整える */
+/* ---------- 他のツール(app-core.js の loadSiblings。実際のポートはサーバーの /api/siblings) ---------- */
 S.ports = null;
 let sibP = null;
 
-/* ---------- 設定(用語集・置換辞書など) ----------
-   監査 11(全体の計画 段2): 保存は「最後に保存した内容との差のキーだけ」を PUT /api/settings {"patch"}(サーバーはロックの中で今のファイルに合わせる。
-   窓を2つ開いても、別々の設定なら消し合わない。同じキーを同時に変えたときだけ後勝ち)。失敗は ⚙ の印と設定の引き出しの先頭に [もう一度](UIKit.settings.status)。
-   読み込みに失敗したら「設定を読み込めませんでした [読み直す]」にして、読み直すまで保存しない(空の設定で用語集・置換辞書・キー配置を上書きしないため) */
+/* ---------- 設定(用語集・置換辞書など。保存は差のキーだけ = app-core.js の sendSettings。監査 11) ---------- */
 let setT = null, setSaved = {}, setFailed = false, setChain = Promise.resolve(true);
 S.settingsLoadErr = '';
 const setSnap = o => { const m = {}; for (const k of Object.keys(o || {})) m[k] = JSON.stringify(o[k]); return m; };
@@ -106,8 +99,6 @@ const onLeave = fn => (window.UIKit && UIKit.life) ? UIKit.life.onLeave(fn) : do
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); } });
 if (window.UIKit && UIKit.life) UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
 
-/* ---------- 準備状況 ---------- */
-
 /* ---------- 進行度 ---------- */
 const MILESTONES = [[1800, '辞書・名簿・提案の効果を、数字で測れる'], [3600, '設定の比較(A/B)で方針を決められる'], [10800, '追加学習(LoRA)を小さく試せる']];
 let PG = null;
@@ -115,7 +106,7 @@ const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3
 $('#goalHours').addEventListener('change', e => { const h = Number(e.target.value); if (!(h >= 0.5 && h <= 200)){ toast('0.5〜200 時間の間で入力してください'); e.target.value = String(goalSec() / 3600); return; } S.settings.goalHours = h; saveSettings(); renderProgress(); });
 $('#goalPill').addEventListener('click', () => showInMenu($('#goalCard')));
 /* 左の各カードの開閉を覚える */
-document.querySelectorAll('aside details.card[id]:not(#cutPack)').forEach(d => {
+document.querySelectorAll('aside details.card[id]').forEach(d => {
   try { const v = localStorage.getItem('tx.fold.' + d.id); if (v === '0') d.open = false; else if (v === '1') d.open = true; } catch {}
   d.addEventListener('toggle', () => { try { localStorage.setItem('tx.fold.' + d.id, d.open ? '1' : '0'); } catch {} });
 });
@@ -133,17 +124,12 @@ $('#fdSkip').addEventListener('change', renderFolder);
 $('#fdList').addEventListener('change', updateFdCount);
 $('#fdAll').addEventListener('change', e => { document.querySelectorAll('#fdList input').forEach(x => { x.checked = e.target.checked; }); updateFdCount(); });
 
-/* ---------- 切り抜きスタジオ/マーカー連携 ---------- */
-
 /* ---------- ジョブの進捗 ---------- */
 const ACTIVE = new Set(['queued', 'extracting', 'loading', 'running']);
 const STATE_LABEL = { queued: '待機中', extracting: '準備中', loading: '準備中', running: '処理中', done: '完了', error: '失敗', cancelled: '中止' };
 const pctOf = j => Math.max(0, Math.min(100, Math.round((Number(j.progress) || 0) * 100)));
 
-/* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/spec/ui-guidelines.md 4.) ----------
-   サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
-   画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
-   同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
+/* ---------- 保存済み一覧(履歴。描き方は app-list.js) ---------- */
 const LIST_KEY = 'tx.list.v1';
 const L = { state: 'all', kind: 'all', sort: 'updated', group: 'stream' };
 const LIST_OPTS = { state: ['all', 'todo', 'doing', 'done'], kind: ['all', 'clip', 'other', 'eval'], sort: ['updated', 'created', 'remain', 'title'], group: ['stream', 'channel', 'none'] };
@@ -191,8 +177,7 @@ $('#txSearch').addEventListener('input', () => { for (const k of Object.keys(txL
 /* ---------- 話者の自動判別 ---------- */
 const LOCK_KINDS = ['diarize', 'retranscribe', 'redo'];
 const LOCK_LABEL = { retranscribe: '再認識', redo: '疑わしい所を認識し直し', diarize: '話者を判別' };
-/* ---------- 声を覚える(A-3)。覚えるのはジョブ(/api/voices/learn)、照らし合わせは話者判別のジョブの中(recognize)。
-   声の特徴そのものは画面に来ない(一覧は名前・行の数・秒だけ) ---------- */
+/* ---------- 声を覚える(A-3。関数は app-jobs.js) ---------- */
 const DEFAULT_SPK = /^話者\d+$/;
 const EVAL_VOICE_MSG = '評価用の文字起こしでは声を覚えません(評価用のデータを、ほかの文書の話者の名前付けに使わないため)。評価用を外すと覚えられます';
 /* 覚える前の確認の本文(段1。監査17・18)。一般的な名前の判定・行の選び方はサーバー(/api/voices/preview)の1か所で、ここは結果を並べるだけ */
@@ -229,8 +214,7 @@ $('#voiceLearn').addEventListener('click', async () => {
   if (!S.doc) return;
   if (S.doc.evalSet) return toast(EVAL_VOICE_MSG, 6000, 'err');
   try {
-    await saveDoc();
-    if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+    if (!(await saveFirst())) return;
     const emb = $('#diarEmb').value, docId = S.docId;
     const r = await api('/api/voices/preview?tid=' + encodeURIComponent(docId) + '&embedding=' + encodeURIComponent(emb));
     if (r.evalSet) return toast(EVAL_VOICE_MSG, 6000, 'err');
@@ -247,7 +231,7 @@ $('#voiceLearn').addEventListener('click', async () => {
     if (!names.length) return toast('覚える人がいないので、やめました', 4000);
     if (S.docId !== docId) return;   // 確かめている間に別の文書へ移った
     await api('/api/voices/learn', { body: { tid: docId, embedding: emb, names, confirmSame: same } });
-    startPolling(); await pollJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
+    await kickJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
   } catch (er){ toast(er.message, 6000, 'err'); }
 });
 $('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); loadOvd(); } });
@@ -304,12 +288,11 @@ const RANGE_MAX = 900;
 const WHOLE_RTF = { 'large-v3': 0.37 };
 $('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
-  if (!S.docId || lockJob()) return;
-  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  if (!S.docId || lockJob() || !(await saveDone())) return;
   try {
     await api('/api/redo', { body: { tid: S.docId, redoLarge: $('#optRedoLarge').checked } });
     $('#redoMsg').textContent = '認識し直しています(終わると読み込み直します)';
-    startPolling(); pollJobs();
+    kickJobs();
   } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
 });
 $('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
@@ -396,7 +379,7 @@ $('#altGo').addEventListener('click', async () => {
   if (!S.docId || altJob()) return;
   try {
     await api('/api/alt', { body: { id: S.docId, engine: $('#altEngine').value } });
-    startPolling(); pollJobs();
+    kickJobs();
   } catch (e){ toast(e.message, 7000, 'err'); }
 });
 $('#altEngine').addEventListener('change', async e => {   // 設定 altEngine(送ったキーだけ直す api/settings/patch。ほかの窓の設定を消さない)
@@ -411,7 +394,7 @@ $('#ytcapGo').addEventListener('click', async () => {
   if (!S.docId || ytcapJob()) return;
   try {
     await api('/api/ytcap', { body: { id: S.docId } });
-    startPolling(); pollJobs();
+    kickJobs();
   } catch (e){ toast(e.message, 7000, 'err'); }
 });
 $('#optAutoYtcap').addEventListener('change', readOpts);
@@ -431,9 +414,7 @@ setInterval(() => {   // 操作している時間だけ数える(放置してい
 let stripQ = 0;
 $('#strip').addEventListener('click', e => {
   const r = S.stripR; if (!r || !S.doc) return;
-  const t = r[0] + e.offsetX / e.currentTarget.clientWidth * (r[1] - r[0]), segs = S.doc.segments;
-  let lo = 0, hi = segs.length - 1, i = 0;
-  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ i = m; lo = m + 1; } else hi = m - 1; }
+  const t = r[0] + e.offsetX / e.currentTarget.clientWidth * (r[1] - r[0]), segs = S.doc.segments, i = Math.max(0, segIndexAt(segs, t));
   if (!gotoRow(i, { center: true })) return toast('その位置の行は、絞り込みで隠れています');
   player().currentTime = segs[i].start; S.playEnd = null;
 });
@@ -491,8 +472,8 @@ $('#abRows').addEventListener('change', e => {
   if (was !== v.glossary) renderAb();
 });
 $('#abRows').addEventListener('input', e => {
-  const row = e.target.closest('[data-i]'), v = e.target.classList.contains('abt') ? abVariants[Number(e.target.previousElementSibling.dataset.i)] : null;
-  if (v){ v.terms = e.target.value; const h = e.target.nextElementSibling.querySelector('.hint'), t = glossTerms(v.terms), f = glossFit(t); h.textContent = !t.length ? '' : f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; }
+  const v = e.target.classList.contains('abt') ? abVariants[Number(e.target.previousElementSibling.dataset.i)] : null;
+  if (v){ v.terms = e.target.value; e.target.nextElementSibling.querySelector('.hint').textContent = glossFitText(glossTerms(v.terms)); }
 });
 $('#abRows').addEventListener('click', e => {
   const b = e.target.closest('[data-act=abdel]'); if (!b) return;
@@ -503,11 +484,10 @@ $('#abGo').addEventListener('click', async () => {
   if (!S.doc) return;
   const b = $('#abGo'); b.disabled = true;
   try {
-    await saveDoc();
-    if (S.dirty || S.saving) throw new Error('保存中です。少し待ってから、もう一度押してください');
+    if (!(await saveFirst())) return;
     await api('/api/abtest', { body: { tid: S.docId, variants: abVariants, language: $('#optLang').value, device: $('#optDevice').value, boost: $('#optBoost').checked,
       glossary: $('#optGloss').value, autoGloss: $('#optAutoGloss').checked } });
-    startPolling(); await pollJobs(); toast('設定の比較を待機列に追加しました。終わると、ここに結果が出ます');
+    await kickJobs(); toast('設定の比較を待機列に追加しました。終わると、ここに結果が出ます');
   } catch (er){ toast(er.message); } finally { renderAbHint(); }
 });
 
@@ -537,11 +517,11 @@ $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
 onLeave(() => effortFlush(true));   // 校正の手間のまだ送っていない分も送る(保存とは別の小さな POST。'blur' でも送るだけ = 重い処理はしない。閉じるときも届くよう keepalive)
-/* ---------- 字幕の文字数(docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
+/* ---------- 字幕の文字数(既定。app-rows.js の readSubtitle) ---------- */
 const SUB_DEFAULT = { orientation: 'vertical', maxChars: { vertical: 16, horizontal: 28 }, wrapChars: { vertical: 8, horizontal: 14 } };
 
 const TAG_LABEL = { unclear: '聞き取れない', overlap: '声が重なる', bgm: 'BGM・音が大きい' };
-const tagsHTML = s => Object.keys(TAG_LABEL).map(t => `<button type="button" data-act="tag" data-t="${t}" aria-pressed="${(s.tags || []).includes(t) ? 'true' : 'false'}" title="${esc(titleTag(t))}">${TAG_LABEL[t]}</button>`).join('');
+const tagsHTML = (s, tt) => Object.keys(TAG_LABEL).map(t => `<button type="button" data-act="tag" data-t="${t}" aria-pressed="${(s.tags || []).includes(t) ? 'true' : 'false'}" title="${tt ? tt[t] : esc(titleTag(t))}">${TAG_LABEL[t]}</button>`).join('');   // tt = 描き直しで 1 回だけ作った title(rowTitles)
 /* 行の高さ: 対応ブラウザは CSS(field-sizing)にまかせる。それ以外は、画面の近くにある行だけを測る(数千行でも重くならないように) */
 const NATIVE_FS = !/[?&]nofs=1/.test(location.search) && !!(window.CSS && CSS.supports && CSS.supports('field-sizing', 'content'));
 if (NATIVE_FS) document.documentElement.classList.add('fsz');
@@ -571,6 +551,8 @@ $('#segs').addEventListener('input', e => {
     if (s.draft) clearDraftMark(s, row);   // 重なりの下書きに文字を打った = 人の行(札を外す)
     const bx = row.querySelector('.sug'); if (bx && (bx.children.length || S.sug.some(x => x.seg === s.id))) bx.innerHTML = sugHTML(s);
     if (i === (capFollow ? S.curIdx : S.navIdx)) updateCaption();   // 映像に重ねた字幕が、いま直している行なら打った文字にすぐ追従させる
+    paintRead(row, s);   // 読む速さの札(打っている行だけすぐ。件数は保存の予約のあとの syncRead)
+    if (RT.open && RT.open.id === s.id){ RT.open = null; rtPaint(); }   // 見せていた時刻の候補は古くなるので閉じる
   }
 });
 $('#segs').addEventListener('change', e => {
@@ -607,9 +589,7 @@ $('#segs').addEventListener('click', e => {
       if (CUT && CUT.active()){ CUT.rowsCut([i], s.cutState !== 'cut'); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
       pushUndo();
       if (s.cutState === 'cut') delete s.cutState; else s.cutState = 'cut';
-      row.classList.toggle('cut', s.cutState === 'cut');
-      b.setAttribute('aria-pressed', s.cutState === 'cut' ? 'true' : 'false');
-      b.textContent = s.cutState === 'cut' ? 'カット済' : '残す';
+      paintCut(row, s.cutState === 'cut');
       markDirty(); renderCutPack();
       break;
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
@@ -637,27 +617,12 @@ $('#segs').addEventListener('click', e => {
         navRestore(navId, i); }
       renderDoc(); markDirty(); break;
     case 'del': armDelete(b, () => { const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty(); }); break;
+    case 'retime': rtRow(); break;   // 時刻を言葉に合わせる(app-rows.js の rt*)
+    case 'rtok': case 'rtno': rtAnswer(b.dataset.act === 'rtok'); break;
   }
 });
-/* 読む速さの札と、時刻を言葉に合わせる(2026-10-05。関数は app-rows.js の read*・rt*。上の行の処理とは別の待ち受け = 上の処理を変えない) */
+/* 読む速さの札で絞り込む(2026-10-05。関数は app-rows.js の read*) */
 $('#flagKind').add(new Option('読みにくい行だけ(速い・短い)', 'read'));
-$('#segs').addEventListener('input', e => {   // 打っている行の札だけすぐ合わせる(件数は保存の予約のあとの syncRead)。見せていた時刻の候補は古くなるので閉じる
-  if (e.target.dataset.f !== 'text') return;
-  const row = e.target.closest('.seg'), s = row && S.doc ? S.doc.segments[Number(row.dataset.i)] : null; if (!s) return;
-  paintRead(row, s);
-  if (RT.open && RT.open.id === s.id){ RT.open = null; rtPaint(); }
-});
-$('#segs').addEventListener('click', e => {
-  const b = e.target.closest('[data-act=retime], [data-act=rtok], [data-act=rtno]'); if (!b || !S.doc) return;
-  if (b.dataset.act === 'retime') return void rtRow();
-  const o = RT.open, s = S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null;
-  RT.open = null;
-  if (b.dataset.act === 'rtok'){
-    if (!o || !s || s.id !== o.id || rtKey(s) !== o.key){ rtPaint(); return toast('候補を出したあとで行が変わりました。もう一度押してください', 4000); }
-    if (rtApply([o.c])) toast('時刻を言葉に合わせました: ' + rtFmt(o.c) + '(元に戻すで戻せます)', 4000, 'ok');
-    else rtPaint();
-  } else rtPaint();
-});
 $('#rtSelected').addEventListener('click', () => { $('#moreTools').open = false; rtSelected(); });
 /* 行の右クリックのメニュー(段2): 選んだ行の下に出るボタンと同じ操作(data-act はそのまま)。
    キーボードだけの操作は今までどおり(選んだ行の下のボタン)なので、この方が必ず要るわけではない代わりの入口。
@@ -755,11 +720,7 @@ const posKey = id => 'tx.pos.' + id;
    以前は「止まっているか」だけで切り替えていたので、止めたまま時間軸を手でつまんで動かす(シーク)と、再生位置は動いたのに
    字幕は前に選んでいた行のまま(コマとずれる)になっていた。timeupdate はシークでも来るので、そこで再生位置の側へ切り替える */
 let capFollow = false;
-/* ---------- 話者の色(気が利く画面へ 段2)----------
-   色を決めるのはここ1つ: 行の左端の線・話者の欄・映像の上の字幕・カットのプレビュー・パックの見本(cut.js・pack-tab.js にも渡す)。
-   話者の名前がメンバーと合えばメンバーカラー(照らし合わせは入口の api/ytt/streamer-colors → ytt_core/colors.py。名前の一覧をまとめて1回)。
-   合わなければ、行の線・話者の欄は今の自動の色、字幕は配信者の色(--tt-cap-color)。**文字起こしの行の文字の色は変えない**(明るい色は白い背景で読めない)。
-   スイッチは編集の設定 speakerColors(パックのタブの「話者の名前がメンバーと合えば…」。まとめて実行も同じ値に従う。以前はこのブラウザの tx.pk.speakerColors) */
+/* ---------- 話者の色(気が利く画面へ 段2。決め方は app-rows.js の speakerColor の 1 か所) ---------- */
 const SPKC = new Map();   // 話者の名前 → {name, hex}(合う人)| null(合わない)| undefined(照らし合わせ中)
 const speakerColorsOn = () => !S.settings || S.settings.speakerColors !== false;
 const rowSpColor = spId => { const c = speakerColor(spId); return c.hex || c.auto; };
@@ -830,8 +791,7 @@ const KEY_FN = {
   rowNext: () => navigate(null, 1), rowPrev: () => navigate(null, -1), unNext: () => navigate('unproofed', 1), unPrev: () => navigate('unproofed', -1), flagNext: () => navigate('flag', 1),
   replay: () => replayCur(), back3: () => seek(-3), fwd3: () => seek(3), proof: () => proofOk(), edit: () => editCur(),
   autoNext: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
-  tagUnclear: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'unclear', c.row); }, tagOverlap: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'overlap', c.row); },
-  tagBgm: () => { const c = rowAndSeg(); if (c) toggleTag(c.g, 'bgm', c.row); },
+  tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'), tagBgm: () => tagCur('bgm'),
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   del: () => deleteCur(), menu: () => toggleMenu(),
   drillDone: () => drillKey('drillDone'), drillSkip: () => drillKey('drillSkip')
@@ -844,7 +804,7 @@ const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.c
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
 window.addEventListener('keydown', e => {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])')) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
   const m = /^Digit([123])$/.exec(e.code); if (!m) return;
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
   e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1]);
@@ -862,12 +822,12 @@ const editPlaybackKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
     p.pause(); p.currentTime = t;   // 2 カット の stepFrames と同じく止めてから(再生中の1コマは意味がない)
     return true;
   },
-  enabled: () => !wideTab() && !!S.doc && !document.querySelector('dialog[open]') && !document.querySelector('.ui-drawer:not([hidden])') && !menuHasKeys(document.activeElement)
+  enabled: () => !wideTab() && !!S.doc && !modalOpen() && !menuHasKeys(document.activeElement)
 }) : null;
 window.addEventListener('keydown', e => {
   /* #edTabs(タブの並び)の ← → など、他の場所ですでに処理済み(preventDefault 済み)のキーには重ねて反応しない。
      ⚙ 設定・パックの詳しい設定の引き出しが開いている間も、文書を操作するキーは効かせない(dialog と同じ扱い) */
-  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || isTextEntry(e.target)) return;
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || modalOpen() || isTextEntry(e.target)) return;
   if (editPlaybackKeys && editPlaybackKeys(e)) return;   // 処理したら、ここでは何もしない(I/O は校正では何もしない = 別の意味にしない)
   const c = e.code;
   if (e.key === '?'){ e.preventDefault(); if (!e.repeat) openKeys(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
@@ -897,15 +857,14 @@ window.addEventListener('keydown', e => {
 /* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き
    (段2 でやめたが、左手の操作と一緒に戻した。2026-09-27) */
 window.addEventListener('keydown', e => {
-  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || menuHasKeys(e.target)) return;   // メニューの中の Tab はふつうのフォーカスの移動(3-1)
+  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229 || !S.doc || wideTab() || modalOpen() || menuHasKeys(e.target)) return;   // メニューの中の Tab はふつうのフォーカスの移動(3-1)
   const t = e.target;
   if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
   const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
   if (free && !lockJob() && rowAndSeg()){ e.preventDefault(); editCur(); }
 });
 
-/* ---------- キー配置の表示と変更(⚙ 設定の「キー配置」。2026-09-27) ----------
-   割り当てを変えたら、下の帯・一覧の上の手がかり・キー操作の一覧(?)・設定の欄をまとめて描き直す(renderKeyUI) */
+/* ---------- キー配置の表示(描き直しは app-rows.js の renderKeyUI) ---------- */
 const kbdHTML = combo => combo ? keyText(combo).split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('+') : '<span class="muted">未設定</span>';
 const keyWithAlt = id => { const km = keymap(), a = KEY_ALT[id]; return [km[id] ? keyText(km[id]) : '', a || ''].filter(Boolean).join(' / ') || '未設定'; };
 /* ツールチップ・知らせの中のキー(今の割り当てから作る。割り当てを外したら出さない。GPT-16) */
@@ -951,8 +910,7 @@ $('#hiList').addEventListener('click', e => {
   const ts = Number(b.closest('[data-ts]').dataset.ts);
   armDelete(b, async () => {
     try {
-      await saveDoc();
-      if (S.dirty || S.saving) return toast('保存中です。少し待ってから、もう一度押してください');
+      if (!(await saveFirst())) return;
       await api('/api/restore', { body: { id: S.docId, ts } });
       await openDoc(S.docId, true); await loadHistory();
       toast('選んだ時点に戻しました(戻す前の状態も「以前の版」に残っています)');
@@ -960,10 +918,7 @@ $('#hiList').addEventListener('click', e => {
   });
 });
 
-/* ---------- v0.9.8: 行の追加(認識で抜けたセリフを書き足す) ----------
-   時刻は前後の行の「すき間」に置く(すき間が 8 秒より長ければ 8 秒まで)。すき間が無いときは 1.5 秒の仮の長さで置き、重なりを案内する。
-   並び順(開始時刻順)を必ず保つため、足したあと sortSegs() して id で位置を探し直す。原文(original)には何も足さないので、
-   サーバー側の精度測定では「人が足した行 = 認識の脱落」として正しく数えられ、置換の学習には使われない */
+/* ---------- 行の追加(app-rows.js の insertRow。すき間の長さ・仮の長さ・最小のすき間) ---------- */
 const NEW_LEN = 1.5, NEW_MAX = 8, NEW_MIN_GAP = 0.3;
 const r2 = v => Math.round(Math.max(0, v) * 100) / 100;
 player().addEventListener('timeupdate', () => {
@@ -1004,7 +959,7 @@ $('#rlGo').addEventListener('click', async () => {
   if (!c || S.docId !== id) return;
   b.disabled = true;
   try {
-    if (!(await saveDoc()) || (CUT && !(await CUT.flush()))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    if (!(await savedAll())) return;
     const r = await api('/api/relink', { body: { id, path: RL.path, baseUpdatedAt: S.baseUpdatedAt, acceptDiff: $('#rlAccept').checked } });
     $('#relinkDlg').close();
     await openDoc(id);   // 同じ文書でも読み直す(映像・カット・パックを新しいパスで)
@@ -1026,8 +981,7 @@ $('#rlBrowse').addEventListener('click', async () => {
   } finally { b.disabled = false; }
 });
 
-/* ---------- 見つからない動画をまとめて付け替える(2026-10-01)。候補は「選んだフォルダの中の同じファイル名」か行ごとの「参照…」。
-   付け替えは1件ずつ /api/relink(控え・長さ・競合の確認は1件のときと同じ)。長さが違うものは最初は選ばない ---------- */
+/* ---------- 見つからない動画をまとめて付け替える(2026-10-01。関数は app-tools.js の ra*) ---------- */
 const RA = { rows: [], seq: 0, busy: false, q: Promise.resolve() };
 $('#txMissingGo').addEventListener('click', () => openRelinkAll());
 $('#raFind').addEventListener('click', raFind);
@@ -1047,7 +1001,7 @@ $('#raGo').addEventListener('click', async () => {
   const cur = S.docId, curIn = rows.some(r => r.id === cur);
   let ok = 0;
   try {
-    if (curIn && (!(await saveDoc()) || (CUT && !(await CUT.flush())))) return toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
+    if (curIn && !(await savedAll())) return;
     for (const r of rows){
       r.state = 'saving'; raUpdate(r);
       try {
@@ -1290,7 +1244,7 @@ $('#txList').addEventListener('click', e => {
   });
 });
 window.addEventListener('keydown', e => {
-  if (!S.doc || wideTab() || isTextEntry(e.target) || document.querySelector('dialog[open]') || document.querySelector('.ui-drawer:not([hidden])') || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
+  if (!S.doc || wideTab() || isTextEntry(e.target) || modalOpen() || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ。ここにも残っていたため1回押すと「再生 → すぐ停止」の2回分になっていた(2026-09-27 に削除) */
 });
@@ -1317,20 +1271,16 @@ $('#btnTxInto').addEventListener('click', async () => {
   const id = S.docId, b = $('#btnTxInto'); b.disabled = true;
   try {
     await api('/api/transcribe', { body: { sourcePath: S.doc.sourcePath, intoDoc: id, ...jobOpts() } });
-    toast('文字起こしを始めました(終わると、この画面に行が出ます)', 5000); startPolling(); await pollJobs();
+    toast('文字起こしを始めました(終わると、この画面に行が出ます)', 5000); await kickJobs();
   } catch (e){ toast(e.message, 6000, 'err'); }
   finally { renderIntoState(); }
 });
 [$('#handoffOut'), $('#cpPlanOut')].forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
-  const v = S.handoff[b.dataset.k]; if (!v) return;
-  try { await navigator.clipboard.writeText(v); toast('パスをコピーしました', 2000, 'ok'); } catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+  const v = S.handoff[b.dataset.k]; if (v) copyPath(v);
 }));
 
-/* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
-   パックを作るのは cut2resolve/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/design/resolve-pack-unification.md)。
-   cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
-   (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
+/* ---------- cut2resolve の API(app-tools.js の c2rBase・c2rApi。入口に取り込まれているときだけ) ---------- */
 const c2rUrl = path => c2rBase() + String(path).replace(/^\/+/, '');
 /* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは変わらない。文字が空になった行は残らないので含める) */
 const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${g.text.trim() ? 1 : 0}${g.noSub ? ',n' : ''}`).join(';') : '';   // 字幕に出さない印が変わっても見積もりを出し直す
@@ -1348,15 +1298,13 @@ $('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_
 applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
 
-/* ---------- 確認のダイアログ(はい/やめる) ---------- */
-
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

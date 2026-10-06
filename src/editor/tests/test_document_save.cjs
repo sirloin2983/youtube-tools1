@@ -27,7 +27,7 @@ function lineSource(prefix) {
   return line + '\n';
 }
 const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc');
-const openSource = fnSource('openDoc') + fnSource('setUrlDoc');
+const openSource = fnSource('openDoc') + fnSource('docInfoText') + fnSource('setUrlDoc') + fnSource('setUrlParam');   // 文書の 1 行の説明と URL の ?doc=(app-core.js の setUrlParam)も本物
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -55,13 +55,10 @@ function harness(respond) {
       return respond(call, S);
     }
   };
-  for (const name of ['toast', 'autoArchive', 'scheduleLearn', 'scheduleAcc', 'scheduleProgress',
-    'renderDataset', 'syncEval', 'renderDoc', 'renderList', 'updateUndo', 'applyLock', 'loadSuggest',
-    'renderAb', 'loadEvals', 'renderTerms', 'navRestore', 'renderDocExtras', 'updateDocTitle',
-    // v0.15.0: 一覧の進み具合の同期・カットとパック・狭い画面の引き出し(保存と切り替えの競合には関係しない)
-    'syncListItem', 'cpAfterSave', 'cpReset', 'cpDefaultFold', 'schedulePlan', 'isDrawer',
-    'effortStart',   // 校正の手間を送る(マスタープラン Q2。保存とは別の API なので、このテストには関係しない)
-    'ovdAfterSave', 'loadOvd']) context[name] = () => {};   // 重なりの所の空の行の候補を数え直す(読むだけの GET。2026-10-05。保存と切り替えの競合には関係しない)
+  // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・学習と精度の読み直し・題名・一覧の進み具合・パックの見積もり・
+  // 校正の手間(effortStart。マスタープラン Q2)・重なりの所の空の行の候補(ovdAfterSave・loadOvd。2026-10-05)
+  for (const name of ['toast', 'scheduleLearn', 'scheduleAcc', 'scheduleProgress', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
+    'effortStart', 'ovdAfterSave', 'loadOvd']) context[name] = () => {};
   context.apiUrl = p => p;
   vm.createContext(context);
   vm.runInContext(saveSource + '\n' + openSource, context);

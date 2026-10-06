@@ -58,7 +58,8 @@ function sugHTML(s){
 function renderChips(){
   if (!S.doc) return;
   document.querySelectorAll('#segs .seg').forEach(el => { const s = S.doc.segments[Number(el.dataset.i)], box = el.querySelector('.sug'); if (s && box) box.innerHTML = sugHTML(s); });
-  const hi = S.doc.segments.reduce((n, s) => n + sugList(s).filter(x => x.tier === 'high').length, 0), all = S.doc.segments.reduce((n, s) => n + sugList(s).length, 0);
+  let hi = 0, all = 0;
+  for (const s of S.doc.segments){ const l = sugList(s); all += l.length; for (const x of l) if (x.tier === 'high') hi++; }
   const b = $('#btnSugHigh'); b.hidden = !hi; b.textContent = `確度高の提案を全部採用(${hi})`;
   $('#flagKind').querySelector('option[value=sug]').textContent = all ? `修正の提案がある行だけ(${all}件)` : '修正の提案がある行だけ';
   if ($('#flagKind').value === 'sug') applyFilter();
@@ -96,7 +97,7 @@ function renderAlt(){
   const n = (S.sug || []).filter(x => x.tier === 'alt').length;
   msg.textContent = j ? `聞いています(${j.phase || ''}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''})。終わると候補が行に出ます`
     : why ? why
-    : S.alt ? `${S.alt.label} の結果(${UIKit.fmt && UIKit.fmt.ago ? UIKit.fmt.ago(S.alt.at) : ''}): 食い違いの候補 ${n} 件`
+    : S.alt ? `${S.alt.label} の結果(${ago(S.alt.at)}): 食い違いの候補 ${n} 件`
     : 'まだ別のエンジンで聞いていません';
   renderYtcap();   // 下の「YouTube の字幕の候補」も同じ時に描き直す(ジョブの進み・候補の読み直し・設定の読み直し)
 }
@@ -128,7 +129,7 @@ function renderYtcap(){
   const err = !j && !y && d ? S.jobs.find(x => x.kind === 'ytcap' && x.tid === S.docId && x.state === 'error') : null;
   msg.textContent = j ? `字幕を取っています(${j.phase || ''})。終わると候補が行に出ます`
     : why ? why
-    : y ? `${ytLabel()}(取得: ${UIKit.fmt && UIKit.fmt.ago ? UIKit.fmt.ago(y.fetchedAt) : ''}): 食い違いの候補 ${n} 件${agree ? `(うち別のエンジンと一致 ${agree} 件)` : ''}`
+    : y ? `${ytLabel()}(取得: ${ago(y.fetchedAt)}): 食い違いの候補 ${n} 件${agree ? `(うち別のエンジンと一致 ${agree} 件)` : ''}`
     : err ? `取れませんでした: ${err.error || ''}`
     : 'まだ字幕を取っていません';
 }
@@ -172,7 +173,7 @@ function updatePfStat(){
 function updateSess(){
   if (!S.doc){ $('#sessStat').textContent = ''; return; }
   const un = S.doc.segments.filter(s => !s.proofed && s.text.trim()), sec = un.reduce((a, s) => a + (s.end - s.start), 0), m = Math.round(S.sess.activeMs / 60000);
-  $('#sessStat').textContent = `未校正 ${un.length}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'}) ・ 今回 +${S.sess.n}行 ・ 作業${m}分`;
+  $('#sessStat').textContent = `未校正 ${un.length}行(音声 約${approxLen(sec)}) ・ 今回 +${S.sess.n}行 ・ 作業${m}分`;
 }
 
 /* ---------- 校正の手間(マスタープラン Q2): 文書ごとに操作していた時間をため、api/effort へ送る ----------
@@ -290,14 +291,7 @@ function drillLoad(){
 }
 function drillSave(){ try { sessionStorage.setItem('tx.drill', JSON.stringify({ done: DR.done, skip: DR.skip })); } catch {} }
 
-function setUrlDrill(on){   // ?drill=1 を URL に残す(再読み込み・窓の開き直しでドリルを続ける)。?doc= は setUrlDoc が並べて残す
-  try {
-    const q = new URLSearchParams(location.search);
-    if (on) q.set('drill', '1'); else q.delete('drill');
-    const rest = q.toString(), url = location.pathname + (rest ? '?' + rest : '') + location.hash;
-    if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
-  } catch {}
-}
+function setUrlDrill(on){ setUrlParam('drill', on ? '1' : ''); }   // ?drill=1 を URL に残す(再読み込み・窓の開き直しでドリルを続ける)。?doc= は setUrlDoc が並べて残す
 
 /* ドリルの帯(1 文字起こし のタブの上)。この動画の状態・定点の残り・済ませた本数・ボタン(キーは今の割り当て) */
 function renderDrillBar(){
@@ -367,14 +361,14 @@ async function markReviewed(via){
   if (none && !(await UIKit.dialog.confirm({ title: '話者が無い行があります', ok: 'このまま済みにする',
     body: `話者が無い行が ${none} 行あります(評価用のフォルダへ移すには全行に話者が要ります)。このまま済みにしますか` }))) return false;
   if (S.docId !== id) return false;
-  if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id){
+  if (!(await savedFor(id))){
     toast('保存が終わっていないため、済みにしていません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err'); return false;
   }
   let r;
   try { r = await api('/api/drill/reviewed', { body: { id, baseUpdatedAt: S.baseUpdatedAt, via } }); }
   catch (e){
     if (S.docId !== id) return false;
-    if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 と同じ案内(映像の上の帯から選ぶ)
+    if (e.code === 'conflict') showConflict();   // 保存の 409 と同じ案内(映像の上の帯から選ぶ)
     toast('済みにできませんでした: ' + e.message, 7000, 'err'); return false;
   }
   if (S.docId === id){ S.baseUpdatedAt = r.updatedAt; S.doc.evalReviewed = r.evalReviewed; }
@@ -389,10 +383,10 @@ async function unmarkReviewed(){
   if (!(await UIKit.dialog.confirm({ title: '確かめ済みを取り消しますか', ok: '取り消す',
     body: '「動画を全部聞いて確かめた」印を外します。印を付けたときに校正済みにした行も、未校正に戻します(それより前から校正済みだった行はそのままです)。' }))) return;
   if (S.docId !== id) return;
-  if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id) return toast('保存が終わっていないため、取り消していません', 6000, 'err');
+  if (!(await savedFor(id))) return toast('保存が終わっていないため、取り消していません', 6000, 'err');
   try { await api('/api/drill/unreviewed', { body: { id, baseUpdatedAt: S.baseUpdatedAt } }); }
   catch (e){
-    if (S.docId === id && e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }
+    if (S.docId === id && e.code === 'conflict') showConflict();
     return toast('取り消せませんでした: ' + e.message, 7000, 'err');
   }
   if (S.docId === id) await openDoc(id, true);   // 戻した行の校正済みを画面にも(見ていた行はそのまま)
@@ -425,7 +419,7 @@ async function redoOneHere(){
   const [ok, why] = redoOneState(); if (!ok) return toast(why, 5000);
   REDO1.busy = true; renderRedoOne();
   try {
-    if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id){
+    if (!(await savedFor(id))){
       if (S.docId === id) toast('保存が終わっていないため、作り直していません(保存の状態を確かめてから、もう一度押してください)', 6000, 'err');
       return;
     }
@@ -438,14 +432,14 @@ async function redoOneHere(){
       if (!(await UIKit.dialog.confirm({ title: 'この動画を作り直しますか', ok: '作り直す',
         body: `この動画で直した${x.rows ? ` ${x.rows} 行` : '所'}${x.label ? `(${x.label})` : ''}は、新しい文字起こしに置き換わります(以前の版に戻すで戻せます)。作り直しますか` }))) return;
       if (S.docId !== id) return;
-      if (!(await saveDoc()) || S.dirty || S.saving || S.conflict || S.docId !== id) return toast('保存が終わっていないため、作り直していません', 6000, 'err');
+      if (!(await savedFor(id))) return toast('保存が終わっていないため、作り直していません', 6000, 'err');
       await send(true);
     }
     toast('この動画の作り直しを待機列に追加しました(終わると自動で読み込み直します。それまで編集はできません)', 6000, 'ok');
-    startPolling(); await pollJobs();
+    await kickJobs();
   } catch (e){
     if (S.docId !== id) return;
-    if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 と同じ案内
+    if (e.code === 'conflict') showConflict();   // 保存の 409 と同じ案内
     toast('作り直せませんでした: ' + e.message, 7000, 'err');
   } finally { REDO1.busy = false; renderRedoOne(); }
 }
@@ -516,6 +510,8 @@ function glossFit(terms){   // 先頭から何語がヒントに収まるか
   for (const t of terms){ const add = (n ? 1 : 0) + t.length; if (len + add > GLOSS_PROMPT) break; len += add; n++; }
   return { fit: n, len: terms.join('、').length };
 }
+/* 設定の比較の行ごとの用語集の欄の下の 1 行(空なら '') */
+function glossFitText(t){ if (!t.length) return ''; const f = glossFit(t); return f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; }
 
 function renderGlossFit(){
   const t = glossTerms($('#optGloss').value), f = glossFit(t);
@@ -537,9 +533,8 @@ async function loadRoster(){
 }
 
 function renderAbHint(){
-  const n = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()).length : 0;
-  const sec = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()).reduce((a, s) => a + (s.end - s.start), 0) : 0;
-  $('#abHint').textContent = !S.doc ? '文字起こしを開いてください' : n ? `対象: 校正済み${Math.min(n, 300)}行(音声 約${sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分'})` : '校正済みの行がありません';
+  const pf = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()) : [], n = pf.length, sec = pf.reduce((a, s) => a + (s.end - s.start), 0);
+  $('#abHint').textContent = !S.doc ? '文字起こしを開いてください' : n ? `対象: 校正済み${Math.min(n, 300)}行(音声 約${approxLen(sec)})` : '校正済みの行がありません';
   $('#abGo').disabled = !n;
 }
 
@@ -550,7 +545,7 @@ function renderAb(){
     <select class="abm" style="min-width:0;flex:1" aria-label="モデル">${S.tools.models.map(([val, l]) => `<option value="${esc(val)}"${val === v.model ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
     <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small" data-act="abdel" aria-label="この設定を外す">×</button>' : ''}</div>
     ${v.glossary ? `<textarea class="abt" rows="2" style="width:100%;margin:2px 0 0" placeholder="空欄=上の共通の用語集を使う。書くと、この設定だけその語を使います(改行かカンマ区切り)" aria-label="この設定だけの用語集">${esc(v.terms || '')}</textarea>
-    <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${(() => { const t = glossTerms(v.terms); if (!t.length) return ''; const f = glossFit(t); return f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; })()}</span></div>` : ''}`).join('');
+    <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${glossFitText(glossTerms(v.terms))}</span></div>` : ''}`).join('');
   $('#abAdd').disabled = abVariants.length >= 4;
   renderAbHint();
 }

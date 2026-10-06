@@ -80,8 +80,7 @@ function renderResplitOpts(){
 }
 
 async function resplitDoc(){
-  if (!S.docId || lockJob()) return;
-  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  if (!S.docId || lockJob() || !(await saveDone())) return;
   const b = $('#rsGo'), msg = $('#rsMsg'), id = S.docId, o = $('#rsOrient').value;
   b.disabled = true; msg.textContent = '分けています…';
   try {
@@ -127,7 +126,7 @@ async function openDoc(id, keep){
   if (!keep && menuOpen() && !isDrawer() && document.activeElement && $('#menuPanel').contains(document.activeElement)) document.activeElement.blur();
   if (wideTab() && EDT.overlay){ EDT.overlay = false; applyView(); }   // カット・パックのタブで、帯から開いたメニューで選んだ → 閉じてタイムラインを見せる
   $('#docTitle').value = d.title || ''; setSaveState('', ''); syncEval(); renderDocExtras(d);
-  { const pr = d.params || {}; $('#docInfo').textContent = `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + devLabel(pr.device) : ''} / ${{ weak: '声の検出: 弱め', normal: '声の検出: 標準', off: '声の検出: なし' }[pr.vadMode] || (pr.vad === false ? '声の検出: なし' : '声の検出: 標準')}${pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + ({ weak: '弱め', normal: '標準', off: 'なし' }[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : ''}${pr.boost ? ' / 音量補正あり' : ''}${pr.beam === 1 ? ' / 速度優先' : ''}${d.diarization ? ' / 話者判別: ' + d.diarization.found + '人(' + (d.diarization.requested ? '指定' + d.diarization.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[d.diarization.embedding] || 'ERes2Net') + ')' : ''}${pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : ''}${pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : ''}${(pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : ''}${d.retranscribed ? ' / ' + (d.retranscribed.whole ? '全体を再認識' : '再認識') + ': ' + String(d.retranscribed.model).split('/').pop() + '(' + d.retranscribed.lines + '行)' : ''}`; }
+  $('#docInfo').textContent = docInfoText(d);
   if (!keep || !sameDoc) S.playerErr = null;
   renderPlayerMsg();
   const p = player();
@@ -153,16 +152,20 @@ async function openDoc(id, keep){
   return true;
 }
 
+/* 文書の「認識の設定」の 1 行(題名の下。モデル・処理の機器・声の検出・話者判別・自動で当てた辞書と用語・再認識) */
+function docInfoText(d){
+  const pr = d.params || {}, vad = { weak: '弱め', normal: '標準', off: 'なし' }, dz = d.diarization, rt = d.retranscribed;
+  return `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + devLabel(pr.device) : ''} / 声の検出: ${vad[pr.vadMode] || (pr.vad === false ? 'なし' : '標準')}`
+    + (pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + (vad[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : '') + (pr.boost ? ' / 音量補正あり' : '') + (pr.beam === 1 ? ' / 速度優先' : '')
+    + (dz ? ' / 話者判別: ' + dz.found + '人(' + (dz.requested ? '指定' + dz.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[dz.embedding] || 'ERes2Net') + ')' : '')
+    + (pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : '') + (pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : '')
+    + ((pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : '')
+    + (rt ? ' / ' + (rt.whole ? '全体を再認識' : '再認識') + ': ' + String(rt.model).split('/').pop() + '(' + rt.lines + '行)' : '');
+}
+
 /* 開いている文書を URL の ?doc= に残す(監査 06)。replaceState にする: pushState にすると、戻るボタンで文書を行き来させたときに
    未保存の保存・カットの flush と戻る操作がぶつかる(replace なら今の保存の順番のまま)。タブの # はそのまま */
-function setUrlDoc(id){
-  try {
-    const q = new URLSearchParams(location.search);
-    if (id) q.set('doc', id); else q.delete('doc');
-    const rest = q.toString(), url = location.pathname + (rest ? '?' + rest : '') + location.hash;
-    if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
-  } catch {}
-}
+function setUrlDoc(id){ setUrlParam('doc', id); }
 
 /* 話者の選択肢: 話者なし → 組み込みの「ゲーム音声など」(文書に無くても常に出す・固定の位置)→ 文書の話者(番号の順) */
 function opts(sel){
@@ -268,7 +271,8 @@ function ovl(i){
 function markOvl(i){
   const g = S.doc.segments, s = g[i]; let hi = Math.min(g.length - 1, i + OVL_BACK);   // 終わりを早めたときに、前は重なっていた後ろの行も外す
   if (s) while (hi + 1 < g.length && t10(g[hi + 1].start) < t10(s.end)) hi++;
-  for (let j = Math.max(0, i - OVL_BACK); j <= hi; j++){ const r = rowsEl()[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = OVL_TITLE; else t.removeAttribute('title'); } }
+  const rows = rowsEl();
+  for (let j = Math.max(0, i - OVL_BACK); j <= hi; j++){ const r = rows[j]; if (r && r.classList && r.classList.contains('seg')){ const t = r.querySelector('.times'); const o = ovl(j); t.classList.toggle('ovl', o); if (o) t.title = OVL_TITLE; else t.removeAttribute('title'); } }
 }
 
 /* 行 i の開始(f='start')か終了('end')を直したあと、隣の行の境目(開始なら前の行の終了・終了なら次の行の開始)と、見える時刻(0.1 秒)が同じなら、
@@ -401,7 +405,7 @@ async function rtFetch(rows){
 /* 選んだ行の「時刻を言葉に合わせる」: 保存 → 候補 → 見せる(合わせる / やめる) */
 async function rtRow(){
   const s = S.doc && S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null; if (!s || lockJob()) return;
-  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  if (!(await saveDone())) return;
   let res; try { res = await rtFetch([s]); } catch (e){ return toast('時刻の候補を出せませんでした: ' + e.message, 6000, 'err'); }
   if (res.stale) return toast('調べている間に文書が変わりました。もう一度押してください', 4000);
   const c = res.items[0];
@@ -409,6 +413,16 @@ async function rtRow(){
   RT.open = { id: s.id, key: rtKey(s), c };
   rtPaint();
   const ok = RT.el && RT.el.querySelector('[data-act=rtok]'); if (ok) ok.focus({ preventScroll: true });
+}
+
+/* 見せている候補の「合わせる」(ok)・「やめる」。候補を出したあとで行が変わっていれば採らない */
+function rtAnswer(ok){
+  const o = RT.open, s = S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null;
+  RT.open = null;
+  if (!ok) return rtPaint();
+  if (!o || !s || s.id !== o.id || rtKey(s) !== o.key){ rtPaint(); return toast('候補を出したあとで行が変わりました。もう一度押してください', 4000); }
+  if (rtApply([o.c])) toast('時刻を言葉に合わせました: ' + rtFmt(o.c) + '(元に戻すで戻せます)', 4000, 'ok');
+  else rtPaint();
 }
 
 /* 候補を採る(1 行でもまとめてでも、元に戻す 1 回)。候補を出したときから行の時刻・文字が変わっていれば、その行は採らない -> 採った数 */
@@ -432,7 +446,7 @@ async function rtSelected(){
   if (!sel.length) return toast('行の左端のチェックで、合わせる行を選んでください', 4000);
   const rows = sel.filter(g => !g.proofed), skipped = sel.length - rows.length;
   if (!rows.length) return toast(`選んだ ${sel.length} 行はどれも校正済みです(校正済みの行は、行ごとの「時刻を言葉に合わせる」で 1 行ずつ合わせられます)`, 6000);
-  if (!(await saveDoc())) return toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err');
+  if (!(await saveDone())) return;
   const texts = new Map(rows.map(g => [g.id, g.text]));
   let res; try { res = await rtFetch(rows); } catch (e){ return toast('時刻の候補を出せませんでした: ' + e.message, 6000, 'err'); }
   if (res.stale) return toast('調べている間に文書が変わりました。もう一度押してください', 4000);
@@ -445,21 +459,27 @@ async function rtSelected(){
   toast(done ? `${done} 行の時刻を言葉に合わせました(元に戻すで戻せます)` : '合わせている間に行が変わったため、合わせませんでした', 5000, done ? 'ok' : '');
 }
 
-function segHTML(s, i){
+/* 行のボタンの title と読む速さの基準(キーの割り当て・設定から作る)。描き直し 1 回につき 1 回だけ作り、全部の行で使う(4000 行でも作り直さない) */
+function rowTitles(){
+  return { play: esc(titlePlay()), proof: esc(titleProof()), addAfter: esc(titleAddAfter()), del: esc(titleDel()), lim: readLimits(),
+    tag: Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, esc(titleTag(t))])) };
+}
+
+function segHTML(s, i, T = rowTitles()){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
-    <button type="button" class="play" data-act="play" title="${esc(titlePlay())}" aria-label="この行だけ再生">▶</button>
+    <button type="button" class="play" data-act="play" title="${T.play}" aria-label="この行だけ再生">▶</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? draftPh(s) : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
-    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${esc(titleProof())}">校正済み</button></span>
+    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${T.proof}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
     ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(draftTitle(s))}">下書き(${draftName(s)})</span>` : ''}
-    ${readHTML(s)}
+    ${readHTML(s, T.lim)}
     <div class="sug">${sugHTML(s)}</div>
-    <div class="tg">${tagsHTML(s)}</div>
-    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${esc(titleAddAfter())}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${esc(titleDel())}">削除</button></span></div>
+    <div class="tg">${tagsHTML(s, T.tag)}</div>
+    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${T.addAfter}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${T.del}">削除</button></span></div>
     ${s.flag ? `<button type="button" class="fl" data-act="unflag" title="${esc(s.flag)}(押すと確認済みにします)">要確認: ${esc(s.flag)}</button>` : ''}
   </div>`;
 }
@@ -467,7 +487,8 @@ function segHTML(s, i){
 function renderDoc(){
   const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // 文字起こしせずに開いた文書(model が空)
   $('#noRows').hidden = !untranscribed; renderIntoState();
-  $('#segs').innerHTML = segs.length ? segs.map(segHTML).join('') : untranscribed ? '' : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
+  const T = rowTitles();
+  $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : untranscribed ? '' : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
   UIKit.timebox.attachAll($('#segs'));   // 行の時刻の欄(分:秒.0.1秒。数字だけで入れる・← → で場所・↑ ↓ で動かす。ui-kit v11)
   autoSizeAll(true);
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
@@ -508,13 +529,14 @@ function applyFilter(){
 }
 
 function renderSpeakers(){
-  if (typeof renderVoiceLearn === 'function' && document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように(A-3)
+  if (document.querySelector('#spDetails[open]')) renderVoiceLearn();   // 名前を付けたら「声を覚える」を押せるように(A-3)
   const box = $('#spList');
   const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement : null;
   if (focused && focused.type === 'text') return;   // 名前を打っている間は描き直さない(打った文字・候補を消さない。確定(change)のあとで描き直す)
   let num = 0;   // 番号(Alt+数字)は組み込みの「ゲーム音声など」を除いて数える
+  const cnt = new Map(); for (const x of S.doc.segments) cnt.set(x.speaker, (cnt.get(x.speaker) || 0) + 1);   // 話者ごとの行の数(1 回で数える)
   box.innerHTML = S.doc.speakers.map((s, i) => {
-    const rows = S.doc.segments.filter(x => x.speaker === s.id).length;
+    const rows = cnt.get(s.id) || 0;
     if (isOtherSp(s)) return `<div class="sp-row tt-sp-other" data-i="${i}"><i class="tt-sp-member" style="background:${esc(OTHER_SP.color)}" aria-hidden="true"></i><input type="text" class="tt-sp-name" value="${esc(OTHER_SP.name)}" readonly aria-label="話者名(組み込み。変えられません)" title="組み込みの話者(名前は変えられません・声は覚えません)" style="flex:1"><span class="n">${rows}行</span><button type="button" class="btn small" data-act="spplay" title="この話者の行を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel" title="一覧から外します(付いていた行は話者なし・字幕に出す に戻ります)">削除</button></div>`
       + '<div class="hint tt-sp-why">ゲームのキャラ・NPC・動画の音声など。この話者の行は字幕に出しません(行ごとに「字幕に出さない」を外せます)</div>';
     const c = speakerColor(s.id), sub = subColorOf(s); num++;
@@ -667,9 +689,7 @@ const capOverlap = (a, b) => Math.min(a.end, b.end) - Math.max(a.start, b.start)
    opt.primary: 今の行(1 文字起こし の S.curIdx。行の終わりの少し後まで残る)。opt.skip(i): 出さない行(2 カット のカット後の見え方で削った行) */
 function capStack(segs, t, opt = {}){
   const ok = i => capOk(segs[i]) && !(opt.skip && opt.skip(i));
-  let lo = 0, hi = segs.length - 1, last = -1;
-  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ last = m; lo = m + 1; } else hi = m - 1; }
-  const on = [];
+  const last = segIndexAt(segs, t), on = [];
   for (let i = last; i >= 0 && i > last - CAP_SCAN; i--) if (t < segs[i].end && ok(i)) on.push(i);
   const p = opt.primary;
   let top = on.length ? on[0] : -1;   // 開始がいちばん遅い行(後の行に切り替わる)
@@ -791,6 +811,8 @@ function toggleTag(s, t, row){
 
 function rowAndSeg(){ const i = curNav(), row = i >= 0 ? rowsEl()[i] : null, g = i >= 0 && S.doc.segments[i]; return g && row && row.classList && row.classList.contains('seg') ? { i, row, g } : null; }
 
+function tagCur(t){ const c = rowAndSeg(); if (c) toggleTag(c.g, t, c.row); }   // 音のメモのキー(X・C・V)
+
 function proofOk(){   // 校正済みにして、次の行へ(すでに校正済みなら、次へ進むだけ)
   const c = rowAndSeg(); if (!c) return toast('先に、行を選んでください(↓ で最初の行へ)');
   if (!c.g.proofed){ setProof(c.g, true, c.row); markDirty(); updatePfStat(); }
@@ -846,11 +868,8 @@ function renderKeyUI(){
       `聞き取れない・重なり・BGM は ${k('tagUnclear')} / ${k('tagOverlap')} / ${k('tagBgm')} でメモしておくと、あとで学習に使うかどうかを選べます。`;
   }
   /* 行のボタンのツールチップ(描き直さずに title だけ合わせる) */
-  document.querySelectorAll('#segs button[data-act=play]').forEach(b => { b.title = titlePlay(); });
-  document.querySelectorAll('#segs button[data-act=proof]').forEach(b => { b.title = titleProof(); });
-  document.querySelectorAll('#segs button[data-act=tag]').forEach(b => { b.title = titleTag(b.dataset.t); });
-  document.querySelectorAll('#segs button[data-act=adda]').forEach(b => { b.title = titleAddAfter(); });
-  document.querySelectorAll('#segs button[data-act=del]').forEach(b => { b.title = titleDel(); });
+  const tt = { play: titlePlay(), proof: titleProof(), adda: titleAddAfter(), del: titleDel() }, tg = Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, titleTag(t)]));
+  document.querySelectorAll('#segs button[data-act]').forEach(b => { const a = b.dataset.act, t = a === 'tag' ? tg[b.dataset.t] : tt[a]; if (t !== undefined) b.title = t; });
   /* 静的な HTML の中のキー(段3 3-3 監査 16): data-key-title = title の後ろに「(キー)」・data-key = 中の文字(data-key-fmt の {k} に入れる)。未設定なら出さない */
   document.querySelectorAll('[data-key-title]').forEach(el => {
     if (el.dataset.keyTitleBase === undefined) el.dataset.keyTitleBase = el.title;
@@ -954,7 +973,7 @@ function insertBefore(i){
 
 function insertAtTime(t){
   const segs = S.doc.segments; t = Math.max(0, Number(t) || 0);
-  let k = -1; for (let j = 0; j < segs.length && segs[j].start <= t; j++) k = j;
+  const k = segIndexAt(segs, t);
   if (k >= 0 && t < segs[k].end) return insertAfter(k);   // 行の途中なら、その行の後ろへ
   const pv = segs[k], nx = segs[k + 1], lo = pv ? pv.end : 0, hi = nx ? nx.start : Infinity;
   const a = Math.max(lo, t - 0.3), b = Math.min(hi, a + 3);
@@ -969,8 +988,7 @@ function playSeg(s, one){
 }
 
 function curIndex(t){
-  const segs = S.doc ? S.doc.segments : []; let lo = 0, hi = segs.length - 1, ans = -1;
-  while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ ans = m; lo = m + 1; } else hi = m - 1; }
+  const segs = S.doc ? S.doc.segments : [], ans = segIndexAt(segs, t);
   return ans >= 0 && t < segs[ans].end + 0.4 ? ans : -1;
 }
 
