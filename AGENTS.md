@@ -59,6 +59,7 @@ youtube-tools/
 ## 資料の場所(正本はこのリポジトリ)
 - **文書の索引は `docs/ROADMAP.md`**。順番と進捗は `plan/index.html`(データ `plan/data.js`)。claude.ai の Project の `claude/*.md` は古い写しで根拠にしない(例外: 統合計画は Claude Docs が正本)
 - 今の仕様 = 各ツールの `README.txt`(ユーザー向け)+ `AGENTS.md`(AI 向け)+ コード。ツール間の受け渡し: `docs/spec/pipeline.md`
+- **`plan/data.js` を直したら公開ページも更新する**(Claude Code だけができる): `py -3.10 dev/plan_artifact.py --out <scratchpad の art>` で 1 枚にまとめ、Artifact ツールで `url` = data.js の `artifactUrl` に公開し直す(主のページ = art/index.html、files = {"user-tasks.html": art/user-tasks.html})。スマホで見るためのリンク
 - 新しい文書は種類で置く: 今の決まり・仕様 → `docs/spec/`、これからの計画(ユーザーが読む)→ `plan/`、済んだ設計・決定の記録 → `docs/design/`。WORKLOG と `docs/ROADMAP.md` の索引からリンクする。計画・設計の文書の先頭には「状態(日付)」の 1 行を置き、状態が変わったらその行と `plan/index.html`(データ `plan/data.js`) を直す
 - 古い経緯(`docs/archive/`)は 2026-10-07 に消した。必要なら git の履歴(679ff01 以前)で読む。過去の記録(WORKLOG・`docs/design/`)の中の旧いパスは書き換えない
 

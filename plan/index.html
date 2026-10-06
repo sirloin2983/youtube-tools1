@@ -11,6 +11,7 @@
 <header class="top">
   <h1>全体の計画と各線の進捗</h1>
   <div class="sub">更新: <b id="updated"></b> ・ データは <code>plan/data.js</code>(AI が更新する)。ユーザーがやることは <a href="user-tasks.html">user-tasks.html</a></div>
+  <div class="sub" id="artifactLink"></div>
   <nav class="pages"><a class="cur" href="index.html">全体の計画と進捗</a><a href="user-tasks.html">ユーザーがやること</a><a href="decisions.md">決めたこと(md)</a><a href="improvements.md">改善案(md)</a></nav>
 </header>
 <main>
@@ -30,7 +31,7 @@
   <section class="card"><h2><span class="n">4</span>依存の図(→ 前提: 済まないと始められない / ⇢ 推奨: 先にやると楽)</h2>
     <div class="legend"><span><i style="background:#2b7de9"></i>線 A</span><span><i style="background:#e0632b"></i>線 B</span><span><i style="background:#2a9d5c"></i>線 C</span><span><i style="background:#8e44ad"></i>線 D</span><span><i style="background:#6b7280"></i>ユーザー・別件</span>
       <span>枠の色: <span class="badge done">済み</span> <span class="badge doing">進行中</span> <span class="badge next">次</span> <span class="badge wait">ユーザー待ち</span> <span class="badge todo">あと</span></span></div>
-    <div id="graph"></div>
+    <div class="graph-wrap" id="graph"></div><p class="hint">スマホでは横にスクロール。工程に触れると詳細が出る。</p>
   </section>
   <section class="card"><h2><span class="n">5</span>全工程の表(依存と時間の見積もり)</h2>
     <p class="small muted">AI の時間 = 実装 → テスト → WORKLOG → コミットまでの目安(S = 1〜3 時間・M = 4〜10 時間・L = 2〜3 日)。ユーザーの時間 = 手を動かす時間(校正は動画 1 分に 12.6 分)。</p>
@@ -68,6 +69,7 @@
   function lineColor(line) { var m = String(line).match(/[ABCD]/); return m ? LINE_COLOR[m[0]] : "#6b7280"; }
 
   $("#updated").textContent = P.updated;
+  if (P.artifactUrl) { $("#artifactLink").innerHTML = "スマホで見る: <a href=\"" + P.artifactUrl + "\">" + P.artifactUrl + "</a>(claude.ai の公開ページ。共有の設定はそのページの Share から)"; }
   $("#summary").textContent = P.summary;
   $("#versions").innerHTML = P.versions.map(function (v) { return '<span class="chip"><b>' + esc(v[0]) + "</b> " + esc(v[1]) + "</span>"; }).join("");
 
@@ -98,7 +100,7 @@
     var width = PAD * 2 + cols.length * W + (cols.length - 1) * GX, height = TOP + maxRows * (H + GY) + PAD;
     var out = ['<svg class="graph" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg">',
       '<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a6"/></marker></defs>'];
-    cols.forEach(function (c, ci) { out.push('<text x="' + (PAD + ci * (W + GX) + W / 2) + '" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="#6b7280">フェーズ ' + esc(c) + "</text>"); });
+    cols.forEach(function (c, ci) { out.push('<text x="' + (PAD + ci * (W + GX) + W / 2) + '" y="20" text-anchor="middle" font-size="13" font-weight="700" class="col">フェーズ ' + esc(c) + "</text>"); });
     function edge(a, b, dashed) {
       var s = pos[a], d = pos[b]; if (!s || !d) return;
       var x1 = s.x + W, y1 = s.y + H / 2, x2 = d.x, y2 = d.y + H / 2;
@@ -111,10 +113,10 @@
     Object.keys(pos).forEach(function (id) {
       var p = pos[id], t = p.t, name = t.name.length > 13 ? t.name.slice(0, 12) + "…" : t.name;
       out.push('<g><title>' + esc(t.id + " " + t.name + "\n線 " + t.line + " / " + t.who + " / " + ST[t.state] + "\nAI " + t.ai + " / ユーザー " + t.user) + "</title>" +
-        '<rect x="' + p.x + '" y="' + p.y + '" width="' + W + '" height="' + H + '" rx="8" fill="#fff" stroke="' + (stroke[t.state] || "#c3c9d1") + '" stroke-width="' + (t.state === "todo" ? 1.2 : 2.2) + '"/>' +
+        '<rect class="node" x="' + p.x + '" y="' + p.y + '" width="' + W + '" height="' + H + '" rx="8" stroke="' + (stroke[t.state] || "#c3c9d1") + '" stroke-width="' + (t.state === "todo" ? 1.2 : 2.2) + '"/>' +
         '<rect x="' + p.x + '" y="' + p.y + '" width="6" height="' + H + '" rx="3" fill="' + lineColor(t.line) + '"/>' +
-        '<text x="' + (p.x + 14) + '" y="' + (p.y + 16) + '" font-size="12" font-weight="700" fill="#1f2430">' + esc(t.id) + "</text>" +
-        '<text x="' + (p.x + 14) + '" y="' + (p.y + 31) + '" font-size="11" fill="#444">' + esc(name) + "</text></g>");
+        '<text x="' + (p.x + 14) + '" y="' + (p.y + 16) + '" font-size="12" font-weight="700" class="t1">' + esc(t.id) + "</text>" +
+        '<text x="' + (p.x + 14) + '" y="' + (p.y + 31) + '" font-size="11" class="t2">' + esc(name) + "</text></g>");
     });
     out.push("</svg>");
     $("#graph").innerHTML = out.join("");

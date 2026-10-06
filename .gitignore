@@ -95,3 +95,4 @@ docs/design/briefs/*/screenshots/
 src/home/prefs.json
 # 同じく、リアルタイム切り抜き(線 D)をオンにしたときのマーク・書き出しの記録(2026-10-04)
 src/home/live/
+.artifact-build/

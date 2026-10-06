@@ -11,6 +11,7 @@
 <header class="top">
   <h1>ユーザーがやること</h1>
   <div class="sub">更新: <b id="updated"></b> ・ 「あなたの手が要ること」だけの一覧。チェックと記入はこのブラウザに残る(AI には届かない)。終わったら下の「AI に渡す文をコピー」でチャットに貼る</div>
+  <div class="sub" id="artifactLink"></div>
   <nav class="pages"><a href="index.html">全体の計画と進捗</a><a class="cur" href="user-tasks.html">ユーザーがやること</a><a href="decisions.md">決めたこと(md)</a><a href="improvements.md">改善案(md)</a></nav>
 </header>
 <main>
@@ -71,6 +72,10 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function badge(st) { return '<span class="badge ' + st + '">' + (ST[st] || st) + "</span>"; }
   function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(function () { t.classList.remove("show"); }, 1800); }
+  function copyText(text, okMsg) {   // クリップボードが使えない所(一部のアプリの表示)では、選択した状態の欄を出す
+    function fallback() { var ta = $("#copyFallback"); if (!ta) { ta = document.createElement("textarea"); ta.id = "copyFallback"; ta.className = "inp"; ta.readOnly = true; $("#copyAll").parentNode.appendChild(ta); } ta.value = text; ta.hidden = false; ta.focus(); ta.select(); toast("コピーできなかったので、下の欄を選択してコピーしてください"); }
+    try { navigator.clipboard.writeText(text).then(function () { toast(okMsg); }, fallback); } catch (e) { fallback(); }
+  }
   var ALL_CHECKS = [];   // [id, label, group]
   function checklist(el, items, group) {
     el.innerHTML = items.map(function (it) {
@@ -94,6 +99,7 @@
   }
 
   $("#updated").textContent = P.updated;
+  if (P.artifactUrl) { $("#artifactLink").innerHTML = "スマホで見る: <a href=\"" + P.artifactUrl + "/user-tasks.html\">" + P.artifactUrl + "/user-tasks.html</a>"; }
   $("#notes").innerHTML = U.notes.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("");
   function taskRows(list) { return list.map(function (o) { return '<tr><td class="id">' + esc(o.id) + "</td><td>" + esc(o.name) + "</td><td>" + esc(o.why) + "</td><td>" + esc(o.time) + "</td><td>" + badge(o.state) + (o.note ? '<div class="small muted">' + esc(o.note) + "</div>" : "") + "</td></tr>"; }).join(""); }
   $("#ordered tbody").innerHTML = taskRows(U.ordered);
@@ -116,7 +122,7 @@
     if (m.items) checklist(document.querySelector('[data-list="' + m.id + '"]'), m.items, m.id);
     (m.groups || []).forEach(function (g, i) { checklist(document.querySelector('[data-list="' + m.id + "-g" + i + '"]'), g.items, m.id); });
   });
-  $("#must").addEventListener("click", function (e) { var b = e.target.closest("[data-copy]"); if (!b) return; var t = $("#cmd-" + b.getAttribute("data-copy")).textContent; navigator.clipboard.writeText(t).then(function () { toast("コマンドをコピーしました"); }); });
+  $("#must").addEventListener("click", function (e) { var b = e.target.closest("[data-copy]"); if (!b) return; var t = $("#cmd-" + b.getAttribute("data-copy")).textContent; copyText(t, "コマンドをコピーしました"); });
   $("#restoreTitle").textContent = "2-2 運用: " + U.restore.title; $("#restoreIntro").textContent = U.restore.intro;
   $("#restore").innerHTML = U.restore.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
   checklist($("#optional"), U.optional, "optional");
@@ -154,9 +160,13 @@
     U.decisions.forEach(function (d, i) { var v = (store["d:" + i] || "").trim(); if (v) out.push("■ 決めたこと: " + d[0] + " → " + v); });
     U.prefs.items.forEach(function (p) { var v = store["p:" + p[0]]; if (v) out.push("■ 送るアプリ " + p[0] + " " + p[1] + " → " + v); });
     if (store["ux"]) out.push("■ ux-consistency の段 7〜9 → (" + store["ux"] + ")");
-    navigator.clipboard.writeText(out.join("\n")).then(function () { toast("コピーしました。チャットに貼ってください"); });
+    copyText(out.join("\n"), "コピーしました。チャットに貼ってください");
   });
-  $("#clearAll").addEventListener("click", function () { if (confirm("このブラウザに残っているチェックと記入をすべて消します。よいですか?")) { store = {}; save(); location.reload(); } });
+  $("#clearAll").addEventListener("click", function () {   // confirm() が使えない表示があるので 2 回押しで消す
+    var b = $("#clearAll");
+    if (b.getAttribute("data-armed")) { store = {}; save(); location.reload(); return; }
+    b.setAttribute("data-armed", "1"); b.textContent = "もう一度押すと、チェックと記入をすべて消します"; setTimeout(function () { b.removeAttribute("data-armed"); b.textContent = "チェックと記入をすべて消す"; }, 4000);
+  });
 })();
 </script>
 </body>
