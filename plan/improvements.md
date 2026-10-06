@@ -102,4 +102,11 @@ AI が出典から拾ったもの。急ぎではない。
 - 精度の中身: `plan/line-b-transcription.md`・`plan/line-bc-master-plan.md`・`plan/line-b-row-timing.md`・`plan/line-b-overlap.md`・`plan/line-b-extra-ideas.md`
 - 線 D の中身: `plan/line-d-auto-pack.md`・`plan/line-d-live-clipping.md`
 
+## 8. 10-07 の実装で見つかったこと(B1 の担当から)
+| 見つかったこと | 直し方(案) | 大きさ |
+| --- | --- | --- |
+| `dev/eval_asr.py` の `load_serve` で設定を差し替えても ed_jobs に届いていない(serve を sys.modules に登録せずに読むため `S.名前 = …` が転送されない)。計画の 6 の「配り直し なし / あり」は両方「あり」で流れていた可能性 | `load_serve` で読み込んだ部品を `sys.modules` に登録するか、`S.ed_jobs` に直接入れる(eval_timing と同じ) | S |
+| `eval_asr` の `post_meta` に endTrim・joinGap が無く、`compare` が 0.57.1 の前後の違いを知らせない | `S.post_record()` を post_meta に入れる | S |
+| 確かめ済み 22 本のうち 9 本は original が 10-04(0.53.1 より前)のもので、後処理の版が混ざっている | `eval_timing.py --apply` の reproduced(再現率)で見分ける。ドリルで作り直すと新しい版になる | — |
+
 (コードの見直しで見つかったものは作業の終わりに追記)
