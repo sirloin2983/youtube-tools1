@@ -62,7 +62,7 @@ window.PLAN = {
   tasks: [
     { id: "A2", name: "入口に「あと何本・何分」(済み 10-07。入口 0.38.0)", line: "B・C", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "done" },
     { id: "B1", name: "行の時刻 0.57.1 + 測る道具(済み 10-07)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "3〜5 時間 + 測定 1 時間", user: "確認 10 分", state: "done" },
-    { id: "A1", name: "I-2a 話者の設定の既定", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "doing" },
+    { id: "A1", name: "I-2a 話者の設定の既定(測定済み 10-07。しきい値 0.5 → 0.6 を仮決め。既定の変更は編集の ③ のあと)", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "doing" },
     { id: "B2", name: "E1 エンジンの決定(手元の 4 つを測定中 + クラウドは送り先の決定待ち)", line: "B", who: "AI", phase: "1", pre: [], rec: ["B1"], ai: "8〜12 時間", user: "送り先の決定 30 分", state: "doing" },
     { id: "U2", name: "本物の Resolve で重なり字幕のパック", line: "B・A", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "30 分〜1 時間", state: "wait" },
     { id: "U3", name: "友人に 2.1.0 を渡して Dropbox で 1 本", line: "別件", who: "ユーザー + 友人", phase: "1", pre: [], rec: [], ai: "手順書 30 分", user: "1 時間", state: "wait" },
