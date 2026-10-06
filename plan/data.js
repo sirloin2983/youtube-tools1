@@ -6,13 +6,13 @@ window.PLAN = {
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。",
   versions: [
-    ["入口(ホーム)", "0.37.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.57.1"], ["cut2resolve", "0.21.1"],
+    ["入口(ホーム)", "0.39.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.57.1"], ["cut2resolve", "0.21.1"],
     ["録画の部品", "0.3.1"], ["ui-kit", "v18"], ["送るアプリ", "2.1.1"], ["ホロカラー", "1.4.2"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
-    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "B1 行の時刻 0.57.1 は済み(10-07)。A2 あと何本の表示 → 終了時に録画の部品も止める → 線 D 1D(M1〜M7)が進行中。A1 話者の既定・B2 手元の 4 エンジンの比較は ③ のあとに測る(CPU を空けるため)" },
+    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)。進行中: 線 D M4〜M7・A1 話者の測定。B2 4 エンジンの比較は A1 のあと" },
     { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev(共通部品 _evalcommon)・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1。区間×字幕の総当たりを二分探索に)・recorder(0.3.1)。進行中: editor サーバー側。残り: home・ytt_core・editor 画面側(② の home が終わってから)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
@@ -36,10 +36,10 @@ window.PLAN = {
       next: "A1 I-2a 話者の既定(測定中)→ C1 I-4a 盛り上がりの重み(L1 のあと)→ C2 I-4b 言葉の材料(B2 のあと)→ C3 I-3a カット",
       gate: "採用の記録 配信 10 本(今 0)・たたき台つきのパック 20 本(今 0)",
       docs: ["line-bc-master-plan.md"] },
-    { id: "D", name: "リアルタイム切り抜き → 配信後の全自動", color: "#8e44ad", pct: 35,
+    { id: "D", name: "リアルタイム切り抜き → 配信後の全自動", color: "#8e44ad", pct: 45,
       aim: "配信 → 自動で盛り上がり → マーク → 書き出し → 文字起こし → パック(人が見るのはパックのあと)",
-      done: "P1〜P4(録画・マーク・スタジオに統合・アーカイブで本番版。既定オフ。10-04〜06)",
-      next: "段階 0〜2 = 1D(10-07 に含めると決定 → M1〜M3 実装中)→ 3 配信中の検出 L1〜L3 → 4 M8〜M10 → 5 L4・L5 → 6 M11〜M13",
+      done: "P1〜P4(録画・マーク・スタジオに統合・アーカイブで本番版。既定オフ。10-04〜06)・M1〜M3(10-07。adopt API・ライブ → まとめて実行の設定・失敗の集約。入口 0.39.0)",
+      next: "段階 1〜2 の残り M4〜M7(実装中)→ 3 配信中の検出 L1〜L3 → 4 M8〜M10 → 5 L4・L5 → 6 M11〜M13",
       gate: "L0 は配信中の配信が要る。M6 は U4(3 時間の配信)の値(無ければ仮の値)。M7 の確認は本物の配信 1 本",
       docs: ["line-d-auto-pack.md", "line-d-live-clipping.md"] },
     { id: "別件", name: "友人からの依頼・ホロカラー", color: "#6b7280", pct: 90,
@@ -60,7 +60,7 @@ window.PLAN = {
   ],
   /* 全工程(依存の図と表の元。pre = 前提(済まないと始められない)、rec = 推奨の前(先にやると楽)) */
   tasks: [
-    { id: "A2", name: "入口に「あと何本・何分」", line: "B・C", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "doing" },
+    { id: "A2", name: "入口に「あと何本・何分」(済み 10-07。入口 0.38.0)", line: "B・C", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "done" },
     { id: "B1", name: "行の時刻 0.57.1 + 測る道具(済み 10-07)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "3〜5 時間 + 測定 1 時間", user: "確認 10 分", state: "done" },
     { id: "A1", name: "I-2a 話者の設定の既定", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "doing" },
     { id: "B2", name: "E1 エンジンの決定(手元の 4 つ + クラウド)", line: "B", who: "AI", phase: "1", pre: [], rec: ["B1"], ai: "8〜12 時間", user: "送り先の決定 30 分", state: "doing" },
@@ -70,13 +70,13 @@ window.PLAN = {
     { id: "U5", name: "バックアップの写し戻しを試す", line: "運用", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "15〜30 分", state: "wait" },
     { id: "U7", name: "普段の使用(採用・見送り・校正・「別」の採否)", line: "B・C", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "配信 1 本の判定 20〜30 分", state: "cont" },
     { id: "L0", name: "配信中の live_chat を数時間読む", line: "D", who: "AI", phase: "1D", pre: [], rec: [], ai: "2〜3 時間", user: "—", wait: "配信 数時間", state: "todo" },
-    { id: "M1", name: "マーク + 書き出しの 1 つの API(origin)", line: "D", who: "AI", phase: "1D", pre: [], rec: [], ai: "6〜10 時間", user: "—", state: "doing" },
-    { id: "M2", name: "ライブ → まとめて実行の受け渡し", line: "D", who: "AI", phase: "1D", pre: ["M1"], rec: [], ai: "2〜3 時間", user: "—", state: "doing" },
-    { id: "M3", name: "失敗の集約", line: "D", who: "AI", phase: "1D", pre: ["M1"], rec: [], ai: "3〜5 時間", user: "—", state: "doing" },
-    { id: "M4", name: "ディスクの見張り", line: "D", who: "AI", phase: "1D", pre: [], rec: ["M1"], ai: "2〜3 時間", user: "—", state: "todo" },
-    { id: "M5", name: "起動し直しで待ち・実行中を戻す", line: "D", who: "AI", phase: "1D", pre: [], rec: [], ai: "4〜8 時間", user: "—", state: "todo" },
-    { id: "M6", name: "SLOTS の取り合い", line: "D", who: "AI", phase: "1D", pre: [], rec: ["U4"], ai: "1〜2 時間", user: "—", state: "todo" },
-    { id: "M7", name: "配信後の全自動(アーカイブ → 上位 N → パック)", line: "D", who: "AI → ユーザー", phase: "1D", pre: ["M1", "M2", "M3"], rec: ["M4", "M5"], ai: "6〜10 時間", user: "本物の配信 1 本の確認 30 分", wait: "アーカイブ + 処理 数時間", state: "todo" },
+    { id: "M1", name: "マーク + 書き出しの 1 つの API(origin)(済み 10-07)", line: "D", who: "AI", phase: "1D", pre: [], rec: [], ai: "6〜10 時間", user: "—", state: "done" },
+    { id: "M2", name: "ライブ → まとめて実行の受け渡し(済み 10-07)", line: "D", who: "AI", phase: "1D", pre: ["M1"], rec: [], ai: "2〜3 時間", user: "—", state: "done" },
+    { id: "M3", name: "失敗の集約(済み 10-07)", line: "D", who: "AI", phase: "1D", pre: ["M1"], rec: [], ai: "3〜5 時間", user: "—", state: "done" },
+    { id: "M4", name: "ディスクの見張り", line: "D", who: "AI", phase: "1D", pre: [], rec: ["M1"], ai: "2〜3 時間", user: "—", state: "doing" },
+    { id: "M5", name: "起動し直しで待ち・実行中を戻す", line: "D", who: "AI", phase: "1D", pre: [], rec: [], ai: "4〜8 時間", user: "—", state: "doing" },
+    { id: "M6", name: "SLOTS の取り合い(U4 の前は仮の値)", line: "D", who: "AI", phase: "1D", pre: [], rec: ["U4"], ai: "1〜2 時間", user: "—", state: "doing" },
+    { id: "M7", name: "配信後の全自動(アーカイブ → 上位 N → パック)", line: "D", who: "AI → ユーザー", phase: "1D", pre: ["M1", "M2", "M3"], rec: ["M4", "M5"], ai: "6〜10 時間", user: "本物の配信 1 本の確認 30 分", wait: "アーカイブ + 処理 数時間", state: "doing" },
     { id: "B3", name: "I-5 字幕の分け方", line: "B", who: "AI", phase: "2", pre: ["B2"], rec: ["B1"], ai: "6〜10 時間", user: "見比べ 30 分", state: "todo" },
     { id: "L1", name: "盛り上がりの式を 1 つに(excite.py)", line: "D・C", who: "AI", phase: "3", pre: ["M7"], rec: [], ai: "4〜6 時間", user: "—", state: "todo" },
     { id: "C1", name: "I-4a 盛り上がりの重み・辞書・笑い/叫び", line: "C", who: "AI", phase: "3", pre: ["L1", "U7"], rec: [], ai: "8〜16 時間", user: "記録は U7", state: "todo" },
@@ -167,7 +167,7 @@ window.PLAN = {
       { id: "U3", name: "友人に送るアプリ 2.1.0 を渡し、本物の Dropbox で URL の依頼を 1 本通す(下の 2-1)", why: "別件(依頼の受付)の「未確認」を 1 回でまとめて閉じる", time: "約 1 時間(友人の都合待ちあり)", state: "next" },
       { id: "U4", name: "本物の配信で 3 時間以上(録画 + マーク + 書き出し + 文字起こし。線 D の M0)(下の 2-1)", why: "M6 の値(重い処理の枠 SLOTS)を決める・L4 の前提", time: "準備と記録 30 分 + 配信 3 時間", state: "next" },
       { id: "U5", name: "バックアップの写し戻しを 1 回試す(下の 2-2)", why: "運用の安全。10-03 の入れ直しで作業データを失ったため", time: "15〜30 分", state: "next" },
-      { id: "U6", name: "入口を「すべて終了」→ start.bat で起動し直す", why: "最新の版とフォルダ整理(10-07)を反映。下の 5 も見る", time: "1 分", state: "next", note: "10-07 のフォルダ整理のテストは通った。いつでもよい" },
+      { id: "U6", name: "入口を「すべて終了」→ start.bat で起動し直す", why: "最新の版(入口 0.39.0・編集 0.57.1 など)とフォルダ整理(10-07)を反映。下の 5 も見る", time: "1 分", state: "next", note: "③ が終わるまで版はまだ上がる。終わったらまとめて 1 回でよい" },
       { id: "U7", name: "普段の使用を続ける(採用・見送り・校正・「別」の候補の採否)", why: "採用の記録 配信 10 本 → C1 / パック 20 本 → C3 / 普段 30 分 → B4 / 「別」100 件 → D1-b を既定オンに", time: "配信 1 本の判定に 20〜30 分", state: "cont" }
     ],
     /* 1-2 入口が開いたらの作業と決定 */
