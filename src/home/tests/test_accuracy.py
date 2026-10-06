@@ -41,11 +41,15 @@ if on("FAKE_HANG"):
 v = float(os.environ.get("FAKE_VALUE", "0.2"))
 meta = {"mark": os.environ.get("FAKE_MARK", ""), "docs": 4, "few": False, "fewNote": ""}
 if area == "asr":
-    res = {"meta": meta, "summary": {"overall": {"cer": v, "refChars": 1234}, "ci95": [v - 0.05, v + 0.05], "byDoc": [{}, {}, {}], "proofedSec": 900, "lowData": False}}
+    res = {"meta": meta, "summary": {"overall": {"cer": v, "refChars": 1234}, "ci95": [v - 0.05, v + 0.05], "byDoc": [{}, {}, {}], "proofedSec": 900, "lowData": False,
+                                     "reviewed": {"docs": 3, "sec": 950.0}, "gate": {"gate": "G1", "sec": 950.0}}}
 elif area == "marks":
     res = {"meta": meta, "overall": {"judgedVideos": 12, "top": {"top10": {"adoptRate": 1 - v}}, "misses": {"missRate": v / 2}}}
 elif area == "speakers":
-    res = {"meta": meta, "subsets": {"all": {"rate": 1 - v, "rows": 300, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.8}}
+    res = {"meta": dict(meta, rows=300), "subsets": {"all": {"rate": 1 - v, "rows": 300, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.8}}
+elif area == "alt":
+    res = {"meta": dict(meta, judged=40, candidates=55), "feedback": {"accepted": 3, "rejected": 1, "acceptRate": 0.75},
+           "total": {"hitRate": 1 - v, "pickup": {"coveredRate": 0.3}}}
 else:
     res = {"meta": meta, "accuracy": {"label": "カットの一致", "value": 1 - v, "docs": 5, "unit": "文書", "better": "higher"}}
 d = os.environ.get("FAKE_OUTSIDE_DIR", outdir) if on("FAKE_OUTSIDE") else outdir
@@ -103,6 +107,7 @@ class AccuracyTest(unittest.TestCase):
         self.last_edit = None
         self.logs = []
         self.prefs = prefs_mod.Prefs(os.path.join(self.app, "prefs.json"), fsio.atomic_write)
+        self.txdir = os.path.join(self.tmp, "transcripts")    # 入口の条件の「普段」を数える文字起こしの文書(無ければ 0)
         env = mock.patch.dict(os.environ, {"FAKE_MARK": "引き継ぎ", "FAKE_FAIL": "", "FAKE_HANG": "", "FAKE_NOLINE": "", "FAKE_OUTSIDE": "",
                                            "FAKE_OUTSIDE_DIR": os.path.join(self.tmp, "outside"), "FAKE_VALUE": "0.2"})
         env.start()
@@ -119,7 +124,7 @@ class AccuracyTest(unittest.TestCase):
 
     def make(self, **kw):
         a = dict(busy=self.busy, last_edit=lambda: self.last_edit, log=self.logs.append, clock=self.clock, commands=self.commands,
-                 evals_dir=self.edir, timeout=30)
+                 evals_dir=self.edir, timeout=30, transcripts_dir=lambda: self.txdir)
         a.update(kw)
         return accuracy.Accuracy(self.prefs, self.app, ROOT, **a)
 
@@ -170,7 +175,7 @@ class AccuracyTest(unittest.TestCase):
     # ---- いつ測るか
     def test_runs_in_night_window_once_a_day(self):
         r = self.acc.tick()
-        self.assertEqual(r, {"asr": "ok", "marks": "ok", "speakers": "ok", "cut": "ok"})
+        self.assertEqual(r, {"asr": "ok", "marks": "ok", "speakers": "ok", "cut": "ok", "alt": "ok"})
         snap = self.acc.snapshot()
         by = {a["id"]: a for a in snap["areas"]}
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.2)
@@ -410,8 +415,92 @@ class AccuracyTest(unittest.TestCase):
         snap = self.acc.snapshot()
         for k in ("enabled", "nightFrom", "nightTo", "state", "stateLabel", "message", "heavyEnabled", "forced", "lastRun", "areas"):
             self.assertIn(k, snap)
-        self.assertEqual([a["id"] for a in snap["areas"]], ["asr", "marks", "speakers", "cut"])
+        self.assertEqual([a["id"] for a in snap["areas"]], ["asr", "marks", "speakers", "cut", "alt"])
+        self.assertEqual([g["id"] for g in snap["goals"]], [g["id"] for g in accuracy.GOALS])
         json.dumps(snap)                                 # そのまま JSON にできる
+
+    # ---- 入口の条件(あと何本・何分。入口 0.38.0)
+    def test_goals_before_any_measurement_are_unmeasured(self):
+        goals = self.acc.snapshot()["goals"]
+        self.assertEqual(len(goals), 8)
+        for g in goals:
+            self.assertEqual((g["now"], g["left"], g["reached"], g["at"]), (None, None, False, None), g["id"])   # 画面は「未測定」
+        by = {g["id"]: g for g in goals}
+        self.assertEqual((by["g1"]["target"], by["g2fixed"]["target"], by["g2daily"]["target"], by["train"]["target"]), (900, 1800, 1800, 10800))
+        self.assertEqual((by["speakers"]["target"], by["marks"]["target"], by["packs"]["target"], by["alt"]["target"]), (200, 10, 20, 100))
+        self.assertEqual((by["g1"]["unit"], by["speakers"]["unit"], by["marks"]["unit"], by["alt"]["unit"]), ("sec", "行", "本", "件"))
+
+    def test_goals_from_tool_results_and_daily_count(self):
+        put_file(os.path.join(self.txdir, "aaaaaaaaaa01.json"), json.dumps({"id": "aaaaaaaaaa01", "segments": [   # 普段: 校正済み 2 行 = 30 秒
+            {"start": 0, "end": 10, "proofed": True}, {"start": 20, "end": 40, "proofed": True},
+            {"start": 40, "end": 100, "proofed": True, "tags": ["unclear"]},        # 聞き取れない印は数えない
+            {"start": 100, "end": 500, "proofed": False}]}))                        # 校正していない行は数えない
+        put_file(os.path.join(self.txdir, "aaaaaaaaaa02.json"), json.dumps({"id": "aaaaaaaaaa02", "evalSet": True, "segments": [
+            {"start": 0, "end": 600, "proofed": True}]}))                           # 評価用は定点の側(普段に数えない)
+        put_file(os.path.join(self.txdir, "aaaaaaaaaa01.edit.json"), json.dumps({"segments": [{"start": 0, "end": 900, "proofed": True}]}))   # 文書以外は読まない
+        put_file(os.path.join(self.txdir, "notadoc.json"), json.dumps({"segments": [{"start": 0, "end": 900, "proofed": True}]}))
+        put_file(os.path.join(self.txdir, "aaaaaaaaaa03.json"), "{壊れた")                                     # 読めない文書は飛ばす
+        self.acc.tick()
+        by = {g["id"]: g for g in self.acc.snapshot()["goals"]}
+        self.assertEqual((by["g1"]["now"], by["g1"]["left"], by["g1"]["reached"]), (950.0, 0.0, True))     # 定点 = eval_asr の summary.reviewed.sec
+        self.assertEqual((by["g2fixed"]["now"], by["g2fixed"]["left"], by["g2fixed"]["reached"]), (950.0, 850.0, False))
+        self.assertEqual((by["g2daily"]["now"], by["g2daily"]["left"]), (30.0, 1770.0))                   # 普段 = 入口が数えた評価用以外の校正済み
+        self.assertEqual((by["train"]["now"], by["train"]["left"]), (30.0, 10770.0))
+        self.assertEqual((by["speakers"]["now"], by["speakers"]["left"], by["speakers"]["reached"]), (300.0, 0, True))
+        self.assertEqual((by["marks"]["now"], by["marks"]["reached"]), (12.0, True))                        # 判定のある配信(eval_marks の judgedVideos)
+        self.assertEqual((by["alt"]["now"], by["alt"]["left"], by["alt"]["reached"]), (40.0, 60, False))   # 判定できた候補(eval_alt の meta.judged)
+        self.assertIsNone(by["packs"]["now"])            # 偽のカットの道具は fromPack を出さない = 未測定のまま
+        self.assertIsNone(by["packs"]["left"])
+        self.assertIsInstance(by["g1"]["at"], int)
+        self.assertEqual(self.acc.last["daily"]["docs"], 1)
+        again = self.make()                              # 記録に残る(起動し直しても出る)
+        self.assertEqual({g["id"]: g["now"] for g in again.snapshot()["goals"]}, {g["id"]: g["now"] for g in self.acc.snapshot()["goals"]})
+
+    def test_daily_count_failure_keeps_the_measurement(self):
+        def boom():
+            raise RuntimeError("フォルダ")
+        acc = self.make(transcripts_dir=boom)
+        self.assertEqual(acc.tick()["asr"], "ok")        # 数えられなくても測定は成功
+        by = {g["id"]: g for g in acc.snapshot()["goals"]}
+        self.assertIsNone(by["g2daily"]["now"])
+        self.assertTrue(any("普段" in m for m in self.logs))
+        self.assertEqual(accuracy.count_daily(os.path.join(self.tmp, "無い")), {"sec": 0.0, "docs": 0, "lines": 0})
+
+    def test_goal_thresholds_match_the_tools(self):
+        """しきい値は accuracy.py の GOALS の 1 か所。道具の「まだ少ない」の値(dev/eval_*.py の定数)と食い違わない(道具は読むだけ。import しない)"""
+        import ast
+        dev = os.path.join(os.path.dirname(ROOT), "dev")
+
+        def const(script, name):
+            path = os.path.join(dev, script)
+            if not os.path.isfile(path):
+                self.skipTest("dev/%s が無い" % script)
+            with open(path, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+                    return eval(compile(ast.Expression(node.value), path, "eval"), {"__builtins__": {}})   # 定数の式(15 * 60 など)だけ
+            self.fail("dev/%s に %s が無い" % (script, name))
+        by = {g["id"]: g["target"] for g in accuracy.GOALS}
+        gates = dict(const("eval_asr.py", "GATES"))
+        self.assertEqual((by["g1"], by["g2fixed"]), (gates["G1"], gates["G2"]))
+        self.assertEqual(by["speakers"], const("eval_speakers.py", "FEW_ROWS"))
+        self.assertEqual(by["marks"], const("eval_marks.py", "FEW_VIDEOS"))
+        self.assertEqual(by["packs"], const("eval_cut.py", "FEW_PACKS"))
+        self.assertEqual(by["alt"], const("eval_alt.py", "FEW_CANDS"))
+
+    def test_summarize_alt_and_counts(self):
+        alt = accuracy.summarize_alt({"meta": {"docs": 3, "few": True, "judged": 7, "candidates": 31}, "feedback": None,
+                                      "total": {"hitRate": 0.5, "pickup": {"coveredRate": 0.2}}})
+        self.assertEqual((alt["value"], alt["docs"], alt["lowData"], alt["judged"], alt["candidates"]), (0.5, 3, True, 7.0, 31.0))
+        self.assertEqual([e["value"] for e in alt["extra"]], [None, 0.2])
+        with self.assertRaises(ValueError):
+            accuracy.summarize_alt({"meta": {}})
+        asr = accuracy.summarize_asr({"summary": {"overall": {"cer": 0.1}, "gate": {"sec": 120.5}}})
+        self.assertEqual(asr["reviewedSec"], 120.5)      # reviewed が無ければ gate の秒
+        self.assertIsNone(accuracy.summarize_asr({"summary": {"overall": {"cer": 0.1}}})["reviewedSec"])
+        self.assertEqual(accuracy.summarize_speakers({"meta": {"rows": 208}, "subsets": {"all": {"rate": 0.86}}})["rows"], 208.0)
+        self.assertEqual(accuracy.summarize_cut({"meta": {"docs": 6, "fromPack": 2}, "total": {"untouchedRate": 0.5}})["fromPack"], 2.0)
 
 
 class AccuracyApiTest(TL.Base):
@@ -447,7 +536,8 @@ class AccuracyApiTest(TL.Base):
         r, body = self.req("GET", "/api/accuracy")
         j = json.loads(body)
         self.assertEqual((r.status, j["enabled"], j["state"], j["nightFrom"], j["nightTo"], j["heavyEnabled"]), (200, True, "idle", 1, 6, False))
-        self.assertEqual([a["id"] for a in j["areas"]], ["asr", "marks", "speakers", "cut"])
+        self.assertEqual([a["id"] for a in j["areas"]], ["asr", "marks", "speakers", "cut", "alt"])
+        self.assertEqual(len(j["goals"]), len(accuracy.GOALS))   # 入口の条件(あと何本・何分)
         r, _ = self.req("GET", "/api/accuracy", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
         r, body = self.req("GET", "/api/health")   # 調子にも同じものが入る

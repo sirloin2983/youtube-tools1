@@ -1047,7 +1047,23 @@
     var win = '夜 ' + ac.nightFrom + '〜' + ac.nightTo + ' 時に手が空いていれば 1 日 1 回';
     ul.appendChild(healthRow('info', '精度の自動測定', ac.stateLabel + (ac.message ? '。' + ac.message : '') + (ac.enabled ? '(' + win + (ac.lastRun ? '・最後に ' + ago(ac.lastRun) : '') + ')' : '')));
     (ac.areas || []).forEach(function (a) { if (a.available || a.latest || a.error) ul.appendChild(accuracyRow(a)); });
+    if (ac.goals && ac.goals.length) ul.appendChild(goalsRow(ac.goals));
     if (live) accTimer = setTimeout(function () { loadHealth(false); }, 2500);   // 測っている間・手が空くのを待っている間は軽く読み直す
+  }
+  /* 入口の条件(入口 0.38.0。accuracy.py の GOALS = plan/README.md の 7): 各工程を始めてよい量の「今 / 目標 / あと」を 1 行ずつ。値は直近の測定のもの */
+  function goalAmount(v, unit) { return unit === 'sec' ? String(+(v / 60).toFixed(1)) + ' 分' : Math.round(v) + ' ' + unit; }
+  function goalsRow(goals) {
+    var done = goals.filter(function (g) { return g.reached; }).length, unknown = goals.filter(function (g) { return g.now == null; }).length;
+    var subs = goals.map(function (g) {
+      var big = g.unit === 'sec' && g.target >= 3600;   // 時間の目標は「時間」で並べる(分と時間が混ざって読み違えないように)
+      var amt = function (v) { return big ? String(+(v / 3600).toFixed(2)) + ' 時間' : goalAmount(v, g.unit); };
+      var body = g.now == null ? '未測定' : '今 ' + amt(g.now) + ' / 目標 ' + amt(g.target) + ' / ' + (g.reached ? '届いた' : 'あと ' + amt(g.left));
+      return g.label + ': ' + body + '(→ ' + g.opens + ')';
+    });
+    var text = '届いた ' + done + ' / ' + goals.length + (unknown ? '・未測定 ' + unknown + '(道具が無いか、まだ測っていない。「精度を今すぐ測る」で測れます)' : '');
+    var row = healthRow('info', '入口の条件(あと何本・何分)', text, subs);
+    row.id = 'accuracyGoals';
+    return row;
   }
   function accuracyNow() {
     var btn = $('#btnAccuracyNow');

@@ -152,6 +152,20 @@ def seed_more_cases(studio_json, n=34, base_ts=None):
         json.dump(doc, f, ensure_ascii=False)
 
 
+def seed_accuracy(app_dir):
+    """精度の自動測定の記録(src/home/accuracy.py の accuracy-state.json)に、定点 950 秒・話者の行 120・普段 600 秒を置く(ほかの領域は未測定のまま)"""
+    os.makedirs(app_dir, exist_ok=True)
+    at = int(time.time() * 1000) - 3600 * 1000
+    st = {"day": "2000-01-01", "areas": {
+        "asr": {"latest": {"at": at, "file": "20260101-000001_auto.json", "summary": {"label": "CER", "value": 0.093, "docs": 22, "unit": "文書", "better": "lower",
+                                                                             "few": False, "lowData": False, "extra": [], "reviewedSec": 950.0}}},
+        "speakers": {"latest": {"at": at, "file": "20260101-000001.json", "summary": {"label": "行ごとの話者の正しさ", "value": 0.86, "docs": 5, "unit": "文書",
+                                                                               "better": "higher", "few": True, "lowData": True, "extra": [], "rows": 120.0}}}},
+        "daily": {"sec": 600.0, "docs": 2, "lines": 40, "at": at}}
+    with open(os.path.join(app_dir, "accuracy-state.json"), "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False)
+
+
 def tool_version(rel, pattern):
     with open(os.path.join(REPO, rel), encoding="utf-8") as f:
         return re.search(pattern, f.read(), re.M).group(1)
@@ -166,6 +180,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
     """(A) 本番と同じ形: studio・transcribe・cut2resolve をすべて入口に取り込む。"""
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
     sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=tuple(M.MOUNTS))
+    seed_accuracy(os.path.dirname(sup.logs_dir))   # 入口の条件(あと何本・何分)を出すための前回の測定の記録(入口が起動時に読む)
     srv, port = L.make_server(0, sup)
     sup.attach(srv)
     th = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -203,6 +218,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         ht = pg.inner_text("#healthList")
         check("版" in ht and "認識ワーカー" in ht and "空き容量" in ht and "画面のエラー" in ht and "まとめて実行の失敗" in ht, "[A] 調子の項目: 版・認識ワーカー・空き容量・エラーの件数: %s" % " / ".join(ht.split())[:160])
         check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
+        # 入口 0.38.0: 入口の条件(あと何本・何分)。前回の測定の記録から「今 / 目標 / あと」を 1 行ずつ・無いものは「未測定」
+        check(wait_js(pg, "!!document.getElementById('accuracyGoals')", 20000), "[A] 調子に「入口の条件(あと何本・何分)」が出る")
+        gt = pg.inner_text("#accuracyGoals") if pg.query_selector("#accuracyGoals") else ""
+        check("G1 定点 15 分: 今 15.8 分 / 目標 15 分 / 届いた" in gt and "G2 定点 30 分: 今 15.8 分 / 目標 30 分 / あと 14.2 分" in gt
+              and "学習用の校正 3 時間: 今 0.17 時間 / 目標 3 時間 / あと 2.83 時間" in gt and "確かめ済みの話者の行 200: 今 120 行 / 目標 200 行 / あと 80 行" in gt
+              and "採用の記録 配信 10 本: 未測定" in gt and "届いた 1 / 8・未測定 3" in gt,
+              "[A] 入口の条件: 今 / 目標 / あと と 未測定: %s" % " / ".join(gt.split("\n"))[:600])
         pg.click("#btnHealthRefresh")
         check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
         # 段9 9-2: 「片付け」の節。候補を探すと種類ごと(5 種類)に出て、何も選ばなければ移せない

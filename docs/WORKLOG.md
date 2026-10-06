@@ -1283,3 +1283,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   コードのコメントで消した文書を指す所は「git の履歴(679ff01 以前)の …」に置き換えた(経緯の文はそのまま)
 - 未完了・次: ② ユーザーの作業が要らない実装(A2 → B1 0.57.1 → A1 → B2 の手元の分 → 線 D 1D)→ ③ コードの見直し → ④ plan の改善案。ユーザー: 起動し直し(start.bat)
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— A2 入口の精度の自動測定に「入口の条件(あと何本・何分)」(入口 0.37.0 → 0.38.0)
+- 変更: `src/home/accuracy.py`(`GOALS` = 入口の条件のしきい値の 1 か所・`goals_of`・`count_daily`・snapshot の `goals`・領域「「別」の候補」= `dev/eval_alt.py --json` を足した・
+  `summarize_asr` に `reviewedSec`・`summarize_speakers` に `rows`・`summarize_cut` に `fromPack`・新しい `summarize_alt`)。`src/home/portal.js`(調子の精度の行の下に「入口の条件」の行 `#accuracyGoals`)。
+  `src/home/launch.py`(版・API の説明)・`src/home/README.txt`(■ v0.38.0)。テスト: `test_accuracy.py`(6 件足した・領域の一覧に alt)・`e2e_portal.py`(前回の記録を置いて「今 / 目標 / あと」と「未測定」を確かめる)
+- 版: 入口 0.37.0 → 0.38.0
+- 決定・理由: 道具(dev/eval_*.py)は変えていない。値は各道具の直近の結果から: 定点 = eval_asr の `summary.reviewed.sec`(無ければ `gate.sec`)・話者の行 = eval_speakers の `meta.rows`・
+  採用の記録 = eval_marks の `judgedVideos`(今までの要約の docs)・パック = eval_cut の `meta.fromPack`・「別」 = eval_alt の `meta.judged`。
+  **普段・学習用は道具の結果に無い**ので、測るとき(夜 / 今すぐ)に入口が文字起こしの文書を読んで数える(評価用でない文書の校正済み・「聞き取れない」以外の行の長さ = 編集の進行度 `progress_stats` と同じ数え方)。
+  普段と学習用を分ける印が無いので**同じ数を 30 分と 3 時間に比べる(仮決め)**。しきい値は道具の「まだ少ない」と同じ値で、`test_goal_thresholds_match_the_tools` が dev/eval_*.py の定数(ast で読むだけ)と比べる
+- テスト: home の単体 368 件 OK(skip 2)・`e2e_portal.py` すべて OK
+- 注意: 前の版の記録(accuracy-state.json)には新しい鍵(reviewedSec など)が無いので、次の測定(夜か「精度を今すぐ測る」)までは「未測定」と出る
+- 未コミット: なし(このコミット。`src/editor/`・`src/ui-kit/ui-kit.js`・`dev/eval_timing.py` は別の担当の作業途中で、入れていない)

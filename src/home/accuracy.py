@@ -17,6 +17,11 @@
   消すのは各道具の evals/<領域>/ の中の、名前の形が厳しく合う普通のファイルだけ(シンボリックリンクはたどらない)
 - 重い測定(認識し直しての比較)は入れない(heavy_enabled = False の箱と分岐だけ。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a) に入れるときの条件)
 - 設定(src/home/prefs.py の節 accuracy): enabled(既定オン。読むだけで軽い)・nightFrom・nightTo
+- 入口の条件(「あと何本・何分」。入口 0.38.0。plan/README.md の 7): 各工程を始めてよい量(G1・G2・学習用・話者の行・採用の記録・パック・「別」の候補)の
+  今の値 / 目標 / あと を snapshot の goals に出す。しきい値は GOALS の 1 か所(道具の「まだ少ない」の値と同じ。test_accuracy が食い違いを検査)。
+  値は各道具の直近の結果から(道具は変えない)。普段・学習用の校正済みの秒だけは道具の結果に無いので、測るときに入口が文字起こしの文書を読んで数える
+  (評価用でない文書の、校正済みで「聞き取れない」の印が無い行の長さの合計 = 「編集」の進行度と同じ数え方。普段と学習用を分ける印が無いので同じ数)。
+  まだ測っていない・道具が無い・古い記録で鍵が無いものは now = None(画面は「未測定」)
 """
 import datetime
 import json
@@ -42,6 +47,23 @@ KEEP_FILES = 30            # 自動の測定が作った結果ファイルは、
 # 消してよい名前の形(道具の save の形: <日時>.json。asr は --label auto の <日時>_auto.json)。これに合わないファイルは数えもしない・消さない
 RESULT_NAME_RE = re.compile(r"^\d{8}-\d{6}(?:_auto)?\.json\Z")
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "waiting": "手が空くのを待っています", "running": "測っています…"}
+MAX_DOC_BYTES = 64 * 1024 * 1024   # 普段の校正済みの秒を数えるとき、これより大きい文書は読まない
+DOC_NAME_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")   # 文字起こしの文書(src/editor の TID_RE と同じ形)。edit.json・diar.json などは数えない
+
+# 入口の条件(plan/README.md の 7「入口の条件と今」)。今の値 / 目標 / あと を「調子」に 1 行ずつ出す。**しきい値はここだけ**
+# (道具の「まだ少ない」と同じ値: dev/eval_asr.py の GATES の G1・G2・eval_speakers.py の FEW_ROWS・eval_marks.py の FEW_VIDEOS・eval_cut.py の FEW_PACKS・
+#  eval_alt.py の FEW_CANDS。test_accuracy が食い違いを検査する)。src = (領域の id, 直近の要約の鍵)。"daily" = 入口が数えた評価用以外の校正済みの秒。
+# unit: "sec" = 秒(画面は分・時間で出す)・それ以外 = 数の単位
+GOALS = (
+    {"id": "g1", "label": "G1 定点 15 分", "opens": "B1 行の時刻・B2 エンジンの決定", "src": ("asr", "reviewedSec"), "target": 15 * 60, "unit": "sec"},
+    {"id": "g2fixed", "label": "G2 定点 30 分", "opens": "B4 抜け・呼び名(普段 30 分も要る)", "src": ("asr", "reviewedSec"), "target": 30 * 60, "unit": "sec"},
+    {"id": "g2daily", "label": "G2 普段の校正 30 分", "opens": "B4 抜け・呼び名(定点 30 分も要る)", "src": ("daily", "sec"), "target": 30 * 60, "unit": "sec"},
+    {"id": "train", "label": "学習用の校正 3 時間", "opens": "B5 追加学習", "src": ("daily", "sec"), "target": 3 * 3600, "unit": "sec"},
+    {"id": "speakers", "label": "確かめ済みの話者の行 200", "opens": "A1 話者の既定(I-2a)", "src": ("speakers", "rows"), "target": 200, "unit": "行"},
+    {"id": "marks", "label": "採用の記録 配信 10 本", "opens": "C1 盛り上がりの重み(I-4a)", "src": ("marks", "docs"), "target": 10, "unit": "本"},
+    {"id": "packs", "label": "たたき台つきのパック 20 本", "opens": "C3 カット(I-3a)", "src": ("cut", "fromPack"), "target": 20, "unit": "本"},
+    {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件"},
+)
 
 
 class ToolError(Exception):
@@ -74,6 +96,8 @@ def summarize_asr(res):
     out = _summary("CER", o.get("cer"), len(s.get("byDoc") or []), "文書", "lower", s.get("lowData"), rng)
     out["chars"] = _int(o.get("refChars"))
     out["proofedSec"] = _int(s.get("proofedSec"))
+    rv = s.get("reviewed") if isinstance(s.get("reviewed"), dict) else s.get("gate") if isinstance(s.get("gate"), dict) else {}
+    out["reviewedSec"] = _num(rv.get("sec"))      # 定点の量(確かめ済みの評価用の文書の長さの合計。入口の条件 G1・G2)
     return out
 
 
@@ -94,9 +118,11 @@ def summarize_speakers(res):
     voices = sub.get("voices") or {}
     count = res.get("speakerCount") or {}
     m = res.get("meta") or {}
-    return _summary("行ごとの話者の正しさ", sub.get("rate"), m.get("docs"), "文書", "higher", m.get("fewNote"),
-                    extra=[{"label": "声の照合", "value": _num(voices.get("rate")), "better": "higher"},
-                           {"label": "話者の数が合う", "value": _num(count.get("exactRate")), "better": "higher"}])
+    out = _summary("行ごとの話者の正しさ", sub.get("rate"), m.get("docs"), "文書", "higher", m.get("fewNote"),
+                   extra=[{"label": "声の照合", "value": _num(voices.get("rate")), "better": "higher"},
+                          {"label": "話者の数が合う", "value": _num(count.get("exactRate")), "better": "higher"}])
+    out["rows"] = _num(m.get("rows") if "rows" in m else sub.get("rows"))   # 人が確かめた話者つきの行(入口の条件)
+    return out
 
 
 def summarize_cut(res):
@@ -105,8 +131,25 @@ def summarize_cut(res):
     if not isinstance(t, dict):
         return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
     m = res.get("meta") or {}
-    return _summary("たたき台を直さなかった文書", t.get("untouchedRate"), m.get("docs"), "文書", "higher", m.get("few"),
-                    extra=[{"label": "端がそのまま", "value": _num((t.get("edges30") or {}).get("sameRate")), "better": "higher"}])
+    out = _summary("たたき台を直さなかった文書", t.get("untouchedRate"), m.get("docs"), "文書", "higher", m.get("few"),
+                   extra=[{"label": "端がそのまま", "value": _num((t.get("edges30") or {}).get("sameRate")), "better": "higher"}])
+    out["fromPack"] = _num(m.get("fromPack"))     # 最終がパックのたたき台つきの文書(入口の条件)
+    return out
+
+
+def summarize_alt(res):
+    """dev/eval_alt.py: 2つ目のエンジンとの食い違いの候補(札「別」)の当たり率。judged = 判定できた候補の数(入口の条件)"""
+    m, t = res.get("meta"), res.get("total")
+    if not isinstance(m, dict) or not isinstance(t, dict):
+        raise ValueError("結果の形が想定と違います(meta・total が無い)")
+    fb = res.get("feedback") if isinstance(res.get("feedback"), dict) else {}
+    pk = t.get("pickup") if isinstance(t.get("pickup"), dict) else {}
+    out = _summary("候補の当たり率", t.get("hitRate"), m.get("docs"), "文書", "higher", m.get("few"),
+                   extra=[{"label": "採否の記録の採用率", "value": _num(fb.get("acceptRate")), "better": "higher"},
+                          {"label": "人の直しを拾えた率", "value": _num(pk.get("coveredRate")), "better": "higher"}])
+    out["judged"] = _num(m.get("judged"))
+    out["candidates"] = _num(m.get("candidates"))
+    return out
 
 
 def summarize_generic(res):
@@ -126,7 +169,63 @@ AREAS = (
     {"id": "marks", "label": "盛り上がり", "script": "eval_marks.py", "args": ("--json",), "tool": "studio", "sub": "marks", "summarize": summarize_marks},
     {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("--json",), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
     {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # dev/eval_cut.py(無ければ飛ばす)
+    {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},   # 入口 0.38.0 から
 )
+
+
+def count_daily(folder):
+    """評価用でない文字起こしの文書の、校正済みの量(入口の条件の「普段」「学習用」)。読むだけ。
+    数え方は「編集」の進行度(src/editor/ed_misc.py の progress_stats の proofedSec)と同じ: 校正済み(proofed が True)で「聞き取れない」(tags の unclear)の
+    印が無い行の長さの合計。-> {"sec", "docs"(校正済みの行がある文書の数), "lines"}。フォルダが無ければ 0"""
+    sec, docs, lines = 0.0, 0, 0
+    try:
+        names = sorted(os.listdir(folder)) if folder and os.path.isdir(folder) else []
+    except OSError:
+        names = []
+    for name in names:
+        p = os.path.join(folder, name)
+        if not DOC_NAME_RE.match(name) or not os.path.isfile(p):
+            continue
+        try:
+            if os.path.getsize(p) > MAX_DOC_BYTES:
+                continue
+            with open(p, "rb") as f:
+                d = json.loads(f.read().decode("utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(d, dict) or d.get("evalSet") is True:
+            continue
+        n = 0
+        for g in d.get("segments") or []:
+            if not isinstance(g, dict) or g.get("proofed") is not True or "unclear" in (g.get("tags") or []):
+                continue
+            a, b = _num(g.get("start")), _num(g.get("end"))
+            sec += max(0.0, (b or 0.0) - (a or 0.0))
+            n += 1
+        lines += n
+        docs += 1 if n else 0
+    return {"sec": round(sec, 1), "docs": docs, "lines": lines}
+
+
+def goals_of(last):
+    """記録(Accuracy.last)-> 入口の条件の一覧 [{id, label, opens, target, unit, now(None = 未測定), left, reached, at}]。GOALS の順"""
+    out = []
+    areas = last.get("areas") if isinstance(last.get("areas"), dict) else {}
+    for g in GOALS:
+        area, key = g["src"]
+        if area == "daily":
+            src = last.get("daily") if isinstance(last.get("daily"), dict) else {}
+            now, at = _num(src.get(key)), src.get("at")
+        else:
+            latest = (areas.get(area) or {}).get("latest")
+            latest = latest if isinstance(latest, dict) else {}
+            summ = latest.get("summary") if isinstance(latest.get("summary"), dict) else {}
+            now, at = _num(summ.get(key)), latest.get("at")
+        left = max(0.0, g["target"] - now) if now is not None else None
+        out.append({"id": g["id"], "label": g["label"], "opens": g["opens"], "target": g["target"], "unit": g["unit"], "now": now,
+                    "left": left if left is None or g["unit"] == "sec" else int(math.ceil(left)),
+                    "reached": now is not None and now >= g["target"], "at": at if isinstance(at, (int, float)) and not isinstance(at, bool) else None})
+    return out
 
 
 def in_window(now, cfg):
@@ -152,10 +251,12 @@ def _python():
 
 class Accuracy:
     def __init__(self, prefs, data_dir, repo_root, busy=None, last_edit=None, log=None, clock=None, commands=None, evals_dir=None,
-                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES):
+                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None):
         """prefs: src/home/prefs.py の Prefs(節 accuracy)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。dev/ の道具はその1つ上)。
         busy() -> 手が空いていない理由の文(空・None = 空いている)。last_edit() -> 文字起こしの文書の最後の更新(エポック秒・None = 不明)。
-        commands(area) -> 子プロセスの引数の一覧(None = その道具が無い)・evals_dir(area) -> 結果の置き場所: テストで偽の道具に差し替える"""
+        commands(area) -> 子プロセスの引数の一覧(None = その道具が無い)・evals_dir(area) -> 結果の置き場所: テストで偽の道具に差し替える。
+        transcripts_dir() -> 文字起こしの文書のフォルダ(入口の条件の「普段」を数える。None = 数えない)"""
+        self.transcripts_dir = transcripts_dir or self._default_transcripts_dir
         self.prefs, self.data_dir, self.repo_root = prefs, data_dir, repo_root
         self.busy = busy or (lambda: None)
         self.last_edit = last_edit or (lambda: None)
@@ -218,6 +319,23 @@ class Accuracy:
             return os.path.join(datadir.resolve(area["tool"], self.repo_root), "evals", area["sub"])
         except Exception:
             return None
+
+    def _default_transcripts_dir(self):
+        from ytt_core import txindex
+        try:
+            return txindex.folder(self.repo_root)
+        except Exception:
+            return None
+
+    def _count_daily(self):
+        """入口の条件の「普段」「学習用」= 評価用でない文書の校正済みの秒を数えて記録に入れる。失敗しても測定は止めない(前の値を残す)"""
+        try:
+            folder = self.transcripts_dir()
+            if folder is None:
+                return
+            self.last["daily"] = dict(count_daily(folder), at=int(self.clock() * 1000))
+        except Exception as e:
+            self.log("精度の測定: 普段の校正済みの量を数えられませんでした(%s)" % e.__class__.__name__)
 
     def _run(self, argv):
         """子プロセスで道具を動かす -> 標準出力。失敗・時間切れは ToolError(理由の文)"""
@@ -421,6 +539,8 @@ class Accuracy:
                     result[area["id"]] = "ok"
             if result[area["id"]] is not None or entry:
                 self.last["areas"][area["id"]] = entry
+        if not self.closed:
+            self._count_daily()                 # 入口の条件の「普段」「学習用」(道具の結果に無いので入口が数える)
         if self.heavy_enabled and not self.closed:
             self._heavy()
         now = self.clock()
@@ -451,4 +571,4 @@ class Accuracy:
         ran = self.last.get("ran")
         state = "off" if not cfg.get("enabled") else self.state
         return dict(cfg, state=state, stateLabel=STATE_LABELS[state], message=self.message if state != "off" else "", heavyEnabled=self.heavy_enabled,
-                    forced=bool(self.force), lastRun=int(ran * 1000) if isinstance(ran, (int, float)) else None, areas=areas)
+                    forced=bool(self.force), lastRun=int(ran * 1000) if isinstance(ran, (int, float)) else None, areas=areas, goals=goals_of(self.last))

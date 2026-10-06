@@ -20,7 +20,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/home/backup.py。docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
-  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
+  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
@@ -86,7 +86,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.37.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.38.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
