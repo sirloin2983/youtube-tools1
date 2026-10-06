@@ -18,6 +18,7 @@
   3. 退避した速報版(<配信のフォルダ>\\作業用\\速報版\\…。ジョブの archive.keep): 入れ替え(archive.at)から keep_sec(7 日)たったら消す。
      消すのはジョブが自分で退避したパスだけ(書き出し先の中・作業用\\速報版\\ の直下・.mp4・リンクでない普通のファイル)→ archive.keepDeleted
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
+配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/home/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
 """
 import os
@@ -37,13 +38,15 @@ REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.
 
 
 class Cleaner:
-    def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, keep_sec=KEEP_SEC, interval=INTERVAL, clock=time.time):
+    def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, keep_sec=KEEP_SEC, interval=INTERVAL, clock=time.time, hold=None):
         """live: src/home/live.py の Live(録画元の一覧と要求・書き出しのジョブ exporter)。
         enabled(): 消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(Live.studio_call)。
+        hold(録画元の id, 録画元の一覧の 1 行) -> 消すのを待つ理由(空 = 待たない。M7 の配信後の全自動がまだ)。
         時間(no_mark_sec・keep_sec・interval)はテストで縮める"""
         self.live = live
         self.enabled = enabled or (lambda: False)
+        self.hold = hold or (lambda rc_id, r: "")
         self.studio = studio or (lambda method, path, body=None: (None, {}))
         self.log = log or (lambda m: None)
         self.no_mark_sec, self.keep_sec, self.interval, self.clock = no_mark_sec, keep_sec, interval, clock
@@ -107,6 +110,13 @@ class Cleaner:
         """録画1本を消すか決めて、消す。-> 消したら True"""
         rec = r["id"]
         if r.get("active") or r.get("state") in REC_ACTIVE:   # 録画中・配信待ち・つなぎ直し中
+            return False
+        try:
+            why = self.hold(rc["id"], r)
+        except Exception:   # 確かめられなければ消さない
+            why = "配信後の自動の切り抜きの状態を確かめられない"
+        if why:
+            self._say(rec, "録画はまだ消しません(%s)" % why)
             return False
         js = self._jobs(rc["id"], rec)
         if js:

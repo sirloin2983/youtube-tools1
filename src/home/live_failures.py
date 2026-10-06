@@ -12,6 +12,7 @@
   handoff    書き出しはできたが、まとめて実行へ渡せなかった(ジョブの handoffError。入口 0.39.0 から記録する)
   transcribe 渡したまとめて実行が、文字起こし(話者分離を含む)で失敗した(記録の steps の error の段)
   pack       同じく、パック・届ける段で失敗した
+  afterStream 配信後の全自動(M7。src/home/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
@@ -19,7 +20,7 @@ import threading
 
 from ytt_core import fsio
 
-KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック"}
+KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動"}
 TX_STEPS = ("transcribe", "diarize")         # 文字起こしの側の段(src/home/autorun.py の STEP_LABELS の鍵)
 PACK_STEPS = ("pack", "deliver")             # パックの側の段
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(まとめて実行の失敗の数と同じ 7 日)
@@ -66,6 +67,18 @@ def failure_of(job, run=None):
             return {"kind": kind, "kindLabel": KIND_LABELS[kind], "text": "%s: %s" % (name, why)}
         return {"kind": kind, "kindLabel": KIND_LABELS[kind], "text": "%s: %sに失敗しました: %s" % (name, KIND_LABELS[kind], why)}
     return None
+
+
+def after_stream_failure(info):
+    """録画ごとの記録(src/home/live_archive.py の archive.json の 1 件。afterStream を持つ)-> 失敗 {"kind", "kindLabel", "text"} か None。
+    配信後の全自動(M7)が止まった理由の文はここだけで作る"""
+    a = info.get("afterStream") if isinstance(info, dict) else None
+    if not isinstance(a, dict) or a.get("state") != "error":
+        return None
+    title = str(a.get("title") or "").strip()
+    name = "「%s」" % title[:80] if title else "録画 %s" % (info.get("recording") or "?")
+    return {"kind": "afterStream", "kindLabel": KIND_LABELS["afterStream"],
+            "text": "%s: 配信後の自動の切り抜きに失敗しました: %s" % (name, _reason(a.get("message")) or "理由が分かりません")}
 
 
 class Reader:

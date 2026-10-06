@@ -16,6 +16,7 @@
     録画元が止まっている)・POST /live/api/export の studio の形(録画の頭からの秒 → 絶対時刻・正本の id・値の検査・録画がまだ始まっていない)・
     api/ytt/live(status: オフなら録画元に聞かない・録画中 + 終わって 10 分以内・3 秒覚える / stop)・yt-dlp の呼び方(probe_live。偽の yt-dlp)
 """
+import contextlib
 import http.client
 import json
 import os
@@ -42,7 +43,7 @@ import live as LV  # noqa: E402
 import live_export as LX  # noqa: E402
 import live_failures as LF  # noqa: E402
 import prefs as P  # noqa: E402
-from ytt_core import fsio, loudness, normalize, schemas, tools  # noqa: E402
+from ytt_core import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
 import hls_fixture as F  # noqa: E402
 
@@ -142,7 +143,8 @@ class PrefsLiveTest(unittest.TestCase):
     def test_default_off_and_validation(self):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
-                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": ""}})
+                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": ""},
+                                                        "autoAfterStream": False, "afterStreamPerHour": 6})   # 配信後の全自動(M7)は既定オフ
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         v = self.p.patch("live", {"enabled": True, "folder": "E:\\Video\\live-rec"})
         self.assertEqual((v["enabled"], v["folder"]), (True, "E:\\Video\\live-rec"))
@@ -169,6 +171,14 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertIs(self.p.patch("live", {"autoDelete": False})["autoDelete"], False)
         self.assertIs(self.p.patch("live", {"autoArchive": False})["autoDelete"], False)   # ほかのキーを直しても残る
         self.assertIs(self.p.patch("live", {"autoDelete": True})["autoDelete"], True)
+        for bad in ({"autoAfterStream": "yes"}, {"autoAfterStream": 1}, {"afterStreamPerHour": 0}, {"afterStreamPerHour": 31},
+                    {"afterStreamPerHour": 2.5}, {"afterStreamPerHour": True}, {"afterStreamPerHour": "6"}):   # 配信後の全自動(M7)
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", bad)
+        v = self.p.patch("live", {"autoAfterStream": True, "afterStreamPerHour": 10})
+        self.assertEqual((v["autoAfterStream"], v["afterStreamPerHour"]), (True, 10))
+        self.assertEqual(self.p.patch("live", {"quality": "720p"})["afterStreamPerHour"], 10)   # ほかのキーを直しても残る
+        self.assertIs(self.p.patch("live", {"autoAfterStream": False})["autoAfterStream"], False)
         # 録画を消すのは、オンで live.autoDelete が明示的に true のときだけ(戻せないので)
         class FP:
             def __init__(self, v):
@@ -831,6 +841,15 @@ class FailuresTest(unittest.TestCase):
         self.prefs.patch("live", {"enabled": False})
         self.assertIsNone(self.live.health())                                # オフなら「調子」に出さない(今までどおり)
 
+    def test_health_has_disk(self):
+        """M4: 「調子」に書き出し先・パック・live\\work の空き(state・行・しきい値)"""
+        self.live.exporter.disk_usage = lambda p: (4 * LX.GB, 100 * LX.GB)
+        self.live.exporter.disk_poll = 0
+        d = self.live.health()["disk"]
+        self.assertEqual((d["state"], d["lowBytes"], d["warnBytes"]), ("low", 5 * LX.GB, 20 * LX.GB))
+        self.assertTrue(d["rows"] and all(r["state"] == "low" and r["freeBytes"] == 4 * LX.GB for r in d["rows"]))
+        self.assertIn("5 GB 以上空くと続けます", d["message"])
+
 
 class SpawnTest(unittest.TestCase):
     """見回りが本物の録画の部品(src/recorder/recorder.py)を切り離して起動する"""
@@ -1366,6 +1385,187 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertAlmostEqual(out["duration"], 5.0, delta=0.1)
         self.assertEqual(os.path.basename(out["path"]), "03_00h01m00s-00h01m05s.mp4")   # 名前の時刻は録画の頭(firstPdt)からの秒
         self.assertEqual(os.path.basename(os.path.dirname(out["path"])), "またぐ")
+
+    def _pieces_exporter(self, free, runner=None, slots=None):
+        """録画元に繋がない Exporter(録画元の答えは _query を差し替える)。free: {"v": 空きのバイト数}"""
+        live = mock.Mock()
+        live.find.return_value = {"id": "local", "name": "この PC"}
+        live.recorders.return_value = [{"id": "local", "name": "この PC"}]
+        live.studio_call = None
+        logs = []
+        ex = LX.Exporter(live, os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"), runner=(lambda: runner) if runner else None,
+                         log=logs.append, slots=slots, disk_usage=lambda p: (free["v"], 200 * LX.GB), disk_poll=0)
+        ex.close()   # 見回りは止めて、ここで 1 本ずつ動かす
+        ex._halt.clear()
+        return ex, logs
+
+    def test_disk_low_waits_then_resumes(self):
+        """M4: 書き出し先・live\\work の空きが 5 GB 未満なら、新しい書き出しを「空き待ち」にして録画元にも問い合わせない。空くと続ける。
+        書き出しが済んだあとの まとめて実行への受け渡しも空くまで待つ(済んだら渡す)。20 GB 未満は注意だけ。変わったときだけ記録する"""
+        free = {"v": 3 * LX.GB}
+        runner = FakeRunner()
+        ex, logs = self._pieces_exporter(free, runner)
+        rec = "20261004-000000-a"
+        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
+        ex.add("local", rec, m["id"], after="check")
+        j = ex.jobs[0]
+        ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "state": "recording", "active": True, "lastPdt": "2026-10-04T06:10:00.000Z",
+               "firstPdt": "2026-10-04T05:00:00.000Z", "segments": [], "gaps": []}
+        with mock.patch.object(ex, "_query", return_value=(200, ans)) as q:
+            self.assertIsNone(ex._next_ready())
+            q.assert_not_called()                                            # 空き待ちの間は録画元に問い合わせない
+            self.assertTrue(j["diskWait"])
+            self.assertIn("空き容量が少ないので、新しい書き出し・文字起こしを止めて待っています", j["message"])
+            self.assertIn("3.0 GB", j["message"])
+            d = ex.disk()
+            self.assertEqual((d["state"], d["lowBytes"], d["warnBytes"]), ("low", 5 * LX.GB, 20 * LX.GB))
+            self.assertEqual(len(d["rows"]), 1)                              # 書き出し先と live\work は同じドライブ = 1 行
+            self.assertIn("書き出し先・パック", d["rows"][0]["label"])
+            self.assertIn("作業用", d["rows"][0]["label"])
+            self.assertIs(ex._next_ready(), None)
+            free["v"] = 12 * LX.GB                                           # 空いた(20 GB 未満 = 注意だけ)
+            self.assertIs(ex._next_ready(), j)
+            self.assertNotIn("diskWait", j)
+        self.assertEqual(ex.disk()["state"], "warn")
+        self.assertEqual(len([x for x in logs if "空き容量が少ない" in x]), 1)   # 変わったときだけ記録する
+        self.assertTrue(any("20 GB を切りました" in x for x in logs), logs)
+        # 書き出しが済んだが空きが少ない → まとめて実行へは渡さずに待つ → 空いたら渡す
+        free["v"] = 1 * LX.GB
+        media = os.path.join(self.tmp, "out", "01_x.mp4")
+        os.makedirs(os.path.dirname(media))
+        with open(media, "wb") as f:
+            f.write(b"x")
+        a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
+        ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b)
+        self.assertEqual((j["state"], j["handoffWait"], j["runId"], runner.files), ("done", "disk", "", []))
+        self.assertIn("空き容量が少ないので、空くまで文字起こしへ渡すのを待っています", j["message"])
+        self.assertIsNone(LX.live_failures.failure_of(j))                    # 待ちは失敗ではない
+        self.assertTrue(ex.pending())                                        # 起動し直したら見回りが続ける
+        self.assertEqual(ex._retry_handoffs(), 0)
+        free["v"] = 30 * LX.GB
+        self.assertEqual(ex._retry_handoffs(), 1)
+        self.assertEqual((j["handoffWait"], j["runId"], runner.files[0][0], runner.files[0][2]), ("", "run-1", media, "check"))
+        self.assertIn("文字起こしの順番に入れました", j["message"])
+        self.assertFalse(ex.pending())
+        self.assertEqual(ex.disk()["state"], "ok")
+        again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
+        self.assertEqual((again.jobs[0]["handoffWait"], again.jobs[0]["runId"]), ("", "run-1"))
+
+    def test_hold_for_archive_then_release(self):
+        """M7: holdFor archive のジョブは、書き出したあと まとめて実行へすぐ渡さず、本番版にしてから(release_hold)渡す。空きが少なければ空き待ちに"""
+        free = {"v": 50 * LX.GB}
+        runner = FakeRunner()
+        ex, _logs = self._pieces_exporter(free, runner)
+        rec = "20261004-000000-a"
+        m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
+        ex.add("local", rec, m["id"], after="auto", hold="archive")
+
+        j = ex.jobs[0]
+        self.assertEqual(j["holdFor"], "archive")
+        media = os.path.join(self.tmp, "out", "02_y.mp4")
+        os.makedirs(os.path.dirname(media))
+        with open(media, "wb") as f:
+            f.write(b"x")
+        ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
+        a, b = LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"])
+        ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b)
+        self.assertEqual((j["handoffWait"], runner.files), ("archive", []))
+        self.assertIn("本番版に入れ替えてから、文字起こし → パックへ渡します", j["message"])
+        self.assertFalse(ex.pending())                                       # 本番版の待ちは Archiver が受け持つ
+        free["v"] = 1 * LX.GB
+        self.assertEqual(ex.release_hold(j), "")                             # 空きが少ない → 空き待ちへ
+        self.assertEqual(j["handoffWait"], "disk")
+        self.assertEqual(ex.release_hold(j), "")                             # もう本番版の待ちではない
+        free["v"] = 50 * LX.GB
+        ex._retry_handoffs()
+        self.assertEqual((j["handoffWait"], j["runId"], runner.files[-1][2]), ("", "run-1", "auto"))
+        # アーカイブから作った本番版(欠けのマーク)はすぐ渡す
+        j2 = dict(j, id="lx-00000000b2", handoffWait="", runId="")
+        ex.jobs.append(j2)
+        ex._finish(j2, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
+        self.assertEqual((j2["handoffWait"], j2["runId"]), ("", "run-2"))
+
+    def test_reserved_slot_while_recording(self):
+        """M6: 録画中のライブの書き出しは用途つきの枠も使う = 文字起こし 2 本で上限が埋まっていても待たない。録画が終わったあとは普通の枠で待つ"""
+        slots = jobs.HeavySlots(2)
+        held = [slots.acquire("transcribe", "文字起こし 1"), slots.acquire("transcribe", "文字起こし 2")]
+        free = {"v": 50 * LX.GB}
+        ex, _logs = self._pieces_exporter(free, slots=slots)
+        rec = "20261004-000000-a"
+        seen = []
+
+        def encode(job, rc, rec_, d, segs, files, a, b, wdir):
+            seen.append(slots.snapshot())
+            return {"path": os.path.join(self.tmp, "x.mp4"), "duration": b - a, "title": "t"}, None
+
+        stack = contextlib.ExitStack()   # 待っている書き出しのスレッドが終わるまで、差し替えを戻さない
+        self.addCleanup(stack.close)
+        ans = {"active": True}
+        stack.enter_context(mock.patch.object(ex, "_sources", side_effect=lambda job, a, b: [({"id": "local", "name": "この PC"}, rec, dict(ans))]))
+        stack.enter_context(mock.patch.object(ex, "_fetch", return_value=[("part.ts", "session_001")]))
+        stack.enter_context(mock.patch.object(ex, "_encode", side_effect=encode))
+        stack.enter_context(mock.patch.object(ex, "_finish", side_effect=lambda job, *a, **k: ex._set(job, state="done")))
+
+        def run(active):
+            m, _ = ex.marks.apply("local", rec, {"op": "add", "start": "2026-10-04T06:00:00Z", "end": "2026-10-04T06:00:05Z"})
+            job = ex.add("local", rec, m["id"], after="none")
+            j = next(x for x in ex.jobs if x["id"] == job["id"])
+            ans.clear()
+            ans.update({"active": active, "firstPdt": "2026-10-04T05:00:00.000Z", "gaps": [],
+                        "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:58.000Z", "dur": 8.0}]})
+            t = threading.Thread(target=ex._process, args=(j,), daemon=True)
+            t.start()
+            t.join(1.0)
+            return t, j
+        t, j = run(True)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(j["state"], "done", j)
+        self.assertEqual(sorted((x["tool"], x.get("extra", False)) for x in seen[0]["active"]), [("live", True), ("transcribe", False), ("transcribe", False)])
+        self.assertEqual([(x["tool"], x.get("extra", False)) for x in slots.snapshot()["active"]], [("transcribe", False), ("transcribe", False)])   # 枠は返した
+        # 録画が終わったあと: 用途つきの枠は使わない(普通の枠が空くまで待つ)
+        t, j = run(False)
+        self.assertTrue(t.is_alive())
+        self.assertIn("ほかの重い処理", j["message"])
+        self.assertEqual(len(seen), 1)
+        slots.release(held[0])
+        t.join(5)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(j["state"], "done")
+        self.assertEqual(sorted((x["tool"], x.get("extra", False)) for x in seen[1]["active"]), [("live", False), ("transcribe", False)])
+        slots.release(held[1])
+
+    def test_reserved_slots_rules(self):
+        """ytt_core.jobs の用途つきの枠(M6): 普通の枠が埋まっているときだけ・同じ用途の中では先に来た順・reserved を渡さない人は使えない・数は RESERVED"""
+        self.assertEqual(jobs.RESERVED, {"live": 1})
+        s = jobs.HeavySlots(1)
+        a = s.acquire("transcribe")
+        flag = []
+        self.assertIsNone(s.acquire("live", cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # reserved なし = 待つ
+        b = s.acquire("live", reserved=True)                                  # 用途つきの枠
+        self.assertEqual([x.get("extra", False) for x in s.snapshot()["active"]], [False, True])
+        flag.clear()
+        self.assertIsNone(s.acquire("live", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 用途つきの枠は 1 つだけ
+        flag.clear()
+        self.assertIsNone(s.acquire("transcribe", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 用途の違う人は使えない
+        s.release(b)
+        got = []
+        t = threading.Thread(target=lambda: got.append(s.acquire("transcribe", poll=0.01)))
+        t.start()
+        time.sleep(0.05)
+        c = s.acquire("live", reserved=True, poll=0.01)                       # 前で待つ人がいても、用途つきの枠はすぐ使える
+        self.assertIsNotNone(c)
+        self.assertEqual(got, [])
+        s.release(a)
+        t.join(5)
+        self.assertEqual(len(got), 1)                                          # 普通の枠は先に来た順のまま
+        s.release(c)
+        s.release(got[0])
+        self.assertEqual(s.snapshot(), {"limit": 1, "active": [], "waiting": []})
+        none = jobs.HeavySlots(1, reserved={})
+        h = none.acquire("x")
+        flag.clear()
+        self.assertIsNone(none.acquire("live", reserved=True, cancelled=lambda: bool(flag.append(1)) or len(flag) > 2, poll=0.01))   # 枠を持たない
+        none.release(h)
 
     def test_gap_means_needs_archive(self):
         """区間に欠け(繋ぎ直しの間)があれば、書き出さずに「要差し替え」"""

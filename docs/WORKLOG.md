@@ -1610,3 +1610,42 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - ytt_core の作業コピーは CRLF と LF が混ざっている(index はすべて LF。autocrlf)。`sed -i` は CRLF を LF にする。Git Bash の `grep $'\r'` では見分けられなかった(Python で数える)
   - home の単体(子プロセスの出力を読むもの)は `PYTHONIOENCODING=utf-8` を付けて流すと、子の出力を cp932 で読めずに落ちる(test_mount の 3 件)。単体は付けずに流す
 - 未コミット: なし(このコミット。`src/ytt_core/`(jobs.py を除く)と `docs/WORKLOG.md` だけ)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 線 D M4〜M7(入口 0.39.0 → 0.40.0。段階 1 の残り + 段階 2)
+- M4 ディスクの見張り(`src/home/live_export.py` の `Exporter.disk`・`live.py` の health・`portal.js`): 書き出し先(パックも切り抜きの隣に作る)と `live\work` の空きを 1 分ごと(`DISK_POLL`。同じドライブは 1 行)。
+  20 GB 未満で注意・5 GB 未満で新しい書き出し(録画待ちのジョブは録画元に問い合わせずに `diskWait`)と文字起こし(書き出し済みのジョブの まとめて実行への受け渡しを `handoffWait: "disk"`)を「空き待ち」→ 空けば続ける(`_retry_handoffs`)。
+  知らせ: 「調子」の live.disk(ホームに「リアルタイム切り抜きの空き」の行)・LIVE の帯(ジョブの文)・launcher.log(変わったときだけ)。P4 の作り直し・M7 も空き待ち(Later)
+- M5 起動し直しで まとめて実行を戻す(`src/home/autorun.py`): 待ち・実行中を `logs/autorun-active.json` に残す(入れた・始めた・段を始めた・段が済んだ・終わった・中止したとき。`Run.saved` / `Run.restore`)→ 起動時に同じ id で「待ち」に戻す。
+  済んだ段(done・skip・warn)は飛ばし、途中の段は頭から(どの段も「まだ無いものだけ」)。入口の終了(「すべて終了」・強制終了)で止まった実行は runs.jsonl に「中止」と書かない(`close` は順番待ちを消さない)。
+  戻した実行は使うツールが動くまで待つ(`RESUME_WAIT` 120 秒)。7 日より前の実行は戻さず「中止」と記録。あとから解析(post_analyze)は対象外(今までどおり deferred の一覧)
+- M6 SLOTS の用途つきの枠(`src/ytt_core/jobs.py`): `RESERVED = {"live": 1}`(仮の値)。`acquire(…, reserved=True)` のときだけ、普通の枠が埋まっていれば用途つきの枠を使う(同じ用途の中は先に来た順・普通の枠は今までどおり先に来た順)。
+  `live_export._process` は書き出す録画が録画中(segments の `active`)のときだけ reserved。snapshot の形は同じ(用途つきの行にだけ `extra: true`)
+- M7 配信後の全自動(`src/home/live_archive.py` の `after_tick` ほか・`live.py`・`live_cleanup.py`・`live_failures.py`・`prefs.py`・`portal.html/js`): 設定 `live.autoAfterStream`(既定オフ)・`live.afterStreamPerHour`(1〜30・既定 6)。
+  録画が終わって 30 分・アーカイブが使える(P4 と同じ確かめ方)→ 録画とアーカイブのずれ(照合済みのマークのずれの中央値、無ければ録画の真ん中の 60 秒の音をアーカイブと照合 = P4 の窓・しきい値・子プロセス)
+  → アーカイブを kind youtube でスタジオの解析のキューへ(count は N の 2 倍まで増やす。解析済みならそれを使う)→ 録画の範囲に入る・人のマークと重ならない上位 N(録画の時間 × 1 時間あたり。1〜30)を
+  M1 の adopt(origin archive・after auto・hold archive)→ 速報版を書き出し → 本番版に作り直し(autoArchive がオフでも)→ 入れ替えてから まとめて実行へ(本番版にできなければ速報版のまま渡して理由を warning に)→ done。
+  状態は archive.json の afterStream(`GET /live/api/exports?recorder=&recording=` の archiveInfo.afterStream)。失敗は「調子」の失敗の一覧(kind afterStream・`live_failures.after_stream_failure`)。
+  オンの間は済むまで(終わって 2 日まで)録画を自動で消さない(`Cleaner` の hold = `after_stream_hold`)。`Live.tick` は autoAfterStream がオンなら exports.json が無くても Archiver を動かす
+- スタジオは触っていない(版もそのまま 0.21.1): 入口がアーカイブの videoId を kind youtube としてスタジオの解析のキューに入れるので、kind live の断り(LIVE_NO_ANALYZE)を変える必要が無かった
+- 変更: `src/home/` の autorun.py・live.py・live_export.py・live_archive.py・live_cleanup.py・live_failures.py・prefs.py・launch.py(版・API の説明)・portal.html・portal.js・README.txt(■ v0.40.0・まとめて実行の記録の説明)、
+  `src/ytt_core/jobs.py`、テスト test_autorun.py(TestRestore 4 件・close の 2 件を新しい動きに)・test_live.py(空き待ちと再開・本番版を待ってから渡す・録画中の枠・枠の決まり・「調子」の空き・設定)・
+  test_live_archive.py(AfterStreamTest 4 件・消すのを待つ)・e2e_live_archive.py(9 = 配信後の全自動)・e2e_live_studio.py(M7 のスイッチ)
+- 版: 入口 0.39.0 → 0.40.0(launch.py・README の見出しと ■ v0.40.0)
+- テスト: home の単体 395 件 OK(skip 2。前は 381)・ytt_core 79 件 OK・`e2e_live_archive.py` 99 件 ALL OK(2 回)・`e2e_live_studio.py` 119 件・`e2e_live.py`・`e2e_portal.py`・`e2e_autorun.py` OK
+- 仮で決めたこと:
+  - M4: しきい値 5 GB / 20 GB・見張るのは書き出し先と live\work(文字起こしの一時ファイルの置き場所 = 作業データのドライブは「調子」の今までの空きの行のまま)・待つ文字起こしは「書き出し → まとめて実行への受け渡し」(もう入った実行は止めない)
+  - M5: 「すべて終了」でも戻す(中止と書かない)・途中の段は頭から・7 日より前は戻さない・ツールを 120 秒まで待つ
+  - M6: 「録画中」= 書き出すその録画が録画中(ほかの録画の録画中は見ない)・用途つきの枠は 1 つ
+  - M7: N = 録画の長さ × 1 時間あたり(四捨五入・1〜30)・候補は自動のマークで判定前・録画に半分以上入るものは切り詰める・人のマークと重なる候補は飛ばして次へ・count を N の 2 倍まで増やす・
+    after は live.auto.after に関係なく auto(文字起こし → パック)・ラベルは候補のラベルか「アーカイブの山 n」・終わって 2 日より前の録画は自動で始めない・P4 の FIRST_DELAY(30 分)と INTERVAL を共用
+- 未完了・次:
+  - 本物の配信で M7 を通していない(アーカイブの解析・録画とアーカイブの照合)。M4 のしきい値・M6 の枠の数は U4(本物の 3 時間)の値で決め直す
+  - e2e の 9 は N = 4 に対して 3 本(77 秒の録画の範囲にある候補が 3 つ)。パックそのものは偽のまとめて実行(after = auto で本番版を渡したことまで。file_auto のパックは e2e_autorun が確かめる形)
+  - スタジオの LIVE の帯に M7 の進み具合(archiveInfo.afterStream)を出す画面は作っていない(API・「調子」の失敗だけ)
+  - 候補: 画面の「起動し直す」(restart_self)は まとめて実行が動いていると断るが、M5 で戻るようになったので緩められる
+- 注意:
+  - スタジオの疑似モード(STUDIO_FAKE)の解析は、合成の音だけでは山が立たず候補が 0 件になる → e2e の 9 は偽のチャット(25 秒ごとに 4 秒の盛り上がり)で山を作った。スタジオの解析の設定は PUT /studio/api/settings {section, value}(POST ではない)
+  - Playwright のコンソール・応答のできごとは次の操作のときに届く: 画面を触らない段(9)のあとの 8 で選り分ける前に wait_for_timeout を足した
+  - `test_live_archive.py` は単独では `ytt_core` を import できない(前からそう。ほかのテストと一緒に流すか PYTHONPATH=src)
+  - Git Bash の heredoc は `\\` を `\` にする(バックスラッシュを含む編集は Write で作ったファイルから当てた)。src/home の .py は CRLF と LF が混ざっている(行末を保って直した)
+- 未コミット: なし(このコミット。src/home/・src/ytt_core/jobs.py・docs/WORKLOG.md だけ。ほかの担当の src/editor/ などの変更は入れていない)

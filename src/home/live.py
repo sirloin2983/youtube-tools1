@@ -38,6 +38,11 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
        ?recorder=&recording= を付けたときは応答に archiveInfo {ready: true|false|null, checkedAt, message}(その録画のアーカイブの用意)
   録画を自動で消す(P4。中身は src/home/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、本番版への作り直しが1本済んだとき。
        消した録画のジョブには recordingDeleted(スタジオの画面が「録画は消しました」と出す)。録画元の …/delete は入口のこの処理だけが呼ぶ
+  ディスクの見張り(線 D の M4。入口 0.40.0): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
+       20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/home/live_export.py の Exporter.disk)
+  配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/home/live_archive.py):
+       録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ 書き出し → 本番版 → 文字起こし → パック。
+       進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
                      {op: "stop", recorder, recording} → {ok: true, recording}(launch.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
@@ -69,6 +74,7 @@ from ytt_core import datadir, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
+import live_failures  # noqa: E402  (失敗の集約。M3・M7)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -356,7 +362,10 @@ class Live:
             if self._archiver is None:
                 kw = dict({"studio": self.studio_call, "enabled": self.enabled, "auto": lambda: self.cfg().get("autoArchive") is not False,
                            "recording_state": self.recording_state, "python": self.python, "log": self.log,
-                           "after": lambda rc, rec: self.cleaner.check(rc, rec)}, **self.archive_opts)   # 1本終えたら: 全部入れ替わった録画を消す
+                           "after": lambda rc, rec: self.cleaner.check(rc, rec),   # 1本終えたら: 全部入れ替わった録画を消す
+                           "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
+                           "per_hour": lambda: self.cfg().get("afterStreamPerHour") or 6,
+                           "recordings": self.list_recordings, "adopt": self.adopt}, **self.archive_opts)
                 self._archiver = live_archive.Archiver(ex, **kw)
             return self._archiver
 
@@ -365,7 +374,8 @@ class Live:
         """録画を自動で消す(src/home/live_cleanup.py。P4。設定 live.autoDelete)"""
         with self._ex_lock:
             if self._cleaner is None:
-                kw = dict({"enabled": self.auto_delete, "studio": self.studio_call, "log": self.log}, **self.cleanup_opts)
+                kw = dict({"enabled": self.auto_delete, "studio": self.studio_call, "log": self.log,
+                           "hold": lambda rc, r: self.archiver.after_stream_hold(rc, r)}, **self.cleanup_opts)   # 配信後の全自動(M7)がまだの録画は消さない
                 self._cleaner = live_cleanup.Cleaner(self, **kw)
             return self._cleaner
 
@@ -385,6 +395,23 @@ class Live:
             return autorun.ToolClient(srv.tool_endpoint, srv.token, timeout=30).call("studio", method, path, body)
         except autorun.StepError as e:
             return None, {"message": str(e)}
+
+    def list_recordings(self):
+        """録画元ごとの録画の一覧(配信後の全自動 M7 の見回り)-> [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch か None)。
+        つながらない録画元は飛ばす"""
+        out = []
+        for rc in self.recorders():
+            code, d = self.call(rc, "GET", "/live/list", timeout=5.0)
+            if code != 200 or not isinstance(d, dict):
+                continue
+            for r in d.get("recordings") or []:
+                if not isinstance(r, dict) or not live_export.REC_RE.match(str(r.get("id") or "")):
+                    continue
+                out.append({"recorder": rc["id"], "id": r["id"], "url": str(r.get("url") or "")[:URL_MAX], "title": str(r.get("title") or "")[:live_export.TITLE_MAX],
+                            "active": r.get("active") is True or r.get("state") in live_cleanup.REC_ACTIVE,
+                            "endedAt": live_export.iso_epoch(r.get("endedAt")), "firstPdt": live_export.iso_epoch(r.get("firstPdt")),
+                            "lastPdt": live_export.iso_epoch(r.get("lastPdt"))})
+        return out
 
     def recording_state(self, rc_id, rec):
         """録画元での録画の状態 {"active", "endedAt"(epoch か None)}。つながらない・見つからないときは None(P4 の自動: 録画が終わったか)"""
@@ -712,8 +739,9 @@ class Live:
         n = next((i + 1 for i, m in enumerate(order) if m.get("id") == mark.get("id")), 0)
         return vid, mark, n
 
-    def adopt(self, body):
-        """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}"""
+    def adopt(self, body, hold=None):
+        """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。
+        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
         origin = live_export.check_origin(body.get("origin"))
         auto = self.auto_cfg()
         after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
@@ -733,7 +761,8 @@ class Live:
             studio = {"video": vid, "mark": mark["id"], "n": n, "label": mark.get("label") or label,
                       "start": float(mark.get("start", a)), "end": float(mark.get("end", b))}   # スタジオが丸めた区間(画面の書き出しと同じ値で突き合わせる)
             job = ex.add_studio(rc_id, rec, studio, first, after != "none", url=st.get("url") if isinstance(st.get("url"), str) else None,
-                                title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto)
+                                title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto,
+                                hold=hold if hold in live_export.HOLDS else None)
         ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
                      "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"]})
@@ -935,10 +964,10 @@ class Live:
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
-        if os.path.isfile(os.path.join(self.store_dir, "exports.json")):
-            if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける
+        if os.path.isfile(os.path.join(self.store_dir, "exports.json")) or cfg.get("autoAfterStream") is True:
+            if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
-            self.archiver.start()   # 本番版への作り直し(P4): 途中のものを続ける・自動の見回り(設定 live.autoArchive)
+            self.archiver.start()   # 本番版への作り直し(P4): 途中のものを続ける・自動の見回り(設定 live.autoArchive)・配信後の全自動(M7)
         if self.auto_delete():   # 録画を自動で消す(P4。設定 live.autoDelete。中で間隔を見る = 10 分ごと)
             try:
                 self.cleaner.tick()
@@ -1039,5 +1068,15 @@ class Live:
                 failures = self.exporter.failures()
             except Exception as e:
                 self.note("リアルタイム切り抜き: 失敗の一覧を作れませんでした: %r" % (e,))
-        return {"recorders": out, "failures": failures}
+        if self._archiver is not None:   # 配信後の全自動(M7)が止まった録画(文は live_failures.after_stream_failure)
+            try:
+                failures = sorted(failures + self._archiver.after_failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
+            except Exception as e:
+                self.note("リアルタイム切り抜き: 配信後の自動の失敗を読めませんでした: %r" % (e,))
+        try:   # 書き出し先・パック・live\work の空き(M4)
+            disk = self.exporter.disk()
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 空き容量を調べられませんでした: %r" % (e,))
+            disk = None
+        return {"recorders": out, "failures": failures, "disk": disk}
 

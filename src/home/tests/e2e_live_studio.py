@@ -307,6 +307,16 @@ def run(tmp, shots, force_chromium):
                 pg.press("#liveAutoModel", "Tab")
                 check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
                       "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
+                # M7: 配信後の全自動のスイッチと 1 時間あたりの数(既定オフ・6)
+                check(pg.evaluate("document.getElementById('liveAfterStream').checked") is False and pg.input_value("#liveAfterPerHour") == "6",
+                      "M7 「配信が終わったら、アーカイブの解析で自動で切り抜く」は既定オフ・1 時間あたり 6")
+                pg.click("#liveAfterStream")
+                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is True, 8), "M7 付けると live.autoAfterStream = true")
+                pg.fill("#liveAfterPerHour", "8")
+                pg.press("#liveAfterPerHour", "Tab")
+                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["afterStreamPerHour"] == 8, 8), "M7 1 時間あたりを 8 に")
+                pg.click("#liveAfterStream")   # 外す(この e2e の録画で配信後の全自動を動かさない)
+                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is False, 8), "M7 外すと live.autoAfterStream = false")
                 pg.close()
 
                 # ---------------- 2. ② の URL 欄から録画を始める ----------------

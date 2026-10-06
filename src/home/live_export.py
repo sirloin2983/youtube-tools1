@@ -34,6 +34,14 @@
 書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
 失敗の文は src/home/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
 
+ディスクの見張り(線 D の M4。入口 0.40.0): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live\\work(取ったセグメント・アーカイブの丸ごとの音)の
+空きを DISK_POLL(1 分)ごとに調べる(disk)。DISK_WARN(20 GB)未満で注意(「調子」)、DISK_LOW(5 GB)未満で**新しい書き出しと文字起こしを「空き待ち」**にする
+(録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
+止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
+用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt_core.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
+本番版を待ってから渡す(M7): holdFor "archive" のジョブ(配信後の全自動。src/home/live_archive.py)は、書き出したあと まとめて実行へすぐ渡さず
+handoffWait "archive" で待ち、アーカイブで本番版に入れ替えてから(できなければ速報版のまま)Archiver が release_hold で渡す(パックが本番版になる)。
+
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
 url は入れない(range がアーカイブの秒ではないので、YouTube の位置へのリンクにしない)。
@@ -84,6 +92,11 @@ FETCH_TIMEOUT = 30.0
 STATES = ("wait", "fetch", "encode", "done", "error", "cancelled")
 ACTIVE = ("wait", "fetch", "encode")
 STATE_LABELS = {"wait": "録画待ち", "fetch": "取得中", "encode": "作り直し中", "done": "済み", "error": "失敗", "cancelled": "取り消し"}
+GB = 1024 ** 3
+DISK_WARN = 20 * GB        # 空きがこれ未満で注意(M4。録画の部品の 20 GB と同じ)
+DISK_LOW = 5 * GB          # 空きがこれ未満で、新しい書き出し・文字起こしを「空き待ち」にする(M4。録画の部品は 1 GB で録画を止める)
+DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
+HOLDS = ("archive",)       # まとめて実行へ渡すのを待つ理由(holdFor。M7: 本番版にしてから)
 ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/home/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
 # スタジオの書き出しと同じ名前の規則(src/studio/exporter.py。ツールをまたいで import しないので同じ値を持つ)
@@ -430,12 +443,19 @@ class MarkStore:
 # ---------- 書き出しのジョブ ----------
 class Exporter:
     def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
-                 runs_log=None):
+                 runs_log=None, disk_usage=None, disk_poll=DISK_POLL):
         """live: src/home/live.py の Live(録画元の一覧と要求)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
-        runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)"""
+        runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
+        disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 shutil.disk_usage。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)"""
         self.live, self.folder, self.out_dir, self.runner, self.audio = live, folder, out_dir, runner, audio
+        self.disk_usage = disk_usage or _disk_usage
+        self.disk_poll = disk_poll
+        self._disk = None          # 前に調べた結果(disk)
+        self._disk_at = 0.0
+        self._disk_said = "ok"     # 前に記録(log)した状態(変わったときだけ書く)
+        self._disk_lock = threading.Lock()
         self.runs = live_failures.Reader(runs_log)
         self.fb_lock = threading.Lock()
         self.log = log or (lambda m: None)
@@ -464,6 +484,7 @@ class Exporter:
                 continue
             if j.get("state") in ("fetch", "encode"):   # 入口が途中で終わった: 録画待ちからやり直す
                 j.update(state="wait", progress=0, message="入口を起動し直したので、やり直します")
+            j.pop("diskWait", None)
             arc = j.get("archive")
             if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。src/home/live_archive.py)の途中: 順番待ちに戻す
                 j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="入口を起動し直したので、続きから作り直します")
@@ -566,10 +587,10 @@ class Exporter:
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
         return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None):
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
-        after・streamer・origin・auto: add と同じ"""
+        after・streamer・origin・auto・hold: add と同じ"""
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
@@ -579,12 +600,14 @@ class Exporter:
             self.marks.upsert(rc, rec, mid, studio["n"], epoch_iso(first + studio["start"]), epoch_iso(first + studio["end"]),
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
-                            studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto)
+                            studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto,
+                            hold=hold)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None):
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
-        origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)"""
+        origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
+        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(HOLDS。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
         if self.live.find(rc) is None:
@@ -605,6 +628,8 @@ class Exporter:
                    "created": now_iso(), "updated": now_iso()}
             if studio is not None:
                 job["studio"] = dict(studio)
+            if hold in HOLDS:
+                job["holdFor"] = hold
             self.jobs.append(job)
             self._trim()
         self._save()
@@ -627,8 +652,71 @@ class Exporter:
         return dict((k, v) for k, v in job.items() if k != "cancel")
 
     def pending(self):
+        """書き出しの途中・順番待ちか、空きを待ってまとめて実行へ渡すもの(M4)がある(入口を起動し直したら見回りを動かす)"""
         with self.lock:
-            return any(j["state"] in ACTIVE for j in self.jobs)
+            return any(j["state"] in ACTIVE or (j["state"] == "done" and j.get("handoffWait") == "disk") for j in self.jobs)
+
+    # --- ディスクの見張り(M4) ---
+    def disk_paths(self):
+        """見張る場所 [(名前, パス)]: 書き出し先(パックも切り抜きの隣に作る)・live\\work(取ったセグメント・アーカイブの丸ごとの音)"""
+        out = []
+        try:
+            root = self.out_dir()
+        except Exception:
+            root = None
+        if isinstance(root, str) and root and os.path.isabs(root):
+            out.append(("書き出し先・パック", root))
+        out.append(("作業用(live\\work)", self.work))
+        return out
+
+    def disk(self, force=False):
+        """空き容量 -> {"state": ok|warn|low, "rows": [{label, path, drive, freeBytes, totalBytes, state}], "message", "checkedAt", "lowBytes", "warnBytes"}。
+        DISK_POLL 秒は前の結果を返す(force で今すぐ)。同じドライブは 1 行にまとめる。調べられない場所は行に出さない(待ちにしない)"""
+        now = time.time()
+        with self._disk_lock:
+            if not force and self._disk is not None and now - self._disk_at < self.disk_poll:
+                return self._disk
+        rows, by_drive = [], {}
+        for label, path in self.disk_paths():
+            probe = path
+            while probe and not os.path.exists(probe):   # まだ無いフォルダは、ある所まで上へ(src/home/health.py の disk_free と同じ)
+                parent = os.path.dirname(probe)
+                if parent == probe:
+                    break
+                probe = parent
+            try:
+                free, total = self.disk_usage(probe)
+                free, total = int(free), int(total)
+            except (OSError, ValueError, TypeError):
+                continue
+            drive = os.path.splitdrive(os.path.abspath(probe))[0].upper() or os.path.abspath(probe)
+            if drive in by_drive:
+                by_drive[drive]["label"] += "・" + label
+                continue
+            row = {"label": label, "path": path, "drive": drive, "freeBytes": free, "totalBytes": total,
+                   "state": "low" if free < DISK_LOW else "warn" if free < DISK_WARN else "ok"}
+            by_drive[drive] = row
+            rows.append(row)
+        low = [r for r in rows if r["state"] == "low"]
+        warn = [r for r in rows if r["state"] == "warn"]
+        state = "low" if low else "warn" if warn else "ok"
+        where = lambda rs: "・".join("%s(%s)の空き %.1f GB" % (r["label"], r["drive"], r["freeBytes"] / GB) for r in rs)   # noqa: E731
+        msg = ("空き容量が少ないので、新しい書き出し・文字起こしを止めて待っています(%s。%d GB 以上空くと続けます)" % (where(low), DISK_LOW // GB) if low else
+               "空き容量が %d GB を切りました(%s)。片付けを考えてください" % (DISK_WARN // GB, where(warn)) if warn else "")
+        res = {"state": state, "rows": rows, "message": msg, "checkedAt": now_iso(), "lowBytes": DISK_LOW, "warnBytes": DISK_WARN}
+        with self._disk_lock:
+            self._disk, self._disk_at = res, now
+            said, self._disk_said = self._disk_said, state
+        if said != state:   # 変わったときだけ記録する
+            self.log("リアルタイム切り抜き: " + (msg or "空き容量が戻ったので、書き出し・文字起こしを続けます"))
+        return res
+
+    def _disk_low(self):
+        """空きが DISK_LOW 未満か(調べる所の不具合では止めない = False)"""
+        try:
+            return self.disk()["state"] == "low"
+        except Exception:
+            return False
 
     # --- 動かす ---
     def start(self):
@@ -648,6 +736,7 @@ class Exporter:
     def _loop(self):
         while not self._halt.is_set():
             try:
+                self._retry_handoffs()   # 空きを待っていた まとめて実行への受け渡し(M4)
                 job = self._next_ready()
                 if job is not None:
                     self._process(job)
@@ -658,9 +747,20 @@ class Exporter:
             self.wake.clear()
 
     def _next_ready(self):
-        """録画待ちのジョブを順に見て、録画が届いた最初の1本を返す(録画元への問い合わせは、同じ録画は1回だけ)"""
+        """録画待ちのジョブを順に見て、録画が届いた最初の1本を返す(録画元への問い合わせは、同じ録画は1回だけ)。
+        空きが少ない(M4)ときは、どれも始めずに「空き待ち」の文を出す(録画元にも問い合わせない)"""
         with self.lock:
-            waiting = [j for j in self.jobs if j["state"] == "wait"]
+            waiting = [j for j in self.jobs if j["state"] == "wait" and not j.get("cancel")]
+        if not waiting:
+            return None
+        dk = self.disk() if self._disk_low() else None
+        for job in waiting:
+            if dk is not None:
+                job.update(message=dk["message"], diskWait=True)   # 数分ごとには変わらないが、記録のファイルには書かない(空けば消える)
+            elif job.pop("diskWait", None):
+                job["message"] = "空きが戻ったので、続けます"
+        if dk is not None:
+            return None
         seen = {}
         for job in waiting:
             if self._halt.is_set() or job.get("cancel"):
@@ -791,7 +891,8 @@ class Exporter:
             self._set(job, source=rc["id"], message="取得しました(%d 個)。作り直しの順番を待っています" % len(segs))
             with self.slots.slot("live", "リアルタイム切り抜き %s" % (job.get("label") or job["id"]),
                                  cancelled=lambda: bool(job.get("cancel")) or self._halt.is_set(),
-                                 on_wait=lambda: self._set(job, message="ほかの重い処理が終わるのを待っています")) as ok:
+                                 on_wait=lambda: self._set(job, message="ほかの重い処理が終わるのを待っています"),
+                                 reserved=bool(d.get("active"))) as ok:   # 録画中は用途つきの枠も使う(M6。文字起こしで上限が埋まっていても待たない)
                 self._cancelled(job)
                 if not ok:
                     raise Cancelled()
@@ -1052,34 +1153,97 @@ class Exporter:
         except OSError as e:
             manifest = ""
             warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % (e.strerror or e.__class__.__name__))
-        run_id, handoff = "", ""
+        run_id, handoff, wait = "", "", ""
         after = job_after(job)
         if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
-            who = None
-            if job.get("streamer"):   # 配信者の名前(字幕の色)。照らし合わせられなければ色なしで進める(書き出しは止めない)
-                try:
-                    who = colors.resolve(job["streamer"])[0]
-                except ValueError as e:
-                    warn.append("配信者「%s」が色の一覧と合わないので、字幕の色なしで進めます(%s)" % (job["streamer"][:60], str(e)[:120]))
-            auto = job.get("auto") if isinstance(job.get("auto"), dict) else {}
-            kw = {k: auto[k] for k in AUTO_KEYS if auto.get(k)}   # 書き出したあとの設定(live.auto の cut・engine・model。M2)。無ければ今までどおり
-            try:
-                r = self.runner() if self.runner else None
-                if r is None:
-                    raise ValueError("まとめて実行が使えません")
-                run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""
-            except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
-                handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
+            if job.get("holdFor") == "archive" and not archive:   # 本番版に入れ替えてから渡す(M7。アーカイブから作った本番版はすぐ渡す)
+                wait = "archive"
+            elif self._disk_low():   # 空きが少ない(M4): 空くまで渡さない
+                wait = "disk"
+            else:
+                run_id, handoff, more = self._handoff(job, media, after)
+                warn += more
         marked = self._studio_exported(job, media, bool(archive))
         if marked:
             warn.append(marked)
         self._set(job, state="done", progress=1.0, path=media, manifest=manifest, runId=run_id, warning=" / ".join(warn), recBase=epoch_iso(base),
-                  handoffError=handoff,
-                  message=message + (("。文字起こし → パックの順番に入れました(ホームの「まとめて実行」)" if after == "auto"
-                                      else "。文字起こしの順番に入れました(ホームの「まとめて実行」)") if run_id else ""))
+                  handoffError=handoff, handoffWait=wait, message=message + self._after_note(after, run_id, wait))
         self.log("リアルタイム切り抜き: 書き出しました %s" % media)
         if handoff:
             self.log("リアルタイム切り抜き: " + live_failures.failure_of(dict(job, path=media, handoffError=handoff))["text"])
+
+    @staticmethod
+    def _after_note(after, run_id, wait):
+        """書き出したあとの文(メッセージの後ろに付ける)"""
+        what = "文字起こし → パック" if after == "auto" else "文字起こし"
+        if run_id:
+            return "。%sの順番に入れました(ホームの「まとめて実行」)" % what
+        if wait == "archive":
+            return "。アーカイブで本番版に入れ替えてから、%sへ渡します" % what
+        if wait == "disk":
+            return "。空き容量が少ないので、空くまで%sへ渡すのを待っています" % what
+        return ""
+
+    def _handoff(self, job, media, after):
+        """まとめて実行へ渡す(動画ファイルの形 start_file)。-> (run の id, 渡せなかった理由(handoffError), 警告の文のリスト)"""
+        warn, run_id, handoff = [], "", ""
+        who = None
+        if job.get("streamer"):   # 配信者の名前(字幕の色)。照らし合わせられなければ色なしで進める(書き出しは止めない)
+            try:
+                who = colors.resolve(job["streamer"])[0]
+            except ValueError as e:
+                warn.append("配信者「%s」が色の一覧と合わないので、字幕の色なしで進めます(%s)" % (job["streamer"][:60], str(e)[:120]))
+        auto = job.get("auto") if isinstance(job.get("auto"), dict) else {}
+        kw = {k: auto[k] for k in AUTO_KEYS if auto.get(k)}   # 書き出したあとの設定(live.auto の cut・engine・model。M2)。無ければ今までどおり
+        try:
+            r = self.runner() if self.runner else None
+            if r is None:
+                raise ValueError("まとめて実行が使えません")
+            run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""
+        except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
+            handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
+        return run_id, handoff, warn
+
+    def _hand_over(self, job, note=""):
+        """待っていた まとめて実行への受け渡しを今する(M4 の空き待ち・M7 の本番版待ち)。空きが少なければ「空き待ち」に。-> run の id か "\""""
+        after = job_after(job)
+        media = job.get("path") or ""
+        if after == "none" or not media or not os.path.isfile(media):
+            self._set(job, handoffWait="", handoffError="" if after == "none" else
+                      ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: 書き出した動画が見つかりません(動かしたか消したかもしれません)")
+            return ""
+        notes = [x for x in str(job.get("warning") or "").split(" / ") if x]
+        if note and note not in notes:
+            notes.append(note)
+        if self._disk_low():
+            self._set(job, handoffWait="disk", warning=" / ".join(notes), message="書き出しました" + self._after_note(after, "", "disk"))
+            return ""
+        run_id, handoff, more = self._handoff(job, media, after)
+        self._set(job, handoffWait="", runId=run_id, handoffError=handoff, warning=" / ".join(notes + more),
+                  message="書き出しました" + self._after_note(after, run_id, ""))
+        if run_id:
+            self.log("リアルタイム切り抜き: まとめて実行へ渡しました %s" % media)
+        elif handoff:
+            self.log("リアルタイム切り抜き: " + live_failures.failure_of(dict(job, handoffError=handoff))["text"])
+        return run_id
+
+    def release_hold(self, job, note=""):
+        """本番版への作り直しを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/home/live_archive.py から。
+        入れ替えが済んだとき・作り直せなかったとき(note に理由 = 速報版のまま渡す))。-> run の id か ""(渡さなかった・空き待ち)"""
+        with self.lock:
+            if job.get("state") != "done" or job.get("handoffWait") != "archive":
+                return ""
+        return self._hand_over(job, note)
+
+    def _retry_handoffs(self):
+        """空きを待っていた受け渡し(handoffWait "disk")を、空きが戻ったら渡す(M4)"""
+        with self.lock:
+            todo = [j for j in self.jobs if j.get("state") == "done" and j.get("handoffWait") == "disk"]
+        if not todo or self._disk_low():
+            return 0
+        for j in todo:
+            self._hand_over(j)
+        return len(todo)
 
     def _studio_exported(self, job, media, archived=False):
         """スタジオのマーク(ジョブの studio)を「書き出し済み」にする(M1: 画面を閉じていても。画面も同じ API を呼ぶ = 何度呼んでも同じ)。
@@ -1105,3 +1269,9 @@ def _unlink(p):
         os.unlink(p)
     except OSError:
         pass
+
+
+def _disk_usage(path):
+    """(空き, 全体) のバイト数(Exporter.disk の既定)"""
+    u = shutil.disk_usage(path)
+    return u.free, u.total

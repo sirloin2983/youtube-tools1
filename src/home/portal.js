@@ -1009,6 +1009,16 @@
         + (r.streamlink === false ? '。streamlink が入っていません(setup\install.bat)' : '') + (r.folderMessage ? '。' + r.folderMessage : '');
       ul.appendChild(healthRow(st, '録画元 ' + r.name, text, [r.folder || '', r.url].concat((r.recordings || []).map(function (x) { return (x.title || x.id) + ' ' + x.state + (x.message ? '(' + x.message + ')' : ''); }))));
     });
+    // リアルタイム切り抜きの空き容量(M4。書き出し先・パック・live\work。5 GB 未満で新しい書き出し・文字起こしを「空き待ち」・20 GB 未満で注意)
+    if (h.live && h.live.disk) (h.live.disk.rows || []).forEach(function (r) {
+      var st = r.state === 'low' ? 'bad' : r.state === 'warn' ? 'warn' : 'ok';
+      var text = '空き ' + fmtBytes(r.freeBytes) + ' / ' + fmtBytes(r.totalBytes)
+        + (r.state === 'low' ? '。' + Math.round(h.live.disk.lowBytes / GB) + ' GB を切ったので、新しい書き出し・文字起こしを止めて待っています(空くと続けます)'
+          : r.state === 'warn' ? '。' + Math.round(h.live.disk.warnBytes / GB) + ' GB を切りました。片付けを考えてください' : '');
+      var row = healthRow(st, 'リアルタイム切り抜きの空き ' + (r.label || '') + '(' + (r.drive || '') + ')', text, [r.path || '']);
+      row.className = 'pt-live-disk';
+      ul.appendChild(row);
+    });
     // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/home/live_failures.py)
     if (h.live && h.live.failures) {
       var lf = h.live.failures;
@@ -1552,6 +1562,19 @@
     $('#liveAutoCut').value = a.cut || '';
     $('#liveAutoEngine').value = a.engine || '';
     if (document.activeElement !== $('#liveAutoModel')) $('#liveAutoModel').value = a.model || '';
+    if ($('#liveAfterStream')) {   // 配信後の全自動(M7)
+      $('#liveAfterStream').checked = !!(v && v.autoAfterStream);
+      if (document.activeElement !== $('#liveAfterPerHour')) $('#liveAfterPerHour').value = (v && v.afterStreamPerHour) || 6;
+    }
+  }
+  function saveLiveTop(value, okText) {   // live の節の 1 つの鍵(auto の外。M7)
+    api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: value }).then(function (j) {
+      renderLive(j.value);
+      toast(okText, 'ok');
+    }, function (e) {
+      toast('保存できませんでした: ' + e.message, 'err');
+      loadLive();
+    });
   }
   function saveLiveAuto(key, value) {
     var body = {}; body[key] = value;
@@ -1585,6 +1608,17 @@
         $(p[0]).addEventListener('change', function () { saveLiveAuto(p[1], $(p[0]).value); });
       });
       $('#liveAutoModel').addEventListener('change', function () { saveLiveAuto('model', $('#liveAutoModel').value.trim()); });
+    }
+    if ($('#liveAfterStream')) {
+      $('#liveAfterStream').addEventListener('change', function () {
+        var on = $('#liveAfterStream').checked;
+        saveLiveTop({ autoAfterStream: on }, on ? '配信が終わったら、アーカイブの解析で自動で切り抜きます' : '配信後の自動の切り抜きをやめました');
+      });
+      $('#liveAfterPerHour').addEventListener('change', function () {
+        var n = parseInt($('#liveAfterPerHour').value, 10);
+        if (!(n >= 1 && n <= 30)) { toast('1 時間あたりの数は 1〜30 にしてください', 'err'); loadLive(); return; }
+        saveLiveTop({ afterStreamPerHour: n }, '1 時間あたり ' + n + ' 本にしました');
+      });
     }
     loadLive();
   }

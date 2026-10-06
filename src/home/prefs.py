@@ -14,7 +14,9 @@
              本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/home/live_cleanup.py。P4)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
-             after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す
+             after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
+             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/home/live_archive.py)と
+             その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -51,7 +53,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
-                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}},
+                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}, "autoAfterStream": False, "afterStreamPerHour": 6},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -65,6 +67,7 @@ LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/home/li
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
 LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/editor/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
+LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 
 
 class PrefsError(ValueError):
@@ -150,7 +153,9 @@ def _clean_live(v, cur):
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
            "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
-           "auto": _clean_live_auto(cur.get("auto") if isinstance(cur.get("auto"), dict) else {}, DEFAULTS["live"]["auto"], strict=False)}
+           "auto": _clean_live_auto(cur.get("auto") if isinstance(cur.get("auto"), dict) else {}, DEFAULTS["live"]["auto"], strict=False),
+           "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
+           "afterStreamPerHour": cur.get("afterStreamPerHour") if _per_hour_ok(cur.get("afterStreamPerHour")) else DEFAULTS["live"]["afterStreamPerHour"]}
     if "auto" in v:   # 書き出したあとの自動の流れ(M2)。節の中の鍵ごとに直す(送らなかった鍵は今のまま)
         if not isinstance(v["auto"], dict):
             raise PrefsError("書き出したあとの設定(auto)の形が正しくありません")
@@ -167,6 +172,14 @@ def _clean_live(v, cur):
         if not isinstance(v["autoArchive"], bool):
             raise PrefsError("「自動で本番版に作り直す」は true か false で指定してください")
         out["autoArchive"] = v["autoArchive"]
+    if "autoAfterStream" in v:   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
+        if not isinstance(v["autoAfterStream"], bool):
+            raise PrefsError("「配信後に自動で切り抜く」は true か false で指定してください")
+        out["autoAfterStream"] = v["autoAfterStream"]
+    if "afterStreamPerHour" in v:
+        if not _per_hour_ok(v["afterStreamPerHour"]):
+            raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)
+        out["afterStreamPerHour"] = v["afterStreamPerHour"]
     if "autoDelete" in v:   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/home/live_cleanup.py)
         if not isinstance(v["autoDelete"], bool):
             raise PrefsError("「録画を消す」は true か false で指定してください")
@@ -193,6 +206,10 @@ def _clean_live(v, cur):
             clean.append({"id": rid, "name": _clean_name(r.get("name") or rid) or rid, "url": url, "token": token})
         out["recorders"] = clean
     return out
+
+
+def _per_hour_ok(x):
+    return isinstance(x, int) and not isinstance(x, bool) and LIVE_PER_HOUR[0] <= x <= LIVE_PER_HOUR[1]
 
 
 def _clean_live_auto(v, cur, strict=True):

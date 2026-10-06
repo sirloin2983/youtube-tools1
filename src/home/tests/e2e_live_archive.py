@@ -26,6 +26,9 @@
   5  「録画を消す」がオフの間は録画が残る → オンにすると録画が消え、帯とプレーヤーの所が「録画は消しました…」(開き直しても同じ)・マークは残る
   6  自動: 録画が終わる → 見回りが本番版に作り直す(archive.auto)→ 入れ替えが全部済んだので録画を消す
   7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える / 退避した速報版は(縮めた)7 日で消える
+  9  配信後の全自動(線 D の M7。live.autoAfterStream): 人がマークしない録画 → 終わる → 録画とアーカイブの時刻を照合 → アーカイブを偽の解析(STUDIO_FAKE)
+     → 上位 N を採用(origin archive)→ 書き出し → 本番版に入れ替え → まとめて実行へ「文字起こし → パック」で N 本渡る(人は触らない)・
+     自動の切り抜きが済むまで録画を消さない(マークの無い録画の 1 日(縮めた)を過ぎても)→ 済んだら消す
   8  コンソールのエラー・404・CSP 違反なし(想定した 409・消した録画の 404 は理由を書いて除く)
 """
 import json
@@ -56,6 +59,7 @@ os.environ["STUDIO_FAKE"] = "1"
 YT1 = "https://www.youtube.com/watch?v=TESTarch001"   # 手で作り直す録画
 YT2 = "https://www.youtube.com/watch?v=TESTarch002"   # 自動で作り直す録画
 YT3 = "https://www.youtube.com/watch?v=TESTarch003"   # マークの無い録画
+YT4 = "https://www.youtube.com/watch?v=TESTarch004"   # 配信後の全自動(M7)の録画
 TITLE = "アーカイブのテスト<b>配信</b>"
 ARC_SEC = 420
 AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # src/home/tests/test_live_archive.py と同じ(照合できる音)
@@ -199,7 +203,7 @@ def run(tmp, shots, force_chromium):
 
     # --- 録画の部品(本物。direct)と、配信中のふりをする HLS(3 本) ---
     srcs = {}
-    for u in (YT1, YT2, YT3):
+    for u in (YT1, YT2, YT3):   # YT4(9)は 9 で作る(配信中のふりの HLS がアーカイブの頭のほうから始まるように)
         s = F.LiveServer(os.path.join(tmp, "src"), segs, start=START_SEGS, rate=1.0)
         s.end = False
         srcs[u] = s
@@ -226,10 +230,15 @@ def run(tmp, shots, force_chromium):
     live.out_dir = lambda: out_dir
     live.audio = lambda: {"volume": 100, "loudness": None}
     handed = []
+    handed_ino = {}   # 渡したときの動画のファイルの id(M7: 本番版に入れ替えてから渡したか)
 
     class FakeRunner:   # 文字起こしへは偽のまとめて実行
         def start_file(self, path, title="", flow="check", **kw):
             handed.append((path, flow))
+            try:
+                handed_ino[path] = os.stat(path).st_ino
+            except OSError:
+                handed_ino[path] = None
             return {"id": "run-%d" % len(handed)}
 
         def snapshot(self):
@@ -322,7 +331,7 @@ def run(tmp, shots, force_chromium):
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(300)
 
-    rid1 = rid2 = rid3 = None
+    rid1 = rid2 = rid3 = rid4 = None
     errors, not_found = [], []
     deleted_rids = set()
     busy_path = os.path.join(out_dir, "busy", "busy.mp4")
@@ -638,11 +647,94 @@ def run(tmp, shots, force_chromium):
                 check(done_keeps and keeps and not any(os.path.exists(k) for k in keeps), "7 退避した速報版は入れ替えから(縮めた)7 日で消した: %d 本" % len(keeps))
                 check(all(os.path.isfile(j["path"]) for j in jobs_of(rid1) + jobs_of(rid2)), "7 本番版はそのまま")
 
+                # ---------------- 9. 配信後の全自動(M7): 人は触らない ----------------
+                code, _d = api("PUT", "/studio/api/settings", {"section": "analyze", "value": {"count": 30, "length": 10, "headSec": 0}})   # 短いアーカイブでも候補が録画の範囲に入るように
+                check(code == 200, "9 スタジオの解析の設定(候補 30・長さ 10 秒・冒頭の減点なし): HTTP %s" % code)
+                chat = os.path.join(tmp, "chat.jsonl")   # 偽のチャット(25 秒ごとに 4 秒の盛り上がり = アーカイブの全体に 25 秒おきの山。合成の音だけでは山が立たない)
+                rnd = __import__("random").Random(1)
+                with open(chat, "w", encoding="utf-8") as f:
+                    for t in range(ARC_SEC):
+                        n = 2 + rnd.randint(0, 2) + (40 if t % 25 < 4 else 0)
+                        for k in range(n):
+                            f.write(json.dumps({"replayChatItemAction": {"videoOffsetTimeMsec": str(t * 1000 + k * 10), "actions": [{"addChatItemAction": {
+                                "item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": "草" if k % 3 == 0 else "はい"}]}}}}}]}}) + chr(10))
+                os.environ["STUDIO_FAKE_CHAT"] = chat
+                v = srv.prefs.patch("live", {"autoAfterStream": True, "afterStreamPerHour": 30})
+                check(v["autoAfterStream"] is True and v["afterStreamPerHour"] == 30, "9 「配信が終わったら、アーカイブの解析で自動で切り抜く」をオン(live.autoAfterStream)")
+                live.archiver.per_hour = lambda: 200   # テストの録画は 1 分ほど = 1 時間あたりを大きくして N を数本に(本物は設定の値)
+                n_handed = len(handed)
+                s4 = F.LiveServer(os.path.join(tmp, "src"), segs, start=START_SEGS, rate=1.0)
+                s4.end = False
+                srcs[YT4] = s4
+                url_map[YT4], back[s4.url] = s4.url, YT4
+                code, d = api("POST", "/live/api/begin", {"url": YT4})
+                rid4 = ((d or {}).get("recording") or {}).get("id")
+                check(code == 200 and rid4, "9 4 本目の録画(人はマークしない): %s" % rid4)
+                wait_for(lambda: rec_len(rid4) > 2, 30, 0.5)
+                first["TESTarch004"] = LX.iso_epoch((rec_status(rid4)[1] or {}).get("firstPdt"))
+                wait_for(lambda: rec_len(rid4) > 75, 120, 0.5)
+                api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid4})
+                stopped_at = time.time()
+
+                def after_state():
+                    return ((api("GET", "/live/api/exports?recorder=local&recording=%s" % rid4)[1] or {}).get("archiveInfo") or {}).get("afterStream") or {}
+                seen_after = []
+
+                def watch():
+                    a = after_state()
+                    s = "%s:%s" % (a.get("state"), a.get("message"))
+                    if a and (not seen_after or seen_after[-1] != s):
+                        seen_after.append(s)
+                    return a if a.get("state") in ("done", "none", "error") else None
+                time.sleep(12)   # 縮めた「マークの無い録画は 1 日で消す」(6 秒)を過ぎても、自動の切り抜きが済むまで消さない
+                check(rid4 in (rec_ids() or []), "9 マークが無いまま(縮めた)1 日を過ぎても、配信後の自動の切り抜きが済むまで録画を消さない")
+                got = wait_for(watch, 420, 1.0)
+                check(got and got.get("state") == "done", "9 録画が終わって %.0f 秒で、人が触らずに配信後の自動の切り抜きが済んだ: %s / %s"
+                      % (time.time() - stopped_at, (got or {}).get("message"), " → ".join(seen_after[-8:])))
+                check(any(x.startswith("analyze:") for x in seen_after) and any(x.startswith("export:") for x in seen_after),
+                      "9 段: アーカイブを解析 → 書き出し → 本番版 → パック(%s)" % "・".join(dict.fromkeys(x.split(":", 1)[0] for x in seen_after)))
+                js4 = jobs_of(rid4)
+                check(len(js4) >= 2 and len(js4) == (got or {}).get("jobs"), "9 上位 N を採用した: %d 本(N = %s)" % (len(js4), (got or {}).get("n")))
+                check(js4 and all(j.get("origin") == "archive" and j.get("holdFor") == "archive" and j["state"] == "done" for j in js4),
+                      "9 採用の出どころ archive・本番版を待ってから渡す: %s" % [(j.get("origin"), j.get("state"), j.get("error")) for j in js4])
+                check(js4 and all((j.get("archive") or {}).get("state") == "done" and (j.get("archive") or {}).get("auto") for j in js4),
+                      "9 全部を本番版に入れ替えた(「自動で本番版に作り直す」の設定に関係なく): %s" % [(j.get("archive") or {}).get("message") for j in js4])
+                h4 = handed[n_handed:]
+                check(js4 and sorted(p for p, _f in h4) == sorted(j["path"] for j in js4) and all(f == "auto" for _p, f in h4) and all(j.get("runId") for j in js4),
+                      "9 N 本ともまとめて実行へ「文字起こし → パック」(after = auto)で渡した: %s" % [(os.path.basename(p), f) for p, f in h4])
+                check(js4 and all(handed_ino.get(j["path"]) == os.stat(j["path"]).st_ino and os.path.isfile((j.get("archive") or {}).get("keep") or "") for j in js4),
+                      "9 渡したのは本番版に入れ替えたあと(速報版は退避)= パックは本番版")
+                ok_clips = bool(js4)
+                for j in js4:
+                    clip, _w = schemas.load_clip_file(schemas.find_clip_path(j["path"]))
+                    live_src = ((clip or {}).get("source") or {}).get("live") or {}
+                    ok_clips = ok_clips and live_src.get("origin") == "archive" and (clip or {}).get("mark", {}).get("src") == "auto" \
+                        and (live_src.get("archive") or {}).get("videoId") == "TESTarch004"
+                check(ok_clips, "9 .clip.json に origin archive・mark.src auto・本番版(source.live.archive)")
+                try:
+                    with open(os.path.join(live.store_dir, LX.FEEDBACK), encoding="utf-8") as f:
+                        fb = [json.loads(x) for x in f if x.strip()]
+                except OSError:
+                    fb = []
+                fb4 = [x for x in fb if x.get("recording") == rid4]
+                check(js4 and len(fb4) == len(js4) and all(x["origin"] == "archive" and x["human"] is False and x["verdict"] is None for x in fb4),
+                      "9 live_feedback.jsonl に採用の記録(自動は「良い」に数えない): %d 行" % len(fb4))
+                code, av = api("GET", "/studio/api/video?id=TESTarch004")
+                check(code == 200 and ((av or {}).get("video") or {}).get("analysis"), "9 アーカイブはスタジオの今の解析にかけた(YouTube の配信 TESTarch004)")
+                gone4 = wait_for(lambda: gone_from_list(rid4), 40, 0.5)
+                if gone4:
+                    deleted_rids.add(rid4)
+                check(gone4, "9 自動の切り抜きが済み、全部入れ替わったので録画を消した")
+                lf = ((api("GET", "/api/health")[1] or {}).get("live") or {})
+                check(lf.get("disk") and lf["disk"].get("state") in ("ok", "warn", "low") and lf["disk"].get("rows"), "9 「調子」に空き容量(M4): %s"
+                      % [(r.get("label"), r.get("state")) for r in (lf.get("disk") or {}).get("rows") or []])
+
                 # ---------------- 8. エラー ----------------
                 # 想定内: 用意がまだのときの POST ../live/api/archive の 409(帯に入口の文を出す。2 の確認)
                 # 想定内: 消した録画の状態・再生リスト・セグメントの 404(録画を消した = 5・6。画面はこれを見て「録画は消しました」にする)
                 # 想定内: Edge は /favicon.ico を自分で読みに行く
-                deleted_rids.update(r for r in (rid1, rid2, rid3) if r and not os.path.exists(os.path.join(rfolder, r)))
+                pg.wait_for_timeout(500)   # 画面を触らなかった間(9)のコンソール・応答のできごとを、選り分ける前に受け取る(Playwright は次の操作のときに届ける)
+                deleted_rids.update(r for r in (rid1, rid2, rid3, rid4) if r and not os.path.exists(os.path.join(rfolder, r)))
 
                 def expected(x):
                     if "/favicon.ico" in x:
@@ -659,7 +751,7 @@ def run(tmp, shots, force_chromium):
             finally:
                 browser.close()
     finally:
-        for r in (rid1, rid2, rid3):
+        for r in (rid1, rid2, rid3, rid4):
             if not r:
                 continue
             try:

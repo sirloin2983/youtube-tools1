@@ -750,6 +750,22 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual(self.cl.tick()["deleted"], [])
         self.assertIn(self.R1, self.live.recs)
 
+    def test_after_stream_holds_delete(self):
+        """配信後の全自動(M7)がまだの録画は、マークが無くても・入れ替えが全部済んでいても消さない(hold)。済めば消す"""
+        hold = {"why": "配信後の自動の切り抜き(アーカイブの解析)がまだです"}
+        self.cl.hold = lambda rc, r: hold["why"]
+        self.live.add(self.R1, ended_ago=10)                # マークの無い録画
+        self.live.add(self.R2)                              # 入れ替えが全部済んだ録画
+        self.job(self.R2, 1)
+        self.studio_videos[self.R2] = [self.smark(1)]
+        self.assertEqual(self.cl.tick()["deleted"], [])
+        self.assertTrue(any("まだ消しません" in x and "配信後の自動" in x for x in self.logs), self.logs)
+        hold["why"] = ""
+        self.assertEqual(sorted(self.cl.tick()["deleted"]), sorted([self.R1, self.R2]))
+        self.cl.hold = lambda rc, r: 1 / 0                  # 確かめられなければ消さない
+        self.live.add(self.R3, ended_ago=10)
+        self.assertEqual(self.cl.tick()["deleted"], [])
+
     def test_keeps_after_7_days(self):
         folder = os.path.join(self.out, "配信", schemas.WORK_DIR, A.SPEED_DIR)
         os.makedirs(folder)
@@ -783,6 +799,172 @@ class CleanupTest(unittest.TestCase):
         self.assertNotIn("keepDeleted", j3["archive"])
         self.assertNotIn("keepDeleted", j4["archive"])
         self.assertEqual(self.cl.tick()["keeps"], 0)   # 2 回は消さない
+
+
+class AfterStreamTest(unittest.TestCase):
+    """線 D の M7(配信後の全自動。src/home/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
+    → 本番版へ → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/home/tests/e2e_live_archive.py の 9)"""
+    HOURS = 3.0
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-after-")
+        self.out = os.path.join(self.tmp, "out")
+        os.makedirs(self.out)
+        self.ex = LX.Exporter(FakeExLive(), os.path.join(self.tmp, "live"), lambda: self.out, disk_usage=lambda p: (100 * LX.GB, 200 * LX.GB))
+        self.first = RELEASE + SKEW   # 録画の頭の受信時刻(アーカイブの秒 s ↔ 絶対時刻 RELEASE + s + SKEW = ずれ offset −SKEW)
+        self.rec = {"recorder": "local", "id": REC, "url": "https://www.youtube.com/watch?v=" + VID, "title": "配信の題", "active": False,
+                    "endedAt": time.time() - 7200, "firstPdt": self.first, "lastPdt": self.first + self.HOURS * 3600}
+        self.status, self.on = "post_live", True
+        self.calls, self.queue, self.adopted = [], [], []
+        self.analysis = None
+        sc = [(1000, 9.0), (110, 8.5), (5000, 8.0), (20000, 7.5), (10750, 7.0), (2000, 6.5), (3000, 6.0), (4000, 5.5), (6000, 5.0), (7000, 4.5), (8000, 4.0)]
+        self.marks = [{"id": "a%d" % i, "src": "auto", "status": "", "score": s, "start": float(t), "end": float(t + 60), "label": ""} for i, (t, s) in enumerate(sc)]
+        self.marks += [{"id": "x1", "src": "auto", "status": "rejected", "score": 99.0, "start": 500.0, "end": 560.0},   # 人が不採用にした
+                       {"id": "x2", "src": "manual", "status": "", "score": 50.0, "start": 600.0, "end": 660.0}]          # 人のマーク
+        self.live_marks = [{"id": "h1", "status": "exported", "start": 100.0, "end": 160.0}]   # 録画の配信の人のマーク(録画の秒)
+        self.arcs = []
+
+    def tearDown(self):
+        for a in self.arcs:
+            a.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def studio(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        if method == "GET" and path == "/api/settings":
+            return 200, {"settings": {"analyze": {"count": 8, "length": 60}}}
+        if method == "POST" and path == "/api/queue/add":
+            self.queue.append({"qid": "q1", "videoId": body["items"][0]["videoId"], "status": "running", "progress": 0.3, "phase": "音声"})
+            return 200, {"added": [{"qid": "q1", "videoId": VID}], "rejected": []}
+        if method == "GET" and path == "/api/queue":
+            return 200, {"items": self.queue}
+        if method == "GET" and path == "/api/video?id=" + VID:
+            return 200, {"video": {"id": VID, "kind": "youtube", "analysis": self.analysis, "marks": self.marks}}
+        if method == "GET" and path == "/api/video?id=" + REC:
+            return 200, {"video": {"id": REC, "kind": "live", "marks": self.live_marks}}
+        return 404, {"error": "not_found"}
+
+    def adopt(self, body, hold=None):
+        self.adopted.append((dict(body), hold))
+        n = len(self.adopted)
+        j = {"id": "lx-%010x" % (n * 31), "recorder": "local", "recording": REC, "markId": "lm-%012x" % n, "n": n, "label": body.get("label"),
+             "start": body["start"], "end": body["end"], "state": "wait", "after": body.get("after"), "origin": body.get("origin"),
+             "transcribe": True, "message": "", "error": "", "path": "", "runId": "", "warning": "", "created": LX.now_iso(), "updated": LX.now_iso()}
+        if hold:
+            j["holdFor"] = hold
+        self.ex.jobs.append(j)
+        return {"job": dict(j), "existing": False}
+
+    def archiver(self):
+        a = A.Archiver(self.ex, self.studio, probe=lambda vid: {"status": self.status, "release": RELEASE, "duration": self.HOURS * 3600, "availability": "public"},
+                       after_stream=lambda: self.on, per_hour=lambda: 2, recordings=lambda: [self.rec], adopt=self.adopt, first_delay=60, interval=0, poll=0.1)
+        a._after_offset = lambda rc, rec, vid, t0, first, last: (-SKEW, "テスト")
+        a._queue = lambda js, auto: [j.update(archive={"state": "wait", "auto": auto}) for j in js]   # 本番版への作り直しは動かさない(順番に入れたことだけ)
+        self.arcs.append(a)
+        return a
+
+    def test_pick_and_count(self):
+        self.assertEqual((A.after_count(3 * 3600, 6), A.after_count(25, 6), A.after_count(100 * 3600, 6), A.after_count(1800, 3)), (18, 1, 30, 2))
+        t0, off, first, last = 1000.0, -5.0, 1005.0, 1005.0 + 600
+        marks = [{"src": "auto", "status": "", "score": 9, "start": 10.0, "end": 40.0},     # 録画の中
+                 {"src": "auto", "status": "", "score": 8, "start": 100.0, "end": 150.0},   # 人のマーク(taken)と重なる
+                 {"src": "auto", "status": "adopted", "score": 7.5, "start": 200.0, "end": 230.0},   # 判定済み
+                 {"src": "manual", "status": "", "score": 7.2, "start": 250.0, "end": 280.0},       # 人のマーク
+                 {"src": "auto", "status": "", "score": 7, "start": 700.0, "end": 730.0},   # 録画の外
+                 {"src": "auto", "status": "", "score": 6, "start": 580.0, "end": 620.0},   # 半分以上が中 → 切り詰める
+                 {"src": "auto", "status": "", "score": 5, "start": -30.0, "end": 5.0},     # 中は 5 秒 / 35 秒 → 使わない
+                 {"src": "auto", "status": "", "score": 4, "start": 20.0, "end": 50.0},     # 選んだものと重なる
+                 {"src": "auto", "status": "", "score": 3, "start": 300.0, "end": 330.0}]
+        got = A.pick_candidates(marks, 3, t0, off, first, last, taken=[(first + 110, first + 140)])
+        self.assertEqual([(round(a - first, 1), round(b - first, 1), m["score"]) for a, b, m in got], [(10.0, 40.0, 9), (300.0, 330.0, 3), (580.0, 600.0, 6)])
+        self.assertEqual(A.pick_candidates(marks, 0, t0, off, first, last), [])
+
+    def test_flow_to_done(self):
+        a = self.archiver()
+        self.assertEqual(a.after_tick(), 0)                                    # 用意がまだ(post_live)
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual(st["state"], "wait")
+        self.assertIn("処理中", st["message"])
+        self.assertTrue(a.after_stream_hold("local", dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))))   # まだなので録画は消さない
+        self.status = "was_live"
+        self.assertEqual(a.after_tick(), 1)                                    # 用意できた → 解析を頼む
+        add = next(c for c in self.calls if c[1] == "/api/queue/add")[2]
+        self.assertEqual(add["items"], [{"kind": "youtube", "videoId": VID, "title": "配信の題"}])   # アーカイブの videoId で解析
+        self.assertEqual((add["settings"]["count"], add["settings"]["length"]), (12, 60))           # N = 3 時間 × 2 = 6 → 候補は 2 倍まで・ほかはスタジオの設定
+        self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "analyze")
+        a.after_tick()
+        self.assertIn("30%", a.info_view("local", REC)["afterStream"]["message"])
+        self.assertEqual(self.adopted, [])
+        self.queue[0]["status"], self.analysis = "done", {"at": 1}
+        a.after_tick()                                                          # 解析が済んだ → 上位 N を採用
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual((st["state"], st["n"], st["jobs"]), ("export", 6, 6), st)
+        secs = [round(LX.iso_epoch(b["start"]) - self.first, 1) for b, h in self.adopted]
+        self.assertEqual(sorted(secs), [1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 10750.0])   # 人のマークと重なる 110・録画の外 20000 は飛ばす・10750 は録画の終わりまでに切り詰める
+        self.assertEqual({(b["origin"], b["after"], h) for b, h in self.adopted}, {("archive", "auto", "archive")})
+        self.assertTrue(all(b["recorder"] == "local" and b["recording"] == REC for b, h in self.adopted))
+        # 書き出しが済む → 本番版への作り直しに入れる → 入れ替え・まとめて実行へ渡した → done
+        for j in self.ex.jobs:
+            j.update(state="done", path=os.path.join(self.out, j["id"] + ".mp4"))
+            with open(j["path"], "wb") as f:
+                f.write(b"x")
+        a.after_tick()
+        self.assertTrue(all((j.get("archive") or {}).get("state") == "wait" and j["archive"]["auto"] for j in self.ex.jobs))
+        self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "export")
+        for j in self.ex.jobs[:-1]:
+            j.update(archive={"state": "done"}, runId="run-" + j["id"])
+        last = self.ex.jobs[-1]
+        last.update(archive={"state": "error", "message": "合いませんでした"}, handoffWait="archive")   # 本番版にできなかった → 速報版のまま渡す
+        a.after_tick()
+        self.assertIn("本番版にできなかったので、速報版のまま", last.get("warning") or "")
+        self.assertIn("まとめて実行が使えません", last.get("handoffError") or "")   # このテストにまとめて実行は無い = 渡せなかった(失敗の集約に出る)
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual(st["state"], "done", st)
+        self.assertIn("6 本のうち 5 本", st["message"])
+        self.assertIn("失敗 1 本", st["message"])
+        self.assertEqual(a.after_stream_hold("local", dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))), "")   # 済んだので消してよい
+        n = len(self.calls)
+        self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
+        self.assertEqual(len(self.calls), n)
+
+    def test_off_old_no_video_and_failure_text(self):
+        a = self.archiver()
+        self.on = False
+        self.assertEqual(a.after_tick(), 0)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(a.after_stream_hold("local", dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))), "")
+        self.on = True
+        self.rec["endedAt"] = time.time() - A.AFTER_MAX_AGE - 60                 # 古い録画(オンにする前)は始めない
+        self.status = "was_live"
+        self.assertEqual(a.after_tick(), 0)
+        self.assertEqual(self.calls, [])
+        self.rec.update(endedAt=time.time() - 30)                                # 終わってすぐ(first_delay の前)も始めない
+        self.assertEqual(a.after_tick(), 0)
+        self.rec.update(endedAt=time.time() - 7200, url="http://127.0.0.1:1/x.m3u8", id="20261005-120000-local")   # YouTube の動画が分からない
+        a.after_tick()
+        i = a.info_view("local", "20261005-120000-local")["afterStream"]
+        self.assertEqual(i["state"], "error")
+        a._after_set("local", REC, state="error", message="アーカイブの解析が終わりませんでした: 取れません", title="配信の題")
+        texts = sorted(x["text"] for x in a.after_failures())
+        self.assertIn("「配信の題」: 配信後の自動の切り抜きに失敗しました: アーカイブの解析が終わりませんでした: 取れません", texts)
+        self.assertEqual({x["kind"] for x in a.after_failures()}, {"afterStream"})
+
+    def test_disk_low_waits(self):
+        free = {"v": 1 * LX.GB}
+        self.ex.disk_usage = lambda p: (free["v"], 100 * LX.GB)
+        self.ex.disk_poll = 0
+        self.status = "was_live"
+        a = self.archiver()
+        a.after_tick()
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertNotEqual(st.get("state"), "analyze")
+        self.assertIn("空き容量が少ない", st["message"])
+        self.assertFalse(any(c[1] == "/api/queue/add" for c in self.calls))
+        free["v"] = 50 * LX.GB
+        i = a.info.get(a.key("local", REC))
+        i["afterStream"]["retryAt"] = 0
+        a.after_tick()
+        self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "analyze")
 
 
 class YtdlpRetryTest(unittest.TestCase):

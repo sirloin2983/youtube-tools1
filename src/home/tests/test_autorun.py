@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
@@ -609,13 +610,22 @@ class TestControl(Base):
         with self.assertRaises(ValueError):
             self.r.cancel("nothere")
 
-    def test_queued_runs_are_cancelled_on_close(self):
+    def test_queued_runs_stay_queued_on_close(self):
+        """入口の終了(M5): 順番待ちは消さずに「待ち」のまま(次の起動で続ける)。実行中の段はツールの側も取り消して止める"""
         self.tools.hold = True
-        self.r.start(VID, "adopted")
+        first = self.r.start(VID, "adopted")
         second = self.r.start("zzzzzzzzzzz", "adopted")
+        end = time.time() + 5
+        while time.time() < end and self.r.snapshot()["runs"][-1]["steps"][0]["state"] != "run":
+            time.sleep(0.01)
         self.r.close()
+        end = time.time() + 5
+        while time.time() < end and any(x["state"] == "running" for x in self.r.snapshot()["runs"]):
+            time.sleep(0.01)
         got = {x["id"]: x for x in self.r.snapshot()["runs"]}
-        self.assertEqual(got[second["id"]]["state"], "cancelled")
+        self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("queued", "入口を終了したので、次の起動で続けます"))
+        self.assertEqual((got[first["id"]]["state"], got[first["id"]]["steps"][0]["state"]), ("queued", "wait"))   # 途中の段は次の起動で頭から
+        self.assertIn(("studio", "POST", "/api/export/cancel", {"id": "e1"}), self.tools.calls)   # ツールの側の書き出しは止める
 
 class TestStage4(Base):
     """気が利く画面へ 段4: パックの設定は編集の設定のとおり・「行から」の形・配信単位の上書き・失敗したとき・やることが無い・見積もり"""
@@ -801,15 +811,23 @@ class TestRunLog(Base):
         self.assertEqual((got[1]["id"], got[1]["state"]), (first["id"], "cancelled"))
         self.assertEqual(len(self.lines()), 2)
 
-    def test_close_writes_queued(self):
+    def test_close_does_not_write_queued(self):
+        """入口の終了(M5): 順番待ち・実行中は「中止」と書かない(次の起動で続ける = 待ちの記録 autorun-active.json に残る)"""
         self.tools.hold = True
         first = self.r.start(VID, "adopted")
         second = self.r.start("zzzzzzzzzzz", "adopted")
+        end = time.time() + 5
+        while time.time() < end and self.r.snapshot()["runs"][-1]["steps"][0]["state"] != "run":
+            time.sleep(0.01)
         self.r.close()
-        got = {x["id"]: x for x in self.wait_lines(2)}   # 順番待ち(close で書く)+ 実行中(止まったときに書く)
-        self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("cancelled", "入口を終了しました"))
-        self.assertEqual(got[first["id"]]["state"], "cancelled")
-        self.assertTrue(got[second["id"]]["finished"])
+        end = time.time() + 5
+        while time.time() < end and any(x["state"] == "running" for x in self.r.snapshot()["runs"]):
+            time.sleep(0.01)
+        time.sleep(0.05)
+        self.assertEqual(self.lines(), [])
+        with open(os.path.join(self.logs, A.ACTIVE_FILE), encoding="utf-8") as f:
+            saved = json.load(f)["runs"]
+        self.assertEqual([(x["id"], x["state"]) for x in saved], [(first["id"], "running"), (second["id"], "queued")])
 
     def test_restart_shows_past_and_memory_wins(self):
         run = self.run_one("adopted")
@@ -920,6 +938,143 @@ class TestRunLog(Base):
         self.run_one("adopted")
         self.assertFalse(os.path.exists(self.logs))
         self.assertEqual(self.r.history(), {"runs": [], "total": 0, "more": False, "offset": 0})
+
+
+class TestRestore(Base):
+    """線 D の M5: 入口の起動し直しで、まとめて実行の待ち・実行中を戻す(logs/autorun-active.json)。
+    同じ run(同じ id)のまま、済んだ段は飛ばして、途中だった段は頭からやり直す。記録(autorun-runs.jsonl)には終わったときの 1 行だけ"""
+    marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}]
+
+    def setUp(self):
+        super().setUp()
+        self.r.close()
+        self.logs = os.path.join(self.tmp, "logs")
+        jobs = self.tools.h_transcribe_GET_api_jobs
+
+        def with_tid(path, body):   # 本物の「編集」のジョブは、できた文書の id(tid)を返す
+            st, obj = jobs(path, body)
+            for j in obj["jobs"]:
+                if j["state"] == "done":
+                    j["tid"] = "%012d" % int(j["id"][1:])
+            return st, obj
+        self.tools.h_transcribe_GET_api_jobs = with_tid
+        self.r = self.runner()
+
+    def runner(self):
+        import cases
+        return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack, log_dir=self.logs)
+
+    def snap(self, rid):
+        return next((x for x in self.r.snapshot()["runs"] if x["id"] == rid), None)
+
+    def until(self, fn, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = fn()
+            if v:
+                return v
+            time.sleep(0.01)
+        self.fail("待ちきれません")
+
+    def active(self):
+        try:
+            with open(os.path.join(self.logs, A.ACTIVE_FILE), encoding="utf-8") as f:
+                return json.load(f)["runs"]
+        except FileNotFoundError:
+            return []
+
+    def lines(self):
+        return A.read_runs_log(os.path.join(self.logs, A.RUNS_LOG))
+
+    def restart(self, saved=None):
+        """入口を止めて起動し直す。saved: 強制終了のふり(止める前の待ちの記録に戻してから起動する)"""
+        self.r.close()
+        self.until(lambda: not any(x["state"] == "running" for x in self.r.snapshot()["runs"]))
+        if saved is not None:
+            with open(os.path.join(self.logs, A.ACTIVE_FILE), "w", encoding="utf-8") as f:
+                json.dump({"v": A.ACTIVE_VERSION, "runs": saved}, f, ensure_ascii=False)
+        self.r = self.runner()
+
+    def test_file_run_in_transcribe_continues_after_restart(self):
+        """リアルタイム切り抜きの書き出し → まとめて実行(文字起こし → パック)の文字起こしの途中で入口を止めて起動し直すと、同じ run が続く"""
+        media = os.path.join(self.tmp, "ライブ.mp4")
+        open(media, "wb").close()
+        self.tools.hold = True
+        run = self.r.start_file(media, title="ライブの切り抜き", flow="auto", engine="whisper.cpp", model="large-v3")
+        self.until(lambda: (self.snap(run["id"]) or {}).get("steps", [{}])[0].get("state") == "run")
+        saved = self.active()
+        self.assertEqual([(x["id"], x["state"], x["mode"], x["engine"], x["steps"][0]["state"]) for x in saved],
+                         [(run["id"], "running", "file_auto", "whisper.cpp", "run")])
+        self.restart()
+        self.assertEqual(self.lines(), [])                                    # 入口の終了で止まった分は「中止」と書かない
+        got = self.snap(run["id"])
+        self.assertIn(got["state"], ("queued", "running"))                     # 同じ id のまま戻って、すぐ続きを始める
+        self.assertEqual((got["engine"], got["model"], got["title"], got["mode"]), ("whisper.cpp", "large-v3", "ライブの切り抜き", "file_auto"))
+        self.tools.hold = False
+        done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run["id"])))
+        self.assertEqual((done["state"], done["id"]), ("done", run["id"]), done)
+        self.assertEqual(self.states(done), {"transcribe": "done", "pack": "done", "deliver": "skip"})
+        tx = [j for j in self.tools.tx_jobs.values() if j["src"] == media]
+        self.assertEqual([j["state"] for j in tx], ["cancelled", "done"])      # 止めた文字起こしは取り消して、頭からやり直した
+        self.assertEqual((tx[-1]["body"]["engine"], tx[-1]["body"]["model"]), ("whisper.cpp", "large-v3"))   # 実行ごとのエンジン・モデルも戻る
+        self.until(lambda: self.lines())
+        self.assertEqual([(x["id"], x["state"]) for x in self.lines()], [(run["id"], "done")])   # 記録は終わったときの 1 行だけ
+        self.until(lambda: self.active() == [])
+
+    def test_crash_continues_from_saved_steps(self):
+        """強制終了(待ちの記録だけが残る): 済んだ段(書き出し)は飛ばし、途中の段(文字起こし)から続ける"""
+        tx_hold = {"on": True}   # 文字起こしだけ止めておく(書き出しは進める)
+        jobs = self.tools.h_transcribe_GET_api_jobs
+        self.tools.h_transcribe_GET_api_jobs = lambda p, b: (200, {"jobs": list(self.tools.tx_jobs.values())}) if tx_hold["on"] else jobs(p, b)
+        run = self.r.start(VID, "adopted")
+        saved = self.until(lambda: (lambda a: a if a and a[0]["steps"][0]["state"] == "done" else None)(self.active()))
+        self.assertEqual([s["state"] for s in saved[0]["steps"]], ["done", "run", "wait"])
+        exports = sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export"))
+        self.restart(saved=saved)   # 強制終了のふり: 止める前の記録のまま起動する
+        tx_hold["on"] = False
+        done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run["id"])))
+        self.assertEqual((done["state"], self.states(done)), ("done", {"export": "done", "transcribe": "done", "pack": "done"}), done)
+        self.assertEqual(sum(1 for c in self.tools.calls if c[1:3] == ("POST", "/api/export")), exports)   # 書き出しはやり直さない
+        self.assertEqual(done["steps"][0]["detail"], saved[0]["steps"][0]["detail"])                      # 済んだ段の結果の文もそのまま
+        self.assertEqual([(x["id"], x["state"]) for x in self.until(self.lines)], [(run["id"], "done")])
+
+    def test_order_cancel_old_and_broken(self):
+        """順番を保って戻す・中止した実行は戻さない・7 日より前の実行は戻さず「中止」と書く・壊れた行は読み飛ばす"""
+        self.tools.hold = True
+        a = self.r.start(VID, "adopted")
+        b = self.r.start("bbbbbbbbbbb", "transcribe")
+        c = self.r.start("ccccccccccc", "adopted")
+        self.r.cancel(b["id"])
+        self.until(lambda: [x["id"] for x in self.active()] == [a["id"], c["id"]])
+        saved = self.active()
+        old = dict(saved[1], id="0123456789", videoId="ddddddddddd", created=time.time() - A.RESTORE_MAX_AGE - 60)
+        self.restart(saved=[saved[0], {"id": "../x", "mode": "adopted"}, {"id": "abcdefabcd", "mode": "nope"}, old, saved[1], "壊れた"])
+        got = [x for x in self.r.snapshot()["runs"]]
+        self.assertEqual([x["id"] for x in reversed(got) if x["state"] in ("queued", "running")], [a["id"], c["id"]])   # 先に入れた順
+        logged = {x["id"]: x for x in self.until(lambda: [x for x in self.lines() if x["id"] == "0123456789"] and self.lines())}
+        self.assertEqual(logged["0123456789"]["state"], "cancelled")
+        self.assertIn("7 日より前", logged["0123456789"]["message"])
+        self.assertNotIn(b["id"], [x["id"] for x in self.active()])
+        with self.assertRaisesRegex(ValueError, "すでに"):   # 戻した実行も、同じ配信の二重の登録を断る
+            self.r.start(VID, "adopted")
+
+    def test_tools_not_ready_yet(self):
+        """起動し直してすぐ: 使うツールが動くまで待ってから始める(入口の起動の直後はまだ準備中のことがある)"""
+        ready = {"studio": False}
+        self.tools.endpoint = lambda t: (1, "/") if ready.get(t, True) else None
+        self.r.close()
+        run = A.Run(VID, "配信", "adopted", 3)
+        os.makedirs(self.logs, exist_ok=True)
+        with open(os.path.join(self.logs, A.ACTIVE_FILE), "w", encoding="utf-8") as f:
+            json.dump({"v": A.ACTIVE_VERSION, "runs": [run.saved()]}, f)
+        with mock.patch.object(A, "RESUME_WAIT", 30):
+            self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: time.sleep(0.01),
+                                  find_pack=__import__("cases").find_pack, log_dir=self.logs)
+            self.until(lambda: "ツールの準備を待っています(studio)" in ((self.snap(run.id) or {}).get("message") or ""))
+            self.assertFalse(any(c[0] == "studio" for c in self.tools.calls))
+            ready["studio"] = True
+            done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run.id)))
+        self.assertEqual(done["state"], "done", done)
 
 
 class TestRequests(Base):
