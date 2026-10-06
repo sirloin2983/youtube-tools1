@@ -12,7 +12,7 @@ window.PLAN = {
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
-    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)。進行中: 線 D M4〜M7・B2 4 エンジンの比較" },
+    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)/ B2 手元の 4 エンジンの比較(主 whisper.cpp・2 つ目 Qwen3-ASR を仮決め。クラウドは送り先待ち)。進行中: 線 D M4〜M7" },
     { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)。進行中: editor 画面側。残り: home(線 D M4〜M7 のあと)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
@@ -27,7 +27,7 @@ window.PLAN = {
     { id: "B", name: "文字起こしの精度", color: "#e0632b", pct: 45,
       aim: "CER 9.3% を下げ、行の時刻を自然に",
       done: "第 1 版の段 0〜2(エンジンの口・whisper.cpp Vulkan・Qwen3)・Q0〜Q4・行の時刻の案 A(0.57.0)・B1 原則に沿った直し(0.57.1。①末が切れる行 34% → 22%)・追加案 1〜5(0.56.0)・重なる字幕(0.55.0)",
-      next: "B2 E1 エンジンの決定(手元の分を測定中)→ B3 I-5 字幕の分け方 → B4 E2/E3(G2)→ B5 FT → B6 E4",
+      next: "B2 E1(手元の分は済み。クラウドは送り先待ち)→ B3 I-5 字幕の分け方 → B4 E2/E3(G2)→ B5 FT → B6 E4",
       gate: "G1 届いた(22 本・15.9 分)。G2 まで定点 +14 分・普段 30 分 ≒ 10 時間。FT は学習用 3 時間",
       docs: ["line-b-transcription.md", "line-b-row-timing.md", "line-b-overlap.md", "line-b-extra-ideas.md"] },
     { id: "C", name: "見どころ検出の精度", color: "#2a9d5c", pct: 40,
@@ -63,7 +63,7 @@ window.PLAN = {
     { id: "A2", name: "入口に「あと何本・何分」(済み 10-07。入口 0.38.0)", line: "B・C", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "done" },
     { id: "B1", name: "行の時刻 0.57.1 + 測る道具(済み 10-07)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "3〜5 時間 + 測定 1 時間", user: "確認 10 分", state: "done" },
     { id: "A1", name: "I-2a 話者の設定の既定(済み 10-07。しきい値 0.5 → 0.6 = 編集 0.58.0。仮決め・10 本たまったら再測定)", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "done" },
-    { id: "B2", name: "E1 エンジンの決定(手元の 4 つを測定中 + クラウドは送り先の決定待ち)", line: "B", who: "AI", phase: "1", pre: [], rec: ["B1"], ai: "8〜12 時間", user: "送り先の決定 30 分", state: "doing" },
+    { id: "B2", name: "E1 エンジンの決定(手元の 4 つは測定済み 10-07: 主 whisper.cpp GPU・2 つ目 Qwen3-ASR。クラウドは送り先の決定待ち)", line: "B", who: "AI", phase: "1", pre: [], rec: ["B1"], ai: "8〜12 時間", user: "送り先の決定 30 分", state: "wait" },
     { id: "U2", name: "本物の Resolve で重なり字幕のパック", line: "B・A", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "30 分〜1 時間", state: "wait" },
     { id: "U3", name: "友人に 2.1.0 を渡して Dropbox で 1 本", line: "別件", who: "ユーザー + 友人", phase: "1", pre: [], rec: [], ai: "手順書 30 分", user: "1 時間", state: "wait" },
     { id: "U4", name: "本物の配信で 3 時間以上(線 D の M0)", line: "D", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "結果の読み 1 時間", user: "準備と記録 30 分 + 配信 3 時間", state: "wait" },
@@ -137,7 +137,7 @@ window.PLAN = {
     ["CER(表記正規化後)", "9.3%(範囲 5.9〜13.6%)。名前と用語の再現率 47.5%"],
     ["重なり声の所の CER", "20.1%(重なりを除くと 6.6%。1 本の例)"],
     ["校正の手間", "1 分の動画に約 12.6 分(四分位 8.1〜16.2。ショート ×14.1・編集前 ×8.2)"],
-    ["エンジンの速さ", "whisper.cpp GPU 実時間比 0.11・faster-whisper CPU 0.37〜0.78(精度は同じ)。Qwen3-ASR 1.7B GPU 約 0.05(精度は劣る)"],
+    ["エンジン(10-07。確かめ済み 22 本)", "CER: whisper.cpp large-v3 GPU 13.4%(実時間比 0.21。行の時刻の聞き直し込みで 0.34)・Qwen3-ASR 1.7B GPU 15.7%(0.027)・faster-whisper large-v3 CPU 18.9%(0.52)。差は G1 の量では決められない。正解の下書きが whisper.cpp 由来なので有利に出ている可能性"],
     ["行の時刻", "whisper.cpp の 1 秒丸めが評価用 122 本の行の 27%。原則で測ると(確かめ済み 22 本)0.57.0: ①頭 18%・①末 34%・②前 13%・②次 6% → 0.57.1: 16%・22%・13%・8%(dev/eval_timing.py --apply。認識し直しは未)"],
     ["話者", "確かめ済み 304 行(22 本)。行の正しさ 83.9%(しきい値 0.5)→ 90.5%(0.6。仮の新しい既定)・声の照合 80%(16/20)"],
     ["人が選ぶ長さ", "中央値 122.5 秒(6 個)。スタジオの既定は 45 秒・上限 120 秒"],
