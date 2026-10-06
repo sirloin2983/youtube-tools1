@@ -1,6 +1,6 @@
 # 段8: 複数の切り抜きをつなげる(B-3)
 > 状態(2026-10-07): 未着手。優先度は低い(使うのはまれ)。設計の段階の計画。細かい部分は 8-1 のあとで決め直す
-> **行番号・版の番号・ファイルの場所は 2026-09-29 時点(その後 `src/` へ移した)。始めるときに今のコードで読み直す**。素材は 10-04 から全部 30fps にそろえるので、下の「fps 違いは断る」は要らなくなった。全体の進捗は `plan/README.md`、線 A の残りは `plan/line-a-remaining.md`。
+> **行番号・版の番号・ファイルの場所は 2026-09-29 時点(その後 `src/` へ移した)。始めるときに今のコードで読み直す**。素材は 10-04 から全部 30fps にそろえるので、下の「fps 違いは断る」は要らなくなった。全体の進捗は `plan/index.html`(データ `plan/data.js`)、線 A の残りは `plan/line-a-remaining.md`。
 
 ## 目的
 - 1つの編集(`transcripts/<id>.edit.json`)に**素材(切り抜きの動画)を足し、並べ替え**、つないだ1本として Resolve のパック(EDL・Text+)を作れるようにする
@@ -101,7 +101,7 @@
 ### 8-7 テスト・文書
 - 契約テスト(`dev/tests/test_resolve_pack_contract.py`): `EditKeepsContract`(358〜)に「parts 1つ = keeps」「2素材のパック = 素材ごとのパックの区間・字幕をつないだもの(録画側のずれだけ違う)」を足す。★単独で流す
 - `dev/tests/e2e_pipeline.py`(3ツールの通し)・`dev/demo_env.py`(見本のデータ)は1素材のまま通ること。新しい e2e のファイルは、写すファイルの一覧(各 e2e の先頭)に足す
-- 文書: `docs/design/edit-tool-design.md`(4・5・10 の未決を「実装済み」に)、`docs/spec/pipeline.md`、`src/editor/AGENTS.md`(3 パック の spec)、`src/editor/README.txt`・`src/cut2resolve/README.txt`、`plan/README.md` の段 8 の行
+- 文書: `docs/design/edit-tool-design.md`(4・5・10 の未決を「実装済み」に)、`docs/spec/pipeline.md`、`src/editor/AGENTS.md`(3 パック の spec)、`src/editor/README.txt`・`src/cut2resolve/README.txt`、`plan/index.html`(データ `plan/data.js`) の段 8 の行
 - 終わりの条件: 上のテストと、root の `AGENTS.md` の表の各フォルダのテストが通る
 
 ## 版の上げ方

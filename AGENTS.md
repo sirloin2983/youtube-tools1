@@ -3,7 +3,7 @@
 このリポジトリで作業する AI(Claude・GPT/Codex のどちらも)の共通の前提です。Codex はこのファイルを、Claude Code は CLAUDE.md 経由で読みます。
 
 ## 最初にやること
-1. `plan/README.md` を読む(全体の計画・各線の進捗・これからの順番。**順番の正**)
+1. `plan/index.html`(データ `plan/data.js`) を読む(全体の計画・各線の進捗・これからの順番。**順番の正**)
 2. `docs/WORKLOG.md` の最後の数件を読む(誰が・いつ・何を変えたか、**未コミットのファイル**、未完了、注意)
 3. `git status` と `git log -5 --oneline` を見る(下の「複数の AI で作業するときのルール」)
 4. 触るツールの `AGENTS.md`(`src/editor/AGENTS.md`・`src/recorder/AGENTS.md`)と `README.txt` を読む。文書の索引は `docs/ROADMAP.md`
@@ -57,9 +57,9 @@ youtube-tools/
 - 説明文(docstring)にバックスラッシュを書かない(パスの例は `/`)。`.bat` は CRLF・ASCII だけ。多くのファイルは CRLF・UTF-8(差分で直す。丸ごと書き直さない)
 
 ## 資料の場所(正本はこのリポジトリ)
-- **文書の索引は `docs/ROADMAP.md`**。順番と進捗は `plan/README.md`。claude.ai の Project の `claude/*.md` は古い写しで根拠にしない(例外: 統合計画は Claude Docs が正本)
+- **文書の索引は `docs/ROADMAP.md`**。順番と進捗は `plan/index.html`(データ `plan/data.js`)。claude.ai の Project の `claude/*.md` は古い写しで根拠にしない(例外: 統合計画は Claude Docs が正本)
 - 今の仕様 = 各ツールの `README.txt`(ユーザー向け)+ `AGENTS.md`(AI 向け)+ コード。ツール間の受け渡し: `docs/spec/pipeline.md`
-- 新しい文書は種類で置く: 今の決まり・仕様 → `docs/spec/`、これからの計画(ユーザーが読む)→ `plan/`、済んだ設計・決定の記録 → `docs/design/`。WORKLOG と `docs/ROADMAP.md` の索引からリンクする。計画・設計の文書の先頭には「状態(日付)」の 1 行を置き、状態が変わったらその行と `plan/README.md` を直す
+- 新しい文書は種類で置く: 今の決まり・仕様 → `docs/spec/`、これからの計画(ユーザーが読む)→ `plan/`、済んだ設計・決定の記録 → `docs/design/`。WORKLOG と `docs/ROADMAP.md` の索引からリンクする。計画・設計の文書の先頭には「状態(日付)」の 1 行を置き、状態が変わったらその行と `plan/index.html`(データ `plan/data.js`) を直す
 - 古い経緯(`docs/archive/`)は 2026-10-07 に消した。必要なら git の履歴(679ff01 以前)で読む。過去の記録(WORKLOG・`docs/design/`)の中の旧いパスは書き換えない
 
 ## 開発のルール
@@ -88,7 +88,7 @@ youtube-tools/
 - **WORKLOG は追記の直前に `git diff docs/WORKLOG.md` で他の未コミットの差分を確かめる**(ほかの AI の追記を巻き込まない)
 
 作業を終えるとき:
-1. `docs/WORKLOG.md` の**末尾**に記録を追記する(書式は WORKLOG の先頭)。コミットしていないなら「未コミット: <ファイル一覧>」を必ず書く。進捗が変わったら `plan/README.md` の該当の行も直す
+1. `docs/WORKLOG.md` の**末尾**に記録を追記する(書式は WORKLOG の先頭)。コミットしていないなら「未コミット: <ファイル一覧>」を必ず書く。進捗が変わったら `plan/index.html`(データ `plan/data.js`) の該当の行も直す
 2. git を使える AI は、変更したファイルと WORKLOG をコミットする(`git add <変えたファイル> docs/WORKLOG.md` → `git commit`)。push はユーザーが push.bat で行う
 3. 長く使う設計・決定は `docs/` か `plan/` に文書で残し、WORKLOG からリンクする
 4. 長い作業で文脈が圧縮されそうなときは、`docs/HANDOVER.md` と「次のセッションにそのまま貼れる再開用の指示文」を更新する

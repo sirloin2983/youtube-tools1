@@ -1,6 +1,6 @@
 # ROADMAP(AI 向け: 文書の索引と段の進め方)
 
-> 状態(2026-10-07): **これからの順番・各線の進捗・時間の見積もりは `plan/README.md`(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
+> 状態(2026-10-07): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
 > 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
 > 09-30 の改名(app→home・clip-studio→studio・transcribe-tool→editor)の対応表は `docs/design/phase0-restructure.md`。WORKLOG・design の中の旧いパスは当時のまま。
 
@@ -13,7 +13,7 @@
 別件: 友人の依頼(Dropbox → 入口が自動で流す)・ホロカラー(メンバーカラーの常駐アプリ)
 ```
 済んだ柱: 3 ツールの統合(段階 0〜7)・「編集」ツール(E1〜E6)・画面の全面見直し・線 A の段 0〜7・9・10・Q0〜Q4・線 D の P1〜P4(既定オフ)・行の時刻の案 A(編集 0.57.0)。
-これから: `plan/README.md` の 2(各線の進捗)と 3(フェーズ)。ユーザーがやること: `plan/user-tasks.md`。決めたこと: `plan/decisions.md`。
+これから: `plan/index.html` の 2(各線の進捗)と 3(フェーズ)(データは `plan/data.js`)。ユーザーがやること: `plan/user-tasks.html`。決めたこと: `plan/decisions.md`。
 
 ## 2. 文書の索引(どれを読むか)
 
@@ -41,11 +41,11 @@
 | `docs/HANDOVER.md` | 次のセッションへの引き継ぎと、貼るだけの再開用の指示文 |
 | `docs/ROADMAP.md` | これ(索引・段の進め方) |
 
-### 計画(`plan/`。ユーザーが読む。順番の正は `plan/README.md`)
+### 計画(`plan/`。ユーザーが読む。順番の正は `plan/index.html`(データ `plan/data.js`))
 | 文書 | 中身 |
 |---|---|
-| `plan/README.md` | 全体の計画・各線の進捗・フェーズ・全工程の表(前提・後続・時間)・依存の図・日程・入口の条件・前提の数字 |
-| `plan/user-tasks.md` | ユーザーがやること(U1〜U7・実機で確かめること・決めてほしいこと) |
+| `plan/index.html` + `plan/data.js` | 全体の計画・各線の進捗・フェーズ・全工程の表(前提・後続・時間)・依存の図・日程・入口の条件・前提の数字 |
+| `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U7・実機で確かめること・決めてほしいこと) |
 | `plan/decisions.md` | 決めたこと・やらないこと・AI が仮で決めたこと |
 | `plan/improvements.md` | 改善点・追加するとよい機能 |
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
@@ -73,7 +73,7 @@
 古い経緯(`docs/archive/`)は 2026-10-07 に消した。必要なら git の履歴(679ff01 以前)で読む。
 
 ## 3. 段の進め方(どの段でも)
-- 始める前: `AGENTS.md` → `plan/README.md` → `docs/WORKLOG.md` の末尾 → `git status`・`git log -5`。その段の計画(`plan/line-*.md`)の行番号は今のコードで確かめ直す
+- 始める前: `AGENTS.md` → `plan/index.html`(データ `plan/data.js`) → `docs/WORKLOG.md` の末尾 → `git status`・`git log -5`。その段の計画(`plan/line-*.md`)の行番号は今のコードで確かめ直す
 - 1 つの作業ごとに: 直す → `AGENTS.md` の表のテストを流す → WORKLOG → コミット(`[Claude] 要約`)
-- 段の終わり: 版を上げる(serve.py・画面・README の 3 か所)・`plan/README.md` の進捗と `plan/user-tasks.md` の実機の項目を直す・ユーザーに中間報告
+- 段の終わり: 版を上げる(serve.py・画面・README の 3 か所)・`plan/index.html`(データ `plan/data.js`) の進捗と `plan/user-tasks.html` の実機の項目を直す・ユーザーに中間報告
 - 計画に無い判断(設計の変更・依存の追加・既存機能の削除)が出たら、実装の前にユーザーに聞く。止めないと決めた作業では仮で決めて `plan/decisions.md` の「仮で決めたこと」に並べ、最後にまとめて確認する
