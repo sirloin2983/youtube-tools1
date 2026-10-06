@@ -1329,3 +1329,17 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `dev/eval_asr.py` の `post_meta` に endTrim・joinGap が無い = `compare` が 0.57.1 の前後の違いを知らせない(eval_asr は別の担当)
   - 他の担当の未コミット(`src/editor/index.html`・`src/editor/ui-kit.js`・`src/studio/`・`src/ui-kit/`・`friend-apps/holo-colors/`)は触っていない・このコミットに入れていない
 - 未コミット: なし(上の他の担当の分を除く)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 入口の「すべて終了」で録画の部品も止める(入口 0.38.0 → 0.38.1)
+- ユーザーの指示(10-07): 入口が起動した録画の部品(`src/recorder/recorder.py --port 8730`)が「すべて終了」・SIGTERM/SIGBREAK の後始末で止まらず残り、フォルダを掴んで移動できなかった
+- 変更: `src/home/live.py`(`Live.close` から `stop_recorder` = POST /live/quit で静かに終わらせる → 応答が無い・`QUIT_WAIT` 8 秒で終わらないときは、この入口が起動したものだけ `kill_tree`
+  (スタジオの common.hard_kill と同じ taskkill /T /F)。**録画中(quit が 409)なら残して** `KEPT_NOTE` を記録。2 回目(main の後始末)は前の結果を返す。止める相手 = オンか、この入口が起動した部品があるとき。
+  終了の途中は `spawn` しない(見回りが起こし直さない)。`local_recording`)。`src/home/launch.py`(POST /api/shutdown の応答に録画中なら `recorderKept`・`notice`・版)・
+  `src/home/portal.js`(「すべて終了しました」の文に notice を足す)・`src/home/README.txt`(■ v0.38.1)。テスト: `test_live.py`(入口の API で quit が送られる / 録画中なら残して知らせる・
+  単体の `StopRecorderTest` 5 件 = オフで人が起動したものは触らない・動いていない・応答しない自分の子は止める・quit を受けても終わらない自分の子は止める・断られたら残す)
+- 版: 入口 0.38.0 → 0.38.1
+- 決定・理由(仮決め): 録画中は止めない(録画を落とさない方を取る。部品は次の入口が見回りでつなぐ)。オフのときは、この入口が起動したものだけを止める(人が黒い画面で別に起動した部品は触らない)。
+  quit が 409 以外で断られた(401・500 など)ときも、録画中かもしれないので止めずに記録だけ。入口を「起動し直す」ときも同じ後始末を通る(録画中でなければ止めて、新しい入口が起こし直す)
+- テスト: home の単体 375 件 OK(skip 2)・`e2e_live.py`・`e2e_portal.py` OK
+- 注意: Windows の黒い画面の×は約 5 秒で強制終了されるので、録画の部品が応答しないときの強制終了まで届かないことがある(普段は quit に 0.5 秒ほどで終わる)
+- 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = dev/・friend-apps/・src/cut2resolve/・src/studio/・src/editor/・src/ui-kit/ は入れていない)

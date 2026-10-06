@@ -234,6 +234,38 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(code, 200, d)
         return d
 
+    def test_shutdown_quits_the_recorder_when_not_recording(self):
+        """入口の「すべて終了」で録画の部品にも quit を送る(録画中でなければ静かに終わる。入口 0.38.1)"""
+        self.enable()
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"active": 0, "recordings": [{"id": "20261004-000000-a", "active": False}]})
+
+        def quit_(_b):
+            self.fake.routes[("GET", "/api/ping")] = lambda b: (503, {"error": "gone"})   # 終わった(待ち受けをやめた)ことにする
+            return 200, {"ok": True}
+        self.fake.routes[("POST", "/live/quit")] = quit_
+        code, d = self.jreq("POST", "/api/shutdown", {})
+        self.assertEqual((code, d), (200, {"ok": True}))                     # 録画中でなければ知らせは無い
+        self.assertTrue(wait_for(lambda: self.srv.live._stopped is not None, 20))
+        self.assertEqual(self.srv.live._stopped, "quit")
+        quits = [s for s in self.fake.seen if s["method"] == "POST" and s["path"] == "/live/quit"]
+        self.assertEqual(len(quits), 1)
+        self.assertEqual(quits[0]["auth"], "Bearer " + TOKEN)                 # 合言葉つき
+        self.assertEqual(self.srv.live.stop_recorder(), "quit")              # 2 回目(main の後始末)は何も送らない
+        self.assertEqual(len([s for s in self.fake.seen if s["path"] == "/live/quit"]), 1)
+
+    def test_shutdown_keeps_the_recorder_while_recording(self):
+        """録画中(quit が 409)なら録画の部品は止めずに残し、「すべて終了」の応答と記録に知らせる"""
+        logs = []
+        self.srv.live.log = logs.append
+        self.enable()
+        self.fake.routes[("POST", "/live/quit")] = lambda b: (409, {"error": "busy", "message": "録画中なので終わりません(録画を止めてから)"})
+        code, d = self.jreq("POST", "/api/shutdown", {})                     # 偽物の /live/list は録画中 1 本
+        self.assertEqual((code, d.get("recorderKept"), d.get("notice")), (200, True, LV.KEPT_NOTE))
+        self.assertTrue(wait_for(lambda: self.srv.live._stopped is not None, 20))
+        self.assertEqual(self.srv.live._stopped, "kept")
+        self.assertTrue(any(LV.KEPT_NOTE in m for m in logs), logs)
+        self.assertTrue(self.srv.live.ping(self.srv.live.find("fake")))      # 録画の部品は動いたまま
+
     def test_off_is_unchanged(self):
         base = self.jreq("GET", "/no-such-thing")
         for path in ("/live", "/live/", "/live/live.js", "/live/hls.min.js", "/live/api/info", "/live/r/local/list",
@@ -645,6 +677,71 @@ class ProbeTest(unittest.TestCase):
         for bad in ("https://www.youtube.com:8443/x", "https://user:pw@www.youtube.com/x", "ftp://www.youtube.com/x", "https://www.youtube.com/\x00"):
             with self.assertRaises(LX.LiveError, msg=bad):
                 LV.validate_url(bad)
+
+
+class StopRecorderTest(unittest.TestCase):
+    """入口の終了で録画の部品を止める(src/home/live.py の stop_recorder。入口 0.38.1)。止める相手・応答が無いとき・終わらないとき"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-stop-")
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.logs = []
+        self.fake = FakeRecorder()
+        self.procs = []
+
+    def tearDown(self):
+        for p in self.procs:
+            if p.poll() is None:
+                p.kill()
+                p.wait(5)
+        self.fake.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def live(self, enabled=True, url=None):
+        self.prefs.patch("live", {"enabled": enabled, "recorders": [{"id": "local", "name": "この PC", "url": url or self.fake.url, "token": TOKEN}]})
+        return LV.Live(self.prefs, REPO, os.path.join(self.tmp, "logs"), log=self.logs.append, data_dir=os.path.join(self.tmp, "recdata"), spawn=False)
+
+    def sleeper(self):
+        """この入口が起動した録画の部品の代わり(応答しない・終わらないプロセス)"""
+        p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        self.procs.append(p)
+        return p
+
+    def test_off_and_not_spawned_is_left_alone(self):
+        lv = self.live(enabled=False)
+        lv.close()
+        self.assertEqual(lv.stop_recorder(), "none")
+        self.assertFalse(self.fake.seen)                                    # オフで、人が別に起動したものは触らない
+        self.assertIs(lv.local_recording(), False)
+
+    def test_not_running_is_none(self):
+        lv = self.live(url="http://127.0.0.1:%d" % free_port())
+        self.assertEqual(lv.stop_recorder(), "none")                        # つながらない・この入口が起動したものでもない
+
+    def test_unresponsive_own_process_is_killed(self):
+        lv = self.live(enabled=False, url="http://127.0.0.1:%d" % free_port())
+        lv.proc = self.sleeper()                                            # オフでも、この入口が起動したものは止める
+        self.assertEqual(lv.stop_recorder(), "killed")
+        self.assertIsNotNone(lv.proc.poll())
+        self.assertTrue(any("応答しない" in m for m in self.logs), self.logs)
+
+    def test_quit_accepted_but_own_process_does_not_exit_is_killed(self):
+        lv = self.live()
+        lv.proc = self.sleeper()
+        self.fake.routes[("POST", "/live/quit")] = lambda b: (200, {"ok": True})
+        with mock.patch.object(LV, "QUIT_WAIT", 0.6):
+            self.assertEqual(lv.stop_recorder(), "killed")
+        self.assertIsNotNone(lv.proc.poll())
+
+    def test_refused_is_left_and_spawn_stops_after_close(self):
+        lv = self.live()
+        self.fake.routes[("POST", "/live/quit")] = lambda b: (500, {"message": "壊れた"})
+        lv.close()
+        self.assertEqual(lv.stop_recorder(), "failed")                      # 断られたら(録画中かもしれないので)止めない
+        self.assertTrue(any("壊れた" in m for m in self.logs), self.logs)
+        self.assertIs(lv.local_recording(), True)                           # 偽物の /live/list は録画中 1 本
+        self.assertFalse(lv.spawn(lv.find("local")))                        # 終了の途中は見回りが起こし直さない
 
 
 class SpawnTest(unittest.TestCase):

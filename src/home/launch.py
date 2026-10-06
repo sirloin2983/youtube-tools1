@@ -28,7 +28,8 @@
   GET  /api/cleanup                       片付けの候補(段9 9-2。src/home/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(14 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
-  POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる
+  POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
+                                          (録画中なら残して、応答に recorderKept・notice。0.38.1)
   POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/home/appwindow.py)
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
@@ -86,7 +87,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.38.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.38.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -766,7 +767,13 @@ class PortalHandler(BaseHTTPRequestHandler):
             with self.server.cleanup_lock:
                 return self._json(200, self.server.cleanup.move(ids))
         if u.path == "/api/shutdown":
-            self._json(200, {"ok": True})
+            out = {"ok": True}
+            try:   # 録画中なら録画の部品は止めずに残す(src/home/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
+                if self.server.live.local_recording() is True:
+                    out.update(recorderKept=True, notice=live_mod.KEPT_NOTE)
+            except Exception:
+                pass
+            self._json(200, out)
             threading.Thread(target=self.server.request_shutdown, daemon=True).start()
             return
         return self._fail(404, "not_found", "その操作はありません")
@@ -1106,7 +1113,7 @@ class PortalServer(ThreadingHTTPServer):
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         self.backup.close()
         self.accuracy.close()   # 測っている子プロセスも止める
-        self.live.close()     # 録画の部品の見回りだけ止める(録画の部品は止めない = 録画は続く)
+        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く。0.38.1)
         if self._autorun is not None:
             self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
         self.sup.stop_all()

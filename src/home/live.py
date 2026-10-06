@@ -39,7 +39,10 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 手元の録画元の合言葉は、録画の部品の作業データの token.txt を読む(設定に書かない)。
 
 録画の部品の起動(計画の 0-3 から選んだ形): オンの間、入口が 30 秒ごとに手元の録画元に問い合わせ、動いていなければ入口と切り離して起動する
-(別のプロセスグループ・隠れた黒い画面 = 入口の「すべて終了」・黒い画面を閉じる・Ctrl+C で止まらない。落ちても次の見回りで起こし直す)。
+(別のプロセスグループ・隠れた黒い画面 = 黒い画面を閉じる・Ctrl+C の合図は届かない。落ちても次の見回りで起こし直す)。
+入口の終了(「すべて終了」・SIGTERM・SIGBREAK・Ctrl+C = close)では、**録画中でなければ録画の部品も止める**(入口 0.38.1。2026-10-07 ユーザー指示:
+残った録画の部品がフォルダを掴んで移動できなかった): POST /live/quit で静かに終わらせ、応答が無い・終わらないときは、この入口が起動したものだけ孫ごと止める
+(スタジオの ffmpeg・yt-dlp と同じ taskkill /T /F)。**録画中(quit が 409)なら止めずに残し**、記録と「すべて終了」の画面に知らせる(録画は続き、次の入口が見回りでつなぐ)。
 スタートアップのショートカットにしない理由: 既定オフ(オンにするまで自動で起動しない)を、ショートカットを置く・消す手作業なしで守れるため。
 ログインしたら録画も上げたいときは、今までどおり入口を裏で起動するショートカット(src\\home\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
 """
@@ -85,6 +88,9 @@ STATUS_TIMEOUT = 1.5     # api/ytt/live の status: 録画元への問い合わ�
 STATUS_CACHE = 3.0       # 同じ結果を返す秒数
 RECENT_SEC = 600         # 終わった録画を札に出す秒数(10 分)
 STOP_TIMEOUT = 45.0      # 録画元の stop は録画のスレッドの終わりを 30 秒まで待つ
+QUIT_TIMEOUT = 3.0       # 入口の終了: 録画の部品の quit の応答を待つ秒
+QUIT_WAIT = 8.0          # quit を受けた録画の部品が終わるのを待つ秒(過ぎたら、この入口が起動したものだけ孫ごと止める)
+KEPT_NOTE = "録画中なので録画の部品は残しました(録画は続きます。部品も終わらせるときは、スタジオで録画を止めてからもう一度「すべて終了」)"
 
 
 def validate_url(url, allow_local=False):
@@ -111,6 +117,26 @@ def validate_url(url, allow_local=False):
 
 def _no_window():
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+def kill_tree(proc, wait=5.0):
+    """子プロセスを孫ごと止める(スタジオの common.hard_kill と同じ形: Windows は taskkill /T /F・それ以外は kill)"""
+    if proc is None or proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10, **_no_window())
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(wait)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _clean(s, n):
@@ -268,6 +294,8 @@ class Live:
         self.allow_local_urls = False     # begin で手元の URL も通す(テストの録画元 --source direct だけ。画面からは変えられない)
         self._recent = None               # api/ytt/live の status の結果 (時刻, 一覧)
         self._recent_lock = threading.Lock()
+        self._stop_lock = threading.Lock()
+        self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
 
     # --- 設定 ---
     def cfg(self):
@@ -692,13 +720,78 @@ class Live:
             self._thread.start()
 
     def close(self):
-        """入口の終了: 見回りだけ止める(録画の部品は止めない = 入口を起動し直しても録画は続く。計画の 0-3)"""
+        """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 と 2026-10-07 ユーザー指示)"""
         self._halt.set()
         self.wake.set()
         if self._archiver is not None:   # 本番版への作り直しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
             self._exporter.close()
+        try:
+            self.stop_recorder()
+        except Exception as e:   # 後始末の途中の不具合で入口の終了を止めない
+            self.log("録画の部品を止める途中でエラー: %r" % (e,))
+
+    # --- 入口の終了で録画の部品も止める(入口 0.38.1) ---
+    def _own_proc(self):
+        """この入口が起動して、まだ動いている録画の部品のプロセス(無ければ None)"""
+        p = self.proc
+        return p if p is not None and p.poll() is None else None
+
+    def _stop_target(self):
+        """入口の終了で止める手元の録画元。リアルタイム切り抜きがオンか、この入口が起動した録画の部品が動いているときだけ(オフで人が別に起動したものは触らない)"""
+        if self._own_proc() is None and not self.enabled():
+            return None
+        return next((r for r in self.recorders() if is_local_url(r.get("url") or "")), None)
+
+    def local_recording(self, timeout=1.5):
+        """入口の終了で止める手元の録画元が録画中か: True / False(録画していない・止める相手が無い)/ None(つながらない)。「すべて終了」の応答の知らせに使う"""
+        rc = self._stop_target()
+        if rc is None:
+            return False
+        code, d = self.call(rc, "GET", "/live/list", timeout=timeout)
+        if code != 200 or not isinstance(d, dict):
+            return None
+        return bool(d.get("active")) or any(isinstance(r, dict) and r.get("active") is True for r in d.get("recordings") or [])
+
+    def stop_recorder(self):
+        """入口の終了で手元の録画の部品を止める。-> "none"(止める相手が無い・動いていない)|"quit"(静かに終わった)|
+        "killed"(応答が無い・終わらないので孫ごと止めた)|"kept"(録画中なので残した)|"failed"(断られた。残した)。2 回目からは前の結果"""
+        with self._stop_lock:
+            if self._stopped is None:
+                self._stopped = self._stop_recorder()
+            return self._stopped
+
+    def _stop_recorder(self):
+        rc, own = self._stop_target(), self._own_proc()
+        if rc is None:
+            return "none"
+        code, d = self.call(rc, "POST", "/live/quit", {}, timeout=QUIT_TIMEOUT)
+        if code == 409:   # 録画中(録画の部品が断る)= 止めない
+            self.log("録画の部品: " + KEPT_NOTE)
+            return "kept"
+        if code == 200:
+            end = time.time() + QUIT_WAIT
+            while time.time() < end:   # この入口が起動したものはプロセスの終わり、それ以外は待ち受けの終わりを待つ
+                if (own.poll() is not None) if own is not None else not self.ping(rc, 0.5):
+                    self.log("録画の部品を終わらせました(入口の終了)")
+                    return "quit"
+                time.sleep(0.2)
+            if own is not None:
+                kill_tree(own)
+                self.log("録画の部品が %d 秒で終わらないので、止めました(入口の終了)" % int(QUIT_WAIT))
+                return "killed"
+            self.log("録画の部品に終わるよう伝えました(終わるのを待ちきれませんでした)")
+            return "quit"
+        if code is None:   # 応答が無い: この入口が起動したものなら孫ごと止める。それ以外は動いていない
+            if own is not None:
+                kill_tree(own)
+                self.log("録画の部品が応答しないので、止めました(入口の終了)")
+                return "killed"
+            return "none"
+        msg = (d or {}).get("message") if isinstance(d, dict) else ""
+        self.log("録画の部品を止められませんでした(HTTP %s%s)。録画の部品は残しています" % (code, ": " + msg if msg else ""))
+        return "failed"
 
     def _watch(self):
         while not self._halt.is_set():
@@ -756,6 +849,8 @@ class Live:
 
     def spawn(self, rc, folder=""):
         """手元の録画の部品を、入口と切り離して起動する(入口と同じ Python = start.bat と同じ選び方で選ばれたもの)"""
+        if self._halt.is_set():   # 入口の終了の途中(止めたあとに見回りが起こし直さない)
+            return False
         self._last_spawn = time.time()
         script = os.path.join(self.root, "recorder", "recorder.py")
         if not os.path.isfile(script):

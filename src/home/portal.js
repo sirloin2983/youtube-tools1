@@ -20,7 +20,7 @@
 
   var cards = {};        // ツールID → {el, data}
   var busy = {};         // ツールID → 実行中の操作(二重押し防止)
-  var fails = 0, closed = false, timer = null, quitArmed = 0, quitTimer = null, quitCountdown = null;
+  var fails = 0, closed = false, timer = null, quitArmed = 0, quitTimer = null, quitCountdown = null, quitNotice = '';
   var tokenMeta = document.querySelector('meta[name="ytt-token"]');
   var TOKEN = tokenMeta ? tokenMeta.content : '';   // 書き込み系の API の合言葉(CSRF トークン。サーバーが画面に入れる)
 
@@ -322,7 +322,8 @@
     clearInterval(quitCountdown);
     b.disabled = true;
     b.textContent = '終了しています…';
-    api('/api/shutdown', 'POST').then(function () {
+    api('/api/shutdown', 'POST').then(function (r) {
+      quitNotice = (r && r.notice) || '';   // 録画中なので録画の部品を残した、など(0.38.1)
       closed = true;
       clearTimeout(timer);
       $('#main').hidden = true;
@@ -342,7 +343,7 @@
       doneText('すべて終了しました', 'この画面(タブ・窓)は閉じてかまいません。もう一度使うときは start.bat をダブルクリックしてください。');
     });
   }
-  function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text; }
+  function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text + (quitNotice ? ' ' + quitNotice : ''); }
 
   /* ================================================================ 案件(配信ごと)の一覧(旧・cases.html) ================================================================ */
 
