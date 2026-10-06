@@ -130,11 +130,6 @@ def _audio(a):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def _accepted_params(model):
-    """エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)"""
-    return list(model.params())
-
-
 # ---------------------------------------------------------------- テスト用の偽物(TRANSCRIBE_BACKEND=worker-fake)
 
 def install_fakes(S):
@@ -228,7 +223,7 @@ def handle(S, m, out, cancels):
     try:
         if op == "load":
             model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(S, m))
-            out.send({"rid": rid, "ev": "result", "v": {"device": dev, "params": _accepted_params(model)}})
+            out.send({"rid": rid, "ev": "result", "v": {"device": dev, "params": list(model.params())}})   # エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)
         elif op == "transcribe":
             name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(S, m)
             with S._model_lock:
@@ -265,9 +260,7 @@ def handle(S, m, out, cancels):
             out.send({"rid": rid, "ev": "error", "code": "bad_op", "message": "不明な要求: %s" % op, "status": 500})
     except S.Cancelled:
         out.send({"rid": rid, "ev": "error", "code": "cancelled", "message": "中止しました"})
-    except S.tx_engines.EngineError as e:
-        out.send({"rid": rid, "ev": "error", "code": e.code, "message": e.message, "status": e.status})
-    except S.ApiError as e:
+    except (S.tx_engines.EngineError, S.ApiError) as e:
         out.send({"rid": rid, "ev": "error", "code": e.code, "message": e.message, "status": e.status})
     except MemoryError:
         out.send({"rid": rid, "ev": "error", "code": "no_memory", "status": 500,

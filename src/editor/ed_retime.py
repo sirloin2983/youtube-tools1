@@ -30,7 +30,6 @@ import unicodedata
 
 import ed_alt  # noqa: E402,F401   寄せ方 alt_fold(二重に書かない)
 import ed_jobs  # noqa: E402,F401   単語の時刻 read_words
-import ed_learn  # noqa: E402,F401   設定 load_settings
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 

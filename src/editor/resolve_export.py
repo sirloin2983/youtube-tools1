@@ -24,10 +24,6 @@ import zipfile
 from pathlib import Path
 
 
-TEXTPLUS_FPS = ("24", "25", "30", "50", "60")          # Text+ を置くプロジェクトの fps(cut2resolve の resolve_textplus.TARGET_FPS)
-TEXTPLUS_SIZES = ("1080x1920", "1920x1080")             # 縦(ショート)・横
-
-
 class ResolveExportError(ValueError):
     pass
 
@@ -41,9 +37,6 @@ def srt_time(seconds: float) -> str:
     """SRT の時刻(HH:MM:SS,mmm)。画面の書き出し(index.html の tcode)と同じく、ミリ秒は四捨五入(0.5 は切り上げ)。"""
     ms = max(0, int(math.floor(float(seconds) * 1000 + 0.5)))
     return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
-
-
-_srt_time = srt_time   # 旧名(互換のため残す)
 
 
 def srt_text(cues) -> str:
@@ -127,6 +120,30 @@ def _load_pack():
 _DRAFT_CACHE = None   # pack.Cache(動画の情報(ffprobe)と行の端の無音を覚える。同じ動画を開き直しても調べ直さない)
 
 
+def _source_and_pack(doc):
+    """文書の動画のパスと cut2resolve の部品 -> (動画, pack, resolve_textplus)。動画が無ければ ResolveExportError"""
+    source = str(doc.get("sourcePath") or "")
+    if not source or not os.path.isfile(source):
+        raise ResolveExportError("元の動画が見つかりません")
+    return (source,) + tuple(_load_pack())
+
+
+def _draft_cache(pack):
+    global _DRAFT_CACHE
+    if _DRAFT_CACHE is None:
+        _DRAFT_CACHE = pack.Cache(size=16)
+    return _DRAFT_CACHE
+
+
+def _write_transcript(doc, version, folder):
+    """文書 → 一時フォルダの transcript/v1(pack に渡す。開いただけで動画の隣にファイルを増やさない)-> パス"""
+    import pipeline_io   # pipeline_io も resolve_export を読み込むので、使うときに読む(循環を避ける)
+    tpath = os.path.join(folder, "input.transcript.json")
+    with open(tpath, "w", encoding="utf-8") as f:
+        json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+    return tpath
+
+
 def _row_edge(pack, value, warnings):
     """設定の rowEdge → pack.RowEdge か None。形が正しくなければ既定(pack.ROW_EDGE)にして注意を出す"""
     try:
@@ -148,16 +165,10 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
     row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt_core.jobs.SLOTS.slot。真なら取れた)。
       行の端の無音をまだ調べていないときだけ使う。順番を取れなければ、無音を調べずに決まった余白で広げて注意を出す
     -> {"fps": [n, d], "durationSec", "keepsSec": [[開始, 終了], ...], "base": "rows" | "all", "warnings", "skipped"?}"""
-    import pipeline_io
-    global _DRAFT_CACHE
-    source = str(doc.get("sourcePath") or "")
-    if not source or not os.path.isfile(source):
-        raise ResolveExportError("元の動画が見つかりません")
-    pack, _tp = _load_pack()
-    if _DRAFT_CACHE is None:
-        _DRAFT_CACHE = pack.Cache(size=16)
+    source, pack, _tp = _source_and_pack(doc)
+    cache = _draft_cache(pack)
     try:
-        meta = _DRAFT_CACHE.probe(Path(source))
+        meta = cache.probe(Path(source))
     except pack.ToolError as e:
         raise ResolveExportError(str(e))
     fps, total = meta["fps"], meta["total"]
@@ -170,22 +181,20 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
         return out
     tmp_dir = tempfile.mkdtemp(prefix="edit-draft-")
     try:
-        tpath = os.path.join(tmp_dir, "input.transcript.json")
-        with open(tpath, "w", encoding="utf-8") as f:
-            json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        tpath = _write_transcript(doc, version, tmp_dir)
         warns = []
         try:
             req = _rows_request(pack, source, tpath, row_edge, warns)
-            if heavy is not None and pack.row_edge_pending(req, _DRAFT_CACHE):
+            if heavy is not None and pack.row_edge_pending(req, cache):
                 with heavy("行の端 " + os.path.basename(source)[:40]) as ok:
                     if ok:
-                        plan = pack.plan_cut(req, cache=_DRAFT_CACHE)
+                        plan = pack.plan_cut(req, cache=cache)
                 if not ok:
-                    plan = pack.plan_cut(pack.without_detect(req), cache=_DRAFT_CACHE)
+                    plan = pack.plan_cut(pack.without_detect(req), cache=cache)
                     warns.append("他の重い処理が動いているため、行の端は声の止まる所を調べずに決まった余白で広げました"
                                  "(あとで「行から」を押し直すと調べ直します)")
             else:
-                plan = pack.plan_cut(req, cache=_DRAFT_CACHE)
+                plan = pack.plan_cut(req, cache=cache)
         except pack.ToolError as e:
             out["warnings"].append(str(e))
             return out
@@ -205,23 +214,13 @@ def _edit_request(pack, source: str, tpath: str | None, keeps, row_edge=None, wa
 def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
     """「編集」3 パック のタブの「これから作るパック」: カットのとおりに作ったときの区間の数・カット後の長さ・Text+ 字幕の数・注意(ファイルは作らない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)"""
-    import pipeline_io
-    global _DRAFT_CACHE
-    source = str(doc.get("sourcePath") or "")
-    if not source or not os.path.isfile(source):
-        raise ResolveExportError("元の動画が見つかりません")
-    pack, _tp = _load_pack()
-    if _DRAFT_CACHE is None:
-        _DRAFT_CACHE = pack.Cache(size=16)
+    source, pack, _tp = _source_and_pack(doc)
+    cache = _draft_cache(pack)
     tmp_dir = tempfile.mkdtemp(prefix="edit-preview-")
     try:
-        tpath = None
-        if any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)):
-            tpath = os.path.join(tmp_dir, "input.transcript.json")
-            with open(tpath, "w", encoding="utf-8") as f:
-                json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        tpath = _write_transcript(doc, version, tmp_dir) if any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)) else None
         try:
-            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps), cache=_DRAFT_CACHE)
+            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps), cache=cache)
         except pack.ToolError as e:
             raise ResolveExportError(str(e))
         sm = pack.summary(plan)
@@ -271,22 +270,15 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
     (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)。
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt_core/colors.speaker_colors で決める)。
     文書の話者の字幕の色(sub.color。speaker_sub_colors)はこれより優先して足す(メンバーの色のスイッチを切っていても効く = 3 パック の speakerStyles と同じ)"""
-    import pipeline_io   # pipeline_io も resolve_export を読み込むので、ここで読む(循環を避ける)
     speaker_colors = dict(speaker_colors or {}, **speaker_sub_colors(doc))
-
-    source = str(doc.get("sourcePath") or "")
-    if not source or not os.path.isfile(source):
-        raise ResolveExportError("元の動画が見つかりません")
-    pack, tp = _load_pack()
+    source, pack, tp = _source_and_pack(doc)
     try:
         target = tp.parse_target(fps_text, size_text)
     except ValueError as e:
         raise ResolveExportError(str(e))
     tmp_dir = tempfile.mkdtemp(prefix="resolve-package-")
     try:
-        tpath = os.path.join(tmp_dir, "input.transcript.json")
-        with open(tpath, "w", encoding="utf-8") as f:
-            json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        tpath = _write_transcript(doc, version, tmp_dir)
         folder = _safe_name(doc.get("title") or Path(source).stem) + "_pack"
         out_dir = Path(tmp_dir) / folder
         warns = []

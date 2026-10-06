@@ -65,33 +65,15 @@
 
 127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する(画面 / への遷移だけは、他のツールのリンクから開けるよう別扱い)。
 """
-import array
-import bisect
-import difflib
-import faulthandler
-import gc
-import hashlib
-import itertools
 import json
-import logging
-import logging.handlers
-import math
 import os
-import queue
 import re
 import shutil
 import socket
-import subprocess
 import sys
-import tarfile
 import threading
 import time
-import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
-import uuid
-import wave
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -112,8 +94,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
-import roster as _roster  # noqa: E402  (名簿の呼び名・配信ごとの文脈。隣の部品)
+from ytt_core import datadir as _datadir, httpsec, layout as _layout, runtime as _runtime  # noqa: E402
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
@@ -123,7 +104,7 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.57.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.57.2"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -182,6 +163,145 @@ QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/cl
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
+def _tid_arg(tid, required=True):
+    """文書の id の形だけ確かめる(違えば 404)。required=False なら空も通す"""
+    if (required or tid) and not ed_state.TID_RE.match(tid):
+        raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
+    return tid
+
+
+def _ping():
+    w = ed_jobs.WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
+    return {"app": ed_state.APP_ID, "version": ed_state.SERVER_VERSION,
+            "worker": {"alive": w.alive(), "pid": (w.proc.pid if w.proc is not None else None), "starts": w.starts,
+                       "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": ed_jobs.WORKER_SILENCE_TIMEOUT}}
+
+
+def _tools_info():
+    return {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
+            "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
+            "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **ed_jobs.engines_info()}
+
+
+def _jobs_list():
+    with ed_jobs._jobs_lock:
+        return {"jobs": [ed_jobs.public_job(ed_jobs._jobs[i]) for i in ed_jobs._order if i in ed_jobs._jobs]}
+
+
+def _learned(a):
+    mc = a("min", "1")
+    return ed_learn.learned_candidates(max(1, min(20, int(mc))) if mc.isdigit() else 1)
+
+
+def _metrics(a):
+    sc = a("scope", "all")
+    return ed_learn.all_metrics(_tid_arg(a("id"), False) or None, a("legacy", "0") == "1", sc if sc in ("all", "eval", "train") else "all")
+
+
+def _transcript(tid):
+    d = ed_store.read_transcript(tid)
+    return dict(d, evalLocked=ed_relink.in_eval_dir(d.get("sourcePath")))   # 評価用のフォルダの動画(画面で外せない)
+
+
+# GET の API: パス → 関数(a(名前, 既定) = URL の引数)→ 応答の JSON。部品の関数は lambda の中で ed_xxx.名前 と呼ぶたびに読む(テストの差し替えが効く)
+GET_API = {
+    "/api/ping": lambda a: _ping(),
+    "/api/siblings": lambda a: ed_state.pio().siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
+    "/api/clip-info": lambda a: ed_misc.clip_info(a("path")),
+    "/api/transcript-v1": lambda a: ed_misc.transcript_v1(a("id")),
+    "/api/roster": lambda a: ed_learn.load_roster(),
+    "/api/tools": lambda a: _tools_info(),
+    "/api/marker": lambda a: ed_misc.read_marker(),
+    "/api/voices": lambda a: {"voices": ed_speakers.voices_summary(), "match": ed_speakers.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
+    "/api/overlap-drafts": lambda a: ed_speakers.ovdraft_for_doc(a("id"), a("kinds", None)),   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から)
+    "/api/voices/preview": lambda a: ed_speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
+    "/api/transcribed-ranges": lambda a: {"items": ed_misc.transcribed_ranges()},
+    "/api/jobs": lambda a: _jobs_list(),
+    "/api/transcripts": lambda a: {"items": ed_store.list_transcripts()},
+    "/api/learned": _learned,
+    "/api/suggest": lambda a: ed_learn.suggest_for_doc(_tid_arg(a("id"))),
+    "/api/metrics": _metrics,
+    "/api/eval-baselines": lambda a: {"items": ed_learn.read_baselines()},
+    "/api/evals": lambda a: {"items": ed_misc.list_evals(_tid_arg(a("id"), False) or None)},
+    "/api/eval": lambda a: ed_misc.read_eval(a("id")),
+    "/api/progress": lambda a: ed_misc.progress_stats(),
+    "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
+    "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
+    "/api/drill/candidates": lambda a: ed_drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
+    "/api/dataset": lambda a: ed_learn.dataset_stats(),
+    "/api/history": lambda a: {"items": ed_store.list_history(a("id"))},
+    "/api/transcript": lambda a: _transcript(a("id")),
+    "/api/eval-folders": lambda a: ed_relink.eval_folders_info(),
+    "/api/eval-audio": lambda a: ed_evalaudio.status(),   # 評価用の音声(flac)の作成の状態(本数・作った数・残り・大きさ・最後のエラー)
+    "/api/eval-batch": lambda a: ed_evalbatch.eval_batch_status(),   # 評価用の動画のまとめての文字起こしの状態(Q4)
+    "/api/edit": lambda a: ed_store.get_edit(a("id")),
+    "/api/edit/draft": lambda a: ed_store.edit_draft(a("id"), a("rows") == "1"),
+    "/api/edit/pack-readme": lambda a: ed_store.pack_readme(a("id")),
+    "/api/doc-for": lambda a: {"doc": ed_store.find_doc_for_media(a("path"))},
+}
+
+
+def _job(spec, kind="transcribe"):
+    return ed_jobs.public_job(ed_jobs.add_job(spec, kind))
+
+
+def _id_of(o):
+    return str(o.get("id") or o.get("tid") or "")
+
+
+def _delete_voice(o):
+    ed_speakers.delete_voice(str(o.get("embedding") or ed_speakers.DIAR_EMB_DEFAULT), str(o.get("name") or "")[:60])
+    return {"ok": True, "voices": ed_speakers.voices_summary()}
+
+
+def _cancel(o):
+    ed_jobs.cancel_job(o.get("id"))
+    return {"ok": True}
+
+
+# POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す 2 つは Handler の _export_corrections・_resolve_package)
+POST_API = {
+    "/api/transcribe": lambda o: _job(ed_jobs.validate_job(o)),
+    "/api/diarize": lambda o: _job(ed_speakers.validate_diarize(o), "diarize"),
+    "/api/voices/learn": lambda o: _job(ed_speakers.validate_voice_learn(o), "voice-learn"),   # A-3: 名前を付けた話者の声を覚える(ジョブ)
+    "/api/speakers/sub": lambda o: ed_speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
+    "/api/voices/delete": _delete_voice,
+    "/api/retranscribe": lambda o: _job(ed_jobs.validate_retranscribe(o), "retranscribe"),
+    "/api/redo": lambda o: _job(ed_jobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
+    "/api/alt": lambda o: _job(ed_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
+    "/api/ytcap": lambda o: _job(ed_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
+    "/api/scan-folder": lambda o: ed_misc.scan_folder(o.get("path"), o.get("recursive") is True),
+    "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
+    "/api/settings/patch": lambda o: ed_learn.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
+    "/api/eval-baseline": lambda o: ed_learn.record_baseline(o.get("label")),
+    "/api/abtest": lambda o: _job(ed_misc.validate_abtest(o), "abtest"),
+    "/api/archive": lambda o: {"ok": True, "docs": ed_learn.start_archive(o.get("tid") or None, o.get("full") is not False)},
+    "/api/restore": lambda o: {"ok": True, "updatedAt": ed_store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
+    "/api/suggest/feedback": lambda o: {"ok": True, "n": ed_learn.record_feedback(o)},
+    "/api/export-file": lambda o: ed_misc.export_file(o),
+    "/api/open-video": lambda o: ed_store.open_video(o),
+    "/api/relink/check": lambda o: ed_relink.relink_check(o),
+    "/api/relink": lambda o: ed_relink.relink_doc(o),
+    "/api/relink/missing": lambda o: ed_relink.relink_missing(),
+    "/api/relink/find": lambda o: ed_relink.relink_find(o),
+    "/api/eval-folders/organize": lambda o: ed_relink.eval_organize("button"),
+    "/api/eval-folders/settle": lambda o: ed_relink.eval_settle(o),
+    "/api/eval-batch/start": lambda o: ed_evalbatch.eval_batch_start(o),
+    "/api/eval-batch/stop": lambda o: ed_evalbatch.eval_batch_stop(o),
+    "/api/eval-batch/redo": lambda o: ed_evalbatch.eval_batch_redo(o),   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
+    "/api/eval-batch/redo-one": lambda o: ed_evalbatch.eval_batch_redo_one(o),   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
+    "/api/pick": lambda o: ed_relink.pick_path(o),
+    "/api/resplit": lambda o: ed_jobs.resplit_doc(o),
+    "/api/retime": lambda o: ed_retime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。ed_retime)
+    "/api/edit/pack": lambda o: ed_store.record_pack(o),
+    "/api/edit/preview": lambda o: ed_store.edit_preview(o),
+    "/api/effort": lambda o: ed_store.add_effort(o),
+    "/api/drill/reviewed": lambda o: ed_drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
+    "/api/drill/unreviewed": lambda o: ed_drill.drill_unreviewed(o),   # 確かめ済みの印を外す
+    "/api/transcribe/cancel": _cancel,
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TranscribeTool/0.1"
     timeout = 120   # 送ると言った長さより短い本文・読まれない応答で、処理のスレッドが永久に止まらないように(秒)
@@ -224,6 +344,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _send_path(self, path, ctype, extra=None):
+        with open(path, "rb") as f:
+            return self._send(200, f.read(), ctype, extra)
+
+    def _send_zip(self, path, name, extra):
+        """作った zip を添付で返す(ファイルを消すのは呼び出し側)"""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Length", str(os.path.getsize(path)))
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+        for k, v in extra.items():
+            self.send_header(k, v)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        with open(path, "rb") as f:
+            shutil.copyfileobj(f, self.wfile, 65536)
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
@@ -301,36 +439,20 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard(False, u.path):
             return
         q = urllib.parse.parse_qs(u.query)
+
+        def arg(k, default=""):
+            return (q.get(k) or [default])[0]
+        name = u.path.lstrip("/")
         try:
             if u.path in ("/", "/index.html"):
-                with open(ed_state.INDEX, "rb") as f:
-                    return self._send(200, f.read(), "text/html; charset=utf-8", PAGE_HEADERS)
-            if u.path == "/app.js":
-                with open(ed_state.APP_JS, "rb") as f:
-                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
-            if u.path == "/ui-kit.js":
-                with open(ed_state.UI_KIT_JS, "rb") as f:
-                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
-            if u.path.lstrip("/") in ed_state.PAGE_JS and os.path.isfile(os.path.join(ed_state.ROOT, u.path.lstrip("/"))):
-                with open(os.path.join(ed_state.ROOT, u.path.lstrip("/")), "rb") as f:
-                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
-            if u.path == "/api/ping":
-                w = ed_jobs.WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
-                return self._json(200, {"app": ed_state.APP_ID, "version": ed_state.SERVER_VERSION,
-                                        "worker": {"alive": w.alive(), "pid": (w.proc.pid if w.proc is not None else None), "starts": w.starts,
-                                                   "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": ed_jobs.WORKER_SILENCE_TIMEOUT}})
-            if u.path == "/api/siblings":
-                return self._json(200, ed_state.pio().siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH))
-            if u.path == "/api/clip-info":
-                return self._json(200, ed_misc.clip_info((q.get("path") or [""])[0]))
-            if u.path == "/api/transcript-v1":
-                return self._json(200, ed_misc.transcript_v1((q.get("id") or [""])[0]))
-            if u.path == "/api/roster":
-                return self._json(200, ed_learn.load_roster())
-            if u.path == "/api/tools":
-                return self._json(200, {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
-                                        "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
-                                        "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **ed_jobs.engines_info()})
+                return self._send_path(ed_state.INDEX, "text/html; charset=utf-8", PAGE_HEADERS)
+            if u.path in ("/app.js", "/ui-kit.js"):
+                return self._send_path(ed_state.APP_JS if u.path == "/app.js" else ed_state.UI_KIT_JS, "text/javascript; charset=utf-8")
+            if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(ed_state.ROOT, name)):
+                return self._send_path(os.path.join(ed_state.ROOT, name), "text/javascript; charset=utf-8")
+            fn = GET_API.get(u.path)
+            if fn is not None:
+                return self._json(200, fn(arg))
             if u.path == "/api/settings":
                 try:
                     with open(ed_state.SETTINGS, "rb") as f:
@@ -338,77 +460,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw, "application/json")
                 except OSError:
                     return self._json(200, {})
-            if u.path == "/api/marker":
-                return self._json(200, ed_misc.read_marker())
-            if u.path == "/api/voices":   # A-3: 覚えている声の一覧(特徴そのものは返さない)
-                return self._json(200, {"voices": ed_speakers.voices_summary(), "match": ed_speakers.VOICE_MATCH})
-            if u.path == "/api/overlap-drafts":   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から。2026-10-05)
-                return self._json(200, ed_speakers.ovdraft_for_doc((q.get("id") or [""])[0], (q.get("kinds") or [None])[0]))
-            if u.path == "/api/voices/preview":   # 段1(監査17・18): 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
-                return self._json(200, ed_speakers.voice_preview((q.get("tid") or [""])[0], (q.get("embedding") or [""])[0]))
-            if u.path == "/api/transcribed-ranges":
-                return self._json(200, {"items": ed_misc.transcribed_ranges()})
-            if u.path == "/api/jobs":
-                with ed_jobs._jobs_lock:
-                    return self._json(200, {"jobs": [ed_jobs.public_job(ed_jobs._jobs[i]) for i in ed_jobs._order if i in ed_jobs._jobs]})
-            if u.path == "/api/transcripts":
-                return self._json(200, {"items": ed_store.list_transcripts()})
-            if u.path == "/api/learned":
-                mc = (q.get("min") or ["1"])[0]
-                return self._json(200, ed_learn.learned_candidates(max(1, min(20, int(mc))) if mc.isdigit() else 1))
-            if u.path == "/api/suggest":
-                tid = (q.get("id") or [""])[0]
-                if not ed_state.TID_RE.match(tid):
-                    raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
-                return self._json(200, ed_learn.suggest_for_doc(tid))
-            if u.path == "/api/metrics":
-                tid = (q.get("id") or [""])[0]
-                if tid and not ed_state.TID_RE.match(tid):
-                    raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
-                sc = (q.get("scope") or ["all"])[0]
-                return self._json(200, ed_learn.all_metrics(tid or None, (q.get("legacy") or ["0"])[0] == "1", sc if sc in ("all", "eval", "train") else "all"))
-            if u.path == "/api/eval-baselines":
-                return self._json(200, {"items": ed_learn.read_baselines()})
-            if u.path == "/api/evals":
-                tid = (q.get("id") or [""])[0]
-                if tid and not ed_state.TID_RE.match(tid):
-                    raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
-                return self._json(200, {"items": ed_misc.list_evals(tid or None)})
-            if u.path == "/api/eval":
-                return self._json(200, ed_misc.read_eval((q.get("id") or [""])[0]))
-            if u.path == "/api/progress":
-                return self._json(200, ed_misc.progress_stats())
-            if u.path == "/api/drill/status":   # 評価ドリル(Q4): 定点の「あと何分」と条件
-                return self._json(200, ed_drill.drill_status())
-            if u.path == "/api/drill/next":     # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
-                return self._json(200, ed_drill.drill_next((q.get("skip") or [""])[0]))
-            if u.path == "/api/drill/candidates":   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
-                return self._json(200, ed_drill.drill_candidates((q.get("id") or [""])[0]))
-            if u.path == "/api/dataset":
-                return self._json(200, ed_learn.dataset_stats())
-            if u.path == "/api/history":
-                return self._json(200, {"items": ed_store.list_history((q.get("id") or [""])[0])})
-            if u.path == "/api/transcript":
-                d = ed_store.read_transcript((q.get("id") or [""])[0])
-                return self._json(200, dict(d, evalLocked=ed_relink.in_eval_dir(d.get("sourcePath"))))   # 評価用のフォルダの動画(画面で外せない)
-            if u.path == "/api/eval-folders":
-                return self._json(200, ed_relink.eval_folders_info())
-            if u.path == "/api/eval-audio":   # 評価用の音声(flac)の作成の状態(本数・作った数・残り・大きさ・最後のエラー)
-                return self._json(200, ed_evalaudio.status())
-            if u.path == "/api/eval-batch":   # 評価用の動画のまとめての文字起こしの状態(Q4)
-                return self._json(200, ed_evalbatch.eval_batch_status())
-            if u.path == "/api/edit":
-                return self._json(200, ed_store.get_edit((q.get("id") or [""])[0]))
-            if u.path == "/api/edit/draft":
-                return self._json(200, ed_store.edit_draft((q.get("id") or [""])[0], (q.get("rows") or [""])[0] == "1"))
-            if u.path == "/api/edit/pack-readme":
-                return self._json(200, ed_store.pack_readme((q.get("id") or [""])[0]))
-            if u.path == "/api/doc-for":
-                return self._json(200, {"doc": ed_store.find_doc_for_media((q.get("path") or [""])[0])})
             if u.path == "/api/peaks":
-                return self._peaks((q.get("id") or [""])[0])
+                return self._peaks(arg("id"))
             if u.path == "/media":
-                return self._media((q.get("id") or [""])[0])
+                return self._media(arg("id"))
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "そのページ・操作はありません")
@@ -474,169 +529,62 @@ class Handler(BaseHTTPRequestHandler):
         if obj is None:
             return
         try:
-            if path == "/api/transcribe":
-                spec = ed_jobs.validate_job(obj)
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(spec)))
-            if path == "/api/diarize":
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_speakers.validate_diarize(obj), "diarize")))
-            if path == "/api/voices/learn":   # A-3: 名前を付けた話者の声を覚える(ジョブ)
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_speakers.validate_voice_learn(obj), "voice-learn")))
-            if path == "/api/speakers/sub":   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
-                return self._json(200, ed_speakers.speakers_sub_apply(obj))
-            if path == "/api/voices/delete":
-                ed_speakers.delete_voice(str(obj.get("embedding") or ed_speakers.DIAR_EMB_DEFAULT), str(obj.get("name") or "")[:60])
-                return self._json(200, {"ok": True, "voices": ed_speakers.voices_summary()})
-            if path == "/api/retranscribe":
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_jobs.validate_retranscribe(obj), "retranscribe")))
-            if path == "/api/redo":
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_jobs.redo_spec(str(obj.get("tid") or ""), obj), "redo")))
-            if path == "/api/alt":   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_alt.alt_spec(str(obj.get("id") or obj.get("tid") or ""), obj), "alt")))
-            if path == "/api/ytcap":   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_ytcap.ytcap_spec(str(obj.get("id") or obj.get("tid") or ""), obj), "ytcap")))
-            if path == "/api/scan-folder":
-                return self._json(200, ed_misc.scan_folder(obj.get("path"), obj.get("recursive") is True))
-            if path == "/api/transcribe-batch":
-                return self._json(200, ed_misc.add_batch(obj))
-            if path == "/api/settings/patch":   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
-                return self._json(200, ed_learn.patch_settings(obj))
-            if path == "/api/eval-baseline":
-                return self._json(200, ed_learn.record_baseline(obj.get("label")))
-            if path == "/api/abtest":
-                return self._json(200, ed_jobs.public_job(ed_jobs.add_job(ed_misc.validate_abtest(obj), "abtest")))
-            if path == "/api/archive":
-                n = ed_learn.start_archive(obj.get("tid") or None, obj.get("full") is not False)
-                return self._json(200, {"ok": True, "docs": n})
-            if path == "/api/restore":
-                tid = str(obj.get("id", ""))
-                doc = ed_store.restore_history(tid, obj.get("ts"))
-                return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"]})
-            if path == "/api/suggest/feedback":
-                return self._json(200, {"ok": True, "n": ed_learn.record_feedback(obj)})
+            fn = POST_API.get(path)
+            if fn is not None:
+                return self._json(200, fn(obj))
             if path == "/api/export-corrections":
-                tid = obj.get("tid")
-                if tid is not None and not ed_state.TID_RE.match(str(tid)):
-                    raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
-                zp, n, na, skipped = ed_learn.export_corrections(str(tid) if tid else None, obj.get("audio") is not False, "proofed" if obj.get("scope") == "proofed" else "changed")
-                try:
-                    if n == 0:
-                        raise ed_state.ApiError("empty", "書き出せる修正がありません(修正した行が無いか、修正前の出力が残っていない文字起こしです)", 400)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/zip")
-                    self.send_header("Content-Length", str(os.path.getsize(zp)))
-                    self.send_header("Content-Disposition", 'attachment; filename="corrections.zip"')
-                    self.send_header("X-Clips", "%d,%d,%d" % (n, na, skipped))
-                    self.send_header("Access-Control-Expose-Headers", "X-Clips")
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    with open(zp, "rb") as f:
-                        while True:
-                            chunk = f.read(65536)
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                    return
-                except (BrokenPipeError, ConnectionError):
-                    return
-                finally:
-                    try:
-                        os.unlink(zp)
-                    except OSError:
-                        pass
+                return self._export_corrections(obj)
             if path == "/api/resolve-package":
-                import resolve_export
-                tid = str(obj.get("tid") or "")
-                if not ed_state.TID_RE.match(tid):
-                    raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
-                zp = tmp_dir = None
-                try:
-                    try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
-                        from ytt_core import colors as _colors
-                        who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
-                    except ValueError as e:
-                        raise ed_state.ApiError("bad_streamer", str(e), 400)
-                    tdoc = ed_store.read_transcript(tid)
-                    spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0]                         if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
-                    ed, _broken = ed_store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
-                    zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"),
-                                                                      str(obj.get("size") or "") or None, ed_state.SERVER_VERSION,
-                                                                      keeps=ed_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                                      row_edge=ed_learn.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
-                                                                      wrap=ed_store.wrap_arg(obj.get("wrap"), obj.get("size")),
-                                                                      color={"hex": hex_, "who": who} if hex_ else None,
-                                                                      speaker_colors=spk_map)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/zip")
-                    self.send_header("Content-Length", str(os.path.getsize(zp)))
-                    self.send_header("Content-Disposition", 'attachment; filename="resolve-package.zip"')
-                    self.send_header("X-Resolve-Cuts", str(info["cuts"]))
-                    self.send_header("X-Resolve-Captions", str(info["captions"]))
-                    self.send_header("X-Resolve-Handles", "1" if info["media"]["hasEditHandles"] else "0")
-                    self.send_header("Access-Control-Expose-Headers", "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles")
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    with open(zp, "rb") as f:
-                        while True:
-                            chunk = f.read(65536)
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                    return
-                except resolve_export.ResolveExportError as e:
-                    raise ed_state.ApiError("resolve_export", str(e), 400)
-                except (BrokenPipeError, ConnectionError):
-                    return
-                finally:
-                    if tmp_dir:
-                        shutil.rmtree(tmp_dir, ignore_errors=True)
-            if path == "/api/export-file":
-                return self._json(200, ed_misc.export_file(obj))
-            if path == "/api/open-video":
-                return self._json(200, ed_store.open_video(obj))
-            if path == "/api/relink/check":
-                return self._json(200, ed_relink.relink_check(obj))
-            if path == "/api/relink":
-                return self._json(200, ed_relink.relink_doc(obj))
-            if path == "/api/relink/missing":
-                return self._json(200, ed_relink.relink_missing())
-            if path == "/api/relink/find":
-                return self._json(200, ed_relink.relink_find(obj))
-            if path == "/api/eval-folders/organize":
-                return self._json(200, ed_relink.eval_organize("button"))
-            if path == "/api/eval-folders/settle":
-                return self._json(200, ed_relink.eval_settle(obj))
-            if path == "/api/eval-batch/start":
-                return self._json(200, ed_evalbatch.eval_batch_start(obj))
-            if path == "/api/eval-batch/stop":
-                return self._json(200, ed_evalbatch.eval_batch_stop(obj))
-            if path == "/api/eval-batch/redo":   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
-                return self._json(200, ed_evalbatch.eval_batch_redo(obj))
-            if path == "/api/eval-batch/redo-one":   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
-                return self._json(200, ed_evalbatch.eval_batch_redo_one(obj))
-            if path == "/api/pick":
-                return self._json(200, ed_relink.pick_path(obj))
-            if path == "/api/resplit":
-                return self._json(200, ed_jobs.resplit_doc(obj))
-            if path == "/api/retime":   # 行の時刻を単語の時刻に合わせる候補(読むだけ。ed_retime)
-                return self._json(200, ed_retime.retime_doc(obj))
-            if path == "/api/edit/pack":
-                return self._json(200, ed_store.record_pack(obj))
-            if path == "/api/edit/preview":
-                return self._json(200, ed_store.edit_preview(obj))
-            if path == "/api/effort":
-                return self._json(200, ed_store.add_effort(obj))
-            if path == "/api/drill/reviewed":     # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
-                return self._json(200, ed_drill.drill_reviewed(obj))
-            if path == "/api/drill/unreviewed":   # 確かめ済みの印を外す
-                return self._json(200, ed_drill.drill_unreviewed(obj))
-            if path == "/api/transcribe/cancel":
-                ed_jobs.cancel_job(obj.get("id"))
-                return self._json(200, {"ok": True})
+                return self._resolve_package(obj)
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "その操作はありません")
+
+    def _export_corrections(self, obj):
+        tid = obj.get("tid")
+        if tid is not None and not ed_state.TID_RE.match(str(tid)):
+            raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
+        zp, n, na, skipped = ed_learn.export_corrections(str(tid) if tid else None, obj.get("audio") is not False, "proofed" if obj.get("scope") == "proofed" else "changed")
+        try:
+            if n == 0:
+                raise ed_state.ApiError("empty", "書き出せる修正がありません(修正した行が無いか、修正前の出力が残っていない文字起こしです)", 400)
+            self._send_zip(zp, "corrections.zip", {"X-Clips": "%d,%d,%d" % (n, na, skipped), "Access-Control-Expose-Headers": "X-Clips"})
+        except (BrokenPipeError, ConnectionError):
+            pass
+        finally:
+            ed_state.unlink_quiet(zp)
+
+    def _resolve_package(self, obj):
+        import resolve_export
+        tid = str(obj.get("tid") or "")
+        if not ed_state.TID_RE.match(tid):
+            raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
+        tmp_dir = None
+        try:
+            try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
+                from ytt_core import colors as _colors
+                who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
+            except ValueError as e:
+                raise ed_state.ApiError("bad_streamer", str(e), 400)
+            tdoc = ed_store.read_transcript(tid)
+            spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0] \
+                if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
+            ed, _broken = ed_store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
+            zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, ed_state.SERVER_VERSION,
+                                                              keeps=ed_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
+                                                              row_edge=ed_learn.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
+                                                              wrap=ed_store.wrap_arg(obj.get("wrap"), obj.get("size")),
+                                                              color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=spk_map)
+            self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),
+                                                        "X-Resolve-Handles": "1" if info["media"]["hasEditHandles"] else "0",
+                                                        "Access-Control-Expose-Headers": "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles"})
+        except resolve_export.ResolveExportError as e:
+            raise ed_state.ApiError("resolve_export", str(e), 400)
+        except (BrokenPipeError, ConnectionError):
+            pass
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _put(self):
         if not self._guard(True):
@@ -707,7 +655,6 @@ def probe(port):
 
 
 def make_server(start_port):
-    pass  # (global は分割で外した)
     for p in range(start_port, start_port + 20):
         ver = probe(p)
         if ver == ed_state.SERVER_VERSION:
@@ -772,12 +719,10 @@ _started = []
 # 以前の場所(このフォルダ)から新しい置き場へ写す名前。ログ・起動中の印・一時ファイル(transcripts/.tmp も)は写さなくてよいが、
 # transcripts はフォルダごと写す(.bak・.hist の控えも含めて)
 DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "learn-feedback.json", "eval-baselines.json")
-DATA_STATE = None
 
 
 def set_data_dir(d):
     """作業データの置き場所を切り替える(起動時に1回。ジョブが動く前)。ワーカーにも環境変数で伝える"""
-    pass  # (global は分割で外した)
     ed_state.DATA_DIR = os.path.abspath(d)
     ed_state.TX_DIR = os.path.join(ed_state.DATA_DIR, "transcripts")
     ed_state.TMP_DIR = os.path.join(ed_state.TX_DIR, ".tmp")
@@ -807,13 +752,11 @@ def studio_data_path():
 
 def choose_data_dir():
     """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt_core.datadir(以前のデータがあれば新しい置き場へコピー)"""
-    global DATA_STATE
     ed_state.STUDIO_DATA = studio_data_path()
     if os.environ.get("TRANSCRIBE_DATA_DIR"):
         set_data_dir(os.environ["TRANSCRIBE_DATA_DIR"])
         return
     r = _datadir.prepare(ed_state.TOOL_ID, ed_state.ROOT, DATA_ITEMS, log=lambda m: print(m, flush=True))
-    DATA_STATE = r
     for w in r["warnings"]:
         print("※ " + w, flush=True)
     set_data_dir(r["dir"])
@@ -823,7 +766,6 @@ def prepare(port, base_path="/", hooks=False):
     """待ち受け以外の起動の準備(ログ・前回の異常終了の確認・.runtime・環境チェック・ジョブのスレッド)。
     main() と、入口の統合サーバー(home/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
     シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取る)。"""
-    pass  # (global は分割で外した)
     ed_state.PORT, ed_state.BASE_PATH = port, base_path
     if not ed_state.ALLOWED_HOSTS:
         ed_state.ALLOWED_HOSTS = httpsec.allowed_hosts(port)

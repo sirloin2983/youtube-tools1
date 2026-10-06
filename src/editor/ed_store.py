@@ -4,36 +4,17 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
 import bisect
-import difflib
-import faulthandler
-import gc
-import hashlib
-import itertools
 import json
-import logging
-import logging.handlers
 import math
 import os
-import queue
 import re
 import shutil
-import socket
-import subprocess
-import sys
-import tarfile
 import threading
 import time
-import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
+from ytt_core import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
@@ -42,6 +23,27 @@ import ed_state  # noqa: E402,F401
 # ---------- 文字起こしの保存 ----------
 def tx_path(tid):
     return os.path.join(ed_state.TX_DIR, tid + ".json")
+
+
+def write_doc(tid, doc):
+    """文書を書く(読みやすい JSON。ed_state.atomic_write = 書き出しを確かめてから置き換え)。文書の書き込みはここを通す"""
+    ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+
+
+def snapshot(tid, force=True):
+    """いまの文書を履歴へ1つ残す(hist_snapshot。残せなくても続ける)"""
+    try:
+        hist_snapshot(tid, force=force)
+    except OSError:
+        pass
+
+
+def backup_doc(tid, kind):
+    """機械が行を書き換える前の控え: .bak/<id>.pre-<kind>.json(直前の 1 世代)と履歴(「以前の版に戻す」で戻せる)"""
+    bak = os.path.join(ed_state.TX_DIR, ".bak")
+    os.makedirs(bak, exist_ok=True)
+    shutil.copy2(tx_path(tid), os.path.join(bak, "%s.pre-%s.json" % (tid, kind)))
+    snapshot(tid)
 
 
 # ---------- 話者ごとの字幕の見た目 sub(2026-10-05。docs/spec/friend-intake.md の 6) ----------
@@ -205,6 +207,14 @@ def transcript_summary(tid):
 
 def _tids():
     return [n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5])]
+
+
+def summaries():
+    """全文書の (id, 要約 transcript_summary, 動画のパス)(読めない文書は除く。要約はキャッシュ = 文書を読み直さない)"""
+    for tid in _tids():
+        sm = transcript_summary(tid)
+        if sm:
+            yield tid, sm, str(sm.get("_sourcePath") or "")
 
 
 _studio_cache = {"key": None, "path": None, "videos": {}, "groups": []}   # スタジオの data.json から読んだ {videoId: {"channel", "title"}} と
@@ -410,11 +420,8 @@ def save_transcript(tid, obj):
         doc = sanitize_transcript(obj, base)
         effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
         apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
-        try:
-            hist_snapshot(tid)
-        except OSError:
-            pass    # 履歴が残せなくても保存は止めない
-        ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        snapshot(tid, False)   # 履歴が残せなくても保存は止めない
+        write_doc(tid, doc)
         return doc
 
 
@@ -437,7 +444,7 @@ def restore_history(tid, ts):
             if ed_relink.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
                 old["evalSet"] = True
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
-            ed_state.atomic_write(tx_path(tid), json.dumps(old, ensure_ascii=False, indent=1).encode("utf-8"))
+            write_doc(tid, old)
         except (OSError, ValueError):
             raise ed_state.ApiError("broken", "履歴を読み込めません", 500)
         return old
@@ -451,14 +458,10 @@ MAX_EFFORT_SEC = 3600   # 1回に足せる秒の上限(画面は 30 秒刻みで
 EFFORT_KEYS = ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows")
 
 
-def _plain_int(v):
-    return v if isinstance(v, int) and not isinstance(v, bool) else None
-
-
 def _effort_of(doc):
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    out = {k: max(0, _plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
-    if _plain_int(ef.get("lastAt")):
+    out = {k: max(0, ed_state.plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
+    if ed_state.plain_int(ef.get("lastAt")):
         out["lastAt"] = ef["lastAt"]
     return out
 
@@ -481,7 +484,7 @@ def add_effort(obj):
     """POST /api/effort {"id", "activeSec", "cutSec"?, "newSession"?} -> {"effort": 累計}。文書の effort の時間と回数に足す。
     **文書の updatedAt は変えない**。保存と同じロックの中で読み直して足す"""
     tid = str(obj.get("id") or "")
-    sec, cut = _plain_int(obj.get("activeSec", 0)), _plain_int(obj.get("cutSec", 0))
+    sec, cut = ed_state.plain_int(obj.get("activeSec", 0)), ed_state.plain_int(obj.get("cutSec", 0))
     if sec is None or cut is None or not 0 <= sec <= MAX_EFFORT_SEC or not 0 <= cut <= MAX_EFFORT_SEC:
         raise ed_state.ApiError("bad_request", "activeSec・cutSec は 0〜%d 秒の整数にしてください" % MAX_EFFORT_SEC, 400)
     with _save_lock:
@@ -494,7 +497,7 @@ def add_effort(obj):
         ef["sessions"] += 1 if obj.get("newSession") is True else 0
         ef["lastAt"] = int(time.time() * 1000)
         doc["effort"] = ef
-        ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        write_doc(tid, doc)
         return {"effort": ef}
 
 
@@ -829,7 +832,7 @@ def save_edit(tid, obj):
             raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)
         ed_state.atomic_write(edit_path(tid), body)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
         if apply_edit_cuts(tid, doc, d):
-            ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            write_doc(tid, doc)
         cut_rows = [s.get("id") for s in doc.get("segments") or [] if isinstance(s, dict) and s.get("cutState") == "cut"]
         return {"rev": d["rev"], "cutRows": cut_rows, "updatedAt": now}
 
@@ -939,12 +942,10 @@ def record_pack(obj):
 
 def edit_summary(tid):
     """一覧の各文書の編集・パックの状態(ファイルの更新日時と大きさが同じなら前の結果)。"""
-    try:
-        st = os.stat(edit_path(tid))
-    except OSError:
+    key = ed_state.file_stamp(edit_path(tid))
+    if key is None:
         _edit_cache.pop(tid, None)
         return {"hasEdit": False, "editRev": 0, "packRev": 0, "_packDocAt": 0, "packAt": 0}
-    key = (st.st_mtime_ns, st.st_size)
     hit = _edit_cache.get(tid)
     if hit and hit[0] == key:
         return hit[1]
@@ -986,7 +987,7 @@ def fill_doc(spec, fields):
             doc["evalSet"] = True   # 評価用として文字起こしした(外すのは画面の「評価用にする」)
         doc.pop("evalReviewed", None)   # 機械が行を書いたので「全部聞いて確かめた」印は外す(行の無い文書を確かめ済みにしていたとき)
         apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
-        ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        write_doc(tid, doc)
         return tid
 
 
@@ -996,14 +997,10 @@ def probe_media(path):
     ff = ed_state.find_ffmpeg()
     if not ff:
         raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    try:
-        p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
-    except (OSError, subprocess.SubprocessError):
+    out = ed_state.ffmpeg_info(path, ff)
+    if out is None:
         return None, False, False
-    out = p.stdout or ""
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
-    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+    dur = ed_state.duration_in(out)
     streams = [l for l in out.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
     has_v = any(": Video:" in l and "attached pic" not in l for l in streams)
     has_a = any(": Audio:" in l for l in streams)
@@ -1020,9 +1017,8 @@ def find_doc_for_media(path):
         return None
     key = os.path.normcase(os.path.abspath(p))
     best = None
-    for tid in _tids():
-        sm = transcript_summary(tid)
-        if not sm or not any(p and os.path.normcase(os.path.abspath(p)) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
+    for tid, sm, _sp in summaries():
+        if not any(p and os.path.normcase(os.path.abspath(p)) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
             continue
         rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
         if best is None or rank > best[0]:
@@ -1053,6 +1049,6 @@ def open_video(req):
         if clip:
             doc["clip"] = clip
         with _save_lock:
-            ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            write_doc(tid, doc)
     ed_state.log.info("文字起こしせずに開く: %s", os.path.basename(src))
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}

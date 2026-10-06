@@ -1523,3 +1523,44 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   失敗の文で、まとめて実行の理由が段の名前で始まるときは重ねない / 「調子」に出すのは 7 日以内・20 件まで / スタジオの画面(review.js)は触らず、帯の今の欄(error・warning)に同じ文を入れた
 - 未完了・次: M9(確認の一覧)で live_failures.collect をそのまま使う。M7 は adopt(origin archive)を呼ぶだけでよい。`dev/eval_marks.py --live` が live_feedback.jsonl を読むのは別の担当
 - 未コミット: なし(このコミット。ほかの担当の作業途中の変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ editor(サーバー側)の見直し(同じ処理を 1 か所に・API の振り分けを表に・使っていない import と名前を削除。編集 0.57.1 → 0.57.2)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。HTTP の API・文書の形式(transcripts/<id>.json・.edit.json・.diar.json・words.json・asr.json・recognition.runs)・
+  設定の鍵・環境変数・既定の値・ワーカーとの受け渡し・文字起こしの結果は変えない。画面側(*.js・index.html・ui-kit.js)は触らない(app.js は APP_VERSION の 1 行だけ)
+- 変更(`src/editor/`):
+  - 共通の小道具を 1 か所に: `ed_state` に `unlink_quiet`・`file_stamp`・`read_schema_json`(words・asr・diar・alt・ytcap の読み方)・`union_spans`(区間をつなぐ = 以前の merge_spans・_ovdraft_union・_nosub_span・_turn_overlaps の中身)・
+    `plain_int`(ed_store・ed_drill の _plain_int)・`fake_sleep`・`ffmpeg_info`/`duration_in`(media_duration と probe_media の ffmpeg -i)。
+    `ed_store` に `write_doc`(文書の書き込み 20 か所)・`snapshot`・`backup_doc`(`.bak/<id>.pre-<kind>.json` + 履歴。再認識・話者判別・付け替え)・`summaries()`(全文書の要約と動画のパス。8 か所のループ)。
+    `ed_jobs` に `job_errors`(ジョブの本体の 取り消し / ApiError / 内部エラー と一時 wav の後片付け。run_job・run_redo・run_retranscribe・run_diarize・run_voice_learn・run_abtest・run_alt・run_ytcap の同じ try/except を置き換え)・
+    `job_done`・`tid_busy`(同じ文書の処理中の確かめ 7 か所)・`JOB_RUNNERS`(ジョブの種類 → 本体)・`ChunkModel`(行ごとの認識と GPU 失敗の CPU でのやり直し。再認識の each と設定の比較の写しを 1 つに)・
+    `split_terms`/`glossary_of`(用語集の欄 4 か所)・`engine_version`(3 か所)・`_fresh_id`(新しい行の id 3 か所)・`_with_next`(trim_ends・pull_ends・join_rows の先読み)。`tx_engines` は wav の書き出し(_wav_bytes が _write_wav を使う)・speech_spans の読み込み(_read_16k)を 1 つに。
+    `ed_alt` に `alt_cached`・`alt_spans_of`・`alt_skip`(ed_ytcap の候補も同じものを使う)。`resolve_export` に `_source_and_pack`・`_draft_cache`・`_write_transcript`(たたき台・見積もり・zip の同じ前置き)
+  - 長い関数を分けた: `run_job` → `_rows_to_doc`・`_doc_fields`、`run_retranscribe` → `_retranscribe_range`・`_retranscribe_each`、`ed_relink` の `_eval_walk`(_eval_videos・_eval_members)・`_eval_best_member`(仮置きから移す・外から取り込む)
+  - serve.py: HTTP の振り分けを表 `GET_API`・`POST_API` に(パス → lambda。部品の関数は呼ぶたびに読む = mock.patch が効く)。zip を返す 2 つは `_export_corrections`・`_resolve_package` + `_send_zip`。
+    使っていない import(serve・ed_* で計 170 行ほど)・`pass  # (global は分割で外した)`・読まれない `DATA_STATE` を消した
+  - 使われていない名前を消した(リポジトリ全体を grep。dev/・src/home/・テストで 0 件): `ed_learn.learn_pairs`・`ed_evalbatch.EB_MAX_ITEMS`・`resolve_export.TEXTPLUS_FPS`/`TEXTPLUS_SIZES`/`_srt_time`(旧名)・
+    `pipeline_io.MAX_RUNTIME_BYTES`・`ed_jobs.range_lines_real` の使わない変数・`ed_media._peaks_run` の使わない引数・`tx_worker._accepted_params`・`ed_retime`/`ed_ytcap` の使わない import ed_learn
+  - 小さな非効率: 文字起こしの行ごとに prompt_terms を作り直していたのを 1 回に・話者の id の集まりを行ごとに作らない
+  - 文書: `src/editor/AGENTS.md`(現在の版と「構成」に「共通の小道具」の節)・`README.txt`(見出しと ■ v0.57.2)
+- 版: 編集 0.57.1 → 0.57.2(serve.py の SERVER_VERSION・app.js の APP_VERSION・README の見出し)
+- 行数: `src/editor/*.py` 15,535 → 15,146 行(890 KB → 870 KB)。serve 945 → 887・ed_speakers 1570 → 1502・ed_misc 571 → 510・ed_learn 1375 → 1319・ed_relink 1113 → 1070・ed_ytcap 585 → 550・ed_jobs 2995 → 2975
+  (ed_jobs は小道具を受け持つ側なので減りは小さい)
+- 確かめ方: 変更前(HEAD を git archive で取り出した editor)と変更後の serve.py を疑似モード(TRANSCRIBE_BACKEND=fake)で起動し、同じ HTTP の要求 120 本
+  (文字起こし・保存・409・編集の内容・パックの記録・分け直し・時刻の候補・話者判別・声を覚える/忘れる・再認識 each / range / whole・疑わしい所・設定の比較・2つ目のエンジン・
+  設定の patch / PUT・書き出し 3 種・修正データの zip・Resolve の zip・保管・履歴から戻す・文字起こしせずに開く・付け替えの確認/探す・フォルダ・まとめて・評価用の API の断り・/media の Range と 416・
+  波形・404 / 415 / 不正な JSON / Host の 403・削除)を送り、状態コード・JSON(id・時刻・作業フォルダのパスを置き換えて)・決まったヘッダーと、残った文書を比べた = 同じ
+  (違いは比べ方の都合だけ: git archive の LF と作業フォルダの CRLF で index.html・cut.js の大きさ)
+- テスト: 編集の単体 552 件 OK(skip 1)・`src/home/tests/test_mount.py` 26 件 OK・`dev/tests/test_resolve_pack_contract.py` 35 件 OK・`test_eval_asr.py` 51 件 OK・`test_eval_timing.py` 9 件 OK・`test_eval_alt.py` 21 件 OK・
+  e2e(`e2e_ui_mounted`・`e2e_edit_tabs`・`e2e_drill`・`e2e_proofread_keys`)ALL PASSED(47・136・70・125 件)・`test_document_save.cjs` 10 件 OK。テストは直していない(件数も同じ)
+- 直さなかった候補と理由:
+  - `relink_path` と `relink_folder`(検査の順番と文がそれぞれ違う。まとめると断る理由の文が変わる)・`transcribe_real` と `RangeRecognizer.main` の GPU 失敗のやり直し
+    (環境変数 TRANSCRIBE_DEVICE=cuda で処理方式 cpu のときの扱いが 2 つで違う = まとめると動きが変わる)・`ed_speakers._download_verified` と `tx_engines.fetch_file`(大きさの決まりが違う)
+  - `alt_diffs`(104 行)・`_eb_tick_locked`(89 行)・`archive_doc`(89 行)は 1 つの流れなので分けていない。説明のコメントは残した(決定の理由の記録のため)
+  - `dev/eval_asr.py` の `load_serve`(serve を sys.modules に登録しない読み方)は別の担当なので触っていない
+- 注意:
+  - **版を 0.57.2 にしたので、これから文字起こしした文書の `recognition.runs[].post.version` は "0.57.2"**(行の後処理は 0.57.1 と同じ)。`dev/eval_timing.py` の組の見出し(post_label)は版を含むので、
+    「後処理 v0.57.1 …」と「後処理 v0.57.2 …」に分かれる = 0.57.1 の効き目を見るときは 2 つを合わせて読む(eval_timing は別の担当なので直していない)
+  - 新しい API は serve.py の `GET_API`・`POST_API` に 1 行(関数は lambda の中で `ed_xxx.名前` と呼ぶ。表に関数そのものを入れると mock.patch が効かない)
+  - 文書の書き込みは `ed_store.write_doc`、機械が行を書き換える前の控えは `ed_store.backup_doc`、ジョブの本体は `with ed_jobs.job_errors(job, wav):` で囲む(AGENTS.md の「共通の小道具」)
+  - 起動中の入口は古いコードのまま。ユーザーに「すべて終了」→ start.bat で起動し直してもらう(画面の版の帯が 0.57.2 になる)
+- 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/cut2resolve/・src/home/・src/studio/・src/ui-kit/ は入れていない)

@@ -4,36 +4,21 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
 import bisect
-import difflib
-import faulthandler
-import gc
 import hashlib
-import itertools
 import json
-import logging
-import logging.handlers
 import math
 import os
-import queue
 import re
 import shutil
-import socket
-import subprocess
-import sys
 import tarfile
 import threading
 import time
 import unicodedata
 import urllib.error
-import urllib.parse
 import urllib.request
-import uuid
 import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
 import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
@@ -140,11 +125,7 @@ def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
             raise ed_state.ApiError("model_download", "話者判別のモデルをダウンロードできませんでした(初回はインターネット接続が必要です): %s" % str(e)[:150], 500)
         finally:
             for x in (tmp, part):
-                try:
-                    if os.path.exists(x):
-                        os.unlink(x)
-                except OSError:
-                    pass
+                ed_state.unlink_quiet(x)
 
 
 class WavRef:
@@ -256,7 +237,7 @@ def diarize_fake(job, total, num, threshold=None):
         e = min(total, t + 10.0)
         turns.append((t, e, k % n))
         job["progress"] = min(0.99, e / total)
-        time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+        ed_state.fake_sleep()
         t, k = e, k + 1
     return turns
 
@@ -364,13 +345,11 @@ def diar_path(tid):
 
 def read_diar(tid):
     """{"schema", "latest": {…}, "history": [前の回(新しい順)]}。無い・壊れていれば None"""
-    try:
-        d = _fsio.read_json_file(diar_path(tid), MAX_DIAR_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if not isinstance(d, dict) or d.get("schema") != DIAR_SCHEMA or not isinstance(d.get("latest"), dict):
-        return None
-    return d
+    return ed_state.read_schema_json(diar_path(tid), MAX_DIAR_BYTES, DIAR_SCHEMA, "latest", dict)
+
+
+def _diar_put(tid, d):
+    ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def write_diar(tid, run):
@@ -378,8 +357,7 @@ def write_diar(tid, run):
     with _diar_lock:
         old = read_diar(tid)
         hist = ([old["latest"]] + [h for h in old.get("history") or [] if isinstance(h, dict)]) if old else []
-        body = {"schema": DIAR_SCHEMA, "latest": run, "history": hist[:DIAR_KEEP - 1]}
-        ed_state.atomic_write(diar_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        _diar_put(tid, {"schema": DIAR_SCHEMA, "latest": run, "history": hist[:DIAR_KEEP - 1]})
 
 
 def update_diar_voices(tid, voices):
@@ -393,7 +371,7 @@ def update_diar_voices(tid, voices):
         for sid, one in (voices.get("speakers") or {}).items():
             one["label"] = inv.get(sid)
         latest["voices"] = voices
-        ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        _diar_put(tid, d)
         return True
 
 
@@ -414,13 +392,7 @@ def _turn_overlaps(ts):
             if t != s:
                 raw.append((a, min(b, y)))
         active.append((a, b, s))
-    merged = []
-    for a, b in sorted(raw):
-        if merged and a <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], b)
-        else:
-            merged.append([a, b])
-    return [[round(a, 2), round(b, 2)] for a, b in merged[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
+    return [[round(a, 2), round(b, 2)] for a, b in ed_state.union_spans(raw)[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
 
 
 def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, smoothed=None):
@@ -457,6 +429,11 @@ def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=
     smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)"""
     with ed_store._save_lock:
         return _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
+
+
+def _spk_ids(doc):
+    """文書の話者の id の集まり(文字列)"""
+    return {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
 
 
 def diar_keep_row(g, ids):
@@ -497,7 +474,7 @@ def _diar_kept_speakers(doc, segs, keep, taken):
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = ed_store.read_transcript(tid)
     segs = doc.get("segments") or []
-    ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    ids = _spk_ids(doc)
     keep = [diar_keep_row(g, ids) for g in segs]   # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     raw = assign_speakers(segs, turns, offset)
     smoothed = smooth_speakers(segs, raw, sorted((a + offset, b + offset, s) for a, b, s in turns), keep) if smooth else None
@@ -518,23 +495,17 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
                 sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
             continue
         sg["speaker"] = idmap.get(sp, "")
-        parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in (ed_state.MIXED_FLAG, ed_state.WEAK_FLAG, ed_state.NONE_FLAG)]
+        parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in ed_jobs.SPK_FLAGS]
         mark = ed_state.NONE_FLAG if not sg["speaker"] else ed_state.MIXED_FLAG if mixed else ed_state.WEAK_FLAG if weak else ""
         if mark:
             parts.append(mark)
             unsure += 1
         sg["flag"] = "、".join(parts)[:100]
-    bak = os.path.join(ed_state.TX_DIR, ".bak")
-    os.makedirs(bak, exist_ok=True)
-    shutil.copy2(ed_store.tx_path(tid), os.path.join(bak, tid + ".pre-diarize.json"))   # 直前の状態を1世代だけ残す
-    try:
-        ed_store.hist_snapshot(tid, force=True)      # 履歴にも残す(画面の「履歴」から戻せる)
-    except OSError:
-        pass
+    ed_store.backup_doc(tid, "diarize")   # 直前の状態を1世代だけ残す・履歴にも残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}))})
-    ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    ed_store.write_doc(tid, doc)
     _record_diar(tid, build_diar_run(segs, raw, turns, offset, requested, emb, idmap, auto, smoothed))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 
@@ -549,9 +520,8 @@ def validate_diarize(req):
         n = int(req.get("numSpeakers") or 0)
     except (TypeError, ValueError):
         n = 0
-    with ed_jobs._jobs_lock:
-        if any(j.get("kind") in ("diarize", "retranscribe") and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in ed_jobs._jobs.values()):
-            raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
+    if ed_jobs.tid_busy(tid, ("diarize", "retranscribe")):
+        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = str(req.get("embedding") or DIAR_EMB_DEFAULT)
     names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
     for x in req.get("names") if isinstance(req.get("names"), list) else []:
@@ -569,7 +539,7 @@ def single_speaker(tid, name):
     with ed_store._save_lock:
         doc = ed_store.read_transcript(tid)
         segs = doc.get("segments") or []
-        ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+        ids = _spk_ids(doc)
         keep = [diar_keep_row(g, ids) for g in segs]
         kept_sps, remap = _diar_kept_speakers(doc, segs, keep, {"S1"})
         same = _spk_name_key(name or "話者1")
@@ -582,17 +552,11 @@ def single_speaker(tid, name):
                     sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
                 continue
             sg["speaker"] = "S1"
-            sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in (ed_state.MIXED_FLAG, ed_state.WEAK_FLAG, ed_state.NONE_FLAG))[:100]
-        bak = os.path.join(ed_state.TX_DIR, ".bak")
-        os.makedirs(bak, exist_ok=True)
-        shutil.copy2(ed_store.tx_path(tid), os.path.join(bak, tid + ".pre-diarize.json"))
-        try:
-            ed_store.hist_snapshot(tid, force=True)
-        except OSError:
-            pass
+            sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in ed_jobs.SPK_FLAGS)[:100]
+        ed_store.backup_doc(tid, "diarize")
         doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}] + kept_sps, "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
-        ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        ed_store.write_doc(tid, doc)
         _record_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "single", "requested": 1}, "offset": 0.0, "turns": [], "overlaps": [],
                            "labelMap": {"0": "S1"}, "speakers": 1,
                            "rows": {str(sg.get("id")): {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False} for sg in segs},
@@ -610,11 +574,11 @@ def run_diarize(job):
             single_speaker(spec["tid"], (spec.get("names") or [""])[0])
             job["speakers"], job["unsure"] = 1, 0
             job["named"] = [{"speaker": "S1", "name": spec["names"][0], "score": None}] if spec.get("names") else []
-            job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
+            ed_jobs.job_done(job, spec["tid"])
         except Exception as e:
             job["state"], job["error"], job["phase"] = "error", "話者を付けられませんでした: %s %s" % (e.__class__.__name__, str(e)[:150]), "失敗"
         return
-    try:
+    with ed_jobs.job_errors(job, wav):
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
         doc = ed_store.read_transcript(spec["tid"])
         src = ed_state.check_source(doc.get("sourcePath"))
@@ -663,19 +627,7 @@ def run_diarize(job):
                     job["named"] = list(job.get("named") or []) + [hit]
             except Exception as e:   # 名前が付けられなくても判別の結果は残す
                 ed_state.log.warning("動画の手がかりで名前を付けられませんでした: %s %s", e.__class__.__name__, str(e)[:200])
-        job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
-    except ed_jobs.Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ed_state.ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except Exception as e:
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
-    finally:
-        try:
-            if os.path.exists(wav):
-                os.unlink(wav)
-        except OSError:
-            pass
+        ed_jobs.job_done(job, spec["tid"])
 
 
 # ---------- 重なりの所の空の行の下書き(2026-10-05。plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2) ----------
@@ -705,14 +657,8 @@ OVDRAFT_REASONS = {
 
 
 def _ovdraft_union(spans):
-    """[(開始, 終了)] をつなげて開始の順に(重なる・接するものは 1 つに)"""
-    out = []
-    for a, b in sorted((a, b) for a, b in spans if b > a):
-        if out and a <= out[-1][1]:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b])
-    return out
+    """[(開始, 終了)] をつなげて開始の順に(重なる・接するものは 1 つに。長さの無い区間は捨てる)"""
+    return ed_state.union_spans((a, b) for a, b in spans if b > a)
 
 
 def _ovdraft_covered(a, b, union):
@@ -806,7 +752,7 @@ def ovdraft_candidates(doc, latest, kinds=None):
     dur = ed_state.num(doc.get("duration"))
     hi = min(x for x in (hi, dur, float("inf")) if x is not None and x > 0)
     segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
-    ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
+    ids = _spk_ids(doc)
     covers = {}
     items = []
     for a, b, lb in sorted(joined):
@@ -1010,8 +956,7 @@ def autodiar_skip_at_start(job):
     if not why:
         return False
     job["autoSkipped"] = why
-    job["tid"], job["progress"], job["state"] = spec["tid"], 1.0, "done"
-    job["phase"] = "判別しませんでした(" + {"has_speakers": "話者が付いていました", "reviewed": "確かめ済みです", "empty": "文字のある行がありません"}.get(why, why) + ")"
+    ed_jobs.job_done(job, spec["tid"], "判別しませんでした(" + {"has_speakers": "話者が付いていました", "reviewed": "確かめ済みです", "empty": "文字のある行がありません"}.get(why, why) + ")")
     return True
 
 
@@ -1044,7 +989,7 @@ def autodiar_name_by_context(tid, name):
             if isinstance(doc.get("diarization"), dict):
                 doc["diarization"]["contextName"] = nm
             doc["updatedAt"] = int(time.time() * 1000)
-            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            ed_store.write_doc(tid, doc)
     _autodiar_record(tid, nm, hit, reason)
     return hit
 
@@ -1069,7 +1014,7 @@ def _autodiar_record(tid, name, hit, reason):
             v["speakers"] = sp
             v["context"] = {"name": name, "speaker": hit["speaker"] if hit else None, "reason": reason}
             latest["voices"] = v
-            ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            _diar_put(tid, d)
     except Exception as e:
         ed_state.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
@@ -1331,7 +1276,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
                 named.append({"speaker": left[0]["id"], "name": unused[0], "score": None, "by": "elimination"})
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
-            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            ed_store.write_doc(tid, doc)
     record(doc, named)
     return named
 
@@ -1421,9 +1366,8 @@ def validate_voice_learn(req):
     ask = [n for n in names if n in voices and n not in same]
     if ask:   # 監査18: 既にある名前に足すのは「同じ人」と確かめたときだけ(別人の声が混ざると、その名前の照らし合わせが外れる)
         raise ed_state.ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
-    with ed_jobs._jobs_lock:
-        if any(j.get("kind") in ("diarize", "retranscribe", "redo", "voice-learn") and j["spec"].get("tid") == tid and j["state"] in ed_jobs.ACTIVE_STATES for j in ed_jobs._jobs.values()):
-            raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+    if ed_jobs.tid_busy(tid, ("diarize", "retranscribe", "redo", "voice-learn")):
+        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     return {"tid": tid, "embedding": emb, "names": names, "confirmSame": sorted(same & set(names)),
             "title": "声を覚える: " + (str(doc.get("title") or "") or "無題")[:100]}
 
@@ -1431,7 +1375,7 @@ def validate_voice_learn(req):
 def run_voice_learn(job):
     spec = job["spec"]
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
-    try:
+    with ed_jobs.job_errors(job, wav):
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
         doc = ed_store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
@@ -1480,19 +1424,7 @@ def run_voice_learn(job):
             raise ed_state.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
         job["learned"] = learned
         job["speakers"] = len(learned)
-        job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
-    except ed_jobs.Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ed_state.ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except Exception as e:
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
-    finally:
-        try:
-            if os.path.exists(wav):
-                os.unlink(wav)
-        except OSError:
-            pass
+        ed_jobs.job_done(job, spec["tid"])
 
 
 def voices_summary():
@@ -1566,5 +1498,5 @@ def speakers_sub_apply(obj):
                 applied.append(str(s.get("name") or ""))
         if applied:
             doc["updatedAt"] = max(int(time.time() * 1000), int(ed_state.num(doc.get("updatedAt"), 0) or 0) + 1)
-            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            ed_store.write_doc(tid, doc)
     return {"ok": True, "applied": applied}

@@ -483,17 +483,10 @@ def speech_spans(audio, vp):
     """声のある所 [(開始秒, 終了秒)]。audio は wav のパスか float32 のサンプル(16kHz)。faster-whisper(の Silero)が無ければ None(捨てない)。
     vp = faster-whisper の vad_parameters(threshold・min_silence_duration_ms・speech_pad_ms)。認識ワーカーの中だけで呼ぶ(numpy を読む)"""
     try:
-        import numpy as np
         from faster_whisper.vad import VadOptions, get_speech_timestamps
-    except ImportError:
+        samples = _read_16k(audio, "声の検出")
+    except (ImportError, EngineError):   # 部品が無い・音声の形が違う
         return None
-    if isinstance(audio, str):
-        with wave.open(audio, "rb") as w:
-            if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
-                return None
-            samples = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
-    else:
-        samples = np.asarray(audio, dtype=np.float32)
     opts = VadOptions(**{k: vp[k] for k in ("threshold", "min_silence_duration_ms", "speech_pad_ms") if vp.get(k) is not None})
     return [(t["start"] / 16000.0, t["end"] / 16000.0) for t in get_speech_timestamps(samples, opts)]
 
@@ -526,7 +519,7 @@ def _wav_seconds(path):
 
 
 def _write_wav(path, samples):
-    """float32(-1〜1)のサンプル → 16kHz・モノラル・16bit の wav(numpy は呼ぶ側の配列のメソッドだけ使う)"""
+    """float32(-1〜1)のサンプル → 16kHz・モノラル・16bit の wav(path はファイルのパスか書ける入れ物。numpy は呼ぶ側の配列のメソッドだけ使う)"""
     import array
     try:
         ints = (samples.clip(-1.0, 1.0) * 32767.0).astype("<i2").tobytes()
@@ -836,13 +829,8 @@ def q3_parse(content):
 
 def _wav_bytes(samples):
     import io as _io
-    import numpy as np
     buf = _io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(16000)
-        w.writeframes((np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
+    _write_wav(buf, samples)
     return buf.getvalue()
 
 

@@ -4,36 +4,18 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
-import bisect
 import difflib
-import faulthandler
-import gc
-import hashlib
 import itertools
 import json
-import logging
-import logging.handlers
-import math
 import os
-import queue
 import re
 import shutil
-import socket
 import subprocess
-import sys
-import tarfile
 import threading
 import time
 import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(suggest_for_doc の yt。案 A1)
 import ed_jobs  # noqa: E402,F401
@@ -223,25 +205,13 @@ def is_nosub(g):
     return isinstance(g, dict) and g.get("noSub") is True
 
 
-def _nosub_span(segs):
-    """noSub の行の時間を、つなげた区間(開始の順)で返す"""
-    iv = sorted((g["start"], g["end"]) for g in segs if is_nosub(g) and ed_state.num(g.get("start")) is not None and ed_state.num(g.get("end")) is not None)
-    out = []
-    for a, b in iv:
-        if out and a <= out[-1][1]:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b])
-    return out
-
-
 def split_nosub(orig, segs):
     """(機械の行, 人の行) -> (本体の機械の行, 本体の人の行, noSub の時間の機械の行, noSub の人の行)。
     noSub の人の行は本体から外す。機械の行は、半分以上(NOSUB_IN)が noSub の行の時間に入るものを外す。noSub の行が無ければ、渡した 2 つのリストをそのまま返す"""
     ns = [g for g in segs if is_nosub(g)]
     if not ns:
         return orig, segs, [], []
-    span = _nosub_span(ns)
+    span = ed_state.union_spans((g["start"], g["end"]) for g in ns if ed_state.num(g.get("start")) is not None and ed_state.num(g.get("end")) is not None)   # noSub の行の時間をつなげた区間
     m_main, m_ns = [], []
     for o in orig:
         dur = o["end"] - o["start"]
@@ -360,10 +330,6 @@ def learn_events(doc):
     return out
 
 
-def learn_pairs(doc):
-    return [(w, r, c) for w, r, c, _l, _r in learn_events(doc)]
-
-
 def learn_groups(doc, scope="changed"):
     """人が直した行(まとまり)を [{start,end,original,text}] で返す(修正データの書き出し用)。
     scope="proofed" のときは、直した行に限らず、校正済みの行すべてを返す(直していない行は changed=False。original が無い文字起こしは original="")。
@@ -425,17 +391,13 @@ def _doc_info(tid):
 
 def _all_infos():
     out = []
-    if os.path.isdir(ed_state.TX_DIR):
-        for name in sorted(os.listdir(ed_state.TX_DIR)):
-            tid = name[:-5]
-            if not name.endswith(".json") or not ed_state.TID_RE.match(tid):
-                continue
-            try:
-                info = _doc_info(tid)
-            except (OSError, ValueError):
-                continue
-            if info is not None:
-                out.append((tid, info))
+    for tid in sorted(ed_store._tids()):
+        try:
+            info = _doc_info(tid)
+        except (OSError, ValueError):
+            continue
+        if info is not None:
+            out.append((tid, info))
     return out
 
 
@@ -475,12 +437,10 @@ def load_feedback():
             d = json.load(f)
         if isinstance(d, dict):
             out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
-            a = d.get("alt")
-            if isinstance(a, dict):   # 2つ目のエンジンの候補の採用・却下の数(学習の統計とは別。D1-b)
-                out["alt"] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
-            y = d.get("yt")
-            if isinstance(y, dict):   # YouTube の字幕の候補の採用・却下の数(同じく学習の統計とは別。案 A1)
-                out["yt"] = {k: int(y[k]) if isinstance(y.get(k), int) and not isinstance(y.get(k), bool) and y[k] >= 0 else 0 for k in ("acc", "rej")}
+            for src in ("alt", "yt"):   # 2つ目のエンジン(D1-b)・YouTube の字幕(案 A1)の候補の採用・却下の数(学習の統計とは別)
+                a = d.get(src)
+                if isinstance(a, dict):
+                    out[src] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
             return out
     except (OSError, ValueError):
         pass
@@ -745,7 +705,7 @@ def lev_counts(ref, hyp):
 def metric_terms(settings=None):
     """「用語が正しく出たか」を数えるための用語(用語集 + 置換辞書の「正」)。正規化済み・2文字以上。"""
     st = settings if settings is not None else load_settings()
-    raw = [t.strip() for t in re.split(r"[\r\n,、]+", str(st.get("glossary") or "")) if t.strip()]
+    raw = ed_jobs.split_terms(st.get("glossary"))
     raw += [r for _w, r in parse_replacements(st.get("replacements")) if r]
     out = []
     for t in raw:
@@ -872,7 +832,7 @@ def config_key(d):
 
 def all_metrics(tid=None, legacy=False, scope="all"):
     terms = metric_terms()
-    tids = [tid] if tid else sorted(n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]))
+    tids = [tid] if tid else sorted(ed_store._tids())
     total, by_cfg, rows = new_acc(), {}, []
     proofed_lines = docs_proofed = docs = 0
     for t in tids:
@@ -956,7 +916,7 @@ def export_corrections(tid=None, audio=True, scope="changed"):
     try:
         ff = ed_state.find_ffmpeg() if audio else None
         if scope == "proofed":
-            docs = [tid] if tid else sorted(n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]))
+            docs = [tid] if tid else sorted(ed_store._tids())
         else:
             docs = [tid] if tid else [t for t, _ in _all_infos()]
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
@@ -964,10 +924,7 @@ def export_corrections(tid=None, audio=True, scope="changed"):
         try:
             return _export_corrections_zip(path, docs, tid, ff, scope)
         except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            ed_state.unlink_quiet(path)
             raise
     finally:
         _export_lock.release()
@@ -1019,10 +976,7 @@ def _export_corrections_zip(path, docs, tid, ff, scope):
                     except (OSError, subprocess.SubprocessError):
                         name = None
                     finally:
-                        try:
-                            os.unlink(tmp)
-                        except OSError:
-                            pass
+                        ed_state.unlink_quiet(tmp)
                 lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
                                          "original": g["original"], "text": g["text"], "audio": name,
                                          **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
@@ -1149,10 +1103,7 @@ def _flac_cut(ff, src, dst, ss, dur):
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        ed_state.unlink_quiet(tmp)
     return False
 
 
@@ -1217,10 +1168,7 @@ def archive_doc(tid, full=True):
             if _flac_cut(ff, base, os.path.join(adir, e["key"] + ".flac"), e["start"] - start - ARCH_PAD, dur):
                 made += 1
     if wav:
-        try:
-            os.unlink(wav)
-        except OSError:
-            pass
+        ed_state.unlink_quiet(wav)
     keep, sig, spk_sec = set(), {}, {}
     counts = {"lines": len(entries), "positive": 0, "negative": 0, "unclear": 0, "unproofed": 0, "added": 0, "positiveSec": 0.0, "negativeSec": 0.0}
     lines = []
@@ -1245,10 +1193,7 @@ def archive_doc(tid, full=True):
         lines.append(e)
     for n in os.listdir(adir):   # 使わなくなった行(校正を外した・時刻が変わった)の音声は消す
         if n.endswith(".flac") and n not in keep:
-            try:
-                os.unlink(os.path.join(adir, n))
-            except OSError:
-                pass
+            ed_state.unlink_quiet(os.path.join(adir, n))
     counts["positiveSec"], counts["negativeSec"] = round(counts["positiveSec"], 1), round(counts["negativeSec"], 1)
     try:
         st = os.stat(doc.get("sourcePath") or "")
@@ -1311,13 +1256,12 @@ def start_archive(tid=None, full=True, wait=False):
         tids = [tid]
     else:
         tids = []
-        for n in sorted(os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []):
-            if n.endswith(".json") and ed_state.TID_RE.match(n[:-5]):
-                try:
-                    if any(g.get("proofed") for g in ed_store.read_transcript(n[:-5]).get("segments") or []):
-                        tids.append(n[:-5])
-                except ed_state.ApiError:
-                    pass
+        for t in sorted(ed_store._tids()):
+            try:
+                if any(g.get("proofed") for g in ed_store.read_transcript(t).get("segments") or []):
+                    tids.append(t)
+            except ed_state.ApiError:
+                pass
     if not tids:
         raise ed_state.ApiError("empty", "保管できる文字起こしがありません(校正済みの行がある文字起こしが対象です)", 400)
     os.makedirs(ed_state.DATASET_DIR, exist_ok=True)

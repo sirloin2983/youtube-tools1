@@ -57,18 +57,6 @@ def _dur(g):
     return max(0.0, _num(g.get("end")) - _num(g.get("start")))
 
 
-def _roster_stamp():
-    try:
-        st = os.stat(ed_state.ROSTER)
-        return (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
-
-
-def _plain_int(v):
-    return v if isinstance(v, int) and not isinstance(v, bool) else None
-
-
 def drill_is_reviewed(doc):
     """評価用で、動画を全部聞いて確かめた文書か(定点に数える判定。dev/eval_asr.py などの測る道具が「確かめ済みだけ」を選ぶときも、この条件で選ぶ)"""
     return isinstance(doc, dict) and doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
@@ -121,7 +109,7 @@ def _doc_summary(doc):
             if nm and not ed_speakers.is_generic_speaker_name(nm):
                 spk.setdefault(ed_speakers._spk_name_key(nm), nm)
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    return {"eval": True, "updatedAt": _plain_int(doc.get("updatedAt")) or 0, "lastAt": _plain_int(ef.get("lastAt")) or 0,
+    return {"eval": True, "updatedAt": ed_state.plain_int(doc.get("updatedAt")) or 0, "lastAt": ed_state.plain_int(ef.get("lastAt")) or 0,
             "sourcePath": str(doc.get("sourcePath") or ""), "rows": len(rows),
             "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む。v0.50.0)
             "reviewed": rv, "sec": round(drill_reviewed_sec(doc), 1) if rv else 0.0, "names": spk,
@@ -133,19 +121,13 @@ def _doc_summary(doc):
 
 def drill_docs():
     """[(tid, 要約)](評価用でない文書は {"eval": False})。更新日時と大きさ(と名簿の版)が同じなら読み直さない"""
-    out, seen, rs = [], set(), _roster_stamp()
-    if not os.path.isdir(ed_state.TX_DIR):
-        return out
-    for name in sorted(os.listdir(ed_state.TX_DIR)):
-        tid = name[:-5]
-        if not name.endswith(".json") or not ed_state.TID_RE.match(tid):
-            continue
+    out, seen, rs = [], set(), ed_state.file_stamp(ed_state.ROSTER)
+    for tid in sorted(ed_store._tids()):
         seen.add(tid)
-        try:
-            st = os.stat(ed_store.tx_path(tid))
-        except OSError:
+        st = ed_state.file_stamp(ed_store.tx_path(tid))
+        if st is None:
             continue
-        key = (st.st_mtime_ns, st.st_size, rs)
+        key = st + (rs,)
         with _drill_cache_lock:
             hit = _drill_cache.get(tid)
         if hit and hit[0] == key:
@@ -263,22 +245,19 @@ def _drill_check(base, obj):
     if base.get("evalSet") is not True:
         raise ed_state.ApiError("not_eval", "評価用の文字起こしではありません(確かめ済みの印は評価用の文字起こしだけに付けます)", 400)
     b = obj.get("baseUpdatedAt")
-    if _plain_int(b) is None:
+    if ed_state.plain_int(b) is None:
         raise ed_state.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
     if b != base.get("updatedAt"):
         raise ed_state.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
 
 
 def _drill_write(tid, base, doc):
-    if (_plain_int(base.get("updatedAt")) or 0) >= doc["updatedAt"]:   # 必ず前より大きく(開いている編集の画面の次の保存を、既存の 409 の案内に乗せる)
-        doc["updatedAt"] = (_plain_int(base.get("updatedAt")) or 0) + 1
+    if (ed_state.plain_int(base.get("updatedAt")) or 0) >= doc["updatedAt"]:   # 必ず前より大きく(開いている編集の画面の次の保存を、既存の 409 の案内に乗せる)
+        doc["updatedAt"] = (ed_state.plain_int(base.get("updatedAt")) or 0) + 1
     ed_store.effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
     ed_store.apply_edit_cuts(tid, doc)
-    try:
-        ed_store.hist_snapshot(tid)
-    except OSError:
-        pass    # 履歴が残せなくても保存は止めない
-    ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    ed_store.snapshot(tid, False)   # 履歴が残せなくても保存は止めない
+    ed_store.write_doc(tid, doc)
 
 
 def drill_reviewed(obj):
@@ -323,7 +302,7 @@ def drill_unreviewed(obj):
         rv = base.get("evalReviewed")
         if not isinstance(rv, dict):
             return {"ok": True, "updatedAt": base.get("updatedAt"), "unproofed": 0}
-        at = _plain_int(rv.get("at"))
+        at = ed_state.plain_int(rv.get("at"))
         segs, n = [dict(g) for g in base.get("segments") or [] if isinstance(g, dict)], 0
         for g in segs:
             if at and g.get("proofed") is True and g.get("proofedAt") == at:

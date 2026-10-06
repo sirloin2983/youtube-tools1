@@ -30,7 +30,7 @@ import re
 import threading
 import time
 
-from ytt_core import fsio as _fsio  # noqa: E402,F401
+from ytt_core import fsio as _fsio  # noqa: E402
 import ed_drill  # noqa: E402,F401
 import ed_evalaudio  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
@@ -48,7 +48,6 @@ EB_FIRST_DELAY_SEC = 60          # 起動してから最初に見るまで(起�
 EB_INTERVAL_SEC = 30             # 見回る間隔(1 本の文字起こしは数分かかる。待ちが 1 件に減ったら補う)
 EB_MAX_FAILS = 2                 # 同じ動画で失敗したら、あきらめる回数
 EB_MAX_TRIES = 3                 # 同じ動画を入れる回数の上限(文字が 0 行のまま「文字のある文書」にならない動画を入れ直し続けない)
-EB_MAX_ITEMS = 5000
 EB_DIAR_PER_TICK = 1             # 話者の判別の後追いを 1 回の見回りで入れる本数(文字起こしの待ちを埋めつくさない)
 EB_STATE_MAX_BYTES = 8 * 1024 * 1024
 EB_REDO_TIME_TOL = 0.005         # 作り直しの「手つかず」の判定: 行の時刻が機械の出力とこれ以内なら同じ(どちらも 0.01 秒に丸めてある)
@@ -169,13 +168,18 @@ def eval_batch_status():
 
 # ---------------------------------------------------------------- 始める・止める
 
-def eval_batch_start(req=None):
-    """POST /api/eval-batch/start。評価用のフォルダが見えていて ffmpeg があれば enabled にして、見回りのスレッドを起こす(すぐに1回見回る)。
-    もう enabled なら何も変えない(入れた数を数え直さない)。止めたあとの再開は、入れた数・失敗の記録を数え直す(失敗した動画もやり直す)"""
+def eb_require_ready():
+    """まとめての文字起こしを動かせるか(評価用のフォルダが見えている・ffmpeg がある)。だめなら ApiError"""
     if not ed_relink.eval_dirs():
         raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
     if not ed_state.find_ffmpeg():
         raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+
+
+def eval_batch_start(req=None):
+    """POST /api/eval-batch/start。評価用のフォルダが見えていて ffmpeg があれば enabled にして、見回りのスレッドを起こす(すぐに1回見回る)。
+    もう enabled なら何も変えない(入れた数を数え直さない)。止めたあとの再開は、入れた数・失敗の記録を数え直す(失敗した動画もやり直す)"""
+    eb_require_ready()
     with _eb_state_lock:
         st = eb_read()
         if not st["enabled"]:
@@ -239,9 +243,7 @@ def eb_candidates(items, busy_paths=()):
     paths = eb_scan()
     want = {eb_key(p) for p in paths}
     docs = {}
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        sp = str((sm or {}).get("_sourcePath") or "")
+    for _tid, sm, sp in ed_store.summaries():
         if sp and eb_key(sp) in want:
             docs.setdefault(eb_key(sp), []).append(sm)
     out = []
@@ -574,9 +576,8 @@ def eb_redo_scan(busy=None, queued=(), now=None):
     busy = ed_drill._busy_tids() if busy is None else busy
     now = now or _eb_now()
     out, reasons = [], {}
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        if not sm or not sm.get("evalSet"):   # 要約(キャッシュ)で評価用でないものを先に除く(全部の文書を読み直さない)
+    for tid, sm, _sp in ed_store.summaries():
+        if not sm.get("evalSet"):   # 要約(キャッシュ)で評価用でないものを先に除く(全部の文書を読み直さない)
             continue
         try:
             doc = ed_store.read_transcript(tid)
@@ -608,10 +609,7 @@ def eval_batch_redo(req=None):
     if dry:
         return res
     if targets:
-        if not ed_relink.eval_dirs():
-            raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
-        if not ed_state.find_ffmpeg():
-            raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+        eb_require_ready()
         with _eb_state_lock:
             st = eb_read()
             if not st["enabled"]:   # 止まっていれば始める(start と同じ。入れた数・失敗の記録は数え直す)
@@ -738,7 +736,7 @@ def eval_batch_redo_one(req=None):
         if not doc.get("model"):
             raise ed_state.ApiError("not_transcribed", "まだ文字起こししていません(作り直しは文字起こし済みの動画だけです)", 400)
         b = req.get("baseUpdatedAt")
-        if ed_drill._plain_int(b) is None:
+        if ed_state.plain_int(b) is None:
             raise ed_state.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
         if b != doc.get("updatedAt"):
             raise ed_state.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
@@ -775,8 +773,7 @@ def _eb_one_why(tid, doc, red, busy=(), media=True):
 
 def _eb_redo_skipped(job, why):
     job["redoSkipped"] = why
-    job["tid"], job["progress"], job["state"] = job["spec"].get("tid"), 1.0, "done"
-    job["phase"] = "作り直しませんでした(%s)" % EB_REDO_LABELS.get(why, why)
+    ed_jobs.job_done(job, job["spec"].get("tid"), "作り直しませんでした(%s)" % EB_REDO_LABELS.get(why, why))
 
 
 def eb_redo_skip_at_start(job):
@@ -830,10 +827,7 @@ def eb_redo_fill(job, spec, fields):
             _eb_redo_skipped(job, why)
             ed_state.log.info("評価用の作り直しを書きませんでした(%s): %s", why, tid)
             return None
-        try:
-            ed_store.hist_snapshot(tid, force=True)   # 作り直す前を「以前の版に戻す」に残す
-        except OSError:
-            pass
+        ed_store.snapshot(tid)   # 作り直す前を「以前の版に戻す」に残す
         old_rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
         old_first = [r for r in old_rec.get("runs") or [] if isinstance(r, dict) and not r.get("kind")]
         a = float(spec.get("start") or 0)
@@ -848,7 +842,7 @@ def eb_redo_fill(job, spec, fields):
             doc.pop(k, None)
         doc["evalSet"] = True
         ed_store.apply_edit_cuts(tid, doc)
-        ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+        ed_store.write_doc(tid, doc)
     ed_state.log.info("評価用の文書を作り直しました: %s(%d 行)", tid, len(fields.get("segments") or []))
     return tid
 

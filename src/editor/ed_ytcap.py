@@ -30,7 +30,6 @@ import time
 
 import ed_alt  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
-import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
@@ -114,9 +113,8 @@ def ytcap_spec(tid, req=None):
     if not ed_store.doc_has_rows(doc):
         raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
     rng = ytcap_doc_range(doc)
-    with ed_jobs._jobs_lock:
-        if any(j.get("kind") == "ytcap" and j["spec"].get("tid") == tid and j["state"] in ed_jobs.ACTIVE_STATES for j in ed_jobs._jobs.values()):
-            raise ed_state.ApiError("busy", "この文書は、もう YouTube の字幕を取っている最中です", 409)
+    if ed_jobs.tid_busy(tid, ("ytcap",)):
+        raise ed_state.ApiError("busy", "この文書は、もう YouTube の字幕を取っている最中です", 409)
     return dict(rng, tid=tid, title="YouTube の字幕と比べる: " + (str(doc.get("title") or "") or "無題")[:100])
 
 
@@ -482,20 +480,14 @@ def read_ytcap(tid):
     """<id>.ytcap.json(形が違えば None)"""
     if not ed_state.TID_RE.match(str(tid or "")):
         return None
-    try:
-        d = _fsio.read_json_file(ytcap_path(tid), YTCAP_MAX_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if not isinstance(d, dict) or d.get("schema") != YTCAP_SCHEMA or not isinstance(d.get("rows"), list):
-        return None
-    return d
+    return ed_state.read_schema_json(ytcap_path(tid), YTCAP_MAX_BYTES, YTCAP_SCHEMA, "rows")
 
 
 def run_ytcap(job):
     """配信の字幕を取り(使い回し)、文書の範囲を切り出して <id>.ytcap.json に書く。文書は書き換えない(updatedAt も動かさない)"""
     spec = job["spec"]
     tid = spec["tid"]
-    try:
+    with ed_jobs.job_errors(job, log="YouTube の字幕の取得で例外"):
         job["state"], job["phase"] = "running", "YouTube の字幕を確かめ中"
         cache = ytcap_get(job, spec["videoId"])
         if job["cancel"]:
@@ -512,28 +504,12 @@ def run_ytcap(job):
         with _ytcap_cache_lock:
             _ytcap_cache.pop(tid, None)
         job["segments"] = len(rows)
-        job["tid"], job["progress"], job["state"] = tid, 1.0, "done"
-        job["phase"] = "完了(%s・%d 行%s)" % ("配信者の字幕" if cache["kind"] == "manual" else "自動字幕", len(rows), "・取ってあった字幕" if job.get("ytcapReused") else "")
-    except ed_jobs.Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ed_state.ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except Exception as e:  # 想定外の失敗でもワーカーは止めない
-        ed_state.log.exception("YouTube の字幕の取得で例外")
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+        ed_jobs.job_done(job, tid, "完了(%s・%d 行%s)" % ("配信者の字幕" if cache["kind"] == "manual" else "自動字幕", len(rows), "・取ってあった字幕" if job.get("ytcapReused") else ""))
 
 
 # ---------- 提案(GET /api/suggest)に足す ----------
 _ytcap_cache = {}   # tid -> (鍵, (候補, 数えた理由))
 _ytcap_cache_lock = threading.Lock()
-
-
-def _ytcap_stamp(tid):
-    try:
-        st = os.stat(ytcap_path(tid))
-        return (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
 
 
 def ytcap_suggest(tid, doc, dismissed, taken, alt_items):
@@ -543,33 +519,22 @@ def ytcap_suggest(tid, doc, dismissed, taken, alt_items):
     同じ位置で違う直しなら alt を優先(yt は出さない)"""
     if doc.get("evalSet") is True:
         return [], None
-    stamp = _ytcap_stamp(tid)
+    stamp = ed_state.file_stamp(ytcap_path(tid))
     if stamp is None:
         return [], None
     yt = read_ytcap(tid)
     if not yt:
         return [], None
-    key = (stamp, doc.get("updatedAt"), len(doc.get("segments") or []))
-    with _ytcap_cache_lock:
-        hit = _ytcap_cache.get(tid)
-    if hit and hit[0] == key:
-        items, stats = hit[1]
-    else:
-        items, stats = ytcap_diffs(doc.get("segments") or [], yt.get("rows") or [])
-        with _ytcap_cache_lock:
-            _ytcap_cache[tid] = (key, (items, stats))
-    spans = {}
-    for x in taken:
-        spans.setdefault(x.get("seg"), []).append((x["i"], x["i"] + len(x["wrong"])))
+    items, stats = ed_alt.alt_cached(_ytcap_cache, _ytcap_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
+                                     lambda: ytcap_diffs(doc.get("segments") or [], yt.get("rows") or []))
+    spans = ed_alt.alt_spans_of(taken)
     alts = {}
     for x in alt_items:
         alts.setdefault(x.get("seg"), []).append(x)
     out, agree = [], 0
     for x in items:
-        if "%s|%s=>%s" % (x["seg"], x["wrong"], x["right"]) in dismissed:
-            continue
-        if any(x["i"] < b and a < x["i"] + len(x["wrong"]) for a, b in spans.get(x["seg"], [])):
-            continue   # 学習の提案を優先
+        if ed_alt.alt_skip(x, dismissed, spans):
+            continue   # 却下した・学習の提案を優先
         same = next((y for y in alts.get(x["seg"], []) if y["i"] == x["i"] and y["wrong"] == x["wrong"] and y["right"] == x["right"]), None)
         if same is not None:   # 2つ目のエンジンと一致: 1 つにまとめ、両方の札を出す
             same["also"] = sorted(set(same.get("also") or []) | {"yt"})

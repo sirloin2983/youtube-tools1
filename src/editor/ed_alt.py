@@ -31,7 +31,6 @@ import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
-from ytt_core import fsio as _fsio  # noqa: E402
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
@@ -103,9 +102,8 @@ def alt_spec(tid, req=None):
     first = alt_first_run(doc)
     if first and str(first.get("engine") or "") == e["engine"] and str(first.get("model") or "") == e["model"]:
         raise ed_state.ApiError("same_engine", "この文書の最初の文字起こしと同じエンジン・モデル(%s)です。「別のエンジンの候補」のエンジンを、別のものに変えてください" % e["label"], 400)
-    with ed_jobs._jobs_lock:
-        if any(j.get("kind") == "alt" and j["spec"].get("tid") == tid and j["state"] in ed_jobs.ACTIVE_STATES for j in ed_jobs._jobs.values()):
-            raise ed_state.ApiError("busy", "この文書は、もう別のエンジンで聞いている最中です", 409)
+    if ed_jobs.tid_busy(tid, ("alt",)):
+        raise ed_state.ApiError("busy", "この文書は、もう別のエンジンで聞いている最中です", 409)
     start = ed_state.num(doc.get("start"), 0.0) or 0.0
     end = ed_state.num(doc.get("end"))
     spec = {"tid": tid, "sourcePath": src, "start": round(start, 2), "end": round(end, 2) if end else None, "altKey": key,
@@ -128,13 +126,7 @@ def read_alt(tid):
     """<id>.alt.json(形が違えば None)"""
     if not ed_state.TID_RE.match(str(tid or "")):
         return None
-    try:
-        d = _fsio.read_json_file(alt_path(tid), MAX_ALT_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if not isinstance(d, dict) or d.get("schema") != ALT_SCHEMA or not isinstance(d.get("rows"), list):
-        return None
-    return d
+    return ed_state.read_schema_json(alt_path(tid), MAX_ALT_BYTES, ALT_SCHEMA, "rows")
 
 
 def _alt_fake(job, spec, wav, total):
@@ -156,8 +148,7 @@ def alt_engine_version(spec):
     if ed_state.backend_name() == "fake":
         return ""
     try:
-        eng = tx_engines.get(spec["engine"])
-        return ed_jobs.pkg_version(eng.package) if eng.package else eng.version(ed_jobs.engine_home())
+        return ed_jobs.engine_version(tx_engines.get(spec["engine"]))
     except Exception:   # 記録のための値なので、分からなくても止めない
         return ""
 
@@ -167,7 +158,7 @@ def run_alt(job):
     spec = job["spec"]
     tid = spec["tid"]
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
-    try:
+    with ed_jobs.job_errors(job, wav, log="別のエンジンでの認識で例外"):
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         ed_jobs.extract_audio(job, {"sourcePath": spec["sourcePath"], "start": spec["start"], "end": spec["end"], "boost": False}, wav)
@@ -202,21 +193,7 @@ def run_alt(job):
             ed_state.atomic_write(alt_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         with _alt_cache_lock:
             _alt_cache.pop(tid, None)
-        job["tid"], job["progress"], job["state"] = tid, 1.0, "done"
-        job["phase"] = "完了(%d 行)" % len(rows)
-    except ed_jobs.Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ed_state.ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except Exception as e:  # 想定外の失敗でもワーカーは止めない
-        ed_state.log.exception("別のエンジンでの認識で例外")
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
-    finally:
-        try:
-            if os.path.exists(wav):
-                os.unlink(wav)
-        except OSError:
-            pass
+        ed_jobs.job_done(job, tid, "完了(%d 行)" % len(rows))
 
 
 def alt_after_transcribe(job, spec, tid):
@@ -400,12 +377,30 @@ _alt_cache = {}   # tid -> (鍵, (候補, 数えた理由))
 _alt_cache_lock = threading.Lock()
 
 
-def _alt_stamp(tid):
-    try:
-        st = os.stat(alt_path(tid))
-        return (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
+def alt_cached(cache, lock, tid, key, compute):
+    """文書ごとの候補の計算(compute())を覚えておく(鍵 = 結果のファイルの更新日時と大きさ・文書の updatedAt・行の数が同じなら前の結果)"""
+    with lock:
+        hit = cache.get(tid)
+    if hit and hit[0] == key:
+        return hit[1]
+    val = compute()
+    with lock:
+        cache[tid] = (key, val)
+    return val
+
+
+def alt_spans_of(items):
+    """先に出す候補の位置 {行の id: [(始め, 終わり)…]}"""
+    spans = {}
+    for x in items:
+        spans.setdefault(x.get("seg"), []).append((x["i"], x["i"] + len(x["wrong"])))
+    return spans
+
+
+def alt_skip(x, dismissed, spans):
+    """出さない候補か: 却下した(dismissed = {"seg|誤=>正"})・先に出す候補(spans = alt_spans_of。学習の提案)と重なる"""
+    return ("%s|%s=>%s" % (x["seg"], x["wrong"], x["right"]) in dismissed
+            or any(x["i"] < b and a < x["i"] + len(x["wrong"]) for a, b in spans.get(x["seg"], [])))
 
 
 def alt_suggest(tid, doc, dismissed, taken):
@@ -413,30 +408,19 @@ def alt_suggest(tid, doc, dismissed, taken):
     評価用の文書・alt.json が無い文書は ([], None)。却下した候補(dismissed = {"seg|誤=>正"})・学習の提案(taken)と重なる位置は出さない"""
     if doc.get("evalSet") is True:
         return [], None
-    stamp = _alt_stamp(tid)
+    stamp = ed_state.file_stamp(alt_path(tid))
     if stamp is None:
         return [], None
     alt = read_alt(tid)
     if not alt:
         return [], None
-    key = (stamp, doc.get("updatedAt"), len(doc.get("segments") or []))
-    with _alt_cache_lock:
-        hit = _alt_cache.get(tid)
-    if hit and hit[0] == key:
-        items, stats = hit[1]
-    else:
-        items, stats = alt_diffs(doc.get("segments") or [], alt.get("rows") or [])
-        with _alt_cache_lock:
-            _alt_cache[tid] = (key, (items, stats))
-    spans = {}
-    for x in taken:
-        spans.setdefault(x.get("seg"), []).append((x["i"], x["i"] + len(x["wrong"])))
+    items, stats = alt_cached(_alt_cache, _alt_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
+                              lambda: alt_diffs(doc.get("segments") or [], alt.get("rows") or []))
+    spans = alt_spans_of(taken)
     out = []
     for x in items:
-        if "%s|%s=>%s" % (x["seg"], x["wrong"], x["right"]) in dismissed:
-            continue
-        if any(x["i"] < b and a < x["i"] + len(x["wrong"]) for a, b in spans.get(x["seg"], [])):
-            continue   # 学習の提案を優先
+        if alt_skip(x, dismissed, spans):
+            continue   # 却下した・学習の提案を優先
         out.append(dict(x))
         if len(out) >= ALT_MAX_ITEMS:
             break

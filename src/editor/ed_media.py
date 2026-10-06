@@ -5,35 +5,16 @@
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
 import array
-import bisect
-import difflib
-import faulthandler
-import gc
 import hashlib
-import itertools
 import json
-import logging
-import logging.handlers
 import math
 import os
-import queue
-import re
-import shutil
-import socket
 import subprocess
 import sys
-import tarfile
 import threading
 import time
-import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
+from ytt_core import jobs as _heavy  # noqa: E402
 import ed_misc  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
@@ -58,6 +39,15 @@ def _peaks_files(path):
     h = hashlib.sha1(os.path.normcase(path).encode("utf-8", "surrogatepass")).hexdigest()[:24]
     d = os.path.join(ed_state.DATA_DIR, "cache", "peaks")
     return d, os.path.join(d, h + ".bin"), os.path.join(d, h + ".json")
+
+
+def _samples(raw):
+    """16bit(リトルエンディアン)のバイト列 → 数の並び"""
+    a = array.array("h")
+    a.frombytes(raw)
+    if sys.byteorder == "big":
+        a.byteswap()
+    return a
 
 
 def compute_peaks(path, task=None):
@@ -89,19 +79,12 @@ def compute_peaks(path, task=None):
                 break
             buf += chunk
             usable = len(buf) - len(buf) % (step * 2)
-            a = array.array("h")
-            a.frombytes(buf[:usable])
-            buf = buf[usable:]
-            if sys.byteorder == "big":
-                a.byteswap()
+            a, buf = _samples(buf[:usable]), buf[usable:]
             for i in range(0, len(a), step):
                 seg = a[i:i + step]
                 out.append(lut[min(32768, max(max(seg), -min(seg)))])
         if len(buf) >= 2:
-            a = array.array("h")
-            a.frombytes(buf[:len(buf) - len(buf) % 2])
-            if sys.byteorder == "big":
-                a.byteswap()
+            a = _samples(buf[:len(buf) - len(buf) % 2])
             out.append(lut[min(32768, max(max(a), -min(a)))])
         p.wait()
     finally:
@@ -118,7 +101,7 @@ def compute_peaks(path, task=None):
     return bytes(out), rate, dur or len(out) / rate
 
 
-def _peaks_run(key, path, sig, t):
+def _peaks_run(path, sig, t):
     try:
         with _heavy.SLOTS.slot(ed_state.TOOL_ID, "波形 " + os.path.basename(path)[:40],
                                on_wait=lambda: t.update(state="waiting", message=_heavy.WAIT_MESSAGE)):
@@ -167,5 +150,5 @@ def get_peaks(tid):
         _peaks_tasks[key] = t
         for k in [k for k, v in _peaks_tasks.items() if v["state"] in ("done", "error") and time.time() - v["at"] > 600]:
             _peaks_tasks.pop(k, None)
-    threading.Thread(target=_peaks_run, args=(key, path, sig, t), daemon=True, name="peaks").start()
+    threading.Thread(target=_peaks_run, args=(path, sig, t), daemon=True, name="peaks").start()
     return "busy", {"state": t["state"], "message": t["message"]}

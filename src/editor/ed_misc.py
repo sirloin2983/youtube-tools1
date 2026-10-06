@@ -4,36 +4,11 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
-import bisect
-import difflib
-import faulthandler
-import gc
-import hashlib
-import itertools
 import json
-import logging
-import logging.handlers
-import math
 import os
-import queue
-import re
-import shutil
-import socket
-import subprocess
-import sys
-import tarfile
-import threading
 import time
-import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
+from ytt_core import runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
@@ -67,7 +42,7 @@ def validate_abtest(req):
             raise ed_state.ApiError("bad_model", "モデル名が正しくありません", 400)
         one = {"model": m, "glossary": v.get("glossary") is not False}
         # 設定ごとの用語集: 空なら共通の用語集(+自動追加)を使う。書いてあればその設定だけ、その語だけを使う(自動追加はしない)
-        own = list(dict.fromkeys(t.strip() for t in re.split(r"[\r\n,、]+", str(v.get("terms") or "")) if t.strip()))[:200]
+        own = list(dict.fromkeys(ed_jobs.split_terms(v.get("terms"))))[:200]
         if one["glossary"] and own:
             one["terms"] = own
         if one not in variants:
@@ -75,11 +50,9 @@ def validate_abtest(req):
     if not variants:
         raise ed_state.ApiError("empty", "比べる設定がありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
-    glossary = [t.strip() for t in re.split(r"[\r\n,、]+", str(req.get("glossary") or "")) if t.strip()][:200]
-    gauto = ed_learn.auto_glossary(glossary) if req.get("autoGloss") is not False else []
-    with ed_jobs._jobs_lock:
-        if any(j.get("kind") == "abtest" and j["spec"].get("tid") == tid and j["state"] in ("queued", "loading", "extracting", "running") for j in ed_jobs._jobs.values()):
-            raise ed_state.ApiError("busy", "この文字起こしは、すでに比較の最中です", 409)
+    glossary, gauto = ed_jobs.glossary_of(req)
+    if ed_jobs.tid_busy(tid, ("abtest",)):
+        raise ed_state.ApiError("busy", "この文字起こしは、すでに比較の最中です", 409)
     return {"tid": tid, "ids": ids, "variants": variants, "language": lang if lang in ed_state.LANGS else "ja", "beam": 5, "vadMode": "off",
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "glossary": glossary + gauto, "title": "設定の比較: " + (str(doc.get("title") or "") or "無題")[:100]}
@@ -95,7 +68,7 @@ def _fake_hyp(text, glossary, n):
 def run_abtest(job):
     spec = job["spec"]
     wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
-    try:
+    with ed_jobs.job_errors(job, wav):
         os.makedirs(ed_state.TMP_DIR, exist_ok=True)
         doc = ed_store.read_transcript(spec["tid"])
         src = ed_state.check_source(doc.get("sourcePath"))
@@ -120,34 +93,20 @@ def run_abtest(job):
         steps, n_done, out, nv = max(1, len(spec["variants"]) * len(targets)), 0, [], len(spec["variants"])
         for vi, v in enumerate(spec["variants"]):
             glossary = (v.get("terms") or spec["glossary"]) if v["glossary"] else []
-            acc, acc_d, model, device, kw = ed_learn.new_acc(), ed_learn.new_acc(), None, None, None
+            acc, acc_d, cm = ed_learn.new_acc(), ed_learn.new_acc(), None
             if not fake:
                 job["state"], job["phase"] = "loading", "モデルを読み込み中(%d/%d)" % (vi + 1, nv)
-                model, device = ed_jobs.load_model(v["model"], job, spec["device"])
-                job["device"] = device
-                kw = ed_jobs.filter_kwargs(model, ed_jobs.whisper_kwargs({**spec, "model": v["model"], "glossary": glossary}))
+                cm = ed_jobs.ChunkModel(job, v["model"], spec["device"], {**spec, "model": v["model"], "glossary": glossary})
             job["state"], job["phase"] = "running", "比較中(%d/%d)%s" % (vi + 1, nv, ab_label(v))
             for n, t in enumerate(targets):
                 if job["cancel"]:
                     raise ed_jobs.Cancelled()
                 if fake:
                     raw = _fake_hyp(str(t["text"]), glossary, n)
-                    time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+                    ed_state.fake_sleep()
                 else:
                     a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3
-                    chunk = audio[int(a * 16000):int(b * 16000)]
-                    try:
-                        r = ed_jobs.recognize_chunk(model, kw, chunk, t, sep, glossary)
-                    except Exception:
-                        if n == 0 and device == "cuda" and spec["device"] == "auto":   # 自動のとき、GPU が実行時に失敗したら CPU でやり直す
-                            job["phase"], job["device"] = "GPU が使えないため CPU で処理します", "cpu"
-                            model, device = ed_jobs.load_model(v["model"], job, force_cpu=True)
-                            kw = ed_jobs.filter_kwargs(model, ed_jobs.whisper_kwargs({**spec, "model": v["model"], "glossary": glossary}))
-                            r = ed_jobs.recognize_chunk(model, kw, chunk, t, sep, glossary)
-                        elif device == "cuda" and spec["device"] == "cuda":
-                            raise ed_state.ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
-                        else:
-                            raise
+                    r = cm.recognize(audio[int(a * 16000):int(b * 16000)], t, sep, glossary, n == 0)
                     raw = r[0] if r else ""
                 ref = ed_learn.norm_cer(t["text"])
                 ed_learn.acc_line(acc, ref, ed_learn.norm_cer(raw), terms, {"id": t["id"], "start": t["start"], "end": t["end"], "ref": str(t["text"])[:120], "hyp": raw[:120]})
@@ -166,23 +125,8 @@ def run_abtest(job):
         ed_state.atomic_write(os.path.join(ed_state.EVAL_DIR, job["id"] + ".json"), json.dumps(result, ensure_ascii=False, indent=1).encode("utf-8"))
         old = sorted((os.path.join(ed_state.EVAL_DIR, n) for n in os.listdir(ed_state.EVAL_DIR) if n.endswith(".json")), key=os.path.getmtime)
         for p in old[:-KEEP_EVALS]:
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+            ed_state.unlink_quiet(p)
         job["segments"], job["progress"], job["state"], job["phase"] = len(targets), 1.0, "done", "完了"
-    except ed_jobs.Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ed_state.ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except Exception as e:
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
-    finally:
-        try:
-            if os.path.exists(wav):
-                os.unlink(wav)
-        except OSError:
-            pass
 
 
 def read_eval(eid):
@@ -239,9 +183,7 @@ def studio_out_dir(data_path):
 def transcribed_ranges():
     """全文字起こしの (元ファイル・範囲・全体か・id) の一覧。フォルダ一覧・マーカーのポイントで「文字起こし済み」を判定するのに使う。"""
     out = []
-    for tid in ed_store._tids():   # 一覧(list_transcripts)は動画・パックの有無も調べるので、ここでは要約だけを読む(キャッシュが効く)
-        sm = ed_store.transcript_summary(tid)
-        sp = sm and sm["_sourcePath"]
+    for tid, sm, sp in ed_store.summaries():   # 一覧(list_transcripts)は動画・パックの有無も調べるので、ここでは要約だけを読む(キャッシュが効く)
         if not sp:
             continue
         a, b = ed_state.num(sm.get("start"), 0.0) or 0.0, ed_state.num(sm.get("end"))
@@ -340,43 +282,40 @@ def progress_stats():
     tot = {"proofedSec": 0.0, "proofedLines": 0, "docs": 0, "docsProofed": 0, "totalSec": 0.0, "totalLines": 0,
            "evalDocs": 0, "evalDocsDone": 0, "evalProofedSec": 0.0, "evalProofedLines": 0, "evalPendingLines": 0}
     seen = set()
-    if os.path.isdir(ed_state.TX_DIR):
-        for name in os.listdir(ed_state.TX_DIR):
-            tid = name[:-5]
-            if not name.endswith(".json") or not ed_state.TID_RE.match(tid):
-                continue
-            seen.add(tid)
+    for tid in ed_store._tids():
+        seen.add(tid)
+        key = ed_state.file_stamp(ed_store.tx_path(tid))
+        if key is None:
+            continue
+        hit = _prog_cache.get(tid)
+        if hit and hit[0] == key:
+            r = hit[1]
+        else:
             try:
-                st = os.stat(ed_store.tx_path(tid))
-                key = (st.st_mtime_ns, st.st_size)
-                hit = _prog_cache.get(tid)
-                if hit and hit[0] == key:
-                    r = hit[1]
-                else:
-                    with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
-                        d = json.load(f)
-                    segs = [g for g in d.get("segments") or [] if isinstance(g, dict)]
-                    dur = lambda g: max(0.0, (ed_state.num(g.get("end"), 0) or 0) - (ed_state.num(g.get("start"), 0) or 0))
-                    good = [g for g in segs if g.get("proofed") is True and "unclear" not in (g.get("tags") or [])]
-                    pend = [g for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or [])]
-                    r = {"eval": d.get("evalSet") is True, "sec": sum(dur(g) for g in good), "lines": len(good), "pend": len(pend),
-                         "totalSec": sum(dur(g) for g in segs), "totalLines": len(segs)}
-                    _prog_cache[tid] = (key, r)
+                with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
+                    d = json.load(f)
             except (OSError, ValueError):
                 continue
-            if r["eval"]:
-                tot["evalDocs"] += 1
-                tot["evalDocsDone"] += 1 if r["lines"] and not r["pend"] else 0
-                tot["evalProofedSec"] += r["sec"]
-                tot["evalProofedLines"] += r["lines"]
-                tot["evalPendingLines"] += r["pend"]
-                continue
-            tot["docs"] += 1
-            tot["docsProofed"] += 1 if r["lines"] else 0
-            tot["proofedSec"] += r["sec"]
-            tot["proofedLines"] += r["lines"]
-            tot["totalSec"] += r["totalSec"]
-            tot["totalLines"] += r["totalLines"]
+            segs = [g for g in d.get("segments") or [] if isinstance(g, dict)]
+            dur = lambda g: max(0.0, (ed_state.num(g.get("end"), 0) or 0) - (ed_state.num(g.get("start"), 0) or 0))
+            good = [g for g in segs if g.get("proofed") is True and "unclear" not in (g.get("tags") or [])]
+            pend = [g for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or [])]
+            r = {"eval": d.get("evalSet") is True, "sec": sum(dur(g) for g in good), "lines": len(good), "pend": len(pend),
+                 "totalSec": sum(dur(g) for g in segs), "totalLines": len(segs)}
+            _prog_cache[tid] = (key, r)
+        if r["eval"]:
+            tot["evalDocs"] += 1
+            tot["evalDocsDone"] += 1 if r["lines"] and not r["pend"] else 0
+            tot["evalProofedSec"] += r["sec"]
+            tot["evalProofedLines"] += r["lines"]
+            tot["evalPendingLines"] += r["pend"]
+            continue
+        tot["docs"] += 1
+        tot["docsProofed"] += 1 if r["lines"] else 0
+        tot["proofedSec"] += r["sec"]
+        tot["proofedLines"] += r["lines"]
+        tot["totalSec"] += r["totalSec"]
+        tot["totalLines"] += r["totalLines"]
     for k in [k for k in _prog_cache if k not in seen]:
         _prog_cache.pop(k, None)
     for k in ("proofedSec", "totalSec", "evalProofedSec"):

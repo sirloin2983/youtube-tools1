@@ -45,7 +45,6 @@ EXPORT_FORMATS = {                      # 動画の隣に保存するときの�
 }
 MAX_ALT_NAMES = 999
 RUNTIME_TOOLS = runtime.TOOL_APPS       # ツールID → /api/ping の app
-MAX_RUNTIME_BYTES = runtime.MAX_BYTES
 SIBLING_TIMEOUT = runtime.PING_TIMEOUT
 
 

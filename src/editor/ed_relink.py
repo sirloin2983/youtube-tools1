@@ -4,37 +4,15 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
-import bisect
-import difflib
-import faulthandler
-import gc
-import hashlib
-import itertools
-import json
-import logging
-import logging.handlers
-import math
 import os
-import queue
 import re
 import shutil
-import socket
-import subprocess
-import sys
-import tarfile
 import tempfile
 import threading
 import time
 import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, normalize as _vnorm, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
+from ytt_core import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -151,12 +129,8 @@ def relink_check(obj):
         warnings.append("選んだ動画の終わりより後ろに %d 行あります(その行は再生できません)" % after)
     key = os.path.normcase(p)
     used = []
-    for other in ed_store._tids():
-        if other == tid:
-            continue
-        sm = ed_store.transcript_summary(other)
-        if sm and sm["_sourcePath"] and not _fsio.is_network_path(sm["_sourcePath"]) \
-                and os.path.normcase(os.path.abspath(sm["_sourcePath"])) == key:
+    for other, sm, sp in ed_store.summaries():
+        if other != tid and sp and not _fsio.is_network_path(sp) and os.path.normcase(os.path.abspath(sp)) == key:
             used.append({"id": other, "title": str(sm.get("title") or "")[:120]})
             if len(used) >= 10:
                 break
@@ -214,15 +188,9 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     評価用のフォルダの中へ付け替えたら評価用の印も付ける(ユーザー決定 2026-10-01: フォルダの中は外せない)。-> 新しい updatedAt
     bump=False: updatedAt を変えない(30fps の写しへの自動の付け替え = 中身は同じ動画。開いている画面の次の保存を 409 にしないため。
     保存 save_transcript は sourcePath を画面から受け取らないので、画面の古い版で上書きされても付け替えは消えない)"""
-    bak = os.path.join(ed_state.TX_DIR, ".bak")
-    os.makedirs(bak, exist_ok=True)
-    shutil.copy2(ed_store.tx_path(tid), os.path.join(bak, tid + ".pre-relink.json"))   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)
+    ed_store.backup_doc(tid, "relink")   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)・「以前の版に戻す」で元のパスへ戻せる
     if os.path.isfile(ed_store.edit_path(tid)):
-        shutil.copy2(ed_store.edit_path(tid), os.path.join(bak, tid + ".edit.pre-relink.json"))
-    try:
-        ed_store.hist_snapshot(tid, force=True)   # 「以前の版に戻す」で元のパスへ戻せる
-    except OSError:
-        pass
+        shutil.copy2(ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, ".bak", tid + ".edit.pre-relink.json"))
     now = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
     rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, int(time.time() * 1000)), "diffSec": diff}
@@ -233,7 +201,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     if in_eval_dir(path):
         doc["evalSet"] = True
     ed_store.apply_edit_cuts(tid, doc)
-    ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    ed_store.write_doc(tid, doc)
     return now
 
 
@@ -442,9 +410,7 @@ def relink_missing():
     """POST /api/relink/missing: 元の動画が見つからない文書(パスの記録があるものだけ)。
     -> {items: [{id, title, sourcePath, sourceName, updatedAt}], skipped}。ネットワーク上のパスは調べない(skipped に数える)"""
     items, skipped, dirs = [], 0, {}
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        sp = str((sm or {}).get("_sourcePath") or "")
+    for tid, sm, sp in ed_store.summaries():
         if not sp:
             continue
         if _fsio.is_network_path(sp) or not os.path.isabs(sp):
@@ -616,16 +582,24 @@ def _eval_state(sms):
     return "済" if all(s["proofed"] >= s["rows"] for s in rows) else "未"
 
 
-def _eval_videos(root, skip_staging=True):
-    """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く。仮置きは skip_staging で除く)"""
-    out, seen = {}, 0
+def _eval_walk(root, skip_staging=True, count_files=True):
+    """評価用のフォルダの下を EVAL_WALK_DEPTH 段まで歩く -> (フォルダ, 下のフォルダ, ファイル) の並び。作業用/・「.」で始まるフォルダと、
+    skip_staging なら直下の仮置きには入らない。見たフォルダ(count_files ならファイルも)の数が EVAL_WALK_MAX を超えたらやめる"""
+    seen = 0
     for cur, dirs, files in os.walk(root):
         depth = os.path.relpath(cur, root).count(os.sep) + (0 if cur == root else 1)
         dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH
                    and not (skip_staging and cur == root and d == EVAL_STAGING)]
-        seen += len(dirs) + len(files)
+        seen += len(dirs) + (len(files) if count_files else 0)
         if seen > EVAL_WALK_MAX:
-            break
+            return
+        yield cur, dirs, files
+
+
+def _eval_videos(root, skip_staging=True):
+    """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く。仮置きは skip_staging で除く)"""
+    out = {}
+    for cur, _dirs, files in _eval_walk(root, skip_staging):
         vids = [f for f in files if os.path.splitext(f)[1].lower() in ed_state.MEDIA_TYPES and not os.path.splitext(f)[0].endswith("_edit")]
         if vids:
             out[cur] = vids
@@ -694,14 +668,8 @@ def _norm_member(name):
 
 def _eval_members(root):
     """評価用のフォルダの下のメンバーのフォルダ {正規化した名前: フォルダ}(「…数字_名前」の形。仮置き・作業用は除く)"""
-    out, seen = {}, 0
-    for cur, dirs, _files in os.walk(root):
-        depth = os.path.relpath(cur, root).count(os.sep) + (0 if cur == root else 1)
-        dirs[:] = [d for d in dirs if d != _yschemas.WORK_DIR and not d.startswith(".") and depth < EVAL_WALK_DEPTH
-                   and not (cur == root and d == EVAL_STAGING)]
-        seen += len(dirs)
-        if seen > EVAL_WALK_MAX:
-            break
+    out = {}
+    for cur, dirs, _files in _eval_walk(root, True, False):
         for d in dirs:
             m = _EVAL_MEMBER_RE.match(d)
             if m:
@@ -742,12 +710,8 @@ def _eval_next_name(folder, ext, state):
     return os.path.join(folder, "%s_%02d_%s%s" % (prefix, n, state, ext))
 
 
-def _eval_settle_one(path, tids, members):
-    """仮置きの動画1本を、条件を満たせばメンバーのフォルダへ移す。-> ({from, to, docs, member} または None, 理由 または None)"""
-    if not tids:
-        return None, "まだ文字起こしされていません"
-    if _path_busy(path) or any(_doc_busy(t) for t in tids):
-        return None, "文字起こしなどの処理の最中です"
+def _eval_best_member(tids, members):
+    """文書たちの話者のうち、メンバーのフォルダと同じ名前で話した秒がいちばん長い人 -> ((名前, 秒) か None, 移せない理由(_eval_ready) か None)"""
     best = None
     for tid in tids:
         secs, why = _eval_ready(ed_store.read_transcript(tid))
@@ -758,6 +722,18 @@ def _eval_settle_one(path, tids, members):
                 if best is None or sec > best[1]:
                     best = (nm, sec)
                 break
+    return best, None
+
+
+def _eval_settle_one(path, tids, members):
+    """仮置きの動画1本を、条件を満たせばメンバーのフォルダへ移す。-> ({from, to, docs, member} または None, 理由 または None)"""
+    if not tids:
+        return None, "まだ文字起こしされていません"
+    if _path_busy(path) or any(_doc_busy(t) for t in tids):
+        return None, "文字起こしなどの処理の最中です"
+    best, why = _eval_best_member(tids, members)
+    if why:
+        return None, why
     if best is None:
         return None, "移す先が決まりません(メンバーのフォルダと同じ名前の話者がいません)"
     new = _eval_next_name(members[_norm_member(best[0])], os.path.splitext(path)[1], "済")
@@ -769,9 +745,7 @@ def _eval_settle_one(path, tids, members):
 def _eval_copy_index(dirs):
     """仮置きのコピーの付け替え先の候補: 評価用のフォルダの外の動画を指す、行のある文書 {正規化したファイル名: [要約]}(2026-10-02 ユーザー決定)"""
     idx = {}
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        sp = str((sm or {}).get("_sourcePath") or "")
+    for _tid, sm, sp in ed_store.summaries():
         if not sp or not sm.get("rows") or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs):
             continue
         idx.setdefault(os.path.normcase(os.path.basename(sp)), []).append(sm)
@@ -850,9 +824,7 @@ def _eval_outside_docs(dirs, only=None):
     """評価用の印があるのに、動画が評価用のフォルダの外にある文書 {動画のパス(正規化): (動画のパス, [要約])}。
     同じ動画を使う文書は印の無いものも入れる(断るかを決めるため)。only: この文書の動画だけ"""
     by_path, marked = {}, set()
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        sp = str((sm or {}).get("_sourcePath") or "")
+    for _tid, sm, sp in ed_store.summaries():
         if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _inside(sp, ed_state.DATA_DIR):
             continue
         key = os.path.normcase(os.path.abspath(sp))
@@ -882,19 +854,9 @@ def _eval_intake_one(path, sms, root):
     tids = [s["id"] for s in sms]
     if _path_busy(path) or any(_doc_busy(t) for t in tids):
         return None, "文字起こしなどの処理の最中です"
-    members, best, why = _eval_members(root), None, None
+    members = _eval_members(root)
     rowed = [s["id"] for s in sms if s.get("rows")]
-    if not rowed:
-        why = "まだ文字起こしされていません"
-    for tid in rowed:
-        secs, why = _eval_ready(ed_store.read_transcript(tid))
-        if why:
-            break
-        for nm, sec in secs:   # 長い順。メンバーのフォルダと同じ名前の最初の人
-            if _norm_member(nm) in members:
-                if best is None or sec > best[1]:
-                    best = (nm, sec)
-                break
+    best, why = _eval_best_member(rowed, members) if rowed else (None, "まだ文字起こしされていません")
     if not why and best is None:
         why = "メンバーのフォルダと同じ名前の話者がいません"
     if why:
@@ -992,9 +954,7 @@ def eval_organize(trigger="button"):
 def _eval_docs_by_path(dirs):
     """評価用のフォルダの中の動画 → その動画を使う文書の要約の一覧"""
     by_path = {}
-    for tid in ed_store._tids():
-        sm = ed_store.transcript_summary(tid)
-        sp = str((sm or {}).get("_sourcePath") or "")
+    for _tid, sm, sp in ed_store.summaries():
         if sp and in_eval_dir(sp, dirs):
             by_path.setdefault(os.path.normcase(os.path.abspath(sp)), []).append(sm)
     return by_path
@@ -1053,13 +1013,10 @@ def _eval_mark_docs(tids):
             doc = ed_store.read_transcript(tid)
             if doc.get("evalSet") is True or not in_eval_dir(doc.get("sourcePath")):
                 continue
-            try:
-                ed_store.hist_snapshot(tid, force=True)
-            except OSError:
-                pass
+            ed_store.snapshot(tid)
             doc["evalSet"] = True
             doc["updatedAt"] = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
-            ed_state.atomic_write(ed_store.tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+            ed_store.write_doc(tid, doc)
             n += 1
     return n
 

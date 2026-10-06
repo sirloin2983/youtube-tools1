@@ -4,36 +4,20 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import array
-import bisect
-import difflib
 import faulthandler
-import gc
-import hashlib
-import itertools
 import json
 import logging
 import logging.handlers
 import math
 import os
-import queue
 import re
 import shutil
-import socket
 import subprocess
 import sys
-import tarfile
 import threading
 import time
-import unicodedata
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
-import wave
 
-from ytt_core import datadir as _datadir, fsio as _fsio, httpsec, layout as _layout, jobs as _heavy, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
+from ytt_core import fsio as _fsio, layout as _layout, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
@@ -160,6 +144,56 @@ def atomic_write(path, data: bytes):
     _fsio.atomic_write(path, data, fsync_required=True)
 
 
+def unlink_quiet(path):
+    """消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)"""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def file_stamp(path):
+    """(更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def read_schema_json(path, max_bytes, schema, key, kind=list):
+    """付き物の JSON(<id>.words.json・.asr.json・.diar.json・.alt.json・.ytcap.json など)を読む。
+    形が違う(schema が違う・d[key] が kind でない)・無い・壊れていれば None"""
+    try:
+        d = _fsio.read_json_file(path, max_bytes)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("schema") != schema or not isinstance(d.get(key), kind):
+        return None
+    return d
+
+
+def union_spans(spans):
+    """区間 [(開始, 終了)…] を開始の順に並べ、重なる・接するものをつなぐ -> [[開始, 終了]…]"""
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def plain_int(v):
+    """JSON の整数(真偽値は数えない)か None"""
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def fake_sleep():
+    """疑似のバックエンド(テスト)の 1 行ごとの待ち(環境変数 TRANSCRIBE_FAKE_DELAY 秒)"""
+    time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+
+
 # ---------- 記録(落ちたときの手がかり) ----------
 # serve.log: 起動・終了・ジョブの開始と終了(使っているメモリつき)・例外。serve.crash.log: Python が捕まえられない異常終了(ネイティブの落ち)のときの手がかり。
 # .running.json: 起動中の印(実行中のジョブつき)。正常に終了すれば消える。次の起動で残っていれば「前回は異常終了」と表示する。
@@ -276,8 +310,9 @@ def find_ffmpeg():
     return _tools.find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
 
 
-def media_duration(path):
-    ff = find_ffmpeg()
+def ffmpeg_info(path, ff=None):
+    """ffmpeg -i の出力(長さ・ストリームの行。ed_store.probe_media も読む)。ffmpeg が無い・動かせなければ None"""
+    ff = ff or find_ffmpeg()
     if not ff:
         return None
     try:
@@ -285,8 +320,18 @@ def media_duration(path):
                            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", p.stdout or "")
+    return p.stdout or ""
+
+
+def duration_in(text):
+    """ffmpeg -i の出力の Duration(秒)。無ければ None"""
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text or "")
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+
+
+def media_duration(path):
+    out = ffmpeg_info(path)
+    return duration_in(out) if out is not None else None
 
 
 def num(x, default=None):
