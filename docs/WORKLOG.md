@@ -3538,3 +3538,15 @@
 - 変更: `overall-plan-2026-10-06.md` の 6(数字を更新)・7(入口までの表)・3 の I-2a の行と X2 の行、`live-auto-pack-plan.md` の M10 に 10-06 の長さ
 - 未完了・次: X2 の残り = `home/accuracy.py` に「あと何本」(コードの変更。版を上げる)/ X3 = D1-b の実機確認の準備(Qwen3 のモデル 2.5GB の取得はユーザーに確認)/ **I-2a を始めるか**はユーザーに確認(順番は決定 1 の X1〜X3 のあと)
 - 未コミット: なし
+
+## 2026-10-06 Claude Code — X3 D1-b(2 つ目のエンジンの候補)の実機確認の準備(コードは変えていない)
+- ユーザーの決定: モデルの取得 = よい / I-2a を始めるのは「まだ」
+- やったこと: ユーザーが start.bat で起動していた入口(0.37.0)の API を画面と同じ形(合言葉 `X-YTT-Token` は `/transcribe/` の HTML の meta から・Origin・Sec-Fetch-Site)で呼び、`POST /transcribe/api/alt {id}` を普段の文書 2 本に流した。
+  取得(llama.cpp b11326 win-vulkan の zip・`Qwen3-ASR-1.7B-Q8_0.gguf` 2,165,034,944 バイト・mmproj 355,709,344 バイト。SHA-256 はエンジンの `fetch_file` が確かめる)は入口のプロセスの中で行われたので、**本物の作業データに入った**(パッケージの外の cmd で `dir` して確認: `transcribe\models\qwen3asr-gguf\`・`transcribe\bin\llama.cpp-b11326-vulkan\`)。
+  AI のシェルから直接 `%LOCALAPPDATA%` に書く形にしなかったのは、写しに入って入口から見えないため(`AGENTS.md` の MSIX の注意)
+- 結果: 536a08be3d25(12 秒)= 取得込み 101 秒で done・device vulkan・候補 2 件 / 1339dab717b8(169 秒)= 9 秒で done・37 区切り・候補 29 件(出さなかった: 行をまたぐ 1・行の半分以上が違う 5・表記だけ 5・窓の境目 1)。
+  `GET /transcribe/api/suggest?id=` に tier "alt" の候補が出る(札「別」)。`dev/eval_alt.py`: 文書 2 件・候補 31 件・判定できた 0 件(校正されていないので「分からない」)。採否の記録もまだ 0
+- 分かったこと: 本物の場所にあったのは whisper.cpp の large-v3 と silero だけで、llama.cpp と Qwen3 は無かった(今回入れた)。入口の `/api/tools` の alt は 3 つとも ready。Qwen3 1.7B の GPU の認識は 169 秒の音声に 9 秒(実時間比 約 0.05)
+- 変更: `docs/plan/overall-plan-2026-10-06.md` の X3 の行(済み)と 7 の表(D1-b の当たり率の行)
+- 未完了・次: 当たり率は、普段の文書の校正で「別」の候補を採る・却下する記録が 100 件たまると出る(評価用では出さない決まり)。`autoAlt` を既定オンにするかはユーザー。X2 の残り(`home/accuracy.py`)はコードの変更なので次のセッション。I-2a は「まだ」
+- 未コミット: なし
