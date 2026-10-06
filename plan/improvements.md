@@ -130,5 +130,8 @@ AI が出典から拾ったもの。急ぎではない。
 | ytt_core | evaldata の書き出す側だけの関数(`scrub_paths`・`zip_name`・`safe_url`・`raw_links`・`RULES`。約 40 行)は簡易版を消してからテストだけが使う | 消すとテストが減る。判断待ち(S) |
 | ytt_core ほか | 「パスがフォルダの中か」の判定が 5 か所(backup・eval_import・ed_relink・live_archive・studio common)で少しずつ違う(abspath か realpath か・同じフォルダを含むか) | セキュリティの検査なので、1 つずつ意味を決めてからまとめる(M) |
 | dev | `schemas.iso_now` への置き換え(eval_fetch・eval_split はマイクロ秒まで書いている) | 記録の形が変わるので確認が要る |
+| home(線 D M7) | 配信後の全自動の進み具合はスタジオの LIVE の帯に出ていない(API の `archiveInfo.afterStream` と「調子」の失敗だけ) | M9(確認の一覧)と一緒に帯へ(S) |
+| home(M5) | 画面の「起動し直す」はまとめて実行が動いていると断るが、M5 で起動し直しても戻るようになったので緩められる | S |
+| home(M7) | e2e は偽のまとめて実行に「文字起こし → パック」で渡す所まで。パックそのものは本物の配信 1 本(ユーザー)で確かめる | — |
 
 (コードの見直しで見つかったものは作業の終わりに追記)
