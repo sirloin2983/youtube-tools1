@@ -116,7 +116,6 @@
     var d = new Date(ms);
     return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
   }
-  function basename(p) { return String(p || '').split(/[\\/]/).pop(); }
   function link(text, href) {
     var a = el('a', 'btn small', text);
     a.href = href; a.target = '_blank'; a.rel = 'noopener';

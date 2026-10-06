@@ -33,6 +33,8 @@ import sys
 import threading
 import time
 
+from ytt_core import datadir, fsio, layout, schemas, txindex
+
 STATE_FILE = "accuracy-state.json"
 FIRST_WAIT = 120           # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
 CHECK_EVERY = 300          # 夜の窓・手が空いたかを見る間隔(秒)
@@ -72,8 +74,7 @@ class ToolError(Exception):
 
 # ---------------------------------------------------------------- 結果の要約(道具ごとの形 → 画面が読む共通の形)
 
-def _num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
+_num = schemas.num   # 有限の数なら float・それ以外は None(ytt_core の共通の判定)
 
 
 def _int(x):
@@ -292,11 +293,7 @@ class Accuracy:
 
     def _save_state(self):
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            tmp = self.state_path + ".tmp"
-            with open(tmp, "wb") as f:
-                f.write(json.dumps(self.last, ensure_ascii=False).encode("utf-8"))
-            os.replace(tmp, self.state_path)
+            fsio.atomic_write(self.state_path, json.dumps(self.last, ensure_ascii=False).encode("utf-8"))
         except OSError as e:
             self.log("精度の測定: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
 
@@ -309,19 +306,16 @@ class Accuracy:
 
     # ---- 道具の呼び方
     def _default_commands(self, area):
-        from ytt_core import layout
         script = os.path.join(layout.repo_root(self.repo_root), "dev", area["script"])   # dev/ はリポジトリ直下(src の1つ上)
         return [_python(), script] + list(area["args"]) if os.path.isfile(script) else None
 
     def _default_evals_dir(self, area):
-        from ytt_core import datadir
         try:
             return os.path.join(datadir.resolve(area["tool"], self.repo_root), "evals", area["sub"])
         except Exception:
             return None
 
     def _default_transcripts_dir(self):
-        from ytt_core import txindex
         try:
             return txindex.folder(self.repo_root)
         except Exception:

@@ -126,7 +126,7 @@ def tool_version(name, env_var=None, args=("-version",), timeout=TOOL_TIMEOUT):
         return {"path": None, "version": ""}
     try:
         p = subprocess.run([path] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                           creationflags=ytools.no_window_flags())
         text = p.stdout.decode("utf-8", "replace")
     except (OSError, subprocess.SubprocessError):
         text = ""
@@ -203,7 +203,7 @@ def _wevtutil_events(log, xpath, runner):
     cmd = ["wevtutil", "qe", log, "/q:" + xpath, "/f:xml", "/c:%d" % CRASH_MAX_EVENTS, "/rd:true"]
     try:
         p = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=CRASH_TIMEOUT,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                creationflags=ytools.no_window_flags())
     except (OSError, subprocess.SubprocessError):
         return None
     if getattr(p, "returncode", 1) != 0:

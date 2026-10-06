@@ -89,16 +89,16 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.40.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.40.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
-UI_KIT_DIR = os.path.join(ROOT, "ui-kit")   # 共通の見た目は正本をそのまま配る(写しを作らない)
+UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正本をそのまま配る(写しを作らない)
 LOG_MAX = 1024 * 1024
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
-YTT_API = "/api/ytt/"    # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
+YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
 # 作業の順番どおり。port は各ツールの既定(使用中ならツール自身が次の番号を選ぶ)
@@ -113,7 +113,6 @@ TOOLS = (
      "dir": layout.TOOL_DIRS["cut2resolve"], "port": 8810, "version_file": "cut2resolve_core.py", "version_re": r'^VERSION\s*=\s*"([^"]+)"', "hidden": True},
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
-STATES = ("stopped", "starting", "running", "external", "stopping", "crashed", "missing")
 
 
 # ---------- 小さな道具 ----------
@@ -539,6 +538,27 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
+# GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
+GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/home/intake.py)
+                 "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/home/backup.py)
+                 "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/home/accuracy.py)
+                 "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
+# POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
+POST_ROUTES = {"/api/cases/update": ("_post_case", False),
+               "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
+               "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
+               "/api/autorun/estimate": ("_post_autorun", True),
+               "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
+               "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
+               "/api/cleanup": ("_post_cleanup", False), "/api/shutdown": ("_post_shutdown", False)}
+
+
+def query_int(q, key, default):
+    """parse_qs の結果から整数の値(無い・数でなければ default)"""
+    try:
+        return int((q.get(key) or [str(default)])[0])
+    except ValueError:
+        return default
 
 
 def read_json_body(headers, rfile, limit=MAX_BODY):
@@ -638,40 +658,18 @@ class PortalHandler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query)
             tid = (q.get("tool") or [""])[0]
             if tid == "client":   # 画面のエラーの記録(段階7-0。1行 = 1件の JSON)
-                try:
-                    n = min(1000, max(1, int((q.get("lines") or ["200"])[0])))
-                except ValueError:
-                    n = 200
-                lines = tail(self.server.client_log.path, n)
-                return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": self.server.client_log.path})
-            if tid not in sup.by_id:   # 決まったIDだけ。パスは受け取らない
+                path = self.server.client_log.path
+            elif tid in sup.by_id:   # 決まったIDだけ。パスは受け取らない
+                path = sup.by_id[tid].log_path
+            else:
                 return self._fail(404, "unknown_tool", "そのツールはありません")
-            try:
-                n = min(1000, max(1, int((q.get("lines") or ["200"])[0])))
-            except ValueError:
-                n = 200
-            t = sup.by_id[tid]
-            lines = tail(t.log_path, n)
-            return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": t.log_path})
-        if u.path == "/api/intake":   # 友人からの依頼の受付(src/home/intake.py)
-            return self._json(200, self.server.intake.snapshot())
-        if u.path == "/api/backup":   # 作業データのバックアップの状態と設定(src/home/backup.py)
-            return self._json(200, self.server.backup.snapshot())
-        if u.path == "/api/accuracy":   # 精度の自動測定の状態(src/home/accuracy.py)
-            return self._json(200, self.server.accuracy.snapshot())
-        if u.path == "/api/autorun":   # まとめて実行の状態(src/home/autorun.py)
-            return self._json(200, self.server.autorun.snapshot())
+            lines = tail(path, min(1000, max(1, query_int(q, "lines", 200))))
+            return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": path})
+        if u.path in GET_SNAPSHOTS:
+            return self._json(200, getattr(self.server, GET_SNAPSHOTS[u.path]).snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             q = urllib.parse.parse_qs(u.query)
-            try:
-                limit = int((q.get("limit") or [str(autorun_mod.HISTORY_DEFAULT)])[0])
-            except ValueError:
-                limit = autorun_mod.HISTORY_DEFAULT
-            try:
-                offset = int((q.get("offset") or ["0"])[0])
-            except ValueError:
-                offset = 0
-            return self._json(200, self.server.autorun.history(limit, offset))
+            return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0)))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/home/cases.py)
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
@@ -703,82 +701,99 @@ class PortalHandler(BaseHTTPRequestHandler):
         body = self._read_json()
         if body is None:
             return
-        sup = self.server.sup
         m = ACTION_RE.fullmatch(u.path)
         if m:
             tid, action = m.groups()
-            if tid not in sup.by_id:
+            if tid not in self.server.sup.by_id:
                 return self._fail(404, "unknown_tool", "そのツールはありません")
             if self.server.closing.is_set():
                 return self._fail(409, "closing", "終了の途中です")
-            return self._json(200, {"tool": getattr(sup, action)(tid)})
-        if u.path == "/api/cases/update":   # 案件の状態・メモ(案件ファイルに書く。各ツールのデータは触らない)
-            try:
-                return self._json(200, cases_mod.update(sup.root, body.get("id"), body.get("status"), body.get("memo")))
-            except ValueError as e:
-                return self._fail(400, "bad_request", str(e))
-            except OSError as e:
-                return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
-        if u.path in ("/api/autorun/start", "/api/autorun/cancel", "/api/autorun/start-docs", "/api/autorun/start-new", "/api/autorun/estimate"):   # まとめて実行(配信1本ぶん・選んだ文書を順に自動で)
-            if self.server.closing.is_set():
-                return self._fail(409, "closing", "終了の途中です")
-            try:
-                ar = self.server.autorun
-                if u.path.endswith("estimate"):   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite}
-                    if isinstance(body.get("ids"), list):
-                        return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=body.get("overwrite") is True))
-                    return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=body.get("overwrite") is True))
-                if u.path.endswith("start-new"):   # ① 探す で選んだ配信(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)
-                    return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
-                if u.path.endswith("start-docs"):
-                    return self._json(200, ar.start_docs(body.get("ids"), body.get("overwrite") is True, body.get("streamer")))
-                if u.path.endswith("start"):
-                    return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"),
-                                                            overwrite=body.get("overwrite") is True)})
-                return self._json(200, {"run": ar.cancel(body.get("runId"))})
-            except ValueError as e:
-                return self._fail(400, "bad_request", str(e))
-        if u.path == "/api/intake/scan":   # 今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)
-            if self.server.closing.is_set():
-                return self._fail(409, "closing", "終了の途中です")
-            self.server.intake.wake.set()
-            return self._json(200, self.server.intake.snapshot())
-        if u.path == "/api/backup/run":   # 今すぐ写す(裏で。応答は今の状態)
-            if self.server.closing.is_set():
-                return self._fail(409, "closing", "終了の途中です")
-            self.server.backup.run_now()
-            return self._json(200, self.server.backup.snapshot())
-        if u.path == "/api/accuracy/run":   # 今すぐ測る(裏で。手が空くまで待つ。応答は今の状態)
-            if self.server.closing.is_set():
-                return self._fail(409, "closing", "終了の途中です")
-            if not self.server.accuracy.run_now():
-                return self._fail(409, "off", "精度の自動測定がオフです")
-            return self._json(200, self.server.accuracy.snapshot())
-        if u.path == "/api/window":   # 画面を窓で開くか(次に起動したときから。段階7-3)
-            try:
-                self.server.window.set_mode(body.get("mode"))
-            except ValueError as e:
-                return self._fail(400, "bad_request", str(e))
-            except OSError as e:
-                return self._fail(500, "write", "設定を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
-            return self._json(200, {"window": self.server.window.status()})
-        if u.path == "/api/cleanup":   # 候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。14 日で起動時に消える)
-            ids = body.get("ids")
-            if not isinstance(ids, list) or not ids or len(ids) > cleanup_mod.MAX_ITEMS * 5:
-                return self._fail(400, "bad_request", "移す物を選んでください")
-            with self.server.cleanup_lock:
-                return self._json(200, self.server.cleanup.move(ids))
-        if u.path == "/api/shutdown":
-            out = {"ok": True}
-            try:   # 録画中なら録画の部品は止めずに残す(src/home/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
-                if self.server.live.local_recording() is True:
-                    out.update(recorderKept=True, notice=live_mod.KEPT_NOTE)
-            except Exception:
-                pass
-            self._json(200, out)
-            threading.Thread(target=self.server.request_shutdown, daemon=True).start()
-            return
-        return self._fail(404, "not_found", "その操作はありません")
+            return self._json(200, {"tool": getattr(self.server.sup, action)(tid)})
+        route = POST_ROUTES.get(u.path)
+        if route is None:
+            return self._fail(404, "not_found", "その操作はありません")
+        if route[1] and self.server.closing.is_set():
+            return self._fail(409, "closing", "終了の途中です")
+        return getattr(self, route[0])(u.path, body)
+
+    def _post_case(self, path, body):
+        """案件の状態・メモ(案件ファイルに書く。各ツールのデータは触らない)"""
+        try:
+            return self._json(200, cases_mod.update(self.server.sup.root, body.get("id"), body.get("status"), body.get("memo")))
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+
+    def _post_autorun(self, path, body):
+        """まとめて実行(配信1本ぶん・選んだ文書を順に自動で)。/api/autorun/<start|cancel|start-docs|start-new|estimate>"""
+        op, overwrite = path.rsplit("/", 1)[1], body.get("overwrite") is True
+        try:
+            ar = self.server.autorun
+            if op == "estimate":   # 見積もり(書き込まない。段4): {ids, overwrite} か {id, mode, marks, top, overwrite}
+                if isinstance(body.get("ids"), list):
+                    return self._json(200, ar.estimate(doc_ids=body["ids"], overwrite=overwrite))
+                return self._json(200, ar.estimate(body.get("id"), body.get("mode"), body.get("marks"), body.get("top"), overwrite=overwrite))
+            if op == "start-new":   # ① 探す で選んだ配信(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)
+                return self._json(200, ar.start_new(body.get("items"), body.get("top"), body.get("streamer")))
+            if op == "start-docs":
+                return self._json(200, ar.start_docs(body.get("ids"), overwrite, body.get("streamer")))
+            if op == "start":
+                return self._json(200, {"run": ar.start(body.get("id"), body.get("mode"), body.get("top"), body.get("streamer"), body.get("marks"),
+                                                        overwrite=overwrite)})
+            return self._json(200, {"run": ar.cancel(body.get("runId"))})
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+
+    def _post_intake_scan(self, path, body):
+        """今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)"""
+        self.server.intake.wake.set()
+        return self._json(200, self.server.intake.snapshot())
+
+    def _post_backup_run(self, path, body):
+        """今すぐ写す(裏で。応答は今の状態)"""
+        self.server.backup.run_now()
+        return self._json(200, self.server.backup.snapshot())
+
+    def _post_accuracy_run(self, path, body):
+        """今すぐ測る(裏で。手が空くまで待つ。応答は今の状態)"""
+        if not self.server.accuracy.run_now():
+            return self._fail(409, "off", "精度の自動測定がオフです")
+        return self._json(200, self.server.accuracy.snapshot())
+
+    def _post_window(self, path, body):
+        """画面を窓で開くか(次に起動したときから。段階7-3)"""
+        try:
+            self.server.window.set_mode(body.get("mode"))
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "write", "設定を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+        return self._json(200, {"window": self.server.window.status()})
+
+    def _post_cleanup(self, path, body):
+        """候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。14 日で起動時に消える)"""
+        ids = body.get("ids")
+        if not isinstance(ids, list) or not ids or len(ids) > cleanup_mod.MAX_ITEMS * 5:
+            return self._fail(400, "bad_request", "移す物を選んでください")
+        with self.server.cleanup_lock:
+            return self._json(200, self.server.cleanup.move(ids))
+
+    def _post_shutdown(self, path, body):
+        """すべて終了(応答を返してから後始末)"""
+        out = {"ok": True}
+        try:   # 録画中なら録画の部品は止めずに残す(src/home/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
+            if self.server.live.local_recording() is True:
+                out.update(recorderKept=True, notice=live_mod.KEPT_NOTE)
+        except Exception:
+            pass
+        self._json(200, out)
+        threading.Thread(target=self.server.request_shutdown, daemon=True).start()
+
+
+def hide_tokens(live_cfg):
+    """設定の節 live を画面へ返す形に: 録画元の合言葉は渡さない(あるかどうかだけ)"""
+    return dict(live_cfg, recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in live_cfg.get("recorders") or []])
 
 
 def peek_path(sock, timeout=10.0):
@@ -921,24 +936,12 @@ class PortalServer(ThreadingHTTPServer):
 
     def _worker_probe(self):
         """「編集」の /api/ping の worker(認識ワーカーの状態)。動いていなければ None"""
-        t = self.sup.by_id.get("transcribe")
-        snap = t.snapshot() if t else None
-        if not snap or snap["state"] not in ("running", "external") or not snap.get("port"):
-            return None
-        path = snap.get("path") or "/"
-        conn = http.client.HTTPConnection("127.0.0.1", snap["port"], timeout=1.5)
         try:
-            conn.request("GET", path + "api/ping", headers={"Host": "127.0.0.1:%d" % snap["port"], "Accept": "application/json"})
-            r = conn.getresponse()
-            if r.status != 200:
-                return None
-            d = json.loads(r.read(65536).decode("utf-8", "replace"))
-            w = d.get("worker") if isinstance(d, dict) else None
-            return w if isinstance(w, dict) else None
-        except (OSError, ValueError, http.client.HTTPException):
+            st, d = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=1.5).call("transcribe", "GET", "/api/ping")
+        except (autorun_mod.StepError, http.client.HTTPException):
             return None
-        finally:
-            conn.close()
+        w = d.get("worker") if st == 200 else None
+        return w if isinstance(w, dict) else None
 
     def _extra_dirs(self):
         """空き容量を見る追加の場所: スタジオの書き出し先(スタジオの settings.json の outDir。無ければ作業データの exports)"""
@@ -1028,8 +1031,8 @@ class PortalServer(ThreadingHTTPServer):
             if op == "get":
                 secs = body.get("sections")
                 got = self.prefs.get([x for x in secs if isinstance(x, str)] if isinstance(secs, list) else None)
-                if "live" in got:   # 録画元の合言葉は画面に渡さない(あるかどうかだけ)
-                    got["live"] = dict(got["live"], recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in got["live"].get("recorders") or []])
+                if "live" in got:
+                    got["live"] = hide_tokens(got["live"])
                 return {"ok": True, "prefs": got}
             if op == "patch":
                 value = self.prefs.patch(body.get("section"), body.get("value"))
@@ -1041,7 +1044,7 @@ class PortalServer(ThreadingHTTPServer):
                     self.accuracy.wake.set()
                 if body.get("section") == "live":   # リアルタイム切り抜き: オンにした・置き場所を変えた → 見回りをすぐ(録画の部品を起こす・置き場所を伝える)
                     self.live.on_patch(None, value)
-                    value = dict(value, recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in value.get("recorders") or []])
+                    value = hide_tokens(value)
                 return {"ok": True, "value": value}
             if op == "remember":
                 return {"ok": True, "streamer": self.prefs.remember(body.get("kind"), body.get("key"), body.get("name"))}
@@ -1106,18 +1109,22 @@ class PortalServer(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def close_watchers(self):
+        """裏の見張りを止める(すべて終了・入口の終了の両方から。2 回呼んでもよい)"""
+        self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
+        self.backup.close()
+        self.accuracy.close()   # 測っている子プロセスも止める
+        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く。0.38.1)
+
     def request_shutdown(self):
         """画面の「すべて終了」。この入口から起動したツールを止めてから、待ち受けを終える(serve_forever が戻る)。"""
         if self.closing.is_set():
             return
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
-        self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
-        self.backup.close()
-        self.accuracy.close()   # 測っている子プロセスも止める
-        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く。0.38.1)
+        self.close_watchers()
         if self._autorun is not None:
-            self._autorun.close()   # まとめて実行の順番待ちを消し、実行中の分に中止を伝える
+            self._autorun.close()   # まとめて実行の実行中の段を止める(順番待ち・実行中の実行は次の起動で続く。M5)
         self.sup.stop_all()
         self.sup.unmount_all()
         self.shutdown()
@@ -1300,10 +1307,7 @@ def main(argv=None):
     finally:
         ignore_stop_signals()
         srv.closing.set()
-        srv.intake.close()
-        srv.backup.close()
-        srv.accuracy.close()
-        srv.live.close()
+        srv.close_watchers()
         sup.close()
         sup.stop_all()
         sup.unmount_all()

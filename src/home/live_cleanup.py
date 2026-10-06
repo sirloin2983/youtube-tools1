@@ -67,13 +67,9 @@ class Cleaner:
         with self.lock:
             out["keeps"] = self._clean_keeps(now)
             for rc in self.live.recorders():
-                code, d = self.live.call(rc, "GET", "/live/list", timeout=5.0)
-                if code != 200 or not isinstance(d, dict):   # つながらない・読めない: 何もしない
-                    continue
-                for r in d.get("recordings") or []:
-                    if isinstance(r, dict) and LX.REC_RE.match(str(r.get("id") or "")):
-                        if self._consider(rc, r, now):
-                            out["deleted"].append(r["id"])
+                for r in LX.rec_list(self.live.call, rc) or []:   # つながらない・読めない録画元は何もしない
+                    if self._consider(rc, r, now):
+                        out["deleted"].append(r["id"])
         return out
 
     def check(self, rc_id, rec):
@@ -84,10 +80,7 @@ class Cleaner:
         if rc is None:
             return False
         with self.lock:
-            code, d = self.live.call(rc, "GET", "/live/list", timeout=5.0)
-            if code != 200 or not isinstance(d, dict):
-                return False
-            r = next((x for x in d.get("recordings") or [] if isinstance(x, dict) and x.get("id") == rec), None)
+            r = next((x for x in LX.rec_list(self.live.call, rc) or [] if x.get("id") == rec), None)
             return bool(r) and self._consider(rc, r, self.clock())
 
     # --- 録画1本 ---
@@ -95,16 +88,6 @@ class Cleaner:
         ex = self.live.exporter
         with ex.lock:
             return [j for j in ex.jobs if j.get("recorder") == rc_id and j.get("recording") == rec]
-
-    @staticmethod
-    def _latest(js):
-        """マークごとの最新のジョブ(src/home/live_archive.py の targets と同じ決め方)"""
-        last = {}
-        for j in js:
-            p = last.get(j.get("markId"))
-            if p is None or str(j.get("created") or "") >= str(p.get("created") or ""):
-                last[j.get("markId")] = j
-        return list(last.values())
 
     def _consider(self, rc, r, now):
         """録画1本を消すか決めて、消す。-> 消したら True"""
@@ -161,7 +144,7 @@ class Cleaner:
                 return "書き出しの途中"
             if (j.get("archive") or {}).get("state") in LX.ARCHIVE_ACTIVE:
                 return "本番版への作り直しの途中"
-        last = self._latest(js)
+        last = LX.latest_per_mark(js)
         if not last or not all(j.get("state") == "done" and (j.get("archive") or {}).get("state") == "done" for j in last):
             return "本番版になっていないマークがある"
         marks, _registered = self._studio_marks(rec)

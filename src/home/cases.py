@@ -28,7 +28,6 @@ from ytt_core import datadir, fsio, txindex
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
-STATUS_LABELS = {"": "未設定", "working": "作業中", "posted": "投稿済み", "skipped": "見送り"}
 MAX_MEMO = 2000
 MAX_JSON = 64 * 1024 * 1024
 _lock = threading.Lock()

@@ -133,17 +133,12 @@ class Later(Exception):
 
 
 # ---------- 外のプログラム(yt-dlp・ffmpeg・照合の子プロセス) ----------
-def _flags():
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-
 
 def run_proc(cmd, timeout, cancelled=None):
     """外のプログラムを1回(シェルを通さない・窓を出さない・通常より下の優先度)。取り消し・時間切れで止める。
     -> (終了コード, 標準出力, エラーの行の最後の数行)。取り消しは LX.Cancelled、時間切れ・起動できないは ArchiveError"""
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_flags())
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=LX.low_flags())
     except OSError as e:
         raise ArchiveError("%s を起動できませんでした: %s" % (os.path.basename(cmd[0]), e.strerror or e.__class__.__name__))
     out, err = [], []
@@ -290,7 +285,7 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
             return max(got, key=os.path.getsize)
         why = " / ".join(tail) or "終了コード %s" % code
         for x in got:
-            _unlink(x)
+            fsio.unlink_quiet(x)
         if n < retries:
             _pause(YTDLP_RETRY_WAIT if wait is None else wait, cancelled)
     raise ArchiveError("アーカイブの音を取れませんでした(%s)" % why)
@@ -343,13 +338,6 @@ def free_name(folder, name):
         cand = "%s_%d%s" % (stem, i, ext)
         i += 1
     return os.path.join(folder, cand)
-
-
-def _unlink(p):
-    try:
-        os.unlink(p)
-    except OSError:
-        pass
 
 
 # ---------- 配信後の全自動(M7)の決め方 ----------
@@ -479,12 +467,7 @@ class Archiver:
 
     def targets(self, rc, rec):
         """対象: マークごとの最新のジョブで、done(入れ替え)か error + needsArchive(新しく作る)"""
-        last = {}
-        for j in self._rec_jobs(rc, rec):
-            p = last.get(j.get("markId"))
-            if p is None or str(j.get("created") or "") >= str(p.get("created") or ""):
-                last[j.get("markId")] = j
-        return sorted([j for j in last.values() if j.get("state") == "done" or (j.get("state") == "error" and j.get("needsArchive"))],
+        return sorted([j for j in LX.latest_per_mark(self._rec_jobs(rc, rec)) if j.get("state") == "done" or (j.get("state") == "error" and j.get("needsArchive"))],
                       key=lambda j: j.get("start") or "")
 
     def _queue(self, js, auto):
@@ -920,18 +903,10 @@ class Archiver:
             ref = self._wav(files[0][0], os.path.join(wdir, "ref.wav"), ss, use, job)
             full = self._full_audio(job, vid)
             est = (s0 + ss if s0 is not None else ra) - t0
-            why = ""
-            for w in WINDOWS_FIRST:
-                self._stop(job)
-                w0, w1 = max(0.0, est - w), est + use + w
-                win = self._wav(full, os.path.join(wdir, "window.wav"), w0, w1 - w0, job=job)
-                self._stop(job)
-                r = self.align(ref, win) or {}
-                _unlink(win)
-                if r.get("ok") and (r.get("score") or 0) >= MIN_SCORE and (r.get("ratio") or 0) >= MIN_RATIO:
-                    return w0 + float(r["offset"]) - est, "録画の音をアーカイブと照合"
-                why = r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
-            raise ArchiveError("録画の音とアーカイブの音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれません" % why)
+            w0, _w1, r = self._search(job, ref, full, est, use, WINDOWS_FIRST, wdir)
+            if w0 is None:
+                raise ArchiveError("録画の音とアーカイブの音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれません" % r)
+            return w0 + float(r["offset"]) - est, "録画の音をアーカイブと照合"
         finally:
             shutil.rmtree(wdir, ignore_errors=True)
 
@@ -1278,22 +1253,33 @@ class Archiver:
         prev = self._nearest_offset(job, need=False, same_video=True)   # 同じ配信の別の録画の照合も見当に使う
         center = est + (prev or 0.0)
         full = self._full_audio(job, vid)
+        w0, w1, r = self._search(job, ref, full, center, trim + span, WINDOWS_NEXT if prev is not None else WINDOWS_FIRST, wdir, talk=True)
+        if w0 is None:
+            raise ArchiveError("アーカイブの音と速報版の音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれないので、速報版のままにします" % r)
+        ast = w0 + float(r["offset"]) - trim
+        self._aset(job, offset=round(ast - est, 3), aligned=True, score=r.get("score"), ratio=r.get("ratio"), window=[round(w0, 3), round(w1, 3)])
+        return ast
+
+    def _search(self, job, ref, full, center, span, windows, wdir, talk=False):
+        """アーカイブの丸ごとの音 full から、見当 center の前後 w 秒(windows の順に広げる)の窓を切り出して ref と照合する
+        (窓の決め方・しきい値は P4 の作り直しと M7 の時刻合わせで同じ)。talk = 進み具合をジョブの archive に出す(P4)。
+        -> (窓の頭の秒, 窓の終わりの秒, 照合の結果)。どの窓でも合わなければ (None, None, 最後の理由の文)"""
         why = ""
-        for n, w in enumerate(WINDOWS_NEXT if prev is not None else WINDOWS_FIRST):
+        for n, w in enumerate(windows):
             self._stop(job)
-            w0, w1 = max(0.0, center - w), center + trim + span + w
-            self._aset(job, message="アーカイブの音を切り出しています(見当の前後 %d 秒)" % int(w), progress=0.05 + 0.05 * n)
+            w0, w1 = max(0.0, center - w), center + span + w
+            if talk:
+                self._aset(job, message="アーカイブの音を切り出しています(見当の前後 %d 秒)" % int(w), progress=0.05 + 0.05 * n)
             win = self._wav(full, os.path.join(wdir, "window.wav"), w0, w1 - w0, job=job)   # 手前まで入力側の -ss・残りはデコードして切る(_wav。サンプル単位で正確)
             self._stop(job)
-            self._aset(job, message="照合しています(見当の前後 %d 秒)" % int(w))
+            if talk:
+                self._aset(job, message="照合しています(見当の前後 %d 秒)" % int(w))
             r = self.align(ref, win) or {}
-            _unlink(win)
+            fsio.unlink_quiet(win)
             if r.get("ok") and (r.get("score") or 0) >= MIN_SCORE and (r.get("ratio") or 0) >= MIN_RATIO:
-                ast = w0 + float(r["offset"]) - trim
-                self._aset(job, offset=round(ast - est, 3), aligned=True, score=r.get("score"), ratio=r.get("ratio"), window=[round(w0, 3), round(w1, 3)])
-                return ast
+                return w0, w1, r
             why = r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
-        raise ArchiveError("アーカイブの音と速報版の音が合いませんでした(%s)。アーカイブが切り貼りされたか、別の配信かもしれないので、速報版のままにします" % why)
+        return None, None, why
 
     def _audio(self, speed):
         """スタジオに頼む音量(速報版と同じ扱い): 速報版の .clip.json の export に残した値 → 無ければ今の書き出しの設定(studio_audio)"""
@@ -1327,7 +1313,7 @@ class Archiver:
         vol, loud = self._audio(speed)
         for attempt in (0, 1):
             self._stop(job)
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             self._aset(job, state="fetch", message="アーカイブから取って 30fps に作り直しています(スタジオの書き出し)", progress=0.15, archiveStart=round(ast, 3))
             item = self._section(job, vid, ast, ast + dur, tmp, height, vol, loud)
             self._aset(job, state="verify", message="作り直した本番版を確かめています", progress=0.9)

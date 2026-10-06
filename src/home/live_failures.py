@@ -18,11 +18,8 @@
 import os
 import threading
 
-from ytt_core import fsio
-
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動"}
-TX_STEPS = ("transcribe", "diarize")         # 文字起こしの側の段(src/home/autorun.py の STEP_LABELS の鍵)
-PACK_STEPS = ("pack", "deliver")             # パックの側の段
+PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(まとめて実行の失敗の数と同じ 7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
 RUNS_READ_BYTES = 512 * 1024                 # まとめて実行の記録は末尾からこれだけ読む(1 件 1〜2KB)
@@ -129,14 +126,3 @@ def collect(jobs, runs, now=None, window=WINDOW_SEC, limit=MAX_LIST):
                         runId=j.get("runId") or "", at=at))
     out.sort(key=lambda x: x["at"], reverse=True)
     return out[:limit] if limit else out
-
-
-def read_jobs(store_dir):
-    """入口の作業データの live/exports.json のジョブ(読むだけ。無い・読めないときは [])"""
-    import live_export
-    try:
-        d = fsio.read_json_file(os.path.join(store_dir, "exports.json"), 8 * 1024 * 1024)
-    except (OSError, ValueError):
-        return []
-    jobs = d.get("jobs") if isinstance(d, dict) and d.get("schema") == live_export.JOBS_SCHEMA else None
-    return [j for j in jobs if isinstance(j, dict)] if isinstance(jobs, list) else []

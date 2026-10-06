@@ -70,7 +70,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir, tools
+from ytt_core import datadir, layout, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
@@ -131,10 +131,6 @@ def validate_url(url, allow_local=False):
     return "https://www.youtube.com/watch?v=" + vid if vid else url   # 動画の id が分かる形はそろえる(同じ配信を別の書き方で二重に録らない)
 
 
-def _no_window():
-    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-
-
 def kill_tree(proc, wait=5.0):
     """子プロセスを孫ごと止める(スタジオの common.hard_kill と同じ形: Windows は taskkill /T /F・それ以外は kill)"""
     if proc is None or proc.poll() is not None:
@@ -142,7 +138,7 @@ def kill_tree(proc, wait=5.0):
     if os.name == "nt":
         try:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=10, **_no_window())
+                           stderr=subprocess.DEVNULL, timeout=10, creationflags=tools.no_window_flags())
         except (OSError, subprocess.SubprocessError):
             pass
     try:
@@ -171,7 +167,7 @@ def probe_live(url, timeout=PROBE_TIMEOUT):
         # 題は最後(題にタブが入っても崩れない)。%(channel,uploader)s = チャンネル名が無ければ投稿者(yt-dlp の書式の「代わり」)
         r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error",
                             "--print", "%(live_status)s\t%(channel,uploader)s\t%(title)s", "--", url],
-                           stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, **_no_window())
+                           stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, creationflags=tools.no_window_flags())
     except subprocess.TimeoutExpired:
         return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
     except OSError as e:
@@ -208,7 +204,7 @@ def _same_stream(a_url, b_url, b_id=""):
 
 def recorder_data_dir(root):
     """録画の部品の作業データ(token.txt)。src/recorder/recorder.py の data_dir() と同じ規則"""
-    return datadir.locate("recorder", legacy_dir=os.path.join(root, "recorder", "data"))
+    return datadir.locate("recorder", legacy_dir=os.path.join(root, layout.RECORDER_DIR, "data"))
 
 
 def is_local_url(url):
@@ -401,12 +397,7 @@ class Live:
         つながらない録画元は飛ばす"""
         out = []
         for rc in self.recorders():
-            code, d = self.call(rc, "GET", "/live/list", timeout=5.0)
-            if code != 200 or not isinstance(d, dict):
-                continue
-            for r in d.get("recordings") or []:
-                if not isinstance(r, dict) or not live_export.REC_RE.match(str(r.get("id") or "")):
-                    continue
+            for r in live_export.rec_list(self.call, rc) or []:
                 out.append({"recorder": rc["id"], "id": r["id"], "url": str(r.get("url") or "")[:URL_MAX], "title": str(r.get("title") or "")[:live_export.TITLE_MAX],
                             "active": r.get("active") is True or r.get("state") in live_cleanup.REC_ACTIVE,
                             "endedAt": live_export.iso_epoch(r.get("endedAt")), "firstPdt": live_export.iso_epoch(r.get("firstPdt")),
@@ -416,13 +407,8 @@ class Live:
     def recording_state(self, rc_id, rec):
         """録画元での録画の状態 {"active", "endedAt"(epoch か None)}。つながらない・見つからないときは None(P4 の自動: 録画が終わったか)"""
         rc = self.find(rc_id)
-        if rc is None:
-            return None
-        code, d = self.call(rc, "GET", "/live/list", timeout=5.0)
-        if code != 200 or not isinstance(d, dict):
-            return None
-        for r in d.get("recordings") or []:
-            if isinstance(r, dict) and r.get("id") == rec:
+        for r in (live_export.rec_list(self.call, rc) or []) if rc is not None else []:
+            if r.get("id") == rec:
                 return {"active": r.get("active") is True,
                         "endedAt": live_export.iso_epoch(r.get("endedAt")) or live_export.iso_epoch(r.get("lastPdt"))}
         return None
@@ -436,7 +422,7 @@ class Live:
 
     def expected_version(self):
         try:
-            with open(os.path.join(self.root, "recorder", "recorder.py"), "r", encoding="utf-8") as f:
+            with open(os.path.join(self.root, layout.RECORDER_DIR, "recorder.py"), "r", encoding="utf-8") as f:
                 m = VERSION_RE.search(f.read())
             return m.group(1) if m else ""
         except (OSError, UnicodeError):
@@ -593,13 +579,7 @@ class Live:
 
     def _find_active(self, rc, url):
         """録画元で同じ配信を録画中の録画(要約)か None"""
-        code, d = self.call(rc, "GET", "/live/list", timeout=5.0)
-        if code != 200 or not isinstance(d, dict):
-            return None
-        for r in d.get("recordings") or []:
-            if isinstance(r, dict) and r.get("active") and live_export.REC_RE.match(str(r.get("id") or "")) and _same_stream(url, r.get("url"), r.get("id")):
-                return r
-        return None
+        return next((r for r in live_export.rec_list(self.call, rc) or [] if r.get("active") and _same_stream(url, r.get("url"), r.get("id"))), None)
 
     def begin(self, url):
         """スタジオの URL の欄(POST /live/api/begin)。配信中・配信前なら録画を始める(同じ配信を録画中ならそれを返す)。-> 返す JSON"""
@@ -803,12 +783,7 @@ class Live:
                 return self._recent[1]
             out, now = [], time.time()
             for rc in self.recorders():
-                code, d = self.call(rc, "GET", "/live/list", timeout=STATUS_TIMEOUT)
-                if code != 200 or not isinstance(d, dict):
-                    continue
-                for r in d.get("recordings") or []:
-                    if not isinstance(r, dict) or not live_export.REC_RE.match(str(r.get("id") or "")):
-                        continue
+                for r in live_export.rec_list(self.call, rc, STATUS_TIMEOUT) or []:
                     ended = live_export.iso_epoch(r.get("endedAt"))
                     if not r.get("active") and (ended is None or now - ended > RECENT_SEC):
                         continue
@@ -1008,7 +983,7 @@ class Live:
         if self._halt.is_set():   # 入口の終了の途中(止めたあとに見回りが起こし直さない)
             return False
         self._last_spawn = time.time()
-        script = os.path.join(self.root, "recorder", "recorder.py")
+        script = os.path.join(self.root, layout.RECORDER_DIR, "recorder.py")
         if not os.path.isfile(script):
             self.log("録画の部品が見つかりません: %s" % script)
             return False

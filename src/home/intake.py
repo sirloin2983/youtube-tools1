@@ -121,10 +121,6 @@ def decode_text(raw):
     return raw.decode("utf-8", "replace")
 
 
-def _no_window():
-    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-
-
 def probe_video(path):
     """ffprobe で動画の形を確かめる -> {"ok", "duration" (秒 か None), "reason"}"""
     fp = tools.find_tool("ffprobe")
@@ -132,7 +128,7 @@ def probe_video(path):
         return {"ok": False, "duration": None, "reason": "ffprobe が見つからないので、動画を確かめられません"}
     try:
         r = subprocess.run([fp, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path],
-                           capture_output=True, timeout=60, **_no_window())
+                           capture_output=True, timeout=60, creationflags=tools.no_window_flags())
         d = json.loads(r.stdout.decode("utf-8", "replace") or "{}")
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return {"ok": False, "duration": None, "reason": "動画として読めませんでした"}
@@ -155,7 +151,7 @@ def youtube_info(vid):
     try:
         r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--print",   # --encoding: 付けないと Windows の文字コード(cp932)で出して題名が化ける
                             "%(duration)s\t%(live_status)s\t%(channel)s\t%(title)s", "--", "https://www.youtube.com/watch?v=" + vid],
-                           capture_output=True, timeout=90, **_no_window())
+                           capture_output=True, timeout=90, creationflags=tools.no_window_flags())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode != 0:
@@ -352,7 +348,6 @@ class Intake:
         today = self._today()
         self.st["daily"] = {k: v for k, v in self.st["daily"].items() if k >= (datetime.date.fromisoformat(today) - datetime.timedelta(days=7)).isoformat()}
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
             fsio.atomic_write(self.state_path, json.dumps(dict(self.st, v=1), ensure_ascii=False).encode("utf-8"))
         except OSError as e:
             self.log("依頼の受付: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))

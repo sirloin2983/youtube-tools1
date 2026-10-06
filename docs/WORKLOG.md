@@ -1693,3 +1693,34 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `segHTML(s, i, T)` の T は `rowTitles()`(`segs.map(segHTML)` と書かない = 3 つ目の引数に配列が入る)
   - 起動中の入口は古い画面のまま。ユーザーに「すべて終了」→ start.bat で起動し直してもらう(版の帯が 0.58.1 になる)
 - 未コミット: なし(このコミット。src/editor/ と docs/WORKLOG.md だけ。ほかの担当の src/home/ などの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ home の見直し(入口 0.40.0 → 0.40.1。内部の整理で動きは同じ)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。HTTP の API(入口の /api/*・/api/ytt/*・/live/* の中継・取り込んだツールへの転送)・合言葉・CSP・Host/Origin 検査(順番も)・作業データの形・起動の約束・画面の見た目と文言は変えていない。今日の M1〜M7 は動きを変えない整理だけ
+- 変更(`src/home/` だけ):
+  - `launch.py`: do_GET の状態を返すだけの 4 つ(intake・backup・accuracy・autorun)を表 `GET_SNAPSHOTS` に・`/api/log` の client とツールの枝を 1 つに・クエリの整数を `query_int` に。do_POST は検査(Host・Origin・Sec-Fetch・合言葉 → api/ytt → /live/ → 本文の読み取り → ツールの操作)をそのままに、残りを表 `POST_ROUTES`(場所 → メソッド・終了の途中なら 409 か)と `_post_case`・`_post_autorun`・`_post_intake_scan`・`_post_backup_run`・`_post_accuracy_run`・`_post_window`・`_post_cleanup`・`_post_shutdown` に分けた。
+    「すべて終了」と入口の終了で同じだった見張りの後始末を `close_watchers` に・録画元の合言葉を画面に渡さない処理(2 か所)を `hide_tokens` に・「調子」の認識ワーカーの問い合わせ(`_worker_probe`)は まとめて実行の `ToolClient` で(同じ Host・同じ判定)。`UI_KIT_DIR` は `layout.UI_KIT_DIR`・`YTT_API` は mount.py の値。使っていない `STATES` を削除。版 0.40.1
+  - `autorun.py`: 段を順に進める処理(配信 `_execute`・文書 `_execute_doc`・依頼の動画 `_execute_file` の 3 つの同じループ)を `_run_steps` に(配信だけ段のあとにスタジオの配信を読み直す = 前と同じ順番)・「編集」のジョブ 1 つを待つ処理(文書・依頼の動画の文字起こし・話者分離の 3 か所)を `_wait_job` に・文字起こしの設定の取り出し(3 か所)を `_tx_opts` に・
+    順番待ちに入れる処理(start・start_new・start_docs・start_request・start_file)を `_push` / `_enqueue` と `_busy_reason`・`_top_arg` に(断る文・順番は同じ。start_new の `seen` は active に入れるので要らなかった)・環境変数の off の判定を `_env_off` に・`_cut_method` は `_pref`・ファイル名の整え方は deliver.py の `safe_name`(同じ規則)。記録の 1 行の書き足しは clientlog の `append_line`。使っていない `FLOWS`・`snapshot_labels`・`named` を削除
+  - `live.py`・`live_cleanup.py`・`live_export.py`: 録画元の一覧(GET /live/list)の読み方(7 か所)を `live_export.rec_list(call, rc, timeout)` に(id の形が正しい辞書だけ。call は Live.call を渡す = e2e の差し替えもそのまま効く)・マークごとの最新のジョブの決め方(live_archive の targets と live_cleanup の _latest)を `live_export.latest_per_mark` に・
+    子プロセスの窓は `tools.no_window_flags()`(live・intake・health)・書き出しと作り直しの creationflags(live_export と live_archive の同じ式)を `live_export.low_flags` に・`_unlink` は `fsio.unlink_quiet`・`"recorder"` のフォルダ名は `layout.RECORDER_DIR`・採用の記録の書き足しは `clientlog.append_line`。使っていない `live_export.STATES`・`live_failures.TX_STEPS / read_jobs` を削除
+  - `live_archive.py`: 照合の窓を広げながら探す処理(P4 の `_align` と M7 の `_after_offset` の同じループ。しきい値 MIN_SCORE・MIN_RATIO の判定)を `_search` に(P4 だけ進み具合を archive に出す = 前と同じ)
+  - `clientlog.py`: 記録のファイルに 1 行足す形(超えたら .1 へ回す)を `append_line` に(画面のエラーの記録・まとめて実行の記録・採用の記録の 3 か所が使う)
+  - `accuracy.py`: `_num` は `schemas.num`(巨大な整数で OverflowError にならず None)・ytt_core の部品の読み込みを先頭に・記録は `fsio.atomic_write`。`intake.py`: 記録の前の makedirs(atomic_write がする)を削除。`cases.py`: 使っていない `STATUS_LABELS` を削除。`portal.js`: 使っていない `basename` を削除
+  - README.txt(見出し v0.40.1・■ v0.40.1「内部の整理。動きは同じ」)
+- 行数(`wc -l`。src/home の .py と portal.*): 14,079 → 13,938(−141)。コードの行(空行・コメントだけの行・docstring を除く。.py だけ): 9,553 → 9,362(−191)。ファイルごと: autorun 1997 → 1921・live 1082 → 1057・live_cleanup 261 → 244・live_archive 1468 → 1454・live_failures 142 → 128・accuracy 574 → 568・intake 793 → 788・launch 1320 → 1324(POST を 8 つのメソッドに分けたため。do_POST は 94 行 → 32 行・do_GET は 76 行 → 54 行)・live_export 1277 → 1285(共通の rec_list・latest_per_mark・low_flags をここに置いた)・clientlog 90 → 96
+- 確かめ方: 消した名前・置き換えた名前(`FLOWS`・`snapshot_labels`・`_execute_doc`・`_execute_file`・`_file_name`・`STATES` 2 つ・`TX_STEPS`・`read_jobs`・`STATUS_LABELS`・`_no_window` 2 つ・`_unlink` 2 つ・`_flags`・`_latest`・`basename`)は src・dev・friend-apps・setup とテストで使われていないことを grep で確かめた。テストが中を見ている名前(`_execute`・`_friend_length`・`_log`・`_next_ready`・`_process`・`_after_offset`・`_queue` など)は残した。e2e は `live.call` をインスタンスで差し替えるので、一覧は `self.call` を渡して読む
+- テスト: home の単体 14 本 395 件 OK(skip 2。前と同じ件数)・e2e(PYTHONIOENCODING=utf-8・1 本ずつ)e2e_portal・e2e_autorun・e2e_window・e2e_intake_ui・e2e_backup_ui・e2e_keymap・e2e_live・e2e_live_studio(119 件)・e2e_live_archive(99 件)・dev の e2e_pipeline・e2e_datadir すべて OK。テストは直していない
+- 直さなかった候補(理由):
+  - 録画の状態の問い合わせが最大 5000 件のセグメントを返す件(recorder の担当の申し送り): 入口の側(`live.py` の `_rec_status`)は前から `since=999999999` を付けていた。毎回 5000 件を受けているのはスタジオの画面(`src/studio/review.js` の `pollLiveStatus` が `r/<録画元>/<録画>/status` を 3 秒ごと。使うのは active・segments・seconds・firstPdt・lastPdt・state・title だけで segmentList は使わない)= スタジオの担当が `liveRest(v, 'status?since=999999999')` にすれば軽くなる。入口の中継で since を足すのは中継の約束を変えるのでしていない
+  - `prefs.Prefs.get` が呼ばれるたびに prefs.json を読む(録画の API・まとめて実行の設定など): 更新時刻で覚えると、同じ時刻の書き込み(Windows の時刻の細かさ)で古い値を返すおそれ。ファイルは小さいので今のまま
+  - `portal.js`(1722 → 1721): 画面の組み立てで重なりが少ない。見た目の比較なしに大きく変えない
+  - `backup.py` の記録の書き込みを `fsio.atomic_write` に: backup.py は `py -3.10 src/home/backup.py --restore` で単独に動く(ytt_core を読み込まない)ので今のまま
+  - 依頼の受付・バックアップ・精度の測定の `_cfg`・start/close の形の共通化・`prefs._clean_live` の true/false の検査の表: 減る行が少なく、検査の順番(断る文)が変わるおそれ
+  - yt-dlp で調べる 3 か所(live.probe_live・live_archive._probe_once・intake.youtube_info)の共通化: 取り出す項目・時間切れ・取り消し・テストの差し替え方がそれぞれ違う
+  - `launch._extra_dirs` と `live.studio_out_dir`(どちらもスタジオの書き出し先): 読めないときの扱いが違う(「調子」は空の一覧・書き出しは作業データの exports)
+  - autorun の書き出し・パックのジョブを待つループ(`_step_export`・`_pack_one`)の共通化: 待つ間の知らせの文と中止の扱いが少しずつ違う
+- 注意:
+  - 起動中の入口は古いコードのまま。ユーザーに「すべて終了」→ start.bat で起動し直してもらう(版 0.40.1)
+  - Git Bash のヒアドキュメント(`<<'EOF'` でも)で `\\` が `\` になった(Python の正規表現を含む置き換えはそこで止まった)。バックスラッシュを含む編集は Edit か Write で作ったファイルから
+  - src/home の .py は CRLF と LF が混ざっている(index はすべて LF)。行末はファイルごとに保って直した
+- 未コミット: なし(このコミット。src/home/ と docs/WORKLOG.md だけ)

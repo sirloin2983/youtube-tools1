@@ -61,6 +61,7 @@ import time
 import urllib.parse
 
 from ytt_core import colors, fsio, jobs, loudness, normalize, schemas, tools
+import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3)
 
 VERSION = "0.1.0"
@@ -89,7 +90,6 @@ READY_PAD = 1.0            # 終わりの時刻よりこの秒数先まで録れ
 POLL = 2.0                 # 録画待ちの見回りの間隔(秒)
 DOWN_SEC = 60.0            # 録画元にこの秒数つながらなければ、予備を探して、無ければ失敗
 FETCH_TIMEOUT = 30.0
-STATES = ("wait", "fetch", "encode", "done", "error", "cancelled")
 ACTIVE = ("wait", "fetch", "encode")
 STATE_LABELS = {"wait": "録画待ち", "fetch": "取得中", "encode": "作り直し中", "done": "済み", "error": "失敗", "cancelled": "取り消し"}
 GB = 1024 ** 3
@@ -219,6 +219,25 @@ def unique_base(base, folder):
         name = "%s_%d" % (base, i)
         i += 1
     return name
+
+
+def rec_list(call, rc, timeout=5.0):
+    """録画元の録画の一覧(GET /live/list の recordings のうち、id の形が正しい辞書だけ)。つながらない・読めなければ None。
+    call = src/home/live.py の Live.call(テストは差し替える)"""
+    code, d = call(rc, "GET", "/live/list", timeout=timeout)
+    if code != 200 or not isinstance(d, dict):
+        return None
+    return [r for r in d.get("recordings") or [] if isinstance(r, dict) and REC_RE.match(str(r.get("id") or ""))]
+
+
+def latest_per_mark(js):
+    """マークごとの最新のジョブ(作った時刻の新しいもの)。本番版への作り直しの対象(live_archive)と、録画を消すか(live_cleanup)で同じ決め方"""
+    last = {}
+    for j in js:
+        p = last.get(j.get("markId"))
+        if p is None or str(j.get("created") or "") >= str(p.get("created") or ""):
+            last[j.get("markId")] = j
+    return list(last.values())
 
 
 def video_id_of(url, rec_id=""):
@@ -552,14 +571,7 @@ class Exporter:
         line = json.dumps(dict({"v": 1, "at": now_iso()}, **row), ensure_ascii=False) + "\n"
         with self.fb_lock:
             try:
-                os.makedirs(self.folder, exist_ok=True)
-                try:
-                    if os.path.getsize(path) > FEEDBACK_MAX_BYTES:
-                        os.replace(path, path + ".1")
-                except OSError:
-                    pass
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(line)
+                clientlog.append_line(path, line, FEEDBACK_MAX_BYTES)
             except OSError as e:
                 self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
 
@@ -831,9 +843,8 @@ class Exporter:
             for other in self.live.recorders():
                 if other.get("id") == job["recorder"]:
                     continue
-                c2, lst = self.live.call(other, "GET", "/live/list", timeout=5.0)
-                for r in (lst or {}).get("recordings") or [] if c2 == 200 and isinstance(lst, dict) else []:
-                    if r.get("url") == url and REC_RE.match(str(r.get("id") or "")):
+                for r in rec_list(self.live.call, other) or []:
+                    if r.get("url") == url:
                         c3, d3 = self._query(other["id"], r["id"], a, b)
                         if c3 == 200 and isinstance(d3, dict):
                             out.append((other, r["id"], d3))
@@ -915,7 +926,7 @@ class Exporter:
             self._set(job, state="error", error="内部エラー: %s" % e.__class__.__name__, message="")
         finally:
             if tmp:
-                _unlink(tmp)
+                fsio.unlink_quiet(tmp)
             shutil.rmtree(wdir, ignore_errors=True)
             job.pop("cancel", None)
 
@@ -966,9 +977,7 @@ class Exporter:
             src = ["-f", "concat", "-safe", "0", "-i", lst]
         folder, base, title = self.target(job, d, rec, a, b)
         tmp = os.path.join(folder, base + PARTIAL + ".mp4")
-        flags = 0
-        if os.name == "nt":
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」・書き出しは「通常より下」
+        flags = low_flags()
         # -ss は入力の前(作り直しなので位置はコマ単位で正確)。長さは出力の -t で決める(入力の -t だけだと、fps フィルタが最後のコマを
         # 増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(少し長めに)
         head_args = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
@@ -976,26 +985,26 @@ class Exporter:
         enc = normalize.encode_args()
         code, tail, why = self._run(job, head_args + enc + ["-progress", "pipe:1", "-nostats", tmp], dur, flags)
         if code != 0 and why is None and normalize.is_fps_mode_error("\n".join(tail)):   # ffmpeg 5.1 より古い
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             code, tail, why = self._run(job, head_args + normalize.legacy_args(enc) + ["-progress", "pipe:1", "-nostats", tmp], dur, flags)
         if why == "cancel":
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             self._cancelled(job)
             raise Cancelled()
         if code != 0:
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             raise LiveError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
         try:
             audio = self._adjust_audio(job, ff, tmp, dur, flags)
         except BaseException:   # 取り消し・入口の終了・失敗: 書きかけは残さない
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             raise
         info = normalize.probe(tmp, self.ffprobe)
         if not normalize.is_30fps(info):
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             raise LiveError("作り直した動画が 30fps になっていません(%s)" % ((info or {}).get("r_frame_rate") or "読めません"))
         if info.get("duration") is None or abs(info["duration"] - dur) > LEN_TOL:
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             raise LiveError("作り直した動画の長さが区間と違います(区間 %.2f 秒 / 動画 %s 秒)"
                             % (dur, "不明" if info.get("duration") is None else "%.2f" % info["duration"]))
         final = os.path.join(folder, base + ".mp4")
@@ -1068,7 +1077,7 @@ class Exporter:
                "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
         code, tail, why = self._run(job, cmd, dur, flags)
         if why == "cancel" or code != 0:
-            _unlink(out)
+            fsio.unlink_quiet(out)
             if why == "cancel":
                 self._cancelled(job)
                 raise Cancelled()
@@ -1264,11 +1273,10 @@ class Exporter:
         return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
 
 
-def _unlink(p):
-    try:
-        os.unlink(p)
-    except OSError:
-        pass
+def low_flags():
+    """書き出し・作り直しの子プロセス(ffmpeg・yt-dlp・照合)の creationflags: 窓を出さない・通常より下の優先度
+    (録画は「通常より上」・書き出しは「通常より下」。src/home/live_archive.py も同じ)"""
+    return tools.no_window_flags() | (getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0) if os.name == "nt" else 0)
 
 
 def _disk_usage(path):
