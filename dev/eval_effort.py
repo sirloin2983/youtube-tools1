@@ -32,21 +32,17 @@
 import argparse
 import bisect
 import datetime
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-for _p in (REPO, HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-from ytt_core import datadir  # noqa: E402
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
+from _evalcommon import dist, rate  # noqa: E402
 import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
 SCHEMA = "youtube-tools-effort-eval/v1"
@@ -65,31 +61,8 @@ EDIT_KEYS = (("text", "文字を直した行"), ("added", "人が足した行"),
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
 
-def read_json(path, default=None, limit=MAX_BYTES):
-    try:
-        if limit and os.path.getsize(path) > limit:
-            return default
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
-def locate(data_dir=None):
-    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所(data_dir を渡したときはそこを全ツールの親フォルダとして使う = テスト)"""
-    env = {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
-    return datadir.locate("transcribe", REPO, env)
-
-
-def day_ms(s, end=False):
-    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
-    try:
-        d = datetime.datetime.strptime(s, "%Y-%m-%d")
-    except (TypeError, ValueError):
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
-    if end:
-        d += datetime.timedelta(days=1)
-    return int(time.mktime(d.timetuple()) * 1000)
+def read_json(path):
+    return C.read_json(path, None, MAX_BYTES)
 
 
 def num(x):
@@ -98,24 +71,6 @@ def num(x):
 
 def plain_int(x):
     return x if isinstance(x, int) and not isinstance(x, bool) else None
-
-
-def rate(c, n):
-    return round(c / n, 4) if n else None
-
-
-def dist(values):
-    """数のそろいの分布 -> {"n", "min", "p25", "median", "p75", "max", "mean"}(空なら n だけ)"""
-    v = sorted(x for x in values if x is not None)
-    if not v:
-        return {"n": 0}
-
-    def q(p):
-        k = (len(v) - 1) * p
-        lo = int(k)
-        hi = min(lo + 1, len(v) - 1)
-        return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 3)
-    return {"n": len(v), "min": round(v[0], 3), "p25": q(0.25), "median": q(0.5), "p75": q(0.75), "max": round(v[-1], 3), "mean": round(sum(v) / len(v), 3)}
 
 
 # ---------------------------------------------------------------- 1つの文書(純粋な関数)
@@ -141,11 +96,6 @@ def doc_effort(doc):
     out = {k: max(0, plain_int(ef.get(k)) or 0) for k in ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows")}
     out["lastAt"] = ef["lastAt"] if plain_int(ef.get("lastAt")) else None
     return out
-
-
-def is_reviewed(doc):
-    """確かめ済みの評価用の文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件 = eval_asr.is_reviewed)"""
-    return eval_asr.is_reviewed(doc)
 
 
 def text_rows(items):
@@ -261,7 +211,7 @@ def doc_record(doc, diar_rows=None, has_alt=False):
     proofed = sum(1 for g in rows if g.get("proofed") is True)
     ev = doc.get("evalSet") is True
     rv = doc.get("evalReviewed") if isinstance(doc.get("evalReviewed"), dict) else None
-    finished = is_reviewed(doc) if ev else bool(rows) and proofed == len(rows)
+    finished = eval_asr.is_reviewed(doc) if ev else bool(rows) and proofed == len(rows)   # 確かめ済み = src/editor/ed_drill.py の drill_is_reviewed と同じ条件
     t = ef["lastAt"] or plain_int(doc.get("updatedAt")) or None
     return {"id": str(doc.get("id") or ""), "title": str(doc.get("title") or "")[:40], "evalSet": ev, "finished": finished,
             "durationSec": round(dur, 2), "activeSec": ef["activeSec"], "cutSec": ef["cutSec"], "sessions": ef["sessions"],
@@ -346,7 +296,7 @@ def cer_summary(recs):
     return {"docs": len(cs), "errs": errs, "refChars": ref, "cer": rate(errs, ref)}
 
 
-def summarize(recs, skipped=None, since=None, until=None):
+def summarize(recs):
     """記録の一覧 -> 結果(meta 以外)。終わった文書の倍率・途中の数・直しの量・組ごと・区切りごと"""
     fin = [r for r in recs if r["finished"]]
     unf = [r for r in recs if not r["finished"]]
@@ -378,10 +328,9 @@ def notes_for(res, skipped):
 # ---------------------------------------------------------------- 全体
 
 def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True):
-    root = locate(data_dir)
+    root = C.locate("transcribe", data_dir)
     tdir = os.path.join(root, "transcripts")
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
+    since_ms, until_ms = C.period(since, until)
     skipped = {"broken": 0, "noEffort": 0, "noDuration": 0, "noTime": 0, "evalSet": 0, "outOfRange": 0}
     recs, docs = [], {}
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
@@ -402,12 +351,12 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
         if rec is None:
             skipped[why] += 1
             continue
-        t = rec["lastAt"]
-        if (since_ms is not None or until_ms is not None) and (t is None or (since_ms is not None and t < since_ms) or (until_ms is not None and t >= until_ms)):
+        if not C.in_period(rec["lastAt"], since_ms, until_ms, unknown=False):   # 時期を指定したときは、時刻の分からない文書を外す
             skipped["outOfRange"] += 1
             continue
         recs.append(rec)
-        docs[tid] = doc
+        if cer and rec["finished"]:
+            docs[tid] = doc   # CER を数える文書(終わった文書)だけ持っておく
     cer_note = ""
     if cer and any(r["finished"] for r in recs):
         S = None
@@ -424,25 +373,18 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
             tmp = os.environ.get("TRANSCRIBE_DATA_DIR", "")
             if S is not None and tmp and os.path.basename(tmp).startswith("eval_asr_"):
                 shutil.rmtree(tmp, ignore_errors=True)   # load_serve が作った一時の置き場
-    res = summarize(recs, skipped, since, until)
+    res = summarize(recs)
     nfin = res["finished"]["n"]
     notes = notes_for(res, skipped)
     if cer_note:
         notes.append(cer_note)
     meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": bool(include_eval), "cer": bool(cer),
-            "git": git_rev(), "dataDir": root, "docs": len(recs), "finishedDocs": nfin, "unfinishedDocs": res["unfinished"]["n"], "few": res["few"],
+            "git": C.git_rev(), "dataDir": root, "docs": len(recs), "finishedDocs": nfin, "unfinishedDocs": res["unfinished"]["n"], "few": res["few"],
             "fewNote": "まだ少ない(参考): 終わった文書が %d 本(%d 本未満)。倍率の変化で改善の良し悪しを決めない" % (nfin, FEW_DOCS) if res["few"] else "",
             "skipped": skipped, "notes": notes}
     res["meta"] = meta
     res["byDoc"] = sorted(recs, key=lambda r: (not r["finished"], -(r["ratio"]), r["id"]))
     return res
-
-
-def git_rev():
-    try:
-        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 # ---------------------------------------------------------------- 表示・保存
@@ -456,12 +398,12 @@ def xr(x):
 
 
 def pct(x):
-    return "  -  " if x is None else "%.0f%%" % (x * 100)
+    return C.pct(x, 0)
 
 
 def print_report(res):
     m = res["meta"]
-    rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
+    rng = C.period_label(m["since"], m["until"])
     print("校正の手間の測定(%s)  文書 %d 件(終わった %d・途中 %d)  作業データ: %s" % (rng, m["docs"], m["finishedDocs"], m["unfinishedDocs"], m["dataDir"]))
     if m["fewNote"]:
         print("★ " + m["fewNote"])
@@ -513,14 +455,7 @@ def print_report(res):
 
 
 def save(res, root):
-    d = os.path.join(root, "evals", "effort")
-    os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
+    return C.save(res, root, "effort")
 
 
 def main(argv=None):
@@ -540,8 +475,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()

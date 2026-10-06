@@ -1343,3 +1343,27 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: home の単体 375 件 OK(skip 2)・`e2e_live.py`・`e2e_portal.py` OK
 - 注意: Windows の黒い画面の×は約 5 秒で強制終了されるので、録画の部品が応答しないときの強制終了まで届かないことがある(普段は quit に 0.5 秒ほどで終わる)
 - 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = dev/・friend-apps/・src/cut2resolve/・src/studio/・src/editor/・src/ui-kit/ は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ dev の見直し(測る道具の重なりを 1 つの部品に・同じファイルを何度も読まない)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。CLI の引数・表と `--json` の鍵・結果の保存先・終了コード・`push_helper.py` の検査の規則は変えない
+- 変更:
+  - 新しい部品 `dev/_evalcommon.py`(134 行): 作業データの場所(`locate`・`data_env`。ytt_core.datadir の 1 か所)・`read_json`・時期(`day_ms`・`period`・`in_period`・`period_label`)・`rate`・`pct`・`dist`(桁と 90% を引数に)・`git_rev`・結果の保存 `save`(`<ツールの作業データ>\evals\<領域>\<日時>.json`)・`utf8_stdout`。
+    `eval_cut.py`・`eval_alt.py`・`eval_effort.py`・`eval_marks.py` がこれを使う(各道具にあった同じ写しを消した)。「まだ少ない」の定数(FEW_PACKS・FEW_CANDS・FEW_VIDEOS)は入口の test_accuracy が ast で読むので各道具に残した
+  - `eval_marks.py`: data.json・feedback・入口の実行記録(autorun-runs.jsonl)・archive の gz を 1 回の測定で 1 回だけ読む(`studio_videos`・`run_records`・`archive_reader`)。時期の指定が無いとき(入口の夜の測定)は、友人の区間に使う「日付で絞らない自動マークの集まり」を作り直さず同じものを使う(本物の作業データで 0.13 → 0.06 秒)。
+    `build_videos`・`friend_ranges`・`load_runs`・`load_friend_runs` は読んだものを受け取れるように(引数を足しただけ。今までの呼び方のまま動く)
+  - `eval_alt.py`: まとまりが時期の中かを候補ごとに数え直さない(まとまりごとに 1 回)・alt / yt の文書の読み方を 1 か所に
+  - `eval_effort.py`: CER を数える文書(終わった文書)だけを持っておく(前は対象の全文書をメモリに持っていた)・使っていなかった引数(`summarize` の skipped・since・until)と `is_reviewed` の包みを消した
+  - `eval_split.py`・`eval_fetch.py`: 名簿の読み方を `eval_split.roster_members` の 1 か所に(`load_roster`・`load_members` が使う)・順番の鍵(SHA-1)を `eval_split._order` に 1 つ・`cmd_plan` で名簿を 2 回読んでいたのを 1 回に
+- 行数: 6 本 3457 行 → 3223 行 + `_evalcommon.py` 134 行 = 3357 行(eval_alt 611 → 555・eval_cut 480 → 412・eval_effort 547 → 479・eval_marks 985 → 951・eval_fetch 429 → 417・eval_split 405 → 409)
+- 確かめ方: テストの見本のデータで `evaluate` の結果(JSON)と `print_report` の表示を全部(161 件)直す前と後で記録して比べた = 完全に同じ。本物の作業データ(読むだけ・`--json` なし)でも、HEAD の道具と今の道具を別のプロセスで流して比べた = cut・marks(時期あり / なし)・effort(時期あり / なし / CER なし)・alt(alt・both・yt)すべて同じ。
+  名簿の読み方(`load_roster` 190 件・`load_members`)も前後で同じ。各道具を別のフォルダから `--data-dir <一時フォルダ> --json` で流して「保存: 」の行と置き場所が今までどおり
+- テスト: dev の単体 183 件 OK(test_push_helper・test_ui_kit_sync・test_cleanup_legacy_data・test_dropbox_auth・test_eval_alt・cut・effort・fetch・import・marks・split)・`sync_ui_kit.py --check`・`push_helper.py check` OK・
+  `src/home/tests/test_accuracy.py` 28 件 OK・`test_eval_timing.py` OK・`e2e_pipeline.py`・`e2e_datadir.py` ALL PASSED。テストは直していない(件数も同じ)
+- 直さなかったもの:
+  - `eval_asr.py`・`eval_speakers.py`・`eval_timing.py` は別の担当が使っているので触っていない(同じ部品の写しが残っている。使うように直すと 100 行ほど減る。eval_asr の git_rev は「+変更あり」付き・save は名前に label が付くなど少し違う)
+  - **`dev/baseline_analysis.py` は動かない**(段10 で serve.py を分けたあと、serve.py だけを一時フォルダに写して読むので `import roster` で落ちる。既定の入力 src/editor/transcripts・出力 docs/plan/accuracy も今は無い・名簿の形も古い)。
+    今は `eval_asr.py stored` が同じ測定(CER・ブートストラップ・メモごと)をするので、消してよいかユーザーに確認したい(既存の道具の削除なので消していない)
+  - `eval_marks.build_videos`(約 125 行)は 1〜5 の段の順に読める形なので分けていない。`eval_import.py`(届いた zip の検査。セキュリティの部品)・`push_helper.py`・`sync_ui_kit.py`・`run_editor_suite.py`・`dropbox_auth.py`・`demo_env.py`・`count_sparse_rows.py` は短く、直すところが無かった
+  - `eval_split.fold` は `src/editor/roster.py` の fold と同じだが、道具から editor の部品を読むと sys.path が広がるので写しのまま。`eval_effort` の pair_groups(editor の _groups と同じ)も、CER なしで editor を読まないために写しのまま
+- 注意: dev の道具に共通の部品を足すときは `_evalcommon.py` へ(eval_asr などを直すときも、結果が変わらないことを確かめてから使う)。`AGENTS.md` の dev の行にはまだ `_evalcommon.py` が無い(このコミットでは dev/ と WORKLOG だけ)
+- 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/ は入れていない)

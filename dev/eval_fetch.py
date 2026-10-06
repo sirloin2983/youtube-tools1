@@ -24,7 +24,6 @@
 import argparse
 import datetime
 import glob
-import hashlib
 import json
 import os
 import re
@@ -55,8 +54,7 @@ SKIP_TITLE = re.compile(r"歌枠|カラオケ|karaoke|singing|歌ってみた|3D
 COLLAB_WORD = re.compile(r"コラボ|collab|オフコラボ", re.I)
 
 
-def _h(seed, text):
-    return hashlib.sha1(("%s|%s" % (seed, text)).encode("utf-8")).hexdigest()
+_h = eval_split._order   # seed と文字から決まる順番の鍵(SHA-1。分け方の一覧と同じ決め方)
 
 
 def _frac(seed, text):
@@ -74,21 +72,11 @@ def fmt_ts(sec):
 
 
 def load_members(path=eval_split.ROSTER):
-    """[{"name", "channel", "keys": 題名から見つけるための形}](チャンネルの分かる人だけ)"""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            members = json.load(f).get("members") or []
-    except (OSError, ValueError):
-        return []
+    """[{"name", "channel"(形の合わないものは ""), "keys": 題名から見つけるための形(正式な名前と、紛れない呼び名)}](名簿の読み方は eval_split.roster_members)"""
     out = []
-    for m in members:
-        name, ch = str(m.get("name") or "").strip(), str(m.get("channel") or "")
-        if not name:
-            continue
-        common = {eval_split.fold(c) for c in m.get("common") or []}
-        keys = [eval_split.fold(name)] + [k for k in (eval_split.fold(a) for a in m.get("aliases") or [])
-                                          if len(k) >= eval_split.ALIAS_MIN and k not in common]
-        out.append({"name": name, "channel": ch if CH_RE.match(ch) else "", "keys": keys})
+    for name, m, keys in eval_split.roster_members(path):
+        ch = str(m.get("channel") or "")
+        out.append({"name": name, "channel": ch if CH_RE.match(ch) else "", "keys": [k for k, kind in keys if kind < 2]})
     return out
 
 
@@ -314,12 +302,12 @@ def cmd_plan(args, lister=list_streams):
     except ValueError:
         print("--since の書き方は YYYY-MM-DD です。")
         return 2
-    members = [m for m in load_members() if m["channel"]]
+    all_members = load_members()
+    members = [m for m in all_members if m["channel"]]
     listings = {}
     for n, m in enumerate(members):
         print("  配信の一覧を読んでいます… (%d/%d) %s" % (n + 1, len(members), m["name"]), flush=True)
         listings[m["name"]] = lister(m["channel"])
-    all_members = load_members()
     items = make_plan(all_members, listings, args.minutes, args.clip_sec, since_ts, args.seed)
     plan = {"schema": SCHEMA, "createdAt": datetime.datetime.now().isoformat(timespec="seconds"), "root": args.root, "since": since,
             "minutes": args.minutes, "clipSec": args.clip_sec, "seed": args.seed, "items": items,

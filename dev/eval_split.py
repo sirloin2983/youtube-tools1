@@ -52,25 +52,29 @@ def fold(s):
     return _SEP.sub("", t)
 
 
-def load_roster(path=ROSTER):
-    """[(照らし合わせ用の形, 正式な名前, 種類)] を長い順に。種類 0 = 正式な名前・1 = 呼び名・2 = 普通の言葉と重なる呼び名(common)か短い呼び名"""
+def roster_members(path=ROSTER):
+    """名簿の人 -> [(正式な名前, 名簿の項目, [(照らし合わせ用の形, 種類)])](名前の無い項目は飛ばす。読めなければ [])。
+    種類 0 = 正式な名前・1 = 呼び名・2 = 普通の言葉と重なる呼び名(common)か短い呼び名(ALIAS_MIN 未満)。eval_fetch.py も使う"""
     try:
         with open(path, "r", encoding="utf-8") as f:
             members = json.load(f).get("members") or []
     except (OSError, ValueError):
         return []
-    keys = []
+    out = []
     for m in members:
         name = str(m.get("name") or "").strip()
         if not name:
             continue
-        keys.append((fold(name), name, False))
         common = {fold(c) for c in m.get("common") or []}
-        for a in m.get("aliases") or []:
-            k = fold(a)
-            if k:
-                keys.append((k, name, 2 if len(k) < ALIAS_MIN or k in common else 1))
-    keys.sort(key=lambda t: (t[2], -len(t[0]), t[1]))   # 正式な名前が先・長い順
+        aliases = [(k, 2 if len(k) < ALIAS_MIN or k in common else 1) for k in (fold(a) for a in m.get("aliases") or []) if k]
+        out.append((name, m, [(fold(name), 0)] + aliases))
+    return out
+
+
+def load_roster(path=ROSTER):
+    """[(照らし合わせ用の形, 正式な名前, 種類)] を、正式な名前が先・長い順に(種類は roster_members と同じ)"""
+    keys = [(k, name, kind) for name, _m, ks in roster_members(path) for k, kind in ks]
+    keys.sort(key=lambda t: (t[2], -len(t[0]), t[1]))
     return keys
 
 

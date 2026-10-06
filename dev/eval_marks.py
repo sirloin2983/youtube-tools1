@@ -35,21 +35,19 @@
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
 """
 import argparse
-import datetime
 import gzip
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
-from ytt_core import datadir, txindex  # noqa: E402
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
+from _evalcommon import pct, rate, read_json  # noqa: E402
+from ytt_core import txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
 TOPS = (5, 10, 20)
@@ -77,14 +75,6 @@ ARCHIVE_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
 
-def read_json(path, default=None):
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
 def read_jsonl(path):
     """1行ずつ JSON として読む(壊れた行・書きかけの行は飛ばす)。無ければ []"""
     out = []
@@ -107,8 +97,13 @@ def read_jsonl(path):
 def locate(data_dir=None):
     """-> (env, studio のフォルダ, 入口(app)のフォルダ)。置き場所の規則は ytt_core.datadir の1か所。
     data_dir を渡したとき(テスト)は、そこを全ツールの作業データの親フォルダとして使う(cut2resolve の packs も同じ親の下)"""
-    env = {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
-    return env, datadir.locate("studio", REPO, env), datadir.locate("app", REPO, env)
+    return C.data_env(data_dir), C.locate("studio", data_dir), C.locate("app", data_dir)
+
+
+def studio_videos(studio):
+    """スタジオの data.json の videos(読めない・形が違えば {})。ライブの録画も含めたまま"""
+    data = read_json(os.path.join(studio, "data.json"), {})
+    return data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
 
 
 def load_feedback(studio):
@@ -122,6 +117,17 @@ def load_feedback(studio):
             rows.append(d)
     rows.sort(key=lambda r: str(r.get("ts") or ""))   # 同じ時刻なら書いた順のまま(sort は安定)
     return rows
+
+
+def archive_reader(studio):
+    """load_archive を配信ごとに 1 回だけ読む形にしたもの(1 回の evaluate の中で使い回す。gz を何度も開かない)"""
+    cache = {}
+
+    def get(vid):
+        if vid not in cache:
+            cache[vid] = load_archive(studio, vid)
+        return cache[vid]
+    return get
 
 
 def load_archive(studio, vid):
@@ -140,38 +146,32 @@ def load_archive(studio, vid):
     return {"at": run.get("at"), "type": run.get("type") or d.get("type"), "spec": run.get("spec") if isinstance(run.get("spec"), dict) else {}, "candidates": [c for c in run.get("candidates") or [] if isinstance(c, dict)]}
 
 
-def load_runs(app):
-    """入口の実行記録(autorun-runs.jsonl.1 → 今のファイル)-> (自動採用の段が動いた配信の ID の集合, {配信 ID: 友人へ届けたマークの ID の集合}, 届けたがマークの ID が無い実行の数)"""
+def run_records(app):
+    """入口の実行記録(autorun-runs.jsonl.1 → 今のファイル)の行(壊れた行は飛ばす)"""
+    return [r for name in ("autorun-runs.jsonl.1", "autorun-runs.jsonl") for _, r in read_jsonl(os.path.join(app, "logs", name))]
+
+
+def load_runs(app, records=None):
+    """入口の実行記録 -> (自動採用の段が動いた配信の ID の集合, {配信 ID: 友人へ届けたマークの ID の集合}, 届けたがマークの ID が無い実行の数)。
+    records = run_records(app) を読んであれば渡す(同じファイルを 2 回読まない)"""
     machine, delivered, unknown = set(), {}, 0
-    for name in ("autorun-runs.jsonl.1", "autorun-runs.jsonl"):
-        for _, r in read_jsonl(os.path.join(app, "logs", name)):
-            vid = r.get("videoId")
-            if not isinstance(vid, str) or not isinstance(r.get("steps"), list):
-                continue
-            states = {s.get("key"): s.get("state") for s in r["steps"] if isinstance(s, dict)}
-            if states.get("adopt") == "done":
-                machine.add(vid)
-            if states.get("deliver") == "done":
-                ids = r.get("marks")
-                if isinstance(ids, list) and ids:
-                    delivered.setdefault(vid, set()).update(str(x) for x in ids)
-                else:
-                    unknown += 1
+    for r in run_records(app) if records is None else records:
+        vid = r.get("videoId")
+        if not isinstance(vid, str) or not isinstance(r.get("steps"), list):
+            continue
+        states = {s.get("key"): s.get("state") for s in r["steps"] if isinstance(s, dict)}
+        if states.get("adopt") == "done":
+            machine.add(vid)
+        if states.get("deliver") == "done":
+            ids = r.get("marks")
+            if isinstance(ids, list) and ids:
+                delivered.setdefault(vid, set()).update(str(x) for x in ids)
+            else:
+                unknown += 1
     return machine, delivered, unknown
 
 
 # ---------------------------------------------------------------- 日時・数の小道具
-
-def day_ms(s, end=False):
-    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
-    try:
-        d = datetime.datetime.strptime(s, "%Y-%m-%d")
-    except (TypeError, ValueError):
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
-    if end:
-        d += datetime.timedelta(days=1)
-    return int(time.mktime(d.timetuple()) * 1000)
-
 
 def ts_ms(ts):
     try:
@@ -184,26 +184,9 @@ def num(x):
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) < 1e9 else None
 
 
-def rate(a, b):
-    return round(a / b, 4) if b else None
-
-
-def pct(x):
-    return "  -  " if x is None else "%4.0f%%" % (x * 100)
-
-
 def dist(values):
-    """数のそろいの分布 -> {"n", "min", "p25", "median", "p75", "p90", "max", "mean"}(空なら n だけ)"""
-    v = sorted(x for x in values if x is not None)
-    if not v:
-        return {"n": 0}
-
-    def q(p):
-        k = (len(v) - 1) * p
-        lo = int(k)
-        hi = min(lo + 1, len(v) - 1)
-        return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 2)
-    return {"n": len(v), "min": round(v[0], 2), "p25": q(0.25), "median": q(0.5), "p75": q(0.75), "p90": q(0.9), "max": round(v[-1], 2), "mean": round(sum(v) / len(v), 2)}
+    """数のそろいの分布(秒・点数なので 2 桁。90% も)-> {"n", "min", "p25", "median", "p75", "p90", "max", "mean"}(空なら n だけ)"""
+    return C.dist(values, 2, True)
 
 
 def same(a0, b0):
@@ -218,13 +201,14 @@ def pair(v):
 
 # ---------------------------------------------------------------- 自動マークの集まりを作る
 
-def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallback=False):
+def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallback=False, dvideos=None, archive=None):
     """-> ({動画 ID: video}, 注意の一覧)。video = {"id", "title", "type", "auto": [item], "manual": [item], "adds": [...], "retracts": n}
-    item(自動マーク)= {"a0", "score", "start", "end", "t", "src"(data / archive / feedback), "status", "path", "markId", "events", "verdict", "origin", ...}"""
+    item(自動マーク)= {"a0", "score", "start", "end", "t", "src"(data / archive / feedback), "status", "path", "markId", "events", "verdict", "origin", ...}
+    dvideos = studio_videos(studio)・archive = archive_reader(studio) を読んであれば渡す(無ければここで読む)"""
     machine, delivered, _unknown = runs
-    data = read_json(os.path.join(studio, "data.json"), {})
-    dvideos = data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
+    dvideos = studio_videos(studio) if dvideos is None else dvideos
     dvideos = {k: v for k, v in dvideos.items() if not (isinstance(v, dict) and v.get("kind") == "live")}   # ライブの録画は解析していない(手のマークだけ)
+    archive = archive or archive_reader(studio)
     by_row = {}
     for r in rows:
         if r.get("kind") == "live":   # ライブの録画(線 D の P3。解析していない)は盛り上がりの検出の評価に入れない(スタジオは 2026-10-05 から書かない)
@@ -234,14 +218,12 @@ def build_videos(studio, rows, runs, packs, since=None, until=None, status_fallb
     notes = []
 
     def in_range(t):
-        if t is None:
-            return True   # 日時が分からないものは落とさない
-        return (since is None or t >= since) and (until is None or t < until)
+        return C.in_period(t, since, until)   # 日時が分からないものは落とさない
 
     for vid in sorted(set(dvideos) | set(by_row)):
         dv = dvideos.get(vid) if isinstance(dvideos.get(vid), dict) else {}
         an = dv.get("analysis") if isinstance(dv.get("analysis"), dict) else {}
-        arch = load_archive(studio, vid)
+        arch = archive(vid)
         rv = by_row.get(vid, [])
         typ = an.get("type") or next((r.get("type") for r in rv if r.get("type")), None) or (arch or {}).get("type") or "不明"
         V = {"id": vid, "title": str(dv.get("title") or "")[:80], "type": typ, "auto": [], "manual": [], "adds": [], "retracts": 0, "unadopts": 0, "deleteJudged": 0,
@@ -456,22 +438,21 @@ def group_metrics(vlist):
 
 # ---------------------------------------------------------------- 友人が時刻で指定した区間(friendRanges)
 
-def load_friend_runs(app):
-    """入口の実行記録(autorun-runs.jsonl.1 → 今のファイル)の、友人が指定した区間 -> [{"videoId", "start", "end", "t"(実行の作られた時刻 ms か None), "source": "runs"}](記録の順)。
-    ranges は指定したままの区間 [[開始秒, 終了秒], …](余白を足す前)。形の違うものは飛ばす"""
+def load_friend_runs(app, records=None):
+    """入口の実行記録の、友人が指定した区間 -> [{"videoId", "start", "end", "t"(実行の作られた時刻 ms か None), "source": "runs"}](記録の順)。
+    ranges は指定したままの区間 [[開始秒, 終了秒], …](余白を足す前)。形の違うものは飛ばす。records は load_runs と同じ"""
     out = []
-    for name in ("autorun-runs.jsonl.1", "autorun-runs.jsonl"):
-        for _, r in read_jsonl(os.path.join(app, "logs", name)):
-            vid = r.get("videoId")
-            if not isinstance(vid, str) or not isinstance(r.get("ranges"), list):
-                continue
-            t = r.get("created") if isinstance(r.get("created"), int) and not isinstance(r.get("created"), bool) else None
-            if t is None and isinstance(r.get("finished"), int) and not isinstance(r.get("finished"), bool):
-                t = r["finished"]
-            for rg in r["ranges"]:
-                p = pair(rg)
-                if p and p[1] > p[0] >= 0:
-                    out.append({"videoId": vid, "start": p[0], "end": p[1], "t": t, "source": "runs"})
+    for r in run_records(app) if records is None else records:
+        vid = r.get("videoId")
+        if not isinstance(vid, str) or not isinstance(r.get("ranges"), list):
+            continue
+        t = r.get("created") if isinstance(r.get("created"), int) and not isinstance(r.get("created"), bool) else None
+        if t is None and isinstance(r.get("finished"), int) and not isinstance(r.get("finished"), bool):
+            t = r["finished"]
+        for rg in r["ranges"]:
+            p = pair(rg)
+            if p and p[1] > p[0] >= 0:
+                out.append({"videoId": vid, "start": p[0], "end": p[1], "t": t, "source": "runs"})
     return out
 
 
@@ -529,9 +510,7 @@ def collect_friend_ranges(run_ranges, dvideos, since=None, until=None):
             add({"videoId": vid, "start": round(a, 2), "end": round(b, 2), "t": t, "source": "marks", "cs": cs, "ce": ce})
 
     def in_range(t):
-        if t is None:
-            return True
-        return (since is None or t >= since) and (until is None or t < until)
+        return C.in_period(t, since, until)
 
     return {vid: [r for r in lst if in_range(r["t"])] for vid, lst in sorted(per.items()) if any(in_range(r["t"]) for r in lst)}
 
@@ -626,17 +605,18 @@ def friend_group(results):
     return out
 
 
-def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None):
-    """-> friendRanges(結果の新しいまとまり)。vmap = build_videos(日付で絞らない)の結果(自動の候補を引く)"""
-    data = read_json(os.path.join(studio, "data.json"), {})
-    dvideos = data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
-    per = collect_friend_ranges(load_friend_runs(app), dvideos, since_ms, until_ms)
+def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None, records=None, archive=None):
+    """-> friendRanges(結果の新しいまとまり)。vmap = build_videos(日付で絞らない)の結果(自動の候補を引く)。
+    dvideos・records・archive は build_videos・load_runs と同じ(読んであれば渡す)"""
+    dvideos = studio_videos(studio) if dvideos is None else dvideos
+    archive = archive or archive_reader(studio)
+    per = collect_friend_ranges(load_friend_runs(app, records), dvideos, since_ms, until_ms)
     results, by_video = [], []
     for vid, rgs in per.items():
         dv = dvideos.get(vid) if isinstance(dvideos.get(vid), dict) else {}
         V = vmap.get(vid)
         cands = ranked(V["auto"]) if V else []
-        arch = load_archive(studio, vid)
+        arch = archive(vid)
         an = dv.get("analysis") if isinstance(dv.get("analysis"), dict) else {}
         analyzed = bool(an) or arch is not None or bool(cands)
         typ = an.get("type") or (arch or {}).get("type") or (V or {}).get("type") or "不明"
@@ -801,10 +781,13 @@ def clip_length(studio, videos, allv, friend):
 def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     """-> 結果の辞書(JSON にする形)。作業データは読むだけ"""
     env, studio, app = locate(data_dir)
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
-    runs = load_runs(app)
-    videos, notes = build_videos(studio, load_feedback(studio), runs, env, since_ms, until_ms, status_fallback)
+    since_ms, until_ms = C.period(since, until)
+    dvideos, feedback, records, archive = studio_videos(studio), load_feedback(studio), run_records(app), archive_reader(studio)   # 1 回だけ読む
+    runs = load_runs(app, records)
+
+    def build(s, u):
+        return build_videos(studio, feedback, runs, env, s, u, status_fallback, dvideos=dvideos, archive=archive)
+    videos, notes = build(since_ms, until_ms)
     vlist = [videos[k] for k in sorted(videos)]
     types = {}
     for V in vlist:
@@ -818,25 +801,18 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     if mach:
         notes.append("まとめて実行の自動採用とみなして正に数えなかったマークが %d 個あります(自動採用はマークに印が残らないため、実行記録で近似)" % mach)
     few = overall["judgedVideos"] < FEW_VIDEOS
-    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "statusFallback": bool(status_fallback), "git": git_rev(),
+    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "statusFallback": bool(status_fallback), "git": C.git_rev(),
             "studioDir": studio, "videos": len(vlist), "judgedVideos": overall["judgedVideos"], "few": few,
             "fewNote": "まだ少ない(参考): 判定のある配信が %d 本(%d 本未満)。これで既定値を決めない" % (overall["judgedVideos"], FEW_VIDEOS) if few else "", "notes": notes}
     by_video = []
     for V in vlist:
         g = group_metrics([V])
         by_video.append(dict(g, videoId=V["id"], title=V["title"], type=V["type"]))
-    # 友人が時刻で指定した区間: 自動の候補は日付で絞らない(絞るのは区間の時刻)
-    allv = build_videos(studio, load_feedback(studio), runs, env, None, None, status_fallback)[0]
-    friend = friend_ranges(studio, app, allv, since_ms, until_ms)
+    # 友人が時刻で指定した区間: 自動の候補は日付で絞らない(絞るのは区間の時刻。時期の指定が無ければ上と同じなので作り直さない)
+    allv = videos if since_ms is None and until_ms is None else build(None, None)[0]
+    friend = friend_ranges(studio, app, allv, since_ms, until_ms, dvideos=dvideos, records=records, archive=archive)
     clip = clip_length(studio, videos, allv, friend)
     return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
-
-
-def git_rev():
-    try:
-        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 # ---------------------------------------------------------------- 表示・保存
@@ -929,7 +905,7 @@ def print_clip_length(cl):
 
 def print_report(res):
     m = res["meta"]
-    rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
+    rng = C.period_label(m["since"], m["until"])
     print("盛り上がり検出の測定(%s)  配信 %d 本・判定のある配信 %d 本  スタジオ: %s" % (rng, m["videos"], m["judgedVideos"], m["studioDir"]))
     if m["fewNote"]:
         print("★ " + m["fewNote"])
@@ -952,14 +928,7 @@ def print_report(res):
 
 
 def save(res, studio):
-    d = os.path.join(studio, "evals", "marks")
-    os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
+    return C.save(res, studio, "marks")
 
 
 def main(argv=None):
@@ -978,8 +947,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()

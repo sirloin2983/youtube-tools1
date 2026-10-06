@@ -24,20 +24,17 @@
 """
 import argparse
 import bisect
-import datetime
-import json
 import os
 import re
-import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
-from ytt_core import datadir, txindex  # noqa: E402
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
+from _evalcommon import dist, rate, read_json  # noqa: E402
+from ytt_core import txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"
 EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/editor/ed_store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
@@ -54,25 +51,6 @@ ORIGIN_LABELS = {"rows": "行から", "silence": "無音", "list": "時刻リス
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
-
-def read_json(path, default=None, limit=None):
-    try:
-        if limit and os.path.getsize(path) > limit:
-            return default
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
-def env_for(data_dir):
-    return {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
-
-
-def locate(data_dir=None):
-    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所(data_dir はテスト用)"""
-    return datadir.locate("transcribe", REPO, env_for(data_dir))
-
 
 def num(x):
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) < 1e12 else None
@@ -175,39 +153,11 @@ def find_pack(doc, env):
     return best
 
 
-# ---------------------------------------------------------------- 日時・数の小道具
-
-def day_ms(s, end=False):
-    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
-    try:
-        d = datetime.datetime.strptime(s, "%Y-%m-%d")
-    except (TypeError, ValueError):
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
-    if end:
-        d += datetime.timedelta(days=1)
-    return int(time.mktime(d.timetuple()) * 1000)
-
+# ---------------------------------------------------------------- 表示の小道具
 
 def pct(x):
-    return "  -  " if x is None else "%4.0f%%" % (x * 100)
-
-
-def rate(c, n):
-    return round(c / n, 4) if n else None
-
-
-def dist(values):
-    """数のそろいの分布 -> {"n", "min", "p25", "median", "p75", "max", "mean"}(空なら n だけ)"""
-    v = sorted(x for x in values if x is not None)
-    if not v:
-        return {"n": 0}
-
-    def q(p):
-        k = (len(v) - 1) * p
-        lo = int(k)
-        hi = min(lo + 1, len(v) - 1)
-        return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 3)
-    return {"n": len(v), "min": round(v[0], 3), "p25": q(0.25), "median": q(0.5), "p75": q(0.75), "max": round(v[-1], 3), "mean": round(sum(v) / len(v), 3)}
+    """割合の表示(詰めた形。None は「-」)"""
+    return C.pct(x).strip()
 
 
 def _d(x, key="median"):
@@ -320,11 +270,10 @@ def sig_of(settings):
 # ---------------------------------------------------------------- 全体
 
 def evaluate(data_dir=None, since=None, until=None):
-    root = locate(data_dir)
-    env = env_for(data_dir)
+    root = C.locate("transcribe", data_dir)
+    env = C.data_env(data_dir)
     tdir = os.path.join(root, "transcripts")
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
+    since_ms, until_ms = C.period(since, until)
     total, by_origin, by_sig, by_key, by_doc = Agg(), {}, {}, {}, []
     skipped = {"broken": 0, "noDraft": 0, "outOfRange": 0}
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
@@ -338,7 +287,7 @@ def evaluate(data_dir=None, since=None, until=None):
             continue
         dr = ed["draft"]
         t = dr["at"] if dr and dr["at"] else ed["updatedAt"]
-        if (since_ms is not None and t < since_ms) or (until_ms is not None and t >= until_ms):
+        if not C.in_period(t, since_ms, until_ms):
             skipped["outOfRange"] += 1
             continue
         if dr is None:
@@ -370,7 +319,7 @@ def evaluate(data_dir=None, since=None, until=None):
     if total.from_edit:
         notes.append("最終が保存したカット(パックが無い・パックより後にカットを直した。途中かもしれない)の文書が %d 件あります" % total.from_edit)
     notes.append("人はたたき台につられる(迷うと直さずに通す)ので、直さなかった割合は甘く出ます")
-    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": git_rev(), "dataDir": root,
+    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": C.git_rev(), "dataDir": root,
             "docs": total.docs, "fromPack": total.from_pack, "fromEdit": total.from_edit, "few": few,
             "fewNote": "まだ少ない(参考): 最終がパックの文書が %d 本(%d 本未満)。これで余白・しきい値の既定を決めない" % (total.from_pack, FEW_PACKS) if few else "",
             "skipped": skipped, "tolFrames": TOL_FRAMES, "bigFrames": BIG_FRAMES, "notes": notes}
@@ -381,13 +330,6 @@ def evaluate(data_dir=None, since=None, until=None):
             "byDoc": by_doc}
 
 
-def git_rev():
-    try:
-        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
 # ---------------------------------------------------------------- 表示・保存
 
 def print_agg(title, r, indent="  "):
@@ -396,7 +338,7 @@ def print_agg(title, r, indent="  "):
         return
     iv = r["intervals"]
     print("%s  まったく直さなかった文書 %d(%s)  直した区間 %d(足した %d・消した %d・端を動かした %d・形を変えた %d)  そのまま %d  1文書あたり %s"
-          % (indent, r["untouched"], pct(r["untouchedRate"]).strip(), r["fixes"], iv["added"], iv["removed"], iv["moved"], iv["reshaped"], iv["same"], r["fixesPerDoc"]))
+          % (indent, r["untouched"], pct(r["untouchedRate"]), r["fixes"], iv["added"], iv["removed"], iv["moved"], iv["reshaped"], iv["same"], r["fixesPerDoc"]))
     k = r["keptDiffSec"]
     print("%s  残す秒の差(最終 − たたき台): 中央値 %s 秒・平均 %s 秒(最小 %s・最大 %s)  長くなった %d・短くなった %d  たたき台 %s 秒 → 最終 %s 秒(中央値)"
           % (indent, _d(k), _d(k, "mean"), _d(k, "min"), _d(k, "max"), r["longer"], r["shorter"], _d(r["draftSec"]), _d(r["finalSec"])))
@@ -405,7 +347,7 @@ def print_agg(title, r, indent="  "):
             continue
         print("%s  端のずれ(%s のコマ。最終 − たたき台)%d 端: 中央値 %s・平均 %s(25%% %s・75%% %s・最小 %s・最大 %s)  絶対値の中央値 %s・平均 %s  そのまま %s・%d コマ以上 %s"
               % (indent, label, e["n"], _d(e["signed"]), _d(e["signed"], "mean"), _d(e["signed"], "p25"), _d(e["signed"], "p75"), _d(e["signed"], "min"), _d(e["signed"], "max"),
-                 _d(e["abs"]), _d(e["abs"], "mean"), pct(e["sameRate"]).strip(), BIG_FRAMES, pct(e["bigRate"]).strip()))
+                 _d(e["abs"]), _d(e["abs"], "mean"), pct(e["sameRate"]), BIG_FRAMES, pct(e["bigRate"])))
     if r["otherFpsDocs"]:
         print("%s  (素材が 30fps でない文書 %d 件)" % (indent, r["otherFpsDocs"]))
 
@@ -416,14 +358,14 @@ def print_groups(title, groups, indent="    ", limit=12):
     for k, r in items[:limit]:
         e = r["edges30"]
         print("%s  %-44s 文書 %3d  直さず %s  直した区間/文書 %s  残す秒の差 中央値 %s  端の絶対値 中央値 %s コマ・そのまま %s"
-              % (indent, k, r["docs"], pct(r["untouchedRate"]).strip(), r["fixesPerDoc"], _d(r["keptDiffSec"]), _d(e["abs"]), pct(e["sameRate"]).strip()))
+              % (indent, k, r["docs"], pct(r["untouchedRate"]), r["fixesPerDoc"], _d(r["keptDiffSec"]), _d(e["abs"]), pct(e["sameRate"])))
     if len(items) > limit:
         print("%s  …ほか %d 組(--json で全部)" % (indent, len(items) - limit))
 
 
 def print_report(res):
     m = res["meta"]
-    rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
+    rng = C.period_label(m["since"], m["until"])
     print("カットのたたき台と最終の差の測定(%s)  文書 %d 件(最終: パック %d・保存したカット %d)  作業データ: %s" % (rng, m["docs"], m["fromPack"], m["fromEdit"], m["dataDir"]))
     if m["fewNote"]:
         print("★ " + m["fewNote"])
@@ -448,14 +390,7 @@ def print_report(res):
 
 
 def save(res, root):
-    d = os.path.join(root, "evals", "cut")
-    os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
+    return C.save(res, root, "cut")
 
 
 def main(argv=None):
@@ -473,8 +408,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()
