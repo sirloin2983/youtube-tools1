@@ -6,14 +6,14 @@ window.PLAN = {
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。",
   versions: [
-    ["入口(ホーム)", "0.39.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.57.1"], ["cut2resolve", "0.21.1"],
+    ["入口(ホーム)", "0.39.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.58.0"], ["cut2resolve", "0.21.1"],
     ["録画の部品", "0.3.1"], ["ui-kit", "v18"], ["送るアプリ", "2.1.1"], ["ホロカラー", "1.4.2"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
-    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)。進行中: 線 D M4〜M7・A1 話者の測定。B2 4 エンジンの比較は A1 のあと" },
-    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev(共通部品 _evalcommon)・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1。区間×字幕の総当たりを二分探索に)・recorder(0.3.1)。進行中: editor サーバー側。残り: home・ytt_core・editor 画面側(② の home が終わってから)" },
+    { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)。進行中: 線 D M4〜M7・B2 4 エンジンの比較" },
+    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。進行中: ytt_core・editor 画面側。残り: home(線 D M4〜M7 のあと)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
   /* 各線の進捗 */
@@ -30,7 +30,7 @@ window.PLAN = {
       next: "B2 E1 エンジンの決定(手元の分を測定中)→ B3 I-5 字幕の分け方 → B4 E2/E3(G2)→ B5 FT → B6 E4",
       gate: "G1 届いた(22 本・15.9 分)。G2 まで定点 +14 分・普段 30 分 ≒ 10 時間。FT は学習用 3 時間",
       docs: ["line-b-transcription.md", "line-b-row-timing.md", "line-b-overlap.md", "line-b-extra-ideas.md"] },
-    { id: "C", name: "見どころ検出の精度", color: "#2a9d5c", pct: 30,
+    { id: "C", name: "見どころ検出の精度", color: "#2a9d5c", pct: 40,
       aim: "スタジオの自動マークの当たりを上げる",
       done: "測る道具(eval_marks・eval_cut・eval_speakers)・記録の土台",
       next: "A1 I-2a 話者の既定(測定中)→ C1 I-4a 盛り上がりの重み(L1 のあと)→ C2 I-4b 言葉の材料(B2 のあと)→ C3 I-3a カット",
@@ -62,7 +62,7 @@ window.PLAN = {
   tasks: [
     { id: "A2", name: "入口に「あと何本・何分」(済み 10-07。入口 0.38.0)", line: "B・C", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "done" },
     { id: "B1", name: "行の時刻 0.57.1 + 測る道具(済み 10-07)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "3〜5 時間 + 測定 1 時間", user: "確認 10 分", state: "done" },
-    { id: "A1", name: "I-2a 話者の設定の既定(測定済み 10-07。しきい値 0.5 → 0.6 を仮決め。既定の変更は編集の ③ のあと)", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "doing" },
+    { id: "A1", name: "I-2a 話者の設定の既定(済み 10-07。しきい値 0.5 → 0.6 = 編集 0.58.0。仮決め・10 本たまったら再測定)", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "4〜8 時間", user: "確認 10 分", state: "done" },
     { id: "B2", name: "E1 エンジンの決定(手元の 4 つを測定中 + クラウドは送り先の決定待ち)", line: "B", who: "AI", phase: "1", pre: [], rec: ["B1"], ai: "8〜12 時間", user: "送り先の決定 30 分", state: "doing" },
     { id: "U2", name: "本物の Resolve で重なり字幕のパック", line: "B・A", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "30 分〜1 時間", state: "wait" },
     { id: "U3", name: "友人に 2.1.0 を渡して Dropbox で 1 本", line: "別件", who: "ユーザー + 友人", phase: "1", pre: [], rec: [], ai: "手順書 30 分", user: "1 時間", state: "wait" },
