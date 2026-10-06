@@ -1564,3 +1564,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - 文書の書き込みは `ed_store.write_doc`、機械が行を書き換える前の控えは `ed_store.backup_doc`、ジョブの本体は `with ed_jobs.job_errors(job, wav):` で囲む(AGENTS.md の「共通の小道具」)
   - 起動中の入口は古いコードのまま。ユーザーに「すべて終了」→ start.bat で起動し直してもらう(画面の版の帯が 0.57.2 になる)
 - 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/cut2resolve/・src/home/・src/studio/・src/ui-kit/ は入れていない)
+
+## 2026-10-07 Claude Code(Fable。まとめ役)— A1 I-2a 話者: クラスタのしきい値の既定を 0.5 → 0.6(編集 0.57.2 → 0.58.0)
+- 測定(サブエージェント Sonnet。読むだけ): `dev/eval_speakers.py run` で確かめ済み 22 本・304 行。しきい値 0.3〜0.9・人数固定・min-on/off・ならす の組 45 通り。結果は `plan/line-bc-master-plan.md` の I-2a
+- 変更: `src/editor/ed_speakers.py` の `DIAR_CLUSTER_THRESHOLD` 0.5 → 0.6(行の正しさ 83.9% → 90.5%。6 文書が改善・悪化 0。0.7 以上は 2〜3 人の文書で人をまとめ始めるので不可)。版: serve.py・app.js・README(■ v0.58.0)。`dev/tests/test_eval_speakers.py` の既定の期待値
+- 決定・理由: 仮決め(`plan/decisions.md` の (p))。2〜3 人の文書が 3 本しか無いので、10 本ほどたまったら再測定し、そのとき pyannote と比べる
+- 注意: これからの判別に効く(前の文書は判別し直すまで変わらない)。測った JSON は AI の scratchpad だけ(MSIX の写し)
+- 未コミット: なし(このコミット)

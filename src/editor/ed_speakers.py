@@ -43,7 +43,7 @@ DIAR_EMBS = {
 }
 DIAR_EMB_DEFAULT = "voxceleb"
 MAX_DIAR_SEC = 3 * 3600
-DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.5, 0.1, 0.3   # sherpa-onnx の設定(_diarize_local と、判別の記録 <id>.diar.json の engine に同じ値を使う)
+DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.6, 0.1, 0.3   # sherpa-onnx の設定(_diarize_local と、判別の記録 <id>.diar.json の engine に同じ値を使う)
 MAX_SPEAKERS = 20
 SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]
 

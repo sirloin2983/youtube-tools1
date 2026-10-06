@@ -517,7 +517,7 @@ class TestRun(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             res = E.run_evaluate(self.env.root, only=["dddddddddddd"])
         self.assertEqual((res["meta"]["rows"], res["meta"]["draftRows"], res["meta"]["unverifiedRows"]), (1, 1, 1))
-        self.assertEqual(res["bySetting"][0]["settings"], {"threshold": 0.5, "num": 0, "emb": "voxceleb", "minOn": 0.1, "minOff": 0.3, "smooth": False})   # 既定 = 本番の値
+        self.assertEqual(res["bySetting"][0]["settings"], {"threshold": 0.6, "num": 0, "emb": "voxceleb", "minOn": 0.1, "minOff": 0.3, "smooth": False})   # 既定 = 本番の値(0.58.0 で 0.6)
         for bad in (["--threshold", "x"], ["--num", "11"], ["--emb", "nope"], ["--min-on", "-1"], ["--smooth", "maybe"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()):
                 E.main(["run", "--data-dir", self.env.root] + bad)
