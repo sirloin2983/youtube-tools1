@@ -13,7 +13,7 @@ window.PLAN = {
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
     { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)。進行中: 線 D M4〜M7・B2 4 エンジンの比較" },
-    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。進行中: ytt_core・editor 画面側。残り: home(線 D M4〜M7 のあと)" },
+    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)。進行中: editor 画面側。残り: home(線 D M4〜M7 のあと)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
   /* 各線の進捗 */

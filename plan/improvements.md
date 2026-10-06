@@ -126,5 +126,9 @@ AI が出典から拾ったもの。急ぎではない。
 | recorder → home | 入口の `live.py` が `GET /live/<id>/status` を since なしで呼ぶと、最大 5000 件のセグメントが毎回返る。firstPdt だけなら since を大きくすれば軽い | ③ home のときに(S) |
 | recorder・editor | `KillJob`(子プロセスを閉じると孫も終わる仕組み)が `src/recorder/rec_core.py` と `src/editor/tx_engines.py` に同じ形である | `ytt_core` に 1 つにまとめる(S。③ ytt_core のときに) |
 | recorder | recording.json の sessions が null だと起動時の復旧で落ちる(部品が書く値は常にリストなので、手で書き換えたときだけ) | 読み込みで型を確かめる(S) |
+| ytt_core → 各ツール | 共通の小道具への置き換え(動きは同じ): `fsio.unlink_quiet`(editor tx_engines・home live_archive/live_export の `_unlink`)/ `tools.no_window_flags()`(home intake/live・dev eval_fetch・recorder の NO_WINDOW)/ `schemas.num`(home accuracy・dev eval_effort/eval_timing/eval_marks の num)/ `layout.UI_KIT_DIR`・`RECORDER_DIR`(home launch/live の文字列) | ③ home のときに home の分を。dev・recorder は次の機会(S) |
+| ytt_core | evaldata の書き出す側だけの関数(`scrub_paths`・`zip_name`・`safe_url`・`raw_links`・`RULES`。約 40 行)は簡易版を消してからテストだけが使う | 消すとテストが減る。判断待ち(S) |
+| ytt_core ほか | 「パスがフォルダの中か」の判定が 5 か所(backup・eval_import・ed_relink・live_archive・studio common)で少しずつ違う(abspath か realpath か・同じフォルダを含むか) | セキュリティの検査なので、1 つずつ意味を決めてからまとめる(M) |
+| dev | `schemas.iso_now` への置き換え(eval_fetch・eval_split はマイクロ秒まで書いている) | 記録の形が変わるので確認が要る |
 
 (コードの見直しで見つかったものは作業の終わりに追記)
