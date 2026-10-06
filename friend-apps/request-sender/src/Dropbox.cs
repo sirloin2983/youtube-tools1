@@ -74,7 +74,7 @@ namespace RequestSender
         // -> Dropbox に置かれた実際の名前(autorename で変わることがある)
         public string UploadBytes(byte[] data, string dropboxPath)
         {
-            var d = Call("files/upload", DropboxArgs.Commit(dropboxPath), data, 0, data.Length, null);
+            var d = Call("files/upload", DropboxArgs.Commit(dropboxPath), data, null);
             return NameOf(d, dropboxPath);
         }
 
@@ -87,7 +87,7 @@ namespace RequestSender
                 if (!ChunkPlan.UseSession(size))
                 {
                     var buf = ReadExactly(fs, 0, (int)size);
-                    var d = Call("files/upload", DropboxArgs.Commit(dropboxPath), buf, 0, buf.Length, progress);
+                    var d = Call("files/upload", DropboxArgs.Commit(dropboxPath), buf, progress);
                     return NameOf(d, dropboxPath);
                 }
                 var chunks = ChunkPlan.Plan(size, ChunkPlan.ChunkSize);
@@ -101,7 +101,7 @@ namespace RequestSender
                     Action<long> p = n => { if (progress != null) progress(before + n); };
                     if (i == 0)
                     {
-                        var d = Call("files/upload_session/start", DropboxArgs.SessionStart(), buf, 0, buf.Length, p);
+                        var d = Call("files/upload_session/start", DropboxArgs.SessionStart(), buf, p);
                         sessionId = Json.Str(d, "session_id");
                         if (string.IsNullOrEmpty(sessionId)) throw new DropboxException("upload_session/start の返事に session_id がありません", 0, "");
                     }
@@ -109,7 +109,7 @@ namespace RequestSender
                     {
                         try
                         {
-                            Call("files/upload_session/append_v2", DropboxArgs.Append(sessionId, c.Offset), buf, 0, buf.Length, p);
+                            Call("files/upload_session/append_v2", DropboxArgs.Append(sessionId, c.Offset), buf, p);
                         }
                         catch (DropboxException ex)
                         {
@@ -122,7 +122,7 @@ namespace RequestSender
                     done += c.Length;
                     if (progress != null) progress(done);
                 }
-                var fin = Call("files/upload_session/finish", DropboxArgs.Finish(sessionId, size, dropboxPath), new byte[0], 0, 0, null);
+                var fin = Call("files/upload_session/finish", DropboxArgs.Finish(sessionId, size, dropboxPath), new byte[0], null);
                 return NameOf(fin, dropboxPath);
             }
         }
@@ -161,9 +161,9 @@ namespace RequestSender
         }
 
         // content.dropboxapi.com への1回の呼び出し(アップロード)
-        IDictionary<string, object> Call(string endpoint, string argJson, byte[] data, int offset, int length, Action<long> progress)
+        IDictionary<string, object> Call(string endpoint, string argJson, byte[] data, Action<long> progress)
         {
-            return WithRetry(endpoint, Retries, () => ParseOrEmpty(Send(endpoint, argJson, data, offset, length, progress)));
+            return WithRetry(endpoint, Retries, () => ParseOrEmpty(Send(endpoint, argJson, data, progress)));
         }
 
         static IDictionary<string, object> ParseOrEmpty(string text)
@@ -210,20 +210,40 @@ namespace RequestSender
         string SendRpc(string endpoint, string bodyJson)
         {
             byte[] body = new UTF8Encoding(false).GetBytes(bodyJson);
-            var req = (HttpWebRequest)WebRequest.Create(RpcBase + endpoint);
-            req.Method = "POST";
-            req.Headers["Authorization"] = "Bearer " + accessToken;
+            var req = NewPost(RpcBase + endpoint);
             req.ContentType = "application/json";
             req.ContentLength = body.Length;
             req.Timeout = 60000;
             req.ReadWriteTimeout = 60000;
-            try
-            {
-                using (var s = req.GetRequestStream()) s.Write(body, 0, body.Length);
-            }
-            catch (WebException ex) { throw Wrap(ex); }
-            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+            Net(() => { using (var s = req.GetRequestStream()) s.Write(body, 0, body.Length); });
             return ReadResponse(req);
+        }
+
+        // access token つきの POST(本文・ヘッダーの続きは呼ぶ側で足す)
+        HttpWebRequest NewPost(string url)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.Method = "POST";
+            req.Headers["Authorization"] = "Bearer " + accessToken;
+            return req;
+        }
+
+        // 通信の失敗を DropboxException にする(返事が来た失敗は中身も読む。通信が切れたものは Status 0 = やり直せる)
+        static T Net<T>(Func<T> action)
+        {
+            try { return action(); }
+            catch (WebException ex) { throw Wrap(ex); }
+            catch (IOException ex) { throw Lost(ex); }
+        }
+
+        static void Net(Action action)
+        {
+            Net<bool>(() => { action(); return true; });
+        }
+
+        static DropboxException Lost(Exception ex)
+        {
+            return new DropboxException("通信が切れました: " + ex.Message, 0, "");
         }
 
         // 小さなファイル(失敗の知らせ)を先頭から cap バイトまで。-> 読んだ長さ。truncated は cap を超えていたか
@@ -247,7 +267,7 @@ namespace RequestSender
                             got += n;
                         }
                     }
-                    catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+                    catch (IOException ex) { throw Lost(ex); }
                     cut = got > cap;
                     if (cut) { req.Abort(); got = cap; }
                     var data = new byte[got];
@@ -291,8 +311,8 @@ namespace RequestSender
                             if (IsCanceled()) { req.Abort(); throw new CanceledException(); }
                             int n;
                             try { n = s.Read(buf, 0, buf.Length); }
-                            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
-                            catch (WebException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+                            catch (IOException ex) { throw Lost(ex); }
+                            catch (WebException ex) { throw Lost(ex); }
                             if (n <= 0) break;
                             fs.Write(buf, 0, n);
                             done += n;
@@ -306,9 +326,7 @@ namespace RequestSender
 
         HttpWebRequest DownloadRequest(string path, long from)
         {
-            var req = (HttpWebRequest)WebRequest.Create(ContentBase + "files/download");
-            req.Method = "POST";
-            req.Headers["Authorization"] = "Bearer " + accessToken;
+            var req = NewPost(ContentBase + "files/download");
             req.Headers["Dropbox-API-Arg"] = DropboxArgs.Download(path);
             req.ContentLength = 0;   // 本文は無い(Content-Type も付けない。Dropbox の例と同じ)
             req.Timeout = 2 * 60 * 1000;
@@ -319,9 +337,7 @@ namespace RequestSender
 
         static HttpWebResponse GetResponse(HttpWebRequest req)
         {
-            try { return (HttpWebResponse)req.GetResponse(); }
-            catch (WebException ex) { throw Wrap(ex); }
-            catch (IOException ex) { throw new DropboxException("通信が切れました: " + ex.Message, 0, ""); }
+            return Net(() => (HttpWebResponse)req.GetResponse());
         }
 
         static string RevOf(string resultHeader)
@@ -341,59 +357,41 @@ namespace RequestSender
             }
         }
 
-        string Send(string endpoint, string argJson, byte[] data, int offset, int length, Action<long> progress)
+        string Send(string endpoint, string argJson, byte[] data, Action<long> progress)
         {
-            var req = (HttpWebRequest)WebRequest.Create(ContentBase + endpoint);
-            req.Method = "POST";
-            req.Headers["Authorization"] = "Bearer " + accessToken;
+            var req = NewPost(ContentBase + endpoint);
             req.Headers["Dropbox-API-Arg"] = argJson;
             req.ContentType = "application/octet-stream";
-            req.ContentLength = length;
+            req.ContentLength = data.Length;
             req.AllowWriteStreamBuffering = false;
             req.SendChunked = false;
             req.Timeout = 10 * 60 * 1000;
             req.ReadWriteTimeout = 5 * 60 * 1000;
-            try
+            Net(() =>
             {
                 using (var s = req.GetRequestStream())
                 {
                     const int step = 256 * 1024;
-                    for (int pos = 0; pos < length; pos += step)
+                    for (int pos = 0; pos < data.Length; pos += step)
                     {
                         if (IsCanceled()) { req.Abort(); throw new CanceledException(); }
-                        int n = Math.Min(step, length - pos);
-                        s.Write(data, offset + pos, n);
+                        int n = Math.Min(step, data.Length - pos);
+                        s.Write(data, pos, n);
                         if (progress != null) progress(pos + n);
                     }
                 }
-            }
-            catch (WebException ex)
-            {
-                throw Wrap(ex);
-            }
-            catch (IOException ex)
-            {
-                throw new DropboxException("通信が切れました: " + ex.Message, 0, "");
-            }
+            });
             return ReadResponse(req);
         }
 
         static string ReadResponse(HttpWebRequest req)
         {
-            try
+            return Net(() =>
             {
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                     return r.ReadToEnd();
-            }
-            catch (WebException ex)
-            {
-                throw Wrap(ex);
-            }
-            catch (IOException ex)
-            {
-                throw new DropboxException("通信が切れました: " + ex.Message, 0, "");
-            }
+            });
         }
 
         static DropboxException Wrap(WebException ex)

@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -130,12 +129,17 @@ namespace RequestSender
         bool recvDownloading;
 
         // ---- 一覧 ----
+        // 受け取るための鍵(config.json)。読めなければ下の段に理由を出して null
+        Config RecvConfig()
+        {
+            return LoadConfig(text => SetRecvStatus(text, true));
+        }
+
         void RefreshList()
         {
             if (RecvBusy) return;
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetRecvStatus(ConfigProblem(ex), true); return; }
+            Config config = RecvConfig();
+            if (config == null) return;
             listedOnce = true;
             SetRecvStatus("届いたものを調べています…", false);
             var client = NewClient(config);
@@ -182,9 +186,8 @@ namespace RequestSender
             string text;
             if (failureTexts.TryGetValue(e.Key, out text)) { ShowFailure(e, text); return; }
             if (RecvBusy) { detail.Text = "自動の処理が失敗しました。理由は、いまの処理が終わってから読みます。"; return; }
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetRecvStatus(ConfigProblem(ex), true); return; }
+            Config config = RecvConfig();
+            if (config == null) return;
             detail.Text = "自動の処理が失敗しました。理由を読んでいます…";
             var client = NewClient(config);
             RunRecv(() =>
@@ -209,9 +212,8 @@ namespace RequestSender
         {
             var e = SelectedEntry;
             if (RecvBusy || e == null || e.Kind != OutputKind.Pack) return;
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetRecvStatus(ConfigProblem(ex), true); return; }
+            Config config = RecvConfig();
+            if (config == null) return;
             string dir = downloadDir;
             recvCancel = false;
             recvDownloading = true;
@@ -266,9 +268,8 @@ namespace RequestSender
             if (RecvBusy || e == null || e.Kind != OutputKind.Failure || !failureTexts.ContainsKey(e.Key)) return;
             if (MessageBox.Show(this, "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")", "消す",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetRecvStatus(ConfigProblem(ex), true); return; }
+            Config config = RecvConfig();
+            if (config == null) return;
             recvCancel = false;
             SetRecvStatus("消しています…", false);
             var client = NewClient(config);

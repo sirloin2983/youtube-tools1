@@ -1391,3 +1391,47 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: review.js は `test_review.cjs` が「関数名・コメントの文字列」で範囲を切り出して動かす。境目の文字列(`/* サーバー側の最新` など)を変えるとテストが落ちる。
   scratchpad はほかのサブエージェントと共有されていて、同じ名前のスクリプトが上書きされることがあった(Python の担当の報告)
 - 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/cut2resolve/・src/home/・src/editor/ のほかのファイルは入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Sonnet。まとめ役が依頼)— ③ friend-apps の見直し(ホロカラー 1.4.1 → 1.4.2・送るアプリ 2.1.0 → 2.1.1。内部の整理。動きは同じ)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい。友人用も変更してよい」。画面・キー・設定ファイル・依頼の JSON の形・`config.json` の扱いは変えない
+- 変更(`friend-apps/holo-colors/`):
+  - `src/Core.cs`: members.json と member-colors.json の「色の並びの読み取り」を `ColorOption.ReadList` の 1 か所に・読み書きの「つかまれていたら少し待ってやり直す」を `Files.Retry` / `Files.IsIo` に(WriteAtomic・ReadJson・SetAside)・
+    保存の「読めなかったファイルは上書きしない」を `Store.SaveJson` に・`NewId(prefix)` を 1 つに・`Store.RemoveWord`(`Remove` と同じ)を削除
+  - `src/Win32.cs`: 使っていない API(`GetAncestor`・`IsIconic`)・外から読んでいない `MessageWindow.Mods/Key`・`Autostart.Command` を削除
+  - `src/Dialogs.cs`: 4 つの画面の同じ作り(固定の窓・ボタンの並び・名札・知らせの欄・色の選択)を `Ui.StyleDialog / Btn / FieldLabel / Note / ButtonRow / PickColor` に・使っていない `NameBox・HexBox・ColorList` を削除・キーの欄の知らせの出し方を `SetHotkeyNote` に
+  - `src/Program.cs`: コピーの「クリップボードへ入れる」を `SetClipboard`・コピーのあとの動きを `AfterCopy` に(色とワードで同じ)・画面を 1 つだけ開く動きを `ActivateModal` / `RunModal` に・コンストラクターから `LoadPalette`・`CreateTray` を分けた・見本画像の `ShotForm`
+  - `src/MainForm.cs`・`src/PaletteView.cs`: `SetStatus` の引数を省略できる形に・使っていない `FlashCopied(e)` を削除・札の座標の変換とグループの札の取り出しを 1 か所に・文字の書式 `Ui.LeftText`
+  - `tests/WordsTests.cs`: `RemoveWord` → `Remove`(2 行)。`tests/CoreTests.cs`: キーの判定のテストに名前の付いたキー(PageDown など)の確認を 1 行足した(件数は同じ)
+  - `README.txt`: 見出し・変更の記録・テストの件数(21 → 31。実際の件数に直した)
+- 変更(`friend-apps/request-sender/`):
+  - `src/Core.cs`: `RequestJson` の古い呼び出し 8 つ(人数と名前だけ・streamer の文字列・URL の文字列の並び)と中の `VideoCore`・`UrlCore` を、今の画面が呼ぶ 2 つ(配信者は SpeakerSet)にまとめた。`Speakers` の人数と名前だけの `JsonPart`・`CleanNames` を削除。
+    使っていない `LocalState.LoadReceived/MarkReceived`(1.2.0 から使わない「受け取り済み」の記録)・`OutputEntry.PathDisplay` を削除。設定とメンバー一覧の読み込みを `Json.ReadFileOrNull` に・鍵の取り消し・appKey の誤りの判定を `ErrorText` の 1 か所に
+  - `src/Dropbox.cs`: 通信の失敗を `DropboxException` にする所を `Net`・`Lost` に・access token つきの POST を `NewPost` に・`Call`・`Send` の使っていなかった offset・length の引数を削除
+  - `src/Controls.cs`・`src/Theme.cs`: 全部自分で描く部品の土台 `PaintedControl`・一覧の土台 `ThemedList`・一覧の 1 行の地 `Theme.FillRow`・使っていない `HRow.SetShown`・`Stepper.SetMinimum` を削除
+  - `src/MainForm.cs`・`src/MainForm.Receive.cs`: 鍵(config.json)を読む 7 か所を `LoadConfig` / `RecvConfig` に・158 行の `BuildSendPage` を 5 つに・87 行の `StartSend` を `CollectInput` と `RunSend` に分けた・使っていない using を削除
+  - `tests/CoreTests.cs`: 古い呼び出しを今の呼び出し(`One(名前)`・`Items(数, URL…)` の補助つき)に直した。消したのは「古い呼び方は今までと同じ JSON」「1.4.0 までの呼び方はそのまま」「前の形の呼び出しは既定の 1」の 3 つの確認だけ(その呼び方ごと無くなったため)。
+    人数 3 の 6 行 → 人数 5 の 6 行に(今の作りは「人数の分の行」だけを見る。画面は人数と行が同じ)。テスト 31 件のまま
+  - `README.txt`: 見出し・変更の記録
+- 版: ホロカラー 1.4.1 → 1.4.2(`Core.cs` の `AppInfo.Version`・README)・送るアプリ 2.1.0 → 2.1.1(`Core.cs` の `AppInfo.Version`・README)。`members.json` は変えていない
+- 行数(src。`wc -l`): ホロカラー 4317 → 4216(Core 1136 → 1123・Dialogs 887 → 840・MainForm 441 → 434・PaletteView 692 → 697・Program 866 → 840・Win32 295 → 282)・
+  送るアプリ 5724 → 5614(Core 995 → 893・Controls 1020 → 982・Dropbox 415 → 413・MainForm 1172 → 1196・MainForm.Receive 397 → 398・Theme 155 → 162・ほかは同じ)。合計 10041 → 9830(-211 行・約 2%)。
+  テストは 2105 → 2117 行(補助の関数と、古い呼び出しの直し。件数は 31 + 31 のまま)。MainForm の増えた分は長いメソッドを分けた分(読みやすさのため)
+- 確かめ方:
+  - 両方の `build.bat`(コンパイル → C# のテスト 31 件 → dist の zip)OK。`e2e_holo_colors.py` は流していない(本物のキー入力を送るため)
+  - 画面: 変更前(`git archive HEAD` から別の場所に作った exe)と今の exe で `--screenshot` を撮って画素で比べた(送るアプリ 15 通り = 配色 4・状態 7・動画・受け取る・空・小さい窓、ホロカラー 11 枚 = 一覧・スクロール・検索・卒業・マイカラー・マイワード・設定・色の追加・色を直す・知らせ)。
+    違いは、窓の枠の見え方(前面かどうか)・URL の欄の選択の表示(同じ exe を 2 回撮っても変わる)・版の文字だけ。ホロカラーの設定の画面の大きさが違って見えたのは、変更前の exe を一時フォルダに置いて「zip の中から起動」の案内が出たため(コードの違いではない)
+- 決定・理由:
+  - 動きを変えたのは 1 か所だけ(意図どおりに直した): ホロカラーは、zip を開いたまま起動して members.json が読めないとき、決めてあった案内(「すべて展開してから…」)が出るはずが、一時フォルダかどうかを調べる前に文を選んでいて、一般の案内になっていた。調べる順番を直した
+  - 送るアプリの古い `RequestJson` の呼び出しは、製品のコードからは使っていなかった(テストだけ)ので、テストを今の呼び出しに寄せて削除した。依頼の JSON の形・キーの順は変わらない(テストが固定している)
+  - 長いメソッドの分割は、動きを変えないための「文の移動だけ」にした
+- 直さなかったもの(理由つき):
+  - `Validation.ParseUrlLines`・`UrlParseResult`(送るアプリ。約 30 行): 製品では使っていない(カードの `SetUrlLines` が自分で分けている)。消すとテスト 1 件(`UrlLines`)の中身が無くなる = 「件数は減らさない」に当たるので残した。消してよければ、そのテストも一緒に
+  - 2 つのアプリの `Json`・`Log` の共通化(約 70〜100 行減る): 両方の `build.bat` に共通の置き場所を足す・テストの using が変わる = 構成の変更になるので、ユーザーの確認が要る
+  - `--screenshot` の見本・画像の保存(ホロカラー約 60 行・送るアプリ約 190 行): docs/design/holo-colors.md・送るアプリの README に使い方があり、テストも見本を使う(`ApplySample`・`ApplyState`)ので残した
+  - `Json.Pretty`(ホロカラー。40 行): 設定を人が開いて読めるようにするため・テストがある。`SpeakerLine` のような配信者の行のクラス化(行数はほぼ変わらない)・`Check`/`Radio` の共通化(同じく変わらない)・2 つの `build.bat` の重なり(約 40 行)は、割に合わないので見送った
+  - `docs/HANDOVER.md`・`plan/` の「送るアプリ 2.1.0・ホロカラー 1.4.1」の記述は担当外なので直していない(HANDOVER は「正は各ファイル」と書いてある)
+- 注意:
+  - **Git Bash の `sed -i` は CRLF のファイルを LF にしてしまう**(2 ファイルが全行の差分になりかけたので CRLF に戻した)。`friend-apps` のソースは CRLF・ホロカラーの `README.txt` と送るアプリの `tests/CoreTests.cs` は元から LF(git の autocrlf の警告が出る。コミットでは同じ)。直すときは行末を保つ道具で
+  - `Keys.PageDown.ToString()` は別名の "Next" になる(`Keys.PageUp` は "PageUp")。`Hotkey.KeyName` の PageUp・PageDown の明示は消さない(テストに足した)
+  - 共有の scratchpad に他のサブエージェントの `usage.py` などがあった(同じ名前で上書きされて結果が変わった)。自分の作業用のファイルは専用のサブフォルダに置いた
+- 未コミット: なし(このコミット。`friend-apps/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/`・`dev/` の変更は入れていない)

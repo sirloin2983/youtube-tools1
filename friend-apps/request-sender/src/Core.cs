@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.1.0";
+        public const string Version = "2.1.1";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -216,37 +216,12 @@ namespace RequestSender
         }
     }
 
-    // 話す人(人数と名前)。count が 0 = 指定しない(JSON にキーを書かない)
+    // 配信者(人数と、1 人ずつの名前 + 字幕の色)。人数が 0 = 指定しない(JSON にキーを書かない)
     public static class Speakers
     {
         public const int MaxCount = 10, MaxNameLength = 60;
 
-        // 名前: 前後の空白を除く・空は捨てる・60 文字まで・重複なし・人数を超えた分は捨てる
-        public static List<string> CleanNames(IEnumerable<string> raw, int count)
-        {
-            var names = new List<string>();
-            if (raw == null) return names;
-            foreach (string r in raw)
-            {
-                if (names.Count >= count) break;
-                string n = (r ?? "").Trim();
-                if (n.Length == 0) continue;
-                if (n.Length > MaxNameLength) n = n.Substring(0, MaxNameLength);
-                if (!names.Contains(n)) names.Add(n);
-            }
-            return names;
-        }
-
-        // ,"speakers":{"count":N,"names":[...]} を返す。指定しない(count が 1〜10 の外)なら ""
-        public static string JsonPart(int count, IEnumerable<string> rawNames)
-        {
-            if (count < 1 || count > MaxCount) return "";
-            var names = CleanNames(rawNames, count);
-            return ",\"speakers\":{\"count\":" + count.ToString(CultureInfo.InvariantCulture) +
-                   ",\"names\":[" + string.Join(",", names.Select(n => JsonText.Quote(n, false))) + "]}";
-        }
-
-        // ---- 2.1.0: 配信者 = 名前 + 字幕の色(# なしの 16 進 6 桁) ----
+        // 字幕の色 = # なしの 16 進 6 桁
         public const int ColorLength = 6;
 
         // 色の欄に打つ・貼ったものを整える: 前後の空白と先頭の # を除く・16 進以外の文字は捨てる・大文字・6 文字まで
@@ -389,101 +364,47 @@ namespace RequestSender
         }
     }
 
+    // 依頼の JSON(キーの順番も受け取る側の約束)。配信者は SpeakerSet(名前 + 字幕の色)。flow の知らない値は ① に寄せる
     public static class RequestJson
     {
-        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt)
-        {
-            return Video(id, uploadedNames, streamer, memo, flow, sentAt, 0, null);
-        }
-
-        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt)
-        {
-            return Url(id, urls, top, memo, flow, sentAt, 0, null);
-        }
-
-        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
-        {
-            return Video(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, VideoTracks.Default);
-        }
-
-        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames)
-        {
-            return Url(id, urls, top, memo, flow, sentAt, speakerCount, speakerNames, VideoTracks.Default);
-        }
-
-        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
-        {
-            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, "");
-        }
-
-        // 2.0.0: カット(① のときだけ書く)
-        public static string Video(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cut)
-        {
-            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, speakerCount, speakerNames, videoTracks, Cut.JsonPart(FlowOrDefault(flow), cut));
-        }
-
-        // 2.1.0: 配信者(名前 + 字幕の色)。"streamer" は 1 人目の名前(動画の依頼は今までどおり、無ければ空文字)。
-        // speakers には people(名前と style.color)も入る
+        // 動画の依頼。"streamer" は 1 人目の名前(無ければ空文字)。speakers には names と people(名前と style.color)が入る。cut は ① のときだけ書く
         public static string Video(string id, IList<string> uploadedNames, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut)
         {
-            return VideoCore(id, uploadedNames, Speakers.StreamerName(speakers), memo, flow, sentAt, Speakers.JsonPart(speakers), videoTracks, Cut.JsonPart(FlowOrDefault(flow), cut));
-        }
-
-        static string VideoCore(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cutPart)
-        {
-            return VideoCore(id, uploadedNames, streamer, memo, flow, sentAt, Speakers.JsonPart(speakerCount, speakerNames), videoTracks, cutPart);
-        }
-
-        static string VideoCore(string id, IList<string> uploadedNames, string streamer, string memo, string flow, DateTimeOffset sentAt, string speakersPart, int videoTracks, string cutPart)
-        {
+            string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"video\",\"id\":").Append(JsonText.Quote(id, false));
-            sb.Append(",\"flow\":").Append(JsonText.Quote(FlowOrDefault(flow), false));
+            sb.Append(",\"flow\":").Append(JsonText.Quote(f, false));
             sb.Append(",\"files\":[").Append(string.Join(",", uploadedNames.Select(n => JsonText.Quote(n, false)))).Append(']');
-            sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer ?? "", false));
+            sb.Append(",\"streamer\":").Append(JsonText.Quote(Speakers.StreamerName(speakers), false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
-            sb.Append(speakersPart);
-            sb.Append(VideoTracks.JsonPart(FlowOrDefault(flow), videoTracks));
-            sb.Append(cutPart);
-            sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
-            return sb.Append('}').ToString();
+            sb.Append(Speakers.JsonPart(speakers));
+            sb.Append(VideoTracks.JsonPart(f, videoTracks));
+            sb.Append(Cut.JsonPart(f, cut));
+            return Finish(sb, sentAt);
         }
 
-        public static string Url(string id, IList<string> urls, int top, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks)
-        {
-            return UrlCore(id, urls.Select(u => new UrlItem { Url = u, Top = top }).ToList(), u => top, memo, flow, sentAt, "", Speakers.JsonPart(speakerCount, speakerNames), videoTracks, "", "");
-        }
-
-        // 2.0.0: 配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)
-        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, int speakerCount, IEnumerable<string> speakerNames, int videoTracks, string cut, Weights weights)
-        {
-            string f = FlowOrDefault(flow);
-            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, "", Speakers.JsonPart(speakerCount, speakerNames), videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
-        }
-
-        // 2.1.0: 配信者(名前 + 字幕の色)。URL の依頼にも、1 人目の名前があれば "streamer" を書く(items の後・memo の前。無ければ書かない)
+        // URL の依頼。配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)。
+        // 1 人目の名前があれば "streamer" も書く(items の後・memo の前。無ければ書かない)
         public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights)
         {
             string f = FlowOrDefault(flow);
             string streamer = Speakers.StreamerName(speakers);
-            string streamerPart = streamer.Length > 0 ? ",\"streamer\":" + JsonText.Quote(streamer, false) : "";
-            return UrlCore(id, items, u => u.EffectiveTop(f), memo, flow, sentAt, streamerPart, Speakers.JsonPart(speakers), videoTracks, Cut.JsonPart(f, cut), weights != null ? weights.JsonPart() : "");
-        }
-
-        static string UrlCore(string id, IList<UrlItem> items, Func<UrlItem, int> top, string memo, string flow, DateTimeOffset sentAt, string streamerPart, string speakersPart, int videoTracks, string cutPart, string weightsPart)
-        {
-            string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"url\",\"id\":").Append(JsonText.Quote(id, false));
             sb.Append(",\"flow\":").Append(JsonText.Quote(f, false));
             sb.Append(",\"items\":[").Append(string.Join(",", items.Select(u =>
-                "{\"url\":" + JsonText.Quote(u.Url, false) + ",\"top\":" + top(u).ToString(CultureInfo.InvariantCulture) + Ranges.JsonPart(f, u.Ranges) + "}"))).Append(']');
-            sb.Append(streamerPart);
+                "{\"url\":" + JsonText.Quote(u.Url, false) + ",\"top\":" + u.EffectiveTop(f).ToString(CultureInfo.InvariantCulture) + Ranges.JsonPart(f, u.Ranges) + "}"))).Append(']');
+            if (streamer.Length > 0) sb.Append(",\"streamer\":").Append(JsonText.Quote(streamer, false));
             sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
-            sb.Append(speakersPart);
+            sb.Append(Speakers.JsonPart(speakers));
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
-            sb.Append(cutPart);
-            sb.Append(weightsPart);
+            sb.Append(Cut.JsonPart(f, cut));
+            if (weights != null) sb.Append(weights.JsonPart());
+            return Finish(sb, sentAt);
+        }
+
+        static string Finish(StringBuilder sb, DateTimeOffset sentAt)
+        {
             sb.Append(",\"sentAt\":").Append(JsonText.Quote(JsonText.IsoNow(sentAt), false));
             return sb.Append('}').ToString();
         }
@@ -554,7 +475,7 @@ namespace RequestSender
     public class OutputEntry
     {
         public OutputKind Kind;
-        public string Name, PathLower, PathDisplay, Rev, ContentHash, RequestId, Title;
+        public string Name, PathLower, Rev, ContentHash, RequestId, Title;
         public long Size;
         public DateTime Modified;   // 地方時(Dropbox の server_modified)
 
@@ -589,7 +510,6 @@ namespace RequestSender
                 var entry = FromName(name);
                 if (entry == null) continue;
                 entry.PathLower = Json.Str(e, "path_lower");
-                entry.PathDisplay = Json.Str(e, "path_display");
                 entry.Rev = Json.Str(e, "rev");
                 entry.ContentHash = Json.Str(e, "content_hash");
                 entry.Size = Json.Long(e, "size", 0);
@@ -683,10 +603,9 @@ namespace RequestSender
         }
     }
 
-    // ---- 手元の記録(%LOCALAPPDATA%\RequestSender\): 受け取ったもの・受け取る場所 ----
+    // ---- 手元の記録(%LOCALAPPDATA%\RequestSender\settings.json): 受け取る場所と覚える設定 ----
     public class LocalState
     {
-        const int MaxRecords = 2000;
         readonly string dir;
 
         public LocalState(string dir)
@@ -694,7 +613,6 @@ namespace RequestSender
             this.dir = dir;
         }
 
-        string ReceivedPath { get { return System.IO.Path.Combine(dir, "received.txt"); } }
         string SettingsPath { get { return System.IO.Path.Combine(dir, "settings.json"); } }
 
         public static string DefaultDownloadDir()
@@ -702,43 +620,10 @@ namespace RequestSender
             return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "切り抜き依頼");
         }
 
-        public HashSet<string> LoadReceived()
-        {
-            var set = new HashSet<string>(StringComparer.Ordinal);
-            try
-            {
-                if (File.Exists(ReceivedPath))
-                    foreach (string line in File.ReadAllLines(ReceivedPath, Encoding.UTF8))
-                        if (line.Trim().Length > 0) set.Add(line.Trim());
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            return set;
-        }
-
-        public void MarkReceived(OutputEntry e)
-        {
-            var lines = new List<string>();
-            try { if (File.Exists(ReceivedPath)) lines.AddRange(File.ReadAllLines(ReceivedPath, Encoding.UTF8).Where(l => l.Trim().Length > 0)); }
-            catch (IOException) { }
-            if (lines.Contains(e.Key)) return;
-            lines.Add(e.Key);
-            if (lines.Count > MaxRecords) lines = lines.Skip(lines.Count - MaxRecords).ToList();
-            WriteAtomic(ReceivedPath, string.Join("\r\n", lines) + "\r\n");
-        }
-
         // settings.json の中身(無い・壊れていれば空)。キー: downloadDir と AppSettings のもの
         public IDictionary<string, object> LoadSettingsDict()
         {
-            try
-            {
-                if (File.Exists(SettingsPath)) return Json.Parse(File.ReadAllText(SettingsPath, Encoding.UTF8));
-            }
-            catch (Exception ex)
-            {
-                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
-            }
-            return new Dictionary<string, object>();
+            return Json.ReadFileOrNull(SettingsPath) ?? new Dictionary<string, object>();
         }
 
         // 読んで・直して・書く(ほかのキーを消さない。保存先と覚える設定が同じファイルにあるため)
@@ -854,6 +739,20 @@ namespace RequestSender
             return o;
         }
 
+        // ファイルの JSON。無い・開けない・壊れているときは null(呼ぶ側は空として扱う)
+        public static IDictionary<string, object> ReadFileOrNull(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? Parse(File.ReadAllText(path, Encoding.UTF8)) : null;
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
+                return null;
+            }
+        }
+
         public static string Str(IDictionary<string, object> d, string key)
         {
             object v;
@@ -917,22 +816,12 @@ namespace RequestSender
         public static List<string> LoadNames(string path)
         {
             var names = new List<string>();
-            try
-            {
-                if (!File.Exists(path)) return names;
-                var root = Json.Parse(File.ReadAllText(path, Encoding.UTF8));
-                foreach (var g in Json.List(root, "groups"))
-                    foreach (var m in Json.List(g, "members"))
-                    {
-                        string n = (Json.Str(m, "name") ?? "").Trim();
-                        if (n.Length > 0 && !names.Contains(n)) names.Add(n);
-                    }
-            }
-            catch (Exception ex)
-            {
-                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
-                names.Clear();
-            }
+            foreach (var g in Json.List(Json.ReadFileOrNull(path), "groups"))
+                foreach (var m in Json.List(g, "members"))
+                {
+                    string n = (Json.Str(m, "name") ?? "").Trim();
+                    if (n.Length > 0 && !names.Contains(n)) names.Add(n);
+                }
             return names;
         }
     }
@@ -953,15 +842,25 @@ namespace RequestSender
             catch (Exception) { }
             string all = (summary + " " + error + " " + (body ?? "")).ToLowerInvariant();
             if (all.Contains("insufficient_space")) return "送り先の Dropbox の空きが足りません。送り先の人に伝えてください。";
-            if (all.Contains("invalid_grant") || all.Contains("invalid_access_token") || all.Contains("expired_access_token"))
-                return "送るための鍵が使えなくなっています(取り消された可能性があります)。送り先の人に新しい config.json をもらってください。";
-            if (all.Contains("invalid_client") || all.Contains("app_key")) return "config.json の appKey が正しくありません。送り先の人に伝えてください。";
+            if (IsRevokedKey(all)) return "送るための鍵が使えなくなっています(取り消された可能性があります)。送り先の人に新しい config.json をもらってください。";
+            if (IsBadAppKey(all)) return "config.json の appKey が正しくありません。送り先の人に伝えてください。";
             if (all.Contains("missing_scope")) return "鍵に書き込みの権限がありません。送り先の人に伝えてください(files.content.write)。";
             if (all.Contains("disallowed_name") || all.Contains("malformed_path")) return "この名前のファイルは送れません。ファイルの名前を変えてから送ってください。";
             if (status == 429 || all.Contains("too_many")) return "Dropbox が混んでいます。少し待ってからもう一度送ってください。";
             if (status >= 500) return "Dropbox の側で問題が起きています(" + status + ")。少し待ってからもう一度送ってください。";
             string s = summary.Length > 0 ? summary : error;
             return "Dropbox からエラーが返りました(" + status + (s.Length > 0 ? ": " + Validation.Shorten(s, 80) : "") + ")";
+        }
+
+        // all = 小文字にした返事
+        static bool IsRevokedKey(string all)
+        {
+            return all.Contains("invalid_grant") || all.Contains("invalid_access_token") || all.Contains("expired_access_token");
+        }
+
+        static bool IsBadAppKey(string all)
+        {
+            return all.Contains("invalid_client") || all.Contains("app_key");
         }
 
         public const string NeedNewKeyForReceive = "受け取るには新しい鍵が要ります。送り先の人に config.json を作り直してもらってください";
@@ -983,9 +882,8 @@ namespace RequestSender
         {
             string all = (body ?? "").ToLowerInvariant();
             if (IsMissingScope(body)) return NeedNewKeyForReceive;
-            if (all.Contains("invalid_grant") || all.Contains("invalid_access_token") || all.Contains("expired_access_token"))
-                return "鍵が使えなくなっています(取り消された可能性があります)。送り先の人に新しい config.json をもらってください。";
-            if (all.Contains("invalid_client") || all.Contains("app_key")) return "config.json の appKey が正しくありません。送り先の人に伝えてください。";
+            if (IsRevokedKey(all)) return "鍵が使えなくなっています(取り消された可能性があります)。送り先の人に新しい config.json をもらってください。";
+            if (IsBadAppKey(all)) return "config.json の appKey が正しくありません。送り先の人に伝えてください。";
             if (IsNotFound(status, body)) return "送り先の Dropbox にもうありません。「更新」を押してください。";
             if (status == 429 || all.Contains("too_many")) return "Dropbox が混んでいます。少し待ってからもう一度押してください。";
             if (status >= 500) return "Dropbox の側で問題が起きています(" + status + ")。少し待ってからもう一度押してください。";

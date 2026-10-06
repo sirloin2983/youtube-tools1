@@ -52,12 +52,6 @@ namespace HoloColors
         [DllImport("user32.dll")]
         public static extern short GetKeyState(int nVirtKey);
 
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetAncestor(IntPtr hwnd, int flags);
-
-        [DllImport("user32.dll")]
-        public static extern bool IsIconic(IntPtr hWnd);
-
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
@@ -118,9 +112,6 @@ namespace HoloColors
         public event Action ShowRequested;
         public event Action QuitRequested;
         readonly int showMsg, quitMsg;
-        bool registered;
-        public int Mods { get; private set; }
-        public int Key { get; private set; }
 
         public MessageWindow(string instanceKey)
         {
@@ -130,22 +121,20 @@ namespace HoloColors
             CreateHandle(new CreateParams { Caption = "HoloColors.Messages", ExStyle = Native.WS_EX_TOOLWINDOW });
         }
 
-        public bool Registered { get { return registered; } }
+        public bool Registered { get; private set; }
 
         // 成功したら true。失敗したら(他のアプリが使っている)登録なしのまま
         public bool Register(int mods, int vk)
         {
             Unregister();
-            Mods = mods;
-            Key = vk;
-            registered = Native.RegisterHotKey(Handle, HotkeyId, mods | Native.MOD_NOREPEAT, vk);
-            return registered;
+            Registered = Native.RegisterHotKey(Handle, HotkeyId, mods | Native.MOD_NOREPEAT, vk);
+            return Registered;
         }
 
         public void Unregister()
         {
-            if (registered) Native.UnregisterHotKey(Handle, HotkeyId);
-            registered = false;
+            if (Registered) Native.UnregisterHotKey(Handle, HotkeyId);
+            Registered = false;
         }
 
         protected override void WndProc(ref Message m)
@@ -239,8 +228,6 @@ namespace HoloColors
             this.keyPath = keyPath;
             command = "\"" + exePath + "\" --hidden" + (string.IsNullOrEmpty(extraArgs) ? "" : " " + extraArgs);
         }
-
-        public string Command { get { return command; } }
 
         public string Current()
         {

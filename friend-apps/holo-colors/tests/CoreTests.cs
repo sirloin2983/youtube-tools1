@@ -152,6 +152,8 @@ static class CoreTests
         Eq("Ctrl + Alt + H", Hotkey.Format(Hotkey.MOD_CONTROL | Hotkey.MOD_ALT, (int)Keys.H), "表示");
         Eq("Ctrl + Shift + Win + F12", Hotkey.Format(Hotkey.MOD_CONTROL | Hotkey.MOD_SHIFT | Hotkey.MOD_WIN, (int)Keys.F12), "表示の順番");
         Eq("Alt + 1", Hotkey.Format(Hotkey.MOD_ALT, (int)Keys.D1), "数字");
+        // Keys の ToString() に任せている名前(PageDown は別名の "Next" になるので、決めた名前で出す)
+        Eq("PageDown|PageUp|Enter|Space|Delete|Home", string.Join("|", new[] { Keys.PageDown, Keys.PageUp, Keys.Return, Keys.Space, Keys.Delete, Keys.Home }.Select(k => Hotkey.KeyName((int)k))), "名前の付いたキー");
     }
 
     static void JsonPretty()

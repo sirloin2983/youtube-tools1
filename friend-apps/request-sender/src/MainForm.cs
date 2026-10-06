@@ -129,7 +129,7 @@ namespace RequestSender
             ApplyTheme();
             LayoutAll();
 
-            Theme.Changed += OnThemeChanged;
+            Theme.Changed += ApplyTheme;
             Resize += (s, e) => LayoutAll();
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
@@ -139,7 +139,7 @@ namespace RequestSender
                 LayoutAll();
                 if (files.Items.Count == 0) cards[0].FocusUrl();   // 開いたら、すぐ URL を貼れる
                 if (Offline) return;
-                CheckConfig();
+                LoadConfig(text => SetStatus(text, Tone.Error));
                 Program.MaybeAskSendTo(this);
                 UpdateSendToLink();
                 poll.Interval = PollMs;
@@ -148,7 +148,7 @@ namespace RequestSender
                 PollArrivals();
             };
             FormClosing += OnClosing;
-            Disposed += (s, e) => { Theme.Changed -= OnThemeChanged; poll.Dispose(); tips.Dispose(); };
+            Disposed += (s, e) => { Theme.Changed -= ApplyTheme; poll.Dispose(); tips.Dispose(); };
         }
 
         // ---------------------------------------------------------------- 組み立て
@@ -176,7 +176,19 @@ namespace RequestSender
 
         void BuildSendPage()
         {
-            // ---- 左 ----
+            BuildLeftPane();
+            BuildFlowSection();
+            BuildSpeakerSection();
+            BuildBottomBand();
+            sendPage.Controls.AddRange(new Control[] { leftPane, right, bottom });
+            SetCut(cut);
+            UpdateWeights();
+            UpdateSpeakerView();
+        }
+
+        // 左: 01 送るもの(配信の URL のカード / 動画ファイル)
+        void BuildLeftPane()
+        {
             modeUrl.Click += (s, e) => ShowLeft(false);
             modeVideo.Click += (s, e) => ShowLeft(true);
             cardList.Add(addCard, 10, false);
@@ -210,8 +222,11 @@ namespace RequestSender
             fileNote.AutoEllipsis = true;
             videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote });
             leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime, helpMore });
+        }
 
-            // ---- 右 ----
+        // 右: 02 仕上げ方(どこまでやるか・カット・映像トラックの数・見どころの重み)
+        void BuildFlowSection()
+        {
             right.Add(new SectionHead("02", "仕上げ方"), 0, true);
             for (int i = 0; i < flowRadios.Length; i++)
             {
@@ -260,7 +275,11 @@ namespace RequestSender
             right.Add(weightsPane, 4, false);
             weightsHint.Font = Theme.Small;
             right.Add(weightsHint, 4, true);
+        }
 
+        // 右: 03 配信者・メモ(配信者の数と行・メモ)
+        void BuildSpeakerSection()
+        {
             right.Add(new SectionHead("03", "配信者・メモ"), 14, true);
             speakerCount = new Stepper(0, Speakers.MaxCount, 0, Ui.S(84), "配信者の数");
             speakerCount.Format = v => v == 0 ? "指定しない" : v + " 人";
@@ -307,8 +326,11 @@ namespace RequestSender
             memoField = new Field(memo);
             right.Add(memoField, 4, true);
             right.Fill = memoField;
+        }
 
-            // ---- 下の帯 ----
+        // 下の帯: 要約・進み具合・「送る」
+        void BuildBottomBand()
+        {
             summary.AutoSize = status.AutoSize = false;
             summary.AutoEllipsis = status.AutoEllipsis = true;
             status.Font = Theme.Small;
@@ -326,11 +348,6 @@ namespace RequestSender
                 UpdateSendToLink();
             };
             bottom.Controls.AddRange(new Control[] { bar, summary, status, sendToLink, cancelBtn, sendBtn });
-
-            sendPage.Controls.AddRange(new Control[] { leftPane, right, bottom });
-            SetCut(cut);
-            UpdateWeights();
-            UpdateSpeakerView();
         }
 
         // ---------------------------------------------------------------- 並べる
@@ -516,11 +533,6 @@ namespace RequestSender
         }
 
         // ---------------------------------------------------------------- 配色
-        void OnThemeChanged()
-        {
-            ApplyTheme();
-        }
-
         void ApplyTheme()
         {
             BackColor = Theme.P.Bg;
@@ -696,15 +708,17 @@ namespace RequestSender
             catch (Exception ex) { Log.Write("settings: " + ex.Message); }
         }
 
-        void CheckConfig()
+        // 送る・受け取るための鍵(config.json)。読めなければ理由を onError に渡して null(onError が null なら黙って null)
+        Config LoadConfig(Action<string> onError)
         {
             try
             {
-                Config.Load(Path.Combine(exeDir, "config.json"));
+                return Config.Load(Path.Combine(exeDir, "config.json"));
             }
             catch (Exception ex)
             {
-                SetStatus(ConfigProblem(ex), Tone.Error);
+                if (onError != null) onError(ConfigProblem(ex));
+                return null;
             }
         }
 
@@ -798,6 +812,16 @@ namespace RequestSender
         void StartSend()
         {
             if (Busy) return;
+            var input = CollectInput();
+            if (input == null || Offline) return;   // 画面の確認・テストでは送らない
+            Config config = LoadConfig(text => SetStatus(text, Tone.Error));
+            if (config == null) return;
+            RunSend(input, config);
+        }
+
+        // 画面の入力を送る内容にまとめる。誤りがあれば欄に理由を出して null
+        SendInput CollectInput()
+        {
             string flow = SelectedFlow;
             var seen = new HashSet<string>();
             var items = new List<UrlItem>();
@@ -826,7 +850,7 @@ namespace RequestSender
                     badSpeaker.Select();
                 }
                 SetStatus("⚠ 直す所があります(枠の色が変わった欄の下に理由があります)。直してから、もう一度「送る」を押してください。", Tone.Error);
-                return;
+                return null;
             }
             var input = new SendInput
             {
@@ -844,13 +868,14 @@ namespace RequestSender
             {
                 SetStatus(string.Join(" / ", errs.Take(3)) + (errs.Count > 3 ? " ほか " + (errs.Count - 3) + " 件" : ""), Tone.Error);
                 if (input.Videos.Count == 0 && input.Items.Count == 0) { ShowLeft(false); cards[0].FocusUrl(); }
-                return;
+                return null;
             }
-            if (Offline) return;   // 画面の確認・テストでは送らない
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception ex) { SetStatus(ConfigProblem(ex), Tone.Error); return; }
+            return input;
+        }
 
+        // 裏のスレッドで送る(進み具合は画面のスレッドへ渡す)
+        void RunSend(SendInput input, Config config)
+        {
             cancel = false;
             SetBusy(true);
             bar.Value = 0;
@@ -997,9 +1022,8 @@ namespace RequestSender
         void PollArrivals()
         {
             if (Offline || polling || Busy || RecvBusy || IsDisposed) return;
-            Config config;
-            try { config = Config.Load(Path.Combine(exeDir, "config.json")); }
-            catch (Exception) { return; }
+            Config config = LoadConfig(null);
+            if (config == null) return;
             polling = true;
             var client = new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write };
             var t = new Thread(() =>

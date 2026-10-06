@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace HoloColors
@@ -98,7 +97,7 @@ namespace HoloColors
 
             view.Dock = DockStyle.Fill;
             view.Font = Font;
-            view.EntryActivated += en => app.Copy(en);
+            view.EntryActivated += en => app.Copy(en, 0);
             view.ColorActivated += (en, i) => app.Copy(en, i);
             view.EntryContextRequested += ShowEntryMenu;
             view.FavoriteToggled += en => app.ToggleFavorite(en);
@@ -212,12 +211,7 @@ namespace HoloColors
         }
 
         // 下の段の知らせ。hex を渡すと色の見本を付ける
-        public void SetStatus(string text, bool error)
-        {
-            SetStatus(text, error, null);
-        }
-
-        public void SetStatus(string text, bool error, string hex)
+        public void SetStatus(string text, bool error, string hex = null)
         {
             statusHint = false;
             statusError = error;
@@ -259,8 +253,7 @@ namespace HoloColors
                 x = sw + (int)(6 * k);
             }
             Color c = statusError ? Color.FromArgb(190, 30, 30) : statusHint ? Color.FromArgb(135, 135, 148) : Color.FromArgb(30, 30, 40);
-            TextRenderer.DrawText(g, status.Text, statusHex != null ? statusBold : statusFont, new Rectangle(x, 0, status.ClientSize.Width - x, h), c,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, status.Text, statusHex != null ? statusBold : statusFont, new Rectangle(x, 0, status.ClientSize.Width - x, h), c, Ui.LeftText);
         }
 
         // 呼び出されたとき: 検索を空にして一番上から

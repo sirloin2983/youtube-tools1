@@ -359,13 +359,6 @@ namespace RequestSender
             }
         }
 
-        // 下限を変える(区間の数より小さくできないように)
-        public void SetMinimum(int min)
-        {
-            Minimum = Math.Min(min, Maximum);
-            Value = Math.Max(value, Minimum);
-        }
-
         // 値は変えずに見た目だけ直す
         public void Show_()
         {
@@ -588,17 +581,30 @@ namespace RequestSender
 
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
-            var p = Theme.P;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var b = new SolidBrush(sel ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+            Theme.FillRow(e);
             if (e.Index < 0 || e.Index >= Items.Count) return;
-            TextRenderer.DrawText(e.Graphics, Convert.ToString(Items[e.Index]), Font, new Rectangle(e.Bounds.X + Ui.S(6), e.Bounds.Y, e.Bounds.Width - Ui.S(8), e.Bounds.Height), p.Text,
+            TextRenderer.DrawText(e.Graphics, Convert.ToString(Items[e.Index]), Font, new Rectangle(e.Bounds.X + Ui.S(6), e.Bounds.Y, e.Bounds.Width - Ui.S(8), e.Bounds.Height), Theme.P.Text,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
         }
     }
 
+    // ---- 全部を自分で描く部品の土台(ちらつかない・フォーカスは取らない・配色が変わったら描き直す) ----
+    public abstract class PaintedControl : Control, IThemed
+    {
+        protected PaintedControl()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+        }
+
+        public virtual void ApplyTheme()
+        {
+            Invalidate();
+        }
+    }
+
     // ---- 色の見本(小さな四角)と、その横の小さな注。色が 6 桁そろったときだけ塗る(空・途中は枠だけ) ----
-    public class ColorChip : Control, IThemed
+    public class ColorChip : PaintedControl
     {
         Color? swatch;
         string note = "";
@@ -606,8 +612,6 @@ namespace RequestSender
 
         public ColorChip()
         {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
             Font = Theme.Small;
             Margin = Padding.Empty;
         }
@@ -630,8 +634,6 @@ namespace RequestSender
 
         public string Note { get { return note; } }
 
-        public void ApplyTheme() { Invalidate(); }
-
         public static int BoxSize { get { return Ui.S(18); } }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -651,14 +653,12 @@ namespace RequestSender
     }
 
     // ---- 進み具合の棒(0〜1000) ----
-    public class Bar : Control, IThemed
+    public class Bar : PaintedControl
     {
         int value;
 
         public Bar()
         {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
             Height = Ui.S(4);
         }
 
@@ -668,8 +668,6 @@ namespace RequestSender
             set { int v = Math.Max(0, Math.Min(1000, value)); if (v != this.value) { this.value = v; Invalidate(); } }
         }
 
-        public void ApplyTheme() { Invalidate(); }
-
         protected override void OnPaint(PaintEventArgs e)
         {
             using (var b = new SolidBrush(Theme.P.Line)) e.Graphics.FillRectangle(b, ClientRectangle);
@@ -678,21 +676,17 @@ namespace RequestSender
     }
 
     // ---- 見出し「01 送るもの」: 左にアクセントの線・番号は等幅 ----
-    public class SectionHead : Control, IThemed
+    public class SectionHead : PaintedControl
     {
         readonly string no, title;
 
         public SectionHead(string no, string title)
         {
             this.no = no; this.title = title;
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
             Height = Ui.S(20);
             AccessibleRole = AccessibleRole.StaticText;
             AccessibleName = title;
         }
-
-        public void ApplyTheme() { Invalidate(); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -708,10 +702,10 @@ namespace RequestSender
         }
     }
 
-    // ---- 動画の一覧(選んだ行はアクセントを混ぜた地) ----
-    public class FileList : ListBox, IThemed
+    // ---- 配色に合わせて行を自分で描く一覧(標準の一覧は暗い配色でスクロールバーなどが標準の見た目になる) ----
+    public abstract class ThemedList : ListBox, IThemed
     {
-        public FileList()
+        protected ThemedList()
         {
             DrawMode = DrawMode.OwnerDrawFixed;
             BorderStyle = BorderStyle.None;
@@ -727,12 +721,15 @@ namespace RequestSender
             ForeColor = Theme.P.Text;
             Invalidate();
         }
+    }
 
+    // ---- 動画の一覧(選んだ行はアクセントを混ぜた地) ----
+    public class FileList : ThemedList
+    {
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
             var p = Theme.P;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var b = new SolidBrush(sel ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+            Theme.FillRow(e);
             if (e.Index < 0 || e.Index >= Items.Count) return;
             string path = Items[e.Index] as string ?? "";
             string name = Path.GetFileName(path), dir = Path.GetDirectoryName(path) ?? "";
@@ -747,9 +744,8 @@ namespace RequestSender
     // ---- 横に並べる行(左から順に・縦は中央)。地の色は親と同じ ----
     public class HRow : Pane
     {
-        readonly System.Collections.Generic.List<Control> items = new System.Collections.Generic.List<Control>();
-        readonly System.Collections.Generic.Dictionary<Control, int> gaps = new System.Collections.Generic.Dictionary<Control, int>();
-        readonly System.Collections.Generic.HashSet<Control> hidden = new System.Collections.Generic.HashSet<Control>();
+        readonly List<Control> items = new List<Control>();
+        readonly Dictionary<Control, int> gaps = new Dictionary<Control, int>();
 
         public HRow()
         {
@@ -766,21 +762,13 @@ namespace RequestSender
             return this;
         }
 
-        public void SetShown(Control c, bool shown)
-        {
-            if (shown) hidden.Remove(c); else hidden.Add(c);
-            c.Visible = shown;
-            Arrange();
-        }
-
         // 並べ直す(中の部品の幅・文字が変わったら呼ぶ)
         public void Arrange()
         {
             int x = 0, h = Ui.S(28);
-            foreach (var c in items) if (!hidden.Contains(c)) h = Math.Max(h, c.Height);
+            foreach (var c in items) h = Math.Max(h, c.Height);
             foreach (var c in items)
             {
-                if (hidden.Contains(c)) continue;
                 x += gaps[c];
                 c.Location = new Point(x, (h - c.Height) / 2);
                 x += c.Width;
@@ -799,7 +787,7 @@ namespace RequestSender
             public bool Stretch, Shown = true;
         }
 
-        readonly System.Collections.Generic.List<Item> items = new System.Collections.Generic.List<Item>();
+        readonly List<Item> items = new List<Item>();
         bool arranging;
 
         public int Pad = Ui.S(12);
@@ -900,26 +888,9 @@ namespace RequestSender
     }
     // ---- 届いたものの一覧(受け取る): 種類・題・大きさ・届いた日時。見出しは EntryHeader が描く ----
     //   標準の一覧(ListView)は、暗い配色でスクロールバーか列の線が標準の見た目になるので使わない
-    public class EntryList : ListBox, IThemed
+    public class EntryList : ThemedList
     {
         public Func<OutputEntry, string[]> Texts = e => new[] { "", e.Title, "", "" };
-
-        public EntryList()
-        {
-            DrawMode = DrawMode.OwnerDrawFixed;
-            BorderStyle = BorderStyle.None;
-            IntegralHeight = false;
-            ItemHeight = Ui.S(24);
-            Font = Theme.Body;
-            ApplyTheme();
-        }
-
-        public void ApplyTheme()
-        {
-            BackColor = Theme.P.Bg;
-            ForeColor = Theme.P.Text;
-            Invalidate();
-        }
 
         // 列の位置(種類 | 題 | 大きさ(右寄せ)| 届いた日時)。幅は一覧の中身の幅
         public static Rectangle[] Columns(int width, int y, int height)
@@ -936,8 +907,7 @@ namespace RequestSender
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
             var p = Theme.P;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var b = new SolidBrush(sel ? Theme.Mix(p.Bg, p.Accent, 0.25) : p.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+            Theme.FillRow(e);
             if (e.Index < 0 || e.Index >= Items.Count) return;
             var entry = Items[e.Index] as OutputEntry;
             if (entry == null) return;
@@ -957,18 +927,10 @@ namespace RequestSender
         }
     }
 
-    public class EntryHeader : Control, IThemed
+    public class EntryHeader : PaintedControl
     {
         static readonly string[] Titles = { "種類", "題", "大きさ", "届いた日時" };
         public EntryList List;
-
-        public EntryHeader()
-        {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
-        }
-
-        public void ApplyTheme() { Invalidate(); }
 
         protected override void OnPaint(PaintEventArgs e)
         {

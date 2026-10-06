@@ -85,7 +85,7 @@ public static class WordsTests
             True(s.MoveTo(c, 99), "端に寄せる");
             Eq(c.Id, Reload(dir).Words.Items[2].Id, "末尾へ");
 
-            s.RemoveWord(b);
+            s.Remove(b);
             r = Reload(dir);
             Eq(2, r.Words.Items.Count, "削除が残る");
             True(r.Words.Items.All(x => x.Id != b.Id), "消えた");
@@ -242,7 +242,7 @@ public static class WordsTests
             Eq(1, Reload(dir).Settings.Favorites.Count, "外したのが残る");
             s.ToggleFavorite(w);
             s.NoteRecent(w, 2);
-            s.RemoveWord(w);
+            s.Remove(w);
             r = Reload(dir);
             True(!r.Settings.Favorites.Contains(w.Id), "消したらお気に入りから外れる");
             True(r.Settings.Recent.All(x => x.Id != w.Id), "最近からも外れる");

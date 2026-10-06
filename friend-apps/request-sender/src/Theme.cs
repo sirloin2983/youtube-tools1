@@ -67,6 +67,13 @@ namespace RequestSender
             return Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
         }
 
+        // 一覧の1行の地(選んだ行はアクセントを混ぜた地)
+        public static void FillRow(DrawItemEventArgs e)
+        {
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            using (var b = new SolidBrush(sel ? Mix(P.Bg, P.Accent, 0.25) : P.Bg)) e.Graphics.FillRectangle(b, e.Bounds);
+        }
+
         // 木の全部に色を付け直す。IThemed は自分で、ほかの入力の部品は地と文字の色だけ
         public static void Apply(Control root)
         {

@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.4.1";
+        public const string Version = "1.4.2";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }
@@ -48,6 +48,21 @@ namespace HoloColors
         public static List<ColorOption> CloneAll(IEnumerable<ColorOption> list)
         {
             return list.Select(c => c.Clone()).ToList();
+        }
+
+        // JSON の colors(members.json・member-colors.json)を読む。カラーコードが読めない項目・同じ色の重なりは飛ばし、ラベルは前後の空白を除いて 12 文字まで
+        public static List<ColorOption> ReadList(IDictionary<string, object> owner)
+        {
+            var list = new List<ColorOption>();
+            foreach (var c in Json.List(owner, "colors"))
+            {
+                string h;
+                if (!HexColor.TryNormalize(Json.Str(c, "hex"), out h) || list.Any(x => x.Hex == h)) continue;
+                string label = (Json.Str(c, "label") ?? "").Trim();
+                if (label.Length > MaxLabel) label = label.Substring(0, MaxLabel).Trim();
+                list.Add(new ColorOption(h, label));
+            }
+            return list;
         }
 
         // 色の並びを確かめてそろえる(カラーコードの形・ラベルの長さ・同じ色の重なりは1つに)。問題があれば理由を返す(null なら良い)
@@ -308,20 +323,13 @@ namespace HoloColors
             if (IsFunctionKey(vk)) return "F" + (vk - (int)Keys.F1 + 1);
             switch (k)
             {
-                case Keys.Space: return "Space";
-                case Keys.Return: return "Enter";
-                case Keys.Tab: return "Tab";
-                case Keys.Insert: return "Insert";
-                case Keys.Delete: return "Delete";
-                case Keys.Home: return "Home";
-                case Keys.End: return "End";
-                case Keys.PageUp: return "PageUp";
+                case Keys.Return: return "Enter";   // Space・Tab・Insert・Delete・Home・End・Pause は Keys の名前のまま
+                case Keys.PageUp: return "PageUp";   // PageDown は ToString() だと別名の "Next" になる
                 case Keys.PageDown: return "PageDown";
                 case Keys.Up: return "↑";
                 case Keys.Down: return "↓";
                 case Keys.Left: return "←";
                 case Keys.Right: return "→";
-                case Keys.Pause: return "Pause";
                 case Keys.Oemcomma: return ",";
                 case Keys.OemPeriod: return ".";
                 case Keys.OemMinus: return "-";
@@ -452,6 +460,26 @@ namespace HoloColors
     // ---- ファイル ----
     public static class Files
     {
+        // ファイルの操作で起きる「あとでやり直せば通るかもしれない」失敗(つかまれている・権限)
+        public static bool IsIo(Exception ex)
+        {
+            return ex is IOException || ex is UnauthorizedAccessException;
+        }
+
+        // ウイルス対策・同期ソフトが一瞬つかんでいるときだけ、少し待って(baseMs × 1・2・4 倍)3 回までやり直す。それでもだめなら投げる
+        public static T Retry<T>(Func<T> action, int baseMs)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try { return action(); }
+                catch (Exception ex)
+                {
+                    if (!IsIo(ex) || attempt >= 3) throw;
+                    System.Threading.Thread.Sleep(baseMs << attempt);
+                }
+            }
+        }
+
         // 一時ファイルに書いてから置き換える(書きかけのファイルを残さない)
         public static void WriteAtomic(string path, string text)
         {
@@ -461,30 +489,17 @@ namespace HoloColors
             try
             {
                 File.WriteAllText(tmp, text, new UTF8Encoding(false));
-                for (int attempt = 0; ; attempt++)
+                Retry(() =>
                 {
-                    try
-                    {
-                        if (File.Exists(path)) File.Replace(tmp, path, null, true);
-                        else File.Move(tmp, path);
-                        return;
-                    }
-                    catch (IOException)
-                    {
-                        // ウイルス対策・同期ソフトが一瞬つかんでいるときだけ、少し待ってやり直す
-                        if (attempt >= 3) throw;
-                        System.Threading.Thread.Sleep(100 << attempt);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (attempt >= 3) throw;
-                        System.Threading.Thread.Sleep(100 << attempt);
-                    }
-                }
+                    if (File.Exists(path)) File.Replace(tmp, path, null, true);
+                    else File.Move(tmp, path);
+                    return true;
+                }, 100);
             }
             finally
             {
-                try { if (File.Exists(tmp)) File.Delete(tmp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                try { if (File.Exists(tmp)) File.Delete(tmp); }
+                catch (Exception ex) { if (!IsIo(ex)) throw; }
             }
         }
 
@@ -493,8 +508,7 @@ namespace HoloColors
         {
             string dst = path + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             try { File.Move(path, dst); return dst; }
-            catch (IOException) { return null; }
-            catch (UnauthorizedAccessException) { return null; }
+            catch (Exception ex) { if (!IsIo(ex)) throw; return null; }
         }
 
         // 作業データの置き場所(youtube-tools の約束 = src/ytt_core/datadir.py と同じ)
@@ -567,15 +581,7 @@ namespace HoloColors
         // 壊れた項目(カラーコードが読めない)は飛ばす。colors が無い古い形は hex の1色
         public static List<ColorOption> ReadColors(IDictionary<string, object> m, string mainHex)
         {
-            var list = new List<ColorOption>();
-            foreach (var c in Json.List(m, "colors"))
-            {
-                string h;
-                if (!HexColor.TryNormalize(Json.Str(c, "hex"), out h) || list.Any(x => x.Hex == h)) continue;
-                string label = (Json.Str(c, "label") ?? "").Trim();
-                if (label.Length > ColorOption.MaxLabel) label = label.Substring(0, ColorOption.MaxLabel);
-                list.Add(new ColorOption(h, label));
-            }
+            var list = ColorOption.ReadList(m);
             int i = list.FindIndex(x => x.Hex == mainHex);
             if (i > 0)
             {
@@ -707,7 +713,7 @@ namespace HoloColors
                 string hex, name = (Json.Str(m, "name") ?? "").Trim();
                 if (name.Length == 0 || !HexColor.TryNormalize(Json.Str(m, "hex"), out hex)) continue;
                 string id = Json.Str(m, "id");
-                if (string.IsNullOrEmpty(id) || Mine.Items.Any(x => x.Id == id)) id = NewId();
+                if (string.IsNullOrEmpty(id) || Mine.Items.Any(x => x.Id == id)) id = NewId("my/");
                 Mine.Items.Add(MakeEntry(id, name, hex));
             }
             Words.Items.Clear();
@@ -720,7 +726,7 @@ namespace HoloColors
                 if (name.Length == 0) name = DefaultWordName(text);
                 if (name.Length > MaxName) name = name.Substring(0, MaxName);
                 string id = Json.Str(m, "id");
-                if (string.IsNullOrEmpty(id) || Words.Items.Any(x => x.Id == id)) id = NewWordId();
+                if (string.IsNullOrEmpty(id) || Words.Items.Any(x => x.Id == id)) id = NewId("word/");
                 Words.Items.Add(MakeWord(id, name, text));
             }
             MemberColors.Clear();
@@ -728,16 +734,9 @@ namespace HoloColors
             if (mc != null)
                 foreach (var kv in mc)
                 {
-                    // 形の違う項目は飛ばす(色の読めない1つだけなら、その色を捨てて残りを使う)
-                    var list = new List<ColorOption>();
-                    foreach (var o in Json.List(kv.Value as IDictionary<string, object>, "colors"))
-                    {
-                        string h;
-                        if (HexColor.TryNormalize(Json.Str(o, "hex"), out h)) list.Add(new ColorOption(h, Json.Str(o, "label") ?? ""));
-                    }
-                    List<ColorOption> ok;
-                    var cleaned = list.Select(x => new ColorOption(x.Hex, x.Label.Trim().Length > ColorOption.MaxLabel ? x.Label.Trim().Substring(0, ColorOption.MaxLabel) : x.Label)).ToList();
-                    if (kv.Key.Length > 0 && ColorOption.Validate(cleaned, out ok) == null) MemberColors[kv.Key] = ok;
+                    // 形の違う項目は飛ばす(色の読めない1つだけなら、その色を捨てて残りを使う)。色が1つも残らない人は使わない
+                    var list = ColorOption.ReadList(kv.Value as IDictionary<string, object>);
+                    if (kv.Key.Length > 0 && list.Count > 0) MemberColors[kv.Key] = list;
                 }
         }
 
@@ -807,16 +806,22 @@ namespace HoloColors
             return true;
         }
 
+        // 読めなかったファイルは、上書きして消さないように保存を止める
+        void SaveJson(string path, bool locked, string listKey, object body)
+        {
+            if (locked) throw new IOException(Path.GetFileName(path) + " が開けなかったので、上書きしないように保存を止めています");
+            Files.WriteAtomic(path, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { listKey, body } }));
+        }
+
         public void SaveMemberColors()
         {
-            if (memberColorsLocked) throw new IOException("member-colors.json が開けなかったので、上書きしないように保存を止めています");
             var members = new Dictionary<string, object>();
             foreach (var kv in MemberColors)
                 members[kv.Key] = new Dictionary<string, object>
                 {
                     { "colors", kv.Value.Select(x => (object)new Dictionary<string, object> { { "hex", x.Hex }, { "label", x.Label } }).ToList() },
                 };
-            Files.WriteAtomic(MemberColorsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "members", members } }));
+            SaveJson(MemberColorsPath, memberColorsLocked, "members", members);
         }
 
         // 読めないときは null。locked = ファイルはあるが開けなかった・取っておけなかった(このときは保存しない)
@@ -824,23 +829,17 @@ namespace HoloColors
         {
             locked = false;
             if (!File.Exists(path)) return null;
-            string text = null;
-            for (int attempt = 0; ; attempt++)
+            string text;
+            try
             {
-                try
-                {
-                    text = File.ReadAllText(path, Encoding.UTF8);
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
-                    // ウイルス対策・同期ソフトが一瞬つかんでいることがあるので、少し待って読み直す
-                    if (attempt < 3) { System.Threading.Thread.Sleep(150 << attempt); continue; }
-                    locked = true;
-                    Warnings.Add(Path.GetFileName(path) + " を開けませんでした(" + ex.Message + ")。消さないように、このファイルへの保存を止めています。アプリを起動し直してください");
-                    return null;
-                }
+                text = Files.Retry(() => File.ReadAllText(path, Encoding.UTF8), 150);   // 一瞬つかまれているだけのことがあるので、少し待って読み直す
+            }
+            catch (Exception ex)
+            {
+                if (!Files.IsIo(ex)) throw;
+                locked = true;
+                Warnings.Add(Path.GetFileName(path) + " を開けませんでした(" + ex.Message + ")。消さないように、このファイルへの保存を止めています。アプリを起動し直してください");
+                return null;
             }
             try
             {
@@ -869,21 +868,14 @@ namespace HoloColors
 
         public void SaveColors()
         {
-            if (colorsLocked) throw new IOException("my-colors.json が開けなかったので、上書きしないように保存を止めています");
-            var list = Mine.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "hex", e.Hex } }).ToList();
-            Files.WriteAtomic(ColorsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "colors", list } }));
+            SaveJson(ColorsPath, colorsLocked, "colors",
+                Mine.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "hex", e.Hex } }).ToList());
         }
 
         public void SaveWords()
         {
-            if (wordsLocked) throw new IOException("my-words.json が開けなかったので、上書きしないように保存を止めています");
-            var list = Words.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "text", e.Text } }).ToList();
-            Files.WriteAtomic(WordsPath, Json.Pretty(new Dictionary<string, object> { { "version", 1 }, { "words", list } }));
-        }
-
-        static string NewWordId()
-        {
-            return "word/" + Guid.NewGuid().ToString("N").Substring(0, 12);
+            SaveJson(WordsPath, wordsLocked, "words",
+                Words.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "text", e.Text } }).ToList());
         }
 
         static string DefaultWordName(string text)
@@ -928,7 +920,7 @@ namespace HoloColors
             string clean;
             string err = ValidateWord(name, text, out clean);
             if (err != null) throw new ArgumentException(err);
-            var e = MakeWord(NewWordId(), clean, text.Replace("\r\n", "\n").Replace("\r", "\n"));
+            var e = MakeWord(NewId("word/"), clean, text.Replace("\r\n", "\n").Replace("\r", "\n"));
             Words.Items.Add(e);
             try { SaveWords(); }
             catch { Words.Items.Remove(e); throw; }
@@ -953,11 +945,6 @@ namespace HoloColors
                 e.SearchKey = SearchText.SearchKey(e);
                 throw;
             }
-        }
-
-        public void RemoveWord(ColorEntry e)
-        {
-            Remove(e);
         }
 
         ColorGroup OwnGroup(ColorEntry e)
@@ -1030,9 +1017,9 @@ namespace HoloColors
             return list;
         }
 
-        static string NewId()
+        static string NewId(string prefix)
         {
-            return "my/" + Guid.NewGuid().ToString("N").Substring(0, 12);
+            return prefix + Guid.NewGuid().ToString("N").Substring(0, 12);
         }
 
         ColorEntry MakeEntry(string id, string name, string hex)
@@ -1058,7 +1045,7 @@ namespace HoloColors
             string hex;
             string err = Validate(name, hexText, out hex);
             if (err != null) throw new ArgumentException(err);
-            var e = MakeEntry(NewId(), name.Trim(), hex);
+            var e = MakeEntry(NewId("my/"), name.Trim(), hex);
             Mine.Items.Add(e);
             try { SaveColors(); }
             catch { Mine.Items.Remove(e); throw; }   // 保存できなければ、画面にも残さない

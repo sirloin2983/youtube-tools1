@@ -227,9 +227,21 @@ namespace HoloColors
             }
         }
 
+        // 窓の座標 → 札の座標(スクロールしていないときの座標)
+        Point ToContent(Point client)
+        {
+            return new Point(client.X - AutoScrollPosition.X, client.Y - AutoScrollPosition.Y);
+        }
+
+        // ドラッグしている札と同じグループの札
+        List<Tile> SameGroup(Tile src)
+        {
+            return tiles.Where(t => t.Group == src.Group).ToList();
+        }
+
         public int HitTest(Point client)
         {
-            var p = new Point(client.X - AutoScrollPosition.X, client.Y - AutoScrollPosition.Y);
+            var p = ToContent(client);
             return tiles.FindIndex(t => t.Rect.Contains(p));
         }
 
@@ -239,7 +251,7 @@ namespace HoloColors
             colorIndex = 0;
             int h = HitTest(client);
             if (h < 0) return -1;
-            var p = new Point(client.X - AutoScrollPosition.X, client.Y - AutoScrollPosition.Y);
+            var p = ToContent(client);
             var t = tiles[h];
             if (Rectangle.Inflate(t.Star, S(2), S(2)).Contains(p)) { colorIndex = -2; return h; }
             if (t.Entry.IsWord) return h;
@@ -311,11 +323,6 @@ namespace HoloColors
         }
 
         // 閉じない設定でコピーしたとき、押した帯(ワードは札の下段)に少しのあいだ「コピーしました」を重ねる
-        public void FlashCopied(ColorEntry e)
-        {
-            FlashCopied(e, 0);
-        }
-
         public void FlashCopied(ColorEntry e, int colorIndex)
         {
             flashEntry = e;
@@ -361,8 +368,7 @@ namespace HoloColors
             int right = star.X - S(2);
             string mark = entry.Customized ? "✎ " : "";
             var nameRect = new Rectangle(top.X + S(9), top.Y, Math.Max(0, right - top.X - S(9)), top.Height);
-            TextRenderer.DrawText(g, mark + entry.Name, nameFont, nameRect, Color.FromArgb(28, 28, 34),
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(g, mark + entry.Name, nameFont, nameRect, Color.FromArgb(28, 28, 34), Ui.LeftText);
             if (fav || isHover)
             {
                 bool onStar = isHover && hoverColor == -2;
@@ -384,8 +390,7 @@ namespace HoloColors
                 string first = FirstLine(entry.Text);
                 bool flash = entry == flashEntry;
                 TextRenderer.DrawText(g, flash ? "✓ コピーしました" : first, flash ? nameFont : wordFont, Rectangle.Inflate(b, -S(8), 0),
-                    flash ? Color.FromArgb(20, 110, 60) : Color.FromArgb(80, 80, 92),
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                    flash ? Color.FromArgb(20, 110, 60) : Color.FromArgb(80, 80, 92), Ui.LeftText);
                 return;
             }
             var colors = entry.AllColors;
@@ -471,7 +476,7 @@ namespace HoloColors
         int DropIndexAt(Point contentPoint)
         {
             var src = tiles[dragTile];
-            var same = tiles.Where(t => t.Group == src.Group).ToList();
+            var same = SameGroup(src);
             int best = same.IndexOf(src);
             double bestD = double.MaxValue;
             for (int i = 0; i < same.Count; i++)
@@ -488,7 +493,7 @@ namespace HoloColors
         {
             if (dragTile < 0 || dropIndex < 0) return;
             var src = tiles[dragTile];
-            var same = tiles.Where(t => t.Group == src.Group).ToList();
+            var same = SameGroup(src);
             int from = same.IndexOf(src);
             if (dropIndex == from || dropIndex >= same.Count) return;
             // 前へ動かすなら落とす札の左、後ろへなら右に線
@@ -511,7 +516,7 @@ namespace HoloColors
                 }
                 if (dragTile >= 0)
                 {
-                    dropIndex = DropIndexAt(new Point(e.X - AutoScrollPosition.X, e.Y - AutoScrollPosition.Y));
+                    dropIndex = DropIndexAt(ToContent(e.Location));
                     Invalidate();
                     return;
                 }
@@ -585,7 +590,7 @@ namespace HoloColors
             if (dragTile >= 0)
             {
                 var src = tiles[dragTile];
-                var same = tiles.Where(t => t.Group == src.Group).ToList();
+                var same = SameGroup(src);
                 int from = same.IndexOf(src), to = dropIndex;
                 dragTile = -1;
                 dropIndex = -1;

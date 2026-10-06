@@ -194,16 +194,29 @@ static class CoreTests
 
     static readonly DateTimeOffset T = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.FromHours(9));
 
+    // 配信者 1 人(名前だけ)
+    static SpeakerSet One(string name)
+    {
+        return new SpeakerSet { Count = 1, Rows = new List<SpeakerRow> { new SpeakerRow(name, "") } };
+    }
+
+    // 切り抜く数だけを指定した配信(区間なし)
+    static List<UrlItem> Items(int top, params string[] urls)
+    {
+        return urls.Select(u => new UrlItem { Url = u, Top = top }).ToList();
+    }
+
     static void VideoJson()
     {
         string id = "20261001-120000-abcdef";
-        string json = RequestJson.Video(id, new[] { id + "__にぇの叫び.mp4", id + "__b (1).mp4" }, "さくらみこ", "1行目\n\"引用\" \\ タブ\tおわり", Flow.Check, T);
+        string json = RequestJson.Video(id, new[] { id + "__にぇの叫び.mp4", id + "__b (1).mp4" }, "1行目\n\"引用\" \\ タブ\tおわり", Flow.Check, T, One("さくらみこ"), 1, Cut.None);
         Eq("{\"v\":1,\"kind\":\"video\",\"id\":\"20261001-120000-abcdef\",\"flow\":\"check\",\"files\":[\"20261001-120000-abcdef__にぇの叫び.mp4\",\"20261001-120000-abcdef__b (1).mp4\"]," +
-           "\"streamer\":\"さくらみこ\",\"memo\":\"1行目\\n\\\"引用\\\" \\\\ タブ\\tおわり\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
+           "\"streamer\":\"さくらみこ\",\"memo\":\"1行目\\n\\\"引用\\\" \\\\ タブ\\tおわり\"," +
+           "\"speakers\":{\"count\":1,\"names\":[\"さくらみこ\"],\"people\":[{\"name\":\"さくらみこ\"}]},\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
         var d = Json.Parse(json);   // 読み直せる
         Eq("1行目\n\"引用\" \\ タブ\tおわり", Json.Str(d, "memo"), "メモを読み直す");
-        Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new string[0], null, null, Flow.Auto, T)), "streamer"), "配信者なしは空");
-        string ctrl = RequestJson.Video(id, new string[0], "", "a\u0001b\u2028c", Flow.Manual, T);
+        Eq("", Json.Str(Json.Parse(RequestJson.Video(id, new string[0], null, Flow.Auto, T, null, 1, Cut.None)), "streamer"), "配信者なしは空");
+        string ctrl = RequestJson.Video(id, new string[0], "a\u0001b\u2028c", Flow.Manual, T, null, 1, Cut.None);
         True(ctrl.Contains("a\\u0001b\\u2028c"), "制御文字: " + ctrl);
     }
 
@@ -211,17 +224,18 @@ static class CoreTests
     {
         string id = "20261001-120000-abcdef";
         string longName = new string('あ', 70);
-        var names = new[] { " さくらみこ ", "", "さくらみこ", "ホシマチスイセイ", longName, "4人目" };
-        foreach (string json in new[] { RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 3, names), RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 3, names) })
+        var rows = new[] { " さくらみこ ", "", "さくらみこ", "ホシマチスイセイ", longName, "4人目" }.Select(n => new SpeakerRow(n, "")).ToList();
+        var five = new SpeakerSet { Count = 5, Rows = rows };   // 人数 5 = 先頭の 5 行まで(6 行目は捨てる)
+        foreach (string json in new[] { RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, five, 1, Cut.None), RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, five, 1, Cut.None, null) })
         {
             var sp = Json.Dict(Json.Parse(json), "speakers");
-            True(sp != null && Json.Long(sp, "count", -1) == 3, "speakers.count: " + json);
+            True(sp != null && Json.Long(sp, "count", -1) == 5, "speakers.count: " + json);
             var list = (System.Collections.IEnumerable)sp["names"];
             var got = list.Cast<object>().Select(o => (string)o).ToList();
             Eq("さくらみこ|ホシマチスイセイ|" + new string('あ', 60), string.Join("|", got), "名前: 空・重複を除く・60 文字・人数まで");
         }
-        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T).Contains("speakers"), "指定しないときは書かない(動画)");
-        True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, names).Contains("speakers"), "指定しないときは書かない(URL)");
+        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, null, 1, Cut.None).Contains("speakers"), "指定しないときは書かない(動画)");
+        True(!RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, new SpeakerSet { Count = 0, Rows = rows }, 1, Cut.None, null).Contains("speakers"), "指定しないときは書かない(URL)");
     }
 
     static void SpeakerColorRules()
@@ -313,21 +327,19 @@ static class CoreTests
         var d = Json.Parse(v);
         foreach (string k in new[] { "v", "kind", "id", "files", "streamer", "memo", "sentAt", "flow", "speakers", "videoTracks", "cut" }) True(d.ContainsKey(k), "動画のキー: " + k);
         True(Json.Long(sp, "count", -1) == 3 && sp.ContainsKey("names"), "count と names");
-        // 古い呼び方(色なし)は今までと同じ JSON
-        string old = RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 2, new[] { "A", "B" });
-        True(old.Contains("\"speakers\":{\"count\":2,\"names\":[\"A\",\"B\"]}") && !old.Contains("people") && !old.Contains("streamer"), "古い呼び方: " + old);
     }
 
     static void VideoTracksJson()
     {
         string id = "20261001-120000-abcdef";
-        Eq(3L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 3)), "videoTracks", -1), "URL・①・3");
-        Eq(5L, Json.Long(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 5)), "videoTracks", -1), "動画・①・5");
-        Eq(1L, Json.Long(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1)), "videoTracks", -1), "1 も書く");
-        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Check, T, 0, null, 3).Contains("videoTracks"), "② は書かない");
-        True(!RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Manual, T, 0, null, 3).Contains("videoTracks"), "③ は書かない");
-        Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T, 0, null, 6)), "videoTracks", -1), "範囲の外は 1");
-        Eq(1L, Json.Long(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", Flow.Auto, T)), "videoTracks", -1), "前の形の呼び出しは既定の 1");
+        Func<string, int, string> url = (flow, tracks) => RequestJson.Url(id, Items(3, Norm), "", flow, T, null, tracks, Cut.None, null);
+        Func<string, int, string> video = (flow, tracks) => RequestJson.Video(id, new[] { "a.mp4" }, "", flow, T, null, tracks, Cut.None);
+        Eq(3L, Json.Long(Json.Parse(url(Flow.Auto, 3)), "videoTracks", -1), "URL・①・3");
+        Eq(5L, Json.Long(Json.Parse(video(Flow.Auto, 5)), "videoTracks", -1), "動画・①・5");
+        Eq(1L, Json.Long(Json.Parse(video(Flow.Auto, 1)), "videoTracks", -1), "1 も書く");
+        True(!video(Flow.Check, 3).Contains("videoTracks"), "② は書かない");
+        True(!url(Flow.Manual, 3).Contains("videoTracks"), "③ は書かない");
+        Eq(1L, Json.Long(Json.Parse(url(Flow.Auto, 6)), "videoTracks", -1), "範囲の外は 1");
         Eq("V1〜V3 に同じ動画(重ねて加工する用)、V4(いちばん上)に字幕", VideoTracks.Hint(3), "案内");
         Eq("V1 に動画、V2 に字幕", VideoTracks.Hint(1), "案内(1)");
     }
@@ -335,7 +347,7 @@ static class CoreTests
     static void UrlJson()
     {
         string id = "20261001-120000-000001";
-        string json = RequestJson.Url(id, new[] { Norm, "https://www.youtube.com/watch?v=AAAAAAAAAAA" }, 5, "", Flow.Manual, T);
+        string json = RequestJson.Url(id, Items(5, Norm, "https://www.youtube.com/watch?v=AAAAAAAAAAA"), "", Flow.Manual, T, null, 1, Cut.None, null);
         Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"flow\":\"manual\",\"items\":[{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":5}," +
            "{\"url\":\"https://www.youtube.com/watch?v=AAAAAAAAAAA\",\"top\":5}],\"memo\":\"\",\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形");
         Json.Parse(json);
@@ -474,23 +486,22 @@ static class CoreTests
             new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA", Top = 2 },
         };
         var w = new Weights { Enabled = true, Audio = 1.5, Chat = 0.04, Comments = 9 };
-        string json = RequestJson.Url(id, items, "メモ", Flow.Auto, T, 0, null, 2, Cut.Silence, w);
+        string json = RequestJson.Url(id, items, "メモ", Flow.Auto, T, null, 2, Cut.Silence, w);
         Eq("{\"v\":1,\"kind\":\"url\",\"id\":\"20261001-120000-000001\",\"flow\":\"auto\",\"items\":[" +
            "{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"top\":3,\"ranges\":[{\"start\":5025,\"end\":5110}]}," +
            "{\"url\":\"https://www.youtube.com/watch?v=AAAAAAAAAAA\",\"top\":2}],\"memo\":\"メモ\",\"videoTracks\":2,\"cut\":\"silence\"," +
            "\"weights\":{\"audio\":1.5,\"chat\":0.0,\"comments\":3.0},\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "① の形(順番も)");
         Json.Parse(json);
 
-        string check = RequestJson.Url(id, items, "", Flow.Check, T, 0, null, 2, Cut.Silence, new Weights());
+        string check = RequestJson.Url(id, items, "", Flow.Check, T, null, 2, Cut.Silence, new Weights());
         True(check.Contains("\"ranges\"") && !check.Contains("\"cut\"") && !check.Contains("\"videoTracks\"") && !check.Contains("\"weights\""), "② は区間だけ(カット・トラック・指定しない重みは書かない): " + check);
-        string manual = RequestJson.Url(id, items, "", Flow.Manual, T, 0, null, 2, Cut.Silence, w);
+        string manual = RequestJson.Url(id, items, "", Flow.Manual, T, null, 2, Cut.Silence, w);
         True(!manual.Contains("\"ranges\"") && !manual.Contains("\"cut\"") && manual.Contains("\"weights\""), "③ は区間を書かない・重みは書く(解析に使う): " + manual);
-        True(RequestJson.Url(id, items, "", Flow.Auto, T, 0, null, 1, "bogus", null).Contains("\"cut\":\"none\""), "知らないカットは none");
+        True(RequestJson.Url(id, items, "", Flow.Auto, T, null, 1, "bogus", null).Contains("\"cut\":\"none\""), "知らないカットは none");
 
-        string video = RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1, Cut.Silence);
+        string video = RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, null, 1, Cut.Silence);
         True(video.Contains("\"videoTracks\":1,\"cut\":\"silence\",\"sentAt\""), "動画の依頼にもカット(トラックの後): " + video);
-        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Check, T, 0, null, 1, Cut.Silence).Contains("\"cut\""), "動画の ② はカットを書かない");
-        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", "", Flow.Auto, T, 0, null, 1).Contains("\"cut\""), "1.4.0 までの呼び方はそのまま");
+        True(!RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Check, T, null, 1, Cut.Silence).Contains("\"cut\""), "動画の ② はカットを書かない");
     }
 
     static void OEmbeds()
@@ -821,16 +832,16 @@ static class CoreTests
         var u = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm } }, Flow = "bogus" };
         True(Sending.Check(u).Any(x => x.Contains("どこまで")), "知らない値は送る前に止める");
         string id = "20261001-120000-abcdef";
-        Eq("auto", Json.Str(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", "bogus", T)), "flow"), "JSON には知らない値を書かない");
+        Eq("auto", Json.Str(Json.Parse(RequestJson.Url(id, Items(3, Norm), "", "bogus", T, null, 1, Cut.None, null)), "flow"), "JSON には知らない値を書かない");
         foreach (string f in Flow.All)
         {
-            Eq(f, Json.Str(Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "", f, T)), "flow"), "URL の依頼: " + f);
-            Eq(f, Json.Str(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", "", f, T)), "flow"), "動画の依頼: " + f);
+            Eq(f, Json.Str(Json.Parse(RequestJson.Url(id, Items(3, Norm), "", f, T, null, 1, Cut.None, null)), "flow"), "URL の依頼: " + f);
+            Eq(f, Json.Str(Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "", f, T, null, 1, Cut.None)), "flow"), "動画の依頼: " + f);
         }
         // 前からのキーはそのまま
-        var d = Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "さくらみこ", "m", Flow.Check, T));
+        var d = Json.Parse(RequestJson.Video(id, new[] { "a.mp4" }, "m", Flow.Check, T, One("さくらみこ"), 1, Cut.None));
         foreach (string k in new[] { "v", "kind", "id", "files", "streamer", "memo", "sentAt", "flow" }) True(d.ContainsKey(k), "動画の依頼のキー: " + k);
-        d = Json.Parse(RequestJson.Url(id, new[] { Norm }, 3, "m", Flow.Check, T));
+        d = Json.Parse(RequestJson.Url(id, Items(3, Norm), "m", Flow.Check, T, null, 1, Cut.None, null));
         foreach (string k in new[] { "v", "kind", "id", "items", "memo", "sentAt", "flow" }) True(d.ContainsKey(k), "URL の依頼のキー: " + k);
     }
 

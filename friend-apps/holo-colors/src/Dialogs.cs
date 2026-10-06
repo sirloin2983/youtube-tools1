@@ -19,6 +19,9 @@ namespace HoloColors
         public static readonly Font Mono = new Font("Consolas", 10f);
         public static readonly Font Toast = new Font("Yu Gothic UI", 9.5f);
         public static readonly float Scale = SystemScale();
+        public static readonly Color Muted = Color.FromArgb(110, 110, 120), Error = Color.FromArgb(190, 30, 30), Ok = Color.FromArgb(20, 120, 60);
+        // 1行の文字(左寄せ・縦は中央・はみ出したら … にする)
+        public const TextFormatFlags LeftText = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
         static Icon small;
 
         static float SystemScale()
@@ -40,6 +43,56 @@ namespace HoloColors
         public static Icon SmallIcon
         {
             get { return small ?? (small = AppIcon.Load(SystemInformation.SmallIconSize)); }
+        }
+
+        // 設定・入力の画面の共通の形(大きさは中身に合わせる・タスクバーには出さない)
+        public static void StyleDialog(Form f, FormStartPosition start)
+        {
+            f.Font = Normal;
+            f.AutoScaleMode = AutoScaleMode.None;   // 大きさは Px で DPI に合わせる
+            f.FormBorderStyle = FormBorderStyle.FixedDialog;
+            f.MaximizeBox = f.MinimizeBox = false;
+            f.ShowInTaskbar = false;
+            f.StartPosition = start;
+            f.AutoSize = true;
+            f.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            f.Icon = SmallIcon;
+        }
+
+        public static Button Btn(string text)
+        {
+            return new Button { Text = text, AutoSize = true };
+        }
+
+        // 入力欄の左の名札
+        public static Label FieldLabel(string text, AnchorStyles anchor, int right)
+        {
+            return new Label { Text = text, AutoSize = true, Anchor = anchor, Margin = new Padding(0, 6, right, 0) };
+        }
+
+        // 欄の下の知らせ(色は Muted / Error など。maxWidth は 96 DPI の px で、超えたら折り返す)
+        public static Label Note(Color color, int maxWidth)
+        {
+            return new Label { AutoSize = true, ForeColor = color, MaximumSize = new Size(Px(maxWidth), 0) };
+        }
+
+        // 下の段の右寄せのボタン(先に足したものが右端)
+        public static FlowLayoutPanel ButtonRow(Padding margin, params Control[] buttons)
+        {
+            var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = margin };
+            row.Controls.AddRange(buttons);
+            return row;
+        }
+
+        // 色の画面で選んで、カラーコードの欄に入れる
+        public static void PickColor(IWin32Window owner, TextBox hexBox)
+        {
+            using (var dlg = new ColorDialog { FullOpen = true, AnyColor = true })
+            {
+                string h;
+                if (HexColor.TryNormalize(hexBox.Text, out h)) dlg.Color = HexColor.ToColor(h);
+                if (dlg.ShowDialog(owner) == DialogResult.OK) hexBox.Text = HexColor.FromColor(dlg.Color);
+            }
         }
     }
 
@@ -138,12 +191,12 @@ namespace HoloColors
     {
         readonly AppController app;
         readonly HotkeyBox hotkey = new HotkeyBox();
-        readonly Label hotkeyNote = new Label();
+        readonly Label hotkeyNote = Ui.Note(Ui.Muted, 380);
         readonly CheckBox closeAfter = new CheckBox();
         readonly CheckBox includeHash = new CheckBox();
         readonly CheckBox onTop = new CheckBox();
         readonly CheckBox autostart = new CheckBox();
-        readonly Label autostartNote = new Label();
+        readonly Label autostartNote = Ui.Note(Ui.Muted, 380);
         readonly LinkLabel fixAutostart = new LinkLabel();
         bool loading;
 
@@ -151,28 +204,20 @@ namespace HoloColors
         {
             this.app = app;
             Text = AppInfo.Name + " の設定";
-            Font = Ui.Normal;
-            AutoScaleMode = AutoScaleMode.None;   // 大きさは Ui.Px で DPI に合わせる
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterScreen;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Icon = Ui.SmallIcon;
+            Ui.StyleDialog(this, FormStartPosition.CenterScreen);
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-            t.Controls.Add(new Label { Text = "呼び出すキー", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
+            t.Controls.Add(Ui.FieldLabel("呼び出すキー", AnchorStyles.Left, 10), 0, 0);
             var hk = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             hotkey.Width = Ui.Px(200);
-            hotkey.Enter += (s, e) => { app.SuspendHotkey(); hotkeyNote.Text = "使いたい組み合わせを押してください(Esc でやめる)"; hotkeyNote.ForeColor = Color.FromArgb(80, 80, 92); };
+            hotkey.Enter += (s, e) => { app.SuspendHotkey(); SetHotkeyNote("使いたい組み合わせを押してください(Esc でやめる)", Color.FromArgb(80, 80, 92)); };
             hotkey.Leave += (s, e) => { app.ResumeHotkey(); ShowHotkeyState(); };
             hotkey.Captured += OnHotkeyCaptured;
-            hotkey.Rejected += msg => { hotkeyNote.Text = msg + "。別の組み合わせを押してください"; hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30); };
-            var reset = new Button { Text = "元に戻す", AutoSize = true };
+            hotkey.Rejected += msg => SetHotkeyNote(msg + "。別の組み合わせを押してください", Ui.Error);
+            var reset = Ui.Btn("元に戻す");
             reset.Click += (s, e) =>
             {
                 hotkey.SetValue(Hotkey.DefaultMods, Hotkey.DefaultKey);
@@ -181,8 +226,6 @@ namespace HoloColors
             hk.Controls.Add(hotkey);
             hk.Controls.Add(reset);
             t.Controls.Add(hk, 1, 0);
-            hotkeyNote.AutoSize = true;
-            hotkeyNote.MaximumSize = new Size(Ui.Px(380), 0);
             hotkeyNote.Margin = new Padding(3, 2, 0, 10);
             t.Controls.Add(hotkeyNote, 1, 1);
 
@@ -206,9 +249,6 @@ namespace HoloColors
             autostart.Margin = new Padding(3, 10, 3, 0);
             autostart.CheckedChanged += (s, e) => { if (!loading) SetAutostart(autostart.Checked); };
             t.Controls.Add(autostart, 1, 5);
-            autostartNote.AutoSize = true;
-            autostartNote.MaximumSize = new Size(Ui.Px(380), 0);
-            autostartNote.ForeColor = Color.FromArgb(110, 110, 120);
             autostartNote.Margin = new Padding(20, 0, 0, 8);
             t.Controls.Add(autostartNote, 1, 6);
             fixAutostart.Text = "この HoloColors.exe に付け直す";
@@ -224,17 +264,16 @@ namespace HoloColors
             {
                 Text = "メンバーの色: " + app.PaletteSummary + "\n版 " + AppInfo.Version,
                 AutoSize = true,
-                ForeColor = Color.FromArgb(110, 110, 120),
+                ForeColor = Ui.Muted,
                 Margin = new Padding(3, 8, 3, 8),
             };
             t.Controls.Add(info, 1, 9);
 
-            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 0) };
-            var close = new Button { Text = "閉じる", AutoSize = true, DialogResult = DialogResult.OK };
-            var quit = new Button { Text = "アプリを終了", AutoSize = true };
+            var close = Ui.Btn("閉じる");
+            close.DialogResult = DialogResult.OK;
+            var quit = Ui.Btn("アプリを終了");
             quit.Click += (s, e) => { Close(); app.Quit(); };
-            buttons.Controls.Add(close);
-            buttons.Controls.Add(quit);
+            var buttons = Ui.ButtonRow(new Padding(0, 6, 0, 0), close, quit);
             t.Controls.Add(buttons, 0, 10);
             t.SetColumnSpan(buttons, 2);
             Controls.Add(t);
@@ -277,40 +316,28 @@ namespace HoloColors
             base.OnFormClosed(e);
         }
 
+        void SetHotkeyNote(string text, Color color)
+        {
+            hotkeyNote.Text = text;
+            hotkeyNote.ForeColor = color;
+        }
+
         void OnHotkeyCaptured()
         {
-            string problem = Hotkey.Problem(hotkey.Mods, hotkey.Key);
-            if (problem != null)
-            {
-                hotkeyNote.Text = problem;
-                hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30);
-                hotkey.SetValue(app.Store.Settings.HotkeyMods, app.Store.Settings.HotkeyKey);
-                return;
-            }
-            string err = app.ChangeHotkey(hotkey.Mods, hotkey.Key);
+            string err = Hotkey.Problem(hotkey.Mods, hotkey.Key) ?? app.ChangeHotkey(hotkey.Mods, hotkey.Key);
             if (err != null)
             {
-                hotkeyNote.Text = err;
-                hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30);
+                SetHotkeyNote(err, Ui.Error);
                 hotkey.SetValue(app.Store.Settings.HotkeyMods, app.Store.Settings.HotkeyKey);
                 return;
             }
-            hotkeyNote.Text = "「" + Hotkey.Format(hotkey.Mods, hotkey.Key) + "」にしました";
-            hotkeyNote.ForeColor = Color.FromArgb(20, 120, 60);
+            SetHotkeyNote("「" + Hotkey.Format(hotkey.Mods, hotkey.Key) + "」にしました", Ui.Ok);
         }
 
         void ShowHotkeyState()
         {
-            if (app.HotkeyActive)
-            {
-                hotkeyNote.Text = "どのアプリを使っているときでも、このキーで一覧が開きます";
-                hotkeyNote.ForeColor = Color.FromArgb(110, 110, 120);
-            }
-            else
-            {
-                hotkeyNote.Text = "このキーは他のアプリが使っていて登録できませんでした。欄を押して別の組み合わせにしてください";
-                hotkeyNote.ForeColor = Color.FromArgb(190, 30, 30);
-            }
+            if (app.HotkeyActive) SetHotkeyNote("どのアプリを使っているときでも、このキーで一覧が開きます", Ui.Muted);
+            else SetHotkeyNote("このキーは他のアプリが使っていて登録できませんでした。欄を押して別の組み合わせにしてください", Ui.Error);
         }
 
         void SetAutostart(bool on)
@@ -369,38 +396,31 @@ namespace HoloColors
         readonly TextBox name = new TextBox();
         readonly TextBox hex = new TextBox();
         readonly Panel preview = new Panel();
-        readonly Label error = new Label();
+        readonly Label error = Ui.Note(Ui.Error, 340);
         public string ResultName, ResultHex;
 
         public EditColorForm(string title, string initialName, string initialHex)
         {
             Text = title;
-            Font = Ui.Normal;
-            AutoScaleMode = AutoScaleMode.None;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Ui.StyleDialog(this, FormStartPosition.CenterParent);
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, Padding = new Padding(14), Dock = DockStyle.Fill };
-            t.Controls.Add(new Label { Text = "名前", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
+            t.Controls.Add(Ui.FieldLabel("名前", AnchorStyles.Left, 10), 0, 0);
             name.Width = Ui.Px(240);
-            name.TextChanged += (s, e) => UpdatePreview();
+            name.TextChanged += (s, e) => preview.Invalidate();
             name.MaxLength = Store.MaxName;
             name.Text = initialName ?? "";
             t.Controls.Add(name, 1, 0);
             t.SetColumnSpan(name, 2);
 
-            t.Controls.Add(new Label { Text = "カラーコード", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 1);
+            t.Controls.Add(Ui.FieldLabel("カラーコード", AnchorStyles.Left, 10), 0, 1);
             hex.Width = Ui.Px(120);
             hex.Font = Ui.Mono;
             hex.Text = initialHex ?? "";
-            hex.TextChanged += (s, e) => UpdatePreview();
+            hex.TextChanged += (s, e) => preview.Invalidate();
             t.Controls.Add(hex, 1, 1);
-            var pick = new Button { Text = "色を選ぶ…", AutoSize = true };
-            pick.Click += (s, e) => PickColor();
+            var pick = Ui.Btn("色を選ぶ…");
+            pick.Click += (s, e) => Ui.PickColor(this, hex);
             t.Controls.Add(pick, 2, 1);
 
             preview.Size = Ui.Px(240, 34);
@@ -409,39 +429,26 @@ namespace HoloColors
             t.Controls.Add(preview, 1, 2);
             t.SetColumnSpan(preview, 2);
 
-            error.AutoSize = true;
-            error.ForeColor = Color.FromArgb(190, 30, 30);
-            error.MaximumSize = new Size(Ui.Px(340), 0);
             t.Controls.Add(error, 0, 3);
             t.SetColumnSpan(error, 3);
 
-            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-            var cancel = new Button { Text = "キャンセル", AutoSize = true, DialogResult = DialogResult.Cancel };
-            var ok = new Button { Text = "保存", AutoSize = true };
+            var cancel = Ui.Btn("キャンセル");
+            cancel.DialogResult = DialogResult.Cancel;
+            var ok = Ui.Btn("保存");
             ok.Click += (s, e) => Save();
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(ok);
+            var buttons = Ui.ButtonRow(new Padding(3), cancel, ok);
             t.Controls.Add(buttons, 0, 4);
             t.SetColumnSpan(buttons, 3);
             Controls.Add(t);
             AcceptButton = ok;
             CancelButton = cancel;
-            Icon = Ui.SmallIcon;
         }
-
-        public TextBox NameBox { get { return name; } }
-        public TextBox HexBox { get { return hex; } }
 
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            UpdatePreview();
-            (name.Text.Length == 0 ? name : hex).Focus();
-        }
-
-        void UpdatePreview()
-        {
             preview.Invalidate();
+            (name.Text.Length == 0 ? name : hex).Focus();
         }
 
         void PaintPreview(object sender, PaintEventArgs e)
@@ -462,16 +469,6 @@ namespace HoloColors
                 TextRenderer.DrawText(e.Graphics, "例: #FF6699", Font, r, Color.Gray, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
             }
             using (var p = new Pen(Color.FromArgb(200, 200, 208))) e.Graphics.DrawRectangle(p, r);
-        }
-
-        void PickColor()
-        {
-            using (var dlg = new ColorDialog { FullOpen = true, AnyColor = true })
-            {
-                string h;
-                if (HexColor.TryNormalize(hex.Text, out h)) dlg.Color = HexColor.ToColor(h);
-                if (dlg.ShowDialog(this) == DialogResult.OK) hex.Text = HexColor.FromColor(dlg.Color);
-            }
         }
 
         void Save()
@@ -498,8 +495,8 @@ namespace HoloColors
         readonly ListBox list = new ListBox();
         readonly TextBox hex = new TextBox();
         readonly TextBox label = new TextBox();
-        readonly Button up = new Button(), down = new Button(), remove = new Button(), add = new Button(), change = new Button();
-        readonly Label error = new Label();
+        readonly Button up = Ui.Btn("上へ(主にする)"), down = Ui.Btn("下へ"), remove = Ui.Btn("削除"), add = Ui.Btn("＋ 足す"), change = Ui.Btn("選んだ色を変える");
+        readonly Label error = Ui.Note(Ui.Error, 420);
         public List<ColorOption> Result;
         public bool ResetToOriginal;
 
@@ -508,15 +505,7 @@ namespace HoloColors
             entry = e;
             colors = ColorOption.CloneAll(e.AllColors);
             Text = "色を直す: " + e.Name;
-            Font = Ui.Normal;
-            AutoScaleMode = AutoScaleMode.None;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Icon = Ui.SmallIcon;
+            Ui.StyleDialog(this, FormStartPosition.CenterParent);
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
             var head = new Label
@@ -538,12 +527,8 @@ namespace HoloColors
             list.SelectedIndexChanged += (s, ev) => OnSelected();
             t.Controls.Add(list, 0, 1);
             var side = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(6, 0, 0, 0) };
-            up.Text = "上へ(主にする)";
-            down.Text = "下へ";
-            remove.Text = "削除";
             foreach (var b in new[] { up, down, remove })
             {
-                b.AutoSize = true;
                 b.MinimumSize = new Size(Ui.Px(110), 0);
                 side.Controls.Add(b);
             }
@@ -553,22 +538,19 @@ namespace HoloColors
             t.Controls.Add(side, 1, 1);
 
             var edit = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 8, 0, 0) };
-            edit.Controls.Add(new Label { Text = "カラーコード", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 6, 0) }, 0, 0);
+            edit.Controls.Add(Ui.FieldLabel("カラーコード", AnchorStyles.Left, 6), 0, 0);
             hex.Width = Ui.Px(110);
             hex.Font = Ui.Mono;
             edit.Controls.Add(hex, 1, 0);
-            var pick = new Button { Text = "色を選ぶ…", AutoSize = true };
-            pick.Click += (s, ev) => PickColor();
+            var pick = Ui.Btn("色を選ぶ…");
+            pick.Click += (s, ev) => Ui.PickColor(this, hex);
             edit.Controls.Add(pick, 2, 0);
-            edit.Controls.Add(new Label { Text = "ラベル", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 6, 0) }, 0, 1);
+            edit.Controls.Add(Ui.FieldLabel("ラベル", AnchorStyles.Left, 6), 0, 1);
             label.Width = Ui.Px(160);
             label.MaxLength = ColorOption.MaxLabel;
             edit.Controls.Add(label, 1, 1);
             edit.SetColumnSpan(label, 2);
             var editButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-            add.Text = "＋ 足す";
-            change.Text = "選んだ色を変える";
-            add.AutoSize = change.AutoSize = true;
             add.Click += (s, ev) => AddColor();
             change.Click += (s, ev) => ChangeColor();
             editButtons.Controls.Add(add);
@@ -578,25 +560,21 @@ namespace HoloColors
             t.Controls.Add(edit, 0, 2);
             t.SetColumnSpan(edit, 2);
 
-            error.AutoSize = true;
-            error.ForeColor = Color.FromArgb(190, 30, 30);
-            error.MaximumSize = new Size(Ui.Px(420), 0);
             t.Controls.Add(error, 0, 3);
             t.SetColumnSpan(error, 2);
 
-            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 0) };
-            var cancel = new Button { Text = "キャンセル", AutoSize = true, DialogResult = DialogResult.Cancel };
-            var ok = new Button { Text = "保存", AutoSize = true };
+            var cancel = Ui.Btn("キャンセル");
+            cancel.DialogResult = DialogResult.Cancel;
+            var ok = Ui.Btn("保存");
             ok.Click += (s, ev) => Save();
-            var reset = new Button { Text = "元の色に戻す", AutoSize = true, Enabled = e.Customized };
+            var reset = Ui.Btn("元の色に戻す");
+            reset.Enabled = e.Customized;
             reset.Click += (s, ev) =>
             {
                 ResetToOriginal = true;
                 DialogResult = DialogResult.OK;
             };
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(ok);
-            buttons.Controls.Add(reset);
+            var buttons = Ui.ButtonRow(new Padding(0, 8, 0, 0), cancel, ok, reset);
             t.Controls.Add(buttons, 0, 4);
             t.SetColumnSpan(buttons, 2);
             Controls.Add(t);
@@ -604,8 +582,6 @@ namespace HoloColors
             CancelButton = cancel;
             Fill(0);
         }
-
-        public ListBox ColorList { get { return list; } }
 
         void Fill(int select)
         {
@@ -642,8 +618,7 @@ namespace HoloColors
             using (var b = new SolidBrush(HexColor.ToColor(c.Hex))) e.Graphics.FillRectangle(b, r);
             using (var p = new Pen(Color.FromArgb(90, 0, 0, 0))) e.Graphics.DrawRectangle(p, r);
             string text = c.Hex + "   " + c.Label + (e.Index == 0 ? "   (主な色)" : "");
-            TextRenderer.DrawText(e.Graphics, text, Font, new Rectangle(r.Right + Ui.Px(8), e.Bounds.Y, e.Bounds.Right - r.Right - Ui.Px(8), e.Bounds.Height), e.ForeColor,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+            TextRenderer.DrawText(e.Graphics, text, Font, new Rectangle(r.Right + Ui.Px(8), e.Bounds.Y, e.Bounds.Right - r.Right - Ui.Px(8), e.Bounds.Height), e.ForeColor, Ui.LeftText);
             e.DrawFocusRectangle();
         }
 
@@ -694,16 +669,6 @@ namespace HoloColors
             if (i < 0 || colors.Count <= 1) return;
             colors.RemoveAt(i);
             Fill(Math.Min(i, colors.Count - 1));
-        }
-
-        void PickColor()
-        {
-            using (var dlg = new ColorDialog { FullOpen = true, AnyColor = true })
-            {
-                string h;
-                if (HexColor.TryNormalize(hex.Text, out h)) dlg.Color = HexColor.ToColor(h);
-                if (dlg.ShowDialog(this) == DialogResult.OK) hex.Text = HexColor.FromColor(dlg.Color);
-            }
         }
 
         void Save()
@@ -786,33 +751,25 @@ namespace HoloColors
     {
         readonly TextBox name = new TextBox();
         readonly TextBox body = new TextBox();
-        readonly Label error = new Label();
+        readonly Label error = Ui.Note(Ui.Error, 440);
         readonly Label count = new Label();
         public string ResultName, ResultText;
 
         public EditWordForm(string title, string initialName, string initialText)
         {
             Text = title;
-            Font = Ui.Normal;
-            AutoScaleMode = AutoScaleMode.None;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            Icon = Ui.SmallIcon;
+            Ui.StyleDialog(this, FormStartPosition.CenterParent);
             KeyPreview = true;
 
             var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Padding = new Padding(14), Dock = DockStyle.Fill };
-            t.Controls.Add(new Label { Text = "表示名", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 10, 0) }, 0, 0);
+            t.Controls.Add(Ui.FieldLabel("表示名", AnchorStyles.Left, 10), 0, 0);
             name.Width = Ui.Px(360);
             name.MaxLength = Store.MaxName;
             name.Text = initialName ?? "";
             t.Controls.Add(name, 1, 0);
-            t.Controls.Add(new Label { Text = "札に出す短い名前です。空なら本文の1行目を使います", AutoSize = true, ForeColor = Color.FromArgb(110, 110, 120), Margin = new Padding(3, 2, 0, 8) }, 1, 1);
+            t.Controls.Add(new Label { Text = "札に出す短い名前です。空なら本文の1行目を使います", AutoSize = true, ForeColor = Ui.Muted, Margin = new Padding(3, 2, 0, 8) }, 1, 1);
 
-            t.Controls.Add(new Label { Text = "本文", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 10, 0) }, 0, 2);
+            t.Controls.Add(Ui.FieldLabel("本文", AnchorStyles.Left | AnchorStyles.Top, 10), 0, 2);
             body.Multiline = true;
             body.AcceptsReturn = true;
             body.AcceptsTab = false;
@@ -824,22 +781,18 @@ namespace HoloColors
             body.TextChanged += (s, e) => UpdateCount();
             t.Controls.Add(body, 1, 2);
             count.AutoSize = true;
-            count.ForeColor = Color.FromArgb(110, 110, 120);
+            count.ForeColor = Ui.Muted;
             count.Margin = new Padding(3, 2, 0, 4);
             t.Controls.Add(count, 1, 3);
 
-            error.AutoSize = true;
-            error.ForeColor = Color.FromArgb(190, 30, 30);
-            error.MaximumSize = new Size(Ui.Px(440), 0);
             t.Controls.Add(error, 0, 4);
             t.SetColumnSpan(error, 2);
 
-            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-            var cancel = new Button { Text = "キャンセル", AutoSize = true, DialogResult = DialogResult.Cancel };
-            var ok = new Button { Text = "保存(Ctrl+Enter)", AutoSize = true };
+            var cancel = Ui.Btn("キャンセル");
+            cancel.DialogResult = DialogResult.Cancel;
+            var ok = Ui.Btn("保存(Ctrl+Enter)");
             ok.Click += (s, e) => Save();
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(ok);
+            var buttons = Ui.ButtonRow(new Padding(3), cancel, ok);
             t.Controls.Add(buttons, 0, 5);
             t.SetColumnSpan(buttons, 2);
             Controls.Add(t);
