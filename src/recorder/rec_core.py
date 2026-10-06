@@ -13,14 +13,14 @@
 
 切れたら: 5 → 10 → 30 秒(以後 30 秒)の間を空けて繋ぎ直す。データの来ない時間が続いたら「終了」:
   配信の前(まだ1つも取れていない)… WAIT_START 秒、途中で切れた … IDLE_END 秒。
-  取得がきれいに終わった(終了コード 0。streamlink は配信の再生リストに終わりの印 #EXT-X-ENDLIST が付くと 0 で終わり、
-  読めなくなったとき(時間切れ)は 1 で終わる)ときは、配信が終わったとして、繋ぎ直さずに「終了」にする
+  取得がきれいに終わった(Recording._source_ended)ときは、配信が終わったとして、繋ぎ直さずに「終了」にする
 起動時の復旧(recover): 書きかけ(*.tmp)を消す → 読めない再生リストは「使えないセッション」→ 録画中だった物は前のセッションを
 「中断」にして、新しいセッションで録画を続ける。
 
 重い処理の同時実行の上限(ytt_core/jobs.py の SLOTS)は通さない: 録画は作り直さない写し(-c copy。CPU 数%)で軽く、
 配信中は順番待ちで止められない(待つと欠ける)ため。代わりに録画のプロセスの優先度を「通常より上」にする(計画の 0-3)。
 """
+import contextlib
 import datetime
 import json
 import os
@@ -46,8 +46,7 @@ DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026
 REC_ID_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z")
 SESSION_RE = re.compile(r"^session_(\d{3,6})\Z")
 SEG_RE = re.compile(r"^seg_\d{6,9}\.ts\Z")
-ACTIVE = ("waiting", "recording", "reconnecting")
-STATES = ACTIVE + ("stopped", "ended", "error")
+ACTIVE = ("waiting", "recording", "reconnecting")   # ほかの状態: stopped(手で止めた)・ended(配信が終わった)・error
 QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p,best"}   # streamlink の画質(左から順に試す)
 DEFAULT_QUALITY = "1080p"   # 既定(2026-10-04 ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
@@ -61,6 +60,7 @@ LOW_FREE = 20 * 1024 ** 3      # これより少なければ注意(1時間あた
 HLS_TIME = 4
 SOURCE_TROUBLE = ("No new segments", "Reloading failed", "[error]", "Read timeout")   # streamlink の記録に出たら「切れた」(終わりではない)
 ARCHIVE = "archive"
+ENDED = "配信が終わったので録画を終えました"
 ARCHIVE_MIN_SEC = 90           # 取れた長さがこれを超えて、
 ARCHIVE_SPEED = 3.0            # 実際の時間のこれ倍より速く取れたら、配信ではなくアーカイブを頭から取っている(止める)
 TITLE_MAX = 200
@@ -76,15 +76,25 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class RecError(ValueError):
-    """画面に出せる理由(400 か 409)"""
+    """画面に出せる理由(400・404・409)。kind は HTTP の応答の error"""
     def __init__(self, message, code=400):
         super().__init__(message)
         self.code = code
+        self.kind = {400: "bad_request", 409: "conflict"}.get(code, "not_found")
 
 
 # ---------- 小さな道具 ----------
+def _utc_text(d):
+    """datetime → UTC の "2026-10-04T06:30:12.345Z"(ミリ秒まで。録画の記録・API の時刻はすべてこの形)"""
+    return d.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def now_iso():
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return _utc_text(datetime.datetime.now(datetime.timezone.utc))
+
+
+def epoch_iso(e):
+    return _utc_text(datetime.datetime.fromtimestamp(e, datetime.timezone.utc))
 
 
 def to_utc(pdt):
@@ -92,22 +102,14 @@ def to_utc(pdt):
     s = (pdt or "").strip()
     for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
         try:
-            d = datetime.datetime.strptime(s.replace("Z", "+0000"), fmt)
+            return _utc_text(datetime.datetime.strptime(s.replace("Z", "+0000"), fmt))
         except ValueError:
             continue
-        return d.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     return s
 
 
-def pdt_epoch(pdt):
-    try:
-        return datetime.datetime.strptime(pdt, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=datetime.timezone.utc).timestamp()
-    except (TypeError, ValueError):
-        return None
-
-
 def iso_epoch(s):
-    """画面・入口から来た UTC の時刻(2026-10-04T06:30:12.345Z / ミリ秒なし / +00:00)→ epoch 秒。読めなければ None"""
+    """UTC の時刻(画面・入口から来た 2026-10-04T06:30:12.345Z / ミリ秒なし / +00:00、セグメントの pdt)→ epoch 秒。読めなければ None"""
     if not isinstance(s, str) or len(s) > 40:
         return None
     t = s.strip().replace("+00:00", "Z")
@@ -119,17 +121,13 @@ def iso_epoch(s):
     return None
 
 
-def epoch_iso(e):
-    return datetime.datetime.fromtimestamp(e, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
 def pick_segments(flat, start, end, tol=GAP_TOL):
     """区間 [start, end)(epoch 秒)にかかるセグメントと欠け(P2 の書き出しの「取得」。計画の 6 の segments_for)。
     flat: [{"uri", "pdt", "dur", …}](pdt は UTC の "…Z")。-> (時刻順のセグメント, 欠け [(from, to)])。
     欠け = 区間の中で、どのセグメントにも入っていない tol 秒より長い所(繋ぎ直しの間・まだ録れていない終わり・録画の前の頭)"""
     segs = []
     for s in flat:
-        e = pdt_epoch(s.get("pdt"))
+        e = iso_epoch(s.get("pdt"))
         if e is not None and e < end and e + s["dur"] > start:
             segs.append((e, s))
     segs.sort(key=lambda x: x[0])
@@ -297,11 +295,9 @@ def clean_tmp(session_dir):
         return 0
     for name in names:
         if name.endswith(".tmp"):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(os.path.join(session_dir, name))
                 n += 1
-            except OSError:
-                pass
     return n
 
 
@@ -335,18 +331,10 @@ class KillJob:
             import ctypes
             from ctypes import wintypes
 
-            class Basic(ctypes.Structure):
-                _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
-                            ("MinimumWorkingSetSize", ctypes.c_size_t), ("MaximumWorkingSetSize", ctypes.c_size_t),
-                            ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
-                            ("SchedulingClass", wintypes.DWORD)]
-
-            class Io(ctypes.Structure):
-                _fields_ = [(n, ctypes.c_uint64) for n in ("Read", "Write", "Other", "ReadBytes", "WriteBytes", "OtherBytes")]
-
-            class Ext(ctypes.Structure):
-                _fields_ = [("Basic", Basic), ("Io", Io), ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                            ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+            class Ext(ctypes.Structure):   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION を平らにした物(使うのは LimitFlags だけ。並びと大きさは同じ)
+                _fields_ = [("UserTimeLimits", ctypes.c_int64 * 2), ("LimitFlags", wintypes.DWORD), ("WorkingSet", ctypes.c_size_t * 2),
+                            ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t), ("Classes", wintypes.DWORD * 2),
+                            ("IoCounters", ctypes.c_uint64 * 6), ("MemoryLimits", ctypes.c_size_t * 4)]
             k = ctypes.WinDLL("kernel32", use_last_error=True)
             k.CreateJobObjectW.restype = wintypes.HANDLE
             k.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
@@ -356,7 +344,7 @@ class KillJob:
             if not h:
                 return
             info = Ext()
-            info.Basic.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            info.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if not k.SetInformationJobObject(h, 9, ctypes.byref(info), ctypes.sizeof(info)):   # 9 = JobObjectExtendedLimitInformation
                 k.CloseHandle(h)
                 return
@@ -429,7 +417,8 @@ class Recording:
         if text is None:
             return [], False
         segs, ended = parse_playlist(text)
-        segs = [s for s in segs if os.path.isfile(os.path.join(self.dir, name, s["uri"]))]   # 消えたセグメント(手で消した)は出さない
+        seen = {s["uri"] for s in c[2]} if c else ()   # 録画中は数秒ごとに書き換わる: 前に確かめたセグメントは調べ直さない
+        segs = [s for s in segs if s["uri"] in seen or os.path.isfile(os.path.join(self.dir, name, s["uri"]))]   # 消えたセグメント(手で消した)は出さない
         self._cache[name] = (st.st_mtime, st.st_size, segs, ended)
         return segs, ended
 
@@ -439,36 +428,30 @@ class Recording:
     def playlist(self):
         return build_playlist(self.all_segments(), not self.active, self.mgr.hls_time)
 
-    def summary(self, detail=False, since=0):
+    def summary(self, detail=False, since=0, sess=None):
+        """録画の状態(一覧・status)。sess: all_segments() の結果(呼んだ側が持っていれば渡す)"""
         with self.lock:
             m = dict(self.meta)
-        sess = self.all_segments()
-        count = sum(len(s) for _, s in sess)
-        dur = sum(x["dur"] for _, s in sess for x in s)
-        first = next((x["pdt"] for _, s in sess for x in s if x.get("pdt")), None)
-        last = None
-        for _, s in reversed(sess):
-            if s:
-                x = s[-1]
-                e = pdt_epoch(x.get("pdt"))
-                last = (datetime.datetime.fromtimestamp(e + x["dur"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z") if e else None
-                break
+        sess = self.all_segments() if sess is None else sess
+        segs = [x for _, s in sess for x in s]
+        e = iso_epoch(segs[-1].get("pdt")) if segs else None   # 録画済みの最後 = 最後のセグメントの終わり
         out = {"id": self.id, "url": m.get("url"), "title": m.get("title") or "", "quality": m.get("quality"), "state": m.get("state"),
                "message": m.get("message") or "", "created": m.get("created"), "endedAt": m.get("endedAt"),
-               "segments": count, "seconds": round(dur, 3), "firstPdt": first, "lastPdt": last, "active": m.get("state") in ACTIVE,
-               "sessions": len([1 for _, s in sess if s])}
+               "segments": len(segs), "seconds": round(sum(x["dur"] for x in segs), 3),
+               "firstPdt": next((x["pdt"] for x in segs if x.get("pdt")), None), "lastPdt": epoch_iso(e + segs[-1]["dur"]) if e else None,
+               "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s)}
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
-                                   "state": (info.get(n) or {}).get("state", ""), "started": (info.get(n) or {}).get("started"),
+                                   "state": info.get(n, {}).get("state", ""), "started": info.get(n, {}).get("started"),
                                    "firstPdt": s[0]["pdt"] if s else None} for n, s in sess]
-            flat = [dict(x, uri="%s/%s" % (n, x["uri"])) for n, s in sess for x in s]
             try:
                 since = max(0, int(since))
             except (TypeError, ValueError):
                 since = 0
             out["since"] = since
-            out["segmentList"] = flat[since:since + 5000]
+            page = [(n, x) for n, s in sess for x in s][since:since + 5000]   # 写すのは返す分だけ
+            out["segmentList"] = [dict(x, uri="%s/%s" % (n, x["uri"])) for n, x in page]
         return out
 
     def segments_in(self, start, end):
@@ -479,8 +462,9 @@ class Recording:
             raise RecError("区間(start・end)の時刻が正しくありません")
         if b - a > RANGE_MAX_SEC:
             raise RecError("区間が長すぎます(%d 時間まで)" % (RANGE_MAX_SEC // 3600))
-        s = self.summary()
-        flat = [dict(x, uri="%s/%s" % (n, x["uri"]), session=n) for n, segs in self.all_segments() for x in segs]
+        sess = self.all_segments()
+        s = self.summary(sess=sess)
+        flat = [dict(x, uri="%s/%s" % (n, x["uri"]), session=n) for n, segs in sess for x in segs]
         picked, gaps = pick_segments(flat, a, b)
         if len(picked) > SEGMENTS_MAX:
             raise RecError("セグメントが多すぎます")
@@ -532,6 +516,18 @@ class Recording:
                 if s.get("name") == name:
                     s.update(kw)
 
+    def _drop_session(self, name):
+        """セッションを記録とフォルダから消す(取れなかった・アーカイブを取り始めた)"""
+        with self.lock:
+            self.meta["sessions"] = [s for s in self.meta.get("sessions") or [] if s.get("name") != name]
+        shutil.rmtree(os.path.join(self.dir, name), ignore_errors=True)
+        self._cache.pop(name, None)
+
+    def _finish(self, state, message, note):
+        """録画を終えた状態(stopped・ended・error)にして記録に残す"""
+        self.set(state=state, message=message, endedAt=now_iso())
+        self.mgr.log("録画 %s: %s" % (self.id, note))
+
     def _count(self, name):
         return len(self.session_segments(name)[0])
 
@@ -539,66 +535,45 @@ class Recording:
         mgr = self.mgr
         backoff_i = 0
         last_data = time.time()
-        clean_end = False
         try:
             while not self._stopping():
                 fs = folder_state(os.path.dirname(self.dir))
                 if fs["freeBytes"] is not None and fs["freeBytes"] < MIN_FREE:
-                    self.set(state="error", message="空き容量が足りないので録画を止めました(%s)" % fs["message"], endedAt=now_iso())
-                    mgr.log("録画 %s: 空き容量が足りないので止めました" % self.id)
-                    return
+                    return self._finish("error", "空き容量が足りないので録画を止めました(%s)" % fs["message"], "空き容量が足りないので止めました")
                 got_any = any(s for _, s in self.all_segments())
                 name = self._next_session()
                 self.set(state="reconnecting" if got_any else "waiting",
                          message="つないでいます…" if got_any else "配信を待っています(始まると自動で録画します)")
                 n, code, why = self._run_session(name)
                 if why == ARCHIVE:   # 終わった配信(アーカイブ)を頭から取りに行った: そのセッションは消して(時刻が受信時刻と合わない)「終了」。本番画質は P4 のアーカイブの取得で
-                    with self.lock:
-                        self.meta["sessions"] = [x for x in self.meta.get("sessions") or [] if x.get("name") != name]
-                    shutil.rmtree(os.path.join(self.dir, name), ignore_errors=True)
-                    self._cache.pop(name, None)
-                    self.set(state="ended", message="配信が終わったので録画を終えました(アーカイブを取り始めたので止めました)", endedAt=now_iso())
-                    mgr.log("録画 %s: アーカイブを取り始めたので止めました" % self.id)
-                    return
+                    self._drop_session(name)
+                    return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました")
                 if n > 0:
                     backoff_i, last_data = 0, time.time()
-                    clean_end = self._source_ended(code, name)
                     self._session_mark(name, state="done", ended=now_iso(), segments=n)
                 else:   # 取れなかったセッションは消す(繋ぎ直しのたびに空のフォルダを増やさない)
-                    with self.lock:
-                        self.meta["sessions"] = [s for s in self.meta.get("sessions") or [] if s.get("name") != name]
-                    shutil.rmtree(os.path.join(self.dir, name), ignore_errors=True)
-                    self._cache.pop(name, None)
+                    self._drop_session(name)
                 if self._stopping():
                     break
                 got_any = got_any or n > 0
-                if n > 0 and clean_end:   # 取得がきれいに終わった(終了コード 0)= 配信の再生リストに終わりの印が付いた = 配信が終わった
-                    self.set(state="ended", message="配信が終わったので録画を終えました", endedAt=now_iso())
-                    mgr.log("録画 %s: 配信が終わりました" % self.id)
-                    return
-                limit = mgr.idle_end if got_any else mgr.wait_start
-                if time.time() - last_data > limit:
-                    self.set(state="ended", message="配信が終わったので録画を終えました" if got_any else "配信が始まらないので待つのをやめました",
-                             endedAt=now_iso())
-                    mgr.log("録画 %s: 終了(%s)" % (self.id, self.meta["message"]))
-                    return
+                if n > 0 and self._source_ended(code, name):   # 取得がきれいに終わった = 配信が終わった
+                    return self._finish("ended", ENDED, "配信が終わりました")
+                if time.time() - last_data > (mgr.idle_end if got_any else mgr.wait_start):
+                    msg = ENDED if got_any else "配信が始まらないので待つのをやめました"
+                    return self._finish("ended", msg, "終了(%s)" % msg)
                 delay = mgr.backoff[min(backoff_i, len(mgr.backoff) - 1)]
                 backoff_i += 1
-                self.set(state="reconnecting" if got_any else "waiting",
-                         message=("切れました(%s)。%d 秒後につなぎ直します" % (why, delay)) if got_any else
-                         ("配信を待っています(%s)。%d 秒後にもう一度見ます" % (why, delay)))
+                msg = ("切れました(%s)。%d 秒後につなぎ直します" if got_any else "配信を待っています(%s)。%d 秒後にもう一度見ます") % (why, delay)
+                self.set(state="reconnecting" if got_any else "waiting", message=msg)
                 if got_any:
-                    mgr.log("録画 %s: 切れました(%s)。%d 秒後につなぎ直します" % (self.id, why, delay))
+                    mgr.log("録画 %s: %s" % (self.id, msg))
                 self._wait(delay)
         except Exception as e:   # 思わぬエラーでも記録を残す(録画の部品は落とさない)
-            mgr.log("録画 %s: エラー %r" % (self.id, e))
-            self.set(state="error", message="録画中にエラーが起きました: %s" % str(e)[:200], endedAt=now_iso())
-            return
+            return self._finish("error", "録画中にエラーが起きました: %s" % str(e)[:200], "エラー %r" % e)
         finally:
             self._kill_procs(graceful=True)
         if self._stop.is_set():
-            self.set(state="stopped", message="停止しました", endedAt=now_iso())
-            mgr.log("録画 %s: 停止しました" % self.id)
+            self._finish("stopped", "停止しました", "停止しました")
         # _halt(録画の部品の終了)だけのときは状態を録画中のまま残す → 次の起動で recover が新しいセッションで続ける
 
     def _source_ended(self, code, name):
@@ -665,9 +640,7 @@ class Recording:
             self.procs = [p for p in (src, ff) if p]
         started = time.time()
         last_n, last_change, why, first_at = 0, started, "", None
-        while True:
-            if self._stopping():
-                break
+        while not self._stopping():
             if ff.poll() is not None:
                 why = "ffmpeg が終わりました(終了コード %s)" % ff.returncode
                 break
@@ -695,11 +668,9 @@ class Recording:
         self._kill_procs(graceful=True)
         if why != ARCHIVE and not self._stopping() and self._too_fast(name, time.time() - (first_at or started)):   # 速く取り終えてしまった
             why = ARCHIVE
-        if ff.stdin and not ff.stdin.closed:   # ffmpeg が自分で終わったとき(direct)の q 用の口を閉じる
-            try:
+        if ff.stdin:   # ffmpeg が自分で終わったとき(direct)の q 用の口を閉じる(閉じてあれば何もしない)
+            with contextlib.suppress(OSError):
                 ff.stdin.close()
-            except OSError:
-                pass
         code = src.returncode if src is not None else ff.returncode
         clean_tmp(sdir)
         self._cache.pop(name, None)
@@ -711,43 +682,33 @@ class Recording:
         return media > ARCHIVE_MIN_SEC and media > ARCHIVE_SPEED * max(0.0, elapsed) + 4 * self.mgr.hls_time
 
     def _kill(self, p, graceful=False, wait=10.0):
+        """子を止める(終わっていれば何もしない)。graceful で口があれば(direct の ffmpeg)q を送って待つ。終わらなければ強制終了"""
         if p is None or p.poll() is not None:
             return
         if graceful and p.stdin and not p.stdin.closed:   # ffmpeg(direct)には q を送る = 最後のセグメントと再生リストを書いて終わる
-            try:
+            with contextlib.suppress(OSError):
                 p.stdin.write(b"q")
                 p.stdin.flush()
                 p.stdin.close()
-            except OSError:
-                pass
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 p.wait(wait)
                 return
-            except subprocess.TimeoutExpired:
-                pass
-        try:
+        with contextlib.suppress(OSError):
             p.kill()
-        except OSError:
-            pass
-        try:
+        with contextlib.suppress(subprocess.TimeoutExpired):
             p.wait(5)
-        except subprocess.TimeoutExpired:
-            pass
 
     def _kill_procs(self, graceful=False):
         """取得(streamlink)を先に止める → ffmpeg に EOF が届いて、最後のセグメントを書いて終わる。待っても終わらなければ強制終了"""
         with self.lock:
             procs, self.procs = list(self.procs), []
-        if not procs:
-            return
         if len(procs) == 2:
             src, ff = procs
             self._kill(src)
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 ff.wait(10)
-            except subprocess.TimeoutExpired:
-                self._kill(ff)
-        else:
+            self._kill(ff)
+        elif procs:
             self._kill(procs[0], graceful=graceful)
 
 
@@ -784,6 +745,11 @@ class Recorder:
                 "source": self.source, "streamlink": self.streamlink_ok(), "ffmpeg": bool(self.ffmpeg and (os.path.isfile(self.ffmpeg) or shutil.which(self.ffmpeg))),
                 "recordings": [r.summary() for r in recs], "active": sum(1 for r in recs if r.active)}
 
+    def busy(self):
+        """録画中・配信待ち・つなぎ直し中の録画があるか"""
+        with self.lock:
+            return any(r.active for r in self.recs.values())
+
     def get(self, rid):
         with self.lock:
             r = self.recs.get(rid) if isinstance(rid, str) else None
@@ -816,16 +782,11 @@ class Recorder:
             info = {s.get("name"): s for s in meta.get("sessions") or [] if isinstance(s, dict)}
             for n in rec.session_names():
                 clean_tmp(os.path.join(path, n))
-                text = None
-                try:
-                    text = read_text(os.path.join(path, n, "index.m3u8"))
-                except (OSError, ValueError):
-                    pass
                 s = info.get(n)
                 if s is None:
                     s = {"name": n, "started": None}
                     meta.setdefault("sessions", []).append(s)
-                if text is None or not parse_playlist(text)[0]:
+                if not rec.session_segments(n)[0]:
                     if s.get("state") != "broken":
                         s["state"] = "broken"
                         self.log("録画 %s: %s は読めないので使えないセッションにしました" % (rid, n))
@@ -974,7 +935,7 @@ class Recorder:
 
     def set_folder(self, folder):
         with self.lock:
-            if any(r.active for r in self.recs.values()):
+            if self.busy():
                 raise RecError("録画中は置き場所を変えられません(止めてから変えてください)", 409)
             self.folder = folder
             self.recs = {}

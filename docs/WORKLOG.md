@@ -1466,3 +1466,35 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `text_style` の色の 16 進の読み方は `hex_rgba` と同じだが、変な値のときの振る舞い(例外か None か)が違うので残した
 - 注意: `src/cut2resolve/` の .py の行末は混ざっている(core・resolve_textplus・テスト 2 本は LF、ほかは CRLF)。直すときは行末を保つ道具で(Git Bash の `sed -i` は CRLF を LF にする)
 - 未コミット: なし(このコミット。`src/cut2resolve/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/home/` などの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ recorder の見直し(録画の部品 0.3.1。内部の整理で動きは同じ)
+- 変更(`src/recorder/` だけ。HTTP の API・録画のファイル(HLS・m3u8・recording.json・token.txt・settings.json)・引数・環境変数・既定の値・streamlink と ffmpeg の呼び方は変えていない):
+  - `rec_core.py`:
+    - 時刻の書式を `_utc_text` 1 か所に(now_iso・epoch_iso・to_utc・summary の lastPdt で同じ式を 4 回書いていた)。`pdt_epoch` は `iso_epoch` と同じ結果なので消した(pick_segments・summary は iso_epoch)
+    - `Recording._run` で 2 回書いていた「セッションを記録とフォルダから消す」を `_drop_session` に、6 回書いていた「終わった状態にして記録に書く + 記録に出す」を `_finish` に。終わりの文は定数 `ENDED`
+    - 取得がきれいに終わったか(`_source_ended`)は、止める途中なら見ない(結果を使っていなかった。direct では最大 3 秒の HTTP をしていた)
+    - `summary` はセグメントを 1 回だけ平らにして数える。`segments_in` は all_segments を 1 回だけ読んで summary に渡す(`summary(sess=…)`)。status の segmentList は返す分(5000 件)だけ写す
+    - `session_segments`: 録画中に書き換わった再生リストを読み直すとき、前に確かめたセグメントのファイルは調べ直さない(3 時間で 2700 回の isfile を 4 秒ごとにしていた。セッションの終わり・起動時は今までどおり全部調べる。違い: 録画中に手で消したセグメントは、そのセッションが終わるまで一覧に残る)
+    - 起動時の復旧(`load`)は再生リストを `session_segments` で読む(読めない・セグメントが 1 つも無いセッションは今までどおり「使えないセッション」。一覧の読み込みも済む。違い: 再生リストにあるセグメントのファイルが全部消えているセッションも「使えない」になる = 再生できる物が無いので同じ扱い)
+    - `KillJob` の構造体を平らに(JOBOBJECT_EXTENDED_LIMIT_INFORMATION と並び・大きさが同じことを ctypes で確かめた: 144 バイト・LimitFlags 16)。`_kill`・`_kill_procs`・`clean_tmp` は contextlib.suppress で短く(止め方の順番・待つ秒は同じ)
+    - 使われていない `STATES` を消した。`RecError.kind`(応答の error: 400 bad_request・409 conflict・ほか not_found)。`Recorder.busy()`(録画中があるか)
+  - `recorder.py`: 応答の見出しを `_head` 1 か所に(JSON・再生リスト・セグメント。値は同じ・並びだけ違う)・404 を `_missing`・`_guard` の 3 つの断り方を 1 つの形に・
+    GET の RecError を 1 つの except に・置き場所を覚えるのを `save_folder` 1 か所に(起動の --folder と POST /live/config)・ネットワークのパスの判定は `fsio.is_network_path`・
+    POST /live/quit の「録画中か」は `rec.busy()`(全部の録画の summary と空き容量を作っていた)・--backoff の既定は Recorder に任せる
+- 行数: rec_core.py 992 → 953・recorder.py 426 → 410(1418 → 1363)。残りの多くは決めたことの説明(コメント・docstring)と delete の安全の検査
+- 版: 録画の部品 0.3.0 → 0.3.1(`recorder.py` の VERSION・README の見出しと変更の記録)。入口の見回りが、録画中でなければ新しい版で起動し直す
+- 確かめ方: 消した名前(STATES・pdt_epoch・write_settings)は `src/`・`dev/` を grep(録画の部品の外からは import されていない。入口は HTTP だけ)。
+  変更前(git HEAD を一時フォルダに写した物)と後の recorder.py を同じ録画のフォルダ(セッション 3 つ・読めない再生リスト・ファイルの無いセグメント・書きかけ)で起動し、
+  48 通りの要求(合言葉・Host・ブラウザの 403、list・config・status(since)・segments(区間・欠け・誤り)・index.m3u8・セグメント・HEAD・パスの検査の 404、415・413・JSON の誤り、
+  start・config の 400、stop・delete・知らない操作)の番号・見出しの値・本文(JSON は中身)と、起動時の復旧のあとの recording.json を突き合わせて全部同じ
+  (違いは Host の 403 の本文の空白だけ = JSON としては同じ)
+- テスト: `src/recorder/tests/test_recorder.py` 26 件 OK・`src/home/tests/test_live.py` 38 件 OK・`src/home/tests/e2e_live.py` ALL OK・`src/home/tests/e2e_live_studio.py` 115 件 OK・`src/home/tests/e2e_live_archive.py` 83 件 OK(archive の 1 回目は流している途中で版を 0.3.1 に上げたため、入口の見回りが「古い版」の録画の部品を終わらせて段 2 で落ちた。流し直して OK)
+- 直さなかった候補:
+  - 録画中の再生リストは書き換わるたびに全部読み直して時刻を解析する(3 時間で数十 ms / 4 秒)。差分だけ読むと速いが、ffmpeg が置き換えで書く前提に頼るので見送り
+  - `/segments` は毎回すべてのセグメントの時刻の文字を解析する(pick_segments)。数字で覚えておけば速いが、今の長さ(数時間)では問題にならない
+  - 入口の `live.py` が `GET /live/<id>/status` を since なしで呼ぶと、最大 5000 件のセグメントの一覧が毎回返る(firstPdt だけ欲しいなら since を大きくすれば軽い。入口の担当の判断)
+  - `KillJob` は `src/editor/tx_engines.py` の `_kill_on_close_job` と同じ仕組み。ytt_core にまとめられるが、ほかのフォルダは触らない約束なので見送り
+  - `delete` は長い(約 65 行)が、リンク・置き場所の外・使用中のファイルの検査なので触らない。`_wait`・`_fill_title` の待ち方(0.25〜0.5 秒ごとに見る)も止め方に関わるので変えない
+  - 既存の弱い所(動きを変えるので直していない): recording.json の sessions が null だと起動時の復旧で落ちる(録画の部品が書く値は常にリスト。手で書き換えたときだけ)
+- 注意: `src/recorder/` の .py・README は作業ツリーで CRLF(autocrlf)。直すときは行末を保つ道具で
+- 未コミット: なし(このコミット。`src/recorder/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/home/`・`src/editor/` などの変更は入れていない)

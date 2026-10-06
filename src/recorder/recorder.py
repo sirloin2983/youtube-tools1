@@ -50,7 +50,7 @@ from ytt_core import datadir, fsio, httpsec  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.3.0"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = "0.3.1"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -90,8 +90,11 @@ def read_settings(ddir):
         return {}
 
 
-def write_settings(ddir, d):
-    fsio.atomic_write(os.path.join(ddir, "settings.json"), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+def save_folder(ddir, folder):
+    """置き場所を設定(settings.json)に覚える(次の起動でも同じ置き場所)"""
+    s = read_settings(ddir)
+    s["folder"] = folder
+    fsio.atomic_write(os.path.join(ddir, "settings.json"), json.dumps(s, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
 def clean_folder(f):
@@ -101,7 +104,7 @@ def clean_folder(f):
     f = f.strip().strip('"').strip()
     if not f or len(f) > 260 or any(ord(c) < 32 for c in f):
         raise rec_core.RecError("置き場所の指定が正しくありません")
-    if f.replace("/", "\\").startswith("\\\\"):
+    if fsio.is_network_path(f):
         raise rec_core.RecError("ネットワーク上のフォルダは選べません(この PC のドライブのフォルダを指定してください)")
     if not os.path.isabs(f) or (os.name == "nt" and not re.match(r"^[A-Za-z]:[\\/]", f)):
         raise rec_core.RecError("置き場所は E:\\… のような絶対パスで指定してください")
@@ -152,17 +155,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):   # アクセスは記録しない(再生中は数秒ごとに来る)
         pass
 
-    def _send(self, code, body=b"", ctype="application/json; charset=utf-8", extra=None):
+    def _head(self, code, ctype, size, cache):
+        """応答の見出し。-> 本文を送るか(HEAD なら送らない)"""
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        h = {"Cache-Control": "no-store"}
-        h.update(extra or {})
-        for k, v in h.items():
+        for k, v in (("Content-Type", ctype), ("Content-Length", str(size)), ("X-Content-Type-Options", "nosniff"), ("Cache-Control", cache)):
             self.send_header(k, v)
         self.end_headers()
-        if self.command != "HEAD":
+        return self.command != "HEAD"
+
+    def _send(self, code, body=b"", ctype="application/json; charset=utf-8", cache="no-store"):
+        if self._head(code, ctype, len(body), cache):
             self.wfile.write(body)
 
     def _json(self, code, obj):
@@ -170,6 +172,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _fail(self, code, err, msg):
         self._json(code, {"error": err, "message": msg})
+
+    def _missing(self, msg="その場所はありません"):
+        self._fail(404, "not_found", msg)
 
     def _drain(self):
         try:
@@ -181,22 +186,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def _guard(self, path):
         """Host(DNS rebinding)・ブラウザからの直接の要求・合言葉。通らなければ応答して False"""
-        if not httpsec.host_ok(self.headers, self.server.allowed_hosts):
-            self._drain()
-            self._send(403, b'{"error":"host","message":"forbidden"}')
-            return False
-        if self.headers.get("Origin") is not None or self.headers.get("Sec-Fetch-Site") is not None:   # ブラウザは入口を通す
-            self._drain()
-            self._fail(403, "browser", "録画の部品はブラウザから直接は使えません(ホームの画面から使ってください)")
-            return False
-        if path == "/api/ping":
+        h = self.headers
+        if not httpsec.host_ok(h, self.server.allowed_hosts):
+            err = ("host", "forbidden")
+        elif h.get("Origin") is not None or h.get("Sec-Fetch-Site") is not None:   # ブラウザは入口を通す
+            err = ("browser", "録画の部品はブラウザから直接は使えません(ホームの画面から使ってください)")
+        elif path == "/api/ping" or hmac.compare_digest((h.get(TOKEN_HEADER) or "").encode("utf-8", "replace"),
+                                                        ("Bearer " + self.server.token).encode("ascii")):
             return True
-        auth = self.headers.get(TOKEN_HEADER) or ""
-        if not hmac.compare_digest(auth.encode("utf-8", "replace"), ("Bearer " + self.server.token).encode("ascii")):
-            self._drain()
-            self._fail(403, "token", "合言葉が違います")
-            return False
-        return True
+        else:
+            err = ("token", "合言葉が違います")
+        self._drain()
+        self._fail(403, *err)
+        return False
 
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
@@ -211,47 +213,32 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"folder": rec.folder, "version": VERSION})
         m = LIVE_RE.match(u.path)
         if not m:
-            return self._fail(404, "not_found", "その場所はありません")
-        rid, rest = m.group(1), m.group(2) or ""
+            return self._missing()
+        rest = m.group(2) or ""
+        q = urllib.parse.parse_qs(u.query)
         try:
-            r = rec.get(rid)
-        except rec_core.RecError as e:
-            return self._fail(e.code, "not_found", str(e))
-        if rest == "status":
-            q = urllib.parse.parse_qs(u.query)
-            return self._json(200, r.summary(detail=True, since=(q.get("since") or ["0"])[0]))
-        if rest == "segments":   # 区間にかかるセグメントと欠け(入口の書き出しの「録画待ち」と「取得」。P2)
-            q = urllib.parse.parse_qs(u.query)
-            try:
+            r = rec.get(m.group(1))
+            if rest == "status":
+                return self._json(200, r.summary(detail=True, since=(q.get("since") or ["0"])[0]))
+            if rest == "segments":   # 区間にかかるセグメントと欠け(入口の書き出しの「録画待ち」と「取得」。P2)
                 return self._json(200, r.segments_in((q.get("start") or [""])[0], (q.get("end") or [""])[0]))
-            except rec_core.RecError as e:
-                return self._fail(e.code, "bad_request", str(e))
+        except rec_core.RecError as e:
+            return self._fail(e.code, e.kind, str(e))
         if rest == "index.m3u8":
-            return self._send(200, r.playlist().encode("utf-8"), "application/vnd.apple.mpegurl", {"Cache-Control": "no-cache"})
-        parts = rest.split("/")
-        if len(parts) == 2:
-            p = r.segment_path(parts[0], parts[1])
-            if p:
-                return self._file(p)
-        return self._fail(404, "not_found", "その場所はありません")
+            return self._send(200, r.playlist().encode("utf-8"), "application/vnd.apple.mpegurl", "no-cache")
+        p = r.segment_path(*rest.split("/")) if rest.count("/") == 1 else None
+        return self._file(p) if p else self._missing()
 
     def _file(self, path):
         try:
             f = open(path, "rb")
         except OSError:
-            return self._fail(404, "not_found", "その場所はありません")
+            return self._missing()
         with f:
-            size = os.fstat(f.fileno()).st_size
-            self.send_response(200)
-            self.send_header("Content-Type", "video/mp2t")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Cache-Control", "private, max-age=86400")   # 書き終えたセグメントは変わらない
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            if self.command != "HEAD":
+            if self._head(200, "video/mp2t", os.fstat(f.fileno()).st_size, "private, max-age=86400"):   # 書き終えたセグメントは変わらない
                 try:
                     shutil.copyfileobj(f, self.wfile, 256 * 1024)
-                except (ConnectionError, OSError):
+                except OSError:   # 見る側が切った(ConnectionError も OSError)
                     pass
 
     do_HEAD = do_GET
@@ -294,13 +281,11 @@ class Handler(BaseHTTPRequestHandler):
                 folder = clean_folder(body.get("folder"))
                 if os.path.normcase(folder) != os.path.normcase(rec.folder or ""):
                     rec.set_folder(folder)
-                    s = read_settings(self.server.ddir)
-                    s["folder"] = folder
-                    write_settings(self.server.ddir, s)
+                    save_folder(self.server.ddir, folder)
                     rec.log("録画の置き場所を %s にしました" % folder)
                 return self._json(200, {"folder": rec.folder, "version": VERSION})
             if u.path == "/live/quit":
-                if any(r["active"] for r in rec.overview()["recordings"]):
+                if rec.busy():
                     return self._fail(409, "busy", "録画中なので終わりません(録画を止めてから)")
                 self._json(200, {"ok": True})
                 threading.Thread(target=self.server.request_quit, daemon=True).start()
@@ -311,10 +296,10 @@ class Handler(BaseHTTPRequestHandler):
             if m and m.group(2) == "delete":   # P4 の「録画を自動で消す」(入口の中の処理だけが呼ぶ。入口の中継は通さない)
                 return self._json(200, {"ok": True, "deleted": rec.delete(m.group(1))})
         except rec_core.RecError as e:
-            return self._fail(e.code, "bad_request" if e.code == 400 else "conflict" if e.code == 409 else "not_found", str(e))
+            return self._fail(e.code, e.kind, str(e))
         except OSError as e:
             return self._fail(500, "write", "書けませんでした: %s" % (e.strerror or e.__class__.__name__))
-        return self._fail(404, "not_found", "その操作はありません")
+        return self._missing("その操作はありません")
 
 
 class Server(ThreadingHTTPServer):
@@ -366,20 +351,19 @@ def main(argv=None):
     ddir = data_dir(a.data_dir)
     os.makedirs(ddir, exist_ok=True)
     log = make_logger(os.path.join(ddir, "logs", "recorder.log"), echo=not a.quiet)
-    settings = read_settings(ddir)
+    saved = read_settings(ddir).get("folder")
     try:
-        folder = clean_folder(a.folder) if a.folder else clean_folder(settings.get("folder") or rec_core.DEFAULT_FOLDER)
+        folder = clean_folder(a.folder or saved or rec_core.DEFAULT_FOLDER)
     except rec_core.RecError as e:
         log("置き場所の指定が正しくないので既定を使います: %s" % e)
         folder = rec_core.DEFAULT_FOLDER
-    if a.folder and settings.get("folder") != folder:
-        settings["folder"] = folder
+    if a.folder and saved != folder:
         try:
-            write_settings(ddir, settings)
+            save_folder(ddir, folder)
         except OSError:
             pass
-    backoff = tuple(int(x) for x in a.backoff.split(",") if x.strip().isdigit()) if a.backoff else rec_core.BACKOFF
-    rec = rec_core.Recorder(folder, source=a.source, hls_time=a.hls_time, backoff=backoff or rec_core.BACKOFF,
+    backoff = tuple(int(x) for x in a.backoff.split(",") if x.strip().isdigit())   # 空なら既定(rec_core.BACKOFF)
+    rec = rec_core.Recorder(folder, source=a.source, hls_time=a.hls_time, backoff=backoff,
                             idle_end=a.idle_end, stall_sec=a.stall_sec, log=log)
     token = load_token(ddir)
     allowed = httpsec.allowed_hosts(a.port) | set(a.allow_host)
