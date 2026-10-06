@@ -277,9 +277,9 @@ class TestAltJob(_AltStore):
         calls = []
         real = ed_jobs.expand_segments
 
-        def spy(gen, spec, dur=None, levels=None):
+        def spy(gen, spec, dur=None, levels=None, join=True):
             calls.append((dur, levels))
-            return real(gen, spec, dur, levels)
+            return real(gen, spec, dur, levels, join=join)
 
         def fake(job, spec, wav, total):   # 9 秒の動画に、長さの外(100 秒)の行
             yield {"start": 0.0, "end": 4.0, "text": "中の行"}
@@ -300,12 +300,12 @@ class TestAltJob(_AltStore):
         got = []
         sentinel = object()
 
-        def spy(gen, spec, dur=None, levels=None):
-            got.append(levels)
+        def spy(gen, spec, dur=None, levels=None, join=True):
+            got.append((levels, join))
             return iter(())
         with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "row_levels", lambda spec, wav, base=0.0: sentinel):
             ed_jobs.run_job(job)
-        self.assertEqual(got, [sentinel])
+        self.assertEqual(got, [(sentinel, False)])   # 候補は続いている行をつながない(時刻を使わない。0.57.1 の join_rows)
         self.assertTrue(S.read_alt(tid)["post"]["pullEnds"])
 
     def test_refusals(self):

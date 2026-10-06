@@ -1,0 +1,455 @@
+#!/usr/bin/env python3
+"""行の時刻(字幕の区間)を、行の時刻の原則(docs/spec/row-timing-policy.md)の数字で測る道具(plan/line-b-row-timing.md の 7-4)。
+
+    python dev/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply]
+
+- 作業データは**読むだけ**(transcribe の transcripts/<id>.json と、--apply のときの <id>.asr.json)。何も書き換えない。--json のときだけ、結果を
+  文字起こしの作業データの evals\\timing\\<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_effort.py・eval_cut.py と同じ規則)。
+  --out を付けたら、作業データではなくそのファイルに書く。
+- 正解 = 確かめ済みの評価用の文書(evalSet と evalReviewed。eval_asr.is_reviewed = src/editor/ed_drill.py の drill_is_reviewed と同じ条件)の、
+  校正済み(proofed)で文字のある人の行。機械の行 = 文書の original(保存してある機械の出力 = 今の original を作った認識の結果)。
+  人の行ごとに、時刻がいちばん長く重なる機械の行を選び、頭の MATCH_CHARS 文字か末の MATCH_CHARS 文字(NFKC にして文字と数字だけ)が合うときだけ数える
+  (= 文字が合う行)。人が文字を大きく直した行・機械が別の言葉にした行は、同じ発言かが分からないので時刻を比べない(数は unmatched)
+- 数字(原則の文書の「測り方」と同じ。余裕 TOL = 0.1 秒。割合は文字が合う行に対して):
+    ①頭 head = 発言の頭が切れる: 機械の始まり > 人の始まり + 0.1
+    ①末 tail = 発言の末が切れる: 機械の終わり < 人の終わり − 0.1
+    ②前 prev = 前の発言が入る:   機械の始まり < 前の人の行の終わり − 0.1
+    ②次 next = 次の発言が入る:   機械の終わり > 次の人の行の始まり + 0.1
+          (前・次の人の行 = 文字のある人の行を時刻の順に並べたときの隣。校正済みでなくてよい。無ければ「入らない」)
+    ③ extra  = 喋っていない時間: 人の区間の外へはみ出した秒(前のはみ出し + 後ろのはみ出し)の中央値・平均
+  2026-10-07 の試算(plan/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
+- 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
+  行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap, pullEnds, retime}。無い記録は「後処理の記録なし(0.57.0 まで)」・
+  1 秒丸めの配り直しの記録 retimed があればそう書く)
+- --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
+  7-1 だけ / 0.57.1)。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
+  音声を聞き直す 1 秒丸めの配り直し(quant_retime)はかけない(音声を聞き直さない = 認識し直さない)。
+  「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
+  (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
+- --since / --until は機械の出力を作った時刻(最初の認識の at。無ければ updatedAt)で絞る(until はその日を含む)。文字が合う行が FEW_ROWS 未満なら「まだ少ない(参考)」
+"""
+import argparse
+import datetime
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import unicodedata
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
+for _p in (REPO, HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from ytt_core import datadir  # noqa: E402
+import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
+
+SCHEMA = "youtube-tools-timing-eval/v1"
+ASR_SCHEMA = "youtube-tools-asr-raw/v1"   # src/editor/ed_jobs.py の ASR_SCHEMA(editor は --apply のときだけ読み込む)
+TOL = 0.1                      # 原則の測り方の余裕(秒)
+EPS = 1e-6                     # 浮動小数の誤差(0.1 秒ちょうどのずれは数えない)
+MATCH_CHARS = 3                # 「文字が合う」= 頭か末のこの文字数が同じ
+FEW_ROWS = 100                 # 文字が合う行がこれより少ないときは「まだ少ない(参考)」
+REPRO_TOL = 0.011              # --apply の reproduced: 当て直した行と original の行の端がこの秒以内なら同じ(行の時刻は 0.01 秒で保存)
+MAX_BYTES = 64 * 1024 * 1024
+DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
+KEYS = (("head", "①頭"), ("tail", "①末"), ("prev", "②前"), ("next", "②次"))
+POST_NONE = "後処理の記録なし(0.57.0 まで)"
+# --apply で当て直す後処理(editor の ed_jobs の値を一時的に差し替える)。0.57.1 の既定 = END_TRIM 0・JOIN_GAP 0.5
+VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)", {"END_TRIM": 0.1, "JOIN_GAP": 0.0}),
+            ("trim0", "7-1 だけ(END_TRIM 0・つながない)", {"END_TRIM": 0.0, "JOIN_GAP": 0.0}),
+            ("v0571", "0.57.1 の後処理(END_TRIM 0・すき間 0.5 秒以下をつなぐ)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5}))
+
+
+# ---------------------------------------------------------------- 読み込み(読むだけ)
+
+def read_json(path, default=None, limit=MAX_BYTES):
+    try:
+        if limit and os.path.getsize(path) > limit:
+            return default
+        with open(path, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def locate(data_dir=None):
+    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所(data_dir を渡したときはそこを全ツールの親フォルダとして使う = テスト)"""
+    env = {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
+    return datadir.locate("transcribe", REPO, env)
+
+
+def day_ms(s, end=False):
+    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
+    try:
+        d = datetime.datetime.strptime(s, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
+    if end:
+        d += datetime.timedelta(days=1)
+    return int(time.mktime(d.timetuple()) * 1000)
+
+
+def num(x):
+    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else None
+
+
+def rate(c, n):
+    return round(c / n, 4) if n else None
+
+
+def letters(text):
+    """比べる文字: NFKC にして、文字と数字だけ(記号・空白・句読点・_ を除く)"""
+    return re.sub(r"[^\w]", "", unicodedata.normalize("NFKC", str(text or ""))).replace("_", "")
+
+
+def text_rows(items):
+    """文字のある行(start・end が数)を時刻の順に -> [dict(元の行 + "start"・"end" を float に)]"""
+    out = []
+    for g in items or []:
+        if not isinstance(g, dict):
+            continue
+        a, b = num(g.get("start")), num(g.get("end"))
+        if a is None or b is None or not letters(g.get("text")):
+            continue
+        out.append(dict(g, start=a, end=b))
+    return sorted(out, key=lambda g: (g["start"], g["end"]))
+
+
+# ---------------------------------------------------------------- 1つの文書(純粋な関数)
+
+def text_match(a, b, k=MATCH_CHARS):
+    """文字が合うか: 頭の k 文字か末の k 文字が同じ(どちらかが空なら合わない)"""
+    la, lb = letters(a), letters(b)
+    return bool(la and lb) and (la[:k] == lb[:k] or la[-k:] == lb[-k:])
+
+
+def best_overlap(h, machine):
+    """人の行 h といちばん長く重なる機械の行(重なりが 0 以下なら None)"""
+    best, bo = None, 0.0
+    for r in machine:
+        ov = min(h["end"], r["end"]) - max(h["start"], r["start"])
+        if ov > bo:
+            best, bo = r, ov
+    return best
+
+
+def measure_rows(human, machine):
+    """human = 文字のある人の行(時刻の順。proofed を見る)・machine = 文字のある機械の行(時刻の順)
+    -> {"proofed": 校正済みの行の数, "rows": [文字が合う行ごとの判定 {"head", "tail", "prev", "next", "extra", "dStart", "dEnd"}]}"""
+    out, proofed = [], 0
+    for i, h in enumerate(human):
+        if h.get("proofed") is not True:
+            continue
+        proofed += 1
+        m = best_overlap(h, machine)
+        if m is None or not text_match(h.get("text"), m.get("text")):
+            continue
+        prev_end = human[i - 1]["end"] if i > 0 else None
+        next_start = human[i + 1]["start"] if i + 1 < len(human) else None
+        out.append({"head": m["start"] > h["start"] + TOL + EPS,
+                    "tail": m["end"] < h["end"] - TOL - EPS,
+                    "prev": prev_end is not None and m["start"] < prev_end - TOL - EPS,
+                    "next": next_start is not None and m["end"] > next_start + TOL + EPS,
+                    "extra": round(max(0.0, h["start"] - m["start"]) + max(0.0, m["end"] - h["end"]), 3),
+                    "dStart": round(m["start"] - h["start"], 3), "dEnd": round(m["end"] - h["end"], 3)})
+    return {"proofed": proofed, "rows": out}
+
+
+def _median(v):
+    v = sorted(v)
+    if not v:
+        return None
+    k = len(v) // 2
+    return round(v[k] if len(v) % 2 else (v[k - 1] + v[k]) / 2, 3)
+
+
+def summarize(rows):
+    """文字が合う行の判定の一覧 -> {"n", "head", "tail", "prev", "next"(割合), "counts", "extraMedian", "extraMean"}"""
+    n = len(rows)
+    counts = {k: sum(1 for r in rows if r[k]) for k, _ in KEYS}
+    ex = [r["extra"] for r in rows]
+    out = {"n": n, "counts": counts, "extraMedian": _median(ex), "extraMean": round(sum(ex) / n, 3) if n else None}
+    out.update({k: rate(counts[k], n) for k, _ in KEYS})
+    return out
+
+
+def post_label(run):
+    """最初の認識の記録の行の後処理(post)の見出し。記録の無い認識は POST_NONE(配り直しの記録 retimed があればそう足す)"""
+    if not isinstance(run, dict):
+        return POST_NONE
+    p = run.get("post")
+    if not isinstance(p, dict):
+        return POST_NONE + ("・配り直しあり" if run.get("retimed") else "")
+    parts = ["後処理"]
+    if p.get("version"):
+        parts.append("v%s" % p["version"])
+    parts.append("endTrim=%s" % p.get("endTrim"))
+    parts.append("join=%s" % p.get("joinGap"))
+    if p.get("pullEnds"):
+        parts.append("pullEnds")
+    parts.append("配り直し=%s" % (p.get("retime") or "なし"))
+    return " ".join(parts)
+
+
+def engine_label(run):
+    if not isinstance(run, dict) or not (run.get("engine") or run.get("model")):
+        return eval_asr.DRAFT_NONE
+    return " ".join(str(x) for x in (run.get("engine"), run.get("model")) if x)
+
+
+def doc_record(doc):
+    """確かめ済みの文書 1 件 -> (記録 or None, 飛ばした理由 or "")。記録には集計に使う判定の一覧 "_rows" を付ける(結果には出さない)"""
+    machine = text_rows(doc.get("original"))
+    if not machine:
+        return None, "noOriginal"
+    human = text_rows(doc.get("segments"))
+    run = eval_asr.draft_run(doc)
+    at = int(num(run.get("at"))) if isinstance(run, dict) and num(run.get("at")) else (int(num(doc.get("updatedAt"))) if num(doc.get("updatedAt")) else None)
+    m = measure_rows(human, machine)
+    eng, post = engine_label(run), post_label(run)
+    rec = {"id": str(doc.get("id") or ""), "title": str(doc.get("title") or "")[:40], "engine": eng, "post": post, "group": "%s | %s" % (eng, post),
+           "at": at, "proofed": m["proofed"], "unmatched": m["proofed"] - len(m["rows"]), **summarize(m["rows"]), "_rows": m["rows"]}
+    return rec, ""
+
+
+# ---------------------------------------------------------------- --apply(保存してある生出力に後処理を当て直す)
+
+def asr_raw(doc, asr):
+    """生出力(<id>.asr.json の中身)-> (分ける前の行 [行の秒 = 文書の範囲の先頭が 0], 後処理の spec, 音声の秒, 範囲の先頭の秒) か None(使えない)。
+    生出力の時刻は元の動画の秒(capture_raw が範囲の先頭を足している)なので、行の秒に戻して run_job と同じ形で後処理に渡す"""
+    if not isinstance(asr, dict) or asr.get("schema") != ASR_SCHEMA or not isinstance(asr.get("segments"), list):
+        return None
+    run = asr.get("run") if isinstance(asr.get("run"), dict) else {}
+    params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+    start = num(doc.get("start")) or 0.0
+    raw = []
+    for s in asr["segments"]:
+        if not isinstance(s, dict) or num(s.get("start")) is None or num(s.get("end")) is None:
+            continue
+        ws = [(float(w[0]) - start, float(w[1]) - start, str(w[2])) for w in s.get("words") or []
+              if isinstance(w, (list, tuple)) and len(w) >= 3 and num(w[0]) is not None and num(w[1]) is not None]
+        raw.append({"start": float(s["start"]) - start, "end": float(s["end"]) - start, "text": str(s.get("text") or ""), "words": ws})
+    eng = str(run.get("engine") or "")
+    spec = {"wordSplit": params.get("wordSplit", True) is not False, "stripPunct": params.get("stripPunct", True) is not False, "engine": eng}
+    if num(params.get("splitChars")):
+        spec["splitChars"] = int(params["splitChars"])
+    dur = num(run.get("audioSec")) or None
+    return raw, spec, dur, start
+
+
+def reapply(S, raw, spec, dur, start):
+    """後処理(S.expand_segments。音の谷へ寄せる levels は使わない = 0.53.1 から既定オフ)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
+    out = []
+    for s in S.expand_segments([dict(r) for r in raw], spec, dur, None):
+        if not s.get("text"):
+            continue
+        out.append({"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]})
+    return out
+
+
+def reproduced(rows, original):
+    """当て直した行のうち、original に始まり・終わりとも REPRO_TOL 以内で同じ行がある割合(original の行に対して)"""
+    orig = text_rows(original)
+    if not orig:
+        return None
+    have = [(r["start"], r["end"]) for r in rows]
+    same = sum(1 for o in orig if any(abs(o["start"] - a) <= REPRO_TOL and abs(o["end"] - b) <= REPRO_TOL for a, b in have))
+    return rate(same, len(orig))
+
+
+def apply_variants(docs, tdir, S=None):
+    """--apply: 文書ごとに生出力へ VARIANTS の後処理を当て直して測る。S = 読み込んだ serve(テストで渡す。無ければ eval_asr.load_serve("fake"))
+    -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
+    own = S is None
+    S = S or eval_asr.load_serve("fake")
+    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を sys.modules に登録せずに読むので、S.名前 = … は部品へ転送されない)
+    J = getattr(S, "ed_jobs", S)
+    saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st}
+    res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "byDoc": []} for key, label, st in VARIANTS],
+           "docs": 0, "skipped": {"noAsr": 0, "badAsr": 0}}
+    try:
+        for doc in docs:
+            tid = str(doc.get("id") or "")
+            asr = read_json(os.path.join(tdir, tid + ".asr.json"))
+            if asr is None:
+                res["skipped"]["noAsr"] += 1
+                continue
+            got = asr_raw(doc, asr)
+            if got is None:
+                res["skipped"]["badAsr"] += 1
+                continue
+            raw, spec, dur, start = got
+            human = text_rows(doc.get("segments"))
+            res["docs"] += 1
+            for v, (key, _label, st) in zip(res["variants"], VARIANTS):
+                for k, val in st.items():
+                    setattr(J, k, val)
+                rows = reapply(S, raw, spec, dur, start)
+                m = measure_rows(human, text_rows(rows))
+                v["rows"] += m["rows"]
+                d = {"id": tid, **summarize(m["rows"])}
+                d.pop("counts", None)
+                if key == "v0570":
+                    d["reproduced"] = reproduced(rows, doc.get("original"))
+                v["byDoc"].append(d)
+    finally:
+        for k, val in saved.items():
+            setattr(J, k, val)
+        if own:
+            tmp = os.environ.get("TRANSCRIBE_DATA_DIR", "")
+            if tmp and os.path.basename(tmp).startswith("eval_asr_"):
+                shutil.rmtree(tmp, ignore_errors=True)   # load_serve が作った一時の置き場
+    for v in res["variants"]:
+        v["overall"] = summarize(v.pop("rows"))
+    return res
+
+
+# ---------------------------------------------------------------- 全体
+
+def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
+    root = locate(data_dir)
+    tdir = os.path.join(root, "transcripts")
+    since_ms = day_ms(since) if since else None
+    until_ms = day_ms(until, end=True) if until else None
+    skipped = {"broken": 0, "notReviewed": 0, "noOriginal": 0, "outOfRange": 0}
+    recs, docs = [], []
+    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
+        if not DOC_RE.match(name):
+            continue
+        doc = read_json(os.path.join(tdir, name))
+        if not isinstance(doc, dict):
+            skipped["broken"] += 1
+            continue
+        if not eval_asr.is_reviewed(doc):
+            skipped["notReviewed"] += 1
+            continue
+        rec, why = doc_record(doc)
+        if rec is None:
+            skipped[why] += 1
+            continue
+        t = rec["at"]
+        if (since_ms is not None or until_ms is not None) and (t is None or (since_ms is not None and t < since_ms) or (until_ms is not None and t >= until_ms)):
+            skipped["outOfRange"] += 1
+            continue
+        recs.append(rec)
+        docs.append(doc)
+    rows = [r for rec in recs for r in rec["_rows"]]
+    overall = summarize(rows)
+    by = {}
+    for rec in recs:
+        by.setdefault(rec["group"], []).append(rec)
+    groups = [dict(summarize([r for rec in rs for r in rec["_rows"]]), key=k, docs=len(rs)) for k, rs in by.items()]
+    groups.sort(key=lambda g: (-g["n"], g["key"]))
+    for rec in recs:
+        rec.pop("_rows", None)
+    few = overall["n"] < FEW_ROWS
+    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": git_rev(), "dataDir": root,
+            "docs": len(recs), "proofedRows": sum(r["proofed"] for r in recs), "matchedRows": overall["n"],
+            "unmatchedRows": sum(r["unmatched"] for r in recs), "few": few,
+            "fewNote": "まだ少ない(参考): 文字が合う行が %d 行(%d 行未満)" % (overall["n"], FEW_ROWS) if few else "",
+            "skipped": skipped, "tol": TOL, "matchChars": MATCH_CHARS, "apply": bool(apply)}
+    res = {"meta": meta, "overall": overall, "groups": groups, "byDoc": sorted(recs, key=lambda r: r["id"])}
+    if apply:
+        res["apply"] = apply_variants(docs, tdir, serve)
+    return res
+
+
+def git_rev():
+    try:
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+# ---------------------------------------------------------------- 表示・保存
+
+def pct(x):
+    return "  - " if x is None else "%3.0f%%" % (x * 100)
+
+
+def sec(x):
+    return "  -  " if x is None else "%.2f" % x
+
+
+def line(s):
+    """1 行の数字(原則の 5 つ)"""
+    return "%s  %s  %s  %s  ③ 中央 %s / 平均 %s 秒  (%d 行)" % tuple(
+        ["%s %s" % (lb, pct(s[k])) for k, lb in KEYS] + [sec(s["extraMedian"]), sec(s["extraMean"]), s["n"]])
+
+
+def print_report(res):
+    m = res["meta"]
+    rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
+    print("行の時刻の原則の数字(%s)  確かめ済みの文書 %d 本・校正済み %d 行・文字が合う %d 行  作業データ: %s" % (
+        rng, m["docs"], m["proofedRows"], m["matchedRows"], m["dataDir"]))
+    print("  ①頭 = 頭が切れる・①末 = 末が切れる・②前 = 前の発言が入る・②次 = 次の発言が入る(どれも 0.1 秒の余裕。少ないほど良い)・③ = 人の区間の外へはみ出した秒")
+    if m["fewNote"]:
+        print("★ " + m["fewNote"])
+    sk = m["skipped"]
+    shown = {k: v for k, v in sk.items() if v and k != "notReviewed"}
+    print("  確かめ済みでない文書 %d 本は数えない%s" % (sk.get("notReviewed", 0), ("・飛ばした: " + "・".join("%s %d" % kv for kv in shown.items())) if shown else ""))
+    if not m["docs"]:
+        print("(測れる文書がありません。評価ドリルで確かめ済みが貯まると測れます)")
+        return
+    print("  [全体・保存してある機械の出力]  " + line(res["overall"]))
+    print("  [組ごと: 最初の認識のエンジン・モデル | 行の後処理]")
+    for g in res["groups"]:
+        print("    %-70s 文書 %2d 本  %s" % (g["key"], g["docs"], line(g)))
+    ap = res.get("apply")
+    if ap:
+        print("  [--apply: 保存してある生出力(asr.json)に後処理を当て直した数字。文書 %d 本(生出力が無い %d・読めない %d)。1 秒丸めの配り直しはかけない]" % (
+            ap["docs"], ap["skipped"]["noAsr"], ap["skipped"]["badAsr"]))
+        for v in ap["variants"]:
+            print("    %-46s %s" % (v["label"], line(v["overall"])))
+        rp = [d["reproduced"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None]
+        if rp:
+            low = [d["id"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None and d["reproduced"] < 0.9]
+            print("    0.57.0 の後処理で保存してある original を再現できた行の割合: 中央値 %s(9 割未満の文書 %d 本%s)" % (
+                pct(_median(rp)), len(low), (": " + ", ".join(low[:8])) if low else ""))
+    print("  [文書ごと]")
+    for r in res["byDoc"]:
+        print("    %s 校正済み %3d・合う %3d  %s  %s" % (r["id"], r["proofed"], r["n"], line(r), r["title"]))
+
+
+def save(res, root, out=None):
+    if out:
+        path = os.path.abspath(out)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    else:
+        d = os.path.join(root, "evals", "timing")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, "%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+    return path
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="行の時刻を原則(①頭・①末・②前・②次・③)の数字で測る(作業データは読むだけ)")
+    p.add_argument("--since", help="この日(YYYY-MM-DD)以後に作った機械の出力だけ(最初の認識の at、無ければ updatedAt)")
+    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までだけ")
+    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/timing/<日時>.json に残す")
+    p.add_argument("--out", help="JSON をこのファイルに書く(作業データには書かない。--json を付けなくてよい)")
+    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    p.add_argument("--apply", action="store_true", help="保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直した数字も出す")
+    args = p.parse_args(argv)
+    res = evaluate(args.data_dir, args.since, args.until, args.apply)
+    print_report(res)
+    if args.json or args.out:
+        print("\n保存: " + save(res, res["meta"]["dataDir"], args.out))
+    return res
+
+
+if __name__ == "__main__":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    main()

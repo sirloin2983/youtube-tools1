@@ -181,7 +181,9 @@ def run_alt(job):
             gen = ed_jobs.transcribe_real(job, spec, wav, total)
         rows = []
         levels = ed_jobs.row_levels(spec, wav)   # whisper.cpp のときだけ(行の終わりを音の谷へ)
-        for s in ed_jobs.expand_segments(gen, spec, total, levels):   # 文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる)。置換・学習はかけない
+        # 文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる)。置換・学習はかけない。
+        # 続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。plan/line-b-row-timing.md の 7-2)
+        for s in ed_jobs.expand_segments(gen, spec, total, levels, join=False):
             if not s["text"]:
                 continue
             rows.append({"start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2), "text": s["text"][:ed_state.MAX_TEXT]})

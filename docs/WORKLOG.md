@@ -1296,3 +1296,36 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: home の単体 368 件 OK(skip 2)・`e2e_portal.py` すべて OK
 - 注意: 前の版の記録(accuracy-state.json)には新しい鍵(reviewedSec など)が無いので、次の測定(夜か「精度を今すぐ測る」)までは「未測定」と出る
 - 未コミット: なし(このコミット。`src/editor/`・`src/ui-kit/ui-kit.js`・`dev/eval_timing.py` は別の担当の作業途中で、入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— B1 行の時刻の直し(編集 0.57.0 → 0.57.1)と、原則の数字を測る道具 `dev/eval_timing.py`
+- ユーザーの指示(まとめ役から): `plan/line-b-row-timing.md` の 7(7-1〜7-5)を実装する(原則 `docs/spec/row-timing-policy.md` = ① 発言が区間に収まる > ② 前後を入れない > ③ 無音を除く)
+- 変更:
+  - `src/editor/ed_jobs.py`: 7-1 `END_TRIM` の既定 0.1 → 0(`TRANSCRIBE_END_TRIM` は残す)/ 7-2 `JOIN_GAP`(0.5 秒。`TRANSCRIBE_JOIN_GAP`、0 でやめる)と `join_rows`(0 < すき間 ≤ 0.5 なら前の行の終わり = 次の行の始まり。全エンジン・`expand_segments` の最後・`join=False` で通さない)/
+    7-3 `quant_retime` の重なりの詰め方を `_quant_settle` に(候補の端が隣の行と重なったら、その端だけ今の時刻のまま・文字が当たらない行も切らない・最後に窓の行と前後 1 行へ `join_rows`)/
+    `post_record()` = `recognition.runs[].post`(version・endTrim・joinGap・pullEnds・retime。`recognition_run`・`record_rerun`)/ `finish_range_lines(join=)`(疑わしい所の認識し直しは `join=False`)
+  - `src/editor/ed_alt.py`: 2つ目のエンジンの候補は `join=False`(時刻を使わない)
+  - テスト: `src/editor/tests/test_whispercpp.py`(`JoinRowsTest` 4 件・`QuantRetimeTest` の重なりの期待値を 7-3 に + 1 件・trim と expand の期待値・`if __name__` を最後へ移した = 直接流しても `QuantRetimeTest` が走る)・`src/editor/tests/test_alt.py`(spy の引数 join)
+  - 新しい `dev/eval_timing.py`(読むだけ。確かめ済みの文書の校正済みで文字が合う行を正解に、①頭・①末・②前・②次・③ を全体・組(最初の認識の engine・model | post)・文書ごとに。
+    `--apply` = 生出力 `<id>.asr.json` に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直す・`--out` = 作業データの外へ書く)と `dev/tests/test_eval_timing.py`(9 件)。`AGENTS.md` の dev の行に 1 項目
+  - 版: `serve.py`・`app.js`・`README.txt`(■ v0.57.1。「この行だけ再生」が次の行の頭を少し含むことがある・環境変数で戻せること)。`src/editor/AGENTS.md` に節「行の時刻の原則に沿った後処理」・配り直しの節を今の動きに
+- 版: 編集 0.57.0 → 0.57.1
+- 数字(`py -3.10 dev/eval_timing.py --apply`。確かめ済み 22 本・文字が合う 253〜255 行。1 秒丸めの配り直しは当て直していない = 音声を聞き直さない):
+  | 機械の行 | ①頭 | ①末 | ②前 | ②次 | ③ 中央 / 平均 |
+  | --- | --- | --- | --- | --- | --- |
+  | 保存してある original(後処理の版が混ざる) | 18% | 34% | 13% | 6% | 0.00 / 0.47 秒 |
+  | 生出力に 0.57.0 の後処理を当て直し | 18% | 33% | 13% | 5% | 0.00 / 0.46 秒 |
+  | 7-1 だけ(END_TRIM 0) | 18% | 23% | 13% | 6% | 0.10 / 0.49 秒 |
+  | **0.57.1**(END_TRIM 0 + つなぐ 0.5 秒) | 16% | **22%** | 13% | 8% | 0.11 / 0.52 秒 |
+  道具は「0.1 秒ちょうどのずれは数えない」(原則の「>」どおり)。計画の 7 の試算は浮動小数の誤差で 0.10 ちょうどを数えることがあり、その数え方だと保存してある = 20 / 34 / 13 / 6%(計画の表の「今」と一致 = 尺度は合っている)・0.57.1 = 18 / 22 / 13 / 9%
+- 決定・理由: 仮で決めたこと = 配り直しの join は窓の行と窓の外の前後 1 行にかける・7-3 は重なった両方の端のうち候補から採った端を戻す・つなぐのは句読点の除去の前・`JOIN_GAP` の上限 2 秒・
+  `TRANSCRIBE_PULL_ENDS=1` や `TRANSCRIBE_END_TRIM=0.1` で戻すときは `TRANSCRIBE_JOIN_GAP=0` も(つなぐのが後なので)・`recognition.runs[].post` を足した(版ごとに分けるため)・
+  eval_timing の「文字が合う」は頭か末の 3 文字(10-07 の試算と同じ)・正解は確かめ済みの評価用だけ・--since/--until は最初の認識の at
+- テスト: 編集の単体 552 件 OK(skip 1)・`dev/tests/test_eval_asr.py` 51 件・`test_eval_timing.py` + `test_eval_effort.py` 35 件 OK・e2e(`e2e_folder_marker_range`・`e2e_ui_mounted`・`e2e_drill`・`e2e_row_editing`)すべて OK
+- 未完了・次: ユーザーが入口を起動し直して(編集 0.57.1)、ドリルで新しく確かめた文書が貯まったら `dev/eval_timing.py` の組「後処理 v0.57.1 …」で前後を見る。悪ければ `TRANSCRIBE_JOIN_GAP=0`
+- 注意:
+  - **`dev/eval_asr.py` の `load_serve` は serve を sys.modules に登録せずに読むので、`S.名前 = …` が部品へ転送されない**(`mod.IN_WORKER = True` は ed_jobs に届かず False のまま)。
+    10-07 の「配り直し なし / あり」の比べ(計画の 6。一時の道具の `S.QUANT_ON = …`)は、両方とも配り直しありで流れていた可能性が高い。eval_timing は値を `S.ed_jobs` に直接入れている。eval_asr は別の担当なので直していない
+  - 確かめ済み 22 本のうち 9 本は original が 10-04(0.53.1 より前・音の谷へ寄せていた頃)のもの = 計画の「今」の行は後処理の版が混ざっている(--apply の reproduced で分かる)
+  - `dev/eval_asr.py` の `post_meta` に endTrim・joinGap が無い = `compare` が 0.57.1 の前後の違いを知らせない(eval_asr は別の担当)
+  - 他の担当の未コミット(`src/editor/index.html`・`src/editor/ui-kit.js`・`src/studio/`・`src/ui-kit/`・`friend-apps/holo-colors/`)は触っていない・このコミットに入れていない
+- 未コミット: なし(上の他の担当の分を除く)

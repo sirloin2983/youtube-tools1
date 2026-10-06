@@ -1139,12 +1139,14 @@ def split_segment(s, max_chars=SPLIT_CHARS):
     return out or [s]
 
 
-def expand_segments(gen, spec, dur=None, levels=None):
+def expand_segments(gen, spec, dur=None, levels=None, join=True):
     """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
     (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
     2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)・
-    levels(row_levels。whisper.cpp のときだけ)があれば、続いている行の終わりを声の終わりへ寄せる(pull_ends)"""
+    levels(row_levels。whisper.cpp のときだけ)があれば、続いている行の終わりを声の終わりへ寄せる(pull_ends)。
+    2026-10-07(0.57.1。行の時刻の原則 docs/spec/row-timing-policy.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
+    join=False は時刻を使わない呼び出し(疑わしい所の認識し直し・2つ目のエンジンの候補)"""
     strip = spec.get("stripPunct", True)
     mc = spec.get("splitChars") or SPLIT_CHARS
     rows = (p for s in gen for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]))
@@ -1155,6 +1157,8 @@ def expand_segments(gen, spec, dur=None, levels=None):
         rows = pull_ends(rows, levels)
     elif spec.get("engine") == tx_engines.WhisperCpp.id and END_TRIM > 0:
         rows = trim_ends(rows, END_TRIM)
+    if join and JOIN_GAP > 0:
+        rows = join_rows(rows, JOIN_GAP)
     for p in rows:
         yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
 
@@ -1168,10 +1172,19 @@ REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに�
 # 「この行だけ再生」が平均 0.12 秒行き過ぎていた画面(c6f4e1f で直した)の上で決めた値で、早め側にずれていた。再生を正確に止めた今は二重に早めて言葉の終わりが切れる。
 # 1 秒丸め(フラッシュアテンション)は -nfa で直っているので、それだけで足りる。TRANSCRIBE_PULL_ENDS=1 で戻せる(測り直すとき用)
 PULL_ENDS_ON = os.environ.get("TRANSCRIBE_PULL_ENDS", "").strip() == "1"
-try:   # whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒。TRANSCRIBE_END_TRIM で変える・0 でしない)
-    END_TRIM = max(0.0, min(0.5, float(os.environ.get("TRANSCRIBE_END_TRIM", "0.1"))))
+# whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒)。2026-10-07(0.57.1)に既定でやめた(0): 行の時刻の原則の ①
+# 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。10-05 の目安は「この行だけ再生」で聞くための値)。
+# TRANSCRIBE_END_TRIM=0.1 で戻せる(測り直すとき用。plan/line-b-row-timing.md の 7-1)
+try:
+    END_TRIM = max(0.0, min(0.5, float(os.environ.get("TRANSCRIBE_END_TRIM", "0"))))
 except ValueError:
-    END_TRIM = 0.1
+    END_TRIM = 0.0
+# 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。2026-10-07 = 0.57.1。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
+# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。plan/line-b-row-timing.md の 7-2)。TRANSCRIBE_JOIN_GAP=0 でやめる
+try:
+    JOIN_GAP = max(0.0, min(2.0, float(os.environ.get("TRANSCRIBE_JOIN_GAP", "0.5"))))
+except ValueError:
+    JOIN_GAP = 0.5
 PULL_GAP = 0.3        # 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを寄せる
 PULL_BACK = 0.4       # 終わりを早める上限(秒)。この幅の中の音の谷(いちばん小さい所)の左の端へ寄せる
 PULL_RISE = 6.0       # 谷から何 dB 上までを「谷の続き」とみるか
@@ -1329,7 +1342,8 @@ def pull_end(row, nxt, levels):
 
 def trim_ends(rows, sec):
     """whisper.cpp の行のうち、次の行とのすき間が PULL_GAP 秒以下の行の終わりを sec 秒だけ早める(行の長さは PULL_MIN 秒を残す。次の行の始まり・文字は変えない)。
-    2026-10-05 ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。音の谷へ寄せる pull_ends は早めすぎた(上の PULL_ENDS_ON)"""
+    2026-10-05 ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。音の谷へ寄せる pull_ends は早めすぎた(上の PULL_ENDS_ON)。
+    2026-10-07(0.57.1)から既定ではかけない(END_TRIM = 0。原則の ① に反するため)"""
     prev = None
     for p in rows:
         if prev is not None:
@@ -1354,6 +1368,23 @@ def pull_ends(rows, levels):
         yield prev
 
 
+def join_rows(rows, gap=None):
+    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ① 言葉の末を切らない > ② > ③。plan/line-b-row-timing.md の 7-2)。
+    0 < 次の始まり − 前の終わり ≤ gap(既定 JOIN_GAP)のときだけ。縮めない・重なり(次の始まりが前の終わりより前)は触らない・最後の行はそのまま・
+    文字と単語は変えない(延ばした所は単語の無いすき間)。gap が 0 以下なら何もしない。流れ(生成器)で受けて流す(次の行を1つ先に読む)"""
+    gap = JOIN_GAP if gap is None else gap
+    prev = None
+    for p in rows:
+        if prev is not None:
+            d = p["start"] - prev["end"]
+            if gap > 0 and 0 < d <= gap + 1e-9:
+                prev = {**prev, "end": p["start"]}
+            yield prev
+        prev = p
+    if prev is not None:
+        yield prev
+
+
 # ---------- 1 秒丸めの行の時刻の配り直し(2026-10-07。plan/line-b-row-timing.md の案 A) ----------
 # whisper.cpp(large-v3・Vulkan)は音声の中身によって、30 秒の窓の中の行の時刻をまるごと 1 秒単位に丸める(6.00–8.00 / 12.00–14.00 …。
 # 評価用 122 本の 27% の行。フラグ・音量・ドライバでは直らない)。丸まった窓だけ faster-whisper(CPU)にもう一度聞いて単語の時刻を取り、
@@ -1370,7 +1401,7 @@ QUANT_NOTE = "時刻が 1 秒単位に丸まった区間 %d か所(%d 行)を聞
 
 
 def quant_is_int(t, trim=None):
-    """時刻 t が整数秒か(行の終わりは trim_ends で END_TRIM だけ早めてあるので、trim を足した値も見る)"""
+    """時刻 t が整数秒か(行の終わりは trim_ends で END_TRIM だけ早めてあることがあるので、trim を足した値も見る。0.57.1 から END_TRIM は既定 0 = 整数かだけ)"""
     trim = END_TRIM if trim is None else trim
     return abs(t - round(t)) < QUANT_TOL or (trim > 0 and abs(t + trim - round(t + trim)) < QUANT_TOL)
 
@@ -1405,7 +1436,9 @@ def quant_retime(rows, spec, get_words, dur=None, text_key="text", words_key=Non
     """丸まった窓の行の時刻を配り直す。rows = 行の一覧(start・end・text_key の文字・単語)、get_words(a, b) = その区間を聞き直した単語 [[開始, 終了, 文字]…]
     (行と同じ秒)。-> (新しい行の一覧, 記録 | None)。記録 = {"windows": 窓の数, "rows": 時刻を変えた行の数, "spans": [[a, b]…], "model"}。
     行ごとに ed_retime.retime_raw(文字 ↔ 単語の fitting alignment)で候補を取り、頭の字が当たれば始まり・末の字が当たれば終わりを置き換える。
-    当たりが RETIME_MIN_MATCH 未満の行(聞き直しで文字が食い違った)は今のまま。前後の行と重なったら、あとの行の始まりを優先して前の行の終わりを詰める。
+    当たりが RETIME_MIN_MATCH 未満の行(聞き直しで文字が食い違った)は今のまま。候補の端が隣の行と重なるときは、その端だけ採らない(今の時刻のまま。
+    _quant_settle。0.57.1 = 計画 7-3。0.57.0 は「あとの行の始まりを信じて前の行の終わりを詰める」で、前の行の言葉の末を切ることがあった)。
+    最後に、窓の行と前後の 1 行ずつに join_rows をかける(配り直しでできたすき間を、言葉の末を切らない向きにつなぐ)。
     変えた行の単語(words_key。無ければ "_words" / "words")は聞き直した単語に置き換える(words.json・分け直しが良い時刻を使えるように)。
     whisper.cpp 以外・QUANT_ON でないときは何もしない。get_words が失敗(ApiError・EngineError)したら、その窓は今のままにして記録に "error" を残す"""
     if not QUANT_ON or engine_of(spec) != tx_engines.WhisperCpp.id or not rows:
@@ -1430,41 +1463,68 @@ def quant_retime(rows, spec, get_words, dur=None, text_key="text", words_key=Non
             continue
         starts = [x[0] for x in ws]
         idx = [i for i, r in enumerate(rows) if ed_state.num(r.get("start")) is not None and r["start"] >= a - 1e-6 and r["end"] <= b + 1e-6]
-        changed = []
+        if not idx:
+            continue
+        cur = {i: (float(rows[i]["start"]), float(rows[i]["end"])) for i in idx}
+        cand = {}
         for i in idx:
             r = rows[i]
             c = ed_retime.retime_raw({"start": r["start"], "end": r["end"], "text": r.get(text_key) or ""}, ws, starts)
             if not c or c["matched"] < ed_retime.RETIME_MIN_MATCH:
                 continue
-            s = c["start"] if c["head"] else float(r["start"])
-            e = c["end"] if c["tail"] else float(r["end"])
-            if e - s < ed_retime.RETIME_MIN_LEN:
-                continue
-            if abs(s - r["start"]) < 0.005 and abs(e - r["end"]) < 0.005:
-                continue
-            r["start"], r["end"] = round(s, 3), round(e, 3)
-            changed.append(i)
-        if not changed:
+            cand[i] = [c["start"] if c["head"] else cur[i][0], c["end"] if c["tail"] else cur[i][1]]
+        before = ed_state.num(rows[idx[0] - 1].get("end")) if idx[0] > 0 else None              # 窓の外の前の行の終わり
+        after = ed_state.num(rows[idx[-1] + 1].get("start")) if idx[-1] + 1 < len(rows) else None   # 窓の外の次の行の始まり
+        new = _quant_settle(idx, cur, cand, before, after)
+        if not new:
             continue
-        # 重なりの解消(行の順は変えない): あとの行の始まりを信じ、前の行の終わりを詰める。詰めると短すぎる行は始まりも寄せる
-        for i, j in zip(idx, idx[1:]):
-            p, q = rows[i], rows[j]
-            if q["start"] < p["end"]:
-                p["end"] = q["start"]
-                if p["end"] - p["start"] < ed_retime.RETIME_MIN_LEN:
-                    p["start"] = round(max(0.0, p["end"] - ed_retime.RETIME_MIN_LEN), 3)
-        # 窓の外の隣の行(丸まっていない窓の行)にはかからないようにする
-        if idx and idx[0] > 0 and ed_state.num(rows[idx[0] - 1].get("end")) is not None and rows[idx[0]]["start"] < rows[idx[0] - 1]["end"]:
-            rows[idx[0]]["start"] = round(min(rows[idx[0] - 1]["end"], rows[idx[0]]["end"] - ed_retime.RETIME_MIN_LEN), 3)
-        if idx and idx[-1] + 1 < len(rows) and ed_state.num(rows[idx[-1] + 1].get("start")) is not None and rows[idx[-1]]["end"] > rows[idx[-1] + 1]["start"]:
-            rows[idx[-1]]["end"] = round(max(rows[idx[-1] + 1]["start"], rows[idx[-1]]["start"] + ed_retime.RETIME_MIN_LEN), 3)
+        for i, (s, e) in new.items():
+            rows[i]["start"], rows[i]["end"] = round(s, 3), round(e, 3)
         key = words_key or ("_words" if any("_words" in rows[i] for i in idx) else "words")
-        for i in changed:
+        for i in new:
             r = rows[i]
             mine = [w for w in ws if r["start"] - 1e-6 <= (w[0] + w[1]) / 2 <= r["end"] + 1e-6]
             r[key] = [tuple(w) for w in mine] if key == "_words" else [list(w) for w in mine]
-        info["rows"] += len(changed)
+        # 配り直しでできたすき間をつなぐ(窓の行と、窓の外の前後の 1 行。終わりを次の始まりへ延ばすだけ = 窓の外の行に重ならない)
+        lo, hi = max(0, idx[0] - 1), min(len(rows), idx[-1] + 2)
+        rows[lo:hi] = list(join_rows(rows[lo:hi], JOIN_GAP))
+        info["rows"] += len(new)
     return rows, (info if info["rows"] or info.get("error") else None)
+
+
+def _quant_settle(idx, cur, cand, before=None, after=None):
+    """配り直しの候補 cand {行の添字: [始まり, 終わり]} を、隣の行と重ならない形に整える(行の時刻の原則 ①「言葉を切らない」。計画 7-3)。
+    idx = 窓の行の添字(時刻の順)・cur = 今の時刻 {添字: (始まり, 終わり)}・before / after = 窓の外の前の行の終わり / 次の行の始まり(無ければ None)。
+    ① 窓の外の行とは: 候補の始まりが before より前なら before まで(今の始まりより後ろにはしない)・候補の終わりが after より後ろなら after まで(今の終わりより前にはしない)
+    ② 窓の中の隣の行どうしで端が重なったら、重なった端のうち候補から採った端を今の時刻に戻す(どちらの言葉も聞き直した単語で「切る」向きに動かさない。境目は join_rows に任せる)
+    ③ 長さが RETIME_MIN_LEN 未満になる行・今と変わらない行は候補から外す(今の時刻のまま)。②③ は変わらなくなるまで繰り返す(戻すだけなので必ず終わる)
+    -> {添字: [始まり, 終わり]}(変える行だけ)"""
+    eps = 1e-6
+    new = {i: list(v) for i, v in cand.items()}
+    if idx and idx[0] in new and before is not None and new[idx[0]][0] < before - eps:
+        new[idx[0]][0] = min(before, cur[idx[0]][0])
+    if idx and idx[-1] in new and after is not None and new[idx[-1]][1] > after + eps:
+        new[idx[-1]][1] = max(after, cur[idx[-1]][1])
+
+    def val(i):
+        return new.get(i) or list(cur[i])
+    changed = True
+    while changed:
+        changed = False
+        for i, j in zip(idx, idx[1:]):
+            if val(i)[1] > val(j)[0] + eps:
+                if i in new and abs(new[i][1] - cur[i][1]) > eps:
+                    new[i][1] = cur[i][1]
+                    changed = True
+                if j in new and abs(new[j][0] - cur[j][0]) > eps:
+                    new[j][0] = cur[j][0]
+                    changed = True
+        for i in list(new):
+            s, e = new[i]
+            if e - s < ed_retime.RETIME_MIN_LEN or (abs(s - cur[i][0]) < 0.005 and abs(e - cur[i][1]) < 0.005):
+                del new[i]
+                changed = True
+    return new
 
 
 def quant_words_provider(job, spec, wav, offset=0.0):
@@ -1541,8 +1601,16 @@ def recognition_run(spec, job, audio_sec, wall_sec):
             "settings": {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
                          "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []], "dict": dict_version(spec)},
-            "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000),
+            "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000), "post": post_record(),
             **vad_record(job.get("vad")), **({"retimed": job["quant"]} if job.get("quant") else {})}
+
+
+def post_record():
+    """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 dev/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
+    version = 編集の版・endTrim = END_TRIM(whisper.cpp の続いている行の終わりを早める秒)・joinGap = JOIN_GAP(続いている行をつなぐすき間)・
+    pullEnds = 音の谷へ寄せるか・retime = 1 秒丸めの配り直しのモデル(やめているなら False)"""
+    return {"version": str(getattr(ed_state, "SERVER_VERSION", "") or ""), "endTrim": END_TRIM, "joinGap": JOIN_GAP, "pullEnds": PULL_ENDS_ON,
+            "retime": QUANT_MODEL if QUANT_ON else False}
 
 
 def short_hash(text):
@@ -1633,7 +1701,7 @@ def record_rerun(doc, spec, kind, spans, replaced):
            "language": str(spec.get("language") or ""),
            "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                         "autoDict": bool(spec.get("autoDict")), "dict": dict_version(spec)},
-           "range": [min(a for a, _ in spans), max(b for _, b in spans)], "replaced": rep, "at": int(time.time() * 1000)}
+           "range": [min(a for a, _ in spans), max(b for _, b in spans)], "replaced": rep, "at": int(time.time() * 1000), "post": post_record()}
     if len(spans) > 1:
         run["spans"] = spans[:MAX_REPLACED_ROWS]
     if len(replaced) > len(rep):
@@ -2348,15 +2416,16 @@ def range_lines_real(job, model, kw, audio, spec, offset, wav=None):
             raise Cancelled()
         raw.append(seg_to_dict(s))
         job["progress"] = min(0.95, 0.1 + float(s.end) / max(1e-6, hi - lo))
-    return finish_range_lines(raw, spec, lo + offset, row_levels(spec, wav, lo))
+    return finish_range_lines(raw, spec, lo + offset, row_levels(spec, wav, lo), join=False)   # 疑わしい所の認識し直し: 文字を比べるだけで時刻を使わない(続いている行をつながない)
 
 
-def finish_range_lines(raw, spec, shift, levels=None):
+def finish_range_lines(raw, spec, shift, levels=None, join=True):
     """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。
-    levels = 行の終わりを声の終わりへ寄せるための音の大きさ(row_levels。チャンクの 0 秒 = wav の何秒目か を base に)"""
+    levels = 行の終わりを声の終わりへ寄せるための音の大きさ(row_levels。チャンクの 0 秒 = wav の何秒目か を base に)。
+    join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
     a, b = spec["range"]
     out, prev = [], []
-    for s in expand_segments(raw, spec, levels=levels):
+    for s in expand_segments(raw, spec, levels=levels, join=join):
         if not s["text"]:
             continue
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
@@ -2543,7 +2612,7 @@ def run_redo(job):
             sub = dict(spec, range=[a, b])
             if fake:   # テスト用: 行の長さに見合う文字数の文(TRANSCRIBE_FAKE_REDO=worse なら短いまま)
                 txt = "あ" if os.environ.get("TRANSCRIBE_FAKE_REDO") == "worse" else "認識し直した文" * max(1, int((b - a) * 2 / 7) + 1)
-                lines = finish_range_lines([{"start": 0.0, "end": b - a, "text": txt, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}], sub, a)
+                lines = finish_range_lines([{"start": 0.0, "end": b - a, "text": txt, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.2}], sub, a, join=False)
                 time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
             else:
                 lines = range_lines_real(job, model, kw, audio, sub, start, wav)

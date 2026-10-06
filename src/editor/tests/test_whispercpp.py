@@ -350,19 +350,26 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual([r["text"] for r in out], ["前の行次の行"])                     # 5 秒より後ろの行は捨てる
         self.assertEqual(out[0]["end"], 4.0)
         seg2 = {"start": 0.0, "end": 4.0, "text": "前の行次の行", "words": [(0.0, 1.98, "前の行"), (2.0, 4.0, "次の行")]}
-        # 2026-10-05: 音の谷へ寄せる後処理は既定でやめた(前で切れすぎた)。代わりに続いている行の終わりを END_TRIM(0.1 秒)だけ早める(ユーザーの目安)
+        # 2026-10-05: 音の谷へ寄せる後処理は既定でやめた(前で切れすぎた)。2026-10-07(0.57.1): 終わりを早める END_TRIM も既定でやめ(0)、
+        # 続いている行(すき間 JOIN_GAP 0.5 秒以下)の終わりを次の行の始まりへ延ばす(行の時刻の原則 ① 言葉の末を切らない)
         out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0, S.row_levels(spec, wav)))
         self.assertEqual([r["text"] for r in out], ["前の行", "次の行"])
-        self.assertAlmostEqual(out[0]["end"], 1.88, places=3)
+        self.assertEqual(out[0]["end"], 2.0)                                               # 1.98 → 次の行の始まり 2.0 へ
+        self.assertEqual(out[0]["_words"], [(0.0, 1.98, "前の行")])                         # 単語は変えない
         self.assertEqual(out[1]["start"], 2.0)                                             # 次の行の始まりは変えない
         self.assertEqual(out[1]["end"], 4.0)                                               # 最後の行(次が無い)は変えない
-        # TRANSCRIBE_PULL_ENDS=1 のときだけ、単語の時刻で分けた行(splitChars 3)の境目が声の終わりへ寄る
-        with mock.patch.object(S, "PULL_ENDS_ON", True):
+        # TRANSCRIBE_PULL_ENDS=1(と TRANSCRIBE_JOIN_GAP=0)のときだけ、単語の時刻で分けた行(splitChars 3)の境目が声の終わりへ寄る
+        # (つなぐのは寄せたあとなので、JOIN_GAP が 0 でなければ寄せた分はつながって戻る)
+        with mock.patch.object(S, "PULL_ENDS_ON", True), mock.patch.object(S, "JOIN_GAP", 0.0):
             out = list(S.expand_segments([seg2], dict(spec, splitChars=3), 5.0, S.row_levels(spec, wav)))
         self.assertAlmostEqual(out[0]["end"], 1.75, delta=0.03)
         self.assertEqual(out[1]["start"], 2.0)                                             # 次の行の始まりは変えない
-        out = list(S.expand_segments([seg2], dict(spec, splitChars=3, engine="faster-whisper"), 5.0, S.row_levels(dict(spec, engine="faster-whisper"), wav)))
+        fw = dict(spec, splitChars=3, engine="faster-whisper")
+        with mock.patch.object(S, "JOIN_GAP", 0.0):
+            out = list(S.expand_segments([seg2], fw, 5.0, S.row_levels(fw, wav)))
         self.assertEqual(out[0]["end"], 1.98)                                              # faster-whisper は寄せない
+        out = list(S.expand_segments([seg2], fw, 5.0, S.row_levels(fw, wav)))
+        self.assertEqual(out[0]["end"], 2.0)                                               # つなぐのは全エンジン
 
     def test_trim_ends(self):
         rows = [row(0.0, 1.0, "a"), row(1.1, 2.0, "b"), row(3.0, 3.25, "c"), row(3.3, 4.0, "d")]
@@ -371,15 +378,72 @@ class RowTidyTest(unittest.TestCase):
         self.assertEqual(out[1]["end"], 2.0)                         # 次まで 1 秒空いている → そのまま
         self.assertEqual(out[2]["end"], 3.25)                        # 短い行(PULL_MIN より短くなる)は早めない(のばしもしない)
         self.assertEqual(out[3]["end"], 4.0)                         # 最後の行はそのまま
-        with mock.patch.object(S, "END_TRIM", 0.0):
-            out = list(S.expand_segments([row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")], {"wordSplit": False, "engine": "whisper.cpp"}, None, None))
-            self.assertEqual(out[0]["end"], 1.0)                     # 0 ならしない
-        out = list(S.expand_segments([row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")], {"wordSplit": False, "engine": "whisper.cpp"}, None, None))
-        self.assertAlmostEqual(out[0]["end"], 0.9, places=3)         # 既定(0.1 秒)
+        two = [row(0.0, 1.0, "あ"), row(1.0, 2.0, "い")]
+        wc = {"wordSplit": False, "engine": "whisper.cpp"}
+        self.assertEqual(S.END_TRIM, 0.0)                             # 2026-10-07(0.57.1)から既定でやめた(原則 ① 言葉の末を切らない)
+        out = list(S.expand_segments(two, wc, None, None))
+        self.assertEqual(out[0]["end"], 1.0)                         # 既定(0)ならしない
+        with mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):
+            out = list(S.expand_segments(two, wc, None, None))
+            self.assertAlmostEqual(out[0]["end"], 0.9, places=3)     # TRANSCRIBE_END_TRIM=0.1 と TRANSCRIBE_JOIN_GAP=0 で 0.57.0 の形に戻せる
+        with mock.patch.object(S, "END_TRIM", 0.1):
+            out = list(S.expand_segments(two, wc, None, None))
+            self.assertEqual(out[0]["end"], 1.0)                     # つなぐのは早めたあと = JOIN_GAP が 0 でなければ早めた分はつながって戻る
 
 
-if __name__ == "__main__":
-    unittest.main()
+class JoinRowsTest(unittest.TestCase):
+    """続いている行の終わりを次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ①。plan/line-b-row-timing.md の 7-2)"""
+
+    def test_join_small_gaps_only(self):
+        rows = [row(0.0, 1.0, "a"), row(1.3, 2.0, "b"), row(2.5, 3.0, "c"), row(3.51, 4.0, "d"), row(3.9, 5.0, "e"), row(5.0, 6.0, "f"), row(6.2, 7.0, "g")]
+        out = list(S.join_rows(iter(rows), 0.5))
+        self.assertEqual([(r["start"], r["end"]) for r in out],
+                         [(0.0, 1.3),     # すき間 0.3 → つなぐ
+                          (1.3, 2.5),     # ちょうど 0.5 → つなぐ
+                          (2.5, 3.0),     # 0.51 → そのまま
+                          (3.51, 4.0),    # 重なり(次の始まりが前の終わりより前)は触らない
+                          (3.9, 5.0),     # すき間 0 → そのまま
+                          (5.0, 6.2),
+                          (6.2, 7.0)])    # 最後の行はそのまま
+        self.assertEqual(out[0]["_words"], [(0.0, 1.0, "a")])                              # 単語・文字は変えない
+        self.assertEqual(out[0]["text"], "a")
+        self.assertEqual(rows[0]["end"], 1.0)                                              # 元の行は書き換えない
+        self.assertEqual([r["end"] for r in S.join_rows(rows, 0.0)], [r["end"] for r in rows])   # 0 なら何もしない
+        self.assertEqual(list(S.join_rows([], 0.5)), [])
+        self.assertEqual(S.JOIN_GAP, 0.5)                                                  # 既定(TRANSCRIBE_JOIN_GAP)
+
+    def test_expand_segments_joins_all_engines(self):
+        rows = [row(0.0, 1.0, "あ"), row(1.4, 2.0, "い"), row(3.0, 4.0, "う")]
+        for eng in ("whisper.cpp", "faster-whisper", "qwen3-asr"):
+            out = list(S.expand_segments(rows, {"wordSplit": False, "engine": eng}, None, None))
+            self.assertEqual([r["end"] for r in out], [1.4, 2.0, 4.0], eng)
+        with mock.patch.object(S, "JOIN_GAP", 0.0):                                       # TRANSCRIBE_JOIN_GAP=0 でやめる
+            out = list(S.expand_segments(rows, {"wordSplit": False, "engine": "faster-whisper"}, None, None))
+        self.assertEqual([r["end"] for r in out], [1.0, 2.0, 4.0])
+        out = list(S.expand_segments(rows, {"wordSplit": False, "engine": "faster-whisper"}, None, None, join=False))
+        self.assertEqual([r["end"] for r in out], [1.0, 2.0, 4.0])                         # 時刻を使わない呼び出し(2つ目のエンジンの候補)はつながない
+
+    def test_range_lines_join_but_redo_does_not(self):
+        raw = [{"start": 0.0, "end": 1.0, "text": "前の行"}, {"start": 1.2, "end": 2.0, "text": "次の行"}]
+        spec = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False, "engine": "whisper.cpp", "glossary": []}
+        with mock.patch.object(S, "prompt_terms", lambda s: []):
+            lines = S.finish_range_lines(raw, spec, 10.0)                                   # 範囲・全体の再認識(RangeRecognizer.main)はつなぐ
+            self.assertEqual([(x["start"], x["end"]) for x in lines], [(10.0, 11.2), (11.2, 12.0)])
+            lines = S.finish_range_lines(raw, spec, 10.0, join=False)                       # 疑わしい所の認識し直し(range_lines_real)はつながない
+            self.assertEqual([(x["start"], x["end"]) for x in lines], [(10.0, 11.0), (11.2, 12.0)])
+
+    def test_post_record(self):
+        post = S.post_record()
+        self.assertEqual(post["version"], S.SERVER_VERSION)
+        self.assertEqual((post["endTrim"], post["joinGap"], post["pullEnds"]), (0.0, 0.5, False))
+        spec = {"engine": "whisper.cpp", "model": "large-v3", "beam": 5, "vadMode": "weak", "language": "ja", "glossary": []}
+        with mock.patch.object(S, "prompt_terms", lambda s: []), mock.patch.object(S, "dict_version", lambda s: {}):
+            run = S.recognition_run(spec, {"device": "vulkan"}, 40.0, 7.0)
+        self.assertEqual(run["post"], post)                                                  # recognition.runs[].post(dev/eval_timing.py が版ごとに分ける)
+        doc = {"original": []}
+        with mock.patch.object(S, "dict_version", lambda s: {}):
+            S.record_rerun(doc, spec, "range", [[1.0, 2.0]], [])
+        self.assertEqual(doc["recognition"]["runs"][-1]["post"]["joinGap"], 0.5)
 
 
 class QuantRetimeTest(unittest.TestCase):
@@ -401,7 +465,8 @@ class QuantRetimeTest(unittest.TestCase):
         more = rows + [row(25.0, 29.9, "e"), row(31.0, 32.9, "f"), row(33.0, 34.9, "g"), row(35.0, 36.9, "h"), row(70.0, 71.9, "i"), row(72.0, 73.9, "j"), row(74.0, 75.9, "k")]
         self.assertEqual(S.quant_windows(more), [(0.0, 36.9), (70.0, 75.9)])
         self.assertEqual(S.quant_windows(rows + more[7:]), [(0.0, 23.9), (31.0, 36.9), (70.0, 75.9)])   # 23.9 → 31.0 のすき間 7 秒は別々に聞く
-        self.assertTrue(S.quant_is_int(13.9) and S.quant_is_int(14.0) and not S.quant_is_int(13.6))
+        self.assertTrue(S.quant_is_int(14.0) and not S.quant_is_int(13.6) and not S.quant_is_int(13.9))   # 0.57.1 から END_TRIM は既定 0 = 整数かだけ
+        self.assertTrue(S.quant_is_int(13.9, 0.1))                                                       # 終わりを早めた行(TRANSCRIBE_END_TRIM=0.1)は足した値も見る
 
     def test_retime_moves_rows_to_words_and_replaces_words(self):
         rows = self.quant_rows()
@@ -432,16 +497,29 @@ class QuantRetimeTest(unittest.TestCase):
         rows = [row(0.0, 1.9, "はい"), row(2.0, 3.9, "行きます"), row(4.0, 5.9, "全然違う文")]
         words = [[0.3, 0.8, "はい"], [0.9, 2.6, "行き"], [2.6, 3.0, "ます"], [3.5, 4.2, "ほか"], [4.2, 5.0, "の言葉"]]
         out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
-        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 0.8))
-        self.assertEqual((out[1]["start"], out[1]["end"]), (0.9, 3.0))                      # 前の行の終わり(0.8)より早い始まり → 前の行は詰めない(重なっていない)
-        self.assertEqual((out[2]["start"], out[2]["end"]), (4.0, 5.9))                      # 文字が当たらない行は今のまま
+        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 0.9))                      # 0.8 → すき間 0.1 は次の行の始まり 0.9 へつなぐ(0.57.1)
+        self.assertEqual((out[1]["start"], out[1]["end"]), (0.9, 3.0))
+        self.assertEqual((out[2]["start"], out[2]["end"]), (4.0, 5.9))                      # 文字が当たらない行は今のまま(3.0 → 4.0 のすき間 1 秒はつながない)
         self.assertEqual(info["rows"], 2)
-        # 重なったら、あとの行の始まりを優先して前の行の終わりを詰める
+        self.assertEqual(out[0]["_words"], [(0.3, 0.8, "はい")])                              # つないでも単語は聞き直したまま
+        # 候補どうしが重なったら(0.57.1 = 計画 7-3)、重なった端は採らずに今の時刻のまま → すき間はつなぐ(前の行の言葉の末を切らない)。
+        # 0.57.0 は「あとの行の始まりを信じて前の行の終わりを詰める」で (0.3, 1.8)・(1.8, 3.0) = 前の行の「はい」(〜2.5)を切っていた
         rows = [row(0.0, 1.9, "はい"), row(2.0, 3.9, "行きます"), row(4.0, 5.9, "全然違う文")]
         words = [[0.3, 2.5, "はい"], [1.8, 2.6, "行き"], [2.6, 3.0, "ます"]]
-        out, _info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
-        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 1.8))
-        self.assertEqual((out[1]["start"], out[1]["end"]), (1.8, 3.0))
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
+        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 2.0))                      # 始まりは候補・終わりは今の 1.9 → 次の行の 2.0 へつなぐ
+        self.assertEqual((out[1]["start"], out[1]["end"]), (2.0, 3.0))                      # 始まりは今のまま・終わりは候補
+        self.assertEqual(info["rows"], 2)
+
+    def test_does_not_cut_unmatched_neighbor(self):
+        # 文字が当たらない行(候補なし)の終わりより前に、次の行の候補の始まりが来ても、当たらない行は切らない(次の行の始まりを今のままに)
+        rows = [row(0.0, 1.9, "全然違う文"), row(2.0, 3.9, "行きます"), row(4.0, 5.9, "そうそう")]
+        words = [[0.2, 0.9, "ほかの言葉"], [1.2, 2.6, "行きます"], [4.1, 5.0, "そうそう"]]
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
+        self.assertEqual([(r["start"], r["end"]) for r in out], [(0.0, 2.0), (2.0, 2.6), (4.1, 5.0)])
+        # 1 行目: 当たらない = 今のまま(0.57.0 は次の行の候補の始まり 1.2 で終わりを切っていた)→ すき間 0.1 は次の行の 2.0 へつなぐ /
+        # 2 行目: 候補の始まり 1.2 は 1 行目に重なるので採らない(今の 2.0)・終わりは候補の 2.6 / 3 行目: 候補のまま(2.6 → 4.1 のすき間 1.5 秒はつながない)
+        self.assertEqual(info["rows"], 2)
 
     def test_skips_other_engines_off_switch_and_failures(self):
         rows = self.quant_rows()
@@ -499,3 +577,8 @@ class QuantRetimeTest(unittest.TestCase):
         with mock.patch.object(S, "prompt_terms", lambda s: []), mock.patch.object(S, "dict_version", lambda s: {}):
             run = S.recognition_run(spec, job, 40.0, 7.0)
         self.assertEqual(run["retimed"]["rows"], 5)
+        self.assertIn("post", run)
+
+
+if __name__ == "__main__":
+    unittest.main()
