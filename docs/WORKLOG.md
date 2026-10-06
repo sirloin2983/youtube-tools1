@@ -1728,7 +1728,7 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 ## 2026-10-07 Claude Code(Fable。まとめ役)— ②③④ のまとめと最終の通しテスト(ユーザー指示 ①〜④ の終わり)
 - 変更(この日の全体。細部は各担当の記録): ② A2 あと何本(入口 0.38.0)・「すべて終了」で録画の部品も止める(0.38.1)・線 D M1〜M3(0.39.0)・M4〜M7(0.40.0。配信後の全自動は既定オフ)・B1 行の時刻 0.57.1・A1 話者のしきい値 0.6(編集 0.58.0)・B2 手元の 4 エンジンの比較(測るだけ)/
   ③ 全フォルダの見直し(動きは同じ。dev・studio 0.21.1・ui-kit v18・friend-apps 1.4.2/2.1.1・cut2resolve 0.21.1・recorder 0.3.1・ytt_core・editor 0.57.2/0.58.1・home 0.40.1)/ ④ plan/improvements.md(0 = 次に手を付けるなら)・decisions.md(仮決め (a)〜(r))・data.js と公開ページ(claude.ai の Artifact 版 9)
-- 最終の通し(リポジトリ直下。ytt_core 108・home 395・studio 309・cut2resolve 350・recorder 26・editor 552・dev 274・契約 35 件 = すべて OK。node: review.cjs ✔ live recordings are registered in one place with the channel name (core.js register; rank.js "録画する" / "開く" pass the row channel) (1.723ms) ℹ pass 35 ℹ fail 0 / document_save.cjs ℹ pass 10 ℹ fail 0 。e2e 29 本すべて OK(1 本ずつ)。ホロカラーの e2e は流していない)
+- 最終の通し(リポジトリ直下。ytt_core 108・home 395・studio 309・cut2resolve 350・recorder 26・editor 552・dev 274・契約 35 件 = すべて OK。node: review.cjs 35 件 OK・document_save.cjs 10 件 OK。e2e 29 本すべて OK(1 本ずつ)。ホロカラーの e2e は流していない)
 - 決定・理由: 仮で決めたことは plan/decisions.md の 3。サブエージェント: 読むだけ Haiku 2・規則の直しと測定 Sonnet 10・設計と広い部品 Opus 11(各担当の記録に明記)
 - 注意: 入口は起動し直しが要る(ユーザー)。測った JSON(A1・B2)は AI の scratchpad だけ(MSIX の写し)。dev/eval_asr.py の設定の差し替えが効いていない件は improvements の 0 の 2
 - 未完了・次: plan/improvements.md の 0。残り: L0(配信中に)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)
