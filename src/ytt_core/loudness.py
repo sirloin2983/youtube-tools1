@@ -13,6 +13,7 @@ TRUE_PEAK_CEIL = -1.0   # 上げたときに音が割れないよう、ピーク
 MAX_GAIN_DB = 20.0      # 静かすぎる音を持ち上げすぎない(雑音まで大きくなる)
 MIN_GAIN_DB = 0.1       # これより小さい調整はしない(音声を作り直すだけ損)
 MAX_SPANS = 400         # 区間ごとに測るときの区間の数の上限(多すぎるときは全体で測る)
+_FIELD = {k: re.compile(r'"%s"\s*:\s*"([^"]+)"' % k) for k in ("input_i", "input_tp")}   # loudnorm の JSON の値(文字列)
 
 
 def check_target(v):
@@ -51,17 +52,18 @@ def db_to_pct(db):
 
 def parse(text):
     """loudnorm の出力 -> (統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)"""
-    vals = {}
-    for key in ("input_i", "input_tp"):
-        m = re.search(r'"%s"\s*:\s*"([^"]+)"' % key, text or "")
-        try:
-            vals[key] = float(m.group(1)) if m else None
-        except ValueError:
-            vals[key] = None
-    i, tp = vals["input_i"], vals["input_tp"]
-    if i is None or not (-70.0 <= i <= 10.0) or tp is None or tp != tp or abs(tp) == float("inf"):
+    i, tp = _field(text, "input_i"), _field(text, "input_tp")
+    if i is None or not (-70.0 <= i <= 10.0) or tp is None or not math.isfinite(tp):
         return None, None
     return i, tp
+
+
+def _field(text, key):
+    m = _FIELD[key].search(text or "")
+    try:
+        return float(m.group(1)) if m else None
+    except ValueError:
+        return None
 
 
 def gain(target, i, tp, *more_tps):

@@ -29,7 +29,7 @@ import sys
 import threading
 import time
 
-from . import layout
+from . import fsio, layout
 
 APP_DIR_NAME = "youtube-tools"
 INPLACE = "inplace"
@@ -130,8 +130,7 @@ def _ignore_links(src, names):
 def _copy_item(src, dst):
     """src を dst へ(一時的な名前 → 確かめる → 改名)。-> (バイト数, ファイル数)。失敗したら一時的なものを消して例外"""
     tmp = dst + PART + "%d" % os.getpid()
-    if os.path.lexists(tmp):
-        shutil.rmtree(tmp, ignore_errors=True) if os.path.isdir(tmp) else os.remove(tmp)
+    _remove_any(tmp)
     try:
         if os.path.isdir(src):
             shutil.copytree(src, tmp, ignore=_ignore_links)
@@ -143,31 +142,27 @@ def _copy_item(src, dst):
         os.replace(tmp, dst)
         return got
     except BaseException:
-        if os.path.isdir(tmp):
-            shutil.rmtree(tmp, ignore_errors=True)
-        elif os.path.lexists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+        _remove_any(tmp)
         raise
 
 
-def _try_remove(p):
-    try:
-        os.remove(p)
-    except OSError:
-        pass
+def _remove_any(p):
+    """ファイルかフォルダを消す(無い・消せなくても上げない)"""
+    if os.path.isdir(p):
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        fsio.unlink_quiet(p)
 
 
 def _clean_parts(d):
+    """前回のコピーの途中で止まった一時的なもの(名前に PART)を消す"""
     try:
-        for n in os.listdir(d):
-            if PART in n:
-                p = os.path.join(d, n)
-                shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)
+        names = os.listdir(d)
     except OSError:
-        pass
+        return
+    for n in names:
+        if PART in n:
+            _remove_any(os.path.join(d, n))
 
 
 def read_marker(d):
@@ -195,65 +190,53 @@ def prepare(tool, legacy_dir, items, env=None, log=None, free_bytes=None):
 def _prepare(tool, legacy_dir, items, env, log, free_bytes):
     say = log or (lambda m: None)
     legacy_dir = os.path.abspath(legacy_dir)
+
+    def result(d, state, warning=None, migrated=()):
+        return {"dir": d, "legacy": legacy_dir, "migrated": list(migrated), "warnings": [warning] if warning else [], "state": state}
     o = override(tool, env)
     if o:
-        return {"dir": o, "legacy": legacy_dir, "migrated": [], "warnings": [], "state": "override"}
+        return result(o, "override")
     root = data_root(env)
     if root is None:
-        return {"dir": legacy_dir, "legacy": legacy_dir, "migrated": [], "warnings": [], "state": "inplace"}
+        return result(legacy_dir, "inplace")
     new = os.path.join(root, tool)
-    out = {"dir": new, "legacy": legacy_dir, "migrated": [], "warnings": [], "state": "done"}
     if os.path.normcase(new) == os.path.normcase(legacy_dir):
-        out["state"] = "inplace"
-        return out
+        return result(new, "inplace")
     try:
         os.makedirs(new, exist_ok=True)
     except OSError as e:
-        out.update(dir=legacy_dir, state="failed")
-        out["warnings"].append("データのフォルダ %s を作れないため、以前の場所(%s)を使います: %s" % (new, legacy_dir, e))
-        return out
+        return result(legacy_dir, "failed", "データのフォルダ %s を作れないため、以前の場所(%s)を使います: %s" % (new, legacy_dir, e))
     _clean_parts(new)
     if read_marker(new):
-        return out
+        return result(new, "done")
     todo = [n for n in items if os.path.lexists(os.path.join(legacy_dir, n)) and not os.path.lexists(os.path.join(new, n))]
     if not todo:
-        out["state"] = "new" if not any(os.path.lexists(os.path.join(legacy_dir, n)) for n in items) else "done"
+        state = "new" if not any(os.path.lexists(os.path.join(legacy_dir, n)) for n in items) else "done"
         _write_marker(new, legacy_dir, [], 0)
-        return out
+        return result(new, state)
     need = sum(_size(os.path.join(legacy_dir, n))[0] for n in todo)
     try:
         free = shutil.disk_usage(new).free if free_bytes is None else free_bytes
     except OSError:
         free = None
     if free is not None and free < need + SPACE_MARGIN:
-        out.update(dir=legacy_dir, state="failed")
-        out["warnings"].append("空き容量が足りないため、データを %s へ移せませんでした(必要 約%dMB・空き 約%dMB)。以前の場所(%s)のまま動きます"
-                               % (new, (need + SPACE_MARGIN) // 2**20, free // 2**20, legacy_dir))
-        return out
+        return result(legacy_dir, "failed", "空き容量が足りないため、データを %s へ移せませんでした(必要 約%dMB・空き 約%dMB)。以前の場所(%s)のまま動きます"
+                      % (new, (need + SPACE_MARGIN) // 2**20, free // 2**20, legacy_dir))
     say("作業データを %s へコピーしています(約%dMB。元の %s は消しません)…" % (new, need // 2**20, legacy_dir))
     copied, total = [], 0
     for n in todo:
         try:
             b, _ = _copy_item(os.path.join(legacy_dir, n), os.path.join(new, n))
         except (OSError, shutil.Error) as e:
-            # 今回写した分は消す(以前の場所のまま動く間に古くなるので、次に写すときに新しい方を写し直す)
-            for c in copied:
-                p = os.path.join(new, c)
-                shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else _try_remove(p)
-            out.update(dir=legacy_dir, state="failed")
-            out["warnings"].append("データのコピーに失敗したため、以前の場所(%s)のまま動きます(%s: %s)" % (legacy_dir, n, e))
-            return out
+            for c in copied:   # 今回写した分は消す(以前の場所のまま動く間に古くなるので、次に写すときに新しい方を写し直す)
+                _remove_any(os.path.join(new, c))
+            return result(legacy_dir, "failed", "データのコピーに失敗したため、以前の場所(%s)のまま動きます(%s: %s)" % (legacy_dir, n, e))
         copied.append(n)
         total += b
     _write_marker(new, legacy_dir, copied, total)
-    out.update(state="migrated", migrated=copied)
     say("コピーしました: %s(元のデータは %s に残っています。確かめてから消してください)" % (", ".join(copied), legacy_dir))
-    return out
+    return result(new, "migrated", migrated=copied)
 
 
 def _write_marker(d, legacy, items, total):
-    m = {"from": legacy, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "items": items, "bytes": total}
-    tmp = os.path.join(d, MARKER + PART + "%d" % os.getpid())
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(m, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, os.path.join(d, MARKER))
+    fsio.write_json(os.path.join(d, MARKER), {"from": legacy, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "items": items, "bytes": total})

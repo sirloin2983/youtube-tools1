@@ -45,6 +45,9 @@ _BRACKET = re.compile(r"\[[^\[\]\n]{0,12}\]")
 _SPACE = re.compile(r"[ \t　]+")
 _PUNCT_RUN = re.compile(r"([、。,，.．!！?？…])(?:[ 　]*[、。,，.．])+")
 _LEAD_PUNCT = re.compile(r"^[ 　、。,，.．]+")
+_WIDE_GAP = re.compile(r"(?<=[^\x00-\x7f]) | (?=[^\x00-\x7f])")   # 日本語の文字の隣の空白(記号を抜いた跡)
+_PATH_SEP = re.compile(r"[\\/]")
+_OP_CHARS = re.compile(r"[^\w\-.]")   # 操作の記録の文字の項目で残さない文字
 _BAD = (
     re.compile(r"[【［(（〔<＜《「]\s*(?:笑|わら|ワラ|爆笑|苦笑|\?|？)\s*[】］)）〕>＞》」]"),   # 【笑】 (笑) （？） など(括弧の形が違う)
     re.compile(r"\[\s*(?:？|わら|ワラ|笑い|爆笑|苦笑|不明|聞き取れず|\?\?+)\s*\]"),          # [？] [わら] [不明] など(中身が違う)
@@ -57,14 +60,19 @@ def _nfc(text):
     return unicodedata.normalize("NFC", str(text or ""))
 
 
-def strip_marks(text):
-    """Resolve 用の字幕の文字: [?]・[笑] を取り除き、余分な空白と続いた句読点を詰める。空になったら ""(その行は字幕にしない)。
-    行の折り返しは、この結果の文字数で数える(呼び出し側。ブリーフのエッジケース)"""
+def _marks_to_space(text):
+    """NFC にして、正しい記号([?]・[笑])を空白にした文字"""
     s = _nfc(text)
     for m in MARKS:
         s = s.replace(m, " ")
-    s = _SPACE.sub(" ", s)
-    s = re.sub(r"(?<=[^\x00-\x7f]) | (?=[^\x00-\x7f])", "", s)   # 日本語の文字の隣の空白は消す(記号を抜いた跡)
+    return s
+
+
+def strip_marks(text):
+    """Resolve 用の字幕の文字: [?]・[笑] を取り除き、余分な空白と続いた句読点を詰める。空になったら ""(その行は字幕にしない)。
+    行の折り返しは、この結果の文字数で数える(呼び出し側。ブリーフのエッジケース)"""
+    s = _SPACE.sub(" ", _marks_to_space(text))
+    s = _WIDE_GAP.sub("", s)   # 日本語の文字の隣の空白は消す(記号を抜いた跡)
     s = _PUNCT_RUN.sub(lambda m: m.group(1) if m.group(1) not in "、,，" else _last_punct(m.group(0)), s)
     s = _LEAD_PUNCT.sub("", s).strip()
     return s
@@ -96,9 +104,7 @@ def bad_marks(text):
 
 def count_fillers(text):
     """フィラー(えー・あのー など)の数。長いものから数え、数えた所は消して二重に数えない。記号は数えない"""
-    s = _nfc(text)
-    for m in MARKS:
-        s = s.replace(m, " ")
+    s = _marks_to_space(text)
     n = 0
     for f in FILLERS:
         k = s.count(f)
@@ -128,7 +134,7 @@ _ABS_ANY = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\[^\\/\s]+[\\/]|
 
 def base_name(path):
     """パス -> ファイル名だけ(\\ と / のどちらの区切りでも)"""
-    return re.split(r"[\\/]", str(path or ""))[-1]
+    return _PATH_SEP.split(str(path or ""))[-1]
 
 
 def scrub_paths(obj, home=None):
@@ -212,7 +218,7 @@ def sanitize_op(o):
     for k, n in _OP_STR.items():
         v = o.get(k)
         if isinstance(v, str) and v:
-            out[k] = re.sub(r"[^\w\-.]", "", v)[:n]
+            out[k] = _OP_CHARS.sub("", v)[:n]
     for k in _OP_NUM:
         v = o.get(k)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e13:

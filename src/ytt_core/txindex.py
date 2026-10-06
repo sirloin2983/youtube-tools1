@@ -17,18 +17,19 @@ import hashlib
 import os
 import threading
 
-from . import datadir, fsio, schemas
+from . import datadir, fsio, layout, schemas
 
 NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(editor/ed_relink.py の NORM_WHY と同じ)
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # ツールの親(src。layout.src_root と同じ)
+REPO_ROOT = layout.src_root()   # ツールの親(src)
 PACK_RECORD_SCHEMA = "youtube-tools-pack-record/v1"
 MAX_PACK_RECORD_BYTES = 16 * 1024 * 1024
 TEXTPLUS_SCRIPT = "create_resolve_textplus_project.lua"
 OLD_TEXTPLUS_PLAN = "textplus-import.json"
-CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
+MAX_OLD_CUT_PLAN_BYTES = 4 * 1024 * 1024
+CUT_PLAN_SCHEMA = schemas.CUT_PLAN_SCHEMA
 _cache = {}          # パス -> ((更新日時ns, 大きさ), 読んだ中身)
 _lock = threading.Lock()
 
@@ -44,7 +45,8 @@ def norm(p):
 
 
 def _num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) < 1e9 else None
+    v = schemas.num(x)
+    return v if v is not None and abs(v) < 1e9 else None
 
 
 def _parse(d, fallback_id):
@@ -66,11 +68,18 @@ def _parse(d, fallback_id):
                      "proofed": s.get("proofed") is True, "cut": s.get("cutState") == "cut"})
     clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
     up = d.get("updatedAt")
-    aliases = [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == NORM_WHY and isinstance(r.get("from"), str) and r["from"]]
+    aliases = [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == NORM_WHY and isinstance(r.get("from"), str) and r["from"]][-5:]
+    src = d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else ""
     return {"id": str(d.get("id") or fallback_id)[:40], "title": str(d.get("title") or "")[:120],
-            "sourcePath": d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else "", "aliases": aliases[-5:],
+            "sourcePath": src, "aliases": aliases, "_paths": _norm_paths(src, aliases),
             "clip": clip, "segments": segs, "updatedAt": up if isinstance(up, int) and not isinstance(up, bool) else 0,
             "count": len(segs), "proofed": sum(1 for s in segs if s["proofed"]), "cut": sum(1 for s in segs if s["cut"])}
+
+
+def _norm_paths(source, aliases):
+    """紐づけ ① に使うパス(sourcePath と付け替える前のパス)をそろえたもの。読んだときに1回だけ求めてキャッシュと一緒に持つ
+    (案件の一覧は マーク × 文書 の数だけ照らし合わせるので、毎回 abspath しない)"""
+    return frozenset(n for n in (norm(p) for p in [source, *aliases]) if n)
 
 
 def load(dirpath):
@@ -109,9 +118,10 @@ def summary(doc):
     return {"id": doc["id"], "title": doc["title"], "segments": doc["count"], "proofed": doc["proofed"], "cut": doc["cut"], "updatedAt": doc["updatedAt"]}
 
 
-def matches(doc, video_id, mark_id, media_path):
-    media = norm(media_path)
-    if media and (norm(doc["sourcePath"]) == media or any(norm(a) == media for a in doc.get("aliases") or ())):
+def _match(doc, video_id, mark_id, media):
+    """media は norm 済みの切り抜きのパス。load を通らずに作った文書(_paths が無い)はここで求める"""
+    paths = doc["_paths"] if "_paths" in doc else _norm_paths(doc.get("sourcePath"), doc.get("aliases") or ())
+    if media and media in paths:
         return True
     c = doc.get("clip") or {}
     src = c.get("source") if isinstance(c.get("source"), dict) else {}
@@ -119,9 +129,14 @@ def matches(doc, video_id, mark_id, media_path):
     return bool(video_id) and bool(mark_id) and src.get("videoId") == video_id and mk.get("id") == mark_id
 
 
+def matches(doc, video_id, mark_id, media_path):
+    return _match(doc, video_id, mark_id, norm(media_path))
+
+
 def pick(docs, video_id, mark_id, media_path):
     """-> (いちばん新しい文書 または None, 紐づいた文書の数, 紐づいた文書の id の一覧)"""
-    hits = [d for d in docs if matches(d, video_id, mark_id, media_path)]
+    media = norm(media_path)
+    hits = [d for d in docs if _match(d, video_id, mark_id, media)]
     best = max(hits, key=lambda d: d["updatedAt"]) if hits else None
     return best, len(hits), [d["id"] for d in hits]
 
@@ -202,7 +217,7 @@ def _old_cut_plan(dirpath):
     except OSError:
         return None
     try:
-        d = fsio.read_json_file(p, 4 * 1024 * 1024)
+        d = fsio.read_json_file(p, MAX_OLD_CUT_PLAN_BYTES)
     except (OSError, UnicodeError, ValueError):
         d = None
     return mt, d if isinstance(d, dict) else None

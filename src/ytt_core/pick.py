@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 
-from . import fsio as _fsio
+from . import fsio as _fsio, tools as _tools
 
 TIMEOUT = 600   # 窓を開いたまま放っておかれたら、この秒数で閉じる
 
@@ -80,10 +80,9 @@ def pick(kind="file", title="", hint="", exts=()):
         arg = json.dumps({"kind": kind, "title": str(title or ("フォルダを選ぶ" if kind == "dir" else "ファイルを選ぶ"))[:100],
                           "initial": initial_dir(hint), "types": _types(exts)}, ensure_ascii=False)
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         try:
             r = subprocess.run([sys.executable, "-c", _SCRIPT, arg], capture_output=True, timeout=TIMEOUT,
-                               env=env, creationflags=flags)
+                               env=env, creationflags=_tools.no_window_flags())
         except subprocess.TimeoutExpired:
             return ""
         except OSError as e:

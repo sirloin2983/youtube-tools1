@@ -21,11 +21,12 @@ def replace_retry(src, dst):
             time.sleep(0.1 * 2 ** attempt)
 
 
-def _unlink_quiet(path):
+def unlink_quiet(path):
+    """ファイルを消す。消せなくても(無い・ロック中)上げない(後片付けの失敗で、本来のエラーを隠さない)"""
     try:
         os.unlink(path)
     except OSError:
-        pass   # 後片付けの失敗で、本来のエラーを隠さない
+        pass
 
 
 def temp_in(folder, data, fsync_required=True):
@@ -42,7 +43,7 @@ def temp_in(folder, data, fsync_required=True):
                 if fsync_required:
                     raise
     except BaseException:
-        _unlink_quiet(tmp)
+        unlink_quiet(tmp)
         raise
     return tmp
 
@@ -61,7 +62,7 @@ def atomic_write(path, data: bytes, mode=None, fsync_required=False):
                 pass
         replace_retry(tmp, path)
     except BaseException:
-        _unlink_quiet(tmp)
+        unlink_quiet(tmp)
         raise
 
 
@@ -84,7 +85,7 @@ def create_new(path, data):
             return True
     finally:
         if tmp:
-            _unlink_quiet(tmp)
+            unlink_quiet(tmp)
 
 
 def write_json(path, obj, indent=2):

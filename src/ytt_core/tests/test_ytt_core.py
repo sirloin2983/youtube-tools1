@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -173,6 +174,14 @@ class TestFsio(unittest.TestCase):
             self.assertTrue(fsio.is_network_path(p), p)
         for p in ("C:\\x.mp4", "/home/x.mp4", "Z:/x.mp4", "", None):
             self.assertFalse(fsio.is_network_path(p), p)
+
+    def test_unlink_quiet(self):
+        p = os.path.join(self.tmp, "a.txt")
+        with open(p, "w") as f:
+            f.write("x")
+        fsio.unlink_quiet(p)
+        self.assertFalse(os.path.exists(p))
+        fsio.unlink_quiet(p)   # 無くても上げない
 
 
 class TestRuntime(unittest.TestCase):
@@ -357,6 +366,12 @@ class TestSchemas(unittest.TestCase):
             self.assertIsNone(schemas.validate_clip(obj)[0], obj)
         self.assertIn("未対応の版", schemas.validate_clip(dict(base, schema="youtube-tools-clip/v2"))[1])
 
+    def test_num(self):
+        self.assertEqual([schemas.num(v) for v in (1, 2.5, True, "1", None, float("nan"), float("inf"), 10 ** 400)],
+                         [1.0, 2.5, None, None, None, None, None, None])
+        huge = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 10 ** 400, "end": 10 ** 401}}
+        self.assertIsNone(schemas.validate_clip(huge)[0])   # float にできない巨大な整数でも落ちない(以前は OverflowError)
+
     def test_paths_and_load(self):
         # 途中のファイルは 作業用\ に書く(2026-09-27。出力先の直下はパックと元動画だけ)。動画がもう 作業用 の中ならそこ
         W = schemas.WORK_DIR
@@ -419,6 +434,19 @@ class TestTools(unittest.TestCase):
                 self.assertEqual(tools.find_tool("ffmpeg", "X_FFMPEG"), "/p/ffmpeg")
         finally:
             os.unlink(fake)
+
+    def test_subprocess_helpers(self):
+        if os.name == "nt":
+            self.assertEqual(tools.no_window_flags(), subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(tools.no_window_flags(new_group=True), subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            self.assertEqual((tools.no_window_flags(), tools.no_window_flags(True)), (0, 0))
+        done = mock.Mock(poll=mock.Mock(return_value=0))
+        tools.kill_quiet(done)
+        done.kill.assert_not_called()                       # 終わっていれば何もしない
+        running = mock.Mock(poll=mock.Mock(return_value=None), kill=mock.Mock(side_effect=OSError("gone")))
+        tools.kill_quiet(running)                           # 止められなくても上げない
+        running.kill.assert_called_once()
 
 
 class TestDatadir(unittest.TestCase):
@@ -818,6 +846,15 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual(txindex.pick(docs, "", "", self.clip)[1], 1)
         self.assertEqual(txindex.pick(docs, "", "", self.clip.replace(".mp4", "_30fps.mp4"))[1], 1)
         self.assertEqual(txindex.pick(docs, "", "", os.path.join(self.tmp, "other.mp4"))[1], 0)   # 選び直しの前のパス(why なし)は数えない
+
+    def test_match_without_load(self):
+        """load を通らずに作った文書(紐づけ用の _paths が無い)も同じ規則で紐づく"""
+        doc = {"id": "x", "sourcePath": self.clip, "aliases": [], "clip": None, "updatedAt": 1}
+        self.assertTrue(txindex.matches(doc, "", "", self.clip))
+        self.assertEqual(txindex.pick([doc], "", "", os.path.join(os.path.dirname(self.clip), ".", "01_a.mp4"))[1], 1)
+        self.assertFalse(txindex.matches(doc, "", "", os.path.join(self.tmp, "else.mp4")))
+        loaded = dict(doc, _paths=frozenset())   # load の文書は読んだときに求めた _paths を使う
+        self.assertFalse(txindex.matches(loaded, "", "", self.clip))
 
     def test_offset_sources(self):
         self.doc("aaaaaaaaaaaa", self.clip, clip=self.clipobj(start=100.0, actual=98.5))

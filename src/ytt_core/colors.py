@@ -12,6 +12,7 @@ version 2。先頭 = hex)は項目の "colors" に入れて返すが、使う側
 ひらがな/カタカナ・全角/半角・大文字/小文字・空白や「・」を区別しない。名前・ローマ字・id のどれでもよい。
 完全に一致しなければ、名前の一部で1人に決まるときだけその人(「ぺこら」→ 兎田ぺこら)。2人以上なら決めない(候補を返す)。
 """
+import functools
 import json
 import os
 import re
@@ -24,6 +25,7 @@ MEMBERS_ENV = "YTT_HOLO_MEMBERS"
 HEX_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 NAME_MAX = 60
 LABEL_MAX = 12
+_SEP = re.compile(r"[\s・･\-_.,、。'\"]+")   # 照らし合わせで除く空白と区切り
 _cache = {}
 _lock = threading.Lock()
 
@@ -85,9 +87,14 @@ def rgb01(hex_):
 
 def normalize(s):
     """照らし合わせ用: NFKC・小文字・カタカナ → ひらがな・空白と区切り(・ - _ . など)を除く"""
-    t = unicodedata.normalize("NFKC", str(s or "")).lower()
+    return _norm_text(str(s or ""))
+
+
+@functools.lru_cache(maxsize=4096)   # 照らし合わせは 名前 × 一覧の人数 の回数になる(同じ文字列を何度も変換しない)
+def _norm_text(t):
+    t = unicodedata.normalize("NFKC", t).lower()
     t = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in t)
-    return re.sub(r"[\s・･\-_.,、。'\"]+", "", t)
+    return _SEP.sub("", t)
 
 
 def _read_json(path):
@@ -150,16 +157,15 @@ def lookup(name, entries=None, env=None):
     q = normalize(name)
     if not q:
         return {"match": None, "candidates": []}
-    for e in entries:
-        if q in (normalize(e["name"]), normalize(e["en"]), normalize(e["id"])):
-            return {"match": e, "candidates": [e]}
-    part = [e for e in entries if q in normalize(e["name"]) or (len(q) >= 3 and (q in normalize(e["en"]) or q in normalize(e["id"])))]
-    seen, uniq = set(), []
-    for e in part:   # 同じ名前は1人と数える(先 = マイカラーが勝つ)
-        k = normalize(e["name"])
-        if k not in seen:
-            seen.add(k)
-            uniq.append(e)
+    keys = [(e, normalize(e["name"]), normalize(e["en"]), normalize(e["id"])) for e in entries]
+    exact = next((e for e, n, en, i in keys if q in (n, en, i)), None)
+    if exact is not None:
+        return {"match": exact, "candidates": [exact]}
+    uniq = {}   # 名前の一部が合う人(ローマ字・id は3文字から)。同じ名前は1人と数える(先 = マイカラーが勝つ)
+    for e, n, en, i in keys:
+        if n not in uniq and (q in n or (len(q) >= 3 and (q in en or q in i))):
+            uniq[n] = e
+    uniq = list(uniq.values())
     return {"match": uniq[0] if len(uniq) == 1 else None, "candidates": uniq[:8]}
 
 

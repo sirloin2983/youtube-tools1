@@ -1571,3 +1571,42 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 決定・理由: 仮決め(`plan/decisions.md` の (p))。2〜3 人の文書が 3 本しか無いので、10 本ほどたまったら再測定し、そのとき pyannote と比べる
 - 注意: これからの判別に効く(前の文書は判別し直すまで変わらない)。測った JSON は AI の scratchpad だけ(MSIX の写し)
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ ytt_core の見直し(共通部品。内部の整理と速さ。判定の結果は同じ)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。公開の関数の名前・引数・戻り値、schema・作業データの置き場所・Host/Origin 検査・色・30fps・評価データの判定は変えない。`jobs.py` は線 D の M6 の担当が変えているので触っていない
+- 変更(`src/ytt_core/` だけ):
+  - `txindex.py`: 紐づけ ① のパス(sourcePath と付け替える前のパス)を、文書を読んだときに 1 回だけそろえてキャッシュと一緒に持つ(文書の内部の項目 `_paths`)。`pick` は切り抜きのパスを 1 回だけそろえる(マーク × 文書 の数だけ abspath していた。400 マーク × 192 文書で 0.74 秒 → 0.02 秒 = 入口の案件の一覧・まとめて実行・スタジオのセリフ)。
+    `REPO_ROOT` は `layout.src_root()`・`CUT_PLAN_SCHEMA` は `schemas` の値・`_num` は `schemas.num` + 上限 1e9
+  - `colors.py`: 照らし合わせ用の `normalize` を文字列ごとにキャッシュ(lru_cache 4096)・正規表現を先に作る・`lookup` は 1 人につき 1 回だけ変換(話者 40 人の色決め 22ms → 1.3ms)
+  - `normalize.py`: 102 行の `normalize()` の中の ffmpeg を動かす部分を `_run_ffmpeg` に、進み具合の知らせを `_report` に分けた。エラーの最後の 20 行は deque に。正規表現を先に作る。`_no_window`・`_kill`・`_unlink` は `tools`・`fsio` の共通のものへ
+  - `datadir.py`: 「ファイルかフォルダを消す」4 か所を `_remove_any` に、`_prepare` の結果の dict の組み立てを `result()` 1 か所に。移し済みの印(.migrated.json)は `fsio.write_json` で書く(中身は同じ・末尾に改行・fsync とロックのやり直しが付く)。`_clean_parts` は 1 つ消せなくても残りを続ける
+  - `tools.py`: 子プロセスの小道具 `no_window_flags(new_group=False)`(黒い窓を出さない creationflags)・`kill_quiet(proc)` を足した(normalize・pick が使う)。`fsio.py`: `_unlink_quiet` を公開の `unlink_quiet` に(datadir・normalize が使う)
+  - `schemas.py`: `num` が float にできない巨大な整数(JSON の 1 のあとに 0 が 400 個 など)で OverflowError を上げていたのを None に(.clip.json の range の検査・txindex.offset で落ちていた。**動きが変わったのはここだけ**。以前は例外)
+  - `loudness.py`: `parse` の正規表現を先に作る。`evaldata.py`: 記号を空白にする所(strip_marks・count_fillers)を `_marks_to_space` に、正規表現 3 つを先に作る(zip の検査 check_zip・extract_zip は触っていない)。`pick.py`: creationflags を `tools.no_window_flags()` に
+  - `__init__.py`: 部品の一覧が 6 つだけ・「cut2resolve は使わない」と古かったので、14 の部品の一覧に直した(VERSION はそのまま)
+  - `tests/test_ytt_core.py`: 足した = unlink_quiet・no_window_flags/kill_quiet・schemas.num の巨大な整数・load を通らない文書の紐づけ(104 → 108 件。ytt_core の 3 ファイルの合計)
+- 行数(`wc -l`。jobs.py を除く 14 ファイル): 2133 → 2164(コードの行 = docstring・空行・コメントだけの行を除くと 1455 → 1453)。もともと重なりが少なく、増えた分は部品の一覧(__init__)・新しい共通の小道具・速さのための関数の説明。行が減るのは、ツール側が下の「置き換えられる所」を直したとき
+- 確かめ方:
+  - 変更前(HEAD の ytt_core を scratchpad に写したもの)と今を同じプロセスで読み込み、同じ入力 57,837 通りの出力を突き合わせた(evaldata の全関数・loudness.parse・normalize の判定と ffmpeg の引数・colors の load / normalize / lookup / from_channel / resolve / speaker_colors(本物の members.json)・txindex の load / pick / matches / offset / lines / summary・schemas.num・datadir の置き場所と prepare 7 通り(フォルダの中身・印・2 回目の状態))。
+    違いは schemas.num の巨大な整数(例外 → None)の 2 件だけ。docstring 以外の文字列(画面に出す文・形式の名前)も、移した定数(CREATE_NO_WINDOW など)以外は同じ
+  - 消した名前(`fsio._unlink_quiet`・`normalize._no_window / _kill / _unlink`・`datadir._try_remove`)は src・dev・friend-apps・setup で使われていないことを grep で確かめた。`mock.patch.object` の対象(`normalize.encode_args`・`DURATION_TOL`・`runtime.ping_app`・`datadir._copy_item / _size` など)は残している
+- テスト: ytt_core 108 件 OK(skip 1)・home test_mount / test_cases / test_backup 51・studio test_api 80・cut2resolve test_serve 37・editor test_metrics 521・dev test_eval_import 25・契約 test_resolve_pack_contract(単独)35・ほかに editor test_normalize30・test_edit 59・studio test_exporter・dev test_eval_cut / test_eval_marks / test_eval_asr・home test_intake OK。`e2e_datadir.py`・`e2e_pipeline.py` ALL PASSED
+  - home `test_autorun.py` の 2 件(test_queued_runs_are_cancelled_on_close・test_close_writes_queued)が落ちる: 変更前の ytt_core に差し替えても同じに落ちる = 同時に作業中の `src/home/`・`jobs.py`(線 D の M6)の途中の変更によるもの
+- ツール側で置き換えられる所(別の担当へ。置き換えても動きは同じ):
+  - `fsio.unlink_quiet`: `src/editor/tx_engines.py`・`src/home/live_archive.py`・`src/home/live_export.py` の `_unlink`(同じ中身)。`cut2resolve_core._unlink_quiet` は単独のコマンドが ytt_core を読まないので残す
+  - `tools.no_window_flags()`: `src/home/intake.py`・`src/home/live.py` の `_no_window()`(`{"creationflags": …}` の dict を返す形 → `creationflags=tools.no_window_flags()`)・`dev/eval_fetch.py` の `_no_window()`・`src/recorder/rec_core.py` の `NO_WINDOW`
+  - `schemas.num`: `src/home/accuracy.py` の `_num`・`dev/eval_effort.py`・`dev/eval_timing.py` の `num`(同じ判定)。`dev/eval_marks.py` の `num` は txindex の `_num` と同じ(上限 1e9)。`autorun._num`(上限 1e7)・`eval_cut.num`(1e12)・`eval_alt`・`eval_speakers`(float にしない)は意味が違う
+  - `layout`: `src/home/launch.py` の `UI_KIT_DIR = os.path.join(ROOT, "ui-kit")`・`src/home/live.py` の `"recorder"` のフォルダ名(`layout.UI_KIT_DIR`・`RECORDER_DIR` がある)
+  - `schemas.iso_now`: `dev/eval_fetch.py`・`dev/eval_split.py` の `datetime.now().astimezone().isoformat()` は timespec が無い(マイクロ秒まで)= 置き換えると記録の形が変わるので要確認。`cut2resolve/auto_cut.py` は単独のコマンドのため残す
+- 直さなかった候補(理由):
+  - `evaldata` の書き出す側だけの関数(`scrub_paths`・`zip_name`・`safe_url`・`raw_links`・`RULES`。簡易版を 10-04 に消してから使う所はテストだけ。約 40 行): 消すとテストが減る(件数は減らさない約束)。消してよいかはユーザーの判断
+  - パスがフォルダの中かの判定(`home/backup.py` と `dev/eval_import.py` の `_inside`・`editor/ed_relink.py` の `_inside`・`home/live_archive.inside`・`studio/common.is_inside_out_dir`): abspath か realpath か・同じフォルダを含むかが少しずつ違う(セキュリティの検査)。ytt_core にまとめるなら 1 つずつ意味を決めてから
+  - `colors._read_json`(大きさの上限なし)と `txindex` のキャッシュの共通化・`datadir.read_marker` を `fsio.read_json_file` に: 壊れた・巨大なファイルでの扱いが変わり、減る行も少ない
+  - `datadir.prepare` が以前の場所の大きさを 2 回数える(空き容量とコピーの確認): 移行は最初の 1 回だけ・テストが `_copy_item(src, dst)` の形を差し替えている
+  - `loudness.DEFAULT`(-14)はどこからも使われていないが、既定の値の記録として残した。`runtime`・`httpsec`・`layout` は既に短く、安全検査を含むので触っていない
+- 注意:
+  - txindex の文書(load の戻り値)に内部の項目 `_paths` が増えた(紐づけ用。summary・lines には出ない)。文書をそのまま JSON にして返す所は今は無い
+  - Git Bash のヒアドキュメントで書いた置き換えの指示ファイルは、`\\` が `\` になった(正規表現の `[\\/]` が `[\/]` になりかけ、その回は書き込む前に止まった)。バックスラッシュを含む書き換えは Write で作ったファイルから
+  - ytt_core の作業コピーは CRLF と LF が混ざっている(index はすべて LF。autocrlf)。`sed -i` は CRLF を LF にする。Git Bash の `grep $'\r'` では見分けられなかった(Python で数える)
+  - home の単体(子プロセスの出力を読むもの)は `PYTHONIOENCODING=utf-8` を付けて流すと、子の出力を cp932 で読めずに落ちる(test_mount の 3 件)。単体は付けずに流す
+- 未コミット: なし(このコミット。`src/ytt_core/`(jobs.py を除く)と `docs/WORKLOG.md` だけ)

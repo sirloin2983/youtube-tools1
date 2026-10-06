@@ -17,6 +17,7 @@
             if ok:
                 normalize.normalize(src, dst, cancelled=..., on_progress=...)
 """
+import collections
 import json
 import os
 import re
@@ -37,6 +38,8 @@ FAST_PRESET = "ultrafast" # スタジオの「高速」(コピーでは fps を�
 CRF = "18"
 IDLE_SEC = 600            # ffmpeg がこの秒数まったく出力しなければ止める
 PART = ".normalizing-"    # 作り直しの途中の名前(<名前>.normalizing-xxxxxxxx.mp4。検証が済んでから本当の名前へ)
+_OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")   # ffmpeg の -progress の進み具合の行
+_PIX_DEPTH = re.compile(r"p(\d{2})(?:le|be)$")             # yuv420p10le などの bit 数
 
 
 class NormalizeError(Exception):
@@ -110,14 +113,8 @@ def _bit_depth(stream):
         n = 0
     if n:
         return n
-    m = re.search(r"p(\d{2})(?:le|be)$", str(stream.get("pix_fmt") or ""))   # yuv420p10le など
+    m = _PIX_DEPTH.search(str(stream.get("pix_fmt") or ""))
     return int(m.group(1)) if m else (8 if stream.get("pix_fmt") else None)
-
-
-def _no_window():
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 def probe(path, ffprobe=None, timeout=60):
@@ -133,7 +130,7 @@ def probe(path, ffprobe=None, timeout=60):
            path]
     try:
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
-                           creationflags=_no_window())
+                           creationflags=tools.no_window_flags(new_group=True))
         data = json.loads(r.stdout.decode("utf-8", "replace") or "null") if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
@@ -195,20 +192,58 @@ def temp_path(dst):
     return os.path.join(d, os.path.splitext(n)[0] + PART + uuid.uuid4().hex[:8] + ".mp4")
 
 
-def _unlink(p):
-    try:
-        os.unlink(p)
-    except OSError:
-        pass
+def _report(on_progress, v):
+    """進み具合を知らせる(知らせる側の失敗で作り直しを止めない)"""
+    if on_progress:
+        try:
+            on_progress(v)
+        except Exception:
+            pass
 
 
-def _kill(proc):
-    if proc.poll() is not None:
-        return
+def _run_ffmpeg(cmd, flags, popen, cancelled, idle_sec, on_progress, dur):
+    """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める。
+    -> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")"""
+    tail = collections.deque(maxlen=20)
     try:
-        proc.kill()
-    except OSError:
-        pass
+        proc = (popen or subprocess.Popen)(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                           creationflags=flags)
+    except OSError as e:
+        raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
+    state = {"last": time.time(), "why": None}
+    done = threading.Event()
+
+    def watchdog():
+        while not done.wait(0.3):
+            if cancelled():
+                state["why"] = "cancel"
+            elif time.time() - state["last"] > idle_sec:
+                state["why"] = "idle"
+            else:
+                continue
+            tools.kill_quiet(proc)
+            return
+    threading.Thread(target=watchdog, daemon=True).start()
+    try:
+        for raw in proc.stdout:
+            state["last"] = time.time()
+            line = raw.decode("utf-8", "replace").strip()
+            m = _OUT_TIME.match(line)
+            if m:
+                if on_progress and dur > 0:
+                    _report(on_progress, min(0.99, int(m.group(1)) / 1e6 / dur))
+                continue
+            if line and "=" not in line[:20]:   # -progress の key=value 以外(= ffmpeg のエラー)
+                tail.append(line)
+        proc.wait()
+    finally:
+        done.set()
+        tools.kill_quiet(proc)
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    return proc.returncode, list(tail), state["why"]
 
 
 def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, preset=PRESET, ffmpeg=None, ffprobe=None,
@@ -235,61 +270,18 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     tmp = temp_path(dst)
     base = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
     enc = encode_args(preset)
-    flags = _no_window()
+    flags = tools.no_window_flags(new_group=True)
     if os.name == "nt" and priority_low:
         flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
 
     def run(args):
-        """ffmpeg を1回動かす。-> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")"""
-        tail = []
-        try:
-            proc = (popen or subprocess.Popen)(base + args + ["-progress", "pipe:1", "-nostats", tmp], stdin=subprocess.DEVNULL,
-                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags)
-        except OSError as e:
-            raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
-        state = {"last": time.time(), "why": None}
-        done = threading.Event()
-
-        def watchdog():
-            while not done.wait(0.3):
-                if cancelled():
-                    state["why"] = "cancel"
-                elif time.time() - state["last"] > idle_sec:
-                    state["why"] = "idle"
-                else:
-                    continue
-                _kill(proc)
-                return
-        threading.Thread(target=watchdog, daemon=True).start()
-        try:
-            for raw in proc.stdout:
-                state["last"] = time.time()
-                line = raw.decode("utf-8", "replace").strip()
-                m = re.match(r"^out_time_(?:us|ms)=(\d+)$", line)
-                if m:
-                    if on_progress and dur > 0:
-                        try:
-                            on_progress(min(0.99, int(m.group(1)) / 1e6 / dur))
-                        except Exception:
-                            pass
-                    continue
-                if line and "=" not in line[:20]:   # -progress の key=value 以外(= ffmpeg のエラー)
-                    tail = (tail + [line])[-20:]
-            proc.wait()
-        finally:
-            done.set()
-            _kill(proc)
-            try:
-                proc.stdout.close()
-            except OSError:
-                pass
-        return proc.returncode, tail, state["why"]
+        return _run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
 
     try:
         code, tail, why = run(enc)
         if code != 0 and why is None and not cancelled() and is_fps_mode_error("\n".join(tail)):
             # ffmpeg 5.1 より古い: -fps_mode を知らない → -vsync cfr で1回だけやり直す(書きかけは消してから)
-            _unlink(tmp)
+            fsio.unlink_quiet(tmp)
             code, tail, why = run(legacy_args(enc))
         if why == "cancel" or cancelled():
             raise Cancelled("取り消しました")
@@ -305,11 +297,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
                                  % (dur, "不明" if out.get("duration") is None else "%.2f" % out["duration"]))
         fsio.replace_retry(tmp, dst)
     except BaseException:
-        _unlink(tmp)
+        fsio.unlink_quiet(tmp)
         raise
-    if on_progress:
-        try:
-            on_progress(1.0)
-        except Exception:
-            pass
+    _report(on_progress, 1.0)
     return dict(out, path=dst)

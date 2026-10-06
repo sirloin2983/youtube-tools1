@@ -21,10 +21,13 @@ def iso_now():
 
 
 def num(v):
-    """有限の数(bool は除く)なら float、それ以外は None。"""
+    """有限の数(bool は除く)なら float、それ以外は None(float にできない巨大な整数も None)。"""
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
-    v = float(v)
+    try:
+        v = float(v)
+    except OverflowError:   # JSON の 1 のあとに 0 が 400 個 など(以前はここで落ちていた)
+        return None
     return v if math.isfinite(v) else None
 
 
