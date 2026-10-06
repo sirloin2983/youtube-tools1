@@ -27,6 +27,13 @@
   P4(アーカイブで本番版に作り直す。src/home/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
   作り直しの途中のマークを書き出し直させない busy・欠けのマークの名前を決める target・recBase(録画の頭の時刻)を受け持つ)。
 
+採用の出どころ origin(線 D の M1。入口 0.39.0): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
+ジョブ・.clip.json の source.live.origin と mark.src(auto・archive は "auto")・live/live_feedback.jsonl(採用の記録。feedback.jsonl とは別 = 計画の 0-8)に残す。
+自動の採用は「良い」に数えない(live_feedback の human が false・verdict が null。スタジオの adopt_top と同じ決まり)。
+書き出しが済んだら、スタジオのマーク(ジョブの studio)を入口が自分で「書き出し済み」にする(POST /studio/api/live/exported。画面を閉じていても。M1)。
+書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
+失敗の文は src/home/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
+
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
 url は入れない(range がアーカイブの秒ではないので、YouTube の位置へのリンクにしない)。
@@ -46,6 +53,7 @@ import time
 import urllib.parse
 
 from ytt_core import colors, fsio, jobs, loudness, normalize, schemas, tools
+import live_failures  # noqa: E402  (失敗の文は 1 か所。M3)
 
 VERSION = "0.1.0"
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -62,6 +70,10 @@ MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = 3600        # 1つのマークの長さ(スタジオの MAX_MARK_SEC と同じ)
 LABEL_MAX = 80
 AFTERS = ("none", "check", "auto")   # 書き出したあと: 何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動)
+ORIGINS = ("manual", "auto", "archive")   # 採用の出どころ(M1): 人 / 配信中の検出(M11)/ 配信後のアーカイブの解析(M7)
+AUTO_KEYS = ("cut", "engine", "model")    # ジョブに覚える書き出したあとの設定(ホームの設定 live.auto。M2)
+FEEDBACK = "live_feedback.jsonl"          # 採用の記録(入口の作業データの live\。feedback.jsonl とは別 = 計画の 0-8)
+FEEDBACK_MAX_BYTES = 4 * 1024 * 1024      # これを超えたら .1 に回す
 TITLE_MAX = 200
 KEEP_JOBS = 200            # 終わったジョブを残す数
 LEN_TOL = 0.2              # 書き出した長さと区間の差の上限(30fps の1コマ + 音声の端)。normalize の DURATION_TOL(0.5)より厳しく
@@ -217,14 +229,31 @@ def _text(v, n):
     return re.sub(r"[\x00-\x1f\x7f]", " ", v if isinstance(v, str) else "").strip()[:n]
 
 
-def check_after(body):
-    """POST /live/api/export の after("none"|"check"|"auto")。無ければ以前の transcribe(真偽。既定 true)から: true → check・false → none"""
+def check_after(body, default="check"):
+    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ以前の transcribe(真偽)から: false → none・true → check。
+    どちらも無ければ default(ホームの設定 live.auto.after。M2)"""
     a = body.get("after") if isinstance(body, dict) else None
     if a is None:
-        return "none" if isinstance(body, dict) and body.get("transcribe") is False else "check"
+        t = body.get("transcribe") if isinstance(body, dict) else None
+        return "none" if t is False else "check" if t is True else (default if default in AFTERS else "check")
     if a not in AFTERS:
         raise LiveError("書き出したあと(after)は none・check・auto のどれかにしてください")
     return a
+
+
+def check_origin(v):
+    """採用の出どころ(M1)。無い = manual"""
+    if v is None:
+        return "manual"
+    if v not in ORIGINS:
+        raise LiveError("origin は manual・auto・archive のどれかにしてください")
+    return v
+
+
+def clean_auto(cfg):
+    """ホームの設定 live.auto(src/home/prefs.py が検査済み)-> ジョブに覚える {cut, engine, model}(空の値は入れない)"""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return {k: cfg[k] for k in AUTO_KEYS if isinstance(cfg.get(k), str) and cfg[k]}
 
 
 def check_streamer(v):
@@ -400,11 +429,15 @@ class MarkStore:
 
 # ---------- 書き出しのジョブ ----------
 class Exporter:
-    def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None):
+    def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
+                 runs_log=None):
         """live: src/home/live.py の Live(録画元の一覧と要求)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
-        audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない"""
+        audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
+        runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)"""
         self.live, self.folder, self.out_dir, self.runner, self.audio = live, folder, out_dir, runner, audio
+        self.runs = live_failures.Reader(runs_log)
+        self.fb_lock = threading.Lock()
         self.log = log or (lambda m: None)
         self.slots = slots or jobs.SLOTS
         self.poll, self.down_sec = poll, down_sec
@@ -461,6 +494,10 @@ class Exporter:
     # --- 画面から ---
     def snapshot(self, rc=None, rec=None):
         tx = self._tx_states()
+        try:
+            runs = self.runs.runs()
+        except Exception:   # 記録を読めなくても一覧は出す
+            runs = {}
         with self.lock:
             out = [dict((k, v) for k, v in j.items() if k != "cancel") for j in self.jobs
                    if (rc is None or j["recorder"] == rc) and (rec is None or j["recording"] == rec)]
@@ -468,7 +505,42 @@ class Exporter:
             j["stateLabel"] = STATE_LABELS.get(j["state"], j["state"])
             if j.get("runId") and j["runId"] in tx:
                 j["tx"] = tx[j["runId"]]
+            f = live_failures.failure_of(j, runs.get(j.get("runId")) if j.get("runId") else None)
+            if f is not None:   # 失敗の文(M3)。帯は今までどおり error(書き出しの失敗)・warning(それ以外)を出すので、同じ文を入れる
+                j["failure"] = f
+                if f["kind"] == "export":
+                    j["error"] = f["text"]
+                else:
+                    parts = [p for p in str(j.get("warning") or "").split(" / ") if p]
+                    j["warning"] = " / ".join(parts + [f["text"]] if f["text"] not in parts else parts)
         return list(reversed(out))
+
+    def failures(self, now=None):
+        """失敗の一覧(新しい順。「調子」に出す。M3)。文は snapshot と同じ(live_failures.failure_of)"""
+        with self.lock:
+            jobs_ = [dict(j) for j in self.jobs]
+        try:
+            runs = self.runs.runs()
+        except Exception:
+            runs = {}
+        return live_failures.collect(jobs_, runs, now=time.time() if now is None else now)
+
+    def feedback(self, row):
+        """採用の記録を live_feedback.jsonl に 1 行(M1。feedback.jsonl とは別)。書けなくても採用は止めない"""
+        path = os.path.join(self.folder, FEEDBACK)
+        line = json.dumps(dict({"v": 1, "at": now_iso()}, **row), ensure_ascii=False) + "\n"
+        with self.fb_lock:
+            try:
+                os.makedirs(self.folder, exist_ok=True)
+                try:
+                    if os.path.getsize(path) > FEEDBACK_MAX_BYTES:
+                        os.replace(path, path + ".1")
+                except OSError:
+                    pass
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line)
+            except OSError as e:
+                self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
 
     def _tx_states(self):
         """文字起こしへ渡したジョブの、まとめて実行の状態(runId -> {state, label})"""
@@ -494,10 +566,10 @@ class Exporter:
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
         return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer=""):
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
-        after・streamer: add と同じ"""
+        after・streamer・origin・auto: add と同じ"""
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
@@ -507,12 +579,14 @@ class Exporter:
             self.marks.upsert(rc, rec, mid, studio["n"], epoch_iso(first + studio["start"]), epoch_iso(first + studio["end"]),
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
-                            studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer)
+                            studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer=""):
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
-        after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う"""
+        after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
+        origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
+        origin = origin if origin in ORIGINS else "manual"
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         m = self.marks.get(rc, rec, mid)
@@ -525,7 +599,7 @@ class Exporter:
                 raise LiveError("書き出しの順番待ちが多すぎます(50 本まで)", 409)
             job = {"id": "lx-" + secrets.token_hex(5), "recorder": rc, "recording": rec, "markId": mid, "n": m.get("n") or 0,
                    "label": m.get("label") or "", "start": m["start"], "end": m["end"], "transcribe": after != "none",
-                   "after": after, "streamer": streamer or "",
+                   "after": after, "streamer": streamer or "", "origin": origin, "auto": clean_auto(auto),
                    "state": "wait", "message": "録画が届くのを待っています", "error": "", "needsArchive": False, "progress": 0,
                    "source": "", "path": "", "manifest": "", "runId": "", "warning": "", "attempts": 0,
                    "created": now_iso(), "updated": now_iso()}
@@ -956,13 +1030,15 @@ class Exporter:
         base = self._base(d, a)
         media = out["path"]
         vid = video_id_of(d.get("url"), rec)
+        origin = job.get("origin") if job.get("origin") in ORIGINS else "manual"
         clip = schemas.build_clip(media, out.get("duration"), {"kind": "youtube", "videoId": vid, "title": out["title"]},
-                                  (a - base, b - base), {"id": job["markId"], "label": job.get("label") or "", "status": "exported", "src": "manual"},
+                                  (a - base, b - base), {"id": job["markId"], "label": job.get("label") or "", "status": "exported",
+                                                         "src": "manual" if origin == "manual" else "auto"},   # 自動の採用(auto・archive)は機械が選んだ区間
                                   dict({"mode": "precise", "fps": "30/1", "from": "youtube-archive" if archive else "live-recording"},
                                        **(out.get("audio") or {"volume": 100})), TOOL)   # 音量は実際にかけた値(スタジオの _clip_export_info と同じ形)
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
-                                   "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"]}}
+                                   "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"], "origin": origin}}
         if isinstance(job.get("studio"), dict):   # スタジオのマークから(P3): スタジオの配信(= 録画の id)とマークの id も残す
             clip["source"]["live"]["studio"] = {"video": job["studio"].get("video"), "mark": job["studio"].get("mark")}
         if archive:
@@ -976,7 +1052,7 @@ class Exporter:
         except OSError as e:
             manifest = ""
             warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % (e.strerror or e.__class__.__name__))
-        run_id = ""
+        run_id, handoff = "", ""
         after = job_after(job)
         if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
             who = None
@@ -985,17 +1061,43 @@ class Exporter:
                     who = colors.resolve(job["streamer"])[0]
                 except ValueError as e:
                     warn.append("配信者「%s」が色の一覧と合わないので、字幕の色なしで進めます(%s)" % (job["streamer"][:60], str(e)[:120]))
+            auto = job.get("auto") if isinstance(job.get("auto"), dict) else {}
+            kw = {k: auto[k] for k in AUTO_KEYS if auto.get(k)}   # 書き出したあとの設定(live.auto の cut・engine・model。M2)。無ければ今までどおり
             try:
                 r = self.runner() if self.runner else None
                 if r is None:
                     raise ValueError("まとめて実行が使えません")
-                run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after) or {}).get("id") or ""
-            except Exception as e:
-                warn.append(("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160])
+                run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""
+            except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
+                handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
+        marked = self._studio_exported(job, media, bool(archive))
+        if marked:
+            warn.append(marked)
         self._set(job, state="done", progress=1.0, path=media, manifest=manifest, runId=run_id, warning=" / ".join(warn), recBase=epoch_iso(base),
+                  handoffError=handoff,
                   message=message + (("。文字起こし → パックの順番に入れました(ホームの「まとめて実行」)" if after == "auto"
                                       else "。文字起こしの順番に入れました(ホームの「まとめて実行」)") if run_id else ""))
         self.log("リアルタイム切り抜き: 書き出しました %s" % media)
+        if handoff:
+            self.log("リアルタイム切り抜き: " + live_failures.failure_of(dict(job, path=media, handoffError=handoff))["text"])
+
+    def _studio_exported(self, job, media, archived=False):
+        """スタジオのマーク(ジョブの studio)を「書き出し済み」にする(M1: 画面を閉じていても。画面も同じ API を呼ぶ = 何度呼んでも同じ)。
+        -> 警告の文(できなかったとき)か ""。スタジオが動いていない・入口のサーバーが無い(テスト)ときは黙って飛ばす(画面が開いたときに突き合わせる)"""
+        st = job.get("studio") if isinstance(job.get("studio"), dict) else None
+        call = getattr(self.live, "studio_call", None)
+        if not st or not st.get("video") or not st.get("mark") or call is None:
+            return ""
+        body = {"id": st["video"], "markId": st["mark"], "path": media}
+        if archived:
+            body["archived"] = True
+        try:
+            code, d = call("POST", "/api/live/exported", body)
+        except Exception as e:
+            return "スタジオのマークを「書き出し済み」にできませんでした(%s)" % e.__class__.__name__
+        if code is None or code == 200:
+            return ""
+        return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
 
 
 def _unlink(p):

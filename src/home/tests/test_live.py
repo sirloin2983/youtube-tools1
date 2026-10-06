@@ -40,6 +40,7 @@ sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import live as LV  # noqa: E402
 import live_export as LX  # noqa: E402
+import live_failures as LF  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import fsio, loudness, normalize, schemas, tools  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
@@ -140,7 +141,8 @@ class PrefsLiveTest(unittest.TestCase):
 
     def test_default_off_and_validation(self):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
-                                                        "autoDelete": P.DEFAULTS["live"]["autoDelete"]})
+                                                        "autoDelete": P.DEFAULTS["live"]["autoDelete"],
+                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": ""}})
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         v = self.p.patch("live", {"enabled": True, "folder": "E:\\Video\\live-rec"})
         self.assertEqual((v["enabled"], v["folder"]), (True, "E:\\Video\\live-rec"))
@@ -177,6 +179,19 @@ class PrefsLiveTest(unittest.TestCase):
         for v, want in (({"enabled": True}, False), ({"enabled": True, "autoDelete": "yes"}, False), ({"enabled": False, "autoDelete": True}, False),
                         ({"enabled": True, "autoDelete": True}, True)):
             self.assertIs(LV.Live(FP(v), self.tmp, os.path.join(self.tmp, "logs")).auto_delete(), want, v)
+
+    def test_live_auto_settings(self):
+        """書き出したあとの自動の流れ live.auto(M2): 鍵ごとに直す・形の違う値は断る・ほかの鍵を直しても残る"""
+        v = self.p.patch("live", {"auto": {"after": "auto", "engine": "whisper.cpp"}})
+        self.assertEqual(v["auto"], {"after": "auto", "cut": "", "engine": "whisper.cpp", "model": ""})
+        v = self.p.patch("live", {"auto": {"cut": "silence", "model": "large-v3"}})
+        self.assertEqual(v["auto"], {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3"})
+        for bad in ({"auto": "x"}, {"auto": {"after": "all"}}, {"auto": {"cut": "rows"}}, {"auto": {"engine": "openai"}},
+                    {"auto": {"model": "../x"}}, {"auto": {"model": "a" * 61}}, {"auto": {"engine": None}}):
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", bad)
+        self.assertEqual(self.p.patch("live", {"enabled": True})["auto"]["model"], "large-v3")   # ほかの鍵を直しても残る
+        self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": ""})
 
     def test_token_is_kept_when_blank(self):
         self.p.patch("live", {"recorders": [{"id": "laptop", "name": "ノート PC", "url": "http://192.168.1.20:8730", "token": TOKEN}]})
@@ -744,6 +759,79 @@ class StopRecorderTest(unittest.TestCase):
         self.assertFalse(lv.spawn(lv.find("local")))                        # 終了の途中は見回りが起こし直さない
 
 
+class FailuresTest(unittest.TestCase):
+    """M3: 失敗の集約(src/home/live_failures.py)。書き出し・まとめて実行へ渡す・文字起こし・パックの失敗を 1 つの関数で文にして、
+    LIVE の帯(GET /live/api/exports のジョブ)と「調子」(Live.health の failures)に同じ文で出す。exports.json と autorun-runs.jsonl を読むだけ"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-fail-")
+        self.fake = FakeRecorder()
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.prefs.patch("live", {"enabled": True, "recorders": [{"id": "local", "name": "この PC", "url": self.fake.url, "token": TOKEN}]})
+        self.logs = os.path.join(self.tmp, "logs")
+        os.makedirs(self.logs)
+        now = LX.now_iso()
+        old = LX.epoch_iso(time.time() - 8 * 86400)
+
+        def job(i, **kw):
+            return dict({"id": "lx-%010d" % i, "recorder": "local", "recording": "20261004-000000-a", "markId": "lm-%012d" % i, "n": i, "label": "",
+                         "start": now, "end": now, "state": "done", "message": "", "error": "", "warning": "", "path": "", "runId": "",
+                         "created": now, "updated": now}, **kw)
+        jobs = [job(1, state="error", error="録画が区間まで届きませんでした(録画は「ended」です)", label="山1"),
+                job(2, path=os.path.join(self.tmp, "out", "02_渡せない.mp4"), handoffError="パックへ渡せませんでした: まとめて実行が使えません"),
+                job(3, path=os.path.join(self.tmp, "out", "03_パック.mp4"), runId="r-pack"),
+                job(4, path=os.path.join(self.tmp, "out", "04_文字.mp4"), runId="r-tx", warning="録画の終わりまでで切りました"),
+                job(5, path=os.path.join(self.tmp, "out", "05_ok.mp4"), runId="r-ok"),
+                job(6, state="cancelled", message="取り消しました"),
+                job(7, state="error", error="古い失敗", updated=old, created=old)]   # 7 日より前は「調子」に出さない
+        os.makedirs(os.path.join(self.tmp, "live"))
+        with open(os.path.join(self.tmp, "live", "exports.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": LX.JOBS_SCHEMA, "jobs": jobs}, f, ensure_ascii=False)
+
+        def run(rid, state, steps, error=""):
+            return {"v": 1, "id": rid, "kind": "file", "sourcePath": "x.mp4", "state": state, "error": error, "created": 1, "mode": "file_auto",
+                    "steps": [{"key": k, "label": k, "state": s, "detail": ""} for k, s in steps]}
+        with open(os.path.join(self.logs, "autorun-runs.jsonl"), "w", encoding="utf-8") as f:
+            for r in (run("r-pack", "error", [("transcribe", "done"), ("pack", "error")], "パックを作れませんでした: 字幕がありません"),
+                      run("r-tx", "error", [("transcribe", "error"), ("pack", "wait")], "文字起こしに失敗しました: モデルがありません"),
+                      run("r-ok", "done", [("transcribe", "done"), ("pack", "done")])):
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        self.live = LV.Live(self.prefs, REPO, self.logs, store_dir=os.path.join(self.tmp, "live"), out_dir=lambda: os.path.join(self.tmp, "out"), spawn=False)
+
+    def tearDown(self):
+        self.fake.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_same_text_in_band_and_health(self):
+        snap = {j["id"]: j for j in self.live.exporter.snapshot()}
+        f = {jid: (j.get("failure") or {}) for jid, j in snap.items()}
+        self.assertEqual({jid: x.get("kind") for jid, x in f.items() if x},
+                         {"lx-0000000001": "export", "lx-0000000002": "handoff", "lx-0000000003": "pack", "lx-0000000004": "transcribe", "lx-0000000007": "export"})
+        self.assertEqual(f["lx-0000000001"]["text"], "「山1」: 書き出しに失敗しました: 録画が区間まで届きませんでした(録画は「ended」です)")
+        self.assertEqual(f["lx-0000000002"]["text"], "02_渡せない.mp4: パックへ渡せませんでした: まとめて実行が使えません")
+        self.assertEqual(f["lx-0000000003"]["text"], "03_パック.mp4: パックを作れませんでした: 字幕がありません")   # 理由が段の名前で始まるなら重ねない
+        self.assertEqual(f["lx-0000000004"]["text"], "04_文字.mp4: 文字起こしに失敗しました: モデルがありません")
+        self.assertEqual(LF.failure_of({"state": "done", "label": "x", "runId": "r"}, {"state": "error", "error": "つながりません", "steps": [{"key": "pack", "state": "error"}]})["text"],
+                         "「x」: パックに失敗しました: つながりません")
+        self.assertIsNone(LF.failure_of({"state": "done", "runId": "r"}, {"state": "cancelled", "steps": []}))   # 人の中止は失敗ではない
+        # 帯が出す欄に同じ文: 書き出しの失敗は error、それ以外は warning(前からの警告は残す)
+        self.assertEqual(snap["lx-0000000001"]["error"], f["lx-0000000001"]["text"])
+        self.assertEqual(snap["lx-0000000004"]["warning"], "録画の終わりまでで切りました / " + f["lx-0000000004"]["text"])
+        for jid in ("lx-0000000002", "lx-0000000003"):
+            self.assertEqual(snap[jid]["warning"], f[jid]["text"])
+        # 「調子」: 7 日より前・取り消し・成功は出さない。文は帯と同じ
+        h = self.live.health()
+        self.assertEqual(sorted(x["text"] for x in h["failures"]), sorted(f[jid]["text"] for jid in ("lx-0000000001", "lx-0000000002", "lx-0000000003", "lx-0000000004")))
+        self.assertEqual({x["kind"] for x in h["failures"]}, {"export", "handoff", "pack", "transcribe"})
+        # 書き出しの記録は書き換えない(読むだけ)
+        with open(os.path.join(self.tmp, "live", "exports.json"), encoding="utf-8") as fh:
+            self.assertNotIn("failure", fh.read())
+
+    def test_off_has_no_failures_and_portal_health(self):
+        self.prefs.patch("live", {"enabled": False})
+        self.assertIsNone(self.live.health())                                # オフなら「調子」に出さない(今までどおり)
+
+
 class SpawnTest(unittest.TestCase):
     """見回りが本物の録画の部品(src/recorder/recorder.py)を切り離して起動する"""
 
@@ -808,14 +896,63 @@ class FakeRunner:
         self.streamers = []   # start_file に渡った配信者の名前(files と同じ順)
 
     def start_file(self, path, title="", flow="check", streamer=None, **kw):
+        if getattr(self, "fail", None):
+            raise ValueError(self.fail)
         self.files.append((path, title, flow))
         self.streamers.append(streamer)
+        self.kws = getattr(self, "kws", []) + [kw]   # 書き出したあとの設定(live.auto の cut・engine・model。M2)
         return {"id": "run-%d" % len(self.files)}
 
     def snapshot(self):
         return {"runs": [{"id": "run-%d" % (i + 1), "state": "queued", "stateLabel": "待ち",
                           "steps": [{"key": "transcribe", "label": "文字起こし", "state": "wait", "stateLabel": "待ち", "detail": ""}]}
                          for i in range(len(self.files))]}
+
+
+class FakeStudio:
+    """取り込んだスタジオの API の代わり(Live.studio_call に差し替える。M1): 配信の登録・読む・マークの保存(baseRev)・書き出し済み"""
+
+    def __init__(self):
+        self.videos = {}
+        self.calls = []
+        self.conflicts = 0     # この回数だけ PUT を 409(画面の保存とぶつかった)にする
+        self.seq = 0
+
+    def __call__(self, method, path, body=None):
+        self.calls.append((method, path.split("?")[0], json.loads(json.dumps(body)) if body is not None else None))
+        if method == "POST" and path == "/api/videos/open":
+            v = self.videos.setdefault(body["recording"], {"id": body["recording"], "kind": "live", "rev": 1, "marks": [], "title": body.get("title") or ""})
+            return 200, {"video": json.loads(json.dumps(v))}
+        if method == "GET" and path.startswith("/api/video?id="):
+            v = self.videos.get(path.split("=", 1)[1])
+            return (200, {"video": json.loads(json.dumps(v))}) if v else (404, {"message": "無い"})
+        if method == "PUT" and path == "/api/video":
+            v = self.videos[body["id"]]
+            if self.conflicts:
+                self.conflicts -= 1
+                v["rev"] += 1
+                return 409, {"message": "ぶつかった"}
+            if body.get("baseRev") != v["rev"]:
+                return 409, {"message": "古い"}
+            marks = []
+            for m in body["marks"]:
+                m = dict(m)
+                if not m.get("id"):
+                    self.seq += 1
+                    m["id"] = "m%d" % self.seq
+                    m.setdefault("src", "manual")
+                m["start"], m["end"] = round(m["start"], 1), round(m["end"], 1)   # スタジオは小数 1 桁に丸める
+                marks.append(m)
+            v["marks"], v["rev"] = marks, v["rev"] + 1
+            return 200, {"video": json.loads(json.dumps(v))}
+        if method == "POST" and path == "/api/live/exported":
+            v = self.videos[body["id"]]
+            m = next((x for x in v["marks"] if x["id"] == body["markId"]), None)
+            if m is None:
+                return 200, {"ok": False}
+            m.update(status="exported", path=body["path"])
+            return 200, {"ok": True}
+        return 404, {"message": "なし"}
 
 
 _SRC = {}
@@ -965,6 +1102,71 @@ class ExportTest(unittest.TestCase):
         # 記録は exports.json に残る(起動し直しても見える)
         again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
         self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled", j4["id"]: "done", j5["id"]: "done"})
+
+    def test_adopt_server_side(self):
+        """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
+        origin を .clip.json と live_feedback.jsonl に残す・同じ区間は二重に作らない・live.auto(M2)をまとめて実行へ渡す"""
+        studio = FakeStudio()
+        studio.conflicts = 1                                                  # 1 回目の保存は画面の保存とぶつかる → 読み直して入れる
+        self.live.studio_call = studio
+        self.prefs.patch("live", {"auto": {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}})
+        rid = self.start_rec(8)
+        first = LX.iso_epoch(self.status(rid)["firstPdt"])
+        res = self.live.adopt({"recorder": "local", "recording": rid, "start": 1.04, "end": 4.0, "label": "自動の山", "origin": "auto"})
+        self.assertEqual((res["video"], res["origin"], res["existing"]), (rid, "auto", False))
+        j = res["job"]
+        self.assertEqual((j["origin"], j["after"], j["auto"], j["studio"]["mark"], j["studio"]["start"]),
+                         ("auto", "auto", {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}, res["mark"], 1.0))   # 区間はスタジオが丸めた値
+        v = studio.videos[rid]
+        self.assertEqual([(m["status"], m["label"], m["start"], m["end"]) for m in v["marks"]], [("adopted", "自動の山", 1.0, 4.0)])
+        d = self.wait_state(j["id"], ("done", "error"), 90)
+        self.assertEqual(d["state"], "done", d)
+        self.assertEqual(self.runner.files[-1][2], "auto")
+        self.assertEqual(self.runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"})   # M2: live.auto をまとめて実行へ
+        self.assertTrue(wait_for(lambda: v["marks"][0]["status"] == "exported", 5))   # 入口が自分で「書き出し済み」にする(画面なし)
+        self.assertEqual(os.path.normcase(v["marks"][0]["path"]), os.path.normcase(d["path"]))
+        clip, _w = schemas.load_clip_file(schemas.find_clip_path(d["path"]))
+        self.assertEqual((clip["source"]["live"]["origin"], clip["mark"]["src"]), ("auto", "auto"))
+        self.assertAlmostEqual(LX.iso_epoch(clip["source"]["live"]["start"]) - first, 1.0, delta=0.01)   # 秒は録画の頭(firstPdt)から
+        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
+            fb = [json.loads(x) for x in f if x.strip()]
+        self.assertEqual([(x["event"], x["origin"], x["human"], x["verdict"], x["jobId"]) for x in fb], [("adopt", "auto", False, None, j["id"])])   # 自動は「良い」に数えない
+        # 同じ区間をもう一度 → 済んでいるので新しく作らない(スタジオのマークも増やさない)
+        again = self.live.adopt({"recorder": "local", "recording": rid, "start": 1.0, "end": 4.02, "origin": "auto"})
+        self.assertEqual((again["existing"], again["job"]["id"], len(v["marks"])), (True, j["id"], 1))
+        # 絶対時刻(UTC の文字列)でも頼める・人の採用(manual)は「良い」・after を指定すれば設定より優先
+        m2 = self.live.adopt({"recorder": "local", "recording": rid, "start": LX.epoch_iso(first + 5.0), "end": LX.epoch_iso(first + 7.0), "after": "none"})
+        self.assertEqual((m2["origin"], m2["job"]["after"], m2["job"]["studio"]["start"]), ("manual", "none", 5.0))
+        self.assertEqual(self.wait_state(m2["job"]["id"], ("done", "error"), 90)["state"], "done")
+        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
+            self.assertEqual(json.loads(f.read().strip().splitlines()[-1])["verdict"], "good")
+        for bad in ({"origin": "robot"}, {"start": 5.0, "end": 5.2}, {"start": -1, "end": 3}, {"start": "きのう", "end": 3}, {"start": True, "end": 3},
+                    {"after": "all"}, {"recording": "../x"}):
+            with self.assertRaises(LX.LiveError, msg=repr(bad)):
+                self.live.adopt(dict({"recorder": "local", "recording": rid, "start": 10.0, "end": 12.0}, **bad))
+        studio_down = lambda m, p, b=None: (None, {"message": "スタジオが動いていません"})
+        self.live.studio_call = studio_down
+        with self.assertRaises(LX.LiveError) as cm:
+            self.live.adopt({"recorder": "local", "recording": rid, "start": 10.0, "end": 12.0})
+        self.assertEqual(cm.exception.code, 502)
+
+    def test_handoff_failure_is_collected(self):
+        """M3: まとめて実行へ渡せなかった失敗が、LIVE の帯(ジョブの warning と failure)と「調子」(health の failures)に同じ文で出る"""
+        self.runner.fail = "順番待ちが多すぎます(20本まで)"
+        rid = self.start_rec()
+        first = LX.iso_epoch(self.status(rid)["firstPdt"])
+        m = self.mark(rid, first + 0.5, first + 2.5, "失敗する")
+        j = self.ex.add("local", rid, m["id"], after="check")
+        d = self.wait_state(j["id"], ("done", "error"), 90)
+        self.assertEqual(d["state"], "done", d)
+        f = d["failure"]
+        self.assertEqual(f["kind"], "handoff")
+        self.assertIn("文字起こしへ渡せませんでした: 順番待ちが多すぎます", f["text"])
+        self.assertIn(os.path.basename(d["path"]), f["text"])
+        self.assertIn(f["text"], d["warning"])                               # 帯は warning の行に出す(今の画面のまま)
+        h = self.live.health()
+        self.assertEqual([x["text"] for x in h["failures"]], [f["text"]])     # 「調子」に同じ文
+        self.assertEqual(h["failures"][0]["jobId"], j["id"])
 
     def loud_of(self, path):
         """書き出した動画の聞こえ方の音量(LUFS)とピーク(dBTP)。ffmpeg の loudnorm で測るだけ"""

@@ -11,7 +11,10 @@
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
              配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/home/live_archive.py。P4)・
-             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/home/live_cleanup.py。P4)
+             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/home/live_cleanup.py。P4)・
+             書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
+             engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
+             after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -47,7 +50,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "intake": {"enabled": False, "folder": "", "top": 3, "dailyMax": 5, "maxHours": 8, "maxGB": 20, "interval": 30},
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
-            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True},
+            "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
+                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -57,6 +61,10 @@ RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/recorder/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
+LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/home/live_export.py の AFTERS と同じ名前)
+LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
+LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/editor/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
+LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 
 
 class PrefsError(ValueError):
@@ -141,7 +149,12 @@ def _clean_live(v, cur):
     録画元の合言葉は、送られなかった(空)ときは同じ id の今の値を残す(画面には合言葉を返さないため)"""
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
-           "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True}   # 消すのは明示的に true のときだけ
+           "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
+           "auto": _clean_live_auto(cur.get("auto") if isinstance(cur.get("auto"), dict) else {}, DEFAULTS["live"]["auto"], strict=False)}
+    if "auto" in v:   # 書き出したあとの自動の流れ(M2)。節の中の鍵ごとに直す(送らなかった鍵は今のまま)
+        if not isinstance(v["auto"], dict):
+            raise PrefsError("書き出したあとの設定(auto)の形が正しくありません")
+        out["auto"] = _clean_live_auto(v["auto"], out["auto"])
     if "enabled" in v:
         out["enabled"] = v["enabled"] is True
     if "folder" in v:
@@ -179,6 +192,25 @@ def _clean_live(v, cur):
             ids.add(rid)
             clean.append({"id": rid, "name": _clean_name(r.get("name") or rid) or rid, "url": url, "token": token})
         out["recorders"] = clean
+    return out
+
+
+def _clean_live_auto(v, cur, strict=True):
+    """live.auto(M2)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
+    out = {k: cur.get(k, DEFAULTS["live"]["auto"][k]) for k in DEFAULTS["live"]["auto"]}
+    checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
+              "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
+              "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
+              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)")}
+    for k, (ok, msg) in checks.items():
+        if k in v:
+            if ok(v[k]):
+                out[k] = v[k]
+            elif strict:
+                raise PrefsError(msg)
+    for k, (ok, _msg) in checks.items():   # 今の値が壊れていたら既定に戻す
+        if not ok(out[k]):
+            out[k] = DEFAULTS["live"]["auto"][k]
     return out
 
 
@@ -307,7 +339,7 @@ class Prefs:
             try:
                 return _clean_live(v if isinstance(v, dict) else {}, DEFAULTS["live"])
             except PrefsError:
-                return dict(DEFAULTS["live"], recorders=[])
+                return dict(DEFAULTS["live"], recorders=[], auto=dict(DEFAULTS["live"]["auto"]))
         return _read_streamer(v)
 
     def get(self, sections=None):

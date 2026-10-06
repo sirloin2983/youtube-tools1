@@ -28,6 +28,9 @@
   15 書き出したあと(帯の select。設定 liveAfter)と配信者(字幕の色): begin のチャンネル名がスタジオの配信に入る・帯の「配信者」がチャンネル名から自動で入る・
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
+  M1(線 D。入口 0.39.0)サーバー側の「マーク + 書き出し」POST /live/api/adopt: スタジオの画面を閉じたまま → 書き出しまで通る・スタジオの一覧にマークが出て
+     「書き出し済み」(入口が自分で付ける)・.clip.json と live_feedback.jsonl に origin・同じ区間は二重に作らない・
+     ホームの設定 live.auto(M2: cut・engine・model)がまとめて実行へ渡る・ホームの「試験中の機能」に設定の欄・「調子」に失敗の行(M3)
 """
 import json
 import os
@@ -194,12 +197,13 @@ def run(tmp, shots, force_chromium):
     live.store_dir = os.path.join(tmp, "live")
     live.out_dir = lambda: out_dir            # スタジオの書き出し先と同じ(/api/live/exported は書き出し先の中の mp4 だけ受ける)
     live.audio = lambda: {"volume": 100, "loudness": None}
-    handed, handed_who = [], []
+    handed, handed_who, handed_kw = [], [], []
 
     class FakeRunner:   # 文字起こしへは偽のまとめて実行(渡った flow と配信者の名前を覚える。全自動の分は「パックの段を実行中」と答える)
         def start_file(self, path, title="", flow="check", streamer=None, **kw):
             handed.append((path, flow))
             handed_who.append(streamer)
+            handed_kw.append(kw)   # 書き出したあとの設定(live.auto の cut・engine・model。M2)
             return {"id": "run-%d" % len(handed)}
 
         def snapshot(self):
@@ -295,6 +299,14 @@ def run(tmp, shots, force_chromium):
                 pg.click("#liveEnabled")
                 check(wait_js(pg, "document.getElementById('liveMsg').hidden === false") and srv.prefs.get(["live"])["live"]["enabled"] is True,
                       "1 ホームの「試験中の機能」でオンにする")
+                # M2: オンにすると「書き出したあとの自動の流れ」(live.auto)の欄が出て、選ぶと設定に入る
+                check(wait_js(pg, "!document.getElementById('liveAutoBox').hidden", 5000), "M2 ホームの「試験中の機能」に「書き出したあとの自動の流れ」が出る")
+                pg.evaluate("document.getElementById('liveAutoBox').open = true")
+                pg.select_option("#liveAutoEngine", "whisper.cpp")
+                pg.fill("#liveAutoModel", "large-v3")
+                pg.press("#liveAutoModel", "Tab")
+                check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
+                      "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
                 pg.close()
 
                 # ---------------- 2. ② の URL 欄から録画を始める ----------------
@@ -667,6 +679,49 @@ def run(tmp, shots, force_chromium):
                 if rid2:
                     code, d = api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid2})
                     check(code == 200 and d.get("ok"), "11 2本目を止める")
+
+                # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
+                pg.goto("about:blank")   # スタジオの画面を閉じる(③ でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
+                n_handed = len(handed)
+
+                def marks_of(v):
+                    return ((api("GET", "/studio/api/video?id=%s" % v)[1] or {}).get("video") or {}).get("marks") or []
+                code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.04, "end": 13.0, "label": "自動の山", "origin": "auto"})
+                check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "check",
+                      "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の文字起こしまで): %s" % ((ad or {}).get("job") or ad,))
+                jid = ((ad or {}).get("job") or {}).get("id")
+                done3 = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(
+                    [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)
+                check(done3 and done3["state"] == "done", "M1 画面なしで書き出しまで通る: %s" % (((done3 or {}).get("state"), (done3 or {}).get("error")),))
+                mk3 = wait_for(lambda: (lambda m: m if m and m["status"] == "exported" else None)(next((m for m in marks_of(rid) if m["id"] == (ad or {}).get("mark")), None)), 15)
+                check(mk3 and mk3["start"] == 10.0 and mk3["end"] == 13.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),
+                      "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間はスタジオの丸め): %s" % (mk3,))
+                if done3 and done3["state"] == "done":
+                    clip3, _w = schemas.load_clip_file(schemas.find_clip_path(done3["path"]))
+                    check(clip3 and clip3["source"]["live"]["origin"] == "auto" and clip3["mark"]["src"] == "auto" and clip3["source"]["live"]["studio"]["mark"] == mk3["id"],
+                          "M1 .clip.json に origin auto(mark.src も auto): %s" % ((clip3 or {}).get("mark"),))
+                    info3 = normalize.probe(done3["path"])
+                    check(normalize.is_30fps(info3) and abs(info3.get("duration", 0) - 3.0) <= 0.15, "M1 30fps・長さが区間と合う: %.2f 秒" % (info3 or {}).get("duration", 0))
+                check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_kw[-1] == {"engine": "whisper.cpp", "model": "large-v3"},
+                      "M2 live.auto のエンジン・モデルがまとめて実行へ渡る: %s %s" % (handed[-1:], handed_kw[-1:]))
+                try:
+                    with open(os.path.join(live.store_dir, LX.FEEDBACK), encoding="utf-8") as f:
+                        fb3 = [json.loads(x) for x in f if x.strip()]
+                except OSError:
+                    fb3 = []
+                check(fb3 and fb3[-1]["origin"] == "auto" and fb3[-1]["human"] is False and fb3[-1]["verdict"] is None and fb3[-1]["jobId"] == jid,
+                      "M1 live_feedback.jsonl に origin(自動は「良い」に数えない): %s" % fb3[-1:])
+                code, ad2 = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.0, "end": 13.0, "origin": "auto"})
+                check(code == 200 and ad2["existing"] is True and ad2["job"]["id"] == jid and len(marks_of(rid)) == n_jobs + 2,
+                      "M1 同じ区間をもう一度 → 新しく作らない(マークもジョブも増えない)")
+                code, bad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 1.0, "end": 3.0, "origin": "robot"})
+                check(code == 400, "M1 origin は manual・auto・archive だけ: %s" % (code,))
+                pg.goto(studio_url + "?video=" + rid)
+                check(wait_js(pg, "() => Studio.step === 'review' && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (n_jobs + 2), 15000),
+                      "M1 ③ で開くと、足したマークも「書き出し済み」")
+                # M3: 「調子」にリアルタイム切り抜きの失敗の行(この通しでは失敗が無い = 「なし」)
+                code, hh = api("GET", "/api/health")
+                check(code == 200 and isinstance(((hh or {}).get("live") or {}).get("failures"), list), "M3 「調子」の live に failures: %s" % (((hh or {}).get("live") or {}).get("failures"),))
 
                 # ---------------- 14. 狭い画面・エラー ----------------
                 pg.set_viewport_size({"width": 375, "height": 812})

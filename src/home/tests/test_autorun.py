@@ -987,6 +987,21 @@ class TestRequests(Base):
         with self.assertRaisesRegex(ValueError, "見つかりません"):
             self.r.start_file(os.path.join(self.tmp, "nai.mp4"))
 
+    def test_file_engine_and_model(self):
+        """リアルタイム切り抜きの live.auto(M2): 実行ごとのエンジン・モデルを文字起こしの要求に入れる(無ければ編集の設定のまま)。形の違う値は使わない"""
+        media = os.path.join(self.tmp, "ライブ.mp4")
+        open(media, "wb").close()
+        run = self.wait(self.r.start_file(media, title="ライブ", engine="whisper.cpp", model="large-v3"))
+        self.assertEqual((run["state"], run["engine"], run["model"]), ("done", "whisper.cpp", "large-v3"), run)
+        body = list(self.tools.tx_jobs.values())[-1]["body"]
+        self.assertEqual((body["engine"], body["model"], body["language"]), ("whisper.cpp", "large-v3", "ja"))   # ほかは編集の設定のまま
+        media2 = os.path.join(self.tmp, "ライブ2.mp4")
+        open(media2, "wb").close()
+        run = self.wait(self.r.start_file(media2, engine="openai", model="../x"))
+        self.assertEqual((run["engine"], run["model"]), (None, None))
+        body = list(self.tools.tx_jobs.values())[-1]["body"]
+        self.assertEqual(("engine" in body, body["model"]), (False, "small"))   # 編集の設定のモデル
+
     def zips(self, out):
         import zipfile
         return {n: sorted(zipfile.ZipFile(os.path.join(out, n)).namelist()) for n in os.listdir(out)}

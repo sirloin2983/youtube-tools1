@@ -1498,3 +1498,28 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - 既存の弱い所(動きを変えるので直していない): recording.json の sessions が null だと起動時の復旧で落ちる(録画の部品が書く値は常にリスト。手で書き換えたときだけ)
 - 注意: `src/recorder/` の .py・README は作業ツリーで CRLF(autocrlf)。直すときは行末を保つ道具で
 - 未コミット: なし(このコミット。`src/recorder/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/home/`・`src/editor/` などの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 線 D 段階 1 の M1〜M3(入口 0.38.1 → 0.39.0)
+- M1 サーバー側の「マーク + 書き出し」: `POST /live/api/adopt {recorder, recording, start, end, label?, origin?, after?, streamer?}`(`src/home/live.py` の `Live.adopt`)。
+  スタジオの配信(kind live)を `/studio/api/videos/open` で(無ければ)登録 → 画面と同じ `PUT /studio/api/video`(baseRev。ぶつかったら読み直して 3 回まで)で採用のマークを足す
+  (同じ区間 ±0.5 秒は使い回し・候補/不採用なら採用に)→ スタジオが丸めた区間で `Exporter.add_studio` → 書き出し。済んだら `Exporter._studio_exported` が入口から
+  `POST /studio/api/live/exported` を呼んでマークを「書き出し済み」にする(画面を閉じていても。画面の書き出しも同じ)。start・end は録画の頭からの秒か UTC の絶対時刻。
+  書き出しの途中・済みのマークは新しく作らない(existing)。origin = manual / auto / archive をジョブ・`.clip.json`(`source.live.origin`。auto・archive は `mark.src` も auto)・
+  `app/live/live_feedback.jsonl`(`feedback.jsonl` とは別。human・verdict = 自動は null)に残す
+- M2 ライブ → まとめて実行の受け渡し: 設定 `live.auto {after, cut, engine, model}`(`src/home/prefs.py`。鍵ごとに直す・形を検査)。after は画面・API が指定しないときの既定、
+  cut・engine・model は書き出しを頼んだときにジョブの `auto` に覚えて `_finish` → `autorun.start_file(cut, engine, model)` → `_file_transcribe` が `/api/transcribe` の engine・model に入れる
+  (空 = 今までどおり)。画面はホームの「試験中の機能」(オンのとき)に最小の欄 `#liveAutoBox`
+- M3 失敗の集約: 新しい `src/home/live_failures.py`(`failure_of` = 失敗の文を作る 1 つの関数・`collect`・まとめて実行の記録を変わったときだけ読む `Reader`)。
+  `exports.json` のジョブ(書き出しの失敗・`handoffError` = まとめて実行へ渡せなかった)と `logs/autorun-runs.jsonl`(runId で紐づけ。文字起こし・パックの段の失敗)を読む。
+  同じ文を「調子」(`Live.health` の failures → ホームの「リアルタイム切り抜きの失敗(7 日)」)と LIVE の帯(`/live/api/exports` のジョブの failure と、帯が今の画面のまま出す error・warning)に出す
+- 変更: `src/home/live.py`・`live_export.py`・`live_failures.py`(新)・`autorun.py`・`prefs.py`・`launch.py`(版・API の説明)・`portal.html`・`portal.js`・`portal.css`・`README.txt`(■ v0.39.0)。
+  テスト: `test_live.py`(adopt の通し = 偽のスタジオ・ぶつかったときの読み直し・二重に作らない・検査 / 渡せなかった失敗が帯と調子に同じ文 / 失敗の集約の単体 / live.auto の設定)・
+  `test_autorun.py`(エンジン・モデルの受け渡し)・`e2e_live_studio.py`(画面を閉じて adopt → 書き出し済み・origin・live_feedback・二重にしない・live.auto の欄 → まとめて実行へ)
+- 版: 入口 0.38.1 → 0.39.0。スタジオは触っていない(既存の API だけを使った = スタジオの版はそのまま)
+- テスト: home の単体 381 件 OK(skip 2)・`e2e_live.py`・`e2e_live_studio.py`(115 件)・`e2e_live_archive.py`(83 件)・`e2e_portal.py`・`e2e_autorun.py` OK。
+  別の担当の重い処理(`dev/eval_speakers.py run`)と同時に流した回は、e2e_live_studio・e2e_live_archive が録画元の応答待ち(502)で落ちた → 流し直して全部 OK(コードの不具合ではない)
+- 仮で決めたこと: スタジオの登録の API は足さず、画面と同じ PUT /api/video で足した(`src/studio/store.py` は別の担当が見直し中のため)/ マークの番号 n はスタジオの区間の順 /
+  書き出しの途中・済みのマークへの adopt は新しく作らず既存を返す / live_feedback.jsonl は入口の作業データの live\ に(4MB で .1 へ)/ live.auto の after は API の既定だけ(画面は帯の選択のまま)/
+  失敗の文で、まとめて実行の理由が段の名前で始まるときは重ねない / 「調子」に出すのは 7 日以内・20 件まで / スタジオの画面(review.js)は触らず、帯の今の欄(error・warning)に同じ文を入れた
+- 未完了・次: M9(確認の一覧)で live_failures.collect をそのまま使う。M7 は adopt(origin archive)を呼ぶだけでよい。`dev/eval_marks.py --live` が live_feedback.jsonl を読むのは別の担当
+- 未コミット: なし(このコミット。ほかの担当の作業途中の変更は入れていない)

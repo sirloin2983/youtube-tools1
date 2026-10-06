@@ -170,6 +170,12 @@
    (CJK は文字の間で折り返せるため、flex item が min-content = 1文字ぶんまで縮む)。src/ui-kit/ は直接触らないので、
    ここで nowrap にして防ぐ(足りなければ select 側が丸ごと次の行へ。audit #2) */
 .lag{white-space:nowrap}
+/* 書き出したあとの自動の流れ(試験中の機能の中。live.auto)。ラベルは上・欄は下に並べて、狭い画面でもはみ出さない */
+.pt-live-auto{margin-top:8px}
+.pt-live-auto>summary{cursor:pointer}
+.pt-live-auto .row{margin-top:6px}
+.pt-live-auto .lag{white-space:normal;display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:100%}
+.pt-live-auto .lag select,.pt-live-auto .lag input{max-width:100%}
 /* 一覧の非表示(UIKit.hide。2026-10-04): 「非表示にする」は行の右に控えめに(触れる・フォーカスで濃く) */
 .pt-todo-item{display:flex;align-items:center;background:var(--panel)}
 .pt-todo-item>.pt-todo-link{flex:1;min-width:0}

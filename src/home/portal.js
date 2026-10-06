@@ -1009,6 +1009,14 @@
         + (r.streamlink === false ? '。streamlink が入っていません(setup\install.bat)' : '') + (r.folderMessage ? '。' + r.folderMessage : '');
       ul.appendChild(healthRow(st, '録画元 ' + r.name, text, [r.folder || '', r.url].concat((r.recordings || []).map(function (x) { return (x.title || x.id) + ' ' + x.state + (x.message ? '(' + x.message + ')' : ''); }))));
     });
+    // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/home/live_failures.py)
+    if (h.live && h.live.failures) {
+      var lf = h.live.failures;
+      var row = healthRow(lf.length ? 'warn' : 'ok', 'リアルタイム切り抜きの失敗(7 日)', lf.length ? lf.length + ' 件(新しい順。スタジオの LIVE の帯にも同じ文)' : 'なし',
+        lf.map(function (x) { return x.text; }));
+      row.id = 'liveFailures';
+      ul.appendChild(row);
+    }
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
@@ -1537,6 +1545,23 @@
      ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。録画と再生・マークはスタジオの中(P3。別の録画の画面は 2026-10-05 にやめた) */
   function renderLive(v) {
     $('#liveEnabled').checked = !!(v && v.enabled);
+    var box = $('#liveAutoBox'), a = (v && v.auto) || {};   // 書き出したあとの自動の流れ(live.auto。M2)。オンのときだけ
+    if (!box) return;
+    box.hidden = !(v && v.enabled);
+    $('#liveAutoAfter').value = a.after || 'check';
+    $('#liveAutoCut').value = a.cut || '';
+    $('#liveAutoEngine').value = a.engine || '';
+    if (document.activeElement !== $('#liveAutoModel')) $('#liveAutoModel').value = a.model || '';
+  }
+  function saveLiveAuto(key, value) {
+    var body = {}; body[key] = value;
+    api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: { auto: body } }).then(function (j) {
+      renderLive(j.value);
+      toast('書き出したあとの設定を保存しました', 'ok');
+    }, function (e) {
+      toast('保存できませんでした: ' + e.message, 'err');
+      loadLive();
+    });
   }
   function loadLive() {
     return api('api/ytt/prefs', 'POST', { op: 'get', sections: ['live'] }).then(function (j) { renderLive((j.prefs || {}).live); },
@@ -1555,6 +1580,12 @@
         toast('切り替えられませんでした: ' + e.message, 'err');
       });
     });
+    if ($('#liveAutoBox')) {
+      [['#liveAutoAfter', 'after'], ['#liveAutoCut', 'cut'], ['#liveAutoEngine', 'engine']].forEach(function (p) {
+        $(p[0]).addEventListener('change', function () { saveLiveAuto(p[1], $(p[0]).value); });
+      });
+      $('#liveAutoModel').addEventListener('change', function () { saveLiveAuto('model', $('#liveAutoModel').value.trim()); });
+    }
     loadLive();
   }
 

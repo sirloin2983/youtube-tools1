@@ -228,6 +228,21 @@
         </div>
         <p class="hint" id="liveNote">オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。</p>
         <p class="hint" id="liveMsg" role="status" hidden></p>
+        <!-- 書き出したあとの自動の流れ(ホームの設定 live.auto。線 D の M2)。オンのときだけ出す -->
+        <details class="pt-live-auto" id="liveAutoBox" hidden>
+          <summary>書き出したあとの自動の流れ</summary>
+          <div class="row">
+            <label class="lag">書き出したあと(画面・API が指定しないとき)
+              <select id="liveAutoAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">文字起こし → パック</option></select></label>
+            <label class="lag">パックのカット
+              <select id="liveAutoCut"><option value="">ホームの設定のまま</option><option value="none">カットしない</option><option value="silence">無音を削る</option></select></label>
+            <label class="lag">文字起こしのエンジン
+              <select id="liveAutoEngine"><option value="">「編集」の設定のまま</option><option value="faster-whisper">faster-whisper(CPU)</option><option value="whisper.cpp">whisper.cpp(GPU)</option><option value="qwen3-asr">Qwen3-ASR(CPU)</option><option value="llama.cpp">Qwen3-ASR 1.7B(GPU)</option></select></label>
+            <label class="lag">モデル
+              <input type="text" id="liveAutoModel" maxlength="60" placeholder="空 = 「編集」の設定" spellcheck="false" autocomplete="off"></label>
+          </div>
+          <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。</p>
+        </details>
       </section>
       <section class="card flat pt-foot">
         <div class="row">

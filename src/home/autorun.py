@@ -59,6 +59,8 @@ RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定する�
 RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
 RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
+TX_ENGINES = ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 文字起こしのエンジンを実行ごとに選ぶとき(リアルタイム切り抜きの live.auto。M2)。editor の tx_engines の id
+TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # 同じくモデルの名前(src/home/prefs.py の LIVE_MODEL_RE と同じ形)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
               "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
@@ -226,8 +228,11 @@ def pad_range(s, e, duration=None):
 
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None):
+                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
+                 engine=None, model=None):
         self.id = uuid.uuid4().hex[:10]
+        self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
+        self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
         self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
@@ -277,6 +282,7 @@ class Run:
     def public(self):
         return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "sourcePath": self.source_path, "requestId": self.request_id, "ranges": [list(r) for r in self.ranges] or None, "cut": self.cut,
+                "engine": self.engine, "model": self.model,
                 "friendLength": dict(self.friend_length) if self.friend_length else None,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
                 "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or OTHER_MODES.get(self.mode, DOC_LABEL)) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
@@ -558,9 +564,11 @@ class AutoRunner:
                 self._wake()
         return {"runs": made, "skipped": skipped}
 
-    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None):
+    def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
+                   engine=None, model=None):
         """友人が切り抜いた動画の依頼(src/home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
-        streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)"""
+        streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
+        engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             raise ValueError("動画が見つかりません")
         with self.cv:
@@ -571,7 +579,7 @@ class AutoRunner:
                 raise ValueError("順番待ちが多すぎます(%d本まで)" % MAX_WAITING)
             run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
                       on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                      video_tracks=video_tracks, cut=cut)
+                      video_tracks=video_tracks, cut=cut, engine=engine, model=model)
             self.runs.append(run)
             self._trim()
             self._wake()
@@ -1766,6 +1774,10 @@ class AutoRunner:
         else:
             opts = self.client.ok("transcribe", "GET", "/api/settings")
             opts = {k: opts[k] for k in TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
+            if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
+                opts["engine"] = run.engine
+            if run.model:
+                opts["model"] = run.model
             jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=run.source_path)).get("id")
             try:
                 while True:
