@@ -4,7 +4,6 @@
 解析ジョブは辞書: state / phase / progress / error / cancel / proc / proc2 / chat / result。batch.py がこれを1本ずつ回す。
   new_job(spec) → run_analyze(job) → job["result"] = {source, candidates, series, signals, counts, warnings, spec}
 """
-import bisect
 import glob
 import gzip
 import json
@@ -20,7 +19,7 @@ import urllib.request
 import uuid
 
 import common
-from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms, media_duration, has_audio_stream
+from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms
 
 API_BASE = "https://www.googleapis.com/youtube/v3/"
 CHAT_CACHE_KEEP = 30
@@ -40,6 +39,7 @@ META_TTL = 24 * 3600     # 動画の付加情報の再取得までの秒数(再�
 META_KEEP = 300
 META_TIMEOUT = 90
 FB_SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")   # 結果・archive に残す設定
 
 
 def work_dir():
@@ -264,16 +264,9 @@ def _move_feedback_to_old(path):
 
 
 # ---------- 素材の取得(YouTube) ----------
-def fake_media():
-    p = os.environ.get("STUDIO_FAKE_MEDIA", "")
-    if not os.path.isfile(p):
-        raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
-    return p
-
-
 def download_audio(job, vid, wdir):
     if common.fake():
-        return fake_media()
+        return common.fake_media()
     yt = find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
@@ -293,6 +286,11 @@ def download_audio(job, vid, wdir):
 
 def chat_cache_path(vid):
     return os.path.join(chat_cache_dir(), vid + ".live_chat.json")
+
+
+def _usable_chat(path):
+    """取得済みのチャット(空でなく、大きすぎない)があるか"""
+    return os.path.isfile(path) and 0 < os.path.getsize(path) <= MAX_CHAT_BYTES
 
 
 def prune_cache(d, pattern, keep=CHAT_CACHE_KEEP):
@@ -431,7 +429,7 @@ def download_chat(job, vid, wdir, timeout):
             time.sleep(0.05)
         return (p, "") if os.path.isfile(p) else (None, "疑似モード: チャットなし")
     cp = chat_cache_path(vid)
-    if os.path.isfile(cp) and 0 < os.path.getsize(cp) <= MAX_CHAT_BYTES:
+    if _usable_chat(cp):
         c["cached"] = True
         c["prefetched"] = vid in _pf_done
         _pf_done.discard(vid)
@@ -448,7 +446,7 @@ def download_chat(job, vid, wdir, timeout):
                         raise Cancelled()
                     return None, "チャットは待たずに進めました"
                 c["bytes"] = pf["job"]["chat"]["bytes"] if pf["job"].get("chat") else c["bytes"]
-            if os.path.isfile(cp) and 0 < os.path.getsize(cp) <= MAX_CHAT_BYTES:
+            if _usable_chat(cp):
                 c["cached"] = c["prefetched"] = True
                 return cp, ""
             return None, pf["why"] or "チャットのリプレイを取得できませんでした"
@@ -509,8 +507,7 @@ def prefetch_chat(vid, timeout, on_done=None):
             return "skip"
         if len(PREFETCH) >= PREFETCH_MAX:
             return "full"
-        cp = chat_cache_path(vid)
-        if os.path.isfile(cp) and 0 < os.path.getsize(cp) <= MAX_CHAT_BYTES:
+        if _usable_chat(chat_cache_path(vid)):
             return "skip"
         if not find_tool("yt-dlp"):
             return "skip"
@@ -1081,16 +1078,13 @@ def run_analyze(job):
             n = int(math.ceil(dur))
             warnings.append("音量の解析は前回の結果を再利用しました(最初からやり直すには、詳しい設定の「キャッシュを使わない」をオン)")
         else:
-            if src["kind"] == "file":
-                media = src["path"]
-            else:
-                media = download_audio(job, src["videoId"], wdir)
-            dur, _ = media_duration(media)
+            media = src["path"] if src["kind"] == "file" else download_audio(job, src["videoId"], wdir)
+            dur, _v, has_audio, _l = common.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
             if not dur or dur < 20:
                 raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
             if dur > MAX_DURATION:
                 raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (common.fmt_ts(dur)[:8], MAX_DURATION // 3600))
-            if not has_audio_stream(media):
+            if not has_audio:
                 raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
             n = int(math.ceil(dur))
             job["phase"] = "音量を解析中"
@@ -1189,7 +1183,7 @@ def run_analyze(job):
                        "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band],
                        "chat": ({"act": [round(x, 1) for x in act], "count": chat_n, "warmCount": warm_n, **(chat_extra or {})} if info["chat"] else None),
                        "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
-            run = {"at": payload["at"], "spec": {k: spec[k] for k in ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")},
+            run = {"at": payload["at"], "spec": {k: spec[k] for k in SPEC_KEYS},
                    "lagUsed": spec.get("lagUsed"), "signals": info, "type": stream_type,
                    "candidates": [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]} for c in cands]}
             save_archive(src["videoId"], payload, run)
@@ -1199,7 +1193,7 @@ def run_analyze(job):
         if job["cancel"]:
             raise Cancelled()
         job["result"] = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info, "counts": {"chat": chat_n, "chatWarm": warm_n, "commentStamps": stamp_n, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])}, "type": stream_type,
-                         "warnings": warnings, "spec": dict({k: spec[k] for k in ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")}, lag=spec.get("lagUsed", spec["lag"]))}
+                         "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
         job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -1219,8 +1213,7 @@ def run_analyze(job):
         c = job.get("chat")
         if c and c["state"] == "running":   # 途中で失敗・中止したときに、チャット取得を残さない
             c["skip"] = True
-            p = job.get("proc2")
-            common.terminate(p)
+            common.terminate(job.get("proc2"))
             c["thread"].join(10)
         shutil.rmtree(wdir, ignore_errors=True)
         if chat_vid:

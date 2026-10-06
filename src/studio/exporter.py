@@ -98,8 +98,7 @@ def log_export(note, cmd, tail):
         d = common.get_out_dir()
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "export-log.txt")
-        if os.path.exists(p) and os.path.getsize(p) > LOG_MAX:   # 消さずに1世代残す(失敗の直後に大きくなって消える、を防ぐ)
-            common.replace_file(p, os.path.join(d, "export-log.old.txt"))
+        common.rotate_log(p, LOG_MAX)   # 消さずに1世代(export-log.old.txt)残す(失敗の直後に大きくなって消える、を防ぐ)
         with open(p, "a", encoding="utf-8") as f:
             f.write("[%s] %s\n  cmd: %s\n  out: %s\n\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), note, redact(" ".join(map(str, cmd))), " | ".join(redact(l) for l in tail[-12:])))
     except OSError:
@@ -214,15 +213,19 @@ def promote(path):
     return final
 
 
-def drop_partial(path):
-    """失敗・中止のときに書きかけを消す(音量の調整の途中の .vol.mp4 も)。書きかけでない(仕上がった)ファイルは消さない。"""
-    if not path or not is_partial(path):
-        return
-    for p in (path, path + ".vol.mp4"):
+def _rm(*paths):
+    """消せなくても続ける(使用中など)"""
+    for p in paths:
         try:
             os.unlink(p)
         except OSError:
             pass
+
+
+def drop_partial(path):
+    """失敗・中止のときに書きかけを消す(音量の調整の途中の .vol.mp4 も)。書きかけでない(仕上がった)ファイルは消さない。"""
+    if path and is_partial(path):
+        _rm(path, path + ".vol.mp4")
 
 
 def clean_partials(root=None):
@@ -250,20 +253,24 @@ def clean_partials(root=None):
 
 
 # ---------- 依頼の検査 → spec ----------
-def _parse_opts(req, bad):
+def _bad(message):
+    return ApiError("bad_request", message, 400)
+
+
+def _parse_opts(req):
     """precision・volume・loudness の検査(build_spec と build_section_spec で共通)。-> (precision, 音量%, ラウドネス or None)"""
     prec = req.get("precision")
     if prec not in (None, "accurate", "fast"):
-        raise bad("precision が正しくありません")
+        raise _bad("precision が正しくありません")
     vol = req.get("volume", DEFAULT_EXPORT_VOLUME)
     if vol is None:
         vol = DEFAULT_EXPORT_VOLUME
     try:
         vol = int(vol)
     except (TypeError, ValueError):
-        raise bad("volume が正しくありません")
+        raise _bad("volume が正しくありません")
     if not (MIN_EXPORT_VOLUME <= vol <= MAX_EXPORT_VOLUME):
-        raise bad("volume は%d〜%dの範囲で指定してください" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
+        raise _bad("volume は%d〜%dの範囲で指定してください" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
     loud = req.get("loudness")
     if loud in (None, False, 0):
         loud = None
@@ -271,31 +278,54 @@ def _parse_opts(req, bad):
         try:
             loud = float(loud)
         except (TypeError, ValueError):
-            raise bad("loudness が正しくありません")
+            raise _bad("loudness が正しくありません")
         if loud not in LOUDNESS_CHOICES:
-            raise bad("loudness は %s のどれかです" % " / ".join("%g" % x for x in LOUDNESS_CHOICES))
+            raise _bad("loudness は %s のどれかです" % " / ".join("%g" % x for x in LOUDNESS_CHOICES))
     return prec, vol, loud
+
+
+def _max_height(req):
+    """maxHeight(画質の上限)。決まった値以外は 0 = 上限なし"""
+    try:
+        mh = int(req.get("maxHeight") or 0)
+    except (TypeError, ValueError):
+        mh = 0
+    return mh if mh in (480, 720, 1080, 1440, 2160) else 0
+
+
+def _need_ffmpeg():
+    if not find_tool("ffmpeg"):
+        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
+
+
+def _youtube_source(spec):
+    """YouTube の動画の取り元を spec に入れる(yt-dlp。疑似モードでは STUDIO_FAKE_MEDIA のファイルを切り出す)"""
+    if common.fake():
+        spec.update(mode="file", sourcePath=common.fake_media())
+    else:
+        if not find_tool("yt-dlp"):
+            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
+        spec["mode"] = "url"
 
 
 def check_section_path(raw):
     """POST /api/live/section の path(入口から来る値)を検査して、絶対パスを返す。
     絶対パス・.mp4・書き出し先の中(realpath で比べる)・親フォルダが実在・まだ無いファイル(上書きしない)だけ。"""
-    bad = lambda m: ApiError("bad_request", m, 400)
     if not isinstance(raw, str) or not raw or len(raw) > 1000 or "\x00" in raw or not os.path.isabs(raw):
-        raise bad("path は絶対パスで指定してください")
+        raise _bad("path は絶対パスで指定してください")
     path = os.path.abspath(raw)
     name = os.path.basename(path)
     # % は yt-dlp の出力テンプレートで意味を持つ。.partial で終わる名前は書きかけと区別できなくなる。予約名・制御文字は Windows で作れない
     if os.path.splitext(name)[1].lower() != ".mp4" or re.search(r"[\x00-\x1f%]", name) or is_reserved(name) or is_partial(path) or name != name.strip():
-        raise bad("path は .mp4 の正しい名前で指定してください")
+        raise _bad("path は .mp4 の正しい名前で指定してください")
     if path_units(path) + SUFFIX_ROOM > MAX_PATH_UNITS:
-        raise bad("path が長すぎます(途中のファイルの名前の分を残して %d 文字まで)" % (MAX_PATH_UNITS - SUFFIX_ROOM))
+        raise _bad("path が長すぎます(途中のファイルの名前の分を残して %d 文字まで)" % (MAX_PATH_UNITS - SUFFIX_ROOM))
     if not common.is_inside_out_dir(path):
-        raise bad("path は書き出し先のフォルダの中だけ指定できます")
+        raise _bad("path は書き出し先のフォルダの中だけ指定できます")
     if not os.path.isdir(os.path.dirname(path)):
-        raise bad("path の親フォルダがありません")
+        raise _bad("path の親フォルダがありません")
     if os.path.lexists(path):
-        raise bad("同じ名前のファイルがすでにあります(上書きしません)")
+        raise _bad("同じ名前のファイルがすでにあります(上書きしません)")
     return path
 
 
@@ -310,56 +340,41 @@ def build_section_spec(req):
     """POST /api/live/section の依頼 {videoId, start, end, path, volume?, loudness?, maxHeight?, precision?} → spec(start_job に渡す)。
     スタジオの配信・マークは見ない(登録の無い videoId でもよい)。作るのは YouTube の videoId の start〜end(アーカイブの秒)を、
     今の YouTube の書き出し(run_ytdlp: 区間取得 → 正確に切る → 30fps → 音量/ラウドネス)と同じ中身で、ちょうど path へ。"""
-    bad = lambda m: ApiError("bad_request", m, 400)
     vid = req.get("videoId")
     if not isinstance(vid, str) or not VID_RE.match(vid):
-        raise bad("videoId が正しくありません(YouTube の動画 ID 11 文字)")
+        raise _bad("videoId が正しくありません(YouTube の動画 ID 11 文字)")
     s, e = _num_sec(req.get("start")), _num_sec(req.get("end"))
     if s is None or e is None:
-        raise bad("start・end が数値ではありません")
+        raise _bad("start・end が数値ではありません")
     if s < 0 or e <= s:
-        raise bad("start・end が正しくありません(0 ≤ start < end)")
+        raise _bad("start・end が正しくありません(0 ≤ start < end)")
     if e - s > MAX_CLIP_SEC:
-        raise bad("区間が長すぎます(%d 秒まで)" % MAX_CLIP_SEC)
+        raise _bad("区間が長すぎます(%d 秒まで)" % MAX_CLIP_SEC)
     path = check_section_path(req.get("path"))
-    prec, vol, loud = _parse_opts(req, bad)
-    try:
-        mh = int(req.get("maxHeight") or 0)
-    except (TypeError, ValueError):
-        mh = 0
-    if not find_tool("ffmpeg"):
-        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
+    prec, vol, loud = _parse_opts(req)
+    _need_ffmpeg()
     stem, folder_path = os.path.splitext(os.path.basename(path))[0], os.path.dirname(path)
     item = {"id": "section", "start": round(s, 3), "end": round(e, 3), "title": stem, "label": "", "src": "manual", "markStatus": ""}
-    spec = {"videoId": vid, "title": stem, "clips": [item], "fast": prec == "fast", "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0,
+    spec = {"videoId": vid, "title": stem, "clips": [item], "fast": prec == "fast", "maxHeight": _max_height(req),
             "volume": vol, "loudness": loud, "kind": "youtube", "sourceTitle": "", "sourceFile": None, "sourceDuration": 0, "combine": False,
             "section": True, "finalPath": path, "outDir": folder_path, "folder": os.path.basename(folder_path)}
-    if common.fake():
-        fm = os.environ.get("STUDIO_FAKE_MEDIA", "")
-        if not os.path.isfile(fm):
-            raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
-        spec.update(mode="file", sourcePath=fm)
-    else:
-        if not find_tool("yt-dlp"):
-            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
-        spec["mode"] = "url"
+    _youtube_source(spec)
     return spec
 
 
 def build_spec(store, req):
     """クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻はサーバーが store から組み立てる。"""
-    bad = lambda m: ApiError("bad_request", m, 400)
     v = store.internal(req.get("id"))
     if not v:
         raise ApiError("not_found", "動画が見つかりません", 404)
     if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
-        raise bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
+        raise _bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
     ids = req.get("markIds")
     if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
-        raise bad("書き出すマークを選んでください")
+        raise _bad("書き出すマークを選んでください")
     if len(ids) > MAX_EXPORT_CLIPS:
-        raise bad("書き出すマークは1度に%d件までです" % MAX_EXPORT_CLIPS)
-    prec, vol, loud = _parse_opts(req, bad)
+        raise _bad("書き出すマークは1度に%d件までです" % MAX_EXPORT_CLIPS)
+    prec, vol, loud = _parse_opts(req)
     by_id = {m["id"]: m for m in v["marks"]}
     clips, seen = [], set()
     for i in ids:
@@ -370,22 +385,17 @@ def build_spec(store, req):
         clips.append({"id": i, "start": m["start"], "end": m["end"], "title": m["label"] or compact_ts(m["start"]), "label": m["label"],
                       "src": m.get("src") or "manual", "markStatus": m.get("status") or ""})
     if not clips:
-        raise bad("書き出せるマークがありません(削除されたか、範囲が正しくありません)")
+        raise _bad("書き出せるマークがありません(削除されたか、範囲が正しくありません)")
     combine = req.get("combine") is True   # 選んだマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望)
     if combine:
         if len(clips) < 2:
-            raise bad("つなげるマークを2つ以上選んでください")
+            raise _bad("つなげるマークを2つ以上選んでください")
         clips.sort(key=lambda c: c["start"])
         if sum(c["end"] - c["start"] for c in clips) > MAX_COMBINE_SEC:
-            raise bad("つなげた長さが長すぎます(%d分まで)" % (MAX_COMBINE_SEC // 60))
-    if not find_tool("ffmpeg"):
-        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
-    try:
-        mh = int(req.get("maxHeight") or 0)
-    except (TypeError, ValueError):
-        mh = 0
+            raise _bad("つなげた長さが長すぎます(%d分まで)" % (MAX_COMBINE_SEC // 60))
+    _need_ffmpeg()
     spec = {"videoId": v["id"], "title": v["title"] or v["fileName"] or v["id"], "clips": clips, "fast": prec == "fast",
-            "maxHeight": mh if mh in (480, 720, 1080, 1440, 2160) else 0, "volume": vol, "loudness": loud,
+            "maxHeight": _max_height(req), "volume": vol, "loudness": loud,
             # .clip.json 用(元の配信の情報)。元のファイルのパスは file のときだけ入れる
             "kind": v["kind"], "sourceTitle": v["title"] or v.get("fileName") or "", "sourceFile": v["path"] if v["kind"] == "file" else None,
             "sourceDuration": v.get("duration") or 0, "combine": combine}
@@ -393,17 +403,10 @@ def build_spec(store, req):
         if not os.path.isfile(v["path"]):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
         spec.update(mode="file", sourcePath=v["path"])
-    elif common.fake():
-        fm = os.environ.get("STUDIO_FAKE_MEDIA", "")
-        if not os.path.isfile(fm):
-            raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
-        spec.update(mode="file", sourcePath=fm)
     else:
-        if not VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
+        if not common.fake() and not VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
             raise ApiError("bad_request", "YouTube の動画IDが正しくありません", 400)
-        if not find_tool("yt-dlp"):
-            raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
-        spec["mode"] = "url"
+        _youtube_source(spec)
     return spec
 
 
@@ -536,6 +539,20 @@ def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
     return tail
 
 
+def _make(job, cmd, it, dur, out, what, log_cmd=None):
+    """cmd で out を作り(_pump)、空・短すぎないかを確かめる。失敗したら export-log.txt に残して out を消し、ExportError をそのまま上げる。
+    log_cmd: ログに残すコマンド(直接の URL を含むときは省いたものを渡す)"""
+    tail = []
+    try:
+        tail = _pump(job, cmd, it, dur)
+        verify_output(out, dur, tail)
+    except ExportError as e:
+        log_export("%s 失敗: %s" % (what, e), cmd if log_cmd is None else log_cmd, tail)
+        if os.path.exists(out):
+            os.unlink(out)
+        raise
+
+
 # 書き出しの作り直しの設定は ytt_core/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart。2026-10-04 Q1)
 PROGRESS = ["-progress", "pipe:1", "-nostats"]
 ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)
@@ -575,17 +592,12 @@ def run_ffmpeg(job, spec, it, base):
                 base_cmd + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + [out]]
     last = None
     for n, cmd in enumerate(attempts, 1):
-        tail = []
         try:
-            tail = _pump(job, cmd, it, dur)
-            verify_output(out, dur, tail)
+            _make(job, cmd, it, dur, out, "ffmpeg 方法%d" % n)
             it["method"] = _method(spec)
             return spec["folder"] + "/" + os.path.basename(out)
         except ExportError as e:
             last = e
-            log_export("ffmpeg 方法%d 失敗: %s" % (n, e), cmd, tail)
-            if os.path.exists(out):
-                os.unlink(out)
             if job["cancel"]:
                 raise
             it["progress"] = 0
@@ -616,11 +628,7 @@ def _work_dir(spec):
 
 
 def _drop_glob(prefix):
-    for f in glob.glob(glob.escape(prefix) + ".*"):
-        try:
-            os.unlink(f)
-        except OSError:
-            pass
+    _rm(*glob.glob(glob.escape(prefix) + ".*"))
 
 
 def _ytdlp_sections(job, spec, it, base):
@@ -703,17 +711,9 @@ def _ytdlp_stream(job, spec, it, base):
     if len(urls) == 2:
         cmd += ["-map", "0:v:0", "-map", "1:a:0"]
     cmd += ["-t", "%.3f" % dur] + _enc(spec) + [out]
-    tail = []
-    try:
-        tail = _pump(job, cmd, it, dur)
-        verify_output(out, dur, tail)
-        it["method"] = _method(spec)
-        return out
-    except ExportError as e:
-        log_export("ストリーム直接指定 失敗: %s" % e, ["ffmpeg", "...(URLは省略)..."], tail)
-        if os.path.exists(out):
-            os.unlink(out)
-        raise
+    _make(job, cmd, it, dur, out, "ストリーム直接指定", log_cmd=["ffmpeg", "...(URLは省略)..."])
+    it["method"] = _method(spec)
+    return out
 
 
 def run_ytdlp(job, spec, it, base):
@@ -740,15 +740,7 @@ def _reencode_audio(job, it, path, afilter, what):
     dur = common.media_info(path)[0] or (it["end"] - it["start"])
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", afilter,
            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
-    tail = []
-    try:
-        tail = _pump(job, cmd, it, dur)
-        verify_output(tmp, dur, tail)
-    except ExportError as e:
-        log_export("%s 失敗: %s" % (what, e), cmd, tail)
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+    _make(job, cmd, it, dur, tmp, what)
     common.replace_file(tmp, path)
 
 
@@ -784,15 +776,33 @@ def apply_loudness(job, spec, it):
         it["loudness"] = {"target": target, "skipped": "音声が無いか、無音のため測れませんでした"}
         return
     edit = it.get("editPath")
-    etp = measure_loudness(job, it, edit)[1] if edit and os.path.isfile(edit) else None
+    edit = edit if edit and os.path.isfile(edit) else None
+    etp = measure_loudness(job, it, edit)[1] if edit else None
     gain = _loud.gain(target, i, tp, etp)
     if abs(gain) >= _loud.MIN_GAIN_DB:
-        for path in [main] + ([edit] if edit and os.path.isfile(edit) else []):
+        for path in [main] + ([edit] if edit else []):
             _reencode_audio(job, it, path, "volume=%.2fdB" % gain, "ラウドネス調整")
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
 
 
 MAX_COMBINE_SEC = 3600   # つないだ長さの上限(秒)
+
+
+def _runner(spec):
+    """切り出す関数(YouTube は yt-dlp、手元のファイル・疑似モードは ffmpeg)"""
+    return run_ytdlp if spec["mode"] == "url" else run_ffmpeg
+
+
+def _fail(job, it, e, context):
+    """1本(または つないだ1本)の失敗・中止を it に書く。ExportError は理由をそのまま、
+    それ以外(権限・想定外)は studio-errors.log に残して、画面には短い文だけ出す"""
+    if isinstance(e, ExportError):
+        it["status"] = "cancelled" if job["cancel"] else "error"
+        it["error"] = None if job["cancel"] else str(e)[:400]
+        return
+    common.log_failure(context, e)
+    it["status"] = "error"
+    it["error"] = common.permission_message(e) if isinstance(e, PermissionError) else "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
 
 
 def _run_combine(job, spec):
@@ -813,20 +823,12 @@ def _run_combine(job, spec):
             it["status"] = "running"
             try:
                 base = unique_base("つなぐ_%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"])), work)
-                runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
-                rel = runner(job, pspec, it, base)
+                rel = _runner(spec)(job, pspec, it, base)
                 apply_volume(job, pspec, it, rel)
                 pieces.append(os.path.join(work, os.path.basename(rel)))
                 it["status"], it["progress"] = "done", 1.0
-            except ExportError as e:
-                it["status"] = "cancelled" if job["cancel"] else "error"
-                it["error"] = None if job["cancel"] else str(e)[:400]
-            except PermissionError as e:
-                common.log_failure("つなぐ部品の書き出し", e)
-                it["status"], it["error"] = "error", common.permission_message(e)
             except Exception as e:
-                common.log_failure("つなぐ部品の書き出し", e)
-                it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+                _fail(job, it, e, "つなぐ部品の書き出し")
         if job["cancel"] or any(i["status"] != "done" for i in job["items"]):
             comb["status"] = "cancelled" if job["cancel"] else "error"
             comb["error"] = None if job["cancel"] else "切り出せなかった区間があるので、つなぎませんでした"
@@ -843,23 +845,12 @@ def _run_combine(job, spec):
         comb["file"] = spec["folder"] + "/" + os.path.basename(comb["path"])
         comb["status"], comb["progress"] = "done", 1.0
         job["state"] = "done"
-    except ExportError as e:
-        comb["status"] = "cancelled" if job["cancel"] else "error"
-        comb["error"] = None if job["cancel"] else str(e)[:400]
-        job["state"] = "cancelled" if job["cancel"] else "error"
-    except PermissionError as e:
-        common.log_failure("つなぐ", e)
-        comb["status"], comb["error"], job["state"] = "error", common.permission_message(e), "error"
     except Exception as e:
-        common.log_failure("つなぐ", e)
-        comb["status"], comb["error"], job["state"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__, "error"
+        _fail(job, comb, e, "つなぐ")
+        job["state"] = comb["status"]
     finally:
         for p in pieces:
-            for q in (p, p + ".vol.mp4"):
-                try:
-                    os.unlink(q)
-                except OSError:
-                    pass
+            _rm(p, p + ".vol.mp4")
         if comb.get("status") != "done":
             drop_partial(comb.get("path"))
 
@@ -878,15 +869,7 @@ def concat_pieces(job, it, pieces, out):
     fc += "".join("[v%d]%s" % (k, "[%d:a:0]" % k if has_a else "") for k in range(len(pieces)))
     fc += "concat=n=%d:v=1:a=%d[v]%s" % (len(pieces), 1 if has_a else 0, "[a]" if has_a else "")
     cmd += ["-filter_complex", fc, "-map", "[v]"] + (["-map", "[a]"] if has_a else []) + _norm.encode_args(in_graph=True) + PROGRESS + [out]
-    tail = []
-    try:
-        tail = _pump(job, cmd, it, total)
-        verify_output(out, total, tail)
-    except ExportError as e:
-        log_export("つなぐ 失敗: %s" % e, cmd, tail)
-        if os.path.exists(out):
-            os.unlink(out)
-        raise
+    _make(job, cmd, it, total, out, "つなぐ")
 
 
 def _drop_edit(it):
@@ -896,10 +879,7 @@ def _drop_edit(it):
         drop_partial(path)
         side = it.pop("editSidecar", None)
         if side:
-            try:
-                os.unlink(side)
-            except OSError:
-                pass
+            _rm(side)
 
 
 def export_edit_media(job, spec, it, base, runner):
@@ -1019,7 +999,7 @@ def _run_section(job, spec, on_done=None):
     job["folder"] = spec["folder"]
     it["status"] = "running"
     try:
-        it["file"] = (run_ytdlp if spec["mode"] == "url" else run_ffmpeg)(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
+        it["file"] = _runner(spec)(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
         it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
         apply_volume(job, spec, it, it["file"])
         apply_loudness(job, spec, it)
@@ -1028,15 +1008,8 @@ def _run_section(job, spec, on_done=None):
         it["path"] = promote(it["path"])
         it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
         it["status"], it["progress"] = "done", 1.0
-    except ExportError as e:
-        it["status"] = "cancelled" if job["cancel"] else "error"
-        it["error"] = None if job["cancel"] else str(e)[:400]
-    except PermissionError as e:
-        common.log_failure("区間の書き出し", e)
-        it["status"], it["error"] = "error", common.permission_message(e)
     except Exception as e:
-        common.log_failure("区間の書き出し", e)
-        it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+        _fail(job, it, e, "区間の書き出し")
     finally:
         if it["status"] != "done":   # 失敗・中止: 書きかけを残さない
             drop_partial(it.get("path"))
@@ -1064,65 +1037,64 @@ def _run_job(job, spec, on_done=None):
             continue
         it["status"] = "running"
         try:
-            head = "%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]))
-            # ラベルは、出力先+ファイル名が MAX_PATH_UNITS に収まる分だけ付ける(連番 _NN と SUFFIX_ROOM の分を残す)
-            room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(spec["outDir"], head))
-            label = trim_units(safe_name(it["label"], 30), max(0, room))
-            base = unique_base(head + ("_" + label if label else ""), spec["outDir"])
-            runner = run_ytdlp if spec["mode"] == "url" else run_ffmpeg
-            it["file"] = runner(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
-            it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
-            apply_volume(job, spec, it, it["file"])
-            warnings = []
-            try:
-                it["editFile"] = export_edit_media(job, spec, it, base, runner)
-            except Exception as e:
-                _drop_edit(it)
-                if job["cancel"]:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは下の finally で消える)
-                    raise ExportError("中止しました")
-                common.log_failure("Resolve edit media", e)
-                warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
-            apply_loudness(job, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
-            # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは下の finally で消える)。切り抜き本体 → 編集用素材の順
-            it["path"] = promote(it["path"])
-            it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
-            if it.get("editPath"):
-                try:
-                    it["editPath"] = promote(it["editPath"])
-                    it["editFile"] = spec["folder"] + "/" + schemas.WORK_DIR + "/" + os.path.basename(it["editPath"])
-                except OSError as e:   # 本体はできているので、編集用素材だけ諦める(作れなかったときと同じ扱い)
-                    common.log_failure("Resolve edit media の仕上げ", e)
-                    _drop_edit(it)
-                    warnings.append("Resolve用の前後10秒素材を仕上げられませんでした: %s" % (e.strerror or e.__class__.__name__))
-            recorded = False
-            if on_done:
-                try:
-                    recorded = bool(on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"], it.get("path")))
-                except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
-                    common.log_failure("書き出し済みマークの保存", e)
-                    warnings.append("動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。")
-            try:
-                # 書き出し中にマークを動かした等で記録されなかったときは、書き出しを始めた時点の判定を入れる
-                write_manifests(spec, it, "exported" if recorded else (it.get("markStatus") or ""))
-            except Exception as e:   # 受け渡し用の情報が書けなくても、書き出した動画はそのまま使える
-                common.log_failure("切り抜きの情報ファイル(.clip.json)の保存", e)
-                it["manifest"] = None
-                warnings.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s"
-                                % (common.permission_message(e) if isinstance(e, PermissionError) else str(e)[:160]))
-            if warnings:
-                it["warning"] = " / ".join(warnings)
-            it["status"], it["progress"] = "done", 1.0
-        except ExportError as e:
-            it["status"] = "cancelled" if job["cancel"] else "error"
-            it["error"] = None if job["cancel"] else str(e)[:400]
-        except PermissionError as e:
-            common.log_failure("クリップ書き出し", e)
-            it["status"], it["error"] = "error", common.permission_message(e)
+            _export_clip(job, spec, it, idx, on_done)
         except Exception as e:  # 想定外の失敗でもジョブ全体は止めない
-            common.log_failure("クリップ書き出し", e)
-            it["status"], it["error"] = "error", "内部エラー: %s(詳細は studio-errors.log)" % e.__class__.__name__
+            _fail(job, it, e, "クリップ書き出し")
         finally:
             if it["status"] != "done":   # 失敗・中止: 書きかけを残さない(仕上がって本当の名前になったものは消さない)
                 drop_partial(it.get("path"))
                 _drop_edit(it)
     job["state"] = "cancelled" if job["cancel"] else ("error" if any(i["status"] == "error" for i in job["items"]) else "done")
+
+
+def _export_clip(job, spec, it, idx, on_done):
+    """_run_job の1本ぶん: 切り出し → 音量 → 編集用素材 → ラウドネス → 本当の名前へ → マークへの記録・.clip.json。
+    失敗は例外で返す(状態と書きかけの片付けは呼び出し側)"""
+    head = "%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]))
+    # ラベルは、出力先+ファイル名が MAX_PATH_UNITS に収まる分だけ付ける(連番 _NN と SUFFIX_ROOM の分を残す)
+    room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(spec["outDir"], head))
+    label = trim_units(safe_name(it["label"], 30), max(0, room))
+    base = unique_base(head + ("_" + label if label else ""), spec["outDir"])
+    runner = _runner(spec)
+    it["file"] = runner(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
+    it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
+    apply_volume(job, spec, it, it["file"])
+    warnings = []
+    try:
+        it["editFile"] = export_edit_media(job, spec, it, base, runner)
+    except Exception as e:
+        _drop_edit(it)
+        if job["cancel"]:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
+            raise ExportError("中止しました")
+        common.log_failure("Resolve edit media", e)
+        warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+    apply_loudness(job, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
+    # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは _run_job の finally で消える)。切り抜き本体 → 編集用素材の順
+    it["path"] = promote(it["path"])
+    it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
+    if it.get("editPath"):
+        try:
+            it["editPath"] = promote(it["editPath"])
+            it["editFile"] = spec["folder"] + "/" + schemas.WORK_DIR + "/" + os.path.basename(it["editPath"])
+        except OSError as e:   # 本体はできているので、編集用素材だけ諦める(作れなかったときと同じ扱い)
+            common.log_failure("Resolve edit media の仕上げ", e)
+            _drop_edit(it)
+            warnings.append("Resolve用の前後10秒素材を仕上げられませんでした: %s" % (e.strerror or e.__class__.__name__))
+    recorded = False
+    if on_done:
+        try:
+            recorded = bool(on_done(spec["videoId"], it["id"], it["file"], it["start"], it["end"], it.get("path")))
+        except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
+            common.log_failure("書き出し済みマークの保存", e)
+            warnings.append("動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。")
+    try:
+        # 書き出し中にマークを動かした等で記録されなかったときは、書き出しを始めた時点の判定を入れる
+        write_manifests(spec, it, "exported" if recorded else (it.get("markStatus") or ""))
+    except Exception as e:   # 受け渡し用の情報が書けなくても、書き出した動画はそのまま使える
+        common.log_failure("切り抜きの情報ファイル(.clip.json)の保存", e)
+        it["manifest"] = None
+        warnings.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s"
+                        % (common.permission_message(e) if isinstance(e, PermissionError) else str(e)[:160]))
+    if warnings:
+        it["warning"] = " / ".join(warnings)
+    it["status"], it["progress"] = "done", 1.0

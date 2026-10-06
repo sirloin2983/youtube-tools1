@@ -1367,3 +1367,27 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `eval_split.fold` は `src/editor/roster.py` の fold と同じだが、道具から editor の部品を読むと sys.path が広がるので写しのまま。`eval_effort` の pair_groups(editor の _groups と同じ)も、CER なしで editor を読まないために写しのまま
 - 注意: dev の道具に共通の部品を足すときは `_evalcommon.py` へ(eval_asr などを直すときも、結果が変わらないことを確かめてから使う)。`AGENTS.md` の dev の行にはまだ `_evalcommon.py` が無い(このコミットでは dev/ と WORKLOG だけ)
 - 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/ は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ studio・ui-kit の見直し(スタジオ 0.21.0 → 0.21.1・ui-kit v17 → v18。内部の整理。動きは同じ)
+- 変更(Python。`src/studio/` の別のサブエージェント Opus が担当。serve.py は版の 1 行だけ): 5396 → 5309 行。
+  `store.py`(同じ処理を `_need`・`_bump`・`_need_group`・`_check_free`・`_new_mark`・`_load_each`・`_replaced`・`_pos_int`/`_ms_or_now` に。使われていない `Store.set_title` を消した)・
+  `exporter.py`(ffmpeg を流して出来上がりを確かめる 4 か所を `_make`、失敗の書き方 4 か所を `_fail`、`_youtube_source`・`_max_height`・`_need_ffmpeg`・`_runner`・`_rm`・`common.rotate_log`。長い `_run_job` から 1 本ぶんを `_export_clip` に)・
+  `analyze.py`(式・重み・しきい値は触っていない。`SPEC_KEYS`・`_usable_chat`・使っていない import。解析の前の ffmpeg を 2 回 → `media_info` 1 回 = 結果は同じ)・
+  `common.py`(`fake_media` を足し、使われなくなった `media_duration`・`has_audio_stream` を消した)・`rank.py`(`FATAL`・`_ok_channels`・意味の無い `_FakeIndex` と読まれない変数)・`handoff.py`(使われていない `CLIP_SCHEMA`・`valid_port`・`runtime_path` など)・`batch.py`
+- 変更(JS・CSS): `src/studio/review.js`(動画ファイル・ライブの録画のプレーヤーの共通部分を `VideoPlayer` に・書き出しの設定を `expOpts()` に・タイムラインの scrub を `seek(t, final)` に・行を選ぶ `markSel`・
+  キーの表記と押したキーの組み合わせは `UIKit.keys.keyText`/`comboOf`(? の一覧・編集と同じ 1 か所)・届かない `ACTION_FN` の 7 つ(markIn など。再生キーは UIKit.keys.playback が受け持つ)と、
+  UIKit が無いときだけの ? の一覧の予備(`keyHelp`・core.js の `keyRows`・`.cs-khint`)を消した)・`core.js`(`Studio.fmtTime` = ③ とコラボで同じだった時刻の表示)・`collab.js`・`rank.js`(事務所のチェック 2 つを `agChipsHtml`・長さは `UIKit.fmt.dur`)・
+  `settings.js`(ライブの録画のオン・オフ 2 つを `liveSwitch`)・`review.css`(使われていない `.rv-keyrow`)。
+  `src/ui-kit/ui-kit.js`(確認・お知らせのダイアログを `dialogOpen` に・編集の設定の保存 2 か所を `txPatch` に・捕まえたエラーの記録を `reportErr` に・`fullPb` → `playbackMap`・
+  どの画面も使っていない `data-ui-home`/`data-ui-cases` の処理と `.ui-home` の CSS を消した)。`dev/sync_ui_kit.py` で `src/studio/ui-kit.*`・`src/editor/ui-kit.js`・`src/editor/index.html` に写した
+- 行数: studio の JS・CSS と ui-kit 8617 → 8547(review.js 3008 → 2983・ui-kit.js 2336 → 2313 など)・studio の Python 5396 → 5309
+- 版: スタジオ 0.21.0 → 0.21.1(core.js・serve.py・README)・ui-kit v17 → v18(ヘッダー・`UIKit.version`・README)
+- 確かめ方: 消す前に src/・dev/ 全体を grep(HTML の id・class・`UIKit.xxx`・テストの差し替え `patch.object` まで)。CSS は使われていない class を全ツールの JS・HTML で検索
+- テスト: studio の単体 8 本 309 件 OK(skip 1)・`test_review.cjs` 35 件 OK・`test_ui_kit_sync.py`・`sync_ui_kit.py --check` OK・`ytt_core` 75 件 OK・`home/tests/test_autorun.py` 87 件 OK(Python の担当が流した)・
+  `e2e_ui.py` 192 件 OK・`e2e_styleguide.py` すべて OK・`UIKit.dialog.alert/confirm` は手でも確かめた(OK・Esc・danger の既定のフォーカス・閉じたら消える)
+- 直さなかった候補: analyze.py の式の部分(線 D の L1 で ytt_core/excite.py へ移す)・スレッドとロックの所(exporter の `_pump`・common の `run_capture` など。似ているが止め方が違う)・
+  ui-kit.css の v12(サイバー風)の上書きの節(同じ selector が 2 回あるが、まとめると重なりの順が変わって見た目が変わるおそれ)・review.js の大きな関数(`renderExportUI`・`buildDOM`)と
+  `test_review.cjs` が切り出す範囲(関数の境目の文字列でテストが切り出すので、動かすとテストも直すことになる)・`UIKit.tools.render`(画面では使っていないが styleguide が使う公開の形)
+- 注意: review.js は `test_review.cjs` が「関数名・コメントの文字列」で範囲を切り出して動かす。境目の文字列(`/* サーバー側の最新` など)を変えるとテストが落ちる。
+  scratchpad はほかのサブエージェントと共有されていて、同じ名前のスクリプトが上書きされることがあった(Python の担当の報告)
+- 未コミット: なし(このコミット。ほかの担当の作業途中の変更 = friend-apps/・src/cut2resolve/・src/home/・src/editor/ のほかのファイルは入れていない)

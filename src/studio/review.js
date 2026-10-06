@@ -7,17 +7,12 @@ if (!Studio) return;
 const esc = Studio.esc;
 const $ = s => document.querySelector(s);
 const enc = encodeURIComponent;
-const pad = n => String(n).padStart(2, '0');
 const round1 = x => Math.round(x * 10) / 10;
 const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 const toast = (m, ms, kind) => Studio.toast(m, ms, kind);
 
 /* ---------- 時刻ユーティリティ ---------- */
-function fmt(t){
-  t = Math.max(0, Number(t) || 0);
-  const d = Math.round(t * 10), h = Math.floor(d / 36000), m = Math.floor(d % 36000 / 600), s = ((d % 600) / 10).toFixed(1).padStart(4, '0');
-  return h ? `${h}:${pad(m)}:${s}` : `${m}:${s}`;
-}
+const fmt = Studio.fmtTime;
 function parseTime(str){
   str = String(str).trim().replace(/[：]/g, ':');
   if (!str) return NaN;
@@ -679,9 +674,22 @@ function setDuration(d){
   renderTimeline(); renderGraph();
 }
 
+/* <video> を YT.Player と同じ最小の形で操る部分(動画ファイルの LocalPlayer・ライブの録画の LivePlayer で共通) */
+class VideoPlayer {
+  getPlayerState(){ const e = this.el; return e.ended ? 0 : e.paused ? 2 : (e.readyState < 3 ? 3 : 1); }
+  pauseVideo(){ this.el.pause(); }
+  setPlaybackRate(r){ this.el.playbackRate = r; }
+  setVolume(v){ this.el.volume = Math.min(1, Math.max(0, v / 100)); }
+  getVolume(){ return Math.round(this.el.volume * 100); }
+  mute(){ this.el.muted = true; }
+  unMute(){ this.el.muted = false; }
+  isMuted(){ return this.el.muted; }
+  destroy(){ try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {} this.el.remove(); }
+}
 /* ローカル動画: YT.Player と同じ最小インターフェースを持つ <video> アダプタ(サーバーの /media から Range 再生) */
-class LocalPlayer {
+class LocalPlayer extends VideoPlayer {
   constructor(host, url, ev){
+    super();
     this.ev = ev;
     const el = this.el = document.createElement('video');
     el.playsInline = true; el.preload = 'metadata'; el.controls = true;
@@ -694,18 +702,9 @@ class LocalPlayer {
   }
   getDuration(){ const d = this.el.duration; return Number.isFinite(d) ? d : 0; }
   getCurrentTime(){ return this.el.currentTime || 0; }
-  getPlayerState(){ const e = this.el; return e.ended ? 0 : e.paused ? 2 : (e.readyState < 3 ? 3 : 1); }
   getVideoData(){ return { isLive: false }; }
   seekTo(t){ this.el.currentTime = Math.max(0, t); }
   playVideo(){ const r = this.el.play(); if (r && r.catch) r.catch(() => {}); }
-  pauseVideo(){ this.el.pause(); }
-  setPlaybackRate(r){ this.el.playbackRate = r; }
-  setVolume(v){ this.el.volume = Math.min(1, Math.max(0, v / 100)); }
-  getVolume(){ return Math.round(this.el.volume * 100); }
-  mute(){ this.el.muted = true; }
-  unMute(){ this.el.muted = false; }
-  isMuted(){ return this.el.muted; }
-  destroy(){ try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {} this.el.remove(); }
 }
 
 /* ---------- ライブの録画(kind live。線 D の P3)の時刻: 「録画の最初のセグメントの受信時刻(PDT)」からの秒 ----------
@@ -768,8 +767,9 @@ function loadHls(){
 }
 /* ライブの録画: YT.Player と同じ最小インターフェースを持つ <video> + hls.js のアダプタ(LocalPlayer と同じ形)。時刻は LT の「録画の秒」。
    Web Worker は使わない(enableWorker: false。CSP に worker-src を足さないため)。opts.autoplay: 準備ができたら再生を始める(録画中のとき。ライブ端の少し手前から) */
-class LivePlayer {
+class LivePlayer extends VideoPlayer {
   constructor(host, url, ev, opts){
+    super();
     this.ev = ev; this.frags = []; this.base = null; this.ready = false; this.recording = !!(opts && opts.autoplay); this.mediaErrs = 0; this.title = (opts && opts.title) || '';
     const el = this.el = document.createElement('video');
     el.playsInline = true; el.preload = 'auto';
@@ -817,7 +817,6 @@ class LivePlayer {
     const d = this.hls && this.hls.playingDate;
     return d && this.base != null ? Math.max(0, (d.getTime() - this.base) / 1000) : 0;
   }
-  getPlayerState(){ const e = this.el; return e.ended ? 0 : e.paused ? 2 : (e.readyState < 3 ? 3 : 1); }
   getVideoData(){ return { isLive: this.recording, title: this.title }; }
   seekTo(t){ const m = LT.mediaOf(this.frags, this.base, t); if (m != null) try { this.el.currentTime = m; } catch {} }
   /* ライブ端の少し手前へ(hls.js の liveSyncPosition。無ければ録画の終わりの 8 秒前) */
@@ -831,17 +830,9 @@ class LivePlayer {
     const r = this.el.play();
     if (r && r.catch) r.catch(e => { if (auto && e && e.name === 'NotAllowedError' && this.ev.onAutoplayBlocked) this.ev.onAutoplayBlocked(); });
   }
-  pauseVideo(){ this.el.pause(); }
-  setPlaybackRate(r){ this.el.playbackRate = r; }
-  setVolume(v){ this.el.volume = Math.min(1, Math.max(0, v / 100)); }
-  getVolume(){ return Math.round(this.el.volume * 100); }
-  mute(){ this.el.muted = true; }
-  unMute(){ this.el.muted = false; }
-  isMuted(){ return this.el.muted; }
   destroy(){
     if (this.hls){ try { this.hls.destroy(); } catch {} this.hls = null; }
-    try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {}
-    this.el.remove();
+    super.destroy();
   }
 }
 function unmountPlayer(){
@@ -959,9 +950,10 @@ function setNow(t){
   const inp = $('#rvNow'); if (inp && document.activeElement !== inp) inp.value = fmt(t);
   renderPlayhead();
 }
-function seek(t){
+/* final = false はタイムラインをドラッグしている途中(YouTube の seekTo の allowSeekAhead) */
+function seek(t, final = true){
   t = Math.max(0, S.duration ? Math.min(t, S.duration) : t);
-  if (yt){ try { yt.seekTo(t, true); } catch {} lastSeekAt = Date.now(); }
+  if (yt){ try { yt.seekTo(t, final); } catch {} lastSeekAt = Date.now(); }
   setNow(t);
 }
 function togglePlay(){
@@ -1081,19 +1073,12 @@ function wireSettings(){
 }
 
 /* ---------- キー配置 ---------- */
-const KEY_LABEL = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Space', Enter: 'Enter', Tab: 'Tab' };
-function keyText(combo){
-  if (!combo) return '未設定';
-  return combo.split('+').map(p => KEY_LABEL[p] || (p.length === 1 ? p.toUpperCase() : p)).join('+');
-}
-function comboOf(e){
-  const k = e.key; if (['Shift', 'Control', 'Alt', 'Meta', 'Dead', 'Process'].includes(k)) return '';
-  const one = k.length === 1;
-  return ((e.shiftKey && (!one || /[a-z]/i.test(k))) ? 'Shift+' : '') + (k === ' ' ? 'Space' : (one ? k.toLowerCase() : k));
-}
+/* キーの表記と、押したキーの組み合わせ(Shift+j など)は ui-kit の 1 か所(? の一覧・編集と同じ) */
+const keyText = combo => (window.UIKit && UIKit.keys ? UIKit.keys.keyText(combo) : combo || '未設定');
+const comboOf = e => (window.UIKit && UIKit.keys ? UIKit.keys.comboOf(e) : '');
+/* ACTION_DEFS の操作 → 実行(I/O・再生・移動は共通の再生キー UIKit.keys.playback が受け持つ) */
 const ACTION_FN = {
-  markIn: () => markIn(), markOut: () => markOut(), addClip: () => addClip(), quickMark: () => quickMark(0), quickMark2: () => quickMark(1), quickMark3: () => quickMark(2), quickMark4: () => quickMark(3), quickMark5: () => quickMark(4), playPause: () => togglePlay(),
-  back5: () => seek(S.now - 5), fwd5: () => seek(S.now + 5), back1: () => seek(S.now - 1), fwd1: () => seek(S.now + 1),
+  addClip: () => addClip(), quickMark: () => quickMark(0), quickMark2: () => quickMark(1), quickMark3: () => quickMark(2), quickMark4: () => quickMark(3), quickMark5: () => quickMark(4),
   volUp: () => adjustVolume(5), volDown: () => adjustVolume(-5), mute: () => toggleMute(), theater: () => toggleTheater(),
   prevMark: () => goMark(-1, false), nextMark: () => goMark(1, false), adopt: () => decideSel('adopted'), reject: () => decideSel('rejected'),
   moment: () => momentMark()
@@ -1948,7 +1933,7 @@ async function startJoin(){
   try {
     await flushSave();
     if (S.cur !== v) throw new Error('配信が切り替わりました。やり直してください');
-    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, combine: true, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } });
+    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: ids, combine: true, ...expOpts() } });
     S.job = { id: j.id, videoId: v.id, running: true, combine: true }; rememberJob({ id: j.id, videoId: v.id });
     S.join.clear(); renderList();
     renderJob(j); pollJob();
@@ -2077,7 +2062,7 @@ async function startExport(onlyIds){
   try {
     await flushSave(); // サーバーが保存済みのマークから範囲を組み立てるため、先に保存する
     if (S.cur !== v) throw new Error('配信が切り替わりました。書き出す配信を確かめてやり直してください');
-    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } });
+    const j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: targets.map(c => c.id), ...expOpts() } });
     S.job = { id: j.id, videoId: v.id, running: true }; rememberJob({ id: j.id, videoId: v.id });
     renderJob(j); pollJob();
   } catch (e){ toast(e.message || '書き出しを開始できませんでした', 0, 'err'); }
@@ -2112,7 +2097,7 @@ async function startExportAll(){
         if (S.exportAll.cancel) break allVideos;
         const chunk = ids.slice(offset, offset + 50);
         let j;
-        try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: chunk, precision: S.settings.precision, maxHeight: S.settings.maxHeight, volume: S.settings.exportVolume, loudness: S.settings.exportLoudness || null } }); }
+        try { j = await Studio.api('/api/export', { method: 'POST', body: { id: v.id, markIds: chunk, ...expOpts() } }); }
         catch (e){
           toast((v.title || v.id) + ': ' + (e.message || '書き出しを開始できませんでした'));
           // POST の応答を失った場合も開始している可能性がある。続けて依頼しない。
@@ -2150,6 +2135,8 @@ async function startExportAll(){
     toast(r.interrupted ? '書き出し状態を確認できないため、一括処理を中断しました。進捗を確認してから再実行してください' : r.cancel ? `全部の配信の書き出しを中止しました(${r.done}件完了)` : `全部の配信の書き出し完了: ${r.done}件` + (r.fail ? `(失敗 ${r.fail}件)` : ''));
   }
 }
+/* 書き出しの設定(方式・画質・音量)。POST /api/export の body に足す(1本ずつ・つなぐ・全部の配信で同じ) */
+function expOpts(){ const s = S.settings; return { precision: s.precision, maxHeight: s.maxHeight, volume: s.exportVolume, loudness: s.exportLoudness || null }; }
 async function resumeJob(){
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('clipstudio:rvjob') || 'null'); } catch {}
@@ -2424,7 +2411,7 @@ function renderAll(){
   renderVideoSelect(); renderMeta(); renderDraft();
   if (S.cur){ renderTimeline(); renderStats(); renderList(); renderLiveCount(); }
   else renderExportUI();
-  setSaveState(S.cur ? 'idle' : 'idle');
+  setSaveState('idle');
 }
 const WIDE = '(min-width:961px)';
 function placeQuickBar(){
@@ -2536,12 +2523,14 @@ function keybarScene(){
 /* ---------- イベント ---------- */
 function wire(){
   const list = $('#rvList');
+  /* マークを選ぶ(タイムラインと一覧の行の印だけ。一覧は描き直さない) */
+  const markSel = id => { S.sel = id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x.dataset.id === id)); };
   list.addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const li = b.closest('.rv-mark-row'); const c = li && marks().find(x => x.id === li.dataset.id); if (!c) return;
     const key = b.dataset.key || '';
     switch (b.dataset.act){
-      case 'play': S.sel = c.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li)); previewClip(c); break;
+      case 'play': markSel(c.id); previewClip(c); break;
       case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); break;
       case 'join': if (b.checked) S.join.add(c.id); else S.join.delete(c.id); renderExportUI(); break;
       case 'txseek': {   // セリフの行を押したら、その行だけ再生する(元の配信の時刻)
@@ -2568,12 +2557,12 @@ function wire(){
   }, true);
   list.addEventListener('click', e => { // 行のどこかを押したら選択(タイムラインと連動)
     const li = e.target.closest('.rv-mark-row'); if (!li || e.target.closest('input,button,label')) return;
-    S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
+    markSel(li.dataset.id);
   });
   /* B-11: 微調整のボタンは選んだマークにだけ出す。時刻・ラベルの欄に入ったら(Tab でも)そのマークを選ぶ */
   list.addEventListener('focusin', e => {
     const li = e.target.closest('.rv-mark-row'); if (!li || li.classList.contains('sel') || !e.target.closest('input, .ui-time') || e.target.classList.contains('rv-join')) return;   // つなぐのチェックでは選ばない(選び直すと上の行の微調整が畳まれて一覧がずれ、押したつもりが外れる)
-    S.sel = li.dataset.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x === li));
+    markSel(li.dataset.id);
   });
   list.addEventListener('input', e => {
     if (e.target.dataset.f !== 'label') return;
@@ -2604,13 +2593,8 @@ function wire(){
   const timeAt = (e, el) => { const r = el.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * totalDur(); };
   function selectSeg(seg){
     const c = marks().find(x => x.id === seg.dataset.id); if (!c) return;
-    S.sel = c.id; renderTimeline(); list.querySelectorAll('.rv-mark-row').forEach(x => x.classList.toggle('sel', x.dataset.id === c.id));
+    markSel(c.id);
     const li = list.querySelector(`.rv-mark-row[data-id="${CSS.escape(c.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
-  }
-  function scrub(t, final){
-    t = Math.max(0, S.duration ? Math.min(t, S.duration) : t);
-    if (yt){ try { yt.seekTo(t, final); } catch {} lastSeekAt = Date.now(); }
-    setNow(t);
   }
   tl.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -2618,24 +2602,24 @@ function wire(){
     drag = { id: e.pointerId, x0: e.clientX, moved: false, seg };
     try { tl.setPointerCapture(e.pointerId); } catch {}
     tl.classList.add('dragging');
-    if (!seg) scrub(timeAt(e, tl), false);
+    if (!seg) seek(timeAt(e, tl), false);
   });
   tl.addEventListener('pointermove', e => {
     if (!drag || e.pointerId !== drag.id) return;
     if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
-    drag.moved = true; scrub(timeAt(e, tl), false);
+    drag.moved = true; seek(timeAt(e, tl), false);
   });
   const end = e => {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag; drag = null; tl.classList.remove('dragging');
     if (e.type === 'pointercancel') return;
-    if (d.seg && !d.moved) selectSeg(d.seg); else scrub(timeAt(e, tl), true);
+    if (d.seg && !d.moved) selectSeg(d.seg); else seek(timeAt(e, tl));
   };
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
   $('#rvGraph').addEventListener('click', e => {
     const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
-    if (p){ scrub(Math.max(0, Number(p.dataset.t) - 5), true); return; }
-    scrub(timeAt(e, $('#rvGraph')), true);
+    if (p){ seek(Math.max(0, Number(p.dataset.t) - 5)); return; }
+    seek(timeAt(e, $('#rvGraph')));
   });
   /* マウスの位置の時刻(押すとそこへ移る、の手がかり)。山の札の上では出さない */
   const gHover = $('#rvGHover');
@@ -2857,14 +2841,6 @@ function deactivate(){
 }
 
 /* ---------- 起動 ---------- */
-/* キー操作の一覧(ヘッダーの「キー」・? キー)に出す内容。[見出し, [[キーの表記, 説明], ...]] の配列 */
-function keyHelp(){
-  const km = curKeymap(), defs = Object.fromEntries(ACTION_DEFS.map(d => [d[0], d[1]]));
-  const row = id => { let label = defs[id] || id; const m = /^quickMark(\d?)$/.exec(id); if (m){ const i = m[1] ? Number(m[1]) - 1 : 0; label += `(前後${spanLabel(S.settings.quickSpans[i])})`; } return [km[id] ? keyText(km[id]) : '', label]; };
-  const groups = KEY_GROUPS.map(([h, ids]) => [h, ids.filter(id => defs[id]).map(row)]);
-  groups.push(['その他', [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']]]);
-  return groups;
-}
 Studio.review = {
   setYtReadyMs(ms){ S.ytReadyMs = ms; },   // テスト用: プレーヤー準備の待ち時間(既定 20 秒)を短くする
   async open(id){
@@ -2873,7 +2849,6 @@ Studio.review = {
     return p;
   },
   refresh: refreshList,
-  keyHelp,
   keymap: KM   // キーの一覧(? の一覧も同じ部品を出す。core.js)
 };
 /* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */

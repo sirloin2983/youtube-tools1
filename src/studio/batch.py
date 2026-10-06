@@ -67,10 +67,10 @@ class Batch:
     def _public(self, it):
         job = it.get("job")
         chat = analyze.chat_public(job["chat"]) if job else it.get("chatSnap")
-        d = {"qid": it["qid"], "videoId": it["videoId"], "kind": it["kind"], "title": it["title"], "channel": it["channel"], "status": it["status"],
-             "phase": job["phase"] if job and it["status"] == "running" else it["phase"], "progress": round(job["progress"], 3) if job and it["status"] == "running" else it["progress"],
-             "error": it["error"], "chat": chat, "marks": it["marks"], "finishedAt": it["finishedAt"]}
-        return d
+        running = bool(job) and it["status"] == "running"
+        return {"qid": it["qid"], "videoId": it["videoId"], "kind": it["kind"], "title": it["title"], "channel": it["channel"], "status": it["status"],
+                "phase": job["phase"] if running else it["phase"], "progress": round(job["progress"], 3) if running else it["progress"],
+                "error": it["error"], "chat": chat, "marks": it["marks"], "finishedAt": it["finishedAt"]}
 
     def snapshot(self):
         with self.cv:

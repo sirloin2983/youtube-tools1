@@ -92,8 +92,6 @@ main{display:block}
 #keyHelpBody{padding:14px 20px 20px;overflow-y:auto}
 .cs-keypreset{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px 0}
 .cs-keypreset select{max-width:100%;min-width:0;flex:1 1 260px}
-.cs-khint{margin:14px 0 4px}
-
 
 /* ==================== ① 探す ==================== */
 .cs-search .card-head{margin-bottom:6px}

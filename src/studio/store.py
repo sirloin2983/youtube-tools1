@@ -46,6 +46,15 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+def _pos_int(x):
+    return isinstance(x, int) and not isinstance(x, bool) and x > 0
+
+
+def _ms_or_now(x):
+    """保存された時刻(ミリ秒の正の整数)。壊れていれば今の時刻"""
+    return x if _pos_int(x) else now_ms()
+
+
 def _warn(msg):
     sys.stderr.write("[store] " + msg + "\n")
 
@@ -121,13 +130,12 @@ def _clean_server(d):
             x = _f(d["parts"].get(k))
             if x is not None:
                 parts[k] = round(x, 2)
-    ca = d.get("createdAt")
     src = d.get("src") if d.get("src") in ("auto", "collab") else "manual"
     return {"src": src, "score": None if score is None else round(score, 2), "reasons": reasons, "parts": parts,
             "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
             # 本番版(アーカイブで作り直した版)に入れ替え済みの印(線 D の P4。サーバーだけが決める。live の配信のマークだけ = _load_video で他は外す)
             "archived": d.get("archived") is True and st == "exported" and bool(f),
-            "createdAt": ca if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0 else now_ms(),
+            "createdAt": _ms_or_now(d.get("createdAt")),
             "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "auto0Orig": _auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
             "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None,
@@ -158,9 +166,8 @@ def _build_mark(m, old, trusted=False):
         srv = _clean_server({})   # クライアントが作る新しいマークは、必ず手動・未書き出し(状態は 候補/採用/不採用 だけ指定できる)
         if m.get("status") in STATUS_CLIENT:
             srv["status"] = m["status"]
-        ca = m.get("createdAt")
-        if isinstance(ca, int) and not isinstance(ca, bool) and ca > 0:
-            srv["createdAt"] = ca
+        if _pos_int(m.get("createdAt")):
+            srv["createdAt"] = m["createdAt"]
     label = m.get("label")
     d = {"id": m["id"], "start": s, "end": e, "label": label.strip()[:120] if isinstance(label, str) else "", "src": srv["src"], "score": srv["score"],
          "reasons": srv["reasons"], "parts": srv["parts"], "peak": srv["peak"], "live": bool(m.get("live")), "status": srv["status"], "file": srv["file"],
@@ -169,15 +176,17 @@ def _build_mark(m, old, trusted=False):
         d["path"] = srv["path"]
     if srv["file"] and srv.get("archived"):   # path と同じ扱い: 書き出し済みでなくなる(時刻を変えた・状態を変えた)と一緒に消える
         d["archived"] = True
-    if srv["auto0"]:
-        d["auto0"] = srv["auto0"]
-    if srv.get("auto0Orig"):
-        d["auto0Orig"] = srv["auto0Orig"]
-    if srv.get("collabFrom"):
-        d["collabFrom"] = srv["collabFrom"]
+    for k in ("auto0", "auto0Orig", "collabFrom"):
+        if srv.get(k):
+            d[k] = srv[k]
     if srv.get("adoptedBy") and d["status"] in ("adopted", "exported"):
         d["adoptedBy"] = srv["adoptedBy"]
     return d
+
+
+def _new_mark(prefix, s, e, status=""):
+    """サーバーが作る新しいマーク(手動・ラベルなしで整形する。src などは呼び出し側が上書きする)。id は prefix + 乱数"""
+    return _build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": now_ms()}, None)
 
 
 def load_marks(raw):
@@ -343,6 +352,28 @@ def _new_group_id(existing):
             return gid
 
 
+def _load_each(raw, out, load, what):
+    """data.json の videos / groups を1件ずつ読んで out に入れる。壊れた記録はその1件だけ捨てて続ける。捨てた数を返す"""
+    skipped = 0
+    for key, val in raw.items():
+        try:
+            out[key] = load(key, val)
+        except Exception as e:
+            skipped += 1
+            _warn("%s %r を読み込めませんでした(読み飛ばします): %s %s" % (what, str(key)[:20], e.__class__.__name__, str(e)[:80]))
+    return skipped
+
+
+def _replaced(d, key, val):
+    """d の写しの key を val にする(val=None なら消す)。メモリの辞書は保存に成功するまで変えない"""
+    d = dict(d)
+    if val is None:
+        d.pop(key, None)
+    else:
+        d[key] = val
+    return d
+
+
 class SeriesCache(dict):
     """動画ID → 盛り上がりグラフ。メモリにあればそれを、なければ cache/series のファイルから読む(再起動後も残る)。"""
 
@@ -443,22 +474,9 @@ class Store:
             self.warning = "data.json が壊れていたため、%s に退避して空の状態で起動しました(data.json.bak に1つ前の内容が残っている場合があります)。" % (name or "(退避に失敗)")
             _warn(self.warning + " 原因: %s" % str(e)[:100])
             return
-        skipped = 0
-        for vid, v in d["videos"].items():
-            try:
-                self.videos[vid] = self._load_video(vid, v)
-            except Exception as e:   # 壊れた記録1件だけ捨てて続ける
-                skipped += 1
-                _warn("動画の記録 %r を読み込めませんでした(読み飛ばします): %s %s" % (str(vid)[:20], e.__class__.__name__, str(e)[:80]))
-        gskipped = 0
+        skipped = _load_each(d["videos"], self.videos, self._load_video, "動画の記録")
         groups_raw = d.get("groups")
-        if isinstance(groups_raw, dict):
-            for gid, g in groups_raw.items():
-                try:
-                    self.groups[gid] = self._load_group(gid, g)
-                except Exception as e:   # 壊れたグループ1件だけ捨てて続ける
-                    gskipped += 1
-                    _warn("コラボグループの記録 %r を読み込めませんでした(読み飛ばします): %s %s" % (str(gid)[:20], e.__class__.__name__, str(e)[:80]))
+        gskipped = _load_each(groups_raw, self.groups, self._load_group, "コラボグループの記録") if isinstance(groups_raw, dict) else 0
         if skipped or gskipped:
             name = self._quarantine(copy_only=True)
             self.corrupt_backup = name
@@ -484,13 +502,11 @@ class Store:
             if live["recording"] != vid:
                 raise ValueError("live の録画 ID が id と違います")
         an = v.get("analysis")
-        rev = v.get("rev")
-        ci = lambda x: x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else now_ms()
         out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
                "duration": common.num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
                "path": v["path"] if v["kind"] == "file" else "", "marks": _drop_archived(load_marks(v.get("marks")), v["kind"]),
-               "analysis": an if isinstance(an, dict) else None, "rev": rev if isinstance(rev, int) and not isinstance(rev, bool) and rev >= 1 else 1,
-               "createdAt": ci(v.get("createdAt")), "updatedAt": ci(v.get("updatedAt"))}
+               "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _pos_int(v.get("rev")) else 1,
+               "createdAt": _ms_or_now(v.get("createdAt")), "updatedAt": _ms_or_now(v.get("updatedAt"))}
         if live:
             out["live"] = live   # live のときだけ持つキー(youtube・file の記録の形は変えない)
         return out
@@ -510,9 +526,8 @@ class Store:
             raise ValueError("base が members にありません")
         offsets_raw = g.get("offsets") if isinstance(g.get("offsets"), dict) else {}
         offsets = {vid: _load_pieces(offsets_raw.get(vid)) for vid in members if vid != base}
-        ci = lambda x: x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else now_ms()
         return {"id": gid, "name": str(g.get("name") or "")[:120], "base": base, "members": members, "offsets": offsets,
-                "createdAt": ci(g.get("createdAt")), "updatedAt": ci(g.get("updatedAt"))}
+                "createdAt": _ms_or_now(g.get("createdAt")), "updatedAt": _ms_or_now(g.get("updatedAt"))}
 
     def take_warning(self):
         """起動時の問題を1度だけ返す((メッセージ, 退避ファイル名) / ("", ""))。"""
@@ -539,21 +554,24 @@ class Store:
 
     def _commit(self, vid, nv):
         """動画1本ぶんの新しい状態を保存する(nv=None で削除)。"""
-        videos = dict(self.videos)
-        if nv is None:
-            videos.pop(vid, None)
-        else:
-            videos[vid] = nv
-        self._save(videos, self.groups)
+        self._save(_replaced(self.videos, vid, nv), self.groups)
 
     def _commit_group(self, gid, ng):
         """グループ1件ぶんの新しい状態を保存する(ng=None で削除)。"""
-        groups = dict(self.groups)
-        if ng is None:
-            groups.pop(gid, None)
-        else:
-            groups[gid] = ng
-        self._save(self.videos, groups)
+        self._save(self.videos, _replaced(self.groups, gid, ng))
+
+    def _bump(self, nv):
+        """動画の新しい状態(nv)の版を上げて保存する。"""
+        nv["rev"] += 1
+        nv["updatedAt"] = now_ms()
+        self._commit(nv["id"], nv)
+
+    def _need(self, vid):
+        """登録済みの動画(内部の形)。無ければ ApiError 404。self.lock を取っていること"""
+        v = self.videos.get(str(vid or ""))
+        if not v:
+            raise ApiError("not_found", "動画が見つかりません", 404)
+        return v
 
     # ---- 表現 ----
     @staticmethod
@@ -566,18 +584,15 @@ class Store:
 
     def _summary(self, v):
         g = self._video_group(v["id"])
-        d = self._summary_base(v, g)
+        d = {"id": v["id"], "kind": v["kind"], "title": v["title"], "channel": v["channel"], "duration": v["duration"], "fileName": v["fileName"],
+             "marks": len(v["marks"]), "autoMarks": sum(1 for m in v["marks"] if m["src"] == "auto"), "exported": sum(1 for m in v["marks"] if m["status"] == "exported"),
+             "adopted": sum(1 for m in v["marks"] if m["status"] == "adopted"), "candidates": sum(1 for m in v["marks"] if m["status"] == ""),
+             "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "rev": v["rev"], "hasSeries": v["id"] in self.series, "analysis": json.loads(json.dumps(v["analysis"])),
+             "groupId": g["id"] if g else None, "groupOffsetSet": (g["base"] == v["id"] or bool(g["offsets"].get(v["id"]))) if g else None}
         if v["kind"] == "live":
             d["live"] = dict(v["live"])
             d["archived"] = sum(1 for m in v["marks"] if m.get("archived"))   # 本番版に入れ替え済みのマークの数(線 D の P4)
         return d
-
-    def _summary_base(self, v, g):
-        return {"id": v["id"], "kind": v["kind"], "title": v["title"], "channel": v["channel"], "duration": v["duration"], "fileName": v["fileName"],
-                "marks": len(v["marks"]), "autoMarks": sum(1 for m in v["marks"] if m["src"] == "auto"), "exported": sum(1 for m in v["marks"] if m["status"] == "exported"),
-                "adopted": sum(1 for m in v["marks"] if m["status"] == "adopted"), "candidates": sum(1 for m in v["marks"] if m["status"] == ""),
-                "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "rev": v["rev"], "hasSeries": v["id"] in self.series, "analysis": json.loads(json.dumps(v["analysis"])),
-                "groupId": g["id"] if g else None, "groupOffsetSet": (g["base"] == v["id"] or bool(g["offsets"].get(v["id"]))) if g else None}
 
     # ---- 取得 ----
     def list(self):
@@ -588,9 +603,7 @@ class Store:
     def get(self, vid):
         """(公開用の動画, series or None)。無ければ ApiError 404。"""
         with self.lock:
-            v = self.videos.get(str(vid or ""))
-            if not v:
-                raise ApiError("not_found", "動画が見つかりません", 404)
+            v = self._need(vid)
             return self._pub(v), self.series.get(v["id"])
 
     def internal(self, vid):
@@ -615,7 +628,7 @@ class Store:
         vid = src["videoId"]
         dur = 0.0
         if src["kind"] == "file" and probe and not self.has(vid):
-            d, has_v, has_a, _l = common.media_info(src["path"])
+            d = common.media_info(src["path"])[0]
             if common.find_tool("ffmpeg") and d is None:
                 raise ApiError("bad_source", "動画・音声として読み取れないファイルです", 400)
             dur = float(d or 0)
@@ -673,9 +686,7 @@ class Store:
         if base_rev is not None and (not isinstance(base_rev, int) or isinstance(base_rev, bool)):
             raise ApiError("bad_request", "baseRev が正しくありません", 400)
         with self.lock:
-            v = self.videos.get(str(vid or ""))
-            if not v:
-                raise ApiError("not_found", "動画が見つかりません", 404)
+            v = self._need(vid)
             if base_rev is not None and base_rev != v["rev"]:   # 別の更新(解析・書き出し・別タブ)が先に入っている: 何も変えない
                 raise ApiError("conflict", "解析や書き出しで内容が更新されています。最新の内容を読み込み直してください", 409, {"video": self._pub(v), "series": self.series.get(v["id"])})
             new = validate_marks(marks_raw, v["marks"])   # 1件でも不正なら 400(何も変えない)
@@ -714,9 +725,7 @@ class Store:
             nv["marks"] = new
             if isinstance(title, str):   # 空文字はタイトルを消す
                 nv["title"] = title.strip()[:120]
-            nv["rev"] += 1
-            nv["updatedAt"] = now_ms()
-            self._commit(nv["id"], nv)   # 保存に成功したときだけ、feedback を書く
+            self._bump(nv)   # 保存に成功したときだけ、feedback を書く
             snap = self._pub(nv)
         for m, verdict, event in verdicts:
             analyze.feedback_for_mark(snap, m, verdict, event)
@@ -733,9 +742,7 @@ class Store:
         if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
             raise ApiError("bad_request", "採用する数は1〜30です", 400)
         with self.lock:
-            v = self.videos.get(str(vid or ""))
-            if not v:
-                raise ApiError("not_found", "動画が見つかりません", 404)
+            v = self._need(vid)
             if v["kind"] == "live":
                 raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
             if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
@@ -748,9 +755,7 @@ class Store:
             for m in nv["marks"]:
                 if m["id"] in ids:
                     m["status"], m["adoptedBy"] = "adopted", "auto"
-            nv["rev"] += 1
-            nv["updatedAt"] = now_ms()
-            self._commit(nv["id"], nv)
+            self._bump(nv)
             return [m["id"] for m in cands], self._pub(nv)
 
     def request_marks(self, vid, ranges, auto):
@@ -773,9 +778,7 @@ class Store:
             except BadMark as e:
                 raise ApiError("bad_request", "区間が正しくありません: %s" % e, 400)
         with self.lock:
-            v = self.videos.get(str(vid or ""))
-            if not v:
-                raise ApiError("not_found", "動画が見つかりません", 404)
+            v = self._need(vid)
             if v["kind"] == "live":   # 依頼(時刻指定)は YouTube の配信が対象。録画の時刻は別の基準(録画の頭からの秒)
                 raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)
             nv = copy.deepcopy(v)
@@ -790,7 +793,7 @@ class Store:
                 if m is None:
                     if len(nv["marks"]) >= MAX_MARKS:
                         raise ApiError("bad_request", "マークは%d件までです" % MAX_MARKS, 400)
-                    m = _build_mark({"id": "r" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": "adopted", "createdAt": now_ms()}, None)
+                    m = _new_mark("r", s, e, "adopted")
                     m["adoptedBy"] = "request"
                     nv["marks"].append(m)
                     changed = True
@@ -808,19 +811,8 @@ class Store:
                     changed = True
             if changed:
                 nv["marks"] = sorted(nv["marks"], key=lambda x: (x["start"], x["end"]))
-                nv["rev"] += 1
-                nv["updatedAt"] = now_ms()
-                self._commit(nv["id"], nv)
+                self._bump(nv)
             return range_ids, [m["id"] for m in autos], self._pub(nv)
-
-    def set_title(self, vid, title):
-        with self.lock:
-            v = self.videos.get(vid)
-            if v and title and not v["title"]:
-                nv = copy.deepcopy(v)
-                nv["title"] = str(title)[:120]
-                nv["rev"] += 1
-                self._commit(vid, nv)
 
     def replace_auto(self, vid, cands, analysis, duration, series):
         """解析結果を反映する。手を入れていない・書き出していない自動マークだけを置き換える。
@@ -849,7 +841,7 @@ class Store:
                     s, e = check_times(c["start"], c["end"])   # 手動と同じ規則(長さの上限など)
                 except (BadMark, KeyError, TypeError):
                     continue
-                m = _build_mark({"id": "a" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "createdAt": now_ms()}, None)
+                m = _new_mark("a", s, e)
                 m.update({"src": "auto", "score": _f(c.get("score")), "reasons": [str(r)[:40] for r in (c.get("reasons") or [])][:6], "peak": _f(c.get("peak")),
                           "parts": {k: round(_f(x), 2) for k, x in (c.get("parts") or {}).items() if k in PART_KEYS and _f(x) is not None}, "auto0": [s, e]})
                 if any(_same(m, o) for o in kept + autos):
@@ -860,11 +852,9 @@ class Store:
             nv = copy.deepcopy(v)
             nv["marks"] = sorted(kept + autos, key=lambda m: (m["start"], m["end"]))[:MAX_MARKS]
             nv["analysis"] = analysis
-            nv["rev"] += 1
             if duration and duration > 0:
                 nv["duration"] = round(float(duration), 2)
-            nv["updatedAt"] = now_ms()
-            self._commit(vid, nv)
+            self._bump(nv)
             self.series[vid] = series
             return len(autos)
 
@@ -894,9 +884,7 @@ class Store:
                 nm["archived"] = True
             else:
                 nm.pop("archived", None)
-            nv["rev"] += 1
-            nv["updatedAt"] = now_ms()
-            self._commit(vid, nv)
+            self._bump(nv)
             if first:   # 自動・手動どちらも、初めて書き出したときに「よかった」(最終の区間と、手で直した量つき)
                 fb = (self._pub(nv), dict(nm))
         if fb:
@@ -929,10 +917,25 @@ class Store:
 
     def get_group(self, gid):
         with self.lock:
-            g = self.groups.get(str(gid or ""))
-            if not g:
-                raise ApiError("not_found", "グループが見つかりません", 404)
-            return self._group_summary(g)
+            return self._group_summary(self._need_group(gid))
+
+    def _need_group(self, gid, vid=None):
+        """グループ(無ければ ApiError 404)。vid を渡すと、そのグループのメンバーであることも確かめる。self.lock を取っていること"""
+        g = self.groups.get(str(gid or ""))
+        if not g:
+            raise ApiError("not_found", "グループが見つかりません", 404)
+        if vid is not None and vid not in g["members"]:
+            raise ApiError("not_found", "そのグループにその動画はありません", 404)
+        return g
+
+    def _check_free(self, ids):
+        """ids の動画がすべて登録済みで、どのコラボグループにも入っていないこと(違えば ApiError)。self.lock を取っていること"""
+        for vid in ids:
+            v = self.videos.get(vid)
+            if not v:
+                raise ApiError("not_found", "動画が見つかりません(%s)" % vid, 404)
+            if self._video_group(vid):
+                raise ApiError("conflict", "「%s」はすでに別のコラボグループに入っています" % (v["title"] or vid), 409)
 
     @staticmethod
     def _clean_ids(video_ids):
@@ -958,12 +961,7 @@ class Store:
         with self.lock:
             if len(self.groups) >= MAX_GROUPS:
                 raise ApiError("too_many", "グループは%d件までです" % MAX_GROUPS, 400)
-            for vid in ids:
-                v = self.videos.get(vid)
-                if not v:
-                    raise ApiError("not_found", "動画が見つかりません(%s)" % vid, 404)
-                if self._video_group(vid):
-                    raise ApiError("conflict", "「%s」はすでに別のコラボグループに入っています" % (v["title"] or vid), 409)
+            self._check_free(ids)
             gid = _new_group_id(self.groups)
             now = now_ms()
             g = {"id": gid, "name": str(name or "").strip()[:120], "base": base, "members": ids,
@@ -974,21 +972,13 @@ class Store:
     def add_members(self, gid, video_ids):
         ids = self._clean_ids(video_ids)
         with self.lock:
-            g = self.groups.get(str(gid or ""))
-            if not g:
-                raise ApiError("not_found", "グループが見つかりません", 404)
+            g = self._need_group(gid)
             new = [v for v in ids if v not in g["members"]]
             if not new:
                 raise ApiError("bad_request", "追加する動画がありません", 400)
             if len(g["members"]) + len(new) > MAX_GROUP_MEMBERS:
                 raise ApiError("bad_request", "1つのグループにまとめられるのは%d本までです" % MAX_GROUP_MEMBERS, 400)
-            for vid in new:
-                v = self.videos.get(vid)
-                if not v:
-                    raise ApiError("not_found", "動画が見つかりません(%s)" % vid, 404)
-                other = self._video_group(vid)
-                if other:
-                    raise ApiError("conflict", "「%s」はすでに別のコラボグループに入っています" % (v["title"] or vid), 409)
+            self._check_free(new)
             ng = dict(g, members=g["members"] + new, offsets=dict(g["offsets"]), updatedAt=now_ms())
             for vid in new:
                 ng["offsets"][vid] = []
@@ -999,12 +989,8 @@ class Store:
         """メンバーを外す。基準の動画を外す・残り1本になる場合はグループごと削除する(ズレの基準がなくなるため)。
         すでに転写済みのマークは(既存の動画削除と同様)消さずに残す。戻り値: 残ったグループ(削除したときは None)。"""
         with self.lock:
-            g = self.groups.get(str(gid or ""))
-            if not g:
-                raise ApiError("not_found", "グループが見つかりません", 404)
             vid = str(vid or "")
-            if vid not in g["members"]:
-                raise ApiError("not_found", "そのグループにその動画はありません", 404)
+            g = self._need_group(gid, vid)
             if vid == g["base"] or len(g["members"]) <= 2:
                 self._commit_group(g["id"], None)
                 return None
@@ -1024,12 +1010,8 @@ class Store:
 
     def set_anchor(self, gid, vid, points):
         with self.lock:
-            g = self.groups.get(str(gid or ""))
-            if not g:
-                raise ApiError("not_found", "グループが見つかりません", 404)
             vid = str(vid or "")
-            if vid not in g["members"]:
-                raise ApiError("not_found", "そのグループにその動画はありません", 404)
+            g = self._need_group(gid, vid)
             if vid == g["base"]:
                 raise ApiError("bad_request", "基準の動画にはズレの指定は不要です", 400)
             try:
@@ -1100,19 +1082,15 @@ class Store:
                         target["reasons"] = (target["reasons"] + [note])[:6]
                     if moved and target["status"] == "exported":
                         target["status"], target["file"] = "adopted", ""
-                    nv["rev"] += 1
-                    nv["updatedAt"] = now_ms()
-                    self._commit(vid, nv)
+                    self._bump(nv)
                 return
             if len(v["marks"]) >= MAX_MARKS:
                 return
-            m = _build_mark({"id": "c" + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "createdAt": now_ms()}, None)
+            m = _new_mark("c", s, e)
             m.update({"src": "collab", "reasons": [note], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
             nv = copy.deepcopy(v)
             nv["marks"] = sorted(nv["marks"] + [m], key=lambda x: (x["start"], x["end"]))[:MAX_MARKS]
-            nv["rev"] += 1
-            nv["updatedAt"] = now_ms()
-            self._commit(vid, nv)
+            self._bump(nv)
 
     # ---- 画面の設定(不透明な辞書) ----
     def get_ui(self):

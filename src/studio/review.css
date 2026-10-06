@@ -413,7 +413,6 @@
   .rv-mark{grid-template-columns:repeat(2,minmax(0,1fr))}
   .rv-addcell{grid-column:1/-1}
   .rv-qrow{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
-  .rv-keyrow{flex-wrap:wrap}
   .rv-mact{margin-left:0}
   #rvNow{font-size:18px;width:9.5ch}
   .rv-transport{justify-content:flex-start}

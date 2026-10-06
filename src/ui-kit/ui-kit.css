@@ -340,10 +340,6 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 
 /* ---------- v3(2026-09-26): 画面の見直しで足した共通の部品 ---------- */
-/* 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>。入口に取り込まれているときだけ ui-kit.js が表示する) */
-.ui-home{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:550;padding:0 8px;min-height:var(--ctl-h-sm);border-radius:var(--r)}
-.ui-home:hover{background:var(--panel-2);color:var(--ink)}
-.ui-home svg{width:16px;height:16px}
 .ui-menu-pop .ui-menu-sep{height:1px;background:var(--line);margin:4px 2px}
 
 /* 一覧の道具の行(検索・絞り込み・並び替え・件数)。検索欄は残りの幅いっぱいに伸びる */

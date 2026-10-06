@@ -75,6 +75,14 @@ def fake():
     return os.environ.get("STUDIO_FAKE") == "1"
 
 
+def fake_media():
+    """疑似モードで YouTube の動画の代わりに使う手元のファイル(環境変数 STUDIO_FAKE_MEDIA)。無ければ ApiError 500"""
+    path = os.environ.get("STUDIO_FAKE_MEDIA", "")
+    if not os.path.isfile(path):
+        raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
+    return path
+
+
 def find_tool(name):
     """環境変数 STUDIO_<名前>(例 STUDIO_FFMPEG・STUDIO_YTDLP)があればそれ、無ければ PATH から。"""
     return _tools.find_tool(name, "STUDIO_" + name.upper().replace("-", ""))
@@ -290,16 +298,6 @@ def media_info(path):
     dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
     vm = re.search(r"Stream #.*Video:.*", out)
     return dur, bool(vm), bool(re.search(r"Stream #.*Audio:", out)), (vm.group(0).strip()[:300] if vm else "")
-
-
-def media_duration(path):
-    d, has_v, _a, _l = media_info(path)
-    return d, has_v
-
-
-def has_audio_stream(path):
-    d, _v, a, _l = media_info(path)
-    return a if find_tool("ffmpeg") else True
 
 
 # ---------- 外部コマンド(中止・時間切れ対応。子プロセスも含めて止める) ----------

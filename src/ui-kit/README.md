@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v16
+# ui-kit(共通の見た目)v18
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -45,7 +45,7 @@
 ## v3(2026-09-26・画面の全面見直し)
 共通のルールは `docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
 - 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
-- 入口へ戻る: ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
+- 入口へ戻る(v18 で消した): ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
   「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
 - 一覧: `.ui-listbar`(検索は残りの幅いっぱい)・`.ui-count`・`details.ui-group`(+ `.ui-group-n`・`.ui-group-side`)・`.ui-next`(次にやること)
 - 言葉の説明: `<abbr class="ui-term" title="1文の説明">EDL</abbr>`
@@ -137,6 +137,10 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v18(2026-10-07・内部の整理。動きは同じ)
+- 確認・お知らせのダイアログ(`UIKit.dialog`)・編集の設定の保存(`UIKit.packLoud`・`UIKit.autorun`)・捕まえたエラーの記録を、中で 1 つの関数にまとめた。`UIKit` の形と動きは変えていない
+- 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `docs/spec/ui-guidelines.md` の 2)
 
 ## v17(2026-10-05・ほかの窓で音が鳴っているかを知らせ合う `UIKit.sound`)
 - 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(ユーザー)。この画面の `<video>`・`<audio>` が鳴っている間(再生中・消音でない・音量 0 でない)、同じオリジンの窓へ BroadcastChannel `ytt-sound` で知らせる(`{id, tool, playing}`。外へは送らない)

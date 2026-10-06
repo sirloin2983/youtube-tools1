@@ -11,18 +11,9 @@ import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnectio
 import common
 from ytt_core import fsio, runtime, schemas
 
-CLIP_SCHEMA = schemas.CLIP_SCHEMA
 TOOL = {"name": "clip-studio", "version": ""}   # 版は serve.py が SERVER_VERSION を入れる(版の正は serve.py のまま)
 TOOL_APPS = runtime.TOOL_APPS
 PING_TIMEOUT = runtime.PING_TIMEOUT
-RUNTIME_MAX_BYTES = runtime.MAX_BYTES
-iso_now = schemas.iso_now
-valid_port = runtime.valid_port
-
-
-def write_json(path, obj):
-    """UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない)。"""
-    fsio.write_json(path, obj)
 
 
 # ---------- youtube-tools-clip/v1 ----------
@@ -37,10 +28,11 @@ def clip_manifest(media_path, duration, source, rng, mark, export):
 
 
 def write_clip_manifest(media_path, **kw):
-    """mp4 の .clip.json を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。"""
+    """mp4 の .clip.json を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
+    UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt_core.fsio.write_json)"""
     path = manifest_path(media_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    write_json(path, clip_manifest(media_path, **kw))
+    fsio.write_json(path, clip_manifest(media_path, **kw))
     return path
 
 
@@ -50,15 +42,9 @@ def runtime_dir():
     return runtime.runtime_dir(common.CODE_DIR)
 
 
-def runtime_path(tool):
-    if tool not in TOOL_APPS:   # ファイル名に使うので、決まったIDだけ
-        raise ValueError("unknown tool id")
-    return runtime.runtime_path(runtime_dir(), tool)
-
-
 def write_runtime(tool, port, version, path="/"):
     """起動時に <runtime>/<tool>.json を書く。書けなくても起動は続ける(戻り値 None)。
-    path は画面の場所(入口の統合サーバーに取り込まれたときは "/studio/")。"""
+    path は画面の場所(入口の統合サーバーに取り込まれたときは "/studio/")。tool は決まった ID だけ(ファイル名に使うため)"""
     if tool not in TOOL_APPS:
         return None
     path = runtime.write_runtime(runtime_dir(), tool, port, version, path)

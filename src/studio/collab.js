@@ -6,13 +6,7 @@ const S = window.Studio;
 if (!S) return;
 const esc = S.esc;
 const $ = s => document.querySelector(s);
-const pad = n => String(n).padStart(2, '0');
-
-function fmt(t){
-  t = Math.max(0, Number(t) || 0);
-  const d = Math.round(t * 10), h = Math.floor(d / 36000), m = Math.floor(d % 36000 / 600), s = ((d % 600) / 10).toFixed(1).padStart(4, '0');
-  return h ? `${h}:${pad(m)}:${s}` : `${m}:${s}`;
-}
+const fmt = S.fmtTime;
 /* 2回押しの確認。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1) */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 

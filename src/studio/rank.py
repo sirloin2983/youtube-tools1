@@ -33,6 +33,7 @@ MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧
 WORKERS = 4
 CACHE_TTL = 1800
 SEED = os.path.join(common.CODE_DIR, "seed.json")
+FATAL = ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission")   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
 
 _quota = 0
 _quota_lock = threading.Lock()
@@ -85,8 +86,7 @@ def yt_get(path, params):
                 )
             if e.code == 404 or reason in ("playlistNotFound", "channelNotFound"):
                 raise ApiError("not_found", "見つかりません", 404)
-            if e.code >= 500 and attempt == 0:
-                last = ApiError("upstream", "YouTube APIがエラーを返しました(HTTP %d)" % e.code, 502)
+            if e.code >= 500 and attempt == 0:   # サーバー側の一時的な失敗は1回だけやり直す
                 time.sleep(1)
                 continue
             raise ApiError("upstream", "YouTube APIがエラーを返しました(HTTP %d)" % e.code, 502)
@@ -98,6 +98,10 @@ def yt_get(path, params):
 
 
 # ---------- 疑似API(テスト用: STUDIO_FAKE=1) ----------
+_FAKE_WORDS = ["雑談", "ゲーム", "歌枠", "マイクラ", "コラボ", "ホラー"]
+_FAKE_INDEX = {}   # 疑似の動画ID → 動画(疑似動画IDからは元のチャンネルが分からないので、ここから引く)
+
+
 def _h(s, mod=1000003):
     return int(hashlib.sha1(s.encode()).hexdigest()[:8], 16) % mod
 
@@ -110,8 +114,7 @@ def fake_video(cid, n):
     """チャンネル cid の n 本目(新しい順)の動画。日付は現在から遡る(2日に1本ぐらい)。"""
     vid = "f" + hashlib.sha1(("%s/%d" % (cid, n)).encode()).hexdigest()[:10]
     when = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=n * 2 + _h(vid, 2), hours=_h(vid + "h", 5))
-    words = ["雑談", "ゲーム", "歌枠", "マイクラ", "コラボ", "ホラー"]
-    title = "【%s】%s配信 #%d" % (words[_h(vid, 6)], words[_h(vid + "x", 6)], n)
+    title = "【%s】%s配信 #%d" % (_FAKE_WORDS[_h(vid, 6)], _FAKE_WORDS[_h(vid + "x", 6)], n)
     live = _h(vid + "l", 10) < 8
     return {"id": vid, "publishedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "title": title, "views": _h(vid + "v", 900000) + 100, "live": live, "channelId": cid,
             "dur": ("PT%dH%dM%dS" % (1 + _h(vid, 3), _h(vid, 50), _h(vid, 50))) if live else "PT%dM%dS" % (_h(vid, 9), _h(vid, 50))}
@@ -155,12 +158,9 @@ def fake_get(path, params):
     if path == "videos":
         items = []
         for vid in params["id"].split(","):
-            found = None
-            # 疑似動画IDからは元のチャンネルが分からないので、全チャンネルの候補を _FAKE_INDEX から引く
-            found = _FAKE_INDEX.get(vid)
-            if not found:
+            v = _FAKE_INDEX.get(vid)
+            if not v:
                 continue
-            v = found
             det = {"duration": v["dur"]}
             item = {"id": vid, "snippet": {"title": v["title"], "description": "説明文 " + v["title"], "channelId": v["channelId"], "channelTitle": "ch-" + v["channelId"][2:8],
                                            "publishedAt": v["publishedAt"], "thumbnails": {"medium": {"url": "https://i.ytimg.com/vi/%s/mqdefault.jpg" % vid}}},
@@ -174,16 +174,6 @@ def fake_get(path, params):
             items.append(item)
         return {"items": items}
     raise ApiError("upstream", "fake: unknown " + path, 502)
-
-
-class _FakeIndex(dict):
-    def get(self, vid, default=None):
-        if vid in self:
-            return dict.get(self, vid)
-        return default
-
-
-_FAKE_INDEX = _FakeIndex()
 
 
 def _fake_register(cid):
@@ -201,8 +191,7 @@ def fake_live(cid):
     base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     vid = "L" + hashlib.sha1((cid + "/live").encode()).hexdigest()[:10]
     fmt = "%Y-%m-%dT%H:%M:%SZ"
-    words = ["雑談", "ゲーム", "歌枠", "マイクラ", "コラボ", "ホラー"]
-    title = "【%s】%s配信" % (words[_h(vid, 6)], words[_h(vid + "x", 6)])
+    title = "【%s】%s配信" % (_FAKE_WORDS[_h(vid, 6)], _FAKE_WORDS[_h(vid + "x", 6)])
     if k in (0, 3):
         st = base - timedelta(minutes=20 + _h(vid, 90))
         lsd = {"actualStartTime": st.strftime(fmt), "concurrentViewers": str(500 + _h(vid + "c", 40000))}
@@ -320,15 +309,14 @@ def _resolve_channels(entries):
         part = by_id[i:i + 50]
         got = {it["id"]: it for it in yt_get("channels", {"part": "snippet,contentDetails", "id": ",".join(e["ref"] for e in part), "maxResults": 50}).get("items", [])}
         for e in part:
-            it = got.get(e["ref"])
-            _apply_channel(e, it)
+            _apply_channel(e, got.get(e["ref"]))
     for e in entries:
         if CHID_RE.match(e["ref"]):
             continue
         try:
             items = yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", [])
         except ApiError as ex:
-            if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
+            if ex.code in FATAL:
                 raise
             items = []
         _apply_channel(e, items[0] if items else None)
@@ -371,7 +359,7 @@ def import_official(agency_id):
             try:
                 secs = yt_get("channelSections", {"part": "snippet,contentDetails", "channelId": o["id"]}).get("items", [])
             except ApiError as ex:
-                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
+                if ex.code in FATAL:
                     raise
                 secs = []
             n0 = len(found)
@@ -533,36 +521,42 @@ def matches(row, spec):
     return all(hits) if spec["mode"] == "all" else any(hits)
 
 
+def _ok_channels(ags):
+    """解決済みの所属チャンネル [(事務所, チャンネル)] と、解決していないチャンネルの数。1つも無ければ ApiError"""
+    chans, unresolved = [], 0
+    for a in ags:
+        for c in a["channels"]:
+            if c["status"] == "ok" and c["uploads"]:
+                chans.append((a, c))
+            else:
+                unresolved += 1
+    if not chans:
+        raise ApiError("no_channels", "対象の事務所に、解決済みの所属チャンネルがありません(「所属の登録」でチャンネルを登録し、「解決」してください)", 400)
+    return chans, unresolved
+
+
 def run_search(job, spec):
     q0 = _quota
     try:
         job["state"], job["phase"] = "running", "所属チャンネルを確認中"
-        chans, unresolved = [], 0
-        for a in spec["agencies"]:
-            for c in a["channels"]:
-                if c["status"] == "ok" and c["uploads"]:
-                    chans.append((a["id"], c))
-                else:
-                    unresolved += 1
-        if not chans:
-            raise ApiError("no_channels", "対象の事務所に、解決済みの所属チャンネルがありません(「所属の登録」でチャンネルを登録し、「解決」してください)", 400)
+        chans, unresolved = _ok_channels(spec["agencies"])
         job["phase"] = "各チャンネルの配信一覧を読み込み中"
-        cand, warns, done = {}, [], [0]
+        warns, done = [], [0]
 
         def one(item):
-            aid, c = item
+            a, c = item
             try:
                 ids = list_candidates(job, c, spec)
             except Cancelled:
                 raise
             except ApiError as ex:
-                if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
+                if ex.code in FATAL:
                     raise
                 warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
                 ids = []
             done[0] += 1
             job["progress"] = 0.5 * done[0] / len(chans)
-            return aid, c, ids
+            return a["id"], c, ids
         with ThreadPoolExecutor(WORKERS) as ex:
             results = list(ex.map(one, chans))
         owner = {}
@@ -733,15 +727,7 @@ def _live_fetch(ids):
 
 def _live_build(ags, now):
     q0 = _quota
-    chans, unresolved = [], 0
-    for a in ags:
-        for c in a["channels"]:
-            if c["status"] == "ok" and c["uploads"]:
-                chans.append((a, c))
-            else:
-                unresolved += 1
-    if not chans:
-        raise ApiError("no_channels", "対象の事務所に、解決済みの所属チャンネルがありません(「所属の登録」でチャンネルを登録し、「解決」してください)", 400)
+    chans, unresolved = _ok_channels(ags)
     warns, fails = [], []
 
     def one(item):
@@ -749,7 +735,7 @@ def _live_build(ags, now):
         try:
             return a, _live_scan(c)
         except ApiError as ex:
-            if ex.code in ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission"):
+            if ex.code in FATAL:
                 raise
             warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
             fails.append(ex)

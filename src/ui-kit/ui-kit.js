@@ -1,4 +1,4 @@
-/* ui-kit v16 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v18 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -38,7 +38,8 @@
    v17(2026-10-05): UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
    v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
        録画が終わった・切れたときの知らせ付き。線 D・plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
-   v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」) */
+   v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)
+   v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -201,14 +202,6 @@
   };
   theme.syncButtons = syncButtons;
 
-  /* ---- 入口・案件へ戻るリンク(v3)---- ヘッダーに <a data-ui-home hidden> / <a data-ui-cases hidden> を置くと、入口に取り込まれているときだけ出す */
-  document.addEventListener('DOMContentLoaded', function () {
-    if (!tools.mounted()) return;
-    var home = document.querySelectorAll('[data-ui-home]'), cases = document.querySelectorAll('[data-ui-cases]');
-    for (var i = 0; i < home.length; i++) { home[i].setAttribute('href', '/'); home[i].setAttribute('data-ui-portal', ''); home[i].hidden = false; }
-    for (var j = 0; j < cases.length; j++) { cases[j].setAttribute('href', '/cases.html'); cases[j].hidden = false; }
-  });
-
   /* ---- 表示の書式(v3)---- 一覧で「いつのものか」をすぐ分かるように */
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   var fmt = {
@@ -253,6 +246,7 @@
   /* ---- 画面のエラーを入口のログへ(段階7-0)---- 同じエラーは1回、1回の表示で20件まで(画面の不具合でログを埋めない。サーバー側にも上限) */
   var sentN = 0, seen = {};
   function clip(v, n) { v = v == null ? '' : String(v); return v.length > n ? v.slice(0, n) : v; }
+  function reportErr(e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); }   /* 購読側の関数の例外など */
   function report(message, info, kind) {
     try {
       info = info || {};
@@ -282,7 +276,7 @@
      少し待って、フォーカスがまだこの画面の中(document.hasFocus() か、フォーカスが iframe)なら離れたことにしない */
   var leaveFns = [], returnFns = [], away = false, awayBy = '', blurTimer = null;
   function fire(list, reason) {
-    for (var i = 0; i < list.length; i++) { try { list[i](reason); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); } }
+    for (var i = 0; i < list.length; i++) { try { list[i](reason); } catch (e) { reportErr(e); } }
   }
   function focusInside() {
     try { if (document.hasFocus()) return true; } catch (e) { /* 古いブラウザ */ }
@@ -662,48 +656,35 @@
     (document.body || document.documentElement).appendChild(dlg);
     return { dlg: dlg, h2: h2, body: body, actions: actions };
   }
-  function dialogConfirm(opts) {
-    opts = opts || {};
+  function dialogBtn(cls, text) { var b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = text; return b; }
+  /* 確認とお知らせで共通: buttons = [[ボタン, 押したときの値]] を並べて showModal。ボタン以外(Esc)で閉じたら closed の値。
+     閉じたら要素を消して、開く前のフォーカスへ戻す */
+  function dialogOpen(opts, defTitle, buttons, focusBtn, closed) {
     return new Promise(function (resolve) {
       var parts = buildDialogShell(), opener = document.activeElement, done = false;
-      parts.h2.textContent = opts.title || '確認';
+      parts.h2.textContent = opts.title || defTitle;
       parts.body.textContent = opts.body || '';
-      var cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button'; cancelBtn.className = 'btn ghost'; cancelBtn.textContent = opts.cancel || 'キャンセル';
-      var okBtn = document.createElement('button');
-      okBtn.type = 'button'; okBtn.className = 'btn ' + (opts.danger ? 'danger solid' : 'primary'); okBtn.textContent = opts.ok || 'OK';
-      parts.actions.appendChild(cancelBtn); parts.actions.appendChild(okBtn);
       function finish(v) { if (done) return; done = true; resolve(v); parts.dlg.close(); }
-      cancelBtn.addEventListener('click', function () { finish(false); });
-      okBtn.addEventListener('click', function () { finish(true); });
+      buttons.forEach(function (b) { parts.actions.appendChild(b[0]); b[0].addEventListener('click', function () { finish(b[1]); }); });
       parts.dlg.addEventListener('close', function () {
-        if (!done) { done = true; resolve(false); }
+        if (!done) { done = true; resolve(closed); }
         if (parts.dlg.parentNode) parts.dlg.parentNode.removeChild(parts.dlg);
         if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
       });
       parts.dlg.showModal();
-      (opts.danger ? cancelBtn : okBtn).focus({ preventScroll: true });   /* 消す・戻せない操作(danger)は、既定のフォーカスを安全な方(キャンセル)に */
+      focusBtn.focus({ preventScroll: true });
     });
+  }
+  function dialogConfirm(opts) {
+    opts = opts || {};
+    var cancelBtn = dialogBtn('btn ghost', opts.cancel || 'キャンセル'), okBtn = dialogBtn('btn ' + (opts.danger ? 'danger solid' : 'primary'), opts.ok || 'OK');
+    /* 消す・戻せない操作(danger)は、既定のフォーカスを安全な方(キャンセル)に */
+    return dialogOpen(opts, '確認', [[cancelBtn, false], [okBtn, true]], opts.danger ? cancelBtn : okBtn, false);
   }
   function dialogAlert(opts) {
     opts = opts || {};
-    return new Promise(function (resolve) {
-      var parts = buildDialogShell(), opener = document.activeElement, done = false;
-      parts.h2.textContent = opts.title || 'お知らせ';
-      parts.body.textContent = opts.body || '';
-      var okBtn = document.createElement('button');
-      okBtn.type = 'button'; okBtn.className = 'btn primary'; okBtn.textContent = opts.ok || 'OK';
-      parts.actions.appendChild(okBtn);
-      function finish() { if (done) return; done = true; resolve(undefined); parts.dlg.close(); }
-      okBtn.addEventListener('click', finish);
-      parts.dlg.addEventListener('close', function () {
-        if (!done) { done = true; resolve(undefined); }
-        if (parts.dlg.parentNode) parts.dlg.parentNode.removeChild(parts.dlg);
-        if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
-      });
-      parts.dlg.showModal();
-      okBtn.focus({ preventScroll: true });
-    });
+    var okBtn = dialogBtn('btn primary', opts.ok || 'OK');
+    return dialogOpen(opts, 'お知らせ', [[okBtn, undefined]], okBtn, undefined);
   }
   var dialogApi = { confirm: dialogConfirm, alert: dialogAlert };
 
@@ -1273,11 +1254,6 @@
       if (self.derived[combo]) return K + ' は共通の再生キー「' + labelOf(self.derived[combo]) + '」に Shift を足した 5 秒の移動に使っているので割り当てられません';
       return '';
     }
-    function fullPb(pb) {
-      var out = {};
-      for (var i = 0; i < PLAYBACK_ACTIONS.length; i++) { var id = PLAYBACK_ACTIONS[i][0]; out[id] = typeof pb[id] === 'string' ? pb[id] : PLAYBACK_ACTIONS[i][1]; }
-      return out;
-    }
     function fullTool(tool) {
       var out = {};
       for (var i = 0; i < acts.length; i++) { var id = acts[i].id; out[id] = typeof tool[id] === 'string' ? tool[id] : acts[i].def; }
@@ -1285,7 +1261,7 @@
     }
     function copy(x) { var out = {}; for (var k in x) if (Object.prototype.hasOwnProperty.call(x, k)) out[k] = x[k]; return out; }
     function savePb() {
-      var full = fullPb(self.pb);
+      var full = playbackMap(self.pb);
       if (prefs.available()) { self.prefsPb = full; prefs.patch('keymap', { playback: full }).catch(function () { /* 失敗の知らせは prefs が出す */ }); }
       else if (o.fallbackPlayback && typeof o.fallbackPlayback.save === 'function') o.fallbackPlayback.save(full);
     }
@@ -1553,6 +1529,12 @@
   var LOUD_OPTS = [[-14, '-14 LUFS(YouTube と同じくらい・おすすめ)'], [-11, '-11 LUFS(大きめ)'], [-16, '-16 LUFS(少し小さめ)'], [-18, '-18 LUFS(小さめ)'], [0, '音量を % で決める']];
   var loudGet = null;
   function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
+  /* 編集の設定の、送ったキーだけを直す(api/settings/patch。編集の画面の丸ごとの保存とは別)。失敗は Error(サーバーの文) */
+  function txPatch(values) {
+    return fetch(txApiUrl('api/settings/patch'), { method: 'POST', cache: 'no-store', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-YTT-Token': token() }, body: JSON.stringify({ values: values }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); }); });
+  }
   function loudNorm(raw) {
     if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%(2026-10-01)
     var v = +raw;
@@ -1592,13 +1574,11 @@
     },
     /* values: {packLoudness?, packVolume?}(送った方だけ直す) */
     set: function (values) {
-      var u = txApiUrl('api/settings/patch'), tk = token(), v = {};
+      var v = {};
       if ('packLoudness' in values) v.packLoudness = loudNorm(values.packLoudness);
       if ('packVolume' in values) v.packVolume = volNorm(values.packVolume);
-      if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
-      return fetch(u, { method: 'POST', cache: 'no-store', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify({ values: v }) })
-        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); }); })
+      if (!txApiUrl('api/settings/patch') || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
+      return txPatch(v)
         .then(function () { loudGet = null; return packLoud.get(); })
         .then(function (st) { loudPaint(st); return st; }, function (e) {
           toastFn('パックの音量を保存できませんでした: ' + e.message, { kind: 'err', ms: 0, action: { label: 'もう一度', fn: function () { packLoud.set(values); } } });
@@ -1674,10 +1654,7 @@
     for (var i = 0; i < arPanels.length; i++) arPanels[i].paint();
   }
   function arSave(where, values) {
-    var done = where === 'prefs' ? prefs.patch('autorun', values)   /* ホームの設定(失敗は UIKit.prefs が知らせる) */
-      : fetch(txApiUrl('api/settings/patch'), { method: 'POST', cache: 'no-store', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-YTT-Token': token() }, body: JSON.stringify({ values: values }) })
-        .then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('HTTP ' + r.status)); }); });
+    var done = where === 'prefs' ? prefs.patch('autorun', values) : txPatch(values);   /* ホームの設定(失敗は UIKit.prefs が知らせる)/ 編集の設定 */
     return done.then(function () { return arLoad(); }).then(function () { arRepaint(); try { document.dispatchEvent(new CustomEvent('ui-autorun-settings', { detail: arState })); } catch (e) {} },
       function (e) { if (where !== 'prefs') toastFn('パックの設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 0 }); });
   }
@@ -2157,7 +2134,7 @@
     clearTimeout(live.timer);
     live.started = true;
     live.inflight = yttPost('live', { op: 'status' }).then(liveGot, liveFail).then(function () {
-      try { liveRender(); liveFire(); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); }
+      try { liveRender(); liveFire(); } catch (e) { reportErr(e); }
     }).then(function () {
       live.inflight = null;
       clearTimeout(live.timer);
@@ -2167,7 +2144,7 @@
     return live.inflight;
   }
   function liveTick() { if (document.hidden) { clearTimeout(live.timer); live.timer = setTimeout(liveTick, LIVE_ON_MS); return; } liveRefresh(); }   // 隠れているタブは問い合わせない
-  function liveFire() { for (var i = 0; i < live.subs.length; i++) { try { live.subs[i](live.last); } catch (e) { report(e && e.message ? e.message : String(e), { stack: e && e.stack }, 'error'); } } }
+  function liveFire() { for (var i = 0; i < live.subs.length; i++) { try { live.subs[i](live.last); } catch (e) { reportErr(e); } } }
   function liveSet(el, text) { if (el.textContent !== text) el.textContent = text; }
 
   function liveEl(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
@@ -2232,7 +2209,7 @@
       open.setAttribute('href', liveStudioHref(row.rec));   // スタジオの場所が分かったのが描いたあとでも、押した時点の場所で移る
       if (!live.openFn || e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey || e.altKey) return;   // スタジオの画面なら、移らずにその録画へ
       e.preventDefault(); liveClose(false);
-      try { live.openFn(row.rec); } catch (x) { report(x && x.message ? x.message : String(x), { stack: x && x.stack }, 'error'); }
+      try { live.openFn(row.rec); } catch (x) { reportErr(x); }
     });
     stop.addEventListener('click', function () { confirmTwice(stop, function () { liveStop(row, stop); }, 'もう一度押すと停止'); });
     meta.appendChild(state); meta.appendChild(time); acts.appendChild(open); acts.appendChild(stop);
@@ -2310,7 +2287,7 @@
     snd.on = on; sndSend(on);
     clearInterval(snd.beat); snd.beat = on ? setInterval(function () { if (sndMine()) sndSend(true); else sndCheck(); }, 2000) : null;
   }
-  function sndNotify() { snd.subs.forEach(function (fn) { try { fn(); } catch (x) { report(x && x.message ? x.message : String(x), { stack: x && x.stack }, 'error'); } }); }
+  function sndNotify() { snd.subs.forEach(function (fn) { try { fn(); } catch (x) { reportErr(x); } }); }
   function sndOther(tool) { for (var k in snd.others) { if (Object.prototype.hasOwnProperty.call(snd.others, k) && snd.others[k].tool !== tool) return true; } return false; }
   if (snd.ch) {
     ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange'].forEach(function (n) { document.addEventListener(n, sndCheck, true); });   // メディアのイベントは上へ伝わらないので capture で受ける
@@ -2330,7 +2307,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 17, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 18, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
 })();

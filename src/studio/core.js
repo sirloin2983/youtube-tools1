@@ -2,13 +2,19 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.21.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.21.1';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
 const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview' };
 
 Studio.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* 秒 → 1:23.4 / 1:02:03.4(0.1 秒まで。③ のマーク・コラボの時刻) */
+Studio.fmtTime = t => {
+  t = Math.max(0, Number(t) || 0);
+  const d = Math.round(t * 10), h = Math.floor(d / 36000), m = Math.floor(d % 36000 / 600), s = ((d % 600) / 10).toFixed(1).padStart(4, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+};
 
 /* API・メディアの URL はここでだけ組み立てる(docs/spec/pipeline.md 5.)。
    画面の場所から決める: 単独で起動したときは http://localhost:8800/ → ''、入口の統合サーバーに取り込まれたときは http://localhost:8700/studio/ → '/studio' */
@@ -212,23 +218,10 @@ const drawer = Studio.drawer = {
 /* settings.js が中身を作ったあとで、特定の節を開く版に置き換える。ここでは引き出しを開くだけ */
 Studio.openSettings = () => drawer.open();
 
-/* ---------- キー操作の一覧(? キー) ---------- */
-function keyRows(rows){
-  return rows.map(([k, label]) => `<div class="ui-krow"><span class="ui-kkeys">${k ? k.split(' / ').map(x => `<kbd>${Studio.esc(x)}</kbd>`).join('<span class="muted">/</span>') : '<span class="muted">未設定</span>'}</span><span class="ui-klabel">${Studio.esc(label)}</span></div>`).join('');
-}
+/* ---------- キー操作の一覧(? キー) ---------- キーの一覧 = キー配置(UIKit.keymap。③ の「キー配置」と同じ部品。段6) */
 Studio.openKeyHelp = () => {
-  const dlg = $('#keyHelp'); if (!dlg || dlg.open) return;
-  const km = Studio.review && Studio.review.keymap;
-  if (km){ km.mount($('#keyHelpBody')); km.clearNote(); dlg.showModal(); return; }   // キーの一覧 = キー配置(UIKit.keymap。③ の「キー配置」と同じ部品。段6)
-  let html = window.UIKit && UIKit.keys ? `<div class="ui-kgrid">${UIKit.keys.helpHtml()}</div>` : '';
-  html += `<section class="ui-kgroup"><h3 class="section-title">全体</h3>${keyRows([['?', 'この一覧を開く・閉じる'], ['Esc', '一覧・設定を閉じる']])}</section>`;
-  const groups = Studio.review && Studio.review.keyHelp ? Studio.review.keyHelp() : [];
-  if (groups.length){
-    html += `<p class="hint cs-khint">③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。共通の再生キーの下は、この一覧の上の「まとめて変える」で組み合わせを選べます。</p>`;
-    html += `<div class="ui-kgrid">${groups.map(([h, rows]) => `<section class="ui-kgroup"><h3 class="section-title">${Studio.esc(h)}</h3>${keyRows(rows)}</section>`).join('')}</div>`;
-  }
-  $('#keyHelpBody').innerHTML = html;
-  dlg.showModal();
+  const dlg = $('#keyHelp'), km = Studio.review && Studio.review.keymap; if (!dlg || dlg.open || !km) return;
+  km.mount($('#keyHelpBody')); km.clearNote(); dlg.showModal();
 };
 function wireKeyHelp(){
   const dlg = $('#keyHelp');

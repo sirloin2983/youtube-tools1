@@ -8,7 +8,7 @@ const LS = 'clipstudio:rank:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); } catch {} };
 const fmtN = n => (Number.isFinite(Number(n)) ? Number(n).toLocaleString('ja-JP') : '-');
-const fmtDur = s => { s = Math.max(0, Math.round(Number(s) || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const fmtDur = s => (window.UIKit ? UIKit.fmt.dur(s) : '');   // 1:23:45(ui-kit の 1 か所)
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const okThumb = u => /^https:\/\/([\w-]+\.)?ytimg\.com\//.test(u || '');
 const okId = i => /^[\w-]{11}$/.test(i || '');
@@ -189,9 +189,13 @@ function loadAgPick(){
 function renderAgChecks(){
   const box = $('#agChecks'); if (!box) return;
   const sn = $('#rkSetupNotice'); if (sn) sn.hidden = R.reg.agencies.some(a => okCount(a) > 0);
-  box.innerHTML = R.reg.agencies.map(a => { const n = okCount(a);
-    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="agc" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
+  box.innerHTML = agChipsHtml('agc');
   renderLvAg();   // 「配信中」のタブの事務所の選び方も同じ(登録を変えたとき)
+}
+/* 事務所の選択のチェック(「終わった配信」= agc・「配信中」= lvagc。選んだ状態は同じ R.agPick) */
+function agChipsHtml(cls){
+  return R.reg.agencies.map(a => { const n = okCount(a);
+    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="${cls}" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
 }
 const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
@@ -398,9 +402,7 @@ function liveHtml(){
   </div></div>`;
 }
 function renderLvAg(){
-  const box = $('#lvAgChecks'); if (!box) return;
-  box.innerHTML = R.reg.agencies.map(a => { const n = okCount(a);
-    return `<label class="cs-chip${n ? '' : ' cs-chip-empty'}" title="${n ? `登録して解決済みのチャンネル ${n} 件` : 'まだチャンネルがありません(設定の「事務所の登録」で追加します)'}"><input type="checkbox" class="lvagc" value="${esc(a.id)}"${agChecked(a) ? ' checked' : ''}>${esc(a.name)}<span class="cs-chip-n num">${n}</span></label>`; }).join('') || '<span class="hint">事務所がありません(設定の「事務所の登録」で追加します)</span>';
+  const box = $('#lvAgChecks'); if (box) box.innerHTML = agChipsHtml('lvagc');
 }
 const lvAgencies = () => R.reg.agencies.filter(agChecked).map(a => a.id);
 const lvShowing = () => L.tab === 'live' && S.step === 'rank' && !document.hidden;

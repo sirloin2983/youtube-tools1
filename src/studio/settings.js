@@ -95,22 +95,18 @@ function buildLive(){
     const q = LIVE_QUALITY.some(([v]) => v === e.target.value) ? e.target.value : '1080p';
     UIKit.prefs.patch('live', { quality: q }).then(() => { $('#liveMsg').textContent = '画質を ' + q + ' にしました(次に始める録画から)'; }, () => {});   // 失敗の知らせは UIKit.prefs が出す
   });
-  /* 本番版への自動の作り直し(線 D の P4。入口が live.autoArchive を読む。既定オン)。③ の帯の案内(自動: オン/オフ)にも伝える */
-  $('#liveAutoArch').addEventListener('change', e => {
+  /* オン・オフの設定(ホームの設定の節 live。入口が読む)。保存できたら ③ の帯の案内にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
+  const liveSwitch = (id, key, onText, offText) => $(id).addEventListener('change', e => {
     const on = e.target.checked;
-    UIKit.prefs.patch('live', { autoArchive: on }).then(() => {
-      $('#liveMsg').textContent = on ? '配信が終わったら、自動で本番版に作り直します' : '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)';
-      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { autoArchive: on } }));
-    }, () => {});   // 失敗の知らせは UIKit.prefs が出す
+    UIKit.prefs.patch('live', { [key]: on }).then(() => {
+      $('#liveMsg').textContent = on ? onText : offText;
+      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { [key]: on } }));
+    }, () => {});
   });
-  /* 録画を自動で消す(線 D の P4。入口が live.autoDelete を読む。既定オン)。③ の帯の案内(入れ替えたら録画は消します)にも伝える */
-  $('#liveAutoDel').addEventListener('change', e => {
-    const on = e.target.checked;
-    UIKit.prefs.patch('live', { autoDelete: on }).then(() => {
-      $('#liveMsg').textContent = on ? '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)' : '録画を自動では消しません(録画の置き場所の空きに気をつけてください)';
-      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { autoDelete: on } }));
-    }, () => {});   // 失敗の知らせは UIKit.prefs が出す
-  });
+  /* 本番版への自動の作り直し(線 D の P4。live.autoArchive。既定オン)。帯の案内は「自動: オン/オフ」 */
+  liveSwitch('#liveAutoArch', 'autoArchive', '配信が終わったら、自動で本番版に作り直します', '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)');
+  /* 録画を自動で消す(線 D の P4。live.autoDelete)。帯の案内は「入れ替えたら録画は消します」 */
+  liveSwitch('#liveAutoDel', 'autoDelete', '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)', '録画を自動では消しません(録画の置き場所の空きに気をつけてください)');
 }
 /* 今の置き場所・空き・画質を読み直す(引き出しを開いたとき)。読めないところは空欄のまま(録画は続けられる) */
 let liveSeq = 0;
