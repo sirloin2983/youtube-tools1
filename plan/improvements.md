@@ -120,5 +120,8 @@ AI が出典から拾ったもの。急ぎではない。
 | ui-kit | `ui-kit.css` の v12(サイバー風)の上書きの節(同じ selector が 28 組 2 回) | まとめると重なりの順が変わり見た目が変わるおそれ(要・画面の比較) |
 | dev | `eval_asr.py`・`eval_speakers.py`・`eval_timing.py` も `_evalcommon.py` を使うようにする(約 100 行減) | ③ の間は別の担当が使っていたので後回し(S) |
 | dev | `eval_split.fold` は `src/editor/roster.py` の fold と同じ(写し) | 道具から editor の部品を読むと sys.path が広がるので写しのまま |
+| cut2resolve | 使う側の無い API `/api/inspect`・`/api/upload`・`/api/state`・`/media/<token>`(消した画面のためのもの。今の編集とまとめて実行が呼ぶのは plan・build・job・job/cancel・open-folder だけ) | 消すと約 200 行減るが API の約束を変える(test_mount・e2e_pipeline・e2e_datadir も使う)。判断待ち(S〜M) |
+| cut2resolve | 単独のコマンド `srt2resolve.py`(README に無いがテストはある)・`auto_cut.py` の CLI(`write_package`)・補助の FCPXML(`--fcpxml`。Resolve で未確認) | 機能の削除になるので判断待ち |
+| cut2resolve | `auto_cut.build_cut_fcpxml` の区間×字幕の走査 | 補助の FCPXML でしか使わない。二分探索にするには形を変える必要(S) |
 
 (コードの見直しで見つかったものは作業の終わりに追記)
