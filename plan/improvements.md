@@ -109,4 +109,16 @@ AI が出典から拾ったもの。急ぎではない。
 | `eval_asr` の `post_meta` に endTrim・joinGap が無く、`compare` が 0.57.1 の前後の違いを知らせない | `S.post_record()` を post_meta に入れる | S |
 | 確かめ済み 22 本のうち 9 本は original が 10-04(0.53.1 より前)のもので、後処理の版が混ざっている | `eval_timing.py --apply` の reproduced(再現率)で見分ける。ドリルで作り直すと新しい版になる | — |
 
+## 9. ③ コードの見直しで直さなかった候補(2026-10-07。やるかはユーザーの判断)
+| 所 | 候補 | 理由・大きさ |
+| --- | --- | --- |
+| friend-apps | `Validation.ParseUrlLines`・`UrlParseResult`(約 30 行)は製品で使っていない。消すとテスト 1 件が空になる | 消してよいか判断待ち(S) |
+| friend-apps | 2 つのアプリの `Json`・`Log` の共通化(約 70〜100 行減) | build.bat とテストの using を触る構成の変更(S〜M。確認が要る) |
+| friend-apps | `--screenshot` の見本と画像保存(約 250 行) | 設計書と README が使い方を書き、テストも使うので残した |
+| studio | `review.js` の大きな関数(`renderExportUI`・`buildDOM`)の分割 | `test_review.cjs` が関数名とコメントで切り出して動かしているので、テストも書き直しになる(M) |
+| studio | `analyze.py` の式の部分 | 線 D の L1 で `ytt_core/excite.py` へ移すときに整理する |
+| ui-kit | `ui-kit.css` の v12(サイバー風)の上書きの節(同じ selector が 28 組 2 回) | まとめると重なりの順が変わり見た目が変わるおそれ(要・画面の比較) |
+| dev | `eval_asr.py`・`eval_speakers.py`・`eval_timing.py` も `_evalcommon.py` を使うようにする(約 100 行減) | ③ の間は別の担当が使っていたので後回し(S) |
+| dev | `eval_split.fold` は `src/editor/roster.py` の fold と同じ(写し) | 道具から editor の部品を読むと sys.path が広がるので写しのまま |
+
 (コードの見直しで見つかったものは作業の終わりに追記)
