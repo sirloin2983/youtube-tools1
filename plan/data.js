@@ -6,14 +6,14 @@ window.PLAN = {
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。",
   versions: [
-    ["入口(ホーム)", "0.40.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.58.0"], ["cut2resolve", "0.21.1"],
+    ["入口(ホーム)", "0.40.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.58.1"], ["cut2resolve", "0.21.1"],
     ["録画の部品", "0.3.1"], ["ui-kit", "v18"], ["送るアプリ", "2.1.1"], ["ホロカラー", "1.4.2"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
     { id: "②", name: "ユーザーの作業が要らない実装", state: "done", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)/ B2 手元の 4 エンジンの比較(主 whisper.cpp・2 つ目 Qwen3-ASR を仮決め)/ 線 D M4〜M7(入口 0.40.0。配信後の全自動は既定オフ)。残り: L0(配信中の配信が要る)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)" },
-    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)。進行中: editor 画面側。残り: home(線 D M4〜M7 のあと)" },
+    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)・editor 画面側(0.58.1。4,000 行で 2.8 万回の計算を 1 回に)。進行中: home(最後)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
   /* 各線の進捗 */
