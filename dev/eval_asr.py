@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。docs/plan/transcription-overhaul-plan.md)。
+"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。plan/line-b-transcription.md(付録))。
 
     python dev/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
@@ -15,9 +15,9 @@
         今までの結果の一覧
 
   stored・run の結果と画面には、量の関門(G0 = 定点 5 分・G1 = 15 分・G2 = 30 分・G3 = 60 分。定点 = 確かめ済みの文書の長さの合計。summary.gate。
-  計画 docs/plan/transcription-plan-v2.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
+  計画 plan/line-b-transcription.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
 
-  どのモードでも(マスタープラン Q3。docs/plan/master-plan-2026-10.md の 2 の原則 4・8 のリスク):
+  どのモードでも(マスタープラン Q3。plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
     --source eval|daily|all|friend   測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
                                      friend = 友人の送る用 zip(dev/eval_import.py で eval-intake/works/ に取り込んだもの。--intake で場所を変える)/
                                      all = 評価用 + 普段 + 友人。--scope(eval|train|all。all = 自分の文書だけ)は今までどおり使える
@@ -26,7 +26,7 @@
     --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
                                      engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組。
                                      origin = 出どころ(編集前 = clip がある文書 / ショート = 無い文書。計画 3-3)で分ける。出どころ別の小計は --group-by なしでも summary.origins にいつも入る
-    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。editor/ed_drill.py の drill_is_reviewed と同じ条件)の扱い。
+    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。src/editor/ed_drill.py の drill_is_reviewed と同じ条件)の扱い。
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
                                      only = 確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/
@@ -39,7 +39,7 @@
 - 比べ方は文字起こしの画面の「認識精度の測定」と同じ(serve.py の _groups・norm_cer・lev_counts。句読点・空白・記号・全角半角は数えない)。
   機械の出力と人の行を時刻の重なりでまとめ、全部の行が校正済みのまとまりだけを数える。人が消した行 = 余分、人が足した行 = 抜け
 - 「字幕に出さない」行 noSub(ゲームのキャラ・NPC の声など。行の印 noSub: true)は正解に入れない。その時間(行の半分以上が noSub の行の時間に入る)に機械が書いた文字も本体の数え方から外し、
-  結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は editor/ed_learn.py の split_nosub)。
+  結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は src/editor/ed_learn.py の split_nosub)。
   noSub の行も重なる行も無い文書の数は今までと同じ。
 - 同時にしゃべっている所(人の行どうしが、違う話者で 0.3 秒以上時刻が重なるまとまり = 重なりのまとまり。noSub は先に外す。音のメモ overlap は見ない。判定は ed_learn.is_overlap_group の 1 か所)は、
   主な数字(CER・抜け・余分)にはこれまでどおり入れたうえで、別にも出す: summary.overlap = {groups, sec, refChars, cer, miss} と summary.nonOverlap = {refChars, cer}(重なりを除いた本体と同じ数え方)。
@@ -64,7 +64,8 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 TT = os.path.join(REPO, "editor")
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
@@ -72,7 +73,7 @@ from ytt_core import evaldata as ev  # noqa: E402  友人の送る用 zip の形
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
-# 量の関門(docs/plan/transcription-plan-v2.md 3-2)。定点の量 = 確かめ済みの評価用の文書の長さの合計(秒)。しきい値はここだけ
+# 量の関門(plan/line-b-transcription.md 3-2)。定点の量 = 確かめ済みの評価用の文書の長さの合計(秒)。しきい値はここだけ
 GATES = (("G0", 5 * 60), ("G1", 15 * 60), ("G2", 30 * 60), ("G3", 60 * 60))
 GATE_GUIDE = {None: "決めてよいことはまだ無い", "G0": "10 pt 以上の悪化の検出だけ", "G1": "エンジンの決定", "G2": "5 pt 前後の差", "G3": "2〜3 pt の差"}
 STORED = "stored"        # summarize の compared: 保存してある機械の出力(= 下書きそのもの)を測るとき
@@ -146,7 +147,7 @@ def has_proofed(d):
 
 
 def is_reviewed(d):
-    """動画を全部聞いて確かめた文書か(editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
+    """動画を全部聞いて確かめた文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
     return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
 
 
@@ -205,7 +206,7 @@ def _iso_ms(text):
 
 
 def load_friend_docs(intake, only=None):
-    """友人の送る用 zip(dev/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は ytt_core/evaldata.py)を、
+    """友人の送る用 zip(dev/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/ytt_core/evaldata.py)を、
     文字起こしの文書と同じ形にして返す(読むだけ)-> (文書の一覧, 数えなかった作業 [{"id", "why"}])。
     正解 = final.json の確認済みの行のうち check.json(無ければ evaldata.judge)が使える行だけ。形式違いの記号の行・未確認の行は校正済みにしない。
     [?] の行と [笑] だけの行は「聞き取れない」(unclear)にして数えない。[笑] は取り除く。機械の出力 = asr_raw.json の行。作業ごと外れたものは数えない。
@@ -458,8 +459,8 @@ def fingerprint(docs):
 
 def git_rev():
     try:
-        rev = subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-        dirty = subprocess.run(["git", "-C", REPO, "status", "--porcelain", "--", "editor"], capture_output=True, text=True, timeout=10).stdout.strip()
+        rev = subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "-C", TOP, "status", "--porcelain", "--", "src/editor"], capture_output=True, text=True, timeout=10).stdout.strip()
         return rev + ("+変更あり" if dirty else "")
     except (OSError, subprocess.SubprocessError):
         return ""

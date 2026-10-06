@@ -1,0 +1,246 @@
+/* サイバー風の見た目のパターン(見比べる用。本番の ui-kit にはまだ入れていない)。
+   色はどのパターンも同じ(送るアプリの配色 A ネオンシアン)。違うのは 形(角・枠)・線・文字・質感・状態の見せ方。
+   部品は本物の ui-kit のクラス(.card .btn .pill .ui-tabs …)をそのまま上書きしている = 採用したら ui-kit.css のテーマとして足せる形 */
+
+/* ---------- 共通の色(全パターン) ---------- */
+html[data-pattern][data-theme]{
+  --bg:#0A0E14;--bg-2:#070A0F;--panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;
+  --field:#0A0E14;--field-hover:#0D131D;--line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;
+  --ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
+  --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);--accent-ink2:#5DE3F8;
+  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--ok-ink:#3DDC97;--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--warn-ink:#FFC14D;
+  --danger:#FF5C93;--danger-soft:rgba(255,92,147,.12);--danger-ink:#FF7AA8;--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);--info-ink:#A9C4FF;
+  --header-bg:rgba(10,14,20,.92);--scroll-thumb:#2C3D5C;--knob:#FFFFFF;
+  --ring:0 0 0 2px var(--accent);
+}
+html[data-pattern]{background:var(--bg);min-height:100%}
+html[data-pattern] body{background:transparent;color:var(--ink);min-height:100vh}
+
+/* ================================================================ A 計器盤(HUD)
+   細い 1px の線・角だけの括弧・数字は等幅。光らせない。情報が主役で、飾りは「角」と「目盛り」だけ */
+html[data-pattern=hud]{--r:2px;--r-sm:2px;--r-lg:2px;--r-xs:1px;--r-pill:2px}
+[data-pattern=hud] .card{position:relative;background:var(--panel);border:1px solid var(--line)}
+[data-pattern=hud] .card::before,[data-pattern=hud] .card::after{content:"";position:absolute;width:14px;height:14px;pointer-events:none;border:0 solid var(--accent)}
+[data-pattern=hud] .card::before{top:-1px;left:-1px;border-top-width:2px;border-left-width:2px}
+[data-pattern=hud] .card::after{right:-1px;bottom:-1px;border-bottom-width:2px;border-right-width:2px}
+[data-pattern=hud] .card-head{border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:12px}
+[data-pattern=hud] .card-title{font:600 13.5px/1.3 var(--font);letter-spacing:.04em}
+[data-pattern=hud] .card-sub,[data-pattern=hud] th{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+[data-pattern=hud] .btn{background:transparent;border-color:var(--line-2);font-weight:500}
+[data-pattern=hud] .btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:transparent}
+[data-pattern=hud] .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+[data-pattern=hud] .btn[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+[data-pattern=hud] .pill{background:transparent;border:1px solid currentColor;font-family:var(--mono);font-weight:500;line-height:18px}
+[data-pattern=hud] .pill:not(.ok):not(.run):not(.warn):not(.err):not(.info){color:var(--ink-3)}
+[data-pattern=hud] .ui-tabs,[data-pattern=hud] .ui-seg{background:transparent;border:0;border-bottom:1px solid var(--line);padding:0;gap:0}
+[data-pattern=hud] .ui-tab,[data-pattern=hud] .ui-seg>button{border-radius:0;background:transparent;box-shadow:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+[data-pattern=hud] .ui-tab[aria-pressed=true],[data-pattern=hud] .ui-seg>button[aria-pressed=true]{background:transparent;box-shadow:none;color:var(--accent);border-bottom-color:var(--accent)}
+[data-pattern=hud] .ui-tab-n{font-family:var(--mono);border-radius:0;background:transparent;border:1px solid currentColor}
+[data-pattern=hud] .bar{height:8px;border-radius:0;background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 6px)}
+[data-pattern=hud] .bar>i{border-radius:0;background:repeating-linear-gradient(90deg,var(--accent) 0 2px,transparent 2px 6px)}
+[data-pattern=hud] .notice{background:transparent;border:0;border-left:2px solid var(--warn);border-radius:0;padding:6px 12px}
+[data-pattern=hud] .notice.info{border-left-color:var(--info)}
+[data-pattern=hud] .notice.danger{border-left-color:var(--danger)}
+[data-pattern=hud] .ui-header{border-bottom:1px solid var(--line)}
+[data-pattern=hud] .pb-wave{background-image:repeating-linear-gradient(90deg,transparent 0 59px,var(--line) 59px 60px),
+  linear-gradient(90deg,transparent 0 18%,var(--accent-soft) 18% 31%,transparent 31% 52%,var(--accent-soft) 52% 60%,transparent 60%)}
+
+/* ================================================================ B ターミナル
+   全部を等幅の文字で。枠は破線、ボタンは [ 書き出す ]、選んだ物は反転。画面全体に薄い走査線 */
+html[data-pattern=terminal]{--font:var(--mono);--font-display:var(--mono);--r:0;--r-sm:0;--r-lg:0;--r-xs:0;--r-pill:0}
+html[data-pattern=terminal] body{font-family:"Cascadia Mono","BIZ UDGothic","MS Gothic",monospace;
+  background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px)}
+[data-pattern=terminal] .card{background:transparent;border:1px dashed var(--line-2)}
+[data-pattern=terminal] .card-title::before{content:"> ";color:var(--accent)}
+[data-pattern=terminal] .card-title{font-weight:600;font-size:14px}
+[data-pattern=terminal] .btn{background:transparent;border:0;color:var(--ink);padding:0 4px;font-weight:500}
+[data-pattern=terminal] .btn::before{content:"[";color:var(--ink-4);margin-right:4px}
+[data-pattern=terminal] .btn::after{content:"]";color:var(--ink-4);margin-left:4px}
+[data-pattern=terminal] .btn.icon::before,[data-pattern=terminal] .btn.icon::after{content:none}
+[data-pattern=terminal] .btn:hover:not(:disabled),[data-pattern=terminal] .btn[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+[data-pattern=terminal] .btn.primary{background:transparent;color:var(--accent)}
+[data-pattern=terminal] .btn.primary::before,[data-pattern=terminal] .btn.primary::after{color:var(--accent)}
+[data-pattern=terminal] .btn.primary:hover{background:var(--accent);color:var(--accent-ink)}
+[data-pattern=terminal] .btn.danger{color:var(--danger)}
+[data-pattern=terminal] .btn-group>.btn{margin-left:0}
+[data-pattern=terminal] .pill{background:transparent;border:0;padding:0;font-weight:500}
+[data-pattern=terminal] .pill::before{content:"* "}
+[data-pattern=terminal] .pill.run::before{content:"~ ";animation:none;border:0;width:auto;height:auto}
+[data-pattern=terminal] .pill.err::before{content:"! "}
+[data-pattern=terminal] .pill.ok::before{content:"+ "}
+[data-pattern=terminal] .ui-tabs,[data-pattern=terminal] .ui-seg{background:transparent;border:0;padding:0}
+[data-pattern=terminal] .ui-tab,[data-pattern=terminal] .ui-seg>button{box-shadow:none;border-radius:0}
+[data-pattern=terminal] .ui-tab-n{border-radius:0}
+[data-pattern=terminal] .ui-tab[aria-pressed=true],[data-pattern=terminal] .ui-seg>button[aria-pressed=true]{background:var(--ink);color:var(--bg);box-shadow:none}
+[data-pattern=terminal] .ui-tab-n{background:transparent;color:inherit}
+[data-pattern=terminal] input[type=text],[data-pattern=terminal] select,[data-pattern=terminal] .ui-time{border:0;border-bottom:1px dashed var(--line-strong);background:transparent}
+[data-pattern=terminal] .bar{height:auto;background:none;font:12px/1 var(--mono);color:var(--line-strong)}
+[data-pattern=terminal] .bar::before{content:"[························]";position:absolute;left:0;top:0;color:var(--ink-4)}
+[data-pattern=terminal] .bar{position:relative;height:14px;overflow:hidden}
+[data-pattern=terminal] .bar>i{position:relative;height:14px;background:none;color:var(--accent);overflow:hidden;white-space:nowrap}
+[data-pattern=terminal] .bar>i::before{content:"[████████████████████████]"}
+[data-pattern=terminal] .notice{background:transparent;border:0;border-radius:0;padding:2px 0;color:var(--warn)}
+[data-pattern=terminal] .notice::before{content:"warn: ";color:var(--warn)}
+[data-pattern=terminal] .notice.info{color:var(--info)}[data-pattern=terminal] .notice.info::before{content:"info: "}
+[data-pattern=terminal] .notice.danger{color:var(--danger)}[data-pattern=terminal] .notice.danger::before{content:"error: "}
+[data-pattern=terminal] .pb-row{border-top:1px dashed var(--line)}
+[data-pattern=terminal] th,[data-pattern=terminal] td{border-bottom:1px dashed var(--line)}
+
+/* ================================================================ C ネオン管
+   角は大きく丸く、輪郭が光る(box-shadow の発光)。地は暗いまま、光るのは「今触れる物・選んだ物」だけ */
+html[data-pattern=neon]{--r:12px;--r-sm:10px;--r-lg:18px;--r-pill:999px;--glow:0 0 0 1px var(--accent),0 0 12px rgba(25,211,243,.45),inset 0 0 8px rgba(25,211,243,.15)}
+[data-pattern=neon] .card{background:linear-gradient(180deg,rgba(25,211,243,.04),transparent 40%),var(--panel);border-color:rgba(25,211,243,.18)}
+[data-pattern=neon] .card-title{font-weight:600}
+[data-pattern=neon] .btn{border-radius:var(--r-pill);border-color:var(--line-2);background:transparent}
+[data-pattern=neon] .btn:hover:not(:disabled){box-shadow:var(--glow);border-color:var(--accent);color:var(--accent);background:transparent}
+[data-pattern=neon] .btn.primary{background:transparent;color:var(--accent);border-color:var(--accent);box-shadow:var(--glow);text-shadow:0 0 8px rgba(25,211,243,.7)}
+[data-pattern=neon] .btn.primary:hover{background:var(--accent);color:var(--accent-ink);text-shadow:none}
+[data-pattern=neon] .btn[aria-pressed=true]{box-shadow:var(--glow);color:var(--accent);border-color:var(--accent);background:transparent}
+[data-pattern=neon] .btn-group>.btn{border-radius:0}
+[data-pattern=neon] .btn-group>.btn:first-child{border-radius:999px 0 0 999px}[data-pattern=neon] .btn-group>.btn:last-child{border-radius:0 999px 999px 0}
+[data-pattern=neon] .pill{background:transparent;border:1px solid currentColor;box-shadow:0 0 8px color-mix(in srgb,currentColor 40%,transparent)}
+[data-pattern=neon] .pill:not(.ok):not(.run):not(.warn):not(.err):not(.info){color:var(--ink-3);box-shadow:none}
+[data-pattern=neon] .ui-tabs,[data-pattern=neon] .ui-seg{border-radius:999px;background:var(--panel-2)}
+[data-pattern=neon] .ui-tab,[data-pattern=neon] .ui-seg>button{border-radius:999px}
+[data-pattern=neon] .ui-tab[aria-pressed=true],[data-pattern=neon] .ui-seg>button[aria-pressed=true]{background:transparent;color:var(--accent);box-shadow:var(--glow)}
+[data-pattern=neon] .bar{height:4px;background:var(--panel-3)}
+[data-pattern=neon] .bar>i{box-shadow:0 0 10px 1px rgba(25,211,243,.8)}
+[data-pattern=neon] .notice{border-radius:14px;background:transparent;box-shadow:0 0 10px color-mix(in srgb,var(--warn) 25%,transparent);border-color:var(--warn)}
+[data-pattern=neon] .notice.info{border-color:var(--info);box-shadow:0 0 10px color-mix(in srgb,var(--info) 25%,transparent)}
+[data-pattern=neon] .notice.danger{border-color:var(--danger);box-shadow:0 0 10px color-mix(in srgb,var(--danger) 30%,transparent)}
+[data-pattern=neon] .ui-time:focus,[data-pattern=neon] input:focus,[data-pattern=neon] select:focus{box-shadow:var(--glow)}
+[data-pattern=neon] .pb-wave{border-radius:14px}
+[data-pattern=neon] .pb-wave polyline{filter:drop-shadow(0 0 3px #19D3F3)}
+[data-pattern=neon] .ui-header{border-bottom:1px solid rgba(25,211,243,.25);box-shadow:0 1px 14px rgba(25,211,243,.12)}
+
+/* ================================================================ D 装甲パネル
+   角を斜めに切った板(clip-path)・左の太い帯・押せる物は厚みのある板。重く、はっきり */
+html[data-pattern=armor]{--r:0;--r-sm:0;--r-lg:0;--r-xs:0;--r-pill:0;--cut:12px}
+[data-pattern=armor] .card{border:0;background:var(--panel-3);padding:1px;
+  clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+[data-pattern=armor] .card>*{position:relative}
+[data-pattern=armor] .card::before{content:"";position:absolute;inset:1px;background:var(--panel);
+  clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+[data-pattern=armor] .card{position:relative;padding:16px 18px}
+[data-pattern=armor] .card-head{margin:-16px -18px 12px;padding:9px 18px 9px 22px;background:linear-gradient(90deg,var(--accent) 0 4px,var(--panel-2) 4px)}
+[data-pattern=armor] .card-title{font:700 14px/1.3 var(--font);letter-spacing:.06em}
+[data-pattern=armor] .btn{border:0;background:var(--panel-3);font-weight:700;letter-spacing:.03em;padding:0 16px;
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);box-shadow:inset 0 -2px 0 rgba(0,0,0,.35)}
+[data-pattern=armor] .btn:hover:not(:disabled){background:var(--line-strong)}
+[data-pattern=armor] .btn.primary{background:var(--accent);color:var(--accent-ink)}
+[data-pattern=armor] .btn.primary:hover{background:var(--accent-hover)}
+[data-pattern=armor] .btn.ghost{background:transparent;box-shadow:none}
+[data-pattern=armor] .btn.danger{background:var(--danger-soft);color:var(--danger-ink)}
+[data-pattern=armor] .btn[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
+[data-pattern=armor] .btn-group{gap:3px}[data-pattern=armor] .btn-group>.btn{margin-left:0}
+[data-pattern=armor] .pill{background:var(--panel-3);font-weight:700;padding:0 10px;clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+[data-pattern=armor] .pill.ok{background:var(--ok);color:#03251A}[data-pattern=armor] .pill.run{background:var(--accent);color:var(--accent-ink)}
+[data-pattern=armor] .pill.warn{background:var(--warn);color:#2B1C00}[data-pattern=armor] .pill.err{background:var(--danger);color:#2A0414}
+[data-pattern=armor] .pill.info{background:var(--info);color:#081A3D}
+[data-pattern=armor] .pill.run::before{border-color:rgba(4,34,42,.3);border-top-color:var(--accent-ink)}
+[data-pattern=armor] .ui-tabs,[data-pattern=armor] .ui-seg{background:transparent;border:0;padding:0;gap:3px}
+[data-pattern=armor] .ui-tab,[data-pattern=armor] .ui-seg>button{background:var(--panel-2);border-radius:0;box-shadow:none;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);padding:0 18px}
+[data-pattern=armor] .ui-tab[aria-pressed=true],[data-pattern=armor] .ui-seg>button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+[data-pattern=armor] .ui-tab[aria-pressed=true] .ui-tab-n{background:var(--accent-ink);color:var(--accent)}
+[data-pattern=armor] .bar{height:10px;background:var(--panel-3);clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+[data-pattern=armor] .bar>i{background:repeating-linear-gradient(-45deg,var(--accent) 0 8px,var(--accent-hover) 8px 16px)}
+[data-pattern=armor] .notice{border:0;border-left:6px solid var(--warn);border-radius:0;background:var(--warn-soft);font-weight:600}
+[data-pattern=armor] .notice.info{border-left-color:var(--info);background:var(--info-soft)}
+[data-pattern=armor] .notice.danger{border-left-color:var(--danger);background:var(--danger-soft)}
+[data-pattern=armor] .ui-header{background:var(--panel);border-bottom:3px solid var(--accent)}
+
+/* ================================================================ E 設計図
+   方眼の地・塗りのない線だけの部品・角に十字の印。図面のように軽い */
+html[data-pattern=blueprint]{--r:0;--r-sm:0;--r-lg:0;--r-xs:0;--r-pill:0}
+html[data-pattern=blueprint]{background-color:var(--bg);
+  background-image:linear-gradient(rgba(25,211,243,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(25,211,243,.07) 1px,transparent 1px),
+    linear-gradient(rgba(25,211,243,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(25,211,243,.035) 1px,transparent 1px);
+  background-size:96px 96px,96px 96px,12px 12px,12px 12px}
+[data-pattern=blueprint] .card{background:rgba(10,14,20,.72);border:1px solid rgba(25,211,243,.35);position:relative;overflow:visible}
+[data-pattern=blueprint] .card::before,[data-pattern=blueprint] .card::after{content:"+";position:absolute;color:var(--accent);font:14px/1 var(--mono)}
+[data-pattern=blueprint] .card::before{top:-8px;left:-5px}[data-pattern=blueprint] .card::after{bottom:-8px;right:-5px}
+[data-pattern=blueprint] .card-title{font-weight:500;color:var(--accent)}
+[data-pattern=blueprint] .card-head{border-bottom:1px dashed rgba(25,211,243,.3);padding-bottom:8px}
+[data-pattern=blueprint] .btn{background:transparent;border:1px solid rgba(25,211,243,.4);color:var(--ink);font-weight:500}
+[data-pattern=blueprint] .btn:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft)}
+[data-pattern=blueprint] .btn.primary{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+[data-pattern=blueprint] .btn.primary:hover{background:var(--accent);color:var(--accent-ink)}
+[data-pattern=blueprint] .btn.ghost{border-color:transparent}
+[data-pattern=blueprint] .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,transparent)}
+[data-pattern=blueprint] .btn[aria-pressed=true]{background:repeating-linear-gradient(-45deg,rgba(25,211,243,.18) 0 3px,transparent 3px 7px);border-color:var(--accent);color:var(--accent)}
+[data-pattern=blueprint] .pill{background:transparent;border:1px dashed currentColor;font-weight:500}
+[data-pattern=blueprint] .pill:not(.ok):not(.run):not(.warn):not(.err):not(.info){color:var(--ink-3)}
+[data-pattern=blueprint] .ui-tabs,[data-pattern=blueprint] .ui-seg{background:transparent;border:1px solid rgba(25,211,243,.3)}
+[data-pattern=blueprint] .ui-tab,[data-pattern=blueprint] .ui-seg>button{border-radius:0}
+[data-pattern=blueprint] .ui-tab[aria-pressed=true],[data-pattern=blueprint] .ui-seg>button[aria-pressed=true]{background:repeating-linear-gradient(-45deg,rgba(25,211,243,.18) 0 3px,transparent 3px 7px);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+[data-pattern=blueprint] .bar{height:8px;background:transparent;border:1px solid rgba(25,211,243,.35)}
+[data-pattern=blueprint] .bar>i{background:repeating-linear-gradient(-45deg,var(--accent) 0 2px,transparent 2px 5px)}
+[data-pattern=blueprint] .notice{background:transparent;border:1px dashed var(--warn);border-radius:0}
+[data-pattern=blueprint] .notice.info{border-color:var(--info)}[data-pattern=blueprint] .notice.danger{border-color:var(--danger)}
+[data-pattern=blueprint] input[type=text],[data-pattern=blueprint] select,[data-pattern=blueprint] .ui-time{background:rgba(10,14,20,.8);border-color:rgba(25,211,243,.3)}
+[data-pattern=blueprint] th{color:var(--accent);font-weight:500}
+[data-pattern=blueprint] .ui-header{background:rgba(10,14,20,.85);border-bottom:1px solid rgba(25,211,243,.35)}
+
+/* 動きを減らす設定のとき: 発光の点滅・回転は止める */
+@media (prefers-reduced-motion:reduce){html[data-pattern] *{animation:none!important}}
+
+/* ================================================================ 配色(?c=。A 計器盤で見比べる用。形はそのまま、色の変数だけ替える)
+   どれも 文字/地 は 4.5:1 以上・アクセントの上の文字(--accent-ink)も 4.5:1 以上になるように選んだ */
+html[data-pattern][data-theme][data-palette=magenta]{   /* シンセウェーブ: 紫がかった地にマゼンタ */
+  --bg:#0D0A17;--bg-2:#09070F;--panel:#161129;--panel-2:#110D20;--panel-3:#221A3D;--field:#0D0A17;--field-hover:#110D20;
+  --line:#30245A;--line-2:#3D2F70;--line-strong:#55419A;--ink:#ECE6FF;--ink-2:#BBB0DD;--ink-3:#9288B8;--ink-4:#655A8A;
+  --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(255,61,165,.13);--accent-line:rgba(255,61,165,.5);--accent-ink2:#FF74C0;
+  --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B;--info:#38E1FF;--info-ink:#7BEAFF;--info-soft:rgba(56,225,255,.12);--header-bg:rgba(13,10,23,.92)}
+html[data-pattern][data-theme][data-palette=amber]{     /* 琥珀の CRT: 焦げ茶の地に琥珀(昔のモニター) */
+  --bg:#0F0B06;--bg-2:#0A0704;--panel:#18120A;--panel-2:#130E08;--panel-3:#261C0F;--field:#0F0B06;--field-hover:#130E08;
+  --line:#3A2B16;--line-2:#4B381D;--line-strong:#6A4F28;--ink:#FBE9CF;--ink-2:#D8BE97;--ink-3:#A08661;--ink-4:#6E5B40;
+  --accent:#FFB000;--accent-hover:#FFC94D;--accent-ink:#2B1C00;--accent-soft:rgba(255,176,0,.12);--accent-line:rgba(255,176,0,.5);--accent-ink2:#FFC94D;
+  --warn:#FF7A3D;--warn-ink:#FF9A6B;--warn-soft:rgba(255,122,61,.12);--danger:#FF4D5E;--danger-ink:#FF7A86;--info:#7FD1FF;--info-ink:#A6DEFF;--header-bg:rgba(15,11,6,.92)}
+html[data-pattern][data-theme][data-palette=red]{       /* 警戒の赤: 黒に深紅(緊急の操作盤) */
+  --bg:#0C0809;--bg-2:#080506;--panel:#160E10;--panel-2:#120B0D;--panel-3:#24161A;--field:#0C0809;--field-hover:#120B0D;
+  --line:#3A2228;--line-2:#4C2C33;--line-strong:#6C3E48;--ink:#F6E3E6;--ink-2:#CDAEB4;--ink-3:#9A7B81;--ink-4:#6A5257;
+  --accent:#FF3B4E;--accent-hover:#FF6E7C;--accent-ink:#2B0307;--accent-soft:rgba(255,59,78,.13);--accent-line:rgba(255,59,78,.5);--accent-ink2:#FF6E7C;
+  --danger:#FFB84D;--danger-soft:rgba(255,184,77,.12);--danger-ink:#FFCB7A;--info:#8FB8FF;--info-ink:#B0CDFF;--header-bg:rgba(12,8,9,.92)}
+html[data-pattern][data-theme][data-palette=violet]{    /* 電子の紫: 黒紺に青紫 */
+  --bg:#0A0A14;--bg-2:#07070F;--panel:#12121F;--panel-2:#0E0E1A;--panel-3:#1C1C33;--field:#0A0A14;--field-hover:#0E0E1A;
+  --line:#272645;--line-2:#33325A;--line-strong:#4A4882;--ink:#E6E5FF;--ink-2:#B3B1DA;--ink-3:#8583B0;--ink-4:#5C5A84;
+  --accent:#9D8CFF;--accent-hover:#BDB1FF;--accent-ink:#130B3A;--accent-soft:rgba(157,140,255,.14);--accent-line:rgba(157,140,255,.5);--accent-ink2:#BDB1FF;
+  --info:#38E1FF;--info-ink:#7BEAFF;--header-bg:rgba(10,10,20,.92)}
+html[data-pattern][data-theme][data-palette=dual]{      /* 二色: シアンの地の線 + 主な操作だけマゼンタ(2つの役割を色で分ける) */
+  --accent:#FF3DA5;--accent-hover:#FF74C0;--accent-ink:#2A0418;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);--accent-ink2:#5DE3F8;
+  --danger:#FF8A3D;--danger-soft:rgba(255,138,61,.13);--danger-ink:#FFA66B}
+html[data-palette=dual][data-pattern=hud] .card::before,html[data-palette=dual][data-pattern=hud] .card::after{border-color:#19D3F3}
+html[data-palette=dual][data-pattern=hud] .ui-tab[aria-pressed=true],html[data-palette=dual][data-pattern=hud] .ui-seg>button[aria-pressed=true]{color:#19D3F3;border-bottom-color:#19D3F3}
+html[data-palette=dual][data-pattern=hud] .bar>i{background:repeating-linear-gradient(90deg,#19D3F3 0 2px,transparent 2px 6px)}
+html[data-palette=dual] .pb-wave polyline{stroke:#19D3F3}
+
+/* ================================================================ 調整した4つ(2026-10-02。ネオンシアンは上の土台の色)
+   直したこと(コントラストは WCAG: 文字 4.5:1 以上。数字は docs/design/briefs/cyber-theme/README の表):
+   - ネオンシアン: 薄い文字(--ink-3)を 4.6 → 5.8 に。失敗の色をマゼンタ寄りの赤にして、アクセントと離した。情報の色を明るく
+   - アイスライト: 「済み」の緑と「情報」の青が近かった → 情報を紫に。明るい地で薄すぎた文字・枠を濃く
+   - 鋼の白: スイッチをオンにすると白いつまみが白い地に消えた → つまみを地の色に。「注意」と「失敗」が近かった → 注意を黄色に寄せた
+   - ターミナルグリーン: 「済み」の緑がアクセントと同じだった → 済みを青緑に。注意と失敗が入れ替わっていた(失敗が黄色)→ 失敗を赤に戻した */
+html[data-pattern][data-theme][data-palette=ice]{
+  color-scheme:light;
+  --bg:#EEF2F8;--bg-2:#E4EAF3;--panel:#FFFFFF;--panel-2:#F5F8FC;--panel-3:#E2E9F3;--field:#FFFFFF;--field-hover:#F7F9FC;
+  --line:#C3CFE2;--line-2:#9DAECB;--line-strong:#7E93B5;--ink:#0E1726;--ink-2:#334158;--ink-3:#55657E;--ink-4:#7A889E;
+  --accent:#1F5BFF;--accent-hover:#0040E6;--accent-ink:#FFFFFF;--accent-soft:rgba(31,91,255,.09);--accent-line:rgba(31,91,255,.45);--accent-ink2:#1748CC;
+  --ok:#0B7A4B;--ok-ink:#0B7A4B;--ok-soft:rgba(11,122,75,.09);--warn:#8F5A00;--warn-ink:#8F5A00;--warn-soft:rgba(143,90,0,.1);
+  --danger:#C42660;--danger-ink:#C42660;--danger-soft:rgba(196,38,96,.08);--info:#6B46D6;--info-ink:#6B46D6;--info-soft:rgba(107,70,214,.09);
+  --header-bg:rgba(255,255,255,.94);--scroll-thumb:#9DAECB;--knob:#FFFFFF}
+html[data-pattern][data-theme][data-palette=steel]{
+  --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
+  --line:#2A313B;--line-2:#3A4350;--line-strong:#525D6C;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#8D97A4;--ink-4:#636D7A;
+  --accent:#E8F1FF;--accent-hover:#FFFFFF;--accent-ink:#0C0F13;--accent-soft:rgba(232,241,255,.10);--accent-line:rgba(232,241,255,.45);--accent-ink2:#FFFFFF;
+  --ok:#5FD3A0;--ok-ink:#5FD3A0;--ok-soft:rgba(95,211,160,.11);--warn:#E8D06A;--warn-ink:#E8D06A;--warn-soft:rgba(232,208,106,.11);
+  --danger:#FF6378;--danger-ink:#FF8191;--danger-soft:rgba(255,99,120,.12);--info:#8FB8E8;--info-ink:#A9C8EE;--info-soft:rgba(143,184,232,.11);
+  --header-bg:rgba(12,15,19,.92);--scroll-thumb:#3A4350;--knob:#0C0F13}
+html[data-pattern][data-theme][data-palette=green]{
+  --bg:#060B08;--bg-2:#040805;--panel:#0C1510;--panel-2:#09110C;--panel-3:#14241A;--field:#060B08;--field-hover:#09110C;
+  --line:#1E3527;--line-2:#2A4A36;--line-strong:#3B6A4E;--ink:#D7F5E1;--ink-2:#A7C9B2;--ink-3:#7D9E89;--ink-4:#55705F;
+  --accent:#3DFF8B;--accent-hover:#7CFFB0;--accent-ink:#032611;--accent-soft:rgba(61,255,139,.11);--accent-line:rgba(61,255,139,.45);--accent-ink2:#7CFFB0;
+  --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
+  --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
+  --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
+/* スイッチのつまみ: 配色ごとの色(鋼の白・ターミナルグリーンは、明るいアクセントの上で見えるように地の色) */
+html[data-pattern] input[type=checkbox].ui-switch:checked::after{background:var(--knob,#fff)}

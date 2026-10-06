@@ -16,9 +16,9 @@ import zipfile
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/
-REPO = os.path.dirname(HERE)
+REPO = os.path.dirname(HERE)   # リポジトリ直下
 sys.path.insert(0, HERE)
-sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.join(REPO, "src"))   # ytt_core
 import eval_import as I  # noqa: E402
 from ytt_core import evaldata as ev  # noqa: E402
 

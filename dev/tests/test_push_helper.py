@@ -90,22 +90,25 @@ class TestCheck(Repo):
             "app/browser-profile/Default/History": b"",
             "clip-studio/cache/x.txt": b"", "a/clip.mp4": b"", "notes.md": FAKE_GOOGLE.encode(), "run.py": ("t='%s'" % FAKE_GH).encode(),
             "k.txt": b"-----BEGIN RSA PRIVATE KEY-----", "big.txt": b"x" * (P.MAX_BYTES + 1),
-            "docs/archive/logs/x.md": b"", "docs/archive/a.log": b"", "studio/archive/x.json": b"{}",   # docs/archive の下でもそれより下の作業データの名前・ログは止める
+            "docs/archive/logs/x.md": b"", "docs/archive/a.log": b"", "src/studio/archive/x.json": b"{}",   # docs/archive の下でもそれより下の作業データの名前・ログは止める
         }
         for path, data in cases.items():
             with self.subTest(path=path):
                 self.assertTrue(P.problems_for(path, data), path)
         for path, data in {"clip-studio/serve.py": b"API_KEY_ENV = 'YOUTUBE_API_KEY'", "docs/data-location.md": b"config.json \xe3\x81\xae\xe8\xaa\xac\xe6\x98\x8e",
-                           "cut2resolve/selection.example.json": b"{}", "transcribe-tool/hololive-roster.json": b"[]",
+                           "src/cut2resolve/selection.example.json": b"{}", "src/editor/hololive-roster.json": b"[]",
                            "dev/push_helper.py": FAKE_GOOGLE.encode(), "docs/pipeline.md": b"sk-short",
                            "docs/archive/project/README.md": b"# old", "docs/archive/TRANSCRIPTION_V2_DESIGN.md": b"x"}.items():   # 古い資料の置き場(段0)
             with self.subTest(ok=path):
                 self.assertEqual(P.problems_for(path, data), [], path)
 
     def test_dropbox_keys(self):
-        # 鍵のファイル(request-sender/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)
-        why = P.problems_for("request-sender/config.json", b"{}")
-        self.assertTrue(any("切り抜き依頼の鍵" in x for x in why), why)
+        # 鍵のファイル(friend-apps/request-sender/config.json)は中身に関係なく止める(config.json の名前でも止まるが、理由をはっきり出す)。
+        # 旧い場所(2026-10-07 以前の request-sender/config.json)も止める
+        for key_path in ("friend-apps/request-sender/config.json", "request-sender/config.json"):
+            with self.subTest(key=key_path):
+                why = P.problems_for(key_path, b"{}")
+                self.assertTrue(any("切り抜き依頼の鍵" in x for x in why), why)
         for path, data in {
             "notes.md": ('{"appKey": "abc", "refreshToken": "%s"}' % FAKE_DBX).encode(),
             "a.py": ("refresh_token = '%s'" % FAKE_DBX).encode(),
@@ -117,8 +120,8 @@ class TestCheck(Repo):
                 self.assertTrue(any("Dropbox" in x for x in P.problems_for(path, data)), path)
         # 説明・コードの中の名前は止めない
         for path, data in {
-            "request-sender/README.txt": b'{"appKey": "...", "refreshToken": "..."}',
-            "request-sender/src/Core.cs": b'RefreshToken = Json.Str(d, "refreshToken"); "refresh_token=" + Uri.EscapeDataString(config.RefreshToken)',
+            "friend-apps/request-sender/README.txt": b'{"appKey": "...", "refreshToken": "..."}',
+            "friend-apps/request-sender/src/Core.cs": b'RefreshToken = Json.Str(d, "refreshToken"); "refresh_token=" + Uri.EscapeDataString(config.RefreshToken)',
             "dev/dropbox_auth.py": b'json.dump({"appKey": app_key, "refreshToken": refresh_token}, f); data["refresh_token"]',
             "docs/x.md": b'"refreshToken": "<refresh token>"  sl.short',
         }.items():

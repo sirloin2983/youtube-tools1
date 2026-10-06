@@ -22,7 +22,7 @@ import os
 import shutil
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")   # ツールと ytt_core の置き場所
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 from ytt_core import datadir, runtime  # noqa: E402

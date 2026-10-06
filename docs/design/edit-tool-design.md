@@ -1,13 +1,12 @@
 # 「編集」ツール(文字起こし + cut2resolve の統合)— 設計と実装の段取り
 
-> **状態(2026-09-29): E1〜E6(09-26)・12 の追加機能 ①〜⑦(09-26〜27)実装済み**。10 の未決2件と 12 の保留は 09-29 にユーザーが決めた: 字幕のトラックで直す = やる・複数の切り抜きをつなげる = やる(優先度 低)・⑥ = 行の後の余白を設定で変えられるように・③-2 = 精度改善の段3 で測る(`docs/ROADMAP.md` の 5。実装は `docs/plan/phase6-edit-features.md`・`phase8-multi-clip.md`)。下の「未着手」は書いた時点のこと。全体のまとめは `docs/ROADMAP.md`。
+> **状態(2026-10-07): E1〜E6(09-26)・12 の追加機能 ①〜⑦(09-26〜27)・段 6(10-01)実装済み。今の作りは `src/editor/AGENTS.md`(この文書は設計の判断と決めごとの記録。4 のデータ・5 の API・12 の決めごとは今も有効)**。10 の未決2件と 12 の保留は 09-29 にユーザーが決めた: 字幕のトラックで直す = やる・複数の切り抜きをつなげる = やる(優先度 低)・⑥ = 行の後の余白を設定で変えられるように・③-2 = 精度改善の段3 で測る(段 6 = 編集 0.30.0 で実装済み。段 8 は `plan/line-a-phase8-multi-clip.md`・未着手)。下の「未着手」は書いた時点のこと。全体のまとめは `plan/README.md`。
 
 - 2026-09-26 Claude(Cowork)が設計・画面イメージを作り、ユーザーが承認(「このイメージでいい」)。**実装は Claude Code(PC)で行う**(ユーザー決定)。この文書の時点では未着手
-- 画面イメージ: `docs/mockups/edit-1-transcribe.png`・`edit-2-cut.png`・`edit-3-pack.png`(元の HTML は `docs/mockups/edit-mock.html`。
+- 画面イメージ: `docs/design/mockups/edit-1-transcribe.png`・`edit-2-cut.png`・`edit-3-pack.png`(元の HTML は `docs/design/mockups/edit-mock.html`。
   ブラウザで `edit-mock.html?tab=tx|cut|pack` を開くと同じ画面が出る。ui-kit.css を相対パスで読むので、リポジトリの中で開く)
-- 実装が進んだら、この文書の「7. 実装の段取り」に済んだ段を書き足し、WORKLOG からリンクする
 - 2026-09-26 Claude Code: **E1〜E6 をすべて実装**(編集 0.16.0・cut2resolve 0.11.0・入口 0.10.0・スタジオ 0.8.1・ui-kit v4)。実装で決めた細かい点は「11. 実装で決めたこと」。
-  実機(ユーザーの PC の Resolve・本物の文字起こし)での確認はまだ(「11」の E6 の「実機で確かめること」)
+  実機(ユーザーの PC の Resolve・本物の文字起こし)での確認は `plan/user-tasks.md`
 - 2026-09-26 ユーザー: 追加機能 ①〜⑦ → 「12. 追加機能」(順番・決定・確認が要る所)
 
 ## 1. ユーザーの決定(2026-09-26)
@@ -19,10 +18,10 @@
 - 文字起こしをしない動画も使える(無音で自動・時刻リスト・スタジオの残す区間・手で切る)
 
 ## 2. 変えないもの(互換)
-- 場所とデータ: 画面は今の文字起こしと同じ `/transcribe/`、フォルダ `transcribe-tool/`、作業データの ID `transcribe`、文書 `transcripts/<id>.json` の形。名前が「編集」になるのは画面の表示だけ
-- パックの作り方: `cut2resolve/pack.py` だけが作る(`docs/resolve-pack-unification.md`)。編集側に Resolve 用の計算(フレームの丸め・EDL・Text+)を書かない
-- cut2resolve の API(`/cut2resolve/api/...`)は入口の中で動いたまま(編集の画面・入口のまとめて実行 `app/autorun.py` が使う)。今ある指定(preset transcript-rows・mode silence/keep/list)は消さない
-- 今の校正画面の決まり(`transcribe-tool/AGENTS.md` の「画面の設計で決めたこと」)は 1 文字起こし のタブでそのまま守る
+- 場所とデータ: 画面は今の文字起こしと同じ `/transcribe/`、フォルダ `src/editor/`、作業データの ID `transcribe`、文書 `transcripts/<id>.json` の形。名前が「編集」になるのは画面の表示だけ
+- パックの作り方: `src/cut2resolve/pack.py` だけが作る(`docs/design/resolve-pack-unification.md`)。編集側に Resolve 用の計算(フレームの丸め・EDL・Text+)を書かない
+- cut2resolve の API(`/cut2resolve/api/...`)は入口の中で動いたまま(編集の画面・入口のまとめて実行 `src/home/autorun.py` が使う)。今ある指定(preset transcript-rows・mode silence/keep/list)は消さない
+- 今の校正画面の決まり(`src/editor/AGENTS.md` の「画面の設計で決めたこと」)は 1 文字起こし のタブでそのまま守る
 
 ## 3. 画面(画面イメージの番号と同じ)
 ### 全体
@@ -90,58 +89,42 @@
 - 元に戻す/やり直すの履歴は画面のメモリだけ(保存しない)。タブを閉じると消える(編集ソフトと同じ)
 
 ## 5. API の約束
-文字起こしのサーバー(= 編集のサーバー。`transcribe-tool/serve.py`):
+文字起こしのサーバー(= 編集のサーバー。`src/editor/serve.py`):
 - `GET /api/edit?id=<tid>` → `{"edit": {...} | null, "rev": n}`(無ければ `null` と `rev: 0`)
 - `PUT /api/edit?id=<tid>` 本文 `{"edit": {...}, "baseRev": n}` → `{"rev": n+1, "cutRows": [...]}`。
   `baseRev` が違えば 409 `conflict`(別のタブ・窓で先に保存された → 画面は「読み直す / こちらで上書き」)。
   書き込みは今の `_save_lock` の中で、文書の `cutState` の更新と一緒に行う。形の検査は 9 を参照
 - `POST /api/open-video` 本文 `{"path": "<動画の絶対パス>", "title": "任意"}` → `{"id": "<tid>", "created": true|false}`。
-  同じ動画の文書があればそれを返す。隣の `.clip.json` があれば文書の `clip` に入れる(スタジオの切り抜きと紐づく。紐づけの規則は `ytt_core/txindex.py`)
+  同じ動画の文書があればそれを返す。隣の `.clip.json` があれば文書の `clip` に入れる(スタジオの切り抜きと紐づく。紐づけの規則は `src/ytt_core/txindex.py`)
 - `GET /api/peaks?id=<tid>` → 音の波形。本文は 0〜255 の1バイトの並び、ヘッダー `X-Peaks-Rate`(1秒あたりの数)・`X-Peaks-Duration`。
   作業データの `cache/peaks/` に保存(動画のパス・大きさ・更新日時が同じなら使い回す)。動画のパスは文書から取る(パスを引数で受けない)
 - `POST /api/transcribe` の本文に `"intoDoc": "<tid>"`: 終わったら、その文書(行が0のときだけ)に行を入れる(id・題名・作った日・clip・編集の内容はそのまま)
 - `GET /api/transcripts` の各項目に `hasEdit`・`editRev`・`packRev`(履歴の「パック済み」「作り直しが要る」の表示用)
 - 文書を消す(`DELETE /api/transcript`)ときは `.edit.json` も消す
 
-cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
+cut2resolve(`src/cut2resolve/serve.py` の `request_from_spec`):
 - 新しい指定 `spec.keeps = [[in, out], ...]`(秒): `pack.Request(base="list", keep_pairs=keeps, drop_cut_rows=False, silence=False, min_len=0.0, handles=0.0, join_frames=0)`
   に写す(名前は preset と同じく定数 `pack.EDIT_KEEPS` にまとめる)。**編集のとおりに作る**: 最短の長さで捨てない・無音を重ねない・カット済の行で削らない(削るのはもう keeps に入っている)
   - 字幕は文字起こしの行を区間に合わせて切り詰めて付ける(今の pack の動き)。行の `cutState` は保存のときに合わせてあるので、削った行は入らない
   - 検査: 1〜5000 区間・有限の数・0 ≤ in < out ≤ 動画の長さ(少しの超えは切る)・昇順で重ならない
 - `api/plan` を「たたき台」に使うときは、結果の残す区間(秒)を返すこと(今の結果に `keepsSec` があるか確かめ、無ければ足す。フレームの区間を秒に直して)
-- `tools/test_resolve_pack_contract.py` に「keeps で作ったパック = 同じ区間を時刻リスト(mode list)で作ったパック」を足す
+- `dev/tests/test_resolve_pack_contract.py` に「keeps で作ったパック = 同じ区間を時刻リスト(mode list)で作ったパック」を足す
 
-## 6. 入口・ほかのツール
-- 入口(`app/launch.py` の TOOLS・`app/portal.js` の STEP): cut2resolve のカードを出さない(取り込みは続ける = `/cut2resolve/api/` は動く)。流れは ① 切り抜きスタジオ → ② 編集
-- ui-kit の `UIKit.tools`(`ui-kit/ui-kit.js` の一覧): transcribe の表示名を「編集」・説明を「カット・字幕・Resolve へのパック」に。cut2resolve は**一覧から消さずに**
-  「メニューに出さない」印(例 `hidden: true`)を付ける(`UIKit.tools.base('cut2resolve')` を編集の画面が使っているため。消すと編集からパックが作れなくなる)。ui-kit は正本を直して `python tools/sync_ui_kit.py`
-- `/cut2resolve/`(画面)を開いたら `/transcribe/` へ(`?video=` は `?media=` にして)。単体の cut2resolve の画面のファイルは残してよい(消すかは実装のあとでユーザーに確認)
-- 「文字起こしで開く」「cut2resolve で開く」「Resolve 用に渡す」は「**編集で開く**」(`/transcribe/?media=<パス>`)の1つに: `app/cases.js`・`clip-studio/review.js`
-- まとめて実行(`app/autorun.py`): 今までどおり preset transcript-rows でパックを作る。表示の「cut2resolve で作り直して」は「編集で作り直して」に。
-  編集の内容がある文書を編集のとおりに作るのは次の段(ユーザーに確認してから)
-- 文言: 画面・README・docs/ui-guidelines.md の用語集で「文字起こしツール」「cut2resolve」を指す所は「編集」に(ただし文字起こしの作業そのものは「文字起こし」のまま)
+## 6. 入口・ほかのツール(実装済み)
+E5(2026-09-26)で実装済み。今の作りは `src/editor/AGENTS.md`・`src/home/README.txt`・`src/ui-kit/README.md`。決めたこと:
+- 入口に cut2resolve のカードを出さない(取り込みは続ける = `/cut2resolve/api/` は動く)。流れは ① 切り抜きスタジオ → ② 編集。`UIKit.tools` は cut2resolve を一覧から消さず「メニューに出さない」印(`hidden: true`)を付ける(編集の画面が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶため)
+- `/cut2resolve/`(画面)は `/transcribe/` へ転送(`?video=` は `?media=` に)。単体の cut2resolve の画面のファイルは 09-26 に消した(ユーザー決定)
+- 「文字起こしで開く」「cut2resolve で開く」「Resolve 用に渡す」は「**編集で開く**」(`/transcribe/?media=<パス>`)の 1 つに
+- まとめて実行は、編集の内容がある文書を編集のとおりのカットでパックにする(ユーザー決定)。文言は「文字起こしツール」「cut2resolve」を指す所を「編集」に(文字起こしの作業そのものは「文字起こし」のまま)
 
-## 7. 実装の段取り(上から順に。段ごとにテストを通し、WORKLOG に書き、ユーザーに中間報告)
-| 段 | 中身 | 主なファイル | テスト |
-| --- | --- | --- | --- |
-| E1 サーバー | edit の GET/PUT(rev・409・cutState の同期)・open-video・peaks・intoDoc・一覧の hasEdit など・削除。cut2resolve の keeps・plan の keepsSec | `transcribe-tool/serve.py`・`cut2resolve/serve.py`・`cut2resolve/pack.py` | 単体(文字起こし `test_backend.py` に足す・cut2resolve `test_serve.py`/`test_pack.py`)・契約テスト |
-| E2 画面の骨組み | ヘッダーの3タブ・`#tx/#cut/#pack`・Alt+1/2/3・題名の行の札・メニューの帯・「カットとパック」のカードを外す・文字起こしせずに開く | `transcribe-tool/index.html`・`app.js` | e2e(既存の7本が通ること + タブ) |
-| E3 カット | タイムライン(描画・選ぶ・端のドラッグ・吸着・分割・削る/戻す・I/O・ズーム・元に戻す)・プレビュー(カット後)・字幕の一覧・たたき台・保存(0.8 秒まとめて PUT・409) | 新規 `transcribe-tool/cut.js`(app.js に足さない。2300 行あるため) | 新規 e2e(下) |
-| E4 パック | 設定・これから作るもの・作る(keeps)・上書きの確認・中止・前回のパック・作り直しの知らせ | 新規 `transcribe-tool/pack-tab.js` | e2e(keeps のパック = タイムラインの区間) |
-| E5 入口・ほか | 6 のすべて | `app/`・`ui-kit/`・`clip-studio/review.js`・`cut2resolve/`(画面の転送) | `app/e2e_portal.py`・スタジオ `e2e_ui.py --mounted`・`tools/e2e_pipeline.py` |
-| E6 仕上げ | 版・README(全体・各ツール)・AGENTS.md・ui-guidelines の用語・HANDOVER/WORKLOG・この文書 | — | AGENTS.md の表のテストを全部 |
-
-- 版(案): 文字起こし(編集)0.15.0 → 0.16.0、cut2resolve 0.10.0 → 0.11.0、入口 0.9.0 → 0.10.0、スタジオ 0.8.0 → 0.8.1、ui-kit v3 → v4。**版の3か所を同時に上げる**(AGENTS.md)
-- 新しい .js を足したら、文字起こしの e2e が一時フォルダに写すファイルの一覧(各 e2e の先頭)にも足す(忘れると画面が真っ白)
-- E3 の e2e で確かめること: 区間の端のドラッグで1フレームずつ動く・吸い付く/Alt で吸い付かない・S で分割・Del で削る/戻す・I/O/X・元に戻す/やり直す・
-  保存して読み直すと同じ・2つのタブで同時に直すと 409 と「読み直す」・カット後の再生で削る区間を飛ばす(webm の見本で)・文字起こしの無い動画(無音のたたき台)・
-  1 文字起こしで行を「削る」→ カットの帯に出る・その逆
+## 7. 実装の段取り(済み)
+E1 サーバー・E2 画面の骨組み・E3 カット・E4 パック・E5 入口・ほか・E6 仕上げは **2026-09-26 に実装済み**(編集 0.16.0・cut2resolve 0.11.0・入口 0.10.0・スタジオ 0.8.1・ui-kit v4)。今の作りとテストの実行は `src/editor/AGENTS.md`。
 
 ## 8. 実装の判断(案とトレードオフ)
 - **タイムラインの描き方**: 区間・つまみ・字幕は DOM(絶対位置の div)、波形だけ canvas。
   区間は多くても数百なので DOM で足り、押す・ドラッグ・キー操作・Playwright のテストが素直に書ける。全部 canvas は数千の要素でも速いが、当たり判定とテストを自前で作ることになる
 - **波形**: サーバーで ffmpeg(`-ac 1 -ar 8000 -f s16le`)→ `array('h')` の区切りごとの最大・最小(Python 標準だけ。**サーバーのプロセスで numpy を import しない**決まりがあるため)→ キャッシュ。
-  ブラウザの WebAudio(decodeAudioData)は動画を丸ごとメモリに読み、長い動画で重い・形式によって読めない。重い処理なので `ytt_core/jobs.py` の SLOTS を通す。
+  ブラウザの WebAudio(decodeAudioData)は動画を丸ごとメモリに読み、長い動画で重い・形式によって読めない。重い処理なので `src/ytt_core/jobs.py` の SLOTS を通す。
   長い動画(例 10 分超)は 1 秒あたりの数を下げる
 - **保存**: 操作のたびではなく 0.8 秒まとめて PUT(ドラッグ中は送らず、離したとき)。rev で競合を見る。画面を離れるとき(`UIKit.life.onLeave`)はすぐ保存。
   校正の保存(文書)と別の経路なので、どちらかが失敗してももう片方を壊さない
@@ -164,140 +147,22 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - 区間がとても短い(例 0.2 秒未満)・区間が0になった: 保存はしてよい。パックの前の注意に出す
 - 以前の文書(編集の内容が無く、行の `cutState` だけある): 開いたときのたたき台は「行から」で、今の「カットとパック」と同じ結果になること(契約テストで確かめる)
 
-## 10. 未決(実装の途中でユーザーに聞く)
-- ~~まとめて実行(autorun)で、編集の内容がある文書を編集のとおりに作るか~~ → **カットのとおりに作る**(ユーザー決定 2026-09-26。「11」の E5 追記)
-- ~~単体の cut2resolve の画面のファイル(index.html・app.js)を消すか~~ → **消す**(ユーザー決定 2026-09-26。「11」の E5 追記)
-- 複数の切り抜きをつなげる画面(sources を増やす・並べ替え・パックの EDL と Text+ を複数の素材に)をいつやるか
-- 字幕のトラックで行の時刻をドラッグで直す・行を分ける(今は 1 文字起こしのタブで直す)
+## 10. 未決だったこと(すべて決定済み)
+- ~~まとめて実行(autorun)で、編集の内容がある文書を編集のとおりに作るか~~ → **カットのとおりに作る**(ユーザー決定 2026-09-26)
+- ~~単体の cut2resolve の画面のファイル(index.html・app.js)を消すか~~ → **消す**(ユーザー決定 2026-09-26)
+- ~~複数の切り抜きをつなげる画面をいつやるか~~ → **やる・優先度 低**(ユーザー決定 2026-09-29)。段 8 = `plan/line-a-phase8-multi-clip.md`(未着手)
+- ~~字幕のトラックで行の時刻をドラッグで直す・行を分ける~~ → **やる**(ユーザー決定 2026-09-29)。段 6 で実装済み(編集 0.30.0。下の 11)
 
-## 11. 実装で決めたこと(段ごとに書き足す)
-### E1 サーバー(2026-09-26 Claude Code)
-- 編集の内容 `transcripts/<id>.edit.json`(`transcribe-tool/serve.py` の「編集の内容」の節)
-  - 形の検査 `sanitize_edit`: sources は1つ(fps は整数の組 [n, d]・1〜300fps、長さ 0〜24時間)・clips の src は 0・0 ≤ in < out ≤ 長さ + 1フレーム・時刻の順で重ならない・小数3桁に丸める・知らない項目は捨てる。
-    **clips は 0 個も受け付ける**(全部削った状態を保存でき、元に戻すで戻せる。パックは 1 個以上でないと作れない = cut2resolve の keeps の検査)。1MB まで
-  - rev はサーバーが付ける。`PUT` の `baseRev` が違えば 409 と今の `rev`(`{"error": "conflict", "rev": n}`)。画面の「こちらで上書き」はその rev で送り直す
-  - ファイルが壊れていたら `GET` は `{"edit": null, "rev": 0, "broken": true}`。次の保存で上書きし、壊れたものは `<id>.edit.broken.json` に1つ残す
-- **行の「カット済」は、編集の内容があれば常にそこから決める**(`apply_edit_cuts`)。校正の保存・範囲の再認識・選んだ行の再認識・履歴から戻す・intoDoc のどの書き込みでも通す
-  (画面の古い印で上書きされない。編集の内容が無い文書は以前どおり画面の cutState を保存する)
-  - 規則 `edit_cut_flags`: 行の時間のうち残す区間に入るのが 0.75 フレーム未満ならカット済(区間の端はフレームに、行の時刻は 0.01 秒に丸めてあるため)。
-    2 × 0.75 フレーム以下のごく短い行は、行の真ん中が残す区間に入っているか。**画面(cut.js)も同じ規則にする**
-  - `PUT /api/edit` で行の cutState を合わせるとき、**文書の `updatedAt` は変えない**(cutState は編集の内容から決まる値なので、校正の保存の競合の検出 baseUpdatedAt に巻き込まない。
-    別のタブの校正の保存が古い cutState を送っても、上の規則で付け直される)
-  - 以前の「行から」との違い: 行が重ならない文書では、たたき台「行から」で作ったパック = 今の「カットとパック」(preset transcript-rows)のパック(契約テスト `EditKeepsContract`)。
-    重なる2行の一方だけがカット済のときは、編集では時間の一部が残る行を「残す行」にするので、その行の字幕(残る部分)が増える
-- パックの記録 `POST /api/edit/pack {"id", "rev", "docUpdatedAt", "dir", "files"}`(設計の 5 に無かった API): 画面がパックを作り終えたときに呼ぶ。rev は増やさない。
-  `packRev = rev`・`pack = {rev, at, docUpdatedAt, dir, files(名前だけ)}`。「作り直し」の判定 `pack_stale` はサーバーの1か所(一覧の `packStale`・`GET /api/edit` の `packStale`)
-- `GET /api/transcripts` の各項目に `hasEdit`・`editRev`・`packRev`・`packAt`・`packStale`
-- `POST /api/open-video`: `check_source`(ファイル・動画/音声の拡張子)→ 同じ動画の文書を探す(行のある文書・新しいものを先に)→ 無ければ ffmpeg で映像か音声が読めるか(`probe_media`。
-  カバー画像は映像に数えない)→ 行 0 の文書を作る(`model` 空・`whole: true`)。隣の .clip.json は `pipeline_io.find_clip`。続けて2回押しても文書は1つ(`_open_lock`)
-- `GET /api/peaks?id=`: 作っている間・順番待ちの間は **202** `{"state": "waiting"|"running", "message"}`(画面は1秒ごとに問い合わせ直す)。できたら 200 のバイト列と
-  `X-Peaks-Rate`(10分まで 100・1時間まで 50・それより長いと 20)・`X-Peaks-Duration`・`X-Peaks-Scale: sqrt`(振れ幅の平方根を 0〜255 に。小さい声も見えるように)・`X-Peaks-Audio`(0 = 音声なし・本文は空)。
-  失敗は 30 秒覚えて同じエラーを返す(その後は作り直す)。作業データの `cache/peaks/<パスのハッシュ>.bin/.json`(パス・大きさ・更新日時・形式の版が同じなら使い回す)。SLOTS を通す
-- `POST /api/transcribe` の `intoDoc`: 受け付けるとき(文書がある・同じ動画・行が無い)と、終わったとき(`fill_doc`。保存と同じロックの中)の2回確かめる。
-  終わったときに文書が変わっていたら(消えた・行が入った)新しい文書として保存し、ジョブの warnings に書く(結果は捨てない)
-- 文書の削除で `<id>.edit.json`・`<id>.edit.broken.json` も消す
-- cut2resolve: `pack.EDIT_KEEPS`(base list・余白 0・最短 0・つなぐ隙間 0・無音なし・カット済の行で削らない・**0.5 秒より短い区間は注意**(`warn_short`。捨てない))、`pack.MAX_KEEPS = 5000`。
-  `serve.request_from_spec` の `spec.keeps`(検査 `keeps_from_spec`)は「詳しい設定」(`advanced`: fps・タイムコード・リール名・EDL のタイトル)も使える。
-  **`keeps` と `preset` を一緒に送ると 400**。`api/plan` の結果に `keepsSec`(残す区間の秒。たたき台で今の編集を置き換える)
-- 接している残す区間(分割しただけの所)はパックでは1つの区間になる(`cut_list_to_keeps` → `normalize`)。画面の「残す n 区間」も接しているものを1つに数える
-- ついでに直したもの: 認識ワーカー(`tx_worker.py`)が Windows で止まる不具合。標準入力のパイプを別のスレッドが読んで待っている間に numpy などの DLL を読み込むと、
-  その初期化が標準入力に触れて、次の要求が届くまで止まっていた(PC で再現。`test_worker` の範囲の再認識が止まっていた)。やり取り用の入力を fd 0 から離し、fd 0 は NUL に。
-  保留の「まとめて実行の最初の文字起こしが遅い」(43 秒の切り抜きで 502 秒)も、これが原因の可能性が高い(実機で要確認)
-### E2 画面の骨組み(2026-09-26 Claude Code)
-- ヘッダー: ブランド「編集」(ブラウザのタブも「〜 - 編集」)・3つのタブ(`#edTabs`。role=tablist、タブの中は ← → で移る)・保存の状態(`#saveState` をヘッダーへ)。
-  題名の行 `#docBar`(題名の入力欄・配信者・長さ・元の配信の位置・札「校正 n / m行」「残す n区間 ・ カット後 m:ss.ff」)は3タブ共通。「評価用にする」は映像の欄に残した
-- **Alt+1/2/3 の例外**: 行の文字の入力中は、今までどおり Alt+数字 = 話者(設計の 3 は Alt+1/2/3 だけだったが、校正の入力中のキーと重なるため)。キー操作の一覧に書いた
-- 校正のキー(S・W・D・Shift+Space・Space・Tab・Ctrl+Z など)は 1 文字起こし のタブだけで働く。1 文字起こし のタブを離れたら映像を止める(隠れたまま音を鳴らさない)
-- カット・パックのタブ: 左のメニューを細い帯(☰・履歴・新規)に畳み、ヘッダーの「メニュー」ボタンは隠す(同じ操作を2か所に置かない)。帯から開くと本文の上に重ねる
-  (幕を押す・Esc・G で閉じる。重ねたメニューで文書を選ぶと閉じる)。開閉は `EDT.overlay`(1 文字起こし のタブの開閉 `V.menu` とは別に持つ)
-- 「選んだ行をカット/残す」は 1 文字起こし のタブの「まとめて ▾」へ(行のチェックと同じタブに置く)。「カットとパック」のカードは E4 で作り直すまで 3 パック のタブに仮に置いた
-- `?media=`: 新しい `GET /api/doc-for?path=`(パスを比べるだけ。一覧の API にはパスを出さない決まりのため別にした)で文書があれば開く(タブは URL の # のまま)。
-  無ければ「新規」に「文字起こしをする / 文字起こしせずに開く」の選択(`#mediaChoice`)を出す(自動では始めない)
-- 「文字起こしせずに開く」(`#btnOpenVideo`。新規の「手元のファイル」だけ)→ `POST /api/open-video` → カットのタブで開く。行の無い文書(model が空)の 1 文字起こし のタブには
-  `#noRows`「この動画を文字起こしする」(認識の設定は新規のもの・intoDoc)。動いている間は押せない(ジョブの一覧に `into` を足した)。終わると同じ文書を読み直す
-- テスト: `e2e_edit_common.py`(拡張子でまとめて写す・単体/入口の起動・webm は yuv420p)、`e2e_edit_tabs.py`。既存の `e2e_ui_handoff.py`(?media= の新しい流れ)・
-  `e2e_ui_mounted.py`(カードの場所・Windows でも動くように)を直した
-### E3 カット(2026-09-26 Claude Code)
-- 新規 `transcribe-tool/cut.js`(app.js より先に読む。`EditCut.create(host)` で app.js が起動し、API・トースト・cut2resolve の呼び出しなどを渡す。グローバルに出すのは窓口の `EditCut` だけ)。
-  サーバーは `/cut.js`・`/pack-tab.js` を静的に配る(`PAGE_JS`)
-- 区間は**フレームの整数**で持ち、保存のときだけ秒(小数3桁)にする。秒 → フレームは pack の `sec_to_frames` と同じ丸め(ミリ秒に四捨五入 → 0.5 は大きい方へ)を整数で計算
-- **開いたときの下書き・たたき台「行から」は、文字起こしのサーバーの `GET /api/edit/draft`**(設計では cut2resolve の api/plan。そうすると動画の隣に .transcript.json を書き出すことになり、
-  「開いただけでファイルを増やさない」(v0.15.0 の決まり)に反するため。計算は同じ `pack.py`(`pack.TRANSCRIPT_ROWS`)を zip 書き出しと同じやり方で呼ぶ = 規則は1か所のまま)。
-  同じ口で動画の fps・長さも取る(cut2resolve が動いていなくても手でのカットと保存は使える)。使えないとき(動画が無い・ネットワーク上・音声だけ)は 200 で `unavailable`
-  (画面が毎回エラーとして記録しないように)。無音・時刻リスト・スタジオ(隣の `.cut-plan.json` があるときだけ出す)は cut2resolve の `api/plan` の `keepsSec`
-- 手で直すまでの下書きは保存しない(開いただけでファイルを増やさない)。下書きのうちに 1 文字起こし で行の時刻などが変わったら、「行から」を作り直す(以前の「カットとパック」と同じ結果を保つ)
-- 1 文字起こし のタブの行の「残す/カット済」と「選んだ行をカット/残す」は、カットがあるとき(fps が分かるとき)は**編集の操作**(行の時間を削る/残す区間にする)。
-  行の印は編集の内容から付け直す(`rowCutFlags` = serve.py の `edit_cut_flags` と同じ規則)。元に戻すはカットのタブの「元に戻す」。fps が分からない(動画が無いなど)ときは以前どおり行の印だけを保存
-- タイムライン: 見えている範囲の前後1画面ずつだけ DOM を作る。選ぶ・ドラッグのときは要素を作り直さず、印・つまみ・位置だけ書き換える(作り直すと、押した要素が入れ替わってクリックが届かない)。
-  少し横にずらしただけなら波形だけ描き直す。中身の幅は「全体」のときちょうど1画面(目盛りのラベルなどがはみ出さないよう overflow:hidden)。幅が変わったら(ResizeObserver)倍率を計算し直す。
-  カットのタブでは `scrollbar-gutter: stable`(ページの縦のスクロールバーの出入りで倍率が変わらないように)
-- いちばん広げると1フレーム = 14 点。吸い付く距離は 8 点(字幕の行の端・無音の境目(波形の 0〜255 で 40 未満が 0.3 秒以上)・再生位置・他の区間の端)。Alt で吸い付かない
-- 分割しただけ(接している区間)は、区間の数ではまとめて1つに数える(パックでも1つ)。削る区間を戻すと、両隣の残す区間とつながる
-- キー: J は「1秒戻る」(ブラウザの動画は逆再生できないため)・K 止める・L 再生(もう一度で 1.5 倍・2 倍)。校正のキーとは別(`wideTab()` で分けている)
-- プレビューはカットのタブ専用の `<video id="cutPlayer">`(タブを移るときに再生位置を受け渡す)。カット後は requestVideoFrameCallback で削る区間に入ったら次の残す区間へ飛ぶ。
-  字幕はおおよその見え方(黄色・黒ふち)で重ねる(カット後では削った行を出さない)
-- 動画の長さが変わっていたら(同じパスで書き出し直した)、後ろの区間を切って知らせ、保存し直す。保存されていたファイルが壊れていたら下書きから始めて知らせる
-- 2つのタブで同時に直すと 409 → 「読み直す / この画面のカットで上書きする」(黙って上書きしない)。画面を離れる・文書を切り替える前に保存する(保存できなければ切り替えない)
-- テスト: `e2e_edit_cut.py`(入口に取り込んだ形。設計の 7 の確かめることを全部 + 波形・長さの変化・動画が見つからない)。既存の e2e・test_backend・test_metrics の写す一覧に `cut.js` を足した
-- 3 パック のタブの仮のカード(E4 で作り直す)は、カットを保存したあとに計算し直す(`onCutSaved` → `cpAfterSave`)
-- まだ(実機で): 60fps の動画を 30fps のプロジェクトに入れたときに Resolve で1フレームずれないか(設計の 9。E4 のパックで確かめる)
-### E4 パック(2026-09-26 Claude Code)
-- 新規 `transcribe-tool/pack-tab.js`(`EditPack.create(host)`)。3 パック のタブを画面イメージ(`edit-3-pack.png`)どおりに作り直し、v0.15.0 の「カットとパック」のカード(app.js の `CP`・約350行)を外した。
-  「選んだ行をカット/残す」は E2 から 1 文字起こし のタブの「まとめて ▾」、「カット後の見え方で再生」は 2 カット のタブのプレビューへ
-- パックを作る: カットを保存(`CUT.commit()`。まだ下書きなら保存して rev を付ける)→ 保存済みの文字起こしを動画の隣に .transcript.json → cut2resolve の `api/build`(`spec.keeps`)→
-  409 は上書きの確認 → 進み具合・中止 → `POST /api/edit/pack`。文字起こしの無い動画は Text+ なし(EDL と元の動画のコピー)で作る(Text+ は字幕が無いと作れないため。画面で知らせる)
-- **「これから作るパック」の字幕の数・注意は、文字起こしのサーバーの `POST /api/edit/preview {"id", "keeps"}`**(設計の「cut2resolve の plan の warnings」の代わり。
-  cut2resolve で見積もると動画の隣に .transcript.json を書き出すことになるため、E3 の下書きと同じく同じ pack.py を一時フォルダで呼ぶ)。とても短い区間(0.5 秒未満)の注意もここから
-- 60fps の元の動画を 30fps(24・25 も)のプロジェクトに入れるときは、置き先の欄に注意を出す(設計の 9。Resolve で1フレームずれないかは**実機で確かめる**。ずれるなら置き先が 30fps のときは2フレームおきに吸い付かせる)
-- 置き先の fps は 30 / 60(24・25・50 は「詳しい設定」)。前回の値は設定の `packFps`・`packSize`(今までと同じ名前)。「詳しい設定」に元の動画の開始タイムコード・タイムラインの開始・リール名・zip・残す区間の保存
-- 前回のパック: 作った記録(`edit.json` の pack)から、いつ・中身のファイル(種類ごと)・フォルダを開く・友人へ.txt を見る(`GET /api/edit/pack-readme`。記録したフォルダに cut-plan.json があるときだけ読む)・パスをコピー。
-  カットの rev か文書の updatedAt が変わっていたら「作り直しが要る」
-- cut2resolve の `api/open-folder` は、cut2resolve が書いた cut-plan.json のあるフォルダ(パック)なら開ける(以前は同じセッションで作ったものだけ。入口を起動し直すと前回のパックを開けなかった)
-- zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり(`edit_keeps_sec`。接している区間は1つにまとめる)
-- テスト: 新規 `e2e_edit_pack.py`、`e2e_ui_mounted.py` の 3c・3d(パックのタブ・作り直しの知らせ・上書きの確認・手順書・zip の区間)、`e2e_ui_handoff.py`(音声だけの文書はパックに使えない理由)、
-  `test_edit.py`(見積もり・手順書・zip・cut-plan)、cut2resolve `test_serve.py`(前回のパックのフォルダを開ける)。`e2e_edit_common.py` はツールのフォルダの直下のファイルを全部写す(.drb の写し忘れがあった)
-### E5 入口・ほか(2026-09-26 Claude Code)
-- 入口(`app/launch.py` の TOOLS): 文字起こし = 「編集」(文字起こし・カット・Resolve へのパック)。cut2resolve は `hidden`(取り込み・起動は今までどおり)。
-  入口の画面(`portal.js`)は cut2resolve のカードを、動いている間は出さない(止まっている・落ちた・見つからないときだけ出す = 起動し直せるように)。流れは ① スタジオ → ② 編集
-- ui-kit v4: `UIKit.tools` の transcribe の表示名を「編集」に、cut2resolve は `hidden: true`(一覧には残す = 編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ。「他のツール」のメニューには出さない)
-- `/cut2resolve/`(画面)→ `/transcribe/`(`?video=` → `?media=`)の転送は、入口の取り込みの層(`app/mount.py` の `page_to`)。**「編集」も取り込まれているときだけ**転送する
-  (cut2resolve だけの入口・単体の cut2resolve では前の画面のまま)。**`?classic=1` なら前の画面**(どこからもリンクしない。cut2resolve の画面のテストと、もしものとき)
-- 「文字起こしで開く」「cut2resolve で開く」「Resolve 用に渡す」→「編集で開く」(`/transcribe/?media=`)の1つ: 案件の一覧(`app/cases.js`。切り抜きごとに1つ)・スタジオの書き出しの結果(`clip-studio/review.js`)。
-  「編集」の書き出しの欄の「cut2resolve で開く」も外し、パックは 3 パック のタブと案内
-- まとめて実行(`app/autorun.py`): 文言だけ「編集」に(「校正したら「編集」のパックのタブで作り直してください」)。作り方(preset transcript-rows)は今までどおり
-- テスト: `app/test_mount.py` に転送、`app/e2e_portal.py`(カード2枚・転送・?classic=1・「編集で開く」・版はファイルから読む)、`app/e2e_window.py`、`clip-studio/e2e_ui.py`、`transcribe-tool/e2e_ui_handoff.py` を合わせた。
-  Windows でも流せるように: `e2e_portal`(SIGKILL が無ければ SIGTERM)、`e2e_window`(偽の Edge を .bat で)、`tools/e2e_pipeline.py`・`cut2resolve/e2e_ui.py --mounted`(Ctrl+Break で止める)、
-  `clip-studio/e2e_ui.py`(YouTube を止めたあと読み直す。インターネットに繋がる PC では、前に読んだ YouTube の部品が残って「再生できません」の確認が止まっていた)
-
-### E5 追記: 未決への回答の実装(2026-09-26 Claude Code)
-- まとめて実行(`app/autorun.py` の `_edit_keeps`・`_step_pack`): 文書に編集の内容(区間)があれば、`GET /api/edit` の区間(接している = 分割しただけの区間は1つに)を
-  cut2resolve の `spec.keeps` にして作る(3 パック のタブと同じ中身。字幕の行が無ければ Text+ なし・`copyVideo`)。作り終えたら `POST /api/edit/pack`(rev・docUpdatedAt・dir・files)で記録を残す
-  (「編集」で作り直しの知らせが出る。残せなくてもパックはできているので、まとめて実行は失敗にしない)。編集の内容が無い文書は preset transcript-rows のまま
-- cut2resolve の画面のファイル(`index.html`・`app.js`・`app.css`・`e2e_ui.py`・`ui-kit.js`・`ui-kit.css`)を `git rm`。`cut2resolve/serve.py` の `/`・`/index.html` は
-  スクリプトなしの案内だけ(CSP・X-Frame-Options DENY のまま)。`app/mount.py` の `?classic=1` の逃げ道はやめた(編集が取り込まれていれば、いつも転送)。
-  `tools/sync_ui_kit.py` の写し先から cut2resolve を外した。補助の FCPXML は画面から無くなった(コマンド `--fcpxml` では作れる)
-
-### E6 仕上げ(2026-09-26 Claude Code)
-- 版: 編集(文字起こし)0.16.0・cut2resolve 0.11.0・入口 0.10.0・スタジオ 0.8.1・ui-kit v4(各ツールの版の3か所をそろえた)
-- README: 全体(`README.txt`。ツールの一覧・流れ・まとめて実行)・`transcribe-tool/README.txt`(「編集」の3つのタブ・v0.16.0)・`cut2resolve/README.txt`(画面は「編集」へ。前の画面との対応表・API の keeps)・
-  `app/README.txt`・`clip-studio/README.txt`・`ui-kit/README.md`。`AGENTS.md`(全体の形・表)・`transcribe-tool/AGENTS.md`・`docs/ui-guidelines.md` の用語集(編集・カット・残す区間/削る区間・たたき台・作り直し)
-- 実機で確かめること(ユーザーにお願いする):
-  1. 入口のカードが「切り抜きスタジオ」「編集」の2枚になり、スタジオの書き出しの「編集で開く」で開けること
-  2. 文字起こし → 2 カット でドラッグ・分割・削る → 3 パック で作ったパックを Resolve に取り込み、区間の端と Text+ 字幕の位置が合うこと
-  3. 60fps の元の動画を 30fps のプロジェクトに入れたとき、区間の端が1フレームずれないこと(設計の 9。パックのタブに注意を出している)
-  4. 初回の文字起こしが以前(502 秒)より速くなったか(ワーカーの標準入力の直しが原因だった可能性)
-  5. 段階7(窓で開く)と画面の見直しの実機確認(以前からのお願い)
-- 残り(未決の 10 の3・4 番目): 複数の切り抜きをつなげる画面・字幕のトラックでの時刻の直し。ユーザーが言い出したときに
-
-### 段6 字幕の段の行の時刻・分割と「行の後の余白」(2026-10-01 Claude Code。`docs/plan/phase6-edit-features.md`)
-- 「行の後の余白」は 3 パック の「詳しい設定」の1か所で変える(設定 `rowEdge.padAfter`。規則は cut2resolve の `pack.row_edge_from`: 無音が見つからないときの決まった余白だけ。`padAfter` が `after` より大きければ `after` も上げる)。
-  2 カット の「行から ▾」は値を出すだけ。`saveEdge` は `padAfter` を残す。たたき台のまま(pristine)なら `CUT.redraftPristine()` で「行から」を作り直し、手で直したカットには効かないと案内する
-- 字幕の段の行: 押すと選ぶ(`M.sel = {kind:'row', i}`。頭へ移るのは今までどおり)。選んだ行にだけつまみ `.tt-rh`。ドラッグ・Q / W + , .(Shift で 10 コマ)で端を動かす(前後の行を越えない・長さは1フレーム以上。吸い付く先は区間の端と同じ)。
-  放したら 0.01 秒に丸めて文書の `start`/`end` を書き(`applyRowEdge`)、`h.rowChanged` で 1 文字起こし を描き直して保存する
-- 残す行を外へ広げた分が削る区間に入るときだけ、その分だけ区間を足す(`addRange`)。縮めても区間は変えない。たたき台のまま(pristine)なら区間は触らず「行から」の作り直しに任せる。広げたことは知らせる
-- 1回のドラッグ = 文書の元に戻す(`pushUndo(seq)`)とカットの元に戻す(`M.undo` の `seq`)に**同じ番号**で積む。2 カット の Ctrl+Z・元に戻すボタンは `h.doUndo`(app.js。文書とカットの新しい方を戻す)に任せ、カットを戻すときは `undo` のあと `h.undoDocIf(seq)` で同じ番号の文書の控えも戻す。1 文字起こし の「元に戻す」も番号が同じなら CUT.undo に任せる。やり直し(Ctrl+Y)は区間だけ(文書のやり直しは元から無い)
-- 行を分ける: 行を選ぶと「再生位置でこの行を分ける」(再生位置が端から 0.3 秒より内側のときだけ押せる)。小さな dialog `#cutSplitDlg`(読み取り専用の欄でカーソルの位置 = 文字の分け目。初期値は時刻の比。Enter・「分ける」で `commitSplit` をその場で呼ぶ = dialog の close イベントは遅れて来るので頼らない)→ `app.js` の `splitRowAt(i, pos, cut)`(1 文字起こし の `doSplit` と共用)。キーは足さない(S は区間の分割のまま)
-- 保存の順番: 区間を足したときは編集の内容(`save()`)を先に送り、文書は `markDirty` の 0.7 秒後(文書の保存で行の印を新しい区間から付け直す)。文書の保存の競合(`S.conflict`)と処理中の鍵(`lockJob`)の間は、つまみと「分ける」を出さず、カットのタブにも `#cutDocConflict` の案内(1 文字起こし へのボタン)。サーバーの API は変えていない(`POST /api/edit/rows` のような1回で両方を書く API は作らない)
+## 11. 実装で決めたこと(実装済み。今の作りは `src/editor/AGENTS.md`)
+E1〜E6(2026-09-26)と段 6(2026-10-01)は実装済み。細かい作りは `src/editor/AGENTS.md`・`src/cut2resolve/README.txt`・各ツールの README に移した。ここには設計の判断として残す要点だけ置く:
+- **行の「カット済」は、編集の内容があれば常にそこから決める**(`apply_edit_cuts`・`edit_cut_flags`。行の時間のうち残す区間に入るのが 0.75 フレーム未満ならカット済。画面の `cut.js` も同じ規則)。`PUT /api/edit` で行の cutState を合わせるとき、文書の `updatedAt` は変えない(校正の保存の競合の検出に巻き込まない)
+- 編集の内容の保存: 形の検査 `sanitize_edit`(clips は 0 個も受け付ける・1MB まで)・rev をサーバーが付ける・`PUT` の `baseRev` が違えば 409(画面は「読み直す / この画面のカットで上書きする」。黙って上書きしない)・壊れたファイルは `<id>.edit.broken.json` に 1 つ残す。区間は**フレームの整数**で持ち、保存のときだけ秒(小数 3 桁)
+- 開いたときの下書き(たたき台「行から」)と、これから作るパックの見積もりは、cut2resolve ではなく**編集のサーバーの `GET /api/edit/draft`・`POST /api/edit/preview`** が同じ `pack.py` を呼んで出す(cut2resolve で見積もると動画の隣に .transcript.json を書き出すことになり、「開いただけでファイルを増やさない」に反するため)。手で直すまでの下書きは保存しない
+- パックの記録 `POST /api/edit/pack`(rev は増やさない)・「作り直し」の判定 `pack_stale` はサーバーの 1 か所。`pack.EDIT_KEEPS`・`pack.MAX_KEEPS = 5000`・**`keeps` と `preset` を一緒に送ると 400**。接している残す区間(分割しただけの所)はパックでは 1 つ
+- `?media=` で開いた動画に文書が無ければ「文字起こしをする / 文字起こしせずに開く」の選択を出す(自動では始めない)。`POST /api/open-video` は行 0 の文書を作る
+- 認識ワーカー(`tx_worker.py`)が Windows で止まる不具合を直した(標準入力のパイプと numpy などの DLL の初期化の取り合い。やり取り用の入力を fd 0 から離した)
+- 段 6: 「行の後の余白」は 3 パック の「詳しい設定」の 1 か所で変える(`rowEdge.padAfter`)・字幕の段の行をドラッグ / Q・W + , . で動かせる(前後の行を越えない)・行を分ける(`splitRowAt`)・1 回のドラッグは文書とカットの元に戻すに**同じ番号**で積む
+- 実機で確かめること(E6 の 5 項目。入口のカード・Resolve に取り込んだパック・60fps → 30fps のずれ・初回の文字起こしの速さ・窓で開く)は `plan/user-tasks.md` へ移した
 
 ## 12. 追加機能(ユーザー 2026-09-26)
 ユーザーの指示は「11. 追加機能」だったが、11 は「実装で決めたこと」(AGENTS.md から参照)で使っているので 12 にした。
@@ -305,8 +170,8 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 
 ### 共通の決まり
 - 設計の変更・依存の追加・既存機能の削除は、始める前にユーザーに確認。段ごとにテスト → WORKLOG → git commit(`[Claude] 要約`)→ 中間報告
-- パックを作るのは `cut2resolve/pack.py` だけ。Resolve 用の計算を他に書かない。pack を変えたら `tools/test_resolve_pack_contract.py`(単独のコマンドで)。期待値を変えるときは理由を WORKLOG に書く
-- 文字起こしのサーバーのプロセスで numpy などを import しない(認識はワーカーの中だけ)。重い処理は `ytt_core/jobs.py` の SLOTS を通す
+- パックを作るのは `src/cut2resolve/pack.py` だけ。Resolve 用の計算を他に書かない。pack を変えたら `dev/tests/test_resolve_pack_contract.py`(単独のコマンドで)。期待値を変えるときは理由を WORKLOG に書く
+- 文字起こしのサーバーのプロセスで numpy などを import しない(認識はワーカーの中だけ)。重い処理は `src/ytt_core/jobs.py` の SLOTS を通す
 - Resolve の実機でしか確かめられないこと(Text+ の見た目・位置・横動画)は、確認の手順を書いてユーザーに渡す
 - 版は各ツールの3か所を同時に上げる
 
@@ -323,7 +188,7 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
 - 既定の中身: media の動画・`create_resolve_textplus_project.lua`・`textplus-template.drb`・登録用の .ps1 と .bat・友人へ.txt だけ
 - パックのタブに「予備も入れる」(既定オフ)。オンのときだけ EDL・予備_EDLで開く手順.txt・_cut.srt を足す
 - Text+ の計画の .json(textplus_plan)は出さない(中身は .lua に埋め込み済み)
-- cut-plan.json はパックに置かず、作業データ側に記録する。`ytt_core/txindex.pack_info`(と `app/cases.find_pack`)は、新しい記録と、古いパックのフォルダの中の cut-plan.json の両方を読む
+- cut-plan.json はパックに置かず、作業データ側に記録する。`src/ytt_core/txindex.pack_info`(と `src/home/cases.find_pack`)は、新しい記録と、古いパックのフォルダの中の cut-plan.json の両方を読む
   (「パック済み」「作り直しの知らせ」「上書きの確認」が壊れないこと)。隠しファイルにはしない(Windows で上書きに失敗することがあるため)
 - この文書の 3 パック「パックに入れるもの」もこの内容に直す
 
@@ -341,7 +206,7 @@ cut2resolve(`cut2resolve/serve.py` の `request_from_spec`):
   記録か、以前の cut2resolve の cut-plan.json)・`read_pack_record`。**記録したファイルが1つもフォルダに無ければ記録を使わない**(フォルダを消した後の古い記録で「パック済み」にしない)
 - 記録の置き場所は `txindex.packs_dir`: 起動した cut2resolve が `use_packs_dir` で知らせた場所(入口の中では同じプロセスの「編集」・案件・まとめて実行もここを読む。
   テストがツールを一時フォルダに写して動かしても、書く場所と読む場所がずれない)→ 無ければ `datadir.tool_dir("cut2resolve")` の packs。YTT_DATA_DIR=inplace では
-  cut2resolve のフォルダの中(`.gitignore` に `cut2resolve/packs/`)
+  cut2resolve のフォルダの中(`.gitignore` に `src/cut2resolve/packs/`)
 - 「作り直しの知らせ」は今までどおり「編集」の edit.json の pack の記録(rev・docUpdatedAt)で決める(変更なし)。「上書きの確認」は今回書くファイルだけで見る
   (以前のパックの EDL・cut-plan.json・textplus-import.json が残っていても 409 にしない。残っていることは「前に作った…が残っています」の注意で知らせ、消さない)
 - テストで Text+ の区間・字幕を確かめるときは、Lua に埋め込んだ計画を `resolve_textplus.read_script_plan` で読む(Lua の表を JSON と同じ形に戻す。空の表は {})
@@ -381,11 +246,11 @@ Whisper の単語の時刻は、始まりが遅く・終わりが早く出やす
   (配信の BGM・ゲーム音で無音になりにくい)。無音まで測れた所では、声は行の終わりより p50 0.3 秒・p75 0.5 秒後ろまで続き、始まりは p50 0.3 秒前から。
   −30dB にすると無音が見つかる所は倍になるが、行の端がもう「無音」になる所(=広げない)も倍になり、小さな声の語尾を切る側に寄るので、**−35dB・0.15 秒のまま**にした。
   決まった余白(後 0.2 秒)は測った p50 より短い → 聞き比べで語尾がまだ切れるなら、後 0.3 秒に上げる候補(ユーザーの判断)
-- テスト: `cut2resolve/test_pack.py` の `TestRowEdgeRule`(規則)・`TestRowEdgeWithAudio`(合成の音: 広がる・上限・無音が無いときの余白・隣とつながる・カット済の行・
+- テスト: `src/cut2resolve/tests/test_pack.py` の `TestRowEdgeRule`(規則)・`TestRowEdgeWithAudio`(合成の音: 広がる・上限・無音が無いときの余白・隣とつながる・カット済の行・
   音声なし・調べられない・覚えた無音・コマンド)、`test_serve.py`(spec.rowEdge)、契約テスト `RowEdgeContract`(乱数の文書で: 広げる前の区間を含む・上限まで・カット済の行に入らない・
   字幕の数と文字は同じ・広げない設定なら一本化の前と同じ)。契約テストの A(一本化の前との比較)は `row_edge=None` で比べる(行の時間を残す規則は変わっていない)。
   期待値を変えたもの(意図した変更): `test_same_pack_as_cut2resolve`・`test_zip_uses_transcribe_rules`・`test_same_pack_with_studio_edit_media`(終わりに決まった余白)、
-  `transcribe-tool/test_resolve_export.py` の 60fps、`test_edit.py` の下書き、`e2e_edit_cut.py`(区間の終わりが 1〜2 フレーム後ろ・切れ端・「行から ▾」)
+  `src/editor/tests/test_resolve_export.py` の 60fps、`test_edit.py` の下書き、`e2e_edit_cut.py`(区間の終わりが 1〜2 フレーム後ろ・切れ端・「行から ▾」)
 
 ### ③ 区間ごと抜ける・長い区間が謎の単語1つになる
 見立て: 取りこぼしを減らすために VAD をかなり甘く(vadMode weak: threshold 0.3・余白 600ms・no_speech_threshold 0.9)しているので、
@@ -398,7 +263,7 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
   - 印の付いた範囲(前後 1 秒の余白)だけ、今ある範囲の再認識の仕組みで認識し直す。VAD は普通の強さ・短く区切る。kotoba を使っている場合は large-v3 で試す設定も
   - 良くなったときだけ置き換える(文字が増えた・avg_logprob が上がった・make_flags に掛からない)。校正済みの行・手で直した行は触らない
   - 設定「疑わしい所を自動で認識し直す」(既定オフ)。取り消せる・時間の上限あり
-- ③-3 声の分離(BGM を消す)は保留(重い依存・AMD の GPU では CPU 処理)。`transcribe-tool/TRANSCRIPTION_V2_DESIGN.md` と合わせてユーザーが判断する
+- ③-3 声の分離(BGM を消す)は保留(重い依存・AMD の GPU では CPU 処理)。`src/editor/TRANSCRIPTION_V2_DESIGN.md` と合わせてユーザーが判断する
 
 ③-2 の実装で決めたこと(2026-09-27 Claude Code。ユーザー承認: 設計どおり):
 - ジョブの種類 `redo`(`POST /api/redo {"tid", "redoLarge"?}`・`run_redo`)。話者判別・再認識と同じ文書には同時に入れない(`EXCLUSIVE`・画面の `LOCK_KINDS` = 終わるまで編集できない)。SLOTS を通る(ジョブは全部)
@@ -421,7 +286,7 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
 - 規則 `serve.sparse_row(start, end, text)`(長さが `SPARSE_MIN_SEC` 4.0 秒**より長く**・`SPARSE_MAX_CPS` 1.5 文字/秒未満・`text_chars` = Unicode の文字(L)と数字(N)だけ数える)。
   ちょうど 4.0 秒を含めないのは、疑似の文字起こしの行(4.0 秒に「テスト文N」= 1.25 文字/秒)が全部当たって、画面のテストの前提(5 行ごとの「自信が低い」)が崩れたため。
   `make_flags` が「長い区間に文字が少ない(抜けの可能性)」(`SPARSE_FLAG`)を付ける(認識の直後・範囲の再認識・選んだ行の再認識のどれでも)。以前の文書の印は変えない
-- 集計 `tools/count_sparse_rows.py`(作業データを読むだけ。機械の出力 original と今の行 segments の両方。評価用と最近の文字起こし)
+- 集計 `dev/count_sparse_rows.py`(作業データを読むだけ。機械の出力 original と今の行 segments の両方。評価用と最近の文字起こし)
 - **結果(PC の作業データ 28 本。2026-09-26)**:
   - 評価用 10 本(機械の出力 129 行・460 秒): **該当 0 行**
   - 最近の 18 本(評価用を除く全部。263 行・754 秒): **該当 6 行(2.3%)・合計 69.5 秒(長さの 9.2%)・5 本**。
@@ -456,7 +321,7 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
   cut2resolve の API は `output.textplusWrap`(0〜40。0 = 改行しない)。「編集」のパック・zip・見積もりの見本(`/api/edit/preview` の `samples`)は設定の `subtitle.wrapChars`(置き先が横なら横)、
   まとめて実行は `subtitle.wrapChars.vertical`
 - テスト: `test_metrics`(分け方・設定)・`test_worker`(偽のワーカーの単語が words.json に)・`test_edit`(分け直す・409・no_words・履歴・削除・見本と zip の改行)・
-  `cut2resolve/test_pack`(`wrap_caption`・向きごとの既定・Lua に改行のまま入る)・`test_serve`(textplusWrap の範囲)・`app/test_autorun`・`e2e_edit_tabs`(設定の欄・分け直す)
+  `src/cut2resolve/tests/test_pack`(`wrap_caption`・向きごとの既定・Lua に改行のまま入る)・`test_serve`(textplusWrap の範囲)・`src/home/tests/test_autorun`・`e2e_edit_tabs`(設定の欄・分け直す)
 
 ### ①⑤ Text+ の見た目の指定・横動画(**始める前に方式をユーザーに確認**)
 案: 雛形方式。Resolve で見た目を整えた Text+(フォント・大きさ・位置・色・ふちの太さ・影)を .drb に書き出し、ツールに「字幕の見た目」として名前つきで登録する
@@ -485,7 +350,7 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
 
 ① の実装で決めたこと(2026-09-26 Claude Code。雛形方式の案・「縦用・横用の名前つきの雛形の登録」・改行の文字数の縦横の設定は、(B) と「縦横同じ」の回答で不要になった。
 改行の文字数は ② で扱う):
-- 見た目の正は `cut2resolve/resolve_textplus.py` の `TEXT_STYLE`(1か所)。`style_inputs()` が Text+ に入れる `[[入力の名前, 値], ...]` を作り、計画(Lua に埋め込むデータ)の `style.inputs` にする。
+- 見た目の正は `src/cut2resolve/resolve_textplus.py` の `TEXT_STYLE`(1か所)。`style_inputs()` が Text+ に入れる `[[入力の名前, 値], ...]` を作り、計画(Lua に埋め込むデータ)の `style.inputs` にする。
   Lua は「入れて・最初の字幕で読み直す」だけ(値の規則を Lua に書かない)
 - 入れる入力(Fusion の Text+ の名前): `Size` 0.14・`CharacterSpacing` 1.0・`LineSpacing` 1.0・`VerticalTopCenterBottom` 1.0・`HorizontalLeftCenterRight` 0.0、
   シェードの要素 n(1・2・5)ごとに `Enabled{n}`・`ElementShape{n}`(0 = 塗り / 1 = ふち)・`Thickness{n}`(ふちだけ)・`Red/Green/Blue/Alpha{n}`・`Priority{n}`・`Offset{n}`({X, Y})。
@@ -506,7 +371,7 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
 
 ### ⑦ 案件一覧以外から一括処理(**始める前に作り方をユーザーに確認**)
 - (a) スタジオの配信の画面から、案件と同じ「まとめて実行」を始められるようにする(同じ API・同じ形)
-- (b) 編集の履歴で複数の動画を選んで「文字起こし → パック」。`app/autorun.py` に動画ファイル単位の実行を足す。
+- (b) 編集の履歴で複数の動画を選んで「文字起こし → パック」。`src/home/autorun.py` に動画ファイル単位の実行を足す。
   編集の内容がある文書はそのとおり(keeps)に作るか、行から作るか(10. 未決)を先にユーザーに確認
 - 同じ動画の二重の登録は断る。パックがすでにあるときは既定で飛ばす(上書きは選べる)。中止できる・SLOTS を通す
 
@@ -514,13 +379,13 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
 - (a) スタジオ: 配信の画面(マークの一覧の上)に「まとめて実行 ▾」。案件の一覧と同じ3つ(解析から全部・採用後を全部・文字起こしまで。解析から全部は採用する数も)を選んで、
   入口の同じ API `POST /api/autorun/start {id, mode, top}` を呼ぶ(スタジオの画面から `../api/autorun/...`。合言葉は同じ入口のもの)。
   動いている間は同じ画面に段ごとの札と「中止」、終わったら「案件で見る」。入口に取り込まれていないとき(合言葉が無い)は出さない
-- (b) 編集: 履歴の一覧に「選ぶ」を足し(行のチェック)、選んだ文書をまとめて「文字起こし → パック」。入口の `app/autorun.py` に文書単位の実行を足す
+- (b) 編集: 履歴の一覧に「選ぶ」を足し(行のチェック)、選んだ文書をまとめて「文字起こし → パック」。入口の `src/home/autorun.py` に文書単位の実行を足す
   (`POST /api/autorun/start-docs {ids: [...], overwrite}`。配信単位の実行と同じ順番待ち・中止・状態の API)。文書ごとに:
   行が無ければ文字起こし(新規の設定・intoDoc)→ パック(カットがあれば**カットのとおり**、無ければ行から。E5 追記の決定と同じ)→ 作った記録(packRev)。
   パックがあるときは既定で飛ばす(「作り直す」を選ぶと上書き)。同じ文書を二重に登録しない。文字起こし・パックは今までどおり SLOTS を通る
 
 ⑦ の実装で決めたこと(2026-09-27 Claude Code):
-- 入口 `app/autorun.py`: `start_docs(ids, overwrite)`(文書ごとに1つの実行 `Run(doc_id=…)`。段は `MODE_STEPS["doc"]` = 文字起こし・パック。
+- 入口 `src/home/autorun.py`: `start_docs(ids, overwrite)`(文書ごとに1つの実行 `Run(doc_id=…)`。段は `MODE_STEPS["doc"]` = 文字起こし・パック。
   `public()` に `kind`("video"|"doc")・`docId`・`overwrite`)。1回に 1〜20 本。同じ文書が実行中・順番待ちなら `skipped` に理由(「すでに実行中・順番待ちです」)。
   文字起こしは文書の動画に `intoDoc`(新規の設定 = `TX_KEYS`・字幕の文字数は設定)。パックは配信単位の実行と**同じ関数 `_pack_one`**(カットがあればカットのとおり・無ければ行から・
   改行の文字数と行の端の設定)。パックがある(`find_pack`)と既定で飛ばす・`overwrite` なら cut2resolve に `force`。字幕の行もカットも無い文書は飛ばして理由を出す。
@@ -529,5 +394,5 @@ BGM やゲーム音が声として通り、Whisper が長い塊に単語1つを�
   終わったら一覧を読み直して「パック済み」に)。入口の API は画面の場所からの相対(`new URL('../api/…', location.href)`。絶対パスを書かない)。合言葉が無い(単体)ときは出さない
 - スタジオ: ③ 確認・書き出し の上の帯に「まとめて実行 ▾」(`#rvAuto`。採用後を全部・文字起こしまで・解析から全部 + 採用する数)。始める前に手で付けたマークを保存する。
   進み具合の帯 `#rvAutoBar`(その配信のいちばん新しい実行。3 秒おき・中止・「案件で見る」= `../cases.html`)。終わったらマークを読み直す(書き出し済みの印)。10 分より前に終わった実行は出さない
-- テスト: `app/test_autorun.py` の `TestDocs`(文字起こし → パック・二重の登録・おかしい id・パック済みは飛ばす/作り直す・カットのとおり・動画が無い)、
-  `transcribe-tool/e2e_edit_pack.py`(履歴から選んで、行の無い文書が文字起こし → パックまで・一覧が「パック済み」)、`clip-studio/e2e_ui.py`(入口の中では出る・始めると帯・中止 / 単体では出さない)
+- テスト: `src/home/tests/test_autorun.py` の `TestDocs`(文字起こし → パック・二重の登録・おかしい id・パック済みは飛ばす/作り直す・カットのとおり・動画が無い)、
+  `src/editor/tests/e2e_edit_pack.py`(履歴から選んで、行の無い文書が文字起こし → パックまで・一覧が「パック済み」)、`src/studio/tests/e2e_ui.py`(入口の中では出る・始めると帯・中止 / 単体では出さない)

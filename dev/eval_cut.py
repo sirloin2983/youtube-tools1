@@ -33,13 +33,14 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import datadir, txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"
-EDIT_SCHEMA = "youtube-tools-edit/v1"     # editor/ed_store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
+EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/editor/ed_store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
 BASE_FPS = 30                              # 端のずれはまず 30fps のコマで数える(Q1: 素材は 30fps にそろえる)
 TOL_FRAMES = 0.5                           # 端のずれがこのコマ数未満なら「そのまま」(フレームの丸めと 0.001 秒の丸めの差を除く)
 BIG_FRAMES = 5                             # 「大きく動かした」とみなすコマ数
@@ -382,7 +383,7 @@ def evaluate(data_dir=None, since=None, until=None):
 
 def git_rev():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 

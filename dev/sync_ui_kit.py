@@ -4,22 +4,23 @@
     python dev/sync_ui_kit.py          # 写す
     python dev/sync_ui_kit.py --check  # ずれがあれば一覧を出して終了コード 1(テスト用)
 
-正本は ui-kit/ui-kit.css と ui-kit/ui-kit.js。各ツールは実行時に ui-kit/ を参照しない(フォルダ単体で動く)ように、
+正本は src/ui-kit/ui-kit.css と src/ui-kit/ui-kit.js。各ツールは実行時に ui-kit/ を参照しない(フォルダ単体で動く)ように、
 写しを自分のフォルダに持つ。写し先:
-  - studio/ui-kit.css, studio/ui-kit.js         (静的ファイルとして配信)
-  - editor/ui-kit.js                             (同上。CSP 対応で index.html から外に出した)
-  - editor/index.html の中の印の間                  (CSS だけは画面が1ファイルのため埋め込み)
+  - src/studio/ui-kit.css, src/studio/ui-kit.js         (静的ファイルとして配信)
+  - src/editor/ui-kit.js                             (同上。CSP 対応で index.html から外に出した)
+  - src/editor/index.html の中の印の間                  (CSS だけは画面が1ファイルのため埋め込み)
       /* ui-kit:css:begin */ … /* ui-kit:css:end */   (<style> の中。インラインの CSS は CSP で許可している)
 """
 import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+SRC = os.path.join(ROOT, "src")   # ツール・ytt_core・ui-kit の置き場所
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 from ytt_core.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだけが知っている
-KIT = os.path.join(ROOT, "ui-kit")
-HEADER = "/* このファイルは ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは ui-kit/ の正本を直して写し直す */\n"
+KIT = os.path.join(SRC, "ui-kit")
+HEADER = "/* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */\n"
 FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("js",))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
 EMBED_TARGETS = [(TOOL_DIRS["transcribe"], "index.html", ("css",))]
 MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* ui-kit:js:begin */", "/* ui-kit:js:end */")}
@@ -45,7 +46,7 @@ def kit():
 def expected_files(k):
     out = {}
     for tool, names in FILE_TARGETS:
-        d = os.path.join(ROOT, tool)
+        d = os.path.join(SRC, tool)
         if not os.path.isdir(d):
             continue
         for name in names:
@@ -80,7 +81,7 @@ def main(argv):
             if not check:
                 write(path, want)
     for tool, name, names in EMBED_TARGETS:
-        path = os.path.join(ROOT, tool, name)
+        path = os.path.join(SRC, tool, name)
         if not os.path.exists(path):
             continue
         have = read(path)

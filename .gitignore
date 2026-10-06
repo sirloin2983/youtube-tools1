@@ -11,9 +11,8 @@ __pycache__/
 # 実行のたびに変わる状態・キャッシュ・個人データ・秘密情報(全ツール共通)
 **/cache/
 **/archive/
-!docs/archive/
 **/work/
-cut2resolve/packs/
+src/cut2resolve/packs/
 **/exports/
 **/clips/
 **/dataset/
@@ -75,17 +74,17 @@ _new/
 **/browser-profile/
 
 # ホロカラー(holo-colors)のビルドの成果物(build.bat が作る。exe は友人に zip で渡す)・YTT_DATA_DIR=inplace のときの作業データ
-holo-colors/build/
-holo-colors/dist/
-holo-colors/data/
+friend-apps/holo-colors/build/
+friend-apps/holo-colors/dist/
+friend-apps/holo-colors/data/
 
 # 切り抜き依頼(request-sender)のビルドの成果物と、Dropbox の鍵(config.json。dev/dropbox_auth.py が作る。**/config.json でも無視されるが明示する)
-request-sender/build/
-request-sender/dist/
-request-sender/config.json
+friend-apps/request-sender/build/
+friend-apps/request-sender/dist/
+friend-apps/request-sender/config.json
 
 # design-review の写真(見本のデータ。重いので入れない。python の見直しの手順で撮り直せる)
-.design/*/screenshots/
+docs/design/briefs/*/screenshots/
 
 # 評価データ(友人の送る用 zip・取り込み先 eval-intake。形式は ytt_core/evaldata.py)は公開リポジトリに入れない(簡易版の画面は 2026-10-04 に消した。形式と取り込みは残す)
 **/送る用ファイル/
@@ -93,6 +92,6 @@ request-sender/config.json
 **/eval-intake/
 
 # テストを YTT_DATA_DIR=inplace で動かしたときのホームの設定(2026-10-04)
-home/prefs.json
+src/home/prefs.json
 # 同じく、リアルタイム切り抜き(線 D)をオンにしたときのマーク・書き出しの記録(2026-10-04)
-home/live/
+src/home/live/

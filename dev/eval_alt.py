@@ -22,16 +22,16 @@
     2つ目のエンジン(alt.json の engine・model)ごとの表と、文書ごと(当たり率が低い順に 10 件)の表
 - --since / --until(原則 4: 時期で分ける)は まとまりの時刻で絞る(until はその日を含む)。まとまりの時刻 = 人の行の校正した時刻 proofedAt の最大(あれば)、無ければ文書の更新時刻 updatedAt
   (eval_speakers.py と同じ考え方。proofedAt を作る前に校正済みになった行は更新時刻になる)
-- 字幕に出さない行 noSub(editor/ed_learn.py の split_nosub。行の半分以上が noSub の行の時間に入る機械の行も)は、候補の当たり率にも拾えた率にも入れない(その行は字幕に出ないので、候補で直す意味がない)。
+- 字幕に出さない行 noSub(src/editor/ed_learn.py の split_nosub。行の半分以上が noSub の行の時間に入る機械の行も)は、候補の当たり率にも拾えた率にも入れない(その行は字幕に出ないので、候補で直す意味がない)。
   その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
-- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。editor/ed_ytcap.py)。
+- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。src/editor/ed_ytcap.py)。
   保存してある配信ごとの字幕(作業データの ytcaps/<配信の ID>.json)を、文書の clip(スタジオの切り抜き)の範囲で切り出し(ytcap_doc_rows)、
   editor の ytcap_diffs(alt_diffs + 切り抜きの境目を出さない)で候補を出し直す。**道具は通信しない**(字幕が保存されていない文書は数えない = noYt)。
   エンジンごとの表は「youtube / auto(自動字幕)・manual(配信者の字幕)」。採否の記録は学習の記録の yt。
   both = alt と yt を別々に出し、両方がある文書で 2 つが同じ候補(同じ行・同じ位置・同じ直し)を出した所の当たり率(一致)も出す(一致は当たりやすいかを見るため)
-- 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(editor/roster.py の find_in_text)がある所の、
+- 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(src/editor/roster.py の find_in_text)がある所の、
   候補の当たり / 外れ / 別の直しと、人の直しの拾えた率を、全体とは別に出す(names)
 - --include-eval: 評価用の文書も測る(読むだけ。候補は画面に出さない決まりのまま・測るだけなら定点の正解は寄らない。評価用でしか確かめ済みの文書が無いときに)
 """
@@ -47,7 +47,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 if HERE not in sys.path:
@@ -105,7 +106,7 @@ def read_ytcache(S, root, vid):
 
 
 def name_checker(S):
-    """名簿の呼び名が文字にあるか(editor/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
+    """名簿の呼び名が文字にあるか(src/editor/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
     import roster
     r = roster.load(S.ROSTER)
     return lambda text: bool(roster.find_in_text(text, r))
@@ -504,7 +505,7 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
 
 def git_rev():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 

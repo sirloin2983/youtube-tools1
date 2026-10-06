@@ -12,8 +12,9 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, "setup"))
+TOP = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # リポジトリ直下
+ROOT = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
+sys.path.insert(0, os.path.join(TOP, "setup"))
 sys.path.insert(0, ROOT)
 from ytt_core.layout import TOOL_DIRS  # noqa: E402
 import cleanup_legacy_data as CL  # noqa: E402

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
 
-経緯: 2つの実装(editor/resolve_export.py(旧 transcribe-tool)と cut2resolve/pack.py)があった(AGENTS.md の【高】リスク)。
+経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py)があった(AGENTS.md の【高】リスク)。
 2026-09-26 に、先にこのテストで「同じ入力から同じ中身」を固定してから、resolve_export を pack.py を呼ぶだけの形に寄せた。
 
 このテストが守ること:
@@ -15,7 +15,7 @@
      2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
   B'. 重なる行のある文書(2026-10-05)… zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
-     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは cut2resolve/tests/test_pack.py の TestCaptionLanes)
+     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは src/cut2resolve/tests/test_pack.py の TestCaptionLanes)
 
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
      渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
@@ -44,7 +44,7 @@ import zipfile
 from fractions import Fraction
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent / "src"   # ツールと ytt_core の置き場所
 for d in (ROOT / "cut2resolve", ROOT / "editor", ROOT):
     if str(d) not in sys.path:
         sys.path.insert(0, str(d))
@@ -61,7 +61,7 @@ VIDEO_SEC = 12
 
 
 # ---------------------------------------------------------------- LEGACY: 一本化の前の resolve_export の計算(凍結。直さない)
-# 928c3b1 の editor/resolve_export.py の build_plan と _build_srt から、区間と字幕の計算だけを写したもの
+# 928c3b1 の src/editor/resolve_export.py の build_plan と _build_srt から、区間と字幕の計算だけを写したもの
 # (余白つき素材が無い場合。余白つき素材の場合の旧の結果は、test_same_pack_with_studio_edit_media に値で残す)
 
 class LEGACY:
@@ -333,7 +333,7 @@ class ResolvePackContract(unittest.TestCase):
         self.assertSamePack(self.doc(rows, "30"), "30", None, backup=True)   # 予備(EDL・予備の手順書・SRT)も入れたとき
 
     def test_same_pack_with_overlapping_rows(self):
-        """重なる行(同時にしゃべっている所)のある文書(docs/plan/other-voice-and-overlap-plan.md の 6-2 の 4): 文字起こしの zip と
+        """重なる行(同時にしゃべっている所)のある文書(plan/line-b-overlap.md の 6-2 の 4): 文字起こしの zip と
         cut2resolve のパックが同じ(重なる字幕の段・切った字幕の終わりも同じ)。区間・字幕・SRT は段分けの前と同じ(A。SRT は重なったまま)。
         重なりの無い文書は、計画に段の項目が無い(Lua・手順書は今までと同じ。resolve_textplus の印を消しただけ)"""
         rows = [seg(1, 0.5, 2.5, "一"), seg(2, 1.0, 3.0, "二"), seg(3, 2.9, 4.0, "三"), seg(4, 3.9, 4.6, "四"), seg(5, 5, 6, "五")]
@@ -376,8 +376,8 @@ class ResolvePackContract(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class ZipSkipsContract(unittest.TestCase):
-    """F. zip に渡らない出力の設定(docs/plan/phase4-pack-consistency.md の 4-4。ユーザー決定 2026-09-29: zip の中身は変えず、画面に書く)。
-    zip(editor/resolve_export.create_package)は、粗編集の動画(render → _roughcut.mp4)・元の動画の開始タイムコード(advanced.srcStartTc)・
+    """F. zip に渡らない出力の設定(git の履歴(679ff01 以前)の docs/plan/phase4-pack-consistency.md の 4-4。ユーザー決定 2026-09-29: zip の中身は変えず、画面に書く)。
+    zip(src/editor/resolve_export.create_package)は、粗編集の動画(render → _roughcut.mp4)・元の動画の開始タイムコード(advanced.srcStartTc)・
     タイムラインの開始タイムコード(advanced.recStart)・リール名(advanced.reel)を受け取らない。パックのタブ(pack-tab.js の ZIP_SKIPS)がそれを画面に書く。
     ここで「渡らない」ことを固定する: 将来 zip に渡すようにしてこのテストが落ちたら、画面の説明(pack-tab.js の zip の説明・注意、index.html)も直す合図。
     なお、開始タイムコード・リール名が効くのは EDL だけ(Lua は元動画のフレーム番号で区間を持つので変わらない)。EDL は予備(backup)を入れたときだけできる"""

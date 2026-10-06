@@ -1,9 +1,9 @@
-# Transcription (editor). Versions that worked on Python 3.10 on 2026-10-01 (phase 10-3, docs/plan/phase10-code-split.md).
+# Transcription (editor). Versions that worked on Python 3.10 on 2026-10-01 (phase 10-3, git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md).
 # Keep this file ASCII only: pip on Windows may read it with the system code page.
 # To upgrade: edit here, run install.bat, then python dev/run_editor_suite.py and a real transcription.
 faster-whisper==1.2.1
 ctranslate2==4.8.2
 onnxruntime==1.23.2
 numpy==2.2.6
-# Live clipping recorder (recorder/, line D P1, 2026-10-04). Used only when it is turned on in the home settings.
+# Live clipping recorder (src/recorder/, line D P1, 2026-10-04). Used only when it is turned on in the home settings.
 streamlink==8.6.1

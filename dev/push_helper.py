@@ -13,7 +13,7 @@
 ■ check(コミット前の検査)
   リポジトリは Public にする方針なので、次のものが入っていたら止める(終了コード 1。push.bat はコミットせずに止まる):
   - 秘密情報の形: Google の API キー・OpenAI などの sk- キー・GitHub/Slack のトークン・AWS のキー・秘密鍵・
-    Dropbox の refresh token / access token(と、その鍵のファイル request-sender/config.json)
+    Dropbox の refresh token / access token(と、その鍵のファイル friend-apps/request-sender/config.json)
   - 個人データ・実行時のデータの名前: data.json・config.json・settings*.json・cases.json・.migrated.json・*.jsonl・cookies.txt・.env・
     transcripts/ dataset/ models/ などの下・動画や音声のファイル・ログ
   - 大きすぎるファイル(5MB 超。動画・キャッシュの混入)
@@ -36,13 +36,14 @@ SECRET_PATTERNS = [
     ("Slack のトークン", re.compile(rb"\bxox[baprs]-[A-Za-z0-9\-]{10,}")),
     ("AWS のアクセスキー", re.compile(rb"\bAKIA[0-9A-Z]{16}\b")),
     ("秘密鍵", re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    # Dropbox(切り抜き依頼の鍵。request-sender/config.json・dev/dropbox_auth.py。2026-09-30)。
+    # Dropbox(切り抜き依頼の鍵。friend-apps/request-sender/config.json・dev/dropbox_auth.py。2026-09-30)。
     # "refreshToken": "…" / refresh_token=… の値が 20 文字以上の英数字なら本物とみなす(説明の "..."・<…> は通す)
     ("Dropbox の refresh token", re.compile(rb"""(?i)["']?refresh_?token["']?\s*[:=]\s*["']?[A-Za-z0-9_\-]{20,}""")),
     ("Dropbox の access token", re.compile(rb"\bsl\.[A-Za-z0-9_\-.]{50,}")),
 ]
-# 名前だけでなく場所でも止めるもの(鍵そのもの。config.json は BAD_NAMES でも止まるが、理由をはっきり出す)
-SECRET_FILES = {"request-sender/config.json": "切り抜き依頼の鍵(Dropbox)"}
+# 名前だけでなく場所でも止めるもの(鍵そのもの。config.json は BAD_NAMES でも止まるが、理由をはっきり出す)。
+# 旧い場所(2026-10-07 以前の request-sender/)も残す(古いブランチ・写しからの混入も止める)
+SECRET_FILES = {"friend-apps/request-sender/config.json": "切り抜き依頼の鍵(Dropbox)", "request-sender/config.json": "切り抜き依頼の鍵(Dropbox)"}
 # 名前で止めるもの(小文字で比べる)
 BAD_NAMES = {"data.json", "config.json", "cases.json", ".migrated.json", "cookies.txt", ".env", "registry.json",
              "feedback.jsonl", "learn-feedback.json", "eval-baselines.json", ".running.json"}

@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")   # ツールと ytt_core の置き場所
 for d in (os.path.join(REPO, "editor"), REPO):
     if d not in sys.path:
         sys.path.insert(0, d)

@@ -1,7 +1,7 @@
 # 画面の共通のルール(2026-09-26 の全面見直しで決めたもの。2026-09-27 の2回目の見直しで改訂)
 
 ホームと2つのツール(切り抜きスタジオ・編集)の画面を直すときは、このルールに合わせる。
-2回目の見直し(2026-09-27)の設計: `.design/ui-overhaul/DESIGN_BRIEF.md`(ユーザー承認)・実装で決めた細部: `.design/ui-overhaul/IMPLEMENTATION.md`。
+2回目の見直し(2026-09-27)の設計: `docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md`(ユーザー承認)・実装で決めた細部: `docs/design/briefs/ui-overhaul/IMPLEMENTATION.md`。
 部品と色は `ui-kit/`(正本。`python dev/sync_ui_kit.py` で各ツールへ写す)。見本は `ui-kit/styleguide.html`。
 使う人は Web の開発者だが動画編集は初心者。**「次に何をすればいいか」が画面だけで分かる**ことを一番に考える。
 考え方の物差しは Nielsen の 10 の原則(`docs/spec/usability-heuristics.md`。2026-09-27 ユーザー指示)。
@@ -65,7 +65,7 @@
 
 ## 3-2. 時刻を入れる欄(2026-10-02)
 - 時刻(1:23:45)を手で入れる欄を新しく作るときは、ui-kit の `UIKit.timebox`(`<span data-ui-time>`。`ui-kit/README.md` の v11)を使う。「:」を打たせない・
-  時 → 分 → 秒 の順に数字だけ・← → で場所を選ぶ・↑ ↓ で動かす(ユーザーが送るアプリ 2.0.0 で決めた形。`.design/request-sender-overhaul/DESIGN_BRIEF.md`)
+  時 → 分 → 秒 の順に数字だけ・← → で場所を選ぶ・↑ ↓ で動かす(ユーザーが送るアプリ 2.0.0 で決めた形。`docs/spec/friend-intake.md` の 2-10)
 - YouTube の URL(…?t=)の貼り付けは、配信の位置を入れる欄だけ(`data-ui-time-youtube`)。ほかの欄では付けない(ユーザー「必要な時だけでいい」)
 - 誤り(終了が開始より前など)は、その場で欄を `aria-invalid="true"` にして、欄の下に「何が・どう直す」を出す(送る・保存するまで待たない)
 - 形の使い分け(ユーザー決定 2026-10-02): 配信の中の位置(長い)= 時:分:秒(0.1 秒まで要るなら `data-ui-time-tenths`)/ 切り抜きの字幕の行(短い)= 分:秒.0.1秒(`data-ui-time-short`)

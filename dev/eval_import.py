@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""評価データの取り込みチェック(あなた側。友人用 文字起こし簡易版の計画 L5。docs/plan/friend-lite-plan.md)。
+"""評価データの取り込みチェック(あなた側。友人用 文字起こし簡易版の計画 L5。git の履歴(679ff01 以前)の docs/plan/friend-lite-plan.md)。
 
     py -3.10 dev/eval_import.py <zip か zip の入ったフォルダ> [...] [--dest フォルダ] [--force]
 
-友人が送った「送る用ファイル」(日付_配信者_作業ID.zip。中身は ytt_core/evaldata.py の FILES)を確かめて、作業データの外の置き場所へ展開する。
-弾く判定の最終版(.design/friend-transcribe-lite/DESIGN_BRIEF.md の「文字起こしルールと評価データ」「セキュリティ」)。
+友人が送った「送る用ファイル」(日付_配信者_作業ID.zip。中身は src/ytt_core/evaldata.py の FILES)を確かめて、作業データの外の置き場所へ展開する。
+弾く判定の最終版(git の履歴(679ff01 以前)の docs/design/briefs/friend-transcribe-lite/DESIGN_BRIEF.md の「文字起こしルールと評価データ」「セキュリティ」)。
 
 - 置き場所(--dest。既定 %LOCALAPPDATA%\\youtube-tools\\eval-intake。Windows 以外は ~/.local/share/youtube-tools/eval-intake):
     works/<作業ID>/      … 展開した5つのファイル + check.json(判定・振り分け)
@@ -31,9 +31,10 @@ import unicodedata
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
+REPO = os.path.dirname(HERE)   # リポジトリ直下(「リポジトリの中には置けない」の判定に使う)
+SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 from ytt_core import evaldata as ev  # noqa: E402
 
 CHECK_FORMAT = "youtube-tools-eval-check/v1"       # check.json の形式の名前

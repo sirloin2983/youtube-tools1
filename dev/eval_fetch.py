@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""編集前の定点(評価用)を、配信のアーカイブから取得する道具(文字起こしの精度改善の計画 第2版 D0-b。docs/plan/transcription-plan-v2.md の 3-3)。
+"""編集前の定点(評価用)を、配信のアーカイブから取得する道具(文字起こしの精度改善の計画 第2版 D0-b。plan/line-b-transcription.md の 3-3)。
 
     python dev/eval_fetch.py plan  [--root 評価用のフォルダ] [--minutes 40] [--clip-sec 40] [--since YYYY-MM-DD] [--seed 文字] [--redo]
     python dev/eval_fetch.py show  [--root 評価用のフォルダ]
     python dev/eval_fetch.py fetch [--root 評価用のフォルダ] [--limit N]
 
-- plan  … メンバーのチャンネル(editor/hololive-roster.json の channel)の配信の一覧を yt-dlp で読み、どの配信のどこを取るかの一覧
+- plan  … メンバーのチャンネル(src/editor/hololive-roster.json の channel)の配信の一覧を yt-dlp で読み、どの配信のどこを取るかの一覧
            <評価用のフォルダ>\\fetch-plan.json を作る(動画は取らない)。乱数は使わない(seed と ID の SHA-1 で決める = 何度作っても同じ)
 - fetch … 一覧のうちまだ取っていない区間を取って、<評価用のフォルダ>\\評価用_仮置き に置く。途中で止めても、もう一度流せば続きから
 - show  … 一覧の要約
@@ -33,7 +33,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import fsio, normalize, schemas, tools  # noqa: E402
@@ -47,7 +47,7 @@ CH_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 LIST_MAX = 40                # チャンネルごとに読む配信の数(新しい順)
 MIN_STREAM_SEC = 20 * 60     # これより短い配信は選ばない
 EDGE = 0.10                  # 配信の前後のこの割合は取らない
-SECTION_PAD = 2.0            # 区間取得で前後に足す秒(studio/exporter.py と同じ)
+SECTION_PAD = 2.0            # 区間取得で前後に足す秒(src/studio/exporter.py と同じ)
 MAX_HEIGHT = 720             # 校正の画面で見るだけなので 720p まで
 CANDIDATES = 6               # 1 区間あたりの配信の候補(取れなければ次へ)
 SILENT_RATIO = 0.8           # 無音がこの割合を超えたら取り直す

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""評価用_仮置き の動画を、評価用(定点)と学習用に分ける道具(文字起こしの精度改善の計画 第2版 D0。docs/plan/transcription-plan-v2.md の 3-1)。
+"""評価用_仮置き の動画を、評価用(定点)と学習用に分ける道具(文字起こしの精度改善の計画 第2版 D0。plan/line-b-transcription.md の 3-1)。
 
     python dev/eval_split.py plan  [--root 評価用のフォルダ] [--train 学習用のフォルダ] [--eval-min 30] [--seed 文字] [--data 文字起こしの作業データ]
     python dev/eval_split.py show  [--root 評価用のフォルダ]
@@ -28,14 +28,14 @@ import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import datadir, fsio, tools  # noqa: E402
 
 SCHEMA = "youtube-tools-eval-split/v1"
 PLAN_NAME = "split-plan.json"
-STAGING = "評価用_仮置き"                    # editor/ed_relink.py の EVAL_STAGING と同じ(editor は読み込まない)
+STAGING = "評価用_仮置き"                    # src/editor/ed_relink.py の EVAL_STAGING と同じ(editor は読み込まない)
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".ts", ".flv")
 ROSTER = os.path.join(REPO, "editor", "hololive-roster.json")
 ALIAS_MIN = 3                                # 名前が無いときに呼び名で決める最短の長さ(短い呼び名は別の語に紛れる)
@@ -46,7 +46,7 @@ _NOISE = re.compile(r"教師データ|ショート|\d+")
 
 
 def fold(s):
-    """照らし合わせ用(editor/roster.py の fold と同じ): NFKC・小文字・カタカナ → ひらがな・空白と区切りを除く"""
+    """照らし合わせ用(src/editor/roster.py の fold と同じ): NFKC・小文字・カタカナ → ひらがな・空白と区切りを除く"""
     t = unicodedata.normalize("NFKC", str(s or "")).lower()
     t = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in t)
     return _SEP.sub("", t)

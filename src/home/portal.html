@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>動画編集ツール — ホーム</title>
+<script src="/ui-kit.js"></script>
+<link rel="stylesheet" href="/ui-kit.css">
+<link rel="stylesheet" href="/portal.css">
+<script src="/portal.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <nav class="ui-appnav" data-ui-appnav="portal" aria-label="ホーム/スタジオ/編集"></nav>
+  <span class="ui-ver" id="ver"></span>
+  <div class="ui-header-actions">
+    <span class="pill wait" id="conn">接続中…</span>
+    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(テーマ・文字の大きさ・キーの帯)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
+  </div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="pt-main" id="main">
+  <h1 class="pt-h1">ホーム</h1>
+
+  <section class="pt-todo-box" id="todoBox">
+    <h2 class="pt-h2">次にやること</h2>
+    <p class="hint" id="todoEmpty" hidden>いま手が要る作業はありません。</p>
+    <ul class="pt-todo-list" id="todoList"></ul>
+    <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る(あと <span id="todoMoreN"></span>件)</button>
+    <button type="button" class="btn small ghost" id="todoHidden" hidden></button>
+  </section>
+
+  <section class="pt-cases-box" id="caseListSection">
+    <h2 class="pt-h2">案件(配信ごと)</h2>
+    <p class="hint">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。
+      紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します。</p>
+
+    <div class="ui-listbar">
+      <input id="fText" type="search" placeholder="配信のタイトル・配信者で絞り込み" aria-label="配信のタイトル・配信者で絞り込み">
+      <select id="fStatus" aria-label="状態で絞り込み">
+        <option value="">状態: すべて</option>
+        <option value="none">状態: 未設定</option>
+        <option value="working">状態: 作業中</option>
+        <option value="posted">状態: 投稿済み</option>
+        <option value="skipped">状態: 見送り</option>
+      </select>
+      <select id="fSort" aria-label="並び替え">
+        <option value="new">新しい順</option>
+        <option value="remaining">次にやることが多い順</option>
+        <option value="channel">配信者順</option>
+        <option value="title">題名順</option>
+      </select>
+      <select id="fGroup" aria-label="まとめ方">
+        <option value="">まとめ方: なし</option>
+        <option value="channel">配信者ごとにまとめる</option>
+        <option value="status">状態ごとにまとめる</option>
+      </select>
+      <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
+      <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
+      <span class="ui-count" id="count"></span>
+    </div>
+    <p class="hint" id="summary"></p>
+
+    <div id="list" class="stack"></div>
+    <div class="row" id="moreBox" hidden><button type="button" class="btn" id="btnMore"></button></div>
+
+    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は「編集」の履歴が主。ここは件数と「編集の履歴で見る」の1行 + 選んでまとめて実行する入口(09-29 決定: 入口は減らさない) -->
+    <div class="row pt-unlinked" id="unlinkedHead" hidden>
+      <span class="pt-group-label">単体の文字起こし <span class="ui-group-n" id="unlinkedCount"></span></span>
+      <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は「編集」の履歴で(種類: それ以外)</span>
+      <a class="btn small" id="unlinkedOpen" href="/transcribe/?list=other#tx" target="_blank" rel="noopener">編集の履歴で見る</a>
+    </div>
+    <details class="ui-group" id="unlinkedGroup" hidden>
+      <summary><span class="pt-group-label">単体の文字起こしを選んで、まとめて実行</span></summary>
+      <div class="pt-group-body">
+        <p class="hint">検索して選ぶと、まとめて文字起こし・パックを進められます(「編集」の履歴の「選んで、まとめて実行」と同じ)。</p>
+        <div class="ui-listbar">
+          <input id="docSearch" type="search" placeholder="文書のタイトルで絞り込み" aria-label="文書のタイトルで絞り込み">
+          <button type="button" class="btn small ghost" id="docHidden" hidden></button>
+          <span class="ui-count" id="docCount"></span>
+        </div>
+        <ul class="pt-clips" id="docList"></ul>
+        <div class="row" id="docMoreBox" hidden><button type="button" class="btn small ghost" id="docMore"></button></div>
+        <div class="pt-auto">
+          <div class="row">
+            <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+              <input id="docWho" type="text" size="12" placeholder="例: さくらみこ"></label>
+            <label class="lag"><input type="checkbox" id="docOverwrite">パックがあれば作り直す(上書き)</label>
+            <button type="button" class="btn small primary" id="docRunBtn" disabled>選んだ文書をまとめて実行</button>
+          </div>
+          <div class="row"><span class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック。20 本まで)</span>
+            <button type="button" class="btn small ghost" id="docPickAll">表示中を全部選ぶ</button>
+            <button type="button" class="btn small ghost" id="docPickNoPack">パックが無いものだけ選ぶ</button></div>
+          <ol class="pt-auto-steps" id="docRunSteps"></ol>
+          <div class="hint" id="docRunMsg"></div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <details class="ui-disclosure pt-intake" id="intakeBox">
+    <summary><span>依頼の受付</span> <span class="pill wait" id="intakeState">確認中…</span></summary>
+    <div class="pt-intake-body">
+      <p class="hint">友人がアプリや共有フォルダで送ってきた「この配信(または動画)を切り抜いてほしい」という依頼を、フォルダを見張って自動で受け付けます。
+        受け付けた依頼は、解析(または文字起こし)まで自動で進み、進み具合は「次にやること」と「まとめて実行の記録」に出ます。</p>
+      <div class="row pt-intake-status">
+        <span class="hint" id="intakeMsg"></span>
+        <span class="hint num" id="intakeScan"></span>
+        <span class="hint num" id="intakeToday"></span>
+        <button type="button" class="btn small" id="intakeScanBtn">今すぐ確認</button>
+      </div>
+
+      <div class="pt-intake-settings card flat">
+        <div class="row">
+          <label class="lag"><input type="checkbox" class="ui-switch" id="intakeEnabled">依頼を受け付ける</label>
+        </div>
+        <div class="row">
+          <label class="lag pt-intake-folder">見張るフォルダ
+            <input id="intakeFolder" type="text" size="44" placeholder="例: C:\Users\(あなた)\Dropbox\アプリ\切り抜き依頼" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <p class="hint">Dropbox\アプリ\切り抜き依頼 など、友人と共有しているフォルダの場所(ドライブ名からの全部のパス)を入れます。</p>
+        <div class="row pt-intake-nums">
+          <label class="lag">既定の切り抜く数 <input id="intakeTop" type="number" min="1" max="10" step="1" value="3"></label>
+          <label class="lag">1日の上限(件) <input id="intakeDaily" type="number" min="1" max="50" step="1" value="10"></label>
+          <label class="lag">配信の長さの上限(時間) <input id="intakeHours" type="number" min="1" max="24" step="1" value="6"></label>
+          <label class="lag">動画の大きさの上限(GB) <input id="intakeGB" type="number" min="1" max="200" step="1" value="10"></label>
+          <label class="lag">見る間隔(秒) <input id="intakeInterval" type="number" min="10" max="600" step="5" value="30"></label>
+        </div>
+        <div class="row">
+          <button type="button" class="btn small primary" id="intakeSave">設定を保存</button>
+          <span class="hint" id="intakeSaveMsg" role="status"></span>
+        </div>
+      </div>
+
+      <div class="row"><h3 class="pt-h3 grow">届いた依頼</h3><button type="button" class="btn small ghost" id="intakeHidden" hidden></button></div>
+      <p class="hint" id="intakeEmpty" hidden>まだ依頼は届いていません。</p>
+      <ol class="pt-intake-list" id="intakeList"></ol>
+    </div>
+  </details>
+
+  <details class="ui-disclosure pt-intake" id="backupBox">
+    <summary><span>作業データのバックアップ</span> <span class="pill wait" id="backupState">確認中…</span></summary>
+    <div class="pt-intake-body">
+      <p class="hint">文字起こしと校正・カット・スタジオのマーク・設定などの作業データを、決めた間隔で別のドライブのフォルダへ写します(入口が動いている間)。
+        キャッシュ・ログ・モデルなど取り直せるものは写しません。写した先のファイルは消しません。</p>
+      <div class="row pt-intake-status">
+        <span class="hint" id="backupMsg"></span>
+        <span class="hint num" id="backupLast"></span>
+        <button type="button" class="btn small" id="backupRunBtn">今すぐ写す</button>
+      </div>
+      <div class="pt-intake-settings card flat">
+        <div class="row">
+          <label class="lag"><input type="checkbox" class="ui-switch" id="backupEnabled">自動でバックアップする</label>
+        </div>
+        <div class="row">
+          <label class="lag pt-intake-folder">写す先のフォルダ
+            <input id="backupFolder" type="text" size="44" placeholder="例: D:\backup" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <p class="hint">作業データとは別のドライブのフォルダ(ドライブ名からの全部のパス)を入れます。その中の youtube-tools-data に写します。
+          API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。</p>
+        <div class="row pt-intake-nums">
+          <label class="lag">間隔(時間) <input id="backupEvery" type="number" min="1" max="168" step="1" value="1"></label>
+        </div>
+        <div class="row">
+          <button type="button" class="btn small primary" id="backupSave">設定を保存</button>
+          <span class="hint" id="backupSaveMsg" role="status"></span>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <details class="ui-disclosure pt-history" id="historyBox">
+    <summary>まとめて実行の記録</summary>
+    <div class="pt-history-body">
+      <p class="hint">終わったまとめて実行の結果です(新しい順)。ホームを終えても残ります(強制終了したときに実行中だった分は残りません)。</p>
+      <p class="hint" id="historyEmpty" hidden>まだ記録はありません。まとめて実行が終わると、ここに出ます。</p>
+      <div class="row"><button type="button" class="btn small ghost" id="historyHidden" hidden></button></div>
+      <ol class="pt-history-list" id="historyList"></ol>
+      <div class="row" id="historyMoreBox" hidden><button type="button" class="btn small ghost" id="historyMore">もっと見る</button></div>
+    </div>
+  </details>
+
+  <details class="ui-disclosure pt-advanced" id="advancedBox">
+    <summary>詳しく(サーバーの管理)</summary>
+    <div class="pt-advanced-body">
+      <!-- 調子(段9 9-1。/api/health): 版・認識ワーカー・ffmpeg/yt-dlp・空き容量・作業データの大きさ・エラーの件数。判定は portal.js -->
+      <section class="card flat pt-foot pt-health" id="healthBox">
+        <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnAccuracyNow" hidden title="人が直した記録に対する精度(文字起こし・盛り上がり・話者)を、手が空くのを待って測ります。夜に自動でも測ります">精度を今すぐ測る</button><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
+        <ul class="pt-health-list" id="healthList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
+      </section>
+      <!-- 片付け(段9 9-2。/api/cleanup): 候補を種類ごとに → 選んで ごみ箱フォルダ へ移す(14 日で起動時に消える。自動では移さない) -->
+      <section class="card flat pt-foot pt-health" id="cleanBox">
+        <div class="row"><b class="grow">片付け</b><span class="hint" id="cleanWhen"></span><button type="button" class="btn small ghost" id="btnCleanFind">候補を探す</button></div>
+        <p class="hint pt-clean-note">選んだ物を「ごみ箱フォルダ」へ移します(動画と同じドライブ。例: 書き出し先\ごみ箱\)。<span id="cleanDays">14</span> 日たつと、入口の起動時に消えます。それまではエクスプローラーで元に戻せます。</p>
+        <div class="pt-clean-kinds" id="cleanKinds" aria-live="polite"></div>
+        <div class="row pt-clean-foot"><span class="hint grow" id="cleanSel"></span><button type="button" class="btn small" id="btnCleanMove" disabled>選んだ物をごみ箱フォルダへ移す</button></div>
+      </section>
+      <ol class="pt-flow" id="flow" aria-label="ツールの起動状態"></ol>
+
+      <section class="card flat pt-foot" id="dataBox" hidden>
+        <div class="row">
+          <div class="grow">
+            <b>作業データの置き場所</b>
+            <div class="hint"><code id="dataDir"></code><br>ツールのデータ・設定・記録はここにあります(リポジトリの外)。エクスプローラーのアドレス欄に貼ると開けます。</div>
+          </div>
+          <button type="button" class="btn" id="btnCopyData">パスをコピー</button>
+        </div>
+      </section>
+      <section class="card flat pt-foot" id="winBox" hidden>
+        <div class="row">
+          <div class="grow">
+            <b>窓で開く</b>
+            <div class="hint" id="winHint"></div>
+          </div>
+          <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="winMode">窓で開く</label>
+          <button type="button" class="btn" id="btnWinNow" hidden>いま窓で開く</button>
+        </div>
+      </section>
+      <!-- 試験中の機能(既定はオフ。オンにするまで画面にも出さず、裏でも動かさない)。リアルタイム切り抜き = 線 D(src/home/live.py・src/recorder/) -->
+      <section class="card flat pt-foot" id="labBox">
+        <div class="row">
+          <div class="grow">
+            <b>試験中の機能</b>
+            <div class="hint">まだ試している機能です。オンにするまで、画面にも出ず、裏でも動きません。</div>
+          </div>
+          <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveEnabled">リアルタイム切り抜き(試験中)</label>
+        </div>
+        <p class="hint" id="liveNote">オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。</p>
+        <p class="hint" id="liveMsg" role="status" hidden></p>
+      </section>
+      <section class="card flat pt-foot">
+        <div class="row">
+          <div class="grow">
+            <b>すべて終了</b>
+            <div class="hint">このホームから起動したツールを止めて、ホームも終わります。別の黒い画面で起動したツールは止めません。</div>
+          </div>
+          <button type="button" class="btn danger" id="btnQuit">すべて終了</button>
+        </div>
+      </section>
+    </div>
+  </details>
+</main>
+
+<section class="pt-done" id="done" hidden>
+  <div class="card raised pt-done-card">
+    <h1 id="doneTitle">終了しています…</h1>
+    <p class="hint" id="doneText">起動したツールを止めています。少し待ってください。</p>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<template id="tplTool">
+  <li class="card pt-tool">
+    <div class="pt-head">
+      <span class="ui-brand-mark" aria-hidden="true"></span>
+      <div class="grow">
+        <h2 class="card-title pt-name"></h2>
+        <div class="card-sub pt-sub"></div>
+      </div>
+    </div>
+    <div class="pt-status" aria-live="polite"><span class="pill pt-pill"></span><span class="pt-meta hint"></span></div>
+    <p class="notice pt-msg" hidden></p>
+    <div class="row pt-actions">
+      <a class="btn primary pt-open" target="_blank" rel="noopener">開く</a>
+      <button type="button" class="btn pt-toggle">停止</button>
+      <button type="button" class="btn ghost pt-restart">再起動</button>
+    </div>
+    <details class="ui-disclosure pt-logbox">
+      <summary>ログ</summary>
+      <pre class="pt-log" tabindex="0"></pre>
+      <div class="hint pt-logpath"></div>
+    </details>
+  </li>
+</template>
+
+<template id="tplTodo">
+  <li class="pt-todo-item">
+    <a class="pt-todo-link">
+      <span class="pill pt-todo-pill"></span>
+      <span class="pt-todo-main">
+        <span class="pt-todo-title"></span>
+        <span class="hint pt-todo-sub"></span>
+      </span>
+      <span class="ui-miniprogress pt-todo-prog" hidden><i></i></span>
+    </a>
+  </li>
+</template>
+
+<template id="tplGroup">
+  <details class="ui-group">
+    <summary><span class="pt-group-label"></span> <span class="ui-group-n"></span></summary>
+    <div class="pt-group-body stack"></div>
+  </details>
+</template>
+
+<template id="tplCase">
+  <details class="pt-case">
+    <summary class="pt-case-row">
+      <span class="pt-case-main grow">
+        <span class="pt-case-title"></span>
+        <span class="hint pt-case-sub"></span>
+      </span>
+      <span class="pill pt-case-statuspill"></span>
+      <span class="hint num pt-case-tx" hidden></span>
+      <span class="hint num pt-case-pack" hidden></span>
+      <span class="ui-next pt-case-next" hidden></span>
+    </summary>
+    <div class="pt-case-body">
+      <div class="row">
+        <label class="lag">状態 <select class="pt-case-status" aria-label="状態"><option value="">未設定</option><option value="working">作業中</option><option value="posted">投稿済み</option><option value="skipped">見送り</option></select></label>
+        <span class="pt-case-studio"></span>
+      </div>
+      <ol class="pt-clips"></ol>
+      <div class="pt-auto">
+        <div class="row">
+          <label class="lag">まとめて実行 <select class="pt-auto-mode" aria-label="まとめて実行の形">
+            <option value="adopted">採用後を全部(書き出し → 文字起こし → パック)</option>
+            <option value="transcribe">文字起こしまで(書き出し → 文字起こし)</option>
+            <option value="full">解析から全部(自動マークの上位を採用)</option></select></label>
+          <label class="lag pt-auto-topbox" hidden>採用する数 <input class="pt-auto-top" type="number" min="1" max="30" value="3"></label>
+          <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
+            <input class="pt-auto-streamer" type="text" size="12" placeholder="例: さくらみこ"></label>
+          <label class="lag pt-auto-loud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select class="pt-auto-loudsel" data-ui-packloud></select></label>
+          <button type="button" class="btn small primary pt-auto-run">実行</button>
+          <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
+        </div>
+        <div class="pt-auto-panel"></div>
+        <ol class="pt-auto-steps"></ol>
+        <div class="hint pt-auto-msg"></div>
+      </div>
+      <details class="pt-case-memo"><summary class="hint">メモ</summary>
+        <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
+        <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
+      </details>
+    </div>
+  </details>
+</template>
+
+<template id="tplDoc">
+  <li class="pt-clip pt-doc">
+    <div class="row">
+      <label class="pt-doc-pick"><input type="checkbox" class="pt-doc-check" aria-label="選ぶ"></label>
+      <span class="grow pt-doc-title"></span>
+      <span class="hint num pt-doc-tx"></span>
+      <span class="pill pt-doc-runpill" hidden></span>
+    </div>
+    <div class="row pt-doc-steps">
+      <a class="btn small pt-doc-open" target="_blank" rel="noopener">編集で開く</a>
+      <span class="hint pt-doc-runmsg" hidden></span>
+    </div>
+  </li>
+</template>
+
+<template id="tplHistory">
+  <li class="pt-history-item">
+    <span class="pill pt-history-pill"></span>
+    <span class="pt-history-main">
+      <a class="pt-history-title"></a>
+      <span class="hint pt-history-sub"></span>
+    </span>
+    <span class="hint pt-history-when"></span>
+  </li>
+</template>
+
+<!-- ツールのアイコン(各ツールのヘッダーと同じ)。画面の組み立て時に写す -->
+<template id="icon-studio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></template>
+<template id="icon-transcribe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7M17 14h0"/></svg></template>
+<template id="icon-cut2resolve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 7h7M14 7h7M3 12h3M10 12h11M3 17h10M17 17h4"/></svg></template>
+</body>
+</html>

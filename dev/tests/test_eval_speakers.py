@@ -19,7 +19,7 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.dirname(HERE)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 sys.path.insert(0, HERE)
 sys.path.insert(0, REPO)
 import eval_speakers as E  # noqa: E402
@@ -526,7 +526,7 @@ class TestRun(unittest.TestCase):
 
 
 class TestDiarizeTune(unittest.TestCase):
-    """editor/ed_speakers.py の diarize_real: 判別の設定は任意。渡さなければワーカーへの要求は以前と同じ形"""
+    """src/editor/ed_speakers.py の diarize_real: 判別の設定は任意。渡さなければワーカーへの要求は以前と同じ形"""
 
     def test_worker_request_shape(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake"}):
@@ -554,7 +554,7 @@ class TestDiarizeTune(unittest.TestCase):
 
 
 class TestSmooth(unittest.TestCase):
-    """--smooth off,on(話者の細切れをならす S2。editor/ed_speakers.py の smooth_labels を読んで計算する)"""
+    """--smooth off,on(話者の細切れをならす S2。src/editor/ed_speakers.py の smooth_labels を読んで計算する)"""
 
     def setUp(self):
         self.env = Env()

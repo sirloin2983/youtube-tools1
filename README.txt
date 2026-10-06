@@ -4,6 +4,20 @@
 このファイルが全体の使い方です(2026-09-26 に一本化)。各ツールの細かい使い方と変更の記録は、各フォルダの README.txt にあります。
 AI(Claude・GPT)向けの決まりは AGENTS.md です。
 
+【フォルダの並び(2026-10-07 に整理)】
+  このフォルダ(リポジトリ直下)で、あなたが触るのは次のものです:
+    start.bat(Mac は start.command)   起動。ダブルクリック(start-background.bat は画面なしで裏で動かす)
+    push.bat                            変更を GitHub に保存する
+    setup\                              最初のインストールと片付け(bootstrap.bat・install.bat など)
+    plan\                               これからの計画(読む用)
+    README.txt                          このファイル(全体の使い方)
+  ふだん開かないもの:
+    src\                動くコード。ツール本体(home・studio・editor・cut2resolve・recorder)と共通部品(ytt_core・ui-kit)が入っている
+    friend-apps\        友人に渡す Windows のアプリ(holo-colors = ホロカラー・request-sender = 切り抜き依頼を送るプログラム。C#)
+    docs\               AI の作業記録(ROADMAP・WORKLOG)と、仕様・計画・設計・古い資料
+    dev\                開発の道具(テストの補助・精度を測る道具・push.bat の検査・消すファイルの一覧 removals.txt)
+  AGENTS.md・CLAUDE.md は AI 向けの決まりです。以下の説明にある「home」「studio」「editor」などのツールのフォルダは src\ の中にあります。
+
 【これは何?】
   配信から見どころを探して切り抜き、字幕を作り、DaVinci Resolve(以下 Resolve)で仕上げられる形にするまでを手伝うツールです。
   このパソコンの中だけで動き、動画・音声を外部のサービスへ送りません
@@ -16,7 +30,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     (cut2resolve)                      パックを作る部品(「編集」とまとめて実行が使う。画面は無い。コマンドでも使える)
 
     別のツール: ホロカラー(holo-colors)  ホロライブのメンバーカラーを Ctrl+Alt+H で呼び出してコピーする Windows のアプリ。
-                                         主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は holo-colors\README.txt
+                                         主に友人用。上のツールとは別に動く(Python は要らない)。使い方と作り方は friend-apps\holo-colors\README.txt
 
 【準備(最初に1回)】
   Windows を入れ直したあとなど、まとめて入れたいとき: setup フォルダの bootstrap.bat をダブルクリック(下の 1〜4 を winget で入れ、続けて install.bat も流します。
@@ -118,9 +132,10 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
   - 表示や操作について: 各ツールの README.txt
 
 【各フォルダの README】
-  home\README.txt              ホーム(起動・終了・ログ・次にやること・案件・まとめて実行)
-  studio\README.txt      切り抜きスタジオ
-  editor\README.txt  編集(文字起こし・カット・パック。精度・学習用データ・話者判別を含む)
-  cut2resolve\README.txt      cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
-  holo-colors\README.txt      ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
+  src\home\README.txt              ホーム(起動・終了・ログ・次にやること・案件・まとめて実行)
+  src\studio\README.txt            切り抜きスタジオ
+  src\editor\README.txt            編集(文字起こし・カット・パック。精度・学習用データ・話者判別を含む)
+  src\cut2resolve\README.txt       cut2resolve(パックを作る部品・コマンド)と Resolve への取り込み
+  friend-apps\holo-colors\README.txt     ホロカラー(メンバーカラーをコピーするアプリ。友人に渡す zip の作り方も)
+  friend-apps\request-sender\README.txt  切り抜き依頼を送るプログラム(友人が使う。Dropbox の鍵の作り方・友人に渡す zip の作り方も)
   docs\spec\pipeline.md            ツール間の受け渡しの形式(開発向け)

@@ -4,7 +4,7 @@
     python dev/run_editor_suite.py [--only 名前の一部] [--out 結果.json]
 
 リポジトリ直下から流す。各テストは別のプロセス(AGENTS.md の決まりどおりのコマンド)。
-e2e は PYTHONIOENCODING=utf-8、home/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる。以前からの件)。
+e2e は PYTHONIOENCODING=utf-8、src/home/tests/test_mount.py は付けない(付けると子プロセスの出力の読み取りが落ちる。以前からの件)。
 """
 import argparse
 import json
@@ -17,8 +17,8 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 UNIT = [
-    ("editor 単体", [PY, "-m", "unittest", "editor/tests/test_metrics.py", "editor/tests/test_resolve_export.py", "editor/tests/test_roster.py"], False),
-    ("home test_mount", [PY, "-m", "unittest", "home/tests/test_mount.py"], False),
+    ("editor 単体", [PY, "-m", "unittest", "src/editor/tests/test_metrics.py", "src/editor/tests/test_resolve_export.py", "src/editor/tests/test_roster.py"], False),
+    ("home test_mount", [PY, "-m", "unittest", "src/home/tests/test_mount.py"], False),
     ("契約テスト", [PY, "-m", "unittest", "dev/tests/test_resolve_pack_contract.py"], False),
     ("eval_asr", [PY, "-m", "unittest", "dev/tests/test_eval_asr.py"], False),
     ("eval_alt", [PY, "-m", "unittest", "dev/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt・YouTube の字幕 yt)
@@ -40,10 +40,10 @@ def find_node():
 
 NODE = find_node()
 if NODE:
-    UNIT.append(("node 保存と切り替え", [NODE, "--test", "editor/tests/test_document_save.cjs"], False))
+    UNIT.append(("node 保存と切り替え", [NODE, "--test", "src/editor/tests/test_document_save.cjs"], False))
 E2E = ["e2e_proofread_accuracy", "e2e_proofread_keys", "e2e_folder_marker_range", "e2e_eval_set", "e2e_row_editing", "e2e_ui_handoff",
        "e2e_edit_tabs", "e2e_edit_cut", "e2e_edit_voices", "e2e_edit_pack", "e2e_ui_mounted", "e2e_drill", "e2e_alt", "e2e_follow_scroll"]
-SUITE = UNIT + [(n, [PY, "editor/tests/%s.py" % n], True) for n in E2E] + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)]
+SUITE = UNIT + [(n, [PY, "src/editor/tests/%s.py" % n], True) for n in E2E] + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)]
 
 
 def summary(out):

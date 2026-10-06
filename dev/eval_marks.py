@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。docs/plan/master-plan-2026-10.md の Q3・I-4a)。
+"""盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。plan/line-bc-master-plan.md の Q3・I-4a)。
 
     python dev/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
 
@@ -45,7 +45,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import datadir, txindex  # noqa: E402
@@ -53,7 +54,7 @@ from ytt_core import datadir, txindex  # noqa: E402
 SCHEMA = "youtube-tools-marks-eval/v1"
 TOPS = (5, 10, 20)
 FEW_VIDEOS = 10          # これより少ない配信数のときは「まだ少ない(参考)」
-TOL = 0.6                # 同じ区間とみなす秒(studio/store.py の DUP_TOL 0.5 に少し余裕)
+TOL = 0.6                # 同じ区間とみなす秒(src/studio/store.py の DUP_TOL 0.5 に少し余裕)
 EDIT_SEC = 0.5           # これ以上端を動かしたら「直した」
 NEAR_SEC = 15.0          # 手で足したマークの近くに自動マークがあったとみなす距離(秒)
 MAX_JSONL_BYTES = 256 * 1024 * 1024
@@ -62,10 +63,10 @@ RETRACT_EVENTS = ("unadopt", "delete_judged")
 FRIEND_FEW_RANGES = 20   # friendRanges: 解析済みの区間がこれより少ない・
 FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少ない(参考)」
 HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
-FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(home/autorun.py の RANGE_PAD と同じ値。出どころ 2 で引く)
+FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/home/autorun.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
-PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8}   # 点数の内訳が「効いた」とみなす値(studio/analyze.py の理由の付け方と同じ)
-DEFAULT_PRE = 0.65       # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき。studio/analyze.py の既定)
+PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8}   # 点数の内訳が「効いた」とみなす値(src/studio/analyze.py の理由の付け方と同じ)
+DEFAULT_PRE = 0.65       # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき。src/studio/analyze.py の既定)
 CL_OUTLIER_MIN, CL_OUTLIER_MAX = 5.0, 600.0   # 人が選んだ区間の長さの外れ値(この外は数だけ別に出して、目安に入れない)
 CL_LENGTH_MIN, CL_LENGTH_MAX = 10, 120        # 目安の長さの範囲(スタジオの解析の設定 length の範囲)
 CL_PRE_MIN, CL_PRE_MAX = 0.3, 0.9             # 目安の preRatio の範囲(同 preRatio の範囲)
@@ -833,7 +834,7 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
 
 def git_rev():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 

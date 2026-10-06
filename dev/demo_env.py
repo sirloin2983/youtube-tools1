@@ -26,7 +26,7 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所(入口の ROOT と同じ意味)
 sys.path.insert(0, os.path.join(REPO, "home"))
 sys.path.insert(0, os.path.join(REPO, "home", "tests"))   # test_launch(_copy_tool)
 sys.path.insert(0, REPO)
@@ -135,7 +135,7 @@ def seed(tmp, rnd, streams, samples):
                               "language": "ja", "speakers": SPEAKERS if genre == "コラボ" else SPEAKERS[:1],
                               "segments": segments(rnd.randint(12, 30), 40.0, proof, 0.15 if proof > 0 else 0.0, genre == "コラボ"),
                               "createdAt": tcreated, "updatedAt": tcreated + int(rnd.uniform(0, 3) * 86400000), "clip": cj})
-                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: ytt_core/txindex.pack_info)
+                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: src/ytt_core/txindex.pack_info)
                         pd = os.path.splitext(clip)[0] + "_pack"
                         os.makedirs(pd, exist_ok=True)
                         for n in ("cut-plan.json", "textplus-import.json"):

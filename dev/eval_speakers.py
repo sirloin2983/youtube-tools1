@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。docs/plan/master-plan-2026-10.md の Q3・I-2a)。
+"""話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。plan/line-bc-master-plan.md の Q3・I-2a)。
 
     python dev/eval_speakers.py [stored] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--include-draft]
                                 [--reviewed only|prefer|ignore] [--docs id,…]
@@ -9,7 +9,7 @@
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models\\diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals\\speakers\\<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
-    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。editor/ed_speakers.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
+    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/editor/ed_speakers.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
         ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
         run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
 
@@ -17,7 +17,7 @@
   文字起こしの作業データの evals\\speakers\\<日時>.json に残す(evals の置き場所は eval_asr.py(evals\\asr)・eval_marks.py と同じ「ツールの作業データの下の evals\\<領域>」)。
 - 人の最終 = 文書の行の speaker(id)→ speakers[].name。機械 = <id>.diar.json の latest(rows[行 id].speaker = その回の S1/S2…・voices = 声の照合)。
   行 id で突き合わせる(人が分けた・つないだ行は新しい id で、機械の記録が無い = 「記録なし」として別に数える)。
-- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。editor/ed_drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
+- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。src/editor/ed_drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
     only = 評価用は確かめ済みの文書だけ(既定。--docs のときは prefer。確かめ済みが 0 本なら今までの選び方に戻して注意)/
     prefer = 確かめ済みでない評価用も混ぜる / ignore = 印を見ない。評価用でない文書は、どれでも今までどおり入る
 - **人が確かめた行だけを測る**(行ごとに決める。記録から確実に言える範囲。--include-draft で今までどおり全部を入れる = 甘く出る):
@@ -61,19 +61,20 @@ import time
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import datadir  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
-DIAR_SCHEMA = "youtube-tools-diar/v1"     # editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)
+DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)
 FEW_ROWS = 200                            # 話者つきの行がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                           # original と行の端が一致したとみなす秒
 MAX_DIAR_BYTES = 32 * 1024 * 1024
-OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(editor/ed_state.py の OTHER_SPK_NAME と同じ)
+OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(src/editor/ed_state.py の OTHER_SPK_NAME と同じ)
 OTHER_VOICE_ID = "other"                   # 組み込みの話者の id(ed_state.OTHER_SPK_ID と同じ。名前より id で見分けるのが確実)
-DRAFT_NAME = re.compile(r"^話者\d+$")     # editor/ed_speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
+DRAFT_NAME = re.compile(r"^話者\d+$")     # src/editor/ed_speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 SUBSETS = (("all", "話者つきの行"), ("proofed", "校正済みの行だけ"), ("timeEdited", "人が時刻を直した行だけ"))
 SWEEP_MATCH = (0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80)
@@ -252,7 +253,7 @@ def is_other_row(sg, names):
 
 
 def is_reviewed(doc):
-    """動画を全部聞いて確かめた評価用の文書か(editor/ed_drill.py の drill_is_reviewed と同じ条件。道具は editor を読み込まないのでここにも書く)"""
+    """動画を全部聞いて確かめた評価用の文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。道具は editor を読み込まないのでここにも書く)"""
     return doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
 
 
@@ -750,7 +751,7 @@ _SERVE = []
 
 
 def load_serve():
-    """editor/serve.py を読み込む(eval_asr.py の load_serve と同じ形。あちらは別の担当が直すので、10 行ほどを写して持つ)。
+    """src/editor/serve.py を読み込む(eval_asr.py の load_serve と同じ形。あちらは別の担当が直すので、10 行ほどを写して持つ)。
     serve 自身の DATA_DIR は一時フォルダ(本物の作業データの横に何も書かない。本物は道具が自分で読む)。
     判別はこのプロセスの中で動かす(ed_jobs.IN_WORKER。登録しない読み込みの serve は「S.名前 = …」を部品へ転送しないので、部品に直接入れる)"""
     if _SERVE:
@@ -802,7 +803,7 @@ def _conv_num(x):
 
 def _conv_sec(x):
     v = float(x)
-    if not 0.0 <= v < 10.0:   # editor/ed_speakers.py の diar_tune と同じ範囲
+    if not 0.0 <= v < 10.0:   # src/editor/ed_speakers.py の diar_tune と同じ範囲
         raise ValueError(x)
     return v
 
@@ -1060,7 +1061,7 @@ def print_run(res):
 
 def git_rev():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 

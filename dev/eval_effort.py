@@ -5,14 +5,14 @@
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と <id>.diar.json・<id>.alt.json の有無)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals\\effort\\<日時>.json(schema youtube-tools-effort-eval/v1)に残す(置き場所は eval_asr.py(evals\\asr)・eval_speakers.py と同じ「ツールの作業データの下の evals\\<領域>」)。
-- 読むもの: 文書の effort = {activeSec, cutSec, sessions, proofedRows, unproofedRows, lastAt}(editor/ed_store.py の add_effort・effort_rows。画面は app-learn.js の effortTick)・
+- 読むもの: 文書の effort = {activeSec, cutSec, sessions, proofedRows, unproofedRows, lastAt}(src/editor/ed_store.py の add_effort・effort_rows。画面は app-learn.js の effortTick)・
   segments(人の最終)・original(機械の出力)・recognition.runs・evalSet・evalReviewed・clip。<id>.diar.json の latest.rows[行 id].speaker(機械が付けた話者)。
   effort の無い文書・時間が 0 の文書・長さが分からない文書は飛ばす(数は skipped)。
-- 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(editor/ed_store.py の doc_length と同じ決まり:
+- 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(src/editor/ed_store.py の doc_length と同じ決まり:
   範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わりまで)。校正の時間 = activeSec(1 文字起こし のタブ)、カットとパックの時間 = cutSec(2 カット・3 パック)。
-- 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。editor/ed_drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
+- 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。src/editor/ed_drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
   倍率の中央値・四分位・合計は**終わった文書だけ**で出す(途中の文書は、まだ直している途中で時間が短く出る = 倍率に入れると甘く出るので、数だけ別の欄に出す)
-- 直しの量(original と segments の比べ。original が無い文書は「分からない」。文字のある行だけで数える。original と segments を、時刻が重なるまとまり(editor/ed_learn.py の _groups と同じ)に分ける):
+- 直しの量(original と segments の比べ。original が無い文書は「分からない」。文字のある行だけで数える。original と segments を、時刻が重なるまとまり(src/editor/ed_learn.py の _groups と同じ)に分ける):
     文字を直した行 = 機械の行と人の行が両方あるまとまりで、空白を除いた文字が違う(まとまりの人の行の数。分けた・つないだだけで文字が同じなら入れない)
     人が足した行 = 人の行だけのまとまり / 人が消した行 = 機械の行だけのまとまり(機械の行の数)
     時刻を直した行 = original のどの行とも始まり・終わりが 0.05 秒以内で合わない行(eval_speakers.py の time_edited_flags と同じ考え方。足した行は「足した行」に数えるのでここには入れない)
@@ -41,7 +41,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
+TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
+REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 for _p in (REPO, HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -51,10 +52,10 @@ import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_o
 SCHEMA = "youtube-tools-effort-eval/v1"
 FEW_DOCS = 10                  # 終わった文書がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                # original と行の端が一致したとみなす秒(eval_speakers.py の TIME_TOL と同じ)
-GROUP_SLACK = 0.05             # 時刻が重なるまとまり(editor/ed_learn.py の _groups と同じ)
+GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/editor/ed_learn.py の _groups と同じ)
 MAX_BYTES = 64 * 1024 * 1024
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
-MAX_EFFORT_SEC = 3600          # editor/ed_store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
+MAX_EFFORT_SEC = 3600          # src/editor/ed_store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
 BUCKETS = ((0.25, "〜25%"), (0.50, "25〜50%"), (0.75, "50〜75%"), (float("inf"), "75%〜"))
 GROUPS = (("engine", "最初の認識のエンジン・モデル"), ("origin", "出どころ"), ("eval", "評価用かどうか"),
           ("via", "確かめ済みの付け方"), ("alt", "2つ目のエンジンの候補"), ("week", "週ごと(effort.lastAt)"))
@@ -120,7 +121,7 @@ def dist(values):
 # ---------------------------------------------------------------- 1つの文書(純粋な関数)
 
 def doc_length(d):
-    """文書の長さ(秒)。editor/ed_store.py の doc_length と同じ決まり: 範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わり − 始まり"""
+    """文書の長さ(秒)。src/editor/ed_store.py の doc_length と同じ決まり: 範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わり − 始まり"""
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
     a = num(d.get("start")) or 0.0
     b, dur = num(d.get("end")), num(d.get("duration"))
@@ -133,7 +134,7 @@ def doc_length(d):
 
 def doc_effort(doc):
     """文書の effort -> {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"} か None(無い・形が違う)。
-    editor/ed_store.py の _effort_of と同じく、整数でない値は 0 として読む"""
+    src/editor/ed_store.py の _effort_of と同じく、整数でない値は 0 として読む"""
     ef = doc.get("effort") if isinstance(doc, dict) else None
     if not isinstance(ef, dict):
         return None
@@ -143,7 +144,7 @@ def doc_effort(doc):
 
 
 def is_reviewed(doc):
-    """確かめ済みの評価用の文書か(editor/ed_drill.py の drill_is_reviewed と同じ条件 = eval_asr.is_reviewed)"""
+    """確かめ済みの評価用の文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件 = eval_asr.is_reviewed)"""
     return eval_asr.is_reviewed(doc)
 
 
@@ -161,7 +162,7 @@ def text_rows(items):
 
 
 def pair_groups(orig, segs):
-    """機械の行(orig)と人の行(segs)を、時刻が重なるまとまりに分ける -> [([orig の添字], [segs の添字])]。editor/ed_learn.py の _groups と同じ"""
+    """機械の行(orig)と人の行(segs)を、時刻が重なるまとまりに分ける -> [([orig の添字], [segs の添字])]。src/editor/ed_learn.py の _groups と同じ"""
     items = sorted([(o["start"], o["end"], 0, i) for i, o in enumerate(orig)] + [(g["start"], g["end"], 1, i) for i, g in enumerate(segs)])
     groups, cur, cur_end = [], None, -1.0
     for a, b, k, i in items:
@@ -439,7 +440,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
 
 def git_rev():
     try:
-        return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 

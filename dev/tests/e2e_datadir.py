@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""作業データの置き場所(統合計画の段階4)の通し確認。本物の入口(home/launch.py)を、以前の場所にデータがある状態で起動する。
+"""作業データの置き場所(統合計画の段階4)の通し確認。本物の入口(src/home/launch.py)を、以前の場所にデータがある状態で起動する。
 
 1. リポジトリを一時フォルダに写し、以前の場所(各ツールのフォルダの中)に作業データを置く
 2. YTT_DATA_DIR=<一時フォルダ>/data で入口を起動 → 3つのツールのデータが <data>/<ツール> へコピーされ、画面(API)から読める
@@ -20,7 +20,7 @@ import tempfile
 import time
 import urllib.request
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ツールと ytt_core の置き場所
 IGNORE = shutil.ignore_patterns("__pycache__", ".git", "transcripts", "dataset", "models", "cache", "archive", "work", "exports",
                                 "data.json*", "feedback.jsonl*", "registry.json", "config.json", "settings*.json", "*.log",
                                 ".running.json", "node_modules", ".runtime", "0old", ".whisper_models", "resolve-ui-test", "logs", "tests")

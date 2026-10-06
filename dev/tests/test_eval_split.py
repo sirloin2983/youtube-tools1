@@ -14,7 +14,7 @@ import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.dirname(HERE)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 sys.path.insert(0, HERE)
 sys.path.insert(0, REPO)
 import eval_split as E  # noqa: E402

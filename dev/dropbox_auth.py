@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """切り抜き依頼(request-sender)の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリだけ)。
 
-    python dev/dropbox_auth.py <App key> [--out request-sender/config.json]
+    python dev/dropbox_auth.py <App key> [--out friend-apps/request-sender/config.json]
 
 Dropbox の App console で作ったアプリ(Scoped access・App folder・権限は files.content.write・files.content.read・files.metadata.read)の App key を渡す。
 (読みの2つは、友人のプログラムの「受け取る」が「/出力/」のパックを一覧にして取ってくるため。v1.1.0 から)
 PKCE(secret を使わない OAuth の方式)で承認して refresh token を得て、config.json に {"appKey", "refreshToken"} を書く。
 - 鍵の値は画面に出さない。config.json は .gitignore と dev/push_helper.py の検査でコミットされない
 - 無効にするときは https://www.dropbox.com/account/connected_apps でアプリの接続を切る
-手順の全体: request-sender/README.txt の「鍵を作る」。設計: docs/design/friend-intake.md の 4・7
+手順の全体: friend-apps/request-sender/README.txt の「鍵を作る」。設計: docs/spec/friend-intake.md の 4・7
 """
 import argparse
 import base64
@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_OUT = os.path.join(ROOT, "request-sender", "config.json")
+DEFAULT_OUT = os.path.join(ROOT, "friend-apps", "request-sender", "config.json")
 AUTHORIZE_URL = "https://www.dropbox.com/oauth2/authorize"
 TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 # 要る権限(送る = write、受け取る = 一覧の metadata.read と中身の content.read)。承認の URL の scope に付けて頼む
@@ -119,7 +119,7 @@ def main(argv=None, input_fn=input, urlopen=urllib.request.urlopen, out=print):
         pass
     ap = argparse.ArgumentParser(description="切り抜き依頼の鍵(config.json)を作る")
     ap.add_argument("app_key", help="Dropbox の App console の App key")
-    ap.add_argument("--out", default=DEFAULT_OUT, help="書き出す config.json(既定: request-sender/config.json)")
+    ap.add_argument("--out", default=DEFAULT_OUT, help="書き出す config.json(既定: friend-apps/request-sender/config.json)")
     ap.add_argument("--no-browser", action="store_true", help="ブラウザを自動で開かない")
     a = ap.parse_args(argv)
     app_key = a.app_key.strip()
@@ -157,7 +157,7 @@ def main(argv=None, input_fn=input, urlopen=urllib.request.urlopen, out=print):
             "(このままでは友人のプログラムの「受け取る」が使えません)")
     write_config(a.out, app_key, data["refresh_token"])
     out("3. 書きました: %s(鍵の値は表示しません。人に見せない・コミットしない)" % a.out)
-    out("   次は request-sender\\build.bat → dist\\RequestSender.zip を友人に渡す")
+    out("   次は friend-apps\\request-sender\\build.bat → dist\\RequestSender.zip を友人に渡す")
     return 0
 
 

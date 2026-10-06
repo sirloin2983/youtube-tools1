@@ -1,12 +1,14 @@
 # ツール間の受け渡し(パイプラインの約束)v1
 
-2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。ただし**将来1つのアプリに統合する可能性が高い**ので、統合しやすい書き方も約束しておく。
-「受け渡しの一括実行(パイプライン)」は、個別のツールが完成してから作る(`docs/archive/project/` の新ツール計画を参照)。
+状態(2026-10-07): **規則(今も有効)**。2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。この約束のおかげで、2026-09-25〜27 に **1 つのアプリ(入口 `http://localhost:8700/` の 1 プロセス。`/studio/`・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API))に統合できた**(`docs/design/integration-plan.md`)。統合しやすい書き方の約束は 5 に残す。
+受け渡しの一括実行(パイプライン)は、入口の「まとめて実行」(`src/home/autorun.py`)が行う。
 
 ```
-① 切り抜きスタジオ ──(切り抜き mp4 + .clip.json)──▶ ② 文字起こしツール ──(.transcript.json / SRT)──▶ ③ cut2resolve ──▶ DaVinci Resolve
-        │                                                   ▲                                          ▲
-        └─────────────(採用区間 cut-plan/v1)──────────────────┴──────────────────────────────────────────┘
+入口(ホーム)http://localhost:8700/ が、1 つのプロセスの中に 3 つのツールを取り込んで動かす
+① 切り抜きスタジオ /studio/ ──(切り抜き mp4 + .clip.json)──▶ ② 編集 /transcribe/ ──(パックを作る部品・API = /cut2resolve/)──▶ DaVinci Resolve
+        │                       (1 文字起こし → 2 カット → 3 パック。            ▲                                      ▲
+        │                        .transcript.json / SRT / .edit.json)             │                                      │
+        └─────────────(採用区間 cut-plan/v1)──────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
 ## 1. 共通の約束(全スキーマ)
@@ -18,8 +20,8 @@
 - **途中のファイルの置き場所(2026-09-27)**: 動画のフォルダの直下に並べるのはパック(`<名前>_pack`)と元動画(書き出した切り抜きの mp4)だけ。
   それ以外の受け渡しのファイル(`.clip.json`・`.edit.json`・`_edit.mp4`・`.transcript.json`・`.srt`・`.cut-plan.json`・スタジオの `.studio-id`)は
   **動画のフォルダの下の `作業用` フォルダ**に書く(動画がもう `作業用` の中なら、そのフォルダ)。読む側は `作業用\` → 動画の隣(以前の置き方)の順に探す。
-  以前の置き方のファイルは動かさない。規則は `ytt_core/schemas.py`(`WORK_DIR`・`work_dir`・`sidecar_path`・`find_sidecar`)の1か所
-  (cut2resolve は `cut2resolve_core.WORK_DIR` に同じ名前を持つ。`docs/archive/followup-2026-09-27.md` の 1)
+  以前の置き方のファイルは動かさない。規則は `src/ytt_core/schemas.py`(`WORK_DIR`・`work_dir`・`sidecar_path`・`find_sidecar`)の1か所
+  (cut2resolve は `cut2resolve_core.WORK_DIR` に同じ名前を持つ)
 - 知らない項目は無視する(前方互換)。互換の無い変更をするときだけ版(`/v2`)を上げる。読む側は自分の知らない版を「未対応の版」として拒否する
 - 書き込みは一時ファイルに書いてから置き換える(書きかけのファイルを他のツールに読ませない)
 - 個人データ(動画・音声・文字起こし)を外部に送らない方針は従来どおり。ここで決める JSON もローカルのファイルとしてだけ扱う
@@ -45,7 +47,7 @@
 }
 ```
 - `range` は**元の配信**の秒。切り抜きの中の時刻 `t` は、元の配信では `range.start + t`(fast 書き出しでキーフレームにずれた場合は `export.actualStart` があればそれを優先。**2026-10-04(Q1)から書き出しはいつも 30fps に作り直すので位置ちょうど・actualStart は付かない**。以前の切り抜きのために読む側は残す)
-- `source.kind` は `youtube` か `file`(2026-10-04 から、リアルタイム切り抜き(線 D・既定オフ)の書き出しは `live`: range は録画の最初のセグメントの受信時刻からの秒・絶対時刻と録画の素性は `source.live`・`url` は null(アーカイブの秒とずれるため)。`home/live_export.py`)。`file` のときは `path` に元のファイル、`videoId` は内部のID
+- `source.kind` は `youtube` か `file`(2026-10-04 から、リアルタイム切り抜き(線 D・既定オフ)の書き出しは `live`: range は録画の最初のセグメントの受信時刻からの秒・絶対時刻と録画の素性は `source.live`・`url` は null(アーカイブの秒とずれるため)。`src/home/live_export.py`)。`file` のときは `path` に元のファイル、`videoId` は内部のID
 - 秘密情報(API キーなど)や、元動画以外の個人のパスは入れない
 
 ### 2.2 `youtube-tools-transcript/v1` — 文字起こしの結果(文字起こしツールが書く)
@@ -65,13 +67,13 @@
 ```
 - `segments` は時刻順。`cut: true` は画面の「カット済」(Resolve へ渡すときに削る行)
 - 行の任意の項目 `noSub: true`(2026-10-05。「字幕に出さない」= ゲームのキャラなどの声)。**その行の時間は残す区間に数え、字幕は作らない**(cut2resolve の `pack.row_has_caption`。項目が無ければ今までと同じ)。
-  `segments` は時刻が重なってもよい(違う話者の同時発話)。パックは重なる字幕を別の段に分ける(`docs/plan/other-voice-and-overlap-plan.md`)
+  `segments` は時刻が重なってもよい(違う話者の同時発話)。パックは重なる字幕を別の段に分ける(`plan/line-b-overlap.md`)
 - 機械の出力(`original`)・学習用の情報は入れない(受け渡しに不要で、個人データを増やさないため)
 - 文字起こしツールは、ブラウザへのダウンロードに加えて「作業用フォルダにファイルとして保存」できる(`作業用\<動画の名前>.transcript.json`。2026-09-27 までは動画の隣)。cut2resolve へのリンクにはこのパスを渡す。
   同名のファイルがあるときは、それが `youtube-tools-transcript/v1` のとき(=このツールが前に書いたもの)だけ上書きし、それ以外は別名にする
 
 ### 2.3 `youtube-tools-cut-plan/v1` — 残す区間の指定(誰でも書ける・cut2resolve が読む)
-GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マーク・文字起こしの「残す」行から作れる。
+GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マーク・文字起こしの「残す」行から作れる。
 ```json
 {
   "schema": "youtube-tools-cut-plan/v1",
@@ -82,40 +84,40 @@ GPT が `cut2resolve/auto_cut.py` で決めた形。スタジオの採用マー�
 - `status` が `adopted`(省略時も adopted)の区間だけを使う。`media` は任意(無ければ画面・引数で動画を指定)
 - cut2resolve の詳細版(同じ schema。保持・削除区間・fps など)は、コマンド(cut2resolve.py)では出力フォルダの `cut-plan.json`。
   画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
-  (2026-09-26 ④。読むのは `ytt_core/txindex`。`docs/design/edit-tool-design.md` の 12 ④)
+  (2026-09-26 ④。読むのは `src/ytt_core/txindex`。`docs/design/edit-tool-design.md` の 12 ④)
 
 ## 3. 画面どうしのリンク(URL)
-他のツールの画面を、入力欄を埋めた状態で開く。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
+他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
 
 | 開く画面 | URL | 入る所 |
 |---|---|---|
-| 切り抜きスタジオ | `http://localhost:8800/?url=<YouTube URL>` | ② 解析の URL 欄(既存) |
+| 切り抜きスタジオ | `http://localhost:8700/studio/?url=<YouTube URL>` | ② 解析の URL 欄(既存) |
 | 編集(文字起こしツール) | `http://localhost:8700/transcribe/?media=<動画のパス>` / `?clip=<.clip.json のパス>` | その動画の文字起こしがあれば開く(`GET /api/doc-for`)。無ければ新規文字起こしのファイル欄 |
 | ~~cut2resolve~~ | 画面は「編集」に統合して消した(2026-09-26)。入口の中の `/cut2resolve/?video=<動画>` は `/transcribe/?media=<動画>` へ転送 | — |
 
 パスは `encodeURIComponent` で包む。受け取った画面は、値を入力欄に入れるだけで、存在確認などはボタンを押してからサーバーで行う。
 
 ## 4. 実行中のポートの共有
-各サーバーは既定のポートが使用中なら次の番号を使うので、リンク先のポートが変わることがある。
-- 起動時に `<リポジトリ直下>/.runtime/<ツールID>.json` に `{"tool", "port", "version", "startedAt"}` を書き、正常終了時に消す(`.runtime/` は git の対象外)。
-  「リポジトリ直下」= 各ツールのフォルダの1つ上。環境変数 `YTT_RUNTIME_DIR` があればそちらを使う(テスト用)。書けなくても起動は続ける
-- `GET /api/siblings` は `.runtime/*.json` を読み、書かれたポートに `GET /api/ping` を短い時間(0.3 秒)で問い合わせて、**応答した(app が一致した)ものだけ** `{"tools": {"studio": 8800, "transcribe": 8775}}` の形で返す(自分自身も含める)。画面の「他のツール」メニューはこれを使い、失敗したら既定のポートを使う
+入口の中で動いているときは全ツールが入口のポート(8700。使用中なら次の番号)の `/studio/`・`/transcribe/`・`/cut2resolve/` 配下になる。ツールを単独のサーバーで起動したとき(入口に取り込めなかったときの子プロセス・テスト)は、既定のポートが使用中なら次の番号を使うので、リンク先のポートが変わることがある。
+- 起動時に `src/.runtime/<ツールID>.json`(`<リポジトリ直下>/src/` の `.runtime/`)に `{"tool", "port", "version", "startedAt"}` を書き、正常終了時に消す(`.runtime/` は git の対象外)。
+  `.runtime/` の場所 = 各ツールのフォルダの1つ上(`src/`)。環境変数 `YTT_RUNTIME_DIR` があればそちらを使う(テスト用)。書けなくても起動は続ける
+- `GET /api/siblings` は `.runtime/*.json` を読み、書かれたポートに `GET /api/ping` を短い時間(0.3 秒)で問い合わせて、**応答した(app が一致した)ものだけ** `{"tools": {"studio": 8700, "transcribe": 8700}}`(単独で起動したときは `{"studio": 8800, "transcribe": 8775}` のようにツールごとのポート)の形で返す(自分自身も含める)。画面の「他のツール」メニューはこれを使い、失敗したら既定のポートを使う
 - ツールID と `/api/ping` の `app`: `studio` = `clip-studio`(切り抜きスタジオ)/ `transcribe` = `transcribe-tool`(文字起こしツール)/ `cut2resolve` = `cut2resolve`
 - 入口の統合サーバーに取り込まれたツール(2026-09-25 からスタジオ)は、記録に `"path": "/studio/"` が付き、`<path>api/ping` で問い合わせる。
   `/api/siblings` はそのとき `"paths": {"studio": "/studio/"}` も返す(無ければ付けない)。画面は `UIKit.tools.setPaths(j.paths)` を呼んでから `UIKit.tools.url()` でリンクを作る
 - 注意: 生きているかを pid で確かめない(Windows の `os.kill(pid, 0)` はプロセスを終了させてしまうため)
 
-## 5. 将来の統合に向けた書き方
+## 5. 統合しやすい書き方(統合済み。今も守る)
 - 画面からの API 呼び出しは、ツールごとに1つの関数(スタジオの `Studio.api`、文字起こしの `api()` など)を通す。統合時に `/<ツールID>/api/...` へ移せるよう、ベースのパスはその関数の中だけで決める
-- 見た目は共通の ui-kit(`ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`dev/sync_ui_kit.py` で各ツールに写す。ずれは `dev/tests/test_ui_kit_sync.py` で検出する
+- 見た目は共通の ui-kit(`src/ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`dev/sync_ui_kit.py` で各ツールに写す。ずれは `dev/tests/test_ui_kit_sync.py` で検出する
 - 新しく作るツール固有の CSS クラスには接頭辞を付ける(スタジオ `cs-`・文字起こし `tt-`・cut2resolve `c2r-`)。既存のクラス名は、テストが依存しているため今回は変えない
 - 設定・データの置き場所は `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26 から。段階4。`docs/spec/data-location.md`)。以前の各ツールのフォルダの中からは、最初の起動でコピーする
-- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt_core を使う)
+- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `src/ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt_core を使う)
 
 ## 6. 受け渡しに使う API(各ツール)
 | ツール | API | 中身 |
 |---|---|---|
-| 全ツール | `GET /api/siblings` | `{"tools": {"studio": 8800, ...}}`(4 を参照) |
+| 全ツール | `GET /api/siblings` | `{"tools": {"studio": 8700, ...}}`(4 を参照) |
 | スタジオ | `GET /api/export?id=` の各ファイル | 書き出した mp4 のパスと、`作業用` の `.clip.json` のパス(`manifest`) |
 | 文字起こし | `GET /api/clip-info?path=<動画のパス>` | `{"clip": <clip/v1 または null>}`(`作業用` か隣の .clip.json を読む。画面で「元の配信」を表示する用) |
 | 文字起こし | `GET /api/transcript-v1?id=<文字起こしID>` | transcript/v1 の JSON(ダウンロード用) |

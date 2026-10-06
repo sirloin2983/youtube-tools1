@@ -371,7 +371,7 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.assertEqual((src["dddddddddd01"], src["eeeeeeeeee01"]), ("daily", "eval"))
 
     def make_zip(self, name, wid, rows, raw_segments, exported="2026-10-02T10:00:00+0900"):
-        """友人の送る用 zip(形は ytt_core/evaldata.py)を作って eval_import で取り込む"""
+        """友人の送る用 zip(形は src/ytt_core/evaldata.py)を作って eval_import で取り込む"""
         common = {"format": EI.ev.FORMAT, "formatVersion": EI.ev.FORMAT_VERSION, "workId": wid}
         parts = {"final.json": dict(common, rows=rows),
                  "asr_raw.json": dict(common, run=run_rec(), segments=raw_segments),
@@ -650,14 +650,14 @@ class EvalAsrReviewedTest(unittest.TestCase):
         self.assertEqual(res["meta"]["mismatch"], [])
 
     def test_accuracy_keys_unchanged(self):
-        """入口の自動の測定(home/accuracy.py の summarize_asr)が読む鍵: summary.overall(cer・refChars)・ci95・byDoc・lowData・proofedSec"""
+        """入口の自動の測定(src/home/accuracy.py の summarize_asr)が読む鍵: summary.overall(cer・refChars)・ci95・byDoc・lowData・proofedSec"""
         res = self.stored()
         s = res["summary"]
         for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec"):
             self.assertIn(k, s)
         for k in ("cer", "refChars"):
             self.assertIn(k, s["overall"])
-        root = os.path.dirname(HERE)
+        root = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所(src/home/accuracy.py を読む)
         for p in (os.path.join(root, "home"), root):
             if p not in sys.path:
                 sys.path.insert(0, p)
@@ -938,7 +938,7 @@ class EvalAsrOriginTest(unittest.TestCase):
         self.assertEqual((og["short"]["docs"], og["short"]["reviewedSec"], og["short"]["cer"]), (1, 120.0, 0.0))
         self.assertEqual((og["raw"]["sub"], og["raw"]["del"], og["raw"]["ins"], og["raw"]["refChars"]), (1, 0, 0, 5))
         self.assertIn("docText", og["raw"])                                                     # 時刻によらない CER も
-        # 全体の数字・既存の鍵はそのまま(home/accuracy.py が読む)
+        # 全体の数字・既存の鍵はそのまま(src/home/accuracy.py が読む)
         self.assertEqual(res["summary"]["overall"]["refChars"], 10)
         for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec", "gate", "reviewed", "byKind"):
             self.assertIn(k, res["summary"])

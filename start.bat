@@ -1,6 +1,6 @@
 @echo off
 rem Double-click to start all three tools (studio, editor, cut2resolve) and open the portal page.
-rem Details: home\README.txt
+rem Details: src\home\README.txt
 setlocal
 cd /d "%~dp0"
 title youtube-tools
@@ -18,13 +18,13 @@ echo.
 pause
 goto :eof
 :usepy310
-py -3.10 home\launch.py %*
+py -3.10 src\home\launch.py %*
 goto finish
 :usepy
-py -3 home\launch.py %*
+py -3 src\home\launch.py %*
 goto finish
 :usepython
-python home\launch.py %*
+python src\home\launch.py %*
 :finish
 if errorlevel 1 (
   echo.
