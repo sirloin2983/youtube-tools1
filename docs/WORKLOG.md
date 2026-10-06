@@ -1435,3 +1435,34 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `Keys.PageDown.ToString()` は別名の "Next" になる(`Keys.PageUp` は "PageUp")。`Hotkey.KeyName` の PageUp・PageDown の明示は消さない(テストに足した)
   - 共有の scratchpad に他のサブエージェントの `usage.py` などがあった(同じ名前で上書きされて結果が変わった)。自分の作業用のファイルは専用のサブフォルダに置いた
 - 未コミット: なし(このコミット。`friend-apps/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/`・`dev/` の変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— ③ cut2resolve の見直し(cut2resolve 0.21.0 → 0.21.1。内部の整理。動きは同じ)
+- ユーザーの指示(10-07 ③): 「コードが長すぎるので、ユーザーに影響がないなら処理の方法も変えてよい」。HTTP の API・CLI の引数・EDL / SRT / Lua / cut-plan の中身・schema・環境変数・既定の値は変えない
+- 変更(`src/cut2resolve/` だけ):
+  - `cut2resolve_core.py`: `remap_cues`(字幕をカット後の区間に当てる)を二分探索に、`subtract`(区間の引き算)を削る区間を前から一度だけたどる形に(どちらも区間 × 字幕の全部の組み合わせを回していた。区間 3000・字幕 3000 で 1.1 秒 → 0.02 秒)。
+    同じ計算を 1 か所に: `frames_to_sec`(分数で秒に。9 か所)・`fps_label`(手順書と serve の inspect)・`cue_frames`(字幕の ms → フレーム。remap・--drop-lines・見積もり)・
+    `_ffmpeg_script`(フィルタをファイルで渡し、古いオプション名 → 新しい名前の順に試す。粗編集と音量の測定)・`_unlink_quiet`。`read_start_tc(video, meta)` は probe の結果があれば ffprobe を呼ばない
+    (音量をそろえて写す `copy_video_gain` が毎回もう一度 ffprobe していた)。`merge_sec_spans` は `normalize` と同じなので消した
+  - `srt2resolve.py`・`auto_cut.py`: FCPXML の骨組み(format・asset・effect・sequence)とタイトル 1 件を `fcpxml_skeleton`・`fcpxml_title`・`fcpxml_text` に(2 つの FCPXML で同じものを別々に書いていた)。
+    開始タイムコードの読み方を `timecode_tags`・`start_tc_from` に(probe と read_start_tc で同じ)。使われていない `auto_cut.read_selection` を消した(テスト 2 か所は `read_cut_plan(p)["segments"]` に)
+  - `pack.py`: 165 行の `plan_cut` を `_check_request`・`_subtitles`・`_base_spans`・`_drop_spans`・`_keep_warnings` に、`build_pack` の音量・残ったファイル・字幕ごとの色を `_pack_gain`・`_stale_warning`・`_cue_rgba` に分けた
+    (検査・注意・重い処理の順番は前と同じ)。`Cache` は `_memo` 1 つに。`cue_speakers` の「時刻で話者を探す」古い道を消した(plan_cut の計画はいつも行から直接たどれる。編集の resolve_export も plan_cut の計画を渡す)。
+    書くだけで読まれていなかった `Plan.cutplan` を消した。見積もり(summary)で字幕の段の計算を 2 回していたのを 1 回に。作る予定のファイルの下見を `expected_paths` に(plan と build の 409 の事前確認で同じ式だった)
+  - `resolve_textplus.py`: `caption_segments` を二分探索に。定数(DEFAULT_TARGET・TARGET_FPS・VIDEO_TRACKS_MAX)を先頭へ。Lua・手順書の文は変えていない
+  - `serve.py`: 使われていない `valid_port`・`RUNTIME_PATH_RE`・`read_runtime_port` と、1 か所からしか呼ばない `read_runtime_entry`・`ping_app`・Handler の `_host_ok` など 4 つの包みを消した(`ytt_core` を直接呼ぶ)。
+    画面の既定値を `DEFAULTS` 1 か所に(/api/state と指定の既定で同じ値を 2 回書いていた)。`fps_label` は core のものに。パックに入らなくなった `textplus_plan` の説明を消した
+- 行数(コード): auto_cut 312 → 265・cut2resolve 152 → 152・core 978 → 974・pack 827 → 847(関数を分けた分の説明が増えた)・resolve_textplus 1023 → 1026・serve 1258 → 1228・srt2resolve 578 → 588(共通の部品が来た)= 5128 → 5080。
+  残りの多くは Lua の本体(約 350 行)・手順書の文・API の説明で、変えられない(形式を変えない約束)
+- 版: cut2resolve 0.21.0 → 0.21.1(`cut2resolve_core.VERSION`・README の見出しと「v0.21.1 の変更点」)
+- 確かめ方: 消す前に `src/`・`dev/`・`friend-apps/` を識別子で数え(定義だけ・自分の中だけのもの)、`patch.object` での差し替え・`home/mount.py` が使う名前(Handler・prepare・finish・busy・ALLOWED_HOSTS・SERVER_VERSION)も確かめた。
+  変更前(HEAD)と後で、同じ乱数の入力 9008 通り(remap_cues・caption_segments・subtract・normalize・FCPXML 2 つ・EDL・手順書・finalize_plan・summary・describe・cue_speakers・Text+ の計画と Lua・readme・parse_target・row_edge_from・output_from_spec など)の出力を突き合わせ、版の文字以外すべて同じ
+- テスト: cut2resolve の単体 350 件 OK(skip 24 = Lua が無い)・契約 `dev/tests/test_resolve_pack_contract.py`(単独)35 件 OK・`src/editor/tests/test_metrics.py test_resolve_export.py test_roster.py` 552 件 OK(skip 1)。e2e は流していない(まとめ役が流す)
+- 直さなかった候補(plan/improvements.md 向け):
+  - 使う側の無い API: `/api/inspect`・`/api/upload`・`/api/state`・`/media/<token>`(消した画面のためのもの。今の「編集」・まとめて実行が呼ぶのは plan・build・job・job/cancel・open-folder だけ)。
+    消すと約 200 行減るが、API の約束と `home/tests/test_mount.py`・`dev/tests/e2e_pipeline.py`・`e2e_datadir.py` などが使うので、ユーザーの判断が要る
+  - 単独のコマンド `srt2resolve.py`(README に載っていない。テストはある)・`auto_cut.py` の CLI(`write_package`)・補助の FCPXML(`--fcpxml`。Resolve で未確認): 機能の削除になるので触らない
+  - `auto_cut.build_cut_fcpxml` の区間 × 字幕の走査(補助の FCPXML だけで使う。字幕が区間をまたぐ入力もあり得るので、二分探索にするには形を変える必要がある)
+  - `resolve_textplus.importer_script` の `setdefault`(target・style・mediaFps が無い古い計画のため): 編集のテストが手で作った計画を渡しているので残した
+  - `text_style` の色の 16 進の読み方は `hex_rgba` と同じだが、変な値のときの振る舞い(例外か None か)が違うので残した
+- 注意: `src/cut2resolve/` の .py の行末は混ざっている(core・resolve_textplus・テスト 2 本は LF、ほかは CRLF)。直すときは行末を保つ道具で(Git Bash の `sed -i` は CRLF を LF にする)
+- 未コミット: なし(このコミット。`src/cut2resolve/` と `docs/WORKLOG.md` だけ。ほかの担当の `src/home/` などの変更は入れていない)

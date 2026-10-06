@@ -103,6 +103,9 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
+# 画面の指定を省いたときの値(/api/state の defaults で画面にも見せる。pack.Request・コマンドの既定と同じ値)
+DEFAULTS = {"noise": -35.0, "silenceMin": 0.6, "silencePad": 0.15, "minLen": 0.3, "joinGap": 0.0,
+            "handlesPlan": AC.DEFAULT_HANDLES, "handlesTranscript": 0.0, "crf": 18, "recStart": "01:00:00:00"}
 TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
@@ -139,10 +142,6 @@ def log(msg):
 # 中身は ytt_core.runtime(スタジオ・文字起こし・入口と同じ1か所。2026-09-26 に cut2resolve 自身の写しをやめた)。
 # ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前はそのまま)
 
-valid_port = _runtime.valid_port
-RUNTIME_PATH_RE = _runtime.PATH_RE
-
-
 def runtime_dir():
     return _runtime.runtime_dir(CODE_DIR)
 
@@ -160,21 +159,6 @@ def write_runtime(port, base_path="/"):
 def remove_runtime(port):
     """自分が書いた記録(同じポート・同じプロセス)だけ消す"""
     return _runtime.remove_runtime(runtime_dir(), TOOL_ID, port)
-
-
-def read_runtime_entry(tool):
-    """(ポート, 画面の場所) か None。場所が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。"""
-    info = _runtime.read_runtime(runtime_dir(), tool)
-    return (info["port"], info["path"]) if info else None
-
-
-def read_runtime_port(tool):
-    e = read_runtime_entry(tool)
-    return e[0] if e else None
-
-
-def ping_app(port, timeout=PING_TIMEOUT, path="/"):
-    return _runtime.ping_app(port, timeout, path)
 
 
 def siblings(self_port, timeout=PING_TIMEOUT, self_path="/"):
@@ -416,7 +400,7 @@ def _num(v, what, lo, hi, default=None, integer=False):
             v = float(v.strip())
         except ValueError:
             raise ApiError("bad_value", "%sは数値で入れてください" % what)
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
+    if C.num(v) is None:   # 真偽値・数でない・NaN・無限大
         raise ApiError("bad_value", "%sは数値で入れてください" % what)
     if not lo <= v <= hi:
         raise ApiError("bad_value", "%sは %g〜%g で入れてください" % (what, lo, hi))
@@ -459,9 +443,9 @@ def request_from_spec(spec):
     if mode not in ("silence", "keep", "list"):
         raise ApiError("bad_value", "カットの決め方が正しくありません")
     sil = spec.get("silence") if isinstance(spec.get("silence"), dict) else {}
-    noise = _num(sil.get("noise"), "無音とみなす音量", -90, 0, -35.0)
-    smin = _num(sil.get("min"), "無音の長さ", 0.05, 60, 0.6)
-    spad = _num(sil.get("pad"), "話の前後に残す秒数", 0, 10, 0.15)
+    noise = _num(sil.get("noise"), "無音とみなす音量", -90, 0, DEFAULTS["noise"])
+    smin = _num(sil.get("min"), "無音の長さ", 0.05, 60, DEFAULTS["silenceMin"])
+    spad = _num(sil.get("pad"), "話の前後に残す秒数", 0, 10, DEFAULTS["silencePad"])
     use_silence = mode == "silence" or bool(spec.get("silenceExtra"))
     base, keep_pairs, drop_pairs, handles = "all", None, [], None
     if mode == "keep":
@@ -496,7 +480,8 @@ def request_from_spec(spec):
         video=video, sub=sub, transcript=tr, plan=plan, base=base, keep_pairs=keep_pairs, drop_pairs=drop_pairs,
         handles=handles, silence=use_silence, noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
-        min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, 0.3), join_gap=_num(spec.get("joinGap"), "つなぐ隙間", 0, 3600, 0.0),
+        min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, DEFAULTS["minLen"]),
+        join_gap=_num(spec.get("joinGap"), "つなぐ隙間", 0, 3600, DEFAULTS["joinGap"]),
         row_edge=row_edge_from_spec(spec) if base == "rows" else None, **advanced_from_spec(spec))
 
 
@@ -516,7 +501,7 @@ def advanced_from_spec(spec):
     return {"fps": _str(adv.get("fps"), "フレームレート", 20) or None,
             "frames": None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True),
             "src_start_tc": _str(adv.get("srcStartTc"), "元動画の開始タイムコード", 20) or None,
-            "rec_start": _str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or "01:00:00:00",
+            "rec_start": _str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or DEFAULTS["recStart"],
             "reel": _str(adv.get("reel"), "リール名", 40) or "AX", "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
 
 
@@ -626,7 +611,8 @@ def output_from_spec(o, video):
         tracks = 1 if o.get("videoTracks") in (None, "") else TP.video_tracks_value(o.get("videoTracks"))
     except ValueError as e:
         raise ApiError("bad_tracks", str(e))
-    return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,"dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
+    return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,
+            "dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
             "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
@@ -636,12 +622,12 @@ def output_from_spec(o, video):
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
-            "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, 18, integer=True), "loudness": loud, "volume": vol}
+            "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, DEFAULTS["crf"], integer=True), "loudness": loud, "volume": vol}
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
               "fcpxml": "補助の FCPXML", "roughcut": "粗編集の動画", "video": "元動画のコピー",
-              "textplus_plan": "Text+生成用データ", "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
+              "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
               "textplus_readme": "友人向けの手順(Text+)"}
 
@@ -655,11 +641,6 @@ def file_info(kind, p):
 
 
 # ---------------------------------------------------------------- 入力の中身(/api/inspect)
-
-def fps_label(fps):
-    v = fps[0] / fps[1]
-    return ("%.3f" % v).rstrip("0").rstrip(".")
-
 
 def inspect_inputs(app, o):
     out, suggest = {}, None
@@ -732,7 +713,7 @@ def _inspect_one(app, field, p):
         meta = app.cache.probe(p)
         fps = meta["fps"]
         src, desc, w = C.resolve_src_start(p, None, meta)
-        return {"size": os.path.getsize(p), "w": meta["w"], "h": meta["h"], "fps": list(fps), "fpsLabel": fps_label(fps),
+        return {"size": os.path.getsize(p), "w": meta["w"], "h": meta["h"], "fps": list(fps), "fpsLabel": C.fps_label(fps),
                 "total": meta["total"], "durationSec": round(meta["total"] * fps[1] / fps[0], 3), "audio": bool(meta["audio"]),
                 "codec": meta["codec"], "pixFmt": meta["pix_fmt"], "framesSource": meta["frames_source"], "vfr": meta.get("vfr", False),
                 "startTc": src, "startTcDesc": desc,
@@ -820,25 +801,16 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
 
     # ---- 検査
-    # 検査の規則は ytt_core.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ
-    def _host_ok(self):          # DNS rebinding 対策
-        return httpsec.host_ok(self.headers, self.ctx.allowed_hosts)
-
-    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全一致だけ
-        return httpsec.origin_ok(self.headers, self.ctx.allowed_hosts)
-
-    def _fetch_site_ok(self):
-        return httpsec.fetch_site_ok(self.headers)
-
-    def _navigation_ok(self, path):
-        """他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
-        return httpsec.navigation_ok(self.headers, path)
-
     def _guard(self, write, path=""):
-        if not self._host_ok():
+        """検査の規則は ytt_core.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ。
+        Host は DNS rebinding 対策。書き込みの Origin は "http://" + 許可した Host と完全一致だけ(CSRF 対策)。
+        他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
+        h, hosts = self.headers, self.ctx.allowed_hosts
+        if not httpsec.host_ok(h, hosts):
             self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (self.ctx.port, BASE_PATH))
             return False
-        if not (self._fetch_site_ok() or (not write and self._navigation_ok(path))) or (write and not self._origin_ok()):
+        if (not (httpsec.fetch_site_ok(h) or (not write and httpsec.navigation_ok(h, path)))
+                or (write and not httpsec.origin_ok(h, hosts))):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
             return False
         return True
@@ -937,8 +909,7 @@ class Handler(BaseHTTPRequestHandler):
         return {"app": APP_ID, "version": SERVER_VERSION, "ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe")),
                 "platform": sys.platform, "canOpenFolder": True,
                 "job": job.public() if job is not None and job.state == "running" else None,
-                "defaults": {"noise": -35.0, "silenceMin": 0.6, "silencePad": 0.15, "minLen": 0.3, "joinGap": 0.0,
-                             "handlesPlan": AC.DEFAULT_HANDLES, "handlesTranscript": 0.0, "crf": 18, "recStart": "01:00:00:00"},
+                "defaults": DEFAULTS,
                 "uploadLimits": {k: v[0] for k, v in UPLOAD_LIMITS.items()}}
 
     def _media(self, tok):
@@ -1031,10 +1002,8 @@ class Handler(BaseHTTPRequestHandler):
         if out["dir"].exists() and not out["dir"].is_dir():
             raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-            names = pack.pack_paths(req.video, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"],
-                                    out["fcpxml"], out["textplus"],
-                                    pack.edit_media_path(req.video, req, out["copyVideo"] or out["textplus"]), out["backup"], plan_file=False,
-                                    readme_file=False)
+            names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"], out["fcpxml"],
+                                        out["textplus"], out["backup"], plan_file=False, readme_file=False)
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -1198,10 +1167,11 @@ def finish():
 
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中で cut2resolve が動いていれば、その URL。
-    serve.py を直接起動したときは2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)"""
-    e = read_runtime_entry(TOOL_ID)
-    if e and e[1] != "/" and ping_app(e[0], 1, e[1]) == APP_ID:
-        return "http://localhost:%d%s" % e
+    serve.py を直接起動したときは2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)。
+    記録の場所が無い・形が違うときは "/"(= 単独。以前の記録・他人が書いた値で、別の場所へ向けさせない。ytt_core.runtime.read_runtime)"""
+    e = _runtime.read_runtime(runtime_dir(), TOOL_ID)
+    if e and e["path"] != "/" and _runtime.ping_app(e["port"], 1, e["path"]) == APP_ID:
+        return "http://localhost:%d%s" % (e["port"], e["path"])
     return None
 
 

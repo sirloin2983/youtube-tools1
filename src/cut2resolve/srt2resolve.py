@@ -289,14 +289,11 @@ def probe(video, fps_override=None, frames_override=None):
                                 "(音声のほうが長い動画など)。映像の長さで作りました。")
     if total < 1:
         raise ToolError("動画が短すぎます。")
-    tcs = [(s.get("tags") or {}).get("timecode") for s in streams]
-    tcs.append(((info.get("format") or {}).get("tags") or {}).get("timecode"))
+    tcs = timecode_tags(info)
     tc = next((t for t in tcs if t), None)
     if tc and not re.fullmatch(r"[0:;.]+", tc):
         warnings.append(f"この動画には開始タイムコード({tc})が埋め込まれています。"
                         "Resolve 側の開始位置とずれて、取り込めないことがあります。")
-    # 開始タイムコード(HH:MM:SS:FF の形のものだけ)。Resolve はこれをクリップの Start TC にする
-    start_tc = next((t.strip() for t in tcs if t and TC_RE.fullmatch(t.strip())), None)
 
     a = next((s for s in streams if s.get("codec_type") == "audio"), None)
     audio = None
@@ -310,7 +307,18 @@ def probe(video, fps_override=None, frames_override=None):
     warnings.extend(codec_warnings(codec, pix_fmt))
     return {"w": w, "h": h, "fps": fps, "total": total, "frames_source": source,
             "codec": codec, "pix_fmt": pix_fmt, "audio": audio, "warnings": warnings,
-            "vfr": vfr, "duration": dur, "start_tc": start_tc}
+            "vfr": vfr, "duration": dur, "start_tc": start_tc_from(tcs)}
+
+
+def timecode_tags(info):
+    """ffprobe の結果(-show_streams -show_format の JSON)の timecode のタグ。ストリームの順 → 最後にコンテナ(無い所は None)"""
+    tcs = [(s.get("tags") or {}).get("timecode") for s in info.get("streams", [])]
+    return tcs + [((info.get("format") or {}).get("tags") or {}).get("timecode")]
+
+
+def start_tc_from(tcs):
+    """開始タイムコード(HH:MM:SS:FF の形のものだけ。無ければ None)。Resolve はこれをクリップの Start TC にする"""
+    return next((t.strip() for t in tcs if t and TC_RE.fullmatch(t.strip())), None)
 
 
 # ---------------------------------------------------------------- 時刻の変換
@@ -414,56 +422,58 @@ def build_fcpxml(video, meta, cues_f, name, font, size, titles=True, start_frame
     つながったタイトルの offset は親(asset-clip)の中の時刻 = 親の start 基準で書く"""
     fps, total = meta["fps"], meta["total"]
     t0 = int(start_frames or 0)
-    w, h = meta["w"], meta["h"]
-    fd = frames_to_time(1, fps)
-    fps_label = f"{fps[0] / fps[1]:g}" if fps[1] == 1 else f"{fps[0] / fps[1]:.2f}"
+    uid = hashlib.md5(str(video).encode("utf-8")).hexdigest().upper()
+    root, spine = fcpxml_skeleton(video, meta, uid, t0, bool(titles and cues_f), "srt2resolve", name, total)
+    clip = ET.SubElement(spine, "asset-clip", ref="r2", offset="0s", name=video.stem,
+                         start=frames_to_time(t0, fps), duration=frames_to_time(total, fps), format="r1", tcFormat="NDF")
+    lanes = 0
+    if titles:
+        for n, (sf, ef, text, lane) in enumerate(assign_lanes(cues_f), 1):
+            lanes = max(lanes, lane)
+            fcpxml_title(clip, n, lane, t0 + sf, ef - sf, text, fps, font, size)
+    return fcpxml_text(root), lanes
 
+
+TITLE_EFFECT_UID = ".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"
+
+
+def fcpxml_skeleton(video, meta, uid, start_frames, titles, event, project, seq_frames):
+    """FCPXML の共通の骨組み(build_fcpxml と auto_cut.build_cut_fcpxml): format・asset(start = 元動画の開始タイムコードのフレーム)・
+    タイトルの effect(titles のとき)・library > event > project > sequence(長さ seq_frames フレーム)。-> (root, spine)"""
+    fps, audio = meta["fps"], meta.get("audio")
+    w, h = meta["w"], meta["h"]
+    fps_label = f"{fps[0] / fps[1]:g}" if fps[1] == 1 else f"{fps[0] / fps[1]:.2f}"
     root = ET.Element("fcpxml", version="1.8")
     res = ET.SubElement(root, "resources")
     ET.SubElement(res, "format", id="r1", name=f"FFVideoFormat{w}x{h}p{fps_label}",
-                  frameDuration=fd, width=str(w), height=str(h))
-    uid = hashlib.md5(str(video).encode("utf-8")).hexdigest().upper()
-    asset_attr = dict(id="r2", name=video.name, uid=uid, src=video.resolve().as_uri(),
-                      start=frames_to_time(t0, fps), duration=frames_to_time(total, fps), hasVideo="1", format="r1")
-    if meta["audio"]:
-        asset_attr.update(hasAudio="1", audioSources="1",
-                          audioChannels=str(meta["audio"][0]), audioRate=str(meta["audio"][1]))
+                  frameDuration=frames_to_time(1, fps), width=str(w), height=str(h))
+    asset_attr = dict(id="r2", name=video.name, uid=uid, src=video.resolve().as_uri(), start=frames_to_time(start_frames, fps),
+                      duration=frames_to_time(meta["total"], fps), hasVideo="1", format="r1")
+    if audio:
+        asset_attr.update(hasAudio="1", audioSources="1", audioChannels=str(audio[0]), audioRate=str(audio[1]))
     ET.SubElement(res, "asset", **asset_attr)
-    if titles and cues_f:
-        ET.SubElement(res, "effect", id="r3", name="Basic Title",
-                      uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti")
-
-    lib = ET.SubElement(root, "library")
-    ev = ET.SubElement(lib, "event", name="srt2resolve")
-    proj = ET.SubElement(ev, "project", name=name)
-    mono = bool(meta["audio"]) and meta["audio"][0] == 1
-    seq_attr = dict(format="r1", duration=frames_to_time(total, fps), tcStart="0s",
-                    tcFormat="NDF", audioLayout="mono" if mono else "stereo")
-    seq_attr["audioRate"] = SEQ_AUDIO_RATE.get(meta["audio"][1] if meta["audio"] else 48000, "48k")
-    seq = ET.SubElement(proj, "sequence", **seq_attr)
-    spine = ET.SubElement(seq, "spine")
-    clip = ET.SubElement(spine, "asset-clip", ref="r2", offset="0s", name=video.stem,
-                         start=frames_to_time(t0, fps), duration=frames_to_time(total, fps), format="r1", tcFormat="NDF")
-
-    lanes = 0
     if titles:
-        gen_start = round(3600 * fps[0] / fps[1])  # FCP 流儀のタイトル内部開始(3600秒)をフレーム境界に合わせる
-        for n, (sf, ef, text, lane) in enumerate(assign_lanes(cues_f), 1):
-            lanes = max(lanes, lane)
-            t = ET.SubElement(clip, "title", ref="r3", lane=str(lane),
-                              offset=frames_to_time(t0 + sf, fps),
-                              name=text.replace("\n", " ")[:40],
-                              start=frames_to_time(gen_start, fps),
-                              duration=frames_to_time(ef - sf, fps))
-            tx = ET.SubElement(t, "text")
-            st = ET.SubElement(tx, "text-style", ref=f"ts{n}")
-            st.text = text
-            defn = ET.SubElement(t, "text-style-def", id=f"ts{n}")
-            ET.SubElement(defn, "text-style", font=font, fontSize=str(size), fontColor="1 1 1 1",
-                          bold="1", alignment="center", strokeColor="0 0 0 1", strokeWidth="-4")
+        ET.SubElement(res, "effect", id="r3", name="Basic Title", uid=TITLE_EFFECT_UID)
+    proj = ET.SubElement(ET.SubElement(ET.SubElement(root, "library"), "event", name=event), "project", name=project)
+    seq = ET.SubElement(proj, "sequence", format="r1", duration=frames_to_time(seq_frames, fps), tcStart="0s", tcFormat="NDF",
+                        audioLayout="mono" if audio and audio[0] == 1 else "stereo",
+                        audioRate=SEQ_AUDIO_RATE.get(audio[1] if audio else 48000, "48k"))
+    return root, ET.SubElement(seq, "spine")
+
+
+def fcpxml_title(clip, n, lane, offset, frames, text, fps, font, size):
+    """つながったタイトル(字幕 1 件)を clip に足す。offset は親(asset-clip)の中の時刻(フレーム)。n = 文書の中の通し番号(text-style-def の id)。
+    タイトルの内部の開始は FCP の流儀の 3600 秒をフレーム境界に合わせた値"""
+    t = ET.SubElement(clip, "title", ref="r3", lane=str(lane), offset=frames_to_time(offset, fps), name=text.replace("\n", " ")[:40],
+                      start=frames_to_time(round(3600 * fps[0] / fps[1]), fps), duration=frames_to_time(frames, fps))
+    ET.SubElement(ET.SubElement(t, "text"), "text-style", ref=f"ts{n}").text = text
+    ET.SubElement(ET.SubElement(t, "text-style-def", id=f"ts{n}"), "text-style", font=font, fontSize=str(size), fontColor="1 1 1 1",
+                  bold="1", alignment="center", strokeColor="0 0 0 1", strokeWidth="-4")
+
+
+def fcpxml_text(root):
     ET.indent(root, space="  ")
-    body = ET.tostring(root, encoding="unicode")
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + body + "\n", lanes
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
 def _srt_ts(ms):

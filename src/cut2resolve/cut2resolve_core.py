@@ -11,6 +11,7 @@
 
 時刻はすべて「元動画のフレーム番号」で扱い、区間は [開始, 終了) の半開区間。
 """
+import bisect
 import json
 import math
 import os
@@ -29,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.21.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.21.1"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -176,6 +177,22 @@ def sec_to_frames(sec, fps):
     return S.ms_to_frames(_sec_to_ms(sec), fps)
 
 
+def cue_frames(a_ms, b_ms, fps):
+    """字幕の時刻(ミリ秒)-> (開始f, 終了f)。長さ 0 にならないよう、終わりは開始の 1 フレーム後より前にしない"""
+    cs = S.ms_to_frames(a_ms, fps)
+    return cs, max(S.ms_to_frames(b_ms, fps), cs + 1)
+
+
+def frames_to_sec(n, fps):
+    """フレーム -> 秒(float。分数で計算してから直す)"""
+    return float(Fraction(n * fps[1], fps[0]))
+
+
+def fps_label(fps):
+    """fps の表示(29.97・30・59.94。小数第 3 位まで、末尾の 0 は書かない)"""
+    return f"{fps[0] / fps[1]:.3f}".rstrip("0").rstrip(".")
+
+
 def cut_list_to_keeps(pairs, fps, total):
     """[(開始秒, 終了秒)] -> (フレームの区間[整理済み], 警告)。動画の長さを超える分は切る"""
     raw = [(sec_to_frames(a, fps), sec_to_frames(b, fps)) for a, b in pairs]
@@ -185,7 +202,7 @@ def cut_list_to_keeps(pairs, fps, total):
     zero = sum(1 for s, e in raw if e <= s)
     if zero:
         warns.append(f"フレームに直すと長さが 0 になる短い区間が {zero} か所あり、無視しました"
-                     f"(1フレーム = {float(Fraction(fps[1], fps[0])):.3f}秒)。")
+                     f"(1フレーム = {frames_to_sec(1, fps):.3f}秒)。")
     return normalize(raw, total), warns
 
 
@@ -214,21 +231,18 @@ def normalize(ranges, total=None):
 
 
 def subtract(base, cuts):
-    """base から cuts を引く"""
-    out = []
-    cuts = normalize(cuts)
+    """base から cuts を引く。どちらも整理して(時刻順・重なりなし)から、削る区間を前から一度だけたどる(区間の数 × 削る区間の数を回さない)"""
+    out, cuts, j = [], normalize(cuts), 0
     for s, e in normalize(base):
-        cur = s
-        for cs, ce in cuts:
-            if ce <= cur:
-                continue
-            if cs >= e:
-                break
+        while j < len(cuts) and cuts[j][1] <= s:   # この区間より前に終わる削る区間(後ろの区間にも掛からない)
+            j += 1
+        cur, k = s, j
+        while k < len(cuts) and cuts[k][0] < e and cur < e:   # 削る区間は離れて並ぶので、ここから先はどれも cur より後で終わる
+            cs, ce = cuts[k]
             if cs > cur:
                 out.append((cur, cs))
             cur = max(cur, ce)
-            if cur >= e:
-                break
+            k += 1
         if cur < e:
             out.append((cur, e))
     return out
@@ -327,6 +341,30 @@ def _ffmpeg_stream(cmd, timeout, task, duration):
     return subprocess.CompletedProcess(cmd, proc.returncode, "", "".join(x for x in err if x))
 
 
+def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
+    """フィルタをファイルで渡して ffmpeg を動かす(区間が多くても Windows のコマンド長の制限に当たらないように)。-> 最後の結果。
+    opts: フィルタのファイルを渡すオプションの名前の候補。新しい ffmpeg では -filter_complex_script が -/filter_complex に
+    (-filter_script が -/af に)置き換わっているので、前から順に試し、知らないオプションと言われたときだけ次を試す。make_cmd(opt, ファイル) -> コマンド"""
+    with tempfile.TemporaryDirectory() as d:
+        sp = Path(d) / "filter.txt"
+        sp.write_text(script, encoding="utf-8")
+        for opt in opts:
+            r = _ffmpeg_run(make_cmd(opt, str(sp)), timeout, task, duration)
+            err = r.stderr or ""
+            if r.returncode == 0 or ("nrecognized option" not in err and "not found" not in err):
+                break
+    return r
+
+
+def _unlink_quiet(path):
+    """一時ファイルを消す(None・消せないときは何もしない)"""
+    if path:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def check_silence_params(noise_db, min_sec, pad_sec):
     for v in (noise_db, min_sec, pad_sec):
         if not isinstance(v, (int, float)) or not math.isfinite(v):
@@ -345,7 +383,7 @@ def detect_silence(video, fps, total, noise_db=-35.0, min_sec=0.6, pad_sec=0.15,
     check_silence_params(noise_db, min_sec, pad_sec)
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-i", S.arg_path(video), "-map", "0:a:0", "-vn", "-sn", "-dn",
            "-af", f"silencedetect=noise={noise_db}dB:d={min_sec}", "-f", "null", "-"]
-    total_sec = float(Fraction(total * fps[1], fps[0]))
+    total_sec = frames_to_sec(total, fps)
     r = _ffmpeg_run(cmd, 3600, task, total_sec)
     if r.returncode != 0:
         raise ToolError("無音の検出に失敗しました(音声が無い動画かもしれません): " + (r.stderr or "").strip()[-200:])
@@ -388,22 +426,20 @@ def check_timecodes(fps, rec_start="01:00:00:00", src_start="00:00:00:00"):
             raise ToolError(f"{label}: {e}")
 
 
-_TC_RE = S.TC_RE
-
-
-def read_start_tc(video):
+def read_start_tc(video, meta=None):
     """動画に埋め込まれた開始タイムコード('HH:MM:SS:FF')。無ければ None。
     Resolve はこれをクリップの開始タイムコード(Start TC)として使う。EDL の元動画側の時刻がその範囲に
-    入っていないと「タイムコードの範囲が一致しない」で結び付かないため、EDL にも同じ値を足す必要がある"""
+    入っていないと「タイムコードの範囲が一致しない」で結び付かないため、EDL にも同じ値を足す必要がある。
+    meta(srt2resolve.probe の結果)を渡すと、そこで読んだ値を使う(ffprobe をもう一度呼ばない。読み方は srt2resolve.start_tc_from の1か所)"""
+    if meta is not None and "start_tc" in meta:
+        return meta["start_tc"]
     r = _ffmpeg_run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
                      S.arg_path(video)], 60)
     try:
         info = json.loads(r.stdout or "{}")
     except ValueError:
         return None
-    tcs = [(s.get("tags") or {}).get("timecode") for s in info.get("streams", [])]
-    tcs.append(((info.get("format") or {}).get("tags") or {}).get("timecode"))
-    return next((t.strip() for t in tcs if t and _TC_RE.fullmatch(t.strip())), None)
+    return S.start_tc_from(S.timecode_tags(info))
 
 
 def resolve_src_start(video, override=None, meta=None):
@@ -413,7 +449,7 @@ def resolve_src_start(video, override=None, meta=None):
     if override and str(override).strip():
         tc, desc = str(override).strip(), "指定"
     else:
-        tc = meta.get("start_tc") if meta is not None and "start_tc" in meta else read_start_tc(video)
+        tc = read_start_tc(video, meta)
         desc = "動画に埋め込まれた値"
         if not tc:
             return "00:00:00:00", "動画に埋め込みなし", []
@@ -458,22 +494,25 @@ def build_edl(title, clip_name, keeps, fps, has_audio, reel="AX",
 def remap_cues(cues_ms, keeps, fps, min_piece_frames=6, with_src=False):
     """[(開始ms, 終了ms, 文)] -> ([(開始f, 終了f, 文)](カット後の時刻), 消えた件数)。
     カットにまたがる字幕は区間ごとに分け、切れて短すぎる断片(min_piece_frames 未満)は捨てる。
-    with_src: 3 つ目に、カット後の字幕ごとの元の字幕の番号(cues_ms の何番目か)も返す(字幕ごとの話者を時刻で探さずに決めるため)"""
-    spans, rec = [], 0
+    with_src: 3 つ目に、カット後の字幕ごとの元の字幕の番号(cues_ms の何番目か)も返す(字幕ごとの話者を時刻で探さずに決めるため)。
+    keeps は整理済み(normalize の形 = 時刻順・重なりなし)。字幕ごとに、重なる区間だけを二分探索で探す(区間の数 × 字幕の数を回さない)"""
+    rec = [0]   # 区間ごとのカット後の先頭
     for ks, ke in keeps:
-        spans.append((ks, ke, rec))
-        rec += ke - ks
+        rec.append(rec[-1] + ke - ks)
+    ends = [ke for _, ke in keeps]
     out, vanished = [], 0
     for i, (a, b, text) in enumerate(cues_ms):
-        cs = S.ms_to_frames(a, fps)
-        ce = max(S.ms_to_frames(b, fps), cs + 1)
+        cs, ce = cue_frames(a, b, fps)
         made = 0
-        for ks, ke, rs in spans:
+        k = bisect.bisect_right(ends, cs)   # cs より後で終わる最初の区間から、ce より前に始まる区間まで
+        while k < len(keeps) and keeps[k][0] < ce:
+            ks, ke = keeps[k]
             os_, oe = max(cs, ks), min(ce, ke)
             n = oe - os_
             if n > 0 and (n == ce - cs or n >= min_piece_frames):  # 切られていない字幕は短くても残す
-                out.append((rs + os_ - ks, rs + oe - ks, text, i))
+                out.append((rec[k] + os_ - ks, rec[k] + oe - ks, text, i))
                 made += 1
+            k += 1
         if not made:
             vanished += 1
     out.sort(key=lambda c: (c[0], c[1]))   # 安定(同じ時刻なら元の順)。番号は並べ替えに使わない
@@ -494,16 +533,13 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None, 
     for i, (s, e) in enumerate(keeps):
         chains.append(f"[0:v]trim=start_frame={s}:end_frame={e},setpts=PTS-STARTPTS[v{i}]")
         if has_audio:
-            t0 = float(Fraction(s * fps[1], fps[0]))
-            t1 = float(Fraction(e * fps[1], fps[0]))
-            chains.append(f"[0:a]atrim=start={t0:.6f}:end={t1:.6f},asetpts=PTS-STARTPTS[a{i}]")
+            chains.append(f"[0:a]atrim=start={frames_to_sec(s, fps):.6f}:end={frames_to_sec(e, fps):.6f},asetpts=PTS-STARTPTS[a{i}]")
     ins = "".join(f"[v{i}][a{i}]" if has_audio else f"[v{i}]" for i in range(len(keeps)))
     chains.append(f"{ins}concat=n={len(keeps)}:v=1:a={1 if has_audio else 0}"
                   + ("[outv][outa0]" if has_audio else "[outv]"))
     if has_audio:
         chains.append("[outa0]" + (f"volume={gain_db:.2f}dB" if abs(gain_db) >= 0.01 else "anull") + "[outa]")
-    script = ";\n".join(chains)
-    kept_sec = float(Fraction(sum(e - s for s, e in keeps) * fps[1], fps[0]))
+    kept_sec = frames_to_sec(sum(e - s for s, e in keeps), fps)
     out_path = Path(S.arg_path(out_path))
     fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=".tmp-" , suffix=".mp4")
     os.close(fd)
@@ -514,29 +550,15 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None, 
         out_opts += ["-c:a", "aac", "-b:a", "192k"]
     out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
     try:
-        with tempfile.TemporaryDirectory() as d:
-            sp = Path(d) / "filter.txt"
-            sp.write_text(script, encoding="utf-8")
-            err = ""
-            # 長い区間リストでも Windows のコマンド長制限に当たらないよう、フィルタはファイルで渡す。
-            # 新しい ffmpeg では -filter_complex_script が -/filter_complex に置き換わっているため両方試す
-            for opt in ("-filter_complex_script", "-/filter_complex"):
-                r = _ffmpeg_run(["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, str(sp)] + out_opts,
-                                7200, task, kept_sec)
-                if r.returncode == 0:
-                    S._replace_retry(tmp, str(out_path))
-                    tmp = None
-                    return
-                err = (r.stderr or "").strip()
-                if "nrecognized option" not in err and "not found" not in err:
-                    break
-        raise ToolError("粗編集の動画を書き出せませんでした: " + err[-300:])
+        r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
+                           lambda opt, sp: ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
+                           7200, task, kept_sec)
+        if r.returncode != 0:
+            raise ToolError("粗編集の動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
+        S._replace_retry(tmp, str(out_path))
+        tmp = None
     finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+        _unlink_quiet(tmp)
 
 
 # ---------------------------------------------------------------- 表示・手順書・出力
@@ -551,7 +573,7 @@ def fmt_sec(sec):
 
 
 def fmt_frames(n, fps):
-    return fmt_sec(float(Fraction(n * fps[1], fps[0])))
+    return fmt_sec(frames_to_sec(n, fps))
 
 
 def describe_keeps(keeps, fps, total, limit=40):
@@ -570,7 +592,7 @@ def build_readme(video_name, meta, keeps, edl_name, srt_name, rough_name, rec_st
     fps = meta["fps"]
     nom = nominal_rate(fps)
     src0 = tc_to_frames(src_start, nom)
-    rate = f"{fps[0] / fps[1]:.3f}".rstrip("0").rstrip(".")
+    rate = fps_label(fps)
     rows = "\n".join(
         f"  {i:>3}   {frames_to_tc(src0 + s, nom)}  →  {frames_to_tc(src0 + e, nom)}   ({fmt_frames(e - s, fps)})"
         for i, (s, e) in enumerate(keeps, 1))
@@ -707,31 +729,23 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     無音・測れないときは (None, None)。読み方・区間の選び方は ytt_core/loudness.py の1か所(スタジオの書き出しと共通)"""
     _loud = loudness_mod()
     sel = _loud.select_filter(spans_sec)
-    af = (sel + "," if sel else "") + "loudnorm=print_format=json"
-    with tempfile.TemporaryDirectory() as d:   # 区間が多いと長くなるので、フィルタはファイルで渡す(Windows のコマンド長の制限)
-        sp = Path(d) / "af.txt"
-        sp.write_text(af, encoding="utf-8")
-        err = ""
-        for opt in ("-filter_script:a", "-/af"):   # 新しい ffmpeg では -filter_script が -/af に置き換わっている
-            r = _ffmpeg_run(["ffmpeg", "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, str(sp), "-f", "null", "-"],
-                            3600, task, duration)
-            err = r.stderr or ""
-            if r.returncode == 0:
-                return _loud.parse(err)
-            if "nrecognized option" not in err and "not found" not in err:
-                break
-    raise ToolError("音量を測れませんでした: " + err.strip()[-300:])
+    r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
+                       lambda opt, sp: ["ffmpeg", "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
+                       3600, task, duration)
+    if r.returncode != 0:
+        raise ToolError("音量を測れませんでした: " + (r.stderr or "").strip()[-300:])
+    return _loud.parse(r.stderr or "")
 
 
-def copy_video_gain(video, dst, gain_db, task=None, duration=None):
+def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
     """動画を dst へ写し、音声だけ gain_db(dB)をかけて作り直す(映像はそのまま = 無劣化)。一時ファイル経由(書きかけを残さない)。
-    コンテナは dst の拡張子のまま(webm は Opus、それ以外は AAC)"""
+    コンテナは dst の拡張子のまま(webm は Opus、それ以外は AAC)。meta: video の srt2resolve.probe の結果(開始タイムコードを読み直さない)"""
     dst = Path(dst)
     ext = dst.suffix.lower()
     fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=ext or ".mp4")
     os.close(fd)
     acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", "192k"]
-    tc = read_start_tc(video)
+    tc = read_start_tc(video, meta)
     opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", f"volume={gain_db:.2f}dB"] + acodec
     if ext in (".mp4", ".mov", ".m4v"):
         opts += ["-movflags", "+faststart"] + (["-timecode", tc] if tc and tc != "00:00:00:00" else [])
@@ -742,11 +756,7 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None):
         S._replace_retry(tmp, str(dst))
         tmp = None
     finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+        _unlink_quiet(tmp)
     return dst
 
 
@@ -775,11 +785,7 @@ def copy_video(video, out_dir, task=None, dst=None):
         S._replace_retry(tmp, str(dst))
         tmp = None
     finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+        _unlink_quiet(tmp)
     return dst
 
 
@@ -953,24 +959,14 @@ def row_has_caption(row):
     return row_is_kept(row) and not row.get("noSub")
 
 
-def merge_sec_spans(spans):
-    """[(開始秒, 終了秒)] の重なる・接するものをまとめる(文字起こしツールの kept_spans と同じ: 行と行の間のすき間は残さない)"""
-    out = []
-    for a, b in sorted(spans):
-        if out and a <= out[-1][1]:
-            out[-1] = (out[-1][0], max(out[-1][1], b))
-        else:
-            out.append((a, b))
-    return out
-
-
 def transcript_kept_spans(rows):
-    return merge_sec_spans([(r["start"], r["end"]) for r in rows if row_is_kept(r)])
+    """残す行の時間(秒)。重なる・接する行はまとめる(文字起こしツールの kept_spans と同じ: 行と行の間のすき間は残さない)"""
+    return normalize([(r["start"], r["end"]) for r in rows if row_is_kept(r)])
 
 
 def transcript_cut_spans(rows):
     """「カット済」の行の時間(秒)。残す行と重なる部分は、呼び出し側で残す行を優先して引く"""
-    return merge_sec_spans([(r["start"], r["end"]) for r in rows if r["cut"]])
+    return normalize([(r["start"], r["end"]) for r in rows if r["cut"]])
 
 
 def transcript_cues(rows):

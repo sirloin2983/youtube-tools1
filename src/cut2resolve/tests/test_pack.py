@@ -749,7 +749,7 @@ class TestCutPlanDocs(unittest.TestCase):
             AC.read_cut_plan(p)
         p = self.dir / "bom.json"
         p.write_bytes(b"\xef\xbb\xbf" + json.dumps({"schema": "youtube-tools-cut-plan/v1", "segments": [{"start": 0, "end": 1}]}).encode())
-        self.assertEqual(len(AC.read_selection(p)), 1)
+        self.assertEqual(len(AC.read_cut_plan(p)["segments"]), 1)
         p = write(self.dir / "nan.json", '{"schema":"youtube-tools-cut-plan/v1","segments":[{"start":NaN,"end":1}]}')
         with self.assertRaises(C.ToolError):
             AC.read_cut_plan(p)

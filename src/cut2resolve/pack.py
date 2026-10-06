@@ -14,6 +14,7 @@
 字幕: SRT があればそれ、無ければ文字起こしの残す行(カット済でない・文字のある行。「字幕に出さない」noSub の行は除く)。時刻はカット後に直す。
       Text+ のパックでは、時刻の重なる字幕を段(上のトラック + 縦の位置)に分ける(resolve_textplus.stack_captions)。
 """
+import bisect
 import copy
 import dataclasses
 import json
@@ -22,7 +23,6 @@ import secrets
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from fractions import Fraction
 from pathlib import Path
 from typing import List, Optional
 
@@ -123,7 +123,6 @@ class Plan:
     warnings: List[str]
     doc: dict                     # cut-plan.json の元(auto_cut.build_plan / plan_from_keeps と同じ形)
     transcript: Optional[dict] = None
-    cutplan: Optional[dict] = None
     speaker_spans: Optional[list] = None   # [(開始秒, 終了秒, 話者の名前)](元の動画の時刻。字幕が文字起こしのときだけ。A-2: 話者ごとの字幕の色)
     cue_names: Optional[list] = None       # 字幕(cues)ごとの話者の名前("" = 話者なし)。字幕が文字起こしのときだけ
     cue_src: Optional[list] = None         # カット後の字幕(cues_out)ごとの元の字幕(cues)の番号(remap_cues の with_src)
@@ -158,27 +157,28 @@ class Cache:
             while len(store) > self._size:
                 store.popitem(last=False)
 
+    def _memo(self, store, key, make):
+        """覚えていればその写し、無ければ make() の結果を覚えて返す"""
+        hit = self._get(store, key)
+        if hit is None:
+            hit = make()
+            self._put(store, key, hit)
+        return hit
+
     def probe(self, video, fps=None, frames=None):
-        key = self._file_key(video) + (fps, frames)
-        hit = self._get(self._probe, key)
-        if hit is not None:
-            return hit
-        meta = S.probe(video, fps, frames)
-        self._put(self._probe, key, meta)
-        return meta
+        return self._memo(self._probe, self._file_key(video) + (fps, frames), lambda: S.probe(video, fps, frames))
+
+    def _silence_key(self, video, fps, total, noise, min_sec, pad):
+        return self._file_key(video) + (tuple(fps), total, float(noise), float(min_sec), float(pad))
 
     def silence(self, video, fps, total, noise, min_sec, pad, task=None):
-        key = self._file_key(video) + (tuple(fps), total, float(noise), float(min_sec), float(pad))
-        hit = self._get(self._silence, key)
-        if hit is not None:
-            return [tuple(x) for x in hit]
-        sil = C.detect_silence(video, fps, total, noise, min_sec, pad, task)
-        self._put(self._silence, key, sil)
-        return sil
+        sil = self._memo(self._silence, self._silence_key(video, fps, total, noise, min_sec, pad),
+                         lambda: C.detect_silence(video, fps, total, noise, min_sec, pad, task))
+        return [tuple(x) for x in sil]
 
     def silence_cached(self, video, fps, total, noise, min_sec, pad):
         try:
-            key = self._file_key(video) + (tuple(fps), total, float(noise), float(min_sec), float(pad))
+            key = self._silence_key(video, fps, total, noise, min_sec, pad)
         except OSError:
             return False
         with self._lock:
@@ -186,7 +186,7 @@ class Cache:
 
 
 def _finite(v, what, lo=0.0, hi=None):
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
+    if C.num(v) is None:   # 真偽値・数でない・NaN・無限大
         raise ToolError(f"{what}は数値で指定してください。")
     if v < lo or (hi is not None and v > hi):
         raise ToolError(f"{what}は {lo:g}〜{hi:g} の範囲で指定してください。" if hi is not None else f"{what}は {lo:g} 以上にしてください。")
@@ -225,7 +225,6 @@ def widen_row_edges(spans, silence, fps, total, edge, blocks=()):
     """残す区間(フレーム)の端を声の止まる所まで広げる(RowEdge の説明)。silence: 無音の区間(フレーム。None = 調べていない → 決まった余白)。
     blocks: 越えて広げない区間(フレーム。「カット済」の行。越えると、カット済の行の向こう側に切れ端が残るため)。
     広げて重なった・接した区間は1つにつなぐ。0〜total に収める"""
-    import bisect
     blk = C.normalize(blocks or [], total)
     bstarts, bends = [s for s, _ in blk], [e for _, e in blk]
     f = lambda sec: C.sec_to_frames(sec, fps)
@@ -294,10 +293,45 @@ def _cut_row_frames(rows, fps, total):
 
 
 def plan_cut(req, task=None, cache=None, log=None):
-    """残す区間を決める(ファイルは作らない)。task: 進み具合・取り消し(画面用)、cache: 画面用、log: CLI の表示(print)"""
+    """残す区間を決める(ファイルは作らない)。task: 進み具合・取り消し(画面用)、cache: 画面用、log: CLI の表示(print)。
+    流れ: 指定の検査 → 動画を調べる → 字幕 → 土台(_base_spans)→ 削る区間(_drop_spans)→ 残す区間 = 土台 − 削る区間 → つなぐ・短いのを捨てる"""
+    video = Path(req.video)
+    min_len, join_gap = _check_request(req, video)
+    meta = cache.probe(video, req.fps, req.frames) if cache else S.probe(video, req.fps, req.frames)
+    fps = meta["fps"]
+    src_start, src_desc, tc_warns = C.resolve_src_start(video, req.src_start_tc, meta)
+    C.check_timecodes(fps, req.rec_start, src_start)   # 無音の検出・書き出しの前に確かめる
+    warns = [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns
+
+    tr = C.read_transcript(req.transcript) if req.transcript else None
+    if tr and tr["bad"]:
+        warns.append(f"文字起こしの {tr['bad']} 行は時刻が正しくないため使いませんでした。")
+    cp = AC.read_cut_plan(req.plan) if req.plan else None
+    cues, sub_source, cue_names, no_sub = _subtitles(req, tr, warns)
+    base, selected_records, handles = _base_spans(req, meta, tr, cp, warns, task, cache, log)
+    drops = _drop_spans(req, meta, cues, tr, warns, task, cache, log)
+
+    keeps = C.subtract(base, [x for v in drops.values() for x in v])
+    keeps = C.merge_close(keeps, req.join_frames if req.join_frames is not None else C.sec_to_frames(join_gap, fps))
+    keeps = C.drop_short(keeps, max(1, C.sec_to_frames(min_len, fps)))
+    if not keeps:
+        raise ToolError("残る区間がありません。カットの指定(無音の感度 --noise・最短の長さ --min-len など)を見直してください。")
+    warns += _keep_warnings(req, keeps, fps)
+    cues_out, vanished, cue_src = C.remap_cues(cues, keeps, fps, with_src=True) if cues else (None, 0, None)
+    from_tr = bool(tr and sub_source == "transcript")
+    return Plan(req=req, video=video, meta=meta, keeps=keeps, base=base, selected=[tuple(r["selected_frames"]) for r in selected_records],
+                drops=drops, cues=cues, cues_out=cues_out, vanished=vanished, sub_source=sub_source,
+                src_start=src_start, src_desc=src_desc, handles=handles, warnings=warns,
+                doc=AC.plan_from_keeps(keeps, meta, selected_records, C.sec_to_frames(handles, fps)), transcript=tr,
+                speaker_spans=[(r["start"], r["end"], r["speaker"]) for r in tr["rows"] if C.row_has_caption(r) and r.get("speaker")]
+                if from_tr else None,
+                cue_names=cue_names if from_tr else None, cue_src=cue_src, no_sub_rows=no_sub)
+
+
+def _check_request(req, video):
+    """指定の検査(重い処理の前に)。-> (最短の長さ, つなぐ隙間)(秒)"""
     if req.base not in BASES:
         raise ToolError(f"カットの決め方が正しくありません: {req.base}")
-    video = Path(req.video)
     for p in (video, req.sub, req.transcript, req.plan) + tuple(req.extra_inputs):
         if p is not None and not Path(p).is_file():
             raise ToolError(f"ファイルが見つかりません: {p}")
@@ -310,84 +344,86 @@ def plan_cut(req, task=None, cache=None, log=None):
         _finite(req.handles, "前後の余白(--handles)", 0, 3600)
     if req.silence:
         C.check_silence_params(req.noise, req.silence_min, req.silence_pad)
-    if req.row_edge is not None:
-        e = req.row_edge
+    e = req.row_edge
+    if e is not None:
         for v, what in ((e.after, "終わりを広げる上限"), (e.before, "始まりを広げる上限"), (e.pad_after, "終わりの余白"), (e.pad_before, "始まりの余白")):
             _finite(v, what + "(秒)", 0, ROW_EDGE_MAX)
         C.check_silence_params(e.noise, e.min_sil, 0.0)
+    return min_len, join_gap
 
-    meta = cache.probe(video, req.fps, req.frames) if cache else S.probe(video, req.fps, req.frames)
-    fps, total = meta["fps"], meta["total"]
-    src_start, src_desc, tc_warns = C.resolve_src_start(video, req.src_start_tc, meta)
-    C.check_timecodes(fps, req.rec_start, src_start)   # 無音の検出・書き出しの前に確かめる
-    warns = [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns
 
-    tr = C.read_transcript(req.transcript) if req.transcript else None
-    if tr and tr["bad"]:
-        warns.append(f"文字起こしの {tr['bad']} 行は時刻が正しくないため使いませんでした。")
-    cp = AC.read_cut_plan(req.plan) if req.plan else None
+def _silence(cache, task, *args):
+    """無音の検出(cut2resolve_core.detect_silence の引数)。画面は cache に覚えたものを使う"""
+    return cache.silence(*args, task) if cache else C.detect_silence(*args, task)
 
-    cues, sub_source, cue_names, no_sub = None, None, None, 0
+
+def _subtitles(req, tr, warns):
+    """字幕: SRT があればそれ、無ければ文字起こしの残す行のうち「字幕に出さない」(noSub)でない行
+    (noSub の行の時間は、残す区間ではそのまま数える)。字幕を付けない理由は warns へ。
+    -> (字幕 [(開始ms, 終了ms, 文)] か None, 字幕の元 "srt" / "transcript" / None, 字幕ごとの話者の名前 か None, noSub の行の数)"""
     if req.sub:
         cues = S.parse_subs(S.read_sub_file(Path(req.sub)))
         if not cues:
             raise ToolError("字幕を1件も読み取れませんでした(SRT/VTT の形式を確認してください)。")
-        sub_source = "srt"
         if tr:
             warns.append("字幕は SRT のほうを使いました(文字起こしはカットの判断にだけ使います)。")
-    elif tr:
-        # 字幕 = 残す行のうち「字幕に出さない」(noSub)でない行。noSub の行の時間は、下の残す区間ではそのまま数える
-        cues = C.transcript_cues(tr["rows"]) or None
-        cue_names = [r["speaker"] for r in tr["rows"] if C.row_has_caption(r)] if cues else None
-        no_sub = sum(1 for r in tr["rows"] if C.row_is_kept(r) and r["noSub"])
-        sub_source = "transcript" if cues else None
-        if not cues and no_sub:
-            warns.append(f"文字起こしの残す行がすべて「字幕に出さない」行({no_sub} 行)のため、字幕は付けません。")
-        elif not cues:
-            warns.append("文字起こしに残す行が無いため、字幕は付けません。")
+        return cues, "srt", None, 0
+    if not tr:
+        return None, None, None, 0
+    cues = C.transcript_cues(tr["rows"])
+    no_sub = sum(1 for r in tr["rows"] if C.row_is_kept(r) and r["noSub"])
+    if cues:
+        return cues, "transcript", [r["speaker"] for r in tr["rows"] if C.row_has_caption(r)], no_sub
+    warns.append(f"文字起こしの残す行がすべて「字幕に出さない」行({no_sub} 行)のため、字幕は付けません。" if no_sub
+                 else "文字起こしに残す行が無いため、字幕は付けません。")
+    return None, None, None, no_sub
 
-    # ---- 土台(残す区間の候補)
-    selected, selected_records, handles = [], [], 0.0
+
+def _base_spans(req, meta, tr, cp, warns, task=None, cache=None, log=None):
+    """土台(残す区間の候補。フレーム)。-> (土台, 採用区間の記録(auto_cut.build_plan の selected_segments), 前後の余白(秒))"""
+    fps, total = meta["fps"], meta["total"]
+    if req.base == "all":
+        return [(0, total)], [], 0.0
     if req.base == "list":
         base, w = C.cut_list_to_keeps(req.keep_pairs or [], fps, total)
         warns += w
         if not base:
             raise ToolError("カットリストの区間が、動画の長さの範囲に入っていません。")
-    elif req.base in ("plan", "rows"):
-        if req.base == "plan":
-            if not cp:
-                raise ToolError("残す区間のファイル(cut-plan)を指定してください。")
-            segs = cp["segments"]
-            handles = AC.default_handles(cp) if req.handles is None else float(req.handles)
-        else:
-            if not tr:
-                raise ToolError("文字起こしのファイル(.transcript.json)を指定してください。")
-            spans = C.transcript_kept_spans(tr["rows"])
-            if not spans:
-                raise ToolError("文字起こしに残す行(カット済でない行)がありません。")
-            segs = [{"id": f"rows-{i:03d}", "label": "", "start_seconds": a, "end_seconds": b}
-                    for i, (a, b) in enumerate(spans, 1)]
-            handles = 0.0 if req.handles is None else float(req.handles)
-        bp = AC.build_plan(segs, meta, handles)
-        base = [tuple(x) for x in bp["keep_frames"]]
-        selected_records = bp["selected_segments"]
-        selected = [tuple(r["selected_frames"]) for r in selected_records]
-        if req.base == "rows" and req.row_edge is not None and meta.get("audio"):
-            # 行の端を声の止まる所まで広げる(RowEdge)。字幕(行の時刻)は変えない。カット済の行は下の drops で削るので、広げた所がかかっても残らない
-            args, sil = _row_edge_args(req, meta), None
-            if args:
-                _say(log, task, "行の端の声の止まる所を調べています…")
-                try:
-                    sil = cache.silence(*args, task) if cache else C.detect_silence(*args, task)
-                except ToolError as e:
-                    warns.append(f"声の止まる所を調べられなかったため、行の端に決まった余白(前 {req.row_edge.pad_before:g} 秒・"
-                                 f"後 {req.row_edge.pad_after:g} 秒)を付けました: {e}")
-            blocks = _cut_row_frames(tr["rows"], fps, total) if req.drop_cut_rows else []
-            base = widen_row_edges(base, sil, fps, total, req.row_edge, blocks)
+        return base, [], 0.0
+    if req.base == "plan":
+        if not cp:
+            raise ToolError("残す区間のファイル(cut-plan)を指定してください。")
+        segs = cp["segments"]
+        handles = AC.default_handles(cp) if req.handles is None else float(req.handles)
     else:
-        base = [(0, total)]
+        if not tr:
+            raise ToolError("文字起こしのファイル(.transcript.json)を指定してください。")
+        spans = C.transcript_kept_spans(tr["rows"])
+        if not spans:
+            raise ToolError("文字起こしに残す行(カット済でない行)がありません。")
+        segs = [{"id": f"rows-{i:03d}", "label": "", "start_seconds": a, "end_seconds": b}
+                for i, (a, b) in enumerate(spans, 1)]
+        handles = 0.0 if req.handles is None else float(req.handles)
+    bp = AC.build_plan(segs, meta, handles)
+    base = [tuple(x) for x in bp["keep_frames"]]
+    if req.base == "rows" and req.row_edge is not None and meta.get("audio"):
+        # 行の端を声の止まる所まで広げる(RowEdge)。字幕(行の時刻)は変えない。カット済の行は _drop_spans で削るので、広げた所がかかっても残らない
+        args, sil = _row_edge_args(req, meta), None
+        if args:
+            _say(log, task, "行の端の声の止まる所を調べています…")
+            try:
+                sil = _silence(cache, task, *args)
+            except ToolError as e:
+                warns.append(f"声の止まる所を調べられなかったため、行の端に決まった余白(前 {req.row_edge.pad_before:g} 秒・"
+                             f"後 {req.row_edge.pad_after:g} 秒)を付けました: {e}")
+        blocks = _cut_row_frames(tr["rows"], fps, total) if req.drop_cut_rows else []
+        base = widen_row_edges(base, sil, fps, total, req.row_edge, blocks)
+    return base, bp["selected_segments"], handles
 
-    # ---- 削る区間
+
+def _drop_spans(req, meta, cues, tr, warns, task=None, cache=None, log=None):
+    """削る区間 {"list": 時刻リスト, "lines": 字幕の行(--drop-lines), "cutRows": 「カット済」の行, "silence": 無音}(フレーム)"""
+    fps, total = meta["fps"], meta["total"]
     drops = {}
     if req.drop_pairs:
         d, w = C.cut_list_to_keeps(req.drop_pairs, fps, total)
@@ -399,12 +435,7 @@ def plan_cut(req, task=None, cache=None, log=None):
         over = sorted(i for i in req.drop_lines if i > len(cues))
         if over:
             warns.append(f"--drop-lines: 字幕は {len(cues)} 件しかないため、{over} は無視しました。")
-        lines = []
-        for i in sorted(req.drop_lines):
-            if i <= len(cues):
-                a, b, _ = cues[i - 1]
-                cs = S.ms_to_frames(a, fps)
-                lines.append((cs, max(S.ms_to_frames(b, fps), cs + 1)))
+        lines = [C.cue_frames(cues[i - 1][0], cues[i - 1][1], fps) for i in sorted(req.drop_lines) if i <= len(cues)]
         drops["lines"] = C.normalize(lines, total)
     if tr and req.drop_cut_rows:
         cut_rows = _cut_row_frames(tr["rows"], fps, total)
@@ -412,15 +443,12 @@ def plan_cut(req, task=None, cache=None, log=None):
             drops["cutRows"] = cut_rows
     if req.silence:
         _say(log, task, "無音を検出しています…")
-        if cache:
-            sil = cache.silence(video, fps, total, req.noise, req.silence_min, req.silence_pad, task)
-        else:
-            sil = C.detect_silence(video, fps, total, req.noise, req.silence_min, req.silence_pad, task)
-        drops["silence"] = sil
-        _say(log, task, f"無音区間: {len(sil)}か所を削ります。")
-    if req.base == "all" and not (req.drop_pairs or req.drop_lines or req.silence or drops.get("cutRows")):
+        drops["silence"] = _silence(cache, task, Path(req.video), fps, total, req.noise, req.silence_min, req.silence_pad)
+        _say(log, task, f"無音区間: {len(drops['silence'])}か所を削ります。")
+    others = req.drop_pairs or req.drop_lines or drops.get("cutRows")
+    if req.base == "all" and not (others or req.silence):
         warns.append("カットの指定がありません。動画全体を1区間として出力します。")
-    elif req.base == "all" and req.silence and not (req.drop_pairs or req.drop_lines or drops.get("cutRows")):
+    elif req.base == "all" and req.silence and not others:
         # 既定の「無音で自動」だけで削れた区間が 0 か、ごくわずか(動画全体の 1% 未満)なら、
         # 何も言わずにそのまま「動画全体を1区間」のパックを作ってしまわないよう注意する(問題3)
         removed_sec = sum(b - a for a, b in drops.get("silence", [])) * fps[1] / fps[0]
@@ -428,70 +456,38 @@ def plan_cut(req, task=None, cache=None, log=None):
         if removed_sec < max(1.0, total_sec * 0.01):
             warns.append("切れる所が見つかりませんでした。「無音とみなす音量」を上げる(-30 など)か、"
                          "②残す区間・③時刻リストを試してみてください。")
+    return drops
 
-    keeps = C.subtract(base, [x for v in drops.values() for x in v])
-    keeps = C.merge_close(keeps, req.join_frames if req.join_frames is not None else C.sec_to_frames(join_gap, fps))
-    keeps = C.drop_short(keeps, max(1, C.sec_to_frames(min_len, fps)))
-    if not keeps:
-        raise ToolError("残る区間がありません。カットの指定(無音の感度 --noise・最短の長さ --min-len など)を見直してください。")
-    if req.warn_short:
-        short = [(a, b) for a, b in keeps if (b - a) * fps[1] < req.warn_short * fps[0]]
-        if short:
-            eg = "・".join(f"{C.fmt_frames(a, fps)}〜{C.fmt_frames(b, fps)}({C.fmt_frames(b - a, fps)})" for a, b in short[:3])
-            warns.append(f"{req.warn_short:g} 秒より短い区間が {len(short)} か所あります(元の動画の {eg}{' など' if len(short) > 3 else ''})。"
-                         "意図どおりか確かめてください。")
+
+def _keep_warnings(req, keeps, fps):
+    """残す区間の注意: とても短い区間(warn_short 秒より短い)・EDL の番号の上限(999)を超える"""
+    warns = []
+    short = [(a, b) for a, b in keeps if (b - a) * fps[1] < req.warn_short * fps[0]] if req.warn_short else []
+    if short:
+        eg = "・".join(f"{C.fmt_frames(a, fps)}〜{C.fmt_frames(b, fps)}({C.fmt_frames(b - a, fps)})" for a, b in short[:3])
+        warns.append(f"{req.warn_short:g} 秒より短い区間が {len(short)} か所あります(元の動画の {eg}{' など' if len(short) > 3 else ''})。"
+                     "意図どおりか確かめてください。")
     if len(keeps) > C.MAX_EDL_EVENTS:
         warns.append(f"残す区間が {len(keeps)} か所あり、EDL の番号が 3 桁(999)を超えます。Resolve で読めない可能性があります"
                      "(無音の長さを長くする・近い区間をつなぐ、で減らせます)。")
-
-    cues_out, vanished, cue_src = (None, 0, None)
-    if cues:
-        cues_out, vanished, cue_src = C.remap_cues(cues, keeps, fps, with_src=True)
-    doc = AC.plan_from_keeps(keeps, meta, selected_records, C.sec_to_frames(handles, fps))
-    from_tr = bool(tr and sub_source == "transcript")
-    return Plan(req=req, video=video, meta=meta, keeps=keeps, base=base, selected=selected, drops=drops,
-                cues=cues, cues_out=cues_out, vanished=vanished, sub_source=sub_source,
-                src_start=src_start, src_desc=src_desc, handles=handles, warnings=warns, doc=doc,
-                transcript=tr, cutplan=cp,
-                speaker_spans=[(r["start"], r["end"], r["speaker"]) for r in tr["rows"] if C.row_has_caption(r) and r.get("speaker")]
-                if from_tr else None,
-                cue_names=cue_names if from_tr else None, cue_src=cue_src, no_sub_rows=no_sub)
+    return warns
 
 
 def cue_speakers(plan):
-    """カット後の字幕(plan.cues_out)ごとの話者の名前。字幕を作った文字起こしの行の話者(cue_names・cue_src)。
-    それが無い計画(以前の作り方)は、字幕の真ん中を元の動画の時刻に戻し、その時刻の文字起こしの行の話者
-    (時刻が重なる行では別の人の行に当たることがあるので、行から直接たどる方が正しい)。
+    """カット後の字幕(plan.cues_out)ごとの話者の名前 = 字幕を作った文字起こしの行の話者(plan_cut の cue_names・cue_src。
+    時刻で探すと、時刻が重なる行では別の人の行に当たるので、行から直接たどる)。
     話者の区間が無ければ None(字幕の並びと同じ長さの list。話者の無い字幕は None)"""
-    spans = plan.speaker_spans or []
-    if not plan.cues_out or not spans:
+    names, src = plan.cue_names, plan.cue_src
+    if not plan.cues_out or not plan.speaker_spans or names is None or src is None:
         return None
-    names, src = getattr(plan, "cue_names", None), getattr(plan, "cue_src", None)
-    if names is not None and src is not None and len(src) == len(plan.cues_out):
-        return [(names[i] or None) if 0 <= i < len(names) else None for i in src]
-    fps = plan.meta["fps"]
-    rec, r = [], 0
-    for ks, ke in plan.keeps:
-        rec.append((r, r + (ke - ks), ks))
-        r += ke - ks
-    out = []
-    for start, end, _text in plan.cues_out:
-        seg = next(((a, b, ks) for a, b, ks in rec if a <= start < b), None)
-        if seg is None:
-            out.append(None)
-            continue
-        a, b, ks = seg
-        sec = (ks + (min((start + end) / 2.0, b) - a)) * fps[1] / fps[0]
-        out.append(next((n for s, e, n in spans if s <= sec < e), None))
-    return out
+    return [(names[i] or None) if 0 <= i < len(names) else None for i in src]
 
 
 def cue_order(plan, names=None):
     """同時に始まる字幕を段に入れる順(resolve_textplus.stack_captions の order): 話者の並び順(文字起こしの speakers の順)。
     話者の無い字幕・並びに無い話者は後ろ。話者が分からなければ None(入力の順)。names: cue_speakers(plan)(渡せば作り直さない)"""
     names = cue_speakers(plan) if names is None else names
-    tr = getattr(plan, "transcript", None)
-    order = (tr.get("speakerOrder") or []) if isinstance(tr, dict) else []
+    order = (plan.transcript.get("speakerOrder") or []) if isinstance(plan.transcript, dict) else []
     if not names or not order:
         return None
     rank = {n: i for i, n in enumerate(order)}
@@ -507,8 +503,8 @@ def caption_layout(plan):
     return {"count": st["count"], "stacked": st["stacked"], "trimmed": st["trimmed"]}
 
 
-def describe(plan):
-    """CLI の表示(従来の cut2resolve.py と同じ行)"""
+def describe(plan, lay=None):
+    """CLI の表示(従来の cut2resolve.py と同じ行)。lay: caption_layout(plan)(渡せば作り直さない)"""
     m, fps, total = plan.meta, plan.meta["fps"], plan.meta["total"]
     out = [f"動画: {plan.video.name}  {m['w']}x{m['h']}  {fps[0] / fps[1]:.3f}fps  {total}フレーム({m['frames_source']})",
            f"映像: {m['codec']} / {m['pix_fmt']}",
@@ -525,7 +521,7 @@ def describe(plan):
     if plan.cues is not None:
         src = "" if plan.sub_source == "srt" else "(文字起こしから)"
         out.append(f"字幕{src}: {len(plan.cues)}件 -> カット後 {len(plan.cues_out)}件(カットで消えた字幕 {plan.vanished}件)")
-        lay = caption_layout(plan)
+        lay = caption_layout(plan) if lay is None else lay
         if lay and (lay["count"] > 1 or lay["trimmed"]):   # 重なる字幕があるときだけ(Text+ のパックでの置き方)
             out.append(f"重なる字幕(Text+): {lay['count']} 段・上の段へ分けた字幕 {lay['stacked']}件・終わりを切った字幕 {lay['trimmed']}件")
     if plan.no_sub_rows:
@@ -605,8 +601,8 @@ def media_for_pack(plan, include_video):
         base["warnings"].append(f"余白つき素材 {name} が元の動画より短いため使わず、元の動画を入れました。")
         return base
     src_start, _, w = C.resolve_src_start(em["path"], None, meta)
-    before = float(Fraction(off * fps[1], fps[0]))
-    after = float(Fraction((meta["total"] - off - plan.meta["total"]) * fps[1], fps[0]))
+    before = C.frames_to_sec(off, fps)
+    after = C.frames_to_sec(meta["total"] - off - plan.meta["total"], fps)
     info = {"path": str(em["path"]), "name": name, "selectionIn": em["selectionIn"],
             "handleBefore": round(before, 3), "handleAfter": round(max(0.0, after), 3)}
     return {"video": em["path"], "meta": meta, "keeps": keeps, "src_start": src_start, "edit": info,
@@ -614,13 +610,20 @@ def media_for_pack(plan, include_video):
                              f"後ろへ {max(0.0, after):.1f} 秒まで延ばせます)。"]}
 
 
+def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
+                   readme_file=True):
+    """作る予定のファイル {種類: パス}(pack_paths。同梱する余白つき素材の名前も。ffprobe を使わない下見)"""
+    media = edit_media_path(req.video, req, copy_video or textplus)
+    return pack_paths(req.video, out_dir, has_subs, render, copy_video, fcpxml and not textplus, textplus, media, backup, plan_file,
+                      readme_file)
+
+
 def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
                     readme_file=True):
     """作る予定のファイルと、すでにあるもの(画面の上書き確認用)"""
     out_dir = Path(out_dir) if out_dir else default_out_dir(plan.video)
-    media = edit_media_path(plan.video, plan.req, copy_video or textplus)
-    paths = pack_paths(plan.video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml and not textplus, textplus, media,
-                       backup, plan_file, readme_file)
+    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus, backup, plan_file,
+                           readme_file)
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
@@ -667,49 +670,16 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     warnings = list(m["warnings"])
     if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。2026-10-01 ユーザー決定。試算 plan_cut には入れない)
         warnings += C.name_warnings(video)
-    known = pack_paths(video, out_dir, True, True, False, True, True)   # 前に作ったかもしれない、今回は作らないもの
-    known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
-    known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
-    stale = [p for k, p in known.items() if k not in paths and p.exists()]
+    stale = _stale_warning(video, out_dir, paths, mvideo)
     if stale:
-        warnings.append("前に作った " + "・".join(p.relative_to(out_dir).as_posix() for p in stale) + " がフォルダに残っています"
-                        "(今回のカットとは合いません。要らなければ消してください)。")
+        warnings.append(stale)
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = secrets.token_hex(4)
     staged = []
-    loud, gain = None, 0.0   # 音量をそろえた結果(画面に出す)と、かける量(dB)
     same = copy_video and S.same_path(paths["video"], mvideo)
     try:
-        if loudness is not None and (render or (copy_video and not same)):
-            LD = C.loudness_mod()
-            if not mmeta["audio"]:
-                loud = {"target": loudness, "skipped": "音声の無い動画です"}
-            else:
-                _say(log, task, "残す区間の音量を測っています…")
-                mf = mmeta["fps"]
-                spans = [(float(Fraction(a * mf[1], mf[0])), float(Fraction(b * mf[1], mf[0]))) for a, b in mkeeps]
-                i, tp = C.measure_loudness(mvideo, spans, task, sum(b - a for a, b in spans) or None)
-                if i is None:
-                    loud = {"target": loudness, "skipped": "無音のため測れませんでした"}
-                else:
-                    gain = LD.gain(loudness, i, tp)
-                    gain = gain if abs(gain) >= LD.MIN_GAIN_DB else 0.0
-                    loud = LD.result(loudness, i, gain)
-            if loud.get("skipped"):
-                warnings.append("音量はそろえませんでした(%s)。" % loud["skipped"])
-        elif loudness is not None and same:
-            loud = {"target": loudness, "skipped": "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"}
-            warnings.append("音量はそろえませんでした(%s)。" % loud["skipped"])
-        elif volume and volume != 100 and (render or copy_video):
-            LD = C.loudness_mod()
-            if same and not render:
-                loud = {"volume": volume, "skipped": "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"}
-                warnings.append("音量は変えませんでした(%s)。" % loud["skipped"])
-            elif not mmeta["audio"]:
-                loud = {"volume": volume, "skipped": "音声の無い動画です"}
-            else:
-                gain = LD.pct_to_db(volume)
-                loud = {"volume": volume, "gainDb": gain}
+        loud, gain, w = _pack_gain(loudness, volume, render, copy_video, same, m, task, log)   # 画面に出す結果と、かける量(dB)
+        warnings += w
         if render:
             _say(log, task, "粗編集の動画を書き出しています…(時間がかかります)")
             tmp = out_dir / f".c2r-{tag}-{paths['roughcut'].name}"
@@ -720,7 +690,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             tmp = out_dir / f".c2r-{tag}-{mvideo.name}"
             if gain:
                 _say(log, task, "音量をそろえて(%+.1f dB)元動画を写しています…" % gain)
-                C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"))
+                C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"), meta=mmeta)
             else:
                 _say(log, task, "元動画をコピーしています…")
                 C.copy_video(mvideo, out_dir, task, dst=tmp)
@@ -764,9 +734,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             # 字幕ごとの色は、余白つき素材に置き換える前の計画(元の動画の時刻 = 文字起こしの時刻)で決める。字幕の並びは置き換えても同じ
             # 重なる字幕の段(TP.stack_captions)は字幕の並びを変えないので、色・ふちは字幕の並びのまま合う。同時に始まる字幕は話者の並び順(cue_order)
             names = cue_speakers(plan)
-            fills = [TP.hex_rgba(speaker_colors.get(n)) if n and speaker_colors.get(n) else None for n in names] if names and speaker_colors else None
-            outlines = [TP.hex_rgba(speaker_outlines.get(n)) if n and speaker_outlines.get(n) else None for n in names] if names and speaker_outlines else None
-            order = cue_order(plan, names)
+            fills, outlines, order = _cue_rgba(names, speaker_colors), _cue_rgba(names, speaker_outlines), cue_order(plan, names)
             tplan = plan if not m["edit"] else dataclasses.replace(
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
             files.update(TP.write_files(paths, tplan, out_dir, textplus_target, backup="edl" in paths, wrap=textplus_wrap,
@@ -774,10 +742,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
                                         video_tracks=video_tracks, order=order))
     finally:
         for tmp, _, _ in staged:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+            C._unlink_quiet(tmp)
     if copy_video and "video" not in files:
         files["video"] = paths["video"]
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
@@ -788,10 +753,64 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud}
 
 
+def _stale_warning(video, out_dir, paths, mvideo):
+    """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
+    known = pack_paths(video, out_dir, True, True, False, True, True)
+    known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
+    known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
+    stale = [p for k, p in known.items() if k not in paths and p.exists()]
+    if stale:
+        return ("前に作った " + "・".join(p.relative_to(out_dir).as_posix() for p in stale) + " がフォルダに残っています"
+                "(今回のカットとは合いません。要らなければ消してください)。")
+    return None
+
+
+def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=None):
+    """同梱の動画・粗編集の動画の音量。loudness(目標の LUFS)= 残す区間だけ測ってそろえる、volume(%)= 測らずにその量をかける。
+    same: パックの動画が元の動画と同じ場所(元の動画は書き換えないので、写さない動画にはかけない)。m: media_for_pack の結果。
+    -> (画面に出す結果 か None, かける量(dB), 注意の文の list)"""
+    same_msg = "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"
+    mmeta = m["meta"]
+    if loudness is not None:
+        if not (render or (copy_video and not same)):
+            if not same:
+                return None, 0.0, []
+            loud = {"target": loudness, "skipped": same_msg}
+        elif not mmeta["audio"]:
+            loud = {"target": loudness, "skipped": "音声の無い動画です"}
+        else:
+            LD = C.loudness_mod()
+            _say(log, task, "残す区間の音量を測っています…")
+            mf = mmeta["fps"]
+            spans = [(C.frames_to_sec(a, mf), C.frames_to_sec(b, mf)) for a, b in m["keeps"]]
+            i, tp = C.measure_loudness(m["video"], spans, task, sum(b - a for a, b in spans) or None)
+            if i is not None:
+                gain = LD.gain(loudness, i, tp)
+                gain = gain if abs(gain) >= LD.MIN_GAIN_DB else 0.0
+                return LD.result(loudness, i, gain), gain, []
+            loud = {"target": loudness, "skipped": "無音のため測れませんでした"}
+        return loud, 0.0, ["音量はそろえませんでした(%s)。" % loud["skipped"]]
+    if not volume or volume == 100 or not (render or copy_video):
+        return None, 0.0, []
+    if same and not render:
+        return {"volume": volume, "skipped": same_msg}, 0.0, ["音量は変えませんでした(%s)。" % same_msg]
+    if not mmeta["audio"]:
+        return {"volume": volume, "skipped": "音声の無い動画です"}, 0.0, []
+    gain = C.loudness_mod().pct_to_db(volume)
+    return {"volume": volume, "gainDb": gain}, gain, []
+
+
+def _cue_rgba(names, colors):
+    """字幕ごとの話者の名前 → 字幕ごとの色 [r, g, b, a](その話者の色が無い字幕は None)。名前か色の対応が無ければ None"""
+    if not names or not colors:
+        return None
+    return [TP.hex_rgba(colors.get(n)) if n and colors.get(n) else None for n in names]
+
+
 # ---------------------------------------------------------------- 画面に返す形(JSON)
 
 def _sec(n, fps):
-    return round(float(Fraction(n * fps[1], fps[0])), 6)
+    return round(C.frames_to_sec(n, fps), 6)
 
 
 def summary(plan, limit=5000):
@@ -802,13 +821,14 @@ def summary(plan, limit=5000):
     subs = None
     if plan.cues is not None:
         subs = {"source": plan.sub_source, "in": len(plan.cues), "out": len(plan.cues_out), "vanished": plan.vanished,
-                "cues": [[S.ms_to_frames(a, fps), max(S.ms_to_frames(b, fps), S.ms_to_frames(a, fps) + 1), t[:80]]
-                         for a, b, t in plan.cues[:limit]]}
+                "cues": [[*C.cue_frames(a, b, fps), t[:80]] for a, b, t in plan.cues[:limit]]}
     rows = None
     if plan.transcript:
         rows = [[C.sec_to_frames(r["start"], fps), C.sec_to_frames(r["end"], fps), bool(r["cut"]), bool(C.row_is_kept(r))]
                 for r in plan.transcript["rows"][:limit]]
-    lay = caption_layout(plan) or {"count": 0, "stacked": 0, "trimmed": 0}
+    lay = caption_layout(plan)
+    text = "\n".join(describe(plan, lay))
+    lay = lay or {"count": 0, "stacked": 0, "trimmed": 0}
     return {
         "fps": list(fps), "fpsValue": fps[0] / fps[1], "total": total, "durationSec": _sec(total, fps),
         "keeps": [list(x) for x in plan.keeps], "removed": [list(x) for x in removed],
@@ -820,7 +840,7 @@ def summary(plan, limit=5000):
         "handles": plan.handles, "baseKind": plan.req.base,
         "srcStart": plan.src_start, "srcStartDesc": plan.src_desc, "recStart": plan.req.rec_start,
         "subtitles": subs, "transcriptRows": rows, "warnings": plan.warnings,
-        "text": "\n".join(describe(plan)),
+        "text": text,
         # Text+ のパックでの字幕の段(重なる字幕。resolve_textplus.stack_captions): 段の数(字幕が無ければ 0)・上の段へ分けた字幕の数・終わりを切った字幕の数
         "captionLanes": lay["count"], "captionsStacked": lay["stacked"], "captionsTrimmed": lay["trimmed"],
         "noSubRows": plan.no_sub_rows,   # 字幕に出さなかった行(noSub)の数。時間は残す区間に数えてある

@@ -85,11 +85,6 @@ def default_handles(doc):
     return 0.0 if doc.get("fineGrained") or doc.get("includesHandles") else DEFAULT_HANDLES
 
 
-def read_selection(path):
-    """採用区間の一覧だけ(従来の関数。中身は read_cut_plan)"""
-    return read_cut_plan(path)["segments"]
-
-
 def build_plan(segments, meta, handle_seconds=10.0):
     """秒の採用区間から、フレーム精度の採用/保持/削除プランを作る。"""
     if not math.isfinite(handle_seconds) or handle_seconds < 0:
@@ -143,7 +138,7 @@ def finalize_plan(plan, video, meta, src_start, copy_video=False, cues_out=None,
     keeps = [tuple(x) for x in plan["keep_frames"]]
 
     def sec(n):
-        return round(float(Fraction(n * fps[1], fps[0])), 6)
+        return round(C.frames_to_sec(n, fps), 6)
     doc = dict(plan)
     doc["tool"] = tool or {"name": "cut2resolve", "version": C.VERSION}
     doc["createdAt"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
@@ -168,62 +163,20 @@ def build_cut_fcpxml(video, meta, keeps, cues, start_frames=0):
     タイトル(つながったクリップ)の offset は親の asset-clip の中の時刻 = 親の start 基準で書く
     (以前は 0 基準で、2つ目以降のクリップの字幕が親の範囲の外を指していた)。
     text-style-def の id は文書全体で重ならないよう通し番号にする(以前はクリップごとに ts1 から振り直していた)"""
-    fps, total = meta["fps"], sum(b-a for a, b in keeps)
-    t0 = int(start_frames or 0)
-
-    def ft(n):
-        return S.frames_to_time(n, fps)
-    w, h = meta["w"], meta["h"]
-    fps_label = f"{fps[0]/fps[1]:g}" if fps[1] == 1 else f"{fps[0]/fps[1]:.2f}"
-    root = ET.Element("fcpxml", version="1.8")
-    res = ET.SubElement(root, "resources")
-    ET.SubElement(res, "format", id="r1", name=f"FFVideoFormat{w}x{h}p{fps_label}",
-                  frameDuration=ft(1), width=str(w), height=str(h))
+    fps, t0 = meta["fps"], int(start_frames or 0)
     uid = hashlib.md5(str(video.resolve()).encode("utf-8")).hexdigest().upper()
-    attr = dict(id="r2", name=video.name, uid=uid,
-                src=video.resolve().as_uri(), start=ft(t0), duration=ft(meta["total"]), hasVideo="1", format="r1")
-    if meta.get("audio"):
-        attr.update(hasAudio="1", audioSources="1", audioChannels=str(meta["audio"][0]),
-                    audioRate=str(meta["audio"][1]))
-    ET.SubElement(res, "asset", **attr)
-    if cues:
-        ET.SubElement(res, "effect", id="r3", name="Basic Title",
-                      uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti")
-    lib = ET.SubElement(root, "library")
-    event = ET.SubElement(lib, "event", name="Auto Cut")
-    project = ET.SubElement(event, "project", name=video.stem)
-    audio = meta.get("audio")
-    mono = bool(audio) and audio[0] == 1
-    rate = S.SEQ_AUDIO_RATE.get(audio[1] if audio else 48000, "48k")
-    seq = ET.SubElement(project, "sequence", format="r1", duration=ft(total), tcStart="0s", tcFormat="NDF",
-                        audioLayout="mono" if mono else "stereo", audioRate=rate)
-    spine = ET.SubElement(seq, "spine")
-    timeline = 0
-    n = 0
+    root, spine = S.fcpxml_skeleton(video, meta, uid, t0, bool(cues), "Auto Cut", video.stem, sum(b - a for a, b in keeps))
+    timeline = n = 0
     for a, b in keeps:
-        clip = ET.SubElement(spine, "asset-clip", ref="r2", offset=ft(timeline), name=video.stem,
-                             start=ft(t0 + a), duration=ft(b-a), format="r1", tcFormat="NDF")
-        local_cues = []
-        for cs, ce, text in cues or []:
-            gs, ge = timeline, timeline + (b-a)
-            x, y = max(cs, gs), min(ce, ge)
-            if x >= y:
-                continue
-            local_cues.append((x-gs, y-gs, text))
+        clip = ET.SubElement(spine, "asset-clip", ref="r2", offset=S.frames_to_time(timeline, fps), name=video.stem,
+                             start=S.frames_to_time(t0 + a, fps), duration=S.frames_to_time(b - a, fps), format="r1", tcFormat="NDF")
+        gs, ge = timeline, timeline + (b - a)
+        local_cues = [(max(cs, gs) - gs, min(ce, ge) - gs, text) for cs, ce, text in cues or [] if max(cs, gs) < min(ce, ge)]
         for ls, le, text, lane in S.assign_lanes(local_cues):
             n += 1
-            title = ET.SubElement(clip, "title", ref="r3", lane=str(lane), offset=ft(t0 + a + ls),
-                                  name=text.replace("\n", " ")[:40], start=ft(round(3600*fps[0]/fps[1])),
-                                  duration=ft(le-ls))
-            tx = ET.SubElement(title, "text")
-            st = ET.SubElement(tx, "text-style", ref=f"ts{n}")
-            st.text = text
-            definition = ET.SubElement(title, "text-style-def", id=f"ts{n}")
-            ET.SubElement(definition, "text-style", font="Yu Gothic", fontSize="56", fontColor="1 1 1 1",
-                          bold="1", alignment="center", strokeColor="0 0 0 1", strokeWidth="-4")
-        timeline += b-a
-    ET.indent(root, space="  ")
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode") + "\n"
+            S.fcpxml_title(clip, n, lane, t0 + a + ls, le - ls, text, fps, "Yu Gothic", 56)
+        timeline = ge
+    return S.fcpxml_text(root)
 
 
 def write_package(video, out_dir, meta, plan, cues_out, src_start, copy_video=False, force=False, protected=()):

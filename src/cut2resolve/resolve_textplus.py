@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。"""
+import bisect
 import json
 import re
 import shutil
@@ -10,6 +11,9 @@ import srt2resolve as S
 
 SCHEMA = "youtube-tools-resolve-textplus/v1"
 TEMPLATE_NAME = "textplus-template.drb"
+DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
+TARGET_FPS = (24, 25, 30, 50, 60)
+VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ(2026-10-02)
 
 
 # 字幕の見た目(ユーザーの指定 2026-09-26。docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
@@ -111,8 +115,6 @@ def style_inputs(style=None):
                                                       "ids": [x % n for x in PRIORITY_LOOKUP["ids"]]}])
         out.append(["Offset%d" % n, list(e["offset"])])
     return out
-DEFAULT_TARGET = {"fps": 30, "width": 1080, "height": 1920}   # 本番: 30fps・縦(Shorts)。画面外も残して位置を変えられる設定で使う
-VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ(2026-10-02)
 
 
 def video_tracks_value(n):
@@ -120,7 +122,6 @@ def video_tracks_value(n):
     if isinstance(n, bool) or not isinstance(n, (int, str)) or not str(n).strip().isdigit() or not 1 <= int(n) <= VIDEO_TRACKS_MAX:
         raise ValueError("映像トラックの数は 1〜%d の整数で指定してください" % VIDEO_TRACKS_MAX)
     return int(n)
-TARGET_FPS = (24, 25, 30, 50, 60)
 
 
 def parse_target(fps=None, size=None):
@@ -131,7 +132,7 @@ def parse_target(fps=None, size=None):
         try:
             f = int(str(fps).strip())
         except ValueError:
-            raise ValueError(f"Text+ の fps は {', '.join(map(str, TARGET_FPS))} のどれかにしてください: {fps!r}")
+            f = None
         if f not in TARGET_FPS:
             raise ValueError(f"Text+ の fps は {', '.join(map(str, TARGET_FPS))} のどれかにしてください: {fps!r}")
         t["fps"] = f
@@ -150,17 +151,19 @@ def caption_segments(keeps, cues_out):
     """カット後の字幕(動画のコマ数で数えた時刻)を、「何番目の残す区間の、先頭から何コマ目か」に直す。
     Resolve ではタイムラインの fps が動画と違う(60fps の動画を 30fps のタイムラインに置く)ことがあるため、
     字幕はタイムラインの絶対位置ではなく、実際に置かれたクリップの位置からの相対で置く。
-    字幕は remap_cues で区間ごとに分割済みなので、1つの字幕は必ず1つの区間に収まる"""
-    spans, rec = [], 0
+    字幕は remap_cues で区間ごとに分割済みなので、1つの字幕は必ず1つの区間に収まる。
+    カット後の区間は隙間なく並ぶので、開始を含む区間は「開始より前に始まる最後の区間」(二分探索)"""
+    starts, rec = [], 0
     for ks, ke in keeps:
-        spans.append((rec, rec + (ke - ks)))
+        starts.append(rec)
         rec += ke - ks
+    ends = starts[1:] + [rec]
     out = []
     for i, (start, end, text) in enumerate(cues_out or [], 1):
-        seg = next((k for k, (a, b) in enumerate(spans) if a <= start < b), None)
-        if seg is None:
+        seg = bisect.bisect_right(starts, start) - 1
+        if seg < 0 or start >= ends[seg]:
             raise ValueError(f"字幕 {i} がどの残す区間にも入りません(開始 {start} コマ)")
-        a, b = spans[seg]
+        a, b = starts[seg], ends[seg]
         out.append({"id": f"caption-{i:04d}", "startFrame": int(start), "endFrame": int(end), "text": str(text),
                     "segment": seg + 1, "offsetStart": int(start - a), "offsetEnd": int(min(end, b) - a)})
     return out

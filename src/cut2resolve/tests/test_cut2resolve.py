@@ -263,7 +263,7 @@ class TestOutputSafety(unittest.TestCase):
         p.write_text('{"schema":"youtube-tools-cut-plan/v1","segments":['
                      '{"id":"keep","start":1.0,"end":2.0,"status":"adopted"},'
                      '{"id":"skip","start":3.0,"end":4.0,"status":"rejected"}]}', encoding="utf-8")
-        self.assertEqual([x["id"] for x in AC.read_selection(p)], ["keep"])
+        self.assertEqual([x["id"] for x in AC.read_cut_plan(p)["segments"]], ["keep"])
 
     def test_auto_cut_fcpxml_contains_trimmed_source_clips_and_titles(self):
         meta = {"fps": FPS30, "total": 120, "w": 640, "h": 360, "audio": None}
