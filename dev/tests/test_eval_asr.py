@@ -190,7 +190,10 @@ class EvalAsrTest(unittest.TestCase):
                 E.recognize_doc(S, doc, spec_of("whisper.cpp"), self.data)
                 self.assertIsNotNone(calls[-1][1])                                 # whisper.cpp は音の大きさ(WavLevels)を渡す
             self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False})
-            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "pullEnds": True})
+            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime)のモデルも印に残す(TRANSCRIBE_RETIME=0 なら False)
+            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "pullEnds": True, "quantRetime": S.QUANT_MODEL})
+            with mock.patch.object(S, "QUANT_ON", False):
+                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp"))["quantRetime"], False)
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 

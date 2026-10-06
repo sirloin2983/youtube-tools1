@@ -3581,3 +3581,24 @@
 - 未完了・次: ユーザーの確認 3 つ(同書の 11): ① 作業フォルダの編集 0.57.0(案 A)の途中の変更は誰のものか ② 線 D の段階 0〜2 を今始めるか(おすすめ: 今)③ A1 I-2a 話者を今始めてよいか
 - 注意: 作業フォルダに**自分のものではない未コミットの変更**がある(`dev/eval_asr.py`・`dev/tests/test_eval_asr.py`・`editor/AGENTS.md`・`editor/README.txt`・`editor/app.js`・`editor/ed_jobs.py`・`editor/serve.py`・`editor/tests/test_whispercpp.py`。編集 0.57.0 = 行の時刻の案 A)。触らずに、このコミットにも入れていない
 - 未コミット: なし(上の他の作業の変更を除く)
+
+## 2026-10-07 Claude Code — 案 A の実装: 1 秒単位に丸まった行の時刻を faster-whisper の単語の時刻で配り直す(編集 0.56.2 → 0.57.0)
+- ユーザーの指示: 「たまった」(確かめ済みが G1 = 15 分に届いた → 10-06 の決定どおり案 A を実装)。確かめ済みは 22 本・15.9 分・校正済み 319 行
+- 変更: `editor/ed_jobs.py` に節「1 秒丸めの行の時刻の配り直し」(`quant_is_int`・`quant_windows`・`quant_retime`・`quant_words_provider`。`import ed_retime` を追加)。
+  `run_job`(expand_segments のあと)・`RangeRecognizer.main`(範囲・全体の再認識。行は元の動画の秒 = `text_key="raw"`・`words_key="words"`)・`recognition_run` と `record_rerun` の `retimed`・結果の注意 `QUANT_NOTE`。
+  `dev/eval_asr.py` の `recognize_doc`(同じ後処理)と `post_meta`(`quantRetime`)。版: `serve.py`・`app.js`・`README.txt`(■ v0.57.0)。`editor/AGENTS.md` に節。
+  テスト: `editor/tests/test_whispercpp.py` の `QuantRetimeTest`(7 件)・`dev/tests/test_eval_asr.py` の post_meta
+- 作り: 30 秒の窓ごとに行の境目(終わりは END_TRIM を足した値も)の整数秒の割合が 4 割以上(行 3 つ以上)なら「丸まった窓」。前後 1 秒を足して faster-whisper(`QUANT_MODEL` 既定 large-v3。
+  `load_model(..., "auto", engine=faster-whisper)` = NVIDIA が無ければ CPU。ワーカーの中で whisper.cpp の分と入れ替わる)に `WavSlice` で聞き直し、行ごとに `ed_retime.retime_raw` で頭・末の字が当たった端を置き換える。
+  当たり 6 割未満・長さ 0.3 秒未満は今のまま。重なりはあとの行の始まりを信じて前の行の終わりを詰める。窓の外の隣の行にはかからない。変えた行の単語は聞き直した単語に(words.json)。文字は変えない。
+  `TRANSCRIBE_RETIME=0` でやめる・`TRANSCRIBE_RETIME_MODEL=small` で速く。疑似のバックエンドは `TRANSCRIBE_FAKE_RETIME=1` のときだけ偽の単語(普段の e2e は通らない)
+- 確かめ: 単体(編集 546・eval_asr 51)・e2e(drill・eval_set・folder_marker_range・ui_mounted)通った。本物の経路(単独の serve.py + 一時の作業データ + 本物のエンジン)で全行が丸まった 響咲リオナ 1h06m39s を
+  文字起こし → 窓 1 つ・20/21 行を配り直し・注意の文と `retimed` の記録・words.json の置き換え。40 秒の音声に 39 秒(whisper.cpp 8 + 読み込み 5 + faster-whisper 24)
+- **正直な数字(計画の 6)**: 確かめ済み 22 本を今日認識し直すと丸まった窓が出たのは 1 本だけで、その 1 本(さくらみこの叫び・10 行)は終わりが 20% → 40% と悪くなった(別の回では 30% → 22%)。
+  ほかは変わらず全体 35% / 25% → 35% / 26%。**効き目はまだ示せていない**(丸まるかどうかは回ごとに揺れる。保存してある評価用では 17 本が丸まっている)。既定はオンのまま(ユーザー決定「やってみる」)。
+  ドリルで丸まった文書を作り直して悪ければ `TRANSCRIBE_RETIME=0`
+- 注意: 評価用のフォルダの中の動画は単独のサーバーでは断られる(`eval_dir_unset`)ので、確かめは一時フォルダに写して行った。測定の wav・結果は AI の一時フォルダだけ。
+  **別の AI(Cowork)が同時に `docs/plan/unified-plan-2026-10-07.md` を書いている(未追跡)。触っていない・コミットに入れていない**
+- 未完了・次: ユーザーがドリルで丸まった文書(例: 風真いろは 1h10m14s・響咲リオナ 1h06m39s)を「この動画を作り直す(今の設定で)」で作り直して見る。5-2(END_TRIM をやめるか)・5-3(続いている行をくっつけるか)は未決定
+- ユーザーがやること: 入口を「すべて終了」→ start.bat(編集 0.57.0)
+- 未コミット: なし(`docs/plan/unified-plan-2026-10-07.md` は別の AI の作業途中)

@@ -40,6 +40,7 @@ import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の ev
 import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
+import ed_retime  # noqa: E402,F401   行の文字を単語に当てる retime_raw(1 秒丸めの配り直し。2026-10-07)
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
@@ -1353,6 +1354,156 @@ def pull_ends(rows, levels):
         yield prev
 
 
+# ---------- 1 秒丸めの行の時刻の配り直し(2026-10-07。docs/plan/row-timing-plan.md の案 A) ----------
+# whisper.cpp(large-v3・Vulkan)は音声の中身によって、30 秒の窓の中の行の時刻をまるごと 1 秒単位に丸める(6.00–8.00 / 12.00–14.00 …。
+# 評価用 122 本の 27% の行。フラグ・音量・ドライバでは直らない)。丸まった窓だけ faster-whisper(CPU)にもう一度聞いて単語の時刻を取り、
+# whisper.cpp の行の文字をその単語に当てて(ed_retime の当て方)、始まり・終わりを決め直す。文字は変えない。
+QUANT_ON = os.environ.get("TRANSCRIBE_RETIME", "").strip() != "0"   # TRANSCRIBE_RETIME=0 でやめる(測り直すとき用)
+QUANT_MODEL = os.environ.get("TRANSCRIBE_RETIME_MODEL", "").strip() or "large-v3"   # 聞き直しに使う faster-whisper のモデル(small なら速いが外れが増える)
+QUANT_WINDOW = 30.0    # 窓の長さ(秒。whisper の 1 回の窓と同じ)
+QUANT_SHARE = 0.4      # 窓の中の行の境目(始まり・終わり)のうち整数秒の割合がこれ以上なら「丸まった窓」
+QUANT_TOL = 0.011      # 整数秒とみなす幅(秒。whisper.cpp の時刻は 10 ms 単位)
+QUANT_MIN_ROWS = 3     # 窓に行がこれ未満なら判定しない(偶然の整数を避ける)
+QUANT_MARGIN = 1.0     # 聞き直す音声を窓の前後に足す秒(窓の端の言葉が切れないように)
+QUANT_MAX_SEC = 120.0  # 1 回に聞き直す長さの上限(秒。つながった窓はここまでで区切る)
+QUANT_NOTE = "時刻が 1 秒単位に丸まった区間 %d か所(%d 行)を聞き直して、行の時刻を言葉に合わせました"
+
+
+def quant_is_int(t, trim=None):
+    """時刻 t が整数秒か(行の終わりは trim_ends で END_TRIM だけ早めてあるので、trim を足した値も見る)"""
+    trim = END_TRIM if trim is None else trim
+    return abs(t - round(t)) < QUANT_TOL or (trim > 0 and abs(t + trim - round(t + trim)) < QUANT_TOL)
+
+
+def quant_windows(rows, window=None, share=None):
+    """丸まった窓の区間 [(a, b)…](行と同じ秒。隣り合う窓はつなぐ)。rows = start・end を持つ行(時刻の順でなくてよい)"""
+    window = window or QUANT_WINDOW
+    share = QUANT_SHARE if share is None else share
+    by = {}
+    for r in rows:
+        a, b = ed_state.num(r.get("start")), ed_state.num(r.get("end"))
+        if a is None or b is None:
+            continue
+        by.setdefault(int(a // window), []).append((a, b))
+    hit = []
+    for k, rs in sorted(by.items()):
+        if len(rs) < QUANT_MIN_ROWS:
+            continue
+        n = sum(1 for a, b in rs for t in (a, b) if quant_is_int(t))
+        if n >= share * 2 * len(rs):
+            hit.append((k, min(a for a, _b in rs), max(b for _a, b in rs)))
+    out = []   # 隣り合う窓は、行のすき間が小さければ(QUANT_MARGIN の 2 倍以下)1 つにまとめて聞く(長さの上限 QUANT_MAX_SEC)
+    for k, a, b in hit:
+        if out and out[-1][2] == k - 1 and a - out[-1][1] <= QUANT_MARGIN * 2 and b - out[-1][0] <= QUANT_MAX_SEC:
+            out[-1] = (out[-1][0], max(out[-1][1], b), k)
+        else:
+            out.append((a, b, k))
+    return [(round(a, 3), round(b, 3)) for a, b, _k in out]
+
+
+def quant_retime(rows, spec, get_words, dur=None, text_key="text", words_key=None):
+    """丸まった窓の行の時刻を配り直す。rows = 行の一覧(start・end・text_key の文字・単語)、get_words(a, b) = その区間を聞き直した単語 [[開始, 終了, 文字]…]
+    (行と同じ秒)。-> (新しい行の一覧, 記録 | None)。記録 = {"windows": 窓の数, "rows": 時刻を変えた行の数, "spans": [[a, b]…], "model"}。
+    行ごとに ed_retime.retime_raw(文字 ↔ 単語の fitting alignment)で候補を取り、頭の字が当たれば始まり・末の字が当たれば終わりを置き換える。
+    当たりが RETIME_MIN_MATCH 未満の行(聞き直しで文字が食い違った)は今のまま。前後の行と重なったら、あとの行の始まりを優先して前の行の終わりを詰める。
+    変えた行の単語(words_key。無ければ "_words" / "words")は聞き直した単語に置き換える(words.json・分け直しが良い時刻を使えるように)。
+    whisper.cpp 以外・QUANT_ON でないときは何もしない。get_words が失敗(ApiError・EngineError)したら、その窓は今のままにして記録に "error" を残す"""
+    if not QUANT_ON or engine_of(spec) != tx_engines.WhisperCpp.id or not rows:
+        return rows, None
+    spans = quant_windows(rows)
+    if not spans:
+        return rows, None
+    rows = [dict(r) for r in rows]
+    info = {"windows": len(spans), "rows": 0, "spans": [[a, b] for a, b in spans], "model": QUANT_MODEL}
+    for a, b in spans:
+        lo, hi = max(0.0, a - QUANT_MARGIN), b + QUANT_MARGIN
+        if dur:
+            hi = min(hi, float(dur))
+        try:
+            words = get_words(lo, hi)
+        except (ed_state.ApiError, tx_engines.EngineError) as e:
+            ed_state.log.warning("丸まった区間 %.1f–%.1f の聞き直しに失敗: %s", a, b, getattr(e, "message", str(e))[:160])
+            info["error"] = str(getattr(e, "message", e))[:200]
+            break
+        ws = sorted([[float(x[0]), float(x[1]), str(x[2])] for x in words or [] if len(x) >= 3 and str(x[2]).strip()], key=lambda x: (x[0], x[1]))
+        if not ws:
+            continue
+        starts = [x[0] for x in ws]
+        idx = [i for i, r in enumerate(rows) if ed_state.num(r.get("start")) is not None and r["start"] >= a - 1e-6 and r["end"] <= b + 1e-6]
+        changed = []
+        for i in idx:
+            r = rows[i]
+            c = ed_retime.retime_raw({"start": r["start"], "end": r["end"], "text": r.get(text_key) or ""}, ws, starts)
+            if not c or c["matched"] < ed_retime.RETIME_MIN_MATCH:
+                continue
+            s = c["start"] if c["head"] else float(r["start"])
+            e = c["end"] if c["tail"] else float(r["end"])
+            if e - s < ed_retime.RETIME_MIN_LEN:
+                continue
+            if abs(s - r["start"]) < 0.005 and abs(e - r["end"]) < 0.005:
+                continue
+            r["start"], r["end"] = round(s, 3), round(e, 3)
+            changed.append(i)
+        if not changed:
+            continue
+        # 重なりの解消(行の順は変えない): あとの行の始まりを信じ、前の行の終わりを詰める。詰めると短すぎる行は始まりも寄せる
+        for i, j in zip(idx, idx[1:]):
+            p, q = rows[i], rows[j]
+            if q["start"] < p["end"]:
+                p["end"] = q["start"]
+                if p["end"] - p["start"] < ed_retime.RETIME_MIN_LEN:
+                    p["start"] = round(max(0.0, p["end"] - ed_retime.RETIME_MIN_LEN), 3)
+        # 窓の外の隣の行(丸まっていない窓の行)にはかからないようにする
+        if idx and idx[0] > 0 and ed_state.num(rows[idx[0] - 1].get("end")) is not None and rows[idx[0]]["start"] < rows[idx[0] - 1]["end"]:
+            rows[idx[0]]["start"] = round(min(rows[idx[0] - 1]["end"], rows[idx[0]]["end"] - ed_retime.RETIME_MIN_LEN), 3)
+        if idx and idx[-1] + 1 < len(rows) and ed_state.num(rows[idx[-1] + 1].get("start")) is not None and rows[idx[-1]]["end"] > rows[idx[-1] + 1]["start"]:
+            rows[idx[-1]]["end"] = round(max(rows[idx[-1] + 1]["start"], rows[idx[-1]]["start"] + ed_retime.RETIME_MIN_LEN), 3)
+        key = words_key or ("_words" if any("_words" in rows[i] for i in idx) else "words")
+        for i in changed:
+            r = rows[i]
+            mine = [w for w in ws if r["start"] - 1e-6 <= (w[0] + w[1]) / 2 <= r["end"] + 1e-6]
+            r[key] = [tuple(w) for w in mine] if key == "_words" else [list(w) for w in mine]
+        info["rows"] += len(changed)
+    return rows, (info if info["rows"] or info.get("error") else None)
+
+
+def quant_words_provider(job, spec, wav, offset=0.0):
+    """quant_retime の get_words: 区間 [a, b](行の秒 = wav の秒 + offset)を faster-whisper(QUANT_MODEL。GPU があれば GPU、無ければ CPU)で
+    聞き直して単語 [[開始, 終了, 文字]…](行の秒)を返す。モデルは最初に要るときに読む(ワーカーの中で、whisper.cpp の分と入れ替わる)。
+    疑似のバックエンドでは何もしない(TRANSCRIBE_FAKE_RETIME=1 のときだけ偽の単語を返す = テスト用)"""
+    holder = {}
+
+    def get(a, b):
+        if ed_state.backend_name() == "fake":
+            if os.environ.get("TRANSCRIBE_FAKE_RETIME") != "1":
+                return []
+            return [[round(t, 2), round(t + 0.5, 2), "偽%d" % k] for k, t in enumerate(_frange(a + 0.37, b, 1.0))]
+        if "model" not in holder:
+            phase = job.get("phase")
+            job["phase"] = "時刻が 1 秒単位に丸まった所を聞き直し中(%s・初回はモデルの読み込み)" % QUANT_MODEL
+            holder["model"], _dev = load_model(QUANT_MODEL, job, "auto", engine=tx_engines.FasterWhisper.id)
+            job["phase"] = phase or "文字起こし中"
+        model = holder["model"]
+        kw = filter_kwargs(model, dict(language=None if spec.get("language", "ja") == "auto" else spec.get("language", "ja"), beam_size=5,
+                                       condition_on_previous_text=False, word_timestamps=True, vad_filter=False, no_speech_threshold=0.9))
+        lo, hi = max(0.0, a - offset), max(0.0, b - offset)
+        segs, _info = model.transcribe(ed_speakers.WavSlice(wav, int(lo * 16000), int(hi * 16000)), **kw)
+        out = []
+        for s in segs:
+            if job.get("cancel"):
+                raise Cancelled()
+            out += [[x, y, t] for x, y, t in seg_to_dict(s, lo + offset)["words"]]
+        return out
+    return get
+
+
+def _frange(a, b, step):
+    t = a
+    while t < b:
+        yield t
+        t += step
+
+
 CONF_KEYS = ("avg_logprob", "no_speech_prob", "compression_ratio")   # 機械の出力 original の各行に残す、認識の自信の度合い(文字起こしの改善の計画 段0-1)
 
 
@@ -1391,7 +1542,7 @@ def recognition_run(spec, job, audio_sec, wall_sec):
                          "glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
                          "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []], "dict": dict_version(spec)},
             "audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2), "at": int(time.time() * 1000),
-            **vad_record(job.get("vad"))}
+            **vad_record(job.get("vad")), **({"retimed": job["quant"]} if job.get("quant") else {})}
 
 
 def short_hash(text):
@@ -1487,6 +1638,8 @@ def record_rerun(doc, spec, kind, spans, replaced):
         run["spans"] = spans[:MAX_REPLACED_ROWS]
     if len(replaced) > len(rep):
         run["replacedOmitted"] = len(replaced) - len(rep)
+    if spec.get("_quant"):
+        run["retimed"] = spec["_quant"]   # 1 秒丸めの配り直し(quant_retime。2026-10-07)
     rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
     runs = [r for r in rec.get("runs") or [] if isinstance(r, dict)] + [run]
     reruns = [r for r in runs if r.get("kind")]
@@ -1732,7 +1885,12 @@ def run_job(job):
         sparse_lp = {}   # 「長い区間に文字が少ない」行の avg_logprob(認識し直したときに、良くなったかを比べる。③-2)
         learn_n = 0
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
-        for s in expand_segments(gen, spec, total, row_levels(spec, wav)):
+        rows = list(expand_segments(gen, spec, total, row_levels(spec, wav)))
+        # 1 秒単位に丸まった窓(whisper.cpp)だけ、faster-whisper の単語の時刻で行の時刻を配り直す(2026-10-07。docs/plan/row-timing-plan.md の案 A)
+        rows, job["quant"] = quant_retime(rows, spec, quant_words_provider(job, spec, wav), total)
+        if job.get("quant") and job["quant"].get("rows"):
+            job["warnings"] = list(job.get("warnings") or []) + [QUANT_NOTE % (job["quant"]["windows"], job["quant"]["rows"])]
+        for s in rows:
             if not s["text"]:
                 continue
             seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
@@ -2437,6 +2595,7 @@ class RangeRecognizer:
         self.fake = ed_state.backend_name() == "fake"
         self.model = self.audio = None
         self.vad = None
+        self.quant = {}   # 丸まった窓の配り直しの数(quant_retime。run_retranscribe が知らせと記録に使う)
 
     def _load(self):
         if self.fake or self.model is not None:
@@ -2480,7 +2639,12 @@ class RangeRecognizer:
                 raise ed_state.ApiError("gpu_failed", "GPU での処理に失敗しました。処理方式を「自動」か「CPU」にしてください", 500)
             else:
                 raise
-        return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset, row_levels(self.spec, self.wav, lo))
+        lines = finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset, row_levels(self.spec, self.wav, lo))
+        # 1 秒単位に丸まった窓だけ、faster-whisper の単語の時刻で配り直す(2026-10-07。run_job と同じ。行は元の動画の秒・単語は "words")
+        lines, q = quant_retime(lines, self.spec, quant_words_provider(self.job, self.spec, self.wav, self.offset), None, text_key="raw", words_key="words")
+        if q:
+            self.quant = {"windows": self.quant.get("windows", 0) + q["windows"], "rows": self.quant.get("rows", 0) + q["rows"], "model": q["model"]}
+        return lines
 
     def loose(self, spans):
         out = []
@@ -2692,6 +2856,7 @@ def run_retranscribe(job):
                 if whole:
                     drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
                 raise ed_state.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
+            spec["_quant"] = rec.quant or None   # 丸まった窓の配り直しの数(record_rerun が runs に残す)
             r = apply_range(spec, lines, loose)
             if whole:
                 drop_resume(spec["tid"])
@@ -2700,6 +2865,9 @@ def run_retranscribe(job):
             if note:
                 job["vadNote"] = note
                 job.setdefault("warnings", []).append(note)
+            if rec.quant.get("rows"):
+                job["quant"] = rec.quant
+                job.setdefault("warnings", []).append(QUANT_NOTE % (rec.quant["windows"], rec.quant["rows"]))
             job["tid"], job["progress"], job["state"], job["phase"] = spec["tid"], 1.0, "done", "完了"
             return
         if ed_state.backend_name() == "fake":

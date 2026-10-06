@@ -380,3 +380,122 @@ class RowTidyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuantRetimeTest(unittest.TestCase):
+    """1 秒丸めの行の時刻の配り直し(2026-10-07。docs/plan/row-timing-plan.md の案 A): 丸まった窓の判定 → 聞き直した単語に行の文字を当てて時刻を決め直す"""
+
+    SPEC = {"engine": "whisper.cpp", "wordSplit": True, "language": "ja"}
+
+    def quant_rows(self):
+        # 風真いろは 47e38cb99dbe の形(全部の境目が整数秒。終わりは trim_ends で 0.1 秒早い)
+        return [row(0.0, 2.9, "応援ありがとう"), row(6.0, 7.9, "ねー"), row(12.0, 13.9, "ちょっとさ"), row(14.0, 15.9, "すごかったよね"),
+                row(19.0, 20.19, "みんな"), row(22.0, 23.9, "いや最近ね")]
+
+    def test_windows_detect_integer_boundaries(self):
+        rows = self.quant_rows()
+        self.assertEqual(S.quant_windows(rows), [(0.0, 23.9)])                               # 1 つの窓(0〜30 秒)が丸まっている
+        self.assertEqual(S.quant_windows([row(0.07, 4.88, "a"), row(17.06, 18.48, "b"), row(18.58, 20.08, "c"), row(21.22, 22.54, "d")]), [])
+        self.assertEqual(S.quant_windows(rows[:2]), [])                                       # 行が QUANT_MIN_ROWS 未満の窓は判定しない
+        # 隣り合う丸まった窓は、行のすき間が小さければ(QUANT_MARGIN の 2 倍以下)つなぐ・離れた窓は別
+        more = rows + [row(25.0, 29.9, "e"), row(31.0, 32.9, "f"), row(33.0, 34.9, "g"), row(35.0, 36.9, "h"), row(70.0, 71.9, "i"), row(72.0, 73.9, "j"), row(74.0, 75.9, "k")]
+        self.assertEqual(S.quant_windows(more), [(0.0, 36.9), (70.0, 75.9)])
+        self.assertEqual(S.quant_windows(rows + more[7:]), [(0.0, 23.9), (31.0, 36.9), (70.0, 75.9)])   # 23.9 → 31.0 のすき間 7 秒は別々に聞く
+        self.assertTrue(S.quant_is_int(13.9) and S.quant_is_int(14.0) and not S.quant_is_int(13.6))
+
+    def test_retime_moves_rows_to_words_and_replaces_words(self):
+        rows = self.quant_rows()
+        words = [[0.2, 0.9, "応援"], [0.9, 1.66, "ありがとう"], [5.4, 7.2, "ね"], [7.2, 8.0, "ー"], [12.0, 12.8, "ちょっと"], [12.8, 13.4, "さ"],
+                 [13.4, 13.9, "すご"], [13.9, 14.3, "かった"], [14.3, 14.5, "よね"], [19.0, 19.4, "み"], [19.4, 20.19, "んな"],
+                 [21.5, 21.9, "いや"], [21.9, 22.8, "最近"], [22.8, 23.1, "ね"]]
+        calls = []
+
+        def get_words(a, b):
+            calls.append((a, b))
+            return words
+        out, info = S.quant_retime(rows, self.SPEC, get_words, 40.0)
+        self.assertEqual(calls, [(0.0, 24.9)])                                                # 窓の前後に QUANT_MARGIN(1 秒)を足して聞く(頭は 0 で止める)
+        got = [(r["start"], r["end"]) for r in out]
+        self.assertEqual(got[0], (0.2, 1.66))                                                 # 行の頭・末の字が単語に当たった → 両端を単語の時刻に
+        self.assertEqual(got[1], (5.4, 8.0))                                                  # 「ねー」: 伸ばしの「ー」まで含めて 8.0
+        self.assertEqual(got[2], (12.0, 13.4))
+        self.assertEqual(got[3], (13.4, 14.5))                                                # 丸めで 14.0–15.9 だった行が声の 13.4–14.5 に
+        self.assertEqual(got[5], (21.5, 23.1))
+        self.assertEqual(info["windows"], 1)
+        self.assertEqual(info["rows"], 5)                                                     # 「みんな」(19.0–20.19)は変わらない(差 0.005 未満)
+        self.assertEqual(info["spans"], [[0.0, 23.9]])
+        self.assertEqual(out[3]["_words"], [(13.4, 13.9, "すご"), (13.9, 14.3, "かった"), (14.3, 14.5, "よね")])   # 単語も聞き直したものに
+        self.assertEqual(out[4]["_words"], [(19.0, 20.19, "みんな")])                           # 変えていない行の単語はそのまま
+        self.assertEqual(rows[3]["start"], 14.0)                                              # 元の行は書き換えない
+
+    def test_unmatched_row_keeps_time_and_overlap_is_resolved(self):
+        rows = [row(0.0, 1.9, "はい"), row(2.0, 3.9, "行きます"), row(4.0, 5.9, "全然違う文")]
+        words = [[0.3, 0.8, "はい"], [0.9, 2.6, "行き"], [2.6, 3.0, "ます"], [3.5, 4.2, "ほか"], [4.2, 5.0, "の言葉"]]
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
+        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 0.8))
+        self.assertEqual((out[1]["start"], out[1]["end"]), (0.9, 3.0))                      # 前の行の終わり(0.8)より早い始まり → 前の行は詰めない(重なっていない)
+        self.assertEqual((out[2]["start"], out[2]["end"]), (4.0, 5.9))                      # 文字が当たらない行は今のまま
+        self.assertEqual(info["rows"], 2)
+        # 重なったら、あとの行の始まりを優先して前の行の終わりを詰める
+        rows = [row(0.0, 1.9, "はい"), row(2.0, 3.9, "行きます"), row(4.0, 5.9, "全然違う文")]
+        words = [[0.3, 2.5, "はい"], [1.8, 2.6, "行き"], [2.6, 3.0, "ます"]]
+        out, _info = S.quant_retime(rows, self.SPEC, lambda a, b: words, 10.0)
+        self.assertEqual((out[0]["start"], out[0]["end"]), (0.3, 1.8))
+        self.assertEqual((out[1]["start"], out[1]["end"]), (1.8, 3.0))
+
+    def test_skips_other_engines_off_switch_and_failures(self):
+        rows = self.quant_rows()
+        called = []
+        out, info = S.quant_retime(rows, {"engine": "faster-whisper"}, lambda a, b: called.append(1) or [], 40.0)
+        self.assertEqual((out, info, called), (rows, None, []))                               # whisper.cpp 以外は何もしない
+        with mock.patch.object(S, "QUANT_ON", False):
+            out, info = S.quant_retime(rows, self.SPEC, lambda a, b: called.append(1) or [], 40.0)
+        self.assertEqual((info, called), (None, []))                                          # TRANSCRIBE_RETIME=0
+
+        def boom(a, b):
+            raise S.ApiError("model_failed", "モデルを読めませんでした", 500)
+        out, info = S.quant_retime(rows, self.SPEC, boom, 40.0)
+        self.assertEqual([(r["start"], r["end"]) for r in out], [(r["start"], r["end"]) for r in rows])   # 失敗したら今のまま
+        self.assertEqual(info["rows"], 0)
+        self.assertIn("モデル", info["error"])
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: [], 40.0)
+        self.assertIsNone(info)                                                               # 単語が取れなければ記録も無し
+
+    def test_does_not_overlap_rows_outside_the_window(self):
+        # 窓の外(丸まっていない窓 = 行が少ない窓)の隣の行にはかからない: 前の行の終わり 29.6 より前に始まる候補は 29.6 まで・次の行の始まり 60.5 より後ろの終わりは 60.5 まで
+        rows = [row(27.3, 29.6, "前の窓の行"), row(30.0, 31.9, "はい"), row(32.0, 33.9, "行きます"), row(55.0, 56.9, "ええと"), row(57.0, 58.9, "うん"),
+                row(59.0, 59.9, "ええ"), row(60.5, 62.0, "次の窓の行")]
+        words = [[29.2, 31.0, "はい"], [32.4, 33.0, "行きます"], [55.2, 56.5, "ええと"], [57.1, 57.8, "うん"], [59.3, 61.0, "ええ"]]
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, None)
+        self.assertEqual(info["spans"], [[30.0, 59.9]])
+        self.assertEqual((out[1]["start"], out[1]["end"]), (29.6, 31.0))
+        self.assertEqual((out[5]["start"], out[5]["end"]), (59.3, 60.5))
+        self.assertEqual((out[0]["start"], out[0]["end"], out[6]["start"]), (27.3, 29.6, 60.5))   # 窓の外の行は触らない
+
+    def test_absolute_rows_from_range_recognizer(self):
+        # 範囲・全体の再認識の行(元の動画の秒・文字は "raw"・単語は "words" の list)
+        rows = [{"start": 3600.0, "end": 3601.9, "raw": "はい", "words": [[3600.0, 3601.9, "はい"]]},
+                {"start": 3602.0, "end": 3603.9, "raw": "行きます", "words": [[3602.0, 3603.9, "行きます"]]},
+                {"start": 3604.0, "end": 3605.9, "raw": "そうそう", "words": [[3604.0, 3605.9, "そうそう"]]}]
+        words = [[3600.3, 3600.8, "はい"], [3602.4, 3603.0, "行きます"], [3604.1, 3605.0, "そう"], [3605.0, 3605.5, "そう"]]
+        out, info = S.quant_retime(rows, self.SPEC, lambda a, b: words, None, text_key="raw", words_key="words")
+        self.assertEqual([(r["start"], r["end"]) for r in out], [(3600.3, 3600.8), (3602.4, 3603.0), (3604.1, 3605.5)])
+        self.assertEqual(out[2]["words"], [[3604.1, 3605.0, "そう"], [3605.0, 3605.5, "そう"]])
+        self.assertEqual(info["rows"], 3)
+
+    def test_fake_provider_and_record(self):
+        # 疑似のバックエンドでは、TRANSCRIBE_FAKE_RETIME=1 のときだけ偽の単語を返す(e2e で経路を通すため)
+        job = {"cancel": False, "phase": "x"}
+        with mock.patch.object(S.ed_state, "backend_name", lambda: "fake"):
+            get = S.quant_words_provider(job, self.SPEC, "dummy.wav")
+            self.assertEqual(get(0.0, 3.0), [])
+            with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_RETIME": "1"}):
+                ws = get(0.0, 3.0)
+        self.assertEqual([w[2] for w in ws], ["偽0", "偽1", "偽2"])
+        self.assertEqual(ws[0][:2], [0.37, 0.87])
+        # recognition.runs の記録に残る
+        spec = dict(self.SPEC, model="large-v3", beam=5, vadMode="weak", language="ja", glossary=[])
+        job = {"device": "vulkan", "quant": {"windows": 1, "rows": 5, "spans": [[0.0, 23.9]], "model": "large-v3"}}
+        with mock.patch.object(S, "prompt_terms", lambda s: []), mock.patch.object(S, "dict_version", lambda s: {}):
+            run = S.recognition_run(spec, job, 40.0, 7.0)
+        self.assertEqual(run["retimed"]["rows"], 5)

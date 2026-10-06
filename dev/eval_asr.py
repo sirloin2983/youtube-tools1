@@ -767,7 +767,10 @@ def recognize_doc(S, doc, spec, data):
         gen = S.transcribe_fake(job, spec, wav, audio_sec) if S.backend_name() == "fake" else S.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・whisper.cpp は行の終わりを音の谷へ)。wav の 0 秒 = 行の 0 秒なので base は 0
-        for s in S.expand_segments(gen, spec, audio_sec, S.row_levels(spec, wav)):
+        # 1 秒単位に丸まった窓(whisper.cpp)は faster-whisper の単語の時刻で配り直す(編集 0.57.0。quant_retime。TRANSCRIBE_RETIME=0 で前の形)
+        tidy = list(S.expand_segments(gen, spec, audio_sec, S.row_levels(spec, wav)))
+        tidy, _q = S.quant_retime(tidy, spec, S.quant_words_provider(job, spec, wav), audio_sec)
+        for s in tidy:
             if not s["text"]:
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:S.MAX_TEXT], **S.machine_conf(s)}
@@ -913,7 +916,10 @@ def base_meta(mode, args, docs, data, sel=None):
 def post_meta(S, spec):
     """行の後処理(編集 0.51.0 から。expand_segments の clip_rows・merge_repeats・pull_ends)の印。pullEnds は音の大きさを使う whisper.cpp のときだけ。
     これが無い結果は 0.51.0 より前の測定(compare が違いを知らせる)"""
-    return {"clip": True, "mergeRepeats": True, "pullEnds": S.engine_of(spec) == S.tx_engines.WhisperCpp.id}
+    post = {"clip": True, "mergeRepeats": True, "pullEnds": S.engine_of(spec) == S.tx_engines.WhisperCpp.id}
+    if S.engine_of(spec) == S.tx_engines.WhisperCpp.id:   # 1 秒丸めの配り直し(編集 0.57.0)。無い結果は 0.57.0 より前の測定
+        post["quantRetime"] = S.QUANT_MODEL if S.QUANT_ON else False
+    return post
 
 
 def group_spec(args, mode):
