@@ -85,6 +85,7 @@ Q0 入れ直しの後始末 → Q1 30fps にそろえる → Q2 記録の土台(
 - 各段の計画は、始める前に今のコードで読み直す(行番号は 09-29 時点。ほかの段で動いていることがある)
 
 ### 線 B: 文字起こしの精度改善(**これからの段は `docs/plan/transcription-plan-v2.md`(第2版。10-04)**。`docs/plan/transcription-overhaul-plan.md` は済んだ段の記録と測った結果)
+- **行の時刻の原則(10-07 ユーザー決定: ① 発言が収まる > ② 前後の発言を入れない > ③ 無音を除く = `docs/spec/row-timing-policy.md`)**。原則に沿った直し(END_TRIM をやめる・続いている行をくっつける・配り直しの重なりの詰め方・測る道具)は `docs/plan/row-timing-plan.md` の 7 に**計画だけ(実装はユーザーの指示待ち)**
 - **行の時刻の直し(案 A を 10-07 に実装 = 編集 0.57.0)**: whisper.cpp の 1 秒丸め(評価用の 27% の行)の窓だけ faster-whisper(CPU)の単語の時刻で配り直す。効き目はまだ示せていない(認識し直すと丸まらないことが多い)= ドリルで作り直して確かめる。`TRANSCRIBE_RETIME=0` で戻せる。終わりの向き・すき間の 2 つは未決定 = `docs/plan/row-timing-plan.md` の 5・6
 ```
 ユーザー: 評価用の校正(15〜30分・4人以上) ─────────────────┐
@@ -225,6 +226,7 @@ AI: P1 録画と再生(streamlink + ffmpeg の HLS・LAN 内の HTTP・hls.js)�
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
 | `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
 | `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`) |
+| `docs/spec/row-timing-policy.md` | 行(字幕の区間)の時刻の決め方の原則(2026-10-07 ユーザー決定。① 発言が収まる > ② 前後の発言を入れない > ③ 無音を除く)と、原則で測る 5 つの数字の定義。今の後処理との関係の表 |
 | `docs/spec/subtitle-notation.md` | 字幕の書き方の規則と、採点で同じとみなす違い(10-06 に決めた。編集 0.56.2 で採点に入れた。「えっ」と「え」だけ要検討) |
 | `docs/spec/sound-tags.md` | 行の音の状態のメモ(BGM・重なり・聞き取れない)の付け方(10-06 に BGM の基準を決めた) |
 | `docs/spec/ui-guidelines.md`・`docs/spec/usability-heuristics.md` | 画面の共通のルール(用語集など)・10 の原則 |
