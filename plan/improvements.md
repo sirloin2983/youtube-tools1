@@ -123,5 +123,8 @@ AI が出典から拾ったもの。急ぎではない。
 | cut2resolve | 使う側の無い API `/api/inspect`・`/api/upload`・`/api/state`・`/media/<token>`(消した画面のためのもの。今の編集とまとめて実行が呼ぶのは plan・build・job・job/cancel・open-folder だけ) | 消すと約 200 行減るが API の約束を変える(test_mount・e2e_pipeline・e2e_datadir も使う)。判断待ち(S〜M) |
 | cut2resolve | 単独のコマンド `srt2resolve.py`(README に無いがテストはある)・`auto_cut.py` の CLI(`write_package`)・補助の FCPXML(`--fcpxml`。Resolve で未確認) | 機能の削除になるので判断待ち |
 | cut2resolve | `auto_cut.build_cut_fcpxml` の区間×字幕の走査 | 補助の FCPXML でしか使わない。二分探索にするには形を変える必要(S) |
+| recorder → home | 入口の `live.py` が `GET /live/<id>/status` を since なしで呼ぶと、最大 5000 件のセグメントが毎回返る。firstPdt だけなら since を大きくすれば軽い | ③ home のときに(S) |
+| recorder・editor | `KillJob`(子プロセスを閉じると孫も終わる仕組み)が `src/recorder/rec_core.py` と `src/editor/tx_engines.py` に同じ形である | `ytt_core` に 1 つにまとめる(S。③ ytt_core のときに) |
+| recorder | recording.json の sessions が null だと起動時の復旧で落ちる(部品が書く値は常にリストなので、手で書き換えたときだけ) | 読み込みで型を確かめる(S) |
 
 (コードの見直しで見つかったものは作業の終わりに追記)

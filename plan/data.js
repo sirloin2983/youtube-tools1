@@ -7,13 +7,13 @@ window.PLAN = {
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。",
   versions: [
     ["入口(ホーム)", "0.37.0"], ["切り抜きスタジオ", "0.21.1"], ["編集", "0.57.1"], ["cut2resolve", "0.21.1"],
-    ["録画の部品", "0.3.0"], ["ui-kit", "v18"], ["送るアプリ", "2.1.1"], ["ホロカラー", "1.4.2"]
+    ["録画の部品", "0.3.1"], ["ui-kit", "v18"], ["送るアプリ", "2.1.1"], ["ホロカラー", "1.4.2"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
     { id: "②", name: "ユーザーの作業が要らない実装", state: "doing", detail: "B1 行の時刻 0.57.1 は済み(10-07)。A2 あと何本の表示 → 終了時に録画の部品も止める → 線 D 1D(M1〜M7)が進行中。A1 話者の既定・B2 手元の 4 エンジンの比較は ③ のあとに測る(CPU を空けるため)" },
-    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev(共通部品 _evalcommon)・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1。区間×字幕の総当たりを二分探索に)。進行中: editor サーバー側・recorder。残り: home・ytt_core・editor 画面側(② の home が終わってから)" },
+    { id: "③", name: "コードの見直し", state: "doing", detail: "済み: dev(共通部品 _evalcommon)・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1。区間×字幕の総当たりを二分探索に)・recorder(0.3.1)。進行中: editor サーバー側。残り: home・ytt_core・editor 画面側(② の home が終わってから)" },
     { id: "④", name: "plan の文書", state: "todo", detail: "改善点・追加機能・ユーザーの作業を plan\\ に(improvements・user-tasks)" }
   ],
   /* 各線の進捗 */
