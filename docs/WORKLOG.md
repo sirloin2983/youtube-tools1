@@ -3502,3 +3502,15 @@
 - 変更: `docs/plan/live-auto-pack-plan.md`(状態の行・段階 2 の見出し・M11〜M13 の決定の印・6 を「決めたこと」に)・`live-clipping-plan.md` の残りの表・`docs/ROADMAP.md` の線 D。公開した全体像のページ(claude.ai の artifact)も同じに直した
 - 未完了・次: ユーザーが「始めて」と言ったら段階 0(L0 = AI が本物の配信の live_chat を調べる・M0 = ユーザーが本物の配信で 3 時間以上の通し)から
 - 未コミット: なし
+
+## 2026-10-06 Claude Code — 線 D 以外の全体の計画の再調整(`docs/plan/overall-plan-2026-10-06.md`。コードは変えていない)
+- ユーザーの指示: 「線 D 以外もまとめて」(= 同じ形で: 計画の再調整とやることの一覧・課題と改善案・全体像の資料)
+- 調べたこと(Sonnet のサブエージェント 2 つ = 読むだけ: 精度の線(master-plan・transcription-plan-v2・accuracy-extra-ideas・other-voice-and-overlap・USER_INPUT・subtitle-notation)と、線 A の残り・別件・実機確認・運用(line-a-after-phase8・phase8・friend-intake・holo-colors・DESIGN_REVIEW・stability-review・data-location)。ROADMAP の 3〜8 は Fable が読んだ)
+- 分かったこと: 土台はすべて済み。精度の改善(E1〜E4・I-2a〜I-5)は全部ユーザーが作るデータが入口(G1 まで校正あと 4.7 分・採用の記録 0・パック 20 本・話者 200 行)。実機で確かめることが約 60 項目。
+  文書の食い違い 3 つ: whisper.cpp の作り直しは 10-04 に済みなのに「やり直しになること」に残っていた / 段 15 の「Could Improve の残り」は 0 件(4 件のうち 3 件は段 5 で済み・1 件はやらない)/ 順番の正が 3 か所(ROADMAP 2・master-plan・各計画)
+- 変更: 新しい文書 `docs/plan/overall-plan-2026-10-06.md`(今の状態・線の関係の図・順番 = AI だけで進められる X1〜X5 / ユーザーの作業の優先順 U1〜U7 / データがそろったら進む段・課題 10 件と改善案・決めてほしいこと 6 つ・前提の数字)。
+  `docs/ROADMAP.md`: 2 の先頭に 10-06 の再調整(順番の正は同書)・3 の whisper.cpp の行を済みに・線 A の段 15 の行・索引。`master-plan-2026-10.md` の状態の行に「順番の正は 10-06」を追記
+- 主な提案(判断待ち): 線 D 段階 1〜2 は線 B・線 C のデータを普段の使用から貯める仕組みでもある(自動のパックの字幕の直し = 校正、採用・捨てる = 盛り上がりの記録)/ 実機確認の約 60 項目を「必ず / できれば / 閉じる」に分けて「必ず」を 3 つに絞る(X1)/
+  決めてほしいこと 6 つ(次に AI が手を付けるもの・クラウド比較と追加学習の上限金額・pyannote・暗いテーマの既定・棚卸しの可否・PC の外への写し)
+- 未完了・次: ユーザーの判断(同書の 5)→ X1(実機確認の棚卸し・USER_INPUT の 3・5・6 を閉じる)→ X2 → X3。線 D は「始めて」待ち
+- 未コミット: なし
