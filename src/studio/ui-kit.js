@@ -166,7 +166,9 @@
      data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く。
      v22: 編集の古い形(details.pop > .vpop。2 カット の「無音 ▾」「時刻リスト ▾」など)にもかける(幅 960 で道具の行が折り返すと、
      右にそろえた中身が画面の左の外に出ていた。段9 の確認) */
-  var POP_SEL = 'details.ui-pop, details.ui-menu, details.pop';
+  /* v23: 以前はここでも同じ名前(POP_SEL)で宣言していて、上の「開いているものだけ」の選択子を上書きしていた。その結果 Esc で閉じているメニューの summary にも
+     フォーカスが移り(ページの最後の「…」へ飛ぶ)、続く Space がメニューを開いた(スタジオの見直し M1)。別の名前にする */
+  var FIT_SEL = 'details.ui-pop, details.ui-menu, details.pop';
   function fitPop(d) {
     var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop'); if (!body) return;
     body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
@@ -184,7 +186,7 @@
   if (window.MutationObserver) new MutationObserver(function (recs) {
     for (var i = 0; i < recs.length; i++) {
       var d = recs[i].target;
-      if (d.open && d.matches && d.matches(POP_SEL)) fitPop(d);
+      if (d.open && d.matches && d.matches(FIT_SEL)) fitPop(d);
     }
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 
@@ -726,7 +728,19 @@
     var okBtn = dialogBtn('btn primary', opts.ok || 'OK');
     return dialogOpen(opts, 'お知らせ', [[okBtn, undefined]], okBtn, undefined);
   }
-  var dialogApi = { confirm: dialogConfirm, alert: dialogAlert };
+  /* v23: 3 択以上の確認(例: パックの上書き [作り直す][別の場所][やめる])。opts.buttons = [{label, value, kind: 'primary'|'danger'|'ghost'|''}, …]。
+     戻り値は押したボタンの value。Esc・背景は opts.cancel(既定 null)。danger のボタンがあれば既定のフォーカスは最初の ghost(安全な方)、無ければ最初の primary */
+  function dialogChoose(opts) {
+    opts = opts || {};
+    var defs = (opts.buttons || []).filter(function (b) { return b && b.label; });
+    if (!defs.length) return dialogAlert(opts).then(function () { return opts.cancel === undefined ? null : opts.cancel; });
+    var btns = defs.map(function (b) { var kind = b.kind === 'primary' ? 'primary' : b.kind === 'danger' ? 'danger solid' : b.kind === 'ghost' ? 'ghost' : ''; return [dialogBtn('btn ' + kind, b.label), b.value]; });
+    var hasDanger = defs.some(function (b) { return b.kind === 'danger'; });
+    var first = null;
+    for (var i = 0; i < defs.length; i++) { if ((hasDanger && defs[i].kind === 'ghost') || (!hasDanger && defs[i].kind === 'primary')) { first = btns[i][0]; break; } }
+    return dialogOpen(opts, '確認', btns, first || btns[0][0], opts.cancel === undefined ? null : opts.cancel);
+  }
+  var dialogApi = { confirm: dialogConfirm, alert: dialogAlert, choose: dialogChoose };
 
   /* ---- toast(通知。v21 から重ねて最大2つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
   var toastBox = null;

@@ -144,6 +144,9 @@
 - `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
 - 設定の「全体」の節のテーマ・文字の大きさの名前を `<label for>` に(`#uiSetTheme`・`#uiSetFs`。A-24)
 - 測る道具: `py -3.10 dev/ui_audit.py all --demo`(基準の A)。見本 `styleguide.html` もその対象(入力欄に label・ボタンの長い名前は title に)
+- 不具合: `ui-kit.js` の中で `POP_SEL` を 2 回宣言していて(v22 の fitPop)、Esc で閉じているメニューの summary にもフォーカスが移り(ページの最後の「…」へ飛ぶ)、続く Space がメニューを開いた(スタジオの見直し M1)。fitPop の選択子を `FIT_SEL` に
+- `UIKit.dialog.choose({title, body, buttons: [{label, value, kind: 'primary'|'danger'|'ghost'|''}], cancel})` → Promise<value>(3 択以上の確認。Esc・背景は `cancel`(既定 null)。danger があれば既定のフォーカスは最初の ghost)。編集の画面ごとの確認(#dlgConfirm・#dlgOverwrite)を置き換える
+- `UIKit.autorun` の「設定を変える」: 音量の欄に値が入らなかった(select が文書に入る前に loudRefresh が落としていた)のを直し、fps の欄の名前「パックの置き先」→「1 秒のコマ数(fps)」(ホームの見直し M3・M4)
 
 ## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`plan/ux-stage7-9.md` の 1)
 - 画面に出る文言の「入口」を「ホーム」に(用語集 `docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
