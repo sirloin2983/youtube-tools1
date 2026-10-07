@@ -14,6 +14,11 @@
 - 版(コミット済みの最新): 入口 0.42.3・スタジオ 0.22.3・編集 0.59.4・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)。**v23 / 0.22.3 / 0.59.3 はクラウドと PC が別々に付けた番号を合流で 1 つにした**(README の同じ版の見出しの中に両方の変更)。次に版を付けるときは WORKLOG と origin/main の両方を見る
 - Linux で前から落ちるテスト(Windows では通る): home の `test_live` 2 件(`E:\` のパス前提)と `test_cleanup.test_move_only_known_and_purge`(一覧の順が OS で違う)、editor の `test_roster` 2 件 + `test_evalaudio` 1 件(Windows のパス前提)。e2e は Linux でも全部 OK
 
+## I-5 区切りの正解づくり(2026-10-07 深夜。ユーザーが 22 本を直している途中かもしれない)
+- 計画と基準: `plan/line-b-row-split.md`(1 答え・2 見比べ・3 机上評価・6 正解の限界・7 手順と基準 P1〜P6・例)。ユーザーは確かめ済み 22 本を、候補の一覧(`D:/backup/youtube-tools-eval/split-draft2-20261007-2157.html`)を横に置いて、分ける・くっつけるだけ直す(文字と時刻は直さない)
+- 控え(直す前): `D:/backup/youtube-tools-eval/split-before-20261007-2111.json`。道具の写し: `D:/backup/youtube-tools-eval/tools/`(diff_after.py = 控えとの差分から判断の一覧 / cmpdata.py・compare.py・rules3.py = 人の境目との一致率。元は AI の scratchpad。作業データは読むだけ)
+- **ユーザーが「直し終えた」と言ったら**: `py -3.10 D:/backup/youtube-tools-eval/tools/diff_after.py`(判断の一覧 = そのまま・くっつけた・分けた と、境目の無音・句末・長さ)→ `compare.py`・`rules3.py`(sys.path の scratchpad のパスを tools/ に直して)で新しい正解での的中・再現 → 規則を決める(今の候補は「24 文字まで切らない」+ 無音で切る。数字で決める)→ `src/editor/ed_jobs.py` に実装(編集 0.59.5)+ `dev/eval_timing.py` に境目の一致率 + `eval_timing` で ①〜③ を測り直して新しい基準に。文書: `plan/line-b-row-split.md` の 8 と data.js の B3
+
 ## 次のセッションに貼る指示文
 「AGENTS.md → plan/data.js → plan/line-d-detect.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -10 を見て。線 D の前倒し(L1〜L3・M11・M8〜M10・M12)は全部 main に入っている(入口 0.43.1・スタジオ 0.23.0)。まず今夜の配信 2 本の M7 の結果(GET /live/api/exports?recorder=local&recording=20261007-185959-9OrfCLv9QKY と 20261007-193336-kLsldZDUa70 の archiveInfo.afterStream)と、ユーザーが起動し直したかを確かめて WORKLOG と plan/data.js の U4・M7 に記録。次に plan/improvements.md の 12(M8 の余白 2 秒・仮の候補の札・prefs の説明文)を小さく直し、単体と e2e_live_studio・e2e_portal・ui_audit all --demo で確かめてコミット。ユーザーが検出オンで配信を 1 本試したら、調子・LIVE の帯・live/excite/<rc>/<rec>/peaks.json・excite.log を読んで結果(候補の数・遅れ・チャットの起動し直し・CPU)を WORKLOG に書き、0-10-5 の数を決め直す。迷う点は仮決めして decisions 3-7 に (cx) 以降で。」
 
