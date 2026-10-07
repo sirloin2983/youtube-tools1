@@ -221,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def _title(v):
         if not VID_RE.match(v):
-            raise ApiError("bad_request", "動画IDが正しくありません", 400)
+            raise ApiError("bad_request", "配信の ID が正しくありません", 400)
         return {"title": fetch_title(v)}
 
     def _media(self, vid):
@@ -351,13 +351,13 @@ def _live_section(o):
 def _video_delete(o):
     vid = str(o.get("id") or "")
     if not STORE.has(vid):
-        raise ApiError("not_found", "動画が見つかりません", 404)
+        raise ApiError("not_found", "配信が見つかりません", 404)
     if exporter.is_busy_for(vid):
         raise ApiError("busy", "書き出し中は削除できません。終わってから削除してください", 409)
     if not BATCH.cancel_video(vid):   # 待ち item は取り除き、実行中の解析は中止してから削除
         raise ApiError("busy", "解析を中止しています。少し待ってからもう一度削除してください", 409)
     if not STORE.delete(vid, if_no_marks=o.get("ifNoMarks") is True):   # ifNoMarks: 入口の「マークの無い録画を消す」(線 D の P4)。マークがあれば 409
-        raise ApiError("not_found", "動画が見つかりません", 404)
+        raise ApiError("not_found", "配信が見つかりません", 404)
     return {"ok": True}
 
 

@@ -50,7 +50,7 @@ class Batch:
     def _find(self, qid):
         it = next((i for i in self.items if i["qid"] == str(qid or "")), None)
         if not it:
-            raise ApiError("not_found", "キューにありません", 404)
+            raise ApiError("not_found", "解析の順番待ちにありません", 404)
         return it
 
     def _finish(self, it, status, error="", phase=None):
@@ -86,7 +86,7 @@ class Batch:
 
     def add(self, items, settings):
         if not isinstance(items, list) or not items:
-            raise ApiError("bad_request", "解析する動画を指定してください", 400)
+            raise ApiError("bad_request", "解析する配信を指定してください", 400)
         if not common.fake() and not common.find_tool("ffmpeg"):
             raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
         settings = analyze.validate_settings(settings)
@@ -110,7 +110,7 @@ class Batch:
                     rejected.append({"input": label, "reason": "一度に入れられるのは10本までです"})
                     continue
                 if any(i["videoId"] == src["videoId"] for i in act):
-                    rejected.append({"input": label, "reason": "すでにキューにあります"})
+                    rejected.append({"input": label, "reason": "すでに解析の順番待ちにあります"})
                     continue
                 title, channel = str(raw.get("title") or "")[:120], str(raw.get("channel") or "")[:100]
                 try:
@@ -157,7 +157,7 @@ class Batch:
             if len(act) >= MAX_ACTIVE:
                 raise ApiError("full", "一度に入れられるのは10本までです", 409)
             if any(i["videoId"] == it["videoId"] for i in act):
-                raise ApiError("duplicate", "すでにキューにあります", 409)
+                raise ApiError("duplicate", "すでに解析の順番待ちにあります", 409)
             self.store.ensure(it["src"], it["title"], it["channel"])
             new = self._new_item(it["src"], it["settings"], it["title"], it["channel"])
             self.items.remove(it)

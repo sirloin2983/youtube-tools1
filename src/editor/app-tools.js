@@ -639,22 +639,6 @@ async function cpExport(id){
   return r.path;
 }
 
-/* はい/やめる のダイアログを開いて答えを待つ(Esc = やめる。最初のフォーカスは「やめる」)-> はいなら true */
-function askDialog(dlg, ok, cancel){
-  return new Promise(resolve => {
-    const done = v => { ok.onclick = null; cancel.onclick = null; dlg.oncancel = null; if (dlg.open) dlg.close(); resolve(v); };
-    ok.onclick = () => done(true); cancel.onclick = () => done(false);
-    dlg.oncancel = e => { e.preventDefault(); done(false); };
-    dlg.showModal(); cancel.focus();
-  });
-}
-
-function confirmOverwrite(files, dir){
-  $('#owDir').textContent = dir || ''; $('#owDir').hidden = !dir;
-  $('#owFiles').innerHTML = (files || []).slice(0, 20).map(f => `<li>${esc(f)}</li>`).join('') + ((files || []).length > 20 ? `<li>ほか ${files.length - 20}件</li>` : '');
-  return askDialog($('#dlgOverwrite'), $('#owOk'), $('#owCancel'));
-}
-
 function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
 
 function renderCutPackNow(){
@@ -670,14 +654,14 @@ function renderCutPackNow(){
 /* 文書を保存したあと: 3 パック のタブの見積もり(字幕の数など)を出し直す */
 function cpAfterSave(){ if (S.doc && PACK) PACK.changed(); }
 
-/* 選んだ行をまとめてカット/残す(1行ずつは、行の右の「残す/カット済」。同じ印を変える入口は、この2つだけ) */
+/* 選んだ行をまとめてカット済に/残す(1行ずつは、行の右の「残す / カット」。同じ印を変える入口は、この2つだけ) */
 function bulkCut(cut){
   if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
   if (lockJob()) return toast('処理中のため、今は変更できません');
   if (CUT && CUT.active()){
     const idx = S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0);
     CUT.rowsCut(idx, cut);
-    return toast(`${idx.length}行を${cut ? '削る区間に' : '残す区間に'}しました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);
+    return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉(S8)
   }
   pushUndo(); let n = 0;
   for (const g of S.doc.segments) if (S.sel.has(g.id)){ if (cut) g.cutState = 'cut'; else delete g.cutState; n++; }
@@ -688,11 +672,10 @@ function bulkCut(cut){
 
 function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyHintOn').checked = on; }
 
-/* ---------- 確認のダイアログ(はい/やめる) ---------- */
-
+/* ---------- 確認のダイアログ(はい/やめる) ----------
+   ui-kit の UIKit.dialog.confirm(画面ごとに作った #dlgConfirm・#dlgOverwrite はやめた。UI の見直し M3。仮決め (az))。本文の改行は残す(index.html の .ui-dlg-body) */
 function confirmDlg(title, text, okLabel){
-  $('#cfT').textContent = title; $('#cfText').textContent = text || ''; $('#cfOk').textContent = okLabel || 'はい';
-  return askDialog($('#dlgConfirm'), $('#cfOk'), $('#cfCancel'));
+  return UIKit.dialog.confirm({ title, body: text || '', ok: okLabel || 'はい', cancel: 'やめる' });
 }
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
@@ -700,8 +683,9 @@ function confirmDlg(title, text, okLabel){
 /* 行の「残す/カット済」の見た目(行の印と右のボタン) */
 function paintCut(row, cut){
   row.classList.toggle('cut', cut);
-  const b = row.querySelector('[data-act=cut]');
-  if (b){ b.setAttribute('aria-pressed', cut ? 'true' : 'false'); b.textContent = cut ? 'カット済' : '残す'; }
+  const k = row.querySelector('.tt-kc [data-act=keep]'), b = row.querySelector('.tt-kc [data-act=cut]');   // 2 択の今の側(M1)
+  if (k) k.setAttribute('aria-pressed', cut ? 'false' : 'true');
+  if (b) b.setAttribute('aria-pressed', cut ? 'true' : 'false');
 }
 
 /* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */

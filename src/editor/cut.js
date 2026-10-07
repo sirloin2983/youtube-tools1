@@ -229,6 +229,7 @@ function create(h){
     const el = $('#cutSaveSt');
     const [t, k] = M.conflict ? ['カットが競合しています', 'err'] : M.saving ? ['カットを保存中…', 'busy'] : M.dirty ? ['未保存…', ''] : M.rev ? ['カットを保存しました', 'ok'] : ['', ''];
     el.textContent = t; el.setAttribute('data-state', k);
+    if (h.onCutSave) h.onCutSave(M.conflict ? 'カット: 競合しています' : M.saving ? 'カット: 保存中…' : M.dirty ? 'カット: 未保存…' : M.rev ? 'カット: 保存しました' : '', k);   // ヘッダーの保存の状態へ(S4)
     h.onCutState();
   }
 
@@ -288,6 +289,11 @@ function create(h){
       h.toast(label + 'のたたき台を計算しています…', 3000);
       const res = await h.c2rWait(j.job);
       if (h.S.docId !== M.docId) return;
+      const ks = res.keepsSec || [];
+      if (kind === 'silence' && ks.length <= 1 && (!ks.length || (ks[0][0] <= 0.05 && ks[0][1] >= (M.dur || 0) - 0.05))){   // 切れる所が無い: 今のカットは置き換えない(UI の見直し S11)
+        h.toast('無音が見つかりませんでした。「無音とみなす音量」を上げる(-30 など)と見つかることがあります。今のカットはそのままです', 8000);
+        return;
+      }
       for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
       noteDraft(kind, res.keepsSec || [], kind === 'silence' ? spec.silence : kind === 'list' ? { lines: spec.listText.split(/\r?\n/).filter(x => x.trim()).length } : {});
       applyKeeps(res.keepsSec || [], kind, label);
@@ -476,11 +482,7 @@ function create(h){
   function renderKeysText(){
     const io = $('#cutIOLabel');   // 「I〜O を削る」のボタンの文字も、始まり/終わりの印のキーから(段3 3-3。外していれば「印の間を削る」)
     if (io) io.textContent = pk('markIn') && pk('markOut') ? pk('markIn') + '〜' + pk('markOut') + ' を削る' : '印の間を削る';
-    const el = $('#cutKeysText'); if (!el) return;
-    const two = (a, b) => [pk(a), pk(b)].filter(Boolean).join(' ');
-    el.textContent = 'キー: ' + [[pk('playPause'), '再生・停止'], [[pk('back1'), pk('stop'), pk('play')].filter(Boolean).join(' '), '(戻る・止める・再生)'], [two('seekBack', 'seekFwd'), '1秒(Shift で5秒)'],
-      ['S', '分割'], ['Del', '削る/戻す'], [two('markIn', 'markOut'), '始まり・終わり'], ['X', '始まり〜終わりを削る'], [two('frameBack', 'frameFwd'), '1コマ(端を選んでいれば、その端を。Shift で10コマ)'],
-      ['Ctrl+Z / Ctrl+Shift+Z', ''], ['+ −', 'ズーム(ホイール・Shift+ホイールで移動)'], ['?', '一覧・キーを変える']].filter(x => x[0]).map(x => x[0] + (x[1] && x[1][0] !== '(' ? ' ' : '') + x[1]).join(' ・ ');
+    /* タイムラインの下の長いキーの説明の行はやめた(帯・? の一覧と同じ中身を三度出していた。UI の見直し S17)。下の行は「すべてのキー: ?」だけ(index.html) */
   }
   window.addEventListener('ytt-keys-changed', () => { renderKeysText(); cutKeybarScene(); });
   function tickStep(){
@@ -685,8 +687,9 @@ function create(h){
     }
     const snapTo = M.snap ? '吸い付く先: 字幕の行の端・無音の境目・再生位置・隣の区間の端(Alt を押している間は吸い付かない)' : '吸着: 切';
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
-      (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作った下書き' : '動画全体の下書き'}。手で直すと保存します)</span>`
-        : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '');
+      (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作ったたたき台' : '動画全体のたたき台'}。手で直すと保存します)</span>`
+        : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '') +
+      (n > 0 && h.toPack ? '<button type="button" class="btn small ui-next-btn tt-cut-next" data-act="topack" title="カットを決めたら、3 パック のタブで Resolve へ渡すパックを作ります(Alt+3)">3 パックへ</button>' : '');   // 次の一手(M6)
   }
   function renderTools(){
     const ok = editable(), c2r = !!h.c2rBase(), busy = M.draftBusy;
@@ -697,6 +700,7 @@ function create(h){
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
     const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('作業用フォルダの ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
     $('#cutIO').disabled = !ok || M.io.i === null || M.io.o === null || M.io.i === M.io.o;
+    $('#cutIO').title = !$('#cutIO').disabled ? '始まりの印から終わりの印までを削ります(H)' : !ok ? '今はカットを変えられません' : `${pk('markIn') || 'I'}(始まり)と ${pk('markOut') || 'O'}(終わり)の印を付けると押せます`;   // 押せない理由(S16)
     $('#cutSnap').checked = M.snap;
     $('#cutModeSrc').setAttribute('aria-pressed', M.mode === 'src' ? 'true' : 'false'); $('#cutModeCut').setAttribute('aria-pressed', M.mode === 'cut' ? 'true' : 'false');
     $('#cutModePill').textContent = M.mode === 'cut' ? 'カット後の見え方' : '元の動画';
@@ -720,7 +724,7 @@ function create(h){
     const ok = editable();
     box.innerHTML = rows.map(([g, i]) => { const c = !!M.rowFlags[i];
       return `<div class="tt-csub${c ? ' cut' : ''}" data-i="${i}" role="listitem"><button type="button" class="tt-csub-go" data-act="go" title="この行の頭へ"><span class="mono">${h.fmtCs(g.start)}</span><span class="tx">${esc(g.text)}</span></button>` +
-        `<button type="button" class="btn small tt-csub-cut" data-act="cutrow" aria-pressed="${c ? 'true' : 'false'}"${ok ? '' : ' disabled'} title="${c ? 'この行の時間はカット済(削る区間)です。押すと残します' : 'この行の時間を残しています。押すとカットします(削る区間にする)'}">${c ? 'カット済' : '残す'}</button></div>`; }).join('');
+        h.keepCutHTML(c, ['keeprow', 'cutrow'], ok ? '' : ' disabled') + '</div>'; }).join('');   // 「残す / カット」の 2 択(1 文字起こし の行と同じ部品。M1)
     capIdx = -2; if (ready()) showCaption(V().currentTime || 0);
   }
 
@@ -774,7 +778,7 @@ function create(h){
   }
   function delOrRestore(){
     if (!M.sel) return h.toast('区間を押して選んでから(削る区間を選ぶと、戻せます)', 3000);
-    if (M.sel.kind === 'row') return h.toast('行の削除は 1 文字起こし のタブで。この行の時間をカットするなら、右の一覧のその行の「残す」を押して「カット済」に', 4000);
+    if (M.sel.kind === 'row') return h.toast('行の削除は 1 文字起こし のタブで。この行の時間をカットするなら、右の一覧のその行の「カット」を押してください', 4000);
     if (M.sel.kind === 'clip'){ const i = M.sel.i; change(cs => { cs.splice(i, 1); return cs; }); M.sel = null; render(); }
     else { const { a, b } = M.sel; change(cs => addRange(cs, a, b)); M.sel = null; render(); }
   }
@@ -1018,7 +1022,7 @@ function create(h){
     window.addEventListener('pointermove', e => { if (M.drag) moveDrag(e); else if (M.rdrag) moveRowDrag(e); });
     window.addEventListener('pointerup', () => { if (M.drag) endDrag(); else if (M.rdrag) endRowDrag(); });
     window.addEventListener('pointercancel', () => { if (M.drag) endDrag(true); else if (M.rdrag) endRowDrag(true); });
-    $('#cutStatus').addEventListener('click', e => { if (e.target.closest('[data-act=rowsplit]')) splitRow(); });
+    $('#cutStatus').addEventListener('click', e => { if (e.target.closest('[data-act=rowsplit]')) splitRow(); else if (e.target.closest('[data-act=topack]') && h.toPack) h.toPack(); });
     $('#cutSplitCancel').addEventListener('click', () => { M.splitPending = null; $('#cutSplitDlg').close(''); });
     $('#cutSplitDlg').addEventListener('close', () => { if ($('#cutSplitDlg').returnValue !== 'ok') M.splitPending = null; });   // Esc で閉じた
     $('#cutSplitDlg form').addEventListener('submit', e => { e.preventDefault(); commitSplit(); });   // 「分ける」ボタン
@@ -1028,7 +1032,7 @@ function create(h){
       if (b.dataset.act === 'totx'){ if (h.toTx) h.toTx(); return; }   // 字幕の無い文書: 1 文字起こし のタブの「文字起こしする」へ(段7 E-14)
       const i = Number(b.closest('.tt-csub').dataset.i), g = h.S.doc && h.S.doc.segments[i]; if (!g) return;
       if (b.dataset.act === 'go') seekTo(g.start + 0.0005);
-      else if (b.dataset.act === 'cutrow') rowsCut([i], !M.rowFlags[i]);
+      else if (b.dataset.act === 'cutrow' || b.dataset.act === 'keeprow'){ const want = b.dataset.act === 'cutrow'; if (!!M.rowFlags[i] !== want) rowsCut([i], want); }   // 押した側の状態に(M1)
     });
     $('#cutPlay').addEventListener('click', togglePlay);
     $('#cutSplit').addEventListener('click', split);
@@ -1054,7 +1058,7 @@ function create(h){
     $('#cutDraftPlan').addEventListener('click', () => draftC2R('plan'));
     document.querySelectorAll('#tabCut details.pop > summary').forEach(s => { s.dataset.title = s.title; s.addEventListener('click', e => { if (s.classList.contains('disabled')){ e.preventDefault(); h.toast(s.title || '今は使えません', 3000); } }); });
     $('#cutReload').addEventListener('click', reloadFromServer);
-    $('#cutForce').addEventListener('click', () => { if (M.conflict) save(true); });
+    $('#cutForce').addEventListener('click', e => { if (!M.conflict) return; if (window.UIKit && UIKit.confirmTwice) UIKit.confirmTwice(e.currentTarget, () => { if (M.conflict) save(true); }); else save(true); });   // 保存済みのカットを上書きする(戻せない)= 二度押し(1 文字起こし の #cfForce と同じ。M4)
     const v = V();
     v.addEventListener('play', startLoop);
     v.addEventListener('seeked', () => { M.seekingOut = false; moveHead(); });
@@ -1126,7 +1130,7 @@ function create(h){
       case 'q': case 'Q': return run(() => pickEdge('in'));
       case 'w': case 'W': return run(() => pickEdge('out'));
       case 'Delete': case 'Backspace': return run(delOrRestore);
-      case 'x': case 'X': return run(cutIO);
+      case 'h': case 'H': return run(cutIO);   // 始まりの印〜終わりの印を削る(外す)。以前の X は 1 文字起こし の「聞き取れない」と重なっていた(M2。仮決め (ay))
       case '+': case '=': return run(() => zoom(1.5));
       case '-': return run(() => zoom(1 / 1.5));
       case 'Escape': if (M.sel || M.io.i !== null || M.io.o !== null){ run(() => { M.sel = null; M.io = { i: null, o: null }; render(); }); } return;

@@ -422,11 +422,28 @@ $('#strip').addEventListener('click', e => {
 $('#btnProofAll').addEventListener('click', () => {
   if (!S.doc) return;
   const all = S.doc.segments.length && S.doc.segments.every(s => s.proofed);
-  pushUndo();
+  pushUndo(); const before = unproofedCount();
   for (const s of S.doc.segments){ if (all) delete s.proofed; else if (s.text.trim()) s.proofed = true; }
   renderDoc(); markDirty();
+  if (!all && before > 0 && unproofedCount() === 0)   // 全部済んだ: 1 行ずつの経路と同じ次の一手 [2 カットへ](M7)。元に戻すは Ctrl+Z・「元に戻す」のボタンで
+    return UIKit.toast('全行を校正済みにしました(戻すときは Ctrl+Z)。次はカットを決めます', { kind: 'ok', ms: 8000, action: { label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) } });
   UIKit.toast(all ? '校正済みを全て解除しました' : '全行を校正済みにしました', { kind: 'ok', ms: 8000, action: { label: '元に戻す', fn: () => doUndo('tx') } });   // この知らせの「元に戻す」は文字起こしの側だけ(あとでカットを変えていても、カットは戻さない)
 });
+/* 「まとめて」のポップオーバー(UI の見直し S1): 映像の列(.tx-stage)は overflow:auto なので、中に開くと下・右が切れていた。
+   開いている間は画面に固定して置く(下に入らなければ上に開き、それでも入らなければ高さを抑えて中を回す) */
+function placeMoreTools(){
+  const d = $('#moreTools'), p = d && d.querySelector('.vpop'); if (!p) return;
+  if (!d.open){ p.classList.remove('tt-vpop-fixed'); p.style.top = p.style.left = p.style.right = p.style.bottom = p.style.maxHeight = ''; return; }
+  const r = d.querySelector('summary').getBoundingClientRect(), vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight, m = 8;
+  p.classList.add('tt-vpop-fixed'); p.style.right = p.style.bottom = 'auto'; p.style.maxHeight = '';
+  const w = p.offsetWidth, ph = p.offsetHeight;
+  let top = r.bottom + 6; if (top + ph > vh - m && r.top - 6 - ph >= m) top = r.top - 6 - ph;
+  p.style.top = Math.round(top) + 'px'; p.style.left = Math.round(Math.max(m, Math.min(r.left, vw - w - m))) + 'px';
+  p.style.maxHeight = Math.max(120, vh - top - m) + 'px';
+}
+$('#moreTools').addEventListener('toggle', placeMoreTools);
+for (const t of [window, document.querySelector('.tx-stage')]) if (t) t.addEventListener(t === window ? 'resize' : 'scroll', () => { if ($('#moreTools').open) placeMoreTools(); }, { passive: true });
+window.addEventListener('scroll', () => { if ($('#moreTools').open) placeMoreTools(); }, { passive: true });
 $('#btnProofSel').addEventListener('click', () => {
   if (!S.doc || !S.sel.size) return;
   pushUndo(); let n = 0; const before = unproofedCount();
@@ -587,13 +604,15 @@ $('#segs').addEventListener('click', e => {
   const row = b.closest('.seg'), i = Number(row.dataset.i), segs = S.doc.segments, s = segs[i]; if (!s) return;
   if (S.navIdx !== i){ setNav(i); savePos(); }   // 押したボタンの行を「今の行」にする(mousedown ではフォーカスを移さないため、ここで)
   switch (b.dataset.act){
-    case 'cut':
-      if (CUT && CUT.active()){ CUT.rowsCut([i], s.cutState !== 'cut'); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
+    case 'keep': case 'cut': {   // 2 択の「残す」「カット」(M1): 押した側の状態にする(今と同じなら何もしない)
+      const want = b.dataset.act === 'cut'; if ((s.cutState === 'cut') === want) break;
+      if (CUT && CUT.active()){ CUT.rowsCut([i], want); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
       pushUndo();
-      if (s.cutState === 'cut') delete s.cutState; else s.cutState = 'cut';
+      if (want) s.cutState = 'cut'; else delete s.cutState;
       paintCut(row, s.cutState === 'cut');
       markDirty(); renderCutPack();
       break;
+    }
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
     case 'setnow': setTimeNow(s, b.dataset.f); break;
@@ -764,7 +783,7 @@ const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: '
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
   Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
 /* 2 カット のタブのキー(cut.js の onKey。変えられない)。一覧はこの表から作る(以前は index.html と cut.js に二重に書いていた。S-30) */
-const CUT_KEY_ROWS = [['[ / ]', '前/次の区間を選ぶ'], ['Q / W', '選んだ区間の始まり/終わりの端を選ぶ'], ['S', '分割'], ['Del', '削る/戻す'], ['X', '始まりの印〜終わりの印を削る'],
+const CUT_KEY_ROWS = [['[ / ]', '前/次の区間を選ぶ'], ['Q / W', '選んだ区間の始まり/終わりの端を選ぶ'], ['S', '分割'], ['Del', '削る/戻す'], ['H', '始まりの印〜終わりの印を削る(外す)'],
   ['Shift+, / Shift+.', '選んだ端を10コマ(1コマは共通の再生キー)'], ['+ / −', '拡大・縮小'], ['Home / End', '先頭・末尾へ'], ['Esc', '選択を外す'], ['Ctrl+Z / Ctrl+Shift+Z', '元に戻す・やり直す']];
 const keyText = k => window.UIKit && UIKit.keys && UIKit.keys.keyText ? UIKit.keys.keyText(k) : (k || '未設定');
 /* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と ⚙ 設定の「キー配置」は同じ部品。重なりの検査(固定・共通の再生キー・
@@ -1217,6 +1236,7 @@ $('#jobs').addEventListener('click', async e => {
   if (b.dataset.act === 'open') openDoc(b.dataset.tid);
   else if (b.dataset.act === 'evalview'){ showInMenu($('#accCard')); loadEvals(); }   // 「精度」タブに切り替えてから見せる(別のタブのままだと隠れていて何も起きなかった)
   else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
+  else if (b.dataset.act === 'retry') retryJob(b.closest('.job').dataset.id);   // 失敗した文字起こしをもう一度(M9)
 });
 $('#txList').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -1224,6 +1244,12 @@ $('#txList').addEventListener('click', e => {
     const k = b.dataset.g; txLimit[k] = (txLimit[k] || (k === 'all' ? FLAT_FIRST : GROUP_FIRST)) + MORE_STEP;
     const rows = b.closest('.tt-g-rows'); if (rows) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []);
     return;
+  }
+  if (b.dataset.act === 'gostart'){ setSideTab('start'); const p = $('#srcPath'); if (p) p.focus(); return; }   // 履歴が 0 件: 新規へ(M8)
+  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 検索の文字と状態・種類の絞り込みを消す(M8)
+    $('#txSearch').value = ''; L.state = 'all'; L.kind = 'all'; $('#txState').value = 'all'; $('#txFilter').value = 'all'; saveListPrefs();
+    for (const k of Object.keys(txLimit)) delete txLimit[k];
+    renderList(); $('#txSearch').focus(); return;
   }
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
@@ -1298,11 +1324,11 @@ if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.s
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => setEditTab('pack', { focus: true }), onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, confirmOverwrite, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
+  c2rApi, c2rWait, c2rBase, cpExport, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){

@@ -71,7 +71,7 @@ def ytcap_doc_range(doc):
         raise ed_state.ApiError("no_clip", "元の配信が分からない文書です(スタジオで書き出した切り抜きだけ、YouTube の字幕と比べられます)", 400)
     c, why = _yschemas.validate_clip(clip)
     if c is None:
-        raise ed_state.ApiError("no_clip", "元の配信の情報(.clip.json)が読めません: %s" % why, 400)
+        raise ed_state.ApiError("no_clip", "元の配信の情報が読めません。スタジオで書き出し直すと直ります", 400, {"detail": ".clip.json: %s" % why})   # 内部の名前は detail(S12)
     src = c.get("source") if isinstance(c.get("source"), dict) else {}
     if src.get("kind") != "youtube":
         raise ed_state.ApiError("no_clip", "元の動画が YouTube の配信ではありません(手元のファイル・リアルタイム切り抜きは、YouTube の字幕と時刻が合いません)", 400)

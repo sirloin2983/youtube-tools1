@@ -28,6 +28,8 @@ MAX_MARK_SEC = 3600
 MAX_REQUEST_RANGES = 10  # 友人の依頼で1本の配信に指定できる区間の数(request_marks)
 MAX_TIME = 1e7          # 秒。これを超える値は不正(巨大な数値対策)
 PART_KEYS = ("audio", "chat", "comments")
+# 作業データが壊れていたときの戻し方(画面の帯に出す。退避したファイルの名前・フォルダは画面の「詳しく」に出す。見直し M8)
+RESTORE_STEPS = "前のデータは退避してあります。戻すには: ホームで「すべて終了」→ 退避したファイルの名前を元に戻す(下の「詳しく」)→ start.bat で起動し直す"
 STATUS_CLIENT = ("", "adopted", "rejected")   # クライアントが設定できる状態(exported はサーバーだけ)
 SERIES_KEEP = 60
 DUP_TOL = 0.5           # 自動マークが既存マークとこれ以内のずれなら「同じ区間」
@@ -296,7 +298,7 @@ def offset_from_anchors(points):
     else:
         (t1, r1), (t2, r2) = pts
         if abs(t2 - t1) < MIN_ANCHOR_GAP:
-            raise BadMark("2つのアンカー点は、この動画の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))
+            raise BadMark("2つのアンカー点は、この配信の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))
         a = (r2 - r1) / (t2 - t1)
         b = r1 - a * t1
     if not (math.isfinite(a) and math.isfinite(b)):
@@ -461,8 +463,9 @@ class Store:
         except FileNotFoundError:
             return
         except OSError as e:
-            self.warning = "data.json を読み込めませんでした(%s)。空の状態で起動しました。" % (e.strerror or e)
-            _warn(self.warning)
+            # 画面に出す文は「何が起きたか + どうすればいいか」。原因・ファイル名はログへ(見直し M8)
+            self.warning = "作業データ(マークの記録)を読み込めなかったので、空の状態で起動しました。ほかのソフトがファイルを開いていると起きます。ホームで「すべて終了」を押してから start.bat で起動し直してください"
+            _warn("data.json を読み込めませんでした(%s)。空の状態で起動しました" % (e.strerror or e))
             return
         try:
             d = json.loads(raw.decode("utf-8"))
@@ -471,21 +474,22 @@ class Store:
         except (ValueError, UnicodeDecodeError) as e:
             name = self._quarantine()
             self.corrupt_backup = name
-            self.warning = "data.json が壊れていたため、%s に退避して空の状態で起動しました(data.json.bak に1つ前の内容が残っている場合があります)。" % (name or "(退避に失敗)")
-            _warn(self.warning + " 原因: %s" % str(e)[:100])
+            self.warning = ("作業データ(マークの記録)が壊れていたので、空の状態で起動しました。" + (RESTORE_STEPS if name else "壊れたファイルを退避できませんでした。マークを付ける前に、ホームで「すべて終了」を押してから start.bat で起動し直してください"))
+            _warn("data.json が壊れていたため %s に退避して空の状態で起動しました。原因: %s" % (name or "(退避に失敗)", str(e)[:100]))
             return
-        skipped = _load_each(d["videos"], self.videos, self._load_video, "動画の記録")
+        skipped = _load_each(d["videos"], self.videos, self._load_video, "配信の記録")
         groups_raw = d.get("groups")
-        gskipped = _load_each(groups_raw, self.groups, self._load_group, "コラボグループの記録") if isinstance(groups_raw, dict) else 0
+        gskipped = _load_each(groups_raw, self.groups, self._load_group, "コラボの記録") if isinstance(groups_raw, dict) else 0
         if skipped or gskipped:
             name = self._quarantine(copy_only=True)
             self.corrupt_backup = name
             parts = []
             if skipped:
-                parts.append("動画の記録%d件" % skipped)
+                parts.append("配信の記録 %d 件" % skipped)
             if gskipped:
-                parts.append("コラボグループの記録%d件" % gskipped)
-            self.warning = "data.json の壊れた%sを読み飛ばしました。元のファイルは %s に残してあります。" % ("・".join(parts), name or "(退避に失敗)")
+                parts.append("コラボの記録 %d 件" % gskipped)
+            self.warning = "作業データ(マークの記録)の一部(%s)が壊れていたので、読み飛ばしました。" % "・".join(parts) + (RESTORE_STEPS if name else "")
+            _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
     @staticmethod
     def _load_video(vid, v):
@@ -570,7 +574,7 @@ class Store:
         """登録済みの動画(内部の形)。無ければ ApiError 404。self.lock を取っていること"""
         v = self.videos.get(str(vid or ""))
         if not v:
-            raise ApiError("not_found", "動画が見つかりません", 404)
+            raise ApiError("not_found", "配信が見つかりません", 404)
         return v
 
     # ---- 表現 ----
@@ -635,7 +639,7 @@ class Store:
         with self.lock:
             v = self.videos.get(vid)
             if v is not None and v["kind"] != src["kind"]:
-                raise ApiError("conflict", "同じIDの別の動画があります", 409)
+                raise ApiError("conflict", "同じ ID の別の配信があります", 409)
             if v is None:
                 nv = {"id": vid, "kind": src["kind"], "title": "", "channel": "", "duration": dur, "fileName": "", "path": "", "marks": [], "analysis": None, "rev": 1,
                       "createdAt": now_ms(), "updatedAt": now_ms()}
@@ -788,7 +792,7 @@ class Store:
                 if dur:
                     e = min(e, dur)
                     if e <= s:
-                        raise ApiError("bad_request", "区間が動画の長さの外です(%s 秒から)" % s, 400)
+                        raise ApiError("bad_request", "区間が配信の長さの外です(%s 秒から)" % s, 400)
                 m = next((x for x in nv["marks"] if _same(x, {"start": s, "end": e})), None)
                 if m is None:
                     if len(nv["marks"]) >= MAX_MARKS:
@@ -925,7 +929,7 @@ class Store:
         if not g:
             raise ApiError("not_found", "グループが見つかりません", 404)
         if vid is not None and vid not in g["members"]:
-            raise ApiError("not_found", "そのグループにその動画はありません", 404)
+            raise ApiError("not_found", "そのグループにその配信はありません", 404)
         return g
 
     def _check_free(self, ids):
@@ -933,14 +937,14 @@ class Store:
         for vid in ids:
             v = self.videos.get(vid)
             if not v:
-                raise ApiError("not_found", "動画が見つかりません(%s)" % vid, 404)
+                raise ApiError("not_found", "配信が見つかりません(%s)" % vid, 404)
             if self._video_group(vid):
                 raise ApiError("conflict", "「%s」はすでに別のコラボグループに入っています" % (v["title"] or vid), 409)
 
     @staticmethod
     def _clean_ids(video_ids):
         if not isinstance(video_ids, list):
-            raise ApiError("bad_request", "動画を指定してください", 400)
+            raise ApiError("bad_request", "配信を指定してください", 400)
         out, seen = [], set()
         for x in video_ids:
             x = str(x or "") if not isinstance(x, bool) else ""
@@ -957,7 +961,7 @@ class Store:
             raise ApiError("bad_request", "1つのグループにまとめられるのは%d本までです" % MAX_GROUP_MEMBERS, 400)
         base = str(base or "") or ids[0]
         if base not in ids:
-            raise ApiError("bad_request", "基準の動画は選んだ動画の中から指定してください", 400)
+            raise ApiError("bad_request", "基準の配信は、選んだ配信の中から指定してください", 400)
         with self.lock:
             if len(self.groups) >= MAX_GROUPS:
                 raise ApiError("too_many", "グループは%d件までです" % MAX_GROUPS, 400)
@@ -975,7 +979,7 @@ class Store:
             g = self._need_group(gid)
             new = [v for v in ids if v not in g["members"]]
             if not new:
-                raise ApiError("bad_request", "追加する動画がありません", 400)
+                raise ApiError("bad_request", "追加する配信がありません", 400)
             if len(g["members"]) + len(new) > MAX_GROUP_MEMBERS:
                 raise ApiError("bad_request", "1つのグループにまとめられるのは%d本までです" % MAX_GROUP_MEMBERS, 400)
             self._check_free(new)
@@ -1013,7 +1017,7 @@ class Store:
             vid = str(vid or "")
             g = self._need_group(gid, vid)
             if vid == g["base"]:
-                raise ApiError("bad_request", "基準の動画にはズレの指定は不要です", 400)
+                raise ApiError("bad_request", "基準の配信にはズレの指定は不要です", 400)
             try:
                 piece = offset_from_anchors(points)
             except BadMark as e:

@@ -393,7 +393,7 @@ def run_normalize(job):
         _norm_note(job, ok, note)
         job["progress"], job["state"], job["phase"] = 1.0, "done", "完了" if ok else "元の動画のまま"
     except Exception as e:
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+        ed_jobs.set_internal_error(job, e)
 
 # ---------- まとめて付け替える・「参照…」(2026-10-01。ユーザー決定: 参照の窓 + 履歴からまとめて) ----------
 # 付け替えそのものは1件ずつ /api/relink(控え・長さの確認・競合の確認を同じにするため)。ここは候補を集めるだけで、書き込まない。

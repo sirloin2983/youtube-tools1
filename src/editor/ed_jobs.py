@@ -76,6 +76,15 @@ class Cancelled(Exception):
     pass
 
 
+INTERNAL_MSG = "処理が途中で止まりました"   # 想定外の失敗の決まった文(例外の名前・原文は errorDetail へ。画面は「詳しく」に畳む。UI の見直し M9)
+
+
+def set_internal_error(job, e):
+    """想定外の失敗を job に入れる: 本文は決まった文、原文(例外の名前と文)は errorDetail(画面に直接出さない)。"""
+    job["state"], job["error"], job["phase"] = "error", INTERNAL_MSG, "失敗"
+    job["errorDetail"], job["internal"] = "%s: %s" % (e.__class__.__name__, str(e)[:200]), True
+
+
 @contextlib.contextmanager
 def job_errors(job, wav=None, cancelled="中止しました", log=None):
     """ジョブの本体の失敗を job の状態にする(取り消し = cancelled・ApiError = その理由・想定外 = 内部エラー。ワーカーは止めない)。
@@ -86,10 +95,12 @@ def job_errors(job, wav=None, cancelled="中止しました", log=None):
         job["state"], job["phase"] = "cancelled", cancelled
     except ed_state.ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+        if e.extra.get("detail"):
+            job["errorDetail"] = str(e.extra["detail"])[:300]   # 内部の名前・原文は「詳しく」の中だけ(UI の見直し S12)
     except Exception as e:
         if log:
             ed_state.log.exception(log)
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+        set_internal_error(job, e)
     finally:
         if wav:
             ed_state.unlink_quiet(wav)
@@ -189,7 +200,8 @@ class WorkerClient:
         if self.closed:
             raise ed_state.ApiError("stopping", "終了処理中のため、文字起こしを始められません", 503)
         if not os.path.isfile(WORKER_SCRIPT):
-            raise ed_state.ApiError("missing_module", "tx_worker.py が見つかりません。ツールのフォルダの中身をまとめて更新してください", 500)
+            raise ed_state.ApiError("missing_module", "文字起こしの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
+                                    {"detail": "tx_worker.py が見つかりません: %s" % WORKER_SCRIPT})
         try:
             if os.path.exists(WORKER_LOG) and os.path.getsize(WORKER_LOG) > WORKER_LOG_MAX:
                 ed_state.replace_retry(WORKER_LOG, WORKER_LOG + ".old")
@@ -604,6 +616,25 @@ EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo", "voice-learn"), "voi
              "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",), "alt": ("alt",), "ytcap": ("ytcap",)}   # 同じ文字起こしに同時に入れない組み合わせ
 
 
+RETRY_KINDS = ("transcribe",)   # [やり直す] で同じ指定のまま入れ直せる処理(文書を書き換える処理は、文書の画面のボタンから始め直す)
+
+
+def retry_job(jid):
+    """失敗した処理を、同じ指定でもう一度待機列に入れる(画面の [やり直す]。UI の見直し M9)-> 新しい job"""
+    with _jobs_lock:
+        j = _jobs.get(str(jid or ""))
+        if not j:
+            raise ed_state.ApiError("not_found", "その処理は見つかりません。画面を読み込み直してください", 404)
+        if j["state"] != "error" or j["kind"] not in RETRY_KINDS:
+            raise ed_state.ApiError("bad_state", "やり直せるのは、失敗した文字起こしだけです", 409)
+        kind, spec = j["kind"], j["spec"]
+        try:
+            spec = json.loads(json.dumps(spec, ensure_ascii=False))   # 前の job と指定を共有しない
+        except (TypeError, ValueError):
+            spec = dict(spec)
+    return add_job(spec, kind)
+
+
 def add_job(spec, kind="transcribe"):
     with _jobs_lock:
         waiting = sum(1 for j in _jobs.values() if j["state"] in ACTIVE_STATES)
@@ -631,6 +662,9 @@ def add_job(spec, kind="transcribe"):
 
 def public_job(j):
     out = {k: j[k] for k in ("id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt")}
+    out["errorDetail"] = j.get("errorDetail") or ""   # 失敗の原文・内部の名前(画面は「詳しく」の中だけ。M9・S12)
+    out["internal"] = bool(j.get("internal"))   # 想定外の失敗(画面は「途中で止まりました」の決まった文)
+    out["canRetry"] = j["state"] == "error" and j["kind"] in RETRY_KINDS   # 画面の [やり直す](同じ指定でもう一度)
     sp = j.get("spec") or {}
     out["warnings"] = list(sp.get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
     out["hasClip"] = bool(sp.get("clip"))
@@ -2099,7 +2133,7 @@ def work_one(jid):
     except Exception as e:   # 想定外でもワーカーを止めない(止まると、以後のジョブが動かないまま待機列に残る)
         ed_state.log.exception("ワーカーで例外")
         if job:
-            job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+            set_internal_error(job, e)
     finally:
         _model_used[0] = time.time()   # 手放すまでの時間は、ジョブが終わった時から数える
         ed_state.write_mark(None)

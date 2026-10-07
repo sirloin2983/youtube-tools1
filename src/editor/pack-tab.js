@@ -199,6 +199,8 @@ function create(h){
 
   /* ---------- 描画 ---------- */
   let rq = 0;
+  const TEXTPLUS_ABBR = '<abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr>';
+  const CODEC_HOW = '変換するには: スタジオで書き出し直す(H.264 の mp4 になります)か、ffmpeg で「ffmpeg -i 元の動画 -c:v libx264 -crf 18 -c:a aac 出力.mp4」';
   function render(){ if (!rq) rq = requestAnimationFrame(() => { rq = 0; renderNow(); }); }
   function renderNow(){
     const d = h.S.doc; if (!d) return;
@@ -223,7 +225,7 @@ function create(h){
     $('#pkSrcLen').textContent = sm ? h.fmtCs(sm.durSec) : '–';
     $('#pkCount').textContent = sm ? String(sm.count) : '–';
     $('#pkCaps').textContent = !hasRows ? '0' : fresh ? String(pv.captions) : '…';
-    $('#pkCapsL').textContent = hasRows ? 'Text+ 字幕' : 'Text+ 字幕(文字起こしが無い)';
+    $('#pkCapsL').innerHTML = TEXTPLUS_ABBR + (hasRows ? ' 字幕' : ' 字幕(文字起こしが無い)');   // 最初に出る所に言葉の説明(A-15・S10)
     renderMap(sm);
     // 字幕の見た目の見本(残す行の最初の2行)
     const keptSegs = d.segments.filter(g => kept(g) && !g.noSub).slice(0, 2);   // 字幕に出さない行は見本にも出さない
@@ -263,13 +265,17 @@ function create(h){
     if (pv) warns.push(...(pv.warnings || []));
     if (hasRows && pv && pv.vanished) warns.push(`削る区間に入って消える字幕が ${pv.vanished} 件あります(削った行の字幕は入りません)`);
     const w = $('#pkWarn'); w.hidden = !warns.length; w.classList.toggle('old', !fresh);
-    w.innerHTML = warns.slice(0, 6).map((x, i) => `<li>${!fresh && i === 0 ? '<span class="hint">(前の設定での見積もり)</span> ' : ''}${esc(x)}</li>`).join('');
+    w.innerHTML = warns.slice(0, 6).map((x, i) => `<li${/コーデック|H\.264/.test(x) ? ` title="${esc(CODEC_HOW)}"` : ''}>${!fresh && i === 0 ? '<span class="hint">(前の設定での見積もり)</span> ' : ''}${esc(x)}${/コーデック|H\.264/.test(x) ? ` <span class="hint">${esc(CODEC_HOW)}</span>` : ''}</li>`).join('');   // 形式の注意には変換の手段(S10)
     // 作る(前回のパックと同じ場所なら「作り直す(上書き)」= 上書きの確認を出さない。出力先を変えたら新しく作る。段7 E-15)
     const why = staleWhy(), stale = why.length > 0, diffs = P.pack ? outputDiff(P.pack.output, o) : null, differ = !!(diffs && diffs.length);
     const btn = $('#pkBuild');
     btn.disabled = !!b || P.building;
     btn.title = P.building ? 'パックを作っています' : b ? blockMsg(b) : '';   // 押せない理由(A-34。同じ文は上の帯にも出る)
-    btn.textContent = P.building ? 'パックを作っています…' : P.pack && !$('#pkDir').value.trim() ? 'パックを作り直す(上書き)' : 'パックを作る';
+    /* 前回のパックが今の内容のまま(作り直しが要らない)ときは、次の一歩(Resolve で取り込む = 手順を見る)を主に、作り直しは普通のボタンに(UI の見直し S2) */
+    const packFresh = !!P.pack && !stale && !differ && !$('#pkDir').value.trim() && !P.building;
+    btn.textContent = P.building ? 'パックを作っています…' : packFresh ? '同じ内容で作り直す' : P.pack && !$('#pkDir').value.trim() ? 'パックを作り直す(上書き)' : 'パックを作る';
+    btn.classList.toggle('primary', !packFresh); btn.classList.toggle('lg', !packFresh);
+    $('#pkReadme').classList.toggle('primary', packFresh);
     const bk = $('#pkBackup'); bk.disabled = !hasRows; if (!hasRows) bk.checked = true;
     bk.title = hasRows ? '' : '字幕が無いパックでは、いつも入ります';
     $('#pkBackupHint').textContent = hasRows ? 'スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません'
@@ -325,6 +331,19 @@ function create(h){
     return why;
   }
   const isStale = () => staleWhy().length > 0;
+  /* 別の場所に前のパックがあるとき(M3。ui-kit の 3 択 UIKit.dialog.choose。以前は画面ごとの #dlgOverwrite)-> 'over'(上書き)| 'other'(別の場所)| null(やめる・Esc) */
+  function overwriteChoice(files, dir){
+    const list = files.slice(0, 20).map(f => '・' + f).join('\n') + (files.length > 20 ? `\n・ほか ${files.length - 20}件` : '');
+    return UIKit.dialog.choose({ title: 'パックを作り直しますか?',
+      body: '次のフォルダに、前に作ったパックがあります。作り直すと、中のファイルを上書きします(Resolve に取り込み済みなら、取り込み直してください)。' + (dir ? '\n\n' + dir : '') + (list ? '\n' + list : ''),
+      buttons: [{ label: 'やめる', value: null, kind: 'ghost' }, { label: '別の場所を選ぶ', value: 'other' }, { label: '上書きして作り直す', value: 'over', kind: 'danger' }], cancel: null });
+  }
+  /* 詳しい設定の引き出しを開いて、その欄へ(上書きの確認の「別の場所を選ぶ」) */
+  function openSettingsAt(sel){
+    if (!(window.UIKit && UIKit.drawer)) return;
+    UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: $('#pkBuild') });
+    requestAnimationFrame(() => { const el = $(sel); if (el){ el.focus(); if (el.select) el.select(); } });
+  }
   const sameDir = (a, b) => { const n = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); return !!a && n(a) === n(b); };   // Windows のパス(大文字小文字・区切り)をそろえて比べる
   const KIND = n => /\.(lua|bat|ps1|drb)$|^textplus-import\.json$/i.test(n) ? 'Text+ のスクリプト' : /_roughcut\.mp4$/i.test(n) ? '粗編集の動画' : /\.(edl|srt)$/i.test(n) ? '予備のカット・字幕'
     : /(友人へ|手順)|^cut-plan\.json$/.test(n) ? '手順書・カットの記録' : /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(n) ? '元の動画のコピー' : 'その他';
@@ -383,7 +402,11 @@ function create(h){
           if (e.code === 'exists' && !force){
             const dd = e.data || {};
             /* 前回この文書のパックを作った場所(P.pack.dir)への作り直しは確認を省く(段7 E-15)。ほかの物がある場所だけ、何を上書きするかを見せて聞く */
-            if (!(P.pack && sameDir(dd.dir, P.pack.dir)) && !(await h.confirmOverwrite(dd.files || [], dd.dir || ''))) return;
+            if (!(P.pack && sameDir(dd.dir, P.pack.dir))){
+              const v = await overwriteChoice(dd.files || [], dd.dir || '');
+              if (v === 'other'){ openSettingsAt('#pkDir'); return; }   // 別の場所: 詳しい設定の「出力先」へ
+              if (v !== 'over') return;
+            }
             force = true; continue;
           }
           throw e;

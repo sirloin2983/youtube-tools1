@@ -186,13 +186,13 @@ def main():
             pg.click("[data-ui-settings]")
             pg.wait_for_function("!document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
             pg.click("#evbStart")
-            pg.wait_for_function("document.querySelector('#dlgConfirm').open", timeout=5000)
+            pg.wait_for_function("!!document.querySelector('dialog.ui-dialog[open]')", timeout=5000)   # UIKit.dialog.confirm(UI の見直し M3。以前の #dlgConfirm)
             ok_click = True
             try:
-                pg.click("#cfCancel", timeout=3000)
+                pg.click("dialog.ui-dialog[open] .ui-dlg-actions button:first-child", timeout=3000)
             except Exception:
                 ok_click = False
-            check(ok_click and pg.evaluate("!document.querySelector('#dlgConfirm').open") and not pg.evaluate("document.querySelector('#dlgConfirm').inert"),
+            check(ok_click and pg.evaluate("!document.querySelector('dialog.ui-dialog[open]')"),
                   "⚙ の中から開いた確認のダイアログ(仮置きをまとめて文字起こし)を押せて閉じられる")
             pg.keyboard.press("Escape")
             pg.wait_for_function("document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
@@ -260,10 +260,10 @@ def main():
             pg.click("[data-ui-settings]")
             pg.wait_for_function("!document.querySelector('#uiSettingsDrawer').hidden", timeout=5000)
             pg.click("#evbRedo")
-            pg.wait_for_function("document.querySelector('#dlgConfirm').open", timeout=5000)
-            cf = pg.inner_text("#cfText")
+            pg.wait_for_function("!!document.querySelector('dialog.ui-dialog[open]')", timeout=5000)
+            cf = pg.inner_text("dialog.ui-dialog[open] .ui-dlg-body")
             check("1 本を作り直します" in cf and "手を入れた 2 本は残します" in cf and "履歴から戻せます" in cf, "作り直しの確認に本数が出る: " + cf)
-            pg.click("#cfOk")
+            pg.click("dialog.ui-dialog[open] .ui-dlg-actions button:last-child")
             pg.wait_for_function("document.querySelector('#toast').textContent.includes('作り直しを待ちに入れました: 1 本')", timeout=10000)
             check(True, "確認のあと、作り直しの待ちに入る")
             redone = None

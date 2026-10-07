@@ -691,6 +691,8 @@ h2{margin:0;font-size:15px}
 .clist label:last-child{border-bottom:0}
 .job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
+.job .tt-jerr{color:var(--danger-ink);margin-top:3px}
+.job .tt-jerr-detail{font-size:12px;margin-top:2px;color:var(--ink-3)}.job .tt-jerr-detail summary{cursor:pointer;min-height:24px}.job .tt-jerr-detail .mono{display:block;overflow-wrap:anywhere}   /* 想定外の失敗の原文は畳む(M9) */
 /* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/spec/ui-guidelines.md 4.) ----------
    道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
    1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
@@ -735,6 +737,7 @@ h2{margin:0;font-size:15px}
 .txi-menu .vpop .hint{display:block;overflow-wrap:anywhere;font-size:12px;margin:0 0 8px}
 .txi-menu .vpop .btn{width:100%}
 .list-more{width:100%;margin-top:6px}
+.tt-list-empty{margin:8px 0 0}.tt-list-empty .hint{display:block;margin:0 0 8px}   /* 履歴の空の状態: 2 文 + 次のボタン(M8) */
 /* 狭い画面(指で使う)では、長い題名を2行まで出す(末尾で見分けることが多いため) */
 @media (max-width:719.98px){.txi .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 .setup-banner{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:var(--r);margin:0 0 10px;font-size:13px}
@@ -850,7 +853,6 @@ html.vid-audio video{height:54px;max-height:none}
 .tools2{display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 0 4px;border-top:1px solid var(--line)}
 .tools2 .hint{font-size:12px;font-variant-numeric:tabular-nums}
 .tools2 .hint:empty{display:none}
-#pfStat{color:var(--ink);font-weight:600}
 .terms{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
 .chip{border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r-pill);padding:1px 10px;font-size:12.5px;cursor:pointer;color:var(--ink)}.chip:hover{background:var(--accent-soft);border-color:var(--accent-line)}
 .stripbox{position:relative;height:14px;margin-top:6px;cursor:pointer}
@@ -877,7 +879,7 @@ html.vid-audio video{height:54px;max-height:none}
 .tt-vbox{position:relative}
 html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
 .tt-caption{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:clamp(14px,2.4vw,26px);line-height:1.3;pointer-events:none;white-space:pre-wrap;word-break:break-word;z-index:1}
-#dlgOverwrite{width:min(560px,calc(100% - 32px));padding:0}
+dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-height:min(60vh,520px)}   /* UIKit.dialog の本文の改行を残す(上書きするファイルの一覧・声を覚える人の一覧。M3) */
 /* 動画を選び直す(段2 B-4) */
 #relinkDlg{width:min(620px,calc(100% - 32px));padding:0}
 .tt-rl-old{display:flex;gap:6px;align-items:center}
@@ -902,8 +904,6 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .tt-ra-st.err{color:var(--danger-ink)}
 .tt-ra-st.warn{color:var(--warn-ink)}
 .tt-dev-hint{color:var(--warn-ink);margin:6px 0 0}   /* 処理方式 GPU(whisper.cpp)で使えないモデル */
-.tt-ow-dir{overflow-wrap:anywhere;font-size:12px;color:var(--ink-2);margin:8px 0 4px}
-.tt-ow-files{margin:0;padding-left:18px;font:12px/1.6 var(--mono);color:var(--ink-2);max-height:180px;overflow:auto}
 /* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
 .tt-listhead{margin:0 0 8px}
 .tt-rowbar{margin:0;gap:6px 8px}
@@ -944,6 +944,7 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 .pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-flex}.pop>summary::-webkit-details-marker{display:none}
 .vpop{position:absolute;right:0;top:100%;margin-top:6px;z-index:60;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:12px 14px;width:280px;box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
 .pop.l .vpop{left:0;right:auto}
+.vpop.tt-vpop-fixed{position:fixed;margin-top:0;overflow-y:auto;z-index:70}   /* 「まとめて」: 映像の列の overflow で切れないよう画面に固定(S1。app.js の placeMoreTools) */
 .vpop .fld:first-child{margin-top:0}
 .vpop .fld>label,.vpop .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .vpop .fld>select{width:100%}
@@ -978,11 +979,18 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
 html.fsz .seg textarea{field-sizing:content;height:auto}
 /* 右端の状態の切り替え(残す/カット済・校正済み) */
 .seg .ops{display:flex;gap:4px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;padding-top:1px}
-.seg .ops button{border:1px solid var(--line-strong);background:var(--panel);border-radius:var(--r-pill);min-height:28px;padding:0 10px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink-2);white-space:nowrap;transition:background var(--dur),color var(--dur),border-color var(--dur)}
-.seg .ops button:hover{color:var(--ink);border-color:var(--line-strong)}
-.seg .ops button.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
-.seg .ops button.pf[aria-pressed=true]::before{content:"✓ "}
-.seg .ops button.cut-toggle[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
+/* 0.59.3(UI の見直し M1・S15): 行の「残す / カット」は 2 択の切り替え(.tt-kc。今の状態の側が押された形。2 カット の字幕の一覧も同じ)、「校正済み」は .btn.small + aria-pressed */
+.seg .ops .btn.pf{min-height:28px;padding:0 10px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.seg .ops .btn.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok-ink);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.seg .ops .btn.pf[aria-pressed=true]::before{content:"";width:8px;height:4px;margin:-3px 0 0;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);flex:none}   /* 済みの印(線で描く。文字の ✓ はやめた) */
+.tt-kc{display:inline-flex;flex:none;border:1px solid var(--line-strong);border-radius:var(--r);overflow:hidden;background:var(--panel)}
+.tt-kc>button{border:0;background:transparent;color:var(--ink-2);min-height:28px;padding:0 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background var(--dur),color var(--dur)}
+.tt-kc>button+button{border-left:1px solid var(--line-strong)}
+.tt-kc>button:hover{color:var(--ink);background:var(--panel-2)}
+.tt-kc>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tt-kc>button[aria-pressed=true]{background:var(--panel-3);color:var(--ink)}
+.tt-kc>button[aria-pressed=true]:is([data-act=cut],[data-act=cutrow]){background:var(--danger);color:var(--danger-on)}   /* カット済は赤(行の取り消し線と同じ意味) */
+.tt-kc>button:disabled{opacity:.5;cursor:not-allowed}
 /* 状態の見分け: 再生中(.cur)・今の行(.nav)・一括選択(チェック)・要確認(.flag)・カット済(.cut)・校正済み(.proofed) */
 .seg.proofed{border-right:4px solid var(--ok)}
 .seg.flag{background:var(--tt-flag-soft)}
@@ -1065,7 +1073,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
   #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
   #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
   #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .tt-draft-pill{order:2}
-  #segs .seg .ops button{padding:0 10px;min-height:28px}
+  #segs .seg .ops .btn{padding:0 10px;min-height:28px}
   #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
   #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
 }
@@ -1138,9 +1146,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
 .tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
-.tt-csub .btn.tt-csub-cut{flex:none;font-weight:600}   /* 行の札「残す / カット済」(段7 E-25)。枠つき = 押して切り替えられる(1 文字起こし の行の札と同じ) */
-.tt-csub .btn.tt-csub-cut[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}   /* 「カット済」は 1 文字起こし の行の札と同じ赤(:hover の .btn より強く)。文字は --danger-on(0.59.2。暗いテーマで白は 2.9:1 だった) */
 .tt-csub-empty{margin:8px 4px}
+.tt-csub .tt-kc{margin-left:2px}
 .tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
 .tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
 .tt-cut-tools .tt-grow{flex:1}
@@ -1200,6 +1207,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-tl-mini-h.l{left:-4px}.tt-tl-mini-h.r{right:-4px}
 .tt-cut-status{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline;margin:8px 2px 0;font-size:13px}
 .tt-cut-status b{font-weight:650}
+.tt-cut-status .tt-cut-next{margin-left:auto}   /* 次の一手「3 パックへ」は状態の行の右端(M6) */
 .tt-cut-keys{margin:6px 2px 0;font-size:12px}
 .tt-cut-keys .savest{margin-left:10px}
 #tabCut.tt-cut-disabled .tt-cut-tools,#tabCut.tt-cut-disabled .tt-tl,#tabCut.tt-cut-disabled .tt-tl-mini,#tabCut.tt-cut-disabled .tt-cut-prev{opacity:.55}
@@ -1441,7 +1449,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div id="txBatchPanel"></div>
         <label class="lag tt-batch-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
           <input id="txBatchWho" type="text" size="12" placeholder="例: さくらみこ" data-ui-streamer></label>
-        <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットを決めてある文書はカットのとおり、無ければ文字起こしの行からパックを作ります。
+        <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットの決め方などは上の要約のとおりです。
           ホームの「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
       <div id="txRuns" aria-live="polite"></div>
     </div>
@@ -1494,26 +1502,26 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
       <li><span class="n">4</span><span><b>2 カット</b> で残す・削る所を決めて、<b>3 パック</b> で Resolve へ渡すパックを作る</span></li>
     </ol>
-    <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden><span class="ui-icon" data-icon="menu" aria-hidden="true"></span>メニューを開く</button></div>
+    <div style="margin-top:14px"><button type="button" class="btn" id="noDocMenu" hidden><span class="ui-icon" data-icon="menu" aria-hidden="true"></span>メニューを開く</button></div>
   </div>
   <div id="doc" hidden>
    <!-- 題名の行(どのタブにも出す): 題名・配信者・長さ・元の配信の位置と、校正の進み具合・残す区間とカット後の長さ -->
    <div class="tt-docbar" id="docBar">
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
      <span class="tt-docbar-meta hint" id="docMeta"></span>
-     <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
+     <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
      <!-- まとめて実行(今の文書。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ使える。開いていないときは押せない理由 = 段7 E-17) -->
      <details class="ui-menu tt-docauto" id="docAuto">
        <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、ホームの「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">
-         <p class="hint">この文書の残りを自動で進めます: 行が無ければ文字起こし(「新規」の設定で)→ パック(カットを決めてあればカットのとおり、無ければ文字起こしの行から)。
+         <p class="hint">この文書の残りを自動で進めます(行が無ければ文字起こし → パック)。カットの決め方などは下の要約のとおりです。
            進み具合はここと、履歴の「選んで、まとめて実行」の下に出ます。</p>
          <label class="lag" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
            <input id="docAutoWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
          <label class="lag"><input type="checkbox" id="docAutoOverwrite">パックがあれば作り直す(上書き)</label>
          <div id="docAutoPanel"></div>
          <label class="lag" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="docAutoLoud" data-ui-packloud></select></label>
-         <div class="row"><button type="button" class="btn small primary" id="docAutoGo">この文書を最後まで</button></div>
+         <div class="row"><button type="button" class="btn small primary" id="docAutoGo" title="この文書の残りを、ホームの順番待ちで最後まで進めます">まとめて実行</button></div>
        </div>
      </details>
    </div>
@@ -1596,15 +1604,14 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行</button>
           <button type="button" class="btn small" id="btnUndo" disabled title="戻すものがありません">元に戻す</button>
           <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済み・カット済にします">まとめて <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
-            <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
+            <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="行の左端のチェックで行を選ぶと押せます">選択行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div>
-            <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行をカット</button><button type="button" class="btn small" id="keepSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行を残す</button></div>
-            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="rtSelected" disabled title="選んだ行(校正済みは外す)の開始・終了を、認識のときの言葉(単語)の時刻に合わせます。候補のある行だけ・件数を確かめてから。元に戻す 1 回で戻せます">選んだ行の時刻を言葉に合わせる</button></div>
+            <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行をカット済に</button><button type="button" class="btn small" id="keepSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行を残す</button></div>
+            <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="rtSelected" disabled title="行の左端のチェックで行を選ぶと押せます" data-title="選んだ行(校正済みは外す)の開始・終了を、認識のときの言葉(単語)の時刻に合わせます。候補のある行だけ・件数を確かめてから。元に戻す 1 回で戻せます">選んだ行の時刻を言葉に合わせる</button></div>
             <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span></div></details>
         </div>
         <div class="tools tools2">
-          <span class="hint" id="pfStat" title="校正済み = 聞いて確認して、この行の文字が正しいと判断した行。精度の測定と、将来の追加学習の正解データになります"></span>
           <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
         </div>
         <div class="terms" id="terms" hidden></div>
@@ -1729,7 +1736,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <div class="tt-cut-tools" role="toolbar" aria-label="カットの道具">
        <button type="button" class="btn small" id="cutSplit" title="再生位置(赤い線)で、残す区間を2つに分けます(S)"><span class="ui-icon" data-icon="scissors" aria-hidden="true"></span>分割 <kbd>S</kbd></button>
        <button type="button" class="btn small" id="cutDel" title="選んだ残す区間を削る / 選んだ削る区間を戻す(Del)">削る / 戻す <kbd>Del</kbd></button>
-       <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(X)"><span id="cutIOLabel">I〜O を削る</span> <kbd>X</kbd></button>
+       <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(H)"><span id="cutIOLabel">I〜O を削る</span> <kbd>H</kbd></button>
        <span class="tt-sep" aria-hidden="true"></span>
        <button type="button" class="btn small ghost" id="cutUndo" title="元に戻す(Ctrl+Z)"><span class="ui-icon" data-icon="undo" aria-hidden="true"></span>元に戻す <kbd>Ctrl+Z</kbd></button>
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span class="ui-icon" data-icon="redo" aria-hidden="true"></span>やり直す</button>
@@ -1776,7 +1783,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        </div>
      </div>
      <div class="tt-cut-status" id="cutStatus" aria-live="polite"></div>
-     <p class="hint tt-cut-keys"><span id="cutKeysText"></span> <span class="savest" id="cutSaveSt" role="status"></span></p>
+     <p class="hint tt-cut-keys"><span id="cutKeysText">すべてのキー: <kbd class="ui-kbd">?</kbd>(一覧・キーを変える)</span><span class="savest" id="cutSaveSt" hidden></span></p>   <!-- 長いキーの説明の行はやめて ? の一覧へ(S17)。カットの保存の状態はヘッダーに出す(#cutSaveSt は元の値だけ持つ。S4) -->
    </section>
    <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
      <!-- 3 パック(docs/design/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps)。
@@ -1908,15 +1915,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>
 </dialog>
-<dialog id="dlgOverwrite" aria-labelledby="owT">
-  <div class="ui-dlg-head"><h2 id="owT">パックを作り直しますか?</h2></div>
-  <div class="ui-dlg-body">
-    <p style="margin:0">次のフォルダに、前に作ったパックがあります。作り直すと、中のファイルを上書きします(Resolve に取り込み済みなら、取り込み直してください)。</p>
-    <p class="mono tt-ow-dir" id="owDir"></p>
-    <ul class="tt-ow-files" id="owFiles"></ul>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="owCancel">やめる</button><button type="button" class="btn danger" id="owOk">上書きして作り直す</button></div>
-  </div>
-</dialog>
 <dialog id="relinkDlg" aria-labelledby="rlT">
   <div class="ui-dlg-head"><h2 id="rlT">動画を選び直す</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
@@ -1943,13 +1941,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="tt-ra-list" id="raList"></div>
     <p class="hint" style="margin:10px 0 0">長さが元の動画と違うものは、別の動画の可能性があるので最初は選びません(確かめてから選べます)。前の状態は、付け替えたあとも各文書の「以前の版に戻す」で戻せます。</p>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="raCancel">閉じる</button><button type="button" class="btn primary" id="raGo" disabled>付け替える</button></div>
-  </div>
-</dialog>
-<dialog id="dlgConfirm" aria-labelledby="cfT">
-  <div class="ui-dlg-head"><h2 id="cfT"></h2></div>
-  <div class="ui-dlg-body">
-    <p style="margin:0;white-space:pre-line" id="cfText"></p>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="cfCancel">やめる</button><button type="button" class="btn primary" id="cfOk">はい</button></div>
   </div>
 </dialog>
 <div id="toast" hidden></div>

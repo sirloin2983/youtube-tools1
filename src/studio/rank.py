@@ -24,6 +24,7 @@ import common
 from common import ApiError, Cancelled, atomic_write, get_api_key
 
 API_BASE = "https://www.googleapis.com/youtube/v3/"
+NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
 CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)
 HANDLE_RE = re.compile(r"^@[\w.\-]{3,60}\Z")
 SLUG_RE = re.compile(r"[^a-z0-9_-]")
@@ -279,7 +280,7 @@ def load_registry():
         # 一時的に開けない(Windows のウイルス対策のロックなど)ときは退避も seed への切り替えもしない
         # (seed で続けると、解決・取り込みの保存で登録が上書きされるため)
         common.log_failure("registry.json の読み込み", e)
-        raise ApiError("registry_read", "事務所の登録(registry.json)を読み込めませんでした。少し待ってからもう一度試してください: %s" % (e.strerror or e.__class__.__name__), 500)
+        raise ApiError("registry_read", "事務所の登録を読み込めませんでした。少し待ってからもう一度試してください", 500, {"detail": "registry.json: %s" % (e.strerror or e.__class__.__name__)})   # ファイル名は「元のメッセージ」へ(見直し S4)
     try:
         with open(SEED, encoding="utf-8") as f:
             return sanitize_registry(json.load(f))

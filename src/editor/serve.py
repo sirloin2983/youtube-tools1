@@ -301,6 +301,7 @@ POST_API = {
     "/api/drill/reviewed": lambda o: ed_drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
     "/api/drill/unreviewed": lambda o: ed_drill.drill_unreviewed(o),   # 確かめ済みの印を外す
     "/api/transcribe/cancel": _cancel,
+    "/api/jobs/retry": lambda o: ed_jobs.public_job(ed_jobs.retry_job(o.get("id"))),   # 失敗した文字起こしを同じ指定でもう一度(UI の見直し M9)
 }
 
 

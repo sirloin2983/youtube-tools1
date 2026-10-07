@@ -257,20 +257,25 @@ def _bad(message):
     return ApiError("bad_request", message, 400)
 
 
+def _bad_opt(detail):
+    """画面が送った書き出しの設定の形が違う(画面の不具合でだけ起きる)。欄の名前(precision など)は本文に出さず detail へ(見直し S6)"""
+    return ApiError("bad_request", "書き出しの設定が正しくありません(画面の不具合です。画面を読み込み直してから、もう一度試してください)", 400, {"detail": detail})
+
+
 def _parse_opts(req):
     """precision・volume・loudness の検査(build_spec と build_section_spec で共通)。-> (precision, 音量%, ラウドネス or None)"""
     prec = req.get("precision")
     if prec not in (None, "accurate", "fast"):
-        raise _bad("precision が正しくありません")
+        raise _bad_opt("precision")
     vol = req.get("volume", DEFAULT_EXPORT_VOLUME)
     if vol is None:
         vol = DEFAULT_EXPORT_VOLUME
     try:
         vol = int(vol)
     except (TypeError, ValueError):
-        raise _bad("volume が正しくありません")
+        raise _bad_opt("volume")
     if not (MIN_EXPORT_VOLUME <= vol <= MAX_EXPORT_VOLUME):
-        raise _bad("volume は%d〜%dの範囲で指定してください" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
+        raise _bad_opt("volume: %d〜%d" % (MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME))
     loud = req.get("loudness")
     if loud in (None, False, 0):
         loud = None
@@ -278,9 +283,9 @@ def _parse_opts(req):
         try:
             loud = float(loud)
         except (TypeError, ValueError):
-            raise _bad("loudness が正しくありません")
+            raise _bad_opt("loudness")
         if loud not in LOUDNESS_CHOICES:
-            raise _bad("loudness は %s のどれかです" % " / ".join("%g" % x for x in LOUDNESS_CHOICES))
+            raise _bad_opt("loudness: " + " / ".join("%g" % x for x in LOUDNESS_CHOICES))
     return prec, vol, loud
 
 
@@ -295,7 +300,7 @@ def _max_height(req):
 
 def _need_ffmpeg():
     if not find_tool("ffmpeg"):
-        raise ApiError("no_ffmpeg", "ffmpeg が見つかりません。インストールして PATH に通してください", 400)
+        raise ApiError("no_ffmpeg", "ffmpeg(書き出しに使う道具)が入っていません。黒い画面で winget install Gyan.FFmpeg を実行し、start.bat で起動し直してください", 400)   # 見直し S4: 「PATH に通す」は使う人に分からない
 
 
 def _youtube_source(spec):
@@ -342,7 +347,7 @@ def build_section_spec(req):
     今の YouTube の書き出し(run_ytdlp: 区間取得 → 正確に切る → 30fps → 音量/ラウドネス)と同じ中身で、ちょうど path へ。"""
     vid = req.get("videoId")
     if not isinstance(vid, str) or not VID_RE.match(vid):
-        raise _bad("videoId が正しくありません(YouTube の動画 ID 11 文字)")
+        raise _bad("配信の ID が正しくありません(YouTube の ID は 11 文字)")
     s, e = _num_sec(req.get("start")), _num_sec(req.get("end"))
     if s is None or e is None:
         raise _bad("start・end が数値ではありません")
@@ -366,7 +371,7 @@ def build_spec(store, req):
     """クライアントからは {id, markIds, precision, maxHeight} だけを受け取り、パス・タイトル・時刻はサーバーが store から組み立てる。"""
     v = store.internal(req.get("id"))
     if not v:
-        raise ApiError("not_found", "動画が見つかりません", 404)
+        raise ApiError("not_found", "配信が見つかりません", 404)
     if v["kind"] == "live":   # 録画はスタジオのサーバーからは取りに行かない(入口のライブの書き出しが録画待ち・取得・30fps をする)
         raise _bad("ライブの録画は、画面の「マークしたらすぐ書き出す」から書き出します(この書き出しでは行えません)")
     ids = req.get("markIds")
@@ -405,7 +410,7 @@ def build_spec(store, req):
         spec.update(mode="file", sourcePath=v["path"])
     else:
         if not common.fake() and not VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
-            raise ApiError("bad_request", "YouTube の動画IDが正しくありません", 400)
+            raise ApiError("bad_request", "YouTube の配信の ID が正しくありません", 400)
         _youtube_source(spec)
     return spec
 
@@ -454,7 +459,7 @@ def start_job(spec, on_done=None):
 def get_job(jid):
     j = _jobs.get(str(jid or ""))
     if not j:
-        raise ApiError("not_found", "ジョブが見つかりません", 404)
+        raise ApiError("not_found", "その書き出しは見つかりません(ツールを起動し直すと、前の書き出しの記録は消えます)", 404)
     return j
 
 

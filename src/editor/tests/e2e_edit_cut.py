@@ -345,10 +345,10 @@ def _scene_io_rows_undo(cx):
     pg.keyboard.press("o")
     wait_js(pg, "!document.querySelector('#tlIO').hidden && !document.querySelector('#cutIO').disabled", 3000)
     check(True, "I と O で範囲が出る(黄色の点線)")
-    pg.keyboard.press("x")
+    pg.keyboard.press("h")   # M2(仮決め (ay)): 以前の X は 1 文字起こし の「聞き取れない」と重なっていた
     wait_saved()
     sc = server_clips()
-    check(sc[0] == (0.5, 1.0) and sc[1] == (2.0, 3.2), "X で I〜O を削る: %s" % (sc[:2],))
+    check(sc[0] == (0.5, 1.0) and sc[1] == (2.0, 3.2), "H で I〜O を削る: %s" % (sc[:2],))
     pg.keyboard.press("Control+z")
     wait_saved()
     check(server_clips()[0] == (0.5, 3.2), "元に戻す: %s" % (server_clips()[0],))
@@ -466,7 +466,7 @@ def _scene_subtitle_rows(cx):
         pg.evaluate("document.querySelector('#cutPlayer').currentTime = 6.9")
         wait_js(pg, "Math.abs(document.querySelector('#cutPlayer').currentTime - 6.9) < 0.01")
         pg.keyboard.press("o")
-        pg.keyboard.press("x")
+        pg.keyboard.press("h")
         wait_saved()
         x_changed = server_clips() != pre_x
     clips_before = server_clips()

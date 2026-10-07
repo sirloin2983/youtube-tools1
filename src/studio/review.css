@@ -77,8 +77,7 @@
 .rv-vmenuacts .btn{white-space:normal;text-align:left}
 /* 画面の中の移動(プレーヤー・マーク・書き出し) */
 .rv-jump{display:flex;gap:4px;align-items:center}
-.rv-jumpb{display:inline-flex;align-items:center;gap:5px;min-height:var(--ctl-h-sm);padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-pill);background:var(--panel);color:var(--ink-2);font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
-.rv-jumpb:hover{border-color:var(--line-strong);color:var(--ink)}
+.rv-jumpb{gap:5px;white-space:nowrap}   /* 0.22.3: 押せるものは .btn(以前は丸い札の形。見直し S12) */
 .rv-jumpb b{font-weight:700;color:var(--ink)}
 .rv-jumpb svg{width:13px;height:13px}
 .rv-jump-exp{border-color:var(--accent-line);color:var(--accent-ink2);background:var(--accent-soft)}

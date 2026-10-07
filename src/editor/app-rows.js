@@ -15,7 +15,16 @@ function markDirty(){
 }
 
 /* 保存の状態の表示。kind: ''(未保存)/ 'busy'(保存中)/ 'ok'(保存済み)/ 'err'(競合・失敗)。色の印は CSS の [data-state] */
-function setSaveState(text, kind){ const el = $('#saveState'); el.textContent = text; el.setAttribute('data-state', kind || ''); updateDocTitle(); }
+function setSaveState(text, kind){ S.saveSt = { text, kind: kind || '' }; paintSaveState(); }
+
+/* ヘッダーの保存の状態(1 か所。UI の見直し S4): 1 文字起こし は文書の保存。2 カット・3 パック では、文書が保存済み(か何もしていない)ならカットの保存
+   (「カット: 保存しました」。以前は 2 カット の下の行の末尾 #cutSaveSt に出て、1440 ではキーの帯に隠れていた)。文書の失敗・保存中・未保存は文書を先に出す */
+function paintSaveState(){
+  const el = $('#saveState'), d = S.saveSt || { text: '', kind: '' }, c = S.cutSaveSt;
+  const cut = EDT.tab !== 'tx' && c && c.text && (d.kind === 'ok' || !d.text);
+  el.textContent = cut ? c.text : d.text; el.setAttribute('data-state', cut ? c.kind : d.kind);
+  updateDocTitle();
+}
 
 function saveDoc(){
   clearTimeout(markDirty.t);
@@ -466,6 +475,14 @@ function rowTitles(){
     tag: Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, esc(titleTag(t))])) };
 }
 
+/* 行の「残す / カット」の 2 択(UI の見直し M1。仮決め (ax)): 今の状態の側が押された形(aria-pressed=true)。押した側の状態になる。
+   以前の 1 つの札は字が今の状態(「残す」)なので、押すとカット済になり逆に読めた。2 カット の字幕の一覧(cut.js)も同じ形・同じ文 */
+const KEEP_TITLE = 'この行を残す', CUT_TITLE = 'この行をカット済にする(Resolve の仮編集から外します。元の素材は残るので、あとで「残す」に戻せます)';
+function keepCutHTML(cut, act = ['keep', 'cut'], dis = ''){
+  return `<span class="tt-kc" role="group" aria-label="この行を残すかカットするか"><button type="button" data-act="${act[0]}" aria-pressed="${cut ? 'false' : 'true'}" title="${KEEP_TITLE}"${dis}>残す</button>`
+    + `<button type="button" data-act="${act[1]}" aria-pressed="${cut ? 'true' : 'false'}" title="${esc(CUT_TITLE)}"${dis}>カット</button></span>`;
+}
+
 function segHTML(s, i, T = rowTitles()){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
@@ -474,7 +491,7 @@ function segHTML(s, i, T = rowTitles()){
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? draftPh(s) : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
-    <span class="ops"><button type="button" class="cut-toggle" data-act="cut" aria-pressed="${cut ? 'true' : 'false'}" title="Resolveの仮編集から外します(カット済)。元素材は残るため、あとで「残す」に戻せます">${cut ? 'カット済' : '残す'}</button><button type="button" class="pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${T.proof}">校正済み</button></span>
+    <span class="ops">${keepCutHTML(cut)}<button type="button" class="btn small pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${T.proof}">校正済み</button></span>
     <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
     ${dr ? `<span class="pill wait tt-draft-pill" title="${esc(draftTitle(s))}">下書き(${draftName(s)})</span>` : ''}
     ${readHTML(s, T.lim)}
@@ -619,8 +636,8 @@ function sortSegs(){ S.doc.segments.sort((a, b) => a.start - b.start); }   // v0
 function updateSel(){
   const n = S.sel.size; $('#selCount').textContent = n ? `${n}行を選択中` : '';
   $('#selAll').checked = n > 0 && n === S.doc.segments.length;
-  updateRt(); $('#btnProofSel').disabled = !n; renderCutPack();
-  { const b = $('#rtSelected'); if (b) b.disabled = !n; }   // 選んだ行の時刻を言葉に合わせる(2026-10-05)
+  updateRt(); $('#btnProofSel').disabled = !n; $('#btnProofSel').title = n ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます'; renderCutPack();
+  { const b = $('#rtSelected'); if (b){ b.disabled = !n; b.title = n ? b.dataset.title : '行の左端のチェックで行を選ぶと押せます'; } }   // 押せない間は理由(S16)   // 選んだ行の時刻を言葉に合わせる(2026-10-05)
 }
 
 function closeCtxMenu(){ if (!ctxMenuEl) return; const m = ctxMenuEl; ctxMenuEl = null; m.remove(); document.removeEventListener('click', onCtxOutside, true); document.removeEventListener('contextmenu', onCtxOutside, true); }

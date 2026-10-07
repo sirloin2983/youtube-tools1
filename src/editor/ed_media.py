@@ -116,7 +116,7 @@ def _peaks_run(path, sig, t):
         t.update(state="error", code=e.code, message=e.message, at=time.time())
     except Exception as e:   # 想定外でもサーバーは止めない
         ed_state.log.exception("波形の作成で例外")
-        t.update(state="error", code="internal", message="内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), at=time.time())
+        t.update(state="error", code="internal", message="波形を作れませんでした(処理が途中で止まりました)", detail="%s: %s" % (e.__class__.__name__, str(e)[:200]), at=time.time())   # 原文は detail(M9)
 
 
 def get_peaks(tid):

@@ -203,7 +203,8 @@ async function pollJobs(){
   if (redone) txDone = txDone.filter(x => x !== redone);
   for (const x of txDone) if (x.vadNote) toast(`「${x.title || '無題'}」: ${x.vadNote}`, 9000);   // 声の検出を緩めてやり直した(4-2)。今回終わった文字起こしだけ
   for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった(Q1)
-  if (failed) toast(`「${failed.title || '無題'}」の処理に失敗しました: ${failed.error || ''}`, 8000, 'err');
+  if (failed) toast(jobFailText(failed), { ms: 15000, kind: 'err', detail: failed.errorDetail || undefined,
+    action: failed.canRetry ? { label: 'やり直す', fn: () => retryJob(failed.id) } : undefined });   // 原文は「詳しく」の中だけ・[やり直す](M9)
   if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
   if (altDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`別のエンジンで聞き終えました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'alt').length} 件出しました(行の「別」)`, 6000, 'ok'); }   // D1-b: 文書は書き換えないので、候補だけ読み直す
   if (ytDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`YouTube の字幕と比べました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'yt' || (x.also || []).includes('yt')).length} 件出しました(行の「YT」)`, 6000, 'ok'); }   // A1: 同じく候補だけ読み直す
@@ -270,16 +271,28 @@ function renderIntoState(){
     : S.doc.sourcePath ? '認識の設定は、メニューの「新規」のものを使います' : 'この文書には動画のパスが無いため、文字起こしできません';
 }
 
+/* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
+const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', ytcap: 'YouTube の字幕との比較', normalize: '30fps にそろえる処理', abtest: '設定の比較' };
+function jobFailText(j){
+  const t = j.title || '無題', k = JOB_KIND_NAME[j.kind] || '処理';
+  return j.internal ? `「${t}」の${k}が途中で止まりました。もう一度始めてください` : `「${t}」の${k}に失敗しました: ${j.error || '理由は不明です'}`;
+}
+/* 失敗した文字起こしを、同じ指定でもう一度待機列に入れる(知らせ・処理状況のカードの [やり直す]。M9) */
+async function retryJob(id){
+  try { await api('/api/jobs/retry', { body: { id } }); await kickJobs(); toast('もう一度、待機列に入れました(メニューの「処理状況」に進み具合が出ます)', 4000); }
+  catch (er){ toast(er.message, 6000, 'err'); }
+}
+
 function renderJobs(){
   renderJobBadge(); renderIntoState(); renderAlt();
   const box = $('#jobs');
-  if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">ジョブはありません</p>'; return; }
+  if (!S.jobs.length){ box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ処理中のものはありません。文字起こしを始めると、ここに進み具合が出ます。</p>'; return; }   // 空の状態は 2 文(S13)
   box.innerHTML = S.jobs.slice(0, 10).map(j => `<div class="job" data-id="${esc(j.id)}">
     <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
       <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ACTIVE.has(j.state) ? (j.state === 'queued' ? 'wait' : 'run') : ''}">${esc(STATE_LABEL[j.state] || j.state)}</span></div>
     ${j.hasClip ? '<div class="hint" style="margin-top:2px">元の配信の情報(.clip.json)つき</div>' : ''}
     ${ACTIVE.has(j.state) ? `<div class="bar${j.state === 'running' ? '' : ' indeterminate'}"><i style="width:${pctOf(j)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(j.phase || '')}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''}${j.device ? '(' + devLabel(j.device) + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
-    ${j.error ? `<div class="hint" style="color:var(--danger);margin-top:3px">${esc(j.error)}</div>` : ''}
+    ${j.error ? `<div class="hint tt-jerr">${esc(j.internal ? (JOB_KIND_NAME[j.kind] || '処理') + 'が途中で止まりました。もう一度始めてください' : j.error)}</div>${j.errorDetail ? `<details class="tt-jerr-detail"><summary>詳しく</summary><span class="mono">${esc(j.errorDetail)}</span></details>` : ''}${j.canRetry ? '<div class="row" style="margin-top:4px"><button type="button" class="btn small" data-act="retry">やり直す</button></div>' : ''}` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
     ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'voice-learn' ? (j.learned || []).length + '人の声を覚えた' : j.kind === 'diarize' ? j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : '') : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.kind === 'normalize' ? (j.normOk ? '30fps にそろえました' : '元の動画のまま') : j.kind === 'alt' ? '別のエンジンで ' + j.segments + '行' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}

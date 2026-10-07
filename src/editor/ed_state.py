@@ -215,8 +215,8 @@ def pio(required=True):
         except ImportError as e:
             if not required:
                 return None
-            raise ApiError("missing_module", "受け渡しの部品(pipeline_io.py / resolve_export.py)が見つかりません。"
-                                             "ツールのフォルダの中身(.py と index.html)をまとめて更新してください(%s)" % e, 500)
+            raise ApiError("missing_module", "受け渡しの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
+                           {"detail": "pipeline_io.py / resolve_export.py: %s" % e})   # 内部の名前は detail(UI の見直し S12)
     return _pio_mod[0]
 log = logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}

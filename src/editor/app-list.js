@@ -232,14 +232,14 @@ function txRowsHTML(key, items){
 function renderList(){
   const box = $('#txList'), total = S.list.length;
   $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
-  if (!total){ $('#txCount').textContent = ''; if (hideOn()) UIKit.hide.toggle($('#txHiddenToggle'), 'transcripts', 0); box.innerHTML = '<p class="hint" style="margin:6px 0 0">まだ文字起こしはありません。「新規」から文字起こしすると、ここに出ます。</p>'; return; }
+  if (!total){ $('#txCount').textContent = ''; if (hideOn()) UIKit.hide.toggle($('#txHiddenToggle'), 'transcripts', 0); box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン(M8)
   const found = txFiltered();
   if (hideOn()){   // 隠れている数 = 非表示以外の絞り込みに合うもののうち、非表示のもの(今の文書は除く)
     const hn = txFiltered({ withHidden: true }).filter(i => i.id !== S.docId && UIKit.hide.has('transcripts', i.id)).length;
     UIKit.hide.toggle($('#txHiddenToggle'), 'transcripts', hn);
   }
   $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
-  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う文字起こしはありません。検索の文字や、状態・種類の絞り込みを変えてみてください。</p>'; return; }
+  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。検索の文字や、状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }   // M8
   if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
   txGroups = new Map();
   for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }

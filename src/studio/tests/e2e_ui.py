@@ -618,8 +618,10 @@ def check_review_export(t):
     pg.click("#rvExpRun")
     pg.wait_for_selector("#rvExpList .rv-ejob.st-ok", timeout=60000)
     wait_js(pg, "() => !document.querySelector('#rvExpCancel') || document.querySelector('#rvExpCancel').hidden", 60000)
+    c.ok(pg.evaluate("() => { const a = document.activeElement; return !!a && a !== document.body && !!a.closest('#rvExport'); }"),
+         "「書き出す」「中止」が押せなく・見えなくなっても、フォーカスは書き出しの欄の中に残る(見直し M2): " + str(pg.evaluate("document.activeElement && document.activeElement.id")))
     # S-7: 書き出しが済んだ知らせに [編集で開く]。押すと行のリンクと同じ URL を、同じ開き方(openEditor。ブラウザのタブなら新しいタブ)で開く
-    done_toast = "[...document.querySelectorAll('.ui-toast')].find(x => /書き出し完了/.test(x.textContent))"
+    done_toast = "[...document.querySelectorAll('.ui-toast')].find(x => /書き出しました/.test(x.textContent))"
     c.ok(wait_js(pg, "() => { const x = %s; const b = x && x.querySelector('.ui-toast-act'); return !!b && b.textContent === '編集で開く'; }" % done_toast, 8000),
          "書き出しが済んだ知らせに [編集で開く] がある(S-7)")
     pg.evaluate("() => { window.__opened = []; window.__wopen = window.open; window.open = (u, t) => { window.__opened.push([new URL(String(u), location.href).href, t || '']); return null; }; }")
@@ -742,11 +744,12 @@ def check_player_unavailable(t):
     c, pg, fx, port = t.c, t.pg, t.fx, t.port
     print("[③ プレーヤーが使えないとき(不具合2)・書き出しへの入口]")
     c.ok(pg.is_visible('#rvJump [data-jump="export"]'), "広い画面: 上の行に「書き出し」への入口がある")
-    pg.click("#rvTheater"); pg.wait_for_timeout(300)
+    pg.click("#rvVMenu > summary"); pg.click("#rvTheater"); pg.wait_for_timeout(300)   # 0.22.3: シアター表示は「配信の操作」の中(見直し S11)
+    c.ok(not pg.evaluate("document.querySelector('#rvVMenu').open"), "「シアター表示」を押すと「配信の操作」のメニューは閉じる")
     ex, pl = pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().left"), pg.eval_on_selector("#rvPlayerBox", "e => e.getBoundingClientRect().right")
     c.ok(ex > pl and pg.is_visible("#rvExpRun") and pg.eval_on_selector("#rvExport", "e => e.getBoundingClientRect().top") < 400,
          "シアター表示でも「書き出し」は右の列の上(見える場所)にある")
-    pg.click("#rvTheater"); pg.wait_for_timeout(200)
+    pg.click("#rvVMenu > summary"); pg.click("#rvTheater"); pg.wait_for_timeout(200)
     pg.route("https://www.youtube.com/**", lambda route: route.abort())   # YouTube に繋がらない(埋め込みできない)状態
     pg.reload(); pg.wait_for_selector("#rvList")   # インターネットに繋がる PC では、前に読み込んだ YouTube の部品が残るので読み直す
     pg.evaluate("() => { window.__toasts = []; const o = Studio.toast; Studio.toast = (m, ms, k) => { window.__toasts.push(String(m)); return o(m, ms, k); }; }")
@@ -1263,9 +1266,9 @@ def take_shots(br, base, fx, out):
             pg.screenshot(path=os.path.join(out, "cs_review_%s_%s.png" % (scheme, tag)))
             if tag == "1440":
                 pg.screenshot(path=os.path.join(out, "cs_review_full_%s.png" % scheme), full_page=True)
-                pg.click("#rvTheater"); pg.wait_for_timeout(400)
+                pg.click("#rvVMenu > summary"); pg.click("#rvTheater"); pg.wait_for_timeout(400)
                 pg.screenshot(path=os.path.join(out, "cs_review_theater_%s.png" % scheme))
-                pg.click("#rvTheater")
+                pg.click("#rvVMenu > summary"); pg.click("#rvTheater")
             pg.click("#btnSettings"); pg.wait_for_timeout(300)
             pg.click("#setCollab summary"); pg.wait_for_selector(".cl-group")
             pg.click('.cl-member:not(.is-base) [data-act="anchor"]')

@@ -25,6 +25,10 @@ h2{margin:0 0 8px;font-size:15px}
 @media (max-width:720px){.cs-tab-long{display:none}.cs-tab-short{display:inline}}
 @media (max-width:420px){.ui-header .ui-ver{display:none}.ui-tab{padding:0 6px;gap:4px;font-size:13px}}
 .errbar{position:sticky;top:var(--cs-head);z-index:39}
+.errbar:has(.cs-err-msg){display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}   /* 文 + [読み込み直す] + 閉じる(見直し S4) */
+.cs-err-msg{flex:1 1 320px;min-width:0}
+.cs-err-acts{display:inline-flex;gap:6px;align-items:center}
+.errbar .cs-err-x{color:var(--danger-on)}
 .tool-notice{max-width:1240px;margin:12px auto 0;padding:0 16px}
 .tool-notice .notice{margin:0}
 /* キーの帯(UIKit.keybar)が出ているときは、本文の下に余白を作って隠れないようにする */
@@ -226,7 +230,7 @@ main{display:block}
 .q-err b{font-weight:650}
 .q-how{color:var(--ink-2)}
 .q-raw{font-size:11.5px;color:var(--ink-3)}
-.q-raw>summary{cursor:pointer;width:max-content;min-height:24px}
+.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px}   /* 押せる部品は 28px 以上(A-21) */
 .q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
 .q-item.st-err{background:var(--danger-soft);margin:0 -16px;padding-left:16px;padding-right:16px}
 

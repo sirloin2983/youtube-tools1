@@ -22,7 +22,7 @@ function renderLearned(){
   }
   const q = norm($('#lnSearch').value.trim());
   const found = items.map((x, i) => ({ x, i })).filter(({ x }) => !q || norm(`${x.wrong} ${x.right}`).includes(q));
-  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う候補はありません</p>'; $('#lnMore').hidden = true; return; }
+  if (!found.length){ box.innerHTML = '<p class="hint" style="margin:8px 0">条件に合う候補はありません。検索の文字を消すと、すべての候補が出ます。</p>'; $('#lnMore').hidden = true; return; }
   const shown = learnedShowAll ? found : found.slice(0, 10);
   box.innerHTML = shown.map(({ x, i }) => {
     const d = lnDraft[lnKey(x)] || { w: x.wrong, r: x.right }, edited = d.w !== x.wrong || d.r !== x.right;
@@ -164,9 +164,9 @@ function updatePfStat(){
   renderDocBar();
   if (!S.doc) return;
   const n = S.doc.segments.filter(s => s.proofed).length, t = S.doc.segments.length;
-  $('#pfStat').textContent = t ? `校正済み ${n}/${t}行` : '';
   $('#btnProofAll').textContent = t && n === t ? '校正済みを全解除' : '全行を校正済みに';
-  $('#btnProofSel').disabled = !S.sel.size;
+  $('#btnProofSel').disabled = !S.sel.size; $('#btnProofSel').title = S.sel.size ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます';   // 押せない理由(S16)
+  $('#btnNextUn').classList.toggle('primary', S.doc.segments.some(s => !s.proofed && String(s.text || '').trim()));   // 未校正がある間は次の一手(S3)
   renderAbHint(); updateSess(); drawStripSoon();
 }
 

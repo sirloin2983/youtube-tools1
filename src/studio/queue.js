@@ -5,14 +5,15 @@ const S = window.Studio, esc = S.esc;
 const $ = s => document.querySelector(s);
 const LS = 'clipstudio:queue:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
-const STATUS = { waiting: ['待機中', 'wait'], running: ['解析中', 'run'], done: ['完了', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['スキップ', 'wait'] };
+/* 状態の言葉は 3 画面で同じ(待ち・実行中・済み・飛ばした・失敗・中止。見直し S7) */
+const STATUS = { waiting: ['待ち', 'wait'], running: ['実行中', 'run'], done: ['済み', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['飛ばした', 'wait'] };
 const OPT_IDS = ['useAudio', 'useChat', 'useComments', 'count', 'length', 'sens', 'pre', 'lag', 'lagAuto', 'headSec', 'typePreset', 'typeOver', 'chatTo', 'maxH', 'wA', 'wC', 'wM'];   // noCache は保存しない
-const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, warned: false, busy: false };
+const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, busy: false };
 const mmss = t => { t = Math.max(0, Math.floor(Number(t) || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 
 function paneHtml(){
   return `
-  <div id="qWarn" class="notice" role="alert" hidden></div>
+  <div id="qWarn" class="notice cs-notice-act" role="alert" hidden></div>
   <div id="qParam" class="notice info cs-notice-act" hidden><div><b>URL を受け取りました。</b> 下の欄に入れました。内容を確かめて「解析に追加」を押してください(自動では始めません)。</div><button type="button" class="btn small ghost" id="qParamClose">閉じる</button></div>
   <div class="q-grid">
   <section class="card q-entry" id="qEntry">
@@ -50,16 +51,16 @@ function paneHtml(){
       <div class="q-switches">
         <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="lagAuto" checked>チャットの遅れを自動で推定する</label>
         <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="typePreset">配信タイプ別の重み(試験的)</label>
-        <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="noCache">キャッシュを使わない(音量の解析をやり直す)</label>
+        <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="noCache">前回の音量の解析を使わない(やり直す)</label>
       </div>
       <div class="fld"><span class="l">重み</span><div class="cs-opts q-weights">
         <label class="cs-opt"><span class="l"><span class="q-sw a"></span>音声</span><input type="number" id="wA" min="0" max="3" step="0.1" value="1"></label>
         <label class="cs-opt"><span class="l"><span class="q-sw c"></span>チャット</span><input type="number" id="wC" min="0" max="3" step="0.1" value="1"></label>
         <label class="cs-opt"><span class="l"><span class="q-sw m"></span>コメント</span><input type="number" id="wM" min="0" max="3" step="0.1" value="0.7"></label></div></div>
-      <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは配信ごとに音量の山との一致から自動で推定します)。同じ配信の再解析は、音量の解析結果のキャッシュで速くなります(配信中・配信直後は「キャッシュを使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
+      <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは配信ごとに音量の山との一致から自動で推定します)。同じ配信の再解析は、前回の音量の解析結果を使うので速くなります(配信中・配信直後は「前回の音量の解析を使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
   </details>
   <section class="card q-listcard" id="qListCard">
-    <div class="card-head"><h2 class="card-title">解析キュー</h2><span class="card-sub" id="qCount"></span><span class="spacer"></span><button type="button" class="btn small ghost" id="qClear" disabled title="終わった解析がまだありません(解析が完了・失敗・中止すると押せます)">終わったものを消す</button></div>
+    <div class="card-head"><h2 class="card-title">解析の順番待ち</h2><span class="card-sub" id="qCount"></span><span class="spacer"></span><button type="button" class="btn small ghost" id="qClear" disabled title="終わった解析がまだありません(解析が完了・失敗・中止すると押せます)">終わったものを消す</button></div>
     <div class="ui-next q-next" id="qNext" hidden></div>
     <div id="qList" aria-live="polite"></div>
   </section>
@@ -201,7 +202,7 @@ S.enqueue = async (items, opts) => {
 async function makeCollabGroup(videoIds){
   try {
     const r = await S.api('/api/collab/group', { body: { videoIds } });
-    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。設定の「コラボ」節でズレ(アンカー点)を指定してください`, 8000, 'ok');
+    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。設定の「コラボ」節でズレ(アンカー)を指定してください`, 8000, 'ok');
     if (S.collab && S.collab.refresh) S.collab.refresh();
   } catch (er){ S.toast('コラボのグループ化に失敗しました: ' + er.message, 8000, 'err'); }
 }
@@ -328,20 +329,14 @@ function refreshView(){
 }
 function release(){ setTimeout(() => { Q.pressed = false; if (Q.dirty) refreshView(); }, 60); }
 /* dataWarning: 壊れた data.json を退避したときにサーバーが知らせる */
-function showWarn(){
-  const w = S.state && S.state.dataWarning; if (!w || Q.warned) return;
-  Q.warned = true;
-  const txt = String(w) + (S.state.corruptBackup ? `(退避したファイル: ${S.state.corruptBackup})` : '');
-  const box = $('#qWarn'); box.innerHTML = `<b>データの読み込みで問題がありました</b><br>${esc(txt)}<br><button type="button" class="btn small" id="qWarnClose">閉じる</button>`; box.hidden = false;
-  $('#qWarnClose').addEventListener('click', () => { box.hidden = true; });
-  S.toast(txt, 9000, 'err');
-}
+function showWarn(){ S.dataWarning($('#qWarn')); }   // 文・閉じる・知らせ 1 回は core.js の 1 か所(③ の帯と同じ。見直し M8)
 function detect(items){
   const prev = Q.prev; Q.prev = new Map(items.map(i => [i.qid, i.status]));
   if (!prev) return;
   for (const it of items){
     const p = prev.get(it.qid);
-    if (it.status === 'done' && (p === 'running' || p === 'waiting')) S.toast(`『${it.title || it.videoId}』の解析が完了しました(${Number(it.marks) || 0}件のマーク)。確認できます`, 6000, 'ok');
+    /* マークが 0 件なら「完了」と言わず、手でマークする道を出す(見直し S16) */
+    if (it.status === 'done' && (p === 'running' || p === 'waiting')) S.toast(Number(it.marks) > 0 ? `『${it.title || it.videoId}』の解析が済みました(${Number(it.marks)}件のマーク)。③ で確認できます` : `『${it.title || it.videoId}』は、盛り上がりが見つかりませんでした。③ で手で「今をマーク」できます`, 6000, Number(it.marks) > 0 ? 'ok' : 'info');
     else if (it.status === 'error' && (p === 'running' || p === 'waiting')) S.toast(`『${it.title || it.videoId}』の解析に失敗しました: ${errHelp(it.error).what}`, 7000, 'err');
   }
 }
@@ -371,7 +366,7 @@ async function listClick(e){
     const path = { cancel: '/api/queue/cancel', skipchat: '/api/queue/skipchat', retry: '/api/queue/retry' }[act];
     if (!path) return;
     await S.api(path, { body: { qid } });
-    if (act === 'retry') S.toast('もう一度キューに入れました', 0, 'ok');
+    if (act === 'retry') S.toast('もう一度、解析の順番待ちに入れました', 0, 'ok');
   } catch (er){ S.toast(er.message, 0, 'err'); }
   tick();
 }

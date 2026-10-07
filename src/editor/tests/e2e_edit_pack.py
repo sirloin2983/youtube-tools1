@@ -236,7 +236,8 @@ def _scene_streamer_build(cx):
     check(pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => /パックを作りました/.test(t.textContent) && [...t.querySelectorAll('.ui-toast-act')].some(b => b.textContent === 'フォルダを開く'))"),
           "作り終えた知らせに [フォルダを開く](段7 E-11)")
     check(wait_js(pg, "document.activeElement === document.querySelector('#pkOpen')", 5000), "作り終えたらフォーカスは「フォルダを開く」へ(段7 E-11)")
-    check(pg.inner_text("#pkBuild") == "パックを作り直す(上書き)", "前回のパックがあると、ボタンは「パックを作り直す(上書き)」(段7 E-15): " + pg.inner_text("#pkBuild"))
+    check(pg.inner_text("#pkBuild") == "同じ内容で作り直す" and "primary" not in pg.get_attribute("#pkBuild", "class") and "primary" in pg.get_attribute("#pkReadme", "class"),
+          "作ったばかり(作り直しが要らない)なら、ボタンは普通の「同じ内容で作り直す」・主は「Resolve での手順を見る」(UI の見直し S2): " + pg.inner_text("#pkBuild"))
     packdir = os.path.splitext(v1)[0] + "_pack"
     ip = read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua"))
     got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]

@@ -37,8 +37,8 @@ const marksPayload = ms => ms.map(m => { const { auto0, ...r } = m; return r; })
    吸収されたので、ここでは変更できる操作から外した(共通キーと別のキーを割り当てても、共通キーが先に処理して silently 上書きされていたため) */
 const ACTION_DEFS = [
   ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
-  ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター'],
-  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用'], ['moment', '一瞬を切り取る']
+  ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター表示'],
+  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用'], ['moment', '一瞬をマーク']
 ];
 const KEY_PRESETS = {
   standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u', moment: 'c' },
@@ -112,7 +112,7 @@ const SVG = {
 const PICK_FILTERS = [['all', 'すべて'], ['cand', '判定待ちの候補がある'], ['adopt', '書き出し待ちの採用がある'], ['done', '書き出し済みがある'], ['none', 'マークがない']];
 /* 上の行: 配信の選択(探す・開く)・保存の状態・まとめて実行・シアター・配信の操作 */
 function topBarHTML(){
-  return `  <div class="rv-warn notice" id="rvWarn" hidden><span id="rvWarnText"></span><button type="button" class="btn small" id="rvWarnClose">閉じる</button></div>
+  return `  <div class="rv-warn notice cs-notice-act" id="rvWarn" role="alert" hidden></div>
   <div class="rv-autobar" id="rvAutoBar" role="status" hidden></div>
   <div class="rv-top" id="rvTop">
     <details class="ui-menu rv-pick" id="rvPick">
@@ -132,7 +132,7 @@ function topBarHTML(){
         <div class="rv-picklist" id="rvPickList"></div>
         <form class="rv-open" id="rvOpenForm" autocomplete="off">
           <label class="rv-fl" for="rvOpenIn">一覧に無い配信・動画ファイルを開く(解析せずに手でマークを付けるとき)<span class="rv-openlive" hidden>。配信中・配信前の URL なら録画を始めて開きます</span></label>
-          <div class="rv-openrow"><input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTube の URL・動画 ID、または動画ファイルのフルパス">
+          <div class="rv-openrow"><input id="rvOpenIn" type="text" spellcheck="false" placeholder="YouTube の URL・配信の ID、または動画ファイルのフルパス">
           <button class="btn" type="submit" id="rvOpenBtn">開く</button></div>
           <p class="hint rv-openmsg" id="rvOpenMsg" role="status" hidden></p>
         </form>
@@ -154,15 +154,15 @@ function topBarHTML(){
         <label class="lag rv-autoloud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="rvAutoLoud" data-ui-packloud></select></label>
       </div>
     </details>
-    <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター</span></button>
     <details class="ui-menu rv-vmenu" id="rvVMenu">
       <summary class="btn small ghost" title="この配信の名前・解析・削除"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>配信の操作</span></summary>
       <div class="rv-vmenupop">
         <label class="rv-fl" for="rvTitle">名前(自分用のラベル。一覧と書き出しのフォルダ名に使います)</label>
         <input id="rvTitle" type="text" maxlength="120" placeholder="例: 2026-09-12 マリオカート配信">
         <div class="rv-vmenuacts">
+          <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター表示</span><kbd class="ui-kbd" data-kbd="theater"></kbd></button>
           <a class="btn small ghost" id="rvYtLink" target="_blank" rel="noopener noreferrer" hidden title="YouTube で、いまの位置から開きます">YouTube で開く</a>
-          <button class="btn small" id="rvAnalyze" type="button" hidden title="この配信を ② 解析のキューに入れて、自動マークを作ります">この配信を解析する</button>
+          <button class="btn small" id="rvAnalyze" type="button" hidden title="この配信を ② 解析の順番待ちに入れて、自動マークを作ります">この配信を解析する</button>
           <button class="btn small danger" id="rvDelVideo" type="button" title="スタジオの一覧から消します(書き出した切り抜きのファイルは残ります)">スタジオから削除</button>
         </div>
       </div>
@@ -172,9 +172,9 @@ function topBarHTML(){
 /* 画面の中の移動(プレーヤー・マーク・書き出し)と、配信を開いていないときの案内 */
 function jumpHTML(){
   return `  <nav class="rv-jump" id="rvJump" aria-label="この画面の中の移動">
-    <button type="button" class="rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
-    <button type="button" class="rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
-    <button type="button" class="rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄を開く">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    <button type="button" class="btn small ghost rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
+    <button type="button" class="btn small ghost rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
+    <button type="button" class="btn small rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄を開く">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </nav>
   <div class="rv-emptybox empty" id="rvEmpty" hidden>
     <b>まだ配信が開かれていません</b>
@@ -567,7 +567,7 @@ function renderPickList(){
   if (HIDE) HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
   $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
   if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
-  if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字を消すか、絞り込みを「すべて」にしてください。</div>'; return; }
+  if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字と絞り込みを消すと、全部の配信が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-pick-clear>探す文字と絞り込みを消す</button></div></div>'; return; }
   const list = hit.slice(0, PK.limit);
   let html;
   if (PK.sort === 'channel'){
@@ -639,7 +639,7 @@ async function loadVideo(id){
   const editSeq = S.editSeq;
   let j;
   try { j = await Studio.api('/api/video?id=' + enc(id)); }
-  catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message); refreshList(); } return false; }
+  catch (e){ if (seq === S.loadSeq){ toast('配信を読み込めません: ' + e.message, 0, 'err'); refreshList(); } return false; }   // 失敗の形で(見直し S4)
   if (seq !== S.loadSeq) return false;
   if (S.dirty || saveP || S.editSeq !== editSeq){
     renderVideoSelect(); toast('読み込み中に編集されたため、切り替えを止めました。保存後にもう一度選んでください'); return false;
@@ -682,7 +682,7 @@ async function syncFromServer(){
 }
 async function openFromInput(){
   const inp = $('#rvOpenIn'), text = inp.value.trim();
-  if (!text) return toast('YouTube の URL・動画 ID、または動画ファイルのパスを入力してください');
+  if (!text) return toast('YouTube の URL・配信の ID、または動画ファイルのパスを入力してください');
   const body = looksLikeYouTube(text) ? { kind: 'youtube', url: text } : { kind: 'file', path: text.replace(/^["']|["']$/g, '') };
   const btn = $('#rvOpenBtn'); if (btn.disabled) return;   // begin は数秒かかる: 二度押しを防ぐ
   btn.disabled = true;
@@ -704,7 +704,7 @@ async function openFromInput(){
     inp.value = '';
     const pk = $('#rvPick'); if (pk) pk.open = false;
     await loadVideo(r.video.id);
-  } catch (e){ toast(e.message); }
+  } catch (e){ toast('開けませんでした: ' + e.message, 0, 'err'); }
   finally { btn.disabled = false; msg(''); }
 }
 async function deleteCurrentVideo(){
@@ -1958,7 +1958,7 @@ function autoTitleFromPlayer(){
 
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
-const EXP_LABEL = { queued: '待機中', running: '処理中', done: '完了', error: '失敗', cancelled: '中止' };
+const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ(見直し S7)
 function errHint(msg){
   if (/空か短すぎ|取得|ストリーム|方法1/.test(msg || '')) return 'ライブ終了直後はアーカイブが未完成で失敗しやすくなります。数時間〜半日ほど置いてから「失敗した分だけやり直す」を試してください。';
   return '';
@@ -1997,7 +1997,7 @@ function handoffHTML(j, it){
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
   if (window.UIKit && UIKit.appnav) UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
   const tt = editorHref(path);
-  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
+  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">切り抜きの記録あり</span>` : ''}</div>`;
 }
 /* 書き出した切り抜きを「編集」で開く URL(書き出しの行のリンクと、書き出し完了の知らせの [編集で開く] で同じ) */
 function editorHref(path){ return path ? Studio.toolUrl('transcribe', '/?media=' + enc(path)) : ''; }
@@ -2166,7 +2166,7 @@ function jobItemHTML(j, it, i){
       ${archLineHTML(ar)}
       ${it.status === 'running' && (!lv || pct > 0) ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${act && it.message ? `<div class="rv-ejob-s hint">${esc(it.message)}</div>` : ''}
-      ${it.file ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
+      ${it.file && it.status === 'done' ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
       ${handoffHTML(j, it)}
       ${loudHTML(it.loudness)}
       ${lv && it.status === 'done' && it.tx ? `<div class="rv-ejob-s hint">${esc(liveTxText(it.tx))}</div>` : ''}
@@ -2237,7 +2237,11 @@ function pollJob(){
         const cdone = j.combined && j.combined.status === 'done', paths = j.state === 'cancelled' ? []
           : j.combined ? (cdone ? [clipPathOf(j, { path: j.combined.path, file: j.combined.file })] : []) : j.items.filter(i => i.status === 'done').map(i => clipPathOf(j, i));
         if (j.combined) doneToast(j.state === 'cancelled' ? 'つなぐ書き出しを中止しました' : cdone ? `つなげて1本にしました(${j.combined.count}件)。「編集で開く」で文字起こしできます` : 'つなげられませんでした: ' + (j.combined.error || ''), j.state === 'cancelled' ? '' : cdone ? 'ok' : 'err', paths);
-        else doneToast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok', paths);
+        else if (j.state === 'cancelled') doneToast('書き出しを中止しました(済んだ分は残ります。「書き出す」で残りを書き出せます)', '', paths);
+        else if (done < j.items.length){   // 失敗があれば「完了」と言わず、知らせから [失敗した分をやり直す](見直し S16)
+          const nf = j.items.length - done;
+          toast(done ? `${done}件を書き出しました。${nf}件は失敗しました` : `書き出しに失敗しました(${nf}件)`, { kind: 'err', ms: 0, action: { label: '失敗した分をやり直す', fn: () => { const ids = failedIds(); if (ids.size) startExport(ids); } } });
+        } else doneToast(`書き出しました(${done}件)`, 'ok', paths);
         if (!j.combined && j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
       }
     } catch (e){
@@ -2581,7 +2585,7 @@ function txHTML(c){
   const t = S.tx && S.cur && S.tx.vid === S.cur.id ? S.tx.marks[c.id] : null;
   if (!t) return '';
   const n = Number(t.segments) || 0, pf = Number(t.proofed) || 0;
-  const note = t.offsetFrom === 'mark' ? '<div class="hint rv-tx-note">.clip.json が見つからないため、マークの開始に合わせています(高速書き出しの切り抜きは数秒ずれることがあります)</div>' : '';
+  const note = t.offsetFrom === 'mark' ? '<div class="hint rv-tx-note">切り抜きの記録が見つからないため、マークの開始に合わせています(高速書き出しの切り抜きは数秒ずれることがあります)</div>' : '';
   const lines = (t.lines || []).map(l => `<li><button type="button" class="rv-tx-line${l.cut ? ' cut' : ''}" data-act="txseek" data-t="${Number(l.start)}" data-e="${Number(l.end)}" title="${l.cut ? '文字起こしで「カット」にした行 ・ ' : ''}この行を再生"><span class="mono rv-tx-tc">${fmt(l.start)}</span>${l.speaker ? `<span class="rv-tx-spk">${esc(l.speaker)}</span>` : ''}<span class="rv-tx-text">${esc(l.text) || '(空の行)'}</span></button></li>`).join('');
   return `<details class="rv-tx ui-disclosure" data-tx="${esc(c.id)}"${S.txOpen.has(c.id) ? ' open' : ''}>
     <summary><b>セリフ</b> <span class="hint">${n}行 ・ 校正 ${pf}/${n}${t.others > 0 ? ' ・ 他に ' + Number(t.others) + ' 件の文字起こし(いちばん新しいものを表示)' : ''}</span></summary>
@@ -2600,12 +2604,15 @@ async function loadTranscripts(){
 function renderList(){
   const ol = $('#rvList'); if (!ol) return;
   const list = listMarks();
+  /* 空の表示は 2 文と次のボタン 1 つ(見直し M6)。まだ解析していない YouTube の配信なら「解析する」、それ以外は主役の「今をマーク」へ */
   if (!S.cur || !marks().length){
-    ol.innerHTML = `<li class="rv-emptylist empty"><b>まだマークはありません</b>配信を再生し、面白い場面で IN → OUT → 追加(または「今をマーク」)を押すと、ここに出ます。</li>`;
+    const v = S.cur, ana = v && v.kind === 'youtube' && !v.analysis && !S.live;
+    ol.innerHTML = `<li class="rv-emptylist empty"><b>まだマークはありません</b>配信を再生して「今をマーク ①」を押すと、ここに出ます${ana ? '。解析すると、盛り上がった所に自動でマークが付きます' : ''}` +
+      (v ? `<div class="cs-emptyacts">${ana ? '<button type="button" class="btn small" data-empty="analyze">この配信を解析する</button>' : '<button type="button" class="btn small" data-empty="quick">今をマークへ</button>'}</div>` : '') + '</li>';
     return;
   }
   if (!list.length){
-    ol.innerHTML = `<li class="rv-emptylist empty"><b>「${esc(STATUS_LABEL[S.filter] || S.filter)}」のマークはありません</b>上の「全部」で、すべてのマークを表示できます</li>`;
+    ol.innerHTML = `<li class="rv-emptylist empty"><b>「${esc(STATUS_LABEL[S.filter] || S.filter)}」のマークはありません</b>「全部」にすると、すべてのマークが出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-empty="all">全部を表示</button></div></li>`;
     return;
   }
   S.rendering = true;
@@ -2622,7 +2629,8 @@ function renderStats(){
     const f = b.dataset.filter, n = f === 'all' ? v.marks.length : cnt[f];
     b.querySelector('.n').textContent = n; b.setAttribute('aria-pressed', String(S.filter === f));
   }
-  $('#rvBulkAdopt').disabled = !cnt[''];
+  { const b = $('#rvBulkAdopt'); b.disabled = !cnt[''];   // 押せないときは理由を(見直し S17。以前は操作の説明のままだった)
+    b.title = cnt[''] ? `候補のマーク ${cnt['']}件をすべて採用にします` : '候補がありません(自動のマークか「今をマーク」で増えます)'; }
   renderExportUI();
 }
 function renderAll(){
@@ -2647,7 +2655,7 @@ function placeQuickBar(){
 function placeJump(){
   const j = $('#rvJump'), top = $('#rvTop'); if (!j || !top) return;
   const wide = window.matchMedia(WIDE).matches;
-  if (wide && j.parentElement !== top) top.insertBefore(j, $('#rvTheater'));
+  if (wide && j.parentElement !== top) top.insertBefore(j, $('#rvVMenu'));
   else if (!wide && j.parentElement === top) top.after(j);
   j.classList.toggle('is-bar', !wide);
 }
@@ -2705,7 +2713,7 @@ function applyTheater(){
   $('#rvMain').classList.toggle('theater', on);
   $('#rvRoot').classList.toggle('theater-wide', on);
   placeQuickBar();
-  const b = $('#rvTheater'); b.setAttribute('aria-pressed', String(on)); b.querySelector('span').textContent = on ? '通常表示' : 'シアター';
+  const b = $('#rvTheater'); b.setAttribute('aria-pressed', String(on)); b.querySelector('span').textContent = on ? '通常表示に戻す' : 'シアター表示';
 }
 function toggleTheater(){ S.settings.theater = !S.settings.theater; applyTheater(); touchSettings(); }
 
@@ -2731,11 +2739,14 @@ const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
   }
 }) : null;
 /* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える */
+/* 下のキーの帯(場面に合ったキー 7 個まで)。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
+   書き出しの欄を重ねて開いている間(③ のキーは効かない)は、その欄で使うキーだけにする */
 function keybarScene(){
   if (!window.UIKit || !UIKit.keybar) return;
+  { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){   // S.expModal は開いたあとで入るので、属性で見る UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
-  UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), '始まり/終わりの印'),
-    row(t('adopt'), '採用'), row(t('reject'), '不採用'), row(t('nextMark'), '次のマーク'), { k: '?', l: 'キー操作' }].filter(Boolean));
+  UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
+    row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), row(t('adopt'), '採用'), row(t('reject'), '不採用'), { k: '?', l: 'キー操作' }].filter(Boolean));
 }
 
 /* ---------- イベント ---------- */
@@ -2771,6 +2782,12 @@ function wire(){
         focusRow(null, null, idx);   // 次の行(無ければ前の行・無ければ見出し)へ
       }); break;
     }
+  });
+  list.addEventListener('click', e => {   // 空の表示の次の一手(見直し M6)
+    const b = e.target.closest('[data-empty]'); if (!b) return;
+    if (b.dataset.empty === 'analyze') runAnalyze();
+    else if (b.dataset.empty === 'all'){ S.filter = 'all'; renderStats(); renderList(); const f = $('#rvFilters [data-filter="all"]'); if (f) f.focus(); }
+    else { const q = $('#rvQuickbar'), first = $('#rvQuickSlots button[data-slot]'); if (q) q.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (first) first.focus({ preventScroll: true }); }
   });
   list.addEventListener('toggle', e => {   // セリフの開閉を覚える(一覧を描き直しても閉じない)。toggle は泡立たないので capture で受ける
     const d = e.target; if (!d.classList || !d.classList.contains('rv-tx')) return;
@@ -2872,6 +2889,9 @@ function wire(){
   $('#rvPickSort').addEventListener('change', e => { PK.sort = e.target.value === 'channel' ? 'channel' : 'recent'; renderPickList(); });
   plist.addEventListener('click', e => {
     if (e.target.closest('[data-pick-more]')){ PK.limit += 200; renderPickList(); return; }
+    if (e.target.closest('[data-pick-clear]')){   // 0 件のときの次の一手(見直し M6)
+      e.stopPropagation(); PK.q = ''; PK.f = 'all'; $('#rvPickQ').value = ''; $('#rvPickF').value = 'all'; renderPickList(); $('#rvPickQ').focus(); return;
+    }
     const hb = e.target.closest('[data-hide-vid]');
     if (hb){
       e.stopPropagation();   // 描き直しで押した行が DOM から外れると、ui-kit の「外側のクリックで閉じる」が外側と見なして一覧を閉じるため
@@ -2983,7 +3003,7 @@ function wire(){
     if (!n) return toast('配信の範囲外になるため、ずらせませんでした');
     markDirty(); refresh(); toast(`${n}件を ${d > 0 ? '+' : ''}${d}秒ずらしました` + (n < targets.length ? `(範囲外の${targets.length - n}件は除く)` : ''));
   });
-  $('#rvTheater').addEventListener('click', toggleTheater);
+  $('#rvTheater').addEventListener('click', () => { $('#rvVMenu').open = false; toggleTheater(); });   // 0.22.3: 上の行の操作を 3 つにするため「配信の操作」の中へ(見直し S11。T キーはそのまま)
   $('#rvPlayerBox').addEventListener('mouseleave', reclaimFocus);
   $('#rvFilters').addEventListener('click', e => { const b = e.target.closest('[data-filter]'); if (!b) return; S.filter = b.dataset.filter; renderStats(); renderList(); });
   $('#rvFoldAll').addEventListener('click', () => foldAll(true));
@@ -3014,6 +3034,7 @@ function wire(){
   window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
   window.matchMedia(WIDE_EXPORT).addEventListener('change', syncExportDock);
   $('#rvExpClose').addEventListener('click', () => closeExportDrawer(true));
+  document.addEventListener('ui-drawer', e => { const d = e.detail || {}; if (d.el && d.el.id === 'rvExport' && Studio.step === 'review') keybarScene(); });   // 欄を開いた・閉じた(Esc も)で帯を合わせる
   $('#rvExpMore').addEventListener('click', e => { if (e.target.closest('button[id]')) $('#rvExpMore').open = false; });   // 「…」の中を押したら閉じる
 
   // 書き出し
@@ -3088,7 +3109,7 @@ Studio.review = {
 };
 /* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
-const AUTO_STATE = { queued: ['wait', '順番待ち'], running: ['run', '実行中'], done: ['ok', '完了'], error: ['err', '止まりました'], cancelled: ['wait', '中止'] };
+const AUTO_STATE = { queued: ['wait', '待ち'], running: ['run', '実行中'], done: ['ok', '済み'], error: ['err', '失敗'], cancelled: ['wait', '中止'] };
 const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
@@ -3160,16 +3181,10 @@ async function pollAuto(){
   if (active) AUTO.t = setTimeout(pollAuto, 3000);
 }
 
-let warnShown = false, warnDismissed = false;
-function showDataWarning(){
-  const w = Studio.state && Studio.state.dataWarning; if (!w || warnDismissed) return;
-  $('#rvWarnText').textContent = String(w); $('#rvWarn').hidden = false;
-  if (!warnShown){ warnShown = true; toast(String(w), 8000); }
-}
+function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉じる・知らせ 1 回は core.js の 1 か所(② の帯と同じ。見直し M8)
 Studio.onReady(() => {
   buildDOM(); mountSettings(); S.built = true; placeJump();
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
-  $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }
   /* まとめて実行はホームから開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる。S-25) */
   if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)

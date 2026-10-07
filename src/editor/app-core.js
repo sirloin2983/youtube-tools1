@@ -198,6 +198,7 @@ function onEditTab(from, to){
   if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
   if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
   if (to === 'cut' && CUT) CUT.onShown();
+  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 と 3 はカットも。S4)
   if (to === 'pack' && PACK) PACK.shown();
   /* カット・パックのタブは、CUT.onShown()/PACK.shown()(上)が自分の帯をすでに出している(cut は M.sel に応じた場面、pack は clear)。
      ここで tx 以外もまとめて「from が tx なら clear」としてしまうと、その直後の帯を上書きして消してしまう(2026-09-27 に見つけて直した) */
@@ -214,7 +215,7 @@ function txKeybarScene(){
   else {   // 割り当て(⚙ 設定の「キー配置」)のとおりに出す
     const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
     UIKit.keybar.set([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
-      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' }, { k: [k('back3'), k('fwd3')].filter(Boolean).join(' / '), l: '3秒' },
+      { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' },   // 「3秒戻る・進む」は ? の一覧に(帯は 7 個まで。UI の見直し S17)
       ...(DR.on ? [{ k: k('drillDone'), l: '済みにして次へ' }] : []), { k: '?', l: 'キー操作' }].filter(x => x.k));   // 評価ドリルの間は「済みにして次へ」も
   }
 }
@@ -438,11 +439,11 @@ function renderProgress(){
   { const n = PG.evalDocs;
     $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済みの行 ${PG.evalProofedLines}行(${fmtDur(PG.evalProofedSec)})</p>`
       + `<p class="hint" style="margin:2px 0 0">精度の測定の正解(定点)に数えるのは、動画を全部聞いて「済み」にしたものだけです(下の評価ドリル)。</p>`
-      : `<p class="hint" style="margin:4px 0 0">まだありません。設定の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
+      : `<p class="hint" style="margin:4px 0 0">まだ評価用の文字起こしはありません。設定の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
   const p = $('#goalPill'); p.hidden = false;
-  $('#goalPillT').textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}`;
+  $('#goalPillT').textContent = `目標 ${fmtDur(cur)} / ${fmtDur(goal)}`;   // 学習の目標(全部の文書の校正済みの長さ)。文書の「校正 n / m行」と分ける(UI の見直し S6)
   $('#goalPillBar').style.width = pct + '%';
-  p.title = `校正済みの量 ${fmtDur(cur)} / 目標 ${fmtDur(goal)}(${shown}%)。押すと進行度を見ます`;
+  p.title = `学習の目標: 全部の文書で校正済みにした音声 ${fmtDur(cur)} / 目標 ${fmtDur(goal)}(${shown}%)。押すと進行度を見ます`;
   if (document.activeElement !== $('#goalHours')) $('#goalHours').value = String(goal / 3600);
   // 節目に届いたら、一度だけ知らせる
   try {

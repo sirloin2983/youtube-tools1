@@ -272,8 +272,8 @@ def _scene_keymap(cx):
           "3-3: 削除・行の追加を未設定にすると、行の title にキーが出ない: %s / %s" % (row_title("button[data-act=del]"), row_title("button[data-act=adda]")))
     check(km_set("menu", "KeyM") == "M" and pg.get_attribute("#btnMenu", "title").endswith("(M)") and pg.get_attribute("[data-strip=menu]", "title").endswith("(M)"),
           "3-3: メニューのキーを M にすると、メニューのボタンの title が (M): " + pg.get_attribute("#btnMenu", "title"))
-    check(km_set("frameFwd", "KeyU") == "U" and " U " in pg.evaluate("document.querySelector('#cutKeysText').textContent") + " " and pg.evaluate("document.querySelector('#cutKeysText').textContent").count(".") == 0,
-          "3-3: 「1コマ進む」を U にすると、2 カット の下のキーの説明も U(. は出ない): " + pg.evaluate("document.querySelector('#cutKeysText').textContent"))
+    check(km_set("frameFwd", "KeyU") == "U" and km_text("frameFwd") == "U" and "?" in pg.evaluate("document.querySelector('#cutKeysText').textContent"),
+          "3-3: 「1コマ進む」を U にすると、一覧も U。2 カット の下の行は「すべてのキー: ?」だけ(長い説明はやめた。UI の見直し S17): " + pg.evaluate("document.querySelector('#cutKeysText').textContent"))
     check(km_set("playPause", "KeyP") == "P" and pg.get_attribute("#cutPlay", "title") == "再生・停止(P)", "3-3: カットの再生ボタンの title も再生のキーから: " + pg.get_attribute("#cutPlay", "title"))
     check(km_set("markIn", "Delete") == "未設定" and pg.evaluate("document.querySelector('#cutIOLabel').textContent") == "印の間を削る", "3-3: 始まりの印を外すと「I〜O を削る」は「印の間を削る」: " + pg.evaluate("document.querySelector('#cutIOLabel').textContent"))
     check(km_set("proof", "Delete") == "未設定" and "Shift+Space" not in pg.evaluate("document.querySelector('#accCard').textContent") and "Shift+Space" not in (pg.get_attribute("#autoNextLbl", "title") or ""),

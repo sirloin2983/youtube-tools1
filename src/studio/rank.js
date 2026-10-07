@@ -22,7 +22,7 @@ const LIMITS = [10, 30, 50, 100, 0];   // 「全部まとめて」の上位の�
 const R = { reg: { agencies: [] }, job: null, result: null, poll: null, polling: false, picked: new Map(), inQueue: new Set(), analyzed: new Set(), auto: new Map(), regEls: [], busy: new Set(),
   agPick: {}, view: 'all', limit: 30, q: '' };
 
-/* ================= 所属の登録(設定の引き出しに置く) ================= */
+/* ================= 事務所の登録(設定の引き出しに置く) ================= */
 let saveT = null;
 function saveReg(now){
   clearTimeout(saveT);
@@ -72,8 +72,8 @@ function renderReg(){
       <div class="row ag-acts"><button type="button" class="btn small" data-act="imp"${busy}>公式から取り込む</button></div></div>
     <div class="fld"><label class="l">チャンネルを追加(1行に1つ)<textarea class="paste" rows="3" placeholder="@handle&#10;https://www.youtube.com/@handle&#10;UCxxxxxxxxxxxxxxxxxxxxxx"></textarea></label>
       <div class="row ag-acts"><button type="button" class="btn small primary" data-act="add"${busy}>追加して解決</button><button type="button" class="btn small" data-act="res"${busy}>未解決を解決</button><span class="spacer"></span><button type="button" class="btn small danger" data-act="delag">この事務所を削除</button></div></div>
-    <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span><button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません</p>'}</div></div></details>`;
-  }).join('') || '<div class="empty"><b>事務所がありません</b>下の欄から追加してください</div>');
+    <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済み' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span><button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません。「公式から取り込む」か、上の欄に @ハンドル・URL を入れて「追加して解決」すると、ここに出ます</p>'}</div></div></details>`;
+  }).join('') || '<div class="empty"><b>まだ事務所がありません</b>下の欄で事務所の名前を入れて追加すると、ここに出ます</div>');
   const add = `<div class="row ag-new"><label class="l" for="newAgency">事務所を追加</label><input type="text" id="newAgency" class="newAgency" placeholder="例: ○○プロダクション" maxlength="40"><button type="button" class="btn small" data-act="addag">追加</button></div>`;
   for (const el of R.regEls){
     const st = captureReg(el);
@@ -118,10 +118,17 @@ function regClick(e){
     saveReg(true).then(() => S.api('/api/rank/import-official', { body: { agency: id } }))
       .then(r => { R.reg = r.registry; S.toast(`${r.added}件を取り込みました` + (r.notes.length ? '。' + r.notes.join(' / ') : ''), 7000, 'ok'); })
       .catch(er => S.toast(er.message, 0, 'err')).finally(() => { R.busy.delete(id); renderReg(); renderAgChecks(); S.refreshState().catch(() => {}); });
-  } else if (act === 'delch'){ a.channels.splice(Number(b.closest('.ch').dataset.k), 1); saveReg(true); }
-  else if (act === 'delag'){
-    if (b.dataset.arm){ R.reg.agencies.splice(Number(box.dataset.i), 1); saveReg(true); }
-    else { b.dataset.arm = '1'; b.textContent = '本当に削除する'; b.classList.add('solid'); setTimeout(() => { if (b.isConnected){ b.dataset.arm = ''; b.textContent = 'この事務所を削除'; b.classList.remove('solid'); } }, 3000); }
+  } else if (act === 'delch'){   // 外すのは取り消せる操作なので確認せず、知らせの [元に戻す] で同じ位置へ戻す(見直し S15)
+    const k = Number(b.closest('.ch').dataset.k), ch = a.channels[k]; if (!ch) return;
+    a.channels.splice(k, 1); saveReg(true);
+    S.toast(`「${ch.title || ch.ref}」を外しました`, { ms: 6000, kind: 'ok', action: { label: '元に戻す', fn: () => {
+      const ag = R.reg.agencies.find(x => (id ? x.id === id : x === a)); if (!ag) return;
+      ag.channels.splice(Math.min(k, ag.channels.length), 0, ch); saveReg(true);
+    } } });
+  }
+  else if (act === 'delag'){   // 事務所ごと消すのは取り消せないので二度押し(共通の部品 UIKit.confirmTwice。以前は画面で作った二度押し。見直し S15)
+    const i = Number(box.dataset.i);
+    UIKit.confirmTwice(b, () => { if (R.reg.agencies[i] === a){ R.reg.agencies.splice(i, 1); saveReg(true); } }, 'もう一度押すと削除');
   }
 }
 function regInput(e){
@@ -245,7 +252,7 @@ async function startSearch(){
   if (body.start > body.end) return S.toast('開始日は終了日より前にしてください');
   if (!body.agencies.length) return S.toast('対象の事務所を1つ以上選んでください(チャンネルを登録した事務所は、最初から選ばれています)');
   setBusy(true); $('#results').innerHTML = skeleton(); R.result = null; R.picked.clear(); R.q = ''; paintPick();
-  try { R.job = await S.api('/api/rank/search', { body }); } catch (e){ setBusy(false); $('#results').innerHTML = ''; return S.toast(e.message, 0, 'err'); }
+  try { R.job = await S.api('/api/rank/search', { body }); } catch (e){ setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, e.body && e.body.detail); return; }
   clearInterval(R.poll); R.poll = setInterval(pollJob, 700); pollJob();
 }
 const skeleton = () => `<div class="card" aria-busy="true"><div class="ui-skel" style="height:16px;width:28%"></div>${'<div class="rk-skrow"><div class="ui-skel" style="width:96px;height:54px"></div><div style="flex:1"><div class="ui-skel" style="height:13px;width:70%"></div><div class="ui-skel" style="height:11px;width:30%;margin-top:8px"></div></div></div>'.repeat(4)}</div>`;
@@ -255,16 +262,27 @@ async function pollJob(){
   R.polling = true;
   let j;
   try { j = await S.api('/api/rank/search?id=' + encodeURIComponent(R.job.id)); }
-  catch (e){ clearInterval(R.poll); setBusy(false); $('#results').innerHTML = ''; S.toast(e.message, 0, 'err'); return; }
+  catch (e){ clearInterval(R.poll); setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, e.body && e.body.detail); return; }
   finally { R.polling = false; }
   $('#phase').textContent = j.phase || ''; $('#bar').style.width = Math.round((j.progress || 0) * 100) + '%';
   if (j.state === 'running') return;
   clearInterval(R.poll); setBusy(false); S.refreshState().catch(() => {});
-  if (j.state === 'error'){ $('#results').innerHTML = `<div class="empty"><b>検索できませんでした</b>${esc(j.error)}</div>`; return S.toast(j.error, 0, 'err'); }
-  if (j.state === 'cancelled'){ $('#results').innerHTML = '<div class="empty"><b>検索を中止しました</b>条件を変えて、もう一度「検索する」を押してください</div>'; return S.toast('中止しました'); }
+  if (j.state === 'error'){ $('#results').innerHTML = searchErrHTML(j.code, j.error, j.detail); return; }
+  if (j.state === 'cancelled'){ $('#results').innerHTML = '<div class="empty"><b>検索を中止しました</b>条件を変えて、もう一度検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkretry>もう一度検索する</button></div></div>'; return S.toast('中止しました'); }
   R.result = j.result; await loadMarks(); renderResults();
 }
 
+/* 検索の失敗(見直し M7): 何が起きたか + どうすればいいか + 次の一手のボタン(code で選ぶ。「配信中」のタブの lvPaint と同じ考え)。
+   元のメッセージ(HTTP の番号など)は畳んだ欄に。失敗は結果の欄の 1 か所に出す(以前は欄と知らせの 2 か所) */
+function searchErrHTML(code, msg, detail){
+  const act = ['no_key', 'key_invalid', 'api_permission'].includes(code) ? '<button type="button" class="btn small" data-rkopen="setKey">設定で API キーを入れる</button>'
+    : code === 'no_channels' ? '<button type="button" class="btn small" data-rkopen="setReg">事務所の登録を開く</button>'
+    : code === 'no_agency' ? '<button type="button" class="btn small" data-rkfocus=".agc">対象の事務所を選ぶ</button>'
+    : code === 'bad_range' ? '<button type="button" class="btn small" data-rkfocus="#dStart">期間を直す</button>'
+    : code === 'quota' || code === 'busy' ? '' : '<button type="button" class="btn small" data-rkretry>もう一度検索する</button>';
+  return `<div class="empty rk-err" role="alert"><b>検索できませんでした</b>${esc(msg)}${act ? `<div class="cs-emptyacts">${act}</div>` : ''}` +
+    (detail ? `<details class="q-raw"><summary>元のメッセージ</summary><code>${esc(detail)}</code></details>` : '') + '</div>';
+}
 /* ================= 結果 =================
    既定は「全部まとめて」(全事務所の結果を再生数の多い順に並べて上位 N 本。事務所をまたいで比べられる)。「事務所ごと」は以前の別々の表。
    道具の行(絞り込み・見せ方・本数)は作り直さず、下の一覧だけを描き直す(絞り込みの入力中にフォーカスが外れないように) */
@@ -278,7 +296,7 @@ function renderResults(){
       <div class="ui-seg" role="group" aria-label="結果の見せ方"><button type="button" data-view="all" aria-pressed="${R.view === 'all'}">全部まとめて</button><button type="button" data-view="ag" aria-pressed="${R.view === 'ag'}">事務所ごと</button></div>
       <label class="rk-limit"${R.view === 'all' ? '' : ' hidden'}><span class="sr-only">表示する本数</span><select id="rkLimit">${LIMITS.map(n => `<option value="${n}"${n === R.limit ? ' selected' : ''}>${n ? '上位 ' + n + ' 本' : 'すべて'}</option>`).join('')}</select></label>
       <span class="ui-count" id="rkCount"></span></div>
-    <p class="hint rk-sum">調べた配信: <span class="num">${fmtN(r.videos)}</span>本 ・ 使用ユニット: <span class="num">${fmtN(r.quota)}</span>(1日の目安 10,000) ・ 再生数は検索した時点の値です</p>
+    <p class="hint rk-sum">調べた配信: <span class="num">${fmtN(r.videos)}</span>本 ・ 再生数は検索した時点の値です ・ <span title="YouTube Data API の使用量(ユニット)。1 日の目安は 10,000 です">API の使用量 <span class="num">${fmtN(r.quota)}</span></span></p>
     <div id="rkBody"></div>`;
   $('#results').innerHTML = html;
   const q = $('#rkQ'); q.value = R.q;
@@ -295,8 +313,8 @@ function renderBody(){
     all.sort((x, y) => (Number(y.v.views) || 0) - (Number(x.v.views) || 0));
     const hit = all.filter(x => matchQ(x.v, x.ag)); total = hit.length;
     const list = R.limit ? hit.slice(0, R.limit) : hit; shown = list.length;
-    if (!all.length) html = `<div class="empty"><b>条件に合う配信はありませんでした</b>期間を広げるか、ワードを変えて、もう一度「検索する」を押してください</div>`;
-    else if (!hit.length) html = `<div class="empty"><b>「${esc(R.q)}」に合う配信はありません</b>絞り込みの文字を消すと、すべての結果が出ます</div>`;
+    if (!all.length) html = `<div class="empty"><b>条件に合う配信はありませんでした</b>期間を広げるか、ワードを変えて探すと見つかることがあります<div class="cs-emptyacts"><button type="button" class="btn small" data-rkdays="90">期間を直近 90 日にして探す</button></div></div>`;
+    else if (!hit.length) html = `<div class="empty"><b>「${esc(R.q)}」に合う配信はありません</b>絞り込みの文字を消すと、すべての結果が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkclearq>絞り込みを消す</button></div></div>`;
     else html = `<div class="card rk-all"><div class="tbl-wrap"><table class="rk-table">${TABLE_HEAD}<tbody>${list.map((x, i) => row(x.v, i, x.ag)).join('')}</tbody></table></div>` +
       (shown < total ? `<div class="rk-more"><button type="button" class="btn small" id="rkMore">もっと見る(残り ${total - shown} 本)</button></div>` : '') + '</div>';
   } else {
@@ -320,13 +338,13 @@ function row(v, i, agName){
       <div class="row tt-act">${id ? `<button type="button" class="btn small add1" data-id="${esc(v.id)}" data-title="${esc(v.title)}" data-channel="${esc(v.channel)}">解析に追加</button>` : ''}<span class="chip"></span></div></td>
     <td class="n num">${fmtN(v.views)}</td><td class="n num hide-s">${fmtN(v.likes)}</td><td class="num hide-s rk-at">${esc(v.at)}</td><td class="n num hide-s">${fmtDur(v.dur)}</td></tr>`;
 }
-/* 「解析済み」「キューにあります」「まとめて実行中」の印と、チェックの有効/無効 */
+/* 「解析済み」「解析の順番待ち」「まとめて実行中」の印と、チェックの有効/無効 */
 function paintRows(){
   const full = R.picked.size >= MAX_PICK;
   document.querySelectorAll('#results tr[data-vid]').forEach(tr => {
     const id = tr.dataset.vid, a = R.auto.get(id), q = R.inQueue.has(id) || !!a, d = R.analyzed.has(id);
     const chip = tr.querySelector('.chip');   // 以前は ID が不正な行に .chip が無く、ここで例外になって以降の行が塗られなかった
-    if (chip) chip.innerHTML = a ? `<span class="pill run">${a === 'running' ? 'まとめて実行中' : 'まとめて実行の順番待ち'}</span>` : q ? '<span class="pill run">キューにあります</span>' : d ? '<span class="pill ok">解析済み</span>' : '';
+    if (chip) chip.innerHTML = a ? `<span class="pill ${a === 'running' ? 'run' : 'wait'}">${a === 'running' ? 'まとめて実行中' : 'まとめて実行の順番待ち'}</span>` : q ? '<span class="pill wait">解析の順番待ち</span>' : d ? '<span class="pill ok">解析済み</span>' : '';
     const cb = tr.querySelector('.pk'); if (cb){ cb.checked = R.picked.has(id); cb.disabled = q || (full && !cb.checked); }
     tr.classList.toggle('picked', R.picked.has(id));
     const b = tr.querySelector('.add1'); if (b) b.disabled = q;
@@ -560,7 +578,7 @@ function lvPaint(){
   if (!$('#rkLive')) return;
   const d = L.data, e = L.err, st = $('#lvStatus');
   $('#lvRefresh').disabled = L.loading;
-  setText(st, L.loading ? '読み込み中…' : d ? `${fmtClock(Number(d.checkedAt) || L.at)} に確認 ・ 2 分ごとに読み直します ・ 使用ユニット ${fmtN(d.quota)}` : '');
+  setText(st, L.loading ? '読み込み中…' : d ? `${fmtClock(Number(d.checkedAt) || L.at)} に確認 ・ 2 分ごとに読み直します ・ API の使用量 ${fmtN(d.quota)}` : '');
   $('#lvOff').hidden = !d || L.avail;
   let note = '';
   if (e && d) note += `<div class="notice">読み直せませんでした: ${esc(e.message)}(前の結果を出しています)</div>`;
@@ -698,6 +716,11 @@ S.onReady(async () => {
       document.querySelectorAll('#results [data-view]').forEach(x => x.setAttribute('aria-pressed', String(x === v)));
       const lb = document.querySelector('#results .rk-limit'); if (lb) lb.hidden = R.view !== 'all';
       renderBody(); return; }
+    { const o = e.target.closest('[data-rkopen]'); if (o){ S.openSettings(o.dataset.rkopen); return; } }   // 失敗・空の表示の次の一手(見直し M6・M7)
+    if (e.target.closest('[data-rkretry]')){ startSearch(); return; }
+    { const f = e.target.closest('[data-rkfocus]'); if (f){ const el = document.querySelector(f.dataset.rkfocus); if (el){ el.scrollIntoView({ block: 'center' }); el.focus(); } return; } }
+    { const d = e.target.closest('[data-rkdays]'); if (d){ const en = new Date(), st = new Date(); st.setDate(st.getDate() - (Number(d.dataset.rkdays) - 1)); setRange(st, en); saveCond(); startSearch(); return; } }
+    if (e.target.closest('[data-rkclearq]')){ R.q = ''; const q = $('#rkQ'); if (q){ q.value = ''; q.focus(); } renderBody(); return; }
     if (e.target.closest('#rkMore')){ const i = LIMITS.indexOf(R.limit); R.limit = LIMITS[Math.min(LIMITS.length - 1, i + 1)]; const sl = $('#rkLimit'); if (sl) sl.value = String(R.limit); lsSet('limit', R.limit); renderBody(); return; }
     const b = e.target.closest('.add1'); if (!b || b.disabled) return;
     const tr = b.closest('tr');   // ① に残って続けて選べるように、② へは移らない(知らせの [② 解析を見る] で移れる)

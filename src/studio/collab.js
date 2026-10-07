@@ -40,7 +40,7 @@ function paneHtml(){
     </div>
   </section>
   <section class="card" id="clGroups">
-    <div class="card-head"><h2 class="card-title">コラボグループ</h2><span class="card-sub">採用したマークを、同じグループの他の配信へ候補として転写します</span></div>
+    <div class="card-head"><h2 class="card-title">グループ</h2><span class="card-sub">採用したマークを、同じグループの他の配信へ候補として転写します</span></div>
     <div id="clGroupList"></div>
   </section>
   </div>`;
@@ -98,7 +98,7 @@ function renderVideoList(){
   const list = C.videos.filter(matchV), gs = groupsOf(list), many = list.length > 15;
   $('#clCount').textContent = `${list.length} / ${C.videos.length} 本`;
   if (!C.videos.length) box.innerHTML = EMPTY_VIDEOS;
-  else if (!list.length) box.innerHTML = `<div class="empty"><b>条件に合う配信はありません</b>${C.q.trim() ? '探す文字を消すか、' : ''}上の「${esc((FILTERS.find(f => f[0] === C.f) || [])[1] || '')}」を「すべての配信」に変えてください。</div>`;
+  else if (!list.length) box.innerHTML = `<div class="empty"><b>条件に合う配信はありません</b>${C.q.trim() ? '探す文字を消して、' : ''}上の「${esc((FILTERS.find(f => f[0] === C.f) || [])[1] || '')}」を「すべての配信」にすると出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-cl-go="all">すべての配信を表示</button></div></div>`;   // 次の一手(見直し M6)
   else box.innerHTML = gs.map(([k, items]) => { const open = isOpenG(k, items, many), n = items.filter(v => C.checked.has(v.id)).length;
     return `<details class="ui-group cl-vg" data-g="${esc(k)}"${open ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span>${n ? `<span class="ui-group-side"><span class="pill accent">${n}本 選択中</span></span>` : ''}</summary>
       <div class="cl-vg-body">${open ? items.map(videoRowHtml).join('') : ''}</div></details>`; }).join('');
@@ -130,7 +130,7 @@ function renderMakeCard(){
   $('#clMakeTitle').textContent = C.addTo ? `『${g ? (g.name || '(名称未設定)') : ''}』に配信を追加` : '配信をコラボにまとめる';
   $('#clMakeSub').textContent = C.addTo
     ? 'チェックした配信をこのグループに追加します(解析済み・解析前のどちらでも構いません)。'
-    : '同じコラボの、それぞれの人の配信を1つのグループにします。採用したマークを、同じグループの他の配信にも候補として転写できるようになります(自動で採用はしません)。まとめたあと、右の「コラボグループ」でズレ(アンカー)を指定してください。';
+    : '同じコラボの、それぞれの人の配信を1つのグループにします。採用したマークを、同じグループの他の配信にも候補として転写できるようになります(自動で採用はしません)。まとめたあと、右の「グループ」でズレ(アンカー)を指定してください。';
   $('#clBaseRow').hidden = !!C.addTo;
   $('#clGo').textContent = C.addTo ? '追加する' : '選んだ配信をまとめる';
   $('#clCancelAdd').hidden = !C.addTo;
@@ -238,7 +238,7 @@ async function doGo(){
   if (ids.length < 2) return S.toast('まとめる配信を2本以上選んでください');
   try {
     await S.api('/api/collab/group', { body: { videoIds: ids, name: $('#clName').value, base: C.base } });
-    S.toast('コラボのグループにまとめました。「コラボグループ」でズレ(アンカー)を指定してください', 6000, 'ok');
+    S.toast('コラボのグループにまとめました。「グループ」の欄でズレ(アンカー)を指定してください', 6000, 'ok');
     C.checked.clear(); $('#clName').value = '';
     await refresh();
   } catch (e){ S.toast(e.message, 0, 'err'); }
@@ -311,6 +311,7 @@ function clGo(where){
     const f = $('#qUrls'); if (f) f.focus();
     return;
   }
+  if (where === 'all'){ C.q = ''; $('#clQ').value = ''; C.f = 'all'; $('#clF').value = 'all'; renderVideoList(); $('#clQ').focus(); return; }
   if (C.f !== 'free'){ C.f = 'free'; $('#clF').value = 'free'; renderVideoList(); }
   const cb = document.querySelector('#clVideoList input[type=checkbox][data-vid]:not(:disabled)');
   $('#clMake').scrollIntoView({ block: 'start' });

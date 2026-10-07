@@ -457,7 +457,7 @@ test('portal export rows: escaped text, cancel button only while active, "編集
   const done = ctx.jobItemHTML(j, { jobId: 'lx-1', start: 1, end: 2, status: 'done', stateLabel: '済み', path: 'C:\\a.mp4', file: 'a.mp4', tx: { state: 'done', label: '済み' } }, 2);
   assert.ok(done.includes('編集で開く') && done.includes('文字起こし: 済み') && !done.includes('lxcancel'));
   const studio = ctx.jobItemHTML({}, { start: 1, end: 2, status: 'running', progress: 0.5 }, 0);
-  assert.ok(studio.includes('処理中 50%') && !studio.includes('lxcancel'), 'studio export rows are unchanged');
+  assert.ok(studio.includes('実行中 50%') && !studio.includes('lxcancel'), 'studio export rows use the common state words (0.22.3: 処理中 → 実行中)');
 });
 
 test('finished portal jobs mark the studio mark as exported only when the times still match', () => {

@@ -12,7 +12,8 @@ toolEl.innerHTML = '<p class="hint">読み込み中…</p>';
 function build(){
   toolEl.innerHTML = `
   <details class="card set-sec" id="setKey" open><summary><span class="set-title">YouTube Data API キー</span><span class="pill" id="keyState"></span></summary><div class="body">
-    <p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの config.json にだけ保存し、画面には表示しません。環境変数 <code>YOUTUBE_API_KEY</code> があれば、そちらが優先されます。</p>
+    <p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの中にだけ保存し、画面には表示しません。</p>
+    <details class="q-raw"><summary>保存する場所</summary><code>作業データの config.json。環境変数 YOUTUBE_API_KEY があれば、そちらが優先されます</code></details>
     <div class="fld"><label class="l" for="keyIn">APIキー</label>
     <input type="password" id="keyIn" placeholder="AIza..." autocomplete="off" spellcheck="false"></div>
     <div class="row set-actions"><button type="button" class="btn small primary" id="keySave">保存</button><button type="button" class="btn small danger" id="keyDel">キーを削除</button></div>
