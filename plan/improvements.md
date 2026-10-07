@@ -9,12 +9,12 @@
 | 順 | 何を | なぜ今 | 大きさ | 誰 |
 | --- | --- | --- | --- | --- |
 | 1 | 入口を起動し直して、新しい版(入口 0.40.1・編集 0.58.1・スタジオ 0.21.1 ほか)で普段どおり使う。配信後の全自動(`live.autoAfterStream`)は本物の配信 1 本で試す | ②③ の変更を実機で確かめる最短の道。M7 が動けば採用の記録・パック・校正が自動で貯まる | — | ユーザー |
-| 2 | 8 の `dev/eval_asr.py` の設定の差し替えが効いていない件を直す(`load_serve` が serve を sys.modules に登録していない) | 測る道具の結論の信頼性に関わる。B2 の結果は要求の本文で渡る引数だけ使ったので影響なし | S | AI |
-| 3 | 9 の「置き換えられる所」の残り(dev の `_evalcommon`・`schemas.num`・`no_window_flags`、recorder/editor の `KillJob` を ytt_core へ) | 重複が残っている所。動きは変わらない | S | AI |
-| 4 | editor 画面の `#optAutoContext` の保存(1 行の既存の不具合) | 設定が保存されないことがある | S | AI(判断は 3-2) |
+| 2 | **済み(2 周目)** 8 の `dev/eval_asr.py` の設定の差し替えが効いていない件を直す(`load_serve` が serve を sys.modules に登録していない) | 測る道具の結論の信頼性に関わる。B2 の結果は要求の本文で渡る引数だけ使ったので影響なし | S | AI |
+| 3 | **済み(2 周目)** 9 の「置き換えられる所」の残り(dev の `_evalcommon`・`schemas.num`・`no_window_flags`、recorder/editor の `KillJob` を ytt_core へ) | 重複が残っている所。動きは変わらない | S | AI |
+| 4 | **済み(2 周目。編集 0.58.2)** editor 画面の `#optAutoContext` の保存(1 行の既存の不具合) | 設定が保存されないことがある | S | AI(判断は 3-2) |
 | 5 | 2〜3 人の確かめ済み文書を 10 本ためて I-2a を再測定(しきい値 0.6 の確認・pyannote の比較) | A1 は 1 人の文書に偏った数字 | ユーザーの校正 + AI 4 時間 | 両方 |
 | 6 | 次の評価用の下書きを whisper.cpp 以外のエンジンから作る(E1 の有利な偏りを減らす) | 正解 22 本が全部 whisper.cpp 由来 | S | AI(ドリルの設定) |
-| 7 | cut2resolve の使う側の無い API(`/api/inspect` など約 200 行)と単独コマンドを消すか決める | 9 の候補。消せば短くなるが API の約束が変わる | 判断 | ユーザー |
+| 7 | **済み(2 周目。0.22.0 で消した)** cut2resolve の使う側の無い API(`/api/inspect` など約 200 行)と単独コマンドを消すか決める | 9 の候補。消せば短くなるが API の約束が変わる | 判断 | ユーザー |
 
 ## 1. 課題 10 件と改善案(全体。2026-10-06 の再調整)
 | # | 課題 | 改善案 | 効く線 | 大きさ | 状態 |
@@ -116,38 +116,38 @@ AI が出典から拾ったもの。急ぎではない。
 ## 8. 10-07 の実装で見つかったこと(B1 の担当から)
 | 見つかったこと | 直し方(案) | 大きさ |
 | --- | --- | --- |
-| `dev/eval_asr.py` の `load_serve` で設定を差し替えても ed_jobs に届いていない(serve を sys.modules に登録せずに読むため `S.名前 = …` が転送されない)。計画の 6 の「配り直し なし / あり」は両方「あり」で流れていた可能性 | `load_serve` で読み込んだ部品を `sys.modules` に登録するか、`S.ed_jobs` に直接入れる(eval_timing と同じ) | S |
-| `eval_asr` の `post_meta` に endTrim・joinGap が無く、`compare` が 0.57.1 の前後の違いを知らせない | `S.post_record()` を post_meta に入れる | S |
+| **済み(2 周目)** `dev/eval_asr.py` の `load_serve` で設定を差し替えても ed_jobs に届いていない(serve を sys.modules に登録せずに読むため `S.名前 = …` が転送されない)。計画の 6 の「配り直し なし / あり」は両方「あり」で流れていた可能性 | `load_serve` で読み込んだ部品を `sys.modules` に登録するか、`S.ed_jobs` に直接入れる(eval_timing と同じ) | S |
+| **済み(2 周目)** `eval_asr` の `post_meta` に endTrim・joinGap が無く、`compare` が 0.57.1 の前後の違いを知らせない | `S.post_record()` を post_meta に入れる | S |
 | 確かめ済み 22 本のうち 9 本は original が 10-04(0.53.1 より前)のもので、後処理の版が混ざっている | `eval_timing.py --apply` の reproduced(再現率)で見分ける。ドリルで作り直すと新しい版になる | — |
 
 ## 9. ③ コードの見直しで直さなかった候補(2026-10-07。やるかはユーザーの判断)
 | 所 | 候補 | 理由・大きさ |
 | --- | --- | --- |
-| friend-apps | `Validation.ParseUrlLines`・`UrlParseResult`(約 30 行)は製品で使っていない。消すとテスト 1 件が空になる | 消してよいか判断待ち(S) |
-| friend-apps | 2 つのアプリの `Json`・`Log` の共通化(約 70〜100 行減) | build.bat とテストの using を触る構成の変更(S〜M。確認が要る) |
+| friend-apps | **済み(2 周目)** `Validation.ParseUrlLines`・`UrlParseResult`(約 30 行)は製品で使っていない。消すとテスト 1 件が空になる | 消してよいか判断待ち(S) |
+| friend-apps | **済み(2 周目)** 2 つのアプリの `Json`・`Log` の共通化(約 70〜100 行減) | build.bat とテストの using を触る構成の変更(S〜M。確認が要る) |
 | friend-apps | `--screenshot` の見本と画像保存(約 250 行) | 設計書と README が使い方を書き、テストも使うので残した |
-| studio | `review.js` の大きな関数(`renderExportUI`・`buildDOM`)の分割 | `test_review.cjs` が関数名とコメントで切り出して動かしているので、テストも書き直しになる(M) |
+| studio | **済み(2 周目)** `review.js` の大きな関数(`renderExportUI`・`buildDOM`)の分割 | `test_review.cjs` が関数名とコメントで切り出して動かしているので、テストも書き直しになる(M) |
 | studio | `analyze.py` の式の部分 | 線 D の L1 で `ytt_core/excite.py` へ移すときに整理する |
-| ui-kit | `ui-kit.css` の v12(サイバー風)の上書きの節(同じ selector が 28 組 2 回) | まとめると重なりの順が変わり見た目が変わるおそれ(要・画面の比較) |
-| dev | `eval_asr.py`・`eval_speakers.py`・`eval_timing.py` も `_evalcommon.py` を使うようにする(約 100 行減) | ③ の間は別の担当が使っていたので後回し(S) |
+| ui-kit | **15 組は済み・13 組は残す(2 周目)** `ui-kit.css` の v12(サイバー風)の上書きの節(同じ selector が 28 組 2 回) | まとめると重なりの順が変わり見た目が変わるおそれ(要・画面の比較) |
+| dev | **済み(2 周目)** `eval_asr.py`・`eval_speakers.py`・`eval_timing.py` も `_evalcommon.py` を使うようにする(約 100 行減) | ③ の間は別の担当が使っていたので後回し(S) |
 | dev | `eval_split.fold` は `src/editor/roster.py` の fold と同じ(写し) | 道具から editor の部品を読むと sys.path が広がるので写しのまま |
-| cut2resolve | 使う側の無い API `/api/inspect`・`/api/upload`・`/api/state`・`/media/<token>`(消した画面のためのもの。今の編集とまとめて実行が呼ぶのは plan・build・job・job/cancel・open-folder だけ) | 消すと約 200 行減るが API の約束を変える(test_mount・e2e_pipeline・e2e_datadir も使う)。判断待ち(S〜M) |
+| cut2resolve | **済み(2 周目。0.22.0)** 使う側の無い API `/api/inspect`・`/api/upload`・`/api/state`・`/media/<token>`(消した画面のためのもの。今の編集とまとめて実行が呼ぶのは plan・build・job・job/cancel・open-folder だけ) | 消すと約 200 行減るが API の約束を変える(test_mount・e2e_pipeline・e2e_datadir も使う)。判断待ち(S〜M) |
 | cut2resolve | 単独のコマンド `srt2resolve.py`(README に無いがテストはある)・`auto_cut.py` の CLI(`write_package`)・補助の FCPXML(`--fcpxml`。Resolve で未確認) | 機能の削除になるので判断待ち |
-| cut2resolve | `auto_cut.build_cut_fcpxml` の区間×字幕の走査 | 補助の FCPXML でしか使わない。二分探索にするには形を変える必要(S) |
-| recorder → home | 入口の `live.py` が `GET /live/<id>/status` を since なしで呼ぶと、最大 5000 件のセグメントが毎回返る。firstPdt だけなら since を大きくすれば軽い | ③ home のときに(S) |
-| recorder・editor | `KillJob`(子プロセスを閉じると孫も終わる仕組み)が `src/recorder/rec_core.py` と `src/editor/tx_engines.py` に同じ形である | `ytt_core` に 1 つにまとめる(S。③ ytt_core のときに) |
-| recorder | recording.json の sessions が null だと起動時の復旧で落ちる(部品が書く値は常にリストなので、手で書き換えたときだけ) | 読み込みで型を確かめる(S) |
-| ytt_core → 各ツール | 共通の小道具への置き換え(動きは同じ): `fsio.unlink_quiet`(editor tx_engines・home live_archive/live_export の `_unlink`)/ `tools.no_window_flags()`(home intake/live・dev eval_fetch・recorder の NO_WINDOW)/ `schemas.num`(home accuracy・dev eval_effort/eval_timing/eval_marks の num)/ `layout.UI_KIT_DIR`・`RECORDER_DIR`(home launch/live の文字列) | ③ home のときに home の分を。dev・recorder は次の機会(S) |
+| cut2resolve | **済み(2 周目)** `auto_cut.build_cut_fcpxml` の区間×字幕の走査 | 補助の FCPXML でしか使わない。二分探索にするには形を変える必要(S) |
+| recorder → home | **済み(2 周目。実際はスタジオの帯側)** 入口の `live.py` が `GET /live/<id>/status` を since なしで呼ぶと、最大 5000 件のセグメントが毎回返る。firstPdt だけなら since を大きくすれば軽い | ③ home のときに(S) |
+| recorder・editor | **済み(2 周目)** `KillJob`(子プロセスを閉じると孫も終わる仕組み)が `src/recorder/rec_core.py` と `src/editor/tx_engines.py` に同じ形である | `ytt_core` に 1 つにまとめる(S。③ ytt_core のときに) |
+| recorder | **済み(2 周目。0.3.2)** recording.json の sessions が null だと起動時の復旧で落ちる(部品が書く値は常にリストなので、手で書き換えたときだけ) | 読み込みで型を確かめる(S) |
+| ytt_core → 各ツール | **済み(2 周目)** 共通の小道具への置き換え(動きは同じ): `fsio.unlink_quiet`(editor tx_engines・home live_archive/live_export の `_unlink`)/ `tools.no_window_flags()`(home intake/live・dev eval_fetch・recorder の NO_WINDOW)/ `schemas.num`(home accuracy・dev eval_effort/eval_timing/eval_marks の num)/ `layout.UI_KIT_DIR`・`RECORDER_DIR`(home launch/live の文字列) | ③ home のときに home の分を。dev・recorder は次の機会(S) |
 | ytt_core | evaldata の書き出す側だけの関数(`scrub_paths`・`zip_name`・`safe_url`・`raw_links`・`RULES`。約 40 行)は簡易版を消してからテストだけが使う | 消すとテストが減る。判断待ち(S) |
 | ytt_core ほか | 「パスがフォルダの中か」の判定が 5 か所(backup・eval_import・ed_relink・live_archive・studio common)で少しずつ違う(abspath か realpath か・同じフォルダを含むか) | セキュリティの検査なので、1 つずつ意味を決めてからまとめる(M) |
 | dev | `schemas.iso_now` への置き換え(eval_fetch・eval_split はマイクロ秒まで書いている) | 記録の形が変わるので確認が要る |
-| home(線 D M7) | 配信後の全自動の進み具合はスタジオの LIVE の帯に出ていない(API の `archiveInfo.afterStream` と「調子」の失敗だけ) | M9(確認の一覧)と一緒に帯へ(S) |
-| home(M5) | 画面の「起動し直す」はまとめて実行が動いていると断るが、M5 で起動し直しても戻るようになったので緩められる | S |
+| home(線 D M7) | **済み(2 周目)** 配信後の全自動の進み具合はスタジオの LIVE の帯に出ていない(API の `archiveInfo.afterStream` と「調子」の失敗だけ) | M9(確認の一覧)と一緒に帯へ(S) |
+| home(M5) | **済み(2 周目。0.41.0)** 画面の「起動し直す」はまとめて実行が動いていると断るが、M5 で起動し直しても戻るようになったので緩められる | S |
 | home(M7) | e2e は偽のまとめて実行に「文字起こし → パック」で渡す所まで。パックそのものは本物の配信 1 本(ユーザー)で確かめる | — |
-| editor 画面 | 新規の「認識の設定」の「配信に出る人の名前と呼び名を…」(`#optAutoContext`)だけ change の待ち受けが無く、ほかの設定を変えるまで保存されない(既存の不具合。③ では動きを変えないので直していない) | 直すかは判断待ち(S。1 行) |
-| editor 画面 | 校正済みの数え直し(`updatePfStat`)は 1 つ変えるたびに全行を数える | 差分で数えるには印を変える所すべてに手を入れる(M) |
+| editor 画面 | **済み(2 周目。0.58.2)** 新規の「認識の設定」の「配信に出る人の名前と呼び名を…」(`#optAutoContext`)だけ change の待ち受けが無く、ほかの設定を変えるまで保存されない(既存の不具合。③ では動きを変えないので直していない) | 直すかは判断待ち(S。1 行) |
+| editor 画面 | **測って不要(2 周目。0.2ms)** 校正済みの数え直し(`updatePfStat`)は 1 つ変えるたびに全行を数える | 差分で数えるには印を変える所すべてに手を入れる(M) |
 | editor テスト | 古い e2e 7 本のサーバー起動・写すファイルの一覧・call() が `e2e_edit_common` と重なる | 寄せると import 時の環境変数でテストの条件が変わるので 1 本ずつ確かめてから(S〜M) |
-| studio → recorder | スタジオの `review.js` が中継 `r/<録画元>/<録画>/status` を 3 秒ごとに since なしで呼び、最大 5000 件の segmentList を受けている(使っていない) | `liveRest(v, 'status?since=999999999')` にする(S。入口側の `_rec_status` は前から since つき) |
+| studio → recorder | **済み(2 周目)** スタジオの `review.js` が中継 `r/<録画元>/<録画>/status` を 3 秒ごとに since なしで呼び、最大 5000 件の segmentList を受けている(使っていない) | `liveRest(v, 'status?since=999999999')` にする(S。入口側の `_rec_status` は前から since つき) |
 | home | prefs.json を毎回読み直している | 更新時刻で覚えると同じ時刻に書かれた新しい値を見落とすおそれ。今のまま |
 
 (コードの見直しで見つかったものは作業の終わりに追記)
