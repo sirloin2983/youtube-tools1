@@ -1009,11 +1009,11 @@ def _scene_peaks(cx):
     # 3 秒の見回りで作り直さない(要素が同じ)・差分(since)で聞いている
     pg.evaluate("() => { window.__pkRows = [...document.querySelectorAll('#rvPeakList .rv-peak')]; }")
     g1 = len(reqs)
-    _pw_wait(pg, lambda: len([u for u in reqs[g1:] if "since=" in u]) >= 2, 15)
+    _pw_wait(pg, lambda: len([u for u in reqs[g1:] if "since=" in u]) >= 2, 35)   # 録画が終わっていると見回りは 10 秒ごと
     gone = pg.evaluate("() => window.__pkKeep.filter(([s, el]) => !el || !el.isConnected || document.querySelector(s) !== el).map(([s]) => s)"
                        " .concat(window.__pkRows.filter(el => !el.isConnected).map(el => el.dataset.pid))")
     check(len([u for u in reqs[g1:] if "since=" in u]) >= 2 and not gone,
-          "L3 見回り(since の差分 %d 回)で帯・候補の行が作り直されない: %s" % (len([u for u in reqs[g1:] if "since=" in u]), gone))
+          "L3 見回り(since の差分 %d 回。録画が終わっていれば 10 秒ごと)で帯・候補の行が作り直されない: %s" % (len([u for u in reqs[g1:] if "since=" in u]), gone))
 
     # ⚙ の設定: 配信中の候補(live.detect)と自動採用(live.autoAdopt)→ 入口の設定に入り、帯の見出しに出る
     pg.click("#btnSettings")

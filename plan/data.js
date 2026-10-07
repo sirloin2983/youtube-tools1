@@ -6,7 +6,7 @@ window.PLAN = {
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。10-07 夜: 線 D の配信中の検出(L1〜L3)と自動マーク(M11)を前倒し(plan/line-d-detect.md。10-08 から)。",
   versions: [
-    ["入口(ホーム)", "0.42.3"], ["切り抜きスタジオ", "0.22.3"], ["編集", "0.59.4"], ["cut2resolve", "0.22.2"],
+    ["入口(ホーム)", "0.43.0"], ["切り抜きスタジオ", "0.23.0"], ["編集", "0.59.4"], ["cut2resolve", "0.22.2"],
     ["録画の部品", "0.3.2"], ["ui-kit", "v23"], ["送るアプリ", "2.2.0"], ["ホロカラー", "1.4.3"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
@@ -16,7 +16,7 @@ window.PLAN = {
     { id: "③", name: "コードの見直し(2 周目まで)", state: "done", detail: "2 周目(基準 docs/spec/code-quality.md・dev/lint.py 28 件 → 0 件): _send を ytt_core に・KillJob を 1 つに・eval_asr の設定の差し替えの不具合・cut2resolve の未使用 API 削除と動画のコピーの省略・friend-apps の共通化と操作 3 つ・e2e の分割・optAutoContext の保存。1 周目: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)・editor 画面側(0.58.1。4,000 行で 2.8 万回の計算を 1 回に)・home(0.40.1。POST の振り分けを表に)。動きは変えず、API・形式・画面は同じ。単体・e2e の最終の通しは下の WORKLOG" },
     { id: "⑤", name: "段 7〜9(気が利く画面へ)の残りの実装", state: "done", detail: "10-07 夜に完了。段 7〜8 = 覚える値・次の一手・空の状態のボタン・押せない理由・用語の統一(スタジオ 0.22.0〜0.22.3・入口 0.42.0〜0.42.2・編集 0.59.0〜0.59.3・ui-kit v21〜v23)。段 9 = 16 場面 × 3 幅 × 明暗の 600 枚を撮って Must-fix 5 件を直した(docs/design/briefs/ux-consistency/DESIGN_REVIEW.md)。残した要望は plan/improvements.md の 10。仮決め (ac)〜(al) はユーザー確認済み" },
     { id: "⑥", name: "全ての UI の見直し(基準を作って合格までループ)", state: "done", detail: "10-07 夜に完了(3 周で合格)。基準 docs/spec/ui-review-criteria.md(A = 機械で測る 31 項目 / B = 人が見る 21 項目)と測る道具 dev/ui_audit.py(画面を変えたら Must 0 件)。A の Must 704 件(一意 144)→ 9 → 0、見直し役 3 人の Must ホーム 10・スタジオ 9・編集 9 → 0。ui-kit v23・ホーム 0.42.3・スタジオ 0.22.3・編集 0.59.3。結果は docs/design/briefs/ux-consistency/DESIGN_REVIEW.md、仮決めは plan/decisions.md の (ar)〜(bf)(確認してほしい)、残りの Should・Could は plan/improvements.md の 11。Linux(クラウド)で合格を判定したので、Windows でも e2e を流し直すと確実" },
-    { id: "⑦", name: "線 D の前倒し(配信中の検出 L1〜L3 + 自動マーク M11)", state: "next", detail: "10-07 夜のユーザー指示「L1〜L3 と M11 を早めにやりたい」→ 計画 plan/line-d-detect.md(10-08 から。L1 式を 1 つに → L2 ワーカー ∥ L3 スタジオの帯 → M11 自動採用(既定オフ)→ 10-18/19 に検出オンで配信 1 本 → 候補を見て M11 をオンにするか決める)。仮決め (bg)〜(br) は plan/decisions.md の 3-7。同じ夜に M7(配信後の全自動)のスイッチをオンにして今夜の配信で試す" },
+    { id: "⑦", name: "線 D の前倒し(配信中の検出 L1〜L3 + 自動マーク M11)", state: "doing", detail: "10-07 夜のユーザー指示「L1〜L3 と M11 を早めにやりたい」「障害がないなら最優先で試験したい」→ 同じ夜に L1(excite.py。golden 完全一致)→ L2(ワーカー + 入口の候補の API + M11。入口 0.43.0)∥ L3(スタジオの帯。0.23.0)を並列で実装し合流(e2e_live_studio 164 件)。検出・自動採用は試験中の機能の中のスイッチで既定オフ。残り: M8・M10・ワーカーの遅れの短縮・M9(確認の一覧)を実装中 → 起動し直し → 10-18/19 に検出オンで配信 1 本 → 候補を見て M11 をオンにするか決める。仮決め (bg)〜 は plan/decisions.md の 3-7。M7 は今夜の配信で試験中(スイッチをオンにした)" },
     { id: "④", name: "plan の文書", state: "done", detail: "plan/improvements.md(次に手を付けるなら の優先順・各線の候補・③ で見つかった問題)・plan/decisions.md(仮で決めたこと (a)〜(r))・このページ(user-tasks)。10-07" }
   ],
   /* 各線の進捗 */
@@ -39,10 +39,10 @@ window.PLAN = {
       next: "C1 I-4a 盛り上がりの重み(L1 のあと)→ C2 I-4b 言葉の材料(B2 のあと)→ C3 I-3a カット",
       gate: "採用の記録 配信 10 本(今 0)・たたき台つきのパック 20 本(今 0)",
       docs: ["line-bc-master-plan.md"] },
-    { id: "D", name: "リアルタイム切り抜き → 配信後の全自動", color: "#8e44ad", pct: 55,
+    { id: "D", name: "リアルタイム切り抜き → 配信後の全自動", color: "#8e44ad", pct: 70,
       aim: "配信 → 自動で盛り上がり → マーク → 書き出し → 文字起こし → パック(人が見るのはパックのあと)",
-      done: "P1〜P4(録画・マーク・スタジオに統合・アーカイブで本番版。既定オフ。10-04〜06)・M1〜M7(10-07。adopt API・設定の受け渡し・失敗の集約・ディスクの見張り・起動し直しで戻す・専用の枠・配信後の全自動 = 入口 0.40.0。既定オフ)",
-      next: "前倒し(10-07 夜決定): 今夜 M7 の試し(オン済み)→ 10-08 から L1 式を 1 つに → L2 ワーカー ∥ L3 スタジオの帯 → M11 自動採用(既定オフ)→ 10-18/19 に検出オンで配信 1 本(L4')→ 候補を見て M11 をオンにするか決める → M9 → M8・M10・C1〜C3。計画は line-d-detect.md",
+      done: "P1〜P4(録画・マーク・スタジオに統合・アーカイブで本番版。既定オフ。10-04〜06)・M1〜M7(10-07。adopt API・設定の受け渡し・失敗の集約・ディスクの見張り・起動し直しで戻す・専用の枠・配信後の全自動 = 入口 0.40.0。既定オフ)・**L1〜L3・M11(10-07 夜。式を excite.py に・検出のワーカー + 候補の API・スタジオの帯・自動採用 = 入口 0.43.0・スタジオ 0.23.0。既定オフ)**",
+      next: "M8・M10・ワーカーの残り(同時 2 本・変わり目・遅れの短縮)と M9(確認の一覧 + M12)を実装中 → 起動し直し → 10-18/19 に検出オン(自動採用オフ)で配信 1 本(L4')→ 候補を見て M11 をオンにするか決める → C1〜C3。計画は line-d-detect.md",
       gate: "L0 は止める条件にしない(今夜 1 時間読めれば読む)。M11 をオンにするのは候補を 1〜2 本の配信で見てから(ユーザー)。M9 は M11 をオンにする前に",
       docs: ["line-d-detect.md", "line-d-auto-pack.md", "line-d-live-clipping.md"] },
     { id: "別件", name: "友人からの依頼・ホロカラー", color: "#6b7280", pct: 90,
@@ -82,13 +82,13 @@ window.PLAN = {
     { id: "M7", name: "配信後の全自動(アーカイブ → 上位 N → パック)(実装済み 10-07。既定オフ。本物の配信 1 本の確認はユーザー)", line: "D", who: "AI → ユーザー", phase: "1D", pre: ["M1", "M2", "M3"], rec: ["M4", "M5"], ai: "6〜10 時間", user: "本物の配信 1 本の確認 30 分", wait: "アーカイブ + 処理 数時間", state: "wait" },
     { id: "B3", name: "I-5 字幕の分け方", line: "B", who: "AI", phase: "2", pre: [], rec: ["B1"], ai: "見比べ・机上評価 済み(10-07 深夜)。実装 1〜2 時間", user: "答え 5 分", state: "doing" },
     { id: "L1", name: "盛り上がりの式を 1 つに(excite.py。golden 完全一致・Online・候補の帳簿 PeakBook)(済み 10-07 夜)", line: "D・C", who: "AI", phase: "3", pre: [], rec: [], ai: "6〜8 時間", user: "—", state: "done" },
-    { id: "L2", name: "配信中の検出のワーカー + 入口(live_detect.py・候補の API・調子)+ M11 の入口側(線 1)", line: "D", who: "AI", phase: "3", pre: ["L1"], rec: ["L0", "M6"], ai: "2〜3 日", user: "—", state: "doing" },
-    { id: "L3", name: "スタジオの LIVE の帯に候補(線 2。L2 と並列。偽の応答で先に作る)", line: "D", who: "AI", phase: "3", pre: ["L1"], rec: ["L2"], ai: "8〜12 時間", user: "—", state: "doing" },
-    { id: "M11", name: "配信中に自動でマーク(5 分待ち・既定オフ。実装を前倒し。M13 は「控え」の札だけ)", line: "D", who: "AI", phase: "3", pre: ["L2", "L3"], rec: [], ai: "4〜6 時間", user: "オンにするかの決定 15 分(候補を 1〜2 本の配信で見てから)", state: "todo" },
-    { id: "L4", name: "L4' 検出オン(自動採用オフ)で本物の配信 1 本(U4 と兼ねる)", line: "D", who: "ユーザー + AI", phase: "3", pre: ["L3"], rec: ["U4"], ai: "結果の読み 2 時間", user: "30 分 + 配信 1 本", state: "todo" },
-    { id: "M9", name: "自動でできたパックの確認の一覧 + M12 届ける(M11 をオンにする前に)", line: "D", who: "AI", phase: "4", pre: ["M1", "M3"], rec: ["M11"], ai: "6〜10 時間", user: "—", state: "todo" },
-    { id: "M8", name: "カットのたたき台", line: "D", who: "AI", phase: "4", pre: ["M7"], rec: [], ai: "1〜2 時間", user: "—", state: "todo" },
-    { id: "M10", name: "自動の候補の長さを人の記録から", line: "D", who: "AI", phase: "4", pre: ["L1"], rec: ["C1"], ai: "1〜2 時間", user: "—", state: "todo" },
+    { id: "L2", name: "配信中の検出のワーカー + 入口(live_detect.py・候補の API・調子)+ M11 の入口側(線 1)(済み 10-07 夜。入口 0.43.0)", line: "D", who: "AI", phase: "3", pre: ["L1"], rec: ["L0", "M6"], ai: "2〜3 日", user: "—", state: "done" },
+    { id: "L3", name: "スタジオの LIVE の帯に候補(線 2。L2 と並列)(済み 10-07 夜。スタジオ 0.23.0)", line: "D", who: "AI", phase: "3", pre: ["L1"], rec: ["L2"], ai: "8〜12 時間", user: "—", state: "done" },
+    { id: "M11", name: "配信中に自動でマーク(5 分待ち・既定オフ。M13 は「控え」の札だけ)(実装済み 10-07 夜。オンにするかはユーザー)", line: "D", who: "AI → ユーザー", phase: "3", pre: ["L2", "L3"], rec: [], ai: "4〜6 時間", user: "オンにするかの決定 15 分(候補を 1〜2 本の配信で見てから)", state: "done" },
+    { id: "L4", name: "L4' 検出オン(自動採用オフ)で本物の配信 1 本(U4 と兼ねる)", line: "D", who: "ユーザー + AI", phase: "3", pre: ["L3"], rec: ["U4"], ai: "結果の読み 2 時間", user: "30 分 + 配信 1 本", state: "next" },
+    { id: "M9", name: "自動でできたパックの確認の一覧 + M12 届ける(M11 をオンにする前に)", line: "D", who: "AI", phase: "4", pre: ["M1", "M3"], rec: ["M11"], ai: "6〜10 時間", user: "—", state: "doing" },
+    { id: "M8", name: "カットのたたき台", line: "D", who: "AI", phase: "4", pre: ["M7"], rec: [], ai: "1〜2 時間", user: "—", state: "doing" },
+    { id: "M10", name: "自動の候補の長さを人の記録から", line: "D", who: "AI", phase: "4", pre: ["L1"], rec: ["C1"], ai: "1〜2 時間", user: "—", state: "doing" },
     { id: "L5", name: "当たり具合(配信中 vs アーカイブ・採用率・手直し。比較は配信ごとに自動で記録)", line: "D・C", who: "AI", phase: "4", pre: ["L4"], rec: ["M9", "C1"], ai: "3〜4 時間", user: "判定は U7 の中", wait: "配信 数本(数週間)", state: "todo" },
     { id: "C1", name: "I-4a 盛り上がりの重み・辞書・笑い/叫び", line: "C", who: "AI", phase: "4", pre: ["L1", "U7"], rec: ["M11"], ai: "8〜16 時間", user: "記録は U7", state: "todo" },
     { id: "C2", name: "I-4b 盛り上がりの言葉の材料", line: "C", who: "AI", phase: "4", pre: ["L1", "B2"], rec: ["C1"], ai: "6〜10 時間", user: "—", state: "todo" },
