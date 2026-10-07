@@ -2148,3 +2148,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   `dev/tests/test_eval_asr.py` の `test_repeat_one_is_same_as_before` はメモリの数字で揺れる(比べる出力からメモリの行を除くなど。dev/ の担当で)
 - 注意: 起動中のホームは古いコードのまま(「すべて終了」→ start.bat)。`plan/decisions.md`・`plan/ux-stage7-9.md` の未コミットの変更はまとめ役のもので、このコミットに含めていない
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(まとめ役 Opus)— 段 7〜9 の途中で中止(ユーザー指示「いったん中止」)。未コミットの一覧と再開の手順
+- 済み(コミット済み): 段 7〜8 の 3 画面(スタジオ 0.22.0 f338999・入口 0.42.0 42e5db4・編集 0.59.0 c57df47)と、段 7 の用語の統一 + ui-kit v21(編集 0.59.1・入口 0.42.1・スタジオ 0.22.1。cd4c9dd)。e2e・lint はそこまで全部 OK
+- **段 9(見た目の確認)は途中で止めた**(サブエージェント Opus を中止)。作業フォルダに残っている段 9 の変更は **テスト前・未コミット**: ui-kit v22(`src/ui-kit/ui-kit.css`・`ui-kit.js` と studio・editor の写し。暗いテーマの赤い面の文字を濃く `--danger-on`・ポップオーバーを中身の読み込み後に画面に収まる位置へ・知らせがあふれても失敗の知らせは残す)・編集 0.59.2(`app.js`・`serve.py`・`index.html`・`README.txt`・`AGENTS.md`)・入口 0.42.2(`launch.py`・`portal.css`・`portal.js`・`README.txt`。案件の行の「設定を変える」が行の端で切れる直し・調子の「異常終了(7 日)」の文)・スタジオ 0.22.2(`core.js`・`serve.py`・`review.css`・`README.txt`)。DESIGN_REVIEW.md・`docs/spec/ui-guidelines.md` の反映・REQUEST.md の状態の行はまだ書いていない
+- まとめ役の未コミット(こちらは完成している): `plan/decisions.md`(3-3 仮決め (ac)〜(al))・`plan/ux-stage7-9.md`(判定を済みに)・`plan/improvements.md`(10. 段 7〜9 で残したもの)・`dev/tests/test_eval_asr.py`(揺れていた `test_repeat_one_is_same_as_before` を `peak_memory_mb` の固定で直した。3 回 OK)
+- 再開の手順: (1) `git status` で上の一覧と突き合わせる (2) 段 9 の src の差分を `git diff` で読み、`py -3.10 dev/sync_ui_kit.py --check`・`py -3.10 dev/lint.py`・単体(home・studio・editor)・`e2e_styleguide`・`e2e_portal`・`e2e_ui --mounted`・`e2e_ui_mounted`・`e2e_edit_tabs`・`e2e_edit_cut`・`e2e_edit_pack` を 1 本ずつ流して直す(通らなければ段 9 の src の差分だけ `git checkout -- <ファイル>` で戻してやり直してもよい。plan と dev/tests の差分は戻さない)(3) DESIGN_REVIEW.md・ui-guidelines・REQUEST.md の状態の行を書く (4) `plan/data.js` の版(入口 0.42.x・スタジオ 0.22.x・編集 0.59.x・cut2resolve 0.22.2・ui-kit v2x)と recent ⑤ を done に・user-tasks の ux の節を「済み」に → `dev/plan_artifact.py` で公開ページを更新 (5) lint 0 件 + e2e 29 本(scratchpad の `run_e2e.py` と同じ一覧)で合格 (6) ユーザーに「すべて終了」→ start.bat の起動し直しと、decisions.md の (s)〜(al) の確認を頼む
+- 未コミット: 上の 2 つの一覧(段 9 の src 18 ファイル・plan 3 ファイル・dev/tests/test_eval_asr.py・この WORKLOG・docs/HANDOVER.md)

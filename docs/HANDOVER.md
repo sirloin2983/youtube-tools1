@@ -1,4 +1,4 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07。フォルダ整理・②③④ の見直しが済んだあと)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 夜。段 7〜9 の途中で中止)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`、規則は `AGENTS.md`。
 
@@ -6,10 +6,11 @@
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**(AI は push しない)
 - **2026-10-07 にフォルダを整理した**: `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)・`friend-apps/`(holo-colors・request-sender)・`plan/`(ユーザーが読む計画)・`docs/`(AI 向け)。start.bat は `src\home\launch.py` を呼ぶ。フォルダ名の正は `src/ytt_core/layout.py`(`src_root()` = ツールの親、`repo_root()` = リポジトリ直下)
 - 同じ日に、ユーザーの指示の 4 つの作業を終えた(`plan/data.js` の recent = `plan/index.html` の 1): ① 資料とフォルダの整理 / ② A2・録画の部品の終了・線 D M1〜M7(入口 0.40.0)・B1 0.57.1・A1 しきい値 0.6(編集 0.58.0)・B2 手元の 4 エンジンの比較 / ③ 全フォルダの見直し(動きは同じ。各ツールの版を 1 つ上げた)/ ④ `plan/improvements.md`(次に手を付けるなら)・`decisions.md`(仮決め (a)〜(r))。**残り**: L0(配信中に)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)・`decisions.md` の 3 の確認
-- 版(2026-10-07 の終わり): 入口 0.40.1・スタジオ 0.21.1・編集 0.58.1・cut2resolve 0.21.1・録画 0.3.1・ui-kit v18・送るアプリ 2.1.1・ホロカラー 1.4.2(正は各ファイル)。ユーザーは入口を起動し直す必要がある
+- 夜に、コードの見直し 2 周目(基準 `docs/spec/code-quality.md`・`dev/lint.py` 0 件)と「気が利く画面へ」の段 7〜8(`plan/ux-stage7-9.md`)・用語の統一(ui-kit v21)まで済んでコミット済み。**段 9(見た目の確認)の途中でユーザーが中止**: 段 9 の src の変更(ui-kit v22・編集 0.59.2・入口 0.42.2・スタジオ 0.22.2)はテスト前・未コミットで作業フォルダに残っている。WORKLOG の末尾の「再開の手順」のとおりに続ける
+- 版(コミット済みの最新): 入口 0.42.1・スタジオ 0.22.1・編集 0.59.1・cut2resolve 0.22.2・録画 0.3.2・ui-kit v21・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表は 0.41.1 / 0.21.3 / 0.58.3 / v20 のままで古い)。ユーザーは入口を起動し直す必要がある
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js(計画と進捗の正本。表示は plan/index.html)→ docs/WORKLOG.md の末尾 3 件を読んで、git status と git log -5 を見てから、plan/improvements.md の 0(次に手を付けるなら)と data.js の tasks の state が next のものから続けて。仮で決めたことは plan/decisions.md の 3 に足して、終わりにまとめて確認して。plan/data.js を直したら dev/plan_artifact.py で公開ページも更新して。」
+「AGENTS.md → docs/WORKLOG.md の末尾 1 件(中止の記録と再開の手順)→ git status を見て、段 9 の未コミットの変更をテストして直し、DESIGN_REVIEW.md と ui-guidelines を書いてコミットして。そのあと plan/data.js の版と ⑤ を直して dev/plan_artifact.py で公開ページを更新し、lint 0 件と e2e 29 本で合格を確かめて。仮で決めたことは plan/decisions.md の 3 に足して、終わりにまとめて確認して。」
 
 ## 注意(引き継ぐこと)
 - 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。入口の「すべて終了」では録画の部品が止まらないことがある(10-07)。ユーザーにタスク マネージャーで止めてもらう

@@ -8,7 +8,7 @@
 <script src="ui-kit.js"></script>
 <style>
 /* ui-kit:css:begin */
-/* ui-kit v6 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
+/* ui-kit v6〜v22 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
    v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
@@ -29,7 +29,7 @@
   --line:#C3CFE2;--line-2:#9DAECB;--line-strong:#7E93B5;
   --ink:#0E1726;--ink-2:#334158;--ink-3:#55657E;--ink-4:#7A889E;
   --accent:#1F5BFF;--accent-hover:#0040E6;--accent-ink:#FFFFFF;--accent-soft:rgba(31,91,255,.09);--accent-line:rgba(31,91,255,.45);
-  --ok:#0B7A4B;--ok-soft:rgba(11,122,75,.09);--warn:#8F5A00;--warn-soft:rgba(143,90,0,.1);--danger:#C42660;--danger-soft:rgba(196,38,96,.08);--info:#6B46D6;--info-soft:rgba(107,70,214,.09);
+  --ok:#0B7A4B;--ok-soft:rgba(11,122,75,.09);--warn:#8F5A00;--warn-soft:rgba(143,90,0,.1);--danger:#C42660;--danger-on:#FFFFFF;--danger-soft:rgba(196,38,96,.08);--info:#6B46D6;--info-soft:rgba(107,70,214,.09);
   /* 状態の札(.pill)の文字色。薄い背景の上でも読める濃さ(明るいテーマで 5.5:1 以上。WCAG AA の 4.5:1 を満たす) */
   --ok-ink:#0B7A4B;--warn-ink:#8F5A00;--danger-ink:#C42660;--info-ink:#6B46D6;--accent-ink2:#1748CC;
   --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
@@ -62,7 +62,7 @@
   --line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;
   --ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
   --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);
-  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
+  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-on:#1A0610;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
   --ok-ink:#3DDC97;--warn-ink:#FFC14D;--danger-ink:#FF7AA8;--info-ink:#A9C4FF;--accent-ink2:#5DE3F8;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
@@ -82,7 +82,7 @@
   --bg:#0A0E14;--bg-2:#070A0F;--panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;--field:#0A0E14;--field-hover:#0D131D;
   --line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;--ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
   --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);
-  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
+  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-on:#1A0610;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
   --ok-ink:#3DDC97;--warn-ink:#FFC14D;--danger-ink:#FF7AA8;--info-ink:#A9C4FF;--accent-ink2:#5DE3F8;
   --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
@@ -166,7 +166,7 @@ a.btn,a.btn:hover{text-decoration:none}
 .btn.soft:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:transparent}
 .btn.danger{color:var(--danger)}
 .btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
-.btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.danger.solid{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
 .btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px}
 .btn.lg{min-height:40px;padding:0 18px;font-size:14.5px;border-radius:10px}
 .btn.icon{width:var(--ctl-h);padding:0}.btn.icon.small,.btn.icon.sm{width:var(--ctl-h-sm)}
@@ -250,7 +250,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 /* v6: ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
 .pill.run::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}
 .pill.wait{color:var(--ink-2)}
-.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r);background:var(--danger);color:var(--danger-on);font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
 :root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent)}
@@ -263,8 +263,8 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .notice.danger,.notice.err{border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
 /* 種類ごとの地の色と左の線の色(v12)は末尾の v12 の節(info・ok・danger の 3 つの順番どおりに後ろで決める) */
 .notice code{background:var(--panel)}
-.errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
-.errbar a{color:#fff}
+.errbar{margin:0;padding:9px 16px;background:var(--danger);color:var(--danger-on);font-size:13px;font-weight:550}
+.errbar a{color:var(--danger-on)}
 .errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
 
 /* 進み具合 */
@@ -438,6 +438,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-ar-l{font-weight:600;font-size:12px;color:var(--ink-2)}
 .ui-ar-h{font-size:11.5px;color:var(--ink-3)}
 .ui-ar-c{display:flex;gap:6px;align-items:flex-start;line-height:1.4}
+.ui-ar-c>input[type=checkbox]{flex:none;width:16px;min-width:16px;margin-top:2px}   /* v22: 置いた画面の input{width:100%}(スタジオ ③ のメニュー)で文字が 1 文字ずつ縦に割れていた */
 .ui-ar-f select,.ui-ar-f input[type=number]{max-width:100%}
 .ui-ar-body button{width:auto;display:inline-flex}
 .ui-streamer-badge{margin-left:6px;font-size:11px}   /* v7: 配信者の欄の「自動(チャンネル名から)」「前回」 */
@@ -557,7 +558,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-row[data-state=waiting] .ui-live-state{color:var(--info-ink)}
 .ui-live-acts{grid-column:2;grid-row:1 / span 2;display:flex;gap:6px;align-items:center}
 .ui-live-acts .btn{text-decoration:none}
-.ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:#fff}
+.ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
 @media (max-width:560px){.ui-live-btn{padding:0 7px}}
 
 /* ---------- v21(2026-10-07・気が利く画面へ 段7) ---------- */
@@ -571,6 +572,10 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 /* 押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true]。押すと開かずに理由を知らせる = UIKit.menuOff)。.btn の summary は .btn[aria-disabled=true] の見た目 */
 .ui-menu>summary[aria-disabled=true],.ui-pop>summary[aria-disabled=true]{cursor:not-allowed}
 .ui-menu>summary[aria-disabled=true]:not(.btn),.ui-pop>summary[aria-disabled=true]:not(.btn){opacity:.55}
+
+/* ---------- v22(2026-10-07・気が利く画面へ 段9 見た目の確認) ----------
+   --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
+   使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
 /* ui-kit:css:end */
 .tt-docauto{margin-left:auto}.tt-docauto-pop{min-width:min(420px,calc(100vw - 32px));display:grid;gap:8px;padding:12px}
 .tt-docauto-pop .lag{flex-wrap:wrap}
@@ -616,7 +621,7 @@ h2{margin:0;font-size:15px}
 .errbar .tt-err-detail span{display:block;margin-top:2px;word-break:break-all}
 .errbar .tt-err-acts{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 .errbar .tt-err-acts a.btn{color:var(--ink)}
-.errbar .tt-err-x{background:transparent;color:#fff;border-color:rgba(255,255,255,.65)}
+.errbar .tt-err-x{background:transparent;color:var(--danger-on);border-color:color-mix(in srgb,var(--danger-on) 65%,transparent)}   /* 0.59.2: 赤い帯の上の文字は --danger-on(暗いテーマで白は読みにくい。段9) */
 
 /* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
 .app{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1760px;margin:0 auto}
@@ -963,7 +968,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg .ops button:hover{color:var(--ink);border-color:var(--line-strong)}
 .seg .ops button.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
 .seg .ops button.pf[aria-pressed=true]::before{content:"✓ "}
-.seg .ops button.cut-toggle[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:#fff}
+.seg .ops button.cut-toggle[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
 /* 状態の見分け: 再生中(.cur)・今の行(.nav)・一括選択(チェック)・要確認(.flag)・カット済(.cut)・校正済み(.proofed) */
 .seg.proofed{border-right:4px solid var(--ok)}
 .seg.flag{background:var(--tt-flag-soft)}
@@ -1118,7 +1123,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
 .tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
 .tt-csub .btn.tt-csub-cut{flex:none;font-weight:600}   /* 行の札「残す / カット済」(段7 E-25)。枠つき = 押して切り替えられる(1 文字起こし の行の札と同じ) */
-.tt-csub .btn.tt-csub-cut[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:#fff}   /* 「カット済」は 1 文字起こし の行の札と同じ赤(:hover の .btn より強く) */
+.tt-csub .btn.tt-csub-cut[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}   /* 「カット済」は 1 文字起こし の行の札と同じ赤(:hover の .btn より強く)。文字は --danger-on(0.59.2。暗いテーマで白は 2.9:1 だった) */
 .tt-csub-empty{margin:8px 4px}
 .tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
 .tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}

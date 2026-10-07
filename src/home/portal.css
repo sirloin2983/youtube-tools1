@@ -34,6 +34,10 @@
 .pt-case+.pt-case{border-top:1px solid var(--line)}
 #list:has(>.pt-case){gap:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}   /* 案件の一覧も1枚の紙に(まとまりで分けたときは、まとまりの中が1枚) */
 .ui-group>.pt-case:first-of-type{border-top:1px solid var(--line)}
+/* 0.42.2(段9 見た目の確認): 行の中のポップオーバー(まとめて実行の「設定を変える」など)を開いている間は、行・一覧・まとまりの overflow:hidden(1枚の紙の角丸のため)を外す。
+   以前は開いた案件の行の下の端で切れて、カットの方法より下の欄(パックの出力・上書き・失敗したとき)に届かなかった */
+.pt-case:has(details.ui-pop[open],details.ui-menu[open]),#list:has(details.ui-pop[open],details.ui-menu[open]),
+.ui-group:has(details.ui-pop[open],details.ui-menu[open]){overflow:visible}
 .pt-case-row{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;list-style:none;cursor:pointer;padding:10px 14px;min-height:52px}
 .pt-case-row::-webkit-details-marker{display:none}
 .pt-case-row::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;order:99}

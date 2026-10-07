@@ -1,5 +1,5 @@
 /* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */
-/* ui-kit v21 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v22 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -44,7 +44,10 @@
    v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す
    v21(2026-10-07・気が利く画面へ 段7): 画面の文言の「入口」を「ホーム」に(用語集)。UIKit.toast は重ねて 2 つまで(消えない・ボタンのある知らせは後回しにして閉じる)・
        押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
-       一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」 */
+       一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」
+   v22(2026-10-07・気が利く画面へ 段9 見た目の確認): 知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → 古いもの の順に閉じる
+       (失敗の知らせは最後まで残す)・ポップオーバーの置き場所の直し(fitPop)を、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・
+       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -159,9 +162,12 @@
   }
 
   /* ポップオーバーを開いたら、画面の外にはみ出さないよう置き場所を直す(A-1: 右端の「…」の選択肢が画面の外に出ていた)。
-     data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く */
+     data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く。
+     v22: 編集の古い形(details.pop > .vpop。2 カット の「無音 ▾」「時刻リスト ▾」など)にもかける(幅 960 で道具の行が折り返すと、
+     右にそろえた中身が画面の左の外に出ていた。段9 の確認) */
+  var POP_SEL = 'details.ui-pop, details.ui-menu, details.pop';
   function fitPop(d) {
-    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop'); if (!body) return;
+    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop'); if (!body) return;
     body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
     var r = body.getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = window.innerHeight, m = 8;
     if (r.right > vw - m) { body.style.left = 'auto'; body.style.right = '0'; r = body.getBoundingClientRect(); }
@@ -177,7 +183,7 @@
   if (window.MutationObserver) new MutationObserver(function (recs) {
     for (var i = 0; i < recs.length; i++) {
       var d = recs[i].target;
-      if (d.open && d.matches && d.matches('details.ui-pop, details.ui-menu')) fitPop(d);
+      if (d.open && d.matches && d.matches(POP_SEL)) fitPop(d);
     }
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 
@@ -724,13 +730,19 @@
   /* ---- toast(通知。v21 から重ねて最大2つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
   var toastBox = null;
   /* v21: 重ねるのは 2 つまで(以前は 3 つ。積み上がると画面の下の操作(編集のパックの「中止」など)を隠していた)。あふれたら古いものから閉じる。
-     消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない) */
+     消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない)。
+     v22: 残す知らせばかりのときも、失敗(.err)は最後まで残す(v21 は古いものから閉じたので、[もう一度] つきの失敗のあとに [フォルダを開く] つきの完了と
+     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた) */
   var TOAST_MAX = 2;
+  function toastPick(box, ok) {
+    for (var i = 0; i < box.children.length; i++) if (ok(box.children[i])) return box.children[i];
+    return null;
+  }
   function toastMakeRoom(box) {
     while (box.children.length >= TOAST_MAX) {
-      var drop = null;
-      for (var i = 0; i < box.children.length && !drop; i++) if (!box.children[i].hasAttribute('data-ui-keep')) drop = box.children[i];
-      box.removeChild(drop || box.firstChild);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
+      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep'); }) ||
+                 toastPick(box, function (t) { return !t.classList.contains('err'); }) || box.firstChild;
+      box.removeChild(drop);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
     }
   }
   function ensureToastBox() {
@@ -1831,7 +1843,9 @@
       det.addEventListener('toggle', function () {
         if (!det.open) return;
         body.textContent = '読み込んでいます…';
-        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); p.paint(); });
+        /* v22: 開いた直後(fitPop)は「読み込んでいます…」の 1 行の大きさで置き場所を決めるので、中身を入れたらもう一度置き直す
+           (以前は下にはみ出したまま。ホームの案件の行・スタジオ ③ のメニューの中で、下の欄に届かなかった。段9 の確認) */
+        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); p.paint(); if (det.open) fitPop(det); });
       });
       arPanels.push(p);
       if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
@@ -2353,7 +2367,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 21, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 22, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff };
 })();

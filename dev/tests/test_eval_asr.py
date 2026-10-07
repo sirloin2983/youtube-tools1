@@ -748,10 +748,14 @@ class EvalAsrGateRepeatTest(unittest.TestCase):
         os.makedirs(os.path.join(self.data, "transcripts"))
         os.environ["TRANSCRIBE_BACKEND"] = "fake"
         self.orig_recognize = E.recognize_doc
+        # メモリの最大は実行のたびに揺れる(35MB / 36MB)。出力を突き合わせる試験のため固定する
+        self.orig_peak = E.peak_memory_mb
+        E.peak_memory_mb = lambda: 0
         self.write("aaaaaaaaaa01", 60.0)
 
     def tearDown(self):
         E.recognize_doc = self.orig_recognize
+        E.peak_memory_mb = self.orig_peak
         os.environ.pop("TRANSCRIBE_BACKEND", None)
         shutil.rmtree(self.tmp, ignore_errors=True)
 

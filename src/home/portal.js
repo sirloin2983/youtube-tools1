@@ -1095,7 +1095,7 @@
       if (wk) parts.push('認識ワーカー ' + (wk.crashed + wk.hung) + ' 件' + (wk.crashed + wk.hung ? '(落ちた ' + wk.crashed + '・黙って強制終了 ' + wk.hung + ')' : ''));
       var none = !co.total && !ca.total && !(wk && wk.crashed + wk.hung);
       ul.appendChild(healthRow(co.total ? 'warn' : 'ok', '異常終了(7 日)', none ? 'なし'
-        : co.total ? parts.join('。') + '。PC が不安定かもしれません。設定を遅い側に戻す目安: git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md' : parts.join('。')));
+        : co.total ? parts.join('。') + '。PC が不安定かもしれません(OS 側の異常終了はハードの目安。続くときは、文字起こしを速くする設定を遅い側に戻してください)' : parts.join('。')));
     }
     // リアルタイム切り抜き(線 D。オンのときだけ h.live がある): 録画元ごとにつながるか・置き場所と空き容量・録画中の本数
     if (h.live) (h.live.recorders || []).forEach(function (r) {
