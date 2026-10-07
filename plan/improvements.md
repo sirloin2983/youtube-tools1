@@ -163,7 +163,7 @@ AI が出典から拾ったもの。急ぎではない。
 | home・studio・editor | 単独起動の「入口の中ですでに起動しています」(serve.py 3 つ。test_mount が見ている)・argparse の説明・backup.py の CLI の問いは画面に出ないので「入口」のまま | 直すなら test_mount の期待と一緒に | S |
 | editor 2 カット | タイムラインの区間の言葉(削る区間・Del の「削る / 戻す」・「I〜O を削る」)は用語集の「残す区間 / 削る区間」どおりで変えていない | 行の札(残す / カット済)との言葉の違いが気になれば、用語集ごと見直す | S |
 | dev | `test_eval_asr` の `test_repeat_one_is_same_as_before` が揺れていた(メモリの最大の数字 35MB / 36MB) | **済み(10-07 夜)**: 試験の中で `peak_memory_mb` を固定 | — |
-| editor(行の時刻) | 1 秒丸めの配り直し(`quant_retime`)が ①末を悪くする(10-07 夜の測り直し。`plan/line-b-row-timing.md` の 6) | 既定でやめる(ユーザーの判断待ち)。別案: 延ばす向きだけの配り直し(計算だけなら丸まった 4 本で ①末 11% → 4%・代わりに ②前 4% → 14〜18%。7-3 の続きとして作って測る) | S / M |
+| editor(行の時刻) | 1 秒丸めの配り直し(`quant_retime`)が ①末を悪くする(10-07 夜の測り直し。`plan/line-b-row-timing.md` の 6) | **済み(10-07 夜)**: 既定オフ(編集 0.59.4)。残るずれ(①頭 29%)に聞き直し無しの規則(ずらす・つなぐ・延ばす)と聞き直しの行の時刻トークンも測ったが効かず(同 8)。丸まった文書が校正で 20 本ほどたまったら 8-2〜8-4 を測り直す | S |
 | editor(測る道具との境) | `quant_words_provider` は IN_WORKER のとき WavSlice をそのまま渡す。道具が自分のプロセスで動かすときは `_evalcommon.InProcessModel` が形を直している | src 側でも IN_WORKER のときは範囲のサンプルを渡すようにすると、道具に頼らず堅くなる(アプリの動きは変わらない。任意) | S |
 
 段 9 の見た目の確認(2026-10-07 夜。`docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`)で出た Should-fix・Could-improve(直していない):

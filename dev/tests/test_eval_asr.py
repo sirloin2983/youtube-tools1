@@ -308,9 +308,11 @@ class EvalAsrTest(unittest.TestCase):
                 self.assertIsNotNone(calls[-1][1])                                 # whisper.cpp は音の大きさ(WavLevels)を渡す
             # 行の後処理の印(meta.post)。joinGap = 続いている行をつなぐすき間(0.57.1。全エンジン)= editor の post_record と同じ値
             self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False, "joinGap": 0.5})
-            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime)のモデルと endTrim(0.57.1 から 0)も印に残す。音の谷へ寄せる pullEnds は 10-05 から既定でやめた
+            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime。0.59.4 から既定オフ = False)と endTrim(0.57.1 から 0)も印に残す。音の谷へ寄せる pullEnds は 10-05 から既定でやめた
             self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),
-                             {"clip": True, "mergeRepeats": True, "pullEnds": False, "quantRetime": S.QUANT_MODEL, "endTrim": 0.0, "joinGap": 0.5})
+                             {"clip": True, "mergeRepeats": True, "pullEnds": False, "quantRetime": False, "endTrim": 0.0, "joinGap": 0.5})
+            with mock.patch.object(S, "QUANT_ON", True):   # TRANSCRIBE_RETIME=1 でオンにしたときはモデル名
+                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp"))["quantRetime"], S.QUANT_MODEL)
             with mock.patch.object(S, "QUANT_ON", False), mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0), \
                     mock.patch.object(S, "PULL_ENDS_ON", True):   # TRANSCRIBE_RETIME=0・END_TRIM=0.1・JOIN_GAP=0・PULL_ENDS=1(0.57.0 より前の形)
                 self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),

@@ -726,7 +726,7 @@ def recognize_doc(S, doc, spec, data):
         gen = S.transcribe_fake(job, spec, wav, audio_sec) if S.backend_name() == "fake" else S.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・whisper.cpp は行の終わりを音の谷へ)。wav の 0 秒 = 行の 0 秒なので base は 0
-        # 1 秒単位に丸まった窓(whisper.cpp)は faster-whisper の単語の時刻で配り直す(編集 0.57.0。quant_retime。TRANSCRIBE_RETIME=0 で前の形)
+        # 1 秒単位に丸まった窓(whisper.cpp)は faster-whisper の単語の時刻で配り直す(編集 0.57.0。quant_retime。0.59.4 から既定オフ = TRANSCRIBE_RETIME=1 のときだけ)
         tidy = list(S.expand_segments(gen, spec, audio_sec, S.row_levels(spec, wav)))
         tidy, _q = S.quant_retime(tidy, spec, S.quant_words_provider(job, spec, wav), audio_sec)
         for s in tidy:

@@ -1454,7 +1454,9 @@ def join_rows(rows, gap=None):
 # whisper.cpp(large-v3・Vulkan)は音声の中身によって、30 秒の窓の中の行の時刻をまるごと 1 秒単位に丸める(6.00–8.00 / 12.00–14.00 …。
 # 評価用 122 本の 27% の行。フラグ・音量・ドライバでは直らない)。丸まった窓だけ faster-whisper(CPU)にもう一度聞いて単語の時刻を取り、
 # whisper.cpp の行の文字をその単語に当てて(ed_retime の当て方)、始まり・終わりを決め直す。文字は変えない。
-QUANT_ON = os.environ.get("TRANSCRIBE_RETIME", "").strip() != "0"   # TRANSCRIBE_RETIME=0 でやめる(測り直すとき用)
+# 0.59.4(2026-10-07 夜。ユーザー決定)から既定でやめた: 測り直し(plan/line-b-row-timing.md の 6)で、聞き直した単語の終わりが言葉の末より早く、
+# ①末(言葉の末が切れる)を 4 回とも悪くした(丸まった 4 本で 11% → 46%)。部品・記録・テストは残し、試すときだけ TRANSCRIBE_RETIME=1 でオンにする
+QUANT_ON = os.environ.get("TRANSCRIBE_RETIME", "").strip() == "1"   # TRANSCRIBE_RETIME=1 でオン(既定オフ。0.57.0〜0.59.3 は既定オンで =0 でやめる形)
 QUANT_MODEL = os.environ.get("TRANSCRIBE_RETIME_MODEL", "").strip() or "large-v3"   # 聞き直しに使う faster-whisper のモデル(small なら速いが外れが増える)
 QUANT_WINDOW = 30.0    # 窓の長さ(秒。whisper の 1 回の窓と同じ)
 QUANT_SHARE = 0.4      # 窓の中の行の境目(始まり・終わり)のうち整数秒の割合がこれ以上なら「丸まった窓」

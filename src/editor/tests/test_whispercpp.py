@@ -451,6 +451,12 @@ class QuantRetimeTest(unittest.TestCase):
 
     SPEC = {"engine": "whisper.cpp", "wordSplit": True, "language": "ja"}
 
+    def setUp(self):
+        # 0.59.4 から既定オフ(TRANSCRIBE_RETIME=1 でオン)。部品の動きの試験はオンにして流す(オフの動きは test_skips_other_engines_off_switch_and_failures)
+        p = mock.patch.object(S, "QUANT_ON", True)
+        p.start()
+        self.addCleanup(p.stop)
+
     def quant_rows(self):
         # 風真いろは 47e38cb99dbe の形(全部の境目が整数秒。終わりは trim_ends で 0.1 秒早い)
         return [row(0.0, 2.9, "応援ありがとう"), row(6.0, 7.9, "ねー"), row(12.0, 13.9, "ちょっとさ"), row(14.0, 15.9, "すごかったよね"),
