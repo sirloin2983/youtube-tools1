@@ -230,7 +230,7 @@ def parse_speakers(v):
 
 VIDEO_TRACKS_DEFAULT, VIDEO_TRACKS_MAX = 1, 5
 RANGE_MAX, RANGE_MAX_SEC = 10, 3600   # 1本の配信の区間の数・1つの区間の長さ(まとめて実行・スタジオと同じ)
-CUT_LABELS = {"none": "カットしない", "silence": "無音を削る"}
+CUT_LABELS = {"none": "カットしない", "silence": "無音で削る"}
 
 
 def hms(sec):
@@ -370,8 +370,9 @@ class Intake:
             try:
                 self.scan()
             except Exception as e:   # 想定外でも見張りは続ける(次の回でやり直す)
-                self.state, self.message = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
-                self.log("依頼の受付: " + self.message)
+                # 画面には「何が起きたか + どうするか」だけ。例外の名前・原文はログへ(UI の見直し M9)
+                self.state, self.message = "error", "依頼を読めませんでした(依頼のファイルの形が違うか、読み取りで問題が起きました)。次の確認でもう一度試します。続くときは、詳しくの「ログ」を見てください"
+                self.log("依頼の受付: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))
             # 見る間隔: 設定の interval(段9 9-4。ホームの「依頼の受付」で変える)。テストで interval を渡したときはそれ
             self.wake.wait(self.interval if self.interval != INTERVAL else float(self._cfg().get("interval") or INTERVAL))
             self.wake.clear()

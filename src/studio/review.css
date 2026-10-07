@@ -72,7 +72,7 @@
 .rv-autosteps{flex:1 1 100%;overflow-wrap:anywhere;font-size:12px}
 .rv-vmenu>summary svg{width:16px;height:16px}
 .rv-vmenupop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(380px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease);display:flex;flex-direction:column;gap:6px}
-.rv-vmenupop input{width:100%}
+.rv-vmenupop>input{width:100%}   /* 幅いっぱいは名前の欄(#rvTitle)だけ。label.lag の中の欄(配信者・パックの音量の %)まで 100% にすると、ラベルが 1 文字ずつ縦に割れていた(見直し M4) */
 .rv-vmenuacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .rv-vmenuacts .btn{white-space:normal;text-align:left}
 /* 画面の中の移動(プレーヤー・マーク・書き出し) */

@@ -188,7 +188,8 @@ class ToolClient:
             r = conn.getresponse()
             raw = r.read()
         except OSError as e:
-            raise StepError("ツールにつながりませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            raise StepError("ツールにつながりませんでした。動いていないか、止まっているかもしれません。ホームの「詳しく(サーバーの管理)」で状態を見てから、"
+                            "もう一度実行してください(済んだ段は飛ばします)")
         finally:
             conn.close()
         try:
@@ -200,8 +201,16 @@ class ToolClient:
     def ok(self, tool, method, path, body=None):
         st, obj = self.call(tool, method, path, body)
         if st != 200:
-            raise StepError(obj.get("message") or "エラー(HTTP %d)" % st)
+            raise StepError(obj.get("message") or "ツールがうまく応答しませんでした。少し待って、もう一度実行してください(済んだ段は飛ばします)")
         return obj
+
+
+JOB_STATE_JA = {"error": "失敗しました", "cancelled": "取り消されました", "skipped": "飛ばされました"}   # ツールの状態名(英語)を画面の言葉に
+
+
+def _job_why(j):
+    """ツールの仕事(文字起こし・パック)が終わらなかった理由の文。ツールの文があればそれ、無ければ状態名を日本語に(cancelled などを出さない)"""
+    return str(j.get("error") or JOB_STATE_JA.get(j.get("state"), "理由は不明です"))
 
 
 def _yt_id_ok(v):
@@ -1200,7 +1209,8 @@ class AutoRunner:
             except StepError as e:
                 run.state, run.error, run.message = "error", str(e), "止まりました"
             except Exception as e:   # 想定外でも、次の配信の処理は続ける
-                run.state, run.error, run.message = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "止まりました"
+                self.log("まとめて実行: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))   # 例外の名前・原文はログへ(UI の見直し M9)
+                run.state, run.error, run.message = "error", "ホームの想定外の不具合で止まりました。もう一度「実行」を押してください(済んだ段は飛ばします)。続くときは、詳しくの「ログ」を見てください", "止まりました"
             if self.closed and not run.cancel and run.mode != POST_MODE and run.state != "done":
                 # 入口の終了で止まった(M5): 記録には「中止」と書かず、待ちの記録(最後に書いた段の形)のまま次の起動で続ける
                 run.state, run.error, run.message = "queued", "", "ホームを終了したので、次の起動で続けます"
@@ -1240,7 +1250,7 @@ class AutoRunner:
         if st == 404 and run.fresh:   # ① 探す から: 解析のキューに入れるまではスタジオに無い(受け取った題名で進める)
             return {"kind": "youtube", "title": run.title}
         if st != 200:
-            raise StepError(obj.get("message") or "エラー(HTTP %d)" % st)
+            raise StepError(obj.get("message") or "スタジオがうまく応答しませんでした。少し待って、もう一度実行してください(済んだ段は飛ばします)")
         v = obj.get("video") or {}
         run.title = str(v.get("title") or v.get("fileName") or run.video_id)[:120]
         return v
@@ -1391,13 +1401,13 @@ class AutoRunner:
                 items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
                 it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
                 if it is None:
-                    raise StepError("解析のキューから消えました")
+                    raise StepError("解析の順番から外れました(スタジオで取り消したかもしれません)。もう一度実行してください")
                 st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
                 if it.get("status") == "done":
                     st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?") + fl_note
                     return None
                 if it.get("status") in ("error", "cancelled", "skipped"):
-                    raise StepError("解析が終わりませんでした: %s" % (it.get("error") or it.get("status")))
+                    raise StepError("解析が終わりませんでした: %s" % (it.get("error") or JOB_STATE_JA.get(it.get("status"), "理由は不明です")))
         except Cancelled:
             if qid:   # この実行が入れた解析だけ取り消す(人がスタジオで入れた解析 = qid なし は止めない)
                 self._cancel_analysis(qid)
@@ -1549,9 +1559,9 @@ class AutoRunner:
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
         run.new_docs += [j["tid"] for j in ok if j.get("tid")]
-        st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は文字起こしの画面で"
+        st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は「編集」の 1 文字起こしで"
         if bad and (not ok or run.on_fail == "stop"):
-            raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or bad[0].get("state")))
+            raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), _job_why(bad[0])))
         if bad:
             st["state"] = "warn"
         return None
@@ -1685,7 +1695,7 @@ class AutoRunner:
             run.owned = None
         if j.get("state") != "done":
             err = j.get("error")
-            raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
+            raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or _job_why(j)))
         r = j.get("result") or {}
         if r.get("outDir") and r["outDir"] not in run.packs:
             run.packs.append(r["outDir"])   # ① 全自動で Dropbox へ届けるもの
@@ -1788,8 +1798,8 @@ class AutoRunner:
         jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(self._tx_opts(), sourcePath=doc["sourcePath"], intoDoc=doc["id"])).get("id")
         j = self._wait_job(run, jid, st)
         if j.get("state") != "done":
-            raise StepError("文字起こしに失敗しました: %s" % (j.get("error") or j.get("state")))
-        st["detail"] = "文字起こししました。字幕の校正は「編集」で"
+            raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
+        st["detail"] = "文字起こししました。字幕の校正は「編集」の 1 文字起こしで"
         return None
 
     def _doc_pack(self, run, st):
@@ -1949,7 +1959,7 @@ class AutoRunner:
             jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=run.source_path)).get("id")
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":
-                raise StepError("文字起こしに失敗しました: %s" % (j.get("error") or j.get("state")))
+                raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
             tid = j.get("tid")
             if tid:
                 run.new_docs.append(tid)

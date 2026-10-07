@@ -482,7 +482,7 @@ class TestVideo(Base):
         self.assertEqual((self.runner.last["cut"], self.runner.last["weights"], self.runner.last["tracks"]), ("silence", {"wAudio": 1.5, "wChat": 1.0, "wComments": 0.7}, 2))
         rec = self.it.snapshot()["requests"][0]
         self.assertEqual((rec["rangesLabel"], rec["cutLabel"], rec["weightsLabel"]),
-                         ("区間: 1:23:45〜1:25:10・0:01:00〜0:01:30・0:09:50〜0:10:00", "カット: 無音を削る", "重み: 音声 1.5・チャット 1.0・コメント 0.7"))
+                         ("区間: 1:23:45〜1:25:10・0:01:00〜0:01:30・0:09:50〜0:10:00", "カット: 無音で削る", "重み: 音声 1.5・チャット 1.0・コメント 0.7"))
         reasons = [i["reason"] for i in rec["items"] if i["state"] == "rejected"]
         self.assertEqual(len(reasons), 2, reasons)
         self.assertTrue(any("より後です" in r for r in reasons) and any("終了が開始より前" in r for r in reasons), reasons)
@@ -507,7 +507,7 @@ class TestVideo(Base):
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "flow": "auto", "files": [rid + "__a.mp4"], "cut": "silence"}))
         self.scan2()
         self.assertEqual(self.runner.files[-1]["cut"], "silence")
-        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "カット: 無音を削る")
+        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "カット: 無音で削る")
 
     def test_all_ranges_out_of_stream_rejects(self):
         """指定した区間が全部、配信の長さより後(自動の分も無い)なら、その配信は流さない"""

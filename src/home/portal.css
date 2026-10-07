@@ -193,3 +193,27 @@
 .pt-todo-item>.pt-todo-link{flex:1;min-width:0}
 .btn.pt-hide{flex:none;color:var(--ink-3)}   /* 控えめは色で(opacity は文字のコントラストを下げる。A-22)。触れると .btn.ghost:hover の --ink */
 .pt-todo-hide{margin-right:8px}
+/* 非表示ボタン: 狭い幅(390)では文字をやめてアイコンだけにして、題名の幅を確保する(S11。名前は aria-label・title) */
+.pt-hide-ic{display:none;align-items:center}
+@media (max-width:640px){
+  .pt-hide .pt-hide-t{display:none}
+  .pt-hide .pt-hide-ic{display:inline-flex}
+  .btn.pt-hide{min-width:28px;padding:0 6px}
+}
+/* 押せると分かる印(次にやることの行の右。S10) */
+.pt-todo-go{color:var(--ink-3);margin:0 4px 0 2px}
+/* 空の表示(M5。2 文 + ボタン 1 つ)。一覧の中の小さな入れ物では余白を詰める */
+.pt-todo-box>.pt-empty,.pt-intake-body .pt-empty,.pt-history-body .pt-empty,#docEmpty{padding:16px 14px;margin:0 0 8px}
+.pt-empty>b{display:block}
+.pt-empty .pt-empty-acts{margin-top:10px}
+/* ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool。設定の引き出しの中に入る) */
+.pt-set-block{padding:12px 0;border-top:1px solid var(--line)}
+.pt-settings>h3+.pt-set-block{border-top:0;padding-top:0}
+.pt-set-head{font-weight:600;font-size:13px;margin:0 0 6px}
+.pt-set-block .hint{margin:6px 0 0}
+.pt-set-block .ui-settings-row{padding:4px 0;border-bottom:0}
+.pt-settings #setAutorun{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+/* まとめて実行の既定の「設定を変える」: 設定の引き出しの中ではポップオーバーが引き出しの端で切れるので、その場に広げる(fitPop の位置の指定も上書き) */
+.pt-settings .ui-ar-pop{width:100%}
+.pt-settings .ui-ar-pop>.ui-pop-body{position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+  width:auto;max-height:none!important;overflow:visible!important;margin-top:6px;padding:10px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent;animation:none}

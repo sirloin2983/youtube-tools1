@@ -236,8 +236,9 @@ class Backup:
             try:
                 self.tick()
             except Exception as e:   # 想定外でも止めない(次の回でやり直す)
-                self.state, self.message = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
-                self.log("バックアップ: " + self.message)
+                # 画面には「何が起きたか + どうするか」だけ。例外の名前・原文はログへ(UI の見直し M9)
+                self.state, self.message = "error", "バックアップが途中で止まりました。写す先のフォルダを確かめてください。次の回でもう一度試します。続くときは、詳しくの「ログ」を見てください"
+                self.log("バックアップ: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))
             self.wake.wait(self.check_every)
 
     def changed(self, cfg):

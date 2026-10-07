@@ -14,8 +14,8 @@
   <nav class="ui-appnav" data-ui-appnav="portal" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver" id="ver"></span>
   <div class="ui-header-actions">
-    <span class="pill wait" id="conn">接続中…</span>
-    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(テーマ・文字の大きさ・キーの帯)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
+    <span class="pill wait" id="conn">つないでいます…</span>
+    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(窓で開く・まとめて実行の既定・テーマ・文字の大きさ)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
   </div>
 </header>
 <div class="errbar" id="errbar" role="alert" hidden></div>
@@ -25,16 +25,18 @@
 
   <section class="pt-todo-box" id="todoBox">
     <h2 class="pt-h2">次にやること</h2>
-    <p class="hint" id="todoEmpty" hidden>いま手が要る作業はありません。</p>
+    <div class="empty pt-empty" id="todoEmpty" hidden>
+      <b>いま手が要る作業はありません</b><span id="todoEmptyText">スタジオで配信を解析すると、ここに出ます。</span>
+      <div class="row pt-empty-acts"><a class="btn small" id="todoEmptyBtn" href="/studio/?step=rank">スタジオで配信を探す</a></div>
+    </div>
     <ul class="pt-todo-list" id="todoList"></ul>
-    <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る(あと <span id="todoMoreN"></span>件)</button>
+    <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る</button>
     <button type="button" class="btn small ghost" id="todoHidden" hidden></button>
   </section>
 
   <section class="pt-cases-box" id="caseListSection">
     <h2 class="pt-h2">案件(配信ごと)</h2>
-    <p class="hint">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。
-      紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します。</p>
+    <p class="hint" title="紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。</p>
 
     <div class="ui-listbar">
       <input id="fText" type="search" placeholder="配信のタイトル・配信者で絞り込み" aria-label="配信のタイトル・配信者で絞り込み">
@@ -76,20 +78,21 @@
       <div class="pt-group-body">
         <p class="hint">検索して選ぶと、まとめて文字起こし・パックを進められます(「編集」の履歴の「選んで、まとめて実行」と同じ)。</p>
         <div class="ui-listbar">
-          <input id="docSearch" type="search" placeholder="文書のタイトルで絞り込み" aria-label="文書のタイトルで絞り込み">
+          <input id="docSearch" type="search" placeholder="文字起こしの題名で絞り込み" aria-label="文字起こしの題名で絞り込み">
           <button type="button" class="btn small ghost" id="docHidden" hidden></button>
           <span class="ui-count" id="docCount"></span>
         </div>
         <ul class="pt-clips" id="docList"></ul>
+        <div class="empty pt-empty" id="docEmpty" hidden></div>
         <div class="row" id="docMoreBox" hidden><button type="button" class="btn small ghost" id="docMore"></button></div>
         <div class="pt-auto">
           <div class="row">
             <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
               <input id="docWho" type="text" size="12" placeholder="例: さくらみこ"></label>
             <label class="lag"><input type="checkbox" id="docOverwrite">パックがあれば作り直す(上書き)</label>
-            <button type="button" class="btn small primary" id="docRunBtn" disabled title="文書を選ぶと押せます(一覧の左のチェック)">選んだ文書をまとめて実行</button>
+            <button type="button" class="btn small primary" id="docRunBtn" disabled title="文字起こしを選ぶと押せます(一覧の左のチェック)">選んだ文字起こしをまとめて実行</button>
           </div>
-          <div class="row"><span class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック。20 本まで)</span>
+          <div class="row"><span class="hint" id="docPickHint">文字起こしを選んでください(一覧の左のチェック。20 本まで)</span>
             <button type="button" class="btn small ghost" id="docPickAll">表示中を全部選ぶ</button>
             <button type="button" class="btn small ghost" id="docPickNoPack">パックが無いものだけ選ぶ</button></div>
           <ol class="pt-auto-steps" id="docRunSteps"></ol>
@@ -134,7 +137,7 @@
       </div>
 
       <div class="row"><h3 class="pt-h3 grow">届いた依頼</h3><button type="button" class="btn small ghost" id="intakeHidden" hidden></button></div>
-      <p class="hint" id="intakeEmpty" hidden>まだ依頼は届いていません。</p>
+      <div class="empty pt-empty" id="intakeEmpty" hidden></div>
       <ol class="pt-intake-list" id="intakeList"></ol>
     </div>
   </details>
@@ -174,7 +177,7 @@
     <summary>まとめて実行の記録</summary>
     <div class="pt-history-body">
       <p class="hint">終わったまとめて実行の結果です(新しい順)。ホームを終えても残ります(強制終了したときに実行中だった分は残りません)。</p>
-      <p class="hint" id="historyEmpty" hidden>まだ記録はありません。まとめて実行が終わると、ここに出ます。</p>
+      <div class="empty pt-empty" id="historyEmpty" hidden></div>
       <div class="row"><button type="button" class="btn small ghost" id="historyHidden" hidden></button></div>
       <ol class="pt-history-list" id="historyList"></ol>
       <div class="row" id="historyMoreBox" hidden><button type="button" class="btn small ghost" id="historyMore">もっと見る</button></div>
@@ -207,50 +210,6 @@
           <button type="button" class="btn" id="btnCopyData">パスをコピー</button>
         </div>
       </section>
-      <section class="card flat pt-foot" id="winBox" hidden>
-        <div class="row">
-          <div class="grow">
-            <b>窓で開く</b>
-            <div class="hint" id="winHint"></div>
-          </div>
-          <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="winMode">窓で開く</label>
-          <button type="button" class="btn" id="btnWinNow" hidden>いま窓で開く</button>
-        </div>
-      </section>
-      <!-- 試験中の機能(既定はオフ。オンにするまで画面にも出さず、裏でも動かさない)。リアルタイム切り抜き = 線 D(src/home/live.py・src/recorder/) -->
-      <section class="card flat pt-foot" id="labBox">
-        <div class="row">
-          <div class="grow">
-            <b>試験中の機能</b>
-            <div class="hint">まだ試している機能です。オンにするまで、画面にも出ず、裏でも動きません。</div>
-          </div>
-          <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveEnabled">リアルタイム切り抜き(試験中)</label>
-        </div>
-        <p class="hint" id="liveNote">オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。</p>
-        <p class="hint" id="liveMsg" role="status" hidden></p>
-        <!-- 書き出したあとの自動の流れ(ホームの設定 live.auto。線 D の M2)。オンのときだけ出す -->
-        <details class="pt-live-auto" id="liveAutoBox" hidden>
-          <summary>書き出したあとの自動の流れ</summary>
-          <div class="row">
-            <label class="lag">書き出したあと(画面・API が指定しないとき)
-              <select id="liveAutoAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">文字起こし → パック</option></select></label>
-            <label class="lag">パックのカット
-              <select id="liveAutoCut"><option value="">ホームの設定のまま</option><option value="none">カットしない</option><option value="silence">無音を削る</option></select></label>
-            <label class="lag">文字起こしのエンジン
-              <select id="liveAutoEngine"><option value="">「編集」の設定のまま</option><option value="faster-whisper">faster-whisper(CPU)</option><option value="whisper.cpp">whisper.cpp(GPU)</option><option value="qwen3-asr">Qwen3-ASR(CPU)</option><option value="llama.cpp">Qwen3-ASR 1.7B(GPU)</option></select></label>
-            <label class="lag">モデル
-              <input type="text" id="liveAutoModel" maxlength="60" placeholder="空 = 「編集」の設定" spellcheck="false" autocomplete="off"></label>
-          </div>
-          <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。</p>
-          <!-- 配信後の全自動(ホームの設定 live.autoAfterStream・live.afterStreamPerHour。線 D の M7) -->
-          <div class="row">
-            <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAfterStream">配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)</label>
-            <label class="lag">1 時間あたり
-              <input type="number" id="liveAfterPerHour" min="1" max="30" step="1" inputmode="numeric"></label>
-          </div>
-          <p class="hint">録画が終わってアーカイブを使えるようになったら、アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、書き出し → 本番版 → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
-        </details>
-      </section>
       <section class="card flat pt-foot">
         <div class="row">
           <div class="grow">
@@ -272,6 +231,59 @@
 </section>
 
 <div class="toast" id="toast" role="status" hidden></div>
+
+<!-- ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool に渡して、設定の引き出しの中へ移す)。以前は「詳しく」の中に散らばっていた
+     窓で開く・試験中の機能と、まとめて実行の既定。依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは開くボタンだけ -->
+<section id="homeSettings" class="pt-settings" hidden>
+  <h3>ホーム</h3>
+  <div class="pt-set-block" id="winBox" hidden>
+    <div class="ui-settings-row">
+      <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="winMode">窓で開く</label>
+      <button type="button" class="btn small" id="btnWinNow" hidden>いま窓で開く</button>
+    </div>
+    <p class="hint" id="winHint"></p>
+  </div>
+  <div class="pt-set-block" id="setAutorunBox">
+    <div class="pt-set-head">まとめて実行の既定</div>
+    <div id="setAutorun"></div>
+    <p class="hint">案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。</p>
+  </div>
+  <!-- 試験中の機能(既定はオフ。オンにするまで画面にも出さず、裏でも動かさない)。リアルタイム切り抜き = 線 D(src/home/live.py・src/recorder/) -->
+  <div class="pt-set-block" id="labBox">
+    <div class="pt-set-head">試験中の機能</div>
+    <p class="hint">まだ試している機能です。オンにするまで、画面にも出ず、裏でも動きません。</p>
+    <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveEnabled">リアルタイム切り抜き(試験中)</label>
+    <p class="hint" id="liveNote">オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。</p>
+    <p class="hint" id="liveMsg" role="status" hidden></p>
+    <!-- 書き出したあとの自動の流れ(ホームの設定 live.auto。線 D の M2)。オンのときだけ出す -->
+    <details class="ui-disclosure pt-live-auto" id="liveAutoBox" hidden>
+      <summary>書き出したあとの自動の流れ</summary>
+      <div class="row">
+        <label class="lag">書き出したあと(画面・API が指定しないとき)
+          <select id="liveAutoAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">文字起こし → パック</option></select></label>
+        <label class="lag">パックのカット
+          <select id="liveAutoCut"><option value="">ホームの設定のまま</option><option value="none">カットしない</option><option value="silence">無音で削る</option></select></label>
+        <label class="lag">文字起こしのエンジン
+          <select id="liveAutoEngine"><option value="">「編集」の設定のまま</option><option value="faster-whisper">faster-whisper(CPU)</option><option value="whisper.cpp">whisper.cpp(GPU)</option><option value="qwen3-asr">Qwen3-ASR(CPU)</option><option value="llama.cpp">Qwen3-ASR 1.7B(GPU)</option></select></label>
+        <label class="lag">モデル
+          <input type="text" id="liveAutoModel" maxlength="60" placeholder="空 = 「編集」の設定" spellcheck="false" autocomplete="off"></label>
+      </div>
+      <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。</p>
+      <!-- 配信後の全自動(ホームの設定 live.autoAfterStream・live.afterStreamPerHour。線 D の M7) -->
+      <div class="row">
+        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAfterStream">配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)</label>
+        <label class="lag">1 時間あたり
+          <input type="number" id="liveAfterPerHour" min="1" max="30" step="1" inputmode="numeric"></label>
+      </div>
+      <p class="hint">録画が終わってアーカイブを使えるようになったら、アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、書き出し → 本番版 → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
+    </details>
+  </div>
+  <div class="pt-set-block">
+    <div class="pt-set-head">ほかの設定</div>
+    <div class="ui-settings-row"><span>依頼の受付(見張るフォルダ・上限)</span><button type="button" class="btn small" id="setGoIntake">開く</button></div>
+    <div class="ui-settings-row"><span>作業データのバックアップ</span><button type="button" class="btn small" id="setGoBackup">開く</button></div>
+  </div>
+</section>
 
 <template id="tplTool">
   <li class="card pt-tool">
@@ -306,6 +318,7 @@
         <span class="hint pt-todo-sub"></span>
       </span>
       <span class="ui-miniprogress pt-todo-prog" hidden><i></i></span>
+      <span class="ui-caret right pt-todo-go" aria-hidden="true"></span>
     </a>
   </li>
 </template>
@@ -347,7 +360,7 @@
             <input class="pt-auto-streamer" type="text" size="12" placeholder="例: さくらみこ"></label>
           <label class="lag pt-auto-loud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select class="pt-auto-loudsel" data-ui-packloud></select></label>
           <button type="button" class="btn small primary pt-auto-run">実行</button>
-          <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
+          <button type="button" class="btn small pt-auto-cancel" hidden title="済んだ段は残ります。もう一度「実行」を押すと続きから進みます">中止</button>
         </div>
         <p class="hint pt-auto-why" hidden></p>
         <div class="pt-auto-panel"></div>

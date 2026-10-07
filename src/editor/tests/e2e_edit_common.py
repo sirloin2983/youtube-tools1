@@ -115,7 +115,15 @@ class Server:
             self.stop()
             raise RuntimeError("サーバーが起動しません")
         if mounted:   # 書き込み系の API の合言葉(入口が画面に入れる <meta name="ytt-token">)
-            html = urllib.request.urlopen(self.base, timeout=10).read().decode("utf-8")
+            html = ""
+            for i in range(100):   # /api/ping が答えても、画面(/transcribe/)の取り込みがまだのことがある(Linux で 1 回目が 404 だった)。出るまで待つ
+                try:
+                    html = urllib.request.urlopen(self.base, timeout=10).read().decode("utf-8")
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code != 404 or i == 99:
+                        raise
+                    time.sleep(0.1)
             import re
             m = re.search(r'name="ytt-token" content="([^"]+)"', html)
             self.token = m.group(1) if m else ""

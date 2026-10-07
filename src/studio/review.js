@@ -275,10 +275,10 @@ function markToolsHTML(){
         </div>
       </details>`;
 }
-/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信) */
+/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信)。置き場所は ⚙ 設定の「このツール」の節「③ の操作」(settings.js の #opsHost)。
+   0.22.3(見直し M9・仮決め (aw)): 以前は ③ の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた */
 function settingsHTML(){
-  return `      <details class="rv-settings ui-disclosure" id="rvSettings">
-        <summary>操作の設定 <span class="muted">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary>
+  return `      <div class="rv-settings" id="rvSettings">
         <div class="rv-setpanel">
           <section class="rv-sec">
             <h3>音量</h3>
@@ -311,7 +311,13 @@ function settingsHTML(){
             </details>
           </section>
         </div>
-      </details>`;
+      </div>`;
+}
+/* ⚙ の節の器(#opsHost。settings.js が先に作る)に入れる。器が無い(ui-kit が無い)ときだけ、③ の左の列の下に置く */
+function mountSettings(){
+  const host = $('#opsHost');
+  if (host) host.innerHTML = settingsHTML();
+  else $('#rvStage').insertAdjacentHTML('beforeend', settingsHTML());
 }
 /* 書き出しの引き出し(書き出す・つなげて1本に・設定・一覧) */
 function exportDrawerHTML(){
@@ -385,8 +391,6 @@ ${playerHTML()}
 ${liveBarHTML()}
 
 ${markToolsHTML()}
-
-${settingsHTML()}
     </section>
 
     <section class="rv-clips" aria-label="書き出しとマーク">
@@ -3136,7 +3140,7 @@ function showDataWarning(){
   if (!warnShown){ warnShown = true; toast(String(w), 8000); }
 }
 Studio.onReady(() => {
-  buildDOM(); S.built = true; placeJump();
+  buildDOM(); mountSettings(); S.built = true; placeJump();
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }

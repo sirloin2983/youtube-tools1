@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ: 設定(右の引き出し: APIキー / 出力先フォルダ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
+/* 切り抜きスタジオ: 設定(右の引き出し: APIキー / 出力先フォルダ / 書き出し / ③ の操作(中身は review.js が #opsHost に入れる)/ コラボ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
@@ -29,6 +29,7 @@ function build(){
     <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとでマークの行の「この後を」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
     : '<p class="hint">ホーム(start.bat)から開いているときだけ使えます。</p>'}
   </div></details>
+  <details class="card set-sec" id="setOps" open><summary><span class="set-title">③ の操作</span><span class="set-sub" title="音量・確認の進め方・マークの付け方・キー配置・ライブ配信">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary><div class="body" id="opsHost"><p class="hint">読み込み中…</p></div></details>
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub" title="複数人のコラボ配信をグループにまとめ、採用したマークを転写">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub" title="事務所ごとの所属チャンネル(① 探す の検索対象)">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
@@ -234,7 +235,7 @@ S.onReady(() => {
   build(); update();
   setupLive();
   S.on('state', update);
-  /* which: 開く節の id(setKey / setOut / setExport / setCollab / setReg)。引き出しの中でその節までスクロールする */
+  /* which: 開く節の id(setKey / setOut / setExport / setOps / setCollab / setReg)。引き出しの中でその節までスクロールする */
   S.openSettings = which => {
     S.drawer.open();
     const d = which && $('#' + which);
