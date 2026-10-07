@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -108,6 +109,7 @@ class Detector:
         self._spec, self._spec_at = None, -1e18
         self._written = None
         self._tries = {}                   # (録画元, 録画, 候補) -> 自動の採用を試した数
+        self._seen = {}                    # (録画元, 録画, 候補) -> 入口が最初に見た時刻(M11 の waitMin の起点)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = {}                  # series.jsonl の読み取りの覚え (key, 結果)
 
@@ -245,6 +247,16 @@ class Detector:
 
     @staticmethod
     def _kill(p):
+        """まず穏やかに(Windows は CTRL_BREAK = ワーカーの SIGBREAK の handler が状態を保存して心拍に「止まりました」を書く)、終わらなければ terminate・kill"""
+        try:
+            if os.name == "nt":
+                p.send_signal(signal.CTRL_BREAK_EVENT)   # CREATE_NEW_PROCESS_GROUP で起動しているので、ワーカーだけに届く
+            else:
+                p.terminate()
+            p.wait(8)
+            return
+        except Exception:
+            pass
         try:
             p.terminate()   # Windows は TerminateProcess(ワーカーの子 = ffmpeg・yt-dlp はワーカーのジョブと一緒に消える)
             p.wait(5)
@@ -451,21 +463,23 @@ class Detector:
     def auto_tick(self):
         """M11: 録画中の録画の候補のうち、枠の中で確定から waitMin 分たったものを自動で採用する -> 採用した数"""
         a = self.adopt_cfg()
-        if not a["enabled"] or not self.enabled():
+        if not a["enabled"] or not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
             return 0
         done = 0
+        now = self.clock()
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
         for r in self.live.list_recordings():
             if not r.get("active") or not isinstance(r.get("firstPdt"), (int, float)) or not isinstance(r.get("lastPdt"), (int, float)):
                 continue
             rc, rec = r["recorder"], r["id"]
-            now_sec = r["lastPdt"] - r["firstPdt"]
             _doc, peaks, _pending = self.view(rc, rec)
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
-                ca = pk.get("confirmedAt")
-                if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(ca, (int, float)) or now_sec - ca < a["waitMin"] * 60:
+                if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(pk.get("confirmedAt"), (int, float)):
                     continue   # 終わり待ち(区間の終わりがまだ録れていない)は、合わせ直されてから
+                first = self._seen.setdefault(key, now)   # 入口が候補を最初に見た時刻から数える(候補が画面に出てから、人が見られる時間を waitMin 分とるため。
+                if now - first < a["waitMin"] * 60:       # 録画の秒で比べると、ワーカーの遅れの分だけ人が見られる時間が短くなる = 見直し役 S1)
+                    continue
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
                     self._tries.pop(key, None)
@@ -522,7 +536,8 @@ class Detector:
         hb = self.heartbeat() or {}
         recs, chats = [], []
         for x in hb.get("recordings") or []:
-            if not isinstance(x, dict) or not isinstance(x.get("recorder"), str) or not isinstance(x.get("id"), str):
+            if not isinstance(x, dict) or not isinstance(x.get("recorder"), str) or not isinstance(x.get("id"), str) \
+                    or not LX.ID_RE.match(x["recorder"]) or not LX.REC_RE.match(x["id"]):   # worker.json の id はパスに使う前に形を見る
                 continue
             doc, peaks, _p = self.view(x["recorder"], x["id"])
             ch = (doc or {}).get("chat") or "off"

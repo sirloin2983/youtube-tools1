@@ -37,7 +37,6 @@
 import json
 import math
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -47,7 +46,6 @@ import time
 import types
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, urlparse
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)。main で一時フォルダにする
 from unittest import mock

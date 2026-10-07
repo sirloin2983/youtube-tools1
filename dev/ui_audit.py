@@ -53,6 +53,7 @@ live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 �
 import argparse
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -345,7 +346,7 @@ def static_checks(out):
             check_terms(path, read(path), out, py_strings(path))
     for tool in ("studio", "editor", "cut2resolve"):
         each_line(read(os.path.join(SRC, tool, "serve.py")), r"api/ytt/", "A-06", os.path.join(SRC, tool, "serve.py"), out, "ツールに api/ytt を作っている")
-    r = subprocess.run([sys.executable, os.path.join(REPO, "dev", "sync_ui_kit.py"), "--check"], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, os.path.join(REPO, "dev", "sync_ui_kit.py"), "--check"], capture_output=True, text=True, encoding="utf-8", errors="replace")   # 出力は UTF-8(Windows の cp932 で読むと落ちる)
     if r.returncode != 0:
         out.add("A-14", "dev/sync_ui_kit.py --check", (r.stdout + r.stderr).strip()[:200])
 
@@ -512,7 +513,7 @@ def default_scenes(base):
     見本のデータ(dev/demo_env.py)の配信 demo0000000 と、文字起こし 1 件を使う。副作用のあるボタン(終了・片付け・実行)は押さない。"""
     doc = demo_doc_id(base)
     ed = base + "/transcribe/?doc=" + doc if doc else base + "/transcribe/"
-    styleguide = "file://" + os.path.join(SRC, "ui-kit", "styleguide.html")
+    styleguide = pathlib.Path(os.path.join(SRC, "ui-kit", "styleguide.html")).resolve().as_uri()   # Windows でも file:///C:/... の形(区切りが / でないと origin が取れない)
     settings = {"root": "#uiSettingsDrawer", "opener": "[data-ui-settings]"}
     return [
         {"name": "home", "url": base + "/", "header": True, "wide": True},

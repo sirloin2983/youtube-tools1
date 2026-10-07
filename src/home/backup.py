@@ -81,6 +81,8 @@ def plan(source):
                         stack.append((r, "keep"))
                     elif low == "bin" and rel.lower() == "transcribe":
                         stack.append((r, "bin"))
+                    elif _excite_chat(r):
+                        continue   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(ワーカーが消しても写しに残るため。見直し役 S2)
                     elif not skip(e.name, True):
                         stack.append((r, None))
                 elif mode != "bin" and e.is_file(follow_symlinks=False) and not skip(e.name, False):
@@ -90,11 +92,21 @@ def plan(source):
                 continue
 
 
+def _excite_chat(rel):
+    """<ツール>/live/excite/chat(配信中の検出の生のチャット)か"""
+    return rel.replace(os.sep, "/").lower().endswith("live/excite/chat")
+
+
+def _excite_noisy(rel):
+    """<ツール>/live/excite/ の下(worker.json は 30 秒ごと・peaks.json/state.json/series.jsonl は 1 分ごとに書き換わる)。写すが「変わった」の判定には使わない"""
+    return "/live/excite/" in rel.replace(os.sep, "/").lower()
+
+
 def latest_change(source):
     """写す対象のファイルの、いちばん新しい更新時刻(無ければ None)。NOISY の名前は数えない"""
     newest = None
     for rel, _size, mtime in plan(source):
-        if os.path.basename(rel).lower() in NOISY:
+        if os.path.basename(rel).lower() in NOISY or _excite_noisy(rel):
             continue
         if newest is None or mtime > newest:
             newest = mtime

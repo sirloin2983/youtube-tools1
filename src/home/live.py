@@ -1076,5 +1076,10 @@ class Live:
         except Exception as e:
             self.note("リアルタイム切り抜き: 空き容量を調べられませんでした: %r" % (e,))
             disk = None
-        return {"recorders": out, "failures": failures, "disk": disk, "detect": self.detector.health()}
+        try:   # 配信中の検出(L2。worker.json・peaks.json を読む)
+            detect = self.detector.health()
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 検出の状態を読めませんでした: %r" % (e,))
+            detect = {"running": False, "error": "状態を読めませんでした", "restarts": self.detector.restarts}
+        return {"recorders": out, "failures": failures, "disk": disk, "detect": detect}
 

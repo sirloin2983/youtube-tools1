@@ -757,6 +757,16 @@ class DetectApiTest(unittest.TestCase):
         with open(os.path.join(self.folder, "decisions.json"), encoding="utf-8") as f:
             return json.load(f)
 
+    def worker_alive(self):
+        """M11 用: ワーカーが動いているふり(心拍 worker.json)と、偽の時計(waitMin は入口が候補を最初に見た時刻から数える = 見直し役 S1)-> 時計の箱"""
+        t = [time.time()]
+        self.det.clock = lambda: t[0]
+        self.det.stale_sec = 10 ** 9   # 時計を進めても心拍が古くならないように
+        os.makedirs(self.det.dir, exist_ok=True)
+        fsio.atomic_write(os.path.join(self.det.dir, "worker.json"), json.dumps({"v": 1, "pid": 99999, "at": iso(t[0]), "behindSec": 4.0, "memMB": 50.0, "chatRestarts": 0,
+                                                                                   "recordings": [{"recorder": "fake", "id": REC, "behindSec": 4.0, "chat": "ok"}], "message": "1 本の録画を見ています", "error": ""}).encode("utf-8"))
+        return t
+
     def test_get_full_since_and_series(self):
         with open(os.path.join(self.folder, "series.jsonl"), "w", encoding="utf-8") as f:
             for m in range(3):
@@ -845,9 +855,13 @@ class DetectApiTest(unittest.TestCase):
         """M11: 確定から waitMin 分たった枠の中の候補を 1 回だけ自動で採用(origin auto・after auto)。控え・見送りは採用しない"""
         self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 5}})
         self.post("dismiss", "p1-903")
-        self.rec.rel = 336 + 299
+        self.rec.rel = 5000
+        self.assertEqual(self.det.auto_tick(), 0)   # ワーカーが動いていない(心拍なし)間は採用しない
+        t = self.worker_alive()
+        self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た(ここから waitMin を数える)
+        t[0] += 299
         self.assertEqual(self.det.auto_tick(), 0)   # まだ 5 分たっていない
-        self.rec.rel = 336 + 300
+        t[0] += 1
         self.assertEqual(self.det.auto_tick(), 1)
         v = self.studio.videos[REC]
         self.assertEqual([(m["status"], m["start"]) for m in v["marks"]], [("adopted", 272.0)])
@@ -875,6 +889,9 @@ class DetectApiTest(unittest.TestCase):
             return None, {"message": "スタジオが動いていません"}
         self.live.studio_call = down
         self.rec.rel = 1000
+        t = self.worker_alive()
+        self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た
+        t[0] += 60
         for i in range(D.AUTO_TRIES):
             self.assertEqual(self.det.auto_tick(), 0)
             self.assertEqual(self.det.failures() != [], i == D.AUTO_TRIES - 1, i)
@@ -885,9 +902,12 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(len(f), 2, f)   # p0・p1(どちらも枠の中で 1 分たった)
         self.assertIn("自動で採用できませんでした", f[0]["text"])
         self.assertEqual(f[0]["kindLabel"], "盛り上がりの検出")
-        det2 = D.Detector(self.live, spawn=False)   # 入口を起動し直しても、諦めた候補は試さない(auto_failures.json)
+        det2 = D.Detector(self.live, spawn=False, clock=lambda: t[0])   # 入口を起動し直しても、諦めた候補は試さない(auto_failures.json)
+        det2.stale_sec = 10 ** 9
         self.live.studio_call = self.studio
-        self.assertEqual(det2.auto_tick(), 0)
+        self.assertEqual(det2.auto_tick(), 0)   # 最初に見た
+        t[0] += 60
+        self.assertEqual(det2.auto_tick(), 0)   # 待ちが過ぎても試さない
 
     def test_health_row_and_failures(self):
         hb = {"v": 1, "pid": 99999, "at": iso(time.time()), "behindSec": 12.5, "memMB": 80.0, "chatRestarts": 2,
