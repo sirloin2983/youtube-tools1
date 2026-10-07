@@ -132,6 +132,7 @@
 .rv-host{position:absolute;inset:0}
 .rv-host iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .rv-host video{display:block;width:100%;height:100%;background:#000;object-fit:contain}
+.rv-host iframe:focus,.rv-host iframe:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* YouTube の埋め込み(iframe)にもフォーカスの輪(A-26) */
 .rv-phmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:#c9d0dc;padding:16px;font-size:13px;pointer-events:none}
 .rv-notice{margin:0}
 .rv-notice .hint{display:inline-block;margin-top:2px}

@@ -82,7 +82,7 @@ MUST = {"A-01", "A-02", "A-03", "A-05", "A-06", "A-07", "A-09", "A-10", "A-11", 
 WIDTHS = (390, 960, 1440)
 WIDE = 1920
 VARIANTS = ("light", "dark", "light-lg")
-IGNORE_CONSOLE = ("/live/api/info",)
+IGNORE_CONSOLE = ("/live/api/info", "compute-pressure")   # YouTube の埋め込みプレイヤーが出す Permissions policy の警告(Windows で埋め込みが読めるときだけ出る。画面側では直せない)
 REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")   # この文字のあとの / は正規表現の始まり(割り算ではない)
 # 取り込まれた画面が要求してよい場所(取り込みの場所 + ホームの API /api/(まとめて実行・api/ytt)+ 録画の部品 /live/)。UIKit.tools.base() が作る他ツールの URL も含む
 ALLOWED_PREFIX = {"/studio/": ("/studio/", "/transcribe/", "/cut2resolve/", "/live/", "/api/"), "/transcribe/": ("/transcribe/", "/cut2resolve/", "/studio/", "/live/", "/api/")}
@@ -596,7 +596,7 @@ def run_scene(pg, scene, width, variant, out, shots):
     """1 つの場面を 1 つの幅・テーマで開いて測る。"""
     errors, reqs = [], []
     origin = (re.match(r"https?://[^/]+", scene["url"]) or re.match(r"file://.*/", scene["url"])).group(0)
-    handler = lambda m: errors.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None   # noqa: E731 1 行の捕まえ役
+    handler = lambda m: errors.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text and not any(x in m.text for x in IGNORE_CONSOLE) else None   # noqa: E731 1 行の捕まえ役
     perr = lambda e: errors.append("pageerror: " + str(e))   # noqa: E731
     resp = lambda r: errors.append(f"{r.status} {r.url}") if r.status >= 400 and r.url.startswith(origin) and not any(x in r.url for x in IGNORE_CONSOLE) else None   # noqa: E731
     req = lambda r: reqs.append(r.url) if r.url.startswith(origin) else None   # noqa: E731
