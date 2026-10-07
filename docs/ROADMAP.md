@@ -32,6 +32,7 @@
 | `docs/spec/subtitle-notation.md` | 字幕の書き方の規則と、採点で同じとみなす違い |
 | `docs/spec/sound-tags.md` | 行の音の状態のメモ(BGM・重なり・聞き取れない)の付け方 |
 | `docs/spec/ui-guidelines.md`・`docs/spec/usability-heuristics.md` | 画面の共通のルール(用語集など)・Nielsen の 10 の原則 |
+| `docs/spec/ui-review-criteria.md` | 画面の見直しの合格の基準(A = 機械で測る `dev/ui_audit.py` / B = 人が見る)。結果は `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md` |
 | `src/ui-kit/README.md` | 共通の見た目と画面の共通の動き(部品の仕様) |
 
 ### 作業の記録と引き継ぎ
