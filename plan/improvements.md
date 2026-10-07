@@ -217,5 +217,8 @@ AI が出典から拾ったもの。急ぎではない。
 | 入口 | `config.json` に録画元の合言葉を書く(仮決め (cg))。危険は低い(同じ合言葉は recorder/token.txt と prefs としてすでにバックアップに写っている) | ワーカーが token.txt と prefs を live.py と同じ関数で直接読む / config.json をバックアップで写さない |
 | studio | 録画元が無いときの 404 も「ホームが古い」と出して見回りをやめる(review.js の候補の API の 404 の扱い) | 応答の文で区別 |
 | studio | 検出を後でオフにすると、過去の録画の候補がスタジオに出ない(`detect.enabled` だけで隠す) | 録画に候補があれば出す |
-| 遅れ | 候補が出るまで 1〜2 分(Online の待ち約 50 秒 + チャットの遅れ約 21 秒 + 確定 10 秒。計画の 30〜45 秒より長い) | M8/M10 の担当が短縮の案を実装(結果は WORKLOG) |
+| M8 | 自動の採用の切り抜きの「前後の余白 2 秒」は未実装(区間を広げるのは `Live.adopt` の側。prefs `live.auto.pad`(0〜5 秒)を足し、`Live.auto_cfg` で返し、origin auto/archive のとき `a, b = max(0, a - pad), b + pad`。test_live の既定の完全一致の期待値も直す) | 3 か所の直し(S) |
+| studio | 仮の候補(provisional)はいま「区間の終わり待ち」として出る。「仮」の札と、`expired` の見送りを [戻す] で出さない扱い | review.js の候補の行(S) |
+| home | `src/home/prefs.py` の説明文に `E:\Video\live-rec` のバックスラッシュがあり、テストのたびに DeprecationWarning | `/` に(S) |
+| 遅れ | 本番の候補が出るまで 96〜107 秒(Online の待ち約 50 秒 + チャットの遅れ約 21 秒 + 確定)。10-07 夜に「仮の候補」(音だけで先に。山から 45〜50 秒)を足した(decisions (cs))。本番の遅れそのものは L4' で見てから | fwd・step・確定の秒を縮めると本番の式が変わる(L5 がずれる)ので当面そのまま |
 
