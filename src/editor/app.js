@@ -434,7 +434,8 @@ $('#btnProofAll').addEventListener('click', () => {
 function placeMoreTools(){
   const d = $('#moreTools'), p = d && d.querySelector('.vpop'); if (!p) return;
   if (!d.open){ p.classList.remove('tt-vpop-fixed'); p.style.top = p.style.left = p.style.right = p.style.bottom = p.style.maxHeight = ''; return; }
-  const r = d.querySelector('summary').getBoundingClientRect(), vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight, m = 8;
+  const kb = document.querySelector('.ui-keybar:not([hidden])'), kt = kb && kb.offsetHeight ? kb.getBoundingClientRect().top : innerHeight;   // 下のキーの帯に隠れないように
+  const r = d.querySelector('summary').getBoundingClientRect(), vw = document.documentElement.clientWidth || innerWidth, vh = Math.min(innerHeight, kt), m = 8;
   p.classList.add('tt-vpop-fixed'); p.style.right = p.style.bottom = 'auto'; p.style.maxHeight = '';
   const w = p.offsetWidth, ph = p.offsetHeight;
   let top = r.bottom + 6; if (top + ph > vh - m && r.top - 6 - ph >= m) top = r.top - 6 - ph;
