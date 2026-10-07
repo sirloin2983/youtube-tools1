@@ -403,6 +403,8 @@ def _scene_backup_cancel_summary(cx):
     wait_js(pg, "document.querySelector('#pkBuild').disabled", 5000)   # 作り始めた(確認のダイアログが無くなったので、押した直後はまだ前の状態のことがある)
     wait_js(pg, "!document.querySelector('#pkJob').hidden || !document.querySelector('#pkBuild').disabled", 20000)
     if pg.is_visible("#pkJob [data-act=pkcancel]"):
+        # 前のパックの完了の知らせ([フォルダを開く] つきで消えない)が下の中央に残っていると、Linux の字の高さでは [中止] に重なってクリックを遮る → 先に閉じる
+        pg.evaluate("document.querySelectorAll('#toast .ui-toast-x').forEach(b => b.click())")
         pg.click("#pkJob [data-act=pkcancel]")
         wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 60000)
         t = pg.inner_text("#toast")
