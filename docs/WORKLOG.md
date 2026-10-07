@@ -2227,3 +2227,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: 10-08 に L1 から(移す前に golden)。今夜の配信の M7 の結果(パックの本数・失敗)を WORKLOG と `plan/data.js` の U4・M7 に。L0 は URL をもらえたら
 - 注意: 式を移すときは 1 文字も変えない(`local_baseline` の点の重なり・銀行丸め・加算の順)。`live.py` は 1,057 行なので新しい入口のコードは `live_detect.py` に。録画の部品の版は上げない(API を足さない)。線 2 は同じ PC で(クラウドと分けると合流で衝突)
 - 未コミット: なし(このコミットで全部。push はユーザー)
+
+## 2026-10-07 Claude Code(PC)— 線 D の前倒し L1: 盛り上がりの式を src/ytt_core/excite.py へ(golden 完全一致・配信中の Online・候補の帳簿 PeakBook)
+- 依頼: 「障害がないなら最優先で試験したい」→ `plan/line-d-detect.md` の L1 を今夜から
+- 変更: `src/ytt_core/excite.py`(新): `analyze.py` の純粋関数(`smooth`〜`downsample`・`SENS`・`CAP`・`LAG_*`)を**そのまま**移し、`local_baseline(back, fwd)`・`candidates`・`reasons_of`(しきい値 `PART_ON`)・`message_weight`/`message_text`(チャット 1 件の重み。`WARM_RE`)・`PRE_RATIO_DEFAULT` を足した。配信中の式: `windowed_scores`(一括)と `_Channel`/`Online`(1 秒ずつ。窓の分しか持たない・`to_json`/`load` で続きから)。候補の帳簿 `PeakBook`(確定の規則・区間の snap・1 時間の枠と入れ替え・採用は数えない/自動採用は固定・見送り・`changes_since`・JSON 往復)。`src/studio/analyze.py`(1260 → 1078 行): excite を読んで同じ名前を再公開、`parse_chat` は `message_weight`、`_candidates` は `excite.candidates`、preRatio の既定は `PRE_RATIO_DEFAULT`。`dev/eval_marks.py` の `PART_ON`・`DEFAULT_PRE` は excite から。`src/ytt_core/__init__.py`・`AGENTS.md`(表と「取り込みの決まり」の行)
+- golden: `src/ytt_core/tests/test_excite.py` の `synth(7)`(合成の 1 秒の系列 2400 秒)を、移す**前**の analyze で計算した `src/ytt_core/tests/data/excite_golden.json`(audio・chat_z・遅れ 11 秒・total・picks 6 件・candidates・downsample・小さい関数)と比べる → **完全一致**(1e-9)。式を直すときは golden を作り直す(手順は test_excite の先頭)
+- テスト: test_excite 13 OK・studio test_analyze 27 OK・e2e_analyze OK(遅れ 16/正解 14・ピーク 6 つ = 前と同じ)・ytt_core 110 OK・dev test_eval_marks 37 OK・`dev/lint.py` 0 件。手元の本物のアーカイブ 9 本での前後の比較は省いた(golden と test_analyze で式が同じことは確かめた。必要なら `studio/archive/*.json.gz` の full・band・chat.act から再計算して比べる)
+- 決定・理由: 一括の `windowed_scores` と 1 秒ずつの `Online` は同じ足し方(直接の和)にして末尾の桁までそろえた(アーカイブの `smooth` は prefix 和のまま = golden のため)。確定した区間の後ろ `int(e)+6` から次の山にできる(`pick_clips` の `[s-5, e+6)` と同じ)。`PeakBook` の「変わり目の 60 秒はしきい値 1.3 倍」(0-10-5)は入れていない(L4' で要れば)
+- 未完了・次: L2(ワーカー `live_excite_worker.py` + 入口 `live_detect.py` + 候補の API)と L3(スタジオの帯)を並列で。API の約束は `plan/line-d-detect.md` の 3
+- 注意: 起動中の入口(0.42.3)は旧コードのまま動いている(今夜の録画 2 本と M7 を止めないため、起動し直さない)。スタジオの版は上げていない(動きは同じ)

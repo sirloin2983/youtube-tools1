@@ -47,7 +47,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import pct, rate, read_json  # noqa: E402
-from ytt_core import txindex  # noqa: E402
+from ytt_core import excite, txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
 TOPS = (5, 10, 20)
@@ -63,8 +63,8 @@ FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少�
 HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
 FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/home/autorun.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
-PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8}   # 点数の内訳が「効いた」とみなす値(src/studio/analyze.py の理由の付け方と同じ)
-DEFAULT_PRE = 0.65       # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき。src/studio/analyze.py の既定)
+PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/ytt_core/excite.py)
+DEFAULT_PRE = excite.PRE_RATIO_DEFAULT   # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき)
 CL_OUTLIER_MIN, CL_OUTLIER_MAX = 5.0, 600.0   # 人が選んだ区間の長さの外れ値(この外は数だけ別に出して、目安に入れない)
 CL_LENGTH_MIN, CL_LENGTH_MAX = 10, 120        # 目安の長さの範囲(スタジオの解析の設定 length の範囲)
 CL_PRE_MIN, CL_PRE_MAX = 0.3, 0.9             # 目安の preRatio の範囲(同 preRatio の範囲)

@@ -20,6 +20,9 @@ import uuid
 
 import common
 from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms
+from ytt_core import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
+from ytt_core.excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
+                             chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
 
 API_BASE = "https://www.googleapis.com/youtube/v3/"
 CHAT_CACHE_KEEP = 30
@@ -90,7 +93,7 @@ def validate_settings(req):
     mh = req.get("maxHeight")
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
             "useComments": req.get("useComments") is not False,
-            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 120, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, 0.65),
+            "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 120, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT), "typePreset": req.get("typePreset") is True,
             "typeOverride": req.get("typeOverride") if req.get("typeOverride") in STREAM_TYPES else "auto", "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "maxHeight": mh if mh in (480, 720, 1080, 1440, 0) and not isinstance(mh, bool) else 1080,
@@ -839,7 +842,6 @@ def audio_levels(job, path, dur, hp=None, p0=0.12, p1=0.42):
 
 def parse_chat(path, n, extra=None):
     """live_chat.json → (1秒ごとの活気, 件数, 「草」などの件数)。extra に辞書を渡すと、1秒ごとの warm(「草」等の件数)/ uniq(発言した人数)/ paid(スパチャ件数)を入れる(記録用)。"""
-    warm_re = re.compile(r"草|ｗ{2,}|w{3,}|笑|わら|8{3,}|８{3,}|！{2,}|!{2,}|すご|うま|上手|かわい|可愛|てぇてぇ|てえてえ|きた|キタ|やば|ヤバ|神|最高|えらい|www|lol|kusa|pog|LUL|😂|🤣|😆|😍|❤|💕|👏|🎉|:_?laugh|:_?kusa|:_?heart|:_?clap|:_?pog", re.I)
     act = [0.0] * n
     total = warm_total = 0
     warm_s, paid_s, uniq_s = [0] * n, [0] * n, {}
@@ -861,22 +863,15 @@ def parse_chat(path, n, extra=None):
             for a in ra.get("actions") or []:
                 item = ((a.get("addChatItemAction") or {}).get("item")) or {}
                 kind, r = next(iter(item.items()), (None, None)) if item else (None, None)
-                if not isinstance(r, dict) or kind not in ("liveChatTextMessageRenderer", "liveChatPaidMessageRenderer", "liveChatPaidStickerRenderer", "liveChatMembershipItemRenderer"):
+                if not isinstance(r, dict):
                     continue
-                text = ""
-                for run in (r.get("message") or {}).get("runs") or []:
-                    if "text" in run:
-                        text += str(run["text"])
-                    elif "emoji" in run:
-                        e = run["emoji"]
-                        text += " " + " ".join(str(x) for x in (e.get("shortcuts") or [])[:2]) + " " + str(e.get("emojiId", "") if len(str(e.get("emojiId", ""))) < 4 else "")
-                w = 1.0
-                if warm_re.search(text):
-                    w += 1.5
+                w, warm, paid = excite.message_weight(kind, excite.message_text(r))   # 重み(「草」+1.5・スパチャ +4)は配信中の検出と同じ 1 か所
+                if w is None:
+                    continue
+                if warm:
                     warm_total += 1
                     warm_s[int(t)] += 1
-                if kind in ("liveChatPaidMessageRenderer", "liveChatPaidStickerRenderer"):
-                    w += 4.0   # スーパーチャットは強い反応
+                if paid:
                     paid_s[int(t)] += 1
                 act[int(t)] += w
                 total += 1
@@ -887,171 +882,6 @@ def parse_chat(path, n, extra=None):
         extra["warm"], extra["paid"] = warm_s, paid_s
         extra["uniq"] = [len(uniq_s.get(i, ())) for i in range(n)]
     return act, total, warm_total
-
-
-def smooth(x, w):
-    """幅 w 秒の移動平均(w は奇数に丸める)。"""
-    n, h = len(x), max(0, int(w) // 2)
-    if h == 0 or n == 0:
-        return list(x)
-    pre = [0.0]
-    for v in x:
-        pre.append(pre[-1] + v)
-    return [(pre[min(n, i + h + 1)] - pre[max(0, i - h)]) / (min(n, i + h + 1) - max(0, i - h)) for i in range(n)]
-
-
-def median(v):
-    s = sorted(v)
-    m = len(s)
-    return 0.0 if not m else (s[m // 2] if m % 2 else (s[m // 2 - 1] + s[m // 2]) / 2)
-
-
-def local_baseline(x, half=150, step=10):
-    """各秒の前後 half 秒の中央値(=その場面の「ふだんの音量」)。step 秒ごとに求めて補間する。"""
-    n = len(x)
-    if n == 0:
-        return []
-    pts = list(range(0, n, step)) + [n - 1]
-    med = [median(x[max(0, p - half):p + half + 1]) for p in pts]
-    out, j = [], 0
-    for i in range(n):
-        while j + 1 < len(pts) - 1 and pts[j + 1] <= i:
-            j += 1
-        a, b = pts[j], pts[min(j + 1, len(pts) - 1)]
-        out.append(med[j] if b == a else med[j] + (med[min(j + 1, len(pts) - 1)] - med[j]) * (i - a) / (b - a))
-    return out
-
-
-def robust_scale(dev, floor):
-    """偏差の「ふつうの大きさ」(MAD×1.4826)。極端に小さくならないよう floor を下限にする。"""
-    m = median(dev)
-    return max(floor, 1.4826 * median([abs(v - m) for v in dev]))
-
-
-CAP = 6.0
-
-
-def audio_score(full_db, band_db):
-    """音量が「ふだん」からどれだけ跳ね上がったか(標準偏差のような無単位の値。0〜CAP)。高音域(笑い声・叫び)は少し重く見る。"""
-    out = []
-    for series, wt in ((smooth(full_db, 3), 0.6), (smooth(band_db, 3), 0.4)):
-        base = local_baseline(series)
-        dev = [a - b for a, b in zip(series, base)]
-        sc = robust_scale(dev, 1.5)
-        out.append([wt * max(0.0, min(CAP, d / sc)) for d in dev])
-    return [a + b for a, b in zip(*out)]
-
-
-def chat_z(act):
-    """チャットの活気(9秒平均)が「ふだん」からどれだけ増えたか(ずらす前)。"""
-    x = [math.log1p(v) for v in smooth(act, 9)]
-    base = local_baseline(x)
-    dev = [a - b for a, b in zip(x, base)]
-    sc = robust_scale(dev, 0.25)
-    return [max(0.0, min(CAP, d / sc)) for d in dev]
-
-
-def shift_chat(z, lag):
-    """反応は少し遅れて来るので、lag 秒だけ前へずらす(t 秒の値 = z[t+lag])。"""
-    k = int(round(lag))
-    return z[k:] + [0.0] * k if k > 0 else list(z)
-
-
-def chat_score(act, lag):
-    return shift_chat(chat_z(act), lag)
-
-
-LAG_MAX = 30
-LAG_MIN_CORR = 0.08     # これ未満の一致度では推定しない
-LAG_MIN_CONTRAST = 0.04  # 最良の遅れと最悪の遅れの一致度の差がこれ未満なら、はっきりした山がないので推定しない
-
-
-def estimate_lag(audio, chat, max_lag=LAG_MAX):
-    """音量の山とチャットの山の相関から、チャットが音声より何秒遅れているかを推定する。(遅れ秒, 一致度) / はっきりしなければ (None, 一致度)。
-    配信ごとに、チャットの遅れ(視聴者の反応時間・配信の遅延)は違うため、固定値ではずれる。"""
-    n = min(len(audio), len(chat))
-    if n < 300:
-        return None, 0.0
-    a, c = audio[:n], chat[:n]
-    ma, mc = sum(a) / n, sum(c) / n
-    a = [x - ma for x in a]
-    c = [x - mc for x in c]
-    va, vc = sum(x * x for x in a), sum(x * x for x in c)
-    if va <= 1e-9 or vc <= 1e-9:
-        return None, 0.0
-    norm = math.sqrt(va * vc)
-    corr = []
-    for k in range(max_lag + 1):
-        corr.append(sum(a[i] * c[i + k] for i in range(n - k)) / norm)
-    sm = [sum(corr[max(0, i - 1):i + 2]) / len(corr[max(0, i - 1):i + 2]) for i in range(len(corr))]   # 前後1秒でならす(1秒の揺れで選ばない)
-    best = max(range(len(sm)), key=lambda i: sm[i])
-    if sm[best] < LAG_MIN_CORR or sm[best] - min(sm) < LAG_MIN_CONTRAST:
-        return None, sm[best]
-    return best, sm[best]
-
-
-def head_ramp(total, head):
-    """配信の冒頭(挨拶・BGM・雑談の始まり)の減点。0秒で0倍 → head 秒で1倍へ、なだらかに(2乗)戻す。"""
-    if head <= 0:
-        return total
-    return [v * min(1.0, i / head) ** 2 for i, v in enumerate(total)]
-
-
-def comment_score(stamps, n):
-    out = [0.0] * n
-    for st in stamps:
-        t, likes = st[0], st[1]
-        amp = min(3.0, 0.8 + 0.5 * math.log1p(likes)) * (st[2] if len(st) > 2 else 1.0)
-        for d in range(-20, 21):
-            i = int(t) + d
-            if 0 <= i < n:
-                out[i] += amp * math.exp(-(d / 8.0) ** 2)
-    return [min(CAP, v) for v in out]
-
-
-SENS = {"high": 1.2, "normal": 2.0, "low": 3.2}
-
-
-def pick_clips(total, level, spec, n):
-    """合計スコアの山を高い順に選び、区間(開始・終了)にする。見つけた区間は重ならない。"""
-    length, pre = spec["length"], spec["preRatio"]
-    work = list(smooth(total, 5))
-    thr = SENS[spec["sensitivity"]]
-    out = []
-    lows = smooth(level, 3)
-    while len(out) < spec["count"]:
-        peak = max(range(n), key=lambda i: work[i]) if n else 0
-        if not n or work[peak] < thr:
-            break
-        s = max(0.0, min(peak - length * pre, n - length))
-        e = min(float(n), s + length)
-        s = max(0.0, e - length)
-        s2 = snap_quiet(lows, s, n)   # 声の途中で切らないよう、近くの静かなところに合わせる
-        e2 = snap_quiet(lows, e, n)
-        if length * 0.7 <= e2 - s2 <= length * 1.3 and s2 < peak < e2:
-            s, e = s2, e2
-        out.append({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(work[peak], 2)})
-        a, b = max(0, int(s) - 5), min(n, int(e) + 6)
-        for i in range(a, b):
-            work[i] = 0.0
-    return sorted(out, key=lambda c: -c["score"])
-
-
-def snap_quiet(level, t, n, radius=4):
-    """t の前後 radius 秒のうち、いちばん静かな秒(できるだけ近いもの)へ。"""
-    lo, hi = max(0, int(t) - radius), min(n - 1, int(t) + radius)
-    if hi < lo:
-        return t
-    best = min(range(lo, hi + 1), key=lambda i: (round(level[i], 0), abs(i - t)))
-    return float(best)
-
-
-def downsample(x, points=600):
-    n = len(x)
-    if n <= points:
-        return [round(v, 2) for v in x]
-    step = n / points
-    return [round(max(x[int(i * step):max(int(i * step) + 1, int((i + 1) * step))]), 2) for i in range(points)]
 
 
 def _levels(job, spec, src, wdir, warnings):
@@ -1155,20 +985,8 @@ def _weights(job, spec, warnings):
 
 
 def _candidates(picks, comps):
-    """選んだ区間に、山の前後の材料ごとの点数(parts)と理由の文を付ける"""
-    cands = []
-    for i, c in enumerate(picks):
-        pk = c["peak"]
-        parts = {k: round(max(comps[k][max(0, pk - 6):pk + 7]), 2) for k in comps}
-        why_txt = []
-        if parts.get("audio", 0) >= 1.5:
-            why_txt.append("音量が急上昇")
-        if parts.get("chat", 0) >= 1.5:
-            why_txt.append("チャットが急増")
-        if parts.get("comments", 0) >= 0.8:
-            why_txt.append("コメント欄で時刻が指定されている")
-        cands.append({"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": why_txt or ["音声の変化"]})
-    return cands
+    """選んだ区間に、山の前後の材料ごとの点数(parts)と理由の文を付ける(式は excite.candidates。配信中の候補と同じ)"""
+    return excite.candidates(picks, comps)
 
 
 def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, stream_type, info, cands):
