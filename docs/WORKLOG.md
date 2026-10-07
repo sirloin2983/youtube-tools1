@@ -2211,3 +2211,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 合流の直後の不具合: ui-kit.js の先頭の説明の 1 行(クラウド側の v23)をコメントの外へ置いてしまい構文エラー(全画面で `UIKit` が無い → e2e_styleguide・e2e_portal が落ちた)。次のコミットで直した。写しを作る前に `node --check src/ui-kit/ui-kit.js` を通すとよい
 - テスト(合流後。Linux): `dev/sync_ui_kit.py --check` ずれなし・lint 0 件・test_ui_kit_sync 5・test_eval_asr 55・node studio OK / e2e: styleguide(PC 側の v22・v23 の検査 `check_v23`・`check_toast` を含む)・portal・keymap・autorun・studio e2e_ui / --mounted・editor tabs・cut・pack・ui_mounted すべて OK。proofread_keys は 4000 行の Alt+Enter が 0.52〜0.54 秒で 0.5 秒の基準を 2 回超え、3 回目(単独)は 0.451 秒で ALL PASSED(Linux の揺れ。合流の前も同じ)。`dev/ui_audit.py all --demo` は Must 0・Should 38(一意 13。合流前と同じ)
 - 未コミット: なし(合流のコミット + 構文エラーの直し + この記録)
+
+## 2026-10-07 Claude Code(PC)— 線 D を今夜の配信で試す準備(配信後の全自動 M7 をオン)
+- 変更: コードは変えていない。起動中の入口(0.42.3)の設定 `live.autoAfterStream` を API(`api/ytt/prefs` の patch)でオフ → オンにした(`live.enabled` は既にオン・`afterStreamPerHour` 6・`auto.after` は check のまま = 人のマークは文字起こしまで)
+- 確認: 入口 0.42.3(18:50 起動)・録画の部品 0.3.2 待機中(録画 0 本・E:\Video\live-rec は空・E: の空き 120GB)・「調子」のライブの失敗 0・streamlink 8.6.1・yt-dlp 2026.08.19・スタジオの ① 探す「配信中」は 7 本(19:00 時点)
+- 決定・理由: ユーザー「リアルタイムの配信を自動切り抜き試したい」。配信中の検出(L1〜L3)は未実装なので、いま試せる「自動」は M7(配信後にアーカイブの解析で上位 N を自動採用 → 本番版 → 文字起こし → パック)。plan では M7 の本物の確認は土日の予定だったが、今夜の配信で試す(U4 = 録画 + マーク + 書き出しの同時 と一緒に)
+- 未完了・次: 配信の URL をスタジオの URL 欄に入れる(ユーザー)。配信のあと LIVE の帯の afterStream と「調子」の「リアルタイム切り抜きの失敗」を見て、結果を WORKLOG と `plan/data.js`(U4・M7)に記録する。L0(live_chat を数時間読む)は配信中に頼まれたら AI が行う
+- 注意: Temp の `ytt-mount-*` の studio / editor の serve.py が 12 個残っていた(10-07 9:56〜10:10 の e2e の残り。各 13MB・害は無い。タスク マネージャーで消してよい)。autoAfterStream は「録画が終わって 2 日以内」の録画にだけ効く(10-05 の録画は対象外・録画の実体も消えている)
