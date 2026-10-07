@@ -616,7 +616,11 @@
     }
   }
   function drawerFocusables(el) {
-    return el.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+    /* v23: summary も数え、閉じた details の中身や隠れているものは除く(以前は最後の summary から Tab が外へ抜けた。スタジオの書き出しの欄 @390。A-31) */
+    var all = el.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])');
+    var out = [];
+    for (var i = 0; i < all.length; i++) { var f = all[i]; if (f.checkVisibility ? f.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true }) : f.offsetParent !== null) out.push(f); }
+    return out;
   }
   function fireDrawerEvent(el, open) { try { document.dispatchEvent(new CustomEvent('ui-drawer', { detail: { open: open, el: el } })); } catch (e) { /* 古いブラウザ */ } }
   var drawer = {
@@ -937,7 +941,7 @@
   function ensureKeybarEl() {
     if (keybarEl && keybarEl.isConnected) return keybarEl;
     keybarEl = document.createElement('div');
-    keybarEl.className = 'ui-keybar'; keybarEl.setAttribute('aria-hidden', 'true'); keybarEl.hidden = true;
+    keybarEl.className = 'ui-keybar'; keybarEl.setAttribute('aria-hidden', 'true'); keybarEl.hidden = true; keybarEl.tabIndex = -1;   /* v23: 横にスクロールできても Tab で止まらない(飾りの帯) */
     (document.body || document.documentElement).appendChild(keybarEl);
     return keybarEl;
   }

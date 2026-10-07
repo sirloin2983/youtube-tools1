@@ -523,6 +523,7 @@ def default_scenes(base):
         {"name": "studio-queue", "url": base + "/studio/?step=queue"},
         {"name": "studio-review-empty", "url": base + "/studio/?step=review"},
         {"name": "studio-review", "url": base + "/studio/?video=demo0000000", "wide": True},
+        {"name": "studio-review-marks", "url": base + "/studio/?video=demo0000002"},   # マークのある配信(行の札・理由の札)
         {"name": "studio-review-export", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#rvJump [data-jump=export]"), ("wait", 500)],
          "modal": {"root": "#rvExport", "opener": "#rvJump [data-jump=export]", "docked_from": 1680}},
         {"name": "studio-review-pick", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#rvPick > summary"), ("wait", 400)]},
