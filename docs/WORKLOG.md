@@ -2208,5 +2208,6 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 版: **同じ番号(ui-kit v23・スタジオ 0.22.3・編集 0.59.3)を両方が付けていた**。番号は上げず、README・AGENTS の同じ版の見出しの中に両方の変更を並べた(どちらもまだ配っていない版で、上げ直すと記録の中の v23 の参照を全部書き換えることになるため)。次に版を付けるときは WORKLOG と origin/main の両方を見る
 - 仮決めの記号: PC 側が (am)〜(aq)(3-4 段 9・3-5 測り直し)を先に使っていたので、クラウドの UI の見直しの (am)〜(ba) を **(ar)〜(bf)** に付け直した(`plan/decisions.md` の 3-6。この WORKLOG の上の記録・HANDOVER・DESIGN_REVIEW・data.js・improvements 11・基準の参照も同じ)
 - 文書: DESIGN_REVIEW.md は UI の見直しの記録を主にし、PC 側の段 9 の見た目の確認を「付録」として末尾に。ui-guidelines は両方の追記を残す(確認の方式に `UIKit.dialog.choose`、ポップオーバーに `.ui-caret`、用語の「残す / カット済」は 2 択の札に合わせた)。ROADMAP は両方の行。HANDOVER は両方の状態をまとめた
-- テスト: (書く)
-- 未コミット: なし(合流のコミット)
+- 合流の直後の不具合: ui-kit.js の先頭の説明の 1 行(クラウド側の v23)をコメントの外へ置いてしまい構文エラー(全画面で `UIKit` が無い → e2e_styleguide・e2e_portal が落ちた)。次のコミットで直した。写しを作る前に `node --check src/ui-kit/ui-kit.js` を通すとよい
+- テスト(合流後。Linux): `dev/sync_ui_kit.py --check` ずれなし・lint 0 件・test_ui_kit_sync 5・test_eval_asr 55・node studio OK / e2e: styleguide(PC 側の v22・v23 の検査 `check_v23`・`check_toast` を含む)・portal・keymap・autorun・studio e2e_ui / --mounted・editor tabs・cut・pack・ui_mounted すべて OK。proofread_keys は 4000 行の Alt+Enter が 0.52〜0.54 秒で 0.5 秒の基準を 2 回超え、3 回目(単独)は 0.451 秒で ALL PASSED(Linux の揺れ。合流の前も同じ)。`dev/ui_audit.py all --demo` は Must 0・Should 38(一意 13。合流前と同じ)
+- 未コミット: なし(合流のコミット + 構文エラーの直し + この記録)
