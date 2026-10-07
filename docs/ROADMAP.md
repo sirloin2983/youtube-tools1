@@ -59,6 +59,7 @@
 | `plan/line-bc-master-plan.md` | 線 B・C の I-1〜I-5 の中身・原則・リスク |
 | `plan/line-d-auto-pack.md` | 線 D の最終目標と M1〜M13・決定 |
 | `plan/line-d-live-clipping.md` | 線 D の録画の部品(P1〜P5)と配信中の検出 L0〜L5 |
+| `plan/line-d-detect.md` | 線 D の前倒し(10-07 夜): L1〜L3・M11 の順番・2 本の線・候補の API の約束・仮決め (bg)〜(br)・日程 |
 
 ### 完了した設計(経緯。「なぜそうなっているか」を調べるときに読む)
 | 文書 | 中身 |

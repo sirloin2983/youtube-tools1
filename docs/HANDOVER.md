@@ -1,9 +1,10 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 深夜。段 7〜9・測り直し・UI の見直し(基準 → 合格までループ)まで済み。クラウドと PC の作業を合流した)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 夜。線 D の前倒し(L1〜L3・M11)の計画まで。段 7〜9・測り直し・UI の見直し・合流は済み)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`、規則は `AGENTS.md`。
 
 ## いまの状態
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**
+- **線 D の前倒し(10-07 夜。ユーザー「L1〜L3 と M11 を早めにやりたい」)**: 計画は `plan/line-d-detect.md`(順番 L1 → L2 ∥ L3 → M11(既定オフ)→ 10-18/19 に検出オンで配信 1 本 → ユーザーが M11 をオンにするか決める / 線 1 = excite + ワーカー + 入口、線 2 = スタジオの帯 / 候補の API の約束(3)/ 仮決め (bg)〜(br) = `plan/decisions.md` の 3-7 / 日程(5))。**次のセッションは L1 から**(`src/ytt_core/excite.py` へ式を移す。移す前に golden を作る)。同じ夜に入口の設定 `live.autoAfterStream` を API でオンにした(今夜の配信で M7 を試す。結果は WORKLOG と `plan/data.js` の U4・M7 に)
 - **合流済み**: PC 側の夜の 2 コミット(段 9 の直し・夜の締め = origin/main)と、クラウドの UI の見直し(ブランチ `claude/ui-review-2026-10-07`)を、クラウドで merge して衝突を直した。PC では `git fetch origin claude/ui-review-2026-10-07` → `git merge origin/claude/ui-review-2026-10-07` で入る(main がその後に進んでいなければ早送り)。取り込んだら「すべて終了」→ start.bat で起動し直す
 - 済んだこと(10-07): ① 資料とフォルダの整理 / ② 線 D M1〜M7・B1・A1・B2(手元)/ ③ コードの見直し 2 周目(`dev/lint.py` 0 件)/ ④ plan の文書 / ⑤ 気が利く画面へ 段 7〜9(`plan/ux-stage7-9.md`・段 9 の記録は `DESIGN_REVIEW.md` の付録)/ 行の時刻の測り直し(`plan/line-b-row-timing.md` の 6)/ ⑥ UI の見直し: 基準 `docs/spec/ui-review-criteria.md`(A = 機械で測る 31 項目・B = 人が見る 21 項目)・測る道具 `dev/ui_audit.py`(`py -3.10 dev/ui_audit.py all --demo`。**画面を変えたら Must 0 件**)・3 周の直しで A の Must 704 → 0、見直し役の Must 28 → 0(記録は `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`)
 - **ユーザーに確認してほしいこと**: `plan/decisions.md` の 3-4(段 9 (am)〜(ao))・3-5(測り直し (ap)(aq))・3-6(UI の見直し (ar)〜(bf): 合格の定義・コントラストの範囲・文字記号を全部 SVG・行の札を 2 択に・2 カット の X → H・ホームの ⚙ の節 など)。**判断待ち**: 1 秒丸めの配り直し(`quant_retime`)を既定でやめるか(AI の案はやめる。決まったら `src/editor/ed_jobs.py` の既定・README・`plan/line-b-row-timing.md` の状態の行)/ クラウドのエンジン比較の送り先 / M7 の本物の配信での確認(土日)/ L0(配信中に「今やって」)
@@ -13,7 +14,7 @@
 - Linux で前から落ちるテスト(Windows では通る): home の `test_live` 2 件(`E:\` のパス前提)と `test_cleanup.test_move_only_known_and_purge`(一覧の順が OS で違う)、editor の `test_roster` 2 件 + `test_evalaudio` 1 件(Windows のパス前提)。e2e は Linux でも全部 OK
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/WORKLOG.md の末尾 3 件(段 9・UI の見直し・合流)→ git status と git log -5 を見て。plan/decisions.md の 3-4〜3-6 の仮決めをユーザーと確認し、変えるものがあれば直して、画面を変えたら py -3.10 dev/ui_audit.py all --demo で Must 0 件と、その画面の e2e を確かめて。配り直し(quant_retime)の既定はユーザーの答えが出ていれば先に反映して。」
+「AGENTS.md → plan/data.js → plan/line-d-detect.md → docs/WORKLOG.md の末尾 3 件 → git status と git log -5 を見て。線 D の前倒しの L1 から始めて(式を src/ytt_core/excite.py へ移す。移す前に合成の入力で golden を作って完全一致を確かめる。Online・PeakBook・message_weight を足し、3 の API の約束を確定)。L1 が済んだら L2(線 1: ワーカー + 入口 + API)と L3(線 2: スタジオの帯。偽の peaks.json)をサブエージェントで並列に。迷う点は仮決めして plan/decisions.md の 3-7 に足し、最後にまとめて確認。今夜の配信の M7 の結果が WORKLOG に無ければユーザーに聞いて記録して。」
 
 ## 注意(引き継ぐこと)
 - 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。入口の「すべて終了」では録画の部品が止まらないことがある(10-07)。ユーザーにタスク マネージャーで止めてもらう
