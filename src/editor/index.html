@@ -45,11 +45,12 @@
   --toast-bg:#1b1e26;--toast-ink:#f2f4f8;
   --keybar-h:24px;--drawer-w:380px;
 
-  --r-xs:4px;--r-sm:6px;--r:8px;--r-lg:12px;--r-xl:16px;--r-pill:999px;
+  --r-xs:1px;--r-sm:2px;--r:2px;--r-lg:2px;--r-xl:2px;--r-pill:999px;
   --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
   --fs-xs:11.5px;--fs-sm:12.5px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;
   --ctl-h:34px;--ctl-h-sm:28px;--header-h:52px;
   --ease:cubic-bezier(.2,.7,.2,1);--dur:.16s;
+  --knob:#fff;
 }
 
 /* ---------- 2. トークン(ダーク) ---------- */
@@ -72,6 +73,7 @@
   --stage-bg:#0a0b0e;--stage-ink:#eef0f5;--playhead:#ff6369;
   --toast-bg:#242834;--toast-ink:#f2f4f8;
   --keybar-h:24px;--drawer-w:380px;
+  --ring:0 0 0 2px var(--accent);--knob:#fff;
 }
 /* JS が動かないときの見た目(theme.js は <head> で同期に実行され、実行できたときは必ず data-theme を付ける。
    v6: 保存が無いときの既定は明るいテーマ(JS が動く前提)。この節は JS が全く動かない極端な場合だけの保険として、OS の設定に従う */
@@ -101,7 +103,7 @@ a{color:var(--accent);text-underline-offset:2px}
 a:hover{color:var(--accent-hover)}
 ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
 code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
-kbd,.kbd{display:inline-block;min-width:1.7em;padding:0 5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:var(--r-xs);background:var(--panel);font:600 11px/1.6 var(--mono);text-align:center;color:var(--ink-2);white-space:nowrap}
+kbd,.kbd{display:inline-block;min-width:1.7em;padding:0 5px;border:1px solid var(--line-2);border-bottom-width:1px;border-radius:var(--r-xs);background:var(--panel);font:600 11px/1.6 var(--mono);text-align:center;color:var(--ink-2);white-space:nowrap}
 hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 *{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
 ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:10px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-track{background:transparent}
@@ -116,7 +118,7 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 
 /* ---------- 4. ヘッダー(全ツール共通) ---------- */
 .ui-header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:6px 16px;min-height:var(--header-h);padding:6px 16px;flex-wrap:wrap;
-  background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+  background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line);box-shadow:none}
 .ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap}
 .ui-brand:hover{color:var(--ink)}
 .ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;background:#8f6bff}
@@ -154,30 +156,27 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 
 /* ---------- 5. ボタン ---------- */
 a.btn,a.btn:hover{text-decoration:none}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;line-height:1.2;
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:500;font-size:13.5px;line-height:1.2;
   transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),transform .06s}
-.btn:hover:not(:disabled){background:var(--panel-2);border-color:var(--line-strong)}
 .btn:active:not(:disabled){transform:translateY(1px)}
 .btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--ink-2)}
-.btn.ghost:hover:not(:disabled){background:var(--panel-2);border-color:transparent;color:var(--ink)}
+.btn.ghost:hover:not(:disabled){border-color:transparent;color:var(--ink)}
 .btn.soft{background:var(--accent-soft);border-color:transparent;color:var(--accent);box-shadow:none}
 .btn.soft:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:transparent}
 .btn.danger{color:var(--danger)}
 .btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
 .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
-.btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px;border-radius:7px}
+.btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px}
 .btn.lg{min-height:40px;padding:0 18px;font-size:14.5px;border-radius:10px}
 .btn.icon{width:var(--ctl-h);padding:0}.btn.icon.small,.btn.icon.sm{width:var(--ctl-h-sm)}
 .btn svg{width:16px;height:16px;flex:none}
-.btn[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
 .btn.primary[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
 .btn-group{display:inline-flex}
 .btn-group>.btn{border-radius:0;margin-left:-1px}
-.btn-group>.btn:first-child{border-radius:var(--r) 0 0 var(--r);margin-left:0}
-.btn-group>.btn:last-child{border-radius:0 var(--r) var(--r) 0}
+.btn-group>.btn:first-child{margin-left:0}
+/* 触れたとき(:hover)・.primary・押した状態(aria-pressed)・小さいボタンとつながったボタンの角(v12 の形)は、末尾の v12 の節にある。
+   上の同じ詳細度の規則(.ghost・.soft・.danger・.armed・.btn-group>.btn など)より後ろにあることで効いているので、ここへ動かさない */
 
 /* 切り替えの並び(セグメント) */
 .ui-seg{display:inline-flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;max-width:100%;overflow-x:auto}
@@ -218,7 +217,7 @@ input[type=color]{border:1px solid var(--line-2);border-radius:var(--r-sm);backg
 input[type=checkbox].ui-switch{appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;border-radius:var(--r-pill);background:var(--panel-3);border:1px solid var(--line-2);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
 input[type=checkbox].ui-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform var(--dur) var(--ease)}
 input[type=checkbox].ui-switch:checked{background:var(--accent);border-color:var(--accent)}
-input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
+input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);background:var(--knob)}
 .fld{margin-top:10px;min-width:0}
 .fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
@@ -227,12 +226,12 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 .lag.keep{white-space:nowrap;flex:none}
 
 /* ---------- 7. 面・カード ---------- */
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;position:relative;box-shadow:none}
 .card.flat{box-shadow:none}
 .card.raised{box-shadow:var(--shadow-2)}
 .card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
-.card-title{margin:0;font:650 14.5px/1.35 var(--font-display)}
-.card-sub{color:var(--ink-3);font-size:var(--fs-sm)}
+.card-title{margin:0;font:650 14.5px/1.35 var(--font-display);letter-spacing:.03em}
+.card-sub{color:var(--ink-3);font-size:11.5px;font-family:var(--mono)}
 .card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;user-select:none}
 .card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
 .card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
@@ -242,7 +241,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 
 /* ---------- 8. 小さな表示 ---------- */
 /* 状態の札: 押せない表示だけのもの。ボタン(枠・角丸 8px)と見分けられるよう、枠なし・丸い端・押しても何も起きない */
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;line-height:20px;padding:0 9px;border-radius:var(--r-pill);background:var(--panel-2);color:var(--ink-2);border:1px solid transparent;white-space:nowrap;cursor:default;user-select:none}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;line-height:18px;padding:0 9px;border-radius:var(--r);background:transparent;color:var(--ink-2);border:1px solid currentColor;white-space:nowrap;cursor:default;user-select:none;font-family:var(--mono)}
 .pill.ok{background:var(--ok-soft);color:var(--ok-ink)}
 .pill.warn{background:var(--warn-soft);color:var(--warn-ink)}
 .pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
@@ -251,25 +250,26 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 /* v6: ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
 .pill.run::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}
 .pill.wait{color:var(--ink-2)}
-.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r);background:var(--danger);color:#fff;font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
 :root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent)}
 @keyframes ui-pulse{50%{opacity:.35}}
 
 /* お知らせ */
-.notice{display:block;background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--ink);border-radius:var(--r);padding:9px 12px;font-size:13px;margin:8px 0;overflow-wrap:anywhere}
-.notice.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
-.notice.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
-.notice.danger,.notice.err{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.notice{display:block;background:var(--warn-soft);border:0;color:var(--ink);border-radius:0;padding:9px 12px;font-size:13px;margin:8px 0;overflow-wrap:anywhere;border-left:2px solid var(--warn)}
+.notice.info{border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.notice.ok{border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.notice.danger,.notice.err{border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+/* 種類ごとの地の色と左の線の色(v12)は末尾の v12 の節(info・ok・danger の 3 つの順番どおりに後ろで決める) */
 .notice code{background:var(--panel)}
 .errbar{margin:0;padding:9px 16px;background:var(--danger);color:#fff;font-size:13px;font-weight:550}
 .errbar a{color:#fff}
 .errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
 
 /* 進み具合 */
-.bar{height:6px;background:var(--panel-3);border-radius:var(--r-pill);overflow:hidden;margin-top:8px}
-.bar>i{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent)}
+.bar{height:8px;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 6px);border-radius:0;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;width:0}
 .bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
 @keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
 
@@ -283,9 +283,8 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px)}
 
 /* 通知(トースト) */
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;max-width:min(560px,calc(100% - 32px));padding:10px 16px;border-radius:var(--r-lg);
-  background:#1b1e26;color:#f2f4f8;border:1px solid rgba(255,255,255,.08);box-shadow:var(--shadow-3);font-size:13px;overflow-wrap:anywhere;animation:ui-toast .2s var(--ease)}
+  background:#1b1e26;color:#f2f4f8;border:1px solid rgba(255,255,255,.08);box-shadow:var(--shadow-3);font-size:13px;overflow-wrap:anywhere;animation:ui-toast .2s var(--ease);display:flex;align-items:flex-start;gap:10px;cursor:pointer}
 :root[data-theme=dark] .toast{background:#242834}
-.toast{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
 .toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
 .toast.ok::before{background:#4cd08b}.toast.err::before{background:#ff6f6f}.toast.info::before{background:#5cc3ff}   /* トーストは両テーマで暗い面なので印は固定色 */
 .toast.err{border-color:rgba(255,111,111,.45)}
@@ -332,7 +331,7 @@ dialog h2,dialog h3{margin-top:0}
 /* 表 */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
-th{font-size:11.5px;color:var(--ink-3);font-weight:650;white-space:nowrap;background:var(--panel)}
+th{font-size:11.5px;color:var(--ink-3);font-weight:500;white-space:nowrap;background:var(--panel);font-family:var(--mono)}
 tbody tr{transition:background var(--dur) var(--ease)}
 tbody tr:hover{background:var(--panel-2)}
 tr:last-child>td{border-bottom:0}
@@ -484,9 +483,10 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
    形: 角はほぼ直角(2px)・細い 1px の線・カードの左上と右下に角の括弧・タブと切り替えは下線・状態の札は枠だけ・
        進み具合は目盛り・知らせは左の線。数字と札は等幅の文字。光らせない(情報が主役)。
    色: 明るい = アイスライト(:root)・暗い = ネオンシアン(:root[data-theme=dark])。暗いときの配色は data-palette(UIKit.theme.palette)で
-       鋼の白(steel)・ターミナルグリーン(green)に替えられる。どれも文字/地 4.5:1 以上・状態の色どうしが紛れないように選んだ */
-:root{--r-xs:1px;--r-sm:2px;--r:2px;--r-lg:2px;--r-xl:2px;--knob:#fff}
-:root[data-theme=dark]{--ring:0 0 0 2px var(--accent);--knob:#fff}
+       鋼の白(steel)・ターミナルグリーン(green)に替えられる。どれも文字/地 4.5:1 以上・状態の色どうしが紛れないように選んだ
+   v19(2026-10-07): 前の節と同じ selector で上書きしていた規則(28 組)のうち 15 組は、前の節の規則へまとめた(値は v12 のまま。トークン・.btn・.card・.pill・
+       .badge・.notice・.bar・th・kbd・.ui-header など)。ここに残したのは、配色の追加・新しい形(カードの角の括弧・下線のタブ)と、
+       前の節の同じ詳細度の規則より後ろにあることで効いている上書き(前へ動かすと見た目が変わる。全画面の computed style を前後で比べて確かめた) */
 :root[data-theme=dark][data-palette=steel]{
   --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
   --line:#2A313B;--line-2:#3A4350;--line-strong:#525D6C;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#8D97A4;--ink-4:#636D7A;
@@ -501,17 +501,12 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
   --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
   --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
   --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
-input[type=checkbox].ui-switch:checked::after{background:var(--knob)}
 
 /* カード: 細い線 + 左上と右下の角の括弧 */
-.card{position:relative;box-shadow:none}
 .card::before,.card::after{content:"";position:absolute;width:14px;height:14px;pointer-events:none;border:0 solid var(--accent)}
 .card::before{top:-1px;left:-1px;border-top-width:2px;border-left-width:2px}
 .card::after{right:-1px;bottom:-1px;border-bottom-width:2px;border-right-width:2px}
-.card-title{letter-spacing:.03em}
-.card-sub{font-family:var(--mono);font-size:11.5px}
-/* ボタン: 線だけ。触れるとアクセント */
-.btn{font-weight:500}
+/* ボタン: 線だけ。触れるとアクセント(前の節の .ghost・.soft・.danger・.armed・.btn-group>.btn より後ろで決める) */
 .btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:var(--panel)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
@@ -521,27 +516,19 @@ input[type=checkbox].ui-switch:checked::after{background:var(--knob)}
 .btn.small,.btn.sm{border-radius:var(--r)}
 .btn-group>.btn:first-child{border-radius:var(--r) 0 0 var(--r)}.btn-group>.btn:last-child{border-radius:0 var(--r) var(--r) 0}
 /* 状態の札: 枠だけ・等幅 */
-.pill{background:transparent;border:1px solid currentColor;border-radius:var(--r);font-family:var(--mono);font-weight:500;line-height:18px}
 .pill:not(.ok):not(.run):not(.accent):not(.warn):not(.err):not(.danger):not(.info){color:var(--ink-3)}
 .pill.ok,.pill.run,.pill.accent,.pill.warn,.pill.err,.pill.danger,.pill.info{background:transparent}
-.badge{border-radius:var(--r)}
 /* タブと切り替え: 下線 */
 .ui-tabs,.ui-seg{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:0;gap:0}
 .ui-tab,.ui-seg>button{border-radius:0;background:transparent;box-shadow:none;border-bottom:2px solid transparent;margin-bottom:-1px}
 .ui-tab[aria-pressed=true],.ui-tab[aria-selected=true],.ui-tab[aria-current=page],.ui-seg>button[aria-pressed=true],.ui-seg>button[aria-selected=true]{background:transparent;box-shadow:none;color:var(--accent);border-bottom-color:var(--accent)}
 .ui-tab-n{font-family:var(--mono);border-radius:var(--r-xs)}
-/* 進み具合: 目盛り */
-.bar{height:8px;border-radius:0;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 6px)}
+/* 進み具合: 目盛り(前の節の .ui-miniprogress>i より後ろで決める) */
 .bar>i{border-radius:0;background:repeating-linear-gradient(90deg,var(--accent) 0 2px,transparent 2px 6px)}
 /* 知らせ: 左の線 */
-.notice{background:var(--warn-soft);border:0;border-left:2px solid var(--warn);border-radius:0}
 .notice.info{background:var(--info-soft);border-left-color:var(--info)}
 .notice.ok{background:var(--ok-soft);border-left-color:var(--ok)}
 .notice.danger,.notice.err{background:var(--danger-soft);border-left-color:var(--danger)}
-/* 表の見出し・キーは等幅 */
-th{font-family:var(--mono);font-weight:500}
-kbd,.kbd{border-bottom-width:1px}
-.ui-header{border-bottom:1px solid var(--line);box-shadow:none}
 /* v13: 非表示にした項目(UIKit.hide。「非表示 n件を表示」で出したとき)は薄く。札 .ui-hidden-tag で非表示だと分かるように */
 .ui-hidden-item{opacity:.55}
 .ui-hidden-item:hover,.ui-hidden-item:focus-within{opacity:.85}

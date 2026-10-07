@@ -1940,3 +1940,41 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - 作業の途中で `src/editor/index.html`(埋め込みの ui-kit の CSS)と `src/editor/ui-kit.js` に ui-kit の担当の写しの差分が入った。このコミットには入れていない(ui-kit の担当のコミットで)
   - 起動中の入口は古いコードのまま(編集 0.58.2 は「すべて終了」→ start.bat のあと)
 - 未コミット: なし(このコミット。src/editor の自分の分と docs/WORKLOG.md だけ。index.html・ui-kit.js とほかの担当の未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: studio・ui-kit(スタジオ 0.21.2・ui-kit v19。動きは同じ)
+- 変更:
+  - `src/studio/review.js`: LIVE の帯の録画の状態の問い合わせを `status?since=999999999` に(使っていない segmentList 最大 5000 件を受け取らない。入口の `_rec_status` と同じ。`plan/improvements.md` の 9 の studio → recorder の行)/
+    `buildDOM`(250 行の 1 つのテンプレート)を場所ごとの 8 つ(`topBarHTML`・`jumpHTML`・`playerHTML`・`liveBarHTML`・`markToolsHTML`・`settingsHTML`・`exportDrawerHTML`・`clipboxHTML`。行はそのまま移した)に /
+    `renderExportUI` を `renderExpTools`(案内・画質の欄・保存先)・`exportCountText`(件数の 1 文)・`renderExpRun`(「書き出す」)・`renderExpMore`(全部の配信・やり直す・中止・つなげて1本に)に
+  - `src/studio/analyze.py`: `run_analyze`(164 行)を段ごとに `_levels`(音量。前回の結果の再利用)・`_chat_signal`・`_comment_signal`・`_weights`(付加情報・配信タイプの重み)・`_candidates`・`_save_record`(archive)・`_stop_helpers`(後始末)へ。run_analyze は 55 行。**式・重み・しきい値・数値・警告の文と順番は同じ**
+  - `src/studio/serve.py`: 応答の見出しを `_head` 1 か所に(`_send` と動画の `_media` が共通に使う。no-store・nosniff を書く所が 2 つあった)
+  - `src/studio/tests/e2e_ui.py`: `run_checks`(750 行)を場面ごとの 22 の関数(`check_header`〜`check_settings_failure`。最大 55 行)・順番の表 `SCENES`・共有するもの `UI`(c・pg・port・fx・shots・base・ctx・errors・場面をまたぐ tcs)に。行の中身は字下げだけ変えた
+  - `src/ui-kit/tests/e2e_styleguide.py`: `check_live`(230 行)を偽の api/ytt/live `LiveFake` と場面 6 つ(`live_no_token`〜`live_interval`)に、`main`(200 行)を `check_page` と場面 5 つ(`check_theme`・`check_drawer_dialog`・`check_toast`・`check_keybar_keys`・`check_icons_settings`)に
+  - `src/studio/tests/e2e_ui.py` の「画面のエラーが出ていない」: 本物の YouTube の埋め込みの中のエラー(出どころの URL が https://www.youtube.com/)は数えない(`counts_as_error`)。YouTube のプレーヤー(player_embed の base.js)が compute-pressure の Permissions policy の違反をコンソールに出すようになり、埋め込みが読み終わるかは回線次第で、1 回だけ NG になった(前の版の写しでも同じ形で出うる。出どころは Playwright の console の location で確かめた)
+  - `src/studio/tests/test_review.cjs`: 3 件足した(buildDOM を分けても id がそろって 1 回ずつ・`exportCountText` の文・帯の問い合わせに since)。35 → 38 件。分けた関数は既存のテストが切り出す範囲(between の印)に入っていなかったので、既存のテストは直さずに通った
+  - `src/ui-kit/ui-kit.css`(v19): v12 の節で前の節と同じ selector を上書きしていた 28 組のうち 15 組(トークンの角・`--knob`・`--ring`・`.btn`・`.card`・`.card-title`・`.card-sub`・`.pill`・`.badge`・`.notice`・`.bar`・`th`・`kbd`・`.ui-header`・スイッチのつまみ・`.toast` の 2 つ目)を前の節の規則へまとめた(値は v12 のもの)。
+    残した 13 組は、前の節の「必ず上書きされる宣言」(同じ selector・後ろで同じプロパティ)だけ消した(うち 5 組 = `.btn:hover`・`.btn.primary`・`.btn.primary:hover`・`.btn[aria-pressed=true]`・`.btn-group>.btn:last-child` は前の規則ごと)。
+    2 か所にある selector は 28 → 8 組(残りは同じプロパティを 2 回決めていない)。v12 の節の頭と、5 ボタン・お知らせの節に、残した理由の注記
+  - 版: スタジオ 0.21.1 → 0.21.2(serve.py・core.js・README)・ui-kit v18 → v19(`UIKit.version`・README)。`py -3.10 dev/sync_ui_kit.py` で studio の ui-kit.css・ui-kit.js、editor の ui-kit.js・index.html の印の間
+- 決定・理由(仮で決めたこと。まとめ役が確かめる):
+  - (1) ui-kit.css は 28 組のうち 15 組だけまとめた。残りの組は、v12 の規則が前の節の同じ詳細度の規則より後ろにあることで効いている(例: `.btn.small{border-radius:var(--r)}` が `.btn-group>.btn{border-radius:0}` に勝って、つながったボタンの真ん中も 2px の角になっている・`.btn.primary` が `.btn.armed`・`.btn[aria-pressed=true]` より後ろ・`.notice.info/.ok/.danger` の 3 つの順番)。前へまとめると見た目が変わるので残した
+  - (2) 前の規則がすべて上書きされていた 5 組は、前の規則を消して v12 の節の 1 か所だけにした(消しても見た目は変わらない。5 ボタンの節に「v12 の節にある」の注記)
+  - (3) serve.py の `_send` は editor/serve.py・home/launch.py と同じ 12 行(lint の dup-block)。本当にまとめるなら ytt_core(httpsec)に共通の関数を置いて 3 つが使う形だが、ytt_core は担当外なので、スタジオの中の写し(`_send` と `_media`)だけ `_head` にまとめた。/media の見出しの順番だけ変わる(HTTP では意味が無い)
+  - (4) e2e_styleguide の check_live・main は 400 行以下だったが、依頼どおり場面ごとに分けた
+- 確かめ方(基準 9。前 = 7156f60 の写し):
+  - analyze: 同じ合成の入力(音声・チャット・付加情報・コメント)で 18 通り(キャッシュの再利用・遅れの自動推定の成功/失敗・チャットが少ない/無い・コメント無し/取れない・材料なし・file・感度・重み・配信タイプ)の job の状態・結果・archive を JSON で突き合わせ → 違いは一時フォルダのパスと時刻だけ
+  - buildDOM: 組み立てた innerHTML が前後とも 21,113 文字で同じ(node)
+  - renderExportUI: 偽の DOM で乱数の状態 20,000 通りを前後で動かし、書き込まれた値が全部同じ(わざと 1 か所変えると 811 通りで違いが出ることも確かめた)
+  - serve.py: 同じ要求 33 通り(ページ・静的・API・/media の Range 13 通り・403・404・415・416)の状態・見出しの組・本文 → /media は全部同じ。ほかの違いは行末(git archive の写しは CRLF)・ui-kit.css の中身・createdAt の時刻だけ
+  - ui-kit.css: (a) 静的に: まとめたとき同じ詳細度で重なるプロパティを決める規則と順番が入れ替わる組を数えた(15 組は同じ部品のクラスでは 0)。入れ替わる相手(384 組)のクラスが 1 つの要素に付く所は、src の画面の作り(class="…"・className)に無い
+    (b) Playwright: 見本(引き出し・ダイアログ・通知・設定)・ホーム・スタジオ(① ② ③・書き出しの欄・設定とコラボ・キー一覧・YouTube の配信)・編集(3 つのタブ・設定)で、同じ DOM のまま ui-kit の CSS だけを差し替え、全要素と ::before・::after の computed style を、配色 4 つ(ice・cyan・steel・green)× 通常 / :hover・:focus を全要素に当てた状態(CSS の :hover を同じ詳細度のクラスに書き換え)で比べた → 92 組・延べ 141,274 要素で違い 0
+    (1 回目にだけ出た auto の margin の値・要素の数の違いは、比べ直すと消える = 配置の途中の値。わざと違う CSS にすると全画面で違いが出ることも確かめた)
+  - e2e の分割: 前後の出力の確かめの名前の並びが同じ(e2e_ui 192 件・--mounted 214 件・e2e_styleguide 175 件。違いは一時フォルダのパスと乱数の ID だけ)
+- 測った(基準 11): 帯の状態の問い合わせの応答が、5,000 セグメント(2 秒なら約 2.8 時間)を超えた録画で 1 回 約 425 KB → 約 0.5 KB(3 秒ごと = 1 時間に約 500 MB の JSON を画面が読まなくなる。合成した応答の大きさ)。analyze の 18 通りの時間は前後で同じ(約 6 秒)
+- テスト: studio の単体 8 本 309 件 OK(skip 1。前と同じ)・node `test_review.cjs` 38 件 OK(35 + 3)・`dev/tests/test_ui_kit_sync.py` 5 件 OK・`dev/sync_ui_kit.py --check` OK / e2e(PYTHONIOENCODING=utf-8・1 本ずつ)`e2e_analyze` OK・`e2e_ui` 192 件 OK・`e2e_ui --mounted` 214 件 OK・`e2e_styleguide` 175 件 OK・`src/home/tests/e2e_live_studio.py` 119 件 OK / `py -3.10 dev/lint.py` の studio・ui-kit の分 0 件(全体は 28 → 2 件。残り = home の test_mount の未使用の `time`・editor と home の `_send` の dup-block)
+- 未完了・次(担当外・まとめ役へ):
+  - editor/serve.py・home/launch.py・studio/serve.py の `_send`(同じ 12 行)は、ytt_core.httpsec に 1 つ置いて 3 つが使う形にするのがよい(lint に残っている dup-block は editor と home の組)
+  - home の担当の申し送り「スタジオの LIVE の帯に archiveInfo.afterStream.text を出す」「起動し直すの帯に notice を出す(ui-kit)」は動きを変える仕事なので、この見直しではしていない
+  - `plan/improvements.md` の 9 の studio の 3 行(review.js の since・renderExportUI/buildDOM の分割・ui-kit.css の v12 の重なり)は済み(plan はまとめ役が直す)
+- 注意: scratchpad は他の担当と共有(base/・head/ を他の担当も使う)。この担当の写しと比べる道具は scratchpad/su/ に置いた(cmp_analyze.py・cmp_builddom.cjs・cmp_render_export.cjs・http_snap.py・css_flips.py・css_merge.py・css_compare.py)
+- 未コミット: なし(このコミット)

@@ -739,3 +739,46 @@ test('live recordings are registered in one place with the channel name (core.js
   assert.ok(rk.includes('S.live.register(') && !rk.includes("'/api/videos/open'"), 'lvOpen registers through Studio.live.register');
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
+
+// ---- 2026-10-07 見直し 2 周目: buildDOM・renderExportUI を場所ごとの関数に分けた / LIVE の帯の状態の問い合わせに since ----
+test('buildDOM: the parts put together keep every id exactly once (the split did not drop or repeat a section)', () => {
+  const box = {};
+  const ctx = { $: sel => (box[sel] ||= {}) };
+  vm.createContext(ctx);
+  vm.runInContext(source.match(/^const FILTERS = .*$/m)[0] + '\n' + between('const SVG = {', '/* ---------- 保存(サーバー') + '\nbuildDOM();', ctx);
+  const html = box['#paneReview'].innerHTML;
+  const ids = [...html.matchAll(/\sid="([^"$]+)"/g)].map(m => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
+  for (const id of ['rvRoot', 'rvPick', 'rvJump', 'rvEmpty', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvSettings', 'rvExport', 'rvClipbox', 'rvList'])
+    assert.ok(ids.includes(id), id);
+  assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice"') && html.endsWith('    </section>\n  </div>\n</div>'));
+  assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
+});
+
+test('export count text: what will be written, or what to do when nothing can be written', () => {
+  const S = { settings: { exportTarget: 'adopted' }, exportAll: null, live: false };
+  const ctx = { S, fmt: t => t + 's' };
+  vm.createContext(ctx);
+  vm.runInContext(between('function exportCountText(', '/* 「書き出す」を押せるか'), ctx);
+  const v = (...st) => ({ marks: st.map((s, i) => ({ id: 'm' + i, status: s })) });
+  const t2 = [{ start: 0, end: 5 }, { start: 10, end: 12 }];
+  assert.equal(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []), '採用のマーク 2件(合計 7s)を mp4 にします');
+  assert.equal(ctx.exportCountText(v(''), false, [], null, false, 0, []), '候補を「採用」にすると、書き出せるようになります');
+  assert.equal(ctx.exportCountText(v(), true, [], null, false, 0, []), 'マークを付けると、ここに書き出しの進み具合が出ます');
+  assert.equal(ctx.exportCountText(v('rejected'), false, [], null, false, 0, []), '書き出すマークはありません(「採用」にしたマークを書き出します)');
+  assert.equal(ctx.exportCountText(v('adopted'), true, [], null, false, 0, [{ state: 'wait' }, { state: 'fetch' }]), '書き出し中 2件(録画待ち 1件)');
+  assert.equal(ctx.exportCountText(v('adopted'), false, t2, { items: [1, 2, 3] }, true, 1, []), '書き出し中 1/3件');
+  assert.equal(ctx.exportCountText(null, false, [], null, false, 0, []), '');
+  S.live = true;
+  assert.ok(ctx.exportCountText(v('adopted'), true, t2, null, false, 0, []).endsWith('(録画が届くのを待ってから作ります)'));
+  S.exportAll = { idx: 2, total: 5, fail: 1 };
+  assert.equal(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []), '全部の配信の書き出し: 2/5 本目(失敗 1件)');
+  S.settings.exportTarget = 'pending'; S.exportAll = null; S.live = false;
+  assert.ok(ctx.exportCountText(v('adopted'), false, t2, null, false, 0, []).startsWith('採用と候補のマーク 2件'));
+});
+
+test('the LIVE band asks for the recording status without the segment list (since, like the portal\'s _rec_status)', () => {
+  const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
+  assert.ok(poll.includes("liveRest(v, 'status?since=999999999')"), 'status?since=999999999');
+  assert.ok(!/liveRest\(v, 'status'\)/.test(poll));
+});

@@ -106,10 +106,9 @@ const SVG = {
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 };
 const PICK_FILTERS = [['all', 'すべて'], ['cand', '判定待ちの候補がある'], ['adopt', '書き出し待ちの採用がある'], ['done', '書き出し済みがある'], ['none', 'マークがない']];
-function buildDOM(){
-  $('#paneReview').innerHTML = `
-<div class="rv-root" id="rvRoot">
-  <div class="rv-warn notice" id="rvWarn" hidden><span id="rvWarnText"></span><button type="button" class="btn small" id="rvWarnClose">閉じる</button></div>
+/* 上の行: 配信の選択(探す・開く)・保存の状態・まとめて実行・シアター・配信の操作 */
+function topBarHTML(){
+  return `  <div class="rv-warn notice" id="rvWarn" hidden><span id="rvWarnText"></span><button type="button" class="btn small" id="rvWarnClose">閉じる</button></div>
   <div class="rv-autobar" id="rvAutoBar" role="status" hidden></div>
   <div class="rv-top" id="rvTop">
     <details class="ui-menu rv-pick" id="rvPick">
@@ -164,8 +163,11 @@ function buildDOM(){
         </div>
       </div>
     </details>
-  </div>
-  <nav class="rv-jump" id="rvJump" aria-label="この画面の中の移動">
+  </div>`;
+}
+/* 画面の中の移動(プレーヤー・マーク・書き出し)と、配信を開いていないときの案内 */
+function jumpHTML(){
+  return `  <nav class="rv-jump" id="rvJump" aria-label="この画面の中の移動">
     <button type="button" class="rv-jumpb rv-jump-n" data-jump="player">プレーヤー</button>
     <button type="button" class="rv-jumpb rv-jump-n" data-jump="marks">マーク <b class="num" id="rvJumpMarks">0</b></button>
     <button type="button" class="rv-jumpb rv-jump-exp" data-jump="export" title="書き出しの欄を開く">書き出し <b id="rvJumpExp"></b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
@@ -174,10 +176,11 @@ function buildDOM(){
     <b>まだ配信が開かれていません</b>
     <span>② 解析で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
     <div><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button></div>
-  </div>
-  <div class="rv-grid" id="rvMain" hidden>
-    <section class="rv-stage" id="rvStage" aria-label="プレーヤーとマークの付け方">
-      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
+  </div>`;
+}
+/* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作 */
+function playerHTML(){
+  return `      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
       <div class="rv-deck">
@@ -208,9 +211,11 @@ function buildDOM(){
             </select>
           </div>
         </div>
-      </div>
-
-      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
+      </div>`;
+}
+/* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・書き出したあと・配信者・アーカイブで作り直す) */
+function liveBarHTML(){
+  return `      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
       <div class="rv-livebar" id="rvLiveBar" hidden>
         <div class="rv-live-l"><span class="rv-live-badge" id="rvLiveBadge">LIVE</span>
           <span class="rv-live-k" id="rvLiveElapsedK">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
@@ -235,9 +240,11 @@ function buildDOM(){
           <button class="btn small ghost" id="rvArchCancel" type="button" hidden title="本番版への作り直しを止めます(済んでいない分は速報版のままです)">取り消す</button>
           <span class="hint rv-archmsg" id="rvArchMsg" role="status"></span>
         </div>
-      </div>
-
-      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div>
+      </div>`;
+}
+/* 今をマーク・一瞬をマーク・細かく決める(IN・OUT・追加) */
+function markToolsHTML(){
+  return `      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div>
         <div class="rv-qrow rv-momrow"><button class="btn soft" type="button" id="rvMomBtn" title="今の位置の前後(下の秒数)を、マーク「一瞬」(採用)にします">一瞬をマーク<kbd class="ui-kbd" data-kbd="moment">C</kbd></button>
           <label class="rv-momset">前 <input type="number" id="rvMomBefore" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の前の秒数"> 秒</label>
           <label class="rv-momset">後 <input type="number" id="rvMomAfter" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の後の秒数"> 秒</label>
@@ -259,9 +266,11 @@ function buildDOM(){
             <span class="hint" id="rvDraftDur">IN と OUT を押すと追加できます</span>
           </div>
         </div>
-      </details>
-
-      <details class="rv-settings ui-disclosure" id="rvSettings">
+      </details>`;
+}
+/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信) */
+function settingsHTML(){
+  return `      <details class="rv-settings ui-disclosure" id="rvSettings">
         <summary>操作の設定 <span class="muted">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary>
         <div class="rv-setpanel">
           <section class="rv-sec">
@@ -295,11 +304,11 @@ function buildDOM(){
             </details>
           </section>
         </div>
-      </details>
-    </section>
-
-    <section class="rv-clips" aria-label="書き出しとマーク">
-      <aside class="ui-drawer rv-exportdrawer" id="rvExport" hidden aria-labelledby="rvExpTitle">
+      </details>`;
+}
+/* 書き出しの引き出し(書き出す・つなげて1本に・設定・一覧) */
+function exportDrawerHTML(){
+  return `      <aside class="ui-drawer rv-exportdrawer" id="rvExport" hidden aria-labelledby="rvExpTitle">
         <div class="ui-drawer-head">
           <h2 class="ui-drawer-title" id="rvExpTitle">書き出し</h2>
           <span class="rv-exp-sum hint" id="rvExpSum"></span>
@@ -340,9 +349,11 @@ function buildDOM(){
           </details>
           <ol class="rv-explist" id="rvExpList"></ol>
         </div>
-      </aside>
-
-      <div class="rv-clipbox" id="rvClipbox">
+      </aside>`;
+}
+/* マークの一覧(絞り込み・並び順・折りたたみ・候補をすべて採用) */
+function clipboxHTML(){
+  return `      <div class="rv-clipbox" id="rvClipbox">
         <div class="rv-clips-head"><h2>マーク</h2><div class="hint" id="rvStats"></div></div>
         <div class="rv-listtools">
           <div class="rv-filters ui-seg" id="rvFilters" role="group" aria-label="表示する判定">${FILTERS.map(([f, l]) => `<button type="button" data-filter="${f}" aria-pressed="${f === 'all'}">${l} <span class="n">0</span></button>`).join('')}</div>
@@ -353,7 +364,28 @@ function buildDOM(){
           </div>
         </div>
         <ol class="rv-list" id="rvList"></ol>
-      </div>
+      </div>`;
+}
+function buildDOM(){
+  $('#paneReview').innerHTML = `
+<div class="rv-root" id="rvRoot">
+${topBarHTML()}
+${jumpHTML()}
+  <div class="rv-grid" id="rvMain" hidden>
+    <section class="rv-stage" id="rvStage" aria-label="プレーヤーとマークの付け方">
+${playerHTML()}
+
+${liveBarHTML()}
+
+${markToolsHTML()}
+
+${settingsHTML()}
+    </section>
+
+    <section class="rv-clips" aria-label="書き出しとマーク">
+${exportDrawerHTML()}
+
+${clipboxHTML()}
     </section>
   </div>
 </div>`;
@@ -1344,7 +1376,7 @@ async function pollLiveStatus(){
   const v = S.cur; if (!v || v.kind !== 'live' || LV.vid !== v.id || !v.live || !Studio.token) return;
   const seq = ++LV.seq;
   let st = null, err = null;
-  try { st = await Studio.live.api(liveRest(v, 'status')); } catch (e){ err = e; }
+  try { st = await Studio.live.api(liveRest(v, 'status?since=999999999')); } catch (e){ err = e; }   // since: セグメントの一覧(最大 5000 件)は要らない(入口の _rec_status と同じ)
   if (seq !== LV.seq || S.cur !== v) return;
   if (err && err.status === 404 && !LV.deletedShown){   // 録画が無い: 自動で消した録画か(ジョブの recordingDeleted)を先に読み直す(「見つかりません」を一瞬出さない)
     await pollLiveJobs();
@@ -1871,38 +1903,29 @@ function jobDirText(j, st){
   const base = (j && j.outDir) || st.outDir || '';
   return j && j.folder && base ? joinPath(base, j.folder) : base;
 }
-function renderExportUI(){
-  if (!S.built) return;
-  const v = S.cur, st = Studio.state || {};
-  const live = !!(v && v.kind === 'live');   // ライブの録画: 書き出しは入口(../live/api/export)。録画中でも書き出せる・つなぐ・全部の配信の書き出しは使わない
+/* 書き出しの欄の上の案内(ffmpeg・yt-dlp が無い)・画質の欄(YouTube から取るときだけ)・保存先 */
+function renderExpTools(v, st, live){
   let msg = '';
   if (st.ffmpeg === false) msg += 'ffmpeg が見つかりません(Windows: winget install Gyan.FFmpeg / Mac: brew install ffmpeg)。入れてから起動し直してください';
   if (v && v.kind === 'youtube' && st.ytdlp === false) msg += (msg ? '\n' : '') + 'yt-dlp が見つかりません(Windows: winget install yt-dlp.yt-dlp)';
   const ts = $('#rvToolStatus'); ts.textContent = msg; ts.hidden = !msg;
   $('#rvHeightBox').hidden = !!(v && (v.kind === 'file' || live));   // 画質は YouTube から取るときだけ(録画は録ったときの画質)
-  { const j = S.lastJob; $('#rvOutDir').textContent = !live && j && j.folder && S.job && v && S.job.videoId === v.id ? jobDirText(j, st) : (st.outDir || ''); }
-  const t = exportTargets(), sum = t.reduce((s, c) => s + (c.end - c.start), 0);
-  $('#rvExpTarget').value = S.settings.exportTarget;
-  const running = !!(S.job && S.job.running) || S.starting || !!S.exportAll;
-  const j = live ? null : S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
-  const done = jrun ? j.items.filter(i => i.status === 'done').length : 0;
-  const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
-  let count;
+  const j = S.lastJob; $('#rvOutDir').textContent = !live && j && j.folder && S.job && v && S.job.videoId === v.id ? jobDirText(j, st) : (st.outDir || '');
+}
+/* 「何件を書き出すか」の1文。書き出せないときは、どうすれば書き出せるかを出す。
+   t = 書き出す対象のマーク・j / jrun / done = スタジオの書き出し(実行中か・済んだ数)・lact = 入口で書き出しの途中のジョブ(ライブの録画) */
+function exportCountText(v, live, t, j, jrun, done, lact){
   const tgtName = { adopted: '採用', pending: '採用と候補', all: '不採用以外' }[S.settings.exportTarget] || '採用';
-  if (S.exportAll && !live) count = `全部の配信の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
-  else if (jrun) count = `書き出し中 ${done}/${j.items.length}件`;
-  else if (!v) count = '';
-  else if (t.length) count = `${tgtName}のマーク ${t.length}件(合計 ${fmt(sum)})を mp4 にします` + (live && S.live ? '(録画が届くのを待ってから作ります)' : '');
-  else if (lact.length) count = `書き出し中 ${lact.length}件` + (lact.some(x => x.state === 'wait') ? `(録画待ち ${lact.filter(x => x.state === 'wait').length}件)` : '');
-  else if (v.marks.some(m => !m.status)) count = '候補を「採用」にすると、書き出せるようになります';
-  else count = v.marks.length ? '書き出すマークはありません(「採用」にしたマークを書き出します)' : (live ? 'マークを付けると、ここに書き出しの進み具合が出ます' : 'マークを付けて「採用」にすると、書き出せるようになります');
-  $('#rvExpCount').textContent = count;
-  $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || (lact.length && !t.length) ? count : t.length ? `対象 ${t.length}件` : '';
-  { const je = $('#rvJumpExp'); if (je) je.textContent = (S.exportAll && !live) || jrun || lact.length ? '実行中' : t.length ? t.length + '件' : ''; }
-  { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !(S.exportAll && !live) ? `${t.length}件を書き出す` : '書き出す'; }
-  { const bar = $('#rvExpBar'); bar.hidden = !jrun;
-    if (jrun){ const cur = j.items.find(i => i.status === 'running'); bar.firstElementChild.style.width = Math.round((done + (cur ? cur.progress || 0 : 0)) / j.items.length * 100) + '%'; } }
-  const noTool = st.ffmpeg === false;
+  if (S.exportAll && !live) return `全部の配信の書き出し: ${S.exportAll.idx}/${S.exportAll.total} 本目` + (S.exportAll.fail ? `(失敗 ${S.exportAll.fail}件)` : '');
+  if (jrun) return `書き出し中 ${done}/${j.items.length}件`;
+  if (!v) return '';
+  if (t.length) return `${tgtName}のマーク ${t.length}件(合計 ${fmt(t.reduce((s, c) => s + (c.end - c.start), 0))})を mp4 にします` + (live && S.live ? '(録画が届くのを待ってから作ります)' : '');
+  if (lact.length) return `書き出し中 ${lact.length}件` + (lact.some(x => x.state === 'wait') ? `(録画待ち ${lact.filter(x => x.state === 'wait').length}件)` : '');
+  if (v.marks.some(m => !m.status)) return '候補を「採用」にすると、書き出せるようになります';
+  return v.marks.length ? '書き出すマークはありません(「採用」にしたマークを書き出します)' : (live ? 'マークを付けると、ここに書き出しの進み具合が出ます' : 'マークを付けて「採用」にすると、書き出せるようになります');
+}
+/* 「書き出す」を押せるか・押せないときの理由(title)。ライブの録画は入口の書き出しなので、録画中でも書き出せる */
+function renderExpRun(live, t, running, noTool){
   const r = $('#rvExpRun');
   if (live){
     r.disabled = LV.starting || !t.length || noTool;
@@ -1911,6 +1934,9 @@ function renderExportUI(){
     r.disabled = running || !t.length || noTool || !!S.live;
     r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
   }
+}
+/* その他の書き出し: 全部の配信の採用・失敗した分だけやり直す・中止・つなげて1本に(どれもライブの録画では使わない) */
+function renderExpMore(live, running, noTool){
   { const ok = x => x.kind !== 'live', n = S.videos.filter(ok).reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => ok(x) && x.adopted > 0).length, b = $('#rvExpAll');
     b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool || live;
     b.title = live ? 'ライブの録画を開いている間は使えません(録画の配信は、開いて「書き出す」で書き出します)' : '採用にしたマークがある全部の配信を、順番に書き出します(ライブの録画は除きます)'; }
@@ -1920,6 +1946,28 @@ function renderExportUI(){
     b.hidden = !n; b.textContent = `チェックした ${n} 件をつなげて1本に`;
     b.disabled = running || n < 2 || noTool || !!S.live || live;
     b.title = live ? 'ライブの録画は、つなげて1本にできません(1件ずつ書き出してから「編集」でつないでください)' : n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
+}
+function renderExportUI(){
+  if (!S.built) return;
+  const v = S.cur, st = Studio.state || {};
+  const live = !!(v && v.kind === 'live');   // ライブの録画: 書き出しは入口(../live/api/export)。録画中でも書き出せる・つなぐ・全部の配信の書き出しは使わない
+  renderExpTools(v, st, live);
+  const t = exportTargets();
+  $('#rvExpTarget').value = S.settings.exportTarget;
+  const running = !!(S.job && S.job.running) || S.starting || !!S.exportAll;
+  const j = live ? null : S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
+  const done = jrun ? j.items.filter(i => i.status === 'done').length : 0;
+  const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
+  const count = exportCountText(v, live, t, j, jrun, done, lact);
+  $('#rvExpCount').textContent = count;
+  $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || (lact.length && !t.length) ? count : t.length ? `対象 ${t.length}件` : '';
+  { const je = $('#rvJumpExp'); if (je) je.textContent = (S.exportAll && !live) || jrun || lact.length ? '実行中' : t.length ? t.length + '件' : ''; }
+  { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !(S.exportAll && !live) ? `${t.length}件を書き出す` : '書き出す'; }
+  { const bar = $('#rvExpBar'); bar.hidden = !jrun;
+    if (jrun){ const cur = j.items.find(i => i.status === 'running'); bar.firstElementChild.style.width = Math.round((done + (cur ? cur.progress || 0 : 0)) / j.items.length * 100) + '%'; } }
+  const noTool = st.ffmpeg === false;
+  renderExpRun(live, t, running, noTool);
+  renderExpMore(live, running, noTool);
 }
 function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id); }
 /* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。

@@ -1054,7 +1054,158 @@ def downsample(x, points=600):
     return [round(max(x[int(i * step):max(int(i * step) + 1, int((i + 1) * step))]), 2) for i in range(points)]
 
 
+def _levels(job, spec, src, wdir, warnings):
+    """音量(全体・高音域)を 1 秒ごとに。YouTube は前回の結果があれば再利用する。-> (dur, n, full, band)。full・band は長さ n にそろえる"""
+    sig = load_sig(src["videoId"]) if src["kind"] == "youtube" and not spec["noCache"] else None
+    if sig:   # 前回の音量の解析結果を再利用(ダウンロードも ffmpeg も不要)
+        dur, full, band = sig["dur"], sig["full"], sig["band"]
+        n = int(math.ceil(dur))
+        warnings.append("音量の解析は前回の結果を再利用しました(最初からやり直すには、詳しい設定の「キャッシュを使わない」をオン)")
+    else:
+        media = src["path"] if src["kind"] == "file" else download_audio(job, src["videoId"], wdir)
+        dur, _v, has_audio, _l = common.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
+        if not dur or dur < 20:
+            raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
+        if dur > MAX_DURATION:
+            raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (common.fmt_ts(dur)[:8], MAX_DURATION // 3600))
+        if not has_audio:
+            raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
+        n = int(math.ceil(dur))
+        job["phase"] = "音量を解析中"
+        full = audio_levels(job, media, dur, None, 0.12, 0.30)
+        job["phase"] = "高音域(笑い声・叫び)を解析中"
+        band = audio_levels(job, media, dur, 2000, 0.30, 0.48)
+        full, band = [round(x, 1) for x in full], [round(x, 1) for x in band]   # 保存するのと同じ精度にそろえる(キャッシュの有無で結果が変わらないように)
+        dur = round(dur, 2)
+        if src["kind"] == "youtube":
+            save_sig(src["videoId"], dur, full, band)
+    full = (full + [full[-1]] * n)[:n]
+    band = (band + [band[-1]] * n)[:n]
+    return dur, n, full, band
+
+
+def _chat_signal(job, spec, n, comps, info, warnings):
+    """チャットの取得(start_chat で始めたもの)を待って解析し、30 件以上なら comps["chat"] に入れる。
+    -> {"act", "count", "warm", "extra"}(archive に残す材料。取れなければ act は None)"""
+    out = {"act": None, "count": 0, "warm": 0, "extra": None}
+    c = job["chat"]
+    while c["state"] == "running":
+        if job["cancel"]:
+            raise Cancelled()
+        job["phase"], job["progress"] = "チャットのリプレイを取得中(音声の解析は完了、経過 %s)" % fmt_ms(time.time() - c["t0"]), 0.5
+        c["thread"].join(0.3)
+    path, why = c["path"], c["why"]
+    if c["cached"] and path:
+        warnings.append("チャットは先読みで取得済みでした" if c.get("prefetched") else "チャットは前回の取得分を再利用しました")
+    if not path:
+        warnings.append(why)
+        return out
+    job["phase"] = "チャットを解析中"
+    out["extra"] = {}
+    out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"])
+    if out["count"] < 30:
+        warnings.append("チャットの件数が少ない(%d件)ため、チャットは使っていません" % out["count"])
+        return out
+    cz = chat_z(out["act"])
+    used_lag = spec["lag"]
+    if spec["lagAuto"] and "audio" in comps:
+        est, r = estimate_lag(comps["audio"], cz)
+        if est is not None:
+            used_lag = est
+            warnings.append("チャットの遅れを自動推定しました: %d秒(音量との一致度 %.2f。設定の値は使っていません)" % (est, r))
+        else:
+            warnings.append("チャットの遅れは自動推定できなかったため、設定の%d秒を使いました" % round(used_lag))
+    spec["lagUsed"] = used_lag
+    comps["chat"] = shift_chat(cz, used_lag)
+    info["chat"] = True
+    return out
+
+
+def _comment_signal(job, src, dur, n, comps, info, warnings, ctexts):
+    """コメント欄の時刻の書き込み → comps["comments"]。-> 書き込みの一覧(無ければ None)。ctexts に本文が並ぶ(archive 用)"""
+    job["phase"], job["progress"] = "コメント欄のタイムスタンプを取得中", 0.56
+    st, why = fetch_comments(src["videoId"], dur, ctexts)
+    if st is None:
+        warnings.append(why)
+        return None
+    if not st:
+        warnings.append("コメント欄に、時刻の書き込みが見つかりませんでした")
+        return None
+    comps["comments"] = comment_score(st, n)
+    info["comments"] = True
+    return st
+
+
+def _weights(job, spec, warnings):
+    """材料の重みと配信タイプ。付加情報(start_meta で始めたもの)を待ち、タイプの初期値を使う設定なら重みを掛ける。-> (wts, meta, stream_type)"""
+    wts = {"audio": spec["wAudio"], "chat": spec["wChat"], "comments": spec["wComments"]}
+    meta = None
+    mj = job.get("meta")
+    if mj:
+        mj["thread"].join(META_TIMEOUT + 5)
+        meta = mj["data"]
+        if meta is None and mj["why"]:
+            warnings.append("動画の付加情報(記録用)を取得できませんでした: %s(解析には影響しません)" % mj["why"])
+    stream_type = spec["typeOverride"] if spec["typeOverride"] != "auto" else classify_stream(meta)
+    if spec["typePreset"] and stream_type:
+        wts, changed = apply_type_preset(wts, stream_type)
+        if changed:
+            warnings.append("配信タイプ「%s」の重みを使いました(%s。試験的な初期値)" % (stream_type, "・".join("%s×%s" % ({"wAudio": "音声", "wChat": "チャット", "wComments": "コメント"}[k], x) for k, x in changed.items())))
+    return wts, meta, stream_type
+
+
+def _candidates(picks, comps):
+    """選んだ区間に、山の前後の材料ごとの点数(parts)と理由の文を付ける"""
+    cands = []
+    for i, c in enumerate(picks):
+        pk = c["peak"]
+        parts = {k: round(max(comps[k][max(0, pk - 6):pk + 7]), 2) for k in comps}
+        why_txt = []
+        if parts.get("audio", 0) >= 1.5:
+            why_txt.append("音量が急上昇")
+        if parts.get("chat", 0) >= 1.5:
+            why_txt.append("チャットが急増")
+        if parts.get("comments", 0) >= 0.8:
+            why_txt.append("コメント欄で時刻が指定されている")
+        cands.append({"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": why_txt or ["音声の変化"]})
+    return cands
+
+
+def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, stream_type, info, cands):
+    """後から実データで見直すための記録(save_archive)。levels = (full, band)・chat = _chat_signal の結果(使わなかったときは None)。失敗しても解析は続ける"""
+    try:
+        full, band = levels
+        payload = {"kind": src["kind"], "duration": round(dur, 1), "n": n, "at": int(time.time() * 1000), "type": stream_type, "meta": meta,
+                   "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band],
+                   "chat": ({"act": [round(x, 1) for x in chat["act"]], "count": chat["count"], "warmCount": chat["warm"], **(chat["extra"] or {})} if chat else None),
+                   "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
+        run = {"at": payload["at"], "spec": {k: spec[k] for k in SPEC_KEYS},
+               "lagUsed": spec.get("lagUsed"), "signals": info, "type": stream_type,
+               "candidates": [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]} for c in cands]}
+        save_archive(src["videoId"], payload, run)
+    except Exception:
+        pass
+
+
+def _stop_helpers(job, wdir, chat_vid):
+    """後始末: 途中で失敗・中止したときに付加情報・チャットの取得を残さない。作業フォルダを消し、チャットのキャッシュの使用中を外す"""
+    mj = job.get("meta")
+    if mj and mj["thread"].is_alive():
+        common.terminate(job.get("proc3"))
+        mj["thread"].join(5)
+    c = job.get("chat")
+    if c and c["state"] == "running":
+        c["skip"] = True
+        common.terminate(job.get("proc2"))
+        c["thread"].join(10)
+    shutil.rmtree(wdir, ignore_errors=True)
+    if chat_vid:
+        use_chat_cache(chat_vid, -1)
+
+
 def run_analyze(job):
+    """解析の 1 ジョブ(裏のスレッド): 素材の取得(音声・チャット・付加情報は同時に)→ 材料ごとの点数 → 重み付きの合計 → 山を区間に。
+    結果は job["result"]、状態は job["state"]・job["phase"]・job["progress"]"""
     spec = job["spec"]
     src = spec["source"]
     wdir = os.path.join(work_dir(), job["id"])
@@ -1071,129 +1222,29 @@ def run_analyze(job):
             start_chat(job, src["videoId"], wdir, spec["chatTimeout"] * 60)   # 音声の取得・解析と同時に始める
         if src["kind"] == "youtube":
             start_meta(job, src["videoId"])   # 動画の付加情報(記録用)も同時に取得する
-        sig = load_sig(src["videoId"]) if src["kind"] == "youtube" and not spec["noCache"] else None
+        dur, n, full, band = _levels(job, spec, src, wdir, warnings)
         comps, info = {}, {"audio": False, "chat": False, "comments": False}
-        if sig:   # 前回の音量の解析結果を再利用(ダウンロードも ffmpeg も不要)
-            dur, full, band = sig["dur"], sig["full"], sig["band"]
-            n = int(math.ceil(dur))
-            warnings.append("音量の解析は前回の結果を再利用しました(最初からやり直すには、詳しい設定の「キャッシュを使わない」をオン)")
-        else:
-            media = src["path"] if src["kind"] == "file" else download_audio(job, src["videoId"], wdir)
-            dur, _v, has_audio, _l = common.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
-            if not dur or dur < 20:
-                raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
-            if dur > MAX_DURATION:
-                raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (common.fmt_ts(dur)[:8], MAX_DURATION // 3600))
-            if not has_audio:
-                raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
-            n = int(math.ceil(dur))
-            job["phase"] = "音量を解析中"
-            full = audio_levels(job, media, dur, None, 0.12, 0.30)
-            job["phase"] = "高音域(笑い声・叫び)を解析中"
-            band = audio_levels(job, media, dur, 2000, 0.30, 0.48)
-            full, band = [round(x, 1) for x in full], [round(x, 1) for x in band]   # 保存するのと同じ精度にそろえる(キャッシュの有無で結果が変わらないように)
-            dur = round(dur, 2)
-            if src["kind"] == "youtube":
-                save_sig(src["videoId"], dur, full, band)
-        full = (full + [full[-1]] * n)[:n]
-        band = (band + [band[-1]] * n)[:n]
-        level = full
         if spec["useAudio"]:
             comps["audio"] = audio_score(full, band)
             info["audio"] = True
-        chat_n = warm_n = stamp_n = 0
-        chat_extra, ctexts, stamps = None, [], None
-        if spec["useChat"]:
-            c = job["chat"]
-            while c["state"] == "running":
-                if job["cancel"]:
-                    raise Cancelled()
-                job["phase"], job["progress"] = "チャットのリプレイを取得中(音声の解析は完了、経過 %s)" % fmt_ms(time.time() - c["t0"]), 0.5
-                c["thread"].join(0.3)
-            path, why = c["path"], c["why"]
-            if c["cached"] and path:
-                warnings.append("チャットは先読みで取得済みでした" if c.get("prefetched") else "チャットは前回の取得分を再利用しました")
-            if path:
-                job["phase"] = "チャットを解析中"
-                chat_extra = {}
-                act, chat_n, warm_n = parse_chat(path, n, chat_extra)
-                if chat_n >= 30:
-                    cz = chat_z(act)
-                    used_lag = spec["lag"]
-                    if spec["lagAuto"] and "audio" in comps:
-                        est, r = estimate_lag(comps["audio"], cz)
-                        if est is not None:
-                            used_lag = est
-                            warnings.append("チャットの遅れを自動推定しました: %d秒(音量との一致度 %.2f。設定の値は使っていません)" % (est, r))
-                        else:
-                            warnings.append("チャットの遅れは自動推定できなかったため、設定の%d秒を使いました" % round(used_lag))
-                    spec["lagUsed"] = used_lag
-                    comps["chat"] = shift_chat(cz, used_lag)
-                    info["chat"] = True
-                else:
-                    warnings.append("チャットの件数が少ない(%d件)ため、チャットは使っていません" % chat_n)
-            else:
-                warnings.append(why)
-        if spec["useComments"]:
-            job["phase"], job["progress"] = "コメント欄のタイムスタンプを取得中", 0.56
-            st, why = fetch_comments(src["videoId"], dur, ctexts)
-            if st is None:
-                warnings.append(why)
-            elif st:
-                stamp_n = len(st)
-                stamps = st
-                comps["comments"] = comment_score(st, n)
-                info["comments"] = True
-            else:
-                warnings.append("コメント欄に、時刻の書き込みが見つかりませんでした")
+        chat = _chat_signal(job, spec, n, comps, info, warnings) if spec["useChat"] else {"act": None, "count": 0, "warm": 0, "extra": None}
+        ctexts = []
+        stamps = _comment_signal(job, src, dur, n, comps, info, warnings, ctexts) if spec["useComments"] else None
         if not comps:
             raise ApiError("no_signal", "使える材料がありません(音声の解析をオンにするか、チャット・コメントが取れる動画を指定してください)")
         job["phase"], job["progress"] = "盛り上がりの区間を決定中", 0.6
-        wts = {"audio": spec["wAudio"], "chat": spec["wChat"], "comments": spec["wComments"]}
-        meta, stream_type = None, None
-        mj = job.get("meta")
-        if mj:
-            mj["thread"].join(META_TIMEOUT + 5)
-            meta = mj["data"]
-            if meta is None and mj["why"]:
-                warnings.append("動画の付加情報(記録用)を取得できませんでした: %s(解析には影響しません)" % mj["why"])
-        stream_type = spec["typeOverride"] if spec["typeOverride"] != "auto" else classify_stream(meta)
-        if spec["typePreset"] and stream_type:
-            wts, changed = apply_type_preset(wts, stream_type)
-            if changed:
-                warnings.append("配信タイプ「%s」の重みを使いました(%s。試験的な初期値)" % (stream_type, "・".join("%s×%s" % ({"wAudio": "音声", "wChat": "チャット", "wComments": "コメント"}[k], x) for k, x in changed.items())))
+        wts, meta, stream_type = _weights(job, spec, warnings)
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
-        picks = pick_clips(total, level, spec, n)
-        cands = []
-        for i, c in enumerate(picks):
-            pk = c["peak"]
-            parts = {k: round(max(comps[k][max(0, pk - 6):pk + 7]), 2) for k in comps}
-            why_txt = []
-            if parts.get("audio", 0) >= 1.5:
-                why_txt.append("音量が急上昇")
-            if parts.get("chat", 0) >= 1.5:
-                why_txt.append("チャットが急増")
-            if parts.get("comments", 0) >= 0.8:
-                why_txt.append("コメント欄で時刻が指定されている")
-            cands.append({"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": why_txt or ["音声の変化"]})
-        try:   # 後から実データで見直すための記録(失敗しても解析は続ける)
-            payload = {"kind": src["kind"], "duration": round(dur, 1), "n": n, "at": int(time.time() * 1000), "type": stream_type, "meta": meta,
-                       "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band],
-                       "chat": ({"act": [round(x, 1) for x in act], "count": chat_n, "warmCount": warm_n, **(chat_extra or {})} if info["chat"] else None),
-                       "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
-            run = {"at": payload["at"], "spec": {k: spec[k] for k in SPEC_KEYS},
-                   "lagUsed": spec.get("lagUsed"), "signals": info, "type": stream_type,
-                   "candidates": [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]} for c in cands]}
-            save_archive(src["videoId"], payload, run)
-        except Exception:
-            pass
+        cands = _candidates(pick_clips(total, full, spec, n), comps)
+        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, stream_type, info, cands)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         if job["cancel"]:
             raise Cancelled()
-        job["result"] = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info, "counts": {"chat": chat_n, "chatWarm": warm_n, "commentStamps": stamp_n, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])}, "type": stream_type,
-                         "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
+        job["result"] = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
+                         "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
+                         "type": stream_type, "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
         job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
@@ -1206,15 +1257,4 @@ def run_analyze(job):
         common.log_failure("動画解析", e)
         job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
     finally:
-        mj = job.get("meta")
-        if mj and mj["thread"].is_alive():   # 途中で失敗・中止したとき、付加情報の取得を残さない
-            common.terminate(job.get("proc3"))
-            mj["thread"].join(5)
-        c = job.get("chat")
-        if c and c["state"] == "running":   # 途中で失敗・中止したときに、チャット取得を残さない
-            c["skip"] = True
-            common.terminate(job.get("proc2"))
-            c["thread"].join(10)
-        shutil.rmtree(wdir, ignore_errors=True)
-        if chat_vid:
-            use_chat_cache(chat_vid, -1)
+        _stop_helpers(job, wdir, chat_vid)

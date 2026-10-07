@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v18
+# ui-kit(共通の見た目)v19
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -138,6 +138,14 @@
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
 
+## v19(2026-10-07・内部の整理。動きは同じ)
+- `ui-kit.css` の v12 の節で、前の節と同じ selector を上書きしていた 28 組のうち 15 組(トークンの角・`--knob`・`--ring`、`.btn`・`.card`・`.card-title`・`.card-sub`・`.pill`・`.badge`・`.notice`・`.bar`・`th`・`kbd`・`.ui-header`・スイッチのつまみ・`.toast`)を、
+  前の節の規則へまとめた(値は v12 のまま)。残りの組(`.btn` の :hover・`.primary`・`aria-pressed`・`.small` とつながったボタンの角・`.notice` の種類・`.bar>i`)は、
+  前の節の同じ詳細度の規則(`.ghost`・`.armed`・`.btn-group>.btn`・`.ui-miniprogress>i` など)より**後ろにあることで効いている**ので v12 の節に残した(前の節の、必ず上書きされる宣言だけ消した)。
+  **v12 の節の規則を前へ動かすと見た目が変わる**
+- 確かめ方: 見本・ホーム・スタジオ(① ② ③・引き出し・キー一覧)・編集(3 つのタブ・設定)で、同じ DOM のまま CSS だけを差し替えて全要素(`::before`・`::after` を含む)の computed style を
+  配色 4 つ × 通常 / `:hover`・`:focus` を当てた状態で比べ、違いは 0(92 組・延べ 14 万要素)
+
 ## v18(2026-10-07・内部の整理。動きは同じ)
 - 確認・お知らせのダイアログ(`UIKit.dialog`)・編集の設定の保存(`UIKit.packLoud`・`UIKit.autorun`)・捕まえたエラーの記録を、中で 1 つの関数にまとめた。`UIKit` の形と動きは変えていない
 - 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `docs/spec/ui-guidelines.md` の 2)
@@ -190,7 +198,7 @@
 
 ## v12(2026-10-02・サイバー風: 計器盤の形と配色4つ)
 ユーザーが見本(`docs/design/briefs/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
-- 形(`ui-kit.css` の末尾の「v12」): 角はほぼ直角(`--r` = 2px)・細い 1px の線・`.card` の左上と右下に角の括弧(`::before` / `::after`。**ツールで `.card` の疑似要素を使わない**)・
+- 形(`ui-kit.css` の末尾の「v12」。v19 で多くを前の節の各部品の規則へまとめた): 角はほぼ直角(`--r` = 2px)・細い 1px の線・`.card` の左上と右下に角の括弧(`::before` / `::after`。**ツールで `.card` の疑似要素を使わない**)・
   タブと `.ui-seg` は下線・`.pill` は枠だけで等幅・`.bar` は目盛り・`.notice` は左の線・`th` と `.card-sub` は等幅。光らせない
 - 色: 明るい = **アイスライト**(`:root`)/ 暗い = **ネオンシアン**(`:root[data-theme=dark]`)。暗いときだけ `data-palette` で **鋼の白**(`steel`)・**ターミナルグリーン**(`green`)に替えられる
   (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `docs/design/briefs/cyber-theme/patterns.css` の「調整した4つ」)

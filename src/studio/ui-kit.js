@@ -2308,7 +2308,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 18, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 19, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
 })();
