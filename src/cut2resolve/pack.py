@@ -630,9 +630,9 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
 def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
-               video_tracks=1):
+               video_tracks=1, prev_copy=None):
     """パックを作る。-> {"out_dir", "files": [(種類, パス)], "readme": 手順書の中身(書かなくても返す。画面の「手順を見る」),
-    "warnings", "plan": cut-plan の中身(書かなくても返す)}。
+    "warnings", "plan": cut-plan の中身(書かなくても返す), "videoCopy": 音量をかけて写した動画の記録(C.gain_copy_record。それ以外は None)}。
     backup・plan_file・readme_file は pack_paths(画面・API の既定は最小限: backup=False・plan_file=False・readme_file=False。④)。
     textplus_color: Text+ の文字の色 {"hex", "who"}(配信者のメンバーカラー。resolve_textplus.text_style。None = 黒い文字)。
     speaker_colors: {話者の名前: "#RRGGBB"}(A-2)。字幕の話者(cue_speakers)がここにあれば、その字幕だけ文字をその色に(無ければ textplus_color)。
@@ -642,6 +642,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt_core/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
     同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない。
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
+    prev_copy: 前にこのフォルダへ作ったパックの記録の videoCopy(serve.py が作業データの packs/ から読んで渡す。コマンドは渡さない = 毎回作り直す)。
+    音量をかけて写すとき、これと今の条件(元の動画・かける量・書き出しの設定)が同じで、置き場所の動画も記録のままなら作り直さない(E-15 の続き。_stage_video)
     重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
     if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
@@ -677,6 +679,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     tag = secrets.token_hex(4)
     staged = []
     same = copy_video and S.same_path(paths["video"], mvideo)
+    copy_key = None   # 音量をかけて写したときの条件(パックの記録の videoCopy にする)
     try:
         loud, gain, w = _pack_gain(loudness, volume, render, copy_video, same, m, task, log)   # 画面に出す結果と、かける量(dB)
         warnings += w
@@ -687,17 +690,12 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             staged.append((tmp, paths["roughcut"], "roughcut"))
         if copy_video and not same:
             paths["video"].parent.mkdir(parents=True, exist_ok=True)
-            tmp = out_dir / f".c2r-{tag}-{mvideo.name}"
-            if gain:
-                _say(log, task, "音量をそろえて(%+.1f dB)元動画を写しています…" % gain)
-                C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"), meta=mmeta)
-            else:   # 前に写した同じ動画(大きさ・更新日時が同じ)が置き場所にあれば写さない(E-15。音量をかけるときは作り直すので対象外)
-                _say(log, task, "元動画をコピーしています…")
-                tmp = C.copy_video(mvideo, out_dir, task, dst=tmp, final=paths["video"])
+            tmp, skipped, copy_key = _stage_video(m, out_dir, paths["video"], out_dir / f".c2r-{tag}-{mvideo.name}", gain, prev_copy,
+                                                  task, log)
             if tmp:
                 staged.append((tmp, paths["video"], "video"))
             else:
-                warnings.append(C.COPY_SKIPPED.format(paths["video"].name))
+                warnings.append(skipped)
         if task:
             task.check()
         extras = []
@@ -748,12 +746,33 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             C._unlink_quiet(tmp)
     if copy_video and "video" not in files:
         files["video"] = paths["video"]
+    # 付け替えたあとの置き場所の動画を記録に(次に同じ条件なら作り直さない)。量の決め方は人が読む用
+    how = {"loudness": loudness} if loudness is not None else {"volume": volume}
+    video_copy = C.gain_copy_record(copy_key, paths["video"], **how) if copy_key else None
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
     # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
     readme = (TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style, video_tracks, order) if textplus
               else files["readme_text"])
     return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings, "editMedia": m["edit"],
-            "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud}
+            "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud, "videoCopy": video_copy}
+
+
+def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
+    """パックの動画(m = media_for_pack の結果)を一時の名前 tmp に写す(置き場所 final への付け替えは build_pack の最後)。
+    -> (写した一時ファイル か None = 写さなかった, 写さなかったときの注意の文, 音量をかけたときの条件 C.gain_copy_key か None)。
+    置き場所に前に写した同じ動画があれば写さない(E-15): 音量をかけないときは大きさ・更新日時が元と同じ(C.same_copy)、
+    かけるときは前のパックの記録 prev_copy と条件・置き場所の動画が同じ(C.same_gain_copy)"""
+    mvideo, mmeta = m["video"], m["meta"]
+    if not gain:
+        _say(log, task, "元動画をコピーしています…")
+        tmp = C.copy_video(mvideo, out_dir, task, dst=tmp, final=final)
+        return tmp, None if tmp else C.COPY_SKIPPED.format(final.name), None
+    key = C.gain_copy_key(mvideo, final, gain, mmeta)
+    if C.same_gain_copy(key, final, prev_copy):
+        return None, C.GAIN_COPY_SKIPPED.format(final.name, gain), key
+    _say(log, task, "音量をそろえて(%+.1f dB)元動画を写しています…" % gain)
+    C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"), meta=mmeta)
+    return tmp, None, key
 
 
 def _stale_warning(video, out_dir, paths, mvideo):

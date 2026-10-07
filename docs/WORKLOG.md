@@ -1994,3 +1994,21 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - e2e への 2 回目のパックで飛ばす確認は足していない(`src/editor/tests/` は担当外。上の理由で既定の設定の画面では飛ばす場面にならない)。API で `test_serve` が確かめる
 - 注意: 比べ方は中身を読まないので、同じ大きさ・同じ秒の更新日時のまま中身だけ変わった動画(更新日時を戻す道具で書き換えたなど)は写し直さない。そのときは出力先の動画を消してから作り直す
 - 未コミット: なし(このコミット。ほかの担当の未コミットの変更(editor・home・studio・ui-kit・ytt_core)は含めていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 7 E-15 の続き: cut2resolve 0.22.2 音量をかけた写しも、前と同じ条件なら作り直さない
+- 変更: `src/cut2resolve/cut2resolve_core.py`(`_gain_copy_opts`(copy_video_gain の ffmpeg の出力の設定を 1 か所に)・`gain_copy_key`(条件)・`gain_copy_record`(記録)・`same_gain_copy`(判定の 1 か所)・`GAIN_COPY_SKIPPED`・`GAIN_COPY_V`)・`pack.py`(`build_pack(prev_copy=…)`・結果に `videoCopy`・動画の写しを `_stage_video` に)・`serve.py`(build の前に `_txi.read_pack_record` で前の記録を読み `prev_copy` に渡す・`write_pack_record` に鍵 `videoCopy` を足す)・`README.txt`・テスト `tests/test_pack.py`(`TestGainCopyRecord` 2 件・ffmpeg つき 3 件)・`tests/test_serve.py`(1 件)
+- 版: cut2resolve 0.22.1 → 0.22.2
+- 決定・理由(仮で決めたこと。ユーザー指示「確認だけのものも仮で決めて実装」):
+  - 記録の置き場所 = 作業データの「パックを作った記録」`packs/<フォルダのハッシュ>.json` に鍵 `videoCopy` を足す(形は変えない。`ytt_core.txindex`・`dev/eval_cut.py` はこの鍵を読まない)。動画の隣の `<名前>.copy.json` にしなかったのは、パックのフォルダは友人に渡すもので最小限にする・記録を隠しファイルでパックに置かない(Windows で上書きに失敗することがある)というユーザー決定(2026-09-26・27 ④)があるため。その代わり飛ばせるのは記録を書く API(「編集」の 3 パック・入口のまとめて実行)だけ。コマンド(cut2resolve.py・auto_cut.py)は音量の指定が無く、音量をかけた写しを作らないので影響なし。フォルダを動かしたら記録と合わず作り直す(安全側)
+  - 条件 = 元の動画(名前・大きさ・更新日時の秒)・実際にかける量(dB。ffmpeg に渡す小数 2 桁)・書き出しの設定(ffmpeg の出力のオプションの並びそのもの = 音声の形式・ビットレート・faststart・開始タイムコード)・記録の版 `v`。さらに置き場所の動画が記録したときのまま(名前・大きさ・更新日時の秒。付け替えた後に読む)。1 つでも違う・記録が無い・形が違えば作り直す
+  - 比べるのは実際にかける dB で、音量 % / LUFS の目標は記録に残すだけ(人が読む用)。同じ dB なら出来上がる音声は同じなので。LUFS でそろえるときは残す区間の測定は毎回する(カットが変わると量が変わる)。測った量が小数 2 桁で同じなら飛ばす(許容の幅は付けていない)
+  - 条件は写す前に作る(写している間に元が変わったら、次は合わないので作り直す)。飛ばしたときも同じ条件を次の記録に残す
+  - 注意の文「動画 ○○ は前に同じ音量(-10.5 dB)をかけて写したものと同じ(元の動画の大きさ・更新日時、かけた量、書き出しの設定が同じ)なので、コピーを飛ばしました。」は 0.22.1 と同じ終わり方にして、serve.py の info の見分けを共通にした
+- 測った: 「編集」の e2e の流れで、LUFS -14(+7.8 dB)の 2 回目のパックで写しを飛ばした(下の切り分けの知らせの中身)。API のテストで 2 回目は copy_video_gain を呼ばない
+- テスト: cut2resolve の単体 3 本 370 件 OK(skip 24。Lua が無い分。+6)・`dev/tests/test_resolve_pack_contract.py`(単独)35 件 OK・`src/ytt_core/tests/test_ytt_core.py` 81 件 OK(skip 1)・editor の `test_metrics`・`test_resolve_export`・`test_roster` 552 件 OK(skip 1)/ `py -3.10 dev/lint.py` 0 件
+  - **e2e `src/editor/tests/e2e_edit_pack.py` は 400 行目の「中止」のクリックで止まる(このコミットで起きる)**。原因: 2 回目のパックで「コピーを飛ばしました」(info)が出るようになり、「編集」の pack-tab.js が warnings の先頭 2 つを知らせ(toast 6 秒)に出すので、知らせが 3 段(ファイル名の注意・飛ばした・作りました)に積まれて、次のパックの「中止」ボタンの上にかぶる(Playwright: toast intercepts pointer events)。切り分け: serve.py で prev_copy を渡さないと ALL PASSED / 「中止」だけ force で押すと残りは全部 ALL PASSED(リポジトリは変えずに scratchpad の包み `run_e2e_force_cancel.py` で確かめた)
+- 未完了・次(まとめ役へ。editor は担当外なので触っていない):
+  - **pack-tab.js(386 行目)で info の注意(`res.warningLevels[i] === 'info'`)は知らせに出さない(か「パックを作りました」の知らせの文に足す)**のがよい。warn/info を分けた「問題5」の考え方とも合い、e2e も通るはず。e2e 側だけで直すなら「中止」を押す前に知らせが消えるのを待つ。実際の画面でも、作り直した直後の 6 秒ほどは次のパックの「中止」が知らせに隠れる(前から注意が 2 つ出るときは同じ)
+  - `plan/ux-stage7-9.md` の E-15 の 2 行目(動画のコピー)は「音量調整つきも済み(0.22.2)」に(plan はまとめ役が直す)
+- 注意: 比べ方は中身を読まない(0.22.1 と同じ)。同じ大きさ・同じ秒のまま置き場所の動画を書き換えたときは飛ばしてしまう。そのときはパックの動画を消してから作り直す
+- 未コミット: なし(このコミット。ほかの担当の未コミットの変更(editor・home・studio・ui-kit・ytt_core)は含めていない)

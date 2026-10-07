@@ -677,6 +677,71 @@ class TestOutputGuard(unittest.TestCase):
         self.assertIn("x", sub.read_text(encoding="utf-8"))
 
 
+class TestGainCopyRecord(unittest.TestCase):
+    """E-15 の続き(0.22.2): 音量をかけた写しの条件(gain_copy_key)・記録(gain_copy_record)・比べ方(same_gain_copy)。ffmpeg は使わない"""
+    T0 = 1_700_000_000_250_000_000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.src = write(self.dir / "clip.mp4", "source")
+        os.utime(self.src, ns=(self.T0, self.T0))
+        self.out = self.dir / "pack"
+        self.out.mkdir()
+        self.dst = write(self.out / "clip.mp4", "copied with gain")
+        self.meta = {"start_tc": "01:00:00:00"}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _rec(self, gain=-10.457):
+        key = C.gain_copy_key(self.src, self.dst, gain, self.meta)
+        return key, json.loads(json.dumps(C.gain_copy_record(key, self.dst, volume=30)))   # パックの記録を通したのと同じ形
+
+    def test_key_and_record(self):
+        key, rec = self._rec()
+        self.assertEqual(key["source"], {"name": "clip.mp4", "size": 6, "mtime": self.T0 // 10 ** 9})
+        self.assertEqual((key["v"], key["gainDb"]), (C.GAIN_COPY_V, -10.46))
+        self.assertEqual(key["ffmpeg"], C._gain_copy_opts(self.src, ".mp4", -10.457, self.meta))   # 書き出しの設定 = copy_video_gain が使うもの
+        self.assertIn("volume=-10.46dB", key["ffmpeg"])
+        self.assertEqual(key["ffmpeg"][-2:], ["-timecode", "01:00:00:00"])
+        st = self.dst.stat()
+        self.assertEqual(rec["output"], {"name": "clip.mp4", "size": st.st_size, "mtime": st.st_mtime_ns // 10 ** 9})
+        self.assertEqual(rec["volume"], 30)
+        webm = C.gain_copy_key(self.src, self.out / "clip.webm", -3, {"start_tc": None})["ffmpeg"]
+        self.assertIn("libopus", webm)
+        self.assertNotIn("+faststart", webm)
+        self.assertIsNone(C.gain_copy_key(self.dir / "none.mp4", self.dst, -3, self.meta))   # 元が読めない = 記録しない
+        self.assertIsNone(C.gain_copy_record(None, self.dst))
+        self.assertIsNone(C.gain_copy_record(key, self.out / "none.mp4"))
+
+    def test_same_only_when_everything_matches(self):
+        key, rec = self._rec()
+        self.assertTrue(C.same_gain_copy(key, self.dst, rec))
+        self.assertTrue(C.same_gain_copy(dict(key), self.dst, dict(rec, volume=None, loudness=-14)))   # 量の決め方は比べない(かけた dB で比べる)
+
+        def changed(path, value):
+            r = json.loads(json.dumps(rec))
+            d = r
+            for k in path[:-1]:
+                d = d[k]
+            d[path[-1]] = value
+            return r
+        for path, value in ((("v",), 0), (("gainDb",), -10.45), (("ffmpeg",), key["ffmpeg"][:-2]), (("source", "size"), 7),
+                            (("source", "mtime"), self.T0 // 10 ** 9 + 1), (("source", "name"), "other.mp4"),
+                            (("output", "size"), 1), (("output", "mtime"), 0), (("output", "name"), "x.mp4")):
+            self.assertFalse(C.same_gain_copy(key, self.dst, changed(path, value)), path)
+        for prev in (None, "x", [], {}, {"output": rec["output"]}):                         # 記録が無い・形が違う
+            self.assertFalse(C.same_gain_copy(key, self.dst, prev), prev)
+        self.assertFalse(C.same_gain_copy(None, self.dst, rec))
+        self.assertFalse(C.same_gain_copy(key, self.out / "none.mp4", rec))                # 置き場所に動画が無い
+        self.assertFalse(C.same_gain_copy(key, self.out, rec))                              # フォルダ
+        os.utime(self.dst, ns=(self.T0, self.T0))                                           # 置き場所の動画が変わった(更新日時)
+        self.assertFalse(C.same_gain_copy(key, self.dst, rec))
+        os.utime(self.src, ns=(self.T0 + 600_000_000,) * 2)                                 # 元の動画の更新日時が同じ秒の中で変わっただけ
+        self.assertEqual(C.gain_copy_key(self.src, self.dst, -10.457, self.meta), key)      # → 条件は同じ(same_copy と同じ秒単位)
+
+
 class TestFcpxml(unittest.TestCase):
     meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
 
@@ -1033,7 +1098,8 @@ class TestPackWithFfmpeg(unittest.TestCase):
             self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), res["warnings"])
 
     def test_copy_with_volume_is_not_skipped(self):
-        """音量をかけるとき(音声を作り直す copy_video_gain)は、同じ動画が置いてあっても飛ばさない"""
+        """音量をかけるとき(音声を作り直す copy_video_gain)は、元と同じ動画(音量をかけていない写し)が置いてあっても飛ばさない
+        (飛ばすのは、前のパックの記録 videoCopy と条件が同じときだけ。0.22.2。下の test_gain_copy_*)"""
         plan, out, dst = self._copied_pack("vol")
         self.assertTrue(C.same_copy(self.video, dst))
         res = pack.build_pack(plan, out, copy_video=True, force=True, volume=50)
@@ -1058,6 +1124,75 @@ class TestPackWithFfmpeg(unittest.TestCase):
         with mock.patch("builtins.print") as p:
             AC.write_package(self.video, out, meta, plan, None, "00:00:00:00", copy_video=True, force=True)
         p.assert_called_once_with("注意: " + C.COPY_SKIPPED.format("clip.mp4"))
+
+    # ---- E-15 の続き(0.22.2): 音量をかけた写しも、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない
+    def _gain_pack(self, name, **kw):
+        """元の動画の更新日時を T0 にして、音量をかけて動画を写したパックを作る -> (計画, フォルダ, パックの動画, 記録)。
+        記録は JSON を通す(serve.py がパックの記録 packs/<ハッシュ>.json に書いて読み直すのと同じ形)"""
+        os.utime(self.video, ns=(self.T0, self.T0))
+        plan = pack.plan_cut(pack.Request(video=self.video))
+        out = self.dir / name
+        kw.setdefault("volume", 50)
+        res = pack.build_pack(plan, out, copy_video=True, **kw)
+        self.assertFalse(any("コピーを飛ばしました" in w for w in res["warnings"]))
+        return plan, out, out / "clip.mp4", json.loads(json.dumps(res["videoCopy"]))
+
+    def _again(self, plan, out, prev, **kw):
+        """同じフォルダに作り直す -> (結果, 音量をかけて写し直したか, 音量を測ったか)"""
+        kw.setdefault("volume", 50)
+        with mock.patch.object(C, "copy_video_gain", wraps=C.copy_video_gain) as cg:
+            with mock.patch.object(C, "measure_loudness", wraps=C.measure_loudness) as ml:
+                res = pack.build_pack(plan, out, copy_video=True, force=True, prev_copy=prev, **kw)
+        return res, cg.called, ml.called
+
+    def test_gain_copy_skips_same_conditions(self):
+        plan, out, dst, rec = self._gain_pack("g_same")
+        gain = C.loudness_mod().pct_to_db(50)
+        self.assertEqual((rec["volume"], rec["gainDb"], rec["source"]),
+                         (50, round(gain, 2), {"name": "clip.mp4", "size": self.video.stat().st_size, "mtime": self.T0 // 10 ** 9}))
+        self.assertIn("volume=%.2fdB" % gain, rec["ffmpeg"])
+        before = dst.stat().st_mtime_ns
+        res, regain, _ = self._again(plan, out, rec)
+        self.assertFalse(regain)                                                        # 作り直していない
+        self.assertEqual(dst.stat().st_mtime_ns, before)
+        self.assertEqual(res["warnings"][-1], C.GAIN_COPY_SKIPPED.format("clip.mp4", gain))   # 注意に 1 行(ほかの注意の後ろ)
+        self.assertIn("コピーを飛ばしました", res["warnings"][-1])                        # serve.py が info に分ける言葉
+        self.assertEqual(res["videoCopy"], rec)                                         # 次のパックの記録にも同じ条件を残す
+        self.assertEqual(res["loudness"], {"volume": 50, "gainDb": gain})               # 画面に出す量は今までどおり
+        self.assertEqual(dict(res["files"])["video"], dst)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["clip.edl", "clip.mp4", "cut-plan.json", "友人へ.txt"])   # 記録はフォルダに置かない
+
+    def test_gain_copy_again_when_something_differs(self):
+        plan, out, dst, rec = self._gain_pack("g_diff")
+        cases = (("量が違う", lambda r: (r, {"volume": 60})),
+                 ("記録が無い", lambda r: (None, {})),
+                 ("書き出しの設定が違う", lambda r: (dict(r, ffmpeg=[x.replace("192k", "128k") for x in r["ffmpeg"]]), {})),
+                 ("元の動画が変わった", lambda r: (os.utime(self.video, ns=(self.T0 + 10 ** 9,) * 2) or r, {})),
+                 ("置き場所の動画が変わった", lambda r: (os.utime(dst, ns=(self.T0,) * 2) or r, {})))
+        for why, make in cases:
+            prev, kw = make(rec)
+            res, regain, _ = self._again(plan, out, prev, **kw)
+            self.assertTrue(regain, why)                                                # 作り直した
+            self.assertFalse(any("コピーを飛ばしました" in w for w in res["warnings"]), why)
+            self.assertEqual(res["videoCopy"]["output"]["mtime"], dst.stat().st_mtime_ns // 10 ** 9, why)
+            rec = json.loads(json.dumps(res["videoCopy"]))
+            self.assertIs(self._again(plan, out, rec, **kw)[1], False, why)            # 作り直した後の記録となら、次は飛ばす
+        self.assertEqual(rec["source"]["mtime"], self.T0 // 10 ** 9 + 1)
+
+    def test_gain_copy_no_volume_or_loudness(self):
+        """音量を変えないパック(100%)に戻したら普通のコピー(記録は None)。音量をそろえる(LUFS)ときは毎回測り、測った量が同じなら飛ばす"""
+        plan, out, dst, rec = self._gain_pack("g_lufs")
+        res, regain, _ = self._again(plan, out, rec, volume=None)
+        self.assertFalse(regain)
+        self.assertEqual(dst.read_bytes(), self.video.read_bytes())                    # 音量をかけない写しに戻した
+        self.assertIsNone(res["videoCopy"])
+        res, regain, measured = self._again(plan, out, None, volume=None, loudness=-14.0)
+        self.assertTrue(regain and measured)
+        rec = json.loads(json.dumps(res["videoCopy"]))
+        self.assertEqual((rec["loudness"], "volume" in rec, rec["gainDb"]), (-14.0, False, round(res["loudness"]["gainDb"], 2)))
+        res, regain, measured = self._again(plan, out, rec, volume=None, loudness=-14.0)
+        self.assertEqual((regain, measured), (False, True))                            # 測るのは毎回(カットが変わると量が変わる)
+        self.assertEqual(res["warnings"][-1], C.GAIN_COPY_SKIPPED.format("clip.mp4", res["loudness"]["gainDb"]))
 
     def test_cancel_during_copy_leaves_nothing(self):
         plan = pack.plan_cut(pack.Request(video=self.video))

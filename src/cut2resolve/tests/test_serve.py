@@ -595,6 +595,42 @@ class TestJobs(ServerBase):
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_t6"), "textplus": True, "videoTracks": 6}})
         self.assertEqual((st, e["error"]), (400, "bad_tracks"))
 
+    def test_build_volume_copy_skipped_second_time(self):
+        """E-15 の続き(0.22.2): 音量をかけて写した動画(「編集」の既定 30%)は、パックの記録(packs/ の videoCopy)と条件が同じなら
+        2 回目は作り直さない(ffmpeg を動かさない = 速い)。注意は info。量を変えたら作り直す。記録の形は鍵を足しただけ(txindex がそのまま読む)"""
+        out = self.dir / "tp_vol"
+        spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
+        body = {"spec": spec, "output": {"dir": str(out), "textplus": True, "volume": 30}}
+        j = self.run_job("/api/build", body)
+        self.assertEqual(j["state"], "done", j)
+        gain = j["result"]["loudness"]["gainDb"]
+        rec_path = Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)
+        vc = json.loads(rec_path.read_text(encoding="utf-8"))["videoCopy"]
+        self.assertEqual((vc["volume"], vc["gainDb"], vc["source"]["name"], vc["output"]["name"]), (30, round(gain, 2), "clip.mp4", "clip.mp4"))
+        dst = out / "clip.mp4"
+        before = dst.stat().st_mtime_ns
+        body["output"]["force"] = True
+        with mock.patch.object(serve.C, "copy_video_gain", wraps=serve.C.copy_video_gain) as cg:
+            t0 = time.monotonic()
+            j2 = self.run_job("/api/build", body)
+            took = time.monotonic() - t0
+            self.assertEqual(j2["state"], "done", j2)
+            self.assertFalse(cg.called, took)                                       # 作り直していない
+        self.assertEqual(dst.stat().st_mtime_ns, before)
+        r = j2["result"]
+        skip = serve.C.GAIN_COPY_SKIPPED.format("clip.mp4", gain)
+        self.assertIn(skip, r["warnings"])
+        self.assertEqual(r["warningLevels"][r["warnings"].index(skip)], "info")
+        self.assertIn("clip.mp4", [f["name"] for f in r["files"]])
+        rec = serve._txi.read_pack_record(str(out), c2r_dir=serve.CODE_DIR)       # txindex の読み取りはそのまま(鍵を足しただけ)
+        self.assertEqual((rec["textplus"], rec["videoCopy"]), (True, vc))
+        body["output"]["volume"] = 40                                                # 量を変えたら作り直す
+        with mock.patch.object(serve.C, "copy_video_gain", wraps=serve.C.copy_video_gain) as cg:
+            j3 = self.run_job("/api/build", body)
+            self.assertTrue(cg.called)
+        self.assertFalse(any("コピーを飛ばしました" in w for w in j3["result"]["warnings"]))
+        self.assertEqual(serve._txi.read_pack_record(str(out), c2r_dir=serve.CODE_DIR)["videoCopy"]["volume"], 40)
+
     def test_overlap_nosub_and_speaker_styles(self):
         """重なる字幕の段・字幕に出さない行(noSub)・話者ごとの色の指定(speakerStyles)を API で。見積もり(api/plan)に段の数など"""
         doc = {"schema": "youtube-tools-transcript/v1", "tool": {"name": "transcribe-tool", "version": "0"}, "media": {},

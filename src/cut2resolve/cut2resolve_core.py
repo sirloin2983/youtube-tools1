@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.22.1"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.22.2"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -738,18 +738,25 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     return _loud.parse(r.stderr or "")
 
 
-def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
-    """動画を dst へ写し、音声だけ gain_db(dB)をかけて作り直す(映像はそのまま = 無劣化)。一時ファイル経由(書きかけを残さない)。
-    コンテナは dst の拡張子のまま(webm は Opus、それ以外は AAC)。meta: video の srt2resolve.probe の結果(開始タイムコードを読み直さない)"""
-    dst = Path(dst)
-    ext = dst.suffix.lower()
-    fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=ext or ".mp4")
-    os.close(fd)
+def _gain_copy_opts(video, ext, gain_db, meta=None):
+    """copy_video_gain の ffmpeg の出力の設定(入力・出力のパスを除く)。音量をかけた写しの記録の「書き出しの設定」もこれ(gain_copy_key)"""
     acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", "192k"]
     tc = read_start_tc(video, meta)
     opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", f"volume={gain_db:.2f}dB"] + acodec
     if ext in (".mp4", ".mov", ".m4v"):
         opts += ["-movflags", "+faststart"] + (["-timecode", tc] if tc and tc != "00:00:00:00" else [])
+    return opts
+
+
+def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
+    """動画を dst へ写し、音声だけ gain_db(dB)をかけて作り直す(映像はそのまま = 無劣化)。一時ファイル経由(書きかけを残さない)。
+    コンテナは dst の拡張子のまま(webm は Opus、それ以外は AAC)。meta: video の srt2resolve.probe の結果(開始タイムコードを読み直さない)。
+    前に同じ条件で写したかの判定(作り直さない)は呼ぶ側が gain_copy_key・same_gain_copy で行う(pack.build_pack)"""
+    dst = Path(dst)
+    ext = dst.suffix.lower()
+    opts = _gain_copy_opts(video, ext, gain_db, meta)
+    fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=ext or ".mp4")
+    os.close(fd)
     try:
         r = _ffmpeg_run(["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
         if r.returncode != 0:
@@ -762,6 +769,54 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
 
 
 COPY_SKIPPED = "動画 {} は前に写したものと同じ(大きさ・更新日時が元の動画と同じ)なので、コピーを飛ばしました。"
+# 音量をかけた写し(copy_video_gain)を作り直さなかったとき。文の終わりは COPY_SKIPPED と同じ(serve.py が注意の重さ info をこの言葉で見分ける)
+GAIN_COPY_SKIPPED = ("動画 {} は前に同じ音量({:+.1f} dB)をかけて写したものと同じ(元の動画の大きさ・更新日時、かけた量、書き出しの設定が同じ)"
+                     "なので、コピーを飛ばしました。")
+GAIN_COPY_V = 1   # 音量をかけた写しの記録(gain_copy_record)の形の版。写し方を変えて前の記録と比べられなくなったら上げる(前の記録とは合わない = 作り直す)
+
+
+def _file_sig(path):
+    """普通のファイルの {"size", "mtime"(更新日時の秒)}(same_copy と同じ比べ方)。無い・読めない・フォルダなら None"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    return {"size": st.st_size, "mtime": st.st_mtime_ns // 1_000_000_000}
+
+
+def gain_copy_key(video, final, gain_db, meta=None):
+    """音量をかけて写すときの条件 = 元の動画(名前・大きさ・更新日時の秒)・かける量(dB。ffmpeg に渡すのと同じ小数 2 桁)・
+    書き出しの設定(ffmpeg の出力のオプション。音声の形式・ビットレート・開始タイムコードなど。_gain_copy_opts)。final: 置き場所(拡張子で形式が決まる)。
+    写す前に作る(写している間に元の動画が変わったら、次は記録と合わないので作り直す)。元の動画が読めないときは None(記録しない・飛ばさない)"""
+    src = _file_sig(video)
+    if src is None:
+        return None
+    return {"v": GAIN_COPY_V, "source": dict(src, name=Path(video).name), "gainDb": round(float(gain_db), 2),
+            "ffmpeg": _gain_copy_opts(video, Path(final).suffix.lower(), gain_db, meta)}
+
+
+def gain_copy_record(key, final, **how):
+    """パックの記録(作業データの packs/<ハッシュ>.json)の videoCopy に残す中身 = 条件 key + 置き場所の動画 final(名前・大きさ・更新日時の秒。
+    写して付け替えたあとに読む)+ 量の決め方 how(volume = 音量 % / loudness = LUFS の目標。人が読む用で、比べるのは実際にかけた gainDb)。
+    key が無い・final が読めないときは None"""
+    out = _file_sig(final) if key else None
+    if out is None:
+        return None
+    return dict(key, output=dict(out, name=Path(final).name), **how)
+
+
+def same_gain_copy(key, final, prev):
+    """音量をかけた写しを作り直さなくてよいか(判定はここ1か所)。前の記録 prev(gain_copy_record の中身をパックの記録から読んだもの)が
+    今の条件 key と同じ(版・元の動画・かける量・書き出しの設定)で、置き場所の動画 final が記録したときのまま(名前・大きさ・更新日時の秒)なら True。
+    記録が無い・形が違う・1つでも違う・読めないときは False(作り直す側に倒す)。中身は読まない(same_copy と同じ考え方)"""
+    if not key or not isinstance(prev, dict):
+        return False
+    out = _file_sig(final)
+    if out is None or prev.get("output") != dict(out, name=Path(final).name):
+        return False
+    return all(prev.get(k) == key[k] for k in ("v", "source", "gainDb", "ffmpeg"))
 
 
 def same_copy(src, dst):

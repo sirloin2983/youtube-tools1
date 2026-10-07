@@ -19,6 +19,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
                                   output.loudness = 聞こえ方の音量をそろえる目標(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない)。
                                   カットで残す区間だけ測り、同梱の動画は音声だけ作り直す。結果の loudness = {target, measured, gainDb} か {target, skipped}
                                   output.volume = 音量(%。1〜200。元 = 100)。loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
+                                  音量をかけて写した動画は、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない(注意は info。0.22.2)
                                   output.videoTracks = Text+ のタイムラインの映像トラックの数(1〜5。省略 = 1)。V1 = 動画・V2〜 = 空・字幕はその上
                                   結果にも warningLevels(build 側・summary 側それぞれ)
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
@@ -326,6 +327,7 @@ def write_pack_record(res, plan, textplus, backup, color=None):
            "dir": str(out_dir), "video": str(plan.video), "textplus": bool(textplus), "backup": bool(backup),
            "builtAt": int(time.time() * 1000), "files": [p.relative_to(out_dir).as_posix() for _, p in res["files"]],
            "editMedia": res["editMedia"], "cutPlan": res["plan"],
+           "videoCopy": res.get("videoCopy"),   # 音量をかけて写した動画の条件(C.gain_copy_record)。次のパックで同じなら作り直さない(E-15 の続き)
            "textColor": (color or {}).get("hex"), "streamer": (color or {}).get("who")}   # 字幕の文字の色(配信者の名前を入れたとき)
     S.write_text_atomic(Path(d) / _txi.pack_key(out_dir), json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     try:
@@ -615,7 +617,7 @@ _INFO_WARNING_MARKERS = (
     "文字起こしに残す行が無いため、字幕は付けません",
     "余白つき素材",                              # スタジオの余白つき素材を使った/使わなかった案内(自動で切り替え済み)
     "標準的でないフレームレート",                  # 検出した値の案内。すぐの対処は要らない
-    "コピーを飛ばしました",                        # 前に写した同じ動画をそのまま使った(C.COPY_SKIPPED。E-15)
+    "コピーを飛ばしました",                        # 前に写した同じ動画をそのまま使った(C.COPY_SKIPPED・C.GAIN_COPY_SKIPPED。E-15)
 )
 
 
@@ -801,12 +803,13 @@ class Handler(BaseHTTPRequestHandler):
             spk_map, spk_shown = speaker_color_map(plan) if out["textplus"] and out["speakerColors"] else ({}, [])
             if out["textplus"] and out["speakerStyles"]:
                 spk_map, spk_shown = apply_speaker_styles(plan, out["speakerStyles"], spk_map, spk_shown)
+            prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
             res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
                                   force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
                                   textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
                                   speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
-                                  video_tracks=out["videoTracks"])
+                                  video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
             app.allow_out_dir(res["out_dir"])
             try:
                 write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
