@@ -2397,3 +2397,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 仮決め: なし(動きは変えていない。eval_cloud の引数の検査などは直しとして上に)。判断が要るものは `plan/improvements.md` の 12 の末尾に 7 件
 - 未完了・次: ユーザーの起動し直し(0.45.2)・アプリを閉じて build.bat → zip を友人へ(U8)・配信 2 本目の M7 の結果の記録(次のセッション。HANDOVER の指示文)
 - 未コミット: なし(このコミットで全部。push はユーザー)
+
+## 2026-10-08 Claude Code(PC。Fable)— 10-07 夜の整理(a4ccbf2〜1021359)のあとの、まとめ役によるテストの流し直しの結果
+- 単体: home 15 本 461 件 OK(skip 2。1 回目はサブエージェントの e2e と同時に流して 1 件落ちたが、単独で流し直すと全部 OK = 負荷によるもの)・ytt_core 130 件 OK・studio 309 件 OK・dev(eval_cloud・eval_marks・eval_asr・ui_kit_sync)OK・node test_review 51 件 OK・`dev/lint.py` 0 件・`ui_audit static` Must 0(Should 8 = 前からの A-08)
+- e2e(1 本ずつ): e2e_live_studio 164 件 OK・e2e_portal すべて OK・e2e_autorun すべて OK・e2e_live ALL OK・e2e_live_archive 100 件 OK・スタジオ e2e_ui --mounted 243 件中 243 件 OK。`ui_audit all --demo` は画面の担当が最後に流して Must 0・Should 38(その後に変えた画面のファイルは無い)
+- 注意: e2e の後半(portal 以降)を流している間に、並行セッション(送るツール担当)が同じ作業フォルダの src/home(deliver・cases・autorun・intake・launch・portal.js)にホーム 0.46.0 の未コミットの変更を入れ始めたので、その分を含んだ状態で通っている(こちらのコミットの状態だけの e2e は各サブエージェントが自分の最終状態で流して OK)
+- 作業フォルダの未コミット(こちらのものではない): 送るツール担当(src/home・friend-apps/request-sender・docs/spec/friend-intake.md・plan/decisions.md 3-11・data.js・HANDOVER・src/home/README.txt・friend_feedback.py)・Chrome 拡張の担当(AGENTS.md・chrome-ext/)・別のセッション(src/editor の app-rows.js・app.js・ed_jobs.py・serve.py・README・AGENTS.md・test_metrics.py と dev/eval_timing.py・test_eval_timing.py = 誰の作業か未確認)。触っていない
+- 未コミット(こちら): なし(このコミットで全部。push はユーザー)
