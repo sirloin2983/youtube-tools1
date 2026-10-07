@@ -419,7 +419,7 @@
   }
   function setGroupOpen(key, open) { groupOpenMap()[key] = !!open; lsSet('groupOpen', JSON.stringify(groupOpenCache)); }
 
-  function clipRow(c) {
+  function clipRow(c, kase) {
     var li = el('li', 'pt-clip');
     var head = el('div', 'row');
     head.appendChild(el('span', 'pt-clip-range mono', tc(c.start) + '–' + tc(c.end)));
@@ -430,7 +430,10 @@
       head.appendChild(fn);
     }
     if (!c.exists) head.appendChild(el('span', 'pill warn', '動画が見つからない'));
+    var auto = !!(c.auto && kase);   // 自動でできた切り抜き(線 D の M9)
+    if (auto) { li.classList.add('pt-ac'); li.setAttribute('data-fkey', 'auto:' + autoKey(kase, c)); autoPills(head, c); }
     li.appendChild(head);
+    if (auto) autoFail(li, c);
     var st = el('div', 'row pt-clip-steps');
     if (c.transcript) {
       var t = c.transcript, done = t.segments && t.proofed >= t.segments;
@@ -446,9 +449,15 @@
     } else {
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
     }
-    if (c.transcript && c.transcript.id) st.appendChild(link('編集で開く', docHref(c.transcript.id, c.exists ? c.path : '', 'tx')));
-    else if (c.exists && c.path) st.appendChild(link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path) + '#tx'));
+    var open = null;
+    if (c.transcript && c.transcript.id) open = link('編集で開く', docHref(c.transcript.id, c.exists ? c.path : '', 'tx'));
+    else if (c.exists && c.path) open = link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path) + '#tx');
+    if (open) {
+      st.appendChild(open);
+      if (auto) ['click', 'auxclick'].forEach(function (ev) { open.addEventListener(ev, function () { markSeen(kase, c); }); });   // 開いたら「見た」
+    }
     li.appendChild(st);
+    if (auto) autoActs(li, kase, c);
     return li;
   }
 
@@ -456,7 +465,166 @@
     var ol = $('.pt-clips', node);
     ol.textContent = '';
     if (!c.clips.length) ol.appendChild(el('li', 'hint', c.marks.adopted ? '採用したマークはまだ書き出していません(スタジオで書き出すか、下の「まとめて実行」で)' : '書き出した切り抜きはありません'));
-    c.clips.forEach(function (cl) { ol.appendChild(clipRow(cl)); });
+    c.clips.forEach(function (cl) { ol.appendChild(clipRow(cl, c)); });
+  }
+
+  /* ---- 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1)----
+     .clip.json の出どころが自動(配信中の候補・配信後の解析)の切り抜きに「自動」の札・出どころ・点数・控え・未見/見た・届けた・失敗の文と、
+     [採用](= 友人へ届ける。パックがあって、依頼の受付の Dropbox のフォルダが決まっているときだけ押せる。全自動では届けない = 10-06 ユーザー決定)・
+     [要らない](ごみ箱フォルダへ移す + スタジオのマークを不採用に + 誤検出として記録)を出す。どちらも二度押し(UIKit.confirmTwice)。
+     中身はサーバー(/api/cases/auto = src/home/cases.py の auto_review)。届けている途中の進み具合は api/ytt/deliver の status で聞き直す */
+  var ORIGIN_TITLE = { auto: '配信中に盛り上がりを見つけて、自動で採用した候補から作った切り抜きです',
+    archive: '配信のあとでアーカイブを解析して、自動で採用した候補から作った切り抜きです' };
+  var autoOnly = false;          // 「自動の切り抜き: 未確認 n 件」の絞り込み(この画面の間だけ。覚えない)
+  var deliverJobs = {};          // 案件の id/マークの id → {msg}(届けている途中。一覧を描き直しても出し続ける)
+  var deliverFolder = null;      // 依頼の受付の Dropbox のフォルダが決まっているか(null = まだ分からない = 押せる。決まっていなければサーバーが理由を返す)
+  function autoKey(kase, cl) { return kase.id + '/' + cl.markId; }
+  function twice(btn, run, text) { if (window.UIKit && UIKit.confirmTwice) UIKit.confirmTwice(btn, run, text); }   // 二度押しの確認(ブラウザの confirm は使わない)
+  function iconBtn(icon, label, cls) {
+    var b = el('button', 'btn small ' + cls);
+    b.type = 'button';
+    if (window.UIKit && UIKit.icon) b.innerHTML = UIKit.icon(icon);   // 決まった SVG の文字列だけ(画面のデータは入れない)
+    b.appendChild(document.createTextNode(label));
+    return b;
+  }
+  function autoPills(head, cl) {
+    var a = cl.auto, rv = cl.review || {}, p = el('span', 'pill accent pt-ac-pill', '自動');
+    p.title = (ORIGIN_TITLE[a.origin] || '自動で採用した候補から作った切り抜きです') + '。字幕は校正前のたたき台です';
+    head.appendChild(p);
+    head.appendChild(el('span', 'hint pt-ac-origin', (a.originLabel || '') + (a.score != null ? ' ・ 点数 ' + Number(a.score).toFixed(2) : '')));
+    if (a.bench) {
+      var b = el('span', 'pill warn pt-ac-bench', '控え');
+      b.title = '1 時間の枠から外れた候補です(書き出し済みなので取り消していません。要らなければ「要らない」で片付けます)';
+      head.appendChild(b);
+    }
+    var s;
+    if (rv.deliveredAt) { s = el('span', 'pill ok pt-ac-done', '届けた ' + ago(rv.deliveredAt)); s.title = 'Dropbox の 出力 に置きました' + (rv.delivered ? ': ' + rv.delivered : ''); }
+    else if (rv.seenAt) { s = el('span', 'hint pt-ac-seen', '見た ' + ago(rv.seenAt)); s.title = when(rv.seenAt); }
+    else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「編集で開く」・採用・要らない のどれかで「見た」になります)'; }
+    head.appendChild(s);
+  }
+  /* 失敗の文(線 D の M3。「調子」・スタジオの LIVE の帯と同じ文 = src/home/live_failures.py の failure_of) */
+  function autoFail(li, cl) {
+    var f = (cl.review || {}).failure;
+    if (!f) return;
+    var row = el('div', 'row pt-ac-fail'), p = el('span', 'pill err', '失敗');
+    p.title = f.kindLabel || '';
+    row.appendChild(p);
+    row.appendChild(el('span', 'hint grow', f.text || ''));
+    li.appendChild(row);
+  }
+  function deliverWhy(cl) {
+    if (!cl.pack) return 'パックがまだありません(文字起こし → パックが済むと届けられます)';
+    if (deliverFolder === false) return '届ける先が決まっていません(下の「依頼の受付」で Dropbox のフォルダを決めると届けられます)';
+    return '';
+  }
+  function autoActs(li, kase, cl) {
+    var rv = cl.review || {}, k = autoKey(kase, cl), dj = deliverJobs[k];
+    var row = el('div', 'row pt-ac-acts'), msg = el('span', 'hint grow pt-ac-msg');
+    msg.id = 'pt-ac-msg-' + kase.id + '-' + cl.markId;
+    msg.setAttribute('aria-live', 'polite');
+    if (!rv.deliveredAt) {   // 届けたあとは札(届けた)だけ。二度は届けない(直した版は「編集」の 3 パック から)
+      var ok = iconBtn('check', '採用(友人へ届ける)', 'pt-ac-deliver'), why = dj ? '届けている途中です' : deliverWhy(cl);
+      ok.disabled = !!why;
+      ok.title = why || 'パックを zip にして Dropbox の 出力 に置きます(友人のアプリの「受け取る」に出ます。字幕は校正前のたたき台です)';
+      ok.setAttribute('aria-describedby', msg.id);
+      ok.addEventListener('click', function () { twice(ok, function () { autoDeliver(kase, cl); }, 'もう一度押すと届けます'); });
+      row.appendChild(ok);
+      msg.textContent = dj ? dj.msg : why;
+    }
+    var no = iconBtn('trash', '要らない', 'danger pt-ac-discard');
+    no.disabled = !!dj;
+    no.title = dj ? '届けている途中です(終わってから押せます)' : 'パック・切り抜きの動画を ごみ箱フォルダ へ移し(14 日で消えます)、スタジオのマークを不採用にして、誤検出として記録します';
+    no.addEventListener('click', function () { twice(no, function () { autoDiscard(kase, cl, no); }, 'もう一度押すとごみ箱へ'); });
+    row.appendChild(no);
+    row.appendChild(msg);
+    li.appendChild(row);
+  }
+  /* 開いたら「見た」(移る前に送る = keepalive。送れなくても開くのは止めない) */
+  function markSeen(kase, cl) {
+    if ((cl.review || {}).seenAt) return;
+    cl.review = Object.assign({}, cl.review, { seenAt: Date.now(), unconfirmed: false });
+    try {
+      fetch('/api/cases/auto', { method: 'POST', keepalive: true, cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-YTT-Token': TOKEN },
+        body: JSON.stringify({ op: 'seen', id: kase.id, markId: cl.markId }) }).catch(function () { /* 次に開いたときにまた送る */ });
+    } catch (e) { /* 同上 */ }
+  }
+  /* 案件の行の切り抜きだけを描き直す(押したボタンが消えても、同じ切り抜きの次の操作へフォーカスを移す) */
+  function repaintClips(caseId) {
+    var node = document.getElementById('case-' + caseId), c = caseById(caseId);
+    if (!node || !c) return;
+    var a = document.activeElement, row = a && a.closest ? a.closest('.pt-clip[data-fkey]') : null;
+    var key = row && node.contains(row) ? row.getAttribute('data-fkey') : null;
+    fillClips(node, c);
+    var r = key && rowByKey(key), t = r && r.querySelector('button:not([disabled]), a[href]');
+    if (t) t.focus({ preventScroll: true });
+  }
+  function paintDeliverMsg(k) {
+    var r = rowByKey('auto:' + k), m = r && $('.pt-ac-msg', r);
+    if (m) m.textContent = deliverJobs[k] ? deliverJobs[k].msg : '';
+  }
+  function autoDeliver(kase, cl) {
+    var k = autoKey(kase, cl);
+    deliverJobs[k] = { msg: 'zip にしています…' };
+    repaintClips(kase.id);
+    api('/api/cases/auto', 'POST', { op: 'deliver', id: kase.id, markId: cl.markId }).then(function (r) {
+      followDeliver(kase, cl, r.job, 0);
+    }, function (e) {
+      delete deliverJobs[k];
+      repaintClips(kase.id);
+      failToast('届けられませんでした', '理由を確かめてから、もう一度「採用」を押してください', e);
+    });
+  }
+  function followDeliver(kase, cl, j, errs) {
+    var k = autoKey(kase, cl);
+    if (j && j.state === 'running') {
+      deliverJobs[k] = { msg: (j.message || 'zip にしています') + '…' + (j.progress ? ' ' + Math.round(j.progress * 100) + '%' : '') };
+      paintDeliverMsg(k);
+      setTimeout(function () {
+        api('api/ytt/deliver', 'POST', { op: 'status', job: j.id }).then(function (r) { followDeliver(kase, cl, r.job, 0); },
+          function (e) { if (errs < 5) followDeliver(kase, cl, j, errs + 1); else { delete deliverJobs[k]; failToast('届けた結果を確かめられませんでした', '一覧を読み込み直してください', e); refreshCases(); } });
+      }, 800);
+      return;
+    }
+    delete deliverJobs[k];
+    if (j && j.state === 'done') toast('友人へ届けました(Dropbox の 出力 に ' + (j.name || 'zip') + ' を置きました)', 'ok');
+    else failToast('届けられませんでした', 'もう一度「採用」を押してください', { reason: (j && j.message) || '' });
+    afterAutoAction(kase.id);
+  }
+  function autoDiscard(kase, cl, btn) {
+    btn.disabled = true;
+    api('/api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
+      if (window.UIKit && UIKit.toast) UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(14 日で消えます)', { kind: 'ok', detail: r.trash || '' });
+      if (window.UIKit && UIKit.hide && UIKit.hide.available()) UIKit.hide.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
+      afterAutoAction(kase.id);
+    }, function (e) {
+      btn.disabled = false;
+      failToast('片付けられませんでした', 'ファイルを開いているアプリを閉じてから、もう一度「要らない」を押してください', e);
+    });
+  }
+  /* 採用・要らないのあと: 一覧を読み直して、同じ配信の次の自動の切り抜き → 配信の行 → 絞り込みのボタン の順にフォーカスを移す(押したボタンが消えるため) */
+  function afterAutoAction(caseId) {
+    return refreshCases().then(function () {
+      var node = document.getElementById('case-' + caseId);
+      var t = (node && node.open && node.querySelector('.pt-ac button:not([disabled])')) || (node && $('.pt-case-row', node)) || (!$('#autoFilter').hidden && $('#autoFilter')) || $('#fText');
+      if (t) t.focus({ preventScroll: true });
+    });
+  }
+  /* 一覧の上の「自動の切り抜き: 未確認 n 件」(押すと、未確認の自動の切り抜きがある配信だけに絞る。もう一度押すと戻す) */
+  function paintAutoFilter() {
+    var b = $('#autoFilter'), a = (casesData && casesData.auto) || { total: 0, unconfirmed: 0 };
+    b.hidden = !a.total && !autoOnly;
+    b.setAttribute('aria-pressed', String(autoOnly));
+    b.textContent = '自動の切り抜き: 未確認 ' + (a.unconfirmed || 0) + ' 件';
+    b.title = autoOnly ? 'もう一度押すと、全部の配信に戻します' : '自動でできた切り抜きのうち、まだ見ていない・届けていないものがある配信だけを出します(行も開きます)';
+  }
+  function paintCaseAuto(node, c) {
+    var p = $('.pt-case-autopill', node), a = c.autoClips || { total: 0, unconfirmed: 0 };
+    p.hidden = !a.total;
+    if (!a.total) return;
+    p.className = 'pill pt-case-autopill ' + (a.unconfirmed ? 'accent' : 'wait');
+    p.textContent = a.unconfirmed ? '自動 未確認 ' + a.unconfirmed + '本' : '自動 ' + a.total + '本';
+    p.title = '自動でできた切り抜き ' + a.total + '本(未確認 ' + a.unconfirmed + '本)。行を開くと、採用(友人へ届ける)・要らない を選べます';
   }
 
   function active(r) { return r && (r.state === 'queued' || r.state === 'running'); }
@@ -653,10 +821,12 @@
     var pk = $('.pt-case-pack', node), pkt = packSummaryText(c.packs);
     pk.hidden = !pkt; pk.textContent = pkt;
     paintNext(node, c);
+    paintCaseAuto(node, c);
     if (c.gone) node.dataset.gone = '1';
     markHid(node, 'cases', c.id, $('.pt-case-main', node));
 
-    node.open = !!openCases[c.id] || active(runsByVideo[c.id]);
+    // 「自動の切り抜き: 未確認」で絞ったときは、その配信の行を開いて切り抜きを見せる(自分で閉じた行は閉じたまま)
+    node.open = openCases[c.id] != null ? !!openCases[c.id] || active(runsByVideo[c.id]) : active(runsByVideo[c.id]) || (autoOnly && !!(c.autoClips && c.autoClips.unconfirmed));
     $('.pt-case-row', node).addEventListener('click', function (e) {
       if (e.target.closest && e.target.closest('a[href], button')) return;   // 行の中のボタン(次にやること)は行を開閉しない・移るのを止めない
       if (node.open && active(runsByVideo[c.id])) { e.preventDefault(); return; }
@@ -763,6 +933,7 @@
   function visible(c, noHide) {
     if (!noHide && isHid('cases', c.id) && !showHid('cases') && !active(runsByVideo[c.id])) return false;
     var fs = $('#fStatus').value, q = $('#fText').value.trim().toLowerCase();
+    if (autoOnly && !(c.autoClips && c.autoClips.unconfirmed)) return false;   // 「自動の切り抜き: 未確認」の絞り込み
     if (fs === 'none' && c.status) return false;
     if (fs && fs !== 'none' && c.status !== fs) return false;
     if (q && ((c.title || '') + ' ' + (c.channel || '')).toLowerCase().indexOf(q) < 0) return false;
@@ -848,7 +1019,8 @@
     moreBox.hidden = rest <= 0;
     if (rest > 0) moreBtn.textContent = 'もっと見る(あと ' + rest + ' 件)';
     hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
-    var narrowed = gval || $('#fStatus').value || $('#fText').value.trim();
+    paintAutoFilter();
+    var narrowed = gval || $('#fStatus').value || $('#fText').value.trim() || autoOnly;
     // 絞り込んだときは「合う数 / 全体の数」(分母は全体。「もっと見る」で隠れている分は別に書く。S5)
     $('#count').textContent = (narrowed ? totalCount + ' / ' + casesData.cases.length + ' 件' : totalCount + ' 件') + (rest > 0 ? '(' + shown.length + ' 件を表示)' : '');
     restoreFocus(focusInfo);
@@ -858,12 +1030,17 @@
   /* 絞り込みで 0 件のとき(M5): 条件を消すボタン。条件が空なのに 0 件 = 全部が非表示 → 非表示を出すボタン */
   function emptyFiltered() {
     var filtered = $('#fStatus').value || $('#fText').value.trim();
+    if (autoOnly && !filtered) {   // 自動の切り抜きの未確認だけで絞って 0 件 = 全部確かめ終えた
+      return emptyBox('未確認の自動の切り抜きはありません', '自動でできた切り抜きは、全部 見た・届けた・片付けた のどれかです。', { label: '全部の配信に戻す', fn: function () {
+        autoOnly = false; resetPaging(); $('#autoFilter').focus({ preventScroll: true });
+      } });
+    }
     if (!filtered) {
       return emptyBox('表示できる配信はありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。',
         { label: '非表示のものも出す', fn: function () { if (window.UIKit && UIKit.hide) UIKit.hide.setShowing('cases', true); } });
     }
     return emptyBox('条件に合う配信はありません', '絞り込みを消すと、全部の配信が出ます。', { label: '絞り込みを消す', fn: function () {
-      $('#fText').value = ''; $('#fStatus').value = ''; lsSet('status', ''); resetPaging(); $('#fText').focus({ preventScroll: true });
+      $('#fText').value = ''; $('#fStatus').value = ''; lsSet('status', ''); autoOnly = false; resetPaging(); $('#fText').focus({ preventScroll: true });
     } });
   }
   /* 続きを出したあと、最初に増えた行へフォーカスを移す(ボタンが消えても、押した場所を失わない。M6) */
@@ -1617,6 +1794,9 @@
   }
   function renderIntake(d) {
     intakeData = d;
+    var had = deliverFolder;
+    deliverFolder = !!d.folder;   // 自動でできた切り抜きの「採用」(友人へ届ける)が押せるか。変わったら、自動の切り抜きがあるときだけ一覧を描き直す
+    if (had !== deliverFolder && casesData && casesData.auto && casesData.auto.total) render();
     renderIntakeStatus(d);
     var reqs = d.requests || [];
     var hidN = reqs.filter(function (r) { return isHid('intake', r.id); }).length;
@@ -1998,6 +2178,7 @@
     $('#fText').addEventListener('input', function () { resetPaging(); });
     $('#fSort').addEventListener('change', function () { lsSet('sort', $('#fSort').value); resetPaging(); });
     $('#fGroup').addEventListener('change', function () { lsSet('group', $('#fGroup').value); resetPaging(); });
+    $('#autoFilter').addEventListener('click', function () { autoOnly = !autoOnly; openCases = {}; resetPaging(); });   // 絞り込みを変えたら、行の開き方は絞り込みに合わせ直す
     /* 紐づかない文書の「パックがあれば作り直す(上書き)」も、まとめて実行の設定(ホームの設定)と同じ値(どの入口で変えても同じ。段4) */
     if (window.UIKit && UIKit.autorun) {
       UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});

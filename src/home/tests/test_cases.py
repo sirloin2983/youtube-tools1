@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -16,8 +17,12 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import cases  # noqa: E402
+import cleanup  # noqa: E402
+import deliver  # noqa: E402
+from ytt_core import schemas, txindex  # noqa: E402
 
 VID = "abcdefghijk"
+REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)
 
 
 def mark(mid, status, path="", start=10.0, end=40.0, label="見どころ"):
@@ -246,6 +251,222 @@ class TestUpdate(Base):
         cases.snapshot(self.root, self.env)
         with open(p, encoding="utf-8") as f:
             self.assertEqual(f.read(), before)
+
+
+class FileStudio:
+    """取り込んだスタジオの API(Live.studio_call)の代わり。読む・保存はテストの data.json に(案件の一覧に結果が出るように)。
+    down = True でつながらない、refuse = True で PUT を断る"""
+
+    def __init__(self, path):
+        self.path, self.calls, self.down, self.refuse = path, [], False, False
+
+    def __call__(self, method, path, body=None):
+        self.calls.append((method, path, json.loads(json.dumps(body)) if body is not None else None))
+        if self.down:
+            return None, {"message": "つながらない"}
+        with open(self.path, encoding="utf-8") as f:
+            doc = json.load(f)
+        if method == "GET" and path.startswith("/api/video?id="):
+            v = doc["videos"].get(path.split("=", 1)[1])
+            return (200, {"video": dict(v, rev=v.get("rev", 1))}) if v else (404, {"message": "無い"})
+        if method == "PUT" and path == "/api/video":
+            if self.refuse:
+                return 400, {"message": "マークが正しくありません"}
+            v = doc["videos"][body["id"]]
+            if body.get("baseRev") != v.get("rev", 1):
+                return 409, {"message": "古い"}
+            v.update(marks=body["marks"], rev=v.get("rev", 1) + 1)
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False)
+            return 200, {"video": v}
+        return 404, {"message": "なし"}
+
+
+class TestAutoClips(Base):
+    """自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1): 札・未確認の数・失敗の文・採用 = 届ける・要らない = ごみ箱へ"""
+
+    def setUp(self):
+        super().setUp()
+        self.auto1 = self.live_clip("10_自動.mp4", "auto", markId="lm-aaaaaaaaaaaa")
+        self.auto2 = self.live_clip("11_アーカイブ.mp4", "archive", bench=True)
+        self.manual = self.live_clip("12_人.mp4", "manual")
+        self.studio({REC: {"kind": "live", "title": "ライブ", "channel": "ch", "rev": 1, "marks": [
+            mark("m1", "exported", self.auto1, 10, 40), dict(mark("m2", "exported", self.auto2, 50, 90), score=0.876),
+            mark("m3", "exported", self.manual, 100, 130), mark("m4", "")]}})
+        self.box = os.path.join(self.tmp, "Dropbox")   # 依頼の受付の見張るフォルダ(出力 はこの下)
+        os.makedirs(self.box)
+        self.rows, self.hidden = [], []
+        self.fs = FileStudio(os.path.join(self.data, "studio", "data.json"))
+        self.trash = cleanup.Cleanup(os.path.join(self.data, "app"), out_dirs=[self.exports])
+        self.dl = deliver.Deliveries(lambda: self.box, txindex.is_pack_dir)
+
+    def live_clip(self, name, origin, **live):
+        """ライブの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き"""
+        media = self.touch(os.path.join(self.exports, name))
+        clip = schemas.build_clip(media, 30.0, {"kind": "youtube", "videoId": "", "title": "ライブ"}, (10.0, 40.0),
+                                  {"id": "lm-x", "label": "", "status": "exported", "src": "manual" if origin == "manual" else "auto"},
+                                  {"mode": "precise", "fps": "30/1"}, {"name": "ytt-live", "version": "0.1.0"})
+        clip["source"] = {"kind": "live", "videoId": "", "url": None, "title": "ライブ", "path": None,
+                          "live": dict({"url": "", "recorder": "local", "recording": REC, "base": "", "start": "", "end": "", "markId": "lm-x", "origin": origin}, **live)}
+        self.touch(schemas.clip_path_for(media), json.dumps(clip, ensure_ascii=False))
+        return media
+
+    def pack(self, media):
+        """cut2resolve が作ったパック(以前の形: フォルダの中の cut-plan.json)"""
+        d = txindex.pack_dir(media)
+        self.touch(os.path.join(d, "cut-plan.json"), json.dumps({"schema": schemas.CUT_PLAN_SCHEMA, "tool": {"name": "cut2resolve"}}))
+        self.touch(os.path.join(d, "clip.mp4"), "v")
+        return d
+
+    def review(self, op, mid, **kw):
+        kw = dict({"deliveries": self.dl, "studio": self.fs, "feedback": self.rows.append, "trash": self.trash, "hide": self.hidden.append, "env": self.env}, **kw)
+        return cases.auto_review(self.root, {"op": op, "id": REC, "markId": mid}, **kw)
+
+    def case(self):
+        return next(c for c in cases.snapshot(self.root, self.env)["cases"] if c["id"] == REC)
+
+    def wait_delivered(self, job):
+        end = time.time() + 10
+        while time.time() < end:
+            j = self.dl.status(job["id"])
+            if j["state"] != "running":
+                return j
+            time.sleep(0.02)
+        self.fail("届け終わらない")
+
+    def test_auto_badge_origin_score_bench_and_counts(self):
+        res = cases.snapshot(self.root, self.env)
+        c = next(x for x in res["cases"] if x["id"] == REC)
+        by = {cl["markId"]: cl for cl in c["clips"]}
+        self.assertEqual(by["m1"]["auto"], {"origin": "auto", "originLabel": "配信中の候補", "score": None, "bench": False})
+        self.assertEqual(by["m2"]["auto"], {"origin": "archive", "originLabel": "配信後の解析", "score": 0.88, "bench": True})   # 点数はスタジオのマークから
+        self.assertIsNone(by["m3"]["auto"])   # 人の切り抜きは今までどおり
+        self.assertNotIn("review", by["m3"])
+        self.assertEqual(by["m1"]["review"], {"seenAt": 0, "deliveredAt": 0, "delivered": "", "failure": None, "unconfirmed": True})
+        self.assertEqual((c["autoClips"], res["auto"]), ({"total": 2, "unconfirmed": 2}, {"total": 2, "unconfirmed": 2}))
+        # .clip.json の点数が先(source.live.score)
+        self.live_clip("10_自動.mp4", "auto", score=1.234)
+        self.assertEqual(next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")["auto"]["score"], 1.23)
+        # ライブの録画でない配信は、.clip.json に origin があっても札を付けない(自動の採用はライブの録画だけ)
+        self.studio({VID: {"kind": "youtube", "title": "配信", "marks": [mark("m1", "exported", self.auto1)]}})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["clips"][0]["auto"], c["autoClips"]), (None, {"total": 0, "unconfirmed": 0}))
+
+    def test_seen_lowers_unconfirmed_and_is_kept_in_cases_file(self):
+        code, r = self.review("seen", "m1")
+        self.assertEqual(code, 200)
+        self.assertTrue(r["review"]["seenAt"] > 0)
+        c = self.case()
+        m1 = next(cl for cl in c["clips"] if cl["markId"] == "m1")
+        self.assertEqual((m1["review"]["unconfirmed"], c["autoClips"]["unconfirmed"]), (False, 1))
+        first = m1["review"]["seenAt"]
+        time.sleep(0.01)
+        self.review("seen", "m1")   # 2 回目は最初の時刻のまま
+        self.assertEqual(next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")["review"]["seenAt"], first)
+        # 状態・メモを外しても、確認の記録があれば案件ファイルに残る
+        cases.update(self.root, REC, status="", memo="", env=self.env)
+        self.assertIn("m1", cases.load_saved(os.path.join(self.data, "app", "cases.json"))[REC]["auto"])
+        # 人の切り抜き・知らない切り抜き・正しくない指定は断る
+        self.assertEqual(self.review("seen", "m3")[0], 409)
+        self.assertEqual(self.review("seen", "m9")[0], 404)
+        self.assertEqual(self.review("seen", "../x")[0], 400)
+        self.assertEqual(self.review("open", "m1")[0], 400)
+        self.assertEqual(cases.auto_review(self.root, {"op": "seen", "id": "../x", "markId": "m1"}, env=self.env)[0], 400)
+
+    def test_failure_text_comes_from_live_failures(self):
+        jobs = [{"id": "lx-0000000001", "state": "done", "path": self.auto1, "label": "", "n": 1, "handoffError": "文字起こしへ渡せませんでした: 止まっています",
+                 "studio": {"video": REC, "mark": "m1"}, "updated": "2026-10-07T10:00:00.000Z"},
+                {"id": "lx-0000000002", "state": "done", "path": self.auto2, "label": "", "n": 2, "studio": {"video": REC, "mark": "m2"},
+                 "updated": "2026-10-07T10:00:00.000Z"}]
+        self.touch(os.path.join(self.data, "app", "live", "exports.json"), json.dumps({"schema": "ytt-live-exports/v1", "jobs": jobs}, ensure_ascii=False))
+        by = {cl["markId"]: cl for cl in self.case()["clips"]}
+        self.assertEqual(by["m1"]["review"]["failure"], {"kind": "handoff", "kindLabel": "まとめて実行へ渡す",
+                                                         "text": "10_自動.mp4: 文字起こしへ渡せませんでした: 止まっています"})
+        self.assertIsNone(by["m2"]["review"]["failure"])
+
+    def test_deliver_puts_zip_in_output_and_records_it(self):
+        code, r = self.review("deliver", "m1")
+        self.assertEqual((code, r["message"]), (409, "パックがまだありません(文字起こし → パックが済むと届けられます)"))   # パックが無ければ採用できない
+        self.pack(self.auto1)
+        code, r = self.review("deliver", "m1", deliveries=deliver.Deliveries(lambda: "", txindex.is_pack_dir))
+        self.assertEqual(code, 409)
+        self.assertIn("Dropbox のフォルダが決まっていません", r["message"])   # 届ける先が無い: 理由をそのまま
+        code, r = self.review("deliver", "m1")
+        self.assertEqual(code, 200)
+        j = self.wait_delivered(r["job"])
+        self.assertEqual(j["state"], "done")
+        zips = os.listdir(os.path.join(self.box, deliver.OUT_DIR))
+        self.assertEqual(len(zips), 1)
+        self.assertTrue(zips[0].endswith("__10_自動.zip"), zips)
+        m1 = next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")
+        self.assertTrue(m1["review"]["deliveredAt"] > 0 and m1["review"]["seenAt"] > 0)
+        self.assertEqual((m1["review"]["delivered"], m1["review"]["unconfirmed"]), (zips[0], False))
+        self.assertEqual(len(self.rows), 1)
+        row = self.rows[0]
+        self.assertEqual({k: row[k] for k in ("event", "origin", "human", "verdict", "recorder", "recording", "markId", "studio", "start", "end", "delivered")},
+                         {"event": "deliver", "origin": "auto", "human": True, "verdict": "good", "recorder": "local", "recording": REC, "markId": "lm-aaaaaaaaaaaa",
+                          "studio": {"video": REC, "mark": "m1"}, "start": 10, "end": 40, "delivered": zips[0]})
+        self.assertEqual(self.review("deliver", "m1")[0], 409)   # 二度は届けない
+        self.assertEqual(self.review("deliver", "m3")[0], 409)   # 人の切り抜きはこの口では届けない
+
+    def test_discard_moves_files_to_trash_rejects_mark_and_records(self):
+        pk = self.pack(self.auto1)
+        self.transcript("aaaaaaaaaaaa", self.auto1, proofed=0, total=2)
+        clip_json = schemas.clip_path_for(self.auto1)
+        code, r = self.review("discard", "m1")
+        self.assertEqual(code, 200, r)
+        self.assertEqual((r["moved"], r["studio"]), (3, "rejected"))   # 動画・パック・.clip.json
+        for p in (self.auto1, pk, clip_json):
+            self.assertFalse(os.path.exists(p), p)
+        dest = r["trash"]
+        self.assertTrue(dest.startswith(os.path.join(self.data, "app", cleanup.TRASH_DIR)), dest)
+        self.assertEqual(os.path.basename(os.path.dirname(dest)), cases.DISCARD_KIND)
+        self.assertTrue(os.path.isfile(os.path.join(dest, "10_自動.mp4")) and os.path.isfile(os.path.join(dest, "10_自動_pack", "cut-plan.json"))
+                        and os.path.isfile(os.path.join(dest, schemas.WORK_DIR, "10_自動.clip.json")))
+        with open(os.path.join(os.path.dirname(os.path.dirname(dest)), cleanup.MANIFEST), encoding="utf-8") as f:
+            self.assertEqual(len(f.read().splitlines()), 3)   # 元の場所の記録(片付けと同じ)
+        # スタジオのマークは不採用(画面と同じ PUT /api/video・baseRev つき)
+        put = [c for c in self.fs.calls if c[0] == "PUT"]
+        self.assertEqual(len(put), 1)
+        self.assertEqual(put[0][2]["baseRev"], 1)
+        self.assertEqual([m["status"] for m in put[0][2]["marks"] if m["id"] == "m1"], ["rejected"])
+        # 誤検出の記録・文字起こしの非表示・一覧から消える(要らないにした文字起こしは「単体の文字起こし」にも出さない)
+        self.assertEqual([{k: x[k] for k in ("event", "origin", "human", "verdict", "markId")} for x in self.rows],
+                         [{"event": "reject", "origin": "auto", "human": True, "verdict": "bad", "markId": "lm-aaaaaaaaaaaa"}])
+        self.assertEqual(self.hidden, ["aaaaaaaaaaaa"])
+        res = cases.snapshot(self.root, self.env)
+        c = next(x for x in res["cases"] if x["id"] == REC)
+        self.assertEqual([cl["markId"] for cl in c["clips"]], ["m2", "m3"])
+        self.assertEqual((c["autoClips"], res["unlinked"]), ({"total": 1, "unconfirmed": 1}, []))
+        self.assertEqual(self.review("discard", "m1")[0], 404)   # もう一覧に無い
+
+    def test_discard_puts_files_back_when_studio_fails(self):
+        pk = self.pack(self.auto2)
+        for setup, code in ((lambda: setattr(self.fs, "down", True), 502), (lambda: setattr(self.fs, "refuse", True), 502)):
+            self.fs.down = self.fs.refuse = False
+            setup()
+            got, r = self.review("discard", "m2")
+            self.assertEqual(got, code, r)
+            self.assertIn("片付けませんでした", r["message"])
+            self.assertTrue(os.path.isfile(self.auto2) and os.path.isdir(pk) and os.path.isfile(schemas.clip_path_for(self.auto2)))   # 元に戻した
+            self.assertEqual((self.rows, self.hidden), ([], []))
+        self.assertEqual(next(cl for cl in self.case()["clips"] if cl["markId"] == "m2")["review"]["unconfirmed"], True)
+        # 人の切り抜きは動かさない
+        self.fs.down = self.fs.refuse = False
+        self.assertEqual(self.review("discard", "m3")[0], 409)
+        self.assertTrue(os.path.isfile(self.manual))
+
+    def test_discard_refuses_while_delivering(self):
+        pk = self.pack(self.auto1)
+
+        class Busy:
+            @staticmethod
+            def running(d):
+                return os.path.normcase(d) == os.path.normcase(pk)
+        code, r = self.review("discard", "m1", deliveries=Busy())
+        self.assertEqual(code, 409)
+        self.assertIn("届けている途中", r["message"])
+        self.assertTrue(os.path.isfile(self.auto1))
 
 
 if __name__ == "__main__":

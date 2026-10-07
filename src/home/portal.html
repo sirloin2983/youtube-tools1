@@ -58,6 +58,8 @@
         <option value="channel">配信者ごとにまとめる</option>
         <option value="status">状態ごとにまとめる</option>
       </select>
+      <!-- 自動でできた切り抜き(線 D の M9。入口 0.43.1): 未確認(見ても届けてもいない)がある配信だけに絞る。自動の切り抜きが無ければ出さない(portal.js の paintAutoFilter) -->
+      <button type="button" class="btn small" id="autoFilter" aria-pressed="false" hidden></button>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
       <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
       <span class="ui-count" id="count"></span>
@@ -356,6 +358,7 @@
         <span class="hint pt-case-sub"></span>
       </span>
       <span class="pill pt-case-statuspill"></span>
+      <span class="pill pt-case-autopill" hidden></span>
       <span class="hint num pt-case-tx" hidden></span>
       <span class="hint num pt-case-pack" hidden></span>
       <!-- 次にやること(S-18): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href なしの札(portal.js の paintNext) -->

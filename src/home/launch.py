@@ -10,6 +10,8 @@
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/home/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
+  POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12。0.43.1)を 見た・採用 = 友人へ届ける・
+                                          要らない = ごみ箱フォルダへ(src/home/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
   GET  /api/autorun                       まとめて実行の状態(src/home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す)
@@ -91,7 +93,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.43.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.43.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -546,7 +548,7 @@ GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/home/accuracy.py)
                  "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
-POST_ROUTES = {"/api/cases/update": ("_post_case", False),
+POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("_post_case_auto", True),
                "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
                "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
                "/api/autorun/estimate": ("_post_autorun", True),
@@ -717,6 +719,13 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(400, "bad_request", str(e))
         except OSError as e:
             return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+
+    def _post_case_auto(self, path, body):
+        """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/home/cases.py の auto_review"""
+        s = self.server
+        return self._json(*cases_mod.auto_review(s.sup.root, body, deliveries=s.deliveries, studio=s.live.studio_call,
+                                                 feedback=lambda row: s.live.exporter.feedback(row), trash=s.cleanup,
+                                                 hide=lambda tid: s.prefs.hide("transcripts", [tid], True)))
 
     def _post_autorun(self, path, body):
         """まとめて実行(配信1本ぶん・選んだ文書を順に自動で)。/api/autorun/<start|cancel|start-docs|start-new|estimate>"""

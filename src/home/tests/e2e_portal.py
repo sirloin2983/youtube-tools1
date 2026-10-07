@@ -41,7 +41,7 @@ sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
-from ytt_core import layout  # noqa: E402
+from ytt_core import layout, schemas  # noqa: E402
 
 
 def wait_js(pg, expr, timeout=30000):
@@ -206,6 +206,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         _mounted_next_steps(cx)
         _mounted_redirect_theme_narrow(cx)
         mob = cx.mob   # 8. の狭い画面のタブ(10. で使う)
+        _mounted_auto_clips(cx)   # スタジオの data.json を書き直すので最後に(前の場面が足した配信はスタジオが知らないので消える)
 
         # 9. すべて終了(2回押し)。3つとも取り込みなので、この形には子プロセスは無い
         pg.click("#btnQuit")
@@ -938,6 +939,159 @@ def _mounted_redirect_theme_narrow(cx):
     if shots:
         mob.screenshot(path=os.path.join(shots, "portal-mobile.png"), full_page=True)
     cx.mob = mob
+
+
+AUTO_REC_A, AUTO_REC_B = "20261007-100000", "20261007-110000"   # ライブの録画(スタジオの配信の id = 録画の id)
+# 画面から取り込んだスタジオの API を呼ぶ(合言葉はホームと同じ。-> [HTTP の番号, JSON])
+STUDIO_CALL = """async ([method, path, body]) => {
+  const t = document.querySelector('meta[name="ytt-token"]').content;
+  const r = await fetch('/studio' + path, {method, cache: 'no-store', headers: {'Content-Type': 'application/json', 'X-YTT-Token': t},
+                                           body: body == null ? undefined : JSON.stringify(body)});
+  return [r.status, await r.json().catch(() => ({}))];
+}"""
+YTT_PREFS = """async (value) => {
+  const t = document.querySelector('meta[name="ytt-token"]').content;
+  const r = await fetch('api/ytt/prefs', {method: 'POST', cache: 'no-store', headers: {'Content-Type': 'application/json', 'X-YTT-Token': t},
+                                         body: JSON.stringify({op: 'patch', section: 'intake', value})});
+  return r.status;
+}"""
+
+
+def _live_clip(out_dir, name, origin, **live):
+    """ライブの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない)"""
+    media = os.path.join(out_dir, "e2e ライブ", name)
+    os.makedirs(os.path.dirname(media), exist_ok=True)
+    with open(media, "wb") as f:
+        f.write(b"x")
+    clip = schemas.build_clip(media, 30.0, {"kind": "youtube", "videoId": "", "title": "e2e ライブ"}, (10.0, 40.0),
+                              {"id": "lm-x", "label": "", "status": "exported", "src": "manual" if origin == "manual" else "auto"},
+                              {"mode": "precise", "fps": "30/1"}, {"name": "ytt-live", "version": "0.1.0"})
+    clip["source"] = {"kind": "live", "videoId": "", "url": None, "title": "e2e ライブ", "path": None,
+                      "live": dict({"recorder": "local", "recording": "", "markId": "lm-%s" % name[:2], "origin": origin}, **live)}
+    os.makedirs(os.path.dirname(schemas.clip_path_for(media)), exist_ok=True)
+    with open(schemas.clip_path_for(media), "w", encoding="utf-8") as f:
+        json.dump(clip, f, ensure_ascii=False)
+    return media
+
+
+def seed_auto_clips(cx):
+    """自動でできた切り抜き(線 D の M9)の見本: 録画 A に自動の切り抜き 2 本(配信中の候補 + パックあり / 配信後の解析 + 控え)、録画 B に人の切り抜き 1 本。
+    スタジオには画面と同じ API で登録して書き出し済みにする(スタジオが覚えている配信でないと「要らない」の不採用が通らない)。-> {A の 1 本目・2 本目・B の動画}"""
+    check, pg = cx.check, cx.pg
+    out_dir = pg.evaluate("fetch('/studio/api/state', {cache: 'no-store'}).then(r => r.json()).then(j => j.outDir)")
+    clips = {"a1": _live_clip(out_dir, "01_自動.mp4", "auto", recording=AUTO_REC_A), "a2": _live_clip(out_dir, "02_解析.mp4", "archive", recording=AUTO_REC_A, bench=True),
+             "b1": _live_clip(out_dir, "03_人.mp4", "manual", recording=AUTO_REC_B)}
+    pack = os.path.join(os.path.dirname(clips["a1"]), "01_自動_pack")   # cut2resolve が作ったパック(以前の形: 中の cut-plan.json)
+    os.makedirs(pack, exist_ok=True)
+    with open(os.path.join(pack, "cut-plan.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema": schemas.CUT_PLAN_SCHEMA, "tool": {"name": "cut2resolve"}}, f)
+    for rec, keys in ((AUTO_REC_A, ("a1", "a2")), (AUTO_REC_B, ("b1",))):
+        st, _v = pg.evaluate(STUDIO_CALL, ["POST", "/api/videos/open", {"kind": "live", "recorder": "local", "recording": rec,
+                                                                         "url": "https://www.youtube.com/watch?v=e2eLiveAAAA", "title": "e2e ライブ " + rec[-6:]}])
+        st2, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + rec, None])
+        marks = [{"start": 10.0 + 60 * i, "end": 40.0 + 60 * i, "label": "", "status": "adopted"} for i in range(len(keys))]
+        st3, v = pg.evaluate(STUDIO_CALL, ["PUT", "/api/video", {"id": rec, "marks": marks, "baseRev": v["video"]["rev"]}])
+        got = sorted(v.get("video", {}).get("marks") or [], key=lambda m: m["start"])
+        ok = [pg.evaluate(STUDIO_CALL, ["POST", "/api/live/exported", {"id": rec, "markId": m["id"], "path": clips[k]}])[0] for m, k in zip(got, keys)]
+        check((st, st2, st3, ok) == (200, 200, 200, [200] * len(keys)), "[A] M9: 見本のライブの録画 %s をスタジオに登録して書き出し済みに: %s" % (rec, (st, st2, st3, ok)))
+    return clips
+
+
+def _mounted_auto_clips(cx):
+    """[A] 2j. 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1): 札・絞り込み・未見 → 見た・[採用](パック・届ける先が無いと押せない → 届ける)・
+    [要らない](ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録)"""
+    check, pg = cx.check, cx.pg
+    clips = seed_auto_clips(cx)
+    pg.reload()
+    check(wait_js(pg, "!document.getElementById('autoFilter').hidden && document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 2 件'", 15000),
+          "[A] M9: 一覧の上に「自動の切り抜き: 未確認 2 件」: %s" % pg.text_content("#autoFilter"))
+    check(pg.text_content("#case-%s .pt-case-autopill" % AUTO_REC_A) == "自動 未確認 2本" and pg.is_hidden("#case-%s .pt-case-autopill" % AUTO_REC_B),
+          "[A] M9: 閉じた行にも「自動 未確認 n本」(人の切り抜きだけの配信には出さない)")
+    pg.click("#autoFilter")
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 1 && !!document.getElementById('case-%s') && document.getElementById('case-%s').open"
+                      " && document.getElementById('autoFilter').getAttribute('aria-pressed') === 'true'" % (AUTO_REC_A, AUTO_REC_A), 10000),
+          "[A] M9: 絞り込むと未確認がある配信だけ・行を開く: %s" % pg.evaluate("[...document.querySelectorAll('#list .pt-case')].map(n => n.dataset.id)"))
+    row = "#case-%s .pt-ac" % AUTO_REC_A
+    texts = pg.eval_on_selector_all(row, "els => els.map(e => e.querySelector('.row').textContent)")
+    check(len(texts) == 2 and "自動" in texts[0] and "配信中の候補" in texts[0] and "未見" in texts[0] and "配信後の解析" in texts[1] and "控え" in texts[1],
+          "[A] M9: 自動の札・出どころ・未見・控え: %s" % texts)
+    sizes = pg.evaluate("[...document.querySelectorAll('#autoFilter, %s .pt-ac-deliver, %s .pt-ac-discard')].map(b => Math.round(b.getBoundingClientRect().height))" % (row, row))
+    check(len(sizes) == 5 and min(sizes) >= 28, "[A] M9: 絞り込み・採用・要らない は 28px 以上: %s" % sizes)
+    if cx.shots:
+        pg.screenshot(path=os.path.join(cx.shots, "portal-auto-clips.png"), full_page=True)
+    # 届ける先(依頼の受付の Dropbox のフォルダ)が無い・パックが無いときは押せず、理由を出す
+    check(wait_js(pg, "(() => { const b = document.querySelectorAll('%s .pt-ac-deliver'); return b.length === 2 && b[0].disabled && b[1].disabled"
+                      " && document.querySelectorAll('%s .pt-ac-msg')[0].textContent.indexOf('届ける先が決まっていません') >= 0; })()" % (row, row), 15000)
+          and "パックがまだありません" in pg.eval_on_selector_all(row + " .pt-ac-msg", "els => els[1].textContent"),
+          "[A] M12: パックが無い・届ける先が無いと「採用」は押せず、理由を出す: %s" % pg.eval_on_selector_all(row + " .pt-ac-msg", "els => els.map(e => e.textContent)"))
+    # 「編集で開く」で開いたら「見た」(開くのは止めない = 送るだけ。ここは移らないように中クリックの合図だけを送る)
+    pg.evaluate("document.querySelector('%s a').dispatchEvent(new MouseEvent('auxclick', {button: 1}))" % row)
+    time.sleep(0.5)
+    pg.click("#btnReload")
+    check(wait_js(pg, "document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 1 件' && !!document.querySelector('%s .pt-ac-seen')" % row, 10000),
+          "[A] M9: 開いたら「見た」になり、未確認が 1 件に: %s" % pg.text_content("#autoFilter"))
+    _auto_deliver(cx, row)
+    _auto_discard(cx, row, clips)
+    pg.evaluate("document.getElementById('advancedBox').open = true")   # あとの「すべて終了」のため(読み込み直すと閉じる)
+
+
+def _auto_deliver(cx, row):
+    """M12: 届ける先を決めると押せる → 二度押しで zip を Dropbox の 出力 へ → 「届けた」・live_feedback.jsonl に人の「良い」"""
+    check, pg = cx.check, cx.pg
+    box = os.path.join(cx.tmp, "Dropbox")
+    os.makedirs(box, exist_ok=True)
+    check(pg.evaluate(YTT_PREFS, {"folder": box}) == 200, "[A] M12: 依頼の受付の Dropbox のフォルダを決めた")
+    check(wait_js(pg, "(() => { const b = document.querySelector('%s .pt-ac-deliver'); return b && !b.disabled; })()" % row, 20000),
+          "[A] M12: 届ける先が決まると「採用」が押せる(パックのある 1 本目だけ): %s" % pg.eval_on_selector_all(row + " .pt-ac-deliver", "els => els.map(e => e.disabled)"))
+    check(pg.eval_on_selector_all(row + " .pt-ac-deliver", "els => els[1].disabled"), "[A] M12: パックの無い 2 本目は押せないまま")
+    btn = row + " .pt-ac-deliver"
+    pg.click(btn)
+    check(pg.text_content(btn) == "もう一度押すと届けます", "[A] M12: 1 回目は確認だけ(UIKit.confirmTwice): %s" % pg.text_content(btn))
+    pg.click(btn)
+    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('友人へ届けました') >= 0)", 20000), "[A] M12: 届けたと知らせる")
+    out = os.path.join(box, "出力")
+    zips = os.listdir(out) if os.path.isdir(out) else []
+    check(len(zips) == 1 and zips[0].endswith("__01_自動.zip"), "[A] M12: zip が Dropbox の 出力 に置かれた: %s" % zips)
+    check(wait_js(pg, "!!document.querySelector('%s .pt-ac-done') && document.querySelectorAll('%s .pt-ac-deliver').length === 1" % (row, row), 10000),
+          "[A] M12: 届けた切り抜きは「届けた」の札になり、「採用」は消える(二度は届けない)")
+    fb = _live_feedback(cx)
+    check([(x.get("event"), x.get("origin"), x.get("human"), x.get("verdict")) for x in fb] == [("deliver", "auto", True, "good")],
+          "[A] M12: live_feedback.jsonl に人の「良い」(event deliver): %s" % fb)
+
+
+def _auto_discard(cx, row, clips):
+    """M9: 要らない = 二度押しで ごみ箱フォルダへ・スタジオのマークを不採用・誤検出の記録 → 未確認が 0 になると絞り込みが空 → 全部に戻す"""
+    check, pg = cx.check, cx.pg
+    btn = "#case-%s .pt-ac:nth-child(2) .pt-ac-discard" % AUTO_REC_A
+    pg.click(btn)
+    check(pg.text_content(btn) == "もう一度押すとごみ箱へ", "[A] M9: 要らない も二度押し: %s" % pg.text_content(btn))
+    pg.click(btn)
+    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('ごみ箱フォルダへ移して') >= 0)", 15000), "[A] M9: 片付けたと知らせる")
+    check(not os.path.exists(clips["a2"]) and not os.path.exists(schemas.clip_path_for(clips["a2"])) and os.path.isfile(clips["a1"]),
+          "[A] M9: 要らない にした切り抜きの動画と .clip.json だけが動いた")
+    _st, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + AUTO_REC_A, None])
+    check(sorted(m["status"] for m in v["video"]["marks"]) == ["exported", "rejected"], "[A] M9: スタジオのマークは不採用: %s" % [m["status"] for m in v["video"]["marks"]])
+    fb = _live_feedback(cx)
+    check([(x.get("event"), x.get("origin"), x.get("human"), x.get("verdict")) for x in fb][-1:] == [("reject", "archive", True, "bad")],
+          "[A] M9: live_feedback.jsonl に誤検出(event reject・人の「悪い」): %s" % fb[-1:])
+    check(wait_js(pg, "document.getElementById('autoFilter').textContent === '自動の切り抜き: 未確認 0 件' && !document.getElementById('case-%s')"
+                      " && document.querySelector('#list .pt-empty b').textContent === '未確認の自動の切り抜きはありません'"
+                      " && document.activeElement === document.getElementById('autoFilter')" % AUTO_REC_A, 10000),
+          "[A] M9: 未確認が無くなると絞り込みは空の表示・フォーカスは絞り込みのボタンへ: %s / %s"
+          % (pg.text_content("#autoFilter"), pg.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.className)")))
+    pg.click("#list .pt-empty button")
+    check(wait_js(pg, "document.getElementById('autoFilter').getAttribute('aria-pressed') === 'false' && !!document.getElementById('case-%s')"
+                      " && document.querySelector('#case-%s .pt-case-autopill').textContent === '自動 1本'" % (AUTO_REC_A, AUTO_REC_A), 10000),
+          "[A] M9: 「全部の配信に戻す」で戻る(届けた 1 本は 自動 1本)")
+
+
+def _live_feedback(cx):
+    p = os.path.join(cx.srv.live.store_dir, "live_feedback.jsonl")
+    try:
+        with open(p, encoding="utf-8") as f:
+            return [json.loads(x) for x in f.read().splitlines() if x.strip()]
+    except OSError:
+        return []
 
 
 def run_child_process_phase(browser, tmp, shots, check, events):
