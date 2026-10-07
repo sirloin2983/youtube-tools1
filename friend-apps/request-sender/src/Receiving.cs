@@ -1,6 +1,7 @@
-// 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして、選んだものを取ってくる(1 本ずつ・「すべて受け取る」でまとめて)。
-// 受け取り終えたパック(大きさと hash を確かめたあと)・読み終えた失敗の知らせだけ、Dropbox から消す(files/delete_v2。鍵に files.content.write)
-// 一覧には読みの権限が要る(files.metadata.read・files.content.read)
+// 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして(まとめ動画 .preview.mp4 はパックに結びつける)、
+// 選んだものを取ってくる(1 本ずつ・「すべて受け取る」でまとめて)。受け取った zip は保存先に展開して zip は消す(ExtractZip)。
+// Dropbox から消すのは、受け取り終えたパック(大きさと hash を確かめたあと)・「要らない」としたパック・読み終えた失敗の知らせだけ
+// (files/delete_v2。鍵に files.content.write。パックの隣のまとめ動画も一緒に消す)。一覧には読みの権限が要る(files.metadata.read・files.content.read)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -30,6 +31,18 @@ namespace RequestSender
 
         public int Received { get { return Done.Count + Kept.Count; } }
 
+        // 全部を受け取り・展開し・Dropbox からも消せた(画面は進み具合を満たして、文を成功の色に)
+        public bool Clean
+        {
+            get { return Error == null && !Canceled && Failed.Count == 0 && Kept.Count == 0 && NotExtracted.Count == 0; }
+        }
+
+        // 友人が手を動かす必要のある問題があった(画面は文をエラーの色に。やめた・消せなかっただけなら違う)
+        public bool HasProblem
+        {
+            get { return Error != null || Failed.Count > 0 || NotExtracted.Count > 0; }
+        }
+
         // まとめの文。errorText = Error を画面の言い方にしたもの(Error が無ければ null)
         public string Summary(string errorText)
         {
@@ -46,11 +59,28 @@ namespace RequestSender
         }
     }
 
+    // パック 1 本を受け取った結果(受け取り = 大きさと hash の確認までは済んでいる)
+    public class ReceiveOneResult
+    {
+        public string Zip;            // 受け取った zip(展開できたら、もう無い)
+        public string Placed;         // 保存先に置いたもの: 展開したフォルダ。展開しない・できなかったときは Zip
+        public string ExtractError;   // 展開できなかった理由(展開しない・できたときは null)
+        public bool Deleted;          // Dropbox からも消せた(消せなければ次の更新でまた一覧に出る)
+
+        public bool Extracted { get { return Placed != Zip; } }
+    }
+
     public class Receiving
     {
         const int MaxPages = 50;   // 1回 500 件 × 50。止まらない返事への備え
         readonly DropboxClient client, deleter;
-        public bool ExtractZip = true;   // 受け取った zip を保存先に展開して zip は消す(settings.json の extractZip。既定オン。2.4.0)
+        public bool ExtractZip = true;   // 受け取った zip を保存先に展開して zip は消す(settings.json の extractZip。既定オン)
+
+        // まとめ動画を取ってくる場所(受け取るものではないので保存先には置かない)
+        public static string PreviewDir()
+        {
+            return Path.Combine(Path.GetTempPath(), "RequestSender", "previews");
+        }
 
         // deleter = 消すときだけ使う別のつながり(「やめる」で止まらないもの)。無ければ client で消す
         public Receiving(DropboxClient client, DropboxClient deleter = null)
@@ -93,20 +123,8 @@ namespace RequestSender
             Directory.CreateDirectory(dir);
             string final = Path.Combine(dir, LocalName.Safe(p.Name));
             if (File.Exists(final) && p.Size > 0 && new FileInfo(final).Length == p.Size) return final;
-            string part = final + ".part";
-            bool ok = false;
-            try
-            {
-                client.DownloadFile(p.ApiPath, p.Rev, part, n => progress(n, p.Size, "まとめ動画を取ってきています"));
-                if (File.Exists(final)) File.Delete(final);
-                File.Move(part, final);
-                ok = true;
-                return final;
-            }
-            finally
-            {
-                if (!ok) TryDelete(part);
-            }
+            FetchViaPart(p, final, n => progress(n, p.Size, "まとめ動画を取ってきています"), null);
+            return final;
         }
 
         public string FailureText(OutputEntry e)
@@ -116,37 +134,104 @@ namespace RequestSender
             return OutputFolder.DecodeFailureText(data, data.Length, truncated);
         }
 
-        // パックを dir へ。"<名前>.part" に書いてから名前を変える。-> 置いた場所
-        // progress(done, total, 段の名前)
+        // パックを dir へ(大きさと hash を確かめてから、重ならない名前で置く)。-> 置いた zip。progress(done, total, 段の名前)
         public string Download(OutputEntry e, string dir, Action<long, long, string> progress)
         {
             Directory.CreateDirectory(dir);
             CheckFreeSpace(dir, ExtractZip ? e.Size * 2 : e.Size);   // 展開するときは zip + 中身の分
             string final = LocalName.Unique(dir, LocalName.Safe(e.Name));
+            FetchViaPart(e, final, n => progress(n, e.Size, "受け取っています"), part => Verify(e, part, progress));
+            return final;
+        }
+
+        // src を "<final>.part" に書き、check(part) が通ったら final に名前を変える(final があれば置き換える)。
+        // 途中で止まった・check が断ったときは .part を消す
+        void FetchViaPart(OutputEntry src, string final, Action<long> progress, Action<string> check)
+        {
             string part = final + ".part";
             bool ok = false;
             try
             {
-                client.DownloadFile(e.ApiPath, e.Rev, part, n => progress(n, e.Size, "受け取っています"));
-                long got = new FileInfo(part).Length;
-                if (e.Size > 0 && got != e.Size)
-                    throw new DropboxException("受け取った大きさが合いません(" + got + " / " + e.Size + " バイト)。もう一度「受け取る」を押してください。", -1, "");
-                if (!string.IsNullOrEmpty(e.ContentHash))
-                {
-                    string h;
-                    using (var fs = new FileStream(part, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20))
-                        h = ContentHash.Compute(fs, n => progress(n, got, "壊れていないか確かめています"));
-                    if (!string.Equals(h, e.ContentHash, StringComparison.OrdinalIgnoreCase))
-                        throw new DropboxException("受け取ったファイルが壊れていました。もう一度「受け取る」を押してください。", -1, "");
-                }
+                client.DownloadFile(src.ApiPath, src.Rev, part, progress);
+                if (check != null) check(part);
+                if (File.Exists(final)) File.Delete(final);
                 File.Move(part, final);
                 ok = true;
-                return final;
             }
             finally
             {
                 if (!ok) TryDelete(part);
             }
+        }
+
+        // 受け取ったパックの大きさと content_hash を一覧の値と比べる。合わなければ DropboxException(Status -1 = そのファイルだけの問題)
+        static void Verify(OutputEntry e, string part, Action<long, long, string> progress)
+        {
+            long got = new FileInfo(part).Length;
+            if (e.Size > 0 && got != e.Size)
+                throw new DropboxException("受け取った大きさが合いません(" + got + " / " + e.Size + " バイト)。もう一度「受け取る」を押してください。", -1, "");
+            if (string.IsNullOrEmpty(e.ContentHash)) return;
+            string h;
+            using (var fs = new FileStream(part, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20))
+                h = ContentHash.Compute(fs, n => progress(n, got, "壊れていないか確かめています"));
+            if (!string.Equals(h, e.ContentHash, StringComparison.OrdinalIgnoreCase))
+                throw new DropboxException("受け取ったファイルが壊れていました。もう一度「受け取る」を押してください。", -1, "");
+        }
+
+        // パック 1 本を受け取る: Download → 展開(ExtractZip のとき)→ Dropbox から消す(隣のまとめ動画も)。
+        // 受け取り(大きさと hash の確認)で失敗したら例外。そのあとの展開・消すの失敗は例外にせず結果に書く(受け取りは済んでいるため)。
+        // 消すのは deleter なので、「やめる」が押されていても消し終える(消さないと次に更新したときにまた出て、二度受け取ることになる)
+        public ReceiveOneResult ReceiveOne(OutputEntry e, string dir, Action<long, long, string> progress)
+        {
+            var r = new ReceiveOneResult();
+            r.Zip = Download(e, dir, progress);
+            client.Log("receive: ok " + r.Zip);
+            r.Placed = ExtractOrKeep(r.Zip, dir, progress, out r.ExtractError);
+            try
+            {
+                Delete(e);
+                r.Deleted = true;
+            }
+            catch (Exception ex)
+            {
+                client.Log("receive: delete failed " + e.Name + ": " + ex.Message);
+            }
+            return r;
+        }
+
+        // すべて受け取る: packs を順に ReceiveOne。progress(何本目(1 から), そのパック, 全体で済んだバイト, 全体のバイト, 段の名前)
+        // そのファイルだけの問題(大きさが合わない・壊れていた・作り直された = Status が負)は飛ばして次へ。
+        // 通信・鍵・保存先(空き)の問題は止める(次も同じ理由で失敗し、やり直しの待ちが積み上がるだけ)。やめたらそこまで
+        public ReceiveAllResult DownloadAll(List<OutputEntry> packs, string dir, Action<int, OutputEntry, long, long, string> progress)
+        {
+            var r = new ReceiveAllResult { Total = packs.Count };
+            long all = OutputFolder.TotalSize(packs), before = 0;
+            for (int i = 0; i < packs.Count; i++)
+            {
+                var e = packs[i];
+                int no = i + 1;
+                long size = Math.Max(0, e.Size), start = before;
+                before += size;   // 飛ばしたものも済んだ分に数える(全体の進み具合が戻らないように)
+                ReceiveOneResult got;
+                try
+                {
+                    got = ReceiveOne(e, dir, (done, total, step) => progress(no, e, start + Math.Min(done, size), all, step));
+                }
+                catch (CanceledException) { r.Canceled = true; break; }
+                catch (DropboxException ex)
+                {
+                    if (ex.Status >= 0) { r.Error = ex; break; }
+                    r.Failed.Add(e.Title);
+                    client.Log("receive all: skip " + e.Name + ": " + ex.Message);
+                    continue;
+                }
+                catch (IOException ex) { r.Error = ex; break; }
+                catch (UnauthorizedAccessException ex) { r.Error = ex; break; }
+                r.LastPath = got.Placed;
+                if (got.ExtractError != null) r.NotExtracted.Add(e.Title);
+                (got.Deleted ? r.Done : r.Kept).Add(e);
+            }
+            return r;
         }
 
         // 受け取った zip を展開する(ExtractZip のとき)。展開できなければ zip をそのまま残して error に理由。-> 置いたフォルダ(展開しない・できないときは zip)
@@ -255,13 +340,6 @@ namespace RequestSender
             return full;
         }
 
-        static void TryDeleteDir(string path)
-        {
-            try { if (Directory.Exists(path)) Directory.Delete(path, true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-
         // Dropbox の /出力 から消す(パックなら隣のまとめ動画も)。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
         public void Delete(OutputEntry e)
         {
@@ -281,50 +359,7 @@ namespace RequestSender
             }
         }
 
-        // すべて受け取る: packs を順に Download → Delete。progress(何本目(1 から), そのパック, 全体で済んだバイト, 全体のバイト, 段の名前)
-        // そのファイルだけの問題(大きさが合わない・壊れていた・作り直された = Status が負)は飛ばして次へ。
-        // 通信・鍵・保存先(空き)の問題は止める(次も同じ理由で失敗し、やり直しの待ちが積み上がるだけ)。やめたらそこまで
-        public ReceiveAllResult DownloadAll(List<OutputEntry> packs, string dir, Action<int, OutputEntry, long, long, string> progress)
-        {
-            var r = new ReceiveAllResult { Total = packs.Count };
-            long all = OutputFolder.TotalSize(packs), before = 0;
-            for (int i = 0; i < packs.Count; i++)
-            {
-                var e = packs[i];
-                int no = i + 1;
-                long doneBefore = before;
-                long size = Math.Max(0, e.Size);
-                string path;
-                try
-                {
-                    path = Download(e, dir, (done, total, step) => progress(no, e, doneBefore + Math.Min(done, size), all, step));
-                }
-                catch (CanceledException) { r.Canceled = true; break; }
-                catch (DropboxException ex)
-                {
-                    if (ex.Status >= 0) { r.Error = ex; break; }
-                    r.Failed.Add(e.Title);
-                    client.Log("receive all: skip " + e.Name + ": " + ex.Message);
-                    before += size;
-                    continue;
-                }
-                catch (IOException ex) { r.Error = ex; break; }
-                catch (UnauthorizedAccessException ex) { r.Error = ex; break; }
-                string extractError;
-                r.LastPath = ExtractOrKeep(path, dir, (done, total, step) => progress(no, e, doneBefore + Math.Min(done, size), all, step), out extractError);
-                if (extractError != null) r.NotExtracted.Add(e.Title);
-                before += size;
-                // 受け取り終えたものは、「やめる」が押されていても消し終える(消さないと次に更新したときにまた出る)
-                try { Delete(e); r.Done.Add(e); }
-                catch (DropboxException ex)
-                {
-                    r.Kept.Add(e);
-                    client.Log("receive all: delete failed " + e.Name + ": " + ex.Message);
-                }
-            }
-            return r;
-        }
-
+        // 保存先に size バイトと少しの余裕が無ければ IOException(受け取り始める前に。ネットワークの場所・測れない場所は測らない)
         static void CheckFreeSpace(string dir, long size)
         {
             try
@@ -338,9 +373,17 @@ namespace RequestSender
             catch (ArgumentException) { }
         }
 
+        // 途中のファイル・フォルダの片付け(消せなくても止めない)
         static void TryDelete(string path)
         {
             try { if (File.Exists(path)) File.Delete(path); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        static void TryDeleteDir(string path)
+        {
+            try { if (Directory.Exists(path)) Directory.Delete(path, true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }

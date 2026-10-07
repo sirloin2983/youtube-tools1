@@ -1,8 +1,9 @@
-// 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。
-// 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる。
-// 「すべて受け取る」= 届いているパックを古い順に 1 本ずつ(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように。2026-10-07)。「やめる」で途中で止められる。
-// 受け取った zip は保存先に <題>_pack のフォルダとして展開し、zip は消す(2.4.0。settings.json の extractZip で止められる)。
-// 2.5.0: PC が n 本まとめた zip の隣に置くまとめ動画(2 倍速の確認用)を「まとめ動画を見る」で先に見て、「受け取る」か「要らない」(受け取らずに消す)を決める
+// 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。一覧は Dropbox の「/出力」。
+//   受け取る         … 選んだパック 1 本(ダブルクリックでも)。大きさと hash を確かめ、保存先に展開して(settings.json の extractZip が false なら zip のまま)、Dropbox と一覧から消す
+//   すべて受け取る   … 届いているパックを古い順に 1 本ずつ同じように(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように)
+//   やめる           … 取ってきている途中だけ出る。途中のファイルは消し、受け取り終えたものは Dropbox から消し終える
+//   まとめ動画を見る … パックの隣のまとめ動画(2 倍速の確認用)を %TEMP%\RequestSender\previews に取ってきて、既定のプレイヤーで開く
+//   要らない / 消す  … 1 つのボタン。パックなら受け取らずに Dropbox から消す(まとめ動画も)、失敗の知らせなら読み終えたあとに消す
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -39,7 +40,8 @@ namespace RequestSender
 
         // 裏の処理が終わった知らせを画面が受け取るまで true(スレッドが生きているかでは見ない。終わりの直前に並べた画面の処理と食い違うため)
         bool recvRunning;
-        bool recvAll;   // 「すべて受け取る」の途中
+        bool recvDownloading;   // 取ってきている途中(受け取る・すべて受け取る・まとめ動画)= 「やめる」を出す
+        bool recvAll;           // そのうち「すべて受け取る」の途中
         bool RecvBusy { get { return recvRunning; } }
 
         void BuildReceiveLayout()
@@ -51,7 +53,7 @@ namespace RequestSender
             outList.AccessibleName = "届いたものの一覧";
             outList.Texts = e => new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) };
             outList.SelectedIndexChanged += (s, e) => ShowSelected();
-            outList.DoubleClick += (s, e) => { var x = SelectedEntry; if (x != null && x.Kind == OutputKind.Pack) StartDownload(); };
+            outList.DoubleClick += (s, e) => { if (IsPack(SelectedEntry)) StartDownload(); };
             listHeader.List = outList;
             listFrame.Controls.Add(listHeader);
             listFrame.Controls.Add(outList);
@@ -133,28 +135,53 @@ namespace RequestSender
             get { return outList.SelectedItem as OutputEntry; }
         }
 
+        int PackCount
+        {
+            get { return entries.Count(IsPack); }
+        }
+
+        static bool IsPack(OutputEntry e)
+        {
+            return e != null && e.Kind == OutputKind.Pack;
+        }
+
+        static bool HasPreview(OutputEntry e)
+        {
+            return IsPack(e) && e.Preview != null;
+        }
+
+        // 「要らない / 消す」を押せるもの: パック(受け取らずに消す)か、理由を読み終えた失敗の知らせ
+        bool CanDelete(OutputEntry e)
+        {
+            return IsPack(e) || (e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key));
+        }
+
+        // 「要らない / 消す」のボタンの文字(確認の窓の題にも使う)
+        static string DeleteLabel(OutputEntry e)
+        {
+            return IsPack(e) ? "要らない" : "消す";
+        }
+
         void UpdateRecvButtons()
         {
             var e = SelectedEntry;
             bool busy = RecvBusy;
-            int packs = entries.Count(x => x.Kind == OutputKind.Pack);
+            int packs = PackCount;
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
-            receiveBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack;
-            previewBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack && e.Preview != null;
-            deleteBtn.Text = e != null && e.Kind == OutputKind.Pack ? "要らない" : "消す";   // パック = 受け取らずに消す / 失敗の知らせ = 読み終えて消す
-            deleteBtn.FitWidth();
-            deleteBtn.Enabled = !busy && e != null && (e.Kind == OutputKind.Pack || (e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key)));
+            receiveBtn.Enabled = !busy && IsPack(e);
             receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : "受け取る";
             receiveAllBtn.Enabled = !busy && packs > 0;
             receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
             receiveAllBtn.FitWidth();
+            previewBtn.Enabled = !busy && HasPreview(e);
+            deleteBtn.Text = DeleteLabel(e);
+            deleteBtn.FitWidth();
+            deleteBtn.Enabled = !busy && CanDelete(e);
             cancelRecvBtn.Visible = busy && recvDownloading;
             cancelRecvBtn.Enabled = !recvCancel;
-            LayoutReceive();   // 「やめる」の出し入れ・「すべて受け取る(n 本)」の幅で、右のボタンの位置が変わる
+            LayoutReceive();   // 「やめる」の出し入れ・「すべて受け取る(n 本)」と「要らない / 消す」の幅で、右のボタンの位置が変わる
         }
-
-        bool recvDownloading;
 
         // ---- 一覧 ----
         // 受け取るための鍵(config.json)。読めなければ下の段に理由を出して null
@@ -189,7 +216,7 @@ namespace RequestSender
             listHeader.Invalidate();
             detail.Text = "";
             SetArrived(entries.Count, false);
-            int packs = entries.Count(x => x.Kind == OutputKind.Pack), fails = entries.Count - packs;
+            int packs = PackCount, fails = entries.Count - packs;
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
@@ -242,66 +269,41 @@ namespace RequestSender
         }
 
         // ---- 受け取る ----
+        // 選んだパック 1 本(Receiving.ReceiveOne: 受け取って確かめ → 展開 → Dropbox から消す)
         void StartDownload()
         {
             var e = SelectedEntry;
-            if (RecvBusy || e == null || e.Kind != OutputKind.Pack) return;
-            Config config = RecvConfig();
-            if (config == null) return;
+            if (RecvBusy || !IsPack(e)) return;
             string dir = downloadDir;
-            recvCancel = false;
-            recvDownloading = true;
-            recvBar.Value = 0;
-            SetRecvStatus("受け取る準備をしています…", false);
+            var receiving = BeginFetch("受け取る準備をしています…", false);
+            if (receiving == null) return;
             Log.Write("receive: " + e.Name + " size=" + e.Size);
-            var receiving = NewReceiving(config);
-            int lastPermille = -1;
-            string lastStep = null;
-            Action<long, long, string> show = (done, total, step) =>
-            {
-                int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
-                if (permille == lastPermille && step == lastStep) return;
-                lastPermille = permille;
-                lastStep = step;
-                OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
-            };
+            var show = FileProgress();
             RunRecv(() =>
             {
-                string zip = receiving.Download(e, dir, show);
-                Log.Write("receive: ok " + zip);
-                string extractError;
-                string path = receiving.ExtractOrKeep(zip, dir, show, out extractError);   // 展開できたらフォルダ。できなければ zip のまま
-                // 大きさと hash を確かめて名前を変えたあと(Download が例外なく返った)だけ、Dropbox から消す
-                bool deleted = true;
-                try { receiving.Delete(e); }
-                catch (Exception ex)
-                {
-                    deleted = false;
-                    Log.Write("receive: delete failed " + e.Name + ": " + ex.Message);
-                }
-                OnUi(() =>
-                {
-                    lastDownloaded = path;
-                    recvBar.Value = 1000;
-                    if (deleted)
-                    {
-                        RemoveEntry(e);
-                        if (extractError == null)
-                            SetRecvStatus("受け取りました ✓  " + Path.GetFileName(path) + (path != zip ? "(展開済み)" : "") + "\n「フォルダを開く」で見られます。", false, true);
-                        else
-                            SetRecvStatus("受け取りましたが、展開できませんでした(" + extractError + ")。zip はそのまま保存先にあります(右クリック →「すべて展開」)。", true);
-                    }
-                    else
-                    {
-                        SetRecvStatus("受け取りましたが、Dropbox から消せませんでした(次に更新したときにまた出ます)\n" + Path.GetFileName(path), true);
-                        ShowSelected();
-                    }
-                });
+                var got = receiving.ReceiveOne(e, dir, show);
+                OnUi(() => ShowReceived(e, got));
             });
-            UpdateRecvButtons();
         }
 
-        // 届いているパックを古い順にまとめて受け取る(1 本ずつ受け取って確かめ、確かめ終えたものから Dropbox と一覧から消す)
+        void ShowReceived(OutputEntry e, ReceiveOneResult got)
+        {
+            lastDownloaded = got.Placed;
+            recvBar.Value = 1000;
+            if (!got.Deleted)
+            {
+                SetRecvStatus("受け取りましたが、Dropbox から消せませんでした(次に更新したときにまた出ます)\n" + Path.GetFileName(got.Placed), true);
+                ShowSelected();
+                return;
+            }
+            RemoveEntry(e);
+            if (got.ExtractError != null)
+                SetRecvStatus("受け取りましたが、展開できませんでした(" + got.ExtractError + ")。zip はそのまま保存先にあります(右クリック →「すべて展開」)。", true);
+            else
+                SetRecvStatus("受け取りました ✓  " + Path.GetFileName(got.Placed) + (got.Extracted ? "(展開済み)" : "") + "\n「フォルダを開く」で見られます。", false, true);
+        }
+
+        // 届いているパックを古い順にまとめて受け取る(Receiving.DownloadAll。1 本ずつ ReceiveOne と同じように)
         void StartDownloadAll()
         {
             if (RecvBusy) return;
@@ -311,28 +313,18 @@ namespace RequestSender
             if (MessageBox.Show(this, "届いているパック " + packs.Count + " 本(合計 " + Mb(total) + ")をすべて受け取ります。\n保存先: " + downloadDir +
                     "\n\n古い順に 1 本ずつ受け取って保存先にフォルダとして展開し、ちゃんと保存できたものから Dropbox と一覧から消えます。途中で「やめる」を押せます。",
                     "すべて受け取る", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
-            Config config = RecvConfig();
-            if (config == null) return;
             string dir = downloadDir;
-            recvCancel = false;
-            recvDownloading = recvAll = true;
-            recvBar.Value = 0;
-            SetRecvStatus("受け取る準備をしています…(" + packs.Count + " 本)", false);
+            var receiving = BeginFetch("受け取る準備をしています…(" + packs.Count + " 本)", true);
+            if (receiving == null) return;
             Log.Write("receive all: " + packs.Count + " packs, " + total + " bytes");
-            var receiving = NewReceiving(config);
-            int lastPermille = -1, lastNo = 0;
-            string lastStep = null;
+            var gate = new ProgressGate();
             RunRecv(() =>
             {
                 var r = receiving.DownloadAll(packs, dir, (no, e, done, all, step) =>
                 {
-                    int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, all)));
-                    if (permille == lastPermille && no == lastNo && step == lastStep) return;
-                    lastPermille = permille;
-                    lastNo = no;
-                    lastStep = step;
-                    string text = step + "(" + no + " / " + packs.Count + " 本目: " + e.Title + ")… (全体 " + Mb(done) + " / " + Mb(all) + ")";
-                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(text, false); } });
+                    int permille;
+                    if (gate.Changed(done, all, no + "|" + step, out permille))
+                        ShowRecvProgress(permille, step + "(" + no + " / " + packs.Count + " 本目: " + e.Title + ")… (全体 " + Mb(done) + " / " + Mb(all) + ")");
                 });
                 Log.Write("receive all: " + r.Received + "/" + r.Total + (r.Canceled ? " canceled" : "") + (r.Error != null ? " stopped: " + r.Error.Message : "") +
                           (r.Failed.Count > 0 ? " skipped " + r.Failed.Count : "") + (r.Kept.Count > 0 ? " not deleted " + r.Kept.Count : ""));
@@ -344,9 +336,54 @@ namespace RequestSender
         {
             if (r.LastPath != null) lastDownloaded = r.LastPath;
             RemoveEntries(r.Done);
-            bool clean = r.Error == null && !r.Canceled && r.Failed.Count == 0 && r.Kept.Count == 0 && r.NotExtracted.Count == 0;
-            if (clean) recvBar.Value = 1000;
-            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.Error != null || r.Failed.Count > 0 || r.NotExtracted.Count > 0, clean);
+            if (r.Clean) recvBar.Value = 1000;
+            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.HasProblem, r.Clean);
+        }
+
+        // 取ってくる処理(受け取る・すべて受け取る・まとめ動画)の始め: 鍵を読み、「やめる」を出す印を立て、下の文を出す。鍵が読めなければ null
+        Receiving BeginFetch(string status, bool all)
+        {
+            Config config = RecvConfig();
+            if (config == null) return null;
+            recvCancel = false;
+            recvDownloading = true;
+            recvAll = all;
+            recvBar.Value = 0;
+            SetRecvStatus(status, false);
+            return NewReceiving(config);
+        }
+
+        // 1 つのファイルの進み具合を「<段>… (済んだ / 全体)」で出す(受け取る・まとめ動画)
+        Action<long, long, string> FileProgress()
+        {
+            var gate = new ProgressGate();
+            return (done, total, step) =>
+            {
+                int permille;
+                if (gate.Changed(done, total, step, out permille)) ShowRecvProgress(permille, step + "… (" + Mb(done) + " / " + Mb(total) + ")");
+            };
+        }
+
+        // 進み具合を下の棒と文に出す(裏のスレッドから呼ぶ。処理が終わったあとに届いたものは出さない)
+        void ShowRecvProgress(int permille, string text)
+        {
+            OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(text, false); } });
+        }
+
+        // 裏のスレッドから細かく呼ばれる進み具合を間引く: 千分率か key(段の名前など)が前と変わったときだけ true
+        sealed class ProgressGate
+        {
+            int lastPermille = -1;
+            string lastKey;
+
+            public bool Changed(long done, long total, string key, out int permille)
+            {
+                permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
+                if (permille == lastPermille && key == lastKey) return false;
+                lastPermille = permille;
+                lastKey = key;
+                return true;
+            }
         }
 
         // 受け取りを途中でやめる(いま受け取っている途中のファイルは消す。受け取り終えたものはそのまま)
@@ -372,26 +409,14 @@ namespace RequestSender
         void StartPreview()
         {
             var e = SelectedEntry;
-            if (RecvBusy || e == null || e.Kind != OutputKind.Pack || e.Preview == null) return;
-            Config config = RecvConfig();
-            if (config == null) return;
-            string dir = Path.Combine(Path.GetTempPath(), "RequestSender", "previews");
-            recvCancel = false;
-            recvDownloading = true;
-            recvBar.Value = 0;
-            SetRecvStatus("まとめ動画を取ってきています…", false);
+            if (RecvBusy || !HasPreview(e)) return;
+            var receiving = BeginFetch("まとめ動画を取ってきています…", false);
+            if (receiving == null) return;
             Log.Write("preview: " + e.Preview.Name + " size=" + e.Preview.Size);
-            var receiving = NewReceiving(config);
-            int lastPermille = -1;
+            var show = FileProgress();
             RunRecv(() =>
             {
-                string path = receiving.DownloadPreview(e, dir, (done, total, step) =>
-                {
-                    int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
-                    if (permille == lastPermille) return;
-                    lastPermille = permille;
-                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
-                });
+                string path = receiving.DownloadPreview(e, Receiving.PreviewDir(), show);
                 OnUi(() =>
                 {
                     recvBar.Value = 1000;
@@ -412,12 +437,11 @@ namespace RequestSender
         void StartDelete()
         {
             var e = SelectedEntry;
-            if (RecvBusy || e == null) return;
-            bool pack = e.Kind == OutputKind.Pack;
-            if (!pack && (e.Kind != OutputKind.Failure || !failureTexts.ContainsKey(e.Key))) return;
+            if (RecvBusy || !CanDelete(e)) return;
+            bool pack = IsPack(e);
             string ask = pack ? "このパックを受け取らずに消します(送り先の Dropbox から消え、もう受け取れません)。よろしいですか?\n(" + e.Title + ")"
                               : "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")";
-            if (MessageBox.Show(this, ask, pack ? "要らない" : "消す",
+            if (MessageBox.Show(this, ask, DeleteLabel(e),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             Config config = RecvConfig();
             if (config == null) return;

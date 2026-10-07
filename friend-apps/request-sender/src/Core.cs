@@ -1,5 +1,5 @@
 // 切り抜き依頼(RequestSender)の画面に依らない部品: URL の読み取り・依頼の id・依頼の JSON・Dropbox のヘッダーの JSON・
-// 大きな動画の分け方・設定(config.json)・メンバーの一覧。テスト(tests\CoreTests.cs)はここを確かめる。
+// 大きな動画の分け方・設定(config.json)・メンバーの一覧・「/出力」の名前の読み取り・手元の記録(settings.json)。テスト(tests\CoreTests.cs)はここを確かめる。
 // 設計: docs/spec/friend-intake.md の 4・5・7
 using System;
 using System.Collections.Generic;
@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.5.0";
+        public const string Version = "2.5.1";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -441,9 +441,9 @@ namespace RequestSender
     }
 
     // ---- 受け取る: PC が「/出力/」に置いたもの ----
-    //   <依頼の id>__<題>.zip             … DaVinci Resolve のパック(数 GB のことがある。ホーム 0.45.0 からは n 本まとめて「<題> 1-5.zip」)
+    //   <依頼の id>__<題>.zip             … DaVinci Resolve のパック(数 GB のことがある。PC が n 本をまとめると「<題> 1-5.zip」で、中に <題>_pack が並ぶ)
     //   <依頼の id>__<題>.失敗.txt        … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
-    //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた 2 倍速の確認用。小さい。2.5.0 = 同じ名前の zip に結びつける)
+    //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた 2 倍速の確認用。小さい。同じ名前の zip に結びつけ、一覧には出さない)
     public enum OutputKind { Pack, Failure, Preview }
 
     public class OutputEntry
@@ -470,12 +470,26 @@ namespace RequestSender
     public static class OutputFolder
     {
         public const string Path = "/出力";
+        public const string PackSuffix = ".zip";
         public const string FailureSuffix = ".失敗.txt";
         public const string PreviewSuffix = ".preview.mp4";
         public const int FailureTextCap = 64 * 1024;
         static readonly Regex NameRx = new Regex("^([0-9]{8}-[0-9]{6}-[0-9a-f]{6})__(.+)$");
+        static readonly OutputKind[] Kinds = { OutputKind.Failure, OutputKind.Preview, OutputKind.Pack };
 
-        // list_folder の返事の entries から、パックと失敗の知らせだけ(フォルダ・他のファイル・途中の .part は出さない)
+        // 種類ごとの名前の終わり
+        static string SuffixOf(OutputKind kind)
+        {
+            return kind == OutputKind.Failure ? FailureSuffix : kind == OutputKind.Preview ? PreviewSuffix : PackSuffix;
+        }
+
+        // 名前から種類の終わりを除いたもの(まとめ動画とパックはこれが同じなら組)
+        static string StemOf(OutputEntry e)
+        {
+            return e.Name.Substring(0, e.Name.Length - SuffixOf(e.Kind).Length);
+        }
+
+        // list_folder の返事の entries から、パック・失敗の知らせ・まとめ動画だけ(フォルダ・他のファイル・途中の .part は出さない)
         public static List<OutputEntry> ParseEntries(IDictionary<string, object> response)
         {
             var list = new List<OutputEntry>();
@@ -499,17 +513,18 @@ namespace RequestSender
         public static OutputEntry FromName(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
-            OutputKind kind;
-            string stem;
-            if (name.EndsWith(FailureSuffix, StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Failure; stem = name.Substring(0, name.Length - FailureSuffix.Length); }
-            else if (name.EndsWith(PreviewSuffix, StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Preview; stem = name.Substring(0, name.Length - PreviewSuffix.Length); }
-            else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Pack; stem = name.Substring(0, name.Length - 4); }
-            else return null;
-            if (stem.Length == 0) return null;
-            var e = new OutputEntry { Kind = kind, Name = name, Title = stem, RequestId = "" };
-            var m = NameRx.Match(stem);
-            if (m.Success) { e.RequestId = m.Groups[1].Value; e.Title = m.Groups[2].Value; }
-            return e;
+            foreach (var kind in Kinds)
+            {
+                string suffix = SuffixOf(kind);
+                if (!name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+                string stem = name.Substring(0, name.Length - suffix.Length);
+                if (stem.Length == 0) return null;
+                var e = new OutputEntry { Kind = kind, Name = name, Title = stem, RequestId = "" };
+                var m = NameRx.Match(stem);
+                if (m.Success) { e.RequestId = m.Groups[1].Value; e.Title = m.Groups[2].Value; }
+                return e;
+            }
+            return null;
         }
 
         // まとめ動画(<zip の名前>.preview.mp4)を同じ名前のパックに結びつけ、一覧からは外す。
@@ -517,37 +532,36 @@ namespace RequestSender
         public static List<OutputEntry> AttachPreviews(List<OutputEntry> list)
         {
             var packs = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
-            foreach (var e in list) if (e.Kind == OutputKind.Pack) packs[e.Name.Substring(0, e.Name.Length - 4)] = e;
+            foreach (var e in list) if (e.Kind == OutputKind.Pack) packs[StemOf(e)] = e;
             var rest = new List<OutputEntry>();
             foreach (var e in list)
             {
                 if (e.Kind != OutputKind.Preview) { rest.Add(e); continue; }
                 OutputEntry p;
-                if (packs.TryGetValue(e.Name.Substring(0, e.Name.Length - PreviewSuffix.Length), out p)) p.Preview = e;
+                if (packs.TryGetValue(StemOf(e), out p)) p.Preview = e;
             }
             return rest;
         }
 
-        // 新しいものが上。同じ時刻なら名前の順
+        // 新しいものが上(一覧の順)
         public static void SortNewestFirst(List<OutputEntry> list)
         {
-            list.Sort((a, b) =>
-            {
-                int c = b.Modified.CompareTo(a.Modified);
-                return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
-            });
+            list.Sort((a, b) => CompareTime(a, b, true));
         }
 
-        // 「すべて受け取る」の順: パックだけを古い順(1 つの依頼で何本もできたパックは、できた順に並ぶ。同じ時刻なら名前の順)。失敗の知らせは含めない
+        // 「すべて受け取る」の順: パックだけを古い順(1 つの依頼で何本もできたパックは、できた順に並ぶ)。失敗の知らせは含めない
         public static List<OutputEntry> PacksOldestFirst(IEnumerable<OutputEntry> entries)
         {
             var packs = entries.Where(e => e.Kind == OutputKind.Pack).ToList();
-            packs.Sort((a, b) =>
-            {
-                int c = a.Modified.CompareTo(b.Modified);
-                return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
-            });
+            packs.Sort((a, b) => CompareTime(a, b, false));
             return packs;
+        }
+
+        // 時刻の順(newestFirst なら新しいものが先)。同じ時刻なら、どちらの向きでも名前の順
+        static int CompareTime(OutputEntry a, OutputEntry b, bool newestFirst)
+        {
+            int c = newestFirst ? b.Modified.CompareTo(a.Modified) : a.Modified.CompareTo(b.Modified);
+            return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
         }
 
         // 合計の大きさ(分からないもの = 負の値は 0 として足す)
@@ -610,7 +624,7 @@ namespace RequestSender
             return s;
         }
 
-        // dir の中の、まだ無い名前(a.zip → a (2).zip …)。.part も無いもの
+        // dir の中の、まだ無い名前(a.zip → a (2).zip …)。同じ名前のファイル・フォルダ・.part の無いもの(受け取った zip にも、展開したフォルダにも使う)
         public static string Unique(string dir, string safeName)
         {
             string stem = System.IO.Path.GetFileNameWithoutExtension(safeName), ext = System.IO.Path.GetExtension(safeName);

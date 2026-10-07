@@ -42,7 +42,7 @@ static class CoreTests
         Run("members.json: 名前の一覧・壊れていたら空", MembersLoad);
         Run("エラー: Dropbox の返事を日本語に", Errors);
         Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
-        Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
+        Run("受け取る: 一覧の返事からパックと失敗の知らせだけ(まとめ動画はパックに結びつける)・新しい順", OutputEntries);
         Run("受け取る: すべて受け取る(パックだけを古い順・合計・同じ依頼の数・まとめの文)", ReceiveAll);
         Run("受け取る: zip の展開(パックのフォルダを保存先の直下に・同じ名前は (2)・zip は消す・外へ出る名前は断る)", ExtractZips);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
@@ -645,10 +645,12 @@ static class CoreTests
                 True(!all.Enabled && all.Text == "すべて受け取る", "届いたものが無ければ「すべて受け取る」は押せない: " + all.Text);
                 True(FindAll(f).OfType<Btn>().Any(b => b.Text == "やめる" && !b.Visible), "「やめる」は受け取っている間だけ出す");
                 True(FindAll(f).OfType<Btn>().Any(b => b.AccessibleName == "まとめ動画を見る" && !b.Enabled), "「まとめ動画を見る」は届いたものが無ければ押せない");
-                var sample = Program_SampleListing();
+                var sample = ReceiveSample();
                 f.ShowEntries(sample);
                 Eq("すべて受け取る(2 本)", all.Text, "届いているパックの数を出す");
                 True(all.Enabled, "パックがあれば押せる");
+                True(FindAll(f).OfType<Btn>().Any(b => b.AccessibleName == "まとめ動画を見る" && b.Enabled), "まとめ動画のあるパックを選ぶと「まとめ動画を見る」が押せる");
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "要らない" && b.Enabled), "パックを選ぶと「消す」のボタンは「要らない」になる");
             }
         }
         finally { Directory.Delete(dir, true); }
@@ -1045,6 +1047,8 @@ static class CoreTests
         True(Json.Bool(Json.Parse("{\"has_more\":true}"), "has_more") && !Json.Bool(d, "has_more") && !Json.Bool(d, "none"), "has_more");
         Eq(null, OutputFolder.FromName(".zip"), "名前が空");
         Eq(null, OutputFolder.FromName("a.失敗.txt.bak"), "違う拡張子");
+        Eq(null, OutputFolder.FromName(".preview.mp4"), "まとめ動画の名前が空");
+        Eq(Path.Combine(Path.GetTempPath(), "RequestSender", "previews"), Receiving.PreviewDir(), "まとめ動画を取ってくる場所(%TEMP%\\RequestSender\\previews)");
         True(pack.Key != list[0].Key, "記録の鍵は別々");
         var again = OutputFolder.ParseEntries(d).First(x => x.Kind == OutputKind.Pack && x.RequestId.Length > 0);
         Eq(pack.Key, again.Key, "同じものは同じ鍵");
@@ -1053,11 +1057,12 @@ static class CoreTests
         Eq(DateTime.MinValue, OutputFolder.ParseTime("x"), "読めない時刻");
     }
 
-    // 画面の確認(--tab receive --sample)と同じ見本: パック 2 本(同じ依頼)+ 失敗 1 件
-    static OutputListing Program_SampleListing()
+    // 受け取るのテストの見本: パック 2 本(同じ依頼。先頭の A にはまとめ動画)+ 失敗 1 件。新しい順に並べてある
+    static OutputListing ReceiveSample()
     {
         var l = new OutputListing();
         var a = OutputFolder.FromName("20261002-120000-0a1b2c__A.zip"); a.Size = 10; a.Modified = new DateTime(2026, 10, 2, 13, 0, 0); a.PathLower = "/出力/a.zip"; a.Rev = "1";
+        a.Preview = OutputFolder.FromName("20261002-120000-0a1b2c__A.preview.mp4"); a.Preview.Size = 1; a.Preview.PathLower = "/出力/a.preview.mp4"; a.Preview.Rev = "1p";
         var f = OutputFolder.FromName("20261002-110000-0d4e5f__F.失敗.txt"); f.Size = 1; f.Modified = new DateTime(2026, 10, 2, 11, 0, 0); f.PathLower = "/出力/f.txt"; f.Rev = "2";
         var b = OutputFolder.FromName("20261002-120000-0a1b2c__B.zip"); b.Size = 20; b.Modified = new DateTime(2026, 10, 2, 12, 0, 0); b.PathLower = "/出力/b.zip"; b.Rev = "3";
         l.Entries.Add(a); l.Entries.Add(f); l.Entries.Add(b);
@@ -1066,7 +1071,7 @@ static class CoreTests
 
     static void ReceiveAll()
     {
-        var all = Program_SampleListing().Entries;
+        var all = ReceiveSample().Entries;
         var a = all[0];
         var c = OutputFolder.FromName("20261001-090000-ffffff__C.zip"); c.Size = -1; c.Modified = new DateTime(2026, 10, 2, 12, 0, 0);
         all.Add(c);
@@ -1085,17 +1090,23 @@ static class CoreTests
         var r = new ReceiveAllResult { Total = 3 };
         r.Done.Add(a); r.Done.Add(c); r.Done.Add(packs[1]);
         True(r.Summary(null).StartsWith("3 本すべて受け取りました ✓"), "全部: " + r.Summary(null));
+        True(r.Clean && !r.HasProblem, "全部: 成功の色");
+        r.NotExtracted.Add("A");
+        True(!r.Clean && r.HasProblem && r.Summary(null).Contains("展開できなかった 1 本は zip のまま"), "展開できなかったものがあれば知らせる: " + r.Summary(null));
         r = new ReceiveAllResult { Total = 3 };
         r.Done.Add(a); r.Failed.Add("B"); r.Failed.Add("C");
         string s = r.Summary(null);
         True(s.StartsWith("1 / 3 本を受け取りました。受け取れなかった 2 本: B・C") && s.Contains("もう一度「すべて受け取る」"), "飛ばしたものの題: " + s);
+        True(!r.Clean && r.HasProblem, "飛ばしたものがあればエラーの色");
         r = new ReceiveAllResult { Total = 3 };
         r.Done.Add(a); r.Kept.Add(c); r.Canceled = true;
         s = r.Summary(null);
         True(s.StartsWith("やめました(2 / 3 本は受け取り済み)") && s.Contains("消せなかった 1 本"), "やめた + 消せなかった: " + s);
+        True(!r.Clean && !r.HasProblem, "やめた・消せなかっただけならエラーの色にしない");
         r = new ReceiveAllResult { Total = 3, Error = new Exception("x") };
         s = r.Summary("通信が切れました");
         Eq("0 / 3 本を受け取ったところで止まりました: 通信が切れました", s, "止まった");
+        True(!r.Clean && r.HasProblem, "止まったらエラーの色");
         Eq(0, r.Received, "受け取った数");
         r.Failed.AddRange(new[] { "1", "2", "3", "4" });
         r.Error = null;
