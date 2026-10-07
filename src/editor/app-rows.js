@@ -17,11 +17,12 @@ function markDirty(){
 /* 保存の状態の表示。kind: ''(未保存)/ 'busy'(保存中)/ 'ok'(保存済み)/ 'err'(競合・失敗)。色の印は CSS の [data-state] */
 function setSaveState(text, kind){ S.saveSt = { text, kind: kind || '' }; paintSaveState(); }
 
-/* ヘッダーの保存の状態(1 か所。UI の見直し S4): 1 文字起こし は文書の保存。2 カット・3 パック では、文書が保存済み(か何もしていない)ならカットの保存
+/* ヘッダーの保存の状態(1 か所。UI の見直し S4): 1 文字起こし は文書の保存(カットの保存の途中・失敗も)。2 カット・3 パック では、文書が保存済み(か何もしていない)ならカットの保存
    (「カット: 保存しました」。以前は 2 カット の下の行の末尾 #cutSaveSt に出て、1440 ではキーの帯に隠れていた)。文書の失敗・保存中・未保存は文書を先に出す */
 function paintSaveState(){
   const el = $('#saveState'), d = S.saveSt || { text: '', kind: '' }, c = S.cutSaveSt;
-  const cut = EDT.tab !== 'tx' && c && c.text && (d.kind === 'ok' || !d.text);
+  /* 1 でも、行の「カット」で保存しているカットの途中・未保存・失敗は出す(2 周目 N5)。済んだら文書の状態に戻す */
+  const cut = c && c.text && (d.kind === 'ok' || !d.text) && (EDT.tab !== 'tx' || c.kind !== 'ok' || !d.text);
   el.textContent = cut ? c.text : d.text; el.setAttribute('data-state', cut ? c.kind : d.kind);
   updateDocTitle();
 }

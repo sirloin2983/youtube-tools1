@@ -407,7 +407,7 @@ function create(h){
             if (!(P.pack && sameDir(dd.dir, P.pack.dir))){
               const v = await overwriteChoice(dd.files || [], dd.dir || '');
               if (v === 'other'){ openSettingsAt('#pkDir'); return; }   // 別の場所: 詳しい設定の「出力先」へ
-              if (v !== 'over') return;
+              if (v !== 'over'){ setTimeout(() => { const b = $('#pkBuild'); if (!b.disabled && b.offsetParent) b.focus(); }, 150); return; }   // やめた: 押したボタンへ戻す(開いた時の「中止」は消えている。2 周目 N4)
             }
             force = true; continue;
           }
