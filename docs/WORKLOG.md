@@ -1765,3 +1765,40 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次(担当外なのでまとめ役へ): `src/editor/AGENTS.md` の Qwen3-ASR の節に `_kill_on_close_job` の名前が残っている(→ `ytt_core.tools.KillJob`)。`plan/improvements.md` の 3 と recorder・editor の行(KillJob・sessions が null・recorder の NO_WINDOW・tx_engines の `_unlink`)は済み
 - 注意: 起動中の録画の部品は古い版のまま。入口の見回りが、録画中でなければ 0.3.2 で起動し直す
 - 未コミット: なし(このコミット。src/ytt_core・src/recorder・src/editor/tx_engines.py・docs/WORKLOG.md だけ。ほかの担当の未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: cut2resolve 0.22.0(使う側の無い API を消した・補助の FCPXML の字幕の分け方を二分探索に)
+- モデル: Opus(API の削除 = 約束の変更とセキュリティの面の判断があるため)
+- 変更(src/cut2resolve):
+  - serve.py: 使う側の無い API を消した = `GET /api/state`・`POST /api/inspect`・`POST /api/upload`・`GET /media/<token>` と、plan・build の結果の `mediaUrl`・`roughcutUrl`(消した `/media/` を指していた)。
+    一緒に消した部品: `inspect_inputs`・`_inspect_one`・`sibling_suggestions`/`SIBLING_SUFFIXES`・`save_upload`・`clean_uploads`・`safe_upload_name`・`_WIN_RESERVED`・`UPLOAD_DIR`・`UPLOAD_LIMITS`・`UPLOAD_KEEP`・`MEDIA_TYPES`・
+    `AppState.register_media`/`media_path`(と media の表)・`Handler._state`/`_media`/`_inspect`・起動時のアップロードの置き場の削除・`import re`・`import auto_cut`。
+    `DEFAULTS` から画面に見せるだけだった `handlesPlan`・`handlesTranscript` を外した。docstring の API の一覧を今の 7 つ(ping・siblings・plan・build・job・job/cancel・open-folder)に。1,228 → 1,008 行
+  - cut2resolve_core.py: `resolve_media_path`(/api/inspect の suggestVideo だけが使っていた)を消した。`_unlink_quiet` の定義の行に `# lint: keep 単独のコマンドは ytt_core を読まない`(pack.py も CLI から読まれるので `C._unlink_quiet` のまま。serve.py に写しは無い)。版 0.21.1 → 0.22.0
+  - auto_cut.py: `build_cut_fcpxml` の「区間ごとに全部の字幕を見る」(区間 × 字幕)を `_cues_per_clip` に。字幕を開始の順に並べた索引を二分探索して始まった字幕を足し、終わった字幕を落としながら進む(字幕の元の並び順・形はそのまま)。
+    区間 2,000・字幕 5,983 で 1.36 秒 → 0.13 秒
+  - README.txt: 見出し 0.22.0・API の一覧(残した 7 つと消した 4 つ)・「単独のコマンド」の節(cut2resolve.py・auto_cut.py・srt2resolve.py・--fcpxml を一覧に。srt2resolve.py は今まで README に無かった)・注意の「配信する動画」の行・履歴に「消した API と理由」
+  - テスト: test_serve.py(消した API を使っていた 6 本を、input_path の欄ごとの検査・消した API が 404・消した部品が無い・起動の準備でアップロードの置き場を作らない・WORK_DIR が ytt_core と同じ・試算に動画の情報があり mediaUrl が無い、に置き換え。
+    guard のテストは /api/state → /api/ping、/api/inspect → /api/plan(エラーの種類まで確かめる形に))・test_pack.py(resolve_media_path のテスト → ネットワークのパスを調べないテスト)・未使用の import 2 つ(test_cut2resolve の Fraction・test_pack の threading)
+- 変更(ほかのフォルダのテスト。該当の箇所だけ。直す前に未コミットの差分が無いことを確かめた): `src/home/tests/test_mount.py`(cut2resolve の /api/state → /api/siblings、/api/inspect → /api/plan、upload は 404、test_media_under_prefix → test_removed_apis_under_prefix)・
+  `dev/tests/e2e_pipeline.py`(/api/inspect → /api/ping。読み込みは続く試算で確かめる)。`dev/tests/e2e_datadir.py`・`src/ytt_core/tests/` は消した API を使っていない(ytt_core の `/api/state` は httpsec の文字列の検査だけ)ので触っていない
+- 版: cut2resolve 0.21.1 → 0.22.0
+- 決定・理由(仮で決めたこと。ユーザー指示 2026-10-07「確認だけのものも仮で決めて実装する」):
+  - 4 つの API を消す: v0.11.0(09-26)に消した画面のためのもので、今の「編集」(cut.js・pack-tab.js・app-tools.js)と「まとめて実行」(home/autorun.py)は plan・build・job・job/cancel・open-folder しか呼ばない(src・dev・friend-apps・setup を grep)。
+    動画を配信する道と、作業用フォルダへ書き込む道が減る(1 つの入口の中の XSS で使える API が減る)。消した道は 404(入口の取り込みは特別扱いしていない)
+  - plan・build の結果の `mediaUrl`・`roughcutUrl` も外す: 消した `/media/` を指す鍵を残すと壊れたリンクになる。使う所なし(grep)
+  - `resolve_media_path` も消す: 使うのが /api/inspect だけになったため(死んだコード)。テストのうち今も使う部分(ネットワークのパスを調べない)は is_network_path・find_edit_media のテストとして残した
+  - 起動時の `work/uploads` の削除はやめる(作らない)。09-26 から何もアップロードしておらず、以前の版も起動のたびに消していたので残っている物は無い見込み
+  - 単独のコマンド(cut2resolve.py・auto_cut.py の CLI・srt2resolve.py・--fcpxml)は残す(ユーザーが手で使う道具)
+  - `CSP` の `media-src 'self'`(/ の案内のページの見出し)はそのまま(見出しを変えないため)
+- 基準 9 の確かめ方(scratchpad の c2r2/。git HEAD の写し head/ と今の src/cut2resolve で同じ入力):
+  - 純粋な関数の 9,608 通り(前の周の equiv.py に、区間をまたぐ・重なる・長さ 0・逆向き・順不同の字幕を build_cut_fcpxml に渡す 600 通りを足した): 版の文字だけ違い、ほかは全部同じ(FCPXML 900 本を含む)
+  - HTTP と CLI の 105 通り(api_equiv.py。実サーバーを空きポートで立て、ping・siblings・job・/ の案内・Host/Origin/Sec-Fetch/Content-Type/NaN/配列/大きすぎ の検査、plan 25 通り・build 15 通り(上書きの 409・force・粗編集・Text+・予備・配信者の色・話者の色・映像トラック・音量・preset・FCPXML・400 の各種)・
+    cancel・open-folder 4 通り、cut2resolve.py(--help・--dry-run・--fcpxml・--textplus)・auto_cut.py・srt2resolve.py の出力とファイルの中身のハッシュ、パックを作った記録): 77 通りは同じ、25 通りは結果から mediaUrl・roughcutUrl が無いことだけ違う、3 通りは消した API(state・inspect・upload)が 404 になったこと。
+    作ったファイル・記録・CLI の出力は全部同じ
+- テスト: cut2resolve 単体 350 件(前と同じ件数。skip 24 は Lua)・test_resolve_pack_contract 35 件(単独)・test_mount 26 件(前と同じ)・editor の test_metrics/test_resolve_export/test_roster 552 件 OK。
+  e2e(PYTHONIOENCODING=utf-8・1 本ずつ): e2e_edit_pack・e2e_pipeline・e2e_datadir ALL PASSED
+- lint: cut2resolve の分 4 件(unused-import 2・dup-helper 1・dup-block 1 = serve.py の /media/ の配信がスタジオと同じ形だった)→ 0 件
+- 消した名前(基準 12): 上の名前は src・dev・friend-apps・setup とテストを grep して、消したことを確かめるテストとコメントの中だけ(editor の `ed_state.MEDIA_TYPES` は別物)
+- 未完了・次(担当外なのでまとめ役へ): `plan/improvements.md` の 7(cut2resolve の API と単独コマンド)と 9 の cut2resolve の 3 行は済み。`docs/design/edit-tool-design.md` の「fps と長さは cut2resolve の api/inspect で取る」は済んだ設計の記録なので書き換えていない(今の編集は api/plan の結果を使う)
+- 注意: 起動中の入口は古い cut2resolve(0.21.1)のまま。「すべて終了」→ start.bat で 0.22.0 になる
+- 未コミット: なし(このコミット = src/cut2resolve・src/home/tests/test_mount.py・dev/tests/e2e_pipeline.py・docs/WORKLOG.md。ほかの担当の未コミットの変更は入れていない)

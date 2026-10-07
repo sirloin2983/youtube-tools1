@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.21.1"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.22.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -356,7 +356,7 @@ def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
     return r
 
 
-def _unlink_quiet(path):
+def _unlink_quiet(path):   # lint: keep 単独のコマンドは ytt_core を読まない
     """一時ファイルを消す(None・消せないときは何もしない)"""
     if path:
         try:
@@ -879,35 +879,6 @@ def find_edit_media(video):
     if not media.is_file() or S.same_path(media, video):
         return None
     return {"path": media, "sidecar": sidecar, "selectionIn": vals[0], "handleBefore": vals[1], "handleAfter": vals[2]}
-
-
-def resolve_media_path(media, json_path):
-    """JSON の media から動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの同名ファイル
-    (JSON が 作業用/ の中なら1つ上 → JSON と同じフォルダ。フォルダごと移動した・友人に渡した場合への備え。docs/spec/pipeline.md の 1)。見つからなければ None"""
-    if not isinstance(media, dict):
-        return None
-    cands = []
-    p = media.get("path")
-    if isinstance(p, str) and p.strip():
-        cands.append(p.strip())
-    name = media.get("name") if isinstance(media.get("name"), str) and media.get("name").strip() else (
-        p.strip() if isinstance(p, str) else "")
-    if name:
-        base = os.path.basename(name.strip().replace("\\", "/"))   # 名前だけを使う(../ でフォルダの外を指させない)
-        if base:
-            here = os.path.dirname(os.path.abspath(str(json_path)))
-            if os.path.basename(here) == WORK_DIR:   # 途中のファイル(.transcript.json など)は 作業用/、元動画は1つ上
-                cands.append(os.path.join(os.path.dirname(here), base))
-            cands.append(os.path.join(here, base))
-    for c in cands:
-        try:
-            if is_network_path(c):
-                continue
-            if os.path.isfile(c):
-                return os.path.abspath(c)
-        except (OSError, ValueError):
-            continue
-    return None
 
 
 def read_transcript(path):

@@ -6,12 +6,9 @@
 
 127.0.0.1 だけで待ち受け、Host / Origin / Sec-Fetch-Site を検査する。カットの計算とパックの作成は pack.py(CLI と同じ関数)。
 
-API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
+API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/spec/pipeline.md の 4)
-  GET  /api/state                ffmpeg の有無・既定値・実行中のジョブ・アップロードの上限など
-  POST /api/inspect              {video?, srt?, transcript?, plan?} → 各入力の中身(動画の情報・件数)と配信用の mediaUrl。
-                                  動画が読めたときは、同じフォルダ・同じ名前(拡張子違い)の字幕・文字起こし・cut-plan があれば siblings に(問題2)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, backup?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
@@ -27,15 +24,14 @@ API(「編集」の pack-tab.js・cut.js・app.js と、入口の「まとめて
   GET  /api/job?id=              ジョブの状態 {state: running|done|error|cancelled, progress, message, result|error}
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
-  POST /api/upload?kind=&name=   字幕・文字起こし・cut-plan の中身(application/octet-stream)→ work/uploads/ に保存して {path}
-  GET  /media/<token>            入力に指定した動画・作った粗編集の動画だけ(Range 対応)
+消した API(0.22.0。消した画面のためのもので、使う側が無かった): /api/state・/api/inspect・/api/upload・/media/<token>
+(plan・build の結果の mediaUrl・roughcutUrl も)。消した API は 404
 
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(home/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
 import json
 import os
-import re
 import secrets
 import shutil
 import socket
@@ -53,7 +49,6 @@ from pathlib import Path
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, CODE_DIR)
-import auto_cut as AC  # noqa: E402
 import cut2resolve_core as C  # noqa: E402
 import pack  # noqa: E402
 import resolve_textplus as TP  # noqa: E402
@@ -80,18 +75,11 @@ TOOL_ID = "cut2resolve"
 SERVER_VERSION = C.VERSION        # 版の正は cut2resolve_core.VERSION の1か所
 DEFAULT_PORT = 8810
 WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt_core.datadir)の中へ切り替える(_choose_work_dir)
-UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
 LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
-UPLOAD_LIMITS = {"srt": (S.MAX_SUB_BYTES, (".srt", ".vtt")), "transcript": (C.MAX_JSON_BYTES, (".json",)),
-                 "plan": (C.MAX_JSON_BYTES, (".json",))}
-UPLOAD_KEEP = 40                                    # 残しておくアップロードの数(古いものから消す。起動時には全部消す)
 SOCKET_TIMEOUT = 120
 MEDIA_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mxf", ".ts", ".mts", ".m2ts", ".flv", ".wmv"}
-# ブラウザで再生するときの Content-Type。mov は中身が mp4 と同じ仲間、mkv は webm と同じ仲間なので、再生できる見込みの高い型にする
-MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4", ".mkv": "video/webm", ".webm": "video/webm",
-               ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".mts": "video/mp2t", ".m2ts": "video/mp2t"}
 # 画面(index.html・app.js・app.css)は「編集」(editor の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
 # docs/design/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
@@ -102,10 +90,9 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
               "<p>コマンドで使うときは cut2resolve.py(README.txt)。</p></body></html>").encode("utf-8")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-QUIET_PATHS = ("/api/job", "/media/", "/api/siblings", "/api/ping")
-# 画面の指定を省いたときの値(/api/state の defaults で画面にも見せる。pack.Request・コマンドの既定と同じ値)
-DEFAULTS = {"noise": -35.0, "silenceMin": 0.6, "silencePad": 0.15, "minLen": 0.3, "joinGap": 0.0,
-            "handlesPlan": AC.DEFAULT_HANDLES, "handlesTranscript": 0.0, "crf": 18, "recStart": "01:00:00:00"}
+QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
+# 指定を省いたときの値(pack.Request・コマンドの既定と同じ値)
+DEFAULTS = {"noise": -35.0, "silenceMin": 0.6, "silencePad": 0.15, "minLen": 0.3, "joinGap": 0.0, "crf": 18, "recStart": "01:00:00:00"}
 TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
@@ -216,7 +203,7 @@ def input_path(value, field):
     return Path(p)
 
 
-# ---------------------------------------------------------------- アプリの状態(ジョブ・配信の許可・キャッシュ)
+# ---------------------------------------------------------------- アプリの状態(ジョブ・開いてよいフォルダ・キャッシュ)
 
 class Job:
     def __init__(self, kind):
@@ -256,31 +243,10 @@ class AppState:
         self.jobs = OrderedDict()
         self.running = None
         self.cache = pack.Cache()
-        self.media = OrderedDict()        # token -> 実際のパス(入力に指定した動画・作った粗編集の動画だけ)
-        self.media_by_path = {}
         self.out_dirs = set()             # パックを書いたフォルダ(「フォルダを開く」を許すもの)
         self.opener = opener or open_folder
 
-    # ---- 配信を許すファイル
-    def register_media(self, path):
-        real = os.path.realpath(str(path))
-        key = os.path.normcase(real)
-        with self.lock:
-            tok = self.media_by_path.get(key)
-            if tok is None:
-                tok = secrets.token_urlsafe(12)
-                self.media_by_path[key] = tok
-            self.media[tok] = real
-            self.media.move_to_end(tok)
-            while len(self.media) > 64:
-                old, p = self.media.popitem(last=False)
-                self.media_by_path.pop(os.path.normcase(p), None)
-        return "/media/" + tok
-
-    def media_path(self, tok):
-        with self.lock:
-            return self.media.get(tok)
-
+    # ---- 「フォルダを開く」を許すフォルダ
     def allow_out_dir(self, path):
         with self.lock:
             self.out_dirs.add(os.path.normcase(os.path.realpath(str(path))))
@@ -640,52 +606,6 @@ def file_info(kind, p):
     return {"kind": kind, "name": Path(p).name, "path": str(p), "size": size, "note": FILE_NOTES.get(kind, "")}
 
 
-# ---------------------------------------------------------------- 入力の中身(/api/inspect)
-
-def inspect_inputs(app, o):
-    out, suggest = {}, None
-    for field in ("video", "srt", "transcript", "plan"):
-        if o.get(field) in (None, ""):
-            continue
-        try:
-            p = input_path(o.get(field), field)
-            out[field] = dict(_inspect_one(app, field, p), ok=True, path=str(p), name=p.name)
-            if field in ("transcript", "plan") and out[field].get("mediaPath") and not o.get("video"):
-                suggest = suggest or out[field]["mediaPath"]
-        except (ApiError, C.ToolError) as e:
-            out[field] = {"ok": False, "error": getattr(e, "message", None) or str(e)}
-    result = {"inputs": out, "suggestVideo": suggest}
-    v = out.get("video")
-    if v and v.get("ok"):
-        have = {f for f in ("srt", "transcript", "plan") if o.get(f)}
-        sib = sibling_suggestions(Path(v["path"]), have)
-        if sib:
-            result["siblings"] = sib
-    return result
-
-
-# ---------------------------------------------------------------- 動画と同じ場所の字幕・文字起こし・cut-plan(問題2)
-# 逆方向(文字起こし・cut-plan から動画を探す suggestVideo)は前からある。動画から探すのはこの決まった場所だけ
-# (動画と同じフォルダ・同じ名前(拡張子だけ違う)。他のパスは見ない)
-
-SIBLING_SUFFIXES = {"srt": (".srt", ".vtt"), "transcript": (".transcript.json",), "plan": (".cut-plan.json",)}
-
-
-def sibling_suggestions(video, have):
-    """動画と同じ名前(拡張子だけ違う)の字幕・文字起こし・cut-plan があれば {欄: パス}。作業用/ → 動画の隣(以前の置き方)の順に探す。
-    have に入っている(すでに指定がある)欄は調べない"""
-    out = {}
-    folders = ([video.parent / C.WORK_DIR] if video.parent.name != C.WORK_DIR else []) + [video.parent]
-    for field, suffixes in SIBLING_SUFFIXES.items():
-        if field in have:
-            continue
-        for cand in (f / (video.stem + suf) for f in folders for suf in suffixes):
-            if cand.is_file():
-                out[field] = str(cand)
-                break
-    return out
-
-
 # ---------------------------------------------------------------- 注意の重さ(warn/info。問題5)
 # 文言そのものは変えない。API には warningLevels(warnings と同じ順番・同じ長さの "warn"|"info")を足すだけで、
 # warnings(文字列の配列)を期待する既存の呼び出し側(CLI の describe()・test_pack.py など)はそのまま動く
@@ -706,76 +626,6 @@ def with_warning_levels(d):
     """summary()/build_pack() の戻りの dict に、その warnings に対応する warningLevels を足して返す"""
     d["warningLevels"] = classify_warnings(d.get("warnings") or [])
     return d
-
-
-def _inspect_one(app, field, p):
-    if field == "video":
-        meta = app.cache.probe(p)
-        fps = meta["fps"]
-        src, desc, w = C.resolve_src_start(p, None, meta)
-        return {"size": os.path.getsize(p), "w": meta["w"], "h": meta["h"], "fps": list(fps), "fpsLabel": C.fps_label(fps),
-                "total": meta["total"], "durationSec": round(meta["total"] * fps[1] / fps[0], 3), "audio": bool(meta["audio"]),
-                "codec": meta["codec"], "pixFmt": meta["pix_fmt"], "framesSource": meta["frames_source"], "vfr": meta.get("vfr", False),
-                "startTc": src, "startTcDesc": desc,
-                "warnings": [m for m in meta["warnings"] if "開始タイムコード" not in m] + w,
-                "mediaUrl": app.register_media(p), "defaultOutDir": str(pack.default_out_dir(p))}
-    if field == "srt":
-        cues = S.parse_subs(S.read_sub_file(p))
-        if not cues:
-            raise C.ToolError("字幕を1件も読み取れませんでした(SRT/VTT の形式を確認してください)")
-        return {"count": len(cues), "lastSec": round(max(b for _, b, _ in cues) / 1000, 3),
-                "preview": [t[:60] for _, _, t in cues[:3]]}
-    if field == "transcript":
-        tr = C.read_transcript(p)
-        rows = tr["rows"]
-        return {"rows": len(rows), "kept": sum(1 for r in rows if C.row_is_kept(r)), "cut": sum(1 for r in rows if r["cut"]),
-                "bad": tr["bad"], "title": tr["title"][:120], "mediaPath": C.resolve_media_path(tr["media"], p)}
-    doc = AC.read_cut_plan(p)
-    return {"segments": len(doc["segments"]), "tool": doc["tool"][:60], "fineGrained": doc["fineGrained"],
-            "includesHandles": doc["includesHandles"], "defaultHandles": AC.default_handles(doc),
-            "totalSec": round(sum(s["end_seconds"] - s["start_seconds"] for s in doc["segments"]), 3),
-            "mediaPath": C.resolve_media_path(doc["media"], p)}
-
-
-# ---------------------------------------------------------------- アップロード(字幕・文字起こし・cut-plan の中身)
-
-_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
-
-
-def safe_upload_name(name, kind):
-    """ブラウザから来たファイル名を、保存してよい名前に(フォルダの部分・使えない文字・Windows の予約名を除く)"""
-    exts = UPLOAD_LIMITS[kind][1]
-    base = os.path.basename(str(name or "").replace("\\", "/"))
-    base = re.sub(r'[\x00-\x1f<>:"/\\|?*]+', "_", base).strip(" .")
-    stem, ext = os.path.splitext(base)
-    if ext.lower() not in exts:
-        raise ApiError("bad_ext", "このファイルの種類(%s)はここに入れられません。使えるもの: %s" % (ext or "拡張子なし", " ".join(exts)))
-    stem = stem[:80] or "upload"
-    if stem.split(".")[0].upper() in _WIN_RESERVED:
-        stem = "_" + stem
-    return stem + ext.lower()
-
-
-def clean_uploads(keep=UPLOAD_KEEP):
-    """古いアップロードを消す(keep=0 で全部。起動時)"""
-    try:
-        dirs = sorted((d for d in os.scandir(UPLOAD_DIR) if d.is_dir()), key=lambda d: d.name)
-    except OSError:
-        return
-    for d in dirs[:max(0, len(dirs) - keep)] if keep else dirs:
-        shutil.rmtree(d.path, ignore_errors=True)
-
-
-def save_upload(kind, name, data):
-    if kind not in UPLOAD_LIMITS:
-        raise ApiError("bad_kind", "アップロードの種類が正しくありません")
-    fname = safe_upload_name(name, kind)
-    folder = os.path.join(UPLOAD_DIR, time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(4))
-    os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, fname)
-    S.write_bytes_atomic(path, data)
-    clean_uploads()
-    return {"path": path, "name": fname, "size": len(data)}
 
 
 # ---------------------------------------------------------------- HTTP
@@ -891,67 +741,15 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(u.query)
         if u.path in PAGE_PATHS:
             return self._send(200, MOVED_PAGE, "text/html; charset=utf-8", {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"})
-        if u.path.startswith("/media/"):
-            return self._media(u.path[len("/media/"):])
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
             "/api/siblings": lambda: siblings(self.ctx.port, self_path=BASE_PATH),
-            "/api/state": self._state,
             "/api/job": lambda: self.app.job((q.get("id") or [""])[0]).public(),
         }
         fn = routes.get(u.path)
         if fn is None:
             return self._fail(404, "not_found", "見つかりません")
         self._json(200, fn())
-
-    def _state(self):
-        job = self.app.running
-        return {"app": APP_ID, "version": SERVER_VERSION, "ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe")),
-                "platform": sys.platform, "canOpenFolder": True,
-                "job": job.public() if job is not None and job.state == "running" else None,
-                "defaults": DEFAULTS,
-                "uploadLimits": {k: v[0] for k, v in UPLOAD_LIMITS.items()}}
-
-    def _media(self, tok):
-        """入力に指定した動画・作った粗編集の動画だけを Range 対応で配信する(パスは受け取らない。登録した合言葉だけ)"""
-        real = self.app.media_path(tok) if re.fullmatch(r"[A-Za-z0-9_-]{8,40}", tok or "") else None
-        if not real or not os.path.isfile(real):
-            return self._fail(404, "not_found", "見つかりません")
-        size = os.path.getsize(real)
-        ext = os.path.splitext(real)[1].lower()
-        a, b, code = 0, size - 1, 200
-        m = re.match(r"^bytes=(\d*)-(\d*)$", (self.headers.get("Range") or "").strip())
-        if m and (m.group(1) or m.group(2)):
-            if m.group(1):
-                a = int(m.group(1))
-                b = int(m.group(2)) if m.group(2) else size - 1
-            else:
-                a = max(0, size - int(m.group(2)))
-            b = min(b, size - 1)
-            if a > b or a >= size:
-                return self._send(416, b"", extra={"Content-Range": "bytes */%d" % size})
-            code = 206
-        self.send_response(code)
-        self.send_header("Content-Type", MEDIA_TYPES.get(ext, "application/octet-stream"))
-        self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Length", str(b - a + 1 if size else 0))
-        if code == 206:
-            self.send_header("Content-Range", "bytes %d-%d/%d" % (a, b, size))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
-        self.end_headers()
-        if self.command == "HEAD" or not size:
-            return
-        with open(real, "rb") as f:
-            f.seek(a)
-            left = b - a + 1
-            while left > 0:
-                chunk = f.read(min(256 * 1024, left))
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                left -= len(chunk)
 
     # ---- POST
     def do_POST(self):
@@ -961,23 +759,12 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         if not self._guard(True, u.path):
             return
-        if u.path == "/api/upload":
-            q = urllib.parse.parse_qs(u.query)
-            kind = (q.get("kind") or [""])[0]
-            if kind not in UPLOAD_LIMITS:
-                raise ApiError("bad_kind", "アップロードの種類が正しくありません")
-            data = self._read_body(UPLOAD_LIMITS[kind][0], "application/octet-stream")
-            return self._json(200, save_upload(kind, (q.get("name") or [""])[0], data))
-        routes = {"/api/inspect": self._inspect, "/api/plan": self._plan, "/api/build": self._build,
-                  "/api/job/cancel": self._cancel, "/api/open-folder": self._open_folder}
+        routes = {"/api/plan": self._plan, "/api/build": self._build, "/api/job/cancel": self._cancel, "/api/open-folder": self._open_folder}
         fn = routes.get(u.path)
         if fn is None:
             return self._fail(404, "not_found", "見つかりません")
         obj = self._read_json()
         self._json(200, fn(obj))
-
-    def _inspect(self, o):
-        return inspect_inputs(self.app, o)
 
     def _plan(self, o):
         req = request_from_spec(o.get("spec"))
@@ -990,7 +777,6 @@ class Handler(BaseHTTPRequestHandler):
                                                             out_opts["fcpxml"], out_opts["textplus"], out_opts["backup"], plan_file=False,
                                                             readme_file=False)
             res = with_warning_levels(pack.summary(plan))
-            res["mediaUrl"] = app.register_media(plan.video)
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
             return res
         return {"job": app.start_job("plan", work).public()}
@@ -1029,11 +815,8 @@ class Handler(BaseHTTPRequestHandler):
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
                  "warningLevels": classify_warnings(res["warnings"]),
-                 "summary": with_warning_levels(pack.summary(plan)), "mediaUrl": app.register_media(plan.video),
+                 "summary": with_warning_levels(pack.summary(plan)),
                  "editMedia": res["editMedia"], "speakerColors": spk_shown, "loudness": res.get("loudness")}
-            rough = dict(res["files"]).get("roughcut")
-            if rough:
-                r["roughcutUrl"] = app.register_media(rough)
             return r
         return {"job": app.start_job("build", work).public()}
 
@@ -1112,9 +895,9 @@ class MountContext:
 
 
 def _choose_work_dir():
-    """作業用のフォルダ(アップロードの一時置き場・ログ)を、作業データの置き場所の中にする(段階4)。
-    中身は起動のたびに消える一時的なものとログだけなので、以前の場所からは写さない。テストが先に差し替えていれば(既定でなければ)そのまま"""
-    global WORK_DIR, UPLOAD_DIR, LOG_PATH
+    """作業用のフォルダ(ログ)を、作業データの置き場所の中にする(段階4)。
+    中身はログだけなので、以前の場所からは写さない。テストが先に差し替えていれば(既定でなければ)そのまま"""
+    global WORK_DIR, LOG_PATH
     if os.path.normcase(WORK_DIR) != os.path.normcase(os.path.join(CODE_DIR, "work")):
         return
     r = datadir.prepare(TOOL_ID, CODE_DIR, (), log=lambda m: print(m, flush=True))
@@ -1123,17 +906,14 @@ def _choose_work_dir():
     base = r["dir"] if r["state"] != "inplace" else CODE_DIR
     WORK_DIR = os.path.join(base, "work")
     _txi.use_packs_dir(os.path.join(base, "packs"))   # パックを作った記録(④)。入口の中の「編集」・案件・まとめて実行も同じ場所を読む
-    if os.path.normcase(UPLOAD_DIR) == os.path.normcase(os.path.join(CODE_DIR, "work", "uploads")):
-        UPLOAD_DIR = os.path.join(WORK_DIR, "uploads")
     LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 
 
 def _startup(port, base_path="/"):
-    """待ち受け以外の起動の準備。前回のアップロードを消し、.runtime を書く。戻り値は .runtime のパス(書けなければ None)"""
+    """待ち受け以外の起動の準備。作業用のフォルダを決め、.runtime を書く。戻り値は .runtime のパス(書けなければ None)"""
     global BASE_PATH
     BASE_PATH = base_path
     _choose_work_dir()
-    shutil.rmtree(UPLOAD_DIR, ignore_errors=True)   # 前回のアップロードは消す(画面に残ったパスは読み込み直しで分かる)
     runtime = write_runtime(port, base_path)
     log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path,
                                                os.getpid(), sys.version.split()[0]))

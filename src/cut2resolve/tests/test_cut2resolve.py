@@ -9,7 +9,6 @@ import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
-from fractions import Fraction
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent

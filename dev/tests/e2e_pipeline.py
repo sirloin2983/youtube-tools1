@@ -172,8 +172,8 @@ def main():
               and tr.get("clip", {}).get("range", {}).get("start") == clip["range"]["start"], "transcript/v1 の中身(cut・clip)")
 
         # ③ cut2resolve: 文字起こしの残す行で試算 → パック
-        st, ins = call(pc, "POST", "/api/inspect", {"video": clip_mp4, "transcript": tr_path})
-        check(st == 200, "cut2resolve が動画と文字起こしを読み込む: %s" % st)
+        st, ping = call(pc, "GET", "/api/ping")   # 入力の中身を見る /api/inspect は cut2resolve 0.22.0 で消した(読み込みは試算の中で確かめる)
+        check(st == 200 and ping.get("app") == "cut2resolve", "cut2resolve が動いている: %s" % st)
         spec = {"video": clip_mp4, "transcript": tr_path, "mode": "keep", "keepSource": "transcript", "handles": 0}
         st, pj = call(pc, "POST", "/api/plan", {"spec": spec})
         res = None

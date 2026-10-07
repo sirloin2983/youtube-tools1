@@ -320,7 +320,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
             self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/"))
             r, _ = self.req("GET", "/cut2resolve/?classic=1")
             self.assertEqual(r.status, 302)   # 前の画面は消したので、いつも転送
-            for path in ("/cut2resolve/api/ping", "/cut2resolve/api/state"):
+            for path in ("/cut2resolve/api/ping", "/cut2resolve/api/siblings"):
                 r, _ = self.req("GET", path)
                 self.assertEqual(r.status, 200, path)
         finally:
@@ -331,38 +331,36 @@ class TestCut2ResolveMounted(unittest.TestCase):
     def test_api_token_and_guards(self):
         r, body = self.req("GET", "/cut2resolve/api/ping")
         self.assertEqual(json.loads(body), {"app": "cut2resolve", "version": self.mod.SERVER_VERSION})
-        r, body = self.req("GET", "/cut2resolve/api/state")
-        self.assertEqual((r.status, json.loads(body)["app"]), (200, "cut2resolve"))
-        r, body = self.post("/cut2resolve/api/inspect", {}, token=False)
+        r, body = self.req("GET", "/cut2resolve/api/siblings")
+        self.assertEqual((r.status, json.loads(body)["tools"]["cut2resolve"]), (200, self.port))
+        r, body = self.post("/cut2resolve/api/plan", {}, token=False)
         self.assertEqual((r.status, json.loads(body)["error"]), (403, "token"))
-        r, _ = self.post("/cut2resolve/api/inspect", {}, extra={"X-YTT-Token": "x" * len(self.srv.token)})
+        r, _ = self.post("/cut2resolve/api/plan", {}, extra={"X-YTT-Token": "x" * len(self.srv.token)})
         self.assertEqual(r.status, 403)
-        r, body = self.post("/cut2resolve/api/inspect", {})
-        self.assertEqual(r.status, 200, body)
-        r, _ = self.post("/cut2resolve/api/inspect", {}, extra={"Origin": "http://localhost:8810"})
+        r, body = self.post("/cut2resolve/api/plan", {})
+        self.assertEqual((r.status, json.loads(body)["error"]), (400, "bad_request"), body)   # 合言葉が通り、ツールの指定の検査まで届く
+        r, _ = self.post("/cut2resolve/api/plan", {}, extra={"Origin": "http://localhost:8810"})
         self.assertEqual(r.status, 403)   # 単独で動くときの cut2resolve のアドレスからも受け付けない(入口のポートだけ)
-        r, _ = self.req("GET", "/cut2resolve/api/state", headers={"Host": "evil.example:%d" % self.port})
+        r, _ = self.req("GET", "/cut2resolve/api/siblings", headers={"Host": "evil.example:%d" % self.port})
         self.assertEqual(r.status, 403)
-        r, _ = self.req("GET", "/cut2resolve/api/state", headers={"Sec-Fetch-Site": "cross-site"})
+        r, _ = self.req("GET", "/cut2resolve/api/siblings", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
         r, _ = self.req("POST", "/cut2resolve/api/upload?kind=srt&name=a.srt", b"1\n00:00:00,000 --> 00:00:01,000\nhi\n",
                         {"Content-Type": "application/octet-stream", "X-YTT-Token": self.srv.token})
-        self.assertEqual(r.status, 200)
+        self.assertEqual(r.status, 404)   # cut2resolve 0.22.0 で消した API(使う側が無かった)
         r, body = self.req("POST", "/cut2resolve/api/job/cancel", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 合言葉のないものは、ツールの処理まで届かない
         r, _ = self.req("POST", "/api/tools/cut2resolve/stop", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 入口の API も合言葉が要る
 
-    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg が無い")
-    def test_media_under_prefix(self):
+    def test_removed_apis_under_prefix(self):
+        """cut2resolve 0.22.0 で消した API(api/state・api/inspect・media/。消した画面のためのもの)は、取り込まれた場所でも 404"""
+        for path in ("/cut2resolve/api/state", "/cut2resolve/media/" + "a" * 16):
+            r, _ = self.req("GET", path)
+            self.assertEqual(r.status, 404, path)
         r, body = self.post("/cut2resolve/api/inspect", {"video": self.video})
-        self.assertEqual(r.status, 200, body)
-        url = json.loads(body)["inputs"]["video"]["mediaUrl"]
-        self.assertTrue(url.startswith("/media/"), url)   # 画面は BASE を前に付けて使う(app.js の mediaSrc)
-        r, data = self.req("GET", "/cut2resolve" + url, headers={"Range": "bytes=0-9"})
-        self.assertEqual((r.status, len(data)), (206, 10))
-        self.assertEqual(r.getheader("Content-Security-Policy"), "default-src 'none'; sandbox")
-        r, _ = self.req("GET", url)   # 入口の直下には無い
+        self.assertEqual((r.status, json.loads(body)["error"]), (404, "not_found"))
+        r, _ = self.req("GET", "/media/" + "a" * 16)   # 入口の直下にも無い
         self.assertEqual(r.status, 404)
 
     def test_runtime_and_siblings(self):

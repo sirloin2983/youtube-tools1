@@ -8,7 +8,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -807,17 +806,15 @@ class TestTranscript(unittest.TestCase):
         with self.assertRaisesRegex(C.ToolError, "JSON"):
             C.read_transcript(p)
 
-    def test_resolve_media_path_fallback_to_same_folder(self):
-        v = write(self.dir / "clip.mp4", "fake")
-        j = self.dir / "clip.transcript.json"
-        self.assertEqual(C.resolve_media_path({"path": str(v)}, j), str(v))
-        self.assertEqual(C.resolve_media_path({"path": r"C:\gone\clip.mp4"}, j), str(v))   # Windows のパスでも名前だけ使う
-        self.assertEqual(C.resolve_media_path({"path": "/nope/x.mp4", "name": "../clip.mp4"}, j), str(v))
-        self.assertIsNone(C.resolve_media_path({"path": r"\\server\share\clip2.mp4"}, j))
-        self.assertIsNone(C.resolve_media_path(None, j))
-        # 途中のファイル(.transcript.json)は 作業用/、元動画は1つ上(2026-09-27)
-        j2 = self.dir / C.WORK_DIR / "clip.transcript.json"
-        self.assertEqual(C.resolve_media_path({"path": r"C:\gone\clip.mp4"}, j2), str(v))
+    def test_network_paths_are_not_touched(self):
+        """ネットワーク上のパス(サーバーの共有)は存在も確かめない(確かめるだけで資格情報のハッシュを送るため)。
+        消した resolve_media_path(/api/inspect のためのもの。0.22.0)のテストのうち、今も使う部分を残したもの"""
+        for p in (r"\\server\share\clip2.mp4", "//server/share/clip2.mp4"):
+            self.assertTrue(C.is_network_path(p), p)
+        for p in (r"C:\gone\clip.mp4", "/nope/x.mp4", "clip.mp4", "", None):
+            self.assertFalse(C.is_network_path(p), p)
+        with mock.patch.object(Path, "is_file", side_effect=AssertionError("ネットワークのパスを調べた")):
+            self.assertIsNone(C.find_edit_media(r"\\server\share\clip2.mp4"))   # 余白つき素材も探さない
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")

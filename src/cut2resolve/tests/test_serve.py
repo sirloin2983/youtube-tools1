@@ -73,28 +73,26 @@ class ServerBase(unittest.TestCase):
         cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
         cls.th.start()
         cls.c = Client(cls.port)
-        cls.upload_patch = mock.patch.object(serve, "UPLOAD_DIR", str(cls.dir / "uploads"))
-        cls.upload_patch.start()
         cls.data_patch = mock.patch.dict(os.environ, {"YTT_DATA_DIR": str(cls.dir / "data")})   # パックを作った記録(packs/)を一時フォルダへ
         cls.data_patch.start()
 
     @classmethod
     def tearDownClass(cls):
         cls.data_patch.stop()
-        cls.upload_patch.stop()
         cls.srv.shutdown()
         cls.srv.server_close()
         cls.tmp.cleanup()
 
 
 class TestGuards(ServerBase):
-    def test_ping_and_state(self):
+    def test_ping_and_defaults(self):
         st, j = self.c.json("GET", "/api/ping")
         self.assertEqual((st, j), (200, {"app": "cut2resolve", "version": serve.SERVER_VERSION}))
-        st, j = self.c.json("GET", "/api/state")
-        self.assertEqual(st, 200)
-        self.assertIn("defaults", j)
-        self.assertEqual(j["defaults"]["handlesTranscript"], 0.0)
+        # 指定を省いたときの値は pack.Request(コマンドと同じ)の既定と同じ(/api/state で画面に見せていたもの。0.22.0 で api/state は消した)
+        r = serve.pack.Request(video=Path("x.mp4"))
+        self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen", "joinGap", "recStart")},
+                         {"noise": r.noise, "silenceMin": r.silence_min, "silencePad": r.silence_pad, "minLen": r.min_len,
+                          "joinGap": r.join_gap, "recStart": r.rec_start})
 
     def test_host_header_is_checked(self):
         st, _, body = self.c.req("GET", "/api/ping", headers={"Host": "evil.example:%d" % self.port})
@@ -105,9 +103,9 @@ class TestGuards(ServerBase):
 
     def test_cross_site_requests_are_rejected(self):
         for site in ("cross-site", "same-site"):
-            st, _, _ = self.c.req("GET", "/api/state", headers={"Sec-Fetch-Site": site})
+            st, _, _ = self.c.req("GET", "/api/ping", headers={"Sec-Fetch-Site": site})
             self.assertEqual(st, 403, site)
-        st, _, _ = self.c.req("GET", "/api/state", headers={"Sec-Fetch-Site": "same-origin"})
+        st, _, _ = self.c.req("GET", "/api/ping", headers={"Sec-Fetch-Site": "same-origin"})
         self.assertEqual(st, 200)
 
     def test_navigation_from_other_tool_is_allowed_but_not_iframe(self):
@@ -118,22 +116,22 @@ class TestGuards(ServerBase):
         self.assertEqual(hd.get("X-Frame-Options"), "DENY")
         st, _, _ = self.c.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))
         self.assertEqual(st, 403)
-        st, _, _ = self.c.req("GET", "/api/state", headers=nav)   # API は画面への遷移でも不可
+        st, _, _ = self.c.req("GET", "/api/ping", headers=nav)   # API は画面への遷移でも不可
         self.assertEqual(st, 403)
 
     def test_post_origin_and_content_type(self):
-        st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://evil.example"})
+        st, _, _ = self.c.req("POST", "/api/plan", {}, headers={"Origin": "http://evil.example"})
         self.assertEqual(st, 403)
-        st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://http://127.0.0.1:%d" % self.port})
+        st, _, _ = self.c.req("POST", "/api/plan", {}, headers={"Origin": "http://http://127.0.0.1:%d" % self.port})
         self.assertEqual(st, 403)
-        st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://localhost:%d" % self.port})
-        self.assertEqual(st, 200)
-        st, _, _ = self.c.req("POST", "/api/inspect", raw=b"{}", ctype="text/plain")
+        st, _, body = self.c.req("POST", "/api/plan", {}, headers={"Origin": "http://localhost:%d" % self.port})
+        self.assertEqual((st, json.loads(body)["error"]), (400, "bad_request"))   # 検査を通って、指定の中身の検査まで届く
+        st, _, _ = self.c.req("POST", "/api/plan", raw=b"{}", ctype="text/plain")
         self.assertEqual(st, 415)
-        st, _, _ = self.c.req("POST", "/api/inspect", raw=b'{"video": NaN}')
-        self.assertEqual(st, 400)
-        st, _, _ = self.c.req("POST", "/api/inspect", raw=b"[]")
-        self.assertEqual(st, 400)
+        st, _, body = self.c.req("POST", "/api/plan", raw=b'{"spec": NaN}')
+        self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
+        st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
+        self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
 
     def test_page_moved_to_edit_tool(self):
         """画面は「編集」に統合した(2026-09-26)。/ は案内だけ(スクリプトなし・CSP つき)。前の画面の部品は無い"""
@@ -150,7 +148,7 @@ class TestGuards(ServerBase):
         self.assertEqual(self.c.req("GET", "/../serve.py")[0], 404)
 
 
-class TestPathsAndUploads(ServerBase):
+class TestPaths(ServerBase):
     def test_clean_path(self):
         self.assertIsNone(serve.clean_path("  ", "video"))
         self.assertEqual(serve.clean_path('"/tmp/a b.mp4"', "video"), os.path.normpath("/tmp/a b.mp4"))
@@ -159,68 +157,56 @@ class TestPathsAndUploads(ServerBase):
             with self.assertRaises(serve.ApiError, msg=repr(bad)):
                 serve.clean_path(bad, "video")
 
-    def test_inspect_errors_per_field(self):
+    def test_input_path_errors_per_field(self):
+        """入力のパスの検査(欄ごとの拡張子・完全なパス・有無)。以前は /api/inspect で欄ごとに見せていた(0.22.0 で消した)。plan・build も同じ検査"""
         srt = self.dir / "s.srt"
         srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n", encoding="utf-8")
-        st, j = self.c.json("POST", "/api/inspect", {"video": "clip.mp4", "srt": str(srt), "transcript": str(self.dir / "none.json"),
-                                                      "plan": str(srt)})
-        self.assertEqual(st, 200)
-        ins = j["inputs"]
-        self.assertFalse(ins["video"]["ok"])
-        self.assertIn("完全なパス", ins["video"]["error"])
-        self.assertTrue(ins["srt"]["ok"])
-        self.assertEqual(ins["srt"]["count"], 1)
-        self.assertFalse(ins["transcript"]["ok"])
-        self.assertIn("見つかりません", ins["transcript"]["error"])
-        self.assertFalse(ins["plan"]["ok"])   # 拡張子が違う
-        self.assertIn("拡張子", ins["plan"]["error"])
+        self.assertEqual(serve.input_path(str(srt), "srt"), srt)
+        self.assertIsNone(serve.input_path("", "transcript"))
+        for value, field, code, words in (("clip.mp4", "video", "bad_path", "完全なパス"),
+                                          (str(self.dir / "none.json"), "transcript", "not_found", "見つかりません"),
+                                          (str(srt), "plan", "bad_ext", "拡張子")):
+            with self.assertRaises(serve.ApiError, msg=field) as cm:
+                serve.input_path(value, field)
+            self.assertEqual(cm.exception.code, code)
+            self.assertIn(words, cm.exception.message)
+        st, j = self.c.json("POST", "/api/plan", {"spec": {"video": str(self.dir / "clip.mp4"), "plan": str(srt)}})
+        self.assertEqual((st, j["error"]), (400, "not_found"))   # 動画から順に確かめる
 
-    def test_inspect_transcript_suggests_video_in_same_folder(self):
-        v = self.dir / "clip.mp4"
-        v.write_bytes(b"x")
-        t = self.dir / "clip.transcript.json"
-        t.write_text(json.dumps({"schema": "youtube-tools-transcript/v1", "media": {"path": r"D:\moved\clip.mp4", "name": "clip.mp4"},
-                                 "segments": [{"start": 0, "end": 1, "text": "a", "cut": False},
-                                              {"start": 1, "end": 2, "text": "b", "cut": True}]}), encoding="utf-8")
-        st, j = self.c.json("POST", "/api/inspect", {"transcript": str(t)})
-        self.assertEqual(j["inputs"]["transcript"]["kept"], 1)
-        self.assertEqual(j["inputs"]["transcript"]["cut"], 1)
-        self.assertEqual(j["suggestVideo"], str(v))
-
-    def test_upload(self):
-        body = "1\n00:00:01,000 --> 00:00:02,000\nあ\n".encode("cp932")
-        st, _, raw = self.c.req("POST", "/api/upload?kind=srt&name=" + "..%2F..%2F%E5%AD%97%E5%B9%95.srt", raw=body, ctype="application/octet-stream")
-        self.assertEqual(st, 200, raw)
-        j = json.loads(raw)
-        p = Path(j["path"])
-        self.assertEqual(p.name, "字幕.srt")
-        self.assertTrue(str(p).startswith(serve.UPLOAD_DIR))
-        self.assertEqual(p.read_bytes(), body)
-        st, j = self.c.json("POST", "/api/inspect", {"srt": str(p)})
-        self.assertEqual(j["inputs"]["srt"]["count"], 1)   # Shift_JIS のまま読める
-        st, _, raw = self.c.req("POST", "/api/upload?kind=srt&name=con.srt", raw=b"x", ctype="application/octet-stream")
-        self.assertEqual(json.loads(raw)["name"], "_con.srt")   # Windows の予約名
-        st, _, _ = self.c.req("POST", "/api/upload?kind=srt&name=a.exe", raw=b"x", ctype="application/octet-stream")
-        self.assertEqual(st, 400)
-        st, _, _ = self.c.req("POST", "/api/upload?kind=video&name=a.mp4", raw=b"x", ctype="application/octet-stream")
-        self.assertEqual(st, 400)
-        st, _, _ = self.c.req("POST", "/api/upload?kind=srt&name=a.srt", raw=b"x")   # application/json では受けない
-        self.assertEqual(st, 415)
-        with mock.patch.dict(serve.UPLOAD_LIMITS, {"srt": (10, (".srt",))}):
-            st, _, _ = self.c.req("POST", "/api/upload?kind=srt&name=a.srt", raw=b"x" * 11, ctype="application/octet-stream")
-        self.assertEqual(st, 413)
-        st, _, _ = self.c.req("POST", "/api/upload?kind=srt&name=a.srt", raw=b"x", ctype="application/octet-stream",
-                              headers={"Origin": "http://evil.example"})
+    def test_removed_apis_answer_404(self):
+        """消した画面のための API(0.22.0 で消した): api/state・api/inspect・api/upload・media/。検査(Origin)は消す前と同じく先に効く"""
+        for method, path, kw in (("GET", "/api/state", {}), ("POST", "/api/inspect", {"body": {}}),
+                                 ("POST", "/api/upload?kind=srt&name=a.srt", {"raw": b"x", "ctype": "application/octet-stream"})):
+            st, _, body = self.c.req(method, path, **kw)
+            self.assertEqual((st, json.loads(body)["error"]), (404, "not_found"), path)
+        st, _, _ = self.c.req("POST", "/api/inspect", {}, headers={"Origin": "http://evil.example"})
         self.assertEqual(st, 403)
 
-    def test_upload_cleanup_keeps_recent(self):
-        for i in range(5):
-            serve.save_upload("srt", "a%d.srt" % i, b"x")
-            time.sleep(0.01)
-        serve.clean_uploads(keep=2)
-        self.assertEqual(len(os.listdir(serve.UPLOAD_DIR)), 2)
-        serve.clean_uploads(keep=0)
-        self.assertEqual(os.listdir(serve.UPLOAD_DIR), [])
+    def test_removed_helpers_are_gone(self):
+        for gone in ("inspect_inputs", "sibling_suggestions", "save_upload", "clean_uploads", "safe_upload_name", "UPLOAD_DIR",
+                     "UPLOAD_LIMITS", "MEDIA_TYPES", "AC"):
+            self.assertFalse(hasattr(serve, gone), gone)
+        for gone in ("register_media", "media_path"):
+            self.assertFalse(hasattr(serve.AppState, gone), gone)
+        self.assertFalse(hasattr(serve.C, "resolve_media_path"))
+
+    def test_startup_makes_no_upload_folder(self):
+        """起動の準備(_startup): 作業用のフォルダにアップロードの置き場を作らない・消さない。.runtime とログは今までどおり"""
+        work = self.dir / "work_startup"
+        with mock.patch.object(serve, "WORK_DIR", str(work)), mock.patch.object(serve, "LOG_PATH", str(work / "serve.log")), \
+                mock.patch.object(serve, "BASE_PATH", "/"), mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": str(self.dir / "rt")}):
+            rt = serve._startup(8899)
+            try:
+                self.assertTrue(rt and os.path.isfile(rt))
+                self.assertTrue((work / "serve.log").is_file())
+                self.assertFalse((work / "uploads").exists())
+            finally:
+                serve.remove_runtime(8899)
+
+    def test_work_dir_matches_ytt_core(self):
+        """途中のファイルの下のフォルダの名前は ytt_core と同じ(コマンドは ytt_core を読まないので cut2resolve_core にも持つ)"""
+        from ytt_core import schemas as ys
+        self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
 
     def test_open_folder_only_for_pack_dirs(self):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(self.dir)})
@@ -399,25 +385,14 @@ class TestJobs(ServerBase):
         self.assertEqual(st, 200, j)
         return self.c.wait(j["job"])
 
-    def test_inspect_video_and_media_ranges(self):
-        st, j = self.c.json("POST", "/api/inspect", {"video": '"%s"' % self.video})
-        v = j["inputs"]["video"]
-        self.assertTrue(v["ok"], v)
-        self.assertEqual((v["w"], v["h"], v["total"], v["fps"], v["audio"]), (640, 360, 300, [30, 1], True))
-        self.assertEqual(v["startTc"], "00:00:00:00")
-        url = v["mediaUrl"]
-        size = self.video.stat().st_size
-        st, hd, body = self.c.req("GET", url, headers={"Range": "bytes=0-99", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "video"})
-        self.assertEqual((st, len(body), hd["Content-Range"]), (206, 100, "bytes 0-99/%d" % size))
-        self.assertEqual(body, self.video.read_bytes()[:100])
-        st, hd, body = self.c.req("GET", url, headers={"Range": "bytes=-10"})
-        self.assertEqual(body, self.video.read_bytes()[-10:])
-        st, hd, _ = self.c.req("GET", url, headers={"Range": "bytes=%d-" % (size + 5)})
-        self.assertEqual(st, 416)
-        st, hd, body = self.c.req("GET", url)
-        self.assertEqual((st, len(body), hd["Content-Type"]), (200, size, "video/mp4"))
-        st, _, _ = self.c.req("GET", url, headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": "video"})
-        self.assertEqual(st, 403)   # 他のサイトの <video> からは読めない
+    def test_plan_reports_video_info_without_media_url(self):
+        """試算の結果に動画の情報(fps・長さ・開始タイムコード)。動画は配信しない(0.22.0 で media/ と mediaUrl を消した)。
+        Windows の「パスのコピー」の "…" つきのパスも受け付ける"""
+        j = self.run_job("/api/plan", {"spec": {"video": '"%s"' % self.video, "mode": "list", "listKind": "drop", "listText": ""}})
+        r = j["result"]
+        self.assertEqual((r["fps"], r["total"], r["durationSec"], r["srcStart"]), ([30, 1], 300, 10.0, "00:00:00:00"))
+        self.assertNotIn("mediaUrl", r)
+        self.assertEqual(self.c.req("GET", "/media/" + "a" * 16)[0], 404)
 
     def test_plan_modes(self):
         j = self.run_job("/api/plan", {"spec": self.spec()})
@@ -426,7 +401,7 @@ class TestJobs(ServerBase):
         self.assertEqual(r["count"], 3)
         self.assertIn("silence", r["drops"])
         self.assertEqual(r["subtitles"]["out"], 2)
-        self.assertTrue(r["mediaUrl"].startswith("/media/"))
+        self.assertNotIn("mediaUrl", r)   # 動画は配信しない(0.22.0)
         self.assertEqual(r["outputs"]["existing"], [])
         self.assertFalse((self.dir / "clip_pack").exists())   # 試算はファイルを作らない
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="keep", listText="0:01 0:03\n5 8\n")})
@@ -543,8 +518,8 @@ class TestJobs(ServerBase):
         self.assertEqual(sorted(rec["files"]), sorted(["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"]))
         self.assertIn("DaVinci Resolve", r["readme"])
         self.assertEqual(len(parse_edl((out / "clip.edl").read_text(encoding="utf-8"))), 3)
-        st, hd, data = self.c.req("GET", r["roughcutUrl"], headers={"Range": "bytes=0-3"})
-        self.assertEqual(st, 206)
+        self.assertGreater((out / "clip_roughcut.mp4").stat().st_size, 0)
+        self.assertFalse({"mediaUrl", "roughcutUrl"} & set(r))   # 動画は配信しない(0.22.0)
         # 2回目: 上書きの確認
         st, j2 = self.c.json("POST", "/api/build", body)
         self.assertEqual((st, j2["error"]), (409, "exists"))
@@ -654,32 +629,6 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/build", {"spec": self.spec(srt=str(sub)), "output": {"dir": str(out), "force": True}})
         self.assertEqual(j["state"], "error")
         self.assertIn("入力ファイル", j["error"]["message"])
-
-    def test_inspect_video_suggests_sibling_subtitle(self):
-        """問題2: 動画と同じフォルダ・同じ名前(拡張子違い)の字幕があれば inspect の結果に候補として出す
-        (欄をまだ埋めていないときだけ。他のフォルダは見ない)"""
-        st, j = self.c.json("POST", "/api/inspect", {"video": str(self.video)})   # srt はまだ指定していない
-        self.assertEqual(st, 200, j)
-        self.assertEqual(j.get("siblings"), {"srt": str(self.srt)})
-        # すでに srt を指定しているときは、その欄については候補を出さない
-        st, j = self.c.json("POST", "/api/inspect", {"video": str(self.video), "srt": str(self.srt)})
-        self.assertNotIn("srt", j.get("siblings") or {})
-        # 同じ名前でも拡張子違いのファイルが無ければ候補は出ない(このフォルダには無い .transcript.json/.cut-plan.json)
-        other = self.dir / "no_sibling.mp4"
-        make_video(other, 1)
-        st, j = self.c.json("POST", "/api/inspect", {"video": str(other)})
-        self.assertNotIn("siblings", j)
-        # 途中のファイルの 作業用\ の中も探す(2026-09-27。「編集」が .transcript.json をそこに書く)。WORK_DIR は ytt_core と同じ名前
-        from ytt_core import schemas as ys
-        self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
-        w = self.dir / serve.C.WORK_DIR
-        w.mkdir(exist_ok=True)
-        (w / "no_sibling.transcript.json").write_text("{}", encoding="utf-8")
-        try:
-            st, j = self.c.json("POST", "/api/inspect", {"video": str(other)})
-            self.assertEqual(j.get("siblings"), {"transcript": str(w / "no_sibling.transcript.json")})
-        finally:
-            (w / "no_sibling.transcript.json").unlink()
 
     def test_warning_levels_classify_actionable_vs_info(self):
         """問題5: 対処が要る警告(warn)とただの案内(info)を区別できるよう warningLevels を足す。
