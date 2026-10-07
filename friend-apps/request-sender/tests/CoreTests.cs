@@ -46,6 +46,7 @@ static class CoreTests
         Run("受け取る: すべて受け取る(パックだけを古い順・合計・同じ依頼の数・まとめの文)", ReceiveAll);
         Run("受け取る: zip の展開(パックのフォルダを保存先の直下に・同じ名前は (2)・zip は消す・外へ出る名前は断る)", ExtractZips);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
+        Run("要らない: 記録の JSON と置き場所(<zip の名前>.feedback.json)", FeedbackJsonTest);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
         Run("画面: 配信のカード(t= つきの URL・+1分・③ では区間を送らない・誤りの欄・何行も貼る)", StreamCards);
@@ -1167,6 +1168,21 @@ static class CoreTests
                  !File.Exists(Path.Combine(Path.GetDirectoryName(dir), "evil.txt")), "断ったら zip は残し、途中のフォルダは消し、外には何も書かない");
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    static void FeedbackJsonTest()
+    {
+        var e = OutputFolder.FromName("20261002-120000-0a1b2c__みこの配信 1-5.zip");
+        Eq("/20261002-120000-0a1b2c__みこの配信 1-5.feedback.json", FeedbackJson.PathFor(e), "受付のフォルダの直下・zip の名前");
+        var d = Json.Parse(FeedbackJson.Reject(e, new DateTimeOffset(2026, 10, 8, 1, 2, 3, TimeSpan.FromHours(9))));
+        Eq(1L, Json.Long(d, "v", 0), "v");
+        Eq("feedback", Json.Str(d, "kind"), "kind");
+        Eq("reject", Json.Str(d, "verdict"), "verdict");
+        Eq("20261002-120000-0a1b2c__みこの配信 1-5.zip", Json.Str(d, "zip"), "zip の名前はそのまま");
+        Eq("20261002-120000-0a1b2c", Json.Str(d, "requestId"), "依頼の id");
+        Eq("みこの配信 1-5", Json.Str(d, "title"), "題");
+        Eq("2026-10-08T01:02:03+09:00", Json.Str(d, "sentAt"), "時差つき");
+        Eq("/手で置いた.feedback.json", FeedbackJson.PathFor(OutputFolder.FromName("手で置いた.ZIP")), "大文字の .ZIP も");
     }
 
     static IEnumerable<System.Windows.Forms.Control> FindAll(System.Windows.Forms.Control c)

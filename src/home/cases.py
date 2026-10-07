@@ -478,13 +478,7 @@ def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
         if pack and deliveries is not None and deliveries.running(pack):
             raise ReviewError("このパックは今、友人へ届けている途中です(終わってから押してください)")
         row = _feedback_row(c, cl, event="reject", human=True, verdict="bad")
-        moved, where = _to_trash(trash, path, pack)
-        try:
-            st = _studio_reject(studio, c["id"], cl["markId"])
-        except ReviewError:
-            _put_back(moved)
-            raise
-        _write_manifest(where, moved)
+        moved, where, st = discard_clip(trash, studio, c["id"], cl["markId"], path, pack)
         tid = (cl.get("transcript") or {}).get("id") or ""
         if tid and hide:
             try:
@@ -498,6 +492,24 @@ def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
     finally:
         with _busy_lock:
             _busy.discard(key)
+
+
+def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
+    """切り抜き 1 本ぶん(動画・パック・途中のファイル)を ごみ箱フォルダ へ移し、スタジオのマークを不採用に(画面と同じ PUT /api/video)。
+    マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークが無い
+    = 友人の動画の依頼のパック)なら移すだけ。-> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
+    M9 の「要らない」(_discard)と友人の「要らない」(src/home/friend_feedback.py)が同じ道を使う"""
+    pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
+    moved, where = _to_trash(trash, media, pack)
+    st = None
+    if mark_id and video_id:
+        try:
+            st = _studio_reject(studio, video_id, mark_id)
+        except ReviewError:
+            _put_back(moved)
+            raise
+    _write_manifest(where, moved)
+    return moved, where, st
 
 
 def _to_trash(trash, media, pack):

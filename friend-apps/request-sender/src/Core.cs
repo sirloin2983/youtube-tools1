@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.5.1";
+        public const string Version = "2.6.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -390,6 +390,25 @@ namespace RequestSender
     }
 
     // ---- Dropbox の API の引数 ----
+    // ---- 「要らない」の記録(2.6.0): 受け取らずに消したパックを PC に知らせる。受付のフォルダの直下に <zip の名前(.zip 抜き)>.feedback.json(PC の受付が読む) ----
+    public static class FeedbackJson
+    {
+        public const string Suffix = ".feedback.json";
+
+        public static string PathFor(OutputEntry e)
+        {
+            string stem = e.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ? e.Name.Substring(0, e.Name.Length - 4) : e.Name;
+            return "/" + stem + Suffix;
+        }
+
+        public static string Reject(OutputEntry e, DateTimeOffset now)
+        {
+            return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":\"reject\",\"zip\":" + JsonText.Quote(e.Name, false) +
+                   ",\"requestId\":" + JsonText.Quote(e.RequestId ?? "", false) + ",\"title\":" + JsonText.Quote(e.Title ?? "", false) +
+                   ",\"sentAt\":" + JsonText.Quote(now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture), false) + "}";
+        }
+    }
+
     public static class DropboxArgs
     {
         public static string Commit(string path)

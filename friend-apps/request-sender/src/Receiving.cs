@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using FriendApps;
 
 namespace RequestSender
@@ -341,6 +342,30 @@ namespace RequestSender
         }
 
         // Dropbox の /出力 から消す(パックなら隣のまとめ動画も)。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
+        // 受け取らずに消す(「要らない」。2.6.0): 先に記録(<zip>.feedback.json)を受付のフォルダに置き(PC が読んで、切り抜きを片付け・スタジオのマークを不採用に = 誤検出の記録)、
+        // それから zip とまとめ動画を消す。記録が置けなくても消す(2026-10-08 ユーザー決定)。-> 記録を置けたか
+        public bool Discard(OutputEntry e, DateTimeOffset now)
+        {
+            bool recorded = true;
+            try
+            {
+                client.UploadBytes(new UTF8Encoding(false).GetBytes(FeedbackJson.Reject(e, now)), FeedbackJson.PathFor(e));
+            }
+            catch (DropboxException ex)
+            {
+                recorded = false;
+                client.Log("discard: feedback not placed " + e.Name + ": " + ex.Message);
+            }
+            Delete(e);
+            return recorded;
+        }
+
+        // 取ってきたまとめ動画の写し(PreviewDir の中)を消す。受け取った・要らないにしたあとは要らない(2026-10-08 ユーザー決定)
+        public static void ForgetPreview(OutputEntry e)
+        {
+            if (e != null && e.Preview != null) TryDelete(Path.Combine(PreviewDir(), LocalName.Safe(e.Preview.Name)));
+        }
+
         public void Delete(OutputEntry e)
         {
             DeletePath(e.ApiPath);

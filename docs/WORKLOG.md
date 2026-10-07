@@ -2398,6 +2398,21 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: ユーザーの起動し直し(0.45.2)・アプリを閉じて build.bat → zip を友人へ(U8)・配信 2 本目の M7 の結果の記録(次のセッション。HANDOVER の指示文)
 - 未コミット: なし(このコミットで全部。push はユーザー)
 
+## 2026-10-08 Claude Code(PC。Fable。並行セッション「送るツール競合対応と一括受け取り機能」)— 送るアプリ 2.6.0 + ホーム 0.46.0: 友人の「要らない」を PC に戻す(切り抜きを ごみ箱 へ・マークを不採用)・まとめ動画は等速で札をずっと・zip に まとめ.mp4 を入れない
+- ユーザー指示(深夜): 「① 今のプレビューの左上の説明をずっと表示して等速で渡すことになった ② 受け取った後のプレビューはいらない ③ 不採用の場合こちらにフィードバック」→ 続けて「置けなければ消さないはやめて、置けなくても消して」
+- 変更(送るアプリ 2.6.0。`friend-apps/request-sender/`): `Core.cs` に `FeedbackJson`(`<zip の名前(.zip 抜き)>.feedback.json` を受付フォルダ直下に。JSON は v/kind/verdict=reject/zip/requestId/title/sentAt)。`Receiving.Discard` = 記録を置いてから zip とまとめ動画を消す(**置けなくても消す**。戻り値で伝わったかを返し、状態の文で知らせる)。
+  `Receiving.ForgetPreview` = 受け取った・要らないにしたパックのまとめ動画の写し(%TEMP%)を消す(②)。画面の文「2 倍速」→ 等速。テスト `FeedbackJsonTest`(37 件 OK)。README に v2.6.0。`dist/RequestSender.zip` はユーザーがアプリを閉じたあと 01:06 に作り直した(build.bat 4/4 まで)
+- 変更(ホーム 0.46.0。`src/home/`): 新規 `friend_feedback.py`(届けた記録 `logs/deliveries.jsonl` の書き込み `record_delivery`・検索 `find_delivery`・返事の検査 `parse`・片付け `apply` → `logs/friend_feedback.jsonl`)。`cases.discard_clip`(画面の「要らない」`_discard` と同じ道を公開の関数に。マークの無いパックは移すだけ)。
+  `autorun.py`: `Run.pack_marks`(パック → 切り抜きの動画とマーク id。`_step_pack` が `pack_hint` を置き `_pack_one` が移す。`packMarks` で残す)・`_record_delivery`(zip を置くたびに 1 行。1 本ずつでも)・`_deliver_batch` は zip に まとめ.mp4 を入れない(②)。
+  `intake.py`: `.feedback.json` を(依頼の動画の待ちより先に)見分けて `_handle_feedback` → 入口が渡す `feedback=`(`launch.py`: `friend_feedback.apply` にスタジオの呼び出し `live.studio_call` と `cleanup` を渡す)。結果は一覧に kind `feedback`(`portal.js` の札「友人の返事」)、ファイルは 受付済み(片付けられなければ 失敗)。友人には知らせない。
+  `deliver.py`: `PREVIEW_SPEED` 2.0 → 1.0・`PREVIEW_LABEL_SEC` 2 → 0(ずっと)。`_preview_args` は等速なら setpts/atempo を入れない(音は anull)、札の秒数 0 なら enable を付けない(①)
+- 版: ホーム 0.45.2 → 0.46.0(`launch.py`・README)。送るアプリ 2.5.1 → 2.6.0
+- テスト: `test_friend_feedback`(新規 5 件)・`test_intake`(+3: 返事を片付けて 受付済み へ・読めない/記録に無いは 失敗 へ・部品なしは断る)・`test_deliver`(`PreviewArgsTest` 2 件 + 等速 4 秒/speed=2.0 で 2 秒)・`test_autorun`(zip に まとめ.mp4 が無い・deliveries.jsonl の行・pack_marks)・`test_cases`・`test_launch` すべて OK。lint 0。e2e_intake_ui・e2e_portal すべて OK・ui_audit all --demo Must 0(Should 38 は前からの styleguide の分)
+- 文書: `docs/spec/friend-intake.md` 2-12(「要らない」の未実装の記述を直す)・2-13(等速・札ずっと・zip に入れない・届けた記録)・**新 2-14**(返事の形と PC 側の流れ)。`plan/decisions.md` (dk)(dl)(dm) に → を足し、**3-11 (do)〜(ds)**。`plan/data.js`(版・⑩・別件・U8・U6)→ 公開ページを公開し直し。`docs/HANDOVER.md` の並行セッションの段落。`src/home/README.txt` v0.46.0
+- 決定・理由: 返事は受付フォルダ直下の JSON(依頼と同じ場所・同じ鍵。新しい API や共有を増やさない)。PC 側は届けた記録にある zip だけ動かし、JSON に書かれたパスは使わない(鍵を知る人が置いても記録にある物しか動かせない)。マークの不採用は画面の「要らない」と同じ `PUT /api/video`(誤検出の記録 = 精度のデータ。ユーザーの保存の方針)
+- 未完了・次: ユーザーが入口を 0.46.0 で起動し直す → 2.6.0 の zip を友人へ(U8)→ 「要らない」の返事が一覧に「友人の返事」で出て、マークが不採用になるのを本物の Dropbox で 1 回。3-11 の仮決めの確認。0.46.0 より前に届けた zip の返事は「届けた記録に見つかりません」で断る(記録が無いため。想定どおり)
+- 注意: 同じ作業フォルダで別セッション(資料の整理・Chrome 拡張)が動いている。`src/editor/app-rows.js`・`ed_jobs.py`・`tests/test_metrics.py` の未コミットの差分は別セッションのもの(このコミットに入れていない)。WORKLOG は自分の差分だけを update-index で入れた
+
 ## 2026-10-08 Claude Code(PC。Fable)— 10-07 夜の整理(a4ccbf2〜1021359)のあとの、まとめ役によるテストの流し直しの結果
 - 単体: home 15 本 461 件 OK(skip 2。1 回目はサブエージェントの e2e と同時に流して 1 件落ちたが、単独で流し直すと全部 OK = 負荷によるもの)・ytt_core 130 件 OK・studio 309 件 OK・dev(eval_cloud・eval_marks・eval_asr・ui_kit_sync)OK・node test_review 51 件 OK・`dev/lint.py` 0 件・`ui_audit static` Must 0(Should 8 = 前からの A-08)
 - e2e(1 本ずつ): e2e_live_studio 164 件 OK・e2e_portal すべて OK・e2e_autorun すべて OK・e2e_live ALL OK・e2e_live_archive 100 件 OK・スタジオ e2e_ui --mounted 243 件中 243 件 OK。`ui_audit all --demo` は画面の担当が最後に流して Must 0・Should 38(その後に変えた画面のファイルは無い)

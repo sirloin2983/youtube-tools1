@@ -48,6 +48,7 @@ import uuid
 from ytt_core import colors, fsio, txindex
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
+import friend_feedback  # noqa: E402  (届けた zip の中身の記録 deliveries.jsonl。友人の「要らない」が来たときに引く。2026-10-08)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
@@ -314,6 +315,8 @@ class Run:
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
+        self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手(2026-10-08)
+        self.pack_hint = None            # _step_pack が _pack_one の直前に置く {"path", "markId"}(_pack_one が pack_marks へ移す)
         self.source_path = source_path   # 依頼の動画(mode file。作業データへコピーしたもの)
         self.request_id = request_id     # 友人からの依頼の id(src/home/intake.py)
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
@@ -350,6 +353,7 @@ class Run:
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length,
                 "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
+                "packMarks": dict(self.pack_marks),
                 "created": self.created, "state": self.state, "message": self.message,
                 "steps": [{"key": s["key"], "state": s["state"], "detail": s["detail"]} for s in self.steps]}
 
@@ -386,6 +390,8 @@ class Run:
         run.friend_length = d.get("friendLength") if isinstance(d.get("friendLength"), dict) else None
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
         run.packs, run.delivered = strs("packs"), strs("delivered")
+        pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
+        run.pack_marks = {str(k): {"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")} for k, v in pm.items() if isinstance(v, dict)}
         old = {x.get("key"): x for x in d.get("steps") or [] if isinstance(x, dict)}
         for st in run.steps:
             o = old.get(st["key"]) or {}
@@ -1718,6 +1724,8 @@ class AutoRunner:
         out = os.path.normpath(r["outDir"]) if r.get("outDir") else ""   # 届けた印(run.delivered)と同じ書き方にそろえる
         if out and out not in run.packs:
             run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
+            run.pack_marks[out] = dict(run.pack_hint or {})   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
+            run.pack_hint = None
             if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # n 本たまるごとに届ける(全部を待たない)
                 self._deliver_pending(run, st, prefix, final=False)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
@@ -1746,6 +1754,7 @@ class AutoRunner:
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
             st["detail"] = prefix.rstrip(" ・ ")
             try:
+                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or "")}
                 res, cut = self._pack_one(run, st, doc, m["path"], opts, force=run.overwrite, prefix=prefix)
             except StepError as e:
                 if run.on_fail == "stop":
@@ -1962,9 +1971,9 @@ class AutoRunner:
                 self._deliver_batch(run, st, batch, prefix)
 
     def _deliver_batch(self, run, st, batch, prefix):
-        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。1-5 はこの実行の何本目か。中は <題>_pack/ が並び、まとめ動画 まとめ.mp4 も入る)
-        にして 出力 へ。まとめ動画は zip の隣にも <同じ名前>.preview.mp4 で先に置く(deliver.place_preview)。
-        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip は届ける"""
+        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。1-5 はこの実行の何本目か。中は <題>_pack/ が並ぶ)にして 出力 へ。
+        まとめ動画は zip の隣に <同じ名前>.preview.mp4 で先に置く(deliver.place_preview。zip の中には入れない = 受け取ったあとは要らない。2026-10-08)。
+        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip は届ける。届けた zip の中身(パックとマーク)は deliveries.jsonl に残す"""
         first, last = run.packs.index(batch[0]) + 1, run.packs.index(batch[-1]) + 1
         name = self._deliver_name(run, "%s %s" % (run.title or "pack", "%d-%d" % (first, last) if first != last else first))
         st["detail"] = prefix + "まとめ動画を作っています(%d 本)" % len(batch)
@@ -1979,8 +1988,9 @@ class AutoRunner:
             if preview:
                 placed = deliver_mod.place_preview(preview, dest)
             st["detail"] = prefix + "%d 本を zip にして Dropbox へ届けています" % len(batch)
-            deliver_mod.zip_packs(batch, run.deliver_dir, name, extra=[(preview, deliver_mod.PREVIEW_NAME)] if preview else None, check=check, dest=dest)
+            deliver_mod.zip_packs(batch, run.deliver_dir, name, check=check, dest=dest)
             self._mark_delivered(run, batch)
+            self._record_delivery(run, dest, batch)
         except Exception as e:
             deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
             if isinstance(e, OSError):
@@ -1993,6 +2003,11 @@ class AutoRunner:
         """届けたパックを run.delivered に足して、すぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5)"""
         run.delivered.extend(dirs)
         self._save_active()
+
+    def _record_delivery(self, run, zip_path, dirs):
+        """届けた zip の中身(パックのフォルダ・切り抜きの動画・スタジオのマーク)を logs/deliveries.jsonl に残す(友人の「要らない」が来たときに引く)"""
+        if self.log_path:
+            friend_feedback.record_delivery(os.path.dirname(self.log_path), zip_path, run, dirs, run.pack_marks)
 
     @staticmethod
     def _place_error(e):
@@ -2013,9 +2028,10 @@ class AutoRunner:
         if d in run.delivered or not os.path.isdir(d):
             return
         try:
-            deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack"),
-                                 check=lambda: self._check(run))
+            dest = deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack"),
+                                       check=lambda: self._check(run))
             self._mark_delivered(run, [d])
+            self._record_delivery(run, dest, [d])
         except OSError as e:
             raise self._place_error(e)
 

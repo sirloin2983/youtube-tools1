@@ -131,6 +131,28 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
 
+class PreviewArgsTest(unittest.TestCase):
+    """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速なら setpts/atempo を入れない・札はずっと(2026-10-08 ユーザー決定)"""
+
+    def test_normal_speed_and_label_always(self):
+        self.assertEqual((deliver.PREVIEW_SPEED, deliver.PREVIEW_LABEL_SEC), (1.0, 0))
+        args = deliver._preview_args("ffmpeg", ["a.mp4", "b.mp4"], "out.mp4", 1.0, 480, True, label_files=["l1.txt", "l2.txt"], font="C:/Windows/Fonts/meiryo.ttc")
+        fc = args[args.index("-filter_complex") + 1]
+        self.assertNotIn("setpts", fc)
+        self.assertNotIn("atempo", fc)
+        self.assertIn("[0:a]anull[a0]", fc)
+        self.assertIn("drawtext=", fc)
+        self.assertNotIn("enable=", fc, "札はずっと出す")
+        self.assertIn("concat=n=2:v=1:a=1[v][a]", fc)
+
+    def test_fast_when_asked(self):
+        args = deliver._preview_args("ffmpeg", ["a.mp4"], "out.mp4", 2.0, 480, True)
+        fc = args[args.index("-filter_complex") + 1]
+        self.assertIn("setpts=PTS/2", fc)
+        self.assertIn("atempo=", fc)
+        self.assertNotIn("drawtext", fc)
+
+
 class PreviewTest(unittest.TestCase):
     """まとめ動画(ffmpeg が要る。無ければ skip)"""
 
@@ -155,15 +177,18 @@ class PreviewTest(unittest.TestCase):
         subprocess.run(args + ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-shortest", p], check=True, timeout=60)
         return p
 
-    def test_two_clips_at_double_speed(self):
+    def test_two_clips_at_normal_speed_and_double_when_asked(self):
         from ytt_core import normalize
         a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
         out = os.path.join(self.tmp, "preview.mp4")
-        self.assertTrue(deliver.make_preview([a, b], out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertTrue(deliver.make_preview([a, b], out, ["一本目", "二本目"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
         info = normalize.probe(out, ffprobe=self.ffprobe)
         self.assertEqual((info["height"], info["has_audio"]), (480, True))
-        self.assertAlmostEqual(info["duration"], 2.0, delta=0.5)   # 2 秒 × 2 本を 2 倍速 = 2 秒
+        self.assertAlmostEqual(info["duration"], 4.0, delta=0.5)   # 等速: 2 秒 × 2 本 = 4 秒(2026-10-08 ユーザー決定)
         self.assertEqual(self.logs, [])
+        fast = os.path.join(self.tmp, "fast.mp4")
+        self.assertTrue(deliver.make_preview([a, b], fast, speed=2.0, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertAlmostEqual(normalize.probe(fast, ffprobe=self.ffprobe)["duration"], 2.0, delta=0.5)   # 定数を変えれば速くもできる
 
     def test_silent_clip_makes_a_silent_preview(self):
         from ytt_core import normalize

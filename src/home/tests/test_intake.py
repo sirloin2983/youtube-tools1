@@ -608,5 +608,42 @@ class TestNormalize(Base):
         self.assertEqual(self.it.snapshot()["requests"][0]["state"], "accepted")
 
 
+class TestFeedback(Base):
+    """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0): 読んで feedback= に渡し、一覧に kind "feedback" で残して 受付済み へ"""
+
+    def test_reject_is_applied_and_filed(self):
+        got = []
+        self.it.feedback = lambda fb: (got.append(fb), {"ok": True, "summary": "2 本をごみ箱フォルダへ(スタジオのマークを不採用 2 本)"})[1]
+        self.put("20261002-120000-0a1b2c__配信A 1-2.feedback.json",
+                 '{"v":1,"kind":"feedback","verdict":"reject","zip":"20261002-120000-0a1b2c__配信A 1-2.zip","requestId":"20261002-120000-0a1b2c",'
+                 '"title":"配信A 1-2","sentAt":"2026-10-08T01:02:03+09:00"}')
+        self.scan2()
+        self.assertEqual([f["zip"] for f in got], ["20261002-120000-0a1b2c__配信A 1-2.zip"])
+        rec = self.it.st["requests"][0]
+        self.assertEqual((rec["kind"], rec["source"], rec["state"], rec["title"]), ("feedback", "app", "accepted", "要らない: 配信A 1-2"))
+        self.assertEqual((rec["items"][0]["label"], rec["items"][0]["reason"]), ("20261002-120000-0a1b2c__配信A 1-2.zip", "2 本をごみ箱フォルダへ(スタジオのマークを不採用 2 本)"))
+        self.assertTrue(os.path.exists(self.done("20261002-120000-0a1b2c__配信A 1-2.feedback.json")), "受付済み へ")
+        self.assertEqual((self.runner.files, self.runner.requests), ([], []), "依頼としては扱わない")
+
+    def test_unreadable_or_unapplied_goes_to_failed(self):
+        self.it.feedback = lambda fb: {"ok": False, "reason": "届けた記録に見つかりません: x.zip"}
+        self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
+        self.put("y.feedback.json", "{broken")
+        self.scan2()
+        recs = {r["title"]: r for r in self.it.st["requests"]}
+        self.assertEqual(recs["要らない: x.zip"]["state"], "rejected")
+        self.assertIn("届けた記録に", recs["要らない: x.zip"]["reason"])
+        self.assertIn("読めませんでした", recs["y.feedback.json"]["reason"])
+        self.assertTrue(os.path.exists(self.failed("x.feedback.json")) and os.path.exists(self.failed("y.feedback.json")), os.listdir(self.folder))
+        self.assertFalse(os.path.isdir(os.path.join(self.folder, intake.OUT_DIR)), "友人には知らせない(もう消したあと)")
+
+    def test_without_handler_is_refused(self):
+        self.put("x.feedback.json", '{"v":1,"kind":"feedback","verdict":"reject","zip":"x.zip"}')
+        self.scan2()
+        rec = self.it.st["requests"][0]
+        self.assertEqual((rec["kind"], rec["state"]), ("feedback", "rejected"))
+        self.assertIn("部品", rec["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

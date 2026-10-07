@@ -1783,7 +1783,7 @@
     var li = el('li', 'pt-intake-item');
     if (r.id) li.setAttribute('data-fkey', 'intake:' + r.id);
     var head = el('div', 'pt-intake-head');
-    head.appendChild(el('span', 'pill info', r.kind === 'url' ? 'URL' : '動画'));
+    head.appendChild(el('span', 'pill info', r.kind === 'url' ? 'URL' : r.kind === 'feedback' ? '友人の返事' : '動画'));
     head.appendChild(el('span', 'pt-intake-title', r.title || (r.kind === 'url' ? '(題名なし)' : '(ファイル名なし)')));
     head.appendChild(el('span', 'pill ' + (r.state === 'accepted' ? 'ok' : 'warn'), r.stateLabel || (r.state === 'accepted' ? '受け付けた' : '断った')));
     var t = el('span', 'hint pt-intake-when', ago(r.received)); t.title = r.received ? when(r.received) : '';

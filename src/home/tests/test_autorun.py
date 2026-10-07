@@ -18,6 +18,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
+import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from ytt_core import fsio  # noqa: E402
 
@@ -1304,9 +1305,16 @@ class TestRequests(Base):
         pre = "20261001-120000-abc123__%s" % run["title"]   # 題名は実行が決める(偽の配信の題名)
         self.assertEqual(sorted(os.listdir(out)), [pre + " 1-2.preview.mp4", pre + " 1-2.zip"])
         inside = self.zips(out)[pre + " 1-2.zip"]
-        for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4", "a3_pack/cut-plan.json", A.deliver_mod.PREVIEW_NAME):
+        for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4", "a3_pack/cut-plan.json"):
             self.assertIn(n, inside)
+        self.assertNotIn(A.deliver_mod.PREVIEW_NAME, inside, "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
         self.assertEqual(len(self.delivered(run)), 2)
+        row = friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), pre + " 1-2.zip")   # 友人の「要らない」で引く記録
+        self.assertEqual((row["requestId"], row["videoId"], len(row["packs"])), ("20261001-120000-abc123", VID, 2), row)
+        self.assertTrue(all(p["markId"] and p["path"].endswith(".mp4") and os.path.isdir(p["dir"]) for p in row["packs"]), row)
+        marks = next(r for r in self.r.runs if r.id == run["id"]).pack_marks
+        self.assertEqual(sorted(marks), sorted(p["dir"] for p in row["packs"]))
+        self.assertEqual(sorted(m["markId"] for m in marks.values()), sorted(p["markId"] for p in row["packs"]))
         self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・まとめ動画が残る")
 
     def test_delivers_one_by_one_when_batch_is_1(self):
@@ -1321,6 +1329,8 @@ class TestRequests(Base):
         self.assertEqual(sorted(os.listdir(out)), ["20261001-120000-abc123__a2.zip", "20261001-120000-abc123__a3.zip"])
         self.assertIn("a2_pack/cut-plan.json", got["20261001-120000-abc123__a2.zip"])
         self.assertNotIn(A.deliver_mod.PREVIEW_NAME, got["20261001-120000-abc123__a2.zip"])
+        for z in ("20261001-120000-abc123__a2.zip", "20261001-120000-abc123__a3.zip"):   # 1 本ずつでも届けた記録は残す
+            self.assertEqual(len(friend_feedback.find_delivery(os.path.join(self.tmp, "logs"), z)["packs"]), 1, z)
 
     def test_delivers_in_batches_with_remainder(self):
         """n=2 で 3 本: 2 本たまった時点で「1-2」、実行の終わりに残りの「3」(1 本でも、この実行が複数なら同じ形 = まとめ動画つき)"""

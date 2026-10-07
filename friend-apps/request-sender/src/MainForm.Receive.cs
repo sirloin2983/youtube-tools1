@@ -2,8 +2,9 @@
 //   受け取る         … 選んだパック 1 本(ダブルクリックでも)。大きさと hash を確かめ、保存先に展開して(settings.json の extractZip が false なら zip のまま)、Dropbox と一覧から消す
 //   すべて受け取る   … 届いているパックを古い順に 1 本ずつ同じように(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように)
 //   やめる           … 取ってきている途中だけ出る。途中のファイルは消し、受け取り終えたものは Dropbox から消し終える
-//   まとめ動画を見る … パックの隣のまとめ動画(2 倍速の確認用)を %TEMP%\RequestSender\previews に取ってきて、既定のプレイヤーで開く
-//   要らない / 消す  … 1 つのボタン。パックなら受け取らずに Dropbox から消す(まとめ動画も)、失敗の知らせなら読み終えたあとに消す
+//   まとめ動画を見る … パックの隣のまとめ動画(等速・各クリップに札の確認用)を %TEMP%\RequestSender\previews に取ってきて、既定のプレイヤーで開く。受け取った・要らないにしたら写しは消す
+//   要らない / 消す  … 1 つのボタン。パックなら記録(<zip>.feedback.json)を受付のフォルダに置いてから受け取らずに Dropbox から消す(まとめ動画も。記録が置けなくても消す。2.6.0)、
+//                     失敗の知らせなら読み終えたあとに消す
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -239,9 +240,9 @@ namespace RequestSender
                 detail.Text = "題: " + e.Title + "\r\n" +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
-                              "まとめ動画: " + (e.Preview != null ? "あり(" + SizeText(e.Preview.Size) + "。「まとめ動画を見る」で中身を 2 倍速で確かめられます)" : "なし") + "\r\n\r\n" +
+                              "まとめ動画: " + (e.Preview != null ? "あり(" + SizeText(e.Preview.Size) + "。「まとめ動画を見る」で中身を確かめられます)" : "なし") + "\r\n\r\n" +
                               "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。" +
-                              "要らなければ「要らない」で、受け取らずに Dropbox から消せます。";
+                              "要らなければ「要らない」で、受け取らずに Dropbox から消せます(要らなかったことは送り先の人に伝わります)。";
                 return;
             }
             string text;
@@ -296,6 +297,7 @@ namespace RequestSender
                 ShowSelected();
                 return;
             }
+            Receiving.ForgetPreview(e);   // 見終えたまとめ動画の写しは要らない
             RemoveEntry(e);
             if (got.ExtractError != null)
                 SetRecvStatus("受け取りましたが、展開できませんでした(" + got.ExtractError + ")。zip はそのまま保存先にあります(右クリック →「すべて展開」)。", true);
@@ -335,6 +337,7 @@ namespace RequestSender
         void FinishDownloadAll(ReceiveAllResult r)
         {
             if (r.LastPath != null) lastDownloaded = r.LastPath;
+            foreach (var x in r.Done) Receiving.ForgetPreview(x);
             RemoveEntries(r.Done);
             if (r.Clean) recvBar.Value = 1000;
             SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.HasProblem, r.Clean);
@@ -405,7 +408,7 @@ namespace RequestSender
             UpdateRecvButtons();
         }
 
-        // まとめ動画(zip の隣の小さい mp4)を取ってきて、既定のプレイヤーで開く(2 倍速の確認用。受け取る前に中身を見る)
+        // まとめ動画(zip の隣の小さい mp4)を取ってきて、既定のプレイヤーで開く(等速の確認用。受け取る前に中身を見る)
         void StartPreview()
         {
             var e = SelectedEntry;
@@ -423,7 +426,7 @@ namespace RequestSender
                     try
                     {
                         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                        SetRecvStatus("まとめ動画を開きました(2 倍速)。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
+                        SetRecvStatus("まとめ動画を開きました。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
                     }
                     catch (Exception ex)
                     {
@@ -439,7 +442,7 @@ namespace RequestSender
             var e = SelectedEntry;
             if (RecvBusy || !CanDelete(e)) return;
             bool pack = IsPack(e);
-            string ask = pack ? "このパックを受け取らずに消します(送り先の Dropbox から消え、もう受け取れません)。よろしいですか?\n(" + e.Title + ")"
+            string ask = pack ? "このパックを受け取らずに消します(送り先の Dropbox から消え、もう受け取れません。要らなかったことは送り先の人に伝わります)。よろしいですか?\n(" + e.Title + ")"
                               : "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")";
             if (MessageBox.Show(this, ask, DeleteLabel(e),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
@@ -451,11 +454,14 @@ namespace RequestSender
             var receiving = NewReceiving(config);
             RunRecv(() =>
             {
-                receiving.Delete(e);
+                bool recorded = true;
+                if (pack) { recorded = receiving.Discard(e, DateTimeOffset.Now); Receiving.ForgetPreview(e); }   // 記録を置いてから消す(置けなくても消す。2.6.0)
+                else receiving.Delete(e);
                 OnUi(() =>
                 {
                     RemoveEntry(e);
-                    SetRecvStatus(pack ? "消しました(受け取りませんでした)" : "消しました", false);
+                    SetRecvStatus(!pack ? "消しました" : recorded ? "消しました(受け取りませんでした。送り先の人に伝わります)"
+                                  : "消しました(受け取りませんでした。送り先の人への記録は送れなかったので、伝わりません)", !pack ? false : !recorded);
                 });
             });
         }

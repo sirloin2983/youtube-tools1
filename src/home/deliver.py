@@ -26,12 +26,12 @@ from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = �
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")   # 圧縮しても小さくならない物は ZIP_STORED
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画
-PREVIEW_SPEED = 2.0            # まとめ動画の再生速度(2 倍。音の高さは変えない)
+PREVIEW_SPEED = 1.0            # まとめ動画の再生速度(2026-10-08 ユーザー決定: 等速で渡す。1 以外なら setpts/atempo で速くする。音の高さは変えない)
 PREVIEW_HEIGHT = 480           # まとめ動画の縦の画素数
-PREVIEW_CRF = 28               # まとめ動画の画質(本番より落とす。5 本 × 90 秒で 15〜25MB の見込み)
-PREVIEW_LABEL_SEC = 2          # 各クリップの頭に「i/N 題」の札を出す秒数(速くしたあとの時間)
+PREVIEW_CRF = 28               # まとめ動画の画質(本番より落とす。5 本 × 90 秒で 30〜50MB の見込み)
+PREVIEW_LABEL_SEC = 0          # 各クリップの「i/N 題」の札を出す秒数(0 = ずっと出す。2026-10-08 ユーザー決定)
 PREVIEW_TIMEOUT = 600          # まとめ動画を作る ffmpeg の上限(秒)
-PREVIEW_NAME = "まとめ.mp4"            # zip の中の名前
+PREVIEW_NAME = "まとめ.mp4"            # zip の中に入れるときの名前(0.46.0 からは zip に入れない = 受け取ったあとは要らない。zip_packs の extra の見本・テストで使う)
 PREVIEW_SUFFIX = ".preview.mp4"        # zip の隣の名前(<zip の名前>.preview.mp4。友人のアプリが先にこれだけ取ってきて見る)
 FONT_CANDIDATES = ("meiryo.ttc", "YuGothM.ttc", "msgothic.ttc")   # 札の文字(Windows の日本語フォント。無ければ札を付けない)
 BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -207,17 +207,18 @@ def _run_ffmpeg(args, timeout, check):
 
 
 def _preview_args(ffmpeg, videos, out, speed, height, audio, label_files=None, font=None):
-    """まとめ動画を作る ffmpeg の引数。各クリップを height に縮めて speed 倍速(音は atempo で高さを変えない)→ concat。
-    label_files = クリップごとの札の文字のファイル(drawtext の textfile。日本語をそのまま渡すため)。None なら札なし"""
-    parts = []
+    """まとめ動画を作る ffmpeg の引数。各クリップを height に縮め、speed が 1 でなければ speed 倍速(音は atempo で高さを変えない)→ concat。
+    label_files = クリップごとの札の文字のファイル(drawtext の textfile。日本語をそのまま渡すため)。None なら札なし。
+    札は PREVIEW_LABEL_SEC 秒(0 = ずっと)"""
+    parts, fast = [], abs(float(speed) - 1.0) > 1e-6
     for i in range(len(videos)):
-        chain = "[%d:v]scale=-2:%d,setpts=PTS/%g" % (i, height, speed)
+        chain = "[%d:v]scale=-2:%d" % (i, height) + (",setpts=PTS/%g" % speed if fast else "")
         if label_files:
-            chain += (",drawtext=fontfile='%s':textfile='%s':fontsize=28:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=16:y=16:enable='lt(t,%d)'"
-                      % (_fpath(font), _fpath(label_files[i]), PREVIEW_LABEL_SEC))
+            chain += (",drawtext=fontfile='%s':textfile='%s':fontsize=28:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=16:y=16"
+                      % (_fpath(font), _fpath(label_files[i]))) + (":enable='lt(t,%d)'" % PREVIEW_LABEL_SEC if PREVIEW_LABEL_SEC > 0 else "")
         parts.append(chain + "[v%d]" % i)
         if audio:
-            parts.append("[%d:a]%s[a%d]" % (i, _atempo(speed), i))
+            parts.append("[%d:a]%s[a%d]" % (i, _atempo(speed) if fast else "anull", i))
     n = len(videos)
     parts.append("".join("[v%d]%s" % (i, "[a%d]" % i if audio else "") for i in range(n)) +
                  "concat=n=%d:v=1:a=%d[v]%s" % (n, 1 if audio else 0, "[a]" if audio else ""))
@@ -242,8 +243,8 @@ def _label_files(tmpdir, labels, n):
 
 def make_preview(videos, out_path, labels=None, speed=PREVIEW_SPEED, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=None, timeout=PREVIEW_TIMEOUT, check=None,
                  log=None):
-    """n 本の切り抜きをつなげた、友人が中身を確かめるための動画を out_path に作る(480p・speed 倍速で音の高さは変えない・
-    各クリップの頭に「i/N 題」の札。字幕は入れない)。-> 作れたか。作れなくても呼ぶ側はまとめ動画なしで届ける。
+    """n 本の切り抜きをつなげた、友人が中身を確かめるための動画を out_path に作る(480p・既定は等速(speed=1。1 以外なら速くして音の高さは変えない)・
+    各クリップに「i/N 題」の札(PREVIEW_LABEL_SEC 秒。0 = ずっと)。字幕は入れない)。-> 作れたか。作れなくても呼ぶ側はまとめ動画なしで届ける。
     音の無いクリップが混ざっていれば音なしで作る。札はフォントが無い・drawtext で失敗したときは付けずにもう一度作る"""
     log = log or (lambda msg: None)
     ffmpeg = ffmpeg or tools.find_tool("ffmpeg")

@@ -31,6 +31,7 @@ import time
 import uuid
 
 from ytt_core import colors, fsio, jobs, normalize, tools
+import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
@@ -304,10 +305,12 @@ def _streamer(name):
 
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
-                 norm_probe=None, norm_run=None):
+                 norm_probe=None, norm_run=None, feedback=None):
         """prefs: src/home/prefs.py の Prefs(節 intake)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
-        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)"""
+        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)。
+        feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)"""
         self.prefs, self.runner, self.data_dir = prefs, runner, data_dir
+        self.feedback = feedback
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.probe = probe or probe_video
@@ -434,6 +437,9 @@ class Intake:
             for n, p in items:
                 if n in claimed or n.endswith(REQ_SUFFIX) or not os.path.exists(p):
                     continue
+                if n.lower().endswith(friend_feedback.SUFFIX):   # 友人のアプリの「要らない」(2.6.0)。名前が依頼の動画の形(<依頼 id>__…)でも、動画の待ちはしない
+                    self._handle_feedback(folder, n, p)
+                    continue
                 m = APP_FILE_RE.match(n)
                 if m and (m.group(1) + REQ_SUFFIX) in files:
                     continue   # JSON はあるが、まだそろっていない(同期の途中)
@@ -529,6 +535,25 @@ class Intake:
         res = self._accept_video(p, n, who, cfg, None, "check", folder)
         results = [dict(res, label=n)] + ([{"label": "配信者", "state": "accepted", "reason": note}] if note else [])
         self._record(folder, "video", "manual", n, [n], who or "", "", [res["runId"]] if res.get("runId") else [], results)
+
+    def _handle_feedback(self, folder, n, p):
+        """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0)。中身を friend_feedback.parse で確かめ、self.feedback(入口の
+        friend_feedback.apply = 届けた記録から切り抜きとパックを ごみ箱 へ・スタジオのマークを不採用に)に渡す。結果は一覧に kind "feedback" で残し、
+        ファイルは 受付済み へ(片付けられなかったときは 失敗 へ。友人には知らせない = もう消したあとなので)"""
+        try:
+            fb = friend_feedback.parse(friend_feedback.read_text(p))
+        except (ValueError, OSError) as e:
+            self._record(folder, "feedback", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "「要らない」の記録を読めませんでした: %s" % str(e)[:120]}])
+            return
+        if self.feedback is None:
+            res = {"ok": False, "reason": "片付ける部品がありません"}
+        else:
+            try:
+                res = self.feedback(fb) or {}
+            except (OSError, ValueError, RuntimeError) as e:
+                res = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:120])}
+        item = {"label": fb["zip"], "state": "accepted" if res.get("ok") else "rejected", "reason": res.get("summary") or res.get("reason") or ""}
+        self._record(folder, "feedback", "app", "要らない: %s" % (fb.get("title") or fb["zip"]), [n], "", "", [], [item])
 
     def _handle_text(self, folder, n, p, cfg):
         try:

@@ -84,6 +84,7 @@ import backup as backup_mod  # noqa: E402  (src/home/backup.py: 作業データ�
 import accuracy as accuracy_mod  # noqa: E402  (src/home/accuracy.py: 精度の自動測定 = dev/eval_*.py を手が空いた夜に子プロセスで)
 import deliver as deliver_mod  # noqa: E402  (src/home/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 import cases as cases_mod  # noqa: E402  (src/home/cases.py: 案件(配信1本)ごとの紐づけ)
+import friend_feedback as friend_feedback_mod  # noqa: E402  (src/home/friend_feedback.py: 友人の「要らない」= 切り抜きを ごみ箱 へ・マークを不採用に)
 import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 import clientlog as clientlog_mod  # noqa: E402  (src/home/clientlog.py: 画面のエラーの記録。段階7-0)
 import health as health_mod  # noqa: E402  (src/home/health.py: 「調子」。段9 9-1)
@@ -93,7 +94,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.45.2"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.46.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -837,7 +838,9 @@ class PortalServer(ThreadingHTTPServer):
         self.window = appwindow_mod.Opener(os.path.dirname(sup.logs_dir), fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
-        self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log)
+        self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log,
+                                        feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, studio=self.live.studio_call,
+                                                                                      trash=self.cleanup, log=sup.log))
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
