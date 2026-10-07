@@ -15,7 +15,7 @@ Python 標準ライブラリだけで動く。各ツールは、自分のフォ�
 - loudness  … 聞こえ方の音量(LUFS)をそろえる決まり
 - normalize … 素材を 30fps にそろえる(ffprobe で調べる・ffmpeg で作り直す)
 - pick      … PC の「ファイルを選ぶ」「フォルダを選ぶ」の窓
-- tools     … ffmpeg などの外部プログラムの場所と、子プロセスの小道具(窓を出さない・止める)
+- tools     … ffmpeg などの外部プログラムの場所と、子プロセスの小道具(窓を出さない・止める・親が落ちても子を残さない KillJob)
 - evaldata  … 友人用 文字起こし簡易版の評価データ(送る用 zip)の形式・記号の規則・届いた zip の検証(git の履歴(679ff01 以前)の docs/plan/friend-lite-plan.md。
               簡易版は 2026-10-04 に消した。形式と取り込み dev/eval_import.py は残す)
 

@@ -37,6 +37,12 @@ import types
 import wave
 import zlib
 
+try:
+    from ytt_core import fsio as _fsio, tools as _tools   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
+except ImportError:   # このファイルだけを読み込んだとき(tests/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from ytt_core import fsio as _fsio, tools as _tools
+
 DEFAULT = "faster-whisper"
 
 
@@ -207,13 +213,13 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
                     last = now
                     progress(got / spec["size"])
     except EngineError:
-        _unlink(part)
+        _fsio.unlink_quiet(part)
         raise
     except OSError as e:
-        _unlink(part)
+        _fsio.unlink_quiet(part)
         raise EngineError("fetch_failed", "%s を取得できませんでした: %s(ネットワークを確かめてください)" % (spec["file"], str(e)[:160]))
     if got != spec["size"] or h.hexdigest() != spec["sha256"]:
-        _unlink(part)
+        _fsio.unlink_quiet(part)
         raise EngineError("fetch_failed", "取得した %s の中身が想定と違うので使いません(大きさ %d / SHA-256 が一致しない)" % (spec["file"], got))
     os.replace(part, path)
     return path
@@ -225,13 +231,6 @@ def _sha256(path):
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
-
-
-def _unlink(p):
-    try:
-        os.unlink(p)
-    except OSError:
-        pass
 
 
 def _ascii_path(p):
@@ -393,8 +392,7 @@ class WhisperCpp(Engine):
             shutil.rmtree(work, ignore_errors=True)
 
     def _run(self, cmd):
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags, env=wcpp_env())
+        p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_tools.no_window_flags(), env=wcpp_env())
         lines = []
 
         def read():
@@ -729,7 +727,7 @@ class Qwen3Asr(_Qwen3Chunked):
         if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
             tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
             _safe_extract(tar, folder, spec["dir"])
-            _unlink(tar)
+            _fsio.unlink_quiet(tar)
             if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
                 raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
         e = cls(name, device, {"dir": mdir, "rec": {}})
@@ -834,46 +832,6 @@ def _wav_bytes(samples):
     return buf.getvalue()
 
 
-def _kill_on_close_job(proc):
-    """Windows: proc をジョブオブジェクト(閉じたら中のプロセスを終わらせる)に入れ、ハンドルを返す(このプロセスが終われば閉じる)。他の OS・失敗は None"""
-    if os.name != "nt":
-        return None
-    try:
-        import ctypes
-        from ctypes import wintypes
-        k = ctypes.WinDLL("kernel32", use_last_error=True)
-        k.CreateJobObjectW.restype = wintypes.HANDLE
-        k.OpenProcess.restype = wintypes.HANDLE
-        job = k.CreateJobObjectW(None, None)
-        if not job:
-            return None
-
-        class LIMIT(ctypes.Structure):
-            _fields_ = [("a", ctypes.c_int64), ("b", ctypes.c_int64), ("LimitFlags", wintypes.DWORD), ("c", ctypes.c_size_t), ("d", ctypes.c_size_t),
-                        ("e", wintypes.DWORD), ("f", ctypes.c_size_t), ("g", wintypes.DWORD), ("h", wintypes.DWORD)]
-
-        class IOC(ctypes.Structure):
-            _fields_ = [("x", ctypes.c_uint64 * 6)]
-
-        class EXT(ctypes.Structure):
-            _fields_ = [("Basic", LIMIT), ("Io", IOC), ("p", ctypes.c_size_t), ("q", ctypes.c_size_t), ("r", ctypes.c_size_t), ("s", ctypes.c_size_t)]
-        info = EXT()
-        info.Basic.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        if not k.SetInformationJobObject(wintypes.HANDLE(job), 9, ctypes.byref(info), ctypes.sizeof(info)):   # JobObjectExtendedLimitInformation
-            k.CloseHandle(wintypes.HANDLE(job))
-            return None
-        h = k.OpenProcess(0x0101, False, proc.pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
-        ok = bool(h) and k.AssignProcessToJobObject(wintypes.HANDLE(job), wintypes.HANDLE(h))
-        if h:
-            k.CloseHandle(wintypes.HANDLE(h))
-        if not ok:
-            k.CloseHandle(wintypes.HANDLE(job))
-            return None
-        return job
-    except Exception:
-        return None
-
-
 class LlamaQwen3(_Qwen3Chunked):
     """Qwen3-ASR 1.7B を llama.cpp(llama-server・Vulkan)で。機器は vulkan(AMD などの GPU)か cpu。
     用語のヒントは system の文(Qwen3-ASR の文脈)に入れる。言語は答えの頭「language Japanese<asr_text>」を先に書いておく"""
@@ -906,7 +864,7 @@ class LlamaQwen3(_Qwen3Chunked):
             z = fetch_file(LLAMA_CPP, os.path.dirname(bdir), log, hooks.get("cancelled"))
             os.makedirs(bdir, exist_ok=True)
             _safe_unzip(z, bdir)
-            _unlink(z)
+            _fsio.unlink_quiet(z)
         mdir = llama_model_dir(data_dir)
         model = fetch_file(spec["model"], mdir, log, hooks.get("cancelled"), hooks.get("download"))
         mmproj = fetch_file(spec["mmproj"], mdir, log, hooks.get("cancelled"))
@@ -937,13 +895,13 @@ class LlamaQwen3(_Qwen3Chunked):
                 "--api-key", self.key, "--no-webui", "-c", "4096", "-np", "1", "-t", str(LLAMA_THREADS), "-tb", str(LLAMA_THREADS),
                 "-ngl", "0" if self.device == "cpu" else "99", "-lv", "4"]   # -lv 4: GPU に載ったかの行(offloaded n/m layers to GPU)を記録に出す
         self.errlog = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         env = wcpp_env()   # GGML_VK_DISABLE_COOPMAT=1(whisper.cpp と同じ ggml の Vulkan。RX 7800 XT で行列コアの経路が落ちる)
         if self.device == "cpu":
             env["GGML_VK_VISIBLE_DEVICES"] = ""
         self.proc = subprocess.Popen(self.model["cmd"] + args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=self.errlog,
-                                     creationflags=flags, env=env)
-        self.job = _kill_on_close_job(self.proc)
+                                     creationflags=_tools.no_window_flags(), env=env)
+        self.job = _tools.KillJob()   # ワーカーが落ちても server が残らない(閉じたら中を終わらせるジョブ。close() で閉じる)
+        self.job.add(self.proc)
         t0 = time.monotonic()
         while True:
             if cancelled and cancelled():
@@ -1000,13 +958,8 @@ class LlamaQwen3(_Qwen3Chunked):
                 pass
         self.proc = None
         j = getattr(self, "job", None)
-        if j:
-            try:
-                import ctypes
-                from ctypes import wintypes
-                ctypes.WinDLL("kernel32").CloseHandle(wintypes.HANDLE(j))
-            except Exception:
-                pass
+        if j is not None:
+            j.close()
         self.job = None
         el = getattr(self, "errlog", None)
         if el is not None:

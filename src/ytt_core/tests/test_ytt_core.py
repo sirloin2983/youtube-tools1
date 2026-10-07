@@ -448,6 +448,39 @@ class TestTools(unittest.TestCase):
         tools.kill_quiet(running)                           # 止められなくても上げない
         running.kill.assert_called_once()
 
+    @unittest.skipUnless(os.name == "nt", "Windows のジョブオブジェクト")
+    def test_kill_job(self):
+        """KillJob(録画の部品の ffmpeg・streamlink、文字起こしの llama-server): 閉じると中の子が終わる・親が閉じずに落ちても子が残らない"""
+        sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+        job = tools.KillJob()
+        p = subprocess.Popen(sleeper, creationflags=tools.no_window_flags())
+        try:
+            self.assertTrue(job.add(p))
+            self.assertIsNone(p.poll())
+            job.close()
+            self.assertIsNotNone(p.wait(10))                # 閉じたら中の子が終わる
+            job.close()                                     # 2 回目は何もしない
+            self.assertFalse(job.add(p))                    # 閉じたあとは入れない(上げない)
+        finally:
+            tools.kill_quiet(p)
+        code = ("import os, subprocess, sys; sys.path.insert(0, sys.argv[1]); from ytt_core import tools; job = tools.KillJob(); "
+                "c = subprocess.Popen(%r, creationflags=tools.no_window_flags()); print(c.pid, job.add(c), flush=True); os._exit(3)" % (sleeper,))
+        out = subprocess.run([sys.executable, "-c", code, REPO], capture_output=True, text=True, timeout=60, creationflags=tools.no_window_flags())
+        pid, added = out.stdout.split()
+        import ctypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.OpenProcess.restype = ctypes.c_void_p
+        h = k.OpenProcess(0x00100001, False, int(pid))   # SYNCHRONIZE | PROCESS_TERMINATE
+        try:
+            gone = not h or k.WaitForSingleObject(ctypes.c_void_p(h), 10000) == 0
+            if not gone:
+                k.TerminateProcess(ctypes.c_void_p(h), 1)   # 残ったら片付けてから落とす
+        finally:
+            if h:
+                k.CloseHandle(ctypes.c_void_p(h))
+        self.assertEqual((out.returncode, added), (3, "True"))
+        self.assertTrue(gone, "親が落ちたのに子が残った")   # 親(このテストの子)が落ちてジョブが閉じた = 孫も終わる
+
 
 class TestDatadir(unittest.TestCase):
     """作業データの置き場所と、以前の場所からのコピー(段階4)"""

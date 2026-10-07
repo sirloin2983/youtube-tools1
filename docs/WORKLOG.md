@@ -1733,3 +1733,35 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: 入口は起動し直しが要る(ユーザー)。測った JSON(A1・B2)は AI の scratchpad だけ(MSIX の写し)。dev/eval_asr.py の設定の差し替えが効いていない件は improvements の 0 の 2
 - 未完了・次: plan/improvements.md の 0。残り: L0(配信中に)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: KillJob を ytt_core に・録画の部品と文字起こしのエンジンの小道具の写しをなくす(録画の部品 0.3.2)
+- 変更:
+  - `src/ytt_core/tools.py` に `KillJob`(閉じたら中のプロセスを終わらせる Windows のジョブ。`add(proc)` → 入れられたか・`close()` = 中に残る子も終わる・何度呼んでも可・他の OS / 作れないときは何もしない)。構造体は recorder の平らな形(64 bit で 144 バイト・LimitFlags は 16 バイト目)。`__init__.py` の部品の一覧の説明に 1 語
+  - `src/recorder/rec_core.py`: 自前の `KillJob` と `NO_WINDOW` を消して `ytools.KillJob()`・`ytools.no_window_flags()` に。
+    起動時の復旧(`Recorder.load`)で recording.json の sessions の型を確かめる(null・リストでない → 空、中の dict でない物は除く)。以前はセッションのフォルダがあると `meta.setdefault("sessions", []).append` が None で落ち、録画の部品が起動できなかった(録画中だった物はスレッドの `_next_session` でも落ちた)
+  - `src/recorder/recorder.py` の VERSION・`README.txt` の見出しと変更の記録(動きの変更 = sessions の件)
+  - `src/editor/tx_engines.py`: `_kill_on_close_job` → `_tools.KillJob()`(llama-server。`close()` で閉じる)、`_unlink` → `_fsio.unlink_quiet`(5 か所)、窓を出さない指定 2 か所 → `_tools.no_window_flags()`。
+    ytt_core の読み込みは try(serve.py の `_load_core` が先に見つけてある)・見つからなければ 1 つ上の src/ を足す(tests/test_worker.py の子プロセスは tx_engines だけを読むため)。編集の版は上げていない・編集の README は触っていない(別の担当)
+  - テストを足した: `src/ytt_core/tests/test_ytt_core.py` の `TestTools.test_kill_job`(閉じると子が終わる・親が閉じずに os._exit しても孫が残らない)・
+    `src/recorder/tests/test_recorder.py` の `test_recover_bad_sessions`(HEAD の rec_core では AttributeError で落ちることを確かめた)
+- 版: 録画の部品 0.3.1 → 0.3.2。編集・ytt_core(1.2.0)は上げていない
+- 決定・理由(仮で決めたこと):
+  - recorder と editor の違い: プロセスのハンドルを recorder は Popen の非公開の `_handle`、editor は `OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, pid)` で取っていた → 公開の pid から開く editor の形に(要る権限だけ・Popen が終わりを見届けるまで pid は使い回されない)。
+    ジョブは recorder が 1 つを Recorder の間ずっと持つ(閉じない)、editor は llama-server ごとに作って close() で閉じる → 両方を満たすよう `add` は何個でも・`close` を足した。
+    editor で入れられなかったときは、以前はすぐジョブを閉じて None、今は空のジョブを close() まで持つ(子には何も起きないので同じ)
+  - sessions の直し方: dict でない要素も除く(`_session_mark` が `s.get` で落ちるため)。sessions の鍵が無い手書きの記録は `"sessions": []` を足して書き直す(部品が作る記録には必ずある)
+- 基準 9 の確かめ方(scratchpad。git HEAD を写した物と並べて):
+  - 構造体: SetInformationJobObject に渡した中身を ctypes で横取りして比べた = HEAD の recorder・HEAD の editor・新しい KillJob(直接 / rec_core 経由)すべて 144 バイト・情報の種類 9・LimitFlags 0x2000 が 16 バイト目・バイト列が同じ
+  - 子が終わる: 子プロセスがジョブを作り、眠る孫を入れて os._exit → 4 つとも孫は終わった・ジョブなしの対照では残った。close() でもすぐ終わった(editor の道)
+  - 録画の部品の API: 偽の録画のフォルダ(止めた録画 = セッション 3 つ・読めない再生リスト・ファイルの無いセグメント・書きかけ・記録に無いセッション / 終わった録画 = 欠けあり / id の形でない・schema の違うフォルダ)で HEAD と今の recorder.py を並べて起動し、
+    52 通りの要求(合言葉・Host・Origin・Sec-Fetch の 403、list・config・status(since 4 通り)・segments(区間・欠け・誤り 3)・index.m3u8・HEAD・セグメント・パスの検査の 404、415・413・JSON の誤り 2、start 3・config 3 の 400、知らない操作・stop・delete・quit)の
+    番号・見出し・本文(版と置き場所のパスを伏せて)と、復旧のあとの recording.json・ファイルの一覧が全部同じ。
+    録画: POST /live/start(direct・手元の HLS)→ セグメント 2 つ → 部品を強制終了 → 子の ffmpeg は両方とも残らない → 起動し直して新しいセッションで続く → stop、の応答の形・セッションの状態も同じ
+  - 速さ(基準 11): KillJob の add 10 回 0.26 ms → 0.23 ms(pid から開き直す分は誤差)
+- テスト: ytt_core 109 件(1 足した)・recorder 27 件(1 足した)・editor の test_whispercpp + test_qwen3 48 件・test_worker 35 件・home の test_live 43 件・editor の test_metrics 一式 552 件 OK。
+  e2e(PYTHONIOENCODING=utf-8・1 本ずつ)e2e_live ALL OK・e2e_ui_mounted ALL PASSED
+- lint: dup-helper 6 → 2(残りは cut2resolve の `_unlink_quiet` と dev の `_no_window` = 別の担当)。このフォルダの unused-import・dead-name・長さは 0
+- 消した名前(基準 12): `_kill_on_close_job`・`rec_core.KillJob`・`rec_core.NO_WINDOW`・`tx_engines._unlink` は src・dev・friend-apps・setup とテストを grep して使う所なし(dev/lint.py の表の名前だけ)
+- 未完了・次(担当外なのでまとめ役へ): `src/editor/AGENTS.md` の Qwen3-ASR の節に `_kill_on_close_job` の名前が残っている(→ `ytt_core.tools.KillJob`)。`plan/improvements.md` の 3 と recorder・editor の行(KillJob・sessions が null・recorder の NO_WINDOW・tx_engines の `_unlink`)は済み
+- 注意: 起動中の録画の部品は古い版のまま。入口の見回りが、録画中でなければ 0.3.2 で起動し直す
+- 未コミット: なし(このコミット。src/ytt_core・src/recorder・src/editor/tx_engines.py・docs/WORKLOG.md だけ。ほかの担当の未コミットの変更は入れていない)

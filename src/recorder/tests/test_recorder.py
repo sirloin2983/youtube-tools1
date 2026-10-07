@@ -266,6 +266,38 @@ class TestRecording(unittest.TestCase):
         self.assertNotIn("session_002/", pl)
         self.assertIn("#EXT-X-DISCONTINUITY", pl)
 
+    def test_recover_bad_sessions(self):
+        """手で書き換えた recording.json の sessions(null・リストでない・中に dict でない物)でも復旧で落ちない(0.3.2):
+        空として読み、セッションのフォルダから付け直す・録画中だった物は新しいセッションで続ける"""
+        base = {"schema": R.SCHEMA, "url": self.srv.url, "quality": "best", "title": "", "message": "",
+                "created": "2026-10-04T03:00:00.000Z", "endedAt": None}
+        cases = {"20261004-120001-nullsess": ("stopped", None), "20261004-120002-strsess": ("stopped", "x"),
+                 "20261004-120003-junksess": ("stopped", ["junk", 3, {"name": "session_001", "state": "recording"}]),
+                 "20261004-120004-activenull": ("recording", None)}
+        for rid, (state, sessions) in cases.items():
+            d = os.path.join(self.folder, rid)
+            os.makedirs(d)
+            if state == "stopped":   # 再生リストのあるセッション 1 つ
+                s1 = os.path.join(d, "session_001")
+                os.makedirs(s1)
+                name, dur = self.segs[0]
+                shutil.copy(os.path.join(self.src_dir, name), os.path.join(s1, "seg_000000.ts"))
+                with open(os.path.join(s1, "index.m3u8"), "w", encoding="utf-8") as f:
+                    f.write("#EXTM3U\n#EXT-X-PROGRAM-DATE-TIME:2026-10-04T12:00:00.000+0900\n#EXTINF:%.6f,\nseg_000000.ts\n#EXT-X-ENDLIST\n" % dur)
+            with open(os.path.join(d, "recording.json"), "w", encoding="utf-8") as f:
+                json.dump(dict(base, id=rid, state=state, sessions=sessions), f)
+        self.assertEqual(self.rec.load(), ["20261004-120004-activenull"])
+        for rid in list(cases)[:3]:
+            r = self.rec.get(rid)
+            want = "interrupted" if "junk" in rid else None   # dict の記録は残る(録画中だった = 中断)・無ければフォルダから付け直す
+            self.assertEqual([(x["name"], x.get("state")) for x in r.meta["sessions"]], [("session_001", want)], rid)
+            with open(os.path.join(r.dir, "recording.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["sessions"], r.meta["sessions"])   # 直した形で書き直した
+            self.assertEqual(r.summary(detail=True)["sessions"], 1)
+        r = self.rec.get("20261004-120004-activenull")
+        self.assertTrue(wait_for(lambda: r.session_segments("session_001")[0], 30), (r.summary(), self.logs))   # 新しいセッションで録画を続けた
+        self.assertEqual([x["name"] for x in r.meta["sessions"]], ["session_001"])
+
     def test_delete(self):
         """P4 の「録画を自動で消す」: 録画中は 409・形の違う id は 400・置き場所の直下で recording.json があるものだけ・
         リンク(ジャンクション)の先は消さない・使用中のファイルが残ったら 409 で recording.json を残し、あとでまた消せる"""

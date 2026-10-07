@@ -72,7 +72,6 @@ GAP_TOL = 1.0                  # 区間のセグメントの間がこれより�
 RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class RecError(ValueError):
@@ -316,48 +315,6 @@ def new_rec_id(url, clock=time.time):
         pass
     vid = re.sub(r"[^A-Za-z0-9_-]", "", vid)[:24]
     return stamp + ("-" + vid if vid else "-" + secrets.token_hex(3))
-
-
-# ---------- 子のプロセス ----------
-class KillJob:
-    """Windows: 子(ffmpeg・streamlink)を「録画の部品が終われば一緒に消える」ジョブに入れる
-    (録画の部品が落ちたときに子が残って同じフォルダへ書き続け、起き直した部品の録画と重ならないように)。作れなければ何もしない"""
-
-    def __init__(self):
-        self.h = self.k = None
-        if os.name != "nt":
-            return
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            class Ext(ctypes.Structure):   # JOBOBJECT_EXTENDED_LIMIT_INFORMATION を平らにした物(使うのは LimitFlags だけ。並びと大きさは同じ)
-                _fields_ = [("UserTimeLimits", ctypes.c_int64 * 2), ("LimitFlags", wintypes.DWORD), ("WorkingSet", ctypes.c_size_t * 2),
-                            ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t), ("Classes", wintypes.DWORD * 2),
-                            ("IoCounters", ctypes.c_uint64 * 6), ("MemoryLimits", ctypes.c_size_t * 4)]
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.CreateJobObjectW.restype = wintypes.HANDLE
-            k.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
-            k.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
-            k.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
-            h = k.CreateJobObjectW(None, None)
-            if not h:
-                return
-            info = Ext()
-            info.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            if not k.SetInformationJobObject(h, 9, ctypes.byref(info), ctypes.sizeof(info)):   # 9 = JobObjectExtendedLimitInformation
-                k.CloseHandle(h)
-                return
-            self.k, self.h = k, h
-        except Exception:
-            self.h = None
-
-    def add(self, proc):
-        if self.h:
-            try:
-                self.k.AssignProcessToJobObject(self.h, int(proc._handle))
-            except Exception:
-                pass
 
 
 # ---------- 録画1本 ----------
@@ -613,7 +570,7 @@ class Recording:
     def _popen(self, cmd, log_path, **kw):
         logf = open(log_path, "ab")
         try:
-            p = subprocess.Popen(cmd, stderr=logf, creationflags=PRIORITY | NO_WINDOW, **kw)
+            p = subprocess.Popen(cmd, stderr=logf, creationflags=PRIORITY | ytools.no_window_flags(), **kw)
             self.mgr.job.add(p)
             return p
         finally:
@@ -728,7 +685,7 @@ class Recorder:
         self.lock = threading.RLock()
         self.recs = {}
         self.closing = False
-        self.job = KillJob()
+        self.job = ytools.KillJob()   # 子(ffmpeg・streamlink)は、録画の部品が落ちても残らない(同じフォルダへ書き続けて、起き直した部品の録画と重ならないように)
 
     # --- 状態 ---
     def streamlink_ok(self):
@@ -775,11 +732,13 @@ class Recorder:
                 meta = None
             if not isinstance(meta, dict) or meta.get("schema") != SCHEMA:
                 continue
+            sessions = meta.get("sessions")   # 手で書き換えた記録(null・リストでない・中に dict でない物)でも、復旧と録画の続きで落ちないように
+            meta["sessions"] = [s for s in sessions if isinstance(s, dict)] if isinstance(sessions, list) else []
             rec = Recording(self, rid, path, meta)
             with self.lock:
                 self.recs[rid] = rec
             # 1. 書きかけ(*.tmp)を消す 2. 読めない再生リストは「使えないセッション」
-            info = {s.get("name"): s for s in meta.get("sessions") or [] if isinstance(s, dict)}
+            info = {s.get("name"): s for s in meta["sessions"]}
             for n in rec.session_names():
                 clean_tmp(os.path.join(path, n))
                 s = info.get(n)
