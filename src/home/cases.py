@@ -14,9 +14,13 @@
     スタジオに追加された時刻(createdAt)③ それも無ければ updatedAt、の順(デモ環境や解析前の動画では ①が無い)
   - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
   - packs: 切り抜き全体のパックの有無の合計 {have, total, textplus}
-  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。書き出し → 文字起こし → 校正 → パックの順で
+  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。候補の確認 → 書き出し → 文字起こし → 校正 → パックの順で
     最初に残っている作業
-  - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う)
+  - todo: 作業ごとの残りの数 {review, export, transcribe, proof, pack}(ホームの「次にやること」に種類ごとの行を出す。入口 0.42.0・S-6)
+    review = 確認前の候補(採用・見送りを付けていないマーク)の数。まだ 1 本も採用・書き出ししていない配信だけ数える
+    (選び始めたあとに残った候補は「選ばなかったもの」として扱い、次にやることに出し続けない)
+  - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う。候補の確認は候補の数ではなく配信 1 本で 1 件)
+スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
 """
 import datetime
 import json
@@ -91,20 +95,25 @@ def _case_extras(c):
     """一覧の1行に要る合計・「次にやること」(2026-09-26)。clips・marks だけから作れるので、案件の生成元(スタジオに
     まだある配信・消えた配信の最後に見えた内容)のどちらでも同じ規則で計算できる"""
     clips = c.get("clips") or []
+    marks = c.get("marks") or {}
+    gone = bool(c.get("gone"))                                                                      # スタジオから消えた配信(確認・書き出しはできない)
     total = len(clips)
     with_tx = [cl["transcript"] for cl in clips if cl.get("transcript")]
     have_pack = sum(1 for cl in clips if cl.get("pack"))
-    to_export = int((c.get("marks") or {}).get("adopted") or 0)                                    # 採用済みでまだ書き出していない
+    picked = int(marks.get("adopted") or 0) + total                                                 # 採用・書き出しを 1 本でも決めたか
+    review = 0 if gone or picked else int(marks.get("candidates") or 0)                             # 確認前の候補(まだ 1 本も選んでいない配信だけ)
+    to_export = 0 if gone else int(marks.get("adopted") or 0)                                       # 採用済みでまだ書き出していない
     missing_tx = sum(1 for cl in clips if not cl.get("transcript"))                                 # 書き出し済みで文字起こしがまだ
     proofing = sum(1 for t in with_tx if t.get("proofed", 0) < t.get("segments", 0))                # 文字起こしはあるが校正が残っている
     missing_pack = total - have_pack                                                                # 書き出し済みでパックがまだ
-    steps = ((to_export, "export", "書き出し"), (missing_tx, "transcribe", "文字起こし"),
+    steps = ((review, "review", "候補の確認"), (to_export, "export", "書き出し"), (missing_tx, "transcribe", "文字起こし"),
              (proofing, "proof", "校正"), (missing_pack, "pack", "パックを作る"))
     nxt = next(({"kind": k, "label": lb, "count": n} for n, k, lb in steps if n > 0), None)
     return {"tx": {"clips": total, "withTranscript": len(with_tx), "segments": sum(t["segments"] for t in with_tx),
                    "proofed": sum(t["proofed"] for t in with_tx)},
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
-            "next": nxt, "remaining": to_export + missing_tx + proofing + missing_pack,
+            "next": nxt, "todo": {k: n for n, k, _ in steps},
+            "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
 
 

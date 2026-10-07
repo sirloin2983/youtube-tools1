@@ -500,7 +500,11 @@ class TestModes(Base):
                 time.sleep(0.01)
             got = r.snapshot()["runs"][0]
             self.assertEqual(got["state"], "error")
-            self.assertIn("切り抜きスタジオ が動いていません", got["error"])
+            # 何が起きたか + 次にすること(S-19。入口 0.42.0): 「入口の画面で状態を確かめて」ではなく、どこで何を押すか
+            self.assertIn("切り抜きスタジオが動いていないので、この段を進められませんでした", got["error"])
+            self.assertIn("「詳しく(サーバーの管理)」", got["error"])
+            self.assertIn("もう一度実行してください", got["error"])
+            self.assertNotIn("入口", got["error"])
         finally:
             r.close()
 

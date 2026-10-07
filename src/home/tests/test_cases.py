@@ -117,6 +117,39 @@ class TestListExtras(Base):
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
         # 残作業の合計 = 書き出し1 + 文字起こしなし1(m1) + 校正が残っている1(m2) + パックがまだ1(m1) = 4
         self.assertEqual(c["remaining"], 4)
+        # 作業ごとの残りの数(ホームの「次にやること」の種類ごとの行。入口 0.42.0・S-6)。採用済みがあるので候補の確認は数えない
+        self.assertEqual(c["todo"], {"review": 0, "export": 1, "transcribe": 1, "proof": 1, "pack": 1})
+
+    def test_review_candidates_until_something_is_picked(self):
+        # 解析したが 1 本も採用していない配信: 確認前の候補(採用・見送りを付けていないマーク)の数を返す(入口 0.42.0・S-6)
+        base = {"kind": "youtube", "title": "配信A", "analysis": {"uploadDate": "20260101"}}
+        self.studio({VID: dict(base, marks=[mark("m1", ""), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual(c["next"], {"kind": "review", "label": "候補の確認", "count": 3})   # 見送り(rejected)は数えない
+        self.assertEqual(c["todo"], {"review": 3, "export": 0, "transcribe": 0, "proof": 0, "pack": 0})
+        self.assertEqual(c["remaining"], 1)   # 候補の確認は候補の数ではなく、配信 1 本で 1 件
+        # 1 本でも採用したら、残った候補は「選ばなかったもの」として数えない(次は書き出し)
+        self.studio({VID: dict(base, marks=[mark("m1", "adopted"), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["next"], c["todo"]["review"], c["remaining"]), ({"kind": "export", "label": "書き出し", "count": 1}, 0, 1))
+        # 書き出し済みだけ(採用は 0)でも同じ(次は文字起こし)
+        self.studio({VID: dict(base, marks=[mark("m1", "exported", self.clip1), mark("m2", "")])})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["todo"]["review"], c["next"]["kind"]), (0, "transcribe"))
+        # 候補も無い(マーク 0)なら何も出さない
+        self.studio({VID: dict(base, marks=[])})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["next"], c["todo"]["review"], c["remaining"]), (None, 0, 0))
+
+    def test_gone_case_does_not_count_review_or_export(self):
+        # スタジオから消えた配信は、候補の確認・書き出しをスタジオでできないので数えない(次にやることに出さない)
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "adopted"), mark("m2", "")]}})
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["todo"]["export"], 1)
+        cases.update(self.root, VID, status="working", env=self.env)
+        cases.snapshot(self.root, self.env)   # 最後に見えた紐づけを保存
+        self.studio({})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["gone"], c["marks"]["adopted"], c["next"], c["todo"]["review"], c["todo"]["export"], c["remaining"]), (True, 1, None, 0, 0, 0))
 
     def test_next_action_falls_through_to_pack_when_nothing_else_left(self):
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})

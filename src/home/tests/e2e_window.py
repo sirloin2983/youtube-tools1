@@ -8,7 +8,8 @@
   7-2 離れた・戻った: 別の窓へ移った(blur)で「離れた」、埋め込み(iframe)にフォーカスがあるときは離れたことにしない、戻った(focus)
   7-3 窓: 入口の「窓で開く」の切り替え(2026-09-27 から既定で窓)。窓(display-mode: standalone)の中の「開く」は入口に頼んで Edge のアプリモードで開き
       (Edge の代わりに引数を記録する偽のプログラム。YTT_APP_BROWSER)、外のサイトはいつものブラウザ(偽の記録)で開く。
-      普通のタブでは今までどおり新しいタブで開く
+      普通のタブでは今までどおり新しいタブで開く。ホームの中身のリンク(target なし。入口 0.42.0 の S-15)は窓の中でも同じ窓で移り、
+      Ctrl を押しながらのときだけ窓で開く(配信が無いときの空の表示のボタンで確かめる。S-13)
 
 Edge の本物の窓(リンクの行き先・YouTube の埋め込み・閉じる操作)はクラウド(Linux)で再現できないので、実機で確かめる。
 """
@@ -196,6 +197,26 @@ def main():
                                         a.rel = 'noopener'; a.textContent = 'yt'; document.body.appendChild(a); }""")
                 win.click("#ext")
                 check(wait_until(lambda: browsed) == ["https://www.youtube.com/watch?v=abc123DEF45"], "[7-3] 外のサイトはいつものブラウザで開く: %s" % browsed)
+                # S-13・S-15(入口 0.42.0): 配信が無いときの空の表示に「スタジオで配信を探す」(target なし)。窓の中で普通に押すと同じ窓で移り
+                # (Edge を新しく起動しない)、Ctrl を押しながらだと入口に頼んで窓で開く(UIKit.win)
+                check(wait_js(win, "!!document.getElementById('emptyStudio') && !!document.getElementById('emptyIntake')", 15000),
+                      "[S-13] 配信が無いときの空の表示に、次に押すボタン(スタジオで配信を探す・依頼の受付を設定する)")
+                check(win.get_attribute("#emptyStudio", "target") is None and win.get_attribute("#emptyStudio", "href") == "/studio/",
+                      "[S-15] 中身のリンクは target なし(同じ窓で移る)")
+                n2 = len(read_lines(edge_log))
+                win.click("#emptyStudio", modifiers=["Control"])
+                got = wait_until(lambda: read_lines(edge_log)[n2:])
+                check(got and got[-1][0] == "--app=http://localhost:%d/studio/" % port, "[S-15] 窓の中で Ctrl を押しながらだと、窓で開く: %s" % got[-1:])
+                check("/studio/" not in win.url, "[S-15] Ctrl のときは今の窓は移らない: %s" % win.url)
+                n3 = len(read_lines(edge_log))
+                win.click("#emptyStudio")
+                try:
+                    win.wait_for_url(lambda u: "/studio/" in u, timeout=15000)
+                except Exception:
+                    pass
+                time.sleep(0.5)
+                check("/studio/" in win.url and len(read_lines(edge_log)) == n3 and not opened,
+                      "[S-15] 普通に押すと同じ窓の中でスタジオへ移る(Edge を新しく起動しない・タブを増やさない): %s" % win.url)
                 # 窓の中のスタジオ: 「他のツール」のリンクも窓で(ただし ui-appnav は target=_blank を付けないので、
                 # 同じ窓の中でその場所へ移るだけでよい(Edge を新しく起動する必要が無い)。旧(#toolMenu の target=_blank)は今までどおり窓で開く
                 win.goto(base + "studio/")

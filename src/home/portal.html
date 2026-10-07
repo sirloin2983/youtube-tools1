@@ -69,7 +69,7 @@
     <div class="row pt-unlinked" id="unlinkedHead" hidden>
       <span class="pt-group-label">単体の文字起こし <span class="ui-group-n" id="unlinkedCount"></span></span>
       <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は「編集」の履歴で(種類: それ以外)</span>
-      <a class="btn small" id="unlinkedOpen" href="/transcribe/?list=other#tx" target="_blank" rel="noopener">編集の履歴で見る</a>
+      <a class="btn small" id="unlinkedOpen" href="/transcribe/?list=other#tx">編集の履歴で見る</a>
     </div>
     <details class="ui-group" id="unlinkedGroup" hidden>
       <summary><span class="pt-group-label">単体の文字起こしを選んで、まとめて実行</span></summary>
@@ -327,7 +327,8 @@
       <span class="pill pt-case-statuspill"></span>
       <span class="hint num pt-case-tx" hidden></span>
       <span class="hint num pt-case-pack" hidden></span>
-      <span class="ui-next pt-case-next" hidden></span>
+      <!-- 次にやること(S-18): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href なしの札(portal.js の paintNext) -->
+      <a class="btn small pt-case-next" hidden></a>
     </summary>
     <div class="pt-case-body">
       <div class="row">
@@ -348,6 +349,7 @@
           <button type="button" class="btn small primary pt-auto-run">実行</button>
           <button type="button" class="btn small danger pt-auto-cancel" hidden>中止</button>
         </div>
+        <p class="hint pt-auto-why" hidden></p>
         <div class="pt-auto-panel"></div>
         <ol class="pt-auto-steps"></ol>
         <div class="hint pt-auto-msg"></div>
@@ -364,12 +366,12 @@
   <li class="pt-clip pt-doc">
     <div class="row">
       <label class="pt-doc-pick"><input type="checkbox" class="pt-doc-check" aria-label="選ぶ"></label>
-      <span class="grow pt-doc-title"></span>
+      <span class="grow pt-doc-main"><span class="pt-doc-title"></span><span class="hint pt-doc-sub"></span></span>
       <span class="hint num pt-doc-tx"></span>
       <span class="pill pt-doc-runpill" hidden></span>
     </div>
     <div class="row pt-doc-steps">
-      <a class="btn small pt-doc-open" target="_blank" rel="noopener">編集で開く</a>
+      <a class="btn small pt-doc-open">編集で開く</a>
       <span class="hint pt-doc-runmsg" hidden></span>
     </div>
   </li>

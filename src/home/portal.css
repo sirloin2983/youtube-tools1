@@ -42,6 +42,10 @@
 .pt-case-title{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56ch}
 .pt-case-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-case-tx,.pt-case-pack{white-space:nowrap}
+/* 「次にやること」(S-18。入口 0.42.0): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href の無い札(以前の .ui-next と同じ見た目) */
+.pt-case-next{flex:none}
+.pt-case-next::after{content:"→";margin-left:2px}
+.pt-case-next:not([href]){border-color:transparent;background:none;padding:0;cursor:default;color:var(--accent-ink2);font-weight:600}
 .pt-case-tx.num,.pt-case-pack.num,.pt-doc-tx.num{font-family:var(--font)}   /* 数字の幅だけそろえる(ui-kit の .num は等幅。かなの字間が空くので書体は本文のまま) */
 .pt-case-body{padding:0 14px 14px}
 .pt-case-body .row{gap:10px;align-items:flex-start}
@@ -71,6 +75,9 @@
 .pt-auto-step{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13px}
 .pt-auto-step .hint{overflow-wrap:anywhere}
 .pt-auto-msg{margin-top:4px}
+.pt-auto-why{margin:6px 0 0}   /* まとめて実行を押せない理由と戻し方(S-25) */
+/* 配信が 1 本も無いときの空の表示の、次に押すボタン(S-13) */
+.pt-empty-acts{justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px}
 
 /* 単体の文字起こし(紐づかない文書)。まとめて実行は案件と同じ pt-auto を使い回す */
 .pt-unlinked{margin-top:14px;align-items:center;gap:6px 12px;flex-wrap:wrap}   /* 単体の文字起こしの1行(件数・説明・「編集の履歴で見る」。段5 5-1) */
@@ -78,6 +85,9 @@
 .pt-doc{padding:8px 10px}
 .pt-doc-pick{display:flex;align-items:center;flex:none}
 .pt-doc-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 題名の下に元のファイル名・更新日時(S-26。同じ題名の文書を見分ける) */
+.pt-doc-main{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pt-doc-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-doc-tx{white-space:nowrap}
 .pt-doc-steps{margin-top:4px}
 .pt-doc-open[aria-disabled=true]{pointer-events:none;opacity:.5}

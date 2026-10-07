@@ -148,6 +148,9 @@ def _media_is_30fps(path):
     fps = (info or {}).get("fps")
     return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
 
+TOOL_NAMES = {"studio": "切り抜きスタジオ", "transcribe": "編集", "cut2resolve": "cut2resolve(パックを作る部品)"}   # 知らせの文のツール名
+
+
 class Cancelled(Exception):
     pass
 
@@ -166,8 +169,10 @@ class ToolClient:
         """-> (HTTP の状態, JSON)。つながらない・動いていないときは StepError"""
         ep = self.endpoint(tool)
         if not ep:
-            raise StepError("%s が動いていません(入口の画面で状態を確かめてください)" % {"studio": "切り抜きスタジオ", "transcribe": "編集",
-                                                                                     "cut2resolve": "cut2resolve"}.get(tool, tool))
+            # 何が起きたか + 次にすること(S-19。入口 0.42.0)。済んだ段は飛ばすので、もう一度実行すると続きから進む
+            raise StepError("%sが動いていないので、この段を進められませんでした。ホームの「詳しく(サーバーの管理)」で%sの状態を見て、"
+                            "止まっていれば「起動」を押して(ホームに取り込んだツールは「すべて終了」→ start.bat で起動し直して)から、"
+                            "もう一度実行してください(済んだ段は飛ばします)" % ((TOOL_NAMES.get(tool, tool),) * 2))
         port, base = ep
         url = base.rstrip("/") + path
         headers = {"Host": "127.0.0.1:%d" % port}
