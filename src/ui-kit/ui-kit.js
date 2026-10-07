@@ -1164,7 +1164,7 @@
   var PLAYBACK_ACTIONS = [
     ['playPause', 'Space', '再生・停止'], ['back1', 'j', '1秒戻る'], ['stop', 'k', '止める'], ['play', 'l', '再生(もう一度で 1.5 → 2 倍)'],
     ['seekBack', 'ArrowLeft', '1秒戻る(Shift で5秒)'], ['seekFwd', 'ArrowRight', '1秒進む(Shift で5秒)'],
-    ['frameBack', ',', '1コマ戻る'], ['frameFwd', '.', '1コマ進む'], ['markIn', 'i', '始まりの印'], ['markOut', 'o', '終わりの印']
+    ['frameBack', ',', '1コマ戻る'], ['frameFwd', '.', '1コマ進む'], ['markIn', 'i', 'IN(始まりの印)'], ['markOut', 'o', 'OUT(終わりの印)']   /* v23: スタジオのボタン「IN(開始)/ OUT(終了)」と同じ呼び方に(見直し S18) */
   ];
   function playbackMap(km) {
     var out = {};
@@ -1179,7 +1179,7 @@
     if (!km) {
       var rows = [
         ['Space', '再生・停止'], ['J', '1秒戻る'], ['K', '止める'], ['L', '再生(もう一度で 1.5 → 2 倍)'],
-        ['← / →', '1秒(Shift で5秒)'], [', / .', '1コマ(コマ送り)'], ['I / O', '始まり/終わりの印']
+        ['← / →', '1秒(Shift で5秒)'], [', / .', '1コマ(コマ送り)'], ['I / O', 'IN / OUT(始まり / 終わりの印)']
       ];
       for (var i = 0; i < rows.length; i++) html += kbdRow(rows[i][0], rows[i][1]);
       return html + '</section>';
