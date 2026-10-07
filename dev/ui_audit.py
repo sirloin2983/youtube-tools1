@@ -546,7 +546,9 @@ def default_scenes(base):
 def do_actions(pg, actions):
     for act in actions:
         if act[0] == "click":
-            pg.click(act[1], timeout=5000)
+            # 下に固定のキーの帯があるので、押す要素を画面の中央へ出してから押す(390 で帯の下に隠れて押せなかった)
+            pg.evaluate("(sel) => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ block: 'center' }); }", act[1])
+            pg.click(act[1], timeout=8000)
         elif act[0] == "fill":
             pg.fill(act[1], act[2], timeout=5000)
         elif act[0] == "key":

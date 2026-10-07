@@ -683,6 +683,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (document.querySelector('dialog[open]')) return;
+    if (document.querySelector('details.ui-menu[open], details.ui-pop[open]')) return;   /* v23: 開いているメニューがあれば、その Esc はメニューだけを閉じる(引き出しは閉じない。ホームの見直し N2) */
     var open = document.querySelectorAll('.ui-drawer:not([hidden])');
     for (var i = open.length - 1; i >= 0; i--) {
       var el = open[i];
@@ -795,14 +796,17 @@
     if (act) {
       var ab = document.createElement('button');
       ab.type = 'button'; ab.className = 'ui-toast-act'; ab.textContent = String(act.label);
-      ab.addEventListener('click', function (e) { e.stopPropagation(); remove(); act.fn(); });
+      ab.addEventListener('click', function (e) { e.stopPropagation(); remove(); restoreFocus(); act.fn(); });
       item.appendChild(ab);
     }
     var xb = document.createElement('button');
     xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.innerHTML = icon('close', { size: 14 });   /* v23: SVG(A-10) */
-    xb.addEventListener('click', function (e) { e.stopPropagation(); remove(); });
+    xb.addEventListener('click', function (e) { e.stopPropagation(); remove(); restoreFocus(); });
     item.appendChild(xb);
     function remove() { clearTimeout(timer); if (item.parentNode) item.parentNode.removeChild(item); }
+    /* v23: 知らせのボタンをキーで押すと、知らせが消えてフォーカスが body に落ちていた(ホームの見直し N3)。知らせを出したときにフォーカスがあった所へ戻す */
+    var opener = document.activeElement;
+    function restoreFocus() { var a = document.activeElement; if ((!a || a === document.body) && opener && opener !== document.body && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); }
     var timer = ms > 0 ? setTimeout(remove, ms) : 0;
     if (act || ms === 0) item.setAttribute('data-ui-keep', '');
     item.addEventListener('click', function (e) {
