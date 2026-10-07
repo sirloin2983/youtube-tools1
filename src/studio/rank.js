@@ -166,7 +166,7 @@ function paneHtml(){
   <div class="card rk-sticky" id="pickBar" hidden><div class="row"><span class="rk-pickn"><b id="pickN" class="num">0</b> 本選択中 <span class="hint">(最大${MAX_PICK}本まで)</span></span>
     <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button>
       <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析からパックまで自動で進めます"><span>まとめて実行</span></summary>
-        <div class="rk-autopop">
+        <div class="rk-autopop" data-ui-fit>
           <p class="hint">選んだ配信を、ホームの案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合はホームの案件の一覧と、各配信の ③ の上の帯に出ます。</p>
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
           <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)

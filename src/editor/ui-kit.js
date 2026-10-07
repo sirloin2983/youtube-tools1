@@ -1,5 +1,5 @@
 /* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */
-/* ui-kit v22 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v23 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -47,7 +47,10 @@
        一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」
    v22(2026-10-07・気が利く画面へ 段9 見た目の確認): 知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → 古いもの の順に閉じる
        (失敗の知らせは最後まで残す)・ポップオーバーの置き場所の直し(fitPop)を、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・
-       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」 */
+       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」
+   v23(2026-10-07・段9 の直し): v22 の fitPop の var POP_SEL が上の POP_SEL を書き直していて、外側のクリック・Esc が開いていないメニューにも効き、
+       Esc でフォーカスが最後のメニューの summary へ飛んでいた → FIT_SEL に分けた。まとめて実行の fps の欄の名前を「フレームレート」に。
+       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -164,10 +167,13 @@
   /* ポップオーバーを開いたら、画面の外にはみ出さないよう置き場所を直す(A-1: 右端の「…」の選択肢が画面の外に出ていた)。
      data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く。
      v22: 編集の古い形(details.pop > .vpop。2 カット の「無音 ▾」「時刻リスト ▾」など)にもかける(幅 960 で道具の行が折り返すと、
-     右にそろえた中身が画面の左の外に出ていた。段9 の確認) */
-  var POP_SEL = 'details.ui-pop, details.ui-menu, details.pop';
+     右にそろえた中身が画面の左の外に出ていた。段9 の確認)。v23: 名前を FIT_SEL に(v22 は上の POP_SEL と同じ名前の var で上書きして、
+     外側のクリック・Esc が開いていないメニューにも効き、Esc でフォーカスが最後のメニューの summary へ飛んでいた) */
+  var FIT_SEL = 'details.ui-pop, details.ui-menu, details.pop';
   function fitPop(d) {
-    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop'); if (!body) return;
+    /* v23: 画面が自分で作った中身(class が違う)も、data-ui-fit を付ければ同じく置き直す(スタジオ ① の選択の帯の「まとめて実行」.rk-autopop。
+       帯が画面の下の方にあると、中身と「まとめて実行」のボタンが画面の下の外に出ていた。段9) */
+    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop, :scope > [data-ui-fit]'); if (!body) return;
     body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
     var r = body.getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = window.innerHeight, m = 8;
     if (r.right > vw - m) { body.style.left = 'auto'; body.style.right = '0'; r = body.getBoundingClientRect(); }
@@ -183,7 +189,7 @@
   if (window.MutationObserver) new MutationObserver(function (recs) {
     for (var i = 0; i < recs.length; i++) {
       var d = recs[i].target;
-      if (d.open && d.matches && d.matches(POP_SEL)) fitPop(d);
+      if (d.open && d.matches && d.matches(FIT_SEL)) fitPop(d);
     }
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 
@@ -732,7 +738,9 @@
   /* v21: 重ねるのは 2 つまで(以前は 3 つ。積み上がると画面の下の操作(編集のパックの「中止」など)を隠していた)。あふれたら古いものから閉じる。
      消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない)。
      v22: 残す知らせばかりのときも、失敗(.err)は最後まで残す(v21 は古いものから閉じたので、[もう一度] つきの失敗のあとに [フォルダを開く] つきの完了と
-     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた) */
+     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた)。
+     v23: ボタンの無い失敗(時間で消える err)も、失敗でない知らせより先には閉じない(v22 は「時間で消える」を先に選んだので、
+     ボタンの無い失敗のあとに案内が 2 つ続くと失敗が消えた)。閉じる順 = 失敗でない時間で消える知らせ → 失敗でない残す知らせ → 古いもの */
   var TOAST_MAX = 2;
   function toastPick(box, ok) {
     for (var i = 0; i < box.children.length; i++) if (ok(box.children[i])) return box.children[i];
@@ -740,7 +748,7 @@
   }
   function toastMakeRoom(box) {
     while (box.children.length >= TOAST_MAX) {
-      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep'); }) ||
+      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep') && !t.classList.contains('err'); }) ||
                  toastPick(box, function (t) { return !t.classList.contains('err'); }) || box.firstChild;
       box.removeChild(drop);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
     }
@@ -1754,7 +1762,7 @@
       fps.addEventListener('change', function () { arSave('tx', { packFps: fps.value }); });
       var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
       size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
-      box.appendChild(arField('パックの置き先', fps));
+      box.appendChild(arField('フレームレート', fps));   // v23: 「パックの置き先」になっていた(fps の欄。3 パック のタブと同じ言葉に。段9)
       box.appendChild(arField('画面の大きさ', size));
       var loud = arEl('select');
       var lf = arField('パックの音量', loud); box.appendChild(lf);
@@ -2367,7 +2375,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 22, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 23, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff };
 })();

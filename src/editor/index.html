@@ -1121,7 +1121,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub-go .mono{color:var(--ink-3);font-size:12px;flex:none}
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
-.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
+.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}   /* 0.59.3(段9): 1 文字起こし のカット済の行(.seg.cut)と同じ色。--ink-4 は 3.5:1 で基準(4.5:1)に届かなかった */
 .tt-csub .btn.tt-csub-cut{flex:none;font-weight:600}   /* 行の札「残す / カット済」(段7 E-25)。枠つき = 押して切り替えられる(1 文字起こし の行の札と同じ) */
 .tt-csub .btn.tt-csub-cut[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}   /* 「カット済」は 1 文字起こし の行の札と同じ赤(:hover の .btn より強く)。文字は --danger-on(0.59.2。暗いテーマで白は 2.9:1 だった) */
 .tt-csub-empty{margin:8px 4px}

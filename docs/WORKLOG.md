@@ -2155,3 +2155,27 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - まとめ役の未コミット(こちらは完成している): `plan/decisions.md`(3-3 仮決め (ac)〜(al))・`plan/ux-stage7-9.md`(判定を済みに)・`plan/improvements.md`(10. 段 7〜9 で残したもの)・`dev/tests/test_eval_asr.py`(揺れていた `test_repeat_one_is_same_as_before` を `peak_memory_mb` の固定で直した。3 回 OK)
 - 再開の手順: (1) `git status` で上の一覧と突き合わせる (2) 段 9 の src の差分を `git diff` で読み、`py -3.10 dev/sync_ui_kit.py --check`・`py -3.10 dev/lint.py`・単体(home・studio・editor)・`e2e_styleguide`・`e2e_portal`・`e2e_ui --mounted`・`e2e_ui_mounted`・`e2e_edit_tabs`・`e2e_edit_cut`・`e2e_edit_pack` を 1 本ずつ流して直す(通らなければ段 9 の src の差分だけ `git checkout -- <ファイル>` で戻してやり直してもよい。plan と dev/tests の差分は戻さない)(3) DESIGN_REVIEW.md・ui-guidelines・REQUEST.md の状態の行を書く (4) `plan/data.js` の版(入口 0.42.x・スタジオ 0.22.x・編集 0.59.x・cut2resolve 0.22.2・ui-kit v2x)と recent ⑤ を done に・user-tasks の ux の節を「済み」に → `dev/plan_artifact.py` で公開ページを更新 (5) lint 0 件 + e2e 29 本(scratchpad の `run_e2e.py` と同じ一覧)で合格 (6) ユーザーに「すべて終了」→ start.bat の起動し直しと、decisions.md の (s)〜(al) の確認を頼む
 - 未コミット: 上の 2 つの一覧(段 9 の src 18 ファイル・plan 3 ファイル・dev/tests/test_eval_asr.py・この WORKLOG・docs/HANDOVER.md)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 9 見た目の確認(2192960 の差分の検証から)。Must-fix 5 件を直した(ui-kit v23・編集 0.59.3・スタジオ 0.22.3)・DESIGN_REVIEW.md・ui-guidelines の追記
+- 2192960(前の担当の段 9 のテスト前の差分がユーザーの push.bat でコミットされたもの)の検証: sync --check・lint 0 件・単体(home・studio 226 件 / editor 554 件)・node 45/10・e2e は `e2e_styleguide` だけ FAIL(「録画中」の一覧で Esc → 札に戻らない)。
+  原因は ui-kit v22 で fitPop のために `var POP_SEL` を同じ名前でもう一度書いたこと(関数の中の var は 1 つ = 外側のクリック・Esc が開いていないメニューにも効き、Esc でフォーカスがページの最後のメニューの summary へ飛んだ。全画面に効く)。
+  → `FIT_SEL` に分けた。ほかの v22 の直し(`--danger-on`・案件の行の「設定を変える」・中身の読み込み後の置き直し・③ のチェックの欄・異常終了の文)は撮った画面で意図どおり。戻したものは無い
+- 段 9 の撮影: `dev/demo_env.py --port 8760 --dir <scratchpad>`(一時フォルダ・疑似モード。本物のホーム・作業データは使っていない)+ scratchpad の Playwright のスクリプトで、ホーム・スタジオ・編集・スタイルガイドの 16 場面を
+  960×800・1440×900・1920×1080 × 明・暗(最初 246 枚・撮り直し 354 枚)。撮るたびに横のはみ出し・画面の外・文字の濃さ(WCAG の比)・縦に割れた文字・画面のエラーを機械で確かめた。記録は `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`
+- Must-fix(直した): M-1 上の POP_SEL(ui-kit v23)/ M-2 まとめて実行の「設定を変える」の fps の欄の名前「パックの置き先」→「フレームレート」(ui-kit v23)/
+  M-3 スタジオ ① 選択の帯の「まとめて実行」(`.rk-autopop`)が帯が下の方にあると画面の下の外へ(960×800 で 123px。主のボタンが見えない)→ ui-kit に `[data-ui-fit]`(画面が作った中身も置き直す)・`rank.js` に付けた(スタジオ 0.22.3)/
+  M-4 編集 2 カット の字幕の一覧のカット済の行の文字が 3.5:1 → 1 文字起こし の `.seg.cut` と同じ `--ink-3` + 赤い取り消し線(編集 0.59.3)/
+  M-5 知らせがあふれたとき、ボタンの無い失敗(時間で消える err)が案内より先に閉じていた → 閉じる順を 失敗でない時間で消える → 失敗でない残す → 古いもの に(ui-kit v23)
+- Should-fix(直していない・選んでもらう): S-1 スタジオ ③ のまとめて実行のメニューのラベル「配信者(字幕の色)」「採用する数」が 2〜3 行に折れる / S-2 編集 幅 960 で文書を開いていないとき、左のメニューが「前回の続き」を覆う /
+  S-3 編集の題名の行・スタジオ ① のまとめて実行の中で「設定を変える」を開くと開始ボタンを覆う。Could-improve 6 件(知らせが下の行の操作を隠す・次にやることの札の幅で題名がずれる・「すべて見る」で種類が埋もれる・パックの縦の見本の 1 文字の行・映像の字幕が再生の操作に重なる・960 で保存の状態がヘッダーを 2 段に)は DESIGN_REVIEW.md の 4・5
+- 文書: `docs/spec/ui-guidelines.md` に差分で追記(用語集の「残す / カット済」に 2 カット の行の札・確認の方式 2 つ(`UIKit.dialog.confirm`・`UIKit.confirmTwice`)と取り消せる操作は [元に戻す]・知らせ(`action`・重ねて 2 つまで・失敗は残す)・
+  2-2b まとめて実行の部品 `UIKit.autorun`・キーの一覧 = 設定(`UIKit.keymap`)・`.ui-next-btn`・`UIKit.menuOff`・`--danger-on`・`data-ui-fit`)/ `REQUEST.md` の状態の行を「段 7〜9 完了」に / `src/ui-kit/README.md` に v22・v23 の節(v22 の節が無かった。見出しも v23)
+- テスト: `e2e_styleguide` に v22 の 2 項目と v23 の 5 項目(`check_v23`・`check_toast`。2192960 の ui-kit では FAIL、直したあと OK を確かめた)。最後に全部流した: sync --check ずれなし・`py -3.10 dev/lint.py` 0 件・
+  単体 `test_ui_kit_sync`・`test_launch`・`test_health`・`test_studio`・`test_api` OK(skip 1)・`test_metrics`・`test_resolve_export`・`test_roster` 554 件 OK(skip 1)・node `test_review.cjs` 45/45・`test_document_save.cjs` 10/10 /
+  e2e(1 本ずつ・PYTHONIOENCODING=utf-8)`e2e_styleguide` 194 すべて OK・`e2e_portal` 181・`e2e_window` 44・`e2e_autorun` 42・studio `e2e_ui` 216/216・`--mounted` 241/241・editor `e2e_ui_mounted` 55・`e2e_edit_tabs` 156・`e2e_edit_cut` 117・`e2e_edit_pack` 118 ALL PASSED
+- 版: ui-kit v22 → v23・編集 0.59.2 → 0.59.3・スタジオ 0.22.2 → 0.22.3(serve.py・画面の版・README の見出しと履歴。editor `AGENTS.md` の現在の版も)。ホームは 0.42.2 のまま(ホームのファイルは変えていない。ui-kit は正本をそのまま配るので v23 は効く)
+- 決定・理由(仮で決めたこと): M-3・M-4・M-5 は「はみ出す(主のボタンが画面の外)」「文字の濃さが基準(4.5:1)の外 + 1 文字起こし と食い違い」「v22 が言った『失敗は最後まで残す』が半分しか効いていない」なので Must-fix に入れた /
+  S-1(2〜3 文字ずつの折り返し)は読めるので Should-fix に / ホームの版は上げない
+- 注意: 起動中のホームは古いコードのまま(「すべて終了」→ start.bat)。`plan/data.js`(版の表: 編集 0.59.3・スタジオ 0.22.3・ui-kit v23)と公開ページの更新は触ってよい範囲の外(まとめ役)。
+  `plan/`・`dev/` の未コミットの差分は他の担当のもので、このコミットに含めていない
+- 未コミット: なし(このコミット)
