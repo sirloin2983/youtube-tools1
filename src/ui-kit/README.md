@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v19
+# ui-kit(共通の見た目)v20
 
 ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,11 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v20(2026-10-07・「起動し直す」の帯に入口からの知らせ)
+- `UIKit.restart`: 「起動し直す」を押して入口が受けたとき、応答の本文に `notice` があれば、待つ間の帯の文(`data-ui-restart="waiting"`)に足す
+  (例: 「起動し直しています…(戻ったら画面を読み込み直します)。まとめて実行の待ち・実行中の 2 件は、起動し直したあとに続きから進めます」。入口 0.41.0 から、
+  まとめて実行の待ち・実行中では断らずに `notice` で知らせる)。`notice` が無いときの文・状態・待ち方は v10 のまま。`UIKit.version` は 20
 
 ## v19(2026-10-07・内部の整理。動きは同じ)
 - `ui-kit.css` の v12 の節で、前の節と同じ selector を上書きしていた 28 組のうち 15 組(トークンの角・`--knob`・`--ring`、`.btn`・`.card`・`.card-title`・`.card-sub`・`.pill`・`.badge`・`.notice`・`.bar`・`th`・`kbd`・`.ui-header`・スイッチのつまみ・`.toast`)を、

@@ -59,8 +59,9 @@ def check_restart(browser, base, check):
         if st["mode"] == "refuse":
             route.fulfill(status=409, content_type="application/json",
                           body=json.dumps({"error": "busy", "message": "実行中の処理があります(文字起こし)。終わってから起動し直してください"}, ensure_ascii=False))
-        else:
-            route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+        else:   # v20: まとめて実行の待ち・実行中は断らずに notice で知らせる(入口 0.41.0)
+            route.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"ok": True, "notice": "まとめて実行の待ち・実行中の 2 件は、起動し直したあとに続きから進めます"}, ensure_ascii=False))
 
     def on_ping(route):
         st["ping"] += 1
@@ -108,6 +109,8 @@ def check_restart(browser, base, check):
         pg.click(band + " .ui-restart-btn")
         check(wait_js(pg, "window.__reloaded === 1"), "頼めたら ping が戻るのを待って読み込み直す")
         check(pg.evaluate("window.__texts.some(t => t.includes('起動し直しています'))"), "待っている間は「起動し直しています…」")
+        check(pg.evaluate("window.__texts.some(t => t.includes('起動し直しています') && t.includes('実行中の 2 件は、起動し直したあとに続きから進めます'))"),
+              "v20: 応答の notice(まとめて実行の続き)も待つ間の帯に出す")
         check(st["ping"] >= 2 and pg.get_attribute(band, "data-ui-restart") == "done", "一度答えなくなってから答えたら戻った扱い(ping %d 回)" % st["ping"])
         check(pg.evaluate("document.querySelector('#restartBandDemo .ui-restart-btn').disabled"), "起動し直している間はボタンを押せない")
 

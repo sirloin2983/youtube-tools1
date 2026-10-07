@@ -2012,3 +2012,21 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `plan/ux-stage7-9.md` の E-15 の 2 行目(動画のコピー)は「音量調整つきも済み(0.22.2)」に(plan はまとめ役が直す)
 - 注意: 比べ方は中身を読まない(0.22.1 と同じ)。同じ大きさ・同じ秒のまま置き場所の動画を書き換えたときは飛ばしてしまう。そのときはパックの動画を消してから作り直す
 - 未コミット: なし(このコミット。ほかの担当の未コミットの変更(editor・home・studio・ui-kit・ytt_core)は含めていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: _send を ytt_core に・起動し直しの知らせ・帯の進み具合(lint 全体 0 件)
+- 変更:
+  - `src/ytt_core/httpsec.py` に `send_head(handler, code, ctype, length, extra)`・`send(handler, code, body, ctype, extra)`(応答の見出し Content-Type → Content-Length → no-store → nosniff → extra の順・HEAD は本文なし)。`src/editor/serve.py`・`src/home/launch.py`・`src/studio/serve.py` の `Handler._send` はこれを呼ぶ 1 行に(名前は残す: 取り込みの `src/home/mount.py` が `_send` を上書きして CSP と合言葉を足す・`src/home/live.py` が `h._send` を呼ぶ)。スタジオの `_head` は消して、動画の `_media` も `httpsec.send_head`(前と同じく `_send` と同じ見出しの部品)。テスト `test_ytt_core.py` の `TestHttpsec.test_send`(見出しの値と順番・HEAD・動画の見出し)
+  - `src/home/tests/test_mount.py` の未使用の `import time` を消した
+  - ui-kit v20(`src/ui-kit/ui-kit.js` → `dev/sync_ui_kit.py` で studio・editor へ): `UIKit.restart` の「起動し直す」で、入口の応答に `notice` があれば待つ間の帯の文に足す(「起動し直しています…(戻ったら画面を読み込み直します)。まとめて実行の待ち・実行中の N 件は、起動し直したあとに続きから進めます」)。`UIKit.version` 20・`README.md` に v20
+  - スタジオ `src/studio/review.js`: LIVE の帯に `<p id="rvAfterStream">`(`.rv-liveguide`)。`GET ../live/api/exports` の `archiveInfo.afterStream.text` をそのまま出す(`liveAfterView` → `renderLiveAfter`。失敗(state error・progress.failed)は `.rv-warnline`)。開いている録画の分だけ・ほかの配信を開いたら隠す。M7 が進んでいる間(state が done/none/error 以外、または done でもまとめて実行へ渡した分の文字起こし → パックが残っている間)は書き出しの一覧を 15 秒ごとに読み直す(今までは終わった録画は 1 分ごと)
+  - テスト: `src/studio/tests/test_review.cjs` に 1 件(liveAfterView・つなぎ)・`src/ui-kit/tests/e2e_styleguide.py` の版の帯に notice の確認 1 つ・`src/home/tests/e2e_live_archive.py` の段 9 に帯の確認 1 つ(rid4 をスタジオに登録して ③ で開いておき、済んだら帯が「配信後の自動の切り抜き: 済み(N 本のうち 書き出し …)」)
+- 版: 編集 0.58.2 → 0.58.3・スタジオ 0.21.2 → 0.21.3・入口 0.41.0 → 0.41.1・ui-kit v19 → v20(各 README の履歴に 1 項ずつ。入口の README に v0.41.0 の申し送り 2 つを画面側で出したこと)
+- 決定・理由(仮で決めたこと):
+  - `_send` は関数(`httpsec.send(self, …)`)にして各 Handler に 1 行のメソッドを残した。mixin にしなかったのは、取り込み(mount.py)の `Mounted` が `_send` を上書きする形・各サーバーの Handler の継承をそのままにするため
+  - 編集の `_send_zip`・`_media` は見出しの順番が違う(Content-Disposition / Accept-Ranges が途中)ので `send_head` に寄せていない(寄せると順番が変わる。12 行未満なので lint は通る)
+  - 帯の 1 行は「アーカイブで作り直す」の欄(終わった録画だけ)の中ではなく、その下の独立した行にした(録画を消したあとも最後の文を残す)
+  - 触ってよいファイルの外: `src/ui-kit/tests/e2e_styleguide.py`(起動し直す の帯を確かめているのはここだけ。`e2e_window.py`・`test_restart.py` には帯の確認が無い)と `src/studio/tests/test_review.cjs` に確認を 1 つずつ足した
+- 基準 9(動きを変えていない)の確かめ方: 変更前の写し(作業フォルダの src を写し、自分が変えたファイルだけ `git show HEAD:` に行末をそろえて戻したもの)と今の src で、入口に studio・transcribe を取り込んだサーバーを空きポートで 1 つずつ立て、同じ 58 の要求(入口・スタジオ・編集の画面・静的ファイル・API・404・403(Host・cross-site・合言葉なし・Origin 違い)・415・400・HEAD・スタジオの動画の Range 6 通り と 416・HEAD)を送り、状態コード・見出し(Date を除く。値と順番)・本文を比べた(合言葉・ポート・版の文字はそろえて比べる)。違いは ui-kit.js(3 か所の写し)・review.js(この変更)と、登録した動画の createdAt(時刻)だけ。道具は scratchpad/cmp/(dump.py・cmp.py・mkbefore.py)
+- テスト: 単体(グループごと): ytt_core 81 件 OK(skip 1)・home の test_mount/test_launch/test_restart/test_live_archive 106 件 OK・studio の test_api/test_studio 168 件 OK(skip 1)・editor の test_metrics/test_resolve_export/test_roster 552 件 OK(skip 1)・`dev/tests/test_ui_kit_sync.py` OK・node `test_review.cjs` 39 件 OK(38 + 1)/ e2e(1 本ずつ・PYTHONIOENCODING=utf-8): `e2e_styleguide` 176 件 OK・`src/home/tests/e2e_portal.py` すべて OK・`e2e_window` すべて OK・`e2e_live_studio` 119 件 OK・`e2e_live_archive` 100 件 OK(段 9 の帯の確認を含む。M7 が 21 秒で済んだので帯に出たのは済みの 1 行)・`src/studio/tests/e2e_ui.py --mounted` 214 件 OK・`src/editor/tests/e2e_ui_mounted.py` ALL PASSED・`dev/tests/e2e_pipeline.py` ALL PASSED / `py -3.10 dev/lint.py` 全体 0 件
+- 注意: 依頼の単体テストの一覧を 1 回の `unittest` にまとめて流すと、studio と editor の部品(serve など)の名前が重なって 440 件ほどエラーになる(HEAD の写しでも同じ 900 件中 failures 7・errors 440。この変更とは関係ない)。ツールごとに分けて流す
+- 未コミット: なし(このコミット。cut2resolve の担当の未コミットの変更は含めていない)

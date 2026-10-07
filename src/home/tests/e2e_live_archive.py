@@ -28,7 +28,8 @@
   7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える / 退避した速報版は(縮めた)7 日で消える
   9  配信後の全自動(線 D の M7。live.autoAfterStream): 人がマークしない録画 → 終わる → 録画とアーカイブの時刻を照合 → アーカイブを偽の解析(STUDIO_FAKE)
      → 上位 N を採用(origin archive)→ 書き出し → 本番版に入れ替え → まとめて実行へ「文字起こし → パック」で N 本渡る(人は触らない)・
-     自動の切り抜きが済むまで録画を消さない(マークの無い録画の 1 日(縮めた)を過ぎても)→ 済んだら消す
+     自動の切り抜きが済むまで録画を消さない(マークの無い録画の 1 日(縮めた)を過ぎても)→ 済んだら消す・
+     スタジオの LIVE の帯に進み具合の 1 行(archiveInfo.afterStream.text。スタジオ 0.21.3)
   8  コンソールのエラー・404・CSP 違反なし(想定した 409・消した録画の 404 は理由を書いて除く)
 """
 import json
@@ -721,6 +722,7 @@ def _scene_after_stream(cx):
     F, LX, api, back, check, deleted_rids, first, gone_from_list = cx.F, cx.LX, cx.api, cx.back, cx.check, cx.deleted_rids, cx.first, cx.gone_from_list
     handed, handed_ino, jobs_of, live, rec_ids, rec_len, rec_status, schemas = cx.handed, cx.handed_ino, cx.jobs_of, cx.live, cx.rec_ids, cx.rec_len, cx.rec_status, cx.schemas
     segs, srcs, srv, tmp, url_map = cx.segs, cx.srcs, cx.srv, cx.tmp, cx.url_map
+    pg, studio_url = cx.pg, cx.studio_url
     # ---------------- 9. 配信後の全自動(M7): 人は触らない ----------------
     code, _d = api("PUT", "/studio/api/settings", {"section": "analyze", "value": {"count": 30, "length": 10, "headSec": 0}})   # 短いアーカイブでも候補が録画の範囲に入るように
     check(code == 200, "9 スタジオの解析の設定(候補 30・長さ 10 秒・冒頭の減点なし): HTTP %s" % code)
@@ -745,6 +747,10 @@ def _scene_after_stream(cx):
     rid4 = cx.rid4 = ((d or {}).get("recording") or {}).get("id")
     check(code == 200 and rid4, "9 4 本目の録画(人はマークしない): %s" % rid4)
     wait_for(lambda: rec_len(rid4) > 2, 30, 0.5)
+    # 見るだけ(マークしない): スタジオに登録して ③ で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)。帯の進み具合の 1 行を見る
+    api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid4, "url": YT4, "title": "配信後の全自動"})
+    pg.goto(studio_url + "?video=" + rid4)
+    wait_js(pg, "() => !document.querySelector('#rvLiveRec').hidden", 20000)
     first["TESTarch004"] = LX.iso_epoch((rec_status(rid4)[1] or {}).get("firstPdt"))
     wait_for(lambda: rec_len(rid4) > 75, 120, 0.5)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid4})
@@ -752,13 +758,16 @@ def _scene_after_stream(cx):
 
     def after_state():
         return ((api("GET", "/live/api/exports?recorder=local&recording=%s" % rid4)[1] or {}).get("archiveInfo") or {}).get("afterStream") or {}
-    seen_after = []
+    seen_after, band = [], []
 
     def watch():
         a = after_state()
         s = "%s:%s" % (a.get("state"), a.get("message"))
         if a and (not seen_after or seen_after[-1] != s):
             seen_after.append(s)
+        t = pg.evaluate("() => { const e = document.querySelector('#rvAfterStream'); return e && !e.hidden ? e.textContent : ''; }")
+        if t and (not band or band[-1] != t):
+            band.append(t)
         return a if a.get("state") in ("done", "none", "error") else None
     time.sleep(12)   # 縮めた「マークの無い録画は 1 日で消す」(6 秒)を過ぎても、自動の切り抜きが済むまで消さない
     check(rid4 in (rec_ids() or []), "9 マークが無いまま(縮めた)1 日を過ぎても、配信後の自動の切り抜きが済むまで録画を消さない")
@@ -767,6 +776,11 @@ def _scene_after_stream(cx):
           % (time.time() - stopped_at, (got or {}).get("message"), " → ".join(seen_after[-8:])))
     check(any(x.startswith("analyze:") for x in seen_after) and any(x.startswith("export:") for x in seen_after),
           "9 段: アーカイブを解析 → 書き出し → 本番版 → パック(%s)" % "・".join(dict.fromkeys(x.split(":", 1)[0] for x in seen_after)))
+    done_band = wait_js(pg, "() => { const e = document.querySelector('#rvAfterStream'), t = e.textContent;"
+                            " return !e.hidden && t.startsWith('配信後の自動の切り抜き: 済み') && t.includes('本のうち 書き出し'); }", 40000)
+    check(done_band and all(t.startswith("配信後の自動の切り抜き: ") for t in band),
+          "9 スタジオの LIVE の帯に進み具合の 1 行(archiveInfo.afterStream.text。途中 %d 通り → %s)"
+          % (len(band), pg.text_content("#rvAfterStream")))
     js4 = jobs_of(rid4)
     check(len(js4) >= 2 and len(js4) == (got or {}).get("jobs"), "9 上位 N を採用した: %d 本(N = %s)" % (len(js4), (got or {}).get("n")))
     check(js4 and all(j.get("origin") == "archive" and j.get("holdFor") == "archive" and j["state"] == "done" for j in js4),

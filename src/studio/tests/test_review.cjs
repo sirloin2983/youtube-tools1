@@ -649,6 +649,29 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.ok(rec.includes('本番版に入れ替えたら、録画は消します') && rec.includes("LV.autoDelete === true"));
 });
 
+test('the band line for the after-stream auto clipping (M7): the portal text as is, warn on failures, poll sooner while it moves', () => {
+  const ctx = liveJobs();
+  const view = a => plain(ctx.liveAfterView(a === undefined ? null : { ready: true, afterStream: a }));
+  assert.deepEqual(view(), { text: '', warn: false, running: false });
+  assert.deepEqual(plain(ctx.liveAfterView({ ready: true })), { text: '', warn: false, running: false }, 'no afterStream (the setting is off)');
+  const p = (o) => ({ total: 3, exported: 3, archived: 3, handed: 3, finished: 0, failed: 0, ...o });
+  let v = view({ state: 'analyze', label: 'アーカイブを解析しています', text: '配信後の自動の切り抜き: アーカイブを解析しています(アーカイブを解析しています(scan 40%))' });
+  assert.equal(v.text, '配信後の自動の切り抜き: アーカイブを解析しています(アーカイブを解析しています(scan 40%))');
+  assert.equal(v.running, true); assert.equal(v.warn, false);
+  v = view({ state: 'done', text: '配信後の自動の切り抜き: 済み(3 本のうち …)', progress: p({ finished: 1 }) });
+  assert.equal(v.running, true, 'handed to the batch run but not packed yet');
+  v = view({ state: 'done', text: 'x', progress: p({ finished: 2, failed: 1 }) });
+  assert.equal(v.running, false); assert.equal(v.warn, true, 'a failure is shown in the warn color');
+  assert.equal(view({ state: 'error', text: '配信後の自動の切り抜き: 失敗(…)' }).warn, true);
+  assert.equal(view({ state: 'error', text: 'x' }).running, false);
+  assert.equal(view({ state: 'none', text: 'x' }).running, false);
+  assert.equal(view({ state: 'wait', text: 5 }).text, '', 'only a string is shown');
+  const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
+  assert.ok(poll.includes('liveAfterView(LV.archiveInfo).running'), 'the job list is read again while it moves');
+  assert.ok(between('async function pollLiveJobs(){', 'function liveJobNotices(').includes('renderLiveAfter()'));
+  assert.ok(between('function liveBarHTML(){', '/* 今をマーク').includes('id="rvAfterStream" role="status" hidden'));
+});
+
 test('archived marks: 本番版 chip on the mark row, cleared with the exported state when the times change', () => {
   const row = between('function markHTML(c){', '</li>`;');
   assert.ok(row.includes('exp && c.archived') && row.includes('ARCH_TITLE') && row.includes('>本番版</span>'));

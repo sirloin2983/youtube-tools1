@@ -35,7 +35,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.21.2"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.21.3"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -113,21 +113,8 @@ class Handler(BaseHTTPRequestHandler):
         iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
         return httpsec.navigation_ok(self.headers, path)
 
-    def _head(self, code, ctype, length, extra=None):
-        """応答の見出し(_send と動画の _media で共通)。どの応答にも no-store(古い内容を見せない)と nosniff(型を推測させない)を付ける。extra は後ろに足す"""
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(length))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        self._head(code, ctype, len(body), extra)
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(動画の _media も同じ send_head)
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
@@ -260,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
         extra = {"Accept-Ranges": "bytes"}
         if code == 206:
             extra["Content-Range"] = "bytes %d-%d/%d" % (a, b, size)
-        self._head(code, MEDIA_TYPES.get(ext, "application/octet-stream"), b - a + 1, extra)
+        httpsec.send_head(self, code, MEDIA_TYPES.get(ext, "application/octet-stream"), b - a + 1, extra)
         if self.command == "HEAD":
             return
         try:

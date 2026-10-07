@@ -104,7 +104,7 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.58.2"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.58.3"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -334,16 +334,7 @@ class Handler(BaseHTTPRequestHandler):
         return httpsec.navigation_ok(self.headers, path)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(スタジオ・入口と同じ)
 
     def _send_path(self, path, ctype, extra=None):
         with open(path, "rb") as f:

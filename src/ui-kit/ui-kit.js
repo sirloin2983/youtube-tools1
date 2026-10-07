@@ -1,4 +1,4 @@
-/* ui-kit v18 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v20 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -39,7 +39,8 @@
    v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
        録画が終わった・切れたときの知らせ付き。線 D・plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)
-   v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ */
+   v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ
+   v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -1834,8 +1835,10 @@
     var say = typeof opts.onState === 'function' ? opts.onState : function () {};
     var from = opts.from == null ? null : String(opts.from);
     var reload = typeof opts.reload === 'function' ? opts.reload : function () { location.reload(); };
-    return yttPost('restart-self', {}).then(function () {
-      say('waiting', '起動し直しています…(戻ったら画面を読み込み直します)');
+    return yttPost('restart-self', {}).then(function (j) {
+      /* v20: 入口からの知らせ(notice。まとめて実行の待ち・実行中の N 件は起動し直したあとに続きから進む = 入口 0.41.0)も帯に出す(黙って止めたように見せない) */
+      var note = j && j.notice ? String(j.notice) : '';
+      say('waiting', '起動し直しています…(戻ったら画面を読み込み直します)' + (note ? '。' + note : ''));
       return new Promise(function (resolve) {
         var t0 = Date.now(), sawDown = false;
         /* 戻った = 一度答えなくなってから答えた、か、版が変わった(古い入口は後始末の間もしばらく答える) */
@@ -2307,7 +2310,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 19, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 20, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
 })();

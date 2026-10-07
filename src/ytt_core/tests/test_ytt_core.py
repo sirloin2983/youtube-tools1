@@ -422,6 +422,39 @@ class TestHttpsec(unittest.TestCase):
         self.assertFalse(httpsec.navigation_ok({"Sec-Fetch-Mode": "cors"}, "/"))
         self.assertEqual(httpsec.PAGE_HEADERS["X-Frame-Options"], "DENY")
 
+    def test_send(self):
+        """応答の見出しの値と順番(スタジオ・編集・入口の _send とスタジオの動画で共通)。HEAD の要求には本文を書かない"""
+        class H:
+            def __init__(self, command):
+                self.command, self.calls, self.body = command, [], b""
+                self.wfile = self
+
+            def write(self, b):
+                self.body += b
+
+            def send_response(self, code):
+                self.calls.append(("status", code))
+
+            def send_header(self, k, v):
+                self.calls.append((k, v))
+
+            def end_headers(self):
+                self.calls.append(("end",))
+        h = H("GET")
+        httpsec.send(h, 404, b"not found", extra={"X-A": "1", "Location": "/x"})
+        self.assertEqual(h.calls, [("status", 404), ("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", "9"),
+                                   ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"), ("X-A", "1"), ("Location", "/x"), ("end",)])
+        self.assertEqual(h.body, b"not found")
+        h = H("HEAD")
+        httpsec.send(h, 200, "あ".encode("utf-8"), "application/json")
+        self.assertEqual(h.calls[1:3], [("Content-Type", "application/json"), ("Content-Length", "3")])   # HEAD でも長さは本文のもの
+        self.assertEqual(h.body, b"")
+        h = H("GET")
+        httpsec.send_head(h, 206, "video/mp4", 100, {"Accept-Ranges": "bytes", "Content-Range": "bytes 0-99/500"})
+        self.assertEqual(h.calls, [("status", 206), ("Content-Type", "video/mp4"), ("Content-Length", "100"), ("Cache-Control", "no-store"),
+                                   ("X-Content-Type-Options", "nosniff"), ("Accept-Ranges", "bytes"), ("Content-Range", "bytes 0-99/500"), ("end",)])
+        self.assertEqual(h.body, b"")
+
 
 class TestTools(unittest.TestCase):
     def test_find_tool_env_override(self):

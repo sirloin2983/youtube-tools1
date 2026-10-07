@@ -213,7 +213,7 @@ function playerHTML(){
         </div>
       </div>`;
 }
-/* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・書き出したあと・配信者・アーカイブで作り直す) */
+/* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・書き出したあと・配信者・アーカイブで作り直す・配信後の自動の切り抜きの進み具合) */
 function liveBarHTML(){
   return `      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
       <div class="rv-livebar" id="rvLiveBar" hidden>
@@ -240,6 +240,7 @@ function liveBarHTML(){
           <button class="btn small ghost" id="rvArchCancel" type="button" hidden title="本番版への作り直しを止めます(済んでいない分は速報版のままです)">取り消す</button>
           <span class="hint rv-archmsg" id="rvArchMsg" role="status"></span>
         </div>
+        <p class="rv-liveguide" id="rvAfterStream" role="status" hidden></p>
       </div>`;
 }
 /* 今をマーク・一瞬をマーク・細かく決める(IN・OUT・追加) */
@@ -1215,6 +1216,8 @@ const ARCH_RUN = ['probe', 'align', 'fetch', 'verify'];
 const ARCH_ACTIVE = ['wait', ...ARCH_RUN];
 const ARCH_LABEL = { wait: '待ち', probe: 'アーカイブを確かめ中', align: '照合中', fetch: '取得中', verify: '検証中', done: '本番版', error: '失敗', cancelled: '取り消し' };
 const ARCH_TITLE = 'アーカイブから作り直して、速報版と入れ替えました';
+/* 配信後の全自動(線 D の M7)の afterStream.state のうち、もう進まないもの(入口の src/home/live_archive.py の AFTER_END と同じ) */
+const AFTER_END = ['done', 'none', 'error'];
 const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
   jobs: [], jobsKnown: false, jobsSeq: 0, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false,
   archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', autoArchive: null, autoDelete: null, deletedShown: false,
@@ -1311,6 +1314,16 @@ function liveArchSummary(jobs, info, o){
     : !pending ? 'すべて本番版に入れ替えました' : o.starting ? '頼んでいます…' : '';
   return r;
 }
+/* 配信後の全自動(M7)の帯の 1 行: 入口の GET ../live/api/exports の archiveInfo.afterStream(入口 0.41.0)の text をそのまま出す。
+   → {text, warn(失敗がある), running(まだ進む = 一覧を早めに読み直す。済んだあとも、まとめて実行へ渡した分の文字起こし → パックが残っている間)} */
+function liveAfterView(info){
+  const a = info && typeof info === 'object' && info.afterStream && typeof info.afterStream === 'object' ? info.afterStream : null;
+  if (!a) return { text: '', warn: false, running: false };
+  const state = String(a.state || ''), p = a.progress && typeof a.progress === 'object' ? a.progress : {};
+  const failed = Number(p.failed) || 0, left = (Number(p.handed) || 0) - (Number(p.finished) || 0) - failed;
+  return { text: typeof a.text === 'string' ? a.text : '', warn: state === 'error' || failed > 0,
+    running: !!state && (!AFTER_END.includes(state) || (state === 'done' && left > 0)) };
+}
 /* 済んだジョブのうち、スタジオのマークにまだ付けていないもの。時刻(studio.start/end)が今のマークと同じものだけ
    (位置を直したマークは採用に戻っているので、もう一度書き出すまで書き出し済みにしない)。マークごとに新しいジョブ1つ
    → [{markId, path, jobId, archived, key}]。採用(か候補)のマーク = 「書き出し済み」に。本番版に入れ替えたジョブ(archive.state done)なら archived も付ける。
@@ -1340,6 +1353,7 @@ function liveOpened(v){
     archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', deletedShown: false });
   const rec = !!LV.vid;
   $('#rvArch').hidden = true;
+  renderLiveAfter();   // 前に開いていた録画の「配信後の自動の切り抜き」を残さない(archiveInfo は空にした)
   $('#rvLiveRec').hidden = !rec; $('#rvLiveGuide').hidden = true;
   $('#rvLiveBar').classList.toggle('is-rec', rec); $('#rvLiveBar').classList.remove('is-ended');
   liveSet('#rvLiveBadge', 'LIVE'); liveSet('#rvLiveElapsedK', rec ? '録画の長さ' : '配信経過');
@@ -1391,7 +1405,8 @@ async function pollLiveStatus(){
   const arch = () => LV.jobs.some(liveArchRunning);
   /* 終わった録画は、書き出しが無くても 1 分ごとに一覧を読み直す(入口が自動で本番版への作り直しを始めた・待ちから進んだのに気づくため) */
   const stale = () => !!st && !st.active && Date.now() - LV.jobsAt > 60000;
-  if (!LV.jobsKnown || busy() || arch() || (LV.jobs.some(liveArchBusy) && Date.now() - LV.jobsAt > 15000) || stale()) await pollLiveJobs();
+  const after = () => liveAfterView(LV.archiveInfo).running && Date.now() - LV.jobsAt > 15000;   // 配信後の自動の切り抜き(M7)が進んでいる間は、帯の 1 行を 15 秒ごとに
+  if (!LV.jobsKnown || busy() || arch() || (LV.jobs.some(liveArchBusy) && Date.now() - LV.jobsAt > 15000) || stale() || after()) await pollLiveJobs();
   if (seq !== LV.seq || S.cur !== v || !visible()) return;
   LV.timer = setTimeout(pollLiveStatus, !err && st && !st.active && !busy() ? (arch() ? 5000 : 10000) : 3000);   // 終わった録画で書き出しも無ければゆっくり(本番版の作り直しの間は 5 秒)
 }
@@ -1492,6 +1507,14 @@ function renderLiveArch(){
   const info = LV.archiveInfo, it = info && info.message ? String(info.message) : '';
   if (msg.title !== it) msg.title = it;
 }
+/* 帯の「配信後の自動の切り抜き」の 1 行(M7)。開いている録画の分だけ(録画を消したあとも最後の文を残す)。文字と属性だけを直す */
+function renderLiveAfter(){
+  const el = $('#rvAfterStream'); if (!el) return;
+  const v = S.cur, av = liveAfterView(v && v.kind === 'live' && LV.vid === v.id ? LV.archiveInfo : null);
+  if (el.hidden !== !av.text) el.hidden = !av.text;
+  liveSet('#rvAfterStream', av.text);
+  el.classList.toggle('rv-warnline', av.warn);
+}
 async function startLiveArchive(){
   const v = S.cur; if (!v || v.kind !== 'live' || !v.live || LV.archStarting) return;
   LV.archStarting = true; LV.archMsg = ''; renderLiveArch();
@@ -1541,6 +1564,7 @@ async function pollLiveJobs(){
   LV.prevJobs = new Map(own.map(x => [x.id, x.state]));
   LV.jobs = own; LV.jobsKnown = true;
   LV.archiveInfo = j && j.archiveInfo && typeof j.archiveInfo === 'object' ? j.archiveInfo : null;
+  renderLiveAfter();
   if (own.some(liveArchBusy)) LV.archMsg = '';   // 始まった: 前に断られた文は消す
   else if (archWas){   // 本番版への作り直しが終わった(この画面を開いている間に): 帯と同じ文を1回知らせる
     const sm = liveArchSummary(own, LV.archiveInfo, { videoId: liveVideoId(v), known: true, autoOn: LV.autoArchive !== false });
