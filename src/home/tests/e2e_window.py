@@ -151,7 +151,8 @@ def main():
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base)
                 check(wait_js(pg, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 60000), "スタジオと編集がホームに取り込んで動作中(cut2resolve は部品なのでカードを出さない)")
-                open_advanced(pg)   # 窓で開く(試用)・開くのリンクは「詳しく」の中(段階5)
+                open_advanced(pg)   # 開くのリンクは「詳しく」の中(段階5)
+                pg.click("[data-ui-settings]")   # 窓で開くは ⚙ 設定の「ホーム」の節(UI の見直し M10。以前は「詳しく」の中)
 
                 # ---- 7-3 ホームの「窓で開く(試用)」 ----
                 check(wait_js(pg, "!document.getElementById('winBox').hidden", 10000), "[7-3] ホームに「窓で開く」が出る")
@@ -168,6 +169,8 @@ def main():
                 check(got and got[-1][0] == "--app=http://localhost:%d/" % port and got[-1][1].startswith("--user-data-dir=") and
                       got[-1][1].endswith(os.path.join("app", "browser-profile")), "[7-3] 「いま窓で開く」で Edge(偽)がアプリモード・専用のプロファイルで起動: %s" % got[-1:])
                 check(not any("remote-debugging" in a for a in (got[-1] if got else [])), "[7-3] リモートデバッグのポートは開かない")
+                pg.keyboard.press("Escape")   # ⚙ を閉じる(開いている間は後ろの画面を押せない)
+                wait_js(pg, "document.getElementById('uiSettingsDrawer').hidden", 5000)
                 # 普通のタブ: 開くは今までどおり新しいタブ
                 with ctx.expect_page() as info:
                     pg.click(".pt-tool[data-tool=transcribe] .pt-open")
@@ -184,7 +187,11 @@ def main():
                 win.goto(base)
                 check(wait_js(win, "document.querySelectorAll('.pt-tool[data-state=running]').length === 2", 30000), "[7-3] 窓の中のホーム")
                 open_advanced(win)
-                check(win.evaluate("UIKit.win.isApp()") is True and not win.is_visible("#btnWinNow"), "[7-3] 窓の中では「いま窓で開く」を出さない")
+                win.click("[data-ui-settings]")
+                check(win.evaluate("UIKit.win.isApp()") is True and wait_js(win, "!document.getElementById('winBox').hidden", 10000) and not win.is_visible("#btnWinNow"),
+                      "[7-3] 窓の中では「いま窓で開く」を出さない")
+                win.keyboard.press("Escape")
+                wait_js(win, "document.getElementById('uiSettingsDrawer').hidden", 5000)
                 n0 = len(read_lines(edge_log))
                 opened = []
                 actx.on("page", lambda pg2: opened.append(pg2.url))
@@ -234,6 +241,7 @@ def main():
                     got = wait_until(lambda: read_lines(edge_log)[n1:])
                     check(got and got[-1][0] == "--app=http://localhost:%d/transcribe/" % port, "[7-3] 取り込んだツールの画面からも窓で開く(/studio/api/ytt/… → 入口): %s" % got[-1:])
                 actx.close()
+                pg.click("[data-ui-settings]")
                 pg.click("#winMode")   # オフに戻す
                 check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('いつものブラウザ') >= 0", 10000) and W.read_mode(srv.window.settings_path) == "browser",
                       "[7-3] オフに戻せる")

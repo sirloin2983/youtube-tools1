@@ -332,7 +332,7 @@ function exportDrawerHTML(){
           <div class="rv-tools">
             <button class="btn primary" id="rvExpRun" type="button">書き出す</button>
             <button class="btn" id="rvJoinRun" type="button" hidden>つなげて1本に</button>
-            <button class="btn danger" id="rvExpCancel" type="button" hidden>中止</button>
+            <button class="btn" id="rvExpCancel" type="button" hidden title="書き出しを止めます(済んだ切り抜きは残ります。もう一度「書き出す」で残りを書き出せます)">中止</button>
             <details class="ui-pop rv-expmore" id="rvExpMore">
               <summary class="btn ghost icon" aria-label="その他の書き出し"><span class="ui-icon" data-icon="more"></span></summary>
               <div class="ui-pop-body" data-align="left">
@@ -480,6 +480,17 @@ function renderListKeep(){
   renderList();
   const el = id && document.querySelector(`.rv-mark-row[data-id="${CSS.escape(id)}"] [data-f="${f}"]`);
   if (el){ el.focus(); try { if (f === 'label'){ el.value = val; el.setSelectionRange(ss, se); } } catch {} }
+}
+/* 一覧を描き直したあと、押したボタンへフォーカスを戻す(見直し M2。行は innerHTML で作り直すので、そのままだと body に落ちる)。
+   同じマークの行の同じボタン(sel)へ。行が一覧から消えた(削除・絞り込み)ときは、同じ位置の行(無ければ前の行)の折りたたみのボタン、行が無ければ一覧の見出し */
+const rowIndex = li => [...document.querySelectorAll('#rvList .rv-mark-row')].indexOf(li);
+function focusRow(id, sel, idx){
+  const rows = [...document.querySelectorAll('#rvList .rv-mark-row')];
+  const same = id ? rows.find(r => r.dataset.id === id) : null;
+  const li = same || rows[Math.min(Math.max(0, idx), rows.length - 1)];
+  let el = (same && sel && li.querySelector(sel)) || (li && li.querySelector('.rv-fold'));
+  if (!el){ el = $('#rvClipbox h2'); if (el) el.tabIndex = -1; }
+  if (el) el.focus();
 }
 async function flushSave(){
   if (saveTimer){ clearTimeout(saveTimer); saveTimer = null; }
@@ -2068,8 +2079,19 @@ function renderExpMore(live, running, noTool){
     b.disabled = running || n < 2 || noTool || !!S.live || live;
     b.title = live ? 'ライブの録画は、つなげて1本にできません(1件ずつ書き出してから「編集」でつないでください)' : n < 2 ? '2 件以上チェックしてください' : S.live ? '配信中は書き出せません' : noTool ? 'ffmpeg が見つからないため書き出せません' : '時刻の順につないで、1本の mp4 にします(つなぎ目はそのまま)'; }
 }
+/* 押したボタンが押せなく・見えなくなったら、フォーカスを欄の中の次の操作へ移す(そのままだと body に落ちて、重ねた欄の外へ出ていた。見直し M2)。
+   書き出す・つなげて1本に → 中止、中止(終わった)→ 書き出す、どれも押せなければ閉じるボタン */
+const EXP_BTNS = ['rvExpRun', 'rvJoinRun', 'rvExpCancel', 'rvExpAll', 'rvExpRetry'];
+function keepExportFocus(fa){
+  if (!fa || !EXP_BTNS.includes(fa.id) || (!fa.disabled && !fa.hidden && fa.offsetParent)) return;
+  const ok = el => el && !el.disabled && !el.hidden && el.offsetParent;
+  const order = fa.id === 'rvExpCancel' ? ['rvExpRun', 'rvExpClose'] : ['rvExpCancel', 'rvExpRun', 'rvExpClose'];
+  const to = order.map(id => $('#' + id)).find(ok);
+  if (to) to.focus({ preventScroll: true });
+}
 function renderExportUI(){
   if (!S.built) return;
+  const fa = document.activeElement;
   const v = S.cur, st = Studio.state || {};
   const live = !!(v && v.kind === 'live');   // ライブの録画: 書き出しは入口(../live/api/export)。録画中でも書き出せる・つなぐ・全部の配信の書き出しは使わない
   renderExpTools(v, st, live);
@@ -2081,7 +2103,8 @@ function renderExportUI(){
   const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
   const count = exportCountText(v, live, t, j, jrun, done, lact);
   $('#rvExpCount').textContent = count;
-  $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || (lact.length && !t.length) ? count : t.length ? `対象 ${t.length}件` : '';
+  /* 見出しの横は、動いていないときの対象の数だけ。動いている間の「書き出し中 n/m件」は本文(#rvExpCount)の 1 か所に出す(二重に出していた。見直し S13) */
+  $('#rvExpSum').textContent = (S.exportAll && !live) || jrun || lact.length ? '' : t.length ? `対象 ${t.length}件` : '';
   { const je = $('#rvJumpExp'); if (je) je.textContent = (S.exportAll && !live) || jrun || lact.length ? '実行中' : t.length ? t.length + '件' : ''; }
   { const b = $('#rvExpRun'); if (b) b.textContent = t.length && !jrun && !(S.exportAll && !live) ? `${t.length}件を書き出す` : '書き出す'; }
   { const bar = $('#rvExpBar'); bar.hidden = !jrun;
@@ -2089,6 +2112,7 @@ function renderExportUI(){
   const noTool = st.ffmpeg === false;
   renderExpRun(live, t, running, noTool);
   renderExpMore(live, running, noTool);
+  keepExportFocus(fa);
 }
 function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id); }
 /* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。
@@ -2725,14 +2749,15 @@ function wire(){
     const key = b.dataset.key || '';
     switch (b.dataset.act){
       case 'play': markSel(c.id); previewClip(c); break;
-      case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); break;
+      case 'fold': S.fold.set(c.id, !isFolded(c.id)); renderListKeep(); focusRow(c.id, '.rv-fold', rowIndex(li)); break;
       case 'join': if (b.checked) S.join.add(c.id); else S.join.delete(c.id); renderExportUI(); break;
       case 'txseek': {   // セリフの行を押したら、その行だけ再生する(元の配信の時刻)
         const t = Number(b.dataset.t), e2 = Number(b.dataset.e);
         if (!Number.isFinite(t)) break;
         if (!canPlay()){ seek(t); noPlayerToast(); break; }
         seek(t); S.previewEnd = Number.isFinite(e2) && e2 > t ? e2 : null; yt.playVideo(); break; }
-      case 'st': setStatus(c, b.dataset.st, b.dataset.st === 'adopted' || b.dataset.st === 'rejected'); break;
+      case 'st': { const idx = rowIndex(li), st = b.dataset.st;
+        setStatus(c, st, st === 'adopted' || st === 'rejected'); focusRow(c.id, `.rv-stb[data-st="${st}"]`, idx); break; }
       case 'auto1': { const pop = b.closest('details.ui-pop'); if (pop) pop.open = false; startAuto('adopted', [c.id]); break; }   // このマークだけ、残りの作業をまとめて(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3)
       case 'nudge': {
         const w = b.dataset.w;
@@ -2740,8 +2765,10 @@ function wire(){
         break; }
       case 'setnow': if (setBound(c, b.dataset.w, S.now)) refresh(key); break;
       case 'delete': armDelete(b, () => {
+        const idx = rowIndex(li);
         S.cur.marks = S.cur.marks.filter(x => x.id !== c.id); S.fold.delete(c.id); if (S.sel === c.id) S.sel = null;
         markDirty(); refresh(); renderMeta(); toast('マークを削除しました');
+        focusRow(null, null, idx);   // 次の行(無ければ前の行・無ければ見出し)へ
       }); break;
     }
   });
@@ -3122,7 +3149,7 @@ async function pollAuto(){
   const stepLabel = s => (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(s) : AUTO_STEP[s.state] || s.state);   // 状態の言葉は1か所
   const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
-    (active ? '<button type="button" class="btn small" data-act="autocancel">中止</button>' : '') +
+    (active ? '<button type="button" class="btn small" data-act="autocancel" title="まとめて実行を止めます(済んだ段は残ります。もう一度始めると、残りから進めます)">中止</button>' : '') +
     `<a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
   bar.dataset.run = r.id;
   bar.hidden = false;

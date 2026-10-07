@@ -7,7 +7,7 @@ const LS = 'clipstudio:queue:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
 const STATUS = { waiting: ['待機中', 'wait'], running: ['解析中', 'run'], done: ['完了', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['スキップ', 'wait'] };
 const OPT_IDS = ['useAudio', 'useChat', 'useComments', 'count', 'length', 'sens', 'pre', 'lag', 'lagAuto', 'headSec', 'typePreset', 'typeOver', 'chatTo', 'maxH', 'wA', 'wC', 'wM'];   // noCache は保存しない
-const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, warned: false };
+const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, warned: false, busy: false };
 const mmss = t => { t = Math.max(0, Math.floor(Number(t) || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
 
 function paneHtml(){
@@ -127,6 +127,25 @@ function entries(){
 function paintKinds(){
   const e = entries(), allFile = e.length > 0 && e.every(x => x.kind === 'file');
   document.querySelectorAll('#qOpts [data-yt]').forEach(l => { l.classList.toggle('off', allFile); const i = l.querySelector('input'); if (i) i.disabled = allFile && (i.id === 'useChat' || i.id === 'useComments' || i.id === 'chatTo' || i.id === 'noCache'); });
+  syncAdd(e);
+}
+/* 「解析に追加」「解析せずに確認画面を開く」は、欄が空のときと送っている間は押せない。理由は title に(見直し S17。以前は押せるままで、押すと知らせが出た) */
+function syncAdd(e){
+  const empty = !(e || entries()).length;
+  for (const id of ['qAdd', 'qOpen']){
+    const b = $('#' + id); if (!b) continue;
+    b.disabled = Q.busy || empty;
+    b.title = Q.busy ? '送っています…' : empty ? 'YouTube の URL か、動画ファイルのパスを入れると押せます' : '';
+  }
+}
+/* 送り終えたら、押す前にいた入力欄へフォーカスを戻す(ボタンは欄が空になって押せなくなるので、そのままだと body に落ちる。見直し M2)。
+   ③ へ移ったとき(録画を始めた・確認画面を開いた)は動かさない */
+function refocusForm(from){
+  if (S.step !== 'queue') return;
+  const a = document.activeElement;
+  if (a && a !== document.body && !a.disabled && a !== from) return;   // 待つ間にほかの所へ移ったなら、そのまま
+  const f = from && (from.id === 'qPath' || from.id === 'qUrls') ? from : $('#qUrls');
+  if (f) f.focus();
 }
 function setMsg(t){ const m = $('#qMsg'); if (m) m.textContent = t || ''; }
 /* 「解析の設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
@@ -161,16 +180,21 @@ function errHelp(msg){
 }
 
 /* ---------- キューへ追加 ---------- */
-S.enqueue = async items => {
+/* opts.stay: ② へ移らずに知らせだけ(① の行の「解析に追加」。続けて次の配信を選べるように。見直し M2)。知らせの [② 解析を見る] で移れる */
+S.enqueue = async (items, opts) => {
   if (!items || !items.length) return { added: [], rejected: [] };
+  const stay = !!(opts && opts.stay);
   const r = await S.api('/api/queue/add', { body: { items, settings: settings() } });
   const parts = [];
   if (r.added.length) parts.push(r.added.length + '本を解析に追加しました');
   if (r.rejected.length) parts.push('追加できなかった分: ' + r.rejected.map(x => (x.input ? '「' + String(x.input).slice(0, 40) + '」 ' : '') + x.reason).join(' / '));
   if (!parts.length) parts.push('追加するものがありませんでした');
   const msg = parts.join('。');
-  S.toast(msg, r.rejected.length ? 9000 : 4500, r.rejected.length ? (r.added.length ? 'info' : 'err') : 'ok'); setMsg(msg);
-  await tick(); S.go('queue');
+  const ms = r.rejected.length ? 9000 : 4500, kind = r.rejected.length ? (r.added.length ? 'info' : 'err') : 'ok';
+  if (stay && r.added.length) S.toast(msg, { ms, kind, action: { label: '② 解析を見る', fn: () => S.go('queue') } });
+  else S.toast(msg, ms, kind);
+  setMsg(msg);
+  await tick(); if (!stay) S.go('queue');
   return r;
 };
 /* コラボとしてまとめる: まとめて追加した動画(videoId)からグループを作る(経路1)。時刻のズレの指定は「④ コラボ」で別途行う */
@@ -203,13 +227,13 @@ async function openBegun(begun){
   if (S.review && S.review.open) await S.review.open(b.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
 }
 async function addFromForm(){
-  if ($('#qAdd').disabled) return;
-  const e = entries();
+  if (Q.busy) return;
+  const e = entries(), from = document.activeElement;
   if (!e.length){ $('#qUrls').focus(); return S.toast('YouTubeのURLか、ファイルのパスを入れてください'); }
   let note = '';
   if (e.length > Q.max){ e.length = Q.max; note = '11本目以降は無視しました。'; }
   const wantGroup = $('#qCollab').checked;
-  $('#qAdd').disabled = true; $('#qOpen').disabled = true;
+  Q.busy = true; syncAdd();
   try {
     const { begun, rest } = await beginLive(e);
     const r = rest.length ? await S.enqueue(rest) : { added: [], rejected: [] };
@@ -221,13 +245,13 @@ async function addFromForm(){
     }
     if (begun.length){ if (!rest.length) setMsg(`配信中の ${begun.length}本の録画を始めました`); await openBegun(begun); }
   } catch (er){ S.toast(er.message, 0, 'err'); setMsg(er.message); }
-  $('#qAdd').disabled = false; $('#qOpen').disabled = false;
+  Q.busy = false; syncAdd(); refocusForm(from);
 }
 async function openWithout(){
-  if ($('#qOpen').disabled) return;
-  const e = entries();
+  if (Q.busy) return;
+  const e = entries(), from = document.activeElement;
   if (!e.length){ $('#qUrls').focus(); return S.toast('YouTubeのURLか、ファイルのパスを入れてください'); }
-  $('#qOpen').disabled = true; $('#qAdd').disabled = true;
+  Q.busy = true; syncAdd();
   try {
     const { begun } = await beginLive(e.slice(0, 1));   // 配信中・配信前なら、確認画面で録画を開く
     if (begun.length){ if (e.length === 1){ $('#qUrls').value = ''; $('#qPath').value = ''; paintKinds(); } await openBegun(begun); }
@@ -237,7 +261,7 @@ async function openWithout(){
       if (S.review && S.review.open) await S.review.open(r.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
     }
   } catch (er){ S.toast(er.message, 0, 'err'); setMsg(er.message); }
-  $('#qOpen').disabled = false; $('#qAdd').disabled = false;
+  Q.busy = false; syncAdd(); refocusForm(from);
 }
 
 /* ---------- キュー一覧 ---------- */
@@ -251,7 +275,7 @@ function itemHtml(it){
     <div class="q-meta"><span class="pill ${esc(cls)}">${esc(label)}</span>${meta}</div></div>
     <div class="q-act">`;
   if (it.status === 'done') h += `<button type="button" class="btn small" data-act="review" data-vid="${esc(it.videoId)}">確認する</button>`;
-  if (running) h += `<button type="button" class="btn small" data-act="cancel">中止</button>`;
+  if (running) h += `<button type="button" class="btn small" data-act="cancel" title="解析を止めます(あとで「やり直し」で始め直せます)">中止</button>`;
   if (it.status === 'waiting') h += `<button type="button" class="btn small ghost" data-act="cancel">取り除く</button>`;
   if (['error', 'cancelled', 'skipped'].includes(it.status)) h += `<button type="button" class="btn small" data-act="retry">やり直し</button>`;
   h += '</div>';

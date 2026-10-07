@@ -33,7 +33,15 @@ function build(){
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub" title="複数人のコラボ配信をグループにまとめ、採用したマークを転写">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub" title="事務所ごとの所属チャンネル(① 探す の検索対象)">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
-  $('#keyDel').addEventListener('click', () => saveKey('', $('#keyDel')));
+  /* キーを削除は取り消せない(もう一度貼り付けが要る)ので確認する(見直し M3。中止のような取り消せる操作は確認しない) */
+  $('#keyDel').addEventListener('click', async () => {
+    const b = $('#keyDel');
+    if (S.state && S.state.hasKey && window.UIKit && UIKit.dialog){
+      const ok = await UIKit.dialog.confirm({ title: 'API キーを削除しますか?', body: '保存してある YouTube Data API キーを消します。① 探す をまた使うには、キーをもう一度貼り付けます。', ok: '削除する', danger: true });
+      if (!ok) return;
+    }
+    saveKey('', b);
+  });
   $('#keyIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#keySave').click(); } });
   $('#btnOutEdit').addEventListener('click', () => {
     const e = $('#outEdit'); e.hidden = !e.hidden; $('#btnOutEdit').setAttribute('aria-expanded', String(!e.hidden));
@@ -174,7 +182,7 @@ function update(){
   k.title = t.keySource === 'env' ? '環境変数 YOUTUBE_API_KEY を使用中' : '';
   /* 設定の「!」は「やることがある」印(API キーが未設定)。タブの件数(残っている作業の数)とは形も色も分けている */
   $('#settingsDot').hidden = !!t.hasKey; $('#settingsDotText').hidden = !!t.hasKey;
-  $('#btnSettings').title = t.hasKey ? '設定(APIキー・出力先フォルダ・事務所の登録)' : '設定(API キーが未設定です。① 探す に必要)';
+  $('#btnSettings').title = t.hasKey ? '設定(APIキー・出力先フォルダ・③ の操作・コラボ・事務所の登録)' : '設定(API キーが未設定です。① 探す に必要)';
   /* 見出しの横は、長いときにフォルダの末尾が見えるように先頭を省く(CSS の direction:rtl。記号の並びが崩れないよう前後に LRM) */
   $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir ? '\u200e' + t.outDir + '\u200e' : ''; $('#outSub').title = t.outDir || '';
 }

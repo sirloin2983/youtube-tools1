@@ -209,7 +209,7 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
         # 9. すべて終了(2回押し)。3つとも取り込みなので、この形には子プロセスは無い
         pg.click("#btnQuit")
-        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[A] 1回目は確認だけ(残り秒数を見せる): %s" % pg.text_content("#btnQuit"))
+        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[A] 1回目は確認だけ(UIKit.confirmTwice): %s" % pg.text_content("#btnQuit"))
         pg.click("#btnQuit")
         check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[A] 終了中の表示")
         th.join(30)
@@ -247,7 +247,7 @@ def _mounted_cards_and_health(cx):
     c2r = next(t for t in pg.evaluate("fetch('/api/status', {cache: 'no-store'}).then(r => r.json())")["tools"] if t["id"] == "cut2resolve")
     check(c2r["state"] == "running" and c2r["mounted"] and c2r["hidden"], "[A] cut2resolve はホームに取り込まれて動いている(カードは出さない): %s" % {k: c2r[k] for k in ("state", "mounted", "hidden")})
     check(pg.text_content("#ver") == "ホーム v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
-    check(pg.text_content("#conn") == "接続中", "[A] 接続中の表示")
+    check(pg.is_hidden("#conn") and pg.text_content("#conn") == "接続済み", "[A] つながったあとは「接続」の札を出さない(切れたときだけ「切断」。S12): %s" % pg.text_content("#conn"))
     check(wait_js(pg, "document.querySelector('[data-ui-appnav-item=\"studio\"]')?.getAttribute('href') === '/studio/'"
                       " && document.querySelector('[data-ui-appnav-item=\"transcribe\"]')?.getAttribute('href') === '/transcribe/'", 10000),
           "[A] ホームの ui-appnav の「スタジオ」「編集」は、取り込みが分かってから正しい場所に直る: %s"
@@ -258,12 +258,14 @@ def _mounted_cards_and_health(cx):
     # 段9 9-1: 「調子」(版・認識ワーカー・外部プログラム・空き容量・作業データ・エラーの件数)が「詳しく」の先頭に出る
     check(wait_js(pg, "[...document.querySelectorAll('#healthList > li')].length >= 6", 20000), "[A] 「調子」が出る(6 項目以上): %d" % pg.locator("#healthList > li").count())
     ht = pg.inner_text("#healthList")
-    check("版" in ht and "認識ワーカー" in ht and "空き容量" in ht and "画面のエラー" in ht and "まとめて実行の失敗" in ht, "[A] 調子の項目: 版・認識ワーカー・空き容量・エラーの件数: %s" % " / ".join(ht.split())[:160])
+    check("版" in ht and "文字起こしの処理" in ht and "認識ワーカー" not in ht and "空き容量" in ht and "画面のエラー" in ht and "まとめて実行の失敗" in ht and "pid" not in ht,
+          "[A] 調子の項目: 版・文字起こしの処理(内部の言葉・pid は本文に出さない)・空き容量・エラーの件数: %s" % " / ".join(ht.split())[:160])
+    check("良い" not in ht and "悪い" not in ht and ("問題なし" in ht or "要対応" in ht) and "YTT_FFMPEG" not in ht, "[A] S13・S9: 調子の札は 問題なし・注意・要対応・測定。環境変数名は本文に出さない: %s" % " / ".join(ht.split())[:120])
     check(wait_js(pg, "document.querySelector('#healthList').textContent.indexOf('作業データ ') >= 0 && document.querySelector('#healthList').textContent.indexOf('数えています') < 0", 20000), "[A] 作業データの大きさは別のスレッドで数えて、終わったら出る")
     # 入口 0.38.0: 入口の条件(あと何本・何分)。前回の測定の記録から「今 / 目標 / あと」を 1 行ずつ・無いものは「未測定」
-    check(wait_js(pg, "!!document.getElementById('accuracyGoals')", 20000), "[A] 調子に「入口の条件(あと何本・何分)」が出る")
+    check(wait_js(pg, "!!document.getElementById('accuracyGoals')", 20000), "[A] 調子に「始める条件(あと何本・何分)」が出る")
     gt = pg.inner_text("#accuracyGoals") if pg.query_selector("#accuracyGoals") else ""
-    check("G1 定点 15 分: 今 15.8 分 / 目標 15 分 / 届いた" in gt and "G2 定点 30 分: 今 15.8 分 / 目標 30 分 / あと 14.2 分" in gt
+    check("始める条件(あと何本・何分)" in gt and "定点 15 分: 今 15.8 分 / 目標 15 分 / 届いた" in gt and "定点 30 分: 今 15.8 分 / 目標 30 分 / あと 14.2 分" in gt and "G1" not in gt and "G2" not in gt
           and "学習用の校正 3 時間: 今 0.17 時間 / 目標 3 時間 / あと 2.83 時間" in gt and "確かめ済みの話者の行 200: 今 120 行 / 目標 200 行 / あと 80 行" in gt
           and "採用の記録 配信 10 本: 未測定" in gt and "届いた 1 / 8・未測定 3" in gt,
           "[A] 入口の条件: 今 / 目標 / あと と 未測定: %s" % " / ".join(gt.split("\n"))[:600])
@@ -581,7 +583,7 @@ def _mounted_list_tools(cx):
     pg.click("#casesHidden")   # 「非表示のものを隠す」→ 隠したものが無いので切り替えは消える
     check(wait_js(pg, "document.getElementById('casesHidden').hidden", 5000), "[A] 非表示: 隠したものが無くなれば切り替えも消える")
     # 次にやること: 1行を隠す → 「元に戻す」で戻る(書き出し待ちが増えて 5 件を超えるので、先に「すべて見る」。入口 0.42.0)
-    if pg.is_visible("#todoMore"):
+    if pg.is_visible("#todoMore") and pg.text_content("#todoMore").startswith("すべて見る"):
         pg.click("#todoMore")
     n_todo = pg.evaluate("document.querySelectorAll('#todoList .pt-todo-hide').length")
     if n_todo:
@@ -598,7 +600,7 @@ def _mounted_list_tools(cx):
     check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
 
 
-NEXT_KINDS = {"校正待ち": 0, "パック待ち": 1, "作り直し": 1, "文字起こし待ち": 2, "書き出し待ち": 3, "確認前の候補": 4}   # 次にやることの並び(仕上げに近い順)
+NEXT_KINDS = {"校正待ち": 0, "パック待ち": 1, "作り直し": 1, "文字起こし待ち": 2, "書き出し待ち": 3, "候補の確認待ち": 4}   # 次にやることの並び(仕上げに近い順)
 
 
 def seed_next_cases(studio_json, tmp):
@@ -645,20 +647,24 @@ def _mounted_next_steps(cx):
     _next_empty_state(cx)
     _next_gone_case(cx)
     _next_focus_and_enter(cx)
+    _ui_review_checks(cx)
 
 
 def _next_todo(cx):
     """S-6: 次にやることに 文字起こし待ち・書き出し待ち・確認前の候補(スタジオの ③ へ)と並び / S-26: 紐づかない文書の副題"""
     check, pg = cx.check, cx.pg
-    if pg.is_visible("#todoMore"):
+    if pg.is_visible("#todoMore") and pg.text_content("#todoMore").startswith("すべて見る"):
         pg.click("#todoMore")
-    check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-pill')].some(p => p.textContent === '確認前の候補')", 15000), "[A] S-6: 次にやることに確認前の候補が出た")
+    check(wait_js(pg, "[...document.querySelectorAll('.pt-todo-pill')].some(p => p.textContent === '候補の確認待ち')", 15000), "[A] S-6: 次にやることに候補の確認待ちが出た")
     todo = pg.eval_on_selector_all("#todoList .pt-todo-item", "els => els.map(e => [e.querySelector('.pt-todo-pill').textContent, "
                                    "e.querySelector('.pt-todo-link').getAttribute('href'), e.querySelector('.pt-todo-sub').textContent])")
-    check(any(p == "確認前の候補" and h == "/studio/?video=e2eNext0001" and "候補 3個" in s and "chNext" in s for p, h, s in todo),
-          "[A] S-6: 確認前の候補(見送りは数えない)・スタジオの ③ でその配信を開く: %s" % todo)
+    check(any(p == "候補の確認待ち" and h == "/studio/?video=e2eNext0001" and "候補 3個" in s and "chNext" in s for p, h, s in todo),
+          "[A] S-6: 候補の確認待ち(見送りは数えない)・スタジオの ③ でその配信を開く: %s" % todo)
     check(any(p == "文字起こし待ち" and h == "/studio/?video=e2eNext0002" and "文字起こし 1本" in s for p, h, s in todo), "[A] S-6: 文字起こし待ち: %s" % todo)
     check(any(p == "書き出し待ち" and h == "/studio/?video=e2eList0000" and "書き出し 1本" in s for p, h, s in todo), "[A] S-6: 書き出し待ち(採用したマーク): %s" % todo)
+    order_api = pg.evaluate("fetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.todoOrder)")
+    check(order_api == ["proof", "pack", "transcribe", "export", "review"],
+          "[A] M1: 案件の一覧が並びの表(todoOrder)を返す = 上の一覧と案件の行のボタンが同じ順(cases.py の TODO_ORDER): %s" % order_api)
     ranks = [NEXT_KINDS[p] for p, h, s in todo if p in NEXT_KINDS]
     check(ranks == sorted(ranks), "[A] S-6: 並びは 校正 → パック → 文字起こし → 書き出し → 候補の確認: %s" % [p for p, h, s in todo])
     solo = [s for p, h, s in todo if "doc=deadbeef0002" in h]
@@ -709,6 +715,7 @@ def _next_empty_state(cx):
     p3 = ctx.new_page()
     p3.on("pageerror", lambda e: cx.errors.append(str(e)))
     p3.route("**/api/cases", lambda route: route.fulfill(json={"cases": [], "unlinked": [], "casesFile": ""}))
+    p3.route("**/transcribe/api/transcripts", lambda route: route.fulfill(json={"items": []}))   # 次にやることを空にする(文書ごとの校正待ちも無し)
     p3.goto(cx.base)
     check(wait_js(p3, "!!document.getElementById('emptyStudio')", 15000), "[A] S-13: 配信が無いときの空の表示")
     et = p3.text_content("#list .empty")
@@ -716,6 +723,8 @@ def _next_empty_state(cx):
     check(p3.get_attribute("#emptyStudio", "href") == "/studio/?step=rank" and p3.get_attribute("#emptyStudio", "target") is None,
           "[A] S-13: 「スタジオで配信を探す」はスタジオの ① 探す へ(?step=rank。同じ窓)")
     check(wait_js(p3, "!document.getElementById('intakeBox').hidden && !!document.getElementById('emptyIntake')", 10000), "[A] S-13: 「依頼の受付を設定する」が出る")
+    check(wait_js(p3, "!document.getElementById('todoEmpty').hidden && document.getElementById('todoEmptyBtn').getAttribute('href') === '/studio/?step=rank'", 10000)
+          and "ここに出ます" in p3.text_content("#todoEmpty"), "[A] M5: 次にやることが 0 件のときも 2 文 + [スタジオで配信を探す]: %s" % p3.text_content("#todoEmpty"))
     p3.click("#emptyIntake")
     check(wait_js(p3, "document.getElementById('intakeBox').open && document.activeElement && document.activeElement.id === 'intakeFolder'", 5000),
           "[A] S-13: 押すと依頼の受付が開き、見張るフォルダの欄へフォーカス: %s" % p3.evaluate("document.activeElement && document.activeElement.id"))
@@ -790,6 +799,86 @@ def _next_focus_and_enter(cx):
                       " && document.activeElement === document.querySelector('#case-e2eCase0001 .pt-auto-run')", 20000),
           "[A] S-24: 終わったら中止は消えて、フォーカスは実行へ戻る: %s" % p5.evaluate("document.activeElement && document.activeElement.className"))
     p5.close()
+
+
+def _ui_review_checks(cx):
+    """[A] 2j. UI の見直し 1 周目(B の指摘 M2・M5〜M10・S10・S12): やることが無いときの次の一手・空の表示・フォーカス・札の色・中止・⚙ の「ホーム」の節・失敗の文"""
+    check, ctx, pg = cx.check, cx.ctx, cx.pg
+    # M7: 回る輪の札(run)は本当に動いているときだけ(案件の状態「作業中」・切り抜きの校正の途中には使わない)
+    check(pg.evaluate("document.querySelectorAll('.pt-case-statuspill.run, .pt-clip-steps .pill.run').length") == 0, "[A] M7: 作業中・校正の途中の札に回る輪(run)を使わない")
+    # M8: 中止は取り消せる(済んだ段は残る)ので danger にしない
+    check(pg.evaluate("[...document.querySelectorAll('.pt-auto-cancel')].every(b => !b.classList.contains('danger') && b.title.indexOf('続きから') >= 0)"),
+          "[A] M8: 中止は danger でなく、済んだ段が残ることを title に")
+    # S10: すべて見る ⇄ 少なく表示
+    if pg.is_visible("#todoMore"):
+        t0 = pg.text_content("#todoMore")
+        n0 = pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length")
+        if t0.startswith("すべて見る"):
+            pg.click("#todoMore")
+            check(pg.text_content("#todoMore") == "少なく表示" and pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length") > n0
+                  and pg.evaluate("document.activeElement.classList.contains('pt-todo-link')"), "[A] S10・M6: すべて見る → 最初に増えた行へフォーカス・「少なく表示」に変わる")
+            pg.click("#todoMore")
+            check(pg.text_content("#todoMore").startswith("すべて見る") and pg.evaluate("document.querySelectorAll('#todoList .pt-todo-item').length") == n0,
+                  "[A] S10: 少なく表示で戻る")
+    # M6: 非表示にしたあとフォーカスは次の行へ(body に落ちない)
+    if pg.evaluate("document.querySelectorAll('#todoList .pt-todo-hide').length"):
+        pg.focus("#todoList .pt-todo-hide")
+        pg.keyboard.press("Enter")
+        check(wait_js(pg, "!!document.activeElement && !!document.activeElement.closest('#todoBox')", 5000),
+              "[A] M6: 非表示にしたあと、フォーカスは一覧の中に残る: %s" % pg.evaluate("document.activeElement && document.activeElement.className"))
+        wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.querySelector('.ui-toast-act'))", 5000)
+        pg.evaluate("[...document.querySelectorAll('.ui-toast')].reverse().find(t => t.textContent.indexOf('非表示にしました') >= 0).querySelector('.ui-toast-act').click()")
+    # M5: 絞り込みで 0 件 → 2 文 + [絞り込みを消す]
+    pg.fill("#fText", "存在しない配信の名前zzzz")
+    check(wait_js(pg, "!!document.querySelector('#list .empty button')", 5000) and "全部の配信が出ます" in pg.text_content("#list .empty"),
+          "[A] M5: 絞り込みで 0 件のとき 2 文とボタン: %s" % pg.text_content("#list .empty"))
+    check("0 / " in pg.text_content("#count"), "[A] S5: 件数の分母は全体の数: %s" % pg.text_content("#count"))
+    pg.click("#list .empty button")
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length > 0 && document.getElementById('fText').value === ''", 5000), "[A] M5: 絞り込みを消すと戻る")
+    # M10: ⚙ の「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能)。「詳しく」の中には無い
+    check(pg.evaluate("!document.querySelector('#advancedBox #winBox, #advancedBox #labBox')"), "[A] M10: 窓で開く・試験中の機能は「詳しく」から ⚙ の「ホーム」の節へ移った(二重にしない)")
+    pg.click("[data-ui-settings]")
+    check(wait_js(pg, "!!document.querySelector('#uiSettingsDrawer #homeSettings #labBox') && !!document.querySelector('#uiSettingsDrawer #homeSettings .ui-ar-sum')", 5000)
+          and pg.evaluate("document.querySelector('#uiSettingsDrawer #homeSettings > h3').textContent") == "ホーム",
+          "[A] M10: ⚙ に「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能)")
+    pg.click("#setGoBackup")
+    check(wait_js(pg, "document.getElementById('backupBox').open && !document.getElementById('uiSettingsDrawer').classList.contains('in')", 5000),
+          "[A] M10: ⚙ の「作業データのバックアップ」の「開く」で、その欄へ移る")
+    # M2: 候補だけの配信で [実行] → やることが無い。理由だけでなく次の一手のボタンを出す
+    p6 = ctx.new_page()
+    p6.on("pageerror", lambda e: cx.errors.append(str(e)))
+    p6.route("**/api/autorun/estimate", lambda route: route.fulfill(json={"steps": [{"label": "書き出し", "count": 0, "note": "採用したマークがありません"}],
+                                                                           "nothing": True, "reason": "採用したマークがありません"}))
+    p6.goto(cx.base)
+    check(wait_js(p6, "document.querySelectorAll('.pt-case').length > 0", 15000), "[A] M2: ホーム")
+    p6.fill("#fText", "次テスト 候補")
+    check(wait_js(p6, "!!document.getElementById('case-e2eNext0001')", 10000), "[A] M2: 候補だけの配信の行")
+    p6.click("#case-e2eNext0001 .pt-case-title")
+    p6.fill("#case-e2eNext0001 .pt-auto-streamer", "")
+    p6.click("#case-e2eNext0001 .pt-auto-run")
+    check(wait_js(p6, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('やることがありません') >= 0 && t.textContent.indexOf('候補を採用') >= 0"
+                      " && t.querySelector('.ui-toast-act') && t.querySelector('.ui-toast-act').textContent === '候補の確認へ')", 10000),
+          "[A] M2: やることが無いとき、理由 + 次の一歩 + [候補の確認へ]: %s" % p6.evaluate("[...document.querySelectorAll('.ui-toast')].map(t => t.textContent)"))
+    p6.evaluate("document.querySelector('.ui-toast-act').click()")
+    p6.wait_for_url(lambda u: "/studio/" in u and "video=e2eNext0001" in u, timeout=20000)
+    check(True, "[A] M2: [候補の確認へ] はスタジオの ③ でその配信を開く: %s" % p6.url)
+    p6.close()
+    # M9: 状態の保存が失敗したとき: 「何が」+「どうすれば」・HTTP の番号は本文に出さない・[もう一度]
+    p7 = ctx.new_page()
+    p7.on("pageerror", lambda e: cx.errors.append(str(e)))
+    p7.route("**/api/cases/update", lambda route: route.fulfill(status=500, json={}))
+    p7.goto(cx.base)
+    check(wait_js(p7, "document.querySelectorAll('.pt-case').length > 0", 15000), "[A] M9: ホーム")
+    p7.fill("#fText", "次テスト 候補")
+    check(wait_js(p7, "!!document.getElementById('case-e2eNext0001')", 10000), "[A] M9: 候補だけの配信の行")
+    p7.click("#case-e2eNext0001 .pt-case-title")
+    p7.select_option("#case-e2eNext0001 .pt-case-status", "working")
+    check(wait_js(p7, "[...document.querySelectorAll('.ui-toast.err')].some(t => t.textContent.indexOf('状態を保存できませんでした') >= 0)", 10000), "[A] M9: 状態の保存の失敗の知らせ")
+    msg = p7.evaluate("[...document.querySelectorAll('.ui-toast.err')].map(t => t.querySelector('.ui-toast-msg').textContent).join('|')")
+    check("HTTP" not in msg and "もう一度" in msg, "[A] M9: 本文に HTTP の番号を出さず、次の一歩(もう一度選ぶ)を書く: %s" % msg)
+    check(p7.evaluate("!!document.querySelector('.ui-toast.err .ui-toast-act') && document.querySelector('.ui-toast.err .ui-toast-detail').textContent.indexOf('HTTP 500') >= 0"),
+          "[A] M9: 知らせに [もう一度]・原文(HTTP 500)は「詳しく」の中")
+    p7.close()
 
 
 def _mounted_redirect_theme_narrow(cx):
@@ -916,7 +1005,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         # 9. すべて終了(2回押し)。今度は文字起こしだけが止めるべき子プロセス
         procs = [t.proc for t in sup.tools if t.proc]
         pg.click("#btnQuit")
-        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[B] 1回目は確認だけ(残り秒数を見せる): %s" % pg.text_content("#btnQuit"))
+        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[B] 1回目は確認だけ(UIKit.confirmTwice): %s" % pg.text_content("#btnQuit"))
         check(sup.by_id["transcribe"].proc is not None, "[B] 1回目ではまだ止まらない")
         pg.click("#btnQuit")
         check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[B] 終了中の表示")

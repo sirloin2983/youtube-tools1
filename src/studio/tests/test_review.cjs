@@ -907,8 +907,11 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   const html = box['#paneReview'].innerHTML;
   const ids = [...html.matchAll(/\sid="([^"$]+)"/g)].map(m => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
-  for (const id of ['rvRoot', 'rvPick', 'rvJump', 'rvEmpty', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvSettings', 'rvExport', 'rvClipbox', 'rvList'])
+  for (const id of ['rvRoot', 'rvPick', 'rvJump', 'rvEmpty', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
+  /* 0.22.3(見直し M9): 操作の設定は ③ の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
+  assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
+  assert.ok(between('function mountSettings(', '/* 書き出しの引き出し').includes("$('#opsHost')"), 'mountSettings puts them into the settings drawer');
   assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice"') && html.endsWith('    </section>\n  </div>\n</div>'));
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
 });

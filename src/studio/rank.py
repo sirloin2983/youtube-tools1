@@ -59,7 +59,7 @@ def yt_get(path, params):
         return fake_get(path, params)
     key, _ = get_api_key()
     if not key:
-        raise ApiError("no_key", "APIキーが未設定です(右上の「APIキー」から設定してください)", 400)
+        raise ApiError("no_key", "API キーが未設定です(設定の「YouTube Data API キー」で入れてください)", 400)
     url = API_BASE + path + "?" + urllib.parse.urlencode({**params, "key": key})
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     last = None
@@ -77,7 +77,7 @@ def yt_get(path, params):
             if reason in ("quotaExceeded", "rateLimitExceeded", "dailyLimitExceeded"):
                 raise ApiError("quota", "YouTube APIの1日の利用上限に達しました(翌日、太平洋時間の0時にリセットされます)", 429)
             if reason in ("keyInvalid", "badRequest") and "key" in msg.lower():
-                raise ApiError("key_invalid", "APIキーが正しくありません", 400)
+                raise ApiError("key_invalid", "API キーが正しくありません(設定の「YouTube Data API キー」で入れ直してください)", 400)
             if reason in ("accessNotConfigured", "forbidden", "permissionError", "ipRefererBlocked") and e.code == 403:
                 raise ApiError(
                     "api_permission",
@@ -89,12 +89,12 @@ def yt_get(path, params):
             if e.code >= 500 and attempt == 0:   # サーバー側の一時的な失敗は1回だけやり直す
                 time.sleep(1)
                 continue
-            raise ApiError("upstream", "YouTube APIがエラーを返しました(HTTP %d)" % e.code, 502)
+            raise ApiError("upstream", "YouTube の API がエラーを返しました。少し待ってから、もう一度試してください", 502, {"detail": "HTTP %d" % e.code})   # 番号は画面の「元のメッセージ」へ(見直し M7)
         except (urllib.error.URLError, TimeoutError, OSError):
-            last = ApiError("network", "YouTube APIに接続できません", 502)
+            last = ApiError("network", NET_MSG, 502)
             if attempt == 0:
                 time.sleep(1)
-    raise last or ApiError("network", "YouTube APIに接続できません", 502)
+    raise last or ApiError("network", NET_MSG, 502)
 
 
 # ---------- 疑似API(テスト用: STUDIO_FAKE=1) ----------
@@ -531,7 +531,7 @@ def _ok_channels(ags):
             else:
                 unresolved += 1
     if not chans:
-        raise ApiError("no_channels", "対象の事務所に、解決済みの所属チャンネルがありません(「所属の登録」でチャンネルを登録し、「解決」してください)", 400)
+        raise ApiError("no_channels", "対象の事務所に、解決済みのチャンネルがありません(設定の「事務所の登録」でチャンネルを登録し、「解決」してください)", 400)
     return chans, unresolved
 
 
@@ -598,10 +598,11 @@ def run_search(job, spec):
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
-    except ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+    except ApiError as e:   # code は画面が次の一手のボタン(設定を開く・事務所の登録を開く・もう一度)を選ぶのに使う。detail は畳んだ「元のメッセージ」へ
+        job["state"], job["error"], job["phase"], job["code"], job["detail"] = "error", e.message, "失敗", e.code, (e.extra or {}).get("detail", "")
     except Exception as e:  # 想定外でも落とさない
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
+        job["state"], job["error"], job["phase"], job["code"] = "error", "検索の途中で問題が起きました。もう一度検索してください", "失敗", "internal"
+        job["detail"] = "%s %s" % (e.__class__.__name__, str(e)[:200])
 
 
 def _start_search(spec):
@@ -618,7 +619,7 @@ def _start_search(spec):
 
 
 def job_public(j):
-    return {k: j[k] for k in ("id", "state", "phase", "progress", "error", "result")}
+    return dict({k: j[k] for k in ("id", "state", "phase", "progress", "error", "result")}, code=j.get("code", ""), detail=j.get("detail", ""))
 
 
 # ---------- 配信中・これからの予定(① の「配信中」のタブ。2026-10-05) ----------

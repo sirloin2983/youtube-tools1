@@ -169,7 +169,7 @@ def main():
 
                 # 1. オフ
                 pg.goto(base)
-                pg.evaluate("document.getElementById('advancedBox').open = true")
+                pg.click("[data-ui-settings]")   # 試験中の機能は ⚙ 設定の「ホーム」の節(UI の見直し M10。以前は「詳しく」の中)
                 check(wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden"), "「試験中の機能」が出る")
                 check(pg.evaluate("document.getElementById('liveEnabled').checked") is False, "既定はオフ")
                 check(pg.evaluate("document.getElementById('liveLink')") is None, "録画の画面へのリンクは無い(スタジオに統合した)")

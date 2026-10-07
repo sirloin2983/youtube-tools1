@@ -137,7 +137,7 @@ function mountRegistry(el){
 /* ================= 検索条件 ================= */
 function paneHtml(){
   return `
-  <div id="rkSetupNotice" class="notice info cs-notice-act" hidden><div><b>最初に、対象の事務所のチャンネルを登録します。</b><br>設定 → 事務所の登録 →「公式から取り込む」(ホロライブ・にじさんじ・ぶいすぽっ!)。ネオポルテは公式の一覧がないので、チャンネルのURL(または @ハンドル)を入れて「追加して解決」</div><button type="button" class="btn small" id="rkOpenReg">事務所の登録を開く</button></div>
+  <div id="rkSetupNotice" class="notice info cs-notice-act" hidden><div><b>最初に、対象の事務所のチャンネルを登録します。</b><br>設定 → 事務所の登録 →「公式から取り込む」(ホロライブ・にじさんじ・ぶいすぽっ!)。ネオポルテは公式の一覧がないので、チャンネルのURL(または @ハンドル)を入れて「追加して解決」</div><button type="button" class="btn small primary" id="rkOpenReg">事務所の登録を開く</button></div>
   <div id="rkKeyNotice" class="notice cs-notice-act" hidden><div><b>YouTube Data API のキーが未設定です。</b> 配信を検索するにはキーが必要です(URLを直接入れて解析する場合は不要です)。</div><button type="button" class="btn small" id="rkOpenSet">設定を開く</button></div>
   <section class="card cs-search" id="rkCond">
     <div class="card-head"><h2 class="card-title">配信を探す</h2><span class="card-sub">登録した事務所の、期間内の配信アーカイブを再生数の多い順に並べます</span></div>
@@ -190,6 +190,7 @@ function renderAgChecks(){
   const box = $('#agChecks'); if (!box) return;
   const sn = $('#rkSetupNotice'); if (sn) sn.hidden = R.reg.agencies.some(a => okCount(a) > 0);
   box.innerHTML = agChipsHtml('agc');
+  syncGo();
   renderLvAg();   // 「配信中」のタブの事務所の選び方も同じ(登録を変えたとき)
 }
 /* 事務所の選択のチェック(「終わった配信」= agc・「配信中」= lvagc。選んだ状態は同じ R.agPick) */
@@ -216,9 +217,26 @@ function advSummary(){
   if (c.minDur) parts.push('10分以上');
   el.textContent = parts.join(' ・ ');
 }
-function setBusy(b){ $('#btnGo').disabled = b || noKey(); $('#btnCancel').hidden = !b; $('#barWrap').hidden = !b; if (!b){ $('#phase').textContent = ''; $('#bar').style.width = '0'; } }
+function setBusy(b){ $('#btnCancel').hidden = !b; $('#barWrap').hidden = !b; if (!b){ $('#phase').textContent = ''; $('#bar').style.width = '0'; } syncGo(); }
 const noKey = () => !(S.state && S.state.hasKey);
-function keyNotice(){ $('#rkKeyNotice').hidden = !noKey(); $('#btnGo').disabled = noKey() || !$('#btnCancel').hidden; }
+function keyNotice(){ $('#rkKeyNotice').hidden = !noKey(); syncGo(); }
+/* 「検索する」が押せない理由(見直し M5。以前は押せるままで、押すと 2 回続けて失敗した)。押せるなら '' */
+function goWhy(){
+  if (!$('#btnCancel').hidden) return '検索しています…(終わるか「中止」を押すと、もう一度押せます)';
+  if (noKey()) return '先に設定で YouTube Data API キーを入れると押せます';
+  const ags = R.reg.agencies;
+  if (!ags.some(a => okCount(a) > 0)) return '先に事務所のチャンネルを登録すると押せます(上の「事務所の登録を開く」)';
+  const picked = ags.filter(a => document.querySelector(`.agc[value="${CSS.escape(a.id)}"]:checked`));
+  if (!picked.length) return '対象の事務所を 1 つ以上選ぶと押せます';
+  if (!picked.some(a => okCount(a) > 0)) return '選んだ事務所に、登録済みのチャンネルがありません(チャンネルのある事務所を選ぶと押せます)';
+  return '';
+}
+function syncGo(){
+  const b = $('#btnGo'); if (!b) return;
+  const why = goWhy();
+  b.disabled = !!why; b.title = why;
+  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+}
 
 async function startSearch(){
   if ($('#btnGo').disabled) return;
@@ -338,16 +356,25 @@ async function loadMarks(){
   if (R.auto.size && S.step === 'rank') R.autoT = setTimeout(refreshMarks, 5000);   // 動いている間は印を更新する(① を開いている間だけ。戻ったら step で読み直す)
 }
 async function refreshMarks(){ await loadMarks(); paintRows(); }
-async function enqueue(items){
+async function enqueue(items, opts){
   if (!S.enqueue) return S.toast('解析画面がまだ読み込まれていません。ページを開き直してください', 0, 'err');
   if (R.adding) return;   // 二重送信の防止(同じ配信が2回キューに入らないように)
   R.adding = true; paintPick();
   try {
-    const r = await S.enqueue(items);
+    const r = await S.enqueue(items, opts);
     if (r && r.added && r.added.length){ for (const it of items) R.picked.delete(it.videoId); }
   } catch (e){ S.toast(e.message, 0, 'err'); }
   R.adding = false;
   await refreshMarks(); paintPick();
+}
+/* 行の「解析に追加」を押したあと(押したボタンは押せなくなる): 次の行の「解析に追加」へ。無ければ同じ行の題名のリンクへ(body に落とさない。見直し M2) */
+function focusNextAdd(tr){
+  if (!tr || !tr.isConnected) return;
+  const a = document.activeElement; if (a && a !== document.body && !a.disabled) return;
+  let n = tr.nextElementSibling;
+  while (n && !n.querySelector('.add1:not(:disabled)')) n = n.nextElementSibling;
+  const el = (n && n.querySelector('.add1:not(:disabled)')) || tr.querySelector('td.tt a');
+  if (el) el.focus();
 }
 
 /* ================= まとめて実行(入口から開いたときだけ。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5) =================
@@ -639,7 +666,7 @@ S.onReady(async () => {
   advSummary();
   $('#words').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); startSearch(); } });
   /* 事務所のチェックは、ユーザーが変えたものだけ覚える(触っていない事務所は、チャンネルを登録すれば自動で選ばれる) */
-  $('#agChecks').addEventListener('change', e => { const cb = e.target.closest('.agc'); if (!cb) return; R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); });
+  $('#agChecks').addEventListener('change', e => { const cb = e.target.closest('.agc'); if (!cb) return; R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); syncGo(); });
   $('#btnGo').addEventListener('click', startSearch);
   $('#btnCancel').addEventListener('click', () => { if (R.job) S.api('/api/rank/search/cancel', { body: { id: R.job.id } }).catch(() => {}); });
   $('#rkOpenSet').addEventListener('click', () => S.openSettings('setKey'));
@@ -673,7 +700,8 @@ S.onReady(async () => {
       renderBody(); return; }
     if (e.target.closest('#rkMore')){ const i = LIMITS.indexOf(R.limit); R.limit = LIMITS[Math.min(LIMITS.length - 1, i + 1)]; const sl = $('#rkLimit'); if (sl) sl.value = String(R.limit); lsSet('limit', R.limit); renderBody(); return; }
     const b = e.target.closest('.add1'); if (!b || b.disabled) return;
-    enqueue([{ kind: 'youtube', videoId: b.dataset.id, title: b.dataset.title, channel: b.dataset.channel }]);
+    const tr = b.closest('tr');   // ① に残って続けて選べるように、② へは移らない(知らせの [② 解析を見る] で移れる)
+    enqueue([{ kind: 'youtube', videoId: b.dataset.id, title: b.dataset.title, channel: b.dataset.channel }], { stay: true }).then(() => focusNextAdd(tr));
   });
   $('#results').addEventListener('input', e => { if (e.target.id === 'rkQ'){ R.q = e.target.value; renderBody(); } });
   $('#results').addEventListener('change', e => { if (e.target.id === 'rkLimit'){ R.limit = Number(e.target.value) || 0; lsSet('limit', R.limit); renderBody(); } });

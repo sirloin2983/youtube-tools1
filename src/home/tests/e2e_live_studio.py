@@ -346,7 +346,7 @@ def _scene_turn_on(cx):
     pg = ctx.new_page()
     watch(pg, "home")
     pg.goto(base + "/")
-    pg.evaluate("document.getElementById('advancedBox').open = true")
+    pg.click("[data-ui-settings]")   # 試験中の機能は ⚙ 設定の「ホーム」の節(UI の見直し M10。以前は「詳しく」の中)
     wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden")
     pg.click("#liveEnabled")
     check(wait_js(pg, "document.getElementById('liveMsg').hidden === false") and srv.prefs.get(["live"])["live"]["enabled"] is True,
