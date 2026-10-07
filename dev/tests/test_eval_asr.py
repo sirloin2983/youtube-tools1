@@ -158,6 +158,71 @@ class EvalAsrTest(unittest.TestCase):
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
+    def test_load_serve_forwards_settings_to_the_parts(self):
+        """load_serve は serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品(ed_jobs・ed_state)に届く。
+        2026-10-07 まで届いていなかった(認識は認識ワーカーで動き・--context auto はスタジオの data.json を読めず・差し替えた QUANT_ON などは後処理に効かない)"""
+        S = E.load_serve("fake")
+        J = S.ed_jobs
+        self.assertIs(sys.modules[E.C.SERVE_NAME], S)
+        self.assertTrue(J.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
+        self.assertEqual(S.ed_state.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
+        before = (J.QUANT_ON, J.JOIN_GAP)
+        with mock.patch.object(S, "QUANT_ON", not before[0]), mock.patch.object(S, "JOIN_GAP", 0.0):
+            self.assertEqual((J.QUANT_ON, J.JOIN_GAP), (not before[0], 0.0))   # 差し替えは部品に届く
+        self.assertEqual((J.QUANT_ON, J.JOIN_GAP), before)                       # 戻すのも部品へ
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_run_temp0_reaches_the_model_in_this_process(self):
+        """--temp0 が認識のモデルまで届く(temperature=0.0。付けなければ渡さない = faster-whisper の既定の温度のやり直し)。
+        モデルはこのプロセスの中で読む(認識ワーカーを起動しない)。モデルは偽物に差し替える(本物は読まない)"""
+        src = os.path.join(self.tmp, "clip.wav")
+        silence_wav(src, 8.0)
+        self.write("cccccccccc07", evalSet=True, sourcePath=src, start=0, end=8,
+                   segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
+        calls = []
+
+        class Model:   # faster-whisper の WhisperModel と同じ形(params = 受け付ける引数の名前)
+            def params(self):
+                return ["language", "beam_size", "condition_on_previous_text", "vad_filter", "vad_parameters", "no_speech_threshold",
+                        "word_timestamps", "temperature", "initial_prompt", "hotwords"]
+
+            def transcribe(self, audio, **kw):
+                calls.append(kw)
+                row = types.SimpleNamespace(start=0.0, end=4.0, text="テスト文1", avg_logprob=-0.1, no_speech_prob=0.0, compression_ratio=1.0, words=[])
+                return iter([row]), types.SimpleNamespace(duration=8.0, duration_after_vad=8.0, language="ja")
+
+        def no_worker(*a, **k):
+            raise AssertionError("認識ワーカーを起動した(IN_WORKER が ed_jobs に届いていない)")
+        J = E.load_serve().ed_jobs   # main も同じ部品を使う
+        with mock.patch.dict(os.environ), mock.patch.object(J, "_load_model_local", lambda *a, **k: (Model(), "cpu")), \
+                mock.patch.object(J, "check_engine", lambda spec: None), mock.patch.object(J.WORKER, "call", no_worker), mock.patch.object(J.WORKER, "stream", no_worker):
+            os.environ.pop("TRANSCRIBE_BACKEND", None)
+            args = ["run", "--data", self.data, "--docs", "cccccccccc07", "--model", "small", "--vad", "off", "--no-save"]
+            res = quiet(E.main, args + ["--temp0"])
+            self.assertEqual(calls[-1].get("temperature"), 0.0)
+            self.assertEqual((res["meta"]["engine"]["engine"], res["meta"]["engine"]["settings"]["temp0"]), ("faster-whisper", True))
+            self.assertEqual(res["summary"]["overall"]["refChars"], 10)
+            n = len(calls)
+            quiet(E.main, args)
+            self.assertEqual(len(calls), n + 1)
+            self.assertNotIn("temperature", calls[-1])
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_run_context_reads_studio_streams(self):
+        """--context auto はスタジオの data.json の配信のチャンネル名・コラボ相手から出る人を決める(load_serve が STUDIO_DATA を ed_state に届ける。
+        2026-10-07 までは届かず以前の置き場所を見ていた = 題名・話者の名前からの文脈だけ)"""
+        studio = os.path.join(self.tmp, "studio-data.json")
+        with open(studio, "w", encoding="utf-8") as f:
+            json.dump({"videos": {"vidAAAAAAAAA": {"channel": "Miko Ch. さくらみこ", "title": "配信"}, "vidBBBBBBBBB": {"channel": "Pekora Ch. 兎田ぺこら", "title": "配信"}},
+                       "groups": {"g1": {"members": ["vidAAAAAAAAA", "vidBBBBBBBBB"]}}}, f, ensure_ascii=False)
+        src = os.path.join(self.tmp, "clip.wav")
+        silence_wav(src, 8.0)
+        self.write("dddddddddd08", evalSet=True, title="切り抜き", sourcePath=src, start=0, end=8, clip={"source": {"videoId": "vidAAAAAAAAA"}},
+                   segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_STUDIO_DATA": studio}):
+            res = quiet(E.main, ["run", "--data", self.data, "--docs", "dddddddddd08", "--context", "auto", "--no-save"])
+        self.assertEqual(res["meta"]["perDoc"][0]["context"], ["さくらみこ", "兎田ぺこら"])   # チャンネル → コラボ相手
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_recognize_doc_applies_row_post_processing(self):
         """本番(run_job)と同じ行の後処理を通す(0.52.1): 長さより後ろの行を捨てる・dur と levels(whisper.cpp のときだけ)を expand_segments へ渡す"""
@@ -189,11 +254,16 @@ class EvalAsrTest(unittest.TestCase):
                 self.assertIsNone(calls[-1][1])                                    # faster-whisper は音の谷へ寄せない
                 E.recognize_doc(S, doc, spec_of("whisper.cpp"), self.data)
                 self.assertIsNotNone(calls[-1][1])                                 # whisper.cpp は音の大きさ(WavLevels)を渡す
-            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False})
-            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime)のモデルも印に残す(TRANSCRIBE_RETIME=0 なら False)
-            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "pullEnds": True, "quantRetime": S.QUANT_MODEL})
-            with mock.patch.object(S, "QUANT_ON", False):
-                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp"))["quantRetime"], False)
+            # 行の後処理の印(meta.post)。joinGap = 続いている行をつなぐすき間(0.57.1。全エンジン)= editor の post_record と同じ値
+            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False, "joinGap": 0.5})
+            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime)のモデルと endTrim(0.57.1 から 0)も印に残す。音の谷へ寄せる pullEnds は 10-05 から既定でやめた
+            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),
+                             {"clip": True, "mergeRepeats": True, "pullEnds": False, "quantRetime": S.QUANT_MODEL, "endTrim": 0.0, "joinGap": 0.5})
+            with mock.patch.object(S, "QUANT_ON", False), mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0), \
+                    mock.patch.object(S, "PULL_ENDS_ON", True):   # TRANSCRIBE_RETIME=0・END_TRIM=0.1・JOIN_GAP=0・PULL_ENDS=1(0.57.0 より前の形)
+                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),
+                                 {"clip": True, "mergeRepeats": True, "pullEnds": True, "quantRetime": False, "endTrim": 0.1, "joinGap": 0.0})
+                self.assertEqual(E.post_meta(S, spec_of("faster-whisper"))["pullEnds"], False)   # 音の大きさを使うのは whisper.cpp だけ
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
@@ -206,12 +276,12 @@ class EvalAsrTest(unittest.TestCase):
             self.write("ffffffffff06", evalSet=True, sourcePath=src, start=0, end=8,
                        segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
             res = quiet(E.main, ["run", "--data", self.data, "--docs", "ffffffffff06", "--no-save"])
-            self.assertEqual(res["meta"]["post"], {"clip": True, "mergeRepeats": True, "pullEnds": False})
+            self.assertEqual(res["meta"]["post"], {"clip": True, "mergeRepeats": True, "pullEnds": False, "joinGap": 0.5})
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
     def test_compare_notes_different_row_post_processing(self):
-        """片方に post が無い(0.51.0 より前の測定)・中身が違う結果どうしは、注意を出す。同じ・両方無いなら出さない"""
+        """片方に post が無い(0.51.0 より前の測定)・中身が違う(0.57.1 の前後の joinGap など)結果どうしは、注意を出す。同じ・両方無いなら出さない"""
         a = quiet(E.main, ["stored", "--data", self.data, "--label", "a"])
         pa = os.path.join(self.data, "evals", "asr", sorted(os.listdir(os.path.join(self.data, "evals", "asr")))[0])
         post = {"clip": True, "mergeRepeats": True, "pullEnds": False}
@@ -230,6 +300,9 @@ class EvalAsrTest(unittest.TestCase):
         self.assertEqual(res["postNote"], E.POST_NOTE)
         self.assertIn("行の後処理が違う結果どうしです", res["postNote"])
         self.assertIn(E.POST_NOTE, quiet(E.cmd_compare, p_new, p_pull)["warnings"])
+        p_571, p_join0 = variant("d.json", dict(post, joinGap=0.5)), variant("e.json", dict(post, joinGap=0.0))
+        for x, y in ((p_new, p_571), (p_571, p_join0)):   # 2 周目より前の印(joinGap が無い)・つなぐすき間が違う
+            self.assertIn(E.POST_NOTE, quiet(E.cmd_compare, x, y)["warnings"])
         buf = io.StringIO()
         with redirect_stdout(buf):
             E.cmd_compare(p_new, p_none)

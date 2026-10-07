@@ -148,14 +148,10 @@ def make_plan(members, listings, minutes, clip_sec, since_ts, seed="1"):
 
 
 # ---------- 外のコマンド(テストで差し替える) ----------
-def _no_window():
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 def run_cmd(cmd, timeout):
     """(終了コード, 標準出力, 標準エラーの最後の数行)"""
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, creationflags=_no_window())
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, creationflags=tools.no_window_flags())
     except (OSError, subprocess.SubprocessError) as e:
         return 1, "", str(e)
     return p.returncode, p.stdout or "", "\n".join((p.stderr or "").strip().splitlines()[-3:])
@@ -184,7 +180,7 @@ def silent_ratio(path):
         return 0.0
     try:
         p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "silencedetect=noise=-40dB:d=0.5", "-f", "null", "-"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=_no_window())
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=tools.no_window_flags())
     except (OSError, subprocess.SubprocessError):
         return 0.0
     total = sum(float(x) for x in re.findall(r"silence_duration: ([0-9.]+)", p.stderr or ""))

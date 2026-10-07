@@ -7,14 +7,14 @@
     py -3.10 dev/eval_speakers.py run --threshold 0.5,0.6,0.7 [--num auto,2] [--emb voxceleb] [--min-on 0.1] [--min-off 0.3] [--docs id,…] [--reviewed …] [--json]
         文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。本番と同じ道(音声の取り出し extract_audio → diarize_real → assign_speakers)。
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
-        モデルは作業データの models\\diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals\\speakers\\<日時>-run.json)。
+        モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
     --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/editor/ed_speakers.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
         ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
         run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と <id>.diar.json)。何も書き換えない。--json のときだけ、結果を
-  文字起こしの作業データの evals\\speakers\\<日時>.json に残す(evals の置き場所は eval_asr.py(evals\\asr)・eval_marks.py と同じ「ツールの作業データの下の evals\\<領域>」)。
+  文字起こしの作業データの evals/speakers/<日時>.json に残す(evals の置き場所は eval_asr.py(evals/asr)・eval_marks.py と同じ「ツールの作業データの下の evals/<領域>」)。
 - 人の最終 = 文書の行の speaker(id)→ speakers[].name。機械 = <id>.diar.json の latest(rows[行 id].speaker = その回の S1/S2…・voices = 声の照合)。
   行 id で突き合わせる(人が分けた・つないだ行は新しい id で、機械の記録が無い = 「記録なし」として別に数える)。
 - --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。src/editor/ed_drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
@@ -46,26 +46,20 @@
 - 話者つきの行が 200 未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。評価用(evalSet)の文書は既定で含める(--no-eval で外す)
 """
 import argparse
-import atexit
 import bisect
-import datetime
-import importlib.util
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
-from ytt_core import datadir  # noqa: E402
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
+from _evalcommon import dist, pct, rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)
@@ -94,23 +88,6 @@ LENGTHS = (("short", "60秒未満"), ("long", "60秒以上"))
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
 
-def read_json(path, default=None, limit=None):
-    try:
-        if limit and os.path.getsize(path) > limit:
-            return default
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
-def locate(data_dir=None):
-    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所。
-    data_dir を渡したとき(テスト)は、そこを全ツールの作業データの親フォルダとして使う(<data_dir>/transcribe)"""
-    env = {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
-    return datadir.locate("transcribe", REPO, env)
-
-
 def read_diar(tdir, tid):
     d = read_json(os.path.join(tdir, tid + ".diar.json"), None, MAX_DIAR_BYTES)
     if not isinstance(d, dict) or d.get("schema") != DIAR_SCHEMA or not isinstance(d.get("latest"), dict):
@@ -120,41 +97,8 @@ def read_diar(tdir, tid):
 
 # ---------------------------------------------------------------- 日時・数の小道具
 
-def day_ms(s, end=False):
-    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
-    try:
-        d = datetime.datetime.strptime(s, "%Y-%m-%d")
-    except (TypeError, ValueError):
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
-    if end:
-        d += datetime.timedelta(days=1)
-    return int(time.mktime(d.timetuple()) * 1000)
-
-
-def pct(x):
-    return "  -  " if x is None else "%4.0f%%" % (x * 100)
-
-
-def rate(c, n):
-    return round(c / n, 4) if n else None
-
-
 def num(x):
     return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
-
-
-def dist(values):
-    """数のそろいの分布 -> {"n", "min", "p25", "median", "p75", "max", "mean"}(空なら n だけ)"""
-    v = sorted(x for x in values if x is not None)
-    if not v:
-        return {"n": 0}
-
-    def q(p):
-        k = (len(v) - 1) * p
-        lo = int(k)
-        hi = min(lo + 1, len(v) - 1)
-        return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 3)
-    return {"n": len(v), "min": round(v[0], 3), "p25": q(0.25), "median": q(0.5), "p75": q(0.75), "max": round(v[-1], 3), "mean": round(sum(v) / len(v), 3)}
 
 
 def norm_name(s):
@@ -640,11 +584,10 @@ def stored_smooth_recs(S, doc, run):
 
 
 def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None, smooth=None):
-    tdir_root = locate(data_dir)
+    tdir_root = C.locate("transcribe", data_dir)
     S_ = load_serve() if smooth else None   # ならしの計算は本番の関数(editor の ed_speakers)を使う。--smooth のときだけ読む
     tdir = os.path.join(tdir_root, "transcripts")
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
+    since_ms, until_ms = C.period(since, until)
     subs = {k: {"counts": new_counts(), "voices": Voices()} for k, _ in SUBSETS}
     engines, by_doc = {}, []
     diffs = []
@@ -730,7 +673,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
     if skipped["single"]:
         notes.append("「話す人が1人」の指定の文書が %d 件あります(機械の判別ではないので測っていません)" % skipped["single"])
     meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "includeEval": bool(include_eval), "includeDraft": bool(include_draft),
-            "git": git_rev(), "dataDir": tdir_root, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"], "rows": nrows, "few": few,
+            "git": C.git_rev(), "dataDir": tdir_root, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"], "rows": nrows, "few": few,
             "fewNote": "まだ少ない(参考): 話者つきの行が %d 行(%d 行未満)。これで既定値(しきい値 0.60・差 0.08 など)を決めない" % (nrows, FEW_ROWS) if few else "",
             "skipped": skipped, "draftRows": totals["drafts"], "noRecordRows": totals["noRecord"],
             "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE, "reviewed": rinfo,
@@ -746,33 +689,15 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
 
 # ---------------------------------------------------------------- 判別し直して測る(run)
 
-EDITOR = os.path.join(REPO, "editor")
 _SERVE = []
 
 
 def load_serve():
-    """src/editor/serve.py を読み込む(eval_asr.py の load_serve と同じ形。あちらは別の担当が直すので、10 行ほどを写して持つ)。
-    serve 自身の DATA_DIR は一時フォルダ(本物の作業データの横に何も書かない。本物は道具が自分で読む)。
-    判別はこのプロセスの中で動かす(ed_jobs.IN_WORKER。登録しない読み込みの serve は「S.名前 = …」を部品へ転送しないので、部品に直接入れる)"""
-    if _SERVE:
-        return _SERVE[0]
-    os.environ.setdefault("YTT_CORE_DIR", REPO)
-    old = os.environ.get("TRANSCRIBE_DATA_DIR")
-    tmp = tempfile.mkdtemp(prefix="eval_speakers_")
-    atexit.register(shutil.rmtree, tmp, True)
-    os.environ["TRANSCRIBE_DATA_DIR"] = tmp
-    try:
-        spec = importlib.util.spec_from_file_location("tx_serve_for_eval_speakers", os.path.join(EDITOR, "serve.py"))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-    finally:   # 部品は読み込んだときに置き場所を決め終えている。戻さないと、このあとの locate(本物の作業データ)が一時フォルダを指す
-        if old is None:
-            os.environ.pop("TRANSCRIBE_DATA_DIR", None)
-        else:
-            os.environ["TRANSCRIBE_DATA_DIR"] = old
-    mod.ed_jobs.IN_WORKER = True
-    _SERVE.append(mod)
-    return mod
+    """src/editor/serve.py(_evalcommon.load_serve。1 プロセスで 1 回だけ)。serve 自身の作業データは一時フォルダ eval_speakers_…で、
+    読み込んだあと環境変数を戻す(戻さないと、このあとの locate(本物の作業データ)が一時フォルダを指す)。判別はこのプロセスの中で動かす(ed_jobs.IN_WORKER)"""
+    if not _SERVE:
+        _SERVE.append(C.load_serve(prefix="eval_speakers_", keep_env=False))
+    return _SERVE[0]
 
 
 def parse_list(text, conv, what):
@@ -829,7 +754,7 @@ def setting_key(st):
 
 
 def check_models(S, root, grid):
-    """本物の判別のモデルが作業データの models\\diar にあるか(無ければ取得せずに止める)。S の DIAR_DIR を本物の場所にする"""
+    """本物の判別のモデルが作業データの models/diar にあるか(無ければ取得せずに止める)。S の DIAR_DIR を本物の場所にする"""
     d = os.path.join(root, "models", "diar")
     need = [S.DIAR_SEG["file"]] + sorted({S.DIAR_EMBS[st["emb"]]["file"] for st in grid})
     missing = [f for f in need if not (os.path.isfile(os.path.join(d, f)) and os.path.getsize(os.path.join(d, f)) > 1000)]
@@ -893,11 +818,10 @@ def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, 
 def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None,
                  threshold=None, num_=None, emb=None, min_on=None, min_off=None, log=print, smooth=None):
     """文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。文書・diar.json は書かない。smooth = [False, True] など(--smooth)"""
-    root = locate(data_dir)   # load_serve より先に(load_serve が TRANSCRIBE_DATA_DIR を一時フォルダにするため)
+    root = C.locate("transcribe", data_dir)
     S = load_serve()
     tdir = os.path.join(root, "transcripts")
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
+    since_ms, until_ms = C.period(since, until)
     grid = run_grid(S, threshold, num_, emb, min_on, min_off, smooth)
     real = S.backend_name() != "fake"
     if real:
@@ -999,7 +923,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
         notes.append("字幕に出さない行(noSub・ゲーム音声など)%d 行は測っていません" % totals["noSub"])
     if skipped["noAudio"]:
         notes.append("音声が無い・取り出せない文書 %d 件は測っていません" % skipped["noAudio"])
-    meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": git_rev(), "dataDir": root, "backend": "sherpa-onnx" if real else "fake",
+    meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": C.git_rev(), "dataDir": root, "backend": "sherpa-onnx" if real else "fake",
             "threads": S.diar_threads() if real else None, "since": since, "until": until, "includeEval": bool(include_eval), "includeDraft": bool(include_draft),
             "only": sorted(only) if only else None, "reviewed": rinfo, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"],
             "audioSec": round(totals["audioSec"], 1), "rows": nrows, "few": few,
@@ -1057,13 +981,6 @@ def print_run(res):
             print("    %s %4.0f 秒 人 %d 人・行 %d%s  %s  %s" % (d["id"], d["sec"], d["humanSpeakers"], d["rows"], "  [確かめ済み]" if d["reviewed"] else "", cells, d["title"]))
     for n in m["notes"]:
         print("注意: " + n)
-
-
-def git_rev():
-    try:
-        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 # ---------------------------------------------------------------- 表示・保存
@@ -1154,17 +1071,6 @@ def print_report(res):
         print("注意: " + n)
 
 
-def save(res, root, suffix=""):
-    d = os.path.join(root, "evals", "speakers")
-    os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="話者の判別と声の照合の当たり具合を、人が直した最終で測る(作業データは読むだけ)")
     p.add_argument("mode", nargs="?", choices=("stored", "run"), default="stored",
@@ -1200,13 +1106,10 @@ def main(argv=None):
         res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)
         print_run(res)
     if args.json:
-        print("\n保存: " + save(res, res["meta"]["dataDir"], "-run" if args.mode == "run" else ""))
+        print("\n保存: " + C.save(res, res["meta"]["dataDir"], "speakers", "-run" if args.mode == "run" else ""))
     return res
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()

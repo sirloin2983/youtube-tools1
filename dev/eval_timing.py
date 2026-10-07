@@ -4,7 +4,7 @@
     python dev/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と、--apply のときの <id>.asr.json)。何も書き換えない。--json のときだけ、結果を
-  文字起こしの作業データの evals\\timing\\<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_effort.py・eval_cut.py と同じ規則)。
+  文字起こしの作業データの evals/timing/<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_effort.py・eval_cut.py と同じ規則)。
   --out を付けたら、作業データではなくそのファイルに書く。
 - 正解 = 確かめ済みの評価用の文書(evalSet と evalReviewed。eval_asr.is_reviewed = src/editor/ed_drill.py の drill_is_reviewed と同じ条件)の、
   校正済み(proofed)で文字のある人の行。機械の行 = 文書の original(保存してある機械の出力 = 今の original を作った認識の結果)。
@@ -29,23 +29,19 @@
 - --since / --until は機械の出力を作った時刻(最初の認識の at。無ければ updatedAt)で絞る(until はその日を含む)。文字が合う行が FEW_ROWS 未満なら「まだ少ない(参考)」
 """
 import argparse
-import datetime
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-for _p in (REPO, HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-from ytt_core import datadir  # noqa: E402
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・git の rev・保存。src を sys.path に足す)
+from _evalcommon import rate, read_json  # noqa: E402
+from ytt_core.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
 
 SCHEMA = "youtube-tools-timing-eval/v1"
@@ -66,41 +62,6 @@ VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)",
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
-
-def read_json(path, default=None, limit=MAX_BYTES):
-    try:
-        if limit and os.path.getsize(path) > limit:
-            return default
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
-def locate(data_dir=None):
-    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所(data_dir を渡したときはそこを全ツールの親フォルダとして使う = テスト)"""
-    env = {"YTT_DATA_DIR": os.path.abspath(data_dir)} if data_dir else None
-    return datadir.locate("transcribe", REPO, env)
-
-
-def day_ms(s, end=False):
-    """YYYY-MM-DD(この PC の時刻)-> その日の始まり(end=True なら次の日の始まり)のミリ秒"""
-    try:
-        d = datetime.datetime.strptime(s, "%Y-%m-%d")
-    except (TypeError, ValueError):
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % s)
-    if end:
-        d += datetime.timedelta(days=1)
-    return int(time.mktime(d.timetuple()) * 1000)
-
-
-def num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else None
-
-
-def rate(c, n):
-    return round(c / n, 4) if n else None
-
 
 def letters(text):
     """比べる文字: NFKC にして、文字と数字だけ(記号・空白・句読点・_ を除く)"""
@@ -267,7 +228,7 @@ def apply_variants(docs, tdir, S=None):
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
     own = S is None
     S = S or eval_asr.load_serve("fake")
-    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を sys.modules に登録せずに読むので、S.名前 = … は部品へ転送されない)
+    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)
     J = getattr(S, "ed_jobs", S)
     saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st}
     res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "byDoc": []} for key, label, st in VARIANTS],
@@ -275,7 +236,7 @@ def apply_variants(docs, tdir, S=None):
     try:
         for doc in docs:
             tid = str(doc.get("id") or "")
-            asr = read_json(os.path.join(tdir, tid + ".asr.json"))
+            asr = read_json(os.path.join(tdir, tid + ".asr.json"), None, MAX_BYTES)
             if asr is None:
                 res["skipped"]["noAsr"] += 1
                 continue
@@ -312,16 +273,15 @@ def apply_variants(docs, tdir, S=None):
 # ---------------------------------------------------------------- 全体
 
 def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
-    root = locate(data_dir)
+    root = C.locate("transcribe", data_dir)
     tdir = os.path.join(root, "transcripts")
-    since_ms = day_ms(since) if since else None
-    until_ms = day_ms(until, end=True) if until else None
+    since_ms, until_ms = C.period(since, until)
     skipped = {"broken": 0, "notReviewed": 0, "noOriginal": 0, "outOfRange": 0}
     recs, docs = [], []
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
         if not DOC_RE.match(name):
             continue
-        doc = read_json(os.path.join(tdir, name))
+        doc = read_json(os.path.join(tdir, name), None, MAX_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue
@@ -332,8 +292,7 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
         if rec is None:
             skipped[why] += 1
             continue
-        t = rec["at"]
-        if (since_ms is not None or until_ms is not None) and (t is None or (since_ms is not None and t < since_ms) or (until_ms is not None and t >= until_ms)):
+        if not C.in_period(rec["at"], since_ms, until_ms, unknown=False):   # 時期を指定したときは、時刻の分からない文書も外す
             skipped["outOfRange"] += 1
             continue
         recs.append(rec)
@@ -348,7 +307,7 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
     for rec in recs:
         rec.pop("_rows", None)
     few = overall["n"] < FEW_ROWS
-    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": git_rev(), "dataDir": root,
+    meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": C.git_rev(), "dataDir": root,
             "docs": len(recs), "proofedRows": sum(r["proofed"] for r in recs), "matchedRows": overall["n"],
             "unmatchedRows": sum(r["unmatched"] for r in recs), "few": few,
             "fewNote": "まだ少ない(参考): 文字が合う行が %d 行(%d 行未満)" % (overall["n"], FEW_ROWS) if few else "",
@@ -357,13 +316,6 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
     if apply:
         res["apply"] = apply_variants(docs, tdir, serve)
     return res
-
-
-def git_rev():
-    try:
-        return subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 # ---------------------------------------------------------------- 表示・保存
@@ -416,21 +368,6 @@ def print_report(res):
         print("    %s 校正済み %3d・合う %3d  %s  %s" % (r["id"], r["proofed"], r["n"], line(r), r["title"]))
 
 
-def save(res, root, out=None):
-    if out:
-        path = os.path.abspath(out)
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    else:
-        d = os.path.join(root, "evals", "timing")
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, "%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="行の時刻を原則(①頭・①末・②前・②次・③)の数字で測る(作業データは読むだけ)")
     p.add_argument("--since", help="この日(YYYY-MM-DD)以後に作った機械の出力だけ(最初の認識の at、無ければ updatedAt)")
@@ -443,13 +380,10 @@ def main(argv=None):
     res = evaluate(args.data_dir, args.since, args.until, args.apply)
     print_report(res)
     if args.json or args.out:
-        print("\n保存: " + save(res, res["meta"]["dataDir"], args.out))
+        print("\n保存: " + C.save(res, res["meta"]["dataDir"], "timing", out=args.out))
     return res
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()

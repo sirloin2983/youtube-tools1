@@ -43,6 +43,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import dist, rate  # noqa: E402
+from ytt_core.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
 SCHEMA = "youtube-tools-effort-eval/v1"
@@ -63,10 +64,6 @@ EDIT_KEYS = (("text", "文字を直した行"), ("added", "人が足した行"),
 
 def read_json(path):
     return C.read_json(path, None, MAX_BYTES)
-
-
-def num(x):
-    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else None
 
 
 def plain_int(x):

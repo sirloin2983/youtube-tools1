@@ -1802,3 +1802,37 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次(担当外なのでまとめ役へ): `plan/improvements.md` の 7(cut2resolve の API と単独コマンド)と 9 の cut2resolve の 3 行は済み。`docs/design/edit-tool-design.md` の「fps と長さは cut2resolve の api/inspect で取る」は済んだ設計の記録なので書き換えていない(今の編集は api/plan の結果を使う)
 - 注意: 起動中の入口は古い cut2resolve(0.21.1)のまま。「すべて終了」→ start.bat で 0.22.0 になる
 - 未コミット: なし(このコミット = src/cut2resolve・src/home/tests/test_mount.py・dev/tests/e2e_pipeline.py・docs/WORKLOG.md。ほかの担当の未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: dev(eval_asr の editor の読み込みの不具合を直した・eval_asr / eval_speakers / eval_timing も _evalcommon を使う)
+- モデル: Opus(測る道具の結論に関わる不具合の原因の確かめと、editor の部品の読み込み方 = 影響が広い所の判断があるため)
+- 変更(dev/ だけ):
+  - `_evalcommon.py`: editor の読み込みを `load_serve(backend, prefix, keep_env)` の 1 つに(serve を **sys.modules に登録してから**読む・`IN_WORKER`・`STUDIO_DATA`・`setup_cuda_paths` を部品に届ける・一時フォルダは終わるときに消す)。
+    `git_rev(dirty)`(未コミットの変更があれば「+変更あり」)・`save(res, root, area, suffix, out)`(eval_asr の `_<名前>`・eval_speakers の `-run`・eval_timing の --out)。説明文のバックスラッシュを / に
+  - `eval_asr.py`(**動きの修正**): `load_serve` を `_evalcommon` の物に(`eval_asr.load_serve` の名前は残す = eval_alt・eval_effort・eval_timing・テストが使う)。
+    `post_meta` に editor の `post_record()` の endTrim(whisper.cpp だけ)・joinGap(全エンジン)を足し、pullEnds を「本当にかけたか」(whisper.cpp かつ TRANSCRIBE_PULL_ENDS=1)に。編集の版は入れない(後処理が同じなら注意を出さない。版は meta.git)。
+    `POST_NOTE` の文に「0.57.1 の前後(endTrim・joinGap)」を足した。`read_json`・`parse_day`・`git_rev`・`out_dir`・`save` は `_evalcommon` の物に(保存の名前 `<日時>_<名前>.json`・--since/--until の境目は同じ)。先頭の説明に何が効いていなかったかを書いた。1,265 → 1,212 行
+  - `eval_speakers.py`: `read_json`・`locate`・`day_ms`・`pct`・`rate`・`dist`・`git_rev`・`save`・`load_serve` の写しを `_evalcommon` の物に(load_serve は 1 プロセスで 1 回・読み込んだあと環境変数を戻す = 前と同じ)。1,212 → 1,115 行
+  - `eval_timing.py`: `read_json`・`locate`・`day_ms`・`rate`・`git_rev`・`save` を `_evalcommon` の物に・`num` は `ytt_core.schemas.num`。455 → 389 行
+  - `eval_effort.py`: `num` → `ytt_core.schemas.num`(巨大な整数で落ちずに None になるほかは同じ)。`eval_fetch.py`: `_no_window` → `tools.no_window_flags()`。`tests/test_eval_alt.py`: 使っていない `import shutil`
+  - 行数: 道具 5 本 + `_evalcommon` 3,962 → 3,797 行(−165。`_evalcommon` は 134 → 192)
+- eval_asr の不具合で何が効いていなかったか(10-07 まで。HEAD の写しで、足したテストが落ちることを確かめた):
+  - ① `S.IN_WORKER = True` が ed_jobs に届かず、`run` の認識は認識ワーカー(別プロセス)で動いていた。--temp0・beam・VAD などの設定は要求の引数でワーカーへ渡るので**効いていた**(faster-whisper 1.2.1 の transcribe は temperature を受け付ける)。
+    違ったのは meta.peakMemMB(この道具のプロセスだけ = モデルの分が入っていない)
+  - ② `S.STUDIO_DATA` が ed_state に届かず、`--context auto` はスタジオの data.json を以前の置き場所(src/studio/data.json。今は無い)で探していた = 配信のチャンネル名・コラボ相手からの文脈は 0 で、題名・話者の名前からだけだった(--context auto を使った過去の測定はこの条件)
+  - ③ 道具の外から `S.QUANT_ON = False` などを差し替えても後処理は変わらず、meta.post の印だけが変わっていた = 10-07 の「配り直し なし / あり」の比べは両方「あり」で流れていた(eval_timing は前から ed_jobs に直接入れていたので影響なし)
+  - ④ meta.post に endTrim・joinGap が無く、compare が 0.57.1 の前後を区別できなかった。whisper.cpp の pullEnds は 10-05 から実際にはかけていないのに True と書いていた
+- テストで固定(test_eval_asr 51 → 54 件): load_serve の転送(IN_WORKER・STUDIO_DATA・差し替えと戻し)/ --temp0 が偽のモデルの transcribe に temperature=0.0 で届き、付けなければ渡らない(認識ワーカーを起動したら失敗)/
+  --context auto がスタジオの data.json のチャンネル・コラボ相手から「さくらみこ・兎田ぺこら」を出す / post の印(joinGap・endTrim・pullEnds・quantRetime の差し替え)/ compare が joinGap の違いに注意を出す
+- 基準 9 の確かめ方(scratchpad の c9/):
+  - dev の測る道具のテスト 7 本(eval_asr・speakers・timing・effort・alt・cut・marks の 200 件)を流し、道具の入口の関数(main・evaluate・print_*・cmd_* など)の引数・戻り値・表示を全部記録(一時フォルダのパス・時刻・git・かかった秒を伏せる)。
+    HEAD と今の 345 件を突き合わせ、違いは meta.post の joinGap(足した)・compare の POST_NOTE の文・表示の「メモリの最大」(測るたびに 1 MB 変わる)・eval_speakers に渡る serve の名前だけ。eval_speakers・timing(--apply を含む)・effort・alt・cut・marks の結果と表示は同じ
+  - 本物の作業データ(読むだけ・保存なし・--json なし)で eval_asr stored(既定・--source all --group-by engine)・eval_speakers(既定・--smooth off,on)・eval_timing(既定・--apply)・eval_effort・eval_alt の表示が前後で同じ
+- 速さ(基準 11。本物の作業データで 3 回の中央): eval_asr stored 0.82 → 0.79 秒・eval_speakers 0.17 → 0.17 秒・eval_timing --apply 0.44 → 0.36 秒
+- 消した名前(基準 12): eval_asr の `parse_day`・`out_dir`・`save`・`git_rev`・`TT`・`TOP`・`REPO`、eval_speakers・eval_timing の `locate`・`day_ms`・`git_rev`・`save`・`TOP`・`REPO`・`EDITOR`、eval_fetch の `_no_window` は、
+  src・dev・friend-apps・setup とテスト(mock.patch の文字列を含む)を grep して使う所なし
+- テスト: dev の単体 14 本 277 件(274 + 3)・test_resolve_pack_contract 35 件(単独)・home の test_accuracy 28 件 OK。e2e(PYTHONIOENCODING=utf-8・1 本ずつ)e2e_pipeline・e2e_datadir ALL PASSED
+- lint: dev の分 2 件(unused-import 1・dup-helper 1)→ 0 件(long-function・dup-block も dev は 0)
+- 未完了・次(担当外なのでまとめ役へ): `plan/improvements.md` の 0 の 2・3 の dev の分、8 の 1・2 行目、9 の「dev の `_evalcommon`」と「ytt_core → 各ツール」の dev の分(no_window_flags・eval_effort/eval_timing の schemas.num)は済み。
+  eval_marks の num(1e9 以上を None)・eval_cut の num(1e12 以上を None)は別の規則なので残した。`%TEMP%` に以前の load_serve が消さなかった空の一時フォルダ `eval_asr_*` が約 6,000 個ある(消してよい。今からは終わるときに消す)
+- 注意: dev の道具とテストで editor の部品の値を差し替えるときは `S.名前 = …`(または mock.patch.object(S, …))で部品に届く。load_serve を 1 回でも呼ぶと、そのプロセスの ed_jobs.IN_WORKER は True になる(ワーカーの経路を確かめるテストは、test_eval_speakers の TestDiarizeTune のように一時的に False にして戻す)
+- 未コミット: なし(このコミット。dev/ の 8 ファイルと docs/WORKLOG.md の自分の記録だけ。ほかの担当の未コミットの変更は入れていない)

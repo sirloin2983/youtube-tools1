@@ -45,30 +45,36 @@
   主な数字(CER・抜け・余分)にはこれまでどおり入れたうえで、別にも出す: summary.overlap = {groups, sec, refChars, cer, miss} と summary.nonOverlap = {refChars, cer}(重なりを除いた本体と同じ数え方)。
   重なりの CER は、機械の出力に話者が無く同時発話は書く順番が決まらないので、人の行の並べ方(開始時刻の順と、話者ごとにまとめた順。話者の並びの入れ替えは 3 人まで全部)のうち小さい方を採る(まとまりの ovl)。
   compare も nonOverlap と overlap の差を並べる。
-- 作業データ(%LOCALAPPDATA%\\youtube-tools\\transcribe)は**読むだけ**。文字起こしの文書は書き換えない。
-  結果は作業データの evals\\asr\\ に JSON で残す(文章を含むのでリポジトリには入れない。数字のまとめだけを docs/accuracy に書く)
-- run はこのプロセスの中で faster-whisper を動かす(サーバーの外の道具なので、ネイティブの部品を読んでよい)。起動中のツールとは別に動く
+- 作業データ(%LOCALAPPDATA%/youtube-tools/transcribe)は**読むだけ**。文字起こしの文書は書き換えない。
+  結果は作業データの evals/asr/ に JSON で残す(文章を含むのでリポジトリには入れない。数字のまとめだけを docs/accuracy に書く)
+- run はこのプロセスの中で faster-whisper を動かす(サーバーの外の道具なので、ネイティブの部品を読んでよい)。起動中のツールとは別に動く。
+  editor の読み込みは _evalcommon.load_serve(serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品へ届く)。
+  2026-10-07 の直し(見直し 2 周目): それまでは登録せずに読んでいたので届いていなかった。
+  ① IN_WORKER = True が ed_jobs に届かず、認識は認識ワーカー(別プロセス)で動いていた。--temp0・beam・VAD などの設定は要求の引数で渡るので効いていたが、
+     meta.peakMemMB はこのプロセスだけ(モデルの分が入っていない)だった
+  ② STUDIO_DATA が ed_state に届かず、--context auto はスタジオの data.json(今の置き場所)を読めなかった = 配信のチャンネル名・コラボ相手を使わず、
+     題名・話者の名前からの文脈だけだった
+  ③ 道具の外から「S.QUANT_ON = False」のように差し替えても後処理は変わらず、meta.post の印だけが変わっていた(10-07 の「配り直し なし / あり」の比べは両方あり)
+- meta.post(行の後処理の印)は 2 周目から endTrim・joinGap(editor の post_record と同じ値。0.57.1 で変わった)も持ち、pullEnds は本当にかけたか
+  (whisper.cpp で TRANSCRIBE_PULL_ENDS=1 のときだけ)。印が違う結果どうしを compare すると注意を出す
 """
 import argparse
 import ctypes
 import datetime
 import hashlib
-import importlib.util
 import json
 import os
 import random
 import re
-import subprocess
 import sys
 import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
-TT = os.path.join(REPO, "editor")
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
+from _evalcommon import load_serve, read_json  # noqa: E402  load_serve は eval_alt・eval_effort・eval_timing・テストも eval_asr.load_serve で使う
 from ytt_core import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
@@ -82,43 +88,16 @@ DRAFT_NONE = "不明(記録なし)"
 ORIGINS = (("raw", "編集前"), ("short", "ショート"))
 ORIGIN_NAME = dict(ORIGINS)
 ORIGIN_EPS = 0.005   # compare で、出どころごとの差と全体の差の「向き」を見るとき、これ(0.5 pt)に届かない差は向きを持たないものとして見る
-POST_NOTE = "行の後処理が違う結果どうしです(0.51.0 より前の測定とは比べられません)"   # compare で meta.post(行の後処理の印)が違うとき
+POST_NOTE = "行の後処理が違う結果どうしです(0.51.0 より前の測定・0.57.1 の前後(endTrim・joinGap)とは比べられません)"   # compare で meta.post(行の後処理の印)が違うとき
 TAG_NAMES = {"overlap": "声が重なる", "bgm": "BGM・音が大きい", "none": "メモなし"}
 LP_BINS = ((-1.0, "自信 低(< -1.0)"), (-0.5, "自信 中(-1.0〜-0.5)"), (99.0, "自信 高(≥ -0.5)"))
 
 
 # ---------------------------------------------------------------- 準備
 
-def load_serve(backend=None):
-    """serve.py を読み込む。書き込みが本物の作業データの横にできないよう、serve 自身の DATA_DIR は一時フォルダにする
-    (本物の作業データは、この道具が自分で読む)。"""
-    os.environ.setdefault("YTT_CORE_DIR", REPO)
-    os.environ["TRANSCRIBE_DATA_DIR"] = tempfile.mkdtemp(prefix="eval_asr_")
-    if backend:
-        os.environ["TRANSCRIBE_BACKEND"] = backend
-    sys.path.insert(0, REPO)
-    spec = importlib.util.spec_from_file_location("tx_serve_for_eval", os.path.join(TT, "serve.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod.IN_WORKER = True   # モデルはこのプロセスの中で読む(認識ワーカーを起動しない)
-    mod.STUDIO_DATA = mod.studio_data_path()   # 配信ごとの文脈(--context auto)が、スタジオの配信のチャンネル名・コラボ相手を読めるように(起動時の処理を通らないため)
-    return mod
-
-
 def real_data_dir(arg=None):
-    if arg:
-        return os.path.abspath(arg)
-    sys.path.insert(0, REPO)
-    from ytt_core import datadir
-    return datadir.tool_dir("transcribe", TT)
-
-
-def read_json(path, default=None):
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
+    """--data(文字起こしの作業データのフォルダそのもの)。無ければ ytt_core.datadir の決め方"""
+    return os.path.abspath(arg) if arg else C.datadir.tool_dir("transcribe", C.EDITOR)
 
 
 def load_docs(data, scope, only=None):
@@ -286,17 +265,6 @@ def doc_time(d):
     return None, ""
 
 
-def parse_day(text, end=False):
-    """YYYY-MM-DD(この PC の時刻の日付)-> ミリ秒。end なら、その日の終わり(その日を含む)"""
-    try:
-        day = datetime.datetime.strptime(str(text).strip(), "%Y-%m-%d")
-    except ValueError:
-        raise SystemExit("日付は YYYY-MM-DD で指定してください: %r" % text)
-    if end:
-        day += datetime.timedelta(days=1)
-    return int(day.timestamp() * 1000) - (1 if end else 0)
-
-
 def select_docs(data, args, intake=None):
     """測る文書を選ぶ(--source・--docs・--since・--until)-> (文書の一覧, 選び方の記録)。読むだけ。各文書に "_source"(eval・daily・friend)を付ける"""
     src, only = resolve_source(args), args.docs
@@ -310,15 +278,14 @@ def select_docs(data, args, intake=None):
         sel["intake"] = intake or getattr(args, "intake", None) or default_intake()
         friend, sel["friendSkipped"] = load_friend_docs(sel["intake"], only)
         docs += friend
-    lo = parse_day(args.since) if getattr(args, "since", None) else None
-    hi = parse_day(args.until, end=True) if getattr(args, "until", None) else None
+    lo, hi = C.period(*(str(x).strip() if x else None for x in (getattr(args, "since", None), getattr(args, "until", None))))   # until はその日を含む
     if lo is not None or hi is not None:
         keep = []
         for d in docs:
             t, _basis = doc_time(d)
             if t is None:
                 sel["unknownTime"] += 1
-            elif (lo is not None and t < lo) or (hi is not None and t > hi):
+            elif not C.in_period(t, lo, hi):
                 sel["excludedByTime"] += 1
             else:
                 keep.append(d)
@@ -455,15 +422,6 @@ def fingerprint(docs):
     for d in sorted(docs, key=lambda d: d.get("id", "")):
         h.update(("%s:%s;" % (d.get("id"), d.get("updatedAt"))).encode())
     return h.hexdigest()[:16]
-
-
-def git_rev():
-    try:
-        rev = subprocess.run(["git", "-C", TOP, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
-        dirty = subprocess.run(["git", "-C", TOP, "status", "--porcelain", "--", "src/editor"], capture_output=True, text=True, timeout=10).stdout.strip()
-        return rev + ("+変更あり" if dirty else "")
-    except (OSError, subprocess.SubprocessError):
-        return ""
 
 
 def peak_memory_mb():
@@ -889,37 +847,25 @@ def print_summary(res):
 
 # ---------------------------------------------------------------- コマンド
 
-def out_dir(data):
-    d = os.path.join(data, "evals", "asr")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def save(res, data):
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    label = re.sub(r"[^\w.-]+", "_", res["meta"].get("label") or res["meta"]["mode"])[:40]
-    path = os.path.join(out_dir(data), "%s_%s.json" % (stamp, label))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-    return path
-
-
 def base_meta(mode, args, docs, data, sel=None):
     sel = sel or {}
-    return {"schema": SCHEMA, "mode": mode, "label": args.label or "", "at": int(time.time() * 1000), "git": git_rev(),
+    return {"schema": SCHEMA, "mode": mode, "label": args.label or "", "at": int(time.time() * 1000), "git": C.git_rev("src/editor"),
             "scope": SOURCE_SCOPE[resolve_source(args)] if not args.docs else "docs", "source": resolve_source(args),
             "since": sel.get("since", ""), "until": sel.get("until", ""), "selection": sel,
             "docs": [d["id"] for d in docs], "dataFingerprint": fingerprint(docs), "dataDir": data}
 
 
 def post_meta(S, spec):
-    """行の後処理(編集 0.51.0 から。expand_segments の clip_rows・merge_repeats・pull_ends)の印。pullEnds は音の大きさを使う whisper.cpp のときだけ。
-    これが無い結果は 0.51.0 より前の測定(compare が違いを知らせる)"""
-    post = {"clip": True, "mergeRepeats": True, "pullEnds": S.engine_of(spec) == S.tx_engines.WhisperCpp.id}
-    if S.engine_of(spec) == S.tx_engines.WhisperCpp.id:   # 1 秒丸めの配り直し(編集 0.57.0)。無い結果は 0.57.0 より前の測定
-        post["quantRetime"] = S.QUANT_MODEL if S.QUANT_ON else False
+    """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。0.51.0 から clip_rows・merge_repeats・pull_ends、
+    2 周目から editor の post_record()(recognition.runs[].post と同じ値)の endTrim・joinGap も。
+    pullEnds = 音の谷へ寄せたか(whisper.cpp で TRANSCRIBE_PULL_ENDS=1 のときだけ。10-05 から既定でやめた)・endTrim と quantRetime(1 秒丸めの配り直しのモデル)は
+    whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)"""
+    rec = S.post_record()
+    wcpp = S.engine_of(spec) == S.tx_engines.WhisperCpp.id
+    post = {"clip": True, "mergeRepeats": True, "pullEnds": wcpp and bool(rec["pullEnds"])}
+    if wcpp:
+        post.update(quantRetime=rec["retime"], endTrim=rec["endTrim"])
+    post["joinGap"] = rec["joinGap"]
     return post
 
 
@@ -1252,8 +1198,9 @@ def main(argv=None):
     S = load_serve()
     res = cmd_stored(S, args, data) if args.mode == "stored" else cmd_run(S, args, data)
     print_summary(res)
-    if not args.no_save:
-        print("\n保存: " + save(res, data))
+    if not args.no_save:   # <日時>_<名前>.json(名前は --label か mode)
+        label = re.sub(r"[^\w.-]+", "_", res["meta"].get("label") or res["meta"]["mode"])[:40]
+        print("\n保存: " + C.save(res, data, "asr", "_" + label))
     return res
 
 
