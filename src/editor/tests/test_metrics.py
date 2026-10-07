@@ -119,12 +119,20 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.subtitle_settings({}), S.SUBTITLE_DEFAULT)
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
         v = S.subtitle_settings(st)
-        self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}})
-        self.assertEqual(S.split_chars_for({}, st), 28)                                  # 設定の向き(横)
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 12)  # 要求で向きを指定
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 16)          # 既定は縦 16
-        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 画面の今の欄の値
-        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 28)                  # 範囲の外は使わない
+        self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 40})
+        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40。plan/line-b-row-split.md の 8)
+        self.assertEqual(S.split_chars_for({}, st), 40)                                  # 設定の向き(横)でも 28 ではなく 40
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 40)  # 要求の向きでも変わらない
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 40)          # 既定 40
+        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 「長い行を分け直す」の明示の値
+        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 40)                  # 範囲の外は使わない
+        self.assertEqual(S.subtitle_max_chars({}, st), 28)                                # 「長い行を分け直す」は字幕の最大文字数(設定の向き = 横)
+        self.assertEqual(S.subtitle_max_chars({"subtitleOrientation": "vertical"}, st), 12)
+        self.assertEqual(S.subtitle_max_chars({"splitChars": 20}, st), 20)
+        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 24}}), 24)       # 設定の値
+        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 40)        # 範囲(8〜80)の外は既定
+        with patch.dict(os.environ, {"TRANSCRIBE_SPLIT_CHARS": "16"}):
+            self.assertEqual(S.split_chars_for({}, st), 16)                              # 測り直し用の環境変数
 
     def test_redo_targets_and_better(self):
         """疑わしい所だけ認識し直す(12 ③-2): 対象は「文字が少ない」の印・校正済みでない・機械の出力のままの行。範囲は前後 1 秒で隣の行にかからない"""

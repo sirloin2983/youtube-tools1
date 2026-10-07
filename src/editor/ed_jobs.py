@@ -1123,10 +1123,13 @@ def transcribe_real(job, spec, wav, total):
         yield x
 
 
-SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の「1つの字幕の最大文字数」が優先)
+SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 40   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の subtitle.splitChars(既定 40)。
+# 0.59.5(2026-10-08)までは字幕の最大文字数(縦 16)で分けていたが、区切りを意識した校正(確かめ済み 22 本)で 16 文字の内側の切れ目は 73% が戻され、
+# whisper の行をそのまま残す方が人の分け方に近かった(的中 68% → 74〜76%・①頭 19% → 14%・①末 25% → 20%。plan/line-b-row-split.md の 8)。字幕の長さはパックの折り返しで別に扱う)
 SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/design/edit-tool-design.md の 12 ②)
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
-SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14}}
+SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14},
+                    "splitChars": SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(0.59.5 から maxChars とは別。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
 ORIENTATIONS = ("vertical", "horizontal")
 
 
@@ -1141,12 +1144,13 @@ def subtitle_settings(st=None):
         for o in ORIENTATIONS:
             n = src.get(o)
             out[key][o] = int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and lo <= n <= hi else SUBTITLE_DEFAULT[key][o]
+    n = v.get("splitChars")
+    out["splitChars"] = int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) and 8 <= n <= 80 else SUBTITLE_DEFAULT["splitChars"]
     return out
 
 
-def split_chars_for(req=None, st=None):
-    """行を分けるときの最大文字数(要求の splitChars → 要求の subtitleOrientation → 設定の字幕の向き)。
-    画面は今の欄の値を splitChars で渡す(設定の保存は少し遅れて送られるため)。まとめて実行は設定を使う"""
+def subtitle_max_chars(req=None, st=None):
+    """字幕の最大文字数(要求の splitChars → 要求の subtitleOrientation → 設定の字幕の向き)。「長い行を分け直す」(/api/resplit)が使う = 0.59.4 までの split_chars_for の決め方"""
     req = req or {}
     n = req.get("splitChars")
     if isinstance(n, (int, float)) and not isinstance(n, bool) and 4 <= n <= 80:
@@ -1154,6 +1158,20 @@ def split_chars_for(req=None, st=None):
     sub = subtitle_settings(st)
     o = req.get("subtitleOrientation")
     return sub["maxChars"][o if o in ORIENTATIONS else sub["orientation"]]
+
+
+def split_chars_for(req=None, st=None):
+    """行を分けるときの最大文字数(要求の splitChars → 環境変数 TRANSCRIBE_SPLIT_CHARS → 設定の subtitle.splitChars。既定 40)。
+    要求の splitChars は「長い行を分け直す」(/api/resplit)が字幕の最大文字数を明示して渡す。文字起こしの要求には付けない(0.59.5 から。画面の app-rows.js の subtitleReq)。
+    0.59.4 までは字幕の向きの最大文字数(縦 16)で分けていた = 区切りを意識した校正で 73% が戻された(plan/line-b-row-split.md の 8)ので、字幕の向きでは変えない"""
+    req = req or {}
+    n = req.get("splitChars")
+    if isinstance(n, (int, float)) and not isinstance(n, bool) and 4 <= n <= 80:
+        return int(n)
+    env = os.environ.get("TRANSCRIBE_SPLIT_CHARS", "").strip()
+    if env.isdigit() and 8 <= int(env) <= 80:
+        return int(env)
+    return subtitle_settings(st)["splitChars"]
 STRIP_PUNCT_CHARS = "、。？！?!"   # ショート動画のテロップでは句読点が浮きやすいので、既定で取り除く対象(全角の読点・句点・疑問符・感嘆符と、その半角形)
 _strip_punct_re = re.compile("[%s]" % re.escape(STRIP_PUNCT_CHARS))
 
@@ -1908,7 +1926,7 @@ def resplit_doc(obj):
     分ける前の文書は履歴に残す(「以前の版に戻す」で戻せる)。-> {"changed": 分けた行の数, "added": 増えた行, "skipped": 単語と一致しない長い行, "rows", "updatedAt"}"""
     tid = str(obj.get("id") or "")
     o = obj.get("orientation")
-    max_chars = split_chars_for({"subtitleOrientation": o, "splitChars": obj.get("splitChars")})
+    max_chars = subtitle_max_chars({"subtitleOrientation": o, "splitChars": obj.get("splitChars")})   # 分け直しは字幕の最大文字数(向きごと)で。文字起こしの分ける文字数(40)ではない
     with ed_store._save_lock:
         doc = ed_store.read_transcript(tid)
         base = obj.get("baseUpdatedAt")

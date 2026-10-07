@@ -53,7 +53,7 @@
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
 | `plan/line-b-transcription.md` | 線 B の第 2 版(関門 G0〜G3/FT・D0〜E4・FT)。付録に第 1 版の測定 |
 | `plan/line-b-row-timing.md` | 行の時刻: 案 A の作りと数字・0.57.1 の計画(7)・測り直し(10-07 夜)・配り直しの既定オフと残るずれ(8) |
-| `plan/line-b-row-split.md` | I-5 字幕(行)の分け方: 人の分け方との見比べ・規則の机上評価・採る案「24 文字まで切らない」(10-07 深夜) |
+| `plan/line-b-row-split.md` | I-5 字幕(行)の分け方: 見比べ・正解づくり(ユーザーが 22 本を直した)・規則の評価・決定「16 文字で分けるのをやめる」(編集 0.59.5。10-08 済み) |
 | `plan/ux-stage7-9.md` | 「気が利く画面へ」段 7〜9 の残りの調査と判定(10-07 夜に完了) |
 | `plan/line-b-overlap.md` | 「ゲーム音声など」・重なる字幕・同時発話 |
 | `plan/line-b-extra-ideas.md` | 精度改善の追加案(条件待ちの 6〜11・やらないもの) |

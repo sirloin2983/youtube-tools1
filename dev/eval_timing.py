@@ -21,14 +21,17 @@
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
   行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap, pullEnds, retime}。無い記録は「後処理の記録なし(0.57.0 まで)」・
   1 秒丸めの配り直しの記録 retimed があればそう書く)
+- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
+  再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
 - --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
-  7-1 だけ / 0.57.1)。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
+  7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40(splitChars は spec に入れる))。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
   音声を聞き直す 1 秒丸めの配り直し(quant_retime)はかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
 - --since / --until は機械の出力を作った時刻(最初の認識の at。無ければ updatedAt)で絞る(until はその日を含む)。文字が合う行が FEW_ROWS 未満なら「まだ少ない(参考)」
 """
 import argparse
+import difflib
 import os
 import re
 import shutil
@@ -58,7 +61,8 @@ POST_NONE = "後処理の記録なし(0.57.0 まで)"
 # --apply で当て直す後処理(editor の ed_jobs の値を一時的に差し替える)。0.57.1 の既定 = END_TRIM 0・JOIN_GAP 0.5
 VARIANTS = (("v0570", "0.57.0 の後処理(END_TRIM 0.1 秒・つながない)", {"END_TRIM": 0.1, "JOIN_GAP": 0.0}),
             ("trim0", "7-1 だけ(END_TRIM 0・つながない)", {"END_TRIM": 0.0, "JOIN_GAP": 0.0}),
-            ("v0571", "0.57.1 の後処理(END_TRIM 0・すき間 0.5 秒以下をつなぐ)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5}))
+            ("v0571", "0.57.1 の後処理(END_TRIM 0・すき間 0.5 秒以下をつなぐ)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5}),
+            ("split40", "0.59.5(0.57.1 の後処理 + 行を分ける文字数 40)", {"END_TRIM": 0.0, "JOIN_GAP": 0.5, "splitChars": 40}))   # splitChars は spec に入れる(ed_jobs の値ではない)
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
@@ -129,6 +133,58 @@ def _median(v):
     return round(v[k] if len(v) % 2 else (v[k - 1] + v[k]) / 2, 3)
 
 
+# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md)
+
+def _pos_map(src, dst):
+    """src の文字の位置 p -> dst の文字の位置(difflib の一致ブロックで写す。一致の中なら正確、外なら近い方のブロックの端)"""
+    blocks = [b for b in difflib.SequenceMatcher(None, src, dst, autojunk=False).get_matching_blocks() if b.size > 0]
+
+    def f(p):
+        prev = None
+        for b in blocks:
+            if b.a <= p <= b.a + b.size:
+                return b.b + (p - b.a)
+            if b.a > p:
+                if prev is None:
+                    return b.b
+                return prev.b + prev.size if p - (prev.a + prev.size) <= b.a - p else b.b
+            prev = b
+        return prev.b + prev.size if prev else 0
+    return f
+
+
+def boundary_agreement(human, machine):
+    """行の境目の一致(人の行と機械の行を、文字(letters)を並べた位置で突き合わせる)。
+    -> {"machine": 数えた機械の境目, "human": 数えた人の境目, "hit": 人も境目にした機械の境目, "rec": 機械も境目にした人の境目}
+    人の境目 = 両側が校正済みで話者が同じ所(話者が変わる所は判別が決めるので数えない)。機械の境目のうち、人の「数えない境目」の位置に当たるものも数えない。
+    的中 = hit / machine・再現 = rec / human(数えた境目が 0 なら None)"""
+    hs = "".join(letters(r.get("text")) for r in human)
+    ms = "".join(letters(r.get("text")) for r in machine)
+    to_m = _pos_map(hs, ms)
+    eligible, excluded, pos = set(), set(), 0
+    for a, b in zip(human, human[1:]):
+        pos += len(letters(a.get("text")))
+        q = to_m(pos)
+        if a.get("proofed") is True and b.get("proofed") is True and (a.get("speaker") or "") == (b.get("speaker") or ""):
+            eligible.add(q)
+        else:
+            excluded.add(q)
+    mpos, pos = set(), 0
+    for r in machine[:-1]:
+        pos += len(letters(r.get("text")))
+        mpos.add(pos)
+    counted = [q for q in mpos if q not in excluded or q in eligible]
+    return {"machine": len(counted), "human": len(eligible), "hit": sum(1 for q in counted if q in eligible), "rec": sum(1 for q in eligible if q in mpos)}
+
+
+def boundary_sum(items):
+    """文書ごとの boundary を足して 的中・再現 を付ける"""
+    out = {k: sum(int(b.get(k) or 0) for b in items) for k in ("machine", "human", "hit", "rec")}
+    out["precision"] = rate(out["hit"], out["machine"])
+    out["recall"] = rate(out["rec"], out["human"])
+    return out
+
+
 def summarize(rows):
     """文字が合う行の判定の一覧 -> {"n", "head", "tail", "prev", "next"(割合), "counts", "extraMedian", "extraMean"}"""
     n = len(rows)
@@ -174,7 +230,8 @@ def doc_record(doc):
     m = measure_rows(human, machine)
     eng, post = engine_label(run), post_label(run)
     rec = {"id": str(doc.get("id") or ""), "title": str(doc.get("title") or "")[:40], "engine": eng, "post": post, "group": "%s | %s" % (eng, post),
-           "at": at, "proofed": m["proofed"], "unmatched": m["proofed"] - len(m["rows"]), **summarize(m["rows"]), "_rows": m["rows"]}
+           "at": at, "proofed": m["proofed"], "unmatched": m["proofed"] - len(m["rows"]), **summarize(m["rows"]), "_rows": m["rows"],
+           "boundary": boundary_agreement(human, machine)}
     return rec, ""
 
 
@@ -228,10 +285,11 @@ def apply_variants(docs, tdir, S=None):
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
     own = S is None
     S = S or eval_asr.load_serve("fake")
-    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)
+    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)。
+    # "splitChars" だけは ed_jobs の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
     J = getattr(S, "ed_jobs", S)
-    saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st}
-    res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "byDoc": []} for key, label, st in VARIANTS],
+    saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st if k != "splitChars"}
+    res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "bnd": [], "byDoc": []} for key, label, st in VARIANTS],
            "docs": 0, "skipped": {"noAsr": 0, "badAsr": 0}}
     try:
         for doc in docs:
@@ -249,11 +307,15 @@ def apply_variants(docs, tdir, S=None):
             res["docs"] += 1
             for v, (key, _label, st) in zip(res["variants"], VARIANTS):
                 for k, val in st.items():
-                    setattr(J, k, val)
-                rows = reapply(S, raw, spec, dur, start)
-                m = measure_rows(human, text_rows(rows))
+                    if k != "splitChars":
+                        setattr(J, k, val)
+                rows = reapply(S, raw, dict(spec, splitChars=st["splitChars"]) if "splitChars" in st else spec, dur, start)
+                mrows = text_rows(rows)
+                m = measure_rows(human, mrows)
                 v["rows"] += m["rows"]
-                d = {"id": tid, **summarize(m["rows"])}
+                b = boundary_agreement(human, mrows)
+                v["bnd"].append(b)
+                d = {"id": tid, **summarize(m["rows"]), "boundary": b}
                 d.pop("counts", None)
                 if key == "v0570":
                     d["reproduced"] = reproduced(rows, doc.get("original"))
@@ -267,6 +329,7 @@ def apply_variants(docs, tdir, S=None):
                 shutil.rmtree(tmp, ignore_errors=True)   # load_serve が作った一時の置き場
     for v in res["variants"]:
         v["overall"] = summarize(v.pop("rows"))
+        v["boundary"] = boundary_sum(v.pop("bnd"))
     return res
 
 
@@ -299,10 +362,11 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
         docs.append(doc)
     rows = [r for rec in recs for r in rec["_rows"]]
     overall = summarize(rows)
+    overall["boundary"] = boundary_sum([rec["boundary"] for rec in recs])
     by = {}
     for rec in recs:
         by.setdefault(rec["group"], []).append(rec)
-    groups = [dict(summarize([r for rec in rs for r in rec["_rows"]]), key=k, docs=len(rs)) for k, rs in by.items()]
+    groups = [dict(summarize([r for rec in rs for r in rec["_rows"]]), key=k, docs=len(rs), boundary=boundary_sum([rec["boundary"] for rec in rs])) for k, rs in by.items()]
     groups.sort(key=lambda g: (-g["n"], g["key"]))
     for rec in recs:
         rec.pop("_rows", None)
@@ -334,6 +398,13 @@ def line(s):
         ["%s %s" % (lb, pct(s[k])) for k, lb in KEYS] + [sec(s["extraMedian"]), sec(s["extraMean"]), s["n"]])
 
 
+def bline(b):
+    """行の境目の一致率の 1 行(的中 = 機械の境目のうち人も / 再現 = 人の境目のうち機械も)"""
+    if not b:
+        return ""
+    return "境目 的中 %s(%d/%d)・再現 %s(%d/%d)" % (pct(b.get("precision")), b.get("hit", 0), b.get("machine", 0), pct(b.get("recall")), b.get("rec", 0), b.get("human", 0))
+
+
 def print_report(res):
     m = res["meta"]
     rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
@@ -349,15 +420,16 @@ def print_report(res):
         print("(測れる文書がありません。評価ドリルで確かめ済みが貯まると測れます)")
         return
     print("  [全体・保存してある機械の出力]  " + line(res["overall"]))
+    print("  [行の境目の一致率(I-5。人の境目 = 両側が校正済みで同じ話者)]  " + bline(res["overall"].get("boundary")))
     print("  [組ごと: 最初の認識のエンジン・モデル | 行の後処理]")
     for g in res["groups"]:
-        print("    %-70s 文書 %2d 本  %s" % (g["key"], g["docs"], line(g)))
+        print("    %-70s 文書 %2d 本  %s  %s" % (g["key"], g["docs"], line(g), bline(g.get("boundary"))))
     ap = res.get("apply")
     if ap:
         print("  [--apply: 保存してある生出力(asr.json)に後処理を当て直した数字。文書 %d 本(生出力が無い %d・読めない %d)。1 秒丸めの配り直しはかけない]" % (
             ap["docs"], ap["skipped"]["noAsr"], ap["skipped"]["badAsr"]))
         for v in ap["variants"]:
-            print("    %-46s %s" % (v["label"], line(v["overall"])))
+            print("    %-46s %s  %s" % (v["label"], line(v["overall"]), bline(v.get("boundary"))))
         rp = [d["reproduced"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None]
         if rp:
             low = [d["id"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None and d["reproduced"] < 0.9]
@@ -365,7 +437,8 @@ def print_report(res):
                 pct(_median(rp)), len(low), (": " + ", ".join(low[:8])) if low else ""))
     print("  [文書ごと]")
     for r in res["byDoc"]:
-        print("    %s 校正済み %3d・合う %3d  %s  %s" % (r["id"], r["proofed"], r["n"], line(r), r["title"]))
+        b = r.get("boundary") or {}
+        print("    %s 校正済み %3d・合う %3d  %s  境目 %d/%d・%d/%d  %s" % (r["id"], r["proofed"], r["n"], line(r), b.get("hit", 0), b.get("machine", 0), b.get("rec", 0), b.get("human", 0), r["title"]))
 
 
 def main(argv=None):

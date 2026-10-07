@@ -4,11 +4,11 @@
 
 ## いまの状態
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**
-- **版(コミット済みの最新)**: 入口 **0.45.2**・スタジオ **0.23.1**・編集 0.59.4・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ **2.5.1**・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)。
+- **版(コミット済みの最新)**: 入口 **0.45.2**・スタジオ **0.23.1**・編集 0.59.5・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ **2.5.1**・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)。
   **起動中の入口は 0.45.0**(10-07 23:41 に起動し直し済み。0.45.1 の保存期間 3 日と 0.45.2 の整理はまだ)→ ユーザーが「すべて終了」→ start.bat で 0.45.2 に(10-07 夜の配信 2 本目の M7 が終わってから)
 - **10-07 夜に入ったもの(全部 main)**: 線 D の前倒し = L1〜L3・M11・M9 + M12・M8・M10(検出 `live.detect`・自動採用 `live.autoAdopt` は試験中の機能のスイッチで既定オフ。順番と実績 `plan/line-d-detect.md`、仮決め `plan/decisions.md` の 3-7)/
   送るアプリ 2.3.0〜2.5.0 + ホーム 0.44.0〜0.45.1(すべて受け取る・やめる・保存先に展開・n 本ごとに 1 つの zip + 2 倍速のまとめ動画・「まとめ動画を見る」「要らない」・1 日の上限の撤廃・保存期間 3 日。仕様 `docs/spec/friend-intake.md` の 2-12・2-13、保存の方針 `docs/spec/data-location.md`、仮決め 3-9)/
-  クラウドの文字起こしの比較の道具 `dev/eval_cloud.py`(3-10。ユーザーのキー待ち)/ I-5 区切りの正解づくり(別セッション。下の節)/ 1 秒丸めの配り直しを既定オフ(編集 0.59.4)
+  クラウドの文字起こしの比較の道具 `dev/eval_cloud.py`(3-10。ユーザーのキー待ち)/ I-5 字幕の分け方は済み(編集 0.59.5 = 16 文字で分けるのをやめた。下の節)/ 1 秒丸めの配り直しを既定オフ(編集 0.59.4)
 - **10-08 0 時台: 上の継ぎ足しの整理**(ユーザー「今日やった作業を各資料に整理してソースも最適化して。変更した部分の周辺だけでよい」)。資料: 2-12/2-13 を今の仕様に・decisions 3-7/3-9 を話題ごとに(置き換わった仮決めに →)・line-d-detect を実績に・data-location に保存の期限の表・README の v0.43.1 を 1 つに。
   ソース(動きは同じ): 入口 0.45.2(deliver/autorun/cases/cleanup/prefs の重複を 1 か所に・excite/ワーカー/live_detect の継ぎ足しを共通の関数に。式は乱数の配信 40 本で完全一致)・スタジオ 0.23.1(review.js の候補の帯・settings・portal)・送るアプリ 2.5.1(`Receiving.ReceiveOne` に一本化)・eval_cloud(引数の検査・鍵を文に出さない)。詳細は WORKLOG の 10-08 の記録
 - **並行セッション(10-08 0 時台に起動。「送るツール競合対応と一括受け取り機能」)**: 送るアプリ 2.6.0(友人の「要らない」を PC に戻す `.feedback.json`・新規 `src/home/friend_feedback.py`・まとめ動画を等速で札をずっと・zip に まとめ.mp4 を入れない)を作っている。こちらのコミットの hash を知らせ、向こうが src/home と共有の文書を HEAD + 自分の置き換えで当てる約束。
@@ -17,10 +17,10 @@
 - **次の AI の作業の候補**: 10-07 夜の配信 2 本目の M7 の結果(`GET /live/api/exports?recorder=local&recording=20261007-193336-kLsldZDUa70` の archiveInfo.afterStream)を WORKLOG と data.js に / `plan/improvements.md` の 12(M8 の余白 2 秒・仮の候補の札・`Detector._seen` が増え続ける件)/ B2 のクラウド比較(キーが来たら `py -3.10 dev/eval_cloud.py run --service … --model …` → 見積もりを見せて確認 → `--send`)
 - Linux で前から落ちるテスト(Windows では通る): home の `test_live` 2 件(`E:\` のパス前提)と `test_cleanup.test_move_only_known_and_purge`(一覧の順が OS で違う)、editor の `test_roster` 2 件 + `test_evalaudio` 1 件(Windows のパス前提)
 
-## I-5 区切りの正解づくり(2026-10-07 深夜。別セッション(Opus)。ユーザーが 22 本を直している途中かもしれない)
+## I-5 字幕の分け方(2026-10-08 に済み。編集 0.59.5 = 16 文字で分けるのをやめた(行を分ける文字数 40・字幕の最大文字数とは別)。残りは `plan/improvements.md`)
 - 計画と基準: `plan/line-b-row-split.md`(1 答え・2 見比べ・3 机上評価・6 正解の限界・7 手順と基準 P1〜P6・例)。ユーザーは確かめ済み 22 本を、候補の一覧(`D:/backup/youtube-tools-eval/split-draft2-20261007-2157.html`)を横に置いて、分ける・くっつけるだけ直す(文字と時刻は直さない)
 - 控え(直す前): `D:/backup/youtube-tools-eval/split-before-20261007-2111.json`。道具の写し: `D:/backup/youtube-tools-eval/tools/`(diff_after.py = 控えとの差分から判断の一覧 / cmpdata.py・compare.py・rules3.py = 人の境目との一致率。元は AI の scratchpad。作業データは読むだけ)
-- **ユーザーが「直し終えた」と言ったら**: `py -3.10 D:/backup/youtube-tools-eval/tools/diff_after.py`(判断の一覧 = そのまま・くっつけた・分けた と、境目の無音・句末・長さ)→ `compare.py`・`rules3.py`(sys.path の scratchpad のパスを tools/ に直して)で新しい正解での的中・再現 → 規則を決める(今の候補は「24 文字まで切らない」+ 無音で切る。数字で決める)→ `src/editor/ed_jobs.py` に実装(編集 0.59.5)+ `dev/eval_timing.py` に境目の一致率 + `eval_timing` で ①〜③ を測り直して新しい基準に。文書: `plan/line-b-row-split.md` の 8 と data.js の B3
+- 済み(10-08): ユーザーが 22 本を直した(境目の 89% そのまま・くっつけ 28・分け 4)→ `diff_after.py`・`rules4.py`・`eval_timing --apply` で測り(`plan/line-b-row-split.md` の 8)→ 行を分ける文字数 40 を実装(`split_chars_for`・`subtitleReq`)・`eval_timing` に境目の一致率。ユーザーは起動し直すと 0.59.5。以下は当時の手順(済み): `py -3.10 D:/backup/youtube-tools-eval/tools/diff_after.py`(判断の一覧 = そのまま・くっつけた・分けた と、境目の無音・句末・長さ)→ `compare.py`・`rules3.py`(sys.path の scratchpad のパスを tools/ に直して)で新しい正解での的中・再現 → 規則を決める(今の候補は「24 文字まで切らない」+ 無音で切る。数字で決める)→ `src/editor/ed_jobs.py` に実装(編集 0.59.5)+ `dev/eval_timing.py` に境目の一致率 + `eval_timing` で ①〜③ を測り直して新しい基準に。文書: `plan/line-b-row-split.md` の 8 と data.js の B3
 
 ## 次のセッションに貼る指示文
 「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -10 を見て。10-07 夜の線 D の前倒し(L1〜L3・M11・M8〜M10・M12)と送るアプリ 2.3〜2.5 + ホーム 0.44〜0.45.1 は全部 main に入り、10-08 0 時台に資料とソースを整理した(入口 0.45.2・スタジオ 0.23.1・送るアプリ 2.5.1)。並行セッションの送るアプリ 2.6.0(友人の「要らない」を PC に戻す・まとめ動画を等速)が入っているか git log で確かめる。まず 10-07 夜の配信 2 本目の M7 の結果と、ユーザーが起動し直したかを確かめて WORKLOG と plan/data.js に記録。次に plan/improvements.md の 12 を小さく直し、単体と e2e_live_studio・e2e_portal・ui_audit all --demo で確かめてコミット。ユーザーが検出オンで配信を 1 本試したら、調子・LIVE の帯・live/excite/<rc>/<rec>/peaks.json・excite.log を読んで結果(候補の数・遅れ・チャットの起動し直し・CPU)を WORKLOG に書き、0-10-5 の数を決め直す。迷う点は仮決めして decisions の 3-7 か 3-9 に (do) 以降の記号で。」

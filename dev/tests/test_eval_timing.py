@@ -97,6 +97,32 @@ class TimingTest(unittest.TestCase):
         self.assertEqual((d["id"], d["proofed"], d["n"], d["unmatched"]), ("aaaaaaaaaaaa", 5, 4, 1))
         self.assertNotIn("_rows", d)
 
+    def test_boundary_agreement(self):
+        """行の境目の一致率(I-5): 文字の位置で突き合わせ、人の境目は両側が校正済みで同じ話者の所だけ。機械の境目のうち人の「数えない境目」に当たるものも数えない"""
+        def row(a, b, text, proofed=True, speaker=""):
+            return {"start": a, "end": b, "text": text, "proofed": proofed, "speaker": speaker}
+        human = T.text_rows([row(0, 1, "こんにちは"), row(1, 2, "元気ですか"), row(2, 3, "そうですね", speaker="B"), row(3, 4, "ありがとう", speaker="B"),
+                             row(4, 5, "さようなら", proofed=False)])
+        machine = T.text_rows([row(0, 1, "こんにちは"), row(1, 1.5, "元気で"), row(1.5, 2, "すか"), row(2, 4, "そうですねありがとう"), row(4, 5, "さようなら")])
+        # 人の境目: 5(校正済みどうし・同じ話者)= 数える / 10(話者が変わる)= 数えない / 15(同じ話者 B)= 数える / 20(右が校正済みでない)= 数えない → human 2
+        # 機械の境目: 5(人も)= 的中 / 8(人に無い)= 外れ / 10(人の話者の境目)= 数えない / 20(人の未校正の境目)= 数えない → machine 2・hit 1。再現は 5 だけ → rec 1
+        self.assertEqual(T.boundary_agreement(human, machine), {"machine": 2, "human": 2, "hit": 1, "rec": 1})
+        self.assertEqual(T.boundary_sum([{"machine": 2, "human": 2, "hit": 1, "rec": 1}, {"machine": 2, "human": 0, "hit": 0, "rec": 0}]),
+                         {"machine": 4, "human": 2, "hit": 1, "rec": 1, "precision": 0.25, "recall": 0.5})
+        # 人が文字を少し直していても(「元気ですか」→「元気ですか?」は letters で同じ・「そうですね」→「そうっすね」)位置は写せる
+        human2 = T.text_rows([row(0, 1, "こんにちは"), row(1, 2, "元気ですか?"), row(2, 4, "そうっすねありがとう"), row(4, 5, "さようなら")])
+        self.assertEqual(T.boundary_agreement(human2, machine), {"machine": 4, "human": 3, "hit": 3, "rec": 3})   # 8 だけ人に無い
+        self.assertEqual(T.boundary_agreement([], machine), {"machine": 4, "human": 0, "hit": 0, "rec": 0})
+        # 文書の記録と全体に入る(doc_record → evaluate)
+        self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
+        res = T.evaluate(self.env.root)
+        self.assertEqual(res["byDoc"][0]["boundary"]["human"], res["overall"]["boundary"]["human"])
+        self.assertIn("precision", res["overall"]["boundary"])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            T.print_report(res)
+        self.assertIn("行の境目の一致率", buf.getvalue())
+
     def test_tolerance_is_strict(self):
         # ちょうど 0.1 秒のずれは余裕の中(浮動小数の誤差で数えない)
         self.env.doc("aaaaaaaaaaaa", [seg(1, 0.2, 1.2, "こんにちは"), seg(2, 3.0, 4.0, "元気ですか")],
@@ -200,7 +226,9 @@ class ApplyTest(unittest.TestCase):
         ap = res["apply"]
         self.assertEqual((ap["docs"], ap["skipped"]), (1, {"noAsr": 1, "badAsr": 0}))
         by = {v["key"]: v for v in ap["variants"]}
-        self.assertEqual([v["key"] for v in ap["variants"]], ["v0570", "trim0", "v0571"])
+        self.assertEqual([v["key"] for v in ap["variants"]], ["v0570", "trim0", "v0571", "split40"])
+        self.assertEqual(by["split40"]["overall"]["counts"]["tail"], 0)                        # 0.57.1 と同じ後処理 + 分ける文字数 40(短い行は変わらない)
+        self.assertEqual(by["split40"]["boundary"], {"machine": 1, "human": 1, "hit": 1, "rec": 1, "precision": 1.0, "recall": 1.0})   # 境目 1 つが人と同じ
         self.assertEqual(by["v0570"]["overall"]["counts"]["tail"], 1)                          # 10.9 < 11.2 − 0.1 = 末が切れる
         self.assertEqual(by["trim0"]["overall"]["counts"]["tail"], 1)                          # 11.0 でもまだ切れる
         self.assertEqual(by["v0571"]["overall"]["counts"]["tail"], 0)                          # 次の行の始まり 11.2 へつなぐ = 切れない
