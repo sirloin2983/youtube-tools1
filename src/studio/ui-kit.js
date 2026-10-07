@@ -1611,7 +1611,9 @@
   var loudMounted = [];
   function loudWrap(sel) { return sel.closest ? (sel.closest('label') || sel) : sel; }
   function loudRefresh() {
-    loudMounted = loudMounted.filter(function (sel) { return sel.isConnected; });
+    /* v23: まとめて実行の「設定を変える」は、欄を組み立ててから文書に入れる(arForm)。入る前の select を落とすと値が一度も入らなかった(ホームの見直し M3)ので、
+       一度でも文書に入ったあとで外れたものだけ落とす */
+    loudMounted = loudMounted.filter(function (sel) { if (sel.isConnected) sel.setAttribute('data-ui-packloud-seen', '1'); return sel.isConnected || !sel.getAttribute('data-ui-packloud-seen'); });
     if (!loudMounted.length) return;
     var ok = !!(txApiUrl('api/settings') && token());
     for (var i = 0; i < loudMounted.length; i++) loudWrap(loudMounted[i]).hidden = !ok;
@@ -1755,8 +1757,8 @@
       fps.addEventListener('change', function () { arSave('tx', { packFps: fps.value }); });
       var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
       size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
-      box.appendChild(arField('パックの置き先', fps));
-      box.appendChild(arField('画面の大きさ', size));
+      box.appendChild(arField('1 秒のコマ数(fps)', fps));   /* v23: 以前は「パックの置き先」と書き違えていた(ホームの見直し M4) */
+      box.appendChild(arField('動画の向きと大きさ', size));
       var loud = arEl('select');
       var lf = arField('パックの音量', loud); box.appendChild(lf);
       packLoud.mount(loud);
@@ -1846,7 +1848,7 @@
         body.textContent = '読み込んでいます…';
         /* v22: 開いた直後(fitPop)は「読み込んでいます…」の 1 行の大きさで置き場所を決めるので、中身を入れたらもう一度置き直す
            (以前は下にはみ出したまま。ホームの案件の行・スタジオ ③ のメニューの中で、下の欄に届かなかった。段9 の確認) */
-        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); p.paint(); if (det.open) fitPop(det); });
+        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); loudRefresh(); p.paint(); if (det.open) fitPop(det); });   /* v23: 文書に入れてから音量の欄に値を入れる(M3) */
       });
       arPanels.push(p);
       if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
