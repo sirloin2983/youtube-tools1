@@ -32,6 +32,7 @@
 | `docs/spec/subtitle-notation.md` | 字幕の書き方の規則と、採点で同じとみなす違い |
 | `docs/spec/sound-tags.md` | 行の音の状態のメモ(BGM・重なり・聞き取れない)の付け方 |
 | `docs/spec/ui-guidelines.md`・`docs/spec/usability-heuristics.md` | 画面の共通のルール(用語集など)・Nielsen の 10 の原則 |
+| `docs/spec/code-quality.md` | コードの見直しの合格の基準(13 項目。測るのは `dev/lint.py`) |
 | `src/ui-kit/README.md` | 共通の見た目と画面の共通の動き(部品の仕様) |
 
 ### 作業の記録と引き継ぎ
@@ -50,7 +51,8 @@
 | `plan/improvements.md` | 改善点・追加するとよい機能 |
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
 | `plan/line-b-transcription.md` | 線 B の第 2 版(関門 G0〜G3/FT・D0〜E4・FT)。付録に第 1 版の測定 |
-| `plan/line-b-row-timing.md` | 行の時刻: 案 A の作りと数字・0.57.1 の計画(7) |
+| `plan/line-b-row-timing.md` | 行の時刻: 案 A の作りと数字・0.57.1 の計画(7)・測り直し(10-07 夜) |
+| `plan/ux-stage7-9.md` | 「気が利く画面へ」段 7〜9 の残りの調査と判定(10-07 夜に完了) |
 | `plan/line-b-overlap.md` | 「ゲーム音声など」・重なる字幕・同時発話 |
 | `plan/line-b-extra-ideas.md` | 精度改善の追加案(条件待ちの 6〜11・やらないもの) |
 | `plan/line-bc-master-plan.md` | 線 B・C の I-1〜I-5 の中身・原則・リスク |
@@ -66,7 +68,7 @@
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |
-| `docs/design/briefs/ux-consistency/` | 「気が利く画面へ」のブリーフと依頼書(段 7〜9 の完了の記録は未確認) |
+| `docs/design/briefs/ux-consistency/` | 「気が利く画面へ」のブリーフと依頼書・段 9 の見た目の確認の結果 `DESIGN_REVIEW.md`(段 7〜9 は 10-07 夜に完了) |
 | `docs/design/briefs/cyber-theme/` | 見た目のテーマの試作(ui-kit v12 に入れた) |
 | `docs/design/mockups/` | 「編集」の画面イメージ |
 

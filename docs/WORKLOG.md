@@ -2179,3 +2179,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: 起動中のホームは古いコードのまま(「すべて終了」→ start.bat)。`plan/data.js`(版の表: 編集 0.59.3・スタジオ 0.22.3・ui-kit v23)と公開ページの更新は触ってよい範囲の外(まとめ役)。
   `plan/`・`dev/` の未コミットの差分は他の担当のもので、このコミットに含めていない
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(まとめ役 Opus)— 夜の分の締め: 段 7〜9 完了・行の時刻の測り直し・ユーザーの答えの記録・テスト一式で合格
+- 経緯: 「いったん中止」のあとユーザーが push.bat で 2192960(段 9 のテスト前の差分を含む)を push → 「段 9 はやる・測り直しはする・今から」で再開。段 9 の続き(6e1e54e。2192960 の ui-kit v22 に全画面の不具合 = `var POP_SEL` の二重宣言で Esc のフォーカスが飛ぶ、があり直した。Must-fix 5 件・ui-kit v23・編集 0.59.3・スタジオ 0.22.3)と測り直し(別の担当 Opus)を並行で流した
+- 測り直し(`plan/line-b-row-timing.md` の 6 の「測り直し」。確かめ済み 22 本・同じ認識に後処理 3 通り × 3 回): END_TRIM 0 + すき間 0.5 は原則どおり良い(①末 35% → 22%)= そのまま。**1 秒丸めの配り直し(quant_retime)は 4 回とも ①末を悪くした**(全体 22% → 26%・丸まった 4 本で 11% → 46%)→ 既定でやめる案をユーザーに出す(src は変えていない。`plan/decisions.md` の 3-5)。前回(昼)の「なし / あり」の表は道具の不具合で両方「あり」だった = 無効と注記。道具の不具合をもう 1 つ直した(`dev/_evalcommon.py` の `InProcessModel`: 自分のプロセスで認識するとき配り直しの聞き直しが落ちて丸まった窓の文書を黙って飛ばしていた。`dev/tests/test_eval_asr.py` に 1 件 = 55 件)。`test_repeat_one_is_same_as_before` の揺れ(メモリの数字)も試験の中で固定して直した
+- ユーザーの答え(10-07 夜)を記録: 仮決め (a)〜(al) すべて承認(`plan/decisions.md` の 3 の見出し)/ L0 は今夜の配信 / クラウドの送り先は保留(今夜確認)/ M7 は土日 / ショートの音は「分からない」→ 友人の素材で AI が見当 / ゲーム音声の 2 つはそのまま / **U3(友人へ渡して Dropbox で 1 本)・U6(起動し直し)は済み** → `plan/data.js`(tasks・ordered・週の予定・F-1・R-3・R-4)。新しい仮決めは 3-4(段 9 (am)〜(ao))・3-5(測り直し (ap)(aq))
+- plan: `data.js` の版の表(入口 0.42.2・スタジオ 0.22.3・編集 0.59.3・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23)・recent ⑤ を done・前提の数字の「行の時刻」・B1 の注・決めてほしいことに「配り直しを既定でやめるか」・ux の節を済みに(`user-tasks.html` は done のとき選択肢を隠す)。`ux-stage7-9.md` を完了に(判定を全部済みに・段 9 の結果)。`improvements.md` の 0 の 1 行目の版・10 に段 7〜9 で残したもの + 段 9 の Should 3・Could 6・配り直しの別案・`quant_words_provider` の堅牢化。`docs/ROADMAP.md` に code-quality・ux-stage7-9・DESIGN_REVIEW の索引。公開ページ(artifact)を更新
+- テスト一式(6e1e54e + 未コミットの dev/plan の状態): 単体 ytt_core 110・home 405・studio 309・cut2resolve 370・recorder 27・editor 554・dev 278(+ eval_asr 55)・契約 35 すべて OK / node 45 + 10 OK / `dev/sync_ui_kit.py --check` ずれなし / `dev/lint.py` 0 件 / **e2e 29 本すべて OK**(1 本ずつ)
+- コミット: dev/_evalcommon.py・dev/tests/test_eval_asr.py・docs/ROADMAP.md・docs/HANDOVER.md・plan/(data.js・decisions.md・improvements.md・line-b-row-timing.md・user-tasks.html・ux-stage7-9.md)・この WORKLOG。push はユーザー
+- 残り(ユーザー): 今夜の配信の前に「すべて終了」→ start.bat(段 7〜9 の版を反映)/ 配り直しを既定でやめるかの答え / クラウドの送り先(今夜)/ M7 の確認(土日)/ 3-4・3-5 の仮決めの確認

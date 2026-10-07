@@ -171,6 +171,58 @@ class EvalAsrTest(unittest.TestCase):
             self.assertEqual((J.QUANT_ON, J.JOIN_GAP), (not before[0], 0.0))   # 差し替えは部品に届く
         self.assertEqual((J.QUANT_ON, J.JOIN_GAP), before)                       # 戻すのも部品へ
 
+    def test_retime_words_reach_the_model_in_this_process(self):
+        """1 秒丸めの聞き直し(quant_words_provider)は WavSlice(認識ワーカーへ渡す形)をモデルに渡す。道具はモデルをこのプロセスの中で読む(IN_WORKER)ので、
+        load_serve がワーカーの受け口と同じく範囲のサンプルに直して渡す(InProcessModel)。2026-10-07 夜まで faster-whisper が読めずに落ち、
+        eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。モデルは偽物(本物は読まない)"""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy が無い")
+        wav = os.path.join(self.tmp, "ramp.wav")
+        with wave.open(wav, "wb") as w:   # サンプルの値 = 番号(どの範囲が届いたか分かるように)
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(np.arange(32000, dtype=np.int16).tobytes())
+        got = []
+
+        class Model:   # faster-whisper の WhisperModel と同じ形
+            hooks = {}
+
+            def params(self):
+                return ["language", "beam_size", "condition_on_previous_text", "word_timestamps", "vad_filter", "no_speech_threshold"]
+
+            def transcribe(self, audio, **kw):
+                if not isinstance(audio, (str, np.ndarray)):
+                    raise ValueError("File object has no read() method, or readable() returned False.")   # faster-whisper と同じ落ち方
+                got.append(audio)
+                word = types.SimpleNamespace(start=0.1, end=0.4, word="テスト", probability=0.9)
+                row = types.SimpleNamespace(start=0.0, end=0.5, text="テスト", avg_logprob=-0.1, no_speech_prob=0.0, compression_ratio=1.0, words=[word])
+                return iter([row]), types.SimpleNamespace(duration=1.0, language="ja")
+
+        S = E.load_serve("fake")
+        S2 = E.load_serve("fake")   # 何回読んでも包むのは 1 回(部品は同じもの)
+        J, SP = S.ed_jobs, S.ed_speakers
+        self.assertIs(J, S2.ed_jobs)
+        fw = J.tx_engines.FasterWhisper.id
+        job = {"cancel": False, "phase": ""}
+        with mock.patch.dict(J._models, {(J.QUANT_MODEL, "cpu", fw): Model()}, clear=True), mock.patch.object(S.ed_state, "gpu_ready", lambda: False), \
+                mock.patch.object(S.ed_state, "backend_name", lambda: "faster-whisper"):
+            words = S.quant_words_provider(job, {"language": "ja"}, wav)(0.5, 1.5)
+            self.assertEqual(len(got), 1)
+            self.assertIsInstance(got[0], np.ndarray)                                    # 範囲のサンプル(wav の 0.5〜1.5 秒)
+            self.assertEqual(len(got[0]), 16000)
+            self.assertAlmostEqual(float(got[0][0]) * 32768, 8000, places=3)
+            self.assertEqual([w[2] for w in words], ["テスト"])
+            self.assertAlmostEqual(words[0][0], 0.6, places=6)                           # 単語の時刻は行の秒(範囲の先頭を足す)
+            m, _dev = J.load_model(J.QUANT_MODEL, job, "cpu", engine=fw)
+            self.assertEqual(m.transcribe(SP.WavRef(wav))[0].__next__().text, "テスト")
+            self.assertEqual(got[-1], wav)                                                # WavRef = wav のパスのまま
+            m.hooks = {"x": 1}
+            self.assertEqual(J._models[(J.QUANT_MODEL, "cpu", fw)].hooks, {"x": 1})       # 属性は中のモデルへ
+            self.assertIn("word_timestamps", m.params())
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_run_temp0_reaches_the_model_in_this_process(self):
         """--temp0 が認識のモデルまで届く(temperature=0.0。付けなければ渡さない = faster-whisper の既定の温度のやり直し)。

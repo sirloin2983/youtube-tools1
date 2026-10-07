@@ -1,16 +1,16 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 夜。段 7〜9 の途中で中止)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 夜。段 7〜9・測り直しまで済み)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`、規則は `AGENTS.md`。
 
 ## いまの状態
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**(AI は push しない)
 - **2026-10-07 にフォルダを整理した**: `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)・`friend-apps/`(holo-colors・request-sender)・`plan/`(ユーザーが読む計画)・`docs/`(AI 向け)。start.bat は `src\home\launch.py` を呼ぶ。フォルダ名の正は `src/ytt_core/layout.py`(`src_root()` = ツールの親、`repo_root()` = リポジトリ直下)
-- 同じ日に、ユーザーの指示の 4 つの作業を終えた(`plan/data.js` の recent = `plan/index.html` の 1): ① 資料とフォルダの整理 / ② A2・録画の部品の終了・線 D M1〜M7(入口 0.40.0)・B1 0.57.1・A1 しきい値 0.6(編集 0.58.0)・B2 手元の 4 エンジンの比較 / ③ 全フォルダの見直し(動きは同じ。各ツールの版を 1 つ上げた)/ ④ `plan/improvements.md`(次に手を付けるなら)・`decisions.md`(仮決め (a)〜(r))。**残り**: L0(配信中に)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)・`decisions.md` の 3 の確認
-- 夜に、コードの見直し 2 周目(基準 `docs/spec/code-quality.md`・`dev/lint.py` 0 件)と「気が利く画面へ」の段 7〜8(`plan/ux-stage7-9.md`)・用語の統一(ui-kit v21)まで済んでコミット済み。**段 9(見た目の確認)の途中でユーザーが中止**: 段 9 の src の変更(ui-kit v22・編集 0.59.2・入口 0.42.2・スタジオ 0.22.2)はテスト前・未コミットで作業フォルダに残っている。WORKLOG の末尾の「再開の手順」のとおりに続ける
-- 版(コミット済みの最新): 入口 0.42.1・スタジオ 0.22.1・編集 0.59.1・cut2resolve 0.22.2・録画 0.3.2・ui-kit v21・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表は 0.41.1 / 0.21.3 / 0.58.3 / v20 のままで古い)。ユーザーは入口を起動し直す必要がある
+- 同じ日に済んだこと(`plan/data.js` の recent ①〜⑤): ① 資料とフォルダの整理 / ② 線 D M1〜M7・B1 0.57.1・A1・B2(手元)/ ③ コードの見直し 2 周目まで(基準 `docs/spec/code-quality.md`・`dev/lint.py` 0 件)/ ④ plan の文書 / ⑤ 「気が利く画面へ」段 7〜9(`plan/ux-stage7-9.md`。段 9 = `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`)。夜に行の時刻の測り直し(`plan/line-b-row-timing.md` の 6)。仮決め (a)〜(al) はユーザー承認済み、(am)〜(aq) は未確認(`plan/decisions.md` の 3-4・3-5)
+- **ユーザーの判断待ち**: 1 秒丸めの配り直し(`quant_retime`)を既定でやめるか(AI の案はやめる。`TRANSCRIBE_RETIME=0` と同じ動き。決まったら `src/editor/ed_jobs.py` の既定を変え、README と `plan/line-b-row-timing.md` の状態の行を直す)/ クラウドのエンジン比較の送り先 / M7 の本物の配信での確認(土日)/ L0(今夜の配信で「今やって」)
+- 版(コミット済み): 入口 0.42.2・スタジオ 0.22.3・編集 0.59.3・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)。テスト一式(単体・node・e2e 29 本・lint)は 10-07 夜に全部 OK。ユーザーは今夜の配信の前に「すべて終了」→ start.bat で起動し直す
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → docs/WORKLOG.md の末尾 1 件(中止の記録と再開の手順)→ git status を見て、段 9 の未コミットの変更をテストして直し、DESIGN_REVIEW.md と ui-guidelines を書いてコミットして。そのあと plan/data.js の版と ⑤ を直して dev/plan_artifact.py で公開ページを更新し、lint 0 件と e2e 29 本で合格を確かめて。仮で決めたことは plan/decisions.md の 3 に足して、終わりにまとめて確認して。」
+「AGENTS.md → plan/data.js(計画と進捗の正本。表示は plan/index.html)→ docs/WORKLOG.md の末尾 3 件を読んで、git status と git log -5 を見てから、plan/improvements.md の 0(次に手を付けるなら)と data.js の tasks の state が next のものから続けて。配り直し(quant_retime)の既定はユーザーの答えが出ていれば先に反映して。仮で決めたことは plan/decisions.md の 3-6 以降に足して、終わりにまとめて確認して。plan/data.js を直したら dev/plan_artifact.py で公開ページも更新して。」
 
 ## 注意(引き継ぐこと)
 - 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。入口の「すべて終了」では録画の部品が止まらないことがある(10-07)。ユーザーにタスク マネージャーで止めてもらう

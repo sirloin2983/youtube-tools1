@@ -144,6 +144,7 @@
   document.querySelectorAll("[data-pref]").forEach(function (s) { var k = "p:" + s.getAttribute("data-pref"); s.value = store[k] || ""; s.addEventListener("change", function () { store[k] = s.value; save(); }); });
   // 3-4 ux
   $("#uxTitle").textContent = "3-4 " + U.ux.title; $("#uxLines").innerHTML = U.ux.lines.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("");
+  if (U.ux.done) { var uxBar = document.querySelector('input[name="ux"]'); if (uxBar) uxBar.closest(".toolbar").hidden = true; }
   document.querySelectorAll('input[name="ux"]').forEach(function (r) { r.checked = store["ux"] === r.value; r.addEventListener("change", function () { store["ux"] = r.value; save(); }); });
   // 4・5
   checklist($("#reinstall"), U.reinstall, "reinstall");
